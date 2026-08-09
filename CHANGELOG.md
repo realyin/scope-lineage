@@ -8,6 +8,8 @@ Initial public release preparation:
 - Pure Core writer API for emitting only Lineage and Diagnostics artifacts
 - `scope-lineage parse` CLI for SQL files, exported task JSON, and recursive task directories;
   it still emits only Core artifacts
+- Explicit `--catalog-prefixes` / `SCOPE_LINEAGE_CATALOG_PREFIXES` normalization policy; full
+  catalog-qualified table identities are preserved by default
 - Explicit `PUBLIC_CORE_API` facade for downstream Python consumers
 - Wheel and source-distribution manifests contain only Lineage Core
 - CI verifies Python 3.9–3.12, archive contents, and a repository-external installation
