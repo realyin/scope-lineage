@@ -1,0 +1,3393 @@
+{
+  "schema_version": "1.0",
+  "task_id": "golden_complex_scope",
+  "target_table": "mart.user_value",
+  "stmt_kind": "INSERT_OVERWRITE",
+  "parse_status": "ok",
+  "syntax_status": "strict_ok",
+  "syntax_errors": [],
+  "target_partition_spec": {},
+  "target_partition_columns": [],
+  "target_partition_mode": "none",
+  "task_dependencies": {
+    "upstream_tasks": [],
+    "downstream_tasks": [],
+    "source_summary": {
+      "source_format": "none",
+      "upstream_count": 0,
+      "downstream_count": 0,
+      "has_declared_task_dependencies": false
+    }
+  },
+  "source_tables": [
+    "ods.events",
+    "ods.fallback_users",
+    "ods.users"
+  ],
+  "related_metadata": {
+    "input_tables": {
+      "ods.events": {
+        "column_details": [
+          {
+            "name": "user_id",
+            "type": null,
+            "comment": null
+          },
+          {
+            "name": "amount",
+            "type": null,
+            "comment": null
+          }
+        ],
+        "metadata_complete": true
+      },
+      "ods.fallback_users": {
+        "column_details": [
+          {
+            "name": "user_id",
+            "type": null,
+            "comment": null
+          }
+        ],
+        "metadata_complete": true
+      },
+      "ods.users": {
+        "column_details": [
+          {
+            "name": "user_id",
+            "type": null,
+            "comment": null
+          }
+        ],
+        "metadata_complete": true
+      }
+    },
+    "output_tables": {
+      "mart.user_value": {
+        "column_details": [
+          {
+            "name": "user_id",
+            "type": null,
+            "comment": null
+          }
+        ],
+        "metadata_complete": false
+      }
+    }
+  },
+  "scope_graph": {
+    "nodes": [
+      "ROOT",
+      "cte:aggregated",
+      "cte:ranked",
+      "ods.events",
+      "ods.fallback_users",
+      "ods.users",
+      "union:main",
+      "union:main:b01",
+      "union:main:b02"
+    ],
+    "edges": [
+      {
+        "from": "union:main:b01",
+        "to": "union:main"
+      },
+      {
+        "from": "union:main:b02",
+        "to": "union:main"
+      },
+      {
+        "from": "cte:ranked",
+        "to": "union:main:b01"
+      },
+      {
+        "from": "ods.users",
+        "to": "union:main:b01"
+      },
+      {
+        "from": "ods.fallback_users",
+        "to": "union:main:b02"
+      },
+      {
+        "from": "union:main",
+        "to": "ROOT"
+      },
+      {
+        "from": "ods.events",
+        "to": "cte:aggregated"
+      },
+      {
+        "from": "cte:aggregated",
+        "to": "cte:ranked"
+      }
+    ]
+  },
+  "scopes": {
+    "union:main": {
+      "kind": "union",
+      "role": "union",
+      "depends_on": [
+        "union:main:b01",
+        "union:main:b02"
+      ],
+      "raw_sql_quality": {
+        "status": "clean",
+        "placeholder_types": [],
+        "evidence": []
+      },
+      "source_coverage": {
+        "status": "covered",
+        "declared_source_tables": [],
+        "raw_sql_source_tables": [],
+        "missing_declared_source_tables": [],
+        "extra_source_tables": []
+      },
+      "union_branch_alignment": {
+        "scope_id": "union:main",
+        "set_op": "UNION_ALL",
+        "branch_count": 2,
+        "branches": [
+          {
+            "branch_id": "union:main:b01",
+            "branch_index": 0,
+            "source_tables": [
+              "ods.events",
+              "ods.users"
+            ],
+            "input_sources": [
+              {
+                "source_id": "cte:ranked",
+                "source_type": "scope",
+                "alias": "r",
+                "position": "from",
+                "physical_source_ids": [
+                  "ods.events"
+                ]
+              },
+              {
+                "source_id": "ods.users",
+                "source_type": "physical_table",
+                "alias": "u",
+                "position": "join",
+                "physical_source_ids": [
+                  "ods.users"
+                ]
+              }
+            ],
+            "select_items": [
+              {
+                "position": 1,
+                "output_name": "user_id",
+                "expression_sql": "`r`.`user_id`",
+                "expanded_expression": "`r`.`user_id`",
+                "expression_resolution": {
+                  "status": "unresolved",
+                  "resolution_type": "qualified_source_projection",
+                  "physical_source_fields": [],
+                  "generated_sources": [],
+                  "source_kind": "unresolved",
+                  "missing_reasons": [
+                    "no_physical_source_fields"
+                  ]
+                },
+                "transform": "DIRECT",
+                "source_fields": [
+                  {
+                    "scope": "cte:ranked",
+                    "column": "user_id",
+                    "qualifier": "r",
+                    "binding_scope_id": "union:main:b01",
+                    "input_ref_id": "input:union:main:b01:001"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "branch_id": "union:main:b02",
+            "branch_index": 1,
+            "source_tables": [
+              "ods.fallback_users"
+            ],
+            "input_sources": [
+              {
+                "source_id": "ods.fallback_users",
+                "source_type": "physical_table",
+                "alias": "fallback_users",
+                "position": "from",
+                "physical_source_ids": [
+                  "ods.fallback_users"
+                ]
+              }
+            ],
+            "select_items": [
+              {
+                "position": 1,
+                "output_name": "user_id",
+                "expression_sql": "`fallback_users`.`user_id`",
+                "expanded_expression": "`ods.fallback_users`.`user_id`",
+                "expression_resolution": {
+                  "status": "resolved",
+                  "resolution_type": "qualified_source_projection",
+                  "physical_source_fields": [
+                    {
+                      "table": "ods.fallback_users",
+                      "field": "user_id"
+                    }
+                  ],
+                  "generated_sources": [],
+                  "source_kind": "physical",
+                  "missing_reasons": []
+                },
+                "transform": "DIRECT",
+                "source_fields": [
+                  {
+                    "scope": "ods.fallback_users",
+                    "column": "user_id",
+                    "qualifier": "fallback_users",
+                    "binding_scope_id": "union:main:b02",
+                    "input_ref_id": "input:union:main:b02:001"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "field_alignment": [
+          {
+            "position": 1,
+            "aligned_output_name": "user_id",
+            "branch_items": [
+              {
+                "position": 1,
+                "output_name": "user_id",
+                "expression_sql": "`r`.`user_id`",
+                "expanded_expression": "`r`.`user_id`",
+                "expression_resolution": {
+                  "status": "unresolved",
+                  "resolution_type": "qualified_source_projection",
+                  "physical_source_fields": [],
+                  "generated_sources": [],
+                  "source_kind": "unresolved",
+                  "missing_reasons": [
+                    "no_physical_source_fields"
+                  ]
+                },
+                "transform": "DIRECT",
+                "source_fields": [
+                  {
+                    "scope": "cte:ranked",
+                    "column": "user_id",
+                    "qualifier": "r",
+                    "binding_scope_id": "union:main:b01",
+                    "input_ref_id": "input:union:main:b01:001"
+                  }
+                ],
+                "branch_id": "union:main:b01",
+                "branch_index": 0
+              },
+              {
+                "position": 1,
+                "output_name": "user_id",
+                "expression_sql": "`fallback_users`.`user_id`",
+                "expanded_expression": "`ods.fallback_users`.`user_id`",
+                "expression_resolution": {
+                  "status": "resolved",
+                  "resolution_type": "qualified_source_projection",
+                  "physical_source_fields": [
+                    {
+                      "table": "ods.fallback_users",
+                      "field": "user_id"
+                    }
+                  ],
+                  "generated_sources": [],
+                  "source_kind": "physical",
+                  "missing_reasons": []
+                },
+                "transform": "DIRECT",
+                "source_fields": [
+                  {
+                    "scope": "ods.fallback_users",
+                    "column": "user_id",
+                    "qualifier": "fallback_users",
+                    "binding_scope_id": "union:main:b02",
+                    "input_ref_id": "input:union:main:b02:001"
+                  }
+                ],
+                "branch_id": "union:main:b02",
+                "branch_index": 1
+              }
+            ]
+          }
+        ],
+        "trace_status": "complete"
+      },
+      "outputs": [
+        {
+          "name": "user_id",
+          "transform": "UNION",
+          "sources": [
+            {
+              "scope": "union:main:b01",
+              "column": "user_id"
+            },
+            {
+              "scope": "union:main:b02",
+              "column": "user_id"
+            }
+          ],
+          "source_logic_blocks": [],
+          "downstream_fields": [
+            {
+              "scope": "ROOT",
+              "column": "user_id"
+            }
+          ],
+          "target_columns": [],
+          "final_target_columns": [
+            "mart.user_value.user_id"
+          ],
+          "expression": "user_id",
+          "expanded_expression": "UNION_BRANCHES(`ods.events`.`user_id` || `ods.fallback_users`.`user_id`)",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "union_branch_alignment",
+            "expanded_expression": "UNION_BRANCHES(`ods.events`.`user_id` || `ods.fallback_users`.`user_id`)",
+            "physical_source_fields": [
+              {
+                "table": "ods.events",
+                "field": "user_id"
+              },
+              {
+                "table": "ods.fallback_users",
+                "field": "user_id"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "source_output_field": "user_id",
+            "source_scope_ids": [
+              "union:main:b01",
+              "union:main:b02"
+            ],
+            "union_branch_mappings": [
+              {
+                "branch_scope_id": "union:main:b01",
+                "branch_index": 0,
+                "output_field": "user_id",
+                "aligned_output_name": "user_id",
+                "expected_output_name": "user_id",
+                "expected_position": 1,
+                "available_branch_outputs": [
+                  "user_id"
+                ],
+                "expression_sql": "`ods.events`.`user_id`",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "user_id"
+                  }
+                ],
+                "generated_sources": [],
+                "rowset_sources": [],
+                "resolution_status": "resolved",
+                "resolution_type": "expanded_from_upstream_scope",
+                "missing_reasons": []
+              },
+              {
+                "branch_scope_id": "union:main:b02",
+                "branch_index": 1,
+                "output_field": "user_id",
+                "aligned_output_name": "user_id",
+                "expected_output_name": "user_id",
+                "expected_position": 1,
+                "available_branch_outputs": [
+                  "user_id"
+                ],
+                "expression_sql": "`ods.fallback_users`.`user_id`",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.fallback_users",
+                    "field": "user_id"
+                  }
+                ],
+                "generated_sources": [],
+                "rowset_sources": [],
+                "resolution_status": "resolved",
+                "resolution_type": "qualified_source_projection",
+                "missing_reasons": []
+              }
+            ],
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "union:main",
+                "from_field": "user_id",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "user_id",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "user_id"
+                  },
+                  {
+                    "table": "ods.fallback_users",
+                    "field": "user_id"
+                  }
+                ]
+              }
+            ]
+          },
+          "consumer_readiness": {
+            "status": "ready",
+            "blocked_reasons": []
+          },
+          "expression_type": "direct_projection",
+          "expression_features": {
+            "functions": [],
+            "operators": [],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "expression_role": "direct_projection",
+          "grain_effect": "preserved",
+          "output_ordinal": 0
+        }
+      ],
+      "field_usage": [
+        {
+          "source_id": "union:main:b01",
+          "source_type": "scope",
+          "used_fields": [
+            "user_id"
+          ],
+          "used_field_details": [],
+          "used_by_logic_blocks": [],
+          "used_by_output_fields": [
+            "user_id"
+          ],
+          "source_metadata": {}
+        },
+        {
+          "source_id": "union:main:b02",
+          "source_type": "scope",
+          "used_fields": [
+            "user_id"
+          ],
+          "used_field_details": [],
+          "used_by_logic_blocks": [],
+          "used_by_output_fields": [
+            "user_id"
+          ],
+          "source_metadata": {}
+        }
+      ],
+      "columns": [
+        {
+          "name": "user_id",
+          "transform": "UNION",
+          "expression": "user_id",
+          "sources": [
+            {
+              "scope": "union:main:b01",
+              "column": "user_id"
+            },
+            {
+              "scope": "union:main:b02",
+              "column": "user_id"
+            }
+          ],
+          "branches": [
+            {
+              "branch": "union:main:b01",
+              "from_column": "user_id"
+            },
+            {
+              "branch": "union:main:b02",
+              "from_column": "user_id"
+            }
+          ]
+        }
+      ],
+      "set_op": "UNION_ALL",
+      "branches": [
+        "union:main:b01",
+        "union:main:b02"
+      ]
+    },
+    "union:main:b01": {
+      "kind": "union_branch",
+      "role": "union_branch",
+      "depends_on": [
+        "cte:ranked",
+        "ods.users"
+      ],
+      "raw_sql": "SELECT `r`.`user_id` AS `user_id` FROM `ranked` AS `r` JOIN `ods`.`users` AS `u` ON `r`.`user_id` = `u`.`user_id` WHERE `r`.`rn` = 1",
+      "raw_sql_available": true,
+      "raw_sql_quality": {
+        "status": "clean",
+        "placeholder_types": [],
+        "evidence": []
+      },
+      "source_coverage": {
+        "status": "covered",
+        "declared_source_tables": [
+          "ods.events",
+          "ods.users"
+        ],
+        "raw_sql_source_tables": [
+          "ods.events",
+          "ods.users"
+        ],
+        "missing_declared_source_tables": [],
+        "extra_source_tables": []
+      },
+      "input_edges": [
+        {
+          "source_id": "cte:ranked",
+          "source_type": "scope",
+          "position": "from",
+          "alias": "r"
+        },
+        {
+          "source_id": "ods.users",
+          "source_type": "physical_table",
+          "position": "join",
+          "alias": "u",
+          "join_type": "INNER",
+          "join_condition": "`r`.`user_id` = `u`.`user_id`",
+          "join_fields": [
+            {
+              "scope": "cte:ranked",
+              "column": "user_id",
+              "qualifier": "r",
+              "binding_scope_id": "union:main:b01",
+              "input_ref_id": "input:union:main:b01:001"
+            },
+            {
+              "scope": "ods.users",
+              "column": "user_id",
+              "qualifier": "u",
+              "binding_scope_id": "union:main:b01",
+              "input_ref_id": "input:union:main:b01:002"
+            }
+          ]
+        }
+      ],
+      "input_source_refs": [
+        {
+          "input_ref_id": "input:union:main:b01:001",
+          "source_id": "cte:ranked",
+          "source_type": "scope",
+          "source_scope_id": "cte:ranked",
+          "alias": "r",
+          "position": "from",
+          "relation_position": "from",
+          "join_type": null,
+          "physical_source_id": "ods.events",
+          "physical_source_ids": [
+            "ods.events"
+          ],
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "scope_single_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "ods.events"
+            ],
+            "field_resolution_required": true,
+            "missing_reasons": []
+          },
+          "field_resolution_required": true,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "r",
+              "to": "cte:ranked",
+              "relation": "alias_to_scope"
+            },
+            {
+              "from": "cte:ranked",
+              "to": "ods.events",
+              "relation": "scope_to_physical_source"
+            }
+          ],
+          "trace_status": "complete"
+        },
+        {
+          "input_ref_id": "input:union:main:b01:002",
+          "source_id": "ods.users",
+          "source_type": "physical_table",
+          "alias": "u",
+          "position": "join",
+          "relation_position": "join",
+          "join_type": "INNER",
+          "physical_source_id": "ods.users",
+          "physical_source_ids": [
+            "ods.users"
+          ],
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "direct_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "ods.users"
+            ],
+            "field_resolution_required": false,
+            "missing_reasons": []
+          },
+          "field_resolution_required": false,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "u",
+              "to": "ods.users",
+              "relation": "alias_to_physical_source"
+            }
+          ],
+          "trace_status": "complete"
+        }
+      ],
+      "alias_source_bindings": [
+        {
+          "alias": "r",
+          "source_id": "cte:ranked",
+          "source_type": "scope",
+          "source_scope_id": "cte:ranked",
+          "physical_source_id": "ods.events",
+          "physical_source_ids": [
+            "ods.events"
+          ],
+          "position": "from",
+          "relation_position": "from",
+          "join_type": null,
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "scope_single_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "ods.events"
+            ],
+            "field_resolution_required": true,
+            "missing_reasons": []
+          },
+          "field_resolution_required": true,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "r",
+              "to": "cte:ranked",
+              "relation": "alias_to_scope"
+            },
+            {
+              "from": "cte:ranked",
+              "to": "ods.events",
+              "relation": "scope_to_physical_source"
+            }
+          ],
+          "input_ref_id": "input:union:main:b01:001"
+        },
+        {
+          "alias": "u",
+          "source_id": "ods.users",
+          "source_type": "physical_table",
+          "physical_source_id": "ods.users",
+          "physical_source_ids": [
+            "ods.users"
+          ],
+          "position": "join",
+          "relation_position": "join",
+          "join_type": "INNER",
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "direct_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "ods.users"
+            ],
+            "field_resolution_required": false,
+            "missing_reasons": []
+          },
+          "field_resolution_required": false,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "u",
+              "to": "ods.users",
+              "relation": "alias_to_physical_source"
+            }
+          ],
+          "input_ref_id": "input:union:main:b01:002"
+        }
+      ],
+      "expression_source_bindings": [
+        {
+          "expression_sql": "`r`.`user_id` = `u`.`user_id`",
+          "logic_block_id": "logic:union:main:b01:join:001",
+          "referenced_qualifiers": [
+            "r",
+            "u"
+          ],
+          "resolved_source_refs": [
+            {
+              "qualifier": "r",
+              "resolved_table": "ods.events",
+              "field": "user_id",
+              "status": "resolved_by_alias"
+            },
+            {
+              "qualifier": "u",
+              "resolved_table": "ods.users",
+              "field": "user_id",
+              "status": "resolved"
+            }
+          ],
+          "unresolved_qualifiers": [],
+          "binding_status": "complete",
+          "evidence_path": "logic_blocks.logic:union:main:b01:join:001.raw_expression"
+        },
+        {
+          "expression_sql": "`r`.`user_id` = `u`.`user_id`",
+          "logic_block_id": "logic:union:main:b01:join:001",
+          "referenced_qualifiers": [
+            "r",
+            "u"
+          ],
+          "resolved_source_refs": [
+            {
+              "qualifier": "r",
+              "resolved_table": "ods.events",
+              "field": "user_id",
+              "status": "resolved_by_alias"
+            },
+            {
+              "qualifier": "u",
+              "resolved_table": "ods.users",
+              "field": "user_id",
+              "status": "resolved"
+            }
+          ],
+          "unresolved_qualifiers": [],
+          "binding_status": "complete",
+          "evidence_path": "logic_blocks.logic:union:main:b01:join:001.join_relation_detail.join_key_pairs"
+        },
+        {
+          "expression_sql": "WHERE `r`.`rn` = 1",
+          "logic_block_id": "logic:union:main:b01:filter:001",
+          "referenced_qualifiers": [
+            "r"
+          ],
+          "resolved_source_refs": [
+            {
+              "qualifier": "r",
+              "resolved_table": "ods.events",
+              "field": "rn",
+              "status": "resolved_by_alias"
+            }
+          ],
+          "unresolved_qualifiers": [],
+          "binding_status": "complete",
+          "evidence_path": "logic_blocks.logic:union:main:b01:filter:001.raw_expression"
+        },
+        {
+          "expression_sql": "`r`.`rn` = 1",
+          "logic_block_id": "logic:union:main:b01:filter:001",
+          "referenced_qualifiers": [
+            "r"
+          ],
+          "resolved_source_refs": [
+            {
+              "qualifier": "r",
+              "resolved_table": "ods.events",
+              "field": "rn",
+              "status": "resolved_by_alias"
+            }
+          ],
+          "unresolved_qualifiers": [],
+          "binding_status": "complete",
+          "evidence_path": "logic_blocks.logic:union:main:b01:filter:001.filter_predicate_detail.conjuncts"
+        }
+      ],
+      "logic_blocks": [
+        {
+          "logic_block_id": "logic:union:main:b01:join:001",
+          "logic_type": "join",
+          "raw_expression": "`r`.`user_id` = `u`.`user_id`",
+          "normalized_expression": "`r`.`user_id` = `u`.`user_id`",
+          "fingerprint": "join:`r`.`user_id` = `u`.`user_id`",
+          "fields": [
+            {
+              "scope": "cte:ranked",
+              "column": "user_id",
+              "qualifier": "r",
+              "binding_scope_id": "union:main:b01",
+              "input_ref_id": "input:union:main:b01:001"
+            },
+            {
+              "scope": "ods.users",
+              "column": "user_id",
+              "qualifier": "u",
+              "binding_scope_id": "union:main:b01",
+              "input_ref_id": "input:union:main:b01:002"
+            }
+          ],
+          "join_type": "INNER",
+          "input_sources": [
+            "cte:ranked",
+            "ods.users"
+          ],
+          "field_usage": [
+            {
+              "source_id": "cte:ranked",
+              "source_type": "scope",
+              "used_fields": [
+                "user_id"
+              ],
+              "used_field_details": [],
+              "used_by_logic_blocks": [
+                "logic:union:main:b01:join:001"
+              ],
+              "used_by_output_fields": [],
+              "source_metadata": {}
+            },
+            {
+              "source_id": "ods.users",
+              "source_type": "physical_table",
+              "used_fields": [
+                "user_id"
+              ],
+              "used_field_details": [
+                {
+                  "name": "user_id",
+                  "type": null,
+                  "comment": null
+                }
+              ],
+              "used_by_logic_blocks": [
+                "logic:union:main:b01:join:001"
+              ],
+              "used_by_output_fields": [],
+              "source_metadata": {}
+            }
+          ],
+          "expression_features": {
+            "functions": [],
+            "operators": [
+              "="
+            ],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "left_input": "cte:ranked",
+          "right_input": "ods.users",
+          "join_keys": [
+            {
+              "scope": "cte:ranked",
+              "column": "user_id",
+              "qualifier": "r",
+              "binding_scope_id": "union:main:b01",
+              "input_ref_id": "input:union:main:b01:001"
+            },
+            {
+              "scope": "ods.users",
+              "column": "user_id",
+              "qualifier": "u",
+              "binding_scope_id": "union:main:b01",
+              "input_ref_id": "input:union:main:b01:002"
+            }
+          ],
+          "join_relation_detail": {
+            "join_type": "INNER",
+            "left_input": "cte:ranked",
+            "right_input": "ods.users",
+            "left_alias": "r",
+            "right_alias": "u",
+            "condition_expression": "`r`.`user_id` = `u`.`user_id`",
+            "condition_fields": [
+              {
+                "scope": "cte:ranked",
+                "column": "user_id",
+                "qualifier": "r",
+                "binding_scope_id": "union:main:b01",
+                "input_ref_id": "input:union:main:b01:001"
+              },
+              {
+                "scope": "ods.users",
+                "column": "user_id",
+                "qualifier": "u",
+                "binding_scope_id": "union:main:b01",
+                "input_ref_id": "input:union:main:b01:002"
+              }
+            ],
+            "join_key_pairs": [
+              {
+                "left": {
+                  "scope": "cte:ranked",
+                  "column": "user_id",
+                  "qualifier": "r",
+                  "binding_scope_id": "union:main:b01",
+                  "input_ref_id": "input:union:main:b01:001"
+                },
+                "right": {
+                  "scope": "ods.users",
+                  "column": "user_id",
+                  "qualifier": "u",
+                  "binding_scope_id": "union:main:b01",
+                  "input_ref_id": "input:union:main:b01:002"
+                },
+                "left_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "user_id"
+                  }
+                ],
+                "right_fields": [
+                  {
+                    "table": "ods.users",
+                    "field": "user_id"
+                  }
+                ],
+                "operator": "=",
+                "expression": "`r`.`user_id` = `u`.`user_id`"
+              }
+            ],
+            "condition_filters": [],
+            "missing_reasons": [],
+            "condition_expression_resolution": {
+              "status": "resolved",
+              "resolution_type": "qualified_expression",
+              "physical_source_fields": [
+                {
+                  "table": "ods.users",
+                  "field": "user_id"
+                }
+              ],
+              "generated_sources": [],
+              "source_kind": "physical",
+              "missing_reasons": [],
+              "expanded_expression": "`r`.`user_id` = `ods.users`.`user_id`"
+            },
+            "join_condition_source": "on",
+            "trace_status": "complete"
+          },
+          "display_expression": "`events`.`user_id` = `users`.`user_id`"
+        },
+        {
+          "logic_block_id": "logic:union:main:b01:filter:001",
+          "logic_type": "filter",
+          "raw_expression": "WHERE `r`.`rn` = 1",
+          "normalized_expression": "where `r`.`rn` = 1",
+          "fingerprint": "filter:where `r`.`rn` = 1",
+          "fields": [
+            {
+              "scope": "cte:ranked",
+              "column": "rn",
+              "qualifier": "r",
+              "binding_scope_id": "union:main:b01",
+              "input_ref_id": "input:union:main:b01:001"
+            }
+          ],
+          "input_sources": [
+            "cte:ranked"
+          ],
+          "field_usage": [
+            {
+              "source_id": "cte:ranked",
+              "source_type": "scope",
+              "used_fields": [
+                "rn"
+              ],
+              "used_field_details": [],
+              "used_by_logic_blocks": [
+                "logic:union:main:b01:filter:001"
+              ],
+              "used_by_output_fields": [],
+              "source_metadata": {}
+            }
+          ],
+          "expression_features": {
+            "functions": [],
+            "operators": [
+              "="
+            ],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "filter_predicate_detail": {
+            "predicate_type": "where",
+            "expression": "WHERE `r`.`rn` = 1",
+            "fields": [
+              {
+                "scope": "cte:ranked",
+                "column": "rn",
+                "qualifier": "r",
+                "binding_scope_id": "union:main:b01",
+                "input_ref_id": "input:union:main:b01:001"
+              }
+            ],
+            "conjuncts": [
+              {
+                "expression": "`r`.`rn` = 1",
+                "fields": [
+                  {
+                    "scope": "cte:ranked",
+                    "column": "rn",
+                    "qualifier": "r",
+                    "binding_scope_id": "union:main:b01",
+                    "input_ref_id": "input:union:main:b01:001"
+                  }
+                ],
+                "expression_resolution": {
+                  "status": "unresolved",
+                  "resolution_type": "qualified_expression",
+                  "physical_source_fields": [],
+                  "generated_sources": [],
+                  "source_kind": "unresolved",
+                  "missing_reasons": [
+                    "no_physical_source_fields",
+                    "alias_not_bound_to_input_source:r"
+                  ],
+                  "unresolved_qualifiers": [
+                    "r"
+                  ],
+                  "expanded_expression": "`r`.`rn` = 1"
+                }
+              }
+            ],
+            "expression_resolution": {
+              "status": "unresolved",
+              "resolution_type": "qualified_expression",
+              "physical_source_fields": [],
+              "generated_sources": [],
+              "source_kind": "unresolved",
+              "missing_reasons": [
+                "no_physical_source_fields",
+                "alias_not_bound_to_input_source:r"
+              ],
+              "unresolved_qualifiers": [
+                "r"
+              ],
+              "expanded_expression": "WHERE `r`.`rn` = 1"
+            },
+            "subquery_dependencies": [],
+            "is_partition_filter": false,
+            "has_partition_predicate": false
+          },
+          "display_expression": "where `rn` = 1"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "user_id",
+          "transform": "DIRECT",
+          "sources": [
+            {
+              "scope": "cte:ranked",
+              "column": "user_id",
+              "qualifier": "r",
+              "binding_scope_id": "union:main:b01",
+              "input_ref_id": "input:union:main:b01:001"
+            }
+          ],
+          "source_logic_blocks": [],
+          "downstream_fields": [
+            {
+              "scope": "union:main",
+              "column": "user_id"
+            }
+          ],
+          "target_columns": [],
+          "final_target_columns": [
+            "mart.user_value.user_id"
+          ],
+          "expression": "`r`.`user_id`",
+          "expanded_expression": "`ods.events`.`user_id`",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "expanded_from_upstream_scope",
+            "expanded_expression": "`ods.events`.`user_id`",
+            "physical_source_fields": [
+              {
+                "table": "ods.events",
+                "field": "user_id"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "source_scope_id": "cte:ranked",
+            "source_output_field": "user_id",
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "union:main:b01",
+                "from_field": "user_id",
+                "to_scope_id": "cte:ranked",
+                "to_field": "user_id",
+                "relation": "scope_projection",
+                "expression_sql": "`r`.`user_id`",
+                "resolution_status": "resolved"
+              },
+              {
+                "step": 2,
+                "from_scope_id": "cte:ranked",
+                "from_field": "user_id",
+                "to_scope_id": "cte:aggregated",
+                "to_field": "user_id",
+                "relation": "scope_projection",
+                "expression_sql": "`aggregated`.`user_id`",
+                "resolution_status": "resolved"
+              },
+              {
+                "step": 3,
+                "from_scope_id": "cte:aggregated",
+                "from_field": "user_id",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "`events`.`user_id`",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "user_id"
+                  }
+                ]
+              }
+            ]
+          },
+          "consumer_readiness": {
+            "status": "ready",
+            "blocked_reasons": []
+          },
+          "expression_type": "direct_projection",
+          "expression_features": {
+            "functions": [],
+            "operators": [],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "expression_role": "direct_projection",
+          "grain_effect": "preserved",
+          "output_ordinal": 0,
+          "display_expression": "`user_id`"
+        }
+      ],
+      "field_usage": [
+        {
+          "source_id": "cte:ranked",
+          "source_type": "scope",
+          "used_fields": [
+            "user_id",
+            "rn"
+          ],
+          "used_field_details": [],
+          "used_by_logic_blocks": [
+            "logic:union:main:b01:join:001",
+            "logic:union:main:b01:filter:001"
+          ],
+          "used_by_output_fields": [
+            "user_id"
+          ],
+          "source_metadata": {}
+        },
+        {
+          "source_id": "ods.users",
+          "source_type": "physical_table",
+          "used_fields": [
+            "user_id"
+          ],
+          "used_field_details": [
+            {
+              "name": "user_id",
+              "type": null,
+              "comment": null
+            }
+          ],
+          "used_by_logic_blocks": [
+            "logic:union:main:b01:join:001"
+          ],
+          "used_by_output_fields": [],
+          "source_metadata": {}
+        }
+      ],
+      "columns": [
+        {
+          "name": "user_id",
+          "transform": "DIRECT",
+          "expression": "`r`.`user_id`",
+          "sources": [
+            {
+              "scope": "cte:ranked",
+              "column": "user_id",
+              "qualifier": "r",
+              "binding_scope_id": "union:main:b01",
+              "input_ref_id": "input:union:main:b01:001"
+            }
+          ],
+          "display_expression": "`user_id`"
+        }
+      ],
+      "joins": [
+        {
+          "join_type": "INNER",
+          "left_scope": "cte:ranked",
+          "right_scope": "ods.users",
+          "alias_in_parent": "u",
+          "condition_expression": "`r`.`user_id` = `u`.`user_id`",
+          "condition_columns": [
+            {
+              "scope": "cte:ranked",
+              "column": "user_id",
+              "qualifier": "r",
+              "binding_scope_id": "union:main:b01",
+              "input_ref_id": "input:union:main:b01:001"
+            },
+            {
+              "scope": "ods.users",
+              "column": "user_id",
+              "qualifier": "u",
+              "binding_scope_id": "union:main:b01",
+              "input_ref_id": "input:union:main:b01:002"
+            }
+          ]
+        }
+      ],
+      "filters": [
+        {
+          "expression": "WHERE `r`.`rn` = 1",
+          "columns": [
+            {
+              "scope": "cte:ranked",
+              "column": "rn",
+              "qualifier": "r",
+              "binding_scope_id": "union:main:b01",
+              "input_ref_id": "input:union:main:b01:001"
+            }
+          ]
+        }
+      ],
+      "branch_index": 0
+    },
+    "union:main:b02": {
+      "kind": "union_branch",
+      "role": "union_branch",
+      "depends_on": [
+        "ods.fallback_users"
+      ],
+      "raw_sql": "SELECT `fallback_users`.`user_id` AS `user_id` FROM `ods`.`fallback_users` AS `fallback_users`",
+      "raw_sql_available": true,
+      "raw_sql_quality": {
+        "status": "clean",
+        "placeholder_types": [],
+        "evidence": []
+      },
+      "source_coverage": {
+        "status": "covered",
+        "declared_source_tables": [
+          "ods.fallback_users"
+        ],
+        "raw_sql_source_tables": [
+          "ods.fallback_users"
+        ],
+        "missing_declared_source_tables": [],
+        "extra_source_tables": []
+      },
+      "input_edges": [
+        {
+          "source_id": "ods.fallback_users",
+          "source_type": "physical_table",
+          "position": "from",
+          "alias": "fallback_users"
+        }
+      ],
+      "input_source_refs": [
+        {
+          "input_ref_id": "input:union:main:b02:001",
+          "source_id": "ods.fallback_users",
+          "source_type": "physical_table",
+          "alias": "fallback_users",
+          "position": "from",
+          "relation_position": "from",
+          "join_type": null,
+          "physical_source_id": "ods.fallback_users",
+          "physical_source_ids": [
+            "ods.fallback_users"
+          ],
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "direct_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "ods.fallback_users"
+            ],
+            "field_resolution_required": false,
+            "missing_reasons": []
+          },
+          "field_resolution_required": false,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "fallback_users",
+              "to": "ods.fallback_users",
+              "relation": "alias_to_physical_source"
+            }
+          ],
+          "trace_status": "complete"
+        }
+      ],
+      "alias_source_bindings": [
+        {
+          "alias": "fallback_users",
+          "source_id": "ods.fallback_users",
+          "source_type": "physical_table",
+          "physical_source_id": "ods.fallback_users",
+          "physical_source_ids": [
+            "ods.fallback_users"
+          ],
+          "position": "from",
+          "relation_position": "from",
+          "join_type": null,
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "direct_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "ods.fallback_users"
+            ],
+            "field_resolution_required": false,
+            "missing_reasons": []
+          },
+          "field_resolution_required": false,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "fallback_users",
+              "to": "ods.fallback_users",
+              "relation": "alias_to_physical_source"
+            }
+          ],
+          "input_ref_id": "input:union:main:b02:001"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "user_id",
+          "transform": "DIRECT",
+          "sources": [
+            {
+              "scope": "ods.fallback_users",
+              "column": "user_id",
+              "qualifier": "fallback_users",
+              "binding_scope_id": "union:main:b02",
+              "input_ref_id": "input:union:main:b02:001"
+            }
+          ],
+          "source_logic_blocks": [],
+          "downstream_fields": [
+            {
+              "scope": "union:main",
+              "column": "user_id"
+            }
+          ],
+          "target_columns": [],
+          "final_target_columns": [
+            "mart.user_value.user_id"
+          ],
+          "expression": "`fallback_users`.`user_id`",
+          "expanded_expression": "`ods.fallback_users`.`user_id`",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "qualified_source_projection",
+            "physical_source_fields": [
+              {
+                "table": "ods.fallback_users",
+                "field": "user_id"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "expanded_expression": "`ods.fallback_users`.`user_id`",
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "union:main:b02",
+                "from_field": "user_id",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "`fallback_users`.`user_id`",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.fallback_users",
+                    "field": "user_id"
+                  }
+                ]
+              }
+            ]
+          },
+          "consumer_readiness": {
+            "status": "ready",
+            "blocked_reasons": []
+          },
+          "expression_type": "direct_projection",
+          "expression_features": {
+            "functions": [],
+            "operators": [],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "expression_role": "direct_projection",
+          "grain_effect": "preserved",
+          "output_ordinal": 0,
+          "display_expression": "`user_id`"
+        }
+      ],
+      "field_usage": [
+        {
+          "source_id": "ods.fallback_users",
+          "source_type": "physical_table",
+          "used_fields": [
+            "user_id"
+          ],
+          "used_field_details": [
+            {
+              "name": "user_id",
+              "type": null,
+              "comment": null
+            }
+          ],
+          "used_by_logic_blocks": [],
+          "used_by_output_fields": [
+            "user_id"
+          ],
+          "source_metadata": {}
+        }
+      ],
+      "columns": [
+        {
+          "name": "user_id",
+          "transform": "DIRECT",
+          "expression": "`fallback_users`.`user_id`",
+          "sources": [
+            {
+              "scope": "ods.fallback_users",
+              "column": "user_id",
+              "qualifier": "fallback_users",
+              "binding_scope_id": "union:main:b02",
+              "input_ref_id": "input:union:main:b02:001"
+            }
+          ],
+          "display_expression": "`user_id`"
+        }
+      ],
+      "branch_index": 1
+    },
+    "ROOT": {
+      "kind": "root",
+      "role": "transform",
+      "depends_on": [
+        "union:main"
+      ],
+      "writes_to": "mart.user_value",
+      "raw_sql": "WITH `aggregated` AS (SELECT `events`.`user_id` AS `user_id`, SUM(`events`.`amount`) AS `total_amount` FROM `ods`.`events` AS `events` GROUP BY `events`.`user_id`), `ranked` AS (SELECT `aggregated`.`user_id` AS `user_id`, ROW_NUMBER() OVER (ORDER BY `aggregated`.`total_amount` DESC) AS `rn` FROM `aggregated` AS `aggregated`) SELECT `r`.`user_id` AS `user_id` FROM `ranked` AS `r` JOIN `ods`.`users` AS `u` ON `r`.`user_id` = `u`.`user_id` WHERE `r`.`rn` = 1 UNION ALL SELECT `fallback_users`.`user_id` AS `user_id` FROM `ods`.`fallback_users` AS `fallback_users`",
+      "raw_sql_available": true,
+      "raw_sql_quality": {
+        "status": "clean",
+        "placeholder_types": [],
+        "evidence": []
+      },
+      "source_coverage": {
+        "status": "covered",
+        "declared_source_tables": [],
+        "raw_sql_source_tables": [],
+        "missing_declared_source_tables": [],
+        "extra_source_tables": []
+      },
+      "logic_blocks": [
+        {
+          "logic_block_id": "logic:ROOT:union:001",
+          "logic_type": "union",
+          "raw_expression": "user_id",
+          "normalized_expression": "user_id",
+          "fingerprint": "union:user_id",
+          "fields": [
+            {
+              "scope": "union:main",
+              "column": "user_id"
+            }
+          ],
+          "output_fields": [
+            "user_id"
+          ],
+          "input_sources": [
+            "union:main"
+          ],
+          "field_usage": [
+            {
+              "source_id": "union:main",
+              "source_type": "scope",
+              "used_fields": [
+                "user_id"
+              ],
+              "used_field_details": [],
+              "used_by_logic_blocks": [
+                "logic:ROOT:union:001"
+              ],
+              "used_by_output_fields": [
+                "user_id"
+              ],
+              "source_metadata": {}
+            }
+          ],
+          "expression_features": {
+            "functions": [],
+            "operators": [],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "final_target_columns": [
+            "mart.user_value.user_id"
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "user_id",
+          "transform": "UNION",
+          "sources": [
+            {
+              "scope": "union:main",
+              "column": "user_id"
+            }
+          ],
+          "source_logic_blocks": [
+            "logic:ROOT:union:001"
+          ],
+          "downstream_fields": [],
+          "target_columns": [
+            "mart.user_value.user_id"
+          ],
+          "final_target_columns": [
+            "mart.user_value.user_id"
+          ],
+          "expression": "user_id",
+          "expanded_expression": "UNION_BRANCHES(`ods.events`.`user_id` || `ods.fallback_users`.`user_id`)",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "expression_sources_from_upstream_scope",
+            "expanded_expression": "UNION_BRANCHES(`ods.events`.`user_id` || `ods.fallback_users`.`user_id`)",
+            "physical_source_fields": [
+              {
+                "table": "ods.events",
+                "field": "user_id"
+              },
+              {
+                "table": "ods.fallback_users",
+                "field": "user_id"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "source_scope_id": "union:main",
+            "source_output_field": "user_id",
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "ROOT",
+                "from_field": "user_id",
+                "to_scope_id": "union:main",
+                "to_field": "user_id",
+                "relation": "scope_projection",
+                "expression_sql": "user_id",
+                "resolution_status": "resolved"
+              },
+              {
+                "step": 2,
+                "from_scope_id": "union:main",
+                "from_field": "user_id",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "user_id",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "user_id"
+                  },
+                  {
+                    "table": "ods.fallback_users",
+                    "field": "user_id"
+                  }
+                ]
+              }
+            ]
+          },
+          "consumer_readiness": {
+            "status": "ready",
+            "blocked_reasons": []
+          },
+          "expression_type": "direct_projection",
+          "expression_features": {
+            "functions": [],
+            "operators": [],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "expression_role": "direct_projection",
+          "grain_effect": "preserved",
+          "output_ordinal": 0
+        }
+      ],
+      "field_usage": [
+        {
+          "source_id": "union:main",
+          "source_type": "scope",
+          "used_fields": [
+            "user_id"
+          ],
+          "used_field_details": [],
+          "used_by_logic_blocks": [
+            "logic:ROOT:union:001"
+          ],
+          "used_by_output_fields": [
+            "user_id"
+          ],
+          "source_metadata": {}
+        }
+      ],
+      "columns": [
+        {
+          "name": "user_id",
+          "transform": "UNION",
+          "expression": "user_id",
+          "sources": [
+            {
+              "scope": "union:main",
+              "column": "user_id"
+            }
+          ],
+          "branches": [
+            {
+              "branch": "union:main:b01",
+              "from_column": "user_id"
+            },
+            {
+              "branch": "union:main:b02",
+              "from_column": "user_id"
+            }
+          ]
+        }
+      ]
+    },
+    "cte:aggregated": {
+      "kind": "cte",
+      "role": "aggregate",
+      "depends_on": [
+        "ods.events"
+      ],
+      "alias_in_parent": "aggregated",
+      "raw_sql": "SELECT `events`.`user_id` AS `user_id`, SUM(`events`.`amount`) AS `total_amount` FROM `ods`.`events` AS `events` GROUP BY `events`.`user_id`",
+      "raw_sql_available": true,
+      "raw_sql_quality": {
+        "status": "clean",
+        "placeholder_types": [],
+        "evidence": []
+      },
+      "source_coverage": {
+        "status": "covered",
+        "declared_source_tables": [
+          "ods.events"
+        ],
+        "raw_sql_source_tables": [
+          "ods.events"
+        ],
+        "missing_declared_source_tables": [],
+        "extra_source_tables": []
+      },
+      "input_edges": [
+        {
+          "source_id": "ods.events",
+          "source_type": "physical_table",
+          "position": "from",
+          "alias": "events"
+        }
+      ],
+      "input_source_refs": [
+        {
+          "input_ref_id": "input:cte:aggregated:001",
+          "source_id": "ods.events",
+          "source_type": "physical_table",
+          "alias": "events",
+          "position": "from",
+          "relation_position": "from",
+          "join_type": null,
+          "physical_source_id": "ods.events",
+          "physical_source_ids": [
+            "ods.events"
+          ],
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "direct_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "ods.events"
+            ],
+            "field_resolution_required": false,
+            "missing_reasons": []
+          },
+          "field_resolution_required": false,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "events",
+              "to": "ods.events",
+              "relation": "alias_to_physical_source"
+            }
+          ],
+          "trace_status": "complete"
+        }
+      ],
+      "alias_source_bindings": [
+        {
+          "alias": "events",
+          "source_id": "ods.events",
+          "source_type": "physical_table",
+          "physical_source_id": "ods.events",
+          "physical_source_ids": [
+            "ods.events"
+          ],
+          "position": "from",
+          "relation_position": "from",
+          "join_type": null,
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "direct_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "ods.events"
+            ],
+            "field_resolution_required": false,
+            "missing_reasons": []
+          },
+          "field_resolution_required": false,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "events",
+              "to": "ods.events",
+              "relation": "alias_to_physical_source"
+            }
+          ],
+          "input_ref_id": "input:cte:aggregated:001"
+        }
+      ],
+      "expression_source_bindings": [
+        {
+          "expression_sql": "SUM(`events`.`amount`)",
+          "logic_block_id": "logic:cte:aggregated:aggregate:001",
+          "referenced_qualifiers": [
+            "events"
+          ],
+          "resolved_source_refs": [
+            {
+              "qualifier": "events",
+              "resolved_table": "ods.events",
+              "field": "amount",
+              "status": "resolved"
+            }
+          ],
+          "unresolved_qualifiers": [],
+          "binding_status": "complete",
+          "evidence_path": "logic_blocks.logic:cte:aggregated:aggregate:001.raw_expression"
+        }
+      ],
+      "logic_blocks": [
+        {
+          "logic_block_id": "logic:cte:aggregated:group_by:001",
+          "logic_type": "group_by",
+          "fields": [
+            {
+              "scope": "ods.events",
+              "column": "user_id",
+              "qualifier": "events",
+              "binding_scope_id": "cte:aggregated",
+              "input_ref_id": "input:cte:aggregated:001"
+            }
+          ],
+          "input_sources": [
+            "ods.events"
+          ],
+          "field_usage": [
+            {
+              "source_id": "ods.events",
+              "source_type": "physical_table",
+              "used_fields": [
+                "user_id"
+              ],
+              "used_field_details": [
+                {
+                  "name": "user_id",
+                  "type": null,
+                  "comment": null
+                }
+              ],
+              "used_by_logic_blocks": [
+                "logic:cte:aggregated:group_by:001"
+              ],
+              "used_by_output_fields": [],
+              "source_metadata": {}
+            }
+          ],
+          "expression_features": {
+            "functions": [],
+            "operators": [],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "aggregation_detail": {
+            "group_by_items": [
+              {
+                "expression_sql": "`events`.`user_id`",
+                "source_fields": [
+                  {
+                    "scope": "ods.events",
+                    "column": "user_id",
+                    "qualifier": "events",
+                    "binding_scope_id": "cte:aggregated",
+                    "input_ref_id": "input:cte:aggregated:001"
+                  }
+                ],
+                "expression_resolution": {
+                  "status": "resolved",
+                  "resolution_type": "qualified_expression",
+                  "physical_source_fields": [
+                    {
+                      "table": "ods.events",
+                      "field": "user_id"
+                    }
+                  ],
+                  "generated_sources": [],
+                  "source_kind": "physical",
+                  "missing_reasons": [],
+                  "expanded_expression": "`ods.events`.`user_id`"
+                },
+                "expanded_expression": "`ods.events`.`user_id`",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "user_id"
+                  }
+                ],
+                "trace_status": "complete"
+              }
+            ],
+            "aggregate_items": [
+              {
+                "output_field": "total_amount",
+                "aggregate_function": "sum",
+                "expression_sql": "SUM(`events`.`amount`)",
+                "expanded_expression": "SUM(`ods.events`.`amount`)",
+                "argument_expression_sql": "`events`.`amount`",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "amount"
+                  }
+                ],
+                "distinct": false,
+                "filter_expression": null,
+                "trace_status": "complete",
+                "expression_resolution": {
+                  "status": "resolved",
+                  "resolution_type": "qualified_expression",
+                  "physical_source_fields": [
+                    {
+                      "table": "ods.events",
+                      "field": "amount"
+                    }
+                  ],
+                  "generated_sources": [],
+                  "source_kind": "physical",
+                  "missing_reasons": [],
+                  "expanded_expression": "SUM(`ods.events`.`amount`)"
+                },
+                "source_fields": [
+                  {
+                    "scope": "ods.events",
+                    "column": "amount",
+                    "qualifier": "events",
+                    "binding_scope_id": "cte:aggregated",
+                    "input_ref_id": "input:cte:aggregated:001"
+                  }
+                ]
+              }
+            ],
+            "having": [],
+            "trace_status": "complete"
+          }
+        },
+        {
+          "logic_block_id": "logic:cte:aggregated:aggregate:001",
+          "logic_type": "aggregate",
+          "raw_expression": "SUM(`events`.`amount`)",
+          "normalized_expression": "sum(`events`.`amount`)",
+          "fingerprint": "aggregate:sum(`events`.`amount`)",
+          "fields": [
+            {
+              "scope": "ods.events",
+              "column": "amount",
+              "qualifier": "events",
+              "binding_scope_id": "cte:aggregated",
+              "input_ref_id": "input:cte:aggregated:001"
+            }
+          ],
+          "output_fields": [
+            "total_amount"
+          ],
+          "input_sources": [
+            "ods.events"
+          ],
+          "field_usage": [
+            {
+              "source_id": "ods.events",
+              "source_type": "physical_table",
+              "used_fields": [
+                "amount"
+              ],
+              "used_field_details": [
+                {
+                  "name": "amount",
+                  "type": null,
+                  "comment": null
+                }
+              ],
+              "used_by_logic_blocks": [
+                "logic:cte:aggregated:aggregate:001"
+              ],
+              "used_by_output_fields": [
+                "total_amount"
+              ],
+              "source_metadata": {}
+            }
+          ],
+          "expression_features": {
+            "functions": [
+              "sum"
+            ],
+            "operators": [],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": true,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "display_expression": "sum(`amount`)"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "user_id",
+          "transform": "DIRECT",
+          "sources": [
+            {
+              "scope": "ods.events",
+              "column": "user_id",
+              "qualifier": "events",
+              "binding_scope_id": "cte:aggregated",
+              "input_ref_id": "input:cte:aggregated:001"
+            }
+          ],
+          "source_logic_blocks": [],
+          "downstream_fields": [
+            {
+              "scope": "cte:ranked",
+              "column": "user_id"
+            }
+          ],
+          "target_columns": [],
+          "final_target_columns": [
+            "mart.user_value.user_id"
+          ],
+          "expression": "`events`.`user_id`",
+          "expanded_expression": "`ods.events`.`user_id`",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "qualified_source_projection",
+            "physical_source_fields": [
+              {
+                "table": "ods.events",
+                "field": "user_id"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "expanded_expression": "`ods.events`.`user_id`",
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "cte:aggregated",
+                "from_field": "user_id",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "`events`.`user_id`",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "user_id"
+                  }
+                ]
+              }
+            ]
+          },
+          "consumer_readiness": {
+            "status": "ready",
+            "blocked_reasons": []
+          },
+          "expression_type": "direct_projection",
+          "expression_features": {
+            "functions": [],
+            "operators": [],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "expression_role": "direct_projection",
+          "grain_effect": "preserved",
+          "output_ordinal": 0,
+          "display_expression": "`user_id`"
+        },
+        {
+          "name": "total_amount",
+          "transform": "AGGREGATE",
+          "sources": [
+            {
+              "scope": "ods.events",
+              "column": "amount",
+              "qualifier": "events",
+              "binding_scope_id": "cte:aggregated",
+              "input_ref_id": "input:cte:aggregated:001"
+            }
+          ],
+          "source_logic_blocks": [
+            "logic:cte:aggregated:aggregate:001"
+          ],
+          "downstream_fields": [
+            {
+              "scope": "cte:ranked",
+              "column": "rn"
+            }
+          ],
+          "target_columns": [],
+          "final_target_columns": [],
+          "expression": "SUM(`events`.`amount`)",
+          "expanded_expression": "SUM(`ods.events`.`amount`)",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "qualified_expression",
+            "physical_source_fields": [
+              {
+                "table": "ods.events",
+                "field": "amount"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "expanded_expression": "SUM(`ods.events`.`amount`)",
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "cte:aggregated",
+                "from_field": "total_amount",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "SUM(`events`.`amount`)",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "amount"
+                  }
+                ]
+              }
+            ]
+          },
+          "consumer_readiness": {
+            "status": "ready",
+            "blocked_reasons": []
+          },
+          "expression_type": "aggregate_expression",
+          "expression_features": {
+            "functions": [
+              "sum"
+            ],
+            "operators": [],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": true,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "expression_role": "metric_calculation",
+          "grain_effect": "changed",
+          "output_ordinal": 1,
+          "display_expression": "SUM(`amount`)"
+        }
+      ],
+      "field_usage": [
+        {
+          "source_id": "ods.events",
+          "source_type": "physical_table",
+          "used_fields": [
+            "user_id",
+            "amount"
+          ],
+          "used_field_details": [
+            {
+              "name": "user_id",
+              "type": null,
+              "comment": null
+            },
+            {
+              "name": "amount",
+              "type": null,
+              "comment": null
+            }
+          ],
+          "used_by_logic_blocks": [
+            "logic:cte:aggregated:group_by:001",
+            "logic:cte:aggregated:aggregate:001"
+          ],
+          "used_by_output_fields": [
+            "total_amount",
+            "user_id"
+          ],
+          "source_metadata": {}
+        }
+      ],
+      "columns": [
+        {
+          "name": "user_id",
+          "transform": "DIRECT",
+          "expression": "`events`.`user_id`",
+          "sources": [
+            {
+              "scope": "ods.events",
+              "column": "user_id",
+              "qualifier": "events",
+              "binding_scope_id": "cte:aggregated",
+              "input_ref_id": "input:cte:aggregated:001"
+            }
+          ],
+          "display_expression": "`user_id`"
+        },
+        {
+          "name": "total_amount",
+          "transform": "AGGREGATE",
+          "expression": "SUM(`events`.`amount`)",
+          "sources": [
+            {
+              "scope": "ods.events",
+              "column": "amount",
+              "qualifier": "events",
+              "binding_scope_id": "cte:aggregated",
+              "input_ref_id": "input:cte:aggregated:001"
+            }
+          ],
+          "agg_function": "SUM",
+          "display_expression": "SUM(`amount`)"
+        }
+      ],
+      "group_by": [
+        {
+          "scope": "ods.events",
+          "column": "user_id",
+          "qualifier": "events",
+          "binding_scope_id": "cte:aggregated",
+          "input_ref_id": "input:cte:aggregated:001"
+        }
+      ]
+    },
+    "cte:ranked": {
+      "kind": "cte",
+      "role": "dedup",
+      "depends_on": [
+        "cte:aggregated"
+      ],
+      "alias_in_parent": "ranked",
+      "raw_sql": "SELECT `aggregated`.`user_id` AS `user_id`, ROW_NUMBER() OVER (ORDER BY `aggregated`.`total_amount` DESC) AS `rn` FROM `aggregated` AS `aggregated`",
+      "raw_sql_available": true,
+      "raw_sql_quality": {
+        "status": "clean",
+        "placeholder_types": [],
+        "evidence": []
+      },
+      "source_coverage": {
+        "status": "covered",
+        "declared_source_tables": [
+          "ods.events"
+        ],
+        "raw_sql_source_tables": [
+          "ods.events"
+        ],
+        "missing_declared_source_tables": [],
+        "extra_source_tables": []
+      },
+      "input_edges": [
+        {
+          "source_id": "cte:aggregated",
+          "source_type": "scope",
+          "position": "from",
+          "alias": "aggregated"
+        }
+      ],
+      "input_source_refs": [
+        {
+          "input_ref_id": "input:cte:ranked:001",
+          "source_id": "cte:aggregated",
+          "source_type": "scope",
+          "source_scope_id": "cte:aggregated",
+          "alias": "aggregated",
+          "position": "from",
+          "relation_position": "from",
+          "join_type": null,
+          "physical_source_id": "ods.events",
+          "physical_source_ids": [
+            "ods.events"
+          ],
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "scope_single_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "ods.events"
+            ],
+            "field_resolution_required": true,
+            "missing_reasons": []
+          },
+          "field_resolution_required": true,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "aggregated",
+              "to": "cte:aggregated",
+              "relation": "alias_to_scope"
+            },
+            {
+              "from": "cte:aggregated",
+              "to": "ods.events",
+              "relation": "scope_to_physical_source"
+            }
+          ],
+          "trace_status": "complete"
+        }
+      ],
+      "alias_source_bindings": [
+        {
+          "alias": "aggregated",
+          "source_id": "cte:aggregated",
+          "source_type": "scope",
+          "source_scope_id": "cte:aggregated",
+          "physical_source_id": "ods.events",
+          "physical_source_ids": [
+            "ods.events"
+          ],
+          "position": "from",
+          "relation_position": "from",
+          "join_type": null,
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "scope_single_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "ods.events"
+            ],
+            "field_resolution_required": true,
+            "missing_reasons": []
+          },
+          "field_resolution_required": true,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "aggregated",
+              "to": "cte:aggregated",
+              "relation": "alias_to_scope"
+            },
+            {
+              "from": "cte:aggregated",
+              "to": "ods.events",
+              "relation": "scope_to_physical_source"
+            }
+          ],
+          "input_ref_id": "input:cte:ranked:001"
+        }
+      ],
+      "expression_source_bindings": [
+        {
+          "expression_sql": "ROW_NUMBER() OVER (ORDER BY `aggregated`.`total_amount` DESC)",
+          "logic_block_id": "logic:cte:ranked:window:001",
+          "referenced_qualifiers": [
+            "aggregated"
+          ],
+          "resolved_source_refs": [
+            {
+              "qualifier": "aggregated",
+              "resolved_table": "ods.events",
+              "field": "total_amount",
+              "status": "resolved_by_alias"
+            }
+          ],
+          "unresolved_qualifiers": [],
+          "binding_status": "complete",
+          "evidence_path": "logic_blocks.logic:cte:ranked:window:001.raw_expression"
+        }
+      ],
+      "logic_blocks": [
+        {
+          "logic_block_id": "logic:cte:ranked:window:001",
+          "logic_type": "window",
+          "raw_expression": "ROW_NUMBER() OVER (ORDER BY `aggregated`.`total_amount` DESC)",
+          "normalized_expression": "row_number() over (order by `aggregated`.`total_amount` desc)",
+          "fingerprint": "window:row_number() over (order by `aggregated`.`total_amount` desc)",
+          "fields": [
+            {
+              "scope": "cte:aggregated",
+              "column": "total_amount",
+              "qualifier": "aggregated",
+              "binding_scope_id": "cte:ranked",
+              "input_ref_id": "input:cte:ranked:001"
+            }
+          ],
+          "output_fields": [
+            "rn"
+          ],
+          "input_sources": [
+            "cte:aggregated"
+          ],
+          "field_usage": [
+            {
+              "source_id": "cte:aggregated",
+              "source_type": "scope",
+              "used_fields": [
+                "total_amount"
+              ],
+              "used_field_details": [],
+              "used_by_logic_blocks": [
+                "logic:cte:ranked:window:001"
+              ],
+              "used_by_output_fields": [
+                "rn"
+              ],
+              "source_metadata": {}
+            }
+          ],
+          "expression_features": {
+            "functions": [
+              "row_number"
+            ],
+            "operators": [],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": true,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "window_specification": {
+            "window_function": "row_number",
+            "output_field": "rn",
+            "expression_sql": "ROW_NUMBER() OVER (ORDER BY `aggregated`.`total_amount` DESC)",
+            "partition_by": [],
+            "order_by": [
+              {
+                "expression_sql": "`aggregated`.`total_amount`",
+                "source_fields": [
+                  {
+                    "scope": "cte:aggregated",
+                    "column": "total_amount"
+                  }
+                ],
+                "expression_resolution": {
+                  "status": "resolved",
+                  "resolution_type": "expanded_from_upstream_scope_expression",
+                  "physical_source_fields": [
+                    {
+                      "table": "ods.events",
+                      "field": "amount"
+                    }
+                  ],
+                  "generated_sources": [],
+                  "source_kind": "physical",
+                  "missing_reasons": []
+                },
+                "direction": "DESC",
+                "expanded_expression": "(SUM(`ods.events`.`amount`))",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "amount"
+                  }
+                ]
+              }
+            ],
+            "filter_after_window": [
+              {
+                "scope_id": "union:main:b01",
+                "logic_block_id": "logic:union:main:b01:filter:001",
+                "expression": "WHERE `r`.`rn` = 1",
+                "fields": [
+                  {
+                    "scope": "cte:ranked",
+                    "column": "rn",
+                    "qualifier": "r",
+                    "binding_scope_id": "union:main:b01",
+                    "input_ref_id": "input:union:main:b01:001"
+                  }
+                ]
+              }
+            ],
+            "trace_status": "complete"
+          },
+          "display_expression": "row_number() over (order by `total_amount` desc)"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "user_id",
+          "transform": "DIRECT",
+          "sources": [
+            {
+              "scope": "cte:aggregated",
+              "column": "user_id",
+              "qualifier": "aggregated",
+              "binding_scope_id": "cte:ranked",
+              "input_ref_id": "input:cte:ranked:001"
+            }
+          ],
+          "source_logic_blocks": [],
+          "downstream_fields": [
+            {
+              "scope": "union:main:b01",
+              "column": "user_id"
+            }
+          ],
+          "target_columns": [],
+          "final_target_columns": [
+            "mart.user_value.user_id"
+          ],
+          "expression": "`aggregated`.`user_id`",
+          "expanded_expression": "`ods.events`.`user_id`",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "expanded_from_upstream_scope",
+            "expanded_expression": "`ods.events`.`user_id`",
+            "physical_source_fields": [
+              {
+                "table": "ods.events",
+                "field": "user_id"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "source_scope_id": "cte:aggregated",
+            "source_output_field": "user_id",
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "cte:ranked",
+                "from_field": "user_id",
+                "to_scope_id": "cte:aggregated",
+                "to_field": "user_id",
+                "relation": "scope_projection",
+                "expression_sql": "`aggregated`.`user_id`",
+                "resolution_status": "resolved"
+              },
+              {
+                "step": 2,
+                "from_scope_id": "cte:aggregated",
+                "from_field": "user_id",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "`events`.`user_id`",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "user_id"
+                  }
+                ]
+              }
+            ]
+          },
+          "consumer_readiness": {
+            "status": "ready",
+            "blocked_reasons": []
+          },
+          "expression_type": "direct_projection",
+          "expression_features": {
+            "functions": [],
+            "operators": [],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "expression_role": "direct_projection",
+          "grain_effect": "preserved",
+          "output_ordinal": 0,
+          "display_expression": "`user_id`"
+        },
+        {
+          "name": "rn",
+          "transform": "WINDOW",
+          "sources": [
+            {
+              "scope": "cte:aggregated",
+              "column": "total_amount",
+              "qualifier": "aggregated",
+              "binding_scope_id": "cte:ranked",
+              "input_ref_id": "input:cte:ranked:001"
+            }
+          ],
+          "source_logic_blocks": [
+            "logic:cte:ranked:window:001"
+          ],
+          "downstream_fields": [],
+          "target_columns": [],
+          "final_target_columns": [],
+          "expression": "ROW_NUMBER() OVER (ORDER BY `aggregated`.`total_amount` DESC)",
+          "expanded_expression": "ROW_NUMBER() OVER (ORDER BY (SUM(`ods.events`.`amount`)) DESC)",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "expanded_from_upstream_scope_expression",
+            "physical_source_fields": [
+              {
+                "table": "ods.events",
+                "field": "amount"
+              }
+            ],
+            "generated_sources": [],
+            "rowset_sources": [
+              {
+                "source_type": "rowset",
+                "scope": "",
+                "field": "rn",
+                "expression": "ROW_NUMBER() OVER (ORDER BY (SUM(`ods.events`.`amount`)) DESC)"
+              }
+            ],
+            "source_kind": "mixed",
+            "missing_reasons": [],
+            "scope_output_trace": [
+              {
+                "from_scope_id": "cte:ranked",
+                "from_field": "rn",
+                "to_scope_id": "cte:aggregated",
+                "to_field": "total_amount",
+                "relation": "expanded_from_upstream_scope_expression",
+                "expression_sql": "`aggregated`.`total_amount`",
+                "expanded_expression": "SUM(`ods.events`.`amount`)",
+                "status": "resolved"
+              }
+            ],
+            "source_scope_id": "cte:aggregated",
+            "source_output_field": "total_amount",
+            "expanded_expression": "ROW_NUMBER() OVER (ORDER BY (SUM(`ods.events`.`amount`)) DESC)"
+          },
+          "consumer_readiness": {
+            "status": "ready",
+            "blocked_reasons": []
+          },
+          "expression_type": "window_expression",
+          "expression_features": {
+            "functions": [
+              "row_number"
+            ],
+            "operators": [],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": true,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "expression_role": "record_selection",
+          "grain_effect": "preserved",
+          "output_ordinal": 1,
+          "display_expression": "ROW_NUMBER() OVER (ORDER BY `total_amount` DESC)"
+        }
+      ],
+      "field_usage": [
+        {
+          "source_id": "cte:aggregated",
+          "source_type": "scope",
+          "used_fields": [
+            "total_amount",
+            "user_id"
+          ],
+          "used_field_details": [],
+          "used_by_logic_blocks": [
+            "logic:cte:ranked:window:001"
+          ],
+          "used_by_output_fields": [
+            "rn",
+            "user_id"
+          ],
+          "source_metadata": {}
+        }
+      ],
+      "columns": [
+        {
+          "name": "user_id",
+          "transform": "DIRECT",
+          "expression": "`aggregated`.`user_id`",
+          "sources": [
+            {
+              "scope": "cte:aggregated",
+              "column": "user_id",
+              "qualifier": "aggregated",
+              "binding_scope_id": "cte:ranked",
+              "input_ref_id": "input:cte:ranked:001"
+            }
+          ],
+          "display_expression": "`user_id`"
+        },
+        {
+          "name": "rn",
+          "transform": "WINDOW",
+          "expression": "ROW_NUMBER() OVER (ORDER BY `aggregated`.`total_amount` DESC)",
+          "sources": [
+            {
+              "scope": "cte:aggregated",
+              "column": "total_amount",
+              "qualifier": "aggregated",
+              "binding_scope_id": "cte:ranked",
+              "input_ref_id": "input:cte:ranked:001"
+            }
+          ],
+          "window": {
+            "order_by": [
+              {
+                "scope": "cte:aggregated",
+                "column": "total_amount",
+                "direction": "DESC"
+              }
+            ]
+          },
+          "display_expression": "ROW_NUMBER() OVER (ORDER BY `total_amount` DESC)"
+        }
+      ]
+    }
+  },
+  "field_mapping_chains": [
+    {
+      "mapping_chain_id": "mc:001",
+      "chain_id": "chain:ROOT:user_id:position:0",
+      "chain_type": "field_mapping",
+      "target_scope_id": "ROOT",
+      "target_field": "user_id",
+      "target_position": 0,
+      "chain_status": "resolved",
+      "source_kind": "physical",
+      "root_source_fields": [
+        "ods.events.user_id",
+        "ods.fallback_users.user_id"
+      ],
+      "final_output_fields": [
+        "mart.user_value.user_id"
+      ],
+      "ordered_steps": [
+        {
+          "step_no": 1,
+          "scope_id": "cte:aggregated",
+          "step_type": "direct_projection",
+          "input_fields": [
+            "ods.events.user_id"
+          ],
+          "output_field": "cte:aggregated.user_id",
+          "expression_sql": "`events`.`user_id`",
+          "expanded_expression": "`ods.events`.`user_id`",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "qualified_source_projection",
+            "physical_source_fields": [
+              {
+                "table": "ods.events",
+                "field": "user_id"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "cte:aggregated",
+                "from_field": "user_id",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "`events`.`user_id`",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "user_id"
+                  }
+                ]
+              }
+            ],
+            "expanded_expression_same_as_parent": true
+          },
+          "logic_ids": [],
+          "transform": "DIRECT",
+          "grain_effect": "preserved",
+          "final_output_fields": [
+            "mart.user_value.user_id"
+          ]
+        },
+        {
+          "step_no": 2,
+          "scope_id": "cte:ranked",
+          "step_type": "direct_projection",
+          "input_fields": [
+            "cte:aggregated.user_id"
+          ],
+          "output_field": "cte:ranked.user_id",
+          "expression_sql": "`aggregated`.`user_id`",
+          "expanded_expression": "`ods.events`.`user_id`",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "expanded_from_upstream_scope",
+            "physical_source_fields": [
+              {
+                "table": "ods.events",
+                "field": "user_id"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "source_scope_id": "cte:aggregated",
+            "source_output_field": "user_id",
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "cte:ranked",
+                "from_field": "user_id",
+                "to_scope_id": "cte:aggregated",
+                "to_field": "user_id",
+                "relation": "scope_projection",
+                "expression_sql": "`aggregated`.`user_id`",
+                "resolution_status": "resolved"
+              },
+              {
+                "step": 2,
+                "from_scope_id": "cte:aggregated",
+                "from_field": "user_id",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "`events`.`user_id`",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "user_id"
+                  }
+                ]
+              }
+            ],
+            "expanded_expression_same_as_parent": true
+          },
+          "logic_ids": [],
+          "transform": "DIRECT",
+          "grain_effect": "preserved",
+          "final_output_fields": [
+            "mart.user_value.user_id"
+          ]
+        },
+        {
+          "step_no": 3,
+          "scope_id": "union:main:b01",
+          "step_type": "direct_projection",
+          "input_fields": [
+            "cte:ranked.user_id"
+          ],
+          "output_field": "union:main:b01.user_id",
+          "expression_sql": "`r`.`user_id`",
+          "expanded_expression": "`ods.events`.`user_id`",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "expanded_from_upstream_scope",
+            "physical_source_fields": [
+              {
+                "table": "ods.events",
+                "field": "user_id"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "source_scope_id": "cte:ranked",
+            "source_output_field": "user_id",
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "union:main:b01",
+                "from_field": "user_id",
+                "to_scope_id": "cte:ranked",
+                "to_field": "user_id",
+                "relation": "scope_projection",
+                "expression_sql": "`r`.`user_id`",
+                "resolution_status": "resolved"
+              },
+              {
+                "step": 2,
+                "from_scope_id": "cte:ranked",
+                "from_field": "user_id",
+                "to_scope_id": "cte:aggregated",
+                "to_field": "user_id",
+                "relation": "scope_projection",
+                "expression_sql": "`aggregated`.`user_id`",
+                "resolution_status": "resolved"
+              },
+              {
+                "step": 3,
+                "from_scope_id": "cte:aggregated",
+                "from_field": "user_id",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "`events`.`user_id`",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "user_id"
+                  }
+                ]
+              }
+            ],
+            "expanded_expression_same_as_parent": true
+          },
+          "logic_ids": [],
+          "transform": "DIRECT",
+          "grain_effect": "preserved",
+          "final_output_fields": [
+            "mart.user_value.user_id"
+          ]
+        },
+        {
+          "step_no": 4,
+          "scope_id": "union:main:b02",
+          "step_type": "direct_projection",
+          "input_fields": [
+            "ods.fallback_users.user_id"
+          ],
+          "output_field": "union:main:b02.user_id",
+          "expression_sql": "`fallback_users`.`user_id`",
+          "expanded_expression": "`ods.fallback_users`.`user_id`",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "qualified_source_projection",
+            "physical_source_fields": [
+              {
+                "table": "ods.fallback_users",
+                "field": "user_id"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "union:main:b02",
+                "from_field": "user_id",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "`fallback_users`.`user_id`",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.fallback_users",
+                    "field": "user_id"
+                  }
+                ]
+              }
+            ],
+            "expanded_expression_same_as_parent": true
+          },
+          "logic_ids": [],
+          "transform": "DIRECT",
+          "grain_effect": "preserved",
+          "final_output_fields": [
+            "mart.user_value.user_id"
+          ]
+        },
+        {
+          "step_no": 5,
+          "scope_id": "union:main",
+          "step_type": "union",
+          "input_fields": [
+            "union:main:b01.user_id",
+            "union:main:b02.user_id"
+          ],
+          "output_field": "union:main.user_id",
+          "expression_sql": "user_id",
+          "expanded_expression": "UNION_BRANCHES(`ods.events`.`user_id` || `ods.fallback_users`.`user_id`)",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "union_branch_alignment",
+            "physical_source_fields": [
+              {
+                "table": "ods.events",
+                "field": "user_id"
+              },
+              {
+                "table": "ods.fallback_users",
+                "field": "user_id"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "source_output_field": "user_id",
+            "source_scope_ids": [
+              "union:main:b01",
+              "union:main:b02"
+            ],
+            "union_branch_mappings": [
+              {
+                "branch_scope_id": "union:main:b01",
+                "branch_index": 0,
+                "output_field": "user_id",
+                "aligned_output_name": "user_id",
+                "expected_output_name": "user_id",
+                "expected_position": 1,
+                "available_branch_outputs": [
+                  "user_id"
+                ],
+                "expression_sql": "`ods.events`.`user_id`",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "user_id"
+                  }
+                ],
+                "generated_sources": [],
+                "rowset_sources": [],
+                "resolution_status": "resolved",
+                "resolution_type": "expanded_from_upstream_scope",
+                "missing_reasons": []
+              },
+              {
+                "branch_scope_id": "union:main:b02",
+                "branch_index": 1,
+                "output_field": "user_id",
+                "aligned_output_name": "user_id",
+                "expected_output_name": "user_id",
+                "expected_position": 1,
+                "available_branch_outputs": [
+                  "user_id"
+                ],
+                "expression_sql": "`ods.fallback_users`.`user_id`",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.fallback_users",
+                    "field": "user_id"
+                  }
+                ],
+                "generated_sources": [],
+                "rowset_sources": [],
+                "resolution_status": "resolved",
+                "resolution_type": "qualified_source_projection",
+                "missing_reasons": []
+              }
+            ],
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "union:main",
+                "from_field": "user_id",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "user_id",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "user_id"
+                  },
+                  {
+                    "table": "ods.fallback_users",
+                    "field": "user_id"
+                  }
+                ]
+              }
+            ],
+            "expanded_expression_same_as_parent": true
+          },
+          "logic_ids": [],
+          "transform": "UNION",
+          "grain_effect": "preserved",
+          "final_output_fields": [
+            "mart.user_value.user_id"
+          ]
+        },
+        {
+          "step_no": 6,
+          "scope_id": "ROOT",
+          "step_type": "union",
+          "input_fields": [
+            "union:main.user_id"
+          ],
+          "output_field": "mart.user_value.user_id",
+          "expression_sql": "user_id",
+          "expanded_expression": "UNION_BRANCHES(`ods.events`.`user_id` || `ods.fallback_users`.`user_id`)",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "expression_sources_from_upstream_scope",
+            "physical_source_fields": [
+              {
+                "table": "ods.events",
+                "field": "user_id"
+              },
+              {
+                "table": "ods.fallback_users",
+                "field": "user_id"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "source_scope_id": "union:main",
+            "source_output_field": "user_id",
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "ROOT",
+                "from_field": "user_id",
+                "to_scope_id": "union:main",
+                "to_field": "user_id",
+                "relation": "scope_projection",
+                "expression_sql": "user_id",
+                "resolution_status": "resolved"
+              },
+              {
+                "step": 2,
+                "from_scope_id": "union:main",
+                "from_field": "user_id",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "user_id",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "user_id"
+                  },
+                  {
+                    "table": "ods.fallback_users",
+                    "field": "user_id"
+                  }
+                ]
+              }
+            ],
+            "expanded_expression_same_as_parent": true
+          },
+          "logic_ids": [
+            "logic:ROOT:union:001"
+          ],
+          "transform": "UNION",
+          "grain_effect": "preserved",
+          "final_output_fields": [
+            "mart.user_value.user_id"
+          ],
+          "target_position": 0
+        }
+      ],
+      "expanded_expression": "UNION_BRANCHES(`ods.events`.`user_id` || `ods.fallback_users`.`user_id`)",
+      "missing_reasons": [],
+      "trace_status": "complete"
+    }
+  ],
+  "scope_profile": {
+    "profile_step_count": 4,
+    "steps": [
+      {
+        "scope_id": "cte:aggregated",
+        "name": "aggregated",
+        "kind": "cte",
+        "role": "aggregate",
+        "operations": [
+          "aggregate"
+        ],
+        "business_summary": "读取 ods.events；聚合生成指标",
+        "direct_inputs": [
+          "ods.events"
+        ],
+        "direct_source_tables": [
+          "ods.events"
+        ],
+        "physical_source_tables": [
+          "ods.events"
+        ],
+        "output_columns": 2,
+        "logic": {
+          "joins": [],
+          "filters": [],
+          "aggregations": [
+            {
+              "column": "total_amount",
+              "expression": "SUM(`events`.`amount`)",
+              "function": "SUM"
+            }
+          ],
+          "window_functions": [],
+          "case_when": [],
+          "key_renames": [],
+          "distinct": false,
+          "union_branches": 0,
+          "lateral_views": []
+        }
+      },
+      {
+        "scope_id": "cte:ranked",
+        "name": "ranked",
+        "kind": "cte",
+        "role": "dedup",
+        "operations": [
+          "window"
+        ],
+        "business_summary": "基于 cte:aggregated；使用窗口函数排序/去重/取值；上游可追溯至 ods.events",
+        "direct_inputs": [
+          "cte:aggregated"
+        ],
+        "direct_source_tables": [],
+        "physical_source_tables": [
+          "ods.events"
+        ],
+        "output_columns": 2,
+        "logic": {
+          "joins": [],
+          "filters": [],
+          "aggregations": [],
+          "window_functions": [
+            {
+              "column": "rn",
+              "expression": "ROW_NUMBER() OVER (ORDER BY `aggregated`.`total_amount` DESC)",
+              "window": {
+                "order_by": [
+                  {
+                    "scope": "cte:aggregated",
+                    "column": "total_amount",
+                    "direction": "DESC"
+                  }
+                ]
+              }
+            }
+          ],
+          "case_when": [],
+          "key_renames": [],
+          "distinct": false,
+          "union_branches": 0,
+          "lateral_views": []
+        }
+      },
+      {
+        "scope_id": "union:main",
+        "name": "main",
+        "kind": "union",
+        "role": "union",
+        "operations": [
+          "union"
+        ],
+        "business_summary": "基于 union:main:b01, union:main:b02；合并 2 个分支；上游可追溯至 ods.events, ods.fallback_users, ods.users",
+        "direct_inputs": [
+          "union:main:b01",
+          "union:main:b02"
+        ],
+        "direct_source_tables": [],
+        "physical_source_tables": [
+          "ods.events",
+          "ods.fallback_users",
+          "ods.users"
+        ],
+        "output_columns": 1,
+        "logic": {
+          "joins": [],
+          "filters": [],
+          "aggregations": [],
+          "window_functions": [],
+          "case_when": [],
+          "key_renames": [],
+          "distinct": false,
+          "union_branches": 2,
+          "lateral_views": []
+        }
+      },
+      {
+        "scope_id": "ROOT",
+        "name": "ROOT",
+        "kind": "root",
+        "role": "transform",
+        "operations": [
+          "pass_through"
+        ],
+        "business_summary": "基于 union:main；上游可追溯至 ods.events, ods.fallback_users, ods.users",
+        "direct_inputs": [
+          "union:main"
+        ],
+        "direct_source_tables": [],
+        "physical_source_tables": [
+          "ods.events",
+          "ods.fallback_users",
+          "ods.users"
+        ],
+        "output_columns": 1,
+        "logic": {
+          "joins": [],
+          "filters": [],
+          "aggregations": [],
+          "window_functions": [],
+          "case_when": [],
+          "key_renames": [],
+          "distinct": false,
+          "union_branches": 0,
+          "lateral_views": []
+        }
+      }
+    ]
+  },
+  "end_to_end_lineage": [
+    {
+      "column": "user_id",
+      "transform": "UNION",
+      "expression": "user_id",
+      "trace_complete": true,
+      "physical_sources": [
+        {
+          "table": "ods.events",
+          "column": "user_id",
+          "transform": "UNION"
+        },
+        {
+          "table": "ods.fallback_users",
+          "column": "user_id",
+          "transform": "UNION"
+        }
+      ],
+      "generated_sources": [],
+      "source_kind": "physical",
+      "output_ordinal": 0
+    }
+  ],
+  "diagnostics": {
+    "fallback_used": false,
+    "warning_count": 0,
+    "warning_types": {},
+    "lineage_fact_gap_count": 0,
+    "lineage_fact_gap_types": {},
+    "lineage_fact_gap_samples": [],
+    "stats": {
+      "scope_count": 9,
+      "physical_table_count": 3,
+      "cte_count": 2,
+      "subquery_count": 0,
+      "union_count": 1,
+      "union_branch_count": 2,
+      "max_depth": 5,
+      "case_when_count": 0,
+      "window_function_count": 1,
+      "join_count": 1,
+      "aggregate_function_count": 1
+    },
+    "full_diagnostics_file": "diagnostics.json"
+  }
+}

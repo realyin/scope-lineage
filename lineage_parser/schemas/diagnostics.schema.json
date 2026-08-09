@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LineageDiagnostics",
+  "type": "object",
+  "required": ["schema_version"],
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "fallback_used": {
+      "type": "boolean"
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "scope", "msg"],
+        "additionalProperties": true,
+        "properties": {
+          "type": {"type": "string"},
+          "scope": {"type": "string"},
+          "msg": {"type": "string"}
+        }
+      }
+    },
+    "stats": {
+      "type": "object"
+    },
+    "lineage_fact_gaps": {
+      "type": "array",
+      "items": {"type": "object"}
+    }
+  }
+}

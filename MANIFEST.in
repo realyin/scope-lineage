@@ -1,0 +1,15 @@
+include CHANGELOG.md
+include CONTRIBUTING.md
+include LICENSE
+include README.md
+include README.zh-CN.md
+include SECURITY.md
+include pyproject.toml
+recursive-include lineage_parser *.py *.json
+prune .claude
+prune docs
+prune pipeline
+prune tests
+global-exclude .DS_Store
+global-exclude *.py[cod]
+global-exclude __pycache__

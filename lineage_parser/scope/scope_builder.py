@@ -1,0 +1,1207 @@
+"""Scope tree builder: parse SQL, qualify, build_scope, assign scope_ids, create ScopeData stubs.
+
+Entry point: parse_scope_lineage(sql, task_name, schema=None) -> ScopeLineageResult
+"""
+
+from __future__ import annotations
+
+import re
+
+import sqlglot
+from sqlglot import ErrorLevel, exp
+from sqlglot.errors import ParseError
+from sqlglot.optimizer.qualify import qualify as sg_qualify
+from sqlglot.optimizer.scope import traverse_scope, Scope
+
+from .parser import (
+    _ORIGINALLY_ANONYMOUS_PROJECTION_META,
+    _qualified_table,
+    _unwrap_target,
+)
+from ..metadata.related_metadata import build_related_metadata
+from ..metadata.schema_metadata import SchemaMap, normalize_schema_map
+from ..metadata.target_table_metadata import lookup_target_table_metadata
+from .scope_types import (
+    ScopeData,
+    ScopeLineageResult,
+    Diagnostics,
+    DiagnosticWarning,
+)
+from .scope_resolver import resolve_all
+from .scope_warnings import detect_warnings
+from .scope_role_inferrer import infer_roles
+from .sqlglot_config import suppress_invalid_json_path_warnings
+from ._shared import DIALECT, PARSE_OPTS, _AGGREGATE_FUNCTIONS, _CLEANING_FUNCTIONS, _KNOWN_SCALAR_FUNCTIONS, _ORIGINALLY_UNQUALIFIED_META, _SCOPE_ID_ATTR, _all_source_refs_have_resolution, _column_is_inside_nested_query, _dedupe_generated_source_dicts, _dedupe_physical_field_dicts, _dedupe_rowset_source_dicts, _extend_unique, _find_alias_in_parent, _function_names, _generated_sources_from_refs, _is_cross_join_type, _is_internal_scope_id, _lambda_qualifiers, _normalize_expression_resolution, _ordered_physical_fields_in_expression, _parenthesize_replacement_expression, _physical_fields_referenced_in_expression, _physical_source_fields_for_ref, _physical_source_fields_for_refs, _physical_source_fields_from_refs, _physical_source_ids_for_input, _populate_union_output_branch_mappings, _qualified_field_ref_keys_from_ast, _qualified_field_refs, _qualified_pair_is_catalog_function_prefix, _qualified_physical_field_sql, _qualifier_present, _replace_qualified_ref_with_expression, _replace_struct_field_access_from_upstream, _replace_unqualified_ref_with_expression, _resolve_expression_resolution_from_output_sources, _resolved_expression_fact_from_source_refs, _rowset_sources_from_upstream_output, _scope_raw_sql_is_star_select, _source_kind_for_resolution, _source_ref_to_dict, _source_refs_from_detail_fields, _source_type_from_id, _star_passthrough_output_fact, _star_passthrough_source_fact, _strip_sql_comments, _strip_sql_string_literals, _struct_leaf_expression, _unexpanded_bound_aliases_in_expression, _union_branch_mappings_for_output, _union_branch_scope_output_for_mapping, _unique_ordered  # noqa: F401  (shared helpers; re-exported)
+from .column_expression_resolution import _expression_resolution_for_scope_column  # noqa: F401
+from .lineage_fact_gaps import _populate_lineage_fact_gaps  # noqa: F401
+from .passthrough_resolution import _propagate_passthrough_expression_resolution  # noqa: F401
+from .scope_facts import _populate_enhanced_scope_facts  # noqa: F401
+
+suppress_invalid_json_path_warnings()
+
+# Attr name for attaching scope_id to sqlglot Scope objects
+
+
+SUPPORTED_STATEMENTS = "INSERT / INSERT OVERWRITE / CTAS / MERGE"
+
+
+class NoSupportedWriteStatementError(ValueError):
+    """The SQL is readable, but contains no write statement modeled by this parser."""
+
+    def __init__(self, skipped_statements: list[dict]) -> None:
+        self.skipped_statements = [dict(item) for item in skipped_statements]
+        super().__init__(_no_supported_statement_message(skipped_statements))
+
+
+def _no_supported_statement_message(skipped: list[dict]) -> str:
+    """Name what was actually found and what is actually supported.
+
+    The old message was "No INSERT/MERGE statement found" — it omitted CTAS, which IS
+    supported, and said nothing about what the SQL contained instead (CONTRACT-001).
+    """
+    found = ", ".join(sorted({item["statement_kind"] for item in skipped})) or "无可识别语句"
+    return (
+        f"未找到可解析的写表语句。支持: {SUPPORTED_STATEMENTS};本次发现: {found}。"
+        f"独立 UPDATE / DELETE 不在建模范围内(本工具解析的是「从 SELECT 写入一张表」的字段血缘)。"
+    )
+
+
+def _statement_kind_label(tree) -> str:
+    """A name for a statement this tool does not model, for the skip record."""
+    for node_type, label in ((exp.Update, "UPDATE"), (exp.Delete, "DELETE")):
+        if isinstance(tree, node_type):
+            return label
+    return type(tree).__name__.upper()
+
+
+def _collect_insert_trees(sql: str) -> tuple[list, list[dict]]:
+    """Top-level write statements, plus a record of every statement skipped.
+
+    A multi-statement script can mix a write with statements this tool does not model. Those
+    used to vanish from the result with nothing recorded, so a consumer could not tell a script
+    of one INSERT from a script of one INSERT and three DELETEs (CONTRACT-001).
+    """
+    sql = _normalize_directory_insert_sql(sql)
+    trees = sqlglot.parse(sql, dialect=DIALECT, **PARSE_OPTS)
+    write_trees, skipped = [], []
+    for tree in trees:
+        if tree is None:
+            continue
+        if (
+            isinstance(tree, (exp.Insert, exp.Merge))
+            or _is_ctas(tree)
+            or tree.find(exp.Insert) is not None
+            or tree.find(exp.Merge) is not None
+        ):
+            write_trees.append(tree)
+            continue
+        skipped.append({
+            "statement_kind": _statement_kind_label(tree),
+            "reason": "not_a_table_write_from_select",
+            "supported": SUPPORTED_STATEMENTS,
+        })
+    return write_trees, skipped
+
+
+def _normalize_directory_insert_sql(sql: str) -> str:
+    """Normalize Spark directory writes into a form sqlglot keeps with SELECT."""
+    pattern = re.compile(
+        r"(INSERT\s+OVERWRITE\s+(?:LOCAL\s+)?DIRECTORY\s+('[^']+'|\"[^\"]+\"))\s+USING\s+([A-Za-z_][A-Za-z0-9_]*)\s+(?=SELECT|WITH)",
+        re.IGNORECASE,
+    )
+    return pattern.sub(r"\1 STORED AS \3 ", sql)
+
+
+def _is_ctas(tree: exp.Expression) -> bool:
+    return isinstance(tree, exp.Create) and tree.expression is not None
+
+
+_SYNTAX_ERROR_KEYS = ("description", "line", "col", "start_context", "highlight", "end_context")
+
+
+def _syntax_status(sql: str) -> tuple[str, list[dict]]:
+    """Parse strictly first, so that "sqlglot repaired this" stops being invisible.
+
+    Statements are parsed with a lenient error level, so that one malformed statement in a
+    corpus cannot stop the batch. The cost is that invalid SQL is silently repaired: sqlglot
+    drops the tokens it cannot place and returns a partial AST, and lineage built from it is
+    indistinguishable from lineage built from valid SQL. A dropped token can be a WHERE, a
+    JOIN or a field expression — the artifact can describe a query that would not run at all
+    (PARSE-002).
+
+    A strict parse answers the one question the lenient parse cannot: was anything repaired?
+    It only classifies; the lenient AST is still what gets used, so no lineage is lost.
+    """
+    normalized = _normalize_directory_insert_sql(sql)
+    try:
+        sqlglot.parse(normalized, dialect=DIALECT, error_level=ErrorLevel.RAISE)
+    except ParseError as exc:
+        raw = getattr(exc, "errors", None) or [{"description": str(exc)}]
+        return "recovered", [
+            {key: item[key] for key in _SYNTAX_ERROR_KEYS if key in item} for item in raw
+        ]
+    except Exception as exc:  # tokenizer-level failures raise their own types
+        return "recovered", [{"description": f"{type(exc).__name__}: {exc}"}]
+    return "strict_ok", []
+
+
+def parse_scope_lineage(
+    sql: str,
+    task_name: str,
+    schema: dict | None = None,
+    target_metadata=None,
+) -> ScopeLineageResult:
+    """Parse SQL into a scope-based lineage result with full column resolution."""
+    schema = _prepare_schema(schema)
+    insert_trees, skipped_statements = _collect_insert_trees(sql)
+    if not insert_trees:
+        raise NoSupportedWriteStatementError(skipped_statements)
+
+    # For now, handle the first INSERT/MERGE only (multi-statement later)
+    tree = insert_trees[0]
+    statement_identity_sql = tree.sql(dialect=DIALECT)
+
+    if _is_ctas(tree):
+        result = _build_ctas_scope(tree, task_name, schema)
+    elif isinstance(tree, exp.Merge) or (
+        tree.find(exp.Merge) is not None and tree.find(exp.Insert) is None
+    ):
+        result = _build_merge_scope(tree, task_name, schema)
+    else:
+        if target_metadata is None:
+            result = _build_insert_scope(tree, task_name, schema)
+        else:
+            result = _build_insert_scope(
+                tree,
+                task_name,
+                schema,
+                target_metadata=target_metadata,
+            )
+    result.syntax_status, result.syntax_errors = _syntax_status(sql)
+    result.statement_identity_sql = statement_identity_sql
+    return result
+
+
+def parse_all_scope_lineage(
+    sql: str,
+    task_name: str,
+    schema: dict | None = None,
+    target_metadata=None,
+) -> list[ScopeLineageResult]:
+    """Parse all INSERT/MERGE statements; return one ScopeLineageResult per target."""
+    schema = _prepare_schema(schema)
+    insert_trees, skipped_statements = _collect_insert_trees(sql)
+    if not insert_trees:
+        raise NoSupportedWriteStatementError(skipped_statements)
+
+    # One strict parse for the whole text: sqlglot recovers at statement level, so a repair
+    # anywhere taints every statement the lenient parse produced from it.
+    syntax_status, syntax_errors = _syntax_status(sql)
+
+    results: list[ScopeLineageResult] = []
+    for i, tree in enumerate(insert_trees):
+        sub = f"{task_name}#{i}" if len(insert_trees) > 1 else task_name
+        statement_identity_sql = tree.sql(dialect=DIALECT)
+        try:
+            if _is_ctas(tree):
+                results.append(_build_ctas_scope(tree, sub, schema))
+            elif isinstance(tree, exp.Merge) or (
+                tree.find(exp.Merge) is not None and tree.find(exp.Insert) is None
+            ):
+                results.append(_build_merge_scope(tree, sub, schema))
+            else:
+                if target_metadata is None:
+                    results.append(_build_insert_scope(tree, sub, schema))
+                else:
+                    results.append(
+                        _build_insert_scope(
+                            tree,
+                            sub,
+                            schema,
+                            target_metadata=target_metadata,
+                        )
+                    )
+        except Exception as e:
+            stmt_kind = _stmt_kind_for_tree(tree)
+            target_table = _target_table_name_for_error_result(tree)
+            result = ScopeLineageResult(
+                task_id=sub, target_table=target_table, stmt_kind=stmt_kind, parse_status="failed"
+            )
+            result.diagnostics.warnings.append(
+                DiagnosticWarning(
+                    type="LINEAGE_ERROR",
+                    scope="ROOT",
+                    msg=f"{type(e).__name__}: {e}",
+                )
+            )
+            results.append(result)
+        results[-1].statement_identity_sql = statement_identity_sql
+    for result in results:
+        result.syntax_status = syntax_status
+        result.syntax_errors = syntax_errors
+        # A skipped statement must remain visible on every artifact this script produced: a
+        # consumer cannot otherwise tell one INSERT from one INSERT plus three DELETEs, and
+        # "not modeled" would look the same as "not present" (CONTRACT-001).
+        result.skipped_statements = list(skipped_statements)
+        for item in skipped_statements:
+            result.diagnostics.warnings.append(DiagnosticWarning(
+                type="unsupported_statement",
+                scope="ROOT",
+                msg=f"{item['statement_kind']} 语句未解析({item['reason']});"
+                    f"支持的写表语句: {item['supported']}",
+            ))
+    return results
+
+
+def _target_table_name_for_error_result(tree: exp.Expression) -> str:
+    if _is_ctas(tree):
+        create = tree if isinstance(tree, exp.Create) else tree.find(exp.Create)
+        target = _unwrap_target(create.this) if create and create.this is not None else None
+        return _qualified_table(target) if isinstance(target, exp.Table) else ""
+    insert = tree if isinstance(tree, exp.Insert) else tree.find(exp.Insert)
+    if insert is not None:
+        return _insert_target_name(insert)
+    merge = tree if isinstance(tree, exp.Merge) else tree.find(exp.Merge)
+    if merge is not None:
+        target = _unwrap_target(merge.this) if merge.this is not None else None
+        return _qualified_table(target) if isinstance(target, exp.Table) else ""
+    return ""
+
+
+def _target_partition_facts_from_insert(insert: exp.Insert | None) -> tuple[dict[str, str | None], list[str], str]:
+    if insert is None or insert.this is None:
+        return {}, [], "none"
+    target = insert.this
+    if not isinstance(target, exp.Table):
+        target = _unwrap_target(target)
+    partition = target.args.get("partition") if isinstance(target, exp.Table) else None
+    return _partition_facts_from_partition(partition)
+
+
+def _target_partition_facts_from_create(create: exp.Create | None) -> tuple[dict[str, str | None], list[str], str]:
+    if create is None:
+        return {}, [], "none"
+    properties = create.args.get("properties")
+    for prop in getattr(properties, "expressions", []) or []:
+        if isinstance(prop, exp.PartitionedByProperty):
+            columns = _columns_from_partitioned_by_property(prop)
+            return _partition_facts_from_columns(columns)
+    return {}, [], "none"
+
+
+def _columns_from_partitioned_by_property(prop: exp.PartitionedByProperty) -> list[str]:
+    node = prop.this
+    expressions = getattr(node, "expressions", None) or []
+    columns: list[str] = []
+    for item in expressions:
+        column = item.this if isinstance(item, exp.ColumnDef) else item
+        name = _partition_column_name(column)
+        if name:
+            columns.append(name)
+    return columns
+
+
+def _partition_facts_from_partition(partition: exp.Partition | None) -> tuple[dict[str, str | None], list[str], str]:
+    if partition is None:
+        return {}, [], "none"
+
+    spec: dict[str, str | None] = {}
+    columns: list[str] = []
+    for item in partition.expressions:
+        if isinstance(item, exp.EQ):
+            key = _partition_column_name(item.this)
+            value = _partition_value(item.expression)
+        else:
+            key = _partition_column_name(item)
+            value = None
+        if not key:
+            continue
+        spec[key] = value
+        columns.append(key)
+    return spec, columns, _partition_mode(spec)
+
+
+def _partition_facts_from_columns(columns: list[str]) -> tuple[dict[str, str | None], list[str], str]:
+    spec = {column: None for column in columns if column}
+    return spec, list(spec), _partition_mode(spec)
+
+
+def _partition_column_name(node: exp.Expression | None) -> str:
+    if node is None:
+        return ""
+    if isinstance(node, exp.Column):
+        return node.name
+    if isinstance(node, exp.Identifier):
+        return str(node.this or "")
+    if isinstance(node, exp.ColumnDef):
+        return _partition_column_name(node.this)
+    return node.sql(dialect=DIALECT).strip().strip("`")
+
+
+def _partition_value(node: exp.Expression | None) -> str | None:
+    if node is None:
+        return None
+    if isinstance(node, exp.Literal):
+        return str(node.this)
+    return node.sql(dialect=DIALECT)
+
+
+def _partition_mode(spec: dict[str, str | None]) -> str:
+    if not spec:
+        return "none"
+    static_count = sum(value is not None for value in spec.values())
+    if static_count == len(spec):
+        return "static"
+    if static_count == 0:
+        return "dynamic"
+    return "mixed"
+
+
+def _build_ctas_scope(
+    tree: exp.Expression, task_name: str, schema: dict | None = None
+) -> ScopeLineageResult:
+    create = tree if isinstance(tree, exp.Create) else tree.find(exp.Create)
+    target = _unwrap_target(create.this) if create and create.this is not None else None
+    target_table = _qualified_table(target) if isinstance(target, exp.Table) else ""
+    partition_spec, partition_columns, partition_mode = _target_partition_facts_from_create(create)
+
+    result = ScopeLineageResult(
+        task_id=task_name,
+        target_table=target_table,
+        stmt_kind="CTAS",
+        target_partition_spec=partition_spec,
+        target_partition_columns=partition_columns,
+        target_partition_mode=partition_mode,
+        diagnostics=Diagnostics(),
+    )
+
+    if create is None or create.expression is None:
+        return result
+
+    src_expr = create.expression.copy()
+    qualified = _qualify_ast(src_expr)
+
+    if qualified is src_expr:
+        try:
+            sg_qualify(
+                src_expr,
+                dialect=DIALECT,
+                validate_qualify_columns=False,
+                infer_schema=True,
+                expand_stars=False,
+            )
+        except Exception:
+            result.diagnostics.fallback_used = True
+
+    _build_result_from_scope(qualified, result, target_table, schema)
+    _drop_dangling_column_refs(result)
+    result.diagnostics.stats = _compute_stats(result)
+    detect_warnings(result)
+    infer_roles(result)
+    return result
+
+
+def _qualify_ast(ast: exp.Expression) -> exp.Expression:
+    """Run sqlglot qualify with graceful degradation."""
+    # ``qualify`` assigns generated aliases (usually ``_col_N``) to anonymous
+    # expressions. Preserve whether an alias existed in the source SQL so the
+    # projection resolver can recover a sole referenced field without confusing
+    # an explicit alias named ``_col_N`` with a generated placeholder.
+    for select in ast.find_all(exp.Select):
+        for projection in select.expressions:
+            if not isinstance(projection, (exp.Alias, exp.Column, exp.Star)):
+                projection.meta[_ORIGINALLY_ANONYMOUS_PROJECTION_META] = True
+
+    # sqlglot may qualify an originally bare column to a CTE whose fields are known while
+    # ignoring a joined physical table whose schema is unknown. Preserve the SQL author's
+    # qualification intent so the resolver can consider every viable source (LINEAGE-002).
+    for column in ast.find_all(exp.Column):
+        if not column.table:
+            column.meta[_ORIGINALLY_UNQUALIFIED_META] = True
+    try:
+        return sg_qualify(
+            ast,
+            dialect=DIALECT,
+            validate_qualify_columns=False,
+            infer_schema=True,
+            expand_stars=False,
+        )
+    except Exception:
+        return ast
+
+
+def _build_insert_scope(
+    tree: exp.Expression,
+    task_name: str,
+    schema: dict | None = None,
+    *,
+    target_metadata=None,
+) -> ScopeLineageResult:
+    """Build scope tree for INSERT statements."""
+    insert = tree if isinstance(tree, exp.Insert) else tree.find(exp.Insert)
+    target_table = _insert_target_name(insert)
+    partition_spec, partition_columns, partition_mode = _target_partition_facts_from_insert(insert)
+
+    is_overwrite = bool(insert.args.get("overwrite"))
+    stmt_kind = "INSERT_OVERWRITE" if is_overwrite else "INSERT"
+
+    result = ScopeLineageResult(
+        task_id=task_name,
+        target_table=target_table,
+        stmt_kind=stmt_kind,
+        target_partition_spec=partition_spec,
+        target_partition_columns=partition_columns,
+        target_partition_mode=partition_mode,
+        diagnostics=Diagnostics(),
+    )
+
+    if insert.expression is None:
+        return result
+
+    src_expr = _build_source_expression(insert, target_metadata=target_metadata)
+    qualified = _qualify_ast(src_expr)
+
+    if qualified is src_expr:
+        # Check if qualify would have failed
+        try:
+            sg_qualify(src_expr, dialect=DIALECT,
+                       validate_qualify_columns=False, infer_schema=True,
+                       expand_stars=False)
+        except Exception:
+            result.diagnostics.fallback_used = True
+
+    _build_result_from_scope(
+        qualified,
+        result,
+        target_table,
+        schema,
+        target_metadata=target_metadata,
+        explicit_target_columns=_explicit_insert_target_columns(insert),
+        insert_by_name=bool(insert.args.get("by_name")),
+    )
+    _drop_dangling_column_refs(result)
+    result.diagnostics.stats = _compute_stats(result)
+    detect_warnings(result)
+    infer_roles(result)
+    return result
+
+
+def _insert_target_name(insert: exp.Insert) -> str:
+    target = _unwrap_target(insert.this) if insert.this is not None else None
+    if isinstance(target, exp.Table):
+        return _qualified_table(target)
+    if isinstance(target, exp.Directory):
+        path_expr = target.this
+        if isinstance(path_expr, exp.Literal):
+            path = str(path_expr.this or "").strip()
+        else:
+            path = path_expr.sql(dialect=DIALECT).strip().strip("'\"") if path_expr is not None else ""
+        return f"directory:{path}" if path else "directory:unknown"
+    return ""
+
+
+def _explicit_insert_target_columns(insert: exp.Insert) -> list[str]:
+    target = insert.this
+    if not isinstance(target, exp.Schema):
+        return []
+    return [
+        str(column.name or "").strip().lower()
+        for column in target.expressions
+        if getattr(column, "name", None)
+    ]
+
+
+
+def _stmt_kind_for_tree(tree: exp.Expression) -> str:
+    """The statement kind to record when the scope build raised.
+
+    This chose between CTAS and INSERT only, so a MERGE that failed to build was labelled
+    INSERT — a wrong fact on the artifact, even though everything around it (parse_status,
+    empty scopes, the diagnostic) was honest (MERGE-001).
+    """
+    if _is_ctas(tree):
+        return "CTAS"
+    if isinstance(tree, exp.Merge) or (
+        tree.find(exp.Merge) is not None and tree.find(exp.Insert) is None
+    ):
+        return "MERGE"
+    return "INSERT"
+
+
+def _merge_with_subquery_source(merge: exp.Merge) -> exp.Merge:
+    """Rewrite `USING <table>` into `USING (SELECT * FROM <table>)`, preserving the alias.
+
+    The scope machinery expects the USING side to be a query block, because that is what a
+    subquery source produces. A plain table reference — valid Spark, just absent from this
+    corpus — left it with no scope to walk and the build raised, so the whole statement came
+    back `parse_status=failed` with no lineage at all (MERGE-001).
+
+    Rewriting is preferable to adding a second code path: `SELECT * FROM t` is exactly what the
+    table reference means, so column resolution, star expansion and every downstream fact keep
+    working unchanged.
+    """
+    using = merge.args.get("using")
+    table = using.this if isinstance(using, exp.Alias) else using
+    if not isinstance(table, exp.Table):
+        return merge
+    alias = table.alias or (using.alias if isinstance(using, exp.Alias) else "") or table.name
+    rewritten = merge.copy()
+    source = exp.Table(this=table.this, db=table.args.get("db"), catalog=table.args.get("catalog"))
+    rewritten.set(
+        "using",
+        exp.Subquery(this=exp.Select().select(exp.Star()).from_(source), alias=exp.TableAlias(this=exp.to_identifier(alias))),
+    )
+    return rewritten
+
+
+def _build_merge_scope(
+    tree: exp.Expression, task_name: str, schema: dict | None = None
+) -> ScopeLineageResult:
+    """Build scope tree for MERGE statements.
+
+    build_scope on the full MERGE AST produces:
+      ROOT (Subquery expression) -> child SUBQUERY scope (the USING Select)
+    """
+    merge = tree if isinstance(tree, exp.Merge) else tree.find(exp.Merge)
+    target = _unwrap_target(merge.this) if merge.this is not None else None
+    target_table = _qualified_table(target) if isinstance(target, exp.Table) else ""
+
+    result = ScopeLineageResult(
+        task_id=task_name,
+        target_table=target_table,
+        stmt_kind="MERGE",
+        diagnostics=Diagnostics(),
+    )
+
+    using = merge.args.get("using")
+    if using is None:
+        return result
+    merge = _merge_with_subquery_source(merge)
+
+    qualified = _qualify_ast(merge)
+    _build_result_from_scope(qualified, result, target_table, schema)
+    _drop_dangling_column_refs(result)
+    result.diagnostics.stats = _compute_stats(result)
+    detect_warnings(result)
+    infer_roles(result)
+    return result
+
+
+def _looks_schema_expanded_from_physical(scope_data) -> bool:
+    """True when this scope's columns came from expanding `SELECT *` over a physical table.
+
+    A missing column on such a scope means the schema metadata does not list it — a metadata
+    coverage gap, which is actionable ("supply the column"). Rewriting those refs to UNKNOWN
+    would destroy that signal, so the sweep below leaves them alone; the audit still reports
+    them, as `schema_incomplete_column_ref` rather than a structural break.
+    """
+    columns = scope_data.columns or []
+    if not columns:
+        return False
+    physical_sources = set()
+    direct_from_physical = 0
+    for col in columns:
+        for source in col.sources or []:
+            scope_name = source.scope or ""
+            if scope_name.startswith(("cte:", "subq:", "union:", "udtf:", "ROOT", "UNKNOWN")):
+                continue
+            physical_sources.add(scope_name)
+            if (
+                col.transform == "DIRECT"
+                and col.name == source.column
+                and col.expression in (None, "", col.name)
+            ):
+                direct_from_physical += 1
+    if not physical_sources:
+        return False
+    return direct_from_physical >= max(3, len(columns) // 2)
+
+
+def _drop_dangling_column_refs(result: ScopeLineageResult) -> None:
+    """Rewrite refs to columns their target scope does not actually expose, to UNKNOWN.
+
+    Column resolution runs per scope, so whether an upstream scope has materialized its own
+    columns yet depends on traversal order. Every ordering-sensitive branch that guesses
+    "this scope probably exposes the column" can be wrong, and a wrong guess is not a small
+    error: a source ref that names a scope is read downstream as an established fact, and
+    nothing re-checks it. Once every scope is built the column lists are authoritative, so
+    this single order-independent sweep is what makes the guarantee hold — no matter which
+    branch produced the ref (LINEAGE-001).
+
+    UNKNOWN is the honest answer: the audit reports it, and it cannot be mistaken for lineage.
+    """
+    exposed = {
+        scope_id: {col.name for col in (scope_data.columns or [])}
+        for scope_id, scope_data in result.scopes.items()
+    }
+    exempt = {
+        scope_id for scope_id, scope_data in result.scopes.items()
+        if _looks_schema_expanded_from_physical(scope_data)
+    }
+    for scope_id, scope_data in result.scopes.items():
+        for column in list(scope_data.columns or []) + list(getattr(scope_data, "outputs", None) or []):
+            for source in column.sources or []:
+                target = source.scope
+                if (
+                    target in exposed
+                    and target not in exempt
+                    and source.column not in exposed[target]
+                    and source.column != "*"
+                    and column.name != "*"
+                ):
+                    result.diagnostics.warnings.append(DiagnosticWarning(
+                        type="dangling_column_ref_dropped",
+                        scope=scope_id,
+                        msg=f"Column '{column.name}' pointed at {target}.{source.column}, "
+                            f"which that scope does not output; left unresolved",
+                    ))
+                    source.scope = "UNKNOWN"
+
+
+def _build_result_from_scope(
+    qualified_expr, result: ScopeLineageResult, target_table: str,
+    schema: dict | None = None,
+    *,
+    target_metadata=None,
+    explicit_target_columns: list[str] | None = None,
+    insert_by_name: bool = False,
+) -> None:
+    """Common logic: assign IDs, create stubs, collect physical tables, resolve columns.
+
+    Uses traverse_scope(qualified_expr) to build the scope list so that CTE scopes
+    inside MERGE...WITH are not missed (build_scope().traverse() silently skips them
+    for MERGE statements). The root scope is extracted from the traversal result.
+    """
+    all_scopes = list(traverse_scope(qualified_expr))
+    root_scope = next((s for s in reversed(all_scopes) if s.is_root), None)
+
+    # Step 1: Assign scope_ids to every scope (children before parents — traverse_scope order)
+    for sg_scope in all_scopes:
+        scope_id = _compute_scope_id(sg_scope)
+        setattr(sg_scope, _SCOPE_ID_ATTR, scope_id)
+
+    # Step 1b: Deduplicate IDs — same alias at different nesting levels must not collide.
+    # Process in all_scopes order (bottom-up): first occurrence keeps natural ID,
+    # subsequent occurrences get _2, _3, etc.
+    _seen_ids: dict[str, int] = {}
+    for sg_scope in all_scopes:
+        sid = getattr(sg_scope, _SCOPE_ID_ATTR)
+        count = _seen_ids.get(sid, 0) + 1
+        _seen_ids[sid] = count
+        if count > 1:
+            setattr(sg_scope, _SCOPE_ID_ATTR, f"{sid}_{count}")
+
+    # Step 2: Create synthetic UNION scopes for any scope with Union expression + union_scopes
+    if root_scope:
+        _create_union_scopes_recursive(root_scope, result)
+    for sg_scope in all_scopes:
+        if (
+            not sg_scope.is_union
+            and isinstance(sg_scope.expression, exp.Union)
+            and sg_scope.union_scopes
+        ):
+            union_scope_id = _union_scope_id_for_container(
+                getattr(sg_scope, _SCOPE_ID_ATTR, None)
+            )
+            if union_scope_id not in result.scopes:
+                _create_union_scope(sg_scope, result)
+
+    # Step 3: Create ScopeData stubs for each scope
+    # Skip all is_union scopes: they are handled entirely by _create_union_scope.
+    # - Leaf branches got their real "union:xxx:bNN" IDs assigned in Step 2.
+    # - Intermediate Union scopes still have "_union_tmp_*" placeholder IDs.
+    for sg_scope in all_scopes:
+        scope_id = getattr(sg_scope, _SCOPE_ID_ATTR, None)
+        if scope_id is None:
+            continue
+
+        # Skip all is_union scopes — handled by _create_union_scope
+        if sg_scope.is_union:
+            continue
+
+        kind = _scope_kind(sg_scope)
+        alias_in_parent = _find_alias_in_parent(sg_scope)
+
+        if scope_id in result.scopes:
+            # Already created by _create_union_scopes_recursive (e.g. union scope or branch)
+            if alias_in_parent:
+                result.scopes[scope_id].alias_in_parent = alias_in_parent
+            result.scopes[scope_id].distinct = _scope_has_distinct(sg_scope)
+            continue
+
+        result.scopes[scope_id] = ScopeData(
+            kind=kind,
+            distinct=_scope_has_distinct(sg_scope),
+            alias_in_parent=alias_in_parent,
+        )
+
+    # Ensure ROOT exists
+    if "ROOT" not in result.scopes:
+        result.scopes["ROOT"] = ScopeData(kind="root")
+    result.scopes["ROOT"].writes_to = target_table
+
+    # Step 4: Collect physical table nodes
+    physical_tables = set()
+    local_cte_names = {
+        cte.alias_or_name.lower()
+        for cte in (
+            root_scope.expression.find_all(exp.CTE)
+            if root_scope.expression is not None
+            else []
+        )
+        if cte.alias_or_name
+    }
+    # Depending on statement shape, sqlglot's ROOT expression may not retain every
+    # enclosing CTE node even though the scope tree correctly created ``cte:<name>``.
+    # Scope identity is therefore the authoritative second source of local CTE names.
+    local_cte_names.update(
+        scope_id.split(":", 1)[1].lower()
+        for scope_id in result.scopes
+        if scope_id.startswith("cte:") and ":" in scope_id
+    )
+    for sg_scope in all_scopes:
+        expression = sg_scope.expression
+        if expression is None:
+            continue
+        # Scope.sources is keyed by alias, so duplicate aliases can shadow an earlier
+        # physical input and subquery aliases can surface as table-shaped entries.  AST
+        # table nodes preserve every actual SQL table occurrence without either problem.
+        for table_node in expression.find_all(exp.Table):
+            if not table_node.name:
+                continue
+            # Spark join hints parse their arguments as ``Table`` nodes even though
+            # they only name relations already present in FROM/JOIN.  Treating those
+            # arguments as physical inputs leaked aliases such as m_a/m_b into
+            # source_tables.
+            if table_node.find_ancestor(exp.JoinHint) is not None:
+                continue
+            if (
+                not table_node.db
+                and table_node.name.lower() in local_cte_names
+            ):
+                continue
+            physical_tables.add(_qualified_table(table_node))
+    # ROOT can contain wrappers outside the optimizer's traversed scope list. Walk it
+    # once more as a harmless set-union safety net.
+    if root_scope.expression is not None:
+        for table_node in root_scope.expression.find_all(exp.Table):
+            if not table_node.name:
+                continue
+            if table_node.find_ancestor(exp.JoinHint) is not None:
+                continue
+            if (
+                not table_node.db
+                and table_node.name.lower() in local_cte_names
+            ):
+                continue
+            physical_tables.add(_qualified_table(table_node))
+
+    result.source_tables = sorted(physical_tables)
+    all_nodes = set(result.scopes.keys()) | physical_tables
+    result.scope_graph.nodes = sorted(all_nodes)
+
+    # Step 5: Resolve columns for all scopes
+    resolve_all(
+        result,
+        root_scope,
+        all_scopes,
+        schema,
+        target_metadata=target_metadata,
+        explicit_target_columns=explicit_target_columns,
+        insert_by_name=insert_by_name,
+    )
+    _populate_enhanced_scope_facts(result, all_scopes, schema)
+    result.related_metadata = build_related_metadata(result, schema)
+
+
+def _qualifiers_in_expression(expression: str) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for qualifier in re.findall(r"`([^`]+)`\.`[^`]+`", expression or ""):
+        if qualifier and qualifier not in seen:
+            seen.add(qualifier)
+            result.append(qualifier)
+    try:
+        parsed = sqlglot.parse_one(expression, dialect=DIALECT, **PARSE_OPTS)
+    except sqlglot.errors.SqlglotError:
+        return result
+    for column in parsed.find_all(exp.Column):
+        qualifier = str(column.table or "")
+        if qualifier and qualifier not in seen:
+            seen.add(qualifier)
+            result.append(qualifier)
+    return result
+
+
+def _prepare_schema(schema: dict | None) -> dict | None:
+    if schema is None or isinstance(schema, SchemaMap):
+        return schema
+    return normalize_schema_map(schema)
+
+
+def _build_source_expression(
+    insert: exp.Insert,
+    *,
+    target_metadata=None,
+) -> exp.Expression:
+    """Extract source expression from INSERT, with WITH grafted and wrappers unwrapped."""
+    src = insert.expression.copy()
+    w = insert.args.get("with_")
+
+    if isinstance(src, exp.Values):
+        return _wrap_top_level_values_source(
+            insert,
+            src,
+            target_metadata=target_metadata,
+        )
+
+    if isinstance(src, exp.Subquery):
+        inner = src.this
+        if isinstance(inner, (exp.Select, exp.Union)):
+            src = inner.copy()
+            sw = src.args.get("with_")
+            if sw is None and w is not None:
+                src.set("with_", w.copy())
+            return src
+
+    if isinstance(src, exp.Select):
+        from_ = src.args.get("from_")
+        if from_ is not None:
+            from_this = getattr(from_, "this", None)
+            if isinstance(from_this, exp.Subquery) and isinstance(from_this.this, exp.Union):
+                all_passthrough = all(
+                    isinstance(p, (exp.Column, exp.Star)) or
+                    (isinstance(p, exp.Alias) and isinstance(p.this, (exp.Column, exp.Star)))
+                    for p in src.expressions
+                )
+                # Unwrap ONLY pure wrappers. If the outer select also joins, filters,
+                # groups, etc., unwrapping would silently discard those clauses —
+                # including entire joined tables (seen in production SQL:
+                # SELECT ... FROM (a UNION ALL b) t1 JOIN ods.x c1 ON ...).
+                has_other_clauses = any(
+                    src.args.get(key)
+                    for key in ("joins", "where", "group", "having", "qualify",
+                                "laterals", "distinct", "limit", "order", "windows")
+                )
+                if all_passthrough and not has_other_clauses:
+                    union = from_this.this.copy()
+                    if w is not None and union.args.get("with_") is None:
+                        union.set("with_", w.copy())
+                    return union
+
+    if w is not None and isinstance(src, (exp.Select, exp.Union)):
+        src.set("with_", w.copy())
+    return src
+
+
+def _wrap_top_level_values_source(
+    insert: exp.Insert,
+    values: exp.Values,
+    *,
+    target_metadata=None,
+) -> exp.Select:
+    """Give a top-level VALUES write the query scope expected by the resolver.
+
+    ``SELECT * FROM VALUES`` is already a supported Spark shape.  A bare
+    ``INSERT ... VALUES`` has the same row source but no root query scope in
+    sqlglot, so wrap it and name the value columns deterministically.  The
+    complete VALUES text remains on the child scope while ordinary target-field
+    binding supplies authoritative output names when metadata is available.
+    """
+    rows = list(values.expressions or [])
+    first_row = rows[0] if rows else None
+    arity = len(first_row.expressions) if isinstance(first_row, exp.Tuple) else 0
+    names = _top_level_values_column_names(
+        insert,
+        arity,
+        target_metadata=target_metadata,
+    )
+    values.set(
+        "alias",
+        exp.TableAlias(
+            this=exp.to_identifier("values_source"),
+            columns=[exp.to_identifier(name) for name in names],
+        ),
+    )
+    return exp.select("*").from_(values)
+
+
+def _top_level_values_column_names(
+    insert: exp.Insert,
+    arity: int,
+    *,
+    target_metadata=None,
+) -> list[str]:
+    explicit = _explicit_insert_target_columns(insert)
+    if len(explicit) == arity:
+        return explicit
+
+    target_table = _insert_target_name(insert)
+    metadata = lookup_target_table_metadata(target_metadata, target_table)
+    if metadata is not None and metadata.usable:
+        static_partitions = {
+            name
+            for name, value in _target_partition_facts_from_insert(insert)[0].items()
+            if value is not None
+        }
+        metadata_names = [
+            column.name
+            for column in metadata.columns
+            if column.name not in static_partitions
+        ]
+        if len(metadata_names) == arity:
+            return metadata_names
+
+    return [f"value_{index + 1}" for index in range(arity)]
+
+
+def _compute_scope_id(sg_scope: Scope) -> str:
+    """Compute a scope_id for a single sqlglot Scope."""
+    if sg_scope.is_root:
+        return "ROOT"
+
+    if sg_scope.is_cte:
+        # CTE name from expression.parent.alias
+        cte_node = sg_scope.expression.parent
+        if hasattr(cte_node, "alias") and cte_node.alias:
+            return f"cte:{cte_node.alias}"
+        # Fallback: find in parent sources
+        if sg_scope.parent:
+            for name, src in sg_scope.parent.sources.items():
+                if src is sg_scope:
+                    return f"cte:{name}"
+        return "cte:unknown"
+
+    if sg_scope.is_union:
+        # Placeholder: _create_union_scope will assign the real ID after flattening.
+        # We use a temporary ID based on object identity to avoid collisions.
+        return f"_union_tmp_{id(sg_scope)}"
+
+    if sg_scope.is_derived_table or sg_scope.is_subquery:
+        # Find alias in parent sources first
+        alias = _find_alias_in_parent(sg_scope)
+        if alias:
+            return f"subq:{alias}"
+        # Fallback: check if parent's expression has a Subquery with alias
+        # (for MERGE USING subquery where sources dict doesn't list it)
+        if sg_scope.parent and isinstance(sg_scope.parent.expression, exp.Subquery):
+            sq_alias = sg_scope.parent.expression.alias
+            if sq_alias:
+                return f"subq:{sq_alias}"
+        return "subq:derived_0"
+
+    if sg_scope.is_udtf:
+        alias = _find_alias_in_parent(sg_scope)
+        if alias:
+            return f"udtf:{alias}"
+        return "udtf:unknown_0"
+
+    return "scope:unknown"
+
+
+def _create_union_scopes_recursive(sg_scope: Scope, result: ScopeLineageResult) -> None:
+    """Walk the scope tree and create synthetic UNION scopes wherever a scope has
+    Union expression + union_scopes children.
+
+    Handles both top-level UNION and UNION inside CTEs.
+    UNION chains (A UNION ALL B UNION ALL C) are flattened into a single union scope
+    with N branches, not nested union scopes.
+    """
+    # Check if this scope has UNION children
+    if sg_scope.union_scopes and isinstance(sg_scope.expression, exp.Union):
+        _create_union_scope(sg_scope, result)
+
+    # Recurse into child scopes
+    for child in sg_scope.cte_scopes:
+        _create_union_scopes_recursive(child, result)
+    for child in sg_scope.derived_table_scopes:
+        _create_union_scopes_recursive(child, result)
+    for child in sg_scope.subquery_scopes:
+        _create_union_scopes_recursive(child, result)
+    # Note: do NOT recurse into union_scopes here — _create_union_scope already
+    # flattened the chain and assigned IDs to all leaf branches. Recursing into
+    # union_scopes would re-enter scopes that have already been handled.
+    for child in sg_scope.udtf_scopes:
+        _create_union_scopes_recursive(child, result)
+
+
+def _flatten_union_branches(sg_scope: Scope) -> list[Scope]:
+    """Flatten a left-deep Union tree into a flat list of leaf SELECT scopes.
+
+    sqlglot parses `A UNION ALL B UNION ALL C` as Union(Union(A, B), C),
+    producing a nested scope tree. We want a single flat union scope with 3 branches.
+    A branch that is itself a Union scope is recursively flattened.
+    """
+    leaves = []
+    for branch in sg_scope.union_scopes:
+        if isinstance(branch.expression, exp.Union) and branch.union_scopes:
+            # Nested union — flatten it
+            leaves.extend(_flatten_union_branches(branch))
+        else:
+            leaves.append(branch)
+    return leaves
+
+
+def _create_union_scope(container_scope: Scope, result: ScopeLineageResult) -> None:
+    """Create a synthetic UNION scope for a scope that has Union expression + union_scopes.
+
+    Flattens UNION chains so A UNION ALL B UNION ALL C produces one union scope
+    with 3 branches, not nested union scopes.
+    """
+    # Flatten the left-deep union tree into leaf branches
+    flat_branches = _flatten_union_branches(container_scope)
+    if not flat_branches:
+        return
+
+    container_id = getattr(container_scope, _SCOPE_ID_ATTR, None)
+    union_scope_id = _union_scope_id_for_container(container_id)
+    context = union_scope_id.split(":", 1)[1]
+
+    # Assign branch IDs to the flattened leaf branches
+    branch_ids = []
+    for i, branch in enumerate(flat_branches):
+        branch_id = f"union:{context}:b{i + 1:02d}"
+        setattr(branch, _SCOPE_ID_ATTR, branch_id)
+        branch_ids.append(branch_id)
+
+    # Also fix the _lineage_scope_id on intermediate Union scopes that we
+    # flattened away — they should NOT appear as separate scopes in the result.
+    # Point them to the union scope so they're treated as aliases.
+    for branch in container_scope.union_scopes:
+        if isinstance(branch.expression, exp.Union) and branch.union_scopes:
+            setattr(branch, _SCOPE_ID_ATTR, union_scope_id)
+
+    # Determine set_op type
+    union_expr = container_scope.expression
+    set_op = "UNION_ALL"
+    if hasattr(union_expr, "args"):
+        kind = union_expr.args.get("kind", "")
+        if kind and "ALL" not in str(kind).upper():
+            set_op = "UNION"
+
+    result.scopes[union_scope_id] = ScopeData(
+        kind="union",
+        set_op=set_op,
+        branches=branch_ids,
+    )
+
+    # Create branch stubs
+    for i, branch_id in enumerate(branch_ids):
+        if branch_id not in result.scopes:
+            result.scopes[branch_id] = ScopeData(
+                kind="union_branch",
+                branch_index=i,
+            )
+
+    # If container is ROOT, also create the ROOT stub
+    if container_id == "ROOT":
+        if "ROOT" not in result.scopes:
+            result.scopes["ROOT"] = ScopeData(kind="root")
+
+
+def _union_scope_id_for_container(container_id: str | None) -> str:
+    """Return the synthetic union scope ID for a container scope ID."""
+    if not container_id or container_id == "ROOT":
+        context = "main"
+    elif ":" in container_id:
+        context = container_id.split(":", 1)[1]
+    else:
+        context = container_id
+    return f"union:{context}"
+
+
+def _scope_kind(sg_scope: Scope) -> str:
+    """Map sqlglot ScopeType to our kind string."""
+    if sg_scope.is_root:
+        return "root"
+    if sg_scope.is_cte:
+        return "cte"
+    if sg_scope.is_union:
+        return "union_branch"
+    if sg_scope.is_derived_table:
+        return "subquery"
+    if sg_scope.is_subquery:
+        return "subquery"
+    if sg_scope.is_udtf:
+        return "subquery"
+    return "unknown"
+
+
+def _scope_has_distinct(sg_scope: Scope) -> bool:
+    """Return whether a sqlglot SELECT scope uses DISTINCT."""
+    return isinstance(sg_scope.expression, exp.Select) and bool(
+        sg_scope.expression.args.get("distinct")
+    )
+
+
+def _compute_stats(result: "ScopeLineageResult") -> dict:
+    """Compute diagnostics.stats from the fully-built result."""
+    cte_count = sum(1 for s in result.scopes.values() if s.kind == "cte")
+    subquery_count = sum(1 for s in result.scopes.values() if s.kind == "subquery")
+    union_count = sum(1 for s in result.scopes.values() if s.kind == "union")
+    union_branch_count = sum(1 for s in result.scopes.values() if s.kind == "union_branch")
+
+    physical_ids: set = set()
+    for scope in result.scopes.values():
+        for col in scope.columns:
+            for src in col.sources:
+                if src.scope and src.scope not in result.scopes and src.scope not in ("UNKNOWN", ""):
+                    physical_ids.add(src.scope)
+        for j in scope.joins:
+            for sid in (j.left_scope, j.right_scope):
+                if sid and sid not in result.scopes and sid not in ("UNKNOWN", ""):
+                    physical_ids.add(sid)
+
+    agg_count = window_count = case_count = join_count = 0
+    for scope in result.scopes.values():
+        join_count += len(scope.joins)
+        for col in scope.columns:
+            if col.transform == "AGGREGATE":
+                agg_count += 1
+            elif col.transform == "WINDOW":
+                window_count += 1
+            elif col.transform == "CONDITIONAL":
+                case_count += 1
+
+    def _depth(scope_id: str, memo: dict, visiting: set) -> int:
+        if scope_id in memo:
+            return memo[scope_id]
+        if scope_id in visiting:   # cycle detected — return 0 to break recursion
+            return 0
+        visiting.add(scope_id)
+        scope = result.scopes.get(scope_id)
+        if scope is None:
+            visiting.discard(scope_id)
+            memo[scope_id] = 0
+            return 0
+        d = 1 + max((_depth(dep, memo, visiting) for dep in scope.depends_on), default=0)
+        visiting.discard(scope_id)
+        memo[scope_id] = d
+        return d
+
+    memo: dict = {}
+    max_depth = max((_depth(sid, memo, set()) for sid in result.scopes), default=0)
+    scope_count = len(result.scopes) + len(physical_ids)
+
+    return {
+        "scope_count": scope_count,
+        "physical_table_count": len(physical_ids),
+        "cte_count": cte_count,
+        "subquery_count": subquery_count,
+        "union_count": union_count,
+        "union_branch_count": union_branch_count,
+        "max_depth": max_depth,
+        "case_when_count": case_count,
+        "window_function_count": window_count,
+        "join_count": join_count,
+        "aggregate_function_count": agg_count,
+    }
+
+
+_LOGICBLOCKENGINE_INSTANCE = None
+
+
+# Delegation shims preserve the free-function surface used by callers/tests.
+
+
+# Delegation shims preserve the free-function surface used by callers/tests.
