@@ -1,0 +1,14 @@
+{
+  "table_name": "mart.customer_snapshot",
+  "full_table_name": "spark_catalog.mart.customer_snapshot",
+  "schema": [
+    {"columnName": "customer_id", "columnType": "bigint", "columnComment": "Synthetic customer identifier", "columnIndex": 0, "isPartition": 0},
+    {"columnName": "customer_name", "columnType": "string", "columnComment": "Synthetic customer name", "columnIndex": 1, "isPartition": 0},
+    {"columnName": "country_code", "columnType": "string", "columnComment": "Country code", "columnIndex": 2, "isPartition": 0},
+    {"columnName": "registered_at", "columnType": "timestamp", "columnComment": "Registration timestamp", "columnIndex": 3, "isPartition": 0},
+    {"columnName": "dt", "columnType": "string", "columnComment": "Snapshot date", "columnIndex": 4, "isPartition": 0}
+  ],
+  "ddl": "CREATE TABLE spark_catalog.mart.customer_snapshot (customer_id BIGINT, customer_name STRING, country_code STRING, registered_at TIMESTAMP, dt STRING) USING iceberg",
+  "query_time": "2026-08-02 09:00:00",
+  "data_source": "catalog_api_demo"
+}

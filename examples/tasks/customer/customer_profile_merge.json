@@ -1,0 +1,30 @@
+{
+  "meta": {
+    "task_id": "demo-task-1010",
+    "task_name": "customer_profile_merge",
+    "task_type": "Spark SQL",
+    "project_name": "AI Knowledge Base Demo",
+    "project_code": "demo_ai_kb",
+    "owner": "demo_owner",
+    "owner_email": "demo@example.invalid",
+    "schedule": "0 30 1 * * ?",
+    "schedule_cycle": "day",
+    "description": "Merge synthetic customer changes into the current profile table.",
+    "input_tables": [
+      "ods.customer_change_event"
+    ],
+    "output_tables": [
+      "mart.customer_profile_current"
+    ],
+    "upstream_tasks": [],
+    "downstream_tasks": [],
+    "sql": "MERGE INTO mart.customer_profile_current AS target\nUSING (\n    SELECT customer_id, customer_name, country_code, updated_at\n    FROM ods.customer_change_event\n    WHERE dt = '${bizdate}'\n) AS source\nON target.customer_id = source.customer_id\nWHEN MATCHED AND source.updated_at >= target.updated_at THEN UPDATE SET\n    target.customer_name = source.customer_name,\n    target.country_code = source.country_code,\n    target.updated_at = source.updated_at\nWHEN NOT MATCHED THEN INSERT (customer_id, customer_name, country_code, updated_at)\nVALUES (source.customer_id, source.customer_name, source.country_code, source.updated_at);",
+    "create_time": "2026-07-03 09:00:00",
+    "update_time": null,
+    "project_dir": "demo/customer-domain",
+    "instance_id": 1010,
+    "expect_date": "${bizdate}"
+  },
+  "query_time": "2026-08-02 10:00:00",
+  "data_source": "scheduler_api_demo"
+}
