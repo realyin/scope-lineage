@@ -1,0 +1,40 @@
+{
+  "meta": {
+    "task_id": "demo-task-2002",
+    "task_name": "order_channel_metrics",
+    "task_type": "Spark SQL",
+    "project_name": "AI Knowledge Base Demo",
+    "project_code": "demo_ai_kb",
+    "owner": "demo_owner",
+    "owner_email": "demo@example.invalid",
+    "schedule": "0 20 3 * * ?",
+    "schedule_cycle": "day",
+    "description": "Normalize orders from two channels and publish daily metrics.",
+    "input_tables": [
+      "ods.app_order",
+      "ods.web_order"
+    ],
+    "output_tables": [
+      "mart.order_channel_metrics"
+    ],
+    "upstream_tasks": [
+      {
+        "task_id": "demo-task-2000",
+        "task_name": "app_order_ingestion"
+      },
+      {
+        "task_id": "demo-task-2001",
+        "task_name": "web_order_ingestion"
+      }
+    ],
+    "downstream_tasks": [],
+    "sql": "INSERT OVERWRITE TABLE mart.order_channel_metrics\nPARTITION (dt = '${bizdate}')\nWITH normalized_orders AS (\n    SELECT order_id, customer_id, pay_amount, pay_status, created_at, 'APP' AS order_channel\n    FROM ods.app_order\n    WHERE dt = '${bizdate}'\n    UNION ALL\n    SELECT web_order_id AS order_id, buyer_id AS customer_id,\n           order_amount AS pay_amount, order_status AS pay_status,\n           order_time AS created_at, 'WEB' AS order_channel\n    FROM ods.web_order\n    WHERE dt = '${bizdate}'\n)\nSELECT order_channel,\n       COUNT(*) AS order_count,\n       COUNT(DISTINCT customer_id) AS customer_count,\n       SUM(CASE WHEN pay_status = 'PAID' THEN pay_amount ELSE 0 END) AS paid_amount,\n       MIN(created_at) AS first_order_time,\n       MAX(created_at) AS last_order_time\nFROM normalized_orders\nGROUP BY order_channel;",
+    "create_time": "2026-07-05 09:00:00",
+    "update_time": "2026-08-01 18:00:00",
+    "project_dir": "demo/order-domain",
+    "instance_id": 2002,
+    "expect_date": "${bizdate}"
+  },
+  "query_time": "2026-08-02 10:00:00",
+  "data_source": "scheduler_api_demo"
+}

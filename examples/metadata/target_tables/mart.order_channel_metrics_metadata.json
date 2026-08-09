@@ -1,0 +1,16 @@
+{
+  "table_name": "mart.order_channel_metrics",
+  "full_table_name": "spark_catalog.mart.order_channel_metrics",
+  "schema": [
+    {"columnName": "order_channel", "columnType": "string", "columnComment": "Order channel", "columnIndex": 0, "isPartition": 0},
+    {"columnName": "order_count", "columnType": "bigint", "columnComment": "Order count", "columnIndex": 1, "isPartition": 0},
+    {"columnName": "customer_count", "columnType": "bigint", "columnComment": "Distinct customer count", "columnIndex": 2, "isPartition": 0},
+    {"columnName": "paid_amount", "columnType": "decimal(18,2)", "columnComment": "Paid amount", "columnIndex": 3, "isPartition": 0},
+    {"columnName": "first_order_time", "columnType": "timestamp", "columnComment": "First order timestamp", "columnIndex": 4, "isPartition": 0},
+    {"columnName": "last_order_time", "columnType": "timestamp", "columnComment": "Last order timestamp", "columnIndex": 5, "isPartition": 0},
+    {"columnName": "dt", "columnType": "string", "columnComment": "Partition date", "columnIndex": 6, "isPartition": 1}
+  ],
+  "ddl": "CREATE TABLE spark_catalog.mart.order_channel_metrics (order_channel STRING, order_count BIGINT, customer_count BIGINT, paid_amount DECIMAL(18,2), first_order_time TIMESTAMP, last_order_time TIMESTAMP, dt STRING) USING iceberg PARTITIONED BY (dt)",
+  "query_time": "2026-08-02 09:00:00",
+  "data_source": "catalog_api_demo"
+}

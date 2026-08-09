@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -48,6 +49,159 @@ def test_core_cli_writes_only_lineage_and_diagnostics(tmp_path) -> None:
         "diagnostics.json",
     }
     assert json.loads((task_dir / "lineage.json").read_text())["schema_version"] == "1.0"
+
+
+def test_core_cli_accepts_exported_task_json_and_keeps_dependencies(tmp_path) -> None:
+    task_path = tmp_path / "daily_customer.json"
+    task_path.write_text(
+        json.dumps(
+            {
+                "meta": {
+                    "task_id": "task-002",
+                    "task_name": "daily_customer",
+                    "upstream_tasks": [
+                        {"task_id": "task-001", "task_name": "clean_customer"}
+                    ],
+                    "downstream_tasks": [],
+                    "sql": "INSERT INTO mart.customer SELECT id FROM ods.customer",
+                },
+                "query_time": "2026-08-01 10:00:00",
+                "data_source": "scheduler_api",
+            }
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "output"
+
+    assert main([
+        "parse",
+        "--task-file",
+        str(task_path),
+        "--out",
+        str(output),
+    ]) == 0
+
+    lineage = json.loads(
+        (output / "daily_customer" / "lineage.json").read_text(encoding="utf-8")
+    )
+    dependencies = lineage["task_dependencies"]
+    assert dependencies["source_summary"] == {
+        "source_format": "task_info_meta",
+        "upstream_count": 1,
+        "downstream_count": 0,
+        "has_declared_task_dependencies": True,
+    }
+    assert dependencies["upstream_tasks"][0]["task_name"] == "clean_customer"
+
+
+def test_core_cli_parses_task_directory_recursively(tmp_path) -> None:
+    input_dir = tmp_path / "tasks"
+    nested_dir = input_dir / "customer_domain"
+    nested_dir.mkdir(parents=True)
+    (input_dir / "orders.json").write_text(
+        json.dumps(
+            {
+                "task_name": "orders",
+                "sql": "INSERT INTO mart.orders SELECT id FROM ods.orders",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (nested_dir / "customers.json").write_text(
+        json.dumps(
+            {
+                "meta": {
+                    "task_name": "customers",
+                    "sql": "INSERT INTO mart.customers SELECT id FROM ods.customers",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "output"
+
+    assert main([
+        "parse",
+        "--input-dir",
+        str(input_dir),
+        "--out",
+        str(output),
+    ]) == 0
+
+    assert (output / "orders" / "lineage.json").is_file()
+    assert (output / "customer_domain" / "customers" / "lineage.json").is_file()
+
+
+def test_core_cli_rejects_empty_task_sql(tmp_path) -> None:
+    task_path = tmp_path / "empty.json"
+    task_path.write_text(
+        json.dumps({"meta": {"task_name": "empty", "sql": ""}}),
+        encoding="utf-8",
+    )
+
+    assert main([
+        "parse",
+        "--task-file",
+        str(task_path),
+        "--out",
+        str(tmp_path / "output"),
+    ]) == 1
+
+
+def test_documented_example_corpus_is_executable(tmp_path) -> None:
+    project_root = Path(__file__).resolve().parents[2]
+    output = tmp_path / "output"
+
+    assert main([
+        "parse",
+        "--input-dir",
+        str(project_root / "examples" / "tasks"),
+        "--schema",
+        str(project_root / "examples" / "metadata" / "schema_info.csv"),
+        "--target-ddl-metadata",
+        str(project_root / "examples" / "metadata" / "target_tables"),
+        "--out",
+        str(output),
+    ]) == 0
+
+    lineage_files = sorted(output.rglob("lineage.json"))
+    assert len(lineage_files) == 5
+    assert all(
+        json.loads(path.read_text(encoding="utf-8"))["parse_status"] == "ok"
+        for path in lineage_files
+    )
+
+
+def test_select_star_example_expands_and_uses_target_binding(tmp_path) -> None:
+    project_root = Path(__file__).resolve().parents[2]
+    output = tmp_path / "output"
+
+    assert main([
+        "parse",
+        "--sql-file",
+        str(project_root / "examples" / "sql" / "select_star_with_schema.sql"),
+        "--schema",
+        str(project_root / "examples" / "metadata" / "schema_info.csv"),
+        "--target-ddl-metadata",
+        str(project_root / "examples" / "metadata" / "target_tables"),
+        "--out",
+        str(output),
+    ]) == 0
+
+    lineage = json.loads(
+        (output / "select_star_with_schema" / "lineage.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert lineage["target_field_binding"]["status"] == "applied"
+    assert [item["column"] for item in lineage["end_to_end_lineage"]] == [
+        "customer_id",
+        "customer_name",
+        "country_code",
+        "registered_at",
+        "dt",
+    ]
+    assert lineage["diagnostics"]["warning_count"] == 0
 
 
 def test_core_cli_help_exposes_only_parse(capsys) -> None:
