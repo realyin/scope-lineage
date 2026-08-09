@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -13,8 +14,21 @@ import lineage_parser
 from lineage_parser.cli import main
 
 
+REQUIRED_SYMBOLS = (
+    Path(__file__).parent / "fixtures" / "public-api-required-symbols.json"
+)
+
+
 def test_public_exports_match_the_declared_core_api() -> None:
     assert set(lineage_parser.__all__) == lineage_parser.PUBLIC_CORE_API
+
+
+def test_public_api_covers_the_approved_consumer_surface() -> None:
+    required = set(json.loads(REQUIRED_SYMBOLS.read_text(encoding="utf-8")))
+    missing = required - lineage_parser.PUBLIC_CORE_API
+
+    assert not missing, f"Public Core API is missing approved symbols: {sorted(missing)}"
+    assert all(hasattr(lineage_parser, name) for name in required)
 
 
 def test_importing_core_does_not_load_upper_layers() -> None:
@@ -148,6 +162,78 @@ def test_core_cli_rejects_empty_task_sql(tmp_path) -> None:
     ]) == 1
 
 
+def test_core_cli_preserves_catalog_by_default_and_strips_configured_prefix(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("SCOPE_LINEAGE_CATALOG_PREFIXES", raising=False)
+    sql_path = tmp_path / "catalog.sql"
+    sql_path.write_text(
+        "INSERT INTO mart.orders SELECT id FROM warehouse_catalog.ods.orders",
+        encoding="utf-8",
+    )
+
+    default_output = tmp_path / "default"
+    assert main([
+        "parse",
+        "--sql-file",
+        str(sql_path),
+        "--out",
+        str(default_output),
+    ]) == 0
+    default_lineage = json.loads(
+        (default_output / "catalog" / "lineage.json").read_text(encoding="utf-8")
+    )
+    assert default_lineage["source_tables"] == ["warehouse_catalog.ods.orders"]
+
+    configured_output = tmp_path / "configured"
+    assert main([
+        "parse",
+        "--sql-file",
+        str(sql_path),
+        "--catalog-prefixes",
+        "warehouse_catalog",
+        "--out",
+        str(configured_output),
+    ]) == 0
+    configured_lineage = json.loads(
+        (configured_output / "catalog" / "lineage.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert configured_lineage["source_tables"] == ["ods.orders"]
+    assert configured_lineage["end_to_end_lineage"][0]["physical_sources"] == [
+        {"table": "ods.orders", "column": "id", "transform": "DIRECT"}
+    ]
+    assert "SCOPE_LINEAGE_CATALOG_PREFIXES" not in os.environ
+
+
+def test_core_cli_catalog_prefixes_override_environment(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("SCOPE_LINEAGE_CATALOG_PREFIXES", "environment_catalog")
+    sql_path = tmp_path / "catalog.sql"
+    sql_path.write_text(
+        "INSERT INTO mart.t SELECT id FROM cli_catalog.ods.source",
+        encoding="utf-8",
+    )
+    output = tmp_path / "output"
+
+    assert main([
+        "parse",
+        "--sql-file",
+        str(sql_path),
+        "--catalog-prefixes",
+        "cli_catalog",
+        "--out",
+        str(output),
+    ]) == 0
+
+    lineage = json.loads(
+        (output / "catalog" / "lineage.json").read_text(encoding="utf-8")
+    )
+    assert lineage["source_tables"] == ["ods.source"]
+    assert os.environ["SCOPE_LINEAGE_CATALOG_PREFIXES"] == "environment_catalog"
+
+
 def test_documented_example_corpus_is_executable(tmp_path) -> None:
     project_root = Path(__file__).resolve().parents[2]
     output = tmp_path / "output"
@@ -212,6 +298,16 @@ def test_core_cli_help_exposes_only_parse(capsys) -> None:
     assert "parse" in help_text
     for upper_command in ("insight", "governance", "refactor-candidates"):
         assert upper_command not in help_text
+
+
+def test_core_parse_help_explains_catalog_configuration(capsys) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(["parse", "--help"])
+    assert exc_info.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "--catalog-prefixes" in help_text
+    assert "SCOPE_LINEAGE_CATALOG_PREFIXES" in help_text
+    assert "by default catalogs are preserved" in " ".join(help_text.split())
 
 
 def test_public_qualified_field_extractor() -> None:

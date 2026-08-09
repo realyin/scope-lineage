@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -42,6 +44,13 @@ def main(argv: list[str] | None = None) -> int:
         help="Optional target-table DDL/Schema metadata JSON file or directory",
     )
     parse_cmd.add_argument(
+        "--catalog-prefixes",
+        help=(
+            "Comma-separated leading catalog names to remove from table identities. "
+            "Overrides SCOPE_LINEAGE_CATALOG_PREFIXES; by default catalogs are preserved."
+        ),
+    )
+    parse_cmd.add_argument(
         "--sanitize-metadata-nul",
         action="store_true",
         help="Remove NUL bytes from metadata inputs and report provenance",
@@ -56,7 +65,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "parse":
         if args.input_dir and args.task_name:
             parser.error("--task-name cannot be used with --input-dir")
-        return _parse_inputs(args)
+        with _catalog_prefix_override(args.catalog_prefixes):
+            return _parse_inputs(args)
     parser.error(f"unknown command: {args.command}")
     return 2
 
@@ -68,6 +78,24 @@ class _TaskInput:
     task_name: str
     sql: str
     task_dependencies: dict
+
+
+@contextmanager
+def _catalog_prefix_override(value: str | None):
+    """Apply a CLI-only catalog policy without leaking it to later in-process calls."""
+    if value is None:
+        yield
+        return
+    key = "SCOPE_LINEAGE_CATALOG_PREFIXES"
+    previous = os.environ.get(key)
+    os.environ[key] = value
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = previous
 
 
 def _parse_inputs(args: argparse.Namespace) -> int:
