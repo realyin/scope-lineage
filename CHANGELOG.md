@@ -17,3 +17,5 @@ Initial public release preparation:
 - production-shaped synthetic examples for task wrappers, task dependencies, complex Spark SQL,
   Schema CSV/JSON, and target-table DDL metadata
 - public documentation centered on AI-ready SQL task knowledge bases
+- field-level documentation for every major Lineage and Diagnostics object, including scope values,
+  logic blocks, mapping chains, end-to-end trace semantics, fact gaps, and safe AI consumption
