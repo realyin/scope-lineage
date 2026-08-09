@@ -1,0 +1,42 @@
+{
+  "meta": {
+    "task_id": "demo-task-1002",
+    "task_name": "customer_profile_daily",
+    "task_type": "Spark SQL",
+    "project_name": "AI Knowledge Base Demo",
+    "project_code": "demo_ai_kb",
+    "owner": "demo_owner",
+    "owner_email": "demo@example.invalid",
+    "schedule": "0 10 2 * * ?",
+    "schedule_cycle": "day",
+    "description": "Build a daily customer profile snapshot for the synthetic demo.",
+    "input_tables": [
+      "ods.customer_base",
+      "ods.customer_status_event",
+      "dwd.order_detail"
+    ],
+    "output_tables": [
+      "mart.customer_profile_snapshot"
+    ],
+    "upstream_tasks": [
+      {
+        "task_id": "demo-task-1001",
+        "task_name": "order_detail_daily"
+      }
+    ],
+    "downstream_tasks": [
+      {
+        "task_id": "demo-task-1003",
+        "task_name": "customer_segment_daily"
+      }
+    ],
+    "sql": "INSERT OVERWRITE TABLE mart.customer_profile_snapshot\nPARTITION (dt = '${bizdate}')\nWITH latest_status AS (\n    SELECT customer_id, customer_status,\n           ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY event_time DESC) AS row_num\n    FROM ods.customer_status_event\n    WHERE dt = '${bizdate}'\n),\norder_summary AS (\n    SELECT customer_id,\n           COUNT(DISTINCT order_id) AS order_count_30d,\n           SUM(CASE WHEN pay_status = 'PAID' THEN pay_amount ELSE 0 END) AS paid_amount_30d,\n           MAX(paid_at) AS last_paid_at\n    FROM dwd.order_detail\n    WHERE dt BETWEEN DATE_SUB('${bizdate}', 29) AND '${bizdate}'\n    GROUP BY customer_id\n)\nSELECT base.customer_id,\n       COALESCE(base.customer_name, 'UNKNOWN') AS customer_name,\n       base.country_code,\n       CASE WHEN COALESCE(summary.paid_amount_30d, 0) >= 10000 THEN 'HIGH'\n            WHEN COALESCE(summary.paid_amount_30d, 0) >= 1000 THEN 'MEDIUM'\n            ELSE 'STANDARD' END AS customer_level,\n       COALESCE(status.customer_status, 'NEW') AS customer_status,\n       COALESCE(summary.order_count_30d, 0) AS order_count_30d,\n       COALESCE(summary.paid_amount_30d, 0) AS paid_amount_30d,\n       summary.last_paid_at\nFROM ods.customer_base base\nLEFT JOIN latest_status status\n  ON base.customer_id = status.customer_id AND status.row_num = 1\nLEFT JOIN order_summary summary\n  ON base.customer_id = summary.customer_id\nWHERE base.dt = '${bizdate}';",
+    "create_time": "2026-07-01 09:00:00",
+    "update_time": "2026-08-01 16:30:00",
+    "project_dir": "demo/customer-domain",
+    "instance_id": 1002,
+    "expect_date": "${bizdate}"
+  },
+  "query_time": "2026-08-02 10:00:00",
+  "data_source": "scheduler_api_demo"
+}

@@ -47,8 +47,9 @@ jobs:
           /tmp/scope-lineage-wheel/bin/python -m pip install dist/*.whl
           cd /tmp
           /tmp/scope-lineage-wheel/bin/scope-lineage parse \
-            --sql-file "$GITHUB_WORKSPACE/examples/simple_insert.sql" \
-            --schema "$GITHUB_WORKSPACE/examples/table_cols.csv" \
+            --task-file "$GITHUB_WORKSPACE/examples/tasks/customer/customer_profile_daily.json" \
+            --schema "$GITHUB_WORKSPACE/examples/metadata/schema_info.csv" \
+            --target-ddl-metadata "$GITHUB_WORKSPACE/examples/metadata/target_tables" \
             --out /tmp/scope-lineage-output
-          test -f /tmp/scope-lineage-output/simple_insert/lineage.json
-          test -f /tmp/scope-lineage-output/simple_insert/diagnostics.json
+          test -f /tmp/scope-lineage-output/customer_profile_daily/lineage.json
+          test -f /tmp/scope-lineage-output/customer_profile_daily/diagnostics.json
