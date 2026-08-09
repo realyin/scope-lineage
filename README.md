@@ -180,6 +180,31 @@ explicitly accept invalid inputs or failed statements. See the complete syntheti
 [examples/README.zh-CN.md](examples/README.zh-CN.md) and the detailed
 [Core input formats](docs/zh-CN/input-formats.md).
 
+### Catalog-prefix normalization
+
+Core preserves fully qualified table names by default. For example,
+`warehouse_catalog.ods.orders` remains fully qualified in `source_tables` and physical field
+sources. If a deployment uses both `warehouse_catalog.ods.orders` and `ods.orders` for the same
+physical table, explicitly configure the catalog names that may be removed:
+
+```bash
+scope-lineage parse \
+  --input-dir examples/tasks \
+  --catalog-prefixes warehouse_catalog,spark_catalog \
+  --out /tmp/scope-lineage-corpus
+```
+
+Python API and fixed deployment environments may instead use:
+
+```bash
+export SCOPE_LINEAGE_CATALOG_PREFIXES="warehouse_catalog,spark_catalog"
+```
+
+The CLI option overrides the environment variable; when neither is set, no catalog is removed.
+List only confirmed leading catalog names, not database names. This is a batch/deployment parsing
+policy rather than a per-task business fact, so it does not belong in task JSON. Run task groups
+separately when they require different policies.
+
 ## Inputs
 
 Task JSON may use the current scheduler-export wrapper:
