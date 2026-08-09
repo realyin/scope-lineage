@@ -1,0 +1,32 @@
+{
+  "meta": {
+    "task_id": "demo-task-3001",
+    "task_name": "multi_statement_publish",
+    "task_type": "Spark SQL",
+    "project_name": "AI Knowledge Base Demo",
+    "project_code": "demo_ai_kb",
+    "owner": "demo_owner",
+    "owner_email": "demo@example.invalid",
+    "schedule": "0 0 4 * * ?",
+    "schedule_cycle": "day",
+    "description": "Publish two synthetic daily aggregate tables in one task.",
+    "input_tables": [
+      "ods.customer_base",
+      "dwd.order_detail"
+    ],
+    "output_tables": [
+      "mart.daily_customer_count",
+      "mart.daily_paid_revenue"
+    ],
+    "upstream_tasks": [],
+    "downstream_tasks": [],
+    "sql": "INSERT OVERWRITE TABLE mart.daily_customer_count\nPARTITION (dt = '${bizdate}')\nSELECT country_code, COUNT(DISTINCT customer_id) AS customer_count\nFROM ods.customer_base\nWHERE dt = '${bizdate}'\nGROUP BY country_code;\n\nINSERT OVERWRITE TABLE mart.daily_paid_revenue\nPARTITION (dt = '${bizdate}')\nSELECT currency_code, SUM(pay_amount) AS paid_amount\nFROM dwd.order_detail\nWHERE dt = '${bizdate}' AND pay_status = 'PAID'\nGROUP BY currency_code;",
+    "create_time": "2026-07-08 09:00:00",
+    "update_time": null,
+    "project_dir": "demo/publishing",
+    "instance_id": 3001,
+    "expect_date": "${bizdate}"
+  },
+  "query_time": "2026-08-02 10:00:00",
+  "data_source": "scheduler_api_demo"
+}
