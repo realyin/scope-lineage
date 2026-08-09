@@ -1,74 +1,662 @@
-# `lineage.json` 输出契约
+# `lineage.json` 输出契约与字段说明
 
-## 1. 定位
+## 1. 它到底输出什么
 
-`lineage.json` 是 Scope Lineage 的主事实契约。它保存 SQL 解析状态、scope 图、字段来源、
-端到端血缘和确定性的 scope 投影。完整告警与缺口明细放在同目录的 `diagnostics.json`。
+`lineage.json` 不是一组简单的“输入表 → 输出表”边，而是一份 SQL 任务的结构化事实文档。它同时回答五类问题：
 
-权威 JSON Schema：
+1. **任务事实**：写入哪张表、使用什么语句、分区方式是什么；
+2. **结构事实**：SQL 被拆成哪些 CTE、子查询、UNION 分支和 ROOT 查询块；
+3. **逻辑事实**：每个查询块执行了哪些 JOIN、过滤、聚合、窗口和字段表达式；
+4. **字段事实**：每个目标字段经过哪些 scope，最终来自哪些物理字段或生成值；
+5. **可信度事实**：血缘是否完整、哪里存在歧义、还缺什么证据。
+
+权威 JSON Schema 位于：
 
 ```text
 lineage_parser/schemas/lineage.schema.json
 ```
 
-## 2. 版本规则
+文档用于解释字段语义和消费方法，Schema 用于判断结构是否合法。两者冲突时，以当前版本 Schema 和实际序列化代码为准。
 
-顶层 `schema_version` 必填，当前固定为 `1.0`。
+## 2. 从 SQL 到事实：一个最小例子
 
-- 1.x 可以增加可选字段；消费者必须忽略未知可选字段。
-- 删除、改名、改变字段类型或语义必须升级 major。
-- 缺失版本或未知 major 会在写盘前被拒绝。
+输入：
 
-## 3. 顶层核心字段
+```sql
+INSERT OVERWRITE TABLE mart.customer_summary PARTITION (dt='${bizdate}')
+SELECT
+  c.customer_id,
+  COUNT(DISTINCT o.order_id) AS order_count
+FROM ods.customer c
+LEFT JOIN dwd.order_detail o
+  ON c.customer_id = o.customer_id
+WHERE c.dt = '${bizdate}'
+GROUP BY c.customer_id;
+```
 
-Schema 是字段完整性的最终权威；以下是消费时最常用的分组：
+`lineage.json` 会表达为：
 
-| 字段 | 含义 |
+```json
+{
+  "schema_version": "1.0",
+  "task_id": "customer_summary",
+  "target_table": "mart.customer_summary",
+  "stmt_kind": "INSERT_OVERWRITE",
+  "parse_status": "ok",
+  "syntax_status": "strict_ok",
+  "target_partition_spec": {"dt": "${bizdate}"},
+  "target_partition_columns": ["dt"],
+  "target_partition_mode": "static",
+  "source_tables": ["dwd.order_detail", "ods.customer"],
+  "scope_graph": {
+    "nodes": ["ROOT", "dwd.order_detail", "ods.customer"],
+    "edges": [
+      {"from": "ods.customer", "to": "ROOT"},
+      {"from": "dwd.order_detail", "to": "ROOT"}
+    ]
+  },
+  "end_to_end_lineage": [
+    {
+      "column": "order_count",
+      "transform": "AGGREGATE",
+      "trace_complete": true,
+      "physical_sources": [
+        {"table": "dwd.order_detail", "column": "order_id", "transform": "AGGREGATE"}
+      ]
+    }
+  ]
+}
+```
+
+这个片段省略了完整 `scopes` 和 `field_mapping_chains`。真实输出还会保留 JOIN 条件、过滤字段、GROUP BY、原始表达式、字段变换步骤和诊断摘要。
+
+## 3. 顶层对象：key 和 value
+
+### 3.1 完整顶层字段表
+
+| Key | Value 类型 | 必填 | 含义与使用方式 |
+| --- | --- | --- | --- |
+| `schema_version` | string | 是 | 输出契约版本，当前固定为 `1.0`。消费者先检查 major 版本。 |
+| `task_id` | string | 是 | 本条写表语句的任务标识；批量输入和多语句任务可能基于输入名生成独立标识。 |
+| `target_table` | string | 是 | SQL 实际写入的目标表，如 `mart.customer_summary`。 |
+| `stmt_kind` | enum string | 是 | `INSERT_OVERWRITE`、`INSERT`、`CTAS`、`MERGE` 或 `UNKNOWN`。注意字段名不是 `statement_type`。 |
+| `parse_status` | enum string | 是 | `ok` 表示形成了可校验 Lineage 文档；`failed` 表示解析失败，不能消费正常血缘。 |
+| `syntax_status` | enum string | 是 | `strict_ok`、`recovered` 或 `failed`。`recovered` 表示解析器经过恢复，必须同时读诊断。 |
+| `syntax_errors` | array<object> | 是 | 语法错误或恢复证据。元素可含 `description`、`line`、`col` 和上下文片段。 |
+| `target_partition_spec` | object | 是 | 分区名到分区值的映射。动态分区的 value 可以为 `null`。 |
+| `target_partition_columns` | array<string> | 是 | 目标表分区列名。 |
+| `target_partition_mode` | enum string | 是 | `none`、`static`、`dynamic` 或 `mixed`。 |
+| `target_field_binding` | object | 条件输出 | 提供目标表 DDL/Schema 时输出，说明目标字段是否按权威顺序绑定。 |
+| `task_dependencies` | object | 是 | 从任务 JSON 保留的上游、下游任务声明，以及依赖来源摘要。 |
+| `source_tables` | array<string> | 是 | 解析得到的全部物理输入表去重列表。适合表级检索和初步影响分析。 |
+| `related_metadata` | object | 是 | 输入表、输出表的字段类型、注释及元数据完整性观察结果。 |
+| `partition_columns` | array<string> | 否 | 兼容性字段；记录解析过程中识别的分区列。新消费者优先使用 `target_partition_columns`。 |
+| `scopes` | object/map | 是 | key 是 scope ID，value 是该查询块的完整事实。它是最详细的 SQL 结构层。 |
+| `scope_graph` | object | 是 | `nodes[]` 是 scope/物理表节点，`edges[]` 表示数据从 `from` 流向 `to`。 |
+| `field_mapping_chains` | array<object> | 是 | 每个目标字段的有序变换链，解释字段如何跨 scope 到达最终目标。 |
+| `scope_profile` | object | 是 | 从 scope 事实生成的确定性简表，适合索引、检索和给 AI 提供低成本上下文。 |
+| `end_to_end_lineage` | array<object> | 是 | 每个最终目标字段到物理字段、常量或行集来源的汇总血缘。 |
+| `diagnostics` | object | 是 | 完整诊断的摘要：warning 数、缺口数、类型分布、样本和统计。 |
+
+### 3.2 为什么同时有 `scopes`、`field_mapping_chains` 和 `end_to_end_lineage`
+
+三者不是重复字段：
+
+| 层级 | 回答的问题 | 典型消费者 |
+| --- | --- | --- |
+| `scopes` | 这段 SQL 在每个查询块里具体做了什么？ | SQL 解释、逻辑审查、代码导航 |
+| `field_mapping_chains` | 某个字段按什么顺序穿过多个查询块？ | 证据展示、字段变换解释、调试 |
+| `end_to_end_lineage` | 最终字段确定来自哪些物理字段？ | 影响分析、搜索索引、知识图谱边 |
+
+只读取 `end_to_end_lineage` 可以快速建图；需要解释“为什么”时，再沿 `field_mapping_chains` 和 `scopes` 回看证据。
+
+## 4. 标识符和引用规则
+
+### 4.1 Scope ID
+
+常见 ID：
+
+| 形式 | 含义 |
 | --- | --- |
-| `schema_version` | 契约版本，当前为 `1.0`。 |
-| `task_id` / `task_name` | 本次解析结果的稳定标识和显示名称。 |
-| `statement_type` | 解析到的 SQL 语句类型。 |
-| `parse_status` | `ok` 或 `failed`；消费 scope 前必须先检查。 |
-| `syntax_status` / `syntax_errors` | 语法检查状态与错误证据。 |
-| `target_table` | INSERT/MERGE 的目标表观察结果。 |
-| `scopes` | 以 scope ID 为键的查询块事实。 |
-| `scope_graph` | scope 节点之间的有向依赖边。 |
-| `end_to_end_lineage` | 从 scope 图确定性推导的目标字段到物理来源链路。 |
-| `scope_profile` | scope 图的确定性摘要，不是业务画像。 |
-| `diagnostics` | 告警和缺口的轻量摘要。 |
-| `related_metadata` | 调用方提供的通用元数据观察结果。 |
+| `ROOT` | 最终写入目标表的顶层 SELECT/MERGE 投影。 |
+| `cte:<name>` | CTE 查询块，如 `cte:order_summary`。 |
+| `subq:<name>` | 子查询查询块。 |
+| `union:<name>` | UNION 组合查询块。 |
+| `union:<name>:b01` | UNION 的第一个分支。 |
+| `<database>.<table>` | scope graph 中的物理表节点。 |
 
-## 4. Scope 与字段引用
+`scopes` 是一个 JSON object，不是数组：
 
-每个 scope 表示一个独立查询块，例如 ROOT、CTE、子查询或 UNION 分支。字段来源中的 `scope`
-引用必须指向：
+```json
+{
+  "scopes": {
+    "cte:order_summary": {"kind": "cte", "depends_on": ["dwd.order_detail"]},
+    "ROOT": {"kind": "root", "depends_on": ["cte:order_summary", "ods.customer"]}
+  }
+}
+```
 
-- 当前文档中存在的 scope ID；
-- 已识别的物理表；
-- 契约定义的特殊来源，例如常量、系统值、UNKNOWN 或 AMBIGUOUS。
+这里 key `cte:order_summary` 是稳定引用，value 是该查询块的事实。`scope_graph.edges[].from/to`、字段来源中的 `scope`、逻辑 ID 中的 scope 片段都会引用这些 ID。
 
-`write_lineage()` 在写盘前同时执行 JSON Schema 校验和交叉引用校验。悬空 scope、字段或图边会
-导致写盘失败，不能形成“结构合法但引用损坏”的成功产物。
+### 4.2 其他稳定引用
 
-## 5. 降级与失败
+| ID | 示例 | 用途 |
+| --- | --- | --- |
+| `input_ref_id` | `input:ROOT:001` | 区分同一 scope 中每一次 FROM/JOIN 输入，避免同表多次引用混淆。 |
+| `logic_block_id` | `logic:ROOT:join:001` | 定位 JOIN、filter、aggregate、window 等逻辑块。 |
+| `mapping_chain_id` | `mc:001` | 文档内简短映射链 ID。 |
+| `chain_id` | `chain:ROOT:customer_id:position:0` | 带目标 scope、字段和位置的语义 ID。 |
+| `gap_id` | `lineage_gap:0001` | `diagnostics.json` 中事实缺口 ID。 |
 
-- `parse_status=failed` 时，`scopes` 可能为空；这表示没有解析成功，不表示 SQL 没有血缘。
-- `syntax_status` 为 recovered/failed 时，必须结合 `syntax_errors` 与 `diagnostics.json` 判断。
-- 缺少 Schema 时，`SELECT *` 可以保留 `*` 占位，并通过 warning 明确降级。
-- 无法证明来源的字段必须保留 UNKNOWN/AMBIGUOUS 证据，不能静默删除。
+## 5. `scope_graph`：查询块依赖图
 
-## 6. 推荐消费顺序
+结构：
 
-1. 校验 `schema_version` 和 JSON Schema；
-2. 检查 `parse_status`、`syntax_status`；
-3. 查看 `diagnostics` 摘要，必要时读取 `diagnostics.json`；
-4. 按 `scope_graph` 消费 scopes，或读取可复算的 `end_to_end_lineage`；
-5. 对 UNKNOWN、AMBIGUOUS 和 fact gaps 保留人工或下游处理状态。
+```json
+{
+  "scope_graph": {
+    "nodes": ["ROOT", "cte:order_summary", "dwd.order_detail"],
+    "edges": [
+      {"from": "dwd.order_detail", "to": "cte:order_summary"},
+      {"from": "cte:order_summary", "to": "ROOT"}
+    ]
+  }
+}
+```
 
-Python 消费方可以直接调用：
+- `nodes[]`：物理表和逻辑 scope 的全集；
+- `edges[].from`：数据提供方；
+- `edges[].to`：消费该数据的查询块。
+
+这张图保留了中间结构。简单表血缘只会得到 `dwd.order_detail → mart.customer_summary`，scope 图则能表达 `dwd.order_detail → cte:order_summary → ROOT`，让 AI 知道聚合发生在哪一层。
+
+## 6. `scopes.<scope_id>`：每个查询块的详细事实
+
+### 6.1 Scope value 的主要字段
+
+| Key | Value | 含义 |
+| --- | --- | --- |
+| `kind` | enum string | `physical_table`、`cte`、`subquery`、`union`、`union_branch` 或 `root`。 |
+| `role` | string | 确定性结构角色，如 `aggregate`、`dedup`、`join`；这是 SQL 结构摘要，不是业务域判断。 |
+| `depends_on` | array<string> | 直接依赖的物理表或其他 scope ID。 |
+| `alias_in_parent` | string | 该 scope 在父查询中的别名。 |
+| `writes_to` | string | ROOT scope 写入的目标表。 |
+| `raw_sql` | string/null | 规范化后的当前查询块 SQL。 |
+| `raw_sql_available` | boolean | 当前 scope 是否有可复用 SQL 文本。 |
+| `raw_sql_quality` | object | SQL 文本是否干净、是否含占位符或恢复证据。 |
+| `source_coverage` | object | `raw_sql` 中实际来源是否覆盖声明来源，是否存在缺失或额外表。 |
+| `input_edges[]` | array<object> | FROM/JOIN/lateral view 输入的简明边。 |
+| `input_source_refs[]` | array<object> | 每次输入的稳定身份、物理来源解析和绑定轨迹。 |
+| `alias_source_bindings[]` | array<object> | SQL alias 到输入引用、scope 或物理表的绑定。 |
+| `expression_source_bindings[]` | array<object> | 表达式中的 qualifier/字段如何绑定到来源。 |
+| `logic_blocks[]` | array<object> | JOIN、过滤、聚合、窗口等可引用逻辑单元。 |
+| `outputs[]` | array<object> | 当前 scope 的详细输出字段事实。 |
+| `field_usage[]` | array<object> | 每个输入来源有哪些字段被逻辑块或输出字段使用。 |
+| `columns[]` | array<object> | 兼容性投影视图；新消费者优先读取信息更完整的 `outputs[]`。 |
+| `union_branch_alignment` | object | UNION 分支、字段位置和对齐状态。仅相关 scope 输出。 |
+| `joins[]` | array<object> | 兼容性 JOIN 结构，保留左右输入、类型、ON 表达式和字段。精确关系优先读 `logic_blocks[].join_relation_detail`。 |
+| `filters[]` | array<object> | 兼容性 WHERE 条件和引用字段。精确条件拆分优先读 `filter_predicate_detail`。 |
+| `group_by[]` / `having[]` | array | 分组和聚合后过滤的结构化子句事实。 |
+| `order_by[]` | array<object> | 排序表达式、字段和方向。窗口内部排序同时位于 `window_specification`。 |
+| `distinct` | boolean | 当前 SELECT 是否使用 DISTINCT。 |
+| `lateral_views[]` | array<object> | LATERAL VIEW/UDTF 的结构化事实。 |
+
+### 6.2 `input_edges[]` 与 `input_source_refs[]`
+
+`input_edges[]` 适合画结构图：
+
+```json
+{
+  "source_id": "cte:order_summary",
+  "source_type": "scope",
+  "position": "join",
+  "alias": "summary",
+  "join_type": "LEFT_OUTER",
+  "join_condition": "`base`.`customer_id` = `summary`.`customer_id`"
+}
+```
+
+`input_source_refs[]` 适合精确绑定和追踪：
+
+```json
+{
+  "input_ref_id": "input:ROOT:003",
+  "source_id": "cte:order_summary",
+  "source_type": "scope",
+  "physical_source_ids": ["dwd.order_detail"],
+  "source_resolution": {
+    "status": "resolved",
+    "cardinality": "single_source",
+    "physical_source_tables": ["dwd.order_detail"]
+  },
+  "field_resolution_required": true,
+  "binding_status": "resolved",
+  "binding_trace": [],
+  "trace_status": "complete"
+}
+```
+
+同一物理表被 JOIN 两次时，不能只按表名绑定字段；应使用 `input_ref_id` 区分输入实例。
+
+## 7. `logic_blocks[]`：SQL 处理逻辑
+
+每个逻辑块至少有：
+
+| Key | Value | 含义 |
+| --- | --- | --- |
+| `logic_block_id` | string | 可稳定引用的逻辑 ID。 |
+| `logic_type` | string | 如 `join`、`filter`、`aggregate`、`group_by`、`window`。 |
+| `raw_expression` | string/null | 接近原 SQL 的表达式。 |
+| `normalized_expression` | string/null | 便于比较和检索的规范化表达式。 |
+| `fingerprint` | string/null | 类型加规范表达式形成的去重指纹。 |
+| `fields[]` | array<object> | 表达式直接引用的字段，元素至少含 `scope` 和 `column`。 |
+| `output_fields[]` | array<string> | 该逻辑生成或影响的 scope 输出字段。 |
+| `input_sources[]` | array<string> | 逻辑涉及的输入 scope/物理表。 |
+| `field_usage[]` | array<object> | 字段被哪个逻辑块、哪个输出使用。 |
+| `expression_features` | object | 函数、运算符及 CASE/CAST/window/aggregate/UDF 等布尔特征。 |
+| `final_target_columns[]` | array<string> | 该逻辑最终影响的目标字段。 |
+
+不同逻辑类型还会有专用 detail：
+
+| Detail key | 内容 |
+| --- | --- |
+| `join_relation_detail` | `join_type`、`join_key_pairs[]`、`condition_filters[]`、`trace_status`、`missing_reasons[]`。区分真正的关联 key 与 ON 中附加过滤。 |
+| `filter_predicate_detail` | WHERE/HAVING 条件拆分后的 `conjuncts[]`、字段解析、子查询依赖和分区过滤判断。 |
+| `aggregation_detail` | `group_by_items[]`、`aggregate_items[]`、`having` 及每项的表达式来源。 |
+| `window_specification` | 窗口函数、`partition_by[]`、`order_by[]`、窗口后过滤和 trace 状态。 |
+
+例如，同样出现 `customer_id`，JOIN key、WHERE filter 和 SELECT 输出的用途不同；`logic_blocks` 会保留这种上下文，而不是把它们压成一个无语义字段集合。
+
+## 8. `outputs[]`：scope 输出字段
+
+一个输出字段的典型结构：
+
+```json
+{
+  "name": "paid_amount_30d",
+  "output_ordinal": 2,
+  "transform": "AGGREGATE",
+  "expression": "SUM(CASE WHEN pay_status = 'PAID' THEN pay_amount ELSE 0 END)",
+  "expanded_expression": "SUM(CASE WHEN `dwd.order_detail`.`pay_status` = 'PAID' THEN `dwd.order_detail`.`pay_amount` ELSE 0 END)",
+  "expression_type": "aggregate_expression",
+  "expression_role": "metric_calculation",
+  "grain_effect": "changed",
+  "sources": [
+    {"scope": "dwd.order_detail", "column": "pay_status"},
+    {"scope": "dwd.order_detail", "column": "pay_amount"}
+  ],
+  "source_logic_blocks": ["logic:cte:order_summary:aggregate:002"],
+  "downstream_fields": [{"scope": "ROOT", "column": "paid_amount_30d"}],
+  "final_target_columns": ["mart.customer_profile_snapshot.paid_amount_30d"],
+  "consumer_readiness": {"status": "ready", "blocked_reasons": []}
+}
+```
+
+主要 key：
+
+| Key | 含义 |
+| --- | --- |
+| `name` | 当前 scope 的输出名。 |
+| `output_ordinal` | 从 0 开始的输出位置；重复字段名或 MERGE 多分支时不能只按 name 区分。 |
+| `transform` | 粗粒度变换：`DIRECT`、`EXPRESSION`、`AGGREGATE`、`WINDOW`、`CONDITIONAL`、`CONSTANT`、`UNION`、`EXPAND_ALL`。 |
+| `expression` | 当前 scope 中的 SQL 表达式。 |
+| `expanded_expression` | 尽可能展开到物理来源限定名后的表达式。 |
+| `expression_resolution` | 解析状态、物理/生成/行集来源、缺失原因和跨 scope trace。 |
+| `expression_type` | 结构类型，如 direct、conditional、aggregate、window、arithmetic、constant、UDF。 |
+| `expression_role` | 用途，如 direct projection、standardization、cleaning、metric calculation、record selection。 |
+| `grain_effect` | `preserved`、`changed`、`may_change` 或 `unknown`。 |
+| `sources[]` | 直接输入字段；可带 qualifier、binding scope、input ref。 |
+| `source_logic_blocks[]` | 生成该字段的逻辑块 ID。 |
+| `downstream_fields[]` | 消费该输出的后续 scope 字段。 |
+| `target_columns[]` / `final_target_columns[]` | 当前目标和最终物理目标字段。 |
+| `consumer_readiness` | 是否已具备安全下游消费所需事实；blocked 时列出原因。 |
+| `merge_branch` / `merge_when_index` | MERGE 场景中字段属于哪个 WHEN 分支。 |
+
+### 8.1 字段分类枚举
+
+`transform` 是兼容的粗粒度分类：
+
+| Value | 含义 |
+| --- | --- |
+| `DIRECT` | 直接字段投影。 |
+| `EXPRESSION` | 普通表达式派生。 |
+| `AGGREGATE` | 聚合表达式。 |
+| `WINDOW` | 窗口表达式。 |
+| `CONDITIONAL` | CASE WHEN / IF 条件表达式。 |
+| `CONSTANT` | 常量或系统生成值。 |
+| `UNION` | UNION 位置对齐后的输出。 |
+| `EXPAND_ALL` | `SELECT *` 或 `alias.*` 未完全展开时的占位。 |
+
+`expression_type` 提供更适合新消费者的结构分类：
+
+| Value | 含义 |
+| --- | --- |
+| `direct_projection` | 直接字段投影。 |
+| `conditional_expression` | CASE WHEN / IF。 |
+| `type_cast` | CAST 或类型转换。 |
+| `function_expression` | COALESCE、TRIM、SUBSTR 等普通函数。 |
+| `aggregate_expression` | SUM、COUNT、AVG、MIN、MAX 等聚合。 |
+| `window_expression` | ROW_NUMBER、RANK 等窗口表达式。 |
+| `arithmetic_expression` | 加减乘除等算术派生。 |
+| `constant_expression` | 常量或系统值表达式。 |
+| `udf_expression` | 非内置函数或 UDF。 |
+| `unknown_expression` | 当前无法稳定分类。 |
+
+`expression_role` 表示表达式在数据加工中的用途：
+
+| Value | 含义 |
+| --- | --- |
+| `direct_projection` | 原样引用。 |
+| `field_derivation` | 通用字段派生。 |
+| `standardization` | 编码、状态或格式标准化。 |
+| `cleaning` | 空值、异常值或文本清洗。 |
+| `type_conversion` | 类型转换。 |
+| `metric_calculation` | 指标计算。 |
+| `record_selection` | 去重、排序取数等记录选择辅助。 |
+| `constant_fill` | 常量填充。 |
+| `unknown` | 无法从结构稳定判断用途。 |
+
+`grain_effect` 表示表达式对行粒度的局部影响：
+
+| Value | 含义 |
+| --- | --- |
+| `preserved` | 表达式本身不改变明细粒度。 |
+| `changed` | 聚合等行为已经改变粒度。 |
+| `may_change` | 窗口/去重等行为可能影响记录选择。 |
+| `unknown` | 当前证据不足。 |
+
+消费时不要只看 `transform`。字段解释优先组合 `expression_type`、`expression_features`、`expression_role` 和 `grain_effect`；判断整个模型粒度还必须查看 GROUP BY、窗口、DISTINCT 和 scope 上下文。
+
+### 8.2 `field_usage[]`：输入字段被怎样使用
+
+```json
+{
+  "source_id": "dwd.order_detail",
+  "source_type": "physical_table",
+  "used_fields": ["customer_id", "order_id", "pay_amount"],
+  "used_field_details": [
+    {"name": "pay_amount", "type": "decimal(18,2)", "comment": "Paid amount"}
+  ],
+  "used_by_logic_blocks": ["logic:cte:order_summary:aggregate:002"],
+  "used_by_output_fields": ["paid_amount_30d"],
+  "source_metadata": {}
+}
+```
+
+| Key | 含义 |
+| --- | --- |
+| `source_id` / `source_type` | 直接输入的 scope/物理表身份和类型。 |
+| `used_fields[]` | 当前 scope 实际使用的字段名。 |
+| `used_field_details[]` | 可用时补充字段类型、注释等 Schema 详情。 |
+| `used_by_logic_blocks[]` | 哪些逻辑块读取了这些字段。 |
+| `used_by_output_fields[]` | 哪些 scope 输出字段直接使用了这些字段。 |
+| `source_metadata` | Core 可用的通用来源元数据；没有输入时为空对象。 |
+
+它适合回答“这张表的某个字段在当前查询块中是 JOIN key、过滤字段，还是输出表达式输入”。跨 scope 的最终目标影响仍应使用 mapping chain 或 end-to-end lineage。
+
+### 8.3 `columns[]`：兼容性解析视图
+
+`columns[]` 更接近解析器原始列模型，通常包含 `name`、`transform`、`expression` 和 `sources[]`，并可能保留特定变换附加值，如 `agg_function`、`case_branches`、`window` 或 UNION branches。
+
+新消费者优先读取 `outputs[]`，因为它补齐了表达式解析、逻辑块引用、下游字段、最终目标和 consumer readiness。`columns[]` 主要用于：
+
+- 兼容早期消费者；
+- 调试 parser 的原始列解析；
+- 查看某些 transform 特有的附加结构。
+
+目标字段绑定成功时，ROOT `columns[]` 还可能包含 `parsed_name`、`target_column_ordinal`、`target_field_resolution`、`target_field_corrected` 和 `target_metadata_table`，语义与端到端字段中的同名审计 key 一致。
+
+## 9. `field_mapping_chains[]`：字段逐步变换链
+
+这是“为什么得到这条端到端血缘”的主要证据。
+
+```json
+{
+  "mapping_chain_id": "mc:001",
+  "chain_id": "chain:ROOT:customer_id:position:0",
+  "chain_type": "field_mapping",
+  "target_scope_id": "ROOT",
+  "target_field": "customer_id",
+  "target_position": 0,
+  "chain_status": "resolved",
+  "root_source_fields": ["ods.customer_base.customer_id"],
+  "final_output_fields": ["mart.customer_profile_snapshot.customer_id"],
+  "ordered_steps": [
+    {
+      "step_no": 1,
+      "scope_id": "ROOT",
+      "step_type": "direct_projection",
+      "input_fields": ["ods.customer_base.customer_id"],
+      "output_field": "mart.customer_profile_snapshot.customer_id",
+      "expression_sql": "`base`.`customer_id`",
+      "expanded_expression": "`ods.customer_base`.`customer_id`",
+      "transform": "DIRECT",
+      "grain_effect": "preserved"
+    }
+  ],
+  "missing_reasons": [],
+  "trace_status": "complete"
+}
+```
+
+关键消费规则：
+
+- `ordered_steps[]` 按 `step_no` 表示字段从上游到目标的变换顺序；
+- `root_source_fields[]` 只包含已经证明的根物理字段；
+- `trace_status=incomplete` 时查看 `missing_reasons[]`，不能把链当成完整证据；
+- `target_position` 用于区分同名输出和保持 INSERT 位置语义。
+
+## 10. `end_to_end_lineage[]`：最终字段血缘
+
+每个元素对应一个最终输出位置：
+
+| Key | Value | 含义 |
+| --- | --- | --- |
+| `column` | string | 绑定后的最终目标字段名。 |
+| `parsed_column` | string | SQL 原始投影名；目标 DDL 纠正字段名时与 `column` 不同。 |
+| `output_ordinal` / `target_column_ordinal` | integer | SQL 输出位置和目标字段位置。 |
+| `target_field_resolution` | enum string | `ddl_position`、`schema_position` 或 `insert_column_list`。 |
+| `target_field_corrected` | boolean | 是否根据目标元数据纠正了 SQL 投影名。 |
+| `target_metadata_table` | string | 使用了哪张目标表元数据。 |
+| `transform` | string | 最终字段的粗粒度变换类型。 |
+| `expression` | string/null | 最终投影表达式。 |
+| `trace_complete` | boolean | 是否已经追溯到确定来源。 |
+| `trace_incomplete_reasons[]` | array<string> | 不完整原因。 |
+| `physical_sources[]` | array<object> | 已证明的 `{table, column, transform}` 物理来源。 |
+| `generated_sources[]` | array<object> | 常量、系统值等非物理字段来源。 |
+| `rowset_sources[]` | array<object> | 窗口或行集级语义来源。 |
+| `source_kind` | enum string | `physical`、`generated`、`mixed`、`rowset` 或 `unresolved`。 |
+| `ambiguities[]` | array<object> | 无法唯一选择来源的位置和候选链。候选不是已证明来源。 |
+
+### 10.1 物理来源、生成来源和行集来源
+
+- `physical_sources`：真实表字段，例如 `ods.customer.customer_id`；
+- `generated_sources`：常量、NULL、系统值等，例如固定字符串标签；
+- `rowset_sources`：窗口函数等依赖行集合而非单一字段的来源；
+- `mixed`：同时依赖多种来源。
+
+### 10.2 歧义不能合并成事实
+
+当 `trace_complete=false` 且有 `ambiguities[]` 时：
+
+```json
+{
+  "column": "id",
+  "trace_complete": false,
+  "trace_incomplete_reasons": ["ambiguous_unqualified_column"],
+  "physical_sources": [],
+  "ambiguities": [
+    {
+      "scope": "ROOT",
+      "column": "id",
+      "candidate_count": 2,
+      "candidates": [
+        {"scope": "ods.customer", "column": "id", "trace_complete": true},
+        {"scope": "ods.order", "column": "id", "trace_complete": true}
+      ]
+    }
+  ]
+}
+```
+
+下游不能把两个 candidate 都写入 `physical_sources`，也不能任意选一个。正确做法是保留歧义状态，并结合 `diagnostics.json` 请求 Schema、alias 或 SQL 修正。
+
+## 11. `target_field_binding`：目标字段位置绑定
+
+当提供 `--target-ddl-metadata` 时，SQL 的第 N 个投影可按目标 DDL/Schema 的第 N 个非静态分区字段绑定：
+
+| Key | 含义 |
+| --- | --- |
+| `status` | `applied`、`fallback` 或 `not_applied`。 |
+| `method` | `ddl_position`、`schema_position`、`insert_column_list` 或 `sql_projection`。 |
+| `metadata_table` / `metadata_source_file` | 采用的目标元数据和来源文件。 |
+| `projection_count` | SQL 投影数量。 |
+| `target_column_count` | 可绑定目标字段数量。 |
+| `corrected_column_count` | 被目标元数据纠正名称的字段数。 |
+| `static_partition_columns[]` | SQL 已给定值的静态分区列，不占 SELECT 投影位置。 |
+| `dynamic_partition_columns[]` | 需要由 SELECT 投影提供值的动态分区列。 |
+| `issues[]` | 无法应用或降级时的原因。 |
+
+它的价值是避免 `SELECT expr AS 临时别名` 被误认为最终目标字段名，并保留纠正证据。
+
+## 12. `task_dependencies` 与 `related_metadata`
+
+### 12.1 `task_dependencies`
+
+```json
+{
+  "upstream_tasks": [
+    {
+      "dependency_id": "taskdep:upstream:001",
+      "direction": "upstream",
+      "task_id": "task-1001",
+      "task_name": "order_detail_daily",
+      "dependency_type": "declared",
+      "dependency_table": null,
+      "source": "task_info.meta.upstream_tasks",
+      "source_file": "customer_profile_daily.json",
+      "raw_record": {}
+    }
+  ],
+  "downstream_tasks": [],
+  "source_summary": {
+    "source_format": "task_info_meta",
+    "upstream_count": 1,
+    "downstream_count": 0,
+    "has_declared_task_dependencies": true
+  }
+}
+```
+
+这里的任务依赖来自输入任务 JSON 声明，不等同于解析 SQL 推导的表依赖。知识图谱可以分别建立“任务依赖边”和“表/字段血缘边”。
+
+### 12.2 `related_metadata`
+
+- `input_tables`：key 是输入表名，value 包含 `column_details[]`、字段类型/注释和 `metadata_complete`；
+- `output_tables`：key 是目标表名，value 为对应目标元数据；
+- `metadata_complete`：表示调用方提供的元数据是否足以覆盖已知字段，不表示真实 catalog 永远完整。
+
+## 13. `scope_profile`：适合 AI 检索的确定性简表
+
+`scope_profile.steps[]` 每项包含：
+
+| Key | 含义 |
+| --- | --- |
+| `scope_id` / `name` / `kind` / `role` | 查询块身份和结构角色。 |
+| `operations[]` | 该 scope 出现的操作，如 `join`、`filter`、`aggregate`、`window`。 |
+| `direct_inputs[]` | 直接输入的 scope 或物理表。 |
+| `direct_source_tables[]` | 当前 scope 直接读取的物理表。 |
+| `physical_source_tables[]` | 穿透上游 scope 后涉及的全部物理表。 |
+| `output_columns` | 输出字段数。 |
+| `logic` | joins、filters、aggregations、window functions、CASE、DISTINCT、UNION 等简明结构。 |
+| `business_summary` | 基于结构模板生成的确定性摘要；不应当作完整业务定义。 |
+
+用于 RAG 时，可以先索引 `scope_profile` 和 `end_to_end_lineage`；只有命中任务后再加载完整 `scopes`，减少上下文体积。
+
+## 14. `diagnostics`：Lineage 内的质量摘要
+
+```json
+{
+  "fallback_used": false,
+  "warning_count": 3,
+  "warning_types": {"magic_number": 1, "filter_in_join_on_clause": 1},
+  "lineage_fact_gap_count": 0,
+  "lineage_fact_gap_types": {},
+  "lineage_fact_gap_samples": [],
+  "stats": {"scope_count": 6, "join_count": 2},
+  "full_diagnostics_file": "diagnostics.json"
+}
+```
+
+它只用于快速筛选。需要完整 warning 和所有事实缺口时，读取同目录 [`diagnostics.json`](diagnostics-json.md)。
+
+## 15. 常见使用场景和读取路径
+
+| 场景 | 建议读取 |
+| --- | --- |
+| 表级影响分析 | `source_tables`、`target_table` |
+| 字段级影响分析 | `end_to_end_lineage[].physical_sources`、`column` |
+| 解释指标计算方式 | ROOT `outputs[]` → `field_mapping_chains[]` → 相关 `logic_blocks[]` |
+| 查询某字段在哪里过滤 | `scopes.*.logic_blocks[logic_type=filter].fields[]` |
+| 找 JOIN key | `logic_blocks[].join_relation_detail.join_key_pairs[]` |
+| 判断是否改变粒度 | `outputs[].grain_effect`、`aggregation_detail`、`window_specification` |
+| 构建知识图谱 | scope graph + task dependencies + end-to-end physical source edges |
+| 给 Agent 构建任务摘要 | `scope_profile` + `end_to_end_lineage` + diagnostics summary |
+| 回答“为什么不确定” | `trace_incomplete_reasons`、`ambiguities`、`diagnostics.json.lineage_fact_gaps` |
+
+## 16. 查询示例
+
+列出目标字段及物理来源：
+
+```bash
+jq -r '.end_to_end_lineage[] |
+  [.column, (.physical_sources | map(.table + "." + .column) | join(",")), (.trace_complete|tostring)] |
+  @tsv' lineage.json
+```
+
+列出所有 scope 和直接依赖：
+
+```bash
+jq -r '.scopes | to_entries[] | [.key, .value.kind, (.value.depends_on|join(","))] | @tsv' lineage.json
+```
+
+列出所有过滤表达式：
+
+```bash
+jq -r '.scopes | to_entries[] as $scope |
+  $scope.value.logic_blocks[]? |
+  select(.logic_type == "filter") |
+  [$scope.key, .logic_block_id, .raw_expression] | @tsv' lineage.json
+```
+
+Python 消费并校验：
 
 ```python
+import json
+from pathlib import Path
+
 from lineage_parser import validate_lineage_document
 
+document = json.loads(Path("lineage.json").read_text(encoding="utf-8"))
 validate_lineage_document(document)
+
+for field in document["end_to_end_lineage"]:
+    if not field["trace_complete"]:
+        continue
+    sources = [f'{item["table"]}.{item["column"]}' for item in field["physical_sources"]]
+    print(field["column"], sources)
 ```
+
+## 17. 安全消费规则
+
+1. 先检查 `schema_version`、`parse_status` 和 `syntax_status`；
+2. `parse_status=failed` 时，空 `scopes` 不代表 SQL 没有血缘；
+3. `syntax_status=recovered` 时必须展示恢复风险；
+4. `trace_complete=false` 的字段不能进入“已证明血缘”集合；
+5. `ambiguities[].candidates` 是候选，不是多来源事实；
+6. `generated_sources` 不应伪装成物理表字段；
+7. 缺 Schema 时，`SELECT *` 可能保留 `EXPAND_ALL`/`*` 降级表示；
+8. 完整质量判断必须配对读取同次运行的 `diagnostics.json`；
+9. 1.x 消费者必须容忍新增可选字段；删除、改名或语义改变需要升级 major。
+
+写盘前 Core 会执行 JSON Schema 和交叉引用校验：悬空 scope、字段或图边不会被发布成成功产物。
