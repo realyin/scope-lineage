@@ -18,6 +18,65 @@ semantics.
 > generation, warehouse modeling, and refactoring recommendations belong to upper layers and are
 > not included here.
 
+## What one SQL task becomes
+
+For a task that reads customer details, derives a latest-status row with `ROW_NUMBER`, aggregates
+orders, joins the intermediate results, and writes a partitioned target, ordinary table lineage
+usually reports only three input tables and one output table. Scope Lineage also records:
+
+- the `latest_status` CTE as a window/dedup scope and the fields used by its partition and order;
+- the `order_summary` CTE as an aggregate scope and the exact `COUNT(DISTINCT ...)` or `SUM(CASE ...)`
+  expressions;
+- JOIN keys separately from row filters embedded in an `ON` condition;
+- every output field's expression, transformation role, grain effect, and downstream target;
+- the ordered steps by which a field crosses scopes before reaching the target;
+- the final proven physical fields, constants, or rowset semantics behind each target field;
+- static/dynamic partition facts and authoritative target-column position binding;
+- ambiguity candidates, incomplete traces, missing Schema, and other facts that could not be proven.
+
+The output has this shape:
+
+```json
+{
+  "task_id": "customer_profile_daily",
+  "target_table": "mart.customer_profile_snapshot",
+  "stmt_kind": "INSERT_OVERWRITE",
+  "source_tables": [
+    "dwd.order_detail",
+    "ods.customer_base",
+    "ods.customer_status_event"
+  ],
+  "scopes": {
+    "cte:latest_status": {"kind": "cte", "role": "dedup", "logic_blocks": [], "outputs": []},
+    "cte:order_summary": {"kind": "cte", "role": "aggregate", "logic_blocks": [], "outputs": []},
+    "ROOT": {"kind": "root", "role": "join", "logic_blocks": [], "outputs": []}
+  },
+  "scope_graph": {"nodes": [], "edges": []},
+  "field_mapping_chains": [],
+  "end_to_end_lineage": [],
+  "diagnostics": {"warning_count": 0, "lineage_fact_gap_count": 0}
+}
+```
+
+`scopes` is a JSON map: each key is a stable scope ID, and each value contains that query block's
+inputs, alias bindings, SQL, logic blocks, and output fields. See the detailed
+[`lineage.json` contract](docs/zh-CN/lineage-json.md).
+
+## Why these facts matter to AI systems
+
+| Raw-SQL limitation | Structured fact | Reliable downstream capability |
+| --- | --- | --- |
+| Long SQL is expensive and easy for a model to misread | `scope_profile.steps[]` and `scope_graph` | staged retrieval and scope-by-scope explanation |
+| Table edges cannot answer column questions | `end_to_end_lineage[].physical_sources[]` | column impact analysis and graph edges |
+| Final sources do not explain intermediate calculation | `field_mapping_chains[].ordered_steps[]` | evidence-backed transformation explanations |
+| JOIN/filter/aggregate logic is trapped in text | typed `logic_blocks[]` and detail objects | rule search, governance review, logic comparison |
+| SQL aliases may not be target column names | `target_field_binding` and ordinals | DDL-authoritative target lineage |
+| Models tend to turn ambiguity into confident answers | trace status, `ambiguities`, and fact gaps | confidence-aware RAG that can refuse unsupported claims |
+| Scheduler and SQL dependencies live separately | task dependencies plus table/scope graphs | task-table-column knowledge graphs |
+
+The value is not a fixed natural-language summary. It is a reproducible, addressable fact layer:
+an upper-layer answer can point back to a scope, expression, physical field, and diagnostic reason.
+
 ## What it provides
 
 - Offline static analysis for Spark/Hive warehouse SQL; no Spark cluster or query execution is
@@ -165,11 +224,29 @@ Each supported write statement creates only two Core artifacts:
 └── diagnostics.json
 ```
 
-`lineage.json` contains task identity, target and partition facts, parse status, task dependencies,
-source tables, related metadata, the scope graph, scope facts, field-mapping chains, physical source
-fields, and end-to-end lineage. `diagnostics.json` contains complete warnings, syntax-recovery
-evidence, unresolved references, and degradation reasons. AI consumers should read both documents
-and must not treat recovered syntax, ambiguous candidates, or missing metadata as proven lineage.
+`lineage.json` groups its facts as follows:
+
+| Questions | Keys |
+| --- | --- |
+| What is written, and how? | `target_table`, `stmt_kind`, `target_partition_*` |
+| What physical data is read? | `source_tables`, `related_metadata` |
+| How are CTEs, subqueries, UNIONs, and ROOT connected? | `scopes`, `scope_graph` |
+| Where do JOINs, filters, aggregates, and windows occur? | `scopes.*.logic_blocks` |
+| How does a field move through query blocks? | `scopes.*.outputs`, `field_mapping_chains` |
+| Which physical fields prove each target field? | `end_to_end_lineage` |
+| Is the answer complete or ambiguous? | trace status, missing reasons, and ambiguities |
+
+`diagnostics.json` contains complete `warnings[]`, structural `stats`, and
+`lineage_fact_gaps[]` with affected objects, missing facts, evidence paths, and downstream impact.
+AI consumers should read both documents and must not treat recovered syntax, ambiguity candidates,
+or missing metadata as proven lineage.
+
+Documentation:
+
+- [Documentation map and question-to-field index](docs/zh-CN/README.md)
+- [`lineage.json` keys, nested values, examples, and consumption rules](docs/zh-CN/lineage-json.md)
+- [`diagnostics.json` warnings, stats, and fact gaps](docs/zh-CN/diagnostics-json.md)
+- [SQL, task JSON, Schema, and target-DDL inputs](docs/zh-CN/input-formats.md)
 
 ## Python API
 
