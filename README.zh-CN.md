@@ -203,6 +203,30 @@ scope-lineage parse \
 更多完整输入见 [examples/README.zh-CN.md](examples/README.zh-CN.md)，字段级说明见
 [Core 输入格式](docs/zh-CN/input-formats.md)。
 
+### 4. 配置 catalog 前缀规范化
+
+Core 默认保留 SQL 中的完整表名。例如 `warehouse_catalog.ods.orders` 会原样写入
+`source_tables` 和字段物理来源。如果同一个环境同时使用 `warehouse_catalog.ods.orders` 与
+`ods.orders` 表示同一张物理表，应显式声明可剥离的 catalog：
+
+```bash
+scope-lineage parse \
+  --input-dir examples/tasks \
+  --catalog-prefixes warehouse_catalog,spark_catalog \
+  --out /tmp/scope-lineage-corpus
+```
+
+也可以为 Python API 或固定部署环境设置：
+
+```bash
+export SCOPE_LINEAGE_CATALOG_PREFIXES="warehouse_catalog,spark_catalog"
+```
+
+命令行参数优先于环境变量；两者都未设置时不剥离任何 catalog。这里只能填写确认属于 catalog
+的首段名称，不要填写 database 名。catalog 规范化是同一批任务共享的解析策略，不是单个任务的
+业务事实，因此不写入任务 JSON；不同 catalog 策略的任务应分批运行。完整规则见
+[Core 输入格式：catalog 前缀配置](docs/zh-CN/input-formats.md#catalog-前缀配置)。
+
 ## 输入元数据
 
 Schema 支持 CSV 或 JSON。实际 CSV 可以包含字段类型和注释：
