@@ -14,6 +14,79 @@ UNION 分支、字段表达式、过滤条件、聚合和解析不确定性。Sc
 > 当前仓库是首期开源的 Core 层：负责 SQL/任务输入、scope 解析、字段级血缘和诊断输出。
 > 向量化、知识图谱存储、业务语义生成、数仓建模和重构建议属于上层能力，不包含在本仓库中。
 
+## 先看结果：它把一段 SQL 变成什么
+
+假设任务中有三层逻辑：
+
+```sql
+WITH latest_status AS (
+  SELECT customer_id, customer_status,
+         ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY event_time DESC) AS row_num
+  FROM ods.customer_status_event
+),
+order_summary AS (
+  SELECT customer_id, COUNT(DISTINCT order_id) AS order_count_30d
+  FROM dwd.order_detail
+  GROUP BY customer_id
+)
+INSERT OVERWRITE TABLE mart.customer_profile_snapshot PARTITION (dt='${bizdate}')
+SELECT b.customer_id, s.customer_status, o.order_count_30d
+FROM ods.customer_base b
+LEFT JOIN latest_status s ON b.customer_id = s.customer_id AND s.row_num = 1
+LEFT JOIN order_summary o ON b.customer_id = o.customer_id;
+```
+
+普通表血缘通常只告诉你“读取 3 张表，写入 1 张表”。Scope Lineage 还会输出：
+
+- `cte:latest_status` 是带窗口排序的查询块，`row_num` 依赖 `customer_id` 和 `event_time`；
+- `cte:order_summary` 改变了数据粒度，`order_count_30d` 来自 `COUNT(DISTINCT order_id)`；
+- ROOT 使用两个 LEFT JOIN，且 `s.row_num = 1` 是 JOIN ON 中的记录筛选条件；
+- 目标字段 `mart.customer_profile_snapshot.order_count_30d` 最终来自 `dwd.order_detail.order_id`；
+- 该字段从上游聚合 scope 到目标字段经历了哪些表达式和变换步骤；
+- 目标表按 `dt='${bizdate}'` 静态分区写入；
+- 如果 `customer_id` 没有限定名且同时匹配多个来源，输出会保留歧义候选，而不会任意选一个；
+- 如果缺少 Schema 导致 `SELECT *` 无法展开，诊断会明确指出缺哪张表的字段信息。
+
+真实输出的核心骨架如下：
+
+```json
+{
+  "task_id": "customer_profile_daily",
+  "target_table": "mart.customer_profile_snapshot",
+  "stmt_kind": "INSERT_OVERWRITE",
+  "source_tables": [
+    "dwd.order_detail",
+    "ods.customer_base",
+    "ods.customer_status_event"
+  ],
+  "scopes": {
+    "cte:latest_status": {"kind": "cte", "role": "dedup", "logic_blocks": [], "outputs": []},
+    "cte:order_summary": {"kind": "cte", "role": "aggregate", "logic_blocks": [], "outputs": []},
+    "ROOT": {"kind": "root", "role": "join", "logic_blocks": [], "outputs": []}
+  },
+  "scope_graph": {"nodes": [], "edges": []},
+  "field_mapping_chains": [],
+  "end_to_end_lineage": [],
+  "diagnostics": {"warning_count": 0, "lineage_fact_gap_count": 0}
+}
+```
+
+这里的 `scopes` 是以 scope ID 为 key 的对象；每个 value 保存该查询块的输入、alias 绑定、SQL、逻辑块和输出字段。完整字段解释见 [`lineage.json` 输出契约](docs/zh-CN/lineage-json.md)。
+
+## 这些事实为什么对 AI 有价值
+
+| 原始 SQL 的问题 | Scope Lineage 提供的事实 | 上层可以可靠实现的能力 |
+| --- | --- | --- |
+| SQL 太长，直接塞给模型成本高且容易漏逻辑 | `scope_profile.steps[]`、scope 图和结构化逻辑块 | 分层检索、任务摘要、按查询块解释 |
+| 只有表级边，无法回答字段从哪里来 | `end_to_end_lineage[].physical_sources[]` | 字段影响分析、字段知识图谱、变更问答 |
+| 只知道最终来源，不知道中间怎么算 | `field_mapping_chains[].ordered_steps[]` | 展示字段逐步变换证据，解释指标计算过程 |
+| JOIN/过滤/聚合被压成一段文本 | `logic_blocks[]` 及 join/filter/aggregation/window detail | 结构化搜索规则、治理审查、逻辑对比 |
+| SQL 别名和目标字段名不一致 | `target_field_binding` 和目标字段位置 | 按 DDL 权威顺序建立正确目标字段血缘 |
+| 大模型容易把歧义当成确定答案 | `trace_complete`、`ambiguities`、`lineage_fact_gaps` | 带可信度的 RAG，拒绝无证据推断 |
+| 调度依赖和 SQL 表依赖分散 | `task_dependencies` + `scope_graph` + `source_tables` | 任务、表、字段多层知识图谱 |
+
+Scope Lineage 的价值不是替 AI 写一段固定总结，而是提供可复算、可定位、可校验的事实。上层生成的每条业务解释都可以回到具体 scope、表达式、字段来源和诊断证据。
+
 ## 它能做什么
 
 - 面向 Spark/Hive 数仓 SQL，离线静态解析，不需要连接 Spark 集群或执行 SQL；
@@ -154,16 +227,34 @@ ods.customer_base,customer_name,string,Synthetic customer name
 └── diagnostics.json
 ```
 
-`lineage.json` 包含：
+### `lineage.json`：已解析事实
 
-- 任务、目标表、语句类型、分区和解析状态；
-- 上下游任务依赖、源表和相关元数据；
-- scope 图与每个 scope 的输入、输出、条件和变换；
-- 字段映射链、物理源字段和端到端字段血缘；
-- 精简诊断摘要。
+| 字段组 | 关键 key | 回答的问题 |
+| --- | --- | --- |
+| 任务与写入 | `task_id`、`target_table`、`stmt_kind`、`target_partition_*` | 谁写入哪张表、如何分区？ |
+| 物理来源 | `source_tables`、`related_metadata` | 读取哪些表和字段，类型/注释是什么？ |
+| 查询结构 | `scopes`、`scope_graph` | CTE、子查询、UNION、ROOT 如何连接？ |
+| SQL 逻辑 | `logic_blocks`、`input_source_refs` | 在哪里 JOIN、过滤、聚合、开窗？alias 如何绑定？ |
+| 字段过程 | `scopes.*.outputs`、`field_mapping_chains` | 字段表达式是什么，经历了哪些 scope 和变换？ |
+| 最终血缘 | `end_to_end_lineage` | 每个目标字段最终来自哪些物理字段或生成值？ |
+| 可信度 | `trace_complete`、`missing_reasons`、`ambiguities` | 这条事实是否完整，哪里仍不确定？ |
 
-`diagnostics.json` 包含完整告警、语法恢复信息、未解析引用和降级原因。AI 下游必须同时读取诊断，
-不能把 `recovered`、歧义候选或缺失元数据当成已经证明的血缘事实。
+### `diagnostics.json`：边界与缺口
+
+它保存：
+
+- `warnings[]`：warning 类型、发生 scope 和证据消息；
+- `stats`：scope、表、JOIN、UNION、CASE、窗口和聚合数量；
+- `lineage_fact_gaps[]`：缺口类型、受影响字段、缺失事实、证据路径和下游影响。
+
+AI 下游必须同时读取诊断，不能把 `recovered`、歧义候选或缺失元数据当成已经证明的血缘事实。
+
+详细文档：
+
+- [文档导航与问题—字段索引](docs/zh-CN/README.md)
+- [`lineage.json` 全部核心 key/value、嵌套结构和消费示例](docs/zh-CN/lineage-json.md)
+- [`diagnostics.json` warning、stats 和 fact gap 字段说明](docs/zh-CN/diagnostics-json.md)
+- [SQL、任务 JSON、Schema 和目标 DDL 输入格式](docs/zh-CN/input-formats.md)
 
 ## Python API
 
