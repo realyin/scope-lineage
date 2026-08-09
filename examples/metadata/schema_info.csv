@@ -1,0 +1,34 @@
+table_name,column_name,column_type,column_comment
+ods.customer_base,customer_id,bigint,Synthetic customer identifier
+ods.customer_base,customer_name,string,Synthetic customer name
+ods.customer_base,country_code,string,Country code
+ods.customer_base,registered_at,timestamp,Registration timestamp
+ods.customer_base,dt,string,Partition date
+ods.customer_status_event,customer_id,bigint,Synthetic customer identifier
+ods.customer_status_event,customer_status,string,Current status value
+ods.customer_status_event,event_time,timestamp,Status event timestamp
+ods.customer_status_event,dt,string,Partition date
+ods.customer_change_event,customer_id,bigint,Synthetic customer identifier
+ods.customer_change_event,customer_name,string,Synthetic customer name
+ods.customer_change_event,country_code,string,Country code
+ods.customer_change_event,updated_at,timestamp,Change timestamp
+ods.customer_change_event,dt,string,Partition date
+dwd.order_detail,order_id,string,Synthetic order identifier
+dwd.order_detail,customer_id,bigint,Synthetic customer identifier
+dwd.order_detail,pay_amount,"decimal(18,2)",Paid amount
+dwd.order_detail,currency_code,string,Currency code
+dwd.order_detail,pay_status,string,Payment status
+dwd.order_detail,paid_at,timestamp,Payment timestamp
+dwd.order_detail,dt,string,Partition date
+ods.app_order,order_id,string,Synthetic app order identifier
+ods.app_order,customer_id,bigint,Synthetic customer identifier
+ods.app_order,pay_amount,"decimal(18,2)",Order amount
+ods.app_order,pay_status,string,Payment status
+ods.app_order,created_at,timestamp,Creation timestamp
+ods.app_order,dt,string,Partition date
+ods.web_order,web_order_id,string,Synthetic web order identifier
+ods.web_order,buyer_id,bigint,Synthetic buyer identifier
+ods.web_order,order_amount,"decimal(18,2)",Order amount
+ods.web_order,order_status,string,Payment status
+ods.web_order,order_time,timestamp,Creation timestamp
+ods.web_order,dt,string,Partition date

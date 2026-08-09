@@ -1,0 +1,26 @@
+{
+  "tables": [
+    {
+      "table_name": "ods.customer_base",
+      "columns": [
+        {"name": "customer_id", "type": "bigint", "comment": "Synthetic customer identifier"},
+        {"name": "customer_name", "type": "string", "comment": "Synthetic customer name"},
+        {"name": "country_code", "type": "string", "comment": "Country code"},
+        {"name": "registered_at", "type": "timestamp", "comment": "Registration timestamp"},
+        {"name": "dt", "type": "string", "comment": "Partition date"}
+      ]
+    },
+    {
+      "table_name": "dwd.order_detail",
+      "columns": [
+        {"name": "order_id", "type": "string", "comment": "Synthetic order identifier"},
+        {"name": "customer_id", "type": "bigint", "comment": "Synthetic customer identifier"},
+        {"name": "pay_amount", "type": "decimal(18,2)", "comment": "Paid amount"},
+        {"name": "currency_code", "type": "string", "comment": "Currency code"},
+        {"name": "pay_status", "type": "string", "comment": "Payment status"},
+        {"name": "paid_at", "type": "timestamp", "comment": "Payment timestamp"},
+        {"name": "dt", "type": "string", "comment": "Partition date"}
+      ]
+    }
+  ]
+}
