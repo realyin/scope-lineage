@@ -1,0 +1,9 @@
+{
+  "task_id": "golden_complex_scope",
+  "sql": "INSERT OVERWRITE TABLE mart.user_value\nWITH aggregated AS (\n  SELECT user_id, SUM(amount) AS total_amount\n  FROM ods.events\n  GROUP BY user_id\n), ranked AS (\n  SELECT user_id, ROW_NUMBER() OVER (ORDER BY total_amount DESC) AS rn\n  FROM aggregated\n)\nSELECT r.user_id\nFROM ranked r\nJOIN ods.users u ON r.user_id = u.user_id\nWHERE r.rn = 1\nUNION ALL\nSELECT user_id FROM ods.fallback_users",
+  "schema": {
+    "ods.events": ["user_id", "amount"],
+    "ods.users": ["user_id"],
+    "ods.fallback_users": ["user_id"]
+  }
+}

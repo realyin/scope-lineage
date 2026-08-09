@@ -1,0 +1,398 @@
+{
+  "schema_version": "1.0",
+  "task_id": "golden_star_without_schema",
+  "target_table": "mart.raw_copy",
+  "stmt_kind": "INSERT",
+  "parse_status": "ok",
+  "syntax_status": "strict_ok",
+  "syntax_errors": [],
+  "target_partition_spec": {},
+  "target_partition_columns": [],
+  "target_partition_mode": "none",
+  "task_dependencies": {
+    "upstream_tasks": [],
+    "downstream_tasks": [],
+    "source_summary": {
+      "source_format": "none",
+      "upstream_count": 0,
+      "downstream_count": 0,
+      "has_declared_task_dependencies": false
+    }
+  },
+  "source_tables": [
+    "ods.raw_events"
+  ],
+  "related_metadata": {
+    "input_tables": {
+      "ods.raw_events": {
+        "column_details": [
+          {
+            "name": "*",
+            "type": null,
+            "comment": null
+          }
+        ],
+        "metadata_complete": false
+      }
+    },
+    "output_tables": {
+      "mart.raw_copy": {
+        "column_details": [
+          {
+            "name": "*",
+            "type": null,
+            "comment": null
+          }
+        ],
+        "metadata_complete": false
+      }
+    }
+  },
+  "scope_graph": {
+    "nodes": [
+      "ROOT",
+      "ods.raw_events"
+    ],
+    "edges": [
+      {
+        "from": "ods.raw_events",
+        "to": "ROOT"
+      }
+    ]
+  },
+  "scopes": {
+    "ROOT": {
+      "kind": "root",
+      "role": "transform",
+      "depends_on": [
+        "ods.raw_events"
+      ],
+      "writes_to": "mart.raw_copy",
+      "raw_sql": "SELECT * FROM `ods`.`raw_events` AS `raw_events`",
+      "raw_sql_available": true,
+      "raw_sql_quality": {
+        "status": "clean",
+        "placeholder_types": [],
+        "evidence": []
+      },
+      "source_coverage": {
+        "status": "covered",
+        "declared_source_tables": [
+          "ods.raw_events"
+        ],
+        "raw_sql_source_tables": [
+          "ods.raw_events"
+        ],
+        "missing_declared_source_tables": [],
+        "extra_source_tables": []
+      },
+      "input_edges": [
+        {
+          "source_id": "ods.raw_events",
+          "source_type": "physical_table",
+          "position": "from",
+          "alias": "raw_events"
+        }
+      ],
+      "input_source_refs": [
+        {
+          "input_ref_id": "input:ROOT:001",
+          "source_id": "ods.raw_events",
+          "source_type": "physical_table",
+          "alias": "raw_events",
+          "position": "from",
+          "relation_position": "from",
+          "join_type": null,
+          "physical_source_id": "ods.raw_events",
+          "physical_source_ids": [
+            "ods.raw_events"
+          ],
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "direct_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "ods.raw_events"
+            ],
+            "field_resolution_required": false,
+            "missing_reasons": []
+          },
+          "field_resolution_required": false,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "raw_events",
+              "to": "ods.raw_events",
+              "relation": "alias_to_physical_source"
+            }
+          ],
+          "trace_status": "complete"
+        }
+      ],
+      "alias_source_bindings": [
+        {
+          "alias": "raw_events",
+          "source_id": "ods.raw_events",
+          "source_type": "physical_table",
+          "physical_source_id": "ods.raw_events",
+          "physical_source_ids": [
+            "ods.raw_events"
+          ],
+          "position": "from",
+          "relation_position": "from",
+          "join_type": null,
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "direct_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "ods.raw_events"
+            ],
+            "field_resolution_required": false,
+            "missing_reasons": []
+          },
+          "field_resolution_required": false,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "raw_events",
+              "to": "ods.raw_events",
+              "relation": "alias_to_physical_source"
+            }
+          ],
+          "input_ref_id": "input:ROOT:001"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "*",
+          "transform": "EXPAND_ALL",
+          "sources": [
+            {
+              "scope": "ods.raw_events",
+              "column": "*",
+              "qualifier": "raw_events",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            }
+          ],
+          "source_logic_blocks": [],
+          "downstream_fields": [],
+          "target_columns": [
+            "mart.raw_copy.*"
+          ],
+          "final_target_columns": [
+            "mart.raw_copy.*"
+          ],
+          "expression": "*",
+          "expanded_expression": "*",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "generated_expression",
+            "physical_source_fields": [],
+            "generated_sources": [
+              {
+                "source_type": "CONSTANT",
+                "value": "*",
+                "transform": "EXPAND_ALL"
+              }
+            ],
+            "source_kind": "generated",
+            "missing_reasons": [],
+            "expanded_expression": "*"
+          },
+          "consumer_readiness": {
+            "status": "ready",
+            "blocked_reasons": []
+          },
+          "expression_type": "arithmetic_expression",
+          "expression_features": {
+            "functions": [],
+            "operators": [
+              "*"
+            ],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "expression_role": "field_derivation",
+          "grain_effect": "preserved",
+          "output_ordinal": 0
+        }
+      ],
+      "field_usage": [
+        {
+          "source_id": "ods.raw_events",
+          "source_type": "physical_table",
+          "used_fields": [
+            "*"
+          ],
+          "used_field_details": [],
+          "used_by_logic_blocks": [],
+          "used_by_output_fields": [
+            "*"
+          ],
+          "source_metadata": {}
+        }
+      ],
+      "columns": [
+        {
+          "name": "*",
+          "transform": "EXPAND_ALL",
+          "expression": "*",
+          "sources": [
+            {
+              "scope": "ods.raw_events",
+              "column": "*",
+              "qualifier": "raw_events",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "field_mapping_chains": [
+    {
+      "mapping_chain_id": "mc:001",
+      "chain_id": "chain:ROOT:*:position:0",
+      "chain_type": "field_mapping",
+      "target_scope_id": "ROOT",
+      "target_field": "*",
+      "target_position": 0,
+      "chain_status": "resolved",
+      "source_kind": "generated",
+      "root_source_fields": [
+        "ods.raw_events.*"
+      ],
+      "final_output_fields": [
+        "mart.raw_copy.*"
+      ],
+      "ordered_steps": [
+        {
+          "step_no": 1,
+          "scope_id": "ROOT",
+          "step_type": "expression",
+          "input_fields": [
+            "ods.raw_events.*"
+          ],
+          "output_field": "mart.raw_copy.*",
+          "expression_sql": "*",
+          "expanded_expression": "*",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "generated_expression",
+            "physical_source_fields": [],
+            "generated_sources": [
+              {
+                "source_type": "CONSTANT",
+                "value": "*",
+                "transform": "EXPAND_ALL"
+              }
+            ],
+            "source_kind": "generated",
+            "missing_reasons": [],
+            "expanded_expression_same_as_parent": true
+          },
+          "logic_ids": [],
+          "transform": "EXPAND_ALL",
+          "grain_effect": "preserved",
+          "final_output_fields": [
+            "mart.raw_copy.*"
+          ],
+          "target_position": 0
+        }
+      ],
+      "expanded_expression": "*",
+      "missing_reasons": [],
+      "trace_status": "complete"
+    }
+  ],
+  "scope_profile": {
+    "profile_step_count": 1,
+    "steps": [
+      {
+        "scope_id": "ROOT",
+        "name": "ROOT",
+        "kind": "root",
+        "role": "transform",
+        "operations": [
+          "pass_through"
+        ],
+        "business_summary": "读取 ods.raw_events",
+        "direct_inputs": [
+          "ods.raw_events"
+        ],
+        "direct_source_tables": [
+          "ods.raw_events"
+        ],
+        "physical_source_tables": [
+          "ods.raw_events"
+        ],
+        "output_columns": 1,
+        "logic": {
+          "joins": [],
+          "filters": [],
+          "aggregations": [],
+          "window_functions": [],
+          "case_when": [],
+          "key_renames": [],
+          "distinct": false,
+          "union_branches": 0,
+          "lateral_views": []
+        }
+      }
+    ]
+  },
+  "end_to_end_lineage": [
+    {
+      "column": "*",
+      "transform": "EXPAND_ALL",
+      "expression": "*",
+      "trace_complete": false,
+      "physical_sources": [
+        {
+          "table": "ods.raw_events",
+          "column": "*",
+          "transform": "EXPAND_ALL"
+        }
+      ],
+      "generated_sources": [],
+      "source_kind": "physical",
+      "output_ordinal": 0,
+      "trace_incomplete_reasons": [
+        "star_not_expanded"
+      ]
+    }
+  ],
+  "diagnostics": {
+    "fallback_used": false,
+    "warning_count": 1,
+    "warning_types": {
+      "star_not_expanded": 1
+    },
+    "lineage_fact_gap_count": 0,
+    "lineage_fact_gap_types": {},
+    "lineage_fact_gap_samples": [],
+    "stats": {
+      "scope_count": 2,
+      "physical_table_count": 1,
+      "cte_count": 0,
+      "subquery_count": 0,
+      "union_count": 0,
+      "union_branch_count": 0,
+      "max_depth": 1,
+      "case_when_count": 0,
+      "window_function_count": 0,
+      "join_count": 0,
+      "aggregate_function_count": 0
+    },
+    "full_diagnostics_file": "diagnostics.json"
+  }
+}

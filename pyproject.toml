@@ -1,0 +1,58 @@
+[project]
+name = "scope-lineage"
+version = "0.1.0"
+description = "Scope-aware column-level lineage parser for Spark/Hive SQL"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "Apache-2.0"
+keywords = ["sql", "lineage", "spark", "hive", "metadata", "data-engineering"]
+dependencies = ["sqlglot>=30", "jsonschema>=4"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Database",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.scripts]
+scope-lineage = "lineage_parser.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "build>=1", "ruff>=0.6"]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+# This public distribution is the parser and its versioned contracts only. Widening this package
+# discovery rule changes the supported product boundary and requires an architecture review.
+include = ["lineage_parser*"]
+exclude = ["pipeline*", "tests*"]
+
+[tool.setuptools.package-data]
+lineage_parser = ["schemas/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: requires an external execution runtime such as Apache Spark",
+]
+
+[tool.ruff]
+# Lint safety net for the ongoing core-module refactor. Intentionally narrow:
+# catch the mechanical mistakes a function-extraction refactor is most likely to
+# introduce (unused/undefined names), not style. No formatting is enforced.
+target-version = "py39"
+
+[tool.ruff.lint]
+# Pyflakes only: F401 unused import, F811 redefinition, F821 undefined name,
+# F841 unused local. Add more codes deliberately, not by default.
+select = ["F"]

@@ -1,0 +1,1694 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FieldLineage",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "task_id",
+    "target_table",
+    "stmt_kind",
+    "parse_status",
+    "syntax_status",
+    "syntax_errors",
+    "target_partition_spec",
+    "target_partition_columns",
+    "target_partition_mode",
+    "task_dependencies",
+    "source_tables",
+    "related_metadata",
+    "scopes",
+    "scope_graph",
+    "field_mapping_chains",
+    "scope_profile",
+    "end_to_end_lineage",
+    "diagnostics"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "const": "1.0",
+      "description": "Lineage contract version. Optional additive fields are compatible within major version 1."
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target_table": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stmt_kind": {
+      "type": "string",
+      "enum": [
+        "INSERT_OVERWRITE",
+        "INSERT",
+        "CTAS",
+        "MERGE",
+        "UNKNOWN"
+      ],
+      "description": "写表语句类型。不含独立 UPDATE/DELETE:本工具建模的是「从 SELECT 写入一张表」的字段血缘,行级写操作没有这样的投影 (CONTRACT-001)。MERGE 内的 UPDATE/DELETE 分支仍按 MERGE 语义处理。"
+    },
+    "parse_status": {
+      "type": "string",
+      "enum": [
+        "ok",
+        "failed"
+      ]
+    },
+    "syntax_status": {
+      "type": "string",
+      "enum": [
+        "strict_ok",
+        "recovered",
+        "failed"
+      ]
+    },
+    "syntax_errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "description"
+        ],
+        "properties": {
+          "description": {"type": "string"},
+          "line": {"type": "integer", "minimum": 1},
+          "col": {"type": "integer", "minimum": 1},
+          "start_context": {"type": "string"},
+          "highlight": {"type": "string"},
+          "end_context": {"type": "string"}
+        }
+      }
+    },
+    "target_partition_spec": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "target_partition_columns": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "target_partition_mode": {
+      "type": "string",
+      "enum": [
+        "none",
+        "static",
+        "dynamic",
+        "mixed"
+      ]
+    },
+    "target_field_binding": {
+      "type": "object",
+      "description": "Only emitted when optional target DDL/Schema metadata mode was requested. Records whether authoritative target-column binding was applied or SQL projection names were retained.",
+      "required": [
+        "status",
+        "method",
+        "projection_count",
+        "target_column_count",
+        "corrected_column_count",
+        "static_partition_columns",
+        "dynamic_partition_columns",
+        "issues"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "applied",
+            "fallback",
+            "not_applied"
+          ]
+        },
+        "method": {
+          "type": "string",
+          "enum": [
+            "ddl_position",
+            "schema_position",
+            "insert_column_list",
+            "sql_projection"
+          ]
+        },
+        "metadata_table": {
+          "type": "string"
+        },
+        "metadata_source_file": {
+          "type": "string"
+        },
+        "projection_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "target_column_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "corrected_column_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "static_partition_columns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "dynamic_partition_columns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "task_dependencies": {
+      "type": "object",
+      "required": [
+        "upstream_tasks",
+        "downstream_tasks",
+        "source_summary"
+      ],
+      "properties": {
+        "upstream_tasks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/task_dependency"
+          }
+        },
+        "downstream_tasks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/task_dependency"
+          }
+        },
+        "source_summary": {
+          "type": "object",
+          "properties": {
+            "source_format": {
+              "type": "string"
+            },
+            "upstream_count": {
+              "type": "integer"
+            },
+            "downstream_count": {
+              "type": "integer"
+            },
+            "has_declared_task_dependencies": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    "source_tables": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "related_metadata": {
+      "type": "object",
+      "properties": {
+        "input_tables": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/table_metadata"
+          }
+        },
+        "output_tables": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/table_metadata"
+          }
+        }
+      }
+    },
+    "partition_columns": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "end_to_end_lineage": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "column",
+          "transform",
+          "trace_complete",
+          "physical_sources"
+        ],
+        "properties": {
+          "column": {
+            "type": "string"
+          },
+          "parsed_column": {
+            "type": "string"
+          },
+          "target_column_ordinal": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "target_field_resolution": {
+            "type": "string",
+            "enum": [
+              "ddl_position",
+              "schema_position",
+              "insert_column_list"
+            ]
+          },
+          "target_field_corrected": {
+            "type": "boolean"
+          },
+          "target_metadata_table": {
+            "type": "string"
+          },
+          "transform": {
+            "type": "string"
+          },
+          "expression": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "trace_complete": {
+            "type": "boolean"
+          },
+          "trace_incomplete_reasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "ambiguities": {
+            "type": "array",
+            "description": "Unresolved choice sites. Candidate traces are possible sources and must not be merged into proven physical_sources.",
+            "items": {
+              "$ref": "#/definitions/lineage_ambiguity"
+            }
+          },
+          "physical_sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "table",
+                "column",
+                "transform"
+              ],
+              "properties": {
+                "table": {
+                  "type": "string"
+                },
+                "column": {
+                  "type": "string"
+                },
+                "transform": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "generated_sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "source_type",
+                "value",
+                "transform"
+              ],
+              "properties": {
+                "source_type": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                },
+                "transform": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "rowset_sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "source_type",
+                "scope",
+                "field",
+                "expression"
+              ],
+              "properties": {
+                "source_type": {
+                  "type": "string"
+                },
+                "scope": {
+                  "type": "string"
+                },
+                "field": {
+                  "type": "string"
+                },
+                "expression": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "source_kind": {
+            "type": "string",
+            "enum": [
+              "physical",
+              "generated",
+              "mixed",
+              "rowset",
+              "unresolved"
+            ]
+          }
+        }
+      }
+    },
+    "scope_profile": {
+      "type": "object",
+      "properties": {
+        "profile_step_count": {
+          "type": "integer"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "scope_id",
+              "name",
+              "kind",
+              "role",
+              "operations",
+              "direct_inputs",
+              "physical_source_tables",
+              "output_columns",
+              "logic"
+            ],
+            "properties": {
+              "scope_id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string"
+              },
+              "operations": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "direct_inputs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "physical_source_tables": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "output_columns": {
+                "type": "integer"
+              },
+              "logic": {
+                "type": "object",
+                "properties": {
+                  "joins": {
+                    "type": "array"
+                  },
+                  "filters": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "aggregations": {
+                    "type": "array"
+                  },
+                  "window_functions": {
+                    "type": "array"
+                  },
+                  "case_when": {
+                    "type": "array"
+                  },
+                  "key_renames": {
+                    "type": "array"
+                  },
+                  "distinct": {
+                    "type": "boolean"
+                  },
+                  "union_branches": {
+                    "type": "integer"
+                  },
+                  "lateral_views": {
+                    "type": "array"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "field_mapping_chains": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/field_mapping_chain"
+      }
+    },
+    "scope_graph": {
+      "type": "object",
+      "required": [
+        "nodes",
+        "edges"
+      ],
+      "properties": {
+        "nodes": {
+          "type": "array"
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "from",
+              "to"
+            ],
+            "properties": {
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "scopes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "kind",
+          "columns",
+          "depends_on"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "physical_table",
+              "cte",
+              "subquery",
+              "union",
+              "union_branch",
+              "root"
+            ]
+          },
+          "distinct": {
+            "type": "boolean"
+          },
+          "lateral_views": {
+            "type": "array"
+          },
+          "raw_sql": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "raw_sql_available": {
+            "type": "boolean"
+          },
+          "input_edges": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "source_id",
+                "source_type",
+                "position"
+              ],
+              "properties": {
+                "source_id": {
+                  "type": "string"
+                },
+                "source_type": {
+                  "type": "string",
+                  "enum": [
+                    "physical_table",
+                    "scope",
+                    "unknown"
+                  ]
+                },
+                "alias": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "position": {
+                  "type": "string",
+                  "enum": [
+                    "from",
+                    "join",
+                    "lateral_view"
+                  ]
+                },
+                "join_type": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "join_condition": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "join_fields": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "scope",
+                      "column"
+                    ],
+                    "properties": {
+                      "scope": {
+                        "type": "string"
+                      },
+                      "column": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "input_source_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/input_source_ref"
+            }
+          },
+          "union_branch_alignment": {
+            "$ref": "#/definitions/union_branch_alignment"
+          },
+          "logic_blocks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "logic_block_id",
+                "logic_type"
+              ],
+              "properties": {
+                "logic_block_id": {
+                  "type": "string"
+                },
+                "logic_type": {
+                  "type": "string"
+                },
+                "subtype": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "raw_expression": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "normalized_expression": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "fingerprint": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "fields": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "scope",
+                      "column"
+                    ],
+                    "properties": {
+                      "scope": {
+                        "type": "string"
+                      },
+                      "column": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "output_fields": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "join_type": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "input_sources": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "field_usage": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "source_id",
+                      "source_type",
+                      "used_fields",
+                      "used_by_logic_blocks",
+                      "used_by_output_fields"
+                    ],
+                    "properties": {
+                      "source_id": {
+                        "type": "string"
+                      },
+                      "source_type": {
+                        "type": "string",
+                        "enum": [
+                          "physical_table",
+                          "scope",
+                          "unknown"
+                        ]
+                      },
+                      "used_fields": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "used_field_details": {
+                        "type": "array",
+                        "items": {
+                          "type": "object"
+                        }
+                      },
+                      "used_by_logic_blocks": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "used_by_output_fields": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "source_metadata": {
+                        "type": "object"
+                      }
+                    }
+                  }
+                },
+                "expression_features": {
+                  "type": "object",
+                  "properties": {
+                    "functions": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "operators": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "has_case_when": {
+                      "type": "boolean"
+                    },
+                    "has_if": {
+                      "type": "boolean"
+                    },
+                    "has_cast": {
+                      "type": "boolean"
+                    },
+                    "has_window": {
+                      "type": "boolean"
+                    },
+                    "has_aggregate": {
+                      "type": "boolean"
+                    },
+                    "has_udf": {
+                      "type": "boolean"
+                    },
+                    "has_constant_mapping": {
+                      "type": "boolean"
+                    },
+                    "has_partition_filter": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "final_target_columns": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "left_input": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "right_input": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "join_keys": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "scope",
+                      "column"
+                    ],
+                    "properties": {
+                      "scope": {
+                        "type": "string"
+                      },
+                      "column": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "join_relation_detail": {
+                  "$ref": "#/definitions/join_relation_detail"
+                },
+                "filter_predicate_detail": {
+                  "$ref": "#/definitions/filter_predicate_detail"
+                },
+                "aggregation_detail": {
+                  "$ref": "#/definitions/aggregation_detail"
+                },
+                "window_specification": {
+                  "$ref": "#/definitions/window_specification"
+                }
+              }
+            }
+          },
+          "outputs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "name",
+                "transform",
+                "sources",
+                "source_logic_blocks",
+                "downstream_fields",
+                "target_columns"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "output_ordinal": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Zero-based SQL output occurrence; remains distinct when MERGE clauses write the same field."
+                },
+                "merge_branch": {
+                  "type": "string",
+                  "enum": ["matched", "not_matched"]
+                },
+                "merge_when_index": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "transform": {
+                  "type": "string"
+                },
+                "expression": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "expression_type": {
+                  "type": "string",
+                  "enum": [
+                    "direct_projection",
+                    "conditional_expression",
+                    "type_cast",
+                    "function_expression",
+                    "aggregate_expression",
+                    "window_expression",
+                    "arithmetic_expression",
+                    "constant_expression",
+                    "udf_expression",
+                    "unknown_expression"
+                  ]
+                },
+                "expression_features": {
+                  "type": "object",
+                  "properties": {
+                    "functions": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "operators": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "has_case_when": {
+                      "type": "boolean"
+                    },
+                    "has_if": {
+                      "type": "boolean"
+                    },
+                    "has_cast": {
+                      "type": "boolean"
+                    },
+                    "has_window": {
+                      "type": "boolean"
+                    },
+                    "has_aggregate": {
+                      "type": "boolean"
+                    },
+                    "has_udf": {
+                      "type": "boolean"
+                    },
+                    "has_constant_mapping": {
+                      "type": "boolean"
+                    },
+                    "has_partition_filter": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "expression_role": {
+                  "type": "string",
+                  "enum": [
+                    "direct_projection",
+                    "field_derivation",
+                    "standardization",
+                    "cleaning",
+                    "type_conversion",
+                    "metric_calculation",
+                    "record_selection",
+                    "constant_fill",
+                    "unknown"
+                  ]
+                },
+                "grain_effect": {
+                  "type": "string",
+                  "enum": [
+                    "preserved",
+                    "changed",
+                    "may_change",
+                    "unknown"
+                  ]
+                },
+                "sources": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "scope",
+                      "column"
+                    ],
+                    "properties": {
+                      "scope": {
+                        "type": "string"
+                      },
+                      "column": {
+                        "type": "string"
+                      },
+                      "qualifier": {
+                        "type": "string",
+                        "description": "SQL qualifier that selected this source field."
+                      },
+                      "binding_scope_id": {
+                        "type": "string",
+                        "description": "Scope where the qualifier's input occurrence is declared."
+                      },
+                      "input_ref_id": {
+                        "type": "string",
+                        "description": "Exact input_source_refs identity for this field reference."
+                      },
+                      "candidates": {
+                        "type": "array",
+                        "description": "Only on AMBIGUOUS refs: every source that could have supplied this column. Consumers must not collapse it to one (LINEAGE-002).",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "scope": {
+                              "type": "string"
+                            },
+                            "column": {
+                              "type": "string"
+                            },
+                            "qualifier": {
+                              "type": "string"
+                            },
+                            "binding_scope_id": {
+                              "type": "string"
+                            },
+                            "input_ref_id": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "source_logic_blocks": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "downstream_fields": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "scope",
+                      "column"
+                    ],
+                    "properties": {
+                      "scope": {
+                        "type": "string"
+                      },
+                      "column": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "target_columns": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "final_target_columns": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "consumer_readiness": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ready",
+                        "blocked"
+                      ]
+                    },
+                    "blocked_reasons": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "field_usage": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "source_id",
+                "source_type",
+                "used_fields",
+                "used_by_logic_blocks",
+                "used_by_output_fields"
+              ],
+              "properties": {
+                "source_id": {
+                  "type": "string"
+                },
+                "source_type": {
+                  "type": "string",
+                  "enum": [
+                    "physical_table",
+                    "scope",
+                    "unknown"
+                  ]
+                },
+                "used_fields": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "used_field_details": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                },
+                "used_by_logic_blocks": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "used_by_output_fields": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "source_metadata": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "depends_on": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "columns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "name",
+                "transform",
+                "sources"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "parsed_name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "target_column_ordinal": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "target_field_resolution": {
+                  "type": "string",
+                  "enum": [
+                    "ddl_position",
+                    "schema_position",
+                    "insert_column_list"
+                  ]
+                },
+                "target_field_corrected": {
+                  "type": "boolean"
+                },
+                "target_metadata_table": {
+                  "type": "string"
+                },
+                "merge_branch": {
+                  "type": "string",
+                  "enum": ["matched", "not_matched"]
+                },
+                "merge_when_index": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "transform": {
+                  "type": "string",
+                  "enum": [
+                    "DIRECT",
+                    "EXPRESSION",
+                    "AGGREGATE",
+                    "WINDOW",
+                    "CONDITIONAL",
+                    "CONSTANT",
+                    "UNION",
+                    "EXPAND_ALL"
+                  ]
+                },
+                "sources": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "scope",
+                      "column"
+                    ],
+                    "properties": {
+                      "scope": {
+                        "type": "string"
+                      },
+                      "column": {
+                        "type": "string"
+                      },
+                      "qualifier": {
+                        "type": "string",
+                        "description": "SQL qualifier that selected this source field."
+                      },
+                      "binding_scope_id": {
+                        "type": "string",
+                        "description": "Scope where the qualifier's input occurrence is declared."
+                      },
+                      "input_ref_id": {
+                        "type": "string",
+                        "description": "Exact input_source_refs identity for this field reference."
+                      },
+                      "candidates": {
+                        "type": "array",
+                        "description": "Only on AMBIGUOUS refs: every source that could have supplied this column. Consumers must not collapse it to one (LINEAGE-002).",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "scope": {
+                              "type": "string"
+                            },
+                            "column": {
+                              "type": "string"
+                            },
+                            "qualifier": {
+                              "type": "string"
+                            },
+                            "binding_scope_id": {
+                              "type": "string"
+                            },
+                            "input_ref_id": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "diagnostics": {
+      "type": "object",
+      "properties": {
+        "fallback_used": {
+          "type": "boolean"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "type",
+              "scope",
+              "msg"
+            ],
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "scope": {
+                "type": "string"
+              },
+              "msg": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "stats": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "definitions": {
+    "field_mapping_chain": {
+      "type": "object",
+      "required": [
+        "mapping_chain_id",
+        "chain_id",
+        "chain_type",
+        "target_scope_id",
+        "target_field",
+        "target_position",
+        "chain_status",
+        "root_source_fields",
+        "final_output_fields",
+        "ordered_steps",
+        "missing_reasons",
+        "trace_status"
+      ],
+      "properties": {
+        "mapping_chain_id": {"type": "string", "minLength": 1},
+        "chain_id": {"type": "string", "minLength": 1},
+        "chain_type": {"const": "field_mapping"},
+        "target_scope_id": {"type": "string", "minLength": 1},
+        "target_field": {"type": "string", "minLength": 1},
+        "target_position": {"type": "integer", "minimum": 0},
+        "chain_status": {"type": "string"},
+        "root_source_fields": {"type": "array", "items": {"type": "string"}},
+        "final_output_fields": {"type": "array", "items": {"type": "string"}},
+        "ordered_steps": {"type": "array", "items": {"type": "object"}},
+        "missing_reasons": {"type": "array", "items": {"type": "string"}},
+        "trace_status": {
+          "type": "string",
+          "enum": ["complete", "incomplete"]
+        }
+      }
+    },
+    "input_source_ref": {
+      "type": "object",
+      "required": [
+        "input_ref_id",
+        "source_id",
+        "source_type",
+        "physical_source_ids",
+        "source_resolution",
+        "field_resolution_required",
+        "binding_status",
+        "binding_trace",
+        "trace_status"
+      ],
+      "properties": {
+        "input_ref_id": {"type": "string", "minLength": 1},
+        "source_id": {"type": "string", "minLength": 1},
+        "source_type": {
+          "type": "string",
+          "enum": ["physical_table", "scope", "unknown"]
+        },
+        "physical_source_ids": {"type": "array", "items": {"type": "string"}},
+        "source_resolution": {"type": "object"},
+        "field_resolution_required": {"type": "boolean"},
+        "binding_status": {"type": "string"},
+        "binding_trace": {"type": "array", "items": {"type": "object"}},
+        "trace_status": {
+          "type": "string",
+          "enum": ["complete", "scope_only"]
+        }
+      }
+    },
+    "join_relation_detail": {
+      "type": "object",
+      "required": [
+        "join_type",
+        "join_key_pairs",
+        "condition_filters",
+        "missing_reasons",
+        "trace_status"
+      ],
+      "properties": {
+        "join_type": {"type": "string"},
+        "join_key_pairs": {"type": "array", "items": {"type": "object"}},
+        "condition_filters": {"type": "array", "items": {"type": "object"}},
+        "missing_reasons": {"type": "array", "items": {"type": "string"}},
+        "trace_status": {
+          "type": "string",
+          "enum": ["complete", "partial"]
+        }
+      }
+    },
+    "subquery_dependency": {
+      "type": "object",
+      "required": [
+        "subquery_scope_id",
+        "physical_source_fields",
+        "trace_status",
+        "missing_reasons"
+      ],
+      "properties": {
+        "subquery_scope_id": {"type": "string", "minLength": 1},
+        "physical_source_fields": {"type": "array", "items": {"type": "object"}},
+        "trace_status": {
+          "type": "string",
+          "enum": ["complete", "partial"]
+        },
+        "missing_reasons": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "filter_predicate_detail": {
+      "type": "object",
+      "properties": {
+        "subquery_dependencies": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/subquery_dependency"}
+        },
+        "conjuncts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "subquery_dependencies": {
+                "type": "array",
+                "items": {"$ref": "#/definitions/subquery_dependency"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "aggregation_item": {
+      "type": "object",
+      "required": ["trace_status"],
+      "properties": {
+        "trace_status": {
+          "type": "string",
+          "enum": ["complete", "partial"]
+        }
+      }
+    },
+    "aggregation_detail": {
+      "type": "object",
+      "required": [
+        "group_by_items",
+        "aggregate_items",
+        "having",
+        "trace_status"
+      ],
+      "properties": {
+        "group_by_items": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/aggregation_item"}
+        },
+        "aggregate_items": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/aggregation_item"}
+        },
+        "having": {"type": "array", "items": {"type": "object"}},
+        "trace_status": {
+          "type": "string",
+          "enum": ["complete", "empty"]
+        }
+      }
+    },
+    "window_specification": {
+      "type": "object",
+      "required": ["trace_status"],
+      "properties": {
+        "trace_status": {
+          "type": "string",
+          "enum": ["complete", "expression_only"]
+        }
+      }
+    },
+    "union_branch_alignment": {
+      "type": "object",
+      "required": [
+        "scope_id",
+        "branch_count",
+        "branches",
+        "field_alignment",
+        "trace_status"
+      ],
+      "properties": {
+        "scope_id": {"type": "string", "minLength": 1},
+        "branch_count": {"type": "integer", "minimum": 0},
+        "branches": {"type": "array", "items": {"type": "object"}},
+        "field_alignment": {"type": "array", "items": {"type": "object"}},
+        "trace_status": {
+          "type": "string",
+          "enum": ["complete", "incomplete"]
+        }
+      }
+    },
+    "lineage_ambiguity": {
+      "type": "object",
+      "required": [
+        "scope",
+        "column",
+        "candidate_count",
+        "candidates"
+      ],
+      "properties": {
+        "scope": {
+          "type": "string"
+        },
+        "column": {
+          "type": "string"
+        },
+        "candidate_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "candidates": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/lineage_ambiguity_candidate"
+          }
+        }
+      }
+    },
+    "lineage_ambiguity_candidate": {
+      "type": "object",
+      "required": [
+        "scope",
+        "column",
+        "trace_complete",
+        "physical_sources",
+        "generated_sources",
+        "trace_incomplete_reasons"
+      ],
+      "properties": {
+        "scope": {
+          "type": "string"
+        },
+        "column": {
+          "type": "string"
+        },
+        "trace_complete": {
+          "type": "boolean"
+        },
+        "physical_sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lineage_physical_source"
+          }
+        },
+        "generated_sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lineage_generated_source"
+          }
+        },
+        "trace_incomplete_reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "ambiguities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lineage_ambiguity"
+          }
+        }
+      }
+    },
+    "lineage_physical_source": {
+      "type": "object",
+      "required": [
+        "table",
+        "column",
+        "transform"
+      ],
+      "properties": {
+        "table": {
+          "type": "string"
+        },
+        "column": {
+          "type": "string"
+        },
+        "transform": {
+          "type": "string"
+        }
+      }
+    },
+    "lineage_generated_source": {
+      "type": "object",
+      "required": [
+        "source_type",
+        "value",
+        "transform"
+      ],
+      "properties": {
+        "source_type": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        },
+        "transform": {
+          "type": "string"
+        }
+      }
+    },
+    "task_dependency": {
+      "type": "object",
+      "required": [
+        "dependency_id",
+        "direction",
+        "task_name",
+        "dependency_type",
+        "dependency_table",
+        "source",
+        "source_file",
+        "raw_record"
+      ],
+      "properties": {
+        "dependency_id": {
+          "type": "string"
+        },
+        "direction": {
+          "type": "string",
+          "enum": [
+            "upstream",
+            "downstream"
+          ]
+        },
+        "task_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "task_name": {
+          "type": "string"
+        },
+        "task_group": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "dependency_type": {
+          "type": "string"
+        },
+        "dependency_table": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "type": "string"
+        },
+        "source_file": {
+          "type": "string"
+        },
+        "raw_record": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": true
+    },
+    "table_metadata": {
+      "type": "object",
+      "required": [
+        "column_details",
+        "metadata_complete"
+      ],
+      "properties": {
+        "column_details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "comment": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "metadata_complete": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

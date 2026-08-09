@@ -1,0 +1,54 @@
+name: Core CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      - name: Test Core closure
+        run: python -m pytest -q tests/core tests/architecture/test_core_boundaries.py
+
+  lint-and-distribution:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      - name: Lint
+        run: python -m ruff check lineage_parser tests
+      - name: Build and verify archives
+        run: |
+          python -m build
+          python tests/architecture/verify_distribution.py dist/*
+      - name: Smoke installed wheel outside repository
+        run: |
+          python -m venv /tmp/scope-lineage-wheel
+          /tmp/scope-lineage-wheel/bin/python -m pip install dist/*.whl
+          cd /tmp
+          /tmp/scope-lineage-wheel/bin/scope-lineage parse \
+            --sql-file "$GITHUB_WORKSPACE/examples/simple_insert.sql" \
+            --schema "$GITHUB_WORKSPACE/examples/table_cols.csv" \
+            --out /tmp/scope-lineage-output
+          test -f /tmp/scope-lineage-output/simple_insert/lineage.json
+          test -f /tmp/scope-lineage-output/simple_insert/diagnostics.json

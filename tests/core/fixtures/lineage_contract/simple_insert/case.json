@@ -1,0 +1,7 @@
+{
+  "task_id": "golden_simple_insert",
+  "sql": "INSERT OVERWRITE TABLE mart.user_names\nSELECT s.user_id, s.user_name\nFROM ods.users s\nWHERE s.is_active = 1",
+  "schema": {
+    "ods.users": ["user_id", "user_name", "is_active"]
+  }
+}
