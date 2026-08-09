@@ -11,6 +11,7 @@ Scope Lineage Core 接收 SQL 内容以及两类可选元数据。它不会连�
 | 任务 JSON 包装 | 否 | `task_id`、`task_dependencies`、批量输出路径 | 仍可解析 SQL，但没有调度任务依赖。 |
 | 源表 Schema | 否 | `SELECT *` 展开、字段绑定、类型/注释、`related_metadata` | 显式列仍可解析；星号可能降级并产生 warning。 |
 | 目标表 DDL/Schema | 否 | `target_field_binding`、最终目标字段名和位置 | 使用 INSERT 列表或 SQL 投影名，不宣称经过权威位置校正。 |
+| catalog 前缀配置 | 否 | `target_table`、`source_tables`、物理字段来源中的表身份 | 默认保留 SQL 中的完整 catalog 表名。 |
 
 输入越完整，Core 能证明的字段事实越多；但元数据不会覆盖 SQL 事实。例如 Schema 可以说明表有哪些列，不能替代 SQL 中实际使用的 JOIN、过滤和表达式。
 
@@ -76,6 +77,64 @@ scope-lineage parse --input-dir exported_tasks --out /tmp/lineage
 
 Core 递归读取目录内的 `*.json`，并保留源文件的相对父目录。两个输入若在同一相对目录使用相同
 任务名，会被视为输出冲突，不会静默覆盖。
+
+## catalog 前缀配置
+
+Spark/Hive 环境可能用三段表名 `catalog.database.table`。Core 默认保留完整名称，因为无法仅凭
+三段结构安全判断第一段究竟是 catalog，还是业务命名的一部分。
+
+如果确认以下两种写法表示同一张物理表：
+
+```text
+warehouse_catalog.ods.customer_base
+ods.customer_base
+```
+
+可以在本次命令中声明允许剥离的首段 catalog：
+
+```bash
+scope-lineage parse \
+  --input-dir exported_tasks \
+  --catalog-prefixes warehouse_catalog,spark_catalog \
+  --out /tmp/lineage
+```
+
+固定部署环境或 Python API 调用可以使用环境变量：
+
+```bash
+export SCOPE_LINEAGE_CATALOG_PREFIXES="warehouse_catalog,spark_catalog"
+```
+
+配置优先级和行为如下：
+
+| 配置 | 行为 |
+| --- | --- |
+| 传入 `--catalog-prefixes` | 使用命令行逗号分隔列表，并覆盖环境变量。 |
+| 未传命令行参数，但设置环境变量 | 使用 `SCOPE_LINEAGE_CATALOG_PREFIXES`。 |
+| 两者均未设置 | 不剥离任何 catalog，保留 SQL 中的完整表名。 |
+| 显式传入空字符串 | 使用空列表，即本次运行不剥离 catalog。 |
+
+例如配置 `warehouse_catalog` 后，`lineage.json` 中的表身份会统一为：
+
+```json
+{
+  "source_tables": ["ods.customer_base"],
+  "end_to_end_lineage": [
+    {
+      "physical_sources": [
+        {"table": "ods.customer_base", "column": "customer_id"}
+      ]
+    }
+  ]
+}
+```
+
+注意：
+
+- 只配置确认属于 catalog 的首段名称，不要配置 `ods`、`dwd` 等 database 名；
+- 同一批输出必须使用同一策略，否则同一物理表可能产生两个身份；
+- 这是部署/批次级解析策略，不是某个 SQL 任务的业务属性，因此不放进任务 JSON；
+- Schema 和目标表元数据仍可以填写完整表名，但它们不会替代本配置来决定 Lineage 中是否保留 catalog。
 
 ## Schema 元数据
 
