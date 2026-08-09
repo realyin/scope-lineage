@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "stats": {
+    "scope_count": 9,
+    "physical_table_count": 3,
+    "cte_count": 2,
+    "subquery_count": 0,
+    "union_count": 1,
+    "union_branch_count": 2,
+    "max_depth": 5,
+    "case_when_count": 0,
+    "window_function_count": 1,
+    "join_count": 1,
+    "aggregate_function_count": 1
+  }
+}

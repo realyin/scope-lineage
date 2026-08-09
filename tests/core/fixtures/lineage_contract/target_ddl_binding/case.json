@@ -1,0 +1,20 @@
+{
+  "task_id": "golden_target_ddl_binding",
+  "sql": "INSERT OVERWRITE TABLE dwd.account_daily PARTITION(dt='20260801')\nSELECT s.account_key AS wrong_key, s.balance_value AS wrong_balance\nFROM ods.account_snapshot s",
+  "schema": {
+    "ods.account_snapshot": ["account_key", "balance_value"]
+  },
+  "target_metadata": {
+    "table_name": "dwd.account_daily",
+    "full_table_name": "spark_catalog.dwd.account_daily",
+    "columns": [
+      {"name": "account_id", "data_type": "bigint", "ordinal": 0, "is_partition": false},
+      {"name": "balance", "data_type": "decimal(18,2)", "ordinal": 1, "is_partition": false},
+      {"name": "dt", "data_type": "string", "ordinal": 2, "is_partition": true}
+    ],
+    "partition_columns": ["dt"],
+    "ddl": "CREATE TABLE dwd.account_daily(account_id BIGINT, balance DECIMAL(18,2), dt STRING) PARTITIONED BY (dt)",
+    "source_file": "synthetic-target-metadata.json",
+    "structure_source": "ddl"
+  }
+}

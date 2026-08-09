@@ -1,0 +1,4 @@
+{
+  "task_id": "golden_star_without_schema",
+  "sql": "INSERT INTO mart.raw_copy SELECT * FROM ods.raw_events"
+}

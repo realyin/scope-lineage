@@ -1,0 +1,621 @@
+{
+  "schema_version": "1.0",
+  "task_id": "golden_syntax_recovered",
+  "target_table": "mart.recovered",
+  "stmt_kind": "INSERT",
+  "parse_status": "ok",
+  "syntax_status": "recovered",
+  "syntax_errors": [
+    {
+      "description": "Required keyword: 'this' missing for <class 'sqlglot.expressions.query.Where'>",
+      "line": 1,
+      "col": 64,
+      "start_context": "INSERT INTO mart.recovered SELECT id FROM ods.events WHERE ",
+      "highlight": "WHERE",
+      "end_context": " id > 0"
+    },
+    {
+      "description": "Found multiple 'WHERE' clauses",
+      "line": 1,
+      "col": 64,
+      "start_context": "INSERT INTO mart.recovered SELECT id FROM ods.events WHERE ",
+      "highlight": "WHERE",
+      "end_context": " id > 0"
+    }
+  ],
+  "target_partition_spec": {},
+  "target_partition_columns": [],
+  "target_partition_mode": "none",
+  "task_dependencies": {
+    "upstream_tasks": [],
+    "downstream_tasks": [],
+    "source_summary": {
+      "source_format": "none",
+      "upstream_count": 0,
+      "downstream_count": 0,
+      "has_declared_task_dependencies": false
+    }
+  },
+  "source_tables": [
+    "ods.events"
+  ],
+  "related_metadata": {
+    "input_tables": {
+      "ods.events": {
+        "column_details": [
+          {
+            "name": "id",
+            "type": null,
+            "comment": null
+          }
+        ],
+        "metadata_complete": true
+      }
+    },
+    "output_tables": {
+      "mart.recovered": {
+        "column_details": [
+          {
+            "name": "id",
+            "type": null,
+            "comment": null
+          }
+        ],
+        "metadata_complete": false
+      }
+    }
+  },
+  "scope_graph": {
+    "nodes": [
+      "ROOT",
+      "ods.events"
+    ],
+    "edges": [
+      {
+        "from": "ods.events",
+        "to": "ROOT"
+      }
+    ]
+  },
+  "scopes": {
+    "ROOT": {
+      "kind": "root",
+      "role": "filter",
+      "depends_on": [
+        "ods.events"
+      ],
+      "writes_to": "mart.recovered",
+      "raw_sql": "SELECT `events`.`id` AS `id` FROM `ods`.`events` AS `events` WHERE `events`.`id` > 0",
+      "raw_sql_available": true,
+      "raw_sql_quality": {
+        "status": "clean",
+        "placeholder_types": [],
+        "evidence": []
+      },
+      "source_coverage": {
+        "status": "covered",
+        "declared_source_tables": [
+          "ods.events"
+        ],
+        "raw_sql_source_tables": [
+          "ods.events"
+        ],
+        "missing_declared_source_tables": [],
+        "extra_source_tables": []
+      },
+      "input_edges": [
+        {
+          "source_id": "ods.events",
+          "source_type": "physical_table",
+          "position": "from",
+          "alias": "events"
+        }
+      ],
+      "input_source_refs": [
+        {
+          "input_ref_id": "input:ROOT:001",
+          "source_id": "ods.events",
+          "source_type": "physical_table",
+          "alias": "events",
+          "position": "from",
+          "relation_position": "from",
+          "join_type": null,
+          "physical_source_id": "ods.events",
+          "physical_source_ids": [
+            "ods.events"
+          ],
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "direct_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "ods.events"
+            ],
+            "field_resolution_required": false,
+            "missing_reasons": []
+          },
+          "field_resolution_required": false,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "events",
+              "to": "ods.events",
+              "relation": "alias_to_physical_source"
+            }
+          ],
+          "trace_status": "complete"
+        }
+      ],
+      "alias_source_bindings": [
+        {
+          "alias": "events",
+          "source_id": "ods.events",
+          "source_type": "physical_table",
+          "physical_source_id": "ods.events",
+          "physical_source_ids": [
+            "ods.events"
+          ],
+          "position": "from",
+          "relation_position": "from",
+          "join_type": null,
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "direct_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "ods.events"
+            ],
+            "field_resolution_required": false,
+            "missing_reasons": []
+          },
+          "field_resolution_required": false,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "events",
+              "to": "ods.events",
+              "relation": "alias_to_physical_source"
+            }
+          ],
+          "input_ref_id": "input:ROOT:001"
+        }
+      ],
+      "expression_source_bindings": [
+        {
+          "expression_sql": "WHERE `events`.`id` > 0",
+          "logic_block_id": "logic:ROOT:filter:001",
+          "referenced_qualifiers": [
+            "events"
+          ],
+          "resolved_source_refs": [
+            {
+              "qualifier": "events",
+              "resolved_table": "ods.events",
+              "field": "id",
+              "status": "resolved"
+            }
+          ],
+          "unresolved_qualifiers": [],
+          "binding_status": "complete",
+          "evidence_path": "logic_blocks.logic:ROOT:filter:001.raw_expression"
+        },
+        {
+          "expression_sql": "`events`.`id` > 0",
+          "logic_block_id": "logic:ROOT:filter:001",
+          "referenced_qualifiers": [
+            "events"
+          ],
+          "resolved_source_refs": [
+            {
+              "qualifier": "events",
+              "resolved_table": "ods.events",
+              "field": "id",
+              "status": "resolved"
+            }
+          ],
+          "unresolved_qualifiers": [],
+          "binding_status": "complete",
+          "evidence_path": "logic_blocks.logic:ROOT:filter:001.filter_predicate_detail.conjuncts"
+        }
+      ],
+      "logic_blocks": [
+        {
+          "logic_block_id": "logic:ROOT:filter:001",
+          "logic_type": "filter",
+          "raw_expression": "WHERE `events`.`id` > 0",
+          "normalized_expression": "where `events`.`id` > 0",
+          "fingerprint": "filter:where `events`.`id` > 0",
+          "fields": [
+            {
+              "scope": "ods.events",
+              "column": "id",
+              "qualifier": "events",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            }
+          ],
+          "input_sources": [
+            "ods.events"
+          ],
+          "field_usage": [
+            {
+              "source_id": "ods.events",
+              "source_type": "physical_table",
+              "used_fields": [
+                "id"
+              ],
+              "used_field_details": [
+                {
+                  "name": "id",
+                  "type": null,
+                  "comment": null
+                }
+              ],
+              "used_by_logic_blocks": [
+                "logic:ROOT:filter:001"
+              ],
+              "used_by_output_fields": [],
+              "source_metadata": {}
+            }
+          ],
+          "expression_features": {
+            "functions": [],
+            "operators": [
+              ">"
+            ],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "filter_predicate_detail": {
+            "predicate_type": "where",
+            "expression": "WHERE `events`.`id` > 0",
+            "fields": [
+              {
+                "scope": "ods.events",
+                "column": "id",
+                "qualifier": "events",
+                "binding_scope_id": "ROOT",
+                "input_ref_id": "input:ROOT:001"
+              }
+            ],
+            "conjuncts": [
+              {
+                "expression": "`events`.`id` > 0",
+                "fields": [
+                  {
+                    "scope": "ods.events",
+                    "column": "id",
+                    "qualifier": "events",
+                    "binding_scope_id": "ROOT",
+                    "input_ref_id": "input:ROOT:001"
+                  }
+                ],
+                "expression_resolution": {
+                  "status": "resolved",
+                  "resolution_type": "qualified_expression",
+                  "physical_source_fields": [
+                    {
+                      "table": "ods.events",
+                      "field": "id"
+                    }
+                  ],
+                  "generated_sources": [],
+                  "source_kind": "physical",
+                  "missing_reasons": [],
+                  "expanded_expression": "`events`.`id` > 0"
+                }
+              }
+            ],
+            "expression_resolution": {
+              "status": "resolved",
+              "resolution_type": "qualified_expression",
+              "physical_source_fields": [
+                {
+                  "table": "ods.events",
+                  "field": "id"
+                }
+              ],
+              "generated_sources": [],
+              "source_kind": "physical",
+              "missing_reasons": [],
+              "expanded_expression": "WHERE `ods.events`.`id` > 0"
+            },
+            "subquery_dependencies": [],
+            "is_partition_filter": false,
+            "has_partition_predicate": false
+          },
+          "display_expression": "where `id` > 0"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "id",
+          "transform": "DIRECT",
+          "sources": [
+            {
+              "scope": "ods.events",
+              "column": "id",
+              "qualifier": "events",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            }
+          ],
+          "source_logic_blocks": [],
+          "downstream_fields": [],
+          "target_columns": [
+            "mart.recovered.id"
+          ],
+          "final_target_columns": [
+            "mart.recovered.id"
+          ],
+          "expression": "`events`.`id`",
+          "expanded_expression": "`ods.events`.`id`",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "qualified_source_projection",
+            "physical_source_fields": [
+              {
+                "table": "ods.events",
+                "field": "id"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "expanded_expression": "`ods.events`.`id`",
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "ROOT",
+                "from_field": "id",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "`events`.`id`",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "id"
+                  }
+                ]
+              }
+            ]
+          },
+          "consumer_readiness": {
+            "status": "ready",
+            "blocked_reasons": []
+          },
+          "expression_type": "direct_projection",
+          "expression_features": {
+            "functions": [],
+            "operators": [],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "expression_role": "direct_projection",
+          "grain_effect": "preserved",
+          "output_ordinal": 0,
+          "display_expression": "`id`"
+        }
+      ],
+      "field_usage": [
+        {
+          "source_id": "ods.events",
+          "source_type": "physical_table",
+          "used_fields": [
+            "id"
+          ],
+          "used_field_details": [
+            {
+              "name": "id",
+              "type": null,
+              "comment": null
+            }
+          ],
+          "used_by_logic_blocks": [
+            "logic:ROOT:filter:001"
+          ],
+          "used_by_output_fields": [
+            "id"
+          ],
+          "source_metadata": {}
+        }
+      ],
+      "columns": [
+        {
+          "name": "id",
+          "transform": "DIRECT",
+          "expression": "`events`.`id`",
+          "sources": [
+            {
+              "scope": "ods.events",
+              "column": "id",
+              "qualifier": "events",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            }
+          ],
+          "display_expression": "`id`"
+        }
+      ],
+      "filters": [
+        {
+          "expression": "WHERE `events`.`id` > 0",
+          "columns": [
+            {
+              "scope": "ods.events",
+              "column": "id",
+              "qualifier": "events",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "field_mapping_chains": [
+    {
+      "mapping_chain_id": "mc:001",
+      "chain_id": "chain:ROOT:id:position:0",
+      "chain_type": "field_mapping",
+      "target_scope_id": "ROOT",
+      "target_field": "id",
+      "target_position": 0,
+      "chain_status": "resolved",
+      "source_kind": "physical",
+      "root_source_fields": [
+        "ods.events.id"
+      ],
+      "final_output_fields": [
+        "mart.recovered.id"
+      ],
+      "ordered_steps": [
+        {
+          "step_no": 1,
+          "scope_id": "ROOT",
+          "step_type": "direct_projection",
+          "input_fields": [
+            "ods.events.id"
+          ],
+          "output_field": "mart.recovered.id",
+          "expression_sql": "`events`.`id`",
+          "expanded_expression": "`ods.events`.`id`",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "qualified_source_projection",
+            "physical_source_fields": [
+              {
+                "table": "ods.events",
+                "field": "id"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "ROOT",
+                "from_field": "id",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "`events`.`id`",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "id"
+                  }
+                ]
+              }
+            ],
+            "expanded_expression_same_as_parent": true
+          },
+          "logic_ids": [],
+          "transform": "DIRECT",
+          "grain_effect": "preserved",
+          "final_output_fields": [
+            "mart.recovered.id"
+          ],
+          "target_position": 0
+        }
+      ],
+      "expanded_expression": "`ods.events`.`id`",
+      "missing_reasons": [],
+      "trace_status": "complete"
+    }
+  ],
+  "scope_profile": {
+    "profile_step_count": 1,
+    "steps": [
+      {
+        "scope_id": "ROOT",
+        "name": "ROOT",
+        "kind": "root",
+        "role": "filter",
+        "operations": [
+          "filter"
+        ],
+        "business_summary": "读取 ods.events；按过滤条件保留记录",
+        "direct_inputs": [
+          "ods.events"
+        ],
+        "direct_source_tables": [
+          "ods.events"
+        ],
+        "physical_source_tables": [
+          "ods.events"
+        ],
+        "output_columns": 1,
+        "logic": {
+          "joins": [],
+          "filters": [
+            "WHERE `events`.`id` > 0"
+          ],
+          "aggregations": [],
+          "window_functions": [],
+          "case_when": [],
+          "key_renames": [],
+          "distinct": false,
+          "union_branches": 0,
+          "lateral_views": []
+        }
+      }
+    ]
+  },
+  "end_to_end_lineage": [
+    {
+      "column": "id",
+      "transform": "DIRECT",
+      "expression": "`events`.`id`",
+      "trace_complete": true,
+      "physical_sources": [
+        {
+          "table": "ods.events",
+          "column": "id",
+          "transform": "DIRECT"
+        }
+      ],
+      "generated_sources": [],
+      "source_kind": "physical",
+      "output_ordinal": 0
+    }
+  ],
+  "diagnostics": {
+    "fallback_used": false,
+    "warning_count": 0,
+    "warning_types": {},
+    "lineage_fact_gap_count": 0,
+    "lineage_fact_gap_types": {},
+    "lineage_fact_gap_samples": [],
+    "stats": {
+      "scope_count": 2,
+      "physical_table_count": 1,
+      "cte_count": 0,
+      "subquery_count": 0,
+      "union_count": 0,
+      "union_branch_count": 0,
+      "max_depth": 1,
+      "case_when_count": 0,
+      "window_function_count": 0,
+      "join_count": 0,
+      "aggregate_function_count": 0
+    },
+    "full_diagnostics_file": "diagnostics.json"
+  }
+}

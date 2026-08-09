@@ -1,0 +1,981 @@
+"""Per-scope column resolver: resolve every column reference to SourceRef(scope_id, column_name).
+
+Works on the scope tree built by scope_builder.py. Populates each ScopeData's
+columns, joins, filters, group_by, having, order_by, and depends_on.
+"""
+
+from __future__ import annotations
+
+
+from sqlglot import exp
+from sqlglot.optimizer.scope import Scope
+
+from .parser import (
+    _qualified_table,
+)
+from .scope_types import (
+    AMBIGUOUS_SCOPE_ID,
+    CONSTANT_SCOPE_ID,
+    SYSTEM_SCOPE_ID,
+    SourceRef,
+    ScopeColumn,
+    ScopeData,
+    ScopeGraphEdge,
+    ScopeLineageResult,
+    DiagnosticWarning,
+)
+from ._shared import DIALECT, _KNOWN_UDAFS, _SCOPE_ID_ATTR, _classify_extended, _constant_sources, _contains_runtime_function, _inside_nested_query, _selected_sources, _source_free_leaf_sources, _source_item_from_ast_node, _source_ref_for_source, _source_scope_id, _system_sources, _unique_ordered__resolver as _unique_ordered  # noqa: F401  (shared helpers; re-exported)
+from .column_ref_resolver import _materialized_star_column_state, _resolve_column_refs_in_expr  # noqa: F401
+from .select_scope import _resolve_select_scope  # noqa: F401
+from .target_field_binding import apply_target_field_binding
+
+
+# Attribute name on sqlglot Scope objects holding the scope_id
+
+# Known Hive/Spark aggregate functions that sqlglot parses as exp.Anonymous
+
+
+def _is_dependency_scope(scope_id: str | None) -> bool:
+    return bool(scope_id and scope_id not in {"UNKNOWN", CONSTANT_SCOPE_ID, SYSTEM_SCOPE_ID})
+
+
+def resolve_all(
+    result: ScopeLineageResult,
+    root_scope: Scope,
+    all_scopes: list,
+    schema: dict | None = None,
+    target_metadata=None,
+    explicit_target_columns: list[str] | None = None,
+    insert_by_name: bool = False,
+) -> None:
+    """Resolve columns for all scopes in the result.
+
+    Walks the sqlglot scope tree, resolves projections/joins/filters/etc.,
+    populates depends_on, and builds scope_graph edges.
+
+    all_scopes is the full list from traverse_scope(qualified_expr), which includes
+    CTE scopes that root_scope.traverse() misses for MERGE...WITH statements.
+    """
+    # Step 1: Resolve all Select-based scopes (root, cte, subquery, union_branch)
+    for sg_scope in all_scopes:
+        scope_id = getattr(sg_scope, _SCOPE_ID_ATTR, None)
+        if scope_id is None or scope_id not in result.scopes:
+            continue
+
+        scope_data = result.scopes[scope_id]
+
+        if scope_data.kind in ("root", "cte", "subquery", "union_branch"):
+            if isinstance(sg_scope.expression, exp.Values):
+                _resolve_values_scope(sg_scope, scope_id, scope_data, result)
+            elif isinstance(sg_scope.expression, exp.Select):
+                _resolve_select_scope(sg_scope, scope_id, scope_data, result, schema)
+            elif isinstance(sg_scope.expression, exp.Lateral):
+                _resolve_lateral_scope(sg_scope, scope_id, scope_data, result, schema)
+
+    # Step 2: Resolve synthetic UNION scopes in bottom-up order
+    # (nested unions must be resolved before their parent union)
+    # Iterate until all union scopes have columns (handles arbitrary nesting depth)
+    _resolve_union_scopes_bottom_up(result)
+
+    # Step 3: Handle scopes with Union expression (e.g. ROOT, CTE containing UNION)
+    # Their columns are a passthrough from the corresponding union scope
+    for sg_scope in all_scopes:
+        scope_id = getattr(sg_scope, _SCOPE_ID_ATTR, None)
+        if scope_id is None or scope_id not in result.scopes:
+            continue
+        scope_data = result.scopes[scope_id]
+        if isinstance(sg_scope.expression, exp.Union) and not scope_data.columns:
+            _resolve_scope_union_passthrough(scope_id, scope_data, result)
+
+    # Step 3b: Expand wildcard (*) columns into concrete columns where upstream is known.
+    # Iterates until stable so that chains like  subq:a.* → subq:aa.* → union:aa.[cols]
+    # are fully unrolled.
+    _expand_star_columns(result)
+    _materialize_referenced_star_columns(result)
+    _refresh_union_scopes_after_star_expansion(result, all_scopes)
+    _reconcile_ambiguous_column_sources_after_star_expansion(result, schema)
+    apply_target_field_binding(
+        result,
+        target_metadata=target_metadata,
+        explicit_target_columns=explicit_target_columns,
+        insert_by_name=insert_by_name,
+    )
+
+    # Step 4: Resolve MERGE columns (special handling)
+    if result.stmt_kind == "MERGE":
+        _resolve_merge_columns(root_scope, result, schema, all_scopes)
+        _materialize_referenced_star_columns(result)
+
+    # Step 5: Populate depends_on and build scope_graph edges
+    _build_depends_on_and_graph(result)
+
+
+def _reconcile_ambiguous_column_sources_after_star_expansion(
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> None:
+    """Remove false ambiguity once wildcard scopes have concrete output columns.
+
+    Initial column resolution necessarily runs before the iterative ``SELECT *`` expansion.
+    A nested wildcard source can therefore look capable of supplying any unqualified field
+    even though its final materialized outputs prove the field absent. Keep real ambiguities,
+    but collapse a candidate set when expansion leaves exactly one possible source.
+    """
+    resolved_warning_keys: set[tuple[str, str]] = set()
+    for scope_id, scope_data in result.scopes.items():
+        for column in scope_data.columns:
+            rewritten_sources: list[SourceRef] = []
+            for source in column.sources:
+                if source.scope != AMBIGUOUS_SCOPE_ID or not source.candidates:
+                    rewritten_sources.append(source)
+                    continue
+                viable_candidates = [
+                    candidate
+                    for candidate in source.candidates
+                    if _candidate_column_state_after_star_expansion(
+                        candidate, result, schema
+                    )
+                    != "absent"
+                ]
+                if len(viable_candidates) != 1:
+                    rewritten_sources.append(source)
+                    continue
+                candidate = viable_candidates[0]
+                rewritten_sources.append(
+                    SourceRef(
+                        scope=str(candidate.get("scope") or "UNKNOWN"),
+                        column=str(candidate.get("column") or source.column),
+                        qualifier=(
+                            str(candidate["qualifier"])
+                            if candidate.get("qualifier")
+                            else None
+                        ),
+                        binding_scope_id=(
+                            str(candidate["binding_scope_id"])
+                            if candidate.get("binding_scope_id")
+                            else None
+                        ),
+                        input_ref_id=(
+                            str(candidate["input_ref_id"])
+                            if candidate.get("input_ref_id")
+                            else None
+                        ),
+                    )
+                )
+                resolved_warning_keys.add((scope_id, str(source.column or "")))
+            column.sources = rewritten_sources
+
+    if resolved_warning_keys:
+        result.diagnostics.warnings = [
+            warning
+            for warning in result.diagnostics.warnings
+            if not (
+                warning.type == "ambiguous_unqualified"
+                and any(
+                    warning.scope == scope_id
+                    and f"'{column_name}'" in warning.msg
+                    for scope_id, column_name in resolved_warning_keys
+                )
+            )
+        ]
+
+
+def _candidate_column_state_after_star_expansion(
+    candidate: dict[str, str],
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> str:
+    scope_id = str(candidate.get("scope") or "")
+    column = str(candidate.get("column") or "")
+    if scope_id in result.scopes:
+        return _materialized_star_column_state(scope_id, column, result, schema)
+    return "unknown"
+
+
+def _resolve_values_scope(
+    sg_scope: Scope, scope_id: str, scope_data: ScopeData,
+    result: ScopeLineageResult,
+) -> None:
+    """Resolve Spark VALUES (...) AS alias(col1, col2, ...) into named columns."""
+    values = sg_scope.expression
+    alias = values.args.get("alias") if isinstance(values, exp.Values) else None
+    alias_columns = list(alias.columns or []) if alias is not None else []
+    rows = list(values.expressions or []) if isinstance(values, exp.Values) else []
+    first_row = rows[0].expressions if rows and hasattr(rows[0], "expressions") else []
+
+    if alias_columns:
+        names = [c.name if hasattr(c, "name") else str(c) for c in alias_columns]
+    else:
+        names = [f"_col_{i}" for i in range(len(first_row))]
+
+    for i, name in enumerate(names):
+        expr = first_row[i] if i < len(first_row) else None
+        expression = expr.sql(dialect=DIALECT) if expr is not None else ""
+        transform = _classify_extended(expr) if expr is not None else "CONSTANT"
+        scope_data.columns.append(ScopeColumn(
+            name=name,
+            transform=transform,
+            expression=expression,
+            sources=_source_free_leaf_sources(expr, expression) if expr is not None else _constant_sources(expression),
+        ))
+
+
+def _resolve_lateral_scope(
+    sg_scope: Scope,
+    scope_id: str,
+    scope_data: ScopeData,
+    result: ScopeLineageResult,
+    schema: dict | None = None,
+) -> None:
+    """Resolve LATERAL VIEW generator output columns."""
+    lateral = sg_scope.expression
+    alias = lateral.args.get("alias")
+    alias_columns = list(alias.columns or []) if alias is not None else []
+    names = [c.name if hasattr(c, "name") else str(c) for c in alias_columns]
+
+    inner = lateral.this
+    if not names:
+        names = _infer_lateral_output_names(inner)
+    if not names:
+        return
+
+    if inner is not None:
+        scope_data.lateral_views.append({
+            "alias": _lateral_alias_name(alias, scope_id),
+            "function": _lateral_function_name(inner),
+            "expression": _compact_sql(inner),
+            "output_columns": list(names),
+        })
+
+    # A LATERAL VIEW generator is evaluated against the FROM/JOIN namespace of its
+    # containing SELECT. Resolving an originally unqualified input against the synthetic
+    # UDTF scope exposes every visible CTE and can manufacture ambiguity with unrelated
+    # CTEs; the parent SELECT carries the actual selected sources.
+    resolution_scope = sg_scope.parent or sg_scope
+    sources = _resolve_column_refs_in_expr(inner, resolution_scope, result, schema)
+    for name in names:
+        scope_data.columns.append(ScopeColumn(
+            name=name,
+            transform="EXPRESSION",
+            expression=inner.sql(dialect=DIALECT) if inner is not None else "",
+            sources=list(sources),
+        ))
+
+
+def _lateral_alias_name(alias: exp.Expression | None, scope_id: str) -> str:
+    if alias is not None and alias.this is not None:
+        return alias.this.name if hasattr(alias.this, "name") else str(alias.this)
+    if ":" in scope_id:
+        return scope_id.split(":", 1)[1]
+    return scope_id
+
+
+def _compact_sql(expression: exp.Expression) -> str:
+    return expression.sql(dialect=DIALECT).replace("`", "")
+
+
+def _lateral_function_name(inner: exp.Expression) -> str:
+    if isinstance(inner, exp.Posexplode):
+        return "POSEXPLODE"
+    if isinstance(inner, exp.Explode):
+        return "EXPLODE"
+    if isinstance(inner, exp.Inline):
+        return "INLINE"
+    key = getattr(inner, "key", "") or inner.__class__.__name__
+    return str(key).upper()
+
+
+def _infer_lateral_output_names(inner: exp.Expression | None) -> list[str]:
+    if isinstance(inner, exp.Posexplode):
+        return ["pos", "col"]
+    if isinstance(inner, exp.Explode):
+        return ["col"]
+    if isinstance(inner, exp.Inline):
+        names = _field_names_from_from_json_schema(inner)
+        if names:
+            return names
+    return []
+
+
+def _field_names_from_from_json_schema(expr: exp.Expression) -> list[str]:
+    for func in expr.find_all(exp.Anonymous):
+        if str(func.this).lower() != "from_json":
+            continue
+        args = list(func.expressions or [])
+        if len(args) < 2 or not isinstance(args[1], exp.Literal):
+            continue
+        names = _extract_struct_field_names(args[1].this or "")
+        if names:
+            return names
+    return []
+
+
+def _extract_struct_field_names(schema_text: str) -> list[str]:
+    marker = "array<struct<"
+    lower = schema_text.lower()
+    start = lower.rfind(marker)
+    if start < 0:
+        start = lower.find("struct<")
+        if start < 0:
+            return []
+        start += len("struct<")
+    else:
+        start += len(marker)
+
+    depth = 0
+    fields = []
+    token = []
+    for ch in schema_text[start:]:
+        if ch == "<":
+            depth += 1
+        elif ch == ">":
+            if depth == 0:
+                break
+            depth -= 1
+        if ch == "," and depth == 0:
+            fields.append("".join(token).strip())
+            token = []
+        else:
+            token.append(ch)
+    if token:
+        fields.append("".join(token).strip())
+
+    names = []
+    for field in fields:
+        name = field.split(":", 1)[0].strip().strip("`")
+        if name:
+            names.append(name.lower())
+    return names
+
+
+def _resolve_union_scope(
+    union_scope_id: str, scope_data: ScopeData, result: ScopeLineageResult,
+) -> None:
+    """Resolve columns for a synthetic UNION scope from its branch scopes."""
+    branch_ids = scope_data.branches or []
+    if not branch_ids:
+        return
+
+    branch_cols = [result.scopes.get(bid) for bid in branch_ids]
+    branch_cols = [sd.columns for sd in branch_cols if sd is not None]
+    if not branch_cols:
+        return
+
+    n_cols = len(branch_cols[0]) if branch_cols else 0
+    used_names: set[str] = set()
+    for i in range(n_cols):
+        # Collect sources and branches from each branch's corresponding column
+        sources = []
+        branches = []
+        # Use the first branch's column name; for positional alignment in UNION,
+        # later branches with unnamed columns (_col_N) should adopt the first branch's name
+        first_name = branch_cols[0][i].name if i < len(branch_cols[0]) else f"col_{i}"
+        col_name = _union_output_name_for_position(first_name, branch_cols, i, used_names)
+
+        for j, (bid, cols) in enumerate(zip(branch_ids, branch_cols)):
+            if i < len(cols):
+                branch_col = cols[i]
+                # Rename unnamed or duplicate positional names to match the resolved
+                # UNION output name. This preserves positional columns when one branch
+                # repeats a name (for example SELECT mobile_no, mobile_no).
+                if (
+                    branch_col.name.startswith("_col_")
+                    or branch_col.name in used_names
+                ) and not col_name.startswith("_col_"):
+                    branch_col.name = col_name
+                sources.append(SourceRef(scope=bid, column=branch_col.name))
+                branches.append({"branch": bid, "from_column": branch_col.name})
+
+        scope_data.columns.append(ScopeColumn(
+            name=col_name,
+            transform="UNION",
+            expression=col_name,
+            sources=sources,
+            branches=branches,
+        ))
+        used_names.add(col_name)
+
+
+def _union_output_name_for_position(
+    first_name: str,
+    branch_cols: list[list[ScopeColumn]],
+    position: int,
+    used_names: set[str],
+) -> str:
+    """Return a stable output name for a UNION position.
+
+    UNION aligns columns by position, not by name. If the first branch repeats an
+    output name, use a later branch's non-duplicate name at the same position
+    before falling back to a generated suffix.
+    """
+    if first_name and not first_name.startswith("_col_") and first_name not in used_names:
+        return first_name
+
+    for cols in branch_cols[1:]:
+        if position >= len(cols):
+            continue
+        candidate = cols[position].name
+        if candidate and not candidate.startswith("_col_") and candidate not in used_names:
+            return candidate
+
+    base = first_name if first_name and not first_name.startswith("_col_") else f"col_{position + 1}"
+    index = 2
+    candidate = f"{base}_{index}"
+    while candidate in used_names:
+        index += 1
+        candidate = f"{base}_{index}"
+    return candidate
+
+
+def _resolve_union_scopes_bottom_up(result: ScopeLineageResult) -> None:
+    """Resolve union scopes in bottom-up order to handle nested unions.
+
+    A union scope can only be resolved after all its branch scopes have columns.
+    For nested unions (union inside a union branch), we must resolve the inner
+    union first. We iterate until all union scopes have been resolved.
+    """
+    union_scopes = {sid: sd for sid, sd in result.scopes.items() if sd.kind == "union"}
+    if not union_scopes:
+        return
+
+    resolved = set()
+    max_iterations = len(union_scopes) + 1  # safety limit
+
+    for _ in range(max_iterations):
+        progress = False
+        for scope_id, scope_data in union_scopes.items():
+            if scope_id in resolved:
+                continue
+
+            # Check if all branch scopes have columns (meaning they're resolved)
+            branch_ids = scope_data.branches or []
+            all_branches_ready = True
+            for bid in branch_ids:
+                branch_sd = result.scopes.get(bid)
+                if branch_sd is None or not branch_sd.columns:
+                    # A branch with no columns might be a nested union that hasn't been resolved yet
+                    if bid in union_scopes and bid not in resolved:
+                        all_branches_ready = False
+                        break
+                    # Or it might be a branch that was already resolved to empty
+                    # (shouldn't happen, but handle gracefully)
+
+            if all_branches_ready:
+                _resolve_union_scope(scope_id, scope_data, result)
+                resolved.add(scope_id)
+                progress = True
+
+        if not progress or len(resolved) == len(union_scopes):
+            break
+
+
+def _resolve_scope_union_passthrough(
+    scope_id: str, scope_data: ScopeData, result: ScopeLineageResult,
+) -> None:
+    """When a scope has a Union expression, its columns are passthrough from its union child scope.
+
+    Works for ROOT, CTE, or any scope whose expression is Union.
+    The scope's columns are copies of the union scope's columns,
+    but each column's sources point to the union scope instead of the branches.
+    """
+    # Find the union scope that belongs to this scope
+    # Convention: union scope ID is "union:<context>" where <context> comes from this scope's ID
+    context = None
+    if scope_id == "ROOT":
+        context = "main"
+    elif ":" in scope_id:
+        context = scope_id.split(":", 1)[1]
+    else:
+        context = scope_id
+
+    union_scope_id = f"union:{context}"
+    union_scope = result.scopes.get(union_scope_id)
+    if union_scope is None:
+        return
+
+    for col in union_scope.columns:
+        passthrough_col = ScopeColumn(
+            name=col.name,
+            transform=col.transform,
+            expression=col.expression,
+            sources=[SourceRef(scope=union_scope_id, column=col.name)],
+            branches=col.branches,
+        )
+        scope_data.columns.append(passthrough_col)
+
+
+def _refresh_union_scopes_after_star_expansion(
+    result: ScopeLineageResult,
+    all_scopes: list,
+) -> None:
+    """Re-resolve UNION scopes after SELECT * branches have concrete columns."""
+    union_scopes = [scope for scope in result.scopes.values() if scope.kind == "union"]
+    if not union_scopes:
+        return
+
+    for scope_data in union_scopes:
+        scope_data.columns = []
+    _resolve_union_scopes_bottom_up(result)
+
+    for sg_scope in all_scopes:
+        if not isinstance(sg_scope.expression, exp.Union):
+            continue
+        scope_id = getattr(sg_scope, _SCOPE_ID_ATTR, None)
+        if scope_id is None or scope_id not in result.scopes:
+            continue
+        scope_data = result.scopes[scope_id]
+        if scope_data.kind == "union":
+            continue
+        scope_data.columns = []
+        _resolve_scope_union_passthrough(scope_id, scope_data, result)
+
+
+def _expand_star_columns(result: ScopeLineageResult) -> None:
+    """Expand wildcard (*) columns into concrete columns when the upstream scope has explicit ones.
+
+    If scope S has  * <- [(upstream, '*')]  and upstream has concrete columns [c1, c2, ...],
+    add  cI <- [(upstream, cI)]  to S for each cI not already explicitly defined in S.
+    Repeats until stable to unroll chains (e.g. subq:a.* -> subq:aa.* -> union:aa.[cols]).
+    """
+    changed = True
+    while changed:
+        changed = False
+        for scope_data in result.scopes.values():
+            star_cols = _star_passthrough_columns(scope_data)
+            if not star_cols:
+                continue
+            existing = {c.name for c in scope_data.columns}
+            removable_star_col_ids: set[int] = set()
+            for star_col in star_cols:
+                star_fully_expanded = bool(star_col.sources)
+                for src_ref in star_col.sources:
+                    upstream = result.scopes.get(src_ref.scope)
+                    if upstream is None:
+                        star_fully_expanded = False
+                        continue
+                    if src_ref.scope not in scope_data.star_expanded_from:
+                        scope_data.star_expanded_from.append(src_ref.scope)
+                    concrete_upstream_columns = [
+                        up_col for up_col in upstream.columns
+                        if up_col.name != "*" and not up_col.name.endswith(".*")
+                    ]
+                    if not concrete_upstream_columns:
+                        star_fully_expanded = False
+                        continue
+                    if len(concrete_upstream_columns) != len(upstream.columns):
+                        # Upstream still carries an unexpanded star of its own, so its
+                        # concrete columns are only a partial enumeration — this star
+                        # is NOT fully expanded and must survive for later
+                        # reference-driven materialization.
+                        star_fully_expanded = False
+                    for up_col in upstream.columns:
+                        if up_col.name == "*" or up_col.name in existing:
+                            continue
+                        scope_data.columns.append(ScopeColumn(
+                            name=up_col.name,
+                            transform="DIRECT",
+                            expression=up_col.name,
+                            sources=[_source_ref_with_column(
+                                src_ref,
+                                up_col.name,
+                            )],
+                        ))
+                        existing.add(up_col.name)
+                        changed = True
+                if star_fully_expanded:
+                    removable_star_col_ids.add(id(star_col))
+            if removable_star_col_ids:
+                scope_data.columns = [
+                    col for col in scope_data.columns
+                    if id(col) not in removable_star_col_ids
+                ]
+                changed = True
+
+
+def _scope_star_may_be_incomplete(result: ScopeLineageResult, scope_id: str, _depth: int = 0) -> bool:
+    """Whether a scope's column enumeration may be incomplete (open star chain).
+
+    True when the scope still carries a star column, was expanded from a
+    physical table's (possibly incomplete) schema, or was star-expanded from an
+    upstream scope that is itself open.
+    """
+    if _depth > 10:
+        return False
+    scope_data = result.scopes.get(scope_id)
+    if scope_data is None:
+        return False
+    if _star_passthrough_columns(scope_data) or scope_data.star_schema_sources:
+        return True
+    return any(
+        _scope_star_may_be_incomplete(result, up, _depth + 1)
+        for up in scope_data.star_expanded_from
+    )
+
+
+def _materialize_referenced_star_columns(result: ScopeLineageResult) -> None:
+    """Add pass-through columns for references into a scope that still has SELECT *.
+
+    Without physical table schemas, a scope like ``SELECT * FROM physical`` cannot be
+    fully expanded. If a downstream scope later references ``a.call_id``, however, we
+    can still materialize just that referenced column as a pass-through from the star
+    source. This keeps the graph internally consistent while preserving the broader
+    schema limitation.
+    """
+    changed = True
+    while changed:
+        changed = False
+        known = {
+            sid: {c.name for c in sd.columns}
+            for sid, sd in result.scopes.items()
+        }
+        needed: dict[str, set[str]] = {}
+        for scope_data in result.scopes.values():
+            for col in scope_data.columns:
+                for src in col.sources:
+                    if src.scope in result.scopes and src.column not in known[src.scope] and src.column != "*":
+                        needed.setdefault(src.scope, set()).add(src.column)
+
+        for scope_id, col_names in needed.items():
+            scope_data = result.scopes[scope_id]
+            star_cols = _star_passthrough_columns(scope_data)
+            if not star_cols:
+                # Star already expanded — but the enumeration may be incomplete:
+                # schema exports can omit columns, and that incompleteness carries
+                # through star chains (subq -> subq -> physical). A downstream
+                # reference proves the column exists (the SQL is production-valid),
+                # so materialize it as a pass-through instead of leaving it dangling.
+                fallback_sources: list[SourceRef] = []
+                if scope_data.star_schema_sources:
+                    fallback_sources = [
+                        SourceRef(scope=fq, column="")
+                        for fq in scope_data.star_schema_sources
+                    ]
+                else:
+                    open_ups = [
+                        up for up in scope_data.star_expanded_from
+                        if _scope_star_may_be_incomplete(result, up)
+                    ]
+                    fallback_sources = [SourceRef(scope=up, column="") for up in open_ups]
+                if fallback_sources:
+                    existing = known[scope_id]
+                    for col_name in sorted(col_names):
+                        if col_name in existing:
+                            continue
+                        scope_data.columns.append(ScopeColumn(
+                            name=col_name,
+                            transform="DIRECT",
+                            expression=col_name,
+                            sources=[
+                                _source_ref_with_column(src, col_name)
+                                for src in fallback_sources
+                            ],
+                        ))
+                        existing.add(col_name)
+                        changed = True
+                continue
+            existing = known[scope_id]
+            for col_name in sorted(col_names):
+                if col_name in existing:
+                    continue
+                sources = []
+                for star_col in star_cols:
+                    for star_src in star_col.sources:
+                        upstream = result.scopes.get(star_src.scope)
+                        if upstream is not None and not _scope_can_passthrough_column(upstream, col_name):
+                            continue
+                        sources.append(
+                            _source_ref_with_column(star_src, col_name)
+                        )
+                if not sources:
+                    continue
+                scope_data.columns.append(ScopeColumn(
+                    name=col_name,
+                    transform="DIRECT",
+                    expression=col_name,
+                    sources=sources,
+                ))
+                existing.add(col_name)
+                changed = True
+
+
+def _source_ref_with_column(ref: SourceRef, column: str) -> SourceRef:
+    """Retarget a star source without dropping its SQL input occurrence."""
+    return SourceRef(
+        scope=ref.scope,
+        column=column,
+        candidates=[dict(item) for item in ref.candidates],
+        qualifier=ref.qualifier,
+        binding_scope_id=ref.binding_scope_id,
+        input_ref_id=ref.input_ref_id,
+    )
+
+
+def _scope_can_passthrough_column(scope_data: ScopeData, col_name: str) -> bool:
+    """Return whether an internal scope can plausibly provide a star-materialized column."""
+    if any(c.name == col_name for c in scope_data.columns):
+        return True
+    return bool(_star_passthrough_columns(scope_data))
+
+
+def _star_passthrough_columns(scope_data: ScopeData) -> list[ScopeColumn]:
+    """Return wildcard passthrough columns, covering both ``*`` and ``alias.*``."""
+    return [
+        c for c in scope_data.columns
+        if (
+            c.transform == "EXPAND_ALL"
+            or c.name == "*"
+            or c.name.endswith(".*")
+        )
+    ]
+
+
+def _stronger_transform(left: str, right: str) -> str:
+    order = {
+        "CONSTANT": 0,
+        "DIRECT": 1,
+        "EXPAND_ALL": 2,
+        "UNION": 3,
+        "EXPRESSION": 4,
+        "CONDITIONAL": 5,
+        "WINDOW": 6,
+        "AGGREGATE": 7,
+    }
+    return left if order.get(left, 0) >= order.get(right, 0) else right
+
+
+def _resolve_merge_columns(
+    root_scope: Scope, result: ScopeLineageResult, schema: dict | None = None,
+    all_scopes: list | None = None,
+) -> None:
+    """Resolve MERGE WHEN clauses into ROOT scope columns."""
+    # Find the MERGE AST node from the root scope's expression
+    merge_node = None
+    if root_scope.expression:
+        p = root_scope.expression
+        while p and not isinstance(p, exp.Merge):
+            p = getattr(p, "parent", None)
+        if isinstance(p, exp.Merge):
+            merge_node = p
+
+    if merge_node is None:
+        return
+
+    merge_target = merge_node.this
+    target_qualifiers: set[str] = set()
+    if isinstance(merge_target, exp.Table):
+        target_qualifiers.update(
+            value
+            for value in (
+                merge_target.alias_or_name,
+                merge_target.name,
+                result.target_table,
+                result.target_table.rsplit(".", 1)[-1] if result.target_table else "",
+            )
+            if value
+        )
+
+    # Find the USING scope_id.
+    # Strategy: find the scope whose parent.expression IS the USING Subquery node.
+    # We can't use root_scope.sources because sqlglot doesn't put the USING alias there.
+    using_scope_id = None
+    using_subq = merge_node.args.get("using")
+    if using_subq and all_scopes:
+        for sg in all_scopes:
+            if sg.parent and sg.parent.expression is using_subq:
+                sid = getattr(sg, _SCOPE_ID_ATTR, None)
+                if sid and sid in result.scopes:
+                    using_scope_id = sid
+                    break
+    if not using_scope_id:
+        for sid, sd in result.scopes.items():
+            if sd.kind == "subquery":
+                using_scope_id = sid
+                break
+
+    whens = merge_node.args.get("whens")
+    if whens is None:
+        return
+
+    when_items = whens.expressions if hasattr(whens, "expressions") else [whens]
+    for when_index, when in enumerate(when_items):
+        then = when.args.get("then")
+        if isinstance(then, exp.Update):
+            # WHEN MATCHED THEN UPDATE SET
+            for eq in then.find_all(exp.EQ):
+                dst_col = eq.this
+                src_expr = eq.expression
+                dst_name = dst_col.name if isinstance(dst_col, exp.Column) else None
+                if dst_name is None:
+                    continue
+                transform = _classify_extended(src_expr)
+                expression = src_expr.sql(dialect=DIALECT)
+                sources = []
+                if transform != "CONSTANT" and using_scope_id:
+                    for col_ref in src_expr.find_all(exp.Column):
+                        col_table = col_ref.table
+                        col_name = col_ref.name
+                        if col_table:
+                            # The target alias denotes the pre-MERGE row state.  It is
+                            # neither a USING output nor an unknown qualifier: retain it
+                            # as a physical self-source so expressions such as
+                            # COALESCE(target.attr, source.attr) preserve both inputs.
+                            if col_table in target_qualifiers and result.target_table:
+                                if (result.target_table, col_name) not in {
+                                    (s.scope, s.column) for s in sources
+                                }:
+                                    sources.append(SourceRef(
+                                        scope=result.target_table,
+                                        column=col_name,
+                                    ))
+                                continue
+                            # Check if it's the USING source alias
+                            src = None
+                            # Find the USING scope's sg_scope to resolve alias
+                            for sg_scope in root_scope.traverse():
+                                if getattr(sg_scope, _SCOPE_ID_ATTR, None) == using_scope_id:
+                                    src = sg_scope.sources.get(col_table)
+                                    break
+                            if isinstance(src, exp.Table):
+                                fq = _qualified_table(src)
+                                if (fq, col_name) not in {(s.scope, s.column) for s in sources}:
+                                    sources.append(SourceRef(scope=fq, column=col_name))
+                            elif isinstance(src, Scope):
+                                upstream_id = getattr(src, _SCOPE_ID_ATTR, None)
+                                if upstream_id and (upstream_id, col_name) not in {(s.scope, s.column) for s in sources}:
+                                    sources.append(SourceRef(scope=upstream_id, column=col_name))
+                            else:
+                                # Likely the USING source alias
+                                if (using_scope_id, col_name) not in {(s.scope, s.column) for s in sources}:
+                                    sources.append(SourceRef(scope=using_scope_id, column=col_name))
+                        else:
+                            if (using_scope_id, col_name) not in {(s.scope, s.column) for s in sources}:
+                                sources.append(SourceRef(scope=using_scope_id, column=col_name))
+                if not sources:
+                    sources = _source_free_leaf_sources(src_expr, expression)
+
+                if any(source.scope == result.target_table for source in sources):
+                    result.source_tables = sorted({
+                        *result.source_tables,
+                        result.target_table,
+                    })
+
+                result.scopes["ROOT"].columns.append(ScopeColumn(
+                    name=dst_name, transform=transform, expression=expression,
+                    sources=sources, merge_branch="matched",
+                    merge_when_index=when_index,
+                ))
+
+        elif isinstance(then, exp.Insert):
+            # WHEN NOT MATCHED THEN INSERT (cols) VALUES (exprs)
+            ins_cols = then.this
+            values = then.expression
+            if isinstance(ins_cols, exp.Star):
+                using_scope = result.scopes.get(using_scope_id or "")
+                source_alias = (
+                    using_subq.alias_or_name
+                    if using_subq is not None and using_subq.alias_or_name
+                    else "source"
+                )
+                for source_column in (using_scope.columns if using_scope else []):
+                    result.scopes["ROOT"].columns.append(ScopeColumn(
+                        name=source_column.name,
+                        transform="DIRECT",
+                        expression=f"{source_alias}.{source_column.name}",
+                        sources=[SourceRef(
+                            scope=using_scope_id,
+                            column=source_column.name,
+                        )],
+                        merge_branch="not_matched",
+                        merge_when_index=when_index,
+                    ))
+            elif isinstance(ins_cols, exp.Tuple) and isinstance(values, exp.Tuple):
+                for dst_col_node, val_expr in zip(ins_cols.expressions, values.expressions):
+                    dst_name = dst_col_node.name if hasattr(dst_col_node, "name") else str(dst_col_node)
+                    transform = _classify_extended(val_expr)
+                    expression = val_expr.sql(dialect=DIALECT)
+                    sources = []
+                    if transform != "CONSTANT" and using_scope_id:
+                        for col_ref in val_expr.find_all(exp.Column):
+                            col_name = col_ref.name
+                            if (using_scope_id, col_name) not in {(s.scope, s.column) for s in sources}:
+                                sources.append(SourceRef(scope=using_scope_id, column=col_name))
+                    if not sources:
+                        sources = _source_free_leaf_sources(val_expr, expression)
+
+                    result.scopes["ROOT"].columns.append(ScopeColumn(
+                        name=dst_name, transform=transform, expression=expression,
+                        sources=sources, merge_branch="not_matched",
+                        merge_when_index=when_index,
+                    ))
+        elif _is_merge_delete_then(then):
+            result.diagnostics.warnings.append(DiagnosticWarning(
+                type="merge_delete_ignored",
+                scope="ROOT",
+                msg=(
+                    "MERGE WHEN MATCHED THEN DELETE is a row-level operation and "
+                    "does not produce ROOT output columns."
+                ),
+            ))
+
+
+def _is_merge_delete_then(then: exp.Expression | None) -> bool:
+    if then is None:
+        return False
+    if isinstance(then, exp.Var):
+        return str(then.this).upper() == "DELETE"
+    return then.sql(dialect=DIALECT).strip().upper() == "DELETE"
+
+
+def _build_depends_on_and_graph(result: ScopeLineageResult) -> None:
+    """Populate depends_on for each scope and build scope_graph edges."""
+    all_nodes = set(result.scopes.keys())
+
+    for scope_id, scope_data in result.scopes.items():
+        referenced = set()
+
+        for col in scope_data.columns:
+            for src in col.sources:
+                if _is_dependency_scope(src.scope):
+                    referenced.add(src.scope)
+
+        for join in scope_data.joins:
+            if _is_dependency_scope(join.left_scope):
+                referenced.add(join.left_scope)
+            if _is_dependency_scope(join.right_scope):
+                referenced.add(join.right_scope)
+            for cc in join.condition_columns:
+                if _is_dependency_scope(cc.scope):
+                    referenced.add(cc.scope)
+
+        for f in scope_data.filters:
+            for c in f.columns:
+                if _is_dependency_scope(c.scope):
+                    referenced.add(c.scope)
+
+        for g in scope_data.group_by:
+            if _is_dependency_scope(g.scope):
+                referenced.add(g.scope)
+
+        for h in scope_data.having:
+            for c in h.columns:
+                if _is_dependency_scope(c.scope):
+                    referenced.add(c.scope)
+
+        for o in scope_data.order_by:
+            if _is_dependency_scope(o.get("scope")):
+                referenced.add(o["scope"])
+
+        # Remove self-reference
+        referenced.discard(scope_id)
+        scope_data.depends_on = sorted(referenced)
+        all_nodes.update(referenced)
+
+    # Build edges
+    result.scope_graph.nodes = sorted(all_nodes | set(result.source_tables))
+    result.scope_graph.edges = []
+    for scope_id, scope_data in result.scopes.items():
+        for dep in scope_data.depends_on:
+            result.scope_graph.edges.append(ScopeGraphEdge(from_=dep, to=scope_id))
+
+
+# Delegation shims preserve the free-function surface used by callers/tests.

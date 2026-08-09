@@ -1,0 +1,7 @@
+{
+  "task_id": "golden_syntax_recovered",
+  "sql": "INSERT INTO mart.recovered SELECT id FROM ods.events WHERE WHERE id > 0",
+  "schema": {
+    "ods.events": ["id"]
+  }
+}

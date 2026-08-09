@@ -1,0 +1,810 @@
+{
+  "schema_version": "1.0",
+  "task_id": "golden_simple_insert",
+  "target_table": "mart.user_names",
+  "stmt_kind": "INSERT_OVERWRITE",
+  "parse_status": "ok",
+  "syntax_status": "strict_ok",
+  "syntax_errors": [],
+  "target_partition_spec": {},
+  "target_partition_columns": [],
+  "target_partition_mode": "none",
+  "task_dependencies": {
+    "upstream_tasks": [],
+    "downstream_tasks": [],
+    "source_summary": {
+      "source_format": "none",
+      "upstream_count": 0,
+      "downstream_count": 0,
+      "has_declared_task_dependencies": false
+    }
+  },
+  "source_tables": [
+    "ods.users"
+  ],
+  "related_metadata": {
+    "input_tables": {
+      "ods.users": {
+        "column_details": [
+          {
+            "name": "user_id",
+            "type": null,
+            "comment": null
+          },
+          {
+            "name": "user_name",
+            "type": null,
+            "comment": null
+          },
+          {
+            "name": "is_active",
+            "type": null,
+            "comment": null
+          }
+        ],
+        "metadata_complete": true
+      }
+    },
+    "output_tables": {
+      "mart.user_names": {
+        "column_details": [
+          {
+            "name": "user_id",
+            "type": null,
+            "comment": null
+          },
+          {
+            "name": "user_name",
+            "type": null,
+            "comment": null
+          }
+        ],
+        "metadata_complete": false
+      }
+    }
+  },
+  "scope_graph": {
+    "nodes": [
+      "ROOT",
+      "ods.users"
+    ],
+    "edges": [
+      {
+        "from": "ods.users",
+        "to": "ROOT"
+      }
+    ]
+  },
+  "scopes": {
+    "ROOT": {
+      "kind": "root",
+      "role": "filter",
+      "depends_on": [
+        "ods.users"
+      ],
+      "writes_to": "mart.user_names",
+      "raw_sql": "SELECT `s`.`user_id` AS `user_id`, `s`.`user_name` AS `user_name` FROM `ods`.`users` AS `s` WHERE `s`.`is_active` = 1",
+      "raw_sql_available": true,
+      "raw_sql_quality": {
+        "status": "clean",
+        "placeholder_types": [],
+        "evidence": []
+      },
+      "source_coverage": {
+        "status": "covered",
+        "declared_source_tables": [
+          "ods.users"
+        ],
+        "raw_sql_source_tables": [
+          "ods.users"
+        ],
+        "missing_declared_source_tables": [],
+        "extra_source_tables": []
+      },
+      "input_edges": [
+        {
+          "source_id": "ods.users",
+          "source_type": "physical_table",
+          "position": "from",
+          "alias": "s"
+        }
+      ],
+      "input_source_refs": [
+        {
+          "input_ref_id": "input:ROOT:001",
+          "source_id": "ods.users",
+          "source_type": "physical_table",
+          "alias": "s",
+          "position": "from",
+          "relation_position": "from",
+          "join_type": null,
+          "physical_source_id": "ods.users",
+          "physical_source_ids": [
+            "ods.users"
+          ],
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "direct_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "ods.users"
+            ],
+            "field_resolution_required": false,
+            "missing_reasons": []
+          },
+          "field_resolution_required": false,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "s",
+              "to": "ods.users",
+              "relation": "alias_to_physical_source"
+            }
+          ],
+          "trace_status": "complete"
+        }
+      ],
+      "alias_source_bindings": [
+        {
+          "alias": "s",
+          "source_id": "ods.users",
+          "source_type": "physical_table",
+          "physical_source_id": "ods.users",
+          "physical_source_ids": [
+            "ods.users"
+          ],
+          "position": "from",
+          "relation_position": "from",
+          "join_type": null,
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "direct_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "ods.users"
+            ],
+            "field_resolution_required": false,
+            "missing_reasons": []
+          },
+          "field_resolution_required": false,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "s",
+              "to": "ods.users",
+              "relation": "alias_to_physical_source"
+            }
+          ],
+          "input_ref_id": "input:ROOT:001"
+        }
+      ],
+      "expression_source_bindings": [
+        {
+          "expression_sql": "WHERE `s`.`is_active` = 1",
+          "logic_block_id": "logic:ROOT:filter:001",
+          "referenced_qualifiers": [
+            "s"
+          ],
+          "resolved_source_refs": [
+            {
+              "qualifier": "s",
+              "resolved_table": "ods.users",
+              "field": "is_active",
+              "status": "resolved"
+            }
+          ],
+          "unresolved_qualifiers": [],
+          "binding_status": "complete",
+          "evidence_path": "logic_blocks.logic:ROOT:filter:001.raw_expression"
+        },
+        {
+          "expression_sql": "`s`.`is_active` = 1",
+          "logic_block_id": "logic:ROOT:filter:001",
+          "referenced_qualifiers": [
+            "s"
+          ],
+          "resolved_source_refs": [
+            {
+              "qualifier": "s",
+              "resolved_table": "ods.users",
+              "field": "is_active",
+              "status": "resolved"
+            }
+          ],
+          "unresolved_qualifiers": [],
+          "binding_status": "complete",
+          "evidence_path": "logic_blocks.logic:ROOT:filter:001.filter_predicate_detail.conjuncts"
+        }
+      ],
+      "logic_blocks": [
+        {
+          "logic_block_id": "logic:ROOT:filter:001",
+          "logic_type": "filter",
+          "raw_expression": "WHERE `s`.`is_active` = 1",
+          "normalized_expression": "where `s`.`is_active` = 1",
+          "fingerprint": "filter:where `s`.`is_active` = 1",
+          "fields": [
+            {
+              "scope": "ods.users",
+              "column": "is_active",
+              "qualifier": "s",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            }
+          ],
+          "input_sources": [
+            "ods.users"
+          ],
+          "field_usage": [
+            {
+              "source_id": "ods.users",
+              "source_type": "physical_table",
+              "used_fields": [
+                "is_active"
+              ],
+              "used_field_details": [
+                {
+                  "name": "is_active",
+                  "type": null,
+                  "comment": null
+                }
+              ],
+              "used_by_logic_blocks": [
+                "logic:ROOT:filter:001"
+              ],
+              "used_by_output_fields": [],
+              "source_metadata": {}
+            }
+          ],
+          "expression_features": {
+            "functions": [],
+            "operators": [
+              "="
+            ],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "filter_predicate_detail": {
+            "predicate_type": "where",
+            "expression": "WHERE `s`.`is_active` = 1",
+            "fields": [
+              {
+                "scope": "ods.users",
+                "column": "is_active",
+                "qualifier": "s",
+                "binding_scope_id": "ROOT",
+                "input_ref_id": "input:ROOT:001"
+              }
+            ],
+            "conjuncts": [
+              {
+                "expression": "`s`.`is_active` = 1",
+                "fields": [
+                  {
+                    "scope": "ods.users",
+                    "column": "is_active",
+                    "qualifier": "s",
+                    "binding_scope_id": "ROOT",
+                    "input_ref_id": "input:ROOT:001"
+                  }
+                ],
+                "expression_resolution": {
+                  "status": "resolved",
+                  "resolution_type": "qualified_expression",
+                  "physical_source_fields": [
+                    {
+                      "table": "ods.users",
+                      "field": "is_active"
+                    }
+                  ],
+                  "generated_sources": [],
+                  "source_kind": "physical",
+                  "missing_reasons": [],
+                  "expanded_expression": "`s`.`is_active` = 1"
+                }
+              }
+            ],
+            "expression_resolution": {
+              "status": "resolved",
+              "resolution_type": "qualified_expression",
+              "physical_source_fields": [
+                {
+                  "table": "ods.users",
+                  "field": "is_active"
+                }
+              ],
+              "generated_sources": [],
+              "source_kind": "physical",
+              "missing_reasons": [],
+              "expanded_expression": "WHERE `ods.users`.`is_active` = 1"
+            },
+            "subquery_dependencies": [],
+            "is_partition_filter": false,
+            "has_partition_predicate": false
+          },
+          "display_expression": "where `is_active` = 1"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "user_id",
+          "transform": "DIRECT",
+          "sources": [
+            {
+              "scope": "ods.users",
+              "column": "user_id",
+              "qualifier": "s",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            }
+          ],
+          "source_logic_blocks": [],
+          "downstream_fields": [],
+          "target_columns": [
+            "mart.user_names.user_id"
+          ],
+          "final_target_columns": [
+            "mart.user_names.user_id"
+          ],
+          "expression": "`s`.`user_id`",
+          "expanded_expression": "`ods.users`.`user_id`",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "qualified_source_projection",
+            "physical_source_fields": [
+              {
+                "table": "ods.users",
+                "field": "user_id"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "expanded_expression": "`ods.users`.`user_id`",
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "ROOT",
+                "from_field": "user_id",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "`s`.`user_id`",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.users",
+                    "field": "user_id"
+                  }
+                ]
+              }
+            ]
+          },
+          "consumer_readiness": {
+            "status": "ready",
+            "blocked_reasons": []
+          },
+          "expression_type": "direct_projection",
+          "expression_features": {
+            "functions": [],
+            "operators": [],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "expression_role": "direct_projection",
+          "grain_effect": "preserved",
+          "output_ordinal": 0,
+          "display_expression": "`user_id`"
+        },
+        {
+          "name": "user_name",
+          "transform": "DIRECT",
+          "sources": [
+            {
+              "scope": "ods.users",
+              "column": "user_name",
+              "qualifier": "s",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            }
+          ],
+          "source_logic_blocks": [],
+          "downstream_fields": [],
+          "target_columns": [
+            "mart.user_names.user_name"
+          ],
+          "final_target_columns": [
+            "mart.user_names.user_name"
+          ],
+          "expression": "`s`.`user_name`",
+          "expanded_expression": "`ods.users`.`user_name`",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "qualified_source_projection",
+            "physical_source_fields": [
+              {
+                "table": "ods.users",
+                "field": "user_name"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "expanded_expression": "`ods.users`.`user_name`",
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "ROOT",
+                "from_field": "user_name",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "`s`.`user_name`",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.users",
+                    "field": "user_name"
+                  }
+                ]
+              }
+            ]
+          },
+          "consumer_readiness": {
+            "status": "ready",
+            "blocked_reasons": []
+          },
+          "expression_type": "direct_projection",
+          "expression_features": {
+            "functions": [],
+            "operators": [],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "expression_role": "direct_projection",
+          "grain_effect": "preserved",
+          "output_ordinal": 1,
+          "display_expression": "`user_name`"
+        }
+      ],
+      "field_usage": [
+        {
+          "source_id": "ods.users",
+          "source_type": "physical_table",
+          "used_fields": [
+            "is_active",
+            "user_id",
+            "user_name"
+          ],
+          "used_field_details": [
+            {
+              "name": "is_active",
+              "type": null,
+              "comment": null
+            },
+            {
+              "name": "user_id",
+              "type": null,
+              "comment": null
+            },
+            {
+              "name": "user_name",
+              "type": null,
+              "comment": null
+            }
+          ],
+          "used_by_logic_blocks": [
+            "logic:ROOT:filter:001"
+          ],
+          "used_by_output_fields": [
+            "user_id",
+            "user_name"
+          ],
+          "source_metadata": {}
+        }
+      ],
+      "columns": [
+        {
+          "name": "user_id",
+          "transform": "DIRECT",
+          "expression": "`s`.`user_id`",
+          "sources": [
+            {
+              "scope": "ods.users",
+              "column": "user_id",
+              "qualifier": "s",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            }
+          ],
+          "display_expression": "`user_id`"
+        },
+        {
+          "name": "user_name",
+          "transform": "DIRECT",
+          "expression": "`s`.`user_name`",
+          "sources": [
+            {
+              "scope": "ods.users",
+              "column": "user_name",
+              "qualifier": "s",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            }
+          ],
+          "display_expression": "`user_name`"
+        }
+      ],
+      "filters": [
+        {
+          "expression": "WHERE `s`.`is_active` = 1",
+          "columns": [
+            {
+              "scope": "ods.users",
+              "column": "is_active",
+              "qualifier": "s",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "field_mapping_chains": [
+    {
+      "mapping_chain_id": "mc:001",
+      "chain_id": "chain:ROOT:user_id:position:0",
+      "chain_type": "field_mapping",
+      "target_scope_id": "ROOT",
+      "target_field": "user_id",
+      "target_position": 0,
+      "chain_status": "resolved",
+      "source_kind": "physical",
+      "root_source_fields": [
+        "ods.users.user_id"
+      ],
+      "final_output_fields": [
+        "mart.user_names.user_id"
+      ],
+      "ordered_steps": [
+        {
+          "step_no": 1,
+          "scope_id": "ROOT",
+          "step_type": "direct_projection",
+          "input_fields": [
+            "ods.users.user_id"
+          ],
+          "output_field": "mart.user_names.user_id",
+          "expression_sql": "`s`.`user_id`",
+          "expanded_expression": "`ods.users`.`user_id`",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "qualified_source_projection",
+            "physical_source_fields": [
+              {
+                "table": "ods.users",
+                "field": "user_id"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "ROOT",
+                "from_field": "user_id",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "`s`.`user_id`",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.users",
+                    "field": "user_id"
+                  }
+                ]
+              }
+            ],
+            "expanded_expression_same_as_parent": true
+          },
+          "logic_ids": [],
+          "transform": "DIRECT",
+          "grain_effect": "preserved",
+          "final_output_fields": [
+            "mart.user_names.user_id"
+          ],
+          "target_position": 0
+        }
+      ],
+      "expanded_expression": "`ods.users`.`user_id`",
+      "missing_reasons": [],
+      "trace_status": "complete"
+    },
+    {
+      "mapping_chain_id": "mc:002",
+      "chain_id": "chain:ROOT:user_name:position:1",
+      "chain_type": "field_mapping",
+      "target_scope_id": "ROOT",
+      "target_field": "user_name",
+      "target_position": 1,
+      "chain_status": "resolved",
+      "source_kind": "physical",
+      "root_source_fields": [
+        "ods.users.user_name"
+      ],
+      "final_output_fields": [
+        "mart.user_names.user_name"
+      ],
+      "ordered_steps": [
+        {
+          "step_no": 1,
+          "scope_id": "ROOT",
+          "step_type": "direct_projection",
+          "input_fields": [
+            "ods.users.user_name"
+          ],
+          "output_field": "mart.user_names.user_name",
+          "expression_sql": "`s`.`user_name`",
+          "expanded_expression": "`ods.users`.`user_name`",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "qualified_source_projection",
+            "physical_source_fields": [
+              {
+                "table": "ods.users",
+                "field": "user_name"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "ROOT",
+                "from_field": "user_name",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "`s`.`user_name`",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.users",
+                    "field": "user_name"
+                  }
+                ]
+              }
+            ],
+            "expanded_expression_same_as_parent": true
+          },
+          "logic_ids": [],
+          "transform": "DIRECT",
+          "grain_effect": "preserved",
+          "final_output_fields": [
+            "mart.user_names.user_name"
+          ],
+          "target_position": 1
+        }
+      ],
+      "expanded_expression": "`ods.users`.`user_name`",
+      "missing_reasons": [],
+      "trace_status": "complete"
+    }
+  ],
+  "scope_profile": {
+    "profile_step_count": 1,
+    "steps": [
+      {
+        "scope_id": "ROOT",
+        "name": "ROOT",
+        "kind": "root",
+        "role": "filter",
+        "operations": [
+          "filter"
+        ],
+        "business_summary": "读取 ods.users；按过滤条件保留记录",
+        "direct_inputs": [
+          "ods.users"
+        ],
+        "direct_source_tables": [
+          "ods.users"
+        ],
+        "physical_source_tables": [
+          "ods.users"
+        ],
+        "output_columns": 2,
+        "logic": {
+          "joins": [],
+          "filters": [
+            "WHERE `s`.`is_active` = 1"
+          ],
+          "aggregations": [],
+          "window_functions": [],
+          "case_when": [],
+          "key_renames": [],
+          "distinct": false,
+          "union_branches": 0,
+          "lateral_views": []
+        }
+      }
+    ]
+  },
+  "end_to_end_lineage": [
+    {
+      "column": "user_id",
+      "transform": "DIRECT",
+      "expression": "`s`.`user_id`",
+      "trace_complete": true,
+      "physical_sources": [
+        {
+          "table": "ods.users",
+          "column": "user_id",
+          "transform": "DIRECT"
+        }
+      ],
+      "generated_sources": [],
+      "source_kind": "physical",
+      "output_ordinal": 0
+    },
+    {
+      "column": "user_name",
+      "transform": "DIRECT",
+      "expression": "`s`.`user_name`",
+      "trace_complete": true,
+      "physical_sources": [
+        {
+          "table": "ods.users",
+          "column": "user_name",
+          "transform": "DIRECT"
+        }
+      ],
+      "generated_sources": [],
+      "source_kind": "physical",
+      "output_ordinal": 1
+    }
+  ],
+  "diagnostics": {
+    "fallback_used": false,
+    "warning_count": 0,
+    "warning_types": {},
+    "lineage_fact_gap_count": 0,
+    "lineage_fact_gap_types": {},
+    "lineage_fact_gap_samples": [],
+    "stats": {
+      "scope_count": 2,
+      "physical_table_count": 1,
+      "cte_count": 0,
+      "subquery_count": 0,
+      "union_count": 0,
+      "union_branch_count": 0,
+      "max_depth": 1,
+      "case_when_count": 0,
+      "window_function_count": 0,
+      "join_count": 0,
+      "aggregate_function_count": 0
+    },
+    "full_diagnostics_file": "diagnostics.json"
+  }
+}
