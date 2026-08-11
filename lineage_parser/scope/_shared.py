@@ -806,7 +806,14 @@ def _replace_struct_field_access_from_upstream(
 
     def replacement(match: re.Match[str]) -> str:
         leaf_field = match.group("leaf")
-        return _struct_leaf_expression(upstream_expanded_expression, leaf_field) or match.group(0)
+        leaf_expression = _struct_leaf_expression(upstream_expanded_expression, leaf_field)
+        if not leaf_expression:
+            return match.group(0)
+        aggregate_member = _aggregate_struct_member_expression(
+            upstream_expanded_expression,
+            leaf_field,
+        )
+        return aggregate_member or leaf_expression
 
     quoted_pattern = re.compile(
         rf"`(?P<qualifier>[^`]+)`\.`{re.escape(struct_output_field)}`\.`(?P<leaf>[^`]+)`"
@@ -817,6 +824,48 @@ def _replace_struct_field_access_from_upstream(
         rf"{re.escape(struct_output_field)}\.(?P<leaf>[A-Za-z_][A-Za-z0-9_]*)(?![`.\w])"
     )
     return bare_pattern.sub(replacement, expression)
+
+
+def _aggregate_struct_member_expression(
+    upstream_expanded_expression: str,
+    leaf_field: str,
+) -> str | None:
+    """Keep row-selection semantics when projecting a member from an aggregate STRUCT."""
+    try:
+        parsed = sqlglot.parse_one(
+            upstream_expanded_expression,
+            dialect=DIALECT,
+            error_level=ErrorLevel.RAISE,
+        )
+    except Exception:
+        return None
+    while isinstance(parsed, exp.Paren):
+        parsed = parsed.this
+    if not isinstance(parsed, (exp.Max, exp.Min)):
+        return None
+    struct_expression = parsed.this
+    is_struct = isinstance(struct_expression, exp.Struct)
+    is_named_struct = (
+        isinstance(struct_expression, exp.Anonymous)
+        and struct_expression.name.lower() == "named_struct"
+    )
+    if not is_struct and not is_named_struct:
+        return None
+    member_expression = exp.Dot(
+        this=exp.Paren(this=parsed.copy()),
+        expression=exp.Identifier(this=leaf_field, quoted=True),
+    )
+    rendered = member_expression.sql(dialect=DIALECT)
+    try:
+        sqlglot.parse_one(
+            rendered,
+            dialect=DIALECT,
+            error_level=ErrorLevel.RAISE,
+        )
+    except Exception:
+        return None
+    return rendered
+
 
 def _struct_leaf_expression(upstream_expanded_expression: str, leaf_field: str) -> str | None:
     leaf_pattern = re.compile(
