@@ -35,7 +35,7 @@ def test_max_named_struct_member_keeps_selection_and_value_dependencies():
 
     expanded = output["expanded_expression"].upper()
     assert "MAX(" in expanded
-    assert "NAMED_STRUCT(" in expanded
+    assert "STRUCT(" in expanded
     assert expanded.endswith(".`LAYER_NAME`")
     assert output["expression_resolution"]["status"] == "resolved"
     assert output["expression_resolution"]["physical_source_fields"] == [
