@@ -312,7 +312,30 @@ GROUP BY c.customer_id;
 | `consumer_readiness` | 是否已具备安全下游消费所需事实；blocked 时列出原因。 |
 | `merge_branch` / `merge_when_index` | MERGE 场景中字段属于哪个 WHEN 分支。 |
 
-### 8.1 字段分类枚举
+### 8.1 聚合 STRUCT 成员投影
+
+当上游输出通过 `MAX/MIN(STRUCT(...))` 或 `MAX/MIN(NAMED_STRUCT(...))` 选出一个
+STRUCT，而下游继续访问其中一个成员时，`expanded_expression` 会保留聚合和成员投影，不能
+压平为普通叶子字段。例如：
+
+```sql
+MAX(NAMED_STRUCT(
+  'update_time', `ods.layer`.`update_time`,
+  'layer_name', `ods.layer`.`layer_name`
+)).layer_name
+```
+
+其输出需要同时保留：
+
+- 完整的 `MAX(NAMED_STRUCT(...)).layer_name` 加工语义；
+- `update_time` 这一选行/比较输入；
+- `layer_name` 这一返回值和比较输入；
+- 从外层输出回到上游聚合输出的 `scope_output_trace`。
+
+普通非聚合 STRUCT 成员访问仍可展开为被选择的叶子字段。该区别防止消费者把“从聚合选中的
+STRUCT 中取字段”误读成普通直接投影。
+
+### 8.2 字段分类枚举
 
 `transform` 是兼容的粗粒度分类：
 
@@ -367,7 +390,7 @@ GROUP BY c.customer_id;
 
 消费时不要只看 `transform`。字段解释优先组合 `expression_type`、`expression_features`、`expression_role` 和 `grain_effect`；判断整个模型粒度还必须查看 GROUP BY、窗口、DISTINCT 和 scope 上下文。
 
-### 8.2 `field_usage[]`：输入字段被怎样使用
+### 8.3 `field_usage[]`：输入字段被怎样使用
 
 ```json
 {
@@ -394,7 +417,7 @@ GROUP BY c.customer_id;
 
 它适合回答“这张表的某个字段在当前查询块中是 JOIN key、过滤字段，还是输出表达式输入”。跨 scope 的最终目标影响仍应使用 mapping chain 或 end-to-end lineage。
 
-### 8.3 `columns[]`：兼容性解析视图
+### 8.4 `columns[]`：兼容性解析视图
 
 `columns[]` 更接近解析器原始列模型，通常包含 `name`、`transform`、`expression` 和 `sources[]`，并可能保留特定变换附加值，如 `agg_function`、`case_branches`、`window` 或 UNION branches。
 
