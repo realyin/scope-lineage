@@ -1,77 +1,83 @@
-# Scope Lineage：面向 AI SQL 知识库的解析底座
+# Scope Lineage
+
+[![Core CI](https://github.com/realyin/sparksql-knowledge-parse/actions/workflows/ci.yml/badge.svg)](https://github.com/realyin/sparksql-knowledge-parse/actions/workflows/ci.yml)
+[![Python 3.9–3.12](https://img.shields.io/badge/python-3.9%E2%80%933.12-blue)](pyproject.toml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 中文 | [English](README.md)
 
-Scope Lineage 是一个开源的 Spark/Hive SQL 静态解析工具。它的目标不是只画一张表血缘图，
-而是把 SQL 任务转换成结构稳定、证据可追溯、可直接被 Agent、RAG、搜索和知识图谱消费的
-事实层，为 AI 构建 SQL 任务知识库提供底层支撑。
+**把 Spark/Hive SQL 转换成结构化、可追溯的事实，供 Agent、RAG、搜索和 AI 知识库使用。**
 
-很多系统把原始 SQL 或简单的“输入表 → 输出表”交给大模型。这样会丢失 CTE、子查询、
-UNION 分支、字段表达式、过滤条件、聚合和解析不确定性。Scope Lineage 保留这些中间结构，
-输出版本化的 `lineage.json` 与 `diagnostics.json`，让上层 AI 在可验证事实之上理解任务，
-而不是直接猜测 SQL 含义。
+> 普通血缘告诉你数据从哪里来；Scope Lineage 进一步告诉你，它是怎样一步一步变成当前字段的。
 
-> 当前仓库是首期开源的 Core 层：负责 SQL/任务输入、scope 解析、字段级血缘和诊断输出。
-> 向量化、知识图谱存储、业务语义生成、数仓建模和重构建议属于上层能力，不包含在本仓库中。
+Scope Lineage 是一个离线静态分析器，把 CTE、子查询、字段表达式、JOIN、过滤、聚合、窗口和
+不确定性保存为版本化的 `lineage.json` 与 `diagnostics.json`。上层 AI 可以引用可定位的证据，
+不必根据原始 SQL 或简单的表级边猜测语义。
 
-## 先看结果：它把一段 SQL 变成什么
+当前仓库包含开源 Core：SQL/任务输入、scope 解析、字段级血缘和诊断。它不需要 Spark 集群、
+数据库凭据或大模型；向量化、知识图谱存储和业务语义生成属于下游能力。
 
-假设任务中有三层逻辑：
+## 直接看区别
+
+仓库内的 [`customer_profile_daily.sql`](examples/sql/customer_profile_daily.sql) 在 CTE 中聚合
+订单，再把结果投影到分区目标表：
 
 ```sql
-WITH latest_status AS (
-  SELECT customer_id, customer_status,
-         ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY event_time DESC) AS row_num
-  FROM ods.customer_status_event
-),
-order_summary AS (
+WITH order_summary AS (
   SELECT customer_id, COUNT(DISTINCT order_id) AS order_count_30d
   FROM dwd.order_detail
   GROUP BY customer_id
 )
-INSERT OVERWRITE TABLE mart.customer_profile_snapshot PARTITION (dt='${bizdate}')
-SELECT b.customer_id, s.customer_status, o.order_count_30d
-FROM ods.customer_base b
-LEFT JOIN latest_status s ON b.customer_id = s.customer_id AND s.row_num = 1
-LEFT JOIN order_summary o ON b.customer_id = o.customer_id;
+SELECT COALESCE(summary.order_count_30d, 0) AS order_count_30d
+FROM order_summary summary;
 ```
 
-普通表血缘通常只告诉你“读取 3 张表，写入 1 张表”。Scope Lineage 还会输出：
+普通表血缘只展示 `dwd.order_detail → mart.customer_profile_snapshot`。Scope Lineage 会保留完整
+变换路径：
 
-- `cte:latest_status` 是带窗口排序的查询块，`row_num` 依赖 `customer_id` 和 `event_time`；
-- `cte:order_summary` 改变了数据粒度，`order_count_30d` 来自 `COUNT(DISTINCT order_id)`；
-- ROOT 使用两个 LEFT JOIN，且 `s.row_num = 1` 是 JOIN ON 中的记录筛选条件；
-- 目标字段 `mart.customer_profile_snapshot.order_count_30d` 最终来自 `dwd.order_detail.order_id`；
-- 该字段从上游聚合 scope 到目标字段经历了哪些表达式和变换步骤；
-- 目标表按 `dt='${bizdate}'` 静态分区写入；
-- 如果 `customer_id` 没有限定名且同时匹配多个来源，输出会保留歧义候选，而不会任意选一个；
-- 如果缺少 Schema 导致 `SELECT *` 无法展开，诊断会明确指出缺哪张表的字段信息。
+```mermaid
+flowchart LR
+    S["dwd.order_detail.order_id"] --> A["cte:order_summary<br/>COUNT(DISTINCT order_id)<br/>粒度已改变"]
+    A --> R["ROOT<br/>COALESCE(order_count_30d, 0)"]
+    R --> T["mart.customer_profile_snapshot.order_count_30d"]
+```
 
-真实输出的核心骨架如下：
+下面是该示例真实生成产物的节选，不是手写总结：
 
 ```json
 {
-  "task_id": "customer_profile_daily",
-  "target_table": "mart.customer_profile_snapshot",
-  "stmt_kind": "INSERT_OVERWRITE",
-  "source_tables": [
-    "dwd.order_detail",
-    "ods.customer_base",
-    "ods.customer_status_event"
+  "target_field": "order_count_30d",
+  "root_source_fields": ["dwd.order_detail.order_id"],
+  "ordered_steps": [
+    {
+      "scope_id": "cte:order_summary",
+      "transform": "AGGREGATE",
+      "grain_effect": "changed",
+      "expression_sql": "COUNT(DISTINCT `order_detail`.`order_id`)"
+    },
+    {
+      "scope_id": "ROOT",
+      "transform": "EXPRESSION",
+      "grain_effect": "preserved",
+      "expression_sql": "COALESCE(`summary`.`order_count_30d`, 0)"
+    }
   ],
-  "scopes": {
-    "cte:latest_status": {"kind": "cte", "role": "dedup", "logic_blocks": [], "outputs": []},
-    "cte:order_summary": {"kind": "cte", "role": "aggregate", "logic_blocks": [], "outputs": []},
-    "ROOT": {"kind": "root", "role": "join", "logic_blocks": [], "outputs": []}
-  },
-  "scope_graph": {"nodes": [], "edges": []},
-  "field_mapping_chains": [],
-  "end_to_end_lineage": [],
-  "diagnostics": {"warning_count": 0, "lineage_fact_gap_count": 0}
+  "trace_status": "complete"
 }
 ```
 
-这里的 `scopes` 是以 scope ID 为 key 的对象；每个 value 保存该查询块的输入、alias 绑定、SQL、逻辑块和输出字段。完整字段解释见 [`lineage.json` 输出契约](docs/zh-CN/lineage-json.md)。
+同一任务还会识别 `latest_status` 的窗口/去重角色、区分 JOIN key 与行过滤条件、按目标 DDL
+位置绑定字段，并显式报告无法证明的事实。完整结构见
+[`lineage.json` 输出契约](docs/zh-CN/lineage-json.md)。
+
+## 这些事实可以支持什么问题
+
+把一批 SQL 产物建立索引后，上层应用可以回答：
+
+- `customer_profile_snapshot.order_count_30d` 是怎样计算出来的？
+- 哪些目标字段依赖 `dwd.order_detail.order_id`？
+- 哪些任务使用 `ROW_NUMBER` 做去重？
+- 哪些血缘链路不完整或存在歧义，原因是什么？
 
 ## 这些事实为什么对 AI 有价值
 
@@ -132,12 +138,15 @@ Scope Lineage 的差异化方向，是专注 Spark/Hive 离线任务，把中间
 
 ## 安装
 
-当前版本从源码安装：
+项目尚未发布到 PyPI，当前版本需要从源码安装：
 
 ```bash
-git clone https://github.com/realyin/sparksql-knowleage-parse.git
-cd sparksql-knowleage-parse
-python -m pip install -e ".[dev]"
+git clone https://github.com/realyin/sparksql-knowledge-parse.git
+cd sparksql-knowledge-parse
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install .
 ```
 
 项目包名为 `scope-lineage`，当前处于 `0.1.x` Alpha 阶段。
