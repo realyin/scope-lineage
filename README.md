@@ -1,66 +1,86 @@
-# Scope Lineage: a parsing foundation for AI-ready SQL knowledge bases
+# Scope Lineage
+
+[![Core CI](https://github.com/realyin/sparksql-knowledge-parse/actions/workflows/ci.yml/badge.svg)](https://github.com/realyin/sparksql-knowledge-parse/actions/workflows/ci.yml)
+[![Python 3.9–3.12](https://img.shields.io/badge/python-3.9%E2%80%933.12-blue)](pyproject.toml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 [中文](README.zh-CN.md) | English
 
-Scope Lineage is an open-source static analyzer for Spark/Hive SQL. Its goal is not merely to
-draw a table-lineage graph. It turns SQL tasks into stable, traceable facts that Agents, RAG
-systems, search indexes, and knowledge graphs can consume as the foundation of an AI-ready SQL
-task knowledge base.
+**Turn Spark/Hive SQL into structured, traceable facts for Agents, RAG, search, and AI knowledge
+bases.**
 
-Passing raw SQL or a simple `input table -> output table` edge to an LLM loses CTEs, subqueries,
-UNION branches, field expressions, filters, aggregates, and uncertainty. Scope Lineage preserves
-those intermediate structures and writes versioned `lineage.json` and `diagnostics.json`
-artifacts, allowing AI applications to reason from verifiable facts instead of guessing at SQL
-semantics.
+> Table lineage tells you where data comes from. Scope Lineage tells you how it became what it is.
 
-> This repository is the first open-source Core layer: SQL/task ingestion, scope parsing,
-> column-level lineage, and diagnostics. Embeddings, knowledge-graph storage, business-semantic
-> generation, warehouse modeling, and refactoring recommendations belong to upper layers and are
-> not included here.
+Scope Lineage is an offline static analyzer that preserves CTEs, subqueries, field expressions,
+JOINs, filters, aggregates, windows, and uncertainty as versioned `lineage.json` and
+`diagnostics.json` artifacts. AI applications can reason from addressable evidence instead of
+guessing from raw SQL or a flat table-lineage edge.
 
-## What one SQL task becomes
+This repository contains the open-source Core: SQL/task ingestion, scope parsing, column-level
+lineage, and diagnostics. It does not require a Spark cluster, database credentials, or an LLM.
+Embeddings, knowledge-graph storage, and business-semantic generation remain downstream concerns.
 
-For a task that reads customer details, derives a latest-status row with `ROW_NUMBER`, aggregates
-orders, joins the intermediate results, and writes a partitioned target, ordinary table lineage
-usually reports only three input tables and one output table. Scope Lineage also records:
+## See the difference
 
-- the `latest_status` CTE as a window/dedup scope and the fields used by its partition and order;
-- the `order_summary` CTE as an aggregate scope and the exact `COUNT(DISTINCT ...)` or `SUM(CASE ...)`
-  expressions;
-- JOIN keys separately from row filters embedded in an `ON` condition;
-- every output field's expression, transformation role, grain effect, and downstream target;
-- the ordered steps by which a field crosses scopes before reaching the target;
-- the final proven physical fields, constants, or rowset semantics behind each target field;
-- static/dynamic partition facts and authoritative target-column position binding;
-- ambiguity candidates, incomplete traces, missing Schema, and other facts that could not be proven.
+The included [`customer_profile_daily.sql`](examples/sql/customer_profile_daily.sql) aggregates
+orders in a CTE and then projects the result into a partitioned target:
 
-The output has this shape:
+```sql
+WITH order_summary AS (
+  SELECT customer_id, COUNT(DISTINCT order_id) AS order_count_30d
+  FROM dwd.order_detail
+  GROUP BY customer_id
+)
+SELECT COALESCE(summary.order_count_30d, 0) AS order_count_30d
+FROM order_summary summary;
+```
+
+A flat table edge only shows `dwd.order_detail → mart.customer_profile_snapshot`. Scope Lineage
+keeps the transformation path:
+
+```mermaid
+flowchart LR
+    S["dwd.order_detail.order_id"] --> A["cte:order_summary<br/>COUNT(DISTINCT order_id)<br/>grain changed"]
+    A --> R["ROOT<br/>COALESCE(order_count_30d, 0)"]
+    R --> T["mart.customer_profile_snapshot.order_count_30d"]
+```
+
+This is an excerpt from the artifact generated from that example—not a hand-written summary:
 
 ```json
 {
-  "task_id": "customer_profile_daily",
-  "target_table": "mart.customer_profile_snapshot",
-  "stmt_kind": "INSERT_OVERWRITE",
-  "source_tables": [
-    "dwd.order_detail",
-    "ods.customer_base",
-    "ods.customer_status_event"
+  "target_field": "order_count_30d",
+  "root_source_fields": ["dwd.order_detail.order_id"],
+  "ordered_steps": [
+    {
+      "scope_id": "cte:order_summary",
+      "transform": "AGGREGATE",
+      "grain_effect": "changed",
+      "expression_sql": "COUNT(DISTINCT `order_detail`.`order_id`)"
+    },
+    {
+      "scope_id": "ROOT",
+      "transform": "EXPRESSION",
+      "grain_effect": "preserved",
+      "expression_sql": "COALESCE(`summary`.`order_count_30d`, 0)"
+    }
   ],
-  "scopes": {
-    "cte:latest_status": {"kind": "cte", "role": "dedup", "logic_blocks": [], "outputs": []},
-    "cte:order_summary": {"kind": "cte", "role": "aggregate", "logic_blocks": [], "outputs": []},
-    "ROOT": {"kind": "root", "role": "join", "logic_blocks": [], "outputs": []}
-  },
-  "scope_graph": {"nodes": [], "edges": []},
-  "field_mapping_chains": [],
-  "end_to_end_lineage": [],
-  "diagnostics": {"warning_count": 0, "lineage_fact_gap_count": 0}
+  "trace_status": "complete"
 }
 ```
 
-`scopes` is a JSON map: each key is a stable scope ID, and each value contains that query block's
-inputs, alias bindings, SQL, logic blocks, and output fields. See the detailed
-[`lineage.json` contract](docs/zh-CN/lineage-json.md).
+The same task also identifies `latest_status` as a window/dedup scope, separates JOIN keys from
+row filters, binds projected fields to target DDL positions, and reports facts it cannot prove.
+See the complete [`lineage.json` contract](docs/zh-CN/lineage-json.md).
+
+## Questions these facts can support
+
+After indexing artifacts from a SQL corpus, downstream applications can answer questions such as:
+
+- How was `customer_profile_snapshot.order_count_30d` calculated?
+- Which target fields depend on `dwd.order_detail.order_id`?
+- Which tasks use `ROW_NUMBER` for deduplication?
+- Which lineage traces are incomplete or ambiguous, and why?
 
 ## Why these facts matter to AI systems
 
@@ -132,12 +152,15 @@ other SQL-lineage solution exists.
 
 ## Install
 
-Install the current version from source:
+The package is not published to PyPI yet. Install the current version from source:
 
 ```bash
-git clone https://github.com/realyin/sparksql-knowleage-parse.git
-cd sparksql-knowleage-parse
-python -m pip install -e ".[dev]"
+git clone https://github.com/realyin/sparksql-knowledge-parse.git
+cd sparksql-knowledge-parse
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install .
 ```
 
 The package name is `scope-lineage`; the current `0.1.x` series is Alpha.
