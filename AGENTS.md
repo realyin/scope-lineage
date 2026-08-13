@@ -38,7 +38,7 @@ python -m pytest -q tests/core tests/architecture/test_core_boundaries.py
 # Focused checks
 python -m pytest tests/core/test_lineage_contract_baseline.py -q
 python -m pytest tests/core/test_parser_capability_matrix.py -q -k cte_window
-python -m ruff check lineage_parser tests
+python -m ruff check scope_lineage tests
 
 # Verify wheel and source distribution contents
 python -m build
@@ -63,25 +63,25 @@ test.
 
 The execution path for one write statement is:
 
-1. `lineage_parser/cli.py` resolves input files and metadata, applies catalog-prefix policy, calls
+1. `scope_lineage/cli.py` resolves input files and metadata, applies catalog-prefix policy, calls
    Core, and writes only the two contract files.
-2. `lineage_parser/scope/scope_builder.py` is the primary entry point. It splits scripts, recognizes
+2. `scope_lineage/scope/scope_builder.py` is the primary entry point. It splits scripts, recognizes
    supported write statements, qualifies the AST, traverses scopes, assigns stable scope IDs,
    synthesizes UNION/MERGE scopes where needed, and collects physical source tables.
-3. `lineage_parser/scope/scope_resolver.py` resolves columns, joins, filters, UNION passthrough,
+3. `scope_lineage/scope/scope_resolver.py` resolves columns, joins, filters, UNION passthrough,
    fixed-point star expansion, and target-field binding.
-4. `lineage_parser/scope/scope_facts.py` derives logic blocks, outputs, field usage, expression
+4. `scope_lineage/scope/scope_facts.py` derives logic blocks, outputs, field usage, expression
    resolution, mapping chains, and lineage fact gaps. Some repeated passes intentionally converge
    to a fixed point; do not remove them without checking contract baselines.
-5. `lineage_parser/contract/lineage.py` serializes output, derives scope profiles and end-to-end
+5. `scope_lineage/contract/lineage.py` serializes output, derives scope profiles and end-to-end
    lineage, and validates schemas and cross-references before writing any file.
 
-Shared scope helpers live in `lineage_parser/scope/_shared.py` and are re-exported through
-`scope_builder` for compatibility. Metadata loaders live under `lineage_parser/metadata/`.
+Shared scope helpers live in `scope_lineage/scope/_shared.py` and are re-exported through
+`scope_builder` for compatibility. Metadata loaders live under `scope_lineage/metadata/`.
 
 ## Contract and Boundary Invariants
 
-- `lineage_parser.PUBLIC_CORE_API` is the supported public facade. `__all__` must equal it, and all
+- `scope_lineage.PUBLIC_CORE_API` is the supported public facade. `__all__` must equal it, and all
   symbols in `tests/core/fixtures/public-api-required-symbols.json` must remain available. Adding a
   public symbol is a product decision.
 - `tests/core/fixtures/lineage_contract/<case>/` contains byte-exact golden outputs. Baseline tests

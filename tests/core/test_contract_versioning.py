@@ -9,13 +9,13 @@ from importlib import resources
 import jsonschema
 import pytest
 
-from lineage_parser.contract import (
+from scope_lineage.contract import (
     to_lineage_dict,
     validate_diagnostics_document,
     validate_lineage_document,
     write_lineage,
 )
-from lineage_parser.scope.scope_builder import parse_scope_lineage
+from scope_lineage.scope.scope_builder import parse_scope_lineage
 
 
 def _lineage() -> dict:
@@ -77,6 +77,6 @@ def test_writer_validates_the_documents_that_are_actually_written(tmp_path) -> N
 @pytest.mark.parametrize("name", ["lineage.schema.json", "diagnostics.schema.json"])
 def test_contract_schemas_are_loadable_as_package_resources(name: str) -> None:
     schema = json.loads(
-        resources.files("lineage_parser.schemas").joinpath(name).read_text(encoding="utf-8")
+        resources.files("scope_lineage.schemas").joinpath(name).read_text(encoding="utf-8")
     )
     assert schema["type"] == "object"

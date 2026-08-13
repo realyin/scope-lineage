@@ -13,7 +13,7 @@
 权威 JSON Schema 位于：
 
 ```text
-lineage_parser/schemas/lineage.schema.json
+scope_lineage/schemas/lineage.schema.json
 ```
 
 文档用于解释字段语义和消费方法，Schema 用于判断结构是否合法。两者冲突时，以当前版本 Schema 和实际序列化代码为准。
@@ -670,7 +670,7 @@ Python 消费并校验：
 import json
 from pathlib import Path
 
-from lineage_parser import validate_lineage_document
+from scope_lineage import validate_lineage_document
 
 document = json.loads(Path("lineage.json").read_text(encoding="utf-8"))
 validate_lineage_document(document)

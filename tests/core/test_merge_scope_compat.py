@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from lineage_parser import parse_scope_lineage
-from lineage_parser.scope import scope_builder
+from scope_lineage import parse_scope_lineage
+from scope_lineage.scope import scope_builder
 
 
 SCHEMA = {

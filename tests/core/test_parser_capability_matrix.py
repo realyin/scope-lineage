@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from lineage_parser import parse_scope_lineage, to_lineage_dict
+from scope_lineage import parse_scope_lineage, to_lineage_dict
 
 
 SCHEMA = {

@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-import lineage_parser
-from lineage_parser.cli import main
+import scope_lineage
+from scope_lineage.cli import main
 
 
 REQUIRED_SYMBOLS = (
@@ -20,20 +20,20 @@ REQUIRED_SYMBOLS = (
 
 
 def test_public_exports_match_the_declared_core_api() -> None:
-    assert set(lineage_parser.__all__) == lineage_parser.PUBLIC_CORE_API
+    assert set(scope_lineage.__all__) == scope_lineage.PUBLIC_CORE_API
 
 
 def test_public_api_covers_the_approved_consumer_surface() -> None:
     required = set(json.loads(REQUIRED_SYMBOLS.read_text(encoding="utf-8")))
-    missing = required - lineage_parser.PUBLIC_CORE_API
+    missing = required - scope_lineage.PUBLIC_CORE_API
 
     assert not missing, f"Public Core API is missing approved symbols: {sorted(missing)}"
-    assert all(hasattr(lineage_parser, name) for name in required)
+    assert all(hasattr(scope_lineage, name) for name in required)
 
 
 def test_importing_core_does_not_load_upper_layers() -> None:
     script = (
-        "import sys, lineage_parser; "
+        "import sys, scope_lineage; "
         "forbidden=('pipeline','pipeline.understanding.insight','pipeline.refactor',"
         "'pipeline.understanding.presets'); "
         "assert not any(n == p or n.startswith(p + '.') for n in sys.modules for p in forbidden)"
@@ -311,6 +311,6 @@ def test_core_parse_help_explains_catalog_configuration(capsys) -> None:
 
 
 def test_public_qualified_field_extractor() -> None:
-    assert lineage_parser.extract_qualified_field_refs(
+    assert scope_lineage.extract_qualified_field_refs(
         "a.id + `b`.`amount` + named_struct('x', c.value).x"
     ) == [("b", "amount"), ("a", "id"), ("c", "value")]

@@ -7,14 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from lineage_parser.metadata.target_table_metadata import (
+from scope_lineage.metadata.target_table_metadata import (
     TargetColumnMetadata,
     TargetMetadataMap,
     TargetTableMetadata,
 )
-from lineage_parser.contract import write_lineage
-from lineage_parser.scope.scope_builder import parse_scope_lineage
-from lineage_parser.scope.scope_types import ScopeGraphEdge
+from scope_lineage.contract import write_lineage
+from scope_lineage.scope.scope_builder import parse_scope_lineage
+from scope_lineage.scope.scope_types import ScopeGraphEdge
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "lineage_contract"

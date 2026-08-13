@@ -1,6 +1,6 @@
 # Scope Lineage
 
-[![Core CI](https://github.com/realyin/sparksql-knowledge-parse/actions/workflows/ci.yml/badge.svg)](https://github.com/realyin/sparksql-knowledge-parse/actions/workflows/ci.yml)
+[![Core CI](https://github.com/realyin/scope-lineage/actions/workflows/ci.yml/badge.svg)](https://github.com/realyin/scope-lineage/actions/workflows/ci.yml)
 [![Python 3.9–3.12](https://img.shields.io/badge/python-3.9%E2%80%933.12-blue)](pyproject.toml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
@@ -208,8 +208,8 @@ other SQL-lineage solution exists.
 The package is not published to PyPI yet. Install the current version from source:
 
 ```bash
-git clone https://github.com/realyin/sparksql-knowledge-parse.git
-cd sparksql-knowledge-parse
+git clone https://github.com/realyin/scope-lineage.git
+cd scope-lineage
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -352,7 +352,7 @@ Documentation:
 ## Python API
 
 ```python
-from lineage_parser import parse_scope_lineage, to_lineage_dict, write_lineage
+from scope_lineage import parse_scope_lineage, to_lineage_dict, write_lineage
 
 result = parse_scope_lineage(
     "INSERT INTO mart.user_ids SELECT id FROM ods.users",
@@ -364,7 +364,7 @@ document = to_lineage_dict(result)
 write_lineage(result, "/tmp/scope-lineage/user_ids")
 ```
 
-The supported public surface is declared by `lineage_parser.PUBLIC_CORE_API`. Consumers should use
+The supported public surface is declared by `scope_lineage.PUBLIC_CORE_API`. Consumers should use
 that facade or the JSON contracts instead of importing internal modules.
 
 ## Contracts and limits
@@ -390,7 +390,7 @@ Current limits:
 
 ```bash
 python -m pytest -q tests/core tests/architecture/test_core_boundaries.py
-python -m ruff check lineage_parser tests
+python -m ruff check scope_lineage tests
 python -m build
 python tests/architecture/verify_distribution.py dist/*
 ```
