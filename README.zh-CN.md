@@ -19,56 +19,108 @@ Scope Lineage 是一个离线静态分析器，把 CTE、子查询、字段表�
 
 ## 直接看区别
 
-仓库内的 [`customer_profile_daily.sql`](examples/sql/customer_profile_daily.sql) 在 CTE 中聚合
-订单，再把结果投影到分区目标表：
+字段级血缘本身并不稀缺。稀缺的是：在查询里最容易出错的地方给出正确答案，并且对证明不了的部分
+保持诚实。
+
+仓库内的 [`order_channel_metrics.sql`](examples/sql/order_channel_metrics.sql) 先用 `UNION ALL`
+把两张来源表归一到一个 CTE，再做聚合：
 
 ```sql
-WITH order_summary AS (
-  SELECT customer_id, COUNT(DISTINCT order_id) AS order_count_30d
-  FROM dwd.order_detail
-  GROUP BY customer_id
+WITH normalized_orders AS (
+  SELECT pay_amount, pay_status, 'APP' AS order_channel
+  FROM ods.app_order
+  UNION ALL
+  SELECT order_amount AS pay_amount, order_status AS pay_status, 'WEB' AS order_channel
+  FROM ods.web_order
 )
-SELECT COALESCE(summary.order_count_30d, 0) AS order_count_30d
-FROM order_summary summary;
+SELECT order_channel,
+       SUM(CASE WHEN pay_status = 'PAID' THEN pay_amount ELSE 0 END) AS paid_amount
+FROM normalized_orders
+GROUP BY order_channel;
 ```
-
-普通表血缘只展示 `dwd.order_detail → mart.customer_profile_snapshot`。Scope Lineage 会保留完整
-变换路径：
 
 ```mermaid
 flowchart LR
-    S["dwd.order_detail.order_id"] --> A["cte:order_summary<br/>COUNT(DISTINCT order_id)<br/>粒度已改变"]
-    A --> R["ROOT<br/>COALESCE(order_count_30d, 0)"]
-    R --> T["mart.customer_profile_snapshot.order_count_30d"]
+    A["ods.app_order.pay_amount"] --> N["cte:normalized_orders<br/>UNION ALL"]
+    W["ods.web_order.order_amount"] --> N
+    L["'APP' / 'WEB'<br/>字面量"] --> N
+    N --> R["ROOT<br/>SUM(CASE WHEN pay_status='PAID' ...)<br/>粒度已改变"]
+    R --> T["mart.order_channel_metrics.paid_amount"]
 ```
 
-下面是该示例真实生成产物的节选，不是手写总结：
+这里有两个地方容易出错。
+
+**`order_channel` 是字面量，不是字段。** 作为对照，SQLLineage 1.5.8
+（`sqllineage -f <file> -l column --dialect sparksql`）的输出是：
+
+```text
+mart.order_channel_metrics.order_channel <- normalized_orders.order_channel
+```
+
+这个字段并不存在——它的值是分支里写死的 `'APP'` 或 `'WEB'`。Scope Lineage 会把它记为生成值而
+不是读取值：
 
 ```json
 {
-  "target_field": "order_count_30d",
-  "root_source_fields": ["dwd.order_detail.order_id"],
-  "ordered_steps": [
-    {
-      "scope_id": "cte:order_summary",
-      "transform": "AGGREGATE",
-      "grain_effect": "changed",
-      "expression_sql": "COUNT(DISTINCT `order_detail`.`order_id`)"
-    },
-    {
-      "scope_id": "ROOT",
-      "transform": "EXPRESSION",
-      "grain_effect": "preserved",
-      "expression_sql": "COALESCE(`summary`.`order_count_30d`, 0)"
-    }
-  ],
-  "trace_status": "complete"
+  "column": "order_channel",
+  "source_kind": "generated",
+  "physical_sources": [],
+  "generated_sources": [
+    {"source_type": "CONSTANT", "value": "'APP'", "transform": "CONSTANT"},
+    {"source_type": "CONSTANT", "value": "'WEB'", "transform": "CONSTANT"}
+  ]
 }
 ```
 
-同一任务还会识别 `latest_status` 的窗口/去重角色、区分 JOIN key 与行过滤条件、按目标 DDL
-位置绑定字段，并显式报告无法证明的事实。完整结构见
-[`lineage.json` 输出契约](docs/zh-CN/lineage-json.md)。
+**`paid_amount` 在两个分支里读的是不同名字的列。** 表达式被原样保留，两个分支都被解析回各自的
+物理字段：
+
+```json
+{
+  "column": "paid_amount",
+  "transform": "AGGREGATE",
+  "expression": "SUM(CASE WHEN `normalized_orders`.`pay_status` = 'PAID' THEN `normalized_orders`.`pay_amount` ELSE 0 END)",
+  "physical_sources": [
+    {"table": "ods.app_order", "column": "pay_amount",   "transform": "AGGREGATE"},
+    {"table": "ods.web_order", "column": "order_amount", "transform": "AGGREGATE"},
+    {"table": "ods.app_order", "column": "pay_status",   "transform": "AGGREGATE"},
+    {"table": "ods.web_order", "column": "order_status", "transform": "AGGREGATE"}
+  ],
+  "trace_complete": true
+}
+```
+
+以上两段都是真实产物节选，不是手写总结。可以用下面的命令复现：
+
+```bash
+scope-lineage parse \
+  --sql-file examples/sql/order_channel_metrics.sql \
+  --schema examples/metadata/schema_info.csv \
+  --target-ddl-metadata examples/metadata/target_tables \
+  --out /tmp/scope-lineage
+# 然后查看 /tmp/scope-lineage/order_channel_metrics/lineage.json 的 end_to_end_lineage
+```
+
+### 与 SQLLineage 的对比
+
+| | SQLLineage 1.5.8 `-l column` | Scope Lineage |
+| --- | --- | --- |
+| CTE / JOIN 字段血缘 | 可以解析 | **来源集合一致——两者打平** |
+| 字面量字段 | 报成一个并不存在的列 | `generated_sources` 中的 `CONSTANT` |
+| UNION 分支追到物理表 | 部分字段停在 CTE | 按分支分别解析 |
+| 带 Schema 的 `SELECT *` | `mart.t.* <- ods.s.*` | 展开为具体字段 |
+| 变换类型与表达式 | 不提供 | `DIRECT` / `EXPRESSION` / `AGGREGATE` / `CONDITIONAL` 及 SQL |
+| 目标字段按 DDL 位置绑定 | 不提供 | `target_field_binding`、序号 |
+| 多写语句脚本 | 合并为一份结果 | 每条写语句一套独立产物 |
+| 无法证明的部分 | 不提供 | `diagnostics.json` |
+
+也要说清楚哪里**没有**差别：在
+[`customer_profile_daily.sql`](examples/sql/customer_profile_daily.sql) 这类常规 CTE + JOIN 任务
+上，两个工具对每个目标字段给出的物理来源集合完全相同。差异在于每条边上附带的证据——表达式、
+变换类型、粒度变化和诊断信息——而不是边本身。
+
+同一任务还会识别窗口/去重角色、区分 JOIN key 与行过滤条件、按目标 DDL 位置绑定字段，并显式
+报告无法证明的事实。完整结构见 [`lineage.json` 输出契约](docs/zh-CN/lineage-json.md)。
 
 ## 这些事实可以支持什么问题
 
