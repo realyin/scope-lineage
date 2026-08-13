@@ -34,12 +34,32 @@ def test_merge_using_scope_is_not_inferred_from_the_last_sibling_subquery() -> N
     )
 
     assert set(result.scopes) == {"ROOT", "subq:source", "subq:derived_0"}
-    assert result.source_tables == ["dim.lookup", "ods.source"]
+    assert result.source_tables == ["dim.lookup", "mart.target", "ods.source"]
     assert result.scopes["ROOT"].raw_sql == (
         "(SELECT `source`.`id` AS `id`, `source`.`name` AS `name` "
         "FROM `ods`.`source` AS `source`) AS `source`"
     )
     assert result.scopes["ROOT"].raw_sql_available is True
+
+    root_columns = result.scopes["ROOT"].columns
+    assert [(column.name, column.merge_branch) for column in root_columns] == [
+        ("name", "matched"),
+        ("id", "not_matched"),
+        ("name", "not_matched"),
+    ]
+    assert [
+        (source.scope, source.column) for source in root_columns[0].sources
+    ] == [("subq:derived_0", "name")]
+
+    scalar_scope = result.scopes["subq:derived_0"]
+    assert [
+        (source.scope, source.column)
+        for source in scalar_scope.columns[0].sources
+    ] == [("dim.lookup", "name")]
+    assert [
+        (source.scope, source.column)
+        for source in scalar_scope.filters[0].columns
+    ] == [("dim.lookup", "id"), ("mart.target", "id")]
 
 
 @pytest.mark.parametrize(
@@ -97,6 +117,79 @@ def test_merge_using_query_shapes_have_stable_scope_ids(
     assert result.scopes["ROOT"].raw_sql.endswith("AS `source`")
 
 
+def test_merge_using_bare_table_with_only_not_matched_resolves_values() -> None:
+    result = parse_scope_lineage(
+        """
+        MERGE INTO mart.target target
+        USING ods.source source
+        ON target.id = source.id
+        WHEN NOT MATCHED THEN INSERT (id, name) VALUES (source.id, source.name)
+        """,
+        "merge_only_not_matched",
+        schema=SCHEMA,
+    )
+
+    assert result.source_tables == ["ods.source"]
+    assert [
+        (
+            column.name,
+            [(source.scope, source.column) for source in column.sources],
+            column.merge_branch,
+            column.merge_when_index,
+        )
+        for column in result.scopes["ROOT"].columns
+    ] == [
+        ("id", [("ods.source", "id")], "not_matched", 0),
+        ("name", [("ods.source", "name")], "not_matched", 0),
+    ]
+
+
+def test_merge_insert_star_materializes_using_scope_columns() -> None:
+    result = parse_scope_lineage(
+        """
+        MERGE INTO mart.target target
+        USING ods.source source
+        ON target.id = source.id
+        WHEN NOT MATCHED THEN INSERT *
+        """,
+        "merge_insert_star",
+        schema=SCHEMA,
+    )
+
+    assert [
+        (
+            column.name,
+            [(source.scope, source.column) for source in column.sources],
+            column.merge_branch,
+        )
+        for column in result.scopes["ROOT"].columns
+    ] == [
+        ("id", [("subq:source", "id")], "not_matched"),
+        ("name", [("subq:source", "name")], "not_matched"),
+    ]
+
+
+def test_uncorrelated_action_scalar_query_does_not_add_target_as_a_source() -> None:
+    result = parse_scope_lineage(
+        """
+        MERGE INTO mart.target target
+        USING ods.source source
+        ON target.id = source.id
+        WHEN MATCHED THEN UPDATE SET target.name = (
+          SELECT MAX(lookup.name) FROM dim.lookup lookup
+        )
+        """,
+        "merge_uncorrelated_scalar",
+        schema=SCHEMA,
+    )
+
+    assert result.source_tables == ["dim.lookup", "ods.source"]
+    assert [
+        (source.scope, source.column)
+        for source in result.scopes["ROOT"].columns[0].sources
+    ] == [("subq:derived_0", "name")]
+
+
 def test_missing_non_merge_root_scope_fails_with_a_specific_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -111,3 +204,36 @@ def test_missing_non_merge_root_scope_fails_with_a_specific_error(
             "missing_root_scope",
             schema=SCHEMA,
         )
+
+
+def test_missing_merge_ast_fails_instead_of_emitting_empty_lineage() -> None:
+    result = scope_builder.ScopeLineageResult(
+        task_id="missing_merge_ast",
+        target_table="mart.target",
+        stmt_kind="MERGE",
+    )
+    result.scopes["ROOT"] = scope_builder.ScopeData(kind="root")
+
+    with pytest.raises(
+        ValueError,
+        match="MERGE statement reached column resolution without a Merge AST node",
+    ):
+        scope_builder.resolve_all(result, [])
+
+
+def test_cte_name_in_a_nested_scope_does_not_hide_a_physical_sibling_table() -> None:
+    result = parse_scope_lineage(
+        """
+        INSERT INTO mart.target
+        SELECT id FROM staging
+        UNION ALL
+        SELECT id FROM (
+          WITH staging AS (SELECT id FROM ods.source)
+          SELECT id FROM staging
+        ) nested
+        """,
+        "lexical_cte_name",
+        schema={"staging": ["id"], "ods.source": ["id"]},
+    )
+
+    assert result.source_tables == ["ods.source", "staging"]
