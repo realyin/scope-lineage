@@ -105,8 +105,18 @@ def resolve_all(
     )
 
     # Step 4: Resolve MERGE columns (special handling)
-    if result.stmt_kind == "MERGE" and merge_node is not None:
-        _resolve_merge_columns(merge_node, merge_using_scope, result, schema)
+    if result.stmt_kind == "MERGE":
+        if merge_node is None:
+            raise ValueError(
+                "MERGE statement reached column resolution without a Merge AST node"
+            )
+        _resolve_merge_columns(
+            merge_node,
+            merge_using_scope,
+            all_scopes,
+            result,
+            schema,
+        )
         _materialize_referenced_star_columns(result)
 
     # Step 5: Populate depends_on and build scope_graph edges
@@ -749,6 +759,7 @@ def _stronger_transform(left: str, right: str) -> str:
 def _resolve_merge_columns(
     merge_node: exp.Merge,
     using_scope: Scope | None,
+    all_scopes: list[Scope],
     result: ScopeLineageResult,
     schema: dict | None = None,
 ) -> None:
@@ -779,7 +790,12 @@ def _resolve_merge_columns(
         then = when.args.get("then")
         if isinstance(then, exp.Update):
             # WHEN MATCHED THEN UPDATE SET
-            for eq in then.find_all(exp.EQ):
+            # Only direct Update expressions are assignments. A recursive find_all(EQ)
+            # also visits predicates inside scalar subqueries and used to publish e.g.
+            # ``lookup.id = target.id`` as a second target-column assignment.
+            for eq in then.expressions:
+                if not isinstance(eq, exp.EQ):
+                    continue
                 dst_col = eq.this
                 src_expr = eq.expression
                 dst_name = dst_col.name if isinstance(dst_col, exp.Column) else None
@@ -787,44 +803,14 @@ def _resolve_merge_columns(
                     continue
                 transform = _classify_extended(src_expr)
                 expression = src_expr.sql(dialect=DIALECT)
-                sources = []
-                if transform != "CONSTANT" and using_scope_id:
-                    for col_ref in src_expr.find_all(exp.Column):
-                        col_table = col_ref.table
-                        col_name = col_ref.name
-                        if col_table:
-                            # The target alias denotes the pre-MERGE row state.  It is
-                            # neither a USING output nor an unknown qualifier: retain it
-                            # as a physical self-source so expressions such as
-                            # COALESCE(target.attr, source.attr) preserve both inputs.
-                            if col_table in target_qualifiers and result.target_table:
-                                if (result.target_table, col_name) not in {
-                                    (s.scope, s.column) for s in sources
-                                }:
-                                    sources.append(SourceRef(
-                                        scope=result.target_table,
-                                        column=col_name,
-                                    ))
-                                continue
-                            # Check if it's the USING source alias
-                            src = using_scope.sources.get(col_table) if using_scope else None
-                            if isinstance(src, exp.Table):
-                                fq = _qualified_table(src)
-                                if (fq, col_name) not in {(s.scope, s.column) for s in sources}:
-                                    sources.append(SourceRef(scope=fq, column=col_name))
-                            elif isinstance(src, Scope):
-                                upstream_id = getattr(src, _SCOPE_ID_ATTR, None)
-                                if upstream_id and (upstream_id, col_name) not in {(s.scope, s.column) for s in sources}:
-                                    sources.append(SourceRef(scope=upstream_id, column=col_name))
-                            else:
-                                # Likely the USING source alias
-                                if (using_scope_id, col_name) not in {(s.scope, s.column) for s in sources}:
-                                    sources.append(SourceRef(scope=using_scope_id, column=col_name))
-                        else:
-                            if (using_scope_id, col_name) not in {(s.scope, s.column) for s in sources}:
-                                sources.append(SourceRef(scope=using_scope_id, column=col_name))
-                if not sources:
-                    sources = _source_free_leaf_sources(src_expr, expression)
+                sources = _resolve_merge_value_sources(
+                    src_expr,
+                    expression,
+                    using_scope,
+                    all_scopes,
+                    target_qualifiers,
+                    result,
+                )
 
                 if any(source.scope == result.target_table for source in sources):
                     result.source_tables = sorted({
@@ -866,14 +852,14 @@ def _resolve_merge_columns(
                     dst_name = dst_col_node.name if hasattr(dst_col_node, "name") else str(dst_col_node)
                     transform = _classify_extended(val_expr)
                     expression = val_expr.sql(dialect=DIALECT)
-                    sources = []
-                    if transform != "CONSTANT" and using_scope_id:
-                        for col_ref in val_expr.find_all(exp.Column):
-                            col_name = col_ref.name
-                            if (using_scope_id, col_name) not in {(s.scope, s.column) for s in sources}:
-                                sources.append(SourceRef(scope=using_scope_id, column=col_name))
-                    if not sources:
-                        sources = _source_free_leaf_sources(val_expr, expression)
+                    sources = _resolve_merge_value_sources(
+                        val_expr,
+                        expression,
+                        using_scope,
+                        all_scopes,
+                        target_qualifiers,
+                        result,
+                    )
 
                     result.scopes["ROOT"].columns.append(ScopeColumn(
                         name=dst_name, transform=transform, expression=expression,
@@ -889,6 +875,63 @@ def _resolve_merge_columns(
                     "does not produce ROOT output columns."
                 ),
             ))
+
+
+def _resolve_merge_value_sources(
+    value_expr: exp.Expression,
+    expression_sql: str,
+    using_scope: Scope | None,
+    all_scopes: list[Scope],
+    target_qualifiers: set[str],
+    result: ScopeLineageResult,
+) -> list[SourceRef]:
+    """Resolve one MERGE assignment value without crossing nested-query boundaries."""
+    sources: list[SourceRef] = []
+    seen: set[tuple[str, str]] = set()
+
+    def append(scope_id: str | None, column: str) -> None:
+        if not scope_id or not column or (scope_id, column) in seen:
+            return
+        seen.add((scope_id, column))
+        sources.append(SourceRef(scope=scope_id, column=column))
+
+    # A scalar query is a rowset dependency, not a collection of columns to resolve
+    # against MERGE USING. Match the query to its SQLGlot scope by AST identity and
+    # reference the one value that the scalar scope exposes.
+    for subquery in value_expr.find_all(exp.Subquery):
+        if subquery is not value_expr and _inside_nested_query(subquery, value_expr):
+            continue
+        query = subquery.unnest()
+        scalar_scope = next(
+            (scope for scope in all_scopes if scope.expression is query),
+            None,
+        )
+        scalar_scope_id = getattr(scalar_scope, _SCOPE_ID_ATTR, None)
+        scalar_scope_data = result.scopes.get(scalar_scope_id or "")
+        if scalar_scope_data and scalar_scope_data.columns:
+            append(scalar_scope_id, scalar_scope_data.columns[0].name)
+
+    using_scope_id = getattr(using_scope, _SCOPE_ID_ATTR, None)
+    for col_ref in value_expr.find_all(exp.Column):
+        if _inside_nested_query(col_ref, value_expr):
+            continue
+        col_table = col_ref.table
+        col_name = col_ref.name
+        if col_table in target_qualifiers and result.target_table:
+            append(result.target_table, col_name)
+            continue
+        if col_table:
+            source = using_scope.sources.get(col_table) if using_scope else None
+            if isinstance(source, exp.Table):
+                append(_qualified_table(source), col_name)
+            elif isinstance(source, Scope):
+                append(getattr(source, _SCOPE_ID_ATTR, None), col_name)
+            else:
+                append(using_scope_id, col_name)
+        else:
+            append(using_scope_id, col_name)
+
+    return sources or _source_free_leaf_sources(value_expr, expression_sql)
 
 
 def _is_merge_delete_then(then: exp.Expression | None) -> bool:
