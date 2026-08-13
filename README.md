@@ -22,56 +22,109 @@ Embeddings, knowledge-graph storage, and business-semantic generation remain dow
 
 ## See the difference
 
-The included [`customer_profile_daily.sql`](examples/sql/customer_profile_daily.sql) aggregates
-orders in a CTE and then projects the result into a partitioned target:
+Column-level lineage is not rare. What is rare is being right about the hard parts of a query and
+being explicit about the parts you cannot prove.
+
+The included [`order_channel_metrics.sql`](examples/sql/order_channel_metrics.sql) normalizes two
+source tables through a `UNION ALL` CTE and then aggregates:
 
 ```sql
-WITH order_summary AS (
-  SELECT customer_id, COUNT(DISTINCT order_id) AS order_count_30d
-  FROM dwd.order_detail
-  GROUP BY customer_id
+WITH normalized_orders AS (
+  SELECT pay_amount, pay_status, 'APP' AS order_channel
+  FROM ods.app_order
+  UNION ALL
+  SELECT order_amount AS pay_amount, order_status AS pay_status, 'WEB' AS order_channel
+  FROM ods.web_order
 )
-SELECT COALESCE(summary.order_count_30d, 0) AS order_count_30d
-FROM order_summary summary;
+SELECT order_channel,
+       SUM(CASE WHEN pay_status = 'PAID' THEN pay_amount ELSE 0 END) AS paid_amount
+FROM normalized_orders
+GROUP BY order_channel;
 ```
-
-A flat table edge only shows `dwd.order_detail → mart.customer_profile_snapshot`. Scope Lineage
-keeps the transformation path:
 
 ```mermaid
 flowchart LR
-    S["dwd.order_detail.order_id"] --> A["cte:order_summary<br/>COUNT(DISTINCT order_id)<br/>grain changed"]
-    A --> R["ROOT<br/>COALESCE(order_count_30d, 0)"]
-    R --> T["mart.customer_profile_snapshot.order_count_30d"]
+    A["ods.app_order.pay_amount"] --> N["cte:normalized_orders<br/>UNION ALL"]
+    W["ods.web_order.order_amount"] --> N
+    L["'APP' / 'WEB'<br/>literals"] --> N
+    N --> R["ROOT<br/>SUM(CASE WHEN pay_status='PAID' ...)<br/>grain changed"]
+    R --> T["mart.order_channel_metrics.paid_amount"]
 ```
 
-This is an excerpt from the artifact generated from that example—not a hand-written summary:
+Two things here are easy to get wrong.
+
+**`order_channel` is a literal, not a column.** For reference, SQLLineage 1.5.8
+(`sqllineage -f <file> -l column --dialect sparksql`) reports:
+
+```text
+mart.order_channel_metrics.order_channel <- normalized_orders.order_channel
+```
+
+No such column exists — the value is `'APP'` or `'WEB'` depending on the branch. Scope Lineage
+records it as generated rather than read:
 
 ```json
 {
-  "target_field": "order_count_30d",
-  "root_source_fields": ["dwd.order_detail.order_id"],
-  "ordered_steps": [
-    {
-      "scope_id": "cte:order_summary",
-      "transform": "AGGREGATE",
-      "grain_effect": "changed",
-      "expression_sql": "COUNT(DISTINCT `order_detail`.`order_id`)"
-    },
-    {
-      "scope_id": "ROOT",
-      "transform": "EXPRESSION",
-      "grain_effect": "preserved",
-      "expression_sql": "COALESCE(`summary`.`order_count_30d`, 0)"
-    }
-  ],
-  "trace_status": "complete"
+  "column": "order_channel",
+  "source_kind": "generated",
+  "physical_sources": [],
+  "generated_sources": [
+    {"source_type": "CONSTANT", "value": "'APP'", "transform": "CONSTANT"},
+    {"source_type": "CONSTANT", "value": "'WEB'", "transform": "CONSTANT"}
+  ]
 }
 ```
 
-The same task also identifies `latest_status` as a window/dedup scope, separates JOIN keys from
-row filters, binds projected fields to target DDL positions, and reports facts it cannot prove.
-See the complete [`lineage.json` contract](docs/zh-CN/lineage-json.md).
+**`paid_amount` reads a differently named column in each branch.** The expression is kept verbatim
+and both branches are resolved to their physical columns:
+
+```json
+{
+  "column": "paid_amount",
+  "transform": "AGGREGATE",
+  "expression": "SUM(CASE WHEN `normalized_orders`.`pay_status` = 'PAID' THEN `normalized_orders`.`pay_amount` ELSE 0 END)",
+  "physical_sources": [
+    {"table": "ods.app_order", "column": "pay_amount",   "transform": "AGGREGATE"},
+    {"table": "ods.web_order", "column": "order_amount", "transform": "AGGREGATE"},
+    {"table": "ods.app_order", "column": "pay_status",   "transform": "AGGREGATE"},
+    {"table": "ods.web_order", "column": "order_status", "transform": "AGGREGATE"}
+  ],
+  "trace_complete": true
+}
+```
+
+Both excerpts are real output, not hand-written summaries. Reproduce them with:
+
+```bash
+scope-lineage parse \
+  --sql-file examples/sql/order_channel_metrics.sql \
+  --schema examples/metadata/schema_info.csv \
+  --target-ddl-metadata examples/metadata/target_tables \
+  --out /tmp/scope-lineage
+# then read end_to_end_lineage in /tmp/scope-lineage/order_channel_metrics/lineage.json
+```
+
+### Compared with SQLLineage
+
+| | SQLLineage 1.5.8 `-l column` | Scope Lineage |
+| --- | --- | --- |
+| CTE / JOIN column lineage | resolved | **the same sources — the two agree** |
+| Literal projections | reported as a column that does not exist | `CONSTANT` under `generated_sources` |
+| UNION branch to physical table | stops at the CTE for some columns | resolved per branch |
+| `SELECT *` with schema metadata | `mart.t.* <- ods.s.*` | expanded to concrete columns |
+| Transform type and expression | not reported | `DIRECT` / `EXPRESSION` / `AGGREGATE` / `CONDITIONAL` plus SQL |
+| Target field bound to DDL position | not reported | `target_field_binding`, ordinals |
+| Multi-statement scripts | merged into one result | one artifact pair per write statement |
+| What could not be proven | not reported | `diagnostics.json` |
+
+To be clear about where this does *not* differ: on a straightforward CTE-and-JOIN task such as
+[`customer_profile_daily.sql`](examples/sql/customer_profile_daily.sql), both tools return the same
+physical source set for every target column. The difference is the evidence attached to each edge —
+the expression, the transform type, the grain effect, and the diagnostics — not the edge itself.
+
+The same task also identifies window/dedup scopes, separates JOIN keys from row filters, binds
+projected fields to target DDL positions, and reports facts it cannot prove. See the complete
+[`lineage.json` contract](docs/zh-CN/lineage-json.md).
 
 ## Questions these facts can support
 
