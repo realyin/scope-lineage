@@ -4,8 +4,9 @@
 
 Initial public release preparation:
 
-- Constrained `sqlglot` to `>=30,<30.17`; 30.17.0 changes MERGE scope traversal and breaks
-  every MERGE statement until the scope model is adapted
+- Adapted MERGE scope handling for SQLGlot 30.17 and constrained the verified range to
+  `sqlglot>=30,<30.18`; MERGE now uses an explicit USING scope instead of SQLGlot's removed
+  root Subquery wrapper
 - Versioned `lineage.json` and `diagnostics.json` 1.0 contracts with mandatory validation
 - Pure Core writer API for emitting only Lineage and Diagnostics artifacts
 - `scope-lineage parse` CLI for SQL files, exported task JSON, and recursive task directories;

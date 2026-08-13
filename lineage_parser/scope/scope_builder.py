@@ -670,10 +670,36 @@ def _build_result_from_scope(
 
     Uses traverse_scope(qualified_expr) to build the scope list so that CTE scopes
     inside MERGE...WITH are not missed (build_scope().traverse() silently skips them
-    for MERGE statements). The root scope is extracted from the traversal result.
+    for MERGE statements). MERGE's ROOT is synthetic: SQLGlot 30.16 emitted root
+    Subquery wrappers for its query fragments, while 30.17 deliberately stopped doing so.
     """
     all_scopes = list(traverse_scope(qualified_expr))
+    merge_node = qualified_expr if isinstance(qualified_expr, exp.Merge) else None
+    using_node = merge_node.args.get("using") if merge_node is not None else None
+
+    if merge_node is not None:
+        # SQLGlot <=30.16 yielded an is_root Subquery wrapper for every value-position
+        # query in a MERGE, including scalar queries inside WHEN actions. Those wrappers
+        # disappeared in 30.17 and were never distinct contract scopes: keeping them made
+        # a second scalar query surface as ROOT_2 on only the older version.
+        all_scopes = [
+            scope
+            for scope in all_scopes
+            if not (scope.is_root and isinstance(scope.expression, exp.Subquery))
+        ]
+
     root_scope = next((s for s in reversed(all_scopes) if s.is_root), None)
+    if merge_node is None and root_scope is None:
+        raise ValueError("sqlglot produced no root scope for a non-MERGE write query")
+
+    using_query = using_node.unnest() if isinstance(using_node, exp.Subquery) else using_node
+    merge_using_scope = (
+        next((scope for scope in all_scopes if scope.expression is using_query), None)
+        if merge_node is not None
+        else None
+    )
+    if merge_node is not None and merge_using_scope is None:
+        raise ValueError("sqlglot produced no scope for the MERGE USING relation")
 
     # Step 1: Assign scope_ids to every scope (children before parents — traverse_scope order)
     for sg_scope in all_scopes:
@@ -739,16 +765,15 @@ def _build_result_from_scope(
     if "ROOT" not in result.scopes:
         result.scopes["ROOT"] = ScopeData(kind="root")
     result.scopes["ROOT"].writes_to = target_table
+    if using_node is not None:
+        result.scopes["ROOT"].raw_sql = using_node.sql(dialect=DIALECT)
+        result.scopes["ROOT"].raw_sql_available = bool(result.scopes["ROOT"].raw_sql)
 
     # Step 4: Collect physical table nodes
     physical_tables = set()
     local_cte_names = {
         cte.alias_or_name.lower()
-        for cte in (
-            root_scope.expression.find_all(exp.CTE)
-            if root_scope.expression is not None
-            else []
-        )
+        for cte in qualified_expr.find_all(exp.CTE)
         if cte.alias_or_name
     }
     # Depending on statement shape, sqlglot's ROOT expression may not retain every
@@ -783,7 +808,7 @@ def _build_result_from_scope(
             physical_tables.add(_qualified_table(table_node))
     # ROOT can contain wrappers outside the optimizer's traversed scope list. Walk it
     # once more as a harmless set-union safety net.
-    if root_scope.expression is not None:
+    if root_scope is not None and root_scope.expression is not None:
         for table_node in root_scope.expression.find_all(exp.Table):
             if not table_node.name:
                 continue
@@ -803,12 +828,13 @@ def _build_result_from_scope(
     # Step 5: Resolve columns for all scopes
     resolve_all(
         result,
-        root_scope,
         all_scopes,
         schema,
         target_metadata=target_metadata,
         explicit_target_columns=explicit_target_columns,
         insert_by_name=insert_by_name,
+        merge_node=merge_node,
+        merge_using_scope=merge_using_scope,
     )
     _populate_enhanced_scope_facts(result, all_scopes, schema)
     result.related_metadata = build_related_metadata(result, schema)
@@ -982,8 +1008,14 @@ def _compute_scope_id(sg_scope: Scope) -> str:
         alias = _find_alias_in_parent(sg_scope)
         if alias:
             return f"subq:{alias}"
-        # Fallback: check if parent's expression has a Subquery with alias
-        # (for MERGE USING subquery where sources dict doesn't list it)
+        # A MERGE USING query keeps its alias on the AST wrapper. SQLGlot 30.17 no longer
+        # creates the parent wrapper Scope, so reading only sg_scope.parent silently renamed
+        # `subq:source` to the generated `subq:derived_0`.
+        enclosing = sg_scope.expression.parent
+        if isinstance(enclosing, exp.Subquery) and enclosing.alias:
+            return f"subq:{enclosing.alias}"
+        # Retain the Scope-based fallback for older non-MERGE shapes whose expression is not
+        # directly enclosed by the aliased Subquery.
         if sg_scope.parent and isinstance(sg_scope.parent.expression, exp.Subquery):
             sq_alias = sg_scope.parent.expression.alias
             if sq_alias:

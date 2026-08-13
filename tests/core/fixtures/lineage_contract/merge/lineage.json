@@ -1,0 +1,1268 @@
+{
+  "schema_version": "1.0",
+  "task_id": "merge_contract",
+  "target_table": "mart.customer_profile",
+  "stmt_kind": "MERGE",
+  "parse_status": "ok",
+  "syntax_status": "strict_ok",
+  "syntax_errors": [],
+  "target_partition_spec": {},
+  "target_partition_columns": [],
+  "target_partition_mode": "none",
+  "task_dependencies": {
+    "upstream_tasks": [],
+    "downstream_tasks": [],
+    "source_summary": {
+      "source_format": "none",
+      "upstream_count": 0,
+      "downstream_count": 0,
+      "has_declared_task_dependencies": false
+    }
+  },
+  "source_tables": [
+    "ods.customer_delta"
+  ],
+  "related_metadata": {
+    "input_tables": {
+      "ods.customer_delta": {
+        "column_details": [
+          {
+            "name": "customer_id",
+            "type": null,
+            "comment": null
+          },
+          {
+            "name": "customer_name",
+            "type": null,
+            "comment": null
+          }
+        ],
+        "metadata_complete": true
+      }
+    },
+    "output_tables": {
+      "mart.customer_profile": {
+        "column_details": [
+          {
+            "name": "customer_id",
+            "type": null,
+            "comment": null
+          },
+          {
+            "name": "customer_name",
+            "type": null,
+            "comment": null
+          }
+        ],
+        "metadata_complete": true
+      }
+    }
+  },
+  "scope_graph": {
+    "nodes": [
+      "ROOT",
+      "ods.customer_delta",
+      "subq:source"
+    ],
+    "edges": [
+      {
+        "from": "ods.customer_delta",
+        "to": "subq:source"
+      },
+      {
+        "from": "subq:source",
+        "to": "ROOT"
+      }
+    ]
+  },
+  "scopes": {
+    "subq:source": {
+      "kind": "subquery",
+      "role": "pass_through",
+      "depends_on": [
+        "ods.customer_delta"
+      ],
+      "raw_sql": "SELECT `customer_delta`.`customer_id` AS `customer_id`, `customer_delta`.`customer_name` AS `customer_name` FROM `ods`.`customer_delta` AS `customer_delta`",
+      "raw_sql_available": true,
+      "raw_sql_quality": {
+        "status": "clean",
+        "placeholder_types": [],
+        "evidence": []
+      },
+      "source_coverage": {
+        "status": "covered",
+        "declared_source_tables": [
+          "ods.customer_delta"
+        ],
+        "raw_sql_source_tables": [
+          "ods.customer_delta"
+        ],
+        "missing_declared_source_tables": [],
+        "extra_source_tables": []
+      },
+      "input_edges": [
+        {
+          "source_id": "ods.customer_delta",
+          "source_type": "physical_table",
+          "position": "from",
+          "alias": "customer_delta"
+        }
+      ],
+      "input_source_refs": [
+        {
+          "input_ref_id": "input:subq:source:001",
+          "source_id": "ods.customer_delta",
+          "source_type": "physical_table",
+          "alias": "customer_delta",
+          "position": "from",
+          "relation_position": "from",
+          "join_type": null,
+          "physical_source_id": "ods.customer_delta",
+          "physical_source_ids": [
+            "ods.customer_delta"
+          ],
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "direct_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "ods.customer_delta"
+            ],
+            "field_resolution_required": false,
+            "missing_reasons": []
+          },
+          "field_resolution_required": false,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "customer_delta",
+              "to": "ods.customer_delta",
+              "relation": "alias_to_physical_source"
+            }
+          ],
+          "trace_status": "complete"
+        }
+      ],
+      "alias_source_bindings": [
+        {
+          "alias": "customer_delta",
+          "source_id": "ods.customer_delta",
+          "source_type": "physical_table",
+          "physical_source_id": "ods.customer_delta",
+          "physical_source_ids": [
+            "ods.customer_delta"
+          ],
+          "position": "from",
+          "relation_position": "from",
+          "join_type": null,
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "direct_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "ods.customer_delta"
+            ],
+            "field_resolution_required": false,
+            "missing_reasons": []
+          },
+          "field_resolution_required": false,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "customer_delta",
+              "to": "ods.customer_delta",
+              "relation": "alias_to_physical_source"
+            }
+          ],
+          "input_ref_id": "input:subq:source:001"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "customer_id",
+          "transform": "DIRECT",
+          "sources": [
+            {
+              "scope": "ods.customer_delta",
+              "column": "customer_id",
+              "qualifier": "customer_delta",
+              "binding_scope_id": "subq:source",
+              "input_ref_id": "input:subq:source:001"
+            }
+          ],
+          "source_logic_blocks": [],
+          "downstream_fields": [
+            {
+              "scope": "ROOT",
+              "column": "customer_id"
+            }
+          ],
+          "target_columns": [],
+          "final_target_columns": [
+            "mart.customer_profile.customer_id"
+          ],
+          "expression": "`customer_delta`.`customer_id`",
+          "expanded_expression": "`ods.customer_delta`.`customer_id`",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "qualified_source_projection",
+            "physical_source_fields": [
+              {
+                "table": "ods.customer_delta",
+                "field": "customer_id"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "expanded_expression": "`ods.customer_delta`.`customer_id`",
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "subq:source",
+                "from_field": "customer_id",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "`customer_delta`.`customer_id`",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.customer_delta",
+                    "field": "customer_id"
+                  }
+                ]
+              }
+            ]
+          },
+          "consumer_readiness": {
+            "status": "ready",
+            "blocked_reasons": []
+          },
+          "expression_type": "direct_projection",
+          "expression_features": {
+            "functions": [],
+            "operators": [],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "expression_role": "direct_projection",
+          "grain_effect": "preserved",
+          "output_ordinal": 0,
+          "display_expression": "`customer_id`"
+        },
+        {
+          "name": "customer_name",
+          "transform": "DIRECT",
+          "sources": [
+            {
+              "scope": "ods.customer_delta",
+              "column": "customer_name",
+              "qualifier": "customer_delta",
+              "binding_scope_id": "subq:source",
+              "input_ref_id": "input:subq:source:001"
+            }
+          ],
+          "source_logic_blocks": [],
+          "downstream_fields": [
+            {
+              "scope": "ROOT",
+              "column": "customer_name"
+            },
+            {
+              "scope": "ROOT",
+              "column": "customer_name"
+            }
+          ],
+          "target_columns": [],
+          "final_target_columns": [
+            "mart.customer_profile.customer_name"
+          ],
+          "expression": "`customer_delta`.`customer_name`",
+          "expanded_expression": "`ods.customer_delta`.`customer_name`",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "qualified_source_projection",
+            "physical_source_fields": [
+              {
+                "table": "ods.customer_delta",
+                "field": "customer_name"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "expanded_expression": "`ods.customer_delta`.`customer_name`",
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "subq:source",
+                "from_field": "customer_name",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "`customer_delta`.`customer_name`",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.customer_delta",
+                    "field": "customer_name"
+                  }
+                ]
+              }
+            ]
+          },
+          "consumer_readiness": {
+            "status": "ready",
+            "blocked_reasons": []
+          },
+          "expression_type": "direct_projection",
+          "expression_features": {
+            "functions": [],
+            "operators": [],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "expression_role": "direct_projection",
+          "grain_effect": "preserved",
+          "output_ordinal": 1,
+          "display_expression": "`customer_name`"
+        }
+      ],
+      "field_usage": [
+        {
+          "source_id": "ods.customer_delta",
+          "source_type": "physical_table",
+          "used_fields": [
+            "customer_id",
+            "customer_name"
+          ],
+          "used_field_details": [
+            {
+              "name": "customer_id",
+              "type": null,
+              "comment": null
+            },
+            {
+              "name": "customer_name",
+              "type": null,
+              "comment": null
+            }
+          ],
+          "used_by_logic_blocks": [],
+          "used_by_output_fields": [
+            "customer_id",
+            "customer_name"
+          ],
+          "source_metadata": {}
+        }
+      ],
+      "columns": [
+        {
+          "name": "customer_id",
+          "transform": "DIRECT",
+          "expression": "`customer_delta`.`customer_id`",
+          "sources": [
+            {
+              "scope": "ods.customer_delta",
+              "column": "customer_id",
+              "qualifier": "customer_delta",
+              "binding_scope_id": "subq:source",
+              "input_ref_id": "input:subq:source:001"
+            }
+          ],
+          "display_expression": "`customer_id`"
+        },
+        {
+          "name": "customer_name",
+          "transform": "DIRECT",
+          "expression": "`customer_delta`.`customer_name`",
+          "sources": [
+            {
+              "scope": "ods.customer_delta",
+              "column": "customer_name",
+              "qualifier": "customer_delta",
+              "binding_scope_id": "subq:source",
+              "input_ref_id": "input:subq:source:001"
+            }
+          ],
+          "display_expression": "`customer_name`"
+        }
+      ]
+    },
+    "ROOT": {
+      "kind": "root",
+      "role": "pass_through",
+      "depends_on": [
+        "subq:source"
+      ],
+      "writes_to": "mart.customer_profile",
+      "raw_sql": "(SELECT `customer_delta`.`customer_id` AS `customer_id`, `customer_delta`.`customer_name` AS `customer_name` FROM `ods`.`customer_delta` AS `customer_delta`) AS `source`",
+      "raw_sql_available": true,
+      "raw_sql_quality": {
+        "status": "clean",
+        "placeholder_types": [],
+        "evidence": []
+      },
+      "source_coverage": {
+        "status": "covered",
+        "declared_source_tables": [],
+        "raw_sql_source_tables": [],
+        "missing_declared_source_tables": [],
+        "extra_source_tables": []
+      },
+      "outputs": [
+        {
+          "name": "customer_name",
+          "transform": "DIRECT",
+          "sources": [
+            {
+              "scope": "subq:source",
+              "column": "customer_name"
+            }
+          ],
+          "source_logic_blocks": [],
+          "downstream_fields": [],
+          "target_columns": [
+            "mart.customer_profile.customer_name"
+          ],
+          "final_target_columns": [
+            "mart.customer_profile.customer_name"
+          ],
+          "expression": "`source`.`customer_name`",
+          "expanded_expression": "`ods.customer_delta`.`customer_name`",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "expanded_from_upstream_scope",
+            "expanded_expression": "`ods.customer_delta`.`customer_name`",
+            "physical_source_fields": [
+              {
+                "table": "ods.customer_delta",
+                "field": "customer_name"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "source_scope_id": "subq:source",
+            "source_output_field": "customer_name",
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "ROOT",
+                "from_field": "customer_name",
+                "to_scope_id": "subq:source",
+                "to_field": "customer_name",
+                "relation": "scope_projection",
+                "expression_sql": "`source`.`customer_name`",
+                "resolution_status": "resolved"
+              },
+              {
+                "step": 2,
+                "from_scope_id": "subq:source",
+                "from_field": "customer_name",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "`customer_delta`.`customer_name`",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.customer_delta",
+                    "field": "customer_name"
+                  }
+                ]
+              }
+            ]
+          },
+          "consumer_readiness": {
+            "status": "ready",
+            "blocked_reasons": []
+          },
+          "expression_type": "direct_projection",
+          "expression_features": {
+            "functions": [],
+            "operators": [],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "expression_role": "direct_projection",
+          "grain_effect": "preserved",
+          "output_ordinal": 0,
+          "merge_branch": "matched",
+          "merge_when_index": 0
+        },
+        {
+          "name": "customer_id",
+          "transform": "DIRECT",
+          "sources": [
+            {
+              "scope": "subq:source",
+              "column": "customer_id"
+            }
+          ],
+          "source_logic_blocks": [],
+          "downstream_fields": [],
+          "target_columns": [
+            "mart.customer_profile.customer_id"
+          ],
+          "final_target_columns": [
+            "mart.customer_profile.customer_id"
+          ],
+          "expression": "`source`.`customer_id`",
+          "expanded_expression": "`ods.customer_delta`.`customer_id`",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "expanded_from_upstream_scope",
+            "expanded_expression": "`ods.customer_delta`.`customer_id`",
+            "physical_source_fields": [
+              {
+                "table": "ods.customer_delta",
+                "field": "customer_id"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "source_scope_id": "subq:source",
+            "source_output_field": "customer_id",
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "ROOT",
+                "from_field": "customer_id",
+                "to_scope_id": "subq:source",
+                "to_field": "customer_id",
+                "relation": "scope_projection",
+                "expression_sql": "`source`.`customer_id`",
+                "resolution_status": "resolved"
+              },
+              {
+                "step": 2,
+                "from_scope_id": "subq:source",
+                "from_field": "customer_id",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "`customer_delta`.`customer_id`",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.customer_delta",
+                    "field": "customer_id"
+                  }
+                ]
+              }
+            ]
+          },
+          "consumer_readiness": {
+            "status": "ready",
+            "blocked_reasons": []
+          },
+          "expression_type": "direct_projection",
+          "expression_features": {
+            "functions": [],
+            "operators": [],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "expression_role": "direct_projection",
+          "grain_effect": "preserved",
+          "output_ordinal": 1,
+          "merge_branch": "not_matched",
+          "merge_when_index": 1
+        },
+        {
+          "name": "customer_name",
+          "transform": "DIRECT",
+          "sources": [
+            {
+              "scope": "subq:source",
+              "column": "customer_name"
+            }
+          ],
+          "source_logic_blocks": [],
+          "downstream_fields": [],
+          "target_columns": [
+            "mart.customer_profile.customer_name"
+          ],
+          "final_target_columns": [
+            "mart.customer_profile.customer_name"
+          ],
+          "expression": "`source`.`customer_name`",
+          "expanded_expression": "`ods.customer_delta`.`customer_name`",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "expanded_from_upstream_scope",
+            "expanded_expression": "`ods.customer_delta`.`customer_name`",
+            "physical_source_fields": [
+              {
+                "table": "ods.customer_delta",
+                "field": "customer_name"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "source_scope_id": "subq:source",
+            "source_output_field": "customer_name",
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "ROOT",
+                "from_field": "customer_name",
+                "to_scope_id": "subq:source",
+                "to_field": "customer_name",
+                "relation": "scope_projection",
+                "expression_sql": "`source`.`customer_name`",
+                "resolution_status": "resolved"
+              },
+              {
+                "step": 2,
+                "from_scope_id": "subq:source",
+                "from_field": "customer_name",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "`customer_delta`.`customer_name`",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.customer_delta",
+                    "field": "customer_name"
+                  }
+                ]
+              }
+            ]
+          },
+          "consumer_readiness": {
+            "status": "ready",
+            "blocked_reasons": []
+          },
+          "expression_type": "direct_projection",
+          "expression_features": {
+            "functions": [],
+            "operators": [],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "expression_role": "direct_projection",
+          "grain_effect": "preserved",
+          "output_ordinal": 2,
+          "merge_branch": "not_matched",
+          "merge_when_index": 1
+        }
+      ],
+      "field_usage": [
+        {
+          "source_id": "subq:source",
+          "source_type": "scope",
+          "used_fields": [
+            "customer_name",
+            "customer_id"
+          ],
+          "used_field_details": [],
+          "used_by_logic_blocks": [],
+          "used_by_output_fields": [
+            "customer_name",
+            "customer_id"
+          ],
+          "source_metadata": {}
+        }
+      ],
+      "columns": [
+        {
+          "name": "customer_name",
+          "transform": "DIRECT",
+          "expression": "`source`.`customer_name`",
+          "sources": [
+            {
+              "scope": "subq:source",
+              "column": "customer_name"
+            }
+          ],
+          "merge_branch": "matched",
+          "merge_when_index": 0
+        },
+        {
+          "name": "customer_id",
+          "transform": "DIRECT",
+          "expression": "`source`.`customer_id`",
+          "sources": [
+            {
+              "scope": "subq:source",
+              "column": "customer_id"
+            }
+          ],
+          "merge_branch": "not_matched",
+          "merge_when_index": 1
+        },
+        {
+          "name": "customer_name",
+          "transform": "DIRECT",
+          "expression": "`source`.`customer_name`",
+          "sources": [
+            {
+              "scope": "subq:source",
+              "column": "customer_name"
+            }
+          ],
+          "merge_branch": "not_matched",
+          "merge_when_index": 1
+        }
+      ]
+    }
+  },
+  "field_mapping_chains": [
+    {
+      "mapping_chain_id": "mc:001",
+      "chain_id": "chain:ROOT:customer_name:position:0",
+      "chain_type": "field_mapping",
+      "target_scope_id": "ROOT",
+      "target_field": "customer_name",
+      "target_position": 0,
+      "merge_branch": "matched",
+      "merge_when_index": 0,
+      "chain_status": "resolved",
+      "source_kind": "physical",
+      "root_source_fields": [
+        "ods.customer_delta.customer_name"
+      ],
+      "final_output_fields": [
+        "mart.customer_profile.customer_name"
+      ],
+      "ordered_steps": [
+        {
+          "step_no": 1,
+          "scope_id": "subq:source",
+          "step_type": "direct_projection",
+          "input_fields": [
+            "ods.customer_delta.customer_name"
+          ],
+          "output_field": "subq:source.customer_name",
+          "expression_sql": "`customer_delta`.`customer_name`",
+          "expanded_expression": "`ods.customer_delta`.`customer_name`",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "qualified_source_projection",
+            "physical_source_fields": [
+              {
+                "table": "ods.customer_delta",
+                "field": "customer_name"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "subq:source",
+                "from_field": "customer_name",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "`customer_delta`.`customer_name`",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.customer_delta",
+                    "field": "customer_name"
+                  }
+                ]
+              }
+            ],
+            "expanded_expression_same_as_parent": true
+          },
+          "logic_ids": [],
+          "transform": "DIRECT",
+          "grain_effect": "preserved",
+          "final_output_fields": [
+            "mart.customer_profile.customer_name"
+          ]
+        },
+        {
+          "step_no": 2,
+          "scope_id": "ROOT",
+          "step_type": "direct_projection",
+          "input_fields": [
+            "subq:source.customer_name"
+          ],
+          "output_field": "mart.customer_profile.customer_name",
+          "expression_sql": "`source`.`customer_name`",
+          "expanded_expression": "`ods.customer_delta`.`customer_name`",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "expanded_from_upstream_scope",
+            "physical_source_fields": [
+              {
+                "table": "ods.customer_delta",
+                "field": "customer_name"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "source_scope_id": "subq:source",
+            "source_output_field": "customer_name",
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "ROOT",
+                "from_field": "customer_name",
+                "to_scope_id": "subq:source",
+                "to_field": "customer_name",
+                "relation": "scope_projection",
+                "expression_sql": "`source`.`customer_name`",
+                "resolution_status": "resolved"
+              },
+              {
+                "step": 2,
+                "from_scope_id": "subq:source",
+                "from_field": "customer_name",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "`customer_delta`.`customer_name`",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.customer_delta",
+                    "field": "customer_name"
+                  }
+                ]
+              }
+            ],
+            "expanded_expression_same_as_parent": true
+          },
+          "logic_ids": [],
+          "transform": "DIRECT",
+          "grain_effect": "preserved",
+          "final_output_fields": [
+            "mart.customer_profile.customer_name"
+          ],
+          "target_position": 0,
+          "merge_branch": "matched",
+          "merge_when_index": 0
+        }
+      ],
+      "expanded_expression": "`ods.customer_delta`.`customer_name`",
+      "missing_reasons": [],
+      "trace_status": "complete"
+    },
+    {
+      "mapping_chain_id": "mc:002",
+      "chain_id": "chain:ROOT:customer_id:position:1",
+      "chain_type": "field_mapping",
+      "target_scope_id": "ROOT",
+      "target_field": "customer_id",
+      "target_position": 1,
+      "merge_branch": "not_matched",
+      "merge_when_index": 1,
+      "chain_status": "resolved",
+      "source_kind": "physical",
+      "root_source_fields": [
+        "ods.customer_delta.customer_id"
+      ],
+      "final_output_fields": [
+        "mart.customer_profile.customer_id"
+      ],
+      "ordered_steps": [
+        {
+          "step_no": 1,
+          "scope_id": "subq:source",
+          "step_type": "direct_projection",
+          "input_fields": [
+            "ods.customer_delta.customer_id"
+          ],
+          "output_field": "subq:source.customer_id",
+          "expression_sql": "`customer_delta`.`customer_id`",
+          "expanded_expression": "`ods.customer_delta`.`customer_id`",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "qualified_source_projection",
+            "physical_source_fields": [
+              {
+                "table": "ods.customer_delta",
+                "field": "customer_id"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "subq:source",
+                "from_field": "customer_id",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "`customer_delta`.`customer_id`",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.customer_delta",
+                    "field": "customer_id"
+                  }
+                ]
+              }
+            ],
+            "expanded_expression_same_as_parent": true
+          },
+          "logic_ids": [],
+          "transform": "DIRECT",
+          "grain_effect": "preserved",
+          "final_output_fields": [
+            "mart.customer_profile.customer_id"
+          ]
+        },
+        {
+          "step_no": 2,
+          "scope_id": "ROOT",
+          "step_type": "direct_projection",
+          "input_fields": [
+            "subq:source.customer_id"
+          ],
+          "output_field": "mart.customer_profile.customer_id",
+          "expression_sql": "`source`.`customer_id`",
+          "expanded_expression": "`ods.customer_delta`.`customer_id`",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "expanded_from_upstream_scope",
+            "physical_source_fields": [
+              {
+                "table": "ods.customer_delta",
+                "field": "customer_id"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "source_scope_id": "subq:source",
+            "source_output_field": "customer_id",
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "ROOT",
+                "from_field": "customer_id",
+                "to_scope_id": "subq:source",
+                "to_field": "customer_id",
+                "relation": "scope_projection",
+                "expression_sql": "`source`.`customer_id`",
+                "resolution_status": "resolved"
+              },
+              {
+                "step": 2,
+                "from_scope_id": "subq:source",
+                "from_field": "customer_id",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "`customer_delta`.`customer_id`",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.customer_delta",
+                    "field": "customer_id"
+                  }
+                ]
+              }
+            ],
+            "expanded_expression_same_as_parent": true
+          },
+          "logic_ids": [],
+          "transform": "DIRECT",
+          "grain_effect": "preserved",
+          "final_output_fields": [
+            "mart.customer_profile.customer_id"
+          ],
+          "target_position": 1,
+          "merge_branch": "not_matched",
+          "merge_when_index": 1
+        }
+      ],
+      "expanded_expression": "`ods.customer_delta`.`customer_id`",
+      "missing_reasons": [],
+      "trace_status": "complete"
+    },
+    {
+      "mapping_chain_id": "mc:003",
+      "chain_id": "chain:ROOT:customer_name:position:2",
+      "chain_type": "field_mapping",
+      "target_scope_id": "ROOT",
+      "target_field": "customer_name",
+      "target_position": 2,
+      "merge_branch": "not_matched",
+      "merge_when_index": 1,
+      "chain_status": "resolved",
+      "source_kind": "physical",
+      "root_source_fields": [
+        "ods.customer_delta.customer_name"
+      ],
+      "final_output_fields": [
+        "mart.customer_profile.customer_name"
+      ],
+      "ordered_steps": [
+        {
+          "step_no": 1,
+          "scope_id": "subq:source",
+          "step_type": "direct_projection",
+          "input_fields": [
+            "ods.customer_delta.customer_name"
+          ],
+          "output_field": "subq:source.customer_name",
+          "expression_sql": "`customer_delta`.`customer_name`",
+          "expanded_expression": "`ods.customer_delta`.`customer_name`",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "qualified_source_projection",
+            "physical_source_fields": [
+              {
+                "table": "ods.customer_delta",
+                "field": "customer_name"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "subq:source",
+                "from_field": "customer_name",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "`customer_delta`.`customer_name`",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.customer_delta",
+                    "field": "customer_name"
+                  }
+                ]
+              }
+            ],
+            "expanded_expression_same_as_parent": true
+          },
+          "logic_ids": [],
+          "transform": "DIRECT",
+          "grain_effect": "preserved",
+          "final_output_fields": [
+            "mart.customer_profile.customer_name"
+          ]
+        },
+        {
+          "step_no": 2,
+          "scope_id": "ROOT",
+          "step_type": "direct_projection",
+          "input_fields": [
+            "subq:source.customer_name"
+          ],
+          "output_field": "mart.customer_profile.customer_name",
+          "expression_sql": "`source`.`customer_name`",
+          "expanded_expression": "`ods.customer_delta`.`customer_name`",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "expanded_from_upstream_scope",
+            "physical_source_fields": [
+              {
+                "table": "ods.customer_delta",
+                "field": "customer_name"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "source_scope_id": "subq:source",
+            "source_output_field": "customer_name",
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "ROOT",
+                "from_field": "customer_name",
+                "to_scope_id": "subq:source",
+                "to_field": "customer_name",
+                "relation": "scope_projection",
+                "expression_sql": "`source`.`customer_name`",
+                "resolution_status": "resolved"
+              },
+              {
+                "step": 2,
+                "from_scope_id": "subq:source",
+                "from_field": "customer_name",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "`customer_delta`.`customer_name`",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.customer_delta",
+                    "field": "customer_name"
+                  }
+                ]
+              }
+            ],
+            "expanded_expression_same_as_parent": true
+          },
+          "logic_ids": [],
+          "transform": "DIRECT",
+          "grain_effect": "preserved",
+          "final_output_fields": [
+            "mart.customer_profile.customer_name"
+          ],
+          "target_position": 2,
+          "merge_branch": "not_matched",
+          "merge_when_index": 1
+        }
+      ],
+      "expanded_expression": "`ods.customer_delta`.`customer_name`",
+      "missing_reasons": [],
+      "trace_status": "complete"
+    }
+  ],
+  "scope_profile": {
+    "profile_step_count": 1,
+    "steps": [
+      {
+        "scope_id": "ROOT",
+        "name": "ROOT",
+        "kind": "root",
+        "role": "pass_through",
+        "operations": [
+          "pass_through"
+        ],
+        "business_summary": "基于 subq:source；上游可追溯至 ods.customer_delta",
+        "direct_inputs": [
+          "subq:source"
+        ],
+        "direct_source_tables": [],
+        "physical_source_tables": [
+          "ods.customer_delta"
+        ],
+        "output_columns": 3,
+        "logic": {
+          "joins": [],
+          "filters": [],
+          "aggregations": [],
+          "window_functions": [],
+          "case_when": [],
+          "key_renames": [],
+          "distinct": false,
+          "union_branches": 0,
+          "lateral_views": []
+        }
+      }
+    ]
+  },
+  "end_to_end_lineage": [
+    {
+      "column": "customer_name",
+      "transform": "DIRECT",
+      "expression": "`source`.`customer_name`",
+      "trace_complete": true,
+      "physical_sources": [
+        {
+          "table": "ods.customer_delta",
+          "column": "customer_name",
+          "transform": "DIRECT"
+        }
+      ],
+      "generated_sources": [],
+      "source_kind": "physical",
+      "output_ordinal": 0,
+      "merge_branch": "matched",
+      "merge_when_index": 0
+    },
+    {
+      "column": "customer_id",
+      "transform": "DIRECT",
+      "expression": "`source`.`customer_id`",
+      "trace_complete": true,
+      "physical_sources": [
+        {
+          "table": "ods.customer_delta",
+          "column": "customer_id",
+          "transform": "DIRECT"
+        }
+      ],
+      "generated_sources": [],
+      "source_kind": "physical",
+      "output_ordinal": 1,
+      "merge_branch": "not_matched",
+      "merge_when_index": 1
+    },
+    {
+      "column": "customer_name",
+      "transform": "DIRECT",
+      "expression": "`source`.`customer_name`",
+      "trace_complete": true,
+      "physical_sources": [
+        {
+          "table": "ods.customer_delta",
+          "column": "customer_name",
+          "transform": "DIRECT"
+        }
+      ],
+      "generated_sources": [],
+      "source_kind": "physical",
+      "output_ordinal": 2,
+      "merge_branch": "not_matched",
+      "merge_when_index": 1
+    }
+  ],
+  "diagnostics": {
+    "fallback_used": false,
+    "warning_count": 0,
+    "warning_types": {},
+    "lineage_fact_gap_count": 0,
+    "lineage_fact_gap_types": {},
+    "lineage_fact_gap_samples": [],
+    "stats": {
+      "scope_count": 3,
+      "physical_table_count": 1,
+      "cte_count": 0,
+      "subquery_count": 1,
+      "union_count": 0,
+      "union_branch_count": 0,
+      "max_depth": 2,
+      "case_when_count": 0,
+      "window_function_count": 0,
+      "join_count": 0,
+      "aggregate_function_count": 0
+    },
+    "full_diagnostics_file": "diagnostics.json"
+  }
+}
