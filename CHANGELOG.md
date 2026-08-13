@@ -4,6 +4,8 @@
 
 Initial public release preparation:
 
+- Constrained `sqlglot` to `>=30,<30.17`; 30.17.0 changes MERGE scope traversal and breaks
+  every MERGE statement until the scope model is adapted
 - Versioned `lineage.json` and `diagnostics.json` 1.0 contracts with mandatory validation
 - Pure Core writer API for emitting only Lineage and Diagnostics artifacts
 - `scope-lineage parse` CLI for SQL files, exported task JSON, and recursive task directories;
