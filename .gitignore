@@ -10,3 +10,9 @@ dist/
 .DS_Store
 *.env
 credentials*
+
+# Local AI assistant configuration
+CLAUDE.md
+.claude/
+.codex/
+issues/

@@ -7,6 +7,11 @@ Initial public release preparation:
 - Adapted MERGE scope handling for SQLGlot 30.17 and constrained the verified range to
   `sqlglot>=30,<30.18`; MERGE now uses an explicit USING scope instead of SQLGlot's removed
   root Subquery wrapper
+- Fixed MERGE action scalar-subquery lineage so nested predicates are not emitted as target
+  assignments, correlated target references remain physical self-sources, and scalar outputs bind
+  through their own scopes instead of the USING scope
+- Resolve CTE references lexically when collecting physical inputs, preserving an unqualified
+  physical table that shares a name with a CTE in a different query block
 - Versioned `lineage.json` and `diagnostics.json` 1.0 contracts with mandatory validation
 - Pure Core writer API for emitting only Lineage and Diagnostics artifacts
 - `scope-lineage parse` CLI for SQL files, exported task JSON, and recursive task directories;

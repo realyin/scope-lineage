@@ -205,7 +205,13 @@ MERGE 的 `ROOT` 是 Core 合成的写入作用域，不对应 SQLGlot 的单一
 中，`scopes.ROOT.raw_sql` 保存规范化后的 `USING` 行集 SQL，以便在不同 SQLGlot 版本间
 保持稳定；它不表示完整 MERGE 语句。各个 `WHEN MATCHED` / `WHEN NOT MATCHED` 分支的
 写入表达式应读取 `ROOT.columns[]` / `ROOT.outputs[]` 中的 `merge_branch` 和
-`merge_when_index`。
+`merge_when_index`。如果写入值包含标量子查询，ROOT 字段先引用该子查询的稳定 scope
+输出，再由 scope 链展开到物理字段；不会把子查询内部字段误绑定到 `USING` scope。
+标量子查询中引用 MERGE 目标行的相关字段会作为目标表的物理自引用保留，并出现在
+`source_tables` 中。
+
+CTE 名按所在查询块的词法作用域绑定。例如，一个嵌套查询声明 `WITH staging AS (...)`
+不会隐藏兄弟查询块中名为 `staging` 的无库名前缀物理表；后者仍会进入 `source_tables`。
 
 ### 6.2 `input_edges[]` 与 `input_source_refs[]`
 
