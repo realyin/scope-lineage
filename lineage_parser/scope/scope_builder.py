@@ -32,6 +32,7 @@ from .scope_warnings import detect_warnings
 from .scope_role_inferrer import infer_roles
 from .sqlglot_config import suppress_invalid_json_path_warnings
 from ._shared import DIALECT, PARSE_OPTS, _AGGREGATE_FUNCTIONS, _CLEANING_FUNCTIONS, _KNOWN_SCALAR_FUNCTIONS, _ORIGINALLY_UNQUALIFIED_META, _SCOPE_ID_ATTR, _all_source_refs_have_resolution, _column_is_inside_nested_query, _dedupe_generated_source_dicts, _dedupe_physical_field_dicts, _dedupe_rowset_source_dicts, _extend_unique, _find_alias_in_parent, _function_names, _generated_sources_from_refs, _is_cross_join_type, _is_internal_scope_id, _lambda_qualifiers, _normalize_expression_resolution, _ordered_physical_fields_in_expression, _parenthesize_replacement_expression, _physical_fields_referenced_in_expression, _physical_source_fields_for_ref, _physical_source_fields_for_refs, _physical_source_fields_from_refs, _physical_source_ids_for_input, _populate_union_output_branch_mappings, _qualified_field_ref_keys_from_ast, _qualified_field_refs, _qualified_pair_is_catalog_function_prefix, _qualified_physical_field_sql, _qualifier_present, _replace_qualified_ref_with_expression, _replace_struct_field_access_from_upstream, _replace_unqualified_ref_with_expression, _resolve_expression_resolution_from_output_sources, _resolved_expression_fact_from_source_refs, _rowset_sources_from_upstream_output, _scope_raw_sql_is_star_select, _source_kind_for_resolution, _source_ref_to_dict, _source_refs_from_detail_fields, _source_type_from_id, _star_passthrough_output_fact, _star_passthrough_source_fact, _strip_sql_comments, _strip_sql_string_literals, _struct_leaf_expression, _unexpanded_bound_aliases_in_expression, _union_branch_mappings_for_output, _union_branch_scope_output_for_mapping, _unique_ordered  # noqa: F401  (shared helpers; re-exported)
+from ._shared import _source_item_from_ast_node
 from .column_expression_resolution import _expression_resolution_for_scope_column  # noqa: F401
 from .lineage_fact_gaps import _populate_lineage_fact_gaps  # noqa: F401
 from .passthrough_resolution import _propagate_passthrough_expression_resolution  # noqa: F401
@@ -578,13 +579,46 @@ def _build_merge_scope(
         return result
     merge = _merge_with_subquery_source(merge)
 
+    original_columns = [column.copy() for column in merge.find_all(exp.Column)]
     qualified = _qualify_ast(merge)
+    _restore_merge_target_references(qualified, original_columns)
     _build_result_from_scope(qualified, result, target_table, schema)
     _drop_dangling_column_refs(result)
     result.diagnostics.stats = _compute_stats(result)
     detect_warnings(result)
     infer_roles(result)
     return result
+
+
+def _restore_merge_target_references(
+    qualified_merge: exp.Expression,
+    original_columns: list[exp.Column],
+) -> None:
+    """Undo SQLGlot's misqualification of correlated MERGE-target references.
+
+    SQLGlot 30.x can rewrite ``target.id`` inside an action scalar subquery to
+    ``lookup.target.id`` by treating the explicit target alias as a struct field
+    on the subquery's local table. Explicitly qualified references must retain the
+    author's binding. Column traversal order and count are stable through qualify;
+    if that ever stops being true, leave the AST untouched rather than guessing.
+    """
+    if not isinstance(qualified_merge, exp.Merge):
+        return
+    target = _unwrap_target(qualified_merge.this)
+    if not isinstance(target, exp.Table):
+        return
+    target_qualifiers = {target.alias_or_name, target.name}
+    qualified_columns = list(qualified_merge.find_all(exp.Column))
+    if len(qualified_columns) != len(original_columns):
+        return
+    for original, qualified in zip(original_columns, qualified_columns):
+        original_parts = original.parts or []
+        if (
+            len(original_parts) == 2
+            and original.table in target_qualifiers
+            and qualified.sql(dialect=DIALECT) != original.sql(dialect=DIALECT)
+        ):
+            qualified.replace(original.copy())
 
 
 def _looks_schema_expanded_from_physical(scope_data) -> bool:
@@ -701,6 +735,27 @@ def _build_result_from_scope(
     if merge_node is not None and merge_using_scope is None:
         raise ValueError("sqlglot produced no scope for the MERGE USING relation")
 
+    if merge_node is not None:
+        merge_target = _unwrap_target(merge_node.this)
+        if isinstance(merge_target, exp.Table):
+            target_alias = merge_target.alias_or_name
+            for scope in all_scopes:
+                # Scalar queries inside WHEN actions may correlate to the MERGE target,
+                # but SQLGlot's optimizer scope has the DML node rather than a query scope
+                # as its parent. Supply that explicit binding so target refs do not become
+                # UNKNOWN or bind to the scalar query's local table.
+                has_correlated_target_ref = any(
+                    column.table == target_alias
+                    and not _column_is_inside_nested_query(scope.expression, column)
+                    for column in scope.expression.find_all(exp.Column)
+                )
+                if (
+                    scope.expression.find_ancestor(exp.When) is not None
+                    and target_alias not in scope.sources
+                    and has_correlated_target_ref
+                ):
+                    scope.sources.setdefault(target_alias, merge_target)
+
     # Step 1: Assign scope_ids to every scope (children before parents — traverse_scope order)
     for sg_scope in all_scopes:
         scope_id = _compute_scope_id(sg_scope)
@@ -769,57 +824,10 @@ def _build_result_from_scope(
         result.scopes["ROOT"].raw_sql = using_node.sql(dialect=DIALECT)
         result.scopes["ROOT"].raw_sql_available = bool(result.scopes["ROOT"].raw_sql)
 
-    # Step 4: Collect physical table nodes
-    physical_tables = set()
-    local_cte_names = {
-        cte.alias_or_name.lower()
-        for cte in qualified_expr.find_all(exp.CTE)
-        if cte.alias_or_name
-    }
-    # Depending on statement shape, sqlglot's ROOT expression may not retain every
-    # enclosing CTE node even though the scope tree correctly created ``cte:<name>``.
-    # Scope identity is therefore the authoritative second source of local CTE names.
-    local_cte_names.update(
-        scope_id.split(":", 1)[1].lower()
-        for scope_id in result.scopes
-        if scope_id.startswith("cte:") and ":" in scope_id
-    )
-    for sg_scope in all_scopes:
-        expression = sg_scope.expression
-        if expression is None:
-            continue
-        # Scope.sources is keyed by alias, so duplicate aliases can shadow an earlier
-        # physical input and subquery aliases can surface as table-shaped entries.  AST
-        # table nodes preserve every actual SQL table occurrence without either problem.
-        for table_node in expression.find_all(exp.Table):
-            if not table_node.name:
-                continue
-            # Spark join hints parse their arguments as ``Table`` nodes even though
-            # they only name relations already present in FROM/JOIN.  Treating those
-            # arguments as physical inputs leaked aliases such as m_a/m_b into
-            # source_tables.
-            if table_node.find_ancestor(exp.JoinHint) is not None:
-                continue
-            if (
-                not table_node.db
-                and table_node.name.lower() in local_cte_names
-            ):
-                continue
-            physical_tables.add(_qualified_table(table_node))
-    # ROOT can contain wrappers outside the optimizer's traversed scope list. Walk it
-    # once more as a harmless set-union safety net.
-    if root_scope is not None and root_scope.expression is not None:
-        for table_node in root_scope.expression.find_all(exp.Table):
-            if not table_node.name:
-                continue
-            if table_node.find_ancestor(exp.JoinHint) is not None:
-                continue
-            if (
-                not table_node.db
-                and table_node.name.lower() in local_cte_names
-            ):
-                continue
-            physical_tables.add(_qualified_table(table_node))
+    # Step 4: Collect physical tables from each scope's resolved bindings. CTE names
+    # are lexical: an inner ``WITH staging`` must not make a physical ``staging`` in a
+    # sibling scope disappear. A single AST-wide name set cannot represent that rule.
+    physical_tables = _physical_tables_from_scopes(all_scopes)
 
     result.source_tables = sorted(physical_tables)
     all_nodes = set(result.scopes.keys()) | physical_tables
@@ -838,6 +846,39 @@ def _build_result_from_scope(
     )
     _populate_enhanced_scope_facts(result, all_scopes, schema)
     result.related_metadata = build_related_metadata(result, schema)
+
+
+def _physical_tables_from_scopes(all_scopes: list[Scope]) -> set[str]:
+    """Return physical inputs while preserving lexical CTE and duplicate-alias binding."""
+    physical_tables: set[str] = set()
+    for scope in all_scopes:
+        # Scope.sources has already resolved local CTE references to Scope objects and
+        # physical relations to Table objects. It is authoritative for lexical binding.
+        for source in scope.sources.values():
+            if isinstance(source, exp.Table) and source.name:
+                physical_tables.add(_qualified_table(source))
+
+        # The mapping is keyed by alias and therefore retains only one item when invalid
+        # or recovered SQL repeats an alias. Walk direct FROM/JOIN items as a safety net;
+        # _source_item_from_ast_node still resolves CTE nodes by AST identity.
+        expression = scope.expression
+        if not isinstance(expression, exp.Select):
+            continue
+        source_nodes: list[exp.Expression] = []
+        from_ = expression.args.get("from_")
+        if from_ is not None and from_.this is not None:
+            source_nodes.append(from_.this)
+        source_nodes.extend(
+            join.this for join in expression.args.get("joins") or [] if join.this is not None
+        )
+        for source_node in source_nodes:
+            item = _source_item_from_ast_node(source_node, scope)
+            if item is None:
+                continue
+            _alias, source = item
+            if isinstance(source, exp.Table) and source.name:
+                physical_tables.add(_qualified_table(source))
+    return physical_tables
 
 
 def _qualifiers_in_expression(expression: str) -> list[str]:
