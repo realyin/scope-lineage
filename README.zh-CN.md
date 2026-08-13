@@ -190,7 +190,22 @@ Scope Lineage 的差异化方向，是专注 Spark/Hive 离线任务，把中间
 
 ## 安装
 
-项目尚未发布到 PyPI，当前版本需要从源码安装：
+推荐使用 `pipx` 从 PyPI 安装独立的 CLI 环境：
+
+```bash
+pipx install scope-lineage
+scope-lineage --help
+```
+
+也可以在 Python 虚拟环境中安装：
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install scope-lineage
+```
+
+参与开发时再从源码安装：
 
 ```bash
 git clone https://github.com/realyin/scope-lineage.git
@@ -201,7 +216,9 @@ python -m pip install --upgrade pip
 python -m pip install .
 ```
 
-项目包名为 `scope-lineage`，当前处于 `0.1.x` Alpha 阶段。
+PyPI distribution 和 CLI 名均为 `scope-lineage`，Python import namespace 为
+`scope_lineage`。当前 `0.1.x` 系列处于 Alpha 阶段。首次使用请阅读
+[安装与使用指南](docs/zh-CN/getting-started.md)。
 
 ## 快速开始
 
@@ -336,6 +353,7 @@ AI 下游必须同时读取诊断，不能把 `recovered`、歧义候选或缺�
 
 详细文档：
 
+- [安装与使用指南](docs/zh-CN/getting-started.md)
 - [文档导航与问题—字段索引](docs/zh-CN/README.md)
 - [`lineage.json` 全部核心 key/value、嵌套结构和消费示例](docs/zh-CN/lineage-json.md)
 - [`diagnostics.json` warning、stats 和 fact gap 字段说明](docs/zh-CN/diagnostics-json.md)
@@ -348,7 +366,7 @@ from scope_lineage import parse_scope_lineage, to_lineage_dict, write_lineage
 
 result = parse_scope_lineage(
     "INSERT INTO mart.user_ids SELECT id FROM ods.users",
-    task_id="user_ids",
+    task_name="user_ids",
     schema={"ods.users": ["id"]},
 )
 
