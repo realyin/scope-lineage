@@ -1,0 +1,8 @@
+{
+  "task_id": "merge_contract",
+  "sql": "MERGE INTO mart.customer_profile target\nUSING (SELECT customer_id, customer_name FROM ods.customer_delta) source\nON target.customer_id = source.customer_id\nWHEN MATCHED THEN UPDATE SET target.customer_name = source.customer_name\nWHEN NOT MATCHED THEN INSERT (customer_id, customer_name) VALUES (source.customer_id, source.customer_name)",
+  "schema": {
+    "mart.customer_profile": ["customer_id", "customer_name"],
+    "ods.customer_delta": ["customer_id", "customer_name"]
+  }
+}

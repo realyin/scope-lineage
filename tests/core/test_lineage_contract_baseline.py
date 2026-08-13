@@ -76,10 +76,11 @@ def test_lineage_and_diagnostics_match_golden_bytes(
         assert second_bytes == first_bytes
 
 
-def test_baseline_covers_the_five_required_contract_shapes() -> None:
+def test_baseline_covers_the_six_required_contract_shapes() -> None:
     assert {case.name for case in CASES} == {
         "simple_insert",
         "complex_scope",
+        "merge",
         "star_without_schema",
         "target_ddl_binding",
         "syntax_recovered",
