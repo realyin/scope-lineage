@@ -6,12 +6,10 @@ readme = "README.md"
 requires-python = ">=3.9"
 license = "Apache-2.0"
 keywords = ["sql", "lineage", "spark", "hive", "ai", "knowledge-base", "metadata"]
-# Upper bound is deliberate. sqlglot 30.17.0 stopped emitting the Subquery scope that
-# traverse_scope used to yield for a qualified MERGE, so no scope reports is_root and
-# _build_result_from_scope crashed on every MERGE statement. Raise this bound only together
-# with a MERGE scope-model fix; an unbounded range ships a parser that cannot read one of the
-# four write statements this package advertises.
-dependencies = ["sqlglot>=30,<30.17", "jsonschema>=4"]
+# Scope Lineage consumes SQLGlot optimizer scopes, whose shape may change in a minor release.
+# Keep the upper bound at the next unverified minor and widen it only with cross-version contract
+# tests; 30.16 and 30.17 intentionally expose different MERGE wrapper scopes.
+dependencies = ["sqlglot>=30,<30.18", "jsonschema>=4"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",

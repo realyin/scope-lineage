@@ -201,6 +201,12 @@ GROUP BY c.customer_id;
 | `distinct` | boolean | 当前 SELECT 是否使用 DISTINCT。 |
 | `lateral_views[]` | array<object> | LATERAL VIEW/UDTF 的结构化事实。 |
 
+MERGE 的 `ROOT` 是 Core 合成的写入作用域，不对应 SQLGlot 的单一查询 scope。契约 1.0
+中，`scopes.ROOT.raw_sql` 保存规范化后的 `USING` 行集 SQL，以便在不同 SQLGlot 版本间
+保持稳定；它不表示完整 MERGE 语句。各个 `WHEN MATCHED` / `WHEN NOT MATCHED` 分支的
+写入表达式应读取 `ROOT.columns[]` / `ROOT.outputs[]` 中的 `merge_branch` 和
+`merge_when_index`。
+
 ### 6.2 `input_edges[]` 与 `input_source_refs[]`
 
 `input_edges[]` 适合画结构图：

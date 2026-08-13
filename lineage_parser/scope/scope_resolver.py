@@ -41,20 +41,23 @@ def _is_dependency_scope(scope_id: str | None) -> bool:
 
 def resolve_all(
     result: ScopeLineageResult,
-    root_scope: Scope,
     all_scopes: list,
     schema: dict | None = None,
     target_metadata=None,
     explicit_target_columns: list[str] | None = None,
     insert_by_name: bool = False,
+    *,
+    merge_node: exp.Merge | None = None,
+    merge_using_scope: Scope | None = None,
 ) -> None:
     """Resolve columns for all scopes in the result.
 
     Walks the sqlglot scope tree, resolves projections/joins/filters/etc.,
     populates depends_on, and builds scope_graph edges.
 
-    all_scopes is the full list from traverse_scope(qualified_expr), which includes
-    CTE scopes that root_scope.traverse() misses for MERGE...WITH statements.
+    all_scopes is the full list from traverse_scope(qualified_expr). MERGE receives
+    its statement AST and USING scope explicitly because SQLGlot does not expose the
+    DML itself as a root query scope.
     """
     # Step 1: Resolve all Select-based scopes (root, cte, subquery, union_branch)
     for sg_scope in all_scopes:
@@ -102,8 +105,8 @@ def resolve_all(
     )
 
     # Step 4: Resolve MERGE columns (special handling)
-    if result.stmt_kind == "MERGE":
-        _resolve_merge_columns(root_scope, result, schema, all_scopes)
+    if result.stmt_kind == "MERGE" and merge_node is not None:
+        _resolve_merge_columns(merge_node, merge_using_scope, result, schema)
         _materialize_referenced_star_columns(result)
 
     # Step 5: Populate depends_on and build scope_graph edges
@@ -744,22 +747,13 @@ def _stronger_transform(left: str, right: str) -> str:
 
 
 def _resolve_merge_columns(
-    root_scope: Scope, result: ScopeLineageResult, schema: dict | None = None,
-    all_scopes: list | None = None,
+    merge_node: exp.Merge,
+    using_scope: Scope | None,
+    result: ScopeLineageResult,
+    schema: dict | None = None,
 ) -> None:
     """Resolve MERGE WHEN clauses into ROOT scope columns."""
-    # Find the MERGE AST node from the root scope's expression
-    merge_node = None
-    if root_scope.expression:
-        p = root_scope.expression
-        while p and not isinstance(p, exp.Merge):
-            p = getattr(p, "parent", None)
-        if isinstance(p, exp.Merge):
-            merge_node = p
-
-    if merge_node is None:
-        return
-
+    using_node = merge_node.args.get("using")
     merge_target = merge_node.this
     target_qualifiers: set[str] = set()
     if isinstance(merge_target, exp.Table):
@@ -774,23 +768,7 @@ def _resolve_merge_columns(
             if value
         )
 
-    # Find the USING scope_id.
-    # Strategy: find the scope whose parent.expression IS the USING Subquery node.
-    # We can't use root_scope.sources because sqlglot doesn't put the USING alias there.
-    using_scope_id = None
-    using_subq = merge_node.args.get("using")
-    if using_subq and all_scopes:
-        for sg in all_scopes:
-            if sg.parent and sg.parent.expression is using_subq:
-                sid = getattr(sg, _SCOPE_ID_ATTR, None)
-                if sid and sid in result.scopes:
-                    using_scope_id = sid
-                    break
-    if not using_scope_id:
-        for sid, sd in result.scopes.items():
-            if sd.kind == "subquery":
-                using_scope_id = sid
-                break
+    using_scope_id = getattr(using_scope, _SCOPE_ID_ATTR, None)
 
     whens = merge_node.args.get("whens")
     if whens is None:
@@ -829,12 +807,7 @@ def _resolve_merge_columns(
                                     ))
                                 continue
                             # Check if it's the USING source alias
-                            src = None
-                            # Find the USING scope's sg_scope to resolve alias
-                            for sg_scope in root_scope.traverse():
-                                if getattr(sg_scope, _SCOPE_ID_ATTR, None) == using_scope_id:
-                                    src = sg_scope.sources.get(col_table)
-                                    break
+                            src = using_scope.sources.get(col_table) if using_scope else None
                             if isinstance(src, exp.Table):
                                 fq = _qualified_table(src)
                                 if (fq, col_name) not in {(s.scope, s.column) for s in sources}:
@@ -870,13 +843,13 @@ def _resolve_merge_columns(
             ins_cols = then.this
             values = then.expression
             if isinstance(ins_cols, exp.Star):
-                using_scope = result.scopes.get(using_scope_id or "")
+                using_scope_data = result.scopes.get(using_scope_id or "")
                 source_alias = (
-                    using_subq.alias_or_name
-                    if using_subq is not None and using_subq.alias_or_name
+                    using_node.alias_or_name
+                    if using_node is not None and using_node.alias_or_name
                     else "source"
                 )
-                for source_column in (using_scope.columns if using_scope else []):
+                for source_column in (using_scope_data.columns if using_scope_data else []):
                     result.scopes["ROOT"].columns.append(ScopeColumn(
                         name=source_column.name,
                         transform="DIRECT",
