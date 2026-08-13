@@ -17,7 +17,7 @@ def _load_schema() -> dict:
 
 def _load_packaged_schema(name: str) -> dict:
     if name not in _schema_cache:
-        schema_resource = resources.files("lineage_parser.schemas").joinpath(name)
+        schema_resource = resources.files("scope_lineage.schemas").joinpath(name)
         _schema_cache[name] = json.loads(schema_resource.read_text(encoding="utf-8"))
     # Validation libraries do not mutate schemas, and callers that need a modified test copy
     # already use copy.deepcopy. Returning a JSON round-trip keeps the old isolation contract.

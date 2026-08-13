@@ -54,28 +54,28 @@ def scan_imports(root: Path, paths: list[Path]) -> list[ImportRef]:
 
 def is_upper_module(module: str) -> bool:
     upper_prefixes = (
-        "lineage_parser.insight",
-        "lineage_parser.refactor",
-        "lineage_parser.presets",
-        "lineage_parser.skill_entry",
-        "lineage_parser.scope.scope_views",
-        "lineage_parser.serialize._shared",
-        "lineage_parser.serialize.llm_profile_index",
-        "lineage_parser.serialize.profile_compaction",
-        "lineage_parser.serialize.scope_serializer",
+        "scope_lineage.insight",
+        "scope_lineage.refactor",
+        "scope_lineage.presets",
+        "scope_lineage.skill_entry",
+        "scope_lineage.scope.scope_views",
+        "scope_lineage.serialize._shared",
+        "scope_lineage.serialize.llm_profile_index",
+        "scope_lineage.serialize.profile_compaction",
+        "scope_lineage.serialize.scope_serializer",
         "pipeline",
     )
     return module.startswith(upper_prefixes)
 
 
 def is_core_module(module: str) -> bool:
-    if module in {"lineage_parser", "lineage_parser.cli"}:
+    if module in {"scope_lineage", "scope_lineage.cli"}:
         return True
-    if module.startswith("lineage_parser.metadata"):
+    if module.startswith("scope_lineage.metadata"):
         return True
-    if module.startswith("lineage_parser.scope"):
-        return not module.startswith("lineage_parser.scope.scope_views")
-    return module == "lineage_parser.serialize.scope_profile"
+    if module.startswith("scope_lineage.scope"):
+        return not module.startswith("scope_lineage.scope.scope_views")
+    return module == "scope_lineage.serialize.scope_profile"
 
 
 def core_to_upper(refs: list[ImportRef]) -> set[ImportRef]:
@@ -87,7 +87,7 @@ def pipeline_private_core_imports(refs: list[ImportRef]) -> set[ImportRef]:
         ref
         for ref in refs
         if ref.source.startswith("pipeline.")
-        and ref.target.startswith("lineage_parser.")
+        and ref.target.startswith("scope_lineage.")
         and not is_upper_module(ref.target)
         and (ref.symbol.startswith("_") or ref.target.rpartition(".")[2].startswith("_"))
     }

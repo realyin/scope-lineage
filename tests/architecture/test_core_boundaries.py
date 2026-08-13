@@ -22,7 +22,7 @@ KNOWN_PIPELINE_PRIVATE_IMPORTS: dict[tuple[str, str, str], str] = {}
 
 
 def _production_imports() -> list[ImportRef]:
-    files = list((REPO_ROOT / "lineage_parser").rglob("*.py"))
+    files = list((REPO_ROOT / "scope_lineage").rglob("*.py"))
     files.extend((REPO_ROOT / "pipeline").rglob("*.py"))
     return scan_imports(REPO_ROOT, files)
 
@@ -62,7 +62,7 @@ def test_pipeline_uses_only_the_public_core_facade() -> None:
         _key(ref)
         for ref in _production_imports()
         if ref.source.startswith("pipeline.")
-        and ref.target.startswith("lineage_parser.")
+        and ref.target.startswith("scope_lineage.")
     }
     assert deep_imports == set()
 
@@ -81,14 +81,14 @@ def test_core_tree_contains_no_upper_layer_source_packages() -> None:
         "serialize/scope_serializer.py",
     }
     actual = {
-        path.relative_to(REPO_ROOT / "lineage_parser").as_posix()
-        for path in (REPO_ROOT / "lineage_parser").rglob("*.py")
+        path.relative_to(REPO_ROOT / "scope_lineage").as_posix()
+        for path in (REPO_ROOT / "scope_lineage").rglob("*.py")
     }
     assert not (actual & forbidden)
 
 
 def test_scanner_finds_relative_absolute_delayed_and_private_imports(tmp_path: Path) -> None:
-    package = tmp_path / "lineage_parser" / "scope"
+    package = tmp_path / "scope_lineage" / "scope"
     package.mkdir(parents=True)
     source = package / "sample.py"
     source.write_text(
@@ -103,18 +103,18 @@ def test_scanner_finds_relative_absolute_delayed_and_private_imports(tmp_path: P
     pipeline.mkdir()
     consumer = pipeline / "consumer.py"
     consumer.write_text(
-        "from lineage_parser.scope._shared import _private\n",
+        "from scope_lineage.scope._shared import _private\n",
         encoding="utf-8",
     )
 
     refs = scan_imports(tmp_path, [source, consumer])
     keys = {_key(ref) for ref in refs}
-    assert ("lineage_parser.scope.sample", "lineage_parser.insight", "x") in keys
-    assert ("lineage_parser.scope.sample", "lineage_parser.scope", "sibling") in keys
-    assert ("lineage_parser.scope.sample", "pipeline.x", "pipeline.x") in keys
-    assert ("lineage_parser.scope.sample", "lineage_parser.refactor", "z") in keys
+    assert ("scope_lineage.scope.sample", "scope_lineage.insight", "x") in keys
+    assert ("scope_lineage.scope.sample", "scope_lineage.scope", "sibling") in keys
+    assert ("scope_lineage.scope.sample", "pipeline.x", "pipeline.x") in keys
+    assert ("scope_lineage.scope.sample", "scope_lineage.refactor", "z") in keys
     assert (
         "pipeline.consumer",
-        "lineage_parser.scope._shared",
+        "scope_lineage.scope._shared",
         "_private",
     ) in {_key(ref) for ref in pipeline_private_core_imports(refs)}
