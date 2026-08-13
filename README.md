@@ -205,7 +205,22 @@ other SQL-lineage solution exists.
 
 ## Install
 
-The package is not published to PyPI yet. Install the current version from source:
+For an isolated CLI environment, install the published package from PyPI with `pipx`:
+
+```bash
+pipx install scope-lineage
+scope-lineage --help
+```
+
+Alternatively, install it in a Python virtual environment:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install scope-lineage
+```
+
+Install from source when contributing:
 
 ```bash
 git clone https://github.com/realyin/scope-lineage.git
@@ -216,7 +231,9 @@ python -m pip install --upgrade pip
 python -m pip install .
 ```
 
-The package name is `scope-lineage`; the current `0.1.x` series is Alpha.
+The PyPI distribution and CLI are named `scope-lineage`; the Python import namespace is
+`scope_lineage`. The current `0.1.x` series is Alpha. See the
+[Chinese installation and usage guide](docs/zh-CN/getting-started.md) for a self-contained tutorial.
 
 ## Quick start
 
@@ -344,6 +361,7 @@ or missing metadata as proven lineage.
 
 Documentation:
 
+- [Installation and usage guide (Chinese)](docs/zh-CN/getting-started.md)
 - [Documentation map and question-to-field index](docs/zh-CN/README.md)
 - [`lineage.json` keys, nested values, examples, and consumption rules](docs/zh-CN/lineage-json.md)
 - [`diagnostics.json` warnings, stats, and fact gaps](docs/zh-CN/diagnostics-json.md)
@@ -356,7 +374,7 @@ from scope_lineage import parse_scope_lineage, to_lineage_dict, write_lineage
 
 result = parse_scope_lineage(
     "INSERT INTO mart.user_ids SELECT id FROM ods.users",
-    task_id="user_ids",
+    task_name="user_ids",
     schema={"ods.users": ["id"]},
 )
 
