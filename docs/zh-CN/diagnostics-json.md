@@ -22,7 +22,7 @@
 权威 Schema：
 
 ```text
-lineage_parser/schemas/diagnostics.schema.json
+scope_lineage/schemas/diagnostics.schema.json
 ```
 
 ## 2. 顶层 key/value
@@ -253,7 +253,7 @@ Python 质量门禁：
 import json
 from pathlib import Path
 
-from lineage_parser import validate_diagnostics_document
+from scope_lineage import validate_diagnostics_document
 
 diagnostics = json.loads(Path("diagnostics.json").read_text(encoding="utf-8"))
 validate_diagnostics_document(diagnostics)

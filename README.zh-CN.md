@@ -1,6 +1,6 @@
 # Scope Lineage
 
-[![Core CI](https://github.com/realyin/sparksql-knowledge-parse/actions/workflows/ci.yml/badge.svg)](https://github.com/realyin/sparksql-knowledge-parse/actions/workflows/ci.yml)
+[![Core CI](https://github.com/realyin/scope-lineage/actions/workflows/ci.yml/badge.svg)](https://github.com/realyin/scope-lineage/actions/workflows/ci.yml)
 [![Python 3.9–3.12](https://img.shields.io/badge/python-3.9%E2%80%933.12-blue)](pyproject.toml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
@@ -193,8 +193,8 @@ Scope Lineage 的差异化方向，是专注 Spark/Hive 离线任务，把中间
 项目尚未发布到 PyPI，当前版本需要从源码安装：
 
 ```bash
-git clone https://github.com/realyin/sparksql-knowledge-parse.git
-cd sparksql-knowledge-parse
+git clone https://github.com/realyin/scope-lineage.git
+cd scope-lineage
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -344,7 +344,7 @@ AI 下游必须同时读取诊断，不能把 `recovered`、歧义候选或缺�
 ## Python API
 
 ```python
-from lineage_parser import parse_scope_lineage, to_lineage_dict, write_lineage
+from scope_lineage import parse_scope_lineage, to_lineage_dict, write_lineage
 
 result = parse_scope_lineage(
     "INSERT INTO mart.user_ids SELECT id FROM ods.users",
@@ -356,7 +356,7 @@ document = to_lineage_dict(result)
 write_lineage(result, "/tmp/scope-lineage/user_ids")
 ```
 
-稳定公共面由 `lineage_parser.PUBLIC_CORE_API` 显式声明。下游应使用公共门面或读取 JSON 契约，
+稳定公共面由 `scope_lineage.PUBLIC_CORE_API` 显式声明。下游应使用公共门面或读取 JSON 契约，
 不要穿透导入内部实现模块。
 
 ## 契约与限制
@@ -380,7 +380,7 @@ write_lineage(result, "/tmp/scope-lineage/user_ids")
 
 ```bash
 python -m pytest -q tests/core tests/architecture/test_core_boundaries.py
-python -m ruff check lineage_parser tests
+python -m ruff check scope_lineage tests
 python -m build
 python tests/architecture/verify_distribution.py dist/*
 ```

@@ -10,20 +10,21 @@ from pathlib import Path, PurePosixPath
 
 FORBIDDEN_PARTS = {".claude", "docs", "pipeline", "tests", "__pycache__"}
 FORBIDDEN_CORE_PATHS = {
-    "lineage_parser/assets",
-    "lineage_parser/insight",
-    "lineage_parser/presets",
-    "lineage_parser/refactor",
-    "lineage_parser/skill_entry.py",
-    "lineage_parser/scope/scope_views.py",
-    "lineage_parser/serialize/_shared.py",
-    "lineage_parser/serialize/llm_profile_index.py",
-    "lineage_parser/serialize/profile_compaction.py",
-    "lineage_parser/serialize/scope_serializer.py",
+    "lineage_parser",
+    "scope_lineage/assets",
+    "scope_lineage/insight",
+    "scope_lineage/presets",
+    "scope_lineage/refactor",
+    "scope_lineage/skill_entry.py",
+    "scope_lineage/scope/scope_views.py",
+    "scope_lineage/serialize/_shared.py",
+    "scope_lineage/serialize/llm_profile_index.py",
+    "scope_lineage/serialize/profile_compaction.py",
+    "scope_lineage/serialize/scope_serializer.py",
 }
 REQUIRED_CORE_PATHS = {
-    "lineage_parser/schemas/diagnostics.schema.json",
-    "lineage_parser/schemas/lineage.schema.json",
+    "scope_lineage/schemas/diagnostics.schema.json",
+    "scope_lineage/schemas/lineage.schema.json",
 }
 
 

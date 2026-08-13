@@ -5,7 +5,7 @@ include README.md
 include README.zh-CN.md
 include SECURITY.md
 include pyproject.toml
-recursive-include lineage_parser *.py *.json
+recursive-include scope_lineage *.py *.json
 prune .claude
 prune docs
 prune pipeline

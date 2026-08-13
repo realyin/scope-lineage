@@ -36,7 +36,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
       - name: Lint
-        run: python -m ruff check lineage_parser tests
+        run: python -m ruff check scope_lineage tests
       - name: Build and verify archives
         run: |
           python -m build

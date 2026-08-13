@@ -24,7 +24,7 @@ classifiers = [
 ]
 
 [project.scripts]
-scope-lineage = "lineage_parser.cli:main"
+scope-lineage = "scope_lineage.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=7", "build>=1", "ruff>=0.6"]
@@ -37,11 +37,11 @@ build-backend = "setuptools.build_meta"
 where = ["."]
 # This public distribution is the parser and its versioned contracts only. Widening this package
 # discovery rule changes the supported product boundary and requires an architecture review.
-include = ["lineage_parser*"]
+include = ["scope_lineage*"]
 exclude = ["pipeline*", "tests*"]
 
 [tool.setuptools.package-data]
-lineage_parser = ["schemas/*.json"]
+scope_lineage = ["schemas/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

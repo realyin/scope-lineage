@@ -1,6 +1,6 @@
 """Regression coverage for member access on aggregate STRUCT results."""
 
-from lineage_parser import parse_scope_lineage, to_dict
+from scope_lineage import parse_scope_lineage, to_dict
 
 
 def _root_output(sql: str, field_name: str) -> tuple[dict, dict]:
