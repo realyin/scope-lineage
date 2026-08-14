@@ -299,13 +299,15 @@ def load_schema(
     sanitize_nul: bool = False,
     provenance: list[dict] | None = None,
 ) -> SchemaMap:
-    """Load schema metadata from CSV or JSON.
+    """Load source-table schema metadata from CSV, JSON, or a rich-JSON directory.
 
     Supported CSV shape:
       - rows with ``table_name`` and ``column_name``
       - optional ``type``/``column_type`` and ``comment``/``column_comment`` columns
 
     Supported JSON shapes:
+      - rich table metadata with ``table_name``, ``schema[]``, and optional ``ddl``
+      - a directory containing one rich table-metadata JSON document per table
       - ``{"db.table": ["c1", "c2"]}``
       - ``{"db.table": [{"name": "c1", "type": "string", "comment": "..."}]}``
       - ``{"db.table": {"column_details": [{"name": "c1"}]}}``
@@ -314,6 +316,10 @@ def load_schema(
     """
 
     path = Path(path)
+    if path.is_dir():
+        return _load_schema_metadata_directory(
+            path, sanitize_nul=sanitize_nul, provenance=provenance
+        )
     suffix = path.suffix.lower()
     if suffix == ".csv":
         return load_schema_csv(
@@ -365,7 +371,7 @@ def load_schema_json(
     data = json.loads(result.text)
     if provenance is not None:
         provenance.append(dict(result.provenance))
-    return _schema_from_json_value(data)
+    return _schema_from_json_value(data, source_path=path)
 
 
 def materialize_schema(provider: SchemaProvider, tables: Iterable[str]) -> SchemaMap:
@@ -382,12 +388,23 @@ def materialize_schema(provider: SchemaProvider, tables: Iterable[str]) -> Schem
     return schema
 
 
-def _schema_from_json_value(data) -> SchemaMap:
+def _schema_from_json_value(
+    data,
+    *,
+    source_path: str | Path = "<schema-json>",
+) -> SchemaMap:
     schema: SchemaMap = SchemaMap()
+
+    if _is_rich_table_metadata_document(data):
+        _append_rich_table_schema(schema, data, Path(source_path))
+        return schema
 
     if isinstance(data, dict) and isinstance(data.get("tables"), list):
         for item in data["tables"]:
             if not isinstance(item, dict):
+                continue
+            if _is_rich_table_metadata_document(item):
+                _append_rich_table_schema(schema, item, Path(source_path))
                 continue
             table = item.get("table_name") or item.get("table") or item.get("name") or ""
             columns = item.get("column_details") or item.get("columns") or []
@@ -419,6 +436,67 @@ def _schema_from_json_value(data) -> SchemaMap:
         return schema
 
     raise ValueError("Unsupported JSON schema metadata shape")
+
+
+def _load_schema_metadata_directory(
+    path: Path,
+    *,
+    sanitize_nul: bool,
+    provenance: list[dict] | None,
+) -> SchemaMap:
+    # Import lazily because the target metadata module uses the shared file-reading
+    # helpers above. Rich table metadata is deliberately one contract for source
+    # star expansion and target positional binding.
+    from .target_table_metadata import load_target_table_metadata
+
+    metadata = load_target_table_metadata(
+        path,
+        sanitize_nul=sanitize_nul,
+        provenance=provenance,
+        provenance_role="schema",
+    )
+    schema = SchemaMap()
+    for item in metadata.values():
+        _append_loaded_table_schema(schema, item, path / item.source_file)
+    return schema
+
+
+def _is_rich_table_metadata_document(data: object) -> bool:
+    return (
+        isinstance(data, dict)
+        and bool(data.get("table_name") or data.get("full_table_name"))
+        and ("schema" in data or "ddl" in data)
+    )
+
+
+def _append_rich_table_schema(
+    schema: SchemaMap,
+    document: dict,
+    source_path: Path,
+) -> None:
+    from .target_table_metadata import _target_table_metadata_from_document
+
+    item = _target_table_metadata_from_document(document, source_path)
+    _append_loaded_table_schema(schema, item, source_path)
+
+
+def _append_loaded_table_schema(schema: SchemaMap, item, source_path: Path) -> None:
+    if not item.usable:
+        issues = ", ".join(item.validation_issues) or "unknown_validation_error"
+        raise MetadataFileError(
+            f"源表权威 JSON 元数据无效: {source_path}\n  问题: {issues}"
+        )
+    table = item.table_name or item.full_table_name
+    for column in item.columns:
+        _append_schema_column(
+            schema,
+            table,
+            {
+                "name": column.name,
+                "type": column.data_type,
+                "comment": column.comment,
+            },
+        )
 
 
 def _iter_column_names(columns) -> Iterable[str]:
@@ -464,9 +542,18 @@ def _normalize_column_detail(column: str | Mapping | None) -> dict:
     else:
         raw = {}
 
-    name = raw.get("column_name") or raw.get("name") or raw.get("column") or ""
-    col_type = raw.get("type") or raw.get("data_type") or raw.get("column_type")
-    comment = raw.get("comment") or raw.get("column_comment")
+    name = (
+        raw.get("column_name")
+        or raw.get("columnName")
+        or raw.get("name")
+        or raw.get("column")
+        or ""
+    )
+    col_type = (
+        raw.get("type") or raw.get("data_type") or raw.get("column_type")
+        or raw.get("columnType")
+    )
+    comment = raw.get("comment") or raw.get("column_comment") or raw.get("columnComment")
     return {
         "name": (name or "").strip().strip("`"),
         "type": _blank_to_none(col_type),

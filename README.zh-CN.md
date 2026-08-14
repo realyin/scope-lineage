@@ -95,7 +95,7 @@ mart.order_channel_metrics.order_channel <- normalized_orders.order_channel
 ```bash
 scope-lineage parse \
   --sql-file examples/sql/order_channel_metrics.sql \
-  --schema examples/metadata/schema_info.csv \
+  --schema examples/metadata/schema_info.json \
   --target-ddl-metadata examples/metadata/target_tables \
   --out /tmp/scope-lineage
 # 然后查看 /tmp/scope-lineage/order_channel_metrics/lineage.json 的 end_to_end_lineage
@@ -227,7 +227,7 @@ PyPI distribution 和 CLI 名均为 `scope-lineage`，Python import namespace �
 ```bash
 scope-lineage parse \
   --sql-file examples/sql/customer_profile_daily.sql \
-  --schema examples/metadata/schema_info.csv \
+  --schema examples/metadata/schema_info.json \
   --target-ddl-metadata examples/metadata/target_tables \
   --out /tmp/scope-lineage
 ```
@@ -237,7 +237,7 @@ scope-lineage parse \
 ```bash
 scope-lineage parse \
   --task-file examples/tasks/customer/customer_profile_daily.json \
-  --schema examples/metadata/schema_info.csv \
+  --schema examples/metadata/schema_info.json \
   --target-ddl-metadata examples/metadata/target_tables \
   --out /tmp/scope-lineage
 ```
@@ -270,7 +270,7 @@ Core 当前只消费解析需要的任务名、SQL 和依赖信息。
 ```bash
 scope-lineage parse \
   --input-dir examples/tasks \
-  --schema examples/metadata/schema_info.csv \
+  --schema examples/metadata/schema_info.json \
   --target-ddl-metadata examples/metadata/target_tables \
   --out /tmp/scope-lineage-corpus
 ```
@@ -307,7 +307,21 @@ export SCOPE_LINEAGE_CATALOG_PREFIXES="warehouse_catalog,spark_catalog"
 
 ## 输入元数据
 
-Schema 支持 CSV 或 JSON。实际 CSV 可以包含字段类型和注释：
+源表 Schema 推荐使用带 `columnIndex` 和 DDL 的富 JSON；DDL 能解析时以 DDL 字段顺序为准，
+否则按 `columnIndex` 排序：
+
+```json
+{
+  "table_name": "ods.customer_base",
+  "schema": [
+    {"columnName": "customer_id", "columnType": "bigint", "columnIndex": 0},
+    {"columnName": "customer_name", "columnType": "string", "columnIndex": 1}
+  ],
+  "ddl": "CREATE TABLE ods.customer_base (customer_id BIGINT, customer_name STRING)"
+}
+```
+
+CSV 是兼容候补格式，按同一张表在文件中的行序作为字段顺序：
 
 ```csv
 table_name,column_name,column_type,column_comment
@@ -315,9 +329,11 @@ ods.customer_base,customer_id,bigint,Synthetic customer identifier
 ods.customer_base,customer_name,string,Synthetic customer name
 ```
 
-`--target-ddl-metadata` 接收单个 JSON 或目录；每份文件描述目标表名、字段顺序、分区、DDL 和元数据
-版本。Schema 主要用于源字段解析和 `SELECT *` 展开，目标表元数据用于权威 INSERT 字段绑定，
-两者用途不同。
+CSV 没有显式 `columnIndex` 或 DDL 校验；如果导出端不能保证行序，不应依赖它展开
+`SELECT *`。富 JSON 文件或目录可以传给 `--schema`；`--target-ddl-metadata` 接收同一结构的
+单个 JSON 或目录，每份文件描述目标表名、
+`schema[].columnIndex`、分区、DDL 和元数据版本。可解析的 DDL 是目标结构和顺序的首要依据。
+源表 Schema 用于字段解析和 `SELECT *` 展开，目标表元数据用于权威 INSERT 字段绑定，两者用途不同。
 
 ## 输出
 

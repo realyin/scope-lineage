@@ -2,25 +2,90 @@
   "tables": [
     {
       "table_name": "ods.customer_base",
-      "columns": [
-        {"name": "customer_id", "type": "bigint", "comment": "Synthetic customer identifier"},
-        {"name": "customer_name", "type": "string", "comment": "Synthetic customer name"},
-        {"name": "country_code", "type": "string", "comment": "Country code"},
-        {"name": "registered_at", "type": "timestamp", "comment": "Registration timestamp"},
-        {"name": "dt", "type": "string", "comment": "Partition date"}
-      ]
+      "full_table_name": "spark_catalog.ods.customer_base",
+      "schema": [
+        {"columnName": "customer_id", "columnType": "bigint", "columnComment": "Synthetic customer identifier", "columnIndex": 0, "isPartition": 0},
+        {"columnName": "customer_name", "columnType": "string", "columnComment": "Synthetic customer name", "columnIndex": 1, "isPartition": 0},
+        {"columnName": "country_code", "columnType": "string", "columnComment": "Country code", "columnIndex": 2, "isPartition": 0},
+        {"columnName": "registered_at", "columnType": "timestamp", "columnComment": "Registration timestamp", "columnIndex": 3, "isPartition": 0},
+        {"columnName": "dt", "columnType": "string", "columnComment": "Partition date", "columnIndex": 4, "isPartition": 1}
+      ],
+      "ddl": "CREATE TABLE spark_catalog.ods.customer_base (customer_id BIGINT, customer_name STRING, country_code STRING, registered_at TIMESTAMP, dt STRING) USING iceberg PARTITIONED BY (dt)",
+      "query_time": "2026-08-02 09:00:00",
+      "data_source": "catalog_api_demo"
+    },
+    {
+      "table_name": "ods.customer_status_event",
+      "full_table_name": "spark_catalog.ods.customer_status_event",
+      "schema": [
+        {"columnName": "customer_id", "columnType": "bigint", "columnComment": "Synthetic customer identifier", "columnIndex": 0, "isPartition": 0},
+        {"columnName": "customer_status", "columnType": "string", "columnComment": "Current status value", "columnIndex": 1, "isPartition": 0},
+        {"columnName": "event_time", "columnType": "timestamp", "columnComment": "Status event timestamp", "columnIndex": 2, "isPartition": 0},
+        {"columnName": "dt", "columnType": "string", "columnComment": "Partition date", "columnIndex": 3, "isPartition": 1}
+      ],
+      "ddl": "CREATE TABLE spark_catalog.ods.customer_status_event (customer_id BIGINT, customer_status STRING, event_time TIMESTAMP, dt STRING) USING iceberg PARTITIONED BY (dt)",
+      "query_time": "2026-08-02 09:00:00",
+      "data_source": "catalog_api_demo"
+    },
+    {
+      "table_name": "ods.customer_change_event",
+      "full_table_name": "spark_catalog.ods.customer_change_event",
+      "schema": [
+        {"columnName": "customer_id", "columnType": "bigint", "columnComment": "Synthetic customer identifier", "columnIndex": 0, "isPartition": 0},
+        {"columnName": "customer_name", "columnType": "string", "columnComment": "Synthetic customer name", "columnIndex": 1, "isPartition": 0},
+        {"columnName": "country_code", "columnType": "string", "columnComment": "Country code", "columnIndex": 2, "isPartition": 0},
+        {"columnName": "updated_at", "columnType": "timestamp", "columnComment": "Change timestamp", "columnIndex": 3, "isPartition": 0},
+        {"columnName": "dt", "columnType": "string", "columnComment": "Partition date", "columnIndex": 4, "isPartition": 1}
+      ],
+      "ddl": "CREATE TABLE spark_catalog.ods.customer_change_event (customer_id BIGINT, customer_name STRING, country_code STRING, updated_at TIMESTAMP, dt STRING) USING iceberg PARTITIONED BY (dt)",
+      "query_time": "2026-08-02 09:00:00",
+      "data_source": "catalog_api_demo"
     },
     {
       "table_name": "dwd.order_detail",
-      "columns": [
-        {"name": "order_id", "type": "string", "comment": "Synthetic order identifier"},
-        {"name": "customer_id", "type": "bigint", "comment": "Synthetic customer identifier"},
-        {"name": "pay_amount", "type": "decimal(18,2)", "comment": "Paid amount"},
-        {"name": "currency_code", "type": "string", "comment": "Currency code"},
-        {"name": "pay_status", "type": "string", "comment": "Payment status"},
-        {"name": "paid_at", "type": "timestamp", "comment": "Payment timestamp"},
-        {"name": "dt", "type": "string", "comment": "Partition date"}
-      ]
+      "full_table_name": "spark_catalog.dwd.order_detail",
+      "schema": [
+        {"columnName": "order_id", "columnType": "string", "columnComment": "Synthetic order identifier", "columnIndex": 0, "isPartition": 0},
+        {"columnName": "customer_id", "columnType": "bigint", "columnComment": "Synthetic customer identifier", "columnIndex": 1, "isPartition": 0},
+        {"columnName": "pay_amount", "columnType": "decimal(18,2)", "columnComment": "Paid amount", "columnIndex": 2, "isPartition": 0},
+        {"columnName": "currency_code", "columnType": "string", "columnComment": "Currency code", "columnIndex": 3, "isPartition": 0},
+        {"columnName": "pay_status", "columnType": "string", "columnComment": "Payment status", "columnIndex": 4, "isPartition": 0},
+        {"columnName": "paid_at", "columnType": "timestamp", "columnComment": "Payment timestamp", "columnIndex": 5, "isPartition": 0},
+        {"columnName": "dt", "columnType": "string", "columnComment": "Partition date", "columnIndex": 6, "isPartition": 1}
+      ],
+      "ddl": "CREATE TABLE spark_catalog.dwd.order_detail (order_id STRING, customer_id BIGINT, pay_amount DECIMAL(18,2), currency_code STRING, pay_status STRING, paid_at TIMESTAMP, dt STRING) USING iceberg PARTITIONED BY (dt)",
+      "query_time": "2026-08-02 09:00:00",
+      "data_source": "catalog_api_demo"
+    },
+    {
+      "table_name": "ods.app_order",
+      "full_table_name": "spark_catalog.ods.app_order",
+      "schema": [
+        {"columnName": "order_id", "columnType": "string", "columnComment": "Synthetic app order identifier", "columnIndex": 0, "isPartition": 0},
+        {"columnName": "customer_id", "columnType": "bigint", "columnComment": "Synthetic customer identifier", "columnIndex": 1, "isPartition": 0},
+        {"columnName": "pay_amount", "columnType": "decimal(18,2)", "columnComment": "Order amount", "columnIndex": 2, "isPartition": 0},
+        {"columnName": "pay_status", "columnType": "string", "columnComment": "Payment status", "columnIndex": 3, "isPartition": 0},
+        {"columnName": "created_at", "columnType": "timestamp", "columnComment": "Creation timestamp", "columnIndex": 4, "isPartition": 0},
+        {"columnName": "dt", "columnType": "string", "columnComment": "Partition date", "columnIndex": 5, "isPartition": 1}
+      ],
+      "ddl": "CREATE TABLE spark_catalog.ods.app_order (order_id STRING, customer_id BIGINT, pay_amount DECIMAL(18,2), pay_status STRING, created_at TIMESTAMP, dt STRING) USING iceberg PARTITIONED BY (dt)",
+      "query_time": "2026-08-02 09:00:00",
+      "data_source": "catalog_api_demo"
+    },
+    {
+      "table_name": "ods.web_order",
+      "full_table_name": "spark_catalog.ods.web_order",
+      "schema": [
+        {"columnName": "web_order_id", "columnType": "string", "columnComment": "Synthetic web order identifier", "columnIndex": 0, "isPartition": 0},
+        {"columnName": "buyer_id", "columnType": "bigint", "columnComment": "Synthetic buyer identifier", "columnIndex": 1, "isPartition": 0},
+        {"columnName": "order_amount", "columnType": "decimal(18,2)", "columnComment": "Order amount", "columnIndex": 2, "isPartition": 0},
+        {"columnName": "order_status", "columnType": "string", "columnComment": "Payment status", "columnIndex": 3, "isPartition": 0},
+        {"columnName": "order_time", "columnType": "timestamp", "columnComment": "Creation timestamp", "columnIndex": 4, "isPartition": 0},
+        {"columnName": "dt", "columnType": "string", "columnComment": "Partition date", "columnIndex": 5, "isPartition": 1}
+      ],
+      "ddl": "CREATE TABLE spark_catalog.ods.web_order (web_order_id STRING, buyer_id BIGINT, order_amount DECIMAL(18,2), order_status STRING, order_time TIMESTAMP, dt STRING) USING iceberg PARTITIONED BY (dt)",
+      "query_time": "2026-08-02 09:00:00",
+      "data_source": "catalog_api_demo"
     }
   ]
 }
