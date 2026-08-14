@@ -15,6 +15,19 @@ Scope Lineage Core 接收 SQL 内容以及两类可选元数据。它不会连�
 
 输入越完整，Core 能证明的字段事实越多；但元数据不会覆盖 SQL 事实。例如 Schema 可以说明表有哪些列，不能替代 SQL 中实际使用的 JOIN、过滤和表达式。
 
+多个来源可以按权威顺序组合：
+
+~~~bash
+scope-lineage parse \
+  --input-dir exported_tasks \
+  --schema rich-table-metadata \
+  --schema-fallback schema_info.csv \
+  --out /tmp/lineage
+~~~
+
+`--schema-fallback` 可重复。它只补充权威 `--schema` 中缺失的表；同表字段定义冲突时不会静默
+合并或覆盖 DDL 顺序，v2 会在 `diagnostics.json.metadata_coverage.metadata_conflicts` 中记录。
+
 ## SQL 输入
 
 ### 单个 SQL 文件

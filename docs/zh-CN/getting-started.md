@@ -315,6 +315,18 @@ scope-lineage parse \
 
 `--allow-partial` 只改变命令退出码，不会把失败结果改成成功，也不会隐藏诊断。
 
+需要任务级 DELETE/TRUNCATE/UPDATE 和多语句最终状态时使用：
+
+~~~bash
+scope-lineage parse \
+  --input-dir exported-tasks \
+  --contract-version 2.0 \
+  --quality-policy strict \
+  --out ./output-v2
+~~~
+
+完整语义见 [Task Lineage 2.0](task-lineage-v2.md)。v1 和 v2 应写入不同目录。
+
 ## 7. catalog 前缀
 
 三段表名默认完整保留。只有确认首段是可移除的 catalog 时才显式配置：
@@ -355,6 +367,8 @@ write_lineage(result, "./scope-lineage-output/user_ids")
 
 `to_lineage_dict()` 适合内存消费，`write_lineage()` 会校验并写出两份契约文件。下游代码应通过
 `scope_lineage` 公共门面调用，不要依赖内部模块路径。
+
+任务级 API 为 `parse_task_lineage()` 和 `write_task_lineage()`。
 
 ## 9. 常见问题
 
