@@ -273,6 +273,21 @@ explicitly accept invalid inputs or failed statements. See the complete syntheti
 [examples/README.zh-CN.md](examples/README.zh-CN.md) and the detailed
 [Core input formats](docs/zh-CN/input-formats.md).
 
+Opt into task-level contract 2.0 when statement order, DELETE/TRUNCATE/UPDATE, and row-membership
+lineage are required:
+
+~~~bash
+scope-lineage parse \
+  --task-file examples/tasks/customer/customer_profile_daily.json \
+  --contract-version 2.0 \
+  --schema examples/metadata/schema_info.json \
+  --schema-fallback examples/metadata/schema_info.csv \
+  --quality-policy strict \
+  --out /tmp/scope-lineage-v2
+~~~
+
+Contract 1.0 remains the default. See [Task Lineage 2.0](docs/zh-CN/task-lineage-v2.md).
+
 ### Catalog-prefix normalization
 
 Core preserves fully qualified table names by default. For example,

@@ -325,6 +325,82 @@ def test_rich_source_schema_rejects_non_contiguous_column_index(tmp_path) -> Non
         scope_lineage.load_schema(metadata_path)
 
 
+def test_schema_sources_keep_rich_authority_and_fill_missing_tables(
+    tmp_path,
+) -> None:
+    rich = tmp_path / "rich.json"
+    rich.write_text(
+        json.dumps({
+            "table_name": "ods.primary",
+            "schema": [
+                {"columnName": "id", "columnIndex": 0},
+                {"columnName": "amount", "columnIndex": 1},
+            ],
+            "ddl": "CREATE TABLE ods.primary (id BIGINT, amount DECIMAL(18,2))",
+        }),
+        encoding="utf-8",
+    )
+    fallback = tmp_path / "fallback.csv"
+    fallback.write_text(
+        "table_name,column_name\n"
+        "ods.primary,id\n"
+        "ods.primary,different_column\n"
+        "ods.fallback,id\n",
+        encoding="utf-8",
+    )
+
+    schema = scope_lineage.load_schema_sources([rich, fallback])
+
+    assert schema["ods.primary"] == ["id", "amount"]
+    assert schema["ods.fallback"] == ["id"]
+    assert schema.metadata_source_count == 2
+    assert schema.metadata_conflicts == [{
+        "table": "ods.primary",
+        "authoritative_columns": ["id", "amount"],
+        "fallback_columns": ["id", "different_column"],
+        "fallback_source_index": 1,
+        "resolution": "kept_authoritative",
+    }]
+
+
+def test_cli_schema_fallback_expands_table_missing_from_primary(tmp_path) -> None:
+    primary = tmp_path / "primary.json"
+    primary.write_text(
+        json.dumps({"ods.other": ["x"]}),
+        encoding="utf-8",
+    )
+    fallback = tmp_path / "fallback.csv"
+    fallback.write_text(
+        "table_name,column_name\nods.source,id\nods.source,amount\n",
+        encoding="utf-8",
+    )
+    sql = tmp_path / "star.sql"
+    sql.write_text(
+        "INSERT INTO mart.t SELECT * FROM ods.source",
+        encoding="utf-8",
+    )
+    output = tmp_path / "output"
+
+    assert main([
+        "parse",
+        "--sql-file",
+        str(sql),
+        "--schema",
+        str(primary),
+        "--schema-fallback",
+        str(fallback),
+        "--out",
+        str(output),
+    ]) == 0
+    lineage = json.loads(
+        (output / "star" / "lineage.json").read_text(encoding="utf-8")
+    )
+    assert [item["column"] for item in lineage["end_to_end_lineage"]] == [
+        "id",
+        "amount",
+    ]
+
+
 def test_select_star_example_expands_and_uses_target_binding(tmp_path) -> None:
     project_root = Path(__file__).resolve().parents[2]
     output = tmp_path / "output"
@@ -381,3 +457,99 @@ def test_public_qualified_field_extractor() -> None:
     assert scope_lineage.extract_qualified_field_refs(
         "a.id + `b`.`amount` + named_struct('x', c.value).x"
     ) == [("b", "amount"), ("a", "id"), ("c", "value")]
+
+
+def test_compact_v1_writer_preserves_document_semantics(tmp_path) -> None:
+    result = scope_lineage.parse_scope_lineage(
+        "INSERT INTO mart.t SELECT id FROM ods.source",
+        task_name="compact_v1",
+        schema={"ods.source": ["id"]},
+    )
+    pretty = scope_lineage.write_lineage(result, tmp_path / "pretty")
+    compact = scope_lineage.write_lineage(
+        result,
+        tmp_path / "compact",
+        compact=True,
+    )
+
+    for name in ("lineage.json", "diagnostics.json"):
+        assert json.loads((pretty / name).read_text(encoding="utf-8")) == json.loads(
+            (compact / name).read_text(encoding="utf-8")
+        )
+        assert (compact / name).stat().st_size < (pretty / name).stat().st_size
+
+
+def test_cli_v2_writes_one_ordered_task_artifact_with_dependencies(
+    tmp_path,
+    capsys,
+) -> None:
+    task_path = tmp_path / "state_task.json"
+    task_path.write_text(
+        json.dumps({
+            "meta": {
+                "task_name": "state_task",
+                "upstream_tasks": [
+                    {"task_id": "upstream", "task_name": "upstream_task"}
+                ],
+                "downstream_tasks": [],
+                "sql": (
+                    "TRUNCATE TABLE mart.t; "
+                    "INSERT INTO mart.t SELECT id FROM ods.source"
+                ),
+            }
+        }),
+        encoding="utf-8",
+    )
+    output = tmp_path / "output"
+
+    assert main([
+        "parse",
+        "--task-file",
+        str(task_path),
+        "--contract-version",
+        "2.0",
+        "--compact-json",
+        "--schema",
+        str(Path(__file__).parents[2] / "examples" / "metadata" / "schema_info.csv"),
+        "--out",
+        str(output),
+    ]) == 0
+
+    assert sorted(path.name for path in output.iterdir()) == ["state_task"]
+    lineage = json.loads(
+        (output / "state_task" / "lineage.json").read_text(encoding="utf-8")
+    )
+    assert lineage["schema_version"] == "2.0"
+    assert [item["stmt_kind"] for item in lineage["statement_sequence"]] == [
+        "TRUNCATETABLE",
+        "INSERT",
+    ]
+    assert lineage["task_dependencies"]["source_summary"]["upstream_count"] == 1
+    assert "using contract 2.0" in capsys.readouterr().out
+
+
+def test_cli_v2_models_standalone_delete_instead_of_rejecting_input(
+    tmp_path,
+) -> None:
+    sql_path = tmp_path / "delete.sql"
+    sql_path.write_text(
+        "DELETE FROM mart.t WHERE id IN (SELECT id FROM ods.source)",
+        encoding="utf-8",
+    )
+    output = tmp_path / "output"
+
+    assert main([
+        "parse",
+        "--sql-file",
+        str(sql_path),
+        "--contract-version",
+        "2.0",
+        "--schema",
+        str(Path(__file__).parents[2] / "examples" / "metadata" / "schema_info.csv"),
+        "--out",
+        str(output),
+    ]) == 0
+    lineage = json.loads(
+        (output / "delete" / "lineage.json").read_text(encoding="utf-8")
+    )
+    assert lineage["statement_sequence"][0]["model_status"] == "modeled"

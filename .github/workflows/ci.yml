@@ -53,3 +53,36 @@ jobs:
             --out /tmp/scope-lineage-output
           test -f /tmp/scope-lineage-output/customer_profile_daily/lineage.json
           test -f /tmp/scope-lineage-output/customer_profile_daily/diagnostics.json
+          /tmp/scope-lineage-wheel/bin/scope-lineage parse \
+            --task-file "$GITHUB_WORKSPACE/examples/tasks/customer/customer_profile_daily.json" \
+            --contract-version 2.0 \
+            --schema "$GITHUB_WORKSPACE/examples/metadata/schema_info.json" \
+            --schema-fallback "$GITHUB_WORKSPACE/examples/metadata/schema_info.csv" \
+            --target-ddl-metadata "$GITHUB_WORKSPACE/examples/metadata/target_tables" \
+            --compact-json \
+            --out /tmp/scope-lineage-output-v2
+          test -f /tmp/scope-lineage-output-v2/customer_profile_daily/lineage.json
+          test -f /tmp/scope-lineage-output-v2/customer_profile_daily/diagnostics.json
+
+  sqlglot-compat:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        sqlglot-version: ["30.0.0", "30.16.0", "30.17.0"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip install "sqlglot==${{ matrix.sqlglot-version }}"
+      - name: Test SQLGlot scope compatibility
+        run: |
+          python -m pytest -q \
+            tests/core/test_lineage_contract_baseline.py \
+            tests/core/test_merge_scope_compat.py \
+            tests/core/test_task_state_lineage.py \
+            tests/core/test_task_lineage_contract_baseline.py

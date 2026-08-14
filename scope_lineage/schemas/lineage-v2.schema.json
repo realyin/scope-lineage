@@ -1,0 +1,157 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TaskStateLineage",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "artifact_kind",
+    "task_id",
+    "parse_status",
+    "syntax_status",
+    "syntax_errors",
+    "analysis_status",
+    "statement_sequence",
+    "table_state_graph",
+    "final_table_states",
+    "statement_lineage",
+    "end_to_end_lineage",
+    "task_dependencies",
+    "diagnostics"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {"const": "2.0"},
+    "artifact_kind": {"const": "task_lineage"},
+    "task_id": {"type": "string", "minLength": 1},
+    "parse_status": {"enum": ["ok", "failed"]},
+    "syntax_status": {"enum": ["strict_ok", "recovered", "failed"]},
+    "syntax_errors": {"type": "array", "items": {"type": "object"}},
+    "analysis_status": {
+      "type": "object",
+      "required": ["status", "blocking_reasons"],
+      "properties": {
+        "status": {"enum": ["complete", "partial"]},
+        "blocking_reasons": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      }
+    },
+    "statement_sequence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "statement_id",
+          "statement_index",
+          "stmt_kind",
+          "category",
+          "model_status",
+          "normalized_sql"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "statement_id": {"type": "string", "pattern": "^stmt:[0-9]{3,}$"},
+          "statement_index": {"type": "integer", "minimum": 0},
+          "stmt_kind": {"type": "string"},
+          "category": {
+            "enum": [
+              "projection_write",
+              "conditional_write",
+              "row_mutation",
+              "control_statement",
+              "empty_statement",
+              "unsupported_statement"
+            ]
+          },
+          "model_status": {"enum": ["modeled", "ignored", "unsupported", "failed"]},
+          "normalized_sql": {"type": "string"},
+          "target_table": {"type": "string"},
+          "input_states": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "output_state": {"type": "string"},
+          "effect": {"type": "object"}
+        }
+      }
+    },
+    "table_state_graph": {
+      "type": "object",
+      "required": ["nodes", "edges"],
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "state_id",
+              "table",
+              "ordinal",
+              "known_empty",
+              "columns_known",
+              "producer_statement_id"
+            ],
+            "properties": {
+              "state_id": {"type": "string"},
+              "table": {"type": "string", "minLength": 1},
+              "ordinal": {"type": "integer", "minimum": 0},
+              "known_empty": {"type": "boolean"},
+              "columns_known": {"type": "boolean"},
+              "producer_statement_id": {"type": ["string", "null"]}
+            }
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["from", "to", "statement_id", "effect"],
+            "properties": {
+              "from": {"type": "string"},
+              "to": {"type": "string"},
+              "statement_id": {"type": "string"},
+              "effect": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    "final_table_states": {
+      "type": "object",
+      "additionalProperties": {"type": "string"}
+    },
+    "statement_lineage": {
+      "type": "object",
+      "additionalProperties": {"type": "object"}
+    },
+    "end_to_end_lineage": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "target_state",
+          "table",
+          "column",
+          "value_sources",
+          "row_membership_sources",
+          "value_condition_sources",
+          "trace_complete",
+          "missing_reasons"
+        ],
+        "properties": {
+          "target_state": {"type": "string"},
+          "table": {"type": "string"},
+          "column": {"type": "string"},
+          "value_sources": {"type": "array", "items": {"type": "object"}},
+          "row_membership_sources": {"type": "array", "items": {"type": "object"}},
+          "value_condition_sources": {"type": "array", "items": {"type": "object"}},
+          "trace_complete": {"type": "boolean"},
+          "missing_reasons": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "task_dependencies": {"type": "object"},
+    "diagnostics": {"type": "object"}
+  }
+}

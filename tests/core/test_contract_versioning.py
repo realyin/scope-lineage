@@ -74,7 +74,15 @@ def test_writer_validates_the_documents_that_are_actually_written(tmp_path) -> N
     validate_diagnostics_document(diagnostics)
 
 
-@pytest.mark.parametrize("name", ["lineage.schema.json", "diagnostics.schema.json"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "lineage.schema.json",
+        "diagnostics.schema.json",
+        "lineage-v2.schema.json",
+        "diagnostics-v2.schema.json",
+    ],
+)
 def test_contract_schemas_are_loadable_as_package_resources(name: str) -> None:
     schema = json.loads(
         resources.files("scope_lineage.schemas").joinpath(name).read_text(encoding="utf-8")

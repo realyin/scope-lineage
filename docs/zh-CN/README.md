@@ -12,6 +12,7 @@ Scope Lineage 把 Spark/Hive SQL 转换成两类机器可消费的事实：
 3. [输入格式](input-formats.md)：了解 SQL、任务 JSON、Schema 和目标表元数据怎么传入；
 4. [`lineage.json` 输出契约](lineage-json.md)：逐层理解顶层字段、scope、逻辑块、字段映射链和端到端血缘；
 5. [`diagnostics.json` 输出契约](diagnostics-json.md)：理解 warning、事实缺口以及什么结果不能当成已证明事实。
+6. [Task Lineage 2.0](task-lineage-v2.md)：理解 DELETE/TRUNCATE/UPDATE、行集合影响和多语句最终表状态。
 
 ## 从问题找到字段
 
@@ -30,6 +31,7 @@ Scope Lineage 把 Spark/Hive SQL 转换成两类机器可消费的事实：
 | `SELECT *` 是否真正展开？ | `scopes.*.outputs[]`、`diagnostics.json.warnings[]` |
 | 某条血缘是否完整可信？ | `trace_complete` / `trace_status`、`missing_reasons`、`ambiguities` |
 | 为什么无法确定字段来源？ | `diagnostics.json.lineage_fact_gaps[]` |
+| DELETE/TRUNCATE 如何影响最终表？ | v2 `statement_sequence[]`、`table_state_graph`、`final_table_states` |
 
 ## 事实层与上层知识的边界
 

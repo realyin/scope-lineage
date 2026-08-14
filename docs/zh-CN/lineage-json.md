@@ -1,5 +1,10 @@
 # `lineage.json` 输出契约与字段说明
 
+本文说明默认 `schema_version: "1.0"` 的单条写语句契约。显式使用
+`--contract-version 2.0` 时，文件改为任务级有序状态契约，字段定义见
+[Task Lineage 2.0](task-lineage-v2.md)，权威 Schema 为
+`scope_lineage/schemas/lineage-v2.schema.json`。
+
 ## 1. 它到底输出什么
 
 `lineage.json` 不是一组简单的“输入表 → 输出表”边，而是一份 SQL 任务的结构化事实文档。它同时回答五类问题：
@@ -76,13 +81,14 @@ GROUP BY c.customer_id;
 
 | Key | Value 类型 | 必填 | 含义与使用方式 |
 | --- | --- | --- | --- |
-| `schema_version` | string | 是 | 输出契约版本，当前固定为 `1.0`。消费者先检查 major 版本。 |
+| `schema_version` | string | 是 | 本文所述默认契约固定为 `1.0`。消费者先检查 major 版本。 |
 | `task_id` | string | 是 | 本条写表语句的任务标识；批量输入和多语句任务可能基于输入名生成独立标识。 |
 | `target_table` | string | 是 | SQL 实际写入的目标表，如 `mart.customer_summary`。 |
 | `stmt_kind` | enum string | 是 | `INSERT_OVERWRITE`、`INSERT`、`CTAS`、`MERGE` 或 `UNKNOWN`。注意字段名不是 `statement_type`。 |
 | `parse_status` | enum string | 是 | `ok` 表示形成了可校验 Lineage 文档；`failed` 表示解析失败，不能消费正常血缘。 |
 | `syntax_status` | enum string | 是 | `strict_ok`、`recovered` 或 `failed`。`recovered` 表示解析器经过恢复，必须同时读诊断。 |
 | `syntax_errors` | array<object> | 是 | 语法错误或恢复证据。元素可含 `description`、`line`、`col` 和上下文片段。 |
+| `skipped_statements` | array<object> | 条件输出 | v1 未作为投影写入建模的顶层语句。包含稳定的 `statement_id`、零基 `statement_index`、`statement_kind`、`category`、`model_status`、`reason` 和支持范围说明；行变更应改用 v2 建模。 |
 | `target_partition_spec` | object | 是 | 分区名到分区值的映射。动态分区的 value 可以为 `null`。 |
 | `target_partition_columns` | array<string> | 是 | 目标表分区列名。 |
 | `target_partition_mode` | enum string | 是 | `none`、`static`、`dynamic` 或 `mixed`。 |

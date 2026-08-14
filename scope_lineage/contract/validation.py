@@ -28,7 +28,11 @@ def validate_lineage_document(document: dict) -> dict:
     """Validate an already-built Lineage document and return it unchanged."""
     import jsonschema
 
-    jsonschema.validate(document, _load_schema())
+    schema_name = {
+        "1.0": "lineage.schema.json",
+        "2.0": "lineage-v2.schema.json",
+    }.get(document.get("schema_version"), "lineage.schema.json")
+    jsonschema.validate(document, _load_packaged_schema(schema_name))
     return document
 
 
@@ -36,12 +40,18 @@ def validate_diagnostics_document(document: dict) -> dict:
     """Validate an already-built diagnostics companion document."""
     import jsonschema
 
-    jsonschema.validate(document, _load_packaged_schema("diagnostics.schema.json"))
+    schema_name = {
+        "1.0": "diagnostics.schema.json",
+        "2.0": "diagnostics-v2.schema.json",
+    }.get(document.get("schema_version"), "diagnostics.schema.json")
+    jsonschema.validate(document, _load_packaged_schema(schema_name))
     return document
 
 
 def validate_cross_references(data: dict) -> list[str]:
     """Return references to scope IDs that do not exist in the document graph."""
+    if data.get("schema_version") == "2.0":
+        return _validate_task_cross_references(data)
     errors: list[str] = []
     known_scopes: set[str] = set(data.get("scopes", {}).keys())
     all_nodes: set[str] = set(data.get("scope_graph", {}).get("nodes", []))
@@ -64,4 +74,78 @@ def validate_cross_references(data: dict) -> list[str]:
                         f"scope={scope_id!r} col={column.get('name')!r} "
                         f"source scope={source_id!r} not in known scopes/nodes"
                     )
+    return errors
+
+
+def _validate_task_cross_references(data: dict) -> list[str]:
+    errors: list[str] = []
+    graph = data.get("table_state_graph") or {}
+    state_ids = {
+        node.get("state_id")
+        for node in graph.get("nodes", [])
+        if node.get("state_id")
+    }
+    statement_ids = {
+        item.get("statement_id")
+        for item in data.get("statement_sequence", [])
+        if item.get("statement_id")
+    }
+    for edge in graph.get("edges", []):
+        for key in ("from", "to"):
+            state_id = edge.get(key)
+            if state_id not in state_ids:
+                errors.append(
+                    f"table_state_graph edge {key}={state_id!r} not in nodes"
+                )
+        if edge.get("statement_id") not in statement_ids:
+            errors.append(
+                "table_state_graph edge statement_id="
+                f"{edge.get('statement_id')!r} not in statement_sequence"
+            )
+    for node in graph.get("nodes", []):
+        producer = node.get("producer_statement_id")
+        if producer is not None and producer not in statement_ids:
+            errors.append(
+                f"table state {node.get('state_id')!r} producer_statement_id="
+                f"{producer!r} not in statement_sequence"
+            )
+    for table, state_id in (data.get("final_table_states") or {}).items():
+        if state_id not in state_ids:
+            errors.append(
+                f"final_table_states[{table!r}]={state_id!r} not in nodes"
+            )
+    for statement in data.get("statement_sequence", []):
+        for state_id in statement.get("input_states", []):
+            if state_id not in state_ids:
+                errors.append(
+                    f"statement {statement.get('statement_id')!r} "
+                    f"input state {state_id!r} not in nodes"
+                )
+        output_state = statement.get("output_state")
+        if output_state and output_state not in state_ids:
+            errors.append(
+                f"statement {statement.get('statement_id')!r} "
+                f"output state {output_state!r} not in nodes"
+            )
+    for statement_id in (data.get("statement_lineage") or {}):
+        if statement_id not in statement_ids:
+            errors.append(
+                f"statement_lineage key {statement_id!r} not in statement_sequence"
+            )
+    for item in data.get("end_to_end_lineage", []):
+        target_state = item.get("target_state")
+        if target_state not in state_ids:
+            errors.append(
+                f"end_to_end_lineage target_state={target_state!r} not in nodes"
+            )
+        for source in item.get("value_sources", []):
+            state_id = source.get("state_id")
+            if (
+                source.get("source_kind") == "prior_table_state"
+                and state_id not in state_ids
+            ):
+                errors.append(
+                    "end_to_end_lineage prior source state_id="
+                    f"{state_id!r} not in nodes"
+                )
     return errors
