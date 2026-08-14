@@ -1,6 +1,14 @@
 # Changelog
 
-## 0.1.0 - Unreleased
+## 0.1.1 - 2026-08-15
+
+- Added opt-in task-level `schema_version: "2.0"` output with ordered statements and
+  table-state transitions for write and mutation operations
+- Made rich JSON table schema metadata authoritative over CSV fallbacks, preserving column order,
+  DDL, and other structured metadata while reporting conflicts
+- Added installation, CLI usage, input-format, schema-precedence, and release documentation
+
+## 0.1.0 - 2026-08-14
 
 Initial public release preparation:
 
