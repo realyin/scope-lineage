@@ -136,34 +136,97 @@ export SCOPE_LINEAGE_CATALOG_PREFIXES="warehouse_catalog,spark_catalog"
 - 这是部署/批次级解析策略，不是某个 SQL 任务的业务属性，因此不放进任务 JSON；
 - Schema 和目标表元数据仍可以填写完整表名，但它们不会替代本配置来决定 Lineage 中是否保留 catalog。
 
-## Schema 元数据
+## 源表 Schema 元数据
 
-`--schema` 接收一个 CSV 或 JSON 文件，用于源字段解析、`SELECT *` 展开，以及字段类型和注释
-补全。
+`--schema` 接收一个 JSON/CSV 文件，也可以接收一个包含富 JSON 的目录，用于源字段解析、
+`SELECT *` 展开，以及字段类型和注释补全。推荐使用带字段序号和 DDL 的富 JSON；CSV 仅作为
+兼容候补。
 
-推荐 CSV 表头：
+### 推荐：带 Schema 和 DDL 的 JSON
 
-```csv
-table_name,column_name,column_type,column_comment
-ods.customer_base,customer_id,bigint,Synthetic customer identifier
-```
-
-`type`/`data_type`/`column_type` 和 `comment`/`column_comment` 是兼容别名。JSON 支持表到字段数组
-的简单映射，也支持 `tables[].columns[]` 的详细结构，见
-[`examples/metadata/schema_info.json`](../../examples/metadata/schema_info.json)。
-
-Schema 中的 table key 应使用 SQL 可解析的完整表名，例如 `ods.customer_base`。字段 value 至少需要名称；类型和注释可选：
+每张表一份 JSON；传目录时会读取目录中的表元数据文件并按版本时间选择每张表的最新版本：
 
 ```json
 {
-  "ods.customer_base": [
-    {"name": "customer_id", "type": "bigint", "comment": "Synthetic customer identifier"},
-    {"name": "customer_name", "type": "string", "comment": "Synthetic display name"}
+  "table_name": "ods.customer_base",
+  "full_table_name": "spark_catalog.ods.customer_base",
+  "schema": [
+    {
+      "columnName": "customer_id",
+      "columnType": "bigint",
+      "columnComment": "Synthetic customer identifier",
+      "columnIndex": 0,
+      "isPartition": 0
+    },
+    {
+      "columnName": "customer_name",
+      "columnType": "string",
+      "columnComment": "Synthetic display name",
+      "columnIndex": 1,
+      "isPartition": 0
+    }
+  ],
+  "ddl": "CREATE TABLE spark_catalog.ods.customer_base (customer_id BIGINT, customer_name STRING) USING iceberg",
+  "query_time": "2026-08-14 10:00:00",
+  "data_source": "catalog_api"
+}
+```
+
+源表顺序按以下层级确定：
+
+1. `ddl` 能成功解析时，DDL 字段顺序优先；
+2. 没有 DDL 时，按 `schema[].columnIndex` 排序，序号必须从 0 开始且连续；
+3. 富 JSON 的结构无效时直接报元数据错误，不会静默退回猜测顺序。
+
+`--schema` 还兼容聚合式轻量 JSON。它没有显式字段序号或 DDL，`columns[]` 数组顺序就是字段
+顺序：
+
+```json
+{
+  "tables": [
+    {
+      "table_name": "ods.customer_base",
+      "columns": [
+        {"name": "customer_id", "type": "bigint"},
+        {"name": "customer_name", "type": "string"}
+      ]
+    }
   ]
 }
 ```
 
-字段顺序用于 `SELECT *` 展开，因此应与源表实际 Schema 一致。
+字段 value 至少需要 `name`；`type` 和 `comment` 可选。Schema 中的 table key 应使用 SQL
+可解析的完整表名，例如 `ods.customer_base`。轻量 JSON 还兼容下面的简写：
+
+```json
+{
+  "ods.customer_base": [
+    {"name": "customer_id", "type": "bigint"},
+    {"name": "customer_name", "type": "string"}
+  ]
+}
+```
+
+完整富 JSON 多表示例见
+[`examples/metadata/schema_info.json`](../../examples/metadata/schema_info.json)。
+
+### 候补：CSV
+
+兼容 CSV 表头：
+
+```csv
+table_name,column_name,column_type,column_comment
+ods.customer_base,customer_id,bigint,Synthetic customer identifier
+ods.customer_base,customer_name,string,Synthetic display name
+```
+
+`type`/`data_type`/`column_type` 和 `comment`/`column_comment` 是兼容别名。同一张表在 CSV
+中的行序会被当作字段顺序，所以它仍能展开 `SELECT *`；但 CSV 没有显式 `columnIndex`，也没有
+DDL 交叉校验。只有导出端能够保证行序时才应依赖这一能力。
+
+富 JSON 的结构与 `--target-ddl-metadata` 相同，所以同一个包含全部表元数据的目录可以同时传给
+两个参数。`--schema` 将其中的表作为源字段候选；`--target-ddl-metadata` 只对当前 SQL 的目标表
+执行权威位置绑定。
 
 ## 目标表 DDL/Schema 元数据
 
@@ -189,6 +252,13 @@ Schema 中的 table key 应使用 SQL 可解析的完整表名，例如 `ods.cus
 
 DDL 与 Schema 的字段集合必须一致。存在同一表的多份元数据时，Core 使用 `query_time` 或
 `ddl_update_time` 选择唯一最新版本；无法排序或结构冲突会明确失败。
+
+目标结构的优先级如下：
+
+1. `ddl` 能成功解析时，以 DDL 中的字段顺序和分区定义为权威事实；
+2. `schema[]` 按字段名与 DDL 交叉校验，并补充类型、注释和显式位置；
+3. 没有 DDL 时，按 `schema[].columnIndex` 排序，序号必须从 0 开始且连续；
+4. CSV 不支持目标表权威绑定，只能作为源表 `--schema` 的候补格式。
 
 关键 key/value：
 

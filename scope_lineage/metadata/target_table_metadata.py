@@ -69,6 +69,7 @@ def load_target_table_metadata(
     *,
     sanitize_nul: bool = False,
     provenance: list[dict] | None = None,
+    provenance_role: str = "target_ddl_metadata",
 ) -> TargetMetadataMap:
     """Load one metadata JSON file or a directory containing one file per table.
 
@@ -85,7 +86,7 @@ def load_target_table_metadata(
             file_path,
             sanitize_nul=sanitize_nul,
             provenance=provenance,
-            role="target_ddl_metadata",
+            role=provenance_role,
         )
         try:
             document = json.loads(text)
@@ -345,8 +346,11 @@ def _columns_from_schema(
                 ).strip(),
             )
         )
-    if [column.ordinal for column in columns] != list(range(len(columns))):
+    ordinals = [column.ordinal for column in columns]
+    if sorted(ordinals) != list(range(len(columns))):
         issues.append("schema_column_indices_not_contiguous")
+    else:
+        columns.sort(key=lambda column: column.ordinal)
     names = [column.name for column in columns]
     if len(names) != len(set(names)):
         issues.append("schema_duplicate_column_names")

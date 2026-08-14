@@ -38,10 +38,13 @@ def main(argv: list[str] | None = None) -> int:
         help="Override the task name for --sql-file or --task-file",
     )
     parse_cmd.add_argument("--out", required=True, help="Output directory")
-    parse_cmd.add_argument("--schema", help="Optional CSV/JSON schema metadata")
+    parse_cmd.add_argument(
+        "--schema",
+        help="Optional source-table schema file or rich-JSON directory (JSON preferred; CSV fallback)",
+    )
     parse_cmd.add_argument(
         "--target-ddl-metadata",
-        help="Optional target-table DDL/Schema metadata JSON file or directory",
+        help="Optional authoritative target-table DDL/Schema JSON file or directory",
     )
     parse_cmd.add_argument(
         "--catalog-prefixes",

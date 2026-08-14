@@ -243,7 +243,7 @@ def test_documented_example_corpus_is_executable(tmp_path) -> None:
         "--input-dir",
         str(project_root / "examples" / "tasks"),
         "--schema",
-        str(project_root / "examples" / "metadata" / "schema_info.csv"),
+        str(project_root / "examples" / "metadata" / "schema_info.json"),
         "--target-ddl-metadata",
         str(project_root / "examples" / "metadata" / "target_tables"),
         "--out",
@@ -258,6 +258,73 @@ def test_documented_example_corpus_is_executable(tmp_path) -> None:
     )
 
 
+def test_rich_metadata_uses_ddl_order_for_source_and_target(tmp_path) -> None:
+    metadata_path = tmp_path / "mart.demo_metadata.json"
+    metadata_path.write_text(
+        json.dumps({
+            "table_name": "mart.demo",
+            "schema": [
+                {"columnName": "amount", "columnIndex": 1},
+                {"columnName": "customer_id", "columnIndex": 0},
+            ],
+            "ddl": "CREATE TABLE mart.demo (customer_id BIGINT, amount DECIMAL(18,2))",
+        }),
+        encoding="utf-8",
+    )
+
+    source_schema = scope_lineage.load_schema(metadata_path)
+    source_schema_from_directory = scope_lineage.load_schema(tmp_path)
+    metadata = scope_lineage.load_target_table_metadata(metadata_path)
+    table = metadata["mart.demo"]
+
+    assert source_schema["mart.demo"] == ["customer_id", "amount"]
+    assert source_schema_from_directory == source_schema
+    assert table.usable
+    assert table.structure_source == "ddl"
+    assert [(column.ordinal, column.name) for column in table.columns] == [
+        (0, "customer_id"),
+        (1, "amount"),
+    ]
+
+
+def test_rich_source_schema_uses_column_index_without_ddl(tmp_path) -> None:
+    metadata_path = tmp_path / "ods.demo_metadata.json"
+    metadata_path.write_text(
+        json.dumps({
+            "table_name": "ods.demo",
+            "schema": [
+                {"columnName": "amount", "columnIndex": 1},
+                {"columnName": "customer_id", "columnIndex": 0},
+            ],
+        }),
+        encoding="utf-8",
+    )
+
+    schema = scope_lineage.load_schema(metadata_path)
+
+    assert schema["ods.demo"] == ["customer_id", "amount"]
+
+
+def test_rich_source_schema_rejects_non_contiguous_column_index(tmp_path) -> None:
+    metadata_path = tmp_path / "ods.invalid_metadata.json"
+    metadata_path.write_text(
+        json.dumps({
+            "table_name": "ods.invalid",
+            "schema": [
+                {"columnName": "customer_id", "columnIndex": 0},
+                {"columnName": "amount", "columnIndex": 2},
+            ],
+        }),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        scope_lineage.MetadataFileError,
+        match="schema_column_indices_not_contiguous",
+    ):
+        scope_lineage.load_schema(metadata_path)
+
+
 def test_select_star_example_expands_and_uses_target_binding(tmp_path) -> None:
     project_root = Path(__file__).resolve().parents[2]
     output = tmp_path / "output"
@@ -267,7 +334,7 @@ def test_select_star_example_expands_and_uses_target_binding(tmp_path) -> None:
         "--sql-file",
         str(project_root / "examples" / "sql" / "select_star_with_schema.sql"),
         "--schema",
-        str(project_root / "examples" / "metadata" / "schema_info.csv"),
+        str(project_root / "examples" / "metadata" / "schema_info.json"),
         "--target-ddl-metadata",
         str(project_root / "examples" / "metadata" / "target_tables"),
         "--out",
