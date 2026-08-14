@@ -98,7 +98,7 @@ Both excerpts are real output, not hand-written summaries. Reproduce them with:
 ```bash
 scope-lineage parse \
   --sql-file examples/sql/order_channel_metrics.sql \
-  --schema examples/metadata/schema_info.csv \
+  --schema examples/metadata/schema_info.json \
   --target-ddl-metadata examples/metadata/target_tables \
   --out /tmp/scope-lineage
 # then read end_to_end_lineage in /tmp/scope-lineage/order_channel_metrics/lineage.json
@@ -242,7 +242,7 @@ Parse one SQL file:
 ```bash
 scope-lineage parse \
   --sql-file examples/sql/customer_profile_daily.sql \
-  --schema examples/metadata/schema_info.csv \
+  --schema examples/metadata/schema_info.json \
   --target-ddl-metadata examples/metadata/target_tables \
   --out /tmp/scope-lineage
 ```
@@ -252,7 +252,7 @@ Parse one scheduler task export in the current `meta/query_time/data_source` for
 ```bash
 scope-lineage parse \
   --task-file examples/tasks/customer/customer_profile_daily.json \
-  --schema examples/metadata/schema_info.csv \
+  --schema examples/metadata/schema_info.json \
   --target-ddl-metadata examples/metadata/target_tables \
   --out /tmp/scope-lineage
 ```
@@ -262,7 +262,7 @@ Parse a task directory recursively:
 ```bash
 scope-lineage parse \
   --input-dir examples/tasks \
-  --schema examples/metadata/schema_info.csv \
+  --schema examples/metadata/schema_info.json \
   --target-ddl-metadata examples/metadata/target_tables \
   --out /tmp/scope-lineage-corpus
 ```
@@ -320,7 +320,21 @@ Task JSON may use the current scheduler-export wrapper:
 }
 ```
 
-Schema metadata accepts CSV or JSON. A production-shaped CSV can carry types and comments:
+Rich JSON with `columnIndex` and DDL is the recommended source-schema format. A parseable DDL
+defines field order; without DDL, fields are sorted by `columnIndex`:
+
+```json
+{
+  "table_name": "ods.customer_base",
+  "schema": [
+    {"columnName": "customer_id", "columnType": "bigint", "columnIndex": 0},
+    {"columnName": "customer_name", "columnType": "string", "columnIndex": 1}
+  ],
+  "ddl": "CREATE TABLE ods.customer_base (customer_id BIGINT, customer_name STRING)"
+}
+```
+
+CSV is a compatibility fallback. Rows for each table are read in file order:
 
 ```csv
 table_name,column_name,column_type,column_comment
@@ -328,9 +342,11 @@ ods.customer_base,customer_id,bigint,Synthetic customer identifier
 ods.customer_base,customer_name,string,Synthetic customer name
 ```
 
-`--target-ddl-metadata` accepts one JSON file or a directory with one document per target table.
-Schema metadata resolves source fields and expands `SELECT *`; target metadata provides
-authoritative target order for INSERT binding.
+CSV has no explicit `columnIndex` or DDL validation, so do not rely on it for `SELECT *` when the
+exporter cannot guarantee row order. Rich JSON files or directories are accepted by `--schema`;
+`--target-ddl-metadata` accepts the same structure with one document per target table. A parseable
+DDL is the primary authority for target structure and order. Source Schema metadata resolves fields
+and expands `SELECT *`; target metadata provides authoritative target order for INSERT binding.
 
 ## Outputs
 

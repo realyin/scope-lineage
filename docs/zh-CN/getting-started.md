@@ -124,11 +124,67 @@ scope-lineage parse \
 ## 4. 添加元数据，提高字段血缘完整度
 
 不传元数据也能解析显式字段。遇到 `SELECT *`、目标字段位置绑定或需要类型和注释时，应补充
-Schema 和目标表元数据。
+Schema 和目标表元数据。这是两类用途不同的输入：
 
-### 源表 Schema
+| 输入 | 推荐格式 | 解决的问题 |
+| --- | --- | --- |
+| `--schema` | 含 `schema[]` 和可选 `ddl` 的 JSON 文件/目录；CSV 仅作候补 | 提供源表字段，按权威顺序展开 `SELECT *`，补充类型和注释。 |
+| `--target-ddl-metadata` | 含 `schema[]` 和 `ddl` 的 JSON | 按权威目标表结构绑定 INSERT 投影，识别字段位置和分区。 |
 
-新建 `schema.csv`：
+### 源表 Schema：JSON 优先
+
+新建 `ods.orders_metadata.json`。推荐同时提供 `schema[].columnIndex` 和 DDL：
+
+```json
+{
+  "table_name": "ods.orders",
+  "full_table_name": "spark_catalog.ods.orders",
+  "schema": [
+    {
+      "columnName": "customer_id",
+      "columnType": "bigint",
+      "columnComment": "Synthetic customer identifier",
+      "columnIndex": 0,
+      "isPartition": 0
+    },
+    {
+      "columnName": "amount",
+      "columnType": "decimal(18,2)",
+      "columnComment": "Synthetic order amount",
+      "columnIndex": 1,
+      "isPartition": 0
+    },
+    {
+      "columnName": "status",
+      "columnType": "string",
+      "columnComment": "Synthetic order status",
+      "columnIndex": 2,
+      "isPartition": 0
+    }
+  ],
+  "ddl": "CREATE TABLE spark_catalog.ods.orders (customer_id BIGINT, amount DECIMAL(18,2), status STRING) USING iceberg",
+  "query_time": "2026-08-14 10:00:00",
+  "data_source": "catalog_api"
+}
+```
+
+解析时传入：
+
+```bash
+scope-lineage parse \
+  --sql-file demo.sql \
+  --schema ods.orders_metadata.json \
+  --out ./scope-lineage-output
+```
+
+`--schema` 也可以接收一个目录，目录中每张源表放一份这种 JSON。源表字段顺序的实际优先级是：
+
+1. `ddl` 能成功解析时，以 DDL 字段顺序为准；
+2. 没有 DDL 时，按 `schema[].columnIndex` 排序，序号必须从 0 开始且连续；
+3. 兼容的轻量 JSON 没有 `columnIndex` 时，按 `columns[]` 数组顺序；
+4. CSV 最后按文件行序处理。
+
+CSV 是兼容候补格式。同一张表的文件行序会被当作字段顺序：
 
 ```csv
 table_name,column_name,column_type,column_comment
@@ -137,29 +193,66 @@ ods.orders,amount,"decimal(18,2)",Synthetic order amount
 ods.orders,status,string,Synthetic order status
 ```
 
-解析时传入：
+CSV 没有显式 `columnIndex`，也没有 DDL 可用于交叉校验。如果导出端不能保证行序，就不要依赖
+CSV 展开 `SELECT *`。
 
-```bash
-scope-lineage parse \
-  --sql-file demo.sql \
-  --schema schema.csv \
-  --out ./scope-lineage-output
-```
-
-字段顺序会用于展开 `SELECT *`，因此 Schema 应与真实源表顺序一致。`--schema` 也支持 JSON。
-
-### 目标表 DDL/Schema
+### 目标表 DDL/Schema：权威 JSON
 
 `--target-ddl-metadata` 接收一个 JSON 文件或目录，用于提供目标表的权威字段名、顺序、类型和
-分区信息：
+分区信息。新建 `mart.order_summary_metadata.json`：
+
+```json
+{
+  "table_name": "mart.order_summary",
+  "full_table_name": "spark_catalog.mart.order_summary",
+  "schema": [
+    {
+      "columnName": "customer_id",
+      "columnType": "bigint",
+      "columnComment": "Synthetic customer identifier",
+      "columnIndex": 0,
+      "isPartition": 0
+    },
+    {
+      "columnName": "order_count",
+      "columnType": "bigint",
+      "columnComment": "Order count",
+      "columnIndex": 1,
+      "isPartition": 0
+    },
+    {
+      "columnName": "total_amount",
+      "columnType": "decimal(18,2)",
+      "columnComment": "Total order amount",
+      "columnIndex": 2,
+      "isPartition": 0
+    }
+  ],
+  "ddl": "CREATE TABLE spark_catalog.mart.order_summary (customer_id BIGINT, order_count BIGINT, total_amount DECIMAL(18,2)) USING iceberg",
+  "query_time": "2026-08-14 10:00:00",
+  "data_source": "catalog_api"
+}
+```
+
+解析时同时传入源表和目标表元数据：
 
 ```bash
 scope-lineage parse \
   --sql-file demo.sql \
-  --schema schema.csv \
-  --target-ddl-metadata ./target-tables \
+  --schema ods.orders_metadata.json \
+  --target-ddl-metadata mart.order_summary_metadata.json \
   --out ./scope-lineage-output
 ```
+
+目标结构的实际优先级是：
+
+1. `ddl` 能成功解析时，以 DDL 中的字段顺序和分区定义为准；
+2. `schema[]` 按字段名与 DDL 交叉校验，并提供类型、注释和 `columnIndex`；
+3. 没有 DDL 时按 `schema[].columnIndex` 排序，序号必须从 0 开始且连续；
+4. CSV 不能作为 `--target-ddl-metadata`，它只属于源表 `--schema` 的候补格式。
+
+如果同一个富 JSON 目录包含全部源表和目标表，可以把该目录同时传给 `--schema` 和
+`--target-ddl-metadata`；前者提供源字段展开，后者只对本次写入的目标表执行位置绑定。
 
 目标元数据的 JSON 结构和版本选择规则见
 [目标表 DDL/Schema 元数据](input-formats.md#目标表-ddlschema-元数据)。
@@ -169,7 +262,7 @@ scope-lineage parse \
 ```bash
 scope-lineage parse \
   --task-file examples/tasks/customer/customer_profile_daily.json \
-  --schema examples/metadata/schema_info.csv \
+  --schema examples/metadata/schema_info.json \
   --target-ddl-metadata examples/metadata/target_tables \
   --out /tmp/scope-lineage
 ```
@@ -205,8 +298,8 @@ scope-lineage parse \
 ```bash
 scope-lineage parse \
   --input-dir exported-tasks \
-  --schema schema.csv \
-  --target-ddl-metadata target-tables \
+  --schema table-metadata \
+  --target-ddl-metadata table-metadata \
   --out ./output
 ```
 
