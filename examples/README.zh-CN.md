@@ -7,8 +7,8 @@ examples/
 ├── sql/                    # 直接交给 Core 的 Spark SQL 文件
 ├── tasks/                  # 调度平台导出的 task JSON（支持递归目录）
 └── metadata/
-    ├── schema_info.csv     # 源表字段、类型和注释
-    ├── schema_info.json    # 同一 Schema 契约的 JSON 示例
+    ├── schema_info.json    # 推荐：字段序号、DDL、类型和注释
+    ├── schema_info.csv     # 候补：按行序读取的兼容格式
     └── target_tables/      # 每张目标表一份 DDL/Schema JSON
 ```
 
@@ -30,7 +30,7 @@ examples/
 ```bash
 scope-lineage parse \
   --sql-file examples/sql/customer_profile_daily.sql \
-  --schema examples/metadata/schema_info.csv \
+  --schema examples/metadata/schema_info.json \
   --target-ddl-metadata examples/metadata/target_tables \
   --out /tmp/scope-lineage/sql
 ```
@@ -40,7 +40,7 @@ scope-lineage parse \
 ```bash
 scope-lineage parse \
   --task-file examples/tasks/customer/customer_profile_daily.json \
-  --schema examples/metadata/schema_info.csv \
+  --schema examples/metadata/schema_info.json \
   --target-ddl-metadata examples/metadata/target_tables \
   --out /tmp/scope-lineage/task
 ```
@@ -50,7 +50,7 @@ scope-lineage parse \
 ```bash
 scope-lineage parse \
   --input-dir examples/tasks \
-  --schema examples/metadata/schema_info.csv \
+  --schema examples/metadata/schema_info.json \
   --target-ddl-metadata examples/metadata/target_tables \
   --out /tmp/scope-lineage/corpus
 ```
