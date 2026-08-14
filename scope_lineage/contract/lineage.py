@@ -125,7 +125,12 @@ def to_lineage_json(result: ScopeLineageResult, indent: int = 2) -> str:
     return to_json(result, indent=indent)
 
 
-def write_lineage(result: ScopeLineageResult, output_dir: str | Path) -> Path:
+def write_lineage(
+    result: ScopeLineageResult,
+    output_dir: str | Path,
+    *,
+    compact: bool = False,
+) -> Path:
     """Validate and write only lineage.json plus diagnostics.json."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -147,9 +152,23 @@ def write_lineage(result: ScopeLineageResult, output_dir: str | Path) -> Path:
 
     validate_diagnostics_document(diagnostics_data)
     with open(output_dir / "lineage.json", "w", encoding="utf-8") as stream:
-        json.dump(lineage_data, stream, ensure_ascii=False, indent=2, default=str)
+        json.dump(
+            lineage_data,
+            stream,
+            ensure_ascii=False,
+            indent=None if compact else 2,
+            separators=(",", ":") if compact else None,
+            default=str,
+        )
     with open(output_dir / "diagnostics.json", "w", encoding="utf-8") as stream:
-        json.dump(diagnostics_data, stream, ensure_ascii=False, indent=2, default=str)
+        json.dump(
+            diagnostics_data,
+            stream,
+            ensure_ascii=False,
+            indent=None if compact else 2,
+            separators=(",", ":") if compact else None,
+            default=str,
+        )
     return output_dir
 
 def _result_to_dict(r: ScopeLineageResult) -> dict:

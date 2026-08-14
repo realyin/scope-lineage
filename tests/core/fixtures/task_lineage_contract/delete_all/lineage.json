@@ -1,0 +1,111 @@
+{
+  "schema_version": "2.0",
+  "artifact_kind": "task_lineage",
+  "task_id": "golden_delete_all",
+  "parse_status": "ok",
+  "syntax_status": "strict_ok",
+  "syntax_errors": [],
+  "analysis_status": {
+    "status": "complete",
+    "blocking_reasons": []
+  },
+  "statement_sequence": [
+    {
+      "statement_id": "stmt:001",
+      "statement_index": 0,
+      "stmt_kind": "DELETE",
+      "category": "row_mutation",
+      "model_status": "modeled",
+      "normalized_sql": "DELETE FROM mart.target",
+      "target_table": "mart.target",
+      "input_states": [
+        "state:mart.target:000"
+      ],
+      "output_state": "state:mart.target:001",
+      "effect": {
+        "rowset_effect": {
+          "operation": "DELETE_ALL_ROWS",
+          "predicate_expression": null,
+          "membership_sources": []
+        },
+        "column_effect": {
+          "value_mode": "NO_SURVIVING_ROWS",
+          "value_changed_columns": [],
+          "row_membership_affected_columns": [
+            "*"
+          ]
+        }
+      }
+    }
+  ],
+  "table_state_graph": {
+    "nodes": [
+      {
+        "state_id": "state:mart.target:000",
+        "table": "mart.target",
+        "ordinal": 0,
+        "known_empty": false,
+        "columns_known": true,
+        "producer_statement_id": null
+      },
+      {
+        "state_id": "state:mart.target:001",
+        "table": "mart.target",
+        "ordinal": 1,
+        "known_empty": true,
+        "columns_known": true,
+        "producer_statement_id": "stmt:001"
+      }
+    ],
+    "edges": [
+      {
+        "from": "state:mart.target:000",
+        "to": "state:mart.target:001",
+        "statement_id": "stmt:001",
+        "effect": "RESET"
+      }
+    ]
+  },
+  "final_table_states": {
+    "mart.target": "state:mart.target:001"
+  },
+  "statement_lineage": {},
+  "end_to_end_lineage": [
+    {
+      "target_state": "state:mart.target:001",
+      "table": "mart.target",
+      "column": "id",
+      "value_sources": [],
+      "row_membership_sources": [],
+      "value_condition_sources": [],
+      "trace_complete": true,
+      "missing_reasons": []
+    },
+    {
+      "target_state": "state:mart.target:001",
+      "table": "mart.target",
+      "column": "value",
+      "value_sources": [],
+      "row_membership_sources": [],
+      "value_condition_sources": [],
+      "trace_complete": true,
+      "missing_reasons": []
+    }
+  ],
+  "task_dependencies": {},
+  "diagnostics": {
+    "fallback_used": false,
+    "warning_count": 0,
+    "warning_types": {},
+    "lineage_fact_gap_count": 0,
+    "lineage_fact_gap_types": {},
+    "lineage_fact_gap_samples": [],
+    "stats": {
+      "statement_count": 1,
+      "modeled_statement_count": 1,
+      "ignored_statement_count": 0,
+      "failed_statement_count": 0
+    },
+    "full_diagnostics_file": "diagnostics.json"
+  }
+}

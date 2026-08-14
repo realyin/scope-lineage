@@ -1,0 +1,28 @@
+{
+  "schema_version": "2.0",
+  "task_id": "golden_delete_all",
+  "analysis_status": {
+    "status": "complete",
+    "blocking_reasons": []
+  },
+  "warnings": [],
+  "lineage_fact_gaps": [],
+  "metadata_coverage": {
+    "referenced_table_count": 1,
+    "covered_table_count": 1,
+    "missing_table_count": 0,
+    "covered_tables": [
+      "mart.target"
+    ],
+    "missing_tables": [],
+    "schema_source_count": 0,
+    "metadata_conflicts": []
+  },
+  "stats": {
+    "statement_count": 1,
+    "modeled_statement_count": 1,
+    "ignored_statement_count": 0,
+    "failed_statement_count": 0
+  },
+  "statement_diagnostics": {}
+}

@@ -1,0 +1,7 @@
+{
+  "task_id": "golden_delete_all",
+  "sql": "DELETE FROM mart.target",
+  "schema": {
+    "mart.target": ["id", "value"]
+  }
+}

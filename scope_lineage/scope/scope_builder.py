@@ -75,6 +75,16 @@ def _statement_kind_label(tree) -> str:
     return type(tree).__name__.upper()
 
 
+def _statement_category(statement_kind: str) -> str:
+    if statement_kind in {"DELETE", "UPDATE", "TRUNCATETABLE"}:
+        return "row_mutation"
+    if statement_kind in {"SET", "USE"}:
+        return "control_statement"
+    if statement_kind == "SEMICOLON":
+        return "empty_statement"
+    return "unsupported_statement"
+
+
 def _collect_insert_trees(sql: str) -> tuple[list, list[dict]]:
     """Top-level write statements, plus a record of every statement skipped.
 
@@ -85,7 +95,7 @@ def _collect_insert_trees(sql: str) -> tuple[list, list[dict]]:
     sql = _normalize_directory_insert_sql(sql)
     trees = sqlglot.parse(sql, dialect=DIALECT, **PARSE_OPTS)
     write_trees, skipped = [], []
-    for tree in trees:
+    for statement_index, tree in enumerate(trees):
         if tree is None:
             continue
         if (
@@ -96,8 +106,18 @@ def _collect_insert_trees(sql: str) -> tuple[list, list[dict]]:
         ):
             write_trees.append(tree)
             continue
+        statement_kind = _statement_kind_label(tree)
+        category = _statement_category(statement_kind)
         skipped.append({
-            "statement_kind": _statement_kind_label(tree),
+            "statement_id": f"stmt:{statement_index + 1:03d}",
+            "statement_index": statement_index,
+            "statement_kind": statement_kind,
+            "category": category,
+            "model_status": (
+                "ignored"
+                if category in {"control_statement", "empty_statement"}
+                else "unsupported"
+            ),
             "reason": "not_a_table_write_from_select",
             "supported": SUPPORTED_STATEMENTS,
         })

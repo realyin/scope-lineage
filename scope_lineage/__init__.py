@@ -5,10 +5,13 @@
 from .contract import (
     to_lineage_dict,
     to_lineage_json,
+    to_task_lineage_dict,
+    to_task_lineage_json,
     validate_cross_references,
     validate_diagnostics_document,
     validate_lineage_document,
     write_lineage,
+    write_task_lineage,
 )
 from .contract.lineage import to_dict, to_json
 from .metadata.schema_metadata import (
@@ -20,6 +23,7 @@ from .metadata.schema_metadata import (
     check_metadata_file,
     catalog_prefixes,
     load_schema,
+    load_schema_sources,
     materialize_schema,
     metadata_dict_reader,
     normalize_schema_map,
@@ -57,6 +61,7 @@ from .scope.scope_types import (
     SourceRef,
 )
 from .scope.sqlglot_config import suppress_invalid_json_path_warnings
+from .scope.task_lineage import TaskLineageResult, parse_task_lineage
 from .scope.types import Column, ColumnRef, JoinKey, LineageResult, Unresolved
 from .serialize.scope_profile import build_scope_profile
 
@@ -88,6 +93,7 @@ PUBLIC_CORE_API = frozenset({
     "TargetColumnMetadata",
     "TargetMetadataMap",
     "TargetTableMetadata",
+    "TaskLineageResult",
     "Unresolved",
     "build_end_to_end_lineage",
     "build_scope_profile",
@@ -96,6 +102,7 @@ PUBLIC_CORE_API = frozenset({
     "check_metadata_file",
     "extract_qualified_field_refs",
     "load_schema",
+    "load_schema_sources",
     "load_target_table_metadata",
     "lookup_target_table_metadata",
     "materialize_schema",
@@ -104,6 +111,7 @@ PUBLIC_CORE_API = frozenset({
     "normalize_table_name",
     "parse_all_scope_lineage",
     "parse_scope_lineage",
+    "parse_task_lineage",
     "resolve_display_expression",
     "suppress_invalid_json_path_warnings",
     "table_details_for_table",
@@ -111,10 +119,13 @@ PUBLIC_CORE_API = frozenset({
     "to_json",
     "to_lineage_dict",
     "to_lineage_json",
+    "to_task_lineage_dict",
+    "to_task_lineage_json",
     "validate_diagnostics_document",
     "validate_cross_references",
     "validate_lineage_document",
     "write_lineage",
+    "write_task_lineage",
 })
 
 __all__ = sorted(PUBLIC_CORE_API)

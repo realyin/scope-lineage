@@ -278,6 +278,21 @@ scope-lineage parse \
 目录会递归发现 `*.json`。嵌套目录结构会保留到输出目录中；一个任务包含多条支持的写表语句时，
 每条语句分别生成产物。只有调用方明确接受失败输入或失败语句时，才使用 `--allow-partial`。
 
+需要保留整个任务的语句顺序，并建模 DELETE、TRUNCATE、UPDATE、字段值与行集合影响时，使用
+任务级 2.0 契约：
+
+~~~bash
+scope-lineage parse \
+  --task-file examples/tasks/customer/customer_profile_daily.json \
+  --contract-version 2.0 \
+  --schema examples/metadata/schema_info.json \
+  --schema-fallback examples/metadata/schema_info.csv \
+  --quality-policy strict \
+  --out /tmp/scope-lineage-v2
+~~~
+
+详见 [Task Lineage 2.0](docs/zh-CN/task-lineage-v2.md)。
+
 更多完整输入见 [examples/README.zh-CN.md](examples/README.zh-CN.md)，字段级说明见
 [Core 输入格式](docs/zh-CN/input-formats.md)。
 
