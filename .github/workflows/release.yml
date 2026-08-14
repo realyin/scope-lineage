@@ -17,6 +17,28 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Verify release tag matches package version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          version = tomllib.loads(
+              Path("pyproject.toml").read_text(encoding="utf-8")
+          )["project"]["version"]
+          actual_tag = os.environ["RELEASE_TAG"]
+          expected_tag = f"v{version}"
+          if actual_tag != expected_tag:
+              raise SystemExit(
+                  f"Release tag {actual_tag!r} does not match package version "
+                  f"{version!r}; expected {expected_tag!r}"
+              )
+          print(f"Release tag {actual_tag} matches package version {version}")
+          PY
+
       - name: Build distributions
         run: |
           python -m pip install --upgrade pip build
