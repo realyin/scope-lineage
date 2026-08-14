@@ -4,6 +4,14 @@
 
 Initial public release preparation:
 
+- Added opt-in task-level `schema_version: "2.0"` contracts that preserve statement order and
+  model table-state transitions across INSERT, overwrite, CTAS, MERGE, DELETE, UPDATE, and
+  TRUNCATE, including partition-scoped replacement/reset behavior
+- Separated final-field value provenance, value-condition provenance, and row-membership
+  provenance so DELETE predicates are not misrepresented as field value sources
+- Added schema fallback merging with conflict reporting, metadata coverage diagnostics, target
+  binding reason codes, compact JSON output, and configurable CLI quality gates
+- Added a SQLGlot compatibility CI matrix for the oldest, previous, and latest supported releases
 - Adapted MERGE scope handling for SQLGlot 30.17 and constrained the verified range to
   `sqlglot>=30,<30.18`; MERGE now uses an explicit USING scope instead of SQLGlot's removed
   root Subquery wrapper

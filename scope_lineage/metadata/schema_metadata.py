@@ -73,6 +73,8 @@ class SchemaMap(dict):
             for table, detail in (table_details or {}).items()
         }
         self.table_detail_provider = None
+        self.metadata_conflicts: list[dict] = []
+        self.metadata_source_count = 1
 
 
 class SchemaProvider(Protocol):
@@ -330,6 +332,63 @@ def load_schema(
             path, sanitize_nul=sanitize_nul, provenance=provenance
         )
     raise ValueError(f"Unsupported schema metadata file type: {path}")
+
+
+def load_schema_sources(
+    paths: Iterable[str | Path],
+    *,
+    sanitize_nul: bool = False,
+    provenance: list[dict] | None = None,
+) -> SchemaMap:
+    """Load ordered schema sources, keeping the first table definition as authoritative.
+
+    Later sources fill tables missing from earlier sources. A conflicting definition for an
+    already-covered table is recorded instead of being silently merged or overwriting DDL order.
+    """
+    loaded = [
+        load_schema(
+            path,
+            sanitize_nul=sanitize_nul,
+            provenance=provenance,
+        )
+        for path in paths
+    ]
+    if not loaded:
+        return SchemaMap()
+    result = SchemaMap(
+        loaded[0],
+        column_details=getattr(loaded[0], "column_details", {}),
+        table_details=getattr(loaded[0], "table_details", {}),
+    )
+    result.table_detail_provider = getattr(
+        loaded[0],
+        "table_detail_provider",
+        None,
+    )
+    for source_index, fallback in enumerate(loaded[1:], start=1):
+        for table, columns in fallback.items():
+            if table not in result:
+                result[table] = list(columns)
+                details = getattr(fallback, "column_details", {}).get(table)
+                if details is not None:
+                    result.column_details[table] = [
+                        dict(item) for item in details
+                    ]
+                table_detail = getattr(fallback, "table_details", {}).get(table)
+                if table_detail is not None:
+                    result.table_details[table] = dict(table_detail)
+                continue
+            if list(result[table]) != list(columns):
+                result.metadata_conflicts.append({
+                    "table": table,
+                    "authoritative_columns": list(result[table]),
+                    "fallback_columns": list(columns),
+                    "fallback_source_index": source_index,
+                    "resolution": "kept_authoritative",
+                })
+    result.metadata_source_count = len(loaded)
+    return result
+
 
 def load_schema_csv(
     path: str | Path,

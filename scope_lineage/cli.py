@@ -10,10 +10,11 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-from .contract import write_lineage
-from .metadata.schema_metadata import load_schema
+from .contract import write_lineage, write_task_lineage
+from .metadata.schema_metadata import load_schema, load_schema_sources
 from .metadata.target_table_metadata import load_target_table_metadata
 from .scope.scope_builder import parse_all_scope_lineage
+from .scope.task_lineage import parse_task_lineage
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -43,6 +44,15 @@ def main(argv: list[str] | None = None) -> int:
         help="Optional source-table schema file or rich-JSON directory (JSON preferred; CSV fallback)",
     )
     parse_cmd.add_argument(
+        "--schema-fallback",
+        action="append",
+        default=[],
+        help=(
+            "Additional CSV/JSON schema source used only for tables absent from "
+            "the authoritative --schema; repeatable"
+        ),
+    )
+    parse_cmd.add_argument(
         "--target-ddl-metadata",
         help="Optional authoritative target-table DDL/Schema JSON file or directory",
     )
@@ -62,6 +72,45 @@ def main(argv: list[str] | None = None) -> int:
         "--allow-partial",
         action="store_true",
         help="Return zero even when a statement produced parse_status=failed",
+    )
+    parse_cmd.add_argument(
+        "--contract-version",
+        choices=("1.0", "2.0"),
+        default="1.0",
+        help=(
+            "Output contract: 1.0 keeps one artifact per projection write; "
+            "2.0 emits one task-level ordered table-state artifact"
+        ),
+    )
+    parse_cmd.add_argument(
+        "--compact-json",
+        action="store_true",
+        help="Write the same JSON contract without pretty-print whitespace",
+    )
+    parse_cmd.add_argument(
+        "--quality-policy",
+        choices=("permissive", "balanced", "strict"),
+        default="permissive",
+        help=(
+            "Quality gate: permissive preserves parse-only exit behavior; balanced "
+            "rejects unsupported row mutations; strict also rejects recovered syntax, "
+            "root-impact lineage gaps, and target-binding fallback"
+        ),
+    )
+    parse_cmd.add_argument(
+        "--fail-on-root-gap",
+        action="store_true",
+        help="Return non-zero when a lineage fact gap impacts a final target field",
+    )
+    parse_cmd.add_argument(
+        "--fail-on-unsupported-mutation",
+        action="store_true",
+        help="Return non-zero when DELETE/UPDATE/TRUNCATE is not modeled",
+    )
+    parse_cmd.add_argument(
+        "--fail-on-binding-fallback",
+        action="store_true",
+        help="Return non-zero when authoritative target-field binding falls back",
     )
 
     args = parser.parse_args(argv)
@@ -102,11 +151,18 @@ def _catalog_prefix_override(value: str | None):
 
 
 def _parse_inputs(args: argparse.Namespace) -> int:
-    schema = (
-        load_schema(args.schema, sanitize_nul=args.sanitize_metadata_nul)
-        if args.schema
-        else None
-    )
+    schema_paths = [
+        path
+        for path in [args.schema, *args.schema_fallback]
+        if path
+    ]
+    schema = None
+    if schema_paths:
+        loader = load_schema_sources if len(schema_paths) > 1 else load_schema
+        schema = loader(
+            schema_paths if len(schema_paths) > 1 else schema_paths[0],
+            sanitize_nul=args.sanitize_metadata_nul,
+        )
     target_metadata = (
         load_target_table_metadata(
             args.target_ddl_metadata,
@@ -117,9 +173,22 @@ def _parse_inputs(args: argparse.Namespace) -> int:
     )
     out_root = Path(args.out)
     source_paths, input_root = _source_paths(args)
+    if args.contract_version == "2.0":
+        return _parse_task_inputs_v2(
+            args,
+            schema=schema,
+            target_metadata=target_metadata,
+            out_root=out_root,
+            source_paths=source_paths,
+            input_root=input_root,
+        )
     result_count = 0
     failed_count = 0
     input_failed_count = 0
+    unsupported_mutation_count = 0
+    root_gap_result_count = 0
+    binding_fallback_count = 0
+    recovered_syntax_count = 0
     claimed_output_dirs: dict[Path, Path] = {}
 
     for source_path in source_paths:
@@ -131,6 +200,12 @@ def _parse_inputs(args: argparse.Namespace) -> int:
                 schema=schema,
                 target_metadata=target_metadata,
             )
+            if results:
+                unsupported_mutation_count += sum(
+                    1
+                    for item in results[0].skipped_statements
+                    if item.get("category") == "row_mutation"
+                )
             for result in results:
                 result.task_dependencies = task.task_dependencies
                 task_out = (
@@ -145,11 +220,21 @@ def _parse_inputs(args: argparse.Namespace) -> int:
                         f"{claimed_by}"
                     )
                 claimed_output_dirs[task_out] = source_path
-                write_lineage(result, task_out)
+                write_lineage(result, task_out, compact=args.compact_json)
                 result_count += 1
                 if result.parse_status == "failed":
                     failed_count += 1
                     _print_parse_failure(result)
+                if any(
+                    gap.get("root_impact")
+                    for gap in result.diagnostics.lineage_fact_gaps
+                    if isinstance(gap, dict)
+                ):
+                    root_gap_result_count += 1
+                if result.target_field_binding.get("status") == "fallback":
+                    binding_fallback_count += 1
+                if result.syntax_status == "recovered":
+                    recovered_syntax_count += 1
         except Exception as exc:
             input_failed_count += 1
             print(f"  FAILED {source_path}: {type(exc).__name__}: {exc}", file=sys.stderr)
@@ -158,11 +243,148 @@ def _parse_inputs(args: argparse.Namespace) -> int:
         f"Parsed {result_count} statement(s) from {len(source_paths)} input(s) "
         f"into {out_root} "
         f"(ok={result_count - failed_count}, failed={failed_count}, "
-        f"input_failed={input_failed_count})"
+        f"input_failed={input_failed_count}, "
+        f"unsupported_mutations={unsupported_mutation_count}, "
+        f"root_gap_results={root_gap_result_count}, "
+        f"binding_fallbacks={binding_fallback_count}, "
+        f"recovered_syntax={recovered_syntax_count})"
     )
-    if not failed_count and not input_failed_count:
+    quality_failed = _quality_gate_failed(
+        args,
+        unsupported_mutation_count=unsupported_mutation_count,
+        root_gap_result_count=root_gap_result_count,
+        binding_fallback_count=binding_fallback_count,
+        recovered_syntax_count=recovered_syntax_count,
+    )
+    if not failed_count and not input_failed_count and not quality_failed:
         return 0
+    if quality_failed:
+        return 1
     return 0 if args.allow_partial else 1
+
+
+def _parse_task_inputs_v2(
+    args: argparse.Namespace,
+    *,
+    schema,
+    target_metadata,
+    out_root: Path,
+    source_paths: list[Path],
+    input_root: Path | None,
+) -> int:
+    task_count = 0
+    statement_count = 0
+    modeled_count = 0
+    failed_count = 0
+    input_failed_count = 0
+    partial_task_count = 0
+    unsupported_mutation_count = 0
+    root_gap_result_count = 0
+    binding_fallback_count = 0
+    recovered_syntax_count = 0
+    claimed_output_dirs: dict[Path, Path] = {}
+
+    for source_path in source_paths:
+        try:
+            task = _load_task_input(source_path, input_root, args.task_name)
+            result = parse_task_lineage(
+                task.sql,
+                task_name=task.task_name,
+                schema=schema,
+                target_metadata=target_metadata,
+                task_dependencies=task.task_dependencies,
+            )
+            task_out = (
+                out_root
+                / task.relative_parent
+                / result.task_id.replace("#", "_")
+            )
+            claimed_by = claimed_output_dirs.get(task_out)
+            if claimed_by is not None and claimed_by != source_path:
+                raise ValueError(
+                    f"output directory collision: {task_out} is already used by "
+                    f"{claimed_by}"
+                )
+            claimed_output_dirs[task_out] = source_path
+            write_task_lineage(
+                result,
+                task_out,
+                compact=args.compact_json,
+            )
+            task_count += 1
+            statement_count += len(result.statements)
+            modeled_count += sum(
+                item.get("model_status") == "modeled"
+                for item in result.statements
+            )
+            failed_count += sum(
+                item.get("model_status") == "failed"
+                for item in result.statements
+            )
+            partial_task_count += result.analysis_status.get("status") == "partial"
+            unsupported_mutation_count += sum(
+                item.get("category") == "row_mutation"
+                and item.get("model_status") != "modeled"
+                for item in result.statements
+            )
+            root_gap_result_count += any(
+                gap.get("root_impact")
+                for gap in result.diagnostics.get("lineage_fact_gaps", [])
+                if isinstance(gap, dict)
+            )
+            binding_fallback_count += sum(
+                (lineage.get("target_field_binding") or {}).get("status")
+                == "fallback"
+                for lineage in result.statement_lineage.values()
+            )
+            recovered_syntax_count += result.syntax_status == "recovered"
+        except Exception as exc:
+            input_failed_count += 1
+            print(
+                f"  FAILED {source_path}: {type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
+
+    print(
+        f"Parsed {statement_count} statement(s) from {len(source_paths)} input(s) "
+        f"into {out_root} using contract 2.0 "
+        f"(tasks={task_count}, modeled={modeled_count}, failed={failed_count}, "
+        f"input_failed={input_failed_count}, partial_tasks={partial_task_count}, "
+        f"unsupported_mutations={unsupported_mutation_count}, "
+        f"root_gap_results={root_gap_result_count}, "
+        f"binding_fallbacks={binding_fallback_count}, "
+        f"recovered_syntax={recovered_syntax_count})"
+    )
+    quality_failed = _quality_gate_failed(
+        args,
+        unsupported_mutation_count=unsupported_mutation_count,
+        root_gap_result_count=root_gap_result_count,
+        binding_fallback_count=binding_fallback_count,
+        recovered_syntax_count=recovered_syntax_count,
+    )
+    if not failed_count and not input_failed_count and not quality_failed:
+        return 0
+    if quality_failed:
+        return 1
+    return 0 if args.allow_partial else 1
+
+
+def _quality_gate_failed(
+    args: argparse.Namespace,
+    *,
+    unsupported_mutation_count: int,
+    root_gap_result_count: int,
+    binding_fallback_count: int,
+    recovered_syntax_count: int,
+) -> bool:
+    balanced = args.quality_policy in {"balanced", "strict"}
+    strict = args.quality_policy == "strict"
+    return bool(
+        (unsupported_mutation_count and (balanced or args.fail_on_unsupported_mutation))
+        or (root_gap_result_count and (strict or args.fail_on_root_gap))
+        or (binding_fallback_count and (strict or args.fail_on_binding_fallback))
+        or (recovered_syntax_count and strict)
+    )
 
 
 def _source_paths(args: argparse.Namespace) -> tuple[list[Path], Path | None]:

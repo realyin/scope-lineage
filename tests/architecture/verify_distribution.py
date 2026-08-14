@@ -23,7 +23,9 @@ FORBIDDEN_CORE_PATHS = {
     "scope_lineage/serialize/scope_serializer.py",
 }
 REQUIRED_CORE_PATHS = {
+    "scope_lineage/schemas/diagnostics-v2.schema.json",
     "scope_lineage/schemas/diagnostics.schema.json",
+    "scope_lineage/schemas/lineage-v2.schema.json",
     "scope_lineage/schemas/lineage.schema.json",
 }
 

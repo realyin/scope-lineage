@@ -80,6 +80,31 @@
         }
       }
     },
+    "skipped_statements": {
+      "type": "array",
+      "description": "Top-level statements that contract 1.0 does not model as projection writes.",
+      "items": {
+        "type": "object",
+        "required": ["statement_kind", "reason", "supported"],
+        "additionalProperties": true,
+        "properties": {
+          "statement_id": {"type": "string", "pattern": "^stmt:[0-9]{3,}$"},
+          "statement_index": {"type": "integer", "minimum": 0},
+          "statement_kind": {"type": "string"},
+          "category": {
+            "enum": [
+              "row_mutation",
+              "control_statement",
+              "empty_statement",
+              "unsupported_statement"
+            ]
+          },
+          "model_status": {"enum": ["ignored", "unsupported"]},
+          "reason": {"type": "string"},
+          "supported": {"type": "string"}
+        }
+      }
+    },
     "target_partition_spec": {
       "type": "object",
       "additionalProperties": {
