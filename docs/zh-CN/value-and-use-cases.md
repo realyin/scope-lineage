@@ -8,6 +8,8 @@ Scope Lineage 追踪字段来源，也还原字段经过的查询层、`JOIN`、
 
 仓库中有一份经过完整脱敏的数仓任务。它保留了真实任务的复杂结构，所有表名、字段名、常量、注释、任务信息和样例数据均为公开的合成内容。
 
+完整 SQL 已公开在 GitHub：[`examples/sql/subscription_account_snapshot.sql`](https://github.com/realyin/scope-lineage/blob/main/examples/sql/subscription_account_snapshot.sql)（604 行，约 24 KB）。下面的复杂度统计、字段加工链和 JSON 片段都来自这份 SQL 的实际解析结果。
+
 | 结构 | 数量 |
 | --- | ---: |
 | 物理源表 | 19 |
