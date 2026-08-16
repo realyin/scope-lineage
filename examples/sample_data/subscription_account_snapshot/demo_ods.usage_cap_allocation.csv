@@ -1,0 +1,2 @@
+usage_cap_id,cap_allocation_method,billing_account_type,record_state,usage_cap_type,allocation_ratio,snapshot_date
+CAP-1001,1,4,0,1,demo_allocation_ratio,20250115

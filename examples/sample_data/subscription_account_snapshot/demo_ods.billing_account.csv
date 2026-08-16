@@ -1,0 +1,2 @@
+snapshot_date,subscription_id,original_service_amount,installment_end_type,converted_billing_account_id,billing_account_id,past_due_start_date,billing_account_type,record_state
+20250115,SUBSCRIPTION-1001,demo_original_service_amount,1,demo_converted_billing_account_id,BILLING-ACCOUNT-1001,2025-01-15,4,0

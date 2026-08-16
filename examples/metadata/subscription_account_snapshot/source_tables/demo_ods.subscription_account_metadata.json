@@ -1,0 +1,491 @@
+{
+  "table_name": "demo_ods.subscription_account",
+  "full_table_name": "spark_catalog.demo_ods.subscription_account",
+  "schema": [
+    {
+      "columnName": "schema_attribute_001",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: schema attribute 001",
+      "columnIndex": 0,
+      "isPartition": 0
+    },
+    {
+      "columnName": "invoice_day",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: invoice day",
+      "columnIndex": 1,
+      "isPartition": 0
+    },
+    {
+      "columnName": "schema_attribute_002",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: schema attribute 002",
+      "columnIndex": 2,
+      "isPartition": 0
+    },
+    {
+      "columnName": "schema_attribute_003",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: schema attribute 003",
+      "columnIndex": 3,
+      "isPartition": 0
+    },
+    {
+      "columnName": "service_close_reason",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: service close reason",
+      "columnIndex": 4,
+      "isPartition": 0
+    },
+    {
+      "columnName": "service_end_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: service end date",
+      "columnIndex": 5,
+      "isPartition": 0
+    },
+    {
+      "columnName": "subscription_status",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: subscription status",
+      "columnIndex": 6,
+      "isPartition": 0
+    },
+    {
+      "columnName": "previous_invoice_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: previous invoice date",
+      "columnIndex": 7,
+      "isPartition": 0
+    },
+    {
+      "columnName": "schema_attribute_004",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: schema attribute 004",
+      "columnIndex": 8,
+      "isPartition": 0
+    },
+    {
+      "columnName": "schema_attribute_005",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: schema attribute 005",
+      "columnIndex": 9,
+      "isPartition": 0
+    },
+    {
+      "columnName": "schema_attribute_006",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: schema attribute 006",
+      "columnIndex": 10,
+      "isPartition": 0
+    },
+    {
+      "columnName": "service_start_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: service start date",
+      "columnIndex": 11,
+      "isPartition": 0
+    },
+    {
+      "columnName": "past_due_start_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: past due start date",
+      "columnIndex": 12,
+      "isPartition": 0
+    },
+    {
+      "columnName": "schema_attribute_007",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: schema attribute 007",
+      "columnIndex": 13,
+      "isPartition": 0
+    },
+    {
+      "columnName": "maximum_warning_days",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: maximum warning days",
+      "columnIndex": 14,
+      "isPartition": 0
+    },
+    {
+      "columnName": "signup_request_id",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: signup request id",
+      "columnIndex": 15,
+      "isPartition": 0
+    },
+    {
+      "columnName": "signup_channel_code",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: signup channel code",
+      "columnIndex": 16,
+      "isPartition": 0
+    },
+    {
+      "columnName": "pre_extension_past_due_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: pre extension past due date",
+      "columnIndex": 17,
+      "isPartition": 0
+    },
+    {
+      "columnName": "schema_attribute_008",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: schema attribute 008",
+      "columnIndex": 18,
+      "isPartition": 0
+    },
+    {
+      "columnName": "schema_attribute_009",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: schema attribute 009",
+      "columnIndex": 19,
+      "isPartition": 0
+    },
+    {
+      "columnName": "previous_payment_due_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: previous payment due date",
+      "columnIndex": 20,
+      "isPartition": 0
+    },
+    {
+      "columnName": "next_payment_due_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: next payment due date",
+      "columnIndex": 21,
+      "isPartition": 0
+    },
+    {
+      "columnName": "past_due_status",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: past due status",
+      "columnIndex": 22,
+      "isPartition": 0
+    },
+    {
+      "columnName": "schema_attribute_010",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: schema attribute 010",
+      "columnIndex": 23,
+      "isPartition": 0
+    },
+    {
+      "columnName": "subscriber_id",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: subscriber id",
+      "columnIndex": 24,
+      "isPartition": 0
+    },
+    {
+      "columnName": "schema_attribute_011",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: schema attribute 011",
+      "columnIndex": 25,
+      "isPartition": 0
+    },
+    {
+      "columnName": "grace_period_days",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: grace period days",
+      "columnIndex": 26,
+      "isPartition": 0
+    },
+    {
+      "columnName": "cooling_off_days",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: cooling off days",
+      "columnIndex": 27,
+      "isPartition": 0
+    },
+    {
+      "columnName": "subscription_purpose",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: subscription purpose",
+      "columnIndex": 28,
+      "isPartition": 0
+    },
+    {
+      "columnName": "schema_attribute_012",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: schema attribute 012",
+      "columnIndex": 29,
+      "isPartition": 0
+    },
+    {
+      "columnName": "wallet_account_token",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: wallet account token",
+      "columnIndex": 30,
+      "isPartition": 0
+    },
+    {
+      "columnName": "schema_attribute_013",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: schema attribute 013",
+      "columnIndex": 31,
+      "isPartition": 0
+    },
+    {
+      "columnName": "invoice_enabled_flag",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: invoice enabled flag",
+      "columnIndex": 32,
+      "isPartition": 0
+    },
+    {
+      "columnName": "created_at",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: created at",
+      "columnIndex": 33,
+      "isPartition": 0
+    },
+    {
+      "columnName": "schema_attribute_014",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: schema attribute 014",
+      "columnIndex": 34,
+      "isPartition": 0
+    },
+    {
+      "columnName": "schema_attribute_015",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: schema attribute 015",
+      "columnIndex": 35,
+      "isPartition": 0
+    },
+    {
+      "columnName": "snapshot_record_id",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: snapshot record id",
+      "columnIndex": 36,
+      "isPartition": 0
+    },
+    {
+      "columnName": "schema_attribute_016",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: schema attribute 016",
+      "columnIndex": 37,
+      "isPartition": 0
+    },
+    {
+      "columnName": "schema_attribute_017",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: schema attribute 017",
+      "columnIndex": 38,
+      "isPartition": 0
+    },
+    {
+      "columnName": "first_payment_due_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: first payment due date",
+      "columnIndex": 39,
+      "isPartition": 0
+    },
+    {
+      "columnName": "parent_subscription_id",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: parent subscription id",
+      "columnIndex": 40,
+      "isPartition": 0
+    },
+    {
+      "columnName": "wallet_open_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: wallet open date",
+      "columnIndex": 41,
+      "isPartition": 0
+    },
+    {
+      "columnName": "record_state",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: record state",
+      "columnIndex": 42,
+      "isPartition": 0
+    },
+    {
+      "columnName": "schema_attribute_018",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: schema attribute 018",
+      "columnIndex": 43,
+      "isPartition": 0
+    },
+    {
+      "columnName": "application_code",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: application code",
+      "columnIndex": 44,
+      "isPartition": 0
+    },
+    {
+      "columnName": "service_close_time",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: service close time",
+      "columnIndex": 45,
+      "isPartition": 0
+    },
+    {
+      "columnName": "schema_attribute_019",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: schema attribute 019",
+      "columnIndex": 46,
+      "isPartition": 0
+    },
+    {
+      "columnName": "original_service_end_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: original service end date",
+      "columnIndex": 47,
+      "isPartition": 0
+    },
+    {
+      "columnName": "service_close_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: service close date",
+      "columnIndex": 48,
+      "isPartition": 0
+    },
+    {
+      "columnName": "schema_attribute_020",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: schema attribute 020",
+      "columnIndex": 49,
+      "isPartition": 0
+    },
+    {
+      "columnName": "next_invoice_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: next invoice date",
+      "columnIndex": 50,
+      "isPartition": 0
+    },
+    {
+      "columnName": "invoice_mode",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: invoice mode",
+      "columnIndex": 51,
+      "isPartition": 0
+    },
+    {
+      "columnName": "subscription_id",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: subscription id",
+      "columnIndex": 52,
+      "isPartition": 0
+    },
+    {
+      "columnName": "warning_period_start_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: warning period start date",
+      "columnIndex": 53,
+      "isPartition": 0
+    },
+    {
+      "columnName": "original_warning_period_start_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: original warning period start date",
+      "columnIndex": 54,
+      "isPartition": 0
+    },
+    {
+      "columnName": "usage_cap_id",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: usage cap id",
+      "columnIndex": 55,
+      "isPartition": 0
+    },
+    {
+      "columnName": "schema_attribute_021",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: schema attribute 021",
+      "columnIndex": 56,
+      "isPartition": 0
+    },
+    {
+      "columnName": "updated_at",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: updated at",
+      "columnIndex": 57,
+      "isPartition": 0
+    },
+    {
+      "columnName": "maximum_past_due_days",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: maximum past due days",
+      "columnIndex": 58,
+      "isPartition": 0
+    },
+    {
+      "columnName": "schema_attribute_022",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: schema attribute 022",
+      "columnIndex": 59,
+      "isPartition": 0
+    },
+    {
+      "columnName": "schema_attribute_023",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: schema attribute 023",
+      "columnIndex": 60,
+      "isPartition": 0
+    },
+    {
+      "columnName": "schema_attribute_024",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: schema attribute 024",
+      "columnIndex": 61,
+      "isPartition": 0
+    },
+    {
+      "columnName": "currency_code",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: currency code",
+      "columnIndex": 62,
+      "isPartition": 0
+    },
+    {
+      "columnName": "snapshot_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: snapshot date",
+      "columnIndex": 63,
+      "isPartition": 1
+    },
+    {
+      "columnName": "first_invoice_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: first invoice date",
+      "columnIndex": 64,
+      "isPartition": 0
+    },
+    {
+      "columnName": "schema_attribute_025",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: schema attribute 025",
+      "columnIndex": 65,
+      "isPartition": 0
+    },
+    {
+      "columnName": "schema_attribute_026",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: schema attribute 026",
+      "columnIndex": 66,
+      "isPartition": 0
+    },
+    {
+      "columnName": "service_plan_code",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: service plan code",
+      "columnIndex": 67,
+      "isPartition": 0
+    },
+    {
+      "columnName": "signup_device_type",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: signup device type",
+      "columnIndex": 68,
+      "isPartition": 0
+    }
+  ],
+  "query_time": "2025-01-16T00:00:00+00:00",
+  "data_source": "synthetic_demo_catalog"
+}

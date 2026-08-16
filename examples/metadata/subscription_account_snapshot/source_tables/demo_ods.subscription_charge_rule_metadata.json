@@ -1,0 +1,57 @@
+{
+  "table_name": "demo_ods.subscription_charge_rule",
+  "full_table_name": "spark_catalog.demo_ods.subscription_charge_rule",
+  "schema": [
+    {
+      "columnName": "snapshot_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: snapshot date",
+      "columnIndex": 0,
+      "isPartition": 1
+    },
+    {
+      "columnName": "billing_cycles",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: billing cycles",
+      "columnIndex": 1,
+      "isPartition": 0
+    },
+    {
+      "columnName": "subscription_id",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: subscription id",
+      "columnIndex": 2,
+      "isPartition": 0
+    },
+    {
+      "columnName": "record_state",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: record state",
+      "columnIndex": 3,
+      "isPartition": 0
+    },
+    {
+      "columnName": "charge_rule_code",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: charge rule code",
+      "columnIndex": 4,
+      "isPartition": 0
+    },
+    {
+      "columnName": "charge_rate",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: charge rate",
+      "columnIndex": 5,
+      "isPartition": 0
+    },
+    {
+      "columnName": "fixed_charge_amount",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: fixed charge amount",
+      "columnIndex": 6,
+      "isPartition": 0
+    }
+  ],
+  "query_time": "2025-01-16T00:00:00+00:00",
+  "data_source": "synthetic_demo_catalog"
+}
