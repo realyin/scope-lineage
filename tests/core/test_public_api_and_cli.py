@@ -244,6 +244,14 @@ def test_documented_example_corpus_is_executable(tmp_path) -> None:
         str(project_root / "examples" / "tasks"),
         "--schema",
         str(project_root / "examples" / "metadata" / "schema_info.json"),
+        "--schema-fallback",
+        str(
+            project_root
+            / "examples"
+            / "metadata"
+            / "subscription_account_snapshot"
+            / "source_tables"
+        ),
         "--target-ddl-metadata",
         str(project_root / "examples" / "metadata" / "target_tables"),
         "--out",
@@ -251,11 +259,23 @@ def test_documented_example_corpus_is_executable(tmp_path) -> None:
     ]) == 0
 
     lineage_files = sorted(output.rglob("lineage.json"))
-    assert len(lineage_files) == 5
+    assert len(lineage_files) == 6
     assert all(
         json.loads(path.read_text(encoding="utf-8"))["parse_status"] == "ok"
         for path in lineage_files
     )
+    complex_example = json.loads(
+        (
+            output
+            / "subscription"
+            / "subscription_account_snapshot"
+            / "lineage.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert len(complex_example["source_tables"]) == 19
+    assert len(complex_example["end_to_end_lineage"]) == 112
+    assert complex_example["target_field_binding"]["status"] == "applied"
+    assert complex_example["diagnostics"]["lineage_fact_gap_count"] == 0
 
 
 def test_rich_metadata_uses_ddl_order_for_source_and_target(tmp_path) -> None:

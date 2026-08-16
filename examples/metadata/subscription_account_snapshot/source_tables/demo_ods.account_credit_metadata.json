@@ -1,0 +1,43 @@
+{
+  "table_name": "demo_ods.account_credit",
+  "full_table_name": "spark_catalog.demo_ods.account_credit",
+  "schema": [
+    {
+      "columnName": "billing_account_id",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: billing account id",
+      "columnIndex": 0,
+      "isPartition": 0
+    },
+    {
+      "columnName": "record_state",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: record state",
+      "columnIndex": 1,
+      "isPartition": 0
+    },
+    {
+      "columnName": "snapshot_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: snapshot date",
+      "columnIndex": 2,
+      "isPartition": 1
+    },
+    {
+      "columnName": "subscription_id",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: subscription id",
+      "columnIndex": 3,
+      "isPartition": 0
+    },
+    {
+      "columnName": "component_amount",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: component amount",
+      "columnIndex": 4,
+      "isPartition": 0
+    }
+  ],
+  "query_time": "2025-01-16T00:00:00+00:00",
+  "data_source": "synthetic_demo_catalog"
+}

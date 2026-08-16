@@ -1,0 +1,43 @@
+{
+  "table_name": "demo_ods.usage_cap",
+  "full_table_name": "spark_catalog.demo_ods.usage_cap",
+  "schema": [
+    {
+      "columnName": "snapshot_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: snapshot date",
+      "columnIndex": 0,
+      "isPartition": 1
+    },
+    {
+      "columnName": "subscription_id",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: subscription id",
+      "columnIndex": 1,
+      "isPartition": 0
+    },
+    {
+      "columnName": "record_state",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: record state",
+      "columnIndex": 2,
+      "isPartition": 0
+    },
+    {
+      "columnName": "usage_cap_id",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: usage cap id",
+      "columnIndex": 3,
+      "isPartition": 0
+    },
+    {
+      "columnName": "usage_cap_status",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: usage cap status",
+      "columnIndex": 4,
+      "isPartition": 0
+    }
+  ],
+  "query_time": "2025-01-16T00:00:00+00:00",
+  "data_source": "synthetic_demo_catalog"
+}
