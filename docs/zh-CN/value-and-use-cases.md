@@ -1,14 +1,249 @@
 # Scope Lineage：把复杂 SQL 还原成可验证的字段加工链
 
-Scope Lineage 追踪字段来源，也还原字段经过的查询层、`JOIN`、`CASE`、聚合和表达式。每条血缘结论都带有可回查的证据、完整性状态和诊断信息。
+Scope Lineage 是一个开源的 Spark/Hive SQL 离线静态分析工具。它读取 SQL，以及可选的源表 Schema 和目标表元数据，把藏在 CTE、子查询、`UNION`、`JOIN`、`CASE`、聚合和窗口函数中的字段关系还原成可以查询、追踪和验证的结构化事实。
+
+它主要帮助数据开发、数据治理和平台工程师回答三个问题：
+
+- 一个目标字段最终来自哪些物理表和物理字段？
+- 它穿过了哪些查询层，经历了哪些表达式、条件判断和粒度变化？
+- 当前血缘是否已经完整证明，还有哪些信息需要补充？
+
+每次解析都会生成 `lineage.json` 和 `diagnostics.json`。前者记录表级血缘、字段级血缘、加工步骤和 SQL 证据，后者说明解析过程中发现的风险与信息缺口。整个过程不需要连接 Spark 集群或数据库，也不依赖大模型。
 
 > SQL lineage you can inspect, trace, and verify.
 
-## 1. 复杂 SQL 真正难回答的问题
+## 1. 一个字段到底是怎么算出来的？
 
-仓库中有一份经过完整脱敏的数仓任务。它保留了真实任务的复杂结构，所有表名、字段名、常量、注释、任务信息和样例数据均为公开的合成内容。
+先从一段容易看懂、又足以体现问题的 SQL 开始。
 
-完整 SQL 已公开在 GitHub：[`examples/sql/subscription_account_snapshot.sql`](https://github.com/realyin/scope-lineage/blob/main/examples/sql/subscription_account_snapshot.sql)（604 行，约 24 KB）。下面的复杂度统计、字段加工链和 JSON 片段都来自这份 SQL 的实际解析结果。
+任务需要把 App 和 Web 两个渠道的订单归一到同一个 CTE，再计算每个渠道的已支付金额。下面是与 `paid_amount` 有关的部分：
+
+```sql
+WITH normalized_orders AS (
+    SELECT
+        pay_amount,
+        pay_status
+    FROM ods.app_order
+
+    UNION ALL
+
+    SELECT
+        order_amount AS pay_amount,
+        order_status AS pay_status
+    FROM ods.web_order
+)
+SELECT
+    SUM(
+        CASE WHEN pay_status = 'PAID'
+             THEN pay_amount
+             ELSE 0 END
+    ) AS paid_amount
+FROM normalized_orders;
+```
+
+完整示例位于 [`examples/sql/order_channel_metrics.sql`](../../examples/sql/order_channel_metrics.sql)。
+
+如果只看最终字段，问题似乎很简单：`paid_amount` 来自 `pay_amount`。继续追下去，才会发现这里至少要回答四个问题：
+
+1. `normalized_orders.pay_amount` 来自 App 的 `pay_amount`，还是 Web 的 `order_amount`？
+2. `pay_status` 是否也属于血缘来源？它没有提供金额，却决定哪些金额能够进入结果。
+3. 两个 UNION 分支怎样对齐成统一的 `pay_amount` 和 `pay_status`？
+4. 从物理字段到 `CASE`，再到 `SUM`，中间经过了哪些查询层？
+
+传统的字段依赖边通常会把它压缩成几条 source-to-target 关系。排查指标口径时，工程师仍然需要回到 SQL，重新拼出 UNION、条件和聚合过程。
+
+## 2. Scope Lineage 给出的答案
+
+Scope Lineage 解析这份任务后，可以直接得到下面这份结果摘要：
+
+```text
+Target field:
+  mart.order_channel_metrics.paid_amount
+
+Upstream physical tables: 2
+  - ods.app_order
+  - ods.web_order
+
+Physical dependencies (`root_source_fields`): 4
+  - ods.app_order.pay_amount
+  - ods.web_order.order_amount
+  - ods.app_order.pay_status
+  - ods.web_order.order_status
+
+Scopes in chain (`ordered_steps[].scope_id`): 5
+Transformation steps (`ordered_steps`): 9
+chain_status: resolved
+trace_status: complete
+missing_reasons: []
+```
+
+工具确认 `paid_amount` 依赖 2 张上游物理表中的 4 个物理字段。`pay_amount` 和 `order_amount` 参与金额计算，`pay_status` 和 `order_status` 参与条件判断。
+
+当前 v1 契约通过 `root_source_fields` 平铺记录这 4 个已经证明的物理依赖字段，没有为它们标注 value 或 condition role。上面的角色说明来自同一条链路保存的表达式证据。
+
+9 个 `ordered_steps` 还原出的加工过程如下：
+
+```mermaid
+flowchart LR
+    A1["ods.app_order.pay_amount"] --> U1["UNION 分支 1<br/>pay_amount"]
+    A2["ods.app_order.pay_status"] --> S1["UNION 分支 1<br/>pay_status"]
+    W1["ods.web_order.order_amount"] --> U2["UNION 分支 2<br/>pay_amount"]
+    W2["ods.web_order.order_status"] --> S2["UNION 分支 2<br/>pay_status"]
+
+    U1 --> U["cte:normalized_orders.pay_amount"]
+    U2 --> U
+    S1 --> S["cte:normalized_orders.pay_status"]
+    S2 --> S
+
+    U --> C["CASE WHEN pay_status = 'PAID'<br/>THEN pay_amount ELSE 0"]
+    S --> C
+    C --> G["SUM<br/>grain_effect: changed"]
+    G --> T["mart.order_channel_metrics.paid_amount"]
+```
+
+这张图是对 `ordered_steps` 的可视化。Scope Lineage 找到了最终物理依赖，也保留了 UNION 对齐、条件判断和聚合过程。
+
+## 3. 为什么普通字段血缘还不够？
+
+一条字段血缘可以逐层回答三个问题：它来自哪里、它怎样加工、为什么可以相信这条结论。
+
+| 层次 | 回答的问题 | Scope Lineage 提供的信息 |
+| --- | --- | --- |
+| 字段血缘（Lineage） | Where did it come from? | Physical Dependencies |
+| 加工血缘（Transformation Lineage） | How was it transformed? | Scope + Expression + Logic + Grain |
+| 可验证血缘（Verifiable Lineage） | Why can I trust the result? | Evidence + Completeness + Diagnostics |
+
+### 3.1 Where：它来自哪里？
+
+普通字段血缘通常输出若干条“源字段 → 目标字段”的关系。在简单案例中，这一层能够告诉使用者：`paid_amount` 依赖两个渠道的 4 个物理字段。
+
+知道来源以后，仍然无法解释状态字段怎样影响金额，也看不到 UNION、`CASE` 和 `SUM`。这些问题需要进入下一层。
+
+### 3.2 How：它怎样加工？
+
+Scope Lineage 在字段依赖之上保留查询作用域、转换表达式、条件逻辑和粒度变化，把 Source 与 Target 之间的加工过程连接起来。项目将这一层称为 **加工血缘（Transformation Lineage）**。
+
+加工血缘解决了普通字段血缘看不到中间加工过程的问题。只看到一条完整的加工链仍然不够：字段绑定是否唯一？`SELECT *` 是否展开？Schema 是否足够？所有中间 Scope 是否解析成功？有没有只能推测、无法证明的关系？这些不确定性把问题自然带到第三层。
+
+### 3.3 Why trust：为什么可以相信这条结果？
+
+普通字段血缘关注“血缘关系是什么”；可验证血缘进一步回答“这条关系有哪些证据，以及当前证据能够支持到什么程度”。为此，Scope Lineage 同时保存血缘结论、支撑证据、完整性状态和诊断信息。
+
+**在 Scope Lineage 中，我们把这四部分共同构成的结果模型定义为可验证血缘（Verifiable Lineage）。** 这是项目对自身结果模型的命名。
+
+```text
+Lineage Claim
+      +
+Evidence
+      +
+Completeness
+      +
+Diagnostics
+      ↓
+Verifiable Lineage
+```
+
+在 `paid_amount` 案例中：
+
+- Claim：目标字段依赖两个渠道的金额和状态字段；
+- Evidence：9 个加工步骤保留字段绑定、UNION 对齐、`CASE` 和 `SUM` 表达式；
+- Completeness：`chain_status=resolved`、`trace_status=complete`、`missing_reasons=[]`；
+- Diagnostics：工具产生 1 条 `complex_aggregate_with_case` warning，提醒使用者关注条件指标逻辑；当前事实缺口为 0。
+
+Diagnostics 不等于解析失败。`warnings` 可以记录字段绑定风险和需要人工关注的复杂 SQL 模式；`lineage_fact_gaps` 记录无法建立确定关系的证据缺口。这个案例虽然有 1 条 warning，血缘仍然是 complete。
+
+文中出现的几个状态字段属于不同的 Contract 层级：
+
+| 状态字段 | 所属层级 | 本文中的含义 |
+| --- | --- | --- |
+| `analysis_status` | Task Lineage 2.0 任务级结果 | 整个任务分析是 `complete` 还是 `partial`；warning 数量本身不决定该状态。 |
+| `chain_status` | `field_mapping_chains[]` | 当前字段加工链是否完成解析；简单案例为 `resolved`。 |
+| `trace_status` | `field_mapping_chains[]` | 当前字段加工链的追踪证据是否完整，取值为 `complete` 或 `incomplete`。 |
+| `trace_complete` | `end_to_end_lineage[]` | 当前目标字段的端到端来源是否完整，是布尔值。 |
+
+这些状态描述的对象不同。使用时应先确认 JSON 路径，再判断对应层级是否完整。
+
+这些事实在 `lineage.json` 和 `diagnostics.json` 中都有稳定的数据结构。字段含义和消费规则见 [`lineage.json` 输出契约](lineage-json.md)与 [`diagnostics.json` 输出契约](diagnostics-json.md)。
+
+## 4. Scope Lineage 是怎么工作的？
+
+Scope Lineage 的核心思想可以概括成一句话：先恢复查询作用域，在每个作用域中完成字段绑定，再沿表达式和 Scope 边界递归追踪到物理来源。
+
+整体过程如下：
+
+```mermaid
+flowchart TD
+    I["SQL"] --> P["Parse SQL"]
+    P --> S["Build Query Scopes"]
+    S --> R["Resolve Field References"]
+    M["Schema + Target Metadata"] --> R
+    R --> E["Analyze Expressions & Logic"]
+    E --> T["Trace Across Query Scopes"]
+    T --> L["Build Transformation Lineage"]
+    L --> V["Validate Evidence Completeness"]
+    V --> O1["lineage.json"]
+    V --> O2["diagnostics.json"]
+```
+
+### 4.1 建立查询作用域（Query Scope）
+
+根查询、CTE、子查询和 UNION 分支都有各自的输入、输出与字段可见范围。工具先把这些结构恢复成 Scope，并建立它们之间的引用关系。后续字段解析始终在明确的 Scope 中进行，避免同名字段、别名和嵌套查询互相混淆。
+
+### 4.2 在 Scope 中完成字段绑定
+
+工具解析一个字段引用时，会确认当前 Scope、输入别名、候选来源以及上游输出位置。遇到 UNION 时，还会按照输出位置对齐各分支。字段能够唯一绑定时形成确定事实；存在多个候选或缺少 Schema 时保留歧义与缺失原因。
+
+### 4.3 分析表达式和加工逻辑
+
+字段绑定完成后，工具继续分析直接投影、条件表达式、聚合、窗口函数和普通运算，并记录输入、输出、原始表达式、展开表达式与粒度变化。JOIN、过滤和分组等逻辑块也会保留引用字段及 SQL 证据。
+
+### 4.4 跨 Scope 追踪到物理来源
+
+端到端血缘来自逐层追踪：
+
+```text
+Target
+  → Expression
+  → Scope Output
+  → Upstream Scope
+  → Upstream Expression
+  → Scope Input
+  → Physical Source
+```
+
+`physical_sources` 是端到端追踪的摘要，`ordered_steps` 保留摘要背后的加工过程。两者分别支持快速查询与逐步回查。
+
+### 4.5 验证证据完整性
+
+SQL 提供查询结构，Schema 和目标表元数据为字段绑定提供额外证据。Scope Lineage 根据这些证据分别判断当前 Claim 能否成为确定事实，以及构成端到端血缘所需的全部事实是否完整。
+
+```mermaid
+flowchart TD
+    C["Lineage Claim"] --> Q{"Evidence sufficient?"}
+    Q -->|Yes| L["Lineage Fact"]
+    Q -->|No| G["Lineage Fact Gap"]
+    L --> T["Evaluate Full Trace"]
+    G --> T
+    T --> E{"All required facts proved?"}
+    E -->|Yes| OK["trace_complete = true"]
+    E -->|No| P["trace_complete = false"]
+    G --> D["diagnostics.json"]
+    W["Warnings"] --> D
+```
+
+当前关系有充分证据，只能说明它可以成为一条 Lineage Fact。构成端到端血缘所需的全部关键事实都得到证明后，`trace_complete` 才能设为 `true`。Warning 独立进入 `diagnostics.json`，它提示需要关注的问题，但不直接决定 Trace 是否完整。
+
+例如，SQL 使用 `SELECT *`，同时没有提供源表 Schema。默认 v1 契约会记录 `star_not_expanded` warning，并将对应端到端字段的 `trace_complete` 设为 `false`。Task Lineage 2.0 还会生成 `projection_wildcard_unexpanded` fact gap，写明缺少的 Schema 事实。候选字段不会被写成确定来源。
+
+Scope Lineage 只把有充分证据支持的关系写成确定事实。证据不足时保留已经证明的部分，通过 Lineage Fact Gap 和 Completeness 明确当前证据边界；其他需要关注、但不一定影响血缘完整性的问题，通过 Diagnostics 中的 warning 单独记录。
+
+**无法证明，不等于可以猜测。** 这就是第 3 节定义的可验证血缘在工具中的实现原则。
+
+## 5. 从简单案例到 604 行复杂 SQL
+
+简单案例用来理解方法。接下来用一份结构保真的复杂脱敏任务验证同一套分析模型。
+
+完整 SQL：[`examples/sql/subscription_account_snapshot.sql`](../../examples/sql/subscription_account_snapshot.sql)（604 行，约 24 KB）。
 
 | 结构 | 数量 |
 | --- | ---: |
@@ -20,285 +255,60 @@ Scope Lineage 追踪字段来源，也还原字段经过的查询层、`JOIN`、
 | 窗口函数 | 1 |
 | 目标字段 | 112 |
 
-现在有一个很具体的问题：
-
-> 目标表里的 `total_payable_amount` 数值异常，它到底由哪些原始字段计算出来，中间经过了什么，应该从哪里开始查？
-
-在根查询中，只能看到九个中间字段相加：
-
-```sql
-COALESCE(t7.upcoming_base_charge, 0)
-+ COALESCE(t7.past_due_base_charge, 0)
-+ COALESCE(t7.open_receivable_amount, 0)
-+ COALESCE(t17.subscription_scheduled_charge, 0)
-+ ...
-```
-
-继续进入 `t7`，其中一个中间字段又来自两层聚合：
-
-```sql
--- 第一层：按费用类型分类
-SUM(
-  CASE WHEN component_type IN ('PENDING_BASE_CHARGE')
-       THEN component_amount END
-) AS accrued_base_charge
-
--- 第二层：回到账户粒度再次汇总
-SUM(b.accrued_base_charge) AS accrued_base_charge
-```
-
-另一个分支来自 `t17`：
-
-```sql
-SUM(scheduled_charge_amount) AS subscription_scheduled_charge
-```
-
-人工分析需要同时回答六个问题：
-
-1. `t7`、`t17` 最终对应哪些物理表；
-2. 九个中间字段分别来自哪些原始字段；
-3. 每个字段穿过了哪些子查询和别名；
-4. 哪些 `CASE` 条件决定金额进入某个分支；
-5. 两层 `SUM` 和后续 `JOIN` 是否改变数据粒度；
-6. 当前 Schema 是否足以证明整条路径，解析过程中有没有证据缺口。
-
-普通表级血缘只能回答任务读了哪些表。简单的字段依赖边可以回答最终字段引用了哪些字段。真正的排查还需要查询层、表达式、聚合粒度和完整性证据。
-
-## 2. 工具直接输出什么
-
-Scope Lineage 解析任务后直接生成两个文件：
-
-```text
-lineage.json       # SQL 已经证明的血缘和加工事实
-diagnostics.json   # 完整性、告警和证据缺口
-```
-
-与这个字段有关的内容主要位于：
-
-```text
-lineage.json
-└── statement_lineage.<statement-id>
-    ├── end_to_end_lineage[]
-    └── field_mapping_chains[]
-        └── ordered_steps[]
-
-diagnostics.json
-├── analysis_status
-├── warnings[]
-├── lineage_fact_gaps[]
-└── metadata_coverage
-```
-
-下面的 JSON 均来自这份脱敏任务的真实产物。为了控制篇幅，示例删除了与当前字段无关的同级字段，保留的字段名和字段值没有改写。
-
-### `lineage.json`：目标字段和根物理字段
-
-`end_to_end_lineage` 直接给出目标字段、最终表达式、根物理字段和追踪完整性：
-
-```json
-{
-  "column": "total_payable_amount",
-  "transform": "EXPRESSION",
-  "expression": "COALESCE(`t7`.`upcoming_base_charge`, 0) + COALESCE(`t7`.`past_due_base_charge`, 0) + COALESCE(`t7`.`open_receivable_amount`, 0) + COALESCE(`t7`.`accrued_penalty_charge`, 0) + COALESCE(`t7`.`accrued_late_charge`, 0) + COALESCE(`t17`.`subscription_scheduled_charge`, 0) + COALESCE(`t7`.`accrued_service_charge`, 0) + COALESCE(`t7`.`accrued_support_charge`, 0) + COALESCE(`t7`.`accrued_base_charge`, 0)",
-  "trace_complete": true,
-  "physical_sources": [
-    {
-      "table": "demo_ods.billing_balance_component",
-      "column": "component_amount",
-      "transform": "AGGREGATE"
-    },
-    {
-      "table": "demo_ods.billing_balance_component",
-      "column": "component_type",
-      "transform": "AGGREGATE"
-    },
-    {
-      "table": "demo_ods.subscription_charge_schedule",
-      "column": "scheduled_charge_amount",
-      "transform": "AGGREGATE"
-    }
-  ],
-  "target_field_resolution": "ddl_position",
-  "target_field_corrected": false
-}
-```
-
-这段输出直接回答了两个问题：最终值依赖三个物理字段，整条追踪已经完成。`component_type` 也出现在根字段中，因为它决定 `component_amount` 进入哪个费用分支。
-
-### `lineage.json`：字段加工步骤
-
-`field_mapping_chains` 保存完整加工链。下面先展示链本身的状态：
-
-```json
-{
-  "chain_id": "chain:ROOT:total_payable_amount:position:92",
-  "target_field": "total_payable_amount",
-  "chain_status": "resolved",
-  "trace_status": "complete",
-  "source_kind": "physical",
-  "root_source_fields": [
-    "demo_ods.billing_balance_component.component_amount",
-    "demo_ods.billing_balance_component.component_type",
-    "demo_ods.subscription_charge_schedule.scheduled_charge_amount"
-  ],
-  "missing_reasons": []
-}
-```
-
-同一条链的 `ordered_steps` 一共有 18 项。下面抽取第 1、2、18 步，字段和值均来自原始数组：
-
-```json
-[
-  {
-    "step_no": 1,
-    "scope_id": "subq:b_2",
-    "step_type": "aggregate",
-    "input_fields": [
-      "demo_ods.billing_balance_component.component_amount",
-      "demo_ods.billing_balance_component.component_type"
-    ],
-    "output_field": "subq:b_2.accrued_base_charge",
-    "expression_sql": "SUM(CASE WHEN `billing_balance_component`.`component_type` IN ('PENDING_BASE_CHARGE') THEN `billing_balance_component`.`component_amount` END)",
-    "transform": "AGGREGATE",
-    "grain_effect": "changed"
-  },
-  {
-    "step_no": 2,
-    "scope_id": "subq:t7",
-    "step_type": "aggregate",
-    "input_fields": [
-      "subq:b_2.accrued_base_charge"
-    ],
-    "output_field": "subq:t7.accrued_base_charge",
-    "expression_sql": "SUM(`b`.`accrued_base_charge`)",
-    "expanded_expression": "SUM((SUM(CASE WHEN `demo_ods.billing_balance_component`.`component_type` IN ('PENDING_BASE_CHARGE') THEN `demo_ods.billing_balance_component`.`component_amount` END)))",
-    "transform": "AGGREGATE",
-    "grain_effect": "changed"
-  },
-  {
-    "step_no": 18,
-    "scope_id": "ROOT",
-    "step_type": "expression",
-    "input_fields": [
-      "subq:t7.accrued_base_charge",
-      "subq:t7.accrued_support_charge",
-      "subq:t7.accrued_service_charge",
-      "subq:t17.subscription_scheduled_charge",
-      "subq:t7.accrued_late_charge",
-      "subq:t7.accrued_penalty_charge",
-      "subq:t7.open_receivable_amount",
-      "subq:t7.upcoming_base_charge",
-      "subq:t7.past_due_base_charge"
-    ],
-    "output_field": "demo_mart.subscription_account_snapshot.total_payable_amount",
-    "transform": "EXPRESSION",
-    "grain_effect": "preserved"
-  }
-]
-```
-
-这里已经能看到加工过程的关键事实：第一层按费用类型做条件聚合，第二层跨查询作用域再次聚合，根查询最后合并九个中间字段。`scope_id` 用来定位查询块，`expanded_expression` 把中间别名展开回物理字段，`grain_effect` 标记这一层是否改变粒度。
-
-### `diagnostics.json`：这条结果能否使用
-
-```json
-{
-  "analysis_status": {
-    "status": "complete",
-    "blocking_reasons": []
-  },
-  "warnings": [],
-  "lineage_fact_gaps": [],
-  "metadata_coverage": {
-    "referenced_table_count": 20,
-    "covered_table_count": 20,
-    "missing_table_count": 0,
-    "metadata_conflicts": []
-  }
-}
-```
-
-这份诊断说明任务分析完整，20 张被引用的表全部有元数据覆盖，没有告警、事实缺口和元数据冲突。这里的 20 张表包含 19 张源表和 1 张目标表。
-
-## 3. 从直接产物到可读的加工链
-
-上一节的 JSON 是工具直接输出的契约产物。下面的图是依据 `physical_sources` 和 `ordered_steps` 生成的可读展示，用来帮助人快速理解。当前 CLI 输出 JSON，不直接生成这张图。
+这份 SQL 中的 `total_payable_amount` 跨越两条金额路径：
 
 ```mermaid
 flowchart LR
-    A["component_amount"] --> C["step 1<br/>CASE 按 component_type 分类"]
-    B["component_type"] --> C
-    C --> D["step 1<br/>SUM 分支内聚合<br/>grain: changed"]
-    D --> E["step 2<br/>SUM 账户粒度汇总<br/>grain: changed"]
-
-    F["scheduled_charge_amount"] --> G["并行分支<br/>SUM 计划费用汇总"]
-
-    E --> H["Query Scopes + JOIN"]
-    G --> H
-    H --> I["step 18<br/>COALESCE 九个分支相加<br/>grain: preserved"]
-    I --> J["total_payable_amount"]
+    A["billing_balance_component<br/>component_amount + component_type"] --> B["subq:b_2<br/>8 个条件聚合"]
+    B --> C["subq:t7<br/>8 个第二层汇总"]
+    D["subscription_charge_schedule<br/>scheduled_charge_amount"] --> E["subq:t17<br/>计划费用汇总"]
+    C --> R["ROOT<br/>9 个 COALESCE 分支相加"]
+    E --> R
+    R --> T["total_payable_amount"]
 ```
 
-JSON 字段与使用者问题之间的关系如下：
-
-| 使用者要回答的问题 | 直接读取的输出字段 | 当前案例的答案 |
-| --- | --- | --- |
-| 最终值来自哪里 | `end_to_end_lineage[].physical_sources` | 3 个根物理字段 |
-| 最终表达式是什么 | `end_to_end_lineage[].expression` | 9 个费用分支经过 `COALESCE` 后相加 |
-| 中间经过哪些查询层 | `field_mapping_chains[].ordered_steps[].scope_id` | `subq:b_2 → subq:t7 → ROOT` 等并行路径 |
-| 每层做了什么 | `step_type`、`expression_sql`、`expanded_expression` | 条件聚合、再次汇总、根查询表达式 |
-| 哪一层改变了粒度 | `grain_effect` | 两层聚合为 `changed`，最终表达式为 `preserved` |
-| 路径是否完整 | `trace_complete`、`trace_status`、`missing_reasons` | `true`、`complete`、空数组 |
-| 整个任务有没有证据问题 | `diagnostics.json` | 0 warning、0 fact gap、元数据覆盖 20/20 |
-
-这类结果属于 **Transformation Lineage（加工血缘）**：字段来源、查询作用域、转换表达式和粒度变化共同组成完整路径。
-
-它也属于 **Verifiable Lineage（可验证血缘）**。每个结论都有四部分：
+按照[示例文档](../../examples/README.zh-CN.md)中的 Task Lineage 2.0 命令解析，结果为：
 
 ```text
-Claim + Evidence + Completeness + Diagnostics
-结论  + 证据     + 完整性       + 诊断
+3 physical dependencies
+  → 4 query scopes
+  → 18 transformation steps
+  → demo_mart.subscription_account_snapshot.total_payable_amount
+
+chain_status: resolved
+trace_status: complete
+analysis_status: complete
+warnings: 48
+lineage_fact_gaps: 0
+metadata_coverage: 20 / 20
 ```
 
-当 SQL 或元数据无法证明某个关系时，工具会把缺少的事实、受影响字段和最终影响写入 diagnostics。候选关系不会被直接记录为确定事实。
+18 个加工步骤中，`subq:b_2` 负责 8 个条件聚合，`subq:t7` 负责 8 个第二层汇总，`subq:t17` 负责计划费用聚合，最后一步在 ROOT 合并九个费用分支。48 条 warning 包含 43 条复杂条件聚合提醒和 5 条 magic number 提醒；它们没有形成事实缺口，也没有影响 `total_payable_amount` 的完整追踪。
 
-| 常见的字段血缘结果 | Scope Lineage |
-| --- | --- |
-| 输出 `A.a → B.b` | 保留根字段、查询层和完整加工步骤 |
-| 关注最终依赖关系 | 同时记录中间字段和跨作用域传递 |
-| 提供最终关系 | 同时提供原始表达式、展开表达式和粒度变化 |
-| 可信度需要自行判断 | 提供完整性状态、缺失原因和 diagnostics |
-| 主要描述字段值 | 还能描述行存在性和多语句表状态 |
+这个案例的作用很明确：简单案例中的 Scope、字段绑定、加工逻辑、跨 Scope 追踪和完整性验证，在 604 行 SQL 上仍然使用同一套模型。
 
-## 4. 这些输出怎样帮助排查
+## 6. 这些结构化事实还能做什么？
 
-假设 `total_payable_amount` 的数值出现异常，可以把排查动作直接对应到产物中的证据：
+对数据工程师来说，Scope Lineage 把复杂 SQL 还原成可以核查的字段加工链。对平台开发者来说，它把 SQL 转换成版本化、可追溯、可被程序消费的 **Verifiable SQL Facts**。
 
-| 排查动作 | 依据的直接输出 | 能定位的问题 |
-| --- | --- | --- |
-| 检查原始金额 | `physical_sources` 中的 `component_amount`、`scheduled_charge_amount` | 源数据金额异常 |
-| 检查费用分类 | step 1 的 `expression_sql` | `component_type` 是否进入正确分支 |
-| 检查第一层聚合 | step 1 的 `scope_id`、`grain_effect=changed` | 分支内遗漏、重复或分组错误 |
-| 检查第二层汇总 | step 2 的 `input_fields`、`expanded_expression` | 中间别名实际展开成什么、是否重复汇总 |
-| 检查查询层关联 | `scopes.*.logic_blocks[].join_relation_detail` | JOIN key 或关联粒度是否造成重复和丢失 |
-| 检查最终加总 | step 18 的 `input_fields` 和 `expression` | 九个分支是否缺项、重复、空值处理错误 |
-| 判断血缘能否作为证据 | `trace_status`、`missing_reasons`、`diagnostics.json` | 路径是否完整、还缺什么元数据 |
+这里的 Verifiable SQL Facts 是更上层的统称，包括查询作用域、字段绑定、加工逻辑、JOIN、过滤、聚合、表状态等由 SQL 与元数据证明的结构化事实。Verifiable Lineage 是其中的重要组成部分；Evidence、Completeness 和 Diagnostics 进一步描述这些事实的依据和可信边界。这些结构化结果通过版本化 JSON Contract 提供给上层系统消费。
 
-这张表也说明了加工血缘的实际价值。一条最终依赖边只能把排查人员带到源表；`ordered_steps` 可以继续把人带到具体查询块和具体表达式。
+同一组事实可以同时服务人、流水线和平台：
 
-当前案例中，`chain_status=resolved`、`trace_status=complete`、`missing_reasons=[]`，任务级 diagnostics 也没有告警和事实缺口。因此这条路径可以直接用于排查。
+```mermaid
+flowchart TD
+    SQL["SQL"] --> CORE["Scope Lineage"]
+    CORE --> FACTS["Verifiable SQL Facts"]
+    FACTS --> H["Human<br/>阅读与 Debug"]
+    FACTS --> P["Pipeline<br/>CI 与 Change Review"]
+    FACTS --> S["Platform<br/>Catalog 与 Knowledge Graph"]
+```
 
-如果 `trace_status` 为 `partial`，处理顺序会发生变化：先读取 `missing_reasons` 和 `lineage_fact_gaps`，补充缺少的 Schema 或目标 DDL，再使用加工链做结论。工具把这个限制明确写进产物，使用者能够区分“SQL 已经证明的事实”和“仍需补充证据的部分”。
-
-## 5. 这些 SQL 事实还能用来做什么
-
-解释字段和排查数据是最直接的使用方式。稳定的 JSON 产物还可以进入工程化流程。
+这些应用的基础是一组可查询、可比较、带有证据边界的结构化 SQL Facts。它们提供的信息超出了“源字段 → 目标字段”关系本身。
 
 ### 影响分析
 
-批量解析任务后，可以按物理表、物理字段、字段用途和任务依赖建立反向索引。上游字段改名、类型调整或表下线时，平台可以找到直接使用该字段计算、关联、过滤和分组的任务。
-
-**一个具体场景：** 上游准备调整 `demo_ods.subscription_charge_schedule.scheduled_charge_amount` 的类型或计算口径。查询这份样例的解析结果，可以立即找到 4 个直接受影响的目标字段：
+假设上游准备调整 `demo_ods.subscription_charge_schedule.scheduled_charge_amount`。复杂案例的解析结果可以直接找到 4 个受影响的目标字段：
 
 ```text
 past_due_amount
@@ -307,160 +317,145 @@ subscription_due_balance
 total_payable_amount
 ```
 
-评审人员可以据此确定需要回归的字段和任务，再沿每个字段的加工链检查类型转换、聚合和空值处理。
-
-Core 提供建立索引所需的事实。跨任务查询和可视化界面由上层系统实现。
+平台可以进一步区分字段用于计算、过滤、关联还是分组，帮助评审人员确定回归范围。影响结果因而包含“是否受影响”和“通过什么逻辑受影响”两个层次。
 
 ### SQL 变更评审
 
-分别解析修改前后的 SQL，可以比较源表、根字段、JOIN key、过滤条件、分组字段、窗口定义、写入方式和新增诊断。稳定 ID、规范化表达式和指纹可以作为版本对比依据。
+开发人员把 `component_type LIKE 'PAYABLE%'` 改成固定枚举后，修改前后的事实可以显示 `open_receivable_amount` 条件表达式发生变化，并沿加工链指出 `total_payable_amount` 使用了这个中间字段。
 
-**一个具体场景：** 开发人员把费用分类条件从 `component_type LIKE 'PAYABLE%'` 改成一组固定枚举。两次解析结果会显示 `open_receivable_amount` 的条件表达式发生变化，并继续沿加工链指出 `total_payable_amount` 使用了这个中间字段。评审重点由“修改了哪几行 SQL”收敛到“哪条分类规则和哪些下游字段发生了变化”。
+当前 Core 没有单独的 `diff` 命令。上层流水线可以比较稳定 ID、规范化表达式、物理依赖字段、JOIN、过滤、聚合和新增诊断。
 
-当前 Core 没有单独的 `diff` 命令，上层流水线可以根据两份 JSON 完成对比。
+与 SQL 文本 Diff 相比，这类比较能够指出血缘关系、转换逻辑、过滤条件或粒度发生了什么语义变化。
 
 ### CI 与质量门禁
 
-严格质量策略可以拦截语法恢复、影响最终字段的事实缺口和目标字段绑定回退。团队可以把解析质量加入发布流程，避免不完整血缘悄悄进入知识库或影响分析。
+严格质量策略可以拦截语法恢复、影响最终字段的事实缺口和目标字段绑定回退。解析结果进入知识库或影响分析前，流水线可以确认关键字段是否仍然 trace complete、是否新增 Fact Gap，并按 warning 类型执行项目自己的审查策略。
 
-**一个具体场景：** 样例 SQL 中有一个投影名是 `request_date`，目标 DDL 在位置索引 65 上的字段名是 `request_recorded_date`。解析结果会同时保留原始名称和纠正后的目标名称：
-
-```text
-parsed_column:           request_date
-column:                  request_recorded_date
-target_column_ordinal:   65
-target_field_resolution: ddl_position
-target_field_corrected:  true
-```
-
-这次绑定有完整的 DDL 证据，严格模式可以通过。如果投影数量与目标 DDL 不一致并触发绑定回退，命令会返回非零状态，发布流水线可以直接停止后续步骤。
+复杂案例还展示了目标 DDL 绑定：SQL 投影 `request_date` 根据位置索引 65 绑定为 `request_recorded_date`。原始名称、目标名称和纠正证据都会保留。
 
 ### 自动文档
 
-目标表、源表、写入方式、分区策略、JOIN、过滤、聚合和字段加工链都能稳定读取，可用于生成任务说明卡和字段口径页。每条说明都可以回到 SQL 表达式和诊断证据。
-
-**一个具体场景：** 平台可以从当前产物自动生成下面这张字段说明卡：
+平台可以从产物生成字段说明卡：
 
 ```text
 字段：total_payable_amount
 目标表：demo_mart.subscription_account_snapshot
-根字段：component_amount、component_type、scheduled_charge_amount
-加工摘要：费用分类 → 分支聚合 → 账户汇总 → JOIN → COALESCE 加总
+物理依赖字段：component_amount、component_type、scheduled_charge_amount
+加工摘要：费用分类 → 分支聚合 → 账户汇总 → 最终加总
 证据步骤：18
-完整性：trace_complete = true
-诊断：0 warning，0 lineage fact gap
+完整性：complete
 ```
 
-新接手任务的工程师先看说明卡，再按需进入某一个查询块，不必从头通读整份 SQL。
+说明卡中的每一项都能回到 SQL 表达式、Scope 和 `diagnostics.json`。加工步骤和完整性状态让这份说明同时具备解释依据与审计入口。
 
 ### 搜索索引与知识图谱
 
-结构化血缘事实可以写入搜索引擎或图存储，为数据目录、知识图谱、数据治理平台和上层 Agent 提供可回查的事实来源。
-
-**一个具体场景：** 用户在数据目录中搜索“哪些字段使用了 `scheduled_charge_amount`”，上层系统可以返回前面列出的 4 个目标字段，并展示其中一条可展开路径：
+结构化事实可以形成“物理字段—查询作用域—目标字段”的图关系。例如：
 
 ```text
 subscription_charge_schedule.scheduled_charge_amount
-  → t17.subscription_scheduled_charge
+  → subq:t17.subscription_scheduled_charge
   → ROOT.total_payable_amount
   → subscription_account_snapshot.total_payable_amount
 ```
 
-同一份解析结果既能支持关键词搜索，也能形成“物理字段—查询块—目标字段”的图关系。
+同一份结果可以支持字段搜索、数据目录、知识图谱和数据治理平台。图谱可以同时包含 Column、Scope、Transformation 和 Logic 节点，保留字段之间的加工语义。
 
-## 6. Scope Lineage 的核心能力
+## 7. 字段值之外（Beyond Value Lineage）
 
-### Scope-aware lineage
+字段加工链回答“这个值怎样产生”。数据变更语句还会带来记录存在性和表状态问题。
 
-工具按 CTE、子查询、UNION 分支和根查询建立稳定的查询作用域，保留字段在不同查询层之间的传递关系。
-
-### Transformation chain
-
-字段映射链记录原始表达式、展开表达式、转换类型、聚合和粒度变化，让加工过程能够逐步回放。
-
-### Evidence and diagnostics
-
-解析结果同时携带证据、完整性状态和事实缺口。工具会明确标记无法确定的来源、缺少的元数据及其对最终字段的影响。
-
-### Row-existence lineage and table state
-
-字段值来源无法完整表达 `DELETE`、`TRUNCATE`、`UPDATE` 和 `MERGE` 的影响。v2 会继续记录：
-
-- 哪些条件决定一行被保留、删除或更新；
-- 每条语句执行前后的表状态；
-- 脚本结束后每张表的最终状态。
-
-例如 `TRUNCATE; INSERT` 会留下两个连续状态：表先被清空，后续写入再形成新的内容。最终状态会包含后续 INSERT 的血缘事实。
-
-### CLI 工具与 Lineage Engine
-
-Scope Lineage 可以直接作为命令行工具使用，也可以作为上层数据系统的血缘引擎。
-
-```mermaid
-flowchart LR
-    I["SQL + Schema + Target Metadata"] --> C["Scope Lineage Core"]
-    CLI["CLI"] --> C
-    C --> L["lineage.json"]
-    C --> D["diagnostics.json"]
-    L --> R["SQL 阅读 / Debug"]
-    L --> A["Impact Analysis"]
-    L --> Q["CI / Quality Gate"]
-    L --> DOC["Documentation"]
-    L --> KG["Knowledge Graph / Data Governance"]
-    D --> R
-    D --> Q
+```sql
+DELETE FROM account
+WHERE status = 'CANCELLED';
 ```
 
-个人开发者可以使用 CLI 阅读和排查 SQL；平台团队可以消费版本化 JSON，把相同的解析事实接入影响分析、发布门禁、文档和治理系统。
+`status` 没有写入任何目标字段，却决定哪些记录消失。因此 Task Lineage 2.0 会区分：
 
-## 7. 它的工作边界
-
-Scope Lineage 专注于 SQL 静态分析，负责回答“SQL 本身能够证明什么”。以下工作需要其他系统或业务人员完成：
-
-| Scope Lineage 不执行的工作 | 原因 |
+| 模型 | 回答的问题 |
 | --- | --- |
-| 执行 SQL | 工具离线工作，无需连接 Spark、Hive 或数据库。 |
-| 判断运行时数据值是否正确 | 数据值验证需要查询结果和数据质量规则。 |
-| 根据字段名称推测业务语义 | 业务口径需要领域知识和人工确认。 |
+| Value Lineage | 字段值为什么是这个值？ |
+| Row-existence Lineage | 一条记录为什么存在、更新或消失？ |
+| Table State | 多条语句执行后，表最终处于什么状态？ |
 
-清晰的边界能够保护结果可信度：SQL 可以证明的事实会进入血缘，证据不足的位置会进入诊断，业务含义留给熟悉数据的人确认。
+这套模型用于描述 `DELETE`、`TRUNCATE`、`UPDATE`、`MERGE` 和多语句任务。具体契约见 [Task Lineage 2.0](task-lineage-v2.md)。
 
-## 8. Quick Start
+## 8. Scope Lineage 能力全景
 
-安装后，在项目根目录运行这份复杂脱敏样例：
+前文介绍的能力可以汇总成下面这张产品地图：
+
+| 能力层次 | 能力 | 提供的价值 |
+| --- | --- | --- |
+| 字段血缘 | Scope-aware Lineage | 还原 CTE、子查询、UNION 分支和根查询之间的字段传递。 |
+| 字段血缘 | Transformation Lineage | 保留表达式、转换类型、中间字段和粒度变化。 |
+| 字段血缘 | Verifiable Lineage | 同时保留血缘结论、支撑证据、完整性状态和诊断信息，明确当前结论的证据边界。 |
+| SQL 影响 | Row-existence Lineage | 记录哪些条件决定记录存在、更新或消失。 |
+| SQL 影响 | Table State | 描述多条写入和变更语句执行后的最终表状态。 |
+| 工程能力 | Versioned JSON Contract | 让上层系统在明确的版本边界内消费解析结果。 |
+| 工程能力 | Offline Static Analysis | 无需 Spark 集群、数据库连接或大模型。 |
+
+命令行适合本地阅读和调试，版本化 JSON 适合进入上层系统。实际调用关系如下：
+
+```mermaid
+flowchart TD
+    I["SQL + Metadata"] --> CLI["scope-lineage CLI"]
+    I --> API["Python Public API"]
+    CLI --> CORE["Scope Lineage Core"]
+    API --> CORE
+    CORE --> L["lineage.json"]
+    CORE --> D["diagnostics.json"]
+    L --> U["Upper-layer Systems"]
+    D --> U
+```
+
+Core 同时提供受支持的 Python 公共 API；程序可以直接调用 Core，获得与 CLI 相同的契约结果。
+
+## 9. 工作边界
+
+Scope Lineage 专注于 SQL 本身能够证明的事实。
+
+| 工具范围外的工作 | 需要什么 |
+| --- | --- |
+| 执行 SQL | Spark、Hive 或其他计算引擎。 |
+| 判断运行时数据值是否正确 | 查询结果和数据质量规则。 |
+| 根据字段名称推测业务语义 | 领域知识和人工确认。 |
+
+SQL 能够证明的关系进入 `lineage.json`；证据不足的位置进入 `diagnostics.json`；业务含义由熟悉数据的人确认。
+
+## 10. Quick Start
+
+安装命令行工具：
+
+```bash
+pipx install scope-lineage
+```
+
+在项目根目录解析简单案例：
 
 ```bash
 scope-lineage parse \
-  --task-file examples/tasks/subscription/subscription_account_snapshot.json \
-  --schema examples/metadata/subscription_account_snapshot/source_tables \
-  --schema-fallback examples/metadata/target_tables/demo_mart.subscription_account_snapshot_metadata.json \
-  --target-ddl-metadata examples/metadata/target_tables/demo_mart.subscription_account_snapshot_metadata.json \
-  --contract-version 2.0 \
-  --quality-policy strict \
-  --out /tmp/scope-lineage/subscription-account
+  --task-file examples/tasks/order/order_channel_metrics.json \
+  --schema examples/metadata/schema_info.json \
+  --target-ddl-metadata examples/metadata/target_tables/mart.order_channel_metrics_metadata.json \
+  --out /tmp/scope-lineage/order-channel
 ```
 
-命令会生成两个文件：
+输出：
 
 ```text
-/tmp/scope-lineage/subscription-account/subscription_account_snapshot/
-├── lineage.json       # 字段来源、加工链、查询作用域和表状态
-└── diagnostics.json   # 完整性、告警和事实缺口
+/tmp/scope-lineage/order-channel/order_channel_metrics/
+├── lineage.json
+└── diagnostics.json
 ```
 
-样例文件：
+完整安装、输入方式、字段查询和质量策略请阅读[安装与使用指南](getting-started.md)。输出字段的查询方式请阅读 [`lineage.json` 输出契约](lineage-json.md)。
 
-- [复杂脱敏 SQL](../../examples/sql/subscription_account_snapshot.sql)
-- [任务文件](../../examples/tasks/subscription/subscription_account_snapshot.json)
-- [源表元数据](../../examples/metadata/subscription_account_snapshot/source_tables/)
-- [目标表元数据](../../examples/metadata/target_tables/demo_mart.subscription_account_snapshot_metadata.json)
-- [合成样例数据](../../examples/sample_data/subscription_account_snapshot/)
+## 11. Learn More
 
-Core 只读取 SQL 和元数据。合成行数据用于帮助读者理解费用分类、聚合和空值处理。
+- [安装与使用指南](getting-started.md)：安装、输入准备、批量解析和常用命令。
+- [输入格式](input-formats.md)：任务 JSON、SQL、Schema 和目标表元数据。
+- [`lineage.json` 输出契约](lineage-json.md)：查询作用域、加工链和端到端血缘。
+- [`diagnostics.json` 输出契约](diagnostics-json.md)：告警、事实缺口和完整性。
+- [Task Lineage 2.0](task-lineage-v2.md)：Row-existence Lineage 和 Table State。
 
-## 9. Learn More
-
-- [安装与使用指南](getting-started.md)：安装方式、输入准备、v1/v2 选择和常用命令。
-- [lineage.json 输出契约](lineage-json.md)：字段血缘、加工链、查询作用域和表状态的完整结构。
-- [diagnostics.json 输出契约](diagnostics-json.md)：告警、证据缺口和质量门禁。
-- [常见问题](getting-started.md#9-常见问题)：解析失败或结果不完整时的排查方法。
+Scope Lineage 是一个采用 Apache-2.0 许可证的开源项目。项目地址：[github.com/realyin/scope-lineage](https://github.com/realyin/scope-lineage)。如果它对你的 SQL 排查、血缘治理或数据平台建设有帮助，欢迎在 GitHub 点一个 Star。你的支持也会让更多需要处理复杂数仓 SQL 的人找到它。
