@@ -155,6 +155,26 @@ def _lineage_for_column(
     return traced_lineage
 
 
+def _physical_fields_for_scope_column(
+    result: ScopeLineageResult,
+    scope_id: str,
+    column_name: str,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Physical root fields behind one scope column, plus why the trace fell short.
+
+    Internal helper for callers that need a single column's provenance without building
+    the whole end-to-end document — task-level MERGE condition modelling, in particular.
+    Returning the incomplete reasons alongside the fields is the point: a caller must be
+    able to tell "no physical source" from "traced to none", and publish a fact gap
+    rather than a plausible table name.
+    """
+    lineage = _lineage_for_column(result, scope_id, column_name, "DIRECT")
+    return (
+        list(lineage.get("physical_sources") or []),
+        list(lineage.get("trace_incomplete_reasons") or []),
+    )
+
+
 def _lineage_from_output_expression_resolution(
     output: ScopeOutputField | None,
     transform: str,

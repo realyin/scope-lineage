@@ -264,6 +264,12 @@ class ScopeLineageResult:
     # It is an in-memory identity input and is intentionally not serialized as
     # a second copy of the SQL.
     statement_identity_sql: str = ""
+    # Scope ID of a MERGE's USING relation, "" for every other statement kind. Like
+    # statement_identity_sql this is an in-memory fact, not a contract field: it lets
+    # task-level modelling resolve a MERGE condition alias through the scopes that were
+    # actually built, instead of re-deriving the alias's table from the raw AST and
+    # publishing a CTE name as though it were a physical table (MERGE-CTE-002).
+    merge_using_scope_id: str = ""
     # "ok" | "failed". A statement whose scope build raised is still returned (so the failure
     # stays diagnosable and one bad statement cannot abort a batch), but it carries EMPTY
     # scopes — structurally indistinguishable from a successful parse unless it says so. Callers
