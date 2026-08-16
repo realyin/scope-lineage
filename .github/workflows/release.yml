@@ -8,7 +8,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      # contents: write is required to upload dist files as Release Assets.
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -44,6 +45,12 @@ jobs:
           python -m pip install --upgrade pip build
           python -m build
           python tests/architecture/verify_distribution.py dist/*
+
+      - name: Upload distributions to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" dist/* --clobber
 
       - name: Upload distributions
         uses: actions/upload-artifact@v4
