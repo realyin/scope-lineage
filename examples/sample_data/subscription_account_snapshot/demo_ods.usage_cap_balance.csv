@@ -1,0 +1,3 @@
+multi_use_flag,temporary_cap_start_date,temporary_spending_cap,usage_cap_type,consumed_spending_cap,snapshot_date,reusable_cap_flag,available_spending_cap,usage_cap_id,temporary_cap_allowed_flag,record_state,temporary_cap_end_date,standard_spending_cap
+1,2025-01-15,demo_temporary_spending_cap,1,demo_consumed_spending_cap,20250115,0,demo_available_spending_cap,CAP-1001,1,0,2025-01-15,demo_standard_spending_cap
+1,2025-01-15,demo_temporary_spending_cap,2,demo_consumed_spending_cap,20250115,0,demo_available_spending_cap,CAP-1001,1,0,2025-01-15,demo_standard_spending_cap

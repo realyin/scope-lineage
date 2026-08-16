@@ -1,0 +1,793 @@
+{
+  "table_name": "demo_mart.subscription_account_snapshot",
+  "full_table_name": "spark_catalog.demo_mart.subscription_account_snapshot",
+  "schema": [
+    {
+      "columnName": "subscription_id",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: subscription id",
+      "columnIndex": 0,
+      "isPartition": 0
+    },
+    {
+      "columnName": "service_plan_code",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: service plan code",
+      "columnIndex": 1,
+      "isPartition": 0
+    },
+    {
+      "columnName": "currency_code",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: currency code",
+      "columnIndex": 2,
+      "isPartition": 0
+    },
+    {
+      "columnName": "snapshot_id",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: demo attribute 027",
+      "columnIndex": 3,
+      "isPartition": 0
+    },
+    {
+      "columnName": "signup_request_id",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: signup request id",
+      "columnIndex": 4,
+      "isPartition": 0
+    },
+    {
+      "columnName": "billing_account_type",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: billing account type",
+      "columnIndex": 5,
+      "isPartition": 0
+    },
+    {
+      "columnName": "standard_spending_cap",
+      "columnType": "decimal(10,2)",
+      "columnComment": "Synthetic snapshot field: standard spending cap",
+      "columnIndex": 6,
+      "isPartition": 0
+    },
+    {
+      "columnName": "bonus_spending_cap",
+      "columnType": "decimal(10,2)",
+      "columnComment": "Synthetic snapshot field: bonus spending cap",
+      "columnIndex": 7,
+      "isPartition": 0
+    },
+    {
+      "columnName": "temporary_cap_start_date",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: temporary cap start date",
+      "columnIndex": 8,
+      "isPartition": 0
+    },
+    {
+      "columnName": "temporary_cap_end_date",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: temporary cap end date",
+      "columnIndex": 9,
+      "isPartition": 0
+    },
+    {
+      "columnName": "temporary_spending_cap",
+      "columnType": "decimal(10,2)",
+      "columnComment": "Synthetic snapshot field: temporary spending cap",
+      "columnIndex": 10,
+      "isPartition": 0
+    },
+    {
+      "columnName": "consumed_spending_cap",
+      "columnType": "decimal(10,2)",
+      "columnComment": "Synthetic snapshot field: consumed spending cap",
+      "columnIndex": 11,
+      "isPartition": 0
+    },
+    {
+      "columnName": "invoice_day",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: invoice day",
+      "columnIndex": 12,
+      "isPartition": 0
+    },
+    {
+      "columnName": "hold_reason_codes",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: hold reason codes",
+      "columnIndex": 13,
+      "isPartition": 0
+    },
+    {
+      "columnName": "signup_channel_code",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: signup channel code",
+      "columnIndex": 14,
+      "isPartition": 0
+    },
+    {
+      "columnName": "signup_device_type",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: signup device type",
+      "columnIndex": 15,
+      "isPartition": 0
+    },
+    {
+      "columnName": "service_start_date",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: service start date",
+      "columnIndex": 16,
+      "isPartition": 0
+    },
+    {
+      "columnName": "service_end_date",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: service end date",
+      "columnIndex": 17,
+      "isPartition": 0
+    },
+    {
+      "columnName": "payment_method_type",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: payment method type",
+      "columnIndex": 18,
+      "isPartition": 0
+    },
+    {
+      "columnName": "payment_provider_id",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: payment provider id",
+      "columnIndex": 19,
+      "isPartition": 0
+    },
+    {
+      "columnName": "payment_provider_name",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: payment provider name",
+      "columnIndex": 20,
+      "isPartition": 0
+    },
+    {
+      "columnName": "payment_region_code",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: payment region code",
+      "columnIndex": 21,
+      "isPartition": 0
+    },
+    {
+      "columnName": "payment_city_code",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: payment city code",
+      "columnIndex": 22,
+      "isPartition": 0
+    },
+    {
+      "columnName": "payment_account_token",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: payment account token",
+      "columnIndex": 23,
+      "isPartition": 0
+    },
+    {
+      "columnName": "payment_account_label",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: payment account label",
+      "columnIndex": 24,
+      "isPartition": 0
+    },
+    {
+      "columnName": "invoice_date",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: invoice date",
+      "columnIndex": 25,
+      "isPartition": 0
+    },
+    {
+      "columnName": "payment_due_date",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: payment due date",
+      "columnIndex": 26,
+      "isPartition": 0
+    },
+    {
+      "columnName": "grace_period_end_date",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: grace period end date",
+      "columnIndex": 27,
+      "isPartition": 0
+    },
+    {
+      "columnName": "service_close_date",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: service close date",
+      "columnIndex": 28,
+      "isPartition": 0
+    },
+    {
+      "columnName": "warning_period_start_date",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: warning period start date",
+      "columnIndex": 29,
+      "isPartition": 0
+    },
+    {
+      "columnName": "past_due_start_date",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: past due start date",
+      "columnIndex": 30,
+      "isPartition": 0
+    },
+    {
+      "columnName": "past_due_amount",
+      "columnType": "decimal(10,2)",
+      "columnComment": "Synthetic snapshot field: past due amount",
+      "columnIndex": 31,
+      "isPartition": 0
+    },
+    {
+      "columnName": "past_due_base_amount",
+      "columnType": "decimal(10,2)",
+      "columnComment": "Synthetic snapshot field: past due base amount",
+      "columnIndex": 32,
+      "isPartition": 0
+    },
+    {
+      "columnName": "special_charge_balance",
+      "columnType": "decimal(10,2)",
+      "columnComment": "Synthetic snapshot field: special charge balance",
+      "columnIndex": 33,
+      "isPartition": 0
+    },
+    {
+      "columnName": "special_base_charge",
+      "columnType": "decimal(10,2)",
+      "columnComment": "Synthetic snapshot field: special base charge",
+      "columnIndex": 34,
+      "isPartition": 0
+    },
+    {
+      "columnName": "subscription_purpose",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: subscription purpose",
+      "columnIndex": 35,
+      "isPartition": 0
+    },
+    {
+      "columnName": "parent_billing_account_id",
+      "columnType": "bigint",
+      "columnComment": "Synthetic snapshot field: parent billing account id",
+      "columnIndex": 36,
+      "isPartition": 0
+    },
+    {
+      "columnName": "parent_subscription_id",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: parent subscription id",
+      "columnIndex": 37,
+      "isPartition": 0
+    },
+    {
+      "columnName": "annual_service_rate",
+      "columnType": "decimal(10,8)",
+      "columnComment": "Synthetic snapshot field: annual service rate",
+      "columnIndex": 38,
+      "isPartition": 0
+    },
+    {
+      "columnName": "daily_service_charge_rate",
+      "columnType": "decimal(10,8)",
+      "columnComment": "Synthetic snapshot field: daily service charge rate",
+      "columnIndex": 39,
+      "isPartition": 0
+    },
+    {
+      "columnName": "maximum_past_due_days",
+      "columnType": "int",
+      "columnComment": "Synthetic snapshot field: maximum past due days",
+      "columnIndex": 40,
+      "isPartition": 0
+    },
+    {
+      "columnName": "maximum_warning_days",
+      "columnType": "int",
+      "columnComment": "Synthetic snapshot field: maximum warning days",
+      "columnIndex": 41,
+      "isPartition": 0
+    },
+    {
+      "columnName": "days_after_payment_due",
+      "columnType": "int",
+      "columnComment": "Synthetic snapshot field: days after payment due",
+      "columnIndex": 42,
+      "isPartition": 0
+    },
+    {
+      "columnName": "grace_period_days",
+      "columnType": "int",
+      "columnComment": "Synthetic snapshot field: grace period days",
+      "columnIndex": 43,
+      "isPartition": 0
+    },
+    {
+      "columnName": "original_warning_period_start_date",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: original warning period start date",
+      "columnIndex": 44,
+      "isPartition": 0
+    },
+    {
+      "columnName": "cash_usage_cap_ratio",
+      "columnType": "decimal(5,2)",
+      "columnComment": "Synthetic snapshot field: cash usage cap ratio",
+      "columnIndex": 45,
+      "isPartition": 0
+    },
+    {
+      "columnName": "flexible_payment_charge_rate",
+      "columnType": "decimal(12,8)",
+      "columnComment": "Synthetic snapshot field: flexible payment charge rate",
+      "columnIndex": 46,
+      "isPartition": 0
+    },
+    {
+      "columnName": "processed_at",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: processed at",
+      "columnIndex": 47,
+      "isPartition": 0
+    },
+    {
+      "columnName": "cash_usage_balance",
+      "columnType": "decimal(20,4)",
+      "columnComment": "Synthetic snapshot field: cash usage balance",
+      "columnIndex": 48,
+      "isPartition": 0
+    },
+    {
+      "columnName": "installment_cap_balance",
+      "columnType": "decimal(20,4)",
+      "columnComment": "Synthetic snapshot field: installment cap balance",
+      "columnIndex": 49,
+      "isPartition": 0
+    },
+    {
+      "columnName": "previous_past_due_date",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: previous past due date",
+      "columnIndex": 50,
+      "isPartition": 0
+    },
+    {
+      "columnName": "next_invoice_date",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: next invoice date",
+      "columnIndex": 51,
+      "isPartition": 0
+    },
+    {
+      "columnName": "first_invoice_date",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: first invoice date",
+      "columnIndex": 52,
+      "isPartition": 0
+    },
+    {
+      "columnName": "parent_subscription_flag",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: parent subscription flag",
+      "columnIndex": 53,
+      "isPartition": 0
+    },
+    {
+      "columnName": "wallet_open_timestamp",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: wallet open timestamp",
+      "columnIndex": 54,
+      "isPartition": 0
+    },
+    {
+      "columnName": "extension_processed_at",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: extension processed at",
+      "columnIndex": 55,
+      "isPartition": 0
+    },
+    {
+      "columnName": "early_payment_charge_rate",
+      "columnType": "decimal(20,4)",
+      "columnComment": "Synthetic snapshot field: early payment charge rate",
+      "columnIndex": 56,
+      "isPartition": 0
+    },
+    {
+      "columnName": "current_due_includes_cycle_charge",
+      "columnType": "decimal(20,4)",
+      "columnComment": "Synthetic snapshot field: current due includes cycle charge",
+      "columnIndex": 57,
+      "isPartition": 0
+    },
+    {
+      "columnName": "updated_at",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: updated at",
+      "columnIndex": 58,
+      "isPartition": 0
+    },
+    {
+      "columnName": "monthly_protection_charge_rate",
+      "columnType": "decimal(15,8)",
+      "columnComment": "Synthetic snapshot field: monthly protection charge rate",
+      "columnIndex": 59,
+      "isPartition": 0
+    },
+    {
+      "columnName": "monthly_protection_fixed_charge",
+      "columnType": "decimal(20,4)",
+      "columnComment": "Synthetic snapshot field: monthly protection fixed charge",
+      "columnIndex": 60,
+      "isPartition": 0
+    },
+    {
+      "columnName": "service_fixed_charge",
+      "columnType": "decimal(20,4)",
+      "columnComment": "Synthetic snapshot field: service fixed charge",
+      "columnIndex": 61,
+      "isPartition": 0
+    },
+    {
+      "columnName": "installment_charge_rate",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: installment charge rate",
+      "columnIndex": 62,
+      "isPartition": 0
+    },
+    {
+      "columnName": "installment_fixed_charge",
+      "columnType": "decimal(20,4)",
+      "columnComment": "Synthetic snapshot field: installment fixed charge",
+      "columnIndex": 63,
+      "isPartition": 0
+    },
+    {
+      "columnName": "flexible_payment_package_charge",
+      "columnType": "decimal(20,4)",
+      "columnComment": "Synthetic snapshot field: flexible payment package charge",
+      "columnIndex": 64,
+      "isPartition": 0
+    },
+    {
+      "columnName": "request_recorded_date",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: target field 027",
+      "columnIndex": 65,
+      "isPartition": 0
+    },
+    {
+      "columnName": "collection_service_fixed_charge",
+      "columnType": "decimal(20,4)",
+      "columnComment": "Synthetic snapshot field: collection service fixed charge",
+      "columnIndex": 66,
+      "isPartition": 0
+    },
+    {
+      "columnName": "collection_penalty_rate",
+      "columnType": "decimal(15,8)",
+      "columnComment": "Synthetic snapshot field: collection penalty rate",
+      "columnIndex": 67,
+      "isPartition": 0
+    },
+    {
+      "columnName": "cash_usage_charge_rate",
+      "columnType": "decimal(15,8)",
+      "columnComment": "Synthetic snapshot field: cash usage charge rate",
+      "columnIndex": 68,
+      "isPartition": 0
+    },
+    {
+      "columnName": "cash_usage_fixed_charge",
+      "columnType": "decimal(20,4)",
+      "columnComment": "Synthetic snapshot field: cash usage fixed charge",
+      "columnIndex": 69,
+      "isPartition": 0
+    },
+    {
+      "columnName": "installment_collection_fixed_charge",
+      "columnType": "decimal(20,4)",
+      "columnComment": "Synthetic snapshot field: installment collection fixed charge",
+      "columnIndex": 70,
+      "isPartition": 0
+    },
+    {
+      "columnName": "usage_installment_base_rate",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: usage installment base rate",
+      "columnIndex": 71,
+      "isPartition": 0
+    },
+    {
+      "columnName": "charge_free_usage_balance",
+      "columnType": "decimal(20,4)",
+      "columnComment": "Synthetic snapshot field: charge free usage balance",
+      "columnIndex": 72,
+      "isPartition": 0
+    },
+    {
+      "columnName": "accrued_usage_charge_balance",
+      "columnType": "decimal(20,4)",
+      "columnComment": "Synthetic snapshot field: accrued usage charge balance",
+      "columnIndex": 73,
+      "isPartition": 0
+    },
+    {
+      "columnName": "notification_fixed_charge",
+      "columnType": "decimal(20,4)",
+      "columnComment": "Synthetic snapshot field: notification fixed charge",
+      "columnIndex": 74,
+      "isPartition": 0
+    },
+    {
+      "columnName": "cooling_off_days",
+      "columnType": "bigint",
+      "columnComment": "Synthetic snapshot field: cooling off days",
+      "columnIndex": 75,
+      "isPartition": 0
+    },
+    {
+      "columnName": "early_close_fixed_charge",
+      "columnType": "decimal(20,4)",
+      "columnComment": "Synthetic snapshot field: early close fixed charge",
+      "columnIndex": 76,
+      "isPartition": 0
+    },
+    {
+      "columnName": "protection_package_charge_rate",
+      "columnType": "decimal(15,8)",
+      "columnComment": "Synthetic snapshot field: protection package charge rate",
+      "columnIndex": 77,
+      "isPartition": 0
+    },
+    {
+      "columnName": "original_service_end_date",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: original service end date",
+      "columnIndex": 78,
+      "isPartition": 0
+    },
+    {
+      "columnName": "service_close_reason",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: service close reason",
+      "columnIndex": 79,
+      "isPartition": 0
+    },
+    {
+      "columnName": "invoice_enabled_flag",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: invoice enabled flag",
+      "columnIndex": 80,
+      "isPartition": 0
+    },
+    {
+      "columnName": "wallet_account_token",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: wallet account token",
+      "columnIndex": 81,
+      "isPartition": 0
+    },
+    {
+      "columnName": "wallet_open_date",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: wallet open date",
+      "columnIndex": 82,
+      "isPartition": 0
+    },
+    {
+      "columnName": "attribute_codes",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: attribute codes",
+      "columnIndex": 83,
+      "isPartition": 0
+    },
+    {
+      "columnName": "past_due_status",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: past due status",
+      "columnIndex": 84,
+      "isPartition": 0
+    },
+    {
+      "columnName": "invoice_type",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: invoice type",
+      "columnIndex": 85,
+      "isPartition": 0
+    },
+    {
+      "columnName": "pre_extension_past_due_date",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: pre extension past due date",
+      "columnIndex": 86,
+      "isPartition": 0
+    },
+    {
+      "columnName": "account_credit_amount",
+      "columnType": "decimal(20,6)",
+      "columnComment": "Synthetic snapshot field: account credit amount",
+      "columnIndex": 87,
+      "isPartition": 0
+    },
+    {
+      "columnName": "lifetime_service_amount",
+      "columnType": "decimal(20,6)",
+      "columnComment": "Synthetic snapshot field: lifetime service amount",
+      "columnIndex": 88,
+      "isPartition": 0
+    },
+    {
+      "columnName": "parent_service_plan_code",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: parent service plan code",
+      "columnIndex": 89,
+      "isPartition": 0
+    },
+    {
+      "columnName": "created_at",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: created at",
+      "columnIndex": 90,
+      "isPartition": 0
+    },
+    {
+      "columnName": "feature_codes",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: feature codes",
+      "columnIndex": 91,
+      "isPartition": 0
+    },
+    {
+      "columnName": "total_payable_amount",
+      "columnType": "decimal(20,6)",
+      "columnComment": "Synthetic snapshot field: total payable amount",
+      "columnIndex": 92,
+      "isPartition": 0
+    },
+    {
+      "columnName": "spending_cap_status",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: spending cap status",
+      "columnIndex": 93,
+      "isPartition": 0
+    },
+    {
+      "columnName": "managed_platform_flag",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: managed platform flag",
+      "columnIndex": 94,
+      "isPartition": 0
+    },
+    {
+      "columnName": "managed_platform_name",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: managed platform name",
+      "columnIndex": 95,
+      "isPartition": 0
+    },
+    {
+      "columnName": "extension_past_due_flag",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: extension past due flag",
+      "columnIndex": 96,
+      "isPartition": 0
+    },
+    {
+      "columnName": "subscription_due_balance",
+      "columnType": "decimal(20,2)",
+      "columnComment": "Synthetic snapshot field: subscription due balance",
+      "columnIndex": 97,
+      "isPartition": 0
+    },
+    {
+      "columnName": "usage_cap_id",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: usage cap id",
+      "columnIndex": 98,
+      "isPartition": 0
+    },
+    {
+      "columnName": "provider_service_mode",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: provider service mode",
+      "columnIndex": 99,
+      "isPartition": 0
+    },
+    {
+      "columnName": "subscriber_reference",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: subscriber reference",
+      "columnIndex": 100,
+      "isPartition": 0
+    },
+    {
+      "columnName": "flexible_service_flag",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: flexible service flag",
+      "columnIndex": 101,
+      "isPartition": 0
+    },
+    {
+      "columnName": "application_code",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: application code",
+      "columnIndex": 102,
+      "isPartition": 0
+    },
+    {
+      "columnName": "snapshot_date",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: snapshot date",
+      "columnIndex": 103,
+      "isPartition": 1
+    },
+    {
+      "columnName": "processing_source",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: processing source",
+      "columnIndex": 104,
+      "isPartition": 1
+    },
+    {
+      "columnName": "next_payment_due_date",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: next payment due date",
+      "columnIndex": 105,
+      "isPartition": 0
+    },
+    {
+      "columnName": "service_close_time",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: service close time",
+      "columnIndex": 106,
+      "isPartition": 0
+    },
+    {
+      "columnName": "subscriber_tier",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: demo attribute 007",
+      "columnIndex": 107,
+      "isPartition": 0
+    },
+    {
+      "columnName": "subscription_status",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: subscription status",
+      "columnIndex": 108,
+      "isPartition": 0
+    },
+    {
+      "columnName": "subscriber_id",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: subscriber id",
+      "columnIndex": 109,
+      "isPartition": 0
+    },
+    {
+      "columnName": "annual_service_rate_history",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: annual service rate history",
+      "columnIndex": 110,
+      "isPartition": 0
+    },
+    {
+      "columnName": "daily_service_charge_rate_history",
+      "columnType": "string",
+      "columnComment": "Synthetic snapshot field: daily service charge rate history",
+      "columnIndex": 111,
+      "isPartition": 0
+    }
+  ],
+  "ddl": "CREATE TABLE spark_catalog.demo_mart.subscription_account_snapshot (subscription_id string, service_plan_code string, currency_code string, snapshot_id string, signup_request_id string, billing_account_type string, standard_spending_cap decimal(10,2), bonus_spending_cap decimal(10,2), temporary_cap_start_date string, temporary_cap_end_date string, temporary_spending_cap decimal(10,2), consumed_spending_cap decimal(10,2), invoice_day string, hold_reason_codes string, signup_channel_code string, signup_device_type string, service_start_date string, service_end_date string, payment_method_type string, payment_provider_id string, payment_provider_name string, payment_region_code string, payment_city_code string, payment_account_token string, payment_account_label string, invoice_date string, payment_due_date string, grace_period_end_date string, service_close_date string, warning_period_start_date string, past_due_start_date string, past_due_amount decimal(10,2), past_due_base_amount decimal(10,2), special_charge_balance decimal(10,2), special_base_charge decimal(10,2), subscription_purpose string, parent_billing_account_id bigint, parent_subscription_id string, annual_service_rate decimal(10,8), daily_service_charge_rate decimal(10,8), maximum_past_due_days int, maximum_warning_days int, days_after_payment_due int, grace_period_days int, original_warning_period_start_date string, cash_usage_cap_ratio decimal(5,2), flexible_payment_charge_rate decimal(12,8), processed_at string, cash_usage_balance decimal(20,4), installment_cap_balance decimal(20,4), previous_past_due_date string, next_invoice_date string, first_invoice_date string, parent_subscription_flag string, wallet_open_timestamp string, extension_processed_at string, early_payment_charge_rate decimal(20,4), current_due_includes_cycle_charge decimal(20,4), updated_at string, monthly_protection_charge_rate decimal(15,8), monthly_protection_fixed_charge decimal(20,4), service_fixed_charge decimal(20,4), installment_charge_rate string, installment_fixed_charge decimal(20,4), flexible_payment_package_charge decimal(20,4), request_recorded_date string, collection_service_fixed_charge decimal(20,4), collection_penalty_rate decimal(15,8), cash_usage_charge_rate decimal(15,8), cash_usage_fixed_charge decimal(20,4), installment_collection_fixed_charge decimal(20,4), usage_installment_base_rate string, charge_free_usage_balance decimal(20,4), accrued_usage_charge_balance decimal(20,4), notification_fixed_charge decimal(20,4), cooling_off_days bigint, early_close_fixed_charge decimal(20,4), protection_package_charge_rate decimal(15,8), original_service_end_date string, service_close_reason string, invoice_enabled_flag string, wallet_account_token string, wallet_open_date string, attribute_codes string, past_due_status string, invoice_type string, pre_extension_past_due_date string, account_credit_amount decimal(20,6), lifetime_service_amount decimal(20,6), parent_service_plan_code string, created_at string, feature_codes string, total_payable_amount decimal(20,6), spending_cap_status string, managed_platform_flag string, managed_platform_name string, extension_past_due_flag string, subscription_due_balance decimal(20,2), usage_cap_id string, provider_service_mode string, subscriber_reference string, flexible_service_flag string, application_code string, snapshot_date string, processing_source string, next_payment_due_date string, service_close_time string, subscriber_tier string, subscription_status string, subscriber_id string, annual_service_rate_history string, daily_service_charge_rate_history string) USING iceberg PARTITIONED BY (snapshot_date, processing_source)",
+  "query_time": "2025-01-16T00:00:00+00:00",
+  "data_source": "synthetic_demo_catalog"
+}

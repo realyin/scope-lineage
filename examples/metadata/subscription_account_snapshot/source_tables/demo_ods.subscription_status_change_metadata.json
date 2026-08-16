@@ -1,0 +1,43 @@
+{
+  "table_name": "demo_ods.subscription_status_change",
+  "full_table_name": "spark_catalog.demo_ods.subscription_status_change",
+  "schema": [
+    {
+      "columnName": "extension_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: extension date",
+      "columnIndex": 0,
+      "isPartition": 0
+    },
+    {
+      "columnName": "extension_past_due_flag",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: extension past due flag",
+      "columnIndex": 1,
+      "isPartition": 0
+    },
+    {
+      "columnName": "snapshot_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: snapshot date",
+      "columnIndex": 2,
+      "isPartition": 1
+    },
+    {
+      "columnName": "record_state",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: record state",
+      "columnIndex": 3,
+      "isPartition": 0
+    },
+    {
+      "columnName": "subscription_id",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: subscription id",
+      "columnIndex": 4,
+      "isPartition": 0
+    }
+  ],
+  "query_time": "2025-01-16T00:00:00+00:00",
+  "data_source": "synthetic_demo_catalog"
+}

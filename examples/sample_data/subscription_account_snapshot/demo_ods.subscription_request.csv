@@ -1,0 +1,2 @@
+request_state,provider_id,snapshot_date,requested_at,subscription_id
+ACTIVE,PROVIDER-001,20250115,demo_requested_at,SUBSCRIPTION-1001

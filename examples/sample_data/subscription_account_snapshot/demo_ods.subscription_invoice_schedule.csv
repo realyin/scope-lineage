@@ -1,0 +1,2 @@
+payment_due_date,record_state,grace_period_end_date,minimum_payment_amount,invoice_date,subscription_id,snapshot_date
+2025-01-15,0,2025-01-15,demo_minimum_payment_amount,2025-01-15,SUBSCRIPTION-1001,20250115

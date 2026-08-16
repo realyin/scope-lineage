@@ -1,0 +1,2 @@
+record_state,payment_account_label,payment_account_token,snapshot_date,payment_provider_id,payment_region_code,subscription_id,payment_provider_name,payment_city_code
+0,Primary demo payment account,TOKEN-PAYMENT-001,20250115,PAYMENT-PROVIDER-001,REGION-01,SUBSCRIPTION-1001,Demo Payment Provider,CITY-01
