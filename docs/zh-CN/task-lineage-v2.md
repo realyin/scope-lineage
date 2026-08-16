@@ -53,6 +53,11 @@ DELETE 不会把 WHERE 字段伪装成目标字段值来源。未删除行的字
 MERGE 的 ON 和 WHEN 条件同样进入行成员/值条件来源；真正的 UPDATE/INSERT 表达式才进入
 value_sources。
 
+row_membership_sources[].table 始终是物理表，不是查询块。MERGE 条件里的目标别名解析为目标表，
+USING 别名则沿已解析的 USING scope 一路追踪到物理根字段：USING 是 CTE 或子查询时记录其背后的
+物理表而不是 CTE 名，USING 是 UNION 时保留每个分支的物理根字段。追踪无法完成时不补位任何名字，
+改为记录 merge_condition_source_unresolved fact gap（见下一节）。
+
 ## 状态转换语义
 
 | 语句 | rowset operation | 字段值语义 |
@@ -79,6 +84,11 @@ value_sources 表示没有存活字段值，known_empty 和状态转换边则解
 schema_missing_for_state_passthrough fact gap 并令 analysis_status=partial。
 投影中的 `*` 无法根据 schema 展开时会保留通配来源，同时记录
 projection_wildcard_unexpanded，并将对应最终字段的 trace_complete 设为 false。
+
+MERGE 条件字段无法追踪到物理根字段时记录 merge_condition_source_unresolved，字段为
+statement_id、source_alias、column、root_impact=true 和 needed_fact。触发场景包括条件引用了
+USING 关系并未输出的列，以及条件使用了既非目标别名也非 USING 别名的限定符。该缺口
+root_impact=true，因此会令 analysis_status=partial 并使 strict 门禁返回非零。
 
 diagnostics.json.metadata_coverage 记录引用表、已覆盖表、缺失表、schema 来源数以及元数据冲突。
 --schema-fallback 只补 --schema 中缺失的表；同表定义不一致时保留权威来源并报告冲突。

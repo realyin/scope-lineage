@@ -192,3 +192,89 @@ def test_binding_fallback_gate_has_an_independent_exit_policy(tmp_path: Path) ->
         "--out",
         str(tmp_path / "output"),
     ]) == 1
+
+
+MERGE_CTE_SQL = """
+WITH staged AS (
+  SELECT e.id, e.event_type, a.account_key
+  FROM ods.events e
+  LEFT JOIN dim.accounts a ON e.account_id = a.account_id
+)
+MERGE INTO mart.event_target target
+USING (SELECT id, event_type, account_key FROM staged) source
+ON target.id = source.id
+WHEN MATCHED THEN UPDATE SET
+  target.id = source.id,
+  target.event_type = source.event_type,
+  target.account_key = source.account_key
+WHEN NOT MATCHED THEN INSERT *
+"""
+
+MERGE_CTE_SCHEMA_CSV = (
+    "table_name,column_name\n"
+    "ods.events,id\n"
+    "ods.events,event_type\n"
+    "ods.events,account_id\n"
+    "dim.accounts,account_id\n"
+    "dim.accounts,account_key\n"
+    "mart.event_target,id\n"
+    "mart.event_target,event_type\n"
+    "mart.event_target,account_key\n"
+)
+
+
+def _merge_inputs(tmp_path: Path, sql: str) -> tuple[Path, Path]:
+    sql_file = tmp_path / "merge.sql"
+    sql_file.write_text(sql, encoding="utf-8")
+    schema = tmp_path / "schema.csv"
+    schema.write_text(MERGE_CTE_SCHEMA_CSV, encoding="utf-8")
+    return sql_file, schema
+
+
+def test_strict_policy_accepts_a_fully_traced_merge_over_a_cte(tmp_path: Path) -> None:
+    sql_file, schema = _merge_inputs(tmp_path, MERGE_CTE_SQL)
+
+    for contract_args, out in (
+        ([], "v1"),
+        (["--contract-version", "2.0"], "v2"),
+    ):
+        assert main([
+            "parse",
+            "--sql-file",
+            str(sql_file),
+            "--schema",
+            str(schema),
+            *contract_args,
+            "--quality-policy",
+            "strict",
+            "--out",
+            str(tmp_path / out),
+        ]) == 0
+
+
+def test_strict_policy_rejects_a_merge_condition_that_cannot_be_traced(
+    tmp_path: Path,
+) -> None:
+    sql_file, schema = _merge_inputs(
+        tmp_path,
+        """
+        MERGE INTO mart.event_target target
+        USING (SELECT id FROM ods.events) source
+        ON target.id = source.missing_col
+        WHEN MATCHED THEN UPDATE SET target.event_type = source.id
+        """,
+    )
+
+    assert main([
+        "parse",
+        "--sql-file",
+        str(sql_file),
+        "--schema",
+        str(schema),
+        "--contract-version",
+        "2.0",
+        "--quality-policy",
+        "strict",
+        "--out",
+        str(tmp_path / "untraceable"),
+    ]) == 1

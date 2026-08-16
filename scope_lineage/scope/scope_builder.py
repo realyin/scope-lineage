@@ -599,9 +599,9 @@ def _build_merge_scope(
         return result
     merge = _merge_with_subquery_source(merge)
 
-    original_columns = [column.copy() for column in merge.find_all(exp.Column)]
+    protected = _protect_merge_correlated_target_refs(merge)
     qualified = _qualify_ast(merge)
-    _restore_merge_target_references(qualified, original_columns)
+    _restore_merge_correlated_target_refs(qualified, protected)
     _build_result_from_scope(qualified, result, target_table, schema)
     _drop_dangling_column_refs(result)
     result.diagnostics.stats = _compute_stats(result)
@@ -610,35 +610,106 @@ def _build_merge_scope(
     return result
 
 
-def _restore_merge_target_references(
-    qualified_merge: exp.Expression,
-    original_columns: list[exp.Column],
-) -> None:
-    """Undo SQLGlot's misqualification of correlated MERGE-target references.
+_MERGE_TARGET_REF_SENTINEL = "__scope_lineage_merge_target_ref_{}__"
 
-    SQLGlot 30.x can rewrite ``target.id`` inside an action scalar subquery to
-    ``lookup.target.id`` by treating the explicit target alias as a struct field
-    on the subquery's local table. Explicitly qualified references must retain the
-    author's binding. Column traversal order and count are stable through qualify;
-    if that ever stops being true, leave the AST untouched rather than guessing.
+
+def _merge_correlated_target_ref_regions(merge: exp.Merge) -> list[exp.Expression]:
+    """The only two places a correlated MERGE-target reference can legally appear.
+
+    Deliberately excludes ``using`` and ``with``: a ``target.x`` written there is not
+    correlated, it is out of scope, and it must keep producing an ordinary unresolved
+    diagnostic instead of being silently rewritten into something that resolves.
     """
-    if not isinstance(qualified_merge, exp.Merge):
-        return
-    target = _unwrap_target(qualified_merge.this)
+    regions = [merge.args.get("on"), merge.args.get("whens")]
+    return [region for region in regions if isinstance(region, exp.Expression)]
+
+
+def _is_nested_target_ref(column: exp.Column, region: exp.Expression) -> bool:
+    """True when ``column`` sits inside a query nested under ``region``.
+
+    A direct ``target.id`` in ON, or an UPDATE left value, qualifies correctly on its
+    own. Only references that sqlglot resolves against a *nested* query's local sources
+    get misbound, so widening this predicate would rewrite references that were never
+    broken.
+    """
+    node = column.parent
+    while node is not None and node is not region:
+        if isinstance(node, exp.Select):
+            return True
+        node = node.parent
+    return False
+
+
+def _protect_merge_correlated_target_refs(merge: exp.Expression) -> dict[str, exp.Column]:
+    """Swap correlated MERGE-target references for inert sentinel literals.
+
+    sqlglot 30.x rewrites ``target.id`` inside an action scalar subquery to
+    ``lookup.target.id``, treating the explicit target alias as a struct field on the
+    subquery's local table. The author's binding has to survive qualify.
+
+    Pairing the pre- and post-qualify ``find_all(exp.Column)`` traversals by position
+    cannot do that: qualify reorders the traversal (a leading WITH block moves behind
+    the MERGE body) while keeping the count identical, so a count check passes and the
+    positional pairing pastes the action's ``target.*`` onto unrelated CTE projections
+    and neighbouring UPDATE assignments (MERGE-CTE-001).
+
+    Tagging the node through ``meta`` does not survive either: the misqualified node is
+    a new node rather than the original mutated in place, so the tag is gone exactly
+    where it is needed. An inert string literal is the one marker qualify leaves alone.
+    """
+    if not isinstance(merge, exp.Merge):
+        return {}
+    target = _unwrap_target(merge.this)
     if not isinstance(target, exp.Table):
-        return
+        return {}
     target_qualifiers = {target.alias_or_name, target.name}
-    qualified_columns = list(qualified_merge.find_all(exp.Column))
-    if len(qualified_columns) != len(original_columns):
+    existing_literals = {
+        literal.this for literal in merge.find_all(exp.Literal) if literal.is_string
+    }
+    protected: dict[str, exp.Column] = {}
+    for region in _merge_correlated_target_ref_regions(merge):
+        for column in list(region.find_all(exp.Column)):
+            if len(column.parts or []) != 2 or column.table not in target_qualifiers:
+                continue
+            if not _is_nested_target_ref(column, region):
+                continue
+            # Sequential, so the same SQL always yields the same sentinels and the
+            # same output bytes.
+            token = _MERGE_TARGET_REF_SENTINEL.format(len(protected))
+            if token in existing_literals:
+                raise ValueError(
+                    "MERGE target-reference sentinel collides with a literal in the SQL"
+                )
+            protected[token] = column.copy()
+            column.replace(exp.Literal.string(token))
+    return protected
+
+
+def _restore_merge_correlated_target_refs(
+    qualified_merge: exp.Expression,
+    protected: dict[str, exp.Column],
+) -> None:
+    """Put every protected reference back, or fail rather than publish a guess.
+
+    A sentinel that vanished or multiplied means the AST is no longer the one that was
+    protected. Falling back to positional guessing is what produced MERGE-CTE-001, so
+    this stops the statement instead; callers that model whole scripts already record
+    that as ``parse_status="failed"``.
+    """
+    if not protected:
         return
-    for original, qualified in zip(original_columns, qualified_columns):
-        original_parts = original.parts or []
-        if (
-            len(original_parts) == 2
-            and original.table in target_qualifiers
-            and qualified.sql(dialect=DIALECT) != original.sql(dialect=DIALECT)
-        ):
-            qualified.replace(original.copy())
+    found: dict[str, list[exp.Literal]] = {}
+    for literal in qualified_merge.find_all(exp.Literal):
+        if literal.is_string and literal.this in protected:
+            found.setdefault(literal.this, []).append(literal)
+    for token, column in protected.items():
+        hits = found.get(token, [])
+        if len(hits) != 1:
+            raise ValueError(
+                "MERGE target reference could not be restored after qualify: "
+                f"sentinel found {len(hits)} times, expected exactly 1"
+            )
+        hits[0].replace(column.copy())
 
 
 def _looks_schema_expanded_from_physical(scope_data) -> bool:
@@ -852,6 +923,13 @@ def _build_result_from_scope(
     result.source_tables = sorted(physical_tables)
     all_nodes = set(result.scopes.keys()) | physical_tables
     result.scope_graph.nodes = sorted(all_nodes)
+
+    # The USING relation's scope ID, recorded once here because it is only knowable
+    # while the sqlglot scopes are in hand. Task-level modelling needs it to resolve
+    # MERGE condition aliases through proven scope facts instead of re-guessing which
+    # table an alias meant (MERGE-CTE-002).
+    if merge_using_scope is not None:
+        result.merge_using_scope_id = getattr(merge_using_scope, _SCOPE_ID_ATTR, "") or ""
 
     # Step 5: Resolve columns for all scopes
     resolve_all(
