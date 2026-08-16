@@ -10,6 +10,8 @@ from sqlglot import exp
 
 from ..metadata.schema_metadata import DictSchemaProvider
 from ._shared import DIALECT, PARSE_OPTS
+from .end_to_end import _physical_fields_for_scope_column
+from .scope_types import ScopeLineageResult
 from .scope_builder import (
     _is_ctas,
     _normalize_directory_insert_sql,
@@ -391,7 +393,13 @@ def _apply_projection_write(
             *previous.missing_reasons,
         ]))
     merge_conditions = (
-        _merge_condition_sources(tree, target_table=result.target_table)
+        _merge_condition_sources(
+            tree,
+            target_table=result.target_table,
+            result=result,
+            statement_id=statement_id,
+            gaps=gaps,
+        )
         if isinstance(tree, exp.Merge)
         else []
     )
@@ -822,31 +830,34 @@ def _expression_field_sources(
     expression: exp.Expression | None,
     *,
     target_table: str,
-    aliases: Mapping[str, str] | None = None,
 ) -> list[dict]:
+    """Physical fields a predicate reads, resolved from the expression alone.
+
+    There is deliberately no alias-map parameter: mapping a statement's aliases to
+    tables here is guesswork, and MERGE — the one caller that needed it — now resolves
+    its aliases through the built scopes instead (MERGE-CTE-002).
+    """
     if expression is None:
         return []
     sources: list[dict] = []
     for column in expression.find_all(exp.Column):
         select = column.find_ancestor(exp.Select)
         if select is None:
-            table = (
-                (aliases or {}).get(column.table.lower(), column.table)
-                if column.table
-                else target_table
-            )
+            table = column.table if column.table else target_table
         else:
             direct_tables = [
                 item
                 for item in select.find_all(exp.Table)
                 if item.find_ancestor(exp.Select) is select
             ]
-            aliases = {
+            # Kept local: rebinding ``aliases`` here would leak this nested query's
+            # alias map onto every later top-level column in the same expression.
+            local_aliases = {
                 (item.alias_or_name or "").lower(): _table_name(item)
                 for item in direct_tables
             }
             if column.table:
-                table = aliases.get(column.table.lower(), column.table)
+                table = local_aliases.get(column.table.lower(), column.table)
             elif len(direct_tables) == 1:
                 table = _table_name(direct_tables[0])
             else:
@@ -855,45 +866,105 @@ def _expression_field_sources(
     return _dedupe_dicts(sources)
 
 
-def _merge_condition_sources(
-    tree: exp.Merge,
-    *,
-    target_table: str,
-) -> list[dict]:
-    aliases: dict[str, str] = {}
-    target = tree.this
-    if isinstance(target, exp.Table):
-        aliases[(target.alias_or_name or target.name).lower()] = target_table
-    using = tree.args.get("using")
-    if isinstance(using, exp.Table):
-        aliases[(using.alias_or_name or using.name).lower()] = _table_name(using)
-    elif isinstance(using, exp.Expression):
-        physical_tables = [
-            _table_name(table)
-            for table in using.find_all(exp.Table)
-        ]
-        aliases[(using.alias_or_name or "source").lower()] = (
-            physical_tables[0]
-            if len(set(physical_tables)) == 1
-            else "UNKNOWN"
-        )
-    expressions = [tree.args.get("on")]
+def _merge_condition_expressions(tree: exp.Merge) -> list[exp.Expression | None]:
+    expressions: list[exp.Expression | None] = [tree.args.get("on")]
     whens = tree.args.get("whens")
     if whens is not None:
         expressions.extend(
             when.args.get("condition")
             for when in getattr(whens, "expressions", [])
         )
+    return expressions
+
+
+def _merge_condition_sources(
+    tree: exp.Merge,
+    *,
+    target_table: str,
+    result: ScopeLineageResult,
+    statement_id: str,
+    gaps: list[dict],
+) -> list[dict]:
+    """Row-membership sources for a MERGE, resolved through Core's scope facts.
+
+    ``row_membership_sources`` claims a physical field decided whether a target row
+    exists, so every entry has to be one. Deriving the USING alias's table from the raw
+    AST cannot do that: a CTE-backed USING published the CTE name, a UNION published the
+    literal string ``UNKNOWN``, and a condition naming a column the USING relation does
+    not expose published that column anyway — all as if they were proven physical fields
+    (MERGE-CTE-002). Core has already resolved the USING scope; trace through it, and
+    where the trace cannot finish, emit a fact gap instead of a name.
+    """
+    target = tree.this
+    target_alias = (
+        (target.alias_or_name or target.name).lower()
+        if isinstance(target, exp.Table)
+        else ""
+    )
+    using = tree.args.get("using")
+    using_alias = (
+        (using.alias_or_name or "source").lower()
+        if isinstance(using, exp.Expression)
+        else ""
+    )
+
     sources: list[dict] = []
-    for expression in expressions:
-        sources.extend(
-            _expression_field_sources(
-                expression,
-                target_table=target_table,
-                aliases=aliases,
+    for expression in _merge_condition_expressions(tree):
+        if expression is None:
+            continue
+        for column in expression.find_all(exp.Column):
+            if column.find_ancestor(exp.Select) is not None:
+                # A column inside a nested query belongs to that query's own sources,
+                # not to either MERGE alias.
+                sources.extend(
+                    _expression_field_sources(column, target_table=target_table)
+                )
+                continue
+            qualifier = column.table.lower()
+            if not qualifier or qualifier == target_alias:
+                sources.append({"table": target_table, "column": column.name})
+                continue
+            if qualifier != using_alias:
+                gaps.append(
+                    _merge_condition_gap(statement_id, column.table, column.name)
+                )
+                continue
+            physical_fields, incomplete_reasons = _merge_condition_physical_fields(
+                result, column.name
             )
-        )
+            if incomplete_reasons or not physical_fields:
+                gaps.append(
+                    _merge_condition_gap(statement_id, column.table, column.name)
+                )
+                continue
+            sources.extend(physical_fields)
     return _dedupe_dicts(sources)
+
+
+def _merge_condition_physical_fields(
+    result: ScopeLineageResult,
+    column_name: str,
+) -> tuple[list[dict], list[str]]:
+    if not result.merge_using_scope_id:
+        return [], ["merge_using_scope_missing"]
+    fields, incomplete_reasons = _physical_fields_for_scope_column(
+        result, result.merge_using_scope_id, column_name
+    )
+    return (
+        [{"table": field["table"], "column": field["column"]} for field in fields],
+        incomplete_reasons,
+    )
+
+
+def _merge_condition_gap(statement_id: str, source_alias: str, column: str) -> dict:
+    return {
+        "gap_type": "merge_condition_source_unresolved",
+        "statement_id": statement_id,
+        "source_alias": source_alias,
+        "column": column,
+        "root_impact": True,
+        "needed_fact": "MERGE condition source scope and physical field",
+    }
 
 
 def _table_name(table: exp.Expression | None) -> str:

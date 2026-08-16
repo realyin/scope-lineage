@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- Fixed MERGE lineage corruption when the statement is preceded by a CTE: qualify
+  reorders the column traversal, so pairing pre- and post-qualify columns by position
+  pasted a MERGE action's target references onto unrelated CTE projections and
+  neighbouring UPDATE assignments. Correlated target references are now protected across
+  qualify by identity, and an unrestorable reference fails the statement instead of
+  publishing a positional guess
+- Resolved MERGE `row_membership_sources` through the built USING scope, so a CTE- or
+  subquery-backed USING reports its physical root fields instead of the query block's
+  name, a UNION reports every branch instead of the literal `UNKNOWN`, and a condition
+  the USING relation does not expose reports a new `merge_condition_source_unresolved`
+  fact gap instead of a fabricated column
+
 ## 0.1.1 - 2026-08-15
 
 - Added opt-in task-level `schema_version: "2.0"` output with ordered statements and
