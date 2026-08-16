@@ -1,0 +1,3774 @@
+{
+  "schema_version": "2.0",
+  "artifact_kind": "task_lineage",
+  "task_id": "golden_merge_cte_source",
+  "parse_status": "ok",
+  "syntax_status": "strict_ok",
+  "syntax_errors": [],
+  "analysis_status": {
+    "status": "complete",
+    "blocking_reasons": []
+  },
+  "statement_sequence": [
+    {
+      "statement_id": "stmt:001",
+      "statement_index": 0,
+      "stmt_kind": "MERGE",
+      "category": "conditional_write",
+      "model_status": "modeled",
+      "normalized_sql": "WITH staged AS (SELECT e.id, e.event_type, a.account_key FROM ods.events AS e LEFT JOIN dim.accounts AS a ON e.account_id = a.account_id) MERGE INTO mart.event_target AS target USING (SELECT id, event_type, account_key FROM staged) AS source ON target.id = source.id WHEN MATCHED THEN UPDATE SET target.id = source.id, target.event_type = source.event_type, target.account_key = source.account_key WHEN NOT MATCHED THEN INSERT *",
+      "target_table": "mart.event_target",
+      "target_field_binding": {
+        "status": "absent",
+        "reason_code": "metadata_not_provided"
+      },
+      "input_states": [
+        "state:mart.event_target:000"
+      ],
+      "output_state": "state:mart.event_target:001",
+      "effect": {
+        "rowset_effect": {
+          "operation": "MERGE",
+          "membership_sources": [
+            {
+              "table": "mart.event_target",
+              "column": "id"
+            },
+            {
+              "table": "ods.events",
+              "column": "id"
+            }
+          ]
+        },
+        "column_effect": {
+          "value_mode": "WRITE_PROJECTION"
+        }
+      }
+    }
+  ],
+  "table_state_graph": {
+    "nodes": [
+      {
+        "state_id": "state:mart.event_target:000",
+        "table": "mart.event_target",
+        "ordinal": 0,
+        "known_empty": false,
+        "columns_known": true,
+        "producer_statement_id": null
+      },
+      {
+        "state_id": "state:mart.event_target:001",
+        "table": "mart.event_target",
+        "ordinal": 1,
+        "known_empty": false,
+        "columns_known": true,
+        "producer_statement_id": "stmt:001"
+      }
+    ],
+    "edges": [
+      {
+        "from": "state:mart.event_target:000",
+        "to": "state:mart.event_target:001",
+        "statement_id": "stmt:001",
+        "effect": "MERGE"
+      }
+    ]
+  },
+  "final_table_states": {
+    "mart.event_target": "state:mart.event_target:001"
+  },
+  "statement_lineage": {
+    "stmt:001": {
+      "schema_version": "1.0",
+      "task_id": "golden_merge_cte_source#0",
+      "target_table": "mart.event_target",
+      "stmt_kind": "MERGE",
+      "parse_status": "ok",
+      "syntax_status": "strict_ok",
+      "syntax_errors": [],
+      "target_partition_spec": {},
+      "target_partition_columns": [],
+      "target_partition_mode": "none",
+      "task_dependencies": {
+        "upstream_tasks": [],
+        "downstream_tasks": [],
+        "source_summary": {
+          "source_format": "none",
+          "upstream_count": 0,
+          "downstream_count": 0,
+          "has_declared_task_dependencies": false
+        }
+      },
+      "source_tables": [
+        "dim.accounts",
+        "ods.events"
+      ],
+      "related_metadata": {
+        "input_tables": {
+          "dim.accounts": {
+            "column_details": [
+              {
+                "name": "account_id",
+                "type": null,
+                "comment": null
+              },
+              {
+                "name": "account_key",
+                "type": null,
+                "comment": null
+              }
+            ],
+            "metadata_complete": true
+          },
+          "ods.events": {
+            "column_details": [
+              {
+                "name": "id",
+                "type": null,
+                "comment": null
+              },
+              {
+                "name": "event_type",
+                "type": null,
+                "comment": null
+              },
+              {
+                "name": "account_id",
+                "type": null,
+                "comment": null
+              }
+            ],
+            "metadata_complete": true
+          }
+        },
+        "output_tables": {
+          "mart.event_target": {
+            "column_details": [
+              {
+                "name": "id",
+                "type": null,
+                "comment": null
+              },
+              {
+                "name": "event_type",
+                "type": null,
+                "comment": null
+              },
+              {
+                "name": "account_key",
+                "type": null,
+                "comment": null
+              }
+            ],
+            "metadata_complete": true
+          }
+        }
+      },
+      "scope_graph": {
+        "nodes": [
+          "ROOT",
+          "cte:staged",
+          "dim.accounts",
+          "ods.events",
+          "subq:source"
+        ],
+        "edges": [
+          {
+            "from": "dim.accounts",
+            "to": "cte:staged"
+          },
+          {
+            "from": "ods.events",
+            "to": "cte:staged"
+          },
+          {
+            "from": "cte:staged",
+            "to": "subq:source"
+          },
+          {
+            "from": "subq:source",
+            "to": "ROOT"
+          }
+        ]
+      },
+      "scopes": {
+        "cte:staged": {
+          "kind": "cte",
+          "role": "join",
+          "depends_on": [
+            "dim.accounts",
+            "ods.events"
+          ],
+          "alias_in_parent": "staged",
+          "raw_sql": "SELECT `e`.`id` AS `id`, `e`.`event_type` AS `event_type`, `a`.`account_key` AS `account_key` FROM `ods`.`events` AS `e` LEFT JOIN `dim`.`accounts` AS `a` ON `e`.`account_id` = `a`.`account_id`",
+          "raw_sql_available": true,
+          "raw_sql_quality": {
+            "status": "clean",
+            "placeholder_types": [],
+            "evidence": []
+          },
+          "source_coverage": {
+            "status": "covered",
+            "declared_source_tables": [
+              "ods.events",
+              "dim.accounts"
+            ],
+            "raw_sql_source_tables": [
+              "ods.events",
+              "dim.accounts"
+            ],
+            "missing_declared_source_tables": [],
+            "extra_source_tables": []
+          },
+          "input_edges": [
+            {
+              "source_id": "ods.events",
+              "source_type": "physical_table",
+              "position": "from",
+              "alias": "e"
+            },
+            {
+              "source_id": "dim.accounts",
+              "source_type": "physical_table",
+              "position": "join",
+              "alias": "a",
+              "join_type": "LEFT_OUTER",
+              "join_condition": "`e`.`account_id` = `a`.`account_id`",
+              "join_fields": [
+                {
+                  "scope": "ods.events",
+                  "column": "account_id",
+                  "qualifier": "e",
+                  "binding_scope_id": "cte:staged",
+                  "input_ref_id": "input:cte:staged:001"
+                },
+                {
+                  "scope": "dim.accounts",
+                  "column": "account_id",
+                  "qualifier": "a",
+                  "binding_scope_id": "cte:staged",
+                  "input_ref_id": "input:cte:staged:002"
+                }
+              ]
+            }
+          ],
+          "input_source_refs": [
+            {
+              "input_ref_id": "input:cte:staged:001",
+              "source_id": "ods.events",
+              "source_type": "physical_table",
+              "alias": "e",
+              "position": "from",
+              "relation_position": "from",
+              "join_type": null,
+              "physical_source_id": "ods.events",
+              "physical_source_ids": [
+                "ods.events"
+              ],
+              "source_resolution": {
+                "status": "resolved",
+                "resolution_type": "direct_physical_source",
+                "cardinality": "single_source",
+                "physical_source_tables": [
+                  "ods.events"
+                ],
+                "field_resolution_required": false,
+                "missing_reasons": []
+              },
+              "field_resolution_required": false,
+              "binding_status": "resolved",
+              "binding_trace": [
+                {
+                  "from": "e",
+                  "to": "ods.events",
+                  "relation": "alias_to_physical_source"
+                }
+              ],
+              "trace_status": "complete"
+            },
+            {
+              "input_ref_id": "input:cte:staged:002",
+              "source_id": "dim.accounts",
+              "source_type": "physical_table",
+              "alias": "a",
+              "position": "join",
+              "relation_position": "join",
+              "join_type": "LEFT_OUTER",
+              "physical_source_id": "dim.accounts",
+              "physical_source_ids": [
+                "dim.accounts"
+              ],
+              "source_resolution": {
+                "status": "resolved",
+                "resolution_type": "direct_physical_source",
+                "cardinality": "single_source",
+                "physical_source_tables": [
+                  "dim.accounts"
+                ],
+                "field_resolution_required": false,
+                "missing_reasons": []
+              },
+              "field_resolution_required": false,
+              "binding_status": "resolved",
+              "binding_trace": [
+                {
+                  "from": "a",
+                  "to": "dim.accounts",
+                  "relation": "alias_to_physical_source"
+                }
+              ],
+              "trace_status": "complete"
+            }
+          ],
+          "alias_source_bindings": [
+            {
+              "alias": "e",
+              "source_id": "ods.events",
+              "source_type": "physical_table",
+              "physical_source_id": "ods.events",
+              "physical_source_ids": [
+                "ods.events"
+              ],
+              "position": "from",
+              "relation_position": "from",
+              "join_type": null,
+              "source_resolution": {
+                "status": "resolved",
+                "resolution_type": "direct_physical_source",
+                "cardinality": "single_source",
+                "physical_source_tables": [
+                  "ods.events"
+                ],
+                "field_resolution_required": false,
+                "missing_reasons": []
+              },
+              "field_resolution_required": false,
+              "binding_status": "resolved",
+              "binding_trace": [
+                {
+                  "from": "e",
+                  "to": "ods.events",
+                  "relation": "alias_to_physical_source"
+                }
+              ],
+              "input_ref_id": "input:cte:staged:001"
+            },
+            {
+              "alias": "a",
+              "source_id": "dim.accounts",
+              "source_type": "physical_table",
+              "physical_source_id": "dim.accounts",
+              "physical_source_ids": [
+                "dim.accounts"
+              ],
+              "position": "join",
+              "relation_position": "join",
+              "join_type": "LEFT_OUTER",
+              "source_resolution": {
+                "status": "resolved",
+                "resolution_type": "direct_physical_source",
+                "cardinality": "single_source",
+                "physical_source_tables": [
+                  "dim.accounts"
+                ],
+                "field_resolution_required": false,
+                "missing_reasons": []
+              },
+              "field_resolution_required": false,
+              "binding_status": "resolved",
+              "binding_trace": [
+                {
+                  "from": "a",
+                  "to": "dim.accounts",
+                  "relation": "alias_to_physical_source"
+                }
+              ],
+              "input_ref_id": "input:cte:staged:002"
+            }
+          ],
+          "expression_source_bindings": [
+            {
+              "expression_sql": "`e`.`account_id` = `a`.`account_id`",
+              "logic_block_id": "logic:cte:staged:join:001",
+              "referenced_qualifiers": [
+                "a",
+                "e"
+              ],
+              "resolved_source_refs": [
+                {
+                  "qualifier": "e",
+                  "resolved_table": "ods.events",
+                  "field": "account_id",
+                  "status": "resolved"
+                },
+                {
+                  "qualifier": "a",
+                  "resolved_table": "dim.accounts",
+                  "field": "account_id",
+                  "status": "resolved"
+                }
+              ],
+              "unresolved_qualifiers": [],
+              "binding_status": "complete",
+              "evidence_path": "logic_blocks.logic:cte:staged:join:001.raw_expression"
+            },
+            {
+              "expression_sql": "`e`.`account_id` = `a`.`account_id`",
+              "logic_block_id": "logic:cte:staged:join:001",
+              "referenced_qualifiers": [
+                "a",
+                "e"
+              ],
+              "resolved_source_refs": [
+                {
+                  "qualifier": "e",
+                  "resolved_table": "ods.events",
+                  "field": "account_id",
+                  "status": "resolved"
+                },
+                {
+                  "qualifier": "a",
+                  "resolved_table": "dim.accounts",
+                  "field": "account_id",
+                  "status": "resolved"
+                }
+              ],
+              "unresolved_qualifiers": [],
+              "binding_status": "complete",
+              "evidence_path": "logic_blocks.logic:cte:staged:join:001.join_relation_detail.join_key_pairs"
+            }
+          ],
+          "logic_blocks": [
+            {
+              "logic_block_id": "logic:cte:staged:join:001",
+              "logic_type": "join",
+              "raw_expression": "`e`.`account_id` = `a`.`account_id`",
+              "normalized_expression": "`e`.`account_id` = `a`.`account_id`",
+              "fingerprint": "join:`e`.`account_id` = `a`.`account_id`",
+              "fields": [
+                {
+                  "scope": "ods.events",
+                  "column": "account_id",
+                  "qualifier": "e",
+                  "binding_scope_id": "cte:staged",
+                  "input_ref_id": "input:cte:staged:001"
+                },
+                {
+                  "scope": "dim.accounts",
+                  "column": "account_id",
+                  "qualifier": "a",
+                  "binding_scope_id": "cte:staged",
+                  "input_ref_id": "input:cte:staged:002"
+                }
+              ],
+              "join_type": "LEFT_OUTER",
+              "input_sources": [
+                "ods.events",
+                "dim.accounts"
+              ],
+              "field_usage": [
+                {
+                  "source_id": "ods.events",
+                  "source_type": "physical_table",
+                  "used_fields": [
+                    "account_id"
+                  ],
+                  "used_field_details": [
+                    {
+                      "name": "account_id",
+                      "type": null,
+                      "comment": null
+                    }
+                  ],
+                  "used_by_logic_blocks": [
+                    "logic:cte:staged:join:001"
+                  ],
+                  "used_by_output_fields": [],
+                  "source_metadata": {}
+                },
+                {
+                  "source_id": "dim.accounts",
+                  "source_type": "physical_table",
+                  "used_fields": [
+                    "account_id"
+                  ],
+                  "used_field_details": [
+                    {
+                      "name": "account_id",
+                      "type": null,
+                      "comment": null
+                    }
+                  ],
+                  "used_by_logic_blocks": [
+                    "logic:cte:staged:join:001"
+                  ],
+                  "used_by_output_fields": [],
+                  "source_metadata": {}
+                }
+              ],
+              "expression_features": {
+                "functions": [],
+                "operators": [
+                  "="
+                ],
+                "has_case_when": false,
+                "has_if": false,
+                "has_cast": false,
+                "has_window": false,
+                "has_aggregate": false,
+                "has_udf": false,
+                "has_constant_mapping": false,
+                "has_partition_filter": false
+              },
+              "left_input": "ods.events",
+              "right_input": "dim.accounts",
+              "join_keys": [
+                {
+                  "scope": "ods.events",
+                  "column": "account_id",
+                  "qualifier": "e",
+                  "binding_scope_id": "cte:staged",
+                  "input_ref_id": "input:cte:staged:001"
+                },
+                {
+                  "scope": "dim.accounts",
+                  "column": "account_id",
+                  "qualifier": "a",
+                  "binding_scope_id": "cte:staged",
+                  "input_ref_id": "input:cte:staged:002"
+                }
+              ],
+              "join_relation_detail": {
+                "join_type": "LEFT_OUTER",
+                "left_input": "ods.events",
+                "right_input": "dim.accounts",
+                "left_alias": "e",
+                "right_alias": "a",
+                "condition_expression": "`e`.`account_id` = `a`.`account_id`",
+                "condition_fields": [
+                  {
+                    "scope": "ods.events",
+                    "column": "account_id",
+                    "qualifier": "e",
+                    "binding_scope_id": "cte:staged",
+                    "input_ref_id": "input:cte:staged:001"
+                  },
+                  {
+                    "scope": "dim.accounts",
+                    "column": "account_id",
+                    "qualifier": "a",
+                    "binding_scope_id": "cte:staged",
+                    "input_ref_id": "input:cte:staged:002"
+                  }
+                ],
+                "join_key_pairs": [
+                  {
+                    "left": {
+                      "scope": "ods.events",
+                      "column": "account_id",
+                      "qualifier": "e",
+                      "binding_scope_id": "cte:staged",
+                      "input_ref_id": "input:cte:staged:001"
+                    },
+                    "right": {
+                      "scope": "dim.accounts",
+                      "column": "account_id",
+                      "qualifier": "a",
+                      "binding_scope_id": "cte:staged",
+                      "input_ref_id": "input:cte:staged:002"
+                    },
+                    "left_fields": [
+                      {
+                        "table": "ods.events",
+                        "field": "account_id"
+                      }
+                    ],
+                    "right_fields": [
+                      {
+                        "table": "dim.accounts",
+                        "field": "account_id"
+                      }
+                    ],
+                    "operator": "=",
+                    "expression": "`e`.`account_id` = `a`.`account_id`"
+                  }
+                ],
+                "condition_filters": [],
+                "missing_reasons": [],
+                "condition_expression_resolution": {
+                  "status": "resolved",
+                  "resolution_type": "qualified_expression",
+                  "physical_source_fields": [
+                    {
+                      "table": "ods.events",
+                      "field": "account_id"
+                    },
+                    {
+                      "table": "dim.accounts",
+                      "field": "account_id"
+                    }
+                  ],
+                  "generated_sources": [],
+                  "source_kind": "physical",
+                  "missing_reasons": [],
+                  "expanded_expression": "`ods.events`.`account_id` = `dim.accounts`.`account_id`"
+                },
+                "join_condition_source": "on",
+                "trace_status": "complete"
+              },
+              "display_expression": "`events`.`account_id` = `accounts`.`account_id`"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "id",
+              "transform": "DIRECT",
+              "sources": [
+                {
+                  "scope": "ods.events",
+                  "column": "id",
+                  "qualifier": "e",
+                  "binding_scope_id": "cte:staged",
+                  "input_ref_id": "input:cte:staged:001"
+                }
+              ],
+              "source_logic_blocks": [],
+              "downstream_fields": [
+                {
+                  "scope": "subq:source",
+                  "column": "id"
+                }
+              ],
+              "target_columns": [],
+              "final_target_columns": [
+                "mart.event_target.id"
+              ],
+              "expression": "`e`.`id`",
+              "expanded_expression": "`ods.events`.`id`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "qualified_source_projection",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "id"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "expanded_expression": "`ods.events`.`id`",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "id",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`e`.`id`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.events",
+                        "field": "id"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "consumer_readiness": {
+                "status": "ready",
+                "blocked_reasons": []
+              },
+              "expression_type": "direct_projection",
+              "expression_features": {
+                "functions": [],
+                "operators": [],
+                "has_case_when": false,
+                "has_if": false,
+                "has_cast": false,
+                "has_window": false,
+                "has_aggregate": false,
+                "has_udf": false,
+                "has_constant_mapping": false,
+                "has_partition_filter": false
+              },
+              "expression_role": "direct_projection",
+              "grain_effect": "preserved",
+              "output_ordinal": 0,
+              "display_expression": "`id`"
+            },
+            {
+              "name": "event_type",
+              "transform": "DIRECT",
+              "sources": [
+                {
+                  "scope": "ods.events",
+                  "column": "event_type",
+                  "qualifier": "e",
+                  "binding_scope_id": "cte:staged",
+                  "input_ref_id": "input:cte:staged:001"
+                }
+              ],
+              "source_logic_blocks": [],
+              "downstream_fields": [
+                {
+                  "scope": "subq:source",
+                  "column": "event_type"
+                }
+              ],
+              "target_columns": [],
+              "final_target_columns": [
+                "mart.event_target.event_type"
+              ],
+              "expression": "`e`.`event_type`",
+              "expanded_expression": "`ods.events`.`event_type`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "qualified_source_projection",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "event_type"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "expanded_expression": "`ods.events`.`event_type`",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "event_type",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`e`.`event_type`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.events",
+                        "field": "event_type"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "consumer_readiness": {
+                "status": "ready",
+                "blocked_reasons": []
+              },
+              "expression_type": "direct_projection",
+              "expression_features": {
+                "functions": [],
+                "operators": [],
+                "has_case_when": false,
+                "has_if": false,
+                "has_cast": false,
+                "has_window": false,
+                "has_aggregate": false,
+                "has_udf": false,
+                "has_constant_mapping": false,
+                "has_partition_filter": false
+              },
+              "expression_role": "direct_projection",
+              "grain_effect": "preserved",
+              "output_ordinal": 1,
+              "display_expression": "`event_type`"
+            },
+            {
+              "name": "account_key",
+              "transform": "DIRECT",
+              "sources": [
+                {
+                  "scope": "dim.accounts",
+                  "column": "account_key",
+                  "qualifier": "a",
+                  "binding_scope_id": "cte:staged",
+                  "input_ref_id": "input:cte:staged:002"
+                }
+              ],
+              "source_logic_blocks": [],
+              "downstream_fields": [
+                {
+                  "scope": "subq:source",
+                  "column": "account_key"
+                }
+              ],
+              "target_columns": [],
+              "final_target_columns": [
+                "mart.event_target.account_key"
+              ],
+              "expression": "`a`.`account_key`",
+              "expanded_expression": "`dim.accounts`.`account_key`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "qualified_source_projection",
+                "physical_source_fields": [
+                  {
+                    "table": "dim.accounts",
+                    "field": "account_key"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "expanded_expression": "`dim.accounts`.`account_key`",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "account_key",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`a`.`account_key`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "dim.accounts",
+                        "field": "account_key"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "consumer_readiness": {
+                "status": "ready",
+                "blocked_reasons": []
+              },
+              "expression_type": "direct_projection",
+              "expression_features": {
+                "functions": [],
+                "operators": [],
+                "has_case_when": false,
+                "has_if": false,
+                "has_cast": false,
+                "has_window": false,
+                "has_aggregate": false,
+                "has_udf": false,
+                "has_constant_mapping": false,
+                "has_partition_filter": false
+              },
+              "expression_role": "direct_projection",
+              "grain_effect": "preserved",
+              "output_ordinal": 2,
+              "display_expression": "`account_key`"
+            }
+          ],
+          "field_usage": [
+            {
+              "source_id": "ods.events",
+              "source_type": "physical_table",
+              "used_fields": [
+                "account_id",
+                "id",
+                "event_type"
+              ],
+              "used_field_details": [
+                {
+                  "name": "account_id",
+                  "type": null,
+                  "comment": null
+                },
+                {
+                  "name": "id",
+                  "type": null,
+                  "comment": null
+                },
+                {
+                  "name": "event_type",
+                  "type": null,
+                  "comment": null
+                }
+              ],
+              "used_by_logic_blocks": [
+                "logic:cte:staged:join:001"
+              ],
+              "used_by_output_fields": [
+                "id",
+                "event_type"
+              ],
+              "source_metadata": {}
+            },
+            {
+              "source_id": "dim.accounts",
+              "source_type": "physical_table",
+              "used_fields": [
+                "account_id",
+                "account_key"
+              ],
+              "used_field_details": [
+                {
+                  "name": "account_id",
+                  "type": null,
+                  "comment": null
+                },
+                {
+                  "name": "account_key",
+                  "type": null,
+                  "comment": null
+                }
+              ],
+              "used_by_logic_blocks": [
+                "logic:cte:staged:join:001"
+              ],
+              "used_by_output_fields": [
+                "account_key"
+              ],
+              "source_metadata": {}
+            }
+          ],
+          "columns": [
+            {
+              "name": "id",
+              "transform": "DIRECT",
+              "expression": "`e`.`id`",
+              "sources": [
+                {
+                  "scope": "ods.events",
+                  "column": "id",
+                  "qualifier": "e",
+                  "binding_scope_id": "cte:staged",
+                  "input_ref_id": "input:cte:staged:001"
+                }
+              ],
+              "display_expression": "`id`"
+            },
+            {
+              "name": "event_type",
+              "transform": "DIRECT",
+              "expression": "`e`.`event_type`",
+              "sources": [
+                {
+                  "scope": "ods.events",
+                  "column": "event_type",
+                  "qualifier": "e",
+                  "binding_scope_id": "cte:staged",
+                  "input_ref_id": "input:cte:staged:001"
+                }
+              ],
+              "display_expression": "`event_type`"
+            },
+            {
+              "name": "account_key",
+              "transform": "DIRECT",
+              "expression": "`a`.`account_key`",
+              "sources": [
+                {
+                  "scope": "dim.accounts",
+                  "column": "account_key",
+                  "qualifier": "a",
+                  "binding_scope_id": "cte:staged",
+                  "input_ref_id": "input:cte:staged:002"
+                }
+              ],
+              "display_expression": "`account_key`"
+            }
+          ],
+          "joins": [
+            {
+              "join_type": "LEFT_OUTER",
+              "left_scope": "ods.events",
+              "right_scope": "dim.accounts",
+              "alias_in_parent": "a",
+              "condition_expression": "`e`.`account_id` = `a`.`account_id`",
+              "condition_columns": [
+                {
+                  "scope": "ods.events",
+                  "column": "account_id",
+                  "qualifier": "e",
+                  "binding_scope_id": "cte:staged",
+                  "input_ref_id": "input:cte:staged:001"
+                },
+                {
+                  "scope": "dim.accounts",
+                  "column": "account_id",
+                  "qualifier": "a",
+                  "binding_scope_id": "cte:staged",
+                  "input_ref_id": "input:cte:staged:002"
+                }
+              ]
+            }
+          ]
+        },
+        "subq:source": {
+          "kind": "subquery",
+          "role": "pass_through",
+          "depends_on": [
+            "cte:staged"
+          ],
+          "raw_sql": "SELECT `staged`.`id` AS `id`, `staged`.`event_type` AS `event_type`, `staged`.`account_key` AS `account_key` FROM `staged` AS `staged`",
+          "raw_sql_available": true,
+          "raw_sql_quality": {
+            "status": "clean",
+            "placeholder_types": [],
+            "evidence": []
+          },
+          "source_coverage": {
+            "status": "covered",
+            "declared_source_tables": [
+              "ods.events",
+              "dim.accounts"
+            ],
+            "raw_sql_source_tables": [
+              "ods.events",
+              "dim.accounts"
+            ],
+            "missing_declared_source_tables": [],
+            "extra_source_tables": []
+          },
+          "input_edges": [
+            {
+              "source_id": "cte:staged",
+              "source_type": "scope",
+              "position": "from",
+              "alias": "staged"
+            }
+          ],
+          "input_source_refs": [
+            {
+              "input_ref_id": "input:subq:source:001",
+              "source_id": "cte:staged",
+              "source_type": "scope",
+              "source_scope_id": "cte:staged",
+              "alias": "staged",
+              "position": "from",
+              "relation_position": "from",
+              "join_type": null,
+              "physical_source_id": null,
+              "physical_source_ids": [
+                "ods.events",
+                "dim.accounts"
+              ],
+              "source_resolution": {
+                "status": "resolved",
+                "resolution_type": "scope_multi_physical_source",
+                "cardinality": "multi_source",
+                "physical_source_tables": [
+                  "ods.events",
+                  "dim.accounts"
+                ],
+                "field_resolution_required": true,
+                "missing_reasons": []
+              },
+              "field_resolution_required": true,
+              "binding_status": "resolved",
+              "binding_trace": [
+                {
+                  "from": "staged",
+                  "to": "cte:staged",
+                  "relation": "alias_to_scope"
+                },
+                {
+                  "from": "cte:staged",
+                  "to": "ods.events",
+                  "relation": "scope_to_physical_source"
+                },
+                {
+                  "from": "cte:staged",
+                  "to": "dim.accounts",
+                  "relation": "scope_to_physical_source"
+                }
+              ],
+              "trace_status": "complete"
+            }
+          ],
+          "alias_source_bindings": [
+            {
+              "alias": "staged",
+              "source_id": "cte:staged",
+              "source_type": "scope",
+              "source_scope_id": "cte:staged",
+              "physical_source_id": null,
+              "physical_source_ids": [
+                "ods.events",
+                "dim.accounts"
+              ],
+              "position": "from",
+              "relation_position": "from",
+              "join_type": null,
+              "source_resolution": {
+                "status": "resolved",
+                "resolution_type": "scope_multi_physical_source",
+                "cardinality": "multi_source",
+                "physical_source_tables": [
+                  "ods.events",
+                  "dim.accounts"
+                ],
+                "field_resolution_required": true,
+                "missing_reasons": []
+              },
+              "field_resolution_required": true,
+              "binding_status": "resolved",
+              "binding_trace": [
+                {
+                  "from": "staged",
+                  "to": "cte:staged",
+                  "relation": "alias_to_scope"
+                },
+                {
+                  "from": "cte:staged",
+                  "to": "ods.events",
+                  "relation": "scope_to_physical_source"
+                },
+                {
+                  "from": "cte:staged",
+                  "to": "dim.accounts",
+                  "relation": "scope_to_physical_source"
+                }
+              ],
+              "input_ref_id": "input:subq:source:001"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "id",
+              "transform": "DIRECT",
+              "sources": [
+                {
+                  "scope": "cte:staged",
+                  "column": "id",
+                  "qualifier": "staged",
+                  "binding_scope_id": "subq:source",
+                  "input_ref_id": "input:subq:source:001"
+                }
+              ],
+              "source_logic_blocks": [],
+              "downstream_fields": [
+                {
+                  "scope": "ROOT",
+                  "column": "id"
+                },
+                {
+                  "scope": "ROOT",
+                  "column": "id"
+                }
+              ],
+              "target_columns": [],
+              "final_target_columns": [
+                "mart.event_target.id"
+              ],
+              "expression": "`staged`.`id`",
+              "expanded_expression": "`ods.events`.`id`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "expanded_from_upstream_scope",
+                "expanded_expression": "`ods.events`.`id`",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "id"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "source_scope_id": "cte:staged",
+                "source_output_field": "id",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "subq:source",
+                    "from_field": "id",
+                    "to_scope_id": "cte:staged",
+                    "to_field": "id",
+                    "relation": "scope_projection",
+                    "expression_sql": "`staged`.`id`",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 2,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "id",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`e`.`id`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.events",
+                        "field": "id"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "consumer_readiness": {
+                "status": "ready",
+                "blocked_reasons": []
+              },
+              "expression_type": "direct_projection",
+              "expression_features": {
+                "functions": [],
+                "operators": [],
+                "has_case_when": false,
+                "has_if": false,
+                "has_cast": false,
+                "has_window": false,
+                "has_aggregate": false,
+                "has_udf": false,
+                "has_constant_mapping": false,
+                "has_partition_filter": false
+              },
+              "expression_role": "direct_projection",
+              "grain_effect": "preserved",
+              "output_ordinal": 0,
+              "display_expression": "`id`"
+            },
+            {
+              "name": "event_type",
+              "transform": "DIRECT",
+              "sources": [
+                {
+                  "scope": "cte:staged",
+                  "column": "event_type",
+                  "qualifier": "staged",
+                  "binding_scope_id": "subq:source",
+                  "input_ref_id": "input:subq:source:001"
+                }
+              ],
+              "source_logic_blocks": [],
+              "downstream_fields": [
+                {
+                  "scope": "ROOT",
+                  "column": "event_type"
+                },
+                {
+                  "scope": "ROOT",
+                  "column": "event_type"
+                }
+              ],
+              "target_columns": [],
+              "final_target_columns": [
+                "mart.event_target.event_type"
+              ],
+              "expression": "`staged`.`event_type`",
+              "expanded_expression": "`ods.events`.`event_type`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "expanded_from_upstream_scope",
+                "expanded_expression": "`ods.events`.`event_type`",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "event_type"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "source_scope_id": "cte:staged",
+                "source_output_field": "event_type",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "subq:source",
+                    "from_field": "event_type",
+                    "to_scope_id": "cte:staged",
+                    "to_field": "event_type",
+                    "relation": "scope_projection",
+                    "expression_sql": "`staged`.`event_type`",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 2,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "event_type",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`e`.`event_type`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.events",
+                        "field": "event_type"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "consumer_readiness": {
+                "status": "ready",
+                "blocked_reasons": []
+              },
+              "expression_type": "direct_projection",
+              "expression_features": {
+                "functions": [],
+                "operators": [],
+                "has_case_when": false,
+                "has_if": false,
+                "has_cast": false,
+                "has_window": false,
+                "has_aggregate": false,
+                "has_udf": false,
+                "has_constant_mapping": false,
+                "has_partition_filter": false
+              },
+              "expression_role": "direct_projection",
+              "grain_effect": "preserved",
+              "output_ordinal": 1,
+              "display_expression": "`event_type`"
+            },
+            {
+              "name": "account_key",
+              "transform": "DIRECT",
+              "sources": [
+                {
+                  "scope": "cte:staged",
+                  "column": "account_key",
+                  "qualifier": "staged",
+                  "binding_scope_id": "subq:source",
+                  "input_ref_id": "input:subq:source:001"
+                }
+              ],
+              "source_logic_blocks": [],
+              "downstream_fields": [
+                {
+                  "scope": "ROOT",
+                  "column": "account_key"
+                },
+                {
+                  "scope": "ROOT",
+                  "column": "account_key"
+                }
+              ],
+              "target_columns": [],
+              "final_target_columns": [
+                "mart.event_target.account_key"
+              ],
+              "expression": "`staged`.`account_key`",
+              "expanded_expression": "`dim.accounts`.`account_key`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "expanded_from_upstream_scope",
+                "expanded_expression": "`dim.accounts`.`account_key`",
+                "physical_source_fields": [
+                  {
+                    "table": "dim.accounts",
+                    "field": "account_key"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "source_scope_id": "cte:staged",
+                "source_output_field": "account_key",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "subq:source",
+                    "from_field": "account_key",
+                    "to_scope_id": "cte:staged",
+                    "to_field": "account_key",
+                    "relation": "scope_projection",
+                    "expression_sql": "`staged`.`account_key`",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 2,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "account_key",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`a`.`account_key`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "dim.accounts",
+                        "field": "account_key"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "consumer_readiness": {
+                "status": "ready",
+                "blocked_reasons": []
+              },
+              "expression_type": "direct_projection",
+              "expression_features": {
+                "functions": [],
+                "operators": [],
+                "has_case_when": false,
+                "has_if": false,
+                "has_cast": false,
+                "has_window": false,
+                "has_aggregate": false,
+                "has_udf": false,
+                "has_constant_mapping": false,
+                "has_partition_filter": false
+              },
+              "expression_role": "direct_projection",
+              "grain_effect": "preserved",
+              "output_ordinal": 2,
+              "display_expression": "`account_key`"
+            }
+          ],
+          "field_usage": [
+            {
+              "source_id": "cte:staged",
+              "source_type": "scope",
+              "used_fields": [
+                "id",
+                "event_type",
+                "account_key"
+              ],
+              "used_field_details": [],
+              "used_by_logic_blocks": [],
+              "used_by_output_fields": [
+                "id",
+                "event_type",
+                "account_key"
+              ],
+              "source_metadata": {}
+            }
+          ],
+          "columns": [
+            {
+              "name": "id",
+              "transform": "DIRECT",
+              "expression": "`staged`.`id`",
+              "sources": [
+                {
+                  "scope": "cte:staged",
+                  "column": "id",
+                  "qualifier": "staged",
+                  "binding_scope_id": "subq:source",
+                  "input_ref_id": "input:subq:source:001"
+                }
+              ],
+              "display_expression": "`id`"
+            },
+            {
+              "name": "event_type",
+              "transform": "DIRECT",
+              "expression": "`staged`.`event_type`",
+              "sources": [
+                {
+                  "scope": "cte:staged",
+                  "column": "event_type",
+                  "qualifier": "staged",
+                  "binding_scope_id": "subq:source",
+                  "input_ref_id": "input:subq:source:001"
+                }
+              ],
+              "display_expression": "`event_type`"
+            },
+            {
+              "name": "account_key",
+              "transform": "DIRECT",
+              "expression": "`staged`.`account_key`",
+              "sources": [
+                {
+                  "scope": "cte:staged",
+                  "column": "account_key",
+                  "qualifier": "staged",
+                  "binding_scope_id": "subq:source",
+                  "input_ref_id": "input:subq:source:001"
+                }
+              ],
+              "display_expression": "`account_key`"
+            }
+          ]
+        },
+        "ROOT": {
+          "kind": "root",
+          "role": "pass_through",
+          "depends_on": [
+            "subq:source"
+          ],
+          "writes_to": "mart.event_target",
+          "raw_sql": "(SELECT `staged`.`id` AS `id`, `staged`.`event_type` AS `event_type`, `staged`.`account_key` AS `account_key` FROM `staged` AS `staged`) AS `source`",
+          "raw_sql_available": true,
+          "raw_sql_quality": {
+            "status": "clean",
+            "placeholder_types": [],
+            "evidence": []
+          },
+          "source_coverage": {
+            "status": "covered",
+            "declared_source_tables": [],
+            "raw_sql_source_tables": [],
+            "missing_declared_source_tables": [],
+            "extra_source_tables": []
+          },
+          "outputs": [
+            {
+              "name": "id",
+              "transform": "DIRECT",
+              "sources": [
+                {
+                  "scope": "subq:source",
+                  "column": "id"
+                }
+              ],
+              "source_logic_blocks": [],
+              "downstream_fields": [],
+              "target_columns": [
+                "mart.event_target.id"
+              ],
+              "final_target_columns": [
+                "mart.event_target.id"
+              ],
+              "expression": "`source`.`id`",
+              "expanded_expression": "`ods.events`.`id`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "expanded_from_upstream_scope",
+                "expanded_expression": "`ods.events`.`id`",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "id"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "source_scope_id": "subq:source",
+                "source_output_field": "id",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "ROOT",
+                    "from_field": "id",
+                    "to_scope_id": "subq:source",
+                    "to_field": "id",
+                    "relation": "scope_projection",
+                    "expression_sql": "`source`.`id`",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 2,
+                    "from_scope_id": "subq:source",
+                    "from_field": "id",
+                    "to_scope_id": "cte:staged",
+                    "to_field": "id",
+                    "relation": "scope_projection",
+                    "expression_sql": "`staged`.`id`",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 3,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "id",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`e`.`id`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.events",
+                        "field": "id"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "consumer_readiness": {
+                "status": "ready",
+                "blocked_reasons": []
+              },
+              "expression_type": "direct_projection",
+              "expression_features": {
+                "functions": [],
+                "operators": [],
+                "has_case_when": false,
+                "has_if": false,
+                "has_cast": false,
+                "has_window": false,
+                "has_aggregate": false,
+                "has_udf": false,
+                "has_constant_mapping": false,
+                "has_partition_filter": false
+              },
+              "expression_role": "direct_projection",
+              "grain_effect": "preserved",
+              "output_ordinal": 0,
+              "merge_branch": "matched",
+              "merge_when_index": 0
+            },
+            {
+              "name": "event_type",
+              "transform": "DIRECT",
+              "sources": [
+                {
+                  "scope": "subq:source",
+                  "column": "event_type"
+                }
+              ],
+              "source_logic_blocks": [],
+              "downstream_fields": [],
+              "target_columns": [
+                "mart.event_target.event_type"
+              ],
+              "final_target_columns": [
+                "mart.event_target.event_type"
+              ],
+              "expression": "`source`.`event_type`",
+              "expanded_expression": "`ods.events`.`event_type`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "expanded_from_upstream_scope",
+                "expanded_expression": "`ods.events`.`event_type`",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "event_type"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "source_scope_id": "subq:source",
+                "source_output_field": "event_type",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "ROOT",
+                    "from_field": "event_type",
+                    "to_scope_id": "subq:source",
+                    "to_field": "event_type",
+                    "relation": "scope_projection",
+                    "expression_sql": "`source`.`event_type`",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 2,
+                    "from_scope_id": "subq:source",
+                    "from_field": "event_type",
+                    "to_scope_id": "cte:staged",
+                    "to_field": "event_type",
+                    "relation": "scope_projection",
+                    "expression_sql": "`staged`.`event_type`",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 3,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "event_type",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`e`.`event_type`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.events",
+                        "field": "event_type"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "consumer_readiness": {
+                "status": "ready",
+                "blocked_reasons": []
+              },
+              "expression_type": "direct_projection",
+              "expression_features": {
+                "functions": [],
+                "operators": [],
+                "has_case_when": false,
+                "has_if": false,
+                "has_cast": false,
+                "has_window": false,
+                "has_aggregate": false,
+                "has_udf": false,
+                "has_constant_mapping": false,
+                "has_partition_filter": false
+              },
+              "expression_role": "direct_projection",
+              "grain_effect": "preserved",
+              "output_ordinal": 1,
+              "merge_branch": "matched",
+              "merge_when_index": 0
+            },
+            {
+              "name": "account_key",
+              "transform": "DIRECT",
+              "sources": [
+                {
+                  "scope": "subq:source",
+                  "column": "account_key"
+                }
+              ],
+              "source_logic_blocks": [],
+              "downstream_fields": [],
+              "target_columns": [
+                "mart.event_target.account_key"
+              ],
+              "final_target_columns": [
+                "mart.event_target.account_key"
+              ],
+              "expression": "`source`.`account_key`",
+              "expanded_expression": "`dim.accounts`.`account_key`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "expanded_from_upstream_scope",
+                "expanded_expression": "`dim.accounts`.`account_key`",
+                "physical_source_fields": [
+                  {
+                    "table": "dim.accounts",
+                    "field": "account_key"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "source_scope_id": "subq:source",
+                "source_output_field": "account_key",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "ROOT",
+                    "from_field": "account_key",
+                    "to_scope_id": "subq:source",
+                    "to_field": "account_key",
+                    "relation": "scope_projection",
+                    "expression_sql": "`source`.`account_key`",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 2,
+                    "from_scope_id": "subq:source",
+                    "from_field": "account_key",
+                    "to_scope_id": "cte:staged",
+                    "to_field": "account_key",
+                    "relation": "scope_projection",
+                    "expression_sql": "`staged`.`account_key`",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 3,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "account_key",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`a`.`account_key`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "dim.accounts",
+                        "field": "account_key"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "consumer_readiness": {
+                "status": "ready",
+                "blocked_reasons": []
+              },
+              "expression_type": "direct_projection",
+              "expression_features": {
+                "functions": [],
+                "operators": [],
+                "has_case_when": false,
+                "has_if": false,
+                "has_cast": false,
+                "has_window": false,
+                "has_aggregate": false,
+                "has_udf": false,
+                "has_constant_mapping": false,
+                "has_partition_filter": false
+              },
+              "expression_role": "direct_projection",
+              "grain_effect": "preserved",
+              "output_ordinal": 2,
+              "merge_branch": "matched",
+              "merge_when_index": 0
+            },
+            {
+              "name": "id",
+              "transform": "DIRECT",
+              "sources": [
+                {
+                  "scope": "subq:source",
+                  "column": "id"
+                }
+              ],
+              "source_logic_blocks": [],
+              "downstream_fields": [],
+              "target_columns": [
+                "mart.event_target.id"
+              ],
+              "final_target_columns": [
+                "mart.event_target.id"
+              ],
+              "expression": "source.id",
+              "expanded_expression": "`ods.events`.`id`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "expanded_from_upstream_scope",
+                "expanded_expression": "`ods.events`.`id`",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "id"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "source_scope_id": "subq:source",
+                "source_output_field": "id",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "ROOT",
+                    "from_field": "id",
+                    "to_scope_id": "subq:source",
+                    "to_field": "id",
+                    "relation": "scope_projection",
+                    "expression_sql": "source.id",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 2,
+                    "from_scope_id": "subq:source",
+                    "from_field": "id",
+                    "to_scope_id": "cte:staged",
+                    "to_field": "id",
+                    "relation": "scope_projection",
+                    "expression_sql": "`staged`.`id`",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 3,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "id",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`e`.`id`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.events",
+                        "field": "id"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "consumer_readiness": {
+                "status": "ready",
+                "blocked_reasons": []
+              },
+              "expression_type": "direct_projection",
+              "expression_features": {
+                "functions": [],
+                "operators": [],
+                "has_case_when": false,
+                "has_if": false,
+                "has_cast": false,
+                "has_window": false,
+                "has_aggregate": false,
+                "has_udf": false,
+                "has_constant_mapping": false,
+                "has_partition_filter": false
+              },
+              "expression_role": "direct_projection",
+              "grain_effect": "preserved",
+              "output_ordinal": 3,
+              "merge_branch": "not_matched",
+              "merge_when_index": 1
+            },
+            {
+              "name": "event_type",
+              "transform": "DIRECT",
+              "sources": [
+                {
+                  "scope": "subq:source",
+                  "column": "event_type"
+                }
+              ],
+              "source_logic_blocks": [],
+              "downstream_fields": [],
+              "target_columns": [
+                "mart.event_target.event_type"
+              ],
+              "final_target_columns": [
+                "mart.event_target.event_type"
+              ],
+              "expression": "source.event_type",
+              "expanded_expression": "`ods.events`.`event_type`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "expanded_from_upstream_scope",
+                "expanded_expression": "`ods.events`.`event_type`",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "event_type"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "source_scope_id": "subq:source",
+                "source_output_field": "event_type",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "ROOT",
+                    "from_field": "event_type",
+                    "to_scope_id": "subq:source",
+                    "to_field": "event_type",
+                    "relation": "scope_projection",
+                    "expression_sql": "source.event_type",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 2,
+                    "from_scope_id": "subq:source",
+                    "from_field": "event_type",
+                    "to_scope_id": "cte:staged",
+                    "to_field": "event_type",
+                    "relation": "scope_projection",
+                    "expression_sql": "`staged`.`event_type`",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 3,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "event_type",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`e`.`event_type`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.events",
+                        "field": "event_type"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "consumer_readiness": {
+                "status": "ready",
+                "blocked_reasons": []
+              },
+              "expression_type": "direct_projection",
+              "expression_features": {
+                "functions": [],
+                "operators": [],
+                "has_case_when": false,
+                "has_if": false,
+                "has_cast": false,
+                "has_window": false,
+                "has_aggregate": false,
+                "has_udf": false,
+                "has_constant_mapping": false,
+                "has_partition_filter": false
+              },
+              "expression_role": "direct_projection",
+              "grain_effect": "preserved",
+              "output_ordinal": 4,
+              "merge_branch": "not_matched",
+              "merge_when_index": 1
+            },
+            {
+              "name": "account_key",
+              "transform": "DIRECT",
+              "sources": [
+                {
+                  "scope": "subq:source",
+                  "column": "account_key"
+                }
+              ],
+              "source_logic_blocks": [],
+              "downstream_fields": [],
+              "target_columns": [
+                "mart.event_target.account_key"
+              ],
+              "final_target_columns": [
+                "mart.event_target.account_key"
+              ],
+              "expression": "source.account_key",
+              "expanded_expression": "`dim.accounts`.`account_key`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "expanded_from_upstream_scope",
+                "expanded_expression": "`dim.accounts`.`account_key`",
+                "physical_source_fields": [
+                  {
+                    "table": "dim.accounts",
+                    "field": "account_key"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "source_scope_id": "subq:source",
+                "source_output_field": "account_key",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "ROOT",
+                    "from_field": "account_key",
+                    "to_scope_id": "subq:source",
+                    "to_field": "account_key",
+                    "relation": "scope_projection",
+                    "expression_sql": "source.account_key",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 2,
+                    "from_scope_id": "subq:source",
+                    "from_field": "account_key",
+                    "to_scope_id": "cte:staged",
+                    "to_field": "account_key",
+                    "relation": "scope_projection",
+                    "expression_sql": "`staged`.`account_key`",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 3,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "account_key",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`a`.`account_key`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "dim.accounts",
+                        "field": "account_key"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "consumer_readiness": {
+                "status": "ready",
+                "blocked_reasons": []
+              },
+              "expression_type": "direct_projection",
+              "expression_features": {
+                "functions": [],
+                "operators": [],
+                "has_case_when": false,
+                "has_if": false,
+                "has_cast": false,
+                "has_window": false,
+                "has_aggregate": false,
+                "has_udf": false,
+                "has_constant_mapping": false,
+                "has_partition_filter": false
+              },
+              "expression_role": "direct_projection",
+              "grain_effect": "preserved",
+              "output_ordinal": 5,
+              "merge_branch": "not_matched",
+              "merge_when_index": 1
+            }
+          ],
+          "field_usage": [
+            {
+              "source_id": "subq:source",
+              "source_type": "scope",
+              "used_fields": [
+                "id",
+                "event_type",
+                "account_key"
+              ],
+              "used_field_details": [],
+              "used_by_logic_blocks": [],
+              "used_by_output_fields": [
+                "id",
+                "event_type",
+                "account_key"
+              ],
+              "source_metadata": {}
+            }
+          ],
+          "columns": [
+            {
+              "name": "id",
+              "transform": "DIRECT",
+              "expression": "`source`.`id`",
+              "sources": [
+                {
+                  "scope": "subq:source",
+                  "column": "id"
+                }
+              ],
+              "merge_branch": "matched",
+              "merge_when_index": 0
+            },
+            {
+              "name": "event_type",
+              "transform": "DIRECT",
+              "expression": "`source`.`event_type`",
+              "sources": [
+                {
+                  "scope": "subq:source",
+                  "column": "event_type"
+                }
+              ],
+              "merge_branch": "matched",
+              "merge_when_index": 0
+            },
+            {
+              "name": "account_key",
+              "transform": "DIRECT",
+              "expression": "`source`.`account_key`",
+              "sources": [
+                {
+                  "scope": "subq:source",
+                  "column": "account_key"
+                }
+              ],
+              "merge_branch": "matched",
+              "merge_when_index": 0
+            },
+            {
+              "name": "id",
+              "transform": "DIRECT",
+              "expression": "source.id",
+              "sources": [
+                {
+                  "scope": "subq:source",
+                  "column": "id"
+                }
+              ],
+              "merge_branch": "not_matched",
+              "merge_when_index": 1
+            },
+            {
+              "name": "event_type",
+              "transform": "DIRECT",
+              "expression": "source.event_type",
+              "sources": [
+                {
+                  "scope": "subq:source",
+                  "column": "event_type"
+                }
+              ],
+              "merge_branch": "not_matched",
+              "merge_when_index": 1
+            },
+            {
+              "name": "account_key",
+              "transform": "DIRECT",
+              "expression": "source.account_key",
+              "sources": [
+                {
+                  "scope": "subq:source",
+                  "column": "account_key"
+                }
+              ],
+              "merge_branch": "not_matched",
+              "merge_when_index": 1
+            }
+          ]
+        }
+      },
+      "field_mapping_chains": [
+        {
+          "mapping_chain_id": "mc:001",
+          "chain_id": "chain:ROOT:id:position:0",
+          "chain_type": "field_mapping",
+          "target_scope_id": "ROOT",
+          "target_field": "id",
+          "target_position": 0,
+          "merge_branch": "matched",
+          "merge_when_index": 0,
+          "chain_status": "resolved",
+          "source_kind": "physical",
+          "root_source_fields": [
+            "ods.events.id"
+          ],
+          "final_output_fields": [
+            "mart.event_target.id"
+          ],
+          "ordered_steps": [
+            {
+              "step_no": 1,
+              "scope_id": "cte:staged",
+              "step_type": "direct_projection",
+              "input_fields": [
+                "ods.events.id"
+              ],
+              "output_field": "cte:staged.id",
+              "expression_sql": "`e`.`id`",
+              "expanded_expression": "`ods.events`.`id`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "qualified_source_projection",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "id"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "id",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`e`.`id`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.events",
+                        "field": "id"
+                      }
+                    ]
+                  }
+                ],
+                "expanded_expression_same_as_parent": true
+              },
+              "logic_ids": [],
+              "transform": "DIRECT",
+              "grain_effect": "preserved",
+              "final_output_fields": [
+                "mart.event_target.id"
+              ]
+            },
+            {
+              "step_no": 2,
+              "scope_id": "subq:source",
+              "step_type": "direct_projection",
+              "input_fields": [
+                "cte:staged.id"
+              ],
+              "output_field": "subq:source.id",
+              "expression_sql": "`staged`.`id`",
+              "expanded_expression": "`ods.events`.`id`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "expanded_from_upstream_scope",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "id"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "source_scope_id": "cte:staged",
+                "source_output_field": "id",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "subq:source",
+                    "from_field": "id",
+                    "to_scope_id": "cte:staged",
+                    "to_field": "id",
+                    "relation": "scope_projection",
+                    "expression_sql": "`staged`.`id`",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 2,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "id",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`e`.`id`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.events",
+                        "field": "id"
+                      }
+                    ]
+                  }
+                ],
+                "expanded_expression_same_as_parent": true
+              },
+              "logic_ids": [],
+              "transform": "DIRECT",
+              "grain_effect": "preserved",
+              "final_output_fields": [
+                "mart.event_target.id"
+              ]
+            },
+            {
+              "step_no": 3,
+              "scope_id": "ROOT",
+              "step_type": "direct_projection",
+              "input_fields": [
+                "subq:source.id"
+              ],
+              "output_field": "mart.event_target.id",
+              "expression_sql": "`source`.`id`",
+              "expanded_expression": "`ods.events`.`id`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "expanded_from_upstream_scope",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "id"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "source_scope_id": "subq:source",
+                "source_output_field": "id",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "ROOT",
+                    "from_field": "id",
+                    "to_scope_id": "subq:source",
+                    "to_field": "id",
+                    "relation": "scope_projection",
+                    "expression_sql": "`source`.`id`",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 2,
+                    "from_scope_id": "subq:source",
+                    "from_field": "id",
+                    "to_scope_id": "cte:staged",
+                    "to_field": "id",
+                    "relation": "scope_projection",
+                    "expression_sql": "`staged`.`id`",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 3,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "id",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`e`.`id`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.events",
+                        "field": "id"
+                      }
+                    ]
+                  }
+                ],
+                "expanded_expression_same_as_parent": true
+              },
+              "logic_ids": [],
+              "transform": "DIRECT",
+              "grain_effect": "preserved",
+              "final_output_fields": [
+                "mart.event_target.id"
+              ],
+              "target_position": 0,
+              "merge_branch": "matched",
+              "merge_when_index": 0
+            }
+          ],
+          "expanded_expression": "`ods.events`.`id`",
+          "missing_reasons": [],
+          "trace_status": "complete"
+        },
+        {
+          "mapping_chain_id": "mc:002",
+          "chain_id": "chain:ROOT:event_type:position:1",
+          "chain_type": "field_mapping",
+          "target_scope_id": "ROOT",
+          "target_field": "event_type",
+          "target_position": 1,
+          "merge_branch": "matched",
+          "merge_when_index": 0,
+          "chain_status": "resolved",
+          "source_kind": "physical",
+          "root_source_fields": [
+            "ods.events.event_type"
+          ],
+          "final_output_fields": [
+            "mart.event_target.event_type"
+          ],
+          "ordered_steps": [
+            {
+              "step_no": 1,
+              "scope_id": "cte:staged",
+              "step_type": "direct_projection",
+              "input_fields": [
+                "ods.events.event_type"
+              ],
+              "output_field": "cte:staged.event_type",
+              "expression_sql": "`e`.`event_type`",
+              "expanded_expression": "`ods.events`.`event_type`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "qualified_source_projection",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "event_type"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "event_type",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`e`.`event_type`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.events",
+                        "field": "event_type"
+                      }
+                    ]
+                  }
+                ],
+                "expanded_expression_same_as_parent": true
+              },
+              "logic_ids": [],
+              "transform": "DIRECT",
+              "grain_effect": "preserved",
+              "final_output_fields": [
+                "mart.event_target.event_type"
+              ]
+            },
+            {
+              "step_no": 2,
+              "scope_id": "subq:source",
+              "step_type": "direct_projection",
+              "input_fields": [
+                "cte:staged.event_type"
+              ],
+              "output_field": "subq:source.event_type",
+              "expression_sql": "`staged`.`event_type`",
+              "expanded_expression": "`ods.events`.`event_type`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "expanded_from_upstream_scope",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "event_type"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "source_scope_id": "cte:staged",
+                "source_output_field": "event_type",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "subq:source",
+                    "from_field": "event_type",
+                    "to_scope_id": "cte:staged",
+                    "to_field": "event_type",
+                    "relation": "scope_projection",
+                    "expression_sql": "`staged`.`event_type`",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 2,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "event_type",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`e`.`event_type`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.events",
+                        "field": "event_type"
+                      }
+                    ]
+                  }
+                ],
+                "expanded_expression_same_as_parent": true
+              },
+              "logic_ids": [],
+              "transform": "DIRECT",
+              "grain_effect": "preserved",
+              "final_output_fields": [
+                "mart.event_target.event_type"
+              ]
+            },
+            {
+              "step_no": 3,
+              "scope_id": "ROOT",
+              "step_type": "direct_projection",
+              "input_fields": [
+                "subq:source.event_type"
+              ],
+              "output_field": "mart.event_target.event_type",
+              "expression_sql": "`source`.`event_type`",
+              "expanded_expression": "`ods.events`.`event_type`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "expanded_from_upstream_scope",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "event_type"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "source_scope_id": "subq:source",
+                "source_output_field": "event_type",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "ROOT",
+                    "from_field": "event_type",
+                    "to_scope_id": "subq:source",
+                    "to_field": "event_type",
+                    "relation": "scope_projection",
+                    "expression_sql": "`source`.`event_type`",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 2,
+                    "from_scope_id": "subq:source",
+                    "from_field": "event_type",
+                    "to_scope_id": "cte:staged",
+                    "to_field": "event_type",
+                    "relation": "scope_projection",
+                    "expression_sql": "`staged`.`event_type`",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 3,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "event_type",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`e`.`event_type`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.events",
+                        "field": "event_type"
+                      }
+                    ]
+                  }
+                ],
+                "expanded_expression_same_as_parent": true
+              },
+              "logic_ids": [],
+              "transform": "DIRECT",
+              "grain_effect": "preserved",
+              "final_output_fields": [
+                "mart.event_target.event_type"
+              ],
+              "target_position": 1,
+              "merge_branch": "matched",
+              "merge_when_index": 0
+            }
+          ],
+          "expanded_expression": "`ods.events`.`event_type`",
+          "missing_reasons": [],
+          "trace_status": "complete"
+        },
+        {
+          "mapping_chain_id": "mc:003",
+          "chain_id": "chain:ROOT:account_key:position:2",
+          "chain_type": "field_mapping",
+          "target_scope_id": "ROOT",
+          "target_field": "account_key",
+          "target_position": 2,
+          "merge_branch": "matched",
+          "merge_when_index": 0,
+          "chain_status": "resolved",
+          "source_kind": "physical",
+          "root_source_fields": [
+            "dim.accounts.account_key"
+          ],
+          "final_output_fields": [
+            "mart.event_target.account_key"
+          ],
+          "ordered_steps": [
+            {
+              "step_no": 1,
+              "scope_id": "cte:staged",
+              "step_type": "direct_projection",
+              "input_fields": [
+                "dim.accounts.account_key"
+              ],
+              "output_field": "cte:staged.account_key",
+              "expression_sql": "`a`.`account_key`",
+              "expanded_expression": "`dim.accounts`.`account_key`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "qualified_source_projection",
+                "physical_source_fields": [
+                  {
+                    "table": "dim.accounts",
+                    "field": "account_key"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "account_key",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`a`.`account_key`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "dim.accounts",
+                        "field": "account_key"
+                      }
+                    ]
+                  }
+                ],
+                "expanded_expression_same_as_parent": true
+              },
+              "logic_ids": [],
+              "transform": "DIRECT",
+              "grain_effect": "preserved",
+              "final_output_fields": [
+                "mart.event_target.account_key"
+              ]
+            },
+            {
+              "step_no": 2,
+              "scope_id": "subq:source",
+              "step_type": "direct_projection",
+              "input_fields": [
+                "cte:staged.account_key"
+              ],
+              "output_field": "subq:source.account_key",
+              "expression_sql": "`staged`.`account_key`",
+              "expanded_expression": "`dim.accounts`.`account_key`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "expanded_from_upstream_scope",
+                "physical_source_fields": [
+                  {
+                    "table": "dim.accounts",
+                    "field": "account_key"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "source_scope_id": "cte:staged",
+                "source_output_field": "account_key",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "subq:source",
+                    "from_field": "account_key",
+                    "to_scope_id": "cte:staged",
+                    "to_field": "account_key",
+                    "relation": "scope_projection",
+                    "expression_sql": "`staged`.`account_key`",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 2,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "account_key",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`a`.`account_key`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "dim.accounts",
+                        "field": "account_key"
+                      }
+                    ]
+                  }
+                ],
+                "expanded_expression_same_as_parent": true
+              },
+              "logic_ids": [],
+              "transform": "DIRECT",
+              "grain_effect": "preserved",
+              "final_output_fields": [
+                "mart.event_target.account_key"
+              ]
+            },
+            {
+              "step_no": 3,
+              "scope_id": "ROOT",
+              "step_type": "direct_projection",
+              "input_fields": [
+                "subq:source.account_key"
+              ],
+              "output_field": "mart.event_target.account_key",
+              "expression_sql": "`source`.`account_key`",
+              "expanded_expression": "`dim.accounts`.`account_key`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "expanded_from_upstream_scope",
+                "physical_source_fields": [
+                  {
+                    "table": "dim.accounts",
+                    "field": "account_key"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "source_scope_id": "subq:source",
+                "source_output_field": "account_key",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "ROOT",
+                    "from_field": "account_key",
+                    "to_scope_id": "subq:source",
+                    "to_field": "account_key",
+                    "relation": "scope_projection",
+                    "expression_sql": "`source`.`account_key`",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 2,
+                    "from_scope_id": "subq:source",
+                    "from_field": "account_key",
+                    "to_scope_id": "cte:staged",
+                    "to_field": "account_key",
+                    "relation": "scope_projection",
+                    "expression_sql": "`staged`.`account_key`",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 3,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "account_key",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`a`.`account_key`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "dim.accounts",
+                        "field": "account_key"
+                      }
+                    ]
+                  }
+                ],
+                "expanded_expression_same_as_parent": true
+              },
+              "logic_ids": [],
+              "transform": "DIRECT",
+              "grain_effect": "preserved",
+              "final_output_fields": [
+                "mart.event_target.account_key"
+              ],
+              "target_position": 2,
+              "merge_branch": "matched",
+              "merge_when_index": 0
+            }
+          ],
+          "expanded_expression": "`dim.accounts`.`account_key`",
+          "missing_reasons": [],
+          "trace_status": "complete"
+        },
+        {
+          "mapping_chain_id": "mc:004",
+          "chain_id": "chain:ROOT:id:position:3",
+          "chain_type": "field_mapping",
+          "target_scope_id": "ROOT",
+          "target_field": "id",
+          "target_position": 3,
+          "merge_branch": "not_matched",
+          "merge_when_index": 1,
+          "chain_status": "resolved",
+          "source_kind": "physical",
+          "root_source_fields": [
+            "ods.events.id"
+          ],
+          "final_output_fields": [
+            "mart.event_target.id"
+          ],
+          "ordered_steps": [
+            {
+              "step_no": 1,
+              "scope_id": "cte:staged",
+              "step_type": "direct_projection",
+              "input_fields": [
+                "ods.events.id"
+              ],
+              "output_field": "cte:staged.id",
+              "expression_sql": "`e`.`id`",
+              "expanded_expression": "`ods.events`.`id`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "qualified_source_projection",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "id"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "id",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`e`.`id`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.events",
+                        "field": "id"
+                      }
+                    ]
+                  }
+                ],
+                "expanded_expression_same_as_parent": true
+              },
+              "logic_ids": [],
+              "transform": "DIRECT",
+              "grain_effect": "preserved",
+              "final_output_fields": [
+                "mart.event_target.id"
+              ]
+            },
+            {
+              "step_no": 2,
+              "scope_id": "subq:source",
+              "step_type": "direct_projection",
+              "input_fields": [
+                "cte:staged.id"
+              ],
+              "output_field": "subq:source.id",
+              "expression_sql": "`staged`.`id`",
+              "expanded_expression": "`ods.events`.`id`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "expanded_from_upstream_scope",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "id"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "source_scope_id": "cte:staged",
+                "source_output_field": "id",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "subq:source",
+                    "from_field": "id",
+                    "to_scope_id": "cte:staged",
+                    "to_field": "id",
+                    "relation": "scope_projection",
+                    "expression_sql": "`staged`.`id`",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 2,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "id",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`e`.`id`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.events",
+                        "field": "id"
+                      }
+                    ]
+                  }
+                ],
+                "expanded_expression_same_as_parent": true
+              },
+              "logic_ids": [],
+              "transform": "DIRECT",
+              "grain_effect": "preserved",
+              "final_output_fields": [
+                "mart.event_target.id"
+              ]
+            },
+            {
+              "step_no": 3,
+              "scope_id": "ROOT",
+              "step_type": "direct_projection",
+              "input_fields": [
+                "subq:source.id"
+              ],
+              "output_field": "mart.event_target.id",
+              "expression_sql": "source.id",
+              "expanded_expression": "`ods.events`.`id`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "expanded_from_upstream_scope",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "id"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "source_scope_id": "subq:source",
+                "source_output_field": "id",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "ROOT",
+                    "from_field": "id",
+                    "to_scope_id": "subq:source",
+                    "to_field": "id",
+                    "relation": "scope_projection",
+                    "expression_sql": "source.id",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 2,
+                    "from_scope_id": "subq:source",
+                    "from_field": "id",
+                    "to_scope_id": "cte:staged",
+                    "to_field": "id",
+                    "relation": "scope_projection",
+                    "expression_sql": "`staged`.`id`",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 3,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "id",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`e`.`id`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.events",
+                        "field": "id"
+                      }
+                    ]
+                  }
+                ],
+                "expanded_expression_same_as_parent": true
+              },
+              "logic_ids": [],
+              "transform": "DIRECT",
+              "grain_effect": "preserved",
+              "final_output_fields": [
+                "mart.event_target.id"
+              ],
+              "target_position": 3,
+              "merge_branch": "not_matched",
+              "merge_when_index": 1
+            }
+          ],
+          "expanded_expression": "`ods.events`.`id`",
+          "missing_reasons": [],
+          "trace_status": "complete"
+        },
+        {
+          "mapping_chain_id": "mc:005",
+          "chain_id": "chain:ROOT:event_type:position:4",
+          "chain_type": "field_mapping",
+          "target_scope_id": "ROOT",
+          "target_field": "event_type",
+          "target_position": 4,
+          "merge_branch": "not_matched",
+          "merge_when_index": 1,
+          "chain_status": "resolved",
+          "source_kind": "physical",
+          "root_source_fields": [
+            "ods.events.event_type"
+          ],
+          "final_output_fields": [
+            "mart.event_target.event_type"
+          ],
+          "ordered_steps": [
+            {
+              "step_no": 1,
+              "scope_id": "cte:staged",
+              "step_type": "direct_projection",
+              "input_fields": [
+                "ods.events.event_type"
+              ],
+              "output_field": "cte:staged.event_type",
+              "expression_sql": "`e`.`event_type`",
+              "expanded_expression": "`ods.events`.`event_type`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "qualified_source_projection",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "event_type"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "event_type",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`e`.`event_type`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.events",
+                        "field": "event_type"
+                      }
+                    ]
+                  }
+                ],
+                "expanded_expression_same_as_parent": true
+              },
+              "logic_ids": [],
+              "transform": "DIRECT",
+              "grain_effect": "preserved",
+              "final_output_fields": [
+                "mart.event_target.event_type"
+              ]
+            },
+            {
+              "step_no": 2,
+              "scope_id": "subq:source",
+              "step_type": "direct_projection",
+              "input_fields": [
+                "cte:staged.event_type"
+              ],
+              "output_field": "subq:source.event_type",
+              "expression_sql": "`staged`.`event_type`",
+              "expanded_expression": "`ods.events`.`event_type`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "expanded_from_upstream_scope",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "event_type"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "source_scope_id": "cte:staged",
+                "source_output_field": "event_type",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "subq:source",
+                    "from_field": "event_type",
+                    "to_scope_id": "cte:staged",
+                    "to_field": "event_type",
+                    "relation": "scope_projection",
+                    "expression_sql": "`staged`.`event_type`",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 2,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "event_type",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`e`.`event_type`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.events",
+                        "field": "event_type"
+                      }
+                    ]
+                  }
+                ],
+                "expanded_expression_same_as_parent": true
+              },
+              "logic_ids": [],
+              "transform": "DIRECT",
+              "grain_effect": "preserved",
+              "final_output_fields": [
+                "mart.event_target.event_type"
+              ]
+            },
+            {
+              "step_no": 3,
+              "scope_id": "ROOT",
+              "step_type": "direct_projection",
+              "input_fields": [
+                "subq:source.event_type"
+              ],
+              "output_field": "mart.event_target.event_type",
+              "expression_sql": "source.event_type",
+              "expanded_expression": "`ods.events`.`event_type`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "expanded_from_upstream_scope",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.events",
+                    "field": "event_type"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "source_scope_id": "subq:source",
+                "source_output_field": "event_type",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "ROOT",
+                    "from_field": "event_type",
+                    "to_scope_id": "subq:source",
+                    "to_field": "event_type",
+                    "relation": "scope_projection",
+                    "expression_sql": "source.event_type",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 2,
+                    "from_scope_id": "subq:source",
+                    "from_field": "event_type",
+                    "to_scope_id": "cte:staged",
+                    "to_field": "event_type",
+                    "relation": "scope_projection",
+                    "expression_sql": "`staged`.`event_type`",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 3,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "event_type",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`e`.`event_type`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.events",
+                        "field": "event_type"
+                      }
+                    ]
+                  }
+                ],
+                "expanded_expression_same_as_parent": true
+              },
+              "logic_ids": [],
+              "transform": "DIRECT",
+              "grain_effect": "preserved",
+              "final_output_fields": [
+                "mart.event_target.event_type"
+              ],
+              "target_position": 4,
+              "merge_branch": "not_matched",
+              "merge_when_index": 1
+            }
+          ],
+          "expanded_expression": "`ods.events`.`event_type`",
+          "missing_reasons": [],
+          "trace_status": "complete"
+        },
+        {
+          "mapping_chain_id": "mc:006",
+          "chain_id": "chain:ROOT:account_key:position:5",
+          "chain_type": "field_mapping",
+          "target_scope_id": "ROOT",
+          "target_field": "account_key",
+          "target_position": 5,
+          "merge_branch": "not_matched",
+          "merge_when_index": 1,
+          "chain_status": "resolved",
+          "source_kind": "physical",
+          "root_source_fields": [
+            "dim.accounts.account_key"
+          ],
+          "final_output_fields": [
+            "mart.event_target.account_key"
+          ],
+          "ordered_steps": [
+            {
+              "step_no": 1,
+              "scope_id": "cte:staged",
+              "step_type": "direct_projection",
+              "input_fields": [
+                "dim.accounts.account_key"
+              ],
+              "output_field": "cte:staged.account_key",
+              "expression_sql": "`a`.`account_key`",
+              "expanded_expression": "`dim.accounts`.`account_key`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "qualified_source_projection",
+                "physical_source_fields": [
+                  {
+                    "table": "dim.accounts",
+                    "field": "account_key"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "account_key",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`a`.`account_key`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "dim.accounts",
+                        "field": "account_key"
+                      }
+                    ]
+                  }
+                ],
+                "expanded_expression_same_as_parent": true
+              },
+              "logic_ids": [],
+              "transform": "DIRECT",
+              "grain_effect": "preserved",
+              "final_output_fields": [
+                "mart.event_target.account_key"
+              ]
+            },
+            {
+              "step_no": 2,
+              "scope_id": "subq:source",
+              "step_type": "direct_projection",
+              "input_fields": [
+                "cte:staged.account_key"
+              ],
+              "output_field": "subq:source.account_key",
+              "expression_sql": "`staged`.`account_key`",
+              "expanded_expression": "`dim.accounts`.`account_key`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "expanded_from_upstream_scope",
+                "physical_source_fields": [
+                  {
+                    "table": "dim.accounts",
+                    "field": "account_key"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "source_scope_id": "cte:staged",
+                "source_output_field": "account_key",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "subq:source",
+                    "from_field": "account_key",
+                    "to_scope_id": "cte:staged",
+                    "to_field": "account_key",
+                    "relation": "scope_projection",
+                    "expression_sql": "`staged`.`account_key`",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 2,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "account_key",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`a`.`account_key`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "dim.accounts",
+                        "field": "account_key"
+                      }
+                    ]
+                  }
+                ],
+                "expanded_expression_same_as_parent": true
+              },
+              "logic_ids": [],
+              "transform": "DIRECT",
+              "grain_effect": "preserved",
+              "final_output_fields": [
+                "mart.event_target.account_key"
+              ]
+            },
+            {
+              "step_no": 3,
+              "scope_id": "ROOT",
+              "step_type": "direct_projection",
+              "input_fields": [
+                "subq:source.account_key"
+              ],
+              "output_field": "mart.event_target.account_key",
+              "expression_sql": "source.account_key",
+              "expanded_expression": "`dim.accounts`.`account_key`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "expanded_from_upstream_scope",
+                "physical_source_fields": [
+                  {
+                    "table": "dim.accounts",
+                    "field": "account_key"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "source_scope_id": "subq:source",
+                "source_output_field": "account_key",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "ROOT",
+                    "from_field": "account_key",
+                    "to_scope_id": "subq:source",
+                    "to_field": "account_key",
+                    "relation": "scope_projection",
+                    "expression_sql": "source.account_key",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 2,
+                    "from_scope_id": "subq:source",
+                    "from_field": "account_key",
+                    "to_scope_id": "cte:staged",
+                    "to_field": "account_key",
+                    "relation": "scope_projection",
+                    "expression_sql": "`staged`.`account_key`",
+                    "resolution_status": "resolved"
+                  },
+                  {
+                    "step": 3,
+                    "from_scope_id": "cte:staged",
+                    "from_field": "account_key",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`a`.`account_key`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "dim.accounts",
+                        "field": "account_key"
+                      }
+                    ]
+                  }
+                ],
+                "expanded_expression_same_as_parent": true
+              },
+              "logic_ids": [],
+              "transform": "DIRECT",
+              "grain_effect": "preserved",
+              "final_output_fields": [
+                "mart.event_target.account_key"
+              ],
+              "target_position": 5,
+              "merge_branch": "not_matched",
+              "merge_when_index": 1
+            }
+          ],
+          "expanded_expression": "`dim.accounts`.`account_key`",
+          "missing_reasons": [],
+          "trace_status": "complete"
+        }
+      ],
+      "scope_profile": {
+        "profile_step_count": 2,
+        "steps": [
+          {
+            "scope_id": "cte:staged",
+            "name": "staged",
+            "kind": "cte",
+            "role": "join",
+            "operations": [
+              "join"
+            ],
+            "business_summary": "读取 dim.accounts, ods.events；关联 1 个上游",
+            "direct_inputs": [
+              "dim.accounts",
+              "ods.events"
+            ],
+            "direct_source_tables": [
+              "dim.accounts",
+              "ods.events"
+            ],
+            "physical_source_tables": [
+              "dim.accounts",
+              "ods.events"
+            ],
+            "output_columns": 3,
+            "logic": {
+              "joins": [
+                {
+                  "type": "LEFT_OUTER",
+                  "right": "dim.accounts",
+                  "on": "`e`.`account_id` = `a`.`account_id`"
+                }
+              ],
+              "filters": [],
+              "aggregations": [],
+              "window_functions": [],
+              "case_when": [],
+              "key_renames": [],
+              "distinct": false,
+              "union_branches": 0,
+              "lateral_views": []
+            }
+          },
+          {
+            "scope_id": "ROOT",
+            "name": "ROOT",
+            "kind": "root",
+            "role": "pass_through",
+            "operations": [
+              "pass_through"
+            ],
+            "business_summary": "基于 subq:source；上游可追溯至 dim.accounts, ods.events",
+            "direct_inputs": [
+              "subq:source"
+            ],
+            "direct_source_tables": [],
+            "physical_source_tables": [
+              "dim.accounts",
+              "ods.events"
+            ],
+            "output_columns": 6,
+            "logic": {
+              "joins": [],
+              "filters": [],
+              "aggregations": [],
+              "window_functions": [],
+              "case_when": [],
+              "key_renames": [],
+              "distinct": false,
+              "union_branches": 0,
+              "lateral_views": []
+            }
+          }
+        ]
+      },
+      "end_to_end_lineage": [
+        {
+          "column": "id",
+          "transform": "DIRECT",
+          "expression": "`source`.`id`",
+          "trace_complete": true,
+          "physical_sources": [
+            {
+              "table": "ods.events",
+              "column": "id",
+              "transform": "DIRECT"
+            }
+          ],
+          "generated_sources": [],
+          "source_kind": "physical",
+          "output_ordinal": 0,
+          "merge_branch": "matched",
+          "merge_when_index": 0
+        },
+        {
+          "column": "event_type",
+          "transform": "DIRECT",
+          "expression": "`source`.`event_type`",
+          "trace_complete": true,
+          "physical_sources": [
+            {
+              "table": "ods.events",
+              "column": "event_type",
+              "transform": "DIRECT"
+            }
+          ],
+          "generated_sources": [],
+          "source_kind": "physical",
+          "output_ordinal": 1,
+          "merge_branch": "matched",
+          "merge_when_index": 0
+        },
+        {
+          "column": "account_key",
+          "transform": "DIRECT",
+          "expression": "`source`.`account_key`",
+          "trace_complete": true,
+          "physical_sources": [
+            {
+              "table": "dim.accounts",
+              "column": "account_key",
+              "transform": "DIRECT"
+            }
+          ],
+          "generated_sources": [],
+          "source_kind": "physical",
+          "output_ordinal": 2,
+          "merge_branch": "matched",
+          "merge_when_index": 0
+        },
+        {
+          "column": "id",
+          "transform": "DIRECT",
+          "expression": "source.id",
+          "trace_complete": true,
+          "physical_sources": [
+            {
+              "table": "ods.events",
+              "column": "id",
+              "transform": "DIRECT"
+            }
+          ],
+          "generated_sources": [],
+          "source_kind": "physical",
+          "output_ordinal": 3,
+          "merge_branch": "not_matched",
+          "merge_when_index": 1
+        },
+        {
+          "column": "event_type",
+          "transform": "DIRECT",
+          "expression": "source.event_type",
+          "trace_complete": true,
+          "physical_sources": [
+            {
+              "table": "ods.events",
+              "column": "event_type",
+              "transform": "DIRECT"
+            }
+          ],
+          "generated_sources": [],
+          "source_kind": "physical",
+          "output_ordinal": 4,
+          "merge_branch": "not_matched",
+          "merge_when_index": 1
+        },
+        {
+          "column": "account_key",
+          "transform": "DIRECT",
+          "expression": "source.account_key",
+          "trace_complete": true,
+          "physical_sources": [
+            {
+              "table": "dim.accounts",
+              "column": "account_key",
+              "transform": "DIRECT"
+            }
+          ],
+          "generated_sources": [],
+          "source_kind": "physical",
+          "output_ordinal": 5,
+          "merge_branch": "not_matched",
+          "merge_when_index": 1
+        }
+      ],
+      "diagnostics": {
+        "fallback_used": false,
+        "warning_count": 0,
+        "warning_types": {},
+        "lineage_fact_gap_count": 0,
+        "lineage_fact_gap_types": {},
+        "lineage_fact_gap_samples": [],
+        "stats": {
+          "scope_count": 5,
+          "physical_table_count": 2,
+          "cte_count": 1,
+          "subquery_count": 1,
+          "union_count": 0,
+          "union_branch_count": 0,
+          "max_depth": 3,
+          "case_when_count": 0,
+          "window_function_count": 0,
+          "join_count": 1,
+          "aggregate_function_count": 0
+        },
+        "full_diagnostics_file": "diagnostics.json"
+      }
+    }
+  },
+  "end_to_end_lineage": [
+    {
+      "target_state": "state:mart.event_target:001",
+      "table": "mart.event_target",
+      "column": "id",
+      "value_sources": [
+        {
+          "source_kind": "prior_table_state",
+          "state_id": "state:mart.event_target:000",
+          "table": "mart.event_target",
+          "column": "id"
+        },
+        {
+          "source_kind": "physical_field",
+          "table": "ods.events",
+          "column": "id",
+          "transform": "DIRECT"
+        }
+      ],
+      "row_membership_sources": [
+        {
+          "table": "mart.event_target",
+          "column": "id"
+        },
+        {
+          "table": "ods.events",
+          "column": "id"
+        }
+      ],
+      "value_condition_sources": [
+        {
+          "table": "mart.event_target",
+          "column": "id"
+        },
+        {
+          "table": "ods.events",
+          "column": "id"
+        }
+      ],
+      "trace_complete": true,
+      "missing_reasons": []
+    },
+    {
+      "target_state": "state:mart.event_target:001",
+      "table": "mart.event_target",
+      "column": "event_type",
+      "value_sources": [
+        {
+          "source_kind": "prior_table_state",
+          "state_id": "state:mart.event_target:000",
+          "table": "mart.event_target",
+          "column": "event_type"
+        },
+        {
+          "source_kind": "physical_field",
+          "table": "ods.events",
+          "column": "event_type",
+          "transform": "DIRECT"
+        }
+      ],
+      "row_membership_sources": [
+        {
+          "table": "mart.event_target",
+          "column": "id"
+        },
+        {
+          "table": "ods.events",
+          "column": "id"
+        }
+      ],
+      "value_condition_sources": [
+        {
+          "table": "mart.event_target",
+          "column": "id"
+        },
+        {
+          "table": "ods.events",
+          "column": "id"
+        }
+      ],
+      "trace_complete": true,
+      "missing_reasons": []
+    },
+    {
+      "target_state": "state:mart.event_target:001",
+      "table": "mart.event_target",
+      "column": "account_key",
+      "value_sources": [
+        {
+          "source_kind": "prior_table_state",
+          "state_id": "state:mart.event_target:000",
+          "table": "mart.event_target",
+          "column": "account_key"
+        },
+        {
+          "source_kind": "physical_field",
+          "table": "dim.accounts",
+          "column": "account_key",
+          "transform": "DIRECT"
+        }
+      ],
+      "row_membership_sources": [
+        {
+          "table": "mart.event_target",
+          "column": "id"
+        },
+        {
+          "table": "ods.events",
+          "column": "id"
+        }
+      ],
+      "value_condition_sources": [
+        {
+          "table": "mart.event_target",
+          "column": "id"
+        },
+        {
+          "table": "ods.events",
+          "column": "id"
+        }
+      ],
+      "trace_complete": true,
+      "missing_reasons": []
+    }
+  ],
+  "task_dependencies": {},
+  "diagnostics": {
+    "fallback_used": false,
+    "warning_count": 0,
+    "warning_types": {},
+    "lineage_fact_gap_count": 0,
+    "lineage_fact_gap_types": {},
+    "lineage_fact_gap_samples": [],
+    "stats": {
+      "statement_count": 1,
+      "modeled_statement_count": 1,
+      "ignored_statement_count": 0,
+      "failed_statement_count": 0
+    },
+    "full_diagnostics_file": "diagnostics.json"
+  }
+}

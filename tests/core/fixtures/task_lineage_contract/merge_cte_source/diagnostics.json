@@ -1,0 +1,48 @@
+{
+  "schema_version": "2.0",
+  "task_id": "golden_merge_cte_source",
+  "analysis_status": {
+    "status": "complete",
+    "blocking_reasons": []
+  },
+  "warnings": [],
+  "lineage_fact_gaps": [],
+  "metadata_coverage": {
+    "referenced_table_count": 3,
+    "covered_table_count": 3,
+    "missing_table_count": 0,
+    "covered_tables": [
+      "dim.accounts",
+      "mart.event_target",
+      "ods.events"
+    ],
+    "missing_tables": [],
+    "schema_source_count": 0,
+    "metadata_conflicts": []
+  },
+  "stats": {
+    "statement_count": 1,
+    "modeled_statement_count": 1,
+    "ignored_statement_count": 0,
+    "failed_statement_count": 0
+  },
+  "statement_diagnostics": {
+    "stmt:001": {
+      "stats": {
+        "scope_count": 5,
+        "physical_table_count": 2,
+        "cte_count": 1,
+        "subquery_count": 1,
+        "union_count": 0,
+        "union_branch_count": 0,
+        "max_depth": 3,
+        "case_when_count": 0,
+        "window_function_count": 0,
+        "join_count": 1,
+        "aggregate_function_count": 0
+      },
+      "warnings": [],
+      "lineage_fact_gaps": []
+    }
+  }
+}

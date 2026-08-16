@@ -565,3 +565,112 @@ def test_v2_writer_canonicalizes_warning_order(tmp_path) -> None:
         "stmt:001",
         "stmt:002",
     ]
+
+
+MERGE_CTE_SCHEMA = {
+    "ods.events": ["id", "event_type", "account_id"],
+    "dim.accounts": ["account_id", "account_key"],
+    "mart.event_target": ["id", "event_type", "account_key"],
+}
+
+MERGE_CTE_SQL = """
+WITH staged AS (
+  SELECT e.id, e.event_type, a.account_key
+  FROM ods.events e
+  LEFT JOIN dim.accounts a ON e.account_id = a.account_id
+)
+MERGE INTO mart.event_target target
+USING (SELECT id, event_type, account_key FROM staged) source
+ON target.id = source.id
+WHEN MATCHED THEN UPDATE SET
+  target.id = source.id,
+  target.event_type = source.event_type,
+  target.account_key = source.account_key
+WHEN NOT MATCHED THEN INSERT *
+"""
+
+
+def _rowset_effect(result, index: int = 0) -> dict:
+    return result.statements[index]["effect"]["rowset_effect"]
+
+
+def test_merge_condition_sources_trace_through_a_cte_to_physical_fields() -> None:
+    """A CTE is a query block, never a row-membership source.
+
+    ``row_membership_sources`` asserts that a physical field decided whether a target
+    row exists, so a CTE name there is a claim the warehouse cannot answer — and it
+    then travels on into metadata coverage as a table nobody can supply.
+    """
+    result = parse_task_lineage(
+        MERGE_CTE_SQL,
+        task_name="merge_cte_condition_sources",
+        schema=MERGE_CTE_SCHEMA,
+    )
+
+    assert _rowset_effect(result)["membership_sources"] == [
+        {"table": "mart.event_target", "column": "id"},
+        {"table": "ods.events", "column": "id"},
+    ]
+    assert result.analysis_status == {"status": "complete", "blocking_reasons": []}
+    assert result.diagnostics["lineage_fact_gaps"] == []
+
+    coverage = result.diagnostics["metadata_coverage"]
+    assert "staged" not in coverage["missing_tables"]
+    assert "staged" not in coverage["covered_tables"]
+
+
+def test_merge_condition_sources_keep_every_branch_of_a_union_using() -> None:
+    """Two candidate roots are two facts, not a reason to publish ``UNKNOWN``."""
+    result = parse_task_lineage(
+        """
+        MERGE INTO mart.event_target target
+        USING (
+          SELECT id FROM ods.events
+          UNION ALL
+          SELECT account_id AS id FROM dim.accounts
+        ) source
+        ON target.id = source.id
+        WHEN MATCHED THEN UPDATE SET target.event_type = source.id
+        """,
+        task_name="merge_union_condition_sources",
+        schema=MERGE_CTE_SCHEMA,
+    )
+
+    assert _rowset_effect(result)["membership_sources"] == [
+        {"table": "mart.event_target", "column": "id"},
+        {"table": "ods.events", "column": "id"},
+        {"table": "dim.accounts", "column": "account_id"},
+    ]
+    assert result.analysis_status["status"] == "complete"
+
+
+def test_an_untraceable_merge_condition_is_a_fact_gap_not_a_guessed_table() -> None:
+    result = parse_task_lineage(
+        """
+        MERGE INTO mart.event_target target
+        USING (SELECT id FROM ods.events) source
+        ON target.id = source.missing_col
+        WHEN MATCHED THEN UPDATE SET target.event_type = source.id
+        """,
+        task_name="merge_untraceable_condition",
+        schema=MERGE_CTE_SCHEMA,
+    )
+
+    # The unresolvable side is absent rather than invented.
+    assert _rowset_effect(result)["membership_sources"] == [
+        {"table": "mart.event_target", "column": "id"},
+    ]
+    assert result.diagnostics["lineage_fact_gaps"] == [
+        {
+            "gap_type": "merge_condition_source_unresolved",
+            "statement_id": "stmt:001",
+            "source_alias": "source",
+            "column": "missing_col",
+            "root_impact": True,
+            "needed_fact": "MERGE condition source scope and physical field",
+        }
+    ]
+    assert result.analysis_status == {
+        "status": "partial",
+        "blocking_reasons": ["lineage_fact_gap"],
+    }

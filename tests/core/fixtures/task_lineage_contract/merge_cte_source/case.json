@@ -1,0 +1,9 @@
+{
+  "task_id": "golden_merge_cte_source",
+  "sql": "WITH staged AS (SELECT e.id, e.event_type, a.account_key FROM ods.events e LEFT JOIN dim.accounts a ON e.account_id = a.account_id) MERGE INTO mart.event_target target USING (SELECT id, event_type, account_key FROM staged) source ON target.id = source.id WHEN MATCHED THEN UPDATE SET target.id = source.id, target.event_type = source.event_type, target.account_key = source.account_key WHEN NOT MATCHED THEN INSERT *",
+  "schema": {
+    "ods.events": ["id", "event_type", "account_id"],
+    "dim.accounts": ["account_id", "account_key"],
+    "mart.event_target": ["id", "event_type", "account_key"]
+  }
+}
