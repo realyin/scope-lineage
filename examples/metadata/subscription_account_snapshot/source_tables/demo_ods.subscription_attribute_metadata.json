@@ -1,0 +1,43 @@
+{
+  "table_name": "demo_ods.subscription_attribute",
+  "full_table_name": "spark_catalog.demo_ods.subscription_attribute",
+  "schema": [
+    {
+      "columnName": "subscription_id",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: subscription id",
+      "columnIndex": 0,
+      "isPartition": 0
+    },
+    {
+      "columnName": "attribute_value",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: attribute value",
+      "columnIndex": 1,
+      "isPartition": 0
+    },
+    {
+      "columnName": "record_state",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: record state",
+      "columnIndex": 2,
+      "isPartition": 0
+    },
+    {
+      "columnName": "attribute_type",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: attribute type",
+      "columnIndex": 3,
+      "isPartition": 0
+    },
+    {
+      "columnName": "snapshot_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: snapshot date",
+      "columnIndex": 4,
+      "isPartition": 1
+    }
+  ],
+  "query_time": "2025-01-16T00:00:00+00:00",
+  "data_source": "synthetic_demo_catalog"
+}

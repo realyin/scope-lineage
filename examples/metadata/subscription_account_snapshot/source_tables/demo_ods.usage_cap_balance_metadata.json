@@ -1,0 +1,99 @@
+{
+  "table_name": "demo_ods.usage_cap_balance",
+  "full_table_name": "spark_catalog.demo_ods.usage_cap_balance",
+  "schema": [
+    {
+      "columnName": "multi_use_flag",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: multi use flag",
+      "columnIndex": 0,
+      "isPartition": 0
+    },
+    {
+      "columnName": "temporary_cap_start_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: temporary cap start date",
+      "columnIndex": 1,
+      "isPartition": 0
+    },
+    {
+      "columnName": "temporary_spending_cap",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: temporary spending cap",
+      "columnIndex": 2,
+      "isPartition": 0
+    },
+    {
+      "columnName": "usage_cap_type",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: usage cap type",
+      "columnIndex": 3,
+      "isPartition": 0
+    },
+    {
+      "columnName": "consumed_spending_cap",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: consumed spending cap",
+      "columnIndex": 4,
+      "isPartition": 0
+    },
+    {
+      "columnName": "snapshot_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: snapshot date",
+      "columnIndex": 5,
+      "isPartition": 1
+    },
+    {
+      "columnName": "reusable_cap_flag",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: reusable cap flag",
+      "columnIndex": 6,
+      "isPartition": 0
+    },
+    {
+      "columnName": "available_spending_cap",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: available spending cap",
+      "columnIndex": 7,
+      "isPartition": 0
+    },
+    {
+      "columnName": "usage_cap_id",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: usage cap id",
+      "columnIndex": 8,
+      "isPartition": 0
+    },
+    {
+      "columnName": "temporary_cap_allowed_flag",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: temporary cap allowed flag",
+      "columnIndex": 9,
+      "isPartition": 0
+    },
+    {
+      "columnName": "record_state",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: record state",
+      "columnIndex": 10,
+      "isPartition": 0
+    },
+    {
+      "columnName": "temporary_cap_end_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: temporary cap end date",
+      "columnIndex": 11,
+      "isPartition": 0
+    },
+    {
+      "columnName": "standard_spending_cap",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: standard spending cap",
+      "columnIndex": 12,
+      "isPartition": 0
+    }
+  ],
+  "query_time": "2025-01-16T00:00:00+00:00",
+  "data_source": "synthetic_demo_catalog"
+}

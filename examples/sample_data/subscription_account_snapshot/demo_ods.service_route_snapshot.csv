@@ -1,0 +1,2 @@
+service_plan_code,routing_pattern,record_state,snapshot_date,migration_state,source_system_code
+PLAN-STANDARD,2,0,20250115,2,billing_primary

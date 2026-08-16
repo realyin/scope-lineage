@@ -1,0 +1,4 @@
+subscription_id,attribute_value,record_state,attribute_type,snapshot_date
+SUBSCRIPTION-1001,PLAN_A,0,1,20250115
+SUBSCRIPTION-1001,HOLD_DEMO,0,2,20250115
+SUBSCRIPTION-1001,FEATURE_DEMO,0,3,20250115

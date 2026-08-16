@@ -1,0 +1,50 @@
+{
+  "table_name": "demo_ods.service_route_snapshot",
+  "full_table_name": "spark_catalog.demo_ods.service_route_snapshot",
+  "schema": [
+    {
+      "columnName": "service_plan_code",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: service plan code",
+      "columnIndex": 0,
+      "isPartition": 0
+    },
+    {
+      "columnName": "routing_pattern",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: routing pattern",
+      "columnIndex": 1,
+      "isPartition": 0
+    },
+    {
+      "columnName": "record_state",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: record state",
+      "columnIndex": 2,
+      "isPartition": 0
+    },
+    {
+      "columnName": "snapshot_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: snapshot date",
+      "columnIndex": 3,
+      "isPartition": 1
+    },
+    {
+      "columnName": "migration_state",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: migration state",
+      "columnIndex": 4,
+      "isPartition": 0
+    },
+    {
+      "columnName": "source_system_code",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: source system code",
+      "columnIndex": 5,
+      "isPartition": 0
+    }
+  ],
+  "query_time": "2025-01-16T00:00:00+00:00",
+  "data_source": "synthetic_demo_catalog"
+}

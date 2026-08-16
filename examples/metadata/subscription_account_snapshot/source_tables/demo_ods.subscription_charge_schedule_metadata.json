@@ -1,0 +1,57 @@
+{
+  "table_name": "demo_ods.subscription_charge_schedule",
+  "full_table_name": "spark_catalog.demo_ods.subscription_charge_schedule",
+  "schema": [
+    {
+      "columnName": "subscription_id",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: subscription id",
+      "columnIndex": 0,
+      "isPartition": 0
+    },
+    {
+      "columnName": "scheduled_charge_amount",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: scheduled charge amount",
+      "columnIndex": 1,
+      "isPartition": 0
+    },
+    {
+      "columnName": "record_state",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: record state",
+      "columnIndex": 2,
+      "isPartition": 0
+    },
+    {
+      "columnName": "settled_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: settled date",
+      "columnIndex": 3,
+      "isPartition": 0
+    },
+    {
+      "columnName": "past_due_start_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: past due start date",
+      "columnIndex": 4,
+      "isPartition": 0
+    },
+    {
+      "columnName": "accrued_charge_amount",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: accrued charge amount",
+      "columnIndex": 5,
+      "isPartition": 0
+    },
+    {
+      "columnName": "snapshot_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: snapshot date",
+      "columnIndex": 6,
+      "isPartition": 1
+    }
+  ],
+  "query_time": "2025-01-16T00:00:00+00:00",
+  "data_source": "synthetic_demo_catalog"
+}

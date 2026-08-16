@@ -1,0 +1,29 @@
+{
+  "table_name": "demo_ods.subscriber_segment",
+  "full_table_name": "spark_catalog.demo_ods.subscriber_segment",
+  "schema": [
+    {
+      "columnName": "subscription_id",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: subscription id",
+      "columnIndex": 0,
+      "isPartition": 0
+    },
+    {
+      "columnName": "snapshot_date",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: snapshot date",
+      "columnIndex": 1,
+      "isPartition": 1
+    },
+    {
+      "columnName": "subscriber_segment",
+      "columnType": "string",
+      "columnComment": "Synthetic demo field: subscriber segment",
+      "columnIndex": 2,
+      "isPartition": 0
+    }
+  ],
+  "query_time": "2025-01-16T00:00:00+00:00",
+  "data_source": "synthetic_demo_catalog"
+}

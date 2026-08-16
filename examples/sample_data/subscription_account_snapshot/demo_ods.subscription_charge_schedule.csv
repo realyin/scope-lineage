@@ -1,0 +1,2 @@
+subscription_id,scheduled_charge_amount,record_state,settled_date,past_due_start_date,accrued_charge_amount,snapshot_date
+SUBSCRIPTION-1001,25.00,0,2025-01-15,2025-01-15,demo_accrued_charge_amount,20250115
