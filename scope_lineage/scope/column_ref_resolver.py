@@ -78,7 +78,9 @@ def _resolve_column_ref(col_ref: exp.Column, sg_scope: Scope, result: ScopeLinea
             return duplicate_src
         src = sg_scope.sources.get(table_alias)
         if isinstance(src, (Scope, exp.Table)):
-            return _bound_source_ref(table_alias, src, col_name, sg_scope, result)
+            return _bound_qualified_source_ref(
+                table_alias, src, col_name, sg_scope, result, schema
+            )
         try:
             _sel = sg_scope.selected_sources
         except OptimizeError:
@@ -88,12 +90,13 @@ def _resolve_column_ref(col_ref: exp.Column, sg_scope: Scope, result: ScopeLinea
         if sel_src:
             (_node, source) = sel_src
             if isinstance(source, (Scope, exp.Table)):
-                return _bound_source_ref(
+                return _bound_qualified_source_ref(
                     table_alias,
                     source,
                     col_name,
                     sg_scope,
                     result,
+                    schema,
                 )
         parent_binding = _lookup_alias_binding_in_parent_scopes(
             table_alias,
@@ -101,12 +104,13 @@ def _resolve_column_ref(col_ref: exp.Column, sg_scope: Scope, result: ScopeLinea
         )
         if parent_binding:
             parent_scope, source = parent_binding
-            return _bound_source_ref(
+            return _bound_qualified_source_ref(
                 table_alias,
                 source,
                 col_name,
                 parent_scope,
                 result,
+                schema,
             )
         result.diagnostics.warnings.append(DiagnosticWarning(type='unresolved_alias', scope=getattr(sg_scope, _SCOPE_ID_ATTR, 'UNKNOWN'), msg=f"Alias '{table_alias}' not found in scope sources"))
         return SourceRef(scope='UNKNOWN', column=col_name)
@@ -206,6 +210,45 @@ def _bound_source_ref(
         source,
     )
     return ref
+
+
+def _bound_qualified_source_ref(
+    alias: str,
+    source: Scope | exp.Table,
+    col_name: str,
+    binding_scope: Scope,
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> SourceRef:
+    """Bind an explicitly qualified reference, auditing it against the named schema.
+
+    An unqualified column that no source can supply reports ``column_not_found``. The
+    qualified path had no counterpart, so a qualifier was taken as proof that the column
+    exists there: ``ods.source.no_such_column`` was published as a physical field the
+    warehouse could be queried for. The schema is already in hand, so this is not an
+    unknown — it is a disprovable claim.
+
+    The binding is kept: the author named that source, and a downstream consumer needs to
+    see which reference is wrong. Only the silence is removed. Scope sources are excluded
+    because a column an upstream scope does not expose is settled later, once every scope
+    is built, by ``_drop_dangling_column_refs`` (LINEAGE-001).
+    """
+    if (
+        isinstance(source, exp.Table)
+        and schema is not None
+        and _source_column_state(alias, source, col_name, result, schema) == "absent"
+    ):
+        result.diagnostics.warnings.append(
+            DiagnosticWarning(
+                type="column_not_in_table_schema",
+                scope=getattr(binding_scope, _SCOPE_ID_ATTR, "UNKNOWN"),
+                msg=(
+                    f"Column '{col_name}' is qualified by '{alias}' but "
+                    f"{_qualified_table(source)} has no such column in its schema"
+                ),
+            )
+        )
+    return _bound_source_ref(alias, source, col_name, binding_scope, result)
 
 
 def _input_ref_id_for_source_alias(
