@@ -6,11 +6,14 @@ columns, joins, filters, group_by, having, order_by, and depends_on.
 
 from __future__ import annotations
 
+import re
+
 
 from sqlglot import exp
 from sqlglot.optimizer.scope import Scope
 
 from .parser import (
+    _normalize_table_name,
     _qualified_table,
 )
 from .scope_types import (
@@ -93,6 +96,7 @@ def resolve_all(
     # Step 3b: Expand wildcard (*) columns into concrete columns where upstream is known.
     # Iterates until stable so that chains like  subq:a.* → subq:aa.* → union:aa.[cols]
     # are fully unrolled.
+    _expand_regex_column_selection(result, all_scopes, schema)
     _expand_star_columns(result)
     _materialize_referenced_star_columns(result)
     _refresh_union_scopes_after_star_expansion(result, all_scopes)
@@ -541,6 +545,131 @@ def _refresh_union_scopes_after_star_expansion(
             continue
         scope_data.columns = []
         _resolve_scope_union_passthrough(scope_id, scope_data, result)
+
+
+_REGEX_COLUMN_METACHARACTERS = set(".*+?[]()|^$\\")
+
+
+def _expand_regex_column_selection(
+    result: ScopeLineageResult,
+    all_scopes: list[Scope],
+    schema: dict | None,
+) -> None:
+    """Expand Spark's quoted regex column selection into the columns it matches.
+
+    ``SELECT `(dt)?+.+` `` selects every column whose name matches the pattern. Read as a
+    literal name it produces a column no table has, so the projection resolves to nothing
+    and every downstream reference to that scope follows it down (REGEX-COLUMN-001).
+
+    The schema is consulted before the pattern is: a column that genuinely exists under
+    that name — metacharacters and all — is a name, not a pattern, and stays literal.
+    Without the source's columns there is nothing to match against, so the projection is
+    left as it is and keeps reporting its gap rather than inventing column names.
+    """
+    for sg_scope in all_scopes:
+        scope_id = getattr(sg_scope, _SCOPE_ID_ATTR, None)
+        scope_data = result.scopes.get(scope_id) if scope_id else None
+        if scope_data is None:
+            continue
+        inputs = _regex_selection_input_columns(sg_scope, result, schema)
+        patterns = [
+            column
+            for column in scope_data.columns
+            if _looks_like_regex_column_selection(column, inputs)
+        ]
+        if not patterns:
+            continue
+        existing = {column.name for column in scope_data.columns}
+        for pattern_column in patterns:
+            matched = _columns_matching_regex_selection(pattern_column.name, inputs)
+            if not matched:
+                continue
+            for source_id, column_name in matched:
+                if column_name in existing:
+                    continue
+                scope_data.columns.append(ScopeColumn(
+                    name=column_name,
+                    transform="DIRECT",
+                    expression=column_name,
+                    sources=[SourceRef(scope=source_id, column=column_name)],
+                ))
+                existing.add(column_name)
+            scope_data.columns.remove(pattern_column)
+
+
+def _looks_like_regex_column_selection(
+    column: ScopeColumn,
+    inputs: dict[str, list[str]],
+) -> bool:
+    name = column.name or ""
+    if not name or name == "*" or not (set(name) & _REGEX_COLUMN_METACHARACTERS):
+        return False
+    if any(name in names for names in inputs.values()):
+        return False
+    return _compiled_column_pattern(name) is not None
+
+
+_POSSESSIVE_QUANTIFIER = re.compile(r"\(((?:[^()\\]|\\.)*)\)([?*+])\+")
+
+
+def _compiled_column_pattern(pattern: str):
+    """Compile a Spark column pattern the same way on every supported Python.
+
+    Spark's exclusion idiom uses a possessive quantifier — ``(dt)?+.+`` reads as "every
+    column except dt", because ``(dt)?+`` consumes ``dt`` without giving it back. Python
+    only accepts that syntax from 3.11, and this project supports 3.9, so it is rewritten
+    to the lookahead-and-backreference form that behaves identically everywhere. Letting
+    the compile simply fail on older interpreters would make the same SQL produce different
+    lineage depending on the Python running it.
+    """
+    for candidate in (pattern, _POSSESSIVE_QUANTIFIER.sub(r"(?=((?:\1)\2))\\1", pattern)):
+        try:
+            return re.compile(candidate)
+        except re.error:
+            continue
+    return None
+
+
+def _columns_matching_regex_selection(
+    pattern: str,
+    inputs: dict[str, list[str]],
+) -> list[tuple[str, str]]:
+    compiled = _compiled_column_pattern(pattern)
+    if compiled is None:
+        return []
+    matched: list[tuple[str, str]] = []
+    for source_id, names in inputs.items():
+        for name in names:
+            if compiled.fullmatch(name):
+                matched.append((source_id, name))
+    return matched
+
+
+def _regex_selection_input_columns(
+    sg_scope: Scope,
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> dict[str, list[str]]:
+    """Columns each of this scope's sources exposes, physical tables and scopes alike.
+
+    Read from the sqlglot scope rather than ``input_edges``: those are populated later, in
+    the facts pass, and this runs while columns are still being resolved.
+    """
+    names: dict[str, list[str]] = {}
+    for source in (sg_scope.sources or {}).values():
+        if isinstance(source, Scope):
+            scope_id = getattr(source, _SCOPE_ID_ATTR, None)
+            upstream = result.scopes.get(scope_id) if scope_id else None
+            if upstream is not None:
+                names[scope_id] = [
+                    column.name for column in upstream.columns if column.name != "*"
+                ]
+        elif isinstance(source, exp.Table) and schema is not None:
+            table = _qualified_table(source)
+            columns = schema.get(_normalize_table_name(table))
+            if columns:
+                names[table] = list(columns)
+    return names
 
 
 def _expand_star_columns(result: ScopeLineageResult) -> None:
