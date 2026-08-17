@@ -135,7 +135,26 @@ def _normalize_directory_insert_sql(sql: str) -> str:
 
 
 def _is_ctas(tree: exp.Expression) -> bool:
+    return _is_create_as_select(tree) or _is_cache_as_select(tree)
+
+
+def _is_create_as_select(tree: exp.Expression) -> bool:
     return isinstance(tree, exp.Create) and tree.expression is not None
+
+
+def _is_cache_as_select(tree: exp.Expression) -> bool:
+    """Spark's ``CACHE [LAZY] TABLE x AS SELECT`` builds a relation this script can read.
+
+    sqlglot gives it the same shape CTAS has — produced relation on ``this``, projection on
+    ``expression`` — and in lineage terms it is the same thing: a queryable relation defined
+    by a SELECT. Recognising only ``exp.Create`` left the relation unregistered, so every
+    downstream reference resolved against a physical table nobody has metadata for and
+    cascaded into gaps (CACHE-001).
+
+    ``CACHE TABLE existing_table`` has no ``expression``: it pins a relation rather than
+    defining one, and stays outside the write statements.
+    """
+    return isinstance(tree, exp.Cache) and tree.expression is not None
 
 
 def script_local_schema(
@@ -438,25 +457,36 @@ def _partition_mode(spec: dict[str, str | None]) -> str:
 def _build_ctas_scope(
     tree: exp.Expression, task_name: str, schema: dict | None = None
 ) -> ScopeLineageResult:
-    create = tree if isinstance(tree, exp.Create) else tree.find(exp.Create)
-    target = _unwrap_target(create.this) if create and create.this is not None else None
+    # CREATE ... AS SELECT and CACHE [LAZY] TABLE ... AS SELECT define a relation the same
+    # way; only persistence differs, and that is carried by is_cached_relation rather than
+    # by a separate build path (CACHE-001).
+    cached = _is_cache_as_select(tree)
+    definition = tree if isinstance(tree, (exp.Create, exp.Cache)) else (
+        tree.find(exp.Create) or tree.find(exp.Cache)
+    )
+    target = _unwrap_target(definition.this) if definition and definition.this is not None else None
     target_table = _qualified_table(target) if isinstance(target, exp.Table) else ""
-    partition_spec, partition_columns, partition_mode = _target_partition_facts_from_create(create)
+    partition_spec, partition_columns, partition_mode = (
+        _target_partition_facts_from_create(definition)
+        if isinstance(definition, exp.Create)
+        else ({}, [], "none")
+    )
 
     result = ScopeLineageResult(
         task_id=task_name,
         target_table=target_table,
         stmt_kind="CTAS",
+        is_cached_relation=cached,
         target_partition_spec=partition_spec,
         target_partition_columns=partition_columns,
         target_partition_mode=partition_mode,
         diagnostics=Diagnostics(),
     )
 
-    if create is None or create.expression is None:
+    if definition is None or definition.expression is None:
         return result
 
-    src_expr = create.expression.copy()
+    src_expr = definition.expression.copy()
     qualified = _qualify_ast(src_expr)
 
     if qualified is src_expr:

@@ -211,13 +211,13 @@ def _target_table_metadata_from_document(
             ddl_partitions,
         )
         if reconciled:
+            # The DDL settled the column set, so complaints about the array's own shape
+            # no longer describe anything the caller receives.
             issues = [
                 issue
                 for issue in issues
                 if issue != "schema_column_indices_not_contiguous"
             ]
-        elif [column.name for column in columns] != ddl_columns:
-            issues.append("schema_ddl_column_set_mismatch")
     partition_columns = (
         list(ddl_partitions)
         if reconciled
@@ -250,24 +250,31 @@ def _columns_reconciled_to_ddl(
     ddl_columns: list[str],
     ddl_partitions: list[str],
 ) -> tuple[list[TargetColumnMetadata], bool]:
-    """Use DDL for structural facts while retaining schema descriptions by name."""
+    """The DDL decides which columns exist; the exported array only enriches them.
+
+    These are two descriptions of one table, not two claims to be checked against each
+    other. The DDL is the table's own definition, so it settles the column set — including
+    a partition column declared only in ``PARTITIONED BY``, which is an ordinary export
+    shape rather than a contradiction. The array supplies type and comment for the names it
+    covers and is otherwise ignored; a column it names that the DDL does not have is a
+    stale export, and publishing it would assert a column the table says is not there.
+
+    Deliberately not a union of the two: with both sources partially winning, neither is
+    authoritative and the result describes no real table (METADATA-001).
+    """
     schema_by_name = {column.name: column for column in columns}
-    if (
-        len(columns) != len(ddl_columns)
-        or set(schema_by_name) != set(ddl_columns)
-    ):
-        return columns, False
-    partition_names = set(ddl_partitions)
+    partition_names = list(dict.fromkeys(ddl_partitions))
+    all_names = list(dict.fromkeys([*ddl_columns, *partition_names]))
     return (
         [
             TargetColumnMetadata(
                 name=name,
-                data_type=schema_by_name[name].data_type,
+                data_type=schema_by_name[name].data_type if name in schema_by_name else "",
                 ordinal=ordinal,
-                is_partition=name in partition_names,
-                comment=schema_by_name[name].comment,
+                is_partition=name in set(partition_names),
+                comment=schema_by_name[name].comment if name in schema_by_name else "",
             )
-            for ordinal, name in enumerate(ddl_columns)
+            for ordinal, name in enumerate(all_names)
         ],
         True,
     )
