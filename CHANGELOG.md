@@ -10,8 +10,9 @@
   shadowing, so a consumer is not handed SQL that looks runnable and is not
 - Stopped reading `COUNT(*)`'s dependency on the whole row as an unexpanded projection
   wildcard; only a source that is actually an unexpanded `SELECT *` reports one now
-- Declared a MERGE's target relation as a ROOT input, without an alias so it stays out of
-  alias expansion, and appended so existing `input_ref_id` values keep their meaning
+- Declared a MERGE's target relation as a ROOT input carrying its alias, so `target.x` can
+  be mapped back to the relation it names, while holding it out of `alias_source_bindings`
+  so the correlated reference a MERGE action preserves is not read as a failed expansion
 
 - Declared the USING relation as an input of a MERGE's ROOT scope. That scope is synthetic,
   so the pass that walks SQLGlot scopes never reached it and the scope reported no inputs at

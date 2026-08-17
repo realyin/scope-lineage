@@ -228,13 +228,14 @@ def _populate_merge_root_input_edges(result: ScopeLineageResult) -> None:
     ``COALESCE(target.x, source.y)``, reported a root-impact gap for a binding column
     resolution had already made (MERGE-INPUT-001).
 
-    The target relation is declared without an alias. Binding ``target`` would make the
+    Both relations carry their alias, so a consumer can map ``target.x`` or ``source.x``
+    back to the relation it names. The target is then held out of ``alias_source_bindings``
+    by ``_populate_scope_alias_source_bindings``: that table drives alias expansion, and the
     correlated ``target.id`` that MERGE action subqueries keep by design (see
-    ``_protect_merge_correlated_target_refs``) read as an alias that failed to expand,
-    replacing one wrong gap with another; leaving the alias off states the input without
-    letting it into expansion. The cost is that a consumer cannot map ``target.x`` back to
-    this edge — less than the relation being absent entirely, more than a contract that
-    could say "declared, not alias-expanded" would give.
+    ``_protect_merge_correlated_target_refs``) lives inside a scalar subquery's text where
+    no rewrite in this scope reaches it — binding the alias would make the unexpanded-alias
+    check read a deliberate reference as an expansion that failed. Declared, not
+    alias-expanded.
 
     Both use ``position="from"``: the contract constrains that field to a closed set, and
     both are relations this statement reads from. The target is appended rather than placed
@@ -271,11 +272,7 @@ def _populate_merge_root_input_edges(result: ScopeLineageResult) -> None:
             ScopeInputEdge(
                 source_id=result.target_table,
                 source_type="physical_table",
-                # No alias on purpose. The binding pass skips alias-less edges, so the
-                # relation is declared without ``target`` entering alias expansion — where
-                # it would make the correlated ``target.id`` that MERGE action subqueries
-                # keep by design read as a reference that failed to expand.
-                alias=None,
+                alias=result.merge_target_alias or result.target_table,
                 position="from",
             )
         )
@@ -505,12 +502,34 @@ def _scope_raw_sql_source_tables(scope_data: ScopeData) -> list[str]:
     return _scope_declared_source_tables(scope_data)
 
 
+def _is_merge_target_input(
+    result: ScopeLineageResult,
+    scope_id: str,
+    ref: dict,
+) -> bool:
+    """The MERGE target: declared as an input, held out of alias expansion.
+
+    Alias bindings are what expression expansion resolves qualifiers through. A MERGE's
+    correlated ``target.id`` is preserved on purpose inside an action subquery's text, and
+    no rewrite in the ROOT scope reaches into it — so binding ``target`` here would make the
+    unexpanded-alias check report that deliberate reference as an expansion that failed.
+    The relation still appears in ``inputs`` with its alias, which is what a consumer needs
+    to map ``target.x`` back to it (MERGE-INPUT-001).
+    """
+    return (
+        result.stmt_kind == "MERGE"
+        and scope_id == "ROOT"
+        and bool(result.target_table)
+        and ref.get("source_id") == result.target_table
+    )
+
+
 def _populate_scope_alias_source_bindings(result: ScopeLineageResult) -> None:
-    for _scope_id, scope_data in result.scopes.items():
+    for scope_id, scope_data in result.scopes.items():
         bindings: list[dict] = []
         for ref in scope_data.input_source_refs:
             alias = ref.get("alias")
-            if not alias:
+            if not alias or _is_merge_target_input(result, scope_id, ref):
                 continue
             bindings.append(
                 {
