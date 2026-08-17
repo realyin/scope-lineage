@@ -501,7 +501,13 @@ def _unexpanded_bound_aliases_in_expression(scope_data: ScopeData, expression: s
         physical_id = str(binding.get("physical_source_id") or "")
         if physical_id:
             physical_ids.add(physical_id)
-        if binding.get("source_type") == "physical" and alias in physical_ids:
+        # "physical_table" is the value the binding builder emits; comparing against
+        # "physical" here meant this exemption never fired, so an expression that kept a
+        # physical table's own name — already a fully resolved reference — was reported as
+        # an unexpanded alias. The `alias in physical_ids` half still holds the line: a
+        # local alias such as `FROM ods.source s` that survived expansion is not exempt,
+        # because that one really did fail to rewrite.
+        if binding.get("source_type") == "physical_table" and alias in physical_ids:
             continue
         unresolved_aliases.append(alias)
     return _unique_ordered(unresolved_aliases)
