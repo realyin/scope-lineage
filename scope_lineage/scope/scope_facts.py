@@ -219,7 +219,7 @@ def _populate_input_edges(scope_data: ScopeData, sg_scope: Scope) -> None:
 
 
 def _populate_merge_root_input_edges(result: ScopeLineageResult) -> None:
-    """Declare the USING relation a MERGE reads on its ROOT scope.
+    """Declare the relations a MERGE reads on its ROOT scope.
 
     Input edges come from walking the sqlglot scopes, and a MERGE's ROOT is synthetic — it
     has no sqlglot scope, so that walk never reaches it and the scope declared no inputs at
@@ -228,12 +228,18 @@ def _populate_merge_root_input_edges(result: ScopeLineageResult) -> None:
     ``COALESCE(target.x, source.y)``, reported a root-impact gap for a binding column
     resolution had already made (MERGE-INPUT-001).
 
-    The target relation is deliberately NOT declared here. Binding its alias makes the
+    The target relation is declared without an alias. Binding ``target`` would make the
     correlated ``target.id`` that MERGE action subqueries keep by design (see
-    ``_protect_merge_correlated_target_refs``) read as an alias that failed to expand, which
-    replaces one wrong gap with another. Declaring it also needs a new ``position`` value,
-    and the contract constrains that field to a closed set — a schema decision, not a
-    bug fix. The gap it leaves is recorded in the follow-up plan.
+    ``_protect_merge_correlated_target_refs``) read as an alias that failed to expand,
+    replacing one wrong gap with another; leaving the alias off states the input without
+    letting it into expansion. The cost is that a consumer cannot map ``target.x`` back to
+    this edge — less than the relation being absent entirely, more than a contract that
+    could say "declared, not alias-expanded" would give.
+
+    Both use ``position="from"``: the contract constrains that field to a closed set, and
+    both are relations this statement reads from. The target is appended rather than placed
+    first — ``input_ref_id`` is positional, so leading with it would renumber the USING
+    relation's reference that consumers already hold.
 
     A missing USING scope is left out rather than guessed at: that would be an internal
     invariant already broken upstream, and inventing an edge would hide it.
@@ -257,6 +263,19 @@ def _populate_merge_root_input_edges(result: ScopeLineageResult) -> None:
                 # "from" and not a new enum value: the contract constrains position to
                 # from/join/lateral_view, and the USING relation genuinely is the relation
                 # this statement reads from.
+                position="from",
+            )
+        )
+    if result.target_table:
+        edges.append(
+            ScopeInputEdge(
+                source_id=result.target_table,
+                source_type="physical_table",
+                # No alias on purpose. The binding pass skips alias-less edges, so the
+                # relation is declared without ``target`` entering alias expansion — where
+                # it would make the correlated ``target.id`` that MERGE action subqueries
+                # keep by design read as a reference that failed to expand.
+                alias=None,
                 position="from",
             )
         )

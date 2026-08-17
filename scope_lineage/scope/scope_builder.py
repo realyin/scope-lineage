@@ -214,15 +214,26 @@ def parse_scope_lineage(
     task_name: str,
     schema: dict | None = None,
     target_metadata=None,
+    *,
+    tree: exp.Expression | None = None,
 ) -> ScopeLineageResult:
-    """Parse SQL into a scope-based lineage result with full column resolution."""
-    schema = _prepare_schema(schema)
-    insert_trees, skipped_statements = _collect_insert_trees(sql)
-    if not insert_trees:
-        raise NoSupportedWriteStatementError(skipped_statements)
+    """Parse SQL into a scope-based lineage result with full column resolution.
 
-    # For now, handle the first INSERT/MERGE only (multi-statement later)
-    tree = insert_trees[0]
+    ``tree`` lets a caller that has already parsed the statement hand over that AST instead
+    of having it re-parsed from ``sql``. Serializing an AST and parsing it back is not
+    lossless: sqlglot hoists a WITH carried by an individual UNION branch to statement level
+    and concatenates the clauses, so same-named CTEs from different branches shadow each
+    other and qualify then fails on a column the shadowed one owned — degrading the whole
+    statement to an unqualified parse (ROUNDTRIP-001). ``sql`` is still used for the syntax
+    check and for statement identity.
+    """
+    schema = _prepare_schema(schema)
+    if tree is None:
+        insert_trees, skipped_statements = _collect_insert_trees(sql)
+        if not insert_trees:
+            raise NoSupportedWriteStatementError(skipped_statements)
+        # For now, handle the first INSERT/MERGE only (multi-statement later)
+        tree = insert_trees[0]
     statement_identity_sql = tree.sql(dialect=DIALECT)
 
     if _is_ctas(tree):
