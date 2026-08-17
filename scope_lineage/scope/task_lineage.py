@@ -14,6 +14,8 @@ from .end_to_end import _physical_fields_for_scope_column
 from .scope_types import ScopeLineageResult
 from .scope_builder import (
     _is_ctas,
+    _schema_with_script_local_tables,
+    script_local_schema,
     _normalize_directory_insert_sql,
     _qualified_table,
     _statement_category,
@@ -186,6 +188,9 @@ def parse_task_lineage(
     statement_lineage: dict[str, object] = {}
     warnings: list[dict] = []
     gaps: list[dict] = []
+    # Columns proved by a CREATE ... AS SELECT earlier in this script, so the statements
+    # that consume it are not modelled against a table nobody can describe.
+    script_local: dict[str, list[str]] = {}
     parse_failed = False
     unsupported_data_changes = 0
 
@@ -208,11 +213,12 @@ def parse_task_lineage(
                     statement,
                     tree,
                     task_name,
-                    schema,
+                    _schema_with_script_local_tables(schema, script_local),
                     target_metadata,
                     state_builder,
                     statement_lineage,
                     gaps,
+                    script_local,
                 )
             elif isinstance(tree, exp.Delete):
                 _apply_delete(statement, tree, state_builder, gaps)
@@ -284,6 +290,7 @@ def parse_task_lineage(
                 statement_lineage,
                 statements,
                 schema,
+                script_local,
             ),
             "stats": {
                 "statement_count": len(statements),
@@ -350,6 +357,7 @@ def _apply_projection_write(
     states: _StateBuilder,
     statement_lineage: dict[str, object],
     gaps: list[dict],
+    script_local: dict[str, list[str]] | None = None,
 ) -> None:
     from ..contract.lineage import to_lineage_dict
 
@@ -362,6 +370,8 @@ def _apply_projection_write(
     statement_id = statement["statement_id"]
     statement["model_status"] = "modeled"
     statement["target_table"] = result.target_table
+    if script_local is not None:
+        script_local_schema(schema, script_local, result)
     statement["target_field_binding"] = _target_binding_observation(
         result.target_field_binding,
         metadata_requested=target_metadata is not None,
@@ -1029,7 +1039,15 @@ def _metadata_coverage(
     statement_lineage: dict[str, object],
     statements: list[dict],
     schema,
+    script_local: dict[str, list[str]] | None = None,
 ) -> dict:
+    """Which referenced tables the analysis could describe, and which it could not.
+
+    A table the script creates counts as covered rather than missing. Its columns are
+    proved by the statement that built it, and it exists nowhere else — listing it as
+    missing metadata asks the operator to supply a schema for a table the warehouse
+    does not have.
+    """
     referenced: set[str] = set(states.current_by_table)
     for lineage in statement_lineage.values():
         referenced.update(lineage.get("source_tables") or [])
@@ -1043,10 +1061,12 @@ def _metadata_coverage(
             table = source.get("table")
             if table and table != "UNKNOWN":
                 referenced.add(table)
+    script_local = script_local or {}
     covered = sorted(
         table
         for table in referenced
         if states.schema_provider.get_columns(table) is not None
+        or table in script_local
     )
     missing = sorted(set(referenced) - set(covered))
     return {

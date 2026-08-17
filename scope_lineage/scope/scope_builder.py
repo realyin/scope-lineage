@@ -15,6 +15,7 @@ from sqlglot.optimizer.scope import traverse_scope, Scope
 
 from .parser import (
     _ORIGINALLY_ANONYMOUS_PROJECTION_META,
+    _normalize_table_name,
     _qualified_table,
     _unwrap_target,
 )
@@ -137,6 +138,48 @@ def _is_ctas(tree: exp.Expression) -> bool:
     return isinstance(tree, exp.Create) and tree.expression is not None
 
 
+def script_local_schema(
+    schema: dict | None,
+    known: dict[str, list[str]],
+    result: ScopeLineageResult,
+) -> None:
+    """Record the columns a CREATE ... AS SELECT proves, for later statements to read.
+
+    Statements are modelled one at a time, so a table a script builds is invisible to the
+    statements that consume it: its columns cannot expand, and it lands in
+    ``metadata_coverage.missing_tables`` as a table nobody can ever supply — it only exists
+    inside this script. The producing statement already resolved its projection, so the
+    columns are a fact here, not a guess.
+
+    Only CREATE ... AS SELECT is registered. An INSERT does not define a table, and a
+    projection that stayed a star did not prove any column name. Supplied metadata is never
+    overwritten: a script-local CREATE that shadows a real warehouse table must not silently
+    replace its authoritative schema.
+    """
+    if result.stmt_kind != "CTAS" or result.parse_status != "ok":
+        return
+    table = _normalize_table_name(result.target_table)
+    if not table or (schema is not None and table in schema):
+        return
+    root = result.scopes.get("ROOT")
+    columns = _unique_ordered(
+        [column.name for column in (root.columns if root else []) if column.name]
+    )
+    if not columns or any(name == "*" for name in columns):
+        return
+    # Last definition wins: re-creating the table mid-script replaces what it exposes.
+    known[table] = columns
+
+
+def _schema_with_script_local_tables(
+    schema: dict | None,
+    known: dict[str, list[str]],
+) -> dict | None:
+    if not known:
+        return schema
+    return {**known, **(schema or {})}
+
+
 _SYNTAX_ERROR_KEYS = ("description", "line", "col", "start_context", "highlight", "end_context")
 
 
@@ -220,25 +263,27 @@ def parse_all_scope_lineage(
     syntax_status, syntax_errors = _syntax_status(sql)
 
     results: list[ScopeLineageResult] = []
+    script_local: dict[str, list[str]] = {}
     for i, tree in enumerate(insert_trees):
         sub = f"{task_name}#{i}" if len(insert_trees) > 1 else task_name
         statement_identity_sql = tree.sql(dialect=DIALECT)
+        stmt_schema = _schema_with_script_local_tables(schema, script_local)
         try:
             if _is_ctas(tree):
-                results.append(_build_ctas_scope(tree, sub, schema))
+                results.append(_build_ctas_scope(tree, sub, stmt_schema))
             elif isinstance(tree, exp.Merge) or (
                 tree.find(exp.Merge) is not None and tree.find(exp.Insert) is None
             ):
-                results.append(_build_merge_scope(tree, sub, schema))
+                results.append(_build_merge_scope(tree, sub, stmt_schema))
             else:
                 if target_metadata is None:
-                    results.append(_build_insert_scope(tree, sub, schema))
+                    results.append(_build_insert_scope(tree, sub, stmt_schema))
                 else:
                     results.append(
                         _build_insert_scope(
                             tree,
                             sub,
-                            schema,
+                            stmt_schema,
                             target_metadata=target_metadata,
                         )
                     )
@@ -257,6 +302,7 @@ def parse_all_scope_lineage(
             )
             results.append(result)
         results[-1].statement_identity_sql = statement_identity_sql
+        script_local_schema(schema, script_local, results[-1])
     for result in results:
         result.syntax_status = syntax_status
         result.syntax_errors = syntax_errors

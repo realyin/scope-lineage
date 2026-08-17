@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Report `column_not_in_table_schema` when a qualifier names a table whose schema proves
+  the column does not exist; the qualified path previously took a qualifier as proof and
+  published the reference as a physical field
+- Resolve statements against tables the same script creates, so a `CREATE ... AS SELECT`
+  feeding a later statement no longer leaves that statement's columns unexpandable and no
+  longer reports the script-local table as missing warehouse metadata
+- Finish expression expansion when substitution reintroduces a qualifier belonging to the
+  consuming scope, recovering the physical field behind a LATERAL VIEW over a query block
+
 - Fixed MERGE lineage corruption when the statement is preceded by a CTE: qualify
   reorders the column traversal, so pairing pre- and post-qualify columns by position
   pasted a MERGE action's target references onto unrelated CTE projections and
