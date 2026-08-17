@@ -207,6 +207,17 @@ def parse_task_lineage(
             })
             continue
         statement = _statement_record(statement_id, statement_index, tree)
+        if not _normalized_sql_is_equivalent(tree, statement["normalized_sql"]):
+            warnings.append({
+                "statement_id": statement_id,
+                "type": "normalized_sql_not_equivalent",
+                "scope": "TASK",
+                "msg": (
+                    "normalized_sql was generated from the AST and does not parse back to "
+                    "the same query structure; it is a rendering of this statement, not a "
+                    "runnable copy of it"
+                ),
+            })
         try:
             if _is_projection_write(tree):
                 _apply_projection_write(
@@ -339,6 +350,41 @@ def _statement_record(
     }
 
 
+def _normalized_sql_is_equivalent(tree: exp.Expression, normalized_sql: str) -> bool:
+    """Does the rendered statement still parse back to the same query structure?
+
+    ``normalized_sql`` is generated from the AST, and generation is not always lossless: a
+    WITH carried by an individual UNION branch is hoisted to statement level, so two
+    same-named CTEs end up in one clause and the text will not run (ROUNDTRIP-001). The
+    lineage is unaffected — it is built from the AST — but a consumer handed SQL that looks
+    executable deserves to be told when it is not.
+
+    The test is whether a single WITH clause ends up holding two CTEs of the same name that
+    the original kept apart — the shadowing that makes the text unrunnable. Where the clause
+    merely moves (a WITH written inside an INSERT is rendered ahead of it) nothing is lost
+    and nothing is reported: an equivalence check that cries wolf on a re-rendering teaches
+    consumers to ignore it.
+    """
+    # Only a statement that defines CTEs can lose one to shadowing. Skipping the rest also
+    # keeps comment-only and control statements out of it: their rendering is not SQL, so
+    # "does it parse back to the same structure" has no answer to give.
+    if not normalized_sql or not any(True for _ in tree.find_all(exp.With)):
+        return True
+    try:
+        reparsed = sqlglot.parse_one(normalized_sql, dialect=DIALECT, **PARSE_OPTS)
+    except Exception:  # noqa: BLE001 - an unparseable rendering is itself the answer
+        return False
+    return not (_has_shadowed_cte(reparsed) and not _has_shadowed_cte(tree))
+
+
+def _has_shadowed_cte(tree: exp.Expression) -> bool:
+    for node in tree.find_all(exp.With):
+        names = [cte.alias_or_name for cte in node.expressions]
+        if len(names) != len(set(names)):
+            return True
+    return False
+
+
 def _is_projection_write(tree: exp.Expression) -> bool:
     return bool(
         isinstance(tree, (exp.Insert, exp.Merge))
@@ -366,6 +412,10 @@ def _apply_projection_write(
         task_name=f"{task_name}#{statement['statement_index']}",
         schema=dict(schema or {}),
         target_metadata=target_metadata,
+        # Hand over the AST parsed from the original script. Re-parsing the generated SQL
+        # loses a WITH carried by an individual UNION branch and degrades the whole
+        # statement to an unqualified parse (ROUNDTRIP-001).
+        tree=tree,
     )
     statement_id = statement["statement_id"]
     statement["model_status"] = "modeled"
@@ -788,8 +838,14 @@ def _projection_state_missing_reasons(
     result,
     written_values: dict[str, list[dict]],
 ) -> list[str]:
+    # ``*`` carries two opposite meanings here. A projection that stayed a wildcard names
+    # its target column "*" and its source carries EXPAND_ALL — the columns are genuinely
+    # unknown. COUNT(*) also records the source column as "*", but that star is the row
+    # itself: the lineage is resolved, and the field's dependency on every column of the
+    # table is the fact, not a hole in it. Reading the second as the first published fully
+    # resolved statements as partial, asking for metadata that could never close the gap.
     if "*" in written_values or any(
-        source.get("column") == "*"
+        source.get("column") == "*" and source.get("transform") == "EXPAND_ALL"
         for sources in written_values.values()
         for source in sources
     ):
