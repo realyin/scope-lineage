@@ -319,8 +319,10 @@ def load_schema(
 
     path = Path(path)
     if path.is_dir():
-        return _load_schema_metadata_directory(
-            path, sanitize_nul=sanitize_nul, provenance=provenance
+        return _raise_if_nothing_loaded(
+            _load_schema_metadata_directory(
+                path, sanitize_nul=sanitize_nul, provenance=provenance
+            )
         )
     suffix = path.suffix.lower()
     if suffix == ".csv":
@@ -345,14 +347,25 @@ def load_schema_sources(
     Later sources fill tables missing from earlier sources. A conflicting definition for an
     already-covered table is recorded instead of being silently merged or overwriting DDL order.
     """
-    loaded = [
-        load_schema(
-            path,
-            sanitize_nul=sanitize_nul,
-            provenance=provenance,
-        )
-        for path in paths
-    ]
+    loaded: list[SchemaMap] = []
+    for path in paths:
+        try:
+            loaded.append(
+                load_schema(path, sanitize_nul=sanitize_nul, provenance=provenance)
+            )
+        except MetadataFileError as exc:
+            # One source yielding nothing costs that source. On-demand loading passes a
+            # computed list of paths, so raising here would put the original failure back:
+            # one unusable file among the fifty a task needs would leave it with nothing
+            # (METADATA-001). A batch that produced no table at all still raises, below.
+            rejected = SchemaMap()
+            rejected.metadata_conflicts.append({
+                "table": "",
+                "source_file": Path(path).name,
+                "reason": "metadata_rejected",
+                "issues": [str(exc).splitlines()[-1].strip()],
+            })
+            loaded.append(rejected)
     if not loaded:
         return SchemaMap()
     result = SchemaMap(
@@ -365,6 +378,13 @@ def load_schema_sources(
         "table_detail_provider",
         None,
     )
+    # Rejected tables are carried across every source: a table whose metadata was supplied
+    # and refused is a different problem from one nobody supplied, and only this list can
+    # tell the two apart downstream.
+    for source in loaded:
+        for conflict in getattr(source, "metadata_conflicts", []):
+            if conflict not in result.metadata_conflicts:
+                result.metadata_conflicts.append(dict(conflict))
     for source_index, fallback in enumerate(loaded[1:], start=1):
         for table, columns in fallback.items():
             if table not in result:
@@ -387,7 +407,27 @@ def load_schema_sources(
                     "resolution": "kept_authoritative",
                 })
     result.metadata_source_count = len(loaded)
-    return result
+    return _raise_if_nothing_loaded(result)
+
+
+def _raise_if_nothing_loaded(schema: SchemaMap) -> SchemaMap:
+    """Partial success is normal; producing no table at all is not.
+
+    An empty schema returned quietly reads the same as "these tables have no metadata",
+    so the one case that still raises is the one where nothing could be loaded.
+    """
+    if schema or not schema.metadata_conflicts:
+        return schema
+    # Name why each one was refused: "nothing loaded" alone tells an operator to look,
+    # not what to fix.
+    rejected = "; ".join(
+        f"{item.get('source_file') or item.get('table')}: "
+        f"{', '.join(item.get('issues') or ['unknown_validation_error'])}"
+        for item in schema.metadata_conflicts[:3]
+    )
+    raise MetadataFileError(
+        f"源表权威 JSON 元数据全部无效，未能加载任何表\n  {rejected}"
+    )
 
 
 def load_schema_csv(
@@ -430,7 +470,7 @@ def load_schema_json(
     data = json.loads(result.text)
     if provenance is not None:
         provenance.append(dict(result.provenance))
-    return _schema_from_json_value(data, source_path=path)
+    return _raise_if_nothing_loaded(_schema_from_json_value(data, source_path=path))
 
 
 def materialize_schema(provider: SchemaProvider, tables: Iterable[str]) -> SchemaMap:
@@ -540,11 +580,22 @@ def _append_rich_table_schema(
 
 
 def _append_loaded_table_schema(schema: SchemaMap, item, source_path: Path) -> None:
+    """Record one table's columns, or record why it could not be used.
+
+    Rejection costs this table and nothing else, whether the caller named a directory or a
+    list of files. On-demand loading passes a computed list of paths, so a rule that raised
+    for named files would put the original failure straight back: one unusable file among
+    the fifty a task needs would again leave that task with no metadata at all
+    (METADATA-001).
+    """
     if not item.usable:
-        issues = ", ".join(item.validation_issues) or "unknown_validation_error"
-        raise MetadataFileError(
-            f"源表权威 JSON 元数据无效: {source_path}\n  问题: {issues}"
-        )
+        schema.metadata_conflicts.append({
+            "table": item.table_name or item.full_table_name,
+            "source_file": source_path.name,
+            "reason": "metadata_rejected",
+            "issues": list(item.validation_issues) or ["unknown_validation_error"],
+        })
+        return
     table = item.table_name or item.full_table_name
     for column in item.columns:
         _append_schema_column(

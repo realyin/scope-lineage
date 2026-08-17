@@ -275,6 +275,11 @@ class ScopeLineageResult:
     # walks sqlglot scopes to build input edges never reaches it; this carries the fact that
     # pass would otherwise have read (MERGE-INPUT-001).
     merge_using_alias: str = ""
+    # True when this CTAS is a Spark ``CACHE [LAZY] TABLE ... AS SELECT``. The relation is
+    # defined from a SELECT exactly as CTAS is — hence the shared stmt_kind — but it lives
+    # for the session, so a consumer registering data assets must not record it as a table
+    # the warehouse now has (CACHE-001).
+    is_cached_relation: bool = False
     merge_target_alias: str = ""
     # "ok" | "failed". A statement whose scope build raised is still returned (so the failure
     # stays diagnosable and one bad statement cannot abort a batch), but it carries EMPTY
