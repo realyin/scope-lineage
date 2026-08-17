@@ -24,7 +24,12 @@
 
 所有 case 使用合成表名与字段名。真实任务、业务元数据和解析产物一律留在仓库外。
 
-### 1.1 本轮分析纠正的一个说法
+### 1.1 案例验证状态
+
+F、G 的全部复现 case 均已实测通过，观测值直接写在 §2.1 与 §3.1。两个 case 各有一个
+「看起来对、实际不复现」的陷阱写法，也一并记录，避免开发者照抄后得到永远通过的空测试。
+
+### 1.2 本轮分析纠正的说法
 
 上一轮我把 v2 的 296 条缺口描述为「前后数字一致，是既有问题，不在范围内」。这个说法回避了
 真正该问的问题：**同一份语料、同一份元数据，为什么 v1 是 0 而 v2 是 296？**
@@ -34,23 +39,35 @@
 
 ## 2. 问题 F：v2 往返 SQL 文本导致整条语句解析降级
 
-### 2.1 复现 case
+### 2.1 复现 case（已验证）
 
-任何「UNION 的各个分支各自带 WITH，且 CTE 同名」的写语句。合成形态：
+schema 为
+`{"ods.left_events": ["id","day_idx"], "ods.right_events": ["id","day_span"],
+"mart.summary": ["side","day_idx","day_span"]}`：
 
 ```sql
 INSERT OVERWRITE TABLE mart.summary
-WITH staged AS (SELECT id, day_idx AS metric FROM ods.left_events)
-SELECT 'left' AS side, staged.metric FROM staged
+WITH staged AS (SELECT id, day_idx FROM ods.left_events)
+SELECT 'left' AS side, staged.day_idx AS day_idx, NULL AS day_span FROM staged
 UNION ALL
-WITH staged AS (SELECT id, day_span AS metric FROM ods.right_events)
-SELECT 'right' AS side, staged.metric FROM staged
+WITH staged AS (SELECT id, day_span FROM ods.right_events)
+SELECT 'right' AS side, NULL AS day_idx, staged.day_span AS day_span FROM staged
 ```
 
-两个分支各自定义了一个都叫 `staged` 的 CTE，但列来源不同。
+实测结果：
 
-**Checkpoint 1 必须先确认这段合成 SQL 能复现**；若 sqlglot 对该写法的解析形态与真实任务
-不同，则按 §2.2 的 AST 判据调整合成 SQL，直到 `With(parent=Select)` 出现两次为止。
+```text
+原始 AST    : With(parent=Union), With(parent=Select)
+往返后 AST  : With(parent=Insert)，CTE = ['staged', 'staged']
+qualify 原始 : 成功
+qualify 往返 : OptimizeError: Unknown column: day_idx
+v1           : 0 gaps, fallback_used=False
+v2           : 4 × expression_source_unresolved, analysis_status=partial
+```
+
+**两个分支必须引用各自 CTE 里不同名的列**。先前一版把两边都别名成同一个 `metric`，
+AST 层的合并照样发生，但遮蔽后仍能解析，下游不报错——那样的 case 会让开发者以为
+问题不存在。列名相同是这个 case 唯一的陷阱。
 
 ### 2.2 根因
 
@@ -133,32 +150,45 @@ _build_insert_scope(文本往返后 AST)  -> fallback_used=True,  gaps=88
 
 ## 3. 问题 G：`COUNT(*)` 被判成投影通配符未展开
 
-### 3.1 复现 case
+### 3.1 复现 case（已验证）
+
+**G1 — 聚合星号**，schema 为
+`{"ods.events": ["app_code"], "mart.summary": ["app_code","call_cnt"]}`：
 
 ```sql
 INSERT INTO mart.summary
-SELECT app_code, COUNT(*) AS call_cnt
-FROM ods.events
-GROUP BY app_code
+SELECT app_code, COUNT(*) AS call_cnt FROM ods.events GROUP BY app_code
 ```
 
-schema 为 `{"ods.events": ["app_code"], "mart.summary": ["app_code", "call_cnt"]}`。
-
-当前 v2 实测：`analysis_status=partial`，产出
-
-```json
-{"gap_type": "projection_wildcard_unexpanded", "root_impact": true,
- "needed_fact": "source schema for wildcard expansion"}
-```
-
-而 v1 对同一语句 **0 个缺口**，ROOT 列完全展开。
-
-对照 case（必须保持现有行为）：
+**G2 — 窗口星号**，同 schema：
 
 ```sql
--- 真正的未展开通配符：源表无 schema
+INSERT INTO mart.summary
+SELECT app_code, COUNT(*) OVER () AS call_cnt FROM ods.events
+```
+
+**G3 — 对照，真通配符**，schema 只含 `{"mart.summary": ["app_code","call_cnt"]}`：
+
+```sql
 INSERT INTO mart.summary SELECT * FROM ods.undocumented
 ```
+
+实测：
+
+| case | 星号来源 | written 键 | v2 结果 | 期望 |
+| --- | --- | --- | --- | --- |
+| G1 | `('call_cnt','AGGREGATE')` | `app_code, call_cnt` | partial + 缺口 | **complete，无缺口** |
+| G2 | `('call_cnt','WINDOW')` | `app_code, call_cnt` | partial + 缺口 | **complete，无缺口** |
+| G3 | `('*','EXPAND_ALL')` | `*` | partial + 缺口 | **保持不变** |
+
+v1 对 G1、G2 均为 **0 缺口**，ROOT 列完全展开。
+
+**G2 必须写成 `COUNT(*) OVER ()`。** 先前一版写的是
+`COUNT(*) OVER (PARTITION BY app_code)`，那种形态解析到分区列、根本不产生星号来源，
+因此不复现——照抄会得到一条永远通过的空测试。
+
+注意 G3 的 written 键就是 `*`，说明判据的**第一个条件已经能捕获真通配符**，
+这正是收紧第二个条件安全的直接证据。
 
 ### 3.2 根因
 
@@ -261,11 +291,8 @@ if not alias:
 
 `tests/core/test_projection_wildcard_detection.py`，用 `parse_task_lineage` 断言：
 
-- §3.1 的 `COUNT(*)` case：`analysis_status.status == "complete"`、
-  `lineage_fact_gaps == []`；
-- `COUNT(*) OVER (PARTITION BY ...)` 同样不产生缺口；
-- 对照 case（`SELECT *` 源表无 schema）：**仍然**产出
-  `projection_wildcard_unexpanded` 且 `root_impact=true`；
+- G1、G2：`analysis_status.status == "complete"`、`lineage_fact_gaps == []`；
+- G3 对照：**仍然**产出 `projection_wildcard_unexpanded` 且 `root_impact=true`；
 - 单元级：直接调用 `_projection_state_missing_reasons()`，用三组构造的
   `written_values`（键为 `*`、来源 `EXPAND_ALL`、来源 `AGGREGATE`）固化 §3.2 的表格。
 
@@ -280,11 +307,14 @@ python -m pytest tests/core/test_task_state_lineage.py -q
 
 `tests/core/test_statement_ast_is_not_round_tripped.py`：
 
-1. 先用 §2.1 的合成 SQL 确认能复现（`parse_task_lineage` 产生
-   `expression_source_unresolved`，而 `parse_all_scope_lineage` 对同一 SQL 不产生）；
-   **复现不了就先调整合成 SQL，不要改生产代码**；
+1. 用 §2.1 的合成 SQL（已验证复现：v2 产生 4 条 `expression_source_unresolved`，
+   v1 同一 SQL 0 缺口）；
 2. 断言修复后 v2 与 v1 对该 SQL 的物理来源集合一致；
 3. 断言 `fallback_used` 为 False；
+4. 加一条 **AST 判据**单元测试，直接断言 sqlglot 的往返缺陷存在：
+   `With(parent=Select)` 在往返后变成 `With(parent=Insert)` 且出现重复 CTE 名。
+   这条独立于本仓库的修复，用来在 sqlglot 日后修好该缺陷时立刻暴露——届时本方案的
+   绕行可以撤除；
 4. 加一条**跨契约一致性**测试：同一 SQL 在 v1 与 v2 下，每个最终字段的物理来源集合相同。
    这条是本问题的通用护栏——两个契约对同一语句给出不同事实，本身就是缺陷。
 
@@ -341,11 +371,12 @@ python -m build && python tests/architecture/verify_distribution.py dist/*
 
 ## 6. 验收清单
 
-- [ ] `COUNT(*)` 与 `COUNT(*) OVER (...)` 不再产生通配符缺口；
+- [ ] G1（`COUNT(*)`）与 G2（`COUNT(*) OVER ()`）不再产生通配符缺口；
 - [ ] 真正未展开的 `SELECT *` 仍然产生缺口且 `root_impact=true`；
 - [ ] `_projection_state_missing_reasons()` 的三态行为有单元测试固化；
 - [ ] v2 不再对语句做 SQL 文本往返；
 - [ ] 分支各带同名 CTE 的 UNION 语句 `fallback_used=False`；
+- [ ] AST 判据测试固化 sqlglot 的往返缺陷，便于其修复后撤除绕行；
 - [ ] v1 与 v2 对同一 SQL 给出相同的物理来源集合（跨契约一致性测试）；
 - [ ] `normalized_sql` 的处理方式已明确选择并写进 PR；
 - [ ] MERGE 的 ROOT 声明目标关系，且不产生 `target` 别名绑定；
