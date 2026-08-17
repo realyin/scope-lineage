@@ -60,10 +60,15 @@ def test_merge_root_declares_both_relations_it_reads() -> None:
         ("source", "subq:source", "from"),
         # Appended, not prepended: input_ref_id is positional, so inserting ahead of the
         # USING relation would renumber a cross-reference consumers already hold.
-        (None, "mart.target", "from"),
+        ("target", "mart.target", "from"),
     ]
-    # The target edge carries no alias on purpose — see the correlated-reference test
-    # below — so only the USING relation produces an alias binding.
+    # The alias is on the input ref too, which is what lets a consumer map target.x back
+    # to the relation it names.
+    assert [
+        (ref["alias"], ref["source_id"]) for ref in result.scopes["ROOT"].input_source_refs
+    ] == [("source", "subq:source"), ("target", "mart.target")]
+    # It is deliberately absent from the binding table: those drive alias expansion, and
+    # the correlated-reference test below pins why the target must stay out of it.
     assert _bindings(result) == [("source", "subq:source", "scope")]
 
 
@@ -115,11 +120,14 @@ def test_a_correlated_target_reference_is_not_reported_as_an_unexpanded_alias() 
     """Why the target relation is not declared as a ROOT input.
 
     A MERGE action's scalar subquery keeps its correlated ``target.id`` on purpose — that
-    is what ``_protect_merge_correlated_target_refs`` exists for. Binding ``target`` as a
-    ROOT alias makes the unexpanded-alias check read that deliberate reference as an
-    expansion that failed, trading one wrong gap for another. The relation is therefore
-    declared without an alias: the binding pass skips alias-less edges, so the input is
-    stated without the alias entering expansion.
+    is what ``_protect_merge_correlated_target_refs`` exists for. It sits inside a scalar
+    subquery's text, so no rewrite in the ROOT scope reaches it; putting ``target`` in the
+    binding table would make the unexpanded-alias check read that deliberate reference as
+    an expansion that failed, trading one wrong gap for another.
+
+    The relation is therefore declared as an input, alias included, but kept out of the
+    binding table — "declared, not alias-expanded", said with the fields the contract
+    already has.
     """
     result = parse_scope_lineage(
         """

@@ -988,6 +988,11 @@ def _build_result_from_scope(
     if merge_using_scope is not None:
         result.merge_using_scope_id = getattr(merge_using_scope, _SCOPE_ID_ATTR, "") or ""
     if merge_node is not None:
+        merge_target_relation = _unwrap_target(merge_node.this)
+        if isinstance(merge_target_relation, exp.Table):
+            result.merge_target_alias = (
+                merge_target_relation.alias_or_name or merge_target_relation.name
+            )
         merge_using_relation = merge_node.args.get("using")
         if isinstance(merge_using_relation, exp.Expression):
             result.merge_using_alias = merge_using_relation.alias_or_name or "source"
