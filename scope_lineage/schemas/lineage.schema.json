@@ -48,6 +48,10 @@
       ],
       "description": "写表语句类型。不含独立 UPDATE/DELETE:本工具建模的是「从 SELECT 写入一张表」的字段血缘,行级写操作没有这样的投影 (CONTRACT-001)。MERGE 内的 UPDATE/DELETE 分支仍按 MERGE 语义处理。"
     },
+    "is_cached_relation": {
+      "type": "boolean",
+      "description": "仅在为 true 时出现。该 CTAS 实际是 Spark 的 CACHE [LAZY] TABLE ... AS SELECT:关系同样由 SELECT 定义,但只存活于会话,消费者不应据此登记仓库中新增了一张表。"
+    },
     "parse_status": {
       "type": "string",
       "enum": [
@@ -71,12 +75,26 @@
           "description"
         ],
         "properties": {
-          "description": {"type": "string"},
-          "line": {"type": "integer", "minimum": 1},
-          "col": {"type": "integer", "minimum": 1},
-          "start_context": {"type": "string"},
-          "highlight": {"type": "string"},
-          "end_context": {"type": "string"}
+          "description": {
+            "type": "string"
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "col": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "start_context": {
+            "type": "string"
+          },
+          "highlight": {
+            "type": "string"
+          },
+          "end_context": {
+            "type": "string"
+          }
         }
       }
     },
@@ -85,12 +103,24 @@
       "description": "Top-level statements that contract 1.0 does not model as projection writes.",
       "items": {
         "type": "object",
-        "required": ["statement_kind", "reason", "supported"],
+        "required": [
+          "statement_kind",
+          "reason",
+          "supported"
+        ],
         "additionalProperties": true,
         "properties": {
-          "statement_id": {"type": "string", "pattern": "^stmt:[0-9]{3,}$"},
-          "statement_index": {"type": "integer", "minimum": 0},
-          "statement_kind": {"type": "string"},
+          "statement_id": {
+            "type": "string",
+            "pattern": "^stmt:[0-9]{3,}$"
+          },
+          "statement_index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "statement_kind": {
+            "type": "string"
+          },
           "category": {
             "enum": [
               "row_mutation",
@@ -99,9 +129,18 @@
               "unsupported_statement"
             ]
           },
-          "model_status": {"enum": ["ignored", "unsupported"]},
-          "reason": {"type": "string"},
-          "supported": {"type": "string"}
+          "model_status": {
+            "enum": [
+              "ignored",
+              "unsupported"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "supported": {
+            "type": "string"
+          }
         }
       }
     },
@@ -896,7 +935,10 @@
                 },
                 "merge_branch": {
                   "type": "string",
-                  "enum": ["matched", "not_matched"]
+                  "enum": [
+                    "matched",
+                    "not_matched"
+                  ]
                 },
                 "merge_when_index": {
                   "type": "integer",
@@ -1198,7 +1240,10 @@
                 },
                 "merge_branch": {
                   "type": "string",
-                  "enum": ["matched", "not_matched"]
+                  "enum": [
+                    "matched",
+                    "not_matched"
+                  ]
                 },
                 "merge_when_index": {
                   "type": "integer",
@@ -1329,20 +1374,62 @@
         "trace_status"
       ],
       "properties": {
-        "mapping_chain_id": {"type": "string", "minLength": 1},
-        "chain_id": {"type": "string", "minLength": 1},
-        "chain_type": {"const": "field_mapping"},
-        "target_scope_id": {"type": "string", "minLength": 1},
-        "target_field": {"type": "string", "minLength": 1},
-        "target_position": {"type": "integer", "minimum": 0},
-        "chain_status": {"type": "string"},
-        "root_source_fields": {"type": "array", "items": {"type": "string"}},
-        "final_output_fields": {"type": "array", "items": {"type": "string"}},
-        "ordered_steps": {"type": "array", "items": {"type": "object"}},
-        "missing_reasons": {"type": "array", "items": {"type": "string"}},
+        "mapping_chain_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "chain_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "chain_type": {
+          "const": "field_mapping"
+        },
+        "target_scope_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target_field": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target_position": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "chain_status": {
+          "type": "string"
+        },
+        "root_source_fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "final_output_fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "ordered_steps": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "missing_reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "trace_status": {
           "type": "string",
-          "enum": ["complete", "incomplete"]
+          "enum": [
+            "complete",
+            "incomplete"
+          ]
         }
       }
     },
@@ -1360,20 +1447,49 @@
         "trace_status"
       ],
       "properties": {
-        "input_ref_id": {"type": "string", "minLength": 1},
-        "source_id": {"type": "string", "minLength": 1},
+        "input_ref_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
         "source_type": {
           "type": "string",
-          "enum": ["physical_table", "scope", "unknown"]
+          "enum": [
+            "physical_table",
+            "scope",
+            "unknown"
+          ]
         },
-        "physical_source_ids": {"type": "array", "items": {"type": "string"}},
-        "source_resolution": {"type": "object"},
-        "field_resolution_required": {"type": "boolean"},
-        "binding_status": {"type": "string"},
-        "binding_trace": {"type": "array", "items": {"type": "object"}},
+        "physical_source_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "source_resolution": {
+          "type": "object"
+        },
+        "field_resolution_required": {
+          "type": "boolean"
+        },
+        "binding_status": {
+          "type": "string"
+        },
+        "binding_trace": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
         "trace_status": {
           "type": "string",
-          "enum": ["complete", "scope_only"]
+          "enum": [
+            "complete",
+            "scope_only"
+          ]
         }
       }
     },
@@ -1387,13 +1503,33 @@
         "trace_status"
       ],
       "properties": {
-        "join_type": {"type": "string"},
-        "join_key_pairs": {"type": "array", "items": {"type": "object"}},
-        "condition_filters": {"type": "array", "items": {"type": "object"}},
-        "missing_reasons": {"type": "array", "items": {"type": "string"}},
+        "join_type": {
+          "type": "string"
+        },
+        "join_key_pairs": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "condition_filters": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "missing_reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "trace_status": {
           "type": "string",
-          "enum": ["complete", "partial"]
+          "enum": [
+            "complete",
+            "partial"
+          ]
         }
       }
     },
@@ -1406,13 +1542,29 @@
         "missing_reasons"
       ],
       "properties": {
-        "subquery_scope_id": {"type": "string", "minLength": 1},
-        "physical_source_fields": {"type": "array", "items": {"type": "object"}},
+        "subquery_scope_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "physical_source_fields": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
         "trace_status": {
           "type": "string",
-          "enum": ["complete", "partial"]
+          "enum": [
+            "complete",
+            "partial"
+          ]
         },
-        "missing_reasons": {"type": "array", "items": {"type": "string"}}
+        "missing_reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       }
     },
     "filter_predicate_detail": {
@@ -1420,7 +1572,9 @@
       "properties": {
         "subquery_dependencies": {
           "type": "array",
-          "items": {"$ref": "#/definitions/subquery_dependency"}
+          "items": {
+            "$ref": "#/definitions/subquery_dependency"
+          }
         },
         "conjuncts": {
           "type": "array",
@@ -1429,7 +1583,9 @@
             "properties": {
               "subquery_dependencies": {
                 "type": "array",
-                "items": {"$ref": "#/definitions/subquery_dependency"}
+                "items": {
+                  "$ref": "#/definitions/subquery_dependency"
+                }
               }
             }
           }
@@ -1438,11 +1594,16 @@
     },
     "aggregation_item": {
       "type": "object",
-      "required": ["trace_status"],
+      "required": [
+        "trace_status"
+      ],
       "properties": {
         "trace_status": {
           "type": "string",
-          "enum": ["complete", "partial"]
+          "enum": [
+            "complete",
+            "partial"
+          ]
         }
       }
     },
@@ -1457,26 +1618,43 @@
       "properties": {
         "group_by_items": {
           "type": "array",
-          "items": {"$ref": "#/definitions/aggregation_item"}
+          "items": {
+            "$ref": "#/definitions/aggregation_item"
+          }
         },
         "aggregate_items": {
           "type": "array",
-          "items": {"$ref": "#/definitions/aggregation_item"}
+          "items": {
+            "$ref": "#/definitions/aggregation_item"
+          }
         },
-        "having": {"type": "array", "items": {"type": "object"}},
+        "having": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
         "trace_status": {
           "type": "string",
-          "enum": ["complete", "empty"]
+          "enum": [
+            "complete",
+            "empty"
+          ]
         }
       }
     },
     "window_specification": {
       "type": "object",
-      "required": ["trace_status"],
+      "required": [
+        "trace_status"
+      ],
       "properties": {
         "trace_status": {
           "type": "string",
-          "enum": ["complete", "expression_only"]
+          "enum": [
+            "complete",
+            "expression_only"
+          ]
         }
       }
     },
@@ -1490,13 +1668,32 @@
         "trace_status"
       ],
       "properties": {
-        "scope_id": {"type": "string", "minLength": 1},
-        "branch_count": {"type": "integer", "minimum": 0},
-        "branches": {"type": "array", "items": {"type": "object"}},
-        "field_alignment": {"type": "array", "items": {"type": "object"}},
+        "scope_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "branch_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "branches": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "field_alignment": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
         "trace_status": {
           "type": "string",
-          "enum": ["complete", "incomplete"]
+          "enum": [
+            "complete",
+            "incomplete"
+          ]
         }
       }
     },
