@@ -24,7 +24,7 @@ from .scope_types import (
     SourceRef,
 )
 from ._shared import ExpansionBudget, _source_item_from_ast_node
-from ._shared import _dedupe_generated_source_dicts, _dedupe_physical_field_dicts, _dedupe_rowset_source_dicts, _extend_unique, _find_alias_in_parent, _function_names, _is_cross_join_type, _is_internal_scope_id, _normalize_expression_resolution, _ordered_physical_fields_in_expression, _physical_fields_referenced_in_expression, _physical_source_fields_for_refs, _physical_source_ids_for_input, _populate_union_output_branch_mappings, _qualified_field_refs, _replace_qualified_ref_with_expression, _replace_struct_field_access_from_upstream, _replace_unqualified_ref_with_expression, _resolve_expression_resolution_from_output_sources, _resolved_expression_fact_from_source_refs, _rowset_sources_from_upstream_output, _source_kind_for_resolution, _source_ref_to_dict, _source_refs_from_detail_fields, _source_type_from_id, _star_passthrough_output_fact, _strip_sql_comments, _unexpanded_bound_aliases_in_expression, _unique_ordered, DIALECT, PARSE_OPTS, _AGGREGATE_FUNCTIONS, _CLEANING_FUNCTIONS, _KNOWN_SCALAR_FUNCTIONS, _SCOPE_ID_ATTR
+from ._shared import _dedupe_generated_source_dicts, _dedupe_physical_field_dicts, _dedupe_rowset_source_dicts, _extend_unique, _find_alias_in_parent, _function_names, _is_cross_join_type, _is_internal_scope_id, _normalize_expression_resolution, _ordered_physical_fields_in_expression, _physical_fields_referenced_in_expression, _physical_source_fields_for_refs, _physical_source_ids_for_input, _populate_union_output_branch_mappings, _qualified_field_refs, _qualified_physical_field_sql, _replace_qualified_ref_with_expression, _replace_struct_field_access_from_upstream, _replace_unqualified_ref_with_expression, _resolve_expression_resolution_from_output_sources, _resolved_expression_fact_from_source_refs, _rowset_sources_from_upstream_output, _source_kind_for_resolution, _source_ref_to_dict, _source_refs_from_detail_fields, _source_type_from_id, _star_passthrough_output_fact, _strip_sql_comments, _unexpanded_bound_aliases_in_expression, _unique_ordered, DIALECT, PARSE_OPTS, _AGGREGATE_FUNCTIONS, _CLEANING_FUNCTIONS, _KNOWN_SCALAR_FUNCTIONS, _SCOPE_ID_ATTR
 from .column_expression_resolution import _expression_resolution_for_scope_column
 from .lineage_fact_gaps import _populate_lineage_fact_gaps
 from .passthrough_resolution import _propagate_passthrough_expression_resolution
@@ -46,6 +46,8 @@ def _populate_enhanced_scope_facts(
         _populate_scope_sql(scope_data, sg_scope)
         _populate_input_edges(scope_data, sg_scope)
         _populate_logic_blocks(scope_id, scope_data, sg_scope, result, schema)
+    # A MERGE's ROOT has no sqlglot scope, so the loop above never reaches it.
+    _populate_merge_root_input_edges(result)
     _populate_scope_input_source_refs(result)
     _populate_scope_raw_sql_quality_and_source_coverage(result)
     _populate_scope_alias_source_bindings(result)
@@ -214,6 +216,51 @@ def _populate_input_edges(scope_data: ScopeData, sg_scope: Scope) -> None:
         )
 
     scope_data.input_edges = edges
+
+
+def _populate_merge_root_input_edges(result: ScopeLineageResult) -> None:
+    """Declare the USING relation a MERGE reads on its ROOT scope.
+
+    Input edges come from walking the sqlglot scopes, and a MERGE's ROOT is synthetic — it
+    has no sqlglot scope, so that walk never reaches it and the scope declared no inputs at
+    all. Everything downstream reads ``alias_source_bindings``, so ``source`` looked like an
+    unknown alias: an expression that resolves a qualifier by alias, such as
+    ``COALESCE(target.x, source.y)``, reported a root-impact gap for a binding column
+    resolution had already made (MERGE-INPUT-001).
+
+    The target relation is deliberately NOT declared here. Binding its alias makes the
+    correlated ``target.id`` that MERGE action subqueries keep by design (see
+    ``_protect_merge_correlated_target_refs``) read as an alias that failed to expand, which
+    replaces one wrong gap with another. Declaring it also needs a new ``position`` value,
+    and the contract constrains that field to a closed set — a schema decision, not a
+    bug fix. The gap it leaves is recorded in the follow-up plan.
+
+    A missing USING scope is left out rather than guessed at: that would be an internal
+    invariant already broken upstream, and inventing an edge would hide it.
+    """
+    if result.stmt_kind != "MERGE":
+        return
+    root = result.scopes.get("ROOT")
+    if root is None or root.input_edges:
+        return
+    edges: list[ScopeInputEdge] = []
+    if result.merge_using_scope_id:
+        edges.append(
+            ScopeInputEdge(
+                source_id=result.merge_using_scope_id,
+                source_type=_source_type_from_id(result.merge_using_scope_id),
+                alias=(
+                    result.merge_using_alias
+                    or _alias_from_scope_id(result.merge_using_scope_id)
+                    or "source"
+                ),
+                # "from" and not a new enum value: the contract constrains position to
+                # from/join/lateral_view, and the USING relation genuinely is the relation
+                # this statement reads from.
+                position="from",
+            )
+        )
+    root.input_edges = edges
 
 
 def _alias_from_scope_id(scope_id: str) -> str | None:
@@ -2131,7 +2178,26 @@ def _resolved_scope_alias_expression_fact(
     resolved_internal_ref = False
     for qualifier, field in qualified_refs:
         source_id = alias_to_source.get(qualifier)
-        if not source_id or not _is_internal_scope_id(source_id):
+        if not source_id:
+            continue
+        if not _is_internal_scope_id(source_id):
+            # A physical table has no upstream output to inline, but the reference is
+            # already fully resolved: the alias names the table, and the table names the
+            # field. Skipping it left the alias in the text and the field out of the
+            # source list — and the list is filtered by the text afterwards, so the field
+            # could not be recovered later either (MIXED-ALIAS-001). An expression built
+            # only from physical references still returns None below, leaving it to the
+            # candidate that handles that shape.
+            rewritten = _replace_qualified_ref_with_expression(
+                expanded_expression,
+                qualifier,
+                field,
+                _qualified_physical_field_sql(source_id, field),
+            )
+            if rewritten == expanded_expression:
+                continue
+            expanded_expression = rewritten
+            physical_fields.append({"table": source_id, "field": field})
             continue
         upstream = output_lookup.get((source_id, field))
         if upstream is None:

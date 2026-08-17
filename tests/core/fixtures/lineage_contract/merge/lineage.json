@@ -418,11 +418,104 @@
       },
       "source_coverage": {
         "status": "covered",
-        "declared_source_tables": [],
-        "raw_sql_source_tables": [],
+        "declared_source_tables": [
+          "ods.customer_delta"
+        ],
+        "raw_sql_source_tables": [
+          "ods.customer_delta"
+        ],
         "missing_declared_source_tables": [],
         "extra_source_tables": []
       },
+      "input_edges": [
+        {
+          "source_id": "subq:source",
+          "source_type": "scope",
+          "position": "from",
+          "alias": "source"
+        }
+      ],
+      "input_source_refs": [
+        {
+          "input_ref_id": "input:ROOT:001",
+          "source_id": "subq:source",
+          "source_type": "scope",
+          "source_scope_id": "subq:source",
+          "alias": "source",
+          "position": "from",
+          "relation_position": "from",
+          "join_type": null,
+          "physical_source_id": "ods.customer_delta",
+          "physical_source_ids": [
+            "ods.customer_delta"
+          ],
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "scope_single_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "ods.customer_delta"
+            ],
+            "field_resolution_required": true,
+            "missing_reasons": []
+          },
+          "field_resolution_required": true,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "source",
+              "to": "subq:source",
+              "relation": "alias_to_scope"
+            },
+            {
+              "from": "subq:source",
+              "to": "ods.customer_delta",
+              "relation": "scope_to_physical_source"
+            }
+          ],
+          "trace_status": "complete"
+        }
+      ],
+      "alias_source_bindings": [
+        {
+          "alias": "source",
+          "source_id": "subq:source",
+          "source_type": "scope",
+          "source_scope_id": "subq:source",
+          "physical_source_id": "ods.customer_delta",
+          "physical_source_ids": [
+            "ods.customer_delta"
+          ],
+          "position": "from",
+          "relation_position": "from",
+          "join_type": null,
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "scope_single_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "ods.customer_delta"
+            ],
+            "field_resolution_required": true,
+            "missing_reasons": []
+          },
+          "field_resolution_required": true,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "source",
+              "to": "subq:source",
+              "relation": "alias_to_scope"
+            },
+            {
+              "from": "subq:source",
+              "to": "ods.customer_delta",
+              "relation": "scope_to_physical_source"
+            }
+          ],
+          "input_ref_id": "input:ROOT:001"
+        }
+      ],
       "outputs": [
         {
           "name": "customer_name",
@@ -508,7 +601,8 @@
           "grain_effect": "preserved",
           "output_ordinal": 0,
           "merge_branch": "matched",
-          "merge_when_index": 0
+          "merge_when_index": 0,
+          "display_expression": "`customer_name`"
         },
         {
           "name": "customer_id",
@@ -594,7 +688,8 @@
           "grain_effect": "preserved",
           "output_ordinal": 1,
           "merge_branch": "not_matched",
-          "merge_when_index": 1
+          "merge_when_index": 1,
+          "display_expression": "`customer_id`"
         },
         {
           "name": "customer_name",
@@ -680,7 +775,8 @@
           "grain_effect": "preserved",
           "output_ordinal": 2,
           "merge_branch": "not_matched",
-          "merge_when_index": 1
+          "merge_when_index": 1,
+          "display_expression": "`customer_name`"
         }
       ],
       "field_usage": [
@@ -712,7 +808,8 @@
             }
           ],
           "merge_branch": "matched",
-          "merge_when_index": 0
+          "merge_when_index": 0,
+          "display_expression": "`customer_name`"
         },
         {
           "name": "customer_id",
@@ -725,7 +822,8 @@
             }
           ],
           "merge_branch": "not_matched",
-          "merge_when_index": 1
+          "merge_when_index": 1,
+          "display_expression": "`customer_id`"
         },
         {
           "name": "customer_name",
@@ -738,7 +836,8 @@
             }
           ],
           "merge_branch": "not_matched",
-          "merge_when_index": 1
+          "merge_when_index": 1,
+          "display_expression": "`customer_name`"
         }
       ]
     }

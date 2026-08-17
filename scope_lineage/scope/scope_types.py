@@ -270,6 +270,11 @@ class ScopeLineageResult:
     # actually built, instead of re-deriving the alias's table from the raw AST and
     # publishing a CTE name as though it were a physical table (MERGE-CTE-002).
     merge_using_scope_id: str = ""
+    # Alias the MERGE author gave its USING relation, "" for every other statement kind.
+    # A MERGE's ROOT is a synthetic scope with no sqlglot scope of its own, so the pass that
+    # walks sqlglot scopes to build input edges never reaches it; this carries the fact that
+    # pass would otherwise have read (MERGE-INPUT-001).
+    merge_using_alias: str = ""
     # "ok" | "failed". A statement whose scope build raised is still returned (so the failure
     # stays diagnosable and one bad statement cannot abort a batch), but it carries EMPTY
     # scopes — structurally indistinguishable from a successful parse unless it says so. Callers

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Declared the USING relation as an input of a MERGE's ROOT scope. That scope is synthetic,
+  so the pass that walks SQLGlot scopes never reached it and the scope reported no inputs at
+  all, leaving `source` unbindable for expressions that resolve a qualifier by alias
+- Expanded physical-table references in expressions that also reference a query block; the
+  alias-expansion helper skipped physical sources entirely, so the alias stayed in the text
+  and its field never reached the physical source list
+
 - Report `column_not_in_table_schema` when a qualifier names a table whose schema proves
   the column does not exist; the qualified path previously took a qualifier as proof and
   published the reference as a physical field

@@ -976,6 +976,10 @@ def _build_result_from_scope(
     # table an alias meant (MERGE-CTE-002).
     if merge_using_scope is not None:
         result.merge_using_scope_id = getattr(merge_using_scope, _SCOPE_ID_ATTR, "") or ""
+    if merge_node is not None:
+        merge_using_relation = merge_node.args.get("using")
+        if isinstance(merge_using_relation, exp.Expression):
+            result.merge_using_alias = merge_using_relation.alias_or_name or "source"
 
     # Step 5: Resolve columns for all scopes
     resolve_all(
