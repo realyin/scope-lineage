@@ -1493,11 +1493,120 @@
           },
           "source_coverage": {
             "status": "covered",
-            "declared_source_tables": [],
-            "raw_sql_source_tables": [],
+            "declared_source_tables": [
+              "ods.events",
+              "dim.accounts"
+            ],
+            "raw_sql_source_tables": [
+              "ods.events",
+              "dim.accounts"
+            ],
             "missing_declared_source_tables": [],
             "extra_source_tables": []
           },
+          "input_edges": [
+            {
+              "source_id": "subq:source",
+              "source_type": "scope",
+              "position": "from",
+              "alias": "source"
+            }
+          ],
+          "input_source_refs": [
+            {
+              "input_ref_id": "input:ROOT:001",
+              "source_id": "subq:source",
+              "source_type": "scope",
+              "source_scope_id": "subq:source",
+              "alias": "source",
+              "position": "from",
+              "relation_position": "from",
+              "join_type": null,
+              "physical_source_id": null,
+              "physical_source_ids": [
+                "ods.events",
+                "dim.accounts"
+              ],
+              "source_resolution": {
+                "status": "resolved",
+                "resolution_type": "scope_multi_physical_source",
+                "cardinality": "multi_source",
+                "physical_source_tables": [
+                  "ods.events",
+                  "dim.accounts"
+                ],
+                "field_resolution_required": true,
+                "missing_reasons": []
+              },
+              "field_resolution_required": true,
+              "binding_status": "resolved",
+              "binding_trace": [
+                {
+                  "from": "source",
+                  "to": "subq:source",
+                  "relation": "alias_to_scope"
+                },
+                {
+                  "from": "subq:source",
+                  "to": "ods.events",
+                  "relation": "scope_to_physical_source"
+                },
+                {
+                  "from": "subq:source",
+                  "to": "dim.accounts",
+                  "relation": "scope_to_physical_source"
+                }
+              ],
+              "trace_status": "complete"
+            }
+          ],
+          "alias_source_bindings": [
+            {
+              "alias": "source",
+              "source_id": "subq:source",
+              "source_type": "scope",
+              "source_scope_id": "subq:source",
+              "physical_source_id": null,
+              "physical_source_ids": [
+                "ods.events",
+                "dim.accounts"
+              ],
+              "position": "from",
+              "relation_position": "from",
+              "join_type": null,
+              "source_resolution": {
+                "status": "resolved",
+                "resolution_type": "scope_multi_physical_source",
+                "cardinality": "multi_source",
+                "physical_source_tables": [
+                  "ods.events",
+                  "dim.accounts"
+                ],
+                "field_resolution_required": true,
+                "missing_reasons": []
+              },
+              "field_resolution_required": true,
+              "binding_status": "resolved",
+              "binding_trace": [
+                {
+                  "from": "source",
+                  "to": "subq:source",
+                  "relation": "alias_to_scope"
+                },
+                {
+                  "from": "subq:source",
+                  "to": "ods.events",
+                  "relation": "scope_to_physical_source"
+                },
+                {
+                  "from": "subq:source",
+                  "to": "dim.accounts",
+                  "relation": "scope_to_physical_source"
+                }
+              ],
+              "input_ref_id": "input:ROOT:001"
+            }
+          ],
           "outputs": [
             {
               "name": "id",
@@ -1593,7 +1702,8 @@
               "grain_effect": "preserved",
               "output_ordinal": 0,
               "merge_branch": "matched",
-              "merge_when_index": 0
+              "merge_when_index": 0,
+              "display_expression": "`id`"
             },
             {
               "name": "event_type",
@@ -1689,7 +1799,8 @@
               "grain_effect": "preserved",
               "output_ordinal": 1,
               "merge_branch": "matched",
-              "merge_when_index": 0
+              "merge_when_index": 0,
+              "display_expression": "`event_type`"
             },
             {
               "name": "account_key",
@@ -1785,7 +1896,8 @@
               "grain_effect": "preserved",
               "output_ordinal": 2,
               "merge_branch": "matched",
-              "merge_when_index": 0
+              "merge_when_index": 0,
+              "display_expression": "`account_key`"
             },
             {
               "name": "id",
@@ -1881,7 +1993,8 @@
               "grain_effect": "preserved",
               "output_ordinal": 3,
               "merge_branch": "not_matched",
-              "merge_when_index": 1
+              "merge_when_index": 1,
+              "display_expression": "id"
             },
             {
               "name": "event_type",
@@ -1977,7 +2090,8 @@
               "grain_effect": "preserved",
               "output_ordinal": 4,
               "merge_branch": "not_matched",
-              "merge_when_index": 1
+              "merge_when_index": 1,
+              "display_expression": "event_type"
             },
             {
               "name": "account_key",
@@ -2073,7 +2187,8 @@
               "grain_effect": "preserved",
               "output_ordinal": 5,
               "merge_branch": "not_matched",
-              "merge_when_index": 1
+              "merge_when_index": 1,
+              "display_expression": "account_key"
             }
           ],
           "field_usage": [
@@ -2107,7 +2222,8 @@
                 }
               ],
               "merge_branch": "matched",
-              "merge_when_index": 0
+              "merge_when_index": 0,
+              "display_expression": "`id`"
             },
             {
               "name": "event_type",
@@ -2120,7 +2236,8 @@
                 }
               ],
               "merge_branch": "matched",
-              "merge_when_index": 0
+              "merge_when_index": 0,
+              "display_expression": "`event_type`"
             },
             {
               "name": "account_key",
@@ -2133,7 +2250,8 @@
                 }
               ],
               "merge_branch": "matched",
-              "merge_when_index": 0
+              "merge_when_index": 0,
+              "display_expression": "`account_key`"
             },
             {
               "name": "id",
@@ -2146,7 +2264,8 @@
                 }
               ],
               "merge_branch": "not_matched",
-              "merge_when_index": 1
+              "merge_when_index": 1,
+              "display_expression": "id"
             },
             {
               "name": "event_type",
@@ -2159,7 +2278,8 @@
                 }
               ],
               "merge_branch": "not_matched",
-              "merge_when_index": 1
+              "merge_when_index": 1,
+              "display_expression": "event_type"
             },
             {
               "name": "account_key",
@@ -2172,7 +2292,8 @@
                 }
               ],
               "merge_branch": "not_matched",
-              "merge_when_index": 1
+              "merge_when_index": 1,
+              "display_expression": "account_key"
             }
           ]
         }
