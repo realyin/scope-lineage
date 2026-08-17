@@ -1495,11 +1495,13 @@
             "status": "covered",
             "declared_source_tables": [
               "ods.events",
-              "dim.accounts"
+              "dim.accounts",
+              "mart.event_target"
             ],
             "raw_sql_source_tables": [
               "ods.events",
-              "dim.accounts"
+              "dim.accounts",
+              "mart.event_target"
             ],
             "missing_declared_source_tables": [],
             "extra_source_tables": []
@@ -1510,6 +1512,11 @@
               "source_type": "scope",
               "position": "from",
               "alias": "source"
+            },
+            {
+              "source_id": "mart.event_target",
+              "source_type": "physical_table",
+              "position": "from"
             }
           ],
           "input_source_refs": [
@@ -1555,6 +1562,39 @@
                   "from": "subq:source",
                   "to": "dim.accounts",
                   "relation": "scope_to_physical_source"
+                }
+              ],
+              "trace_status": "complete"
+            },
+            {
+              "input_ref_id": "input:ROOT:002",
+              "source_id": "mart.event_target",
+              "source_type": "physical_table",
+              "alias": null,
+              "position": "from",
+              "relation_position": "from",
+              "join_type": null,
+              "physical_source_id": "mart.event_target",
+              "physical_source_ids": [
+                "mart.event_target"
+              ],
+              "source_resolution": {
+                "status": "resolved",
+                "resolution_type": "direct_physical_source",
+                "cardinality": "single_source",
+                "physical_source_tables": [
+                  "mart.event_target"
+                ],
+                "field_resolution_required": false,
+                "missing_reasons": []
+              },
+              "field_resolution_required": false,
+              "binding_status": "resolved",
+              "binding_trace": [
+                {
+                  "from": "mart.event_target",
+                  "to": "mart.event_target",
+                  "relation": "alias_to_physical_source"
                 }
               ],
               "trace_status": "complete"

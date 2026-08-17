@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Stopped re-parsing each statement from generated SQL during task-level modelling. sqlglot
+  does not round-trip a WITH carried by an individual UNION branch, so the clauses merged,
+  same-named CTEs shadowed each other, and the whole statement degraded to an unqualified
+  parse; the AST parsed from the original script is now used directly
+- Report `normalized_sql_not_equivalent` when the rendered statement loses a CTE to
+  shadowing, so a consumer is not handed SQL that looks runnable and is not
+- Stopped reading `COUNT(*)`'s dependency on the whole row as an unexpanded projection
+  wildcard; only a source that is actually an unexpanded `SELECT *` reports one now
+- Declared a MERGE's target relation as a ROOT input, without an alias so it stays out of
+  alias expansion, and appended so existing `input_ref_id` values keep their meaning
+
 - Declared the USING relation as an input of a MERGE's ROOT scope. That scope is synthetic,
   so the pass that walks SQLGlot scopes never reached it and the scope reported no inputs at
   all, leaving `source` unbindable for expressions that resolve a qualifier by alias

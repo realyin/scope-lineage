@@ -6,8 +6,9 @@ scope with none of its own — so it declared no inputs at all. Every consumer o
 resolution has already bound it, and an expression that has to resolve a qualifier by alias
 reports a root-impact gap for a fact the parser already holds.
 
-The target relation is deliberately left out; ``test_a_correlated_target_reference_is_not
-_reported_as_an_unexpanded_alias`` below pins why.
+The target relation is declared without an alias;
+``test_a_correlated_target_reference_is_not_reported_as_an_unexpanded_alias`` below pins
+why it must stay alias-less.
 """
 
 from __future__ import annotations
@@ -47,16 +48,23 @@ def _bindings(result) -> list[tuple[str, str, str]]:
     ]
 
 
-def test_merge_root_declares_the_relation_it_reads() -> None:
+def test_merge_root_declares_both_relations_it_reads() -> None:
     result = parse_scope_lineage(NESTED_USING_SQL, "merge_nested_using", schema=SCHEMA)
 
-    assert _bindings(result) == [("source", "subq:source", "scope")]
-    # "from" rather than a new position value: the contract constrains that field to a
-    # closed set, and the USING relation genuinely is what this statement reads from.
+    # "from" rather than new position values: the contract constrains that field to a
+    # closed set, and both relations are ones this statement reads from.
     assert [
         (edge.alias, edge.source_id, edge.position)
         for edge in result.scopes["ROOT"].input_edges
-    ] == [("source", "subq:source", "from")]
+    ] == [
+        ("source", "subq:source", "from"),
+        # Appended, not prepended: input_ref_id is positional, so inserting ahead of the
+        # USING relation would renumber a cross-reference consumers already hold.
+        (None, "mart.target", "from"),
+    ]
+    # The target edge carries no alias on purpose — see the correlated-reference test
+    # below — so only the USING relation produces an alias binding.
+    assert _bindings(result) == [("source", "subq:source", "scope")]
 
 
 def test_a_merge_expression_over_both_relations_resolves_without_a_gap() -> None:
@@ -109,8 +117,9 @@ def test_a_correlated_target_reference_is_not_reported_as_an_unexpanded_alias() 
     A MERGE action's scalar subquery keeps its correlated ``target.id`` on purpose — that
     is what ``_protect_merge_correlated_target_refs`` exists for. Binding ``target`` as a
     ROOT alias makes the unexpanded-alias check read that deliberate reference as an
-    expansion that failed, trading one wrong gap for another. Declaring the target also
-    needs a new ``position`` value, and the contract constrains that field to a closed set.
+    expansion that failed, trading one wrong gap for another. The relation is therefore
+    declared without an alias: the binding pass skips alias-less edges, so the input is
+    stated without the alias entering expansion.
     """
     result = parse_scope_lineage(
         """

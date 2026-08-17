@@ -419,10 +419,12 @@
       "source_coverage": {
         "status": "covered",
         "declared_source_tables": [
-          "ods.customer_delta"
+          "ods.customer_delta",
+          "mart.customer_profile"
         ],
         "raw_sql_source_tables": [
-          "ods.customer_delta"
+          "ods.customer_delta",
+          "mart.customer_profile"
         ],
         "missing_declared_source_tables": [],
         "extra_source_tables": []
@@ -433,6 +435,11 @@
           "source_type": "scope",
           "position": "from",
           "alias": "source"
+        },
+        {
+          "source_id": "mart.customer_profile",
+          "source_type": "physical_table",
+          "position": "from"
         }
       ],
       "input_source_refs": [
@@ -471,6 +478,39 @@
               "from": "subq:source",
               "to": "ods.customer_delta",
               "relation": "scope_to_physical_source"
+            }
+          ],
+          "trace_status": "complete"
+        },
+        {
+          "input_ref_id": "input:ROOT:002",
+          "source_id": "mart.customer_profile",
+          "source_type": "physical_table",
+          "alias": null,
+          "position": "from",
+          "relation_position": "from",
+          "join_type": null,
+          "physical_source_id": "mart.customer_profile",
+          "physical_source_ids": [
+            "mart.customer_profile"
+          ],
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "direct_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "mart.customer_profile"
+            ],
+            "field_resolution_required": false,
+            "missing_reasons": []
+          },
+          "field_resolution_required": false,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "mart.customer_profile",
+              "to": "mart.customer_profile",
+              "relation": "alias_to_physical_source"
             }
           ],
           "trace_status": "complete"
