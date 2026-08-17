@@ -71,6 +71,9 @@ def _populate_enhanced_scope_facts(
     _resolve_internal_scope_expression_resolution(result)
     _propagate_passthrough_expression_resolution(result)
     _resolve_expression_resolution_from_output_sources(result)
+    # Runs after the expansion passes have settled: it can only finish references those
+    # passes reintroduced, so there is nothing to do until they stop changing the text.
+    _finish_reintroduced_expansions(result)
     _restore_facts_behind_unexpanded_refs(result)
     _populate_union_output_branch_mappings(result)
     _normalize_scope_expression_resolutions(result)
@@ -1457,6 +1460,115 @@ def _refresh_join_relation_physical_fields(result: ScopeLineageResult) -> None:
                 if "missing_join_key_pairs" not in missing_reasons:
                     missing_reasons.append("missing_join_key_pairs")
             detail["missing_reasons"] = _unique_ordered(missing_reasons)
+
+
+# Substitution can put a qualifier back into the text it just produced, so expansion is
+# a fixed point, not a single step. The bound exists only so a pathological expression
+# cannot loop; reaching it leaves the unexpanded-alias reason in place rather than
+# declaring the expansion finished.
+_EXPRESSION_EXPANSION_ROUNDS = 4
+
+
+def _finish_reintroduced_expansions(result: ScopeLineageResult) -> None:
+    """Expand references that expansion itself spliced back into the text.
+
+    Expanding a reference inlines the upstream output's own expression, and that text can
+    name an alias belonging to the *consuming* scope: a LATERAL VIEW is written in terms of
+    the alias feeding it, so ``x.item`` becomes ``EXPLODE(t.items)``. The work list is built
+    from the original expression, so ``t.items`` is never revisited — it stays in the text,
+    and because the physical source list is filtered to fields the text actually mentions,
+    ``ods.source.items`` is dropped. The output is then published as an incomplete fact
+    while every one of its sources is in fact knowable.
+
+    Only aliases bound in this scope are followed, and only upstream outputs that are
+    themselves resolved contribute, so nothing here invents a source: it finishes work the
+    first pass already proved was possible.
+    """
+    output_lookup = {
+        (scope_id, output.name): output
+        for scope_id, scope_data in result.scopes.items()
+        for output in scope_data.outputs
+    }
+    for _round in range(_EXPRESSION_EXPANSION_ROUNDS):
+        changed = False
+        for scope_data in result.scopes.values():
+            alias_to_source = {
+                str(binding.get("alias")): str(binding.get("source_id"))
+                for binding in scope_data.alias_source_bindings
+                if binding.get("alias") and binding.get("source_id")
+            }
+            if not alias_to_source:
+                continue
+            for output in scope_data.outputs:
+                if _expand_reintroduced_refs(output, alias_to_source, output_lookup):
+                    changed = True
+        if not changed:
+            return
+
+
+def _expand_reintroduced_refs(
+    output: ScopeOutputField,
+    alias_to_source: dict[str, str],
+    output_lookup: dict[tuple[str, str], ScopeOutputField],
+) -> bool:
+    resolution = output.expression_resolution or {}
+    expanded = str(output.expanded_expression or "")
+    original = str(output.expression or "")
+    if not expanded or expanded == original or output.expansion_status != "full":
+        return False
+    original_refs = set(_qualified_field_refs(original))
+    physical_fields = [
+        dict(item)
+        for item in resolution.get("physical_source_fields") or []
+        if isinstance(item, dict)
+    ]
+    field_keys = {
+        (str(item.get("table") or ""), str(item.get("field") or ""))
+        for item in physical_fields
+    }
+    changed = False
+    for qualifier, field in _qualified_field_refs(expanded):
+        if (qualifier, field) in original_refs:
+            continue
+        source_id = alias_to_source.get(qualifier)
+        if not source_id or not _is_internal_scope_id(source_id):
+            continue
+        upstream = output_lookup.get((source_id, field))
+        upstream_resolution = (upstream.expression_resolution or {}) if upstream else {}
+        replacement = str(
+            upstream_resolution.get("expanded_expression")
+            or (upstream.expanded_expression if upstream else "")
+            or ""
+        )
+        if upstream_resolution.get("status") != "resolved" or not replacement:
+            continue
+        rewritten = _replace_qualified_ref_with_expression(
+            expanded, qualifier, field, replacement
+        )
+        if rewritten == expanded:
+            continue
+        expanded = rewritten
+        changed = True
+        for physical_field in upstream_resolution.get("physical_source_fields") or []:
+            if not isinstance(physical_field, dict):
+                continue
+            key = (
+                str(physical_field.get("table") or ""),
+                str(physical_field.get("field") or ""),
+            )
+            if not key[0] or not key[1] or key in field_keys:
+                continue
+            field_keys.add(key)
+            physical_fields.append(dict(physical_field))
+    if not changed:
+        return False
+    output.expanded_expression = expanded
+    output.expression_resolution = {
+        **resolution,
+        "physical_source_fields": physical_fields,
+        "expanded_expression": expanded,
+    }
+    return True
 
 
 def _resolve_internal_scope_expression_resolution(result: ScopeLineageResult) -> None:
