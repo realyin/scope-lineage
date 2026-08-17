@@ -84,6 +84,13 @@ def _resolve_column_ref(col_ref: exp.Column, sg_scope: Scope, result: ScopeLinea
         try:
             _sel = sg_scope.selected_sources
         except OptimizeError:
+            # A repeated alias makes sqlglot refuse to enumerate the scope's sources. That
+            # blocks alias lookup, but not every reference needs it: ``arr.field`` where
+            # ``arr`` is a LATERAL VIEW's output column is answerable from the UDTF scopes
+            # alone, and giving up here was what lost it (UDTF-ALIAS-001).
+            udtf_ref = _resolve_udtf_output_column_qualifier(table_alias, sg_scope, result)
+            if udtf_ref is not None:
+                return udtf_ref
             result.diagnostics.warnings.append(DiagnosticWarning(type='duplicate_alias', scope=getattr(sg_scope, _SCOPE_ID_ATTR, 'UNKNOWN'), msg=f"scope.selected_sources raised OptimizeError while resolving alias '{table_alias}' — likely caused by a duplicate subquery alias in the FROM clause. Column resolution skipped."))
             return SourceRef(scope='UNKNOWN', column=col_name)
         sel_src = _sel.get(table_alias)
@@ -112,6 +119,9 @@ def _resolve_column_ref(col_ref: exp.Column, sg_scope: Scope, result: ScopeLinea
                 result,
                 schema,
             )
+        udtf_ref = _resolve_udtf_output_column_qualifier(table_alias, sg_scope, result)
+        if udtf_ref is not None:
+            return udtf_ref
         result.diagnostics.warnings.append(DiagnosticWarning(type='unresolved_alias', scope=getattr(sg_scope, _SCOPE_ID_ATTR, 'UNKNOWN'), msg=f"Alias '{table_alias}' not found in scope sources"))
         return SourceRef(scope='UNKNOWN', column=col_name)
     else:
@@ -271,6 +281,39 @@ def _input_ref_id_for_source_alias(
     if len(matches) != 1:
         return None
     return f"input:{binding_scope_id}:{matches[0]:03d}"
+
+
+def _resolve_udtf_output_column_qualifier(
+    qualifier: str,
+    sg_scope: Scope,
+    result: ScopeLineageResult,
+) -> SourceRef | None:
+    """Resolve ``arr.field`` where ``arr`` is a LATERAL VIEW's output column.
+
+    qualify normally rewrites such a reference to carry the view's own alias, turning
+    ``arr.unitCode`` into ``t.arr.unitcode``. Two LATERAL VIEWs in one query block sharing
+    an alias leave it unable to say which ``t`` owns ``arr``, so the reference stays bare
+    and the qualifier matches no source — even though one of those views plainly exposes a
+    column by that name (UDTF-ALIAS-001).
+
+    The reference reaches this fallback by either of two routes, and both are needed: a
+    repeated alias makes ``selected_sources`` refuse to enumerate at all, while distinct
+    aliases simply leave ``arr`` matching no source. Fixing only the first left every real
+    statement — where the aliases differ — exactly as broken as before.
+
+    Two views exposing the same column name is a real ambiguity and keeps its gap: choosing
+    between them would make the answer depend on which was written first.
+    """
+    matches = []
+    for udtf_scope in getattr(sg_scope, 'udtf_scopes', []) or []:
+        scope_id = getattr(udtf_scope, _SCOPE_ID_ATTR, None)
+        scope_data = result.scopes.get(scope_id) if scope_id else None
+        if scope_data and any(column.name == qualifier for column in scope_data.columns):
+            matches.append(scope_id)
+    unique = list(dict.fromkeys(matches))
+    if len(unique) != 1:
+        return None
+    return SourceRef(scope=unique[0], column=qualifier)
 
 
 def _resolve_unqualified(col_name: str, sg_scope: Scope, result: ScopeLineageResult, schema: dict | None=None) -> SourceRef:

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Expanded Spark's quoted regex column selection. `` `(dt)?+.+` `` selects every column
+  whose name matches the pattern — its possessive quantifier making it the idiom for "every
+  column except dt" — and reading it as a literal name produced a column no table has, which
+  took every downstream reference to that scope down with it
+- Resolved a reference to a LATERAL VIEW's output column when the qualifier is the column
+  rather than the view's alias, so `arr.field` binds to the view that exposes `arr`. Two
+  views exposing the same name stay a gap rather than being resolved by writing order
+
 - Modelled Spark's `CACHE [LAZY] TABLE ... AS SELECT` as the relation-from-a-SELECT it is.
   It was skipped as an unsupported statement, so the relation it builds was read back as an
   external table nobody has metadata for and every reference to it became a gap — 1205 in a
