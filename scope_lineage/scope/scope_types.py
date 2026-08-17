@@ -275,6 +275,7 @@ class ScopeLineageResult:
     # walks sqlglot scopes to build input edges never reaches it; this carries the fact that
     # pass would otherwise have read (MERGE-INPUT-001).
     merge_using_alias: str = ""
+    merge_target_alias: str = ""
     # "ok" | "failed". A statement whose scope build raised is still returned (so the failure
     # stays diagnosable and one bad statement cannot abort a batch), but it carries EMPTY
     # scopes — structurally indistinguishable from a successful parse unless it says so. Callers

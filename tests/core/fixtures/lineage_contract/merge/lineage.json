@@ -439,7 +439,8 @@
         {
           "source_id": "mart.customer_profile",
           "source_type": "physical_table",
-          "position": "from"
+          "position": "from",
+          "alias": "target"
         }
       ],
       "input_source_refs": [
@@ -486,7 +487,7 @@
           "input_ref_id": "input:ROOT:002",
           "source_id": "mart.customer_profile",
           "source_type": "physical_table",
-          "alias": null,
+          "alias": "target",
           "position": "from",
           "relation_position": "from",
           "join_type": null,
@@ -508,7 +509,7 @@
           "binding_status": "resolved",
           "binding_trace": [
             {
-              "from": "mart.customer_profile",
+              "from": "target",
               "to": "mart.customer_profile",
               "relation": "alias_to_physical_source"
             }

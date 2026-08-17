@@ -1516,7 +1516,8 @@
             {
               "source_id": "mart.event_target",
               "source_type": "physical_table",
-              "position": "from"
+              "position": "from",
+              "alias": "target"
             }
           ],
           "input_source_refs": [
@@ -1570,7 +1571,7 @@
               "input_ref_id": "input:ROOT:002",
               "source_id": "mart.event_target",
               "source_type": "physical_table",
-              "alias": null,
+              "alias": "target",
               "position": "from",
               "relation_position": "from",
               "join_type": null,
@@ -1592,7 +1593,7 @@
               "binding_status": "resolved",
               "binding_trace": [
                 {
-                  "from": "mart.event_target",
+                  "from": "target",
                   "to": "mart.event_target",
                   "relation": "alias_to_physical_source"
                 }
