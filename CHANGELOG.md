@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Modelled Spark's `CACHE [LAZY] TABLE ... AS SELECT` as the relation-from-a-SELECT it is.
+  It was skipped as an unsupported statement, so the relation it builds was read back as an
+  external table nobody has metadata for and every reference to it became a gap — hundreds in a
+  a single statement. It reports `stmt_kind: "CTAS"` with a new optional `is_cached_relation`
+  flag, since the relation lives only for the session
+- Made a table's DDL authoritative over its exported column array rather than validating one
+  against the other. A partition column declared only in `PARTITIONED BY` is an ordinary
+  export shape, not a contradiction, and rejecting it discarded usable metadata
+- Limited an unusable metadata file to the table it describes. The loader raised, so two
+  a couple of malformed files left every table without columns; rejected tables are now
+  reported through `metadata_conflicts` and only a load that produced no table at all raises
+
 - Stopped re-parsing each statement from generated SQL during task-level modelling. sqlglot
   does not round-trip a WITH carried by an individual UNION branch, so the clauses merged,
   same-named CTEs shadowed each other, and the whole statement degraded to an unqualified

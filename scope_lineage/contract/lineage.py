@@ -177,6 +177,11 @@ def _result_to_dict(r: ScopeLineageResult) -> dict:
         "task_id": r.task_id,
         "target_table": r.target_table,
         "stmt_kind": r.stmt_kind,
+        # Optional, present only when true: a CACHE ... AS SELECT builds its relation from
+        # a SELECT exactly as CTAS does, but the relation lives for the session. Consumers
+        # registering data assets need that distinction, and stmt_kind is a closed enum
+        # this major contract version cannot widen (CACHE-001).
+        **({"is_cached_relation": True} if r.is_cached_relation else {}),
         # "ok" | "failed" — a failed statement still writes artifacts (diagnosable, non-blocking),
         # so consumers need this to avoid treating an empty scope set as a valid parse
         "parse_status": r.parse_status,
