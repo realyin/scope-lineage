@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Backquoted reserved-word column names in a table's DDL before parsing it. sqlglot's Spark
+  dialect does not terminate on `CREATE TABLE db.t (a DOUBLE, not DOUBLE)` — the same 51
+  characters hang 30.0.0, 30.16.0 and 30.17.0 alike — so a table whose export happened to
+  name a column `not` did not make a task's answer worse, it made the task never finish, and
+  no caller could put a timeout around it. Three more tables were being rejected outright by
+  the milder version of the same problem, losing 3005 columns apiece. Quoting is an
+  equivalent rewrite, and nearly every DDL it touches yields facts identical to before
+
 ## 0.1.6 - 2026-08-18
 
 - Roughly halved lineage resolution time on wide statements by remembering answers that
