@@ -492,19 +492,10 @@ def _build_ctas_scope(
         return result
 
     src_expr = definition.expression.copy()
-    qualified = _qualify_ast(src_expr)
+    qualified, qualify_ok = _qualify_ast(src_expr)
 
-    if qualified is src_expr:
-        try:
-            sg_qualify(
-                src_expr,
-                dialect=DIALECT,
-                validate_qualify_columns=False,
-                infer_schema=True,
-                expand_stars=False,
-            )
-        except Exception:
-            result.diagnostics.fallback_used = True
+    if not qualify_ok:
+        result.diagnostics.fallback_used = True
 
     _build_result_from_scope(qualified, result, target_table, schema)
     _drop_dangling_column_refs(result)
@@ -514,8 +505,15 @@ def _build_ctas_scope(
     return result
 
 
-def _qualify_ast(ast: exp.Expression) -> exp.Expression:
-    """Run sqlglot qualify with graceful degradation."""
+def _qualify_ast(ast: exp.Expression) -> tuple[exp.Expression, bool]:
+    """Run sqlglot qualify with graceful degradation, and say whether it worked.
+
+    Success cannot be read from the returned object: ``qualify`` mutates the tree it is
+    given and hands back that same object, so an identity comparison against the input is
+    true either way. Callers used one, so the "did it fail?" branch ran on every statement
+    and qualified it a second time to learn what the first call already knew
+    (QUALIFY-001).
+    """
     # ``qualify`` assigns generated aliases (usually ``_col_N``) to anonymous
     # expressions. Preserve whether an alias existed in the source SQL so the
     # projection resolver can recover a sole referenced field without confusing
@@ -538,9 +536,9 @@ def _qualify_ast(ast: exp.Expression) -> exp.Expression:
             validate_qualify_columns=False,
             infer_schema=True,
             expand_stars=False,
-        )
+        ), True
     except Exception:
-        return ast
+        return ast, False
 
 
 def _build_insert_scope(
@@ -572,16 +570,10 @@ def _build_insert_scope(
         return result
 
     src_expr = _build_source_expression(insert, target_metadata=target_metadata)
-    qualified = _qualify_ast(src_expr)
+    qualified, qualify_ok = _qualify_ast(src_expr)
 
-    if qualified is src_expr:
-        # Check if qualify would have failed
-        try:
-            sg_qualify(src_expr, dialect=DIALECT,
-                       validate_qualify_columns=False, infer_schema=True,
-                       expand_stars=False)
-        except Exception:
-            result.diagnostics.fallback_used = True
+    if not qualify_ok:
+        result.diagnostics.fallback_used = True
 
     _build_result_from_scope(
         qualified,
@@ -692,7 +684,7 @@ def _build_merge_scope(
     merge = _merge_with_subquery_source(merge)
 
     protected = _protect_merge_correlated_target_refs(merge)
-    qualified = _qualify_ast(merge)
+    qualified, _qualify_ok = _qualify_ast(merge)
     _restore_merge_correlated_target_refs(qualified, protected)
     _build_result_from_scope(qualified, result, target_table, schema)
     _drop_dangling_column_refs(result)
