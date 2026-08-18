@@ -143,6 +143,7 @@ Schema 对 gap value 保持可扩展，因为不同解析缺口需要携带不�
 | `evidence_path` | string | 指向 `lineage.json` 中对应事实的路径。 |
 | `evidence_summary` | object | scope 输入数、候选来源、目标影响等摘要。 |
 | `downstream_impact` | object | 受影响的 scope 输出和最终目标字段。 |
+| `derived_from_recovered_syntax` | boolean（可选） | 仅在 `syntax_status = "recovered"` 时出现且恒为 `true`。表示这条缺口来自一次被修补的解析——解析器丢掉了放不下的 token，缺口描述的是**截断本身**，不是这条 SQL 的事实。统计能力缺口时应先排除这些。详见[被修补的解析，以及它派生出来的"假缺口"](recovered-syntax-and-derived-gaps.md)。 |
 
 示例：
 
