@@ -58,6 +58,42 @@ USING 别名则沿已解析的 USING scope 一路追踪到物理根字段：USIN
 物理表而不是 CTE 名，USING 是 UNION 时保留每个分支的物理根字段。追踪无法完成时不补位任何名字，
 改为记录 merge_condition_source_unresolved fact gap（见下一节）。
 
+## value_sources[].source_kind：三种来源，以及怎么折叠前态边
+
+每条 `value_sources[]` 都带 `source_kind`，取值只有三种：
+
+| source_kind | 含义 | 典型场景 |
+| --- | --- | --- |
+| `physical_field` | 值来自某张物理表的某一列 | 绝大多数血缘 |
+| `generated` | 值由常量或不引用任何输入列的表达式产生 | `'rcs' AS send_type` |
+| `prior_table_state` | 值从**目标表自身的前一个状态**透传而来 | `INSERT OVERWRITE ... PARTITION` 未被覆盖的分区、`UPDATE` 未赋值的字段、`DELETE` 后存活行 |
+
+### 前态边为什么存在，以及什么时候该折叠
+
+`prior_table_state` 记录的是"这个字段的值这次没被改写，沿用上一状态"。它对**追溯最终物理来源**没有增量价值，
+但对**解释一次写入到底改了什么**是必要的——所以 Core 如实记录，由消费方按用途取舍。
+
+它的量不小：实测中它可占单个任务 `value_sources` 边的 40%–50%。只关心"字段最终来自哪些物理表"的消费方
+（例如与只输出物理源的平台做对比）应当折叠掉它们：
+
+```python
+physical_only = [
+    source
+    for source in item["value_sources"]
+    if source["source_kind"] != "prior_table_state"
+]
+```
+
+### 不要用"表名相等"来过滤
+
+一个看起来等价的写法是筛掉 `source_table == target_table` 的行。**这个口径是错的。**
+
+实测 10 个任务：`prior_table_state` 边共 4508 条，其中指向**别的**表的有 **0** 条——所以按 `source_kind`
+过滤精确、无误伤。但反过来，同表却**不是**前态边的行确实存在（实测 2 条）：那是任务把自己的表当作真实输入读取
+（`INSERT INTO t SELECT ... FROM t`），是**真实血缘**。按表名相等过滤会把它一并删掉。
+
+**判据是来源的种类，不是表名是否相同。**
+
 ## 状态转换语义
 
 | 语句 | rowset operation | 字段值语义 |
