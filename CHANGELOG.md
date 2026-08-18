@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Modelled a PIVOT's output columns. `PIVOT (max(amt) FOR k IN ('A', 'B'))` turns the values
+  of `k` into columns named A and B whose values come from the aggregate, and neither the
+  names nor that lineage existed: a `SELECT *` over a pivoted relation saw the pivoted
+  subquery's own columns instead, so every downstream reference to a pivoted name was a gap —
+  32 in one real task. The pivot's alias now becomes an input edge when it has one, and a
+  star over a pivoted source expands to the IN list. A non-literal IN list still reports a
+  gap rather than guessing names
+
 - Stopped qualifying every statement twice. `qualify` mutates the tree it is given and
   returns that same object, so the `qualified is src_expr` comparison that guarded the "did
   qualify fail?" branch was true either way, and the branch re-ran qualify on every
