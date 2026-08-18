@@ -14,6 +14,7 @@ Scope Lineage 把 Spark/Hive SQL 转换成两类机器可消费的事实：
 5. [`lineage.json` 输出契约](lineage-json.md)：逐层理解顶层字段、scope、逻辑块、字段映射链和端到端血缘；
 6. [`diagnostics.json` 输出契约](diagnostics-json.md)：理解 warning、事实缺口以及什么结果不能当成已证明事实。
 7. [Task Lineage 2.0](task-lineage-v2.md)：理解 DELETE/TRUNCATE/UPDATE、行集合影响和多语句最终表状态。
+8. [被修补的解析，以及它派生出来的"假缺口"](recovered-syntax-and-derived-gaps.md)：`syntax_status = recovered` 是什么意思，为什么此时的字段级缺口不能计入能力缺口统计。
 
 ## 从问题找到字段
 

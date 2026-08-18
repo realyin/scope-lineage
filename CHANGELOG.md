@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Marked the fact gaps that a repaired parse produces, with a new optional
+  `derived_from_recovered_syntax` on each. When sqlglot cannot place a token it drops the
+  rest, and a statement that said `FROM` becomes one with no source at all — so the gaps
+  that follow describe the truncation, not the query. They sat in the same list as gaps
+  about genuinely missing metadata, and counting the two together turned one syntax problem
+  into 1298 apparent capability gaps in a single real task. `syntax_status` already said the
+  parse was repaired; the marker means a consumer no longer has to correlate two documents
+  to know which gaps to exclude. Statement lineage needed its own answer, since a truncation
+  is invisible once the tree is rendered back out
+
 - Backquoted reserved-word column names in a table's DDL before parsing it. sqlglot's Spark
   dialect does not terminate on `CREATE TABLE db.t (a DOUBLE, not DOUBLE)` — the same 51
   characters hang 30.0.0, 30.16.0 and 30.17.0 alike — so a table whose export happened to
