@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.7 - 2026-08-19
 
 - Said where the reader looks when a source table's columns were never supplied. The fact
   was already in `metadata_coverage`, but `analysis_status` said `partial` for
