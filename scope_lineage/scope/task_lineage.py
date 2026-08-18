@@ -281,6 +281,33 @@ def parse_task_lineage(
         statements.append(statement)
 
     gaps.extend(_statement_fact_gaps(statement_lineage))
+    metadata_coverage = _metadata_coverage(
+        state_builder,
+        statement_lineage,
+        statements,
+        schema,
+        script_local,
+    )
+    # A run that never received a table's columns produces gaps that read exactly like a
+    # parser that could not handle the SQL. The fact was already recorded in
+    # metadata_coverage, but nothing pointed at it from where a reader starts, and the same
+    # run was read three times as a capability-gap report (METADATA-003).
+    # Only source tables. A target without a schema entry is an ordinary shape — target DDL
+    # is supplied separately — and it cannot be why a source-side reference failed to
+    # resolve, so counting it would put a metadata explanation on gaps that have none.
+    missing_sources = _missing_source_tables(metadata_coverage, statement_lineage)
+    if missing_sources:
+        warnings.append({
+            "type": "metadata_incomplete",
+            "scope": "TASK",
+            "msg": (
+                f"no column metadata for {len(missing_sources)} source table(s) "
+                f"({', '.join(missing_sources[:5])}"
+                f"{', ...' if len(missing_sources) > 5 else ''}). "
+                "Field-level gaps in this document may follow from that rather than from "
+                "the SQL, and should not be counted as parser capability gaps"
+            ),
+        })
     partial = bool(
         syntax_status != "strict_ok"
         or unsupported_data_changes
@@ -294,6 +321,7 @@ def parse_task_lineage(
             unsupported_data_changes,
             gaps,
             statements,
+            missing_sources,
         ),
     }
     result = TaskLineageResult(
@@ -318,13 +346,7 @@ def parse_task_lineage(
             # script-level verdict is the only one that can say these gaps are shadows of a
             # repaired parse rather than facts about the query (PARSE-002).
             "lineage_fact_gaps": _gaps_marked_for_recovered_syntax(gaps, syntax_status),
-            "metadata_coverage": _metadata_coverage(
-                state_builder,
-                statement_lineage,
-                statements,
-                schema,
-                script_local,
-            ),
+                        "metadata_coverage": metadata_coverage,
             "stats": {
                 "statement_count": len(statements),
                 "modeled_statement_count": sum(
@@ -1082,18 +1104,50 @@ def _schema_passthrough_gap(statement: dict, table: str) -> dict:
     }
 
 
+def _missing_source_tables(
+    metadata_coverage: Mapping[str, object],
+    statement_lineage: Mapping[str, object],
+) -> list[str]:
+    """Source tables this run could not describe.
+
+    Restricted to sources on purpose: a target with no schema entry is an ordinary shape,
+    since target DDL is supplied through its own input, and it is never why a source-side
+    reference failed to resolve.
+    """
+    missing = {str(table) for table in metadata_coverage.get("missing_tables") or []}
+    if not missing:
+        return []
+    sources: set[str] = set()
+    for lineage in statement_lineage.values():
+        if isinstance(lineage, dict):
+            sources.update(str(table) for table in lineage.get("source_tables") or [])
+    return sorted(missing & sources)
+
+
 def _analysis_blocking_reasons(
     syntax_status: str,
     unsupported_data_changes: int,
     gaps: list[dict],
     statements: list[dict],
+    missing_source_tables: list[str] | None = None,
 ) -> list[str]:
+    """Name the causes, and put a cause ahead of the symptom it explains.
+
+    A reader takes the first reason as the headline. Gaps produced because a referenced
+    table's columns were never supplied were headlined ``lineage_fact_gap``, which reads as
+    a statement about the SQL — so the cause is listed first when it applies
+    (METADATA-003).
+    """
     reasons: list[str] = []
     if syntax_status != "strict_ok":
         reasons.append("syntax_recovered")
     if unsupported_data_changes:
         reasons.append("unsupported_data_change")
     if gaps:
+        # Only alongside gaps: incomplete metadata with nothing unresolved blocks nothing,
+        # and the warning already records it.
+        if missing_source_tables:
+            reasons.append("metadata_incomplete")
         reasons.append("lineage_fact_gap")
     if any(item["model_status"] == "failed" for item in statements):
         reasons.append("statement_failed")
