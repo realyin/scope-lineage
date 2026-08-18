@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Let a bare column bind through a regex column selection. Spark's `` `(rk)?+.+` `` names
+  the columns a source exposes by pattern, and the match runs after column resolution — but
+  a scope projecting one was read as already materialized, with a single concrete column
+  literally called `(rk)?+.+`. Every other name was then judged absent from it, so a bare
+  reference with two inputs lost the only input that could supply it. A pattern means "not
+  yet knowable", which the resolver already models and already keeps in play. Of the 36 real
+  tasks a regex projection can reach, 1 improves and 35 are unchanged
+
 - Marked the fact gaps that a repaired parse produces, with a new optional
   `derived_from_recovered_syntax` on each. When sqlglot cannot place a token it drops the
   rest, and a statement that said `FROM` becomes one with no source at all — so the gaps

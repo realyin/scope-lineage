@@ -6,7 +6,6 @@ columns, joins, filters, group_by, having, order_by, and depends_on.
 
 from __future__ import annotations
 
-import re
 
 
 from sqlglot import exp
@@ -29,6 +28,10 @@ from .scope_types import (
 )
 from ._shared import DIALECT, _KNOWN_UDAFS, _SCOPE_ID_ATTR, _classify_extended, _constant_sources, _contains_runtime_function, _inside_nested_query, _selected_sources, _source_free_leaf_sources, _source_item_from_ast_node, _source_ref_for_source, _source_scope_id, _system_sources, _unique_ordered__resolver as _unique_ordered  # noqa: F401  (shared helpers; re-exported)
 from .column_ref_resolver import _materialized_star_column_state, _resolve_column_refs_in_expr  # noqa: F401
+from ._shared import (  # noqa: F401
+    _REGEX_COLUMN_METACHARACTERS,
+    _compiled_column_pattern,
+)
 from .select_scope import _resolve_select_scope  # noqa: F401
 from .target_field_binding import apply_target_field_binding
 
@@ -547,7 +550,6 @@ def _refresh_union_scopes_after_star_expansion(
         _resolve_scope_union_passthrough(scope_id, scope_data, result)
 
 
-_REGEX_COLUMN_METACHARACTERS = set(".*+?[]()|^$\\")
 
 
 def _expand_regex_column_selection(
@@ -609,25 +611,8 @@ def _looks_like_regex_column_selection(
     return _compiled_column_pattern(name) is not None
 
 
-_POSSESSIVE_QUANTIFIER = re.compile(r"\(((?:[^()\\]|\\.)*)\)([?*+])\+")
 
 
-def _compiled_column_pattern(pattern: str):
-    """Compile a Spark column pattern the same way on every supported Python.
-
-    Spark's exclusion idiom uses a possessive quantifier — ``(dt)?+.+`` reads as "every
-    column except dt", because ``(dt)?+`` consumes ``dt`` without giving it back. Python
-    only accepts that syntax from 3.11, and this project supports 3.9, so it is rewritten
-    to the lookahead-and-backreference form that behaves identically everywhere. Letting
-    the compile simply fail on older interpreters would make the same SQL produce different
-    lineage depending on the Python running it.
-    """
-    for candidate in (pattern, _POSSESSIVE_QUANTIFIER.sub(r"(?=((?:\1)\2))\\1", pattern)):
-        try:
-            return re.compile(candidate)
-        except re.error:
-            continue
-    return None
 
 
 def _columns_matching_regex_selection(
