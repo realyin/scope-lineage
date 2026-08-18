@@ -8,11 +8,13 @@
 
 | 子缺口 | gap 数 | 涉及任务 | 状态 |
 | --- | --- | --- | --- |
-| A. UNION 分支映射在合成 scope 命名空间中解析 | 32 | `batch_strategy_tools`、`01_perform_analysis_task` | **根因已确认，可开发** |
-| B. PIVOT 未建模 | 32 | `lyn_deducted_channel` | **根因已确认，可开发** |
-| E. 正则通配投影后未重试裸列归属 | 6 | `lxs_jhy_batch_adjcrdt_regular` | **根因已确认，可开发** |
-| C. CTE 投影与下游引用 | ~27 | `pjl_bi_mxg_session_kelianlv_daily_d_di` 等 | 症状确认，**根因未定位** |
+| **A + C + ⑩ 实为同一回归**：未展开的 `a.*` 被当成正则模式 | **122** | `01_perform_analysis_task`(64)、`batch_strategy_tools`(44)、`pjl_bi_mxg_...`(14) | **已修复**（见第 6 节） |
+| E. 正则通配投影后未重试裸列归属 | 6 | `lxs_jhy_batch_adjcrdt_regular` | **已修复** |
+| B. PIVOT 未建模 | 32 | `lyn_deducted_channel` | 根因已确认，未修完（见 `wip/pivot-output-columns`） |
 | D. 裸列上的 struct 成员访问 | 18 | `mapp_iceberg_tbls_df` | 症状确认，**根因未定位** |
+
+> A 和 C 原本被写成两条独立缺口，各自的"根因"都是猜的，都不成立。逐层插桩后它们收敛到同一个
+> 回归，一行代码修掉 122 个缺口。教训写在第 6 节。
 
 A + B + E = **70 个 gap，占 39%**，三条都有合成复现，可以直接进入开发。C、D 见第 5 节，里面记了已经被排除的假设，避免重复试错。
 
@@ -156,7 +158,7 @@ ROOT:  a | 't1.a' | resolved
 
 ---
 
-## 5. 尚未定位的两条（C、D）
+## 5. 尚未定位的一条（D）
 
 **这一节记录已经被证伪的假设，下一位不必重试。**
 
@@ -199,3 +201,50 @@ SELECT c.id, COUNT(DISTINCT c.name) FROM c GROUP BY c.id
 | 回归面 | 抽样 200 个任务，缺口数与状态逐任务对比 |
 
 **验收以真实任务的 gap 数为准，不以合成用例通过为准。** 合成用例可以复现症状却不复现成因——本仓库已经发生过：缺口⑤的修复曾落在错误的分支里，合成用例全绿而真实任务纹丝不动。反过来也发生过：本方案中 C、D 两条的假设，正是因为合成用例**跑不出症状**才被证伪。
+
+
+---
+
+## 6. 定位记录：A 与 C 收敛到同一个回归
+
+**症状**：`cte:cust_details` 的投影是 `select a.*, r.planned_round`，上游 `cte:cust_bases` 有 63 列，
+但该 scope 最终只有 2 列 —— `planned_round` 和 `app_code`。下游一切引用随之断链。
+
+**被证伪的三个假设**（每个都构造了合成用例，全部 0 缺口，即症状都复现不出来）：
+
+1. UNION 分支映射在错误的命名空间解析 —— `_union_branch_mappings_for_output` 本来就用分支自己的解析结果。
+2. CTE 的 `a.*` 展不开 —— `WITH c AS (SELECT a.*, COALESCE(...) ...)` 下游按名引用正常。
+3. 星号链（物理表 → 分支 `a.*` → UNION → 再一层 `a.*`）—— 也正常。
+
+**插桩才找到**。三步：
+
+```text
+① 星号展开时机
+   [星号展开] scope=cte:cust_details 别名=a 上游=cte:cust_bases 上游此刻列数=0 展开出=0
+   → 上游是 UNION 支撑的 CTE，列在更晚的一趟才产生；按设计退化成 `a.*` 占位列。这一步是对的。
+
+② 占位列消失在哪一趟之前
+   _expand_star_columns 前: ['planned_round', 'app_code']    ← 占位列已经没了
+
+③ 谁替换了它
+   _expand_regex_column_selection 前: ['a.*', 'planned_round']
+   _expand_regex_column_selection 后: ['planned_round', 'app_code']
+```
+
+**根因**：0.1.6 加入的 Spark 正则通配列选择，把 `a.*` 这个**未展开的星号占位列**当成了正则模式。
+`a.*` 恰好是合法正则（"a 开头的任意名字"），在 63 列里只匹配到 `app_code`。占位列因此被消耗掉，
+真正负责展开它的不动点过程再也看不到它。
+
+触发需要两个条件同时成立：**上游列在建列时尚不可知**（UNION 支撑的 CTE），且**上游有列名恰好能被
+"别名 + `.*`" 匹配**。这解释了为什么只有深层脚本会中招，而任何小合成用例都复现不了。
+
+**修复**：`_looks_like_regex_column_selection` 排除 `transform == "EXPAND_ALL"` 与以 `.*` 结尾的名字。
+一行判定，122 个缺口归零。
+
+### 教训
+
+- **"根因"没插桩验证过就不要写进方案。** 这份文档先前给 A 和 C 各写了一个根因，两个都不成立，
+  而且照着改就会去修不存在的问题。
+- **合成用例复现不出症状，说明假设错了，不说明问题不存在。** 三个假设正是这样被排除的。
+- **回归可能来自自己最近的修复。** 这个缺口的成因是 0.1.6 里我们自己加的功能，而外部清单把它
+  描述成了两类不同的"能力缺口"。

@@ -606,6 +606,13 @@ def _looks_like_regex_column_selection(
     name = column.name or ""
     if not name or name == "*" or not (set(name) & _REGEX_COLUMN_METACHARACTERS):
         return False
+    if column.transform == "EXPAND_ALL" or name.endswith(".*"):
+        # `a.*` is an unexpanded star waiting for its upstream columns, not a pattern —
+        # and read as a pattern it matches whatever happens to start with "a", so a 63
+        # column star became the one column named app_code. The placeholder only exists
+        # when the upstream was still empty at construction time, which is why deep
+        # scripts hit this and small ones never do (REGEX-COLUMN-002).
+        return False
     if any(name in names for names in inputs.values()):
         return False
     return _compiled_column_pattern(name) is not None
