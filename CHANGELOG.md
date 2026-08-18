@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Said where the reader looks when a source table's columns were never supplied. The fact
+  was already in `metadata_coverage`, but `analysis_status` said `partial` for
+  `lineage_fact_gap` and the document carried thousands of records — every one of those
+  words meaning "the parser could not handle this SQL". `blocking_reasons` now names
+  `metadata_incomplete` ahead of `lineage_fact_gap`, and a warning lists the source tables
+  that were missing. Sources only: a target without a schema entry is an ordinary shape and
+  is never why a source-side reference failed
+
 - Resolved `col.field` on a struct column written without a table alias. `alias.col.field`
   carries three parts and was handled; the two-part form had its first part looked up as a
   table alias, found nothing, and reported the column as an unbound alias. Whether the alias

@@ -120,6 +120,29 @@ warning 不是固定封闭枚举；机器处理应对已知类型设策略，对
 
 这些值可以用于检索排序和复杂度分桶，例如优先让 Agent 分析 `max_depth` 高、JOIN/UNION 多的任务；它们不能单独证明 SQL 风险或业务重要性。
 
+## 4.5 先看 `metadata_coverage`，再看 `lineage_fact_gaps`
+
+**这是读本文档的必要顺序，不是建议。**
+
+字段级缺口不区分原因：工具解析不了某种 SQL、和这次运行根本没拿到源表的列，产出的记录**长得一模一样**
+（`missing_reasons: ["no_physical_source_fields"]`）。按缺口数排优先级时，第二种会把第一种彻底淹没。
+
+因此当**源表**缺少列元数据时，产物会在两处直说：
+
+- `analysis_status.blocking_reasons` 里出现 `metadata_incomplete`，且**排在 `lineage_fact_gap` 之前**——
+  先给原因，再给症状；
+- `warnings[]` 里有一条 `type: "metadata_incomplete"`，写明缺了哪几张源表。
+
+看到 `metadata_incomplete` 时，**这份文档里的字段级缺口不能计入工具能力缺口**，应先补齐元数据重跑。
+
+> 只统计源表。目标表没有 schema 条目是常态（目标 DDL 由 `--target-ddl-metadata` 单独传入），
+> 而且它不可能是源侧引用解析失败的原因——把它算进来会给本来与元数据无关的缺口扣上元数据的帽子。
+
+真实发生过的后果：某次运行 4 张源表 0 张有元数据，产出 4,158 条缺口，`blocking_reasons` 只写了
+`lineage_fact_gap`。同一份数据先后被三份报告读成"解析能力不足"。补齐元数据后同一任务是 **0 缺口**。
+
+判定方法与三个探针见[怎样正确统计血缘缺口](measuring-lineage-gaps.md)。
+
 ## 5. `lineage_fact_gaps[]`：未证明事实
 
 Schema 对 gap value 保持可扩展，因为不同解析缺口需要携带不同证据。Core 当前生成的公共字段如下：
