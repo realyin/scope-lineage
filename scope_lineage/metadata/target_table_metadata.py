@@ -364,6 +364,146 @@ def _columns_from_schema(
     return columns
 
 
+#: Words that open a table-level constraint rather than name a column. Quoting one of
+#: these would turn a constraint into a nonsense column definition.
+_CONSTRAINT_STARTERS = frozenset({
+    "PRIMARY",
+    "FOREIGN",
+    "UNIQUE",
+    "CONSTRAINT",
+    "CHECK",
+    "KEY",
+    "INDEX",
+})
+
+
+def _spark_keywords() -> frozenset[str]:
+    from sqlglot.dialects import Spark
+
+    return frozenset(
+        word for word in Spark.Tokenizer.KEYWORDS if " " not in word
+    )
+
+
+def _column_list_bounds(ddl: str) -> tuple[int, int] | None:
+    """Locate the top-level column list, or report that it could not be found.
+
+    Scanning rather than matching: a COMMENT may carry parentheses and commas of its own,
+    and mistaking one for structure would corrupt the DDL instead of merely failing to
+    normalize it.
+    """
+    depth = 0
+    start = -1
+    quote = ""
+    index = 0
+    while index < len(ddl):
+        char = ddl[index]
+        if quote:
+            if char == "\\":
+                index += 2
+                continue
+            if char == quote:
+                quote = ""
+        elif char in "'\"`":
+            quote = char
+        elif char == "(":
+            depth += 1
+            if depth == 1:
+                start = index
+        elif char == ")":
+            depth -= 1
+            if depth == 0 and start >= 0:
+                return start, index
+            if depth < 0:
+                return None
+        index += 1
+    return None
+
+
+def _split_column_definitions(region: str) -> list[str] | None:
+    """Split a column list on its own commas — those at nesting depth zero."""
+    segments: list[str] = []
+    depth = 0
+    quote = ""
+    current = 0
+    index = 0
+    while index < len(region):
+        char = region[index]
+        if quote:
+            if char == "\\":
+                index += 2
+                continue
+            if char == quote:
+                quote = ""
+        elif char in "'\"`":
+            quote = char
+        elif char in "(<":
+            depth += 1
+        elif char in ")>":
+            depth -= 1
+            if depth < 0:
+                return None
+        elif char == "," and depth == 0:
+            segments.append(region[current:index])
+            current = index + 1
+        index += 1
+    if quote or depth:
+        return None
+    segments.append(region[current:])
+    return segments
+
+
+def _quoted_column_definition(segment: str, keywords: frozenset[str]) -> str:
+    stripped = segment.lstrip()
+    if not stripped or not (stripped[0].isalpha() or stripped[0] == "_"):
+        return segment
+    name = ""
+    for char in stripped:
+        if char.isalnum() or char == "_":
+            name += char
+        else:
+            break
+    upper = name.upper()
+    if upper not in keywords or upper in _CONSTRAINT_STARTERS:
+        return segment
+    rest = stripped[len(name):]
+    if not rest.strip():
+        # A lone word is not a column definition; leave it for the parser to judge.
+        return segment
+    lead = segment[: len(segment) - len(stripped)]
+    return f"{lead}`{name}`{rest}"
+
+
+def _quoted_keyword_column_names(ddl: str) -> str:
+    """Backquote column names that are reserved words, before sqlglot sees them.
+
+    sqlglot's Spark dialect does not terminate on ``CREATE TABLE db.t (a DOUBLE, not
+    DOUBLE)`` — 30.0.0, 30.6.0 and 30.17.0 all hang on that one statement, and quoting the
+    name makes it parse in milliseconds. The metadata DDL is a platform export, so such a
+    column is legal and real: dropping the table would be the wrong answer, and a caller
+    cannot wrap sqlglot in a timeout because ``signal.alarm`` is swallowed by sqlglot's own
+    ``except Exception``. Removing the trigger is the only place left to act
+    (METADATA-002).
+
+    Quoting is an equivalent rewrite — ``ColumnDef.name`` strips the quotes again — so the
+    facts extracted downstream are unchanged. Anything this function cannot locate with
+    confidence is returned untouched, leaving the verdict to the existing parse-failure
+    path.
+    """
+    bounds = _column_list_bounds(ddl)
+    if bounds is None:
+        return ddl
+    start, end = bounds
+    segments = _split_column_definitions(ddl[start + 1:end])
+    if segments is None:
+        return ddl
+    keywords = _spark_keywords()
+    rewritten = [_quoted_column_definition(segment, keywords) for segment in segments]
+    if rewritten == segments:
+        return ddl
+    return ddl[: start + 1] + ",".join(rewritten) + ddl[end:]
+
+
 def _facts_from_ddl(
     ddl: str,
     issues: list[str],
@@ -373,7 +513,7 @@ def _facts_from_ddl(
         return "", [], []
     try:
         tree = sqlglot.parse_one(
-            ddl,
+            _quoted_keyword_column_names(ddl),
             dialect="spark",
             error_level=ErrorLevel.RAISE,
         )
