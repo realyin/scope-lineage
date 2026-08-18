@@ -27,6 +27,8 @@ from .scope_types import (
 # module, making import order load-bearing (ARCH-001).
 from ._shared import (
     _REGEX_COLUMN_METACHARACTERS,
+    _pivot_of_source_node,
+    _pivot_output_names,
     _compiled_column_pattern,
     _find_alias_in_parent,
     _ORIGINALLY_UNQUALIFIED_META,
@@ -121,6 +123,11 @@ def _resolve_column_ref(col_ref: exp.Column, sg_scope: Scope, result: ScopeLinea
                 result,
                 schema,
             )
+        pivot_ref = _resolve_pivot_output_column(
+            table_alias, col_name, sg_scope, result, schema
+        )
+        if pivot_ref is not None:
+            return pivot_ref
         udtf_ref = _resolve_udtf_output_column_qualifier(table_alias, sg_scope, result)
         if udtf_ref is not None:
             return udtf_ref
@@ -128,6 +135,54 @@ def _resolve_column_ref(col_ref: exp.Column, sg_scope: Scope, result: ScopeLinea
         return SourceRef(scope='UNKNOWN', column=col_name)
     else:
         return _resolve_unqualified(col_name, sg_scope, result, schema)
+
+
+def _resolve_pivot_output_column(
+    table_alias: str,
+    col_name: str,
+    sg_scope: Scope,
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> SourceRef | None:
+    """Resolve ``pivot_alias.column`` to the columns the PIVOT aggregates.
+
+    A PIVOT turns the values of its FOR key into column names, so `p.A` is not a column of
+    anything sqlglot registered as a source — the alias belongs to the pivot, and the name
+    comes from the IN list. Its value comes from the aggregate, so that is where the lineage
+    points (PIVOT-001).
+
+    A non-literal IN list leaves the column set unknowable; returning None keeps the caller
+    on its unresolved path rather than binding a name nobody proved exists.
+    """
+    for node in _pivoted_source_nodes(sg_scope):
+        pivot = _pivot_of_source_node(node)
+        if pivot is None or getattr(pivot, "alias", None) != table_alias:
+            continue
+        names = _pivot_output_names(pivot)
+        # Case-insensitively: the IN list carries the literal as written, while qualify
+        # normalizes the reference, so `IN ('A')` and `p.a` are the same column.
+        if not names or col_name.lower() not in {name.lower() for name in names}:
+            return None
+        for aggregate in pivot.expressions:
+            for column in aggregate.find_all(exp.Column):
+                resolved = _resolve_column_ref(column, sg_scope, result, schema)
+                if resolved is not None:
+                    return resolved
+        return None
+    return None
+
+
+def _pivoted_source_nodes(sg_scope: Scope):
+    """FROM and JOIN items of this scope, where a PIVOT can be attached."""
+    expression = sg_scope.expression
+    if not isinstance(expression, exp.Select):
+        return
+    from_ = expression.args.get("from_")
+    if from_ is not None and getattr(from_, "this", None) is not None:
+        yield from_.this
+    for join in expression.args.get("joins") or []:
+        if join.this is not None:
+            yield join.this
 
 
 def _resolve_struct_field_ref(

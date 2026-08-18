@@ -23,7 +23,7 @@ from .scope_types import (
     DiagnosticWarning,
     SourceRef,
 )
-from ._shared import ExpansionBudget, _source_item_from_ast_node
+from ._shared import ExpansionBudget, _pivot_of_source_node, _source_item_from_ast_node
 from ._shared import _cached_pattern, _dedupe_generated_source_dicts, _dedupe_physical_field_dicts, _dedupe_rowset_source_dicts, _extend_unique, _find_alias_in_parent, _function_names, _is_cross_join_type, _is_internal_scope_id, _normalize_expression_resolution, _ordered_physical_fields_in_expression, _physical_fields_referenced_in_expression, _physical_source_fields_for_refs, _physical_source_ids_for_input, _populate_union_output_branch_mappings, _qualified_field_refs, _qualified_physical_field_sql, _replace_qualified_ref_with_expression, _replace_struct_field_access_from_upstream, _replace_unqualified_ref_with_expression, _resolve_expression_resolution_from_output_sources, _resolved_expression_fact_from_source_refs, _rowset_sources_from_upstream_output, _source_kind_for_resolution, _source_ref_to_dict, _source_refs_from_detail_fields, _source_type_from_id, _star_passthrough_output_fact, _strip_sql_comments, _unexpanded_bound_aliases_in_expression, _unique_ordered, DIALECT, PARSE_OPTS, _AGGREGATE_FUNCTIONS, _CLEANING_FUNCTIONS, _KNOWN_SCALAR_FUNCTIONS, _SCOPE_ID_ATTR
 from .column_expression_resolution import _expression_resolution_for_scope_column
 from .lineage_fact_gaps import _populate_lineage_fact_gaps
@@ -171,11 +171,16 @@ def _populate_input_edges(scope_data: ScopeData, sg_scope: Scope) -> None:
         item = _source_item_from_ast_node(source, sg_scope)
         if item:
             alias, src = item
+            # A PIVOT is the relation downstream references, so its alias is the one that
+            # has to appear here. sqlglot keeps the pivoted subquery's own alias in
+            # scope.sources, and using that left `p.A` with no alias to bind (PIVOT-001).
+            pivot = _pivot_of_source_node(source)
+            pivot_alias = getattr(pivot, "alias", None) if pivot is not None else None
             edges.append(
                 ScopeInputEdge(
                     source_id=_source_id_for_input(src),
                     source_type=_source_type_for_input(src),
-                    alias=alias,
+                    alias=pivot_alias or alias,
                     position="from",
                 )
             )

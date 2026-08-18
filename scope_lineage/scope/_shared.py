@@ -1490,3 +1490,34 @@ def _compiled_column_pattern(pattern: str):
         except re.error:
             continue
     return None
+
+
+def _pivot_of_source_node(node) -> object | None:
+    """Return the PIVOT attached to a FROM/JOIN item, if it has one."""
+    pivots = getattr(node, "args", {}).get("pivots") or []
+    return pivots[0] if pivots else None
+
+
+def _pivot_output_names(pivot) -> list[str] | None:
+    """Column names a PIVOT produces, or None when the IN list is not a literal list.
+
+    The IN list is the column set: ``FOR k IN ('A', 'B')`` produces columns A and B. A
+    subquery or ANY in that position leaves the set unknowable, and the caller must report
+    a gap rather than bind to a name it guessed (PIVOT-001).
+    """
+    from sqlglot import exp
+
+    fields = getattr(pivot, "args", {}).get("fields") or []
+    names: list[str] = []
+    for field in fields:
+        if not isinstance(field, exp.In):
+            return None
+        for item in field.expressions:
+            if isinstance(item, exp.Alias):
+                names.append(item.alias)
+                continue
+            if isinstance(item, exp.Literal):
+                names.append(str(item.this))
+                continue
+            return None
+    return names or None
