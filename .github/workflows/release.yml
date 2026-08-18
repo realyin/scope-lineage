@@ -33,9 +33,18 @@ jobs:
           actual_tag = os.environ["RELEASE_TAG"]
           expected_tag = f"v{version}"
           if actual_tag != expected_tag:
+              # The usual cause is ordering: the release was cut from a commit that predates
+              # the version bump, so the tag names a version pyproject.toml has not reached
+              # yet. Saying only which two strings differ leaves the reader to rediscover
+              # that every time, so name the likely cause and the way out.
               raise SystemExit(
                   f"Release tag {actual_tag!r} does not match package version "
-                  f"{version!r}; expected {expected_tag!r}"
+                  f"{version!r}; expected {expected_tag!r}.\n"
+                  f"The commit this release points at still declares {version!r}. "
+                  f"If {actual_tag!r} is the version you meant to ship, the bump commit is "
+                  f"probably not included: delete this release and its tag, then create it "
+                  f"again from the commit that sets the version. Otherwise bump "
+                  f"pyproject.toml to {actual_tag.lstrip('v')!r} first."
               )
           print(f"Release tag {actual_tag} matches package version {version}")
           PY
