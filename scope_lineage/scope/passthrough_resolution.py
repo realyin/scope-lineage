@@ -19,6 +19,7 @@ from .scope_types import (
 from ._shared import (
     _dedupe_generated_source_dicts,
     _generated_sources_from_refs,
+    _cached_pattern,
     _is_internal_scope_id,
     _physical_fields_referenced_in_expression,
     _qualified_physical_field_sql,
@@ -174,22 +175,46 @@ def _expression_has_internal_source_alias(expression: str | None, sources: list[
     return any((_qualifier_present(expression, qualifier) for qualifier in (_internal_scope_alias(source.scope) for source in sources) if qualifier))
 
 
+# The same question scope_facts asks, asked here about a scope's sources instead of its
+# refs. Profiling put it at roughly a quarter of the run on a large statement — the answer depends only
+# on the expression and the source columns, so it is remembered (PERF-002).
+_STRUCT_ACCESS_CACHE: dict[tuple[str, tuple[str, ...]], bool] = {}
+
+
 def _expression_has_struct_member_access(
     expression: str | None,
     sources: list[SourceRef],
 ) -> bool:
     expression = str(expression or "")
+    key = (
+        expression,
+        tuple(
+            source.column or ""
+            for source in sources
+            if _is_internal_scope_id(source.scope) and source.column
+        ),
+    )
+    cached = _STRUCT_ACCESS_CACHE.get(key)
+    if cached is None:
+        cached = _expression_has_struct_member_access_uncached(expression, sources)
+        _STRUCT_ACCESS_CACHE[key] = cached
+    return cached
+
+
+def _expression_has_struct_member_access_uncached(
+    expression: str,
+    sources: list[SourceRef],
+) -> bool:
     for source in sources:
         if not _is_internal_scope_id(source.scope) or not source.column:
             continue
         field = re.escape(source.column)
-        if re.search(rf"`[^`]+`\.`{field}`\.`[^`]+`", expression):
+        if _cached_pattern(rf"`[^`]+`\.`{field}`\.`[^`]+`").search(expression):
             return True
-        if re.search(
+        if _cached_pattern(
             rf"(?<![.`\w])[A-Za-z_][A-Za-z0-9_]*\.{field}\."
-            rf"[A-Za-z_][A-Za-z0-9_]*(?![`.\w])",
-            expression,
-        ):
+            rf"[A-Za-z_][A-Za-z0-9_]*(?![`.\w])"
+        ).search(expression):
             return True
     return False
 

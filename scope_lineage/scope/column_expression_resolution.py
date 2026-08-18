@@ -17,6 +17,7 @@ from .scope_types import (
 # formed a cycle that only worked because Python hands out a partially-initialised
 # module, making import order load-bearing (ARCH-001).
 from ._shared import (
+    _cached_pattern,
     DIALECT,
     PARSE_OPTS,
     _generated_sources_from_refs,
@@ -198,5 +199,5 @@ def _qualifier_is_direct_physical_source(scope_data: ScopeData, qualifier: str, 
 def _replace_qualified_field_ref(expression: str, qualifier: str, field: str, physical_table: str) -> str:
     qualified = _qualified_physical_field_sql(physical_table, field)
     expression = expression.replace(f'`{qualifier}`.`{field}`', qualified)
-    expression = re.sub(f'(?<![.`\\w]){re.escape(qualifier)}\\.{re.escape(field)}(?![`.\\w])', lambda _match: qualified, expression)
+    expression = _cached_pattern(f'(?<![.`\\w]){re.escape(qualifier)}\\.{re.escape(field)}(?![`.\\w])').sub(lambda _match: qualified, expression)
     return expression
