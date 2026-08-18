@@ -1468,3 +1468,25 @@ def _classify_extended(node: exp.Expression) -> str:
         if func_name in _KNOWN_UDAFS:
             return "AGGREGATE"
     return "EXPRESSION"
+
+
+_REGEX_COLUMN_METACHARACTERS = set(".*+?[]()|^$\\")
+
+_POSSESSIVE_QUANTIFIER = re.compile(r"\(((?:[^()\\]|\\.)*)\)([?*+])\+")
+
+def _compiled_column_pattern(pattern: str):
+    """Compile a Spark column pattern the same way on every supported Python.
+
+    Spark's exclusion idiom uses a possessive quantifier — ``(dt)?+.+`` reads as "every
+    column except dt", because ``(dt)?+`` consumes ``dt`` without giving it back. Python
+    only accepts that syntax from 3.11, and this project supports 3.9, so it is rewritten
+    to the lookahead-and-backreference form that behaves identically everywhere. Letting
+    the compile simply fail on older interpreters would make the same SQL produce different
+    lineage depending on the Python running it.
+    """
+    for candidate in (pattern, _POSSESSIVE_QUANTIFIER.sub(r"(?=((?:\1)\2))\\1", pattern)):
+        try:
+            return re.compile(candidate)
+        except re.error:
+            continue
+    return None
