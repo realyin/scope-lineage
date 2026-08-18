@@ -1,108 +1,99 @@
 # 投影绑定类缺口修复方案（TDD）
 
-## 0. 范围与结论先行
+## 0. 范围与状态
 
-外部缺口清单把这批问题归成一条"缺口⑨ CTE/子查询引用别名未绑定"。**实测不成立：这是 5 个互相独立的能力缺口**，共 178 个 gap，分布在 6 个任务上。把它们当成一个根因去修，会出现"合成用例通过、真实任务不动"的结果。
+外部缺口清单把这批问题归成一条"缺口⑨ CTE/子查询引用别名未绑定"。**实测不成立：这是 5 个互相独立的能力缺口**，共 178 个 gap、6 个任务。按一个根因去修，会出现"合成用例通过、真实任务不动"。
 
-按类型与 scope 归类（正确加载元数据后实测）：
+按定位状态分成两组：
 
-| 子缺口 | gap 数 | 涉及任务 | 根因确信度 |
+| 子缺口 | gap 数 | 涉及任务 | 状态 |
 | --- | --- | --- | --- |
-| A. UNION 分支映射在合成 scope 命名空间中解析 | 32 | `batch_strategy_tools`、`01_perform_analysis_task` | **高**（已定位到 scope 输入边） |
-| B. PIVOT 输出列未建模 | 32 | `lyn_deducted_channel` | **高**（SQL 形态明确） |
-| C. CTE `a.*` 投影未展开，下游引用无法绑定 | ~27 | `pjl_bi_mxg_session_kelianlv_daily_d_di`、`01_perform_analysis_task` | 中 |
-| D. 裸列上的 struct 成员访问被当作表限定 | 18 | `mapp_iceberg_tbls_df` | 中 |
-| E. 正则通配投影 + 多输入时裸列无法归属 | 6 | `lxs_jhy_batch_adjcrdt_regular` | 中 |
+| A. UNION 分支映射在合成 scope 命名空间中解析 | 32 | `batch_strategy_tools`、`01_perform_analysis_task` | **根因已确认，可开发** |
+| B. PIVOT 未建模 | 32 | `lyn_deducted_channel` | **根因已确认，可开发** |
+| E. 正则通配投影后未重试裸列归属 | 6 | `lxs_jhy_batch_adjcrdt_regular` | **根因已确认，可开发** |
+| C. CTE 投影与下游引用 | ~27 | `pjl_bi_mxg_session_kelianlv_daily_d_di` 等 | 症状确认，**根因未定位** |
+| D. 裸列上的 struct 成员访问 | 18 | `mapp_iceberg_tbls_df` | 症状确认，**根因未定位** |
 
-其余 gap 落在上述任务的下游传播上（父 output 因分支映射未解析而带 `union_branch_mapping_unresolved`）。
-
-建议实施顺序 **A → B → C → D → E**：A 的根因已经定位到具体数据结构，改动面最小且能连带消掉父 output 的告警；B 是独立新增能力；C/D/E 需要各自再做一轮代码级定位。
+A + B + E = **70 个 gap，占 39%**，三条都有合成复现，可以直接进入开发。C、D 见第 5 节，里面记了已经被排除的假设，避免重复试错。
 
 ---
 
-## 子缺口 A：UNION 分支映射在合成 scope 命名空间中解析
-
-### 问题
-
-合成 UNION scope 的 `output.union_branch_mapping` 事实无法解析到物理源，父 output 随之带 `union_branch_mapping_unresolved`。
+## A. UNION 分支映射在合成 scope 命名空间中解析（32）
 
 ### 证据（`batch_strategy_tools`）
 
-```
+```text
 scope union:main        输入边=0   outputs=16
 scope union:main:b01    输入边=2   a -> cte:cust_details, b -> cte:rcs_send_details
 scope union:main:b02    输入边=2   a -> cte:cust_details_no_round, b -> cte:rcs_send_details
 ```
 
-gap：
-
 ```json
-{"scope_id": "union:main",
- "object_name": "send_dt@union:main:b01",
- "object_type": "output.union_branch_mapping",
- "expression_sql": "`a`.`dt`",
- "missing_reasons": ["no_physical_source_fields"],
- "candidate_source_ids": null}
+{"scope_id": "union:main", "object_name": "send_dt@union:main:b01",
+ "object_type": "output.union_branch_mapping", "expression_sql": "`a`.`dt`",
+ "missing_reasons": ["no_physical_source_fields"], "candidate_source_ids": null}
 ```
 
 ### 根因
 
-分支映射表达式写在**分支的别名命名空间**里（`a` 绑定在 `union:main:b01` 上），却在**合成 UNION scope** 的命名空间里解析。合成 scope 是集合运算节点，按设计输入边为 0，`a` 在那里永远无法解析。
+分支映射表达式写在**分支的别名命名空间**里（`a` 绑在 `union:main:b01` 上），却在**合成 UNION scope** 的命名空间里解析。合成 scope 是集合运算节点，按设计输入边为 0，`a` 在那里永远解析不了。
 
-分支 scope id 已经在事实里现成可得——既在 `object_name` 的 `@` 之后，也在分支映射记录本身。
+分支 scope id 现成可得：既在 `object_name` 的 `@` 之后，也在分支映射记录里。
 
-### 开发方案
+### 方案
 
-在解析 `output.union_branch_mapping` 事实时，用**该映射所属分支 scope** 的输入边与别名绑定作为解析上下文，而不是所在 scope 的。父 output 的 `union_branch_mapping_unresolved` 在所有分支映射解析成功后不再产生。
-
-改动集中在 `scope_lineage/scope/scope_facts.py` 的表达式解析入口——需要它接受一个"解析上下文 scope"参数，默认仍是事实所在 scope。
+解析 `output.union_branch_mapping` 事实时，用**该映射所属分支 scope** 的输入边与别名绑定作为上下文，而不是事实所在 scope 的。表达式解析入口需要接受一个"解析上下文 scope"参数，默认仍是事实所在 scope。父 output 的 `union_branch_mapping_unresolved` 在所有分支映射解析成功后自然消失。
 
 ### TDD case（合成）
 
 | # | 用例 | 断言 |
 | --- | --- | --- |
-| A1 | 两分支 UNION，各自 `FROM` 一张物理表并起别名 `a`，投影 `a.col` | 两条分支映射均解析到各自物理表列，无 gap |
-| A2 | 两分支别名相同（都叫 `a`）但指向不同表 | 各自解析到**各自**的表，不串味 |
+| A1 | 两分支 UNION，各自 `FROM` 一张物理表并起别名 `a`，投影 `a.col` | 两条分支映射解析到各自物理表列，无 gap |
+| A2 | 两分支别名同为 `a` 但指向不同表 | 各自解析到**各自**的表，不串味 |
 | A3 | 分支内是 JOIN，投影引用 join 侧别名 | 解析到 join 侧表列 |
-| A4 | 某分支确实无法解析 | 只有该分支的映射产生 gap，父 output 仍标 `union_branch_mapping_unresolved`；另一分支不受牵连 |
-| A5 | 三层嵌套 UNION | 分支映射按最内层分支的命名空间解析 |
+| A4 | 某分支确实无法解析 | 只有该分支的映射产生 gap，父 output 仍标 `union_branch_mapping_unresolved`，另一分支不受牵连 |
+| A5 | 三层嵌套 UNION | 按最内层分支的命名空间解析 |
 
-### 验证
+### 验收
 
-`batch_strategy_tools` 从 44 降到 ≤ 26（消掉 union合成 的 9 + 9）；`01_perform_analysis_task` 从 64 降到 ≤ 50。两份逐字节基线零差异。
+`batch_strategy_tools` 44 → ≤ 26；`01_perform_analysis_task` 64 → ≤ 50。两份逐字节基线零差异。
 
 ---
 
-## 子缺口 B：PIVOT 输出列未建模
+## B. PIVOT 未建模（32）
 
-### 问题
+### 证据
 
-`PIVOT` 产生的列在下游被引用时无法绑定到源列。
+代码库中对 `exp.Pivot` **零处理**（`grep -rn "Pivot" scope_lineage/` 无结果）。
 
-### 证据（`lyn_deducted_channel`，32 个 gap 全部由此产生）
+合成复现：
 
 ```sql
-select ... avg(t1.DPMAF034SCORE) as avg_034, ...
-from ( ... ) a
-left join (
-  select * from ( ... ) 
-  pivot( max(value_fixed) for score in ('DPMAF034SCORE','DPMAF035SCORE', ...) )
-) t1 on ...
+INSERT INTO mart.t SELECT p.A AS a_val, p.B AS b_val
+FROM (SELECT k, v, amt FROM ods.src) PIVOT (max(amt) FOR k IN ('A', 'B')) p
 ```
 
-gap：`{"object_name": "avg_034", "expression_sql": "AVG(`t1`.`dpmaf034score`)", "missing_reasons": ["no_physical_source_fields"]}`
+```text
+scope subq:_0: 输入边=[('ods.src', 'src')]   k / v / amt 均 resolved
+scope ROOT:    输入边=[('subq:_0', '_0')]     a_val | `p`.`a` | unresolved
+                                              b_val | `p`.`b` | unresolved
+```
 
-同一 scope 里其它 `t1.*` 列（`prod_cd`、`app_code` 等）解析正常——说明不是 scope 或别名的问题，只是 PIVOT 这一种投影形态没有输出列。
+真实任务 `lyn_deducted_channel` 的 32 个 gap 形态完全一致：`AVG(t1.dpmaf034score)` 解析不到源，而同一 scope 内其它 `t1.*` 列正常——不是 scope 或别名的普遍问题，只是 PIVOT 这一种形态没有输出列。
 
-### 根因
+### 根因（两个子问题）
 
-`PIVOT(agg(v) FOR k IN (l1, l2, ...))` 的输出列名来自 `IN` 列表的字面量，值来自聚合表达式。工具没有为 PIVOT 节点产出投影列，于是下游对这些列名的引用没有可绑定的上游输出。
+1. **PIVOT 的别名没有注册成输入源**。ROOT 的输入边是内层子查询 `('subq:_0', '_0')`，别名 `p` 根本不在输入边里，所以 `p.a` 连别名都绑不上。
+2. **PIVOT 的输出列没有推导**。输出列名来自 `IN` 列表的字面量（sqlglot 里在 `Pivot.args['fields']`），值来自聚合表达式（`Pivot.expressions`）。
 
-### 开发方案
+### 方案
 
-为 PIVOT 增加输出列推导：`IN` 列表中每个字面量成为一个输出列，其表达式血缘指向聚合函数内部引用的列（本例 `value_fixed`），并保留 `FOR` 键列的来源。带别名的 `IN` 项（`'x' AS y`）以别名为列名。
+把 PIVOT 建模成一个产出列的关系节点：
 
-`IN` 列表非字面量（子查询、`ANY`）时不推导，改为记录一条事实缺口——符合"不确定就报缺口，不给自信的错误答案"的约定。
+- 输入边用 PIVOT 的别名（`p`），指向被 pivot 的子查询；
+- `IN` 列表中每个字面量成为一个输出列，其血缘指向聚合函数内部引用的列，并保留 `FOR` 键列的来源；
+- 带别名的 `IN` 项（`'x' AS y`）以别名为列名；
+- `IN` 列表非字面量（子查询、`ANY`）时不推导，记一条事实缺口而不是猜——符合"不确定就报缺口"的约定。
 
 ### TDD case（合成）
 
@@ -110,75 +101,91 @@ gap：`{"object_name": "avg_034", "expression_sql": "AVG(`t1`.`dpmaf034score`)",
 | --- | --- | --- |
 | B1 | 单聚合 PIVOT，`IN` 三个字面量 | 产出三个输出列，列名等于字面量 |
 | B2 | 下游 `SELECT p.<literal>` 引用 | 解析到聚合表达式内部的源列，无 gap |
-| B3 | `IN ('x' AS y)` 带别名 | 输出列名为 `y` |
-| B4 | `IN (SELECT ...)` 动态列表 | 不推导，产生 `lineage_fact_gap` 而非错误绑定 |
-| B5 | 多聚合 PIVOT | 输出列名按方言规则组合，或（若不支持）产生缺口而非静默丢列 |
+| B3 | PIVOT 别名出现在输入边 | ROOT 的输入边包含 `p`，而不是内层子查询别名 |
+| B4 | `IN ('x' AS y)` 带别名 | 输出列名为 `y` |
+| B5 | `IN (SELECT ...)` 动态列表 | 不推导，产生 `lineage_fact_gap` 而非错误绑定 |
 
-### 验证
+### 验收
 
-`lyn_deducted_channel` 从 32 降到 0。两份基线零差异（现有夹具无 PIVOT）。
-
----
-
-## 子缺口 C：CTE `a.*` 投影未展开，下游引用无法绑定
-
-### 证据（`pjl_bi_mxg_session_kelianlv_daily_d_di`）
-
-```json
-{"scope_id": "ROOT", "object_name": "brief_sum2_cn",
- "expression_sql": "`all_ming`.`brief_sum2_cn`",
- "missing_reasons": ["no_physical_source_fields"]}
-```
-
-`all_ming` 是一个 CTE，其投影是 `a.*` 加若干 `COALESCE` 列。下游按名引用 `all_ming.brief_sum2_cn`、`COUNT(DISTINCT all_ming.session_id)` 时无法绑定。
-
-### 待确认
-
-星号展开已有"迭代到稳定"的实现（`scope_resolver.resolve_all`）。需要先判定：是 CTE 这一层的展开没跑到，还是展开结果没有登记为 CTE 的对外输出。**这一步定位必须先做，再定改法**——本方案不预设结论。
-
-### TDD case 方向（合成）
-
-CTE 内 `a.*` + 计算列，下游按名引用其中一个星号来的列与一个计算列；再加一层"CTE 引用 CTE"的传递用例。
+`lyn_deducted_channel` 32 → 0。两份基线零差异（现有夹具无 PIVOT）。
 
 ---
 
-## 子缺口 D：裸列上的 struct 成员访问被当作表限定
+## E. 正则通配投影后未重试裸列归属（6）
 
-### 证据（`mapp_iceberg_tbls_df`）
+### 证据（合成复现）
 
 ```sql
-named_struct(
-  'hide', sum(nvl(pt_lc_dfs_c_dis_file_on_flag.hide, 0)),
-   'tmp', sum(nvl(pt_lc_dfs_c_dis_file_on_flag.tmp , 0)), ... )
+INSERT INTO mart.t
+SELECT t1.a, b, t2.c
+FROM (SELECT `(rk)?+.+` FROM ods.src) t1
+JOIN (SELECT id, c FROM ods.other) t2 ON t1.a = t2.id
 ```
 
-`pt_lc_dfs_c_dis_file_on_flag` 是输入里的一个 **struct 类型列**，`.hide` 是成员访问。工具把它当成了表限定符去找表，找不到 → `no_physical_source_fields`。
+```text
+subq:t1 正则展开后输出: ['a', 'b']
+ROOT:  a | 't1.a' | resolved
+       b | 'b'    | unresolved     <- 缺口
+       c | 't2.c' | resolved
+```
 
-仓库里已有 struct 成员访问的判定（`_has_qualified_struct_member_access`、`passthrough_resolution._expression_has_struct_member_access`），需要确认为何此形态未命中——很可能是因为限定符不带表前缀（裸列 + 成员），与既有判定假设的形态不同。
+把正则通配换成普通的 `SELECT a, b`，同一条语句 **0 缺口**——`b` 会被 qualify 补成 `` `t1`.`b` ``。
 
-### TDD case 方向（合成）
+真实任务 `lxs_jhy_batch_adjcrdt_regular` 一致：`temp_lim`、`last_cash_refuse_date` 只存在于 `subq:t1` 的输出中（`subq:t2` 只有 3 个输出列且都不匹配），归属其实唯一，却报 `no_physical_source_fields`。
 
-输入表含一个 struct 列；分别测 `col.member`（裸列）与 `t.col.member`（带表别名）两种写法，断言二者都绑定到该 struct 列而不是被当作表。
+### 根因
+
+正则通配列选择的展开发生在 **qualify 之后**。qualify 运行时 `t1` 的列集还不可知，无法给裸列补限定符；等我们展开出列集之后，**没有重新尝试裸列的归属**。信息在展开后就已具备，只是没人再看一眼。
+
+### 方案
+
+在正则展开使上游列集变为已知之后，对仍未解析的裸列重试归属：按名在各输入 scope 的已知输出列中查找，命中唯一则绑定，命中多个仍报 `root_bare_no_unique_input`（那是正确的模糊性报告）。这与仓库既有的"重复到不动点"若干遍解析是同一模式。
+
+### TDD case（合成）
+
+| # | 用例 | 断言 |
+| --- | --- | --- |
+| E1 | 上文合成语句 | `b` 解析到 `ods.src.b`，0 缺口 |
+| E2 | 裸列名在两个上游都存在 | 仍报 `root_bare_no_unique_input`（模糊性是事实，不该猜） |
+| E3 | 裸列名在任一上游都不存在 | 仍报缺口，不做无中生有的绑定 |
+| E4 | 普通 `SELECT a, b`（非正则）上游 | 行为逐字节不变（回归护栏） |
+
+### 验收
+
+`lxs_jhy_batch_adjcrdt_regular` 6 → 0。两份基线零差异。
 
 ---
 
-## 子缺口 E：正则通配投影 + 多输入时裸列无法归属
+## 5. 尚未定位的两条（C、D）
 
-### 证据（`lxs_jhy_batch_adjcrdt_regular`，6 个 gap）
+**这一节记录已经被证伪的假设，下一位不必重试。**
+
+### C：CTE 投影与下游引用（~27，`pjl_bi_mxg_session_kelianlv_daily_d_di` 等）
+
+症状：`` `all_ming`.`brief_sum2_cn` `` 解析不到源，`all_ming` 是一个 `a.*` + `COALESCE` 列的 CTE。
+
+**已排除**：不是"CTE 的 `a.*` 展不开"。合成用例
 
 ```sql
-select t1.a, ..., last_cash_refuse_date, temp_lim, temp_lim_beg_dt, ...
-from (select `(rk)?+.+` from ...) t1
-join ... t2
+WITH c AS (SELECT a.*, COALESCE(b.x, 0) AS x FROM ods.src a LEFT JOIN ods.other b ON a.id = b.id)
+SELECT c.id, COUNT(DISTINCT c.name) FROM c GROUP BY c.id
 ```
 
-正则通配列选择（`(rk)?+.+`）的展开已在 0.1.6 实现，但 ROOT 有 `t1`/`t2` 两个输入，裸列 `temp_lim` 归属不唯一 → `root_bare_no_unique_input`。
+**0 缺口**，CTE 星号正常展开、下游按名引用正常解析。
 
-### 待确认
+下一步：直接 dump 真实任务中 `all_ming` 这个 CTE scope 的输入边与已知列集，找出它与合成用例的结构差异，而不是继续构造合成用例。
 
-需要判定展开出来的列名是否进入了裸列归属的候选集。若已进入且仍不唯一，则这是**正确的模糊性报告**，应归为良性、不修；若没进入，则是展开结果登记不完整的缺陷。
+### D：裸列上的 struct 成员访问（18，`mapp_iceberg_tbls_df`）
 
-**这个判定要先做**，它决定 E 是缺陷还是良性标签。
+症状：表达式为 `NAMED_STRUCT('hide', SUM(COALESCE(pt_lc_dfs_c_dis_file_on_flag.hide, 0)), ...)`，
+`missing_reasons` 为 `alias_not_bound_to_input_source:pt_lc_dfs_c_dis_file_on_flag`。同一 scope 内相邻的裸列 `pt_lc_dfs_c_cnt_file` 解析正常，差别只在多了 `.hide`。
+
+**已排除两条**：
+
+1. 不是"struct 成员访问一律被当作表限定"。合成用例中 `SUM(flags.hide)` 与 `SUM(s.flags.hide)`（`flags` 是物理表的 struct 列）**都能正确绑定到 `ods.src.flags`**。
+2. 不是"限定符是上游 scope 的输出列而解析器没查上游输出"。实测该 scope 的两个上游（`subq:a` 52 列、`subq:b` 91 列）**都没有**名为 `pt_lc_dfs_c_dis_file_on_flag` 的输出列——连解析正常的 `pt_lc_dfs_c_cnt_file` 也不在其中。
+
+也就是说 scope 的输入边与该表达式实际引用的来源对不上，问题可能出在更早的 scope 划分，而不是表达式解析。下一步应先核对该 SQL 片段究竟属于哪个 scope，再谈绑定。
 
 ---
 
@@ -187,8 +194,8 @@ join ... t2
 | 项 | 判据 |
 | --- | --- |
 | 单测 | CI 闭包全绿；每个子缺口配结构用例 + 诊断用例 |
-| 逐字节基线 | 两份基线零差异；若某子缺口确实改变输出，须重新生成并**逐条复核 diff** |
-| 真实语料（仓库外） | 6 个任务的 gap 数逐任务下降，且**不得有任何此前为 0 的任务出现新 gap** |
+| 逐字节基线 | 两份基线零差异；若确实改变输出，须重新生成并**逐条复核 diff** |
+| 真实语料（仓库外） | 涉及任务的 gap 数逐任务下降，且**不得有任何此前为 0 的任务出现新 gap** |
 | 回归面 | 抽样 200 个任务，缺口数与状态逐任务对比 |
 
-**验收标准以真实任务的 gap 数为准，不以合成用例通过为准。** 合成用例可以复现症状却不复现成因——这在本仓库已经发生过（缺口⑤的修复曾因为落在错误的分支里，合成用例全绿而真实任务纹丝不动）。
+**验收以真实任务的 gap 数为准，不以合成用例通过为准。** 合成用例可以复现症状却不复现成因——本仓库已经发生过：缺口⑤的修复曾落在错误的分支里，合成用例全绿而真实任务纹丝不动。反过来也发生过：本方案中 C、D 两条的假设，正是因为合成用例**跑不出症状**才被证伪。
