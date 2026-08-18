@@ -24,7 +24,7 @@ from .scope_types import (
     SourceRef,
 )
 from ._shared import ExpansionBudget, _source_item_from_ast_node
-from ._shared import _dedupe_generated_source_dicts, _dedupe_physical_field_dicts, _dedupe_rowset_source_dicts, _extend_unique, _find_alias_in_parent, _function_names, _is_cross_join_type, _is_internal_scope_id, _normalize_expression_resolution, _ordered_physical_fields_in_expression, _physical_fields_referenced_in_expression, _physical_source_fields_for_refs, _physical_source_ids_for_input, _populate_union_output_branch_mappings, _qualified_field_refs, _qualified_physical_field_sql, _replace_qualified_ref_with_expression, _replace_struct_field_access_from_upstream, _replace_unqualified_ref_with_expression, _resolve_expression_resolution_from_output_sources, _resolved_expression_fact_from_source_refs, _rowset_sources_from_upstream_output, _source_kind_for_resolution, _source_ref_to_dict, _source_refs_from_detail_fields, _source_type_from_id, _star_passthrough_output_fact, _strip_sql_comments, _unexpanded_bound_aliases_in_expression, _unique_ordered, DIALECT, PARSE_OPTS, _AGGREGATE_FUNCTIONS, _CLEANING_FUNCTIONS, _KNOWN_SCALAR_FUNCTIONS, _SCOPE_ID_ATTR
+from ._shared import _cached_pattern, _dedupe_generated_source_dicts, _dedupe_physical_field_dicts, _dedupe_rowset_source_dicts, _extend_unique, _find_alias_in_parent, _function_names, _is_cross_join_type, _is_internal_scope_id, _normalize_expression_resolution, _ordered_physical_fields_in_expression, _physical_fields_referenced_in_expression, _physical_source_fields_for_refs, _physical_source_ids_for_input, _populate_union_output_branch_mappings, _qualified_field_refs, _qualified_physical_field_sql, _replace_qualified_ref_with_expression, _replace_struct_field_access_from_upstream, _replace_unqualified_ref_with_expression, _resolve_expression_resolution_from_output_sources, _resolved_expression_fact_from_source_refs, _rowset_sources_from_upstream_output, _source_kind_for_resolution, _source_ref_to_dict, _source_refs_from_detail_fields, _source_type_from_id, _star_passthrough_output_fact, _strip_sql_comments, _unexpanded_bound_aliases_in_expression, _unique_ordered, DIALECT, PARSE_OPTS, _AGGREGATE_FUNCTIONS, _CLEANING_FUNCTIONS, _KNOWN_SCALAR_FUNCTIONS, _SCOPE_ID_ATTR
 from .column_expression_resolution import _expression_resolution_for_scope_column
 from .lineage_fact_gaps import _populate_lineage_fact_gaps
 from .passthrough_resolution import _propagate_passthrough_expression_resolution
@@ -1908,23 +1908,38 @@ def _resolve_internal_scope_expression_resolution(result: ScopeLineageResult) ->
             }
 
 
+# Asked once per reference per pass over the same expressions; 39k calls cost 20 of the
+# profiled run's 109 seconds. Depends only on its arguments (PERF-002).
+_STRUCT_MEMBER_ACCESS_CACHE: dict[tuple[str, tuple[tuple[str, str], ...]], bool] = {}
+
+
 def _has_qualified_struct_member_access(
+    expression: str,
+    qualified_refs: list[tuple[str, str]],
+) -> bool:
+    key = (expression, tuple(qualified_refs))
+    cached = _STRUCT_MEMBER_ACCESS_CACHE.get(key)
+    if cached is None:
+        cached = _has_qualified_struct_member_access_uncached(expression, qualified_refs)
+        _STRUCT_MEMBER_ACCESS_CACHE[key] = cached
+    return cached
+
+
+def _has_qualified_struct_member_access_uncached(
     expression: str,
     qualified_refs: list[tuple[str, str]],
 ) -> bool:
     for qualifier, field in qualified_refs:
         escaped_qualifier = re.escape(qualifier)
         escaped_field = re.escape(field)
-        if re.search(
-            rf"`{escaped_qualifier}`\.`{escaped_field}`\.`[^`]+`",
-            expression,
-        ):
+        if _cached_pattern(
+            rf"`{escaped_qualifier}`\.`{escaped_field}`\.`[^`]+`"
+        ).search(expression):
             return True
-        if re.search(
+        if _cached_pattern(
             rf"(?<![.`\w]){escaped_qualifier}\.{escaped_field}\."
-            rf"[A-Za-z_][A-Za-z0-9_]*(?![`.\w])",
-            expression,
-        ):
+            rf"[A-Za-z_][A-Za-z0-9_]*(?![`.\w])"
+        ).search(expression):
             return True
     return False
 
