@@ -10,7 +10,7 @@
 | --- | --- | --- | --- |
 | **A + C + ⑩ 实为同一回归**：未展开的 `a.*` 被当成正则模式 | **122** | `01_perform_analysis_task`(64)、`batch_strategy_tools`(44)、`pjl_bi_mxg_...`(14) | **已修复**（见第 6 节） |
 | E. 正则通配投影后未重试裸列归属 | 6 | `lxs_jhy_batch_adjcrdt_regular` | **已修复** |
-| B. PIVOT 未建模 | 32 | `lyn_deducted_channel` | 根因已确认，未修完（见 `wip/pivot-output-columns`） |
+| B. PIVOT 未建模 | 32 | `lyn_deducted_channel` | **已修复** |
 | D. 裸列上的 struct 成员访问 | 18 | `mapp_iceberg_tbls_df` | 症状确认，**根因未定位** |
 
 > A 和 C 原本被写成两条独立缺口，各自的"根因"都是猜的，都不成立。逐层插桩后它们收敛到同一个
@@ -109,7 +109,16 @@ scope ROOT:    输入边=[('subq:_0', '_0')]     a_val | `p`.`a` | unresolved
 
 ### 验收
 
-`lyn_deducted_channel` 32 → 0。两份基线零差异（现有夹具无 PIVOT）。
+`lyn_deducted_channel` 32 → 0（已验证）。两份基线零差异（现有夹具无 PIVOT）。
+
+**实际形态与最初设想不同**：语料里的 pivot **自身没有别名**，藏在一层 `SELECT *` 后面，别名属于外层子查询：
+
+```sql
+left join ( select * from ( ... ) pivot ( max(v) for k in ('A','B') ) ) t1
+```
+
+所以只做"用 pivot 别名建输入边 + 解析 `p.<列>`"不够——真正需要的是让**`SELECT *` 在被 pivot 的关系上展开成 IN 列表**。
+另外 IN 字面量要按小写登记：qualify 会把引用规范成小写，`IN ('DPMAF034SCORE')` 必须能对上写作 `dpmaf034score` 的引用。
 
 ---
 
