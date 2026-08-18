@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Stopped reading an unexpanded `a.*` as a regex pattern. A qualified star cannot always be
+  expanded when its projection is first read — a CTE backed by a UNION only gets its columns
+  in a later pass — so it is parked as a placeholder for the fixpoint expansion to finish.
+  Spark's regex column selection, added in 0.1.6, then matched that placeholder as a pattern,
+  and `a.*` is a valid one: a 63-column star collapsed into the single column whose name
+  began with "a", and the placeholder was gone before the pass that would have expanded it
+  properly ever ran. The affected statements go from many gaps to none
+
 - Let a bare column bind through a regex column selection. Spark's `` `(rk)?+.+` `` names
   the columns a source exposes by pattern, and the match runs after column resolution — but
   a scope projecting one was read as already materialized, with a single concrete column
