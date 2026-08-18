@@ -23,7 +23,7 @@ from .scope_types import (
     ScopeLineageResult,
     DiagnosticWarning,
 )
-from ._shared import _classify_extended, _constant_sources, _inside_nested_query, _selected_sources, _source_free_leaf_sources, _source_item_from_ast_node, _source_ref_binding_key, _unique_ordered__resolver as _unique_ordered, DIALECT, _KNOWN_UDAFS, _SCOPE_ID_ATTR
+from ._shared import _pivot_of_source_node, _pivot_output_names, _classify_extended, _constant_sources, _inside_nested_query, _selected_sources, _source_free_leaf_sources, _source_item_from_ast_node, _source_ref_binding_key, _unique_ordered__resolver as _unique_ordered, DIALECT, _KNOWN_UDAFS, _SCOPE_ID_ATTR
 from .column_ref_resolver import (
     _bound_source_ref,
     _input_ref_id_for_source_alias,
@@ -435,6 +435,44 @@ def _record_star_schema_source(sg_scope: Scope, result: ScopeLineageResult, fq: 
         scope_data.star_schema_sources.append(fq)
 
 
+def _pivot_star_columns(
+    sg_scope: Scope,
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> List[ScopeColumn]:
+    """Columns a `SELECT *` sees over a pivoted relation.
+
+    Each name in the PIVOT's IN list becomes a column whose value comes from the aggregate,
+    so that is where its lineage points. A non-literal IN list leaves the set unknowable and
+    yields nothing, keeping the caller on its EXPAND_ALL fallback rather than inventing
+    names.
+    """
+    from_ = sg_scope.expression.args.get("from_") if isinstance(sg_scope.expression, exp.Select) else None
+    if from_ is None or getattr(from_, "this", None) is None:
+        return []
+    pivot = _pivot_of_source_node(from_.this)
+    if pivot is None:
+        return []
+    names = _pivot_output_names(pivot)
+    if not names:
+        return []
+    sources: list[SourceRef] = []
+    for aggregate in pivot.expressions:
+        sources.extend(_resolve_column_refs_in_expr(aggregate, sg_scope, result, schema))
+    return [
+        # Lowercased to match every other name in the result: qualify normalizes column
+        # references, so `IN ('DPMAF034SCORE')` has to meet a reference written
+        # `dpmaf034score`.
+        ScopeColumn(
+            name=name.lower(),
+            transform="DIRECT",
+            expression=exp.column(name.lower()).sql(dialect=DIALECT),
+            sources=list(sources),
+        )
+        for name in names
+    ]
+
+
 def _expand_star_into_columns(
     sg_scope: Scope, table_alias: str | None,
     result: ScopeLineageResult, schema: dict | None = None,
@@ -517,6 +555,13 @@ def _expand_star_into_columns(
                     ))
                 return columns
     else:
+        # A PIVOT replaces the relation's columns with the names in its IN list, so `*` over
+        # a pivoted source is those names — not the pivoted subquery's own columns. The pivot
+        # is usually unaliased and sits directly behind this `SELECT *`, which is the shape
+        # that left every downstream reference to it unresolved (PIVOT-001).
+        pivoted = _pivot_star_columns(sg_scope, result, schema)
+        if pivoted:
+            return pivoted
         # Bare *: all sources
         for alias, source in _selected_sources(sg_scope).items():
             if isinstance(source, Scope):
