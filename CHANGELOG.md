@@ -1,13 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.1.6 - 2026-08-18
 
 - Roughly halved lineage resolution time on wide statements by remembering answers that
   depend only on their inputs: compiled patterns built from identifier names, the field
   references of an expression, and whether an expression reaches into a struct. A large
   task that previously exceeded two minutes and returned `partial` now completes in 67
   seconds with no gaps
-
 - Expanded Spark's quoted regex column selection. `` `(dt)?+.+` `` selects every column
   whose name matches the pattern — its possessive quantifier making it the idiom for "every
   column except dt" — and reading it as a literal name produced a column no table has, which
@@ -15,7 +14,6 @@
 - Resolved a reference to a LATERAL VIEW's output column when the qualifier is the column
   rather than the view's alias, so `arr.field` binds to the view that exposes `arr`. Two
   views exposing the same name stay a gap rather than being resolved by writing order
-
 - Modelled Spark's `CACHE [LAZY] TABLE ... AS SELECT` as the relation-from-a-SELECT it is.
   It was skipped as an unsupported statement, so the relation it builds was read back as an
   external table nobody has metadata for and every reference to it became a gap — hundreds in a
@@ -28,6 +26,14 @@
   a couple of malformed files left every table without columns; rejected tables are now
   reported through `metadata_conflicts` and only a load that produced no table at all raises
 
+## 0.1.4 - 2026-08-17
+
+- Declared a MERGE's target relation as a ROOT input carrying its alias, so `target.x` can
+  be mapped back to the relation it names, while holding it out of `alias_source_bindings`
+  so the correlated reference a MERGE action preserves is not read as a failed expansion
+
+## 0.1.3 - 2026-08-17
+
 - Stopped re-parsing each statement from generated SQL during task-level modelling. sqlglot
   does not round-trip a WITH carried by an individual UNION branch, so the clauses merged,
   same-named CTEs shadowed each other, and the whole statement degraded to an unqualified
@@ -36,17 +42,12 @@
   shadowing, so a consumer is not handed SQL that looks runnable and is not
 - Stopped reading `COUNT(*)`'s dependency on the whole row as an unexpanded projection
   wildcard; only a source that is actually an unexpanded `SELECT *` reports one now
-- Declared a MERGE's target relation as a ROOT input carrying its alias, so `target.x` can
-  be mapped back to the relation it names, while holding it out of `alias_source_bindings`
-  so the correlated reference a MERGE action preserves is not read as a failed expansion
-
 - Declared the USING relation as an input of a MERGE's ROOT scope. That scope is synthetic,
   so the pass that walks SQLGlot scopes never reached it and the scope reported no inputs at
   all, leaving `source` unbindable for expressions that resolve a qualifier by alias
 - Expanded physical-table references in expressions that also reference a query block; the
   alias-expansion helper skipped physical sources entirely, so the alias stayed in the text
   and its field never reached the physical source list
-
 - Report `column_not_in_table_schema` when a qualifier names a table whose schema proves
   the column does not exist; the qualified path previously took a qualifier as proof and
   published the reference as a physical field
@@ -55,7 +56,6 @@
   longer reports the script-local table as missing warehouse metadata
 - Finish expression expansion when substitution reintroduces a qualifier belonging to the
   consuming scope, recovering the physical field behind a LATERAL VIEW over a query block
-
 - Fixed MERGE lineage corruption when the statement is preceded by a CTE: qualify
   reorders the column traversal, so pairing pre- and post-qualify columns by position
   pasted a MERGE action's target references onto unrelated CTE projections and
@@ -67,6 +67,10 @@
   name, a UNION reports every branch instead of the literal `UNKNOWN`, and a condition
   the USING relation does not expose reports a new `merge_condition_source_unresolved`
   fact gap instead of a fabricated column
+
+## 0.1.2 - 2026-08-16
+
+- Documentation and packaging only; no library changes
 
 ## 0.1.1 - 2026-08-15
 
