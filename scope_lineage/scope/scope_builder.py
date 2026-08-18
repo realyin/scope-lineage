@@ -205,6 +205,30 @@ def _schema_with_script_local_tables(
 _SYNTAX_ERROR_KEYS = ("description", "line", "col", "start_context", "highlight", "end_context")
 
 
+def _ordered_syntax_errors(errors: list[dict]) -> list[dict]:
+    """Impose an order sqlglot does not guarantee.
+
+    One message is built per entry of ``Expression.required_args``, which is a ``set``, and
+    CPython randomises string hashing per process — so a statement missing two required
+    keywords yielded the same entries in an order that changed between runs. That order
+    reaches ``lineage.json``, where this project treats byte-for-byte determinism as a
+    contract invariant, and anyone diffing artifacts across runs saw a phantom change
+    (SYNTAX-ORDER-001).
+
+    Sorted by position first, so errors genuinely ordered by where they occur keep that
+    order; the description only breaks ties, which is exactly the ambiguous case. A missing
+    position sorts first rather than raising: the fallback entry carries a description alone.
+    """
+    return sorted(
+        errors,
+        key=lambda item: (
+            item.get("line") if isinstance(item.get("line"), int) else -1,
+            item.get("col") if isinstance(item.get("col"), int) else -1,
+            str(item.get("description") or ""),
+        ),
+    )
+
+
 def _syntax_status(sql: str) -> tuple[str, list[dict]]:
     """Parse strictly first, so that "sqlglot repaired this" stops being invisible.
 
@@ -223,9 +247,9 @@ def _syntax_status(sql: str) -> tuple[str, list[dict]]:
         sqlglot.parse(normalized, dialect=DIALECT, error_level=ErrorLevel.RAISE)
     except ParseError as exc:
         raw = getattr(exc, "errors", None) or [{"description": str(exc)}]
-        return "recovered", [
+        return "recovered", _ordered_syntax_errors([
             {key: item[key] for key in _SYNTAX_ERROR_KEYS if key in item} for item in raw
-        ]
+        ])
     except Exception as exc:  # tokenizer-level failures raise their own types
         return "recovered", [{"description": f"{type(exc).__name__}: {exc}"}]
     return "strict_ok", []

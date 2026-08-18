@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Gave `syntax_errors[]` an order that holds across processes. sqlglot builds one message
+  per entry of `Expression.required_args`, which is a `set`, and CPython randomises string
+  hashing per process — so a statement missing two required keywords wrote the same entries
+  in an order that changed between runs. `syntax_errors` is a required field of
+  `lineage.json`, and this project treats byte-for-byte determinism as a contract invariant,
+  so anyone diffing artifacts across runs saw a phantom change. Sorted by position first, so
+  errors genuinely ordered by where they occur keep that order and the description only
+  breaks ties
+
 ## 0.1.7 - 2026-08-19
 
 - Said where the reader looks when a source table's columns were never supplied. The fact
