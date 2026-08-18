@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Resolved `col.field` on a struct column written without a table alias. `alias.col.field`
+  carries three parts and was handled; the two-part form had its first part looked up as a
+  table alias, found nothing, and reported the column as an unbound alias. Whether the alias
+  is there is not the author's choice alone — qualify adds it when it knows the column set
+  and cannot when the input is a `SELECT *` — so the same SQL resolved or did not depending
+  on how deep it sat. A name more than one input exposes stays unresolved
+
 - Modelled a PIVOT's output columns. `PIVOT (max(amt) FOR k IN ('A', 'B'))` turns the values
   of `k` into columns named A and B whose values come from the aggregate, and neither the
   names nor that lineage existed: a `SELECT *` over a pivoted relation saw the pivoted

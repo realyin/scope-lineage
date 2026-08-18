@@ -123,6 +123,11 @@ def _resolve_column_ref(col_ref: exp.Column, sg_scope: Scope, result: ScopeLinea
                 result,
                 schema,
             )
+        struct_ref = _resolve_bare_struct_member_ref(
+            table_alias, sg_scope, result, schema
+        )
+        if struct_ref is not None:
+            return struct_ref
         pivot_ref = _resolve_pivot_output_column(
             table_alias, col_name, sg_scope, result, schema
         )
@@ -183,6 +188,37 @@ def _pivoted_source_nodes(sg_scope: Scope):
     for join in expression.args.get("joins") or []:
         if join.this is not None:
             yield join.this
+
+
+def _resolve_bare_struct_member_ref(
+    qualifier: str,
+    sg_scope: Scope,
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> SourceRef | None:
+    """Resolve `col.field` where `col` is a struct column rather than a table alias.
+
+    `alias.col.field` carries three parts and the struct resolver handles it. Written
+    without the alias there are two, and the first was looked up as a table alias — found
+    nothing, and reported the column as an unbound alias (STRUCT-001).
+
+    Whether the alias is present is not the author's choice alone: qualify adds it when it
+    knows the column set, and cannot when the input is a `SELECT *` whose columns are only
+    expanded later. So the check has to be against the inputs' columns, not the AST.
+
+    A name more than one input exposes stays unresolved: that ambiguity is a fact about the
+    SQL, and choosing a side would be a guess.
+    """
+    matches: list[tuple[str, Scope | exp.Table]] = []
+    for alias, source in _selected_sources(sg_scope).items():
+        if not isinstance(source, (Scope, exp.Table)):
+            continue
+        if _source_column_state(alias, source, qualifier, result, schema) == 'present':
+            matches.append((alias, source))
+    if len(matches) != 1:
+        return None
+    alias, source = matches[0]
+    return _bound_source_ref(alias, source, qualifier, sg_scope, result)
 
 
 def _resolve_struct_field_ref(
