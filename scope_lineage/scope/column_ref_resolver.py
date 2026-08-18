@@ -26,6 +26,8 @@ from .scope_types import (
 # formed a cycle that only worked because Python hands out a partially-initialised
 # module, making import order load-bearing (ARCH-001).
 from ._shared import (
+    _REGEX_COLUMN_METACHARACTERS,
+    _compiled_column_pattern,
     _find_alias_in_parent,
     _ORIGINALLY_UNQUALIFIED_META,
     _SCOPE_ID_ATTR,
@@ -502,6 +504,13 @@ def _source_column_state(alias: str, source: Scope | exp.Table, col_name: str, r
                 return 'present'
             if _select_has_star_projection(inner_expr):
                 return 'unknown'
+            if _select_has_regex_projection(inner_expr):
+                # A quoted regex column selection names its columns by pattern, and the
+                # match runs after this pass. Reading the pattern as a literal name made
+                # every other name absent from this source, which cost a bare reference the
+                # one input that could supply it (PROJECTION-001). Not yet knowable is what
+                # 'unknown' already means, and callers already keep it in play.
+                return 'unknown'
             return 'absent'
         return 'unknown'
     fq = _qualified_table(source)
@@ -539,6 +548,13 @@ def _materialized_star_column_state(
     if col_name in names:
         return 'present'
     if any(name == '*' or name.endswith('.*') for name in names):
+        return 'unknown'
+    if any(_is_regex_column_selection(name) for name in names):
+        # A quoted regex column selection is a pattern, not an output name, and the match
+        # runs after this pass. Such a scope looks materialized — one concrete-looking
+        # column, no star provenance — and the "closed" rule below then declared every
+        # other name absent from it, costing a bare reference its only viable input
+        # (PROJECTION-001).
         return 'unknown'
 
     states: list[str] = []
@@ -646,6 +662,34 @@ def _ambiguous_ref(col_name, sg_scope, result, candidate_scopes, kind: str) -> S
             f"attributed to one",
     ))
     return SourceRef(scope=AMBIGUOUS_SCOPE_ID, column=col_name, candidates=candidates)
+
+def _is_regex_column_selection(name: str) -> bool:
+    """Return True if a projected name is a Spark quoted regex column selection."""
+    if not name or name == '*' or not (set(name) & _REGEX_COLUMN_METACHARACTERS):
+        return False
+    return _compiled_column_pattern(name) is not None
+
+
+def _select_has_regex_projection(select) -> bool:
+    """Return True if a SELECT projects a Spark quoted regex column selection.
+
+    Mirrors `_select_has_star_projection`: the question is only whether the projected set
+    of names is knowable here, not what it contains.
+    """
+    if isinstance(select, _SET_OPERATION):
+        return any(
+            _select_has_regex_projection(branch)
+            for branch in (select.this, select.expression)
+            if branch is not None
+        )
+    if not isinstance(select, exp.Select):
+        return False
+    for projection in select.selects:
+        inner = projection.this if isinstance(projection, exp.Alias) else projection
+        if _is_regex_column_selection(getattr(inner, "name", "") or ""):
+            return True
+    return False
+
 
 def _select_has_star_projection(select) -> bool:
     """Return True if a SELECT (or any branch of a set operation) projects a star."""
