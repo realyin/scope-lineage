@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Stopped qualifying every statement twice. `qualify` mutates the tree it is given and
+  returns that same object, so the `qualified is src_expr` comparison that guarded the "did
+  qualify fail?" branch was true either way, and the branch re-ran qualify on every
+  statement to learn what the first call already knew. `_qualify_ast` now reports success
+  directly. Cost only — no output changes, both baselines untouched
+
 - Stopped reading an unexpanded `a.*` as a regex pattern. A qualified star cannot always be
   expanded when its projection is first read — a CTE backed by a UNION only gets its columns
   in a later pass — so it is parked as a placeholder for the fixpoint expansion to finish.

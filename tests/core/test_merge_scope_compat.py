@@ -450,7 +450,7 @@ def test_an_unrestorable_target_ref_fails_instead_of_publishing_a_guess(
     original = scope_builder._qualify_ast
 
     def broken_qualify(ast):
-        qualified = original(ast)
+        qualified, qualify_ok = original(ast)
         for literal in list(qualified.find_all(exp.Literal)):
             if not literal.is_string or "__scope_lineage_merge_target_ref" not in str(
                 literal.this
@@ -462,7 +462,7 @@ def test_an_unrestorable_target_ref_fails_instead_of_publishing_a_guess(
                 literal.replace(
                     exp.Or(this=literal.copy(), expression=literal.copy())
                 )
-        return qualified
+        return qualified, qualify_ok
 
     monkeypatch.setattr(scope_builder, "_qualify_ast", broken_qualify)
 
