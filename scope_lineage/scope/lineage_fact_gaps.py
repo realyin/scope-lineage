@@ -56,6 +56,23 @@ def _populate_lineage_fact_gaps(result: ScopeLineageResult) -> None:
     result.diagnostics.lineage_fact_gaps = gaps
 
 
+def _mark_gaps_from_recovered_syntax(result: ScopeLineageResult) -> None:
+    """Say which gaps are shadows of a repaired parse rather than facts about the query.
+
+    A repaired parse drops the tokens sqlglot could not place, so a gap derived from what
+    survived describes the truncation, not the SQL — the statement said FROM, and the gap
+    says the field has no source. Both kinds land in one list, and counting them together
+    turned a single syntax problem into hundreds of apparent capability gaps in one statement
+    (PARSE-002).
+
+    Applied after ``syntax_status`` is known, which is later than the gaps are built.
+    """
+    if result.syntax_status != 'recovered':
+        return
+    for gap in result.diagnostics.lineage_fact_gaps:
+        gap['derived_from_recovered_syntax'] = True
+
+
 def _lineage_gap_from_union_branch_mapping(*, result: ScopeLineageResult, scope_data: ScopeData, scope_id: str, output: ScopeOutputField, branch_mapping: dict[str, object], evidence_path: str) -> dict[str, object] | None:
     status = str(branch_mapping.get('resolution_status') or 'unresolved')
     physical_fields = branch_mapping.get('physical_source_fields') or []

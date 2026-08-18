@@ -172,6 +172,23 @@ class _StateBuilder:
         return items
 
 
+def _gaps_marked_for_recovered_syntax(
+    gaps: list[dict],
+    syntax_status: str,
+) -> list[dict]:
+    """Flag gaps that a repaired parse produced, so counting them stays honest.
+
+    Script-level, matching how ``syntax_status`` itself is scoped: no single statement can
+    be blamed, because the strict parse that detects the repair runs on the whole script.
+    """
+    if syntax_status == "strict_ok":
+        return gaps
+    for gap in gaps:
+        if isinstance(gap, dict):
+            gap["derived_from_recovered_syntax"] = True
+    return gaps
+
+
 def parse_task_lineage(
     sql: str,
     task_name: str,
@@ -295,7 +312,12 @@ def parse_task_lineage(
         end_to_end_lineage=state_builder.end_to_end(),
         diagnostics={
             "warnings": warnings,
-            "lineage_fact_gaps": gaps,
+            # The per-statement lineage is built from `tree.sql()`, and a truncation is
+            # invisible once the tree is rendered back out — the rendered statement parses
+            # cleanly because the tokens sqlglot dropped are simply not in it. So the
+            # script-level verdict is the only one that can say these gaps are shadows of a
+            # repaired parse rather than facts about the query (PARSE-002).
+            "lineage_fact_gaps": _gaps_marked_for_recovered_syntax(gaps, syntax_status),
             "metadata_coverage": _metadata_coverage(
                 state_builder,
                 statement_lineage,

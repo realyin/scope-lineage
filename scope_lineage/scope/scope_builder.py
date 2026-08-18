@@ -35,7 +35,10 @@ from .sqlglot_config import suppress_invalid_json_path_warnings
 from ._shared import DIALECT, PARSE_OPTS, _AGGREGATE_FUNCTIONS, _CLEANING_FUNCTIONS, _KNOWN_SCALAR_FUNCTIONS, _ORIGINALLY_UNQUALIFIED_META, _SCOPE_ID_ATTR, _all_source_refs_have_resolution, _column_is_inside_nested_query, _dedupe_generated_source_dicts, _dedupe_physical_field_dicts, _dedupe_rowset_source_dicts, _extend_unique, _find_alias_in_parent, _function_names, _generated_sources_from_refs, _is_cross_join_type, _is_internal_scope_id, _lambda_qualifiers, _normalize_expression_resolution, _ordered_physical_fields_in_expression, _parenthesize_replacement_expression, _physical_fields_referenced_in_expression, _physical_source_fields_for_ref, _physical_source_fields_for_refs, _physical_source_fields_from_refs, _physical_source_ids_for_input, _populate_union_output_branch_mappings, _qualified_field_ref_keys_from_ast, _qualified_field_refs, _qualified_pair_is_catalog_function_prefix, _qualified_physical_field_sql, _qualifier_present, _replace_qualified_ref_with_expression, _replace_struct_field_access_from_upstream, _replace_unqualified_ref_with_expression, _resolve_expression_resolution_from_output_sources, _resolved_expression_fact_from_source_refs, _rowset_sources_from_upstream_output, _scope_raw_sql_is_star_select, _source_kind_for_resolution, _source_ref_to_dict, _source_refs_from_detail_fields, _source_type_from_id, _star_passthrough_output_fact, _star_passthrough_source_fact, _strip_sql_comments, _strip_sql_string_literals, _struct_leaf_expression, _unexpanded_bound_aliases_in_expression, _union_branch_mappings_for_output, _union_branch_scope_output_for_mapping, _unique_ordered  # noqa: F401  (shared helpers; re-exported)
 from ._shared import _source_item_from_ast_node
 from .column_expression_resolution import _expression_resolution_for_scope_column  # noqa: F401
-from .lineage_fact_gaps import _populate_lineage_fact_gaps  # noqa: F401
+from .lineage_fact_gaps import (  # noqa: F401
+    _mark_gaps_from_recovered_syntax,
+    _populate_lineage_fact_gaps,
+)
 from .passthrough_resolution import _propagate_passthrough_expression_resolution  # noqa: F401
 from .scope_facts import _populate_enhanced_scope_facts  # noqa: F401
 
@@ -272,6 +275,7 @@ def parse_scope_lineage(
                 target_metadata=target_metadata,
             )
     result.syntax_status, result.syntax_errors = _syntax_status(sql)
+    _mark_gaps_from_recovered_syntax(result)
     result.statement_identity_sql = statement_identity_sql
     return result
 
@@ -336,6 +340,7 @@ def parse_all_scope_lineage(
     for result in results:
         result.syntax_status = syntax_status
         result.syntax_errors = syntax_errors
+        _mark_gaps_from_recovered_syntax(result)
         # A skipped statement must remain visible on every artifact this script produced: a
         # consumer cannot otherwise tell one INSERT from one INSERT plus three DELETEs, and
         # "not modeled" would look the same as "not present" (CONTRACT-001).
