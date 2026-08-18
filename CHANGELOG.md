@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Roughly halved lineage resolution time on wide statements by remembering answers that
+  depend only on their inputs: compiled patterns built from identifier names, the field
+  references of an expression, and whether an expression reaches into a struct. A large
+  task that previously exceeded two minutes and returned `partial` now completes in 67
+  seconds with no gaps
+
 - Expanded Spark's quoted regex column selection. `` `(dt)?+.+` `` selects every column
   whose name matches the pattern — its possessive quantifier making it the idiom for "every
   column except dt" — and reading it as a literal name produced a column no table has, which

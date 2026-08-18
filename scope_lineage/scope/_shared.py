@@ -66,7 +66,42 @@ def _source_ref_binding_key(ref: SourceRef) -> tuple[str, str, str, str, str]:
         str(ref.qualifier or ""),
     )
 
+
+# Patterns here are built from identifier names, so their number grows with the statement's
+# column count rather than with the code. Python's own re cache holds 512 entries, and a
+# wide feature table blows straight through it: profiling a large statement showed millions of
+# lookups, a sixth of them recompiling — about half the run spent in re's parser
+# alone. Caching the compiled objects here removes that without changing a single match
+# (PERF-002).
+_COMPILED_PATTERNS: dict[str, "re.Pattern[str]"] = {}
+
+
+def _cached_pattern(pattern: str) -> "re.Pattern[str]":
+    compiled = _COMPILED_PATTERNS.get(pattern)
+    if compiled is None:
+        compiled = re.compile(pattern)
+        _COMPILED_PATTERNS[pattern] = compiled
+    return compiled
+
+
+# Field extraction re-parses the expression into an AST every time it is asked, and the
+# [redacted]
+# [redacted]
+# The answer depends only on the expression text, so it is remembered (PERF-002).
+_FIELD_REFS_CACHE: dict[str, tuple[tuple[str, str], ...]] = {}
+
+
 def _qualified_field_refs(expression_sql: str) -> list[tuple[str, str]]:
+    key = expression_sql or ""
+    cached = _FIELD_REFS_CACHE.get(key)
+    if cached is None:
+        cached = tuple(_qualified_field_refs_uncached(key))
+        _FIELD_REFS_CACHE[key] = cached
+    # A fresh list each time: callers treat the result as their own to filter and extend.
+    return list(cached)
+
+
+def _qualified_field_refs_uncached(expression_sql: str) -> list[tuple[str, str]]:
     expression_sql = _strip_sql_comments(expression_sql or "")
     scan_sql = _strip_sql_string_literals(expression_sql)
     lambda_qualifiers = _lambda_qualifiers(scan_sql)
@@ -821,11 +856,11 @@ def _replace_struct_field_access_from_upstream(
         )
         return aggregate_member or leaf_expression
 
-    quoted_pattern = re.compile(
+    quoted_pattern = _cached_pattern(
         rf"`(?P<qualifier>[^`]+)`\.`{re.escape(struct_output_field)}`\.`(?P<leaf>[^`]+)`"
     )
     expression = quoted_pattern.sub(replacement, expression)
-    bare_pattern = re.compile(
+    bare_pattern = _cached_pattern(
         rf"(?<![.`\w])(?P<qualifier>[A-Za-z_][A-Za-z0-9_]*)\."
         rf"{re.escape(struct_output_field)}\.(?P<leaf>[A-Za-z_][A-Za-z0-9_]*)(?![`.\w])"
     )
@@ -1047,7 +1082,7 @@ def _dedupe_physical_field_dicts(fields: list[dict[str, str]]) -> list[dict[str,
 def _qualifier_present(expression: str, qualifier: str) -> bool:
     if f"`{qualifier}`." in expression:
         return True
-    return bool(re.search(rf"(?<![.`\w]){re.escape(qualifier)}\.", expression))
+    return bool(_cached_pattern(rf"(?<![.`\w]){re.escape(qualifier)}\.").search(expression))
 
 # Expansion budget for `expanded_expression`. Inlining an upstream field's expanded text copies
 # it once per reference, and each additional scope layer multiplies again; a moderately sized
@@ -1127,26 +1162,20 @@ def _replace_qualified_ref_with_expression(expression: str, qualifier: str, fiel
     expression = expression.replace(f"`{qualifier}`.`{field}`", replacement_sql)
     expression = expression.replace(f"`{qualifier}`.{replacement_sql}", replacement_sql)
     if f"{qualifier}.{field}" in expression:
-        expression = re.sub(
-            rf"(?<![.`\w]){re.escape(qualifier)}\.{re.escape(field)}(?![`.\w])",
-            lambda _match: replacement_sql,
-            expression,
-        )
+        expression = _cached_pattern(
+            rf"(?<![.`\w]){re.escape(qualifier)}\.{re.escape(field)}(?![`.\w])"
+        ).sub(lambda _match: replacement_sql, expression)
     expression = expression.replace(f"{qualifier}.{replacement_sql}", replacement_sql)
     return expression
 
 def _replace_unqualified_ref_with_expression(expression: str, field: str, replacement: str) -> str:
     replacement_sql = _parenthesize_replacement_expression(replacement)
-    expression = re.sub(
-        rf"(?<![.`\w])`{re.escape(field)}`(?![`.\w])",
-        lambda _match: replacement_sql,
-        expression,
-    )
-    return re.sub(
-        rf"(?<![.`'\"\w]){re.escape(field)}(?![`.'\"\w])",
-        lambda _match: replacement_sql,
-        expression,
-    )
+    expression = _cached_pattern(
+        rf"(?<![.`\w])`{re.escape(field)}`(?![`.\w])"
+    ).sub(lambda _match: replacement_sql, expression)
+    return _cached_pattern(
+        rf"(?<![.`'\"\w]){re.escape(field)}(?![`.'\"\w])"
+    ).sub(lambda _match: replacement_sql, expression)
 
 def _parenthesize_replacement_expression(expression: str) -> str:
     stripped = expression.strip()
