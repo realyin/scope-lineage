@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Stopped reporting a table qualified by its own name as an unexpanded alias. `qualify` names
+  an unaliased table after itself, so `FROM ods.pay` yields references written `pay.uid` while
+  the physical id stays `ods.pay`; the exemption for "the alias *is* the physical source"
+  compared the two directly and never matched. A fully resolved direct physical source was
+  therefore reported as `expanded_expression_contains_unexpanded_alias`, demoting the output to
+  partially_resolved and the statement to `partial`. It needed the same table read both in the
+  enclosing `FROM` and inside a projection subquery to surface, which is why it hid: the `FROM`
+  registers the binding and the subquery puts that same qualifier into the expression text,
+  which the textual check cannot tell apart. A genuine local alias is still reported — `s` in
+  `FROM ods.source s` is neither the id nor its table name. An affected statement goes from several gaps and
+  `partial` to none and `complete`, with its physical sources unchanged
+
 - Recovered the physical sources of a scalar subquery used as a projection. Column references
   inside a nested query are skipped when the enclosing expression is resolved, and rightly so:
   they belong to the subquery's sources, and resolving them outward binds them to whatever the
