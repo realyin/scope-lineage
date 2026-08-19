@@ -1104,7 +1104,6 @@ def _normalize_scope_expression_resolutions(result: ScopeLineageResult) -> None:
                 expression=output.expanded_expression or output.expression,
             )
             _attach_udtf_and_path_facts(scope_id, scope_data, output)
-            _attach_cross_task_trace_requirement(output)
             _mark_unexpanded_bound_aliases(scope_data, output)
             output.consumer_readiness = _consumer_readiness_for_resolution(
                 output.expression_resolution
@@ -1450,27 +1449,6 @@ def _field_path_from_expression(expression: str | None) -> list[str]:
         if len(parts) >= 2:
             return parts
     return []
-
-
-def _attach_cross_task_trace_requirement(output: ScopeOutputField) -> None:
-    fields = output.expression_resolution.get("physical_source_fields") or []
-    if _cross_task_trace_required_for_fields(fields):
-        output.expression_resolution["cross_task_trace_required"] = True
-
-
-def _cross_task_trace_required_for_fields(fields: list[dict[str, object]]) -> bool:
-    for field in fields:
-        table = str(field.get("table") or "").lower()
-        if _table_name_requires_cross_task_trace(table):
-            return True
-    return False
-
-
-def _table_name_requires_cross_task_trace(table: str) -> bool:
-    if not table:
-        return False
-    first = table.split(".", 1)[0]
-    return first == "app" or first.startswith(("app_", "dm", "ads"))
 
 
 def _source_ref_from_dict(value: object) -> SourceRef | None:
