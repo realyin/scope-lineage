@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Documented that `value_sources[]` lists participation paths rather than a set of columns. The
+  dedup key is `(table, column, transform)` and includes the transform deliberately, so one
+  physical column appears once per way it participates — a derived column on a real slowly
+  changing dimension carries 33 entries that dedupe to 16 columns, the same 16 its sibling
+  carries as 17. Read as a column set, that looks like the lineage was smeared across the whole
+  table, and it has been reported as pollution twice. The document now gives the dedupe recipe
+  and warns off the filter that suggests itself — keeping only `DIRECT`/`EXPRESSION`/
+  `CONDITIONAL` empties the lineage of every aggregate and window metric, because their value
+  arguments carry `AGGREGATE` and `WINDOW` too
+
 ## 0.1.9 - 2026-08-19
 
 - Stopped reporting a table qualified by its own name as an unexpanded alias. `qualify` names
