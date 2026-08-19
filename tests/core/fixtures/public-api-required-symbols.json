@@ -1,5 +1,7 @@
 [
   "CONSTANT_SCOPE_ID",
+  "DiagnosticWarning",
+  "Diagnostics",
   "MetadataFileError",
   "NON_PHYSICAL_SOURCE_SCOPES",
   "NoSupportedWriteStatementError",
