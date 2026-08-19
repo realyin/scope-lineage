@@ -210,6 +210,10 @@ def parse_task_lineage(
     script_local: dict[str, list[str]] = {}
     parse_failed = False
     unsupported_data_changes = 0
+    # Spark's own default for spark.sql.sources.partitionOverwriteMode. A script that never
+    # sets it gets STATIC semantics, under which a dynamic-partition overwrite replaces the
+    # whole table rather than only the partitions it writes.
+    dynamic_partition_overwrite = False
 
     for statement_index, tree in enumerate(trees):
         statement_id = f"stmt:{statement_index + 1:03d}"
@@ -235,6 +239,9 @@ def parse_task_lineage(
                     "runnable copy of it"
                 ),
             })
+        setting = _partition_overwrite_mode_setting(tree)
+        if setting is not None:
+            dynamic_partition_overwrite = setting
         try:
             if _is_projection_write(tree):
                 _apply_projection_write(
@@ -247,6 +254,7 @@ def parse_task_lineage(
                     statement_lineage,
                     gaps,
                     script_local,
+                    dynamic_partition_overwrite=dynamic_partition_overwrite,
                 )
             elif isinstance(tree, exp.Delete):
                 _apply_delete(statement, tree, state_builder, gaps)
@@ -448,6 +456,8 @@ def _apply_projection_write(
     statement_lineage: dict[str, object],
     gaps: list[dict],
     script_local: dict[str, list[str]] | None = None,
+    *,
+    dynamic_partition_overwrite: bool = False,
 ) -> None:
     from ..contract.lineage import to_lineage_dict
 
@@ -486,7 +496,7 @@ def _apply_projection_write(
             "root_impact": True,
             "needed_fact": "source schema for wildcard expansion",
         })
-    effect = _write_effect(result)
+    effect = _write_effect(result, dynamic_partition_overwrite=dynamic_partition_overwrite)
     if (
         effect in {"APPEND", "MERGE", "REPLACE_PARTITION"}
         and previous is not None
@@ -804,12 +814,15 @@ def _apply_update(
         gaps.append(_schema_passthrough_gap(statement, table))
 
 
-def _write_effect(result) -> str:
+def _write_effect(result, *, dynamic_partition_overwrite: bool = False) -> str:
     if result.stmt_kind == "INSERT":
         return "APPEND"
     if (
         result.stmt_kind == "INSERT_OVERWRITE"
-        and result.target_partition_mode != "none"
+        and _replaces_only_named_partitions(
+            result.target_partition_mode,
+            dynamic_partition_overwrite=dynamic_partition_overwrite,
+        )
     ):
         return "REPLACE_PARTITION"
     if result.stmt_kind in {"INSERT_OVERWRITE", "CTAS"}:
@@ -817,6 +830,38 @@ def _write_effect(result) -> str:
     if result.stmt_kind == "MERGE":
         return "MERGE"
     return "WRITE"
+
+
+def _replaces_only_named_partitions(
+    partition_mode: str,
+    *,
+    dynamic_partition_overwrite: bool,
+) -> bool:
+    """Does this INSERT OVERWRITE leave the rest of the table standing?
+
+    A spec that names values (``PARTITION(dt='20260101')``, or a static prefix in a mixed
+    spec) bounds the overwrite to those partitions, so the rest of the table survives whatever
+    the overwrite mode is. A fully dynamic spec (``PARTITION(dt)``) does not: under Spark's
+    default STATIC mode every existing partition is dropped first, and only an explicit
+    DYNAMIC mode limits the replacement to the partitions actually written (PARTOVR-001).
+    """
+    if partition_mode in {"static", "mixed"}:
+        return True
+    if partition_mode == "dynamic":
+        return dynamic_partition_overwrite
+    return False
+
+
+def _partition_overwrite_mode_setting(tree: exp.Expression) -> bool | None:
+    """True/False when this statement sets partitionOverwriteMode, None when it does not."""
+    if not isinstance(tree, exp.Set):
+        return None
+    for item in tree.args.get("expressions") or []:
+        text = item.sql(dialect=DIALECT).replace("`", "").replace('"', "")
+        key, _, value = text.partition("=")
+        if key.strip().lower().endswith("partitionoverwritemode"):
+            return value.strip().strip("'").lower() == "dynamic"
+    return None
 
 
 def _target_binding_observation(
