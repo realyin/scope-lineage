@@ -51,6 +51,9 @@ class _State:
     value_sources: dict[str, list[dict]]
     row_membership_sources: list[dict] = field(default_factory=list)
     value_condition_sources: dict[str, list[dict]] = field(default_factory=dict)
+    # Per column: the keys a window grouped or ordered by. Parallel to value_sources,
+    # which keeps every one of them as well -- this array only says which role they played.
+    window_context_sources: dict[str, list[dict]] = field(default_factory=dict)
     columns_known: bool = True
     missing_reasons: list[str] = field(default_factory=list)
 
@@ -100,6 +103,7 @@ class _StateBuilder:
         value_sources: dict[str, list[dict]],
         row_membership_sources: list[dict] | None = None,
         value_condition_sources: dict[str, list[dict]] | None = None,
+        window_context_sources: dict[str, list[dict]] | None = None,
         columns_known: bool = True,
         missing_reasons: list[str] | None = None,
     ) -> _State:
@@ -111,6 +115,10 @@ class _StateBuilder:
             known_empty=known_empty,
             value_sources=value_sources,
             row_membership_sources=list(row_membership_sources or []),
+            window_context_sources={
+                key: [dict(item) for item in value]
+                for key, value in (window_context_sources or {}).items()
+            },
             value_condition_sources={
                 key: list(value)
                 for key, value in (value_condition_sources or {}).items()
@@ -169,6 +177,11 @@ class _StateBuilder:
                     "trace_complete": state.columns_known,
                     "missing_reasons": list(state.missing_reasons),
                 })
+                context = _dedupe_dicts(state.window_context_sources.get(column, []))
+                if context:
+                    # Optional and omitted when empty, so a row without a window keeps exactly
+                    # the shape it had before this field existed.
+                    items[-1]["window_context_sources"] = context
         return items
 
 
@@ -559,6 +572,7 @@ def _apply_projection_write(
                 *value_condition_sources.get(column, []),
                 *merge_conditions,
             ])
+    window_context_sources = _write_window_context_sources(result)
     state = states.transition(
         previous,
         table=result.target_table,
@@ -568,6 +582,7 @@ def _apply_projection_write(
         value_sources=value_sources,
         row_membership_sources=row_membership_sources,
         value_condition_sources=value_condition_sources,
+        window_context_sources=window_context_sources,
         columns_known=columns_known,
         missing_reasons=state_missing_reasons,
     )
@@ -898,6 +913,17 @@ def _binding_reason_code(issues: list[str]) -> str:
     if "target_column_names_not_unique" in issues:
         return "ddl_schema_conflict"
     return "binding_not_applicable"
+
+
+def _write_window_context_sources(result) -> dict[str, list[dict]]:
+    from .end_to_end import build_end_to_end_lineage
+
+    context: dict[str, list[dict]] = {}
+    for item in build_end_to_end_lineage(result):
+        entries = item.get("window_context_sources") or []
+        if entries:
+            context[item["column"]] = [dict(entry) for entry in entries]
+    return context
 
 
 def _write_value_sources(result) -> dict[str, list[dict]]:

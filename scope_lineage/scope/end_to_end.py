@@ -33,6 +33,11 @@ class _TraceResult:
     sources: list[tuple[str, str, str]] = field(default_factory=list)
     incomplete_reasons: list[str] = field(default_factory=list)
     ambiguities: list[dict[str, Any]] = field(default_factory=list)
+    # (table, column, role) for the keys a window grouped or ordered by. Kept apart from
+    # `sources` because `transform` cannot carry it: it records the strongest expression kind
+    # on a path, not the role a source plays, so a partition key and the value being computed
+    # arrive labelled identically (WINDOW-ROLE-001).
+    window_context: list[tuple[str, str, str]] = field(default_factory=list)
 
 
 def build_end_to_end_lineage(result: ScopeLineageResult) -> list[dict[str, Any]]:
@@ -66,6 +71,10 @@ def build_end_to_end_lineage(result: ScopeLineageResult) -> list[dict[str, Any]]
             "source_kind": trace["source_kind"],
             "output_ordinal": output_ordinal,
         }
+        # Optional and omitted when empty: an output with no window must keep the exact shape
+        # it had before, so existing baselines and consumers are untouched.
+        if trace.get("window_context_sources"):
+            item["window_context_sources"] = trace["window_context_sources"]
         if column.merge_branch is not None:
             item["merge_branch"] = column.merge_branch
         if column.merge_when_index is not None:
@@ -111,6 +120,7 @@ def _lineage_for_column(
     physical_sources, generated_sources = _source_dicts(found.sources)
     traced_lineage = {
         "physical_sources": physical_sources,
+        "window_context_sources": _window_context_dicts(found.window_context),
         "generated_sources": generated_sources,
         "rowset_sources": [],
         "source_kind": _source_kind(physical_sources, generated_sources),
@@ -317,6 +327,9 @@ def _trace_column(
         return _TraceResult(incomplete_reasons=_output_terminal_incomplete_reasons(output))
 
     traced = _TraceResult(incomplete_reasons=_column_incomplete_reasons(column))
+    # A window names its own keys on the column that defines it, and only there; once the trace
+    # flattens, nothing distinguishes them from the value the window computes.
+    window_roles = _window_source_roles(column)
     for source in column.sources:
         if source.scope == AMBIGUOUS_SCOPE_ID and source.candidates:
             traced.ambiguities.append(
@@ -343,6 +356,13 @@ def _trace_column(
                 result, source.scope, source_column, dominant, visited
             )
         traced.sources.extend(source_trace.sources)
+        traced.window_context.extend(source_trace.window_context)
+        for role in window_roles.get((source.scope, source.column), ()):
+            # source_trace.sources are the physical columns this key resolved to; the role
+            # belongs to each of them, not to the intermediate name it passed through.
+            traced.window_context.extend(
+                (table, col, role) for table, col, _transform in source_trace.sources
+            )
         traced.incomplete_reasons.extend(source_trace.incomplete_reasons)
         traced.ambiguities.extend(source_trace.ambiguities)
     if not traced.sources:
@@ -602,6 +622,39 @@ def _find_output(outputs: list[ScopeOutputField], column_name: str) -> ScopeOutp
         if output.name == "*":
             wildcard = output
     return wildcard
+
+
+def _window_source_roles(column: ScopeColumn) -> dict[tuple[str, str], list[str]]:
+    """Map a windowed column's own sources to the roles each plays in its OVER clause.
+
+    A column can both group and order — `PARTITION BY amt ORDER BY amt` is legal — so this maps
+    to a list. Recording only the first would drop a fact, which is the failure this whole field
+    exists to prevent.
+    """
+    window = getattr(column, "window", None)
+    if not isinstance(window, dict):
+        return {}
+    roles: dict[tuple[str, str], list[str]] = {}
+    for ref in window.get("partition_by") or []:
+        key = (getattr(ref, "scope", None), getattr(ref, "column", None))
+        if all(key):
+            roles.setdefault(key, []).append("partition")
+    for item in window.get("order_by") or []:
+        if not isinstance(item, dict):
+            continue
+        key = (item.get("scope"), item.get("column"))
+        if all(key) and "order" not in roles.get(key, []):
+            roles.setdefault(key, []).append("order")
+    return roles
+
+
+def _window_context_dicts(context: list[tuple[str, str, str]]) -> list[dict[str, str]]:
+    seen: dict[tuple[str, str, str], dict[str, str]] = {}
+    for table, column, role in context:
+        if table in {CONSTANT_SCOPE_ID, SYSTEM_SCOPE_ID, "UNKNOWN", AMBIGUOUS_SCOPE_ID}:
+            continue
+        seen[(table, column, role)] = {"table": table, "column": column, "role": role}
+    return list(seen.values())
 
 
 def _dominant_transform(left: str, right: str) -> str:

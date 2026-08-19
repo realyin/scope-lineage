@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Named the columns a window grouped or ordered by, in a new optional
+  `window_context_sources` beside the existing sources. `transform` cannot carry this: it
+  records the strongest expression kind on a source's path, and `_trace_column` passes that down
+  every branch, so a partition key and the value the window computes arrive labelled `WINDOW`
+  alike. Nothing was wrong with the lineage — `value_sources` was complete — but a window
+  partitioned by fifteen columns has now twice been filed as a P0 "the lineage was smeared across
+  the whole table", both times against right answers. The keys sit in their own array the way
+  `row_membership_sources` and `value_condition_sources` have since 0.1.0, and `value_sources` is
+  unchanged to the edge: it stays the complete dependency set change-impact analysis needs. A
+  column that both orders a window and feeds the computed value appears in both, which is why
+  subtracting one from the other is not the recipe for "what computes this" — on the real
+  slowly-changing-dimension column that prompted this, subtraction answers "nothing". Optional,
+  omitted when empty, declared in both documents' schemas; across a production corpus the
+  `value_sources` edges are unchanged and the context entries are additive
+
 - Limited an unreadable metadata file to that file, on the two paths where 0.1.6's rule had never
   actually taken effect. Source schema had the per-file guard but caught only `MetadataFileError`,
   while the JSON reader let a raw `JSONDecodeError` out — so the commonest kind of bad file walked
@@ -14,8 +29,6 @@
   `metadata_conflicts`. A load that produced no table still raises, and still names every file it
   refused
 
-## Unreleased
-
 - Stopped deciding which warehouse layers require a cross-task trace. Core stamped
   `expression_resolution.cross_task_trace_required` from a vocabulary written into it -- `app`,
   `app_*`, `dm*`, `ads*`, matched against the database segment alone. Warehouse layer naming is a
@@ -27,8 +40,6 @@
   behaviour change even though it breaks no contract. On a production sample it appeared often
   and now appears none; every other signal is unchanged. A consumer that wants it back computes it
   from `physical_source_fields` with its own layer policy
-
-## Unreleased
 
 - Dropped seven re-exports from `scope_builder` that existed only so a consuming repository could
   import Core internals through it. They were never in `PUBLIC_CORE_API`, so this changes no
