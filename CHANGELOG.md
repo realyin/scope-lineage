@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.8 - 2026-08-19
 
 - Normalized schema column names the way table names already were. sqlglot's `qualify`
   lower-cases unquoted identifiers, so every column reference the resolver sees is
