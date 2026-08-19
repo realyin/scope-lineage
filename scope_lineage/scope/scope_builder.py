@@ -35,20 +35,9 @@ from .sqlglot_config import suppress_invalid_json_path_warnings
 from ._shared import DIALECT, PARSE_OPTS, _ORIGINALLY_UNQUALIFIED_META, _SCOPE_ID_ATTR, _column_is_inside_nested_query, _find_alias_in_parent, _unique_ordered
 # Re-exported only for the private integration repository, whose tests reach these through
 # this module instead of through ._shared. Nothing in this module uses them.
-from ._shared import (  # noqa: F401
-    _populate_union_output_branch_mappings,
-    _replace_qualified_ref_with_expression,
-    _replace_unqualified_ref_with_expression,
-    _resolve_expression_resolution_from_output_sources,
-)
 from ._shared import _source_item_from_ast_node
-from .column_expression_resolution import _expression_resolution_for_scope_column  # noqa: F401
-from .lineage_fact_gaps import (  # noqa: F401
-    _mark_gaps_from_recovered_syntax,
-    _populate_lineage_fact_gaps,
-)
-from .passthrough_resolution import _propagate_passthrough_expression_resolution  # noqa: F401
-from .scope_facts import _populate_enhanced_scope_facts  # noqa: F401
+from .lineage_fact_gaps import _mark_gaps_from_recovered_syntax
+from .scope_facts import _populate_enhanced_scope_facts
 
 suppress_invalid_json_path_warnings()
 

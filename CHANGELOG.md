@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Dropped seven re-exports from `scope_builder` that existed only so a consuming repository could
+  import Core internals through it. They were never in `PUBLIC_CORE_API`, so this changes no
+  contract -- but anyone who had reached for `scope_lineage.scope.scope_builder._populate_lineage_fact_gaps`
+  and friends will now get an ImportError instead of a symbol Core was free to move anyway. The
+  functions themselves are unchanged, in the modules that define them. The consumer that needed
+  them stopped: the tests that were reaching through now live here, where the behaviour does
+
 ## 0.1.10 - 2026-08-19
 
 - Published `Diagnostics` and `DiagnosticWarning` on the public facade. A consumer already
