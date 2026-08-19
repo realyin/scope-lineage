@@ -15,4 +15,7 @@ credentials*
 CLAUDE.md
 .claude/
 .codex/
-issues/
+
+# Local development notes: plans, issues, verification reports, research.
+# Not part of the published product; see dev-notes/README.md for what goes where.
+dev-notes/
