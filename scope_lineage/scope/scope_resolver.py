@@ -980,7 +980,7 @@ def _resolve_merge_columns(
                         all_scopes,
                         target_qualifiers,
                         result,
-                    )
+                        )
 
                     result.scopes["ROOT"].columns.append(ScopeColumn(
                         name=dst_name, transform=transform, expression=expression,
@@ -996,6 +996,34 @@ def _resolve_merge_columns(
                     "does not produce ROOT output columns."
                 ),
             ))
+
+
+def _merge_using_column_passes_through(
+    result: ScopeLineageResult,
+    using_scope_id: str | None,
+    col_name: str,
+    table: str,
+) -> bool:
+    """Does the USING relation expose ``col_name`` straight from ``table``?
+
+    True for a bare table wrapped as a subquery, where binding the reference directly to the
+    table is the lexical source a previous fix deliberately preserves. False for a rename, a
+    literal or any computed projection — there the column belongs to the subquery, and
+    naming the inner table invents one it does not have.
+    """
+    scope_data = result.scopes.get(using_scope_id or "")
+    if scope_data is None:
+        return True
+    column = next(
+        (item for item in scope_data.columns if item.name == col_name),
+        None,
+    )
+    if column is None:
+        return True
+    return any(
+        source.scope == table and source.column == col_name
+        for source in column.sources or []
+    )
 
 
 def _resolve_merge_value_sources(
@@ -1044,7 +1072,19 @@ def _resolve_merge_value_sources(
         if col_table:
             source = using_scope.sources.get(col_table) if using_scope else None
             if isinstance(source, exp.Table):
-                append(_qualified_table(source), col_name)
+                # The USING alias names the whole subquery. When an inner table carries the
+                # same alias it wins this lookup, and `alias.<col>` was published as a column
+                # of that table — turning `record_id AS biz_no` into a column the table does
+                # not have, and a literal into a physical field (MERGE-ALIAS-001). The direct
+                # lexical binding is still right where the subquery passes the column
+                # straight through, which is what the bare-table shape relies on, so only a
+                # column the subquery derives is redirected to the subquery itself.
+                if _merge_using_column_passes_through(
+                    result, using_scope_id, col_name, _qualified_table(source)
+                ):
+                    append(_qualified_table(source), col_name)
+                else:
+                    append(using_scope_id, col_name)
             elif isinstance(source, Scope):
                 append(getattr(source, _SCOPE_ID_ATTR, None), col_name)
             else:

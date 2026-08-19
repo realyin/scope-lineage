@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Stopped a MERGE's USING alias from being captured by an inner table of the same name.
+  `USING (SELECT record_id AS biz_no, 'prod' AS etl_source FROM ods.src t1) t1` resolved
+  every `t1.<col>` against the subquery's *internal* sources, where the inner table won — so
+  a renamed projection was published as `ods.src.biz_no`, a column that table does not have,
+  and the literal became `ods.src.etl_source`, a physical field. With `trace_complete` true
+  and no warning: a confident wrong answer, and precisely what this project's README
+  criticises other tools for. A column the subquery passes straight through still binds
+  directly to the table, which is the lexical source an earlier fix preserves; only a
+  derived column is redirected. The fabricated columns in an affected statement go to none
+
 - Gave `syntax_errors[]` an order that holds across processes. sqlglot builds one message
   per entry of `Expression.required_args`, which is a `set`, and CPython randomises string
   hashing per process — so a statement missing two required keywords wrote the same entries
