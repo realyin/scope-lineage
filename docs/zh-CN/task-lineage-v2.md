@@ -94,6 +94,43 @@ physical_only = [
 
 **判据是来源的种类，不是表名是否相同。**
 
+## value_sources[].transform：`WINDOW` 的来源不都是值来源
+
+`source_kind` 回答"值来自哪一类地方"，`transform` 回答"经过了什么变换"。两者要一起读——
+只按 `source_kind == "physical_field"` 统计，会把窗口的**分组上下文**也算成值依赖。
+
+一个窗口字段的来源里混着三种角色，但 `transform` 一律是 `WINDOW`：
+
+| 角色 | `SUM(amt) OVER (PARTITION BY id ORDER BY dt)` 中 | 是否决定数值 |
+| --- | --- | --- |
+| 值参数 | `amt` | 是 |
+| 分区键 | `id` | 否，只决定分到哪一组 |
+| 排序键 | `dt` | 否，只决定组内次序 |
+
+三列都会以 `physical_field` + `transform: "WINDOW"` 出现。
+
+### 为什么这里最容易误判
+
+`end_to_end_lineage` 是**压平**视图：它把整条 scope 链一路展开到物理叶子，
+只保留 `{table, column, transform}`，**不保留是哪一跳、也不带回指**。
+于是一个按 15 列分区的窗口，会让这 15 列全部出现在某个下游字段的 `value_sources` 里，
+看上去像"来源被铺成整张表"。
+
+在 `lineage.json` 的 scope 视图里则不会有这个错觉——那里每一跳通常只有一两个直接来源，
+上下文列只挂在定义窗口的那一列上。
+
+### 怎么只取值来源
+
+角色信息在 `lineage.json` 一侧：`scopes[].columns[].window` 给出 `partition_by[]` 与
+`order_by[]`，且只有 `transform` 为 `WINDOW` 的那一列才有。做法是沿 `sources[]` 往上走到
+带 `window` 的那一列，把它的 `partition_by` / `order_by` 从来源里剔除。
+
+`row_number()`、`rank()` 这类窗口没有值参数，剔除后为空是正确结果：它们的值完全由分区与排序决定。
+这类字段真正的值来源在窗口之外的表达式里，会以 `DIRECT` / `EXPRESSION` 而不是 `WINDOW` 出现。
+
+**判断某列是不是值来源，看它的 `transform`，以及它是否出现在对应窗口的 `partition_by` / `order_by` 里——
+不要只数 `value_sources` 的条数。**
+
 ## 状态转换语义
 
 | 语句 | rowset operation | 字段值语义 |
