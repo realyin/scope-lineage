@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Limited an unreadable metadata file to that file, on the two paths where 0.1.6's rule had never
+  actually taken effect. Source schema had the per-file guard but caught only `MetadataFileError`,
+  while the JSON reader let a raw `JSONDecodeError` out — so the commonest kind of bad file walked
+  straight past it. Target DDL metadata raised on the first unreadable file and abandoned the rest
+  of the directory, the rule having never been applied there at all. Worse, a file-level rejection
+  is recorded with no table name, and the serializer kept only conflicts whose table was among the
+  referenced ones — so every one of them was recorded and then dropped, leaving an artifact that
+  said nothing at all about the file it could not read. Two corrupted files among 3,434 took the
+  loader from **0 usable tables to 3,432**, with both files and their reasons now in
+  `metadata_conflicts`. A load that produced no table still raises, and still names every file it
+  refused
+
+## Unreleased
+
 - Stopped deciding which warehouse layers require a cross-task trace. Core stamped
   `expression_resolution.cross_task_trace_required` from a vocabulary written into it -- `app`,
   `app_*`, `dm*`, `ads*`, matched against the database segment alone. Warehouse layer naming is a
