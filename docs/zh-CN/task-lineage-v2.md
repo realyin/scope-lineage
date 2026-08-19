@@ -131,6 +131,49 @@ physical_only = [
 **判断某列是不是值来源，看它的 `transform`，以及它是否出现在对应窗口的 `partition_by` / `order_by` 里——
 不要只数 `value_sources` 的条数。**
 
+## value_sources[] 是"参与路径"的列表，不是"依赖列"的集合
+
+同一个物理列可以在一个字段的 `value_sources` 里出现**多次**，每次带不同的 `transform`。
+去重键是 `(table, column, transform)`，`transform` 是刻意计入的：每条记录的是一种**参与方式**，
+不是同一事实记了多遍。
+
+一个真实的拉链表派生列：
+
+```
+etl_begin_date: 条目 17 → 按 (table, column) 去重后 16 列
+etl_end_date:   条目 33 → 按 (table, column) 去重后 16 列（与上面是同一批列）
+```
+
+`etl_end_date` 的 33 条不是膨胀：同一批 16 列经**两条路径**到达——一条经窗口派生的列
+（`transform=WINDOW`），一条经读取该窗口输出的聚合（`transform=AGGREGATE`），
+再加 1 条真正的取值路径（`transform=CONDITIONAL`）。
+
+要"这个字段依赖哪些物理列"，按 `(table, column)` 去重：
+
+```python
+columns = {
+    (source["table"], source["column"])
+    for source in item["value_sources"]
+    if source["source_kind"] == "physical_field"
+}
+```
+
+要"值是从哪来的"，那是另一个问题——见上一节，不能只按 `transform` 白名单过滤。
+
+### 一条会清空血缘的过滤写法
+
+有人会想"只保留 `DIRECT`/`EXPRESSION`/`CONDITIONAL` 就是取值来源"。**这条规则是错的**：
+
+| 字段写法 | 真实物理来源 | 按该规则过滤后 |
+| --- | --- | --- |
+| `SUM(amt)` | `amt` | **空** |
+| `COUNT(DISTINCT amt)` | `amt` | **空** |
+| `SUM(amt) OVER (PARTITION BY id ORDER BY dt)` | `amt`、`id`、`dt` | **空** |
+
+聚合与窗口指标的**值参数本身**就带 `AGGREGATE` / `WINDOW`，滤掉它们等于滤掉真正的来源。
+数仓里绝大多数指标列都是这个形态。这条规则在 `row_number()` 这类**没有值参数**的窗口上
+看起来有效，那是巧合，不能推广。
+
 ## 状态转换语义
 
 | 语句 | rowset operation | 字段值语义 |
