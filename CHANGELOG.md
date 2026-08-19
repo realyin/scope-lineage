@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Normalized schema column names the way table names already were. sqlglot's `qualify`
+  lower-cases unquoted identifiers, so every column reference the resolver sees is
+  lower-case; `normalize_table_name` lower-cases for exactly that reason and says so in its
+  docstring, but column names were passed through verbatim. A metadata export that spells
+  its columns in upper case therefore matched nothing. Nothing failed loudly: `SELECT *`
+  expansion copies schema names into a scope's column list, so an inner scope advertised
+  `V1` while the outer scope asked for `v1`, source chains broke to `scope:"UNKNOWN"`, and
+  explicitly referenced columns were re-added as case-variant duplicates — while
+  `metadata_coverage` still reported every table covered, because coverage only checks table
+  names. A multi-branch MERGE went from thousands of lineage fact gaps and `partial` to none
+  and `complete`; the same schema differing only in case is now the same lineage
+
 - Stopped a MERGE's USING alias from being captured by an inner table of the same name.
   `USING (SELECT record_id AS biz_no, 'prod' AS etl_source FROM ods.src t1) t1` resolved
   every `t1.<col>` against the subquery's *internal* sources, where the inner table won — so
