@@ -17,6 +17,19 @@
   omitted when empty, declared in both documents' schemas; across 200 real tasks the 57,648
   `value_sources` edges are unchanged and 213 context entries are added
 
+- Stopped reporting a `duplicate_table_in_union` for a table a branch only reads inside a filter
+  subquery. The warning exists to catch a copy-pasted UNION branch whose source was never changed,
+  and it read that off `depends_on` -- everything the scope reaches. Once a filter subquery's
+  physical tables were restored to `depends_on`, the anti-join shape (`SELECT ... FROM a` UNION
+  `SELECT ... FROM b WHERE NOT EXISTS (SELECT 1 FROM a ...)`) started warning on every occurrence,
+  which is deliberate SQL and extremely common: on a 645-task corpus it produced 3 new warnings and
+  demoted a statement that had nothing wrong with it. `ScopeInputEdge` already carries the fact the
+  detector wants -- "a direct input edge from a FROM/JOIN source into a scope" -- so it now reads
+  `input_edges`, counting each branch once because one branch can hold several edges to the same
+  table. A table the branch pulls in by JOIN still counts; a branch whose FROM is a derived table
+  over the shared table is still missed, as it was before, and widening that reach is a separate
+  change (DUP-UNION-001)
+
 - Limited an unreadable metadata file to that file, on the two paths where 0.1.6's rule had never
   actually taken effect. Source schema had the per-file guard but caught only `MetadataFileError`,
   while the JSON reader let a raw `JSONDecodeError` out — so the commonest kind of bad file walked

@@ -96,6 +96,7 @@ scope_lineage/schemas/diagnostics.schema.json
 | `filter_in_join_on_clause` | JOIN ON 中包含常量比较等行过滤。 | 影响逻辑解释时区分 join key 与 condition filter。 |
 | `magic_number` | 表达式包含缺少解释的数值常量。 | 上层业务知识生成时请求口径说明。 |
 | `complex_aggregate_with_case` | 聚合中嵌套 CASE。 | 指标解释应保留 CASE 分支，不只记录 SUM/COUNT。 |
+| `duplicate_table_in_union` | 同一物理表是多个 UNION 分支的 **FROM/JOIN 来源**。只被某个分支的过滤子查询读到（如 `NOT EXISTS`）不计入。 | 确认分支是否复制后忘记换来源；反连接排重是正常写法，不再触发。 |
 | `target_field_binding_fallback` | 目标字段权威绑定没有完整应用。 | 查看 `lineage.json.target_field_binding.issues[]`。 |
 
 warning 不是固定封闭枚举；机器处理应对已知类型设策略，对未知类型保留并展示。
