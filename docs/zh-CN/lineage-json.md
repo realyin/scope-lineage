@@ -368,6 +368,43 @@ STRUCT 中取字段”误读成普通直接投影。
 | `UNION` | UNION 位置对齐后的输出。 |
 | `EXPAND_ALL` | `SELECT *` 或 `alias.*` 未完全展开时的占位。 |
 
+#### `WINDOW` 里混着三种角色，不要当作同一种依赖
+
+一个窗口字段的来源，`transform` 都标成 `WINDOW`，但它们对结果值的作用完全不同：
+
+| 角色 | `SUM(amt) OVER (PARTITION BY id ORDER BY dt)` 中 | 是否决定数值 |
+| --- | --- | --- |
+| 值参数 | `amt` | 是 |
+| 分区键 | `id` | 否，只决定该行落在哪一组 |
+| 排序键 | `dt` | 否，只决定组内次序 |
+
+三列都会以 `transform: "WINDOW"` 出现在 `sources[]` 里。所以当一个窗口按很多列分区时，
+这些列会同时成为来源——**这是如实记录**：换掉任一分区列，分组就变，窗口结果也可能变。
+
+角色是落盘的，但它挂在**定义窗口的那一列**上，不在下游字段上。`columns[].window` 给出
+`partition_by[]` 与 `order_by[]`，只有 `transform` 为 `WINDOW` 的那一列才有这个结构。
+
+要判断某个下游字段的哪些来源属于窗口上下文，沿 `sources[]` 往上走到带 `window` 的那一列：
+
+```
+ROOT.begin_date        transform=EXPRESSION       ← 本层只有 1 个直接来源
+  └ subq:s2.start_dt   DIRECT
+     └ subq:s1.start_dt   EXPRESSION              ← date_add(dt, rn - 1)
+        ├ subq:s0.dt   DIRECT                     ← 值来源
+        └ subq:s0.rn   WINDOW   window={partition_by[15], order_by[1]}
+```
+
+`rn` 的 15 个 `partition_by` 列与 1 个 `order_by` 列是**上下文**；`start_dt` 真正的值来源是 `dt`。
+注意 `begin_date` 在本层只有一个直接来源——那 16 个上下文列是 `end_to_end_lineage`
+把整条链压平之后才出现的。
+
+`row_number()`、`rank()` 这类窗口没有值参数，属于"值完全由分区与排序决定"。此时该下游字段的
+值来源要到窗口之外的表达式里找——上例中就是 `date_add(...)` 里的 `dt`，它以 `DIRECT`/`EXPRESSION`
+而非 `WINDOW` 出现。
+
+这不是缺陷而是口径：分区键确实影响结果，Core 如实记录，由消费方区分"值从哪来"与
+"分组/排序上下文是什么"。
+
 `expression_type` 提供更适合新消费者的结构分类：
 
 | Value | 含义 |

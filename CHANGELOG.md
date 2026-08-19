@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Documented that a window field's sources carry three different roles under one
+  `transform: "WINDOW"`: the aggregate's value argument, the `PARTITION BY` keys and the
+  `ORDER BY` keys. A window partitioned by many columns therefore lists all of them as
+  sources, which reads as "the whole table was smeared onto one field" if the roles are not
+  separated — a reading that has already produced a false pollution report. The roles are on
+  the column that *defines* the window (`columns[].window.partition_by` / `order_by`), not on
+  the downstream field, and `end_to_end_lineage` flattens the chain without a back-pointer,
+  so both documents now say where to look and how to tell a value source from grouping
+  context. No behaviour change
+
 ## 0.1.8 - 2026-08-19
 
 - Normalized schema column names the way table names already were. sqlglot's `qualify`
