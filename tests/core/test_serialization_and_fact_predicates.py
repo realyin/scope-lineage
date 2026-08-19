@@ -1,14 +1,12 @@
-"""Unit coverage for serialization round-trips and two small fact predicates.
+"""Unit coverage for serialization round-trips and terminal-output reasons.
 
 Migrated from the integration repository, which held the only tests for all five functions while
 Core had none: the SourceRef dict round-trip (which has to preserve `candidates`, the field that
 records an ambiguous binding), display-expression stamping, terminal-output incomplete reasons,
-and the cross-task-trace predicate.
 
-NOTE for whoever revisits `_cross_task_trace_required_for_fields`: it keys on warehouse layer
-prefixes (`app_`, `dm`, `ads`), which CLAUDE.md says belong downstream rather than in Core. This
-file pins the behaviour that exists today; it is not an endorsement of keeping that rule here.
-The conflict is real and predates this migration -- see the note filed alongside it.
+The cross-task-trace predicate that used to be pinned here is gone: it keyed on warehouse layer
+prefixes, which CLAUDE.md places downstream, and the only consumer now decides it with its own
+layer policy -- one that reads more layers and can take the layer from metadata.
 
 Fixtures are synthetic; the one real layer name the original carried was replaced with a
 synthetic name that keeps the `app_` prefix the rule actually reads.
@@ -46,17 +44,6 @@ def test_phase1_serializer_stamps_display_expression():
     bare = {"columns": [{"name": "x", "expression": "`a`.`x`"}]}
     _stamp_display_expressions(bare)
     assert "display_expression" not in bare["columns"][0]
-
-
-def test_catalog_qualified_upper_layer_source_flags_cross_task_trace():
-    """Layer detection reads the first segment; a catalog prefix must not hide
-    an upper-layer (app_/dm/ads) source, else cross_task_trace is wrongly
-    skipped (fixed incidentally by catalog normalization)."""
-    from scope_lineage.scope.scope_facts import _cross_task_trace_required_for_fields
-
-    # after catalog strip the table is app_reporting.* -> needs cross-task trace
-    assert _cross_task_trace_required_for_fields([{"table": "app_reporting.daily_summary"}]) is True
-    assert _cross_task_trace_required_for_fields([{"table": "ods.users"}]) is False
 
 
 def test_partially_resolved_terminal_output_reports_incomplete_reasons():
