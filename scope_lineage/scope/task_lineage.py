@@ -1257,8 +1257,13 @@ def _metadata_coverage(
         else 0,
         "metadata_conflicts": [
             dict(item)
+            # A conflict about a table this task never reads is noise, so table-scoped ones are
+            # filtered to the referenced set. A *file-level* rejection carries no table -- it is
+            # recorded precisely because the file could not be read far enough to name one -- and
+            # filtering on an empty table dropped every one of them, so a rejected metadata file
+            # was recorded and then never shown (META-ISOLATION-001).
             for item in getattr(schema, "metadata_conflicts", [])
-            if item.get("table") in referenced
+            if not item.get("table") or item.get("table") in referenced
         ],
     }
 
