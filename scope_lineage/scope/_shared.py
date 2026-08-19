@@ -542,7 +542,17 @@ def _unexpanded_bound_aliases_in_expression(scope_data: ScopeData, expression: s
         # an unexpanded alias. The `alias in physical_ids` half still holds the line: a
         # local alias such as `FROM ods.source s` that survived expansion is not exempt,
         # because that one really did fail to rewrite.
-        if binding.get("source_type") == "physical_table" and alias in physical_ids:
+        # `qualify` names an unaliased table after itself, so `FROM ods.pay` yields
+        # references written `pay.uid` while the physical id stays `ods.pay`. Comparing the
+        # two directly never matched, and a fully resolved direct physical source was reported
+        # as an unexpanded alias (BARE-ALIAS-001). Matching the id's table segment as well
+        # still refuses a genuine local alias: `FROM ods.source s` leaves `s`, which is
+        # neither the id nor its table name, and an `s.` that survived expansion really did
+        # fail to rewrite.
+        if binding.get("source_type") == "physical_table" and (
+            alias in physical_ids
+            or alias in {identifier.rsplit(".", 1)[-1] for identifier in physical_ids}
+        ):
             continue
         unresolved_aliases.append(alias)
     return _unique_ordered(unresolved_aliases)
