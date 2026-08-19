@@ -20,20 +20,53 @@
   ],
   "additionalProperties": true,
   "properties": {
-    "schema_version": {"const": "2.0"},
-    "artifact_kind": {"const": "task_lineage"},
-    "task_id": {"type": "string", "minLength": 1},
-    "parse_status": {"enum": ["ok", "failed"]},
-    "syntax_status": {"enum": ["strict_ok", "recovered", "failed"]},
-    "syntax_errors": {"type": "array", "items": {"type": "object"}},
+    "schema_version": {
+      "const": "2.0"
+    },
+    "artifact_kind": {
+      "const": "task_lineage"
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "parse_status": {
+      "enum": [
+        "ok",
+        "failed"
+      ]
+    },
+    "syntax_status": {
+      "enum": [
+        "strict_ok",
+        "recovered",
+        "failed"
+      ]
+    },
+    "syntax_errors": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
     "analysis_status": {
       "type": "object",
-      "required": ["status", "blocking_reasons"],
+      "required": [
+        "status",
+        "blocking_reasons"
+      ],
       "properties": {
-        "status": {"enum": ["complete", "partial"]},
+        "status": {
+          "enum": [
+            "complete",
+            "partial"
+          ]
+        },
         "blocking_reasons": {
           "type": "array",
-          "items": {"type": "string"}
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -51,9 +84,17 @@
         ],
         "additionalProperties": true,
         "properties": {
-          "statement_id": {"type": "string", "pattern": "^stmt:[0-9]{3,}$"},
-          "statement_index": {"type": "integer", "minimum": 0},
-          "stmt_kind": {"type": "string"},
+          "statement_id": {
+            "type": "string",
+            "pattern": "^stmt:[0-9]{3,}$"
+          },
+          "statement_index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "stmt_kind": {
+            "type": "string"
+          },
           "category": {
             "enum": [
               "projection_write",
@@ -64,21 +105,41 @@
               "unsupported_statement"
             ]
           },
-          "model_status": {"enum": ["modeled", "ignored", "unsupported", "failed"]},
-          "normalized_sql": {"type": "string"},
-          "target_table": {"type": "string"},
+          "model_status": {
+            "enum": [
+              "modeled",
+              "ignored",
+              "unsupported",
+              "failed"
+            ]
+          },
+          "normalized_sql": {
+            "type": "string"
+          },
+          "target_table": {
+            "type": "string"
+          },
           "input_states": {
             "type": "array",
-            "items": {"type": "string"}
+            "items": {
+              "type": "string"
+            }
           },
-          "output_state": {"type": "string"},
-          "effect": {"type": "object"}
+          "output_state": {
+            "type": "string"
+          },
+          "effect": {
+            "type": "object"
+          }
         }
       }
     },
     "table_state_graph": {
       "type": "object",
-      "required": ["nodes", "edges"],
+      "required": [
+        "nodes",
+        "edges"
+      ],
       "properties": {
         "nodes": {
           "type": "array",
@@ -93,12 +154,29 @@
               "producer_statement_id"
             ],
             "properties": {
-              "state_id": {"type": "string"},
-              "table": {"type": "string", "minLength": 1},
-              "ordinal": {"type": "integer", "minimum": 0},
-              "known_empty": {"type": "boolean"},
-              "columns_known": {"type": "boolean"},
-              "producer_statement_id": {"type": ["string", "null"]}
+              "state_id": {
+                "type": "string"
+              },
+              "table": {
+                "type": "string",
+                "minLength": 1
+              },
+              "ordinal": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "known_empty": {
+                "type": "boolean"
+              },
+              "columns_known": {
+                "type": "boolean"
+              },
+              "producer_statement_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
             }
           }
         },
@@ -106,12 +184,25 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["from", "to", "statement_id", "effect"],
+            "required": [
+              "from",
+              "to",
+              "statement_id",
+              "effect"
+            ],
             "properties": {
-              "from": {"type": "string"},
-              "to": {"type": "string"},
-              "statement_id": {"type": "string"},
-              "effect": {"type": "string"}
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              },
+              "statement_id": {
+                "type": "string"
+              },
+              "effect": {
+                "type": "string"
+              }
             }
           }
         }
@@ -119,11 +210,15 @@
     },
     "final_table_states": {
       "type": "object",
-      "additionalProperties": {"type": "string"}
+      "additionalProperties": {
+        "type": "string"
+      }
     },
     "statement_lineage": {
       "type": "object",
-      "additionalProperties": {"type": "object"}
+      "additionalProperties": {
+        "type": "object"
+      }
     },
     "end_to_end_lineage": {
       "type": "array",
@@ -140,18 +235,77 @@
           "missing_reasons"
         ],
         "properties": {
-          "target_state": {"type": "string"},
-          "table": {"type": "string"},
-          "column": {"type": "string"},
-          "value_sources": {"type": "array", "items": {"type": "object"}},
-          "row_membership_sources": {"type": "array", "items": {"type": "object"}},
-          "value_condition_sources": {"type": "array", "items": {"type": "object"}},
-          "trace_complete": {"type": "boolean"},
-          "missing_reasons": {"type": "array", "items": {"type": "string"}}
+          "target_state": {
+            "type": "string"
+          },
+          "table": {
+            "type": "string"
+          },
+          "column": {
+            "type": "string"
+          },
+          "value_sources": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "window_context_sources": {
+            "type": "array",
+            "description": "Optional. The columns a window grouped or ordered by, and which role each played. Every one of them also appears in the value/physical sources, which stay the complete dependency set; this array only says which of them the window used as context rather than computed. Omitted when there is none.",
+            "items": {
+              "type": "object",
+              "required": [
+                "table",
+                "column",
+                "role"
+              ],
+              "properties": {
+                "table": {
+                  "type": "string"
+                },
+                "column": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "partition",
+                    "order"
+                  ]
+                }
+              }
+            }
+          },
+          "row_membership_sources": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "value_condition_sources": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "trace_complete": {
+            "type": "boolean"
+          },
+          "missing_reasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         }
       }
     },
-    "task_dependencies": {"type": "object"},
-    "diagnostics": {"type": "object"}
+    "task_dependencies": {
+      "type": "object"
+    },
+    "diagnostics": {
+      "type": "object"
+    }
   }
 }

@@ -387,6 +387,33 @@
               }
             }
           },
+          "window_context_sources": {
+            "type": "array",
+            "description": "Optional. The columns a window grouped or ordered by, and which role each played. Every one of them also appears in the value/physical sources, which stay the complete dependency set; this array only says which of them the window used as context rather than computed. Omitted when there is none.",
+            "items": {
+              "type": "object",
+              "required": [
+                "table",
+                "column",
+                "role"
+              ],
+              "properties": {
+                "table": {
+                  "type": "string"
+                },
+                "column": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "partition",
+                    "order"
+                  ]
+                }
+              }
+            }
+          },
           "generated_sources": {
             "type": "array",
             "items": {
@@ -1749,6 +1776,33 @@
           "type": "array",
           "items": {
             "$ref": "#/definitions/lineage_physical_source"
+          }
+        },
+        "window_context_sources": {
+          "type": "array",
+          "description": "Optional. The columns a window grouped or ordered by, and which role each played. Every one of them also appears in the value/physical sources, which stay the complete dependency set; this array only says which of them the window used as context rather than computed. Omitted when there is none.",
+          "items": {
+            "type": "object",
+            "required": [
+              "table",
+              "column",
+              "role"
+            ],
+            "properties": {
+              "table": {
+                "type": "string"
+              },
+              "column": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "partition",
+                  "order"
+                ]
+              }
+            }
           }
         },
         "generated_sources": {
