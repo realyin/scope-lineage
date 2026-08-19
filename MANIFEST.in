@@ -7,8 +7,8 @@ include SECURITY.md
 include pyproject.toml
 recursive-include scope_lineage *.py *.json
 prune .claude
+prune dev-notes
 prune docs
-prune pipeline
 prune tests
 global-exclude .DS_Store
 global-exclude *.py[cod]

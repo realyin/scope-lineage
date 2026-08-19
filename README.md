@@ -438,7 +438,7 @@ Current limits:
 ## Development
 
 ```bash
-python -m pytest -q tests/core tests/architecture/test_core_boundaries.py
+python -m pytest -q tests/core
 python -m ruff check scope_lineage tests
 python -m build
 python tests/architecture/verify_distribution.py dist/*

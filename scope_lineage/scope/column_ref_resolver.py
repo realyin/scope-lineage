@@ -252,22 +252,6 @@ def _resolve_struct_field_ref(
     )
 
 
-def _lookup_source_in_scope_chain(alias: str, sg_scope: Scope) -> Scope | exp.Table | None:
-    """Find a source alias in the current scope or an ancestor scope."""
-    src = sg_scope.sources.get(alias)
-    if isinstance(src, (Scope, exp.Table)):
-        return src
-    try:
-        selected = sg_scope.selected_sources.get(alias)
-    except OptimizeError:
-        selected = None
-    if selected:
-        (_node, source) = selected
-        if isinstance(source, (Scope, exp.Table)):
-            return source
-    return _lookup_alias_in_parent_scopes(alias, sg_scope)
-
-
 def _lookup_alias_in_parent_scopes(table_alias: str, sg_scope: Scope) -> Scope | exp.Table | None:
     """Find a correlated reference alias in ancestor scopes."""
     binding = _lookup_alias_binding_in_parent_scopes(table_alias, sg_scope)
