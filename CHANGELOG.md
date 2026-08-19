@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Recovered the physical sources of a scalar subquery used as a projection. Column references
+  inside a nested query are skipped when the enclosing expression is resolved, and rightly so:
+  they belong to the subquery's sources, and resolving them outward binds them to whatever the
+  outer scope exposes under the same alias. But nothing picked them up afterwards — a scalar
+  subquery is not a FROM-clause source, so it never became an input of the outer scope, and the
+  projection fell through to the constant fallback with the whole `(SELECT …)` recorded as a
+  CONSTANT value and its tables nowhere in the lineage. In the plain shape this was silent: no
+  gap, `analysis_status` complete. They now resolve against the subquery's own scope, which
+  sqlglot already builds, and a correlated reference still binds outward because alias lookup
+  walks parent scopes. Across the statements that use the shape, physical source edges come
+  back and 5 subqueries stop being reported as constants
+
 - Stopped a dynamic-partition `INSERT OVERWRITE` from claiming the target's previous values
   survived it. The write effect was chosen from `target_partition_mode != "none"`, so
   `PARTITION(dt='20260101')` and `PARTITION(dt)` were treated alike and both carried the
