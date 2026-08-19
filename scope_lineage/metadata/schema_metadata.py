@@ -661,7 +661,13 @@ def _normalize_column_detail(column: str | Mapping | None) -> dict:
     )
     comment = raw.get("comment") or raw.get("column_comment") or raw.get("columnComment")
     return {
-        "name": (name or "").strip().strip("`"),
+        # Lower-cased for the same reason normalize_table_name lower-cases: sqlglot's qualify
+        # normalizes unquoted identifiers to lower case, so every column reference reaching the
+        # resolver is lower-case. Table names were normalized and column names were not, so an
+        # upper-case metadata export matched nothing -- SELECT * then copied the schema's casing
+        # into scope columns while references stayed lower-case, breaking source chains to
+        # UNKNOWN with no warning (SCHEMA-CASE-001).
+        "name": (name or "").strip().strip("`").lower(),
         "type": _blank_to_none(col_type),
         "comment": _blank_to_none(comment),
     }
