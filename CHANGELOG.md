@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.9 - 2026-08-19
 
 - Stopped reporting a table qualified by its own name as an unexpanded alias. `qualify` names
   an unaliased table after itself, so `FROM ods.pay` yields references written `pay.uid` while
