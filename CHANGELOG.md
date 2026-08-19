@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Stopped deciding which warehouse layers require a cross-task trace. Core stamped
+  `expression_resolution.cross_task_trace_required` from a vocabulary written into it -- `app`,
+  `app_*`, `dm*`, `ads*`, matched against the database segment alone. Warehouse layer naming is a
+  deployment convention, which this project's own conventions place downstream, and a deployment
+  naming its upper layers anything else got the flag on nothing at all with no way to find out.
+  Core still publishes what the judgement rests on: `physical_source_fields`, the physical columns
+  an expression resolved to. **The field was never declared in the JSON Schema and appears in no
+  document, but it did reach the artifact and it did have a consumer** -- so its removal is a
+  behaviour change even though it breaks no contract. On a production sample it appeared often
+  and now appears none; every other signal is unchanged. A consumer that wants it back computes it
+  from `physical_source_fields` with its own layer policy
+
+## Unreleased
+
 - Dropped seven re-exports from `scope_builder` that existed only so a consuming repository could
   import Core internals through it. They were never in `PUBLIC_CORE_API`, so this changes no
   contract -- but anyone who had reached for `scope_lineage.scope.scope_builder._populate_lineage_fact_gaps`
