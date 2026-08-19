@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Published `Diagnostics` and `DiagnosticWarning` on the public facade. A consumer already
+  receives both through `ScopeLineageResult.diagnostics`, which is itself published, and their
+  siblings `ScopeColumn`, `ScopeData`, `ScopeOutputField` and `SourceRef` were public — these two
+  alone were not, so anyone naming the type they had just been handed had to import it from
+  `scope_lineage.scope.scope_types`, a path Core is free to move. Reaching a type through a
+  private module in order to describe a published one is a hole in the facade, not a use of it
+
 - Documented that `value_sources[]` lists participation paths rather than a set of columns. The
   dedup key is `(table, column, transform)` and includes the transform deliberately, so one
   physical column appears once per way it participates — a derived column on a real slowly
