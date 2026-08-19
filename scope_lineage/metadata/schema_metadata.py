@@ -467,7 +467,17 @@ def load_schema_json(
         role="schema",
         require_header=False,
     )
-    data = json.loads(result.text)
+    try:
+        data = json.loads(result.text)
+    except json.JSONDecodeError as exc:
+        # As MetadataFileError, so load_schema_sources' per-file guard catches it. Raw
+        # JSONDecodeError slipped past that guard, which is why one bad file still cost the
+        # whole batch long after 0.1.6 set the rule that it should not (META-ISOLATION-001).
+        raise MetadataFileError(
+            f"源表 schema 元数据不是合法 JSON: {path}\n"
+            f"  位置: line {exc.lineno}, column {exc.colno}\n"
+            f"  原因: {exc.msg}"
+        ) from exc
     if provenance is not None:
         provenance.append(dict(result.provenance))
     return _raise_if_nothing_loaded(_schema_from_json_value(data, source_path=path))

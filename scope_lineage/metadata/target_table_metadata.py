@@ -58,6 +58,9 @@ class TargetMetadataMap(dict[str, TargetTableMetadata]):
         metadata: Mapping[str, TargetTableMetadata] | None = None,
     ) -> None:
         super().__init__()
+        # File-level rejections land here, mirroring SchemaMap: one unreadable file costs that
+        # file, and the reason travels with the map instead of being lost to an exception.
+        self.metadata_conflicts: list[dict] = []
         for table, item in (metadata or {}).items():
             normalized = normalize_table_name(table or item.table_name)
             if normalized:
@@ -80,6 +83,7 @@ def load_target_table_metadata(
     root = Path(path)
     files = _metadata_files(root)
     candidates: dict[str, list[TargetTableMetadata]] = {}
+    rejected: list[dict] = []
     provenance_by_file: dict[str, dict] = {}
     for file_path in files:
         text = check_metadata_file(
@@ -91,17 +95,27 @@ def load_target_table_metadata(
         try:
             document = json.loads(text)
         except json.JSONDecodeError as exc:
-            raise MetadataFileError(
-                f"目标表 DDL/Schema 元数据不是合法 JSON: {file_path}\n"
-                f"  位置: line {exc.lineno}, column {exc.colno}\n"
-                f"  原因: {exc.msg}"
-            ) from exc
+            # Skip this file rather than abandoning the directory: 0.1.6 set that rule for source
+            # schema after two bad files among 3434 left every table without columns, and the
+            # same argument applies here. A load that produced no table at all still raises,
+            # below (META-ISOLATION-001).
+            rejected.append({
+                "table": "",
+                "source_file": Path(file_path).name,
+                "reason": "metadata_rejected",
+                "issues": [f"not valid JSON: line {exc.lineno}, column {exc.colno}: {exc.msg}"],
+            })
+            continue
         item = _target_table_metadata_from_document(document, file_path)
         key = normalize_table_name(item.table_name or item.full_table_name)
         if not key:
-            raise MetadataFileError(
-                f"目标表 DDL/Schema 元数据缺少可识别表名: {file_path}"
-            )
+            rejected.append({
+                "table": "",
+                "source_file": Path(file_path).name,
+                "reason": "metadata_rejected",
+                "issues": ["no recognizable table name"],
+            })
+            continue
         candidates.setdefault(key, []).append(item)
         if provenance is not None and provenance:
             # The platform commonly names JSON exports ``*.txt``. Provenance records the
@@ -124,6 +138,17 @@ def load_target_table_metadata(
             provenance_item = provenance_by_file.get(item.source_file)
             if provenance_item is not None:
                 provenance_item["selected_version"] = item is selected
+    result.metadata_conflicts = rejected
+    if not result and rejected:
+        # Nothing loaded is the one case that must not pass quietly -- an empty map reads exactly
+        # like "these tables have no metadata". Name every file, so an operator learns what to
+        # fix rather than only that something failed.
+        detail = "; ".join(
+            f"{item['source_file']}: {', '.join(item['issues'])}" for item in rejected[:3]
+        )
+        raise MetadataFileError(
+            f"目标表 DDL/Schema 元数据全部无效，未能加载任何表\n  {detail}"
+        )
     return result
 
 
