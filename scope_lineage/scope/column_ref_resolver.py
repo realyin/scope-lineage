@@ -50,13 +50,62 @@ def _resolve_column_refs_in_expr(expr: exp.Expression, sg_scope: Scope, result: 
     seen: set = set()
     sources: list = []
     for col_ref in expr.find_all(exp.Column):
+        scope_for_ref = sg_scope
         if _inside_nested_query(col_ref, expr):
-            continue
-        src = _resolve_column_ref(col_ref, sg_scope, result, schema)
+            # The reference belongs to a nested query, so it must be resolved against that
+            # query's own sources -- resolving it here would bind it to whatever the outer
+            # scope happens to expose under the same alias (MERGE-ALIAS-001). Skipping it
+            # outright was what dropped a scalar subquery's physical columns on the floor
+            # (SUBQ-SRC-001). A correlated reference still reaches outward on its own,
+            # because alias lookup already walks parent scopes.
+            scope_for_ref = _nested_query_scope(col_ref, expr, sg_scope)
+            if scope_for_ref is None:
+                continue
+        src = _resolve_column_ref(col_ref, scope_for_ref, result, schema)
         if src and _source_ref_binding_key(src) not in seen:
             seen.add(_source_ref_binding_key(src))
             sources.append(src)
     return sources
+
+
+def _nested_query_scope(
+    col_ref: exp.Column,
+    root_expr: exp.Expression,
+    sg_scope: Scope,
+) -> Scope | None:
+    """The scope of the innermost nested query inside ``root_expr`` holding ``col_ref``."""
+    node = col_ref.parent
+    innermost = None
+    while node is not None and node is not root_expr:
+        if isinstance(node, (exp.Select, exp.Union)):
+            innermost = node
+            break
+        node = node.parent
+    if innermost is None:
+        return None
+    return _scope_of_expression(sg_scope, innermost)
+
+
+def _scope_of_expression(sg_scope: Scope, expression: exp.Expression) -> Scope | None:
+    """Find the already-built scope whose expression is ``expression``.
+
+    sqlglot builds a scope for every subquery while traversing, so this looks one up rather
+    than constructing a second view of the same query.
+    """
+    pending = list(_child_scopes(sg_scope))
+    while pending:
+        scope = pending.pop()
+        if scope.expression is expression:
+            return scope
+        pending.extend(_child_scopes(scope))
+    return None
+
+
+def _child_scopes(sg_scope: Scope) -> list:
+    children: list = []
+    for attr in ("subquery_scopes", "derived_table_scopes", "union_scopes", "cte_scopes"):
+        children.extend(getattr(sg_scope, attr, None) or [])
+    return children
 
 
 def _resolve_column_ref(col_ref: exp.Column, sg_scope: Scope, result: ScopeLineageResult, schema: dict | None=None) -> SourceRef | None:
