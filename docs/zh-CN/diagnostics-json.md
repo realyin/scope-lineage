@@ -141,7 +141,7 @@ warning 不是固定封闭枚举；机器处理应对已知类型设策略，对
 真实发生过的后果：某次运行 4 张源表 0 张有元数据，产出 4,158 条缺口，`blocking_reasons` 只写了
 `lineage_fact_gap`。同一份数据先后被三份报告读成"解析能力不足"。补齐元数据后同一任务是 **0 缺口**。
 
-判定方法与三个探针见[怎样正确统计血缘缺口](measuring-lineage-gaps.md)。
+要确认某批缺口是否由元数据缺失造成，最快的判定是：同一条 SQL 再跑一次 `schema=None`，若缺口数与分布和本次一致，说明这次运行的元数据没有生效。
 
 ## 5. `lineage_fact_gaps[]`：未证明事实
 
@@ -166,7 +166,7 @@ Schema 对 gap value 保持可扩展，因为不同解析缺口需要携带不�
 | `evidence_path` | string | 指向 `lineage.json` 中对应事实的路径。 |
 | `evidence_summary` | object | scope 输入数、候选来源、目标影响等摘要。 |
 | `downstream_impact` | object | 受影响的 scope 输出和最终目标字段。 |
-| `derived_from_recovered_syntax` | boolean（可选） | 仅在 `syntax_status = "recovered"` 时出现且恒为 `true`。表示这条缺口来自一次被修补的解析——解析器丢掉了放不下的 token，缺口描述的是**截断本身**，不是这条 SQL 的事实。统计能力缺口时应先排除这些。详见[被修补的解析，以及它派生出来的"假缺口"](recovered-syntax-and-derived-gaps.md)。 |
+| `derived_from_recovered_syntax` | boolean（可选） | 仅在 `syntax_status = "recovered"` 时出现且恒为 `true`。表示这条缺口来自一次被修补的解析——解析器丢掉了放不下的 token，缺口描述的是**截断本身**，不是这条 SQL 的事实。统计能力缺口时应先排除这些。此时唯一可靠的结论是「这条语句没解析成功」，应回到 SQL 本身；统计能力缺口时须排除这些任务。 |
 
 示例：
 
