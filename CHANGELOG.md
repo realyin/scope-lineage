@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Stopped a dynamic-partition `INSERT OVERWRITE` from claiming the target's previous values
+  survived it. The write effect was chosen from `target_partition_mode != "none"`, so
+  `PARTITION(dt='20260101')` and `PARTITION(dt)` were treated alike and both carried the
+  target's previous `value_sources` forward. Only the first deserves that: a valued spec
+  replaces the partitions it names and the rest of the table stands, while a bare
+  `PARTITION(dt)` depends on `spark.sql.sources.partitionOverwriteMode`, whose default is
+  STATIC — every existing partition is dropped before the new data lands. Every column of such
+  a target therefore came back with a `prior_table_state` edge from a state the overwrite had
+  destroyed, which is what a consumer folding state-evolution edges reads as "this column was
+  left alone". The setting is now read from the script when present and applies to the
+  statements after it. A dynamic-partition overwrite now agrees with the unpartitioned one it
+  has always resembled: a column the write does not supply gets no row rather than a false
+  one. Affected statements lose those edges; gap counts, statuses and syntax results are
+  unchanged
+
 - Documented that a window field's sources carry three different roles under one
   `transform: "WINDOW"`: the aggregate's value argument, the `PARTITION BY` keys and the
   `ORDER BY` keys. A window partitioned by many columns therefore lists all of them as
