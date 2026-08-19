@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.10 - 2026-08-19
 
 - Published `Diagnostics` and `DiagnosticWarning` on the public facade. A consumer already
   receives both through `ScopeLineageResult.diagnostics`, which is itself published, and their
