@@ -863,20 +863,6 @@ def _star_passthrough_columns(scope_data: ScopeData) -> list[ScopeColumn]:
     ]
 
 
-def _stronger_transform(left: str, right: str) -> str:
-    order = {
-        "CONSTANT": 0,
-        "DIRECT": 1,
-        "EXPAND_ALL": 2,
-        "UNION": 3,
-        "EXPRESSION": 4,
-        "CONDITIONAL": 5,
-        "WINDOW": 6,
-        "AGGREGATE": 7,
-    }
-    return left if order.get(left, 0) >= order.get(right, 0) else right
-
-
 def _resolve_merge_columns(
     merge_node: exp.Merge,
     using_scope: Scope | None,

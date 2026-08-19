@@ -609,10 +609,6 @@ def _append_loaded_table_schema(schema: SchemaMap, item, source_path: Path) -> N
         )
 
 
-def _iter_column_names(columns) -> Iterable[str]:
-    return [detail["name"] for detail in _iter_column_details(columns)]
-
-
 def _iter_column_details(columns) -> Iterable[dict]:
     if isinstance(columns, dict):
         columns = columns.get("column_details") or columns.get("columns") or columns.get("fields") or []

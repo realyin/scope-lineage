@@ -32,7 +32,15 @@ from .scope_resolver import resolve_all
 from .scope_warnings import detect_warnings
 from .scope_role_inferrer import infer_roles
 from .sqlglot_config import suppress_invalid_json_path_warnings
-from ._shared import DIALECT, PARSE_OPTS, _AGGREGATE_FUNCTIONS, _CLEANING_FUNCTIONS, _KNOWN_SCALAR_FUNCTIONS, _ORIGINALLY_UNQUALIFIED_META, _SCOPE_ID_ATTR, _all_source_refs_have_resolution, _column_is_inside_nested_query, _dedupe_generated_source_dicts, _dedupe_physical_field_dicts, _dedupe_rowset_source_dicts, _extend_unique, _find_alias_in_parent, _function_names, _generated_sources_from_refs, _is_cross_join_type, _is_internal_scope_id, _lambda_qualifiers, _normalize_expression_resolution, _ordered_physical_fields_in_expression, _parenthesize_replacement_expression, _physical_fields_referenced_in_expression, _physical_source_fields_for_ref, _physical_source_fields_for_refs, _physical_source_fields_from_refs, _physical_source_ids_for_input, _populate_union_output_branch_mappings, _qualified_field_ref_keys_from_ast, _qualified_field_refs, _qualified_pair_is_catalog_function_prefix, _qualified_physical_field_sql, _qualifier_present, _replace_qualified_ref_with_expression, _replace_struct_field_access_from_upstream, _replace_unqualified_ref_with_expression, _resolve_expression_resolution_from_output_sources, _resolved_expression_fact_from_source_refs, _rowset_sources_from_upstream_output, _scope_raw_sql_is_star_select, _source_kind_for_resolution, _source_ref_to_dict, _source_refs_from_detail_fields, _source_type_from_id, _star_passthrough_output_fact, _star_passthrough_source_fact, _strip_sql_comments, _strip_sql_string_literals, _struct_leaf_expression, _unexpanded_bound_aliases_in_expression, _union_branch_mappings_for_output, _union_branch_scope_output_for_mapping, _unique_ordered  # noqa: F401  (shared helpers; re-exported)
+from ._shared import DIALECT, PARSE_OPTS, _ORIGINALLY_UNQUALIFIED_META, _SCOPE_ID_ATTR, _column_is_inside_nested_query, _find_alias_in_parent, _unique_ordered
+# Re-exported only for the private integration repository, whose tests reach these through
+# this module instead of through ._shared. Nothing in this module uses them.
+from ._shared import (  # noqa: F401
+    _populate_union_output_branch_mappings,
+    _replace_qualified_ref_with_expression,
+    _replace_unqualified_ref_with_expression,
+    _resolve_expression_resolution_from_output_sources,
+)
 from ._shared import _source_item_from_ast_node
 from .column_expression_resolution import _expression_resolution_for_scope_column  # noqa: F401
 from .lineage_fact_gaps import (  # noqa: F401
@@ -1094,25 +1102,6 @@ def _physical_tables_from_scopes(all_scopes: list[Scope]) -> set[str]:
             if isinstance(source, exp.Table) and source.name:
                 physical_tables.add(_qualified_table(source))
     return physical_tables
-
-
-def _qualifiers_in_expression(expression: str) -> list[str]:
-    result: list[str] = []
-    seen: set[str] = set()
-    for qualifier in re.findall(r"`([^`]+)`\.`[^`]+`", expression or ""):
-        if qualifier and qualifier not in seen:
-            seen.add(qualifier)
-            result.append(qualifier)
-    try:
-        parsed = sqlglot.parse_one(expression, dialect=DIALECT, **PARSE_OPTS)
-    except sqlglot.errors.SqlglotError:
-        return result
-    for column in parsed.find_all(exp.Column):
-        qualifier = str(column.table or "")
-        if qualifier and qualifier not in seen:
-            seen.add(qualifier)
-            result.append(qualifier)
-    return result
 
 
 def _prepare_schema(schema: dict | None) -> dict | None:

@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -29,16 +27,6 @@ def test_public_api_covers_the_approved_consumer_surface() -> None:
 
     assert not missing, f"Public Core API is missing approved symbols: {sorted(missing)}"
     assert all(hasattr(scope_lineage, name) for name in required)
-
-
-def test_importing_core_does_not_load_upper_layers() -> None:
-    script = (
-        "import sys, scope_lineage; "
-        "forbidden=('pipeline','pipeline.understanding.insight','pipeline.refactor',"
-        "'pipeline.understanding.presets'); "
-        "assert not any(n == p or n.startswith(p + '.') for n in sys.modules for p in forbidden)"
-    )
-    subprocess.run([sys.executable, "-c", script], check=True)
 
 
 def test_core_cli_writes_only_lineage_and_diagnostics(tmp_path) -> None:

@@ -38,16 +38,13 @@ where = ["."]
 # This public distribution is the parser and its versioned contracts only. Widening this package
 # discovery rule changes the supported product boundary and requires an architecture review.
 include = ["scope_lineage*"]
-exclude = ["pipeline*", "tests*"]
+exclude = ["tests*"]
 
 [tool.setuptools.package-data]
 scope_lineage = ["schemas/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = [
-    "integration: requires an external execution runtime such as Apache Spark",
-]
 
 [tool.ruff]
 # Lint safety net for the ongoing core-module refactor. Intentionally narrow:
