@@ -461,8 +461,8 @@ def _pivot_star_columns(
         sources.extend(_resolve_column_refs_in_expr(aggregate, sg_scope, result, schema))
     return [
         # Lowercased to match every other name in the result: qualify normalizes column
-        # references, so `IN ('DPMAF034SCORE')` has to meet a reference written
-        # `dpmaf034score`.
+        # references, so `IN ('UPPER_NAME')` has to meet a reference written
+        # `upper_name`.
         ScopeColumn(
             name=name.lower(),
             transform="DIRECT",

@@ -100,7 +100,7 @@ def test_the_unaliased_shape_resolves_to_the_aggregated_column():
 
 
 def test_pivoted_names_are_matched_case_insensitively():
-    """`IN ('DPMAF034SCORE')` has to meet a reference qualify wrote as lowercase."""
+    """`IN ('UPPER_NAME')` has to meet a reference qualify wrote as lowercase."""
     sql = """INSERT INTO mart.t
 SELECT t1.upper_name AS v
 FROM (SELECT * FROM (SELECT k, amt FROM ods.src) PIVOT (max(amt) FOR k IN ('UPPER_NAME'))) t1"""
