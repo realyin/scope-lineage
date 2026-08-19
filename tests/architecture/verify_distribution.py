@@ -1,4 +1,4 @@
-"""Verify that public Core archives contain no upper-layer source or tests."""
+"""Verify that published Core archives contain only the package and its schemas."""
 
 from __future__ import annotations
 
@@ -8,20 +8,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 
-FORBIDDEN_PARTS = {".claude", "docs", "pipeline", "tests", "__pycache__"}
-FORBIDDEN_CORE_PATHS = {
-    "lineage_parser",
-    "scope_lineage/assets",
-    "scope_lineage/insight",
-    "scope_lineage/presets",
-    "scope_lineage/refactor",
-    "scope_lineage/skill_entry.py",
-    "scope_lineage/scope/scope_views.py",
-    "scope_lineage/serialize/_shared.py",
-    "scope_lineage/serialize/llm_profile_index.py",
-    "scope_lineage/serialize/profile_compaction.py",
-    "scope_lineage/serialize/scope_serializer.py",
-}
+FORBIDDEN_PARTS = {".claude", "dev-notes", "docs", "tests", "__pycache__"}
 REQUIRED_CORE_PATHS = {
     "scope_lineage/schemas/diagnostics-v2.schema.json",
     "scope_lineage/schemas/diagnostics.schema.json",
@@ -57,7 +44,6 @@ def verify_archive(path: Path) -> None:
         name
         for name in names
         if FORBIDDEN_PARTS.intersection(PurePosixPath(name).parts)
-        or any(name == item or name.startswith(f"{item}/") for item in FORBIDDEN_CORE_PATHS)
     )
     missing = sorted(REQUIRED_CORE_PATHS - names)
     if forbidden or missing:

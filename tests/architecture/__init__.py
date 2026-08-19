@@ -1,1 +1,1 @@
-"""Architecture checks for the private integration repository."""
+"""Packaging checks for the published distribution."""

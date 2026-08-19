@@ -11,7 +11,7 @@ when the SQL is ambiguous.
 
 ```bash
 python -m pip install -e ".[dev]"     # editable install with pytest/jsonschema/build
-python -m pytest -q tests/core tests/architecture/test_core_boundaries.py
+python -m pytest -q tests/core
 python -m pytest tests/core/test_lineage_contract_baseline.py -q
 git diff --check                       # whitespace/conflict check after edits
 ```
