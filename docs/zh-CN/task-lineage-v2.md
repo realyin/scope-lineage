@@ -181,6 +181,48 @@ columns = {
 数仓里绝大多数指标列都是这个形态。这条规则在 `row_number()` 这类**没有值参数**的窗口上
 看起来有效，那是巧合，不能推广。
 
+## value_sources[].source_state：这一跳读的是哪个状态
+
+一张表在一个脚本里可以有多个状态（被写两次、或临时关系被 `CREATE OR REPLACE` 重定义）。
+来源只写表名时，这些读取彼此无法区分。
+
+来源表在本脚本中被写过时，该来源额外带 `source_state`，值是 `table_state_graph.nodes[].state_id`：
+
+```json
+{"source_kind": "physical_field", "table": "v", "column": "id",
+ "transform": "DIRECT", "source_state": "state:v:001"}
+```
+
+从没被本脚本写过的表不带这个字段——它就是脚本开始前的那个状态，没有第二个候选可混淆。
+
+### 折叠前必须检查它
+
+`end_to_end_lineage` 是**最终状态视图**（每张表在脚本结束时的状态），所以**中间状态的行不在文档里**。
+折叠某一跳之前，先确认 `source_state` 能在 `end_to_end_lineage[].target_state` 里找到：
+
+```python
+available = {item["target_state"] for item in doc["end_to_end_lineage"]}
+foldable = source.get("source_state") in available   # 无 source_state 的来源无需折叠
+```
+
+**找不到就保留原边，不要替换。** 找不到意味着这次读到的是一个中间状态，而文档里那张表的行
+描述的是另一个状态——按表名替换会得到「最后一个定义」，那是一个关于该列出处的错误论断。
+
+例：
+
+```sql
+create or replace temp view v as select id from ods.a;
+insert overwrite table mart.x select id from v;      -- 读 state:v:001
+create or replace temp view v as select id from ods.b;
+insert overwrite table mart.y select id from v;      -- 读 state:v:002
+```
+
+`mart.x.id` 的来源是 `state:v:001`，而文档里 `v` 只有 `state:v:002` 那一行。按名字折叠会得出
+`mart.x.id ← ods.b.id`——它其实来自 `ods.a`。带上 `source_state` 后，这种情况**可以被发现**，
+消费方知道这一跳在本文档里折不了。
+
+工具在这里给的是「读到的是哪个状态」这个事实，不承诺每个状态都能在文档里取到。
+
 ## 状态转换语义
 
 | 语句 | rowset operation | 字段值语义 |

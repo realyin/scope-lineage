@@ -550,7 +550,7 @@ def _apply_projection_write(
     previous = None if result.stmt_kind == "CTAS" else states.current(
         result.target_table
     )
-    written_values = _write_value_sources(result)
+    written_values = _write_value_sources(result, states)
     state_missing_reasons = _projection_state_missing_reasons(
         result,
         written_values,
@@ -980,7 +980,32 @@ def _write_window_context_sources(result) -> dict[str, list[dict]]:
     return context
 
 
-def _write_value_sources(result) -> dict[str, list[dict]]:
+def _source_state(states: _StateBuilder | None, table: str) -> dict:
+    """Which state of `table` this read sees, when the script itself produced one.
+
+    A value source names a table, and after STATE-ID-001 a table can hold more than one state
+    in a script. Two reads of a redefined relation were then indistinguishable, so a consumer
+    resolving that hop by name folded both to whichever definition was recorded last
+    (STATE-ID-002).
+
+    `end_to_end_lineage` walks the state each table is in when the script *ends*, so the row
+    for an earlier definition is not in the document and cannot be without changing what the
+    field means. Naming the state is what makes that survivable rather than dangerous: the
+    consumer looks for that state, finds no row, and knows the hop cannot be folded here --
+    instead of folding it to the wrong answer.
+
+    Nothing is stamped for a table the script never wrote. It is in the state it had before
+    the script began, and there is no second candidate to confuse it with.
+    """
+    if states is None:
+        return {}
+    state = states.current_by_table.get(table)
+    if state is None or state.ordinal < 1:
+        return {}
+    return {"source_state": state.state_id}
+
+
+def _write_value_sources(result, states: _StateBuilder | None = None) -> dict[str, list[dict]]:
     from .end_to_end import build_end_to_end_lineage
 
     values: dict[str, list[dict]] = {}
@@ -991,6 +1016,7 @@ def _write_value_sources(result) -> dict[str, list[dict]]:
                 "table": source["table"],
                 "column": source["column"],
                 "transform": source.get("transform", item.get("transform", "DIRECT")),
+                **_source_state(states, source["table"]),
             }
             for source in item.get("physical_sources", [])
         ]
