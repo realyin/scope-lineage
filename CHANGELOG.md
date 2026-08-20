@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.11 - 2026-08-20
 
 - Named the columns a window grouped or ordered by, in a new optional
   `window_context_sources` beside the existing sources. `transform` cannot carry this: it
