@@ -38,6 +38,11 @@ SCHEMA = {"ods.real": ["id", "v"]}
     "create global temporary view tmp_v as select id, v from ods.real",
     "cache table tmp_v as select id, v from ods.real",
     "cache lazy table tmp_v as select id, v from ods.real",
+    # TEMPORARY on a TABLE, not a VIEW. sqlglot reports kind=TABLE with the same
+    # TemporaryProperty, and a predicate keyed on kind=VIEW misses it -- which is the
+    # "which keyword produced it" mistake this predicate exists to avoid.
+    "create temporary table tmp_v as select id, v from ods.real",
+    "create temp table tmp_v as select id, v from ods.real",
 ])
 def test_a_session_scoped_relation_is_marked(sql):
     result = parse_scope_lineage(sql, "t", schema=SCHEMA)
