@@ -85,6 +85,7 @@ GROUP BY c.customer_id;
 | `task_id` | string | 是 | 本条写表语句的任务标识；批量输入和多语句任务可能基于输入名生成独立标识。 |
 | `target_table` | string | 是 | SQL 实际写入的目标表，如 `mart.customer_summary`。 |
 | `stmt_kind` | enum string | 是 | `INSERT_OVERWRITE`、`INSERT`、`CTAS`、`MERGE` 或 `UNKNOWN`。注意字段名不是 `statement_type`。 |
+| `is_session_scoped_relation` | boolean | 否 | 仅在为 `true` 时出现。该语句产出的关系只存活于会话、不落存储：`TEMP VIEW`、`GLOBAL TEMP VIEW`、`CACHE [LAZY] TABLE` 都属此列。**消费者不应据此登记仓库中新增了一张表**，统计表级覆盖时也应先排除。判据取自 AST 事实而非命名模式：不带 `TEMPORARY` 的 `CREATE VIEW` 会注册进 catalog 并跨会话存活，因此**不**带此标记。`is_cached_relation` 是本字段在 CACHE 语法上的既有子集，含义不变。 |
 | `parse_status` | enum string | 是 | `ok` 表示形成了可校验 Lineage 文档；`failed` 表示解析失败，不能消费正常血缘。 |
 | `syntax_status` | enum string | 是 | `strict_ok`、`recovered` 或 `failed`。`recovered` 表示解析器经过恢复，必须同时读诊断。 |
 | `syntax_errors` | array<object> | 是 | 语法错误或恢复证据。元素可含 `description`、`line`、`col` 和上下文片段。 |

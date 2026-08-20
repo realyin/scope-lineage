@@ -500,6 +500,11 @@ def _apply_projection_write(
     statement_id = statement["statement_id"]
     statement["model_status"] = "modeled"
     statement["target_table"] = result.target_table
+    # Only true is recorded. `final_table_states` gains an entry for every relation a script
+    # produces, so without this a consumer reconciling it against the catalogue reports temp
+    # views as new warehouse tables (TEMPVIEW-001).
+    if result.is_session_scoped_relation:
+        statement["is_session_scoped_relation"] = True
     if script_local is not None:
         script_local_schema(schema, script_local, result)
     statement["target_field_binding"] = _target_binding_observation(
