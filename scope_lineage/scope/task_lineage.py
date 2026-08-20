@@ -9,7 +9,7 @@ import sqlglot
 from sqlglot import exp
 
 from ..metadata.schema_metadata import DictSchemaProvider
-from ._shared import DIALECT, PARSE_OPTS
+from ._shared import DIALECT, PARSE_OPTS, render_sql_or_none
 from .end_to_end import _physical_fields_for_scope_column
 from .scope_types import ScopeLineageResult
 from .scope_builder import (
@@ -411,7 +411,8 @@ def _statement_record(
             if category in {"control_statement", "empty_statement"}
             else "unsupported"
         ),
-        "normalized_sql": tree.sql(dialect=DIALECT),
+        # Best effort: a tree that cannot be printed still has usable lineage.
+        "normalized_sql": render_sql_or_none(tree) or "",
     }
 
 
