@@ -1,22 +1,28 @@
 # Changelog
 
-## Unreleased
-- 列名与 SQL 关键字撞名时不再丢失整条语句的血缘。作者未加引号的 `not`、`like`、`out`、`using`
-  等列名会让解析停在第一个撞名处，整个投影列表被丢弃；真实语料中一条语句因此丢掉了 1299 个输出
-  列里 1298 个的来源。现在由解析器指认停下的 token 并补反引号后重解析，改写仅在能让语句解析成功
-  时保留，并记为 `identifiers_quoted_for_parse` warning。子句关键字（`where`、`select` 等）
-  永不加引号——真实语料中有一条畸形 SQL 会因给 `WHERE` 加引号而「解析成功」，产出把 WHERE 当列名
-  的错误 AST；这类语句保持 `recovered` 才是诚实结果。1755 个真实任务上 `recovered` 由 5 降为 2，
-  无任务的溯源列数减少。
-- 新增 `is_session_scoped_relation`，标出只存活于会话、不落存储的关系（`TEMP VIEW`、
-  `GLOBAL TEMP VIEW`、`CACHE [LAZY] TABLE`）。此前 `CREATE TABLE db.r AS SELECT` 与
-  `CREATE OR REPLACE TEMP VIEW r AS SELECT` 产出逐字节相同的血缘——AST 里有这个区别，是 Core
-  丢掉了它，于是 `final_table_states` 为每个临时视图建了条目，按 catalog 对账的消费方会认为仓库
-  新增了并不存在的表：1755 个真实任务中 14 个任务、47 个这样的关系、50 处 `final_table_states`
-  条目与 49 处 `covered_tables` 条目。判据取自 AST 事实而非命名模式，且一个判据同时覆盖 TEMP VIEW
-  与 CACHE 两种写法，避免只修一个分支。不带 `TEMPORARY` 的 `CREATE VIEW` 会注册进 catalog 并跨会话
-  存活，因此不带此标记。纯增量：`source_kind` 与 `source_type` 的取值分布不变，既有过滤口径不受影响；
-  `is_cached_relation` 保持原义，是本字段在 CACHE 语法上的子集。
+## 0.1.12
+- Kept a statement's lineage when one of its columns is named after a SQL keyword. Spark
+  accepts `not`, `like`, `out` and `using` as column names when quoted, and authors routinely
+  leave them unquoted; the parser stopped at the first one and the whole projection list was
+  discarded, costing one real statement the sources for 1298 of its 1299 output columns. The
+  repair carries no reserved-word list -- the parser names the token it stopped on, that token
+  is quoted, and the statement is parsed again, with the rewrite kept only if it makes the
+  statement parse. Rewrites are reported as an `identifiers_quoted_for_parse` warning rather
+  than applied silently. Clause keywords are never quoted: one real malformed statement parses
+  once its `WHERE` is quoted, yielding an AST in which WHERE is a column name, and staying
+  `recovered` is the honest answer for SQL that is simply broken. Across 1755 real tasks
+  `recovered` fell from 5 to 2 and no task lost a traced column.
+- Added `is_session_scoped_relation`, marking relations that never reach storage -- `TEMP VIEW`,
+  `GLOBAL TEMP VIEW` and `CACHE [LAZY] TABLE`. `CREATE TABLE db.r AS SELECT` and
+  `CREATE OR REPLACE TEMP VIEW r AS SELECT` previously produced byte-identical lineage: the AST
+  holds the distinction and Core dropped it, so `final_table_states` gained an entry for every
+  temp view and consumers reconciling it against the catalogue reported tables that do not
+  exist -- 47 such relations across 14 of 1755 real tasks, 50 `final_table_states` entries and
+  49 `covered_tables` entries. One predicate covers every spelling, decided on AST facts rather
+  than naming patterns; a non-temporary `CREATE VIEW` is registered in the catalogue and
+  outlives the session, so it is not marked. Purely additive: `source_kind` and `source_type`
+  keep their value distributions, and `is_cached_relation` keeps its meaning as the
+  CACHE-shaped subset of this field.
 - Stopped a statement sqlglot can parse but not print from taking the caller down with it. An
   identifier its tokenizer claims as a keyword — `CAST(out AS DOUBLE)`, where `out` is a real
   column name — parses into a Cast whose target type is None, and the Spark generator
