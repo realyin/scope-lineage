@@ -144,6 +144,39 @@ def _is_create_as_select(tree: exp.Expression) -> bool:
     return isinstance(tree, exp.Create) and tree.expression is not None
 
 
+def _is_session_scoped_relation(tree: exp.Expression) -> bool:
+    """Does this statement define a relation that disappears when the session ends?
+
+    `CREATE TABLE db.r AS SELECT` and `CREATE OR REPLACE TEMP VIEW r AS SELECT` produced
+    byte-identical lineage: both are CTAS, and nothing in the result said one of them never
+    reaches storage. Consumers reconciling `final_table_states` against the catalogue
+    concluded the warehouse had grown tables that do not exist — 38 of them across 11 real
+    tasks (TEMPVIEW-001).
+
+    One predicate covers every spelling on purpose. `is_cached_relation` answers this
+    question for `CACHE [LAZY] TABLE` alone, and a fix that added a second, temp-view-only
+    branch would leave the next reader to discover for themselves that the two must be asked
+    together. The judgement is "does it persist", not "which syntax produced it".
+
+    A non-temporary `CREATE VIEW` stores no rows but *is* registered in the catalogue and
+    outlives the session, so it is not session-scoped; the boundary is persistence, not
+    whether the relation holds data.
+    """
+    if isinstance(tree, exp.Cache):
+        return True
+    if not isinstance(tree, exp.Create):
+        return False
+    if (tree.args.get("kind") or "").upper() != "VIEW":
+        return False
+    properties = tree.args.get("properties")
+    if properties is None:
+        return False
+    return any(
+        isinstance(prop, (exp.TemporaryProperty, exp.GlobalProperty))
+        for prop in properties.expressions
+    )
+
+
 def _is_cache_as_select(tree: exp.Expression) -> bool:
     """Spark's ``CACHE [LAZY] TABLE x AS SELECT`` builds a relation this script can read.
 
@@ -532,6 +565,9 @@ def _build_ctas_scope(
         target_table=target_table,
         stmt_kind="CTAS",
         is_cached_relation=cached,
+        is_session_scoped_relation=_is_session_scoped_relation(definition)
+        if definition is not None
+        else False,
         target_partition_spec=partition_spec,
         target_partition_columns=partition_columns,
         target_partition_mode=partition_mode,

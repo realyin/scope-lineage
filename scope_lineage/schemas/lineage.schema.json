@@ -52,6 +52,10 @@
       "type": "boolean",
       "description": "仅在为 true 时出现。该 CTAS 实际是 Spark 的 CACHE [LAZY] TABLE ... AS SELECT:关系同样由 SELECT 定义,但只存活于会话,消费者不应据此登记仓库中新增了一张表。"
     },
+    "is_session_scoped_relation": {
+      "type": "boolean",
+      "description": "仅在为 true 时出现。该语句产出的关系只存活于会话,不会落到存储:TEMP VIEW / GLOBAL TEMP VIEW / CACHE [LAZY] TABLE 都属此列。消费者不应据此登记仓库中新增了一张表,统计表级覆盖时也应先排除。判据取自 AST 事实而非命名模式;不带 TEMPORARY 的 CREATE VIEW 会注册进 catalog 并跨会话存活,因此**不**带此标记。`is_cached_relation` 是本字段在 CACHE 语法上的既有子集,保持原义不变。"
+    },
     "parse_status": {
       "type": "string",
       "enum": [
