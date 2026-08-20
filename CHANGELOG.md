@@ -1,6 +1,15 @@
 # Changelog
 
 ## Unreleased
+- A relation re-created during a script now gets a new `state_id` instead of reusing the first
+  one. A CTAS is deliberately given no previous state -- it replaces the relation, so its value
+  sources must carry no prior-state passthrough -- but the state's ordinal was derived from that
+  same "previous", so every CTAS was numbered 1. A script that redefined a temporary view
+  produced two `table_state_graph` nodes both called `state:v:001` with different producing
+  statements, and every `edges` / `final_table_states` / `input_states` reference to that id
+  became ambiguous rather than invalid, which is why no check caught it. The ordinal now counts
+  the states a table has had; inheritance is unchanged. Validation now rejects a duplicate node
+  id outright.
 - `CREATE TEMPORARY TABLE ... AS SELECT` is now marked `is_session_scoped_relation` like the
   other session-scoped forms. sqlglot reports it with the same `TemporaryProperty` but
   `kind=TABLE`, and the predicate required `kind=VIEW`, so it was silently missed -- the

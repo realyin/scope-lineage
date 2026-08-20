@@ -108,7 +108,20 @@ class _StateBuilder:
         columns_known: bool = True,
         missing_reasons: list[str] | None = None,
     ) -> _State:
-        ordinal = (previous.ordinal + 1) if previous is not None else 1
+        # Two different questions, and they used to share one answer. `previous` says what
+        # this state inherits: a CTAS is handed None because it replaces the relation, so its
+        # value sources must carry no prior-state passthrough. The ordinal says which state of
+        # this table it is, and that has to count every state the table has had, inherited
+        # from or not. Deriving the ordinal from `previous` gave every CTAS ordinal 1, so a
+        # script that redefined a relation produced two nodes with the same `state_id` and
+        # different producers -- and nothing pointing at that id could say which it meant
+        # (STATE-ID-001).
+        latest = self.current_by_table.get(table)
+        highest = max(
+            previous.ordinal if previous is not None else 0,
+            latest.ordinal if latest is not None else 0,
+        )
+        ordinal = highest + 1
         state = _State(
             state_id=_state_id(table, ordinal),
             table=table,
