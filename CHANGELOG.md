@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+- `CREATE TEMPORARY TABLE ... AS SELECT` is now marked `is_session_scoped_relation` like the
+  other session-scoped forms. sqlglot reports it with the same `TemporaryProperty` but
+  `kind=TABLE`, and the predicate required `kind=VIEW`, so it was silently missed -- the
+  "which keyword produced it" mistake the predicate's own comment warns against. The
+  judgement is now the property alone.
+
 ## 0.1.13
 - Added a `session_scoped_relations_present` warning naming every relation in a script that
   only lives for the session. `is_session_scoped_relation` alone was not enough in the task

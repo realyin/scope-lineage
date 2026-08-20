@@ -165,14 +165,15 @@ def _is_session_scoped_relation(tree: exp.Expression) -> bool:
         return True
     if not isinstance(tree, exp.Create):
         return False
-    if (tree.args.get("kind") or "").upper() != "VIEW":
-        return False
     properties = tree.args.get("properties")
     if properties is None:
         return False
+    # Deliberately not keyed on `kind`. `CREATE TEMPORARY TABLE x AS SELECT` carries the same
+    # TemporaryProperty with kind=TABLE, and an earlier version of this predicate required
+    # kind=VIEW and silently missed it -- committing, in code, the "which keyword produced it"
+    # mistake the docstring above warns against.
     return any(
-        isinstance(prop, (exp.TemporaryProperty, exp.GlobalProperty))
-        for prop in properties.expressions
+        isinstance(prop, exp.TemporaryProperty) for prop in properties.expressions
     )
 
 
