@@ -13,9 +13,15 @@ from __future__ import annotations
 
 from scope_lineage.scope.scope_builder import parse_scope_lineage
 
-# `not` here is a column name. sqlglot reads it as the operator, finds no operand, and drops
-# the rest of the statement — taking `FROM ods.src` with it.
-TRUNCATING_SQL = "INSERT INTO mart.t SELECT a, CAST(NOT AS DOUBLE) AS not, b FROM ods.src"
+# `select` here is an output alias the author forgot to quote. sqlglot cannot place it and
+# drops the rest of the statement — taking `FROM ods.src` with it, which is what makes the
+# gaps below meaningless as lineage facts.
+#
+# This was `AS not` until Core learned to quote keyword-colliding identifiers, which repairs
+# that statement rather than truncating it. Clause keywords are excluded from that repair on
+# purpose — quoting one can turn malformed SQL into an AST that parses and means something
+# else (KEYWORD-IDENT-001) — so they still reach the truncating path this test needs.
+TRUNCATING_SQL = "INSERT INTO mart.t SELECT a, CAST(a AS DOUBLE) AS SELECT, b FROM ods.src"
 CLEAN_SQL = "INSERT INTO mart.t SELECT a, b FROM ods.src"
 SCHEMA = {"ods.src": ["a", "b"]}
 
