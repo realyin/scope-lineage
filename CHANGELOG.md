@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.14
 - Narrowed the `source_state_columns_unknown` gap to the one shape it exists for. It was keyed
   on `state.columns_known`, which is false for *any* missing reason, so relations whose columns
   were named in the producing projection and listed column by column in the document were
