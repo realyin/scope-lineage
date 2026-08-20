@@ -221,6 +221,32 @@ columns = {
 标记由工具在解析时按它实际解析到的关系判定，所以**拼写不一致也不会漏**：
 全局临时视图声明时是裸名、读的时候是 `global_temp.` 限定名，按名字比对会漏，边上的标记不会。
 
+### 只想排除、不想折叠
+
+按 catalog 对账时通常只需要把这些关系从表清单里去掉，不需要动字段血缘：
+
+```bash
+jq -r '
+  ([.statement_sequence[] | select(.is_session_scoped_relation==true) | .target_table]) as $scoped
+  | .final_table_states | keys | map(select(. as $t | $scoped | index($t) | not))
+' lineage.json
+```
+
+`["mart.daily", "tmp_v"]` → `["mart.daily"]`。
+
+**但不要把这个当成字段血缘的过滤方式。** 只删掉会话级来源、不做替换，会让那些列不再指向任何
+上游表——它们的上游只有这一条路。要字段血缘干净，用 `fold_session_scoped`。
+
+### 两个反模式
+
+**不要按名字或后缀判断。** 形如 `tmp_*`、`*_20260101` 的**真实表**是存在的，按名字过滤会误杀；
+反过来，临时视图也常常不带任何可识别前缀。全局临时视图更是声明时用裸名、读的时候用
+`global_temp.` 限定名，按名字比对必漏。判据只有 `session_scoped` / `is_session_scoped_relation`。
+
+**不要用「来源计数变了没有」判断工具是否处理了这件事。** 标记是加法、不删边，所以默认产物的
+来源计数**本来就不会变**。要验证的是折叠之后：`value_sources_folded` 是否为 `true`，以及
+折叠后每个落盘列是否仍有来源。
+
 ### 想要「干净」的产物：用 fold_session_scoped
 
 不必自己写折叠。Core 导出了一份实现：
