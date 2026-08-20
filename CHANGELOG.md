@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.13
 - Added a `session_scoped_relations_present` warning naming every relation in a script that
   only lives for the session. `is_session_scoped_relation` alone was not enough in the task
   document: the flag sits on `statement_sequence[]` while the entry that misleads is in
