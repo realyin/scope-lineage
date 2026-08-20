@@ -251,7 +251,14 @@
           "value_sources": {
             "type": "array",
             "items": {
-              "type": "object"
+              "type": "object",
+              "properties": {
+                "source_state": {
+                  "type": "string",
+                  "description": "可选。仅当来源表在本脚本中被某条语句写过时出现,给出这次读取看到的是该表的哪个状态(对应 table_state_graph.nodes[].state_id)。一张表在一个脚本里可以有多个状态,只按表名解析这一跳会折叠到「最后一个定义」而不是「当时读到的那个」。**若该 state_id 不在任何 end_to_end_lineage[].target_state 中,说明这一跳无法从本文档折叠**——end_to_end_lineage 是最终状态视图,中间状态不在其中。此时应保留原边,不要替换。"
+                }
+              },
+              "additionalProperties": true
             }
           },
           "window_context_sources": {

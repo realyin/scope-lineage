@@ -1,6 +1,15 @@
 # Changelog
 
 ## Unreleased
+- `value_sources[]` entries now carry `source_state` when the source table was written by a
+  statement in the same script, naming which state of it the read saw. A table can hold more
+  than one state in a script, so a source that named only the table left two reads of a
+  redefined relation indistinguishable, and a consumer resolving that hop by name folded both
+  to whichever definition was recorded last. `end_to_end_lineage` is a final-state view, so an
+  intermediate state has no row and cannot have one without changing what the field means --
+  naming the state is what makes that detectable instead of wrong: the consumer looks for the
+  state, finds no row, and keeps the original edge. Absent for a table the script never wrote,
+  where there is no second candidate.
 - A relation re-created during a script now gets a new `state_id` instead of reusing the first
   one. A CTAS is deliberately given no previous state -- it replaces the relation, so its value
   sources must carry no prior-state passthrough -- but the state's ordinal was derived from that
