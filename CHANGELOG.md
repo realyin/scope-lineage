@@ -1,6 +1,13 @@
 # Changelog
 
 ## Unreleased
+- `value_sources[]` entries that read a session-scoped relation now carry `session_scoped: true`.
+  The same fact was already on the producing statement, but the edges a consumer acts on are
+  here, so acting on it meant collecting relation names from `statement_sequence` and
+  intersecting them against every source. This is a new optional key beside `source_kind`, not a
+  value of it: a filter that does not know the key keeps exactly the behaviour it had. Because
+  Core marks the relation it resolved, the edge is marked even where a consumer matching by name
+  could not -- a global temporary view is declared bare and read qualified.
 - A `CREATE GLOBAL TEMPORARY VIEW` is recorded as `global_temp.<name>`, the name it can be read
   by. Spark puts these views in the `global_temp` database and the declared bare name does not
   resolve, so recording the bare name meant the statement reading it matched nothing: the read

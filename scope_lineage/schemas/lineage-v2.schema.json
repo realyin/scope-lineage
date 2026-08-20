@@ -256,6 +256,10 @@
                 "source_state": {
                   "type": "string",
                   "description": "可选。仅当来源表在本脚本中被某条语句写过时出现,给出这次读取看到的是该表的哪个状态(对应 table_state_graph.nodes[].state_id)。一张表在一个脚本里可以有多个状态,只按表名解析这一跳会折叠到「最后一个定义」而不是「当时读到的那个」。**若该 state_id 不在任何 end_to_end_lineage[].target_state 中,说明这一跳无法从本文档折叠**——end_to_end_lineage 是最终状态视图,中间状态不在其中。此时应保留原边,不要替换。"
+                },
+                "session_scoped": {
+                  "type": "boolean",
+                  "description": "可选,仅在为 true 时出现。这条边读的关系只存活于会话(TEMP VIEW / GLOBAL TEMP VIEW / CACHE [LAZY] TABLE / TEMPORARY TABLE),不会落到存储。与产出语句上的 is_session_scoped_relation 是同一事实,但直接标在边上,消费方不必回 statement_sequence 里做关联。**这不是 source_kind 的取值**:source_kind 保持原义,不认识本字段的过滤器行为不变。"
                 }
               },
               "additionalProperties": true
