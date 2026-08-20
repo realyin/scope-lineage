@@ -94,6 +94,7 @@ scope_lineage/schemas/diagnostics.schema.json
 | `column_not_found` | 字段不在任何已知来源中。 | 检查字段名和 Schema 完整性。 |
 | `ambiguous_unqualified` | 未限定字段匹配多个输入。 | 给 SQL 字段增加 qualifier；不得任选来源。 |
 | `identifiers_quoted_for_parse` | 列名与 SQL 关键字撞名（如 `not`、`like`、`out`、`using`）且原文未加引号，工具为完成解析给这些标识符补了反引号；`msg` 列出补引号的全部标识符。 | 无需处理，血缘正常。建议在源 SQL 中给这些列名加引号，避免依赖工具修补。 |
+| `session_scoped_relations_present` | 本脚本产出了只存活于会话、不落存储的关系（`TEMP VIEW` / `GLOBAL TEMP VIEW` / `CACHE [LAZY] TABLE`），`msg` 列出全部关系名。 | 按 catalog 对账前，先把这些关系从 `final_table_states` 和表级覆盖统计里排除；字段血缘本身有效，两跳各自保留。 |
 | `filter_in_join_on_clause` | JOIN ON 中包含常量比较等行过滤。 | 影响逻辑解释时区分 join key 与 condition filter。 |
 | `magic_number` | 表达式包含缺少解释的数值常量。 | 上层业务知识生成时请求口径说明。 |
 | `complex_aggregate_with_case` | 聚合中嵌套 CASE。 | 指标解释应保留 CASE 分支，不只记录 SUM/COUNT。 |

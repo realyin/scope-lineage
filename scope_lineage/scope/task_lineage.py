@@ -357,6 +357,29 @@ def parse_task_lineage(
             missing_sources,
         ),
     }
+    # Said once for the whole script, after every statement is known. The per-statement flag
+    # is on `statement_sequence[]`, while the entry that misleads is in `final_table_states`,
+    # and `analysis_status` stays `complete` -- so a consumer who does not know to
+    # cross-reference the two reads a confident artifact naming tables that were never
+    # written to storage (TEMPVIEW-001). Naming the relations makes the warning actionable
+    # rather than merely alarming.
+    session_scoped = sorted({
+        statement["target_table"]
+        for statement in statements
+        if statement.get("is_session_scoped_relation") and statement.get("target_table")
+    })
+    if session_scoped:
+        warnings.append({
+            "type": "session_scoped_relations_present",
+            "scope": "TASK",
+            "msg": (
+                "these relations only live for the session and were never written to "
+                "storage; exclude them from final_table_states and from table-level "
+                "coverage before reconciling against a catalogue: "
+                + ", ".join(session_scoped)
+            ),
+        })
+
     result = TaskLineageResult(
         task_id=task_name,
         parse_status="failed" if parse_failed else "ok",
