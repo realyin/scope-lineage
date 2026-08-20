@@ -20,7 +20,10 @@ import sys
 from scope_lineage.scope.scope_builder import _ordered_syntax_errors, _syntax_status
 
 # Two required keywords missing from one expression — the shape that reaches the set.
-UNSTABLE_SQL = "INSERT INTO db.t SELECT CAST(LIKE AS DOUBLE) AS LIKE FROM db.s"
+# `LIKE` stood here until Core learned to quote keyword-colliding identifiers, which made
+# this statement parse; `WHERE` is a clause keyword, which Core never quotes, so the
+# half-built TryCast still reaches `required_args` (KEYWORD-IDENT-001).
+UNSTABLE_SQL = "INSERT INTO db.t SELECT CAST(WHERE AS DOUBLE) AS c FROM db.s"
 
 _A = {"description": "Required keyword: 'this' missing", "line": 1, "col": 36}
 _B = {"description": "Required keyword: 'expression' missing", "line": 1, "col": 36}
