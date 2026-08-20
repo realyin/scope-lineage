@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- A `CREATE GLOBAL TEMPORARY VIEW` is recorded as `global_temp.<name>`, the name it can be read
+  by. Spark puts these views in the `global_temp` database and the declared bare name does not
+  resolve, so recording the bare name meant the statement reading it matched nothing: the read
+  looked like an ordinary physical table, a consumer excluding session-scoped relations kept it,
+  and metadata was reported missing for a table that does not exist. This is the identity half
+  of the judgement whose persistence half was fixed alongside temporary tables.
 - Incompleteness now crosses a script-local hop. A column read out of a relation whose own
   columns were never resolved -- a temporary relation built from an unexpanded `SELECT *`, which
   has a single row keyed on `*` -- reported `trace_complete: true`, resting on a relation nobody
