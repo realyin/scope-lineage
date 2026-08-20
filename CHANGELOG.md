@@ -11,14 +11,13 @@
   than applied silently. Clause keywords are never quoted: one real malformed statement parses
   once its `WHERE` is quoted, yielding an AST in which WHERE is a column name, and staying
   `recovered` is the honest answer for SQL that is simply broken. Verified against a corpus of
-  `recovered` fell from 5 to 2 and no task lost a traced column.
+  production statements: fewer statements degrade to `recovered`, and none lost a traced column.
 - Added `is_session_scoped_relation`, marking relations that never reach storage -- `TEMP VIEW`,
   `GLOBAL TEMP VIEW` and `CACHE [LAZY] TABLE`. `CREATE TABLE db.r AS SELECT` and
   `CREATE OR REPLACE TEMP VIEW r AS SELECT` previously produced byte-identical lineage: the AST
   holds the distinction and Core dropped it, so `final_table_states` gained an entry for every
   temp view and consumers reconciling it against the catalogue reported tables that do not
-  [redacted]
-  49 `covered_tables` entries. One predicate covers every spelling, decided on AST facts rather
+  exist. One predicate covers every spelling, decided on AST facts rather
   than naming patterns; a non-temporary `CREATE VIEW` is registered in the catalogue and
   outlives the session, so it is not marked. Purely additive: `source_kind` and `source_type`
   keep their value distributions, and `is_cached_relation` keeps its meaning as the
@@ -109,7 +108,7 @@
 - Documented that `value_sources[]` lists participation paths rather than a set of columns. The
   dedup key is `(table, column, transform)` and includes the transform deliberately, so one
   physical column appears once per way it participates — a derived column on a real slowly
-  changing dimension carries 33 entries that dedupe to 16 columns, the same 16 its sibling
+  changing dimension carries duplicate entries that dedupe to the same columns its sibling
   carries as 17. Read as a column set, that looks like the lineage was smeared across the whole
   table, and it has been reported as pollution twice. The document now gives the dedupe recipe
   and warns off the filter that suggests itself — keeping only `DIRECT`/`EXPRESSION`/
@@ -262,7 +261,7 @@
   characters hang 30.0.0, 30.16.0 and 30.17.0 alike — so a table whose export happened to
   name a column `not` did not make a task's answer worse, it made the task never finish, and
   no caller could put a timeout around it. Three more tables were being rejected outright by
-  the milder version of the same problem, losing 3005 columns apiece. Quoting is an
+  the milder version of the same problem, losing their columns wholesale. Quoting is an
   equivalent rewrite, and nearly every DDL it touches yields facts identical to before
 
 ## 0.1.6 - 2026-08-18

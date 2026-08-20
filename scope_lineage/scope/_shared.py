@@ -85,8 +85,9 @@ def _cached_pattern(pattern: str) -> "re.Pattern[str]":
 
 
 # Field extraction re-parses the expression into an AST every time it is asked, and the
-# [redacted]
-# [redacted]
+# resolver asks about the same expressions repeatedly across its passes: the same large
+# statement made far more sqlglot.parse_one calls than it had distinct questions, and the
+# difference was pure repetition.
 # The answer depends only on the expression text, so it is remembered (PERF-002).
 _FIELD_REFS_CACHE: dict[str, tuple[tuple[str, str], ...]] = {}
 

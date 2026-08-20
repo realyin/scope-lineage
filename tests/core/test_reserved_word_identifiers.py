@@ -1,21 +1,20 @@
 """A column named after a SQL keyword costs the whole statement its lineage.
 
-`not`, `out`, `like` and `using` are real column names in the corpus this came from — a list of
-[redacted]
-quoted; the author did not quote them, and sqlglot's parser stops at the first one. The statement
-[redacted]
-[redacted]
-(KEYWORD-IDENT-001).
+`not`, `out`, `like` and `using` are legal column names in Spark when quoted, and a
+machine-generated projection list will not have been audited for keyword collisions. sqlglot's
+parser stops at the first one, the statement falls to the lenient parse, its projection list is
+discarded, and nearly every output column comes back with no source at all — one or two
+identifiers can cost an entire statement (KEYWORD-IDENT-001).
 
-The repair asks the parser rather than a keyword list. `_spark_keywords()` is 305 tokenizer words,
-not Spark's reserved set, so any list is either too wide or too narrow; instead the parse error
-names the token it stopped on, that token is quoted, and the statement is parsed again. A rewrite
-is kept only if it makes the statement parse — otherwise the original text stands and the
+The repair asks the parser rather than a keyword list. `_spark_keywords()` is 305 tokenizer
+words, not Spark's reserved set, so any list is either too wide or too narrow; instead the parse
+error names the token it stopped on, that token is quoted, and the statement is parsed again. A
+rewrite is kept only if it makes the statement parse — otherwise the original text stands and the
 statement stays `recovered`, which is the honest answer for SQL that is simply malformed.
 
 Clause keywords are never quoted, and that guard is not theoretical: malformed SQL with an empty
-SQL parses *successfully* once its `WHERE` is quoted, producing an AST in which WHERE is a column
-name. A confidently wrong answer is worse than a degraded one.
+WHERE body parses *successfully* once its `WHERE` is quoted, producing an AST in which WHERE is a
+column name. A confidently wrong answer is worse than a degraded one.
 """
 
 from __future__ import annotations
