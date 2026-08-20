@@ -199,6 +199,28 @@ columns = {
 放在 `global_temp` 库里，声明时的裸名并不可解析，读它的语句必然写成 `global_temp.gv`。
 按产出名与读取名对齐，这一跳才能被识别为会话级关系；否则它看起来就是一张普通物理表。
 
+### 边上直接带标记
+
+读会话级关系的那条边，自己带 `session_scoped: true`：
+
+```json
+{"source_kind": "physical_field", "table": "tmp_v", "column": "amt",
+ "transform": "DIRECT", "source_state": "state:tmp_v:001", "session_scoped": true}
+```
+
+**不必回 `statement_sequence` 做关联**。只取落盘来源就是一次过滤：
+
+```python
+[s for s in item["value_sources"]
+ if s.get("source_kind") == "physical_field" and not s.get("session_scoped")]
+```
+
+这**不是 `source_kind` 的取值**——`source_kind` 保持原义，按 `source_kind == "physical_field"`
+过滤的既有代码行为完全不变，只是仍会包含这些边。
+
+标记由工具在解析时按它实际解析到的关系判定，所以**拼写不一致也不会漏**：
+全局临时视图声明时是裸名、读的时候是 `global_temp.` 限定名，按名字比对会漏，边上的标记不会。
+
 ### 已知边界：解析不了的建表语法
 
 `CREATE TEMPORARY VIEW tv (...) USING csv OPTIONS (...)` 这类**不带 `AS SELECT`** 的写法，
