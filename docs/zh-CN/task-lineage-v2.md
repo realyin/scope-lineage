@@ -221,6 +221,64 @@ columns = {
 标记由工具在解析时按它实际解析到的关系判定，所以**拼写不一致也不会漏**：
 全局临时视图声明时是裸名、读的时候是 `global_temp.` 限定名，按名字比对会漏，边上的标记不会。
 
+### 只想排除、不想折叠
+
+按 catalog 对账时通常只需要把这些关系从表清单里去掉，不需要动字段血缘：
+
+```bash
+jq -r '
+  ([.statement_sequence[] | select(.is_session_scoped_relation==true) | .target_table]) as $scoped
+  | .final_table_states | keys | map(select(. as $t | $scoped | index($t) | not))
+' lineage.json
+```
+
+`["mart.daily", "tmp_v"]` → `["mart.daily"]`。
+
+**但不要把这个当成字段血缘的过滤方式。** 只删掉会话级来源、不做替换，会让那些列不再指向任何
+上游表——它们的上游只有这一条路。要字段血缘干净，用 `fold_session_scoped`。
+
+### 两个反模式
+
+**不要按名字或后缀判断。** 形如 `tmp_*`、`*_20260101` 的**真实表**是存在的，按名字过滤会误杀；
+反过来，临时视图也常常不带任何可识别前缀。全局临时视图更是声明时用裸名、读的时候用
+`global_temp.` 限定名，按名字比对必漏。判据只有 `session_scoped` / `is_session_scoped_relation`。
+
+**不要用「来源计数变了没有」判断工具是否处理了这件事。** 标记是加法、不删边，所以默认产物的
+来源计数**本来就不会变**。要验证的是折叠之后：`value_sources_folded` 是否为 `true`，以及
+折叠后每个落盘列是否仍有来源。
+
+### 想要「干净」的产物：用 fold_session_scoped
+
+不必自己写折叠。Core 导出了一份实现：
+
+```python
+from scope_lineage import fold_session_scoped
+
+folded = fold_session_scoped(document)     # 输入不会被修改
+```
+
+它把 `最终表.v ← 临时视图.v ← 真实表.v` 解析成 `最终表.v ← 真实表.v`，
+并把那些临时关系自己的行、以及它们在 `final_table_states` 里的条目一并去掉。
+
+**折不动的地方不会被悄悄丢掉。** 该行保留原边，并给出：
+
+| 字段 | 含义 |
+| --- | --- |
+| `value_sources_folded` | `true` = 这一行全部折叠成功；`false` = 有折不动的跳 |
+| `fold_incomplete_reasons` | 折不动的原因，仅在 `false` 时出现 |
+
+原因有四种，都对应一个真实存在的情况：
+
+- `source_state_not_in_document` —— 读的是该关系被重定义**之前**的状态。
+  `end_to_end_lineage` 是最终状态视图，那个状态没有行；用现存的定义替换会**指错出处**。
+- `source_column_not_in_document` —— 该关系自身的列没解析出来（通常是未展开的 `SELECT *`，
+  只有一行 `*`）。
+- `source_column_has_no_sources` —— 该列在文档里没有任何来源。
+- `fold_depth_exceeded` —— 关系间构成环。
+
+**折叠后来源为空 ≠ 这列没有血缘**，所以这个实现从不返回空——折不动就保留原边并说明。
+自己写折叠最容易错的也正是这一点。
+
 ### 已知边界：解析不了的建表语法
 
 `CREATE TEMPORARY VIEW tv (...) USING csv OPTIONS (...)` 这类**不带 `AS SELECT`** 的写法，

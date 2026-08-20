@@ -65,6 +65,7 @@ from .scope.scope_types import (
 from .scope.sqlglot_config import suppress_invalid_json_path_warnings
 from .scope.task_lineage import TaskLineageResult, parse_task_lineage
 from .scope.types import Column, ColumnRef, JoinKey, LineageResult, Unresolved
+from .contract.fold import fold_session_scoped
 from .serialize.scope_profile import build_scope_profile
 
 
@@ -75,6 +76,7 @@ PUBLIC_CORE_API = frozenset({
     "CONSTANT_SCOPE_ID",
     "DiagnosticWarning",
     "Diagnostics",
+    "fold_session_scoped",
     "DictSchemaProvider",
     "JoinKey",
     "LineageResult",
