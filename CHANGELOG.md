@@ -1,7 +1,13 @@
 # Changelog
 
 ## Unreleased
-
+- 列名与 SQL 关键字撞名时不再丢失整条语句的血缘。作者未加引号的 `not`、`like`、`out`、`using`
+  等列名会让解析停在第一个撞名处，整个投影列表被丢弃；真实语料中一条语句因此丢掉了 1299 个输出
+  列里 1298 个的来源。现在由解析器指认停下的 token 并补反引号后重解析，改写仅在能让语句解析成功
+  时保留，并记为 `identifiers_quoted_for_parse` warning。子句关键字（`where`、`select` 等）
+  永不加引号——真实语料中有一条畸形 SQL 会因给 `WHERE` 加引号而「解析成功」，产出把 WHERE 当列名
+  的错误 AST；这类语句保持 `recovered` 才是诚实结果。1755 个真实任务上 `recovered` 由 5 降为 2，
+  无任务的溯源列数减少。
 - Stopped a statement sqlglot can parse but not print from taking the caller down with it. An
   identifier its tokenizer claims as a keyword — `CAST(out AS DOUBLE)`, where `out` is a real
   column name — parses into a Cast whose target type is None, and the Spark generator

@@ -27,8 +27,11 @@ from scope_lineage.scope.task_lineage import parse_task_lineage
 
 SCHEMA = {"ods.s": ["id", "v"], "mart.t": ["id", "c", "v"]}
 
-# `out` is a real column name in the corpus this came from; unquoted it tokenizes as a keyword
-UNRENDERABLE = "insert overwrite table mart.t select cast(out as double) as c from ods.s"
+# A clause keyword, deliberately: `out` and `not` used to sit here, but Core now quotes
+# keyword-colliding identifiers and this statement would be repaired before it could reach
+# the generator. Clause keywords are the ones Core will never quote (KEYWORD-IDENT-001), so
+# they still produce the Cast-without-a-type that crashes Spark's `cast_sql`.
+UNRENDERABLE = "insert overwrite table mart.t select cast(where as double) as c from ods.s"
 
 
 def test_scope_parse_does_not_raise():
@@ -82,7 +85,7 @@ def test_a_renderable_statement_still_gets_its_normalized_sql():
     assert result.statements[0]["normalized_sql"].strip() != ""
 
 
-@pytest.mark.parametrize("sql", [UNRENDERABLE, "insert overwrite table mart.t select cast(not as double) as c from ods.s"])
+@pytest.mark.parametrize("sql", [UNRENDERABLE, "insert overwrite table mart.t select cast(select as double) as c from ods.s"])
 def test_normalized_sql_is_present_even_when_rendering_failed(sql):
     """A required contract field cannot simply be missing; it falls back to something honest."""
     result = parse_task_lineage(sql, task_name="t", schema=SCHEMA)
