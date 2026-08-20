@@ -542,6 +542,35 @@ def _partition_mode(spec: dict[str, str | None]) -> str:
     return "mixed"
 
 
+# Spark puts a GLOBAL TEMPORARY VIEW in this database, and the bare name it was declared
+# with does not resolve. Every read of it is therefore written `global_temp.<name>`.
+GLOBAL_TEMP_DATABASE = "global_temp"
+
+
+def _global_temp_qualified(target_table: str, definition: exp.Expression | None) -> str:
+    """The name a GLOBAL TEMPORARY VIEW can actually be read by.
+
+    Recording the relation under its declared bare name meant the statement reading it --
+    necessarily qualified -- matched nothing: the read looked like an ordinary physical table,
+    a consumer excluding session-scoped relations kept it, and metadata was reported missing
+    for a table that does not exist (TEMPVIEW-002).
+
+    This is the identity half of the judgement whose persistence half was fixed earlier. That
+    one had been keyed on which keyword produced the relation; this one was still keyed on how
+    the relation was spelled where it was declared, rather than on how it can be referred to.
+    """
+    if not target_table or "." in target_table:
+        return target_table
+    if not isinstance(definition, exp.Create):
+        return target_table
+    properties = definition.args.get("properties")
+    if properties is None:
+        return target_table
+    if not any(isinstance(prop, exp.GlobalProperty) for prop in properties.expressions):
+        return target_table
+    return f"{GLOBAL_TEMP_DATABASE}.{target_table}"
+
+
 def _build_ctas_scope(
     tree: exp.Expression, task_name: str, schema: dict | None = None
 ) -> ScopeLineageResult:
@@ -554,6 +583,7 @@ def _build_ctas_scope(
     )
     target = _unwrap_target(definition.this) if definition and definition.this is not None else None
     target_table = _qualified_table(target) if isinstance(target, exp.Table) else ""
+    target_table = _global_temp_qualified(target_table, definition)
     partition_spec, partition_columns, partition_mode = (
         _target_partition_facts_from_create(definition)
         if isinstance(definition, exp.Create)
