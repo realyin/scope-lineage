@@ -111,7 +111,7 @@ def _detect_magic_numbers(result: ScopeLineageResult) -> None:
 # ---------------------------------------------------------------------------
 
 def _detect_duplicate_table_in_union(result: ScopeLineageResult) -> None:
-    """Warn when the same physical table appears in multiple UNION branches."""
+    """Warn when the same physical table is a FROM/JOIN source of multiple UNION branches."""
     for scope_id, scope_data in result.scopes.items():
         if scope_data.kind != "union":
             continue
@@ -120,9 +120,16 @@ def _detect_duplicate_table_in_union(result: ScopeLineageResult) -> None:
             branch = result.scopes.get(branch_id)
             if not branch:
                 continue
-            for dep in branch.depends_on:
-                if dep not in result.scopes:  # physical table
-                    branch_tables.setdefault(dep, []).append(branch_id)
+            # A branch's sources are its FROM/JOIN relations. `depends_on` also carries
+            # tables a filter subquery reads, which are not what this warning is about.
+            # One branch can hold several edges to the same table -- a self-join -- and
+            # that is not a duplicate across branches, so count each branch once.
+            for table_id in dict.fromkeys(
+                edge.source_id
+                for edge in branch.input_edges
+                if edge.source_type == "physical_table"
+            ):
+                branch_tables.setdefault(table_id, []).append(branch_id)
         for table_id, branches in branch_tables.items():
             if len(branches) > 1:
                 result.diagnostics.warnings.append(DiagnosticWarning(
