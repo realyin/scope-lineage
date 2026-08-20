@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+- Added a `session_scoped_relations_present` warning naming every relation in a script that
+  only lives for the session. `is_session_scoped_relation` alone was not enough in the task
+  document: the flag sits on `statement_sequence[]` while the entry that misleads is in
+  `final_table_states`, and `analysis_status` stays `complete`, so a consumer who does not
+  know to cross-reference the two reads a confident artifact naming tables that were never
+  written to storage.
+
 ## 0.1.12
 - Kept a statement's lineage when one of its columns is named after a SQL keyword. Spark
   accepts `not`, `like`, `out` and `using` as column names when quoted, and authors routinely
