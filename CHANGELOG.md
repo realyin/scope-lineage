@@ -1,6 +1,13 @@
 # Changelog
 
 ## Unreleased
+- Narrowed the `source_state_columns_unknown` gap to the one shape it exists for. It was keyed
+  on `state.columns_known`, which is false for *any* missing reason, so relations whose columns
+  were named in the producing projection and listed column by column in the document were
+  reported as undescribed. It now asks whether the relation's own projection stayed a wildcard
+  -- the case where its single row is keyed on `*` and no named column can ever be found in it,
+  which is what leaves a consumer with nothing to fold. `COUNT(*)` is excluded: its star is the
+  row, not an unknown column list.
 - Added `fold_session_scoped(document)` to the public API: one implementation of resolving hops
   through relations that do not outlive the session, so consumers do not each write their own.
   It returns a copy, drops the rows and `final_table_states` entries for those relations, and
