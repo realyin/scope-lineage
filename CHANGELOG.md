@@ -1,6 +1,15 @@
 # Changelog
 
 ## Unreleased
+- Incompleteness now crosses a script-local hop. A column read out of a relation whose own
+  columns were never resolved -- a temporary relation built from an unexpanded `SELECT *`, which
+  has a single row keyed on `*` -- reported `trace_complete: true`, resting on a relation nobody
+  could describe. Such columns now report `false` with a `source_state_columns_unknown` reason
+  and a matching `lineage_fact_gaps` entry. Incompleteness already propagated from the previous
+  state of the table being written; this is the same question asked of the relations being read.
+  **This moves rows out of "complete"**: consumers gating on `trace_complete` will see fewer
+  complete rows, and the ones they lose were making a claim the document could not support. No
+  row moves the other way.
 - `value_sources[]` entries now carry `source_state` when the source table was written by a
   statement in the same script, naming which state of it the read saw. A table can hold more
   than one state in a script, so a source that named only the table left two reads of a
