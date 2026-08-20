@@ -57,6 +57,10 @@ class _State:
     window_context_sources: dict[str, list[dict]] = field(default_factory=dict)
     columns_known: bool = True
     missing_reasons: list[str] = field(default_factory=list)
+    # Whether the relation this state belongs to survives the session. Kept here so an edge
+    # reading it can say so on itself, rather than making a consumer join against the
+    # statement that produced it (TEMPVIEW-003).
+    session_scoped: bool = False
 
 
 class _StateBuilder:
@@ -107,6 +111,7 @@ class _StateBuilder:
         window_context_sources: dict[str, list[dict]] | None = None,
         columns_known: bool = True,
         missing_reasons: list[str] | None = None,
+        session_scoped: bool = False,
     ) -> _State:
         # Two different questions, and they used to share one answer. `previous` says what
         # this state inherits: a CTAS is handed None because it replaces the relation, so its
@@ -126,6 +131,7 @@ class _StateBuilder:
             state_id=_state_id(table, ordinal),
             table=table,
             ordinal=ordinal,
+            session_scoped=session_scoped,
             known_empty=known_empty,
             value_sources=value_sources,
             row_membership_sources=list(row_membership_sources or []),
@@ -648,6 +654,7 @@ def _apply_projection_write(
         table=result.target_table,
         statement_id=statement_id,
         effect=effect,
+        session_scoped=result.is_session_scoped_relation,
         known_empty=False,
         value_sources=value_sources,
         row_membership_sources=row_membership_sources,
@@ -1046,7 +1053,15 @@ def _source_state(states: _StateBuilder | None, table: str) -> dict:
     state = states.current_by_table.get(table)
     if state is None or state.ordinal < 1:
         return {}
-    return {"source_state": state.state_id}
+    stamped = {"source_state": state.state_id}
+    if state.session_scoped:
+        # Said on the edge itself. The producing statement already carries
+        # `is_session_scoped_relation`, but the edges a consumer acts on are here, and making
+        # them join the two objects to find out is the whole complaint (TEMPVIEW-003). This is
+        # a new optional key, not a `source_kind` value: a filter that does not know it keeps
+        # exactly the behaviour it had.
+        stamped["session_scoped"] = True
+    return stamped
 
 
 def _write_value_sources(result, states: _StateBuilder | None = None) -> dict[str, list[dict]]:
