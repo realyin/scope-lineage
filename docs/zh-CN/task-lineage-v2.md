@@ -199,6 +199,24 @@ columns = {
 放在 `global_temp` 库里，声明时的裸名并不可解析，读它的语句必然写成 `global_temp.gv`。
 按产出名与读取名对齐，这一跳才能被识别为会话级关系；否则它看起来就是一张普通物理表。
 
+### 已知边界：解析不了的建表语法
+
+`CREATE TEMPORARY VIEW tv (...) USING csv OPTIONS (...)` 这类**不带 `AS SELECT`** 的写法，
+解析器无法结构化，语句退化为 `stmt_kind: COMMAND` / `model_status: unsupported`，
+因此**不会**被标为会话级关系。
+
+工具不对它做猜测：判据只取自 AST 事实，而这里没有可用的 AST。从未解析的文本里正则出关系名，
+与按 `tmp_` 前缀猜表是同一类做法，本工具不采用。
+
+实际影响有限，但要知道边界在哪：
+
+- **不会**登记幽灵表——`final_table_states` 里不会出现 `tv`；
+- 脚本会被标 `analysis_status: partial`，阻塞原因含 `unsupported_data_change`，
+  并伴随 `unsupported_statement` 与 `metadata_incomplete` 两条 warning；
+- **但**读了 `tv` 的字段其 `trace_complete` 仍为 `true`——那一跳的来源是工具没能建模的关系。
+  **含 `unsupported` 语句的脚本，其逐行 `trace_complete` 不应单独采信**，要先看
+  `analysis_status`。
+
 ### 折叠前必须检查它
 
 `end_to_end_lineage` 是**最终状态视图**（每张表在脚本结束时的状态），所以**中间状态的行不在文档里**。
