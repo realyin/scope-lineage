@@ -10,6 +10,8 @@ import re
 import sqlglot
 from sqlglot import ErrorLevel, exp
 from sqlglot.errors import ParseError
+
+from .keyword_identifiers import repair_keyword_identifiers
 from sqlglot.optimizer.qualify import qualify as sg_qualify
 from sqlglot.optimizer.scope import traverse_scope, Scope
 
@@ -93,7 +95,7 @@ def _collect_insert_trees(sql: str) -> tuple[list, list[dict]]:
     used to vanish from the result with nothing recorded, so a consumer could not tell a script
     of one INSERT from a script of one INSERT and three DELETEs (CONTRACT-001).
     """
-    sql = _normalize_directory_insert_sql(sql)
+    sql, _ = repair_keyword_identifiers(_normalize_directory_insert_sql(sql))
     trees = sqlglot.parse(sql, dialect=DIALECT, **PARSE_OPTS)
     write_trees, skipped = [], []
     for statement_index, tree in enumerate(trees):
@@ -239,7 +241,7 @@ def _syntax_status(sql: str) -> tuple[str, list[dict]]:
     A strict parse answers the one question the lenient parse cannot: was anything repaired?
     It only classifies; the lenient AST is still what gets used, so no lineage is lost.
     """
-    normalized = _normalize_directory_insert_sql(sql)
+    normalized, _ = repair_keyword_identifiers(_normalize_directory_insert_sql(sql))
     try:
         sqlglot.parse(normalized, dialect=DIALECT, error_level=ErrorLevel.RAISE)
     except ParseError as exc:

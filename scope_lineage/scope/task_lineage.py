@@ -12,6 +12,7 @@ from ..metadata.schema_metadata import DictSchemaProvider
 from ._shared import DIALECT, PARSE_OPTS, render_sql_or_none
 from .end_to_end import _physical_fields_for_scope_column
 from .scope_types import ScopeLineageResult
+from .keyword_identifiers import repair_keyword_identifiers
 from .scope_builder import (
     _is_ctas,
     _schema_with_script_local_tables,
@@ -210,13 +211,24 @@ def parse_task_lineage(
     task_dependencies: dict | None = None,
 ) -> TaskLineageResult:
     """Parse an ordered SQL script into table-state and statement lineage."""
-    normalized = _normalize_directory_insert_sql(sql)
+    normalized, quoted_identifiers = repair_keyword_identifiers(
+        _normalize_directory_insert_sql(sql)
+    )
     trees = sqlglot.parse(normalized, dialect=DIALECT, **PARSE_OPTS)
     syntax_status, syntax_errors = _syntax_status(sql)
     state_builder = _StateBuilder(schema)
     statements: list[dict] = []
     statement_lineage: dict[str, object] = {}
     warnings: list[dict] = []
+    if quoted_identifiers:
+        warnings.append({
+            "type": "identifiers_quoted_for_parse",
+            "scope": "TASK",
+            "msg": (
+                "quoted keyword-colliding identifiers to parse the script: "
+                + ", ".join(quoted_identifiers)
+            ),
+        })
     gaps: list[dict] = []
     # Columns proved by a CREATE ... AS SELECT earlier in this script, so the statements
     # that consume it are not modelled against a table nobody can describe.
