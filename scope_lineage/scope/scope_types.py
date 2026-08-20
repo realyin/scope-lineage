@@ -146,7 +146,7 @@ class ScopeOutputField:
     expanded_expression: Optional[str] = None
     # "full" | "bounded". `expanded_expression` inlines each referenced upstream field's own
     # expanded text, so an expression referenced N times is copied N times and every extra
-    # scope layer multiplies again — one real 33 KB statement produced a single 33 MB string
+    # scope layer multiplies again — a moderately sized statement produced a single enormous string
     # (PERF-001). When a limit is reached the reference is LEFT IN PLACE instead of the text
     # being cut: the expression stays valid SQL, and the untouched `a.field` is itself the
     # pointer to the upstream output that holds the rest. "bounded" therefore means

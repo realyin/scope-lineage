@@ -31,7 +31,7 @@ LOWER = {table: [c.lower() for c in cols] for table, cols in UPPER.items()}
 MIXED = {table: [c.capitalize() for c in cols] for table, cols in UPPER.items()}
 
 # A branch built with SELECT * (so schema names flow into the scope) whose columns the outer
-# query then references unqualified — the shape that made the real task lose its lineage.
+# query then references unqualified — the shape that makes a statement lose its lineage.
 MERGE_SQL = (
     "MERGE INTO mart.tgt AS t USING (\n"
     "  SELECT a.BIZNO AS BIZNO, CAST(V1 AS int) AS V1\n"

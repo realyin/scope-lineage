@@ -129,7 +129,7 @@ def test_keyword_column_survives_ddl_fact_extraction():
 def test_keyword_column_that_only_failed_to_parse_is_also_recovered():
     """Not every keyword column hangs — some merely fail, and cost the whole table.
 
-    ``like`` is the shape found in the real corpus: three tables were rejected outright
+    ``like`` is the shape seen in practice: tables were rejected outright
     with ``ddl_parse_failed:ParseError`` and lost all 3005+ of their columns. Quoting
     recovers them by the same rule that stops ``not`` from hanging.
     """

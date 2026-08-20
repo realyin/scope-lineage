@@ -4,7 +4,7 @@ A script that stages its work in `CREATE OR REPLACE TEMP VIEW` produces lineage 
 those views are indistinguishable from physical tables: `final_table_states` gains an entry
 for each, and `metadata_coverage.covered_tables` counts them as covered. A consumer
 reconciling that against the catalogue concludes the warehouse grew tables that do not
-exist — 38 of them across 11 real tasks (TEMPVIEW-001).
+exist (TEMPVIEW-001).
 
 `is_cached_relation` already carries exactly this meaning ("只存活于会话,消费者不应据此登记
 仓库中新增了一张表") but only for `CACHE [LAZY] TABLE`. Widening that field would redefine a

@@ -1891,8 +1891,8 @@ def _resolve_internal_scope_expression_resolution(result: ScopeLineageResult) ->
             }
 
 
-# Asked once per reference per pass over the same expressions; 39k calls cost 20 of the
-# profiled run's 109 seconds. Depends only on its arguments (PERF-002).
+# Asked once per reference per pass over the same expressions, and in a profiled run those
+# repeated calls cost a fifth of the total. Depends only on its arguments (PERF-002).
 _STRUCT_MEMBER_ACCESS_CACHE: dict[tuple[str, tuple[tuple[str, str], ...]], bool] = {}
 
 

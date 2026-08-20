@@ -99,7 +99,7 @@ def test_a_repeated_alias_does_not_capture_the_inner_column():
 
 
 def test_the_union_branch_shape_no_longer_reports_a_gap():
-    """The real task's shape: the subquery sits in a branch of a UNION inside a CTE."""
+    """The shape seen in practice: the subquery sits in a branch of a UNION inside a CTE."""
     sql = (
         "INSERT INTO mart.t\n"
         "WITH src AS (\n"

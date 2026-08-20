@@ -263,7 +263,7 @@ def check_metadata_file(
     """Read a metadata file and return its text, failing loudly on what CSV cannot represent.
 
     Runs before the CSV reader so the diagnosis names the file and the offending offsets rather
-    than surfacing a parser-internal error from somewhere inside a 3 MB file.
+    than surfacing a parser-internal error from somewhere inside a very large file.
     """
     result = _read_metadata_file(
         path,

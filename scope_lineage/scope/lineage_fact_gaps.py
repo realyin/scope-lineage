@@ -62,7 +62,7 @@ def _mark_gaps_from_recovered_syntax(result: ScopeLineageResult) -> None:
     A repaired parse drops the tokens sqlglot could not place, so a gap derived from what
     survived describes the truncation, not the SQL — the statement said FROM, and the gap
     says the field has no source. Both kinds land in one list, and counting them together
-    turned a single syntax problem into 1298 apparent capability gaps in one real task
+    turned a single syntax problem into hundreds of apparent capability gaps in one statement
     (PARSE-002).
 
     Applied after ``syntax_status`` is known, which is later than the gaps are built.

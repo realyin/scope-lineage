@@ -4,21 +4,20 @@
 - Kept a statement's lineage when one of its columns is named after a SQL keyword. Spark
   accepts `not`, `like`, `out` and `using` as column names when quoted, and authors routinely
   leave them unquoted; the parser stopped at the first one and the whole projection list was
-  discarded, costing one real statement the sources for 1298 of its 1299 output columns. The
+  discarded, costing a statement the sources for nearly every column it writes. The
   repair carries no reserved-word list -- the parser names the token it stopped on, that token
   is quoted, and the statement is parsed again, with the rewrite kept only if it makes the
   statement parse. Rewrites are reported as an `identifiers_quoted_for_parse` warning rather
   than applied silently. Clause keywords are never quoted: one real malformed statement parses
   once its `WHERE` is quoted, yielding an AST in which WHERE is a column name, and staying
-  `recovered` is the honest answer for SQL that is simply broken. Across 1755 real tasks
-  `recovered` fell from 5 to 2 and no task lost a traced column.
+  `recovered` is the honest answer for SQL that is simply broken. Verified against a corpus of
+  production statements: fewer statements degrade to `recovered`, and none lost a traced column.
 - Added `is_session_scoped_relation`, marking relations that never reach storage -- `TEMP VIEW`,
   `GLOBAL TEMP VIEW` and `CACHE [LAZY] TABLE`. `CREATE TABLE db.r AS SELECT` and
   `CREATE OR REPLACE TEMP VIEW r AS SELECT` previously produced byte-identical lineage: the AST
   holds the distinction and Core dropped it, so `final_table_states` gained an entry for every
   temp view and consumers reconciling it against the catalogue reported tables that do not
-  exist -- 47 such relations across 14 of 1755 real tasks, 50 `final_table_states` entries and
-  49 `covered_tables` entries. One predicate covers every spelling, decided on AST facts rather
+  exist. One predicate covers every spelling, decided on AST facts rather
   than naming patterns; a non-temporary `CREATE VIEW` is registered in the catalogue and
   outlives the session, so it is not marked. Purely additive: `source_kind` and `source_type`
   keep their value distributions, and `is_cached_relation` keeps its meaning as the
@@ -34,7 +33,7 @@
   lineage. `ValueError` and `NoSupportedWriteStatementError` still reach the caller unchanged:
   this package raises those deliberately to mean "refuse to emit lineage rather than emit
   something wrong". The degradation itself is unchanged — that statement is still `recovered` —
-  and 200 real tasks are byte-identical
+  and a production corpus are byte-identical
 
 ## 0.1.11 - 2026-08-20
 
@@ -50,15 +49,15 @@
   column that both orders a window and feeds the computed value appears in both, which is why
   subtracting one from the other is not the recipe for "what computes this" — on the real
   slowly-changing-dimension column that prompted this, subtraction answers "nothing". Optional,
-  omitted when empty, declared in both documents' schemas; across 200 real tasks the 57,648
-  `value_sources` edges are unchanged and 213 context entries are added
+  omitted when empty, declared in both documents' schemas; across a production corpus the
+  `value_sources` edges are unchanged and the context entries are additive
 
 - Stopped reporting a `duplicate_table_in_union` for a table a branch only reads inside a filter
   subquery. The warning exists to catch a copy-pasted UNION branch whose source was never changed,
   and it read that off `depends_on` -- everything the scope reaches. Once a filter subquery's
   physical tables were restored to `depends_on`, the anti-join shape (`SELECT ... FROM a` UNION
   `SELECT ... FROM b WHERE NOT EXISTS (SELECT 1 FROM a ...)`) started warning on every occurrence,
-  which is deliberate SQL and extremely common: on a 645-task corpus it produced 3 new warnings and
+  which is deliberate SQL and extremely common: on a production corpus it produced new warnings and
   demoted a statement that had nothing wrong with it. `ScopeInputEdge` already carries the fact the
   detector wants -- "a direct input edge from a FROM/JOIN source into a scope" -- so it now reads
   `input_edges`, counting each branch once because one branch can hold several edges to the same
@@ -73,8 +72,8 @@
   of the directory, the rule having never been applied there at all. Worse, a file-level rejection
   is recorded with no table name, and the serializer kept only conflicts whose table was among the
   referenced ones — so every one of them was recorded and then dropped, leaving an artifact that
-  said nothing at all about the file it could not read. Two corrupted files among 3,434 took the
-  loader from **0 usable tables to 3,432**, with both files and their reasons now in
+  said nothing at all about the file it could not read. A couple of corrupted files took the
+  loader from **no usable tables at all to all but those two**, with each file and its reason now in
   `metadata_conflicts`. A load that produced no table still raises, and still names every file it
   refused
 
@@ -86,7 +85,7 @@
   Core still publishes what the judgement rests on: `physical_source_fields`, the physical columns
   an expression resolved to. **The field was never declared in the JSON Schema and appears in no
   document, but it did reach the artifact and it did have a consumer** -- so its removal is a
-  behaviour change even though it breaks no contract. On a 200-task sample it appeared 164 times
+  behaviour change even though it breaks no contract. On a production sample it appeared often
   and now appears none; every other signal is unchanged. A consumer that wants it back computes it
   from `physical_source_fields` with its own layer policy
 
@@ -109,7 +108,7 @@
 - Documented that `value_sources[]` lists participation paths rather than a set of columns. The
   dedup key is `(table, column, transform)` and includes the transform deliberately, so one
   physical column appears once per way it participates — a derived column on a real slowly
-  changing dimension carries 33 entries that dedupe to 16 columns, the same 16 its sibling
+  changing dimension carries duplicate entries that dedupe to the same columns its sibling
   carries as 17. Read as a column set, that looks like the lineage was smeared across the whole
   table, and it has been reported as pollution twice. The document now gives the dedupe recipe
   and warns off the filter that suggests itself — keeping only `DIRECT`/`EXPRESSION`/
@@ -127,7 +126,7 @@
   enclosing `FROM` and inside a projection subquery to surface, which is why it hid: the `FROM`
   registers the binding and the subquery puts that same qualifier into the expression text,
   which the textual check cannot tell apart. A genuine local alias is still reported — `s` in
-  `FROM ods.source s` is neither the id nor its table name. One real task goes from 7 gaps and
+  `FROM ods.source s` is neither the id nor its table name. An affected statement goes from several gaps and
   `partial` to none and `complete`, with its physical sources unchanged
 
 - Recovered the physical sources of a scalar subquery used as a projection. Column references
@@ -139,7 +138,7 @@
   CONSTANT value and its tables nowhere in the lineage. In the plain shape this was silent: no
   gap, `analysis_status` complete. They now resolve against the subquery's own scope, which
   sqlglot already builds, and a correlated reference still binds outward because alias lookup
-  walks parent scopes. Across the real tasks that use the shape, 14 physical source edges come
+  walks parent scopes. Across the statements that use the shape, physical source edges come
   back and 5 subqueries stop being reported as constants
 
 - Stopped a dynamic-partition `INSERT OVERWRITE` from claiming the target's previous values
@@ -154,7 +153,7 @@
   left alone". The setting is now read from the script when present and applies to the
   statements after it. A dynamic-partition overwrite now agrees with the unpartitioned one it
   has always resembled: a column the write does not supply gets no row rather than a false
-  one. 46 of 200 real tasks lose 1,818 such edges; gap counts, statuses and syntax results are
+  one. Affected statements lose those edges; gap counts, statuses and syntax results are
   unchanged
 
 - Documented that a window field's sources carry three different roles under one
@@ -178,7 +177,7 @@
   `V1` while the outer scope asked for `v1`, source chains broke to `scope:"UNKNOWN"`, and
   explicitly referenced columns were re-added as case-variant duplicates — while
   `metadata_coverage` still reported every table covered, because coverage only checks table
-  names. One real 5-branch MERGE went from 16,122 lineage fact gaps and `partial` to none
+  names. A multi-branch MERGE went from thousands of lineage fact gaps and `partial` to none
   and `complete`; the same schema differing only in case is now the same lineage
 
 - Stopped a MERGE's USING alias from being captured by an inner table of the same name.
@@ -189,7 +188,7 @@
   and no warning: a confident wrong answer, and precisely what this project's README
   criticises other tools for. A column the subquery passes straight through still binds
   directly to the table, which is the lexical source an earlier fix preserves; only a
-  derived column is redirected. 25 fabricated columns in one real task go to none
+  derived column is redirected. The fabricated columns in an affected statement go to none
 
 - Gave `syntax_errors[]` an order that holds across processes. sqlglot builds one message
   per entry of `Expression.required_args`, which is a `set`, and CPython randomises string
@@ -221,7 +220,7 @@
   of `k` into columns named A and B whose values come from the aggregate, and neither the
   names nor that lineage existed: a `SELECT *` over a pivoted relation saw the pivoted
   subquery's own columns instead, so every downstream reference to a pivoted name was a gap —
-  32 in one real task. The pivot's alias now becomes an input edge when it has one, and a
+  many in an affected statement. The pivot's alias now becomes an input edge when it has one, and a
   star over a pivoted source expands to the IN list. A non-literal IN list still reports a
   gap rather than guessing names
 
@@ -237,7 +236,7 @@
   Spark's regex column selection, added in 0.1.6, then matched that placeholder as a pattern,
   and `a.*` is a valid one: a 63-column star collapsed into the single column whose name
   began with "a", and the placeholder was gone before the pass that would have expanded it
-  properly ever ran. Three real tasks go from 44, 64 and 14 gaps to none
+  properly ever ran. The affected statements go from many gaps to none
 
 - Let a bare column bind through a regex column selection. Spark's `` `(rk)?+.+` `` names
   the columns a source exposes by pattern, and the match runs after column resolution — but
@@ -252,7 +251,7 @@
   rest, and a statement that said `FROM` becomes one with no source at all — so the gaps
   that follow describe the truncation, not the query. They sat in the same list as gaps
   about genuinely missing metadata, and counting the two together turned one syntax problem
-  into 1298 apparent capability gaps in a single real task. `syntax_status` already said the
+  into hundreds of apparent capability gaps in a single statement. `syntax_status` already said the
   parse was repaired; the marker means a consumer no longer has to correlate two documents
   to know which gaps to exclude. Statement lineage needed its own answer, since a truncation
   is invisible once the tree is rendered back out
@@ -262,14 +261,14 @@
   characters hang 30.0.0, 30.16.0 and 30.17.0 alike — so a table whose export happened to
   name a column `not` did not make a task's answer worse, it made the task never finish, and
   no caller could put a timeout around it. Three more tables were being rejected outright by
-  the milder version of the same problem, losing 3005 columns apiece. Quoting is an
-  equivalent rewrite, and of 314 real DDLs it touches, 308 yield facts identical to before
+  the milder version of the same problem, losing their columns wholesale. Quoting is an
+  equivalent rewrite, and nearly every DDL it touches yields facts identical to before
 
 ## 0.1.6 - 2026-08-18
 
 - Roughly halved lineage resolution time on wide statements by remembering answers that
   depend only on their inputs: compiled patterns built from identifier names, the field
-  references of an expression, and whether an expression reaches into a struct. A 743 KB
+  references of an expression, and whether an expression reaches into a struct. A large
   task that previously exceeded two minutes and returned `partial` now completes in 67
   seconds with no gaps
 - Expanded Spark's quoted regex column selection. `` `(dt)?+.+` `` selects every column
@@ -281,14 +280,14 @@
   views exposing the same name stay a gap rather than being resolved by writing order
 - Modelled Spark's `CACHE [LAZY] TABLE ... AS SELECT` as the relation-from-a-SELECT it is.
   It was skipped as an unsupported statement, so the relation it builds was read back as an
-  external table nobody has metadata for and every reference to it became a gap — 1205 in a
-  single real task. It reports `stmt_kind: "CTAS"` with a new optional `is_cached_relation`
+  external table nobody has metadata for and every reference to it became a gap — hundreds in a
+  a single statement. It reports `stmt_kind: "CTAS"` with a new optional `is_cached_relation`
   flag, since the relation lives only for the session
 - Made a table's DDL authoritative over its exported column array rather than validating one
   against the other. A partition column declared only in `PARTITIONED BY` is an ordinary
   export shape, not a contradiction, and rejecting it discarded usable metadata
 - Limited an unusable metadata file to the table it describes. The loader raised, so two
-  malformed files among 3434 left every table without columns; rejected tables are now
+  a couple of malformed files left every table without columns; rejected tables are now
   reported through `metadata_conflicts` and only a load that produced no table at all raises
 
 ## 0.1.4 - 2026-08-17

@@ -150,8 +150,7 @@ def _is_session_scoped_relation(tree: exp.Expression) -> bool:
     `CREATE TABLE db.r AS SELECT` and `CREATE OR REPLACE TEMP VIEW r AS SELECT` produced
     byte-identical lineage: both are CTAS, and nothing in the result said one of them never
     reaches storage. Consumers reconciling `final_table_states` against the catalogue
-    concluded the warehouse had grown tables that do not exist — 38 of them across 11 real
-    tasks (TEMPVIEW-001).
+    concluded the warehouse had grown tables that do not exist (TEMPVIEW-001).
 
     One predicate covers every spelling on purpose. `is_cached_relation` answers this
     question for `CACHE [LAZY] TABLE` alone, and a fix that added a second, temp-view-only

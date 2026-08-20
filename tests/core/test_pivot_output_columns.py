@@ -73,7 +73,7 @@ FROM (SELECT k, v, amt FROM ods.src) PIVOT (max(amt) FOR k IN (SELECT k FROM ods
     assert resolution.get("physical_source_fields") in (None, [])
 
 
-# The shape the real corpus uses: the pivot has no alias of its own and sits behind a
+# The shape seen in practice: the pivot has no alias of its own and sits behind a
 # `SELECT *`, whose own subquery carries the alias downstream references.
 UNALIASED_BEHIND_STAR = """INSERT INTO mart.t
 SELECT t1.A AS a_val, t1.B AS b_val

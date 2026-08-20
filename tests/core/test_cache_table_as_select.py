@@ -5,7 +5,7 @@ sqlglot even parses it into the same shape, with the produced table on ``this`` 
 projection on ``expression``. The write-statement collector only recognised ``exp.Create``,
 so the statement was skipped, the relation was never registered as script-local, and every
 downstream reference to it was resolved against a physical table nobody has metadata for.
-One real task turned that into 1205 gaps.
+In practice that turns into hundreds of gaps.
 """
 
 from __future__ import annotations

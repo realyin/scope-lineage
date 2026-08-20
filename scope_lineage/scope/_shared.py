@@ -69,8 +69,8 @@ def _source_ref_binding_key(ref: SourceRef) -> tuple[str, str, str, str, str]:
 
 # Patterns here are built from identifier names, so their number grows with the statement's
 # column count rather than with the code. Python's own re cache holds 512 entries, and a
-# wide feature table blows straight through it: profiling one 261 KB task showed 1.6M
-# lookups, 230k of them recompiling — 55 of the run's 109 seconds spent in re's parser
+# wide feature table blows straight through it: profiling a large statement showed millions of
+# lookups, a sixth of them recompiling — about half the run spent in re's parser
 # alone. Caching the compiled objects here removes that without changing a single match
 # (PERF-002).
 _COMPILED_PATTERNS: dict[str, "re.Pattern[str]"] = {}
@@ -85,8 +85,9 @@ def _cached_pattern(pattern: str) -> "re.Pattern[str]":
 
 
 # Field extraction re-parses the expression into an AST every time it is asked, and the
-# resolver asks about the same expressions repeatedly across its passes: the same 261 KB
-# task made 145k sqlglot.parse_one calls for 88k questions, 25 seconds of pure repetition.
+# resolver asks about the same expressions repeatedly across its passes: the same large
+# statement made far more sqlglot.parse_one calls than it had distinct questions, and the
+# difference was pure repetition.
 # The answer depends only on the expression text, so it is remembered (PERF-002).
 _FIELD_REFS_CACHE: dict[str, tuple[tuple[str, str], ...]] = {}
 
@@ -1095,8 +1096,8 @@ def _qualifier_present(expression: str, qualifier: str) -> bool:
     return bool(_cached_pattern(rf"(?<![.`\w]){re.escape(qualifier)}\.").search(expression))
 
 # Expansion budget for `expanded_expression`. Inlining an upstream field's expanded text copies
-# it once per reference, and each additional scope layer multiplies again; one real 33 KB
-# statement expanded to a single 33 MB string and a 216 MB lineage.json (PERF-001).
+# it once per reference, and each additional scope layer multiplies again; a moderately sized
+# statement expanded to a string and a lineage.json three orders of magnitude larger (PERF-001).
 #
 # The budget bounds the copy by DECLINING a substitution, not by cutting text. What is left
 # behind is the original `a.field` reference — still valid SQL, and itself the pointer to the

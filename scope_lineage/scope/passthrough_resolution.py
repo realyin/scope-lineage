@@ -176,7 +176,7 @@ def _expression_has_internal_source_alias(expression: str | None, sources: list[
 
 
 # The same question scope_facts asks, asked here about a scope's sources instead of its
-# refs. Profiling put it at 14.7 of 52.8 seconds on a 261 KB task — the answer depends only
+# refs. Profiling put it at roughly a quarter of the run on a large statement — the answer depends only
 # on the expression and the source columns, so it is remembered (PERF-002).
 _STRUCT_ACCESS_CACHE: dict[tuple[str, tuple[str, ...]], bool] = {}
 

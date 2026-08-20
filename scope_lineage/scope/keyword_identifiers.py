@@ -1,11 +1,11 @@
 """Re-quote identifiers that collide with SQL keywords, so one column cannot cost a statement.
 
 Spark accepts `not`, `like`, `out` and `using` as column names when they are quoted, and authors
-routinely leave them unquoted — a generated feature list where `not` sits between `notado` and
-`noticia` is not going to be hand-audited for keyword collisions. sqlglot's parser stops at the
-first such identifier, the statement falls back to the lenient parse, and its whole projection
-list is discarded: one real task lost the sources for 1298 of its 1299 output columns to two
-identifiers out of 2943 (KEYWORD-IDENT-001).
+routinely leave them unquoted — a machine-generated projection list is not going to be
+hand-audited for keyword collisions. sqlglot's parser stops at the first such identifier, the
+statement falls back to the lenient parse, and its whole projection list is discarded, so a
+statement can lose the sources for nearly every column it writes over one or two identifiers
+(KEYWORD-IDENT-001).
 
 The repair does not carry a list of reserved words. `Spark.Tokenizer.KEYWORDS` is 305 entries of
 tokenizer vocabulary rather than Spark's reserved set, so any list is simultaneously too wide
@@ -18,13 +18,13 @@ Two properties are load-bearing, and both were established by measurement rather
 
 *Candidates are tried, not ranked.* A ParseError names the failing token twice, in ``highlight``
 and at the end of ``start_context``, and neither field wins consistently — fixing a priority
-order between them repaired 2 of 4 real cases whichever order was chosen. Trying both and keeping
-whichever parses repairs 4 of 4.
+order between them repaired only half the observed cases whichever order was chosen. Trying both
+and keeping whichever parses repaired all of them.
 
-*Clause keywords are never quoted.* This is not a theoretical guard. One real task's SQL is
-genuinely malformed (an empty WHERE body), and quoting its `WHERE` makes it parse — yielding an
-AST in which WHERE is a column name. Statements that stay `recovered` are the honest outcome for
-SQL that is simply broken; a confidently wrong lineage is worse than a degraded one.
+*Clause keywords are never quoted.* This is not a theoretical guard. A statement whose SQL is
+genuinely malformed — an empty WHERE body — parses once its `WHERE` is quoted, yielding an AST
+in which WHERE is a column name. Statements that stay `recovered` are the honest outcome for SQL
+that is simply broken; a confidently wrong lineage is worse than a degraded one.
 """
 
 from __future__ import annotations
