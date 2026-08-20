@@ -42,6 +42,12 @@ write_task_lineage(result, "./output/daily_publish")
 每条语句都有稳定的 statement_id、零基 statement_index、stmt_kind、category 和
 model_status。SET/空分号会保留在序列中但标为 ignored，不会被误算成数据变更失败。
 
+产出会话级关系的语句额外带 `is_session_scoped_relation: true`——`TEMP VIEW`、`GLOBAL TEMP VIEW`、
+`CACHE [LAZY] TABLE` 建出的关系只存活于会话。`final_table_states` 会为脚本产出的**每个**关系建条目，
+包括这些；按 catalog 对账前必须先用该字段排除，否则会认为仓库里新增了并不存在的表。
+字段血缘本身不受影响：`mart.t.v ← tmp_v.v` 与 `tmp_v.v ← ods.real.v` 两跳仍各自作为事实保留，
+是否折叠成一跳由消费方决定。
+
 ## 两种不能混淆的血缘
 
 - value_sources[]：字段值本身来自哪里；

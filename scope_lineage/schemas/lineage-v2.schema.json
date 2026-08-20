@@ -130,6 +130,10 @@
           },
           "effect": {
             "type": "object"
+          },
+          "is_session_scoped_relation": {
+            "type": "boolean",
+            "description": "仅在为 true 时出现。该语句产出的关系只存活于会话(TEMP VIEW / GLOBAL TEMP VIEW / CACHE [LAZY] TABLE),不会落到存储。`final_table_states` 会为脚本产出的每个关系建条目,消费者按 catalog 对账前应先用本字段排除这些关系,否则会认为仓库新增了并不存在的表。"
           }
         }
       }

@@ -8,6 +8,15 @@
   永不加引号——真实语料中有一条畸形 SQL 会因给 `WHERE` 加引号而「解析成功」，产出把 WHERE 当列名
   的错误 AST；这类语句保持 `recovered` 才是诚实结果。1755 个真实任务上 `recovered` 由 5 降为 2，
   无任务的溯源列数减少。
+- 新增 `is_session_scoped_relation`，标出只存活于会话、不落存储的关系（`TEMP VIEW`、
+  `GLOBAL TEMP VIEW`、`CACHE [LAZY] TABLE`）。此前 `CREATE TABLE db.r AS SELECT` 与
+  `CREATE OR REPLACE TEMP VIEW r AS SELECT` 产出逐字节相同的血缘——AST 里有这个区别，是 Core
+  丢掉了它，于是 `final_table_states` 为每个临时视图建了条目，按 catalog 对账的消费方会认为仓库
+  新增了并不存在的表：1755 个真实任务中 14 个任务、47 个这样的关系、50 处 `final_table_states`
+  条目与 49 处 `covered_tables` 条目。判据取自 AST 事实而非命名模式，且一个判据同时覆盖 TEMP VIEW
+  与 CACHE 两种写法，避免只修一个分支。不带 `TEMPORARY` 的 `CREATE VIEW` 会注册进 catalog 并跨会话
+  存活，因此不带此标记。纯增量：`source_kind` 与 `source_type` 的取值分布不变，既有过滤口径不受影响；
+  `is_cached_relation` 保持原义，是本字段在 CACHE 语法上的子集。
 - Stopped a statement sqlglot can parse but not print from taking the caller down with it. An
   identifier its tokenizer claims as a keyword — `CAST(out AS DOUBLE)`, where `out` is a real
   column name — parses into a Cast whose target type is None, and the Spark generator
