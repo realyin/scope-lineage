@@ -193,20 +193,33 @@ columns = {
 
 ### 先看这个脚本有没有
 
-`diagnostics.json` 里一条 warning 就够，不必遍历语句：
+**只读 `lineage.json` 就够，不必打开 `diagnostics.json`。** 批量处理时这一点很重要：
+每个任务多开一个文件、多解析一次 JSON，成本会随任务数放大。
 
 ```bash
-jq -r '.warnings[]? | select(.type=="session_scoped_relations_present") | .msg' diagnostics.json
+jq -c '.diagnostics.warning_types' lineage.json
 ```
 
 ```
-these relations only live for the session and were never written to storage; exclude them
-from final_table_states and from table-level coverage before reconciling against a
-catalogue: tmp_v
+{"session_scoped_relations_present":1}
 ```
 
-关系名同时也在语句上：`statement_sequence[].is_session_scoped_relation == true` 的那条语句，
-它的 `target_table` 就是该关系。
+`lineage.json` 内嵌的 `diagnostics` 是摘要（`warning_count` / `warning_types` / 缺口计数与样例），
+**只有需要逐条 warning 的 `msg` 明细时**才按 `full_diagnostics_file` 指向去开 `diagnostics.json`。
+判断"这个任务要不要做会话级关系处理"属于摘要能回答的问题。
+
+关系名同样在 `lineage.json` 里，不需要第二个文件：
+
+```bash
+jq -c '[.statement_sequence[] | select(.is_session_scoped_relation==true) | .target_table]' lineage.json
+```
+
+```
+["tmp_v"]
+```
+
+两条路径任选：`warning_types` 适合"先筛出需要处理的任务"，`statement_sequence` 适合"拿到名单直接处理"。
+后者不依赖 warning，即使消费方完全忽略 diagnostics 也不会漏。
 
 ### 用法一：登记仓库表、统计表级覆盖时排除
 

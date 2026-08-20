@@ -7,7 +7,9 @@
   lineage. The field and its warning were defined but nothing showed what to do with them, and
   the fold is easy to write wrongly -- sources with no table must survive it, recursion needs a
   depth bound, and an empty result after folding is not the same as "this column has no
-  lineage".
+  lineage". The section reads everything out of `lineage.json`: the embedded diagnostics
+  summary answers "does this task need handling at all", and the relation names are on
+  `statement_sequence[]`, so a consumer processing many tasks never opens the companion file.
 
 ## 0.1.13
 - Added a `session_scoped_relations_present` warning naming every relation in a script that
