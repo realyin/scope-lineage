@@ -1373,6 +1373,24 @@ def _contains_runtime_function(node: exp.Expression) -> bool:
     sql = node.sql(dialect=DIALECT).upper()
     return any(f"{name}(" in sql or name in {"CURRENT_DATE", "CURRENT_TIMESTAMP"} and name in sql for name in runtime_names)
 
+def render_sql_or_none(tree: exp.Expression) -> str | None:
+    """Print a parsed tree back to SQL, or give up without taking the caller down.
+
+    Generation is not total. A statement whose identifier collides with a tokenizer keyword
+    parses into a node the Spark generator cannot render -- `CAST(out AS DOUBLE)` yields a Cast
+    whose `to` is None and `cast_sql` dereferences it -- and the AttributeError escaped the
+    public API entirely (REGEN-001). One statement that cannot be *printed* must not cost a
+    batch its other results, which is the whole reason broken statements are kept.
+
+    The lineage is built from the AST, never from this string, so failing here costs a
+    convenience field and nothing else. Returns None so the caller decides what to record.
+    """
+    try:
+        return tree.sql(dialect=DIALECT)
+    except Exception:  # noqa: BLE001 - any generator failure, not a known subset
+        return None
+
+
 def _inside_nested_query(col_ref: exp.Column, root_expr: exp.Expression) -> bool:
     """Return True when a column belongs to a nested query inside root_expr."""
     if col_ref is root_expr:

@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- Stopped a statement sqlglot can parse but not print from taking the caller down with it. An
+  identifier its tokenizer claims as a keyword — `CAST(out AS DOUBLE)`, where `out` is a real
+  column name — parses into a Cast whose target type is None, and the Spark generator
+  dereferences it. `parse_scope_lineage` had no error boundary, so the AttributeError escaped
+  the public API; the batch entry point has had one since 0.1.0, which is why only the
+  single-statement path was affected. Guarding the boundary rather than each of the 55 render
+  sites: rendering is not the only thing that can fail on a repaired tree — `output_name`
+  derives its answer by rendering too — and a statement that cannot be printed still has usable
+  lineage. `ValueError` and `NoSupportedWriteStatementError` still reach the caller unchanged:
+  this package raises those deliberately to mean "refuse to emit lineage rather than emit
+  something wrong". The degradation itself is unchanged — that statement is still `recovered` —
+  and a production corpus are byte-identical
+
 ## 0.1.11 - 2026-08-20
 
 - Named the columns a window grouped or ordered by, in a new optional

@@ -32,7 +32,7 @@ from .scope_resolver import resolve_all
 from .scope_warnings import detect_warnings
 from .scope_role_inferrer import infer_roles
 from .sqlglot_config import suppress_invalid_json_path_warnings
-from ._shared import DIALECT, PARSE_OPTS, _ORIGINALLY_UNQUALIFIED_META, _SCOPE_ID_ATTR, _column_is_inside_nested_query, _find_alias_in_parent, _unique_ordered
+from ._shared import DIALECT, PARSE_OPTS, render_sql_or_none, _ORIGINALLY_UNQUALIFIED_META, _SCOPE_ID_ATTR, _column_is_inside_nested_query, _find_alias_in_parent, _unique_ordered
 # Re-exported only for the private integration repository, whose tests reach these through
 # this module instead of through ._shared. Nothing in this module uses them.
 from ._shared import _source_item_from_ast_node
@@ -277,7 +277,7 @@ def parse_scope_lineage(
             raise NoSupportedWriteStatementError(skipped_statements)
         # For now, handle the first INSERT/MERGE only (multi-statement later)
         tree = insert_trees[0]
-    statement_identity_sql = tree.sql(dialect=DIALECT)
+    statement_identity_sql = render_sql_or_none(tree) or ""
 
     if _is_ctas(tree):
         result = _build_ctas_scope(tree, task_name, schema)
@@ -286,14 +286,41 @@ def parse_scope_lineage(
     ):
         result = _build_merge_scope(tree, task_name, schema)
     else:
-        if target_metadata is None:
-            result = _build_insert_scope(tree, task_name, schema)
-        else:
-            result = _build_insert_scope(
-                tree,
-                task_name,
-                schema,
-                target_metadata=target_metadata,
+        # Same boundary parse_all_scope_lineage has had: a statement whose scope build raises
+        # comes back marked instead of taking the caller down. The single-statement entry point
+        # had no such guard, so a tree sqlglot could parse but not render -- CAST(out AS DOUBLE)
+        # yields a Cast whose `to` is None, and every one of the 55 render sites dereferences it
+        # eventually -- escaped as an AttributeError (REGEN-001). Guarding one boundary rather
+        # than each render site: rendering is not the only thing that can fail on a repaired tree.
+        try:
+            if target_metadata is None:
+                result = _build_insert_scope(tree, task_name, schema)
+            else:
+                result = _build_insert_scope(
+                    tree,
+                    task_name,
+                    schema,
+                    target_metadata=target_metadata,
+                )
+        except (ValueError, NoSupportedWriteStatementError):
+            # This package raises these deliberately to mean "refuse to emit lineage rather
+            # than emit something wrong", and tests pin the messages. They are answers, not
+            # accidents, and must reach the caller unchanged. (MetadataFileError belongs to
+            # metadata loading, which happens before this and never reaches here.)
+            raise
+        except Exception as exc:  # noqa: BLE001 - mirrors the batch boundary below
+            result = ScopeLineageResult(
+                task_id=task_name,
+                target_table=_target_table_name_for_error_result(tree),
+                stmt_kind=_stmt_kind_for_tree(tree),
+                parse_status="failed",
+            )
+            result.diagnostics.warnings.append(
+                DiagnosticWarning(
+                    type="LINEAGE_ERROR",
+                    scope="ROOT",
+                    msg=f"{type(exc).__name__}: {exc}",
+                )
             )
     result.syntax_status, result.syntax_errors = _syntax_status(sql)
     _mark_gaps_from_recovered_syntax(result)
@@ -321,7 +348,7 @@ def parse_all_scope_lineage(
     script_local: dict[str, list[str]] = {}
     for i, tree in enumerate(insert_trees):
         sub = f"{task_name}#{i}" if len(insert_trees) > 1 else task_name
-        statement_identity_sql = tree.sql(dialect=DIALECT)
+        statement_identity_sql = render_sql_or_none(tree) or ""
         stmt_schema = _schema_with_script_local_tables(schema, script_local)
         try:
             if _is_ctas(tree):
