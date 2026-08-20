@@ -181,6 +181,101 @@ columns = {
 数仓里绝大多数指标列都是这个形态。这条规则在 `row_number()` 这类**没有值参数**的窗口上
 看起来有效，那是巧合，不能推广。
 
+## 会话级关系：产物里留着，但它不是仓库里的表
+
+`TEMP VIEW`、`GLOBAL TEMP VIEW`、`CACHE [LAZY] TABLE` 建出的关系只存活于会话，从不落到存储。
+本工具**不会**把它们从产物里删掉——`final_table_states` 仍会为它们建条目，字段血缘也仍然逐跳
+记录 `最终表.v ← 临时视图.v ← 真实表.v`。删掉是消费方**无法从产物上察觉**的：做全量对账的人
+会静默少数据。工具记录物理事实，折叠是消费方的选择。
+
+工具做的是把它们**标出来**，判据取自 AST 事实（`CREATE ... VIEW` 带 `TEMPORARY`、或 `CACHE`），
+不是名字模式。
+
+### 先看这个脚本有没有
+
+`diagnostics.json` 里一条 warning 就够，不必遍历语句：
+
+```bash
+jq -r '.warnings[]? | select(.type=="session_scoped_relations_present") | .msg' diagnostics.json
+```
+
+```
+these relations only live for the session and were never written to storage; exclude them
+from final_table_states and from table-level coverage before reconciling against a
+catalogue: tmp_v
+```
+
+关系名同时也在语句上：`statement_sequence[].is_session_scoped_relation == true` 的那条语句，
+它的 `target_table` 就是该关系。
+
+### 用法一：登记仓库表、统计表级覆盖时排除
+
+```bash
+jq -r '
+  ([.statement_sequence[] | select(.is_session_scoped_relation==true) | .target_table]) as $scoped
+  | .final_table_states | keys | map(select(. as $t | $scoped | index($t) | not))
+' lineage.json
+```
+
+`["mart.daily", "tmp_v"]` → `["mart.daily"]`。
+
+**按 catalog 对账前必须做这一步**，否则会得出「仓库里多了 `tmp_v` 这张表」的结论。
+
+### 用法二：把临时关系这一跳折叠掉
+
+产物里 `mart.daily.amt ← tmp_v.amt` 与 `tmp_v.amt ← ods.orders.amt` 是两条独立事实。
+把落在会话级关系上的来源递归替换成它自己的来源即可：
+
+```python
+import json
+
+doc = json.load(open("lineage.json"))
+scoped = {s["target_table"] for s in doc["statement_sequence"]
+          if s.get("is_session_scoped_relation")}
+
+# 会话级关系的每一列各自来自哪里，供逐跳替换
+via = {(it["table"], it["column"]): (it.get("value_sources") or [])
+       for it in doc["end_to_end_lineage"] if it.get("table") in scoped}
+
+def resolve(source, depth=0):
+    """把落在会话级关系上的来源替换成它自己的来源，直到不再是会话级为止。
+
+    表为空的来源（source_kind=generated，例如常量）原样保留：它本来就不指向任何表。
+    """
+    if source.get("table") not in scoped:
+        return [source]
+    if depth > 16:                       # 环或嵌套过深：保留原样，不要静默丢掉
+        return [source]
+    return [r for nxt in via.get((source["table"], source["column"]), [])
+            for r in resolve(nxt, depth + 1)]
+
+for item in doc["end_to_end_lineage"]:
+    if item.get("table") in scoped:      # 只输出落盘表
+        continue
+    folded, seen = [], set()
+    for source in item.get("value_sources") or []:
+        for r in resolve(source):
+            key = (r.get("table"), r.get("column"), r.get("source_kind"))
+            if key not in seen:
+                seen.add(key)
+                folded.append(r)
+    print(item["table"], item["column"], folded)
+```
+
+得到 `mart.daily.amt ← ods.orders.amt`。
+
+三处细节不能省：**表为空的来源要原样保留**（常量是 `source_kind=generated`，本来就不指向表）；
+**要有深度上限**，遇到环时保留原样而不是返回空；**折叠后为空要单独处理**，别当成「这列没有血缘」。
+
+### 两个反模式
+
+**不要按名字或后缀判断。** 形如 `tmp_*`、`*_20260101` 的**真实表**是存在的，按名字过滤会把它们
+一起误杀；反过来，临时视图也常常不带任何可识别前缀。判据只有 `is_session_scoped_relation`。
+
+**不要用「来源计数变了没有」判断工具版本是否修好了这件事。** 标记是加法，不删边，所以升级前后
+来源计数**逐字节相同**是预期结果。要验证的是「按标记过滤后血缘是否完整」——即上面 `resolve()`
+折叠完，每个落盘列是否仍有来源。
+
 ## 状态转换语义
 
 | 语句 | rowset operation | 字段值语义 |

@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+- Documented how to consume `is_session_scoped_relation`: how to detect a script that stages
+  its work in session-scoped relations, how to exclude them before reconciling
+  `final_table_states` against a catalogue, and how to fold the hop through them out of field
+  lineage. The field and its warning were defined but nothing showed what to do with them, and
+  the fold is easy to write wrongly -- sources with no table must survive it, recursion needs a
+  depth bound, and an empty result after folding is not the same as "this column has no
+  lineage".
+
 ## 0.1.13
 - Added a `session_scoped_relations_present` warning naming every relation in a script that
   only lives for the session. `is_session_scoped_relation` alone was not enough in the task
