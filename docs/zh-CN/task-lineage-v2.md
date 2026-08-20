@@ -221,6 +221,38 @@ columns = {
 标记由工具在解析时按它实际解析到的关系判定，所以**拼写不一致也不会漏**：
 全局临时视图声明时是裸名、读的时候是 `global_temp.` 限定名，按名字比对会漏，边上的标记不会。
 
+### 想要「干净」的产物：用 fold_session_scoped
+
+不必自己写折叠。Core 导出了一份实现：
+
+```python
+from scope_lineage import fold_session_scoped
+
+folded = fold_session_scoped(document)     # 输入不会被修改
+```
+
+它把 `最终表.v ← 临时视图.v ← 真实表.v` 解析成 `最终表.v ← 真实表.v`，
+并把那些临时关系自己的行、以及它们在 `final_table_states` 里的条目一并去掉。
+
+**折不动的地方不会被悄悄丢掉。** 该行保留原边，并给出：
+
+| 字段 | 含义 |
+| --- | --- |
+| `value_sources_folded` | `true` = 这一行全部折叠成功；`false` = 有折不动的跳 |
+| `fold_incomplete_reasons` | 折不动的原因，仅在 `false` 时出现 |
+
+原因有四种，都对应一个真实存在的情况：
+
+- `source_state_not_in_document` —— 读的是该关系被重定义**之前**的状态。
+  `end_to_end_lineage` 是最终状态视图，那个状态没有行；用现存的定义替换会**指错出处**。
+- `source_column_not_in_document` —— 该关系自身的列没解析出来（通常是未展开的 `SELECT *`，
+  只有一行 `*`）。
+- `source_column_has_no_sources` —— 该列在文档里没有任何来源。
+- `fold_depth_exceeded` —— 关系间构成环。
+
+**折叠后来源为空 ≠ 这列没有血缘**，所以这个实现从不返回空——折不动就保留原边并说明。
+自己写折叠最容易错的也正是这一点。
+
 ### 已知边界：解析不了的建表语法
 
 `CREATE TEMPORARY VIEW tv (...) USING csv OPTIONS (...)` 这类**不带 `AS SELECT`** 的写法，
