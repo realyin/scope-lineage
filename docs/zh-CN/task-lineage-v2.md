@@ -250,6 +250,14 @@ schema_missing_for_state_passthrough fact gap 并令 analysis_status=partial。
 投影中的 `*` 无法根据 schema 展开时会保留通配来源，同时记录
 projection_wildcard_unexpanded，并将对应最终字段的 trace_complete 设为 false。
 
+不完整会**跨脚本内的一跳传播**。读一个自身列未解析的脚本内关系（例如它由未展开的
+`SELECT *` 建成，只有一行 `*`），读到的字段会记录 source_state_columns_unknown，
+`trace_complete` 为 false。此前这类字段声称 `trace_complete: true`——它建立在一个没人能描述的
+关系上；同时消费方去折叠这一跳时找不到该列的行，得到空结果、读起来像「这列没有血缘」，
+而旁边那个 `true` 不会与之矛盾。缺口同名记入 `lineage_fact_gaps`，`needed_fact` 列出是哪些状态。
+
+目标表**前态**的不完整本来就会传播；这一条是同一个问题问在另一条边上：被**读**的关系。
+
 MERGE 条件字段无法追踪到物理根字段时记录 merge_condition_source_unresolved，字段为
 statement_id、source_alias、column、root_impact=true 和 needed_fact。触发场景包括条件引用了
 USING 关系并未输出的列，以及条件使用了既非目标别名也非 USING 别名的限定符。该缺口
