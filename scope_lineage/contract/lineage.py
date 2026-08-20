@@ -182,6 +182,11 @@ def _result_to_dict(r: ScopeLineageResult) -> dict:
         # registering data assets need that distinction, and stmt_kind is a closed enum
         # this major contract version cannot widen (CACHE-001).
         **({"is_cached_relation": True} if r.is_cached_relation else {}),
+        **(
+            {"is_session_scoped_relation": True}
+            if r.is_session_scoped_relation
+            else {}
+        ),
         # "ok" | "failed" — a failed statement still writes artifacts (diagnosable, non-blocking),
         # so consumers need this to avoid treating an empty scope set as a valid parse
         "parse_status": r.parse_status,
