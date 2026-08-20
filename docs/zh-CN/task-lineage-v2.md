@@ -47,6 +47,7 @@ model_status。SET/空分号会保留在序列中但标为 ignored，不会被�
 包括这些；按 catalog 对账前必须先用该字段排除，否则会认为仓库里新增了并不存在的表。
 字段血缘本身不受影响：`mart.t.v ← tmp_v.v` 与 `tmp_v.v ← ods.real.v` 两跳仍各自作为事实保留，
 是否折叠成一跳由消费方决定。
+脚本里只要出现这类关系，`diagnostics.warnings[]` 会有一条 `session_scoped_relations_present` 列出全部关系名——标记在 `statement_sequence[]` 上、误导人的条目却在 `final_table_states` 里，不交叉比对就会漏掉，所以另发一条整脚本级别的提醒。
 
 ## 两种不能混淆的血缘
 

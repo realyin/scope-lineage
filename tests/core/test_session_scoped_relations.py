@@ -138,3 +138,60 @@ def test_a_script_marks_each_produced_relation_independently():
     results = parse_all_scope_lineage(sql, task_name="t", schema=SCHEMA)
 
     assert [r.is_session_scoped_relation for r in results] == [True, False]
+
+
+def test_a_script_that_stages_in_temp_views_says_so_in_diagnostics():
+    """The flag alone is not enough in v2, because it is nowhere near the misleading data.
+
+    In v1 `is_session_scoped_relation` sits beside `target_table`, so a consumer registering
+    tables cannot miss it. In v2 the flag is on `statement_sequence[]` while the entry that
+    misleads is in `final_table_states` -- a different part of the document -- and
+    `analysis_status` stays `complete`. A consumer who does not know to cross-reference the
+    two reads a clean, confident artifact that names tables the warehouse does not have
+    (TEMPVIEW-001).
+    """
+    sql = (
+        "create or replace temp view tmp_v as select id, v from ods.real;\n"
+        "cache lazy table tmp_c as select id from ods.real;\n"
+        "insert overwrite table mart.t select id, v from tmp_v"
+    )
+    result = parse_task_lineage(sql, task_name="t", schema=SCHEMA)
+    warnings = [
+        w for w in result.diagnostics["warnings"]
+        if w["type"] == "session_scoped_relations_present"
+    ]
+
+    assert len(warnings) == 1, result.diagnostics["warnings"]
+    assert warnings[0]["scope"] == "TASK"
+    # Naming them is the point: the consumer has to filter `final_table_states` by these.
+    assert "tmp_v" in warnings[0]["msg"]
+    assert "tmp_c" in warnings[0]["msg"]
+    assert "final_table_states" in warnings[0]["msg"]
+
+
+def test_a_script_without_session_scoped_relations_says_nothing():
+    result = parse_task_lineage(
+        "insert overwrite table mart.t select id, v from ods.real",
+        task_name="t",
+        schema=SCHEMA,
+    )
+
+    assert not [
+        w for w in result.diagnostics["warnings"]
+        if w["type"] == "session_scoped_relations_present"
+    ]
+
+
+def test_a_real_ctas_does_not_trigger_the_warning():
+    """The boundary again: a relation that persists is not something to warn about."""
+    result = parse_task_lineage(
+        "create table db.kept as select id from ods.real;\n"
+        "insert overwrite table mart.t select id from db.kept",
+        task_name="t",
+        schema=SCHEMA,
+    )
+
+    assert not [
+        w for w in result.diagnostics["warnings"]
+        if w["type"] == "session_scoped_relations_present"
+    ]
