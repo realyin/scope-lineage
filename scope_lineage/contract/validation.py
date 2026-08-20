@@ -80,11 +80,22 @@ def validate_cross_references(data: dict) -> list[str]:
 def _validate_task_cross_references(data: dict) -> list[str]:
     errors: list[str] = []
     graph = data.get("table_state_graph") or {}
-    state_ids = {
-        node.get("state_id")
-        for node in graph.get("nodes", [])
-        if node.get("state_id")
-    }
+    # A duplicate id makes every reference to it ambiguous rather than invalid, so each of the
+    # checks below still passes while the graph has stopped being readable. That is how two
+    # nodes called `state:v:001` shipped (STATE-ID-001); nothing resolved to nothing.
+    seen_state_ids: set[str] = set()
+    state_ids: set[str] = set()
+    for node in graph.get("nodes", []):
+        state_id = node.get("state_id")
+        if not state_id:
+            continue
+        if state_id in seen_state_ids:
+            errors.append(
+                f"table_state_graph has a duplicate node state_id={state_id!r}; "
+                "a state id must name exactly one state of one table"
+            )
+        seen_state_ids.add(state_id)
+        state_ids.add(state_id)
     statement_ids = {
         item.get("statement_id")
         for item in data.get("statement_sequence", [])
