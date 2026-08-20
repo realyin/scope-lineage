@@ -1,6 +1,14 @@
 # Changelog
 
 ## Unreleased
+- Added `fold_session_scoped(document)` to the public API: one implementation of resolving hops
+  through relations that do not outlive the session, so consumers do not each write their own.
+  It returns a copy, drops the rows and `final_table_states` entries for those relations, and
+  where a hop cannot be resolved it keeps the original source and says why via
+  `value_sources_folded` / `fold_incomplete_reasons` rather than returning a shorter answer. The
+  four unresolvable cases are all real: a read of a state that was later replaced, a relation
+  whose own columns were never resolved, a column with no sources, and a cycle. Constants
+  survive the fold -- they name no relation to resolve.
 - `value_sources[]` entries that read a session-scoped relation now carry `session_scoped: true`.
   The same fact was already on the producing statement, but the edges a consumer acts on are
   here, so acting on it meant collecting relation names from `statement_sequence` and
