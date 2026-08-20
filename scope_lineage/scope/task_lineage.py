@@ -1015,6 +1015,15 @@ def _undescribed_source_states(
     on `*`, and a statement selecting named columns out of it claimed a complete trace resting
     on a relation nobody could describe (TRACE-002).
 
+    The test is whether the relation's own columns stayed a wildcard, and deliberately not
+    `state.columns_known`. That flag is false for *any* missing reason: a valued-partition
+    overwrite needs the table's prior state, and when the target is absent from the supplied
+    schema that state carries `schema_missing_for_state_passthrough` -- so keying on it
+    reported "the columns of this relation are unknown" about relations whose columns were
+    named in the producing projection and listed in the document. The columns of a relation
+    the script built are known from the script; external metadata has nothing to say about
+    them, and waiting for it is the wrong question.
+
     That combination is worse than a wrong flag. A consumer folding the hop looks for the
     source column's row, finds only `*`, and gets an empty result reading as "no lineage" --
     with `trace_complete: true` sitting beside it, contradicting nothing.
@@ -1026,8 +1035,18 @@ def _undescribed_source_states(
             if not state_id:
                 continue
             state = states.states.get(state_id)
-            if state is not None and not state.columns_known:
-                undescribed.append(state_id)
+            if state is None:
+                continue
+            # The one shape this is about: the relation's own projection stayed a wildcard, so
+            # its single row is keyed on `*` and no named column can ever be found in it.
+            if set(state.value_sources) != {"*"}:
+                continue
+            # Reading `*` from such a relation is `COUNT(*)`, whose star is the row rather than
+            # an unknown column list -- the same distinction `_projection_state_missing_reasons`
+            # warns about, approached from the other side.
+            if source.get("column") == "*":
+                continue
+            undescribed.append(state_id)
     return sorted(dict.fromkeys(undescribed))
 
 
