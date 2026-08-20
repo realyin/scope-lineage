@@ -563,6 +563,22 @@ def _apply_projection_write(
             "root_impact": True,
             "needed_fact": "source schema for wildcard expansion",
         })
+    undescribed = _undescribed_source_states(states, written_values)
+    if undescribed:
+        state_missing_reasons = list(dict.fromkeys([
+            *state_missing_reasons,
+            "source_state_columns_unknown",
+        ]))
+        gaps.append({
+            "gap_type": "source_state_columns_unknown",
+            "statement_id": statement_id,
+            "target_table": result.target_table,
+            "root_impact": True,
+            "needed_fact": (
+                "columns of the script-local relations read here: "
+                + ", ".join(undescribed)
+            ),
+        })
     effect = _write_effect(result, dynamic_partition_overwrite=dynamic_partition_overwrite)
     if (
         effect in {"APPEND", "MERGE", "REPLACE_PARTITION"}
@@ -978,6 +994,34 @@ def _write_window_context_sources(result) -> dict[str, list[dict]]:
         if entries:
             context[item["column"]] = [dict(entry) for entry in entries]
     return context
+
+
+def _undescribed_source_states(
+    states: _StateBuilder,
+    written_values: dict[str, list[dict]],
+) -> list[str]:
+    """Script-local relations these sources read whose own columns were never resolved.
+
+    Incompleteness already propagates from the previous state of the table being written. It
+    did not propagate from the relations being *read*, which is the same question asked of a
+    different edge: a temporary relation built from an unexpanded `SELECT *` has one row keyed
+    on `*`, and a statement selecting named columns out of it claimed a complete trace resting
+    on a relation nobody could describe (TRACE-002).
+
+    That combination is worse than a wrong flag. A consumer folding the hop looks for the
+    source column's row, finds only `*`, and gets an empty result reading as "no lineage" --
+    with `trace_complete: true` sitting beside it, contradicting nothing.
+    """
+    undescribed: list[str] = []
+    for sources in written_values.values():
+        for source in sources:
+            state_id = source.get("source_state")
+            if not state_id:
+                continue
+            state = states.states.get(state_id)
+            if state is not None and not state.columns_known:
+                undescribed.append(state_id)
+    return sorted(dict.fromkeys(undescribed))
 
 
 def _source_state(states: _StateBuilder | None, table: str) -> dict:
