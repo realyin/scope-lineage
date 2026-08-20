@@ -16,8 +16,9 @@ class TestExpansionBudget:
     """`expanded_expression` must not grow multiplicatively with reference count and depth.
 
     Each upstream field's expanded text is inlined at every reference, so an expression used
-    [redacted]
-    [redacted]
+    N times is copied N times and every extra scope layer multiplies again. On a moderately
+    sized statement that produced a string and a lineage.json three orders of magnitude
+    larger (PERF-001).
     """
 
     # a large CASE over window fields, then another window layer over that CASE, then a final
