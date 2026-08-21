@@ -1,5 +1,61 @@
 # Changelog
 
+## 0.1.15
+- A UNION branch projecting a row-count aggregate or a bare window function no longer reports a
+  root-impact lineage gap for an expression nothing was missing from. The branch mappings are
+  built one pass before expression resolutions are normalized, and it is normalization that
+  synthesizes `rowset_sources` for a resolution already classified `rowset`; the mapping copied
+  three empty source lists and the gap detector re-derived `unresolved` from them. `COUNT(1)`
+  and a bare `OVER ()` in a union branch therefore failed the strict quality gate, which was the
+  largest single source of root-impact gaps a run could report. A windowed function that
+  references a column was never affected -- it picks that column up as a physical source. No
+  contract change: `rowset_sources` is an existing field.
+- A generator over a literal -- `LATERAL VIEW EXPLODE(ARRAY(...))`,
+  `INLINE(ARRAY(STRUCT(...)))` -- now records the constant it reads. Its argument has no column
+  references, so the output columns were minted with an empty source list, making the column a
+  dead end that reported itself as fully traced: `end_to_end_lineage` rendered
+  `source_kind: "unresolved"` while `trace_complete` stayed true, the one pair a consumer must
+  never have to tell apart, while `field_mapping_chains` already answered `generated` for the
+  same field. The VALUES / table-valued-function path already routed a source-free leaf
+  correctly; this is its missing twin. Fixing it in the resolver rather than while rendering the
+  trace also clears the dead end out of the scope document, which the chains and the MERGE
+  condition path read directly. A column that branches on the generator's value now reports
+  `mixed` rather than `physical` -- it genuinely depends on the literal array, so the previous
+  answer was an omission.
+- A quoted regex column selection that was expanded no longer keeps a warning saying the column
+  does not exist. Column-reference resolution runs first and cannot know the name is a pattern,
+  so it warns -- `column_not_found` bare, `column_not_in_table_schema` qualified -- and the
+  expansion pass then replaces the pattern with the columns it matched. The retraction is gated
+  on the match having happened, not on the name looking like a regex: that predicate is only a
+  metacharacter test, so it is equally true of a genuinely missing column called `amount$usd`,
+  of a pattern matching nothing, and of a pattern in a WHERE clause that is never expanded.
+  Suppressing on it would trade a false alarm for a false silence.
+- A `CREATE TABLE ... <query>` that omits the optional `AS` is now parsed when its query begins
+  with `WITH`. Spark allows the omission and the parser accepts it before `SELECT` but not
+  before a CTE, where the statement degraded to an opaque command and contributed no lineage at
+  all. The repair works on the token stream, per statement: a text-level match cannot see
+  comments, and a commented-out `create table` line above a live `WITH ... AS (` is a common
+  shape whose rewrite would swallow the *following* statement's CTE while still parsing. Each
+  statement is judged alone -- it must currently be a command and must become a create carrying
+  a query -- and the rewrite is disclosed as `ctas_as_inserted_for_parse` rather than left
+  silent. `syntax_status` is deliberately unchanged: it is script-scoped, and downgrading it
+  would degrade every other statement in the same script.
+- A statement the tool ignores by design is no longer called unsupported. The category function
+  already separated a config statement and an empty one from the kinds genuinely not modelled,
+  and the task document acted on that split; the statement document imported the same function
+  and never used it, so config and empty statements were the largest source of warnings in a run
+  while the name asserted something false about both. Dropping the warning alone would have
+  traded a misleading signal for no signal -- this document's skip record carried no SQL, and
+  `skipped_statements` is written to `lineage.json` only -- so the record now carries
+  `normalized_sql`, matching the task document's. Warnings for row mutations and genuinely
+  unmodelled kinds are unchanged, and the records themselves are untouched.
+- Documented what `target_table` holds when the write goes to a path. `INSERT OVERWRITE
+  DIRECTORY` is modelled like any other write but its destination is a filesystem path, reported
+  as `directory:<path>`; the contract doc described the field as a table name only, so a consumer
+  registering warehouse tables from it had nothing telling it to skip these. No behaviour change
+  -- the regression tests the shape never had are added, including that it emits no diagnostic of
+  its own, since the result is correct and the target is self-describing.
+
 ## 0.1.14
 - Narrowed the `source_state_columns_unknown` gap to the one shape it exists for. It was keyed
   on `state.columns_known`, which is false for *any* missing reason, so relations whose columns
