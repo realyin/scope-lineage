@@ -89,7 +89,7 @@ GROUP BY c.customer_id;
 | `parse_status` | enum string | 是 | `ok` 表示形成了可校验 Lineage 文档；`failed` 表示解析失败，不能消费正常血缘。 |
 | `syntax_status` | enum string | 是 | `strict_ok`、`recovered` 或 `failed`。`recovered` 表示解析器经过恢复，必须同时读诊断。 |
 | `syntax_errors` | array<object> | 是 | 语法错误或恢复证据。元素可含 `description`、`line`、`col` 和上下文片段。 |
-| `skipped_statements` | array<object> | 条件输出 | v1 未作为投影写入建模的顶层语句。包含稳定的 `statement_id`、零基 `statement_index`、`statement_kind`、`category`、`model_status`、`reason` 和支持范围说明；行变更应改用 v2 建模。 |
+| `skipped_statements` | array<object> | 条件输出 | v1 未作为投影写入建模的顶层语句。包含稳定的 `statement_id`、零基 `statement_index`、`statement_kind`、`category`、`model_status`、`reason`、`normalized_sql` 和支持范围说明；行变更应改用 v2 建模。**`category` 为 `control_statement`（如 `SET`）或 `empty_statement` 的语句是设计上忽略的，只记录、不再发 `unsupported_statement` 告警**——要知道被忽略了什么，读本字段（它只出现在 `lineage.json`，不在 `diagnostics.json` 里）。 |
 | `target_partition_spec` | object | 是 | 分区名到分区值的映射。动态分区的 value 可以为 `null`。 |
 | `target_partition_columns` | array<string> | 是 | 目标表分区列名。 |
 | `target_partition_mode` | enum string | 是 | `none`、`static`、`dynamic` 或 `mixed`。 |
