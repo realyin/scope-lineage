@@ -255,6 +255,25 @@ def _union_branch_mappings_for_output(
                 if branch_output is not None
                 else dict(branch.get("expression_resolution") or {})
             )
+            # Normalize the branch's own resolution before copying its source lists.
+            # This pass runs from _populate_union_output_branch_mappings, which
+            # scope_facts calls immediately BEFORE _normalize_scope_expression_resolutions
+            # -- so a branch classified 'rowset' still has its rowset_sources unsynthesized
+            # here. Copying the empty list made the gap detector re-derive 'unresolved' from
+            # three empty lists and raise a root-impact gap for COUNT(1) and bare OVER ().
+            # The union scope's own normalization must still happen after this function,
+            # because it consumes the mappings we are building.
+            branch_resolution = _normalize_expression_resolution(
+                branch_resolution,
+                scope_id=branch_scope_id,
+                field=actual_output_name,
+                expression=(
+                    branch_resolution.get("expanded_expression")
+                    or (branch_output.expanded_expression if branch_output is not None else None)
+                    or branch.get("expanded_expression")
+                    or branch.get("expression_sql")
+                ),
+            )
             missing_reasons = [
                 str(reason)
                 for reason in branch_resolution.get("missing_reasons") or []
