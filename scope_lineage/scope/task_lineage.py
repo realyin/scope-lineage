@@ -12,6 +12,7 @@ from ..metadata.schema_metadata import DictSchemaProvider
 from ._shared import DIALECT, PARSE_OPTS, render_sql_or_none
 from .end_to_end import _physical_fields_for_scope_column
 from .scope_types import ScopeLineageResult
+from .ctas_missing_as import repair_ctas_missing_as
 from .keyword_identifiers import repair_keyword_identifiers
 from .scope_builder import (
     _is_ctas,
@@ -230,15 +231,29 @@ def parse_task_lineage(
     task_dependencies: dict | None = None,
 ) -> TaskLineageResult:
     """Parse an ordered SQL script into table-state and statement lineage."""
-    normalized, quoted_identifiers = repair_keyword_identifiers(
+    ctas_repaired_sql, ctas_repairs = repair_ctas_missing_as(
         _normalize_directory_insert_sql(sql)
     )
+    normalized, quoted_identifiers = repair_keyword_identifiers(ctas_repaired_sql)
     trees = sqlglot.parse(normalized, dialect=DIALECT, **PARSE_OPTS)
     syntax_status, syntax_errors = _syntax_status(sql)
     state_builder = _StateBuilder(schema)
     statements: list[dict] = []
     statement_lineage: dict[str, object] = {}
     warnings: list[dict] = []
+    if ctas_repairs:
+        # A rewritten statement must not be presented as if the author wrote it that way.
+        # Same disclosure contract as identifiers_quoted_for_parse below; deliberately not
+        # syntax_status: recovered, which is script-scoped and would degrade every other
+        # statement in the same script along with this one.
+        warnings.append({
+            "type": "ctas_as_inserted_for_parse",
+            "scope": "TASK",
+            "msg": (
+                "inserted the omitted AS to parse CREATE ... AS <query>: "
+                + ", ".join(ctas_repairs)
+            ),
+        })
     if quoted_identifiers:
         warnings.append({
             "type": "identifiers_quoted_for_parse",
