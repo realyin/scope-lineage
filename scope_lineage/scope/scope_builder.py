@@ -116,6 +116,10 @@ def _collect_insert_trees(sql: str) -> tuple[list, list[dict]]:
         category = _statement_category(statement_kind)
         skipped.append({
             "statement_id": f"stmt:{statement_index + 1:03d}",
+            # The task document has always carried this (task_lineage.py). Without it,
+            # dropping the warning below would make the statement itself -- which SET, in
+            # particular -- unrecoverable from every artifact this document produces.
+            "normalized_sql": render_sql_or_none(tree) or "",
             "statement_index": statement_index,
             "statement_kind": statement_kind,
             "category": category,
@@ -434,6 +438,14 @@ def parse_all_scope_lineage(
         # "not modeled" would look the same as "not present" (CONTRACT-001).
         result.skipped_statements = list(skipped_statements)
         for item in skipped_statements:
+            if item["category"] in {"control_statement", "empty_statement"}:
+                # Ignored by design, and already recorded above with that category and its
+                # SQL. Calling it "unsupported" made config and empty statements the
+                # largest source of warnings in a run while telling a consumer nothing to
+                # act on, and contradicted the task document, which marks the same
+                # statements "ignored" (task_lineage.py). The record stays; the misnomer
+                # goes.
+                continue
             result.diagnostics.warnings.append(DiagnosticWarning(
                 type="unsupported_statement",
                 scope="ROOT",
