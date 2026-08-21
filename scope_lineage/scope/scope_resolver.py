@@ -577,6 +577,7 @@ def _expand_regex_column_selection(
     Without the source's columns there is nothing to match against, so the projection is
     left as it is and keeps reporting its gap rather than inventing column names.
     """
+    expanded: list[tuple[str, str]] = []
     for sg_scope in all_scopes:
         scope_id = getattr(sg_scope, _SCOPE_ID_ATTR, None)
         scope_data = result.scopes.get(scope_id) if scope_id else None
@@ -606,6 +607,41 @@ def _expand_regex_column_selection(
                 ))
                 existing.add(column_name)
             scope_data.columns.remove(pattern_column)
+            expanded.append((scope_id, pattern_column.name))
+    _retract_warnings_for_expanded_patterns(result, expanded)
+
+
+def _retract_warnings_for_expanded_patterns(
+    result: ScopeLineageResult,
+    expanded: list[tuple[str, str]],
+) -> None:
+    """Drop the "no such column" warnings a successful expansion has just disproved.
+
+    Column-reference resolution runs before this pass and cannot know a name is a
+    pattern, so it warns that the column exists nowhere -- `column_not_found` for the
+    bare form, `column_not_in_table_schema` for the qualified one. Once the pattern has
+    been matched and removed, both warnings describe a column the scope no longer has.
+
+    Gated on `expanded`, i.e. on the match having actually happened, and deliberately
+    not on "the name looks like a regex": that predicate is only a metacharacter test,
+    so it is also true of a genuinely missing column called `amount$usd`, of a pattern
+    that matched nothing, and of a pattern in a WHERE clause that is never expanded.
+    Suppressing on it would trade a false alarm for a false silence. Same shape as
+    `_prune_resolved_star_warnings`, which retracts only what a later pass disproved.
+    """
+    if not expanded:
+        return
+    retractable = {"column_not_found", "column_not_in_table_schema"}
+    keys = {(scope_id, name) for scope_id, name in expanded}
+    result.diagnostics.warnings = [
+        warning
+        for warning in result.diagnostics.warnings
+        if warning.type not in retractable
+        or not any(
+            warning.scope == scope_id and f"'{name}'" in (warning.msg or "")
+            for scope_id, name in keys
+        )
+    ]
 
 
 def _looks_like_regex_column_selection(
