@@ -83,7 +83,7 @@ GROUP BY c.customer_id;
 | --- | --- | --- | --- |
 | `schema_version` | string | 是 | 本文所述默认契约固定为 `1.0`。消费者先检查 major 版本。 |
 | `task_id` | string | 是 | 本条写表语句的任务标识；批量输入和多语句任务可能基于输入名生成独立标识。 |
-| `target_table` | string | 是 | SQL 实际写入的目标表，如 `mart.customer_summary`。 |
+| `target_table` | string | 是 | SQL 实际写入的目标，如 `mart.customer_summary`。`INSERT OVERWRITE DIRECTORY` 写的是文件路径而不是表，此时取值形如 `directory:/warehouse/export/daily`，带 `directory:` 前缀。**消费者登记仓库表时应先排除这类取值**；这类语句的血缘照常产出，且因为目标不是表，`target_field_binding` 不会出现。 |
 | `stmt_kind` | enum string | 是 | `INSERT_OVERWRITE`、`INSERT`、`CTAS`、`MERGE` 或 `UNKNOWN`。注意字段名不是 `statement_type`。 |
 | `is_session_scoped_relation` | boolean | 否 | 仅在为 `true` 时出现。该语句产出的关系只存活于会话、不落存储：`TEMP VIEW`、`GLOBAL TEMP VIEW`、`CACHE [LAZY] TABLE` 都属此列。**消费者不应据此登记仓库中新增了一张表**，统计表级覆盖时也应先排除。判据取自 AST 事实而非命名模式：不带 `TEMPORARY` 的 `CREATE VIEW` 会注册进 catalog 并跨会话存活，因此**不**带此标记。`is_cached_relation` 是本字段在 CACHE 语法上的既有子集，含义不变。 |
 | `parse_status` | enum string | 是 | `ok` 表示形成了可校验 Lineage 文档；`failed` 表示解析失败，不能消费正常血缘。 |
