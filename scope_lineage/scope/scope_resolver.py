@@ -273,6 +273,15 @@ def _resolve_lateral_scope(
     # CTEs; the parent SELECT carries the actual selected sources.
     resolution_scope = sg_scope.parent or sg_scope
     sources = _resolve_column_refs_in_expr(inner, resolution_scope, result, schema)
+    if not sources and inner is not None:
+        # A generator over a literal -- EXPLODE(ARRAY(...)), INLINE(ARRAY(STRUCT(...))) --
+        # has no column references, so the resolver above returns nothing. Minting the
+        # column with an empty source list makes it a dead end that reports itself as
+        # fully traced: end_to_end_lineage renders source_kind 'unresolved' while
+        # trace_complete stays true, the one pair LINEAGE-002 says must never coincide.
+        # The VALUES / table-valued-function path above routes source-free leaves through
+        # _source_free_leaf_sources for exactly this reason; this is its missing twin.
+        sources = _source_free_leaf_sources(inner, inner.sql(dialect=DIALECT))
     for name in names:
         scope_data.columns.append(ScopeColumn(
             name=name,
