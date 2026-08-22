@@ -1,0 +1,544 @@
+{
+  "schema_version": "1.0",
+  "task_id": "golden_special_literals",
+  "target_table": "mart.flags",
+  "stmt_kind": "INSERT",
+  "parse_status": "ok",
+  "syntax_status": "strict_ok",
+  "syntax_errors": [],
+  "target_partition_spec": {},
+  "target_partition_columns": [],
+  "target_partition_mode": "none",
+  "task_dependencies": {
+    "upstream_tasks": [],
+    "downstream_tasks": [],
+    "source_summary": {
+      "source_format": "none",
+      "upstream_count": 0,
+      "downstream_count": 0,
+      "has_declared_task_dependencies": false
+    }
+  },
+  "source_tables": [
+    "ods.users"
+  ],
+  "related_metadata": {
+    "input_tables": {
+      "ods.users": {
+        "column_details": [
+          {
+            "name": "name",
+            "type": null,
+            "comment": null
+          }
+        ],
+        "metadata_complete": true
+      }
+    },
+    "output_tables": {
+      "mart.flags": {
+        "column_details": [
+          {
+            "name": "flagged",
+            "type": null,
+            "comment": null
+          }
+        ],
+        "metadata_complete": false
+      }
+    }
+  },
+  "scope_graph": {
+    "nodes": [
+      "ROOT",
+      "ods.users"
+    ],
+    "edges": [
+      {
+        "from": "ods.users",
+        "to": "ROOT"
+      }
+    ]
+  },
+  "scopes": {
+    "ROOT": {
+      "kind": "root",
+      "role": "transform",
+      "depends_on": [
+        "ods.users"
+      ],
+      "writes_to": "mart.flags",
+      "raw_sql": "SELECT CASE WHEN `users`.`name` = 'x；y → z|w' THEN 'a\\nb' ELSE `users`.`name` END AS `flagged` FROM `ods`.`users` AS `users`",
+      "raw_sql_available": true,
+      "raw_sql_quality": {
+        "status": "clean",
+        "placeholder_types": [],
+        "evidence": []
+      },
+      "source_coverage": {
+        "status": "covered",
+        "declared_source_tables": [
+          "ods.users"
+        ],
+        "raw_sql_source_tables": [
+          "ods.users"
+        ],
+        "missing_declared_source_tables": [],
+        "extra_source_tables": []
+      },
+      "input_edges": [
+        {
+          "source_id": "ods.users",
+          "source_type": "physical_table",
+          "position": "from",
+          "alias": "users"
+        }
+      ],
+      "input_source_refs": [
+        {
+          "input_ref_id": "input:ROOT:001",
+          "source_id": "ods.users",
+          "source_type": "physical_table",
+          "alias": "users",
+          "position": "from",
+          "relation_position": "from",
+          "join_type": null,
+          "physical_source_id": "ods.users",
+          "physical_source_ids": [
+            "ods.users"
+          ],
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "direct_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "ods.users"
+            ],
+            "field_resolution_required": false,
+            "missing_reasons": []
+          },
+          "field_resolution_required": false,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "users",
+              "to": "ods.users",
+              "relation": "alias_to_physical_source"
+            }
+          ],
+          "trace_status": "complete"
+        }
+      ],
+      "alias_source_bindings": [
+        {
+          "alias": "users",
+          "source_id": "ods.users",
+          "source_type": "physical_table",
+          "physical_source_id": "ods.users",
+          "physical_source_ids": [
+            "ods.users"
+          ],
+          "position": "from",
+          "relation_position": "from",
+          "join_type": null,
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "direct_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "ods.users"
+            ],
+            "field_resolution_required": false,
+            "missing_reasons": []
+          },
+          "field_resolution_required": false,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "users",
+              "to": "ods.users",
+              "relation": "alias_to_physical_source"
+            }
+          ],
+          "input_ref_id": "input:ROOT:001"
+        }
+      ],
+      "expression_source_bindings": [
+        {
+          "expression_sql": "CASE WHEN `users`.`name` = 'x；y → z|w' THEN 'a\\nb' ELSE `users`.`name` END",
+          "logic_block_id": "logic:ROOT:case_when:001",
+          "referenced_qualifiers": [
+            "users"
+          ],
+          "resolved_source_refs": [
+            {
+              "qualifier": "users",
+              "resolved_table": "ods.users",
+              "field": "name",
+              "status": "resolved"
+            }
+          ],
+          "unresolved_qualifiers": [],
+          "binding_status": "complete",
+          "evidence_path": "logic_blocks.logic:ROOT:case_when:001.raw_expression"
+        }
+      ],
+      "logic_blocks": [
+        {
+          "logic_block_id": "logic:ROOT:case_when:001",
+          "logic_type": "case_when",
+          "subtype": "case_when",
+          "raw_expression": "CASE WHEN `users`.`name` = 'x；y → z|w' THEN 'a\\nb' ELSE `users`.`name` END",
+          "normalized_expression": "case when `users`.`name` = 'x；y → z|w' then 'a\\nb' else `users`.`name` end",
+          "fingerprint": "case_when:case when `users`.`name` = 'x；y → z|w' then 'a\\nb' else `users`.`name` end",
+          "fields": [
+            {
+              "scope": "ods.users",
+              "column": "name",
+              "qualifier": "users",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            }
+          ],
+          "output_fields": [
+            "flagged"
+          ],
+          "input_sources": [
+            "ods.users"
+          ],
+          "field_usage": [
+            {
+              "source_id": "ods.users",
+              "source_type": "physical_table",
+              "used_fields": [
+                "name"
+              ],
+              "used_field_details": [
+                {
+                  "name": "name",
+                  "type": null,
+                  "comment": null
+                }
+              ],
+              "used_by_logic_blocks": [
+                "logic:ROOT:case_when:001"
+              ],
+              "used_by_output_fields": [
+                "flagged"
+              ],
+              "source_metadata": {}
+            }
+          ],
+          "expression_features": {
+            "functions": [],
+            "operators": [
+              "="
+            ],
+            "has_case_when": true,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": true,
+            "has_partition_filter": false
+          },
+          "final_target_columns": [
+            "mart.flags.flagged"
+          ],
+          "display_expression": "case when `name` = 'x；y → z|w' then 'a\\nb' else `name` end"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "flagged",
+          "transform": "CONDITIONAL",
+          "sources": [
+            {
+              "scope": "ods.users",
+              "column": "name",
+              "qualifier": "users",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            }
+          ],
+          "source_logic_blocks": [
+            "logic:ROOT:case_when:001"
+          ],
+          "downstream_fields": [],
+          "target_columns": [
+            "mart.flags.flagged"
+          ],
+          "final_target_columns": [
+            "mart.flags.flagged"
+          ],
+          "expression": "CASE WHEN `users`.`name` = 'x；y → z|w' THEN 'a\\nb' ELSE `users`.`name` END",
+          "expanded_expression": "CASE WHEN `ods.users`.`name` = 'x；y → z|w' THEN 'a\\nb' ELSE `ods.users`.`name` END",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "qualified_expression",
+            "physical_source_fields": [
+              {
+                "table": "ods.users",
+                "field": "name"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "expanded_expression": "CASE WHEN `ods.users`.`name` = 'x；y → z|w' THEN 'a\\nb' ELSE `ods.users`.`name` END",
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "ROOT",
+                "from_field": "flagged",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "CASE WHEN `users`.`name` = 'x；y → z|w' THEN 'a\\nb' ELSE `users`.`name` END",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.users",
+                    "field": "name"
+                  }
+                ]
+              }
+            ]
+          },
+          "consumer_readiness": {
+            "status": "ready",
+            "blocked_reasons": []
+          },
+          "expression_type": "conditional_expression",
+          "expression_features": {
+            "functions": [],
+            "operators": [
+              "="
+            ],
+            "has_case_when": true,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": true,
+            "has_partition_filter": false
+          },
+          "expression_role": "standardization",
+          "grain_effect": "preserved",
+          "output_ordinal": 0,
+          "display_expression": "CASE WHEN `name` = 'x；y → z|w' THEN 'a\\nb' ELSE `name` END"
+        }
+      ],
+      "field_usage": [
+        {
+          "source_id": "ods.users",
+          "source_type": "physical_table",
+          "used_fields": [
+            "name"
+          ],
+          "used_field_details": [
+            {
+              "name": "name",
+              "type": null,
+              "comment": null
+            }
+          ],
+          "used_by_logic_blocks": [
+            "logic:ROOT:case_when:001"
+          ],
+          "used_by_output_fields": [
+            "flagged"
+          ],
+          "source_metadata": {}
+        }
+      ],
+      "columns": [
+        {
+          "name": "flagged",
+          "transform": "CONDITIONAL",
+          "transform_subkind": "case_when",
+          "expression": "CASE WHEN `users`.`name` = 'x；y → z|w' THEN 'a\\nb' ELSE `users`.`name` END",
+          "sources": [
+            {
+              "scope": "ods.users",
+              "column": "name",
+              "qualifier": "users",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            }
+          ],
+          "case_branches": [
+            {
+              "when_expr": "`users`.`name` = 'x；y → z|w'",
+              "then_value": "'a\\nb'"
+            },
+            {
+              "when_expr": "ELSE",
+              "then_value": "`users`.`name`"
+            }
+          ],
+          "display_expression": "CASE WHEN `name` = 'x；y → z|w' THEN 'a\\nb' ELSE `name` END"
+        }
+      ]
+    }
+  },
+  "field_mapping_chains": [
+    {
+      "mapping_chain_id": "mc:001",
+      "chain_id": "chain:ROOT:flagged:position:0",
+      "chain_type": "field_mapping",
+      "target_scope_id": "ROOT",
+      "target_field": "flagged",
+      "target_position": 0,
+      "chain_status": "resolved",
+      "source_kind": "physical",
+      "root_source_fields": [
+        "ods.users.name"
+      ],
+      "final_output_fields": [
+        "mart.flags.flagged"
+      ],
+      "ordered_steps": [
+        {
+          "step_no": 1,
+          "scope_id": "ROOT",
+          "step_type": "case_when",
+          "input_fields": [
+            "ods.users.name"
+          ],
+          "output_field": "mart.flags.flagged",
+          "expression_sql": "CASE WHEN `users`.`name` = 'x；y → z|w' THEN 'a\\nb' ELSE `users`.`name` END",
+          "expanded_expression": "CASE WHEN `ods.users`.`name` = 'x；y → z|w' THEN 'a\\nb' ELSE `ods.users`.`name` END",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "qualified_expression",
+            "physical_source_fields": [
+              {
+                "table": "ods.users",
+                "field": "name"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "ROOT",
+                "from_field": "flagged",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "CASE WHEN `users`.`name` = 'x；y → z|w' THEN 'a\\nb' ELSE `users`.`name` END",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.users",
+                    "field": "name"
+                  }
+                ]
+              }
+            ],
+            "expanded_expression_same_as_parent": true
+          },
+          "logic_ids": [
+            "logic:ROOT:case_when:001"
+          ],
+          "transform": "CONDITIONAL",
+          "grain_effect": "preserved",
+          "final_output_fields": [
+            "mart.flags.flagged"
+          ],
+          "target_position": 0
+        }
+      ],
+      "expanded_expression": "CASE WHEN `ods.users`.`name` = 'x；y → z|w' THEN 'a\\nb' ELSE `ods.users`.`name` END",
+      "missing_reasons": [],
+      "trace_status": "complete"
+    }
+  ],
+  "scope_profile": {
+    "profile_step_count": 1,
+    "steps": [
+      {
+        "scope_id": "ROOT",
+        "name": "ROOT",
+        "kind": "root",
+        "role": "transform",
+        "operations": [
+          "case_when"
+        ],
+        "business_summary": "读取 ods.users；通过 CASE WHEN 派生字段",
+        "direct_inputs": [
+          "ods.users"
+        ],
+        "direct_source_tables": [
+          "ods.users"
+        ],
+        "physical_source_tables": [
+          "ods.users"
+        ],
+        "output_columns": 1,
+        "logic": {
+          "joins": [],
+          "filters": [],
+          "aggregations": [],
+          "window_functions": [],
+          "case_when": [
+            {
+              "column": "flagged",
+              "summary": "CASE expression with 2 branches",
+              "branch_count": 2
+            }
+          ],
+          "key_renames": [],
+          "distinct": false,
+          "union_branches": 0,
+          "lateral_views": []
+        }
+      }
+    ]
+  },
+  "end_to_end_lineage": [
+    {
+      "column": "flagged",
+      "transform": "CONDITIONAL",
+      "expression": "CASE WHEN `users`.`name` = 'x；y → z|w' THEN 'a\\nb' ELSE `users`.`name` END",
+      "trace_complete": true,
+      "physical_sources": [
+        {
+          "table": "ods.users",
+          "column": "name",
+          "transform": "CONDITIONAL"
+        }
+      ],
+      "generated_sources": [],
+      "source_kind": "physical",
+      "output_ordinal": 0
+    }
+  ],
+  "diagnostics": {
+    "fallback_used": false,
+    "warning_count": 0,
+    "warning_types": {},
+    "lineage_fact_gap_count": 0,
+    "lineage_fact_gap_types": {},
+    "lineage_fact_gap_samples": [],
+    "stats": {
+      "scope_count": 2,
+      "physical_table_count": 1,
+      "cte_count": 0,
+      "subquery_count": 0,
+      "union_count": 0,
+      "union_branch_count": 0,
+      "max_depth": 1,
+      "case_when_count": 1,
+      "window_function_count": 0,
+      "join_count": 0,
+      "aggregate_function_count": 0
+    },
+    "full_diagnostics_file": "diagnostics.json"
+  }
+}

@@ -1,0 +1,873 @@
+{
+  "schema_version": "1.0",
+  "task_id": "golden_fact_gap",
+  "target_table": "mart.amounts",
+  "stmt_kind": "INSERT",
+  "parse_status": "ok",
+  "syntax_status": "strict_ok",
+  "syntax_errors": [],
+  "target_partition_spec": {},
+  "target_partition_columns": [],
+  "target_partition_mode": "none",
+  "task_dependencies": {
+    "upstream_tasks": [],
+    "downstream_tasks": [],
+    "source_summary": {
+      "source_format": "none",
+      "upstream_count": 0,
+      "downstream_count": 0,
+      "has_declared_task_dependencies": false
+    }
+  },
+  "source_tables": [
+    "ods.ledger_a",
+    "ods.ledger_b"
+  ],
+  "related_metadata": {
+    "input_tables": {
+      "ods.ledger_a": {
+        "column_details": [
+          {
+            "name": "entry_id",
+            "type": null,
+            "comment": null
+          }
+        ],
+        "metadata_complete": false
+      },
+      "ods.ledger_b": {
+        "column_details": [
+          {
+            "name": "entry_id",
+            "type": null,
+            "comment": null
+          }
+        ],
+        "metadata_complete": false
+      }
+    },
+    "output_tables": {
+      "mart.amounts": {
+        "column_details": [
+          {
+            "name": "amount",
+            "type": null,
+            "comment": null
+          }
+        ],
+        "metadata_complete": false
+      }
+    }
+  },
+  "scope_graph": {
+    "nodes": [
+      "AMBIGUOUS",
+      "ROOT",
+      "ods.ledger_a",
+      "ods.ledger_b"
+    ],
+    "edges": [
+      {
+        "from": "AMBIGUOUS",
+        "to": "ROOT"
+      },
+      {
+        "from": "ods.ledger_a",
+        "to": "ROOT"
+      },
+      {
+        "from": "ods.ledger_b",
+        "to": "ROOT"
+      }
+    ]
+  },
+  "scopes": {
+    "ROOT": {
+      "kind": "root",
+      "role": "join",
+      "depends_on": [
+        "AMBIGUOUS",
+        "ods.ledger_a",
+        "ods.ledger_b"
+      ],
+      "writes_to": "mart.amounts",
+      "raw_sql": "SELECT `amount` AS `amount` FROM `ods`.`ledger_a` AS `ledger_a` JOIN `ods`.`ledger_b` AS `ledger_b` ON `ledger_a`.`entry_id` = `ledger_b`.`entry_id`",
+      "raw_sql_available": true,
+      "raw_sql_quality": {
+        "status": "clean",
+        "placeholder_types": [],
+        "evidence": []
+      },
+      "source_coverage": {
+        "status": "covered",
+        "declared_source_tables": [
+          "ods.ledger_a",
+          "ods.ledger_b"
+        ],
+        "raw_sql_source_tables": [
+          "ods.ledger_a",
+          "ods.ledger_b"
+        ],
+        "missing_declared_source_tables": [],
+        "extra_source_tables": []
+      },
+      "input_edges": [
+        {
+          "source_id": "ods.ledger_a",
+          "source_type": "physical_table",
+          "position": "from",
+          "alias": "ledger_a"
+        },
+        {
+          "source_id": "ods.ledger_b",
+          "source_type": "physical_table",
+          "position": "join",
+          "alias": "ledger_b",
+          "join_type": "INNER",
+          "join_condition": "`ledger_a`.`entry_id` = `ledger_b`.`entry_id`",
+          "join_fields": [
+            {
+              "scope": "ods.ledger_a",
+              "column": "entry_id",
+              "qualifier": "ledger_a",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            },
+            {
+              "scope": "ods.ledger_b",
+              "column": "entry_id",
+              "qualifier": "ledger_b",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:002"
+            }
+          ]
+        }
+      ],
+      "input_source_refs": [
+        {
+          "input_ref_id": "input:ROOT:001",
+          "source_id": "ods.ledger_a",
+          "source_type": "physical_table",
+          "alias": "ledger_a",
+          "position": "from",
+          "relation_position": "from",
+          "join_type": null,
+          "physical_source_id": "ods.ledger_a",
+          "physical_source_ids": [
+            "ods.ledger_a"
+          ],
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "direct_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "ods.ledger_a"
+            ],
+            "field_resolution_required": false,
+            "missing_reasons": []
+          },
+          "field_resolution_required": false,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "ledger_a",
+              "to": "ods.ledger_a",
+              "relation": "alias_to_physical_source"
+            }
+          ],
+          "trace_status": "complete"
+        },
+        {
+          "input_ref_id": "input:ROOT:002",
+          "source_id": "ods.ledger_b",
+          "source_type": "physical_table",
+          "alias": "ledger_b",
+          "position": "join",
+          "relation_position": "join",
+          "join_type": "INNER",
+          "physical_source_id": "ods.ledger_b",
+          "physical_source_ids": [
+            "ods.ledger_b"
+          ],
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "direct_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "ods.ledger_b"
+            ],
+            "field_resolution_required": false,
+            "missing_reasons": []
+          },
+          "field_resolution_required": false,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "ledger_b",
+              "to": "ods.ledger_b",
+              "relation": "alias_to_physical_source"
+            }
+          ],
+          "trace_status": "complete"
+        }
+      ],
+      "alias_source_bindings": [
+        {
+          "alias": "ledger_a",
+          "source_id": "ods.ledger_a",
+          "source_type": "physical_table",
+          "physical_source_id": "ods.ledger_a",
+          "physical_source_ids": [
+            "ods.ledger_a"
+          ],
+          "position": "from",
+          "relation_position": "from",
+          "join_type": null,
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "direct_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "ods.ledger_a"
+            ],
+            "field_resolution_required": false,
+            "missing_reasons": []
+          },
+          "field_resolution_required": false,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "ledger_a",
+              "to": "ods.ledger_a",
+              "relation": "alias_to_physical_source"
+            }
+          ],
+          "input_ref_id": "input:ROOT:001"
+        },
+        {
+          "alias": "ledger_b",
+          "source_id": "ods.ledger_b",
+          "source_type": "physical_table",
+          "physical_source_id": "ods.ledger_b",
+          "physical_source_ids": [
+            "ods.ledger_b"
+          ],
+          "position": "join",
+          "relation_position": "join",
+          "join_type": "INNER",
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "direct_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "ods.ledger_b"
+            ],
+            "field_resolution_required": false,
+            "missing_reasons": []
+          },
+          "field_resolution_required": false,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "ledger_b",
+              "to": "ods.ledger_b",
+              "relation": "alias_to_physical_source"
+            }
+          ],
+          "input_ref_id": "input:ROOT:002"
+        }
+      ],
+      "expression_source_bindings": [
+        {
+          "expression_sql": "`ledger_a`.`entry_id` = `ledger_b`.`entry_id`",
+          "logic_block_id": "logic:ROOT:join:001",
+          "referenced_qualifiers": [
+            "ledger_a",
+            "ledger_b"
+          ],
+          "resolved_source_refs": [
+            {
+              "qualifier": "ledger_a",
+              "resolved_table": "ods.ledger_a",
+              "field": "entry_id",
+              "status": "resolved"
+            },
+            {
+              "qualifier": "ledger_b",
+              "resolved_table": "ods.ledger_b",
+              "field": "entry_id",
+              "status": "resolved"
+            }
+          ],
+          "unresolved_qualifiers": [],
+          "binding_status": "complete",
+          "evidence_path": "logic_blocks.logic:ROOT:join:001.raw_expression"
+        },
+        {
+          "expression_sql": "`ledger_a`.`entry_id` = `ledger_b`.`entry_id`",
+          "logic_block_id": "logic:ROOT:join:001",
+          "referenced_qualifiers": [
+            "ledger_a",
+            "ledger_b"
+          ],
+          "resolved_source_refs": [
+            {
+              "qualifier": "ledger_a",
+              "resolved_table": "ods.ledger_a",
+              "field": "entry_id",
+              "status": "resolved"
+            },
+            {
+              "qualifier": "ledger_b",
+              "resolved_table": "ods.ledger_b",
+              "field": "entry_id",
+              "status": "resolved"
+            }
+          ],
+          "unresolved_qualifiers": [],
+          "binding_status": "complete",
+          "evidence_path": "logic_blocks.logic:ROOT:join:001.join_relation_detail.join_key_pairs"
+        }
+      ],
+      "logic_blocks": [
+        {
+          "logic_block_id": "logic:ROOT:join:001",
+          "logic_type": "join",
+          "raw_expression": "`ledger_a`.`entry_id` = `ledger_b`.`entry_id`",
+          "normalized_expression": "`ledger_a`.`entry_id` = `ledger_b`.`entry_id`",
+          "fingerprint": "join:`ledger_a`.`entry_id` = `ledger_b`.`entry_id`",
+          "fields": [
+            {
+              "scope": "ods.ledger_a",
+              "column": "entry_id",
+              "qualifier": "ledger_a",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            },
+            {
+              "scope": "ods.ledger_b",
+              "column": "entry_id",
+              "qualifier": "ledger_b",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:002"
+            }
+          ],
+          "join_type": "INNER",
+          "input_sources": [
+            "ods.ledger_a",
+            "ods.ledger_b"
+          ],
+          "field_usage": [
+            {
+              "source_id": "ods.ledger_a",
+              "source_type": "physical_table",
+              "used_fields": [
+                "entry_id"
+              ],
+              "used_field_details": [],
+              "used_by_logic_blocks": [
+                "logic:ROOT:join:001"
+              ],
+              "used_by_output_fields": [],
+              "source_metadata": {}
+            },
+            {
+              "source_id": "ods.ledger_b",
+              "source_type": "physical_table",
+              "used_fields": [
+                "entry_id"
+              ],
+              "used_field_details": [],
+              "used_by_logic_blocks": [
+                "logic:ROOT:join:001"
+              ],
+              "used_by_output_fields": [],
+              "source_metadata": {}
+            }
+          ],
+          "expression_features": {
+            "functions": [],
+            "operators": [
+              "="
+            ],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "left_input": "ods.ledger_a",
+          "right_input": "ods.ledger_b",
+          "join_keys": [
+            {
+              "scope": "ods.ledger_a",
+              "column": "entry_id",
+              "qualifier": "ledger_a",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            },
+            {
+              "scope": "ods.ledger_b",
+              "column": "entry_id",
+              "qualifier": "ledger_b",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:002"
+            }
+          ],
+          "join_relation_detail": {
+            "join_type": "INNER",
+            "left_input": "ods.ledger_a",
+            "right_input": "ods.ledger_b",
+            "left_alias": "ledger_a",
+            "right_alias": "ledger_b",
+            "condition_expression": "`ledger_a`.`entry_id` = `ledger_b`.`entry_id`",
+            "condition_fields": [
+              {
+                "scope": "ods.ledger_a",
+                "column": "entry_id",
+                "qualifier": "ledger_a",
+                "binding_scope_id": "ROOT",
+                "input_ref_id": "input:ROOT:001"
+              },
+              {
+                "scope": "ods.ledger_b",
+                "column": "entry_id",
+                "qualifier": "ledger_b",
+                "binding_scope_id": "ROOT",
+                "input_ref_id": "input:ROOT:002"
+              }
+            ],
+            "join_key_pairs": [
+              {
+                "left": {
+                  "scope": "ods.ledger_a",
+                  "column": "entry_id",
+                  "qualifier": "ledger_a",
+                  "binding_scope_id": "ROOT",
+                  "input_ref_id": "input:ROOT:001"
+                },
+                "right": {
+                  "scope": "ods.ledger_b",
+                  "column": "entry_id",
+                  "qualifier": "ledger_b",
+                  "binding_scope_id": "ROOT",
+                  "input_ref_id": "input:ROOT:002"
+                },
+                "left_fields": [
+                  {
+                    "table": "ods.ledger_a",
+                    "field": "entry_id"
+                  }
+                ],
+                "right_fields": [
+                  {
+                    "table": "ods.ledger_b",
+                    "field": "entry_id"
+                  }
+                ],
+                "operator": "=",
+                "expression": "`ledger_a`.`entry_id` = `ledger_b`.`entry_id`"
+              }
+            ],
+            "condition_filters": [],
+            "missing_reasons": [],
+            "condition_expression_resolution": {
+              "status": "resolved",
+              "resolution_type": "qualified_expression",
+              "physical_source_fields": [
+                {
+                  "table": "ods.ledger_a",
+                  "field": "entry_id"
+                },
+                {
+                  "table": "ods.ledger_b",
+                  "field": "entry_id"
+                }
+              ],
+              "generated_sources": [],
+              "source_kind": "physical",
+              "missing_reasons": [],
+              "expanded_expression": "`ods.ledger_a`.`entry_id` = `ods.ledger_b`.`entry_id`"
+            },
+            "join_condition_source": "on",
+            "trace_status": "complete"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "amount",
+          "transform": "DIRECT",
+          "sources": [
+            {
+              "scope": "AMBIGUOUS",
+              "column": "amount",
+              "candidates": [
+                {
+                  "scope": "ods.ledger_a",
+                  "column": "amount"
+                },
+                {
+                  "scope": "ods.ledger_b",
+                  "column": "amount"
+                }
+              ]
+            }
+          ],
+          "source_logic_blocks": [],
+          "downstream_fields": [],
+          "target_columns": [
+            "mart.amounts.amount"
+          ],
+          "final_target_columns": [
+            "mart.amounts.amount"
+          ],
+          "expression": "`amount`",
+          "expanded_expression": "`amount`",
+          "expression_resolution": {
+            "status": "unresolved",
+            "resolution_type": "raw_expression",
+            "physical_source_fields": [],
+            "generated_sources": [],
+            "source_kind": "unresolved",
+            "missing_reasons": [
+              "no_physical_source_fields"
+            ],
+            "expanded_expression": "`amount`"
+          },
+          "consumer_readiness": {
+            "status": "blocked",
+            "blocked_reasons": [
+              "no_physical_source_fields"
+            ]
+          },
+          "expression_type": "direct_projection",
+          "expression_features": {
+            "functions": [],
+            "operators": [],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "expression_role": "direct_projection",
+          "grain_effect": "preserved",
+          "output_ordinal": 0
+        }
+      ],
+      "field_usage": [
+        {
+          "source_id": "ods.ledger_a",
+          "source_type": "physical_table",
+          "used_fields": [
+            "entry_id"
+          ],
+          "used_field_details": [],
+          "used_by_logic_blocks": [
+            "logic:ROOT:join:001"
+          ],
+          "used_by_output_fields": [],
+          "source_metadata": {}
+        },
+        {
+          "source_id": "ods.ledger_b",
+          "source_type": "physical_table",
+          "used_fields": [
+            "entry_id"
+          ],
+          "used_field_details": [],
+          "used_by_logic_blocks": [
+            "logic:ROOT:join:001"
+          ],
+          "used_by_output_fields": [],
+          "source_metadata": {}
+        },
+        {
+          "source_id": "AMBIGUOUS",
+          "source_type": "unknown",
+          "used_fields": [
+            "amount"
+          ],
+          "used_field_details": [],
+          "used_by_logic_blocks": [],
+          "used_by_output_fields": [
+            "amount"
+          ],
+          "source_metadata": {}
+        }
+      ],
+      "columns": [
+        {
+          "name": "amount",
+          "transform": "DIRECT",
+          "expression": "`amount`",
+          "sources": [
+            {
+              "scope": "AMBIGUOUS",
+              "column": "amount",
+              "candidates": [
+                {
+                  "scope": "ods.ledger_a",
+                  "column": "amount"
+                },
+                {
+                  "scope": "ods.ledger_b",
+                  "column": "amount"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "joins": [
+        {
+          "join_type": "INNER",
+          "left_scope": "ods.ledger_a",
+          "right_scope": "ods.ledger_b",
+          "alias_in_parent": "ledger_b",
+          "condition_expression": "`ledger_a`.`entry_id` = `ledger_b`.`entry_id`",
+          "condition_columns": [
+            {
+              "scope": "ods.ledger_a",
+              "column": "entry_id",
+              "qualifier": "ledger_a",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            },
+            {
+              "scope": "ods.ledger_b",
+              "column": "entry_id",
+              "qualifier": "ledger_b",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:002"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "field_mapping_chains": [
+    {
+      "mapping_chain_id": "mc:001",
+      "chain_id": "chain:ROOT:amount:position:0",
+      "chain_type": "field_mapping",
+      "target_scope_id": "ROOT",
+      "target_field": "amount",
+      "target_position": 0,
+      "chain_status": "unresolved",
+      "source_kind": "unresolved",
+      "root_source_fields": [
+        "AMBIGUOUS.amount"
+      ],
+      "final_output_fields": [
+        "mart.amounts.amount"
+      ],
+      "ordered_steps": [
+        {
+          "step_no": 1,
+          "scope_id": "ROOT",
+          "step_type": "direct_projection",
+          "input_fields": [
+            "AMBIGUOUS.amount"
+          ],
+          "output_field": "mart.amounts.amount",
+          "expression_sql": "`amount`",
+          "expanded_expression": "`amount`",
+          "expression_resolution": {
+            "status": "unresolved",
+            "resolution_type": "raw_expression",
+            "physical_source_fields": [],
+            "generated_sources": [],
+            "source_kind": "unresolved",
+            "missing_reasons": [
+              "no_physical_source_fields"
+            ],
+            "expanded_expression_same_as_parent": true
+          },
+          "logic_ids": [],
+          "transform": "DIRECT",
+          "grain_effect": "preserved",
+          "final_output_fields": [
+            "mart.amounts.amount"
+          ],
+          "target_position": 0
+        }
+      ],
+      "expanded_expression": "`amount`",
+      "missing_reasons": [
+        "no_physical_source_fields"
+      ],
+      "trace_status": "incomplete"
+    }
+  ],
+  "scope_profile": {
+    "profile_step_count": 1,
+    "steps": [
+      {
+        "scope_id": "ROOT",
+        "name": "ROOT",
+        "kind": "root",
+        "role": "join",
+        "operations": [
+          "join"
+        ],
+        "business_summary": "读取 ods.ledger_a, ods.ledger_b；关联 1 个上游",
+        "direct_inputs": [
+          "AMBIGUOUS",
+          "ods.ledger_a",
+          "ods.ledger_b"
+        ],
+        "direct_source_tables": [
+          "ods.ledger_a",
+          "ods.ledger_b"
+        ],
+        "physical_source_tables": [
+          "ods.ledger_a",
+          "ods.ledger_b"
+        ],
+        "output_columns": 1,
+        "logic": {
+          "joins": [
+            {
+              "type": "INNER",
+              "right": "ods.ledger_b",
+              "on": "`ledger_a`.`entry_id` = `ledger_b`.`entry_id`"
+            }
+          ],
+          "filters": [],
+          "aggregations": [],
+          "window_functions": [],
+          "case_when": [],
+          "key_renames": [],
+          "distinct": false,
+          "union_branches": 0,
+          "lateral_views": []
+        }
+      }
+    ]
+  },
+  "end_to_end_lineage": [
+    {
+      "column": "amount",
+      "transform": "DIRECT",
+      "expression": "`amount`",
+      "trace_complete": false,
+      "physical_sources": [],
+      "generated_sources": [],
+      "source_kind": "unresolved",
+      "output_ordinal": 0,
+      "trace_incomplete_reasons": [
+        "ambiguous_unqualified",
+        "no_physical_source_fields"
+      ],
+      "ambiguities": [
+        {
+          "scope": "ROOT",
+          "column": "amount",
+          "candidate_count": 2,
+          "candidates": [
+            {
+              "scope": "ods.ledger_a",
+              "column": "amount",
+              "trace_complete": true,
+              "physical_sources": [
+                {
+                  "table": "ods.ledger_a",
+                  "column": "amount",
+                  "transform": "DIRECT"
+                }
+              ],
+              "generated_sources": [],
+              "trace_incomplete_reasons": []
+            },
+            {
+              "scope": "ods.ledger_b",
+              "column": "amount",
+              "trace_complete": true,
+              "physical_sources": [
+                {
+                  "table": "ods.ledger_b",
+                  "column": "amount",
+                  "transform": "DIRECT"
+                }
+              ],
+              "generated_sources": [],
+              "trace_incomplete_reasons": []
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "diagnostics": {
+    "fallback_used": false,
+    "warning_count": 1,
+    "warning_types": {
+      "ambiguous_unqualified": 1
+    },
+    "lineage_fact_gap_count": 1,
+    "lineage_fact_gap_types": {
+      "expression_source_unresolved": 1
+    },
+    "lineage_fact_gap_samples": [
+      {
+        "gap_type": "expression_source_unresolved",
+        "gap_bucket": "bare_unqualified_field",
+        "gap_sub_bucket": "root_bare_no_unique_input",
+        "scope_id": "ROOT",
+        "object_type": "output",
+        "object_name": "amount",
+        "expression_sql": "`amount`",
+        "expression_resolution_status": "unresolved",
+        "source_kind": "unresolved",
+        "missing_reasons": [
+          "no_physical_source_fields"
+        ],
+        "needed_fact": "physical or generated expression source",
+        "root_impact": true,
+        "owner_hint": "parser_fact_backfill",
+        "evidence_path": "lineage.scopes.ROOT.outputs[0]",
+        "evidence_summary": {
+          "has_target_impact": true,
+          "scope_input_count": 2,
+          "candidate_source_ids": [
+            "ods.ledger_a",
+            "ods.ledger_b"
+          ],
+          "candidate_output_fields": [],
+          "expression_ref_count": 1
+        },
+        "downstream_impact": {
+          "output_fields": [
+            "amount"
+          ],
+          "target_columns": [
+            "mart.amounts.amount"
+          ]
+        },
+        "gap_id": "lineage_gap:0001"
+      }
+    ],
+    "stats": {
+      "scope_count": 4,
+      "physical_table_count": 3,
+      "cte_count": 0,
+      "subquery_count": 0,
+      "union_count": 0,
+      "union_branch_count": 0,
+      "max_depth": 1,
+      "case_when_count": 0,
+      "window_function_count": 0,
+      "join_count": 1,
+      "aggregate_function_count": 0
+    },
+    "full_diagnostics_file": "diagnostics.json"
+  }
+}

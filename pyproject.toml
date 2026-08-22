@@ -35,8 +35,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
-# This public distribution is the parser and its versioned contracts only. Widening this package
-# discovery rule changes the supported product boundary and requires an architecture review.
+# This public distribution is the parser, its versioned contracts, and contract-derived
+# renderers only. Widening this package discovery rule changes the supported product boundary
+# and requires an architecture review.
 include = ["scope_lineage*"]
 exclude = ["tests*"]
 

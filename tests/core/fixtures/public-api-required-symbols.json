@@ -22,6 +22,8 @@
   "normalize_table_name",
   "parse_all_scope_lineage",
   "parse_task_lineage",
+  "render_mapping_markdown",
+  "render_warnings_markdown",
   "resolve_display_expression",
   "suppress_invalid_json_path_warnings",
   "to_dict",

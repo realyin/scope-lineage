@@ -288,6 +288,18 @@ scope-lineage parse \
 
 Contract 1.0 remains the default. See [Task Lineage 2.0](docs/zh-CN/task-lineage-v2.md).
 
+Render a human- and machine-readable field-mapping document (`mapping.md`) from artifacts
+that already exist:
+
+```bash
+scope-lineage render --lineage /tmp/scope-lineage-corpus
+```
+
+Each statement's `mapping.md` is written next to its `lineage.json` (`--out` mirrors the
+tree elsewhere). The document is a derived view of the contract — every fact in it links
+back to `lineage.json` by contract ids. See the
+[mapping document guide (Chinese)](docs/zh-CN/mapping-doc.md).
+
 ### Catalog-prefix normalization
 
 Core preserves fully qualified table names by default. For example,
@@ -397,6 +409,7 @@ Documentation:
 - [`lineage.json` keys, nested values, examples, and consumption rules](docs/zh-CN/lineage-json.md)
 - [`diagnostics.json` warnings, stats, and fact gaps](docs/zh-CN/diagnostics-json.md)
 - [SQL, task JSON, Schema, and target-DDL inputs](docs/zh-CN/input-formats.md)
+- [`mapping.md` rendered field-mapping documents](docs/zh-CN/mapping-doc.md)
 
 ## Python API
 
