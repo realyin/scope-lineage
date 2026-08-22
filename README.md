@@ -286,7 +286,10 @@ scope-lineage parse \
   --out /tmp/scope-lineage-v2
 ~~~
 
-Contract 1.0 remains the default. See [Task Lineage 2.0](docs/zh-CN/task-lineage-v2.md).
+Contract 1.0 remains the default. See [Task Lineage 2.0](docs/zh-CN/task-lineage-v2.md), and
+[which contract fits which scenario](docs/zh-CN/contract-selection.md) — field lineage and
+transformation-step analysis want the default 1.0; audits, incident forensics, and final table
+state want 2.0.
 
 Render a human- and machine-readable field-mapping document (`mapping.md`) from artifacts
 that already exist:
