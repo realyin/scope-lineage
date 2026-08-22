@@ -297,6 +297,16 @@ scope-lineage parse \
 
 详见 [Task Lineage 2.0](docs/zh-CN/task-lineage-v2.md)。
 
+对已生成的产物再渲染一份人和机器都可读的字段映射文档 `mapping.md`：
+
+```bash
+scope-lineage render --lineage /tmp/scope-lineage-corpus
+```
+
+每条写语句的 `mapping.md` 默认写在其 `lineage.json` 旁（`--out` 可镜像输出到其他目录）。
+该文档是契约的派生视图，其中每条事实都可按契约 ID 连回 `lineage.json`。
+详见 [mapping.md 字段映射文档](docs/zh-CN/mapping-doc.md)。
+
 更多完整输入见 [examples/README.zh-CN.md](examples/README.zh-CN.md)，字段级说明见
 [Core 输入格式](docs/zh-CN/input-formats.md)。
 
@@ -393,6 +403,7 @@ AI 下游必须同时读取诊断，不能把 `recovered`、歧义候选或缺�
 - [`lineage.json` 全部核心 key/value、嵌套结构和消费示例](docs/zh-CN/lineage-json.md)
 - [`diagnostics.json` warning、stats 和 fact gap 字段说明](docs/zh-CN/diagnostics-json.md)
 - [SQL、任务 JSON、Schema 和目标 DDL 输入格式](docs/zh-CN/input-formats.md)
+- [`mapping.md` 字段映射文档](docs/zh-CN/mapping-doc.md)
 
 ## Python API
 

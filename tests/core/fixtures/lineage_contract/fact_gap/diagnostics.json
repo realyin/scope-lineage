@@ -1,0 +1,62 @@
+{
+  "schema_version": "1.0",
+  "warnings": [
+    {
+      "type": "ambiguous_unqualified",
+      "scope": "ROOT",
+      "msg": "Unqualified column 'amount' found in multiple viable sources (ods.ledger_a, ods.ledger_b); left ambiguous rather than attributed to one"
+    }
+  ],
+  "stats": {
+    "scope_count": 4,
+    "physical_table_count": 3,
+    "cte_count": 0,
+    "subquery_count": 0,
+    "union_count": 0,
+    "union_branch_count": 0,
+    "max_depth": 1,
+    "case_when_count": 0,
+    "window_function_count": 0,
+    "join_count": 1,
+    "aggregate_function_count": 0
+  },
+  "lineage_fact_gaps": [
+    {
+      "gap_type": "expression_source_unresolved",
+      "gap_bucket": "bare_unqualified_field",
+      "gap_sub_bucket": "root_bare_no_unique_input",
+      "scope_id": "ROOT",
+      "object_type": "output",
+      "object_name": "amount",
+      "expression_sql": "`amount`",
+      "expression_resolution_status": "unresolved",
+      "source_kind": "unresolved",
+      "missing_reasons": [
+        "no_physical_source_fields"
+      ],
+      "needed_fact": "physical or generated expression source",
+      "root_impact": true,
+      "owner_hint": "parser_fact_backfill",
+      "evidence_path": "lineage.scopes.ROOT.outputs[0]",
+      "evidence_summary": {
+        "has_target_impact": true,
+        "scope_input_count": 2,
+        "candidate_source_ids": [
+          "ods.ledger_a",
+          "ods.ledger_b"
+        ],
+        "candidate_output_fields": [],
+        "expression_ref_count": 1
+      },
+      "downstream_impact": {
+        "output_fields": [
+          "amount"
+        ],
+        "target_columns": [
+          "mart.amounts.amount"
+        ]
+      },
+      "gap_id": "lineage_gap:0001"
+    }
+  ]
+}

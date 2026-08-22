@@ -1,0 +1,9 @@
+{
+  "task_id": "golden_special_literals",
+  "sql": "INSERT INTO mart.flags\nSELECT CASE WHEN name = 'x；y → z|w' THEN 'a\nb' ELSE name END AS flagged\nFROM ods.users",
+  "schema": {
+    "ods.users": [
+      "name"
+    ]
+  }
+}

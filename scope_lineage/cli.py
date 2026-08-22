@@ -113,14 +113,121 @@ def main(argv: list[str] | None = None) -> int:
         help="Return non-zero when authoritative target-field binding falls back",
     )
 
+    render_cmd = subcommands.add_parser(
+        "render",
+        help="Render mapping.md field-mapping documents from existing Core artifacts",
+    )
+    render_cmd.add_argument(
+        "--lineage",
+        required=True,
+        help="One lineage.json file, or a directory searched recursively for lineage.json",
+    )
+    render_cmd.add_argument(
+        "--out",
+        help=(
+            "Directory for the rendered mapping.md files, mirroring the input tree; "
+            "default writes mapping.md next to each lineage.json"
+        ),
+    )
+    render_cmd.add_argument(
+        "--field",
+        action="append",
+        default=None,
+        help="Restrict the per-field step sections to this target field; repeatable",
+    )
+    render_cmd.add_argument(
+        "--expanded",
+        action="store_true",
+        help="Add the fully expanded physical-field expression under each step",
+    )
+    render_cmd.add_argument(
+        "--sections",
+        help="Comma-separated section names to render (default: all)",
+    )
+
     args = parser.parse_args(argv)
     if args.command == "parse":
         if args.input_dir and args.task_name:
             parser.error("--task-name cannot be used with --input-dir")
         with _catalog_prefix_override(args.catalog_prefixes):
             return _parse_inputs(args)
+    if args.command == "render":
+        return _render_inputs(args)
     parser.error(f"unknown command: {args.command}")
     return 2
+
+
+def _render_inputs(args: argparse.Namespace) -> int:
+    from .render.mapping_markdown import (
+        SUPPORTED_SCHEMA_VERSION,
+        render_mapping_markdown,
+        render_warnings_markdown,
+    )
+
+    root = Path(args.lineage)
+    if root.is_file():
+        documents = [root]
+        base = root.parent
+    elif root.is_dir():
+        documents = sorted(root.rglob("lineage.json"))
+        base = root
+    else:
+        print(f"--lineage path does not exist: {root}", file=sys.stderr)
+        return 2
+    if not documents:
+        print(f"no lineage.json found under {root}", file=sys.stderr)
+        return 1
+
+    sections = args.sections.split(",") if args.sections else None
+    rendered = 0
+    skipped_v2 = 0
+    missing_diagnostics = 0
+    for lineage_path in documents:
+        document = json.loads(lineage_path.read_text(encoding="utf-8"))
+        if document.get("schema_version") != SUPPORTED_SCHEMA_VERSION:
+            if root.is_file():
+                print(
+                    "mapping renderer supports schema_version "
+                    f"{SUPPORTED_SCHEMA_VERSION}; {lineage_path} declares "
+                    f"{document.get('schema_version')!r}",
+                    file=sys.stderr,
+                )
+                return 1
+            skipped_v2 += 1
+            continue
+        diagnostics_path = lineage_path.parent / "diagnostics.json"
+        diagnostics = None
+        if diagnostics_path.is_file():
+            diagnostics = json.loads(diagnostics_path.read_text(encoding="utf-8"))
+        else:
+            missing_diagnostics += 1
+        try:
+            markdown = render_mapping_markdown(
+                document,
+                diagnostics,
+                fields=args.field,
+                expanded=args.expanded,
+                sections=sections,
+            )
+        except ValueError as error:
+            print(f"{lineage_path}: {error}", file=sys.stderr)
+            return 1
+        if args.out:
+            target_dir = Path(args.out) / lineage_path.parent.relative_to(base)
+            target_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            target_dir = lineage_path.parent
+        (target_dir / "mapping.md").write_text(markdown, encoding="utf-8")
+        warnings_markdown = render_warnings_markdown(diagnostics, document)
+        if warnings_markdown is not None:
+            (target_dir / "warnings.md").write_text(warnings_markdown, encoding="utf-8")
+        rendered += 1
+
+    print(
+        f"Rendered {rendered} mapping document(s) "
+        f"(skipped_v2={skipped_v2}, missing_diagnostics={missing_diagnostics})"
+    )
+    return 0
 
 
 @dataclass(frozen=True)

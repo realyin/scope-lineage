@@ -1,0 +1,4 @@
+{
+  "task_id": "golden_fact_gap",
+  "sql": "INSERT INTO mart.amounts\nSELECT amount FROM ods.ledger_a JOIN ods.ledger_b ON ods.ledger_a.entry_id = ods.ledger_b.entry_id"
+}

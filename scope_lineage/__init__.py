@@ -66,6 +66,7 @@ from .scope.sqlglot_config import suppress_invalid_json_path_warnings
 from .scope.task_lineage import TaskLineageResult, parse_task_lineage
 from .scope.types import Column, ColumnRef, JoinKey, LineageResult, Unresolved
 from .contract.fold import fold_session_scoped
+from .render.mapping_markdown import render_mapping_markdown, render_warnings_markdown
 from .serialize.scope_profile import build_scope_profile
 
 
@@ -118,6 +119,8 @@ PUBLIC_CORE_API = frozenset({
     "parse_all_scope_lineage",
     "parse_scope_lineage",
     "parse_task_lineage",
+    "render_mapping_markdown",
+    "render_warnings_markdown",
     "resolve_display_expression",
     "suppress_invalid_json_path_warnings",
     "table_details_for_table",
