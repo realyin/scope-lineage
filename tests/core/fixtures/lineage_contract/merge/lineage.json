@@ -9,6 +9,7 @@
   "target_partition_spec": {},
   "target_partition_columns": [],
   "target_partition_mode": "none",
+  "target_binding_absent_reason": "binding_not_applicable_for_statement",
   "task_dependencies": {
     "upstream_tasks": [],
     "downstream_tasks": [],

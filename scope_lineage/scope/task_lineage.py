@@ -591,6 +591,7 @@ def _apply_projection_write(
     statement["target_field_binding"] = _target_binding_observation(
         result.target_field_binding,
         metadata_requested=target_metadata is not None,
+        absence_reason=result.target_binding_absence,
     )
     previous = None if result.stmt_kind == "CTAS" else states.current(
         result.target_table
@@ -1047,11 +1048,18 @@ def _target_binding_observation(
     binding: dict,
     *,
     metadata_requested: bool,
+    absence_reason: str | None = None,
 ) -> dict:
     if not binding:
+        # Read the classification rather than re-deriving it. `metadata_requested` cannot
+        # tell a CTAS from a table missing from the DDL -- both arrive with no binding --
+        # which is why this used to call every one of them target_table_not_found, the one
+        # value that means the binding should have happened. The old derivation stays as a
+        # fallback so the field remains unconditionally present for any caller that did
+        # not run the classifier.
         return {
             "status": "absent",
-            "reason_code": (
+            "reason_code": absence_reason or (
                 "target_table_not_found"
                 if metadata_requested
                 else "metadata_not_provided"

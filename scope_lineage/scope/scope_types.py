@@ -316,3 +316,8 @@ class ScopeLineageResult:
     # for this statement. Folded from the script's SET statements in order, because the
     # write trees are collected into a flat list that carries no script position.
     regex_columns_enabled: bool = True
+    # Why this statement has no target_field_binding, or None when it has one. Computed
+    # once, at the only place that sees the statement kind, the target name, the supplied
+    # metadata and the lookup result together; both contract writers read it rather than
+    # each re-deriving it (the task document used to, and got all four cases wrong).
+    target_binding_absence: str | None = None

@@ -94,6 +94,7 @@ GROUP BY c.customer_id;
 | `target_partition_columns` | array<string> | 是 | 目标表分区列名。 |
 | `target_partition_mode` | enum string | 是 | `none`、`static`、`dynamic` 或 `mixed`，描述的是 **`PARTITION(...)` 子句的写法**：给了值是 `static`、没给值是 `dynamic`、没有该子句是 `none`。**它与会话配置 `spark.sql.sources.partitionOverwriteMode` 无关**，也不表示这次覆写会删掉多少数据——两者名字相近但含义不同。覆写的实际影响范围由 v2 的 `effect.rowset_effect` 表达，见 task-lineage-v2.md。 |
 | `target_field_binding` | object | 条件输出 | 提供目标表 DDL/Schema 时输出，说明目标字段是否按权威顺序绑定。 |
+| `target_binding_absent_reason` | enum string | 条件输出 | **仅在没有 `target_field_binding` 时出现**，说明是四种情形中的哪一种。`statement_defines_its_own_columns`（CTAS：建表即定列）、`binding_not_applicable_for_statement`（MERGE：在绑定之外解析目标列）、`target_is_not_a_table`（写文件路径）、`metadata_not_provided`（调用方未传 `--target-ddl-metadata`）、**`target_table_not_found`（传了目录但缺这张表——只有这一种有风险**：Spark 的 `INSERT ... SELECT` 按位置写入，未绑定的投影可能落到错的列）。<br>两处**不会出现**该键：解析失败的语句（`parse_status: "failed"`），以及少数在解析早期返回、未走到绑定环节的语句——消费者不能假定该集合对产物封闭。<br>MERGE 的注意点：传了目标 DDL 时 `*` 分支的列名取自该 DDL、按目标顺序；未传时回落到源列名。两者都归为 `binding_not_applicable_for_statement`，产物中不区分。 |
 | `task_dependencies` | object | 是 | 从任务 JSON 保留的上游、下游任务声明，以及依赖来源摘要。 |
 | `source_tables` | array<string> | 是 | 解析得到的全部物理输入表去重列表。适合表级检索和初步影响分析。 |
 | `related_metadata` | object | 是 | 输入表、输出表的字段类型、注释及元数据完整性观察结果。 |
