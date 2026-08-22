@@ -345,6 +345,16 @@ CTE 名按所在查询块的词法作用域绑定。例如，一个嵌套查询�
 | `merge_branch` / `merge_when_index` | MERGE 场景中字段属于哪个 WHEN 分支。`merge_branch` 在 `WHEN NOT MATCHED BY SOURCE` 上**缺席**（见 §7），`merge_when_index` 始终给出。 |
 | `merge_branch_qualifier` | 枚举无法命名的 WHEN 子句种类，目前只有 `not_matched_by_source`。被枚举命名的两种分支上不出现。 |
 
+### `SELECT * EXCEPT (...)`
+
+星号的排除列表**会被应用**：被排除的列不出现在任何输出面（`columns[]` / `outputs[]` / `field_mapping_chains[]` / `end_to_end_lineage[]` / `related_metadata`）。
+
+两点需要留意：
+
+- 排除会改变投影**数量**，而目标 DDL 绑定是按位置做的。排除后投影数与目标列数相符时绑定会被启用；不符时整体降级为 fallback。两种变化都是修正——此前多出来的那一列会被当作真实输出列参与绑定。
+- Spark 语法只允许 `EXCEPT` 一种星号修饰符。`REPLACE` / `RENAME` / `ILIKE` 是别的引擎的构造，工具不建模，只发 `star_modifier_not_supported` 告警。
+
+
 ### 8.1 聚合 STRUCT 成员投影
 
 当上游输出通过 `MAX/MIN(STRUCT(...))` 或 `MAX/MIN(NAMED_STRUCT(...))` 选出一个

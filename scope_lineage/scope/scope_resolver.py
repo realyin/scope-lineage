@@ -32,7 +32,7 @@ from ._shared import (  # noqa: F401
     _REGEX_COLUMN_METACHARACTERS,
     _compiled_column_pattern,
 )
-from .select_scope import _resolve_select_scope  # noqa: F401
+from .select_scope import _resolve_select_scope, _star_modifiers  # noqa: F401
 from .target_field_binding import apply_target_field_binding
 
 
@@ -108,6 +108,7 @@ def resolve_all(
     _materialize_referenced_star_columns(result)
     _refresh_union_scopes_after_star_expansion(result, all_scopes)
     _reconcile_ambiguous_column_sources_after_star_expansion(result, schema)
+    _apply_star_except_lists(result, all_scopes)
     apply_target_field_binding(
         result,
         target_metadata=target_metadata,
@@ -771,6 +772,81 @@ def _regex_selection_input_columns(
             if columns:
                 names[table] = list(columns)
     return names
+
+
+def _apply_star_except_lists(result: ScopeLineageResult, all_scopes: list) -> None:
+    """Remove the columns a `SELECT * EXCEPT (...)` excludes, once, for every scope.
+
+    Deliberately one pass rather than a filter at each expansion site. A star is
+    materialized in at least three places -- projection-time expansion, the deferred
+    expander, and union passthrough -- and which one runs depends on how the query was
+    written, not on what it means. `SELECT * EXCEPT (c) FROM (… UNION …)` never reaches
+    the projection-time expander at all, so filtering there answered the same construct
+    two different ways.
+
+    Runs before target_field_binding, whose positional binding is gated on the projection
+    count matching the target's: the excluded columns have to be gone before that compares.
+    """
+    for sg_scope in all_scopes:
+        scope_id = getattr(sg_scope, _SCOPE_ID_ATTR, None)
+        scope_data = result.scopes.get(scope_id or "")
+        if scope_data is None:
+            continue
+        select = sg_scope.expression
+        if not isinstance(select, exp.Select):
+            continue
+        except_names: list[str] = []
+        unsupported: list[str] = []
+        for projection in select.expressions:
+            names, bad = _star_modifiers(projection)
+            except_names.extend(names)
+            unsupported.extend(bad)
+        if unsupported:
+            result.diagnostics.warnings.append(DiagnosticWarning(
+                type="star_modifier_not_supported",
+                scope=scope_id or "UNKNOWN",
+                msg=(
+                    f"star modifier(s) {', '.join(sorted(set(unsupported))).upper()} are "
+                    f"not part of Spark's grammar (only EXCEPT is); left unapplied rather "
+                    f"than modelled"
+                ),
+            ))
+        if not except_names:
+            continue
+        if any(_is_star_name(column.name) for column in scope_data.columns):
+            # The star never expanded, so there is nothing to remove and the placeholder
+            # stands for "all columns" -- including the excluded ones. Saying so keeps it
+            # from reading as a complete answer.
+            result.diagnostics.warnings.append(DiagnosticWarning(
+                type="star_modifier_not_applied",
+                scope=scope_id or "UNKNOWN",
+                msg=(
+                    f"SELECT * EXCEPT ({', '.join(except_names)}) could not be applied: "
+                    f"the star itself did not expand"
+                ),
+            ))
+            continue
+        wanted = {name.lower() for name in except_names}
+        present = {column.name.lower() for column in scope_data.columns}
+        missing = sorted(wanted - present)
+        if missing:
+            # sqlglot accepts EXCEPT (nosuch); Spark fails analysis on it. Treating it as a
+            # no-op would publish a full expansion for a statement the engine rejects.
+            result.diagnostics.warnings.append(DiagnosticWarning(
+                type="star_except_column_not_found",
+                scope=scope_id or "UNKNOWN",
+                msg=(
+                    f"SELECT * EXCEPT names {', '.join(missing)}, which the star does not "
+                    f"produce; Spark fails analysis on this"
+                ),
+            ))
+        scope_data.columns = [
+            column for column in scope_data.columns if column.name.lower() not in wanted
+        ]
+
+
+def _is_star_name(name: str) -> bool:
+    return name == "*" or name.endswith(".*")
 
 
 def _expand_star_columns(result: ScopeLineageResult) -> None:

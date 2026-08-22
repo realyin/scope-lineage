@@ -89,6 +89,9 @@ scope_lineage/schemas/diagnostics.schema.json
 | Type | 说明 | 建议动作 |
 | --- | --- | --- |
 | `star_not_expanded` | 缺少 Schema 或无法确定来源列，`SELECT *` 没有展开。 | 补源表 Schema；字段级覆盖率不要按完整计算。 |
+| `star_except_column_not_found` | `SELECT * EXCEPT (...)` 排除了一个该星号并不产出的列。sqlglot 接受这种写法，Spark 会分析失败。 | 修正 SQL；该语句在 Spark 上跑不通，血缘按「排除不生效」给出。 |
+| `star_modifier_not_supported` | 星号带了 `REPLACE` / `RENAME` / `ILIKE`。Spark 语法只允许 `EXCEPT`（`SqlBaseParser.g4`：`ASTERISK exceptClause?`），其余是别的引擎的构造，sqlglot 的基类解析器一律接受。 | 修正 SQL；工具不建模这些修饰符，展开按无修饰符处理。 |
+| `star_modifier_not_applied` | 星号带了 `EXCEPT`，但该星号本身没能展开（缺 Schema），排除因此无从施加。 | 补源表 Schema；占位列代表「全部列」，其中仍含本应被排除的列。 |
 | `unresolved_alias` | 表达式 qualifier 没有绑定到输入。 | 检查 SQL alias、自定义语法或解析支持。 |
 | `duplicate_alias` | 同一 scope 重复使用 alias，字段来源可能歧义。 | 修正 SQL，或结合字段/Schema 证据消歧。 |
 | `column_not_found` | 字段不在任何已知来源中。 | 检查字段名和 Schema 完整性。 |
