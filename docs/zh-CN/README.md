@@ -13,13 +13,16 @@ Scope Lineage 把 Spark/Hive SQL 转换成两类机器可消费的事实：
 4. [输入格式](input-formats.md)：了解 SQL、任务 JSON、Schema 和目标表元数据怎么传入；
 5. [`lineage.json` 输出契约](lineage-json.md)：逐层理解顶层字段、scope、逻辑块、字段映射链和端到端血缘；
 6. [`diagnostics.json` 输出契约](diagnostics-json.md)：理解 warning、事实缺口以及什么结果不能当成已证明事实。
-7. [Task Lineage 2.0](task-lineage-v2.md)：理解 DELETE/TRUNCATE/UPDATE、行集合影响和多语句最终表状态。
+7. [Task Lineage 2.0](task-lineage-v2.md)：**先看开头的 v1/v2 对照表决定用哪个**，再理解
+   DELETE/TRUNCATE/UPDATE、行集合影响和多语句最终表状态。
 8. [mapping.md 字段映射文档](mapping-doc.md)：用 `scope-lineage render` 把契约渲染成对人和机器都可读的映射文档。
 
 ## 从问题找到字段
 
 | 你要回答的问题 | 优先读取的位置 |
 | --- | --- |
+| **我该用 v1 还是 v2？两者差在哪？** | [v1/v2 对照表](task-lineage-v2.md#先决定用哪个v1-还是-v2) |
+| **怎么输出 v2？** | 加 `--contract-version 2.0`；v1 是默认值，不加就是 v1 |
 | 任务写入哪张表、使用什么写入方式？ | `target_table`、`stmt_kind`、`target_partition_*` |
 | 任务读取了哪些物理表？ | `source_tables` |
 | CTE、子查询和 UNION 如何连接？ | `scope_graph`、`scopes.<scope_id>.depends_on` |
@@ -34,6 +37,7 @@ Scope Lineage 把 Spark/Hive SQL 转换成两类机器可消费的事实：
 | 某条血缘是否完整可信？ | `trace_complete` / `trace_status`、`missing_reasons`、`ambiguities` |
 | 为什么无法确定字段来源？ | `diagnostics.json.lineage_fact_gaps[]` |
 | DELETE/TRUNCATE 如何影响最终表？ | v2 `statement_sequence[]`、`table_state_graph`、`final_table_states` |
+| v2 产物里的字段级血缘去哪了？ | 没有搬走：v1 文档整份嵌在 `statement_lineage.<statement_id>` 下 |
 
 ## 事实层与上层知识的边界
 
