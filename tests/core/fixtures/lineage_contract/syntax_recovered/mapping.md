@@ -15,7 +15,7 @@ stmt_kind: "INSERT"
 - 语句类型：INSERT
 - 解析状态：ok；语法状态：recovered
 - 语法错误：2 条（详见 lineage.json 的 syntax_errors）
-- 目标绑定：未做目标绑定（文档无 target_field_binding：MERGE、缺目标 DDL 或目录写入等场景）
+- 目标绑定：未做（调用方未提供 --target-ddl-metadata）
 
 ## 2. 来源表
 

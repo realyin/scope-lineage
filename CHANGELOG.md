@@ -25,7 +25,11 @@
   -- the scope-level detail below remains the complete list, where pierced pairs appear only
   when informative and the verbatim ON survives only where the key/filter split is
   incomplete. The constant-source column of the mapping table appears only when some field is
-  actually constant-fed.
+  actually constant-fed. The overview consumes `target_binding_absent_reason`: a statement
+  without a binding states the actual reason in Chinese, and only `target_table_not_found`
+  -- the one absence that risks positionally misplaced columns -- carries the warning
+  marker. The four golden cases added with the renderer are regenerated against the current
+  contract output.
 
 ## 0.1.15
 - A UNION branch projecting a row-count aggregate or a bare window function no longer reports a

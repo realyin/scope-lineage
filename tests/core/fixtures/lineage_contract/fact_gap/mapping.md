@@ -14,7 +14,7 @@ stmt_kind: "INSERT"
 - 目标：mart.amounts
 - 语句类型：INSERT
 - 解析状态：ok；语法状态：strict_ok
-- 目标绑定：未做目标绑定（文档无 target_field_binding：MERGE、缺目标 DDL 或目录写入等场景）
+- 目标绑定：未做（调用方未提供 --target-ddl-metadata）
 
 ## 2. 来源表
 

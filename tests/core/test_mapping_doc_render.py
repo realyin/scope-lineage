@@ -130,8 +130,20 @@ def test_tolerates_a_document_stripped_to_required_keys() -> None:
         "scope_profile",
     ):
         document.pop(optional_key, None)
+    document.pop("target_binding_absent_reason", None)
     rendered = render_mapping_markdown(document)
     assert "未做目标绑定" in rendered
+
+
+def test_binding_absence_reason_renders_gloss_and_flags_the_risky_case() -> None:
+    document = _document(UNION_CASE_SQL, schema=UNION_CASE_SCHEMA)
+    assert document.get("target_binding_absent_reason") == "metadata_not_provided"
+    rendered = render_mapping_markdown(document)
+    assert "--target-ddl-metadata" in rendered
+
+    document["target_binding_absent_reason"] = "target_table_not_found"
+    risky = render_mapping_markdown(document)
+    assert "⚠ 目标绑定" in risky
 
 
 def test_missing_diagnostics_document_is_stated_not_silent() -> None:

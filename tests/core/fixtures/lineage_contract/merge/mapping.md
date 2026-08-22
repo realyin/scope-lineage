@@ -14,7 +14,7 @@ stmt_kind: "MERGE"
 - 目标：mart.customer_profile
 - 语句类型：MERGE
 - 解析状态：ok；语法状态：strict_ok
-- 目标绑定：未做目标绑定（文档无 target_field_binding：MERGE、缺目标 DDL 或目录写入等场景）
+- 目标绑定：未做（MERGE 在绑定机制之外解析目标列）
 
 ## 2. 来源表
 
