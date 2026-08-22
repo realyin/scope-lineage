@@ -12,6 +12,10 @@ from sqlglot import ErrorLevel, exp
 from sqlglot.errors import ParseError
 
 from .ctas_missing_as import repair_ctas_missing_as
+from .session_settings import (
+    DEFAULT_QUOTED_REGEX_COLUMN_NAMES,
+    quoted_regex_column_names_setting,
+)
 from .keyword_identifiers import repair_keyword_identifiers
 from sqlglot.optimizer.qualify import qualify as sg_qualify
 from sqlglot.optimizer.scope import traverse_scope, Scope
@@ -101,9 +105,16 @@ def _collect_insert_trees(sql: str) -> tuple[list, list[dict]]:
     )
     trees = sqlglot.parse(sql, dialect=DIALECT, **PARSE_OPTS)
     write_trees, skipped = [], []
+    # A SET applies from where it appears onward, so the flag is folded in statement order
+    # and recorded per write: write_trees is flat and carries no script position.
+    regex_flags: list[bool] = []
+    regex_columns_enabled = DEFAULT_QUOTED_REGEX_COLUMN_NAMES
     for statement_index, tree in enumerate(trees):
         if tree is None:
             continue
+        setting = quoted_regex_column_names_setting(tree)
+        if setting is not None:
+            regex_columns_enabled = setting
         if (
             isinstance(tree, (exp.Insert, exp.Merge))
             or _is_ctas(tree)
@@ -111,6 +122,7 @@ def _collect_insert_trees(sql: str) -> tuple[list, list[dict]]:
             or tree.find(exp.Merge) is not None
         ):
             write_trees.append(tree)
+            regex_flags.append(regex_columns_enabled)
             continue
         statement_kind = _statement_kind_label(tree)
         category = _statement_category(statement_kind)
@@ -131,7 +143,7 @@ def _collect_insert_trees(sql: str) -> tuple[list, list[dict]]:
             "reason": "not_a_table_write_from_select",
             "supported": SUPPORTED_STATEMENTS,
         })
-    return write_trees, skipped
+    return write_trees, skipped, regex_flags
 
 
 def _normalize_directory_insert_sql(sql: str) -> str:
@@ -303,6 +315,7 @@ def parse_scope_lineage(
     target_metadata=None,
     *,
     tree: exp.Expression | None = None,
+    regex_columns_enabled: bool | None = None,
 ) -> ScopeLineageResult:
     """Parse SQL into a scope-based lineage result with full column resolution.
 
@@ -315,20 +328,26 @@ def parse_scope_lineage(
     check and for statement identity.
     """
     schema = _prepare_schema(schema)
+    # A caller handing us a tree has already split the script and must fold the session
+    # settings itself -- it is the one holding them. Guessing here instead made the task
+    # document expand a regex projection the statement document declined, from one SET
+    # (SESSION-001). None means "not told"; only then do we fold from `sql` ourselves.
+    enabled = True if regex_columns_enabled is None else regex_columns_enabled
     if tree is None:
-        insert_trees, skipped_statements = _collect_insert_trees(sql)
+        insert_trees, skipped_statements, single_flags = _collect_insert_trees(sql)
         if not insert_trees:
             raise NoSupportedWriteStatementError(skipped_statements)
         # For now, handle the first INSERT/MERGE only (multi-statement later)
         tree = insert_trees[0]
+        enabled = single_flags[0] if single_flags else DEFAULT_QUOTED_REGEX_COLUMN_NAMES
     statement_identity_sql = render_sql_or_none(tree) or ""
 
     if _is_ctas(tree):
-        result = _build_ctas_scope(tree, task_name, schema)
+        result = _build_ctas_scope(tree, task_name, schema, regex_columns_enabled=enabled)
     elif isinstance(tree, exp.Merge) or (
         tree.find(exp.Merge) is not None and tree.find(exp.Insert) is None
     ):
-        result = _build_merge_scope(tree, task_name, schema)
+        result = _build_merge_scope(tree, task_name, schema, regex_columns_enabled=enabled)
     else:
         # Same boundary parse_all_scope_lineage has had: a statement whose scope build raises
         # comes back marked instead of taking the caller down. The single-statement entry point
@@ -338,13 +357,14 @@ def parse_scope_lineage(
         # than each render site: rendering is not the only thing that can fail on a repaired tree.
         try:
             if target_metadata is None:
-                result = _build_insert_scope(tree, task_name, schema)
+                result = _build_insert_scope(tree, task_name, schema, regex_columns_enabled=enabled)
             else:
                 result = _build_insert_scope(
                     tree,
                     task_name,
                     schema,
                     target_metadata=target_metadata,
+                    regex_columns_enabled=enabled,
                 )
         except (ValueError, NoSupportedWriteStatementError):
             # This package raises these deliberately to mean "refuse to emit lineage rather
@@ -380,7 +400,7 @@ def parse_all_scope_lineage(
 ) -> list[ScopeLineageResult]:
     """Parse all INSERT/MERGE statements; return one ScopeLineageResult per target."""
     schema = _prepare_schema(schema)
-    insert_trees, skipped_statements = _collect_insert_trees(sql)
+    insert_trees, skipped_statements, regex_flags = _collect_insert_trees(sql)
     if not insert_trees:
         raise NoSupportedWriteStatementError(skipped_statements)
 
@@ -394,16 +414,25 @@ def parse_all_scope_lineage(
         sub = f"{task_name}#{i}" if len(insert_trees) > 1 else task_name
         statement_identity_sql = render_sql_or_none(tree) or ""
         stmt_schema = _schema_with_script_local_tables(schema, script_local)
+        enabled = regex_flags[i] if i < len(regex_flags) else True
         try:
             if _is_ctas(tree):
-                results.append(_build_ctas_scope(tree, sub, stmt_schema))
+                results.append(
+                    _build_ctas_scope(tree, sub, stmt_schema, regex_columns_enabled=enabled)
+                )
             elif isinstance(tree, exp.Merge) or (
                 tree.find(exp.Merge) is not None and tree.find(exp.Insert) is None
             ):
-                results.append(_build_merge_scope(tree, sub, stmt_schema))
+                results.append(
+                    _build_merge_scope(tree, sub, stmt_schema, regex_columns_enabled=enabled)
+                )
             else:
                 if target_metadata is None:
-                    results.append(_build_insert_scope(tree, sub, stmt_schema))
+                    results.append(
+                        _build_insert_scope(
+                            tree, sub, stmt_schema, regex_columns_enabled=enabled
+                        )
+                    )
                 else:
                     results.append(
                         _build_insert_scope(
@@ -411,6 +440,7 @@ def parse_all_scope_lineage(
                             sub,
                             stmt_schema,
                             target_metadata=target_metadata,
+                            regex_columns_enabled=enabled,
                         )
                     )
         except Exception as e:
@@ -589,7 +619,8 @@ def _global_temp_qualified(target_table: str, definition: exp.Expression | None)
 
 
 def _build_ctas_scope(
-    tree: exp.Expression, task_name: str, schema: dict | None = None
+    tree: exp.Expression, task_name: str, schema: dict | None = None,
+    *, regex_columns_enabled: bool = True,
 ) -> ScopeLineageResult:
     # CREATE ... AS SELECT and CACHE [LAZY] TABLE ... AS SELECT define a relation the same
     # way; only persistence differs, and that is carried by is_cached_relation rather than
@@ -630,7 +661,10 @@ def _build_ctas_scope(
     if not qualify_ok:
         result.diagnostics.fallback_used = True
 
-    _build_result_from_scope(qualified, result, target_table, schema)
+    _build_result_from_scope(
+        qualified, result, target_table, schema,
+        regex_columns_enabled=regex_columns_enabled,
+    )
     _drop_dangling_column_refs(result)
     result.diagnostics.stats = _compute_stats(result)
     detect_warnings(result)
@@ -680,6 +714,7 @@ def _build_insert_scope(
     schema: dict | None = None,
     *,
     target_metadata=None,
+    regex_columns_enabled: bool = True,
 ) -> ScopeLineageResult:
     """Build scope tree for INSERT statements."""
     insert = tree if isinstance(tree, exp.Insert) else tree.find(exp.Insert)
@@ -716,6 +751,7 @@ def _build_insert_scope(
         target_metadata=target_metadata,
         explicit_target_columns=_explicit_insert_target_columns(insert),
         insert_by_name=bool(insert.args.get("by_name")),
+        regex_columns_enabled=regex_columns_enabled,
     )
     _drop_dangling_column_refs(result)
     result.diagnostics.stats = _compute_stats(result)
@@ -793,7 +829,8 @@ def _merge_with_subquery_source(merge: exp.Merge) -> exp.Merge:
 
 
 def _build_merge_scope(
-    tree: exp.Expression, task_name: str, schema: dict | None = None
+    tree: exp.Expression, task_name: str, schema: dict | None = None,
+    *, regex_columns_enabled: bool = True,
 ) -> ScopeLineageResult:
     """Build scope tree for MERGE statements.
 
@@ -819,7 +856,10 @@ def _build_merge_scope(
     protected = _protect_merge_correlated_target_refs(merge)
     qualified, _qualify_ok = _qualify_ast(merge)
     _restore_merge_correlated_target_refs(qualified, protected)
-    _build_result_from_scope(qualified, result, target_table, schema)
+    _build_result_from_scope(
+        qualified, result, target_table, schema,
+        regex_columns_enabled=regex_columns_enabled,
+    )
     _drop_dangling_column_refs(result)
     result.diagnostics.stats = _compute_stats(result)
     detect_warnings(result)
@@ -1003,6 +1043,7 @@ def _drop_dangling_column_refs(result: ScopeLineageResult) -> None:
 def _build_result_from_scope(
     qualified_expr, result: ScopeLineageResult, target_table: str,
     schema: dict | None = None,
+    regex_columns_enabled: bool = True,
     *,
     target_metadata=None,
     explicit_target_columns: list[str] | None = None,
@@ -1167,6 +1208,7 @@ def _build_result_from_scope(
         insert_by_name=insert_by_name,
         merge_node=merge_node,
         merge_using_scope=merge_using_scope,
+        regex_columns_enabled=regex_columns_enabled,
     )
     _populate_enhanced_scope_facts(result, all_scopes, schema)
     result.related_metadata = build_related_metadata(result, schema)

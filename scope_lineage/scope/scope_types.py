@@ -311,3 +311,8 @@ class ScopeLineageResult:
     scopes: Dict[str, ScopeData] = field(default_factory=dict)
     field_mapping_chains: List[dict] = field(default_factory=list)
     diagnostics: Diagnostics = field(default_factory=Diagnostics)
+
+    # Internal, never serialized: whether spark.sql.parser.quotedRegexColumnNames was on
+    # for this statement. Folded from the script's SET statements in order, because the
+    # write trees are collected into a flat list that carries no script position.
+    regex_columns_enabled: bool = True

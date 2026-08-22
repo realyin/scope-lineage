@@ -129,7 +129,26 @@
             "type": "string"
           },
           "effect": {
-            "type": "object"
+            "type": "object",
+            "description": "这条语句对目标表的影响。内部结构随语句类型不同，未在此穷举。",
+            "properties": {
+              "rowset_effect": {
+                "type": "object",
+                "properties": {
+                  "operation": {
+                    "type": "string"
+                  },
+                  "partition_overwrite_mode_source": {
+                    "type": "string",
+                    "enum": [
+                      "observed",
+                      "assumed_default"
+                    ],
+                    "description": "仅当本次结论取决于 spark.sql.sources.partitionOverwriteMode 时出现。observed=脚本中出现过该 SET；assumed_default=脚本未设置，按 Spark 默认 static 推出。字段不出现表示结论与该设置无关。注意 observed 不等于「确定」：该设置对 Hive serde 表无效，而本工具无法从 SQL 判断写入路径。"
+                  }
+                }
+              }
+            }
           },
           "is_session_scoped_relation": {
             "type": "boolean",
