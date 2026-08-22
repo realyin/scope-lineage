@@ -1361,12 +1361,25 @@ def _expression_field_sources(
     return _dedupe_dicts(sources)
 
 
-def _merge_condition_expressions(tree: exp.Merge) -> list[exp.Expression | None]:
-    expressions: list[exp.Expression | None] = [tree.args.get("on")]
+def _merge_condition_expressions(
+    tree: exp.Merge,
+) -> "list[tuple[exp.Expression | None, bool]]":
+    """Each MERGE condition paired with whether its clause can see the source relation.
+
+    A NOT MATCHED BY SOURCE clause is evaluated on target rows that no source row
+    matched, so Spark resolves its condition against the target alone. Reading such a
+    condition through the USING scope publishes a physical field the branch cannot
+    reference -- the same fabricated edge this function's docstring already records for
+    a different shape.
+    """
+    expressions: "list[tuple[exp.Expression | None, bool]]" = [(tree.args.get("on"), False)]
     whens = tree.args.get("whens")
     if whens is not None:
         expressions.extend(
-            when.args.get("condition")
+            (
+                when.args.get("condition"),
+                not bool(when.args.get("matched")) and bool(when.args.get("source")),
+            )
             for when in getattr(whens, "expressions", [])
         )
     return expressions
@@ -1404,7 +1417,7 @@ def _merge_condition_sources(
     )
 
     sources: list[dict] = []
-    for expression in _merge_condition_expressions(tree):
+    for expression, by_source in _merge_condition_expressions(tree):
         if expression is None:
             continue
         for column in expression.find_all(exp.Column):
@@ -1419,7 +1432,10 @@ def _merge_condition_sources(
             if not qualifier or qualifier == target_alias:
                 sources.append({"table": target_table, "column": column.name})
                 continue
-            if qualifier != using_alias:
+            if qualifier != using_alias or by_source:
+                # ``by_source``: the qualifier names the USING relation, but this clause
+                # cannot see it, so the reference resolves to nothing in Spark. A gap is
+                # the honest answer; a source field would be a claim we know is false.
                 gaps.append(
                     _merge_condition_gap(statement_id, column.table, column.name)
                 )

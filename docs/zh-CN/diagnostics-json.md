@@ -93,6 +93,8 @@ scope_lineage/schemas/diagnostics.schema.json
 | `duplicate_alias` | 同一 scope 重复使用 alias，字段来源可能歧义。 | 修正 SQL，或结合字段/Schema 证据消歧。 |
 | `column_not_found` | 字段不在任何已知来源中。 | 检查字段名和 Schema 完整性。 |
 | `ambiguous_unqualified` | 未限定字段匹配多个输入。 | 给 SQL 字段增加 qualifier；不得任选来源。 |
+| `merge_delete_ignored` | `WHEN ... THEN DELETE` 是行级操作，不产出 `ROOT` 输出字段；`msg` 指明它来自 `MATCHED` 还是 `NOT MATCHED BY SOURCE` 分支。 | 无需处理；字段级覆盖率不要把该分支算作缺失。 |
+| `merge_branch_not_representable` | 该写入来自 `WHEN NOT MATCHED BY SOURCE`——Spark 三种 WHEN 子句中的第三种，契约 1.0 的 `merge_branch` 枚举只命名两种。 | 读 `merge_branch_qualifier` 取子句种类；不要把 `merge_branch` 的缺席理解为「这不是一条 MERGE 写入」（语句种类见顶层 `stmt_kind`）。 |
 | `identifiers_quoted_for_parse` | 列名与 SQL 关键字撞名（如 `not`、`like`、`out`、`using`）且原文未加引号，工具为完成解析给这些标识符补了反引号；`msg` 列出补引号的全部标识符。 | 无需处理，血缘正常。建议在源 SQL 中给这些列名加引号，避免依赖工具修补。 |
 | `session_scoped_relations_present` | 本脚本产出了只存活于会话、不落存储的关系（`TEMP VIEW` / `GLOBAL TEMP VIEW` / `CACHE [LAZY] TABLE`），`msg` 列出全部关系名。 | 按 catalog 对账前，先把这些关系从 `final_table_states` 和表级覆盖统计里排除；字段血缘本身有效，两跳各自保留。 |
 | `filter_in_join_on_clause` | JOIN ON 中包含常量比较等行过滤。 | 影响逻辑解释时区分 join key 与 condition filter。 |

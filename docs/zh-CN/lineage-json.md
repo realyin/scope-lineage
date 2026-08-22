@@ -213,7 +213,19 @@ MERGE 的 `ROOT` 是 Core 合成的写入作用域，不对应 SQLGlot 的单一
 中，`scopes.ROOT.raw_sql` 保存规范化后的 `USING` 行集 SQL，以便在不同 SQLGlot 版本间
 保持稳定；它不表示完整 MERGE 语句。各个 `WHEN MATCHED` / `WHEN NOT MATCHED` 分支的
 写入表达式应读取 `ROOT.columns[]` / `ROOT.outputs[]` 中的 `merge_branch` 和
-`merge_when_index`。如果写入值包含标量子查询，ROOT 字段先引用该子查询的稳定 scope
+`merge_when_index`。
+
+Spark 有**三种** WHEN 子句，而 `merge_branch` 的枚举只命名其中两种。第三种
+`WHEN NOT MATCHED BY SOURCE` **不发 `merge_branch`**，改由 `merge_branch_qualifier`
+承载（取值 `not_matched_by_source`），同时发一条 `merge_branch_not_representable` 告警
+说明缺席的原因。`merge_when_index` 照常给出。发一个枚举里现有的名字会让消费者按错误的
+行集语义计算：`not_matched` 指的是「目标中不存在、从源插入」，而该子句写的恰恰是
+「目标中存在、源中没有对应行」。
+
+分支还决定**赋值右侧的名字解析域**，这与 Spark 一致：`MATCHED` 同时可见目标与源
+（两边同名且未限定 → `ambiguous_unqualified`，不任选来源）；`NOT MATCHED` 只见源；
+`NOT MATCHED BY SOURCE` 只见目标，其中出现源别名限定的引用在 Spark 中无法解析，
+Core 记 `dangling_column_ref_dropped` 而不产出来源边。如果写入值包含标量子查询，ROOT 字段先引用该子查询的稳定 scope
 输出，再由 scope 链展开到物理字段；不会把子查询内部字段误绑定到 `USING` scope。
 标量子查询中引用 MERGE 目标行的相关字段会作为目标表的物理自引用保留，并出现在
 `source_tables` 中。
@@ -330,7 +342,8 @@ CTE 名按所在查询块的词法作用域绑定。例如，一个嵌套查询�
 | `downstream_fields[]` | 消费该输出的后续 scope 字段。 |
 | `target_columns[]` / `final_target_columns[]` | 当前目标和最终物理目标字段。 |
 | `consumer_readiness` | 是否已具备安全下游消费所需事实；blocked 时列出原因。 |
-| `merge_branch` / `merge_when_index` | MERGE 场景中字段属于哪个 WHEN 分支。 |
+| `merge_branch` / `merge_when_index` | MERGE 场景中字段属于哪个 WHEN 分支。`merge_branch` 在 `WHEN NOT MATCHED BY SOURCE` 上**缺席**（见 §7），`merge_when_index` 始终给出。 |
+| `merge_branch_qualifier` | 枚举无法命名的 WHEN 子句种类，目前只有 `not_matched_by_source`。被枚举命名的两种分支上不出现。 |
 
 ### 8.1 聚合 STRUCT 成员投影
 

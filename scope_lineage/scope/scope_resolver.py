@@ -27,7 +27,7 @@ from .scope_types import (
     DiagnosticWarning,
 )
 from ._shared import DIALECT, _KNOWN_UDAFS, _SCOPE_ID_ATTR, _classify_extended, _constant_sources, _contains_runtime_function, _inside_nested_query, _selected_sources, _source_free_leaf_sources, _source_item_from_ast_node, _source_ref_for_source, _source_scope_id, _system_sources, _unique_ordered__resolver as _unique_ordered  # noqa: F401  (shared helpers; re-exported)
-from .column_ref_resolver import _materialized_star_column_state, _resolve_column_refs_in_expr  # noqa: F401
+from .column_ref_resolver import _ambiguous_ref, _materialized_star_column_state, _resolve_column_refs_in_expr  # noqa: F401
 from ._shared import (  # noqa: F401
     _REGEX_COLUMN_METACHARACTERS,
     _compiled_column_pattern,
@@ -1083,7 +1083,34 @@ def _resolve_merge_columns(
 
     when_items = whens.expressions if hasattr(whens, "expressions") else [whens]
     for when_index, when in enumerate(when_items):
+        # The branch is read from the WHEN clause itself, not inferred from the THEN
+        # action. Spark has three clause kinds and the action shape only distinguishes
+        # two of them, so inferring silently mislabels NOT MATCHED BY SOURCE -- and,
+        # worse, resolves its values against a relation that branch cannot see.
+        matched = bool(when.args.get("matched"))
+        by_source = not matched and bool(when.args.get("source"))
+        branch = "matched" if matched else "not_matched"
+        # Contract 1.0's enum names two of Spark's three clause kinds; the third is
+        # carried by the qualifier instead of being forced into a name that would state
+        # the wrong rowset semantics.
+        branch_label = None if by_source else branch
+        branch_qualifier = "not_matched_by_source" if by_source else None
+        policy = "target" if by_source else ("both" if matched else "source")
         then = when.args.get("then")
+        if by_source and isinstance(then, exp.Update):
+            # Say why the label is absent. Without this a consumer sees only that
+            # merge_branch is gone and cannot tell "contract 1.0 has no name for this
+            # clause" from "this is not a MERGE write".
+            result.diagnostics.warnings.append(DiagnosticWarning(
+                type="merge_branch_not_representable",
+                scope="ROOT",
+                msg=(
+                    "MERGE WHEN NOT MATCHED BY SOURCE is one of Spark's three WHEN "
+                    "clause kinds and contract 1.0's merge_branch enum names only two; "
+                    "merge_branch is omitted and merge_branch_qualifier carries the "
+                    "clause kind instead."
+                ),
+            ))
         if isinstance(then, exp.Update):
             if any(isinstance(item, exp.Star) for item in then.expressions):
                 # WHEN MATCHED THEN UPDATE SET * -- same target-driven expansion as
@@ -1115,6 +1142,8 @@ def _resolve_merge_columns(
                     all_scopes,
                     target_qualifiers,
                     result,
+                    policy=policy,
+                    schema=schema,
                 )
 
                 if any(source.scope == result.target_table for source in sources):
@@ -1125,7 +1154,8 @@ def _resolve_merge_columns(
 
                 result.scopes["ROOT"].columns.append(ScopeColumn(
                     name=dst_name, transform=transform, expression=expression,
-                    sources=sources, merge_branch="matched",
+                    sources=sources, merge_branch=branch_label,
+                    merge_branch_qualifier=branch_qualifier,
                     merge_when_index=when_index,
                 ))
 
@@ -1150,11 +1180,14 @@ def _resolve_merge_columns(
                         all_scopes,
                         target_qualifiers,
                         result,
+                        policy=policy,
+                        schema=schema,
                         )
 
                     result.scopes["ROOT"].columns.append(ScopeColumn(
                         name=dst_name, transform=transform, expression=expression,
-                        sources=sources, merge_branch="not_matched",
+                        sources=sources, merge_branch=branch_label,
+                        merge_branch_qualifier=branch_qualifier,
                         merge_when_index=when_index,
                     ))
         elif _is_merge_delete_then(then):
@@ -1162,8 +1195,12 @@ def _resolve_merge_columns(
                 type="merge_delete_ignored",
                 scope="ROOT",
                 msg=(
-                    "MERGE WHEN MATCHED THEN DELETE is a row-level operation and "
-                    "does not produce ROOT output columns."
+                    # Named from the clause actually seen: DELETE is legal under both
+                    # MATCHED and NOT MATCHED BY SOURCE, and a warning that names the
+                    # wrong one sends the reader looking for a clause that is not there.
+                    f"MERGE WHEN {'NOT MATCHED BY SOURCE' if by_source else 'MATCHED'} "
+                    "THEN DELETE is a row-level operation and does not produce ROOT "
+                    "output columns."
                 ),
             ))
 
@@ -1203,8 +1240,19 @@ def _resolve_merge_value_sources(
     all_scopes: list[Scope],
     target_qualifiers: set[str],
     result: ScopeLineageResult,
+    *,
+    policy: str = "source",
+    schema: dict | None = None,
 ) -> list[SourceRef]:
-    """Resolve one MERGE assignment value without crossing nested-query boundaries."""
+    """Resolve one MERGE assignment value in the scope its WHEN branch makes visible.
+
+    ``policy`` mirrors Spark's ``MergeResolvePolicy`` (Analyzer.resolveAssignments): a
+    MATCHED action resolves against target *and* source, a NOT MATCHED action against the
+    source, and a NOT MATCHED BY SOURCE action against the target only. Resolving every
+    branch against the USING relation -- which is what this function used to do -- invents
+    a source edge for the branches where Spark cannot see the source at all, and publishes
+    it with ``trace_complete: true`` and no fact gap.
+    """
     sources: list[SourceRef] = []
     seen: set[tuple[str, str]] = set()
 
@@ -1239,6 +1287,20 @@ def _resolve_merge_value_sources(
         if col_table in target_qualifiers and result.target_table:
             append(result.target_table, col_name)
             continue
+        if col_table and policy == "target":
+            # Spark fails analysis here: a BY SOURCE action cannot see the source relation,
+            # so this qualifier names nothing in scope. Publishing a source edge would be a
+            # fact we already know to be false.
+            result.diagnostics.warnings.append(DiagnosticWarning(
+                type="dangling_column_ref_dropped",
+                scope="ROOT",
+                msg=(
+                    f"'{col_table}.{col_name}' in a MERGE NOT MATCHED BY SOURCE action "
+                    f"references a relation that branch cannot see; dropped rather than "
+                    f"attributed to the source"
+                ),
+            ))
+            continue
         if col_table:
             source = using_scope.sources.get(col_table) if using_scope else None
             if isinstance(source, exp.Table):
@@ -1260,9 +1322,108 @@ def _resolve_merge_value_sources(
             else:
                 append(using_scope_id, col_name)
         else:
-            append(using_scope_id, col_name)
+            resolved = _resolve_merge_unqualified(
+                col_name,
+                policy=policy,
+                using_scope=using_scope,
+                using_scope_id=using_scope_id,
+                result=result,
+                schema=schema,
+            )
+            if resolved is not None:
+                if resolved.scope == AMBIGUOUS_SCOPE_ID and (
+                    resolved.scope, resolved.column
+                ) not in seen:
+                    seen.add((resolved.scope, resolved.column))
+                    sources.append(resolved)
+                else:
+                    append(resolved.scope, resolved.column)
 
     return sources or _source_free_leaf_sources(value_expr, expression_sql)
+
+
+def _merge_relation_exposes(columns: list[str] | None, col_name: str) -> bool | None:
+    """True/False if the relation's columns are known, None if they are not.
+
+    Three-valued on purpose: "we cannot see the target's columns" must not collapse into
+    "the target does not have it", or an unknowable name silently resolves to the source
+    -- which is the guess this whole change exists to stop publishing.
+    """
+    if columns is None:
+        return None
+    return col_name.lower() in {c.lower() for c in columns}
+
+
+def _resolve_merge_unqualified(
+    col_name: str,
+    *,
+    policy: str,
+    using_scope: Scope | None,
+    using_scope_id: str | None,
+    result: ScopeLineageResult,
+    schema: dict | None,
+) -> SourceRef | None:
+    """Resolve an unqualified MERGE assignment value under one branch's resolve policy."""
+    if policy == "source":
+        return SourceRef(scope=using_scope_id, column=col_name) if using_scope_id else None
+
+    target_columns = _merge_target_columns(result, schema)
+    if policy == "target":
+        # TARGET needs no existence check: the target is the only relation in scope, so
+        # the name belongs to it whether or not we hold its schema.
+        return (
+            SourceRef(scope=result.target_table, column=col_name)
+            if result.target_table
+            else None
+        )
+
+    source_columns = _merge_source_columns(result, using_scope_id)
+    in_target = _merge_relation_exposes(target_columns, col_name)
+    in_source = _merge_relation_exposes(source_columns, col_name)
+
+    if in_target and in_source:
+        return _ambiguous_ref(
+            col_name, using_scope, result,
+            [
+                {"scope": result.target_table, "column": col_name},
+                {"scope": using_scope_id, "column": col_name},
+            ],
+            "MERGE relations",
+        )
+    if in_target and in_source is False:
+        return SourceRef(scope=result.target_table, column=col_name)
+    if in_source and in_target is False:
+        return SourceRef(scope=using_scope_id, column=col_name)
+
+    # At least one side's columns are unknown, so neither "ambiguous" nor "resolves to the
+    # side I can see" is established. Unknowable is not ambiguous, and neither licenses
+    # picking a side.
+    result.diagnostics.warnings.append(DiagnosticWarning(
+        type="unresolved_unqualified_no_schema",
+        scope="ROOT",
+        msg=(
+            f"Unqualified column '{col_name}' in a MERGE MATCHED action could come from "
+            f"the target or the source, and at least one of their column lists is "
+            f"unavailable; left unresolved rather than attributed to one"
+        ),
+    ))
+    return SourceRef(scope="UNKNOWN", column=col_name)
+
+
+def _merge_target_columns(result, schema: dict | None) -> list[str] | None:
+    if not schema or not result.target_table:
+        return None
+    columns = schema.get(_normalize_table_name(result.target_table))
+    if not columns:
+        return None
+    return [c["name"] if isinstance(c, dict) else str(c) for c in columns]
+
+
+def _merge_source_columns(result, using_scope_id: str | None) -> list[str] | None:
+    scope_data = result.scopes.get(using_scope_id or "")
+    if scope_data is None or not scope_data.columns:
+        return None
+    return [c.name for c in scope_data.columns]
 
 
 def _is_merge_delete_then(then: exp.Expression | None) -> bool:

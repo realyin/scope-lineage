@@ -54,6 +54,12 @@ class ScopeColumn:
     agg_function: Optional[str] = None                # AGGREGATE
     branches: Optional[List[dict]] = None             # UNION
     merge_branch: Optional[str] = None                # MERGE: "matched"|"not_matched"
+    # Spark has three WHEN clause kinds; contract 1.0's ``merge_branch`` enum has two
+    # names. Rather than publish one of the two for a clause that is neither -- which
+    # would state a rowset semantics Spark does not apply -- ``merge_branch`` is left
+    # unset and the clause kind is carried here. Absent for the two branches the enum
+    # does name, so no existing artifact changes shape.
+    merge_branch_qualifier: Optional[str] = None      # MERGE: "not_matched_by_source"
     # Zero-based WHEN identity; one MERGE may write the same field in several clauses.
     merge_when_index: Optional[int] = None
     # True only when sqlglot synthesized the projection name and SQL supplied no alias.
@@ -169,6 +175,7 @@ class ScopeOutputField:
     final_target_columns: List[str] = field(default_factory=list)
     output_ordinal: Optional[int] = None
     merge_branch: Optional[str] = None
+    merge_branch_qualifier: Optional[str] = None
     merge_when_index: Optional[int] = None
 
 
