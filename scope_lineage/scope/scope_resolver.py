@@ -55,6 +55,7 @@ def resolve_all(
     *,
     merge_node: exp.Merge | None = None,
     merge_using_scope: Scope | None = None,
+    regex_columns_enabled: bool = True,
 ) -> None:
     """Resolve columns for all scopes in the result.
 
@@ -99,7 +100,9 @@ def resolve_all(
     # Step 3b: Expand wildcard (*) columns into concrete columns where upstream is known.
     # Iterates until stable so that chains like  subq:a.* → subq:aa.* → union:aa.[cols]
     # are fully unrolled.
-    _expand_regex_column_selection(result, all_scopes, schema)
+    _expand_regex_column_selection(
+        result, all_scopes, schema, regex_columns_enabled=regex_columns_enabled
+    )
     _expand_star_columns(result)
     _materialize_referenced_star_columns(result)
     _refresh_union_scopes_after_star_expansion(result, all_scopes)
@@ -565,6 +568,8 @@ def _expand_regex_column_selection(
     result: ScopeLineageResult,
     all_scopes: list[Scope],
     schema: dict | None,
+    *,
+    regex_columns_enabled: bool = True,
 ) -> None:
     """Expand Spark's quoted regex column selection into the columns it matches.
 
@@ -578,6 +583,14 @@ def _expand_regex_column_selection(
     left as it is and keeps reporting its gap rather than inventing column names.
     """
     expanded: list[tuple[str, str]] = []
+    if not regex_columns_enabled:
+        # spark.sql.parser.quotedRegexColumnNames is off -- Spark's own default. There the
+        # backtick-quoted name is an ordinary column, the statement fails analysis and never
+        # runs, so expanding it would invent lineage for SQL that cannot execute. The column
+        # is left exactly as an unexpandable pattern already is when no schema is available;
+        # only the warning changes, from "no such column" to the reason.
+        _report_regex_selection_disabled(result, all_scopes, schema)
+        return
     for sg_scope in all_scopes:
         scope_id = getattr(sg_scope, _SCOPE_ID_ATTR, None)
         scope_data = result.scopes.get(scope_id) if scope_id else None
@@ -642,6 +655,55 @@ def _retract_warnings_for_expanded_patterns(
             for scope_id, name in keys
         )
     ]
+
+
+def _report_regex_selection_disabled(
+    result: ScopeLineageResult,
+    all_scopes: list[Scope],
+    schema: dict | None,
+) -> None:
+    """Replace the pattern column's "not found" warning with the real reason.
+
+    Only that one warning is touched, matched on scope and name. Everything downstream --
+    the dangling refs, their warnings and their gaps -- is the state an unexpandable
+    pattern already produces, and `_drop_dangling_column_refs` documents its warning as the
+    audit trail for rewriting those sources to UNKNOWN (LINEAGE-001). Retracting those
+    would leave a silent UNKNOWN, and the session setting disproves none of them: the refs
+    genuinely dangle.
+    """
+    disabled: set[tuple[str, str]] = set()
+    for sg_scope in all_scopes:
+        scope_id = getattr(sg_scope, _SCOPE_ID_ATTR, None)
+        scope_data = result.scopes.get(scope_id) if scope_id else None
+        if scope_data is None:
+            continue
+        inputs = _regex_selection_input_columns(sg_scope, result, schema)
+        for column in scope_data.columns:
+            if _looks_like_regex_column_selection(column, inputs):
+                disabled.add((scope_id, column.name))
+    if not disabled:
+        return
+    retractable = {"column_not_found", "column_not_in_table_schema"}
+    result.diagnostics.warnings = [
+        warning
+        for warning in result.diagnostics.warnings
+        if warning.type not in retractable
+        or not any(
+            warning.scope == scope_id and f"'{name}'" in (warning.msg or "")
+            for scope_id, name in disabled
+        )
+    ]
+    for scope_id, name in sorted(disabled):
+        result.diagnostics.warnings.append(DiagnosticWarning(
+            type="regex_column_selection_disabled",
+            scope=scope_id,
+            msg=(
+                f"Projection '{name}' is a quoted regex column selection, but "
+                f"spark.sql.parser.quotedRegexColumnNames is off in this session "
+                f"(Spark's default). Spark reads it as an ordinary column name and the "
+                f"statement fails analysis, so it was not expanded."
+            ),
+        ))
 
 
 def _looks_like_regex_column_selection(

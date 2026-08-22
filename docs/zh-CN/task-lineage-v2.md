@@ -331,13 +331,63 @@ insert overwrite table mart.y select id from v;      -- 读 state:v:002
 | --- | --- | --- |
 | INSERT INTO | APPEND | 旧状态值与新增投影值并存。 |
 | INSERT OVERWRITE | REPLACE | 全表覆盖时新状态值来自本次投影。 |
-| INSERT OVERWRITE PARTITION | REPLACE_PARTITION | 被覆盖分区来自本次投影，未受影响分区保留旧状态来源。 |
+| INSERT OVERWRITE PARTITION（分区规格给了值，或会话为 DYNAMIC） | REPLACE_PARTITION | 被覆盖分区来自本次投影，未受影响分区保留旧状态来源。 |
+| INSERT OVERWRITE PARTITION（分区规格全动态，且会话未设为 DYNAMIC） | REPLACE | **整表替换**。Spark 的 `spark.sql.sources.partitionOverwriteMode` 默认是 `static`，此时一条 `PARTITION(dt)` 会先删掉整张表的目录再写入。详见下方「覆写范围取决于会话配置」。 |
 | CTAS | REPLACE | 创建没有旧目标分支的新状态。 |
 | DELETE | DELETE_MATCHED_ROWS | 未删除行 PASSTHROUGH_SURVIVING_ROWS；无 WHERE 时为 DELETE_ALL_ROWS。 |
 | TRUNCATE | RESET_ALL_ROWS | 行集合已知为空，字段集合保留，但字段 value_sources 为空。 |
 | TRUNCATE PARTITION | RESET_PARTITION | 未受影响分区及其既有字段来源保留。 |
 | UPDATE | PRESERVE_ROWS | 被赋值字段是条件更新，其他字段透传。 |
 | MERGE | MERGE | 旧状态与已解析的 update/delete/insert 分支共同形成新状态。 |
+
+### 覆写范围取决于会话配置
+
+`INSERT OVERWRITE` 删掉多少数据，由 `spark.sql.sources.partitionOverwriteMode` 决定，
+**Spark 的默认值是 `static`**：
+
+| 分区规格 | 会话设置 | 删除范围 |
+| --- | --- | --- |
+| `PARTITION(dt='2026-01-01')` | 任意 | 只删 `dt=2026-01-01` |
+| `PARTITION(dt)`（全动态） | `static`（**默认**） | **整张表目录** |
+| `PARTITION(dt)`（全动态） | `dynamic` | 只删本次实际写出的分区 |
+| `PARTITION(dt, region='mx')`（混合） | `static` | 静态前缀 `region=mx` 之下全部 |
+
+脚本里的 `SET` 会被读取并按语句顺序生效。**脚本没有设置时按 Spark 默认 `static` 处理**——
+这是一个假设，不是观察到的事实：真实集群可能在 `spark-defaults.conf` 里设成 `dynamic`。
+
+#### 两个不要弄错的地方
+
+**`hive.exec.dynamic.partition.mode` 与本设置无关。** 前者是**编译期**对分区规格形状的准入检查
+（`strict` 要求至少有一个静态分区列，否则直接报错），它**不影响删除范围**。
+把 `nonstrict` 读成 `dynamic` 是错的。
+
+**Hive serde 表不受本设置影响。** Spark 官方文档原文：*"this config doesn't affect Hive serde
+tables, as they are always overwritten with dynamic mode."* 本工具只看 SQL，无法判断目标表走的是
+datasource 还是 Hive serde 写入路径，因此对 Hive serde 表的裸动态覆写，模型给出的 `REPLACE`
+会比实际删除范围**保守（更大）**。
+
+#### 产物里怎么看出这个结论是不是猜的
+
+`effect.rowset_effect` 上有一个可选字段 `partition_overwrite_mode_source`：
+
+| 取值 | 含义 |
+| --- | --- |
+| **字段不出现** | 本次结论与该设置无关（静态分区值、混合规格、CTAS、MERGE、非分区表的整表覆写…） |
+| `observed` | 脚本中出现过该 `SET` |
+| `assumed_default` | **脚本未设置，按 Spark 默认 `static` 推出**——若集群实际配成 `dynamic`，本条的 `REPLACE` 会偏保守，目标表自身的历史状态其实仍有残留 |
+
+**`observed` 不等于「确定」。** 它只表示脚本里看到了那条 `SET`。上面说过该设置对 Hive serde
+表无效，而本工具无法从 SQL 判断写入路径——所以即使是 `observed`，结论仍依赖一个不可观察的前提。
+
+**两种形态会被标记**：分区规格全动态（`PARTITION(dt)`），以及**完全不写 `PARTITION` 子句
+但目标表是分区表**——后者在 Spark 里同样是动态分区插入。判断后者需要 `--target-ddl-metadata`
+提供该表的分区列；没提供时无法判断，字段不出现。
+
+**`end_to_end_lineage` 上没有这个标记**（有意为之，避免逐行重复）。要从一条血缘回溯到它，
+经 `target_state` → `table_state_graph.nodes[].producer_statement_id` →
+`statement_sequence[].effect.rowset_effect` 三跳关联。
+
+
 
 例如 TRUNCATE; INSERT 会形成两个中间状态：TRUNCATE 后状态 known_empty=true，后续 INSERT
 生成新的最终状态。因此消费者不能仅因脚本出现 TRUNCATE 就断言任务结束时表为空。

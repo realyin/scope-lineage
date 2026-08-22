@@ -92,7 +92,7 @@ GROUP BY c.customer_id;
 | `skipped_statements` | array<object> | 条件输出 | v1 未作为投影写入建模的顶层语句。包含稳定的 `statement_id`、零基 `statement_index`、`statement_kind`、`category`、`model_status`、`reason`、`normalized_sql` 和支持范围说明；行变更应改用 v2 建模。**`category` 为 `control_statement`（如 `SET`）或 `empty_statement` 的语句是设计上忽略的，只记录、不再发 `unsupported_statement` 告警**——要知道被忽略了什么，读本字段（它只出现在 `lineage.json`，不在 `diagnostics.json` 里）。 |
 | `target_partition_spec` | object | 是 | 分区名到分区值的映射。动态分区的 value 可以为 `null`。 |
 | `target_partition_columns` | array<string> | 是 | 目标表分区列名。 |
-| `target_partition_mode` | enum string | 是 | `none`、`static`、`dynamic` 或 `mixed`。 |
+| `target_partition_mode` | enum string | 是 | `none`、`static`、`dynamic` 或 `mixed`，描述的是 **`PARTITION(...)` 子句的写法**：给了值是 `static`、没给值是 `dynamic`、没有该子句是 `none`。**它与会话配置 `spark.sql.sources.partitionOverwriteMode` 无关**，也不表示这次覆写会删掉多少数据——两者名字相近但含义不同。覆写的实际影响范围由 v2 的 `effect.rowset_effect` 表达，见 task-lineage-v2.md。 |
 | `target_field_binding` | object | 条件输出 | 提供目标表 DDL/Schema 时输出，说明目标字段是否按权威顺序绑定。 |
 | `task_dependencies` | object | 是 | 从任务 JSON 保留的上游、下游任务声明，以及依赖来源摘要。 |
 | `source_tables` | array<string> | 是 | 解析得到的全部物理输入表去重列表。适合表级检索和初步影响分析。 |
