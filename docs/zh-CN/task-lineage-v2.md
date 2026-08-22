@@ -364,7 +364,8 @@ Spark 官方默认是 `static`，本工具照此推断。**若你们集群配的
 scope-lineage parse --contract-version 2.0 --partition-overwrite-mode dynamic ...
 ~~~
 
-不传的后果是**实质性的**：约五分之一的写入效果判定方向相反，
+不传的后果是**实质性的**：每一条不给分区取值的 `INSERT OVERWRITE ... PARTITION(col)`
+（这是分区表日常写入的常见写法）效果判定方向都相反，
 `end_to_end_lineage` 会缺掉大量"来自该表自身历史状态"的来源边——
 一张每天被覆写的分区表，工具会认为每次覆写抹光了历史。
 

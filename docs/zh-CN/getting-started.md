@@ -355,7 +355,8 @@ export SCOPE_LINEAGE_CATALOG_PREFIXES="warehouse_catalog,spark_catalog"
 
 **若你们集群配的是 `dynamic`**（Spark Web UI 的 Environment 页可确认），
 在 `--contract-version 2.0` 下传 `--partition-overwrite-mode dynamic`，
-否则约五分之一的写入效果判定方向会相反。脚本里的 `SET` 始终优先于该参数。
+否则每一条不给分区取值的覆写——分区表日常写入的常见写法——效果判定方向都会相反。
+脚本里的 `SET` 始终优先于该参数。
 
 ## 8. Python API
 
