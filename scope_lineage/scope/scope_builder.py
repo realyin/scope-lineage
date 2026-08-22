@@ -347,7 +347,7 @@ def parse_scope_lineage(
     elif isinstance(tree, exp.Merge) or (
         tree.find(exp.Merge) is not None and tree.find(exp.Insert) is None
     ):
-        result = _build_merge_scope(tree, task_name, schema, regex_columns_enabled=enabled)
+        result = _build_merge_scope(tree, task_name, schema, regex_columns_enabled=enabled, target_metadata=target_metadata)
     else:
         # Same boundary parse_all_scope_lineage has had: a statement whose scope build raises
         # comes back marked instead of taking the caller down. The single-statement entry point
@@ -424,7 +424,10 @@ def parse_all_scope_lineage(
                 tree.find(exp.Merge) is not None and tree.find(exp.Insert) is None
             ):
                 results.append(
-                    _build_merge_scope(tree, sub, stmt_schema, regex_columns_enabled=enabled)
+                    _build_merge_scope(
+                        tree, sub, stmt_schema,
+                        regex_columns_enabled=enabled, target_metadata=target_metadata,
+                    )
                 )
             else:
                 if target_metadata is None:
@@ -830,7 +833,7 @@ def _merge_with_subquery_source(merge: exp.Merge) -> exp.Merge:
 
 def _build_merge_scope(
     tree: exp.Expression, task_name: str, schema: dict | None = None,
-    *, regex_columns_enabled: bool = True,
+    *, regex_columns_enabled: bool = True, target_metadata=None,
 ) -> ScopeLineageResult:
     """Build scope tree for MERGE statements.
 
@@ -856,9 +859,21 @@ def _build_merge_scope(
     protected = _protect_merge_correlated_target_refs(merge)
     qualified, _qualify_ok = _qualify_ast(merge)
     _restore_merge_correlated_target_refs(qualified, protected)
+    # Only the column list, and only for the `*` branches. Deliberately not routed
+    # through apply_target_field_binding: that pass runs before MERGE's ROOT columns
+    # exist, so it would bind against an empty projection and report every MERGE as a
+    # count-mismatch fallback.
+    merge_metadata = (
+        lookup_target_table_metadata(target_metadata, target_table)
+        if target_metadata is not None
+        else None
+    )
     _build_result_from_scope(
         qualified, result, target_table, schema,
         regex_columns_enabled=regex_columns_enabled,
+        merge_target_columns=(
+            [c.name for c in merge_metadata.columns] if merge_metadata else None
+        ),
     )
     _drop_dangling_column_refs(result)
     result.diagnostics.stats = _compute_stats(result)
@@ -1044,6 +1059,7 @@ def _build_result_from_scope(
     qualified_expr, result: ScopeLineageResult, target_table: str,
     schema: dict | None = None,
     regex_columns_enabled: bool = True,
+    merge_target_columns: list[str] | None = None,
     *,
     target_metadata=None,
     explicit_target_columns: list[str] | None = None,
@@ -1209,6 +1225,7 @@ def _build_result_from_scope(
         merge_node=merge_node,
         merge_using_scope=merge_using_scope,
         regex_columns_enabled=regex_columns_enabled,
+        merge_target_columns=merge_target_columns,
     )
     _populate_enhanced_scope_facts(result, all_scopes, schema)
     result.related_metadata = build_related_metadata(result, schema)
