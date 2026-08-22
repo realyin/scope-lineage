@@ -56,6 +56,7 @@ def resolve_all(
     merge_node: exp.Merge | None = None,
     merge_using_scope: Scope | None = None,
     regex_columns_enabled: bool = True,
+    merge_target_columns: list[str] | None = None,
 ) -> None:
     """Resolve columns for all scopes in the result.
 
@@ -126,6 +127,7 @@ def resolve_all(
             all_scopes,
             result,
             schema,
+            target_columns=merge_target_columns,
         )
         _materialize_referenced_star_columns(result)
 
@@ -970,12 +972,92 @@ def _star_passthrough_columns(scope_data: ScopeData) -> list[ScopeColumn]:
     ]
 
 
+def _expand_merge_star(
+    result: ScopeLineageResult,
+    using_scope_id: str | None,
+    using_node,
+    target_columns: list[str] | None,
+    *,
+    branch: str,
+    when_index: int,
+) -> None:
+    """Expand a MERGE `*` branch the way Spark does: over the target's columns.
+
+    Spark's InsertStarAction/UpdateStarAction iterate `targetTable.output` and pull each
+    attribute from the source by name, so the columns written -- and their order -- come
+    from the target, not the USING side. Walking the source instead published source
+    names as target columns, which is wrong whenever the two disagree (MERGESTAR-001).
+
+    Two things it deliberately does not do:
+
+    * Without a target column list it keeps the old source-driven shape. Guessing target
+      names from the source is what this fixes; doing it silently when we simply were not
+      given the DDL would be the same error wearing a different hat.
+    * When the source's own columns are unknown it gets out of the way entirely. "The
+      source lacks this column" is a claim about the user's SQL -- Spark would fail the
+      analysis -- and we cannot make it from an absent schema. The honest
+      `star_not_expanded` that the projection already carries says the true thing.
+    """
+    scope_data = result.scopes.get(using_scope_id or "")
+    source_columns = list(scope_data.columns) if scope_data else []
+    source_alias = (
+        using_node.alias_or_name
+        if using_node is not None and using_node.alias_or_name
+        else "source"
+    )
+
+    def emit(name: str, source_name: str | None) -> None:
+        result.scopes["ROOT"].columns.append(ScopeColumn(
+            name=name,
+            transform="DIRECT",
+            expression=f"{source_alias}.{source_name or name}",
+            sources=(
+                [SourceRef(scope=using_scope_id, column=source_name)]
+                if source_name is not None
+                else [SourceRef(scope="UNKNOWN", column=name)]
+            ),
+            merge_branch=branch,
+            merge_when_index=when_index,
+        ))
+
+    if not target_columns:
+        for source_column in source_columns:
+            emit(source_column.name, source_column.name)
+        return
+
+    by_name = {column.name.lower(): column.name for column in source_columns}
+    source_columns_known = bool(source_columns) and not any(
+        column.name == "*" or str(column.name or "").endswith(".*")
+        for column in source_columns
+    )
+    if not source_columns_known:
+        for source_column in source_columns:
+            emit(source_column.name, source_column.name)
+        return
+
+    for target_name in target_columns:
+        matched = by_name.get(target_name.lower())
+        emit(target_name, matched)
+        if matched is None:
+            result.diagnostics.warnings.append(DiagnosticWarning(
+                type="merge_star_target_column_missing_in_source",
+                scope="ROOT",
+                msg=(
+                    f"MERGE ... {branch.upper()} * writes target column "
+                    f"'{target_name}', but the source has no column of that name. "
+                    f"Spark resolves a star branch against the target's columns and "
+                    f"fails analysis when one cannot be found in the source."
+                ),
+            ))
+
+
 def _resolve_merge_columns(
     merge_node: exp.Merge,
     using_scope: Scope | None,
     all_scopes: list[Scope],
     result: ScopeLineageResult,
     schema: dict | None = None,
+    target_columns: list[str] | None = None,
 ) -> None:
     """Resolve MERGE WHEN clauses into ROOT scope columns."""
     using_node = merge_node.args.get("using")
@@ -1003,6 +1085,15 @@ def _resolve_merge_columns(
     for when_index, when in enumerate(when_items):
         then = when.args.get("then")
         if isinstance(then, exp.Update):
+            if any(isinstance(item, exp.Star) for item in then.expressions):
+                # WHEN MATCHED THEN UPDATE SET * -- same target-driven expansion as
+                # INSERT *. Only legal under a matched clause, so the branch label is
+                # unambiguous (SqlBaseParser.g4: notMatchedBySourceAction has no SET *).
+                _expand_merge_star(
+                    result, using_scope_id, using_node, target_columns,
+                    branch="matched", when_index=when_index,
+                )
+                continue
             # WHEN MATCHED THEN UPDATE SET
             # Only direct Update expressions are assignments. A recursive find_all(EQ)
             # also visits predicates inside scalar subqueries and used to publish e.g.
@@ -1043,24 +1134,10 @@ def _resolve_merge_columns(
             ins_cols = then.this
             values = then.expression
             if isinstance(ins_cols, exp.Star):
-                using_scope_data = result.scopes.get(using_scope_id or "")
-                source_alias = (
-                    using_node.alias_or_name
-                    if using_node is not None and using_node.alias_or_name
-                    else "source"
+                _expand_merge_star(
+                    result, using_scope_id, using_node, target_columns,
+                    branch="not_matched", when_index=when_index,
                 )
-                for source_column in (using_scope_data.columns if using_scope_data else []):
-                    result.scopes["ROOT"].columns.append(ScopeColumn(
-                        name=source_column.name,
-                        transform="DIRECT",
-                        expression=f"{source_alias}.{source_column.name}",
-                        sources=[SourceRef(
-                            scope=using_scope_id,
-                            column=source_column.name,
-                        )],
-                        merge_branch="not_matched",
-                        merge_when_index=when_index,
-                    ))
             elif isinstance(ins_cols, exp.Tuple) and isinstance(values, exp.Tuple):
                 for dst_col_node, val_expr in zip(ins_cols.expressions, values.expressions):
                     dst_name = dst_col_node.name if hasattr(dst_col_node, "name") else str(dst_col_node)
