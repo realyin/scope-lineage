@@ -475,6 +475,25 @@
               "rowset",
               "unresolved"
             ]
+          },
+          "merge_branch": {
+            "type": "string",
+            "enum": [
+              "matched",
+              "not_matched"
+            ],
+            "description": "MERGE 写入所属的 WHEN 分支。Spark 有三种 WHEN 子句，本枚举只命名其中两种；第三种（NOT MATCHED BY SOURCE）**不发本字段**，改由 merge_branch_qualifier 承载——与其发一个会让消费者算出错误行集语义的名字，不如不发。"
+          },
+          "merge_branch_qualifier": {
+            "type": "string",
+            "enum": [
+              "not_matched_by_source"
+            ],
+            "description": "本枚举无法命名的 WHEN 子句种类。出现即表示 merge_branch 缺席是因为契约词汇不足，而不是因为这不是一条 MERGE 写入（语句种类见顶层 stmt_kind）。两种被枚举命名的分支上不出现，因此既有产物形状不变。"
+          },
+          "merge_when_index": {
+            "type": "integer",
+            "minimum": 0
           }
         }
       }
@@ -969,7 +988,8 @@
                   "enum": [
                     "matched",
                     "not_matched"
-                  ]
+                  ],
+                  "description": "MERGE 写入所属的 WHEN 分支。Spark 有三种 WHEN 子句，本枚举只命名其中两种；第三种（NOT MATCHED BY SOURCE）**不发本字段**，改由 merge_branch_qualifier 承载——与其发一个会让消费者算出错误行集语义的名字，不如不发。"
                 },
                 "merge_when_index": {
                   "type": "integer",
@@ -1170,6 +1190,13 @@
                       }
                     }
                   }
+                },
+                "merge_branch_qualifier": {
+                  "type": "string",
+                  "enum": [
+                    "not_matched_by_source"
+                  ],
+                  "description": "本枚举无法命名的 WHEN 子句种类。出现即表示 merge_branch 缺席是因为契约词汇不足，而不是因为这不是一条 MERGE 写入（语句种类见顶层 stmt_kind）。两种被枚举命名的分支上不出现，因此既有产物形状不变。"
                 }
               }
             }
@@ -1274,7 +1301,8 @@
                   "enum": [
                     "matched",
                     "not_matched"
-                  ]
+                  ],
+                  "description": "MERGE 写入所属的 WHEN 分支。Spark 有三种 WHEN 子句，本枚举只命名其中两种；第三种（NOT MATCHED BY SOURCE）**不发本字段**，改由 merge_branch_qualifier 承载——与其发一个会让消费者算出错误行集语义的名字，不如不发。"
                 },
                 "merge_when_index": {
                   "type": "integer",
@@ -1346,6 +1374,13 @@
                       }
                     }
                   }
+                },
+                "merge_branch_qualifier": {
+                  "type": "string",
+                  "enum": [
+                    "not_matched_by_source"
+                  ],
+                  "description": "本枚举无法命名的 WHEN 子句种类。出现即表示 merge_branch 缺席是因为契约词汇不足，而不是因为这不是一条 MERGE 写入（语句种类见顶层 stmt_kind）。两种被枚举命名的分支上不出现，因此既有产物形状不变。"
                 }
               }
             }
@@ -1461,6 +1496,25 @@
             "complete",
             "incomplete"
           ]
+        },
+        "merge_branch": {
+          "type": "string",
+          "enum": [
+            "matched",
+            "not_matched"
+          ],
+          "description": "MERGE 写入所属的 WHEN 分支。Spark 有三种 WHEN 子句，本枚举只命名其中两种；第三种（NOT MATCHED BY SOURCE）**不发本字段**，改由 merge_branch_qualifier 承载——与其发一个会让消费者算出错误行集语义的名字，不如不发。"
+        },
+        "merge_branch_qualifier": {
+          "type": "string",
+          "enum": [
+            "not_matched_by_source"
+          ],
+          "description": "本枚举无法命名的 WHEN 子句种类。出现即表示 merge_branch 缺席是因为契约词汇不足，而不是因为这不是一条 MERGE 写入（语句种类见顶层 stmt_kind）。两种被枚举命名的分支上不出现，因此既有产物形状不变。"
+        },
+        "merge_when_index": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },

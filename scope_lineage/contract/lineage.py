@@ -351,6 +351,8 @@ def _scope_column_to_dict(c: ScopeColumn) -> dict:
         d["branches"] = to_dict(c.branches)
     if c.merge_branch is not None:
         d["merge_branch"] = c.merge_branch
+    if c.merge_branch_qualifier is not None:
+        d["merge_branch_qualifier"] = c.merge_branch_qualifier
     if c.merge_when_index is not None:
         d["merge_when_index"] = c.merge_when_index
     if c.parsed_name is not None:
@@ -528,6 +530,8 @@ def _scope_output_field_to_dict(output: ScopeOutputField) -> dict:
         d["output_ordinal"] = output.output_ordinal
     if output.merge_branch is not None:
         d["merge_branch"] = output.merge_branch
+    if output.merge_branch_qualifier is not None:
+        d["merge_branch_qualifier"] = output.merge_branch_qualifier
     if output.merge_when_index is not None:
         d["merge_when_index"] = output.merge_when_index
     return d
