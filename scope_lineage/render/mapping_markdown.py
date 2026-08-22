@@ -260,11 +260,29 @@ def _render_overview(document: dict) -> list[str]:
         for issue in binding.get("issues") or []:
             lines.append(f"  - ⚠ 绑定问题：{_normalize_inline(str(issue))}")
     else:
-        lines.append(
-            "- 目标绑定：未做目标绑定（文档无 target_field_binding：MERGE、缺目标 DDL "
-            "或目录写入等场景）"
-        )
+        reason = document.get("target_binding_absent_reason")
+        gloss = _BINDING_ABSENT_GLOSSES.get(reason)
+        if reason == "target_table_not_found":
+            # the only absence with real risk: Spark INSERTs positionally
+            lines.append(f"- ⚠ 目标绑定：未做（{gloss}）")
+        elif gloss:
+            lines.append(f"- 目标绑定：未做（{gloss}）")
+        elif reason:
+            lines.append(f"- 目标绑定：未做（target_binding_absent_reason={reason}）")
+        else:
+            lines.append("- 目标绑定：未做目标绑定（文档未给出原因）")
     return lines
+
+
+# Chinese glosses for target_binding_absent_reason (contract 1.x, added in #92).
+_BINDING_ABSENT_GLOSSES = {
+    "statement_defines_its_own_columns": "CTAS 建表即定列，无需绑定",
+    "binding_not_applicable_for_statement": "MERGE 在绑定机制之外解析目标列",
+    "target_is_not_a_table": "写入文件路径，没有可绑定的目标表",
+    "metadata_not_provided": "调用方未提供 --target-ddl-metadata",
+    "target_table_not_found": "提供了目标 DDL 目录但缺少该表——INSERT 按位置写入，"
+    "未绑定的投影可能落错列",
+}
 
 
 def _render_sources(document: dict) -> list[str]:
