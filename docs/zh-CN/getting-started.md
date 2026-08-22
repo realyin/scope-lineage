@@ -346,6 +346,17 @@ export SCOPE_LINEAGE_CATALOG_PREFIXES="warehouse_catalog,spark_catalog"
 
 命令行配置优先于环境变量。不要把 `ods`、`dwd` 等 database 名误配成 catalog。
 
+
+### 集群的覆写模式与 Spark 默认不同时
+
+`INSERT OVERWRITE TABLE t PARTITION(dt)`（分区规格不给值）删掉多少数据，
+取决于 `spark.sql.sources.partitionOverwriteMode`：`static`（Spark 官方默认）删整表，
+`dynamic` 只删本次实际写出的分区。脚本通常不设置它，本工具按 Spark 默认推断。
+
+**若你们集群配的是 `dynamic`**（Spark Web UI 的 Environment 页可确认），
+在 `--contract-version 2.0` 下传 `--partition-overwrite-mode dynamic`，
+否则约五分之一的写入效果判定方向会相反。脚本里的 `SET` 始终优先于该参数。
+
 ## 8. Python API
 
 ```python
