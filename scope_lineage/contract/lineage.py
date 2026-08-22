@@ -206,6 +206,16 @@ def _result_to_dict(r: ScopeLineageResult) -> dict:
             if r.target_field_binding
             else {}
         ),
+        # Only when there is no binding, and only to say which of the four unrelated
+        # reasons it is: three are harmless, one means the projection may land in the
+        # wrong columns. A separate optional key rather than an always-present
+        # target_field_binding, so a consumer testing for that key keeps the behaviour
+        # it has.
+        **(
+            {"target_binding_absent_reason": r.target_binding_absence}
+            if not r.target_field_binding and r.target_binding_absence
+            else {}
+        ),
         "task_dependencies": _task_dependencies_to_dict(r.task_dependencies),
         "source_tables": r.source_tables,
         "related_metadata": r.related_metadata,

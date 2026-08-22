@@ -20,7 +20,7 @@
       "target_table": "mart.event_target",
       "target_field_binding": {
         "status": "absent",
-        "reason_code": "metadata_not_provided"
+        "reason_code": "binding_not_applicable_for_statement"
       },
       "input_states": [
         "state:mart.event_target:000"
@@ -89,6 +89,7 @@
       "target_partition_spec": {},
       "target_partition_columns": [],
       "target_partition_mode": "none",
+      "target_binding_absent_reason": "binding_not_applicable_for_statement",
       "task_dependencies": {
         "upstream_tasks": [],
         "downstream_tasks": [],

@@ -11,6 +11,48 @@ from ..metadata.target_table_metadata import (
 from .scope_types import DiagnosticWarning, ScopeLineageResult
 
 
+_DIRECTORY_TARGET_PREFIX = "directory:"
+
+
+def _absence_reason(result, *, target_metadata) -> str | None:
+    """Why this statement will have no target_field_binding, or None if it will have one.
+
+    Computed here because this is the only place holding all four facts at once: the
+    statement kind, the target's name, whatever metadata the caller supplied, and the
+    lookup result. The task document used to re-derive it at its own call site from
+    `metadata_requested` alone, which is why it reported every CTAS, MERGE and path write
+    as `target_table_not_found` -- the one value that means the binding *should* have
+    happened (TARGETBIND-001).
+
+    The order is load-bearing, and each step is earlier than the test it would otherwise
+    fail:
+
+    * A path target exits at a different early return depending on whether metadata was
+      supplied, so it has to be recognised before either of them.
+    * CTAS and MERGE never reach the pass with metadata in hand -- `_build_ctas_scope`
+      does not take it, and `_build_merge_scope` uses it only to expand a `*` branch --
+      so keying them on "no metadata" would label all of them `metadata_not_provided`.
+
+    Deliberately not distinguished: after the MERGE star fix, a MERGE whose caller
+    supplied the DDL takes its column *names* from that DDL, in target order, while one
+    without it falls back to the source's names. Both land on
+    `binding_not_applicable_for_statement`. Splitting them needs to know whether the star
+    expansion had a column list, and that fact was already dropped one frame upstream --
+    `_build_merge_scope` hands on the column list, not the metadata.
+    """
+    if str(result.target_table or "").startswith(_DIRECTORY_TARGET_PREFIX):
+        return "target_is_not_a_table"
+    if result.stmt_kind == "CTAS":
+        return "statement_defines_its_own_columns"
+    if result.stmt_kind == "MERGE":
+        return "binding_not_applicable_for_statement"
+    if target_metadata is None:
+        return "metadata_not_provided"
+    if lookup_target_table_metadata(target_metadata, result.target_table) is None:
+        return "target_table_not_found"
+    return None
+
+
 def apply_target_field_binding(
     result: ScopeLineageResult,
     *,
@@ -19,6 +61,9 @@ def apply_target_field_binding(
     insert_by_name: bool = False,
 ) -> None:
     """Apply optional target names after star expansion and before ROOT de-duplication."""
+    result.target_binding_absence = _absence_reason(
+        result, target_metadata=target_metadata
+    )
     if target_metadata is None:
         return
     root = result.scopes.get("ROOT")
