@@ -320,4 +320,4 @@ class ScopeLineageResult:
     # once, at the only place that sees the statement kind, the target name, the supplied
     # metadata and the lookup result together; both contract writers read it rather than
     # each re-deriving it (the task document used to, and got all four cases wrong).
-    target_binding_absence: str | None = None
+    target_binding_absence: "str | None" = None
