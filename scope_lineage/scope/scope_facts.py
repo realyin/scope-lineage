@@ -853,6 +853,11 @@ def _populate_field_mapping_chains(result: ScopeLineageResult) -> None:
                     else {}
                 ),
                 **(
+                    {"merge_branch_qualifier": output.merge_branch_qualifier}
+                    if output.merge_branch_qualifier is not None
+                    else {}
+                ),
+                **(
                     {"merge_when_index": output.merge_when_index}
                     if output.merge_when_index is not None
                     else {}
@@ -980,6 +985,11 @@ def _field_mapping_step(scope_id: str, output: ScopeOutputField) -> dict[str, ob
             else {}
         ),
         **(
+            {"merge_branch_qualifier": output.merge_branch_qualifier}
+            if output.merge_branch_qualifier is not None
+            else {}
+        ),
+        **(
             {"merge_when_index": output.merge_when_index}
             if output.merge_when_index is not None
             else {}
@@ -1065,6 +1075,7 @@ def _populate_scope_outputs(result: ScopeLineageResult) -> None:
                     target_columns=target_columns,
                     output_ordinal=output_ordinal,
                     merge_branch=column.merge_branch,
+                    merge_branch_qualifier=column.merge_branch_qualifier,
                     merge_when_index=column.merge_when_index,
                 )
             )

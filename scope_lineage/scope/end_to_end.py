@@ -77,6 +77,8 @@ def build_end_to_end_lineage(result: ScopeLineageResult) -> list[dict[str, Any]]
             item["window_context_sources"] = trace["window_context_sources"]
         if column.merge_branch is not None:
             item["merge_branch"] = column.merge_branch
+        if column.merge_branch_qualifier is not None:
+            item["merge_branch_qualifier"] = column.merge_branch_qualifier
         if column.merge_when_index is not None:
             item["merge_when_index"] = column.merge_when_index
         if column.parsed_name is not None:
