@@ -10,10 +10,17 @@ from __future__ import annotations
 from scope_lineage import parse_scope_lineage
 from scope_lineage.scope.task_lineage import parse_task_lineage
 
+# spark.sql.parser.quotedRegexColumnNames defaults to false, and under false Spark reads a
+# backtick-quoted regex as an ordinary column name and fails analysis -- the statements below
+# could not run as written. The SET is what makes them real SQL, so it is part of the fixture,
+# not scaffolding added to make a test pass.
+_ENABLE = "SET spark.sql.parser.quotedRegexColumnNames=true;\n"
+
+
 
 SCHEMA = {"ods.s": ["id", "v", "dt"], "mart.t": ["id", "v"]}
 
-REGEX_PROJECTION_SQL = """
+REGEX_PROJECTION_SQL = _ENABLE + """
 INSERT INTO mart.t
 SELECT a.id, a.v FROM (SELECT `(dt)?+.+` FROM ods.s) a
 """
@@ -53,7 +60,7 @@ def test_a_regex_projection_without_schema_keeps_its_gap() -> None:
     Guessing here would invent column names; the wildcard path reports the same way.
     """
     result = parse_scope_lineage(
-        "INSERT INTO mart.t SELECT a.id FROM (SELECT `(dt)?+.+` FROM ods.undocumented) a",
+        _ENABLE + "INSERT INTO mart.t SELECT a.id FROM (SELECT `(dt)?+.+` FROM ods.undocumented) a",
         "regex_no_schema",
         schema={"mart.t": ["id", "v"]},
     )

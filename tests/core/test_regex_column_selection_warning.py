@@ -16,11 +16,18 @@ from __future__ import annotations
 
 from scope_lineage.scope.scope_builder import parse_scope_lineage
 
+# spark.sql.parser.quotedRegexColumnNames defaults to false, and under false Spark reads a
+# backtick-quoted regex as an ordinary column name and fails analysis -- the statements below
+# could not run as written. The SET is what makes them real SQL, so it is part of the fixture,
+# not scaffolding added to make a test pass.
+_ENABLE = "SET spark.sql.parser.quotedRegexColumnNames=true;\n"
+
+
 SCHEMA = {"db.src": ["dt", "a", "b", "c"]}
 
 
 def _parse(sql: str, schema=SCHEMA):
-    return parse_scope_lineage(sql, task_name="t", schema=schema)
+    return parse_scope_lineage(_ENABLE + sql, task_name="t", schema=schema)
 
 
 def _warning_types(result) -> list[str]:

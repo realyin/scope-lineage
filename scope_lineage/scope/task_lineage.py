@@ -26,6 +26,10 @@ from .scope_builder import (
     _syntax_status,
     parse_scope_lineage,
 )
+from .session_settings import (
+    DEFAULT_QUOTED_REGEX_COLUMN_NAMES,
+    quoted_regex_column_names_setting,
+)
 
 
 @dataclass
@@ -273,6 +277,10 @@ def parse_task_lineage(
     # sets it gets STATIC semantics, under which a dynamic-partition overwrite replaces the
     # whole table rather than only the partitions it writes.
     dynamic_partition_overwrite = False
+    # Folded the same way, and handed to parse_scope_lineage rather than left to it: this
+    # is the caller that holds the script, so the callee has nothing to guess from and its
+    # default would silently disagree with the statement document (SESSION-001).
+    regex_columns_enabled = DEFAULT_QUOTED_REGEX_COLUMN_NAMES
 
     for statement_index, tree in enumerate(trees):
         statement_id = f"stmt:{statement_index + 1:03d}"
@@ -301,6 +309,9 @@ def parse_task_lineage(
         setting = _partition_overwrite_mode_setting(tree)
         if setting is not None:
             dynamic_partition_overwrite = setting
+        regex_setting = quoted_regex_column_names_setting(tree)
+        if regex_setting is not None:
+            regex_columns_enabled = regex_setting
         try:
             if _is_projection_write(tree):
                 _apply_projection_write(
@@ -314,6 +325,7 @@ def parse_task_lineage(
                     gaps,
                     script_local,
                     dynamic_partition_overwrite=dynamic_partition_overwrite,
+                    regex_columns_enabled=regex_columns_enabled,
                 )
             elif isinstance(tree, exp.Delete):
                 _apply_delete(statement, tree, state_builder, gaps)
@@ -540,6 +552,7 @@ def _apply_projection_write(
     gaps: list[dict],
     script_local: dict[str, list[str]] | None = None,
     *,
+    regex_columns_enabled: bool = True,
     dynamic_partition_overwrite: bool = False,
 ) -> None:
     from ..contract.lineage import to_lineage_dict
@@ -553,6 +566,7 @@ def _apply_projection_write(
         # loses a WITH carried by an individual UNION branch and degrades the whole
         # statement to an unqualified parse (ROUNDTRIP-001).
         tree=tree,
+        regex_columns_enabled=regex_columns_enabled,
     )
     statement_id = statement["statement_id"]
     statement["model_status"] = "modeled"

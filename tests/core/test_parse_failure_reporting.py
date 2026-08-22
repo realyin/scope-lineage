@@ -53,11 +53,11 @@ def test_an_error_in_one_insert_does_not_abort_the_others():
     original = scope_builder._build_insert_scope
     call_count = [0]
 
-    def fail_first(tree, task_name, schema=None):
+    def fail_first(tree, task_name, schema=None, **kwargs):
         call_count[0] += 1
         if call_count[0] == 1:
             raise RuntimeError("simulated parse failure")
-        return original(tree, task_name, schema)
+        return original(tree, task_name, schema, **kwargs)
 
     with patch.object(scope_builder, "_build_insert_scope", fail_first):
         results = parse_all_scope_lineage(sql, "multi_statement_with_one_failure")
