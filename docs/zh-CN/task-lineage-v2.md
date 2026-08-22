@@ -355,7 +355,27 @@ insert overwrite table mart.y select id from v;      -- 读 state:v:002
 脚本里的 `SET` 会被读取并按语句顺序生效。**脚本没有设置时按 Spark 默认 `static` 处理**——
 这是一个假设，不是观察到的事实：真实集群可能在 `spark-defaults.conf` 里设成 `dynamic`。
 
-#### 两个不要弄错的地方
+#### 集群默认值与 Spark 官方默认不同时
+
+Spark 官方默认是 `static`，本工具照此推断。**若你们集群配的是 `dynamic`**
+（在 Spark Web UI 的 Environment 页可以确认生效值），传：
+
+~~~bash
+scope-lineage parse --contract-version 2.0 --partition-overwrite-mode dynamic ...
+~~~
+
+不传的后果是**实质性的**：每一条不给分区取值的 `INSERT OVERWRITE ... PARTITION(col)`
+（这是分区表日常写入的常见写法）效果判定方向都相反，
+`end_to_end_lineage` 会缺掉大量"来自该表自身历史状态"的来源边——
+一张每天被覆写的分区表，工具会认为每次覆写抹光了历史。
+
+**脚本里的 `SET` 始终优先于该参数**：脚本是更具体的陈述。
+该参数**需要 `--contract-version 2.0`**，在 1.0 下会直接报错而不是静默失效。
+
+**旋钮设了就要维护。** 集群改配置后忘记改这个参数，产出的就是自信的错误答案；
+`partition_overwrite_mode_declared` 记录了当时声明的取值，是唯一的取证线索。
+
+#### 两个不要弄错的地方#### 两个不要弄错的地方
 
 **`hive.exec.dynamic.partition.mode` 与本设置无关。** 前者是**编译期**对分区规格形状的准入检查
 （`strict` 要求至少有一个静态分区列，否则直接报错），它**不影响删除范围**。
@@ -374,7 +394,8 @@ datasource 还是 Hive serde 写入路径，因此对 Hive serde 表的裸动态
 | --- | --- |
 | **字段不出现** | 本次结论与该设置无关（静态分区值、混合规格、CTAS、MERGE、非分区表的整表覆写…） |
 | `observed` | 脚本中出现过该 `SET` |
-| `assumed_default` | **脚本未设置，按 Spark 默认 `static` 推出**——若集群实际配成 `dynamic`，本条的 `REPLACE` 会偏保守，目标表自身的历史状态其实仍有残留 |
+| `assumed_default` | **脚本未设置。** 实际使用的取值见下一行的 `partition_overwrite_mode_declared`；该字段**不出现**时才是按 Spark 默认 `static` 推出——那种情况下若集群实际配成 `dynamic`，本条的 `REPLACE` 会偏保守，目标表自身的历史状态其实仍有残留 |
+| `partition_overwrite_mode_declared`<br>（另一个字段） | 部署方用 `--partition-overwrite-mode` 声明的集群取值（`static`/`dynamic`）。**只在 `partition_overwrite_mode_source` 为 `assumed_default` 时出现**——脚本自己 `SET` 过就属于 `observed`，不再需要它。它承载取值而非布尔：对不写 `PARTITION` 子句的写入，两种声明产出的其余部分完全相同，只有它能说明当时声明的是什么 |
 
 **`observed` 不等于「确定」。** 它只表示脚本里看到了那条 `SET`。上面说过该设置对 Hive serde
 表无效，而本工具无法从 SQL 判断写入路径——所以即使是 `observed`，结论仍依赖一个不可观察的前提。
