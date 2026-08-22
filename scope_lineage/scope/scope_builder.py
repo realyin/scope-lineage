@@ -111,6 +111,20 @@ def _collect_insert_trees(sql: str) -> tuple[list, list[dict]]:
     regex_columns_enabled = DEFAULT_QUOTED_REGEX_COLUMN_NAMES
     for statement_index, tree in enumerate(trees):
         if tree is None:
+            # `;;` -- sqlglot yields None here, where a bare `;` after a comment yields
+            # exp.Semicolon. Both are empty statements, but only the second used to be
+            # recorded, so the indices below (which count every position) had holes no
+            # published field explained. v2 recorded both all along.
+            skipped.append({
+                "statement_id": f"stmt:{statement_index + 1:03d}",
+                "normalized_sql": "",
+                "statement_index": statement_index,
+                "statement_kind": "EMPTY",
+                "category": "empty_statement",
+                "model_status": "ignored",
+                "reason": "not_a_table_write_from_select",
+                "supported": SUPPORTED_STATEMENTS,
+            })
             continue
         setting = quoted_regex_column_names_setting(tree)
         if setting is not None:
