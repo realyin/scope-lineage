@@ -161,3 +161,102 @@ def test_a_column_the_write_does_not_supply_matches_an_unpartitioned_overwrite()
     assert unpartitioned is None
     assert dynamic == unpartitioned
     assert valued == ["prior_table_state"]
+
+
+# --- the setting is an assumption unless the script states it -----------------------
+
+def _rowset_effects(sql: str, schema=None, target_metadata=None) -> list[dict]:
+    result = parse_task_lineage(
+        sql, task_name="t", schema=schema if schema is not None else SCHEMA,
+        target_metadata=target_metadata,
+    )
+    return [
+        statement["effect"]["rowset_effect"]
+        for statement in result.statements or []
+        if statement.get("effect")
+    ]
+
+
+def test_a_dynamic_spec_without_a_set_says_the_mode_was_assumed():
+    """The whole-table REPLACE hinges on Spark's default, not on anything in the script.
+
+    It decides whether the target's own prior state survives, so a consumer folding
+    state-evolution edges is entitled to know the answer came from an assumption.
+    """
+    effects = _rowset_effects(
+        "INSERT OVERWRITE TABLE mart.t PARTITION(dt) SELECT id, v, dt FROM ods.a"
+    )
+    assert effects[0]["operation"] == "REPLACE"
+    assert effects[0]["partition_overwrite_mode_source"] == "assumed_default"
+
+
+def test_an_observed_set_is_recorded_as_observed():
+    effects = _rowset_effects(
+        "SET spark.sql.sources.partitionOverwriteMode=static;\n"
+        "INSERT OVERWRITE TABLE mart.t PARTITION(dt) SELECT id, v, dt FROM ods.a"
+    )
+    assert effects[0]["operation"] == "REPLACE"
+    assert effects[0]["partition_overwrite_mode_source"] == "observed"
+
+
+def test_an_unqualified_overwrite_of_a_partitioned_table_is_also_assumed():
+    """No PARTITION clause on a partitioned target is still a dynamic-partition insert.
+
+    Without this the absent field would be a positive claim of independence, and here
+    that claim is false.
+    """
+    from scope_lineage.metadata.target_table_metadata import (
+        TargetColumnMetadata, TargetMetadataMap, TargetTableMetadata,
+    )
+    metadata = TargetMetadataMap()
+    metadata["mart.t"] = TargetTableMetadata(
+        table_name="t", full_table_name="mart.t",
+        columns=[TargetColumnMetadata(name=n, data_type="string", ordinal=i,
+                                      is_partition=(n == "dt"), comment="")
+                 for i, n in enumerate(["id", "v", "dt"])],
+        partition_columns=["dt"], ddl="", source_file="x", validation_issues=[],
+        query_time=None, ddl_update_time=None, data_source="test", structure_source="ddl",
+    )
+    effects = _rowset_effects(
+        "INSERT OVERWRITE TABLE mart.t SELECT id, v, dt FROM ods.a",
+        target_metadata=metadata,
+    )
+    assert effects[0]["partition_overwrite_mode_source"] == "assumed_default"
+
+
+# --- guards: must pass before AND after --------------------------------------------
+
+def test_a_partitioned_ctas_is_not_marked():
+    """The guard that bites: it satisfies REPLACE and mode=dynamic, and only the
+    statement kind tells it apart. A plain CTAS would pass this vacuously."""
+    effects = _rowset_effects(
+        "CREATE TABLE mart.c PARTITIONED BY (dt) AS SELECT id, v, dt FROM ods.a"
+    )
+    assert effects[0]["operation"] == "REPLACE"
+    assert "partition_overwrite_mode_source" not in effects[0]
+
+
+def test_an_unqualified_overwrite_of_an_unpartitioned_table_is_not_marked():
+    effects = _rowset_effects(
+        "INSERT OVERWRITE TABLE mart.t SELECT id, v, dt FROM ods.a"
+    )
+    assert "partition_overwrite_mode_source" not in effects[0]
+
+
+def test_a_valued_spec_is_not_marked():
+    effects = _rowset_effects(
+        "INSERT OVERWRITE TABLE mart.t PARTITION(dt='20260101') SELECT id, v FROM ods.a"
+    )
+    assert effects[0]["operation"] == "REPLACE_PARTITION"
+    assert "partition_overwrite_mode_source" not in effects[0]
+
+
+def test_a_plain_insert_is_not_marked():
+    effects = _rowset_effects("INSERT INTO mart.t SELECT id, v, dt FROM ods.a")
+    assert "partition_overwrite_mode_source" not in effects[0]
+
+
+def test_the_absent_shape_carries_no_extra_keys():
+    effects = _rowset_effects("INSERT INTO mart.t SELECT id, v, dt FROM ods.a")
+    assert "partition_overwrite_mode_source" not in effects[0]
+    assert set(effects[0]) <= {"operation", "membership_sources", "row_filter_sources"}

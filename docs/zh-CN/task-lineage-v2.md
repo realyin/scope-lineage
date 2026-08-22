@@ -366,6 +366,28 @@ tables, as they are always overwritten with dynamic mode."* 本工具只看 SQL�
 datasource 还是 Hive serde 写入路径，因此对 Hive serde 表的裸动态覆写，模型给出的 `REPLACE`
 会比实际删除范围**保守（更大）**。
 
+#### 产物里怎么看出这个结论是不是猜的
+
+`effect.rowset_effect` 上有一个可选字段 `partition_overwrite_mode_source`：
+
+| 取值 | 含义 |
+| --- | --- |
+| **字段不出现** | 本次结论与该设置无关（静态分区值、混合规格、CTAS、MERGE、非分区表的整表覆写…） |
+| `observed` | 脚本中出现过该 `SET` |
+| `assumed_default` | **脚本未设置，按 Spark 默认 `static` 推出**——若集群实际配成 `dynamic`，本条的 `REPLACE` 会偏保守，目标表自身的历史状态其实仍有残留 |
+
+**`observed` 不等于「确定」。** 它只表示脚本里看到了那条 `SET`。上面说过该设置对 Hive serde
+表无效，而本工具无法从 SQL 判断写入路径——所以即使是 `observed`，结论仍依赖一个不可观察的前提。
+
+**两种形态会被标记**：分区规格全动态（`PARTITION(dt)`），以及**完全不写 `PARTITION` 子句
+但目标表是分区表**——后者在 Spark 里同样是动态分区插入。判断后者需要 `--target-ddl-metadata`
+提供该表的分区列；没提供时无法判断，字段不出现。
+
+**`end_to_end_lineage` 上没有这个标记**（有意为之，避免逐行重复）。要从一条血缘回溯到它，
+经 `target_state` → `table_state_graph.nodes[].producer_statement_id` →
+`statement_sequence[].effect.rowset_effect` 三跳关联。
+
+
 
 例如 TRUNCATE; INSERT 会形成两个中间状态：TRUNCATE 后状态 known_empty=true，后续 INSERT
 生成新的最终状态。因此消费者不能仅因脚本出现 TRUNCATE 就断言任务结束时表为空。

@@ -26,6 +26,7 @@ from .scope_builder import (
     _syntax_status,
     parse_scope_lineage,
 )
+from ..metadata.target_table_metadata import lookup_target_table_metadata
 from .session_settings import (
     DEFAULT_QUOTED_REGEX_COLUMN_NAMES,
     quoted_regex_column_names_setting,
@@ -277,6 +278,12 @@ def parse_task_lineage(
     # sets it gets STATIC semantics, under which a dynamic-partition overwrite replaces the
     # whole table rather than only the partitions it writes.
     dynamic_partition_overwrite = False
+    # Tracked beside the value, not folded into it: "assumed static" and "observed static"
+    # are the same bool but not the same fact, and only the second one is something the
+    # script said. Kept local -- this setting is folded once and consumed in this module,
+    # unlike quoted_regex_column_names_setting which earned its own module by being folded
+    # in both entry points.
+    partition_overwrite_mode_observed = False
     # Folded the same way, and handed to parse_scope_lineage rather than left to it: this
     # is the caller that holds the script, so the callee has nothing to guess from and its
     # default would silently disagree with the statement document (SESSION-001).
@@ -309,6 +316,7 @@ def parse_task_lineage(
         setting = _partition_overwrite_mode_setting(tree)
         if setting is not None:
             dynamic_partition_overwrite = setting
+            partition_overwrite_mode_observed = True
         regex_setting = quoted_regex_column_names_setting(tree)
         if regex_setting is not None:
             regex_columns_enabled = regex_setting
@@ -326,6 +334,7 @@ def parse_task_lineage(
                     script_local,
                     dynamic_partition_overwrite=dynamic_partition_overwrite,
                     regex_columns_enabled=regex_columns_enabled,
+                    partition_overwrite_mode_observed=partition_overwrite_mode_observed,
                 )
             elif isinstance(tree, exp.Delete):
                 _apply_delete(statement, tree, state_builder, gaps)
@@ -553,6 +562,7 @@ def _apply_projection_write(
     script_local: dict[str, list[str]] | None = None,
     *,
     regex_columns_enabled: bool = True,
+    partition_overwrite_mode_observed: bool = False,
     dynamic_partition_overwrite: bool = False,
 ) -> None:
     from ..contract.lineage import to_lineage_dict
@@ -615,6 +625,11 @@ def _apply_projection_write(
             ),
         })
     effect = _write_effect(result, dynamic_partition_overwrite=dynamic_partition_overwrite)
+    overwrite_mode_source = _partition_overwrite_mode_source(
+        result,
+        observed=partition_overwrite_mode_observed,
+        target_metadata=target_metadata,
+    )
     if (
         effect in {"APPEND", "MERGE", "REPLACE_PARTITION"}
         and previous is not None
@@ -699,6 +714,11 @@ def _apply_projection_write(
     statement["effect"] = {
         "rowset_effect": {
             "operation": effect,
+            **(
+                {"partition_overwrite_mode_source": overwrite_mode_source}
+                if overwrite_mode_source
+                else {}
+            ),
             **(
                 {"membership_sources": merge_conditions}
                 if effect == "MERGE"
@@ -933,6 +953,44 @@ def _apply_update(
     })
     if not previous.columns_known:
         gaps.append(_schema_passthrough_gap(statement, table))
+
+
+def _partition_overwrite_mode_source(
+    result,
+    *,
+    observed: bool,
+    target_metadata=None,
+) -> str | None:
+    """Say whether this write's blast radius rests on an observed SET or on Spark's default.
+
+    Only for a write whose answer actually turns on the setting. Keyed on `result.stmt_kind`
+    rather than on the effect: a partitioned CTAS also yields REPLACE with a fully dynamic
+    spec, and its answer does not depend on the setting at all (`statement_sequence` spells
+    that kind `INSERT`, so the effect's own neighbours cannot be used for this).
+
+    Two shapes qualify. A fully dynamic spec is the obvious one. An overwrite with no
+    PARTITION clause at all is the other: on a partitioned table Spark treats it as a
+    dynamic-partition insert too, and since an absent field here reads as "this answer does
+    not depend on the setting", staying silent there would be a false claim rather than a
+    neutral omission.
+    """
+    if result.stmt_kind != "INSERT_OVERWRITE":
+        return None
+    mode = result.target_partition_mode
+    if mode == "dynamic":
+        pass
+    elif mode == "none":
+        metadata = (
+            lookup_target_table_metadata(target_metadata, result.target_table)
+            if target_metadata is not None
+            else None
+        )
+        if not (metadata and metadata.partition_columns):
+            return None
+    else:
+        # A valued or mixed spec bounds the overwrite whatever the mode is.
+        return None
+    return "observed" if observed else "assumed_default"
 
 
 def _write_effect(result, *, dynamic_partition_overwrite: bool = False) -> str:
