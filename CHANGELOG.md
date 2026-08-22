@@ -1,6 +1,81 @@
 # Changelog
 
-## Unreleased
+## 0.1.16
+- MERGE assignment values now resolve in the scope their WHEN branch can actually see. Spark
+  picks the name-resolution scope from the clause -- a MATCHED action sees target and source
+  both, `WHEN NOT MATCHED` only the source, `WHEN NOT MATCHED BY SOURCE` only the target --
+  while Core resolved every branch against the USING relation and took the branch label from
+  the THEN action's type rather than from the clause. With two branch kinds those dimensions
+  coincide; Spark has three. A `WHEN NOT MATCHED BY SOURCE` update published an edge to the
+  *source* table, marked `trace_complete`, for a branch in which Spark cannot see the source at
+  all. The same missing candidate set produced two further wrong answers under plain MATCHED,
+  with no BY SOURCE anywhere: an unqualified name both relations expose was silently
+  attributed to the source, though this project already publishes a rule against picking an
+  arbitrary source, and a name only the *target* exposes was attributed to the source as well,
+  so a column the source does not have appeared as its output with no diagnostic -- and writing
+  the same statement with a subquery `USING` gave a different answer again. Unqualified names
+  now go through the resolver the rest of the product uses, so ambiguity lands in the existing
+  `ambiguous_unqualified` / `AMBIGUOUS` + candidates representation, an unknowable side in
+  `unresolved_unqualified_no_schema`, and a source-qualified reference under BY SOURCE in
+  `dangling_column_ref_dropped`. No new vocabulary was introduced. WHEN conditions get the same
+  branch discipline.
+- **Contract:** Spark has three WHEN clause kinds and the `merge_branch` enum names two. Rather
+  than publish one of the two for a clause that is neither -- `not_matched` means "absent from
+  the target, inserted from the source", the opposite of what a BY SOURCE clause writes --
+  `merge_branch` is now omitted there and a new optional `merge_branch_qualifier` carries the
+  kind, on every surface that already published `merge_branch`. A consumer keying on
+  `merge_branch` drops such a write rather than misplacing it: missing beats wrong, but it is a
+  silent omission, so a `merge_branch_not_representable` warning states why the label is
+  absent, and `merge_when_index` is still emitted. Two surfaces published `merge_branch`
+  without declaring it in the schema; both are declared now.
+- `SELECT * EXCEPT (...)` no longer publishes the columns it excludes. The excluded column used
+  to appear as a proven output field on every surface -- including `related_metadata`'s entry
+  for the *target* table, where it invented a column the target does not have -- with no
+  diagnostic. The exclusion is applied in one pass over the resolved scopes rather than at each
+  expansion site, because a star is materialized in more than one place and which one runs
+  depends on how the query was written rather than on what it means. Relatedly, a passthrough
+  SELECT over a UNION is no longer unwrapped when its star carries an EXCEPT: such a star is
+  not a passthrough, it drops columns, and unwrapping lost the exclusion the same way the
+  surrounding code already warns other clauses are lost. Because this changes the projection
+  count, positional target-DDL binding moves in both directions, and both are corrections:
+  where the counts now match, binding applies where it previously bailed out; where they no
+  longer match, the statement falls back instead of authoritatively binding a column the
+  projection never produced. Spark's grammar allows exactly one star modifier; `REPLACE`,
+  `RENAME` and `ILIKE` belong to other engines and are reported through
+  `star_modifier_not_supported` rather than modelled, and `star_except_column_not_found` marks
+  an exclusion naming a column the star does not produce.
+- A deployment can declare the partition overwrite mode its clusters run with, via
+  `--partition-overwrite-mode static|dynamic` (contract 2.0 only). `INSERT OVERWRITE TABLE t
+  PARTITION(dt)` -- a partition spec with no value -- deletes either the whole table or only
+  the partitions the write produces, and `spark.sql.sources.partitionOverwriteMode` decides
+  which; the SQL cannot see it. Scripts rarely `SET` it, so v2 fell back to Spark's documented
+  default of `static`. For a deployment whose clusters run `dynamic` that answer is not
+  conservative but backwards: every daily overwrite of a partitioned table was reported as
+  wiping the table's history, dropping the "came from this table's own prior state" edges such
+  an overwrite in fact preserves. A `SET` inside the script still wins. **Contract:**
+  `partition_overwrite_mode_source: "assumed_default"` used to imply "static was used"; it now
+  means only "the script did not set it", and a new `partition_overwrite_mode_declared` carries
+  the value actually applied, its *absence* meaning Spark's default. Consumers that only filter
+  on the enum are unaffected. Separately, the rolling `SET` tracker no longer treats an
+  unrecognised value as `static`, which had quietly converted the neighbouring Hive key's
+  `nonstrict` into a real answer.
+- The empty statement a `;;` leaves behind is recorded. sqlglot models the two empty shapes
+  differently -- a bare `;` after a comment parses to a semicolon node, `;;` yields nothing --
+  and v1 recorded the first while dropping the second. Statement indices count every position,
+  so dropping the record left holes that no published field explained, in exactly the field the
+  documentation points readers to for "what was ignored". The two shapes keep separate kinds,
+  matching what the task document has published for both all along. Note that
+  `skipped_statements` is a conditional key: a script with no skipped statements gains the key,
+  while one that already had an entry gains an array element, so a consumer that counts entries
+  sees a different number with no schema change to signal it.
+- A MERGE `INSERT *` branch expands over the target's columns, not the source's, matching how
+  Spark resolves a star action.
+- A statement with no target binding says why, once, in both documents, so an absent binding is
+  distinguishable from a binding that was never attempted.
+- The session setting for quoted regex column selections is honoured: with it disabled, a
+  backtick-quoted pattern is the literal column name it is in Spark, not an expansion over the
+  columns it would have matched. The overwrite documentation was corrected in the same change.
+
 - New `scope-lineage render` subcommand and `render_mapping_markdown` public API: render one
   statement's `lineage.json` (+ sibling `diagnostics.json`) into a `mapping.md` field-mapping
   document readable by people and parseable by machines. The document is a derived view of the
