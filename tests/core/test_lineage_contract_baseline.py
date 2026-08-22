@@ -84,6 +84,10 @@ def test_baseline_covers_the_required_contract_shapes() -> None:
         "star_without_schema",
         "target_ddl_binding",
         "syntax_recovered",
+        "directory_target",
+        "self_join",
+        "fact_gap",
+        "special_literals",
     }
 
 

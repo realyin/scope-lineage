@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+- New `scope-lineage render` subcommand and `render_mapping_markdown` public API: render one
+  statement's `lineage.json` (+ sibling `diagnostics.json`) into a `mapping.md` field-mapping
+  document readable by people and parseable by machines. The document is a derived view of the
+  contract, never a second source of truth: a flat front matter block, fixed line grammars
+  (versioned as `mapping-md/1`) whose expressions always sit last on the line inside code
+  spans -- so SQL literals containing separators cannot break parsing -- and contract ids
+  (`mapping_chain_id`, `logic_block_id`, scope ids) as join keys back into `lineage.json`.
+  Uncertainty stays explicit: incomplete traces, un-split self-join conditions, and a missing
+  diagnostics file are all marked instead of being rendered as facts. Directory mode skips
+  contract-2.0 documents with a count instead of failing. The `parse` subcommand still writes
+  exactly the two contract files. Four golden cases were added alongside the existing baseline
+  (directory target, self join, a non-empty lineage fact gap, separator-heavy literals); the
+  rendered `mapping.md` for every case is byte-locked the same way the JSON contracts are.
+  Parse-process warnings do not enter `mapping.md`: a statement that has any renders a sibling
+  `warnings.md` (grouped by type, each type carrying a one-line gloss), and the mapping
+  document keeps a counted pointer plus only the facts that change how much a reader may trust
+  the lineage. The relations overview answers "how do the source TABLES relate": join keys
+  are pierced to physical fields and aggregated per table pair with short key names and an
+  occurrence count, identical patterns repeated across scopes merge into one counted row, and
+  CTE-to-CTE joins whose pierced keys add nothing (both sides reading the same table used to
+  render as repeated self-pair rows with `t.c = t.c` keys) stay out of the overview entirely
+  -- the scope-level detail below remains the complete list, where pierced pairs appear only
+  when informative and the verbatim ON survives only where the key/filter split is
+  incomplete. The constant-source column of the mapping table appears only when some field is
+  actually constant-fed.
+
 ## 0.1.15
 - A UNION branch projecting a row-count aggregate or a bare window function no longer reports a
   root-impact lineage gap for an expression nothing was missing from. The branch mappings are

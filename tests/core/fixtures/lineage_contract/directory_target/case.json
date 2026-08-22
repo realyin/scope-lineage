@@ -1,0 +1,10 @@
+{
+  "task_id": "golden_directory_target",
+  "sql": "INSERT OVERWRITE DIRECTORY '/warehouse/export/daily'\nSELECT u.user_id, u.user_name\nFROM ods.users u",
+  "schema": {
+    "ods.users": [
+      "user_id",
+      "user_name"
+    ]
+  }
+}
