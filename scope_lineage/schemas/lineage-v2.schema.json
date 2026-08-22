@@ -144,7 +144,15 @@
                       "observed",
                       "assumed_default"
                     ],
-                    "description": "仅当本次结论取决于 spark.sql.sources.partitionOverwriteMode 时出现。observed=脚本中出现过该 SET；assumed_default=脚本未设置，按 Spark 默认 static 推出。字段不出现表示结论与该设置无关。注意 observed 不等于「确定」：该设置对 Hive serde 表无效，而本工具无法从 SQL 判断写入路径。"
+                    "description": "仅当本次结论取决于 spark.sql.sources.partitionOverwriteMode 时出现。observed=脚本中出现过该 SET；assumed_default=脚本未设置——此时实际使用的取值见 partition_overwrite_mode_declared，该字段不出现则为 Spark 默认 static。字段不出现表示结论与该设置无关。注意 observed 不等于「确定」：该设置对 Hive serde 表无效，而本工具无法从 SQL 判断写入路径。"
+                  },
+                  "partition_overwrite_mode_declared": {
+                    "type": "string",
+                    "enum": [
+                      "static",
+                      "dynamic"
+                    ],
+                    "description": "部署方通过 --partition-overwrite-mode 声明的集群取值，仅在它实际生效时出现（即 partition_overwrite_mode_source 为 assumed_default 时）。脚本自己 SET 过则不出现——那属于 observed。**这不是 partition_overwrite_mode_source 的取值**：不认识本字段的消费者行为不变，但读 assumed_default 时应一并读本字段，否则会误以为结论按 static 推出。"
                   }
                 }
               }

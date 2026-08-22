@@ -57,6 +57,15 @@ def main(argv: list[str] | None = None) -> int:
         help="Optional authoritative target-table DDL/Schema JSON file or directory",
     )
     parse_cmd.add_argument(
+        "--partition-overwrite-mode",
+        help=(
+            "The cluster's spark.sql.sources.partitionOverwriteMode (static or dynamic, "
+            "case-insensitive). Spark's own default is static; declare what your "
+            "deployment actually runs with. A SET in the script always wins. "
+            "Requires --contract-version 2.0."
+        ),
+    )
+    parse_cmd.add_argument(
         "--catalog-prefixes",
         help=(
             "Comma-separated leading catalog names to remove from table identities. "
@@ -149,6 +158,22 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "parse":
         if args.input_dir and args.task_name:
             parser.error("--task-name cannot be used with --input-dir")
+        if getattr(args, "partition_overwrite_mode", None) is not None:
+            # Validated here rather than per input: one bad value is one error, not one
+            # per task. `nonstrict` is the neighbouring Hive key's value and the
+            # predictable mistake.
+            if args.partition_overwrite_mode.strip().lower() not in {"static", "dynamic"}:
+                parser.error(
+                    "--partition-overwrite-mode must be static or dynamic, got "
+                    f"{args.partition_overwrite_mode!r}"
+                )
+            if args.contract_version != "2.0":
+                # Contract 1.0 models no overwrite effect at all, so the value would be
+                # silently inert. Erroring matches how the CLI rejects other
+                # incompatible flag pairs.
+                parser.error(
+                    "--partition-overwrite-mode requires --contract-version 2.0"
+                )
         with _catalog_prefix_override(args.catalog_prefixes):
             return _parse_inputs(args)
     if args.command == "render":
@@ -400,6 +425,7 @@ def _parse_task_inputs_v2(
                 schema=schema,
                 target_metadata=target_metadata,
                 task_dependencies=task.task_dependencies,
+                partition_overwrite_mode=getattr(args, "partition_overwrite_mode", None),
             )
             task_out = (
                 out_root

@@ -260,3 +260,138 @@ def test_the_absent_shape_carries_no_extra_keys():
     effects = _rowset_effects("INSERT INTO mart.t SELECT id, v, dt FROM ods.a")
     assert "partition_overwrite_mode_source" not in effects[0]
     assert set(effects[0]) <= {"operation", "membership_sources", "row_filter_sources"}
+
+
+# --- a deployment can declare the mode its cluster runs with ------------------------
+
+def _declared(sql: str, mode: str | None, target_metadata=None) -> list[dict]:
+    result = parse_task_lineage(
+        sql, task_name="t", schema=SCHEMA, target_metadata=target_metadata,
+        partition_overwrite_mode=mode,
+    )
+    return [s["effect"]["rowset_effect"] for s in result.statements or [] if s.get("effect")]
+
+
+DYNAMIC_SPEC = "INSERT OVERWRITE TABLE mart.t PARTITION(dt) SELECT id, v, dt FROM ods.a"
+
+
+def test_a_declared_dynamic_mode_bounds_the_overwrite():
+    effects = _declared(DYNAMIC_SPEC, "dynamic")
+    assert effects[0]["operation"] == "REPLACE_PARTITION"
+
+
+def test_the_declared_value_is_recorded_and_the_source_stays_assumed():
+    """The script still said nothing, so the source is not `observed`. What the
+    deployment declared is a separate fact, and it carries the value rather than a
+    flag: without it a `none`-spec statement's artifact is identical either way."""
+    effects = _declared(DYNAMIC_SPEC, "dynamic")
+    assert effects[0]["partition_overwrite_mode_source"] == "assumed_default"
+    assert effects[0]["partition_overwrite_mode_declared"] == "dynamic"
+
+
+def test_a_declared_static_mode_is_also_recorded():
+    effects = _declared(DYNAMIC_SPEC, "static")
+    assert effects[0]["operation"] == "REPLACE"
+    assert effects[0]["partition_overwrite_mode_declared"] == "static"
+
+
+def test_a_script_setting_overrides_the_declared_value():
+    """The guard that bites the knob: a deployment value is present, and must lose."""
+    effects = _declared(
+        "SET spark.sql.sources.partitionOverwriteMode=static;\n" + DYNAMIC_SPEC,
+        "dynamic",
+    )
+    assert effects[0]["operation"] == "REPLACE"
+    assert effects[0]["partition_overwrite_mode_source"] == "observed"
+    assert "partition_overwrite_mode_declared" not in effects[0]
+
+
+def test_an_unrecognised_setting_value_does_not_override_the_declaration():
+    """`nonstrict` is the neighbouring Hive key's value and a predictable mix-up. It
+    used to read as "observed static", which under a declared dynamic would discard the
+    declaration and stamp the wrong answer with the contract's most authoritative label."""
+    effects = _declared(
+        "SET spark.sql.sources.partitionOverwriteMode=nonstrict;\n" + DYNAMIC_SPEC,
+        "dynamic",
+    )
+    assert effects[0]["operation"] == "REPLACE_PARTITION"
+    assert effects[0]["partition_overwrite_mode_source"] == "assumed_default"
+
+
+def test_an_unpartitioned_target_is_not_bounded_by_a_declaration():
+    """The guard that bites the `none`-class correction: an implementation that honours
+    the declared mode without checking the target has partition columns reports a
+    whole-table overwrite as partition-scoped, and passes every other test."""
+    from scope_lineage.metadata.target_table_metadata import (
+        TargetColumnMetadata, TargetMetadataMap, TargetTableMetadata,
+    )
+    metadata = TargetMetadataMap()
+    metadata["mart.t"] = TargetTableMetadata(
+        table_name="t", full_table_name="mart.t",
+        columns=[TargetColumnMetadata(name=n, data_type="string", ordinal=i,
+                                      is_partition=False, comment="")
+                 for i, n in enumerate(["id", "v", "dt"])],
+        partition_columns=[], ddl="", source_file="x", validation_issues=[],
+        query_time=None, ddl_update_time=None, data_source="test",
+        structure_source="ddl",
+    )
+    effects = _declared(
+        "INSERT OVERWRITE TABLE mart.t SELECT id, v, dt FROM ods.a",
+        "dynamic", target_metadata=metadata,
+    )
+    assert effects[0]["operation"] == "REPLACE"
+
+
+def test_no_declaration_is_unchanged():
+    effects = _declared(DYNAMIC_SPEC, None)
+    assert effects[0]["operation"] == "REPLACE"
+    assert effects[0]["partition_overwrite_mode_source"] == "assumed_default"
+    assert "partition_overwrite_mode_declared" not in effects[0]
+
+
+def test_a_valued_spec_ignores_the_declaration():
+    effects = _declared(
+        "INSERT OVERWRITE TABLE mart.t PARTITION(dt='20260101') SELECT id, v FROM ods.a",
+        "dynamic",
+    )
+    assert effects[0]["operation"] == "REPLACE_PARTITION"
+    assert "partition_overwrite_mode_declared" not in effects[0]
+
+
+def test_the_cli_rejects_the_flag_under_contract_1_0(tmp_path, capsys):
+    """Contract 1.0 models no overwrite effect, so the value would be silently inert."""
+    import pytest
+
+    from scope_lineage.cli import main
+
+    sql = tmp_path / "t.sql"
+    sql.write_text("INSERT OVERWRITE TABLE mart.t PARTITION(dt) SELECT 1, 2, 3")
+    with pytest.raises(SystemExit):
+        main(["parse", "--sql-file", str(sql), "--out", str(tmp_path / "o"),
+              "--partition-overwrite-mode", "dynamic"])
+    assert "requires --contract-version 2.0" in capsys.readouterr().err
+
+
+def test_the_cli_rejects_an_unusable_value_once(tmp_path, capsys):
+    """`nonstrict` belongs to the neighbouring Hive key. One error, before any input."""
+    import pytest
+
+    from scope_lineage.cli import main
+
+    sql = tmp_path / "t.sql"
+    sql.write_text("INSERT OVERWRITE TABLE mart.t PARTITION(dt) SELECT 1, 2, 3")
+    with pytest.raises(SystemExit):
+        main(["parse", "--sql-file", str(sql), "--out", str(tmp_path / "o"),
+              "--contract-version", "2.0", "--partition-overwrite-mode", "nonstrict"])
+    assert "must be static or dynamic" in capsys.readouterr().err
+
+
+def test_the_cli_accepts_upper_case(tmp_path):
+    """spark-defaults.conf spells it DYNAMIC."""
+    from scope_lineage.cli import main
+
+    sql = tmp_path / "t.sql"
+    sql.write_text("INSERT OVERWRITE TABLE mart.t PARTITION(dt) SELECT 1 AS id, 2 AS v, 3 AS dt")
+    assert main(["parse", "--sql-file", str(sql), "--out", str(tmp_path / "o"),
+                 "--contract-version", "2.0",
+                 "--partition-overwrite-mode", "DYNAMIC"]) == 0

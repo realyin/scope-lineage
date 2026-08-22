@@ -234,6 +234,7 @@ def parse_task_lineage(
     schema: Mapping[str, Iterable[str]] | None = None,
     target_metadata=None,
     task_dependencies: dict | None = None,
+    partition_overwrite_mode: str | None = None,
 ) -> TaskLineageResult:
     """Parse an ordered SQL script into table-state and statement lineage."""
     ctas_repaired_sql, ctas_repairs = repair_ctas_missing_as(
@@ -277,7 +278,15 @@ def parse_task_lineage(
     # Spark's own default for spark.sql.sources.partitionOverwriteMode. A script that never
     # sets it gets STATIC semantics, under which a dynamic-partition overwrite replaces the
     # whole table rather than only the partitions it writes.
-    dynamic_partition_overwrite = False
+    declared_overwrite_mode = (
+        partition_overwrite_mode.strip().lower() if partition_overwrite_mode else None
+    )
+    if declared_overwrite_mode not in (None, "static", "dynamic"):
+        raise ValueError(
+            "partition_overwrite_mode must be 'static' or 'dynamic', got "
+            f"{partition_overwrite_mode!r}"
+        )
+    dynamic_partition_overwrite = declared_overwrite_mode == "dynamic"
     # Tracked beside the value, not folded into it: "assumed static" and "observed static"
     # are the same bool but not the same fact, and only the second one is something the
     # script said. Kept local -- this setting is folded once and consumed in this module,
@@ -335,6 +344,7 @@ def parse_task_lineage(
                     dynamic_partition_overwrite=dynamic_partition_overwrite,
                     regex_columns_enabled=regex_columns_enabled,
                     partition_overwrite_mode_observed=partition_overwrite_mode_observed,
+                    declared_overwrite_mode=declared_overwrite_mode,
                 )
             elif isinstance(tree, exp.Delete):
                 _apply_delete(statement, tree, state_builder, gaps)
@@ -563,6 +573,7 @@ def _apply_projection_write(
     *,
     regex_columns_enabled: bool = True,
     partition_overwrite_mode_observed: bool = False,
+    declared_overwrite_mode: "str | None" = None,
     dynamic_partition_overwrite: bool = False,
 ) -> None:
     from ..contract.lineage import to_lineage_dict
@@ -625,11 +636,25 @@ def _apply_projection_write(
                 + ", ".join(undescribed)
             ),
         })
-    effect = _write_effect(result, dynamic_partition_overwrite=dynamic_partition_overwrite)
+    effect = _write_effect(
+        result,
+        dynamic_partition_overwrite=dynamic_partition_overwrite,
+        target_metadata=target_metadata,
+    )
     overwrite_mode_source = _partition_overwrite_mode_source(
         result,
         observed=partition_overwrite_mode_observed,
         target_metadata=target_metadata,
+    )
+    # Only where the source is reported, and only when the script did not say it itself:
+    # a script SET is already `observed`, and adding what a deployment declared beside it
+    # would say two things about one decision. Carries the value rather than a flag --
+    # for a no-PARTITION write the artifact is otherwise identical either way, so a stale
+    # declaration would leave no trace of what it claimed.
+    declared_value = (
+        declared_overwrite_mode
+        if overwrite_mode_source == "assumed_default" and declared_overwrite_mode
+        else None
     )
     if (
         effect in {"APPEND", "MERGE", "REPLACE_PARTITION"}
@@ -718,6 +743,11 @@ def _apply_projection_write(
             **(
                 {"partition_overwrite_mode_source": overwrite_mode_source}
                 if overwrite_mode_source
+                else {}
+            ),
+            **(
+                {"partition_overwrite_mode_declared": declared_value}
+                if declared_value
                 else {}
             ),
             **(
@@ -994,7 +1024,12 @@ def _partition_overwrite_mode_source(
     return "observed" if observed else "assumed_default"
 
 
-def _write_effect(result, *, dynamic_partition_overwrite: bool = False) -> str:
+def _write_effect(
+    result,
+    *,
+    dynamic_partition_overwrite: bool = False,
+    target_metadata=None,
+) -> str:
     if result.stmt_kind == "INSERT":
         return "APPEND"
     if (
@@ -1002,6 +1037,7 @@ def _write_effect(result, *, dynamic_partition_overwrite: bool = False) -> str:
         and _replaces_only_named_partitions(
             result.target_partition_mode,
             dynamic_partition_overwrite=dynamic_partition_overwrite,
+            target_is_partitioned=_target_is_partitioned(result, target_metadata),
         )
     ):
         return "REPLACE_PARTITION"
@@ -1012,10 +1048,19 @@ def _write_effect(result, *, dynamic_partition_overwrite: bool = False) -> str:
     return "WRITE"
 
 
+def _target_is_partitioned(result, target_metadata) -> bool:
+    """Does the target's DDL declare partition columns? False when we were not told."""
+    if target_metadata is None:
+        return False
+    metadata = lookup_target_table_metadata(target_metadata, result.target_table)
+    return bool(metadata and metadata.partition_columns)
+
+
 def _replaces_only_named_partitions(
     partition_mode: str,
     *,
     dynamic_partition_overwrite: bool,
+    target_is_partitioned: bool = False,
 ) -> bool:
     """Does this INSERT OVERWRITE leave the rest of the table standing?
 
@@ -1029,6 +1074,12 @@ def _replaces_only_named_partitions(
         return True
     if partition_mode == "dynamic":
         return dynamic_partition_overwrite
+    if partition_mode == "none":
+        # No PARTITION clause on a partitioned table is a dynamic-partition insert too,
+        # so DYNAMIC bounds it the same way. Gated on the target actually being
+        # partitioned: without that check a whole-table overwrite of an unpartitioned
+        # table comes back partition-scoped, and every existing test still passes.
+        return dynamic_partition_overwrite and target_is_partitioned
     return False
 
 
@@ -1040,7 +1091,17 @@ def _partition_overwrite_mode_setting(tree: exp.Expression) -> bool | None:
         text = item.sql(dialect=DIALECT).replace("`", "").replace('"', "")
         key, _, value = text.partition("=")
         if key.strip().lower().endswith("partitionoverwritemode"):
-            return value.strip().strip("'").lower() == "dynamic"
+            cleaned = value.strip().strip("'").lower()
+            # Spark's SQLConf accepts only STATIC/DYNAMIC. Reading anything else as
+            # "observed static" was harmless while static was the only default, but it
+            # discards a declared deployment value and stamps the result `observed` --
+            # the most authoritative label the contract has. `nonstrict` is the
+            # neighbouring Hive key's value and a predictable mix-up. Same rule as
+            # quoted_regex_column_names_setting: an unusable value leaves the setting
+            # as it was.
+            if cleaned in {"static", "dynamic"}:
+                return cleaned == "dynamic"
+            return None
     return None
 
 
