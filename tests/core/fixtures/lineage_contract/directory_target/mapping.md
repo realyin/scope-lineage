@@ -14,7 +14,7 @@ stmt_kind: "INSERT_OVERWRITE"
 - 目标：directory:/warehouse/export/daily
 - 语句类型：INSERT_OVERWRITE
 - 解析状态：ok；语法状态：strict_ok
-- 目标绑定：未做目标绑定（文档无 target_field_binding：MERGE、缺目标 DDL 或目录写入等场景）
+- 目标绑定：未做（写入文件路径，没有可绑定的目标表）
 
 ## 2. 来源表
 
