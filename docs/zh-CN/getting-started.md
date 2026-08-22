@@ -315,7 +315,13 @@ scope-lineage parse \
 
 `--allow-partial` 只改变命令退出码，不会把失败结果改成成功，也不会隐藏诊断。
 
-需要任务级 DELETE/TRUNCATE/UPDATE 和多语句最终状态时使用：
+### 输出 v2（任务级契约）
+
+**默认输出的是 v1**，每条写入语句一份产物。加 `--contract-version 2.0` 改为**每个任务一份**，
+并额外给出语句顺序、表状态图和最终表状态；DELETE/TRUNCATE/UPDATE 也只有 v2 才建模。
+
+v2 **不会**让你失去字段级血缘：完整的 v1 文档原样嵌在 `statement_lineage.<statement_id>` 下。
+两者的差别、以及该选哪个，见 [v1/v2 对照表](task-lineage-v2.md#先决定用哪个v1-还是-v2)。
 
 ~~~bash
 scope-lineage parse \

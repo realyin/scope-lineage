@@ -4,6 +4,42 @@ schema_version 2.0 是显式 opt-in 的任务级契约。它保留脚本中的�
 lineage.json / diagnostics.json 中描述字段值来源、行是否存在的依赖以及最终表状态。
 默认 1.0 仍然为每条 INSERT、INSERT OVERWRITE、CTAS 或 MERGE 分别生成产物。
 
+## 先决定用哪个：v1 还是 v2
+
+两者写出的**文件名相同**（`lineage.json` + `diagnostics.json`），区别在于**一份产物覆盖多大范围**：
+
+| | v1（默认 1.0） | v2（`--contract-version 2.0`） |
+| --- | --- | --- |
+| 一份产物对应 | **一条写入语句** | **一个任务**（整个脚本） |
+| 脚本有 3 条 INSERT 时 | 3 份产物 | 1 份产物 |
+| 回答"这个字段从哪来" | ✅ | ✅（同样的事实，见下） |
+| 回答"脚本跑完后这张表是什么状态" | ❌ | ✅ `final_table_states` |
+| DELETE / TRUNCATE / UPDATE | ❌ 跳过并记录 | ✅ 进入 `statement_sequence` 与状态图 |
+| 语句之间的先后与相互影响 | ❌ 单条语句内的事实 | ✅ `statement_sequence[]`、`table_state_graph` |
+| 行"是否存在"的来源 | ❌ 只有值来源 | ✅ 值来源与行存在性来源分开 |
+
+**v2 把完整的 v1 文档原样嵌在里面。** 实测同一条语句：v1 顶层的 20 个键，在 v2 的
+`statement_lineage["stmt:001"]` 下**一个不多、一个不少**，其中 16 个逐字节相同。
+所以选 v2 不需要再跑一遍 v1——`scopes`、`field_mapping_chains`、`end_to_end_lineage`、
+`target_field_binding` 都在原处，只是多了一层 `statement_lineage.<statement_id>`。
+
+四个键在嵌套副本里与 v1 不同，其中三个是**有意为之**：
+
+- `task_id`：嵌套副本带语句后缀（`<task>#0`），因为一个任务里可能有多条写入；
+- `task_dependencies`：**提到了 v2 顶层**，任务级的事实只记一次，嵌套副本留空；
+- 顶层多出 `artifact_kind` / `analysis_status` / `statement_sequence` / `table_state_graph` /
+  `final_table_states` / `statement_lineage` 六个键。
+
+第四个是**当前的已知缺口，不是设计**：`related_metadata` 与 `field_usage[].used_field_details[]`
+里的列 `type` / `comment`，在 v1 中由 `--target-ddl-metadata` 补齐，v2 目前基本不带。
+需要列类型和中文注释的消费者，暂时仍要读 v1 产物。
+
+### 怎么选
+
+- 只关心**字段级血缘**、每条写入单独消费 → **v1 够用**，不必切。
+- 需要**任务级最终状态**、脚本里有 DELETE/TRUNCATE/UPDATE、或要按语句顺序推演 → **v2**。
+- 两个都要 → 分别跑两次，**写到不同目录**（文件名相同，同目录会互相覆盖）。
+
 ## 使用
 
 ~~~bash
