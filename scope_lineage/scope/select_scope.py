@@ -162,39 +162,26 @@ def _resolve_projection(
         return udtf_cols
 
     # Handle EXPAND_ALL (SELECT * / a.*)
-    if isinstance(inner, exp.Star):
-        expanded = _expand_star_into_columns(sg_scope, None, result, schema)
-        if expanded:
-            return expanded
+    if isinstance(inner, exp.Star) or (
+        isinstance(inner, exp.Column) and isinstance(inner.this, exp.Star)
+    ):
+        qualified = isinstance(inner, exp.Column)
+        table_alias = inner.table if qualified else None
         scope_id = getattr(sg_scope, _SCOPE_ID_ATTR, "UNKNOWN")
-        result.diagnostics.warnings.append(DiagnosticWarning(
-            type="star_not_expanded",
-            scope=scope_id,
-            msg=_star_not_expanded_message(sg_scope, None, schema, "SELECT *"),
-        ))
-        return [ScopeColumn(
-            name="*", transform="EXPAND_ALL", expression="*",
-            sources=_expand_star_sources(sg_scope, None, result, schema))]
-    if isinstance(inner, exp.Column) and isinstance(inner.this, exp.Star):
-        table_alias = inner.table
         expanded = _expand_star_into_columns(sg_scope, table_alias, result, schema)
         if expanded:
             return expanded
-        scope_id = getattr(sg_scope, _SCOPE_ID_ATTR, "UNKNOWN")
+        label = f"{table_alias}.*" if qualified else "SELECT *"
         result.diagnostics.warnings.append(DiagnosticWarning(
             type="star_not_expanded",
             scope=scope_id,
-            msg=_star_not_expanded_message(sg_scope, table_alias, schema, f"{table_alias}.*"),
+            msg=_star_not_expanded_message(sg_scope, table_alias, schema, label),
         ))
         return [ScopeColumn(
-            name=f"{table_alias}.*", transform="EXPAND_ALL",
-            expression=expression,
-            sources=_expand_star_sources(
-                sg_scope,
-                table_alias,
-                result,
-                schema,
-            ))]
+            name=f"{table_alias}.*" if qualified else "*",
+            transform="EXPAND_ALL",
+            expression=expression if qualified else "*",
+            sources=_expand_star_sources(sg_scope, table_alias, result, schema))]
 
     # Handle CONSTANT
     if transform == "CONSTANT":
@@ -471,6 +458,25 @@ def _pivot_star_columns(
         )
         for name in names
     ]
+
+
+# Spark's grammar allows exactly one star modifier: `ASTERISK exceptClause?` and
+# `qualifiedName DOT ASTERISK exceptClause?` (SqlBaseParser.g4). REPLACE / RENAME / ILIKE
+# belong to other engines; sqlglot's base parser accepts them for every dialect, so their
+# presence proves nothing about Spark and they are reported rather than modelled.
+_UNSUPPORTED_STAR_MODIFIERS = ("replace", "rename", "ilike")
+
+
+def _star_modifiers(star_node: exp.Expression) -> tuple[list[str], list[str]]:
+    """Return (names an EXCEPT list removes, names of modifiers Spark has no grammar for)."""
+    node = star_node.this if isinstance(star_node, exp.Column) else star_node
+    if not isinstance(node, exp.Star):
+        return [], []
+    except_names = [
+        item.name for item in (node.args.get("except_") or []) if getattr(item, "name", None)
+    ]
+    unsupported = [key for key in _UNSUPPORTED_STAR_MODIFIERS if node.args.get(key)]
+    return except_names, unsupported
 
 
 def _expand_star_into_columns(

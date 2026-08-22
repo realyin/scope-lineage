@@ -36,6 +36,7 @@ from .scope_types import (
     DiagnosticWarning,
 )
 from .scope_resolver import resolve_all
+from .select_scope import _star_modifiers
 from .scope_warnings import detect_warnings
 from .scope_role_inferrer import infer_roles
 from .sqlglot_config import suppress_invalid_json_path_warnings
@@ -1315,8 +1316,15 @@ def _build_source_expression(
             from_this = getattr(from_, "this", None)
             if isinstance(from_this, exp.Subquery) and isinstance(from_this.this, exp.Union):
                 all_passthrough = all(
-                    isinstance(p, (exp.Column, exp.Star)) or
-                    (isinstance(p, exp.Alias) and isinstance(p.this, (exp.Column, exp.Star)))
+                    (
+                        isinstance(p, (exp.Column, exp.Star)) or
+                        (isinstance(p, exp.Alias) and isinstance(p.this, (exp.Column, exp.Star)))
+                    )
+                    # A star carrying EXCEPT (...) does not pass everything through -- it
+                    # drops columns. Unwrapping it loses the exclusion exactly the way the
+                    # comment below warns other clauses are lost, and the excluded column
+                    # comes back as a published output field.
+                    and not _star_modifiers(p)[0]
                     for p in src.expressions
                 )
                 # Unwrap ONLY pure wrappers. If the outer select also joins, filters,
