@@ -107,6 +107,11 @@ modeling recommendations belong in downstream projects rather than this package.
 - Add diagnostics tests when the behavior is uncertain or lossy.
 - When you change an actively used output's structure/field meaning/evidence
   path, update the matching contract document under `docs/` in the same change.
+- When you remove or rename public API, a CLI flag/default, or an output layout,
+  grep ALL of `docs/`, both READMEs, and `skills/` for the old name and every code
+  example that uses it, in the same change. The 0.2.0 release updated the READMEs but
+  left six docs describing the removed contract as the default — including a Python
+  example that raised ImportError if copied.
 - Keep examples synthetic and free of private table names, emails, or paths.
 
 ## SQL Fixtures
