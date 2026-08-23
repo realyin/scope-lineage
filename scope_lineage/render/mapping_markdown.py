@@ -13,7 +13,7 @@ Machine readability is provided by the document itself, not by a second JSON art
 - contract ids (mapping_chain_id, logic_block_id, scope_id) as join keys back into
   lineage.json.
 
-The layout grammar is versioned as ``DOC_FORMAT`` (documented in docs/zh-CN/mapping-doc.md);
+The layout grammar is versioned as ``DOC_FORMAT`` (documented in docs/en/mapping-doc.md);
 changing any line grammar requires bumping it there and here together.
 """
 
@@ -157,7 +157,7 @@ def _front_matter(document: dict) -> list[str]:
         ("doc_format", DOC_FORMAT),
         ("schema_version", document.get("schema_version")),
         # the contract's top-level `task_id` is a name-based statement identifier
-        # (see docs/zh-CN/lineage-json.md), so the document calls it what it is
+        # (see docs/en/lineage-json.md), so the document calls it what it is
         ("task_name", document.get("task_id")),
         ("target_table", document.get("target_table")),
         ("stmt_kind", document.get("stmt_kind")),

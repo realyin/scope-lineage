@@ -114,7 +114,7 @@ scope-lineage parse \
 | `SELECT *` with schema metadata | `mart.t.* <- ods.s.*` | expanded to concrete columns |
 | Transform type and expression | not reported | `DIRECT` / `EXPRESSION` / `AGGREGATE` / `CONDITIONAL` plus SQL |
 | Target field bound to DDL position | not reported | `target_field_binding`, ordinals |
-| Multi-statement scripts | merged into one result | one artifact pair per write statement |
+| Multi-statement scripts | merged into one result | one `statement_lineage` entry per write statement |
 | What could not be proven | not reported | `diagnostics.json` |
 
 To be clear about where this does *not* differ: on a straightforward CTE-and-JOIN task such as
@@ -124,7 +124,7 @@ the expression, the transform type, the grain effect, and the diagnostics — no
 
 The same task also identifies window/dedup scopes, separates JOIN keys from row filters, binds
 projected fields to target DDL positions, and reports facts it cannot prove. See the complete
-[`lineage.json` contract](docs/zh-CN/lineage-json.md).
+[`lineage.json` contract](docs/en/lineage-json.md).
 
 ## Questions these facts can support
 
@@ -233,7 +233,7 @@ python -m pip install .
 
 The PyPI distribution and CLI are named `scope-lineage`; the Python import namespace is
 `scope_lineage`. The current `0.2.x` series is Alpha. See the
-[Chinese installation and usage guide](docs/zh-CN/getting-started.md) for a self-contained tutorial.
+[installation and usage guide](docs/en/getting-started.md) for a self-contained tutorial.
 
 ## Quick start
 
@@ -268,10 +268,11 @@ scope-lineage parse \
 ```
 
 Nested input paths are preserved in the output. When one task contains multiple supported write
-statements, each statement receives its own artifacts. Use `--allow-partial` only when callers
+statements, they share the task's single artifact directory: each statement becomes a
+`statement_lineage` entry (`stmt:001`, `stmt:002`, …). Use `--allow-partial` only when callers
 explicitly accept invalid inputs or failed statements. See the complete synthetic corpus in
-[examples/README.zh-CN.md](examples/README.zh-CN.md) and the detailed
-[Core input formats](docs/zh-CN/input-formats.md).
+[examples/README.md](examples/README.md) and the detailed
+[Core input formats](docs/en/input-formats.md).
 
 Task-level contract 2.0 is the default: one ordered table-state artifact per task, covering
 statement order, DELETE/TRUNCATE/UPDATE, and row-membership lineage:
@@ -285,7 +286,7 @@ scope-lineage parse \
   --out /tmp/scope-lineage-v2
 ~~~
 
-See [Task Lineage 2.0](docs/zh-CN/task-lineage-v2.md). Field lineage and
+See [Task Lineage 2.0](docs/en/task-lineage-v2.md). Field lineage and
 transformation-step analysis read the per-statement documents embedded in
 `statement_lineage`; audits, incident forensics, and final table state read the
 task-level facts.
@@ -316,7 +317,7 @@ scope-lineage render --lineage /tmp/scope-lineage-corpus
 Each statement's `mapping.md` is written next to its `lineage.json` (`--out` mirrors the
 tree elsewhere). The document is a derived view of the contract — every fact in it links
 back to `lineage.json` by contract ids. See the
-[mapping document guide (Chinese)](docs/zh-CN/mapping-doc.md).
+[mapping document guide](docs/en/mapping-doc.md).
 
 ### Catalog-prefix normalization
 
@@ -422,12 +423,12 @@ or missing metadata as proven lineage.
 
 Documentation:
 
-- [Installation and usage guide (Chinese)](docs/zh-CN/getting-started.md)
-- [Documentation map and question-to-field index](docs/zh-CN/README.md)
-- [`lineage.json` keys, nested values, examples, and consumption rules](docs/zh-CN/lineage-json.md)
-- [`diagnostics.json` warnings, stats, and fact gaps](docs/zh-CN/diagnostics-json.md)
-- [SQL, task JSON, Schema, and target-DDL inputs](docs/zh-CN/input-formats.md)
-- [`mapping.md` rendered field-mapping documents](docs/zh-CN/mapping-doc.md)
+- [Installation and usage guide](docs/en/getting-started.md)
+- [Documentation map and question-to-field index](docs/en/README.md)
+- [`lineage.json` keys, nested values, examples, and consumption rules](docs/en/lineage-json.md)
+- [`diagnostics.json` warnings, stats, and fact gaps](docs/en/diagnostics-json.md)
+- [SQL, task JSON, Schema, and target-DDL inputs](docs/en/input-formats.md)
+- [`mapping.md` rendered field-mapping documents](docs/en/mapping-doc.md)
 
 ## AI agent integration
 
@@ -497,9 +498,9 @@ statement-document shape (`schema_version: "1.0"`). Both are validated before wr
 Within major version 1, consumers must tolerate additive optional fields. Removal, renaming, or a
 semantic change requires a new major contract version.
 
-- [Lineage contract (Chinese)](docs/zh-CN/lineage-json.md)
-- [Diagnostics contract (Chinese)](docs/zh-CN/diagnostics-json.md)
-- [Core input formats (Chinese)](docs/zh-CN/input-formats.md)
+- [Lineage contract](docs/en/lineage-json.md)
+- [Diagnostics contract](docs/en/diagnostics-json.md)
+- [Core input formats](docs/en/input-formats.md)
 
 Current limits:
 

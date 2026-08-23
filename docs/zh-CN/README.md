@@ -1,3 +1,5 @@
+[English](../en/README.md) | 中文
+
 # Scope Lineage 文档导航
 
 Scope Lineage 把 Spark/Hive SQL 转换成两类机器可消费的事实：

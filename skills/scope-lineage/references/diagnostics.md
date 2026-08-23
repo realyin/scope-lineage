@@ -3,7 +3,7 @@
 The tool's core promise is that it marks what it cannot prove instead of guessing.
 An answer that drops those marks breaks the promise at the last mile. This file is the
 agent-facing triage layer; the complete contract (every field, every type, jq recipes)
-is `docs/zh-CN/diagnostics-json.md` in the scope-lineage repository.
+is `docs/en/diagnostics-json.md` in the scope-lineage repository.
 
 ## The reporting rules
 

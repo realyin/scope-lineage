@@ -1,3 +1,5 @@
+[English](../en/contract-selection.md) | 中文
+
 # 读语句级还是任务级？按业务场景选层次
 
 自 0.2.0 起工具只产出一份产物：任务文档（schema_version 2.0，见

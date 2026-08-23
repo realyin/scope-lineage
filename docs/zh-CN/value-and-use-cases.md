@@ -1,3 +1,5 @@
+[English](../en/value-and-use-cases.md) | 中文
+
 # Scope Lineage：把复杂 SQL 还原成可验证的字段加工链
 
 Scope Lineage 是一个开源的 Spark/Hive SQL 离线静态分析工具。它读取 SQL，以及可选的源表 Schema 和目标表元数据，把藏在 CTE、子查询、`UNION`、`JOIN`、`CASE`、聚合和窗口函数中的字段关系还原成可以查询、追踪和验证的结构化事实。

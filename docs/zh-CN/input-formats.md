@@ -1,3 +1,5 @@
+[English](../en/input-formats.md) | 中文
+
 # Core 输入格式
 
 Scope Lineage Core 接收 SQL 内容以及两类可选元数据。它不会连接调度平台或元数据平台；调用方

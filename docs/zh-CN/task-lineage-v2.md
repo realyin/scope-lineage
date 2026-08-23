@@ -1,3 +1,5 @@
+[English](../en/task-lineage-v2.md) | 中文
+
 # Task Lineage 2.0：任务级表状态与行集合血缘
 
 schema_version 2.0 是任务级契约，自 0.2.0 起为唯一输出。它保留脚本中的语句顺序，在
@@ -107,8 +109,8 @@ physical_only = [
 
 一个看起来等价的写法是筛掉 `source_table == target_table` 的行。**这个口径是错的。**
 
-实测 10 个任务：`prior_table_state` 边共 4508 条，其中指向**别的**表的有 **0** 条——所以按 `source_kind`
-过滤精确、无误伤。但反过来，同表却**不是**前态边的行确实存在（实测 2 条）：那是任务把自己的表当作真实输入读取
+真实语料上实测：`prior_table_state` 边里指向**别的**表的一条也没有——所以按 `source_kind`
+过滤精确、无误伤。但反过来，同表却**不是**前态边的行确实存在（实测中出现过）：那是任务把自己的表当作真实输入读取
 （`INSERT INTO t SELECT ... FROM t`），是**真实血缘**。按表名相等过滤会把它一并删掉。
 
 **判据是来源的种类，不是表名是否相同。**
@@ -382,12 +384,13 @@ scope-lineage parse --contract-version 2.0 --partition-overwrite-mode dynamic ..
 一张每天被覆写的分区表，工具会认为每次覆写抹光了历史。
 
 **脚本里的 `SET` 始终优先于该参数**：脚本是更具体的陈述。
-该参数**需要 `--contract-version 2.0`**，在 1.0 下会直接报错而不是静默失效。
+该参数**需要 `--contract-version 2.0`**——2.0 是唯一契约，显式请求 1.0 会直接报错而不是
+静默失效。
 
 **旋钮设了就要维护。** 集群改配置后忘记改这个参数，产出的就是自信的错误答案；
 `partition_overwrite_mode_declared` 记录了当时声明的取值，是唯一的取证线索。
 
-#### 两个不要弄错的地方#### 两个不要弄错的地方
+#### 两个不要弄错的地方
 
 **`hive.exec.dynamic.partition.mode` 与本设置无关。** 前者是**编译期**对分区规格形状的准入检查
 （`strict` 要求至少有一个静态分区列，否则直接报错），它**不影响删除范围**。
@@ -455,7 +458,7 @@ diagnostics.json.metadata_coverage 记录引用表、已覆盖表、缺失表、
 
 --quality-policy permissive|balanced|strict 控制 CLI 退出码，不改变产物中的事实。
 
-- permissive：保持 v1 的解析失败口径；
+- permissive：保持解析失败的退出码口径；
 - balanced：未建模的数据变更也返回非零；
 - strict：另外拒绝语法恢复、root-impact fact gap 和目标绑定 fallback。
 
@@ -464,7 +467,7 @@ diagnostics.json.metadata_coverage 记录引用表、已覆盖表、缺失表、
 
 ## 兼容与消费
 
-1. v1 和 v2 必须输出到不同目录（两者的文件名相同，写进同一目录会互相覆盖，且产物里没有任何东西提示这发生过）；
+1. 一个输出目录只放一个任务的产物，不要让两次运行指向同一目录（文件名相同会互相覆盖，且产物里没有任何东西提示这发生过）；
 2. 消费者先检查 schema_version，未知 major version 必须拒绝；
 3. v2 以整个任务为一个产物，不能再假设一个目录只代表一条写表语句；
 4. --compact-json 只删除格式化空白，不改变 JSON 语义；

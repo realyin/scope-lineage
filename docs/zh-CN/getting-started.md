@@ -1,3 +1,5 @@
+[English](../en/getting-started.md) | 中文
+
 # Scope Lineage 安装与使用指南
 
 Scope Lineage 是一个离线的 Spark/Hive SQL 静态分析工具。它读取 SQL 和可选元数据，输出：
@@ -315,17 +317,18 @@ scope-lineage parse \
 
 `--allow-partial` 只改变命令退出码，不会把失败结果改成成功，也不会隐藏诊断。
 
-需要任务级 DELETE/TRUNCATE/UPDATE 和多语句最终状态时使用：
+任务级 DELETE/TRUNCATE/UPDATE 和多语句最终状态**始终**会产出——自 0.2.0 起任务文档（契约
+2.0）是唯一产物。`--contract-version` 仍只接受 `2.0`，保留一个版本是为了让显式请求 1.0 的
+调用得到明确报错，而不是"未知参数"。流水线需要拒绝不确定结果时加质量门禁：
 
 ~~~bash
 scope-lineage parse \
   --input-dir exported-tasks \
-  --contract-version 2.0 \
   --quality-policy strict \
-  --out ./output-v2
+  --out ./output
 ~~~
 
-完整语义见 [Task Lineage 2.0](task-lineage-v2.md)。v1 和 v2 应写入不同目录。
+完整语义见 [Task Lineage 2.0](task-lineage-v2.md)。
 
 ## 7. catalog 前缀
 

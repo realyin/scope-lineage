@@ -1,3 +1,5 @@
+[English](../en/mapping-doc.md) | 中文
+
 # mapping.md 字段映射文档（mapping-md/1）
 
 `scope-lineage render` 把一条写语句的 `lineage.json`（以及同目录的 `diagnostics.json`）
@@ -39,8 +41,11 @@ from scope_lineage import render_mapping_markdown
 markdown = render_mapping_markdown(lineage_document, diagnostics_document)
 ```
 
-- 仅支持 `schema_version: "1.0"` 的文档。目录模式遇到 2.0 文档会跳过并计数；
-  单文件模式直接报错。
+- 两种契约形状都接受：**语句文档**（`schema_version: "1.0"`）与**任务文档**
+  （`schema_version: "2.0"` 且 `artifact_kind: "task_lineage"`）。渲染任务文档时按
+  `statement_sequence` 顺序每条写语句输出一个 `## <statement_id>` 小节，节内是该语句的
+  完整映射文档；`statement_sequence` 未指向的条目排在有序条目之后照常渲染。其他版本在
+  目录模式下跳过并计数（运行摘要里的 `skipped_unknown_version=N`），单文件模式直接报错。
 - 同目录没有 `diagnostics.json` 时照常渲染，但第 9 节会明确标注
   "无 diagnostics 文档"，而不是沉默。
 

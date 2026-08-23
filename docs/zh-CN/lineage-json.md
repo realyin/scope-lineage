@@ -1,3 +1,5 @@
+[English](../en/lineage-json.md) | 中文
+
 # `lineage.json` 输出契约与字段说明
 
 本文说明**语句文档**契约（`schema_version: "1.0"`）——自 0.2.0 起它不再作为独立文件

@@ -115,7 +115,7 @@ scope-lineage parse \
 | 带 Schema 的 `SELECT *` | `mart.t.* <- ods.s.*` | 展开为具体字段 |
 | 变换类型与表达式 | 不提供 | `DIRECT` / `EXPRESSION` / `AGGREGATE` / `CONDITIONAL` 及 SQL |
 | 目标字段按 DDL 位置绑定 | 不提供 | `target_field_binding`、序号 |
-| 多写语句脚本 | 合并为一份结果 | 每条写语句一套独立产物 |
+| 多写语句脚本 | 合并为一份结果 | 每条写语句一个 `statement_lineage` 条目 |
 | 无法证明的部分 | 不提供 | `diagnostics.json` |
 
 也要说清楚哪里**没有**差别：在
@@ -280,7 +280,7 @@ scope-lineage parse \
 ```
 
 目录会递归发现 `*.json`。嵌套目录结构会保留到输出目录中；一个任务包含多条支持的写表语句时，
-每条语句分别生成产物。只有调用方明确接受失败输入或失败语句时，才使用 `--allow-partial`。
+它们共用该任务的同一个产物目录：每条语句作为一个 `statement_lineage` 条目（`stmt:001`、`stmt:002`…）。只有调用方明确接受失败输入或失败语句时，才使用 `--allow-partial`。
 
 任务级 2.0 契约现在是默认值：每个任务一份有序的表状态产物，保留语句顺序，并建模
 DELETE、TRUNCATE、UPDATE、字段值与行集合影响：

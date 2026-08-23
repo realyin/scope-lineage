@@ -1,3 +1,5 @@
+[English](../en/agent-skill.md) | 中文
+
 # AI agent 技能：让 agent 直接用上血缘能力
 
 仓库自带一个 agent 中立的技能，位于 [`skills/scope-lineage/`](../../skills/scope-lineage/)。
@@ -66,12 +68,14 @@ ln -s ~/tools/scope-lineage/skills/scope-lineage ~/.codex/skills/scope-lineage
 
 ```json
 {
-  "schema": "<rich-JSON 元数据目录>",
-  "schema_fallback": ["<兜底 CSV>"],
-  "target_ddl_metadata": "<目标表 DDL 目录>",
-  "catalog_prefixes": "<可选，逗号分隔>"
+  "schema": "/path/to/rich-json-metadata-dir",
+  "schema_fallback": ["/path/to/fallback-schema.csv"],
+  "target_ddl_metadata": "/path/to/target-ddl-dir",
+  "catalog_prefixes": "warehouse_catalog,spark_catalog"
 }
 ```
+
+`catalog_prefixes` 可选，不确定首段是不是 catalog 就别写。
 
 技能在每次解析前查找该文件并把键翻译成对应 flag；文件不存在且在解析真实任务时，
 技能会先询问元数据位置而不是裸解析（裸解析会静默降级，见
