@@ -37,7 +37,7 @@ scope-lineage parse --sql-file task.sql --out /tmp/lineage
 ```
 
 文件可以包含一条或多条语句。只有受支持的写表语句生成产物，多条写表语句使用
-`<task-name>_0`、`<task-name>_1` 等独立目录。
+同一个任务目录：各写语句作为 `statement_lineage` 的 `stmt:NNN` 条目记录在一份 lineage.json 中。
 
 ### 单个任务 JSON
 

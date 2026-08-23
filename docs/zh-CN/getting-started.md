@@ -99,7 +99,7 @@ scope-lineage parse \
 ```
 
 `--task-name` 只适用于单个 SQL 或任务 JSON；批量目录模式会使用每份任务数据中的名称。一个文件
-包含多条受支持的写表语句时，会分别写入 `<任务名>_0`、`<任务名>_1` 等目录。
+包含多条写表语句时，仍是**一个任务一个目录**：各语句作为 `statement_lineage` 条目（`stmt:001`、`stmt:002`…）记录在同一份 lineage.json 中。
 
 任务 JSON 推荐把 SQL 和任务信息放在 `meta` 中：
 
@@ -361,26 +361,23 @@ export SCOPE_LINEAGE_CATALOG_PREFIXES="warehouse_catalog,spark_catalog"
 ## 8. Python API
 
 ```python
-from scope_lineage import parse_scope_lineage, to_lineage_dict, write_lineage
+from scope_lineage import parse_task_lineage, write_task_lineage
 
 sql = "INSERT INTO mart.user_ids SELECT id FROM ods.users"
 
-result = parse_scope_lineage(
-    sql,
-    task_name="user_ids",
-    schema={"ods.users": ["id"]},
-)
+task = parse_task_lineage(sql, task_name="user_ids", schema={"ods.users": ["id"]})
+write_task_lineage(task, "./scope-lineage-output/user_ids")
 
-document = to_lineage_dict(result)
+# 单条语句文档（statement_lineage 每个条目内嵌的形状）：
+from scope_lineage import parse_scope_lineage, to_lineage_dict
+
+statement = parse_scope_lineage(sql, task_name="user_ids", schema={"ods.users": ["id"]})
+document = to_lineage_dict(statement)
 print(document["target_table"])
-
-write_lineage(result, "./scope-lineage-output/user_ids")
 ```
 
-`to_lineage_dict()` 适合内存消费，`write_lineage()` 会校验并写出两份契约文件。下游代码应通过
-`scope_lineage` 公共门面调用，不要依赖内部模块路径。
-
-任务级 API 为 `parse_task_lineage()` 和 `write_task_lineage()`。
+`write_task_lineage()` 会校验并写出两份契约文件；`to_lineage_dict()` 产出语句文档
+dict，适合内存消费。下游代码应通过 `scope_lineage` 公共门面调用，不要依赖内部模块路径。
 
 ## 9. 常见问题
 

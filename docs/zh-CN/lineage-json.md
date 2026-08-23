@@ -1,11 +1,13 @@
 # `lineage.json` 输出契约与字段说明
 
-本文说明默认 `schema_version: "1.0"` 的单条写语句契约。显式使用
-`--contract-version 2.0` 时，文件改为任务级有序状态契约，字段定义见
+本文说明**语句文档**契约（`schema_version: "1.0"`）——自 0.2.0 起它不再作为独立文件
+输出，而是作为任务文档 `statement_lineage.<statement_id>` 的条目完整内嵌；本文的字段
+定义对每个条目逐字适用。任务文档本身（任务级有序状态契约）见
 [Task Lineage 2.0](task-lineage-v2.md)，权威 Schema 为
-`scope_lineage/schemas/lineage-v2.schema.json`。
-不确定自己的场景该用哪份契约，先读[按业务场景选契约](contract-selection.md)：
-字段血缘、加工步骤分析用本契约即可；涉及语句顺序、DELETE/TRUNCATE、最终表状态才需要 2.0。
+`scope_lineage/schemas/lineage-v2.schema.json`；本契约的权威 Schema
+`lineage.schema.json` 仍随包发布，每个内嵌条目写盘前都会按它校验。
+不确定自己的场景该读哪一层，先读[按业务场景选层次](contract-selection.md)：
+字段血缘、加工步骤分析读语句文档即可；涉及语句顺序、DELETE/TRUNCATE、最终表状态读任务级。
 
 ## 1. 它到底输出什么
 
@@ -83,7 +85,7 @@ GROUP BY c.customer_id;
 
 | Key | Value 类型 | 必填 | 含义与使用方式 |
 | --- | --- | --- | --- |
-| `schema_version` | string | 是 | 本文所述默认契约固定为 `1.0`。消费者先检查 major 版本。 |
+| `schema_version` | string | 是 | 语句文档固定为 `1.0`。消费者先检查 major 版本。 |
 | `task_id` | string | 是 | 本条写表语句的任务标识；批量输入和多语句任务可能基于输入名生成独立标识。**不要用它关联 v1 与 v2 产物**：多写入脚本下 v1 按写入序号加后缀（`task#0`、`task#1`），v2 按脚本位置（`task#1`、`task#3`），同一个 `task#1` 在两份产物里指向不同语句。关联键是下面的 `statement_id`。 |
 | `statement_id` | string | 条件输出 | 脚本位置形式 `stmt:NNN`（如 `stmt:002`），与 v2 `statement_sequence[].statement_id` **对同一条语句取值相同**——这是 v1 与 v2 产物之间**唯一被指定的关联键**。经脚本文本解析（CLI、`parse_all_scope_lineage`、`parse_scope_lineage` 传 SQL）时输出；调用方直接传入已解析 AST（`tree=`）时不输出——那时脚本位置不可知，猜一个会静默匹配到错误的语句。 |
 | `statement_index` | integer | 条件输出 | 零基脚本位置，计入脚本中**全部**语句（含 SET、DELETE 等未建模语句），与 v2 `statement_sequence[].statement_index` 同口径。与 `statement_id` 同出现、同缺席。 |

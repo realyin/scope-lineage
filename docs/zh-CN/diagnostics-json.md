@@ -1,8 +1,9 @@
 # `diagnostics.json` 输出契约与字段说明
 
-本文说明默认 `schema_version: "1.0"` 的单条写语句诊断。显式使用
-`--contract-version 2.0` 时，诊断按任务汇总并包含 `analysis_status`、
-`statement_diagnostics` 和 `metadata_coverage`；参见
+本文说明**语句级**诊断（`schema_version: "1.0"` 的形状）。自 0.2.0 起对外写出的
+diagnostics.json 是任务级汇总（`schema_version: "2.0"`）：按任务聚合并包含
+`analysis_status`、`metadata_coverage`，以及 `statement_diagnostics.<statement_id>`
+——每个条目就是本文描述的语句级形状；参见
 [Task Lineage 2.0](task-lineage-v2.md) 及
 `scope_lineage/schemas/diagnostics-v2.schema.json`。
 
@@ -35,7 +36,7 @@ scope_lineage/schemas/diagnostics.schema.json
 
 | Key | Value 类型 | 必填 | 含义 |
 | --- | --- | --- | --- |
-| `schema_version` | string | 是 | 本文所述默认契约固定为 `1.0`。 |
+| `schema_version` | string | 是 | 语句级形状固定为 `1.0`。 |
 | `fallback_used` | boolean | 否 | 是否使用了解析降级路径；缺省等价于 `false`。它不是“结果一定错误”，但要求进一步检查 warning 和 Lineage 状态。 |
 | `warnings` | array<object> | 否 | 完整警告清单；缺省或空数组表示没有 warning。 |
 | `stats` | object | 否 | SQL 结构统计，用于复杂度索引和质量观测。 |

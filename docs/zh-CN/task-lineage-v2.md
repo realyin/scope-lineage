@@ -1,17 +1,16 @@
 # Task Lineage 2.0：任务级表状态与行集合血缘
 
-schema_version 2.0 是显式 opt-in 的任务级契约。它保留脚本中的语句顺序，在同一对
-lineage.json / diagnostics.json 中描述字段值来源、行是否存在的依赖以及最终表状态。
-默认 1.0 仍然为每条 INSERT、INSERT OVERWRITE、CTAS 或 MERGE 分别生成产物。
-不确定该不该用 2.0，先读[按业务场景选契约](contract-selection.md)：只做字段血缘、
-加工步骤分析用默认 1.0 就够；本契约面向审计、事故排查、最终表状态这类"任务干了什么"的问题。
+schema_version 2.0 是任务级契约，自 0.2.0 起为唯一输出。它保留脚本中的语句顺序，在
+同一对 lineage.json / diagnostics.json 中描述字段值来源、行是否存在的依赖以及最终表
+状态；每条写语句的完整语句文档（原 1.0 形状）内嵌在 `statement_lineage` 中。不确定
+该读哪一层，先读[按业务场景选层次](contract-selection.md)：字段血缘、加工步骤分析读
+语句文档就够；任务级字段面向审计、事故排查、最终表状态这类"任务干了什么"的问题。
 
 ## 使用
 
 ~~~bash
 scope-lineage parse \
   --task-file task.json \
-  --contract-version 2.0 \
   --schema rich-table-metadata \
   --schema-fallback schema_info.csv \
   --target-ddl-metadata rich-table-metadata \
