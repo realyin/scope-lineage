@@ -17,6 +17,11 @@ Turn Spark/Hive SQL into evidence-backed answers about field-level lineage. The
 `scope-lineage` CLI does the parsing; this skill's job is to wire its inputs correctly,
 extract answers from its artifacts efficiently, and keep the answers honest.
 
+Relative paths in this file (`scripts/query.py`, `references/...`) resolve against THIS
+file's own directory — if you are reading it from a clone at some other location, prefix
+them with that directory; the working project you are answering questions about does not
+need to contain these files.
+
 ## Three rules that make answers trustworthy
 
 1. **Never load a whole lineage.json into context.** Lineage artifacts can be large.

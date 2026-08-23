@@ -428,9 +428,22 @@ markdown 加一个查询脚本——教 AI 编码 agent 正确接线元数据、
 
 - **Claude Code**：`/plugin marketplace add realyin/scope-lineage`，安装 `scope-lineage`
   插件后，血缘类问题会自动触发该技能。
-- **Codex 及其他 agent**：在你的 agent 规则文件（如 `AGENTS.md`）加一行：「SQL 血缘、字段
-  加工、影响分析、mapping 文档相关问题，先读 `skills/scope-lineage/SKILL.md` 并遵循它」。
-  技能内容不依赖任何 agent 专有机制。
+- **Codex 及其他 agent**（没有插件机制——git 是唯一分发渠道，`pip install` 有意
+  **不**携带技能文件）：
+
+  ```bash
+  git clone https://github.com/realyin/scope-lineage ~/tools/scope-lineage
+  # 之后更新：git -C ~/tools/scope-lineage pull
+  ```
+
+  然后在 agent 的规则文件里加一行——项目级 `AGENTS.md`，或全局规则文件（Codex 为
+  `~/.codex/AGENTS.md`，全局配置对所有项目生效）：
+
+  > SQL 血缘、字段加工、影响分析、mapping 文档相关问题，先读
+  > `~/tools/scope-lineage/skills/scope-lineage/SKILL.md` 并遵循它。
+
+  路径换成你实际的 clone 位置；技能内部的相对路径以 SKILL.md 自身所在目录为基准解析，
+  被分析的项目里不需要有这些文件。技能内容不依赖任何 agent 专有机制。
 - 私有元数据路径放在 `~/.scope-lineage/defaults.json`（见
   `skills/scope-lineage/references/metadata-inputs.md`），永远不进技能本体。
 

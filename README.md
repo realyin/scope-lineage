@@ -438,10 +438,23 @@ context, and keep uncertainty attached to every answer.
 
 - **Claude Code**: `/plugin marketplace add realyin/scope-lineage`, then install the
   `scope-lineage` plugin — the skill triggers on lineage questions automatically.
-- **Codex and other agents**: add one line to your agent's rules file (e.g.
-  `AGENTS.md`): *"For SQL lineage, field derivation, impact analysis, or mapping-doc
-  questions, read `skills/scope-lineage/SKILL.md` and follow it."* The skill content
-  uses no agent-specific mechanisms.
+- **Codex and other agents** (no plugin mechanism — git is the delivery channel;
+  `pip install` deliberately does NOT ship the skill files):
+
+  ```bash
+  git clone https://github.com/realyin/scope-lineage ~/tools/scope-lineage
+  # update later with: git -C ~/tools/scope-lineage pull
+  ```
+
+  Then add one line to the agent's rules file — project-level `AGENTS.md`, or the
+  global one (for Codex, `~/.codex/AGENTS.md`) so it works in every project:
+
+  > For SQL lineage, field derivation, impact analysis, or mapping-doc questions, read
+  > `~/tools/scope-lineage/skills/scope-lineage/SKILL.md` and follow it.
+
+  Use your actual clone path; the skill's internal relative paths resolve against
+  SKILL.md's own directory, so the project being analyzed never needs to contain these
+  files. The skill content uses no agent-specific mechanisms.
 - Private metadata paths belong in `~/.scope-lineage/defaults.json` (see
   `skills/scope-lineage/references/metadata-inputs.md`), never in the skill itself.
 
