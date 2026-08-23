@@ -438,23 +438,27 @@ context, and keep uncertainty attached to every answer.
 
 - **Claude Code**: `/plugin marketplace add realyin/scope-lineage`, then install the
   `scope-lineage` plugin — the skill triggers on lineage questions automatically.
-- **Codex and other agents** (no plugin mechanism — git is the delivery channel;
-  `pip install` deliberately does NOT ship the skill files):
+- **Codex** (and any agent with a native Agent Skills directory — the skill folder is
+  drop-in compatible; git is the delivery channel, `pip install` deliberately does NOT
+  ship the skill files):
 
   ```bash
   git clone https://github.com/realyin/scope-lineage ~/tools/scope-lineage
-  # update later with: git -C ~/tools/scope-lineage pull
+  ln -s ~/tools/scope-lineage/skills/scope-lineage ~/.codex/skills/scope-lineage
+  # update later with: git -C ~/tools/scope-lineage pull  (the symlink follows)
   ```
 
-  Then add one line to the agent's rules file — project-level `AGENTS.md`, or the
-  global one (for Codex, `~/.codex/AGENTS.md`) so it works in every project:
+  User-level `~/.codex/skills/` makes it trigger in every project; a project-level
+  `.codex/skills/` works too. If your agent version does not follow symlinks, copy the
+  folder instead and re-copy on update.
+- **Agents without a skills mechanism**: clone as above, then add one line to the
+  agent's rules file (project-level `AGENTS.md`, or its global equivalent):
 
   > For SQL lineage, field derivation, impact analysis, or mapping-doc questions, read
   > `~/tools/scope-lineage/skills/scope-lineage/SKILL.md` and follow it.
 
-  Use your actual clone path; the skill's internal relative paths resolve against
-  SKILL.md's own directory, so the project being analyzed never needs to contain these
-  files. The skill content uses no agent-specific mechanisms.
+  The skill's internal relative paths resolve against SKILL.md's own directory, so the
+  project being analyzed never needs to contain these files.
 - Private metadata paths belong in `~/.scope-lineage/defaults.json` (see
   `skills/scope-lineage/references/metadata-inputs.md`), never in the skill itself.
 

@@ -32,29 +32,31 @@ python3 skills/scope-lineage/scripts/query.py impact db.table[.col] <根目录> 
 然后安装 `scope-lineage` 插件。之后提到血缘、字段来源、加工步骤、影响分析、mapping
 文档的对话会自动触发技能。
 
-**Codex 及其他 agent**：这些 agent 没有插件机制，git 是唯一分发渠道（`pip install`
-有意**不**携带技能文件——它们被排除在 PyPI 发行物之外）。三步：
+**Codex（原生 Skill 安装，推荐）**：Codex 有自己的 Agent Skills 机制，技能目录格式
+与本仓库的完全一致，即插即用。git 是分发渠道（`pip install` 有意**不**携带技能文件
+——它们被排除在 PyPI 发行物之外）：
 
-1. 把仓库 clone 到一个固定位置（和你日常工作的项目无关）：
+```bash
+git clone https://github.com/realyin/scope-lineage ~/tools/scope-lineage
+ln -s ~/tools/scope-lineage/skills/scope-lineage ~/.codex/skills/scope-lineage
+```
 
-   ```bash
-   git clone https://github.com/realyin/scope-lineage ~/tools/scope-lineage
-   ```
+- **用户级** `~/.codex/skills/`：所有项目通用，推荐；**项目级** `.codex/skills/`：只对
+  当前项目生效。装进技能目录后，Codex 按 SKILL.md 的 description 自动触发，和 Claude
+  Code 的体验一致。
+- 更新：`git -C ~/tools/scope-lineage pull`，软链自动跟随；若你的 agent 版本不跟随
+  软链，改为复制目录、更新时重新复制。
+- Core CLI 的升级仍走 `pip install --upgrade scope-lineage`，两条通道独立，技能的
+  自检会在版本过旧时提示升级。
 
-2. 在 agent 的规则文件里加一行。项目级 `AGENTS.md` 只对当前项目生效；建议写进全局
-   规则文件（Codex 为 `~/.codex/AGENTS.md`），所有项目通用：
+**没有技能机制的 agent（兜底）**：先按上面 clone，然后在其规则文件（项目级
+`AGENTS.md` 或全局等价物）加一行：
 
-   > SQL 血缘、字段加工、影响分析、mapping 文档相关问题，先读
-   > `~/tools/scope-lineage/skills/scope-lineage/SKILL.md` 并遵循它。
+> SQL 血缘、字段加工、影响分析、mapping 文档相关问题，先读
+> `~/tools/scope-lineage/skills/scope-lineage/SKILL.md` 并遵循它。
 
-   路径换成你实际的 clone 位置。技能内部的相对路径（`scripts/query.py`、
-   `references/...`）以 SKILL.md 自身所在目录为基准解析，所以**被分析的项目里不需要
-   有这些文件**——你在任何数仓项目里提问都能用。
-
-3. 更新技能：`git -C ~/tools/scope-lineage pull`（Core CLI 的升级仍走
-   `pip install --upgrade scope-lineage`，两条通道独立，技能的自检会在版本过旧时提示
-   升级）。
-
+技能内部的相对路径（`scripts/query.py`、`references/...`）以 SKILL.md 自身所在目录为
+基准解析，所以**被分析的项目里不需要有这些文件**——你在任何数仓项目里提问都能用。
 技能内容不依赖任何 agent 专有机制，各家 agent 读到的是同一份指引。
 
 ## 团队私有元数据配置
