@@ -8,7 +8,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 
-FORBIDDEN_PARTS = {".claude", "dev-notes", "docs", "tests", "__pycache__"}
+FORBIDDEN_PARTS = {".claude", ".claude-plugin", "dev-notes", "docs", "skills", "tests", "__pycache__"}
 REQUIRED_CORE_PATHS = {
     "scope_lineage/schemas/diagnostics-v2.schema.json",
     "scope_lineage/schemas/diagnostics.schema.json",

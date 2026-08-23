@@ -429,6 +429,25 @@ Documentation:
 - [SQL, task JSON, Schema, and target-DDL inputs](docs/zh-CN/input-formats.md)
 - [`mapping.md` rendered field-mapping documents](docs/zh-CN/mapping-doc.md)
 
+## AI agent integration
+
+The repository ships an agent-neutral skill — plain markdown plus a query script under
+[skills/scope-lineage/](skills/scope-lineage/) — that teaches an AI coding agent to wire
+metadata correctly, extract answers from artifacts without loading megabyte JSON into
+context, and keep uncertainty attached to every answer.
+
+- **Claude Code**: `/plugin marketplace add realyin/scope-lineage`, then install the
+  `scope-lineage` plugin — the skill triggers on lineage questions automatically.
+- **Codex and other agents**: add one line to your agent's rules file (e.g.
+  `AGENTS.md`): *"For SQL lineage, field derivation, impact analysis, or mapping-doc
+  questions, read `skills/scope-lineage/SKILL.md` and follow it."* The skill content
+  uses no agent-specific mechanisms.
+- Private metadata paths belong in `~/.scope-lineage/defaults.json` (see
+  `skills/scope-lineage/references/metadata-inputs.md`), never in the skill itself.
+
+The `skills/` and `.claude-plugin/` directories are not part of the PyPI distribution;
+the distribution-boundary test enforces that.
+
 ## Python API
 
 ```python

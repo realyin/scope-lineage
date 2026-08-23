@@ -1,0 +1,11 @@
+{
+  "name": "scope-lineage",
+  "owner": {"name": "realyin"},
+  "plugins": [
+    {
+      "name": "scope-lineage",
+      "source": "./",
+      "description": "Field-level Spark/Hive SQL lineage: parse, derivation chains, impact analysis, mapping docs. Agent-neutral skill content under skills/."
+    }
+  ]
+}

@@ -420,6 +420,22 @@ AI 下游必须同时读取诊断，不能把 `recovered`、歧义候选或缺�
 - [SQL、任务 JSON、Schema 和目标 DDL 输入格式](docs/zh-CN/input-formats.md)
 - [`mapping.md` 字段映射文档](docs/zh-CN/mapping-doc.md)
 
+## AI agent 集成
+
+仓库自带一个 agent 中立的技能——[skills/scope-lineage/](skills/scope-lineage/) 下的纯
+markdown 加一个查询脚本——教 AI 编码 agent 正确接线元数据、在不把 MB 级 JSON 读进上下文的
+前提下从产物中提取答案，并让不确定性始终随答案呈现。
+
+- **Claude Code**：`/plugin marketplace add realyin/scope-lineage`，安装 `scope-lineage`
+  插件后，血缘类问题会自动触发该技能。
+- **Codex 及其他 agent**：在你的 agent 规则文件（如 `AGENTS.md`）加一行：「SQL 血缘、字段
+  加工、影响分析、mapping 文档相关问题，先读 `skills/scope-lineage/SKILL.md` 并遵循它」。
+  技能内容不依赖任何 agent 专有机制。
+- 私有元数据路径放在 `~/.scope-lineage/defaults.json`（见
+  `skills/scope-lineage/references/metadata-inputs.md`），永远不进技能本体。
+
+`skills/` 与 `.claude-plugin/` 不进入 PyPI 发行物，发行物边界测试对此把关。
+
 ## Python API
 
 ```python

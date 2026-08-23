@@ -17,8 +17,20 @@ from .metadata.target_table_metadata import load_target_table_metadata
 from .scope.task_lineage import parse_task_lineage
 
 
+def _package_version() -> str:
+    try:
+        from importlib.metadata import version
+
+        return version("scope-lineage")
+    except Exception:  # noqa: BLE001 - a source checkout without metadata still deserves --version
+        return "unknown (source checkout)"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="scope-lineage")
+    parser.add_argument(
+        "--version", action="version", version=f"scope-lineage {_package_version()}"
+    )
     subcommands = parser.add_subparsers(dest="command", required=True)
     parse_cmd = subcommands.add_parser(
         "parse",
