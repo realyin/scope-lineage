@@ -4,9 +4,8 @@ A table's authoritative metadata carries two descriptions of its columns: the DD
 exported column array. They are not two claims to be checked against each other — the DDL
 is the stronger one, and a partition column declared only in ``PARTITIONED BY`` is an
 ordinary shape, not a contradiction. Treating the difference as a validation failure
-rejected usable metadata, and the failure aborted the whole load: one bad file
-left every table without columns, which is what drives operators to build their own
-metadata workarounds.
+rejected usable metadata, and one bad file aborted the whole load, which is what drives
+operators to build their own metadata workarounds.
 """
 
 from __future__ import annotations
@@ -108,7 +107,7 @@ def test_an_unusable_file_costs_only_its_own_table(tmp_path: Path) -> None:
     """One table's metadata being unreadable must not blank out every other table.
 
     This is the failure that made a metadata directory unusable because one file in it
-    were malformed.
+    was malformed.
     """
     _write(tmp_path, "ods.healthy", _healthy())
     _write(tmp_path, "ods.broken", {"table_name": "ods.broken", "schema": []})

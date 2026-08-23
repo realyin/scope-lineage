@@ -344,7 +344,8 @@
       }
     },
     "task_dependencies": {
-      "type": "object"
+      "type": "object",
+      "description": "Declared task dependencies. Each source_file is an input basename or a POSIX-style path relative to the batch input root, never an absolute local path."
     },
     "diagnostics": {
       "type": "object"

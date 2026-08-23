@@ -361,10 +361,10 @@ def _parse_task_inputs_v2(
                 task_dependencies=task.task_dependencies,
                 partition_overwrite_mode=getattr(args, "partition_overwrite_mode", None),
             )
-            task_out = (
-                out_root
-                / task.relative_parent
-                / result.task_id.replace("#", "_")
+            task_out = _task_output_dir(
+                out_root,
+                task.relative_parent,
+                result.task_id,
             )
             claimed_by = claimed_output_dirs.get(task_out)
             if claimed_by is not None and claimed_by != source_path:
@@ -438,6 +438,37 @@ def _parse_task_inputs_v2(
     return 0 if args.allow_partial else 1
 
 
+def _safe_task_output_component(task_id: str) -> str:
+    """Keep a task identity as data instead of letting it become a path expression."""
+    if (
+        not task_id
+        or task_id in {".", ".."}
+        or "\x00" in task_id
+        or "/" in task_id
+        or "\\" in task_id
+        or Path(task_id).is_absolute()
+    ):
+        raise ValueError(
+            "task_id must be one non-empty output-directory component without "
+            f"path separators, got {task_id!r}"
+        )
+    return task_id.replace("#", "_")
+
+
+def _task_output_dir(out_root: Path, relative_parent: Path, task_id: str) -> Path:
+    """Resolve one task directory and prove it remains below the requested root."""
+    resolved_root = out_root.resolve(strict=False)
+    component = _safe_task_output_component(task_id)
+    candidate = (resolved_root / relative_parent / component).resolve(strict=False)
+    try:
+        candidate.relative_to(resolved_root)
+    except ValueError as error:
+        raise ValueError(
+            f"task output directory escapes --out: task_id={task_id!r}"
+        ) from error
+    return candidate
+
+
 def _quality_gate_failed(
     args: argparse.Namespace,
     *,
@@ -480,6 +511,11 @@ def _load_task_input(
         if input_root is not None
         else Path()
     )
+    source_label = (
+        source_path.relative_to(input_root).as_posix()
+        if input_root is not None
+        else source_path.name
+    )
     if source_path.suffix.lower() == ".sql":
         return _TaskInput(
             source_path=source_path,
@@ -508,19 +544,19 @@ def _load_task_input(
         relative_parent=relative_parent,
         task_name=task_name,
         sql=sql,
-        task_dependencies=_task_dependencies(document, source_path),
+        task_dependencies=_task_dependencies(document, source_label),
     )
 
 
-def _task_dependencies(document: dict, source_path: Path) -> dict:
+def _task_dependencies(document: dict, source_label: str) -> dict:
     meta = document.get("meta")
     if not isinstance(meta, dict):
         return _empty_task_dependencies("task_json_legacy")
     upstream = _dependency_items(
-        meta.get("upstream_tasks"), "upstream", source_path
+        meta.get("upstream_tasks"), "upstream", source_label
     )
     downstream = _dependency_items(
-        meta.get("downstream_tasks"), "downstream", source_path
+        meta.get("downstream_tasks"), "downstream", source_label
     )
     return {
         "upstream_tasks": upstream,
@@ -534,7 +570,7 @@ def _task_dependencies(document: dict, source_path: Path) -> dict:
     }
 
 
-def _dependency_items(records, direction: str, source_path: Path) -> list[dict]:
+def _dependency_items(records, direction: str, source_label: str) -> list[dict]:
     items = []
     for record in records if isinstance(records, list) else []:
         if not isinstance(record, dict):
@@ -555,7 +591,7 @@ def _dependency_items(records, direction: str, source_path: Path) -> list[dict]:
                     record.get("dependency_table") or record.get("table")
                 ),
                 "source": f"task_info.meta.{direction}_tasks",
-                "source_file": source_path.as_posix(),
+                "source_file": source_label,
                 "raw_record": record,
             }
         )

@@ -112,9 +112,9 @@ previous state". It adds nothing to **tracing the final physical source**, but i
 **explaining what one write actually changed** — so Core records it faithfully and the consumer
 chooses by purpose.
 
-There are a lot of them: in practice they can account for 40%–50% of one task's `value_sources`
-edges. A consumer that only cares "which physical tables does the field ultimately come from" (for
-example, comparing against a platform that emits physical sources only) should fold them away:
+They can form a substantial share of a task's `value_sources` edges. A consumer that only cares
+"which physical tables does the field ultimately come from" (for example, comparing against a
+platform that emits physical sources only) should fold them away:
 
 ```python
 physical_only = [
@@ -129,11 +129,11 @@ physical_only = [
 A seemingly equivalent approach is to drop rows where `source_table == target_table`. **That
 criterion is wrong.**
 
-Measured on a real corpus: among the `prior_table_state` edges, not a single one points at a
-*different* table — so filtering by `source_kind` is precise and harms nothing. But the converse
-does occur: rows on the same table that are **not** prior-state edges exist, where the task reads
-its own table as a genuine input (`INSERT INTO t SELECT ... FROM t`). That is **real lineage**, and
-filtering by table-name equality would delete it along with the rest.
+By contract, a `prior_table_state` edge points to the target table's own previous state, so filtering
+by `source_kind` is precise. But the converse does occur: rows on the same table that are **not**
+prior-state edges exist, where the task reads its own table as a genuine input
+(`INSERT INTO t SELECT ... FROM t`). That is **real lineage**, and filtering by table-name equality
+would delete it along with the rest.
 
 **The criterion is the kind of source, not whether the table names match.**
 
@@ -157,7 +157,7 @@ All three columns appear as `physical_field` + `transform: "WINDOW"`.
 
 `end_to_end_lineage` is a **flattened** view: it expands the whole scope chain down to physical
 leaves and keeps only `{table, column, transform}`, **preserving neither which hop it was nor a way
-back**. So a window partitioned by 15 columns puts all 15 of them into some downstream field's
+back**. So a window partitioned by many columns puts all of them into some downstream field's
 `value_sources`, which looks like "the sources were spread across an entire table".
 
 The scope view in `lineage.json` does not create that illusion — there, each hop usually has only
@@ -186,16 +186,16 @@ with a different `transform`. The dedup key is `(table, column, transform)`, and
 deliberately included: each record is one **way of participating**, not the same fact recorded
 repeatedly.
 
-A real slowly-changing-dimension derived column:
+A derived column can contain repeated participation paths:
 
 ```
-etl_begin_date: 17 entries → 16 columns after deduplicating by (table, column)
-etl_end_date:   33 entries → 16 columns after deduplicating by (table, column) (the same set as above)
+valid_to ← window path from source fields
+valid_to ← aggregate path from the same source fields
 ```
 
-`etl_end_date`'s 33 entries are not inflation: the same 16 columns arrive via **two paths** — one
-through a window-derived column (`transform=WINDOW`), one through an aggregate reading that
-window's output (`transform=AGGREGATE`) — plus 1 genuine value path (`transform=CONDITIONAL`).
+This is not inflation: the same columns arrive via **two paths** — one through a window-derived
+column (`transform=WINDOW`), and one through an aggregate reading that window's output
+(`transform=AGGREGATE`). A conditional value path may appear alongside them.
 
 For "which physical columns does this field depend on", deduplicate by `(table, column)`:
 
@@ -540,11 +540,11 @@ You can also use --fail-on-root-gap, --fail-on-unsupported-mutation, and
 
 ## Compatibility and consumption
 
-1. One output directory holds one task's artifacts; never point two runs at the same directory (the file names are identical, so they overwrite each other, and nothing in the artifact would indicate that this happened);
+1. One output directory belongs to one task. Re-parsing that task replaces the whole owned directory generation, so `lineage.json` and `diagnostics.json` always come from the same run. Derived `mapping.md` / `warnings.md` files are removed and must be rendered again; an unknown file makes replacement fail instead of being deleted;
 2. consumers check schema_version first and must reject an unknown major version;
 3. v2 makes the whole task one artifact, so you can no longer assume one directory represents one write statement;
 4. --compact-json only removes formatting whitespace; it does not change JSON semantics;
-5. each run still writes only lineage.json and diagnostics.json;
+5. each parse generation contains only lineage.json and diagnostics.json;
 6. **to correlate the same statement across contracts, use `statement_id` (and the same-basis `statement_index`), not `task_id`.**
    The v1 `task_id` suffix is numbered by write ordinal and v2's by script position, so the same
    `demo#1` points at different statements in the two artifacts, and the mismatch is silent. The v1

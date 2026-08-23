@@ -1,26 +1,41 @@
 name: Publish to PyPI
 
 on:
-  release:
-    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing draft release tag to verify and publish
+        required: true
+        type: string
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      # contents: write is required to upload dist files as Release Assets.
       contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      GH_TOKEN: ${{ github.token }}
+      PRIVATE_SURFACE_TERMS: ${{ secrets.PRIVATE_SURFACE_TERMS }}
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.release_tag }}
 
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
+      - name: Require a draft release and private terms
+        run: |
+          test -n "$PRIVATE_SURFACE_TERMS"
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = "true"
+          printf '%s\n' "$PRIVATE_SURFACE_TERMS" > /tmp/private-surface-terms.txt
+          gh release view "$RELEASE_TAG" --json body --jq .body > /tmp/release-body.md
+
       - name: Verify release tag matches package version
-        env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           python - <<'PY'
           import os
@@ -33,35 +48,40 @@ jobs:
           actual_tag = os.environ["RELEASE_TAG"]
           expected_tag = f"v{version}"
           if actual_tag != expected_tag:
-              # The usual cause is ordering: the release was cut from a commit that predates
-              # the version bump, so the tag names a version pyproject.toml has not reached
-              # yet. Saying only which two strings differ leaves the reader to rediscover
-              # that every time, so name the likely cause and the way out.
               raise SystemExit(
                   f"Release tag {actual_tag!r} does not match package version "
                   f"{version!r}; expected {expected_tag!r}.\n"
                   f"The commit this release points at still declares {version!r}. "
                   f"If {actual_tag!r} is the version you meant to ship, the bump commit is "
-                  f"probably not included: delete this release and its tag, then create it "
+                  f"probably not included: delete this draft and its tag, then create it "
                   f"again from the commit that sets the version. Otherwise bump "
                   f"pyproject.toml to {actual_tag.lstrip('v')!r} first."
               )
           print(f"Release tag {actual_tag} matches package version {version}")
           PY
 
-      - name: Build distributions
+      - name: Scan release surfaces before publication
+        run: |
+          SCAN="python tests/architecture/private_surface_scan.py --private-terms-file /tmp/private-surface-terms.txt --require-private-terms"
+          $SCAN tree .
+          $SCAN text /tmp/release-body.md
+          PREVIOUS_TAG="$(git describe --tags --abbrev=0 "$RELEASE_TAG^" 2>/dev/null || true)"
+          test -n "$PREVIOUS_TAG"
+          $SCAN commits "$PREVIOUS_TAG" "$RELEASE_TAG"
+
+      - name: Build and scan distributions
         run: |
           python -m pip install --upgrade pip build
           python -m build
           python tests/architecture/verify_distribution.py dist/*
+          python tests/architecture/private_surface_scan.py \
+            --private-terms-file /tmp/private-surface-terms.txt \
+            --require-private-terms archive dist/*
 
-      - name: Upload distributions to GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release upload "${{ github.event.release.tag_name }}" dist/* --clobber
+      - name: Upload distributions to draft release
+        run: gh release upload "$RELEASE_TAG" dist/* --clobber
 
-      - name: Upload distributions
+      - name: Upload distributions for trusted publishing
         uses: actions/upload-artifact@v7
         with:
           name: release-dists
@@ -85,3 +105,17 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+
+  publish-release:
+    needs: [build, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+
+    steps:
+      - name: Publish verified GitHub release
+        run: gh release edit "$RELEASE_TAG" --draft=false

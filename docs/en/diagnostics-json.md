@@ -166,10 +166,9 @@ tool capability gaps**; supply the metadata and rerun first.
 > source-side reference failing to resolve — counting it would pin a metadata label on gaps that
 > have nothing to do with metadata.
 
-Without this distinction, a run whose source tables had no metadata at all can produce many
-field-level gaps, while `blocking_reasons` said only `lineage_fact_gap`. Downstream reports can misread missing input as
-"insufficient parser capability" by downstream reports. With the metadata supplied, the same
-those gaps disappear.
+Without this distinction, a run missing all source metadata can produce many field-level gaps while
+`blocking_reasons` says only `lineage_fact_gap`; downstream reports then misread missing input as
+insufficient parser capability. With the metadata supplied, those gaps disappear.
 
 To confirm whether a batch of gaps is caused by missing metadata, the fastest test is: run the same
 SQL again with `schema=None`, and if the gap count and distribution match this run, the metadata

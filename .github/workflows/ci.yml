@@ -45,6 +45,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
@@ -54,10 +56,25 @@ jobs:
           python -m pip install -e ".[dev]"
       - name: Lint
         run: python -m ruff check scope_lineage tests
+      - name: Scan public tree and change descriptions
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          python tests/architecture/private_surface_scan.py tree .
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            python tests/architecture/private_surface_scan.py commits "$PR_BASE_SHA" HEAD
+            printf '%s' "$PR_BODY" | python tests/architecture/private_surface_scan.py text -
+          elif [ -n "$PUSH_BEFORE_SHA" ] && ! printf '%s' "$PUSH_BEFORE_SHA" | grep -Eq '^0+$'; then
+            python tests/architecture/private_surface_scan.py commits "$PUSH_BEFORE_SHA" HEAD
+          fi
       - name: Build and verify archives
         run: |
           python -m build
           python tests/architecture/verify_distribution.py dist/*
+          python tests/architecture/private_surface_scan.py archive dist/*
       - name: Smoke installed wheel outside repository
         run: |
           python -m venv /tmp/scope-lineage-wheel

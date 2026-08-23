@@ -1994,7 +1994,8 @@
           "type": "string"
         },
         "source_file": {
-          "type": "string"
+          "type": "string",
+          "description": "Input basename for single-file parsing, or a POSIX-style path relative to the batch input root; never an absolute local path."
         },
         "raw_record": {
           "type": "object"

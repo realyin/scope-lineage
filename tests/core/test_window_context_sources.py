@@ -132,8 +132,8 @@ def test_a_column_can_be_context_and_value_input_at_once():
     """`ORDER BY dt` and `date_add(dt, …)` are both true of the same column.
 
     So `value_sources - window_context_sources` is NOT the recipe for "what computes the value".
-    Subtracting by column name would answer "nothing" for the real slowly-changing-dimension
-    column this field was built for, which is a worse answer than the one being complained
+    Subtracting by column name would answer "nothing" when one field participates in both
+    roles, which is a worse answer than the one being complained
     about. The array says which role a column played; it does not claim the column played only
     that role.
     """

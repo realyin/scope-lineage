@@ -1,8 +1,8 @@
 """The skill's artifact-query script must answer without loading artifacts into context.
 
 skills/scope-lineage/scripts/query.py exists so an AI agent (this repo's skill, or any
-other tool following the docs) can pull a focused answer out of a lineage.json that
-is large. These tests run it the way an agent would -- as a subprocess over
+other tool following the docs) can pull a focused answer out of a large lineage.json.
+These tests run it the way an agent would -- as a subprocess over
 artifacts produced by the real CLI -- and pin the three contracts: a task summary, a
 field's transformation chain, and reverse impact lookup.
 """
