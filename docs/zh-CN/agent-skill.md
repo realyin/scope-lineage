@@ -12,8 +12,8 @@ agent 都能执行：
 3. **诚实度规则**——`trace_complete`、事实缺口、`AMBIGUOUS` 必须随答案呈现，不许把猜测
    说成事实。
 
-配套脚本 `scripts/query.py`（纯标准库）做定向提取——真实任务的 lineage.json 可达 MB 级，
-agent 永远不该把整个文件读进上下文：
+配套脚本 `scripts/query.py`（纯标准库）做定向提取。血缘产物可能很大，agent 永远不该把
+整个文件读进上下文：
 
 ```bash
 python3 skills/scope-lineage/scripts/query.py summary <产物目录>            # 任务概览

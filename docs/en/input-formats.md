@@ -76,6 +76,12 @@ Core currently consumes:
 - `meta.sql`, which must be a non-empty string;
 - `meta.upstream_tasks` and `meta.downstream_tasks`, written to `lineage.json.task_dependencies`.
 
+The chosen task name is also one output-directory component. It may contain spaces and Unicode,
+but absolute names, `.`, `..`, NUL, `/`, and `\` are rejected instead of being interpreted as
+paths. For dependency evidence, `source_file` is the input basename in single-file mode and the
+POSIX-style path relative to `--input-dir` in directory mode; it never records the caller's
+absolute local path.
+
 Dependency objects are normalized into these values where possible:
 
 | Input key | Output location | Meaning |

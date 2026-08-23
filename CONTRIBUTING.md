@@ -11,7 +11,7 @@ when the SQL is ambiguous.
 
 ```bash
 python -m pip install -e ".[dev]" -c constraints-dev.txt   # pins sqlglot to a CI-matrix version
-python -m pytest -q tests/core
+python -m pytest -q tests/core tests/architecture
 python -m pytest tests/core/test_lineage_contract_baseline.py -q
 git diff --check                       # whitespace/conflict check after edits
 ```
@@ -91,8 +91,9 @@ modeling recommendations belong in downstream projects rather than this package.
 - Never enable auto-merge (without required checks it bypasses CI); wait for green, then
   squash-merge with subject `<type>: <summary> (#PR)`.
 - Release order: bump `pyproject.toml` + retitle CHANGELOG -> PR -> CI green -> merge ->
-  `gh release create vX.Y.Z --target main` (the workflow rejects a tag that does not
-  match the package version) -> the release workflow publishes to PyPI. Breaking changes
+  create a **draft** GitHub release and tag from `main` -> run the `Publish to PyPI` workflow
+  with that tag. The workflow scans the draft notes, new commit messages, public tree, and
+  distributions before trusted publishing, then publishes the verified draft. Breaking changes
   ship only in minor bumps, each with a **Breaking** CHANGELOG entry and a migration
   section in both READMEs.
 - Before pushing, opening a PR, or writing release notes, scan every text that will
@@ -100,6 +101,20 @@ modeling recommendations belong in downstream projects rather than this package.
   sizes, and measurement figures; published sdists cannot be edited afterwards. Keep
   proportions, drop absolutes; cite local verification notes instead of restating
   numbers.
+
+Run the generic scanner locally before review:
+
+```bash
+python tests/architecture/private_surface_scan.py tree .
+python tests/architecture/private_surface_scan.py commits origin/main HEAD
+printf '%s' "$PR_BODY" | python tests/architecture/private_surface_scan.py text -
+```
+
+Private identifiers cannot be stored in this repository, including in scanner tests. Maintainers
+keep one term per line in a local file and add
+`--private-terms-file <path> --require-private-terms` before the scanner subcommand. The release
+workflow obtains the same list from the required `PRIVATE_SURFACE_TERMS` repository secret; an
+unset secret stops publication.
 
 ## Pull Request Checklist
 

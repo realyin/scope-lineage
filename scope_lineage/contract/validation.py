@@ -57,6 +57,11 @@ def validate_cross_references(data: dict) -> list[str]:
     """Return references to scope IDs that do not exist in the document graph."""
     if data.get("schema_version") == "2.0":
         return _validate_task_cross_references(data)
+    return _validate_statement_cross_references(data)
+
+
+def _validate_statement_cross_references(data: dict) -> list[str]:
+    """Validate the self-contained scope graph of one statement document."""
     errors: list[str] = []
     known_scopes: set[str] = set(data.get("scopes", {}).keys())
     all_nodes: set[str] = set(data.get("scope_graph", {}).get("nodes", []))
@@ -101,11 +106,13 @@ def _validate_task_cross_references(data: dict) -> list[str]:
             )
         seen_state_ids.add(state_id)
         state_ids.add(state_id)
-    statement_ids = {
-        item.get("statement_id")
-        for item in data.get("statement_sequence", [])
-        if item.get("statement_id")
+    statement_sequence = data.get("statement_sequence", [])
+    statements_by_id = {
+        item.get("statement_id"): item
+        for item in statement_sequence
+        if isinstance(item, dict) and item.get("statement_id")
     }
+    statement_ids = set(statements_by_id)
     for edge in graph.get("edges", []):
         for key in ("from", "to"):
             state_id = edge.get(key)
@@ -130,7 +137,7 @@ def _validate_task_cross_references(data: dict) -> list[str]:
             errors.append(
                 f"final_table_states[{table!r}]={state_id!r} not in nodes"
             )
-    for statement in data.get("statement_sequence", []):
+    for statement in statement_sequence:
         for state_id in statement.get("input_states", []):
             if state_id not in state_ids:
                 errors.append(
@@ -143,11 +150,7 @@ def _validate_task_cross_references(data: dict) -> list[str]:
                 f"statement {statement.get('statement_id')!r} "
                 f"output state {output_state!r} not in nodes"
             )
-    for statement_id in (data.get("statement_lineage") or {}):
-        if statement_id not in statement_ids:
-            errors.append(
-                f"statement_lineage key {statement_id!r} not in statement_sequence"
-            )
+    errors.extend(_validate_nested_statement_lineage(data, statements_by_id))
     for item in data.get("end_to_end_lineage", []):
         target_state = item.get("target_state")
         if target_state not in state_ids:
@@ -164,4 +167,48 @@ def _validate_task_cross_references(data: dict) -> list[str]:
                     "end_to_end_lineage prior source state_id="
                     f"{state_id!r} not in nodes"
                 )
+    return errors
+
+
+def _validate_nested_statement_lineage(
+    data: dict, statements_by_id: dict[str, dict]
+) -> list[str]:
+    """Validate identity and scope references for each embedded statement document."""
+    errors: list[str] = []
+    statement_ids = set(statements_by_id)
+    statement_lineage = data.get("statement_lineage") or {}
+    if not isinstance(statement_lineage, dict):
+        return ["statement_lineage must be an object"]
+    for statement_id, nested in statement_lineage.items():
+        prefix = f"statement_lineage[{statement_id!r}]"
+        if statement_id not in statement_ids:
+            errors.append(
+                f"statement_lineage key {statement_id!r} not in statement_sequence"
+            )
+        if not isinstance(nested, dict):
+            errors.append(f"{prefix}: nested statement must be an object")
+            continue
+        if nested.get("schema_version") != "1.0":
+            errors.append(
+                f"{prefix}: schema_version={nested.get('schema_version')!r}; "
+                "nested statements must use '1.0'"
+            )
+        if nested.get("statement_id") != statement_id:
+            errors.append(
+                f"{prefix}: statement_id={nested.get('statement_id')!r} "
+                "does not match its map key"
+            )
+        sequence_item = statements_by_id.get(statement_id)
+        if sequence_item is not None and nested.get("statement_index") != sequence_item.get(
+            "statement_index"
+        ):
+            errors.append(
+                f"{prefix}: statement_index={nested.get('statement_index')!r} "
+                "does not match statement_sequence value "
+                f"{sequence_item.get('statement_index')!r}"
+            )
+        errors.extend(
+            f"{prefix}: {error}"
+            for error in _validate_statement_cross_references(nested)
+        )
     return errors

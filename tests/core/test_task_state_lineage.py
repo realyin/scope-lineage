@@ -456,6 +456,28 @@ def test_task_cross_reference_validation_covers_final_field_state_refs() -> None
     assert any("state_id='state:missing:000'" in item for item in errors)
 
 
+def test_task_cross_reference_validation_recurses_into_statement_lineage() -> None:
+    result = parse_task_lineage(
+        "INSERT INTO mart.orders SELECT id, customer_id, amount, status "
+        "FROM ods.orders",
+        task_name="nested_cross_refs",
+        schema=SCHEMA,
+    )
+    document = to_task_lineage_dict(result)
+    nested = document["statement_lineage"]["stmt:001"]
+    nested["scopes"]["ROOT"]["columns"][0]["sources"][0]["scope"] = (
+        "scope:missing"
+    )
+
+    errors = validate_cross_references(document)
+
+    assert any(
+        error.startswith("statement_lineage['stmt:001']:")
+        and "source scope='scope:missing'" in error
+        for error in errors
+    )
+
+
 def test_compact_task_writer_preserves_json_semantics_and_reduces_bytes(
     tmp_path,
 ) -> None:

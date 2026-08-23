@@ -55,7 +55,10 @@ def test_a_downstream_read_of_a_cached_relation_resolves_to_its_real_source() ->
         if item["table"] == "mart.t"
         for source in item["value_sources"]
         if source.get("source_kind") == "physical_field"
-    } == {("id", "session_cached_relation", "id"), ("v", "session_cached_relation", "v")}
+    } == {
+        ("id", "session_cached_relation", "id"),
+        ("v", "session_cached_relation", "v"),
+    }
     assert {
         (item["column"], source["table"], source["column"])
         for item in result.end_to_end_lineage
@@ -87,7 +90,7 @@ def test_a_cached_relation_whose_projection_stayed_a_wildcard_is_not_registered(
 
     assert [item.stmt_kind for item in results] == ["CTAS", "INSERT"]
     assert [column.name for column in results[0].scopes["ROOT"].columns] == ["*"]
-    # The read still resolves against session_cached_relation itself; it is simply not backed by
+    # The read still resolves against the cached relation itself; it is simply not backed by
     # columns this script proved.
     assert results[1].parse_status == "ok"
 
@@ -121,7 +124,9 @@ def test_the_cached_relation_flag_reaches_the_contract(tmp_path) -> None:
     from .statement_document import write_statement_documents
 
     cached = parse_scope_lineage(
-        "cache lazy table session_cached_relation as select id, v from ods.s", "cached", schema=SCHEMA
+        "cache lazy table session_cached_relation as select id, v from ods.s",
+        "cached",
+        schema=SCHEMA,
     )
     output = write_statement_documents(cached, tmp_path / "cached")
     document = json.loads((output / "lineage.json").read_text(encoding="utf-8"))

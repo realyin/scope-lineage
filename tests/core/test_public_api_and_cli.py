@@ -26,6 +26,22 @@ REQUIRED_SYMBOLS = (
 )
 
 
+def _write_task(
+    path: Path,
+    task_name: str,
+    *,
+    with_dependency: bool = False,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    meta = {
+        "task_name": task_name,
+        "sql": "INSERT INTO mart.t SELECT id FROM ods.source",
+    }
+    if with_dependency:
+        meta["upstream_tasks"] = [{"task_id": "upstream", "task_name": "prepare"}]
+    path.write_text(json.dumps({"meta": meta}), encoding="utf-8")
+
+
 def test_public_exports_match_the_declared_core_api() -> None:
     assert set(scope_lineage.__all__) == scope_lineage.PUBLIC_CORE_API
 
@@ -579,3 +595,145 @@ def test_cli_v2_models_standalone_delete_instead_of_rejecting_input(
         (output / "delete" / "lineage.json").read_text(encoding="utf-8")
     )
     assert lineage["statement_sequence"][0]["model_status"] == "modeled"
+
+
+@pytest.mark.parametrize(
+    "unsafe_name",
+    ["../escaped", "<absolute>", "nested/escaped", "nested\\escaped", ".", "..", "bad\x00name"],
+)
+def test_cli_rejects_task_names_that_cannot_be_one_output_component(
+    tmp_path: Path,
+    unsafe_name: str,
+) -> None:
+    if unsafe_name == "<absolute>":
+        unsafe_name = str(tmp_path / "absolute-escape")
+    task_path = tmp_path / "input.json"
+    _write_task(task_path, unsafe_name)
+    output = tmp_path / "output"
+
+    assert main([
+        "parse",
+        "--task-file",
+        str(task_path),
+        "--out",
+        str(output),
+    ]) == 1
+
+    assert not (tmp_path / "escaped").exists()
+    assert not list(output.rglob("lineage.json")) if output.exists() else True
+
+
+def test_cli_applies_task_name_safety_to_the_override(tmp_path: Path) -> None:
+    sql_path = tmp_path / "safe.sql"
+    sql_path.write_text(
+        "INSERT INTO mart.t SELECT id FROM ods.source",
+        encoding="utf-8",
+    )
+
+    assert main([
+        "parse",
+        "--sql-file",
+        str(sql_path),
+        "--task-name",
+        "../escaped",
+        "--out",
+        str(tmp_path / "output"),
+    ]) == 1
+
+    assert not (tmp_path / "escaped").exists()
+
+
+def test_cli_allows_a_safe_unicode_task_name_with_spaces(tmp_path: Path) -> None:
+    task_path = tmp_path / "input.json"
+    _write_task(task_path, "客户 日报")
+    output = tmp_path / "output"
+
+    assert main([
+        "parse",
+        "--task-file",
+        str(task_path),
+        "--out",
+        str(output),
+    ]) == 0
+
+    assert (output / "客户 日报" / "lineage.json").is_file()
+
+
+def test_cli_detects_collisions_after_task_id_path_folding(tmp_path: Path) -> None:
+    input_dir = tmp_path / "tasks"
+    _write_task(input_dir / "first.json", "same#name")
+    _write_task(input_dir / "second.json", "same_name")
+    output = tmp_path / "output"
+
+    assert main([
+        "parse",
+        "--input-dir",
+        str(input_dir),
+        "--out",
+        str(output),
+    ]) == 1
+
+    assert len(list(output.rglob("lineage.json"))) == 1
+
+
+def test_cli_continues_a_batch_after_an_unsafe_task_name(tmp_path: Path) -> None:
+    input_dir = tmp_path / "tasks"
+    _write_task(input_dir / "bad.json", "../escaped")
+    _write_task(input_dir / "good.json", "safe_task")
+    output = tmp_path / "output"
+
+    assert main([
+        "parse",
+        "--input-dir",
+        str(input_dir),
+        "--out",
+        str(output),
+    ]) == 1
+
+    assert (output / "safe_task" / "lineage.json").is_file()
+    assert not (tmp_path / "escaped").exists()
+
+
+def test_single_task_dependency_source_file_is_only_the_input_basename(
+    tmp_path: Path,
+) -> None:
+    task_path = tmp_path / "private-location" / "input.json"
+    _write_task(task_path, "safe_task", with_dependency=True)
+    output = tmp_path / "output"
+
+    assert main([
+        "parse",
+        "--task-file",
+        str(task_path.resolve()),
+        "--out",
+        str(output),
+    ]) == 0
+
+    lineage = json.loads((output / "safe_task" / "lineage.json").read_text())
+    source_file = lineage["task_dependencies"]["upstream_tasks"][0]["source_file"]
+    assert source_file == "input.json"
+    assert str(tmp_path) not in source_file
+
+
+def test_directory_task_dependency_source_file_is_relative_to_the_input_root(
+    tmp_path: Path,
+) -> None:
+    input_dir = tmp_path / "tasks"
+    task_path = input_dir / "nested" / "input.json"
+    _write_task(task_path, "safe_task", with_dependency=True)
+    output = tmp_path / "output"
+
+    assert main([
+        "parse",
+        "--input-dir",
+        str(input_dir.resolve()),
+        "--out",
+        str(output),
+    ]) == 0
+
+    lineage = json.loads(
+        (output / "nested" / "safe_task" / "lineage.json").read_text()
+    )
+    source_file = lineage["task_dependencies"]["upstream_tasks"][0]["source_file"]
+    assert source_file == "nested/input.json"
+    assert str(tmp_path) not in source_file

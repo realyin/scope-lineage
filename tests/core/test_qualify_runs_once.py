@@ -5,7 +5,8 @@
 comparison — "check if qualify would have failed" — therefore ran every time, qualifying
 each statement a second time to learn something the first call already knew (QUALIFY-001).
 
-Cost only, not correctness: the second pass is redundant. But on a statement with very many column references it is not a cheap redundancy.
+Cost only, not correctness: the second pass is redundant. But on a very wide statement it
+is not a cheap redundancy.
 """
 
 from __future__ import annotations

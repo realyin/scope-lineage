@@ -94,7 +94,7 @@ USING 别名则沿已解析的 USING scope 一路追踪到物理根字段：USIN
 `prior_table_state` 记录的是"这个字段的值这次没被改写，沿用上一状态"。它对**追溯最终物理来源**没有增量价值，
 但对**解释一次写入到底改了什么**是必要的——所以 Core 如实记录，由消费方按用途取舍。
 
-它的量不小：实测中它可占单个任务 `value_sources` 边的 40%–50%。只关心"字段最终来自哪些物理表"的消费方
+它们可能占任务 `value_sources` 边的很大一部分。只关心"字段最终来自哪些物理表"的消费方
 （例如与只输出物理源的平台做对比）应当折叠掉它们：
 
 ```python
@@ -109,8 +109,8 @@ physical_only = [
 
 一个看起来等价的写法是筛掉 `source_table == target_table` 的行。**这个口径是错的。**
 
-真实语料上实测：`prior_table_state` 边里指向**别的**表的一条也没有——所以按 `source_kind`
-过滤精确、无误伤。但反过来，同表却**不是**前态边的行确实存在（实测中出现过）：那是任务把自己的表当作真实输入读取
+按契约，`prior_table_state` 边只会指向目标表自身的前一状态，所以按 `source_kind` 过滤是精确的。
+但反过来，同表却**不是**前态边的行确实存在：那是任务把自己的表当作真实输入读取
 （`INSERT INTO t SELECT ... FROM t`），是**真实血缘**。按表名相等过滤会把它一并删掉。
 
 **判据是来源的种类，不是表名是否相同。**
@@ -134,7 +134,7 @@ physical_only = [
 
 `end_to_end_lineage` 是**压平**视图：它把整条 scope 链一路展开到物理叶子，
 只保留 `{table, column, transform}`，**不保留是哪一跳、也不带回指**。
-于是一个按 15 列分区的窗口，会让这 15 列全部出现在某个下游字段的 `value_sources` 里，
+于是一个按很多列分区的窗口，会让这些列全部出现在某个下游字段的 `value_sources` 里，
 看上去像"来源被铺成整张表"。
 
 在 `lineage.json` 的 scope 视图里则不会有这个错觉——那里每一跳通常只有一两个直接来源，
@@ -158,16 +158,15 @@ physical_only = [
 去重键是 `(table, column, transform)`，`transform` 是刻意计入的：每条记录的是一种**参与方式**，
 不是同一事实记了多遍。
 
-一个真实的拉链表派生列：
+一个派生列可能包含重复的参与路径：
 
 ```
-etl_begin_date: 条目 17 → 按 (table, column) 去重后 16 列
-etl_end_date:   条目 33 → 按 (table, column) 去重后 16 列（与上面是同一批列）
+valid_to ← window path from source fields
+valid_to ← aggregate path from the same source fields
 ```
 
-`etl_end_date` 的 33 条不是膨胀：同一批 16 列经**两条路径**到达——一条经窗口派生的列
-（`transform=WINDOW`），一条经读取该窗口输出的聚合（`transform=AGGREGATE`），
-再加 1 条真正的取值路径（`transform=CONDITIONAL`）。
+这不是膨胀：同一批列经**两条路径**到达——一条经窗口派生的列（`transform=WINDOW`），
+一条经读取该窗口输出的聚合（`transform=AGGREGATE`）。旁边还可能有条件取值路径。
 
 要"这个字段依赖哪些物理列"，按 `(table, column)` 去重：
 
@@ -467,11 +466,11 @@ diagnostics.json.metadata_coverage 记录引用表、已覆盖表、缺失表、
 
 ## 兼容与消费
 
-1. 一个输出目录只放一个任务的产物，不要让两次运行指向同一目录（文件名相同会互相覆盖，且产物里没有任何东西提示这发生过）；
+1. 一个输出目录只属于一个任务。重跑该任务时会整体替换这个受控目录的一代产物，保证 `lineage.json` 与 `diagnostics.json` 来自同一次运行；派生的 `mapping.md` / `warnings.md` 会被清除并需要重新渲染，遇到未知文件则拒绝替换而不是删除；
 2. 消费者先检查 schema_version，未知 major version 必须拒绝；
 3. v2 以整个任务为一个产物，不能再假设一个目录只代表一条写表语句；
 4. --compact-json 只删除格式化空白，不改变 JSON 语义；
-5. 每次运行仍然只写 lineage.json 和 diagnostics.json；
+5. 每一代解析产物只包含 lineage.json 和 diagnostics.json；
 6. **跨契约关联同一条语句，用 `statement_id`（及同口径的 `statement_index`），不要用 `task_id`。**
    v1 的 `task_id` 后缀按写入序号编号、v2 按脚本位置编号，同一个 `demo#1` 在两份产物里指向
    不同的语句，静默匹配不报错。v1 顶层与 v2 的 `statement_sequence[]`、`statement_lineage` 键、

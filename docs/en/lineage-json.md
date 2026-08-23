@@ -709,7 +709,8 @@ field name, while preserving the correction evidence.
 
 These task dependencies come from declarations in the input task JSON; they are not the same thing
 as table dependencies derived by parsing SQL. A knowledge graph can build "task dependency edges"
-and "table/field lineage edges" separately.
+and "table/field lineage edges" separately. `source_file` is provenance without machine identity:
+the basename for a single task file, or a POSIX-style path relative to the batch input root.
 
 ### 12.2 `related_metadata`
 

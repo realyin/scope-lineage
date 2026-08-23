@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Targeted extraction from scope-lineage artifacts.
 
-A lineage.json can be large; an agent that reads the whole file into
-its context wastes it and still has to find the needle. This script pulls only the
-answer out. Three subcommands, stdlib only, Python 3.9+:
+A lineage.json can be large; an agent that reads the whole file into its context wastes
+it and still has to find the needle. This script pulls only the answer out. Three
+subcommands, stdlib only, Python 3.9+:
 
   summary <task_dir | lineage.json>          one task's status, statements, targets, gaps
   chain   <db.table.column> <path...>        how one written field is derived, step by step

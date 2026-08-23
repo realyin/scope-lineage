@@ -9,7 +9,8 @@ The damage is not a parse error. ``SELECT *`` expansion copies schema names verb
 scope's column list, so the inner scope advertises ``V1`` while the outer scope asks for
 ``v1``. The lookup misses, the source chain breaks to ``scope:"UNKNOWN"``, and the statement
 is reported as partial — while ``metadata_coverage`` still says every table is covered,
-because coverage only checks table names. On a multi-branch MERGE this can create many gaps, with no warning anywhere in the artifact.
+because coverage only checks table names. On a multi-branch MERGE this can create many gaps
+with no warning anywhere in the artifact.
 
 Upper-case column names are what several metastore exports produce, so this is a supported
 input shape, not a malformed one.

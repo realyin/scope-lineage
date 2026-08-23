@@ -14,8 +14,8 @@ agent that can read markdown and run a shell can execute it:
 3. **Honesty rules** — `trace_complete`, fact gaps, and `AMBIGUOUS` must travel with the answer;
    a guess must never be stated as a fact.
 
-The companion script `scripts/query.py` (pure standard library) does targeted extraction — a lineage.json can be large, and an agent should never read the whole file into
-context:
+The companion script `scripts/query.py` (pure standard library) does targeted extraction. Lineage
+artifacts can be large, and an agent should never read the whole file into context:
 
 ```bash
 python3 skills/scope-lineage/scripts/query.py summary <artifact dir>            # task overview

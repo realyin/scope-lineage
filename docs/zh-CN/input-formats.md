@@ -70,6 +70,11 @@ Core 当前消费：
 - `meta.sql`，必须是非空字符串；
 - `meta.upstream_tasks`、`meta.downstream_tasks`，写入 `lineage.json.task_dependencies`。
 
+最终采用的任务名也会成为输出目录的一个组件。任务名可以含空格和 Unicode，但绝对路径、`.`、
+`..`、NUL、`/`、`\` 会被拒绝，不会被当成路径解释。依赖证据里的 `source_file` 在单文件模式下
+只记录输入文件名，在目录模式下记录相对 `--input-dir` 的 POSIX 风格路径，绝不会写入调用方的
+本机绝对路径。
+
 依赖对象会尽量规范化为以下 value：
 
 | 输入 key | 输出位置 | 含义 |
