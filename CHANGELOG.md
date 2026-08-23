@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.2
+- Reject task identifiers that could escape the requested output directory, normalize output
+  collision checks, and keep task dependency source labels free of machine-local paths.
+- Publish each task's `lineage.json` and `diagnostics.json` as one directory generation. A failed
+  or interrupted replacement now leaves the previous complete pair available instead of exposing
+  files from different parses.
+- Validate cross-references inside every embedded statement document, including statement identity,
+  index, scope graph, and column-source references, before writing either task artifact.
+- Add privacy gates for repository text, commit messages, pull-request and release descriptions,
+  and built distributions. Releases now start from a reviewed draft, require the private terms
+  list, and publish only after the tag, archive, and public text checks succeed.
+- Clarify the updated path, validation, and paired-write behavior in both documentation trees.
+
 ## 0.2.1
 - `scope-lineage --version` reports the installed package version. Agent integrations
   (and any script) can now probe the version deterministically instead of inferring it
