@@ -33,6 +33,15 @@ def _populate_lineage_fact_gaps(result: ScopeLineageResult) -> None:
                     evidence_summary['union_branch_mappings'] = branch_evidence
                     gap['evidence_summary'] = evidence_summary
                 gaps.append(gap)
+            bounded_gap = _lineage_gap_from_bounded_expansion(
+                result=result,
+                scope_data=scope_data,
+                scope_id=scope_id,
+                output=output,
+                evidence_path=f'lineage.scopes.{scope_id}.outputs[{index}]',
+            )
+            if bounded_gap:
+                gaps.append(bounded_gap)
             for (branch_index, branch_mapping) in enumerate(branch_mappings):
                 if not isinstance(branch_mapping, dict):
                     continue
@@ -52,6 +61,105 @@ def _populate_lineage_fact_gaps(result: ScopeLineageResult) -> None:
     for (index, gap) in enumerate(gaps, start=1):
         gap['gap_id'] = f'lineage_gap:{index:04d}'
     result.diagnostics.lineage_fact_gaps = gaps
+
+
+def _lineage_gap_from_bounded_expansion(
+    *,
+    result: ScopeLineageResult,
+    scope_data: ScopeData,
+    scope_id: str,
+    output: ScopeOutputField,
+    evidence_path: str,
+) -> dict[str, object] | None:
+    """Describe an intentionally composable expression without calling its alias unknown."""
+    if output.expansion_status != 'bounded' or not output.unexpanded_refs:
+        return None
+    stop_reason = str(output.expansion_stop_reason or 'limit_reached')
+    target_columns = output.final_target_columns or output.target_columns
+    evidence_summary = _lineage_gap_evidence_summary(
+        result,
+        scope_data,
+        output.name,
+        output.expression,
+        target_columns,
+    )
+    evidence_summary['unexpanded_refs'] = [
+        dict(ref) for ref in output.unexpanded_refs if isinstance(ref, dict)
+    ]
+    return {
+        'gap_type': 'expression_expansion_bounded',
+        'gap_bucket': 'capacity_guard',
+        'gap_sub_bucket': stop_reason,
+        'scope_id': scope_id,
+        'object_type': 'output',
+        'object_name': output.name,
+        'expression_sql': output.expression,
+        'expression_resolution_status': str(
+            (output.expression_resolution or {}).get('status') or 'unknown'
+        ),
+        'source_kind': str(
+            (output.expression_resolution or {}).get('source_kind') or 'unresolved'
+        ),
+        'missing_reasons': [f'expression_expansion_bounded:{stop_reason}'],
+        'needed_fact': 'remaining upstream expression expansions',
+        'root_impact': bool(evidence_summary.get('has_target_impact')),
+        'owner_hint': 'consumer_follow_unexpanded_refs',
+        'evidence_path': evidence_path,
+        'evidence_summary': evidence_summary,
+        'downstream_impact': {
+            'output_fields': [output.name] if output.name else [],
+            'target_columns': [target for target in target_columns if target],
+        },
+    }
+
+
+def _root_gap_reasons_for_output(
+    result: ScopeLineageResult,
+    output_name: str,
+    target_columns: list[str] | None = None,
+) -> list[str]:
+    """Return the proved incompleteness that reaches one output column.
+
+    A gap may originate in a nested scope under a different output name, so matching only
+    ``object_name`` loses the final target binding.  ``downstream_impact`` is the fact gap's
+    explicit answer to that question; compare both its output names and its fully-qualified
+    target columns.  The final segment is included because statement views name a column while
+    the gap records the table-qualified target.
+    """
+    identities = {str(output_name)}
+    for target in target_columns or []:
+        if not target:
+            continue
+        identities.add(str(target))
+        identities.add(str(target).rsplit('.', 1)[-1])
+
+    reasons: list[str] = []
+    for gap in result.diagnostics.lineage_fact_gaps:
+        if not isinstance(gap, dict) or gap.get('root_impact') is not True:
+            continue
+        impact = gap.get('downstream_impact') or {}
+        affected = {
+            str(value)
+            for value in [
+                *(impact.get('output_fields') or []),
+                *(impact.get('target_columns') or []),
+            ]
+            if value
+        }
+        affected.update(value.rsplit('.', 1)[-1] for value in list(affected))
+        if not identities.intersection(affected):
+            continue
+        gap_reasons = [
+            str(reason)
+            for reason in gap.get('missing_reasons') or []
+            if reason
+        ]
+        if not gap_reasons and gap.get('gap_type'):
+            gap_reasons = [str(gap['gap_type'])]
+        for reason in gap_reasons:
+            if reason not in reasons:
+                reasons.append(reason)
+    return reasons
 
 
 def _unexpanded_star_gaps(result: ScopeLineageResult) -> list[dict[str, object]]:

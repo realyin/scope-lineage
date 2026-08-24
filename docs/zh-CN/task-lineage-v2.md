@@ -51,6 +51,11 @@ MERGE 的分支归属（`matched`/`not_matched`）在归并中被折叠；同一
 每条语句都有稳定的 statement_id、零基 statement_index、stmt_kind、category 和
 model_status。SET/空分号会保留在序列中但标为 ignored，不会被误算成数据变更失败。
 
+未建模语句会令 `analysis_status.status` 为 partial，但阻塞原因会区分语义：
+`unsupported_data_change` 表示 AST 能证明它会改变持久或会话状态，例如 DROP/ALTER/CREATE；
+`unsupported_statement` 表示独立 SELECT、UNION 等非变更语句。两者仍都会产生
+`unsupported_statement` warning——warning 说明“尚未建模”，blocking reason 说明实际影响。
+
 产出会话级关系的语句额外带 `is_session_scoped_relation: true`——`TEMP VIEW`、`GLOBAL TEMP VIEW`、
 `CACHE [LAZY] TABLE` 建出的关系只存活于会话。`final_table_states` 会为脚本产出的**每个**关系建条目，
 包括这些；按 catalog 对账前必须先用该字段排除，否则会认为仓库里新增了并不存在的表。

@@ -148,3 +148,75 @@ class TestExpansionBudget:
         assert tables == {"ods.src"}, f"物理来源丢失: {resolution['physical_source_fields']}"
         assert final.transform
         assert resolution["status"] in {"resolved", "partially_resolved"}
+
+    def test_sql_alias_different_from_cte_name_is_a_precise_bounded_gap(
+        self, monkeypatch
+    ):
+        """A retained SQL alias is a capacity fact, not a failed alias binding."""
+        from scope_lineage.scope import expansion_budget
+
+        monkeypatch.setattr(expansion_budget, "EXPANSION_MAX_CHARS", 400)
+        columns = ", ".join(
+            f"CASE WHEN flag = {index} THEN value ELSE value END AS v{index}"
+            for index in range(1, 9)
+        )
+        expression = " + ".join(f"LENGTH(b.v{index})" for index in range(1, 9))
+        sql = f"""
+        WITH verbose_source AS (
+          SELECT {columns} FROM ods.src
+        )
+        INSERT INTO mart.target
+        SELECT {expression} AS total FROM verbose_source b
+        """
+
+        result = parse_scope_lineage(
+            sql,
+            "bounded_alias",
+            schema={"ods.src": ["flag", "value"]},
+        )
+        output = result.scopes["ROOT"].outputs[0]
+        gaps = result.diagnostics.lineage_fact_gaps
+
+        assert output.expansion_status == "bounded"
+        assert output.expression_resolution["status"] == "resolved"
+        assert output.expression_resolution["missing_reasons"] == []
+        assert {item["table"] for item in output.expression_resolution["physical_source_fields"]} == {
+            "ods.src"
+        }
+        assert [gap["gap_type"] for gap in gaps] == ["expression_expansion_bounded"]
+        assert gaps[0]["missing_reasons"] == ["expression_expansion_bounded:max_chars"]
+        assert gaps[0]["owner_hint"] == "consumer_follow_unexpanded_refs"
+        assert gaps[0]["evidence_summary"]["unexpanded_refs"] == output.unexpanded_refs
+
+    def test_numeric_leading_field_keeps_only_the_precise_bounded_gap(
+        self, monkeypatch
+    ):
+        """A budget ref's display SQL need not itself be parseable without backticks."""
+        from scope_lineage.scope import expansion_budget
+
+        monkeypatch.setattr(expansion_budget, "EXPANSION_MAX_CHARS", 300)
+        long_case = "CASE " + " ".join(
+            f"WHEN flag = {index} THEN value" for index in range(1, 30)
+        ) + " ELSE value END"
+        sql = f"""
+        WITH verbose_source AS (
+          SELECT {long_case} AS `1st_value` FROM ods.src
+        )
+        INSERT INTO mart.target
+        SELECT LENGTH(b.`1st_value`) AS total FROM verbose_source b
+        """
+
+        result = parse_scope_lineage(
+            sql,
+            "bounded_numeric_field",
+            schema={"ods.src": ["flag", "value"]},
+        )
+        output = result.scopes["ROOT"].outputs[0]
+
+        assert output.expansion_status == "bounded"
+        assert any(ref["ref"] == "b.1st_value" for ref in output.unexpanded_refs)
+        assert output.expression_resolution["status"] == "resolved"
+        assert output.expression_resolution["missing_reasons"] == []
+        assert [gap["gap_type"] for gap in result.diagnostics.lineage_fact_gaps] == [
+            "expression_expansion_bounded"
+        ]

@@ -57,6 +57,12 @@ Every statement has a stable statement_id, a zero-based statement_index, stmt_ki
 model_status. SET and empty semicolons stay in the sequence but are marked ignored, so they are
 never miscounted as failed data changes.
 
+An unmodeled statement makes `analysis_status.status` partial. Its blocking reason distinguishes
+what was skipped: `unsupported_data_change` means the AST proves a persisted or session-state
+change such as DROP/ALTER/CREATE; `unsupported_statement` means a non-mutating shape such as a
+standalone SELECT or UNION. Both still emit the `unsupported_statement` warning because the
+warning names modeling support, while the blocking reason names operational impact.
+
 Statements that produce a session-scoped relation additionally carry
 `is_session_scoped_relation: true` — the relations created by `TEMP VIEW`, `GLOBAL TEMP VIEW`, and
 `CACHE [LAZY] TABLE` live only for the session. `final_table_states` creates an entry for **every**

@@ -103,6 +103,20 @@ legacy top-level `{"task_name": "...", "sql": "..."}` format is still supported,
 scope-lineage parse --input-dir exported_tasks --out /tmp/lineage
 ```
 
+If the export directory intentionally contains other JSON documents, filter explicitly instead
+of letting malformed inputs fail the batch or silently guessing their shape:
+
+```bash
+scope-lineage parse \
+  --input-dir exported_tasks \
+  --include-glob '*_info.json' \
+  --exclude-glob '*_archived_info.json' \
+  --out /tmp/lineage
+```
+
+Both glob flags are repeatable and apply only to `--input-dir`. Without them, every recursively
+discovered `*.json` remains an input, preserving the fail-visible default.
+
 Core reads `*.json` recursively and preserves each source file's relative parent directory. Two
 inputs that use the same task name inside the same relative directory are treated as an output
 conflict rather than silently overwritten.

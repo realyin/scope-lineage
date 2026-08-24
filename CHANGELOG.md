@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+- Keep lineage uncertainty consistent across diagnostics, mapping chains, statement-level
+  end-to-end lineage, and task-level end-to-end lineage. A root-impact fact gap now marks only
+  the target fields it can actually affect, rather than leaving statement views complete or
+  making every field in the task incomplete.
+- Complete several evidence-backed expression-resolution paths involving repeated aliases,
+  lateral-view outputs, window arithmetic, and consumers revisited after a late expansion. When
+  an expansion is declined by the capacity guard, diagnostics now report that precise bounded
+  condition instead of a generic unresolved alias.
+- Treat a parenthesized wildcard projection such as `DISTINCT(*)` as the same column set as
+  `DISTINCT *`. It now expands through physical schemas, subqueries, and UNION branches instead
+  of becoming a source-free expression or an unexpanded downstream wildcard.
+- Distinguish unsupported statements from unsupported data changes in task analysis blockers.
+  Read-only SELECT/UNION statements remain partial but report `unsupported_statement`; mutating
+  DDL and unsupported row changes continue to report `unsupported_data_change`.
+- Add repeatable `--include-glob` and `--exclude-glob` filters for directory parsing. The default
+  remains fail-visible recursive JSON discovery, while callers with mixed export directories can
+  declare the task-file boundary explicitly.
+- Make the bundled lineage query helper read task diagnostic summaries accurately, stream the
+  fields needed by `summary`, process corpus files one at a time, and bound chain expression
+  previews by default. `--expanded` retains access to the full expression evidence.
+
 ## 0.2.2
 - Reject task identifiers that could escape the requested output directory, normalize output
   collision checks, and keep task dependency source labels free of machine-local paths.

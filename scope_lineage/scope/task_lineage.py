@@ -64,6 +64,7 @@ class _State:
     window_context_sources: dict[str, list[dict]] = field(default_factory=dict)
     columns_known: bool = True
     missing_reasons: list[str] = field(default_factory=list)
+    column_missing_reasons: dict[str, list[str]] = field(default_factory=dict)
     # Whether the relation this state belongs to survives the session. Kept here so an edge
     # reading it can say so on itself, rather than making a consumer join against the
     # statement that produced it (TEMPVIEW-003).
@@ -118,6 +119,7 @@ class _StateBuilder:
         window_context_sources: dict[str, list[dict]] | None = None,
         columns_known: bool = True,
         missing_reasons: list[str] | None = None,
+        column_missing_reasons: dict[str, list[str]] | None = None,
         session_scoped: bool = False,
     ) -> _State:
         # Two different questions, and they used to share one answer. `previous` says what
@@ -152,6 +154,10 @@ class _StateBuilder:
             },
             columns_known=columns_known,
             missing_reasons=list(missing_reasons or []),
+            column_missing_reasons={
+                column: list(reasons)
+                for column, reasons in (column_missing_reasons or {}).items()
+            },
         )
         self._add(state, producer_statement_id=statement_id)
         if previous is not None:
@@ -190,6 +196,10 @@ class _StateBuilder:
         for table in sorted(self.current_by_table):
             state = self.current_by_table[table]
             for column, sources in state.value_sources.items():
+                missing_reasons = list(state.missing_reasons)
+                for reason in state.column_missing_reasons.get(column, []):
+                    if reason not in missing_reasons:
+                        missing_reasons.append(reason)
                 items.append({
                     "target_state": state.state_id,
                     "table": table,
@@ -201,8 +211,8 @@ class _StateBuilder:
                     "value_condition_sources": _dedupe_dicts(
                         state.value_condition_sources.get(column, [])
                     ),
-                    "trace_complete": state.columns_known,
-                    "missing_reasons": list(state.missing_reasons),
+                    "trace_complete": not missing_reasons,
+                    "missing_reasons": missing_reasons,
                 })
                 context = _dedupe_dicts(state.window_context_sources.get(column, []))
                 if context:
@@ -276,6 +286,7 @@ def parse_task_lineage(
     script_local: dict[str, list[str]] = {}
     parse_failed = False
     unsupported_data_changes = 0
+    unsupported_statements = 0
     # Spark's own default for spark.sql.sources.partitionOverwriteMode. A script that never
     # sets it gets STATIC semantics, under which a dynamic-partition overwrite replaces the
     # whole table rather than only the partitions it writes.
@@ -359,7 +370,10 @@ def parse_task_lineage(
             }:
                 statement["model_status"] = "ignored"
             else:
-                unsupported_data_changes += 1
+                if _unsupported_statement_changes_data(tree):
+                    unsupported_data_changes += 1
+                else:
+                    unsupported_statements += 1
                 warnings.append({
                     "statement_id": statement_id,
                     "type": "unsupported_statement",
@@ -410,6 +424,7 @@ def parse_task_lineage(
     partial = bool(
         syntax_status != "strict_ok"
         or unsupported_data_changes
+        or unsupported_statements
         or gaps
         or any(item["model_status"] == "failed" for item in statements)
     )
@@ -418,6 +433,7 @@ def parse_task_lineage(
         "blocking_reasons": _analysis_blocking_reasons(
             syntax_status,
             unsupported_data_changes,
+            unsupported_statements,
             gaps,
             statements,
             missing_sources,
@@ -580,6 +596,27 @@ def _is_projection_write(tree: exp.Expression) -> bool:
     )
 
 
+def _unsupported_statement_changes_data(tree: exp.Expression) -> bool:
+    """Whether an unmodeled AST is known to mutate persisted or session state."""
+    if isinstance(tree, (exp.Create, exp.Drop, exp.Alter)):
+        return True
+    if not isinstance(tree, exp.Command):
+        return False
+    command = str(tree.this or "").strip().upper()
+    return command in {
+        "ALTER",
+        "CACHE",
+        "CREATE",
+        "DROP",
+        "EXPORT",
+        "IMPORT",
+        "LOAD",
+        "MSCK",
+        "REFRESH",
+        "UNCACHE",
+    }
+
+
 def _apply_projection_write(
     statement: dict,
     tree: exp.Expression,
@@ -640,12 +677,17 @@ def _apply_projection_write(
     previous = None if result.stmt_kind == "CTAS" else states.current(
         result.target_table
     )
-    written_values = _write_value_sources(result, states)
+    written_values, written_missing_reasons = _write_projection_facts(result, states)
     state_missing_reasons = _projection_state_missing_reasons(
         result,
         written_values,
     )
     if "projection_wildcard_unexpanded" in state_missing_reasons:
+        # The relation-level reason is the contract's canonical explanation for this
+        # placeholder.  Statement end-to-end also carries the lower-level
+        # ``star_not_expanded`` reason; keeping both on the task row said the same missing
+        # fact twice and changed the established task-level meaning.
+        written_missing_reasons.pop("*", None)
         gaps.append({
             "gap_type": "projection_wildcard_unexpanded",
             "statement_id": statement_id,
@@ -721,10 +763,17 @@ def _apply_projection_write(
         )
     else:
         value_sources = written_values
+    if effect in {"APPEND", "MERGE", "REPLACE_PARTITION"} and previous is not None:
+        column_missing_reasons = _merge_column_missing_reasons(
+            previous.column_missing_reasons,
+            written_missing_reasons,
+        )
+    else:
+        column_missing_reasons = written_missing_reasons
     columns_known = not state_missing_reasons and (
         bool(value_sources)
         or (previous.columns_known if previous is not None else False)
-    )
+    ) and not any(column_missing_reasons.values())
     row_membership_sources = (
         list(previous.row_membership_sources)
         if effect in {"APPEND", "MERGE", "REPLACE_PARTITION"}
@@ -765,6 +814,7 @@ def _apply_projection_write(
         window_context_sources=window_context_sources,
         columns_known=columns_known,
         missing_reasons=state_missing_reasons,
+        column_missing_reasons=column_missing_reasons,
     )
     statement["input_states"] = (
         [previous.state_id] if previous is not None else []
@@ -828,6 +878,7 @@ def _apply_delete(
         value_condition_sources=previous.value_condition_sources,
         columns_known=previous.columns_known,
         missing_reasons=previous.missing_reasons,
+        column_missing_reasons=previous.column_missing_reasons,
     )
     statement.update({
         "model_status": "modeled",
@@ -896,6 +947,7 @@ def _apply_truncate(
         value_condition_sources=previous.value_condition_sources,
         columns_known=previous.columns_known,
         missing_reasons=previous.missing_reasons,
+        column_missing_reasons=previous.column_missing_reasons,
     )
     statement.update({
         "model_status": "modeled",
@@ -991,6 +1043,7 @@ def _apply_update(
         value_condition_sources=value_conditions,
         columns_known=previous.columns_known,
         missing_reasons=previous.missing_reasons,
+        column_missing_reasons=previous.column_missing_reasons,
     )
     statement.update({
         "model_status": "modeled",
@@ -1272,10 +1325,14 @@ def _source_state(states: _StateBuilder | None, table: str) -> dict:
     return stamped
 
 
-def _write_value_sources(result, states: _StateBuilder | None = None) -> dict[str, list[dict]]:
+def _write_projection_facts(
+    result,
+    states: _StateBuilder | None = None,
+) -> tuple[dict[str, list[dict]], dict[str, list[str]]]:
     from .end_to_end import build_end_to_end_lineage
 
     values: dict[str, list[dict]] = {}
+    missing_reasons: dict[str, list[str]] = {}
     for item in build_end_to_end_lineage(result):
         sources = [
             {
@@ -1293,7 +1350,27 @@ def _write_value_sources(result, states: _StateBuilder | None = None) -> dict[st
                 **dict(generated),
             })
         values[item["column"]] = _dedupe_dicts(sources)
-    return values
+        reasons = [
+            str(reason)
+            for reason in item.get("trace_incomplete_reasons") or []
+            if reason
+        ]
+        if reasons:
+            missing_reasons[item["column"]] = list(dict.fromkeys(reasons))
+    return values, missing_reasons
+
+
+def _merge_column_missing_reasons(
+    *mappings: dict[str, list[str]],
+) -> dict[str, list[str]]:
+    result: dict[str, list[str]] = {}
+    for mapping in mappings:
+        for column, reasons in mapping.items():
+            merged = result.setdefault(column, [])
+            for reason in reasons:
+                if reason not in merged:
+                    merged.append(reason)
+    return result
 
 
 def _projection_state_missing_reasons(
@@ -1312,12 +1389,6 @@ def _projection_state_missing_reasons(
         for source in sources
     ):
         return ["projection_wildcard_unexpanded"]
-    if any(
-        gap.get("root_impact")
-        for gap in result.diagnostics.lineage_fact_gaps
-        if isinstance(gap, dict)
-    ):
-        return ["projection_lineage_fact_gap"]
     if not written_values:
         return ["projection_has_no_resolved_target_fields"]
     return []
@@ -1561,6 +1632,7 @@ def _missing_source_tables(
 def _analysis_blocking_reasons(
     syntax_status: str,
     unsupported_data_changes: int,
+    unsupported_statements: int,
     gaps: list[dict],
     statements: list[dict],
     missing_source_tables: list[str] | None = None,
@@ -1577,6 +1649,8 @@ def _analysis_blocking_reasons(
         reasons.append("syntax_recovered")
     if unsupported_data_changes:
         reasons.append("unsupported_data_change")
+    if unsupported_statements:
+        reasons.append("unsupported_statement")
     if gaps:
         # Only alongside gaps: incomplete metadata with nothing unresolved blocks nothing,
         # and the warning already records it.

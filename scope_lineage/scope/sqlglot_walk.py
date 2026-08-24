@@ -13,6 +13,25 @@ from .parser import _qualified_table
 from .scope_types import ScopeLineageResult, SourceRef
 from .source_refs import _constant_sources, _system_sources
 
+
+def _projection_star(node: exp.Expression) -> exp.Star | exp.Column | None:
+    """Return the star projected by ``node``, unwrapping harmless parentheses.
+
+    Spark/Hive SQL seen in scheduler definitions sometimes spells ``DISTINCT *`` as
+    ``DISTINCT(*)``. SQLGlot preserves those parentheses as ``Paren(Star)`` (or
+    ``Paren(Column(Star))``), so checks limited to a direct ``Star`` silently turn the
+    projection into a source-free expression. Parentheses do not change which columns a
+    star denotes; unwrap only that exact shape and leave every other expression alone.
+    """
+    while isinstance(node, exp.Paren):
+        node = node.this
+    if isinstance(node, exp.Star):
+        return node
+    if isinstance(node, exp.Column) and isinstance(node.this, exp.Star):
+        return node
+    return None
+
+
 def _find_alias_in_parent(sg_scope: Scope) -> str | None:
     """Find the alias this scope uses in its parent scope's sources."""
     if sg_scope.is_udtf and isinstance(sg_scope.expression, exp.Lateral):
@@ -204,9 +223,7 @@ def _source_scope_id(alias: str, source: Scope, result: ScopeLineageResult) -> s
 
 def _classify_extended(node: exp.Expression) -> str:
     """Classify expression type. Extends parser._classify with UNION and EXPAND_ALL."""
-    if isinstance(node, exp.Star):
-        return "EXPAND_ALL"
-    if isinstance(node, exp.Column) and isinstance(node.this, exp.Star):
+    if _projection_star(node) is not None:
         return "EXPAND_ALL"
     if isinstance(node, exp.Window):
         return "WINDOW"

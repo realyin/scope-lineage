@@ -35,7 +35,10 @@ from .source_refs import _dedupe_generated_source_dicts, _dedupe_physical_field_
 from .sqlglot_walk import _find_alias_in_parent
 from .star_passthrough import _populate_union_output_branch_mappings, _star_passthrough_output_fact
 from .column_expression_resolution import _expression_resolution_for_scope_column
-from .lineage_fact_gaps import _populate_lineage_fact_gaps
+from .lineage_fact_gaps import (
+    _populate_lineage_fact_gaps,
+    _root_gap_reasons_for_output,
+)
 from .passthrough_resolution import _propagate_passthrough_expression_resolution
 from .logic_block import _populate_logic_blocks  # noqa: F401
 
@@ -102,6 +105,10 @@ def _populate_enhanced_scope_facts(
     _populate_structural_facts(result, all_scopes, schema)
     _run_resolution_rounds(result)
     _refresh_detail_resolutions(result)
+    # Finish aliases reintroduced by the converged expressions before the deliberately
+    # truncated tail. The existing tail can then propagate those settled expressions to
+    # consumers without adding the extra final internal pass that collapses trace detail.
+    _finish_reintroduced_expansions(result)
     # The tail segment is NOT the convergence loop, and its exact truncation is
     # load-bearing: the internal pass is not idempotent on settled outputs (see the
     # comment at _should_rebuild_internal_expansion_from_expression), so one extra run
@@ -161,14 +168,15 @@ def _finalize_facts(result: ScopeLineageResult, schema: dict | None) -> None:
     chains, fact gaps, and logic-block features; prunes star warnings."""
     # Runs after the expansion passes have settled: it can only finish references those
     # passes reintroduced, so there is nothing to do until they stop changing the text.
-    _finish_reintroduced_expansions(result)
+    settled_outputs = _finish_reintroduced_expansions(result)
+    _refresh_consumers_of_settled_expansions(result, settled_outputs)
     _restore_facts_behind_unexpanded_refs(result)
     _populate_union_output_branch_mappings(result)
     _normalize_scope_expression_resolutions(result)
     _refresh_join_relation_physical_fields(result)
     _populate_window_filter_links(result)
-    _populate_field_mapping_chains(result)
     _populate_lineage_fact_gaps(result)
+    _populate_field_mapping_chains(result)
     _prune_resolved_star_warnings(result)
     _populate_logic_block_features(result)
 
@@ -912,6 +920,11 @@ def _populate_field_mapping_chains(result: ScopeLineageResult) -> None:
                     for reason in trace_state.get("missing_reasons") or []
                     if reason
                 ],
+                *_root_gap_reasons_for_output(
+                    result,
+                    output.name,
+                    output.final_target_columns or output.target_columns,
+                ),
             ]
         )
         trace_complete = bool(
@@ -1334,6 +1347,76 @@ def _refresh_window_output_expression_resolutions(result: ScopeLineageResult) ->
 
 def _mark_unexpanded_bound_aliases(scope_data: ScopeData, output: ScopeOutputField) -> None:
     resolution = output.expression_resolution or {}
+    declined: set[str] = set()
+    bound_aliases = {
+        str(binding.get("alias") or "")
+        for binding in scope_data.alias_source_bindings or []
+        if binding.get("alias")
+    }
+    if output.expansion_status != "full":
+        for ref in output.unexpanded_refs:
+            reference = str(ref.get("ref") or "")
+            qualified_refs = _qualified_field_refs(reference)
+            if qualified_refs:
+                declined.add(qualified_refs[0][0])
+                continue
+            # The budget record is already a structured, evidence-backed reference. Its
+            # display text is intentionally lightweight and can be ``b.9th_due_dt`` even
+            # though that field needs backticks in executable SQL. The normal expression
+            # parser quite correctly rejects the numeric-leading field, but the qualifier
+            # before the first dot is still unambiguous when it names this scope's input
+            # binding. Use only that proved alias; never infer an arbitrary qualifier from
+            # free text (PERF-001 numeric-field variant).
+            qualifier, separator, _field = reference.partition(".")
+            qualifier = qualifier.strip().strip("`")
+            if separator and qualifier in bound_aliases:
+                declined.add(qualifier)
+
+    # A previous convergence round may have classified a reference as unresolved before
+    # the expansion budget recorded it as deliberately retained.  Repair that stale
+    # classification from the retained reference itself.  The SQL alias and the upstream
+    # scope name are independent (``FROM long_cte b``), so deriving the alias from scope_id
+    # only worked by accident when both happened to have the same name.
+    if declined:
+        missing_reasons = [
+            str(reason)
+            for reason in resolution.get("missing_reasons") or []
+            if not (
+                str(reason).startswith("expanded_expression_contains_unexpanded_alias:")
+                and str(reason).split(":", 1)[-1] in declined
+            )
+        ]
+        unresolved_qualifiers = [
+            str(qualifier)
+            for qualifier in resolution.get("unresolved_qualifiers") or []
+            if str(qualifier) not in declined
+        ]
+        if (
+            missing_reasons != list(resolution.get("missing_reasons") or [])
+            or unresolved_qualifiers
+            != list(resolution.get("unresolved_qualifiers") or [])
+        ):
+            has_source_fact = any(
+                resolution.get(key)
+                for key in (
+                    "physical_source_fields",
+                    "generated_sources",
+                    "rowset_sources",
+                    "union_branch_mappings",
+                )
+            )
+            resolution = {
+                **resolution,
+                "status": (
+                    "resolved"
+                    if has_source_fact and not missing_reasons
+                    else str(resolution.get("status") or "unresolved")
+                ),
+                "missing_reasons": missing_reasons,
+                "unresolved_qualifiers": unresolved_qualifiers,
+            }
+            output.expression_resolution = resolution
+
     if resolution.get("status") != "resolved":
         return
     expression = str(resolution.get("expanded_expression") or output.expanded_expression or output.expression or "")
@@ -1343,8 +1426,7 @@ def _mark_unexpanded_bound_aliases(scope_data: ScopeData, output: ScopeOutputFie
     # says exactly which and why. Treating it as unresolved would demote the output to
     # partially_resolved, and every downstream output would then refuse to take its physical
     # sources — turning a size limit into lineage loss (PERF-001).
-    if output.expansion_status != "full":
-        declined = {str(ref.get("scope_id") or "").split(":", 1)[-1] for ref in output.unexpanded_refs}
+    if declined:
         unresolved_aliases = [alias for alias in unresolved_aliases if alias not in declined]
     if not unresolved_aliases:
         return
@@ -1634,7 +1716,9 @@ def _refresh_join_relation_physical_fields(result: ScopeLineageResult) -> None:
 _EXPRESSION_EXPANSION_ROUNDS = 4
 
 
-def _finish_reintroduced_expansions(result: ScopeLineageResult) -> None:
+def _finish_reintroduced_expansions(
+    result: ScopeLineageResult,
+) -> set[tuple[str, str]]:
     """Expand references that expansion itself spliced back into the text.
 
     Expanding a reference inlines the upstream output's own expression, and that text can
@@ -1654,26 +1738,152 @@ def _finish_reintroduced_expansions(result: ScopeLineageResult) -> None:
         for scope_id, scope_data in result.scopes.items()
         for output in scope_data.outputs
     }
+    settled_outputs: set[tuple[str, str]] = set()
     for _round in range(_EXPRESSION_EXPANSION_ROUNDS):
         changed = False
-        for scope_data in result.scopes.values():
-            alias_to_source = {
-                str(binding.get("alias")): str(binding.get("source_id"))
-                for binding in scope_data.alias_source_bindings
-                if binding.get("alias") and binding.get("source_id")
-            }
-            if not alias_to_source:
+        for scope_id, scope_data in result.scopes.items():
+            alias_to_sources: dict[str, list[str]] = {}
+            for binding in scope_data.alias_source_bindings:
+                alias = str(binding.get("alias") or "")
+                source_id = str(binding.get("source_id") or "")
+                if not alias or not source_id:
+                    continue
+                sources = alias_to_sources.setdefault(alias, [])
+                if source_id not in sources:
+                    sources.append(source_id)
+            if not alias_to_sources:
                 continue
             for output in scope_data.outputs:
-                if _expand_reintroduced_refs(output, alias_to_source, output_lookup):
+                if _expand_reintroduced_refs(output, alias_to_sources, output_lookup):
                     changed = True
+                    settled_outputs.add((scope_id, output.name))
         if not changed:
-            return
+            return settled_outputs
+    return settled_outputs
+
+
+def _refresh_consumers_of_settled_expansions(
+    result: ScopeLineageResult,
+    settled_outputs: set[tuple[str, str]],
+) -> None:
+    """Refresh only consumers whose upstream text changed during final settlement.
+
+    A whole extra internal-resolution pass is intentionally unsafe here: it rebuilds
+    unrelated settled UNION/MERGE traces.  Following the concrete SourceRef keys keeps the
+    refresh on the affected dependency path and never selects a source by traversal order.
+    """
+    if not settled_outputs:
+        return
+    output_lookup = {
+        (scope_id, output.name): output
+        for scope_id, scope_data in result.scopes.items()
+        for output in scope_data.outputs
+    }
+    frontier = set(settled_outputs)
+    visited: set[tuple[str, str]] = set()
+    while frontier:
+        changed_consumers: set[tuple[str, str]] = set()
+        for scope_id, scope_data in result.scopes.items():
+            for output in scope_data.outputs:
+                output_key = (scope_id, output.name)
+                if output_key in visited or not output.sources:
+                    continue
+                source_keys = {(source.scope, source.column) for source in output.sources}
+                if not source_keys.intersection(frontier):
+                    continue
+                if not all(_is_internal_scope_id(source.scope) for source in output.sources):
+                    continue
+                upstream_outputs = [
+                    output_lookup.get((source.scope, source.column))
+                    for source in output.sources
+                ]
+                if any(upstream is None for upstream in upstream_outputs):
+                    continue
+                upstream_resolutions = [
+                    upstream.expression_resolution or {}
+                    for upstream in upstream_outputs
+                    if upstream is not None
+                ]
+                if any(
+                    resolution.get("status") != "resolved"
+                    for resolution in upstream_resolutions
+                ):
+                    continue
+                expanded = str(output.expression or "")
+                for source, upstream in zip(output.sources, upstream_outputs):
+                    if upstream is None:
+                        continue
+                    replacement = str(
+                        (upstream.expression_resolution or {}).get("expanded_expression")
+                        or upstream.expanded_expression
+                        or ""
+                    )
+                    if not replacement:
+                        continue
+                    if source.qualifier:
+                        expanded = _replace_qualified_ref_with_expression(
+                            expanded,
+                            source.qualifier,
+                            source.column,
+                            replacement,
+                        )
+                    expanded = _replace_unqualified_ref_with_expression(
+                        expanded,
+                        source.column,
+                        replacement,
+                    )
+                if not expanded or expanded == output.expanded_expression:
+                    visited.add(output_key)
+                    continue
+                physical_fields = _dedupe_physical_field_dicts(
+                    [
+                        dict(item)
+                        for resolution in upstream_resolutions
+                        for item in resolution.get("physical_source_fields") or []
+                        if isinstance(item, dict)
+                    ]
+                )
+                generated_sources = _dedupe_generated_source_dicts(
+                    [
+                        dict(item)
+                        for resolution in upstream_resolutions
+                        for item in resolution.get("generated_sources") or []
+                        if isinstance(item, dict)
+                    ]
+                )
+                rowset_sources = _dedupe_rowset_source_dicts(
+                    [
+                        dict(item)
+                        for resolution in upstream_resolutions
+                        for item in resolution.get("rowset_sources") or []
+                        if isinstance(item, dict)
+                    ]
+                )
+                resolution = dict(output.expression_resolution or {})
+                resolution.pop("scope_output_trace", None)
+                output.expanded_expression = expanded
+                output.expression_resolution = {
+                    **resolution,
+                    "status": "resolved",
+                    "expanded_expression": expanded,
+                    "physical_source_fields": physical_fields,
+                    "generated_sources": generated_sources,
+                    **({"rowset_sources": rowset_sources} if rowset_sources else {}),
+                    "source_kind": _source_kind_for_resolution(
+                        physical_fields,
+                        generated_sources,
+                        rowset_sources,
+                    ),
+                    "missing_reasons": [],
+                }
+                changed_consumers.add(output_key)
+                visited.add(output_key)
+        frontier = changed_consumers
 
 
 def _expand_reintroduced_refs(
     output: ScopeOutputField,
-    alias_to_source: dict[str, str],
+    alias_to_sources: dict[str, list[str]],
     output_lookup: dict[tuple[str, str], ScopeOutputField],
 ) -> bool:
     resolution = output.expression_resolution or {}
@@ -1695,9 +1905,18 @@ def _expand_reintroduced_refs(
     for qualifier, field in _qualified_field_refs(expanded):
         if (qualifier, field) in original_refs:
             continue
-        source_id = alias_to_source.get(qualifier)
-        if not source_id or not _is_internal_scope_id(source_id):
+        candidate_source_ids = [
+            source_id
+            for source_id in alias_to_sources.get(qualifier, [])
+            if _is_internal_scope_id(source_id)
+            and (source_id, field) in output_lookup
+        ]
+        # Reused aliases are legal around LATERAL VIEWs.  The referenced output field is
+        # the binding fact that distinguishes the base relation from the UDTF; if more than
+        # one source exposes it, choosing by input order would invent lineage.
+        if len(candidate_source_ids) != 1:
             continue
+        source_id = candidate_source_ids[0]
         upstream = output_lookup.get((source_id, field))
         upstream_resolution = (upstream.expression_resolution or {}) if upstream else {}
         replacement = str(

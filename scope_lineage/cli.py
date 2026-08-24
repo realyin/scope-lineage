@@ -47,6 +47,21 @@ def main(argv: list[str] | None = None) -> int:
         help="Directory of task JSON files; files are discovered recursively",
     )
     parse_cmd.add_argument(
+        "--include-glob",
+        action="append",
+        default=[],
+        help=(
+            "Only parse input-dir JSON paths matching this glob; repeatable. "
+            "Default: *.json"
+        ),
+    )
+    parse_cmd.add_argument(
+        "--exclude-glob",
+        action="append",
+        default=[],
+        help="Exclude input-dir JSON paths matching this glob; repeatable",
+    )
+    parse_cmd.add_argument(
         "--task-name",
         help="Override the task name for --sql-file or --task-file",
     )
@@ -172,6 +187,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "parse":
         if args.input_dir and args.task_name:
             parser.error("--task-name cannot be used with --input-dir")
+        if (args.include_glob or args.exclude_glob) and not args.input_dir:
+            parser.error("--include-glob/--exclude-glob require --input-dir")
         if getattr(args, "partition_overwrite_mode", None) is not None:
             # Validated here rather than per input: one bad value is one error, not one
             # per task. `nonstrict` is the neighbouring Hive key's value and the
@@ -495,9 +512,19 @@ def _source_paths(args: argparse.Namespace) -> tuple[list[Path], Path | None]:
     input_root = Path(args.input_dir)
     if not input_root.is_dir():
         raise ValueError(f"task input directory does not exist: {input_root}")
-    paths = sorted(input_root.rglob("*.json"))
+    includes = args.include_glob or ["*.json"]
+    excludes = args.exclude_glob or []
+    paths = sorted(
+        path
+        for path in input_root.rglob("*.json")
+        if any(path.relative_to(input_root).match(pattern) for pattern in includes)
+        and not any(path.relative_to(input_root).match(pattern) for pattern in excludes)
+    )
     if not paths:
-        raise ValueError(f"task input directory contains no JSON files: {input_root}")
+        raise ValueError(
+            "task input directory contains no JSON files matching the configured globs: "
+            f"{input_root}"
+        )
     return paths, input_root
 
 

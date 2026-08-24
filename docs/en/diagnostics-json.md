@@ -241,6 +241,7 @@ Example:
 | `scope_output_mapping_missing` | The mapping from an upstream scope's output field to the current reference. |
 | `expression_source_unresolved` | The expression's physical or generated source. |
 | `expression_resolution_incomplete` | Some sources are known, but the expression resolution is not yet complete. |
+| `expression_expansion_bounded` | Source facts are known, but full expression text was not inlined because an expansion guard was reached; continue through `evidence_summary.unexpanded_refs`. |
 
 ### 5.2 `gap_bucket`
 
@@ -251,6 +252,7 @@ Example:
 | `bare_unqualified_field` | A bare field cannot be bound uniquely across several or zero inputs. |
 | `qualified_expression_unresolved` | A qualified expression still did not resolve to a source. |
 | `other_expression_unresolved` | Other expression source gaps. |
+| `capacity_guard` | Expansion stopped at a declared size/substitution guard; this is not an alias-binding failure. |
 
 ### 5.3 Deciding whether it is fit for automation
 

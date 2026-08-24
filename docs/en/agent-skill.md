@@ -24,6 +24,9 @@ python3 skills/scope-lineage/scripts/query.py impact db.table[.col] <root dir>  
 ```
 
 These three subcommands are useful to humans too — you can run them without installing any agent.
+`chain` bounds expression text by default; add `--expanded` when the complete expression is needed.
+Corpus scans retain only the artifact currently being inspected rather than accumulating every
+decoded document.
 
 ## Installation
 

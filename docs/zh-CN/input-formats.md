@@ -95,6 +95,19 @@ Core 当前消费：
 scope-lineage parse --input-dir exported_tasks --out /tmp/lineage
 ```
 
+若导出目录有意混放其他 JSON，应显式筛选，不要让非任务文件拖成批次失败，也不要猜它的结构：
+
+```bash
+scope-lineage parse \
+  --input-dir exported_tasks \
+  --include-glob '*_info.json' \
+  --exclude-glob '*_archived_info.json' \
+  --out /tmp/lineage
+```
+
+两个 glob 参数都可重复，只对 `--input-dir` 生效。不传时仍递归处理全部 `*.json`，保留“错误可见”
+的默认行为。
+
 Core 递归读取目录内的 `*.json`，并保留源文件的相对父目录。两个输入若在同一相对目录使用相同
 任务名，会被视为输出冲突，不会静默覆盖。
 

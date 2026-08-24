@@ -14,6 +14,7 @@ from .scope_types import (
     ScopeLineageResult,
     ScopeOutputField,
 )
+from .lineage_fact_gaps import _root_gap_reasons_for_output
 
 
 _TRANSFORM_PRIORITY: dict[str, int] = {
@@ -61,11 +62,24 @@ def build_end_to_end_lineage(result: ScopeLineageResult) -> list[dict[str, Any]]
             column_override=column,
             output_override=output,
         )
+        incomplete_reasons = list(trace["trace_incomplete_reasons"])
+        if not incomplete_reasons:
+            for reason in _root_gap_reasons_for_output(
+                result,
+                column.name,
+                (
+                    output.final_target_columns or output.target_columns
+                    if output is not None
+                    else []
+                ),
+            ):
+                if reason not in incomplete_reasons:
+                    incomplete_reasons.append(reason)
         item = {
             "column": column.name,
             "transform": column.transform,
             "expression": column.expression,
-            "trace_complete": not trace["trace_incomplete_reasons"],
+            "trace_complete": not incomplete_reasons,
             "physical_sources": trace["physical_sources"],
             "generated_sources": trace["generated_sources"],
             "source_kind": trace["source_kind"],
@@ -93,8 +107,8 @@ def build_end_to_end_lineage(result: ScopeLineageResult) -> list[dict[str, Any]]
             item["target_metadata_table"] = column.target_metadata_table
         if trace.get("rowset_sources"):
             item["rowset_sources"] = trace["rowset_sources"]
-        if trace["trace_incomplete_reasons"]:
-            item["trace_incomplete_reasons"] = trace["trace_incomplete_reasons"]
+        if incomplete_reasons:
+            item["trace_incomplete_reasons"] = incomplete_reasons
         if trace.get("ambiguities"):
             item["ambiguities"] = trace["ambiguities"]
         items.append(item)

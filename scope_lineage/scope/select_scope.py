@@ -27,7 +27,7 @@ from ._constants import DIALECT, _SCOPE_ID_ATTR
 from .function_catalog import _KNOWN_UDAFS
 from .sequences import _unique_ordered
 from .source_refs import _constant_sources, _source_ref_binding_key
-from .sqlglot_walk import _classify_extended, _inside_nested_set_op, _pivot_of_source_node, _pivot_output_names, _selected_sources, _source_free_leaf_sources, _source_item_from_ast_node
+from .sqlglot_walk import _classify_extended, _inside_nested_set_op, _pivot_of_source_node, _pivot_output_names, _projection_star, _selected_sources, _source_free_leaf_sources, _source_item_from_ast_node
 from .column_ref_resolver import (
     _bound_source_ref,
     _input_ref_id_for_source_alias,
@@ -154,6 +154,7 @@ def _resolve_projection(
         # authoritative target DDL/Schema metadata can bind the physical field.  A wrapper over
         # exactly one source field keeps the evidence-backed recovery performed above.
         name = f"_col_{projection_ordinal}"
+    star_inner = _projection_star(inner)
     transform = _classify_extended(inner)
     expression = inner.sql(dialect=DIALECT)
 
@@ -166,11 +167,9 @@ def _resolve_projection(
         return udtf_cols
 
     # Handle EXPAND_ALL (SELECT * / a.*)
-    if isinstance(inner, exp.Star) or (
-        isinstance(inner, exp.Column) and isinstance(inner.this, exp.Star)
-    ):
-        qualified = isinstance(inner, exp.Column)
-        table_alias = inner.table if qualified else None
+    if star_inner is not None:
+        qualified = isinstance(star_inner, exp.Column)
+        table_alias = star_inner.table if qualified else None
         scope_id = getattr(sg_scope, _SCOPE_ID_ATTR, "UNKNOWN")
         expanded = _expand_star_into_columns(sg_scope, table_alias, result, schema)
         if expanded:
@@ -473,9 +472,12 @@ _UNSUPPORTED_STAR_MODIFIERS = ("replace", "rename", "ilike")
 
 def _star_modifiers(star_node: exp.Expression) -> tuple[list[str], list[str]]:
     """Return (names an EXCEPT list removes, names of modifiers Spark has no grammar for)."""
-    node = star_node.this if isinstance(star_node, exp.Column) else star_node
-    if not isinstance(node, exp.Star):
+    projected = _projection_star(
+        star_node.this if isinstance(star_node, exp.Alias) else star_node
+    )
+    if projected is None:
         return [], []
+    node = projected.this if isinstance(projected, exp.Column) else projected
     except_names = [
         item.name for item in (node.args.get("except_") or []) if getattr(item, "name", None)
     ]
