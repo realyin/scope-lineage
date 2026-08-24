@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.4
 - Add a pre-parse metadata coverage gate: `scope-lineage parse --metadata-preflight`
   reports every referenced table missing from the supplied schema (with the tasks
   referencing it), writes a deterministic `metadata_gaps.json` manifest into `--out`,
