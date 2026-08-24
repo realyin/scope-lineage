@@ -269,7 +269,7 @@
       "target_scope_id": "ROOT",
       "target_field": "*",
       "target_position": 0,
-      "chain_status": "resolved",
+      "chain_status": "partially_resolved",
       "source_kind": "generated",
       "root_source_fields": [
         "ods.raw_events.*"
@@ -313,8 +313,10 @@
         }
       ],
       "expanded_expression": "*",
-      "missing_reasons": [],
-      "trace_status": "complete"
+      "missing_reasons": [
+        "projection_wildcard_unexpanded"
+      ],
+      "trace_status": "incomplete"
     }
   ],
   "scope_profile": {

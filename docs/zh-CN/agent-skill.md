@@ -22,6 +22,8 @@ python3 skills/scope-lineage/scripts/query.py impact db.table[.col] <根目录> 
 ```
 
 这三个子命令对人也好用——不装任何 agent 也可以直接跑。
+`chain` 默认限制表达式输出长度；确实需要完整表达式时再加 `--expanded`。扫描任务集合时，
+脚本只保留当前产物，不会把全部已解析文档累积在内存里。
 
 ## 安装
 

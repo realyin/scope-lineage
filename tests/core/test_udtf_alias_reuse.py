@@ -75,3 +75,37 @@ def test_two_views_exposing_the_same_column_name_stay_a_gap() -> None:
         for gap in result.diagnostics.lineage_fact_gaps
         for reason in gap.get("missing_reasons") or []
     ] != []
+
+
+def test_base_relation_and_lateral_view_may_reuse_the_same_alias() -> None:
+    """The field owner, not duplicate-alias input order, selects the reintroduced ref."""
+    result = parse_scope_lineage(
+        """
+        INSERT INTO mart.t
+        WITH error_lists AS (
+          SELECT id, ARRAY(code_a, code_b) AS errlist FROM ods.source
+        ), expanded AS (
+          SELECT te.id, errinfo
+          FROM error_lists te
+          LATERAL VIEW EXPLODE(te.errlist) te AS errinfo
+        )
+        SELECT id, errinfo FROM expanded
+        """,
+        "base_and_udtf_alias_reuse",
+        schema={
+            "ods.source": ["id", "code_a", "code_b"],
+            "mart.t": ["id", "errinfo"],
+        },
+    )
+
+    expanded = result.scopes["cte:expanded"]
+    output = next(item for item in expanded.outputs if item.name == "errinfo")
+
+    assert output.expression_resolution["status"] == "resolved"
+    assert output.expression_resolution["missing_reasons"] == []
+    assert "te.errlist" not in (output.expanded_expression or "")
+    assert {
+        (item["table"], item["field"])
+        for item in output.expression_resolution["physical_source_fields"]
+    } == {("ods.source", "code_a"), ("ods.source", "code_b")}
+    assert result.diagnostics.lineage_fact_gaps == []

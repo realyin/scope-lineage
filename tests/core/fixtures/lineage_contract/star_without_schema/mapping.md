@@ -38,6 +38,7 @@ stmt_kind: "INSERT"
 
 - 来源字段：`ods.raw_events.*`
 - 加工路径：1 步；expression
+- ⚠ trace_status=incomplete: projection_wildcard_unexpanded
 - 步骤 1/1：`ods.raw_events.*` → `mart.raw_copy.*`；expression；表达式：`*`
 - 证据：mapping_chain_id=mc:001；chain=chain:ROOT:*:position:0
 

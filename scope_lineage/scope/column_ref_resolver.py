@@ -27,7 +27,7 @@ from .scope_types import (
 # module, making import order load-bearing (ARCH-001).
 from ._constants import _ORIGINALLY_UNQUALIFIED_META, _SCOPE_ID_ATTR
 from .source_refs import _source_ref_binding_key
-from .sqlglot_walk import _REGEX_COLUMN_METACHARACTERS, _compiled_column_pattern, _find_alias_in_parent, _inside_nested_set_op, _pivot_of_source_node, _pivot_output_names, _selected_sources, _source_item_from_ast_node, _source_ref_for_source, _source_scope_id
+from .sqlglot_walk import _REGEX_COLUMN_METACHARACTERS, _compiled_column_pattern, _find_alias_in_parent, _inside_nested_set_op, _pivot_of_source_node, _pivot_output_names, _projection_star, _selected_sources, _source_item_from_ast_node, _source_ref_for_source, _source_scope_id
 
 
 def _resolve_column_refs_in_expr(expr: exp.Expression, sg_scope: Scope, result: ScopeLineageResult, schema: dict | None=None) -> List[SourceRef]:
@@ -815,8 +815,6 @@ def _select_has_star_projection(select) -> bool:
         return False
     for projection in select.selects:
         inner = projection.this if isinstance(projection, exp.Alias) else projection
-        if isinstance(inner, exp.Star):
-            return True
-        if isinstance(inner, exp.Column) and isinstance(inner.this, exp.Star):
+        if _projection_star(inner) is not None:
             return True
     return False

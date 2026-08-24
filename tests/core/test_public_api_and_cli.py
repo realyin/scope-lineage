@@ -737,3 +737,47 @@ def test_directory_task_dependency_source_file_is_relative_to_the_input_root(
     source_file = lineage["task_dependencies"]["upstream_tasks"][0]["source_file"]
     assert source_file == "nested/input.json"
     assert str(tmp_path) not in source_file
+
+
+def test_input_directory_globs_explicitly_exclude_non_task_json(tmp_path: Path) -> None:
+    input_dir = tmp_path / "tasks"
+    _write_task(input_dir / "nested" / "daily_info.json", "daily")
+    _write_task(input_dir / "nested" / "monthly_info.json", "monthly")
+    (input_dir / "query_summary.json").write_text(
+        '{"summary": true}',
+        encoding="utf-8",
+    )
+    output = tmp_path / "output"
+
+    assert main([
+        "parse",
+        "--input-dir",
+        str(input_dir),
+        "--include-glob",
+        "*_info.json",
+        "--exclude-glob",
+        "*monthly_info.json",
+        "--out",
+        str(output),
+    ]) == 0
+
+    assert (output / "nested" / "daily" / "lineage.json").is_file()
+    assert not (output / "nested" / "monthly" / "lineage.json").exists()
+
+
+def test_input_directory_globs_are_rejected_for_single_files(
+    tmp_path: Path,
+) -> None:
+    task_path = tmp_path / "input.json"
+    _write_task(task_path, "daily")
+
+    with pytest.raises(SystemExit):
+        main([
+            "parse",
+            "--task-file",
+            str(task_path),
+            "--include-glob",
+            "*_info.json",
+            "--out",
+            str(tmp_path / "output"),
+        ])

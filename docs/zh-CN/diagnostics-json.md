@@ -225,6 +225,7 @@ Schema 对 gap value 保持可扩展，因为不同解析缺口需要携带不�
 | `scope_output_mapping_missing` | 上游 scope 输出字段到当前引用的映射。 |
 | `expression_source_unresolved` | 表达式的物理或生成来源。 |
 | `expression_resolution_incomplete` | 部分来源已知，但表达式解析尚不完整。 |
+| `expression_expansion_bounded` | 来源事实已知，但表达式展开达到保护上限；可沿 `evidence_summary.unexpanded_refs` 继续追踪。 |
 
 ### 5.2 `gap_bucket`
 
@@ -235,6 +236,7 @@ Schema 对 gap value 保持可扩展，因为不同解析缺口需要携带不�
 | `bare_unqualified_field` | 裸字段在多个或零个输入中无法唯一绑定。 |
 | `qualified_expression_unresolved` | 有限定名的表达式仍未解析到来源。 |
 | `other_expression_unresolved` | 其他表达式来源缺口。 |
+| `capacity_guard` | 表达式达到大小/替换次数保护上限；这不是 alias 绑定失败。 |
 
 ### 5.3 如何决定是否可用于自动化
 

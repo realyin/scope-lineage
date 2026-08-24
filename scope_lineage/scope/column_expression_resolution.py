@@ -128,6 +128,15 @@ def _is_rowset_window_function(column: ScopeColumn) -> bool:
     if column.transform not in {'WINDOW', 'EXPRESSION'}:
         return False
     expression = re.sub('\\s+', ' ', (column.expression or '').strip())
+    try:
+        parsed = sqlglot.parse_one(expression, dialect=DIALECT, **PARSE_OPTS)
+    except sqlglot.errors.SqlglotError:
+        return False
+    # Arithmetic between windows depends on every PARTITION/ORDER field.  The old
+    # greedy regex classified the whole arithmetic expression as one rowset-only window
+    # and discarded those column sources.
+    if not isinstance(parsed, exp.Window):
+        return False
     rowset_only_window_patterns = ['COUNT\\s*\\(\\s*(1|\\*)\\s*\\)', 'ROW_NUMBER\\s*\\(\\s*\\)', 'RANK\\s*\\(\\s*\\)', 'DENSE_RANK\\s*\\(\\s*\\)', 'PERCENT_RANK\\s*\\(\\s*\\)', 'CUME_DIST\\s*\\(\\s*\\)', 'NTILE\\s*\\(\\s*\\d+\\s*\\)']
     return any((re.fullmatch(f'(?i){pattern}\\s+OVER\\s*\\(.*\\)', expression) for pattern in rowset_only_window_patterns))
 

@@ -103,3 +103,42 @@ def test_the_most_recent_definition_of_a_script_local_table_wins() -> None:
         "id",
         "code",
     ]
+
+
+def test_window_arithmetic_keeps_script_local_partition_and_order_sources() -> None:
+    result = parse_task_lineage(
+        """
+        CACHE LAZY TABLE local_base AS
+          SELECT id, user_id, sent_at, message_type FROM ods.source;
+        CACHE LAZY TABLE local_groups AS
+          SELECT id,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY t0.user_id ORDER BY t0.sent_at
+                 ) - ROW_NUMBER() OVER (
+                   PARTITION BY t0.user_id, t0.message_type ORDER BY t0.sent_at
+                 ) AS sequence_group
+          FROM local_base t0
+        """,
+        task_name="script_local_window_arithmetic",
+        schema={
+            "ods.source": ["id", "user_id", "sent_at", "message_type"],
+        },
+    )
+
+    statement = result.statement_lineage["stmt:002"]
+    output = next(
+        item for item in statement["scopes"]["ROOT"]["outputs"]
+        if item["name"] == "sequence_group"
+    )
+
+    assert output["expression_resolution"]["status"] == "resolved"
+    assert output["expression_resolution"]["missing_reasons"] == []
+    assert {
+        (item["table"], item["field"])
+        for item in output["expression_resolution"]["physical_source_fields"]
+    } == {
+        ("local_base", "user_id"),
+        ("local_base", "sent_at"),
+        ("local_base", "message_type"),
+    }
+    assert result.diagnostics["lineage_fact_gaps"] == []
