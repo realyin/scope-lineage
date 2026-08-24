@@ -321,7 +321,7 @@ Different logic types also carry dedicated details:
 
 | Detail key | Content |
 | --- | --- |
-| `join_relation_detail` | `join_type`, `join_key_pairs[]`, `condition_filters[]`, `trace_status`, `missing_reasons[]`. Distinguishes true join keys from extra filters inside ON. |
+| `join_relation_detail` | `join_type`, `join_key_pairs[]`, `condition_filters[]`, `trace_status`, `missing_reasons[]`. Distinguishes true join keys from extra filters inside ON. When the join reads the statement's own target table it also carries `target_self_reference` — the referencing alias, and, when both the target partition and the reference's partition predicate are literal dates, the provable day offset (`partition_offset_days`, `offset_proven: true`); anything less stays `offset_proven: false` rather than guessed. A negative offset is the classic carry-forward shape — the tool states the offset, the consumer names the pattern. |
 | `filter_predicate_detail` | The `conjuncts[]` a WHERE/HAVING condition breaks down into, field resolution, subquery dependencies, and partition-filter judgments. |
 | `aggregation_detail` | `group_by_items[]`, `aggregate_items[]`, `having`, and the expression source of each item. |
 | `window_specification` | The window function, `partition_by[]`, `order_by[]`, post-window filtering, and trace status. |

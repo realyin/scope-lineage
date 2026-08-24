@@ -3597,7 +3597,7 @@
             "operations": [
               "join"
             ],
-            "business_summary": "读取 dim.accounts, ods.events；关联 1 个上游",
+            "business_summary": "读取 dim.accounts、ods.events；关联 1 个上游",
             "direct_inputs": [
               "dim.accounts",
               "ods.events"
@@ -3637,7 +3637,7 @@
             "operations": [
               "pass_through"
             ],
-            "business_summary": "基于 subq:source；上游可追溯至 dim.accounts, ods.events",
+            "business_summary": "基于 subq:source；上游可追溯至 dim.accounts、ods.events",
             "direct_inputs": [
               "subq:source"
             ],

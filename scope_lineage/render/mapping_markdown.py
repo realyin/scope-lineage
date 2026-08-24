@@ -19,6 +19,7 @@ changing any line grammar requires bumping it there and here together.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from collections import Counter
@@ -153,6 +154,20 @@ def _selected_sections(sections: Iterable[str] | None) -> set[str]:
     return chosen
 
 
+def lineage_document_digest(document: dict) -> str:
+    """Content digest of the source lineage document (16 hex chars).
+
+    The canonical serialization is key-sorted compact JSON, so the digest is a pure
+    function of the document's content: same input → same digest (byte-determinism
+    holds), different snapshot → different digest. Consumers recompute it to confirm
+    which lineage.json a rendered mapping.md came from.
+    """
+    canonical = json.dumps(
+        document, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
+
 def _front_matter(document: dict) -> list[str]:
     entries = (
         ("doc_format", DOC_FORMAT),
@@ -162,6 +177,7 @@ def _front_matter(document: dict) -> list[str]:
         ("task_name", document.get("task_id")),
         ("target_table", document.get("target_table")),
         ("stmt_kind", document.get("stmt_kind")),
+        ("lineage_digest", lineage_document_digest(document)),
     )
     lines = ["---"]
     for key, value in entries:
@@ -489,6 +505,17 @@ def _render_join_detail(scope_id: str, block: dict) -> list[str]:
         lines.append(f"  - 等值键：{_scope_key_text(pair)}{physical_text}")
     for cond in detail.get("condition_filters") or []:
         lines.append(f"  - {label}：{_expr_span(cond.get('expression'))}")
+    self_reference = detail.get("target_self_reference")
+    if self_reference:
+        if self_reference.get("offset_proven"):
+            lines.append(
+                f"  - 目标表自引用：分区偏移 {self_reference.get('partition_offset_days')} 天"
+                f"（{self_reference.get('partition_column')}："
+                f"{self_reference.get('reference_partition')} ← 目标 "
+                f"{self_reference.get('target_partition')}）"
+            )
+        else:
+            lines.append("  - 目标表自引用：分区偏移未证实（无可比字面日期）")
     return lines
 
 

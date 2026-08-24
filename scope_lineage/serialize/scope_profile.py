@@ -173,11 +173,11 @@ def _business_summary(
 ) -> str:
     parts: list[str] = []
     if direct_tables:
-        shown = ", ".join(direct_tables[:3])
-        suffix = f" 等{len(direct_tables)}张物理表" if len(direct_tables) > 3 else ""
+        shown = "、".join(direct_tables[:3])
+        suffix = f" 等 {len(direct_tables)} 张物理表" if len(direct_tables) > 3 else ""
         parts.append(f"读取 {shown}{suffix}")
     elif scope_data.depends_on:
-        parts.append(f"基于 {', '.join(scope_data.depends_on[:3])}")
+        parts.append(f"基于 {'、'.join(scope_data.depends_on[:3])}")
 
     if "union" in operations:
         branch_count = len(scope_data.branches or [])
@@ -202,8 +202,8 @@ def _business_summary(
 
     indirect_tables = [table for table in physical_tables if table not in set(direct_tables)]
     if indirect_tables:
-        shown = ", ".join(indirect_tables[:3])
-        suffix = f" 等{len(indirect_tables)}张物理表" if len(indirect_tables) > 3 else ""
+        shown = "、".join(indirect_tables[:3])
+        suffix = f" 等 {len(indirect_tables)} 张物理表" if len(indirect_tables) > 3 else ""
         parts.append(f"上游可追溯至 {shown}{suffix}")
 
     if not parts:

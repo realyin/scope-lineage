@@ -4,6 +4,7 @@ schema_version: "1.0"
 task_name: "golden_target_ddl_binding"
 target_table: "dwd.account_daily"
 stmt_kind: "INSERT_OVERWRITE"
+lineage_digest: "fb1e5a302582d81b"
 ---
 
 # 字段映射文档 dwd.account_daily

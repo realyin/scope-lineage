@@ -300,7 +300,7 @@ CTE 名按所在查询块的词法作用域绑定。例如，一个嵌套查询�
 
 | Detail key | 内容 |
 | --- | --- |
-| `join_relation_detail` | `join_type`、`join_key_pairs[]`、`condition_filters[]`、`trace_status`、`missing_reasons[]`。区分真正的关联 key 与 ON 中附加过滤。 |
+| `join_relation_detail` | `join_type`、`join_key_pairs[]`、`condition_filters[]`、`trace_status`、`missing_reasons[]`。区分真正的关联 key 与 ON 中附加过滤。当该 JOIN 读取本语句自己的目标表时，另带 `target_self_reference`——引用别名，且当目标分区与引用侧分区谓词都是字面日期时给出可证明的天数偏移（`partition_offset_days`、`offset_proven: true`）；无法证明时保持 `offset_proven: false` 而不猜测。负偏移即典型的"取昨日兜底"形态——工具只陈述偏移，语义命名留给消费方。 |
 | `filter_predicate_detail` | WHERE/HAVING 条件拆分后的 `conjuncts[]`、字段解析、子查询依赖和分区过滤判断。 |
 | `aggregation_detail` | `group_by_items[]`、`aggregate_items[]`、`having` 及每项的表达式来源。 |
 | `window_specification` | 窗口函数、`partition_by[]`、`order_by[]`、窗口后过滤和 trace 状态。 |

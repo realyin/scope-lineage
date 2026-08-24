@@ -4,6 +4,7 @@ schema_version: "1.0"
 task_name: "golden_fact_gap"
 target_table: "mart.amounts"
 stmt_kind: "INSERT"
+lineage_digest: "412ccc9b09c51286"
 ---
 
 # 字段映射文档 mart.amounts
@@ -49,7 +50,7 @@ stmt_kind: "INSERT"
 
 ### scope `ROOT`（root，角色 join）
 
-- 概要：读取 ods.ledger_a, ods.ledger_b；关联 1 个上游
+- 概要：读取 ods.ledger_a、ods.ledger_b；关联 1 个上游
 - 输入：AMBIGUOUS、ods.ledger_a、ods.ledger_b；物理上游：ods.ledger_a、ods.ledger_b
 - 逻辑：join 1、filter 0、聚合 0、窗口 0、union 分支 0、distinct 否
 - INNER JOIN：`ods.ledger_a` ⋈ `ods.ledger_b`（@ ROOT；logic_block_id=logic:ROOT:join:001）

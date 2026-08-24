@@ -721,7 +721,7 @@
         "operations": [
           "join"
         ],
-        "business_summary": "读取 ods.ledger_a, ods.ledger_b；关联 1 个上游",
+        "business_summary": "读取 ods.ledger_a、ods.ledger_b；关联 1 个上游",
         "direct_inputs": [
           "AMBIGUOUS",
           "ods.ledger_a",
