@@ -1,6 +1,15 @@
 # Changelog
 
 ## Unreleased
+- Add contract invariant validation: `validate_contract_invariants` checks that
+  independently derived layers of one document agree with each other — chain-layer vs
+  end-to-end trace completeness, physical sources vs `source_tables` containment,
+  sentinel-value semantics (every rule measured over the full corpus, and the sweep
+  demonstrably reports the pre-fix AMBIGUOUS defect and nothing else). A new
+  `scope-lineage validate --lineage <file|dir>` command audits existing artifacts with
+  schema + cross-reference + invariant checks in one pass, and an architecture test
+  keeps the whole example/golden corpus at zero violations so the next cross-layer
+  contradiction fails a test the day it is introduced.
 - Mark field mapping chains rooted in an `AMBIGUOUS` ref as `trace_status: "incomplete"`
   (with an `ambiguous_unqualified:<column>` missing reason), matching the end-to-end layer
   that already reported `trace_complete: false` for the same field. Previously a chain whose

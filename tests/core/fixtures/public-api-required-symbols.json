@@ -49,6 +49,7 @@
   "to_lineage_json",
   "to_task_lineage_dict",
   "to_task_lineage_json",
+  "validate_contract_invariants",
   "validate_cross_references",
   "validate_diagnostics_document",
   "validate_lineage_document",

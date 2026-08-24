@@ -765,6 +765,21 @@ for field in document["end_to_end_lineage"]:
     print(field["column"], sources)
 ```
 
+除 JSON Schema 形状校验外还有两层校验，回答不同的问题：
+
+- `validate_cross_references(document)`：引用的每个 id 是否都存在（返回违例列表）；
+- `validate_contract_invariants(document)`：**多路径推导的同一事实是否互相一致**——
+  链层与 e2e 层的追溯完整性、物理来源与 `source_tables` 的包含关系、哨兵值语义等。
+  各层单独看都合理但合取矛盾的缺陷（如 AMBIGUOUS 根链声明 complete）只有这层能抓住。
+
+命令行一次跑全三层（对已有产物做存量体检）：
+
+```bash
+scope-lineage validate --lineage /path/to/corpus
+```
+
+有任何违例时逐条打印并以非 0 退出。
+
 ## 17. 安全消费规则
 
 1. 先检查 `schema_version`、`parse_status` 和 `syntax_status`；

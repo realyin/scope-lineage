@@ -183,6 +183,19 @@ def main(argv: list[str] | None = None) -> int:
         help="Comma-separated section names to render (default: all)",
     )
 
+    validate_cmd = subcommands.add_parser(
+        "validate",
+        help=(
+            "Validate existing lineage.json documents: JSON schema, id cross-references, "
+            "and cross-layer consistency invariants"
+        ),
+    )
+    validate_cmd.add_argument(
+        "--lineage",
+        required=True,
+        help="One lineage.json file, or a directory searched recursively for lineage.json",
+    )
+
     args = parser.parse_args(argv)
     if args.command == "parse":
         if args.input_dir and args.task_name:
@@ -202,8 +215,73 @@ def main(argv: list[str] | None = None) -> int:
             return _parse_inputs(args)
     if args.command == "render":
         return _render_inputs(args)
+    if args.command == "validate":
+        return _validate_inputs(args)
     parser.error(f"unknown command: {args.command}")
     return 2
+
+
+def _validate_inputs(args: argparse.Namespace) -> int:
+    """Audit lineage documents from disk: schema, cross-references, invariants.
+
+    Three checkers, one pass, because they answer different questions: the JSON schema
+    answers "is the shape legal", cross-references answer "does every referenced id
+    exist", and the invariants answer "do independently derived layers agree" — the
+    question whose absence let a chain claim completeness for a field end_to_end
+    reported as ambiguous.
+    """
+    import jsonschema
+
+    from .contract import (
+        validate_contract_invariants,
+        validate_cross_references,
+        validate_lineage_document,
+    )
+
+    root = Path(args.lineage)
+    if root.is_file():
+        documents = [root]
+    elif root.is_dir():
+        documents = sorted(root.rglob("lineage.json"))
+    else:
+        print(f"--lineage path does not exist: {root}", file=sys.stderr)
+        return 2
+    if not documents:
+        print(f"no lineage.json found under {root}", file=sys.stderr)
+        return 1
+
+    total_violations = 0
+    for lineage_path in documents:
+        violations: list[str] = []
+        try:
+            document = json.loads(lineage_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as error:
+            violations.append(f"json: {error}")
+            document = None
+        if document is not None:
+            try:
+                validate_lineage_document(document)
+            except jsonschema.ValidationError as error:
+                violations.append(f"schema: {error.message}")
+            violations.extend(
+                f"cross-reference: {error}"
+                for error in validate_cross_references(document)
+            )
+            violations.extend(
+                f"invariant: {error}"
+                for error in validate_contract_invariants(document)
+            )
+        for violation in violations:
+            print(f"{lineage_path}: {violation}")
+        total_violations += len(violations)
+
+    if total_violations:
+        print(
+            f"Validated {len(documents)} document(s): {total_violations} violation(s)"
+        )
+        return 1
+    print(f"Validated {len(documents)} document(s): OK")
+    return 0
 
 
 def _render_inputs(args: argparse.Namespace) -> int:

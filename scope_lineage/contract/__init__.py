@@ -6,6 +6,7 @@ from .task_lineage import (
     to_task_lineage_json,
     write_task_lineage,
 )
+from .invariants import validate_contract_invariants
 from .validation import (
     validate_cross_references,
     validate_diagnostics_document,
@@ -17,6 +18,7 @@ __all__ = [
     "to_lineage_json",
     "to_task_lineage_dict",
     "to_task_lineage_json",
+    "validate_contract_invariants",
     "validate_cross_references",
     "validate_diagnostics_document",
     "validate_lineage_document",

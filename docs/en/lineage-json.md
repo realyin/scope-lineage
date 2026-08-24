@@ -818,6 +818,25 @@ for field in document["end_to_end_lineage"]:
     print(field["column"], sources)
 ```
 
+Beyond the JSON Schema shape check there are two more validation layers, answering
+different questions:
+
+- `validate_cross_references(document)`: does every referenced id exist (returns a list
+  of violations);
+- `validate_contract_invariants(document)`: **do independently derived views of the same
+  fact agree with each other** — chain-layer vs end-to-end trace completeness, physical
+  sources vs `source_tables` containment, sentinel-value semantics. Defects where every
+  layer looks individually plausible but the conjunction is contradictory (such as an
+  AMBIGUOUS-rooted chain claiming completeness) are only caught here.
+
+The CLI runs all three layers in one pass, auditing existing artifacts on disk:
+
+```bash
+scope-lineage validate --lineage /path/to/corpus
+```
+
+Every violation is printed and the command exits non-zero when any is found.
+
 ## 17. Safe consumption rules
 
 1. Check `schema_version`, `parse_status`, and `syntax_status` first;
