@@ -594,7 +594,7 @@ ROOT.begin_date        transform=EXPRESSION       ← 本层只有 1 个直接�
 {
   "column": "id",
   "trace_complete": false,
-  "trace_incomplete_reasons": ["ambiguous_unqualified_column"],
+  "trace_incomplete_reasons": ["ambiguous_unqualified"],
   "physical_sources": [],
   "ambiguities": [
     {
@@ -611,6 +611,11 @@ ROOT.begin_date        transform=EXPRESSION       ← 本层只有 1 个直接�
 ```
 
 下游不能把两个 candidate 都写入 `physical_sources`，也不能任意选一个。正确做法是保留歧义状态，并结合 `diagnostics.json` 请求 Schema、alias 或 SQL 修正。
+
+层间一致性保证：`root_source_fields` 含 `AMBIGUOUS.<列>` 的字段映射链，其
+`trace_status` 必为 `incomplete`（`missing_reasons` 含 `ambiguous_unqualified:<列>`），
+与本节 `trace_complete=false` 一致——即便该链的表达式展开碰巧解析出了唯一物理来源，
+那也是限定推断的产物而非已证明的归属，链层不得据此声明 complete。
 
 ## 11. `target_field_binding`：目标字段位置绑定
 

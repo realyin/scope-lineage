@@ -1,6 +1,14 @@
 # Changelog
 
 ## Unreleased
+- Mark field mapping chains rooted in an `AMBIGUOUS` ref as `trace_status: "incomplete"`
+  (with an `ambiguous_unqualified:<column>` missing reason), matching the end-to-end layer
+  that already reported `trace_complete: false` for the same field. Previously a chain whose
+  expression expansion resolved through sqlglot's guessed qualification claimed completeness
+  for a field whose root attribution was never proven — the two layers of one document
+  contradicted each other. mapping.md now also explains the sentinel instead of rendering it
+  like a table: the section 6 input list labels it `AMBIGUOUS（⚠ 裸列多源歧义）`, and the
+  section 7 diagram styles the node amber with a matching legend entry.
 - Annotate joins that read the statement's own target table with
   `join_relation_detail.target_self_reference`. When both the target partition and the
   reference's partition predicate are literal dates the day offset is stated and proven

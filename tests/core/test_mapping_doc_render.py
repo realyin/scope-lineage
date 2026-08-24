@@ -593,12 +593,15 @@ def test_mermaid_class_defs_pin_text_color_against_theme_defaults() -> None:
     assert "classDef physical" not in scoped_mermaid
 
 
-def test_graph_section_carries_a_legend_only_when_physical_nodes_exist() -> None:
+def test_graph_section_carries_a_legend_only_when_annotated_nodes_exist() -> None:
+    # a legend appears when the graph carries node kinds that need explaining
+    # (physical tables or the AMBIGUOUS sentinel); scopes-only graphs stay bare
     document = _document(UNION_CASE_SQL, schema=UNION_CASE_SCHEMA)
     rendered = render_mapping_markdown(document)
     graph_section = rendered[rendered.index("## 7"): rendered.index("## 8")]
     legend_pos = graph_section.index("- 图例：蓝底=物理表，灰底=scope")
     assert legend_pos < graph_section.index("```mermaid")
+    assert "黄底" not in graph_section
 
     scoped = dict(document)
     scoped["scope_graph"] = {"nodes": ["ROOT", "cte:x"], "edges": [{"from": "cte:x", "to": "ROOT"}]}
@@ -606,6 +609,48 @@ def test_graph_section_carries_a_legend_only_when_physical_nodes_exist() -> None
     scoped_rendered = render_mapping_markdown(scoped)
     scoped_section = scoped_rendered[scoped_rendered.index("## 7"): scoped_rendered.index("## 8")]
     assert "图例" not in scoped_section
+
+
+AMBIGUOUS_INPUT_SQL = """
+INSERT OVERWRITE TABLE mart.session_summary
+SELECT o.session_id AS session_id,
+       CONCAT(begin_date, ' ', begin_time) AS session_start_time
+FROM (
+  SELECT a.session_id, a.begin_date, a.begin_time
+  FROM ods.session_events a
+) o
+LEFT JOIN ods.session_dim g ON o.session_id = g.session_id
+"""
+
+
+def test_ambiguous_input_is_annotated_in_logic_section() -> None:
+    rendered = render_mapping_markdown(_document(AMBIGUOUS_INPUT_SQL))
+    logic_section = rendered[rendered.index("## 6"): rendered.index("## 7")]
+    assert "AMBIGUOUS（⚠ 裸列多源歧义）" in logic_section
+    # the sentinel never appears as a bare, unexplained input token
+    assert not re.search(r"输入：.*AMBIGUOUS、", logic_section)
+
+
+def test_mermaid_ambiguous_node_is_styled_and_explained() -> None:
+    rendered = render_mapping_markdown(_document(AMBIGUOUS_INPUT_SQL))
+    graph_section = rendered[rendered.index("## 7"): rendered.index("## 8")]
+    assert "- 图例：蓝底=物理表，灰底=scope，黄底=未定来源（裸列歧义）" in graph_section
+    mermaid = graph_section.split("```mermaid")[1].split("```")[0]
+    assert '["AMBIGUOUS（⚠ 裸列多源歧义）"]' in mermaid
+    assert "classDef ambiguous fill:#fef3c7,stroke:#d97706,color:#7c2d12" in mermaid
+    assert re.search(r"^\s*class n\d+ ambiguous$", mermaid, re.MULTILINE)
+
+
+def test_ambiguous_chain_renders_a_trace_warning_line_in_steps_section() -> None:
+    rendered = render_mapping_markdown(_document(AMBIGUOUS_INPUT_SQL))
+    steps_section = rendered[rendered.index("## 5"): rendered.index("## 6")]
+    field_block = steps_section[steps_section.index("session_start_time"):]
+    warning_line = next(
+        line
+        for line in field_block.splitlines()
+        if line.startswith("- ⚠ trace_status=")
+    )
+    assert "ambiguous_unqualified:begin_date" in warning_line
 
 
 def test_partition_spec_renders_as_json_not_python_repr() -> None:

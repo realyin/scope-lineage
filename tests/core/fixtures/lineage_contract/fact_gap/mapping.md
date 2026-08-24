@@ -4,7 +4,7 @@ schema_version: "1.0"
 task_name: "golden_fact_gap"
 target_table: "mart.amounts"
 stmt_kind: "INSERT"
-lineage_digest: "412ccc9b09c51286"
+lineage_digest: "26fd944ce1999c98"
 ---
 
 # 字段映射文档 mart.amounts
@@ -42,7 +42,7 @@ lineage_digest: "412ccc9b09c51286"
 
 - 来源字段：`AMBIGUOUS.amount`
 - 加工路径：1 步；direct_projection
-- ⚠ trace_status=incomplete: no_physical_source_fields
+- ⚠ trace_status=incomplete: no_physical_source_fields、ambiguous_unqualified:amount
 - 步骤 1/1：`AMBIGUOUS.amount` → `mart.amounts.amount`；direct_projection；粒度=preserved；表达式：`` `amount` ``
 - 证据：mapping_chain_id=mc:001；chain=chain:ROOT:amount:position:0
 
@@ -51,18 +51,18 @@ lineage_digest: "412ccc9b09c51286"
 ### scope `ROOT`（root，角色 join）
 
 - 概要：读取 ods.ledger_a、ods.ledger_b；关联 1 个上游
-- 输入：AMBIGUOUS、ods.ledger_a、ods.ledger_b；物理上游：ods.ledger_a、ods.ledger_b
+- 输入：AMBIGUOUS（⚠ 裸列多源歧义）、ods.ledger_a、ods.ledger_b；物理上游：ods.ledger_a、ods.ledger_b
 - 逻辑：join 1、filter 0、聚合 0、窗口 0、union 分支 0、distinct 否
 - INNER JOIN：`ods.ledger_a` ⋈ `ods.ledger_b`（@ ROOT；logic_block_id=logic:ROOT:join:001）
   - 等值键：entry_id（物理：`ods.ledger_a.entry_id = ods.ledger_b.entry_id`）
 
 ## 7. scope 结构图
 
-- 图例：蓝底=物理表，灰底=scope
+- 图例：蓝底=物理表，灰底=scope，黄底=未定来源（裸列歧义）
 
 ```mermaid
 flowchart LR
-    n0["AMBIGUOUS"]
+    n0["AMBIGUOUS（⚠ 裸列多源歧义）"]
     n1["ROOT"]
     n2["ods.ledger_a"]
     n3["ods.ledger_b"]
@@ -72,6 +72,8 @@ flowchart LR
     classDef default fill:#f4f4f5,stroke:#6b7280,color:#111827
     classDef physical fill:#e8f0fe,stroke:#4a6fa5,color:#111827
     class n2,n3 physical
+    classDef ambiguous fill:#fef3c7,stroke:#d97706,color:#7c2d12
+    class n0 ambiguous
 ```
 
 ## 8. 任务依赖

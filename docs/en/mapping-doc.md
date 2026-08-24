@@ -202,6 +202,14 @@ The `⚠` prefix is used consistently, and a guess is never rendered as a fact:
   split)") — equality keys and filter conditions are not distinguished there, and it must not be
   read as "a non-equality extra condition";
 - section 9: no diagnostics document, and the list of incompletely traced fields.
+- the `AMBIGUOUS` sentinel (an unqualified column several sources could equally supply;
+  candidates live in `lineage.json` `end_to_end_lineage[].ambiguities`): section 5 step and
+  source-field lines keep the raw contract id `AMBIGUOUS.<column>` (line-grammar stability
+  first), and the same subsection always carries `- ⚠ trace_status=incomplete` with an
+  `ambiguous_unqualified:<column>` reason; section 6 renders it in the input list as
+  `AMBIGUOUS（⚠ 裸列多源歧义）` ("unqualified multi-source ambiguity"); section 7 styles the
+  node with an amber background (classDef ambiguous), uses the same label, and the legend
+  gains `黄底=未定来源（裸列歧义）` ("amber = undetermined source").
 
 ### Chunk self-containment
 

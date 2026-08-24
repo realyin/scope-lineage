@@ -705,7 +705,8 @@
       ],
       "expanded_expression": "`amount`",
       "missing_reasons": [
-        "no_physical_source_fields"
+        "no_physical_source_fields",
+        "ambiguous_unqualified:amount"
       ],
       "trace_status": "incomplete"
     }

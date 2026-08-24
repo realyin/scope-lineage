@@ -15,6 +15,7 @@ from .parser import (
 )
 from ..metadata.schema_metadata import column_details_for_table, table_details_for_table
 from .scope_types import (
+    AMBIGUOUS_SCOPE_ID,
     ScopeData,
     ScopeColumn,
     ScopeFieldUsage,
@@ -1027,6 +1028,14 @@ def _collect_field_mapping_steps(
                 _mark_mapping_trace_incomplete(
                     trace_state,
                     f"upstream_output_not_found:{source.scope}.{source.column}",
+                )
+            elif source.scope == AMBIGUOUS_SCOPE_ID:
+                # AMBIGUOUS has no colon, so the internal-scope check reads it as a
+                # physical terminal and the chain would claim trace_status=complete for
+                # a field end_to_end honestly reports as ambiguous (LINEAGE-002 sibling).
+                _mark_mapping_trace_incomplete(
+                    trace_state,
+                    f"ambiguous_unqualified:{source.column}",
                 )
             _extend_unique(root_sources, [_source_field_id(source)])
 

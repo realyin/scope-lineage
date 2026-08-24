@@ -638,7 +638,7 @@ When `trace_complete=false` and `ambiguities[]` is present:
 {
   "column": "id",
   "trace_complete": false,
-  "trace_incomplete_reasons": ["ambiguous_unqualified_column"],
+  "trace_incomplete_reasons": ["ambiguous_unqualified"],
   "physical_sources": [],
   "ambiguities": [
     {
@@ -657,6 +657,13 @@ When `trace_complete=false` and `ambiguities[]` is present:
 Downstream must not write both candidates into `physical_sources`, and must not pick one
 arbitrarily. The correct behavior is to preserve the ambiguous state and, together with
 `diagnostics.json`, request a Schema, an alias, or a SQL fix.
+
+Cross-layer consistency guarantee: a field mapping chain whose `root_source_fields`
+contains `AMBIGUOUS.<column>` always has `trace_status: "incomplete"` (with
+`ambiguous_unqualified:<column>` in `missing_reasons`), matching this section's
+`trace_complete=false` — even when the chain's expression expansion happens to resolve
+a single physical source. That result is a product of qualification inference, not a
+proven attribution, and the chain layer must not declare completeness from it.
 
 ## 11. `target_field_binding`: positional target-field binding
 

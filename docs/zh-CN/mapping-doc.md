@@ -174,6 +174,13 @@ mapping.md 第 9 节保留一行**按类型计数**的指针，按条数降序�
   `- 目标表自引用：分区偏移未证实（无可比字面日期）`
   （来自 `join_relation_detail.target_self_reference`）；
 - 第 9 节：无 diagnostics 文档、追溯不完整字段清单。
+- `AMBIGUOUS` 哨兵（裸列在多个来源间无法唯一归属，候选见 `lineage.json`
+  `end_to_end_lineage[].ambiguities`）：第 5 节步骤行与来源字段行保留原始契约 id
+  `AMBIGUOUS.<列>`（行语法稳定性优先），同小节必有
+  `- ⚠ trace_status=incomplete`（原因含 `ambiguous_unqualified:<列>`）；
+  第 6 节输入列表中渲染为 `AMBIGUOUS（⚠ 裸列多源歧义）`；第 7 节图中该节点
+  以琥珀底（classDef ambiguous）标注、标签同上，图例补
+  `黄底=未定来源（裸列歧义）`。
 
 ### chunk 自包含
 
