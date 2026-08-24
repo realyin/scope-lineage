@@ -31,6 +31,11 @@ DOC_FORMAT = "mapping-md/1"
 SUPPORTED_SCHEMA_VERSION = "1.0"
 TASK_SCHEMA_VERSION = "2.0"
 
+# The AMBIGUOUS sentinel is a contract id (an unqualified column several sources could
+# equally supply — candidates live in end_to_end_lineage.ambiguities), not a table. Reader
+# surfaces label it; step/evidence lines keep the raw id for the stable line grammar.
+_AMBIGUOUS_INPUT_LABEL = "AMBIGUOUS（⚠ 裸列多源歧义）"
+
 SECTION_ORDER = (
     "overview",
     "sources",
@@ -581,6 +586,12 @@ def _chain_title(document: dict, chain: dict) -> str:
     if _is_directory_target(document):
         path = target[len(_DIRECTORY_TARGET_PREFIX):]
         return f"### 字段 {field}（写入目录 {path}）"
+    if not (chain.get("final_output_fields") or []):
+        # No bound target column: composing `<target>.<field>` would fabricate a
+        # physical field id (`mart.t._col_6`) that the target table never declared.
+        if chain.get("name_is_generated"):
+            return f"### 字段 {field}（匿名投影，未绑定目标列）"
+        return f"### 字段 {field}（未绑定目标列）"
     if document.get("stmt_kind") == "MERGE":
         branch, when_index = _merge_branch_for_position(
             document, chain.get("target_position")
@@ -746,7 +757,10 @@ def _render_logic(document: dict) -> list[str]:
         if direct_inputs and direct_inputs == physical_tables:
             lines.append(f"- 输入（均为物理表）：{'、'.join(direct_inputs)}")
         else:
-            inputs = "、".join(direct_inputs) or "—"
+            inputs = "、".join(
+                _AMBIGUOUS_INPUT_LABEL if item == "AMBIGUOUS" else item
+                for item in direct_inputs
+            ) or "—"
             physical = "、".join(physical_tables) or "—"
             lines.append(f"- 输入：{inputs}；物理上游：{physical}")
         logic = step.get("logic") or {}
@@ -781,13 +795,20 @@ def _render_graph(document: dict) -> list[str]:
         return lines
     node_ids = {node: f"n{index}" for index, node in enumerate(nodes)}
     physical = set(document.get("source_tables") or [])
-    if any(node in physical for node in nodes):
-        lines.append("- 图例：蓝底=物理表，灰底=scope")
+    has_physical = any(node in physical for node in nodes)
+    has_ambiguous = "AMBIGUOUS" in node_ids
+    if has_physical or has_ambiguous:
+        legend = "- 图例：蓝底=物理表，灰底=scope"
+        if has_ambiguous:
+            legend += "，黄底=未定来源（裸列歧义）"
+        lines.append(legend)
         lines.append("")
     lines.append("```mermaid")
     lines.append("flowchart LR")
     for node in nodes:
-        label = node.replace('"', "'")
+        label = (
+            _AMBIGUOUS_INPUT_LABEL if node == "AMBIGUOUS" else node
+        ).replace('"', "'")
         lines.append(f'    {node_ids[node]}["{label}"]')
     edges = sorted(
         graph.get("edges") or [],
@@ -805,6 +826,9 @@ def _render_graph(document: dict) -> list[str]:
     if physical_ids:
         lines.append("    classDef physical fill:#e8f0fe,stroke:#4a6fa5,color:#111827")
         lines.append(f"    class {','.join(physical_ids)} physical")
+    if has_ambiguous:
+        lines.append("    classDef ambiguous fill:#fef3c7,stroke:#d97706,color:#7c2d12")
+        lines.append(f"    class {node_ids['AMBIGUOUS']} ambiguous")
     lines.append("```")
     return lines
 

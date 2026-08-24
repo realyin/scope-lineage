@@ -1,6 +1,45 @@
 # Changelog
 
 ## Unreleased
+- Add a pre-parse metadata coverage gate: `scope-lineage parse --metadata-preflight`
+  reports every referenced table missing from the supplied schema (with the tasks
+  referencing it), writes a deterministic `metadata_gaps.json` manifest into `--out`,
+  produces no lineage artifacts, and returns non-zero when gaps exist — so chaining
+  `preflight && parse` stops for a decision before parsing with incomplete metadata.
+  A normal batch parse that finds gaps writes the same manifest next to its artifacts
+  and prints a pointer. Coverage aggregates the per-task
+  `diagnostics.metadata_coverage` fact; nothing derives it a second way. Motivated by
+  two investigations in a row where an incomplete schema produced AMBIGUOUS
+  attributions that were first mistaken for parser or SQL defects.
+- Cover unbound anonymous projections in field mapping chains. `end_to_end_lineage`
+  emits an entry for every output the statement writes, but the chain layer skipped
+  outputs whose name is not a reliable target column (a generated `_col_N`, a purely
+  numeric alias), so mapping.md showed a section-4 row with no section-5 steps. Chains
+  now cover exactly the population end-to-end covers, with `final_output_fields` left
+  empty rather than fabricating a target column; section-5 titles render such fields as
+  `（匿名投影，未绑定目标列）` / `（未绑定目标列）` instead of composing a physical
+  field id the target table never declared. A new additive contract key
+  `name_is_generated: true` (on end-to-end entries and chains, present only when true)
+  says the published name is a parser-generated placeholder — a fact that previously
+  never left the parser, so consumers could not tell `_col_6` from a real column of
+  that name. Documents containing such outputs renumber later `mc:NNN` ids.
+- Add contract invariant validation: `validate_contract_invariants` checks that
+  independently derived layers of one document agree with each other — chain-layer vs
+  end-to-end trace completeness, physical sources vs `source_tables` containment,
+  sentinel-value semantics (every rule measured over the full corpus, and the sweep
+  demonstrably reports the pre-fix AMBIGUOUS defect and nothing else). A new
+  `scope-lineage validate --lineage <file|dir>` command audits existing artifacts with
+  schema + cross-reference + invariant checks in one pass, and an architecture test
+  keeps the whole example/golden corpus at zero violations so the next cross-layer
+  contradiction fails a test the day it is introduced.
+- Mark field mapping chains rooted in an `AMBIGUOUS` ref as `trace_status: "incomplete"`
+  (with an `ambiguous_unqualified:<column>` missing reason), matching the end-to-end layer
+  that already reported `trace_complete: false` for the same field. Previously a chain whose
+  expression expansion resolved through sqlglot's guessed qualification claimed completeness
+  for a field whose root attribution was never proven — the two layers of one document
+  contradicted each other. mapping.md now also explains the sentinel instead of rendering it
+  like a table: the section 6 input list labels it `AMBIGUOUS（⚠ 裸列多源歧义）`, and the
+  section 7 diagram styles the node amber with a matching legend entry.
 - Annotate joins that read the statement's own target table with
   `join_relation_detail.target_self_reference`. When both the target partition and the
   reference's partition predicate are literal dates the day offset is stated and proven

@@ -105,6 +105,17 @@ def main(argv: list[str] | None = None) -> int:
         help="Remove NUL bytes from metadata inputs and report provenance",
     )
     parse_cmd.add_argument(
+        "--metadata-preflight",
+        action="store_true",
+        help=(
+            "Check schema coverage only: report every referenced table missing from "
+            "--schema, write metadata_gaps.json into --out, produce no lineage "
+            "artifacts, and return non-zero when gaps exist — so "
+            "`parse --metadata-preflight ... && parse ...` stops for a decision "
+            "before parsing with incomplete metadata"
+        ),
+    )
+    parse_cmd.add_argument(
         "--allow-partial",
         action="store_true",
         help="Return zero even when a statement produced parse_status=failed",
@@ -183,6 +194,19 @@ def main(argv: list[str] | None = None) -> int:
         help="Comma-separated section names to render (default: all)",
     )
 
+    validate_cmd = subcommands.add_parser(
+        "validate",
+        help=(
+            "Validate existing lineage.json documents: JSON schema, id cross-references, "
+            "and cross-layer consistency invariants"
+        ),
+    )
+    validate_cmd.add_argument(
+        "--lineage",
+        required=True,
+        help="One lineage.json file, or a directory searched recursively for lineage.json",
+    )
+
     args = parser.parse_args(argv)
     if args.command == "parse":
         if args.input_dir and args.task_name:
@@ -202,8 +226,73 @@ def main(argv: list[str] | None = None) -> int:
             return _parse_inputs(args)
     if args.command == "render":
         return _render_inputs(args)
+    if args.command == "validate":
+        return _validate_inputs(args)
     parser.error(f"unknown command: {args.command}")
     return 2
+
+
+def _validate_inputs(args: argparse.Namespace) -> int:
+    """Audit lineage documents from disk: schema, cross-references, invariants.
+
+    Three checkers, one pass, because they answer different questions: the JSON schema
+    answers "is the shape legal", cross-references answer "does every referenced id
+    exist", and the invariants answer "do independently derived layers agree" — the
+    question whose absence let a chain claim completeness for a field end_to_end
+    reported as ambiguous.
+    """
+    import jsonschema
+
+    from .contract import (
+        validate_contract_invariants,
+        validate_cross_references,
+        validate_lineage_document,
+    )
+
+    root = Path(args.lineage)
+    if root.is_file():
+        documents = [root]
+    elif root.is_dir():
+        documents = sorted(root.rglob("lineage.json"))
+    else:
+        print(f"--lineage path does not exist: {root}", file=sys.stderr)
+        return 2
+    if not documents:
+        print(f"no lineage.json found under {root}", file=sys.stderr)
+        return 1
+
+    total_violations = 0
+    for lineage_path in documents:
+        violations: list[str] = []
+        try:
+            document = json.loads(lineage_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as error:
+            violations.append(f"json: {error}")
+            document = None
+        if document is not None:
+            try:
+                validate_lineage_document(document)
+            except jsonschema.ValidationError as error:
+                violations.append(f"schema: {error.message}")
+            violations.extend(
+                f"cross-reference: {error}"
+                for error in validate_cross_references(document)
+            )
+            violations.extend(
+                f"invariant: {error}"
+                for error in validate_contract_invariants(document)
+            )
+        for violation in violations:
+            print(f"{lineage_path}: {violation}")
+        total_violations += len(violations)
+
+    if total_violations:
+        print(
+            f"Validated {len(documents)} document(s): {total_violations} violation(s)"
+        )
+        return 1
+    print(f"Validated {len(documents)} document(s): OK")
+    return 0
 
 
 def _render_inputs(args: argparse.Namespace) -> int:
@@ -366,6 +455,10 @@ def _parse_task_inputs_v2(
     binding_fallback_count = 0
     recovered_syntax_count = 0
     claimed_output_dirs: dict[Path, Path] = {}
+    preflight_only = bool(getattr(args, "metadata_preflight", False))
+    referenced_tables: set[str] = set()
+    covered_tables: set[str] = set()
+    missing_referencers: dict[str, set[str]] = {}
 
     for source_path in source_paths:
         try:
@@ -378,6 +471,18 @@ def _parse_task_inputs_v2(
                 task_dependencies=task.task_dependencies,
                 partition_overwrite_mode=getattr(args, "partition_overwrite_mode", None),
             )
+            # One derivation path for coverage: the same per-task
+            # diagnostics.metadata_coverage fact a consumer reads, only aggregated.
+            coverage = result.diagnostics.get("metadata_coverage") or {}
+            task_covered = {str(t) for t in coverage.get("covered_tables") or []}
+            task_missing = {str(t) for t in coverage.get("missing_tables") or []}
+            covered_tables |= task_covered
+            referenced_tables |= task_covered | task_missing
+            for table in task_missing:
+                missing_referencers.setdefault(table, set()).add(result.task_id)
+            if preflight_only:
+                task_count += 1
+                continue
             task_out = _task_output_dir(
                 out_root,
                 task.relative_parent,
@@ -431,6 +536,49 @@ def _parse_task_inputs_v2(
             # The traceback is what separates a Core bug from a bad input file.
             print(traceback.format_exc().rstrip(), file=sys.stderr)
 
+    manifest_path = out_root / "metadata_gaps.json"
+    if preflight_only:
+        _write_metadata_gap_manifest(
+            manifest_path,
+            referenced_tables=referenced_tables,
+            covered_tables=covered_tables,
+            missing_referencers=missing_referencers,
+            input_count=len(source_paths),
+            input_failed_count=input_failed_count,
+        )
+        print(
+            f"Metadata preflight: {len(referenced_tables)} referenced table(s), "
+            f"{len(covered_tables)} covered, {len(missing_referencers)} missing "
+            f"across {task_count} task(s); manifest written to {manifest_path}"
+        )
+        for table, tasks in sorted(
+            missing_referencers.items(), key=lambda item: (-len(item[1]), item[0])
+        ):
+            names = "、".join(sorted(tasks)[:5])
+            more = f" +{len(tasks) - 5}" if len(tasks) > 5 else ""
+            print(f"  - {table} (referenced by: {names}{more})")
+        return 1 if missing_referencers or input_failed_count else 0
+
+    if missing_referencers:
+        # The batch manifest lands next to the artifacts; a single-file parse keeps
+        # its output directory to exactly the task artifact and lists gaps inline.
+        if getattr(args, "input_dir", None):
+            _write_metadata_gap_manifest(
+                manifest_path,
+                referenced_tables=referenced_tables,
+                covered_tables=covered_tables,
+                missing_referencers=missing_referencers,
+                input_count=len(source_paths),
+                input_failed_count=input_failed_count,
+            )
+            detail = f"list written to {manifest_path}"
+        else:
+            detail = "、".join(sorted(missing_referencers))
+        print(
+            f"Metadata gaps: {len(missing_referencers)} referenced table(s) have no "
+            f"schema metadata; {detail} "
+            "(run with --metadata-preflight to review before parsing)"
+        )
     print(
         f"Parsed {statement_count} statement(s) from {len(source_paths)} input(s) "
         f"into {out_root} using contract 2.0 "
@@ -453,6 +601,42 @@ def _parse_task_inputs_v2(
     if quality_failed:
         return 1
     return 0 if args.allow_partial else 1
+
+
+def _write_metadata_gap_manifest(
+    path: Path,
+    *,
+    referenced_tables: set[str],
+    covered_tables: set[str],
+    missing_referencers: dict[str, set[str]],
+    input_count: int,
+    input_failed_count: int,
+) -> None:
+    """Write the batch metadata-gap report (deterministic, no timestamps)."""
+    manifest = {
+        "artifact_kind": "metadata_gap_report",
+        "input_count": input_count,
+        "input_failed_count": input_failed_count,
+        "referenced_table_count": len(referenced_tables),
+        "covered_table_count": len(covered_tables),
+        "missing_table_count": len(missing_referencers),
+        "missing_tables": [
+            {
+                "table": table,
+                "referenced_by_task_count": len(tasks),
+                "referenced_by": sorted(tasks),
+            }
+            for table, tasks in sorted(
+                missing_referencers.items(),
+                key=lambda item: (-len(item[1]), item[0]),
+            )
+        ],
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _safe_task_output_component(task_id: str) -> str:

@@ -175,6 +175,9 @@ class ScopeOutputField:
     downstream_fields: List[SourceRef] = field(default_factory=list)
     target_columns: List[str] = field(default_factory=list)
     final_target_columns: List[str] = field(default_factory=list)
+    # True only while the published name is a generated placeholder (`_col_N`) AND no
+    # target binding renamed it — after binding the name is real and this stays False.
+    name_is_generated: bool = False
     output_ordinal: Optional[int] = None
     merge_branch: Optional[str] = None
     merge_branch_qualifier: Optional[str] = None

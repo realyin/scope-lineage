@@ -15,6 +15,7 @@ from .parser import (
 )
 from ..metadata.schema_metadata import column_details_for_table, table_details_for_table
 from .scope_types import (
+    AMBIGUOUS_SCOPE_ID,
     ScopeData,
     ScopeColumn,
     ScopeFieldUsage,
@@ -879,7 +880,11 @@ def _populate_field_mapping_chains(result: ScopeLineageResult) -> None:
         (scope_id, output)
         for scope_id, scope_data in result.scopes.items()
         for output in scope_data.outputs
-        if output.target_columns
+        # Same population end_to_end_lineage covers: every output the statement
+        # writes. A ROOT output whose name is not a reliable target column keeps
+        # empty target_columns (nothing is fabricated) but still gets its chain —
+        # otherwise the document shows a section-4 row with no section-5 steps.
+        if output.target_columns or (scope_id == "ROOT" and scope_data.writes_to)
     ]
     chains: list[dict[str, object]] = []
     for index, (scope_id, output) in enumerate(target_outputs, start=1):
@@ -948,6 +953,11 @@ def _populate_field_mapping_chains(result: ScopeLineageResult) -> None:
                 "chain_type": "field_mapping",
                 "target_scope_id": scope_id,
                 "target_field": output.name,
+                **(
+                    {"name_is_generated": True}
+                    if output.name_is_generated
+                    else {}
+                ),
                 "target_position": output.output_ordinal,
                 **(
                     {"merge_branch": output.merge_branch}
@@ -1027,6 +1037,14 @@ def _collect_field_mapping_steps(
                 _mark_mapping_trace_incomplete(
                     trace_state,
                     f"upstream_output_not_found:{source.scope}.{source.column}",
+                )
+            elif source.scope == AMBIGUOUS_SCOPE_ID:
+                # AMBIGUOUS has no colon, so the internal-scope check reads it as a
+                # physical terminal and the chain would claim trace_status=complete for
+                # a field end_to_end honestly reports as ambiguous (LINEAGE-002 sibling).
+                _mark_mapping_trace_incomplete(
+                    trace_state,
+                    f"ambiguous_unqualified:{source.column}",
                 )
             _extend_unique(root_sources, [_source_field_id(source)])
 
@@ -1175,6 +1193,9 @@ def _populate_scope_outputs(result: ScopeLineageResult) -> None:
                     source_logic_blocks=source_logic_blocks,
                     downstream_fields=downstream.get((scope_id, column.name), []),
                     target_columns=target_columns,
+                    name_is_generated=bool(
+                        column.name_is_generated and not target_columns
+                    ),
                     output_ordinal=output_ordinal,
                     merge_branch=column.merge_branch,
                     merge_branch_qualifier=column.merge_branch_qualifier,

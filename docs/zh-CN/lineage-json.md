@@ -565,6 +565,7 @@ ROOT.begin_date        transform=EXPRESSION       ← 本层只有 1 个直接�
 | --- | --- | --- |
 | `column` | string | 绑定后的最终目标字段名。 |
 | `parsed_column` | string | SQL 原始投影名；目标 DDL 纠正字段名时与 `column` 不同。 |
+| `name_is_generated` | boolean | 仅为 true 时出现：`column` 是解析器生成的占位名（如 `_col_6`，SQL 里的匿名投影）且**未**被目标元数据绑定——消费方不得把它当真实列名。绑定完成后名字是真实目标列，本键不出现，原占位名可从 `parsed_column` 回看。字段映射链的 `target_field` 同名发布处有同语义的同名键。 |
 | `output_ordinal` / `target_column_ordinal` | integer | SQL 输出位置和目标字段位置。 |
 | `target_field_resolution` | enum string | `ddl_position`、`schema_position` 或 `insert_column_list`。 |
 | `target_field_corrected` | boolean | 是否根据目标元数据纠正了 SQL 投影名。 |
@@ -594,7 +595,7 @@ ROOT.begin_date        transform=EXPRESSION       ← 本层只有 1 个直接�
 {
   "column": "id",
   "trace_complete": false,
-  "trace_incomplete_reasons": ["ambiguous_unqualified_column"],
+  "trace_incomplete_reasons": ["ambiguous_unqualified"],
   "physical_sources": [],
   "ambiguities": [
     {
@@ -611,6 +612,11 @@ ROOT.begin_date        transform=EXPRESSION       ← 本层只有 1 个直接�
 ```
 
 下游不能把两个 candidate 都写入 `physical_sources`，也不能任意选一个。正确做法是保留歧义状态，并结合 `diagnostics.json` 请求 Schema、alias 或 SQL 修正。
+
+层间一致性保证：`root_source_fields` 含 `AMBIGUOUS.<列>` 的字段映射链，其
+`trace_status` 必为 `incomplete`（`missing_reasons` 含 `ambiguous_unqualified:<列>`），
+与本节 `trace_complete=false` 一致——即便该链的表达式展开碰巧解析出了唯一物理来源，
+那也是限定推断的产物而非已证明的归属，链层不得据此声明 complete。
 
 ## 11. `target_field_binding`：目标字段位置绑定
 
@@ -759,6 +765,21 @@ for field in document["end_to_end_lineage"]:
     sources = [f'{item["table"]}.{item["column"]}' for item in field["physical_sources"]]
     print(field["column"], sources)
 ```
+
+除 JSON Schema 形状校验外还有两层校验，回答不同的问题：
+
+- `validate_cross_references(document)`：引用的每个 id 是否都存在（返回违例列表）；
+- `validate_contract_invariants(document)`：**多路径推导的同一事实是否互相一致**——
+  链层与 e2e 层的追溯完整性、物理来源与 `source_tables` 的包含关系、哨兵值语义等。
+  各层单独看都合理但合取矛盾的缺陷（如 AMBIGUOUS 根链声明 complete）只有这层能抓住。
+
+命令行一次跑全三层（对已有产物做存量体检）：
+
+```bash
+scope-lineage validate --lineage /path/to/corpus
+```
+
+有任何违例时逐条打印并以非 0 退出。
 
 ## 17. 安全消费规则
 

@@ -609,6 +609,7 @@ Each element corresponds to one final output position:
 | --- | --- | --- |
 | `column` | string | The final target field name after binding. |
 | `parsed_column` | string | The original SQL projection name; differs from `column` when the target DDL corrected the field name. |
+| `name_is_generated` | boolean | Present only when true: `column` is a parser-generated placeholder name (e.g. `_col_6`, an anonymous projection in the SQL) that no target metadata bound — consumers must not treat it as a real column name. Once binding renames it to a real target field the key is absent, and the original placeholder stays visible via `parsed_column`. The same key with the same semantics appears on field mapping chains, whose `target_field` publishes the same name. |
 | `output_ordinal` / `target_column_ordinal` | integer | The SQL output position and the target field position. |
 | `target_field_resolution` | enum string | `ddl_position`, `schema_position`, or `insert_column_list`. |
 | `target_field_corrected` | boolean | Whether the SQL projection name was corrected using target metadata. |
@@ -638,7 +639,7 @@ When `trace_complete=false` and `ambiguities[]` is present:
 {
   "column": "id",
   "trace_complete": false,
-  "trace_incomplete_reasons": ["ambiguous_unqualified_column"],
+  "trace_incomplete_reasons": ["ambiguous_unqualified"],
   "physical_sources": [],
   "ambiguities": [
     {
@@ -657,6 +658,13 @@ When `trace_complete=false` and `ambiguities[]` is present:
 Downstream must not write both candidates into `physical_sources`, and must not pick one
 arbitrarily. The correct behavior is to preserve the ambiguous state and, together with
 `diagnostics.json`, request a Schema, an alias, or a SQL fix.
+
+Cross-layer consistency guarantee: a field mapping chain whose `root_source_fields`
+contains `AMBIGUOUS.<column>` always has `trace_status: "incomplete"` (with
+`ambiguous_unqualified:<column>` in `missing_reasons`), matching this section's
+`trace_complete=false` — even when the chain's expression expansion happens to resolve
+a single physical source. That result is a product of qualification inference, not a
+proven attribution, and the chain layer must not declare completeness from it.
 
 ## 11. `target_field_binding`: positional target-field binding
 
@@ -810,6 +818,25 @@ for field in document["end_to_end_lineage"]:
     sources = [f'{item["table"]}.{item["column"]}' for item in field["physical_sources"]]
     print(field["column"], sources)
 ```
+
+Beyond the JSON Schema shape check there are two more validation layers, answering
+different questions:
+
+- `validate_cross_references(document)`: does every referenced id exist (returns a list
+  of violations);
+- `validate_contract_invariants(document)`: **do independently derived views of the same
+  fact agree with each other** — chain-layer vs end-to-end trace completeness, physical
+  sources vs `source_tables` containment, sentinel-value semantics. Defects where every
+  layer looks individually plausible but the conjunction is contradictory (such as an
+  AMBIGUOUS-rooted chain claiming completeness) are only caught here.
+
+The CLI runs all three layers in one pass, auditing existing artifacts on disk:
+
+```bash
+scope-lineage validate --lineage /path/to/corpus
+```
+
+Every violation is printed and the command exits non-zero when any is found.
 
 ## 17. Safe consumption rules
 

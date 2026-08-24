@@ -202,16 +202,32 @@ The `⚠` prefix is used consistently, and a guess is never rendered as a fact:
   split)") — equality keys and filter conditions are not distinguished there, and it must not be
   read as "a non-equality extra condition";
 - section 9: no diagnostics document, and the list of incompletely traced fields.
+- the `AMBIGUOUS` sentinel (an unqualified column several sources could equally supply;
+  candidates live in `lineage.json` `end_to_end_lineage[].ambiguities`): section 5 step and
+  source-field lines keep the raw contract id `AMBIGUOUS.<column>` (line-grammar stability
+  first), and the same subsection always carries `- ⚠ trace_status=incomplete` with an
+  `ambiguous_unqualified:<column>` reason; section 6 renders it in the input list as
+  `AMBIGUOUS（⚠ 裸列多源歧义）` ("unqualified multi-source ambiguity"); section 7 styles the
+  node with an amber background (classDef ambiguous), uses the same label, and the legend
+  gains `黄底=未定来源（裸列歧义）` ("amber = undetermined source").
 
 ### Chunk self-containment
 
-Each field gets one `###` subsection whose title carries the full identity:
+Each field gets one `###` subsection whose title carries the full identity (dispatched
+in this precedence order: directory write > unbound > merge branch > normal):
 
 - a normal write: `### 字段 <target table>.<field>`;
 - a MERGE field with the same name in several branches:
   `### 字段 <target table>.<field>（merge:<branch> 分支 <index>）`;
 - a directory write (`target_table` carrying the `directory:` prefix):
-  `### 字段 <field>（写入目录 <path>）`, without inventing a pseudo table name.
+  `### 字段 <field>（写入目录 <path>）`, without inventing a pseudo table name;
+- an unbound target column (the chain's `final_output_fields` is empty — the output
+  name is not a reliable target column name and no target metadata bound it): a
+  generated placeholder name (contract key `name_is_generated: true`) renders as
+  `### 字段 <field>（匿名投影，未绑定目标列）` ("anonymous projection, unbound"), and
+  the rest (such as a purely numeric alias) as `### 字段 <field>（未绑定目标列）`.
+  Neither composes `<target table>.<field>` — the target table never declared that
+  column name, so composing it would fabricate a physical field id.
 
 After chunking on `###`, any single subsection still locates itself when retrieved alone.
 
