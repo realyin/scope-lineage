@@ -565,6 +565,7 @@ ROOT.begin_date        transform=EXPRESSION       ← 本层只有 1 个直接�
 | --- | --- | --- |
 | `column` | string | 绑定后的最终目标字段名。 |
 | `parsed_column` | string | SQL 原始投影名；目标 DDL 纠正字段名时与 `column` 不同。 |
+| `name_is_generated` | boolean | 仅为 true 时出现：`column` 是解析器生成的占位名（如 `_col_6`，SQL 里的匿名投影）且**未**被目标元数据绑定——消费方不得把它当真实列名。绑定完成后名字是真实目标列，本键不出现，原占位名可从 `parsed_column` 回看。字段映射链的 `target_field` 同名发布处有同语义的同名键。 |
 | `output_ordinal` / `target_column_ordinal` | integer | SQL 输出位置和目标字段位置。 |
 | `target_field_resolution` | enum string | `ddl_position`、`schema_position` 或 `insert_column_list`。 |
 | `target_field_corrected` | boolean | 是否根据目标元数据纠正了 SQL 投影名。 |

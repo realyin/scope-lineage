@@ -141,6 +141,12 @@ def _chain_errors(
                 "(an unproven attribution published as a fact)"
             )
 
+    if chain.get("name_is_generated") and (chain.get("final_output_fields") or []):
+        errors.append(
+            f"{label}: name_is_generated but final_output_fields is non-empty "
+            "(a bound target column is a real name, not a generated placeholder)"
+        )
+
     if trace_status == "complete":
         if reasons:
             errors.append(

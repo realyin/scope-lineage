@@ -1,6 +1,18 @@
 # Changelog
 
 ## Unreleased
+- Cover unbound anonymous projections in field mapping chains. `end_to_end_lineage`
+  emits an entry for every output the statement writes, but the chain layer skipped
+  outputs whose name is not a reliable target column (a generated `_col_N`, a purely
+  numeric alias), so mapping.md showed a section-4 row with no section-5 steps. Chains
+  now cover exactly the population end-to-end covers, with `final_output_fields` left
+  empty rather than fabricating a target column; section-5 titles render such fields as
+  `（匿名投影，未绑定目标列）` / `（未绑定目标列）` instead of composing a physical
+  field id the target table never declared. A new additive contract key
+  `name_is_generated: true` (on end-to-end entries and chains, present only when true)
+  says the published name is a parser-generated placeholder — a fact that previously
+  never left the parser, so consumers could not tell `_col_6` from a real column of
+  that name. Documents containing such outputs renumber later `mc:NNN` ids.
 - Add contract invariant validation: `validate_contract_invariants` checks that
   independently derived layers of one document agree with each other — chain-layer vs
   end-to-end trace completeness, physical sources vs `source_tables` containment,

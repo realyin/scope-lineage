@@ -586,6 +586,12 @@ def _chain_title(document: dict, chain: dict) -> str:
     if _is_directory_target(document):
         path = target[len(_DIRECTORY_TARGET_PREFIX):]
         return f"### 字段 {field}（写入目录 {path}）"
+    if not (chain.get("final_output_fields") or []):
+        # No bound target column: composing `<target>.<field>` would fabricate a
+        # physical field id (`mart.t._col_6`) that the target table never declared.
+        if chain.get("name_is_generated"):
+            return f"### 字段 {field}（匿名投影，未绑定目标列）"
+        return f"### 字段 {field}（未绑定目标列）"
     if document.get("stmt_kind") == "MERGE":
         branch, when_index = _merge_branch_for_position(
             document, chain.get("target_position")

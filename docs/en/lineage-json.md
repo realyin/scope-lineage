@@ -609,6 +609,7 @@ Each element corresponds to one final output position:
 | --- | --- | --- |
 | `column` | string | The final target field name after binding. |
 | `parsed_column` | string | The original SQL projection name; differs from `column` when the target DDL corrected the field name. |
+| `name_is_generated` | boolean | Present only when true: `column` is a parser-generated placeholder name (e.g. `_col_6`, an anonymous projection in the SQL) that no target metadata bound — consumers must not treat it as a real column name. Once binding renames it to a real target field the key is absent, and the original placeholder stays visible via `parsed_column`. The same key with the same semantics appears on field mapping chains, whose `target_field` publishes the same name. |
 | `output_ordinal` / `target_column_ordinal` | integer | The SQL output position and the target field position. |
 | `target_field_resolution` | enum string | `ddl_position`, `schema_position`, or `insert_column_list`. |
 | `target_field_corrected` | boolean | Whether the SQL projection name was corrected using target metadata. |

@@ -89,6 +89,17 @@ def build_end_to_end_lineage(result: ScopeLineageResult) -> list[dict[str, Any]]
         # it had before, so existing baselines and consumers are untouched.
         if trace.get("window_context_sources"):
             item["window_context_sources"] = trace["window_context_sources"]
+        # Only while the published name is a generated placeholder AND unbound —
+        # target binding renames the column to a real target field, and marking the
+        # real name as generated would be a false fact (the original placeholder
+        # remains visible via parsed_column).
+        name_unbound = (
+            not output.target_columns
+            if output is not None
+            else not column.target_field_resolution
+        )
+        if column.name_is_generated and name_unbound:
+            item["name_is_generated"] = True
         if column.merge_branch is not None:
             item["merge_branch"] = column.merge_branch
         if column.merge_branch_qualifier is not None:

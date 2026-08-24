@@ -339,6 +339,10 @@
           "column": {
             "type": "string"
           },
+          "name_is_generated": {
+            "type": "boolean",
+            "description": "Present (true) only when column is a generated placeholder name with no bound target column; after binding the original placeholder stays visible via parsed_column."
+          },
           "parsed_column": {
             "type": "string"
           },
@@ -1474,6 +1478,10 @@
         "target_field": {
           "type": "string",
           "minLength": 1
+        },
+        "name_is_generated": {
+          "type": "boolean",
+          "description": "Present (true) only when target_field is a generated placeholder name (e.g. _col_6) with no bound target column. Absent once target binding renames the column to a real target field."
         },
         "target_position": {
           "type": "integer",
