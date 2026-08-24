@@ -1,6 +1,21 @@
 # Changelog
 
 ## Unreleased
+- Split join equality keys at every hop of a chained self-join. The left side of each hop now
+  matches any alias already joined ahead of it, not only the first FROM alias, so multi-level
+  hierarchy joins keep per-hop key pairs instead of degrading to unsplit verbatim conditions.
+  Joins whose keys genuinely cannot be split (expression-level conditions, `ON TRUE`) now emit
+  a `join_keys_not_split` warning instead of leaving the gap silent.
+- State the grain on every mapping.md transformation step as `粒度=changed/preserved/unknown`.
+  A provably preserved grain and an unknown one were both rendered as no label; the three
+  contract values now stay distinguishable, within the existing step-line grammar.
+- Count parse warnings per type in mapping.md section 9 instead of one undifferentiated
+  "advisory" total, and mark section 8 as declared scheduler dependencies — with a fixed note
+  pointing at sections 2/4 for actual lineage consumption and one task per line.
+- Keep the scope-graph mermaid diagram readable in dark themes by pinning explicit text colors
+  with the light node fills, and add a legend line. Render partition specs as JSON instead of a
+  Python dict repr, merge the section 6 input line when all inputs are physical tables, and
+  label the binding summary count as corrected columns.
 - Keep lineage uncertainty consistent across diagnostics, mapping chains, statement-level
   end-to-end lineage, and task-level end-to-end lineage. A root-impact fact gap now marks only
   the target fields it can actually affect, rather than leaving statement views complete or

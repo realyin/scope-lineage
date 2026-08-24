@@ -39,14 +39,14 @@ stmt_kind: "INSERT"
 
 - 来源字段：`ods.source.id`
 - 加工路径：1 步；direct_projection
-- 步骤 1/1：`ods.source.id` → `mart.first_target.id`；direct_projection；表达式：`` `id` ``
+- 步骤 1/1：`ods.source.id` → `mart.first_target.id`；direct_projection；粒度=preserved；表达式：`` `id` ``
 - 证据：mapping_chain_id=mc:001；chain=chain:ROOT:id:position:0
 
 ### 字段 mart.first_target.v
 
 - 来源字段：`ods.source.v`
 - 加工路径：1 步；direct_projection
-- 步骤 1/1：`ods.source.v` → `mart.first_target.v`；direct_projection；表达式：`` `v` ``
+- 步骤 1/1：`ods.source.v` → `mart.first_target.v`；direct_projection；粒度=preserved；表达式：`` `v` ``
 - 证据：mapping_chain_id=mc:002；chain=chain:ROOT:v:position:1
 
 ## 6. 加工逻辑汇总
@@ -54,17 +54,20 @@ stmt_kind: "INSERT"
 ### scope `ROOT`（root，角色 pass_through）
 
 - 概要：读取 ods.source
-- 输入：ods.source；物理上游：ods.source
+- 输入（均为物理表）：ods.source
 - 逻辑：join 0、filter 0、聚合 0、窗口 0、union 分支 0、distinct 否
 
 ## 7. scope 结构图
+
+- 图例：蓝底=物理表，灰底=scope
 
 ```mermaid
 flowchart LR
     n0["ROOT"]
     n1["ods.source"]
     n1 --> n0
-    classDef physical fill:#e8f0fe,stroke:#4a6fa5
+    classDef default fill:#f4f4f5,stroke:#6b7280,color:#111827
+    classDef physical fill:#e8f0fe,stroke:#4a6fa5,color:#111827
     class n1 physical
 ```
 
@@ -76,4 +79,4 @@ flowchart LR
 
 - 字段追溯：全部完整
 - 缺口：无（diagnostics 未记录 lineage_fact_gaps）
-- 解析警告：2 条（提示类信息，见同目录 warnings.md）
+- 解析警告：2 条（additional_write_statements_not_modeled 1、unsupported_statement 1；语义提示见同目录 warnings.md）

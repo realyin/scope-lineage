@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from typing import Iterable
 
 
@@ -259,7 +260,12 @@ def _render_overview(document: dict) -> list[str]:
     if spec or mode or columns:
         parts = []
         if spec:
-            parts.append(f"spec={_expr_span(spec)}")
+            spec_text = (
+                json.dumps(spec, ensure_ascii=False, sort_keys=True)
+                if isinstance(spec, dict)
+                else str(spec)
+            )
+            parts.append(f"spec={_expr_span(spec_text)}")
         if mode:
             parts.append(f"模式={mode}")
         if columns:
@@ -270,7 +276,7 @@ def _render_overview(document: dict) -> list[str]:
         summary = (
             f"- 目标绑定：{binding.get('status')}；方法={binding.get('method')}；"
             f"投影 {binding.get('projection_count')} → 目标列 {binding.get('target_column_count')}；"
-            f"纠正 {binding.get('corrected_column_count')}"
+            f"纠正列 {binding.get('corrected_column_count')}"
         )
         lines.append(summary)
         for issue in binding.get("issues") or []:
@@ -634,9 +640,7 @@ def _render_steps(
             inputs = "、".join(
                 _field_span(item) for item in step.get("input_fields") or []
             )
-            grain = (
-                "；粒度=changed" if step.get("grain_effect") == "changed" else ""
-            )
+            grain = f"；粒度={step.get('grain_effect') or 'unknown'}"
             expression = _display_expression_for_step(document, step)
             lines.append(
                 f"- 步骤 {step.get('step_no')}/{total}：{inputs} → "
@@ -710,9 +714,14 @@ def _render_logic(document: dict) -> list[str]:
         summary = step.get("business_summary")
         if summary:
             lines.append(f"- 概要：{_normalize_inline(str(summary))}")
-        inputs = "、".join(step.get("direct_inputs") or []) or "—"
-        physical = "、".join(step.get("physical_source_tables") or []) or "—"
-        lines.append(f"- 输入：{inputs}；物理上游：{physical}")
+        direct_inputs = step.get("direct_inputs") or []
+        physical_tables = step.get("physical_source_tables") or []
+        if direct_inputs and direct_inputs == physical_tables:
+            lines.append(f"- 输入（均为物理表）：{'、'.join(direct_inputs)}")
+        else:
+            inputs = "、".join(direct_inputs) or "—"
+            physical = "、".join(physical_tables) or "—"
+            lines.append(f"- 输入：{inputs}；物理上游：{physical}")
         logic = step.get("logic") or {}
         stats = (
             f"- 逻辑：join {len(logic.get('joins') or [])}、"
@@ -745,6 +754,9 @@ def _render_graph(document: dict) -> list[str]:
         return lines
     node_ids = {node: f"n{index}" for index, node in enumerate(nodes)}
     physical = set(document.get("source_tables") or [])
+    if any(node in physical for node in nodes):
+        lines.append("- 图例：蓝底=物理表，灰底=scope")
+        lines.append("")
     lines.append("```mermaid")
     lines.append("flowchart LR")
     for node in nodes:
@@ -760,8 +772,11 @@ def _render_graph(document: dict) -> list[str]:
         if source and target:
             lines.append(f"    {source} --> {target}")
     physical_ids = [node_ids[node] for node in nodes if node in physical]
+    # pin fill AND text color together: the fills are light, and a dark-themed
+    # mermaid renderer would otherwise pick a light theme text color on them
+    lines.append("    classDef default fill:#f4f4f5,stroke:#6b7280,color:#111827")
     if physical_ids:
-        lines.append("    classDef physical fill:#e8f0fe,stroke:#4a6fa5")
+        lines.append("    classDef physical fill:#e8f0fe,stroke:#4a6fa5,color:#111827")
         lines.append(f"    class {','.join(physical_ids)} physical")
     lines.append("```")
     return lines
@@ -775,20 +790,24 @@ def _render_dependencies(document: dict) -> list[str]:
     if not upstream and not downstream:
         lines.append("- 无声明的任务依赖")
         return lines
+    lines.append(
+        "- 说明：本节为调度系统声明依赖（task_dependencies），非本语句 SQL 血缘实证；"
+        "表级实际读取见 §2 来源表，字段级实际消费见 §4 字段映射总表"
+    )
     for label, items in (("上游", upstream), ("下游", downstream)):
         if items:
-            rendered = "、".join(
-                f"{item.get('task_name')}（{item.get('task_id')}）" for item in items
-            )
-            lines.append(f"- {label}：{rendered}")
+            lines.append(f"- {label}（{len(items)} 个）：")
+            for item in items:
+                lines.append(f"  - {item.get('task_name')}（{item.get('task_id')}）")
     return lines
 
 
 def _render_gaps(document: dict, diagnostics: dict | None) -> list[str]:
     """Only facts that change how much the reader may trust the lineage live here.
 
-    Parse-process warnings are informational; their full text goes to the sibling
-    warnings.md, and this section keeps a counted pointer.
+    Parse-process warning bodies go to the sibling warnings.md; this section keeps a
+    per-type counted pointer, because warning types differ in how much they matter to
+    the reader (a JOIN-ON row filter is not a magic number).
     """
     lines = [""]
     incomplete = [
@@ -818,8 +837,15 @@ def _render_gaps(document: dict, diagnostics: dict | None) -> list[str]:
             lines.append(f"- ⚠ 缺口：{scalars}")
     warnings = diagnostics.get("warnings") or []
     if warnings:
+        counts = Counter(str(warning.get("type")) for warning in warnings)
+        breakdown = "、".join(
+            f"{warning_type} {count}"
+            for warning_type, count in sorted(
+                counts.items(), key=lambda item: (-item[1], item[0])
+            )
+        )
         lines.append(
-            f"- 解析警告：{len(warnings)} 条（提示类信息，见同目录 warnings.md）"
+            f"- 解析警告：{len(warnings)} 条（{breakdown}；语义提示见同目录 warnings.md）"
         )
     else:
         lines.append("- 解析警告：无")
@@ -832,6 +858,7 @@ _WARNING_GLOSSES = {
     "magic_number": "表达式中出现未命名常量（魔法数字），不影响血缘，建议结合业务口径确认",
     "complex_aggregate_with_case": "聚合函数内嵌 CASE WHEN，口径较复杂，建议人工复核",
     "filter_in_join_on_clause": "JOIN ON 中混有过滤条件（非连接键），注意连接语义",
+    "join_keys_not_split": "JOIN 等值键与过滤条件未能拆分（自连接、ON TRUE 等），§3/§6 按原文列出连接条件",
     "unresolved_unqualified_no_schema": "未限定列缺少 schema 元数据，来源无法证明",
     "unsupported_statement": "脚本中存在未建模的语句，该语句被跳过",
     "duplicate_alias": "同一查询块中别名重复",

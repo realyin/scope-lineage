@@ -9,6 +9,7 @@ from sqlglot import exp
 from sqlglot.optimizer.scope import Scope
 from .scope_types import (
     CONSTANT_SCOPE_ID,
+    DiagnosticWarning,
     ScopeData,
     ScopeColumn,
     ScopeFieldUsage,
@@ -486,10 +487,15 @@ def _join_relation_detail(
     }
     left_alias = alias_by_source.get(join.left_scope)
     right_alias = alias_by_source.get(join.right_scope) or join.alias_in_parent
+    left_aliases: list[str] = []
     if join.left_scope == join.right_scope:
         # Self-join: one source_id, two sides — the dict above collapsed both onto the
         # later alias (left_alias == right_alias, JOINALIAS-001). Edge order still holds
         # each side's alias: the FROM-positioned edge entered first, the joined side after.
+        # In a chain (b JOIN d JOIN d1 ...) EVERY earlier alias is on the left of the
+        # current hop, and its ON typically references the previous hop, not the FROM
+        # base — so the left side is the ordered alias list up to the right alias, and
+        # the single representative left_alias is the hop joined immediately before.
         aliases = [
             edge.alias
             for edge in input_edges
@@ -497,8 +503,11 @@ def _join_relation_detail(
         ]
         if len(aliases) >= 2:
             right_alias = join.alias_in_parent or aliases[-1]
-            left_candidates = [alias for alias in aliases if alias != right_alias]
-            left_alias = left_candidates[0] if left_candidates else aliases[0]
+            if right_alias in aliases:
+                left_aliases = aliases[: aliases.index(right_alias)]
+            else:
+                left_aliases = [alias for alias in aliases if alias != right_alias]
+            left_alias = left_aliases[-1] if left_aliases else aliases[0]
     detail: dict[str, object] = {
         "join_type": join.join_type,
         "left_input": join.left_scope,
@@ -544,7 +553,7 @@ def _join_relation_detail(
             refs,
             join.left_scope,
             join.right_scope,
-            left_alias=left_alias,
+            left_aliases=left_aliases or ([left_alias] if left_alias else []),
             right_alias=right_alias,
         )
         if key_pair is not None:
@@ -577,6 +586,16 @@ def _join_relation_detail(
     else:
         detail["trace_status"] = "partial"
         detail["missing_reasons"].append("missing_join_key_pairs")
+        result.diagnostics.warnings.append(
+            DiagnosticWarning(
+                type="join_keys_not_split",
+                scope=getattr(sg_scope, _SCOPE_ID_ATTR, "UNKNOWN"),
+                msg=(
+                    "JOIN equality keys could not be split from the ON condition; "
+                    f"the verbatim condition is kept. Expression: {join.condition_expression}"
+                ),
+            )
+        )
     return detail
 
 
@@ -740,31 +759,30 @@ def _join_key_pair_from_expr(
     left_input: str,
     right_input: str,
     *,
-    left_alias: str | None = None,
+    left_aliases: list[str] | None = None,
     right_alias: str | None = None,
 ) -> dict[str, object] | None:
     if not isinstance(expr, exp.EQ) or len(refs) != 2:
         return None
+    left_aliases = left_aliases or []
     left_ref = refs[0]
     right_ref = refs[1]
     if left_ref.scope == right_ref.scope:
-        # Same scope on both sides is a self-join key, not a non-key, when the two refs
-        # carry the two sides' distinct qualifiers. Refusing it sent every self-join
-        # equality into condition_filters, where the expanded rendering collapsed
-        # `a.batch_id = b.batch_id` into a tautology on one table (JOINALIAS-001).
-        # Orientation comes from the qualifiers; anything less than an exact two-sided
-        # match stays refused rather than guessed.
+        # Same scope on both sides is a self-join key, not a non-key, when one ref
+        # carries the newly joined side's alias and the other any alias already on the
+        # left (JOINALIAS-001; chained hops reference the PREVIOUS hop, not the FROM
+        # base). An equality between two left-side aliases is a filter on the
+        # accumulated relation; anything not matching exactly one right + one left
+        # alias stays refused rather than guessed.
         left_qualifier = left_ref.qualifier
         right_qualifier = right_ref.qualifier
-        if (
-            not left_alias
-            or not right_alias
-            or {left_qualifier, right_qualifier} != {left_alias, right_alias}
-        ):
+        if not right_alias or not left_aliases:
             return None
-        if left_qualifier == right_alias:
-            left_ref, right_ref = right_ref, left_ref
-        return _join_key_pair_dict(expr, left_ref, right_ref)
+        if right_qualifier == right_alias and left_qualifier in left_aliases:
+            return _join_key_pair_dict(expr, left_ref, right_ref)
+        if left_qualifier == right_alias and right_qualifier in left_aliases:
+            return _join_key_pair_dict(expr, right_ref, left_ref)
+        return None
     if right_ref.scope == right_input:
         pass
     elif left_ref.scope == right_input:

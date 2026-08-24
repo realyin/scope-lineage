@@ -39,14 +39,14 @@ stmt_kind: "INSERT_OVERWRITE"
 
 - 来源字段：`ods.users.user_id`
 - 加工路径：1 步；direct_projection
-- 步骤 1/1：`ods.users.user_id` → `mart.user_names.user_id`；direct_projection；表达式：`` `user_id` ``
+- 步骤 1/1：`ods.users.user_id` → `mart.user_names.user_id`；direct_projection；粒度=preserved；表达式：`` `user_id` ``
 - 证据：mapping_chain_id=mc:001；chain=chain:ROOT:user_id:position:0
 
 ### 字段 mart.user_names.user_name
 
 - 来源字段：`ods.users.user_name`
 - 加工路径：1 步；direct_projection
-- 步骤 1/1：`ods.users.user_name` → `mart.user_names.user_name`；direct_projection；表达式：`` `user_name` ``
+- 步骤 1/1：`ods.users.user_name` → `mart.user_names.user_name`；direct_projection；粒度=preserved；表达式：`` `user_name` ``
 - 证据：mapping_chain_id=mc:002；chain=chain:ROOT:user_name:position:1
 
 ## 6. 加工逻辑汇总
@@ -54,18 +54,21 @@ stmt_kind: "INSERT_OVERWRITE"
 ### scope `ROOT`（root，角色 filter）
 
 - 概要：读取 ods.users；按过滤条件保留记录
-- 输入：ods.users；物理上游：ods.users
+- 输入（均为物理表）：ods.users
 - 逻辑：join 0、filter 1、聚合 0、窗口 0、union 分支 0、distinct 否
   - 过滤：`` WHERE `s`.`is_active` = 1 ``
 
 ## 7. scope 结构图
+
+- 图例：蓝底=物理表，灰底=scope
 
 ```mermaid
 flowchart LR
     n0["ROOT"]
     n1["ods.users"]
     n1 --> n0
-    classDef physical fill:#e8f0fe,stroke:#4a6fa5
+    classDef default fill:#f4f4f5,stroke:#6b7280,color:#111827
+    classDef physical fill:#e8f0fe,stroke:#4a6fa5,color:#111827
     class n1 physical
 ```
 

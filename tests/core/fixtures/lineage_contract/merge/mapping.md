@@ -40,24 +40,24 @@ stmt_kind: "MERGE"
 
 - 来源字段：`ods.customer_delta.customer_name`
 - 加工路径：2 步；direct_projection
-- 步骤 1/2：`ods.customer_delta.customer_name` → `subq:source.customer_name`；direct_projection；表达式：`` `customer_name` ``
-- 步骤 2/2：`subq:source.customer_name` → `mart.customer_profile.customer_name`；direct_projection；表达式：`` `customer_name` ``
+- 步骤 1/2：`ods.customer_delta.customer_name` → `subq:source.customer_name`；direct_projection；粒度=preserved；表达式：`` `customer_name` ``
+- 步骤 2/2：`subq:source.customer_name` → `mart.customer_profile.customer_name`；direct_projection；粒度=preserved；表达式：`` `customer_name` ``
 - 证据：mapping_chain_id=mc:001；chain=chain:ROOT:customer_name:position:0
 
 ### 字段 mart.customer_profile.customer_id（merge:not_matched 分支 1）
 
 - 来源字段：`ods.customer_delta.customer_id`
 - 加工路径：2 步；direct_projection
-- 步骤 1/2：`ods.customer_delta.customer_id` → `subq:source.customer_id`；direct_projection；表达式：`` `customer_id` ``
-- 步骤 2/2：`subq:source.customer_id` → `mart.customer_profile.customer_id`；direct_projection；表达式：`` `customer_id` ``
+- 步骤 1/2：`ods.customer_delta.customer_id` → `subq:source.customer_id`；direct_projection；粒度=preserved；表达式：`` `customer_id` ``
+- 步骤 2/2：`subq:source.customer_id` → `mart.customer_profile.customer_id`；direct_projection；粒度=preserved；表达式：`` `customer_id` ``
 - 证据：mapping_chain_id=mc:002；chain=chain:ROOT:customer_id:position:1
 
 ### 字段 mart.customer_profile.customer_name（merge:not_matched 分支 1）
 
 - 来源字段：`ods.customer_delta.customer_name`
 - 加工路径：2 步；direct_projection
-- 步骤 1/2：`ods.customer_delta.customer_name` → `subq:source.customer_name`；direct_projection；表达式：`` `customer_name` ``
-- 步骤 2/2：`subq:source.customer_name` → `mart.customer_profile.customer_name`；direct_projection；表达式：`` `customer_name` ``
+- 步骤 1/2：`ods.customer_delta.customer_name` → `subq:source.customer_name`；direct_projection；粒度=preserved；表达式：`` `customer_name` ``
+- 步骤 2/2：`subq:source.customer_name` → `mart.customer_profile.customer_name`；direct_projection；粒度=preserved；表达式：`` `customer_name` ``
 - 证据：mapping_chain_id=mc:003；chain=chain:ROOT:customer_name:position:2
 
 ## 6. 加工逻辑汇总
@@ -70,6 +70,8 @@ stmt_kind: "MERGE"
 
 ## 7. scope 结构图
 
+- 图例：蓝底=物理表，灰底=scope
+
 ```mermaid
 flowchart LR
     n0["ROOT"]
@@ -77,7 +79,8 @@ flowchart LR
     n2["subq:source"]
     n1 --> n2
     n2 --> n0
-    classDef physical fill:#e8f0fe,stroke:#4a6fa5
+    classDef default fill:#f4f4f5,stroke:#6b7280,color:#111827
+    classDef physical fill:#e8f0fe,stroke:#4a6fa5,color:#111827
     class n1 physical
 ```
 
