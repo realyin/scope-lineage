@@ -192,7 +192,9 @@ def test_step_lines_match_grammar_and_round_trip_chain_facts() -> None:
         if match:
             inputs = frozenset(FIELD_ID_SPAN_PATTERN.findall(match.group("inputs")))
             output = FIELD_ID_SPAN_PATTERN.findall(match.group("output"))[0]
-            parsed_steps.append((inputs, output, match.group("step_type")))
+            parsed_steps.append(
+                (inputs, output, match.group("step_type"), match.group("grain"))
+            )
     assert parsed_steps, "no step lines found"
 
     expected = set()
@@ -203,9 +205,43 @@ def test_step_lines_match_grammar_and_round_trip_chain_facts() -> None:
                     frozenset(step["input_fields"]),
                     step["output_field"],
                     step["step_type"],
+                    step["grain_effect"],
                 )
             )
     assert set(parsed_steps) == expected
+
+
+def test_step_lines_enumerate_grain_on_every_step() -> None:
+    # the UNION case mixes projections (preserved) with a SUM aggregate (changed);
+    # every step line must name its grain — silence is no longer a value
+    document = _document(UNION_CASE_SQL, schema=UNION_CASE_SCHEMA)
+    rendered = render_mapping_markdown(document)
+    grains = [
+        match.group("grain")
+        for match in map(STEP_LINE_PATTERN.match, rendered.splitlines())
+        if match
+    ]
+    assert grains, "no step lines found"
+    assert None not in grains
+    assert "changed" in grains and "preserved" in grains
+
+
+def test_step_grain_unknown_and_missing_render_as_unknown() -> None:
+    document = _document(
+        "INSERT INTO mart.t SELECT id FROM ods.users", schema={"ods.users": ["id"]}
+    )
+    steps = [
+        step
+        for chain in document["field_mapping_chains"]
+        for step in chain["ordered_steps"]
+    ]
+    assert steps, "premise: the projection produces at least one step"
+    steps[0]["grain_effect"] = "unknown"
+    for step in steps[1:]:
+        step.pop("grain_effect", None)
+    rendered = render_mapping_markdown(document)
+    step_lines = [line for line in rendered.splitlines() if STEP_LINE_PATTERN.match(line)]
+    assert step_lines and all("；粒度=unknown；" in line for line in step_lines)
 
 
 def test_step_expression_prefers_display_expression() -> None:
@@ -519,6 +555,79 @@ def test_mermaid_nodes_use_mapped_ids_with_labels() -> None:
         assert not re.search(rf"^\s*{re.escape(node)}\s*-->", mermaid, re.MULTILINE)
 
 
+def test_mermaid_class_defs_pin_text_color_against_theme_defaults() -> None:
+    # the diagram uses light fills; without an explicit `color:` a dark-themed
+    # mermaid renderer paints light text on them and the labels disappear
+    document = _document(UNION_CASE_SQL, schema=UNION_CASE_SCHEMA)
+    rendered = render_mapping_markdown(document)
+    mermaid = rendered.split("```mermaid")[1].split("```")[0]
+    assert "classDef default fill:#f4f4f5,stroke:#6b7280,color:#111827" in mermaid
+    assert "classDef physical fill:#e8f0fe,stroke:#4a6fa5,color:#111827" in mermaid
+
+    # every classDef in the diagram must pin fill and color together
+    for class_def in re.findall(r"classDef \w+ ([^\n]+)", mermaid):
+        assert "fill:" in class_def and "color:" in class_def
+
+    # scopes-only graphs (no physical nodes) still pin the default colors
+    scoped = dict(document)
+    scoped["scope_graph"] = {"nodes": ["ROOT", "cte:x"], "edges": [{"from": "cte:x", "to": "ROOT"}]}
+    scoped["source_tables"] = []
+    scoped_mermaid = render_mapping_markdown(scoped).split("```mermaid")[1].split("```")[0]
+    assert "classDef default" in scoped_mermaid
+    assert "classDef physical" not in scoped_mermaid
+
+
+def test_graph_section_carries_a_legend_only_when_physical_nodes_exist() -> None:
+    document = _document(UNION_CASE_SQL, schema=UNION_CASE_SCHEMA)
+    rendered = render_mapping_markdown(document)
+    graph_section = rendered[rendered.index("## 7"): rendered.index("## 8")]
+    legend_pos = graph_section.index("- 图例：蓝底=物理表，灰底=scope")
+    assert legend_pos < graph_section.index("```mermaid")
+
+    scoped = dict(document)
+    scoped["scope_graph"] = {"nodes": ["ROOT", "cte:x"], "edges": [{"from": "cte:x", "to": "ROOT"}]}
+    scoped["source_tables"] = []
+    scoped_rendered = render_mapping_markdown(scoped)
+    scoped_section = scoped_rendered[scoped_rendered.index("## 7"): scoped_rendered.index("## 8")]
+    assert "图例" not in scoped_section
+
+
+def test_partition_spec_renders_as_json_not_python_repr() -> None:
+    document = _document(
+        "INSERT INTO mart.t SELECT id FROM ods.users", schema={"ods.users": ["id"]}
+    )
+    document["target_partition_spec"] = {"dt": "20260801", "biz": "a"}
+    rendered = render_mapping_markdown(document)
+    assert 'spec=`{"biz": "a", "dt": "20260801"}`' in rendered
+    assert "{'" not in rendered
+
+
+def test_logic_inputs_merge_with_physical_upstreams_only_when_identical() -> None:
+    document = _document(JOIN_CASE_SQL, schema=JOIN_CASE_SCHEMA)
+    rendered = render_mapping_markdown(document)
+    # the CTE reads exactly its physical table: one merged line, no duplication
+    assert "- 输入（均为物理表）：dwd.order_detail" in rendered
+    # ROOT mixes a physical table with the CTE: both labels stay
+    assert re.search(r"- 输入：.*order_summary.*；物理上游：", rendered)
+    # the merged form never appears alongside an empty list
+    assert "- 输入（均为物理表）：—" not in rendered
+
+
+def test_binding_summary_labels_corrected_columns() -> None:
+    document = _document(
+        "INSERT INTO mart.t SELECT id FROM ods.users", schema={"ods.users": ["id"]}
+    )
+    document["target_field_binding"] = {
+        "status": "applied",
+        "method": "ddl_position",
+        "projection_count": 1,
+        "target_column_count": 1,
+        "corrected_column_count": 0,
+    }
+    rendered = render_mapping_markdown(document)
+    assert "纠正列 0" in rendered
+
+
 def test_gaps_section_keeps_conclusions_and_defers_warnings_to_sibling_doc(
     tmp_path: Path,
 ) -> None:
@@ -526,13 +635,78 @@ def test_gaps_section_keeps_conclusions_and_defers_warnings_to_sibling_doc(
         "INSERT INTO mart.t SELECT * FROM ods.raw_events", tmp_path
     )
     rendered = render_mapping_markdown(lineage, diagnostics)
-    # warning bodies leave the mapping document; only a counted pointer remains
-    assert "star_not_expanded" not in rendered
+    # warning bodies leave the mapping document; the pointer now counts per type
+    # instead of flattening heterogeneous signals into one "advisory" total
+    warning_messages = [w.get("msg") for w in diagnostics["warnings"]]
+    assert warning_messages and not any(msg in rendered for msg in warning_messages)
     assert "warnings.md" in rendered
+    assert "提示类信息" not in rendered
+    assert re.search(r"- 解析警告：\d+ 条（star_not_expanded \d+", rendered)
     # the unexpanded star is a fact gap now (STARGAP-001), so the gaps section reports
     # it as a conclusion instead of claiming there is none
     assert "缺口：无" not in rendered
     assert "projection_wildcard_unexpanded" in rendered
+
+
+def test_gaps_warning_counts_sort_by_count_then_type_and_accept_unknown_types() -> None:
+    document = _document(
+        "INSERT INTO mart.t SELECT id FROM ods.users", schema={"ods.users": ["id"]}
+    )
+    diagnostics = {
+        "warnings": [
+            {"type": "zeta_signal", "scope": "ROOT", "msg": "z1"},
+            {"type": "alpha_signal", "scope": "ROOT", "msg": "a1"},
+            {"type": "zeta_signal", "scope": "ROOT", "msg": "z2"},
+        ]
+    }
+    rendered = render_mapping_markdown(document, diagnostics)
+    assert (
+        "- 解析警告：3 条（zeta_signal 2、alpha_signal 1；语义提示见同目录 warnings.md）"
+        in rendered
+    )
+
+
+def test_gaps_section_reports_no_warnings_plainly() -> None:
+    document = _document(
+        "INSERT INTO mart.t SELECT id FROM ods.users", schema={"ods.users": ["id"]}
+    )
+    rendered = render_mapping_markdown(document, {"warnings": []})
+    assert "- 解析警告：无" in rendered
+
+
+def test_dependencies_section_states_declared_nature_with_lineage_pointers() -> None:
+    document = _document(
+        "INSERT INTO mart.t SELECT id FROM ods.users", schema={"ods.users": ["id"]}
+    )
+    document["task_dependencies"] = {
+        "upstream_tasks": [{"task_id": "T1", "task_name": "daily_upstream"}],
+        "downstream_tasks": [
+            {"task_id": "T2", "task_name": "daily_downstream"},
+            {"task_id": "T3", "task_name": "weekly_downstream"},
+        ],
+    }
+    rendered = render_mapping_markdown(document)
+    section = rendered[rendered.index("## 8"): rendered.index("## 9")]
+    assert "- 说明：本节为调度系统声明依赖" in section
+    assert "§2" in section and "§4" in section
+    # one task per line: a dozen downstream tasks on one line is unreadable
+    assert "- 上游（1 个）：" in section
+    assert "  - daily_upstream（T1）" in section
+    assert "- 下游（2 个）：" in section
+    assert "  - daily_downstream（T2）" in section
+    assert "  - weekly_downstream（T3）" in section
+    assert "daily_downstream（T2）、" not in section
+
+
+def test_dependencies_note_absent_when_nothing_is_declared() -> None:
+    document = _document(
+        "INSERT INTO mart.t SELECT id FROM ods.users", schema={"ods.users": ["id"]}
+    )
+    document.pop("task_dependencies", None)
+    rendered = render_mapping_markdown(document)
+    section = rendered[rendered.index("## 8"): rendered.index("## 9")]
+    assert "- 无声明的任务依赖" in section
+    assert "说明：" not in section
 
 
 def test_warnings_doc_groups_by_type_with_chinese_gloss(tmp_path: Path) -> None:

@@ -66,3 +66,97 @@ def test_a_distinct_table_join_is_unchanged():
             assert len(detail["join_key_pairs"]) == 1
             return
     raise AssertionError("no join logic block")
+
+
+CHAIN_SQL = (
+    "INSERT INTO mart.t "
+    "SELECT b.accountname FROM ods.nodes b "
+    "LEFT JOIN ods.nodes d ON b.parent_id = d.id AND b.parent_id <> '' "
+    "LEFT JOIN ods.nodes d1 ON d.parent_id = d1.id AND d.parent_id <> '' "
+    "LEFT JOIN ods.nodes d2 ON d1.parent_id = d2.id AND d1.parent_id <> ''"
+)
+
+CHAIN_SCHEMA = {"ods.nodes": ["id", "parent_id", "accountname"]}
+
+
+def _chain_details():
+    result = parse_scope_lineage(CHAIN_SQL, task_name="demo", schema=CHAIN_SCHEMA)
+    details = [
+        block.join_relation_detail
+        for block in result.scopes["ROOT"].logic_blocks
+        if block.logic_type == "join"
+    ]
+    assert len(details) == 3, "premise: three chained self-joins"
+    return result, details
+
+
+def test_chained_self_joins_split_keys_at_every_hop():
+    # hop N's ON references the alias joined at hop N-1, not the FROM base alias;
+    # a single guessed left_alias ("b") refused every later hop's key pair
+    _, details = _chain_details()
+    pairs = [
+        (p["left"]["qualifier"], p["left"]["column"],
+         p["right"]["qualifier"], p["right"]["column"])
+        for detail in details
+        for p in detail["join_key_pairs"]
+    ]
+    assert pairs == [
+        ("b", "parent_id", "d", "id"),
+        ("d", "parent_id", "d1", "id"),
+        ("d1", "parent_id", "d2", "id"),
+    ]
+    for detail in details:
+        assert detail["trace_status"] == "complete"
+        assert "missing_join_key_pairs" not in detail["missing_reasons"]
+
+
+def test_chained_self_join_left_alias_is_the_preceding_hop():
+    _, details = _chain_details()
+    assert [(d["left_alias"], d["right_alias"]) for d in details] == [
+        ("b", "d"), ("d", "d1"), ("d1", "d2"),
+    ]
+
+
+def test_equalities_between_two_left_side_aliases_stay_filters():
+    # b and d are both already on the left when d1 joins: an equality between them
+    # is a filter on the accumulated relation, not a key of this join
+    sql = (
+        "INSERT INTO mart.t SELECT b.accountname FROM ods.nodes b "
+        "LEFT JOIN ods.nodes d ON b.parent_id = d.id "
+        "LEFT JOIN ods.nodes d1 ON d.parent_id = d1.id AND b.batch_id = d.batch_id"
+    )
+    result = parse_scope_lineage(
+        sql, task_name="demo",
+        schema={"ods.nodes": ["id", "parent_id", "accountname", "batch_id"]},
+    )
+    last = [
+        block.join_relation_detail
+        for block in result.scopes["ROOT"].logic_blocks
+        if block.logic_type == "join"
+    ][-1]
+    assert [
+        (p["left"]["qualifier"], p["right"]["qualifier"])
+        for p in last["join_key_pairs"]
+    ] == [("d", "d1")]
+    assert ["`b`.`batch_id` = `d`.`batch_id`"] == [
+        f["expression"] for f in last["condition_filters"]
+    ]
+
+
+def test_unsplit_join_keys_emit_a_diagnostic_warning():
+    # keys that cannot be split are already ⚠-marked in the documents; the
+    # diagnostics stream must carry the same signal so consumers see it
+    result = parse_scope_lineage(
+        "INSERT INTO mart.t SELECT a.id FROM ods.nodes a JOIN ods.nodes b "
+        "ON a.status = 'ok' AND b.status = 'ok'",
+        task_name="demo",
+        schema={"ods.nodes": ["id", "status"]},
+    )
+    warnings = [w for w in result.diagnostics.warnings if w.type == "join_keys_not_split"]
+    assert len(warnings) == 1
+    assert warnings[0].scope == "ROOT"
+
+
+def test_split_join_keys_do_not_emit_the_unsplit_warning():
+    result = parse_scope_lineage(CHAIN_SQL, task_name="demo", schema=CHAIN_SCHEMA)
+    assert not [w for w in result.diagnostics.warnings if w.type == "join_keys_not_split"]

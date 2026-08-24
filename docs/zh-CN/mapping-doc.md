@@ -60,7 +60,7 @@ markdown = render_mapping_markdown(lineage_document, diagnostics_document)
 | 5. 加工步骤明细 | steps | 逐字段的逐步加工链 | `field_mapping_chains[].ordered_steps[]` |
 | 6. 加工逻辑汇总 | logic | 每个 scope 做了什么：概要、过滤条件、该 scope 的连接明细 | `scope_profile.steps[]` + `logic_blocks[].join_relation_detail` |
 | 7. scope 结构图 | graph | mermaid 数据流图 | `scope_graph` |
-| 8. 任务依赖 | deps | 声明的上下游任务 | `task_dependencies` |
+| 8. 任务依赖 | deps | 声明的上下游任务；有声明时节首固定一行说明：本节为调度声明而非血缘实证（表级实际读取见第 2 节，字段消费见第 4 节） | `task_dependencies` |
 | 9. 不确定性与缺口 | gaps | 只保留影响血缘结论的信息：未完全追溯字段、事实缺口、警告条数指针 | `end_to_end_lineage[].trace_complete`、`diagnostics.json` |
 
 章节编号固定（过滤 `--sections` 不会重新编号），便于引用。
@@ -108,7 +108,10 @@ task_id，因此文档按其真实含义标注为任务名。
   使用更长的反引号围栏，即标准 markdown 规则）。因此 SQL 字面量里出现
   `；`、`→`、`|` 都不会破坏语法。
 - 渲染值中的真实换行一律归一化为字面量 `\n`，保证"一行一个事实"。
-- `粒度=changed` 仅在该步聚合改变了行粒度时出现。
+- `粒度=` 在**每条**步骤行都出现，取三值之一：`changed`（聚合改变了行粒度）、
+  `preserved`（该步可证明保持粒度——普通投影、窗口函数、CASE）、`unknown`（表达式无法
+  归类，或契约中该步没有 `grain_effect`）。「证明了粒度不变」和「未知」是两个不同的
+  事实，文档保持二者可区分。
 - 表达式优先取契约的 `display_expression`（FROM 别名已解析为真实表名），
   取不到时回落 `expression_sql` 原文。
 
@@ -146,8 +149,11 @@ task_id，因此文档按其真实含义标注为任务名。
   code span；
 - 没有任何警告时不生成该文件。
 
-mapping.md 第 9 节保留一行计数指针（`- 解析警告：N 条（提示类信息，见同目录
-warnings.md）`），并只保留影响血缘结论的内容：未完全追溯字段、`lineage_fact_gaps`。
+mapping.md 第 9 节保留一行**按类型计数**的指针，按条数降序、同数按类型名排序
+（`- 解析警告：N 条（<type> n、<type2> n2；语义提示见同目录 warnings.md）`）——
+警告类型对读者的重要程度并不相同（`filter_in_join_on_clause` 不同于 `magic_number`），
+指针不再把它们折叠成一个无差别的「提示类」总数。除此之外该节只保留影响血缘结论的
+内容：未完全追溯字段、`lineage_fact_gaps`。
 
 ### 不确定性记号
 

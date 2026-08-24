@@ -39,7 +39,7 @@ stmt_kind: "INSERT"
 - 来源字段：`ods.raw_events.*`
 - 加工路径：1 步；expression
 - ⚠ trace_status=incomplete: projection_wildcard_unexpanded
-- 步骤 1/1：`ods.raw_events.*` → `mart.raw_copy.*`；expression；表达式：`*`
+- 步骤 1/1：`ods.raw_events.*` → `mart.raw_copy.*`；expression；粒度=preserved；表达式：`*`
 - 证据：mapping_chain_id=mc:001；chain=chain:ROOT:*:position:0
 
 ## 6. 加工逻辑汇总
@@ -47,17 +47,20 @@ stmt_kind: "INSERT"
 ### scope `ROOT`（root，角色 transform）
 
 - 概要：读取 ods.raw_events
-- 输入：ods.raw_events；物理上游：ods.raw_events
+- 输入（均为物理表）：ods.raw_events
 - 逻辑：join 0、filter 0、聚合 0、窗口 0、union 分支 0、distinct 否
 
 ## 7. scope 结构图
+
+- 图例：蓝底=物理表，灰底=scope
 
 ```mermaid
 flowchart LR
     n0["ROOT"]
     n1["ods.raw_events"]
     n1 --> n0
-    classDef physical fill:#e8f0fe,stroke:#4a6fa5
+    classDef default fill:#f4f4f5,stroke:#6b7280,color:#111827
+    classDef physical fill:#e8f0fe,stroke:#4a6fa5,color:#111827
     class n1 physical
 ```
 
@@ -69,4 +72,4 @@ flowchart LR
 
 - ⚠ 追溯不完整字段：*
 - ⚠ 缺口：evidence_path=lineage.scopes.ROOT.outputs[0]；expression_sql=*；gap_bucket=wildcard_projection；gap_id=lineage_gap:0001；gap_type=projection_wildcard_unexpanded；needed_fact=source schema for wildcard expansion；object_name=*；object_type=output；owner_hint=metadata_provider；root_impact=True；scope_id=ROOT
-- 解析警告：1 条（提示类信息，见同目录 warnings.md）
+- 解析警告：1 条（star_not_expanded 1；语义提示见同目录 warnings.md）

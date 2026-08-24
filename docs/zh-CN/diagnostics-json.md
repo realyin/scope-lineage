@@ -104,6 +104,7 @@ scope_lineage/schemas/diagnostics.schema.json
 | `identifiers_quoted_for_parse` | 列名与 SQL 关键字撞名（如 `not`、`like`、`out`、`using`）且原文未加引号，工具为完成解析给这些标识符补了反引号；`msg` 列出补引号的全部标识符。 | 无需处理，血缘正常。建议在源 SQL 中给这些列名加引号，避免依赖工具修补。 |
 | `session_scoped_relations_present` | 本脚本产出了只存活于会话、不落存储的关系（`TEMP VIEW` / `GLOBAL TEMP VIEW` / `CACHE [LAZY] TABLE`），`msg` 列出全部关系名。 | 按 catalog 对账前，先把这些关系从 `final_table_states` 和表级覆盖统计里排除；字段血缘本身有效，两跳各自保留。 |
 | `filter_in_join_on_clause` | JOIN ON 中包含常量比较等行过滤。 | 影响逻辑解释时区分 join key 与 condition filter。 |
+| `join_keys_not_split` | JOIN 的等值键无法从 ON 条件中拆分（限定符无法分边的自连接、`ON TRUE` 等），按原文保留连接条件。 | 改读该 join 的 `condition_expression` / mapping.md §6「连接条件（未拆分）」行，不要把空键列表当作「无连接键」。 |
 | `magic_number` | 表达式包含缺少解释的数值常量。 | 上层业务知识生成时请求口径说明。 |
 | `complex_aggregate_with_case` | 聚合中嵌套 CASE。 | 指标解释应保留 CASE 分支，不只记录 SUM/COUNT。 |
 | `duplicate_table_in_union` | 同一物理表是多个 UNION 分支的 **FROM/JOIN 来源**。只被某个分支的过滤子查询读到（如 `NOT EXISTS`）不计入。 | 确认分支是否复制后忘记换来源；反连接排重是正常写法，不再触发。 |

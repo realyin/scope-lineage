@@ -44,12 +44,12 @@ stmt_kind: "INSERT_OVERWRITE"
 
 - 来源字段：`ods.events.user_id`、`ods.fallback_users.user_id`
 - 加工路径：6 步；direct_projection, union
-- 步骤 1/6：`ods.events.user_id` → `cte:aggregated.user_id`；direct_projection；表达式：`` `user_id` ``
-- 步骤 2/6：`cte:aggregated.user_id` → `cte:ranked.user_id`；direct_projection；表达式：`` `user_id` ``
-- 步骤 3/6：`cte:ranked.user_id` → `union:main:b01.user_id`；direct_projection；表达式：`` `user_id` ``
-- 步骤 4/6：`ods.fallback_users.user_id` → `union:main:b02.user_id`；direct_projection；表达式：`` `user_id` ``
-- 步骤 5/6：`union:main:b01.user_id`、`union:main:b02.user_id` → `union:main.user_id`；union；表达式：`user_id`
-- 步骤 6/6：`union:main.user_id` → `mart.user_value.user_id`；union；表达式：`user_id`
+- 步骤 1/6：`ods.events.user_id` → `cte:aggregated.user_id`；direct_projection；粒度=preserved；表达式：`` `user_id` ``
+- 步骤 2/6：`cte:aggregated.user_id` → `cte:ranked.user_id`；direct_projection；粒度=preserved；表达式：`` `user_id` ``
+- 步骤 3/6：`cte:ranked.user_id` → `union:main:b01.user_id`；direct_projection；粒度=preserved；表达式：`` `user_id` ``
+- 步骤 4/6：`ods.fallback_users.user_id` → `union:main:b02.user_id`；direct_projection；粒度=preserved；表达式：`` `user_id` ``
+- 步骤 5/6：`union:main:b01.user_id`、`union:main:b02.user_id` → `union:main.user_id`；union；粒度=preserved；表达式：`user_id`
+- 步骤 6/6：`union:main.user_id` → `mart.user_value.user_id`；union；粒度=preserved；表达式：`user_id`
 - 证据：mapping_chain_id=mc:001；chain=chain:ROOT:user_id:position:0
 
 ## 6. 加工逻辑汇总
@@ -57,7 +57,7 @@ stmt_kind: "INSERT_OVERWRITE"
 ### scope `cte:aggregated`（cte，角色 aggregate）
 
 - 概要：读取 ods.events；聚合生成指标
-- 输入：ods.events；物理上游：ods.events
+- 输入（均为物理表）：ods.events
 - 逻辑：join 0、filter 0、聚合 1、窗口 0、union 分支 0、distinct 否
 
 ### scope `cte:ranked`（cte，角色 dedup）
@@ -82,6 +82,8 @@ stmt_kind: "INSERT_OVERWRITE"
 
 ## 7. scope 结构图
 
+- 图例：蓝底=物理表，灰底=scope
+
 ```mermaid
 flowchart LR
     n0["ROOT"]
@@ -101,7 +103,8 @@ flowchart LR
     n6 --> n0
     n7 --> n6
     n8 --> n6
-    classDef physical fill:#e8f0fe,stroke:#4a6fa5
+    classDef default fill:#f4f4f5,stroke:#6b7280,color:#111827
+    classDef physical fill:#e8f0fe,stroke:#4a6fa5,color:#111827
     class n3,n4,n5 physical
 ```
 

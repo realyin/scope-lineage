@@ -70,7 +70,7 @@ markdown = render_mapping_markdown(lineage_document, diagnostics_document)
 | 5. 加工步骤明细 (Transformation steps) | steps | The step-by-step chain per field | `field_mapping_chains[].ordered_steps[]` |
 | 6. 加工逻辑汇总 (Logic summary) | logic | What each scope does: summary, filter conditions, that scope's join details | `scope_profile.steps[]` + `logic_blocks[].join_relation_detail` |
 | 7. scope 结构图 (Scope graph) | graph | A mermaid data-flow diagram | `scope_graph` |
-| 8. 任务依赖 (Task dependencies) | deps | The declared upstream and downstream tasks | `task_dependencies` |
+| 8. 任务依赖 (Task dependencies) | deps | The declared upstream and downstream tasks; when any are declared, the section opens with a fixed note stating they are scheduler declarations, not lineage evidence (actual table reads are in section 2, field consumption in section 4) | `task_dependencies` |
 | 9. 不确定性与缺口 (Uncertainty and gaps) | gaps | Only what affects lineage conclusions: incompletely traced fields, fact gaps, a warning-count pointer | `end_to_end_lineage[].trace_complete`, `diagnostics.json` |
 
 Section numbering is fixed (filtering with `--sections` does not renumber), so sections can be
@@ -122,7 +122,11 @@ source with `scope_lineage.render.mapping_markdown.STEP_LINE_PATTERN`):
   break the grammar.
 - Real newlines inside rendered values are always normalized to the literal `\n`, keeping "one
   fact per line".
-- `粒度=changed` ("grain=changed") appears only when that step's aggregation changed the row grain.
+- `粒度=` ("grain=") appears on **every** step line with one of three values: `changed` (an
+  aggregation changed the row grain), `preserved` (the step provably kept the grain — plain
+  projections, window functions, CASE), or `unknown` (the expression could not be classified, or
+  the contract carries no `grain_effect` for the step). A provably unchanged grain and an unknown
+  one are different facts, and the document keeps them distinguishable.
 - The expression prefers the contract's `display_expression` (FROM aliases already resolved to real
   table names), falling back to the verbatim `expression_sql` when it is unavailable.
 
@@ -169,9 +173,12 @@ the conclusions. A statement with warnings gets an extra `warnings.md` in the sa
   a code span;
 - when there are no warnings at all, the file is not generated.
 
-Section 9 of mapping.md keeps a one-line count pointer (`- 解析警告：N 条（提示类信息，见同目录
-warnings.md）`) and otherwise keeps only what affects lineage conclusions: incompletely traced
-fields and `lineage_fact_gaps`.
+Section 9 of mapping.md keeps a one-line pointer that counts the warnings **per type**, sorted by
+count descending and then type name (`- 解析警告：N 条（<type> n、<type2> n2；语义提示见同目录
+warnings.md）`) — warning types differ in how much they matter to the reader (a
+`filter_in_join_on_clause` is not a `magic_number`), so the pointer no longer flattens them into
+one undifferentiated "advisory" total. Otherwise the section keeps only what affects lineage
+conclusions: incompletely traced fields and `lineage_fact_gaps`.
 
 ### Uncertainty markers
 

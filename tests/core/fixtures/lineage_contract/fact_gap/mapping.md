@@ -42,7 +42,7 @@ stmt_kind: "INSERT"
 - 来源字段：`AMBIGUOUS.amount`
 - 加工路径：1 步；direct_projection
 - ⚠ trace_status=incomplete: no_physical_source_fields
-- 步骤 1/1：`AMBIGUOUS.amount` → `mart.amounts.amount`；direct_projection；表达式：`` `amount` ``
+- 步骤 1/1：`AMBIGUOUS.amount` → `mart.amounts.amount`；direct_projection；粒度=preserved；表达式：`` `amount` ``
 - 证据：mapping_chain_id=mc:001；chain=chain:ROOT:amount:position:0
 
 ## 6. 加工逻辑汇总
@@ -57,6 +57,8 @@ stmt_kind: "INSERT"
 
 ## 7. scope 结构图
 
+- 图例：蓝底=物理表，灰底=scope
+
 ```mermaid
 flowchart LR
     n0["AMBIGUOUS"]
@@ -66,7 +68,8 @@ flowchart LR
     n0 --> n1
     n2 --> n1
     n3 --> n1
-    classDef physical fill:#e8f0fe,stroke:#4a6fa5
+    classDef default fill:#f4f4f5,stroke:#6b7280,color:#111827
+    classDef physical fill:#e8f0fe,stroke:#4a6fa5,color:#111827
     class n2,n3 physical
 ```
 
@@ -78,4 +81,4 @@ flowchart LR
 
 - ⚠ 追溯不完整字段：amount
 - ⚠ 缺口：evidence_path=lineage.scopes.ROOT.outputs[0]；expression_resolution_status=unresolved；expression_sql=`amount`；gap_bucket=bare_unqualified_field；gap_id=lineage_gap:0001；gap_sub_bucket=root_bare_no_unique_input；gap_type=expression_source_unresolved；needed_fact=physical or generated expression source；object_name=amount；object_type=output；owner_hint=parser_fact_backfill；root_impact=True；scope_id=ROOT；source_kind=unresolved
-- 解析警告：1 条（提示类信息，见同目录 warnings.md）
+- 解析警告：1 条（ambiguous_unqualified 1；语义提示见同目录 warnings.md）
