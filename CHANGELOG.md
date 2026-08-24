@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.3
 - Split join equality keys at every hop of a chained self-join. The left side of each hop now
   matches any alias already joined ahead of it, not only the first FROM alias, so multi-level
   hierarchy joins keep per-hop key pairs instead of degrading to unsplit verbatim conditions.
