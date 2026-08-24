@@ -198,6 +198,31 @@ ods.orders,status,string,Synthetic order status
 CSV 没有显式 `columnIndex`，也没有 DDL 可用于交叉校验。如果导出端不能保证行序，就不要依赖
 CSV 展开 `SELECT *`。
 
+### 解析前先体检：`--metadata-preflight`
+
+元数据缺表不会让解析失败，但会安静地降低结论质量：schema 未知的表无法从裸列归属的
+候选集里排除，字段可能因此被标成 `AMBIGUOUS`——看起来像 SQL 问题，其实是元数据缺口。
+在正式解析前先做覆盖体检：
+
+```bash
+scope-lineage parse --input-dir tasks --out ./output \
+  --schema schema.json --metadata-preflight
+```
+
+预检模式跑同一条解析管线但**不写任何血缘产物**：打印每张缺 schema 的表和引用它的
+任务清单（按引用任务数降序），把机器可读的 `metadata_gaps.json` 写进 `--out`，
+**有缺表时返回非 0**。因此两步串联就是"先确认、要补先停下"的门：
+
+```bash
+scope-lineage parse --input-dir tasks --out ./output --schema schema.json \
+  --metadata-preflight && \
+scope-lineage parse --input-dir tasks --out ./output --schema schema.json
+```
+
+缺表 → 第一步非 0、第二步不执行，补齐元数据后重来；不缺 → 自动继续正式解析。
+普通批量解析发现缺口时也会把同一份 `metadata_gaps.json` 写在产物旁边并提示一行，
+但不会中断——预检才是把关的位置。
+
 ### 目标表 DDL/Schema：权威 JSON
 
 `--target-ddl-metadata` 接收一个 JSON 文件或目录，用于提供目标表的权威字段名、顺序、类型和

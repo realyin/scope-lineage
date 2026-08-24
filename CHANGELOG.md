@@ -1,6 +1,16 @@
 # Changelog
 
 ## Unreleased
+- Add a pre-parse metadata coverage gate: `scope-lineage parse --metadata-preflight`
+  reports every referenced table missing from the supplied schema (with the tasks
+  referencing it), writes a deterministic `metadata_gaps.json` manifest into `--out`,
+  produces no lineage artifacts, and returns non-zero when gaps exist — so chaining
+  `preflight && parse` stops for a decision before parsing with incomplete metadata.
+  A normal batch parse that finds gaps writes the same manifest next to its artifacts
+  and prints a pointer. Coverage aggregates the per-task
+  `diagnostics.metadata_coverage` fact; nothing derives it a second way. Motivated by
+  two investigations in a row where an incomplete schema produced AMBIGUOUS
+  attributions that were first mistaken for parser or SQL defects.
 - Cover unbound anonymous projections in field mapping chains. `end_to_end_lineage`
   emits an entry for every output the statement writes, but the chain layer skipped
   outputs whose name is not a reliable target column (a generated `_col_N`, a purely

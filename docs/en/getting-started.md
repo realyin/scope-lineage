@@ -206,6 +206,35 @@ ods.orders,status,string,Synthetic order status
 CSV carries no explicit `columnIndex` and no DDL to cross-check against. If your exporter cannot
 guarantee row order, do not rely on CSV to expand `SELECT *`.
 
+### Check coverage before parsing: `--metadata-preflight`
+
+Missing table metadata never fails a parse, but it quietly degrades conclusions: a table
+with unknown schema cannot be excluded from an unqualified column's candidate set, so
+fields may come out `AMBIGUOUS` — looking like a SQL problem when it is a metadata gap.
+Run a coverage check before the real parse:
+
+```bash
+scope-lineage parse --input-dir tasks --out ./output \
+  --schema schema.json --metadata-preflight
+```
+
+Preflight mode runs the same parsing pipeline but writes **no lineage artifacts**: it
+prints every table missing from the schema with the tasks referencing it (sorted by
+referencing-task count), writes a machine-readable `metadata_gaps.json` into `--out`,
+and **returns non-zero when gaps exist**. Chaining the two commands is the
+review-before-parse gate:
+
+```bash
+scope-lineage parse --input-dir tasks --out ./output --schema schema.json \
+  --metadata-preflight && \
+scope-lineage parse --input-dir tasks --out ./output --schema schema.json
+```
+
+Gaps → the first step exits non-zero and the second never runs; supplement the metadata
+and retry. No gaps → the real parse proceeds automatically. A normal batch parse that
+finds gaps also writes the same `metadata_gaps.json` next to its artifacts and prints a
+one-line pointer, but does not stop — the preflight is where the gate belongs.
+
 ### Target-table DDL/Schema: authoritative JSON
 
 `--target-ddl-metadata` accepts a JSON file or a directory that supplies the target table's
