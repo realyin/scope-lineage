@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+- Annotate joins that read the statement's own target table with
+  `join_relation_detail.target_self_reference`. When both the target partition and the
+  reference's partition predicate are literal dates the day offset is stated and proven
+  (`partition_offset_days`, a negative offset being the classic carry-forward shape);
+  otherwise the reference stays `offset_proven: false` rather than guessed. mapping.md
+  section 6 renders the annotation under the join.
+- Add a `lineage_digest` key to the mapping.md front matter: a 16-hex content digest of the
+  source lineage document. Same input still renders byte-identically; a consumer recomputes
+  the digest (`lineage_document_digest`) to confirm which `lineage.json` a document came from.
+- Use Chinese list punctuation consistently in scope profile summaries (`、` between table
+  names, spaced `等 N 张物理表`), matching the rest of the rendered documents.
+
 ## 0.2.3
 - Split join equality keys at every hop of a chained self-join. The left side of each hop now
   matches any alias already joined ahead of it, not only the first FROM alias, so multi-level

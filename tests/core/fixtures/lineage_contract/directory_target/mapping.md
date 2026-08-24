@@ -4,6 +4,7 @@ schema_version: "1.0"
 task_name: "golden_directory_target"
 target_table: "directory:/warehouse/export/daily"
 stmt_kind: "INSERT_OVERWRITE"
+lineage_digest: "aaef5b3b141dd083"
 ---
 
 # 字段映射文档 （写入目录 /warehouse/export/daily）

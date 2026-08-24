@@ -4,6 +4,7 @@ schema_version: "1.0"
 task_name: "golden_complex_scope"
 target_table: "mart.user_value"
 stmt_kind: "INSERT_OVERWRITE"
+lineage_digest: "a15ebb0eeef8eb13"
 ---
 
 # 字段映射文档 mart.user_value
@@ -68,7 +69,7 @@ stmt_kind: "INSERT_OVERWRITE"
 
 ### scope `union:main`（union，角色 union）
 
-- 概要：基于 union:main:b01, union:main:b02；合并 2 个分支；上游可追溯至 ods.events, ods.fallback_users, ods.users
+- 概要：基于 union:main:b01、union:main:b02；合并 2 个分支；上游可追溯至 ods.events、ods.fallback_users、ods.users
 - 输入：union:main:b01、union:main:b02；物理上游：ods.events、ods.fallback_users、ods.users
 - 逻辑：join 0、filter 0、聚合 0、窗口 0、union 分支 2、distinct 否
 - INNER JOIN：`cte:ranked` ⋈ `ods.users`（@ union:main:b01；logic_block_id=logic:union:main:b01:join:001）
@@ -76,7 +77,7 @@ stmt_kind: "INSERT_OVERWRITE"
 
 ### scope `ROOT`（root，角色 transform）
 
-- 概要：基于 union:main；上游可追溯至 ods.events, ods.fallback_users, ods.users
+- 概要：基于 union:main；上游可追溯至 ods.events、ods.fallback_users、ods.users
 - 输入：union:main；物理上游：ods.events、ods.fallback_users、ods.users
 - 逻辑：join 0、filter 0、聚合 0、窗口 0、union 分支 0、distinct 否
 

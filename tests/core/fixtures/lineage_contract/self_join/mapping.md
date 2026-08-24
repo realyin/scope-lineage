@@ -4,6 +4,7 @@ schema_version: "1.0"
 task_name: "golden_self_join"
 target_table: "mart.node_edges"
 stmt_kind: "INSERT"
+lineage_digest: "6e792db646eb6590"
 ---
 
 # 字段映射文档 mart.node_edges

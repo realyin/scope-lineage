@@ -4,6 +4,7 @@ schema_version: "1.0"
 task_name: "golden_multi_statement_script"
 target_table: "mart.first_target"
 stmt_kind: "INSERT"
+lineage_digest: "3c5b3026c62a3990"
 ---
 
 # 字段映射文档 mart.first_target

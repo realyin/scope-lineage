@@ -5,6 +5,8 @@ module imports and calls these; see its wrapper for the public entry point.
 """
 from __future__ import annotations
 import re
+from datetime import datetime
+
 import sqlglot
 from sqlglot import exp
 from sqlglot.optimizer.scope import Scope
@@ -171,6 +173,7 @@ def _finalize_facts(result: ScopeLineageResult, schema: dict | None) -> None:
     settled_outputs = _finish_reintroduced_expansions(result)
     _refresh_consumers_of_settled_expansions(result, settled_outputs)
     _restore_facts_behind_unexpanded_refs(result)
+    _annotate_target_self_reference(result)
     _populate_union_output_branch_mappings(result)
     _normalize_scope_expression_resolutions(result)
     _refresh_join_relation_physical_fields(result)
@@ -2959,6 +2962,74 @@ def _expression_role_for_column(column) -> str:
     if expression_type in {"function_expression", "conditional_expression", "udf_expression", "arithmetic_expression"}:
         return "field_derivation"
     return "unknown"
+
+
+_PARTITION_PREDICATE_PATTERN = re.compile(
+    r"^`(?P<alias>[^`]+)`\.`(?P<column>[^`]+)` = '(?P<value>[^']*)'$"
+)
+
+
+def _parse_partition_date(text: object):
+    candidate = str(text).strip().strip("'\"")
+    for fmt in ("%Y%m%d", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(candidate, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _annotate_target_self_reference(result: ScopeLineageResult) -> None:
+    """Phase-5 pass: mark joins that read the statement's own target table.
+
+    The offset is stated only when it is provable — both the target partition and the
+    reference's partition predicate are literal dates (the corpus commonly carries
+    parameter-substituted literals). Anything less stays ``offset_proven: False``
+    rather than guessing; naming is structural, not business semantics.
+    """
+    target = result.target_table
+    if not target:
+        return
+    spec = result.target_partition_spec or {}
+    partition_columns = result.target_partition_columns or []
+    for scope_data in result.scopes.values():
+        for block in scope_data.logic_blocks:
+            if block.logic_type != "join" or not block.join_relation_detail:
+                continue
+            detail = block.join_relation_detail
+            if detail.get("right_input") == target:
+                alias = detail.get("right_alias")
+            elif detail.get("left_input") == target:
+                alias = detail.get("left_alias")
+            else:
+                continue
+            annotation: dict[str, object] = {
+                "table": target,
+                "alias": alias,
+                "offset_proven": False,
+            }
+            for condition in detail.get("condition_filters") or []:
+                match = _PARTITION_PREDICATE_PATTERN.match(
+                    str(condition.get("expression") or "")
+                )
+                if not match or match.group("alias") != alias:
+                    continue
+                column = match.group("column")
+                if partition_columns and column not in partition_columns:
+                    continue
+                reference_date = _parse_partition_date(match.group("value"))
+                target_date = _parse_partition_date(spec.get(column, ""))
+                if reference_date is None or target_date is None:
+                    continue
+                annotation.update(
+                    partition_column=column,
+                    reference_partition=match.group("value"),
+                    target_partition=str(spec.get(column)).strip("'\""),
+                    partition_offset_days=(reference_date - target_date).days,
+                    offset_proven=True,
+                )
+                break
+            detail["target_self_reference"] = annotation
 
 
 def _grain_effect_for_column(column) -> str:

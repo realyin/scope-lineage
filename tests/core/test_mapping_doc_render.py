@@ -15,6 +15,7 @@ from scope_lineage.render.mapping_markdown import (
     DOC_FORMAT,
     FIELD_ID_SPAN_PATTERN,
     STEP_LINE_PATTERN,
+    lineage_document_digest,
     render_mapping_markdown,
     render_warnings_markdown,
 )
@@ -134,6 +135,8 @@ def test_renders_twice_byte_identical() -> None:
 def test_front_matter_is_flat_json_scalars_without_versions_or_timestamps() -> None:
     document = _document(UNION_CASE_SQL, "channel_metrics", schema=UNION_CASE_SCHEMA)
     block = _front_matter(render_mapping_markdown(document))
+    digest = block.pop("lineage_digest")
+    assert re.fullmatch(r"[0-9a-f]{16}", digest)
     # the contract's top-level `task_id` holds a name-based statement identifier,
     # so the document labels it as the task name
     assert block == {
@@ -143,6 +146,19 @@ def test_front_matter_is_flat_json_scalars_without_versions_or_timestamps() -> N
         "target_table": "mart.channel_metrics",
         "stmt_kind": document["stmt_kind"],
     }
+
+
+def test_lineage_digest_anchors_the_document_to_its_source() -> None:
+    # the digest is the back-link anchor: same lineage.json → same digest (still
+    # byte-deterministic, no timestamp), different lineage.json → different digest,
+    # and a consumer can recompute it to confirm which snapshot a document came from
+    document = _document(UNION_CASE_SQL, schema=UNION_CASE_SCHEMA)
+    first = _front_matter(render_mapping_markdown(document))["lineage_digest"]
+    second = _front_matter(render_mapping_markdown(document))["lineage_digest"]
+    assert first == second == lineage_document_digest(document)
+
+    other = _document(JOIN_CASE_SQL, schema=JOIN_CASE_SCHEMA)
+    assert _front_matter(render_mapping_markdown(other))["lineage_digest"] != first
 
 
 def test_tolerates_a_document_stripped_to_required_keys() -> None:
@@ -932,3 +948,19 @@ def test_render_cli_renders_task_documents(tmp_path):
     assert mapping.is_file(), "render skipped the task document"
     text = mapping.read_text(encoding="utf-8")
     assert "stmt:" in text and "ods.source" in text
+
+
+def test_scope_summary_uses_chinese_list_punctuation() -> None:
+    sql = (
+        "INSERT INTO mart.wide SELECT a.id, b.x, c.y, d.z "
+        "FROM ods.t_a a JOIN ods.t_b b ON a.id = b.id "
+        "JOIN ods.t_c c ON a.id = c.id JOIN ods.t_d d ON a.id = d.id"
+    )
+    schema = {f"ods.t_{k}": ["id", "x", "y", "z"] for k in "abcd"}
+    document = _document(sql, schema=schema)
+    rendered = render_mapping_markdown(document)
+    summary_lines = [line for line in rendered.splitlines() if line.startswith("- 概要：")]
+    assert summary_lines, "premise: the logic section renders a summary line"
+    for line in summary_lines:
+        assert ", " not in line  # list joiner is 、, matching the rest of the document
+    assert any("等 4 张物理表" in line for line in summary_lines)

@@ -4,6 +4,7 @@ schema_version: "1.0"
 task_name: "golden_star_without_schema"
 target_table: "mart.raw_copy"
 stmt_kind: "INSERT"
+lineage_digest: "546bce865a0c2538"
 ---
 
 # 字段映射文档 mart.raw_copy

@@ -82,8 +82,14 @@ schema_version: "1.0"
 task_name: "..."
 target_table: "..."
 stmt_kind: "..."
+lineage_digest: "..."
 ---
 ```
+
+`lineage_digest` 是源血缘文档的内容摘要（键排序紧凑 JSON 的 SHA-256 前 16 位十六进制）
+——回链锚点。它是文档内容的纯函数，字节确定性不变：同一份 `lineage.json` → 同一摘要；
+不同快照 → 不同摘要。用 `scope_lineage.render.mapping_markdown.lineage_document_digest`
+重算即可确认一份 mapping 文档由哪份 `lineage.json` 渲染而来。
 
 `task_name` 的取值来自 `lineage.json` 顶层的 `task_id` 键——该契约键实际承载的是
 基于任务名的语句标识（批量/多语句输入会派生 `_1` 等后缀），并非调度器的数字
@@ -163,6 +169,10 @@ mapping.md 第 9 节保留一行**按类型计数**的指针，按条数降序�
 - 第 5 节链级：`- ⚠ trace_status=<status>: <原因>`；
 - 第 3 节自连接等场景：连接键列 `⚠ 未拆分`，明细中的条件用中性标签
   "连接条件（未拆分）"（此时等值键与过滤条件未区分，不应当作"非等值附加条件"）；
+  读取本语句自身目标表的 JOIN 额外带一行：字面分区日期可证明偏移时为
+  `- 目标表自引用：分区偏移 N 天（…）`，否则为
+  `- 目标表自引用：分区偏移未证实（无可比字面日期）`
+  （来自 `join_relation_detail.target_self_reference`）；
 - 第 9 节：无 diagnostics 文档、追溯不完整字段清单。
 
 ### chunk 自包含

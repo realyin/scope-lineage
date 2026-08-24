@@ -3291,7 +3291,7 @@
         "operations": [
           "union"
         ],
-        "business_summary": "基于 union:main:b01, union:main:b02；合并 2 个分支；上游可追溯至 ods.events, ods.fallback_users, ods.users",
+        "business_summary": "基于 union:main:b01、union:main:b02；合并 2 个分支；上游可追溯至 ods.events、ods.fallback_users、ods.users",
         "direct_inputs": [
           "union:main:b01",
           "union:main:b02"
@@ -3323,7 +3323,7 @@
         "operations": [
           "pass_through"
         ],
-        "business_summary": "基于 union:main；上游可追溯至 ods.events, ods.fallback_users, ods.users",
+        "business_summary": "基于 union:main；上游可追溯至 ods.events、ods.fallback_users、ods.users",
         "direct_inputs": [
           "union:main"
         ],

@@ -93,8 +93,16 @@ schema_version: "1.0"
 task_name: "..."
 target_table: "..."
 stmt_kind: "..."
+lineage_digest: "..."
 ---
 ```
+
+`lineage_digest` is a 16-hex-character content digest of the source lineage document
+(key-sorted compact JSON, SHA-256 prefix) — the back-link anchor. It is a pure function of the
+document content, so byte-determinism holds: same `lineage.json` → same digest; a different
+snapshot → a different digest. Recompute it with
+`scope_lineage.render.mapping_markdown.lineage_document_digest` to confirm which `lineage.json` a
+mapping document was rendered from.
 
 `task_name` takes its value from the top-level `task_id` key of `lineage.json` — that contract key
 actually carries a name-based statement identifier (batch/multi-statement inputs derive suffixes
@@ -149,7 +157,10 @@ source with `scope_lineage.render.mapping_markdown.STEP_LINE_PATTERN`):
   meaningless self-equality pair. When scope_profile folds a union branch away, its join details
   fall back to the parent union scope's subsection (the inline `@ <scope_id>` keeps the real
   attribution); when neither is present they land in a catch-all "其他连接" ("other joins")
-  subsection, so no join fact is ever lost.
+  subsection, so no join fact is ever lost. A join that reads the statement's own target table
+  carries one extra line: `- 目标表自引用：分区偏移 N 天（…）` when the day offset is provable
+  from literal partition dates, or `- 目标表自引用：分区偏移未证实（无可比字面日期）` when it
+  is not (from `join_relation_detail.target_self_reference`).
 - The equality-key line prefers the short scope-level form (a column with the same name on both
   sides is abbreviated to a single column name; different names use `alias.column = alias.column`);
   physical push-through is appended as `（物理：表.字段 = 表.字段）` ("physical: …") only when it

@@ -1631,6 +1631,39 @@
             "complete",
             "partial"
           ]
+        },
+        "target_self_reference": {
+          "type": "object",
+          "description": "Present when this join reads the statement's own target table: alias, and when both partitions are literal dates, the provable day offset.",
+          "properties": {
+            "table": {
+              "type": "string"
+            },
+            "alias": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "partition_column": {
+              "type": "string"
+            },
+            "reference_partition": {
+              "type": "string"
+            },
+            "target_partition": {
+              "type": "string"
+            },
+            "partition_offset_days": {
+              "type": "integer"
+            },
+            "offset_proven": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "offset_proven"
+          ]
         }
       }
     },
