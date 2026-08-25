@@ -4,7 +4,7 @@ schema_version: "1.0"
 task_name: "merge_contract"
 target_table: "mart.customer_profile"
 stmt_kind: "MERGE"
-lineage_digest: "fc0051fa124d003a"
+lineage_digest: "91ab5598676973ee"
 ---
 
 # 字段映射文档 mart.customer_profile
@@ -19,9 +19,9 @@ lineage_digest: "fc0051fa124d003a"
 
 ## 2. 来源表
 
-| 表 | 列数（元数据） | 元数据完整 |
-| --- | --- | --- |
-| ods.customer_delta | 2 | 是 |
+| 表 | 表列数（元数据） | 使用列数 | 元数据完整 |
+| --- | --- | --- | --- |
+| ods.customer_delta | 2 | 2 | 是 |
 
 ## 3. 来源表关系
 

@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+- Stop reading `COUNT(*)` as "uses every column". Source-free row-count/row-position
+  expressions (`COUNT(*)`, `COUNT(1)`, `ROW_NUMBER()`…) now emit source refs marked
+  `rowset: true` — a row-set dependency that reads no columns — instead of star refs
+  indistinguishable from the unexpandable-`SELECT *` fallback. A task reading a handful
+  of fields from a wide table no longer reports every column as used, end-to-end lineage publishes
+  `rowset_sources` instead of fabricated `column='*'` physical reads (matching the
+  expression-resolution layer it used to contradict, `mixed` when combined with real
+  columns), and literal aggregates such as `SUM(1)`/`MAX('x')` fall through to their
+  established generated classification instead of gaining row-set stars.
+- Split mapping.md section 2 into honest columns: `表列数（元数据）` (the table's full
+  schema width, from the new additive `related_metadata` key `table_column_count`) and
+  `使用列数` (the used subset — previously the only number shown, under a header that
+  claimed to be the table width). Tables referenced only through row-set dependencies
+  keep their metadata entry with zero used columns.
+- Report the exact difference count in the differential comparison harness: the
+  tree walk was capped at 40 and a run silently presented an 88-difference change as
+  "41 differences", dropping whole categories from the report.
+
 ## 0.2.4
 - Add a pre-parse metadata coverage gate: `scope-lineage parse --metadata-preflight`
   reports every referenced table missing from the supplied schema (with the tasks

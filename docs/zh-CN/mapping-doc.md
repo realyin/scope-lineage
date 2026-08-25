@@ -54,7 +54,7 @@ markdown = render_mapping_markdown(lineage_document, diagnostics_document)
 | 节 | `--sections` 名 | 内容 | 事实来源 |
 | --- | --- | --- | --- |
 | 1. 概览 | overview | 任务、目标表、语句类型、分区、解析状态、目标绑定摘要 | 顶层字段、`target_field_binding`；无绑定时按 `target_binding_absent_reason` 给出中文原因，仅 `target_table_not_found`（唯一有落错列风险的情形）标 ⚠ |
-| 2. 来源表 | sources | 物理来源表与元数据完整性 | `source_tables`、`related_metadata.input_tables` |
+| 2. 来源表 | sources | 物理来源表：表列数（schema 全宽）、使用列数（本任务实际引用；`COUNT(*)` 等行集依赖不计入）、元数据完整性 | `source_tables`、`related_metadata.input_tables` |
 | 3. 来源表关系 | relations | 物理表关系总览 + UNION 合并（scope 级连接明细在第 6 节） | `logic_blocks[].join_relation_detail`、`union_branch_alignment` |
 | 4. 字段映射总表 | mapping | 每目标字段一行的端到端映射（"生成来源"列仅当有常量字段时出现） | `end_to_end_lineage[]` |
 | 5. 加工步骤明细 | steps | 逐字段的逐步加工链 | `field_mapping_chains[].ordered_steps[]` |

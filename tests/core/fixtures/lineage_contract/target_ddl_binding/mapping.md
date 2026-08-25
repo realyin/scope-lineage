@@ -4,7 +4,7 @@ schema_version: "1.0"
 task_name: "golden_target_ddl_binding"
 target_table: "dwd.account_daily"
 stmt_kind: "INSERT_OVERWRITE"
-lineage_digest: "fb1e5a302582d81b"
+lineage_digest: "bb188362d271a11d"
 ---
 
 # 字段映射文档 dwd.account_daily
@@ -20,9 +20,9 @@ lineage_digest: "fb1e5a302582d81b"
 
 ## 2. 来源表
 
-| 表 | 列数（元数据） | 元数据完整 |
-| --- | --- | --- |
-| ods.account_snapshot | 2 | 是 |
+| 表 | 表列数（元数据） | 使用列数 | 元数据完整 |
+| --- | --- | --- | --- |
+| ods.account_snapshot | 2 | 2 | 是 |
 
 ## 3. 来源表关系
 

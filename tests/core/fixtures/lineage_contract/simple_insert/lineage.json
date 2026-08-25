@@ -45,7 +45,8 @@
             "comment": null
           }
         ],
-        "metadata_complete": true
+        "metadata_complete": true,
+        "table_column_count": 3
       }
     },
     "output_tables": {

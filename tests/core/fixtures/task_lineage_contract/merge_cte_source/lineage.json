@@ -121,7 +121,8 @@
                 "comment": null
               }
             ],
-            "metadata_complete": true
+            "metadata_complete": true,
+            "table_column_count": 2
           },
           "ods.events": {
             "column_details": [
@@ -141,7 +142,8 @@
                 "comment": null
               }
             ],
-            "metadata_complete": true
+            "metadata_complete": true,
+            "table_column_count": 3
           }
         },
         "output_tables": {

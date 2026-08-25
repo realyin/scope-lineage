@@ -4,7 +4,7 @@ schema_version: "1.0"
 task_name: "golden_directory_target"
 target_table: "directory:/warehouse/export/daily"
 stmt_kind: "INSERT_OVERWRITE"
-lineage_digest: "aaef5b3b141dd083"
+lineage_digest: "c364b1a0589c8e28"
 ---
 
 # 字段映射文档 （写入目录 /warehouse/export/daily）
@@ -19,9 +19,9 @@ lineage_digest: "aaef5b3b141dd083"
 
 ## 2. 来源表
 
-| 表 | 列数（元数据） | 元数据完整 |
-| --- | --- | --- |
-| ods.users | 2 | 是 |
+| 表 | 表列数（元数据） | 使用列数 | 元数据完整 |
+| --- | --- | --- | --- |
+| ods.users | 2 | 2 | 是 |
 
 ## 3. 来源表关系
 

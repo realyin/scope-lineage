@@ -4,7 +4,7 @@ schema_version: "1.0"
 task_name: "golden_syntax_recovered"
 target_table: "mart.recovered"
 stmt_kind: "INSERT"
-lineage_digest: "7442b931ca984ca7"
+lineage_digest: "ef89ae158bc90f2a"
 ---
 
 # 字段映射文档 mart.recovered
@@ -20,9 +20,9 @@ lineage_digest: "7442b931ca984ca7"
 
 ## 2. 来源表
 
-| 表 | 列数（元数据） | 元数据完整 |
-| --- | --- | --- |
-| ods.events | 1 | 是 |
+| 表 | 表列数（元数据） | 使用列数 | 元数据完整 |
+| --- | --- | --- | --- |
+| ods.events | 1 | 1 | 是 |
 
 ## 3. 来源表关系
 

@@ -37,6 +37,7 @@ def _source_refs_from_detail_fields(items: list[dict | None]) -> list[SourceRef]
                 qualifier=item.get("qualifier"),
                 binding_scope_id=item.get("binding_scope_id"),
                 input_ref_id=item.get("input_ref_id"),
+                rowset=bool(item.get("rowset")),
             ))
     return refs
 
@@ -122,6 +123,8 @@ def _source_ref_to_dict(ref: SourceRef) -> dict[str, object]:
         item["binding_scope_id"] = ref.binding_scope_id
     if ref.input_ref_id:
         item["input_ref_id"] = ref.input_ref_id
+    if ref.rowset:
+        item["rowset"] = True
     return item
 
 

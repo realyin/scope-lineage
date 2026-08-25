@@ -4,7 +4,7 @@ schema_version: "1.0"
 task_name: "golden_special_literals"
 target_table: "mart.flags"
 stmt_kind: "INSERT"
-lineage_digest: "abadec2a15d75c64"
+lineage_digest: "018e295c34276fae"
 ---
 
 # 字段映射文档 mart.flags
@@ -19,9 +19,9 @@ lineage_digest: "abadec2a15d75c64"
 
 ## 2. 来源表
 
-| 表 | 列数（元数据） | 元数据完整 |
-| --- | --- | --- |
-| ods.users | 1 | 是 |
+| 表 | 表列数（元数据） | 使用列数 | 元数据完整 |
+| --- | --- | --- | --- |
+| ods.users | 1 | 1 | 是 |
 
 ## 3. 来源表关系
 

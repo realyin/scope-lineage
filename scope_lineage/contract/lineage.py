@@ -60,6 +60,10 @@ def to_dict(obj: Any) -> Any:
             ref["binding_scope_id"] = obj.binding_scope_id
         if obj.input_ref_id:
             ref["input_ref_id"] = obj.input_ref_id
+        if obj.rowset:
+            # Row-set dependency, not a column read; without the key a consumer cannot
+            # tell this star from the all-columns SELECT-* fallback star.
+            ref["rowset"] = True
         return ref
     if isinstance(obj, ScopeJoin):
         return _scope_join_to_dict(obj)

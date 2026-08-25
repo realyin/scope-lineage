@@ -239,7 +239,18 @@ def _fallback_sources_for_source_free_expr(
     - NOW(), CURRENT_DATE(), RAND() are runtime/system values.
     - DATE_ADD('2026-04-27', 1) and CONCAT('a', 'b') are literal-derived values.
     """
-    if transform in {"AGGREGATE", "WINDOW"}:
+    from .column_expression_resolution import (
+        _is_row_count_expression,
+        _is_rowset_window_expression,
+    )
+
+    if _is_row_count_expression(transform, expression) or _is_rowset_window_expression(
+        transform, expression
+    ):
+        # Row-position/row-count semantics: the value depends on the input row set.
+        # Literal aggregates (SUM(1), MAX('x')) deliberately fall through — the
+        # resolution layer classifies them as generated, and giving them row-set star
+        # refs published a source kind the resolution layer contradicts.
         rowset_sources = _rowset_sources(sg_scope, result)
         if rowset_sources:
             return rowset_sources
@@ -252,6 +263,10 @@ def _rowset_sources(sg_scope: Scope, result: ScopeLineageResult) -> list[SourceR
     seen = set()
     for alias, source in _selected_sources(sg_scope).items():
         ref = _bound_source_ref(alias, source, "*", sg_scope, result)
+        # Source-free expressions read no columns; without this mark the star is
+        # indistinguishable from the SELECT-* fallback and downstream layers counted
+        # every schema column as "used" and published `column='*'` physical reads.
+        ref.rowset = True
         key = _source_ref_binding_key(ref)
         if key not in seen:
             seen.add(key)

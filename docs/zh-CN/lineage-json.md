@@ -671,9 +671,17 @@ ROOT.begin_date        transform=EXPRESSION       ← 本层只有 1 个直接�
 
 ### 12.2 `related_metadata`
 
-- `input_tables`：key 是输入表名，value 包含 `column_details[]`、字段类型/注释和 `metadata_complete`；
+- `input_tables`：key 是输入表名，value 包含 `column_details[]`（**本任务使用的**字段
+  子集，不是全表；仅被 `COUNT(*)` 等行集依赖引用的表其列表为空）、字段类型/注释、
+  `metadata_complete`，以及 `table_column_count`（schema 中该表的**全表列宽**，
+  schema 不识该表时缺席——有了它读者才能区分"用了少数几列"和"表的全宽"）；
 - `output_tables`：key 是目标表名，value 为对应目标元数据；
 - `metadata_complete`：表示调用方提供的元数据是否足以覆盖已知字段，不表示真实 catalog 永远完整。
+
+来源引用（`scopes[].columns[].sources` 等处）的补充键 `rowset`：仅为 true 时出现，
+表示该 `column="*"` 引用是 **行集依赖**（`COUNT(*)`、`ROW_NUMBER()` 等零列读取的
+表达式）——它不代表"全部列流动"；后者是 `SELECT *` 无法展开时的回落星号（无此键）。
+消费方不得把带 `rowset` 键的星号当成列使用。
 
 ## 13. `scope_profile`：适合 AI 检索的确定性简表
 

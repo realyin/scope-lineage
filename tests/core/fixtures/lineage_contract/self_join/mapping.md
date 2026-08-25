@@ -4,7 +4,7 @@ schema_version: "1.0"
 task_name: "golden_self_join"
 target_table: "mart.node_edges"
 stmt_kind: "INSERT"
-lineage_digest: "6e792db646eb6590"
+lineage_digest: "7c4821ca83cb8504"
 ---
 
 # 字段映射文档 mart.node_edges
@@ -19,9 +19,9 @@ lineage_digest: "6e792db646eb6590"
 
 ## 2. 来源表
 
-| 表 | 列数（元数据） | 元数据完整 |
-| --- | --- | --- |
-| ods.nodes | 3 | 是 |
+| 表 | 表列数（元数据） | 使用列数 | 元数据完整 |
+| --- | --- | --- | --- |
+| ods.nodes | 3 | 3 | 是 |
 
 ## 3. 来源表关系
 

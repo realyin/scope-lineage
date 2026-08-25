@@ -118,16 +118,28 @@ def _expression_uses_only_traceable_unqualified_sources(expression: str | None, 
 
 
 def _is_row_count_aggregate(column: ScopeColumn) -> bool:
-    if column.transform != 'AGGREGATE':
+    return _is_row_count_expression(column.transform, column.expression)
+
+
+def _is_row_count_expression(transform: str | None, expression: str | None) -> bool:
+    """Shared classifier: COUNT(*) / COUNT(1) — depends on the row set, reads no columns.
+
+    Both the ref-creation site (select_scope) and this resolution layer must give the
+    same answer, or the layers publish contradictory source kinds for one column.
+    """
+    if transform != 'AGGREGATE':
         return False
-    expression = (column.expression or '').strip()
-    return bool(re.fullmatch('(?i)COUNT\\s*\\(\\s*(1|\\*)\\s*\\)', expression))
+    return bool(re.fullmatch('(?i)COUNT\\s*\\(\\s*(1|\\*)\\s*\\)', (expression or '').strip()))
 
 
 def _is_rowset_window_function(column: ScopeColumn) -> bool:
-    if column.transform not in {'WINDOW', 'EXPRESSION'}:
+    return _is_rowset_window_expression(column.transform, column.expression)
+
+
+def _is_rowset_window_expression(transform: str | None, expression_text: str | None) -> bool:
+    if transform not in {'WINDOW', 'EXPRESSION'}:
         return False
-    expression = re.sub('\\s+', ' ', (column.expression or '').strip())
+    expression = re.sub('\\s+', ' ', (expression_text or '').strip())
     try:
         parsed = sqlglot.parse_one(expression, dialect=DIALECT, **PARSE_OPTS)
     except sqlglot.errors.SqlglotError:

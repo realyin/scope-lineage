@@ -4,7 +4,7 @@ schema_version: "1.0"
 task_name: "golden_multi_statement_script"
 target_table: "mart.first_target"
 stmt_kind: "INSERT"
-lineage_digest: "3c5b3026c62a3990"
+lineage_digest: "e6a52f0f23c5b326"
 ---
 
 # 字段映射文档 mart.first_target
@@ -19,9 +19,9 @@ lineage_digest: "3c5b3026c62a3990"
 
 ## 2. 来源表
 
-| 表 | 列数（元数据） | 元数据完整 |
-| --- | --- | --- |
-| ods.source | 2 | 是 |
+| 表 | 表列数（元数据） | 使用列数 | 元数据完整 |
+| --- | --- | --- | --- |
+| ods.source | 2 | 2 | 是 |
 
 ## 3. 来源表关系
 

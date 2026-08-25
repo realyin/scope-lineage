@@ -4,7 +4,7 @@ schema_version: "1.0"
 task_name: "golden_complex_scope"
 target_table: "mart.user_value"
 stmt_kind: "INSERT_OVERWRITE"
-lineage_digest: "a15ebb0eeef8eb13"
+lineage_digest: "31281f8df0a36275"
 ---
 
 # 字段映射文档 mart.user_value
@@ -19,11 +19,11 @@ lineage_digest: "a15ebb0eeef8eb13"
 
 ## 2. 来源表
 
-| 表 | 列数（元数据） | 元数据完整 |
-| --- | --- | --- |
-| ods.events | 2 | 是 |
-| ods.fallback_users | 1 | 是 |
-| ods.users | 1 | 是 |
+| 表 | 表列数（元数据） | 使用列数 | 元数据完整 |
+| --- | --- | --- | --- |
+| ods.events | 2 | 2 | 是 |
+| ods.fallback_users | 1 | 1 | 是 |
+| ods.users | 1 | 1 | 是 |
 
 ## 3. 来源表关系
 

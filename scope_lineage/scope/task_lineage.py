@@ -1285,8 +1285,10 @@ def _undescribed_source_states(
                 continue
             # Reading `*` from such a relation is `COUNT(*)`, whose star is the row rather than
             # an unknown column list -- the same distinction `_projection_state_missing_reasons`
-            # warns about, approached from the other side.
-            if source.get("column") == "*":
+            # warns about, approached from the other side. Rowset refs now say so
+            # explicitly (`rowset: true`); the bare-star check stays as the fallback for
+            # value-source dicts built before the flag existed.
+            if source.get("rowset") or source.get("column") == "*":
                 continue
             undescribed.append(state_id)
     return sorted(dict.fromkeys(undescribed))
@@ -1380,11 +1382,14 @@ def _projection_state_missing_reasons(
     # ``*`` carries two opposite meanings here. A projection that stayed a wildcard names
     # its target column "*" and its source carries EXPAND_ALL — the columns are genuinely
     # unknown. COUNT(*) also records the source column as "*", but that star is the row
-    # itself: the lineage is resolved, and the field's dependency on every column of the
-    # table is the fact, not a hole in it. Reading the second as the first published fully
-    # resolved statements as partial, asking for metadata that could never close the gap.
+    # itself: its lineage is resolved and the entry is not a hole. Rowset refs now carry
+    # `rowset: true` as the authoritative discriminator; the EXPAND_ALL transform check
+    # keeps identifying the genuinely-unknown wildcard family, and rowset refs are
+    # excluded explicitly rather than by transform inference.
     if "*" in written_values or any(
-        source.get("column") == "*" and source.get("transform") == "EXPAND_ALL"
+        source.get("column") == "*"
+        and source.get("transform") == "EXPAND_ALL"
+        and not source.get("rowset")
         for sources in written_values.values()
         for source in sources
     ):
