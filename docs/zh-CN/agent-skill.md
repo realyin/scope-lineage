@@ -19,11 +19,15 @@ agent 都能执行：
 python3 skills/scope-lineage/scripts/query.py summary <产物目录>            # 任务概览
 python3 skills/scope-lineage/scripts/query.py chain  db.table.column <目录>  # 字段加工链
 python3 skills/scope-lineage/scripts/query.py impact db.table[.col] <根目录> # 影响分析
+python3 skills/scope-lineage/scripts/query.py trace  db.table[.col] <根目录> \
+    [--upstream N] [--downstream N]                                          # 跨任务上下游追溯
 ```
 
-这三个子命令对人也好用——不装任何 agent 也可以直接跑。
+这四个子命令对人也好用——不装任何 agent 也可以直接跑。
 `chain` 默认限制表达式输出长度；确实需要完整表达式时再加 `--expanded`。扫描任务集合时，
-脚本只保留当前产物，不会把全部已解析文档累积在内存里。
+脚本只保留当前产物，不会把全部已解析文档累积在内存里。`trace` 首次运行会在产物根目录
+生成 `.scope-lineage-index.json` 路由索引，之后按文件指纹增量刷新；索引只是可丢弃的
+缓存，产物始终是唯一事实源。
 
 ## 安装
 
