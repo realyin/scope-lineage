@@ -2,17 +2,22 @@
 """Targeted extraction from scope-lineage artifacts.
 
 A lineage.json can be large; an agent that reads the whole file into its context wastes
-it and still has to find the needle. This script pulls only the answer out. Three
+it and still has to find the needle. This script pulls only the answer out. Four
 subcommands, stdlib only, Python 3.9+:
 
   summary <task_dir | lineage.json>          one task's status, statements, targets, gaps
   chain   [--expanded] <db.table.column> <path...>
                                              how one written field is derived, step by step
   impact  <db.table[.column]> <root>         who reads this table/column, across artifacts
+  trace   [--upstream N] [--downstream N] <db.table[.column]> <root>
+                                             walk lineage across tasks, N hops each way
 
 Paths may be task artifact directories (containing lineage.json), lineage.json files,
-or (for impact) a root directory that is scanned recursively. Exit 0 on success (even
-when the answer is "not found" -- that IS the answer), 2 on usage/IO errors.
+or (for impact/trace) a root directory that is scanned recursively. trace keeps a
+routing index (.scope-lineage-index.json) at the corpus root and refreshes it
+incrementally by file fingerprint; the artifacts stay the single source of truth.
+Exit 0 on success (even when the answer is "not found" -- that IS the answer), 2 on
+usage/IO errors.
 """
 
 from __future__ import annotations
@@ -228,6 +233,12 @@ def _split_column_ref(ref: str) -> tuple[str, str]:
     return table, column
 
 
+def _table_matches(recorded: str, query: str) -> bool:
+    """Artifacts record fully-qualified names (catalog.db.table); accept an
+    under-qualified query (db.table) as a suffix match."""
+    return recorded == query or recorded.endswith("." + query)
+
+
 def _full_diagnostics(path: Path, summary: dict) -> dict | None:
     name = summary.get("full_diagnostics_file") or "diagnostics.json"
     candidate = path.parent / str(name)
@@ -358,11 +369,11 @@ def cmd_chain(args: list[str]) -> int:
     for path, doc in _iter_task_docs(args[1:], stats):
         task_hits = [
             item for item in doc.get("end_to_end_lineage") or []
-            if item.get("table") == table and item.get("column") == column
+            if _table_matches(str(item.get("table")), table) and item.get("column") == column
         ]
         entry_hits = [
             (sid, entry) for sid, entry in (doc.get("statement_lineage") or {}).items()
-            if entry.get("target_table") == table
+            if _table_matches(str(entry.get("target_table")), table)
         ]
         if not task_hits and not entry_hits:
             continue
@@ -399,14 +410,15 @@ def cmd_impact(args: list[str]) -> int:
     for path, doc in _iter_task_docs(args[1:], stats):
         for sid, entry in (doc.get("statement_lineage") or {}).items():
             # try table-only first; fall back to table.column
+            source_tables = entry.get("source_tables") or []
             table_ref, column_ref = ref, None
-            if table_ref not in (entry.get("source_tables") or []):
+            if not any(_table_matches(str(s), table_ref) for s in source_tables):
                 table_ref, column_ref = _split_column_ref(ref)
-                if table_ref not in (entry.get("source_tables") or []):
+                if not any(_table_matches(str(s), table_ref) for s in source_tables):
                     continue
             for item in entry.get("end_to_end_lineage") or []:
                 for source in item.get("physical_sources") or []:
-                    if source.get("table") != table_ref:
+                    if not _table_matches(str(source.get("table")), table_ref):
                         continue
                     if column_ref and source.get("column") != column_ref:
                         continue
@@ -426,9 +438,329 @@ def cmd_impact(args: list[str]) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- trace
+
+_INDEX_FILE_NAME = ".scope-lineage-index.json"
+_INDEX_SCHEMA_VERSION = 1
+
+
+def _index_fingerprint(path: Path) -> list[int]:
+    stat = path.stat()
+    return [stat.st_mtime_ns, stat.st_size]
+
+
+def _index_scan_doc(path: Path) -> dict | None:
+    """Extract the routing facts for one lineage.json, or None if unreadable."""
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        print(f"cannot read {path}: {exc}", file=sys.stderr)
+        return None
+    entry: dict[str, object] = {"task": document.get("artifact_kind") == "task_lineage"}
+    if entry["task"]:
+        sources: set[str] = set()
+        for statement in (document.get("statement_lineage") or {}).values():
+            sources.update(statement.get("source_tables") or [])
+        entry["task_id"] = document.get("task_id")
+        entry["targets"] = sorted(document.get("final_table_states") or {})
+        entry["sources"] = sorted(sources)
+    return entry
+
+
+def _load_index(root: Path) -> dict[str, dict]:
+    """Return {relative lineage.json path: routing entry}, refreshed incrementally.
+
+    The index file is a pure cache over the artifacts: any doc whose fingerprint
+    (mtime, size) changed is re-scanned, new docs are added, deleted docs dropped.
+    The artifacts stay the single source of truth.
+    """
+    index_path = root / _INDEX_FILE_NAME
+    stored: dict[str, dict] = {}
+    had_index = False
+    if index_path.is_file():
+        try:
+            loaded = json.loads(index_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            loaded = None
+        if isinstance(loaded, dict) and loaded.get("index_schema_version") == _INDEX_SCHEMA_VERSION:
+            stored = loaded.get("docs") or {}
+            had_index = True
+
+    docs: dict[str, dict] = {}
+    added = changed = 0
+    seen: set[str] = set()
+    for candidate in sorted(root.rglob("lineage.json")):
+        rel = str(candidate.relative_to(root))
+        seen.add(rel)
+        fingerprint = _index_fingerprint(candidate)
+        prior = stored.get(rel)
+        if prior is not None and prior.get("fingerprint") == fingerprint:
+            docs[rel] = prior
+            continue
+        entry = _index_scan_doc(candidate)
+        if entry is None:
+            continue
+        entry["fingerprint"] = fingerprint
+        docs[rel] = entry
+        if prior is None:
+            added += 1
+        else:
+            changed += 1
+    removed = sum(1 for rel in stored if rel not in seen)
+
+    task_docs = sum(1 for entry in docs.values() if entry.get("task"))
+    if not had_index:
+        status = f"index: built ({task_docs} task docs)"
+    elif added or changed or removed:
+        status = f"index: updated (+{added} ~{changed} -{removed}, {task_docs} task docs)"
+    else:
+        status = f"index: reused ({task_docs} task docs)"
+    print(status, file=sys.stderr)
+
+    if not had_index or added or changed or removed:
+        payload = {"index_schema_version": _INDEX_SCHEMA_VERSION, "docs": docs}
+        try:
+            index_path.write_text(json.dumps(payload), encoding="utf-8")
+        except OSError as exc:
+            print(f"cannot write {index_path}: {exc}", file=sys.stderr)
+    return docs
+
+
+def _routing_maps(docs: dict[str, dict]) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    producers: dict[str, list[str]] = {}
+    consumers: dict[str, list[str]] = {}
+    for rel, entry in sorted(docs.items()):
+        if not entry.get("task"):
+            continue
+        for table in entry.get("targets") or []:
+            producers.setdefault(table, []).append(rel)
+        for table in entry.get("sources") or []:
+            consumers.setdefault(table, []).append(rel)
+    return producers, consumers
+
+
+def _same_table(a: str, b: str) -> bool:
+    """One corpus records the same table under several qualification levels
+    (dwd.t in hive-style reads, catalog.dwd.t at the iceberg writer); treat a
+    name that is a dotted suffix of the other as the same table."""
+    return a == b or a.endswith("." + b) or b.endswith("." + a)
+
+
+def _equiv_key(table: str) -> tuple[str, ...]:
+    return tuple(table.split(".")[-2:])
+
+
+def _resolve_tables(known: set[str], query: str) -> list[str]:
+    """All known spellings equivalent to the query, one (the most qualified)
+    per logical table."""
+    groups: dict[tuple[str, ...], list[str]] = {}
+    for table in known:
+        if _same_table(table, query):
+            groups.setdefault(_equiv_key(table), []).append(table)
+    return sorted(max(names, key=len) for names in groups.values())
+
+
+def _routing_lookup(routing: dict[str, list[str]], table: str) -> list[str]:
+    rels: list[str] = []
+    for known, entries in routing.items():
+        if _same_table(known, table):
+            rels.extend(rel for rel in entries if rel not in rels)
+    return rels
+
+
+class _DocCache:
+    def __init__(self, root: Path):
+        self._root = root
+        self._docs: dict[str, dict | None] = {}
+
+    def get(self, rel: str) -> dict | None:
+        if rel not in self._docs:
+            try:
+                self._docs[rel] = json.loads((self._root / rel).read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                print(f"cannot read {self._root / rel}: {exc}", file=sys.stderr)
+                self._docs[rel] = None
+        return self._docs[rel]
+
+
+def _trace_upstream(
+    docs: dict[str, dict],
+    producers: dict[str, list[str]],
+    cache: _DocCache,
+    start: list[tuple[str, str | None]],
+    depth: int,
+) -> bool:
+    printed = False
+    frontier = list(start)
+    visited = {(_equiv_key(table), column) for table, column in frontier}
+    for hop in range(1, depth + 1):
+        next_frontier: list[tuple[str, str | None]] = []
+        for table, column in frontier:
+            label = table if column is None else f"{table}.{column}"
+            rels = _routing_lookup(producers, table)
+            if not rels:
+                print(f"  [hop {hop}] {label}: no producing task in corpus")
+                printed = True
+                continue
+            edges: set[tuple[str, str | None, str, str]] = set()
+            for rel in rels:
+                task_id = str(docs[rel].get("task_id"))
+                if column is None:
+                    for source in docs[rel].get("sources") or []:
+                        if not _same_table(source, table):
+                            edges.add((source, None, task_id, rel))
+                    continue
+                document = cache.get(rel)
+                if document is None:
+                    continue
+                for item in document.get("end_to_end_lineage") or []:
+                    if not _same_table(str(item.get("table")), table) or item.get("column") != column:
+                        continue
+                    for source in item.get("value_sources") or []:
+                        if source.get("source_kind") != "physical_field":
+                            continue
+                        if _same_table(str(source.get("table")), table):
+                            continue
+                        edges.add((source.get("table"), source.get("column"), task_id, rel))
+            for src_table, src_column, task_id, rel in sorted(
+                edges, key=lambda e: (str(e[0]), str(e[1]), e[3])
+            ):
+                src_label = src_table if src_column is None else f"{src_table}.{src_column}"
+                print(f"  [hop {hop}] {label} <- {src_label}  (task {task_id}, {rel})")
+                printed = True
+                key = (_equiv_key(str(src_table)), src_column)
+                if key not in visited:
+                    visited.add(key)
+                    next_frontier.append((src_table, src_column))
+        frontier = next_frontier
+        if not frontier:
+            break
+    return printed
+
+
+def _trace_downstream(
+    docs: dict[str, dict],
+    consumers: dict[str, list[str]],
+    cache: _DocCache,
+    start: list[tuple[str, str | None]],
+    depth: int,
+) -> bool:
+    printed = False
+    frontier = list(start)
+    visited = {(_equiv_key(table), column) for table, column in frontier}
+    for hop in range(1, depth + 1):
+        next_frontier: list[tuple[str, str | None]] = []
+        for table, column in frontier:
+            label = table if column is None else f"{table}.{column}"
+            rels = _routing_lookup(consumers, table)
+            if not rels:
+                print(f"  [hop {hop}] {label}: no consuming task in corpus")
+                printed = True
+                continue
+            edges: set[tuple[str, str | None, str, str]] = set()
+            for rel in rels:
+                task_id = str(docs[rel].get("task_id"))
+                if column is None:
+                    for target in docs[rel].get("targets") or []:
+                        if not _same_table(target, table):
+                            edges.add((target, None, task_id, rel))
+                    continue
+                document = cache.get(rel)
+                if document is None:
+                    continue
+                for item in document.get("end_to_end_lineage") or []:
+                    if _same_table(str(item.get("table")), table) and item.get("column") == column:
+                        continue
+                    for source in item.get("value_sources") or []:
+                        if source.get("source_kind") != "physical_field":
+                            continue
+                        if _same_table(str(source.get("table")), table) and source.get("column") == column:
+                            edges.add((item.get("table"), item.get("column"), task_id, rel))
+                            break
+            for dst_table, dst_column, task_id, rel in sorted(
+                edges, key=lambda e: (str(e[0]), str(e[1]), e[3])
+            ):
+                dst_label = dst_table if dst_column is None else f"{dst_table}.{dst_column}"
+                print(f"  [hop {hop}] {label} -> {dst_label}  (task {task_id}, {rel})")
+                printed = True
+                key = (_equiv_key(str(dst_table)), dst_column)
+                if key not in visited:
+                    visited.add(key)
+                    next_frontier.append((dst_table, dst_column))
+        frontier = next_frontier
+        if not frontier:
+            break
+    return printed
+
+
+def cmd_trace(args: list[str]) -> int:
+    upstream = downstream = None
+    positional: list[str] = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg in {"--upstream", "--downstream"}:
+            if index + 1 >= len(args) or not args[index + 1].isdigit():
+                print(f"{arg} requires a non-negative integer", file=sys.stderr)
+                return 2
+            if arg == "--upstream":
+                upstream = int(args[index + 1])
+            else:
+                downstream = int(args[index + 1])
+            index += 2
+            continue
+        positional.append(arg)
+        index += 1
+    if len(positional) != 2:
+        print(
+            "usage: query.py trace [--upstream N] [--downstream N] "
+            "<db.table[.column]> <artifacts root>",
+            file=sys.stderr,
+        )
+        return 2
+    if upstream is None and downstream is None:
+        upstream = downstream = 1
+    ref, root_arg = positional
+    root = Path(root_arg)
+    if not root.is_dir():
+        print(f"artifacts root must be a directory: {root}", file=sys.stderr)
+        return 2
+
+    docs = _load_index(root)
+    producers, consumers = _routing_maps(docs)
+    known = set(producers) | set(consumers)
+
+    column: str | None = None
+    query_table = ref
+    tables = _resolve_tables(known, query_table)
+    if not tables:
+        query_table, column = _split_column_ref(ref)
+        tables = _resolve_tables(known, query_table)
+    if not tables:
+        print(f"{ref}: not found in corpus index "
+              "(no task produces or consumes this table)")
+        return 0
+    if tables != [query_table]:
+        print(f"resolved: {ref} -> " + ", ".join(
+            t if column is None else f"{t}.{column}" for t in tables
+        ))
+
+    start = [(table, column) for table in tables]
+    cache = _DocCache(root)
+    if upstream:
+        print("== upstream ==")
+        if not _trace_upstream(docs, producers, cache, start, upstream):
+            print("  (no edges)")
+    if downstream:
+        print("== downstream ==")
+        if not _trace_downstream(docs, consumers, cache, start, downstream):
+            print("  (no edges)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    commands = {"summary": cmd_summary, "chain": cmd_chain, "impact": cmd_impact}
+    commands = {"summary": cmd_summary, "chain": cmd_chain, "impact": cmd_impact, "trace": cmd_trace}
     if not argv or argv[0] not in commands:
         print(__doc__, file=sys.stderr)
         return 2
