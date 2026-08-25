@@ -18,6 +18,14 @@
 - Report the exact difference count in the differential comparison harness: the
   tree walk was capped at 40 and a run silently presented an 88-difference change as
   "41 differences", dropping whole categories from the report.
+- Add a `trace` subcommand to the bundled lineage query helper: join tasks by table
+  name across an artifact corpus and walk N hops upstream and/or downstream, each edge
+  citing the task and artifact that proves it. First run writes an incremental routing
+  index at the corpus root (refreshed by file fingerprint; a disposable cache — the
+  artifacts stay the single source of truth). Hive-style and catalog-qualified names
+  for the same table are joined by dotted-suffix equivalence at every hop, `chain` and
+  `impact` gain the same under-qualified fallback, and cycles (MERGE self-references,
+  mutually fed tables) are reported once per direction.
 
 ## 0.2.4
 - Add a pre-parse metadata coverage gate: `scope-lineage parse --metadata-preflight`
