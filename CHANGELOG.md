@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.5
 - Stop reading `COUNT(*)` as "uses every column". Source-free row-count/row-position
   expressions (`COUNT(*)`, `COUNT(1)`, `ROW_NUMBER()`…) now emit source refs marked
   `rowset: true` — a row-set dependency that reads no columns — instead of star refs
