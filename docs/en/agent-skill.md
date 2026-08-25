@@ -21,12 +21,16 @@ artifacts can be large, and an agent should never read the whole file into conte
 python3 skills/scope-lineage/scripts/query.py summary <artifact dir>            # task overview
 python3 skills/scope-lineage/scripts/query.py chain  db.table.column <dir>      # field transformation chain
 python3 skills/scope-lineage/scripts/query.py impact db.table[.col] <root dir>  # impact analysis
+python3 skills/scope-lineage/scripts/query.py trace  db.table[.col] <root dir> \
+    [--upstream N] [--downstream N]                # cross-task lineage walk, N hops each way
 ```
 
-These three subcommands are useful to humans too — you can run them without installing any agent.
+These four subcommands are useful to humans too — you can run them without installing any agent.
 `chain` bounds expression text by default; add `--expanded` when the complete expression is needed.
 Corpus scans retain only the artifact currently being inspected rather than accumulating every
-decoded document.
+decoded document. `trace` writes a routing index (`.scope-lineage-index.json`) at the corpus root
+on first run and refreshes it incrementally by file fingerprint; the index is a disposable cache —
+the artifacts stay the single source of truth.
 
 ## Installation
 
