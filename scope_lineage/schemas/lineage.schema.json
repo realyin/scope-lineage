@@ -1153,6 +1153,10 @@
                             }
                           }
                         }
+                      },
+                      "rowset": {
+                        "type": "boolean",
+                        "description": "Present (true) only on the column='*' refs of a source-free row-count/row-position expression (COUNT(*), ROW_NUMBER()...): a row-set dependency that reads no columns. Distinguishes it from the unexpandable SELECT-* fallback star, whose '*' means all columns flow."
                       }
                     }
                   }
@@ -1391,6 +1395,10 @@
                             }
                           }
                         }
+                      },
+                      "rowset": {
+                        "type": "boolean",
+                        "description": "Present (true) only on the column='*' refs of a source-free row-count/row-position expression (COUNT(*), ROW_NUMBER()...): a row-set dependency that reads no columns. Distinguishes it from the unexpandable SELECT-* fallback star, whose '*' means all columns flow."
                       }
                     }
                   }
@@ -1864,6 +1872,10 @@
           "items": {
             "$ref": "#/definitions/lineage_ambiguity_candidate"
           }
+        },
+        "rowset": {
+          "type": "boolean",
+          "description": "Present (true) only on the column='*' refs of a source-free row-count/row-position expression (COUNT(*), ROW_NUMBER()...): a row-set dependency that reads no columns. Distinguishes it from the unexpandable SELECT-* fallback star, whose '*' means all columns flow."
         }
       }
     },
@@ -2076,6 +2088,11 @@
               }
             }
           }
+        },
+        "table_column_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total column count of the table in the supplied schema metadata (the full width, not the used subset). Absent when the schema does not know the table."
         },
         "metadata_complete": {
           "type": "boolean"

@@ -40,6 +40,11 @@ class SourceRef:
     qualifier: Optional[str] = field(default=None, compare=False)
     binding_scope_id: Optional[str] = field(default=None, compare=False)
     input_ref_id: Optional[str] = field(default=None, compare=False)
+    # True only on the ``column="*"`` refs a source-free aggregate/window emits: the
+    # expression depends on the input ROW SET and reads no columns. Distinguishes them
+    # from the unexpandable-SELECT-* fallback star, whose ``*`` really means "all
+    # columns flow" — one shape carried both meanings and consumers had to guess.
+    rowset: bool = field(default=False, compare=False)
 
 
 @dataclass

@@ -199,7 +199,11 @@ def compare(repo: Path, base_ref: str, *, keep: bool) -> int:
 
             old = json.loads(dumps["base"].read_text(encoding="utf-8"))
             new = json.loads(dumps["head"].read_text(encoding="utf-8"))
-            diffs = deep_diff(old, new)
+            # Collect EVERY difference; only the printout below is capped. Capping the
+            # walk itself reported "41 difference(s)" for an 88-difference change and
+            # silently dropped whole categories (the exact silent-cap failure this
+            # harness exists to prevent).
+            diffs = deep_diff(old, new, limit=10**9)
             leaves = count_leaves(old)
             statements = sum(len(entry.get("statement_docs") or []) for entry in old.values())
             engine_errors = [
@@ -219,9 +223,11 @@ def compare(repo: Path, base_ref: str, *, keep: bool) -> int:
                 print(f"engine error: {error}")
             if diffs:
                 shown = diffs[:MAX_REPORTED_DIFFS]
-                print(f"DIFFERS: {len(diffs)}{'+' if len(diffs) > len(shown) else ''} difference(s):")
+                print(f"DIFFERS: {len(diffs)} difference(s):")
                 for line in shown:
                     print(f"  {line}")
+                if len(diffs) > len(shown):
+                    print(f"  ... and {len(diffs) - len(shown)} more (truncated display; total above is exact)")
                 return 1
             if engine_errors:
                 print("IDENTICAL documents, but engine errors above need reading")

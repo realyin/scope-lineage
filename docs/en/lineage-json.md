@@ -722,9 +722,20 @@ the basename for a single task file, or a POSIX-style path relative to the batch
 
 ### 12.2 `related_metadata`
 
-- `input_tables`: keys are input table names, values contain `column_details[]`, field types/comments, and `metadata_complete`;
+- `input_tables`: keys are input table names, values contain `column_details[]` (the
+  **used** field subset for this task, not the full table; empty for a table referenced
+  only through row-set dependencies such as `COUNT(*)`), field types/comments,
+  `metadata_complete`, and `table_column_count` (the table's **full width** in the
+  supplied schema, absent when the schema does not know the table — this is what lets a
+  reader tell "a few columns used" apart from "the table's full width");
 - `output_tables`: keys are target table names, values are the corresponding target metadata;
 - `metadata_complete`: whether the metadata the caller supplied covers the known fields — not a claim that the real catalog is always complete.
+
+Source refs (`scopes[].columns[].sources` and similar) carry an additional `rowset` key,
+present only when true: the `column="*"` ref is a **row-set dependency** (`COUNT(*)`,
+`ROW_NUMBER()` — expressions that read zero columns), not "all columns flow"; the latter
+is the unexpandable-`SELECT *` fallback star, which carries no such key. Consumers must
+not count a `rowset`-marked star as column usage.
 
 ## 13. `scope_profile`: a deterministic summary suited to AI retrieval
 

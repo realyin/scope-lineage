@@ -64,7 +64,7 @@ markdown = render_mapping_markdown(lineage_document, diagnostics_document)
 | Section | `--sections` name | Content | Fact source |
 | --- | --- | --- | --- |
 | 1. 概览 (Overview) | overview | Task, target table, statement kind, partitioning, parse status, target-binding summary | Top-level fields, `target_field_binding`; with no binding, the reason is given in Chinese from `target_binding_absent_reason`, and only `target_table_not_found` (the one case that risks landing in the wrong column) is marked ⚠ |
-| 2. 来源表 (Source tables) | sources | Physical source tables and metadata completeness | `source_tables`, `related_metadata.input_tables` |
+| 2. 来源表 (Source tables) | sources | Physical source tables: table column count (full schema width), used column count (what this task actually references; row-set dependencies such as `COUNT(*)` do not count), metadata completeness | `source_tables`, `related_metadata.input_tables` |
 | 3. 来源表关系 (Source-table relations) | relations | An overview of physical-table relations + UNION merging (scope-level join details are in section 6) | `logic_blocks[].join_relation_detail`, `union_branch_alignment` |
 | 4. 字段映射总表 (Field mapping table) | mapping | One row per target field, end to end (the "generated source" column appears only when there are constant fields) | `end_to_end_lineage[]` |
 | 5. 加工步骤明细 (Transformation steps) | steps | The step-by-step chain per field | `field_mapping_chains[].ordered_steps[]` |

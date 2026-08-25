@@ -53,11 +53,17 @@ def _input_table_metadata(
                 selected = [_unknown_column_detail(name) for name in used_columns]
             complete = bool(details)
 
-        if selected:
+        # A table read only through row-set dependencies has zero used columns but is
+        # still an input; dropping its entry would erase its metadata from the document.
+        if selected or table_key in usage.rowset_tables:
             item = {
                 "column_details": selected,
                 "metadata_complete": complete,
             }
+            if details:
+                # The full schema width, not the used subset — so a reader can tell
+                # "a few columns used" from "the table's full width" at a glance.
+                item["table_column_count"] = len(details)
             table_detail = table_details_for_table(schema, table) if schema else {}
             if table_detail:
                 item["table_metadata"] = table_detail
@@ -100,6 +106,9 @@ class _Usage:
         self._seen_columns: set[tuple[str, str]] = set()
         self.keep_all_tables: set[str] = set()
         self.keep_all_source_tables = False
+        # Tables referenced only through row-set dependencies (COUNT(*) and friends):
+        # they read no columns, but the table is still an input and must keep its entry.
+        self.rowset_tables: set[str] = set()
 
 
 def _collect_usage(result: ScopeLineageResult) -> _Usage:
@@ -129,6 +138,14 @@ def _add_source_ref(source: SourceRef, usage: _Usage) -> None:
         return
     if source.scope == "UNKNOWN":
         usage.keep_all_source_tables = True
+        return
+    if source.rowset:
+        # A row-set dependency reads no columns: it must not inflate the used-column
+        # set to the whole table (a COUNT(*) once turned a ~5-field read into "all 65
+        # columns used"), but the table itself stays a tracked input.
+        table_key = normalize_table_name(source.scope)
+        if table_key and ":" not in source.scope and source.scope not in {"ROOT", "UNKNOWN"}:
+            usage.rowset_tables.add(table_key)
         return
     _add_scope_if_physical(source.scope, usage, source.column)
 

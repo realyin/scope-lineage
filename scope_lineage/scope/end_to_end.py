@@ -34,6 +34,10 @@ class _TraceResult:
     sources: list[tuple[str, str, str]] = field(default_factory=list)
     incomplete_reasons: list[str] = field(default_factory=list)
     ambiguities: list[dict[str, Any]] = field(default_factory=list)
+    # Row-set dependencies collected along the trace (COUNT(*) and friends): the value
+    # depends on these row sets, reading no columns — kept apart from `sources` so they
+    # never surface as `column='*'` physical reads.
+    rowset_sources: list[dict[str, Any]] = field(default_factory=list)
     # (table, column, role) for the keys a window grouped or ordered by. Kept apart from
     # `sources` because `transform` cannot carry it: it records the strongest expression kind
     # on a path, not the role a source plays, so a partition key and the value being computed
@@ -145,12 +149,13 @@ def _lineage_for_column(
         output_override=output_override,
     )
     physical_sources, generated_sources = _source_dicts(found.sources)
+    rowset_sources = _unique_rowset_sources(found.rowset_sources)
     traced_lineage = {
         "physical_sources": physical_sources,
         "window_context_sources": _window_context_dicts(found.window_context),
         "generated_sources": generated_sources,
-        "rowset_sources": [],
-        "source_kind": _source_kind(physical_sources, generated_sources),
+        "rowset_sources": rowset_sources,
+        "source_kind": _source_kind(physical_sources, generated_sources, rowset_sources),
         "trace_incomplete_reasons": _unique_reasons(found.incomplete_reasons),
         "ambiguities": _unique_ambiguities(found.ambiguities),
     }
@@ -371,6 +376,18 @@ def _trace_column(
             )
             traced.incomplete_reasons.append("ambiguous_unqualified")
             continue
+        if source.rowset:
+            # A row-set dependency reads no columns: flattening it to per-leaf
+            # `column='*'` physical entries published column reads that never happen
+            # and contradicted the resolution layer's rowset classification. The
+            # dependency is stated as a rowset fact instead, complete on its own.
+            traced.rowset_sources.append({
+                "source_type": "rowset",
+                "scope": source.scope,
+                "field": column_name,
+                "expression": column.expression or "",
+            })
+            continue
         if (
             source.column == "*"
             and source.scope in result.scopes
@@ -384,6 +401,7 @@ def _trace_column(
             )
         traced.sources.extend(source_trace.sources)
         traced.window_context.extend(source_trace.window_context)
+        traced.rowset_sources.extend(source_trace.rowset_sources)
         for role in window_roles.get((source.scope, source.column), ()):
             # source_trace.sources are the physical columns this key resolved to; the role
             # belongs to each of them, not to the intermediate name it passed through.
@@ -392,7 +410,7 @@ def _trace_column(
             )
         traced.incomplete_reasons.extend(source_trace.incomplete_reasons)
         traced.ambiguities.extend(source_trace.ambiguities)
-    if not traced.sources:
+    if not traced.sources and not traced.rowset_sources:
         traced.incomplete_reasons.extend(_output_terminal_incomplete_reasons(output))
     return traced
 
@@ -570,6 +588,18 @@ def _source_kind(
     if rowset_sources:
         return "rowset"
     return "unresolved"
+
+
+def _unique_rowset_sources(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    unique: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for item in items:
+        key = (
+            str(item.get("scope") or ""),
+            str(item.get("field") or ""),
+            str(item.get("expression") or ""),
+        )
+        unique.setdefault(key, item)
+    return list(unique.values())
 
 
 def _source_dicts(

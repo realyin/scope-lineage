@@ -335,17 +335,28 @@ def _render_sources(document: dict) -> list[str]:
         lines.append("- 无物理来源表")
         return lines
     metadata = (document.get("related_metadata") or {}).get("input_tables") or {}
-    lines.append("| 表 | 列数（元数据） | 元数据完整 |")
-    lines.append("| --- | --- | --- |")
+    lines.append("| 表 | 表列数（元数据） | 使用列数 | 元数据完整 |")
+    lines.append("| --- | --- | --- | --- |")
     for table in tables:
         info = metadata.get(table) or {}
+        table_count = info.get("table_column_count")
+        total = str(table_count) if table_count is not None else "—"
         details = info.get("column_details")
-        count = str(len(details)) if details is not None else "—"
+        # A schema-less keep-all table carries a single `*` placeholder detail —
+        # rendering that as "1 column used" would be a fabricated number.
+        placeholder_only = (
+            details is not None
+            and len(details) == 1
+            and details[0].get("name") == "*"
+        )
+        used = (
+            "—" if details is None or placeholder_only else str(len(details))
+        )
         complete = (
             "—" if "metadata_complete" not in info
             else ("是" if info.get("metadata_complete") else "否")
         )
-        lines.append(f"| {_cell(table)} | {count} | {complete} |")
+        lines.append(f"| {_cell(table)} | {total} | {used} | {complete} |")
     return lines
 
 

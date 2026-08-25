@@ -4,7 +4,7 @@ schema_version: "1.0"
 task_name: "golden_simple_insert"
 target_table: "mart.user_names"
 stmt_kind: "INSERT_OVERWRITE"
-lineage_digest: "f8f4772d1d49dc08"
+lineage_digest: "c0afcea01c10ec32"
 ---
 
 # 字段映射文档 mart.user_names
@@ -19,9 +19,9 @@ lineage_digest: "f8f4772d1d49dc08"
 
 ## 2. 来源表
 
-| 表 | 列数（元数据） | 元数据完整 |
-| --- | --- | --- |
-| ods.users | 3 | 是 |
+| 表 | 表列数（元数据） | 使用列数 | 元数据完整 |
+| --- | --- | --- | --- |
+| ods.users | 3 | 3 | 是 |
 
 ## 3. 来源表关系
 
