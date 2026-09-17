@@ -23,6 +23,8 @@ lineage_digest: "e6a52f0f23c5b326"
 | --- | --- | --- | --- |
 | ods.source | 2 | 2 | 是 |
 
+- 过滤条件：无（WHERE / JOIN ON 中没有作用于来源表列的谓词）
+
 ## 3. 来源表关系
 
 - 无 JOIN/UNION 关系

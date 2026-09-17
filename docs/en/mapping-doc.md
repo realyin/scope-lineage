@@ -64,7 +64,7 @@ markdown = render_mapping_markdown(lineage_document, diagnostics_document)
 | Section | `--sections` name | Content | Fact source |
 | --- | --- | --- | --- |
 | 1. 概览 (Overview) | overview | Task, target table, statement kind, partitioning, parse status, target-binding summary | Top-level fields, `target_field_binding`; with no binding, the reason is given in Chinese from `target_binding_absent_reason`, and only `target_table_not_found` (the one case that risks landing in the wrong column) is marked ⚠ |
-| 2. 来源表 (Source tables) | sources | Physical source tables: table column count (full schema width), used column count (what this task actually references; row-set dependencies such as `COUNT(*)` do not count), metadata completeness | `source_tables`, `related_metadata.input_tables` |
+| 2. 来源表 (Source tables) | sources | Physical source tables: table column count (full schema width), used column count (what this task actually references; row-set dependencies such as `COUNT(*)` do not count), metadata completeness; after the table, the predicates applied to each table's columns (WHERE conjuncts and non-key JOIN ON predicates), grouped by table | `source_tables`, `related_metadata.input_tables`, `logic_blocks[].filter_predicate_detail.conjuncts[]`, `join_relation_detail.condition_filters[]` |
 | 3. 来源表关系 (Source-table relations) | relations | An overview of physical-table relations + UNION merging (scope-level join details are in section 6) | `logic_blocks[].join_relation_detail`, `union_branch_alignment` |
 | 4. 字段映射总表 (Field mapping table) | mapping | One row per target field, end to end (the "generated source" column appears only when there are constant fields) | `end_to_end_lineage[]` |
 | 5. 加工步骤明细 (Transformation steps) | steps | The step-by-step chain per field | `field_mapping_chains[].ordered_steps[]` |
@@ -150,6 +150,22 @@ source with `scope_lineage.render.mapping_markdown.STEP_LINE_PATTERN`):
   section** (they are plumbing between intermediate results, and the details are in section 6);
   when an equality key between two physical tables cannot be split out, a `⚠ 未拆分` ("not split")
   row is kept. UNION merge relations are in the same section.
+- After the section 2 table comes the answer to "**what was table A filtered on**": the contract's
+  own AND-split predicates (WHERE conjuncts and the non-key `condition_filters` of JOIN ON),
+  grouped by physical table, one line each:
+  `  - <expression code span>（<WHERE|JOIN ON> @ <occurrences>[；跨表 <other tables>][；经 <scope>.<column> 直传][；另涉及 <scope>.<column>]）`.
+  Entries with the same table, predicate and notes are merged across scopes into one line (the
+  same condition repeated in every UNION branch is one fact): up to three occurrences are all
+  listed (`@ a、b、c`), more collapse to `@ <first scope> 等 N 处` ("and N places in total").
+  A column of an intermediate result is followed to a physical table only through a **DIRECT
+  single-source pass-through** (annotated `经 … 直传`, "via … pass-through"); window, aggregate,
+  UNION and expression columns are never guessed — such predicates are listed separately under
+  `- 其他过滤（作用于中间结果列，未直传到物理表）：` ("other filters, on intermediate-result
+  columns"). Column references inside a subquery belong to the subquery's own WHERE (`a.id IN
+  (SELECT id FROM b …)` filters a, not b); a predicate touching several physical tables is listed
+  under each of them with a `跨表` ("cross-table") note; HAVING filters groups rather than table
+  rows and stays in section 6; a table with no predicate reads `- <table>：无直接过滤条件`, and a
+  statement with none at all has the single line `- 过滤条件：无（…）`.
 - Scope-level join details hang **under the corresponding scope name in section 6**, starting with
   `- <JOIN 类型> JOIN：\`左\` ⋈ \`右\`（@ <scope_id>；logic_block_id=<id>）`; left and right are the
   objects actually joined in the SQL (physical tables or CTE/subquery scopes), with no forced

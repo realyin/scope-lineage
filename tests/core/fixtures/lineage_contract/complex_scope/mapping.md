@@ -25,6 +25,13 @@ lineage_digest: "31281f8df0a36275"
 | ods.fallback_users | 1 | 1 | 是 |
 | ods.users | 1 | 1 | 是 |
 
+- 过滤条件（WHERE / JOIN ON 中作用于来源表列的谓词，按表归并；HAVING 见第 6 节）：
+- ods.events：无直接过滤条件
+- ods.fallback_users：无直接过滤条件
+- ods.users：无直接过滤条件
+- 其他过滤（作用于中间结果列，未直传到物理表）：
+  - `` `r`.`rn` = 1 ``（cte:ranked.rn；WHERE @ union:main:b01）
+
 ## 3. 来源表关系
 
 | 左表 | 关系 | 右表 | 连接键 | 出现 |

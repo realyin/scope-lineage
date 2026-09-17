@@ -54,7 +54,7 @@ markdown = render_mapping_markdown(lineage_document, diagnostics_document)
 | 节 | `--sections` 名 | 内容 | 事实来源 |
 | --- | --- | --- | --- |
 | 1. 概览 | overview | 任务、目标表、语句类型、分区、解析状态、目标绑定摘要 | 顶层字段、`target_field_binding`；无绑定时按 `target_binding_absent_reason` 给出中文原因，仅 `target_table_not_found`（唯一有落错列风险的情形）标 ⚠ |
-| 2. 来源表 | sources | 物理来源表：表列数（schema 全宽）、使用列数（本任务实际引用；`COUNT(*)` 等行集依赖不计入）、元数据完整性 | `source_tables`、`related_metadata.input_tables` |
+| 2. 来源表 | sources | 物理来源表：表列数（schema 全宽）、使用列数（本任务实际引用；`COUNT(*)` 等行集依赖不计入）、元数据完整性；表格之后按表归并列出作用于该表列的过滤条件（WHERE 合取项与 JOIN ON 中的非连接键谓词） | `source_tables`、`related_metadata.input_tables`、`logic_blocks[].filter_predicate_detail.conjuncts[]`、`join_relation_detail.condition_filters[]` |
 | 3. 来源表关系 | relations | 物理表关系总览 + UNION 合并（scope 级连接明细在第 6 节） | `logic_blocks[].join_relation_detail`、`union_branch_alignment` |
 | 4. 字段映射总表 | mapping | 每目标字段一行的端到端映射（"生成来源"列仅当有常量字段时出现） | `end_to_end_lineage[]` |
 | 5. 加工步骤明细 | steps | 逐字段的逐步加工链 | `field_mapping_chains[].ordered_steps[]` |
@@ -129,6 +129,16 @@ task_id，因此文档按其真实含义标注为任务名。
   键列用短字段名（表名已在行首两列）；同一模式在多个 scope 重复出现时合并为一行并计
   "N 处"；CTE 之间、键穿透不出新信息的连接**不进该节**（中间结果的管道，明细在第 6
   节）；两张物理表间等值键未能拆分时保留 `⚠ 未拆分` 行。UNION 合并关系同在该节。
+- 第 2 节表格之后回答"**表 A 被什么条件过滤**"：取契约里已按 AND 拆开的谓词（WHERE 合取项、
+  JOIN ON 中非等值键的 `condition_filters`），按物理表归并，每条为
+  `  - <表达式 code span>（<WHERE|JOIN ON> @ <出现位置>[；跨表 <其他表>][；经 <scope>.<列> 直传][；另涉及 <scope>.<列>]）`。
+  同表、同谓词、同附注的条目跨 scope 合并为一行（UNION 各分支重复的同一条件是同一个事实）：
+  出现位置不超过 3 个时全部列出（`@ a、b、c`），更多时写 `@ <首个 scope> 等 N 处`。
+  中间结果列只沿 **DIRECT 单源直传**穿到物理表（并标 `经 … 直传`），窗口/聚合/UNION/表达式列
+  不猜——这类谓词单列在 `- 其他过滤（作用于中间结果列，未直传到物理表）：` 之下；子查询内部的
+  列引用留给子查询自己的 WHERE（`a.id IN (SELECT id FROM b …)` 过滤的是 a 不是 b）；涉及多张物理
+  表的谓词在每张表下各列一次并附 `跨表`；HAVING 过滤的是分组而非表行，只在第 6 节；没有过滤的
+  表写 `- <表>：无直接过滤条件`，整条语句都没有时只有一行 `- 过滤条件：无（…）`。
 - scope 级连接明细挂在**第 6 节对应 scope 名下**，以
   `- <JOIN 类型> JOIN：\`左\` ⋈ \`右\`（@ <scope_id>；logic_block_id=<id>）` 开头；
   左右是 SQL 里实际连接的对象（物理表或 CTE/子查询 scope），不强行穿透——两个同源

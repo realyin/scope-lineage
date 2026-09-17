@@ -24,6 +24,8 @@ lineage_digest: "26fd944ce1999c98"
 | ods.ledger_a | — | 1 | 否 |
 | ods.ledger_b | — | 1 | 否 |
 
+- 过滤条件：无（WHERE / JOIN ON 中没有作用于来源表列的谓词）
+
 ## 3. 来源表关系
 
 | 左表 | 关系 | 右表 | 连接键 | 出现 |
