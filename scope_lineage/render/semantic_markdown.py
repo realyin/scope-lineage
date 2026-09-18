@@ -88,6 +88,12 @@ WARN = "⚠"
 
 UNKNOWN_COMMENT = "注释未知"
 
+# WI-2.6. A comment the warehouse never carried, written back after somebody answered the
+# open-questions list. The reader is told which of the two they are looking at, because
+# "the catalog says so" and "the owner told us" are different kinds of claim.
+COMMENT_SOURCE_PATCH = "patch"
+PATCHED_COMMENT_SUFFIX = "（人工确认）"
+
 # Said only where the SQL proved it (an IN list, an exhaustive CASE) -- and only about the
 # enumerated values, never about a match shape that happens to sit on the same line.
 VALUE_DOMAIN_CLOSED_NOTE = "（该列取值已被 SQL 证明封闭）"
@@ -350,9 +356,17 @@ def _label_phrase(label: str) -> str:
     return f" {label}" if label[:1].isascii() else label
 
 
-def _comment(value) -> str:
-    """R8: a comment is quoted verbatim or declared missing -- never invented."""
-    return str(value) if value else UNKNOWN_COMMENT
+def _comment(value, source: str | None = None) -> str:
+    """R8: a comment is quoted verbatim or declared missing -- never invented.
+
+    WI-2.6: a comment that came back from a confirmed write-back says so. The suffix is
+    the reader's answer to "who claims this" -- the metadata export, or the person who
+    answered the question -- and it is the same distinction ``target_comment_source``
+    carries in ``semantic.json``.
+    """
+    if not value:
+        return UNKNOWN_COMMENT
+    return f"{value}{PATCHED_COMMENT_SUFFIX}" if source == COMMENT_SOURCE_PATCH else str(value)
 
 
 def _span(value) -> str:
@@ -536,7 +550,7 @@ def _render_inputs_table(inputs: Sequence[dict]) -> list[str]:
         used = len(item.get("used_columns") or [])
         cells = [
             _cell(_span(item.get("table"))),
-            _cell(_comment(item.get("comment"))),
+            _cell(_comment(item.get("comment"), item.get("comment_source"))),
             _cell(role_text),
             _cell(f"{used} / {width if width is not None else '未知'}"),
             _cell(_metadata_state(item.get("metadata_complete"))),
@@ -1171,7 +1185,10 @@ def _render_field(field: dict) -> list[str]:
         *_render_metric_card(field),
         *_field_comment_lines(field),
         *_value_domain_lines(field),
-        _tagged(f"- 目标注释：{_comment(comment)}", TAG_METADATA),
+        _tagged(
+            f"- 目标注释：{_comment(comment, field.get('target_comment_source'))}",
+            TAG_METADATA,
+        ),
         _tagged(f"- 类型：{field.get('type') or '未知'}", TAG_METADATA),
         _tagged(f"- 来源：{_sources_text(field)}", _sources_tag(field)),
         _tagged(

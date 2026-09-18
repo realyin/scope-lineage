@@ -33,6 +33,7 @@
     {
       "table": "dim.channel",
       "comment": "渠道维表（合成）",
+      "comment_source": "metadata",
       "domain": "渠道域",
       "project": null,
       "owner": null,
@@ -61,6 +62,7 @@
     {
       "table": "ods.channel_event",
       "comment": "渠道事件明细（合成）",
+      "comment_source": "metadata",
       "domain": "渠道域",
       "project": "渠道分析（合成）",
       "owner": "demo_owner",
@@ -563,6 +565,12 @@
         "confirmed": 0,
         "candidate": 0
       }
+    },
+    "confirmations": {
+      "values_confirmed": 0,
+      "terms_confirmed": 0,
+      "columns_patched": 0,
+      "tables_patched": 0
     },
     "trace_incomplete_fields": [],
     "ambiguous_fields": [],

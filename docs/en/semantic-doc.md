@@ -109,7 +109,8 @@ A statement profile is a flat seven-block structure with a fixed key order:
             "meta": {"task_name": "…", "task_id": "…", "project": "…", "owner": "…",
                      "schedule": "0 30 2 * * ?", "schedule_cycle": "DAY",
                      "description": "…", "expect_date": "…", "source_file": "…"} },
-  "inputs": [ { "table": "…", "comment": null, "domain": null, "project": null,
+  "inputs": [ { "table": "…", "comment": null, "comment_source": "metadata",
+                "domain": null, "project": null,
                 "owner": null, "layer": null,
                 "role_in_task": "driving", "roles": ["driving"],
                 "used_columns": [{"name": "…", "type": "…", "comment": "…", "usages": ["join_key"]}],
@@ -151,7 +152,8 @@ A statement profile is a flat seven-block structure with a fixed key order:
                "fields": [], "scope_fields": [], "evidence": "logic:…", "tag": "SQL事实" } ],
   "fields": [ { "column": "paid_amount_30d", "column_label": "mart.t.paid_amount_30d",
                 "summary": "近 30 天已支付金额：按 customer_id 聚合：SUM(pay_amount)，仅计 pay_status = 'PAID'，再空值回填为 0；来源 dwd.order_detail.pay_amount（Paid amount）",
-                "target_comment": "…", "sql_comments": ["近 30 天已支付金额（元）"],
+                "target_comment": "…", "target_comment_source": "patch",
+                "sql_comments": ["近 30 天已支付金额（元）"],
                 "type": "decimal(18,2)", "transform": "EXPRESSION",
                 "structural_role": "measure", "nullable_by_join": true,
                 "metric_spec": {"subject": {"scope_id": "cte:agg", "tables": ["dwd.order_detail"],
@@ -186,7 +188,10 @@ A statement profile is a flat seven-block structure with a fixed key order:
                                 "grain": "preserved", "text": "…", "expression": "…"}],
                 "expression": "…", "trace_complete": true, "ambiguous": false,
                 "mapping_chain_id": "mc:007", "tag": "SQL事实+元数据事实" } ],
-  "confidence": { "metadata_coverage": {"sql_comment_counts": {"header": 2, "output": 1, "logic": 1}},
+  "confidence": { "metadata_coverage": {"sql_comment_counts": {"header": 2, "output": 1, "logic": 1},
+                                        "patch": {"tables": 1, "columns": 3}},
+                  "confirmations": {"values_confirmed": 2, "terms_confirmed": 1,
+                                    "columns_patched": 3, "tables_patched": 1},
                   "trace_incomplete_fields": [], "ambiguous_fields": [],
                   "diagnostics_available": true, "fact_gap_count": 0, "fact_gap_types": {},
                   "warning_counts": {},
@@ -250,6 +255,33 @@ Without `--tables` those three keys **do not appear at all**, and `semantic.json
 `semantic.md` are byte-identical to what they were before table cards existed — "no corpus
 was supplied" and "the corpus proves nobody writes it" are different answers and never
 render alike.
+
+### Confirmed write-backs: `describe --metadata-patch`
+
+With a [`metadata-patch/1`](input-formats.md) file supplied, the view gains four more things,
+all answering one question — **did the warehouse's metadata say this, or did a person**:
+
+- `inputs[].comment_source`: `metadata` / `patch`; absent when the input table has **no**
+  table comment at all (a sourced empty comment answers a question the document cannot);
+- `fields[].target_comment_source`: the same two values, likewise only when the field has a
+  target comment;
+- `confidence.metadata_coverage.patch`: `{tables, columns}`, how many tables and columns in
+  this statement the patch wrote; absent when no patch entry matched;
+- `confidence.confirmations`: `{values_confirmed, terms_confirmed, columns_patched,
+  tables_patched}`, **always present** — all zeros is a fact, and "nobody has confirmed
+  anything about this task yet" is exactly the state the write-back loop exists to change.
+  The first two counts are filled by `--glossary` (value meanings, column terms), the last
+  two by the patch.
+
+In `semantic.md` a patched comment carries the suffix `（人工确认）` after its text — once in
+section 3's input table under 表注释, once on the `- 目标注释：` line of section 5's field
+subsection. The trailing `元数据事实` tag vouches only for the comment existing; who claims it
+is written inside the comment.
+
+`parse --metadata-patch` and `describe --metadata-patch` go through the same function, so the
+two paths produce a byte-identical `semantic.json`, `lineage_digest` included. Without a patch
+the first three keys do not appear. How a business owner's answers become that patch file is
+documented under "the write-back loop" in [the term and value dictionary](glossary-doc.md).
 
 ## The seven sections of `semantic.md` and their `--sections` names
 

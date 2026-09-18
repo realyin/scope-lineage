@@ -196,6 +196,56 @@ backticks removed.
 | Merge precedence | An override always beats a candidate: on a match `meaning.source` is `override`, and `meaning_candidates` is kept as it was |
 | Keys that match nothing | Go to `overrides_applied.unmatched` (sorted) and are **never dropped silently** -- a typo in a file a human reviewed is exactly what the reviewer cannot see |
 
+## The write-back loop: how an answer reaches the dictionary and the metadata
+
+Every item of a profile's third piece (the open-questions list) carries a 回写目标 line, and
+that line is what routes it. Once the business owner has answered:
+
+```bash
+# 1. 业务方在 business_profile.md 的每条待确认项里填 `- 答案：…`
+# 2. 把答案分流成两份回写文件（--dry-run 只打印）
+python3 skills/scope-lineage/scripts/confirmations.py apply <画像>/business_profile.md \
+  --by owner --overrides dict/glossary.overrides.json --patch dict/metadata-patch.json
+
+# 3. 重跑字典与画像，已确认项就不再是问题
+scope-lineage glossary --lineage corpus --out dict --overrides dict/glossary.overrides.json
+scope-lineage describe --lineage corpus --glossary dict/glossary.json \
+  --metadata-patch dict/metadata-patch.json
+```
+
+| Write-back target | Which file | Written as |
+| --- | --- | --- |
+| `术语:<term>` | `glossary.overrides.json` | `terms["<term>"] = {meaning, confirmed_by, date}` |
+| `值域:<column>=<value>` | `glossary.overrides.json` | `values["<column>=<value>"] = {meaning, confirmed_by, date}` |
+| `字段注释:<table.column>` | `metadata-patch.json` | `columns["<table.column>"] = {comment, confirmed_by, date}` |
+| `表注释:<table>` | `metadata-patch.json` | `tables["<table>"] = {table_name_cn, confirmed_by, date}` |
+
+The script's rules:
+
+- **Merge, never overwrite**: a key the target file already holds is kept and counted under
+  `kept_existing` — two reviewers can each answer a round without either erasing the other;
+- **An unanswered item is skipped and counted**: `- 答案：（待填）`, an empty answer, or no
+  answer line at all counts as `unanswered` — a question nobody answered is not a blank answer;
+- **A write-back target that is not one of the four is skipped and counted** (`no_target`):
+  the template's four-way line left as written is not an answer, and guessing one of the four
+  would file the answer under the wrong key;
+- `--by` is recorded as each entry's `confirmed_by`, `date` defaults to today and `--date` overrides it;
+- **No empty file is created** when nothing was written — an empty file reads as "every
+  confirmation was cleared".
+
+In the next round the skeleton already carries those answers as facts, and the prompt requires
+that **no `Q` be generated for them** again:
+
+| Skeleton key | Filled by | Meaning |
+| --- | --- | --- |
+| `fields[].value_domain[].meaning.status = "confirmed"` | `glossary --overrides` | This value's meaning is confirmed |
+| `fields[].target_comment_source = "patch"` | `describe --metadata-patch` | The target field's comment came from a write-back |
+| `inputs[].comment_source = "patch"` | Likewise | The input table's readable name came from a write-back |
+| `confidence.confirmations` | Both | `{values_confirmed, terms_confirmed, columns_patched, tables_patched}`, the four counts of confirmed items |
+
+The patch file's own format, its matching rules and `parse --metadata-patch` are documented in
+[Core input formats](input-formats.md).
+
 ## describe consumption: fields[].value_domain
 
 `describe` always publishes `fields[].value_domain`, **including without `--glossary`** --

@@ -699,6 +699,14 @@ ROOT.begin_date        transform=EXPRESSION       ← 本层只有 1 个直接�
 隐私：含 `@` 的值（邮箱，例如导出里的 `tbl_pic`）在加载时被丢弃，任何产物都不会带上；
 时间戳与质量率不是"这张表是什么"的事实，同样不进 `table_metadata`。
 
+`parse --metadata-patch <file>`（可重复）把一份**人工确认过的**元数据补丁应用到本节：补丁里的
+列注释覆盖 schema 与目标 DDL 给的注释（补丁优先），表级事实并进 `table_metadata`。两处都是
+additive 且**带标记**的——被补丁写过的列多一个 `comment_source: "patch"`，被补丁写过的表多一个
+`table_metadata.patch_applied: true`，`field_usage[].used_field_details[]` 与
+`field_usage[].source_metadata` 同步同样的注释与标记。没传补丁时这两个键都不出现：一条没有
+`comment_source` 的注释就是元数据本来的注释。补丁文件格式见
+[输入格式](input-formats.md)，补丁键在语料里没有对应表/列时只报告不报错。
+
 来源引用（`scopes[].columns[].sources` 等处）的补充键 `rowset`：仅为 true 时出现，
 表示该 `column="*"` 引用是 **行集依赖**（`COUNT(*)`、`ROW_NUMBER()` 等零列读取的
 表达式）——它不代表"全部列流动"；后者是 `SELECT *` 无法展开时的回落星号（无此键）。

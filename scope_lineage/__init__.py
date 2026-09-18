@@ -28,6 +28,12 @@ from .metadata.schema_metadata import (
     normalize_schema_map,
     normalize_table_name,
 )
+from .metadata.metadata_patch import (
+    MetadataPatch,
+    MetadataPatchError,
+    apply_metadata_patch,
+    load_metadata_patch,
+)
 from .metadata.target_table_metadata import (
     TargetColumnMetadata,
     TargetMetadataMap,
@@ -83,6 +89,8 @@ PUBLIC_CORE_API = frozenset({
     "fold_session_scoped",
     "DictSchemaProvider",
     "MetadataFileError",
+    "MetadataPatch",
+    "MetadataPatchError",
     "NoSupportedWriteStatementError",
     "NON_PHYSICAL_SOURCE_SCOPES",
     "SchemaMap",
@@ -102,6 +110,7 @@ PUBLIC_CORE_API = frozenset({
     "TargetMetadataMap",
     "TargetTableMetadata",
     "TaskLineageResult",
+    "apply_metadata_patch",
     "apply_table_cards",
     "build_glossary",
     "build_semantic_profile",
@@ -110,6 +119,7 @@ PUBLIC_CORE_API = frozenset({
     "column_details_for_table",
     "check_metadata_file",
     "extract_qualified_field_refs",
+    "load_metadata_patch",
     "load_schema",
     "load_schema_sources",
     "load_target_table_metadata",

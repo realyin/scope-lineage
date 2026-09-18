@@ -322,10 +322,44 @@ def apply_glossary(profile: dict, glossary: Mapping | None) -> dict:
     if not glossary:
         return profile
     entries = glossary.get("values") or []
+    confirmed_terms = _confirmed_term_columns(glossary)
     for statement in profile.get("statements") or [profile]:
         fields = statement.get("fields") or []
         glossary_values.apply_value_domains(fields, entries)
-        coverage = (statement.get("confidence") or {}).get("metadata_coverage")
-        if coverage is not None:
-            coverage["glossary"] = glossary_values.glossary_coverage(fields)
+        coverage = glossary_values.glossary_coverage(fields)
+        confidence = statement.get("confidence") or {}
+        if confidence.get("metadata_coverage") is not None:
+            confidence["metadata_coverage"]["glossary"] = coverage
+        # WI-2.6: the two halves of "what has been answered" that only the corpus
+        # dictionary knows. The patched halves are already counted from the document.
+        if confidence.get("confirmations") is not None:
+            confidence["confirmations"]["values_confirmed"] = coverage["confirmed"]
+            confidence["confirmations"]["terms_confirmed"] = _term_confirmations(
+                statement, confirmed_terms
+            )
     return profile
+
+
+def _confirmed_term_columns(glossary: Mapping) -> set:
+    """Column names a human has confirmed a meaning for, corpus-wide."""
+    return {
+        str(term.get("column"))
+        for term in glossary.get("terms") or []
+        if (term.get("meaning") or {}).get("text")
+    }
+
+
+def _term_confirmations(statement: Mapping, confirmed: set) -> int:
+    """How many of the column names THIS task touches carry a confirmed meaning.
+
+    Counted over the names the task actually uses -- its output columns and the input
+    columns it reads -- because a corpus-wide count would say the same number for every
+    task and answer nobody's question about this one.
+    """
+    names = {str(field.get("column")) for field in statement.get("fields") or []}
+    names.update(
+        str(column.get("name"))
+        for item in statement.get("inputs") or []
+        for column in item.get("used_columns") or []
+    )
+    return len(names & confirmed)

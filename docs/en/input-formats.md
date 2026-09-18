@@ -362,6 +362,57 @@ Key key/values:
 | `query_time` / `ddl_update_time` | sortable timestamp | The basis for choosing among multiple metadata versions. |
 | `data_source` | string | Metadata provenance marker, for traceability. |
 
+## Metadata patch (metadata-patch/1)
+
+`--metadata-patch` takes a **reviewed** comment patch (repeatable; a later file wins). It is
+where the open-questions list is written back to: when the business owner has answered "what
+does this field mean" and the team cannot write to the warehouse's catalog, the answer lands
+in this local file instead of being lost in a markdown document. **It modifies no source
+metadata file.**
+
+```json
+{
+  "doc_format": "metadata-patch/1",
+  "tables": {
+    "mart.order_daily": {
+      "table_name_cn": "订单日汇总",
+      "table_desc": "每个渠道每天一行",
+      "confirmed_by": "owner",
+      "date": "2026-09-19"
+    }
+  },
+  "columns": {
+    "mart.order_daily.pay_status": {
+      "comment": "支付状态",
+      "confirmed_by": "owner",
+      "date": "2026-09-19"
+    }
+  }
+}
+```
+
+| Key | Value | Purpose |
+| --- | --- | --- |
+| `doc_format` | `metadata-patch/1` | Optional; when present it must be this value, otherwise exit code 2. |
+| `tables` | `{"db.table": {…}}` | Table-level facts in the same vocabulary rich JSON metadata uses (`table_name_cn`, `table_desc`, `domain`, …), merged into `table_metadata`. |
+| `columns` | `{"db.table.column": {…}}` | Column comments; only three-part keys are accepted — `table.column` is refused, because table and column cannot be told apart and a wrong guess writes the comment elsewhere. |
+| `confirmed_by` / `date` | string | Who confirmed it and when; kept verbatim in the patch file for review. |
+
+Rules:
+
+- **The patch wins**: when a column has both a schema comment and a patched one, the artifact carries the patch;
+- **Comments only, never structure**: no types, no new columns — the table's width is the warehouse's fact and `SELECT *` expands by it;
+- **Marked**: a patched column gains `comment_source: "patch"`, a patched table gains `table_metadata.patch_applied: true`;
+- **Table matching** follows the schema's rule: case-insensitive, and `catalog.db.table` is the same table as `db.table`;
+- **An unmatched key is reported, not an error**: the run prints `unmatched=N` and lists the keys, so a typo is never swallowed;
+- Exit code 2 when the file is missing, is not valid JSON, is not a JSON object, or declares another `doc_format`.
+
+`describe --metadata-patch` takes the same file and applies it in memory to a `lineage.json`
+that is already on disk before deriving the view — an answer lands without re-parsing, and the
+artifact itself is never rewritten. Both paths produce the same `semantic.json`, `lineage_digest`
+included. How the file is generated from a profile is documented in
+[the term and value dictionary](glossary-doc.md).
+
 ## Failure policy
 
 By default, any input that fails to load or any statement with `parse_status=failed` returns a

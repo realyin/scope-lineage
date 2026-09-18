@@ -174,6 +174,28 @@ customer's latest status" is your inference and must be labelled as such. The sk
 deliberately contains no business entity names, no business table types (宽表/名单表/
 指标表), and no "the goal of this task is…" — their absence is the design, not a gap.
 
+#### 确认回写：让答完的问题不再被问第二遍
+
+The open-questions list is only worth writing if the answers come back. When the business
+owner has filled in the `- 答案：` lines of a `business_profile.md`:
+
+```bash
+python3 skills/scope-lineage/scripts/confirmations.py apply <task-dir>/business_profile.md \
+  --by <name> [--overrides <dir>/glossary.overrides.json] [--patch <dir>/metadata-patch.json]
+scope-lineage glossary --lineage <corpus> --out <dir> --overrides <dir>/glossary.overrides.json
+scope-lineage describe --lineage <corpus> --glossary <dir>/glossary.json \
+  --metadata-patch <dir>/metadata-patch.json
+```
+
+The script routes each answer by its own 回写目标 line — `术语` / `值域` into the glossary
+overrides, `字段注释` / `表注释` into a `metadata-patch/1` file — and never overwrites an
+entry somebody already confirmed (`--dry-run` prints both documents instead of writing
+them). The next profile then reads `value_domain[].meaning.status: "confirmed"`,
+`fields[].target_comment_source: "patch"` and `inputs[].comment_source: "patch"`, must
+**not** ask those questions again, and lists them under appendix A2a instead — so each
+round the 待确认清单 gets shorter. `parse --metadata-patch` applies the same file when a
+corpus is re-parsed; both paths write the same document.
+
 When the user wants a business profile, generate `business_profile.md` from the skeleton
 following `references/semantic-profile-prompt.md`. It delivers **three pieces plus an
 appendix** in one file: a **task semantic card** (≤ 1 page, business language, no source
@@ -207,3 +229,7 @@ documented uncertainty).
   just where a field comes from.
 - `references/business-profile-template.md` — the blank skeleton of those three pieces and
   the appendix, with `{…}` placeholders. Fill it rather than inventing a layout.
+- `scripts/confirmations.py` — the write-back half: reads the answered 待确认清单 out of a
+  `business_profile.md` and merges it into `glossary.overrides.json` /
+  `metadata-patch.json`. Run it after the business owner answers, then re-run `glossary`
+  and `describe` with those two files.

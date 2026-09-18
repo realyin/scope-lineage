@@ -31,6 +31,18 @@ python3 skills/scope-lineage/scripts/query.py trace  db.table[.col] <根目录> 
 
 技能的工作流清单里还有一条不走 `query.py` 的：问"这个任务在做什么 / 这个字段什么含义"时，先跑 `scope-lineage describe --lineage <产物目录>` 生成 `semantic.json` / `semantic.md` 语义骨架，整读 `semantic.md` 回答；要业务画像时再按 `references/semantic-profile-prompt.md` 生成 `business_profile.md`——一个文件三件套：任务语义卡（≤ 1 页、业务语言、正文不挂来源标签）、字段字典（覆盖全部输出字段，指标附 7 行口径卡）、待确认清单（≤ 15 条，业务方 几分钟答完），来源标签、证据 id、风险表与自检表统一收进附录。
 
+技能还带一个写回脚本 `scripts/confirmations.py`（同样纯标准库）：业务方把答案填在
+`business_profile.md` 每条待确认项的 `- 答案：` 行之后，
+
+```
+python3 skills/scope-lineage/scripts/confirmations.py apply <画像文件> --by <名字>
+```
+
+按每条的「回写目标」分流——`术语` / `值域` 合并进 `glossary.overrides.json`，
+`字段注释` / `表注释` 合并进 `metadata-patch.json`（`--dry-run` 只打印）。再跑一次
+`glossary --overrides` 与 `describe --glossary --metadata-patch`，这些项在下一轮画像里
+就从「待确认」变成已确认的事实，清单随每一轮变短。
+
 ## 安装
 
 **Claude Code**：

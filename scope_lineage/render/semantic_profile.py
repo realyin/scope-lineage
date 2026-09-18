@@ -219,6 +219,14 @@ USAGE_ORDER = (
 # table of inputs wants the name.
 TABLE_COMMENT_KEYS = ("table_name_cn", "table_desc", "comment", "table_comment")
 
+# WI-2.6. What a comment says about itself: a fact the warehouse's metadata carried, or
+# an answer a human confirmed and wrote back through a `metadata-patch/1` file. The two
+# spellings are the contract's, restated here rather than imported -- a derived view
+# reads the published document, never the loader that wrote it.
+COMMENT_SOURCE_METADATA = "metadata"
+COMMENT_SOURCE_PATCH = "patch"
+TABLE_PATCH_MARKER = "patch_applied"
+
 # The other table-level facts this view republishes, each with the keys it may arrive
 # under. They are metadata facts, copied and never inferred.
 TABLE_FACT_KEYS = {
@@ -536,6 +544,21 @@ def _table_comment(metadata_item: dict) -> str | None:
     return _table_metadata_value(metadata_item, TABLE_COMMENT_KEYS)
 
 
+def _comment_source(comment, patched: bool) -> str | None:
+    """WI-2.6: where a comment came from -- ``None`` when there is no comment to source.
+
+    A key that said ``"metadata"`` for a table nobody ever commented would answer a
+    question the document cannot answer; absence is the honest reading.
+    """
+    if not comment:
+        return None
+    return COMMENT_SOURCE_PATCH if patched else COMMENT_SOURCE_METADATA
+
+
+def _table_comment_is_patched(metadata_item: dict) -> bool:
+    return bool((metadata_item.get("table_metadata") or {}).get(TABLE_PATCH_MARKER))
+
+
 def _table_facts(metadata_item: dict) -> dict:
     """Business domain, project, owner and layer -- ``None`` for each the metadata omits.
 
@@ -702,9 +725,10 @@ def _build_inputs(document: dict) -> list[dict]:
     for table in sorted(document.get("source_tables") or []):
         item = metadata.get(table) or {}
         table_roles = roles.get(table, [])
+        comment = _table_comment(item)
         entry = {
             "table": table,
-            "comment": _table_comment(item),
+            "comment": comment,
             **_table_facts(item),
             "role_in_task": table_roles[0] if table_roles else None,
             "roles": table_roles,
@@ -717,6 +741,10 @@ def _build_inputs(document: dict) -> list[dict]:
             entry = _insert_before(
                 entry, "read_by_scopes", "table_column_count", item["table_column_count"]
             )
+        source = _comment_source(comment, _table_comment_is_patched(item))
+        if source is not None:
+            # WI-2.6: right behind the comment it describes, so the two are read together.
+            entry = _insert_before(entry, "domain", "comment_source", source)
         inputs.append(entry)
     return inputs
 
@@ -1305,6 +1333,7 @@ _FIELD_KEY_ORDER = (
     "column_label",
     "summary",
     "target_comment",
+    "target_comment_source",
     "sql_comments",
     "type",
     "transform",
@@ -1488,6 +1517,13 @@ def _build_field(document: dict, entry: dict, chain: dict | None, context: dict)
     }
     if "trace_incomplete_reasons" not in entry:
         field.pop("trace_incomplete_reasons")
+    # WI-2.6: only when there is a comment to attribute. `confirmed` is the whole point of
+    # the write-back loop, so the reader must be able to tell the answer from the export.
+    comment_source = _comment_source(
+        comment, str(detail.get("comment_source")) == COMMENT_SOURCE_PATCH
+    )
+    if comment_source is not None:
+        field["target_comment_source"] = comment_source
     if nullable:
         field["nullable_by_join"] = True
     if sql_comments:
@@ -3356,6 +3392,10 @@ def _build_confidence(
     available = diagnostics is not None
     return {
         "metadata_coverage": _metadata_coverage(document, fields),
+        # WI-2.6: how much of this task has been answered. Always present, and zero is a
+        # fact worth publishing -- "nobody has confirmed anything here yet" is the state
+        # the write-back loop exists to change, and a reader has to be able to see it.
+        "confirmations": _confirmations(document, fields),
         "trace_incomplete_fields": [
             field["column"] for field in fields if not field.get("trace_complete")
         ],
@@ -3401,7 +3441,53 @@ def _metadata_coverage(document: dict, fields: Sequence[dict] = ()) -> dict:
     glossary = glossary_values.glossary_coverage(fields)
     if glossary["values_total"]:
         coverage["glossary"] = glossary
+    # WI-2.6: what a reviewed metadata patch supplied for THIS statement. Absent when no
+    # patch touched it, so a document parsed without one is the document it always was.
+    patched = _patch_counts(document)
+    if patched["tables"] or patched["columns"]:
+        coverage["patch"] = patched
     return coverage
+
+
+def _metadata_items(document: dict) -> list[dict]:
+    """Every table metadata blob the statement carries, inputs and target alike."""
+    return [
+        *(_input_metadata(document).values()),
+        *(
+            ((document.get("related_metadata") or {}).get("output_tables") or {}).values()
+        ),
+    ]
+
+
+def _patch_counts(document: dict) -> dict[str, int]:
+    """How many tables and columns in this statement carry a patched comment."""
+    items = _metadata_items(document)
+    return {
+        "tables": sum(1 for item in items if _table_comment_is_patched(item)),
+        "columns": sum(
+            1
+            for item in items
+            for detail in item.get("column_details") or []
+            if str(detail.get("comment_source")) == COMMENT_SOURCE_PATCH
+        ),
+    }
+
+
+def _confirmations(document: dict, fields: Sequence[dict] = ()) -> dict[str, int]:
+    """WI-2.6: how many open questions this task has actually had answered.
+
+    Four counts, one per kind of answer the 待确认清单 can produce: a value's meaning and
+    a term's meaning come back through ``glossary.overrides.json`` (the term count is
+    filled in by ``apply_glossary``, which is the only side that has read the corpus
+    dictionary), a column comment and a table comment come back through a metadata patch.
+    """
+    patched = _patch_counts(document)
+    return {
+        "values_confirmed": glossary_values.glossary_coverage(fields)["confirmed"],
+        "terms_confirmed": 0,
+        "columns_patched": patched["columns"],
+        "tables_patched": patched["tables"],
+    }
 
 
 def _sql_comment_counts(document: dict) -> dict[str, int]:

@@ -1,6 +1,30 @@
 # Changelog
 
 ## Unreleased
+- Close the loop on the open-questions list: an answer now comes back as a fact instead of
+  being asked again. New `metadata-patch/1` file -- `{"tables": {"db.t": {…}}, "columns":
+  {"db.t.col": {"comment": …}}}`, the same vocabulary rich JSON metadata uses -- carries the
+  comments a human confirmed, without writing to anybody's catalog. `parse --metadata-patch`
+  (repeatable) applies it to each statement document on its way to disk and
+  `describe --metadata-patch` applies it in memory to a `lineage.json` already written, so an
+  answer lands without re-parsing a corpus; both go through one function, so the two paths
+  produce a byte-identical `semantic.json`, `lineage_digest` included, and the artifact on
+  disk is never rewritten by a derived view. Every patched entry says so -- `comment_source:
+  "patch"` on a column (in `related_metadata` and in the `field_usage` mirror),
+  `table_metadata.patch_applied: true` on a table -- and a key that matches no table or column
+  is reported as `unmatched`, never dropped. The semantic view sources every comment it
+  publishes (`fields[].target_comment_source`, `inputs[].comment_source`, each absent when
+  there is no comment to source) and counts what has been answered in
+  `confidence.confirmations` (`values_confirmed` / `terms_confirmed` / `columns_patched` /
+  `tables_patched`, always present) and `confidence.metadata_coverage.patch`. The skill gains
+  `scripts/confirmations.py apply <business_profile.md> --by <name>`, which reads the answers
+  the business owner wrote on each item's new `- 答案：` line and routes them by the item's own
+  回写目标 line -- `术语` / `值域` into `glossary.overrides.json`, `字段注释` / `表注释` into
+  `metadata-patch.json` -- merging without ever overwriting an entry somebody already
+  confirmed, skipping and counting unanswered items, and writing nothing under `--dry-run`.
+  The profile prompt must no longer generate a `Q` for an item the skeleton already shows as
+  confirmed; those move to appendix A2a, and the field dictionary's confidence column reads
+  `事实（已确认）`.
 - Say what a table *is*, not only what columns it has. Rich JSON metadata carries table-level
   facts -- a readable/Chinese name, a description, the business domain and its path, the
   project and its code, the owner, the storage layer, the physical type and whether the table

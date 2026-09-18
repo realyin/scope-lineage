@@ -421,3 +421,57 @@ def test_a_missing_glossary_file_stops_describe_with_an_exit_code(
         ]
     ) == 2
     assert "does not exist" in capsys.readouterr().err
+
+
+# ------------------------------------------------------ WI-2.6: counting confirmations
+
+
+def test_confirmations_count_the_values_and_terms_a_human_confirmed() -> None:
+    """The profile says how much of THIS task has been answered, not the corpus's total."""
+    documents = [_document(APP_SQL, "task_a", "支付状态"), _document(WEB_SQL, "task_b")]
+    glossary = build_glossary(
+        documents,
+        artifact_root="corpus",
+        overrides={
+            "terms": {"pay_status": {"meaning": "支付状态"}},
+            "values": {"pay_status='PAID'": {"meaning": "已支付"}},
+        },
+    )
+
+    profile = apply_glossary(build_semantic_profile(documents[0]), glossary)
+
+    assert profile["confidence"]["confirmations"] == {
+        "values_confirmed": 1,
+        "terms_confirmed": 1,
+        "columns_patched": 0,
+        "tables_patched": 0,
+    }
+
+
+def test_a_confirmed_term_for_a_column_this_task_never_touches_is_not_counted() -> None:
+    documents = [_document(APP_SQL, "task_a")]
+    glossary = build_glossary(
+        documents,
+        artifact_root="corpus",
+        overrides={"terms": {"pay_status": {"meaning": "支付状态"}}},
+    )
+    glossary["terms"].append(
+        {"column": "somewhere_else", "comments": [], "tables_total": 0,
+         "tables_without_comment": [], "conflict": False,
+         "meaning": {"text": "别处的列", "source": "override"}}
+    )
+
+    profile = apply_glossary(build_semantic_profile(documents[0]), glossary)
+
+    assert profile["confidence"]["confirmations"]["terms_confirmed"] == 1
+
+
+def test_without_a_glossary_the_confirmation_counts_stay_zero() -> None:
+    profile = build_semantic_profile(_document(APP_SQL, "task_a"))
+
+    assert profile["confidence"]["confirmations"] == {
+        "values_confirmed": 0,
+        "terms_confirmed": 0,
+        "columns_patched": 0,
+        "tables_patched": 0,
+    }

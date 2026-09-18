@@ -86,6 +86,17 @@ def main(argv: list[str] | None = None) -> int:
         help="Optional authoritative target-table DDL/Schema JSON file or directory",
     )
     parse_cmd.add_argument(
+        "--metadata-patch",
+        action="append",
+        default=[],
+        help=(
+            "A reviewed metadata-patch/1 file: confirmed table and column comments that "
+            "override the schema and the target DDL. Repeatable; later files win. "
+            "Patched entries are marked (comment_source / patch_applied) and keys that "
+            "match nothing are reported rather than dropped"
+        ),
+    )
+    parse_cmd.add_argument(
         "--partition-overwrite-mode",
         help=(
             "The cluster's spark.sql.sources.partitionOverwriteMode (static or dynamic, "
@@ -335,6 +346,17 @@ def _add_derived_view_parsers(subcommands) -> None:
             "their upstream card and the target table lists its downstream consumers"
         ),
     )
+    describe_cmd.add_argument(
+        "--metadata-patch",
+        action="append",
+        default=[],
+        help=(
+            "A reviewed metadata-patch/1 file, applied to the lineage document in "
+            "memory before the view is derived -- the same document "
+            "`parse --metadata-patch` writes, without re-parsing the corpus and without "
+            "rewriting the artifact on disk. Repeatable"
+        ),
+    )
 
 
 def _validate_inputs(args: argparse.Namespace) -> int:
@@ -565,6 +587,11 @@ def _describe_inputs(args: argparse.Namespace) -> int:
     from .render.semantic_markdown import render_semantic_markdown
     from .render.semantic_profile import build_semantic_profile
     from .cli_glossary import load_overrides as _load_json_document
+    from .metadata.metadata_patch import (
+        MetadataPatchError,
+        apply_metadata_patch_to_document,
+        load_metadata_patch,
+    )
     from .render.glossary import apply_glossary
     from .render.table_cards import apply_table_cards
 
@@ -573,6 +600,13 @@ def _describe_inputs(args: argparse.Namespace) -> int:
     glossary = _load_json_document(getattr(args, "glossary", None))
     if isinstance(glossary, int):
         return glossary
+    # WI-2.6: the confirmed comments, applied to the document in memory. The artifact on
+    # disk is never rewritten -- a derived view may not edit the contract it derives from.
+    try:
+        patch = load_metadata_patch(getattr(args, "metadata_patch", None))
+    except MetadataPatchError as error:
+        print(str(error), file=sys.stderr)
+        return 2
     found = _discover_lineage_documents(args.lineage)
     if isinstance(found, int):
         return found
@@ -590,6 +624,7 @@ def _describe_inputs(args: argparse.Namespace) -> int:
         return table_cards
     for item in documents:
         try:
+            apply_metadata_patch_to_document(item.document, patch)
             profile = apply_glossary(
                 apply_table_cards(
                     build_semantic_profile(item.document, item.diagnostics), table_cards
@@ -616,9 +651,19 @@ def _describe_inputs(args: argparse.Namespace) -> int:
     print(
         f"Described {len(documents)} task(s) "
         f"(skipped_unknown_version={skipped_unknown_version}, "
-        f"missing_diagnostics={missing_diagnostics})"
+        f"missing_diagnostics={missing_diagnostics}{_patch_report(patch)})"
     )
     return 0
+
+
+def _patch_report(patch) -> str:
+    """The unmatched half of a patch run, or nothing when no patch was supplied."""
+    if not patch:
+        return ""
+    unmatched = patch.unmatched()
+    return f", patch_unmatched={len(unmatched)}" + (
+        f" ({'、'.join(unmatched)})" if unmatched else ""
+    )
 
 
 @dataclass(frozen=True)
@@ -672,6 +717,15 @@ def _parse_inputs(args: argparse.Namespace) -> int:
         if args.target_ddl_metadata
         else None
     )
+    # WI-2.6. Applied to each statement document by the same function
+    # `describe --metadata-patch` uses, so the two paths publish one document.
+    from .metadata.metadata_patch import MetadataPatchError, load_metadata_patch
+
+    try:
+        patch = load_metadata_patch(getattr(args, "metadata_patch", None))
+    except MetadataPatchError as error:
+        print(str(error), file=sys.stderr)
+        return 2
     out_root = Path(args.out)
     source_paths, input_root = _source_paths(args)
     return _parse_task_inputs_v2(
@@ -681,6 +735,7 @@ def _parse_inputs(args: argparse.Namespace) -> int:
         out_root=out_root,
         source_paths=source_paths,
         input_root=input_root,
+        metadata_patch=patch,
     )
 
 def _parse_task_inputs_v2(
@@ -691,7 +746,10 @@ def _parse_task_inputs_v2(
     out_root: Path,
     source_paths: list[Path],
     input_root: Path | None,
+    metadata_patch=None,
 ) -> int:
+    from .metadata.metadata_patch import apply_metadata_patch_to_statements
+
     task_count = 0
     statement_count = 0
     modeled_count = 0
@@ -722,6 +780,15 @@ def _parse_task_inputs_v2(
                 strip_comments=bool(getattr(args, "strip_comments", False)),
                 redact_comments=not bool(getattr(args, "no_redact_comments", False)),
             )
+            if metadata_patch:
+                apply_metadata_patch_to_statements(
+                    [
+                        statement
+                        for statement in result.statement_lineage.values()
+                        if isinstance(statement, dict)
+                    ],
+                    metadata_patch,
+                )
             # One derivation path for coverage: the same per-task
             # diagnostics.metadata_coverage fact a consumer reads, only aggregated.
             coverage = result.diagnostics.get("metadata_coverage") or {}
@@ -829,6 +896,14 @@ def _parse_task_inputs_v2(
             f"Metadata gaps: {len(missing_referencers)} referenced table(s) have no "
             f"schema metadata; {detail} "
             "(run with --metadata-preflight to review before parsing)"
+        )
+    if metadata_patch:
+        unmatched = metadata_patch.unmatched()
+        detail = f"; unmatched: {'、'.join(unmatched)}" if unmatched else ""
+        print(
+            f"Metadata patch: {len(metadata_patch.tables)} table entry/entries and "
+            f"{len(metadata_patch.columns)} column entry/entries from "
+            f"{len(metadata_patch.sources)} file(s), unmatched={len(unmatched)}{detail}"
         )
     print(
         f"Parsed {statement_count} statement(s) from {len(source_paths)} input(s) "

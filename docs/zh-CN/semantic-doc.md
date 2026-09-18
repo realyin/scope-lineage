@@ -92,7 +92,8 @@ short = render_semantic_markdown(profile, sections=["overview", "fields_table"])
             "meta": {"task_name": "…", "task_id": "…", "project": "…", "owner": "…",
                      "schedule": "0 30 2 * * ?", "schedule_cycle": "DAY",
                      "description": "…", "expect_date": "…", "source_file": "…"} },
-  "inputs": [ { "table": "…", "comment": null, "domain": null, "project": null,
+  "inputs": [ { "table": "…", "comment": null, "comment_source": "metadata",
+                "domain": null, "project": null,
                 "owner": null, "layer": null,
                 "role_in_task": "driving", "roles": ["driving"],
                 "used_columns": [{"name": "…", "type": "…", "comment": "…", "usages": ["join_key"]}],
@@ -135,7 +136,8 @@ short = render_semantic_markdown(profile, sections=["overview", "fields_table"])
                "fields": [], "scope_fields": [], "evidence": "logic:…", "tag": "SQL事实" } ],
   "fields": [ { "column": "paid_amount_30d", "column_label": "mart.t.paid_amount_30d",
                 "summary": "近 30 天已支付金额：按 customer_id 聚合：SUM(pay_amount)，仅计 pay_status = 'PAID'，再空值回填为 0；来源 dwd.order_detail.pay_amount（Paid amount）",
-                "target_comment": "…", "sql_comments": ["近 30 天已支付金额（元）"],
+                "target_comment": "…", "target_comment_source": "patch",
+                "sql_comments": ["近 30 天已支付金额（元）"],
                 "type": "decimal(18,2)", "transform": "EXPRESSION",
                 "structural_role": "measure", "nullable_by_join": true,
                 "metric_spec": {"subject": {"scope_id": "cte:agg", "tables": ["dwd.order_detail"],
@@ -170,7 +172,10 @@ short = render_semantic_markdown(profile, sections=["overview", "fields_table"])
                                 "grain": "preserved", "text": "…", "expression": "…"}],
                 "expression": "…", "trace_complete": true, "ambiguous": false,
                 "mapping_chain_id": "mc:007", "tag": "SQL事实+元数据事实" } ],
-  "confidence": { "metadata_coverage": {"sql_comment_counts": {"header": 2, "output": 1, "logic": 1}},
+  "confidence": { "metadata_coverage": {"sql_comment_counts": {"header": 2, "output": 1, "logic": 1},
+                                        "patch": {"tables": 1, "columns": 3}},
+                  "confirmations": {"values_confirmed": 2, "terms_confirmed": 1,
+                                    "columns_patched": 3, "tables_patched": 1},
                   "trace_incomplete_fields": [], "ambiguous_fields": [],
                   "diagnostics_available": true, "fact_gap_count": 0, "fact_gap_types": {},
                   "warning_counts": {},
@@ -229,6 +234,28 @@ short = render_semantic_markdown(profile, sections=["overview", "fields_table"])
 
 没有传 `--tables` 时这三个键**根本不出现**，`semantic.json` 与 `semantic.md` 与表卡功能上线之前
 逐字节一致——"没给语料"和"语料证明没人写"是两个答案，不会渲染成同一句。
+
+### 确认回写：`describe --metadata-patch`
+
+传了一份 [`metadata-patch/1`](input-formats.md) 之后，本视图再多四处，回答的是同一个问题——
+**这句话是仓库的元数据说的，还是人答出来的**：
+
+- `inputs[].comment_source`：`metadata` / `patch`；该输入表**没有**表注释时该键不出现
+  （一个"来源是元数据"的空注释在回答文档回答不了的问题）；
+- `fields[].target_comment_source`：同样两个取值，同样只在该字段有目标注释时出现；
+- `confidence.metadata_coverage.patch`：`{tables, columns}`，本语句里被补丁写过的表数与列数；
+  一条补丁都没命中时该键不出现；
+- `confidence.confirmations`：`{values_confirmed, terms_confirmed, columns_patched,
+  tables_patched}`，**恒存在**——全 0 也是事实，"这个任务还没有人确认过任何东西"正是回写闭环
+  要改变的那个状态。前两个计数由 `--glossary` 填（取值含义、列名术语），后两个由补丁填。
+
+`semantic.md` 里，来自补丁的注释在原文之后加一个后缀 `（人工确认）`——第 3 节输入表表格的
+「表注释」列与第 5 节字段小节的 `- 目标注释：` 行各一处。行尾的 `元数据事实` 标签只为"确实有这条
+注释"背书，谁说的写在注释里面。
+
+`parse --metadata-patch` 与 `describe --metadata-patch` 走同一个函数，两条路径产出的
+`semantic.json` 逐字节相同（含 `lineage_digest`）。不传补丁时前三个键都不出现。
+业务方的答案怎么变成这份补丁，见 [术语与值域字典](glossary-doc.md) 的「回写闭环」。
 
 ## semantic.md 的七节与 `--sections` 名
 

@@ -754,6 +754,16 @@ Privacy: a value containing `@` (an address, such as the export's `tbl_pic`) is 
 time and never reaches any artifact; timestamps and quality rates are not facts about what the
 table *is* and do not enter `table_metadata` either.
 
+`parse --metadata-patch <file>` (repeatable) applies a **reviewed** metadata patch to this
+section: the patch's column comments override whatever the schema and the target DDL supplied
+(the patch wins), and its table-level facts merge into `table_metadata`. Both are additive and
+**marked** — a patched column carries `comment_source: "patch"`, a patched table carries
+`table_metadata.patch_applied: true`, and `field_usage[].used_field_details[]` /
+`field_usage[].source_metadata` carry the same comments and markers. Without a patch neither key
+appears: a comment with no `comment_source` is the comment the metadata itself carried. The file
+format is documented in [input formats](input-formats.md); a patch key that matches no table or
+column in the corpus is reported, not an error.
+
 Source refs (`scopes[].columns[].sources` and similar) carry an additional `rowset` key,
 present only when true: the `column="*"` ref is a **row-set dependency** (`COUNT(*)`,
 `ROW_NUMBER()` — expressions that read zero columns), not "all columns flow"; the latter

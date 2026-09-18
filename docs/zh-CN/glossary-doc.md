@@ -177,6 +177,52 @@ markdown = render_glossary_markdown(glossary)
 | 合并优先级 | overrides 永远赢过候选：命中后 `meaning.source` 为 `override`，`meaning_candidates` 原样保留 |
 | 没命中的键 | 进 `overrides_applied.unmatched`（排序后），**不静默丢弃**——一份被人工确认过的文件里的拼写错误，正是审阅者看不见的那一类 |
 
+## 回写闭环：答案怎么回到字典与元数据
+
+画像的第三件（待确认清单）每条都有一行「回写目标」，它就是分流依据。业务方答完之后：
+
+```bash
+# 1. 业务方在 business_profile.md 的每条待确认项里填 `- 答案：…`
+# 2. 把答案分流成两份回写文件（--dry-run 只打印）
+python3 skills/scope-lineage/scripts/confirmations.py apply <画像>/business_profile.md \
+  --by owner --overrides dict/glossary.overrides.json --patch dict/metadata-patch.json
+
+# 3. 重跑字典与画像，已确认项就不再是问题
+scope-lineage glossary --lineage corpus --out dict --overrides dict/glossary.overrides.json
+scope-lineage describe --lineage corpus --glossary dict/glossary.json \
+  --metadata-patch dict/metadata-patch.json
+```
+
+| 回写目标 | 去哪个文件 | 写成什么 |
+| --- | --- | --- |
+| `术语:<词>` | `glossary.overrides.json` | `terms["<词>"] = {meaning, confirmed_by, date}` |
+| `值域:<列>=<值>` | `glossary.overrides.json` | `values["<列>=<值>"] = {meaning, confirmed_by, date}` |
+| `字段注释:<表.列>` | `metadata-patch.json` | `columns["<表.列>"] = {comment, confirmed_by, date}` |
+| `表注释:<表>` | `metadata-patch.json` | `tables["<表>"] = {table_name_cn, confirmed_by, date}` |
+
+脚本的规则：
+
+- **合并不覆盖**：目标文件里已经有的键原样保留并计入 `kept_existing`——两个人各答一轮，谁都
+  不会把对方的答案抹掉；
+- **没填的跳过并计数**：`- 答案：（待填）`、空答案、或整条没有答案行时计入 `unanswered`，
+  一个没人答的问题不是一个空答案；
+- **回写目标没填成四选一的跳过并计数**（`no_target`）：模板里四种并列的那一行原样留着等于没填，
+  猜一种等于把答案写进错误的文件；
+- `--by` 记在每条的 `confirmed_by`，`date` 默认取当天，可用 `--date` 指定；
+- 没有任何条目要写时**不创建空文件**——一个空文件读起来像"所有确认都被清空了"。
+
+下一轮的画像里，这些项在骨架里就是已确认的事实，prompt 要求**不再为它们生成 `Q`**：
+
+| 骨架键 | 由谁填 | 含义 |
+| --- | --- | --- |
+| `fields[].value_domain[].meaning.status = "confirmed"` | `glossary --overrides` | 这个取值的含义已确认 |
+| `fields[].target_comment_source = "patch"` | `describe --metadata-patch` | 目标字段注释来自确认回写 |
+| `inputs[].comment_source = "patch"` | 同上 | 输入表中文名来自确认回写 |
+| `confidence.confirmations` | 两者 | `{values_confirmed, terms_confirmed, columns_patched, tables_patched}` 四类已确认项的计数 |
+
+补丁文件本身的格式、匹配规则与 `parse --metadata-patch`，见
+[Core 输入格式](input-formats.md)。
+
 ## describe 消费：fields[].value_domain
 
 `describe` 永远发布 `fields[].value_domain`，**不传 `--glossary` 也发**——那时它只含
