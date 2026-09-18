@@ -1,0 +1,625 @@
+{
+  "doc_format": "glossary-json/1",
+  "corpus": {
+    "artifact_root": "tests/core/fixtures/lineage_contract",
+    "task_count": 13,
+    "statement_count": 13,
+    "lineage_digests": {
+      "golden_commented_insert": "a631091cb58fc88a",
+      "golden_complex_scope": "9b838357cd4232fd",
+      "golden_directory_target": "c067a3d853c88d59",
+      "golden_fact_gap": "ab3330b352f0a01e",
+      "golden_grouped_dedup_join": "4e323ab37f990b59",
+      "golden_multi_statement_script": "cd2048bf120bc8b5",
+      "golden_self_join": "cd5641d03833f8d7",
+      "golden_simple_insert": "ee7246d6cfdfe5e6",
+      "golden_special_literals": "eb3a6f8c98261ebd",
+      "golden_star_without_schema": "da69f10247007a28",
+      "golden_syntax_recovered": "6d8c220b824789a5",
+      "golden_target_ddl_binding": "49ca4ef5f9e34e0f",
+      "merge_contract": "4abbc5352d1e69a5"
+    }
+  },
+  "terms": [
+    {
+      "column": "account_id",
+      "comments": [],
+      "tables_total": 1,
+      "tables_without_comment": [
+        "dwd.account_daily"
+      ],
+      "conflict": false,
+      "meaning": null
+    },
+    {
+      "column": "account_key",
+      "comments": [],
+      "tables_total": 1,
+      "tables_without_comment": [
+        "ods.account_snapshot"
+      ],
+      "conflict": false,
+      "meaning": null
+    },
+    {
+      "column": "amount",
+      "comments": [],
+      "tables_total": 5,
+      "tables_without_comment": [
+        "mart.amounts",
+        "ods.channel_event",
+        "ods.events",
+        "ods.events_a",
+        "ods.events_b"
+      ],
+      "conflict": false,
+      "meaning": null
+    },
+    {
+      "column": "balance",
+      "comments": [],
+      "tables_total": 1,
+      "tables_without_comment": [
+        "dwd.account_daily"
+      ],
+      "conflict": false,
+      "meaning": null
+    },
+    {
+      "column": "balance_value",
+      "comments": [],
+      "tables_total": 1,
+      "tables_without_comment": [
+        "ods.account_snapshot"
+      ],
+      "conflict": false,
+      "meaning": null
+    },
+    {
+      "column": "band",
+      "comments": [
+        {
+          "text": "Amount band",
+          "tables": [
+            "mart.metric_by_segment"
+          ],
+          "count": 1
+        }
+      ],
+      "tables_total": 1,
+      "tables_without_comment": [],
+      "conflict": false,
+      "meaning": null
+    },
+    {
+      "column": "band_total",
+      "comments": [
+        {
+          "text": "Band level total",
+          "tables": [
+            "mart.metric_by_segment"
+          ],
+          "count": 1
+        }
+      ],
+      "tables_total": 1,
+      "tables_without_comment": [],
+      "conflict": false,
+      "meaning": null
+    },
+    {
+      "column": "batch_id",
+      "comments": [],
+      "tables_total": 1,
+      "tables_without_comment": [
+        "ods.nodes"
+      ],
+      "conflict": false,
+      "meaning": null
+    },
+    {
+      "column": "channel_code",
+      "comments": [],
+      "tables_total": 2,
+      "tables_without_comment": [
+        "dim.channel",
+        "ods.channel_event"
+      ],
+      "conflict": false,
+      "meaning": null
+    },
+    {
+      "column": "channel_name",
+      "comments": [],
+      "tables_total": 1,
+      "tables_without_comment": [
+        "mart.channel_summary"
+      ],
+      "conflict": false,
+      "meaning": null
+    },
+    {
+      "column": "cnt",
+      "comments": [
+        {
+          "text": "Row count",
+          "tables": [
+            "mart.metric_by_segment"
+          ],
+          "count": 1
+        }
+      ],
+      "tables_total": 1,
+      "tables_without_comment": [],
+      "conflict": false,
+      "meaning": null
+    },
+    {
+      "column": "customer_id",
+      "comments": [],
+      "tables_total": 4,
+      "tables_without_comment": [
+        "mart.channel_summary",
+        "mart.customer_profile",
+        "ods.channel_event",
+        "ods.customer_delta"
+      ],
+      "conflict": false,
+      "meaning": null
+    },
+    {
+      "column": "customer_name",
+      "comments": [],
+      "tables_total": 2,
+      "tables_without_comment": [
+        "mart.customer_profile",
+        "ods.customer_delta"
+      ],
+      "conflict": false,
+      "meaning": null
+    },
+    {
+      "column": "entry_id",
+      "comments": [],
+      "tables_total": 2,
+      "tables_without_comment": [
+        "ods.ledger_a",
+        "ods.ledger_b"
+      ],
+      "conflict": false,
+      "meaning": null
+    },
+    {
+      "column": "flagged",
+      "comments": [],
+      "tables_total": 1,
+      "tables_without_comment": [
+        "mart.flags"
+      ],
+      "conflict": false,
+      "meaning": null
+    },
+    {
+      "column": "id",
+      "comments": [],
+      "tables_total": 6,
+      "tables_without_comment": [
+        "mart.first_target",
+        "mart.node_edges",
+        "mart.recovered",
+        "ods.events",
+        "ods.nodes",
+        "ods.source"
+      ],
+      "conflict": false,
+      "meaning": null
+    },
+    {
+      "column": "is_active",
+      "comments": [],
+      "tables_total": 1,
+      "tables_without_comment": [
+        "ods.users"
+      ],
+      "conflict": false,
+      "meaning": null
+    },
+    {
+      "column": "name",
+      "comments": [],
+      "tables_total": 1,
+      "tables_without_comment": [
+        "ods.users"
+      ],
+      "conflict": false,
+      "meaning": null
+    },
+    {
+      "column": "parent_id",
+      "comments": [],
+      "tables_total": 2,
+      "tables_without_comment": [
+        "mart.node_edges",
+        "ods.nodes"
+      ],
+      "conflict": false,
+      "meaning": null
+    },
+    {
+      "column": "seg_code",
+      "comments": [],
+      "tables_total": 1,
+      "tables_without_comment": [
+        "ods.events_b"
+      ],
+      "conflict": false,
+      "meaning": null
+    },
+    {
+      "column": "segment",
+      "comments": [
+        {
+          "text": "Segment code",
+          "tables": [
+            "mart.metric_by_segment"
+          ],
+          "count": 1
+        }
+      ],
+      "tables_total": 3,
+      "tables_without_comment": [
+        "dim.segment_dim",
+        "ods.events_a"
+      ],
+      "conflict": false,
+      "meaning": null
+    },
+    {
+      "column": "segment_name",
+      "comments": [
+        {
+          "text": "Segment display name",
+          "tables": [
+            "mart.metric_by_segment"
+          ],
+          "count": 1
+        }
+      ],
+      "tables_total": 2,
+      "tables_without_comment": [
+        "dim.segment_dim"
+      ],
+      "conflict": false,
+      "meaning": null
+    },
+    {
+      "column": "status",
+      "comments": [],
+      "tables_total": 1,
+      "tables_without_comment": [
+        "ods.channel_event"
+      ],
+      "conflict": false,
+      "meaning": null
+    },
+    {
+      "column": "total",
+      "comments": [
+        {
+          "text": "Summed amount",
+          "tables": [
+            "mart.metric_by_segment"
+          ],
+          "count": 1
+        }
+      ],
+      "tables_total": 1,
+      "tables_without_comment": [],
+      "conflict": false,
+      "meaning": null
+    },
+    {
+      "column": "total_amount",
+      "comments": [],
+      "tables_total": 1,
+      "tables_without_comment": [
+        "mart.channel_summary"
+      ],
+      "conflict": false,
+      "meaning": null
+    },
+    {
+      "column": "updated_at",
+      "comments": [],
+      "tables_total": 1,
+      "tables_without_comment": [
+        "dim.segment_dim"
+      ],
+      "conflict": false,
+      "meaning": null
+    },
+    {
+      "column": "user_id",
+      "comments": [],
+      "tables_total": 6,
+      "tables_without_comment": [
+        "directory:/warehouse/export/daily",
+        "mart.user_names",
+        "mart.user_value",
+        "ods.events",
+        "ods.fallback_users",
+        "ods.users"
+      ],
+      "conflict": false,
+      "meaning": null
+    },
+    {
+      "column": "user_name",
+      "comments": [],
+      "tables_total": 3,
+      "tables_without_comment": [
+        "directory:/warehouse/export/daily",
+        "mart.user_names",
+        "ods.users"
+      ],
+      "conflict": false,
+      "meaning": null
+    },
+    {
+      "column": "v",
+      "comments": [],
+      "tables_total": 2,
+      "tables_without_comment": [
+        "mart.first_target",
+        "ods.source"
+      ],
+      "conflict": false,
+      "meaning": null
+    }
+  ],
+  "values": [
+    {
+      "column_ref": "cte:agg.band",
+      "logical": true,
+      "column": "band",
+      "value": "'HIGH'",
+      "kind": "literal",
+      "observations": [
+        {
+          "task": "golden_grouped_dedup_join",
+          "statement_id": "stmt:001",
+          "context": "case_then",
+          "evidence": "rule:001",
+          "expression": "amount >= 100 → 'HIGH'"
+        }
+      ],
+      "task_count": 1,
+      "closed_set": {
+        "values": [
+          "'HIGH'",
+          "'LOW'"
+        ],
+        "basis": "case_exhaustive"
+      },
+      "meaning_candidates": [],
+      "meaning": null
+    },
+    {
+      "column_ref": "cte:agg.band",
+      "logical": true,
+      "column": "band",
+      "value": "'LOW'",
+      "kind": "literal",
+      "observations": [
+        {
+          "task": "golden_grouped_dedup_join",
+          "statement_id": "stmt:001",
+          "context": "case_then",
+          "evidence": "rule:001",
+          "expression": "ELSE 'LOW'"
+        }
+      ],
+      "task_count": 1,
+      "closed_set": {
+        "values": [
+          "'HIGH'",
+          "'LOW'"
+        ],
+        "basis": "case_exhaustive"
+      },
+      "meaning_candidates": [],
+      "meaning": null
+    },
+    {
+      "column_ref": "ods.channel_event.channel_code",
+      "column": "channel_code",
+      "value": "'A'",
+      "kind": "literal",
+      "observations": [
+        {
+          "task": "golden_commented_insert",
+          "statement_id": "stmt:001",
+          "context": "case_condition",
+          "evidence": "rule:001",
+          "expression": "channel_code = 'A'"
+        }
+      ],
+      "task_count": 1,
+      "closed_set": null,
+      "meaning_candidates": [],
+      "meaning": null
+    },
+    {
+      "column_ref": "mart.channel_summary.channel_name",
+      "column": "channel_name",
+      "value": "'OFFLINE'",
+      "kind": "literal",
+      "observations": [
+        {
+          "task": "golden_commented_insert",
+          "statement_id": "stmt:001",
+          "context": "case_then",
+          "evidence": "rule:001",
+          "expression": "ELSE 'OFFLINE'"
+        }
+      ],
+      "task_count": 1,
+      "closed_set": {
+        "values": [
+          "'ONLINE'",
+          "'OFFLINE'"
+        ],
+        "basis": "case_exhaustive"
+      },
+      "meaning_candidates": [],
+      "meaning": null
+    },
+    {
+      "column_ref": "mart.channel_summary.channel_name",
+      "column": "channel_name",
+      "value": "'ONLINE'",
+      "kind": "literal",
+      "observations": [
+        {
+          "task": "golden_commented_insert",
+          "statement_id": "stmt:001",
+          "context": "case_then",
+          "evidence": "rule:001",
+          "expression": "channel_code = 'A' → 'ONLINE'"
+        }
+      ],
+      "task_count": 1,
+      "closed_set": {
+        "values": [
+          "'ONLINE'",
+          "'OFFLINE'"
+        ],
+        "basis": "case_exhaustive"
+      },
+      "meaning_candidates": [],
+      "meaning": null
+    },
+    {
+      "column_ref": "mart.flags.flagged",
+      "column": "flagged",
+      "value": "'a\\nb'",
+      "kind": "literal",
+      "observations": [
+        {
+          "task": "golden_special_literals",
+          "statement_id": "stmt:001",
+          "context": "case_then",
+          "evidence": "rule:001",
+          "expression": "name = 'x；y → z|w' → 'a\\nb'"
+        }
+      ],
+      "task_count": 1,
+      "closed_set": null,
+      "meaning_candidates": [],
+      "meaning": null
+    },
+    {
+      "column_ref": "ods.users.is_active",
+      "column": "is_active",
+      "value": "1",
+      "kind": "literal",
+      "observations": [
+        {
+          "task": "golden_simple_insert",
+          "statement_id": "stmt:001",
+          "context": "filter_eq",
+          "evidence": "rule:001",
+          "expression": "is_active = 1"
+        }
+      ],
+      "task_count": 1,
+      "closed_set": null,
+      "meaning_candidates": [],
+      "meaning": null
+    },
+    {
+      "column_ref": "ods.users.name",
+      "column": "name",
+      "value": "'x；y → z|w'",
+      "kind": "literal",
+      "observations": [
+        {
+          "task": "golden_special_literals",
+          "statement_id": "stmt:001",
+          "context": "case_condition",
+          "evidence": "rule:001",
+          "expression": "name = 'x；y → z|w'"
+        }
+      ],
+      "task_count": 1,
+      "closed_set": null,
+      "meaning_candidates": [],
+      "meaning": null
+    },
+    {
+      "column_ref": "cte:latest_dim.rn",
+      "logical": true,
+      "column": "rn",
+      "value": "1",
+      "kind": "literal",
+      "observations": [
+        {
+          "task": "golden_grouped_dedup_join",
+          "statement_id": "stmt:001",
+          "context": "join_condition",
+          "evidence": "rule:002",
+          "expression": "rn = 1"
+        }
+      ],
+      "task_count": 1,
+      "closed_set": null,
+      "meaning_candidates": [],
+      "meaning": null
+    },
+    {
+      "column_ref": "cte:ranked.rn",
+      "logical": true,
+      "column": "rn",
+      "value": "1",
+      "kind": "literal",
+      "observations": [
+        {
+          "task": "golden_complex_scope",
+          "statement_id": "stmt:001",
+          "context": "filter_eq",
+          "evidence": "rule:001",
+          "expression": "rn = 1"
+        }
+      ],
+      "task_count": 1,
+      "closed_set": null,
+      "meaning_candidates": [],
+      "meaning": null
+    },
+    {
+      "column_ref": "ods.channel_event.status",
+      "column": "status",
+      "value": "'ACTIVE'",
+      "kind": "literal",
+      "observations": [
+        {
+          "task": "golden_commented_insert",
+          "statement_id": "stmt:001",
+          "context": "filter_eq",
+          "evidence": "rule:002",
+          "expression": "status = 'ACTIVE'"
+        }
+      ],
+      "task_count": 1,
+      "closed_set": null,
+      "meaning_candidates": [],
+      "meaning": null
+    }
+  ],
+  "parameters": [],
+  "overrides_applied": {
+    "terms": 0,
+    "values": 0,
+    "unmatched": []
+  }
+}
