@@ -8,6 +8,7 @@
   "parse_status": "ok",
   "syntax_status": "strict_ok",
   "syntax_errors": [],
+  "statement_comments": [],
   "skipped_statements": [
     {
       "statement_id": "stmt:001",

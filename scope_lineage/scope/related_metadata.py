@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Iterable, Mapping
 
 from ..metadata.schema_metadata import column_details_for_table, normalize_table_name, table_details_for_table
+from ..metadata.target_table_metadata import TargetTableMetadata
 from .scope_types import (
     CONSTANT_SCOPE_ID,
     SYSTEM_SCOPE_ID,
@@ -16,6 +17,7 @@ from .scope_types import (
 def build_related_metadata(
     result: ScopeLineageResult,
     schema: Mapping[str, Iterable[str]] | None,
+    target_table_metadata: TargetTableMetadata | None = None,
 ) -> dict:
     """Return input/output table metadata useful for LLM task profiling.
 
@@ -23,6 +25,11 @@ def build_related_metadata(
     unresolved, or otherwise uncertain reference, all known metadata is kept.
     Tables missing from schema metadata are still represented with columns
     inferred from scope references and ``metadata_complete=false``.
+
+    ``target_table_metadata`` is the target table's own DDL/Schema export, already looked
+    up for this statement's target. It answers the output table when ``schema`` does not
+    know it -- otherwise a run supplied with target metadata still published a target
+    whose every column comment was null.
     """
     usage = _collect_usage(result)
     if usage.keep_all_source_tables:
@@ -30,7 +37,7 @@ def build_related_metadata(
 
     return {
         "input_tables": _input_table_metadata(result, schema, usage),
-        "output_tables": _output_table_metadata(result, schema),
+        "output_tables": _output_table_metadata(result, schema, target_table_metadata),
     }
 
 
@@ -74,26 +81,86 @@ def _input_table_metadata(
 def _output_table_metadata(
     result: ScopeLineageResult,
     schema: Mapping[str, Iterable[str]] | None,
+    target_table_metadata: TargetTableMetadata | None = None,
 ) -> dict:
     root = result.scopes.get("ROOT")
     if root is None or not result.target_table:
         return {}
     output_names = [column.name for column in root.columns if column.name]
     schema_details = column_details_for_table(schema, result.target_table) if schema else []
+    ddl_details = _target_ddl_column_details(target_table_metadata, output_names)
     if schema_details:
         details = [item for item in schema_details if item["name"] in output_names]
-        complete = True
+        source = "schema"
+    elif ddl_details is not None:
+        details = ddl_details
+        source = "target_ddl"
     else:
         details = [_unknown_column_detail(name) for name in output_names]
-        complete = False
+        source = ""
     item = {
         "column_details": details,
-        "metadata_complete": complete,
+        "metadata_complete": bool(source),
     }
+    if source:
+        # Which of the two descriptions answered. Without it a null comment and an
+        # authoritative empty comment are the same document, and a consumer weighing the
+        # target's own DDL against a catalog export cannot tell which one it is reading.
+        item["metadata_source"] = source
     table_detail = table_details_for_table(schema, result.target_table) if schema else {}
+    if not table_detail and source == "target_ddl":
+        table_detail = _target_ddl_table_detail(target_table_metadata)
     if table_detail:
         item["table_metadata"] = table_detail
     return {result.target_table: item}
+
+
+def _target_ddl_column_details(
+    metadata: TargetTableMetadata | None,
+    output_names: list[str],
+) -> list[dict] | None:
+    """The written columns as the target's own definition describes them.
+
+    ``None`` means the metadata cannot describe this table -- no columns, or validation
+    issues that already stopped it from binding target fields. Publishing such a column
+    set under ``metadata_complete: true`` would assert a shape the loader refused.
+
+    Restricted to the statement's own output names, like the schema path: the entry
+    answers "what does this write produce", not "what does the table contain".
+    """
+    if metadata is None or not metadata.usable:
+        return None
+    written = set(output_names)
+    return [
+        {
+            "name": column.name,
+            "type": column.data_type or None,
+            "comment": column.comment or None,
+        }
+        for column in metadata.columns
+        if column.name in written
+    ]
+
+
+def _target_ddl_table_detail(metadata: TargetTableMetadata | None) -> dict:
+    """Table-level facts the export carries, in the shape schema table metadata uses.
+
+    The table's own identity first (Chinese name, description, business domain, project,
+    owner, layer -- the same normalized keys ``--schema`` produces, so a consumer reads one
+    vocabulary whichever side answered), then which file and which structure described it.
+
+    Only keys with a value, so an absent fact stays absent rather than becoming a null the
+    reader has to interpret. ``False`` is a value: "not partitioned" is a fact.
+    """
+    if metadata is None:
+        return {}
+    detail = {
+        **dict(metadata.table_detail or {}),
+        "full_table_name": metadata.full_table_name,
+        "source_file": metadata.source_file,
+        "structure_source": metadata.structure_source,
+    }
+    return {key: value for key, value in detail.items() if value not in (None, "")}
 
 
 def _unknown_column_detail(name: str) -> dict:

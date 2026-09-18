@@ -35,6 +35,7 @@ write_task_lineage(result, "./output/daily_publish")
 | 字段 | 含义 |
 | --- | --- |
 | artifact_kind | 固定为 task_lineage。 |
+| task_meta | **条件输出**：只有输入是任务 JSON 且其 `meta` 里至少有一项非空时才出现；`.sql` 输入无本键。九项中立键名的元信息副本，值全为字符串或 null。见下节。 |
 | analysis_status | complete 或 partial，与语法/构图的 parse_status 分开。 |
 | statement_sequence[] | 按脚本顺序排列的全部可识别语句。 |
 | table_state_graph | 表在各语句执行前后的逻辑状态节点和转换边。 |
@@ -67,6 +68,32 @@ model_status。SET/空分号会保留在序列中但标为 ignored，不会被�
 `final_table_states` 里的条目形如 `directory:/warehouse/export/daily`，带 `directory:` 前缀。
 按 catalog 对账前同样要排除；脚本里出现这类写入时，`diagnostics.warnings[]` 会有一条
 `directory_targets_present` 列出全部此类目标（与 v1 在 `target_table` 上的排除规则同一口径）。
+
+## task_meta：任务元信息，复制而非推断
+
+输入是导出的任务 JSON 时，其 `meta` 块里的九项事实以中立键名复制到顶层 `task_meta`：
+
+| 键 | 取自任务 JSON | 说明 |
+| --- | --- | --- |
+| task_name | task_name | |
+| task_id | task_id | 调度系统里的任务标识，与顶层 task_id（本产物的任务名）不是同一个东西。 |
+| project | project_name，缺失时退到 project_code | |
+| owner | owner | |
+| schedule | schedule | 调度表达式原文，不解析、不翻译。 |
+| schedule_cycle | schedule_cycle | 调度周期原文，如 DAY。 |
+| description | description | |
+| expect_date | expect_date | |
+| source_file | 读取到该元信息的输入文件（相对批量输入根目录） | |
+
+三条规则：
+
+1. **值全部转成字符串，空白与缺失一律为 `null`。** 不补默认值、不从别的键推断。
+2. **未列出的 `meta` 键被忽略**，不会透传。导出方给 `meta` 加字段不会连带加宽本契约。
+3. **`owner_email` 按名排除。** 它是个人联系方式，对数据没有解释力，而产物会在系统之间流转。要联系人时请回到任务系统本身。
+
+`task_meta` 整体缺席表示「没有任务 JSON 提供元信息」，而不是「这个任务没有负责人或调度」。
+
+派生视图里，`task.meta` 是它的原样副本，`fields[].metric_spec.refresh` 由 `schedule_cycle` / `schedule` 填充并标 `source: "task_meta"`——见 semantic-doc.md。
 
 ## 两种不能混淆的血缘
 

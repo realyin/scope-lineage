@@ -48,6 +48,11 @@ from .sqlglot_walk import _find_alias_in_parent, render_sql_or_none
 # this module instead of through ._shared. Nothing in this module uses them.
 from .sqlglot_walk import _source_item_from_ast_node
 from .lineage_fact_gaps import _mark_gaps_from_recovered_syntax
+from .sql_comments import (
+    node_comments,
+    redact_comments as redact_sql_comments,
+    strip_comments as strip_sql_comments,
+)
 from .scope_facts import _populate_enhanced_scope_facts
 
 suppress_invalid_json_path_warnings()
@@ -343,8 +348,20 @@ def parse_scope_lineage(
     *,
     tree: exp.Expression | None = None,
     regex_columns_enabled: bool | None = None,
+    strip_comments: bool = False,
+    redact_comments: bool = True,
 ) -> ScopeLineageResult:
     """Parse SQL into a scope-based lineage result with full column resolution.
+
+    ``strip_comments`` drops the author's SQL comments from the whole document -- the
+    statement header, the per-output and per-block lists, and the inline copies that ride
+    along inside rendered expressions. ``redact_comments``, on by default, is the milder
+    of the two: it keeps the comment and masks the contact shapes inside it (see
+    :func:`scope_lineage.scope.sql_comments.redact`); stripping makes it moot, so the two
+    are applied as one choice rather than both. Both apply only to a tree this function
+    parsed itself: a caller handing over ``tree`` owns that AST, and rewriting it here would
+    remove comments from the caller's object too (``parse_task_lineage`` strips the
+    script's trees before handing them over, so the flag still reaches every statement).
 
     ``tree`` lets a caller that has already parsed the statement hand over that AST instead
     of having it re-parsed from ``sql``. Serializing an AST and parsing it back is not
@@ -374,6 +391,11 @@ def parse_scope_lineage(
         # The writes beyond the first are recorded below so the loss is declared, and
         # `parse_all_scope_lineage` is the entry that models them.
         tree = insert_trees[0]
+        for parsed in insert_trees:
+            if strip_comments:
+                strip_sql_comments(parsed)
+            elif redact_comments:
+                redact_sql_comments(parsed)
         enabled = single_flags[0] if single_flags else DEFAULT_QUOTED_REGEX_COLUMN_NAMES
         script_position = write_indices[0]
         script_records = list(skipped_statements)
@@ -438,6 +460,10 @@ def parse_scope_lineage(
             )
     result.syntax_status, result.syntax_errors = _syntax_status(sql)
     _mark_gaps_from_recovered_syntax(result)
+    # Read off the statement node rather than off `sql`: a script's leading block belongs
+    # to the statement sqlglot attached it to, and text before the first INSERT of a
+    # multi-statement script is not this statement's header.
+    result.statement_comments = node_comments(tree)
     result.statement_identity_sql = statement_identity_sql
     if script_position is not None:
         result.statement_index = script_position
@@ -951,6 +977,7 @@ def _build_merge_scope(
     _build_result_from_scope(
         qualified, result, target_table, schema,
         regex_columns_enabled=regex_columns_enabled,
+        target_table_metadata=merge_metadata,
         merge_target_columns=(
             [c.name for c in merge_metadata.columns] if merge_metadata else None
         ),
@@ -1142,10 +1169,16 @@ def _build_result_from_scope(  # noqa: C901 - legacy exemption (WI-11): shrink w
     merge_target_columns: list[str] | None = None,
     *,
     target_metadata=None,
+    target_table_metadata=None,
     explicit_target_columns: list[str] | None = None,
     insert_by_name: bool = False,
 ) -> None:
     """Common logic: assign IDs, create stubs, collect physical tables, resolve columns.
+
+    ``target_table_metadata`` is the already-resolved target DDL entry, used only to
+    describe the output table. It is a separate channel from ``target_metadata`` because
+    MERGE must keep its metadata away from the target-binding pass (see
+    ``_build_merge_scope``) while still describing the table it writes.
 
     Uses traverse_scope(qualified_expr) to build the scope list so that CTE scopes
     inside MERGE...WITH are not missed (build_scope().traverse() silently skips them
@@ -1307,8 +1340,35 @@ def _build_result_from_scope(  # noqa: C901 - legacy exemption (WI-11): shrink w
         regex_columns_enabled=regex_columns_enabled,
         merge_target_columns=merge_target_columns,
     )
+    _populate_facts_and_related_metadata(
+        result,
+        all_scopes,
+        schema,
+        target_table_metadata=(
+            target_table_metadata
+            if target_table_metadata is not None
+            else lookup_target_table_metadata(target_metadata, target_table)
+        ),
+    )
+
+
+def _populate_facts_and_related_metadata(
+    result: ScopeLineageResult,
+    all_scopes: list[Scope],
+    schema: dict | None,
+    *,
+    target_table_metadata=None,
+) -> None:
+    """Run the enhanced-fact pipeline, then describe the tables the statement touched.
+
+    The order is load-bearing in one direction only: related metadata reports the columns
+    the resolved scopes ended up with, so it is computed last, after the fact passes have
+    finished rewriting them.
+    """
     _populate_enhanced_scope_facts(result, all_scopes, schema)
-    result.related_metadata = build_related_metadata(result, schema)
+    result.related_metadata = build_related_metadata(
+        result, schema, target_table_metadata
+    )
 
 
 def _physical_tables_from_scopes(all_scopes: list[Scope]) -> set[str]:

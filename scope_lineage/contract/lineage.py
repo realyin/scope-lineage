@@ -164,6 +164,12 @@ def _result_to_dict(r: ScopeLineageResult) -> dict:
         # cannot run; `syntax_errors` carries the position and token window of each repair.
         "syntax_status": r.syntax_status,
         "syntax_errors": r.syntax_errors,
+        # WI-2.2: the statement's header comment block, verbatim and in order. Always
+        # present -- an empty list says "this statement has none", which a missing key
+        # could not distinguish from "this producer does not carry comments". Free text
+        # written by the author: it may hold information the SQL itself never states,
+        # including information nobody meant to publish (`parse --strip-comments`).
+        "statement_comments": list(r.statement_comments),
         # Only emitted when the script contained statements this tool does not model,
         # so its absence means "nothing was skipped", not "unknown" (CONTRACT-001).
         **({"skipped_statements": r.skipped_statements} if r.skipped_statements else {}),
@@ -409,6 +415,8 @@ def _scope_logic_block_to_dict(block: ScopeLogicBlock) -> dict:
         d["window_specification"] = to_dict(block.window_specification)
     if block.aggregation_detail:
         d["aggregation_detail"] = to_dict(block.aggregation_detail)
+    if block.comments:
+        d["comments"] = list(block.comments)
     return d
 
 
@@ -503,6 +511,10 @@ def _scope_output_field_to_dict(output: ScopeOutputField) -> dict:
         d["merge_branch_qualifier"] = output.merge_branch_qualifier
     if output.merge_when_index is not None:
         d["merge_when_index"] = output.merge_when_index
+    if output.comments:
+        # WI-2.2, optional like every other per-output fact: the key is absent rather
+        # than empty when the author wrote nothing beside this projection.
+        d["comments"] = list(output.comments)
     return d
 
 

@@ -25,6 +25,7 @@
       "end_context": " id > 0"
     }
   ],
+  "statement_comments": [],
   "target_partition_spec": {},
   "target_partition_columns": [],
   "target_partition_mode": "none",

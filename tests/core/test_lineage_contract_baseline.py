@@ -32,6 +32,7 @@ def _target_metadata(document: dict | None) -> TargetMetadataMap | None:
         ddl=document["ddl"],
         source_file=document["source_file"],
         structure_source=document["structure_source"],
+        table_detail=dict(document.get("table_detail") or {}),
     )
     return TargetMetadataMap({item.table_name: item})
 
@@ -89,6 +90,10 @@ def test_baseline_covers_the_required_contract_shapes() -> None:
         "fact_gap",
         "special_literals",
         "multi_statement_script",
+        "grouped_dedup_join",
+        # WI-2.2: the shape whose comments the contract now carries -- a header block,
+        # an alias comment, a comment inside a JOIN condition and one inside a WHERE.
+        "commented_insert",
     }
 
 

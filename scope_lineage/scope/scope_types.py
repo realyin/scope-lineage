@@ -69,6 +69,10 @@ class ScopeColumn:
     merge_branch_qualifier: Optional[str] = None      # MERGE: "not_matched_by_source"
     # Zero-based WHEN identity; one MERGE may write the same field in several clauses.
     merge_when_index: Optional[int] = None
+    # Comments the author wrote on this projection (WI-2.2), Alias node first and then
+    # the expression's own, as `sql_comments.subtree_comments` orders them. Free text,
+    # carried as a quotation: nothing in this package reads meaning out of it.
+    comments: List[str] = field(default_factory=list)
     # True only when sqlglot synthesized the projection name and SQL supplied no alias.
     # Internal resolution fact: serializers keep the established column contract while
     # outputs/warnings use it to avoid asserting a generated name as a physical target field.
@@ -136,6 +140,10 @@ class ScopeLogicBlock:
     filter_predicate_detail: Dict[str, object] = field(default_factory=dict)
     window_specification: Dict[str, object] = field(default_factory=dict)
     aggregation_detail: Dict[str, object] = field(default_factory=dict)
+    # Comments written inside this block's own expression (WI-2.2). Read from the block's
+    # rendered expression rather than from the scope's AST so a WHERE split into conjuncts
+    # cannot be handed the comments of the conjuncts beside it.
+    comments: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -187,6 +195,8 @@ class ScopeOutputField:
     merge_branch: Optional[str] = None
     merge_branch_qualifier: Optional[str] = None
     merge_when_index: Optional[int] = None
+    # Carried over from the ScopeColumn this output was built from (WI-2.2).
+    comments: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -326,6 +336,11 @@ class ScopeLineageResult:
     # key would silently match the wrong statement — the exact failure this field removes.
     statement_id: Optional[str] = None
     statement_index: Optional[int] = None
+    # The statement's own header comment block, in the order it was written (WI-2.2).
+    # Always serialized, empty list included: a missing key would have to be read as
+    # "this document does not carry comments", which is a different fact from "this
+    # statement has none".
+    statement_comments: List[str] = field(default_factory=list)
     target_partition_spec: Dict[str, Optional[str]] = field(default_factory=dict)
     target_partition_columns: List[str] = field(default_factory=list)
     target_partition_mode: str = "none"  # none|static|dynamic|mixed

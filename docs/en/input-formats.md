@@ -74,7 +74,28 @@ Core currently consumes:
 
 - `meta.task_name`, falling back to `meta.task_id` and then the file name;
 - `meta.sql`, which must be a non-empty string;
-- `meta.upstream_tasks` and `meta.downstream_tasks`, written to `lineage.json.task_dependencies`.
+- `meta.upstream_tasks` and `meta.downstream_tasks`, written to `lineage.json.task_dependencies`;
+- `meta.task_id`, `meta.task_name`, `meta.project_name` (falling back to `meta.project_code`),
+  `meta.owner`, `meta.schedule`, `meta.schedule_cycle`, `meta.description`, and `meta.expect_date`,
+  written under neutral key names to `lineage.json.task_meta` (contract 2.0 top level), each value
+  turned into a string, with blanks becoming `null`.
+
+**`meta.owner_email` is excluded by name and reaches no artifact.** It is a person's contact address,
+it explains nothing about the data, and artifacts travel between systems; to reach a person, go back
+to the task system. `meta` keys not listed here (such as `instance_id` or `project_dir`) are ignored
+as well, so an exporter adding fields does not widen the contract with them. The full key table is in
+[task-lineage-v2.md](task-lineage-v2.md).
+
+A `.sql` input has no `meta`, so its artifact carries **no** `task_meta` key — absence means no input
+supplied metadata, not that the task has no owner or schedule.
+
+`meta.description` is the one free-text field among the nine — a person writes it the way they write a
+comment — so **by default it goes through the same contact-detail masking the SQL comments do**: an email
+becomes `<email>`, a phone number `<phone>`, an ID number `<id>`, and the rest of the sentence is kept as
+written. The other eight are identifiers, names and schedule expressions the exporter produced, and are
+not rewritten. `parse --no-redact-comments` turns masking off for the description and the SQL comments
+alike; `parse --strip-comments` drops the SQL comments only and leaves `task_meta` alone. Masking is shape
+matching and is not exhaustive — see [lineage-json.md](lineage-json.md) §18.3.
 
 The chosen task name is also one output-directory component. It may contain spaces and Unicode,
 but absolute names, `.`, `..`, NUL, `/`, and `\` are rejected instead of being interpreted as
@@ -195,6 +216,13 @@ latest version per table is selected by version time:
 {
   "table_name": "ods.customer_base",
   "full_table_name": "spark_catalog.ods.customer_base",
+  "table_alias": "Customer base table",
+  "table_desc": "Synthetic customer master detail",
+  "buzi_domain": "Customer",
+  "project_name": "Customer profile",
+  "owner_name": "demo_owner",
+  "data_level": "ODS",
+  "is_partition": 1,
   "schema": [
     {
       "columnName": "customer_id",
@@ -222,6 +250,16 @@ Source-table order is decided by this hierarchy:
 1. when `ddl` parses successfully, the DDL field order wins;
 2. without a DDL, sort by `schema[].columnIndex`, which must start at 0 and be contiguous;
 3. when the rich JSON's structure is invalid, a metadata error is raised — it never silently falls back to a guessed order.
+
+Table-level keys are read too and normalized into `table_metadata` (`table_name_cn`,
+`table_desc`, `domain`, `domain_path`, `project`, `project_code`, `owner`,
+`table_label_layer`, `physical_type`, `is_partitioned`). They travel in the contract's
+`related_metadata.*.table_metadata` and feed the semantic view's input-table comments and the
+table card's "what is this table". Key names are vocabulary-neutral: `table_alias`,
+`table_comment` and `comment` all supply the readable name, `buzi_domain` and `domain` both
+supply the business domain. A value containing `@` (an address, such as `tbl_pic`) is dropped
+at load time, and timestamps and quality rates are not table-level facts. For the full key
+table see [`lineage.json` §12.2](lineage-json.md#122-related_metadata).
 
 `--schema` also accepts an aggregated lightweight JSON. It has no explicit field index and no DDL;
 the `columns[]` array order is the field order:

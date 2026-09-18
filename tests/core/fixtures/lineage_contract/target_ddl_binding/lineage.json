@@ -8,6 +8,7 @@
   "parse_status": "ok",
   "syntax_status": "strict_ok",
   "syntax_errors": [],
+  "statement_comments": [],
   "target_partition_spec": {
     "dt": "20260801"
   },
@@ -66,16 +67,29 @@
         "column_details": [
           {
             "name": "account_id",
-            "type": null,
+            "type": "bigint",
             "comment": null
           },
           {
             "name": "balance",
-            "type": null,
+            "type": "decimal(18,2)",
             "comment": null
           }
         ],
-        "metadata_complete": false
+        "metadata_complete": true,
+        "metadata_source": "target_ddl",
+        "table_metadata": {
+          "table_name_cn": "账户日快照（合成）",
+          "table_desc": "合成示例：账户每日余额快照",
+          "domain": "账户域",
+          "project": "账户日报（合成）",
+          "owner": "demo_owner",
+          "table_label_layer": "DWD",
+          "is_partitioned": true,
+          "full_table_name": "spark_catalog.dwd.account_daily",
+          "source_file": "synthetic-target-metadata.json",
+          "structure_source": "ddl"
+        }
       }
     }
   },

@@ -24,6 +24,10 @@ def to_task_lineage_dict(result: TaskLineageResult) -> dict:
         "schema_version": "2.0",
         "artifact_kind": "task_lineage",
         "task_id": result.task_id,
+        # WI-2.2, present only when a task JSON supplied metadata: nine copied facts,
+        # each a string or null. `owner_email` is excluded by name -- see
+        # `scope.task_lineage.TASK_META_FIELDS`.
+        **({"task_meta": dict(result.task_meta)} if result.task_meta else {}),
         "parse_status": result.parse_status,
         "syntax_status": result.syntax_status,
         "syntax_errors": copy.deepcopy(result.syntax_errors),

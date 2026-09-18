@@ -1,0 +1,1921 @@
+{
+  "schema_version": "1.0",
+  "task_id": "golden_commented_insert",
+  "statement_id": "stmt:001",
+  "statement_index": 0,
+  "target_table": "mart.channel_summary",
+  "stmt_kind": "INSERT_OVERWRITE",
+  "parse_status": "ok",
+  "syntax_status": "strict_ok",
+  "syntax_errors": [],
+  "statement_comments": [
+    "任务：客户渠道汇总（合成示例）",
+    "口径：仅统计生效状态的客户",
+    "口径问题联系 <email>（合成地址）"
+  ],
+  "target_partition_spec": {
+    "dt": "${bizdate}"
+  },
+  "target_partition_columns": [
+    "dt"
+  ],
+  "target_partition_mode": "static",
+  "target_binding_absent_reason": "metadata_not_provided",
+  "task_dependencies": {
+    "upstream_tasks": [],
+    "downstream_tasks": [],
+    "source_summary": {
+      "source_format": "none",
+      "upstream_count": 0,
+      "downstream_count": 0,
+      "has_declared_task_dependencies": false
+    }
+  },
+  "source_tables": [
+    "dim.channel",
+    "ods.channel_event"
+  ],
+  "related_metadata": {
+    "input_tables": {
+      "dim.channel": {
+        "column_details": [
+          {
+            "name": "channel_code",
+            "type": null,
+            "comment": null
+          }
+        ],
+        "metadata_complete": true,
+        "table_column_count": 2,
+        "table_metadata": {
+          "table_name_cn": "渠道维表（合成）",
+          "domain": "渠道域",
+          "table_label_layer": "DIM",
+          "is_partitioned": false
+        }
+      },
+      "ods.channel_event": {
+        "column_details": [
+          {
+            "name": "customer_id",
+            "type": null,
+            "comment": null
+          },
+          {
+            "name": "channel_code",
+            "type": null,
+            "comment": null
+          },
+          {
+            "name": "amount",
+            "type": null,
+            "comment": null
+          },
+          {
+            "name": "status",
+            "type": null,
+            "comment": null
+          }
+        ],
+        "metadata_complete": true,
+        "table_column_count": 4,
+        "table_metadata": {
+          "table_name_cn": "渠道事件明细（合成）",
+          "table_desc": "合成示例：客户在各渠道的事件流水",
+          "domain": "渠道域",
+          "domain_path": "零售/渠道域",
+          "project": "渠道分析（合成）",
+          "project_code": "DEMO_CH",
+          "owner": "demo_owner",
+          "table_label_layer": "ODS",
+          "physical_type": "MANAGED",
+          "is_partitioned": true
+        }
+      }
+    },
+    "output_tables": {
+      "mart.channel_summary": {
+        "column_details": [
+          {
+            "name": "customer_id",
+            "type": null,
+            "comment": null
+          },
+          {
+            "name": "channel_name",
+            "type": null,
+            "comment": null
+          },
+          {
+            "name": "total_amount",
+            "type": null,
+            "comment": null
+          }
+        ],
+        "metadata_complete": false
+      }
+    }
+  },
+  "scope_graph": {
+    "nodes": [
+      "ROOT",
+      "dim.channel",
+      "ods.channel_event"
+    ],
+    "edges": [
+      {
+        "from": "dim.channel",
+        "to": "ROOT"
+      },
+      {
+        "from": "ods.channel_event",
+        "to": "ROOT"
+      }
+    ]
+  },
+  "scopes": {
+    "ROOT": {
+      "kind": "root",
+      "role": "aggregate",
+      "depends_on": [
+        "dim.channel",
+        "ods.channel_event"
+      ],
+      "writes_to": "mart.channel_summary",
+      "raw_sql": "SELECT `s`.`customer_id` AS `customer_id` /* 客户号 */, CASE WHEN `s`.`channel_code` = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END AS `channel_name` /* 渠道编码（合成值域） */, SUM(`s`.`amount`) AS `total_amount` /* 金额合计（元） */ FROM `ods`.`channel_event` AS `s` LEFT JOIN `dim`.`channel` AS `d` ON `s`.`channel_code` = `d`.`channel_code` /* 按渠道编码补充维度 */ WHERE `s`.`status` = 'ACTIVE' /* 仅生效状态 */ GROUP BY `s`.`customer_id`, CASE WHEN `s`.`channel_code` = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END",
+      "raw_sql_available": true,
+      "raw_sql_quality": {
+        "status": "clean",
+        "placeholder_types": [],
+        "evidence": []
+      },
+      "source_coverage": {
+        "status": "covered",
+        "declared_source_tables": [
+          "ods.channel_event",
+          "dim.channel"
+        ],
+        "raw_sql_source_tables": [
+          "ods.channel_event",
+          "dim.channel"
+        ],
+        "missing_declared_source_tables": [],
+        "extra_source_tables": []
+      },
+      "input_edges": [
+        {
+          "source_id": "ods.channel_event",
+          "source_type": "physical_table",
+          "position": "from",
+          "alias": "s"
+        },
+        {
+          "source_id": "dim.channel",
+          "source_type": "physical_table",
+          "position": "join",
+          "alias": "d",
+          "join_type": "LEFT_OUTER",
+          "join_condition": "`s`.`channel_code` = `d`.`channel_code` /* 按渠道编码补充维度 */",
+          "join_fields": [
+            {
+              "scope": "ods.channel_event",
+              "column": "channel_code",
+              "qualifier": "s",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            },
+            {
+              "scope": "dim.channel",
+              "column": "channel_code",
+              "qualifier": "d",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:002"
+            }
+          ]
+        }
+      ],
+      "input_source_refs": [
+        {
+          "input_ref_id": "input:ROOT:001",
+          "source_id": "ods.channel_event",
+          "source_type": "physical_table",
+          "alias": "s",
+          "position": "from",
+          "relation_position": "from",
+          "join_type": null,
+          "physical_source_id": "ods.channel_event",
+          "physical_source_ids": [
+            "ods.channel_event"
+          ],
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "direct_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "ods.channel_event"
+            ],
+            "field_resolution_required": false,
+            "missing_reasons": []
+          },
+          "field_resolution_required": false,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "s",
+              "to": "ods.channel_event",
+              "relation": "alias_to_physical_source"
+            }
+          ],
+          "trace_status": "complete"
+        },
+        {
+          "input_ref_id": "input:ROOT:002",
+          "source_id": "dim.channel",
+          "source_type": "physical_table",
+          "alias": "d",
+          "position": "join",
+          "relation_position": "join",
+          "join_type": "LEFT_OUTER",
+          "physical_source_id": "dim.channel",
+          "physical_source_ids": [
+            "dim.channel"
+          ],
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "direct_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "dim.channel"
+            ],
+            "field_resolution_required": false,
+            "missing_reasons": []
+          },
+          "field_resolution_required": false,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "d",
+              "to": "dim.channel",
+              "relation": "alias_to_physical_source"
+            }
+          ],
+          "trace_status": "complete"
+        }
+      ],
+      "alias_source_bindings": [
+        {
+          "alias": "s",
+          "source_id": "ods.channel_event",
+          "source_type": "physical_table",
+          "physical_source_id": "ods.channel_event",
+          "physical_source_ids": [
+            "ods.channel_event"
+          ],
+          "position": "from",
+          "relation_position": "from",
+          "join_type": null,
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "direct_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "ods.channel_event"
+            ],
+            "field_resolution_required": false,
+            "missing_reasons": []
+          },
+          "field_resolution_required": false,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "s",
+              "to": "ods.channel_event",
+              "relation": "alias_to_physical_source"
+            }
+          ],
+          "input_ref_id": "input:ROOT:001"
+        },
+        {
+          "alias": "d",
+          "source_id": "dim.channel",
+          "source_type": "physical_table",
+          "physical_source_id": "dim.channel",
+          "physical_source_ids": [
+            "dim.channel"
+          ],
+          "position": "join",
+          "relation_position": "join",
+          "join_type": "LEFT_OUTER",
+          "source_resolution": {
+            "status": "resolved",
+            "resolution_type": "direct_physical_source",
+            "cardinality": "single_source",
+            "physical_source_tables": [
+              "dim.channel"
+            ],
+            "field_resolution_required": false,
+            "missing_reasons": []
+          },
+          "field_resolution_required": false,
+          "binding_status": "resolved",
+          "binding_trace": [
+            {
+              "from": "d",
+              "to": "dim.channel",
+              "relation": "alias_to_physical_source"
+            }
+          ],
+          "input_ref_id": "input:ROOT:002"
+        }
+      ],
+      "expression_source_bindings": [
+        {
+          "expression_sql": "`s`.`channel_code` = `d`.`channel_code` /* 按渠道编码补充维度 */",
+          "logic_block_id": "logic:ROOT:join:001",
+          "referenced_qualifiers": [
+            "d",
+            "s"
+          ],
+          "resolved_source_refs": [
+            {
+              "qualifier": "s",
+              "resolved_table": "ods.channel_event",
+              "field": "channel_code",
+              "status": "resolved"
+            },
+            {
+              "qualifier": "d",
+              "resolved_table": "dim.channel",
+              "field": "channel_code",
+              "status": "resolved"
+            }
+          ],
+          "unresolved_qualifiers": [],
+          "binding_status": "complete",
+          "evidence_path": "logic_blocks.logic:ROOT:join:001.raw_expression"
+        },
+        {
+          "expression_sql": "`s`.`channel_code` = `d`.`channel_code` /* 按渠道编码补充维度 */",
+          "logic_block_id": "logic:ROOT:join:001",
+          "referenced_qualifiers": [
+            "d",
+            "s"
+          ],
+          "resolved_source_refs": [
+            {
+              "qualifier": "s",
+              "resolved_table": "ods.channel_event",
+              "field": "channel_code",
+              "status": "resolved"
+            },
+            {
+              "qualifier": "d",
+              "resolved_table": "dim.channel",
+              "field": "channel_code",
+              "status": "resolved"
+            }
+          ],
+          "unresolved_qualifiers": [],
+          "binding_status": "complete",
+          "evidence_path": "logic_blocks.logic:ROOT:join:001.join_relation_detail.join_key_pairs"
+        },
+        {
+          "expression_sql": "WHERE `s`.`status` = 'ACTIVE' /* 仅生效状态 */",
+          "logic_block_id": "logic:ROOT:filter:001",
+          "referenced_qualifiers": [
+            "s"
+          ],
+          "resolved_source_refs": [
+            {
+              "qualifier": "s",
+              "resolved_table": "ods.channel_event",
+              "field": "status",
+              "status": "resolved"
+            }
+          ],
+          "unresolved_qualifiers": [],
+          "binding_status": "complete",
+          "evidence_path": "logic_blocks.logic:ROOT:filter:001.raw_expression"
+        },
+        {
+          "expression_sql": "`s`.`status` = 'ACTIVE' /* 仅生效状态 */",
+          "logic_block_id": "logic:ROOT:filter:001",
+          "referenced_qualifiers": [
+            "s"
+          ],
+          "resolved_source_refs": [
+            {
+              "qualifier": "s",
+              "resolved_table": "ods.channel_event",
+              "field": "status",
+              "status": "resolved"
+            }
+          ],
+          "unresolved_qualifiers": [],
+          "binding_status": "complete",
+          "evidence_path": "logic_blocks.logic:ROOT:filter:001.filter_predicate_detail.conjuncts"
+        },
+        {
+          "expression_sql": "CASE WHEN `s`.`channel_code` = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END",
+          "logic_block_id": "logic:ROOT:case_when:001",
+          "referenced_qualifiers": [
+            "s"
+          ],
+          "resolved_source_refs": [
+            {
+              "qualifier": "s",
+              "resolved_table": "ods.channel_event",
+              "field": "channel_code",
+              "status": "resolved"
+            }
+          ],
+          "unresolved_qualifiers": [],
+          "binding_status": "complete",
+          "evidence_path": "logic_blocks.logic:ROOT:case_when:001.raw_expression"
+        },
+        {
+          "expression_sql": "SUM(`s`.`amount`)",
+          "logic_block_id": "logic:ROOT:aggregate:001",
+          "referenced_qualifiers": [
+            "s"
+          ],
+          "resolved_source_refs": [
+            {
+              "qualifier": "s",
+              "resolved_table": "ods.channel_event",
+              "field": "amount",
+              "status": "resolved"
+            }
+          ],
+          "unresolved_qualifiers": [],
+          "binding_status": "complete",
+          "evidence_path": "logic_blocks.logic:ROOT:aggregate:001.raw_expression"
+        }
+      ],
+      "logic_blocks": [
+        {
+          "logic_block_id": "logic:ROOT:join:001",
+          "logic_type": "join",
+          "raw_expression": "`s`.`channel_code` = `d`.`channel_code` /* 按渠道编码补充维度 */",
+          "normalized_expression": "`s`.`channel_code` = `d`.`channel_code` /* 按渠道编码补充维度 */",
+          "fingerprint": "join:`s`.`channel_code` = `d`.`channel_code` /* 按渠道编码补充维度 */",
+          "fields": [
+            {
+              "scope": "ods.channel_event",
+              "column": "channel_code",
+              "qualifier": "s",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            },
+            {
+              "scope": "dim.channel",
+              "column": "channel_code",
+              "qualifier": "d",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:002"
+            }
+          ],
+          "join_type": "LEFT_OUTER",
+          "input_sources": [
+            "ods.channel_event",
+            "dim.channel"
+          ],
+          "field_usage": [
+            {
+              "source_id": "ods.channel_event",
+              "source_type": "physical_table",
+              "used_fields": [
+                "channel_code"
+              ],
+              "used_field_details": [
+                {
+                  "name": "channel_code",
+                  "type": null,
+                  "comment": null
+                }
+              ],
+              "used_by_logic_blocks": [
+                "logic:ROOT:join:001"
+              ],
+              "used_by_output_fields": [],
+              "source_metadata": {
+                "table_name_cn": "渠道事件明细（合成）",
+                "table_desc": "合成示例：客户在各渠道的事件流水",
+                "domain": "渠道域",
+                "domain_path": "零售/渠道域",
+                "project": "渠道分析（合成）",
+                "project_code": "DEMO_CH",
+                "owner": "demo_owner",
+                "table_label_layer": "ODS",
+                "physical_type": "MANAGED",
+                "is_partitioned": true
+              }
+            },
+            {
+              "source_id": "dim.channel",
+              "source_type": "physical_table",
+              "used_fields": [
+                "channel_code"
+              ],
+              "used_field_details": [
+                {
+                  "name": "channel_code",
+                  "type": null,
+                  "comment": null
+                }
+              ],
+              "used_by_logic_blocks": [
+                "logic:ROOT:join:001"
+              ],
+              "used_by_output_fields": [],
+              "source_metadata": {
+                "table_name_cn": "渠道维表（合成）",
+                "domain": "渠道域",
+                "table_label_layer": "DIM",
+                "is_partitioned": false
+              }
+            }
+          ],
+          "expression_features": {
+            "functions": [],
+            "operators": [
+              "=",
+              "*",
+              "/"
+            ],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "left_input": "ods.channel_event",
+          "right_input": "dim.channel",
+          "join_keys": [
+            {
+              "scope": "ods.channel_event",
+              "column": "channel_code",
+              "qualifier": "s",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            },
+            {
+              "scope": "dim.channel",
+              "column": "channel_code",
+              "qualifier": "d",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:002"
+            }
+          ],
+          "join_relation_detail": {
+            "join_type": "LEFT_OUTER",
+            "left_input": "ods.channel_event",
+            "right_input": "dim.channel",
+            "left_alias": "s",
+            "right_alias": "d",
+            "condition_expression": "`s`.`channel_code` = `d`.`channel_code` /* 按渠道编码补充维度 */",
+            "condition_fields": [
+              {
+                "scope": "ods.channel_event",
+                "column": "channel_code",
+                "qualifier": "s",
+                "binding_scope_id": "ROOT",
+                "input_ref_id": "input:ROOT:001"
+              },
+              {
+                "scope": "dim.channel",
+                "column": "channel_code",
+                "qualifier": "d",
+                "binding_scope_id": "ROOT",
+                "input_ref_id": "input:ROOT:002"
+              }
+            ],
+            "join_key_pairs": [
+              {
+                "left": {
+                  "scope": "ods.channel_event",
+                  "column": "channel_code",
+                  "qualifier": "s",
+                  "binding_scope_id": "ROOT",
+                  "input_ref_id": "input:ROOT:001"
+                },
+                "right": {
+                  "scope": "dim.channel",
+                  "column": "channel_code",
+                  "qualifier": "d",
+                  "binding_scope_id": "ROOT",
+                  "input_ref_id": "input:ROOT:002"
+                },
+                "left_fields": [
+                  {
+                    "table": "ods.channel_event",
+                    "field": "channel_code"
+                  }
+                ],
+                "right_fields": [
+                  {
+                    "table": "dim.channel",
+                    "field": "channel_code"
+                  }
+                ],
+                "operator": "=",
+                "expression": "`s`.`channel_code` = `d`.`channel_code` /* 按渠道编码补充维度 */"
+              }
+            ],
+            "condition_filters": [],
+            "missing_reasons": [],
+            "condition_expression_resolution": {
+              "status": "resolved",
+              "resolution_type": "qualified_expression",
+              "physical_source_fields": [
+                {
+                  "table": "ods.channel_event",
+                  "field": "channel_code"
+                },
+                {
+                  "table": "dim.channel",
+                  "field": "channel_code"
+                }
+              ],
+              "generated_sources": [],
+              "source_kind": "physical",
+              "missing_reasons": [],
+              "expanded_expression": "`ods.channel_event`.`channel_code` = `dim.channel`.`channel_code` /* 按渠道编码补充维度 */"
+            },
+            "join_condition_source": "on",
+            "trace_status": "complete"
+          },
+          "comments": [
+            "按渠道编码补充维度"
+          ],
+          "display_expression": "`channel_event`.`channel_code` = `channel`.`channel_code` /* 按渠道编码补充维度 */"
+        },
+        {
+          "logic_block_id": "logic:ROOT:filter:001",
+          "logic_type": "filter",
+          "raw_expression": "WHERE `s`.`status` = 'ACTIVE' /* 仅生效状态 */",
+          "normalized_expression": "where `s`.`status` = 'active' /* 仅生效状态 */",
+          "fingerprint": "filter:where `s`.`status` = 'active' /* 仅生效状态 */",
+          "fields": [
+            {
+              "scope": "ods.channel_event",
+              "column": "status",
+              "qualifier": "s",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            }
+          ],
+          "input_sources": [
+            "ods.channel_event"
+          ],
+          "field_usage": [
+            {
+              "source_id": "ods.channel_event",
+              "source_type": "physical_table",
+              "used_fields": [
+                "status"
+              ],
+              "used_field_details": [
+                {
+                  "name": "status",
+                  "type": null,
+                  "comment": null
+                }
+              ],
+              "used_by_logic_blocks": [
+                "logic:ROOT:filter:001"
+              ],
+              "used_by_output_fields": [],
+              "source_metadata": {
+                "table_name_cn": "渠道事件明细（合成）",
+                "table_desc": "合成示例：客户在各渠道的事件流水",
+                "domain": "渠道域",
+                "domain_path": "零售/渠道域",
+                "project": "渠道分析（合成）",
+                "project_code": "DEMO_CH",
+                "owner": "demo_owner",
+                "table_label_layer": "ODS",
+                "physical_type": "MANAGED",
+                "is_partitioned": true
+              }
+            }
+          ],
+          "expression_features": {
+            "functions": [],
+            "operators": [
+              "=",
+              "*",
+              "/"
+            ],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "filter_predicate_detail": {
+            "predicate_type": "where",
+            "expression": "WHERE `s`.`status` = 'ACTIVE' /* 仅生效状态 */",
+            "fields": [
+              {
+                "scope": "ods.channel_event",
+                "column": "status",
+                "qualifier": "s",
+                "binding_scope_id": "ROOT",
+                "input_ref_id": "input:ROOT:001"
+              }
+            ],
+            "conjuncts": [
+              {
+                "expression": "`s`.`status` = 'ACTIVE' /* 仅生效状态 */",
+                "fields": [
+                  {
+                    "scope": "ods.channel_event",
+                    "column": "status",
+                    "qualifier": "s",
+                    "binding_scope_id": "ROOT",
+                    "input_ref_id": "input:ROOT:001"
+                  }
+                ],
+                "expression_resolution": {
+                  "status": "resolved",
+                  "resolution_type": "qualified_expression",
+                  "physical_source_fields": [
+                    {
+                      "table": "ods.channel_event",
+                      "field": "status"
+                    }
+                  ],
+                  "generated_sources": [],
+                  "source_kind": "physical",
+                  "missing_reasons": [],
+                  "expanded_expression": "`s`.`status` = 'ACTIVE' /* 仅生效状态 */"
+                }
+              }
+            ],
+            "expression_resolution": {
+              "status": "resolved",
+              "resolution_type": "qualified_expression",
+              "physical_source_fields": [
+                {
+                  "table": "ods.channel_event",
+                  "field": "status"
+                }
+              ],
+              "generated_sources": [],
+              "source_kind": "physical",
+              "missing_reasons": [],
+              "expanded_expression": "WHERE `ods.channel_event`.`status` = 'ACTIVE' /* 仅生效状态 */"
+            },
+            "subquery_dependencies": [],
+            "is_partition_filter": false,
+            "has_partition_predicate": false
+          },
+          "comments": [
+            "仅生效状态"
+          ],
+          "display_expression": "where `status` = 'active' /* 仅生效状态 */"
+        },
+        {
+          "logic_block_id": "logic:ROOT:group_by:001",
+          "logic_type": "group_by",
+          "fields": [
+            {
+              "scope": "ods.channel_event",
+              "column": "customer_id",
+              "qualifier": "s",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            },
+            {
+              "scope": "ods.channel_event",
+              "column": "channel_code",
+              "qualifier": "s",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            }
+          ],
+          "input_sources": [
+            "ods.channel_event"
+          ],
+          "field_usage": [
+            {
+              "source_id": "ods.channel_event",
+              "source_type": "physical_table",
+              "used_fields": [
+                "customer_id",
+                "channel_code"
+              ],
+              "used_field_details": [
+                {
+                  "name": "customer_id",
+                  "type": null,
+                  "comment": null
+                },
+                {
+                  "name": "channel_code",
+                  "type": null,
+                  "comment": null
+                }
+              ],
+              "used_by_logic_blocks": [
+                "logic:ROOT:group_by:001"
+              ],
+              "used_by_output_fields": [],
+              "source_metadata": {
+                "table_name_cn": "渠道事件明细（合成）",
+                "table_desc": "合成示例：客户在各渠道的事件流水",
+                "domain": "渠道域",
+                "domain_path": "零售/渠道域",
+                "project": "渠道分析（合成）",
+                "project_code": "DEMO_CH",
+                "owner": "demo_owner",
+                "table_label_layer": "ODS",
+                "physical_type": "MANAGED",
+                "is_partitioned": true
+              }
+            }
+          ],
+          "expression_features": {
+            "functions": [],
+            "operators": [],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "aggregation_detail": {
+            "group_by_items": [
+              {
+                "expression_sql": "`s`.`customer_id`",
+                "source_fields": [
+                  {
+                    "scope": "ods.channel_event",
+                    "column": "customer_id",
+                    "qualifier": "s",
+                    "binding_scope_id": "ROOT",
+                    "input_ref_id": "input:ROOT:001"
+                  }
+                ],
+                "expression_resolution": {
+                  "status": "resolved",
+                  "resolution_type": "qualified_expression",
+                  "physical_source_fields": [
+                    {
+                      "table": "ods.channel_event",
+                      "field": "customer_id"
+                    }
+                  ],
+                  "generated_sources": [],
+                  "source_kind": "physical",
+                  "missing_reasons": [],
+                  "expanded_expression": "`ods.channel_event`.`customer_id`"
+                },
+                "expanded_expression": "`ods.channel_event`.`customer_id`",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.channel_event",
+                    "field": "customer_id"
+                  }
+                ],
+                "trace_status": "complete"
+              },
+              {
+                "expression_sql": "CASE WHEN `s`.`channel_code` = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END",
+                "source_fields": [
+                  {
+                    "scope": "ods.channel_event",
+                    "column": "channel_code",
+                    "qualifier": "s",
+                    "binding_scope_id": "ROOT",
+                    "input_ref_id": "input:ROOT:001"
+                  }
+                ],
+                "expression_resolution": {
+                  "status": "resolved",
+                  "resolution_type": "qualified_expression",
+                  "physical_source_fields": [
+                    {
+                      "table": "ods.channel_event",
+                      "field": "channel_code"
+                    }
+                  ],
+                  "generated_sources": [],
+                  "source_kind": "physical",
+                  "missing_reasons": [],
+                  "expanded_expression": "CASE WHEN `ods.channel_event`.`channel_code` = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END"
+                },
+                "expanded_expression": "CASE WHEN `ods.channel_event`.`channel_code` = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.channel_event",
+                    "field": "channel_code"
+                  }
+                ],
+                "trace_status": "complete"
+              }
+            ],
+            "aggregate_items": [
+              {
+                "output_field": "total_amount",
+                "aggregate_function": "sum",
+                "expression_sql": "SUM(`s`.`amount`)",
+                "expanded_expression": "SUM(`ods.channel_event`.`amount`)",
+                "argument_expression_sql": "`s`.`amount`",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.channel_event",
+                    "field": "amount"
+                  }
+                ],
+                "distinct": false,
+                "filter_expression": null,
+                "trace_status": "complete",
+                "expression_resolution": {
+                  "status": "resolved",
+                  "resolution_type": "qualified_expression",
+                  "physical_source_fields": [
+                    {
+                      "table": "ods.channel_event",
+                      "field": "amount"
+                    }
+                  ],
+                  "generated_sources": [],
+                  "source_kind": "physical",
+                  "missing_reasons": [],
+                  "expanded_expression": "SUM(`ods.channel_event`.`amount`)"
+                },
+                "source_fields": [
+                  {
+                    "scope": "ods.channel_event",
+                    "column": "amount",
+                    "qualifier": "s",
+                    "binding_scope_id": "ROOT",
+                    "input_ref_id": "input:ROOT:001"
+                  }
+                ]
+              }
+            ],
+            "having": [],
+            "trace_status": "complete"
+          }
+        },
+        {
+          "logic_block_id": "logic:ROOT:case_when:001",
+          "logic_type": "case_when",
+          "subtype": "case_when",
+          "raw_expression": "CASE WHEN `s`.`channel_code` = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END",
+          "normalized_expression": "case when `s`.`channel_code` = 'a' then 'online' else 'offline' end",
+          "fingerprint": "case_when:case when `s`.`channel_code` = 'a' then 'online' else 'offline' end",
+          "fields": [
+            {
+              "scope": "ods.channel_event",
+              "column": "channel_code",
+              "qualifier": "s",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            }
+          ],
+          "output_fields": [
+            "channel_name"
+          ],
+          "input_sources": [
+            "ods.channel_event"
+          ],
+          "field_usage": [
+            {
+              "source_id": "ods.channel_event",
+              "source_type": "physical_table",
+              "used_fields": [
+                "channel_code"
+              ],
+              "used_field_details": [
+                {
+                  "name": "channel_code",
+                  "type": null,
+                  "comment": null
+                }
+              ],
+              "used_by_logic_blocks": [
+                "logic:ROOT:case_when:001"
+              ],
+              "used_by_output_fields": [
+                "channel_name"
+              ],
+              "source_metadata": {
+                "table_name_cn": "渠道事件明细（合成）",
+                "table_desc": "合成示例：客户在各渠道的事件流水",
+                "domain": "渠道域",
+                "domain_path": "零售/渠道域",
+                "project": "渠道分析（合成）",
+                "project_code": "DEMO_CH",
+                "owner": "demo_owner",
+                "table_label_layer": "ODS",
+                "physical_type": "MANAGED",
+                "is_partitioned": true
+              }
+            }
+          ],
+          "expression_features": {
+            "functions": [],
+            "operators": [
+              "="
+            ],
+            "has_case_when": true,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": true,
+            "has_partition_filter": false
+          },
+          "final_target_columns": [
+            "mart.channel_summary.channel_name"
+          ],
+          "display_expression": "case when `channel_code` = 'a' then 'online' else 'offline' end"
+        },
+        {
+          "logic_block_id": "logic:ROOT:aggregate:001",
+          "logic_type": "aggregate",
+          "raw_expression": "SUM(`s`.`amount`)",
+          "normalized_expression": "sum(`s`.`amount`)",
+          "fingerprint": "aggregate:sum(`s`.`amount`)",
+          "fields": [
+            {
+              "scope": "ods.channel_event",
+              "column": "amount",
+              "qualifier": "s",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            }
+          ],
+          "output_fields": [
+            "total_amount"
+          ],
+          "input_sources": [
+            "ods.channel_event"
+          ],
+          "field_usage": [
+            {
+              "source_id": "ods.channel_event",
+              "source_type": "physical_table",
+              "used_fields": [
+                "amount"
+              ],
+              "used_field_details": [
+                {
+                  "name": "amount",
+                  "type": null,
+                  "comment": null
+                }
+              ],
+              "used_by_logic_blocks": [
+                "logic:ROOT:aggregate:001"
+              ],
+              "used_by_output_fields": [
+                "total_amount"
+              ],
+              "source_metadata": {
+                "table_name_cn": "渠道事件明细（合成）",
+                "table_desc": "合成示例：客户在各渠道的事件流水",
+                "domain": "渠道域",
+                "domain_path": "零售/渠道域",
+                "project": "渠道分析（合成）",
+                "project_code": "DEMO_CH",
+                "owner": "demo_owner",
+                "table_label_layer": "ODS",
+                "physical_type": "MANAGED",
+                "is_partitioned": true
+              }
+            }
+          ],
+          "expression_features": {
+            "functions": [
+              "sum"
+            ],
+            "operators": [],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": true,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "final_target_columns": [
+            "mart.channel_summary.total_amount"
+          ],
+          "display_expression": "sum(`amount`)"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "customer_id",
+          "transform": "DIRECT",
+          "sources": [
+            {
+              "scope": "ods.channel_event",
+              "column": "customer_id",
+              "qualifier": "s",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            }
+          ],
+          "source_logic_blocks": [],
+          "downstream_fields": [],
+          "target_columns": [
+            "mart.channel_summary.customer_id"
+          ],
+          "final_target_columns": [
+            "mart.channel_summary.customer_id"
+          ],
+          "expression": "`s`.`customer_id`",
+          "expanded_expression": "`ods.channel_event`.`customer_id`",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "qualified_source_projection",
+            "physical_source_fields": [
+              {
+                "table": "ods.channel_event",
+                "field": "customer_id"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "expanded_expression": "`ods.channel_event`.`customer_id`",
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "ROOT",
+                "from_field": "customer_id",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "`s`.`customer_id`",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.channel_event",
+                    "field": "customer_id"
+                  }
+                ]
+              }
+            ]
+          },
+          "consumer_readiness": {
+            "status": "ready",
+            "blocked_reasons": []
+          },
+          "expression_type": "direct_projection",
+          "expression_features": {
+            "functions": [],
+            "operators": [],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "expression_role": "direct_projection",
+          "grain_effect": "preserved",
+          "output_ordinal": 0,
+          "comments": [
+            "客户号"
+          ],
+          "display_expression": "`customer_id`"
+        },
+        {
+          "name": "channel_name",
+          "transform": "CONDITIONAL",
+          "sources": [
+            {
+              "scope": "ods.channel_event",
+              "column": "channel_code",
+              "qualifier": "s",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            }
+          ],
+          "source_logic_blocks": [
+            "logic:ROOT:case_when:001"
+          ],
+          "downstream_fields": [],
+          "target_columns": [
+            "mart.channel_summary.channel_name"
+          ],
+          "final_target_columns": [
+            "mart.channel_summary.channel_name"
+          ],
+          "expression": "CASE WHEN `s`.`channel_code` = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END",
+          "expanded_expression": "CASE WHEN `ods.channel_event`.`channel_code` = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "qualified_expression",
+            "physical_source_fields": [
+              {
+                "table": "ods.channel_event",
+                "field": "channel_code"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "expanded_expression": "CASE WHEN `ods.channel_event`.`channel_code` = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END",
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "ROOT",
+                "from_field": "channel_name",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "CASE WHEN `s`.`channel_code` = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.channel_event",
+                    "field": "channel_code"
+                  }
+                ]
+              }
+            ]
+          },
+          "consumer_readiness": {
+            "status": "ready",
+            "blocked_reasons": []
+          },
+          "expression_type": "conditional_expression",
+          "expression_features": {
+            "functions": [],
+            "operators": [
+              "="
+            ],
+            "has_case_when": true,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": false,
+            "has_udf": false,
+            "has_constant_mapping": true,
+            "has_partition_filter": false
+          },
+          "expression_role": "standardization",
+          "grain_effect": "preserved",
+          "output_ordinal": 1,
+          "comments": [
+            "渠道编码（合成值域）"
+          ],
+          "display_expression": "CASE WHEN `channel_code` = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END"
+        },
+        {
+          "name": "total_amount",
+          "transform": "AGGREGATE",
+          "sources": [
+            {
+              "scope": "ods.channel_event",
+              "column": "amount",
+              "qualifier": "s",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            }
+          ],
+          "source_logic_blocks": [
+            "logic:ROOT:aggregate:001"
+          ],
+          "downstream_fields": [],
+          "target_columns": [
+            "mart.channel_summary.total_amount"
+          ],
+          "final_target_columns": [
+            "mart.channel_summary.total_amount"
+          ],
+          "expression": "SUM(`s`.`amount`)",
+          "expanded_expression": "SUM(`ods.channel_event`.`amount`)",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "qualified_expression",
+            "physical_source_fields": [
+              {
+                "table": "ods.channel_event",
+                "field": "amount"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "expanded_expression": "SUM(`ods.channel_event`.`amount`)",
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "ROOT",
+                "from_field": "total_amount",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "SUM(`s`.`amount`)",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.channel_event",
+                    "field": "amount"
+                  }
+                ]
+              }
+            ]
+          },
+          "consumer_readiness": {
+            "status": "ready",
+            "blocked_reasons": []
+          },
+          "expression_type": "aggregate_expression",
+          "expression_features": {
+            "functions": [
+              "sum"
+            ],
+            "operators": [],
+            "has_case_when": false,
+            "has_if": false,
+            "has_cast": false,
+            "has_window": false,
+            "has_aggregate": true,
+            "has_udf": false,
+            "has_constant_mapping": false,
+            "has_partition_filter": false
+          },
+          "expression_role": "metric_calculation",
+          "grain_effect": "changed",
+          "output_ordinal": 2,
+          "comments": [
+            "金额合计（元）"
+          ],
+          "display_expression": "SUM(`amount`)"
+        }
+      ],
+      "field_usage": [
+        {
+          "source_id": "ods.channel_event",
+          "source_type": "physical_table",
+          "used_fields": [
+            "channel_code",
+            "status",
+            "customer_id",
+            "amount"
+          ],
+          "used_field_details": [
+            {
+              "name": "channel_code",
+              "type": null,
+              "comment": null
+            },
+            {
+              "name": "status",
+              "type": null,
+              "comment": null
+            },
+            {
+              "name": "customer_id",
+              "type": null,
+              "comment": null
+            },
+            {
+              "name": "amount",
+              "type": null,
+              "comment": null
+            }
+          ],
+          "used_by_logic_blocks": [
+            "logic:ROOT:join:001",
+            "logic:ROOT:filter:001",
+            "logic:ROOT:group_by:001",
+            "logic:ROOT:case_when:001",
+            "logic:ROOT:aggregate:001"
+          ],
+          "used_by_output_fields": [
+            "channel_name",
+            "total_amount",
+            "customer_id"
+          ],
+          "source_metadata": {
+            "table_name_cn": "渠道事件明细（合成）",
+            "table_desc": "合成示例：客户在各渠道的事件流水",
+            "domain": "渠道域",
+            "domain_path": "零售/渠道域",
+            "project": "渠道分析（合成）",
+            "project_code": "DEMO_CH",
+            "owner": "demo_owner",
+            "table_label_layer": "ODS",
+            "physical_type": "MANAGED",
+            "is_partitioned": true
+          }
+        },
+        {
+          "source_id": "dim.channel",
+          "source_type": "physical_table",
+          "used_fields": [
+            "channel_code"
+          ],
+          "used_field_details": [
+            {
+              "name": "channel_code",
+              "type": null,
+              "comment": null
+            }
+          ],
+          "used_by_logic_blocks": [
+            "logic:ROOT:join:001"
+          ],
+          "used_by_output_fields": [],
+          "source_metadata": {
+            "table_name_cn": "渠道维表（合成）",
+            "domain": "渠道域",
+            "table_label_layer": "DIM",
+            "is_partitioned": false
+          }
+        }
+      ],
+      "columns": [
+        {
+          "name": "customer_id",
+          "transform": "DIRECT",
+          "expression": "`s`.`customer_id`",
+          "sources": [
+            {
+              "scope": "ods.channel_event",
+              "column": "customer_id",
+              "qualifier": "s",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            }
+          ],
+          "display_expression": "`customer_id`"
+        },
+        {
+          "name": "channel_name",
+          "transform": "CONDITIONAL",
+          "transform_subkind": "case_when",
+          "expression": "CASE WHEN `s`.`channel_code` = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END",
+          "sources": [
+            {
+              "scope": "ods.channel_event",
+              "column": "channel_code",
+              "qualifier": "s",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            }
+          ],
+          "case_branches": [
+            {
+              "when_expr": "`s`.`channel_code` = 'A'",
+              "then_value": "'ONLINE'"
+            },
+            {
+              "when_expr": "ELSE",
+              "then_value": "'OFFLINE'"
+            }
+          ],
+          "display_expression": "CASE WHEN `channel_code` = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END"
+        },
+        {
+          "name": "total_amount",
+          "transform": "AGGREGATE",
+          "expression": "SUM(`s`.`amount`)",
+          "sources": [
+            {
+              "scope": "ods.channel_event",
+              "column": "amount",
+              "qualifier": "s",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            }
+          ],
+          "agg_function": "SUM",
+          "display_expression": "SUM(`amount`)"
+        }
+      ],
+      "joins": [
+        {
+          "join_type": "LEFT_OUTER",
+          "left_scope": "ods.channel_event",
+          "right_scope": "dim.channel",
+          "alias_in_parent": "d",
+          "condition_expression": "`s`.`channel_code` = `d`.`channel_code` /* 按渠道编码补充维度 */",
+          "condition_columns": [
+            {
+              "scope": "ods.channel_event",
+              "column": "channel_code",
+              "qualifier": "s",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            },
+            {
+              "scope": "dim.channel",
+              "column": "channel_code",
+              "qualifier": "d",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:002"
+            }
+          ]
+        }
+      ],
+      "filters": [
+        {
+          "expression": "WHERE `s`.`status` = 'ACTIVE' /* 仅生效状态 */",
+          "columns": [
+            {
+              "scope": "ods.channel_event",
+              "column": "status",
+              "qualifier": "s",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            }
+          ]
+        }
+      ],
+      "group_by": [
+        {
+          "scope": "ods.channel_event",
+          "column": "customer_id",
+          "qualifier": "s",
+          "binding_scope_id": "ROOT",
+          "input_ref_id": "input:ROOT:001"
+        },
+        {
+          "scope": "ods.channel_event",
+          "column": "channel_code",
+          "qualifier": "s",
+          "binding_scope_id": "ROOT",
+          "input_ref_id": "input:ROOT:001"
+        }
+      ]
+    }
+  },
+  "field_mapping_chains": [
+    {
+      "mapping_chain_id": "mc:001",
+      "chain_id": "chain:ROOT:customer_id:position:0",
+      "chain_type": "field_mapping",
+      "target_scope_id": "ROOT",
+      "target_field": "customer_id",
+      "target_position": 0,
+      "chain_status": "resolved",
+      "source_kind": "physical",
+      "root_source_fields": [
+        "ods.channel_event.customer_id"
+      ],
+      "final_output_fields": [
+        "mart.channel_summary.customer_id"
+      ],
+      "ordered_steps": [
+        {
+          "step_no": 1,
+          "scope_id": "ROOT",
+          "step_type": "direct_projection",
+          "input_fields": [
+            "ods.channel_event.customer_id"
+          ],
+          "output_field": "mart.channel_summary.customer_id",
+          "expression_sql": "`s`.`customer_id`",
+          "expanded_expression": "`ods.channel_event`.`customer_id`",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "qualified_source_projection",
+            "physical_source_fields": [
+              {
+                "table": "ods.channel_event",
+                "field": "customer_id"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "ROOT",
+                "from_field": "customer_id",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "`s`.`customer_id`",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.channel_event",
+                    "field": "customer_id"
+                  }
+                ]
+              }
+            ],
+            "expanded_expression_same_as_parent": true
+          },
+          "logic_ids": [],
+          "transform": "DIRECT",
+          "grain_effect": "preserved",
+          "final_output_fields": [
+            "mart.channel_summary.customer_id"
+          ],
+          "target_position": 0
+        }
+      ],
+      "expanded_expression": "`ods.channel_event`.`customer_id`",
+      "missing_reasons": [],
+      "trace_status": "complete"
+    },
+    {
+      "mapping_chain_id": "mc:002",
+      "chain_id": "chain:ROOT:channel_name:position:1",
+      "chain_type": "field_mapping",
+      "target_scope_id": "ROOT",
+      "target_field": "channel_name",
+      "target_position": 1,
+      "chain_status": "resolved",
+      "source_kind": "physical",
+      "root_source_fields": [
+        "ods.channel_event.channel_code"
+      ],
+      "final_output_fields": [
+        "mart.channel_summary.channel_name"
+      ],
+      "ordered_steps": [
+        {
+          "step_no": 1,
+          "scope_id": "ROOT",
+          "step_type": "case_when",
+          "input_fields": [
+            "ods.channel_event.channel_code"
+          ],
+          "output_field": "mart.channel_summary.channel_name",
+          "expression_sql": "CASE WHEN `s`.`channel_code` = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END",
+          "expanded_expression": "CASE WHEN `ods.channel_event`.`channel_code` = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "qualified_expression",
+            "physical_source_fields": [
+              {
+                "table": "ods.channel_event",
+                "field": "channel_code"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "ROOT",
+                "from_field": "channel_name",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "CASE WHEN `s`.`channel_code` = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.channel_event",
+                    "field": "channel_code"
+                  }
+                ]
+              }
+            ],
+            "expanded_expression_same_as_parent": true
+          },
+          "logic_ids": [
+            "logic:ROOT:case_when:001"
+          ],
+          "transform": "CONDITIONAL",
+          "grain_effect": "preserved",
+          "final_output_fields": [
+            "mart.channel_summary.channel_name"
+          ],
+          "target_position": 1
+        }
+      ],
+      "expanded_expression": "CASE WHEN `ods.channel_event`.`channel_code` = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END",
+      "missing_reasons": [],
+      "trace_status": "complete"
+    },
+    {
+      "mapping_chain_id": "mc:003",
+      "chain_id": "chain:ROOT:total_amount:position:2",
+      "chain_type": "field_mapping",
+      "target_scope_id": "ROOT",
+      "target_field": "total_amount",
+      "target_position": 2,
+      "chain_status": "resolved",
+      "source_kind": "physical",
+      "root_source_fields": [
+        "ods.channel_event.amount"
+      ],
+      "final_output_fields": [
+        "mart.channel_summary.total_amount"
+      ],
+      "ordered_steps": [
+        {
+          "step_no": 1,
+          "scope_id": "ROOT",
+          "step_type": "aggregate",
+          "input_fields": [
+            "ods.channel_event.amount"
+          ],
+          "output_field": "mart.channel_summary.total_amount",
+          "expression_sql": "SUM(`s`.`amount`)",
+          "expanded_expression": "SUM(`ods.channel_event`.`amount`)",
+          "expression_resolution": {
+            "status": "resolved",
+            "resolution_type": "qualified_expression",
+            "physical_source_fields": [
+              {
+                "table": "ods.channel_event",
+                "field": "amount"
+              }
+            ],
+            "generated_sources": [],
+            "source_kind": "physical",
+            "missing_reasons": [],
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "ROOT",
+                "from_field": "total_amount",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "SUM(`s`.`amount`)",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.channel_event",
+                    "field": "amount"
+                  }
+                ]
+              }
+            ],
+            "expanded_expression_same_as_parent": true
+          },
+          "logic_ids": [
+            "logic:ROOT:aggregate:001"
+          ],
+          "transform": "AGGREGATE",
+          "grain_effect": "changed",
+          "final_output_fields": [
+            "mart.channel_summary.total_amount"
+          ],
+          "target_position": 2
+        }
+      ],
+      "expanded_expression": "SUM(`ods.channel_event`.`amount`)",
+      "missing_reasons": [],
+      "trace_status": "complete"
+    }
+  ],
+  "scope_profile": {
+    "profile_step_count": 1,
+    "steps": [
+      {
+        "scope_id": "ROOT",
+        "name": "ROOT",
+        "kind": "root",
+        "role": "aggregate",
+        "operations": [
+          "join",
+          "filter",
+          "aggregate",
+          "case_when"
+        ],
+        "business_summary": "读取 dim.channel、ods.channel_event；关联 1 个上游；按过滤条件保留记录；聚合生成指标；通过 CASE WHEN 派生字段",
+        "direct_inputs": [
+          "dim.channel",
+          "ods.channel_event"
+        ],
+        "direct_source_tables": [
+          "dim.channel",
+          "ods.channel_event"
+        ],
+        "physical_source_tables": [
+          "dim.channel",
+          "ods.channel_event"
+        ],
+        "output_columns": 3,
+        "logic": {
+          "joins": [
+            {
+              "type": "LEFT_OUTER",
+              "right": "dim.channel",
+              "on": "`s`.`channel_code` = `d`.`channel_code` /* 按渠道编码补充维度 */"
+            }
+          ],
+          "filters": [
+            "WHERE `s`.`status` = 'ACTIVE' /* 仅生效状态 */"
+          ],
+          "aggregations": [
+            {
+              "column": "total_amount",
+              "expression": "SUM(`s`.`amount`)",
+              "function": "SUM"
+            }
+          ],
+          "window_functions": [],
+          "case_when": [
+            {
+              "column": "channel_name",
+              "summary": "CASE expression with 2 branches",
+              "branch_count": 2
+            }
+          ],
+          "key_renames": [],
+          "distinct": false,
+          "union_branches": 0,
+          "lateral_views": []
+        }
+      }
+    ]
+  },
+  "end_to_end_lineage": [
+    {
+      "column": "customer_id",
+      "transform": "DIRECT",
+      "expression": "`s`.`customer_id`",
+      "trace_complete": true,
+      "physical_sources": [
+        {
+          "table": "ods.channel_event",
+          "column": "customer_id",
+          "transform": "DIRECT"
+        }
+      ],
+      "generated_sources": [],
+      "source_kind": "physical",
+      "output_ordinal": 0
+    },
+    {
+      "column": "channel_name",
+      "transform": "CONDITIONAL",
+      "expression": "CASE WHEN `s`.`channel_code` = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END",
+      "trace_complete": true,
+      "physical_sources": [
+        {
+          "table": "ods.channel_event",
+          "column": "channel_code",
+          "transform": "CONDITIONAL"
+        }
+      ],
+      "generated_sources": [],
+      "source_kind": "physical",
+      "output_ordinal": 1
+    },
+    {
+      "column": "total_amount",
+      "transform": "AGGREGATE",
+      "expression": "SUM(`s`.`amount`)",
+      "trace_complete": true,
+      "physical_sources": [
+        {
+          "table": "ods.channel_event",
+          "column": "amount",
+          "transform": "AGGREGATE"
+        }
+      ],
+      "generated_sources": [],
+      "source_kind": "physical",
+      "output_ordinal": 2
+    }
+  ],
+  "diagnostics": {
+    "fallback_used": false,
+    "warning_count": 0,
+    "warning_types": {},
+    "lineage_fact_gap_count": 0,
+    "lineage_fact_gap_types": {},
+    "lineage_fact_gap_samples": [],
+    "stats": {
+      "scope_count": 3,
+      "physical_table_count": 2,
+      "cte_count": 0,
+      "subquery_count": 0,
+      "union_count": 0,
+      "union_branch_count": 0,
+      "max_depth": 1,
+      "case_when_count": 1,
+      "window_function_count": 0,
+      "join_count": 1,
+      "aggregate_function_count": 1
+    },
+    "full_diagnostics_file": "diagnostics.json"
+  }
+}

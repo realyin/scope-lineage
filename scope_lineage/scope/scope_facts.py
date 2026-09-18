@@ -1200,6 +1200,7 @@ def _populate_scope_outputs(result: ScopeLineageResult) -> None:
                     merge_branch=column.merge_branch,
                     merge_branch_qualifier=column.merge_branch_qualifier,
                     merge_when_index=column.merge_when_index,
+                    comments=list(column.comments),
                 )
             )
         scope_data.outputs = outputs

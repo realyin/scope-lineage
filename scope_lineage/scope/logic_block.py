@@ -25,6 +25,7 @@ from .expression_text import _function_names
 from .sequences import _extend_unique, _unique_ordered
 from .source_refs import _is_cross_join_type, _is_internal_scope_id, _normalize_expression_resolution, _physical_source_fields_for_refs, _physical_source_fields_from_refs, _physical_source_ids_for_input, _source_ref_binding_key, _source_ref_to_dict, _source_refs_from_detail_fields, _source_type_from_id
 from .column_expression_resolution import _expression_resolution_for_scope_column
+from .sql_comments import comments_in_sql
 
 
 def _populate_logic_blocks(
@@ -63,6 +64,7 @@ def _populate_logic_blocks(
                     schema,
                     scope_data.input_edges,
                 ),
+                comments=comments_in_sql(raw),
             )
         )
 
@@ -88,6 +90,7 @@ def _populate_logic_blocks(
                     schema,
                     predicate_type="where",
                 ),
+                comments=comments_in_sql(scope_filter.expression),
             )
         )
 
@@ -112,6 +115,7 @@ def _populate_logic_blocks(
                     schema,
                     predicate_type="having",
                 ),
+                comments=comments_in_sql(scope_filter.expression),
             )
         )
 
@@ -164,6 +168,10 @@ def _populate_logic_blocks(
                     if logic_type == "window"
                     else {}
                 ),
+                # The block's own expression only. An alias comment sits outside it and
+                # is published on the output column, where the reader who asked "what is
+                # this field" will look for it.
+                comments=comments_in_sql(column.expression),
             )
         )
 

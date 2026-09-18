@@ -38,6 +38,7 @@ write_task_lineage(result, "./output/daily_publish")
 | Field | Meaning |
 | --- | --- |
 | artifact_kind | Fixed at task_lineage. |
+| task_meta | **Conditional**: present only when the input was a task JSON whose `meta` carried at least one of the facts below; a `.sql` input has no such key. Nine copied facts under neutral key names, each a string or null. See the next section. |
 | analysis_status | complete or partial, kept separate from the syntax/graph parse_status. |
 | statement_sequence[] | Every recognizable statement, in script order. |
 | table_state_graph | The logical state nodes of each table before and after each statement, and the transition edges. |
@@ -81,6 +82,32 @@ with a `directory:` prefix. It must likewise be excluded before catalog reconcil
 write appears in a script, `diagnostics.warnings[]` carries one `directory_targets_present` entry
 listing every such target (the same convention as excluding them from `target_table` in the
 statement documents).
+
+## task_meta: task metadata, copied rather than inferred
+
+When the input is an exported task JSON, nine facts from its `meta` block are copied to the top-level `task_meta` under neutral key names:
+
+| Key | Taken from the task JSON | Note |
+| --- | --- | --- |
+| task_name | task_name | |
+| task_id | task_id | The scheduler's task identifier; not the same thing as the top-level task_id, which is this artifact's task name. |
+| project | project_name, falling back to project_code | |
+| owner | owner | |
+| schedule | schedule | The schedule expression verbatim; not parsed, not translated. |
+| schedule_cycle | schedule_cycle | The schedule cycle verbatim, e.g. DAY. |
+| description | description | |
+| expect_date | expect_date | |
+| source_file | The input file this metadata was read from (relative to the batch input root) | |
+
+Three rules:
+
+1. **Every value becomes a string; blank and missing both become `null`.** Nothing is defaulted, and nothing is inferred from another key.
+2. **`meta` keys not listed here are ignored** and never passed through. An exporter widening `meta` does not widen this contract with it.
+3. **`owner_email` is excluded by name.** It is a person's contact address, it explains nothing about the data, and artifacts travel between systems. To reach a person, go back to the task system itself.
+
+An absent `task_meta` means "no task JSON supplied metadata", not "this task has no owner or schedule".
+
+In the derived views, `task.meta` is a verbatim copy of it, and `fields[].metric_spec.refresh` is filled from `schedule_cycle` / `schedule` and marked `source: "task_meta"` — see semantic-doc.md.
 
 ## Two kinds of lineage that must not be conflated
 

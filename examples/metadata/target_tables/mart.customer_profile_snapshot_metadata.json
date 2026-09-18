@@ -1,6 +1,13 @@
 {
   "table_name": "mart.customer_profile_snapshot",
   "full_table_name": "spark_catalog.mart.customer_profile_snapshot",
+  "table_alias": "Customer profile snapshot",
+  "table_desc": "Synthetic daily customer profile snapshot, one row per customer per day",
+  "buzi_domain": "Customer",
+  "project_name": "Customer profile demo",
+  "owner_name": "demo_owner",
+  "data_level": "MART",
+  "is_partition": 1,
   "schema": [
     {"columnName": "customer_id", "columnType": "bigint", "columnComment": "Synthetic customer identifier", "columnIndex": 0, "isPartition": 0},
     {"columnName": "customer_name", "columnType": "string", "columnComment": "Synthetic customer name", "columnIndex": 1, "isPartition": 0},
