@@ -59,3 +59,13 @@ where field-level detail lives:
 (one section per statement for task documents) and `warnings.md` when there is anything
 to warn about. Every line links back to contract ids, so cite the document freely — it
 cannot drift from the artifact.
+
+## semantic.json / semantic.md
+
+`scope-lineage describe --lineage <dir>` writes `semantic.json` and `semantic.md` beside
+each lineage.json — the deterministic semantic skeleton (task overview, output shape and
+grain, stages, rules, field semantics, confidence). Read `semantic.md` whole for "what
+does this task do / what does field X mean"; pull `semantic.json` by path (`task`,
+`inputs`, `output_shape`, `stages`, `rules`, `fields`, `confidence`) for the structured
+form. Every line is tagged `SQL事实` / `元数据事实` / `结构推断` with an evidence id;
+`结构推断` is a structural inference, never a business definition.

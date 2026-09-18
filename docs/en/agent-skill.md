@@ -32,6 +32,8 @@ decoded document. `trace` writes a routing index (`.scope-lineage-index.json`) a
 on first run and refreshes it incrementally by file fingerprint; the index is a disposable cache —
 the artifacts stay the single source of truth.
 
+One workflow in the skill does not go through `query.py`: for "what does this task do / what does this field mean", run `scope-lineage describe --lineage <artifact dir>` first to produce the `semantic.json` / `semantic.md` semantic skeleton and answer by reading `semantic.md` whole; when a business profile is wanted, generate `business_profile.md` from `references/semantic-profile-prompt.md` — one file holding three pieces: a task semantic card (≤ 1 page, business language, no source tags in the body), a field dictionary (every output column, with a 7-row metric spec card per measure) and an open-questions list (≤ 15 items a business owner can answer in five minutes), with the source tags, evidence ids, risk table and self-check collected in the appendix.
+
 ## Installation
 
 **Claude Code**:

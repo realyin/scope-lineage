@@ -177,6 +177,7 @@ flowchart LR
 
 Core 负责确定性解析和事实表达，不负责替用户选择向量数据库、图数据库或大模型。这样的边界使
 同一份解析结果可以服务代码检索、任务问答、影响分析、治理审查和后续业务知识生成。
+发行边界是"解析器 + 版本化契约 + 契约派生渲染器"：`mapping.md` 与 `semantic.json` / `semantic.md` 都属于契约派生渲染器——它们复述并重组契约里已有的事实，**不生成业务语义**；业务命名与画像叙事留给上层 Agent。
 
 ## 为什么还需要这个项目
 
@@ -322,6 +323,41 @@ scope-lineage render --lineage /tmp/scope-lineage-corpus
 该文档是契约的派生视图，其中每条事实都可按契约 ID 连回 `lineage.json`。
 详见 [mapping.md 字段映射文档](docs/zh-CN/mapping-doc.md)。
 
+再派生一份确定性的任务语义骨架 `semantic.json` / `semantic.md`，回答"这个任务在做什么、输出表一行代表什么、每个字段是什么含义"：
+
+```bash
+scope-lineage describe --lineage /tmp/scope-lineage-corpus
+```
+
+同样默认写在 `lineage.json` 旁。骨架只含 `SQL事实` / `元数据事实` / `结构推断` 三类内容，每条带证据 id；业务实体命名、表类型的业务称呼、"业务目标"不在其中。
+详见 [semantic.json / semantic.md 任务语义描述](docs/zh-CN/semantic-doc.md)。
+
+单个任务说不清**输入表**的一行代表什么——但写它的那个任务早就证明过了。把整份语料聚合成每张表一张卡，
+再让任务画像引用这些卡：
+
+```bash
+scope-lineage tables   --lineage /tmp/scope-lineage-corpus --out /tmp/scope-lineage-tables
+scope-lineage describe --lineage /tmp/scope-lineage-corpus --tables /tmp/scope-lineage-tables/tables.json
+```
+
+`tables.json` 与每表一张的 `tables/<db.table>.md` 回答"谁写这张表、一行代表什么、谁读它读了哪些列"；
+会话内关系与 `directory:` 写入不成表，只差 catalog 限定的写法算同一张表。
+详见 [语料级表卡](docs/zh-CN/tables-doc.md)。
+
+`'SF'`、`'F_00'` 这类 code 在单个任务里只能落"待业务确认"——但整份语料里，它们可能被注释解释过，
+也可能已经被人确认过一次。把语料聚合成一本按列名组织的字典，再让画像引用它：
+
+```bash
+scope-lineage glossary --lineage /tmp/scope-lineage-corpus --out /tmp/scope-lineage-dict
+scope-lineage describe --lineage /tmp/scope-lineage-corpus \
+  --glossary /tmp/scope-lineage-dict/glossary.json
+```
+
+`glossary.json` / `glossary.md` 把同名列的注释跨表归并（说法冲突就并列保留）、把过滤与 CASE 里的
+常量按列聚成值域观察，并只在 `IN` 列表或分支穷尽的 CASE 上写"这个集合已封闭"。含义只有两个来源：
+`glossary.overrides.json` 里的人工确认，与注释里**字面出现**该值的片段（标 `?` 候选）——Core 不猜。
+`describe --glossary` 把结果接到 `fields[].value_domain`。详见 [术语与值域字典](docs/zh-CN/glossary-doc.md)。
+
 更多完整输入见 [examples/README.zh-CN.md](examples/README.zh-CN.md)，字段级说明见
 [Core 输入格式](docs/zh-CN/input-formats.md)。
 
@@ -419,6 +455,9 @@ AI 下游必须同时读取诊断，不能把 `recovered`、歧义候选或缺�
 - [`diagnostics.json` warning、stats 和 fact gap 字段说明](docs/zh-CN/diagnostics-json.md)
 - [SQL、任务 JSON、Schema 和目标 DDL 输入格式](docs/zh-CN/input-formats.md)
 - [`mapping.md` 字段映射文档](docs/zh-CN/mapping-doc.md)
+- [`semantic.json` / `semantic.md` 任务语义描述](docs/zh-CN/semantic-doc.md)
+- [`tables.json` / `tables.md` 语料级表卡](docs/zh-CN/tables-doc.md)
+- [`glossary.json` / `glossary.md` 术语与值域字典](docs/zh-CN/glossary-doc.md)
 
 ## AI agent 集成
 

@@ -6,9 +6,10 @@ description: >-
   how a target column is derived step by step, find which tasks/columns depend on a table
   or column (impact analysis), and generate human-readable mapping.md documents. Use this
   skill whenever the user mentions 血缘 / lineage / 字段来源 / 加工步骤 / 影响分析 /
-  mapping 文档 / 字段映射, asks "这个字段怎么算出来的", "谁依赖这张表", "这个 SQL 读了哪些表",
-  or wants to analyze, document, or audit warehouse SQL transformations — even if they do
-  not name the scope-lineage tool.
+  mapping 文档 / 字段映射 / 任务画像 / 语义描述 / 字段含义, asks "这个字段怎么算出来的",
+  "这个任务在做什么", "谁依赖这张表", "这个 SQL 读了哪些表", or wants to analyze,
+  document, or audit warehouse SQL transformations — even if they do not name the
+  scope-lineage tool.
 ---
 
 # Scope Lineage
@@ -136,6 +137,52 @@ Task documents render one section per statement. `--out <dir>` mirrors the tree
 elsewhere; `--field`, `--sections`, `--expanded` narrow or expand the content. The
 document is a derived view — every fact links back to lineage.json ids.
 
+### "这个任务在做什么 / 生成业务画像" — describe
+
+```bash
+scope-lineage describe --lineage <artifacts-dir>   # writes semantic.json + semantic.md next to each lineage.json
+```
+
+Produces a deterministic **semantic skeleton** of the task: target table and partition,
+input tables with their column comments, output shape and grain, the stage-by-stage
+processing chain, a flat rule list, and per-field semantics. `--out <dir>` mirrors the
+tree elsewhere, same as `render`. When a whole corpus is available, run
+`scope-lineage tables --lineage <artifacts-dir> --out <dir>` first and pass
+`describe --tables <dir>/tables.json`: each input table then carries its upstream
+producer's own grain and keys under `inputs[].card`, and the target table lists who reads
+it under `task.downstream_consumers` — the two answers a single task cannot prove.
+Run `scope-lineage glossary --lineage <artifacts-dir> --out <dir>` on the same corpus and
+pass `describe --glossary <dir>/glossary.json` to fill `fields[].value_domain[]`: the
+constants each column is compared against, whether the SQL proved the set closed, and the
+meaning of each value when a human confirmed one in `glossary.overrides.json` or a comment
+literally spells it out. **Take the "取值含义" column of a field dictionary from
+`fields[].value_domain[].meaning` first** — `status: "confirmed"` is a fact, `candidate`
+is a lead to write with `?`, and a value with no meaning is 待确认. Never infer a code's
+meaning from its spelling.
+
+Read `semantic.md` — not lineage.json — to answer "what does this task do", "what does
+field X mean", "what is one row of the output table". It is written to be read whole;
+lineage.json is not. Pull `semantic.json` by path (`output_shape`, `stages`, `rules`,
+`fields`, `confidence`) when you need the structured form, and fall back to
+`scripts/query.py chain` for one field's full derivation.
+
+Every line in the skeleton carries one of three tags: `SQL事实` (verbatim from the SQL),
+`元数据事实` (table/column comments and types), or `结构推断` (provable from the query
+structure, with an evidence id). **`结构推断` is not a business definition.** "Groups by
+`customer_id`, orders by `event_time` DESC, keeps row 1" is a structural fact; "takes the
+customer's latest status" is your inference and must be labelled as such. The skeleton
+deliberately contains no business entity names, no business table types (宽表/名单表/
+指标表), and no "the goal of this task is…" — their absence is the design, not a gap.
+
+When the user wants a business profile, generate `business_profile.md` from the skeleton
+following `references/semantic-profile-prompt.md`. It delivers **three pieces plus an
+appendix** in one file: a **task semantic card** (≤ 1 page, business language, no source
+tags), a **field dictionary** (every output column, with a 7-row metric spec card per
+measure), and an **open-questions list** (≤ 15 items a business owner can answer in five
+minutes) — with the evidence, tag system, risk table and self-check moved into the
+appendix. Fill `references/business-profile-template.md`. For a whole corpus, loop over
+the task directories yourself — there is no batch mode in the CLI.
+
 ### "这个结果可信吗 / 为什么断了" — diagnostics
 
 Read the relevant warning and gap entries (they are in `query.py summary` counts;
@@ -152,3 +199,11 @@ documented uncertainty).
   the silent degradation when one is missing. Read before parsing real tasks.
 - `references/diagnostics.md` — every warning/gap type, its meaning, and honest
   phrasing for reporting it. Read when artifacts show warnings or gaps.
+- `references/semantic-profile-prompt.md` — how to turn a `describe` skeleton into a
+  `business_profile.md`: the three-piece delivery (task semantic card / field dictionary /
+  open-questions list) plus the evidence appendix, the `[推断]` `[待确认]` marking rule,
+  the structural-word-to-plain-language table, the length budget per piece, and the
+  self-consistency pass. Read when the user asks what a task does in business terms, not
+  just where a field comes from.
+- `references/business-profile-template.md` — the blank skeleton of those three pieces and
+  the appendix, with `{…}` placeholders. Fill it rather than inventing a layout.

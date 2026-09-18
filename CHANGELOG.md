@@ -1,5 +1,194 @@
 # Changelog
 
+## Unreleased
+- Say what a table *is*, not only what columns it has. Rich JSON metadata carries table-level
+  facts -- a readable/Chinese name, a description, the business domain and its path, the
+  project and its code, the owner, the storage layer, the physical type and whether the table
+  is partitioned -- and the loader dropped every one of them, so `related_metadata` published
+  no `table_metadata`, `semantic.md` said "注释未知" for every input table, and table cards
+  covered 0 table comments on a real corpus. They now travel end to end: one vocabulary-neutral
+  normalizer reads them from a rich JSON document, a rich JSON directory, the aggregate
+  `{"tables": […]}` shape, the `{"db.table": {…}}` shorthand and the target table's own
+  DDL/Schema export (`TargetTableMetadata.table_detail`), into `SchemaMap.table_details` and on
+  into `related_metadata.input_tables[*].table_metadata` / `output_tables[*].table_metadata`
+  (an open, additive object -- see `lineage.json` §12.2). `--schema-fallback` fills facts the
+  authoritative source lacks *per fact*, never overriding one it has. The semantic view reads
+  the comment as `table_name_cn` → `table_desc` → `comment` → `table_comment`, `inputs[]` gains
+  `domain` / `project` / `owner` / `layer` (always present, `null` when the metadata is silent),
+  `task` gains `target_table_domain` / `target_table_project` / `target_table_owner`, section 1
+  names the target's business placement, and a field summary's source note can finally fall back
+  to the table's comment. Table cards gain the same four facts, a real `coverage.table_comment`,
+  a 业务域 column in `tables.md` and a 业务归属 line in each card's section 1. Privacy is part of
+  the rule, not an aside: any value containing `@` is refused wherever it appears (the export's
+  `tbl_pic` contact address among them), and timestamps and quality rates are not table facts.
+- Answer "what does `'PAID'` mean" with evidence instead of a guess. New
+  `scope-lineage glossary --lineage <corpus> --out <dir>` aggregates a corpus into
+  `glossary.json` (`glossary-json/1`) and `glossary.md`: `terms[]` merges column comments
+  across tables by column name, keeping two different readings of one name side by side as
+  a `conflict` rather than deciding for the authors; `values[]` collects every constant the
+  SQL compares a column against -- `filter_eq` / `filter_neq` / `filter_in` / `filter_rlike`,
+  a CASE's `case_condition` and `case_then`, `union_constant` / `constant_projection`
+  projections and a JOIN's `join_condition` -- with the tasks and evidence ids behind each;
+  `parameters[]` keeps `${bizdate}` and `date_sub(current_date(), 1)` out of the value list,
+  because a substitution is not a value. `closed_set` is claimed only for an `IN` list or a
+  CASE whose THEN and ELSE are all constants, and only when the corpus's claims agree -- an
+  observed set is a floor, not a ceiling. A regex pattern stays whole rather than being split
+  on `|`, and a value is attributed to a physical table only when exactly one of the rule's
+  fields carries that name, otherwise it is published as a `logical` scope-level reference.
+  `meaning` has exactly two sources: a reviewed `--overrides` file (`{column: …}` and
+  `{column='VALUE': …}`, qualified or bare, with unmatched keys reported under
+  `overrides_applied.unmatched` rather than dropped) and `meaning_candidates`, which are
+  comments that *literally* contain the value (never a value shorter than two characters).
+  `describe` consumes it: `fields[].value_domain[]` carries `{value, kind, seen_in,
+  closed_set, meaning}`, `semantic.md` section 5 gains a `- 取值：` line, and
+  `confidence.metadata_coverage.glossary` counts `{values_total, confirmed, candidate}`.
+  Without `--glossary` the value domain still appears, holding only what that one statement
+  proves with every meaning `null`; only a *confirmed* meaning is ever appended to a field's
+  one-sentence summary. Public API: `build_glossary`, `render_glossary_markdown`. Documented
+  in `docs/{zh-CN,en}/glossary-doc.md`.
+- Publish what a *corpus* knows about a table, which no single task can say. New
+  `scope-lineage tables --lineage <corpus> --out <dir>` builds one semantic profile per
+  task and merges the producing and consuming sides of the same table into
+  `tables.json` (`tables-json/1`), a `tables.md` index, and one `tables/<db.table>.md`
+  card per table: what the table is, what one row represents (the producing statement's
+  own grain, keys and key confidence), its columns (the union of written fields and read
+  columns, with per-usage consumer counts), who writes it with what partition and
+  cadence, who reads it and how, and four governance findings -- `multiple_producers`,
+  `producer_key_conflict`, `never_consumed_in_corpus`, `never_produced_in_corpus`. Names
+  differing only in catalog qualification are one table (the dotted-suffix rule the query
+  helper uses), with the most qualified spelling as the primary name and the rest under
+  `aliases`; session-scoped relations and `directory:` writes never become a table.
+  `describe --tables <tables.json>` then lets a task profile cite the corpus:
+  `inputs[].card` carries the upstream task's grain sentence, candidate keys, key
+  confidence and cadence, `task.downstream_consumers` names who reads the target table,
+  and `confidence.metadata_coverage.table_cards` counts how much of the input side a card
+  could answer. Without `--tables` those three keys do not appear and `semantic.json` /
+  `semantic.md` are byte-identical to before. Public API:
+  `build_table_cards`, `render_table_index_markdown`, `render_table_card_markdown`,
+  `apply_table_cards`, `table_card_filename`. Documented in
+  `docs/{zh-CN,en}/tables-doc.md`.
+- Carry the SQL author's own words into the contract. The statement document gains
+  `statement_comments[]` (the header block, always present so an empty list can mean "this
+  statement has none"), and `scopes[].outputs[].comments[]` /
+  `scopes[].logic_blocks[].comments[]` appear where the author wrote one. Quoted strings
+  and backticked identifiers are not scanned, so `WHERE note = '-- not a comment'` stays
+  data. Task metadata is carried too: a task JSON's `meta` becomes the 2.0 top-level
+  `task_meta` under neutral key names, every value a string or `null`, unknown keys
+  ignored -- and **`owner_email` excluded by name**, since a person's contact address
+  explains nothing about the data and artifacts travel between systems. `parse
+  --strip-comments` drops the comments entirely, including the inline copies inside
+  rendered expressions, for the cases where a comment must not leave the machine; the
+  public `parse_task_lineage(..., task_meta=, strip_comments=)` exposes both.
+  `describe` consumes all of it: `task.header_comments` and `task.meta`,
+  `fields[].sql_comments` collected along the derivation chain,
+  `rules[].sql_comments` and `stages[].actions[].sql_comments`, a
+  `metric_spec.refresh` finally filled from the task's schedule instead of published as
+  `null`, and `confidence.metadata_coverage.sql_comment_counts`. In `semantic.md` a
+  comment is quoted with its own `SQL注释` label -- section 1 as a blockquote under the
+  task-metadata line, section 3 at the end of an action line, section 4 as its own column,
+  section 5 as a `- 注释：` line -- and never inside a code span, because a code span in
+  that document means verbatim SQL. Documented in `docs/{zh-CN,en}/lineage-json.md` §18,
+  `task-lineage-v2.md`, `input-formats.md` and `semantic-doc.md`. Since a comment is
+  where a person writes down how to reach another person, contact details inside one are
+  **masked by default**: an email becomes `<email>`, a mainland-China or international
+  phone number `<phone>`, an 18- or 15-digit ID number `<id>`, in the collected
+  `comments` keys, in the inline copy inside a rendered `raw_expression`, and in
+  `task_meta.description` -- the rest of the sentence is kept, and the SQL expression
+  itself is never rewritten. No key is added for it. It is shape matching, so it is
+  neither exhaustive nor certain; `parse --no-redact-comments` publishes the text
+  verbatim, and `--strip-comments` remains the complete switch.
+- Close six determinable gaps an Agent hit while writing a business profile from the
+  skeleton. `metric_spec.unit.hint` now reads a date difference's own unit -- `DATEDIFF`
+  is `天`, `MONTHS_BETWEEN` is `月`, `UNIX_TIMESTAMP(a) - UNIX_TIMESTAMP(b)` is `秒` --
+  recursively through a MAX / MIN / AVG / SUM wrapper. A new `nondeterministic_function`
+  finding names the fields and rules whose value follows `CURRENT_TIMESTAMP` /
+  `CURRENT_DATE` / `NOW()` / a bare `UNIX_TIMESTAMP()` / `RAND` / `UUID` instead of the
+  data date, so a backfill of an old day does not reproduce it; the metrics among them
+  carry `metric_spec.time_dependent` and say so on the card's 时间范围 line. A column
+  pinned to two different literals across the grain and argument paths marks both
+  `time_range[]` entries `mismatch`, the markdown states the gap in days when both are
+  written as plain days, and the `partition_literal_mismatch` finding's `evidence[]` now
+  points at the affected metrics' mapping chains. R7's `driving` role reaches below ROOT:
+  a physical table that is a non-ROOT scope's own FROM item is driving when that scope
+  sits on ROOT's driving path or supplies ROOT's GROUP BY keys, so a table every grouping
+  key comes from is no longer labelled `enrich`. `fan_out_risks[]` gains a `path` and now
+  also judges the JOINs on a metric's argument path -- they leave the row count alone and
+  inflate the number instead -- which `semantic.md` section 2 lists under its own
+  「影响指标取值的关联」 heading. Section 6 points at the `warnings.md` that
+  `scope-lineage render` writes, since `describe` does not write one. Documented in
+  `docs/{zh-CN,en}/semantic-doc.md`.
+- Give every metric field a definition card. `fields[].metric_spec` publishes the seven
+  slots a reader asks a number for -- what is counted (`subject`), over which dates
+  (`time_range[]`), under which conditions (`inclusion[]`), aggregated how
+  (`aggregation`, with each GROUP BY key's target column), in what unit (`unit`), what a
+  missing value becomes (`null_handling`), and how often it refreshes (`refresh`, always
+  `null` until the contract carries task metadata) -- plus `post_aggregation[]` and the
+  evidence ids each slot was read from. It appears on `measure` / `event_time` fields and
+  on any field whose chain crosses an aggregate step. Every slot is read along the
+  *aggregation path*: the aggregating scope and the scopes its FROM item descends into, so
+  a filter sitting on a bypass JOIN's right side narrows that lookup and never the metric,
+  and a slot the path cannot prove is published empty or `null` rather than filled with a
+  plausible sentence. `semantic.md` section 5 renders the card as a fixed seven-line block
+  under each metric field's one-sentence meaning, and the full field list gains a `口径`
+  column compressing the call and the time range. Documented in
+  `docs/{zh-CN,en}/semantic-doc.md`.
+- Add `scope-lineage describe`: a deterministic task-semantic skeleton derived from the
+  contract, written as `semantic.json` (`semantic-json/1`) and its rendering `semantic.md`
+  (`semantic-md/1`) beside each `lineage.json`, the same input handling as `render`
+  (one file or a tree, `--out` mirroring, sibling `diagnostics.json`, statement and task
+  documents), plus `--format json,md` and `--sections` (the seven fixed sections, with
+  `fields_table` keeping section 5's table without the per-field subsections). It answers
+  "what does this task do, what does one output row represent, what does each field mean":
+  output shape and grain with per-JOIN fan-out risk, the stage-by-stage processing chain,
+  a recursive grain walk that pierces window, projection and JOIN layers down to the scope
+  that sets the row count (`grain.basis` adds `distinct`, `grain.via_scopes` records the
+  whole path, `grain.keys[]` holds one *logical* key per GROUP BY / PARTITION BY item with
+  the physical columns it pierces to, `candidate_keys[]` names the **target columns** those
+  keys are written to, and `output_shape.key_confidence` says whether the key set is
+  `proven`, `proven_unexposed` (proven keys the target never receives, so its columns
+  cannot identify a row), a `candidate`, or nothing the structure proves),
+  a flat rule list, and per-field semantics carrying the target column's own comment. Every
+  line is tagged `SQL事实` / `元数据事实` / `结构推断` with an evidence id back into the
+  contract; business entity naming, business table types, and column-name guessing stay out
+  of Core by design (an Agent generates the business profile from
+  `skills/scope-lineage/references/semantic-profile-prompt.md`). Documented in
+  `docs/{zh-CN,en}/semantic-doc.md`.
+- Make the semantic skeleton say what the SQL wrote, not what it pierces to. A GROUP BY
+  item and a JOIN key are now named logically: an aggregate reads "按 segment 分组聚合"
+  rather than naming the four physical columns one key fans out to across a UNION, and a
+  join states its key once (`rules[].key_pairs[]` is the scope-level short form
+  mapping.md's section 6 already uses, with the pierced cross product beside it under the
+  new `physical_key_pairs[]`); the physical fact stays in `actions[].fields[]`, and the
+  fan-out proof still compares physical key sets. Adds the `derive` action for the plain
+  expression derivations (`a - b AS delta`) that are not logic blocks and were therefore
+  invisible in `stages[]`, the governance finding `alias_position_mismatch` (a positional
+  write whose SQL aliases disagree with the DDL columns at those positions — Core counted
+  them, nothing said so), `derivation[].branch` for the steps that happen inside a UNION
+  branch, and a `fields[].summary` that groups those branches as the alternatives they are
+  instead of chaining them with "再". Restatements now recurse into a call's argument
+  (`MAX(DATEDIFF(a, b))` reads as a maximum *of a date difference*), builtins that
+  `scope/function_catalog.py` does not list (`HOUR`, `RANK`, `LAG`, …) are no longer
+  reported as "UDF 黑盒" — sqlglot's own grammar is the whitelist — and `generated_sources`
+  render as `常量 'F_00'` instead of a Python repr. `confidence.inferred_items` is now
+  counted by path pattern. In `semantic.md`, folded stage groups carry every member's
+  topological number, a scope's derivations fold past eight, same-shaped rule families
+  (identical once numeric literals become `N`) fold into one templated row, runs of
+  value-carrying derivation steps fold into one line, and a source-boundary line that
+  repeats the stage's own inputs or the previous stage's is dropped. `semantic.json` still
+  folds nothing.
+- Export `build_semantic_profile` and `render_semantic_markdown` from the public API, next
+  to the mapping renderers.
+- Carry the target table's own column comments and types into `lineage.json`. When
+  `--schema` does not know the target, `related_metadata.output_tables[*].column_details[]`
+  now falls back to the DDL/Schema export supplied through `--target-ddl-metadata`
+  (restricted, as on the schema path, to the columns the statement actually writes), and
+  the entry reports `metadata_complete: true` instead of describing a fully supplied run
+  as metadata-free. Table-level `full_table_name`/`source_file`/`structure_source` travel
+  in `table_metadata`. The additive key `metadata_source` (`schema` | `target_ddl`, absent
+  when neither side described the table) names which input answered, so a null comment and
+  an authoritative empty one are no longer the same document. `--schema` stays
+  authoritative when it knows the target: the two descriptions are never interleaved.
+
 ## 0.2.6
 - List, under the mapping.md section 2 table, the predicates applied to each source
   table: the contract's AND-split WHERE conjuncts and the non-key part of JOIN ON,

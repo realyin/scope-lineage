@@ -181,6 +181,10 @@ flowchart LR
 The Core owns deterministic parsing and fact representation. It does not force a vector database,
 graph database, or model choice. The same facts can support code search, task Q&A, impact analysis,
 governance review, and later business-knowledge generation.
+The distribution boundary is "the parser, its versioned contracts, and contract-derived
+renderers": `mapping.md` and `semantic.json` / `semantic.md` are both contract-derived
+renderers — they restate and regroup facts the contract already carries and **generate no
+business semantics**; business naming and profile narratives are left to an upper-layer Agent.
 
 ## Why another project
 
@@ -319,6 +323,52 @@ tree elsewhere). The document is a derived view of the contract — every fact i
 back to `lineage.json` by contract ids. See the
 [mapping document guide](docs/en/mapping-doc.md).
 
+Derive a deterministic task-semantic skeleton too — `semantic.json` / `semantic.md`, which
+answers "what does this task do, what does one output row represent, what does each field
+mean":
+
+```bash
+scope-lineage describe --lineage /tmp/scope-lineage-corpus
+```
+
+It is written next to `lineage.json` as well. The skeleton holds only three kinds of content —
+`SQL事实` (SQL facts), `元数据事实` (metadata facts), `结构推断` (structural inferences) — each
+carrying an evidence id; business entity names, business table types, and "the goal of this
+task" are deliberately not in it. See the
+[semantic document guide](docs/en/semantic-doc.md).
+
+One task cannot say what an *input* table's row represents — but the task that writes it
+already proved it. Aggregate the whole corpus into one card per table, then let a task
+profile cite the cards:
+
+```bash
+scope-lineage tables   --lineage /tmp/scope-lineage-corpus --out /tmp/scope-lineage-tables
+scope-lineage describe --lineage /tmp/scope-lineage-corpus --tables /tmp/scope-lineage-tables/tables.json
+```
+
+`tables.json` plus one `tables/<db.table>.md` per table answer "who writes this table, what
+does one row represent, who reads it and which columns"; session-scoped relations and
+`directory:` writes are excluded, and names differing only in catalog qualification are one
+table. See the [table card guide](docs/en/tables-doc.md).
+
+A code such as `'SF'` or `'F_00'` can only be "ask the business" inside one task — but across
+the corpus a comment may already explain it, or somebody may already have confirmed it once.
+Aggregate the corpus into one dictionary keyed by column name, then let a profile cite it:
+
+```bash
+scope-lineage glossary --lineage /tmp/scope-lineage-corpus --out /tmp/scope-lineage-dict
+scope-lineage describe --lineage /tmp/scope-lineage-corpus \
+  --glossary /tmp/scope-lineage-dict/glossary.json
+```
+
+`glossary.json` / `glossary.md` merge the comments of same-named columns across tables (keeping
+conflicting readings side by side), collect the constants in filters and CASE branches into
+per-column value observations, and claim "this set is closed" only for an `IN` list or a CASE
+whose branches are exhaustive. A meaning has exactly two sources: a human confirmation in
+`glossary.overrides.json`, and a comment that **literally contains** the value (marked `?`) —
+Core does not guess. `describe --glossary` wires the result into `fields[].value_domain`.
+See the [term and value dictionary guide](docs/en/glossary-doc.md).
+
 ### Catalog-prefix normalization
 
 Core preserves fully qualified table names by default. For example,
@@ -429,6 +479,9 @@ Documentation:
 - [`diagnostics.json` warnings, stats, and fact gaps](docs/en/diagnostics-json.md)
 - [SQL, task JSON, Schema, and target-DDL inputs](docs/en/input-formats.md)
 - [`mapping.md` rendered field-mapping documents](docs/en/mapping-doc.md)
+- [`semantic.json` / `semantic.md` task-semantic descriptions](docs/en/semantic-doc.md)
+- [`tables.json` / `tables.md` corpus-level table cards](docs/en/tables-doc.md)
+- [`glossary.json` / `glossary.md` term and value dictionary](docs/en/glossary-doc.md)
 
 ## AI agent integration
 

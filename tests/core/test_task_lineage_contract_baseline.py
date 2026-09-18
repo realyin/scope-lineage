@@ -20,8 +20,14 @@ def _golden_bytes(path: Path) -> bytes:
 def test_baseline_covers_the_required_task_contract_shapes() -> None:
     # An emptied table and a MERGE whose row-membership sources have to be traced
     # through a query block are the two shapes whose task-level output is derived
-    # rather than copied from the statement.
-    assert [case.name for case in CASES] == ["delete_all", "merge_cte_source"]
+    # rather than copied from the statement. `commented_task` is the third: the only
+    # document shape that carries `task_meta`, which exists at task level and nowhere
+    # else (WI-2.2).
+    assert [case.name for case in CASES] == [
+        "commented_task",
+        "delete_all",
+        "merge_cte_source",
+    ]
 
 
 def test_task_lineage_contract_matches_golden_bytes(tmp_path: Path) -> None:
@@ -31,6 +37,9 @@ def test_task_lineage_contract_matches_golden_bytes(tmp_path: Path) -> None:
             case["sql"],
             task_name=case["task_id"],
             schema=case["schema"],
+            # Only the cases that model a task JSON carry one; a `.sql` input has none,
+            # and passing an empty object would publish a key the CLI never would.
+            **({"task_meta": case["task_meta"]} if "task_meta" in case else {}),
         )
 
         for run in ("first", "second"):

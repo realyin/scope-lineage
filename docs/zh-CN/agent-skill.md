@@ -29,6 +29,8 @@ python3 skills/scope-lineage/scripts/query.py trace  db.table[.col] <根目录> 
 生成 `.scope-lineage-index.json` 路由索引，之后按文件指纹增量刷新；索引只是可丢弃的
 缓存，产物始终是唯一事实源。
 
+技能的工作流清单里还有一条不走 `query.py` 的：问"这个任务在做什么 / 这个字段什么含义"时，先跑 `scope-lineage describe --lineage <产物目录>` 生成 `semantic.json` / `semantic.md` 语义骨架，整读 `semantic.md` 回答；要业务画像时再按 `references/semantic-profile-prompt.md` 生成 `business_profile.md`——一个文件三件套：任务语义卡（≤ 1 页、业务语言、正文不挂来源标签）、字段字典（覆盖全部输出字段，指标附 7 行口径卡）、待确认清单（≤ 15 条，业务方 5 分钟答完），来源标签、证据 id、风险表与自检表统一收进附录。
+
 ## 安装
 
 **Claude Code**：
