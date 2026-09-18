@@ -25,6 +25,11 @@ import re
 from collections import Counter
 from typing import Iterable
 
+from .diagnostics_view import fact_gaps_for, located_warnings, warnings_for
+from .markdown_text import cell as _cell
+from .markdown_text import expr_span as _expr_span
+from .markdown_text import normalize_inline as _normalize_inline
+
 
 DOC_FORMAT = "mapping-md/1"
 
@@ -191,27 +196,8 @@ def _front_matter(document: dict) -> list[str]:
     return lines
 
 
-def _normalize_inline(text: str) -> str:
-    """One fact per line: real newlines inside rendered values become literal ``\\n``."""
-    return text.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\\n")
-
-
 def _field_span(field_id: str) -> str:
     return f"`{_normalize_inline(str(field_id)).replace('`', '')}`"
-
-
-def _expr_span(expression: str) -> str:
-    """Code span that survives backticks inside SQL (`` `t`.`c` ``) and newlines."""
-    text = _normalize_inline(str(expression))
-    longest_run = max((len(run) for run in re.findall(r"`+", text)), default=0)
-    fence = "`" * (longest_run + 1)
-    if longest_run:
-        return f"{fence} {text} {fence}"
-    return f"{fence}{text}{fence}"
-
-
-def _cell(text: str) -> str:
-    return _normalize_inline(str(text)).replace("|", "\\|")
 
 
 def _is_directory_target(document: dict) -> bool:
@@ -1073,7 +1059,12 @@ def _render_gaps(document: dict, diagnostics: dict | None) -> list[str]:
     if diagnostics is None:
         lines.append("- ⚠ 无 diagnostics 文档（未随 lineage.json 提供，告警与缺口未知）")
         return lines
-    gaps = diagnostics.get("lineage_fact_gaps") or []
+    # WI-1f: a task-level diagnostics document keeps script-scoped facts at the top and
+    # everything one statement produced under `statement_diagnostics.<id>`. This section
+    # renders ONE statement, so it reads the union; the top level alone reported
+    # "解析警告：无" for a statement that had one.
+    statement_id = document.get("statement_id")
+    gaps = fact_gaps_for(diagnostics, statement_id)
     if not gaps:
         lines.append("- 缺口：无（diagnostics 未记录 lineage_fact_gaps）")
     else:
@@ -1084,7 +1075,7 @@ def _render_gaps(document: dict, diagnostics: dict | None) -> list[str]:
                 if isinstance(value, (str, int, float, bool))
             )
             lines.append(f"- ⚠ 缺口：{scalars}")
-    warnings = diagnostics.get("warnings") or []
+    warnings = warnings_for(diagnostics, statement_id)
     if warnings:
         counts = Counter(str(warning.get("type")) for warning in warnings)
         breakdown = "、".join(
@@ -1170,7 +1161,12 @@ def render_warnings_markdown(
     Grouped by warning type, each group carrying a one-line Chinese gloss; the
     verbatim messages stay inside code spans.
     """
-    warnings = (diagnostics_document or {}).get("warnings") or []
+    # WI-1f: a task document's warnings live under `statement_diagnostics`, so reading
+    # the top level alone wrote no warnings.md at all for a task whose statements had
+    # warnings. Each one is kept with the statement it came from: "@ ROOT" means a
+    # different ROOT in every statement of the script.
+    located = located_warnings(diagnostics_document)
+    warnings = [warning for _, warning in located]
     if not warnings:
         return None
     lineage_document = lineage_document or {}
@@ -1192,9 +1188,9 @@ def render_warnings_markdown(
         "已证明的事实；影响血缘结论的信息在 mapping.md 的「不确定性与缺口」一节。"
     )
 
-    grouped: dict[str, list[dict]] = {}
-    for warning in warnings:
-        grouped.setdefault(str(warning.get("type")), []).append(warning)
+    grouped: dict[str, list[tuple]] = {}
+    for statement_id, warning in located:
+        grouped.setdefault(str(warning.get("type")), []).append((statement_id, warning))
     for warning_type in sorted(grouped):
         group = grouped[warning_type]
         lines.append("")
@@ -1204,9 +1200,9 @@ def render_warnings_markdown(
         if gloss:
             lines.append(f"{gloss}。")
             lines.append("")
-        for warning in group:
-            scope = warning.get("scope")
-            location = f"@ {scope}：" if scope else ""
+        for statement_id, warning in group:
+            where = [str(item) for item in (statement_id, warning.get("scope")) if item]
+            location = f"@ {' / '.join(where)}：" if where else ""
             lines.append(f"- {location}{_expr_span(warning.get('msg', ''))}")
     lines.append("")
     return "\n".join(lines)

@@ -1,0 +1,228 @@
+{
+  "doc_format": "semantic-json/1",
+  "schema_version": "1.0",
+  "statement_id": "stmt:001",
+  "lineage_digest": "eb3a6f8c98261ebd",
+  "task": {
+    "task_name": "golden_special_literals",
+    "target_table": "mart.flags",
+    "target_table_comment": null,
+    "target_table_domain": null,
+    "target_table_project": null,
+    "target_table_owner": null,
+    "stmt_kind": "INSERT",
+    "partition": {
+      "columns": [],
+      "mode": null,
+      "spec": null
+    },
+    "structural_summary": "ROOT 直接读取 ods.users；CASE WHEN 派生 1 个字段；输出 1 列。",
+    "target_metadata_source": null,
+    "header_comments": [],
+    "meta": null
+  },
+  "inputs": [
+    {
+      "table": "ods.users",
+      "comment": null,
+      "domain": null,
+      "project": null,
+      "owner": null,
+      "layer": null,
+      "role_in_task": "driving",
+      "roles": [
+        "driving"
+      ],
+      "used_columns": [
+        {
+          "name": "name",
+          "type": null,
+          "comment": null,
+          "usages": [
+            "output"
+          ]
+        }
+      ],
+      "metadata_complete": true,
+      "table_column_count": 1,
+      "read_by_scopes": [
+        "ROOT"
+      ]
+    }
+  ],
+  "output_shape": {
+    "shape": "filtered_projection",
+    "shape_evidence": [
+      "ROOT"
+    ],
+    "grain": {
+      "keys": [],
+      "basis": "driving_table_rows",
+      "via_scopes": [],
+      "confidence": "structural",
+      "evidence": [
+        "ods.users"
+      ]
+    },
+    "candidate_keys": [],
+    "unexposed_keys": [],
+    "key_evidence": [],
+    "key_confidence": "none",
+    "partition_columns": [],
+    "fan_out_risks": [],
+    "tag": "结构推断"
+  },
+  "stages": [
+    {
+      "scope_id": "ROOT",
+      "name": "ROOT",
+      "kind": "root",
+      "role": "transform",
+      "direct_inputs": [
+        "ods.users"
+      ],
+      "direct_source_tables": [
+        "ods.users"
+      ],
+      "upstream_physical_tables": [
+        "ods.users"
+      ],
+      "actions": [
+        {
+          "type": "case_when",
+          "text": "派生 flagged：name = 'x；y → z|w' → 'a\\nb'；否则 name",
+          "expression": "CASE WHEN `users`.`name` = 'x；y → z|w' THEN 'a\\nb' ELSE `users`.`name` END",
+          "fields": [
+            {
+              "table": "ods.users",
+              "column": "name",
+              "comment": null
+            }
+          ],
+          "evidence": "logic:ROOT:case_when:001",
+          "tag": "SQL事实"
+        }
+      ],
+      "outputs": [
+        "flagged"
+      ],
+      "output_count": 1,
+      "pattern_signature": "role=transform|kind=root|inputs=tables:1,scopes:0,union:no|blocks=case_when=1|derive=0|window=|agg="
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "rule:001",
+      "kind": "case_branch",
+      "scope_id": "ROOT",
+      "expression": "CASE WHEN `users`.`name` = 'x；y → z|w' THEN 'a\\nb' ELSE `users`.`name` END",
+      "branches": [
+        {
+          "when": "name = 'x；y → z|w'",
+          "then": "'a\\nb'"
+        }
+      ],
+      "else": "name",
+      "fields": [
+        {
+          "table": "ods.users",
+          "column": "name",
+          "comment": null
+        }
+      ],
+      "scope_fields": [],
+      "evidence": "logic:ROOT:case_when:001",
+      "tag": "SQL事实"
+    }
+  ],
+  "fields": [
+    {
+      "column": "flagged",
+      "column_label": "mart.flags.flagged",
+      "summary": "（注释未知）：name = 'x；y → z|w' → 'a\\nb'；否则 name；来源 ods.users.name（注释未知）",
+      "target_comment": null,
+      "type": null,
+      "transform": "CONDITIONAL",
+      "structural_role": "derived",
+      "value_domain": [
+        {
+          "value": "'a\\nb'",
+          "kind": "literal",
+          "seen_in": [
+            "rule:001"
+          ],
+          "closed_set": null,
+          "meaning": null
+        }
+      ],
+      "sources": [
+        {
+          "table": "ods.users",
+          "column": "name",
+          "comment": null,
+          "transform": "CONDITIONAL"
+        }
+      ],
+      "generated_sources": [],
+      "derivation": [
+        {
+          "step_no": 1,
+          "scope_id": "ROOT",
+          "step_type": "case_when",
+          "grain": "preserved",
+          "text": "name = 'x；y → z|w' → 'a\\nb'；否则 name",
+          "expression": "CASE WHEN `users`.`name` = 'x；y → z|w' THEN 'a\\nb' ELSE `users`.`name` END"
+        }
+      ],
+      "expression": "CASE WHEN `users`.`name` = 'x；y → z|w' THEN 'a\\nb' ELSE `users`.`name` END",
+      "trace_complete": true,
+      "ambiguous": false,
+      "mapping_chain_id": "mc:001",
+      "tag": "SQL事实"
+    }
+  ],
+  "confidence": {
+    "metadata_coverage": {
+      "input_tables_complete": 1,
+      "input_tables_total": 1,
+      "target_comments_available": false,
+      "target_metadata_source": null,
+      "sql_comment_counts": {
+        "header": 0,
+        "output": 0,
+        "logic": 0
+      },
+      "glossary": {
+        "values_total": 1,
+        "confirmed": 0,
+        "candidate": 0
+      }
+    },
+    "trace_incomplete_fields": [],
+    "ambiguous_fields": [],
+    "diagnostics_available": true,
+    "fact_gap_count": 0,
+    "fact_gap_types": {},
+    "warning_counts": {},
+    "findings": [
+      {
+        "kind": "target_binding",
+        "text": "未做目标列绑定（target_binding_absent_reason=metadata_not_provided）",
+        "evidence": []
+      },
+      {
+        "kind": "table_comment_missing",
+        "text": "缺少表注释的表（2 张）：ods.users、mart.flags",
+        "evidence": []
+      }
+    ],
+    "inferred_items": {
+      "fields[].structural_role": 1,
+      "output_shape.shape": 1,
+      "output_shape.grain": 1,
+      "output_shape.candidate_keys": 1,
+      "output_shape.unexposed_keys": 1,
+      "output_shape.key_confidence": 1
+    }
+  }
+}

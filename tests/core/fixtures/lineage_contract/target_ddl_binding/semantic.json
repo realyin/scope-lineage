@@ -1,0 +1,229 @@
+{
+  "doc_format": "semantic-json/1",
+  "schema_version": "1.0",
+  "statement_id": "stmt:001",
+  "lineage_digest": "49ca4ef5f9e34e0f",
+  "task": {
+    "task_name": "golden_target_ddl_binding",
+    "target_table": "dwd.account_daily",
+    "target_table_comment": "账户日快照（合成）",
+    "target_table_domain": "账户域",
+    "target_table_project": "账户日报（合成）",
+    "target_table_owner": "demo_owner",
+    "stmt_kind": "INSERT_OVERWRITE",
+    "partition": {
+      "columns": [
+        "dt"
+      ],
+      "mode": "static",
+      "spec": {
+        "dt": "20260801"
+      }
+    },
+    "structural_summary": "ROOT 直接读取 ods.account_snapshot；输出 2 列。",
+    "target_metadata_source": "target_ddl",
+    "header_comments": [],
+    "meta": null
+  },
+  "inputs": [
+    {
+      "table": "ods.account_snapshot",
+      "comment": null,
+      "domain": null,
+      "project": null,
+      "owner": null,
+      "layer": null,
+      "role_in_task": "driving",
+      "roles": [
+        "driving"
+      ],
+      "used_columns": [
+        {
+          "name": "account_key",
+          "type": null,
+          "comment": null,
+          "usages": [
+            "output"
+          ]
+        },
+        {
+          "name": "balance_value",
+          "type": null,
+          "comment": null,
+          "usages": [
+            "output"
+          ]
+        }
+      ],
+      "metadata_complete": true,
+      "table_column_count": 2,
+      "read_by_scopes": [
+        "ROOT"
+      ]
+    }
+  ],
+  "output_shape": {
+    "shape": "filtered_projection",
+    "shape_evidence": [
+      "ROOT"
+    ],
+    "grain": {
+      "keys": [],
+      "basis": "driving_table_rows",
+      "via_scopes": [],
+      "confidence": "structural",
+      "evidence": [
+        "ods.account_snapshot"
+      ]
+    },
+    "candidate_keys": [],
+    "unexposed_keys": [],
+    "key_evidence": [],
+    "key_confidence": "none",
+    "partition_columns": [
+      "dt"
+    ],
+    "fan_out_risks": [],
+    "tag": "结构推断"
+  },
+  "stages": [
+    {
+      "scope_id": "ROOT",
+      "name": "ROOT",
+      "kind": "root",
+      "role": "pass_through",
+      "direct_inputs": [
+        "ods.account_snapshot"
+      ],
+      "direct_source_tables": [
+        "ods.account_snapshot"
+      ],
+      "upstream_physical_tables": [
+        "ods.account_snapshot"
+      ],
+      "actions": [],
+      "outputs": [
+        "account_id",
+        "balance"
+      ],
+      "output_count": 2,
+      "pattern_signature": "role=pass_through|kind=root|inputs=tables:1,scopes:0,union:no|blocks=|derive=0|window=|agg="
+    }
+  ],
+  "rules": [],
+  "fields": [
+    {
+      "column": "account_id",
+      "column_label": "dwd.account_daily.account_id",
+      "summary": "（注释未知）：直接取自 ods.account_snapshot.account_key（注释未知）",
+      "target_comment": null,
+      "type": "bigint",
+      "transform": "DIRECT",
+      "structural_role": "attribute",
+      "sources": [
+        {
+          "table": "ods.account_snapshot",
+          "column": "account_key",
+          "comment": null,
+          "transform": "DIRECT"
+        }
+      ],
+      "generated_sources": [],
+      "derivation": [
+        {
+          "step_no": 1,
+          "scope_id": "ROOT",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 ods.account_snapshot.account_key",
+          "expression": "`s`.`account_key`"
+        }
+      ],
+      "expression": "`s`.`account_key`",
+      "trace_complete": true,
+      "ambiguous": false,
+      "mapping_chain_id": "mc:001",
+      "tag": "SQL事实"
+    },
+    {
+      "column": "balance",
+      "column_label": "dwd.account_daily.balance",
+      "summary": "（注释未知）：直接取自 ods.account_snapshot.balance_value（注释未知）",
+      "target_comment": null,
+      "type": "decimal(18,2)",
+      "transform": "DIRECT",
+      "structural_role": "attribute",
+      "sources": [
+        {
+          "table": "ods.account_snapshot",
+          "column": "balance_value",
+          "comment": null,
+          "transform": "DIRECT"
+        }
+      ],
+      "generated_sources": [],
+      "derivation": [
+        {
+          "step_no": 1,
+          "scope_id": "ROOT",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 ods.account_snapshot.balance_value",
+          "expression": "`s`.`balance_value`"
+        }
+      ],
+      "expression": "`s`.`balance_value`",
+      "trace_complete": true,
+      "ambiguous": false,
+      "mapping_chain_id": "mc:002",
+      "tag": "SQL事实"
+    }
+  ],
+  "confidence": {
+    "metadata_coverage": {
+      "input_tables_complete": 1,
+      "input_tables_total": 1,
+      "target_comments_available": false,
+      "target_metadata_source": "target_ddl",
+      "sql_comment_counts": {
+        "header": 0,
+        "output": 0,
+        "logic": 0
+      }
+    },
+    "trace_incomplete_fields": [],
+    "ambiguous_fields": [],
+    "diagnostics_available": true,
+    "fact_gap_count": 0,
+    "fact_gap_types": {},
+    "warning_counts": {},
+    "findings": [
+      {
+        "kind": "alias_position_mismatch",
+        "text": "按位置写入且 2/2 个投影的 SQL 别名与 DDL 同位置列名不同（如 目标 account_id ← 别名 wrong_key、目标 balance ← 别名 wrong_balance）——生产数据写错列或元数据列序过期，需 DESC 表核对",
+        "evidence": [
+          "mc:001",
+          "mc:002"
+        ]
+      },
+      {
+        "kind": "target_binding",
+        "text": "status=applied、method=ddl_position（按 DDL 位置绑定，目标表 DDL 变更会导致列错位）",
+        "evidence": []
+      },
+      {
+        "kind": "table_comment_missing",
+        "text": "缺少表注释的表（1 张）：ods.account_snapshot",
+        "evidence": []
+      }
+    ],
+    "inferred_items": {
+      "fields[].structural_role": 2,
+      "output_shape.shape": 1,
+      "output_shape.grain": 1,
+      "output_shape.candidate_keys": 1,
+      "output_shape.unexposed_keys": 1,
+      "output_shape.key_confidence": 1
+    }
+  }
+}

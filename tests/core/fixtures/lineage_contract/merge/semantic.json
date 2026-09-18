@@ -1,0 +1,293 @@
+{
+  "doc_format": "semantic-json/1",
+  "schema_version": "1.0",
+  "statement_id": "stmt:001",
+  "lineage_digest": "4abbc5352d1e69a5",
+  "task": {
+    "task_name": "merge_contract",
+    "target_table": "mart.customer_profile",
+    "target_table_comment": null,
+    "target_table_domain": null,
+    "target_table_project": null,
+    "target_table_owner": null,
+    "stmt_kind": "MERGE",
+    "partition": {
+      "columns": [],
+      "mode": null,
+      "spec": null
+    },
+    "structural_summary": "ROOT 不直接读取物理表；关联 1 个上游（1 个其他）；输出 3 列。",
+    "target_metadata_source": "schema",
+    "header_comments": [],
+    "meta": null
+  },
+  "inputs": [
+    {
+      "table": "ods.customer_delta",
+      "comment": null,
+      "domain": null,
+      "project": null,
+      "owner": null,
+      "layer": null,
+      "role_in_task": "merge_source",
+      "roles": [
+        "merge_source"
+      ],
+      "used_columns": [
+        {
+          "name": "customer_id",
+          "type": null,
+          "comment": null,
+          "usages": [
+            "output"
+          ]
+        },
+        {
+          "name": "customer_name",
+          "type": null,
+          "comment": null,
+          "usages": [
+            "output"
+          ]
+        }
+      ],
+      "metadata_complete": true,
+      "table_column_count": 2,
+      "read_by_scopes": [
+        "subq:source"
+      ]
+    }
+  ],
+  "output_shape": {
+    "shape": "unknown",
+    "shape_evidence": [
+      "ROOT"
+    ],
+    "grain": {
+      "keys": [],
+      "basis": "unknown",
+      "via_scopes": [],
+      "confidence": "structural",
+      "evidence": [
+        "ROOT"
+      ]
+    },
+    "candidate_keys": [],
+    "unexposed_keys": [],
+    "key_evidence": [],
+    "key_confidence": "none",
+    "partition_columns": [],
+    "fan_out_risks": [],
+    "tag": "结构推断"
+  },
+  "stages": [
+    {
+      "scope_id": "subq:source",
+      "name": "source",
+      "kind": "subquery",
+      "role": "pass_through",
+      "direct_inputs": [
+        "ods.customer_delta"
+      ],
+      "direct_source_tables": [
+        "ods.customer_delta"
+      ],
+      "upstream_physical_tables": [
+        "ods.customer_delta"
+      ],
+      "actions": [],
+      "outputs": [
+        "customer_id",
+        "customer_name"
+      ],
+      "output_count": 2,
+      "pattern_signature": "role=pass_through|kind=subquery|inputs=tables:1,scopes:0,union:no|blocks=|derive=0|window=|agg="
+    },
+    {
+      "scope_id": "ROOT",
+      "name": "ROOT",
+      "kind": "root",
+      "role": "pass_through",
+      "direct_inputs": [
+        "subq:source"
+      ],
+      "direct_source_tables": [],
+      "upstream_physical_tables": [
+        "ods.customer_delta"
+      ],
+      "actions": [],
+      "outputs": [
+        "customer_name",
+        "customer_id",
+        "customer_name"
+      ],
+      "output_count": 3,
+      "pattern_signature": "role=pass_through|kind=root|inputs=tables:0,scopes:1,union:no|blocks=|derive=0|window=|agg="
+    }
+  ],
+  "rules": [],
+  "fields": [
+    {
+      "column": "customer_name",
+      "column_label": "mart.customer_profile.customer_name（merge:matched 分支 0）",
+      "summary": "（注释未知）：直接取自 ods.customer_delta.customer_name（注释未知）",
+      "target_comment": null,
+      "type": null,
+      "transform": "DIRECT",
+      "structural_role": "attribute",
+      "sources": [
+        {
+          "table": "ods.customer_delta",
+          "column": "customer_name",
+          "comment": null,
+          "transform": "DIRECT"
+        }
+      ],
+      "generated_sources": [],
+      "derivation": [
+        {
+          "step_no": 1,
+          "scope_id": "subq:source",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 ods.customer_delta.customer_name",
+          "expression": "`customer_delta`.`customer_name`"
+        },
+        {
+          "step_no": 2,
+          "scope_id": "ROOT",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 subq:source.customer_name",
+          "expression": "`source`.`customer_name`"
+        }
+      ],
+      "expression": "`source`.`customer_name`",
+      "trace_complete": true,
+      "ambiguous": false,
+      "mapping_chain_id": "mc:001",
+      "tag": "SQL事实"
+    },
+    {
+      "column": "customer_id",
+      "column_label": "mart.customer_profile.customer_id（merge:not_matched 分支 1）",
+      "summary": "（注释未知）：直接取自 ods.customer_delta.customer_id（注释未知）",
+      "target_comment": null,
+      "type": null,
+      "transform": "DIRECT",
+      "structural_role": "attribute",
+      "sources": [
+        {
+          "table": "ods.customer_delta",
+          "column": "customer_id",
+          "comment": null,
+          "transform": "DIRECT"
+        }
+      ],
+      "generated_sources": [],
+      "derivation": [
+        {
+          "step_no": 1,
+          "scope_id": "subq:source",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 ods.customer_delta.customer_id",
+          "expression": "`customer_delta`.`customer_id`"
+        },
+        {
+          "step_no": 2,
+          "scope_id": "ROOT",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 subq:source.customer_id",
+          "expression": "`source`.`customer_id`"
+        }
+      ],
+      "expression": "`source`.`customer_id`",
+      "trace_complete": true,
+      "ambiguous": false,
+      "mapping_chain_id": "mc:002",
+      "tag": "SQL事实"
+    },
+    {
+      "column": "customer_name",
+      "column_label": "mart.customer_profile.customer_name（merge:not_matched 分支 1）",
+      "summary": "（注释未知）：直接取自 ods.customer_delta.customer_name（注释未知）",
+      "target_comment": null,
+      "type": null,
+      "transform": "DIRECT",
+      "structural_role": "attribute",
+      "sources": [
+        {
+          "table": "ods.customer_delta",
+          "column": "customer_name",
+          "comment": null,
+          "transform": "DIRECT"
+        }
+      ],
+      "generated_sources": [],
+      "derivation": [
+        {
+          "step_no": 1,
+          "scope_id": "subq:source",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 ods.customer_delta.customer_name",
+          "expression": "`customer_delta`.`customer_name`"
+        },
+        {
+          "step_no": 2,
+          "scope_id": "ROOT",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 subq:source.customer_name",
+          "expression": "`source`.`customer_name`"
+        }
+      ],
+      "expression": "`source`.`customer_name`",
+      "trace_complete": true,
+      "ambiguous": false,
+      "mapping_chain_id": "mc:003",
+      "tag": "SQL事实"
+    }
+  ],
+  "confidence": {
+    "metadata_coverage": {
+      "input_tables_complete": 1,
+      "input_tables_total": 1,
+      "target_comments_available": false,
+      "target_metadata_source": "schema",
+      "sql_comment_counts": {
+        "header": 0,
+        "output": 0,
+        "logic": 0
+      }
+    },
+    "trace_incomplete_fields": [],
+    "ambiguous_fields": [],
+    "diagnostics_available": true,
+    "fact_gap_count": 0,
+    "fact_gap_types": {},
+    "warning_counts": {},
+    "findings": [
+      {
+        "kind": "target_binding",
+        "text": "未做目标列绑定（target_binding_absent_reason=binding_not_applicable_for_statement）",
+        "evidence": []
+      },
+      {
+        "kind": "table_comment_missing",
+        "text": "缺少表注释的表（2 张）：ods.customer_delta、mart.customer_profile",
+        "evidence": []
+      }
+    ],
+    "inferred_items": {
+      "fields[].structural_role": 3,
+      "output_shape.shape": 1,
+      "output_shape.grain": 1,
+      "output_shape.candidate_keys": 1,
+      "output_shape.unexposed_keys": 1,
+      "output_shape.key_confidence": 1
+    }
+  }
+}
