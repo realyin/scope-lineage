@@ -1,0 +1,309 @@
+{
+  "doc_format": "semantic-json/1",
+  "schema_version": "1.0",
+  "statement_id": "stmt:001",
+  "lineage_digest": "cd5641d03833f8d7",
+  "task": {
+    "task_name": "golden_self_join",
+    "target_table": "mart.node_edges",
+    "target_table_comment": null,
+    "target_table_domain": null,
+    "target_table_project": null,
+    "target_table_owner": null,
+    "stmt_kind": "INSERT",
+    "partition": {
+      "columns": [],
+      "mode": null,
+      "spec": null
+    },
+    "structural_summary": "ROOT 直接读取 ods.nodes；输出 2 列。",
+    "target_metadata_source": null,
+    "header_comments": [],
+    "meta": null
+  },
+  "inputs": [
+    {
+      "table": "ods.nodes",
+      "comment": null,
+      "domain": null,
+      "project": null,
+      "owner": null,
+      "layer": null,
+      "role_in_task": "driving",
+      "roles": [
+        "driving"
+      ],
+      "used_columns": [
+        {
+          "name": "id",
+          "type": null,
+          "comment": null,
+          "usages": [
+            "join_key",
+            "output"
+          ]
+        },
+        {
+          "name": "parent_id",
+          "type": null,
+          "comment": null,
+          "usages": [
+            "join_key"
+          ]
+        },
+        {
+          "name": "batch_id",
+          "type": null,
+          "comment": null,
+          "usages": [
+            "join_key"
+          ]
+        }
+      ],
+      "metadata_complete": true,
+      "table_column_count": 3,
+      "read_by_scopes": [
+        "ROOT"
+      ]
+    }
+  ],
+  "output_shape": {
+    "shape": "enriched_projection",
+    "shape_evidence": [
+      "logic:ROOT:join:001"
+    ],
+    "grain": {
+      "keys": [],
+      "basis": "driving_table_rows",
+      "via_scopes": [],
+      "confidence": "structural",
+      "evidence": [
+        "ods.nodes"
+      ]
+    },
+    "candidate_keys": [],
+    "unexposed_keys": [],
+    "key_evidence": [],
+    "key_confidence": "none",
+    "partition_columns": [],
+    "fan_out_risks": [
+      {
+        "logic_block_id": "logic:ROOT:join:001",
+        "scope_id": "ROOT",
+        "join_type": "INNER",
+        "right": "ods.nodes",
+        "status": "unknown",
+        "reason": "物理表无主键事实",
+        "path": "grain"
+      }
+    ],
+    "tag": "结构推断"
+  },
+  "stages": [
+    {
+      "scope_id": "ROOT",
+      "name": "ROOT",
+      "kind": "root",
+      "role": "join",
+      "direct_inputs": [
+        "ods.nodes"
+      ],
+      "direct_source_tables": [
+        "ods.nodes"
+      ],
+      "upstream_physical_tables": [
+        "ods.nodes"
+      ],
+      "actions": [
+        {
+          "type": "join",
+          "text": "INNER 关联 ods.nodes，键 a.parent_id = b.id、batch_id，无匹配的行被丢弃",
+          "expression": "`a`.`parent_id` = `b`.`id` AND `a`.`batch_id` = `b`.`batch_id`",
+          "fields": [
+            {
+              "table": "ods.nodes",
+              "column": "parent_id",
+              "comment": null
+            },
+            {
+              "table": "ods.nodes",
+              "column": "id",
+              "comment": null
+            },
+            {
+              "table": "ods.nodes",
+              "column": "batch_id",
+              "comment": null
+            }
+          ],
+          "evidence": "logic:ROOT:join:001",
+          "tag": "SQL事实"
+        }
+      ],
+      "outputs": [
+        "id",
+        "parent_id"
+      ],
+      "output_count": 2,
+      "pattern_signature": "role=join|kind=root|inputs=tables:1,scopes:0,union:no|blocks=join=1|derive=0|window=|agg="
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "rule:001",
+      "kind": "join_condition",
+      "scope_id": "ROOT",
+      "expression": "`a`.`parent_id` = `b`.`id` AND `a`.`batch_id` = `b`.`batch_id`",
+      "join_type": "INNER",
+      "null_semantics": "无匹配的行被丢弃",
+      "left_input": "ods.nodes",
+      "right_input": "ods.nodes",
+      "key_pairs": [
+        {
+          "left": "a.parent_id",
+          "right": "b.id"
+        },
+        {
+          "left": "a.batch_id",
+          "right": "b.batch_id"
+        }
+      ],
+      "physical_key_pairs": [
+        {
+          "left": "ods.nodes.parent_id",
+          "right": "ods.nodes.id"
+        }
+      ],
+      "extra_conditions": [],
+      "extra_condition_fields": [],
+      "fields": [
+        {
+          "table": "ods.nodes",
+          "column": "parent_id",
+          "comment": null
+        },
+        {
+          "table": "ods.nodes",
+          "column": "id",
+          "comment": null
+        },
+        {
+          "table": "ods.nodes",
+          "column": "batch_id",
+          "comment": null
+        }
+      ],
+      "scope_fields": [],
+      "evidence": "logic:ROOT:join:001",
+      "tag": "SQL事实"
+    }
+  ],
+  "fields": [
+    {
+      "column": "id",
+      "column_label": "mart.node_edges.id",
+      "summary": "（注释未知）：直接取自 ods.nodes.id（注释未知）",
+      "target_comment": null,
+      "type": null,
+      "transform": "DIRECT",
+      "structural_role": "attribute",
+      "sources": [
+        {
+          "table": "ods.nodes",
+          "column": "id",
+          "comment": null,
+          "transform": "DIRECT"
+        }
+      ],
+      "generated_sources": [],
+      "derivation": [
+        {
+          "step_no": 1,
+          "scope_id": "ROOT",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 ods.nodes.id",
+          "expression": "`a`.`id`"
+        }
+      ],
+      "expression": "`a`.`id`",
+      "trace_complete": true,
+      "ambiguous": false,
+      "mapping_chain_id": "mc:001",
+      "tag": "SQL事实"
+    },
+    {
+      "column": "parent_id",
+      "column_label": "mart.node_edges.parent_id",
+      "summary": "（注释未知）：直接取自 ods.nodes.id（注释未知）",
+      "target_comment": null,
+      "type": null,
+      "transform": "DIRECT",
+      "structural_role": "attribute",
+      "sources": [
+        {
+          "table": "ods.nodes",
+          "column": "id",
+          "comment": null,
+          "transform": "DIRECT"
+        }
+      ],
+      "generated_sources": [],
+      "derivation": [
+        {
+          "step_no": 1,
+          "scope_id": "ROOT",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 ods.nodes.id",
+          "expression": "`b`.`id`"
+        }
+      ],
+      "expression": "`b`.`id`",
+      "trace_complete": true,
+      "ambiguous": false,
+      "mapping_chain_id": "mc:002",
+      "tag": "SQL事实"
+    }
+  ],
+  "confidence": {
+    "metadata_coverage": {
+      "input_tables_complete": 1,
+      "input_tables_total": 1,
+      "target_comments_available": false,
+      "target_metadata_source": null,
+      "sql_comment_counts": {
+        "header": 0,
+        "output": 0,
+        "logic": 0
+      }
+    },
+    "trace_incomplete_fields": [],
+    "ambiguous_fields": [],
+    "diagnostics_available": true,
+    "fact_gap_count": 0,
+    "fact_gap_types": {},
+    "warning_counts": {},
+    "findings": [
+      {
+        "kind": "target_binding",
+        "text": "未做目标列绑定（target_binding_absent_reason=metadata_not_provided）",
+        "evidence": []
+      },
+      {
+        "kind": "table_comment_missing",
+        "text": "缺少表注释的表（2 张）：ods.nodes、mart.node_edges",
+        "evidence": []
+      }
+    ],
+    "inferred_items": {
+      "fields[].structural_role": 2,
+      "output_shape.shape": 1,
+      "output_shape.grain": 1,
+      "output_shape.candidate_keys": 1,
+      "output_shape.unexposed_keys": 1,
+      "output_shape.key_confidence": 1,
+      "output_shape.fan_out_risks[]": 1
+    }
+  }
+}

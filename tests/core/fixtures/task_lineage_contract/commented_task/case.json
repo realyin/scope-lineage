@@ -1,0 +1,28 @@
+{
+  "task_id": "golden_commented_task",
+  "sql": "-- 任务：客户渠道汇总（合成示例）\n-- 口径：仅统计生效状态的客户\nINSERT OVERWRITE TABLE mart.channel_summary PARTITION (dt = '${bizdate}')\nSELECT\n    s.customer_id AS customer_id, -- 客户号\n    /* 渠道编码（合成值域） */\n    CASE WHEN s.channel_code = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END AS channel_name,\n    SUM(s.amount) AS total_amount -- 金额合计（元）\nFROM ods.channel_event s\nLEFT JOIN dim.channel d ON s.channel_code = d.channel_code -- 按渠道编码补充维度\nWHERE s.status = 'ACTIVE' -- 仅生效状态\nGROUP BY s.customer_id, CASE WHEN s.channel_code = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END",
+  "schema": {
+    "ods.channel_event": [
+      "customer_id",
+      "channel_code",
+      "amount",
+      "status"
+    ],
+    "dim.channel": [
+      "channel_code",
+      "channel_name"
+    ]
+  },
+  "task_meta": {
+    "task_id": "T-0001",
+    "task_name": "channel_summary_daily",
+    "project_name": "demo_project",
+    "owner": "demo_owner",
+    "owner_email": "demo_owner@example.com",
+    "schedule": "0 20 3 * * ?",
+    "schedule_cycle": "DAY",
+    "description": "每日渠道汇总（合成示例）",
+    "expect_date": "2026-09-18",
+    "source_file": "demo/channel_summary_daily.json"
+  }
+}

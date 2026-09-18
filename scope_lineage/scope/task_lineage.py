@@ -32,6 +32,66 @@ from .session_settings import (
     DEFAULT_QUOTED_REGEX_COLUMN_NAMES,
     quoted_regex_column_names_setting,
 )
+from .sql_comments import (
+    redact as redact_comment_text,
+    redact_comments as redact_sql_comments,
+    strip_comments as strip_sql_comments,
+)
+
+
+# WI-2.2: which task-metadata facts the contract carries, and under what neutral name.
+# `owner_email` is deliberately NOT in this map: it is a person's contact address, it
+# proves nothing about the data, and an artifact that travels between systems should not
+# carry it. A source key absent from the map is ignored rather than passed through, so
+# widening an exporter's `meta` object cannot widen this contract by accident.
+TASK_META_FIELDS = (
+    ("task_name", ("task_name",)),
+    ("task_id", ("task_id",)),
+    ("project", ("project_name", "project_code")),
+    ("owner", ("owner",)),
+    ("schedule", ("schedule",)),
+    ("schedule_cycle", ("schedule_cycle",)),
+    ("description", ("description",)),
+    ("expect_date", ("expect_date",)),
+    ("source_file", ("source_file",)),
+)
+
+
+def normalize_task_meta(
+    task_meta: Mapping[str, object] | None, *, redact: bool = True
+) -> dict[str, str | None] | None:
+    """The published ``task_meta`` object, or None when no task metadata was supplied.
+
+    Every value becomes a string or ``null``; nothing is composed, defaulted or inferred.
+    ``None`` and an object holding nothing this contract names both answer "no metadata",
+    because publishing nine nulls would state that a task JSON was read and found empty.
+
+    ``description`` is the one free-text field here -- a person writes it the way they
+    write a comment, contact details included -- so it goes through the same masking the
+    comments do. The other eight are identifiers, names and schedules the exporter
+    produced, and rewriting those would corrupt a fact rather than protect a person.
+    """
+    if not task_meta:
+        return None
+    normalized = {
+        name: _task_meta_value(task_meta, sources) for name, sources in TASK_META_FIELDS
+    }
+    if redact and normalized.get("description"):
+        normalized["description"] = redact_comment_text(normalized["description"])
+    return normalized if any(value is not None for value in normalized.values()) else None
+
+
+def _task_meta_value(
+    task_meta: Mapping[str, object], sources: tuple[str, ...]
+) -> str | None:
+    for key in sources:
+        value = task_meta.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return None
 
 
 @dataclass
@@ -48,6 +108,9 @@ class TaskLineageResult:
     end_to_end_lineage: list[dict] = field(default_factory=list)
     diagnostics: dict = field(default_factory=dict)
     task_dependencies: dict = field(default_factory=dict)
+    # WI-2.2: the normalized task metadata, or None when the input was a bare `.sql`
+    # file. None publishes no key at all -- absence means "no task JSON supplied one".
+    task_meta: dict | None = None
 
 
 @dataclass
@@ -239,30 +302,41 @@ def _gaps_marked_for_recovered_syntax(
     return gaps
 
 
-def parse_task_lineage(
-    sql: str,
-    task_name: str,
-    schema: Mapping[str, Iterable[str]] | None = None,
-    target_metadata=None,
-    task_dependencies: dict | None = None,
-    partition_overwrite_mode: str | None = None,
-) -> TaskLineageResult:
-    """Parse an ordered SQL script into table-state and statement lineage."""
+def _parse_script_trees(
+    sql: str, *, strip_comments: bool = False, redact_comments: bool = True
+) -> tuple[list, list[str], list[str]]:
+    """The script's statement ASTs, plus what had to be repaired to get them.
+
+    Both repairs are text-level and are disclosed to the caller rather than applied
+    silently; neither costs the script its comments, which is why the strip below is the
+    only thing that removes them. Stripping happens here, once, on trees this module owns:
+    ``parse_scope_lineage`` deliberately leaves a caller-supplied tree alone, so a tree
+    handed to it later must already be clean.
+    """
     ctas_repaired_sql, ctas_repairs = repair_ctas_missing_as(
         _normalize_directory_insert_sql(sql)
     )
     normalized, quoted_identifiers = repair_keyword_identifiers(ctas_repaired_sql)
     trees = sqlglot.parse(normalized, dialect=DIALECT, **PARSE_OPTS)
-    syntax_status, syntax_errors = _syntax_status(sql)
-    state_builder = _StateBuilder(schema)
-    statements: list[dict] = []
-    statement_lineage: dict[str, object] = {}
+    for parsed in trees:
+        if strip_comments:
+            strip_sql_comments(parsed)
+        elif redact_comments:
+            redact_sql_comments(parsed)
+    return trees, ctas_repairs, quoted_identifiers
+
+
+def _repair_disclosure_warnings(
+    ctas_repairs: list[str], quoted_identifiers: list[str]
+) -> list[dict]:
+    """Declare each text-level repair `_parse_script_trees` had to make.
+
+    A rewritten statement must not be presented as if the author wrote it that way. These
+    are deliberately not `syntax_status: recovered`, which is script-scoped and would
+    degrade every other statement in the same script along with this one.
+    """
     warnings: list[dict] = []
     if ctas_repairs:
-        # A rewritten statement must not be presented as if the author wrote it that way.
-        # Same disclosure contract as identifiers_quoted_for_parse below; deliberately not
-        # syntax_status: recovered, which is script-scoped and would degrade every other
-        # statement in the same script along with this one.
         warnings.append({
             "type": "ctas_as_inserted_for_parse",
             "scope": "TASK",
@@ -280,6 +354,37 @@ def parse_task_lineage(
                 + ", ".join(quoted_identifiers)
             ),
         })
+    return warnings
+
+
+def parse_task_lineage(
+    sql: str,
+    task_name: str,
+    schema: Mapping[str, Iterable[str]] | None = None,
+    target_metadata=None,
+    task_dependencies: dict | None = None,
+    partition_overwrite_mode: str | None = None,
+    task_meta: Mapping[str, object] | None = None,
+    strip_comments: bool = False,
+    redact_comments: bool = True,
+) -> TaskLineageResult:
+    """Parse an ordered SQL script into table-state and statement lineage.
+
+    ``task_meta`` is an exported task object's ``meta`` block (plus, optionally, a
+    ``source_file``). It is normalized by :func:`normalize_task_meta`, which copies the
+    nine facts ``TASK_META_FIELDS`` names and drops everything else -- ``owner_email``
+    included. ``strip_comments`` drops every SQL comment from the whole document;
+    ``redact_comments``, on by default, instead keeps each comment and masks the contact
+    shapes inside it, and masks ``task_meta.description`` the same way.
+    """
+    trees, ctas_repairs, quoted_identifiers = _parse_script_trees(
+        sql, strip_comments=strip_comments, redact_comments=redact_comments
+    )
+    syntax_status, syntax_errors = _syntax_status(sql)
+    state_builder = _StateBuilder(schema)
+    statements: list[dict] = []
+    statement_lineage: dict[str, object] = {}
+    warnings: list[dict] = _repair_disclosure_warnings(ctas_repairs, quoted_identifiers)
     gaps: list[dict] = []
     # Columns proved by a CREATE ... AS SELECT earlier in this script, so the statements
     # that consume it are not modelled against a table nobody can describe.
@@ -518,6 +623,7 @@ def parse_task_lineage(
             },
         },
         task_dependencies=dict(task_dependencies or {}),
+        task_meta=normalize_task_meta(task_meta, redact=redact_comments),
     )
     return result
 

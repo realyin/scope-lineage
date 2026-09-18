@@ -4,7 +4,7 @@ schema_version: "1.0"
 task_name: "golden_fact_gap"
 target_table: "mart.amounts"
 stmt_kind: "INSERT"
-lineage_digest: "26fd944ce1999c98"
+lineage_digest: "ab3330b352f0a01e"
 ---
 
 # 字段映射文档 mart.amounts

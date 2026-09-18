@@ -1,0 +1,1408 @@
+{
+  "doc_format": "semantic-json/1",
+  "schema_version": "1.0",
+  "statement_id": "stmt:001",
+  "lineage_digest": "4e323ab37f990b59",
+  "task": {
+    "task_name": "golden_grouped_dedup_join",
+    "target_table": "mart.metric_by_segment",
+    "target_table_comment": null,
+    "target_table_domain": null,
+    "target_table_project": null,
+    "target_table_owner": null,
+    "stmt_kind": "INSERT_OVERWRITE",
+    "partition": {
+      "columns": [
+        "dt"
+      ],
+      "mode": "static",
+      "spec": {
+        "dt": "20260101"
+      }
+    },
+    "structural_summary": "ROOT 不直接读取物理表；关联 1 个上游（1 个去重）；输出 6 列。",
+    "target_metadata_source": "target_ddl",
+    "header_comments": [],
+    "meta": null
+  },
+  "inputs": [
+    {
+      "table": "dim.segment_dim",
+      "comment": null,
+      "domain": null,
+      "project": null,
+      "owner": null,
+      "layer": null,
+      "role_in_task": "dedup_source",
+      "roles": [
+        "dedup_source",
+        "enrich"
+      ],
+      "used_columns": [
+        {
+          "name": "segment",
+          "type": null,
+          "comment": null,
+          "usages": [
+            "join_key",
+            "window_partition"
+          ]
+        },
+        {
+          "name": "segment_name",
+          "type": null,
+          "comment": null,
+          "usages": [
+            "output"
+          ]
+        },
+        {
+          "name": "updated_at",
+          "type": null,
+          "comment": null,
+          "usages": [
+            "window_order"
+          ]
+        }
+      ],
+      "metadata_complete": true,
+      "table_column_count": 3,
+      "read_by_scopes": [
+        "cte:latest_dim"
+      ]
+    },
+    {
+      "table": "ods.events_a",
+      "comment": null,
+      "domain": null,
+      "project": null,
+      "owner": null,
+      "layer": null,
+      "role_in_task": "driving",
+      "roles": [
+        "driving",
+        "union_branch",
+        "enrich"
+      ],
+      "used_columns": [
+        {
+          "name": "segment",
+          "type": null,
+          "comment": null,
+          "usages": [
+            "join_key",
+            "group_by",
+            "output"
+          ]
+        },
+        {
+          "name": "amount",
+          "type": null,
+          "comment": null,
+          "usages": [
+            "group_by",
+            "window_partition",
+            "output"
+          ]
+        }
+      ],
+      "metadata_complete": true,
+      "table_column_count": 2,
+      "read_by_scopes": [
+        "union:events_norm:b01"
+      ]
+    },
+    {
+      "table": "ods.events_b",
+      "comment": null,
+      "domain": null,
+      "project": null,
+      "owner": null,
+      "layer": null,
+      "role_in_task": "driving",
+      "roles": [
+        "driving",
+        "union_branch",
+        "enrich"
+      ],
+      "used_columns": [
+        {
+          "name": "seg_code",
+          "type": null,
+          "comment": null,
+          "usages": [
+            "join_key",
+            "group_by",
+            "output"
+          ]
+        },
+        {
+          "name": "amount",
+          "type": null,
+          "comment": null,
+          "usages": [
+            "group_by",
+            "window_partition",
+            "output"
+          ]
+        }
+      ],
+      "metadata_complete": true,
+      "table_column_count": 2,
+      "read_by_scopes": [
+        "union:events_norm:b02"
+      ]
+    }
+  ],
+  "output_shape": {
+    "shape": "filtered_projection",
+    "shape_evidence": [
+      "ROOT"
+    ],
+    "grain": {
+      "keys": [
+        {
+          "scope_id": "cte:agg",
+          "name": "segment",
+          "expression": "`events_norm`.`segment`",
+          "physical_sources": [
+            {
+              "table": "ods.events_a",
+              "column": "segment"
+            },
+            {
+              "table": "ods.events_b",
+              "column": "seg_code"
+            }
+          ]
+        },
+        {
+          "scope_id": "cte:agg",
+          "name": "band",
+          "expression": "CASE WHEN `events_norm`.`amount` >= 100 THEN 'HIGH' ELSE 'LOW' END",
+          "physical_sources": [
+            {
+              "table": "ods.events_a",
+              "column": "amount"
+            },
+            {
+              "table": "ods.events_b",
+              "column": "amount"
+            }
+          ]
+        }
+      ],
+      "basis": "group_by",
+      "via_scopes": [
+        "cte:ranked",
+        "cte:joined"
+      ],
+      "confidence": "structural",
+      "evidence": [
+        "logic:cte:agg:group_by:001"
+      ]
+    },
+    "candidate_keys": [
+      "segment",
+      "band"
+    ],
+    "unexposed_keys": [],
+    "key_evidence": [],
+    "key_confidence": "proven",
+    "partition_columns": [
+      "dt"
+    ],
+    "fan_out_risks": [
+      {
+        "logic_block_id": "logic:cte:joined:join:001",
+        "scope_id": "cte:joined",
+        "join_type": "LEFT_OUTER",
+        "right": "cte:latest_dim",
+        "status": "safe",
+        "reason": "右侧 row_number 按 segment 分区并以 = 1 过滤（logic:cte:joined:join:001）",
+        "path": "grain"
+      }
+    ],
+    "tag": "结构推断"
+  },
+  "stages": [
+    {
+      "scope_id": "cte:latest_dim",
+      "name": "latest_dim",
+      "kind": "cte",
+      "role": "dedup",
+      "direct_inputs": [
+        "dim.segment_dim"
+      ],
+      "direct_source_tables": [
+        "dim.segment_dim"
+      ],
+      "upstream_physical_tables": [
+        "dim.segment_dim"
+      ],
+      "actions": [
+        {
+          "type": "window",
+          "intent": "keep_latest_per_group",
+          "text": "按 segment 分组，按 updated_at 降序编号（rn）；cte:joined 以 rn = 1 消费，即每组保留最新一条",
+          "expression": "ROW_NUMBER() OVER (PARTITION BY `segment_dim`.`segment` ORDER BY `segment_dim`.`updated_at` DESC)",
+          "fields": [
+            {
+              "table": "dim.segment_dim",
+              "column": "segment",
+              "comment": null
+            },
+            {
+              "table": "dim.segment_dim",
+              "column": "updated_at",
+              "comment": null
+            }
+          ],
+          "consumed_by": "logic:cte:joined:join:001",
+          "evidence": "logic:cte:latest_dim:window:001",
+          "tag": "结构推断"
+        }
+      ],
+      "outputs": [
+        "segment",
+        "segment_name",
+        "rn"
+      ],
+      "output_count": 3,
+      "pattern_signature": "role=dedup|kind=cte|inputs=tables:1,scopes:0,union:no|blocks=window=1|derive=0|window=row_number|agg="
+    },
+    {
+      "scope_id": "union:events_norm:b01",
+      "name": "events_norm:b01",
+      "kind": "union_branch",
+      "role": "union_branch",
+      "direct_inputs": [
+        "ods.events_a"
+      ],
+      "direct_source_tables": [
+        "ods.events_a"
+      ],
+      "upstream_physical_tables": [
+        "ods.events_a"
+      ],
+      "actions": [],
+      "outputs": [
+        "segment",
+        "amount",
+        "branch_tag"
+      ],
+      "output_count": 3,
+      "pattern_signature": "role=union_branch|kind=union_branch|inputs=tables:1,scopes:0,union:no|blocks=|derive=0|window=|agg="
+    },
+    {
+      "scope_id": "union:events_norm:b02",
+      "name": "events_norm:b02",
+      "kind": "union_branch",
+      "role": "union_branch",
+      "direct_inputs": [
+        "ods.events_b"
+      ],
+      "direct_source_tables": [
+        "ods.events_b"
+      ],
+      "upstream_physical_tables": [
+        "ods.events_b"
+      ],
+      "actions": [],
+      "outputs": [
+        "segment",
+        "amount",
+        "branch_tag"
+      ],
+      "output_count": 3,
+      "pattern_signature": "role=union_branch|kind=union_branch|inputs=tables:1,scopes:0,union:no|blocks=|derive=0|window=|agg="
+    },
+    {
+      "scope_id": "union:events_norm",
+      "name": "events_norm",
+      "kind": "union",
+      "role": "union",
+      "direct_inputs": [
+        "union:events_norm:b01",
+        "union:events_norm:b02"
+      ],
+      "direct_source_tables": [],
+      "upstream_physical_tables": [
+        "ods.events_a",
+        "ods.events_b"
+      ],
+      "actions": [
+        {
+          "type": "union",
+          "text": "合并 2 个分支（来自 ods.events_a、ods.events_b）",
+          "fields": [],
+          "evidence": "union:events_norm",
+          "tag": "SQL事实"
+        }
+      ],
+      "outputs": [
+        "segment",
+        "amount",
+        "branch_tag"
+      ],
+      "output_count": 3,
+      "pattern_signature": "role=union|kind=union|inputs=tables:0,scopes:2,union:yes|blocks=|derive=0|window=|agg="
+    },
+    {
+      "scope_id": "cte:events_norm",
+      "name": "events_norm",
+      "kind": "cte",
+      "role": "transform",
+      "direct_inputs": [
+        "union:events_norm"
+      ],
+      "direct_source_tables": [],
+      "upstream_physical_tables": [
+        "ods.events_a",
+        "ods.events_b"
+      ],
+      "actions": [],
+      "outputs": [
+        "segment",
+        "amount",
+        "branch_tag"
+      ],
+      "output_count": 3,
+      "pattern_signature": "role=transform|kind=cte|inputs=tables:0,scopes:1,union:yes|blocks=union=3|derive=0|window=|agg="
+    },
+    {
+      "scope_id": "cte:agg",
+      "name": "agg",
+      "kind": "cte",
+      "role": "aggregate",
+      "direct_inputs": [
+        "cte:events_norm"
+      ],
+      "direct_source_tables": [],
+      "upstream_physical_tables": [
+        "ods.events_a",
+        "ods.events_b"
+      ],
+      "actions": [
+        {
+          "type": "aggregate",
+          "text": "按 segment、CASE WHEN amount >= 100 THEN 'HIGH' ELSE 'LOW' END 分组聚合：SUM(amount)、COUNT(1)",
+          "fields": [
+            {
+              "table": "ods.events_a",
+              "column": "segment",
+              "comment": null
+            },
+            {
+              "table": "ods.events_b",
+              "column": "seg_code",
+              "comment": null
+            },
+            {
+              "table": "ods.events_a",
+              "column": "amount",
+              "comment": null
+            },
+            {
+              "table": "ods.events_b",
+              "column": "amount",
+              "comment": null
+            }
+          ],
+          "evidence": "logic:cte:agg:group_by:001",
+          "tag": "SQL事实"
+        },
+        {
+          "type": "case_when",
+          "text": "派生 band：amount >= 100 → 'HIGH'；否则 'LOW'",
+          "expression": "CASE WHEN `events_norm`.`amount` >= 100 THEN 'HIGH' ELSE 'LOW' END",
+          "fields": [],
+          "evidence": "logic:cte:agg:case_when:001",
+          "tag": "SQL事实"
+        }
+      ],
+      "outputs": [
+        "segment",
+        "band",
+        "total",
+        "cnt"
+      ],
+      "output_count": 4,
+      "pattern_signature": "role=aggregate|kind=cte|inputs=tables:0,scopes:1,union:no|blocks=aggregate=2,case_when=1,group_by=1|derive=0|window=|agg=count,sum"
+    },
+    {
+      "scope_id": "cte:joined",
+      "name": "joined",
+      "kind": "cte",
+      "role": "join",
+      "direct_inputs": [
+        "cte:agg",
+        "cte:latest_dim"
+      ],
+      "direct_source_tables": [],
+      "upstream_physical_tables": [
+        "dim.segment_dim",
+        "ods.events_a",
+        "ods.events_b"
+      ],
+      "actions": [
+        {
+          "type": "join",
+          "text": "LEFT_OUTER 关联 cte:latest_dim，键 segment，附加条件 `d`.`rn` = 1，右侧无匹配时保留左行，右侧字段为空",
+          "expression": "`a`.`segment` = `d`.`segment` AND `d`.`rn` = 1",
+          "fields": [
+            {
+              "table": "ods.events_a",
+              "column": "segment",
+              "comment": null
+            },
+            {
+              "table": "dim.segment_dim",
+              "column": "segment",
+              "comment": null
+            },
+            {
+              "table": "ods.events_b",
+              "column": "seg_code",
+              "comment": null
+            }
+          ],
+          "evidence": "logic:cte:joined:join:001",
+          "tag": "SQL事实"
+        }
+      ],
+      "outputs": [
+        "segment",
+        "band",
+        "total",
+        "cnt",
+        "segment_name"
+      ],
+      "output_count": 5,
+      "pattern_signature": "role=join|kind=cte|inputs=tables:0,scopes:2,union:no|blocks=join=1|derive=0|window=|agg="
+    },
+    {
+      "scope_id": "cte:ranked",
+      "name": "ranked",
+      "kind": "cte",
+      "role": "dedup",
+      "direct_inputs": [
+        "cte:joined"
+      ],
+      "direct_source_tables": [],
+      "upstream_physical_tables": [
+        "dim.segment_dim",
+        "ods.events_a",
+        "ods.events_b"
+      ],
+      "actions": [
+        {
+          "type": "window",
+          "intent": "running_aggregate",
+          "text": "按 band 分组，计算 SUM（band_total）；组内累计聚合",
+          "expression": "SUM(`joined`.`total`) OVER (PARTITION BY `joined`.`band`)",
+          "fields": [
+            {
+              "table": "ods.events_a",
+              "column": "amount",
+              "comment": null
+            },
+            {
+              "table": "ods.events_b",
+              "column": "amount",
+              "comment": null
+            }
+          ],
+          "consumed_by": null,
+          "evidence": "logic:cte:ranked:window:001",
+          "tag": "结构推断"
+        }
+      ],
+      "outputs": [
+        "segment",
+        "band",
+        "total",
+        "cnt",
+        "segment_name",
+        "band_total"
+      ],
+      "output_count": 6,
+      "pattern_signature": "role=dedup|kind=cte|inputs=tables:0,scopes:1,union:no|blocks=window=1|derive=0|window=sum|agg="
+    },
+    {
+      "scope_id": "ROOT",
+      "name": "ROOT",
+      "kind": "root",
+      "role": "pass_through",
+      "direct_inputs": [
+        "cte:ranked"
+      ],
+      "direct_source_tables": [],
+      "upstream_physical_tables": [
+        "dim.segment_dim",
+        "ods.events_a",
+        "ods.events_b"
+      ],
+      "actions": [],
+      "outputs": [
+        "segment",
+        "band",
+        "total",
+        "cnt",
+        "band_total",
+        "segment_name"
+      ],
+      "output_count": 6,
+      "pattern_signature": "role=pass_through|kind=root|inputs=tables:0,scopes:1,union:no|blocks=|derive=0|window=|agg="
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "rule:001",
+      "kind": "case_branch",
+      "scope_id": "cte:agg",
+      "expression": "CASE WHEN `events_norm`.`amount` >= 100 THEN 'HIGH' ELSE 'LOW' END",
+      "branches": [
+        {
+          "when": "amount >= 100",
+          "then": "'HIGH'"
+        }
+      ],
+      "else": "'LOW'",
+      "fields": [],
+      "scope_fields": [
+        {
+          "scope": "cte:events_norm",
+          "column": "amount"
+        }
+      ],
+      "evidence": "logic:cte:agg:case_when:001",
+      "tag": "SQL事实"
+    },
+    {
+      "rule_id": "rule:002",
+      "kind": "join_condition",
+      "scope_id": "cte:joined",
+      "expression": "`a`.`segment` = `d`.`segment` AND `d`.`rn` = 1",
+      "join_type": "LEFT_OUTER",
+      "null_semantics": "右侧无匹配时保留左行，右侧字段为空",
+      "left_input": "cte:agg",
+      "right_input": "cte:latest_dim",
+      "key_pairs": [
+        {
+          "left": "a.segment",
+          "right": "d.segment"
+        }
+      ],
+      "physical_key_pairs": [
+        {
+          "left": "ods.events_a.segment",
+          "right": "dim.segment_dim.segment"
+        },
+        {
+          "left": "ods.events_b.seg_code",
+          "right": "dim.segment_dim.segment"
+        }
+      ],
+      "extra_conditions": [
+        "`d`.`rn` = 1"
+      ],
+      "extra_condition_fields": [
+        {
+          "table": "dim.segment_dim",
+          "column": "updated_at",
+          "comment": null,
+          "via_generated_column": true
+        }
+      ],
+      "fields": [
+        {
+          "table": "ods.events_a",
+          "column": "segment",
+          "comment": null
+        },
+        {
+          "table": "dim.segment_dim",
+          "column": "segment",
+          "comment": null
+        },
+        {
+          "table": "ods.events_b",
+          "column": "seg_code",
+          "comment": null
+        }
+      ],
+      "scope_fields": [
+        {
+          "scope": "cte:agg",
+          "column": "segment"
+        },
+        {
+          "scope": "cte:latest_dim",
+          "column": "segment"
+        },
+        {
+          "scope": "cte:latest_dim",
+          "column": "rn"
+        }
+      ],
+      "evidence": "logic:cte:joined:join:001",
+      "tag": "SQL事实"
+    }
+  ],
+  "fields": [
+    {
+      "column": "segment",
+      "column_label": "mart.metric_by_segment.segment",
+      "summary": "Segment code：直接取自 ods.events_a.segment（注释未知）、ods.events_b.seg_code（注释未知）",
+      "target_comment": "Segment code",
+      "type": "string",
+      "transform": "DIRECT",
+      "structural_role": "candidate_key",
+      "sources": [
+        {
+          "table": "ods.events_a",
+          "column": "segment",
+          "comment": null,
+          "transform": "UNION"
+        },
+        {
+          "table": "ods.events_b",
+          "column": "seg_code",
+          "comment": null,
+          "transform": "UNION"
+        }
+      ],
+      "generated_sources": [],
+      "derivation": [
+        {
+          "step_no": 1,
+          "scope_id": "union:events_norm:b01",
+          "step_type": "direct_projection",
+          "branch": {
+            "index": 1,
+            "label": "ods.events_a"
+          },
+          "grain": "preserved",
+          "text": "直接投影自 ods.events_a.segment",
+          "expression": "`events_a`.`segment`"
+        },
+        {
+          "step_no": 2,
+          "scope_id": "union:events_norm:b02",
+          "step_type": "direct_projection",
+          "branch": {
+            "index": 2,
+            "label": "ods.events_b"
+          },
+          "grain": "preserved",
+          "text": "直接投影自 ods.events_b.seg_code",
+          "expression": "`events_b`.`seg_code`"
+        },
+        {
+          "step_no": 3,
+          "scope_id": "union:events_norm",
+          "step_type": "union",
+          "grain": "preserved",
+          "text": "合并 2 个分支（来自 union:events_norm:b01.segment、union:events_norm:b02.segment）",
+          "expression": "segment"
+        },
+        {
+          "step_no": 4,
+          "scope_id": "cte:events_norm",
+          "step_type": "union",
+          "grain": "preserved",
+          "text": "合并 1 个分支（来自 union:events_norm.segment）",
+          "expression": "segment"
+        },
+        {
+          "step_no": 5,
+          "scope_id": "cte:agg",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 cte:events_norm.segment",
+          "expression": "`events_norm`.`segment`"
+        },
+        {
+          "step_no": 6,
+          "scope_id": "cte:joined",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 cte:agg.segment",
+          "expression": "`a`.`segment`"
+        },
+        {
+          "step_no": 7,
+          "scope_id": "cte:ranked",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 cte:joined.segment",
+          "expression": "`joined`.`segment`"
+        },
+        {
+          "step_no": 8,
+          "scope_id": "ROOT",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 cte:ranked.segment",
+          "expression": "`ranked`.`segment`"
+        }
+      ],
+      "expression": "`ranked`.`segment`",
+      "trace_complete": true,
+      "ambiguous": false,
+      "mapping_chain_id": "mc:001",
+      "tag": "SQL事实+元数据事实"
+    },
+    {
+      "column": "band",
+      "column_label": "mart.metric_by_segment.band",
+      "summary": "Amount band：amount >= 100 → 'HIGH'；否则 'LOW'；来源 ods.events_a.amount（注释未知）、ods.events_b.amount（注释未知）",
+      "target_comment": "Amount band",
+      "type": "string",
+      "transform": "DIRECT",
+      "structural_role": "candidate_key",
+      "value_domain": [
+        {
+          "value": "'HIGH'",
+          "kind": "literal",
+          "seen_in": [
+            "rule:001"
+          ],
+          "closed_set": true,
+          "meaning": null
+        },
+        {
+          "value": "'LOW'",
+          "kind": "literal",
+          "seen_in": [
+            "rule:001"
+          ],
+          "closed_set": true,
+          "meaning": null
+        }
+      ],
+      "sources": [
+        {
+          "table": "ods.events_a",
+          "column": "amount",
+          "comment": null,
+          "transform": "CONDITIONAL"
+        },
+        {
+          "table": "ods.events_b",
+          "column": "amount",
+          "comment": null,
+          "transform": "CONDITIONAL"
+        }
+      ],
+      "generated_sources": [],
+      "derivation": [
+        {
+          "step_no": 1,
+          "scope_id": "union:events_norm:b01",
+          "step_type": "direct_projection",
+          "branch": {
+            "index": 1,
+            "label": "ods.events_a"
+          },
+          "grain": "preserved",
+          "text": "直接投影自 ods.events_a.amount",
+          "expression": "`events_a`.`amount`"
+        },
+        {
+          "step_no": 2,
+          "scope_id": "union:events_norm:b02",
+          "step_type": "direct_projection",
+          "branch": {
+            "index": 2,
+            "label": "ods.events_b"
+          },
+          "grain": "preserved",
+          "text": "直接投影自 ods.events_b.amount",
+          "expression": "`events_b`.`amount`"
+        },
+        {
+          "step_no": 3,
+          "scope_id": "union:events_norm",
+          "step_type": "union",
+          "grain": "preserved",
+          "text": "合并 2 个分支（来自 union:events_norm:b01.amount、union:events_norm:b02.amount）",
+          "expression": "amount"
+        },
+        {
+          "step_no": 4,
+          "scope_id": "cte:events_norm",
+          "step_type": "union",
+          "grain": "preserved",
+          "text": "合并 1 个分支（来自 union:events_norm.amount）",
+          "expression": "amount"
+        },
+        {
+          "step_no": 5,
+          "scope_id": "cte:agg",
+          "step_type": "case_when",
+          "grain": "preserved",
+          "text": "amount >= 100 → 'HIGH'；否则 'LOW'",
+          "expression": "CASE WHEN `events_norm`.`amount` >= 100 THEN 'HIGH' ELSE 'LOW' END"
+        },
+        {
+          "step_no": 6,
+          "scope_id": "cte:joined",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 cte:agg.band",
+          "expression": "`a`.`band`"
+        },
+        {
+          "step_no": 7,
+          "scope_id": "cte:ranked",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 cte:joined.band",
+          "expression": "`joined`.`band`"
+        },
+        {
+          "step_no": 8,
+          "scope_id": "ROOT",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 cte:ranked.band",
+          "expression": "`ranked`.`band`"
+        }
+      ],
+      "expression": "`ranked`.`band`",
+      "trace_complete": true,
+      "ambiguous": false,
+      "mapping_chain_id": "mc:002",
+      "tag": "SQL事实+元数据事实"
+    },
+    {
+      "column": "total",
+      "column_label": "mart.metric_by_segment.total",
+      "summary": "Summed amount：按 segment、CASE WHEN amount >= 100 THEN 'HIGH' ELSE 'LOW' END 聚合：SUM(amount)；来源 ods.events_a.amount（注释未知）、ods.events_b.amount（注释未知）",
+      "target_comment": "Summed amount",
+      "type": "decimal(18,2)",
+      "transform": "DIRECT",
+      "structural_role": "measure",
+      "metric_spec": {
+        "subject": {
+          "scope_id": "cte:agg",
+          "tables": [
+            "ods.events_a",
+            "ods.events_b"
+          ],
+          "text": "ods.events_a、ods.events_b 的记录"
+        },
+        "time_range": [],
+        "inclusion": [],
+        "aggregation": {
+          "function": "SUM",
+          "argument": "amount",
+          "argument_comment": null,
+          "group_keys": [
+            {
+              "name": "segment",
+              "target_column": "segment"
+            },
+            {
+              "name": "band",
+              "target_column": "band"
+            }
+          ],
+          "text": "按 segment、band 汇总 SUM(amount)"
+        },
+        "unit": {
+          "type": "decimal(18,2)",
+          "hint": null,
+          "hint_source": null
+        },
+        "null_handling": {
+          "nullable_by_join": false,
+          "default": null,
+          "default_source": null
+        },
+        "refresh": null,
+        "post_aggregation": [],
+        "evidence": [
+          "logic:cte:agg:aggregate:001",
+          "logic:cte:agg:group_by:001",
+          "mc:003"
+        ]
+      },
+      "sources": [
+        {
+          "table": "ods.events_a",
+          "column": "amount",
+          "comment": null,
+          "transform": "AGGREGATE"
+        },
+        {
+          "table": "ods.events_b",
+          "column": "amount",
+          "comment": null,
+          "transform": "AGGREGATE"
+        }
+      ],
+      "generated_sources": [],
+      "derivation": [
+        {
+          "step_no": 1,
+          "scope_id": "union:events_norm:b01",
+          "step_type": "direct_projection",
+          "branch": {
+            "index": 1,
+            "label": "ods.events_a"
+          },
+          "grain": "preserved",
+          "text": "直接投影自 ods.events_a.amount",
+          "expression": "`events_a`.`amount`"
+        },
+        {
+          "step_no": 2,
+          "scope_id": "union:events_norm:b02",
+          "step_type": "direct_projection",
+          "branch": {
+            "index": 2,
+            "label": "ods.events_b"
+          },
+          "grain": "preserved",
+          "text": "直接投影自 ods.events_b.amount",
+          "expression": "`events_b`.`amount`"
+        },
+        {
+          "step_no": 3,
+          "scope_id": "union:events_norm",
+          "step_type": "union",
+          "grain": "preserved",
+          "text": "合并 2 个分支（来自 union:events_norm:b01.amount、union:events_norm:b02.amount）",
+          "expression": "amount"
+        },
+        {
+          "step_no": 4,
+          "scope_id": "cte:events_norm",
+          "step_type": "union",
+          "grain": "preserved",
+          "text": "合并 1 个分支（来自 union:events_norm.amount）",
+          "expression": "amount"
+        },
+        {
+          "step_no": 5,
+          "scope_id": "cte:agg",
+          "step_type": "aggregate",
+          "grain": "changed",
+          "text": "按 segment、CASE WHEN amount >= 100 THEN 'HIGH' ELSE 'LOW' END 聚合：SUM(amount)",
+          "expression": "SUM(`events_norm`.`amount`)"
+        },
+        {
+          "step_no": 6,
+          "scope_id": "cte:joined",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 cte:agg.total",
+          "expression": "`a`.`total`"
+        },
+        {
+          "step_no": 7,
+          "scope_id": "cte:ranked",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 cte:joined.total",
+          "expression": "`joined`.`total`"
+        },
+        {
+          "step_no": 8,
+          "scope_id": "ROOT",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 cte:ranked.total",
+          "expression": "`ranked`.`total`"
+        }
+      ],
+      "expression": "`ranked`.`total`",
+      "trace_complete": true,
+      "ambiguous": false,
+      "mapping_chain_id": "mc:003",
+      "tag": "SQL事实+元数据事实"
+    },
+    {
+      "column": "cnt",
+      "column_label": "mart.metric_by_segment.cnt",
+      "summary": "Row count：按 segment、CASE WHEN amount >= 100 THEN 'HIGH' ELSE 'LOW' END 聚合：COUNT(1)",
+      "target_comment": "Row count",
+      "type": "bigint",
+      "transform": "DIRECT",
+      "structural_role": "measure",
+      "metric_spec": {
+        "subject": {
+          "scope_id": "cte:agg",
+          "tables": [
+            "ods.events_a",
+            "ods.events_b"
+          ],
+          "text": "ods.events_a、ods.events_b 的记录"
+        },
+        "time_range": [],
+        "inclusion": [],
+        "aggregation": {
+          "function": "COUNT",
+          "argument": "1",
+          "argument_comment": null,
+          "group_keys": [
+            {
+              "name": "segment",
+              "target_column": "segment"
+            },
+            {
+              "name": "band",
+              "target_column": "band"
+            }
+          ],
+          "text": "按 segment、band 汇总 COUNT(1)"
+        },
+        "unit": {
+          "type": "bigint",
+          "hint": "笔数",
+          "hint_source": "function"
+        },
+        "null_handling": {
+          "nullable_by_join": false,
+          "default": null,
+          "default_source": null
+        },
+        "refresh": null,
+        "post_aggregation": [],
+        "evidence": [
+          "logic:cte:agg:aggregate:002",
+          "logic:cte:agg:group_by:001",
+          "mc:004"
+        ]
+      },
+      "sources": [],
+      "generated_sources": [],
+      "derivation": [
+        {
+          "step_no": 1,
+          "scope_id": "cte:agg",
+          "step_type": "aggregate",
+          "grain": "changed",
+          "text": "按 segment、CASE WHEN amount >= 100 THEN 'HIGH' ELSE 'LOW' END 聚合：COUNT(1)",
+          "expression": "COUNT(1)"
+        },
+        {
+          "step_no": 2,
+          "scope_id": "cte:joined",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 cte:agg.cnt",
+          "expression": "`a`.`cnt`"
+        },
+        {
+          "step_no": 3,
+          "scope_id": "cte:ranked",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 cte:joined.cnt",
+          "expression": "`joined`.`cnt`"
+        },
+        {
+          "step_no": 4,
+          "scope_id": "ROOT",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 cte:ranked.cnt",
+          "expression": "`ranked`.`cnt`"
+        }
+      ],
+      "expression": "`ranked`.`cnt`",
+      "trace_complete": true,
+      "ambiguous": false,
+      "mapping_chain_id": "mc:004",
+      "tag": "SQL事实+元数据事实"
+    },
+    {
+      "column": "band_total",
+      "column_label": "mart.metric_by_segment.band_total",
+      "summary": "Band level total：amount >= 100 → 'HIGH'；否则 'LOW'，再按 segment、CASE WHEN amount >= 100 THEN 'HIGH' ELSE 'LOW' END 聚合：SUM(amount)，再窗口函数 SUM(total)；按 band 分组；来源 ods.events_a.amount（注释未知）、ods.events_b.amount（注释未知）",
+      "target_comment": "Band level total",
+      "type": "decimal(18,2)",
+      "transform": "DIRECT",
+      "structural_role": "conditional_label",
+      "metric_spec": {
+        "subject": {
+          "scope_id": "cte:agg",
+          "tables": [
+            "ods.events_a",
+            "ods.events_b"
+          ],
+          "text": "ods.events_a、ods.events_b 的记录"
+        },
+        "time_range": [],
+        "inclusion": [],
+        "aggregation": {
+          "function": "SUM",
+          "argument": "amount",
+          "argument_comment": null,
+          "group_keys": [
+            {
+              "name": "segment",
+              "target_column": "segment"
+            },
+            {
+              "name": "band",
+              "target_column": "band"
+            }
+          ],
+          "text": "按 segment、band 汇总 SUM(amount)"
+        },
+        "unit": {
+          "type": "decimal(18,2)",
+          "hint": null,
+          "hint_source": null
+        },
+        "null_handling": {
+          "nullable_by_join": false,
+          "default": null,
+          "default_source": null
+        },
+        "refresh": null,
+        "post_aggregation": [
+          "窗口函数 SUM(total)；按 band 分组"
+        ],
+        "evidence": [
+          "logic:cte:agg:aggregate:001",
+          "logic:cte:agg:group_by:001",
+          "mc:005"
+        ]
+      },
+      "sources": [
+        {
+          "table": "ods.events_a",
+          "column": "amount",
+          "comment": null,
+          "transform": "WINDOW"
+        },
+        {
+          "table": "ods.events_b",
+          "column": "amount",
+          "comment": null,
+          "transform": "WINDOW"
+        },
+        {
+          "table": "ods.events_a",
+          "column": "amount",
+          "comment": null,
+          "transform": "AGGREGATE"
+        },
+        {
+          "table": "ods.events_b",
+          "column": "amount",
+          "comment": null,
+          "transform": "AGGREGATE"
+        }
+      ],
+      "generated_sources": [],
+      "derivation": [
+        {
+          "step_no": 1,
+          "scope_id": "union:events_norm:b01",
+          "step_type": "direct_projection",
+          "branch": {
+            "index": 1,
+            "label": "ods.events_a"
+          },
+          "grain": "preserved",
+          "text": "直接投影自 ods.events_a.amount",
+          "expression": "`events_a`.`amount`"
+        },
+        {
+          "step_no": 2,
+          "scope_id": "union:events_norm:b02",
+          "step_type": "direct_projection",
+          "branch": {
+            "index": 2,
+            "label": "ods.events_b"
+          },
+          "grain": "preserved",
+          "text": "直接投影自 ods.events_b.amount",
+          "expression": "`events_b`.`amount`"
+        },
+        {
+          "step_no": 3,
+          "scope_id": "union:events_norm",
+          "step_type": "union",
+          "grain": "preserved",
+          "text": "合并 2 个分支（来自 union:events_norm:b01.amount、union:events_norm:b02.amount）",
+          "expression": "amount"
+        },
+        {
+          "step_no": 4,
+          "scope_id": "cte:events_norm",
+          "step_type": "union",
+          "grain": "preserved",
+          "text": "合并 1 个分支（来自 union:events_norm.amount）",
+          "expression": "amount"
+        },
+        {
+          "step_no": 5,
+          "scope_id": "cte:agg",
+          "step_type": "case_when",
+          "grain": "preserved",
+          "text": "amount >= 100 → 'HIGH'；否则 'LOW'",
+          "expression": "CASE WHEN `events_norm`.`amount` >= 100 THEN 'HIGH' ELSE 'LOW' END"
+        },
+        {
+          "step_no": 6,
+          "scope_id": "cte:joined",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 cte:agg.band",
+          "expression": "`a`.`band`"
+        },
+        {
+          "step_no": 7,
+          "scope_id": "cte:agg",
+          "step_type": "aggregate",
+          "grain": "changed",
+          "text": "按 segment、CASE WHEN amount >= 100 THEN 'HIGH' ELSE 'LOW' END 聚合：SUM(amount)",
+          "expression": "SUM(`events_norm`.`amount`)"
+        },
+        {
+          "step_no": 8,
+          "scope_id": "cte:joined",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 cte:agg.total",
+          "expression": "`a`.`total`"
+        },
+        {
+          "step_no": 9,
+          "scope_id": "cte:ranked",
+          "step_type": "window",
+          "grain": "preserved",
+          "text": "窗口函数 SUM(total)；按 band 分组",
+          "expression": "SUM(`joined`.`total`) OVER (PARTITION BY `joined`.`band`)"
+        },
+        {
+          "step_no": 10,
+          "scope_id": "ROOT",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 cte:ranked.band_total",
+          "expression": "`ranked`.`band_total`"
+        }
+      ],
+      "expression": "`ranked`.`band_total`",
+      "trace_complete": true,
+      "ambiguous": false,
+      "mapping_chain_id": "mc:005",
+      "tag": "SQL事实+元数据事实"
+    },
+    {
+      "column": "segment_name",
+      "column_label": "mart.metric_by_segment.segment_name",
+      "summary": "Segment display name：直接取自 dim.segment_dim.segment_name（注释未知）（关联未命中时为空）",
+      "target_comment": "Segment display name",
+      "type": "string",
+      "transform": "DIRECT",
+      "structural_role": "attribute",
+      "nullable_by_join": true,
+      "sources": [
+        {
+          "table": "dim.segment_dim",
+          "column": "segment_name",
+          "comment": null,
+          "transform": "DIRECT"
+        }
+      ],
+      "generated_sources": [],
+      "derivation": [
+        {
+          "step_no": 1,
+          "scope_id": "cte:latest_dim",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 dim.segment_dim.segment_name",
+          "expression": "`segment_dim`.`segment_name`"
+        },
+        {
+          "step_no": 2,
+          "scope_id": "cte:joined",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 cte:latest_dim.segment_name",
+          "expression": "`d`.`segment_name`"
+        },
+        {
+          "step_no": 3,
+          "scope_id": "cte:ranked",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 cte:joined.segment_name",
+          "expression": "`joined`.`segment_name`"
+        },
+        {
+          "step_no": 4,
+          "scope_id": "ROOT",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 cte:ranked.segment_name",
+          "expression": "`ranked`.`segment_name`"
+        }
+      ],
+      "expression": "`ranked`.`segment_name`",
+      "trace_complete": true,
+      "ambiguous": false,
+      "mapping_chain_id": "mc:006",
+      "tag": "SQL事实+元数据事实"
+    }
+  ],
+  "confidence": {
+    "metadata_coverage": {
+      "input_tables_complete": 3,
+      "input_tables_total": 3,
+      "target_comments_available": true,
+      "target_metadata_source": "target_ddl",
+      "sql_comment_counts": {
+        "header": 0,
+        "output": 0,
+        "logic": 0
+      },
+      "glossary": {
+        "values_total": 2,
+        "confirmed": 0,
+        "candidate": 0
+      }
+    },
+    "trace_incomplete_fields": [],
+    "ambiguous_fields": [],
+    "diagnostics_available": true,
+    "fact_gap_count": 0,
+    "fact_gap_types": {},
+    "warning_counts": {
+      "filter_in_join_on_clause": 1
+    },
+    "findings": [
+      {
+        "kind": "target_binding",
+        "text": "status=applied、method=ddl_position（按 DDL 位置绑定，目标表 DDL 变更会导致列错位）",
+        "evidence": []
+      },
+      {
+        "kind": "table_comment_missing",
+        "text": "缺少表注释的表（4 张）：dim.segment_dim、ods.events_a、ods.events_b、mart.metric_by_segment",
+        "evidence": []
+      }
+    ],
+    "inferred_items": {
+      "fields[].structural_role": 6,
+      "output_shape.shape": 1,
+      "output_shape.grain": 1,
+      "output_shape.candidate_keys": 1,
+      "output_shape.unexposed_keys": 1,
+      "output_shape.key_confidence": 1,
+      "output_shape.fan_out_risks[]": 1,
+      "stages[].actions[].intent": 2
+    }
+  }
+}

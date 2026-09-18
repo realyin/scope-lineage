@@ -98,6 +98,7 @@ GROUP BY c.customer_id;
 | `syntax_status` | enum string | 是 | `strict_ok`、`recovered` 或 `failed`。`recovered` 表示解析器经过恢复，必须同时读诊断。 |
 | `syntax_errors` | array<object> | 是 | 语法错误或恢复证据。元素可含 `description`、`line`、`col` 和上下文片段。 |
 | `skipped_statements` | array<object> | 条件输出 | v1 未作为投影写入建模的顶层语句。包含稳定的 `statement_id`、零基 `statement_index`、`statement_kind`、`category`、`model_status`、`reason`、`normalized_sql` 和支持范围说明；行变更应改用 v2 建模。**`category` 为 `control_statement`（如 `SET`）或 `empty_statement` 的语句是设计上忽略的，只记录、不再发 `unsupported_statement` 告警**——要知道被忽略了什么，读本字段（它只出现在 `lineage.json`，不在 `diagnostics.json` 里）。<br>单语句 API `parse_scope_lineage` 只建模脚本中的**第一条**写表语句：之后的写语句以 `category: additional_write_statement`、`model_status: not_modeled` 记录在此（附 `target_table`），并发一条 `additional_write_statements_not_modeled` 告警列出未建模的目标。这些语句本身是受支持的——要全部建模，用 `parse_all_scope_lineage`（CLI 即此口径）或契约 2.0。 |
+| `statement_comments` | array<string> | 是 | 语句头部注释块的原文，按书写顺序逐条（去首尾空白、相邻重复合并）。**恒存在**：空数组表示这条语句没有头部注释，而缺键无法与"该生产者不携带注释"区分。注释是作者的自由文本，不是 SQL 事实，也可能包含不该外发的信息——见 §18。 |
 | `target_partition_spec` | object | 是 | 分区名到分区值的映射。动态分区的 value 可以为 `null`。 |
 | `target_partition_columns` | array<string> | 是 | 目标表分区列名。 |
 | `target_partition_mode` | enum string | 是 | `none`、`static`、`dynamic` 或 `mixed`，描述的是 **`PARTITION(...)` 子句的写法**：给了值是 `static`、没给值是 `dynamic`、没有该子句是 `none`。**它与会话配置 `spark.sql.sources.partitionOverwriteMode` 无关**，也不表示这次覆写会删掉多少数据——两者名字相近但含义不同。覆写的实际影响范围由 v2 的 `effect.rowset_effect` 表达，见 task-lineage-v2.md。 |
@@ -295,6 +296,7 @@ CTE 名按所在查询块的词法作用域绑定。例如，一个嵌套查询�
 | `field_usage[]` | array<object> | 字段被哪个逻辑块、哪个输出使用。 |
 | `expression_features` | object | 函数、运算符及 CASE/CAST/window/aggregate/UDF 等布尔特征。 |
 | `final_target_columns[]` | array<string> | 该逻辑最终影响的目标字段。 |
+| `comments[]` | array<string> | 该逻辑块**自身表达式内**的 SQL 注释原文。无注释时不发本键。别名注释不在块表达式内，发布在对应 `outputs[].comments` 上。 |
 
 不同逻辑类型还会有专用 detail：
 
@@ -352,6 +354,7 @@ CTE 名按所在查询块的词法作用域绑定。例如，一个嵌套查询�
 | `consumer_readiness` | 是否已具备安全下游消费所需事实；blocked 时列出原因。 |
 | `merge_branch` / `merge_when_index` | MERGE 场景中字段属于哪个 WHEN 分支。`merge_branch` 在 `WHEN NOT MATCHED BY SOURCE` 上**缺席**（见 §7），`merge_when_index` 始终给出。 |
 | `merge_branch_qualifier` | 枚举无法命名的 WHEN 子句种类，目前只有 `not_matched_by_source`。被枚举命名的两种分支上不出现。 |
+| `comments[]` | 写在该投影上的 SQL 注释原文：别名节点自身的在前，表达式子树内其余按遍历序。无注释时不发本键。自由文本，不参与任何标识符解析——见 §18。 |
 
 ### `SELECT * EXCEPT (...)`
 
@@ -675,8 +678,26 @@ ROOT.begin_date        transform=EXPRESSION       ← 本层只有 1 个直接�
   子集，不是全表；仅被 `COUNT(*)` 等行集依赖引用的表其列表为空）、字段类型/注释、
   `metadata_complete`，以及 `table_column_count`（schema 中该表的**全表列宽**，
   schema 不识该表时缺席——有了它读者才能区分"用了少数几列"和"表的全宽"）；
-- `output_tables`：key 是目标表名，value 为对应目标元数据；
+- `output_tables`：key 是目标表名，value 为对应目标元数据——`--schema` 认识该表时用它，否则回落到 `--target-ddl-metadata` 提供的目标表 DDL/Schema 元数据（字段 `type`/`comment` 取自其中，只保留本语句实际写出的列；表级的 `full_table_name`/`source_file`/`structure_source` 进 `table_metadata`）；新增键 `metadata_source` 说明这份元数据来自哪一侧，取值 `schema` 或 `target_ddl`，两侧都没有时该键缺席；
 - `metadata_complete`：表示调用方提供的元数据是否足以覆盖已知字段，不表示真实 catalog 永远完整。
+
+每张表的 `table_metadata` 是**开放对象**，只在元数据描述了表级事实时出现，additive：
+
+| Key | 含义 | 来源键（依次尝试） |
+| --- | --- | --- |
+| `table_name_cn` | 表的中文名/可读名 | `table_name_cn`、`name_cn`、`table_alias`、`table_comment`、`comment` |
+| `table_desc` | 表的描述 | `table_desc`、`description`、`desc`、`comment` |
+| `domain` | 业务域 | `domain`、`buzi_domain`、`业务域` |
+| `domain_path` | 业务域路径 | `domain_path`、`buzi_domain_tree_names` |
+| `project` / `project_code` | 项目名 / 项目编码 | `project`、`project_name` / `project_code` |
+| `owner` | 负责人（用户名） | `owner`、`owner_name` |
+| `table_label_layer` | 分层 | `table_label_layer`、`layer`、`data_layer`、`data_level` |
+| `physical_type` | 物理类型 | `physical_type`、`table_physical_type` |
+| `is_partitioned` | 是否分区表（布尔） | `is_partitioned`、`is_partition` |
+| `full_table_name` / `source_file` / `structure_source` | 目标表 DDL/Schema 导出的来源标识 | 仅 `--target-ddl-metadata` 回答时出现 |
+
+隐私：含 `@` 的值（邮箱，例如导出里的 `tbl_pic`）在加载时被丢弃，任何产物都不会带上；
+时间戳与质量率不是"这张表是什么"的事实，同样不进 `table_metadata`。
 
 来源引用（`scopes[].columns[].sources` 等处）的补充键 `rowset`：仅为 true 时出现，
 表示该 `column="*"` 引用是 **行集依赖**（`COUNT(*)`、`ROW_NUMBER()` 等零列读取的
@@ -802,3 +823,59 @@ scope-lineage validate --lineage /path/to/corpus
 9. 1.x 消费者必须容忍新增可选字段；删除、改名或语义改变需要升级 major。
 
 写盘前 Core 会执行 JSON Schema 和交叉引用校验：悬空 scope、字段或图边不会被发布成成功产物。
+
+## 18. SQL 注释：采集范围与隐私
+
+注释是**作者写给人看的文字**，不是 SQL 事实。契约默认采集它，因为它常常是一条语句里语义密度最高的部分；同样因为如此，它也可能带出该语句本身从不陈述的信息。
+
+### 18.1 三处采集点
+
+| 契约位置 | 采集自 | 空值表现 |
+| --- | --- | --- |
+| `statement_comments[]` | 语句顶层节点上的注释，即头部注释块 | 恒存在，空时为 `[]` |
+| `scopes.<id>.outputs[].comments[]` | 该投影表达式子树内的注释，别名节点自身优先 | 无注释时不发该键 |
+| `scopes.<id>.logic_blocks[].comments[]` | 该逻辑块自身表达式内的注释 | 无注释时不发该键 |
+
+三处都做同一套规范化：去首尾空白、丢弃空串、合并**相邻**重复。只合并相邻重复——同一句话写在 CASE 的两个分支上是关于两个分支的两条事实，跨列表去重会把它说成作者只写了一次。
+
+字符串字面量与反引号标识符里的 `--`、`/* */` 不会被当成注释：`WHERE note = '-- not a comment'` 是普通 Spark SQL，看不见引号的实现会把作者的数据当成作者的批注发布出去。
+
+### 18.2 注释不是事实
+
+消费者不应把注释当作可校验的血缘证据：
+
+1. 注释不参与表名、字段名解析，也不改变任何结构判定；
+2. 注释与元数据里的列注释可能互相矛盾——两者分别发布，产物不替作者裁决；
+3. 派生视图（`semantic.json` / `semantic.md`）里的注释一律带 `SQL注释` 标签并原样引用，且**不放进代码片段**：代码片段在那份文档里的语法含义是「逐字的 SQL 标识符或表达式」。
+
+### 18.3 默认遮蔽联系方式
+
+注释里最常见的个人信息是联系方式，**默认开启遮蔽**：解析阶段就把注释文本里的三类形态替换掉，句子的其余部分原样保留。
+
+| 形态 | 替换为 | 说明 |
+| --- | --- | --- |
+| 邮箱地址 | `<email>` | 按地址本身可用的字符界定，不吞掉紧邻的中文或标点 |
+| 手机号 | `<phone>` | 中国大陆 `1[3-9]` 开头的 11 位号码，以及 `+86 138...` 这类国际写法 |
+| 身份证号 | `<id>` | 18 位（末位可为 `X`）或 15 位形态 |
+
+遮蔽发生在**采集时**，作用于注释文本本身，因此三个 `comments` 键和渲染表达式（如 `logic_blocks[].raw_expression`）里内联的那一份得到的是同一份已遮蔽文本；`task_meta.description` 同样过一遍——它也是人写的自由文本。SQL 表达式本身不被改动：`WHERE id_no = '110101199003078219'` 是这条语句操作的数据，改了就改变了 SQL 的含义。
+
+**遮蔽是形态匹配，不是识别，也不保证穷尽。** 写法稍有不同的号码会漏过去（分隔符、全角数字、写成文字的地址），而一串恰好 15 位的业务编码会被当成身份证遮掉。它降低误发概率，不构成合规保证；要求"注释绝不出境"时用 §18.4 的整体关闭。
+
+契约不因此新增任何键：被遮蔽的注释仍是一条注释，`<email>` 就是这条注释的原文。
+
+需要原文时关闭遮蔽：
+
+```bash
+scope-lineage parse --sql-file task.sql --out out/ --no-redact-comments
+```
+
+### 18.4 关闭采集
+
+```bash
+scope-lineage parse --sql-file task.sql --out out/ --strip-comments
+```
+
+`--strip-comments` 在解析阶段整体丢弃注释：上述三个键随之为空或缺席，**并且**渲染表达式（如 `logic_blocks[].raw_expression`）里内联的那一份也一并消失。它是一个完整的开关，不是只清空新键的半开关。它与 `--no-redact-comments` 相互独立：注释都丢了，也就没有什么可遮蔽的。
+
+需要注释进入产物但不希望它离开本地时，正确做法是限制产物的流转范围，而不是依赖消费者自觉跳过这些键。

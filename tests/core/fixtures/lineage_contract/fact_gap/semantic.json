@@ -1,0 +1,278 @@
+{
+  "doc_format": "semantic-json/1",
+  "schema_version": "1.0",
+  "statement_id": "stmt:001",
+  "lineage_digest": "ab3330b352f0a01e",
+  "task": {
+    "task_name": "golden_fact_gap",
+    "target_table": "mart.amounts",
+    "target_table_comment": null,
+    "target_table_domain": null,
+    "target_table_project": null,
+    "target_table_owner": null,
+    "stmt_kind": "INSERT",
+    "partition": {
+      "columns": [],
+      "mode": null,
+      "spec": null
+    },
+    "structural_summary": "ROOT 直接读取 ods.ledger_a、ods.ledger_b；关联 1 个上游（1 个其他）；输出 1 列。",
+    "target_metadata_source": null,
+    "header_comments": [],
+    "meta": null
+  },
+  "inputs": [
+    {
+      "table": "ods.ledger_a",
+      "comment": null,
+      "domain": null,
+      "project": null,
+      "owner": null,
+      "layer": null,
+      "role_in_task": "driving",
+      "roles": [
+        "driving"
+      ],
+      "used_columns": [
+        {
+          "name": "entry_id",
+          "type": null,
+          "comment": null,
+          "usages": [
+            "join_key"
+          ]
+        }
+      ],
+      "metadata_complete": false,
+      "read_by_scopes": [
+        "ROOT"
+      ]
+    },
+    {
+      "table": "ods.ledger_b",
+      "comment": null,
+      "domain": null,
+      "project": null,
+      "owner": null,
+      "layer": null,
+      "role_in_task": "enrich",
+      "roles": [
+        "enrich"
+      ],
+      "used_columns": [
+        {
+          "name": "entry_id",
+          "type": null,
+          "comment": null,
+          "usages": [
+            "join_key"
+          ]
+        }
+      ],
+      "metadata_complete": false,
+      "read_by_scopes": [
+        "ROOT"
+      ]
+    }
+  ],
+  "output_shape": {
+    "shape": "enriched_projection",
+    "shape_evidence": [
+      "logic:ROOT:join:001"
+    ],
+    "grain": {
+      "keys": [],
+      "basis": "unknown",
+      "via_scopes": [],
+      "confidence": "structural",
+      "evidence": [
+        "ROOT 的输入含 AMBIGUOUS（裸列多源歧义），驱动输入无从判定"
+      ]
+    },
+    "candidate_keys": [],
+    "unexposed_keys": [],
+    "key_evidence": [],
+    "key_confidence": "none",
+    "partition_columns": [],
+    "fan_out_risks": [
+      {
+        "logic_block_id": "logic:ROOT:join:001",
+        "scope_id": "ROOT",
+        "join_type": "INNER",
+        "right": "ods.ledger_b",
+        "status": "unknown",
+        "reason": "物理表无主键事实",
+        "path": "grain"
+      }
+    ],
+    "tag": "结构推断"
+  },
+  "stages": [
+    {
+      "scope_id": "ROOT",
+      "name": "ROOT",
+      "kind": "root",
+      "role": "join",
+      "direct_inputs": [
+        "AMBIGUOUS",
+        "ods.ledger_a",
+        "ods.ledger_b"
+      ],
+      "direct_source_tables": [
+        "ods.ledger_a",
+        "ods.ledger_b"
+      ],
+      "upstream_physical_tables": [
+        "ods.ledger_a",
+        "ods.ledger_b"
+      ],
+      "actions": [
+        {
+          "type": "join",
+          "text": "INNER 关联 ods.ledger_b，键 entry_id，无匹配的行被丢弃",
+          "expression": "`ledger_a`.`entry_id` = `ledger_b`.`entry_id`",
+          "fields": [
+            {
+              "table": "ods.ledger_a",
+              "column": "entry_id",
+              "comment": null
+            },
+            {
+              "table": "ods.ledger_b",
+              "column": "entry_id",
+              "comment": null
+            }
+          ],
+          "evidence": "logic:ROOT:join:001",
+          "tag": "SQL事实"
+        }
+      ],
+      "outputs": [
+        "amount"
+      ],
+      "output_count": 1,
+      "pattern_signature": "role=join|kind=root|inputs=tables:2,scopes:1,union:no|blocks=join=1|derive=0|window=|agg="
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "rule:001",
+      "kind": "join_condition",
+      "scope_id": "ROOT",
+      "expression": "`ledger_a`.`entry_id` = `ledger_b`.`entry_id`",
+      "join_type": "INNER",
+      "null_semantics": "无匹配的行被丢弃",
+      "left_input": "ods.ledger_a",
+      "right_input": "ods.ledger_b",
+      "key_pairs": [
+        {
+          "left": "ledger_a.entry_id",
+          "right": "ledger_b.entry_id"
+        }
+      ],
+      "physical_key_pairs": [
+        {
+          "left": "ods.ledger_a.entry_id",
+          "right": "ods.ledger_b.entry_id"
+        }
+      ],
+      "extra_conditions": [],
+      "extra_condition_fields": [],
+      "fields": [
+        {
+          "table": "ods.ledger_a",
+          "column": "entry_id",
+          "comment": null
+        },
+        {
+          "table": "ods.ledger_b",
+          "column": "entry_id",
+          "comment": null
+        }
+      ],
+      "scope_fields": [],
+      "evidence": "logic:ROOT:join:001",
+      "tag": "SQL事实"
+    }
+  ],
+  "fields": [
+    {
+      "column": "amount",
+      "column_label": "mart.amounts.amount",
+      "summary": "（注释未知）：`amount`",
+      "target_comment": null,
+      "type": null,
+      "transform": "DIRECT",
+      "structural_role": "attribute",
+      "sources": [],
+      "generated_sources": [],
+      "derivation": [
+        {
+          "step_no": 1,
+          "scope_id": "ROOT",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 AMBIGUOUS.amount",
+          "expression": "`amount`"
+        }
+      ],
+      "expression": "`amount`",
+      "trace_complete": false,
+      "trace_incomplete_reasons": [
+        "ambiguous_unqualified",
+        "no_physical_source_fields"
+      ],
+      "ambiguous": true,
+      "mapping_chain_id": "mc:001",
+      "tag": "SQL事实"
+    }
+  ],
+  "confidence": {
+    "metadata_coverage": {
+      "input_tables_complete": 0,
+      "input_tables_total": 2,
+      "target_comments_available": false,
+      "target_metadata_source": null,
+      "sql_comment_counts": {
+        "header": 0,
+        "output": 0,
+        "logic": 0
+      }
+    },
+    "trace_incomplete_fields": [
+      "amount"
+    ],
+    "ambiguous_fields": [
+      "amount"
+    ],
+    "diagnostics_available": true,
+    "fact_gap_count": 1,
+    "fact_gap_types": {
+      "expression_source_unresolved": 1
+    },
+    "warning_counts": {
+      "ambiguous_unqualified": 1
+    },
+    "findings": [
+      {
+        "kind": "target_binding",
+        "text": "未做目标列绑定（target_binding_absent_reason=metadata_not_provided）",
+        "evidence": []
+      },
+      {
+        "kind": "table_comment_missing",
+        "text": "缺少表注释的表（3 张）：ods.ledger_a、ods.ledger_b、mart.amounts",
+        "evidence": []
+      }
+    ],
+    "inferred_items": {
+      "fields[].structural_role": 1,
+      "output_shape.shape": 1,
+      "output_shape.grain": 1,
+      "output_shape.candidate_keys": 1,
+      "output_shape.unexposed_keys": 1,
+      "output_shape.key_confidence": 1,
+      "output_shape.fan_out_risks[]": 1
+    }
+  }
+}

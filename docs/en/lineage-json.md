@@ -107,6 +107,7 @@ diagnostics summary.
 | `syntax_status` | enum string | Yes | `strict_ok`, `recovered`, or `failed`. `recovered` means the parser went through recovery, and the diagnostics must be read alongside. |
 | `syntax_errors` | array<object> | Yes | Syntax errors or recovery evidence. Elements may carry `description`, `line`, `col`, and context fragments. |
 | `skipped_statements` | array<object> | Conditional | Top-level statements not modeled as a projection write by v1. Contains a stable `statement_id`, zero-based `statement_index`, `statement_kind`, `category`, `model_status`, `reason`, `normalized_sql`, and a note on the supported range; row changes should be modeled with v2 instead. **Statements whose `category` is `control_statement` (such as `SET`) or `empty_statement` are ignored by design and are only recorded — they no longer raise an `unsupported_statement` warning**; to know what was ignored, read this field (it appears only in `lineage.json`, not in `diagnostics.json`).<br>The single-statement API `parse_scope_lineage` models only the **first** write statement in a script: later write statements are recorded here with `category: additional_write_statement` and `model_status: not_modeled` (with `target_table`), and one `additional_write_statements_not_modeled` warning lists the unmodeled targets. Those statements are themselves supported — to model all of them, use `parse_all_scope_lineage` (which is what the CLI does) or contract 2.0. |
+| `statement_comments` | array<string> | Yes | The statement's header comment block, verbatim and in writing order (trimmed, with adjacent repeats collapsed). **Always present**: an empty array says this statement has no header comment, whereas a missing key could not be distinguished from "this producer does not carry comments". A comment is the author's free text, not a SQL fact, and may carry information that was never meant to leave the system — see §18. |
 | `target_partition_spec` | object | Yes | Map of partition name to partition value. A dynamic partition's value may be `null`. |
 | `target_partition_columns` | array<string> | Yes | The target table's partition column names. |
 | `target_partition_mode` | enum string | Yes | `none`, `static`, `dynamic`, or `mixed`, describing **how the `PARTITION(...)` clause is written**: a value given is `static`, no value is `dynamic`, no clause at all is `none`. **It is unrelated to the session setting `spark.sql.sources.partitionOverwriteMode`** and does not state how much data this overwrite deletes — the two have similar names and different meanings. The actual blast radius of an overwrite is expressed by v2's `effect.rowset_effect`; see task-lineage-v2.md. |
@@ -316,6 +317,7 @@ Every logic block has at least:
 | `field_usage[]` | array<object> | Which logic block and which output use a field. |
 | `expression_features` | object | Functions, operators, and boolean features such as CASE/CAST/window/aggregate/UDF. |
 | `final_target_columns[]` | array<string> | The target fields this logic ultimately affects. |
+| `comments[]` | array<string> | The SQL comments written **inside this block's own expression**, verbatim. The key is absent when there are none. An alias comment sits outside the block expression and is published on the matching `outputs[].comments`. |
 
 Different logic types also carry dedicated details:
 
@@ -375,6 +377,7 @@ Main keys:
 | `consumer_readiness` | Whether the facts needed for safe downstream consumption are present; lists reasons when blocked. |
 | `merge_branch` / `merge_when_index` | Which WHEN branch a field belongs to in a MERGE. `merge_branch` is **absent** on `WHEN NOT MATCHED BY SOURCE` (see §7); `merge_when_index` is always given. |
 | `merge_branch_qualifier` | The kind of WHEN clause the enum cannot name; currently only `not_matched_by_source`. Absent on the two branches the enum does name. |
+| `comments[]` | The SQL comments written on this projection, verbatim: the alias node's own first, then the rest of the expression subtree in traversal order. The key is absent when there are none. Free text; it takes no part in identifier resolution — see §18. |
 
 ### `SELECT * EXCEPT (...)`
 
@@ -728,8 +731,28 @@ the basename for a single task file, or a POSIX-style path relative to the batch
   `metadata_complete`, and `table_column_count` (the table's **full width** in the
   supplied schema, absent when the schema does not know the table — this is what lets a
   reader tell "a few columns used" apart from "the table's full width");
-- `output_tables`: keys are target table names, values are the corresponding target metadata;
+- `output_tables`: keys are target table names, values are the corresponding target metadata — the `--schema` map when it knows the table, otherwise a fallback to the target table's own DDL/Schema export (`--target-ddl-metadata`), whose `type`/`comment` fill `column_details[]` for the columns this statement actually writes, with `full_table_name`/`source_file`/`structure_source` in `table_metadata`; the `metadata_source` key names which side answered — `schema` or `target_ddl` — and is absent when neither described the table;
 - `metadata_complete`: whether the metadata the caller supplied covers the known fields — not a claim that the real catalog is always complete.
+
+Each table's `table_metadata` is an **open object**, present only when the metadata described
+the table at table level, and additive:
+
+| Key | Meaning | Source keys (tried in order) |
+| --- | --- | --- |
+| `table_name_cn` | The table's readable/Chinese name | `table_name_cn`, `name_cn`, `table_alias`, `table_comment`, `comment` |
+| `table_desc` | The table's description | `table_desc`, `description`, `desc`, `comment` |
+| `domain` | Business domain | `domain`, `buzi_domain`, `业务域` |
+| `domain_path` | Business-domain path | `domain_path`, `buzi_domain_tree_names` |
+| `project` / `project_code` | Project name / code | `project`, `project_name` / `project_code` |
+| `owner` | Owner (a user name) | `owner`, `owner_name` |
+| `table_label_layer` | Storage layer | `table_label_layer`, `layer`, `data_layer`, `data_level` |
+| `physical_type` | Physical table type | `physical_type`, `table_physical_type` |
+| `is_partitioned` | Whether the table is partitioned (boolean) | `is_partitioned`, `is_partition` |
+| `full_table_name` / `source_file` / `structure_source` | Which export answered | Present only when `--target-ddl-metadata` answered |
+
+Privacy: a value containing `@` (an address, such as the export's `tbl_pic`) is dropped at load
+time and never reaches any artifact; timestamps and quality rates are not facts about what the
+table *is* and do not enter `table_metadata` either.
 
 Source refs (`scopes[].columns[].sources` and similar) carry an additional `rowset` key,
 present only when true: the `column="*"` ref is a **row-set dependency** (`COUNT(*)`,
@@ -863,3 +886,59 @@ Every violation is printed and the command exits non-zero when any is found.
 
 Before writing, Core runs JSON Schema and cross-reference validation: dangling scopes, fields, or
 graph edges are never published as a successful artifact.
+
+## 18. SQL comments: what is collected, and privacy
+
+A comment is **text the author wrote for a person**, not a SQL fact. The contract collects it by default, because it is often the densest piece of meaning in a statement; for exactly that reason it can also carry information the statement itself never states.
+
+### 18.1 The three collection points
+
+| Contract location | Collected from | Behaviour when empty |
+| --- | --- | --- |
+| `statement_comments[]` | Comments on the statement's top-level node, i.e. the header block | Always present; `[]` when empty |
+| `scopes.<id>.outputs[].comments[]` | Comments inside that projection's expression subtree, the alias node's own first | Key absent when there are none |
+| `scopes.<id>.logic_blocks[].comments[]` | Comments inside that logic block's own expression | Key absent when there are none |
+
+All three apply the same normalization: trim, drop empties, collapse **adjacent** repeats. Adjacent only — the same sentence written on two branches of a CASE is two facts about two branches, and deduplicating across the list would state that the author wrote it once.
+
+A `--` or `/* */` inside a string literal or a backtick-quoted identifier is not read as a comment: `WHERE note = '-- not a comment'` is ordinary Spark SQL, and an implementation that cannot see quoting publishes the author's data as the author's commentary.
+
+### 18.2 A comment is not a fact
+
+Consumers must not treat a comment as verifiable lineage evidence:
+
+1. comments take no part in resolving table or column names, and change no structural verdict;
+2. a comment and the column comment in the metadata may contradict each other — both are published, and the artifact does not adjudicate between them for the author;
+3. in the derived views (`semantic.json` / `semantic.md`) every comment carries the `SQL注释` label and is quoted verbatim, and is **never placed in a code span**: a code span in that document means "a verbatim SQL identifier or expression".
+
+### 18.3 Contact details are masked by default
+
+The personal data a comment most often carries is a way to reach a person, so **masking is on by default**: during parsing, three shapes in the comment text are replaced, and the rest of the sentence is kept as written.
+
+| Shape | Replaced by | Notes |
+| --- | --- | --- |
+| Email address | `<email>` | Bounded to the characters an address is written with, so adjacent words and punctuation are not swallowed |
+| Phone number | `<phone>` | An 11-digit mainland-China mobile (`1[3-9]…`) and international forms such as `+86 138…` |
+| ID number | `<id>` | The 18-digit (final `X` allowed) and 15-digit shapes |
+
+Masking happens **at collection time**, on the comment text itself, so the three `comments` keys and the inline copy inside a rendered expression (such as `logic_blocks[].raw_expression`) all carry the same masked text; `task_meta.description` goes through it too, being free text a person wrote. The SQL expression itself is never rewritten: `WHERE id_no = '110101199003078219'` is data the statement operates on, and masking it would change what the SQL says.
+
+**This is shape matching, not identification, and it is not exhaustive.** A number written a little differently slips through (other separators, full-width digits, an address spelled out in words), while a business code that happens to be 15 digits long is masked as if it were an ID. It lowers the chance of publishing contact details by accident; it is not a compliance guarantee. When no comment may leave the machine, use the complete switch in §18.4.
+
+No key is added for this: a masked comment is still a comment, and `<email>` is that comment's text.
+
+To publish the comments exactly as written:
+
+```bash
+scope-lineage parse --sql-file task.sql --out out/ --no-redact-comments
+```
+
+### 18.4 Turning collection off
+
+```bash
+scope-lineage parse --sql-file task.sql --out out/ --strip-comments
+```
+
+`--strip-comments` discards comments during parsing: the three keys above become empty or absent, **and** the inline copy that rides along inside rendered expressions (such as `logic_blocks[].raw_expression`) disappears with them. It is a complete switch, not a half one that only empties the new keys. It is independent of `--no-redact-comments`: once the comments are gone there is nothing left to mask.
+
+When comments should reach the artifact but not leave the machine, the answer is to limit where the artifact travels, not to rely on consumers skipping these keys.

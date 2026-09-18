@@ -68,7 +68,23 @@ Core 当前消费：
 
 - `meta.task_name`，缺失时依次使用 `meta.task_id` 和文件名；
 - `meta.sql`，必须是非空字符串；
-- `meta.upstream_tasks`、`meta.downstream_tasks`，写入 `lineage.json.task_dependencies`。
+- `meta.upstream_tasks`、`meta.downstream_tasks`，写入 `lineage.json.task_dependencies`；
+- `meta.task_id`、`meta.task_name`、`meta.project_name`（缺失时 `meta.project_code`）、`meta.owner`、
+  `meta.schedule`、`meta.schedule_cycle`、`meta.description`、`meta.expect_date`，以中立键名写入
+  `lineage.json.task_meta`（契约 2.0 顶层），值全部转成字符串、空白转 `null`。
+
+**`meta.owner_email` 按名排除，不进入任何产物。** 它是个人联系方式，对数据没有解释力，而产物会在系统之间
+流转；需要联系人时请回到任务系统。未列出的 `meta` 键（如 `instance_id`、`project_dir`）同样被忽略，
+导出方加字段不会连带加宽契约。完整键表见 [task-lineage-v2.md](task-lineage-v2.md)。
+
+`.sql` 输入没有 `meta`，产物里因此**没有** `task_meta` 键——缺席表示没有输入提供元信息，而不是这个任务
+没有负责人或调度。
+
+`meta.description` 是这九项里唯一的自由文本，人写它的方式和写注释一样，**默认按与 SQL 注释同一套规则做联系方式遮蔽**：
+邮箱替换为 `<email>`、手机号替换为 `<phone>`、身份证号替换为 `<id>`，句子其余部分原样保留；其余八项是导出方产出的
+标识、名称和调度表达式，不做改写。`parse --no-redact-comments` 同时关闭 description 与 SQL 注释的遮蔽，
+`parse --strip-comments` 只丢弃 SQL 注释、不影响 `task_meta`。遮蔽是形态匹配，不保证穷尽——细则见
+[lineage-json.md](lineage-json.md) §18.3。
 
 最终采用的任务名也会成为输出目录的一个组件。任务名可以含空格和 Unicode，但绝对路径、`.`、
 `..`、NUL、`/`、`\` 会被拒绝，不会被当成路径解释。依赖证据里的 `source_file` 在单文件模式下
@@ -183,6 +199,13 @@ export SCOPE_LINEAGE_CATALOG_PREFIXES="warehouse_catalog,spark_catalog"
 {
   "table_name": "ods.customer_base",
   "full_table_name": "spark_catalog.ods.customer_base",
+  "table_alias": "Customer base table",
+  "table_desc": "Synthetic customer master detail",
+  "buzi_domain": "Customer",
+  "project_name": "Customer profile",
+  "owner_name": "demo_owner",
+  "data_level": "ODS",
+  "is_partition": 1,
   "schema": [
     {
       "columnName": "customer_id",
@@ -210,6 +233,14 @@ export SCOPE_LINEAGE_CATALOG_PREFIXES="warehouse_catalog,spark_catalog"
 1. `ddl` 能成功解析时，DDL 字段顺序优先；
 2. 没有 DDL 时，按 `schema[].columnIndex` 排序，序号必须从 0 开始且连续；
 3. 富 JSON 的结构无效时直接报元数据错误，不会静默退回猜测顺序。
+
+表级键也会被读取，归一化成 `table_metadata`（`table_name_cn`、`table_desc`、`domain`、
+`domain_path`、`project`、`project_code`、`owner`、`table_label_layer`、`physical_type`、
+`is_partitioned`），随契约的 `related_metadata.*.table_metadata` 输出，并支撑 semantic 的
+输入表注释与表卡的"这张表是什么"。键名中立：`table_alias`/`table_comment`/`comment` 都可以给
+出中文表名，`buzi_domain`/`domain` 都可以给出业务域。含 `@` 的值（邮箱，例如 `tbl_pic`）在加载
+时被丢弃，时间戳与质量率不进表级事实。完整键表见
+[`lineage.json` §12.2](lineage-json.md#122-related_metadata)。
 
 `--schema` 还兼容聚合式轻量 JSON。它没有显式字段序号或 DDL，`columns[]` 数组顺序就是字段
 顺序：

@@ -1,3 +1,5 @@
+-- 任务：客户画像快照（每日全量重写当日分区）
+-- 口径：近 30 天订单指标只计已支付订单
 INSERT OVERWRITE TABLE mart.customer_profile_snapshot
 PARTITION (dt = '${bizdate}')
 WITH latest_status AS (
@@ -32,11 +34,11 @@ SELECT
     END AS customer_level,
     COALESCE(status.customer_status, 'NEW') AS customer_status,
     COALESCE(summary.order_count_30d, 0) AS order_count_30d,
-    COALESCE(summary.paid_amount_30d, 0) AS paid_amount_30d,
+    COALESCE(summary.paid_amount_30d, 0) AS paid_amount_30d, -- 近 30 天已支付金额（元）
     summary.last_paid_at
 FROM ods.customer_base base
 LEFT JOIN latest_status status
-    ON base.customer_id = status.customer_id
+    ON base.customer_id = status.customer_id -- 按客户号取最新一条状态
    AND status.row_num = 1
 LEFT JOIN order_summary summary
     ON base.customer_id = summary.customer_id

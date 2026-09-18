@@ -25,6 +25,7 @@ whole task.
 | --- | --- | --- |
 | **Field lineage analysis** (which upstream tables and columns does this field come from) | **Statement document** | The answer sits in `end_to_end_lineage[].physical_sources`, ready to use |
 | **Field transformation-step analysis** (how is this metric computed, step by step) | **Statement document** | The chains (`field_mapping_chains`), expressions, and JOIN/filter logic are all in the statement document's evidence layer, and it can be rendered into a human-readable `mapping.md` |
+| **Understanding what a task does / what a field means** (what one output row represents, how each field is derived) | **Statement document** | `scope-lineage describe` derives the semantic skeleton `semantic.md` / `semantic.json` from the statement document — output shape, grain, rule list, and field semantics in one read, each line carrying its source tag and evidence id |
 | **Table-level dependency / impact analysis** (an upstream table changed — who is affected) | **Statement document** | `source_tables` / `target_table` are directly readable |
 | **Building a lineage graph for a data map / data-asset platform** | **Statement document** | Platforms organize assets by "target table", and each entry has exactly one `target_table` — the granularity lines up |
 | **Auditing what data a task changed** (what was deleted, truncated, updated) | **Task level** | Statement documents do not model DELETE / UPDATE / TRUNCATE; they only record them under `skipped_statements` |

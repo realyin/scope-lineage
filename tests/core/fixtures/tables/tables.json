@@ -1,0 +1,1043 @@
+{
+  "doc_format": "tables-json/1",
+  "corpus": {
+    "artifact_root": "corpus",
+    "task_count": 5,
+    "lineage_digests": {
+      "golden_commented_insert": "a631091cb58fc88a",
+      "golden_commented_task": "96bd2e7f84fb1ffc",
+      "golden_directory_target": "c067a3d853c88d59",
+      "golden_grouped_dedup_join": "4e323ab37f990b59",
+      "golden_simple_insert": "ee7246d6cfdfe5e6"
+    }
+  },
+  "tables": [
+    {
+      "table": "dim.channel",
+      "aliases": [],
+      "comment": "渠道维表（合成）",
+      "domain": "渠道域",
+      "project": null,
+      "owner": null,
+      "layer": "DIM",
+      "kind": "physical",
+      "produced_by": [],
+      "consumed_by": [
+        {
+          "task": "golden_commented_insert",
+          "statement_id": "stmt:001",
+          "role_in_task": "aggregate_source",
+          "roles": [
+            "aggregate_source",
+            "enrich"
+          ],
+          "columns": [
+            {
+              "name": "channel_code",
+              "usages": [
+                "join_key"
+              ]
+            }
+          ],
+          "read_by_scopes": [
+            "ROOT"
+          ]
+        },
+        {
+          "task": "golden_commented_task",
+          "statement_id": "stmt:001",
+          "role_in_task": "aggregate_source",
+          "roles": [
+            "aggregate_source",
+            "enrich"
+          ],
+          "columns": [
+            {
+              "name": "channel_code",
+              "usages": [
+                "join_key"
+              ]
+            }
+          ],
+          "read_by_scopes": [
+            "ROOT"
+          ]
+        }
+      ],
+      "columns": [
+        {
+          "name": "channel_code",
+          "type": null,
+          "comment": null,
+          "produced_summary": null,
+          "consumer_usage_counts": {
+            "join_key": 2
+          }
+        }
+      ],
+      "coverage": {
+        "column_comment_ratio": 0.0,
+        "table_comment": true,
+        "producers": 0,
+        "consumers": 2
+      },
+      "findings": [
+        {
+          "kind": "never_produced_in_corpus",
+          "text": "本语料内没有任务写这张表；它的一行代表什么无法从本语料证明。",
+          "evidence": [
+            {
+              "task": "golden_commented_insert",
+              "statement_id": "stmt:001"
+            },
+            {
+              "task": "golden_commented_task",
+              "statement_id": "stmt:001"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "table": "dim.segment_dim",
+      "aliases": [],
+      "comment": null,
+      "domain": null,
+      "project": null,
+      "owner": null,
+      "layer": null,
+      "kind": "physical",
+      "produced_by": [],
+      "consumed_by": [
+        {
+          "task": "golden_grouped_dedup_join",
+          "statement_id": "stmt:001",
+          "role_in_task": "dedup_source",
+          "roles": [
+            "dedup_source",
+            "enrich"
+          ],
+          "columns": [
+            {
+              "name": "segment",
+              "usages": [
+                "join_key",
+                "window_partition"
+              ]
+            },
+            {
+              "name": "segment_name",
+              "usages": [
+                "output"
+              ]
+            },
+            {
+              "name": "updated_at",
+              "usages": [
+                "window_order"
+              ]
+            }
+          ],
+          "read_by_scopes": [
+            "cte:latest_dim"
+          ]
+        }
+      ],
+      "columns": [
+        {
+          "name": "segment",
+          "type": null,
+          "comment": null,
+          "produced_summary": null,
+          "consumer_usage_counts": {
+            "join_key": 1,
+            "window_partition": 1
+          }
+        },
+        {
+          "name": "segment_name",
+          "type": null,
+          "comment": null,
+          "produced_summary": null,
+          "consumer_usage_counts": {
+            "output": 1
+          }
+        },
+        {
+          "name": "updated_at",
+          "type": null,
+          "comment": null,
+          "produced_summary": null,
+          "consumer_usage_counts": {
+            "window_order": 1
+          }
+        }
+      ],
+      "coverage": {
+        "column_comment_ratio": 0.0,
+        "table_comment": false,
+        "producers": 0,
+        "consumers": 1
+      },
+      "findings": [
+        {
+          "kind": "never_produced_in_corpus",
+          "text": "本语料内没有任务写这张表；它的一行代表什么无法从本语料证明。",
+          "evidence": [
+            {
+              "task": "golden_grouped_dedup_join",
+              "statement_id": "stmt:001"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "table": "mart.channel_summary",
+      "aliases": [],
+      "comment": null,
+      "domain": null,
+      "project": null,
+      "owner": null,
+      "layer": null,
+      "kind": "physical",
+      "produced_by": [
+        {
+          "task": "golden_commented_insert",
+          "statement_id": "stmt:001",
+          "stmt_kind": "INSERT_OVERWRITE",
+          "partition": {
+            "columns": [
+              "dt"
+            ],
+            "mode": "static",
+            "spec": {
+              "dt": "${bizdate}"
+            }
+          },
+          "grain": {
+            "basis": "group_by",
+            "keys": [
+              "customer_id",
+              "channel_name"
+            ]
+          },
+          "candidate_keys": [],
+          "key_confidence": "none",
+          "fields": [
+            {
+              "column": "customer_id",
+              "comment": null,
+              "summary": "（注释未知）：直接取自 ods.channel_event.customer_id（表：渠道事件明细（合成））；注释：客户号",
+              "structural_role": "attribute"
+            },
+            {
+              "column": "channel_name",
+              "comment": null,
+              "summary": "（注释未知）：channel_code = 'A' → 'ONLINE'；否则 'OFFLINE'；来源 ods.channel_event.channel_code（表：渠道事件明细（合成））；注释：渠道编码（合成值域）",
+              "structural_role": "conditional_label"
+            },
+            {
+              "column": "total_amount",
+              "comment": null,
+              "summary": "（注释未知）：按 customer_id、CASE WHEN channel_code = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END 聚合：SUM(amount)；来源 ods.channel_event.amount（表：渠道事件明细（合成））；注释：金额合计（元）",
+              "structural_role": "measure"
+            }
+          ],
+          "refresh": null,
+          "header_comments": [
+            "任务：客户渠道汇总（合成示例）",
+            "口径：仅统计生效状态的客户",
+            "口径问题联系 <email>（合成地址）"
+          ],
+          "lineage_digest": "a631091cb58fc88a"
+        },
+        {
+          "task": "golden_commented_task",
+          "statement_id": "stmt:001",
+          "stmt_kind": "INSERT_OVERWRITE",
+          "partition": {
+            "columns": [
+              "dt"
+            ],
+            "mode": "static",
+            "spec": {
+              "dt": "${bizdate}"
+            }
+          },
+          "grain": {
+            "basis": "group_by",
+            "keys": [
+              "customer_id",
+              "channel_name"
+            ]
+          },
+          "candidate_keys": [],
+          "key_confidence": "none",
+          "fields": [
+            {
+              "column": "customer_id",
+              "comment": null,
+              "summary": "（注释未知）：直接取自 ods.channel_event.customer_id（注释未知）；注释：客户号",
+              "structural_role": "attribute"
+            },
+            {
+              "column": "channel_name",
+              "comment": null,
+              "summary": "（注释未知）：channel_code = 'A' → 'ONLINE'；否则 'OFFLINE'；来源 ods.channel_event.channel_code（注释未知）；注释：渠道编码（合成值域）",
+              "structural_role": "conditional_label"
+            },
+            {
+              "column": "total_amount",
+              "comment": null,
+              "summary": "（注释未知）：按 customer_id、CASE WHEN channel_code = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END 聚合：SUM(amount)；来源 ods.channel_event.amount（注释未知）；注释：金额合计（元）",
+              "structural_role": "measure"
+            }
+          ],
+          "refresh": {
+            "cycle": "DAY",
+            "cron": "0 20 3 * * ?",
+            "source": "task_meta"
+          },
+          "header_comments": [
+            "任务：客户渠道汇总（合成示例）",
+            "口径：仅统计生效状态的客户"
+          ],
+          "lineage_digest": "96bd2e7f84fb1ffc"
+        }
+      ],
+      "consumed_by": [],
+      "columns": [
+        {
+          "name": "customer_id",
+          "type": null,
+          "comment": null,
+          "produced_summary": "（注释未知）：直接取自 ods.channel_event.customer_id（表：渠道事件明细（合成））；注释：客户号",
+          "consumer_usage_counts": {}
+        },
+        {
+          "name": "channel_name",
+          "type": null,
+          "comment": null,
+          "produced_summary": "（注释未知）：channel_code = 'A' → 'ONLINE'；否则 'OFFLINE'；来源 ods.channel_event.channel_code（表：渠道事件明细（合成））；注释：渠道编码（合成值域）",
+          "consumer_usage_counts": {}
+        },
+        {
+          "name": "total_amount",
+          "type": null,
+          "comment": null,
+          "produced_summary": "（注释未知）：按 customer_id、CASE WHEN channel_code = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END 聚合：SUM(amount)；来源 ods.channel_event.amount（表：渠道事件明细（合成））；注释：金额合计（元）",
+          "consumer_usage_counts": {}
+        }
+      ],
+      "coverage": {
+        "column_comment_ratio": 0.0,
+        "table_comment": false,
+        "producers": 2,
+        "consumers": 0
+      },
+      "findings": [
+        {
+          "kind": "multiple_producers",
+          "text": "2 条写语句写同一张表；下游读到的是哪一条的结果取决于调度顺序。",
+          "evidence": [
+            {
+              "task": "golden_commented_insert",
+              "statement_id": "stmt:001"
+            },
+            {
+              "task": "golden_commented_task",
+              "statement_id": "stmt:001"
+            }
+          ]
+        },
+        {
+          "kind": "never_consumed_in_corpus",
+          "text": "本语料内没有任务读这张表；可能是对外出口，也可能是无人消费的产出。",
+          "evidence": [
+            {
+              "task": "golden_commented_insert",
+              "statement_id": "stmt:001"
+            },
+            {
+              "task": "golden_commented_task",
+              "statement_id": "stmt:001"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "table": "mart.metric_by_segment",
+      "aliases": [],
+      "comment": null,
+      "domain": null,
+      "project": null,
+      "owner": null,
+      "layer": null,
+      "kind": "physical",
+      "produced_by": [
+        {
+          "task": "golden_grouped_dedup_join",
+          "statement_id": "stmt:001",
+          "stmt_kind": "INSERT_OVERWRITE",
+          "partition": {
+            "columns": [
+              "dt"
+            ],
+            "mode": "static",
+            "spec": {
+              "dt": "20260101"
+            }
+          },
+          "grain": {
+            "basis": "group_by",
+            "keys": [
+              "segment",
+              "band"
+            ]
+          },
+          "candidate_keys": [
+            "segment",
+            "band"
+          ],
+          "key_confidence": "proven",
+          "fields": [
+            {
+              "column": "segment",
+              "comment": "Segment code",
+              "summary": "Segment code：直接取自 ods.events_a.segment（注释未知）、ods.events_b.seg_code（注释未知）",
+              "structural_role": "candidate_key"
+            },
+            {
+              "column": "band",
+              "comment": "Amount band",
+              "summary": "Amount band：amount >= 100 → 'HIGH'；否则 'LOW'；来源 ods.events_a.amount（注释未知）、ods.events_b.amount（注释未知）",
+              "structural_role": "candidate_key"
+            },
+            {
+              "column": "total",
+              "comment": "Summed amount",
+              "summary": "Summed amount：按 segment、CASE WHEN amount >= 100 THEN 'HIGH' ELSE 'LOW' END 聚合：SUM(amount)；来源 ods.events_a.amount（注释未知）、ods.events_b.amount（注释未知）",
+              "structural_role": "measure"
+            },
+            {
+              "column": "cnt",
+              "comment": "Row count",
+              "summary": "Row count：按 segment、CASE WHEN amount >= 100 THEN 'HIGH' ELSE 'LOW' END 聚合：COUNT(1)",
+              "structural_role": "measure"
+            },
+            {
+              "column": "band_total",
+              "comment": "Band level total",
+              "summary": "Band level total：amount >= 100 → 'HIGH'；否则 'LOW'，再按 segment、CASE WHEN amount >= 100 THEN 'HIGH' ELSE 'LOW' END 聚合：SUM(amount)，再窗口函数 SUM(total)；按 band 分组；来源 ods.events_a.amount（注释未知）、ods.events_b.amount（注释未知）",
+              "structural_role": "conditional_label"
+            },
+            {
+              "column": "segment_name",
+              "comment": "Segment display name",
+              "summary": "Segment display name：直接取自 dim.segment_dim.segment_name（注释未知）（关联未命中时为空）",
+              "structural_role": "attribute"
+            }
+          ],
+          "refresh": null,
+          "header_comments": [],
+          "lineage_digest": "4e323ab37f990b59"
+        }
+      ],
+      "consumed_by": [],
+      "columns": [
+        {
+          "name": "segment",
+          "type": null,
+          "comment": "Segment code",
+          "produced_summary": "Segment code：直接取自 ods.events_a.segment（注释未知）、ods.events_b.seg_code（注释未知）",
+          "consumer_usage_counts": {}
+        },
+        {
+          "name": "band",
+          "type": null,
+          "comment": "Amount band",
+          "produced_summary": "Amount band：amount >= 100 → 'HIGH'；否则 'LOW'；来源 ods.events_a.amount（注释未知）、ods.events_b.amount（注释未知）",
+          "consumer_usage_counts": {}
+        },
+        {
+          "name": "total",
+          "type": null,
+          "comment": "Summed amount",
+          "produced_summary": "Summed amount：按 segment、CASE WHEN amount >= 100 THEN 'HIGH' ELSE 'LOW' END 聚合：SUM(amount)；来源 ods.events_a.amount（注释未知）、ods.events_b.amount（注释未知）",
+          "consumer_usage_counts": {}
+        },
+        {
+          "name": "cnt",
+          "type": null,
+          "comment": "Row count",
+          "produced_summary": "Row count：按 segment、CASE WHEN amount >= 100 THEN 'HIGH' ELSE 'LOW' END 聚合：COUNT(1)",
+          "consumer_usage_counts": {}
+        },
+        {
+          "name": "band_total",
+          "type": null,
+          "comment": "Band level total",
+          "produced_summary": "Band level total：amount >= 100 → 'HIGH'；否则 'LOW'，再按 segment、CASE WHEN amount >= 100 THEN 'HIGH' ELSE 'LOW' END 聚合：SUM(amount)，再窗口函数 SUM(total)；按 band 分组；来源 ods.events_a.amount（注释未知）、ods.events_b.amount（注释未知）",
+          "consumer_usage_counts": {}
+        },
+        {
+          "name": "segment_name",
+          "type": null,
+          "comment": "Segment display name",
+          "produced_summary": "Segment display name：直接取自 dim.segment_dim.segment_name（注释未知）（关联未命中时为空）",
+          "consumer_usage_counts": {}
+        }
+      ],
+      "coverage": {
+        "column_comment_ratio": 1.0,
+        "table_comment": false,
+        "producers": 1,
+        "consumers": 0
+      },
+      "findings": [
+        {
+          "kind": "never_consumed_in_corpus",
+          "text": "本语料内没有任务读这张表；可能是对外出口，也可能是无人消费的产出。",
+          "evidence": [
+            {
+              "task": "golden_grouped_dedup_join",
+              "statement_id": "stmt:001"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "table": "mart.user_names",
+      "aliases": [],
+      "comment": null,
+      "domain": null,
+      "project": null,
+      "owner": null,
+      "layer": null,
+      "kind": "physical",
+      "produced_by": [
+        {
+          "task": "golden_simple_insert",
+          "statement_id": "stmt:001",
+          "stmt_kind": "INSERT_OVERWRITE",
+          "partition": {
+            "columns": [],
+            "mode": null,
+            "spec": null
+          },
+          "grain": {
+            "basis": "driving_table_rows",
+            "keys": []
+          },
+          "candidate_keys": [],
+          "key_confidence": "none",
+          "fields": [
+            {
+              "column": "user_id",
+              "comment": null,
+              "summary": "（注释未知）：直接取自 ods.users.user_id（注释未知）",
+              "structural_role": "attribute"
+            },
+            {
+              "column": "user_name",
+              "comment": null,
+              "summary": "（注释未知）：直接取自 ods.users.user_name（注释未知）",
+              "structural_role": "attribute"
+            }
+          ],
+          "refresh": null,
+          "header_comments": [],
+          "lineage_digest": "ee7246d6cfdfe5e6"
+        }
+      ],
+      "consumed_by": [],
+      "columns": [
+        {
+          "name": "user_id",
+          "type": null,
+          "comment": null,
+          "produced_summary": "（注释未知）：直接取自 ods.users.user_id（注释未知）",
+          "consumer_usage_counts": {}
+        },
+        {
+          "name": "user_name",
+          "type": null,
+          "comment": null,
+          "produced_summary": "（注释未知）：直接取自 ods.users.user_name（注释未知）",
+          "consumer_usage_counts": {}
+        }
+      ],
+      "coverage": {
+        "column_comment_ratio": 0.0,
+        "table_comment": false,
+        "producers": 1,
+        "consumers": 0
+      },
+      "findings": [
+        {
+          "kind": "never_consumed_in_corpus",
+          "text": "本语料内没有任务读这张表；可能是对外出口，也可能是无人消费的产出。",
+          "evidence": [
+            {
+              "task": "golden_simple_insert",
+              "statement_id": "stmt:001"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "table": "ods.channel_event",
+      "aliases": [],
+      "comment": "渠道事件明细（合成）",
+      "domain": "渠道域",
+      "project": "渠道分析（合成）",
+      "owner": "demo_owner",
+      "layer": "ODS",
+      "kind": "physical",
+      "produced_by": [],
+      "consumed_by": [
+        {
+          "task": "golden_commented_insert",
+          "statement_id": "stmt:001",
+          "role_in_task": "aggregate_source",
+          "roles": [
+            "aggregate_source",
+            "enrich"
+          ],
+          "columns": [
+            {
+              "name": "customer_id",
+              "usages": [
+                "group_by",
+                "output"
+              ]
+            },
+            {
+              "name": "channel_code",
+              "usages": [
+                "join_key",
+                "group_by",
+                "output"
+              ]
+            },
+            {
+              "name": "amount",
+              "usages": [
+                "output"
+              ]
+            },
+            {
+              "name": "status",
+              "usages": [
+                "filter"
+              ]
+            }
+          ],
+          "read_by_scopes": [
+            "ROOT"
+          ]
+        },
+        {
+          "task": "golden_commented_task",
+          "statement_id": "stmt:001",
+          "role_in_task": "aggregate_source",
+          "roles": [
+            "aggregate_source",
+            "enrich"
+          ],
+          "columns": [
+            {
+              "name": "customer_id",
+              "usages": [
+                "group_by",
+                "output"
+              ]
+            },
+            {
+              "name": "channel_code",
+              "usages": [
+                "join_key",
+                "group_by",
+                "output"
+              ]
+            },
+            {
+              "name": "amount",
+              "usages": [
+                "output"
+              ]
+            },
+            {
+              "name": "status",
+              "usages": [
+                "filter"
+              ]
+            }
+          ],
+          "read_by_scopes": [
+            "ROOT"
+          ]
+        }
+      ],
+      "columns": [
+        {
+          "name": "customer_id",
+          "type": null,
+          "comment": null,
+          "produced_summary": null,
+          "consumer_usage_counts": {
+            "group_by": 2,
+            "output": 2
+          }
+        },
+        {
+          "name": "channel_code",
+          "type": null,
+          "comment": null,
+          "produced_summary": null,
+          "consumer_usage_counts": {
+            "join_key": 2,
+            "group_by": 2,
+            "output": 2
+          }
+        },
+        {
+          "name": "amount",
+          "type": null,
+          "comment": null,
+          "produced_summary": null,
+          "consumer_usage_counts": {
+            "output": 2
+          }
+        },
+        {
+          "name": "status",
+          "type": null,
+          "comment": null,
+          "produced_summary": null,
+          "consumer_usage_counts": {
+            "filter": 2
+          }
+        }
+      ],
+      "coverage": {
+        "column_comment_ratio": 0.0,
+        "table_comment": true,
+        "producers": 0,
+        "consumers": 2
+      },
+      "findings": [
+        {
+          "kind": "never_produced_in_corpus",
+          "text": "本语料内没有任务写这张表；它的一行代表什么无法从本语料证明。",
+          "evidence": [
+            {
+              "task": "golden_commented_insert",
+              "statement_id": "stmt:001"
+            },
+            {
+              "task": "golden_commented_task",
+              "statement_id": "stmt:001"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "table": "ods.events_a",
+      "aliases": [],
+      "comment": null,
+      "domain": null,
+      "project": null,
+      "owner": null,
+      "layer": null,
+      "kind": "physical",
+      "produced_by": [],
+      "consumed_by": [
+        {
+          "task": "golden_grouped_dedup_join",
+          "statement_id": "stmt:001",
+          "role_in_task": "driving",
+          "roles": [
+            "driving",
+            "union_branch",
+            "enrich"
+          ],
+          "columns": [
+            {
+              "name": "segment",
+              "usages": [
+                "join_key",
+                "group_by",
+                "output"
+              ]
+            },
+            {
+              "name": "amount",
+              "usages": [
+                "group_by",
+                "window_partition",
+                "output"
+              ]
+            }
+          ],
+          "read_by_scopes": [
+            "union:events_norm:b01"
+          ]
+        }
+      ],
+      "columns": [
+        {
+          "name": "segment",
+          "type": null,
+          "comment": null,
+          "produced_summary": null,
+          "consumer_usage_counts": {
+            "join_key": 1,
+            "group_by": 1,
+            "output": 1
+          }
+        },
+        {
+          "name": "amount",
+          "type": null,
+          "comment": null,
+          "produced_summary": null,
+          "consumer_usage_counts": {
+            "group_by": 1,
+            "window_partition": 1,
+            "output": 1
+          }
+        }
+      ],
+      "coverage": {
+        "column_comment_ratio": 0.0,
+        "table_comment": false,
+        "producers": 0,
+        "consumers": 1
+      },
+      "findings": [
+        {
+          "kind": "never_produced_in_corpus",
+          "text": "本语料内没有任务写这张表；它的一行代表什么无法从本语料证明。",
+          "evidence": [
+            {
+              "task": "golden_grouped_dedup_join",
+              "statement_id": "stmt:001"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "table": "ods.events_b",
+      "aliases": [],
+      "comment": null,
+      "domain": null,
+      "project": null,
+      "owner": null,
+      "layer": null,
+      "kind": "physical",
+      "produced_by": [],
+      "consumed_by": [
+        {
+          "task": "golden_grouped_dedup_join",
+          "statement_id": "stmt:001",
+          "role_in_task": "driving",
+          "roles": [
+            "driving",
+            "union_branch",
+            "enrich"
+          ],
+          "columns": [
+            {
+              "name": "seg_code",
+              "usages": [
+                "join_key",
+                "group_by",
+                "output"
+              ]
+            },
+            {
+              "name": "amount",
+              "usages": [
+                "group_by",
+                "window_partition",
+                "output"
+              ]
+            }
+          ],
+          "read_by_scopes": [
+            "union:events_norm:b02"
+          ]
+        }
+      ],
+      "columns": [
+        {
+          "name": "seg_code",
+          "type": null,
+          "comment": null,
+          "produced_summary": null,
+          "consumer_usage_counts": {
+            "join_key": 1,
+            "group_by": 1,
+            "output": 1
+          }
+        },
+        {
+          "name": "amount",
+          "type": null,
+          "comment": null,
+          "produced_summary": null,
+          "consumer_usage_counts": {
+            "group_by": 1,
+            "window_partition": 1,
+            "output": 1
+          }
+        }
+      ],
+      "coverage": {
+        "column_comment_ratio": 0.0,
+        "table_comment": false,
+        "producers": 0,
+        "consumers": 1
+      },
+      "findings": [
+        {
+          "kind": "never_produced_in_corpus",
+          "text": "本语料内没有任务写这张表；它的一行代表什么无法从本语料证明。",
+          "evidence": [
+            {
+              "task": "golden_grouped_dedup_join",
+              "statement_id": "stmt:001"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "table": "ods.users",
+      "aliases": [],
+      "comment": null,
+      "domain": null,
+      "project": null,
+      "owner": null,
+      "layer": null,
+      "kind": "physical",
+      "produced_by": [],
+      "consumed_by": [
+        {
+          "task": "golden_directory_target",
+          "statement_id": "stmt:001",
+          "role_in_task": "driving",
+          "roles": [
+            "driving"
+          ],
+          "columns": [
+            {
+              "name": "user_id",
+              "usages": [
+                "output"
+              ]
+            },
+            {
+              "name": "user_name",
+              "usages": [
+                "output"
+              ]
+            }
+          ],
+          "read_by_scopes": [
+            "ROOT"
+          ]
+        },
+        {
+          "task": "golden_simple_insert",
+          "statement_id": "stmt:001",
+          "role_in_task": "driving",
+          "roles": [
+            "driving"
+          ],
+          "columns": [
+            {
+              "name": "user_id",
+              "usages": [
+                "output"
+              ]
+            },
+            {
+              "name": "user_name",
+              "usages": [
+                "output"
+              ]
+            },
+            {
+              "name": "is_active",
+              "usages": [
+                "filter"
+              ]
+            }
+          ],
+          "read_by_scopes": [
+            "ROOT"
+          ]
+        }
+      ],
+      "columns": [
+        {
+          "name": "user_id",
+          "type": null,
+          "comment": null,
+          "produced_summary": null,
+          "consumer_usage_counts": {
+            "output": 2
+          }
+        },
+        {
+          "name": "user_name",
+          "type": null,
+          "comment": null,
+          "produced_summary": null,
+          "consumer_usage_counts": {
+            "output": 2
+          }
+        },
+        {
+          "name": "is_active",
+          "type": null,
+          "comment": null,
+          "produced_summary": null,
+          "consumer_usage_counts": {
+            "filter": 1
+          }
+        }
+      ],
+      "coverage": {
+        "column_comment_ratio": 0.0,
+        "table_comment": false,
+        "producers": 0,
+        "consumers": 2
+      },
+      "findings": [
+        {
+          "kind": "never_produced_in_corpus",
+          "text": "本语料内没有任务写这张表；它的一行代表什么无法从本语料证明。",
+          "evidence": [
+            {
+              "task": "golden_directory_target",
+              "statement_id": "stmt:001"
+            },
+            {
+              "task": "golden_simple_insert",
+              "statement_id": "stmt:001"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

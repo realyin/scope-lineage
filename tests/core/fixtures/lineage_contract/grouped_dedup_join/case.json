@@ -1,0 +1,80 @@
+{
+  "task_id": "golden_grouped_dedup_join",
+  "sql": "INSERT OVERWRITE TABLE mart.metric_by_segment PARTITION (dt='20260101')\nWITH events_norm AS (\n  SELECT segment, amount, 'A' AS branch_tag\n  FROM ods.events_a\n  UNION ALL\n  SELECT seg_code AS segment, amount, 'B' AS branch_tag\n  FROM ods.events_b\n), latest_dim AS (\n  SELECT segment,\n         segment_name,\n         ROW_NUMBER() OVER (PARTITION BY segment ORDER BY updated_at DESC) AS rn\n  FROM dim.segment_dim\n), agg AS (\n  SELECT segment,\n         CASE WHEN amount >= 100 THEN 'HIGH' ELSE 'LOW' END AS band,\n         SUM(amount) AS total,\n         COUNT(1) AS cnt\n  FROM events_norm\n  GROUP BY segment, CASE WHEN amount >= 100 THEN 'HIGH' ELSE 'LOW' END\n), joined AS (\n  SELECT a.segment, a.band, a.total, a.cnt, d.segment_name\n  FROM agg a\n  LEFT JOIN latest_dim d ON a.segment = d.segment AND d.rn = 1\n), ranked AS (\n  SELECT segment,\n         band,\n         total,\n         cnt,\n         segment_name,\n         SUM(total) OVER (PARTITION BY band) AS band_total\n  FROM joined\n)\nSELECT segment, band, total, cnt, band_total, segment_name\nFROM ranked",
+  "schema": {
+    "ods.events_a": [
+      "segment",
+      "amount"
+    ],
+    "ods.events_b": [
+      "seg_code",
+      "amount"
+    ],
+    "dim.segment_dim": [
+      "segment",
+      "segment_name",
+      "updated_at"
+    ]
+  },
+  "target_metadata": {
+    "table_name": "mart.metric_by_segment",
+    "full_table_name": "spark_catalog.mart.metric_by_segment",
+    "columns": [
+      {
+        "name": "segment",
+        "data_type": "string",
+        "ordinal": 0,
+        "is_partition": false,
+        "comment": "Segment code"
+      },
+      {
+        "name": "band",
+        "data_type": "string",
+        "ordinal": 1,
+        "is_partition": false,
+        "comment": "Amount band"
+      },
+      {
+        "name": "total",
+        "data_type": "decimal(18,2)",
+        "ordinal": 2,
+        "is_partition": false,
+        "comment": "Summed amount"
+      },
+      {
+        "name": "cnt",
+        "data_type": "bigint",
+        "ordinal": 3,
+        "is_partition": false,
+        "comment": "Row count"
+      },
+      {
+        "name": "band_total",
+        "data_type": "decimal(18,2)",
+        "ordinal": 4,
+        "is_partition": false,
+        "comment": "Band level total"
+      },
+      {
+        "name": "segment_name",
+        "data_type": "string",
+        "ordinal": 5,
+        "is_partition": false,
+        "comment": "Segment display name"
+      },
+      {
+        "name": "dt",
+        "data_type": "string",
+        "ordinal": 6,
+        "is_partition": true,
+        "comment": "Partition date"
+      }
+    ],
+    "partition_columns": [
+      "dt"
+    ],
+    "ddl": "CREATE TABLE mart.metric_by_segment(segment STRING COMMENT 'Segment code', band STRING COMMENT 'Amount band', total DECIMAL(18,2) COMMENT 'Summed amount', cnt BIGINT COMMENT 'Row count', band_total DECIMAL(18,2) COMMENT 'Band level total', segment_name STRING COMMENT 'Segment display name', dt STRING COMMENT 'Partition date') PARTITIONED BY (dt)",
+    "source_file": "synthetic-target-metadata.json",
+    "structure_source": "ddl"
+  }
+}

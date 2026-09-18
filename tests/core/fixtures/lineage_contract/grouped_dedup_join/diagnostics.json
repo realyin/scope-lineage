@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "warnings": [
+    {
+      "type": "filter_in_join_on_clause",
+      "scope": "cte:joined",
+      "msg": "JOIN ON clause contains a row filter (constant comparison). Expression: `a`.`segment` = `d`.`segment` AND `d`.`rn` = 1"
+    }
+  ],
+  "stats": {
+    "scope_count": 13,
+    "physical_table_count": 4,
+    "cte_count": 5,
+    "subquery_count": 0,
+    "union_count": 1,
+    "union_branch_count": 2,
+    "max_depth": 7,
+    "case_when_count": 1,
+    "window_function_count": 2,
+    "join_count": 1,
+    "aggregate_function_count": 2
+  }
+}

@@ -8,6 +8,7 @@
   "parse_status": "ok",
   "syntax_status": "strict_ok",
   "syntax_errors": [],
+  "statement_comments": [],
   "target_partition_spec": {},
   "target_partition_columns": [],
   "target_partition_mode": "none",
@@ -58,7 +59,8 @@
             "comment": null
           }
         ],
-        "metadata_complete": true
+        "metadata_complete": true,
+        "metadata_source": "schema"
       }
     }
   },

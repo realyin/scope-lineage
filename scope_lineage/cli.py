@@ -11,6 +11,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+from .cli_glossary import add_glossary_parser, formats as _glossary_formats, run_glossary
+from .cli_tables import add_tables_parser, formats as _tables_formats, run_tables
 from .contract import write_task_lineage
 from .metadata.schema_metadata import load_schema, load_schema_sources
 from .metadata.target_table_metadata import load_target_table_metadata
@@ -136,63 +138,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Write the same JSON contract without pretty-print whitespace",
     )
-    parse_cmd.add_argument(
-        "--quality-policy",
-        choices=("permissive", "balanced", "strict"),
-        default="permissive",
-        help=(
-            "Quality gate: permissive preserves parse-only exit behavior; balanced "
-            "rejects unsupported row mutations; strict also rejects recovered syntax, "
-            "root-impact lineage gaps, and target-binding fallback"
-        ),
-    )
-    parse_cmd.add_argument(
-        "--fail-on-root-gap",
-        action="store_true",
-        help="Return non-zero when a lineage fact gap impacts a final target field",
-    )
-    parse_cmd.add_argument(
-        "--fail-on-unsupported-mutation",
-        action="store_true",
-        help="Return non-zero when DELETE/UPDATE/TRUNCATE is not modeled",
-    )
-    parse_cmd.add_argument(
-        "--fail-on-binding-fallback",
-        action="store_true",
-        help="Return non-zero when authoritative target-field binding falls back",
-    )
+    _add_parse_policy_arguments(parse_cmd)
 
-    render_cmd = subcommands.add_parser(
-        "render",
-        help="Render mapping.md field-mapping documents from existing Core artifacts",
-    )
-    render_cmd.add_argument(
-        "--lineage",
-        required=True,
-        help="One lineage.json file, or a directory searched recursively for lineage.json",
-    )
-    render_cmd.add_argument(
-        "--out",
-        help=(
-            "Directory for the rendered mapping.md files, mirroring the input tree; "
-            "default writes mapping.md next to each lineage.json"
-        ),
-    )
-    render_cmd.add_argument(
-        "--field",
-        action="append",
-        default=None,
-        help="Restrict the per-field step sections to this target field; repeatable",
-    )
-    render_cmd.add_argument(
-        "--expanded",
-        action="store_true",
-        help="Add the fully expanded physical-field expression under each step",
-    )
-    render_cmd.add_argument(
-        "--sections",
-        help="Comma-separated section names to render (default: all)",
-    )
+    _add_derived_view_parsers(subcommands)
+    add_tables_parser(subcommands)
+    add_glossary_parser(subcommands)
 
     validate_cmd = subcommands.add_parser(
         "validate",
@@ -226,10 +176,165 @@ def main(argv: list[str] | None = None) -> int:
             return _parse_inputs(args)
     if args.command == "render":
         return _render_inputs(args)
+    if args.command == "describe":
+        unknown_formats = _describe_formats(args.format) - {"json", "md"}
+        if unknown_formats:
+            parser.error(
+                f"--format accepts json and md, got {sorted(unknown_formats)}"
+            )
+        return _describe_inputs(args)
+    if args.command == "tables":
+        unknown_formats = _tables_formats(args.format) - {"json", "md"}
+        if unknown_formats:
+            parser.error(f"--format accepts json and md, got {sorted(unknown_formats)}")
+        return run_tables(args)
+    if args.command == "glossary":
+        unknown_formats = _glossary_formats(args.format) - {"json", "md"}
+        if unknown_formats:
+            parser.error(f"--format accepts json and md, got {sorted(unknown_formats)}")
+        return run_glossary(args)
     if args.command == "validate":
         return _validate_inputs(args)
     parser.error(f"unknown command: {args.command}")
     return 2
+
+
+def _add_parse_policy_arguments(parse_cmd) -> None:
+    """What `parse` is allowed to publish, and when it is allowed to succeed.
+
+    These options do not change what is parsed -- they decide which quality outcomes end
+    the run non-zero, and which facts reach the artifact at all.
+    """
+    parse_cmd.add_argument(
+        "--quality-policy",
+        choices=("permissive", "balanced", "strict"),
+        default="permissive",
+        help=(
+            "Quality gate: permissive preserves parse-only exit behavior; balanced "
+            "rejects unsupported row mutations; strict also rejects recovered syntax, "
+            "root-impact lineage gaps, and target-binding fallback"
+        ),
+    )
+    parse_cmd.add_argument(
+        "--strip-comments",
+        action="store_true",
+        help=(
+            "Drop the SQL author's comments from the artifacts. They are collected by "
+            "default (statement header, per-output, per-logic-block) and may contain "
+            "information the SQL itself does not state"
+        ),
+    )
+    parse_cmd.add_argument(
+        "--no-redact-comments",
+        action="store_true",
+        help=(
+            "Publish the comments exactly as written. By default an email address, a "
+            "phone number or an ID number inside a comment (and inside the task "
+            "description) is replaced by <email>/<phone>/<id>; the rest of the text is "
+            "kept either way. Shape matching, so neither exhaustive nor certain -- use "
+            "--strip-comments when no comment may leave the machine"
+        ),
+    )
+    parse_cmd.add_argument(
+        "--fail-on-root-gap",
+        action="store_true",
+        help="Return non-zero when a lineage fact gap impacts a final target field",
+    )
+    parse_cmd.add_argument(
+        "--fail-on-unsupported-mutation",
+        action="store_true",
+        help="Return non-zero when DELETE/UPDATE/TRUNCATE is not modeled",
+    )
+    parse_cmd.add_argument(
+        "--fail-on-binding-fallback",
+        action="store_true",
+        help="Return non-zero when authoritative target-field binding falls back",
+    )
+
+
+def _add_derived_view_parsers(subcommands) -> None:
+    """The two contract-derived view commands. Same input options, different document.
+
+    ``render`` writes the field-mapping view, ``describe`` writes the task-semantic
+    view; both walk one lineage.json or a tree of them (``cli._discover_lineage_documents``).
+    """
+    render_cmd = subcommands.add_parser(
+        "render",
+        help="Render mapping.md field-mapping documents from existing Core artifacts",
+    )
+    render_cmd.add_argument(
+        "--lineage",
+        required=True,
+        help="One lineage.json file, or a directory searched recursively for lineage.json",
+    )
+    render_cmd.add_argument(
+        "--out",
+        help=(
+            "Directory for the rendered mapping.md files, mirroring the input tree; "
+            "default writes mapping.md next to each lineage.json"
+        ),
+    )
+    render_cmd.add_argument(
+        "--field",
+        action="append",
+        default=None,
+        help="Restrict the per-field step sections to this target field; repeatable",
+    )
+    render_cmd.add_argument(
+        "--expanded",
+        action="store_true",
+        help="Add the fully expanded physical-field expression under each step",
+    )
+    render_cmd.add_argument(
+        "--sections",
+        help="Comma-separated section names to render (default: all)",
+    )
+
+    describe_cmd = subcommands.add_parser(
+        "describe",
+        help=(
+            "Describe what a task does: semantic.json / semantic.md derived from "
+            "existing Core artifacts"
+        ),
+    )
+    describe_cmd.add_argument(
+        "--lineage",
+        required=True,
+        help="One lineage.json file, or a directory searched recursively for lineage.json",
+    )
+    describe_cmd.add_argument(
+        "--out",
+        help=(
+            "Directory for the described documents, mirroring the input tree; "
+            "default writes semantic.json/semantic.md next to each lineage.json"
+        ),
+    )
+    describe_cmd.add_argument(
+        "--sections",
+        help=(
+            "Comma-separated semantic.md section names (default: all); "
+            "fields_table keeps section 5's table without the per-field subsections"
+        ),
+    )
+    describe_cmd.add_argument(
+        "--format",
+        default="json,md",
+        help="Comma-separated output formats: json, md (default: json,md)",
+    )
+    describe_cmd.add_argument(
+        "--glossary",
+        help=(
+            "A glossary.json written by `scope-lineage glossary`; fields[].value_domain "
+            "then carries the corpus's observations and any confirmed value meanings"
+        ),
+    )
+    describe_cmd.add_argument(
+        "--tables",
+        help=(
+            "A tables.json written by `scope-lineage tables`; input tables then carry "
+            "their upstream card and the target table lists its downstream consumers"
+        ),
+    )
 
 
 def _validate_inputs(args: argparse.Namespace) -> int:
@@ -295,46 +400,70 @@ def _validate_inputs(args: argparse.Namespace) -> int:
     return 0
 
 
-def _render_inputs(args: argparse.Namespace) -> int:
-    from .render.mapping_markdown import (
-        SUPPORTED_SCHEMA_VERSION,
-        TASK_SCHEMA_VERSION,
-        render_mapping_markdown,
-        render_warnings_markdown,
-    )
+@dataclass(frozen=True)
+class _ContractDocument:
+    """One renderable lineage document with everything both renderers need."""
 
-    root = Path(args.lineage)
+    path: Path
+    document: dict
+    diagnostics: dict | None
+    target_dir: Path
+
+
+def _discover_lineage_documents(lineage: str):
+    """``(paths, base, single_file)``, or the exit code when there is nothing to read."""
+    root = Path(lineage)
     if root.is_file():
-        documents = [root]
-        base = root.parent
-    elif root.is_dir():
-        documents = sorted(root.rglob("lineage.json"))
-        base = root
-    else:
+        return [root], root.parent, True
+    if not root.is_dir():
         print(f"--lineage path does not exist: {root}", file=sys.stderr)
         return 2
+    documents = sorted(root.rglob("lineage.json"))
     if not documents:
         print(f"no lineage.json found under {root}", file=sys.stderr)
         return 1
+    return documents, root, False
 
-    sections = args.sections.split(",") if args.sections else None
-    rendered = 0
+
+def _is_derivable_document(document: dict) -> bool:
+    """A statement document, or a task document -- the two shapes both views consume."""
+    from .render.mapping_markdown import SUPPORTED_SCHEMA_VERSION, TASK_SCHEMA_VERSION
+
+    version = document.get("schema_version")
+    if version == SUPPORTED_SCHEMA_VERSION:
+        return True
+    return (
+        version == TASK_SCHEMA_VERSION
+        and document.get("artifact_kind") == "task_lineage"
+    )
+
+
+def _load_contract_documents(
+    paths: list[Path], base: Path, single_file: bool, out: str | None, label: str
+):
+    """Read the documents both derived-view commands consume, with their two counters.
+
+    ``render`` and ``describe`` answer different questions but walk the same input: a
+    file or a tree, each document's sibling ``diagnostics.json``, an unsupported version
+    that is fatal for one named file and merely counted in a corpus, and the output
+    directory that mirrors the input tree under ``--out``. Returns
+    ``(documents, skipped_unknown_version, missing_diagnostics)``, or exit code 1 when
+    the one file the user named is not a supported document.
+    """
+    from .render.mapping_markdown import SUPPORTED_SCHEMA_VERSION, TASK_SCHEMA_VERSION
+
+    loaded: list[_ContractDocument] = []
     skipped_unknown_version = 0
     missing_diagnostics = 0
-    for lineage_path in documents:
+    for lineage_path in paths:
         document = json.loads(lineage_path.read_text(encoding="utf-8"))
         version = document.get("schema_version")
-        renderable = version == SUPPORTED_SCHEMA_VERSION or (
-            version == TASK_SCHEMA_VERSION
-            and document.get("artifact_kind") == "task_lineage"
-        )
-        if not renderable:
-            if root.is_file():
+        if not _is_derivable_document(document):
+            if single_file:
                 print(
-                    "mapping renderer supports schema_version "
-                    f"{SUPPORTED_SCHEMA_VERSION} statement documents and "
-                    f"{TASK_SCHEMA_VERSION} task documents; {lineage_path} declares "
-                    f"{version!r}",
+                    f"{label} supports schema_version {SUPPORTED_SCHEMA_VERSION} "
+                    f"statement documents and {TASK_SCHEMA_VERSION} task documents; "
+                    f"{lineage_path} declares {version!r}",
                     file=sys.stderr,
                 )
                 return 1
@@ -346,30 +475,146 @@ def _render_inputs(args: argparse.Namespace) -> int:
             diagnostics = json.loads(diagnostics_path.read_text(encoding="utf-8"))
         else:
             missing_diagnostics += 1
+        target_dir = (
+            Path(out) / lineage_path.parent.relative_to(base)
+            if out
+            else lineage_path.parent
+        )
+        loaded.append(
+            _ContractDocument(lineage_path, document, diagnostics, target_dir)
+        )
+    return loaded, skipped_unknown_version, missing_diagnostics
+
+
+def _write_derived_document(target_dir: Path, name: str, text: str) -> None:
+    target_dir.mkdir(parents=True, exist_ok=True)
+    (target_dir / name).write_text(text, encoding="utf-8")
+
+
+def _render_inputs(args: argparse.Namespace) -> int:
+    from .render.mapping_markdown import (
+        render_mapping_markdown,
+        render_warnings_markdown,
+    )
+
+    found = _discover_lineage_documents(args.lineage)
+    if isinstance(found, int):
+        return found
+    loaded = _load_contract_documents(*found, args.out, "mapping renderer")
+    if isinstance(loaded, int):
+        return loaded
+    documents, skipped_unknown_version, missing_diagnostics = loaded
+
+    sections = args.sections.split(",") if args.sections else None
+    for item in documents:
         try:
             markdown = render_mapping_markdown(
-                document,
-                diagnostics,
+                item.document,
+                item.diagnostics,
                 fields=args.field,
                 expanded=args.expanded,
                 sections=sections,
             )
         except ValueError as error:
-            print(f"{lineage_path}: {error}", file=sys.stderr)
+            print(f"{item.path}: {error}", file=sys.stderr)
             return 1
-        if args.out:
-            target_dir = Path(args.out) / lineage_path.parent.relative_to(base)
-            target_dir.mkdir(parents=True, exist_ok=True)
-        else:
-            target_dir = lineage_path.parent
-        (target_dir / "mapping.md").write_text(markdown, encoding="utf-8")
-        warnings_markdown = render_warnings_markdown(diagnostics, document)
+        _write_derived_document(item.target_dir, "mapping.md", markdown)
+        warnings_markdown = render_warnings_markdown(item.diagnostics, item.document)
         if warnings_markdown is not None:
-            (target_dir / "warnings.md").write_text(warnings_markdown, encoding="utf-8")
-        rendered += 1
+            _write_derived_document(item.target_dir, "warnings.md", warnings_markdown)
 
     print(
-        f"Rendered {rendered} mapping document(s) "
+        f"Rendered {len(documents)} mapping document(s) "
+        f"(skipped_unknown_version={skipped_unknown_version}, "
+        f"missing_diagnostics={missing_diagnostics})"
+    )
+    return 0
+
+
+def _describe_formats(value: str | None) -> set[str]:
+    return {name.strip() for name in (value or "json,md").split(",") if name.strip()}
+
+
+def _load_table_cards(path: str | None):
+    """WI-2.5: the corpus table cards ``describe --tables`` consumes, or the exit code.
+
+    A path the user named and the tool cannot read is an error, never a silent fallback
+    to "no cards": the reader would get a document quietly missing the upstream answers
+    they asked for.
+    """
+    from .render.table_cards import DOC_FORMAT
+
+    if not path:
+        return None
+    card_path = Path(path)
+    if not card_path.is_file():
+        print(f"--tables path does not exist: {card_path}", file=sys.stderr)
+        return 2
+    cards = json.loads(card_path.read_text(encoding="utf-8"))
+    if cards.get("doc_format") != DOC_FORMAT:
+        print(
+            f"--tables expects a {DOC_FORMAT} document; {card_path} declares "
+            f"{cards.get('doc_format')!r}",
+            file=sys.stderr,
+        )
+        return 1
+    return cards
+
+
+def _describe_inputs(args: argparse.Namespace) -> int:
+    from .render.semantic_markdown import render_semantic_markdown
+    from .render.semantic_profile import build_semantic_profile
+    from .cli_glossary import load_overrides as _load_json_document
+    from .render.glossary import apply_glossary
+    from .render.table_cards import apply_table_cards
+
+    # WI-2.4: the corpus glossary, or None. Without it the profile keeps the value
+    # domain it derived from this task alone.
+    glossary = _load_json_document(getattr(args, "glossary", None))
+    if isinstance(glossary, int):
+        return glossary
+    found = _discover_lineage_documents(args.lineage)
+    if isinstance(found, int):
+        return found
+    loaded = _load_contract_documents(*found, args.out, "semantic describer")
+    if isinstance(loaded, int):
+        return loaded
+    documents, skipped_unknown_version, missing_diagnostics = loaded
+
+    sections = args.sections.split(",") if args.sections else None
+    formats = _describe_formats(args.format)
+    # WI-2.5: the corpus's table cards, or None. A profile built without them is byte
+    # for byte the document describe wrote before table cards existed.
+    table_cards = _load_table_cards(getattr(args, "tables", None))
+    if isinstance(table_cards, int):
+        return table_cards
+    for item in documents:
+        try:
+            profile = apply_glossary(
+                apply_table_cards(
+                    build_semantic_profile(item.document, item.diagnostics), table_cards
+                ),
+                glossary,
+            )
+            markdown = (
+                render_semantic_markdown(profile, sections=sections)
+                if "md" in formats
+                else None
+            )
+        except ValueError as error:
+            print(f"{item.path}: {error}", file=sys.stderr)
+            return 1
+        if "json" in formats:
+            _write_derived_document(
+                item.target_dir,
+                "semantic.json",
+                json.dumps(profile, ensure_ascii=False, indent=2) + "\n",
+            )
+        if markdown is not None:
+            _write_derived_document(item.target_dir, "semantic.md", markdown)
+
+    print(
+        f"Described {len(documents)} task(s) "
         f"(skipped_unknown_version={skipped_unknown_version}, "
         f"missing_diagnostics={missing_diagnostics})"
     )
@@ -383,6 +628,9 @@ class _TaskInput:
     task_name: str
     sql: str
     task_dependencies: dict
+    # The exported task object's `meta`, plus the file it was read from. None for a
+    # `.sql` input, which is why a `.sql` document carries no `task_meta` key (WI-2.2).
+    task_meta: dict | None = None
 
 
 @contextmanager
@@ -470,6 +718,9 @@ def _parse_task_inputs_v2(
                 target_metadata=target_metadata,
                 task_dependencies=task.task_dependencies,
                 partition_overwrite_mode=getattr(args, "partition_overwrite_mode", None),
+                task_meta=task.task_meta,
+                strip_comments=bool(getattr(args, "strip_comments", False)),
+                redact_comments=not bool(getattr(args, "no_redact_comments", False)),
             )
             # One derivation path for coverage: the same per-task
             # diagnostics.metadata_coverage fact a consumer reads, only aggregated.
@@ -756,6 +1007,9 @@ def _load_task_input(
         task_name=task_name,
         sql=sql,
         task_dependencies=_task_dependencies(document, source_label),
+        # The file the metadata came from travels with it: a task document read out of a
+        # batch directory is otherwise unattributable to its input.
+        task_meta={**payload, "source_file": source_label},
     )
 
 

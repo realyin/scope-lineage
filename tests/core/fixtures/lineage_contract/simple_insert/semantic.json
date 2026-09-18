@@ -1,0 +1,256 @@
+{
+  "doc_format": "semantic-json/1",
+  "schema_version": "1.0",
+  "statement_id": "stmt:001",
+  "lineage_digest": "ee7246d6cfdfe5e6",
+  "task": {
+    "task_name": "golden_simple_insert",
+    "target_table": "mart.user_names",
+    "target_table_comment": null,
+    "target_table_domain": null,
+    "target_table_project": null,
+    "target_table_owner": null,
+    "stmt_kind": "INSERT_OVERWRITE",
+    "partition": {
+      "columns": [],
+      "mode": null,
+      "spec": null
+    },
+    "structural_summary": "ROOT 直接读取 ods.users；过滤 1 处；输出 2 列。",
+    "target_metadata_source": null,
+    "header_comments": [],
+    "meta": null
+  },
+  "inputs": [
+    {
+      "table": "ods.users",
+      "comment": null,
+      "domain": null,
+      "project": null,
+      "owner": null,
+      "layer": null,
+      "role_in_task": "driving",
+      "roles": [
+        "driving"
+      ],
+      "used_columns": [
+        {
+          "name": "user_id",
+          "type": null,
+          "comment": null,
+          "usages": [
+            "output"
+          ]
+        },
+        {
+          "name": "user_name",
+          "type": null,
+          "comment": null,
+          "usages": [
+            "output"
+          ]
+        },
+        {
+          "name": "is_active",
+          "type": null,
+          "comment": null,
+          "usages": [
+            "filter"
+          ]
+        }
+      ],
+      "metadata_complete": true,
+      "table_column_count": 3,
+      "read_by_scopes": [
+        "ROOT"
+      ]
+    }
+  ],
+  "output_shape": {
+    "shape": "filtered_projection",
+    "shape_evidence": [
+      "logic:ROOT:filter:001"
+    ],
+    "grain": {
+      "keys": [],
+      "basis": "driving_table_rows",
+      "via_scopes": [],
+      "confidence": "structural",
+      "evidence": [
+        "ods.users"
+      ]
+    },
+    "candidate_keys": [],
+    "unexposed_keys": [],
+    "key_evidence": [],
+    "key_confidence": "none",
+    "partition_columns": [],
+    "fan_out_risks": [],
+    "tag": "结构推断"
+  },
+  "stages": [
+    {
+      "scope_id": "ROOT",
+      "name": "ROOT",
+      "kind": "root",
+      "role": "filter",
+      "direct_inputs": [
+        "ods.users"
+      ],
+      "direct_source_tables": [
+        "ods.users"
+      ],
+      "upstream_physical_tables": [
+        "ods.users"
+      ],
+      "actions": [
+        {
+          "type": "filter",
+          "text": "只保留 is_active = 1 的记录",
+          "expression": "`s`.`is_active` = 1",
+          "fields": [
+            {
+              "table": "ods.users",
+              "column": "is_active",
+              "comment": null
+            }
+          ],
+          "evidence": "logic:ROOT:filter:001",
+          "tag": "SQL事实"
+        }
+      ],
+      "outputs": [
+        "user_id",
+        "user_name"
+      ],
+      "output_count": 2,
+      "pattern_signature": "role=filter|kind=root|inputs=tables:1,scopes:0,union:no|blocks=filter=1|derive=0|window=|agg="
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "rule:001",
+      "kind": "filter",
+      "scope_id": "ROOT",
+      "expression": "`s`.`is_active` = 1",
+      "is_partition_filter": false,
+      "fields": [
+        {
+          "table": "ods.users",
+          "column": "is_active",
+          "comment": null
+        }
+      ],
+      "scope_fields": [],
+      "evidence": "logic:ROOT:filter:001",
+      "tag": "SQL事实"
+    }
+  ],
+  "fields": [
+    {
+      "column": "user_id",
+      "column_label": "mart.user_names.user_id",
+      "summary": "（注释未知）：直接取自 ods.users.user_id（注释未知）",
+      "target_comment": null,
+      "type": null,
+      "transform": "DIRECT",
+      "structural_role": "attribute",
+      "sources": [
+        {
+          "table": "ods.users",
+          "column": "user_id",
+          "comment": null,
+          "transform": "DIRECT"
+        }
+      ],
+      "generated_sources": [],
+      "derivation": [
+        {
+          "step_no": 1,
+          "scope_id": "ROOT",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 ods.users.user_id",
+          "expression": "`s`.`user_id`"
+        }
+      ],
+      "expression": "`s`.`user_id`",
+      "trace_complete": true,
+      "ambiguous": false,
+      "mapping_chain_id": "mc:001",
+      "tag": "SQL事实"
+    },
+    {
+      "column": "user_name",
+      "column_label": "mart.user_names.user_name",
+      "summary": "（注释未知）：直接取自 ods.users.user_name（注释未知）",
+      "target_comment": null,
+      "type": null,
+      "transform": "DIRECT",
+      "structural_role": "attribute",
+      "sources": [
+        {
+          "table": "ods.users",
+          "column": "user_name",
+          "comment": null,
+          "transform": "DIRECT"
+        }
+      ],
+      "generated_sources": [],
+      "derivation": [
+        {
+          "step_no": 1,
+          "scope_id": "ROOT",
+          "step_type": "direct_projection",
+          "grain": "preserved",
+          "text": "直接投影自 ods.users.user_name",
+          "expression": "`s`.`user_name`"
+        }
+      ],
+      "expression": "`s`.`user_name`",
+      "trace_complete": true,
+      "ambiguous": false,
+      "mapping_chain_id": "mc:002",
+      "tag": "SQL事实"
+    }
+  ],
+  "confidence": {
+    "metadata_coverage": {
+      "input_tables_complete": 1,
+      "input_tables_total": 1,
+      "target_comments_available": false,
+      "target_metadata_source": null,
+      "sql_comment_counts": {
+        "header": 0,
+        "output": 0,
+        "logic": 0
+      }
+    },
+    "trace_incomplete_fields": [],
+    "ambiguous_fields": [],
+    "diagnostics_available": true,
+    "fact_gap_count": 0,
+    "fact_gap_types": {},
+    "warning_counts": {},
+    "findings": [
+      {
+        "kind": "target_binding",
+        "text": "未做目标列绑定（target_binding_absent_reason=metadata_not_provided）",
+        "evidence": []
+      },
+      {
+        "kind": "table_comment_missing",
+        "text": "缺少表注释的表（2 张）：ods.users、mart.user_names",
+        "evidence": []
+      }
+    ],
+    "inferred_items": {
+      "fields[].structural_role": 2,
+      "output_shape.shape": 1,
+      "output_shape.grain": 1,
+      "output_shape.candidate_keys": 1,
+      "output_shape.unexposed_keys": 1,
+      "output_shape.key_confidence": 1
+    }
+  }
+}

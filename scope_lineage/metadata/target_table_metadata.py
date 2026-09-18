@@ -13,6 +13,7 @@ from sqlglot import ErrorLevel, exp
 
 from .schema_metadata import (
     MetadataFileError,
+    _normalize_table_detail,
     check_metadata_file,
     normalize_table_name,
 )
@@ -44,6 +45,10 @@ class TargetTableMetadata:
     ddl_update_time: str = ""
     data_source: str = ""
     structure_source: str = "ddl"
+    # The table's own identity as the export states it (Chinese name, description, business
+    # domain, project, owner, layer), normalized by the one table-level normalizer the
+    # source-schema loader uses. Empty when the document carries none of those facts.
+    table_detail: dict = field(default_factory=dict)
 
     @property
     def usable(self) -> bool:
@@ -267,6 +272,9 @@ def _target_table_metadata_from_document(
         ).strip(),
         data_source=str(document.get("data_source") or "").strip(),
         structure_source="ddl" if ddl_present else "schema",
+        table_detail=_normalize_table_detail(
+            normalized_table, document, include_table_name=False
+        ),
     )
 
 

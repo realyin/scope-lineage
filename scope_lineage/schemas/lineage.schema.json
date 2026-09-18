@@ -43,6 +43,13 @@
       "minimum": 0,
       "description": "Zero-based position among ALL statements of the script (matches v2 statement_sequence[].statement_index)."
     },
+    "statement_comments": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "语句头部注释块,按书写顺序逐条原文(去首尾空白、相邻重复合并)。恒存在:空数组表示「该语句没有头部注释」,缺键无法与「该生产者不携带注释」区分。注释是作者自由文本,可能包含 SQL 本身未陈述的信息(含不该外发的信息);默认对注释文本中的邮箱/手机号/身份证号形态做遮蔽(替换为 <email>/<phone>/<id>,形态匹配、不保证穷尽),parse --no-redact-comments 可关闭遮蔽,parse --strip-comments 可整体关闭采集。"
+    },
     "target_table": {
       "type": "string",
       "minLength": 1
@@ -777,6 +784,13 @@
                 "logic_type": {
                   "type": "string"
                 },
+                "comments": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "该逻辑块自身表达式内的 SQL 注释原文。别名注释不在块表达式内,发布在对应 outputs[].comments 上。无注释时不发本键。"
+                },
                 "subtype": {
                   "type": [
                     "string",
@@ -1002,6 +1016,13 @@
                   "type": "integer",
                   "minimum": 0,
                   "description": "Zero-based SQL output occurrence; remains distinct when MERGE clauses write the same field."
+                },
+                "comments": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "该投影上的 SQL 注释原文,Alias 节点自身在前、表达式子树内其余按遍历序。无注释时不发本键。自由文本,不参与任何标识符解析。"
                 },
                 "merge_branch": {
                   "type": "string",
@@ -2096,6 +2117,30 @@
         },
         "metadata_complete": {
           "type": "boolean"
+        },
+        "metadata_source": {
+          "type": "string",
+          "enum": ["schema", "target_ddl"],
+          "description": "Which metadata input described this table: the --schema map, or the target table's own DDL/Schema export (--target-ddl-metadata). Output tables only, and absent when no metadata described the table."
+        },
+        "table_metadata": {
+          "type": "object",
+          "description": "Table-level facts the metadata source carried, normalized to vocabulary-neutral keys (table_name_cn, table_desc, domain, domain_path, project, project_code, owner, table_label_layer, physical_type, is_partitioned), plus full_table_name / source_file / structure_source when the target's own DDL/Schema export answered. Deliberately open and additive: an export may know facts this contract has not named yet. Absent when no metadata described the table at table level; a contact email is never carried.",
+          "properties": {
+            "table_name_cn": {"type": "string"},
+            "table_desc": {"type": "string"},
+            "domain": {"type": "string"},
+            "domain_path": {"type": "string"},
+            "project": {"type": "string"},
+            "project_code": {"type": "string"},
+            "owner": {"type": "string"},
+            "table_label_layer": {"type": "string"},
+            "physical_type": {"type": "string"},
+            "is_partitioned": {"type": "boolean"},
+            "full_table_name": {"type": "string"},
+            "source_file": {"type": "string"},
+            "structure_source": {"type": "string"}
+          }
         }
       }
     }

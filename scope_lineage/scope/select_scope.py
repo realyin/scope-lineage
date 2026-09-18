@@ -33,6 +33,7 @@ from .column_ref_resolver import (
     _input_ref_id_for_source_alias,
     _resolve_column_refs_in_expr,
 )
+from .sql_comments import subtree_comments
 
 
 def _resolve_select_scope(
@@ -51,6 +52,7 @@ def _resolve_select_scope(
             schema,
             projection_ordinal=projection_ordinal,
         )
+        _stamp_projection_comments(proj, cols)
         scope_data.columns.extend(cols)
 
     # Resolve joins
@@ -95,6 +97,22 @@ def _resolve_select_scope(
             col_refs = _resolve_column_refs_in_expr(item, sg_scope, result, schema)
             for ref in col_refs:
                 scope_data.order_by.append({"scope": ref.scope, "column": ref.column, "direction": direction})
+
+
+def _stamp_projection_comments(
+    proj: exp.Expression, columns: List[ScopeColumn]
+) -> None:
+    """Attach one projection's comments to every column it resolved into (WI-2.2).
+
+    Stamped here rather than inside the resolver because one projection has one comment
+    set however many columns it produces: a starred projection expands into many, and a
+    ``posexplode`` into two, and the note the author wrote applies to the projection.
+    """
+    comments = subtree_comments(proj)
+    if not comments:
+        return
+    for column in columns:
+        column.comments = list(comments)
 
 
 def _resolve_projection(

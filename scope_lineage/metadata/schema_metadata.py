@@ -146,6 +146,9 @@ def normalize_schema_map(schema: Mapping[str, Iterable[str]]) -> SchemaMap:
         key = normalize_table_name(table)
         if not key:
             continue
+        # An inline mapping may describe the table as well as its columns; the same keys
+        # a rich JSON document uses, read by the same normalizer.
+        _append_table_detail(normalized, key, columns if isinstance(columns, Mapping) else None)
         details = _column_details_from_columns(columns)
         normalized[key] = _dedupe_columns(detail["name"] for detail in details)
         _merge_column_details(normalized, key, details)
@@ -394,9 +397,6 @@ def load_schema_sources(
                     result.column_details[table] = [
                         dict(item) for item in details
                     ]
-                table_detail = getattr(fallback, "table_details", {}).get(table)
-                if table_detail is not None:
-                    result.table_details[table] = dict(table_detail)
                 continue
             if list(result[table]) != list(columns):
                 result.metadata_conflicts.append({
@@ -406,8 +406,27 @@ def load_schema_sources(
                     "fallback_source_index": source_index,
                     "resolution": "kept_authoritative",
                 })
+    _merge_fallback_table_details(result, loaded[1:])
     result.metadata_source_count = len(loaded)
     return _raise_if_nothing_loaded(result)
+
+
+def _merge_fallback_table_details(result: SchemaMap, fallbacks: Iterable[SchemaMap]) -> None:
+    """Authoritative first, fill what is missing -- per fact, not per table.
+
+    Columns cannot be merged across sources (a half-authoritative column set describes no
+    real table), but table-level facts are independent of each other: a catalog export that
+    knows only the business domain and an authoritative one that knows only the Chinese name
+    together describe the table better than either, and neither contradicts the other.
+    """
+    for fallback in fallbacks:
+        for table, detail in getattr(fallback, "table_details", {}).items():
+            if table not in result:
+                continue
+            result.table_details[table] = {
+                **dict(detail),
+                **result.table_details.get(table, {}),
+            }
 
 
 def _raise_if_nothing_loaded(schema: SchemaMap) -> SchemaMap:
@@ -509,16 +528,7 @@ def _schema_from_json_value(
         return schema
 
     if isinstance(data, dict) and isinstance(data.get("tables"), list):
-        for item in data["tables"]:
-            if not isinstance(item, dict):
-                continue
-            if _is_rich_table_metadata_document(item):
-                _append_rich_table_schema(schema, item, Path(source_path))
-                continue
-            table = item.get("table_name") or item.get("table") or item.get("name") or ""
-            columns = item.get("column_details") or item.get("columns") or []
-            for column in _iter_column_details(columns):
-                _append_schema_column(schema, table, column)
+        _append_table_list(schema, data["tables"], Path(source_path))
         return schema
 
     if isinstance(data, list):
@@ -535,16 +545,39 @@ def _schema_from_json_value(
         return schema
 
     if isinstance(data, dict):
-        for table, columns in data.items():
-            if table == "tables":
-                continue
-            if isinstance(columns, dict):
-                columns = columns.get("column_details") or columns.get("columns") or columns.get("fields") or []
-            for column in _iter_column_details(columns):
-                _append_schema_column(schema, table, column)
+        _append_table_keyed_map(schema, data)
         return schema
 
     raise ValueError("Unsupported JSON schema metadata shape")
+
+
+def _append_table_list(schema: SchemaMap, items: list, source_path: Path) -> None:
+    """The aggregate ``{"tables": [...]}`` shape: rich documents and lightweight entries alike."""
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if _is_rich_table_metadata_document(item):
+            _append_rich_table_schema(schema, item, source_path)
+            continue
+        table = item.get("table_name") or item.get("table") or item.get("name") or ""
+        columns = item.get("column_details") or item.get("columns") or []
+        # The entry describes the table as well as its columns: the same table-level keys
+        # a rich document carries, read by the same normalizer.
+        _append_table_detail(schema, table, item)
+        for column in _iter_column_details(columns):
+            _append_schema_column(schema, table, column)
+
+
+def _append_table_keyed_map(schema: SchemaMap, data: dict) -> None:
+    """The ``{"db.table": [...] | {...}}`` shorthand, whose value may also describe the table."""
+    for table, columns in data.items():
+        if table == "tables":
+            continue
+        if isinstance(columns, dict):
+            _append_table_detail(schema, table, columns)
+            columns = columns.get("column_details") or columns.get("columns") or columns.get("fields") or []
+        for column in _iter_column_details(columns):
+            _append_schema_column(schema, table, column)
 
 
 def _load_schema_metadata_directory(
@@ -607,6 +640,7 @@ def _append_loaded_table_schema(schema: SchemaMap, item, source_path: Path) -> N
         })
         return
     table = item.table_name or item.full_table_name
+    _append_table_detail(schema, table, item.table_detail)
     for column in item.columns:
         _append_schema_column(
             schema,
@@ -683,6 +717,67 @@ def _normalize_column_detail(column: str | Mapping | None) -> dict:
     }
 
 
+# The table-level facts an export may carry, each with the spellings seen in the wild, most
+# specific first. The canonical name is always the first alias, so normalizing an already
+# normalized detail is a no-op -- rich JSON is normalized once at load and again whenever a
+# SchemaMap is rebuilt from another, and a lossy round trip would quietly drop facts.
+#
+# Deliberately absent: `tbl_pic` (a contact email), every timestamp, and quality rates. They
+# are not facts about what the table *is*, and the first is PII that must not travel into any
+# published artifact.
+_TABLE_DETAIL_KEYS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("table_name_cn", ("table_name_cn", "name_cn", "table_alias", "table_comment", "comment")),
+    ("table_desc", ("table_desc", "description", "desc", "comment")),
+    ("domain", ("domain", "buzi_domain", "业务域")),
+    ("domain_path", ("domain_path", "buzi_domain_tree_names")),
+    ("project", ("project", "project_name")),
+    ("project_code", ("project_code",)),
+    ("owner", ("owner", "owner_name")),
+    ("table_label_layer", ("table_label_layer", "layer", "data_layer", "data_level")),
+    ("physical_type", ("physical_type", "table_physical_type")),
+)
+
+_PARTITION_FLAG_KEYS = ("is_partitioned", "is_partition")
+_TRUE_TEXT = frozenset({"1", "true", "yes", "y"})
+_FALSE_TEXT = frozenset({"0", "false", "no", "n"})
+
+
+def _table_fact(raw: Mapping, keys: Iterable[str]) -> str | None:
+    """The first spelling that carries a usable value.
+
+    A value containing ``@`` is refused wherever it appears rather than only under the key
+    the export is known to put an address in: an owner field that turns out to hold a
+    mailbox is the same disclosure as ``tbl_pic``, and the artifacts are published.
+    """
+    for key in keys:
+        value = _blank_to_none(raw.get(key))
+        if value is not None and "@" not in value:
+            return value
+    return None
+
+
+def _partition_flag(raw: Mapping) -> bool | None:
+    """``True``/``False`` when the export states it, ``None`` when it does not.
+
+    ``0`` is a fact -- "this table is not partitioned" -- so it must not be folded into
+    absence the way a blank string is.
+    """
+    for key in _PARTITION_FLAG_KEYS:
+        value = raw.get(key)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        text = _blank_to_none(value)
+        if text is None:
+            continue
+        if text.lower() in _TRUE_TEXT:
+            return True
+        if text.lower() in _FALSE_TEXT:
+            return False
+    return None
+
+
 def _normalize_table_detail(
     table: str,
     detail: Mapping | None,
@@ -690,30 +785,36 @@ def _normalize_table_detail(
     include_table_name: bool = True,
 ) -> dict:
     raw = dict(detail or {})
-    result = {
-        "table_name_cn": _blank_to_none(
-            raw.get("table_name_cn")
-            or raw.get("name_cn")
-            or raw.get("table_comment")
-            or raw.get("comment")
-        ),
-        "table_desc": _blank_to_none(
-            raw.get("table_desc")
-            or raw.get("description")
-            or raw.get("desc")
-            or raw.get("comment")
-        ),
-        "table_label_layer": _blank_to_none(
-            raw.get("table_label_layer")
-            or raw.get("layer")
-            or raw.get("data_layer")
-        ),
-        "domain": _blank_to_none(raw.get("domain") or raw.get("业务域")),
-    }
-    result = {key: value for key, value in result.items() if value is not None}
+    result = {}
+    for name, keys in _TABLE_DETAIL_KEYS:
+        value = _table_fact(raw, keys)
+        if value is not None:
+            result[name] = value
+    partitioned = _partition_flag(raw)
+    if partitioned is not None:
+        result["is_partitioned"] = partitioned
     if include_table_name:
         result["table_name"] = (table or raw.get("table_name") or raw.get("table") or "").strip().strip("`")
     return result
+
+
+def _append_table_detail(schema: SchemaMap, table: str, raw: Mapping | None) -> None:
+    """Record one table's table-level facts, merging with what an earlier document gave.
+
+    Silent when the document carries none: an empty ``table_metadata`` in the contract
+    would read as "the metadata describes this table and says nothing", which is a
+    different claim from "no metadata described it".
+    """
+    table_key = normalize_table_name(table)
+    if not table_key or not isinstance(raw, Mapping):
+        return
+    detail = _normalize_table_detail(table_key, raw, include_table_name=False)
+    if not detail:
+        return
+    schema.table_details[table_key] = {
+        **schema.table_details.get(table_key, {}),
+        **detail,
+    }
 
 
 def _merge_column_details(schema: SchemaMap, table_key: str, details: Iterable[dict]) -> None:

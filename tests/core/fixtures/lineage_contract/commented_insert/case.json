@@ -1,0 +1,47 @@
+{
+  "task_id": "golden_commented_insert",
+  "sql": "-- 任务：客户渠道汇总（合成示例）\n-- 口径：仅统计生效状态的客户\n-- 口径问题联系 duiyuan@example.invalid（合成地址）\nINSERT OVERWRITE TABLE mart.channel_summary PARTITION (dt = '${bizdate}')\nSELECT\n    s.customer_id AS customer_id, -- 客户号\n    /* 渠道编码（合成值域） */\n    CASE WHEN s.channel_code = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END AS channel_name,\n    SUM(s.amount) AS total_amount -- 金额合计（元）\nFROM ods.channel_event s\nLEFT JOIN dim.channel d ON s.channel_code = d.channel_code -- 按渠道编码补充维度\nWHERE s.status = 'ACTIVE' -- 仅生效状态\nGROUP BY s.customer_id, CASE WHEN s.channel_code = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END",
+  "schema": {
+    "ods.channel_event": {
+      "table_alias": "渠道事件明细（合成）",
+      "table_desc": "合成示例：客户在各渠道的事件流水",
+      "buzi_domain": "渠道域",
+      "buzi_domain_tree_names": "零售/渠道域",
+      "project_name": "渠道分析（合成）",
+      "project_code": "DEMO_CH",
+      "owner_name": "demo_owner",
+      "data_level": "ODS",
+      "table_physical_type": "MANAGED",
+      "is_partition": 1,
+      "tbl_pic": "demo_owner@example.invalid",
+      "column_details": [
+        {
+          "name": "customer_id"
+        },
+        {
+          "name": "channel_code"
+        },
+        {
+          "name": "amount"
+        },
+        {
+          "name": "status"
+        }
+      ]
+    },
+    "dim.channel": {
+      "table_alias": "渠道维表（合成）",
+      "buzi_domain": "渠道域",
+      "data_level": "DIM",
+      "is_partition": 0,
+      "column_details": [
+        {
+          "name": "channel_code"
+        },
+        {
+          "name": "channel_name"
+        }
+      ]
+    }
+  }
+}

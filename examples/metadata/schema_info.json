@@ -3,6 +3,13 @@
     {
       "table_name": "ods.customer_base",
       "full_table_name": "spark_catalog.ods.customer_base",
+      "table_alias": "Customer base",
+      "table_desc": "Synthetic customer master detail, one row per customer",
+      "buzi_domain": "Customer",
+      "project_name": "Customer profile demo",
+      "owner_name": "demo_owner",
+      "data_level": "ODS",
+      "is_partition": 1,
       "schema": [
         {"columnName": "customer_id", "columnType": "bigint", "columnComment": "Synthetic customer identifier", "columnIndex": 0, "isPartition": 0},
         {"columnName": "customer_name", "columnType": "string", "columnComment": "Synthetic customer name", "columnIndex": 1, "isPartition": 0},
@@ -17,6 +24,11 @@
     {
       "table_name": "ods.customer_status_event",
       "full_table_name": "spark_catalog.ods.customer_status_event",
+      "table_alias": "Customer status event",
+      "table_desc": "Synthetic customer status change stream",
+      "buzi_domain": "Customer",
+      "project_name": "Customer profile demo",
+      "data_level": "ODS",
       "schema": [
         {"columnName": "customer_id", "columnType": "bigint", "columnComment": "Synthetic customer identifier", "columnIndex": 0, "isPartition": 0},
         {"columnName": "customer_status", "columnType": "string", "columnComment": "Current status value", "columnIndex": 1, "isPartition": 0},
@@ -44,6 +56,11 @@
     {
       "table_name": "dwd.order_detail",
       "full_table_name": "spark_catalog.dwd.order_detail",
+      "table_alias": "Order detail",
+      "table_desc": "Synthetic order line detail",
+      "buzi_domain": "Order",
+      "project_name": "Order analytics demo",
+      "data_level": "DWD",
       "schema": [
         {"columnName": "order_id", "columnType": "string", "columnComment": "Synthetic order identifier", "columnIndex": 0, "isPartition": 0},
         {"columnName": "customer_id", "columnType": "bigint", "columnComment": "Synthetic customer identifier", "columnIndex": 1, "isPartition": 0},
