@@ -631,6 +631,7 @@
   "overrides_applied": {
     "terms": 0,
     "values": 0,
+    "blank": 0,
     "unmatched": []
   }
 }

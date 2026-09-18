@@ -469,6 +469,12 @@ def equality_conjunct(expression: str | None) -> tuple[str, str, str] | None:
 # an "expression" would lose the one thing the reader is asking about.
 VALUE_KIND_RANGE = "range"
 
+# WI-2.9 item A. A date filter pinned to a day written out in full. One task instance
+# covers one day, so this is what a scheduled statement is *supposed* to look like --
+# calling it 字面量 beside 变量 read as an accusation, which is the complaint this kind
+# answers. It is still a literal in every other respect; only the wording changes.
+VALUE_KIND_INSTANCE_DATE = "instance_date"
+
 # `'20260814'` / `'2026-08-14'` / `'2026/08/14'`: how a date is written when it is
 # written as a constant. Nothing longer is matched, so `'2026-08-14 10:00:00'` still
 # counts (prefix) while an ordinary code does not.
@@ -866,6 +872,18 @@ def predicate_literal_days_between(left: str | None, right: str | None) -> int |
     None means the pair cannot be measured -- one side is not an equality against a
     literal, or a literal is not written as a plain day -- never that they agree.
     """
+    offset = predicate_literal_day_offset(left, right)
+    return None if offset is None else abs(offset)
+
+
+def predicate_literal_day_offset(left: str | None, right: str | None) -> int | None:
+    """Signed whole days from ``left``'s day to ``right``'s day, or None when unmeasured.
+
+    Negative means the right-hand conjunct reads the *earlier* day, which is the shape a
+    reader is actually asking about when two sides of one metric disagree: the reminder
+    side takes the day before, and saying which way round it goes is a fact, not a
+    complaint.
+    """
     days = []
     for expression in (left, right):
         parsed = equality_conjunct(expression)
@@ -873,7 +891,7 @@ def predicate_literal_days_between(left: str | None, right: str | None) -> int |
         if value is None:
             return None
         days.append(value)
-    return abs((days[0] - days[1]).days)
+    return (days[1] - days[0]).days
 
 
 def _gap_date(value: str | None) -> datetime.date | None:

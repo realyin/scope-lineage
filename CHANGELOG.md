@@ -1,6 +1,32 @@
 # Changelog
 
 ## Unreleased
+- Stop calling a task instance's own date a governance problem. `confidence.findings[]`
+  now carries a `severity`: `warn` for the leads somebody has to act on, `info` for the
+  facts that need no action -- `hardcoded_date_literal`, `partition_literal_mismatch` and
+  `table_comment_missing`. Section 6 lists only the `warn` ones and counts the rest in a
+  single 「信息项：N」 line, so the one lead that matters is no longer buried among five
+  that need nothing. A metric's date filter pinned to a day-shaped literal reads
+  `kind: "instance_date"` and renders as 「实例日期 20260814」, the two sides of a metric
+  disagreeing now state which way round they go (「另一侧取前 1 日」) instead of being
+  scored as a defect, and section 1 publishes the days themselves as
+  `task.instance_dates[]` and a 取数日 line.
+- `scope-lineage glossary --template <path.md>` writes the 取值含义 fill-in form the
+  profile's open-questions list used to ask one code at a time: the markdown a person
+  fills in plus the same-named `.json` that `--overrides` reads straight back. It ranks
+  proven closed sets first, then by how much of the corpus rests on the value, and leaves
+  out match patterns, day literals, bare numbers with no enumerated context and anything
+  already confirmed; `--template-top` (default 20) caps how many values it asks about. An
+  overrides key whose meaning is still an empty string is now counted under
+  `overrides_applied.blank` and skipped, rather than written in as a confirmed empty
+  meaning.
+- Profile prompt: the open-questions list drops from 15 items to **5**, and asks only what
+  can change a number or a meaning -- column-position mismatches, a comment that contradicts
+  the derivation chain, an unproven key under a fan-out risk (asked once for all of them),
+  and misnamed fields. Whether a hardcoded date is substituted by the scheduler, what a code
+  means, and whether a key is unique in business terms are no longer asked at all; the
+  overflow candidates and every value still missing a meaning go to a new appendix A2b that
+  points at `glossary.overrides.template.md`.
 - Stop the value dictionary from lending a column somebody else's values. A target column's
   `value_domain` now holds only what that column itself outputs -- a CASE's THEN / ELSE
   labels, a UNION or plain constant projection -- plus the `=` / `IN` observations of a

@@ -29,6 +29,10 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict
 scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict \
   --overrides /path/to/glossary.overrides.json
 
+# 顺带生成一份「取值含义待填模板」（.md 给人填，同名 .json 回头当 --overrides 用）
+scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict \
+  --template /path/to/dict/glossary.overrides.template.md --template-top 20
+
 # 只要 JSON
 scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --format json
 
@@ -87,7 +91,8 @@ markdown = render_glossary_markdown(glossary)
   ],
   "parameters": [{"column_ref": "ods.app_order.dt", "expression": "dt = '${bizdate}'",
                   "kind": "parameterized", "task_count": 6}],
-  "overrides_applied": {"terms": 1, "values": 2, "unmatched": ["pay_status='GONE'"]}
+  "overrides_applied": {"terms": 1, "values": 2, "blank": 0,
+                        "unmatched": ["pay_status='GONE'"]}
 }
 ```
 
@@ -97,7 +102,7 @@ markdown = render_glossary_markdown(glossary)
 | `terms[]` | 按**列名**跨表归并的注释；一个列名一条，按列名排序 |
 | `values[]` | 一条 =（列引用，取值，`kind`）；按（列名、列引用、取值、`kind`）排序。`value` 是去引号的规范形式，`sql_literal` 是作者写的字面量 |
 | `parameters[]` | `${…}` 变量与函数调用钉住的列：它们钉住这个列，但不是这个列的取值 |
-| `overrides_applied` | 本次人工确认生效了多少条，以及哪些键在语料里没有对应项 |
+| `overrides_applied` | 本次人工确认生效了多少条（`terms` / `values`）、多少条还空着没填（`blank`），以及哪些键在语料里没有对应项（`unmatched`） |
 
 ### 术语（terms[]）
 
@@ -180,6 +185,40 @@ markdown = render_glossary_markdown(glossary)
 | 值匹配 | 两边都做去引号后比较，`'PAID'` 与 `PAID` 是同一个值；**推荐写去引号的 `pay_status=PAID`**，与 `values[].value` 一致 |
 | 合并优先级 | overrides 永远赢过候选：命中后 `meaning.source` 为 `override`，`meaning_candidates` 原样保留 |
 | 没命中的键 | 进 `overrides_applied.unmatched`（排序后），**不静默丢弃**——一份被人工确认过的文件里的拼写错误，正是审阅者看不见的那一类 |
+
+## 待填模板：`glossary --template`
+
+画像的待确认清单从 15 条压到 **5 条**（WI-2.9）之后，"这个 code 是什么意思"不再逐条提问——
+它本来也不是问题，是一张**表格**。`--template` 就生成这张表格：
+
+```bash
+scope-lineage glossary --lineage corpus --out dict \
+  --template dict/glossary.overrides.template.md --template-top 20
+# 业务方把含义写进 .md 与同名 .json，然后
+scope-lineage glossary --lineage corpus --out dict --overrides dict/glossary.overrides.template.json
+```
+
+一个 `--template` 路径写两个文件：`.md` 是给人填的（一列一节，一取值一行），同名 `.json` 是
+`--overrides` 直接读得回去的（`doc_format: "glossary-overrides-template/1"`，`values` 的键是
+`<表.列>=<去引号取值>`，`meaning` 为空串，`date` 取当天）。两个文件问的是同一批取值。
+
+**哪些取值进模板**（其余一律不问）：
+
+| 规则 | 说明 |
+| --- | --- |
+| 只要 `kind = literal` | `pattern` 是 `LIKE` / `RLIKE` 的匹配形状，不是某个取值，没人能给它一个业务含义 |
+| 排除日期形字面量 | `'20260814'` 是实例日期，不是编码（见 semantic 文档的 `instance_date`） |
+| 排除无枚举上下文的裸数字 | `rn = 1`、`flag = 0` 是位置与开关；**落在已证明封闭的集合里的数字仍然保留**（`status IN (0, 1, 2)`） |
+| 排除已确认的取值 | `meaning` 已有文本的不再问第二遍 |
+| 排除穿不透物理列的观察 | `logical: true` 的 `column_ref` 是 scope id，写成 overrides 的键命不中任何列 |
+
+**排序与条数**：`closed_set` 优先（答完就补全了一整个集合），其次按出现任务数、再按观察条数，
+最后按列名与取值定序——同一份语料两次生成字节一致。`--template-top` 是**取值条数**上限，默认
+20；截断之后同一列的取值会重新聚到一起，好让人一列一列地填。
+
+**空着的条目不算答案**：整张表初始全空，填了一半就交回来是常态。`--overrides` 读到 `meaning`
+为空串的键时**跳过并计入 `overrides_applied.blank`**，不会把它写成一条"含义是空字符串"的已确认
+事实——"没人说过"和"有人说了空话"是两回事。
 
 ## 回写闭环：答案怎么回到字典与元数据
 

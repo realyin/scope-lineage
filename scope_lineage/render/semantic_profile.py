@@ -438,7 +438,7 @@ def _build_statement_profile(
         "schema_version": document.get("schema_version"),
         "statement_id": document.get("statement_id"),
         "lineage_digest": lineage_document_digest(document),
-        "task": _build_task_block(document, task_meta),
+        "task": _build_task_block(document, task_meta, rules),
         "inputs": _build_inputs(document),
         "output_shape": output_shape,
         "stages": stages,
@@ -608,7 +608,9 @@ def _dedupe(items: Iterable) -> list:
 # --------------------------------------------------------------------- task block (R1)
 
 
-def _build_task_block(document: dict, task_meta: dict | None = None) -> dict:
+def _build_task_block(
+    document: dict, task_meta: dict | None = None, rules: Sequence[dict] = ()
+) -> dict:
     output_metadata = _output_metadata(document)
     target_facts = _table_facts(output_metadata)
     mode = document.get("target_partition_mode")
@@ -627,6 +629,10 @@ def _build_task_block(document: dict, task_meta: dict | None = None) -> dict:
             "mode": None if mode in (None, "none") else mode,
             "spec": document.get("target_partition_spec") or None,
         },
+        # WI-2.9 item A. Which day (or days) this instance reads, as its own filters
+        # write it. Empty means no filter pins a day-shaped constant -- a parameterised
+        # statement, or one with no date filter at all -- never "it reads every day".
+        "instance_dates": _instance_dates(document, rules),
         "structural_summary": _structural_summary(document),
         "target_metadata_source": output_metadata.get("metadata_source"),
         # WI-2.2. The author's header block, verbatim and in order. It is the one place
@@ -637,6 +643,24 @@ def _build_task_block(document: dict, task_meta: dict | None = None) -> dict:
         # means "nothing supplied it", never "this task has no owner or schedule".
         "meta": dict(task_meta) if task_meta else None,
     }
+
+
+def _instance_dates(document: dict, rules: Sequence[dict]) -> list[str]:
+    """Every day this statement's equality filters pin a column to, deduped and sorted.
+
+    Read from the same comparisons the governance findings read, so the 取数日 line and
+    the ``hardcoded_date_literal`` information item can never name different days. The
+    constant's *shape* is the whole test: quotes are stripped, and a value written any
+    other way is not a day however date-like its column is.
+    """
+    return sorted(
+        {
+            str(item["value"]).strip().strip("'\"")
+            for item in _literal_comparisons(document, rules)
+            if item["value_kind"] == semantic_text.VALUE_KIND_LITERAL
+            and semantic_text.looks_like_date_literal(item["value"])
+        }
+    )
 
 
 def _output_comments(document: dict) -> dict[tuple[str, str], list[str]]:
@@ -3702,9 +3726,18 @@ METRIC_COUNTING_FUNCTIONS = frozenset({"COUNT", "COUNT_IF", "APPROX_COUNT_DISTIN
 
 METRIC_TIME_RANGE_KINDS = (
     semantic_text.VALUE_KIND_LITERAL,
+    semantic_text.VALUE_KIND_INSTANCE_DATE,
     semantic_text.VALUE_KIND_PARAMETER,
     semantic_text.VALUE_KIND_EXPRESSION,
     semantic_text.VALUE_KIND_RANGE,
+)
+
+# The two kinds that pin a column to one constant day. `_pinned_literal` reads both,
+# because splitting the instance date out of `literal` must not un-notice a statement
+# whose two sides pin two different days.
+_PINNED_TIME_RANGE_KINDS = (
+    semantic_text.VALUE_KIND_LITERAL,
+    semantic_text.VALUE_KIND_INSTANCE_DATE,
 )
 
 # How far the aggregation-path walk may descend. Same reasoning, and same number, as the
@@ -3968,13 +4001,32 @@ def _metric_time_range(
             {
                 "column": qualified or column,
                 "expression": _conjunct_text(rule),
-                "kind": semantic_text.predicate_value_kind(rule.get("expression"))
-                or semantic_text.VALUE_KIND_EXPRESSION,
+                "kind": _time_range_kind(rule),
                 "scope_id": str(rule.get("scope_id")),
                 "path": name,
             }
         )
     return _mark_time_range_mismatches(found)
+
+
+def _time_range_kind(rule: Mapping) -> str:
+    """The published kind of one date conjunct, ``instance_date`` included.
+
+    WI-2.9 item A. A literal written as a day (``'20260814'``, ``'2026-08-14'``) is the
+    instance's own date -- the one thing a daily task's partition filter is expected to
+    carry. A literal written any other way stays ``literal``, and a substitution stays
+    ``parameter``: the shape is read from the constant, never assumed from the column.
+    """
+    kind = (
+        semantic_text.predicate_value_kind(rule.get("expression"))
+        or semantic_text.VALUE_KIND_EXPRESSION
+    )
+    if kind != semantic_text.VALUE_KIND_LITERAL:
+        return kind
+    parsed = semantic_text.equality_conjunct(rule.get("expression"))
+    if parsed and semantic_text.looks_like_date_literal(parsed[1]):
+        return semantic_text.VALUE_KIND_INSTANCE_DATE
+    return kind
 
 
 def _mark_time_range_mismatches(items: list[dict]) -> list[dict]:
@@ -4004,7 +4056,7 @@ def _mark_time_range_mismatches(items: list[dict]) -> list[dict]:
 
 def _pinned_literal(item: Mapping) -> str | None:
     """The literal one time-range conjunct pins its column to, or None for anything else."""
-    if str(item.get("kind")) != semantic_text.VALUE_KIND_LITERAL:
+    if str(item.get("kind")) not in _PINNED_TIME_RANGE_KINDS:
         return None
     parsed = semantic_text.equality_conjunct(item.get("expression"))
     return parsed[1] if parsed else None
@@ -4351,6 +4403,38 @@ FINDING_KINDS = (
     FINDING_TABLE_COMMENT_MISSING,
 )
 
+# WI-2.9 item A. Not every provable fact is a lead somebody has to act on, and rendering
+# them as if they were is what made the list unreadable: "this statement reads one day"
+# is how a scheduled daily task is supposed to look, and it sat beside "the job may be
+# writing values into the wrong columns" wearing the same ⚠.
+#
+# `warn` -- a person has to do something, and the numbers or their meaning are at stake.
+# `info` -- true, worth keeping in the JSON, and no action follows from it.
+SEVERITY_WARN = "warn"
+SEVERITY_INFO = "info"
+
+FINDING_SEVERITIES = (SEVERITY_WARN, SEVERITY_INFO)
+
+# Why the three `info` ones are not leads:
+#
+# - `hardcoded_date_literal`: a task instance covers one day, so its partition filter
+#   naming that day is the design. The day itself is published on section 1's 取数日 line.
+# - `partition_literal_mismatch`: two sides reading two different days is a *definition*
+#   the reader needs (the reminder side takes the day before), and it is stated as one on
+#   the metric card's 时间范围 line rather than as a defect.
+# - `table_comment_missing`: section 6 already counts metadata completeness one line
+#   above, the glossary already publishes the per-column 待补注释 lists, and nothing about
+#   a value or its meaning changes with the answer.
+FINDING_SEVERITY = {
+    FINDING_ALIAS_POSITION_MISMATCH: SEVERITY_WARN,
+    FINDING_PARTITION_MISMATCH: SEVERITY_INFO,
+    FINDING_NONDETERMINISTIC_FUNCTION: SEVERITY_WARN,
+    FINDING_HARDCODED_DATE: SEVERITY_INFO,
+    FINDING_METADATA_CONFLICTS: SEVERITY_WARN,
+    FINDING_TARGET_BINDING: SEVERITY_WARN,
+    FINDING_TABLE_COMMENT_MISSING: SEVERITY_INFO,
+}
+
 # The one finding section 6 gives its own line instead of listing under 治理线索: the
 # reader asking "can I trust which column each value landed in" should not have to find
 # it among the others.
@@ -4371,12 +4455,13 @@ _TARGET_BINDING_METHOD_NOTES = {
     "projection_alias": "按投影别名绑定",
 }
 
-_FINDING_KEY_ORDER = ("kind", "text", "evidence")
+_FINDING_KEY_ORDER = ("kind", "severity", "text", "evidence")
 
 
 def _finding(kind: str, text: str, evidence: Iterable = ()) -> dict:
     return {
         "kind": kind,
+        "severity": FINDING_SEVERITY.get(kind, SEVERITY_WARN),
         "text": text,
         "evidence": [str(item) for item in evidence if item],
     }

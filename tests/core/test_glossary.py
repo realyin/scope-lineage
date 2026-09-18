@@ -472,7 +472,31 @@ def test_a_qualified_override_key_confirms_one_value() -> None:
         "confirmed_by": "owner",
         "date": "2026-09-18",
     }
-    assert glossary["overrides_applied"] == {"terms": 0, "values": 1, "unmatched": []}
+    assert glossary["overrides_applied"] == {
+        "terms": 0,
+        "values": 1,
+        "blank": 0,
+        "unmatched": [],
+    }
+
+
+def test_a_key_left_blank_is_counted_rather_than_confirmed_as_empty() -> None:
+    """WI-2.9 item C: `glossary --template` ships every entry blank, and a half-filled
+    form comes back with the rest unanswered. "Nobody has said" must not become
+    "somebody said nothing"."""
+    overrides = {
+        "terms": {"pay_status": {"meaning": ""}},
+        "values": {"ods.app_order.pay_status='PAID'": {"meaning": ""}},
+    }
+    glossary = _glossary(_override_document(), overrides=overrides)
+
+    assert _value(glossary, "pay_status", "'PAID'")["meaning"] is None
+    assert glossary["overrides_applied"] == {
+        "terms": 0,
+        "values": 0,
+        "blank": 2,
+        "unmatched": [],
+    }
 
 
 def test_a_bare_column_override_key_confirms_every_same_named_column() -> None:

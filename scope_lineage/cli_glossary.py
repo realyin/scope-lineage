@@ -17,6 +17,11 @@ import sys
 from pathlib import Path
 
 from .render.glossary import build_glossary, render_glossary_markdown
+from .render.glossary_template import (
+    TEMPLATE_TOP_DEFAULT,
+    build_overrides_template,
+    render_overrides_template_markdown,
+)
 
 
 def add_glossary_parser(subcommands) -> None:
@@ -43,6 +48,23 @@ def add_glossary_parser(subcommands) -> None:
             "A reviewed glossary.overrides.json: confirmed meanings for column names "
             "and for column='VALUE' pairs. Keys that match nothing are reported under "
             "overrides_applied.unmatched rather than dropped"
+        ),
+    )
+    glossary_cmd.add_argument(
+        "--template",
+        help=(
+            "Also write a fill-in glossary.overrides.template.md at this path, plus the "
+            "same-named .json: the corpus's most-used unexplained values, with an empty "
+            "meaning each. Fill it in and pass the .json back as --overrides"
+        ),
+    )
+    glossary_cmd.add_argument(
+        "--template-top",
+        type=int,
+        default=TEMPLATE_TOP_DEFAULT,
+        help=(
+            "How many values the --template form asks about "
+            f"(default: {TEMPLATE_TOP_DEFAULT})"
         ),
     )
     glossary_cmd.add_argument(
@@ -99,17 +121,56 @@ def run_glossary(args: argparse.Namespace) -> int:
         print(f"{args.lineage}: {error}", file=sys.stderr)
         return 1
     _write(Path(args.out), glossary, formats(args.format))
+    template = _write_template(glossary, args)
+    _report(glossary, template, args, skipped_unknown_version, missing_diagnostics)
+    return 0
 
+
+def _report(
+    glossary: dict,
+    template: dict | None,
+    args: argparse.Namespace,
+    skipped_unknown_version: int,
+    missing_diagnostics: int,
+) -> None:
     applied = glossary["overrides_applied"]
     print(
         f"Collected {len(glossary['terms'])} term(s) and {len(glossary['values'])} "
         f"value observation(s) from {glossary['corpus']['task_count']} task(s) "
         f"(overrides terms={applied['terms']}, values={applied['values']}, "
-        f"unmatched={len(applied['unmatched'])}, "
+        f"blank={applied['blank']}, unmatched={len(applied['unmatched'])}, "
         f"skipped_unknown_version={skipped_unknown_version}, "
         f"missing_diagnostics={missing_diagnostics})"
     )
-    return 0
+    if template is not None:
+        print(
+            f"Wrote a fill-in template of {template['generated']['value_count']} value(s) "
+            f"across {template['generated']['column_count']} column(s) to {args.template}"
+        )
+
+
+def _write_template(glossary: dict, args: argparse.Namespace) -> dict | None:
+    """WI-2.9 item C: the 取值含义 form, beside the dictionary it was ranked from.
+
+    Two files under one ``--template`` path, because they are one artifact read two ways:
+    the markdown is what a person fills in, the same-named JSON is what
+    ``glossary --overrides`` reads back.
+    """
+    path = getattr(args, "template", None)
+    if not path:
+        return None
+    markdown = Path(path)
+    template = build_overrides_template(
+        glossary, top=getattr(args, "template_top", TEMPLATE_TOP_DEFAULT)
+    )
+    markdown.parent.mkdir(parents=True, exist_ok=True)
+    markdown.write_text(
+        render_overrides_template_markdown(template, glossary), encoding="utf-8"
+    )
+    markdown.with_suffix(".json").write_text(
+        json.dumps(template, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return template
 
 
 def _write(out_dir: Path, glossary: dict, selected: set) -> None:

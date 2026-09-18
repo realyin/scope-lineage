@@ -69,6 +69,10 @@ from .sqlglot_config import suppress_invalid_json_path_warnings
 from .scope.task_lineage import TaskLineageResult, parse_task_lineage
 from .contract.fold import fold_session_scoped
 from .render.glossary import build_glossary, render_glossary_markdown
+from .render.glossary_template import (
+    build_overrides_template,
+    render_overrides_template_markdown,
+)
 from .render.mapping_markdown import render_mapping_markdown, render_warnings_markdown
 from .render.semantic_markdown import render_semantic_markdown
 from .render.semantic_profile import build_semantic_profile
@@ -113,6 +117,7 @@ PUBLIC_CORE_API = frozenset({
     "apply_metadata_patch",
     "apply_table_cards",
     "build_glossary",
+    "build_overrides_template",
     "build_semantic_profile",
     "build_table_cards",
     "catalog_prefixes",
@@ -131,6 +136,7 @@ PUBLIC_CORE_API = frozenset({
     "parse_scope_lineage",
     "parse_task_lineage",
     "render_glossary_markdown",
+    "render_overrides_template_markdown",
     "render_mapping_markdown",
     "render_semantic_markdown",
     "render_table_card_markdown",

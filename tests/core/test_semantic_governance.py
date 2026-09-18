@@ -28,6 +28,8 @@ from scope_lineage.render import semantic_text
 from scope_lineage.render.semantic_markdown import render_semantic_markdown
 from scope_lineage.render.semantic_profile import (
     FINDING_KINDS,
+    FINDING_SEVERITIES,
+    FINDING_SEVERITY,
     JOIN_NULL_SEMANTICS,
     build_semantic_profile,
 )
@@ -425,15 +427,17 @@ def test_every_finding_uses_a_declared_kind_and_the_declared_shape() -> None:
     profile = build_semantic_profile(_document(MISMATCH_SQL, schema=MISMATCH_SCHEMA))
     for finding in profile["confidence"]["findings"]:
         assert finding["kind"] in FINDING_KINDS
-        assert list(finding) == ["kind", "text", "evidence"]
+        assert list(finding) == ["kind", "severity", "text", "evidence"]
         assert isinstance(finding["evidence"], list)
 
 
 def test_section_six_renders_the_findings_and_says_so_when_there_are_none() -> None:
-    profile = build_semantic_profile(_document(MISMATCH_SQL, schema=MISMATCH_SCHEMA))
+    profile = build_semantic_profile(
+        _document(NONDETERMINISTIC_SQL, schema=NONDETERMINISTIC_SCHEMA)
+    )
     rendered = render_semantic_markdown(profile, sections=["confidence"])
     assert "#### 治理线索" in rendered
-    assert "partition_literal_mismatch" in rendered
+    assert "nondeterministic_function" in rendered
 
     empty = build_semantic_profile(
         _document("INSERT INTO mart.t SELECT 1 AS flag", schema={})
@@ -836,3 +840,82 @@ def test_the_finding_cites_the_chains_and_the_rule_blocks_it_read() -> None:
 
     assert chain in finding["evidence"]
     assert any(item.startswith("logic:") for item in finding["evidence"])
+
+
+# ------------------------------------------------------------ 7. severity (WI-2.9)
+
+
+def test_every_kind_declares_a_severity_from_the_vocabulary() -> None:
+    assert set(FINDING_SEVERITY) == set(FINDING_KINDS)
+    assert set(FINDING_SEVERITY.values()) <= set(FINDING_SEVERITIES)
+
+
+@pytest.mark.parametrize(
+    "kind,severity",
+    [
+        ("alias_position_mismatch", "warn"),
+        ("nondeterministic_function", "warn"),
+        ("metadata_conflicts", "warn"),
+        ("target_binding", "warn"),
+        ("hardcoded_date_literal", "info"),
+        ("partition_literal_mismatch", "info"),
+        ("table_comment_missing", "info"),
+    ],
+)
+def test_each_kind_keeps_its_declared_severity(kind: str, severity: str) -> None:
+    assert FINDING_SEVERITY[kind] == severity
+
+
+def test_a_published_finding_carries_its_severity_in_the_declared_position() -> None:
+    profile = build_semantic_profile(_document(MISMATCH_SQL, schema=MISMATCH_SCHEMA))
+    findings = profile["confidence"]["findings"]
+
+    assert findings
+    for finding in findings:
+        assert list(finding) == ["kind", "severity", "text", "evidence"]
+        assert finding["severity"] == FINDING_SEVERITY[finding["kind"]]
+
+
+def test_section_six_lists_only_the_warnings_and_counts_the_rest() -> None:
+    """The instance date is the whole reason this split exists: it used to be rendered
+    beside "the job writes into the wrong columns" with the same ⚠."""
+    profile = build_semantic_profile(_document(MISMATCH_SQL, schema=MISMATCH_SCHEMA))
+    rendered = render_semantic_markdown(profile, sections=["confidence"])
+
+    assert "hardcoded_date_literal" not in rendered
+    assert "partition_literal_mismatch" not in rendered
+    assert "- 信息项：3（见 semantic.json findings）" in rendered
+
+
+def test_a_statement_with_only_information_items_says_there_are_no_leads() -> None:
+    profile = build_semantic_profile(_document(MISMATCH_SQL, schema=MISMATCH_SCHEMA))
+    rendered = render_semantic_markdown(profile, sections=["confidence"])
+
+    assert "- 治理线索：无" in rendered
+
+
+def test_a_warning_is_still_listed_beside_the_information_count() -> None:
+    profile = build_semantic_profile(_document(MISMATCH_SQL, schema=MISMATCH_SCHEMA))
+    profile["confidence"]["findings"].insert(
+        0,
+        {
+            "kind": "nondeterministic_function",
+            "severity": "warn",
+            "text": "依赖作业运行时刻",
+            "evidence": [],
+        },
+    )
+    rendered = render_semantic_markdown(profile, sections=["confidence"])
+
+    assert "- \u26a0 nondeterministic_function：依赖作业运行时刻" in rendered
+    assert "- 信息项：3（见 semantic.json findings）" in rendered
+
+
+def test_no_information_items_means_no_information_line() -> None:
+    profile = build_semantic_profile(_document(MISMATCH_SQL, schema=MISMATCH_SCHEMA))
+    profile["confidence"]["findings"] = [
+        item for item in profile["confidence"]["findings"] if item["severity"] == "warn"
+    ]
+    rendered = render_semantic_markdown(profile, sections=["confidence"])
+
+    assert "信息项" not in rendered

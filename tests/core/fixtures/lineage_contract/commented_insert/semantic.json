@@ -20,6 +20,7 @@
         "dt": "${bizdate}"
       }
     },
+    "instance_dates": [],
     "structural_summary": "ROOT 直接读取 dim.channel、ods.channel_event；过滤 1 处；CASE WHEN 派生 1 个字段；输出 3 列。",
     "target_metadata_source": null,
     "header_comments": [
@@ -583,11 +584,13 @@
     "findings": [
       {
         "kind": "target_binding",
+        "severity": "warn",
         "text": "未做目标列绑定（target_binding_absent_reason=metadata_not_provided）",
         "evidence": []
       },
       {
         "kind": "table_comment_missing",
+        "severity": "info",
         "text": "缺少表注释的表（1 张）：mart.channel_summary",
         "evidence": []
       }

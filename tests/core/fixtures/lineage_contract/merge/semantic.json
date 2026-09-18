@@ -16,6 +16,7 @@
       "mode": null,
       "spec": null
     },
+    "instance_dates": [],
     "structural_summary": "ROOT 不直接读取物理表；关联 1 个上游（1 个其他）；输出 3 列。",
     "target_metadata_source": "schema",
     "header_comments": [],
@@ -278,11 +279,13 @@
     "findings": [
       {
         "kind": "target_binding",
+        "severity": "warn",
         "text": "未做目标列绑定（target_binding_absent_reason=binding_not_applicable_for_statement）",
         "evidence": []
       },
       {
         "kind": "table_comment_missing",
+        "severity": "info",
         "text": "缺少表注释的表（2 张）：ods.customer_delta、mart.customer_profile",
         "evidence": []
       }

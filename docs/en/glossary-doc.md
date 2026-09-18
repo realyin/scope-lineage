@@ -36,6 +36,10 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict
 scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict \
   --overrides /path/to/glossary.overrides.json
 
+# also write a fill-in 取值含义 form (.md for a person, the same-named .json as --overrides)
+scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict \
+  --template /path/to/dict/glossary.overrides.template.md --template-top 20
+
 # JSON only
 scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --format json
 
@@ -97,7 +101,8 @@ markdown = render_glossary_markdown(glossary)
   ],
   "parameters": [{"column_ref": "ods.app_order.dt", "expression": "dt = '${bizdate}'",
                   "kind": "parameterized", "task_count": 6}],
-  "overrides_applied": {"terms": 1, "values": 2, "unmatched": ["pay_status='GONE'"]}
+  "overrides_applied": {"terms": 1, "values": 2, "blank": 0,
+                        "unmatched": ["pay_status='GONE'"]}
 }
 ```
 
@@ -107,7 +112,7 @@ markdown = render_glossary_markdown(glossary)
 | `terms[]` | Comments merged across tables by **column name**; one entry per name, sorted by name |
 | `values[]` | One entry per (column reference, value, `kind`); sorted by (column name, column reference, value, `kind`). `value` is the normalized, unquoted form and `sql_literal` is the literal the author wrote |
 | `parameters[]` | Columns pinned by a `${…}` variable or a function call: they pin the column, but they are not its values |
-| `overrides_applied` | How many human confirmations took effect, and which keys matched nothing in the corpus |
+| `overrides_applied` | How many human confirmations took effect (`terms` / `values`), how many keys are still blank (`blank`), and which keys matched nothing in the corpus (`unmatched`) |
 
 ### Terms (terms[])
 
@@ -201,6 +206,47 @@ backticks removed.
 | Value matching | Quotes are stripped on both sides, so `'PAID'` and `PAID` are the same value; **prefer the unquoted `pay_status=PAID`**, which is what `values[].value` holds |
 | Merge precedence | An override always beats a candidate: on a match `meaning.source` is `override`, and `meaning_candidates` is kept as it was |
 | Keys that match nothing | Go to `overrides_applied.unmatched` (sorted) and are **never dropped silently** -- a typo in a file a human reviewed is exactly what the reviewer cannot see |
+
+## The fill-in form: `glossary --template`
+
+Once the profile's open-questions list was capped at **five items** (WI-2.9), "what does
+this code mean" stopped being asked one question at a time -- it was never really a
+question, it is a **form**. `--template` generates that form:
+
+```bash
+scope-lineage glossary --lineage corpus --out dict \
+  --template dict/glossary.overrides.template.md --template-top 20
+# the owner writes the meanings into the .md and the same-named .json, then
+scope-lineage glossary --lineage corpus --out dict --overrides dict/glossary.overrides.template.json
+```
+
+One `--template` path writes two files: the `.md` is what a person fills in (one section
+per column, one row per value) and the same-named `.json` is what `--overrides` reads
+straight back (`doc_format: "glossary-overrides-template/1"`, `values` keyed on
+`<table.column>=<unquoted value>`, an empty `meaning`, and today's `date`). Both files ask
+about the same values.
+
+**Which values reach the form** (nothing else is asked):
+
+| Rule | Detail |
+| --- | --- |
+| `kind = literal` only | A `pattern` is a `LIKE` / `RLIKE` match shape rather than a value, and nobody can give a shape a business meaning |
+| No date-shaped literals | `'20260814'` is an instance date, not a code (see `instance_date` in the semantic doc) |
+| No bare numbers with no enumerated context | `rn = 1` and `flag = 0` are positions and switches; **a number inside a proven closed set is kept** (`status IN (0, 1, 2)`) |
+| Nothing already confirmed | A value whose `meaning` already carries text is not asked twice |
+| No observation that never reached a physical column | A `logical: true` `column_ref` is a scope id, and as an overrides key it would match nothing |
+
+**Order and size**: closed sets first (answering one completes a whole set), then by how
+many tasks use the value, then by how many observations there are, and finally by column
+and value -- so two runs over one corpus produce identical bytes. `--template-top` caps
+the number of **values** (default 20); after the cut, one column's values are regrouped so
+the form can be filled in column by column.
+
+**A blank entry is not an answer**: the form ships entirely blank and comes back half
+filled, which is normal. When `--overrides` reads a key whose `meaning` is an empty
+string it **skips it and counts it under `overrides_applied.blank`** rather than writing
+it in as a confirmed empty meaning -- "nobody has said" and "somebody said nothing" are
+different claims.
 
 ## The write-back loop: how an answer reaches the dictionary and the metadata
 

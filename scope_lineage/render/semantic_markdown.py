@@ -32,14 +32,15 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Iterable, Sequence
+from typing import Iterable, Mapping, Sequence
 
 from .markdown_text import cell as _cell
 from .markdown_text import expr_span as _expr_span
 from . import glossary_values as _glossary_values
 from .markdown_text import normalize_inline as _normalize_inline
 from .semantic_text import describe_nullable_argument as _describe_nullable_argument
-from .semantic_text import predicate_literal_days_between
+from .semantic_text import equality_conjunct
+from .semantic_text import predicate_literal_day_offset
 from .semantic_text import generated_source_text as _generated_source_text
 
 
@@ -203,6 +204,14 @@ _FAN_OUT_LABELS = {
 # WI-1f: the one governance finding section 6 gives its own line, mirrored from the
 # profile builder so the two cannot disagree about which kind that is.
 FINDING_OWN_LINE = "target_binding"
+
+# WI-2.9 item A. 治理线索 lists the leads somebody has to act on; everything else the
+# profile proved is counted in one line and left in the JSON. A finding with no severity
+# at all (an older document read back from disk) is listed rather than counted -- losing
+# a lead is the failure this section exists to prevent.
+SEVERITY_INFO = "info"
+
+INFORMATION_LINE = "- 信息项：{count}（见 semantic.json findings）"
 
 # Which evidence class each governance lead restates. None of them is an inference: two
 # tables filtered to different literals is what the SQL says, and a table without a
@@ -442,6 +451,7 @@ def _render_overview(profile: dict) -> list[str]:
     lines.append(
         _tagged(f"- 目标表元数据来源：{source if source else '无'}", TAG_METADATA)
     )
+    lines.extend(_instance_date_lines(task))
     lines.append(
         _tagged(
             f"- 结构摘要：{_normalize_inline(str(task.get('structural_summary') or ''))}",
@@ -454,6 +464,33 @@ def _render_overview(profile: dict) -> list[str]:
     lines.extend(_header_comment_lines(task))
     lines.extend(_render_inputs_table(profile.get("inputs") or []))
     return lines
+
+
+def _instance_date_lines(task: dict) -> list[str]:
+    """WI-2.9 item A: which day this instance reads, before any line calls it a problem.
+
+    Absent when no filter pins a day: a parameterised statement reads whatever the
+    scheduler substitutes, and printing "取数日：无" would read as "it reads nothing".
+    Two days are listed with the gap between them, because a statement reading a day and
+    the day before is a口径 the reader has to know -- and is not, by itself, a defect.
+    """
+    days = [str(item) for item in task.get("instance_dates") or []]
+    if not days:
+        return []
+    gap = _instance_date_gap(days)
+    return [_tagged(f"- 取数日：{'、'.join(days)}{gap}", TAG_SQL)]
+
+
+def _instance_date_gap(days: Sequence[str]) -> str:
+    """"（相差 N 天）" across the widest pair, or "" for one day or an unmeasured pair."""
+    if len(days) < 2:
+        return ""
+    spans = [
+        predicate_literal_day_offset(f"d = '{days[0]}'", f"d = '{day}'")
+        for day in days[1:]
+    ]
+    measured = [abs(item) for item in spans if item is not None]
+    return f"（相差 {max(measured)} 天）" if len(measured) == len(spans) else ""
 
 
 def _downstream_lines(task: dict) -> list[str]:
@@ -1470,10 +1507,18 @@ METRIC_TIME_DEPENDENT_MARK = "（含运行时刻函数，结果随跑批时间�
 # WI-2.1c item 3. The same column pinned to two different literals on the two paths. The
 # gap is stated in days when both literals are written as plain days, and as a bare
 # disagreement otherwise -- a number nobody can compute is not invented.
-METRIC_MISMATCH_UNMEASURED = "不一致"
+METRIC_MISMATCH_UNMEASURED = "另一侧取另一天"
+
+# The one time-range kind whose label carries its own value: 「实例日期 20260814」.
+METRIC_INSTANCE_DATE_KIND = "instance_date"
+
 
 _VALUE_KIND_LABELS = {
     "literal": "字面量",
+    # WI-2.9 item A: the day this instance runs for, not a hardcoded value somebody
+    # forgot to parameterise. The label carries the day itself, so the card reads
+    # 「实例日期 20260814」 rather than 「字面量」.
+    "instance_date": "实例日期",
     "parameter": "变量",
     "expression": "表达式",
     "range": "区间",
@@ -1537,17 +1582,32 @@ def _metric_time_range_text(spec: dict) -> str:
 
 
 def _metric_time_range_item(item: dict, items: Sequence[dict]) -> str:
-    kind = str(item.get("kind"))
     return (
         f"{_expr_span(item.get('expression') or '')}"
-        f"（{_VALUE_KIND_LABELS.get(kind, kind)}，{_span(item.get('column'))}）"
+        f"（{_metric_time_range_kind(item)}，{_span(item.get('column'))}）"
         f"{METRIC_ARGUMENT_PATH_MARK if item.get('path') == METRIC_ARGUMENT_PATH else ''}"
         f"{_metric_mismatch_note(item, items)}"
     )
 
 
+def _metric_time_range_kind(item: dict) -> str:
+    """The kind, with the day spelled out when the kind is the instance's own date."""
+    kind = str(item.get("kind"))
+    label = _VALUE_KIND_LABELS.get(kind, kind)
+    if kind != METRIC_INSTANCE_DATE_KIND:
+        return label
+    day = _instance_day(item.get("expression"))
+    return f"{label} {day}" if day else label
+
+
 def _metric_mismatch_note(item: dict, items: Sequence[dict]) -> str:
-    """"（与 <另一条> 相差 N 天）" for a conjunct the profile flagged as disagreeing."""
+    """What the other side of one disagreeing column reads, stated as a fact.
+
+    WI-2.9 item A. The two sides of a metric reading two different days is a *definition*
+    the reader needs -- the reminder side takes the day before -- and the line used to
+    read as a complaint about it. So the note says which way round the other side goes,
+    and the finding it came from is an information item rather than a governance lead.
+    """
     if not item.get("mismatch"):
         return ""
     notes = []
@@ -1556,12 +1616,25 @@ def _metric_mismatch_note(item: dict, items: Sequence[dict]) -> str:
             continue
         if _bare_column(other) != _bare_column(item):
             continue
-        days = predicate_literal_days_between(
-            item.get("expression"), other.get("expression")
+        notes.append(
+            f"（{_expr_span(other.get('expression') or '')} "
+            f"{_metric_mismatch_gap(item, other)}）"
         )
-        gap = f"相差 {days} 天" if days is not None else METRIC_MISMATCH_UNMEASURED
-        notes.append(f"（与 {_expr_span(other.get('expression') or '')} {gap}）")
     return "".join(_dedupe_text(notes))
+
+
+def _instance_day(expression: str | None) -> str:
+    """The day one ``<col> = '<day>'`` conjunct pins, unquoted, or "" when it pins none."""
+    parsed = equality_conjunct(expression)
+    return str(parsed[1]).strip().strip("'\"") if parsed else ""
+
+
+def _metric_mismatch_gap(item: dict, other: dict) -> str:
+    """"另一侧取前 1 日" / "另一侧取后 1 日", or a bare disagreement when unmeasured."""
+    days = predicate_literal_day_offset(item.get("expression"), other.get("expression"))
+    if not days:
+        return METRIC_MISMATCH_UNMEASURED
+    return f"另一侧取{'前' if days < 0 else '后'} {abs(days)} 日"
 
 
 def _bare_column(item: dict) -> str:
@@ -1684,21 +1757,31 @@ def _target_binding_line(findings: Sequence[dict]) -> str:
 
 
 def _render_findings(findings: Sequence[dict]) -> list[str]:
-    """Section 6's governance leads, one line each, kind first so they can be grouped."""
-    listed = [item for item in findings if item.get("kind") != FINDING_OWN_LINE]
-    if not listed:
-        return ["", "#### 治理线索", "", _tagged("- 治理线索：无", TAG_SQL)]
+    """Section 6's governance leads, one line each, kind first so they can be grouped.
+
+    WI-2.9 item A: only the ``warn`` ones are listed. The rest are true and stay in
+    ``semantic.json``, but a reader who has to act cannot find the one line that matters
+    among six that need nothing -- so they are counted in a single line instead.
+    """
+    candidates = [item for item in findings if item.get("kind") != FINDING_OWN_LINE]
+    listed = [item for item in candidates if item.get("severity") != SEVERITY_INFO]
+    information = len(candidates) - len(listed)
     lines = ["", "#### 治理线索", ""]
-    for finding in listed:
-        kind = str(finding.get("kind"))
-        lines.append(
-            _tagged(
-                f"- {WARN} {kind}：{_normalize_inline(str(finding.get('text') or ''))}",
-                _FINDING_TAGS.get(kind, TAG_SQL),
-                finding.get("evidence") or [],
-            )
-        )
+    if not listed:
+        lines.append(_tagged("- 治理线索：无", TAG_SQL))
+    lines.extend(_finding_line(item) for item in listed)
+    if information:
+        lines.append(_tagged(INFORMATION_LINE.format(count=information), TAG_SQL))
     return lines
+
+
+def _finding_line(finding: Mapping) -> str:
+    kind = str(finding.get("kind"))
+    return _tagged(
+        f"- {WARN} {kind}：{_normalize_inline(str(finding.get('text') or ''))}",
+        _FINDING_TAGS.get(kind, TAG_SQL),
+        finding.get("evidence") or [],
+    )
 
 
 def _inferred_line(inferred) -> str:

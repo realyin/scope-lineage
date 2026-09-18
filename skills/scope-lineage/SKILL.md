@@ -172,6 +172,14 @@ lineage.json is not. Pull `semantic.json` by path (`output_shape`, `stages`, `ru
 `fields`, `confidence`) when you need the structured form, and fall back to
 `scripts/query.py chain` for one field's full derivation.
 
+`confidence.findings[]` carries a `severity`: `warn` is a lead somebody has to act on,
+`info` is true and needs no action. A task instance covers one day, so a partition filter
+naming that day is the design, not a defect — `hardcoded_date_literal`,
+`partition_literal_mismatch` and `table_comment_missing` are therefore `info`, section 6
+counts them in one line instead of listing them, and a profile must not turn them into
+使用注意 or into questions. The day itself is published as `task.instance_dates[]` and on
+section 1's 取数日 line, and a metric's date filter reads `kind: "instance_date"`.
+
 Every line in the skeleton carries one of three tags: `SQL事实` (verbatim from the SQL),
 `元数据事实` (table/column comments and types), or `结构推断` (provable from the query
 structure, with an evidence id). **`结构推断` is not a business definition.** "Groups by
@@ -182,16 +190,31 @@ deliberately contains no business entity names, no business table types (宽表/
 
 #### 确认回写：让答完的问题不再被问第二遍
 
-The open-questions list is only worth writing if the answers come back. When the business
-owner has filled in the `- 答案：` lines of a `business_profile.md`:
+The open-questions list is only worth writing if the answers come back. It is now capped
+at **five items** and asks only what changes a number or a meaning, so the bulk of the
+"what does this code mean" work runs through a generated form instead. Step 1 is to
+generate that form; steps 2-4 collect what came back:
 
 ```bash
+# 1. the fill-in form: the corpus's most-used values that nobody has explained yet
+scope-lineage glossary --lineage <corpus> --out <dir> \
+  --template <dir>/glossary.overrides.template.md [--template-top 20]
+# the owner writes the meanings into the .md and the same-named .json
+
+# 2-4. the answered five-item list, routed back into the same two files
 python3 skills/scope-lineage/scripts/confirmations.py apply <task-dir>/business_profile.md \
   --by <name> [--overrides <dir>/glossary.overrides.json] [--patch <dir>/metadata-patch.json]
 scope-lineage glossary --lineage <corpus> --out <dir> --overrides <dir>/glossary.overrides.json
 scope-lineage describe --lineage <corpus> --glossary <dir>/glossary.json \
   --metadata-patch <dir>/metadata-patch.json
 ```
+
+`--template` writes two files at one path — the markdown a person fills in and the
+same-named `.json` that `--overrides` reads back. It ranks proven closed sets first, then
+by how many tasks use the value, and it leaves out what nobody can answer or nobody needs
+to: match patterns, day literals, bare numbers with no enumerated context, and anything
+already confirmed. An entry left blank comes back as `blank` in the run summary and is
+**not** written in as a confirmed empty meaning.
 
 The script routes each answer by its own 回写目标 line — `术语` / `值域` into the glossary
 overrides, `字段注释` / `表注释` into a `metadata-patch/1` file — and never overwrites an
@@ -206,8 +229,10 @@ When the user wants a business profile, generate `business_profile.md` from the 
 following `references/semantic-profile-prompt.md`. It delivers **three pieces plus an
 appendix** in one file: a **task semantic card** (≤ 1 page, business language, no source
 tags), a **field dictionary** (every output column, with a 7-row metric spec card per
-measure), and an **open-questions list** (≤ 15 items a business owner can answer in five
-minutes) — with the evidence, tag system, risk table and self-check moved into the
+measure), and an **open-questions list** (≤ 5 items a business owner can answer in five
+minutes, restricted to column-position mismatches, comment-versus-derivation conflicts,
+unproven keys under a fan-out risk, and misnamed fields) — with the evidence, tag system,
+risk table, the overflow 备查项 / 待填取值 list and the self-check moved into the
 appendix. Fill `references/business-profile-template.md`. For a whole corpus, loop over
 the task directories yourself — there is no batch mode in the CLI.
 

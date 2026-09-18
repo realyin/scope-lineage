@@ -20,6 +20,7 @@
         "dt": "20260101"
       }
     },
+    "instance_dates": [],
     "structural_summary": "ROOT 不直接读取物理表；关联 1 个上游（1 个去重）；输出 6 列。",
     "target_metadata_source": "target_ddl",
     "header_comments": [],
@@ -1399,11 +1400,13 @@
     "findings": [
       {
         "kind": "target_binding",
+        "severity": "warn",
         "text": "status=applied、method=ddl_position（按 DDL 位置绑定，目标表 DDL 变更会导致列错位）",
         "evidence": []
       },
       {
         "kind": "table_comment_missing",
+        "severity": "info",
         "text": "缺少表注释的表（4 张）：dim.segment_dim、ods.events_a、ods.events_b、mart.metric_by_segment",
         "evidence": []
       }

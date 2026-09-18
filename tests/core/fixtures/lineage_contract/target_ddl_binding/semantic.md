@@ -93,7 +93,7 @@ lineage_digest: "49ca4ef5f9e34e0f"
 #### 治理线索
 
 - ⚠ alias_position_mismatch：按位置写入且 2/2 个投影的 SQL 别名与 DDL 同位置列名不同（如 目标 account_id ← 别名 wrong_key、目标 balance ← 别名 wrong_balance）——生产数据写错列或元数据列序过期，需 DESC 表核对（SQL事实+元数据事实；证据 mc:001, mc:002）
-- ⚠ table_comment_missing：缺少表注释的表（1 张）：ods.account_snapshot（元数据事实）
+- 信息项：1（见 semantic.json findings）（SQL事实）
 
 ## 7. 给 Agent 的说明
 

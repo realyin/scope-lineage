@@ -253,7 +253,8 @@ def test_a_date_equality_on_the_aggregation_path_is_the_time_range(full: dict) -
     assert len(ranges) == 1
     assert ranges[0]["column"] == "dwd.order_detail.stat_date"
     assert ranges[0]["expression"] == "stat_date = '20260814'"
-    assert ranges[0]["kind"] == "literal"
+    # WI-2.9: a day written out in full is this instance's own date, not a stray literal.
+    assert ranges[0]["kind"] == "instance_date"
     assert ranges[0]["scope_id"] == "subq:s"
 
 
@@ -1036,8 +1037,8 @@ def test_one_path_alone_cannot_disagree_with_itself(argument_side: dict) -> None
 def test_the_card_states_the_gap_in_days(argument_side: dict) -> None:
     card = _card(argument_side, "mart.gap.gap_days")
 
-    assert "（与 `dt = '20260813'` 相差 1 天）" in card["时间范围"]
-    assert "（与 `dt = '20260814'` 相差 1 天）" in card["时间范围"]
+    assert "（`dt = '20260813'` 另一侧取前 1 日）" in card["时间范围"]
+    assert "（`dt = '20260814'` 另一侧取后 1 日）" in card["时间范围"]
 
 
 def test_a_gap_between_unmeasurable_literals_is_stated_without_a_number() -> None:
@@ -1046,8 +1047,8 @@ def test_a_gap_between_unmeasurable_literals_is_stated_without_a_number() -> Non
     ranges = _spec(profile, "gap_days")["time_range"]
 
     assert [item.get("mismatch") for item in ranges] == [True, True]
-    assert "不一致）" in _card(profile, "mart.gap.gap_days")["时间范围"]
-    assert "相差" not in _card(profile, "mart.gap.gap_days")["时间范围"]
+    assert "另一侧取另一天）" in _card(profile, "mart.gap.gap_days")["时间范围"]
+    assert "日）" not in _card(profile, "mart.gap.gap_days")["时间范围"]
 
 
 def test_the_mismatch_finding_points_at_the_metrics_it_affects(

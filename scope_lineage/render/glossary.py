@@ -107,7 +107,7 @@ def build_glossary(
         "terms": _build_terms(statements, canonical),
         "values": aggregate_values(observations, canonical),
         "parameters": _build_parameters(observations, canonical),
-        "overrides_applied": {"terms": 0, "values": 0, "unmatched": []},
+        "overrides_applied": {"terms": 0, "values": 0, "blank": 0, "unmatched": []},
     }
     _apply_overrides(glossary, overrides or {})
     return {key: glossary[key] for key in GLOSSARY_KEYS}
@@ -240,22 +240,34 @@ def _build_parameters(observations: Sequence[Mapping], canonical: Mapping) -> li
 
 def _apply_overrides(glossary: dict, overrides: Mapping) -> None:
     unmatched: list[str] = []
-    terms = _apply_term_overrides(glossary["terms"], overrides.get("terms") or {}, unmatched)
+    blank: list[str] = []
+    terms = _apply_term_overrides(
+        glossary["terms"], overrides.get("terms") or {}, unmatched, blank
+    )
     values = _apply_value_overrides(
-        glossary["values"], overrides.get("values") or {}, unmatched
+        glossary["values"], overrides.get("values") or {}, unmatched, blank
     )
     glossary["overrides_applied"] = {
         "terms": terms,
         "values": values,
+        # WI-2.9 item C. A key whose meaning is still empty: the `glossary --template`
+        # form ships every entry blank, and a half-filled form comes back with the rest
+        # unanswered. Writing `""` in as a confirmed meaning would turn "nobody has said"
+        # into "somebody said nothing", which is the one reading this layer must not
+        # publish. So a blank is counted and left alone.
+        "blank": len(blank),
         "unmatched": sorted(unmatched),
     }
 
 
 def _apply_term_overrides(
-    terms: Sequence[dict], overrides: Mapping, unmatched: list[str]
+    terms: Sequence[dict], overrides: Mapping, unmatched: list[str], blank: list[str]
 ) -> int:
     applied = 0
     for key, payload in overrides.items():
+        if not _meaning(payload)["text"]:
+            blank.append(str(key))
+            continue
         matches = [term for term in terms if term["column"] == str(key).strip()]
         if not matches:
             unmatched.append(str(key))
@@ -267,10 +279,13 @@ def _apply_term_overrides(
 
 
 def _apply_value_overrides(
-    values: Sequence[dict], overrides: Mapping, unmatched: list[str]
+    values: Sequence[dict], overrides: Mapping, unmatched: list[str], blank: list[str]
 ) -> int:
     applied = 0
     for key, payload in overrides.items():
+        if not _meaning(payload)["text"]:
+            blank.append(str(key))
+            continue
         matches = [entry for entry in values if _value_key_matches(str(key), entry)]
         if not matches:
             unmatched.append(str(key))

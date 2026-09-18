@@ -170,7 +170,8 @@ lineage_digest: "b9ad3f3f34e19109"
 
 #### 治理线索
 
-- ⚠ table_comment_missing：缺少表注释的表（3 张）：dim.accounts、ods.events、mart.event_target（元数据事实）
+- 治理线索：无（SQL事实）
+- 信息项：1（见 semantic.json findings）（SQL事实）
 
 ## 7. 给 Agent 的说明
 
