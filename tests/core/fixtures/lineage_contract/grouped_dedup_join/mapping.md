@@ -26,6 +26,13 @@ lineage_digest: "4e323ab37f990b59"
 | ods.events_a | 2 | 2 | 是 |
 | ods.events_b | 2 | 2 | 是 |
 
+- 过滤条件（WHERE / JOIN ON 中作用于来源表列的谓词，按表归并；HAVING 见第 6 节）：
+- dim.segment_dim：无直接过滤条件
+- ods.events_a：无直接过滤条件
+- ods.events_b：无直接过滤条件
+- 其他过滤（作用于中间结果列，未直传到物理表）：
+  - `` `d`.`rn` = 1 ``（cte:latest_dim.rn；JOIN ON @ cte:joined）
+
 ## 3. 来源表关系
 
 | 左表 | 关系 | 右表 | 连接键 | 出现 |

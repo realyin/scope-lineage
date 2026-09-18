@@ -25,6 +25,11 @@ lineage_digest: "a631091cb58fc88a"
 | dim.channel | 2 | 1 | 是 |
 | ods.channel_event | 4 | 4 | 是 |
 
+- 过滤条件（WHERE / JOIN ON 中作用于来源表列的谓词，按表归并；HAVING 见第 6 节）：
+- dim.channel：无直接过滤条件
+- ods.channel_event
+  - `` `s`.`status` = 'ACTIVE' /* 仅生效状态 */ ``（WHERE @ ROOT）
+
 ## 3. 来源表关系
 
 | 左表 | 关系 | 右表 | 连接键 | 出现 |
