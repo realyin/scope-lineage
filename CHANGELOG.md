@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.6
 - List, under the mapping.md section 2 table, the predicates applied to each source
   table: the contract's AND-split WHERE conjuncts and the non-key part of JOIN ON,
   regrouped by physical table, each line naming where it occurred
