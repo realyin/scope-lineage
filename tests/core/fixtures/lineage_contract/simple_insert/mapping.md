@@ -23,6 +23,10 @@ lineage_digest: "c0afcea01c10ec32"
 | --- | --- | --- | --- |
 | ods.users | 3 | 3 | 是 |
 
+- 过滤条件（WHERE / JOIN ON 中作用于来源表列的谓词，按表归并；HAVING 见第 6 节）：
+- ods.users
+  - `` `s`.`is_active` = 1 ``（WHERE @ ROOT）
+
 ## 3. 来源表关系
 
 - 无 JOIN/UNION 关系

@@ -357,7 +357,194 @@ def _render_sources(document: dict) -> list[str]:
             else ("是" if info.get("metadata_complete") else "否")
         )
         lines.append(f"| {_cell(table)} | {total} | {used} | {complete} |")
+    lines.append("")
+    lines.extend(_render_source_filters(document, [str(table) for table in tables]))
     return lines
+
+
+_SOURCE_FILTERS_INTRO = (
+    "- 过滤条件（WHERE / JOIN ON 中作用于来源表列的谓词，按表归并；"
+    "HAVING 见第 6 节）："
+)
+_SOURCE_FILTERS_NONE = "- 过滤条件：无（WHERE / JOIN ON 中没有作用于来源表列的谓词）"
+_SOURCE_FILTERS_LEFTOVERS = "- 其他过滤（作用于中间结果列，未直传到物理表）："
+
+
+def _render_source_filters(document: dict, tables: list[str]) -> list[str]:
+    """Section 2's answer to "what did the SQL filter table A on?".
+
+    The facts are the contract's own AND-split predicates (WHERE conjuncts and the
+    non-key part of JOIN ON); the renderer only regroups them by physical table. A
+    predicate on an intermediate result's column is attributed to a table only when
+    the column is a DIRECT single-source pass-through (``s.status`` → ``ods.a.status``,
+    annotated as such); anything else — window, aggregate, union, expression columns —
+    is listed separately rather than guessed into a table. HAVING filters groups, not
+    table rows, and stays in section 6.
+    """
+    per_table, leftovers = _source_table_filters(document, tables)
+    if not any(per_table.values()) and not leftovers:
+        return [_SOURCE_FILTERS_NONE]
+    lines = [_SOURCE_FILTERS_INTRO]
+    for table in tables:
+        entries = per_table.get(table) or []
+        if not entries:
+            lines.append(f"- {table}：无直接过滤条件")
+            continue
+        lines.append(f"- {table}")
+        for entry in entries:
+            lines.append(f"  - {_expr_span(entry['expression'])}（{'；'.join(entry['notes'])}）")
+    if leftovers:
+        lines.append(_SOURCE_FILTERS_LEFTOVERS)
+        for entry in leftovers:
+            lines.append(f"  - {_expr_span(entry['expression'])}（{'；'.join(entry['notes'])}）")
+    return lines
+
+
+def _source_table_filters(
+    document: dict, tables: list[str],
+) -> tuple[dict[str, list[dict]], list[dict]]:
+    """Group filter conjuncts by the physical table they constrain.
+
+    Returns ``({table: [entry]}, leftovers)`` where an entry is ``{"expression",
+    "notes"}``. Columns referenced from inside a subquery carry that subquery's
+    ``binding_scope_id`` and are left to the subquery's own WHERE; an ``a.id IN
+    (SELECT id FROM b …)`` predicate therefore filters ``a``, not ``b``.
+    """
+    physical = set(tables)
+    # (table, expression, position, extra notes) -> ordered scope ids; the same predicate
+    # repeated across scopes (typically every branch of a UNION) is one fact, so it is one
+    # line listing its occurrences, as section 3 does for repeated join patterns.
+    grouped: dict[tuple[str, str, str, tuple[str, ...]], list[str]] = {}
+
+    def record(
+        table: str, expression: str, position: str, extra: list[str], scope_id: str,
+    ) -> None:
+        scopes = grouped.setdefault((table, expression, position, tuple(extra)), [])
+        if scope_id not in scopes:
+            scopes.append(scope_id)
+
+    for position, scope_id, conjunct in _filter_conjuncts(document):
+        expression = str(conjunct.get("expression") or "")
+        fields = [
+            ref
+            for ref in conjunct.get("fields") or []
+            if isinstance(ref, dict) and (ref.get("binding_scope_id") or scope_id) == scope_id
+        ]
+        if not expression or not fields:
+            continue
+        attributed, via, unpierced = _attribute_fields(document, fields, physical)
+        if not attributed:
+            record("", expression, position, ["、".join(unpierced)], scope_id)
+            continue
+        for table in attributed:
+            extra: list[str] = []
+            others = sorted(other for other in attributed if other != table)
+            if others:
+                extra.append("跨表 " + "、".join(others))
+            extra.extend(via.get(table) or [])
+            if unpierced:
+                extra.append("另涉及 " + "、".join(unpierced))
+            record(table, expression, position, extra, scope_id)
+
+    per_table: dict[str, list[dict]] = {table: [] for table in tables}
+    leftovers: list[dict] = []
+    for (table, expression, position, extra), scopes in grouped.items():
+        occurrence = f"{position} @ " + (
+            "、".join(scopes) if len(scopes) <= 3 else f"{scopes[0]} 等 {len(scopes)} 处"
+        )
+        if table:
+            per_table.setdefault(table, []).append(
+                {"expression": expression, "notes": [occurrence, *extra]}
+            )
+        else:
+            leftovers.append({"expression": expression, "notes": [*extra, occurrence]})
+    return per_table, leftovers
+
+
+def _filter_conjuncts(document: dict) -> Iterable[tuple[str, str, dict]]:
+    """Yield ``(position, scope_id, conjunct)`` for every WHERE conjunct and JOIN ON filter."""
+    for scope_id, scope in (document.get("scopes") or {}).items():
+        for block in scope.get("logic_blocks") or []:
+            logic_type = block.get("logic_type")
+            if logic_type == "filter":
+                detail = block.get("filter_predicate_detail") or {}
+                if detail.get("predicate_type", "where") != "where":
+                    continue
+                for conjunct in detail.get("conjuncts") or []:
+                    yield "WHERE", str(scope_id), conjunct
+            elif logic_type == "join":
+                detail = block.get("join_relation_detail") or {}
+                # a CROSS JOIN's condition is lifted from WHERE and already counted there
+                if detail.get("join_condition_source") == "where_filter":
+                    continue
+                for conjunct in detail.get("condition_filters") or []:
+                    yield "JOIN ON", str(scope_id), conjunct
+
+
+def _attribute_fields(
+    document: dict, fields: list[dict], physical: set[str],
+) -> tuple[list[str], dict[str, list[str]], list[str]]:
+    """Map a predicate's column refs to physical tables.
+
+    Returns ``(tables, via, unpierced)``: the tables in first-seen order, per table the
+    pass-through hops that reached it (``经 <scope>.<column> 直传``), and the
+    ``<scope>.<column>`` refs that could not be attributed to any table.
+    """
+    attributed: list[str] = []
+    via: dict[str, list[str]] = {}
+    unpierced: list[str] = []
+    for ref in fields:
+        ref_scope = str(ref.get("scope") or "")
+        column = str(ref.get("column") or "")
+        if ref_scope in physical:
+            table: str | None = ref_scope
+            hop = None
+        else:
+            table = _pierce_direct_source(document, ref_scope, column, physical)
+            hop = f"经 {ref_scope}.{column} 直传"
+        if table is None:
+            label = f"{ref_scope}.{column}"
+            if label not in unpierced:
+                unpierced.append(label)
+            continue
+        if table not in attributed:
+            attributed.append(table)
+        if hop and hop not in via.setdefault(table, []):
+            via[table].append(hop)
+    return attributed, via, unpierced
+
+
+def _pierce_direct_source(
+    document: dict, scope_id: str, column: str, physical: set[str], _depth: int = 0,
+) -> str | None:
+    """Follow ``scope_id.column`` down DIRECT single-source projections to a physical table.
+
+    Only an exact pass-through is followed: a column that is renamed but otherwise
+    untouched keeps its predicate meaning, whereas a window/aggregate/union/expression
+    column does not, so the walk stops there and returns ``None``.
+    """
+    if _depth > 32:
+        return None
+    columns = ((document.get("scopes") or {}).get(scope_id) or {}).get("columns") or []
+    match = next((item for item in columns if item.get("name") == column), None)
+    if match is None:
+        match = next(
+            (item for item in columns if str(item.get("name") or "").lower() == column.lower()),
+            None,
+        )
+    if match is None or match.get("transform") != "DIRECT":
+        return None
+    sources = match.get("sources") or []
+    if len(sources) != 1:
+        return None
+    source = sources[0]
+    if source.get("rowset") or source.get("column") == "*":
+        return None
+    source_scope = str(source.get("scope") or "")
+    source_column = str(source.get("column") or "")
+    if source_scope in physical:
+        return source_scope
+    return _pierce_direct_source(document, source_scope, source_column, physical, _depth + 1)
 
 
 def _join_blocks(document: dict) -> list[tuple[str, dict]]:

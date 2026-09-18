@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+- List, under the mapping.md section 2 table, the predicates applied to each source
+  table: the contract's AND-split WHERE conjuncts and the non-key part of JOIN ON,
+  regrouped by physical table, each line naming where it occurred
+  (`WHERE @ <scope>` / `JOIN ON @ <scope>`; the same predicate repeated across scopes,
+  as in every branch of a UNION, is one line listing up to three occurrences or
+  `等 N 处`). A predicate on an intermediate result's
+  column is attributed to a table only through a DIRECT single-source pass-through
+  (annotated `经 <scope>.<column> 直传`); window, aggregate, UNION and expression
+  columns are never guessed and are listed separately, subquery-internal references
+  stay with the subquery's own WHERE, cross-table predicates appear under every table
+  they touch, and HAVING stays in section 6. Renderer only — `lineage.json` is unchanged.
+
 ## 0.2.5
 - Stop reading `COUNT(*)` as "uses every column". Source-free row-count/row-position
   expressions (`COUNT(*)`, `COUNT(1)`, `ROW_NUMBER()`…) now emit source refs marked
