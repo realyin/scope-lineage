@@ -289,6 +289,18 @@ KEY_CONFIDENCES = (
     KEY_CONFIDENCE_NONE,
 )
 
+# WI-2.8 D2. A fan-out verdict a table card decided rather than this statement. One
+# statement can never prove a physical table unique, so the verdict stopped at "unknown"
+# even while the same document's `inputs[].card` said another task had produced that very
+# table one row per these very columns. `basis` names where the fact came from, and it
+# appears only on a risk a card actually re-decided.
+FAN_OUT_BASIS_TABLE_CARD = "table_card"
+
+# The card confidences that may re-decide a JOIN. `proven_unexposed` is deliberately
+# absent: its key list is the exposed SUBSET of a proven key set, which identifies
+# nothing on its own.
+_CARD_KEY_CONFIDENCES = (KEY_CONFIDENCE_PROVEN, KEY_CONFIDENCE_CANDIDATE)
+
 # The mapping-chain step types that carry a value unchanged. Anything else -- a CASE, a
 # COALESCE, a cast, an aggregate -- may map two distinct keys onto one value, so a key
 # that crosses one is no longer a key of the target.
@@ -1542,23 +1554,36 @@ def _chain_sql_comments(chain: dict | None, context: dict) -> list[str]:
     reader asking what the target column means needs that step's note as much as the last
     one's. Order is the chain's, duplicates are dropped -- the same note restated at two
     steps is one thing the author said.
+
+    WI-2.8 D9: a body that IS SQL the author switched off is not a note about the column
+    and does not travel here. It stays in the contract's own ``comments``, where a reader
+    asking what the code used to look like can still find it.
     """
     index = context["output_comments"]
     collected: list[str] = []
     for step in (chain or {}).get("ordered_steps") or []:
         key = (str(step.get("scope_id")), str(step.get("output_field") or ""))
         collected.extend(index.get(key) or [])
-    return _dedupe(collected)
+    return _dedupe(item for item in collected if semantic_text.is_note(item))
 
 
 def _alias_comments(chain: dict | None, entry: dict, context: dict) -> list[str]:
-    """What the author wrote beside this output's own name, and nothing further upstream."""
+    """What the author wrote beside this output's own name, and nothing further upstream.
+
+    Commented-out SQL is filtered out for the reason WI-2.8 D9 gives: this list is what
+    the one-sentence summary appends as 「注释：…」, and an abandoned expression read
+    there as the column's current definition.
+    """
     index = context["output_comments"]
     if chain:
         key = (str(chain.get("target_scope_id")), str(chain.get("target_field") or ""))
         if key in index:
-            return list(index[key])
-    return list(index.get((_ROOT, str(entry.get("column") or ""))) or [])
+            return [item for item in index[key] if semantic_text.is_note(item)]
+    return [
+        item
+        for item in index.get((_ROOT, str(entry.get("column") or ""))) or []
+        if semantic_text.is_note(item)
+    ]
 
 
 def _field_sources(document: dict, entry: dict) -> list[dict]:
@@ -2670,6 +2695,96 @@ def _fan_out_verdict(document: dict, block_id: str, detail: dict) -> tuple[str, 
         scope = "无分区" if not partition else f"按 {'、'.join(partition)} 分区"
         return "safe", f"右侧 {function} {scope}并以 = 1 过滤（{consumer}）"
     return grouped or ("risk", "右侧未被证明按连接键唯一")
+
+
+def apply_card_fan_out(document: dict, output_shape: dict, lookup) -> dict:
+    """Re-decide this statement's JOIN fan-out with what the corpus proved (WI-2.8 D2).
+
+    ``_fan_out_verdict`` sees one statement, so a JOIN onto a physical table can only end
+    at 「物理表无主键事实」. A table card carries another task's proof that the table is
+    written one row per the very columns this ON clause names -- a fact, not a guess --
+    and once no risk is left, the keys and the key confidence this statement may claim
+    change with it. ``lookup`` answers ``table name -> card`` so this module never has to
+    import the card builder that calls it. Returns ``output_shape`` itself when no card
+    changed a verdict, which keeps ``describe`` without ``--tables`` byte for byte.
+    """
+    risks = output_shape.get("fan_out_risks") or []
+    decided = [_carded_risk(document, risk, lookup) for risk in risks]
+    rebuilt = [risk for risk, _level in decided]
+    if rebuilt == risks:
+        return output_shape
+    grain = output_shape.get("grain") or {}
+    keys, unexposed, evidence = _target_key_columns(document, grain, rebuilt)
+    confidence = _capped_confidence(
+        _key_confidence(grain, keys, unexposed, rebuilt),
+        [level for _risk, level in decided],
+    )
+    updated = dict(output_shape)
+    updated.update(
+        {
+            "candidate_keys": keys if confidence != KEY_CONFIDENCE_NONE else [],
+            "unexposed_keys": unexposed,
+            "key_evidence": evidence,
+            "key_confidence": confidence,
+            "fan_out_risks": rebuilt,
+        }
+    )
+    return updated
+
+
+def _carded_risk(document: dict, risk: dict, lookup) -> tuple[dict, str | None]:
+    """One risk, re-decided by a card when the card's keys cover the ON clause."""
+    right = str(risk.get("right") or "")
+    if str(risk.get("status")) == "safe" or right not in set(
+        document.get("source_tables") or []
+    ):
+        return risk, None
+    proof = _card_key_proof(lookup(right))
+    if proof is None:
+        return risk, None
+    task, keys, level = proof
+    columns = _join_side_columns(_risk_join_detail(document, risk), "right")
+    if not columns or not _comparable(keys) <= _comparable(columns):
+        return risk, None
+    decided = dict(risk)
+    decided["status"] = "safe"
+    decided["reason"] = _card_reason(task, keys, level)
+    decided["basis"] = FAN_OUT_BASIS_TABLE_CARD
+    return decided, level
+
+
+def _card_key_proof(card) -> tuple[str, list[str], str] | None:
+    """``(task, keys, confidence)`` from the strongest producer on one card, or None."""
+    for level in _CARD_KEY_CONFIDENCES:
+        for producer in (card or {}).get("produced_by") or []:
+            keys = [str(key) for key in producer.get("candidate_keys") or []]
+            if keys and str(producer.get("key_confidence")) == level:
+                return str(producer.get("task")), keys, level
+    return None
+
+
+def _card_reason(task: str, keys: Sequence[str], level: str) -> str:
+    names = "、".join(keys)
+    if level == KEY_CONFIDENCE_PROVEN:
+        return f"生产任务 {task} 已证明 {names} 唯一（表卡）"
+    return f"生产任务 {task} 按 {names} 产出（表卡候选键，未证唯一）"
+
+
+def _capped_confidence(confidence: str, levels: Sequence[str | None]) -> str:
+    """A candidate key is not a proof, so a card that offered one caps the whole claim."""
+    if KEY_CONFIDENCE_CANDIDATE not in levels:
+        return confidence
+    if confidence in (KEY_CONFIDENCE_PROVEN, KEY_CONFIDENCE_PROVEN_UNEXPOSED):
+        return KEY_CONFIDENCE_CANDIDATE
+    return confidence
+
+
+def _risk_join_detail(document: dict, risk: dict) -> dict:
+    """The JOIN block one published risk was derived from, found again by its id."""
+    for block in _blocks_of_type(document, str(risk.get("scope_id")), "join"):
+        if str(block.get("logic_block_id")) == str(risk.get("logic_block_id")):
+            return block.get("join_relation_detail") or {}
+    return {}
 
 
 def _grouped_uniqueness(

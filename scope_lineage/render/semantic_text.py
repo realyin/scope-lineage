@@ -182,6 +182,92 @@ def parse_expression(expression: str | None):
         return None
 
 
+# ------------------------------------------------------------------ comment kinds
+
+# WI-2.8 D9. Two different things arrive as one `--` comment: a note the author wrote
+# for the next reader, and a line of SQL the author switched off. Only the first is a
+# statement about what a column means; the second is a record of what the code used to
+# do, and prefixing a field's sentence with 「注释：cast(null as string) as x」 invited a
+# reader to take an abandoned expression for the current definition.
+COMMENT_KIND_NOTE = "note"
+COMMENT_KIND_COMMENTED_OUT_SQL = "commented_out_sql"
+
+COMMENT_KINDS = (COMMENT_KIND_NOTE, COMMENT_KIND_COMMENTED_OUT_SQL)
+
+# The verdict needs BOTH halves, because either alone is wrong often enough to matter.
+# `金额(元)` parses as a function call and is prose; `cast 过的字段` carries a SQL word
+# and is prose. Only a body that parses into a SQL SHAPE *and* spells at least one ASCII
+# SQL word is called commented-out code -- everything else stays a note, which is the
+# conservative side: a misread note loses a field's explanation, a misread fragment only
+# leaves one line of noise where it already was.
+_SQL_WORDS = frozenset(
+    {
+        "and",
+        "as",
+        "avg",
+        "case",
+        "cast",
+        "coalesce",
+        "concat",
+        "count",
+        "distinct",
+        "else",
+        "end",
+        "from",
+        "group",
+        "if",
+        "ifnull",
+        "insert",
+        "join",
+        "lateral",
+        "max",
+        "min",
+        "null",
+        "nvl",
+        "on",
+        "order",
+        "over",
+        "overwrite",
+        "partition",
+        "select",
+        "substr",
+        "substring",
+        "sum",
+        "then",
+        "union",
+        "when",
+        "where",
+    }
+)
+
+_ASCII_WORD_RE = re.compile(r"[a-z_][a-z0-9_]*")
+
+
+def comment_kind(text: str | None) -> str:
+    """``note`` unless the comment body IS SQL somebody commented out (WI-2.8 D9)."""
+    body = str(text or "").strip().rstrip(";").strip()
+    if not body or not _SQL_WORDS & set(_ASCII_WORD_RE.findall(body.lower())):
+        return COMMENT_KIND_NOTE
+    node = parse_expression(body)
+    if node is None or not _is_sql_shaped(node):
+        return COMMENT_KIND_NOTE
+    return COMMENT_KIND_COMMENTED_OUT_SQL
+
+
+def _is_sql_shaped(node: exp.Expression) -> bool:
+    """A query, or a computed projection. A bare name with a word beside it is prose."""
+    if isinstance(node, (exp.Select, exp.Union, exp.Insert, exp.Subquery, exp.Case)):
+        return True
+    if isinstance(node, exp.Alias):
+        return not isinstance(node.this, (exp.Column, exp.Identifier, exp.Literal))
+    return isinstance(node, exp.Func)
+
+
+def is_note(text: str | None) -> bool:
+    """The filter every field-level comment collector applies before publishing."""
+    return comment_kind(text) == COMMENT_KIND_NOTE
+
+
 def _plain(node: exp.Expression) -> exp.Expression:
     """A copy with identifier quoting and column qualifiers dropped.
 

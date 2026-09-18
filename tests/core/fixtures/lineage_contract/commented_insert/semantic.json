@@ -415,7 +415,8 @@
       "structural_role": "conditional_label",
       "value_domain": [
         {
-          "value": "'OFFLINE'",
+          "value": "OFFLINE",
+          "sql_literal": "'OFFLINE'",
           "kind": "literal",
           "seen_in": [
             "rule:001"
@@ -424,7 +425,8 @@
           "meaning": null
         },
         {
-          "value": "'ONLINE'",
+          "value": "ONLINE",
+          "sql_literal": "'ONLINE'",
           "kind": "literal",
           "seen_in": [
             "rule:001"

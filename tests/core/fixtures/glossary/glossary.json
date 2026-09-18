@@ -382,7 +382,8 @@
       "column_ref": "cte:agg.band",
       "logical": true,
       "column": "band",
-      "value": "'HIGH'",
+      "value": "HIGH",
+      "sql_literal": "'HIGH'",
       "kind": "literal",
       "observations": [
         {
@@ -396,8 +397,8 @@
       "task_count": 1,
       "closed_set": {
         "values": [
-          "'HIGH'",
-          "'LOW'"
+          "HIGH",
+          "LOW"
         ],
         "basis": "case_exhaustive"
       },
@@ -408,7 +409,8 @@
       "column_ref": "cte:agg.band",
       "logical": true,
       "column": "band",
-      "value": "'LOW'",
+      "value": "LOW",
+      "sql_literal": "'LOW'",
       "kind": "literal",
       "observations": [
         {
@@ -422,8 +424,8 @@
       "task_count": 1,
       "closed_set": {
         "values": [
-          "'HIGH'",
-          "'LOW'"
+          "HIGH",
+          "LOW"
         ],
         "basis": "case_exhaustive"
       },
@@ -433,7 +435,8 @@
     {
       "column_ref": "ods.channel_event.channel_code",
       "column": "channel_code",
-      "value": "'A'",
+      "value": "A",
+      "sql_literal": "'A'",
       "kind": "literal",
       "observations": [
         {
@@ -452,7 +455,8 @@
     {
       "column_ref": "mart.channel_summary.channel_name",
       "column": "channel_name",
-      "value": "'OFFLINE'",
+      "value": "OFFLINE",
+      "sql_literal": "'OFFLINE'",
       "kind": "literal",
       "observations": [
         {
@@ -466,8 +470,8 @@
       "task_count": 1,
       "closed_set": {
         "values": [
-          "'ONLINE'",
-          "'OFFLINE'"
+          "ONLINE",
+          "OFFLINE"
         ],
         "basis": "case_exhaustive"
       },
@@ -477,7 +481,8 @@
     {
       "column_ref": "mart.channel_summary.channel_name",
       "column": "channel_name",
-      "value": "'ONLINE'",
+      "value": "ONLINE",
+      "sql_literal": "'ONLINE'",
       "kind": "literal",
       "observations": [
         {
@@ -491,8 +496,8 @@
       "task_count": 1,
       "closed_set": {
         "values": [
-          "'ONLINE'",
-          "'OFFLINE'"
+          "ONLINE",
+          "OFFLINE"
         ],
         "basis": "case_exhaustive"
       },
@@ -502,7 +507,8 @@
     {
       "column_ref": "mart.flags.flagged",
       "column": "flagged",
-      "value": "'a\\nb'",
+      "value": "a\\nb",
+      "sql_literal": "'a\\nb'",
       "kind": "literal",
       "observations": [
         {
@@ -522,6 +528,7 @@
       "column_ref": "ods.users.is_active",
       "column": "is_active",
       "value": "1",
+      "sql_literal": "1",
       "kind": "literal",
       "observations": [
         {
@@ -540,7 +547,8 @@
     {
       "column_ref": "ods.users.name",
       "column": "name",
-      "value": "'x；y → z|w'",
+      "value": "x；y → z|w",
+      "sql_literal": "'x；y → z|w'",
       "kind": "literal",
       "observations": [
         {
@@ -561,6 +569,7 @@
       "logical": true,
       "column": "rn",
       "value": "1",
+      "sql_literal": "1",
       "kind": "literal",
       "observations": [
         {
@@ -581,6 +590,7 @@
       "logical": true,
       "column": "rn",
       "value": "1",
+      "sql_literal": "1",
       "kind": "literal",
       "observations": [
         {
@@ -599,7 +609,8 @@
     {
       "column_ref": "ods.channel_event.status",
       "column": "status",
-      "value": "'ACTIVE'",
+      "value": "ACTIVE",
+      "sql_literal": "'ACTIVE'",
       "kind": "literal",
       "observations": [
         {

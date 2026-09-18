@@ -1,6 +1,43 @@
 # Changelog
 
 ## Unreleased
+- Stop the value dictionary from lending a column somebody else's values. A target column's
+  `value_domain` now holds only what that column itself outputs -- a CASE's THEN / ELSE
+  labels, a UNION or plain constant projection -- plus the `=` / `IN` observations of a
+  source column the value reaches it from unchanged at *every* step (the field's own
+  transform and that source's, both `DIRECT` / `UNION`). A CASE **condition**'s constant
+  belongs to the column being tested, so `WHEN flag = 'N' THEN amount` no longer publishes
+  `'N'` as a value of the amount column, and a numeric or temporal target column admits
+  same-typed literals only. `closed_set` became the **column's** verdict rather than each
+  value's, so one field can no longer read "this value is proven closed, that one is not"
+  out of a single exhaustive CASE; it is `true` only where that column's own last-step CASE
+  is exhaustive or a pass-through source carries a closed `IN` list. Values are stored in
+  one spelling -- `value` with the SQL quotes stripped, the author's literal beside it in
+  the new `sql_literal`, which is what the markdown and the overrides examples show, while
+  an overrides key may still be written either way.
+- Let a table card decide a fan-out. One statement can never prove a physical table unique
+  by its join keys, so a JOIN onto one stopped at `unknown` even where the same document's
+  `inputs[].card` already carried another task's proof that the table is written one row
+  per exactly those columns. `describe --tables` now re-decides such a risk from the card
+  (`status: "safe"`, a reason naming the producing task, and `basis: "table_card"`) and
+  recomputes `candidate_keys`, `unexposed_keys`, `key_evidence` and `key_confidence` with
+  it; a card offering only candidate keys says so in the reason and caps the whole claim at
+  `candidate`. Without `--tables` nothing changes, byte for byte. An input card whose
+  producer could not decide its own grain now says so by name instead of opening with
+  「未知」, which read as a missing value beside 「本语料内无生产任务」.
+- Keep commented-out SQL out of a field's meaning. A `--` comment whose body parses into a
+  SQL shape and carries an ASCII SQL word (`cast(null as string) as x`) records what the
+  code used to do, not what the column means, so it no longer reaches
+  `fields[].sql_comments` or the `；注释：` tail of the field's sentence; the verbatim text
+  stays in the contract's own `comments`. Anything the test cannot prove is SQL stays a
+  note.
+- Profile prompt: the semantic card's length cap scales with the number of input tables
+  (`600 + 40 × max(0, inputs − 3)`, capped at 900) so the mandatory coverage and the word
+  limit stop contradicting each other on a multi-input task; warning counts are stated to
+  be the union of `statement_diagnostics[].warnings` and the top-level list, because an
+  empty top-level array is not "no warnings"; and the `- 证据：` line of an open question is
+  exempted from the "no structural words in the body" rule, since it is a pointer for the
+  reviewer rather than a sentence for the business owner.
 - Close the loop on the open-questions list: an answer now comes back as a fact instead of
   being asked again. New `metadata-patch/1` file -- `{"tables": {"db.t": {…}}, "columns":
   {"db.t.col": {"comment": …}}}`, the same vocabulary rich JSON metadata uses -- carries the

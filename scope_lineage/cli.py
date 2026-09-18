@@ -627,7 +627,9 @@ def _describe_inputs(args: argparse.Namespace) -> int:
             apply_metadata_patch_to_document(item.document, patch)
             profile = apply_glossary(
                 apply_table_cards(
-                    build_semantic_profile(item.document, item.diagnostics), table_cards
+                    build_semantic_profile(item.document, item.diagnostics),
+                    table_cards,
+                    item.document,
                 ),
                 glossary,
             )

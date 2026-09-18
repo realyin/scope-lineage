@@ -52,7 +52,10 @@ def _values(glossary: dict, column: str) -> list[dict]:
 
 
 def _value(glossary: dict, column: str, value: str) -> dict:
-    matches = [item for item in _values(glossary, column) if item["value"] == value]
+    """Looked up by the SQL literal the case writes; ``value`` is stored unquoted (D4)."""
+    matches = [
+        item for item in _values(glossary, column) if item["sql_literal"] == value
+    ]
     assert matches, f"{column}={value} not in {[item['value'] for item in _values(glossary, column)]}"
     return matches[0]
 
@@ -88,10 +91,10 @@ def test_an_in_list_closes_the_value_set() -> None:
     )
     glossary = _glossary(document)
 
-    assert [item["value"] for item in _values(glossary, "region")] == ["'CN'", "'US'"]
+    assert [item["value"] for item in _values(glossary, "region")] == ["CN", "US"]
     entry = _value(glossary, "region", "'CN'")
     assert entry["observations"][0]["context"] == "filter_in"
-    assert entry["closed_set"] == {"values": ["'CN'", "'US'"], "basis": "in_list"}
+    assert entry["closed_set"] == {"values": ["CN", "US"], "basis": "in_list"}
 
 
 def test_a_not_equal_filter_is_an_observation_but_closes_nothing() -> None:
@@ -176,7 +179,7 @@ def test_a_pattern_does_not_take_part_in_a_closed_set() -> None:
     glossary = _glossary(document)
 
     assert _value(glossary, "state", "'CN'")["closed_set"] == {
-        "values": ["'CN'", "'US'"],
+        "values": ["CN", "US"],
         "basis": "in_list",
     }
     assert _value(glossary, "state", "'C%'")["closed_set"] is None
@@ -237,7 +240,7 @@ def test_case_conditions_and_labels_are_collected_under_their_own_columns() -> N
     label = _value(glossary, "paid_flag", "'Y'")
     assert label["observations"][0]["context"] == "case_then"
     assert label["closed_set"] == {
-        "values": ["'Y'", "'N'"],
+        "values": ["Y", "N"],
         "basis": "case_exhaustive",
     }
 
@@ -274,7 +277,7 @@ def test_a_union_branch_constant_is_recorded_against_the_target_column() -> None
     entry = _value(glossary, "channel", "'APP'")
     assert entry["column_ref"] == "mart.t.channel"
     assert entry["observations"][0]["context"] == "union_constant"
-    assert [item["value"] for item in _values(glossary, "channel")] == ["'APP'", "'WEB'"]
+    assert [item["value"] for item in _values(glossary, "channel")] == ["APP", "WEB"]
 
 
 def test_a_plain_constant_projection_is_recorded_as_such() -> None:

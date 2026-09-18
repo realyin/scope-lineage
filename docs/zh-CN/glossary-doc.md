@@ -68,18 +68,18 @@ markdown = render_glossary_markdown(glossary)
   ],
   "values": [
     {"column_ref": "ods.app_order.pay_status", "column": "pay_status",
-     "value": "'PAID'", "kind": "literal",
+     "value": "PAID", "sql_literal": "'PAID'", "kind": "literal",
      "observations": [{"task": "order_daily", "statement_id": "stmt:001",
                        "context": "filter_eq", "evidence": "rule:003",
                        "expression": "pay_status = 'PAID'"}],
      "task_count": 2,
-     "closed_set": {"values": ["'PAID'", "'REFUND'"], "basis": "in_list"},
+     "closed_set": {"values": ["PAID", "REFUND"], "basis": "in_list"},
      "meaning_candidates": [{"text": "支付状态，PAID 表示已结算", "source": "column_comment",
                              "evidence": "column:ods.app_order.pay_status"}],
      "meaning": {"text": "已支付", "source": "override",
                  "confirmed_by": "owner", "date": "2026-09-18"}},
     {"column_ref": "cte:latest_dim.rn", "logical": true, "column": "rn",
-     "value": "1", "kind": "literal",
+     "value": "1", "sql_literal": "1", "kind": "literal",
      "observations": [{"task": "…", "statement_id": "stmt:001",
                        "context": "join_condition", "evidence": "rule:002",
                        "expression": "rn = 1"}],
@@ -95,7 +95,7 @@ markdown = render_glossary_markdown(glossary)
 | --- | --- |
 | `corpus` | 扫了什么：`artifact_root` 原样记录、任务数、写语句数、每个任务的契约摘要（与 mapping.md / semantic.md 用的是同一个 digest 函数，可据此确认字典与画像来自同一快照） |
 | `terms[]` | 按**列名**跨表归并的注释；一个列名一条，按列名排序 |
-| `values[]` | 一条 =（列引用，取值，`kind`）；按（列名、列引用、取值、`kind`）排序 |
+| `values[]` | 一条 =（列引用，取值，`kind`）；按（列名、列引用、取值、`kind`）排序。`value` 是去引号的规范形式，`sql_literal` 是作者写的字面量 |
 | `parameters[]` | `${…}` 变量与函数调用钉住的列：它们钉住这个列，但不是这个列的取值 |
 | `overrides_applied` | 本次人工确认生效了多少条，以及哪些键在语料里没有对应项 |
 
@@ -140,6 +140,10 @@ markdown = render_glossary_markdown(glossary)
   `values[]` 里，但 `closed_set` 恒为 `null`，也不参与任何封闭集判定——把它跟枚举值并排
   列出来，等于替 SQL 说了它没说过的话。`LIKE '${prefix}%'` 仍然算 `parameterized`：
   「这是个替换」是关于它更要紧的那个事实。
+- 取值以**去掉 SQL 引号的规范形式**入库：`value` 是 `PAID`，作者写的 `'PAID'` 留在
+  `sql_literal` 里，谓词原文留在 `observations[].expression` 里。数值原样（`0` 就是 `0`）。
+  一处写 `'0'`、另一处写 `0` 的同一个值因此归并成一条，`sql_literal` 取排序后的第一种写法。
+  markdown 与 overrides 的键都跟着这条规则走：**展示用 `sql_literal`，键用 `value`**。
 - `NULL` 不作为取值发布（它是缺失，不是编码），但参与 CASE 的穷尽性判定：
   `ELSE NULL` 同样把分支集合闭上。
 - `closed_set` 只在**整个语料对这一列的封闭断言唯一**时发布：两个任务给出不同的 `IN` 列表
@@ -173,7 +177,7 @@ markdown = render_glossary_markdown(glossary)
 | --- | --- |
 | 键的两种写法 | 带表名（`ods.app_order.pay_status='PAID'`）只命中那一列；只带列名（`pay_status='PAID'`）命中语料里**所有**同名列 |
 | 表名匹配 | 与字典内部一致：后缀匹配，`ods.t` 与 `catalog.ods.t` 是同一张表 |
-| 值匹配 | 去引号后比较，`'PAID'` 与 `PAID` 是同一个值 |
+| 值匹配 | 两边都做去引号后比较，`'PAID'` 与 `PAID` 是同一个值；**推荐写去引号的 `pay_status=PAID`**，与 `values[].value` 一致 |
 | 合并优先级 | overrides 永远赢过候选：命中后 `meaning.source` 为 `override`，`meaning_candidates` 原样保留 |
 | 没命中的键 | 进 `overrides_applied.unmatched`（排序后），**不静默丢弃**——一份被人工确认过的文件里的拼写错误，正是审阅者看不见的那一类 |
 
@@ -231,12 +235,12 @@ scope-lineage describe --lineage corpus --glossary dict/glossary.json \
 
 ```jsonc
 "value_domain": [
-  {"value": "'PAID'", "kind": "literal", "seen_in": ["rule:003", "mc:004"],
-   "closed_set": true, "meaning": {"text": "已支付", "status": "confirmed"}},
-  {"value": "'REFUND'", "kind": "literal", "seen_in": ["rule:003"],
-   "closed_set": true, "meaning": {"text": "支付状态，REFUND 表示已退款", "status": "candidate"}},
-  {"value": "'%UNIT_OUT_%'", "kind": "pattern", "seen_in": ["rule:007"],
-   "closed_set": null, "meaning": null}
+  {"value": "PAID", "sql_literal": "'PAID'", "kind": "literal",
+   "seen_in": ["rule:003", "mc:004"], "closed_set": true, "meaning": {"text": "已支付", "status": "confirmed"}},
+  {"value": "REFUND", "sql_literal": "'REFUND'", "kind": "literal",
+   "seen_in": ["rule:003"], "closed_set": true, "meaning": {"text": "支付状态，REFUND 表示已退款", "status": "candidate"}},
+  {"value": "%UNIT_OUT_%", "sql_literal": "'%UNIT_OUT_%'", "kind": "pattern",
+   "seen_in": ["rule:007"], "closed_set": null, "meaning": null}
 ]
 ```
 
@@ -246,15 +250,18 @@ scope-lineage describe --lineage corpus --glossary dict/glossary.json \
 | 一个值一条 | 按（`value`、`kind`）去重：同一个值被多条观察证明（两个 CASE 分支、两个分支 scope）只写一条，证据合并进 `seen_in`（去重保序）。字段的取值是一个**集合**，出现次数属于 `seen_in` |
 | 条目顺序 | 按**首次出现顺序**，不重排 |
 | `kind` | `literal`（枚举值）或 `pattern`（`LIKE` / `RLIKE` 的匹配模式）；`pattern` 的 `closed_set` 恒为 `null`，且不参与封闭集判定，也不进 `summary` 追加 |
-| 按来源列匹配 | 只在字段的末步变换是 `DIRECT` / `UNION`（值原样传到目标）时，才继承来源物理列的取值——`CASE WHEN pay_status = 'PAID' THEN 'Y' ELSE 'N' END` 读了 `pay_status`，但 `'PAID'` 绝不是 `paid_flag` 的取值 |
+| 按来源列匹配 | 只在**整条链每一步**都是 `DIRECT` / `UNION` 时（字段自己的 `transform` 与该来源的 `sources[].transform` 都要是，任一步非透传即断），才继承来源物理列的取值；继承的也只有该列被 `=` / `IN` 钉住的观察与 `LIKE` / `RLIKE` 的匹配形状。`CASE WHEN pay_status = 'PAID' THEN 'Y' ELSE 'N' END` 读了 `pay_status`，但 `'PAID'` 绝不是 `paid_flag` 的取值 |
 | 按目标列名匹配 | `case_then` / `union_constant` / `constant_projection` 三种观察按**列名**匹配，CASE 产出的枚举因此能落到同名目标字段上 |
-| `closed_set` | `true` 表示这个取值属于一个已被证明封闭的集合；`null` 表示**未证明封闭**，不表示"证明了不封闭" |
+| 类型护栏 | 目标列声明为数值（`decimal` / `int` / `bigint` / `double` …）或日期（`date` / `timestamp`）时，只接受同类型字面量：引号里的 `'Y'` 不会挂到金额列，引号里的 `'0'` / `'2026-01-01'` 仍然算 |
+| `closed_set` | `true` 表示这个取值属于一个已被证明封闭的集合；`null` 表示**未证明封闭**，不表示"证明了不封闭"。这是**整列**的结论：同一字段的每条取值要么都是 `true`、要么都是 `null`。为 `true` 的两种证明——该列自己的末步 CASE 穷尽（带 ELSE 且各分支全是常量），或透传来源列存在封闭的 `IN` 列表 |
+| `sql_literal` | 作者写的字面量。`semantic.md` 的 `- 取值：` 行显示它，`value_domain[].value` 与 overrides 的键用去引号形式 |
 | `meaning.status` | `confirmed`（人工确认）或 `candidate`（注释字面命中） |
 | `summary` 追加 | 只有**已确认**含义才会追加到那句话尾部（`；取值：'PAID'（已支付）`，最多 3 个）：候选是"某条注释里恰好出现了这个值"，写进读者会停下来读的那一句等于把它当成定义 |
 | `confidence.metadata_coverage.glossary` | `{values_total, confirmed, candidate}`；这条语句一个取值观察都没有时不写该键 |
 
 `semantic.md` 第 5 节的字段小节里多一行 `- 取值：`，已确认写含义、候选写 `? `、都没有写
-「待确认」；整列**枚举值**都封闭时追加「（该列取值已被 SQL 证明封闭）」。行尾的 `SQL事实`
+「待确认」；整列**枚举值**都封闭时追加「（该列取值已被 SQL 证明封闭）」——因为 `closed_set`
+是整列的结论，这句话不会再出现「同一列有的值封闭、有的值不封闭」的情况。行尾的 `SQL事实`
 标签只为取值本身背书——含义不是 SQL 事实，所以它的三态标记写在值里面。
 
 这一行还有两条 WI-2.4b 的约束：

@@ -158,7 +158,13 @@ meaning of each value when a human confirmed one in `glossary.overrides.json` or
 literally spells it out. **Take the "取值含义" column of a field dictionary from
 `fields[].value_domain[].meaning` first** — `status: "confirmed"` is a fact, `candidate`
 is a lead to write with `?`, and a value with no meaning is 待确认. Never infer a code's
-meaning from its spelling.
+meaning from its spelling. A value is stored unquoted in `value` with the author's literal
+in `sql_literal` (show the literal, key an override on the unquoted form), `closed_set` is
+the whole column's verdict, and a column only carries values it outputs itself or inherits
+from a source it passes through unchanged — a CASE condition's constant belongs to the
+column being tested. With `--tables`, a JOIN onto a physical table whose card proves the ON
+clause's columns unique is re-decided `safe` (`basis: "table_card"`), and the statement's
+keys and `key_confidence` are recomputed with it.
 
 Read `semantic.md` — not lineage.json — to answer "what does this task do", "what does
 field X mean", "what is one row of the output table". It is written to be read whole;

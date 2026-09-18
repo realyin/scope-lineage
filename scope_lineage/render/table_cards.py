@@ -41,6 +41,7 @@ from .semantic_profile import (
     REFRESH_SOURCE_TASK_META,
     TASK_PROFILE_ARTIFACT_KIND,
     USAGE_ORDER,
+    apply_card_fan_out,
 )
 
 
@@ -150,6 +151,11 @@ TAG_STRUCTURAL_INFERENCE = "结构推断"
 TAG_SQL_COMMENT = "SQL注释"
 
 UNKNOWN_TEXT = "未知"
+
+BASIS_UNKNOWN = "unknown"
+
+# What stands in for the walk's own sentence when the contract recorded none.
+UNDECIDED_GRAIN_REASON = "结构未记录原因"
 
 # Characters a table name may legally hold that a file name may not.
 _UNSAFE_FILENAME_CHARS = '/\\:*?"<>| \t'
@@ -626,11 +632,21 @@ def _finding(kind: str, text: str, entries: Sequence[dict]) -> dict:
 # ------------------------------------------------------------------------ grain wording
 
 
-def grain_text(producer: dict) -> str:
-    """One structural sentence for "what does a row of this table represent"."""
+def grain_text(producer: dict, *, name_producer: bool = False) -> str:
+    """One structural sentence for "what does a row of this table represent".
+
+    WI-2.8 D6. On an input's card the sentence sits in a column where the other answer
+    is 「⚠ 本语料内无生产任务」, and a bare 「未知」 there reads as a missing value rather
+    than as a finding. ``name_producer`` says the upstream task out loud, with the reason
+    its own grain walk stopped, so "no producer" and "a producer that could not tell"
+    are two different sentences.
+    """
     grain = producer.get("grain") or {}
     basis = str(grain.get("basis") or "unknown")
-    parts = [GRAIN_BASIS_TEXT.get(basis, basis)]
+    if basis == BASIS_UNKNOWN and name_producer:
+        parts = [_undecided_grain_text(producer, grain)]
+    else:
+        parts = [GRAIN_BASIS_TEXT.get(basis, basis)]
     keys = [str(key) for key in grain.get("keys") or []]
     if keys:
         parts.append(f"逻辑键 {'、'.join(keys)}")
@@ -640,26 +656,54 @@ def grain_text(producer: dict) -> str:
     return "；".join(parts)
 
 
+def _undecided_grain_text(producer: dict, grain: dict) -> str:
+    """"生产任务 X 未能判定粒度（<the walk's own reason>）"."""
+    evidence = [str(item) for item in grain.get("evidence") or [] if str(item)]
+    reason = evidence[0] if evidence else UNDECIDED_GRAIN_REASON
+    return f"生产任务 {producer.get('task')} 未能判定粒度（{reason}）"
+
+
 # -------------------------------------------------------------------- describe support
 
 
-def apply_table_cards(profile: dict, cards: dict | None) -> dict:
+def apply_table_cards(
+    profile: dict, cards: dict | None, document: dict | None = None
+) -> dict:
     """Fold a corpus's answers into one task's semantic profile.
 
     Returns the profile unchanged when no corpus was supplied, so ``describe`` without
     ``--tables`` writes exactly the document it wrote before this module existed.
+
+    ``document`` is the contract the profile was built from. It is optional, and only
+    the WI-2.8 D2 fan-out recomputation needs it: re-deciding a JOIN means re-deriving
+    which target columns the keys reach, which is a question about the contract's
+    mapping chains rather than about the profile. Without it the cards still reach
+    ``inputs[].card`` and ``task.downstream_consumers`` exactly as before.
     """
     if not cards:
         return profile
     index = _card_index(cards)
     if profile.get("artifact_kind") == TASK_PROFILE_ARTIFACT_KIND:
         return {
-            key: [_apply_statement(item, index) for item in value]
+            key: [
+                _apply_statement(item, index, _statement_document(document, item))
+                for item in value
+            ]
             if key == "statements"
             else value
             for key, value in profile.items()
         }
-    return _apply_statement(profile, index)
+    return _apply_statement(profile, index, _statement_document(document, profile))
+
+
+def _statement_document(document: dict | None, statement: dict) -> dict | None:
+    """The contract document for one statement of a 1.0 or 2.0 artifact."""
+    if not document:
+        return None
+    lineage = document.get("statement_lineage")
+    if lineage is None:
+        return document
+    return lineage.get(str(statement.get("statement_id")))
 
 
 def _card_index(cards: dict) -> list[dict]:
@@ -673,11 +717,18 @@ def _lookup(index: Sequence[dict], table: str) -> dict | None:
     return None
 
 
-def _apply_statement(profile: dict, index: Sequence[dict]) -> dict:
+def _apply_statement(
+    profile: dict, index: Sequence[dict], document: dict | None = None
+) -> dict:
     inputs = [_apply_input(item, index) for item in profile.get("inputs") or []]
     consumers = _downstream_consumers(profile, index)
     applied = dict(profile)
     applied["inputs"] = inputs
+    shape = profile.get("output_shape")
+    if shape and document:
+        applied["output_shape"] = apply_card_fan_out(
+            document, shape, lambda name: _lookup(index, name)
+        )
     applied["task"] = _insert_after(
         dict(profile.get("task") or {}), "target_table_owner", "downstream_consumers", consumers
     )
@@ -693,7 +744,7 @@ def _apply_input(item: dict, index: Sequence[dict]) -> dict:
         producer = producers[0]
         value = {
             "produced_by_task": producer["task"],
-            "grain_text": grain_text(producer),
+            "grain_text": grain_text(producer, name_producer=True),
             "candidate_keys": list(producer["candidate_keys"]),
             "key_confidence": producer["key_confidence"],
             "comment": card.get("comment"),

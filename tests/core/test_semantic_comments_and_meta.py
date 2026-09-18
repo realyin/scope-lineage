@@ -24,6 +24,11 @@ from scope_lineage.render.semantic_markdown import (
     render_semantic_markdown,
 )
 from scope_lineage.render.semantic_profile import build_semantic_profile
+from scope_lineage.render.semantic_text import (
+    COMMENT_KIND_COMMENTED_OUT_SQL,
+    COMMENT_KIND_NOTE,
+    comment_kind,
+)
 from scope_lineage.scope.scope_builder import parse_scope_lineage
 
 
@@ -316,3 +321,68 @@ def test_a_comment_naming_a_table_does_not_change_what_the_summary_claims() -> N
     field = _field(profile, "customer_id")
     assert "nowhere.no_such_table.no_such_col" in field["summary"]
     assert [source["table"] for source in field["sources"]] == ["ods.channel_event"]
+
+
+# --------------------------------- WI-2.8 D9: a comment that IS SQL is not a note
+
+COMMENTED_OUT_SQL = """INSERT OVERWRITE TABLE mart.metric_target
+SELECT
+    s.customer_id AS customer_id, -- cast(null as string) as customer_id
+    SUM(s.amount) AS total_amount -- 金额合计（元）
+FROM ods.channel_event s
+GROUP BY s.customer_id
+"""
+
+
+def _commented_fields() -> dict:
+    document = to_lineage_dict(
+        parse_scope_lineage(COMMENTED_OUT_SQL, "commented_out", schema=METRIC_SCHEMA)
+    )
+    profile = build_semantic_profile(document)
+    return {item["column"]: item for item in profile["fields"]}
+
+
+def test_a_commented_out_expression_is_kept_out_of_the_fields_comments() -> None:
+    """It records what the code USED to do, never what the column means."""
+    field = _commented_fields()["customer_id"]
+
+    assert "sql_comments" not in field
+    assert "cast(null as string)" not in field["summary"]
+
+
+def test_a_prose_comment_beside_a_column_is_still_published() -> None:
+    field = _commented_fields()["total_amount"]
+
+    assert field["sql_comments"] == ["金额合计（元）"]
+    assert "金额合计（元）" in field["summary"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "cast(null as string) as source_lead",
+        "coalesce(a, b) AS fallback",
+        "select 1 from dual",
+        "sum(amount) as total",
+    ],
+)
+def test_a_body_that_parses_into_sql_is_called_commented_out_code(text: str) -> None:
+    assert comment_kind(text) == COMMENT_KIND_COMMENTED_OUT_SQL
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "金额合计（元）",
+        "金额(元)",
+        "仅生效状态",
+        "这里 cast 过的字段",
+        "user as defined by risk",
+        "amount",
+        "",
+        "   ",
+    ],
+)
+def test_anything_the_parser_cannot_prove_is_sql_stays_a_note(text: str) -> None:
+    """The conservative side: a misread note loses an explanation, so it must not happen."""
+    assert comment_kind(text) == COMMENT_KIND_NOTE

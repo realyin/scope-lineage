@@ -22,6 +22,7 @@ from scope_lineage.cli import main
 from scope_lineage.contract import to_lineage_dict
 from scope_lineage.metadata.schema_metadata import SchemaMap
 from scope_lineage.render.glossary import apply_glossary, build_glossary
+from scope_lineage.render.glossary_values import apply_value_domains
 from scope_lineage.render.semantic_markdown import render_semantic_markdown
 from scope_lineage.render.semantic_profile import build_semantic_profile
 from scope_lineage.scope.scope_builder import parse_scope_lineage
@@ -71,7 +72,9 @@ def test_a_field_carries_its_own_statements_values_without_any_glossary() -> Non
 
     assert field["value_domain"] == [
         {
-            "value": "'PAID'",
+            # WI-2.8 D4: one spelling for the value, the author's literal beside it.
+            "value": "PAID",
+            "sql_literal": "'PAID'",
             "kind": "literal",
             "seen_in": ["rule:001"],
             "closed_set": None,
@@ -115,7 +118,7 @@ def test_a_glossary_widens_the_domain_to_what_other_tasks_observed() -> None:
         build_semantic_profile(_document(APP_SQL, "task_a")), _corpus_glossary()
     )
     assert [item["value"] for item in _field(profile, "pay_status")["value_domain"]] == [
-        "'PAID'"
+        "PAID"
     ]
 
 
@@ -225,12 +228,12 @@ def test_a_value_two_branches_both_produce_is_listed_once() -> None:
     """Two CASE blocks in two branch scopes are two observations of ONE value."""
     values = [item["value"] for item in _branched_domain()]
 
-    assert values.count("'SA'") == 1
-    assert sorted(values) == ["'SA'", "'SB'", "'SC'"]
+    assert values.count("SA") == 1
+    assert sorted(values) == ["SA", "SB", "SC"]
 
 
 def test_the_merged_entry_keeps_every_branchs_evidence() -> None:
-    entry = next(item for item in _branched_domain() if item["value"] == "'SA'")
+    entry = next(item for item in _branched_domain() if item["value"] == "SA")
 
     assert len(entry["seen_in"]) == 2
     assert len(set(entry["seen_in"])) == 2
@@ -264,7 +267,8 @@ def test_a_pattern_is_carried_in_the_domain_with_its_own_kind() -> None:
         item for item in _pattern_field()["value_domain"] if item["kind"] == "pattern"
     )
 
-    assert entry["value"] == "'%UNIT_OUT_%'"
+    assert entry["value"] == "%UNIT_OUT_%"
+    assert entry["sql_literal"] == "'%UNIT_OUT_%'"
     assert entry["closed_set"] is None
 
 
@@ -402,7 +406,8 @@ def test_describe_without_the_flag_still_publishes_the_local_domain(tmp_path: Pa
 
     profile = json.loads((task / "semantic.json").read_text(encoding="utf-8"))
     field = next(item for item in profile["fields"] if item["column"] == "pay_status")
-    assert field["value_domain"][0]["value"] == "'PAID'"
+    assert field["value_domain"][0]["value"] == "PAID"
+    assert field["value_domain"][0]["sql_literal"] == "'PAID'"
     assert field["value_domain"][0]["meaning"] is None
 
 
@@ -475,3 +480,196 @@ def test_without_a_glossary_the_confirmation_counts_stay_zero() -> None:
         "columns_patched": 0,
         "tables_patched": 0,
     }
+
+
+# ------------------------------- WI-2.8 D1: a CASE condition belongs to the tested column
+
+# `amt` is projected straight out of the sub-select, so its chain-wide transform is
+# DIRECT -- but the value it carries came through a CASE, and the CASE reads `flag`. The
+# pre-D1 matcher followed every source of a DIRECT field, so `'N'` (the condition's
+# constant) was published as a value of the amount column and marked 已证明封闭.
+CASE_CONDITION_SQL = (
+    "INSERT INTO mart.t SELECT m.amt, m.flag FROM ("
+    "SELECT CASE WHEN o.flag = 'N' THEN o.amt ELSE 0 END AS amt, o.flag "
+    "FROM ods.app_order o) m"
+)
+
+PASS_THROUGH_SQL = (
+    "INSERT INTO mart.t SELECT m.flag FROM ("
+    "SELECT o.flag FROM ods.app_order o WHERE o.flag = 'N') m"
+)
+
+_CASE_SCHEMA = {"ods.app_order": ["flag", "amt"], "mart.t": ["amt", "flag"]}
+
+
+def _case_field(sql: str, column: str) -> dict:
+    document = to_lineage_dict(parse_scope_lineage(sql, "task_case", schema=_CASE_SCHEMA))
+    return _field(build_semantic_profile(document), column)
+
+
+def test_a_case_conditions_constant_never_reaches_the_column_the_case_produces() -> None:
+    domain = _case_field(CASE_CONDITION_SQL, "amt")["value_domain"]
+
+    assert "N" not in [item["value"] for item in domain]
+    # its own ELSE constant is still the column's own output, so that one stays
+    assert [item["value"] for item in domain] == ["0"]
+
+
+def test_a_case_conditions_constant_does_not_travel_to_a_pass_through_either() -> None:
+    """`flag` is read by the CASE, not compared by a filter: nothing is proven about it."""
+    assert _case_field(CASE_CONDITION_SQL, "flag").get("value_domain") is None
+
+
+def test_an_equality_filter_still_travels_through_a_direct_projection() -> None:
+    """The half of the rule that must keep working: a WHERE `=` IS a fact about the column."""
+    domain = _case_field(PASS_THROUGH_SQL, "flag")["value_domain"]
+
+    assert [item["value"] for item in domain] == ["N"]
+
+
+def _typed_field(declared: str, transform: str = "DIRECT") -> dict:
+    return {
+        "column": "amount",
+        "type": declared,
+        "transform": transform,
+        "sources": [
+            {"table": "ods.app_order", "column": "amount", "transform": "DIRECT"}
+        ],
+    }
+
+
+def _entry(value: str, literal: str) -> dict:
+    return {
+        "column_ref": "ods.app_order.amount",
+        "column": "amount",
+        "value": value,
+        "sql_literal": literal,
+        "kind": "literal",
+        "observations": [{"context": "filter_eq", "evidence": "rule:001"}],
+        "task_count": 1,
+        "closed_set": None,
+        "meaning_candidates": [],
+        "meaning": None,
+    }
+
+
+def test_a_string_literal_is_not_published_as_a_value_of_an_amount_column() -> None:
+    """The type guard: `'Y'` is not something a `decimal(15,2)` column ever holds."""
+    field = _typed_field("decimal(15,2)")
+
+    apply_value_domains([field], [_entry("Y", "'Y'"), _entry("0", "0")])
+
+    assert [item["value"] for item in field["value_domain"]] == ["0"]
+
+
+def test_a_quoted_number_is_still_a_value_of_a_numeric_column() -> None:
+    field = _typed_field("bigint")
+
+    apply_value_domains([field], [_entry("0", "'0'")])
+
+    assert [item["value"] for item in field["value_domain"]] == ["0"]
+
+
+def test_a_quoted_date_is_still_a_value_of_a_date_column() -> None:
+    field = _typed_field("date")
+
+    apply_value_domains([field], [_entry("2026-01-01", "'2026-01-01'"), _entry("Y", "'Y'")])
+
+    assert [item["value"] for item in field["value_domain"]] == ["2026-01-01"]
+
+
+def test_a_string_column_keeps_its_string_values() -> None:
+    field = _typed_field("string")
+
+    apply_value_domains([field], [_entry("Y", "'Y'")])
+
+    assert [item["value"] for item in field["value_domain"]] == ["Y"]
+
+
+def test_a_source_reached_through_a_case_is_not_a_pass_through_source() -> None:
+    """One non-pass-through step anywhere on the chain breaks the inheritance."""
+    field = _typed_field("string")
+    field["sources"][0]["transform"] = "CONDITIONAL"
+
+    apply_value_domains([field], [_entry("Y", "'Y'")])
+
+    assert field.get("value_domain") is None
+
+
+# ------------------------------------------- WI-2.8 D3: closed_set is a column's verdict
+
+# Three CASE branches make the set closed; `0` is ALSO produced as a UNION constant, and
+# the per-value merge used to withdraw the claim for that one value alone -- leaving a
+# column whose three values read 待证明 / 已证明 / 已证明 out of one exhaustive CASE.
+MIXED_CLOSURE_SQL = (
+    "INSERT INTO mart.t SELECT CASE WHEN o.flag = 'A' THEN '1' "
+    "WHEN o.flag = 'B' THEN '2' ELSE '0' END AS code FROM ods.app_order o "
+    "UNION ALL SELECT '0' AS code FROM ods.web_order w"
+)
+
+
+def _closure_domain() -> list[dict]:
+    document = to_lineage_dict(
+        parse_scope_lineage(
+            MIXED_CLOSURE_SQL,
+            "task_closure",
+            schema={
+                "ods.app_order": ["flag"],
+                "ods.web_order": ["flag"],
+                "mart.t": ["code"],
+            },
+        )
+    )
+    return _field(build_semantic_profile(document), "code")["value_domain"]
+
+
+def test_every_value_of_one_column_carries_the_same_closed_set_verdict() -> None:
+    verdicts = {item["closed_set"] for item in _closure_domain()}
+
+    assert len(verdicts) == 1
+    assert verdicts == {True}
+
+
+def test_the_closed_note_is_written_once_the_column_agrees() -> None:
+    document = to_lineage_dict(
+        parse_scope_lineage(
+            MIXED_CLOSURE_SQL,
+            "task_closure",
+            schema={
+                "ods.app_order": ["flag"],
+                "ods.web_order": ["flag"],
+                "mart.t": ["code"],
+            },
+        )
+    )
+    rendered = render_semantic_markdown(
+        build_semantic_profile(document), sections=["fields"]
+    )
+    line = next(item for item in rendered.splitlines() if item.startswith("- 取值："))
+
+    assert "该列取值已被 SQL 证明封闭" in line
+
+
+# --------------------------------------------- WI-2.8 D4: one spelling, one displayed form
+
+
+def test_the_markdown_shows_the_literal_the_author_wrote() -> None:
+    """The stored value lost its quotes; the line a human reads did not."""
+    profile = build_semantic_profile(_document(APP_SQL, "task_a"))
+    rendered = render_semantic_markdown(profile, sections=["fields"])
+    line = next(item for item in rendered.splitlines() if item.startswith("- 取值："))
+
+    assert _field(profile, "pay_status")["value_domain"][0]["value"] == "PAID"
+    assert "'PAID'" in line
+
+
+def test_an_unquoted_override_key_confirms_the_same_value_as_a_quoted_one() -> None:
+    """`strip_quotes` runs on both sides, so a reviewer may write either spelling."""
+    for key in ("pay_status=PAID", "pay_status='PAID'"):
+        glossary = build_glossary(
+            [_document(APP_SQL, "task_a")],
+            artifact_root="corpus",
+            overrides={"values": {key: "已支付"}},
+        )
+        assert glossary["overrides_applied"]["values"] == 1
+        assert glossary["values"][0]["meaning"]["text"] == "已支付"

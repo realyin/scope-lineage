@@ -146,7 +146,8 @@ scope-lineage describe --lineage /path/to/corpus/one_task/lineage.json \
   --tables /path/to/tables/tables.json
 ```
 
-给了 `--tables` 之后，`semantic.json` 多出三处（按归一表名匹配）：
+给了 `--tables` 之后，`semantic.json` 多出三处（按归一表名匹配），第四处是被**改写**的
+`output_shape`（见下文「表卡参与 fan_out 判定」）：
 
 ```jsonc
 {
@@ -170,6 +171,25 @@ scope-lineage describe --lineage /path/to/corpus/one_task/lineage.json \
 
 - 语料内没有任务写某张输入表时，该输入的 `card` 是 `null`，表格里写"⚠ 本语料内无生产任务"——
   **"没给语料"和"语料证明没人写"是两个答案，不会渲染成同一句**。
+- 有生产任务、但那个任务自己也没能判定粒度时，`card.grain_text` 写成
+  `生产任务 <task> 未能判定粒度（<上游 grain walk 停下来的原因>）`，而不是以"未知"开头——
+  "没有上游"和"有上游但上游没证出来"同样是两个答案。
+
+### 表卡参与 fan_out 判定
+
+一条语句永远无法证明一张物理表按连接键唯一，所以 JOIN 到物理表的 `fan_out_risks[]` 只能停在
+`unknown` / 「物理表无主键事实」。表卡里有另一个任务的证明，`describe --tables` 因此在挂完
+`inputs[].card` 之后**重算一次** `output_shape`：
+
+| 条件 | 结果 |
+| --- | --- |
+| JOIN 右侧是物理表，其表卡的 `key_confidence` 是 `proven`，且 `candidate_keys` ⊆ 该 JOIN 右侧连接键列名 | 该条风险改判 `safe`，`reason` 写「生产任务 `<task>` 已证明 `<keys>` 唯一（表卡）」，并加 `basis: "table_card"` |
+| 同上但表卡的 `key_confidence` 是 `candidate` | 同样改判 `safe`，但 `reason` 注明「表卡候选键，未证唯一」，且整条语句的 `key_confidence` 上限压到 `candidate` |
+| 表卡 `key_confidence` 是 `proven_unexposed` 或 `none`，或连接键没盖住候选键 | 不改判，仍是原来的结论 |
+
+改判之后 `candidate_keys`、`unexposed_keys`、`key_evidence`、`key_confidence` 按新的风险集合
+一并重算——它们本来就是「链路上每个 JOIN 都 `safe`」这个前提的函数。没有任何一条风险被表卡改判
+时，`output_shape` 原样返回，逐字节不变。
 - 没有传 `--tables` 时，上面三个键**根本不出现**，`semantic.json` / `semantic.md` 与表卡功能
   上线之前逐字节一致。要"空值"语义就把 `--tables` 传上。
 - `--tables` 指向的文件不存在（退出码 2）或不是 `tables-json/1`（退出码 1）时直接报错，

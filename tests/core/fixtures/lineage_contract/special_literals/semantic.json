@@ -146,7 +146,8 @@
       "structural_role": "derived",
       "value_domain": [
         {
-          "value": "'a\\nb'",
+          "value": "a\\nb",
+          "sql_literal": "'a\\nb'",
           "kind": "literal",
           "seen_in": [
             "rule:001"

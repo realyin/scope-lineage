@@ -766,7 +766,8 @@
       "structural_role": "candidate_key",
       "value_domain": [
         {
-          "value": "'HIGH'",
+          "value": "HIGH",
+          "sql_literal": "'HIGH'",
           "kind": "literal",
           "seen_in": [
             "rule:001"
@@ -775,7 +776,8 @@
           "meaning": null
         },
         {
-          "value": "'LOW'",
+          "value": "LOW",
+          "sql_literal": "'LOW'",
           "kind": "literal",
           "seen_in": [
             "rule:001"
