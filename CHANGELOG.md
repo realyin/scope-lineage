@@ -4,9 +4,8 @@
 - Say what a table *is*, not only what columns it has. Rich JSON metadata carries table-level
   facts -- a readable/Chinese name, a description, the business domain and its path, the
   project and its code, the owner, the storage layer, the physical type and whether the table
-  is partitioned -- and the loader dropped every one of them, so `related_metadata` published
-  no `table_metadata`, `semantic.md` said "注释未知" for every input table, and table cards
-  covered 0 table comments on a real corpus. They now travel end to end: one vocabulary-neutral
+  is partitioned -- and the loader dropped every one of them, so `related_metadata` never
+  published a table-level fact and table cards had no table comment to show. They now travel end to end: one vocabulary-neutral
   normalizer reads them from a rich JSON document, a rich JSON directory, the aggregate
   `{"tables": […]}` shape, the `{"db.table": {…}}` shorthand and the target table's own
   DDL/Schema export (`TargetTableMetadata.table_detail`), into `SchemaMap.table_details` and on
