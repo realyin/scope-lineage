@@ -92,7 +92,7 @@ def test_section_one_publishes_the_day_this_instance_reads() -> None:
     assert profile["task"]["instance_dates"] == ["20260814"]
 
     rendered = render_semantic_markdown(profile, sections=["overview"])
-    assert "- 取数日：20260814（SQL事实）" in rendered
+    assert "- 本实例取数日：20260814（每次运行按实例日期替换，不是 SQL 固定日期）（SQL事实）" in rendered
 
 
 def test_two_days_are_listed_with_the_gap_between_them() -> None:
@@ -111,7 +111,7 @@ def test_two_days_are_listed_with_the_gap_between_them() -> None:
     assert profile["task"]["instance_dates"] == ["20260813", "20260814"]
 
     rendered = render_semantic_markdown(profile, sections=["overview"])
-    assert "- 取数日：20260813、20260814（相差 1 天）（SQL事实）" in rendered
+    assert "- 本实例取数日：20260813、20260814（相差 1 天）（每次运行按实例日期替换，不是 SQL 固定日期）（SQL事实）" in rendered
 
 
 def test_a_parameterised_task_has_no_instance_date_and_no_line() -> None:
