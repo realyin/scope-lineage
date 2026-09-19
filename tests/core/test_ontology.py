@@ -480,6 +480,69 @@ def test_o6_a_candidate_producer_key_becomes_a_hypothesis_unique_per() -> None:
     assert found[0]["evidence"][0]["basis"] == "candidate"
 
 
+# The same table, written by two tasks that prove the same key set -- one 约束, proved
+# twice, not two 约束. `PRODUCER_SQL` reads `ods.customer`; this one reads the mirror.
+SECOND_PRODUCER_SQL = (
+    "INSERT OVERWRITE TABLE mart.customer_daily PARTITION (dt = '20250102') "
+    "SELECT c.id AS customer_id, MAX(c.country) AS country "
+    "FROM spark_catalog.ods.customer c GROUP BY c.id"
+)
+
+
+def test_o6_two_producers_proving_the_same_key_set_publish_one_constraint() -> None:
+    """Emitting one per producer counted the same proof twice, in the 约束 table too."""
+    found = _constraints(
+        _one([("producer", PRODUCER_SQL), ("second_producer", SECOND_PRODUCER_SQL)]),
+        CONSTRAINT_UNIQUE_PER,
+        "mart.customer_daily",
+    )
+
+    assert len(found) == 1
+    assert found[0]["columns"] == ["customer_id", "dt"]
+    assert [item["task"] for item in found[0]["evidence"]] == [
+        "producer",
+        "second_producer",
+    ]
+
+
+def test_o6_the_merged_constraint_keeps_the_strongest_tier_of_its_producers() -> None:
+    """The same rule ``identity.candidate_keys`` follows: one weak proof is still a proof."""
+    weaker = (
+        "INSERT OVERWRITE TABLE mart.customer_daily PARTITION (dt = '20250102') "
+        "SELECT m.id AS customer_id, agg.v AS country FROM ods.main m "
+        "LEFT JOIN (SELECT s.id AS id, MAX(s.v) AS v FROM ods.side s GROUP BY s.id) agg "
+        "ON m.id = agg.id"
+    )
+    found = _constraints(
+        _one([("producer", PRODUCER_SQL), ("weaker_producer", weaker)]),
+        CONSTRAINT_UNIQUE_PER,
+        "mart.customer_daily",
+    )
+
+    assert len(found) == 1
+    assert found[0]["tier"] == TIER_PROVEN
+    assert [item["basis"] for item in found[0]["evidence"]] == ["proven", "candidate"]
+
+
+def test_o6_two_producers_proving_different_key_sets_stay_two_constraints() -> None:
+    """Merging is per claim, not per table: two key sets are two different claims."""
+    other = (
+        "INSERT OVERWRITE TABLE mart.customer_daily PARTITION (dt = '20250102') "
+        "SELECT c.id AS customer_id, c.country AS country FROM ods.customer c "
+        "GROUP BY c.id, c.country"
+    )
+    found = _constraints(
+        _one([("producer", PRODUCER_SQL), ("other_producer", other)]),
+        CONSTRAINT_UNIQUE_PER,
+        "mart.customer_daily",
+    )
+
+    assert [item["columns"] for item in found] == [
+        ["customer_id", "country", "dt"],
+        ["customer_id", "dt"],
+    ]
+
+
 def test_o6_a_statement_that_proves_no_key_publishes_no_unique_per() -> None:
     sql = "INSERT INTO mart.t SELECT o.order_id, o.amount FROM ods.orders o"
 

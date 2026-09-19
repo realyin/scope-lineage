@@ -12,7 +12,7 @@ table_count: 9
 | --- | --- | --- | --- | --- | --- |
 | [`dim.channel`](tables/dim.channel.md) | 0 | 2 | 有 | 渠道域 | — |
 | [`dim.segment_dim`](tables/dim.segment_dim.md) | 0 | 1 | 无 | — | — |
-| [`mart.channel_summary`](tables/mart.channel_summary.md) | 2 | 0 | 无 | — | none |
+| [`mart.channel_summary`](tables/mart.channel_summary.md) | 2 | 0 | 无 | — | proven |
 | [`mart.metric_by_segment`](tables/mart.metric_by_segment.md) | 1 | 0 | 无 | — | proven |
 | [`mart.user_names`](tables/mart.user_names.md) | 1 | 0 | 无 | — | none |
 | [`ods.channel_event`](tables/ods.channel_event.md) | 0 | 2 | 有 | 渠道域 | — |

@@ -45,6 +45,7 @@ from .semantic_text import describe_nullable_argument as _describe_nullable_argu
 from .semantic_text import equality_conjunct
 from .semantic_text import predicate_literal_day_offset
 from .semantic_text import generated_source_text as _generated_source_text
+from .semantic_text import is_upstream_fan_out_note
 
 
 DOC_FORMAT = "semantic-md/1"
@@ -695,6 +696,7 @@ def _render_shape(profile: dict) -> list[str]:
         _grain_line(shape.get("grain") or {}),
     ]
     lines.append(_candidate_key_line(shape))
+    lines.extend(_key_survival_lines(shape))
     lines.append(
         _tagged(
             "- 分区列："
@@ -705,6 +707,21 @@ def _render_shape(profile: dict) -> list[str]:
     )
     lines.extend(_render_fan_out(shape.get("fan_out_risks") or []))
     return lines
+
+
+def _key_survival_lines(shape: dict) -> list[str]:
+    """B12: why a published key stands although the same section lists a JOIN as a risk.
+
+    The reader meets the two facts three lines apart -- 「键：目标表列 …」 and 「LEFT_OUTER
+    JOIN …：⚠ 有放大风险」 -- and without this sentence the second reads as a refutation
+    of the first. Only the fan-out note is rendered here: ``key_evidence`` also carries
+    notes about keys that never reached the target, which belong to their own lines.
+    """
+    return [
+        _tagged(f"- 说明：{note}", TAG_STRUCTURAL)
+        for note in shape.get("key_evidence") or []
+        if is_upstream_fan_out_note(note)
+    ]
 
 
 def _candidate_key_line(shape: dict) -> str:

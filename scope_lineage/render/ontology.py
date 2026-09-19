@@ -1037,7 +1037,44 @@ def _constraints(
         *_partition_constraints(cards),
         *_unique_per_constraints(cards),
     ]
-    return sorted(constraints, key=_constraint_sort_key)
+    return sorted(_merged_constraints(constraints), key=_constraint_sort_key)
+
+
+def _merged_constraints(constraints: Sequence[Mapping]) -> list[dict]:
+    """One entry per claim, however many statements proved it.
+
+    ``unique_per`` is read off each producer in turn, so a table two tasks write with the
+    same key set published that constraint twice -- identical but for its one evidence
+    entry, and counted twice in 「共 N 条约束」. The claim is the target, the kind and the
+    columns or values it names; everything else is how well it is known, which merges the
+    way ``identity.candidate_keys`` already merges it: the strongest tier of the entries
+    making the claim, and their evidence in corpus order.
+    """
+    merged: dict[tuple, dict] = {}
+    for constraint in constraints:
+        entry = merged.get(_constraint_identity(constraint))
+        if entry is None:
+            merged[_constraint_identity(constraint)] = dict(constraint)
+            continue
+        entry["tier"] = _stronger_tier(str(entry["tier"]), str(constraint["tier"]))
+        evidence = list(entry.get("evidence") or [])
+        for item in constraint.get("evidence") or []:
+            if item not in evidence:
+                evidence.append(item)
+        entry["evidence"] = evidence
+    return list(merged.values())
+
+
+def _constraint_identity(constraint: Mapping) -> tuple:
+    """What makes two constraints the same claim rather than two claims."""
+    target = constraint.get("target") or {}
+    return (
+        str(target.get("entity")),
+        str(target.get("column") or ""),
+        str(constraint.get("kind")),
+        tuple(str(item) for item in constraint.get("columns") or []),
+        tuple(str(item) for item in constraint.get("values") or []),
+    )
 
 
 def _constraint_sort_key(constraint: Mapping) -> tuple:
