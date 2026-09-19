@@ -51,6 +51,67 @@
   person. Evidence-based confirmations are uncapped. The prompt says where the task
   profiles are (`semantic.md` beside `lineage.json`) and to run `describe` first when they
   are absent. `SKILL.md` and `docs/{zh-CN,en}/ontology-doc.md` follow in parity.
+- The scheduler's upstream and downstream task lists reach `task_meta` (B4). A task JSON
+  registers what runs before and after this task in `meta.upstream_tasks` /
+  `meta.downstream_tasks`, and contract 2.0 dropped both on the floor: `TASK_META_FIELDS`
+  copies single values, and a list stringified into `"[{'task_id': ...}]"` would have been
+  worse than nothing. They are now published as arrays of task names -- deduplicated, the
+  exporter's order kept, a record entry read by its `task_name` and falling back to its
+  `task_id` -- and an empty list publishes no key at all, because `[]` is what an exporter
+  writes for "nothing registered". `owner_email` stays excluded. `describe` copies them
+  with the rest of `task_meta` into `task.meta`, semantic.md's 任务元信息 line appends
+  「上游任务 N 个」「下游任务 N 个」 (counts, not names), and the profile prompt now names
+  both downstream sources apart: `task.meta.downstream_tasks` is scheduling registration
+  and `task.downstream_consumers` is what the corpus proves. One golden case gains the two
+  keys.
+- Positional writing has a home in the profile's risk table (B5). 附录 C of
+  `business-profile-template.md` gains a fixed row 「写入方式 | target_binding | 按位置 /
+  按名 | 按位置写入时 DDL 列序变更会整体错位」, and the prompt says the `target_binding`
+  finding is reported there -- and in 使用注意 only when the same statement also carries
+  `alias_position_mismatch`. Templates and prompt only; no code.
+- How an input is read is carried by the wording of its sentence (B7). The profile's
+  「数据从哪来、到哪去」 rule now fixes it: 「直接读取」 where `inputs[].read_by_scopes`
+  holds ROOT and 「经 <scope> 读取」 otherwise. The distinction 直接读物理表 vs
+  上游可追溯 therefore lives in the sentence the reader reads, and self-check item 9
+  checks that wording instead of asking for a slot nothing filled. Prompt and check
+  template only; no code.
+- A filter value's meaning can come from its own column's comment (B6).
+  `meaning_candidates` only matched a comment that *contains* the value, and a value
+  shorter than two characters never matched at all -- so `WHERE eff_status = '1'` against a
+  column commented `0-未生效，1-生效` reached the fill-in form with no clue in it, although
+  the answer was written next to the column. A column comment written as a code table is
+  now read as one: the shapes `0-未生效，1-生效`, `0:未生效;1:生效`, `0=未生效,1=生效`,
+  `Y 是 N 否` and `1 生效 0 未生效` (separators `，,;；|/、` and a space; a code joined to
+  its meaning by `-`, `:`, `=`, `：` or a space), in every observation context (`filter_eq`,
+  `filter_in`, `case_condition`, `case_then`, `constant_projection`, `union_constant`) and
+  only off the observed column's own comment, source or target. The candidate's `text` is
+  the half that belongs to this value, its `source` is `column_comment`, and the template
+  shows it in the 注释线索 column. A space-joined pair needs a second pair to count as a
+  table, so `队列编码，99 表示无效` stays one sentence. A candidate is still not a
+  confirmation: `glossary --template` asks about the value exactly as before.
+- Three findings stop warning about the shop's own house style (B11). On a wide corpus
+  `target_binding` warned on nearly every statement (positional INSERT being the norm),
+  every `metadata_conflicts` warning read 「元数据来源冲突，处理方式 kept_authoritative」
+  (a fact about the metadata load, not about the task), and `nondeterministic_function`
+  warned about audit columns such as `insert_time = current_timestamp()` -- a section the
+  reader learns to skip. `severity` is now decided per finding rather than looked up from
+  its kind: `target_binding` is `info` unless the same statement also has
+  `alias_position_mismatch`; a `metadata_conflicts` resolved as `kept_authoritative` is
+  `info` and every other resolution stays `warn`; `nondeterministic_function` is `info`
+  when every affected field is an audit column (a constant projection whose expression is
+  only the run-time call, so the value enters no filter, join, group or metric), with the
+  reason published in the text as 「仅用于审计列 …」. Every text is unchanged otherwise, and
+  the findings stay in `semantic.json`. Only `severity` moves in the goldens.
+- Comments loaded from metadata are masked like SQL comments (E1). `redact` covered the
+  SQL comments and `task_meta.description`, while the column and table comments read from
+  `--schema` / `--target-ddl-metadata` -- free text a person wrote, published in the same
+  artifacts -- went out verbatim. They now go through the same masking where
+  `related_metadata` is assembled: `column_details[].comment`, `declared_columns[].comment`,
+  `table_metadata.table_desc` / `table_name_cn`, and the copy of the same text the scope
+  field usage carries (`scopes[].inputs[].used_columns[].comment`, `source_metadata`).
+  `--no-redact-comments` turns both kinds off together, and the other `table_metadata` keys
+  (domain, project, owner, layer, source file) are left alone -- rewriting an identifier
+  corrupts a fact rather than protecting anybody.
 - A SQL keyword in front of a parenthesis is no longer read as a function call (C2
   follow-up). `expression_features.functions` was collected by a regex over the
   expression's text -- `\b(name)\s*\(` -- which cannot tell `upper(a)` from `kind IN

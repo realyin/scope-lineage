@@ -242,6 +242,28 @@ def test_section_one_prints_the_task_metadata_line_only_when_there_is_one() -> N
     assert "- 任务元信息：" not in render_semantic_markdown(_statement_profile())
 
 
+def test_the_meta_line_counts_the_registered_upstream_and_downstream_tasks() -> None:
+    """B4: counts, not names -- the line is a pointer to `task.meta`, not a list."""
+    rendered = render_semantic_markdown(
+        _task_profile(
+            {
+                "project_name": "demo_project",
+                "upstream_tasks": ["order_detail_daily", "customer_base_daily"],
+                "downstream_tasks": ["profile_export_daily"],
+            }
+        )
+    )
+    assert "- 任务元信息：项目 demo_project；上游任务 2 个；下游任务 1 个" in rendered
+
+
+def test_the_meta_line_leaves_out_a_side_the_task_json_never_registered() -> None:
+    rendered = render_semantic_markdown(
+        _task_profile({"project_name": "demo_project", "upstream_tasks": ["a_task"]})
+    )
+    assert "上游任务 1 个" in rendered
+    assert "下游任务" not in rendered
+
+
 def test_the_rules_table_has_its_own_comment_column() -> None:
     rendered = render_semantic_markdown(_golden(COMMENTED_STATEMENT))
     header = next(

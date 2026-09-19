@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "artifact_kind": "task_semantic",
   "task_id": "golden_commented_task",
-  "lineage_digest": "0742cbd0452461e4",
+  "lineage_digest": "cffb57698701a1eb",
   "produced_tables": [
     "mart.channel_summary"
   ],
@@ -48,7 +48,14 @@
           "schedule_cycle": "DAY",
           "description": "每日渠道汇总（合成示例）",
           "expect_date": "2026-09-18",
-          "source_file": "demo/channel_summary_daily.json"
+          "source_file": "demo/channel_summary_daily.json",
+          "upstream_tasks": [
+            "channel_event_daily",
+            "T-0000b"
+          ],
+          "downstream_tasks": [
+            "channel_summary_export"
+          ]
         }
       },
       "inputs": [
@@ -654,7 +661,7 @@
         "findings": [
           {
             "kind": "target_binding",
-            "severity": "warn",
+            "severity": "info",
             "text": "未做目标列绑定（target_binding_absent_reason=metadata_not_provided）",
             "evidence": []
           },

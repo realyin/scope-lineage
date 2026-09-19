@@ -875,7 +875,11 @@ scope-lineage validate --lineage /path/to/corpus
 | 手机号 | `<phone>` | 中国大陆 `1[3-9]` 开头的 11 位号码，以及 `+86 138...` 这类国际写法 |
 | 身份证号 | `<id>` | 18 位（末位可为 `X`）或 15 位形态，且中间的出生日期须是真实日期 |
 
-遮蔽发生在**采集时**，作用于注释文本本身，因此上述各个注释键和渲染表达式（如 `logic_blocks[].raw_expression`）里内联的那一份得到的是同一份已遮蔽文本；`task_meta.description` 同样过一遍——它也是人写的自由文本。SQL 表达式本身不被改动：`WHERE id_no = '110101199003078219'` 是这条语句操作的数据，改了就改变了 SQL 的含义。
+遮蔽发生在**采集时**，作用于注释文本本身，因此上述各个注释键和渲染表达式（如 `logic_blocks[].raw_expression`）里内联的那一份得到的是同一份已遮蔽文本；`task_meta.description` 同样过一遍——它也是人写的自由文本。
+
+**元数据里的注释走同一条规则（E1）**：`--schema` / `--target-ddl-metadata` 读进来的列注释与表级文字也是人写的、也随产物发布，因此在 `related_metadata` 组装处一次性过同一个遮蔽——`related_metadata.*.column_details[].comment`、`declared_columns[].comment`、`table_metadata.table_desc` / `table_name_cn`，以及 `scopes[].inputs[]` 里同源的那一份（`used_columns[].comment`、`source_metadata`）。`--no-redact-comments` 同时关掉这两类。`table_metadata` 的其余键（业务域、项目、负责人、分层、来源文件）是导出侧的标识与分类，不做改写——改一位数字是损坏事实，不是保护人。
+
+SQL 表达式本身不被改动：`WHERE id_no = '110101199003078219'` 是这条语句操作的数据，改了就改变了 SQL 的含义。
 
 **遮蔽是形态匹配，不是识别，也不保证穷尽。** 写法稍有不同的号码会漏过去（分隔符、全角数字、写成文字的地址），而一串业务编码只要恰好符合身份证形态（6 位非零开头的地区码 + 合法出生日期）也会被遮掉——位数本身不构成形态，所以 `123456789012345` 这样的流水号原样保留。它降低误发概率，不构成合规保证；要求"注释绝不出境"时用 §18.4 的整体关闭。
 

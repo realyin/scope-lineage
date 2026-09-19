@@ -32,7 +32,7 @@
     },
     "task_meta": {
       "type": "object",
-      "description": "任务导出对象 meta 的中立键名副本(WI-2.2)。仅当输入为任务 JSON 且其中至少有一项非空时存在;`.sql` 输入无本键。值全部为字符串或 null,不推断、不补默认值。**不含 owner_email**:个人联系方式对数据没有解释力,产物会在系统间流转,因此按名排除。",
+      "description": "任务导出对象 meta 的中立键名副本(WI-2.2)。仅当输入为任务 JSON 且其中至少有一项非空时存在;`.sql` 输入无本键。单值键全部为字符串或 null,`upstream_tasks` / `downstream_tasks` 为字符串数组(B4),不推断、不补默认值。**不含 owner_email**:个人联系方式对数据没有解释力,产物会在系统间流转,因此按名排除。",
       "additionalProperties": false,
       "properties": {
         "task_name": {"type": ["string", "null"]},
@@ -43,7 +43,9 @@
         "schedule_cycle": {"type": ["string", "null"], "description": "调度周期原文,如 DAY。"},
         "description": {"type": ["string", "null"]},
         "expect_date": {"type": ["string", "null"]},
-        "source_file": {"type": ["string", "null"], "description": "元数据所来自的输入文件(相对批量输入根目录)。"}
+        "source_file": {"type": ["string", "null"], "description": "元数据所来自的输入文件(相对批量输入根目录)。"},
+        "upstream_tasks": {"type": "array", "items": {"type": "string"}, "description": "调度侧登记的上游任务名(B4),去重、保序。空列表不发布本键;本键是调度登记,不是本工具证明的血缘。"},
+        "downstream_tasks": {"type": "array", "items": {"type": "string"}, "description": "调度侧登记的下游任务名(B4),去重、保序。空列表不发布本键;与语料证明的 downstream_consumers 是两回事。"}
       }
     },
     "script_comments": {

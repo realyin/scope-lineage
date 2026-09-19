@@ -126,6 +126,7 @@ Q2. {…}
 | metadata 缺失 | confidence / diagnostics | {} | {} |
 | 结构推断项（形态/粒度/窗口意图/放大风险） | semantic.json | {} | 非业务定义 |
 | SELECT * / JSON / UDF 黑盒 | diagnostics / stages | {} | {} |
+| 写入方式 | target_binding | {按位置｜按名} | 按位置写入时 DDL 列序变更会整体错位 |
 
 #### 列错位（alias_position_mismatch）
 

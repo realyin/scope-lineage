@@ -224,7 +224,7 @@
     "findings": [
       {
         "kind": "target_binding",
-        "severity": "warn",
+        "severity": "info",
         "text": "未做目标列绑定（target_binding_absent_reason=target_is_not_a_table）",
         "evidence": []
       },

@@ -385,6 +385,12 @@ def parse_scope_lineage(
     remove comments from the caller's object too (``parse_task_lineage`` strips the
     script's trees before handing them over, so the flag still reaches every statement).
 
+    ``redact_comments`` reaches one thing beyond the tree: the comments loaded from schema
+    metadata, which this call assembles itself into ``related_metadata`` and the scope
+    facts and which belong to no caller's AST (E1). ``strip_comments`` does not touch
+    them -- it removes the author's SQL commentary, not the warehouse's description of
+    its own columns.
+
     ``tree`` lets a caller that has already parsed the statement hand over that AST instead
     of having it re-parsed from ``sql``. Serializing an AST and parsing it back is not
     lossless: sqlglot hoists a WITH carried by an individual UNION branch to statement level
@@ -447,11 +453,19 @@ def parse_scope_lineage(
     statement_identity_sql = render_sql_or_none(tree) or ""
 
     if _is_ctas(tree):
-        result = _build_ctas_scope(tree, task_name, schema, regex_columns_enabled=enabled)
+        result = _build_ctas_scope(
+            tree, task_name, schema,
+            regex_columns_enabled=enabled, redact_comments=redact_comments,
+        )
     elif isinstance(tree, exp.Merge) or (
         tree.find(exp.Merge) is not None and tree.find(exp.Insert) is None
     ):
-        result = _build_merge_scope(tree, task_name, schema, regex_columns_enabled=enabled, target_metadata=target_metadata)
+        result = _build_merge_scope(
+            tree, task_name, schema,
+            regex_columns_enabled=enabled,
+            target_metadata=target_metadata,
+            redact_comments=redact_comments,
+        )
     else:
         # Same boundary parse_all_scope_lineage has had: a statement whose scope build raises
         # comes back marked instead of taking the caller down. The single-statement entry point
@@ -461,7 +475,11 @@ def parse_scope_lineage(
         # than each render site: rendering is not the only thing that can fail on a repaired tree.
         try:
             if target_metadata is None:
-                result = _build_insert_scope(tree, task_name, schema, regex_columns_enabled=enabled)
+                result = _build_insert_scope(
+                    tree, task_name, schema,
+                    regex_columns_enabled=enabled,
+                    redact_comments=redact_comments,
+                )
             else:
                 result = _build_insert_scope(
                     tree,
@@ -469,6 +487,7 @@ def parse_scope_lineage(
                     schema,
                     target_metadata=target_metadata,
                     regex_columns_enabled=enabled,
+                    redact_comments=redact_comments,
                 )
         except (ValueError, NoSupportedWriteStatementError):
             # This package raises these deliberately to mean "refuse to emit lineage rather
@@ -763,7 +782,7 @@ def _global_temp_qualified(target_table: str, definition: exp.Expression | None)
 
 def _build_ctas_scope(
     tree: exp.Expression, task_name: str, schema: dict | None = None,
-    *, regex_columns_enabled: bool = True,
+    *, regex_columns_enabled: bool = True, redact_comments: bool = True,
 ) -> ScopeLineageResult:
     # CREATE ... AS SELECT and CACHE [LAZY] TABLE ... AS SELECT define a relation the same
     # way; only persistence differs, and that is carried by is_cached_relation rather than
@@ -807,6 +826,7 @@ def _build_ctas_scope(
     _build_result_from_scope(
         qualified, result, target_table, schema,
         regex_columns_enabled=regex_columns_enabled,
+        redact_comments=redact_comments,
     )
     _drop_dangling_column_refs(result)
     result.diagnostics.stats = _compute_stats(result)
@@ -858,6 +878,7 @@ def _build_insert_scope(
     *,
     target_metadata=None,
     regex_columns_enabled: bool = True,
+    redact_comments: bool = True,
 ) -> ScopeLineageResult:
     """Build scope tree for INSERT statements."""
     insert = tree if isinstance(tree, exp.Insert) else tree.find(exp.Insert)
@@ -895,6 +916,7 @@ def _build_insert_scope(
         explicit_target_columns=_explicit_insert_target_columns(insert),
         insert_by_name=bool(insert.args.get("by_name")),
         regex_columns_enabled=regex_columns_enabled,
+        redact_comments=redact_comments,
     )
     _drop_dangling_column_refs(result)
     result.diagnostics.stats = _compute_stats(result)
@@ -974,6 +996,7 @@ def _merge_with_subquery_source(merge: exp.Merge) -> exp.Merge:
 def _build_merge_scope(
     tree: exp.Expression, task_name: str, schema: dict | None = None,
     *, regex_columns_enabled: bool = True, target_metadata=None,
+    redact_comments: bool = True,
 ) -> ScopeLineageResult:
     """Build scope tree for MERGE statements.
 
@@ -1015,6 +1038,7 @@ def _build_merge_scope(
         merge_target_columns=(
             [c.name for c in merge_metadata.columns] if merge_metadata else None
         ),
+        redact_comments=redact_comments,
     )
     _drop_dangling_column_refs(result)
     result.diagnostics.stats = _compute_stats(result)
@@ -1206,6 +1230,7 @@ def _build_result_from_scope(  # noqa: C901 - legacy exemption (WI-11): shrink w
     target_table_metadata=None,
     explicit_target_columns: list[str] | None = None,
     insert_by_name: bool = False,
+    redact_comments: bool = True,
 ) -> None:
     """Common logic: assign IDs, create stubs, collect physical tables, resolve columns.
 
@@ -1383,6 +1408,7 @@ def _build_result_from_scope(  # noqa: C901 - legacy exemption (WI-11): shrink w
             if target_table_metadata is not None
             else lookup_target_table_metadata(target_metadata, target_table)
         ),
+        redact_comments=redact_comments,
     )
 
 
@@ -1392,16 +1418,19 @@ def _populate_facts_and_related_metadata(
     schema: dict | None,
     *,
     target_table_metadata=None,
+    redact_comments: bool = True,
 ) -> None:
     """Run the enhanced-fact pipeline, then describe the tables the statement touched.
 
     The order is load-bearing in one direction only: related metadata reports the columns
     the resolved scopes ended up with, so it is computed last, after the fact passes have
-    finished rewriting them.
+    finished rewriting them. That order is also what lets ``redact_comments`` be applied
+    once, inside ``build_related_metadata``: the scope facts already carry their copy of
+    the metadata comments by then, and both copies are masked together (E1).
     """
     _populate_enhanced_scope_facts(result, all_scopes, schema)
     result.related_metadata = build_related_metadata(
-        result, schema, target_table_metadata
+        result, schema, target_table_metadata, redact_comments=redact_comments
     )
 
 

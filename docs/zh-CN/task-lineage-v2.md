@@ -35,7 +35,7 @@ write_task_lineage(result, "./output/daily_publish")
 | 字段 | 含义 |
 | --- | --- |
 | artifact_kind | 固定为 task_lineage。 |
-| task_meta | **条件输出**：只有输入是任务 JSON 且其 `meta` 里至少有一项非空时才出现；`.sql` 输入无本键。九项中立键名的元信息副本，值全为字符串或 null。见下节。 |
+| task_meta | **条件输出**：只有输入是任务 JSON 且其 `meta` 里至少有一项非空时才出现；`.sql` 输入无本键。十一项中立键名的元信息副本：九项为字符串或 null，两项为任务名数组。见下节。 |
 | script_comments[] | 脚本头部注释块：第一条写入语句之前那些未建模语句（`SET` 等）上的注释，按书写顺序。**恒存在**，空数组表示脚本不以这样一段注释开头。同一段话也会并入第一条写入语句的 `statement_comments`；放在这里是为了让多写入脚本只说一遍。见 lineage-json §18。 |
 | analysis_status | complete 或 partial，与语法/构图的 parse_status 分开。 |
 | statement_sequence[] | 按脚本顺序排列的全部可识别语句。 |
@@ -72,7 +72,7 @@ model_status。SET/空分号会保留在序列中但标为 ignored，不会被�
 
 ## task_meta：任务元信息，复制而非推断
 
-输入是导出的任务 JSON 时，其 `meta` 块里的九项事实以中立键名复制到顶层 `task_meta`：
+输入是导出的任务 JSON 时，其 `meta` 块里的十一项事实以中立键名复制到顶层 `task_meta`：
 
 | 键 | 取自任务 JSON | 说明 |
 | --- | --- | --- |
@@ -85,10 +85,12 @@ model_status。SET/空分号会保留在序列中但标为 ignored，不会被�
 | description | description | |
 | expect_date | expect_date | |
 | source_file | 读取到该元信息的输入文件（相对批量输入根目录） | |
+| upstream_tasks | upstream_tasks | B4：调度侧登记在本任务之前的任务名数组，去重、保序；列表为空或没有这个键时不发布本键。条目是字符串就照收，是记录就取 `task_name`、缺失时取 `task_id`。 |
+| downstream_tasks | downstream_tasks | B4：同上，方向相反。**这是调度登记，不是本工具证明的血缘**——语料证明的下游在表卡的 `downstream_consumers`，两者不合并。 |
 
 三条规则：
 
-1. **值全部转成字符串，空白与缺失一律为 `null`。** 不补默认值、不从别的键推断。
+1. **单值键全部转成字符串，空白与缺失一律为 `null`；两个列表键是字符串数组。** 不补默认值、不从别的键推断。列表为空就不发布那个键——`[]` 是导出方写的「没登记」，把它发布成一个键会被读成「已证明没有下游」。
 2. **未列出的 `meta` 键被忽略**，不会透传。导出方给 `meta` 加字段不会连带加宽本契约。
 3. **`owner_email` 按名排除。** 它是个人联系方式，对数据没有解释力，而产物会在系统之间流转。要联系人时请回到任务系统本身。
 

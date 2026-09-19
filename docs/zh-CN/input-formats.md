@@ -71,7 +71,9 @@ Core 当前消费：
 - `meta.upstream_tasks`、`meta.downstream_tasks`，写入 `lineage.json.task_dependencies`；
 - `meta.task_id`、`meta.task_name`、`meta.project_name`（缺失时 `meta.project_code`）、`meta.owner`、
   `meta.schedule`、`meta.schedule_cycle`、`meta.description`、`meta.expect_date`，以中立键名写入
-  `lineage.json.task_meta`（契约 2.0 顶层），值全部转成字符串、空白转 `null`。
+  `lineage.json.task_meta`（契约 2.0 顶层），值全部转成字符串、空白转 `null`；
+  `meta.upstream_tasks`、`meta.downstream_tasks` 另以任务名数组写入同一个 `task_meta`（B4，去重保序，
+  空列表不发布），与写入 `task_dependencies` 的是同一份登记，只是那里保留完整记录。
 
 **`meta.owner_email` 按名排除，不进入任何产物。** 它是个人联系方式，对数据没有解释力，而产物会在系统之间
 流转；需要联系人时请回到任务系统。未列出的 `meta` 键（如 `instance_id`、`project_dir`）同样被忽略，
@@ -80,10 +82,11 @@ Core 当前消费：
 `.sql` 输入没有 `meta`，产物里因此**没有** `task_meta` 键——缺席表示没有输入提供元信息，而不是这个任务
 没有负责人或调度。
 
-`meta.description` 是这九项里唯一的自由文本，人写它的方式和写注释一样，**默认按与 SQL 注释同一套规则做联系方式遮蔽**：
-邮箱替换为 `<email>`、手机号替换为 `<phone>`、身份证号替换为 `<id>`，句子其余部分原样保留；其余八项是导出方产出的
-标识、名称和调度表达式，不做改写。`parse --no-redact-comments` 同时关闭 description 与 SQL 注释的遮蔽，
-`parse --strip-comments` 只丢弃 SQL 注释、不影响 `task_meta`。遮蔽是形态匹配，不保证穷尽——细则见
+`meta.description` 是其中唯一的自由文本，人写它的方式和写注释一样，**默认按与 SQL 注释同一套规则做联系方式遮蔽**：
+邮箱替换为 `<email>`、手机号替换为 `<phone>`、身份证号替换为 `<id>`，句子其余部分原样保留；其余各项是导出方产出的
+标识、名称和调度表达式，不做改写。`--schema` / `--target-ddl-metadata` 读进来的列注释与表级文字走同一套遮蔽
+（E1）——列注释同样是人写的自由文本。`parse --no-redact-comments` 同时关闭 description、元数据注释与 SQL 注释的
+遮蔽，`parse --strip-comments` 只丢弃 SQL 注释、不影响 `task_meta` 与元数据注释。遮蔽是形态匹配，不保证穷尽——细则见
 [lineage-json.md](lineage-json.md) §18.3。
 
 最终采用的任务名也会成为输出目录的一个组件。任务名可以含空格和 Unicode，但绝对路径、`.`、

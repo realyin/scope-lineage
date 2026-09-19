@@ -696,9 +696,17 @@ def _metadata_item(table: str, lookups: dict) -> dict:
 
 
 def _column_detail(item: Mapping, column: str) -> Mapping:
-    for detail in item.get("column_details") or []:
-        if str(detail.get("name")) == column:
-            return detail
+    """This column as the table's metadata describes it, from either published list.
+
+    ``column_details[]`` carries the columns this statement touches; ``declared_columns[]``
+    carries the table's whole declared width. They are built from the same detail dicts,
+    so the fallback reads the same comment rather than a second copy of it -- it only
+    covers the column a write does not produce (B6).
+    """
+    for group in ("column_details", "declared_columns"):
+        for detail in item.get(group) or []:
+            if str(detail.get("name")) == column:
+                return detail
     return {}
 
 
@@ -722,15 +730,27 @@ def strip_quotes(value) -> str:
 
 
 def meaning_candidates(value: str, comments: Sequence[Mapping], evidence: str) -> list[dict]:
-    """The comments that literally spell this value out, deduped and stably ordered."""
-    needle = strip_quotes(value).lower()
-    if len(needle) < MINIMUM_CANDIDATE_LENGTH:
-        return []
+    """The comments that spell this value out, deduped and stably ordered.
+
+    Two ways a comment can spell a value out, and a comment answers by the first that
+    applies. B6 added the second:
+
+    1. *the column's own comment enumerates the value* -- ``0-未生效，1-生效`` is a code
+       table somebody wrote where they had room, and the half that belongs to this value
+       is the candidate. Read only off the column's OWN comment (source or target), in
+       every observation context: a code table describes the column, not the clause;
+    2. *the comment contains the value* -- the rule this layer has always had, kept for
+       the sentences a code table's shape does not cover.
+
+    Both are candidates and neither is a meaning: the dictionary keeps asking until a
+    person signs one (``glossary --template`` still lists the value).
+    """
+    needle = strip_quotes(value)
     seen: set = set()
     found: list[dict] = []
     for comment in comments:
-        text = str(comment.get("text") or "")
-        if needle not in text.lower():
+        text = _candidate_text(needle, comment)
+        if not text:
             continue
         entry = {
             "text": text,
@@ -743,6 +763,102 @@ def meaning_candidates(value: str, comments: Sequence[Mapping], evidence: str) -
         seen.add(key)
         found.append(entry)
     return sorted(found, key=lambda item: (item["source"], item["text"], item["evidence"]))
+
+
+def _candidate_text(needle: str, comment: Mapping) -> str:
+    """What one comment offers for this value: an enumerated half, the sentence, or ""."""
+    text = str(comment.get("text") or "")
+    if str(comment.get("source")) == COMMENT_SOURCE_COLUMN:
+        enumerated = enumerated_meanings(text).get(needle.lower())
+        if enumerated:
+            return enumerated
+    if len(needle) < MINIMUM_CANDIDATE_LENGTH:
+        return ""
+    return text if needle.lower() in text.lower() else ""
+
+
+# B6. What separates one pair from the next, and what joins a code to its meaning. Both
+# sets are what warehouse comments are actually written with; a space does both jobs
+# (`Y 是 N 否`), which is why the scan below falls back to adjacent tokens.
+_PAIR_SEPARATORS = "，,;；|/、\t\r\n"
+_PAIR_JOINERS = "-:=："
+
+# A code: ASCII letters, digits and underscore, short. The bound is what keeps an English
+# sentence from being read as a code table -- `PAID means settled` is three words, and
+# only a rule that refuses to pair two code-shaped tokens leaves it alone.
+_CODE_TOKEN = re.compile(r"^[0-9A-Za-z_]{1,8}$")
+
+# A meaning has to contain a letter somebody could read. `2026-09-20` splits into
+# `2026` and `09-20`; the second half is the rest of a date, not what 2026 means.
+_MEANING_TEXT = re.compile(r"[^\W\d_]", re.UNICODE)
+
+# Long enough to be a sentence rather than a label: a pair whose right side runs on is a
+# comment that happens to contain a dash, not a code table.
+_MEANING_MAX_LENGTH = 20
+
+# A space-joined pair is the weakest shape there is -- `队列编码，99 表示无效` is one
+# sentence about one code, and reading it as a table would publish 「表示无效」 as what
+# `99` means. A code TABLE lists alternatives, so the space form is believed only from
+# the second pair on; an explicit joiner (`0-未生效`) carries its own evidence.
+_MINIMUM_ADJACENT_PAIRS = 2
+
+
+def enumerated_meanings(comment: str) -> dict[str, str]:
+    """``{code: meaning}`` for a comment written as a code table, lower-cased keys.
+
+    Recognises the shapes a warehouse writes one in -- ``0-未生效，1-生效``,
+    ``0:未生效;1:生效``, ``0=未生效,1=生效``, ``Y 是 N 否``, ``1 生效 0 未生效`` -- and
+    returns ``{}`` for a comment that is prose. It is a *shape* reading and therefore a
+    candidate producer only: nothing here becomes a confirmed meaning.
+    """
+    tokens = str(comment or "").replace("\u3000", " ").translate(
+        {ord(char): " " for char in _PAIR_SEPARATORS}
+    ).split()
+    joined: dict[str, str] = {}
+    adjacent: dict[str, str] = {}
+    index = 0
+    while index < len(tokens):
+        code, meaning, step = _pair_at(tokens, index)
+        if code and meaning:
+            (joined if step == 1 else adjacent).setdefault(code.lower(), meaning)
+        index += step
+    if not joined and len(adjacent) < _MINIMUM_ADJACENT_PAIRS:
+        return {}
+    return {**adjacent, **joined}
+
+
+def _pair_at(tokens: Sequence[str], index: int) -> tuple[str, str, int]:
+    """The ``(code, meaning, tokens consumed)`` starting at ``index``; ("","",1) for none.
+
+    A joined token (``0-未生效``) is one token; a code followed by a word that is not
+    itself code-shaped (``Y 是``) is two. Two code-shaped tokens in a row are two words
+    of an English sentence, and pairing them is how ``0 means new`` became a meaning.
+    """
+    token = tokens[index]
+    split = _split_joined(token)
+    if split:
+        return (*split, 1)
+    if _CODE_TOKEN.match(token) and index + 1 < len(tokens):
+        following = tokens[index + 1]
+        if not _CODE_TOKEN.match(following) and _is_meaning(following):
+            return token, following, 2
+    return "", "", 1
+
+
+def _split_joined(token: str) -> tuple[str, str] | None:
+    """``0-未生效`` as ``("0", "未生效")``, or None when the token is not one pair."""
+    for position, char in enumerate(token):
+        if char not in _PAIR_JOINERS:
+            continue
+        code, meaning = token[:position], token[position + 1:]
+        if _CODE_TOKEN.match(code) and _is_meaning(meaning):
+            return code, meaning
+        return None
+    return None
+
+
+def _is_meaning(text: str) -> bool:
+    return bool(text) and len(text) <= _MEANING_MAX_LENGTH and bool(_MEANING_TEXT.search(text))
 
 
 def canonical_owner(owner: str, logical: bool, canonical: Mapping) -> str:

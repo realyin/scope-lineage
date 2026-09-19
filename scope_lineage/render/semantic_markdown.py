@@ -567,9 +567,25 @@ def _meta_lines(task: dict) -> list[str]:
         for key, label in _TASK_META_ITEMS
         if meta.get(key)
     ]
+    parts.extend(_task_list_parts(meta))
     if not parts:
         return []
     return [_tagged(f"- 任务元信息：{'；'.join(parts)}", TAG_METADATA, ["task_meta"])]
+
+
+def _task_list_parts(meta: Mapping) -> list[str]:
+    """B4: how many tasks the scheduler registered on each side, never their names.
+
+    A count, because the names are in ``task.meta`` for anyone who needs them and a
+    section-1 line listing twenty of them buys the reader nothing. The absent side is
+    left out for the same reason every other slot is: a task JSON that registered
+    nothing did not say "there is nothing downstream".
+    """
+    return [
+        f"{label} {len(meta[key])} 个"
+        for key, label in _TASK_META_LIST_ITEMS
+        if meta.get(key)
+    ]
 
 
 def _header_comment_lines(task: dict) -> list[str]:
@@ -1709,6 +1725,13 @@ _TASK_META_ITEMS = (
     ("schedule", "调度表达式"),
     ("expect_date", "期望日期"),
     ("description", "任务描述"),
+)
+
+# B4. Rendered after the single-value slots and counted rather than named: this line is a
+# pointer into `task.meta`, not a copy of it.
+_TASK_META_LIST_ITEMS = (
+    ("upstream_tasks", "上游任务"),
+    ("downstream_tasks", "下游任务"),
 )
 METRIC_UNKNOWN_UNIT = "单位未知"
 METRIC_NO_NULL_FILL = "未见缺失回填"
