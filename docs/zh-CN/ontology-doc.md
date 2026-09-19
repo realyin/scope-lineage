@@ -98,7 +98,8 @@ card = render_ontology_table_card_markdown(cards["tables"][0], ontology)
         "observed_roles": ["filter", "output"], "used_in_corpus": true,
         "not_null_observed": false,
         "synonyms": [{"entity": "mart.t", "column": "order_state", "tier": "proven",
-                      "via": "direct_rename", "evidence": [{"task": "task_a"}]}]}],
+                      "via": "direct_rename", "evidence": [{"task": "task_a"}]}],
+        "samples": ["PAID", "NEW"]}],
      "naming_hints": {"table_comment": null, "domain": null, "project": null, "owner": null}}
   ],
   "relations": [
@@ -154,6 +155,7 @@ card = render_ontology_table_card_markdown(cards["tables"][0], ontology)
 | `entities[].attributes[].used_in_corpus` | `true` / `false` | 本语料有没有写过或读过这一列；`false` 配空 `observed_roles`，读作「元数据声明了、语料没碰过」 |
 | `entities[].attributes[].not_null_observed` | `true` / `false` | 语料里有任务用 `NOT x IS NULL` 过滤过这一列 |
 | `entities[].attributes[].synonyms[].via` | `direct_rename` / `union_alignment` | O5：同一个值的两个列名 |
+| `entities[].attributes[].samples[]` | 字符串数组 | A6：表卡上的样例值原样带过来，只来自 `tables --samples` 传进来的文件（已脱敏、已截断）；那一列没有值时这个键不出现 |
 | `relations[].id` | `rel:NNN` | 排序后编号，同一份语料稳定 |
 | `relations[].kind` | `join_association` / `union_sibling` | JOIN 键对，或同一 UNION 的兄弟分支 |
 | `relations[].cardinality.claim` | `one_to_many` / `many_to_one` / `many_to_one_assumed` / `one_to_one_assumed` / `unknown` | O2，方向为 `from` → `to`；`one_to_one_assumed` 只可能来自人工确认 |

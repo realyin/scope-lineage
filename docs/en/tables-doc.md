@@ -32,6 +32,10 @@ scope-lineage tables --lineage /path/to/corpus --out /path/to/tables
 
 # Machine-readable JSON only
 scope-lineage tables --lineage /path/to/corpus --out /path/to/tables --format json
+
+# With exported sample values (a CSV, a directory of them, or a samples/1 JSON)
+scope-lineage tables --lineage /path/to/corpus --out /path/to/tables \
+  --samples /path/to/samples.csv --samples-top 5
 ```
 
 Three artifacts:
@@ -61,6 +65,10 @@ card = render_table_card_markdown(cards["tables"][0])
   lineage.json" place to put it.
 - `--format` takes `json`, `md` or both (default `json,md`); anything else is an argument
   error (exit code 2).
+- `--samples` takes a file of sample values **somebody exported** (see "Sample values"
+  below); `--samples-top` is how many distinct values each column publishes (default 5).
+  Without `--samples` the artifacts are byte-identical to what they were before this
+  feature existed.
 - Deterministic: the same corpus produces the same bytes whatever order it was walked in.
 
 ## tables.json structure (tables-json/1)
@@ -69,6 +77,8 @@ card = render_table_card_markdown(cards["tables"][0])
 {
   "doc_format": "tables-json/1",
   "corpus": {"artifact_root": "…", "task_count": 5, "lineage_digests": {"<task>": "…"}},
+  "samples_applied": {"sources": ["…/samples.csv"], "columns_sampled": 1,
+                      "unmatched": ["mart.t.no_such_column"]},   // only with --samples
   "tables": [
     {
       "table": "spark_catalog.mart.customer_daily",   // normalized primary name (longest spelling)
@@ -93,10 +103,11 @@ card = render_table_card_markdown(cards["tables"][0])
       "columns": [
         {"name": "customer_id", "type": "string", "comment": null,
          "produced_summary": "…", "consumer_usage_counts": {"join_key": 2, "filter": 1},
-         "used_in_corpus": true}
+         "used_in_corpus": true,
+         "samples": ["C-001", "C-002"]}             // only with --samples, and only when this column got values
       ],
       "coverage": {"column_comment_ratio": 0.0, "table_comment": false, "producers": 1, "consumers": 2,
-                   "columns_used": 2, "columns_declared": 3},
+                   "columns_used": 2, "columns_declared": 3, "columns_sampled": 1},
       "findings": [{"kind": "never_consumed_in_corpus", "text": "…",
                     "evidence": [{"task": "…", "statement_id": "stmt:001"}]}]
     }
@@ -137,6 +148,53 @@ in the corpus matches it by suffix; when several do, it gets a card of its own a
 card's `findings` carry `ambiguous_bare_name`, for a person to confirm which table the
 script actually reads and writes.
 
+### Sample values (`--samples`)
+
+Core does not connect to a database, so "what does a value of this column look like" can
+only be answered by a file **somebody else exported**. `--samples` accepts three shapes: a
+CSV whose header is `table,column,value[,count]`, a directory holding such CSVs (searched
+recursively for `.csv`/`.json`), or a `samples/1` JSON.
+
+```csv
+table,column,value,count
+mart.customer_daily,country_code,US,30
+mart.customer_daily,country_code,JP,20
+mart.customer_daily,country_code,CN,10
+```
+
+```json
+{
+  "doc_format": "samples/1",
+  "samples": [
+    {"table": "mart.customer_daily", "column": "country_code", "values": ["US", "JP", "CN"]}
+  ]
+}
+```
+
+- **The table name is matched the way a card normalizes it**: last two segments, case
+  ignored, so `spark_catalog.MART.t` is the `mart.t` on the card. Column names ignore case
+  too.
+- **At most N distinct values per column** (default 5, `--samples-top`): ordered by `count`
+  descending where the file gave counts, otherwise in file order; a repeated value takes
+  one slot, not two.
+- **Redaction is always on and there is no flag that turns it off**: sample values are the
+  most PII-prone input this tool ever reads, so every value is trimmed and then passed
+  through the same shape masking SQL comments get (email → `<email>`, mobile or
+  international number → `<phone>`, ID number → `<id>`), and a value longer than 64
+  characters is cut with `…`. It is *shape* matching, neither exhaustive nor certain — do
+  not export a genuinely sensitive column.
+- **A row that matches nothing is reported, not dropped**: a key the file names but no
+  table or column in the corpus answers to lands in `samples_applied.unmatched[]`
+  (`table.column`, in the file's own spelling), and the CLI prints
+  `samples_columns=N, samples_unmatched=N` with the keys listed.
+- A missing file, a directory with nothing readable in it, a wrong CSV header, a JSON that
+  is not `samples/1` and a non-integer `count` all exit with code 2 and one sentence — not
+  a traceback.
+- Three things appear on the card: `columns[].samples[]` (**absent** for a column that got
+  no values), `coverage.columns_sampled`, and the top-level `samples_applied`. The card
+  Markdown's section 3 gains a "Sample values" column rendered as
+  `` `'US'`、`'JP'`、`'CN'` ``. Without `--samples` none of them appear.
+
 ### What never becomes a table
 
 - **Session-scoped relations**: a `CREATE TEMPORARY VIEW` and friends live only inside the
@@ -153,7 +211,7 @@ Neither becomes a card, and neither shows up in another table's `aliases`.
 | --- | --- | --- |
 | 1 What this table is | table comment, business placement (domain / project / owner / layer, shown only when the metadata states it), alias spellings, producing/consuming statement counts, and 「本语料用到 n/N 个字段」 (only when `columns_declared` is known) | metadata facts + the producing statements' header comments (`SQL注释`, quoted verbatim) |
 | 2 What one row represents | each producing statement's grain, logical keys, candidate keys, key confidence | structural inference (evidence is the `statement_id`) |
-| 3 Columns | column / type / comment / one produced-side sentence / consumer usage counts; a column the corpus never touched shows `—` for its usage, and above 20 of them they move below the used ones under a one-line note | metadata facts + SQL facts + structural inference |
+| 3 Columns | column / type / comment / sample values (only with `--samples`) / one produced-side sentence / consumer usage counts; a column the corpus never touched shows `—` for its usage, and above 20 of them they move below the used ones under a one-line note | metadata facts + SQL facts + structural inference + exported sample values |
 | 4 Who produces it | task, statement, write mode, partition, refresh cadence | SQL facts + task metadata |
 | 5 Who consumes it | task, statement, role (the same vocabulary as `inputs[].role_in_task`, including B2's `filter_partner` — see [semantic-doc.md](semantic-doc.md)), which columns, how they are used | SQL facts + structural inference (the role) |
 | 6 Governance leads | multiple producers, key conflicts, never read, never written | SQL facts (evidence is `<task>/<statement_id>`) |
@@ -240,7 +298,7 @@ Without `--tables`, `output_shape` is byte for byte what it was before cards exi
 
 - It does not name a table or column in business terms, infer a table type, or guess what a
   code value means (value domains and terms belong to the glossary layer);
-- It does not sample a database, so a card has no "sample values" slot;
+- It does not sample a database: `columns[].samples[]` can only come from a `--samples` file, never from a query Core ran itself;
 - It does not compute a transitive closure across the corpus — a card states only "who
   writes and who reads, in this corpus"; for lineage tracing see `query.py trace` in the
   [Agent skill](agent-skill.md).

@@ -1,6 +1,31 @@
 # Changelog
 
 ## Unreleased
+- A table card can show what a column's values look like, from a file somebody exported
+  (A6). `scope-lineage tables --samples <file-or-dir>` reads a `table,column,value[,count]`
+  CSV, a directory of such CSVs, or a `samples/1` JSON, and hangs the values on the card:
+  `columns[].samples[]`, `coverage.columns_sampled`, and a 样例值 column in section 3 of
+  `tables/<db.table>.md`, rendered `` `'US'`、`'JP'` `` the way every other supplied value
+  is. The ontology carries them across as `entities[].attributes[].samples[]`. Core still
+  never connects to a database: this is a side input, exactly like `--schema` and
+  `--metadata-patch`, and the doc says so where it used to say a card has no sample-value
+  slot. Each column publishes at most `--samples-top` distinct values (default 5), ordered
+  by `count` where the file gave counts and by file order where it did not. Every value is
+  trimmed, passed through the contact-shape redaction SQL comments already get
+  (`<email>` / `<phone>` / `<id>`) and cut at 64 characters with `…` -- a samples file is
+  the most PII-prone input the tool ever reads, so the masking is unconditional and there
+  is no flag that disables it. Table and column names are matched the way the cards
+  normalize them (last two dotted segments, case ignored), so `spark_catalog.MART.t` in
+  the export is the `mart.t` on the card; a key nothing answers to is published in
+  `samples_applied.unmatched[]` and printed as `samples_unmatched=N` with the keys, rather
+  than dropped, because a typo in a hand-made export is what its author cannot see. A
+  malformed file exits 2 with one sentence. Without `--samples` every artifact is
+  byte-identical to what it was before: the three keys and the markdown column appear only
+  when a file was supplied. The contact-shape redaction itself moved from
+  `scope.sql_comments` to the new package-root `scope_lineage.redaction` (re-exported under
+  its old name, so every caller and import keeps working): the samples loader lives in
+  `scope_lineage.metadata`, which by the repository's dependency direction may not import
+  `scope`, and a masking rule over free text was never a SQL rule.
 - A JOIN upstream of the grouping no longer costs the statement its key (B12).
   `key_confidence` dropped to `none` as soon as any grain-path fan-out risk was not
   `safe`, whatever the grain's basis -- which reads the risk against the wrong question
