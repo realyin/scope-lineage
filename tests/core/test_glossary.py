@@ -449,6 +449,187 @@ def test_a_one_character_value_never_matches_a_comment() -> None:
     assert _value(_glossary(document), "pay_status", "'0'")["meaning_candidates"] == []
 
 
+# ------------------------------------------------- enumerated column comments (B6)
+
+# The shape a warehouse writes a code table in when it has nowhere else to put it. It is
+# still a comment -- the dictionary publishes what it says as a CANDIDATE and keeps
+# asking, because a comment is the author's note and not an answer anybody signed.
+ENUMERATED_COMMENT_SHAPES = (
+    "0-未生效，1-生效",
+    "0:未生效;1:生效",
+    "0=未生效,1=生效",
+    "0：未生效；1：生效",
+    "0-未生效|1-生效",
+    "0-未生效、1-生效",
+    "1 生效 0 未生效",
+)
+
+
+def _enumerated_schema(comment: str, column: str = "eff_status") -> SchemaMap:
+    """Both tables described, so a source column and a target column read the same way."""
+    return SchemaMap(
+        {"ods.app_order": ["order_id", column], "mart.t": ["order_id", column]},
+        column_details={
+            table: [
+                {"name": "order_id", "type": "bigint", "comment": None},
+                {"name": column, "type": "string", "comment": comment},
+            ]
+            for table in ("ods.app_order", "mart.t")
+        },
+    )
+
+
+def _candidate(glossary: dict, column: str, literal: str) -> dict:
+    candidates = _value(glossary, column, literal)["meaning_candidates"]
+    assert candidates, f"no candidate for {column}={literal}"
+    return candidates[0]
+
+
+@pytest.mark.parametrize("comment", ENUMERATED_COMMENT_SHAPES)
+def test_a_column_comment_enumerating_the_value_becomes_a_candidate(comment) -> None:
+    document = _document(
+        "INSERT INTO mart.t SELECT o.order_id, o.eff_status FROM ods.app_order o "
+        "WHERE o.eff_status = '1'",
+        schema=_enumerated_schema(comment),
+    )
+    assert _candidate(_glossary(document), "eff_status", "'1'") == {
+        "text": "生效",
+        "source": "column_comment",
+        "evidence": "column:ods.app_order.eff_status",
+    }
+
+
+def test_a_two_letter_code_table_is_read_the_same_way() -> None:
+    document = _document(
+        "INSERT INTO mart.t SELECT o.order_id, o.eff_status FROM ods.app_order o "
+        "WHERE o.eff_status = 'Y'",
+        schema=_enumerated_schema("Y 是 N 否"),
+    )
+    assert _candidate(_glossary(document), "eff_status", "'Y'")["text"] == "是"
+
+
+def test_a_comment_with_no_value_pairs_still_yields_no_candidate() -> None:
+    """The negative half: prose about the column is not a code table."""
+    document = _document(
+        "INSERT INTO mart.t SELECT o.order_id, o.eff_status FROM ods.app_order o "
+        "WHERE o.eff_status = '1'",
+        schema=_enumerated_schema("客户最近一次下单后的生效情况，由上游每日刷新"),
+    )
+    assert _value(_glossary(document), "eff_status", "'1'")["meaning_candidates"] == []
+
+
+def test_a_date_in_a_comment_is_not_read_as_a_code_pair() -> None:
+    document = _document(
+        "INSERT INTO mart.t SELECT o.order_id, o.eff_status FROM ods.app_order o "
+        "WHERE o.eff_status = '2026'",
+        schema=_enumerated_schema("2026-09-20 起启用"),
+    )
+    texts = [
+        item["text"]
+        for item in _value(_glossary(document), "eff_status", "'2026'")[
+            "meaning_candidates"
+        ]
+    ]
+    # The whole sentence, by the substring rule that was always there -- never a pair
+    # meaning of "09-20", which is the rest of a date rather than what 2026 means.
+    assert texts == ["2026-09-20 起启用"]
+
+
+def test_one_space_joined_pair_in_a_sentence_is_not_a_code_table() -> None:
+    """`99 表示无效` is a sentence about one code; a table lists alternatives."""
+    document = _document(
+        "INSERT INTO mart.t SELECT o.order_id, o.eff_status FROM ods.app_order o "
+        "WHERE o.eff_status = '99'",
+        schema=_enumerated_schema("队列编码，99 表示无效"),
+    )
+    texts = [
+        item["text"]
+        for item in _value(_glossary(document), "eff_status", "'99'")[
+            "meaning_candidates"
+        ]
+    ]
+    assert texts == ["队列编码，99 表示无效"]
+
+
+def test_an_in_list_on_a_source_column_reads_the_same_comment() -> None:
+    document = _document(
+        "INSERT INTO mart.t SELECT o.order_id, o.eff_status FROM ods.app_order o "
+        "WHERE o.eff_status IN ('0', '1')",
+        schema=_enumerated_schema("0-未生效，1-生效"),
+    )
+    glossary = _glossary(document)
+
+    assert _candidate(glossary, "eff_status", "'0'")["text"] == "未生效"
+    assert _candidate(glossary, "eff_status", "'1'")["text"] == "生效"
+
+
+def test_a_case_condition_on_a_source_column_reads_the_same_comment() -> None:
+    document = _document(
+        "INSERT INTO mart.t SELECT o.order_id, "
+        "CASE WHEN o.eff_status = '1' THEN o.eff_status ELSE NULL END AS eff_status "
+        "FROM ods.app_order o",
+        schema=_enumerated_schema("0-未生效，1-生效"),
+    )
+    entry = _value(_glossary(document), "eff_status", "'1'")
+
+    assert [item["context"] for item in entry["observations"]] == ["case_condition"]
+    assert entry["meaning_candidates"][0]["text"] == "生效"
+
+
+def test_a_constant_projection_reads_the_target_columns_own_comment() -> None:
+    document = _document(
+        "INSERT INTO mart.t SELECT o.order_id, '1' AS eff_status FROM ods.app_order o",
+        schema=_enumerated_schema("0-未生效，1-生效"),
+    )
+    entry = _value(_glossary(document), "eff_status", "'1'")
+
+    assert [item["context"] for item in entry["observations"]] == ["constant_projection"]
+    assert entry["meaning_candidates"][0] == {
+        "text": "生效",
+        "source": "column_comment",
+        "evidence": "column:mart.t.eff_status",
+    }
+
+
+def test_a_case_then_label_reads_the_target_columns_own_comment() -> None:
+    document = _document(
+        "INSERT INTO mart.t SELECT o.order_id, "
+        "CASE WHEN o.order_id > 0 THEN '1' ELSE '0' END AS eff_status "
+        "FROM ods.app_order o",
+        schema=_enumerated_schema("0-未生效，1-生效"),
+    )
+    entry = _value(_glossary(document), "eff_status", "'1'")
+
+    assert "case_then" in {item["context"] for item in entry["observations"]}
+    assert entry["meaning_candidates"][0]["text"] == "生效"
+
+
+def test_a_union_constant_reads_the_target_columns_own_comment() -> None:
+    document = _document(
+        "INSERT INTO mart.t SELECT o.order_id, '1' AS eff_status FROM ods.app_order o "
+        "UNION ALL SELECT o.order_id, '0' AS eff_status FROM ods.app_order o",
+        schema=_enumerated_schema("0-未生效，1-生效"),
+    )
+    entry = _value(_glossary(document), "eff_status", "'0'")
+
+    assert entry["meaning_candidates"][0]["text"] == "未生效"
+
+
+def test_a_candidate_is_not_a_confirmation_and_the_template_still_asks() -> None:
+    from scope_lineage.render.glossary_template import build_overrides_template
+
+    document = _document(
+        "INSERT INTO mart.t SELECT o.order_id, o.eff_status FROM ods.app_order o "
+        "WHERE o.eff_status IN ('AA', 'BB')",
+        schema=_enumerated_schema("AA-已生效，BB-未生效"),
+    )
+    glossary = _glossary(document)
+    template = build_overrides_template(glossary, top=0)
+
+    assert _value(glossary, "eff_status", "'AA'")["meaning"] is None
+    assert "ods.app_order.eff_status=AA" in template["values"]
+
+
 # ----------------------------------------------------------------------- overrides
 
 

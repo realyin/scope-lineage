@@ -78,7 +78,10 @@ Core currently consumes:
 - `meta.task_id`, `meta.task_name`, `meta.project_name` (falling back to `meta.project_code`),
   `meta.owner`, `meta.schedule`, `meta.schedule_cycle`, `meta.description`, and `meta.expect_date`,
   written under neutral key names to `lineage.json.task_meta` (contract 2.0 top level), each value
-  turned into a string, with blanks becoming `null`.
+  turned into a string, with blanks becoming `null`; `meta.upstream_tasks` and
+  `meta.downstream_tasks` are additionally written into that same `task_meta` as arrays of task
+  names (B4; deduplicated, order kept, an empty list publishing no key) — the same registration
+  `task_dependencies` carries, which keeps the whole record.
 
 **`meta.owner_email` is excluded by name and reaches no artifact.** It is a person's contact address,
 it explains nothing about the data, and artifacts travel between systems; to reach a person, go back
@@ -89,12 +92,14 @@ as well, so an exporter adding fields does not widen the contract with them. The
 A `.sql` input has no `meta`, so its artifact carries **no** `task_meta` key — absence means no input
 supplied metadata, not that the task has no owner or schedule.
 
-`meta.description` is the one free-text field among the nine — a person writes it the way they write a
+`meta.description` is the one free-text field here — a person writes it the way they write a
 comment — so **by default it goes through the same contact-detail masking the SQL comments do**: an email
 becomes `<email>`, a phone number `<phone>`, an ID number `<id>`, and the rest of the sentence is kept as
-written. The other eight are identifiers, names and schedule expressions the exporter produced, and are
-not rewritten. `parse --no-redact-comments` turns masking off for the description and the SQL comments
-alike; `parse --strip-comments` drops the SQL comments only and leaves `task_meta` alone. Masking is shape
+written. The others are identifiers, names and schedule expressions the exporter produced, and are
+not rewritten. The comments loaded from `--schema` / `--target-ddl-metadata` go through the same masking
+(E1), because a column comment is free text a person wrote as well. `parse --no-redact-comments` turns
+masking off for the description, the metadata comments and the SQL comments alike; `parse --strip-comments`
+drops the SQL comments only and leaves `task_meta` and the metadata comments alone. Masking is shape
 matching and is not exhaustive — see [lineage-json.md](lineage-json.md) §18.3.
 
 The chosen task name is also one output-directory component. It may contain spaces and Unicode,

@@ -40,11 +40,17 @@ v1 的 L1–L9 不再作正文。风险边界表留在读者文档的附录 C；
 | `lineage.json` | 否 | **只通过 `scripts/query.py chain` / `summary` 定向取** | 单字段完整推导链、任务级统计。**永远不要整读** |
 | 原始任务 JSON（若可得） | 否 | **仅当骨架缺下列键时**（旧版产物）才读 `meta.sql` 的注释与 `meta` | SQL 注释与任务元信息的后备来源。骨架已含 `task.header_comments`、`task.meta`、`fields[].sql_comments`、`rules[].sql_comments`、`stages[].actions[].sql_comments`——**优先从骨架取**，不要为拿注释去翻原始 SQL |
 
-**治理线索分两档**：`confidence.findings[]` 每条带 `severity`。`warn` 是要人处理的线索
-（`alias_position_mismatch`、`nondeterministic_function`、`metadata_conflicts`、`target_binding`），
-`info` 是"真但不用处理"的事实（`hardcoded_date_literal`、`partition_literal_mismatch`、
-`table_comment_missing`）。**`info` 级的不进正文**，不写进「使用注意」，也不生成 `Q`——
-任务实例本来就对应某一天，分区日期写死是设计而不是缺陷。要提它就写进附录 C。
+**治理线索分两档**：`confidence.findings[]` 每条带 `severity`，**逐条按 `severity` 读，不要按
+`kind` 猜**——同一个 `kind` 的两条可以一条 `warn` 一条 `info`。`warn` 是要人处理的线索，`info`
+是"真但不用处理"的事实（`hardcoded_date_literal`、`partition_literal_mismatch`、
+`table_comment_missing` 恒为 `info`）。B11 起还有三条按证据判的：`target_binding` 只在同一条
+语句也有 `alias_position_mismatch` 时才是 `warn`（按位置写入本身是写法，不是缺陷）；
+`metadata_conflicts` 的 `kept_authoritative` 是 `info`（两份元数据描述同一张表、加载侧留下了权威
+的那份，说的是加载而不是这个任务），其余处理方式仍是 `warn`；`nondeterministic_function` 在受影响
+字段全是审计列（`insert_time = current_timestamp()` 这种只写一列时刻、不进过滤/关联/分组/指标的
+常量投影）时是 `info`，线索正文会写明「仅用于审计列 …」。**`info` 级的一条都不进正文**，不写进
+「使用注意」，也不生成 `Q`——任务实例本来就对应某一天，分区日期写死是设计而不是缺陷。要提它就
+写进附录 C。
 
 **取数日**取 `task.instance_dates[]`（本实例的日期过滤钉住的那一天或几天，`[]` 表示由变量替换）。
 语义卡「口径要点」里写成一句事实：「本实例取数日 20260814（每次运行按实例日期替换，不是 SQL 固定日期）」；
@@ -133,7 +139,8 @@ v1 每句挂 `SQL事实` / `LLM推断` 让语义说明读起来像审计日志�
    `statement_diagnostics[].warnings` 与顶层 `warnings[]` 的并集——顶层常常是空的，照字面把它
    当成「0 条警告」会与骨架的 `confidence.warning_counts` 直接矛盾。
 5. 「直接读取物理表」（`stages[].direct_source_tables`）与「上游可追溯到物理表」
-   （`upstream_physical_tables`）分开写，不要合并。
+   （`upstream_physical_tables`）分开写，不要合并；输入表清单里同一个区别由「直接读取」／
+   「经 <scope> 读取」的措辞承载（见「数据从哪来、到哪去」）。
 6. 骨架的 `结构推断` 不是业务定义。「按 `customer_id` 分组、`event_time` 降序取第 1 行」是结构
    事实；「取客户最新状态」是你的推断，标 `[推断]`。
 
@@ -157,10 +164,16 @@ GROUP BY 项就是一个键，哪怕它穿透到好几个物理列），键用 `
 **数据从哪来、到哪去** — 每张输入表一句：**是什么、在这里起什么作用**。有
 `inputs[].card` 时**优先用它**——那是写这张表的上游任务自己证明的粒度与键（`grain_text`、
 `candidate_keys`、`key_confidence`、`refresh`），比表名和注释都硬；`card` 为 `null` 或没传
-`--tables` 时才退回 `inputs[].comment` + `role_in_task` 译成人话，并写「上游未知」。**主表按 `task.driving_tables[]` 认**——它是行的来源表，`structural_summary` 的「行来源 …」说的就是它；不要拿「ROOT 直接读取」或第一张出现的表当主表，那常常是挂在主表上的维表。输入表
-> 6 张时按作用归成三四组，每组一句并列出表名。下游优先取 `task.downstream_consumers`（谁读本表、
-读了哪些列、起什么作用），其次才是任务元信息（下游任务、`description`），两者都拿不到就写
-「下游未知」，不要从表名猜。
+`--tables` 时才退回 `inputs[].comment` + `role_in_task` 译成人话，并写「上游未知」。**每张输入表
+那一句要说清它是怎么被读到的**（B7）：`inputs[].read_by_scopes` 含 `ROOT` 的写「直接读取」，否则
+写「经 <scope> 读取」（多个 scope 就都写上）——「直接读物理表」与「上游可追溯到物理表」的区别就
+靠这个措辞承载，不另起一段、也不另开一栏。**主表按 `task.driving_tables[]` 认**——它是行的来源表，`structural_summary` 的「行来源 …」说的就是它；不要拿「ROOT 直接读取」或第一张出现的表当主表，那常常是挂在主表上的维表。输入表
+> 6 张时按作用归成三四组，每组一句并列出表名。下游是**两个来源的并集**，两边都要写清是哪一种（B4）：`task.meta.downstream_tasks`
+是**调度登记**（调度系统里登记在本任务之后的任务名，它没说这些任务读的是哪张表），
+`task.downstream_consumers` 是**语料证明**（语料里确实读了本表的任务，附带读了哪些列、起什么
+作用）。两边都有就分别写、不要合并成一句；只有一边就只写那一边并说明是哪一种；两者都拿不到
+就写「下游未知」，不要从表名猜。`task.meta.upstream_tasks` 同理，用在「数据从哪来」那半句的
+「上游未知」之前。
 
 **口径要点** — 3–6 条，每条一句。**第一条固定是取数日**：`task.instance_dates` 非空时写
 「本实例取数日 20260814（每次运行按实例日期替换，不是 SQL 固定日期）」，两天时写
@@ -403,6 +416,13 @@ warning 类型的解读见 `references/diagnostics.md`。这张表只收**真实
 例子（`目标 a ← 别名 b`）与 `evidence[]` 里的 `mapping_chain_id`，给出「请 DESC 目标表核对列序」
 的动作建议。不要自己判定是哪一种，也不要因为字段最终有注释就淡化它；正文「使用注意」里必须有
 对应的一句，第三件里必须有对应的 `Q`。
+
+**附录 C 的「写入方式」一行**（固定行，恒填）：取 `confidence.findings[].kind = target_binding`
+的那一条，状态按它的 `method` 写「按位置」（`ddl_position`）或「按名」（`projection_alias`），
+说明照抄固定句「按位置写入时 DDL 列序变更会整体错位」。它在这一行**就算交代完了**：只有同一条
+语句也有 `alias_position_mismatch`（那时这条 `target_binding` 的 `severity` 才是 `warn`）时，
+才在正文「使用注意」里再写一句，并按上面的子段要求写 N/M 与动作建议。没有列错位时它是 `info`，
+正文一个字都不写。
 
 ## 生成记录 `business_profile.check.md`（写作方的质检，必须写）
 

@@ -6,6 +6,7 @@ from typing import Iterable, Mapping
 
 from ..metadata.schema_metadata import column_details_for_table, normalize_table_name, table_details_for_table
 from ..metadata.target_table_metadata import TargetTableMetadata
+from .sql_comments import redact
 from .scope_types import (
     CONSTANT_SCOPE_ID,
     SYSTEM_SCOPE_ID,
@@ -18,6 +19,8 @@ def build_related_metadata(
     result: ScopeLineageResult,
     schema: Mapping[str, Iterable[str]] | None,
     target_table_metadata: TargetTableMetadata | None = None,
+    *,
+    redact_comments: bool = True,
 ) -> dict:
     """Return input/output table metadata useful for LLM task profiling.
 
@@ -30,15 +33,71 @@ def build_related_metadata(
     up for this statement's target. It answers the output table when ``schema`` does not
     know it -- otherwise a run supplied with target metadata still published a target
     whose every column comment was null.
+
+    ``redact_comments`` (E1) masks the contact shapes in every comment this object
+    carries, exactly as the SQL comments are masked. It is applied here rather than at
+    each producer because this is the one place all of them meet: a column detail, the
+    declared width and the table-level facts come from three sources (``--schema``, the
+    target DDL, a metadata patch) and leave through this return.
     """
     usage = _collect_usage(result)
     if usage.keep_all_source_tables:
         usage.keep_all_tables.update(normalize_table_name(t) for t in result.source_tables)
 
-    return {
+    related = {
         "input_tables": _input_table_metadata(result, schema, usage),
         "output_tables": _output_table_metadata(result, schema, target_table_metadata),
     }
+    if redact_comments:
+        redact_metadata_comments(result, related)
+    return related
+
+
+#: The metadata strings a PERSON wrote, and therefore the ones that can carry what their
+#: author never meant to publish: a column's comment, and the table's own Chinese name
+#: and description. The rest of ``table_metadata`` is identifiers and classifications the
+#: export produced (domain, project, layer, source file), and masking a digit run inside
+#: one would corrupt a fact rather than protect anybody -- the same line ``task_meta``
+#: draws between ``description`` and its identifier fields.
+_REDACTED_COLUMN_GROUPS = ("column_details", "declared_columns")
+_REDACTED_TABLE_KEYS = ("table_name_cn", "table_desc")
+
+
+def redact_metadata_comments(result: ScopeLineageResult, related: Mapping[str, dict]) -> None:
+    """Mask the contact shapes in every metadata comment this statement publishes (E1).
+
+    A comment loaded from schema metadata is the same kind of text a SQL comment is -- a
+    person wrote it, contact details and all -- and the statement publishes it in two
+    places built from the same ``--schema`` dicts: this object, and the per-scope field
+    usage (``scopes[].inputs[]``, which carries the used columns' details and the source
+    table's own facts). Both are rewritten here, so "where is a metadata comment masked"
+    has one answer; masking only the first would publish the address in the second.
+
+    In place, and only on this pipeline's own copies: ``column_details_for_table`` and
+    ``table_details_for_table`` each hand back fresh dicts, so a caller's ``SchemaMap`` is
+    not rewritten by a parse.
+    """
+    for group in related.values():
+        for item in (group or {}).values():
+            _redact_details(item.get(group_name) for group_name in _REDACTED_COLUMN_GROUPS)
+            _redact_table_facts(item.get("table_metadata"))
+    for scope_data in result.scopes.values():
+        for usage in scope_data.field_usage:
+            _redact_details([usage.used_field_details])
+            _redact_table_facts(usage.source_metadata)
+
+
+def _redact_details(groups: Iterable[Iterable[Mapping] | None]) -> None:
+    for details in groups:
+        for detail in details or ():
+            if detail.get("comment"):
+                detail["comment"] = redact(detail["comment"])
+
+
+def _redact_table_facts(table_metadata: Mapping | None) -> None:
+    for key in _REDACTED_TABLE_KEYS:
+        if (table_metadata or {}).get(key):
+            table_metadata[key] = redact(table_metadata[key])
 
 
 def _input_table_metadata(

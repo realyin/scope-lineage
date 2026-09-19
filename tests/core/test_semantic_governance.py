@@ -992,7 +992,10 @@ def test_every_kind_declares_a_severity_from_the_vocabulary() -> None:
         ("alias_position_mismatch", "warn"),
         ("nondeterministic_function", "warn"),
         ("metadata_conflicts", "warn"),
-        ("target_binding", "warn"),
+        # B11: the DEFAULT. The producers raise or lower these two from the evidence --
+        # a positional write beside a name mismatch warns, a `kept_authoritative`
+        # conflict and an audit-only run-time call do not.
+        ("target_binding", "info"),
         ("hardcoded_date_literal", "info"),
         ("partition_literal_mismatch", "info"),
         ("table_comment_missing", "info"),
@@ -1000,6 +1003,131 @@ def test_every_kind_declares_a_severity_from_the_vocabulary() -> None:
 )
 def test_each_kind_keeps_its_declared_severity(kind: str, severity: str) -> None:
     assert FINDING_SEVERITY[kind] == severity
+
+
+# ------------------------------------- 7b. severity decided by the evidence (B11)
+#
+# Three kinds used to warn on nearly every statement of a wide corpus, which is the same
+# as not warning at all: the reader learns to skip the section. Each one keeps its text
+# and its place in the JSON; what changes is whether it claims a person has to act.
+
+
+def test_a_positional_write_alone_is_information_rather_than_a_lead() -> None:
+    """Positional INSERT is how a whole warehouse may be written; that is not a defect."""
+    found = _findings(build_semantic_profile(_generated_name_document()), "target_binding")
+
+    assert len(found) == 1
+    assert found[0]["severity"] == "info"
+    assert "ddl_position" in found[0]["text"]
+
+
+def test_a_positional_write_whose_names_disagree_is_still_a_warning() -> None:
+    """The lead is the name mismatch; the binding line is what a reader acts on next."""
+    profile = build_semantic_profile(_alias_document())
+    found = _findings(profile, "target_binding")
+
+    assert len(found) == 1
+    assert found[0]["severity"] == "warn"
+    assert "按 DDL 位置绑定" in found[0]["text"]
+
+
+def test_an_absent_binding_reason_is_information_too() -> None:
+    document = _document(
+        "INSERT INTO mart.t SELECT id FROM ods.users", schema={"ods.users": ["id"]}
+    )
+    found = _findings(build_semantic_profile(document), "target_binding")
+
+    assert [item["severity"] for item in found] == ["info"]
+
+
+def _conflict_profile(resolution: str) -> dict:
+    diagnostics = json.loads(json.dumps(STATEMENT_ONLY_DIAGNOSTICS))
+    diagnostics["metadata_coverage"] = {
+        "metadata_conflicts": [{"table": "ods.users", "resolution": resolution}]
+    }
+    return build_semantic_profile(_statement_document(), diagnostics)
+
+
+def test_a_conflict_the_loader_already_resolved_is_information() -> None:
+    """Two descriptions of one table, the authoritative one kept: a loader fact."""
+    found = _findings(_conflict_profile("kept_authoritative"), "metadata_conflicts")
+
+    assert [item["severity"] for item in found] == ["info"]
+    assert "kept_authoritative" in found[0]["text"]
+
+
+def test_any_other_resolution_is_still_a_warning() -> None:
+    found = _findings(_conflict_profile("dropped_both"), "metadata_conflicts")
+
+    assert [item["severity"] for item in found] == ["warn"]
+
+
+AUDIT_SQL = """
+INSERT INTO mart.snapshot
+SELECT k AS k,
+       SUM(amount) AS total,
+       current_timestamp() AS insert_time
+FROM ods.spans
+WHERE dt = '20260814'
+GROUP BY k
+"""
+
+AUDIT_SCHEMA = {"ods.spans": ["k", "amount", "dt"]}
+
+
+def test_a_run_time_call_used_only_for_an_audit_column_is_information() -> None:
+    """`insert_time = current_timestamp()` records when the row was written.
+
+    Nothing reads it: it is not compared, joined, grouped or aggregated, so a re-run
+    reproduces every number and only this column's stamp differs.
+    """
+    profile = build_semantic_profile(_document(AUDIT_SQL, schema=AUDIT_SCHEMA))
+    found = _findings(profile, "nondeterministic_function")
+
+    assert len(found) == 1
+    assert found[0]["severity"] == "info"
+    assert "字段 insert_time" in found[0]["text"]
+    assert "仅用于审计列 insert_time" in found[0]["text"]
+
+
+def test_a_run_time_call_a_number_depends_on_stays_a_warning() -> None:
+    profile = build_semantic_profile(
+        _document(NONDETERMINISTIC_SQL, schema=NONDETERMINISTIC_SCHEMA)
+    )
+    found = _findings(profile, "nondeterministic_function")
+
+    assert [item["severity"] for item in found] == ["warn"]
+    assert "仅用于审计列" not in found[0]["text"]
+
+
+def test_a_run_time_call_inside_a_filter_stays_a_warning_beside_an_audit_column() -> None:
+    """One rule reading `CURRENT_DATE` decides which rows exist; that is not an audit."""
+    profile = build_semantic_profile(
+        _document(
+            AUDIT_SQL.replace("dt = '20260814'", "dt = CURRENT_DATE"),
+            schema=AUDIT_SCHEMA,
+        )
+    )
+    found = _findings(profile, "nondeterministic_function")
+
+    assert [item["severity"] for item in found] == ["warn"]
+
+
+def test_a_run_time_call_wrapped_in_an_expression_is_not_an_audit_column() -> None:
+    """`date_sub(current_date(), 1)` is a *derived* value: it decides a date somebody
+    reads as data, not a stamp of when the row was written."""
+    profile = build_semantic_profile(
+        _document(
+            AUDIT_SQL.replace(
+                "current_timestamp() AS insert_time",
+                "date_sub(current_date(), 1) AS insert_time",
+            ),
+            schema=AUDIT_SCHEMA,
+        )
+    )
+    found = _findings(profile, "nondeterministic_function")
+
+    assert [item["severity"] for item in found] == ["warn"]
 
 
 def test_a_published_finding_carries_its_severity_in_the_declared_position() -> None:

@@ -73,3 +73,68 @@ def test_writer_numbers_and_cross_check_are_not_in_the_reader_document() -> None
     for writer_only in ("confidence.confirmations", "交叉校验"):
         assert writer_only not in document, writer_only
         assert writer_only in check, writer_only
+
+
+# ------------------------------------------- where each finding lands (B4, B5, B7, B11)
+
+
+def _rule_paragraph(marker: str) -> str:
+    """The prompt paragraph a rule is written in, found by its own bold heading."""
+    return next(
+        block for block in _text(PROMPT).split("\n\n") if block.lstrip().startswith(marker)
+    )
+
+
+def test_the_risk_appendix_has_a_fixed_row_for_the_write_method() -> None:
+    """B5: `target_binding` had nowhere to go, so it was written as prose or dropped."""
+    row = next(
+        line
+        for line in _text(DOCUMENT).splitlines()
+        if line.startswith("| 写入方式 |")
+    )
+    assert "target_binding" in row
+    assert "按位置" in row and "按名" in row
+    assert "DDL 列序" in row
+
+
+def test_the_prompt_sends_the_binding_finding_to_that_row() -> None:
+    prompt = _text(PROMPT)
+    paragraph = next(
+        block for block in prompt.split("\n\n") if "附录 C 的「写入方式" in block
+    )
+    assert "target_binding" in paragraph
+    assert "alias_position_mismatch" in paragraph
+    assert "使用注意" in paragraph
+
+
+def test_the_prompt_reads_the_severity_off_each_finding() -> None:
+    """B11: severity is decided per finding now, not by its kind."""
+    paragraph = next(
+        block for block in _text(PROMPT).split("\n\n") if "治理线索分两档" in block
+    )
+    assert "kept_authoritative" in paragraph
+    assert "审计列" in paragraph
+    assert "按 `severity` 读" in paragraph
+
+
+def test_the_prompt_fixes_the_wording_for_how_an_input_is_read() -> None:
+    """B7: the distinction used to live in a self-check item and in no sentence."""
+    paragraph = _rule_paragraph("**数据从哪来、到哪去**")
+    assert "read_by_scopes" in paragraph
+    assert "直接读取" in paragraph
+    assert "经 <scope> 读取" in paragraph
+
+
+def test_the_prompt_names_both_downstream_sources() -> None:
+    """B4: the scheduler's registration and the corpus's proof are two facts."""
+    paragraph = _rule_paragraph("**数据从哪来、到哪去**")
+    assert "task.meta.downstream_tasks" in paragraph
+    assert "task.downstream_consumers" in paragraph
+    assert "调度登记" in paragraph and "语料证明" in paragraph
+
+
+def test_self_check_item_nine_checks_the_wording_rather_than_a_slot() -> None:
+    item = next(
+        line for line in _text(CHECK).splitlines() if line.startswith("| 9. ")
+    )
+    assert "直接读取" in item and "经" in item

@@ -38,7 +38,7 @@ write_task_lineage(result, "./output/daily_publish")
 | Field | Meaning |
 | --- | --- |
 | artifact_kind | Fixed at task_lineage. |
-| task_meta | **Conditional**: present only when the input was a task JSON whose `meta` carried at least one of the facts below; a `.sql` input has no such key. Nine copied facts under neutral key names, each a string or null. See the next section. |
+| task_meta | **Conditional**: present only when the input was a task JSON whose `meta` carried at least one of the facts below; a `.sql` input has no such key. Eleven copied facts under neutral key names: nine strings or nulls, and two arrays of task names. See the next section. |
 | script_comments[] | The script's header comment block: the comments on the unmodeled statements (`SET` and friends) that run before the first write, in writing order. **Always present**; an empty array says the script does not open with such a block. The same lines are also merged into the first write statement's `statement_comments`; they are held here so a multi-write script says them once. See lineage-json §18. |
 | analysis_status | complete or partial, kept separate from the syntax/graph parse_status. |
 | statement_sequence[] | Every recognizable statement, in script order. |
@@ -86,7 +86,7 @@ statement documents).
 
 ## task_meta: task metadata, copied rather than inferred
 
-When the input is an exported task JSON, nine facts from its `meta` block are copied to the top-level `task_meta` under neutral key names:
+When the input is an exported task JSON, eleven facts from its `meta` block are copied to the top-level `task_meta` under neutral key names:
 
 | Key | Taken from the task JSON | Note |
 | --- | --- | --- |
@@ -99,10 +99,12 @@ When the input is an exported task JSON, nine facts from its `meta` block are co
 | description | description | |
 | expect_date | expect_date | |
 | source_file | The input file this metadata was read from (relative to the batch input root) | |
+| upstream_tasks | upstream_tasks | B4: the task names the scheduler registered as running before this one, as an array, deduplicated with the order kept; an empty list (or no such key) publishes no key. A string entry is taken as written, a record entry by its `task_name`, falling back to `task_id`. |
+| downstream_tasks | downstream_tasks | B4: the same, the other way round. **This is scheduling registration, not lineage this tool proved** — the consumers the corpus proves are the table card's `downstream_consumers`, and the two are never merged. |
 
 Three rules:
 
-1. **Every value becomes a string; blank and missing both become `null`.** Nothing is defaulted, and nothing is inferred from another key.
+1. **Every single-valued key becomes a string; blank and missing both become `null`; the two list keys are arrays of strings.** Nothing is defaulted, and nothing is inferred from another key. An empty list publishes no key at all — `[]` is what an exporter writes for "nothing registered", and a key holding it would read as "proven to have no downstream".
 2. **`meta` keys not listed here are ignored** and never passed through. An exporter widening `meta` does not widen this contract with it.
 3. **`owner_email` is excluded by name.** It is a person's contact address, it explains nothing about the data, and artifacts travel between systems. To reach a person, go back to the task system itself.
 

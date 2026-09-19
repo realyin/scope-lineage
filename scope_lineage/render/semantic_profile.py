@@ -5179,7 +5179,7 @@ SEVERITY_INFO = "info"
 
 FINDING_SEVERITIES = (SEVERITY_WARN, SEVERITY_INFO)
 
-# Why the three `info` ones are not leads:
+# Why the `info` ones are not leads:
 #
 # - `hardcoded_date_literal`: a task instance covers one day, so its partition filter
 #   naming that day is the design. The day itself is published on section 1's 取数日 line.
@@ -5189,15 +5189,33 @@ FINDING_SEVERITIES = (SEVERITY_WARN, SEVERITY_INFO)
 # - `table_comment_missing`: section 6 already counts metadata completeness one line
 #   above, the glossary already publishes the per-column 待补注释 lists, and nothing about
 #   a value or its meaning changes with the answer.
+# - `target_binding` (B11): how a write binds its columns is a fact about the statement,
+#   and a warehouse may write positionally everywhere. On a wide corpus it warned on
+#   nearly every statement, which is the same as warning on none. The lead is the *name
+#   mismatch*: where `alias_position_mismatch` is also present, `_target_binding_findings`
+#   raises this one back to `warn` so the reader has the binding line beside it.
+#
+# Two kinds here are the DEFAULT rather than the whole answer: their producer overrides
+# the severity from the evidence (B11).
+#
+# - `metadata_conflicts` stays `warn`, except for `kept_authoritative`: two sources
+#   describing one table and the loader keeping the authoritative one is a fact about the
+#   metadata load, not about this task, and nobody acts on it.
+# - `nondeterministic_function` stays `warn`, except where every affected field is an
+#   audit column -- a constant projection whose expression is only the run-time call.
 FINDING_SEVERITY = {
     FINDING_ALIAS_POSITION_MISMATCH: SEVERITY_WARN,
     FINDING_PARTITION_MISMATCH: SEVERITY_INFO,
     FINDING_NONDETERMINISTIC_FUNCTION: SEVERITY_WARN,
     FINDING_HARDCODED_DATE: SEVERITY_INFO,
     FINDING_METADATA_CONFLICTS: SEVERITY_WARN,
-    FINDING_TARGET_BINDING: SEVERITY_WARN,
+    FINDING_TARGET_BINDING: SEVERITY_INFO,
     FINDING_TABLE_COMMENT_MISSING: SEVERITY_INFO,
 }
+
+# B11. The one resolution that says the loader already did the right thing: a second
+# description of the same table was set aside in favour of the authoritative one.
+METADATA_CONFLICT_RESOLVED = "kept_authoritative"
 
 # The one finding section 6 gives its own line instead of listing under 治理线索: the
 # reader asking "can I trust which column each value landed in" should not have to find
@@ -5226,10 +5244,13 @@ _TARGET_BINDING_METHOD_NOTES = {
 _FINDING_KEY_ORDER = ("kind", "severity", "text", "evidence")
 
 
-def _finding(kind: str, text: str, evidence: Iterable = ()) -> dict:
+def _finding(
+    kind: str, text: str, evidence: Iterable = (), severity: str | None = None
+) -> dict:
+    """One finding. ``severity`` overrides the kind's default from the evidence (B11)."""
     return {
         "kind": kind,
-        "severity": FINDING_SEVERITY.get(kind, SEVERITY_WARN),
+        "severity": severity or FINDING_SEVERITY.get(kind, SEVERITY_WARN),
         "text": text,
         "evidence": [str(item) for item in evidence if item],
     }
@@ -5248,13 +5269,15 @@ def _build_findings(
     "the task reads stale data" is not, and is not said.
     """
     comparisons = _literal_comparisons(document, rules)
+    alias_mismatch = _alias_position_findings(document, fields)
     found = [
-        *_alias_position_findings(document, fields),
+        *alias_mismatch,
         *_partition_mismatch_findings(comparisons, fields),
         *_nondeterministic_findings(rules, fields),
         *_hardcoded_date_findings(comparisons),
         *_metadata_conflict_findings(diagnostics),
-        *_target_binding_findings(document),
+        # B11: the binding line is a lead only beside the name mismatch it explains.
+        *_target_binding_findings(document, mismatched=bool(alias_mismatch)),
         *_table_comment_findings(document),
     ]
     order = {kind: index for index, kind in enumerate(FINDING_KINDS)}
@@ -5445,6 +5468,8 @@ def _nondeterministic_findings(
     """
     named: list[str] = []
     evidence: list[str] = []
+    affected: list[dict] = []
+    rule_hit = False
     for field in fields:
         if not (field.get("metric_spec") or {}).get("time_dependent") and not any(
             semantic_text.nondeterministic_functions(item.get("expression"))
@@ -5453,6 +5478,7 @@ def _nondeterministic_findings(
             continue
         named.append(f"{_NONDETERMINISTIC_FIELD_PREFIX}{field.get('column')}")
         evidence.append(str(field.get("mapping_chain_id") or ""))
+        affected.append(field)
     for rule in rules:
         if str(rule.get("kind")) not in _PREDICATE_LOGIC_TYPES:
             continue
@@ -5460,16 +5486,64 @@ def _nondeterministic_findings(
             continue
         named.append(f"{_NONDETERMINISTIC_RULE_PREFIX}{rule.get('rule_id')}")
         evidence.append(str(rule.get("evidence") or ""))
+        rule_hit = True
     if not named:
         return []
+    audit = [] if rule_hit else _audit_columns(affected)
+    reason = (
+        AUDIT_ONLY_NOTE.format(columns="、".join(audit))
+        if audit and len(audit) == len(affected)
+        else ""
+    )
     return [
         _finding(
             FINDING_NONDETERMINISTIC_FUNCTION,
             "依赖作业运行时刻或随机值而非数据日期，补跑历史会得到不同结果："
-            + "、".join(named),
+            + "、".join(named)
+            + reason,
             evidence,
+            severity=SEVERITY_INFO if reason else SEVERITY_WARN,
         )
     ]
+
+
+# B11. What the reader is told instead of a warning: the call decides one column's stamp
+# and nothing else, so a re-run reproduces every number the table carries.
+AUDIT_ONLY_NOTE = "（仅用于审计列 {columns}，不进入过滤、关联、分组或指标）"
+
+
+def _audit_columns(fields: Sequence[dict]) -> list[str]:
+    """The affected fields that are audit columns, named; empty when any one is not.
+
+    An audit column is a *constant projection* whose expression is only the run-time call
+    -- ``insert_time = current_timestamp()``. Constant is the structural role's own word
+    for "built from no physical column", so such a field feeds no filter, join, group or
+    metric in this statement; wrapping the call in anything else (``date_sub(current_date(),
+    1)``) makes it a derived value somebody reads as data, and it is not one of these.
+    """
+    named = [str(field.get("column")) for field in fields if _is_audit_column(field)]
+    return named if len(named) == len(fields) else []
+
+
+def _is_audit_column(field: Mapping) -> bool:
+    if str(field.get("structural_role")) != "constant":
+        return False
+    if (field.get("metric_spec") or {}).get("time_dependent"):
+        return False
+    steps = field.get("derivation") or []
+    if len(steps) > 1:
+        return False
+    return all(
+        _is_bare_nondeterministic_call(item.get("expression"))
+        for item in [field, *steps]
+    )
+
+
+def _is_bare_nondeterministic_call(expression: object) -> bool:
+    """Whether the whole expression IS one run-time call, rather than containing one."""
+    node = semantic_text.parse_expression(str(expression or ""))
+    name = semantic_text.function_name(node)
+    return bool(name) and name in semantic_text.NONDETERMINISTIC_FUNCTIONS
 
 
 def _hardcoded_date_findings(comparisons: Sequence[dict]) -> list[dict]:
@@ -5520,25 +5594,47 @@ def _metadata_conflict_findings(diagnostics: dict | None) -> list[dict]:
                 FINDING_METADATA_CONFLICTS,
                 f"{subject}：元数据来源冲突，处理方式 {resolution}",
                 [table, source],
+                # B11: a conflict the loader settled by keeping the authoritative
+                # description states what the LOADER did, not what this task does, and
+                # there is nothing for a reader of the task to act on.
+                severity=(
+                    SEVERITY_INFO
+                    if resolution == METADATA_CONFLICT_RESOLVED
+                    else SEVERITY_WARN
+                ),
             )
         )
     return findings
 
 
-def _target_binding_findings(document: dict) -> list[dict]:
-    """How the written values were matched to target columns -- or why they were not."""
+def _target_binding_findings(document: dict, *, mismatched: bool = False) -> list[dict]:
+    """How the written values were matched to target columns -- or why they were not.
+
+    ``mismatched`` is whether this same statement also carries
+    ``alias_position_mismatch``. Only then is the binding method a lead: positional
+    writing on its own is a house style, while positional writing whose names disagree is
+    the thing a reader has to go and check (B11). The text is the same either way.
+    """
+    severity = SEVERITY_WARN if mismatched else SEVERITY_INFO
     binding = document.get("target_field_binding") or {}
     absent = document.get("target_binding_absent_reason")
     if binding:
         method = str(binding.get("method") or "未知")
         note = _TARGET_BINDING_METHOD_NOTES.get(method)
         text = f"status={binding.get('status')}、method={method}"
-        return [_finding(FINDING_TARGET_BINDING, f"{text}（{note}）" if note else text)]
+        return [
+            _finding(
+                FINDING_TARGET_BINDING,
+                f"{text}（{note}）" if note else text,
+                severity=severity,
+            )
+        ]
     if absent:
         return [
             _finding(
                 FINDING_TARGET_BINDING,
                 f"未做目标列绑定（target_binding_absent_reason={absent}）",
+                severity=severity,
             )
         ]
     return []

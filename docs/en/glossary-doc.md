@@ -17,7 +17,8 @@ distinct values in total".
   never guesses a meaning from a value's spelling, never translates, never paraphrases.
 - `meaning` is filled only by a human (`glossary.overrides.json`), and is then marked
   `source: "override"`; `meaning_candidates` means "some comment's text **literally
-  contains** this value", which is a lead, not a conclusion.
+  contains** this value, or the column's own comment **enumerates** it", which is a lead,
+  not a conclusion.
 - **An observed value set is a floor, not a ceiling.** Only two things produce a
   `closed_set`: an `IN` list, and a CASE with an ELSE whose every THEN and ELSE is a
   constant. Everything else is `null` -- "the corpus has only seen 3 values" is not
@@ -198,12 +199,26 @@ Other rules:
 - `closed_set` is published only when the corpus's closure claims for that column
   **agree**: two tasks with different `IN` lists give `null`, because contradictory
   evidence is not a closed set.
-- `meaning_candidates[]` is a **literal match only**: the value with its quotes stripped
-  must occur in the comment text (case-insensitively). Candidate comments come from three
-  places: that column's comment (`column_comment`), that table's comment
-  (`table_comment`), and the SQL comment written on that condition or field
-  (`sql_comment`). **A value shorter than 2 characters never matches** -- `0` occurs in
-  almost any sentence, and one wrong candidate costs more than ten missed ones.
+- `meaning_candidates[]` has two routes, and one comment answers by whichever hits first.
+  Candidate comments come from three places: that column's comment (`column_comment`,
+  falling back to `declared_columns[]` where `column_details[]` does not carry the
+  column), that table's comment (`table_comment`), and the SQL comment written on that
+  condition or field (`sql_comment`).
+  1. **The column's own comment enumerates the value** (B6): `0-未生效，1-生效` is a code
+     table somebody wrote into a comment, and the half belonging to this value is the
+     candidate -- `text` is that half (`生效`), `source` is `column_comment`, and the
+     form's 注释线索 column shows it. Separators are `，,;；|/、` and a space; a code and
+     its meaning are joined by `-`, `:`, `=`, `：` or a space. Only the column's **own**
+     comment is read (source or target table), in every observation context (`filter_eq` /
+     `filter_in` / `case_condition` / `case_then` / `constant_projection` /
+     `union_constant`). The space-only form needs **at least two pairs** to count as a
+     table -- `队列编码，99 表示无效` is one sentence, not a table.
+  2. **The comment literally contains the value**: the value with its quotes stripped must
+     occur in the comment text (case-insensitively). **A value shorter than 2 characters
+     never matches** -- `0` occurs in almost any sentence, and one wrong candidate costs
+     more than ten missed ones.
+  Both produce a **candidate** only: `glossary --template` still lists the value, because
+  a candidate is not a confirmation.
 
 ### Parameterised values (parameters[])
 
