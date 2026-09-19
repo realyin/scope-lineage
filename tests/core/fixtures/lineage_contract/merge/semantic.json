@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "schema_version": "1.0",
   "statement_id": "stmt:001",
-  "lineage_digest": "4abbc5352d1e69a5",
+  "lineage_digest": "b61fff94e3fe4f30",
   "task": {
     "task_name": "merge_contract",
     "target_table": "mart.customer_profile",
@@ -18,6 +18,20 @@
     },
     "instance_dates": [],
     "structural_summary": "ROOT 不直接读取物理表；关联 1 个上游（1 个其他）；输出 3 列。",
+    "target_declared_columns": [
+      {
+        "name": "customer_id",
+        "type": null,
+        "comment": null,
+        "used": true
+      },
+      {
+        "name": "customer_name",
+        "type": null,
+        "comment": null,
+        "used": true
+      }
+    ],
     "target_metadata_source": "schema",
     "header_comments": [],
     "meta": null
@@ -50,6 +64,20 @@
           "usages": [
             "output"
           ]
+        }
+      ],
+      "declared_columns": [
+        {
+          "name": "customer_id",
+          "type": null,
+          "comment": null,
+          "used": true
+        },
+        {
+          "name": "customer_name",
+          "type": null,
+          "comment": null,
+          "used": true
         }
       ],
       "metadata_complete": true,

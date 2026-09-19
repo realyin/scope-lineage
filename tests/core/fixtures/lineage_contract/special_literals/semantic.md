@@ -4,7 +4,7 @@ schema_version: "1.0"
 task_name: "golden_special_literals"
 target_table: "mart.flags"
 stmt_kind: "INSERT"
-lineage_digest: "eb3a6f8c98261ebd"
+lineage_digest: "ca26ec66a7be738a"
 ---
 
 # 任务语义描述 mart.flags

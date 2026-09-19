@@ -42,7 +42,21 @@
           }
         ],
         "metadata_complete": true,
-        "table_column_count": 2
+        "table_column_count": 2,
+        "declared_columns": [
+          {
+            "name": "user_id",
+            "type": null,
+            "comment": null,
+            "used": true
+          },
+          {
+            "name": "user_name",
+            "type": null,
+            "comment": null,
+            "used": true
+          }
+        ]
       }
     },
     "output_tables": {

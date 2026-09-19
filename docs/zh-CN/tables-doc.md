@@ -83,9 +83,11 @@ card = render_table_card_markdown(cards["tables"][0])
       ],
       "columns": [
         {"name": "customer_id", "type": "string", "comment": null,
-         "produced_summary": "…", "consumer_usage_counts": {"join_key": 2, "filter": 1}}
+         "produced_summary": "…", "consumer_usage_counts": {"join_key": 2, "filter": 1},
+         "used_in_corpus": true}
       ],
-      "coverage": {"column_comment_ratio": 0.0, "table_comment": false, "producers": 1, "consumers": 2},
+      "coverage": {"column_comment_ratio": 0.0, "table_comment": false, "producers": 1, "consumers": 2,
+                   "columns_used": 2, "columns_declared": 3},
       "findings": [{"kind": "never_consumed_in_corpus", "text": "…",
                     "evidence": [{"task": "…", "statement_id": "stmt:001"}]}]
     }
@@ -96,8 +98,13 @@ card = render_table_card_markdown(cards["tables"][0])
 - `produced_by[]` 每条来自该任务 semantic profile 的 `task` / `output_shape` / `fields` 块，
   `refresh` 来自任务 JSON 的 `meta`（`schedule_cycle` / `schedule`），没有就是 `null`——
   绝不从分区列或表名猜调度周期。
-- `consumed_by[].columns` 只列**确实被逻辑块读到**的列；`columns[]` 则是生产侧字段与消费侧
-  列的并集，因此一张只被读的表也有完整字段清单（来自它的 `related_metadata`）。
+- `consumed_by[].columns` 只列**确实被逻辑块读到**的列；`columns[]` 则是元数据声明的全部
+  字段（`related_metadata.*.declared_columns[]`，按 DDL 顺序）与生产侧字段、消费侧列的并集，
+  因此一张只被读的表也有完整字段清单，一张八十列的表不会因为本语料只读了四列就只剩四列。
+- `columns[].used_in_corpus` 说明本语料有没有写过或读过这一列：`false` 的列
+  `consumer_usage_counts` 为空、`produced_summary` 为 `null`，它是「元数据声明了、语料没碰过」，
+  不是「无人使用」。`coverage.columns_used` / `coverage.columns_declared` 是同一件事的两个计数，
+  没有任何文档声明过这张表时 `columns_declared` 为 `null`（不是 0）。
 - `consumer_usage_counts` 的取值来自 `filter`、`partition_filter`、`join_key`、`group_by`、
   `window_partition`、`window_order`、`output`，按这个顺序输出，计数为 0 的键不出现。
 
@@ -124,9 +131,9 @@ card = render_table_card_markdown(cards["tables"][0])
 
 | 节 | 回答的问题 | 事实来源 |
 | --- | --- | --- |
-| 1 这张表是什么 | 表注释、业务归属（业务域 / 项目 / 负责人 / 分层，元数据说了才出现）、别名写法、语料内的生产/消费语句数 | 元数据事实 + 生产任务的语句头注释（`SQL注释`，原样引用） |
+| 1 这张表是什么 | 表注释、业务归属（业务域 / 项目 / 负责人 / 分层，元数据说了才出现）、别名写法、语料内的生产/消费语句数、「本语料用到 n/N 个字段」（`columns_declared` 已知时才有这一行） | 元数据事实 + 生产任务的语句头注释（`SQL注释`，原样引用） |
 | 2 一行代表什么 | 每个生产语句的粒度、逻辑键、候选键、键置信 | 结构推断（证据为 `statement_id`） |
-| 3 字段 | 列 / 类型 / 注释 / 生产侧一句语义 / 消费侧用法计数 | 元数据事实 + SQL事实 + 结构推断 |
+| 3 字段 | 列 / 类型 / 注释 / 生产侧一句语义 / 消费侧用法计数；语料没碰过的列用法一栏是 `—`，超过 20 列时它们移到用到的列之后、附一行说明 | 元数据事实 + SQL事实 + 结构推断 |
 | 4 谁生产 | 任务、语句、写入方式、分区、更新频率 | SQL事实 + 任务元信息 |
 | 5 谁消费 | 任务、语句、角色、用到哪些列、怎么用 | SQL事实 + 结构推断（角色） |
 | 6 治理线索 | 多生产者、键冲突、无人读、无人写 | SQL事实（证据为 `<task>/<statement_id>`） |

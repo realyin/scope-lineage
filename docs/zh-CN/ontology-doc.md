@@ -93,7 +93,8 @@ card = render_ontology_table_card_markdown(cards["tables"][0], ontology)
        "partition_columns": ["dt"]},
      "attributes": [
        {"column": "state", "type": "string", "comment": null,
-        "observed_roles": ["filter", "output"], "not_null_observed": false,
+        "observed_roles": ["filter", "output"], "used_in_corpus": true,
+        "not_null_observed": false,
         "synonyms": [{"entity": "mart.t", "column": "order_state", "tier": "proven",
                       "via": "direct_rename", "evidence": [{"task": "task_a"}]}]}],
      "naming_hints": {"table_comment": null, "domain": null, "project": null, "owner": null}}
@@ -133,7 +134,9 @@ card = render_ontology_table_card_markdown(cards["tables"][0], ontology)
 | `entities[].identity.multiplicity[]` | `claim: multiple_rows_per_key` | O3：某任务按这组键对该表做过 GROUP BY 或窗口 partition |
 | `entities[].identity.partition_columns` | 列名列表 | 生产任务写入时的分区列（元数据事实） |
 | `entities[].attributes[].type`、`comment` | 元数据 | 表卡里的列类型与列注释，原样透传 |
+| `entities[].attributes[]` | 每个元数据声明的列一条 | 属性覆盖整张表，不只是语料读写过的那几列；表卡的 `columns[]` 是什么顺序，属性就是什么顺序 |
 | `entities[].attributes[].observed_roles` | `filter`、`partition_filter`、`join_key`、`group_by`、`window_partition`、`window_order`、`output` | 表卡记录的消费用法，没人读过的列是空列表 |
+| `entities[].attributes[].used_in_corpus` | `true` / `false` | 本语料有没有写过或读过这一列；`false` 配空 `observed_roles`，读作「元数据声明了、语料没碰过」 |
 | `entities[].attributes[].not_null_observed` | `true` / `false` | 语料里有任务用 `NOT x IS NULL` 过滤过这一列 |
 | `entities[].attributes[].synonyms[].via` | `direct_rename` / `union_alignment` | O5：同一个值的两个列名 |
 | `relations[].id` | `rel:NNN` | 排序后编号，同一份语料稳定 |
@@ -169,7 +172,7 @@ card = render_ontology_table_card_markdown(cards["tables"][0], ontology)
 
 | 节 | 内容 |
 | --- | --- |
-| 7. 身份（本体） | 候选键、多行性、分区列三者并列，逐条带中文层级与证据 id；三者回答三个不同问题，永不合并成「主键」 |
+| 7. 身份（本体） | 开头一行「属性 N（语料用到 n）」，与 `ontology.md` 实体表的「属性」列同一口径；其后候选键、多行性、分区列三者并列，逐条带中文层级与证据 id；三者回答三个不同问题，永不合并成「主键」 |
 | 8. 关系 | 出边、入边各一张表：对端（链到对端卡片）、键对、JOIN 类型、基数 claim、层级、依据 token 的人话翻译、任务数、证据 id |
 | 9. 约束 | SHACL 风格清单：约束种类、目标列或整表、值集与完整性、层级、证据 |
 | 10. 属性同义 | 本表列 ↔ 同义列、依据（改名投影 / UNION 同位置）、层级、证据 |

@@ -126,7 +126,21 @@
               }
             ],
             "metadata_complete": true,
-            "table_column_count": 2
+            "table_column_count": 2,
+            "declared_columns": [
+              {
+                "name": "channel_code",
+                "type": null,
+                "comment": null,
+                "used": true
+              },
+              {
+                "name": "channel_name",
+                "type": null,
+                "comment": null,
+                "used": false
+              }
+            ]
           },
           "ods.channel_event": {
             "column_details": [
@@ -152,7 +166,33 @@
               }
             ],
             "metadata_complete": true,
-            "table_column_count": 4
+            "table_column_count": 4,
+            "declared_columns": [
+              {
+                "name": "customer_id",
+                "type": null,
+                "comment": null,
+                "used": true
+              },
+              {
+                "name": "channel_code",
+                "type": null,
+                "comment": null,
+                "used": true
+              },
+              {
+                "name": "amount",
+                "type": null,
+                "comment": null,
+                "used": true
+              },
+              {
+                "name": "status",
+                "type": null,
+                "comment": null,
+                "used": true
+              }
+            ]
           }
         },
         "output_tables": {

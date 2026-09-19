@@ -59,7 +59,21 @@
           }
         ],
         "metadata_complete": true,
-        "table_column_count": 2
+        "table_column_count": 2,
+        "declared_columns": [
+          {
+            "name": "account_key",
+            "type": null,
+            "comment": null,
+            "used": true
+          },
+          {
+            "name": "balance_value",
+            "type": null,
+            "comment": null,
+            "used": true
+          }
+        ]
       }
     },
     "output_tables": {
@@ -77,6 +91,26 @@
           }
         ],
         "metadata_complete": true,
+        "declared_columns": [
+          {
+            "name": "account_id",
+            "type": "bigint",
+            "comment": null,
+            "used": true
+          },
+          {
+            "name": "balance",
+            "type": "decimal(18,2)",
+            "comment": null,
+            "used": true
+          },
+          {
+            "name": "dt",
+            "type": "string",
+            "comment": null,
+            "used": false
+          }
+        ],
         "metadata_source": "target_ddl",
         "table_metadata": {
           "table_name_cn": "账户日快照（合成）",

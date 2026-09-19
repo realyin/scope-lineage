@@ -47,7 +47,27 @@
           }
         ],
         "metadata_complete": true,
-        "table_column_count": 3
+        "table_column_count": 3,
+        "declared_columns": [
+          {
+            "name": "id",
+            "type": null,
+            "comment": null,
+            "used": true
+          },
+          {
+            "name": "parent_id",
+            "type": null,
+            "comment": null,
+            "used": true
+          },
+          {
+            "name": "batch_id",
+            "type": null,
+            "comment": null,
+            "used": true
+          }
+        ]
       }
     },
     "output_tables": {

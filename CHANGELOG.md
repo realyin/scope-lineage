@@ -1,6 +1,20 @@
 # Changelog
 
 ## Unreleased
+- An entity's attributes cover the whole declared table, not only the columns the corpus
+  read. `related_metadata.input_tables[<table>]` and `output_tables[<table>]` gain
+  `declared_columns[]` -- every column the metadata declares, in DDL order, each
+  `{name, type, comment, used}` -- beside the unchanged used-subset `column_details[]`;
+  the key is absent, never empty, when no metadata described the table. A table card's
+  `columns[]` is now that union, each column carrying `used_in_corpus`, with
+  `coverage.columns_used` / `coverage.columns_declared` (the second `null` when nothing
+  declared the table); section 1 adds 「本语料用到 n/N 个字段」 and section 3 moves a tail of
+  more than 20 untouched columns below the used ones. An ontology entity therefore has one
+  attribute per declared column, an untouched one carrying the empty `observed_roles` the
+  document always promised plus `used_in_corpus: false`, and both `ontology.md`'s entity
+  table and section 7 of each card show 「属性 N（语料用到 n）」. `column_comment_ratio` is
+  now over the card's whole column list, so a card showing 88 rows can no longer claim the
+  coverage of the 4 the corpus happened to read; contract version unchanged.
 - The task profile is two files. `business_profile.md` keeps the three body sections and a
   reader's appendix of exactly three tables (`附录 A 已确认项`, `附录 B 备查项与待填取值`,
   `附录 C 风险边界`), capped at one third of the body; the writer's own record -- input-file

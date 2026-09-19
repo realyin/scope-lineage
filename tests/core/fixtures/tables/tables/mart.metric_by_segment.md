@@ -12,6 +12,7 @@ consumers: 0
 - 表注释：未知（元数据事实）
 - 别名写法：无（SQL事实）
 - 语料内：1 个生产语句、0 个消费语句（SQL事实）
+- 本语料用到 6/7 个字段（元数据事实）
 
 ## 2. 一行代表什么
 
@@ -19,16 +20,17 @@ consumers: 0
 
 ## 3. 字段
 
-共 6 列；注释覆盖 1.0（元数据事实）。
+共 7 列，用到 6 列；注释覆盖 1.0（元数据事实）。
 
 | 列 | 类型 | 注释 | 生产侧语义（结构推断） | 消费侧用法（SQL事实） |
 | --- | --- | --- | --- | --- |
-| `segment` | 未知 | Segment code | Segment code：直接取自 ods.events_a.segment（注释未知）、ods.events_b.seg_code（注释未知） | — |
-| `band` | 未知 | Amount band | Amount band：amount >= 100 → 'HIGH'；否则 'LOW'；来源 ods.events_a.amount（注释未知）、ods.events_b.amount（注释未知） | — |
-| `total` | 未知 | Summed amount | Summed amount：按 segment、CASE WHEN amount >= 100 THEN 'HIGH' ELSE 'LOW' END 聚合：SUM(amount)；来源 ods.events_a.amount（注释未知）、ods.events_b.amount（注释未知） | — |
-| `cnt` | 未知 | Row count | Row count：按 segment、CASE WHEN amount >= 100 THEN 'HIGH' ELSE 'LOW' END 聚合：COUNT(1) | — |
-| `band_total` | 未知 | Band level total | Band level total：amount >= 100 → 'HIGH'；否则 'LOW'，再按 segment、CASE WHEN amount >= 100 THEN 'HIGH' ELSE 'LOW' END 聚合：SUM(amount)，再窗口函数 SUM(total)；按 band 分组；来源 ods.events_a.amount（注释未知）、ods.events_b.amount（注释未知） | — |
-| `segment_name` | 未知 | Segment display name | Segment display name：直接取自 dim.segment_dim.segment_name（注释未知）（关联未命中时为空） | — |
+| `segment` | string | Segment code | Segment code：直接取自 ods.events_a.segment（注释未知）、ods.events_b.seg_code（注释未知） | — |
+| `band` | string | Amount band | Amount band：amount >= 100 → 'HIGH'；否则 'LOW'；来源 ods.events_a.amount（注释未知）、ods.events_b.amount（注释未知） | — |
+| `total` | decimal(18,2) | Summed amount | Summed amount：按 segment、CASE WHEN amount >= 100 THEN 'HIGH' ELSE 'LOW' END 聚合：SUM(amount)；来源 ods.events_a.amount（注释未知）、ods.events_b.amount（注释未知） | — |
+| `cnt` | bigint | Row count | Row count：按 segment、CASE WHEN amount >= 100 THEN 'HIGH' ELSE 'LOW' END 聚合：COUNT(1) | — |
+| `band_total` | decimal(18,2) | Band level total | Band level total：amount >= 100 → 'HIGH'；否则 'LOW'，再按 segment、CASE WHEN amount >= 100 THEN 'HIGH' ELSE 'LOW' END 聚合：SUM(amount)，再窗口函数 SUM(total)；按 band 分组；来源 ods.events_a.amount（注释未知）、ods.events_b.amount（注释未知） | — |
+| `segment_name` | string | Segment display name | Segment display name：直接取自 dim.segment_dim.segment_name（注释未知）（关联未命中时为空） | — |
+| `dt` | string | Partition date | — | — |
 
 ## 4. 谁生产
 

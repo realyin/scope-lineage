@@ -679,6 +679,12 @@ ROOT.begin_date        transform=EXPRESSION       ← 本层只有 1 个直接�
   `metadata_complete`，以及 `table_column_count`（schema 中该表的**全表列宽**，
   schema 不识该表时缺席——有了它读者才能区分"用了少数几列"和"表的全宽"）；
 - `output_tables`：key 是目标表名，value 为对应目标元数据——`--schema` 认识该表时用它，否则回落到 `--target-ddl-metadata` 提供的目标表 DDL/Schema 元数据（字段 `type`/`comment` 取自其中，只保留本语句实际写出的列；表级的 `full_table_name`/`source_file`/`structure_source` 进 `table_metadata`）；新增键 `metadata_source` 说明这份元数据来自哪一侧，取值 `schema` 或 `target_ddl`，两侧都没有时该键缺席；
+- `declared_columns`：元数据声明的**全部字段**，按 DDL 顺序，每项为
+  `{name, type, comment, used}`——`used` 为 `true` 表示该列在本语句的 `column_details[]`
+  里（输入表即本语句读到、输出表即本语句写出）。元数据不认识这张表时该键**缺席**（不是空
+  数组）：「没人描述过这张表」与「这张表没有字段」是两回事。`column_details[]` 保持原样，
+  仍是使用子集；注释的脱敏与元数据补丁与 `column_details[]` 完全一致，两份列表出自同一批
+  字段对象；
 - `metadata_complete`：表示调用方提供的元数据是否足以覆盖已知字段，不表示真实 catalog 永远完整。元数据认识这张表、却与本语句写出的列名一个都对不上时，`column_details[]` 为空，`metadata_complete` 为 `false`（描述了零个写出列，不算覆盖），`metadata_source` 仍说明是哪一侧回答的，并附加键 `metadata_note: "no_output_column_matched"`——「读到了 DDL 但一列都没对上」与「没人提供元数据」是两种状态，修法不同。
 
 每张表的 `table_metadata` 是**开放对象**，只在元数据描述了表级事实时出现，additive：

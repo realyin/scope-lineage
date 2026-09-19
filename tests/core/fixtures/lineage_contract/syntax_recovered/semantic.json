@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "schema_version": "1.0",
   "statement_id": "stmt:001",
-  "lineage_digest": "6d8c220b824789a5",
+  "lineage_digest": "218797d5ee71d0e6",
   "task": {
     "task_name": "golden_syntax_recovered",
     "target_table": "mart.recovered",
@@ -18,6 +18,7 @@
     },
     "instance_dates": [],
     "structural_summary": "ROOT 直接读取 ods.events；过滤 1 处；输出 1 列。",
+    "target_declared_columns": [],
     "target_metadata_source": null,
     "header_comments": [],
     "meta": null
@@ -43,6 +44,14 @@
             "filter",
             "output"
           ]
+        }
+      ],
+      "declared_columns": [
+        {
+          "name": "id",
+          "type": null,
+          "comment": null,
+          "used": true
         }
       ],
       "metadata_complete": true,

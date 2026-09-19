@@ -92,9 +92,11 @@ card = render_table_card_markdown(cards["tables"][0])
       ],
       "columns": [
         {"name": "customer_id", "type": "string", "comment": null,
-         "produced_summary": "…", "consumer_usage_counts": {"join_key": 2, "filter": 1}}
+         "produced_summary": "…", "consumer_usage_counts": {"join_key": 2, "filter": 1},
+         "used_in_corpus": true}
       ],
-      "coverage": {"column_comment_ratio": 0.0, "table_comment": false, "producers": 1, "consumers": 2},
+      "coverage": {"column_comment_ratio": 0.0, "table_comment": false, "producers": 1, "consumers": 2,
+                   "columns_used": 2, "columns_declared": 3},
       "findings": [{"kind": "never_consumed_in_corpus", "text": "…",
                     "evidence": [{"task": "…", "statement_id": "stmt:001"}]}]
     }
@@ -107,8 +109,15 @@ card = render_table_card_markdown(cards["tables"][0])
   (`schedule_cycle` / `schedule`) and stays `null` when none was supplied — a cadence is
   never guessed from a partition column or a table name.
 - `consumed_by[].columns` lists only the columns a logic block **actually reads**;
-  `columns[]` is the union of the produced fields and the consumed columns, so even a
-  read-only table has a full column list (from its `related_metadata`).
+  `columns[]` is the union of every field the metadata declares
+  (`related_metadata.*.declared_columns[]`, in DDL order) with the produced fields and the
+  consumed columns, so even a read-only table has a full column list and an eighty-column
+  table is not cut down to the four columns this corpus happened to touch.
+- `columns[].used_in_corpus` says whether any task in the corpus wrote or read the column.
+  A `false` column keeps an empty `consumer_usage_counts` and a `null` `produced_summary`:
+  it is "declared by the metadata, never touched by this corpus", not "used by nobody".
+  `coverage.columns_used` / `coverage.columns_declared` are the same fact as two counts;
+  `columns_declared` is `null` (not 0) when no document declared the table.
 - `consumer_usage_counts` uses `filter`, `partition_filter`, `join_key`, `group_by`,
   `window_partition`, `window_order` and `output`, published in that order; a key whose
   count is zero is not published.
@@ -142,9 +151,9 @@ Neither becomes a card, and neither shows up in another table's `aliases`.
 
 | Section | Question it answers | Source of the facts |
 | --- | --- | --- |
-| 1 What this table is | table comment, business placement (domain / project / owner / layer, shown only when the metadata states it), alias spellings, producing/consuming statement counts | metadata facts + the producing statements' header comments (`SQL注释`, quoted verbatim) |
+| 1 What this table is | table comment, business placement (domain / project / owner / layer, shown only when the metadata states it), alias spellings, producing/consuming statement counts, and 「本语料用到 n/N 个字段」 (only when `columns_declared` is known) | metadata facts + the producing statements' header comments (`SQL注释`, quoted verbatim) |
 | 2 What one row represents | each producing statement's grain, logical keys, candidate keys, key confidence | structural inference (evidence is the `statement_id`) |
-| 3 Columns | column / type / comment / one produced-side sentence / consumer usage counts | metadata facts + SQL facts + structural inference |
+| 3 Columns | column / type / comment / one produced-side sentence / consumer usage counts; a column the corpus never touched shows `—` for its usage, and above 20 of them they move below the used ones under a one-line note | metadata facts + SQL facts + structural inference |
 | 4 Who produces it | task, statement, write mode, partition, refresh cadence | SQL facts + task metadata |
 | 5 Who consumes it | task, statement, role, which columns, how they are used | SQL facts + structural inference (the role) |
 | 6 Governance leads | multiple producers, key conflicts, never read, never written | SQL facts (evidence is `<task>/<statement_id>`) |
