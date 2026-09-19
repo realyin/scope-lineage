@@ -147,7 +147,29 @@
       "kind": "produced_table",
       "comment": null,
       "identity": {
-        "candidate_keys": [],
+        "candidate_keys": [
+          {
+            "columns": [
+              "customer_id",
+              "channel_name"
+            ],
+            "tier": "proven",
+            "evidence": [
+              {
+                "task": "golden_commented_insert",
+                "statement_id": "stmt:001",
+                "kind": "producer_key_confidence",
+                "basis": "proven"
+              },
+              {
+                "task": "golden_commented_task",
+                "statement_id": "stmt:001",
+                "kind": "producer_key_confidence",
+                "basis": "proven"
+              }
+            ]
+          }
+        ],
         "declared_hints": [],
         "multiplicity": [],
         "partition_columns": [
@@ -743,6 +765,32 @@
     }
   ],
   "constraints": [
+    {
+      "target": {
+        "entity": "mart.channel_summary"
+      },
+      "kind": "unique_per",
+      "columns": [
+        "customer_id",
+        "channel_name",
+        "dt"
+      ],
+      "tier": "proven",
+      "evidence": [
+        {
+          "task": "golden_commented_insert",
+          "statement_id": "stmt:001",
+          "kind": "producer_key_confidence",
+          "basis": "proven"
+        },
+        {
+          "task": "golden_commented_task",
+          "statement_id": "stmt:001",
+          "kind": "producer_key_confidence",
+          "basis": "proven"
+        }
+      ]
+    },
     {
       "target": {
         "entity": "mart.channel_summary",
