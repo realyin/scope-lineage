@@ -4,7 +4,7 @@ schema_version: "1.0"
 task_name: "golden_grouped_dedup_join"
 target_table: "mart.metric_by_segment"
 stmt_kind: "INSERT_OVERWRITE"
-lineage_digest: "b337ea20d7f3734e"
+lineage_digest: "0c34ee38cff93f20"
 ---
 
 # 字段映射文档 mart.metric_by_segment
@@ -162,7 +162,7 @@ lineage_digest: "b337ea20d7f3734e"
   - 等值键：segment（物理：`ods.events_a.segment = dim.segment_dim.segment`、`ods.events_b.seg_code = dim.segment_dim.segment`）
   - 附加条件：`` `d`.`rn` = 1 ``
 
-### scope `cte:ranked`（cte，角色 dedup）
+### scope `cte:ranked`（cte，角色 window）
 
 - 概要：基于 cte:joined；使用窗口函数排序/去重/取值；上游可追溯至 dim.segment_dim、ods.events_a、ods.events_b
 - 输入：cte:joined；物理上游：dim.segment_dim、ods.events_a、ods.events_b

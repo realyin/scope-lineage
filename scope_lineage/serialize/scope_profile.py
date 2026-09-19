@@ -123,8 +123,11 @@ def _display_name(scope_id: str, scope_data: ScopeData) -> str:
 def _fallback_role(scope_data: ScopeData) -> str:
     if scope_data.kind in ("union", "union_branch"):
         return scope_data.kind
+    # C1: without the scope graph this branch cannot see whether a predicate pins the
+    # rank column, and `dedup` is the stronger claim of the two, so it states the one it
+    # can prove. `scope_role_inferrer` decides between `dedup` and `window` for real.
     if any(c.transform == "WINDOW" for c in scope_data.columns):
-        return "dedup"
+        return "window"
     if any(c.transform == "AGGREGATE" for c in scope_data.columns) or scope_data.group_by:
         return "aggregate"
     if scope_data.joins:

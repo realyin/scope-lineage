@@ -209,7 +209,7 @@ happened in.
 | Key | Value | Meaning |
 | --- | --- | --- |
 | `kind` | enum string | `physical_table`, `cte`, `subquery`, `union`, `union_branch`, or `root`. |
-| `role` | string | A deterministic structural role such as `aggregate`, `dedup`, `join`; this is a SQL structure summary, not a business-domain judgment. |
+| `role` | string | A deterministic structural role: `aggregate`, `dedup`, `window`, `join`, `filter`, `label`, `pass_through`, `transform`, `union`, `union_branch`; this is a SQL structure summary, not a business-domain judgment. `dedup` requires both halves of the pattern: a **ranking** window (`ROW_NUMBER` / `RANK` / `DENSE_RANK` / `NTILE`) whose output column is pinned to a small constant (<= 10) by an `=` / `<=` / `<` predicate written in this scope or in **the scope that reads it** (a WHERE, a HAVING or a JOIN ON clause all count). Every other window-bearing scope is `window` -- a running aggregate, a `LAG` / `LEAD`, or a ranking nobody filters on adds a column and deduplicates nothing. |
 | `depends_on` | array<string> | Physical tables or other scope IDs it depends on directly. |
 | `alias_in_parent` | string | This scope's alias in the parent query. |
 | `writes_to` | string | The target table the ROOT scope writes. |

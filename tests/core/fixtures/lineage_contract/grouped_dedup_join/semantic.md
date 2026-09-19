@@ -4,7 +4,7 @@ schema_version: "1.0"
 task_name: "golden_grouped_dedup_join"
 target_table: "mart.metric_by_segment"
 stmt_kind: "INSERT_OVERWRITE"
-lineage_digest: "b337ea20d7f3734e"
+lineage_digest: "0c34ee38cff93f20"
 ---
 
 # 任务语义描述 mart.metric_by_segment
@@ -14,7 +14,7 @@ lineage_digest: "b337ea20d7f3734e"
 - 目标表：`mart.metric_by_segment`（表注释：注释未知）（元数据事实）
 - 语句类型：INSERT_OVERWRITE；静态分区 dt = `20260101`（SQL事实）
 - 目标表元数据来源：target_ddl（元数据事实）
-- 结构摘要：ROOT 不直接读取物理表；关联 1 个上游（1 个去重）；输出 6 列。（结构推断；证据 scope_profile）
+- 结构摘要：ROOT 不直接读取物理表；关联 1 个上游（1 个窗口）；输出 6 列。（结构推断；证据 scope_profile）
 
 共 3 张输入表（角色为结构推断，其余为 SQL/元数据事实）：
 
@@ -93,7 +93,7 @@ lineage_digest: "b337ea20d7f3734e"
   - 关联：LEFT_OUTER 关联 cte:latest_dim，键 segment，附加条件 `d`.`rn` = 1，右侧无匹配时保留左行，右侧字段为空（SQL事实；证据 logic:cte:joined:join:001）
 - 输出：5 列（`segment`、`band`、`total`、`cnt`、`segment_name`）（SQL事实）
 
-### 阶段 8：ranked（`cte:ranked`，角色 dedup）
+### 阶段 8：ranked（`cte:ranked`，角色 window）
 
 - 直接输入：`cte:joined`（SQL事实）
 - 直接读取物理表：无（仅读上游 scope）（SQL事实）

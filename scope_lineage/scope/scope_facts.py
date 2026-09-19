@@ -3069,7 +3069,8 @@ def _has_aggregate_function(expression: str) -> bool:
 
 
 def _has_udf_function(functions: list[str]) -> bool:
-    return any(function not in _KNOWN_SCALAR_FUNCTIONS for function in functions)
+    """A name the catalog cannot place. Names compare case-insensitively (C2)."""
+    return any(function.lower() not in _KNOWN_SCALAR_FUNCTIONS for function in functions)
 
 
 def _join_type_from_ast(join: exp.Join) -> str:

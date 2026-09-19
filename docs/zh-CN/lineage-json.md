@@ -194,7 +194,7 @@ GROUP BY c.customer_id;
 | Key | Value | 含义 |
 | --- | --- | --- |
 | `kind` | enum string | `physical_table`、`cte`、`subquery`、`union`、`union_branch` 或 `root`。 |
-| `role` | string | 确定性结构角色，如 `aggregate`、`dedup`、`join`；这是 SQL 结构摘要，不是业务域判断。 |
+| `role` | string | 确定性结构角色：`aggregate`、`dedup`、`window`、`join`、`filter`、`label`、`pass_through`、`transform`、`union`、`union_branch`；这是 SQL 结构摘要，不是业务域判断。`dedup` 只在两个条件同时成立时给出：窗口是**排名窗口**（`ROW_NUMBER` / `RANK` / `DENSE_RANK` / `NTILE`），且它的输出列被本 scope 或**读它的那个 scope** 用 `=` / `<=` / `<` 钉到一个小常量（≤ 10；WHERE、HAVING 与 JOIN ON 都算）。其余带窗口的 scope 是 `window`——累计聚合、`LAG` / `LEAD`、以及没人过滤的排名，都只是多加一列，不去重也不改行数。 |
 | `depends_on` | array<string> | 直接依赖的物理表或其他 scope ID。 |
 | `alias_in_parent` | string | 该 scope 在父查询中的别名。 |
 | `writes_to` | string | ROOT scope 写入的目标表。 |

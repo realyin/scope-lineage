@@ -328,6 +328,7 @@ _AMBIGUOUS = "AMBIGUOUS"
 _SCOPE_ROLE_LABELS = (
     ("aggregate", "聚合"),
     ("dedup", "去重"),
+    ("window", "窗口"),
     ("union", "合并"),
     ("join", "关联"),
     ("filter", "过滤"),
