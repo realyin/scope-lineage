@@ -166,6 +166,7 @@ def statement_observations(
 ) -> list[dict]:
     """Every constant this statement writes beside a column, one entry per occurrence."""
     context = _context(document, task, statement_id)
+    context["sql_aliases"] = _sql_aliases(fields, context["target_table"])
     observations: list[dict] = []
     for rule in rules:
         kind = str(rule.get("kind"))
@@ -203,6 +204,22 @@ def _context(document: Mapping, task: str | None, statement_id: str | None) -> d
         "chains": _chain_steps(document),
         "input_tables": metadata.get("input_tables") or {},
         "output_tables": metadata.get("output_tables") or {},
+    }
+
+
+def _sql_aliases(fields: Sequence[Mapping], target_table: str) -> dict[str, str]:
+    """``<target table>.<column> -> the alias the SQL wrote``, for a positional write.
+
+    The profile already decided which of these disagreements is real (WI-B's three
+    conditions, the `alias_position_mismatch` ones), so the dictionary reads its answer
+    instead of re-deriving it from the contract and risking a second opinion.
+    """
+    if not target_table:
+        return {}
+    return {
+        f"{target_table}.{field.get('column')}": str(field["sql_alias"])
+        for field in fields
+        if field.get("sql_alias")
     }
 
 
@@ -302,20 +319,29 @@ def _case_observations(rule: Mapping, context: dict) -> list[dict]:
 def _case_label_observations(
     rule: Mapping, branches: Sequence[Mapping], context: dict
 ) -> list[dict]:
-    """The THEN / ELSE constants, attributed to the column the CASE produces."""
+    """The THEN / ELSE constants, attributed to the column the CASE produces.
+
+    WI-C: when the branches are NOT all scalar constants, a *numeric* branch is a
+    computation default and not a code. ``CASE WHEN gap > 0 THEN 0 ELSE gap END`` caps a
+    number at zero, and filing ``0`` as a candidate code of a DECIMAL amount column
+    publishes a fact that is not one. A *string* branch of such a CASE is still a label
+    somebody chose, so it is recorded as before -- with no closed set, which is what a
+    non-exhaustive CASE already meant. An all-constant CASE is untouched.
+    """
     names = context["block_outputs"].get(str(rule.get("evidence")) or "")
     if not names:
         return []
     otherwise = semantic_text.parse_expression(rule.get("else"))
     labels = [semantic_text.parse_expression(branch.get("then")) for branch in branches]
-    exhaustive = otherwise is not None and all(
-        _is_scalar_constant(node) for node in [*labels, otherwise]
-    )
-    closed = _closed_set([*labels, otherwise], BASIS_CASE_EXHAUSTIVE) if exhaustive else None
+    results = [*labels, otherwise]
+    exhaustive = otherwise is not None and all(_is_scalar_constant(node) for node in results)
+    closed = _closed_set(results, BASIS_CASE_EXHAUSTIVE) if exhaustive else None
+    mixed = any(node is not None and not _is_scalar_constant(node) for node in results)
     column_ref, logical = _output_reference(rule, names[0], context)
     return [
         item
-        for node, branch in zip([*labels, otherwise], [*branches, None])
+        for node, branch in zip(results, [*branches, None])
+        if not (mixed and _is_numeric_literal(node))
         for item in _observation(
             column_ref,
             logical,
@@ -329,6 +355,13 @@ def _case_label_observations(
             comments=rule.get("sql_comments") or [],
         )
     ]
+
+
+def _is_numeric_literal(node) -> bool:
+    """WI-C: a number a branch returns, sign included. ``'0'`` is a string and is not."""
+    if isinstance(node, exp.Neg):
+        return _is_numeric_literal(node.this)
+    return isinstance(node, exp.Literal) and not node.args.get("is_string")
 
 
 def _label_expression(branch: Mapping | None, node) -> str:
@@ -538,6 +571,7 @@ def _observation(
             "task": lookups["task"],
             "statement_id": lookups["statement_id"],
             "closed_set": closed_set,
+            "sql_alias": lookups.get("sql_aliases", {}).get(column_ref),
             "comments": _comment_pool(column_ref, logical, column, comments, lookups),
         }
     ]
@@ -722,6 +756,9 @@ _VALUE_KEYS = (
     "column_ref",
     "logical",
     "column",
+    # WI-B: only where a positional write filed these values under a column name the
+    # author never wrote. Absent everywhere else, so it never claims a rename.
+    "sql_alias",
     "value",
     "sql_literal",
     "kind",
@@ -803,6 +840,8 @@ def _value_entry(
     }
     if first.get("logical"):
         entry["logical"] = True
+    if first.get("sql_alias"):
+        entry["sql_alias"] = str(first["sql_alias"])
     return {key_name: entry[key_name] for key_name in _VALUE_KEYS if key_name in entry}
 
 

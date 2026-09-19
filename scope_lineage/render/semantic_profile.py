@@ -1403,6 +1403,9 @@ def _scope_fields(document: dict, refs: Sequence[dict] | None) -> list[dict]:
 _FIELD_KEY_ORDER = (
     "column",
     "column_label",
+    # WI-B: published only where a positional write renamed the column -- see
+    # `_sql_alias`. It sits beside the name it disagrees with, not among the SQL facts.
+    "sql_alias",
     "summary",
     "target_comment",
     "target_comment_source",
@@ -1602,6 +1605,9 @@ def _build_field(document: dict, entry: dict, chain: dict | None, context: dict)
     )
     if comment_source is not None:
         field["target_comment_source"] = comment_source
+    alias = _sql_alias(document, entry)
+    if alias:
+        field["sql_alias"] = alias
     if nullable:
         field["nullable_by_join"] = True
     if sql_comments:
@@ -1610,6 +1616,23 @@ def _build_field(document: dict, entry: dict, chain: dict | None, context: dict)
     if spec is not None:
         field["metric_spec"] = spec
     return {key: field[key] for key in _FIELD_KEY_ORDER if key in field}
+
+
+def _sql_alias(document: Mapping, entry: Mapping) -> str | None:
+    """The name the SQL gave a value that a DDL position filed under another name.
+
+    Three conditions, all of them the `alias_position_mismatch` finding's: the write is
+    positional, the two names disagree, and the parsed name is an alias somebody wrote
+    rather than a ``_col_N`` placeholder. Anything else would print a disagreement that
+    is not one.
+    """
+    binding = document.get("target_field_binding") or {}
+    if str(binding.get("method")) != _POSITIONAL_BINDING_METHOD:
+        return None
+    alias = str(entry.get("parsed_column") or "")
+    if not alias or alias == str(entry.get("column")) or _name_is_generated(entry):
+        return None
+    return alias
 
 
 def _chain_sql_comments(chain: dict | None, context: dict) -> list[str]:

@@ -133,6 +133,14 @@ attribution rule: a physical table is claimed only when **exactly one** of the r
 `fields[]` carries that column name, otherwise the entry falls back to the scope level
 (with two joined tables both holding `status`, either choice is a guess).
 
+`sql_alias` (WI-B) appears only where the write is **bound by DDL position**, the
+observation lands on a target column, the alias the author wrote differs from the column
+name at that position, and that alias is one a person wrote (not a `_col_N` placeholder);
+its value is the author's alias verbatim. It is the same test as `semantic.json`'s
+`fields[].sql_alias` and `alias_position_mismatch`. Both `glossary.md`'s column section
+and the fill-in form's append 「（SQL 别名 `<alias>`，按 DDL 位置写入）」 to their heading --
+without it the reader cannot find that column name anywhere in their own SQL.
+
 The `context` vocabulary (`observations[].context`):
 
 | Value | Where it comes from |
@@ -141,7 +149,7 @@ The `context` vocabulary (`observations[].context`):
 | `filter_in` | `col IN (…)`, one entry per list item, all sharing one `closed_set` |
 | `filter_rlike` | `col LIKE 'pattern'` / `col RLIKE 'pattern'` -- **the whole pattern is one observation**, never split on `|`: splitting would invent two values the SQL never compares against. Its `kind` is `pattern`, not `literal` |
 | `case_condition` | `col = constant` inside a CASE branch's WHEN condition |
-| `case_then` | A CASE's THEN / ELSE constants, attributed to the column that CASE **produces** |
+| `case_then` | A CASE's THEN / ELSE constants, attributed to the column that CASE **produces**. WI-C: where the result branches are **not all** scalar constants (a cap such as `CASE WHEN gap > 0 THEN 0 ELSE gap END`), a **numeric** literal branch is a computation default rather than a business code and yields no observation, while a **string** branch of the same CASE is still recorded (`closed_set` still `null`). An all-constant CASE is untouched |
 | `union_constant` | A constant projected inside one UNION branch, attributed to **the column that branch projects it as** (see below) |
 | `constant_projection` | A constant projection outside any UNION branch, attributed the same way: to the output column of the step that produces it |
 | `join_condition` | A JOIN's extra condition (`ON … AND d.rn = 1`) |
@@ -258,7 +266,7 @@ reason.
 | No switches | `Y` / `N` / `yes` / `no` / `true` / `false` (case-insensitively) answer "yes or no", which the reader already knows |
 | No bare numbers | `rn = 1` and `flag = 0` are positions and switches -- **excluded even inside a proven closed set**, because `IN (0, 1, 2)` only pins a position to a set |
 | No date-shaped literals | `'20260814'` is an instance date, not a code (see `instance_date` in the semantic doc) |
-| No column left with fewer than two values | One value is not a code system, and the answer describes no set |
+| No column left with fewer than two values | One value is not a code system, and the answer describes no set -- a statement about what earns a place in the form, not about what may be asked, so the uncapped form (`--template-top 0`) keeps them (WI-D) |
 | Nothing already confirmed | A value whose `meaning` already carries text is not asked twice |
 
 **Order and size**: the first version ranked closed sets first and then by observation
@@ -276,7 +284,8 @@ becomes a value's meaning -- "this column is probably worth asking about" and "I
 this value means" are different claims. Ties break on the column name, values inside a
 column order by task count, observation count and spelling, so two runs over one corpus
 produce identical bytes. `--template-top` still caps the number of **values** (default 20);
-the cut may land inside a column, and every column before it is whole.
+the cut may land inside a column, and every column before it is whole. `0` means **no cap**:
+the form asks about every askable value, single-value columns included.
 
 **What it did not ask about is in the header**: `generated.excluded_values` and
 `generated.excluded_scope_columns`, rendered in the markdown as one line,

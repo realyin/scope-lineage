@@ -740,6 +740,56 @@ def test_the_alias_finding_leads_the_governance_list() -> None:
     assert FINDING_KINDS[0] == "alias_position_mismatch"
 
 
+
+# --------------------------- WI-B: the SQL alias beside a positionally bound column
+
+
+def test_a_positionally_bound_field_publishes_the_sql_alias() -> None:
+    """A row headed `account_id` showing an expression the author wrote as `wrong_key`
+    reads as nonsense until the alias is beside it."""
+    field = _field(build_semantic_profile(_alias_document()), "account_id")
+
+    assert field["sql_alias"] == "wrong_key"
+    assert list(field)[:3] == ["column", "column_label", "sql_alias"]
+
+
+def test_an_agreeing_alias_publishes_nothing() -> None:
+    document = _alias_document()
+    for entry in document["end_to_end_lineage"]:
+        entry["parsed_column"] = entry["column"]
+
+    assert "sql_alias" not in _field(build_semantic_profile(document), "account_id")
+
+
+def test_a_non_positional_binding_publishes_no_alias() -> None:
+    document = _alias_document()
+    document["target_field_binding"]["method"] = "insert_column_list"
+
+    assert "sql_alias" not in _field(build_semantic_profile(document), "account_id")
+
+
+def test_a_generated_projection_name_is_not_published_as_an_alias() -> None:
+    """``_col_1`` is the absence of an alias, and printing it would invent one."""
+    profile = build_semantic_profile(_generated_name_document())
+
+    assert [field for field in profile["fields"] if "sql_alias" in field] == []
+
+
+def test_the_field_dictionary_row_and_section_carry_the_alias() -> None:
+    rendered = render_semantic_markdown(
+        build_semantic_profile(_alias_document()), sections=["fields"]
+    )
+
+    assert (
+        "| 1 | `dwd.account_daily.account_id`（SQL 别名 `wrong_key`，按 DDL 位置写入） |"
+        in rendered
+    )
+    assert (
+        "### 字段 dwd.account_daily.account_id（SQL 别名 `wrong_key`，按 DDL 位置写入）"
+        in rendered
+    )
+
+
 # ------------------------------------------- WI-1g D1: UNION branches in the summary
 
 

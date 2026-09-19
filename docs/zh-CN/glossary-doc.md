@@ -121,6 +121,12 @@ markdown = render_glossary_markdown(glossary)
 凭空造一张表。归属规则：该规则的 `fields[]` 里**恰好一个**同名列时才认物理表，
 否则退到 scope 级（两张表都有 `status` 时，认哪一张都是猜）。
 
+`sql_alias`（WI-B）只在**按 DDL 位置写入**且这条观察落在目标列上、而作者写的别名与该位置
+列名不同、且那个别名是人写的（不是 `_col_N` 占位名）时出现，值为作者写的别名原文；判定与
+`semantic.json` 的 `fields[].sql_alias`、`alias_position_mismatch` 是同一套。`glossary.md`
+的列小节标题与待填模板的列小节标题都会跟着写「（SQL 别名 `<别名>`，按 DDL 位置写入）」——
+否则读者在自己的 SQL 里搜不到这个列名。
+
 `context` 词表（`observations[].context`）：
 
 | 取值 | 来自哪里 |
@@ -129,7 +135,7 @@ markdown = render_glossary_markdown(glossary)
 | `filter_in` | `col IN (…)`，列表里每个值一条，并互为 `closed_set` |
 | `filter_rlike` | `col LIKE '模式'` / `col RLIKE '模式'`——**整个模式记成一条观察**，不拆 `|` 分支：拆开等于发明两个 SQL 从未比较过的值；这条观察的 `kind` 是 `pattern` 而不是 `literal` |
 | `case_condition` | CASE 分支的 WHEN 条件里的 `col = 常量` |
-| `case_then` | CASE 的 THEN / ELSE 常量，归到该 CASE **产出的那个列** |
+| `case_then` | CASE 的 THEN / ELSE 常量，归到该 CASE **产出的那个列**。WI-C：各结果分支**不全是**标量常量时（`CASE WHEN gap > 0 THEN 0 ELSE gap END` 这类封顶），**数值**字面量分支是计算兜底而不是业务码，不记观察；同样情形下的**字符串**分支照记（`closed_set` 仍为 `null`）。分支全是常量时不受影响 |
 | `union_constant` | UNION 某个分支里写死的投影常量，归到**该分支把它投影成的那一列**（见下） |
 | `constant_projection` | 不在 UNION 分支里的投影常量，同样归到产生它的那一步的输出列 |
 | `join_condition` | JOIN 的附加条件（`ON … AND d.rn = 1`） |
@@ -226,7 +232,7 @@ scope-lineage glossary --lineage corpus --out dict --overrides dict/glossary.ove
 | 排除开关 | `Y` / `N` / `yes` / `no` / `true` / `false`（不区分大小写）答的是「是或否」，读者本来就知道 |
 | 排除裸数字 | `rn = 1`、`flag = 0` 是位置与开关；**即使落在已证明封闭的集合里也不问**（`IN (0, 1, 2)` 只是把位置钉在一个集合里） |
 | 排除日期形字面量 | `'20260814'` 是实例日期，不是编码（见 semantic 文档的 `instance_date`） |
-| 排除只剩一个取值的整列 | 一个取值不成编码体系，答完也说不出一个集合 |
+| 排除只剩一个取值的整列 | 一个取值不成编码体系，答完也说不出一个集合——这是「值不值得排进表单」而不是「不许问」，所以 `--template-top 0` 的不限量表单会把它们收回来（WI-D） |
 | 排除已确认的取值 | `meaning` 已有文本的不再问第二遍 |
 
 **排序与条数**：上一版按 `closed_set` 优先 + 观察数排，真实语料的第一页于是被 `Y`/`N`、`1`/`0`
@@ -239,7 +245,7 @@ scope-lineage glossary --lineage corpus --out dict --overrides dict/glossary.ove
 线索词是 `编码`/`代码`/`类型`/`状态`/`标记`/`code`/`type`/`status`/`flag`。它只是**排序线索**，
 永远不会变成某个取值的含义——「这列大概值得问」和「知道这列的某个值是什么意思」是两回事。
 同分按列名定序，列内按出现任务数、观察数、取值拼写定序，所以同一份语料两次生成字节一致。
-`--template-top` 仍然是**取值条数**上限（默认 20），截断可能落在一列中间，它前面的列是完整的。
+`--template-top` 仍然是**取值条数**上限（默认 20），截断可能落在一列中间，它前面的列是完整的；写 `0` 表示**不设上限**，把全部可问取值都问一遍——包括只剩一个取值的列。
 
 **它没问什么也写在表头**：`generated.excluded_values` / `generated.excluded_scope_columns` 两个
 计数，md 里是一行 `> 排除了 N 个开关/数字/日期型取值与 M 个 scope 级列。`——一张只问三列的表，

@@ -116,6 +116,7 @@
     {
       "column": "account_id",
       "column_label": "dwd.account_daily.account_id",
+      "sql_alias": "wrong_key",
       "summary": "（注释未知）：直接取自 ods.account_snapshot.account_key（注释未知）",
       "target_comment": null,
       "type": "bigint",
@@ -149,6 +150,7 @@
     {
       "column": "balance",
       "column_label": "dwd.account_daily.balance",
+      "sql_alias": "wrong_balance",
       "summary": "（注释未知）：直接取自 ods.account_snapshot.balance_value（注释未知）",
       "target_comment": null,
       "type": "decimal(18,2)",

@@ -67,8 +67,8 @@ def add_glossary_parser(subcommands) -> None:
         type=int,
         default=TEMPLATE_TOP_DEFAULT,
         help=(
-            "How many values the --template form asks about "
-            f"(default: {TEMPLATE_TOP_DEFAULT})"
+            "How many values the --template form asks about; 0 asks about every "
+            f"askable value (default: {TEMPLATE_TOP_DEFAULT})"
         ),
     )
     glossary_cmd.add_argument(
