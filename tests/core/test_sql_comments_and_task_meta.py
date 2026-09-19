@@ -473,3 +473,153 @@ def test_the_cli_redacts_by_default_and_the_flag_turns_it_off(tmp_path: Path) ->
     ]) == 0
     written = (verbatim_out / "pii" / "lineage.json").read_text(encoding="utf-8")
     assert "zhangsan@example.invalid" in written
+
+
+# ------------------------------------------------- 10. the script header block (B1)
+#
+# A task script usually opens with the block that says what the job does, and that block
+# sits above the session settings rather than above the INSERT. sqlglot attaches it to the
+# first `SET`, which this tool does not model, so it used to be dropped: the single best
+# sentence about the task never reached any artifact. It is published on the first modelled
+# write statement and, once, as the task document's `script_comments`.
+
+PREAMBLE_SQL = """-- 任务：门店日销汇总（合成示例）
+-- 口径：仅统计营业中的门店
+SET spark.sql.shuffle.partitions=200;
+SET spark.sql.adaptive.enabled=true;
+INSERT INTO mart.store_daily
+SELECT s.store_id AS store_id, SUM(s.amount) AS total_amount
+FROM ods.store_event s
+WHERE s.status = 'OPEN'
+GROUP BY s.store_id
+"""
+
+PREAMBLE_SCHEMA = {"ods.store_event": ["store_id", "amount", "status"]}
+
+SCRIPT_HEADER = ["任务：门店日销汇总（合成示例）", "口径：仅统计营业中的门店"]
+
+TWO_WRITE_SQL = """-- 任务：门店日销汇总（合成示例）
+SET spark.sql.shuffle.partitions=200;
+INSERT INTO mart.store_daily SELECT s.store_id AS store_id FROM ods.store_event s;
+-- 第二步：只写营业中的门店
+INSERT INTO mart.store_open SELECT s.store_id AS store_id FROM ods.store_event s
+"""
+
+
+def _statement(sql: str = PREAMBLE_SQL, **kwargs) -> dict:
+    return to_lineage_dict(
+        parse_scope_lineage(sql, "b1", schema=PREAMBLE_SCHEMA, **kwargs)
+    )
+
+
+def _task(sql: str = PREAMBLE_SQL, schema=PREAMBLE_SCHEMA, **kwargs) -> dict:
+    return to_task_lineage_dict(
+        parse_task_lineage(sql, task_name="b1", schema=schema, **kwargs)
+    )
+
+
+def test_a_header_block_above_a_set_preamble_reaches_the_first_write() -> None:
+    assert _statement()["statement_comments"] == SCRIPT_HEADER
+
+
+def test_the_task_document_publishes_the_header_once_at_task_level() -> None:
+    document = _task()
+    assert document["script_comments"] == SCRIPT_HEADER
+    assert document["statement_lineage"]["stmt:003"]["statement_comments"] == (
+        SCRIPT_HEADER
+    )
+
+
+def test_the_script_header_precedes_the_statements_own_header_block() -> None:
+    sql = (
+        "-- 任务：门店日销汇总（合成示例）\n"
+        "SET spark.sql.shuffle.partitions=200;\n"
+        "-- 本条：只汇总营业中的门店\n"
+        "INSERT INTO mart.store_daily SELECT s.store_id AS store_id FROM ods.store_event s\n"
+    )
+    assert _statement(sql)["statement_comments"] == [
+        "任务：门店日销汇总（合成示例）",
+        "本条：只汇总营业中的门店",
+    ]
+
+
+def test_a_note_written_between_two_writes_stays_on_the_second_one() -> None:
+    document = _task(TWO_WRITE_SQL)
+    assert document["script_comments"] == ["任务：门店日销汇总（合成示例）"]
+    lineage = document["statement_lineage"]
+    assert lineage["stmt:002"]["statement_comments"] == [
+        "任务：门店日销汇总（合成示例）"
+    ]
+    assert lineage["stmt:003"]["statement_comments"] == ["第二步：只写营业中的门店"]
+
+
+def test_a_repeat_of_the_header_on_the_first_write_is_published_once() -> None:
+    sql = (
+        "-- 任务：门店日销汇总（合成示例）\n"
+        "SET spark.sql.shuffle.partitions=200;\n"
+        "-- 任务：门店日销汇总（合成示例）\n"
+        "INSERT INTO mart.store_daily SELECT s.store_id AS store_id FROM ods.store_event s\n"
+    )
+    assert _statement(sql)["statement_comments"] == [
+        "任务：门店日销汇总（合成示例）"
+    ]
+
+
+def test_a_script_without_a_preamble_publishes_no_script_comments() -> None:
+    document = _task(COMMENTED_SQL, schema=SCHEMA)
+    assert document["script_comments"] == []
+    assert document["statement_lineage"]["stmt:001"]["statement_comments"] == [
+        "任务：每日客户画像",
+        "口径：仅统计活跃客户",
+    ]
+
+
+def test_stripping_removes_the_script_header_everywhere() -> None:
+    assert _statement(strip_comments=True)["statement_comments"] == []
+    document = _task(strip_comments=True)
+    assert document["script_comments"] == []
+    assert document["statement_lineage"]["stmt:003"]["statement_comments"] == []
+    assert "门店日销汇总" not in json.dumps(document, ensure_ascii=False)
+
+
+def test_a_contact_shape_in_the_script_header_is_masked_like_any_other_comment() -> None:
+    sql = (
+        "-- 口径问题联系 demo_owner@example.com（合成地址）\n"
+        "SET spark.sql.shuffle.partitions=200;\n"
+        "INSERT INTO mart.store_daily SELECT s.store_id AS store_id FROM ods.store_event s\n"
+    )
+    masked = ["口径问题联系 <email>（合成地址）"]
+    assert _statement(sql)["statement_comments"] == masked
+    document = _task(sql)
+    assert document["script_comments"] == masked
+    assert "example.com" not in json.dumps(document, ensure_ascii=False)
+
+
+def test_the_first_write_may_be_a_ctas_and_the_header_still_reaches_it() -> None:
+    sql = (
+        "-- 任务：门店快照（合成示例）\n"
+        "SET spark.sql.adaptive.enabled=true;\n"
+        "CREATE TABLE mart.store_snapshot AS\n"
+        "SELECT s.store_id AS store_id FROM ods.store_event s\n"
+    )
+    assert _statement(sql)["statement_comments"] == ["任务：门店快照（合成示例）"]
+    assert _task(sql)["script_comments"] == ["任务：门店快照（合成示例）"]
+
+
+def test_the_boundary_is_the_first_write_not_the_first_modelled_statement() -> None:
+    """A row mutation before the first write is part of the preamble too.
+
+    The task document models a leading DELETE as a state transition, but it carries no
+    comments key, and the statement document records it as skipped -- so a comment written
+    above it reached no artifact either way. Publishing it as the script header is the
+    documented boundary ("everything before the first write"), and it keeps the two
+    contracts saying the same thing about the same script. The cost is real and bounded:
+    a note that was written about the DELETE is published as the script's opening block.
+    """
+    sql = (
+        "-- 清理昨天的分区（合成示例）\n"
+        "DELETE FROM mart.store_daily WHERE dt = '20260101';\n"
+        "INSERT INTO mart.store_daily SELECT s.store_id AS store_id FROM ods.store_event s\n"
+    )
+    assert _task(sql)["script_comments"] == ["清理昨天的分区（合成示例）"]
+    assert _statement(sql)["statement_comments"] == ["清理昨天的分区（合成示例）"]

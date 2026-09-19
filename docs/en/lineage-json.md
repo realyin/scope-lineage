@@ -107,7 +107,7 @@ diagnostics summary.
 | `syntax_status` | enum string | Yes | `strict_ok`, `recovered`, or `failed`. `recovered` means the parser went through recovery, and the diagnostics must be read alongside. |
 | `syntax_errors` | array<object> | Yes | Syntax errors or recovery evidence. Elements may carry `description`, `line`, `col`, and context fragments. |
 | `skipped_statements` | array<object> | Conditional | Top-level statements not modeled as a projection write by v1. Contains a stable `statement_id`, zero-based `statement_index`, `statement_kind`, `category`, `model_status`, `reason`, `normalized_sql`, and a note on the supported range; row changes should be modeled with v2 instead. **Statements whose `category` is `control_statement` (such as `SET`) or `empty_statement` are ignored by design and are only recorded — they no longer raise an `unsupported_statement` warning**; to know what was ignored, read this field (it appears only in `lineage.json`, not in `diagnostics.json`).<br>The single-statement API `parse_scope_lineage` models only the **first** write statement in a script: later write statements are recorded here with `category: additional_write_statement` and `model_status: not_modeled` (with `target_table`), and one `additional_write_statements_not_modeled` warning lists the unmodeled targets. Those statements are themselves supported — to model all of them, use `parse_all_scope_lineage` (which is what the CLI does) or contract 2.0. |
-| `statement_comments` | array<string> | Yes | The statement's header comment block, verbatim and in writing order (trimmed, with adjacent repeats collapsed). **Always present**: an empty array says this statement has no header comment, whereas a missing key could not be distinguished from "this producer does not carry comments". A comment is the author's free text, not a SQL fact, and may carry information that was never meant to leave the system — see §18. |
+| `statement_comments` | array<string> | Yes | The statement's header comment block, verbatim and in writing order (trimmed, with adjacent repeats collapsed). **Always present**: an empty array says this statement has no header comment, whereas a missing key could not be distinguished from "this producer does not carry comments". When a script's opening block is written above a `SET` (or any other unmodeled statement), it belongs to the script rather than to any modeled statement: such comments are merged into the **first** write statement's array, in writing order and ahead of that statement's own header block, with a repeat published once. A comment written between two write statements is never moved. A comment is the author's free text, not a SQL fact, and may carry information that was never meant to leave the system — see §18. |
 | `target_partition_spec` | object | Yes | Map of partition name to partition value. A dynamic partition's value may be `null`. |
 | `target_partition_columns` | array<string> | Yes | The target table's partition column names. |
 | `target_partition_mode` | enum string | Yes | `none`, `static`, `dynamic`, or `mixed`, describing **how the `PARTITION(...)` clause is written**: a value given is `static`, no value is `dynamic`, no clause at all is `none`. **It is unrelated to the session setting `spark.sql.sources.partitionOverwriteMode`** and does not state how much data this overwrite deletes — the two have similar names and different meanings. The actual blast radius of an overwrite is expressed by v2's `effect.rowset_effect`; see task-lineage-v2.md. |
@@ -908,15 +908,18 @@ graph edges are never published as a successful artifact.
 
 A comment is **text the author wrote for a person**, not a SQL fact. The contract collects it by default, because it is often the densest piece of meaning in a statement; for exactly that reason it can also carry information the statement itself never states.
 
-### 18.1 The three collection points
+### 18.1 The four collection points
 
 | Contract location | Collected from | Behaviour when empty |
 | --- | --- | --- |
-| `statement_comments[]` | Comments on the statement's top-level node, i.e. the header block | Always present; `[]` when empty |
+| `statement_comments[]` | Comments on the statement's top-level node, i.e. the header block, plus the script header block merged into it | Always present; `[]` when empty |
+| `script_comments[]` (top level of the 2.0 task document only) | Comments on the unmodeled statements that run **before** the first write (`SET`, `USE`, `ADD JAR`, `CREATE TEMPORARY FUNCTION`, a `DROP/CREATE TABLE IF NOT EXISTS` preamble, …) | Always present; `[]` when empty |
 | `scopes.<id>.outputs[].comments[]` | Comments inside that projection's expression subtree, the alias node's own first | Key absent when there are none |
 | `scopes.<id>.logic_blocks[].comments[]` | Comments inside that logic block's own expression | Key absent when there are none |
 
-All three apply the same normalization: trim, drop empties, collapse **adjacent** repeats. Adjacent only — the same sentence written on two branches of a CASE is two facts about two branches, and deduplicating across the list would state that the author wrote it once.
+The script header block is the passage most readers are after — "what does this job actually do" — and it is usually written above a `SET`. Nothing models a `SET`, so that passage used to reach nobody. It is collected once and published in two places: `script_comments[]` at the top of the task document (said once per task, so a multi-write script is not read as if the block described each write), and the first write statement's `statement_comments[]` (so a consumer reading one statement in isolation still sees it). A comment written **between** two write statements is outside this rule: it is already attached to the write it was written above, and moving it would file one statement's note under another.
+
+All four apply the same normalization: trim, drop empties, collapse **adjacent** repeats. Adjacent only — the same sentence written on two branches of a CASE is two facts about two branches, and deduplicating across the list would state that the author wrote it once.
 
 A `--` or `/* */` inside a string literal or a backtick-quoted identifier is not read as a comment: `WHERE note = '-- not a comment'` is ordinary Spark SQL, and an implementation that cannot see quoting publishes the author's data as the author's commentary.
 
@@ -938,7 +941,7 @@ The personal data a comment most often carries is a way to reach a person, so **
 | Phone number | `<phone>` | An 11-digit mainland-China mobile (`1[3-9]…`) and international forms such as `+86 138…` |
 | ID number | `<id>` | The 18-digit (final `X` allowed) and 15-digit shapes, whose middle digits must read as a real birth date |
 
-Masking happens **at collection time**, on the comment text itself, so the three `comments` keys and the inline copy inside a rendered expression (such as `logic_blocks[].raw_expression`) all carry the same masked text; `task_meta.description` goes through it too, being free text a person wrote. The SQL expression itself is never rewritten: `WHERE id_no = '110101199003078219'` is data the statement operates on, and masking it would change what the SQL says.
+Masking happens **at collection time**, on the comment text itself, so every comment key above and the inline copy inside a rendered expression (such as `logic_blocks[].raw_expression`) all carry the same masked text; `task_meta.description` goes through it too, being free text a person wrote. The SQL expression itself is never rewritten: `WHERE id_no = '110101199003078219'` is data the statement operates on, and masking it would change what the SQL says.
 
 **This is shape matching, not identification, and it is not exhaustive.** A number written a little differently slips through (other separators, full-width digits, an address spelled out in words), while a business code that happens to have the shape (a six-digit region code that does not start with a zero, followed by a real birth date) is masked as if it were an ID. Length alone is not the shape, so a serial number such as `123456789012345` is left as written. It lowers the chance of publishing contact details by accident; it is not a compliance guarantee. When no comment may leave the machine, use the complete switch in §18.4.
 
@@ -956,6 +959,6 @@ scope-lineage parse --sql-file task.sql --out out/ --no-redact-comments
 scope-lineage parse --sql-file task.sql --out out/ --strip-comments
 ```
 
-`--strip-comments` discards comments during parsing: the three keys above become empty or absent, **and** the inline copy that rides along inside rendered expressions (such as `logic_blocks[].raw_expression`) disappears with them. It is a complete switch, not a half one that only empties the new keys. It is independent of `--no-redact-comments`: once the comments are gone there is nothing left to mask.
+`--strip-comments` discards comments during parsing: the keys above become empty or absent, **and** the inline copy that rides along inside rendered expressions (such as `logic_blocks[].raw_expression`) disappears with them. It is a complete switch, not a half one that only empties the new keys. It is independent of `--no-redact-comments`: once the comments are gone there is nothing left to mask.
 
 When comments should reach the artifact but not leave the machine, the answer is to limit where the artifact travels, not to rely on consumers skipping these keys.

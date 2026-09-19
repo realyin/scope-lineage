@@ -98,7 +98,7 @@ GROUP BY c.customer_id;
 | `syntax_status` | enum string | 是 | `strict_ok`、`recovered` 或 `failed`。`recovered` 表示解析器经过恢复，必须同时读诊断。 |
 | `syntax_errors` | array<object> | 是 | 语法错误或恢复证据。元素可含 `description`、`line`、`col` 和上下文片段。 |
 | `skipped_statements` | array<object> | 条件输出 | v1 未作为投影写入建模的顶层语句。包含稳定的 `statement_id`、零基 `statement_index`、`statement_kind`、`category`、`model_status`、`reason`、`normalized_sql` 和支持范围说明；行变更应改用 v2 建模。**`category` 为 `control_statement`（如 `SET`）或 `empty_statement` 的语句是设计上忽略的，只记录、不再发 `unsupported_statement` 告警**——要知道被忽略了什么，读本字段（它只出现在 `lineage.json`，不在 `diagnostics.json` 里）。<br>单语句 API `parse_scope_lineage` 只建模脚本中的**第一条**写表语句：之后的写语句以 `category: additional_write_statement`、`model_status: not_modeled` 记录在此（附 `target_table`），并发一条 `additional_write_statements_not_modeled` 告警列出未建模的目标。这些语句本身是受支持的——要全部建模，用 `parse_all_scope_lineage`（CLI 即此口径）或契约 2.0。 |
-| `statement_comments` | array<string> | 是 | 语句头部注释块的原文，按书写顺序逐条（去首尾空白、相邻重复合并）。**恒存在**：空数组表示这条语句没有头部注释，而缺键无法与"该生产者不携带注释"区分。注释是作者的自由文本，不是 SQL 事实，也可能包含不该外发的信息——见 §18。 |
+| `statement_comments` | array<string> | 是 | 语句头部注释块的原文，按书写顺序逐条（去首尾空白、相邻重复合并）。**恒存在**：空数组表示这条语句没有头部注释，而缺键无法与"该生产者不携带注释"区分。脚本头部注释块写在 `SET` 等未建模语句之上时，它属于脚本而不属于任何被建模的语句：这种注释按书写顺序并入**第一条**写入语句的本字段、排在该语句自己的头部注释之前，重复只发一次；写在两条写入语句之间的注释不会被搬家。注释是作者的自由文本，不是 SQL 事实，也可能包含不该外发的信息——见 §18。 |
 | `target_partition_spec` | object | 是 | 分区名到分区值的映射。动态分区的 value 可以为 `null`。 |
 | `target_partition_columns` | array<string> | 是 | 目标表分区列名。 |
 | `target_partition_mode` | enum string | 是 | `none`、`static`、`dynamic` 或 `mixed`，描述的是 **`PARTITION(...)` 子句的写法**：给了值是 `static`、没给值是 `dynamic`、没有该子句是 `none`。**它与会话配置 `spark.sql.sources.partitionOverwriteMode` 无关**，也不表示这次覆写会删掉多少数据——两者名字相近但含义不同。覆写的实际影响范围由 v2 的 `effect.rowset_effect` 表达，见 task-lineage-v2.md。 |
@@ -842,15 +842,18 @@ scope-lineage validate --lineage /path/to/corpus
 
 注释是**作者写给人看的文字**，不是 SQL 事实。契约默认采集它，因为它常常是一条语句里语义密度最高的部分；同样因为如此，它也可能带出该语句本身从不陈述的信息。
 
-### 18.1 三处采集点
+### 18.1 四处采集点
 
 | 契约位置 | 采集自 | 空值表现 |
 | --- | --- | --- |
-| `statement_comments[]` | 语句顶层节点上的注释，即头部注释块 | 恒存在，空时为 `[]` |
+| `statement_comments[]` | 语句顶层节点上的注释，即头部注释块；外加并入的脚本头部注释块 | 恒存在，空时为 `[]` |
+| `script_comments[]`（仅契约 2.0 任务文档顶层） | 第一条写入语句**之前**那些未建模语句（`SET`、`USE`、`ADD JAR`、`CREATE TEMPORARY FUNCTION`、`DROP/CREATE TABLE IF NOT EXISTS` 等）上的注释 | 恒存在，空时为 `[]` |
 | `scopes.<id>.outputs[].comments[]` | 该投影表达式子树内的注释，别名节点自身优先 | 无注释时不发该键 |
 | `scopes.<id>.logic_blocks[].comments[]` | 该逻辑块自身表达式内的注释 | 无注释时不发该键 |
 
-三处都做同一套规范化：去首尾空白、丢弃空串、合并**相邻**重复。只合并相邻重复——同一句话写在 CASE 的两个分支上是关于两个分支的两条事实，跨列表去重会把它说成作者只写了一次。
+脚本头部注释块是最常被问到的那段话——「这个任务到底干什么」——而它通常写在 `SET` 之上。`SET` 不被建模，于是这段话本来谁也收不到。它被采集一次，发在两处：任务文档顶层的 `script_comments[]`（一个任务只说一遍，多条写入不会被读成每条都有这段说明），以及第一条写入语句的 `statement_comments[]`（单独读一条语句的消费者也能看到）。写在两条写入语句**之间**的注释不适用本规则：它已经挂在它上方的那条写入语句上，搬走就会张冠李戴。
+
+四处都做同一套规范化：去首尾空白、丢弃空串、合并**相邻**重复。只合并相邻重复——同一句话写在 CASE 的两个分支上是关于两个分支的两条事实，跨列表去重会把它说成作者只写了一次。
 
 字符串字面量与反引号标识符里的 `--`、`/* */` 不会被当成注释：`WHERE note = '-- not a comment'` 是普通 Spark SQL，看不见引号的实现会把作者的数据当成作者的批注发布出去。
 
@@ -872,7 +875,7 @@ scope-lineage validate --lineage /path/to/corpus
 | 手机号 | `<phone>` | 中国大陆 `1[3-9]` 开头的 11 位号码，以及 `+86 138...` 这类国际写法 |
 | 身份证号 | `<id>` | 18 位（末位可为 `X`）或 15 位形态，且中间的出生日期须是真实日期 |
 
-遮蔽发生在**采集时**，作用于注释文本本身，因此三个 `comments` 键和渲染表达式（如 `logic_blocks[].raw_expression`）里内联的那一份得到的是同一份已遮蔽文本；`task_meta.description` 同样过一遍——它也是人写的自由文本。SQL 表达式本身不被改动：`WHERE id_no = '110101199003078219'` 是这条语句操作的数据，改了就改变了 SQL 的含义。
+遮蔽发生在**采集时**，作用于注释文本本身，因此上述各个注释键和渲染表达式（如 `logic_blocks[].raw_expression`）里内联的那一份得到的是同一份已遮蔽文本；`task_meta.description` 同样过一遍——它也是人写的自由文本。SQL 表达式本身不被改动：`WHERE id_no = '110101199003078219'` 是这条语句操作的数据，改了就改变了 SQL 的含义。
 
 **遮蔽是形态匹配，不是识别，也不保证穷尽。** 写法稍有不同的号码会漏过去（分隔符、全角数字、写成文字的地址），而一串业务编码只要恰好符合身份证形态（6 位非零开头的地区码 + 合法出生日期）也会被遮掉——位数本身不构成形态，所以 `123456789012345` 这样的流水号原样保留。它降低误发概率，不构成合规保证；要求"注释绝不出境"时用 §18.4 的整体关闭。
 
@@ -890,6 +893,6 @@ scope-lineage parse --sql-file task.sql --out out/ --no-redact-comments
 scope-lineage parse --sql-file task.sql --out out/ --strip-comments
 ```
 
-`--strip-comments` 在解析阶段整体丢弃注释：上述三个键随之为空或缺席，**并且**渲染表达式（如 `logic_blocks[].raw_expression`）里内联的那一份也一并消失。它是一个完整的开关，不是只清空新键的半开关。它与 `--no-redact-comments` 相互独立：注释都丢了，也就没有什么可遮蔽的。
+`--strip-comments` 在解析阶段整体丢弃注释：上述各个键随之为空或缺席，**并且**渲染表达式（如 `logic_blocks[].raw_expression`）里内联的那一份也一并消失。它是一个完整的开关，不是只清空新键的半开关。它与 `--no-redact-comments` 相互独立：注释都丢了，也就没有什么可遮蔽的。
 
 需要注释进入产物但不希望它离开本地时，正确做法是限制产物的流转范围，而不是依赖消费者自觉跳过这些键。

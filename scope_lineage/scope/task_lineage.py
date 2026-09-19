@@ -33,8 +33,10 @@ from .session_settings import (
     quoted_regex_column_names_setting,
 )
 from .sql_comments import (
+    merge_comments,
     redact as redact_comment_text,
     redact_comments as redact_sql_comments,
+    script_header_comments,
     strip_comments as strip_sql_comments,
 )
 
@@ -111,6 +113,11 @@ class TaskLineageResult:
     # WI-2.2: the normalized task metadata, or None when the input was a bare `.sql`
     # file. None publishes no key at all -- absence means "no task JSON supplied one".
     task_meta: dict | None = None
+    # B1: the script's opening comment block, held once at task level. It is also copied
+    # onto the first modelled write's `statement_comments`, so a consumer reading one
+    # statement still sees it; this key is what keeps a multi-write task from being read as
+    # if the block described each write separately.
+    script_comments: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -498,6 +505,7 @@ def parse_task_lineage(
             })
         statements.append(statement)
 
+    script_header = _publish_script_header(trees, statements, statement_lineage)
     gaps.extend(_statement_fact_gaps(statement_lineage, task_level_gaps=gaps))
     metadata_coverage = _metadata_coverage(
         state_builder,
@@ -624,8 +632,44 @@ def parse_task_lineage(
         },
         task_dependencies=dict(task_dependencies or {}),
         task_meta=normalize_task_meta(task_meta, redact=redact_comments),
+        script_comments=script_header,
     )
     return result
+
+
+def _publish_script_header(
+    trees: list,
+    statements: list[dict],
+    statement_lineage: dict[str, object],
+) -> list[str]:
+    """Hoist the script's opening comment block onto its first modelled write.
+
+    A task script's header block -- the lines that say what the job does -- is written
+    above the session settings, so sqlglot attaches it to the first ``SET``. Nothing
+    models a ``SET``, so the block used to reach no artifact: the single best sentence
+    about the task was dropped while ``sql_comment_counts.header`` read 0.
+
+    Only the statements *before* the first modelled write are read. A comment written
+    between two writes is already attached to the write it was written above, and moving
+    it would file one statement's note under another.
+
+    The trees are the ones this module parsed, so ``--strip-comments`` and the default
+    redaction have already been applied to them; no flag is re-applied here.
+    """
+    first = next(
+        (item for item in statements if item["statement_id"] in statement_lineage), None
+    )
+    if first is None:
+        return []
+    header = script_header_comments(trees[: first["statement_index"]])
+    if not header:
+        return []
+    document = statement_lineage[first["statement_id"]]
+    if isinstance(document, dict):
+        document["statement_comments"] = merge_comments(
+            header, document.get("statement_comments") or []
+        )
+    return header
 
 
 def _statement_record(
