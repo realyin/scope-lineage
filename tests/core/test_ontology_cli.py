@@ -299,3 +299,98 @@ def test_ontology_reports_an_overrides_path_that_is_not_there(tmp_path: Path, ca
         == 2
     )
     assert "--overrides file does not exist" in capsys.readouterr().err
+
+
+# ----------------------------------------------------------- WI A4: --export linkml/shacl
+
+
+def test_no_export_is_written_unless_it_is_asked_for(tmp_path: Path) -> None:
+    """The exports are for whoever loads a graph; everybody else pays nothing."""
+    out = tmp_path / "out"
+    assert _run("--lineage", str(_corpus(tmp_path / "corpus")), "--out", str(out)) == 0
+
+    assert not (out / "ontology.linkml.yaml").exists()
+    assert not (out / "ontology.shacl.ttl").exists()
+
+
+def test_a_comma_list_writes_both_exports_beside_the_json(tmp_path: Path, capsys) -> None:
+    out = tmp_path / "out"
+    assert (
+        _run(
+            "--lineage", str(_corpus(tmp_path / "corpus")), "--out", str(out),
+            "--export", "linkml,shacl",
+        )
+        == 0
+    )
+
+    assert (out / "ontology.json").is_file()
+    assert (out / "ontology.linkml.yaml").read_text(encoding="utf-8").startswith("id: ")
+    assert (out / "ontology.shacl.ttl").read_text(encoding="utf-8").startswith("@prefix ")
+    assert "exported linkml, shacl" in capsys.readouterr().out
+
+
+def test_the_export_flag_repeats(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    assert (
+        _run(
+            "--lineage", str(_corpus(tmp_path / "corpus")), "--out", str(out),
+            "--export", "linkml", "--export", "shacl",
+        )
+        == 0
+    )
+
+    assert (out / "ontology.linkml.yaml").is_file()
+    assert (out / "ontology.shacl.ttl").is_file()
+
+
+def test_one_export_leaves_the_other_unwritten(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    assert (
+        _run(
+            "--lineage", str(_corpus(tmp_path / "corpus")), "--out", str(out),
+            "--export", "shacl",
+        )
+        == 0
+    )
+
+    assert (out / "ontology.shacl.ttl").is_file()
+    assert not (out / "ontology.linkml.yaml").exists()
+
+
+def test_an_export_is_written_even_when_the_markdown_is_not(tmp_path: Path) -> None:
+    """``--format`` and ``--export`` are two independent choices."""
+    out = tmp_path / "out"
+    assert (
+        _run(
+            "--lineage", str(_corpus(tmp_path / "corpus")), "--out", str(out),
+            "--format", "json", "--export", "linkml",
+        )
+        == 0
+    )
+
+    assert (out / "ontology.linkml.yaml").is_file()
+    assert not (out / "ontology.md").exists()
+
+
+def test_ontology_rejects_an_unknown_export(tmp_path: Path, capsys) -> None:
+    corpus = _corpus(tmp_path / "corpus")
+
+    try:
+        _run("--lineage", str(corpus), "--out", str(tmp_path / "out"), "--export", "owl")
+    except SystemExit as exit_code:
+        assert exit_code.code == 2
+    assert "--export accepts linkml and shacl" in capsys.readouterr().err
+
+
+def test_running_the_exports_twice_writes_the_same_bytes(tmp_path: Path) -> None:
+    corpus = _corpus(tmp_path / "corpus")
+    first, second = tmp_path / "first", tmp_path / "second"
+
+    for out in (first, second):
+        assert (
+            _run("--lineage", str(corpus), "--out", str(out), "--export", "linkml,shacl")
+            == 0
+        )
+
+    for name in ("ontology.linkml.yaml", "ontology.shacl.ttl"):
+        assert (first / name).read_bytes() == (second / name).read_bytes()

@@ -1,0 +1,267 @@
+id: "https://example.org/scope-lineage/ontology/corpus"
+name: "corpus"
+title: "scope-lineage ontology candidate"
+description: "Exported from an ontology candidate over a SQL corpus. Every element is an observation, not a curated business ontology: read the tier annotation before trusting a slot."
+prefixes:
+  linkml: "https://w3id.org/linkml/"
+  sl: "https://example.org/scope-lineage/ontology#"
+  cst: "https://example.org/scope-lineage/ontology/constraint/"
+default_prefix: "sl"
+default_range: "string"
+imports:
+  - "linkml:types"
+annotations:
+  source_doc_format: "ontology-json/1"
+  task_count: 5
+enums:
+  mart_channel_summary__channel_name_enum:
+    description: "the closed value set of column channel_name"
+    annotations:
+      "cst:001": "in_set (proven) on channel_name; observed values: OFFLINE, ONLINE"
+    permissible_values:
+      OFFLINE: {}
+      ONLINE: {}
+classes:
+  dim_channel:
+    title: "dim.channel"
+    description: "渠道维表（合成）"
+    annotations:
+      entity_kind: "physical_table"
+      tier: "proven"
+    attributes:
+      channel_code:
+        range: "string"
+        annotations:
+          tier: "proven"
+          key_tier: "hypothesis"
+      channel_name:
+        range: "string"
+        annotations:
+          tier: "proven"
+    unique_keys:
+      key_channel_code:
+        unique_key_slots:
+          - "channel_code"
+        description: "a candidate key the corpus proposed"
+        annotations:
+          tier: "hypothesis"
+  dim_segment_dim:
+    title: "dim.segment_dim"
+    annotations:
+      entity_kind: "physical_table"
+      tier: "proven"
+    attributes:
+      segment:
+        range: "string"
+        annotations:
+          tier: "proven"
+      segment_name:
+        range: "string"
+        annotations:
+          tier: "proven"
+      updated_at:
+        range: "string"
+        annotations:
+          tier: "proven"
+  mart_channel_summary:
+    title: "mart.channel_summary"
+    annotations:
+      entity_kind: "produced_table"
+      tier: "proven"
+      "cst:002": "partition (proven) on dt"
+    attributes:
+      customer_id:
+        range: "string"
+        annotations:
+          tier: "proven"
+      channel_name:
+        range: "mart_channel_summary__channel_name_enum"
+        annotations:
+          tier: "proven"
+      total_amount:
+        range: "string"
+        annotations:
+          tier: "proven"
+  mart_metric_by_segment:
+    title: "mart.metric_by_segment"
+    annotations:
+      entity_kind: "produced_table"
+      tier: "proven"
+    attributes:
+      segment:
+        range: "string"
+        description: "Segment code"
+        annotations:
+          tier: "proven"
+      band:
+        range: "string"
+        description: "Amount band"
+        annotations:
+          tier: "proven"
+      total:
+        range: "float"
+        description: "Summed amount"
+        annotations:
+          tier: "proven"
+      cnt:
+        range: "integer"
+        description: "Row count"
+        annotations:
+          tier: "proven"
+      band_total:
+        range: "float"
+        description: "Band level total"
+        annotations:
+          tier: "proven"
+      segment_name:
+        range: "string"
+        description: "Segment display name"
+        annotations:
+          tier: "proven"
+      dt:
+        range: "string"
+        description: "Partition date"
+        annotations:
+          tier: "proven"
+          "cst:004": "partition (proven) on dt"
+    unique_keys:
+      key_segment_band:
+        unique_key_slots:
+          - "segment"
+          - "band"
+        description: "a candidate key the corpus proposed"
+        annotations:
+          tier: "proven"
+      cst_003:
+        unique_key_slots:
+          - "segment"
+          - "band"
+          - "dt"
+        description: "a unique_per constraint the corpus asserted"
+        annotations:
+          tier: "proven"
+          "cst:003": "unique_per (proven) on segment, band, dt"
+  mart_user_names:
+    title: "mart.user_names"
+    annotations:
+      entity_kind: "produced_table"
+      tier: "proven"
+    attributes:
+      user_id:
+        range: "string"
+        annotations:
+          tier: "proven"
+      user_name:
+        range: "string"
+        annotations:
+          tier: "proven"
+  ods_channel_event:
+    title: "ods.channel_event"
+    description: "渠道事件明细（合成）"
+    annotations:
+      entity_kind: "physical_table"
+      tier: "proven"
+    attributes:
+      customer_id:
+        range: "string"
+        annotations:
+          tier: "proven"
+      channel_code:
+        range: "string"
+        annotations:
+          tier: "proven"
+      amount:
+        range: "string"
+        annotations:
+          tier: "proven"
+      status:
+        range: "string"
+        annotations:
+          tier: "proven"
+          "cst:005": "in_set (hypothesis) on status; observed values: ACTIVE; the SQL did not prove the set closed"
+      rel_001:
+        range: "dim_channel"
+        multivalued: false
+        description: "join_association on channel_code = channel_code"
+        annotations:
+          relation_id: "rel:001"
+          tier: "hypothesis"
+          claim: "many_to_one_assumed"
+          basis: "right_side_not_deduplicated"
+          task_count: 2
+  ods_events_a:
+    title: "ods.events_a"
+    annotations:
+      entity_kind: "physical_table"
+      tier: "proven"
+    attributes:
+      segment:
+        range: "string"
+        annotations:
+          tier: "proven"
+      amount:
+        range: "string"
+        annotations:
+          tier: "proven"
+      rel_002:
+        range: "dim_segment_dim"
+        multivalued: true
+        description: "join_association on segment = segment"
+        annotations:
+          relation_id: "rel:002"
+          tier: "implied"
+          claim: "one_to_many"
+          basis: "ranking_window"
+          task_count: 1
+      rel_003:
+        range: "ods_events_b"
+        multivalued: true
+        description: "union_sibling on segment = seg_code, amount = amount"
+        annotations:
+          relation_id: "rel:003"
+          tier: "implied"
+          claim: "unknown"
+          basis: "union_branch_alignment"
+          task_count: 1
+  ods_events_b:
+    title: "ods.events_b"
+    annotations:
+      entity_kind: "physical_table"
+      tier: "proven"
+    attributes:
+      seg_code:
+        range: "string"
+        annotations:
+          tier: "proven"
+      amount:
+        range: "string"
+        annotations:
+          tier: "proven"
+      rel_004:
+        range: "dim_segment_dim"
+        multivalued: true
+        description: "join_association on seg_code = segment"
+        annotations:
+          relation_id: "rel:004"
+          tier: "implied"
+          claim: "one_to_many"
+          basis: "ranking_window"
+          task_count: 1
+  ods_users:
+    title: "ods.users"
+    annotations:
+      entity_kind: "physical_table"
+      tier: "proven"
+    attributes:
+      user_id:
+        range: "string"
+        annotations:
+          tier: "proven"
+      user_name:
+        range: "string"
+        annotations:
+          tier: "proven"
+      is_active:
+        range: "string"
+        annotations:
+          tier: "proven"
