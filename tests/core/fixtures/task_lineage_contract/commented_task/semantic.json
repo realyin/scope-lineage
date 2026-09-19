@@ -220,10 +220,15 @@
             "logic:ROOT:group_by:001"
           ]
         },
-        "candidate_keys": [],
+        "candidate_keys": [
+          "customer_id",
+          "channel_name"
+        ],
         "unexposed_keys": [],
-        "key_evidence": [],
-        "key_confidence": "none",
+        "key_evidence": [
+          "ROOT 的关联放大发生在分组之前，不影响输出键唯一性"
+        ],
+        "key_confidence": "proven",
         "partition_columns": [
           "dt"
         ],
@@ -443,7 +448,7 @@
           ],
           "type": null,
           "transform": "DIRECT",
-          "structural_role": "attribute",
+          "structural_role": "candidate_key",
           "sources": [
             {
               "table": "ods.channel_event",
@@ -479,7 +484,7 @@
           ],
           "type": null,
           "transform": "CONDITIONAL",
-          "structural_role": "conditional_label",
+          "structural_role": "candidate_key",
           "value_domain": [
             {
               "value": "OFFLINE",

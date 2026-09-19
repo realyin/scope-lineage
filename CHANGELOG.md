@@ -1,6 +1,40 @@
 # Changelog
 
 ## Unreleased
+- A JOIN upstream of the grouping no longer costs the statement its key (B12).
+  `key_confidence` dropped to `none` as soon as any grain-path fan-out risk was not
+  `safe`, whatever the grain's basis -- which reads the risk against the wrong question
+  for a proven basis. A GROUP BY (equally a DISTINCT, or a ranking window filtered to
+  `= 1`) makes its grouping set unique *in the output* however many rows a JOIN handed
+  it: the duplication inflates the aggregated values, which the metric-path risks
+  already report, and adds no row to the output. The same reasoning B10 already applied
+  to `single_row` now covers every proven basis: only a risk in a scope **strictly
+  downstream of the grain-deciding scope** -- ROOT, or an intermediate scope between
+  ROOT and the grouping, as `grain.via_scopes` orders them -- can duplicate what the
+  grouping made unique. `driving_table_rows` and `unknown` are unchanged: no operation
+  of theirs makes anything unique, so a fan-out anywhere on the path still costs them
+  the key. The decision is published rather than silent: a non-`safe` risk ignored on
+  these grounds adds 「`<scope>` 的关联放大发生在分组之前，不影响输出键唯一性」 to
+  `output_shape.key_evidence[]`, and the risk itself is published exactly as before.
+  Metric-path card levels still cap the result. semantic.md renders the note under the
+  key line of section 2 as 「- 说明：<scope> 的关联放大发生在分组之前，不影响输出键唯一性」
+  -- the reader meets 「键：目标表列 …」 and 「JOIN …：⚠ 有放大风险」 three lines apart, and
+  without the sentence the second reads as a refutation of the first. The sentence itself
+  lives in `semantic_text` so the builder and the renderer cannot spell it differently,
+  and only that note renders there: `key_evidence` also carries notes about keys that
+  never reached the target. The profile prompt says the note belongs in 使用注意 only
+  where the reader would otherwise mistrust the key, and then as an explanation -- it is
+  never a warning. Two golden cases gain their proven key (and with it two
+  `candidate_key` field roles), and the table-card / ontology corpus follows:
+  `mart.channel_summary` now carries a proven key set and its `unique_per` constraint.
+- One ontology constraint per claim, not per producer statement. `unique_per` is read off
+  each producer in turn, so a table two tasks write with the same key set published that
+  constraint twice -- identical but for its single `evidence[]` entry, and counted twice
+  in 「共 N 条约束」. Constraints sharing a (target entity, target column, kind, columns,
+  values) are now merged into one, keeping the strongest `tier` among them and the union
+  of their evidence in corpus order: the same merge `identity.candidate_keys` already
+  performed on the very same producer facts. Two key sets are still two claims. The
+  golden corpus drops from 7 constraints to 6.
 - An `ontology.overrides.json` key is checked against the entity's columns before it is
   published (H1). `_apply_key_overrides` verified the entity id and nothing else, so a
   mistyped column arrived as a `confirmed` candidate key -- a typo published at the one

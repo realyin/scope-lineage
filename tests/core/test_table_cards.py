@@ -691,6 +691,16 @@ CARDED_JOIN_SQL = (
     "GROUP BY e.event_code"
 )
 
+# The same JOIN, but run *after* the grouping instead of feeding it: these are the rows
+# the card's proof has to protect, because B12 no longer lets the GROUP BY do it.
+CARDED_DOWNSTREAM_JOIN_SQL = (
+    "INSERT OVERWRITE TABLE mart.event_enriched "
+    "WITH g AS (SELECT customer_id, country_code FROM ods.customer_event "
+    "GROUP BY customer_id, country_code) "
+    "SELECT g.customer_id, g.country_code FROM g LEFT JOIN mart.customer_daily d "
+    "ON g.customer_id = d.customer_id AND g.country_code = d.country_code"
+)
+
 # The same JOIN with half the key: one row of the right side per customer_id is exactly
 # what nobody proved, so the card has nothing to say about this ON clause.
 PARTIAL_JOIN_SQL = (
@@ -784,12 +794,17 @@ def test_a_proven_table_card_turns_an_unknown_join_into_a_safe_one() -> None:
 
 
 def test_the_keys_this_statement_may_claim_are_recomputed_with_the_card() -> None:
-    enriched, plain, _document = _carded(CARDED_JOIN_SQL)
+    """The JOIN runs after the grouping, so only the card can save the key set (B12).
+
+    When the JOIN feeds the grouping instead, the grouping proves the key on its own and
+    the card decides the join's verdict alone -- which is the case below this one.
+    """
+    enriched, plain, _document = _carded(CARDED_DOWNSTREAM_JOIN_SQL)
 
     assert plain["output_shape"]["key_confidence"] == "none"
     assert plain["output_shape"]["candidate_keys"] == []
     assert enriched["output_shape"]["key_confidence"] == "proven"
-    assert enriched["output_shape"]["candidate_keys"] == ["event_code"]
+    assert enriched["output_shape"]["candidate_keys"] == ["customer_id", "country_code"]
 
 
 def test_a_card_the_on_clause_does_not_cover_leaves_the_join_unknown() -> None:
@@ -799,7 +814,9 @@ def test_a_card_the_on_clause_does_not_cover_leaves_the_join_unknown() -> None:
     risk = enriched["output_shape"]["fan_out_risks"][0]
     assert risk["status"] == "unknown"
     assert "basis" not in risk
-    assert enriched["output_shape"]["key_confidence"] == "none"
+    # B12: this JOIN feeds the GROUP BY, so the grouping keeps the key whatever the card
+    # could not prove -- what the half-covered ON clause costs is the join's verdict.
+    assert enriched["output_shape"]["key_confidence"] == "proven"
 
 
 def test_a_candidate_only_card_says_so_and_caps_the_confidence() -> None:

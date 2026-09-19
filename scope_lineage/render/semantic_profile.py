@@ -2390,16 +2390,7 @@ def _build_output_shape(
         metric_anchor_scopes,
     )
     risks = [risk for risk, _level in decided]
-    walked = _grain_path_risks(risks)
-    keys, unexposed, key_evidence = _target_key_columns(document, grain, walked)
-    confidence = _capped_confidence(
-        _key_confidence(grain, keys, unexposed, walked),
-        [
-            level
-            for risk, level in decided
-            if str(risk.get("path")) == METRIC_PATH_GRAIN
-        ],
-    )
+    keys, unexposed, key_evidence, confidence = _key_block(document, grain, decided)
     return {
         "shape": shape,
         "shape_evidence": evidence,
@@ -2417,6 +2408,27 @@ def _build_output_shape(
         "fan_out_risks": risks,
         "tag": TAG_STRUCTURAL_INFERENCE,
     }
+
+
+def _key_block(
+    document: dict, grain: dict, decided: Sequence[tuple[dict, str | None]]
+) -> tuple[list[str], list[dict], list[str], str]:
+    """``(candidate key columns, unexposed keys, evidence, confidence)`` for one grain.
+
+    Three filters in a row, each answering a different question about the same risks:
+    only a grain-path risk bears on row identity at all (WI-2.1c item 5), only one
+    downstream of the grain-deciding scope can duplicate a proven key set (B12), and a
+    verdict that rests on a table card's *candidate* key caps whatever is left.
+    """
+    walked, upstream = _split_key_risks(grain, _grain_path_risks([r for r, _ in decided]))
+    keys, unexposed, evidence = _target_key_columns(document, grain, walked)
+    confidence = _capped_confidence(
+        _key_confidence(grain, keys, unexposed, walked),
+        [level for risk, level in decided if str(risk.get("path")) == METRIC_PATH_GRAIN],
+    )
+    if confidence != KEY_CONFIDENCE_NONE:
+        evidence = [*evidence, *_upstream_fan_out_evidence(upstream)]
+    return keys, unexposed, evidence, confidence
 
 
 def _classify_shape(document: dict) -> tuple[str, list[str]]:
@@ -3206,10 +3218,16 @@ def _key_confidence(
 
     ``proven`` is the strong claim and needs three things at once: a basis whose
     operation makes the keys unique (GROUP BY, DISTINCT, or a ranking window filtered to
-    ``= 1``), a walk that crossed no unproven JOIN -- one fan-out anywhere on the path
-    duplicates whole rows -- and every one of those keys written to the target. When
-    only the last fails, the keys are still proven but the *target* columns are not, and
-    ``proven_unexposed`` says exactly that.
+    ``= 1``), a walk that crossed no unproven JOIN *after* the operation made them
+    unique, and every one of those keys written to the target. When only the last fails,
+    the keys are still proven but the *target* columns are not, and ``proven_unexposed``
+    says exactly that.
+
+    B12 is the "after" in the second condition, and :func:`_split_key_risks` decided it
+    before the list arrived here: a JOIN feeding the grouping duplicates the rows being
+    grouped, which inflates the aggregated numbers without adding one row to the output.
+    A ``driving_table_rows`` grain has no operation making anything unique, so its list
+    is unfiltered and a fan-out anywhere on its path still costs it the key.
     """
     basis = str(grain.get("basis"))
     # B10, asked before the risks: "the output is one row" is a statement about the
@@ -3226,6 +3244,61 @@ def _key_confidence(
     if basis == BASIS_DRIVING_TABLE_ROWS and keys:
         return KEY_CONFIDENCE_CANDIDATE
     return KEY_CONFIDENCE_NONE
+
+
+def _split_key_risks(
+    grain: dict, risks: Sequence[dict]
+) -> tuple[list[dict], list[dict]]:
+    """B12: ``(risks the key set answers for, risks the grain's operation made harmless)``.
+
+    A GROUP BY, a DISTINCT or a ranking dedup makes its key set unique *in the output*,
+    however many rows a JOIN upstream of it handed the operation -- the duplication
+    inflates the aggregated values, which the metric-path risks report on their own, and
+    adds no row to the output. Only a JOIN strictly downstream of the grain-deciding
+    scope can multiply rows the operation already made unique. Every risk stays
+    published either way; this only says which ones the key decision reads.
+    """
+    if str(grain.get("basis")) not in _PROVEN_BASES:
+        return list(risks), []
+    downstream = _scopes_below_grain(grain)
+    kept: list[dict] = []
+    upstream: list[dict] = []
+    for risk in risks:
+        harmless = (
+            str(risk.get("status")) != "safe"
+            and str(risk.get("scope_id")) not in downstream
+        )
+        (upstream if harmless else kept).append(risk)
+    return kept, upstream
+
+
+def _scopes_below_grain(grain: dict) -> set[str]:
+    """The scopes the rows pass through *after* the grain-deciding scope emitted them.
+
+    ``via_scopes`` is the grain walk's descent order with neither end in it, so ROOT in
+    front of it is the whole chain from the output down to the scope that decided the
+    grain, and everything before that scope is what can still duplicate its rows.
+    """
+    chain = [_ROOT, *(str(item) for item in grain.get("via_scopes") or [])]
+    scope = _grain_scope(grain)
+    return set(chain[: chain.index(scope)] if scope in chain else chain)
+
+
+def _grain_scope(grain: dict) -> str | None:
+    """Which scope decided the grain: its keys all name it, else its evidence id does."""
+    for key in grain.get("keys") or []:
+        return str(key.get("scope_id"))
+    for item in grain.get("evidence") or []:
+        return _scope_of_logic_block(item) or None
+    return None
+
+
+def _upstream_fan_out_evidence(risks: Sequence[dict]) -> list[str]:
+    """Why a published key survived a JOIN the profile still reports as a risk."""
+    return [
+        semantic_text.upstream_fan_out_note(scope)
+        for scope in _dedupe(str(risk.get("scope_id")) for risk in risks)
+    ]
 
 
 def _driving_side_keys(detail: dict, driving_table: str) -> list[str]:

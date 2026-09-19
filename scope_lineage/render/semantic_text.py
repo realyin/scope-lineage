@@ -184,6 +184,22 @@ def parse_expression(expression: str | None):
 
 # ------------------------------------------------------------------ comment kinds
 
+# B12. One sentence, two readers: ``semantic_profile`` writes it into
+# ``output_shape.key_evidence[]`` and ``semantic_markdown`` picks it back out of that
+# list to render it under the key line. The list carries unrelated notes too, so the
+# suffix is the one both sides agree on rather than a second spelling of the sentence.
+UPSTREAM_FAN_OUT_NOTE_SUFFIX = " 的关联放大发生在分组之前，不影响输出键唯一性"
+
+
+def upstream_fan_out_note(scope: str) -> str:
+    """Why a key the structure proves survives a JOIN the same document calls a risk."""
+    return f"{scope}{UPSTREAM_FAN_OUT_NOTE_SUFFIX}"
+
+
+def is_upstream_fan_out_note(text) -> bool:
+    return str(text).endswith(UPSTREAM_FAN_OUT_NOTE_SUFFIX)
+
+
 # WI-2.8 D9. Two different things arrive as one `--` comment: a note the author wrote
 # for the next reader, and a line of SQL the author switched off. Only the first is a
 # statement about what a column means; the second is a record of what the code used to

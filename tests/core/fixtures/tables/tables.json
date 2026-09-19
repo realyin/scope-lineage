@@ -238,20 +238,23 @@
               "channel_name"
             ]
           },
-          "candidate_keys": [],
-          "key_confidence": "none",
+          "candidate_keys": [
+            "customer_id",
+            "channel_name"
+          ],
+          "key_confidence": "proven",
           "fields": [
             {
               "column": "customer_id",
               "comment": null,
               "summary": "（注释未知）：直接取自 ods.channel_event.customer_id（表：渠道事件明细（合成））；注释：客户号",
-              "structural_role": "attribute"
+              "structural_role": "candidate_key"
             },
             {
               "column": "channel_name",
               "comment": null,
               "summary": "（注释未知）：channel_code = 'A' → 'ONLINE'；否则 'OFFLINE'；来源 ods.channel_event.channel_code（表：渠道事件明细（合成））；注释：渠道编码（合成值域）",
-              "structural_role": "conditional_label"
+              "structural_role": "candidate_key"
             },
             {
               "column": "total_amount",
@@ -288,20 +291,23 @@
               "channel_name"
             ]
           },
-          "candidate_keys": [],
-          "key_confidence": "none",
+          "candidate_keys": [
+            "customer_id",
+            "channel_name"
+          ],
+          "key_confidence": "proven",
           "fields": [
             {
               "column": "customer_id",
               "comment": null,
               "summary": "（注释未知）：直接取自 ods.channel_event.customer_id（注释未知）；注释：客户号",
-              "structural_role": "attribute"
+              "structural_role": "candidate_key"
             },
             {
               "column": "channel_name",
               "comment": null,
               "summary": "（注释未知）：channel_code = 'A' → 'ONLINE'；否则 'OFFLINE'；来源 ods.channel_event.channel_code（注释未知）；注释：渠道编码（合成值域）",
-              "structural_role": "conditional_label"
+              "structural_role": "candidate_key"
             },
             {
               "column": "total_amount",
