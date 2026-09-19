@@ -257,10 +257,14 @@ run writes `ontology.json` (machine), `ontology.md` (index) and `tables/<db.tabl
 a recomputation — the bytes are identical without them.
 
 **Read in this order.** `ontology.md` first: its Mermaid `erDiagram` is the whole corpus
-on one screen, and the entity table says which card is worth opening (the 图中 id column
-maps a diagram box back to its table). Then the one card you need — never the JSON, and
-never all the cards. A card's sections 7-11 are 身份 / 关系 / 约束 / 属性同义 /
-待人工判定; sections 1-6 are the ordinary table card.
+on one screen, its headline line says 「待人工判定 N 条（已确认 M 条）」, and the entity
+table says which card is worth opening (the 图中 id column maps a diagram box back to its
+table). The last section, 「待人工判定清单（N 条）」, is every open question in one place —
+one row per hypothesis key, hypothesis relation and finding, each with a stable `open:` id
+and the write-back key its answer is filed under, ranked findings first, then relations by
+task count, then keys. Then the one card you need — never the JSON, and never all the
+cards. A card's sections 7-11 are 身份 / 关系 / 约束 / 属性同义 / 待人工判定; sections 1-6
+are the ordinary table card.
 
 **Every assertion carries a tier, and the tier is the answer.** `proven` 已证明 is written
 in the SQL. `implied` 可推得 follows from what the SQL does. `hypothesis` 作者假设 is what
@@ -276,24 +280,40 @@ an author assumed and nobody proved. `conflict` 矛盾 is two tasks disagreeing.
   a confident sentence, is the single worst thing to do with this artifact.
 - A `cardinality_conflict` is a **governance finding**, not an ontology fact: one task
   deduplicates a table by k and another joins it directly on k, so either the second
-  multiplies rows or the first is dead weight. Report both sides and who to ask.
+  multiplies rows or the first is dead weight. Report both sides and who to ask. Two more
+  findings read the same way: `competing_candidate_keys` (two authors assumed two
+  different identities for one table — at most one of them is it) and `key_hint_conflict`
+  (a column comment names one column the key and every corpus guess names another).
+- `identity.declared_hints[]` is what the **metadata** says about identity — a column
+  comment calling a column 主键 / 唯一键 / primary key. It is a hint, never a key: report
+  it as "the catalog's column comment says so", and note that where it agrees with a
+  corpus guess the tier is already `implied` rather than `hypothesis`.
 - An `in_set` constraint with `completeness: "unknown"` is a floor, never a ceiling: those
   values were *observed*, and the column may hold others.
 - Core names no entity and infers no class hierarchy. If a business name is wanted, it is
   your inference over `naming_hints` and must be labelled `[推断]`.
 
 **When the user wants the open items turned into questions**, follow
-`references/ontology-review-prompt.md`: it produces a five-line-per-item list a business
-owner can answer, and the answers go back through `ontology.overrides.json`:
+`references/ontology-review-prompt.md`. It runs in two passes: first close what the corpus
+already answers (a producing task's proven grain, a column comment naming the key, two
+tasks joining on the same key set) by writing those confirmations yourself, each with a
+`basis` saying what closed it; then turn **at most 8** of what is left into a
+five-line-per-item list a business owner can answer. The evidence pass needs the task
+profiles — `semantic.md` beside each `lineage.json` — so run `describe` over the corpus
+first if they are not there. The answers go back through `ontology.overrides.json`:
 
 ```bash
 scope-lineage ontology --lineage <corpus> --out <dir> \
   --overrides <dir>/ontology.overrides.json
 ```
 
-Confirmed assertions come back at tier `confirmed`, and an override that matches nothing
-is listed in `overrides_applied.unmatched` rather than dropped — check that list every
-round, it is where a typo in a reviewed file shows up.
+An override may carry `scope_columns` ("unique within one `dt`", the normal shape of a
+snapshot table), plus `basis` and `note` recording why the answer is believed. Confirmed
+assertions come back at tier `confirmed` and drop off the open list, so the headline
+counter is how a second round sees what the first one bought. Check two lists every round:
+`overrides_applied.unmatched` (an override that matched nothing, with a `reason` naming the
+unknown entity or column) and `overrides_applied.ignored_fields` (a misspelled slot that
+did not take effect). Both are where a typo in a reviewed file shows up.
 
 ### "这个结果可信吗 / 为什么断了" — diagnostics
 

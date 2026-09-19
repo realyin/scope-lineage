@@ -412,6 +412,14 @@ def _reference_index(documents, ontology: dict) -> dict:
             for attribute in entity["attributes"]
             for synonym in attribute["synonyms"]
         ),
+        # An evidence item with no ids renders as its kind: `group_by`, `column_comment`,
+        # `human_confirmation`. They are this layer's vocabulary like any other token.
+        *(
+            str(item["kind"])
+            for _label, assertion in _assertions(ontology)
+            for item in assertion.get("evidence") or []
+            if item.get("kind")
+        ),
     }
     return {
         "tables": tables,
@@ -424,9 +432,10 @@ def _reference_index(documents, ontology: dict) -> dict:
 def _resolvable(span: str, index: dict) -> bool:
     if span in index["vocabulary"]:
         return True
-    # A write-back target: `键:<table>=<cols>` / `关系:<from>-><to>`. Its own parts are
-    # checked by the entity and column rules, so the prefix is all that is asserted.
-    if span.startswith(("键:", "关系:")):
+    # A write-back target: `键:<table>=<cols>` / `关系:<from>-><to>`, or the id of one
+    # entry in the index's consolidated open list. Their own parts are checked by the
+    # entity and column rules, so the prefix is all that is asserted.
+    if span.startswith(("键:", "关系:", "open:")):
         return True
     # An evidence id: task/statement/scope/rule/logic block, slash separated.
     if "/" in span:

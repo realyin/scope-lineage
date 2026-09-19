@@ -39,6 +39,7 @@
             ]
           }
         ],
+        "declared_hints": [],
         "multiplicity": [],
         "partition_columns": []
       },
@@ -77,6 +78,7 @@
       "comment": null,
       "identity": {
         "candidate_keys": [],
+        "declared_hints": [],
         "multiplicity": [
           {
             "columns": [
@@ -146,6 +148,7 @@
       "comment": null,
       "identity": {
         "candidate_keys": [],
+        "declared_hints": [],
         "multiplicity": [],
         "partition_columns": [
           "dt"
@@ -209,6 +212,7 @@
             ]
           }
         ],
+        "declared_hints": [],
         "multiplicity": [],
         "partition_columns": [
           "dt"
@@ -292,6 +296,7 @@
       "comment": null,
       "identity": {
         "candidate_keys": [],
+        "declared_hints": [],
         "multiplicity": [],
         "partition_columns": []
       },
@@ -328,6 +333,7 @@
       "comment": "渠道事件明细（合成）",
       "identity": {
         "candidate_keys": [],
+        "declared_hints": [],
         "multiplicity": [
           {
             "columns": [
@@ -418,6 +424,7 @@
       "comment": null,
       "identity": {
         "candidate_keys": [],
+        "declared_hints": [],
         "multiplicity": [],
         "partition_columns": []
       },
@@ -475,6 +482,7 @@
       "comment": null,
       "identity": {
         "candidate_keys": [],
+        "declared_hints": [],
         "multiplicity": [],
         "partition_columns": []
       },
@@ -532,6 +540,7 @@
       "comment": null,
       "identity": {
         "candidate_keys": [],
+        "declared_hints": [],
         "multiplicity": [],
         "partition_columns": []
       },
@@ -837,9 +846,35 @@
     }
   ],
   "findings": [],
+  "open_items": [
+    {
+      "id": "open:rel:ods.channel_event.channel_code->dim.channel.channel_code",
+      "kind": "relation",
+      "entity": "ods.channel_event",
+      "relation": "rel:001",
+      "columns": [
+        "channel_code"
+      ],
+      "tier": "hypothesis",
+      "write_back": "关系:ods.channel_event.channel_code->dim.channel.channel_code",
+      "text": "关系 `ods.channel_event` → `dim.channel` 的基数写作「多对一，作者假设」，依据只是直接关联未去重，作者假设对端按该键唯一。"
+    },
+    {
+      "id": "open:key:dim.channel=channel_code",
+      "kind": "candidate_key",
+      "entity": "dim.channel",
+      "columns": [
+        "channel_code"
+      ],
+      "tier": "hypothesis",
+      "write_back": "键:dim.channel=channel_code",
+      "text": "候选键 `channel_code`：只有任务直接关联时的假设，语料没有证明它唯一。"
+    }
+  ],
   "overrides_applied": {
     "relations": 0,
     "keys": 0,
-    "unmatched": []
+    "unmatched": [],
+    "ignored_fields": []
   }
 }
