@@ -254,7 +254,9 @@ scope-lineage ontology  --lineage <corpus> --out <dir> \
 A corpus-level question `describe` can never answer: **how do these tables relate**. The
 run writes `ontology.json` (machine), `ontology.md` (index) and `tables/<db.table>.md`
 (the table card with five ontology sections appended). `--tables` / `--glossary` only save
-a recomputation — the bytes are identical without them.
+a recomputation — the bytes are identical without them. Add `--export linkml,shacl` when
+the user wants the candidate in an RDF toolchain: it writes `ontology.linkml.yaml` and
+`ontology.shacl.ttl` beside the JSON, each element still carrying its tier.
 
 **Read in this order.** `ontology.md` first: its Mermaid `erDiagram` is the whole corpus
 on one screen, its headline line says 「待人工判定 N 条（已确认 M 条）」, and the entity
