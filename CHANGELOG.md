@@ -1,6 +1,56 @@
 # Changelog
 
 ## Unreleased
+- An `ontology.overrides.json` key is checked against the entity's columns before it is
+  published (H1). `_apply_key_overrides` verified the entity id and nothing else, so a
+  mistyped column arrived as a `confirmed` candidate key -- a typo published at the one
+  tier the corpus can never produce and a reviewer can never doubt. Every column named by
+  a key override (including its `scope_columns`) must now be an attribute of that entity,
+  declared or used, and a relation override's columns must be on the two entities.
+  `overrides_applied.unmatched` entries grew from bare strings to `{"key", "reason"}`,
+  where `reason` is `unknown_entity: X` / `unknown_column: X` / `missing_columns` /
+  `unknown_relation` / `unparsable_key` -- the reviewer is told which half of the string
+  was wrong instead of being handed the string back.
+- A confirmation can say "unique within one `dt`", and why it is believed (H2). A snapshot
+  table is unique per partition and duplicated across them, which the overrides format had
+  no way to express: the honest answer was "not unique", which is true and useless. A key
+  override may now carry `scope_columns`, published on the confirmed candidate key and
+  rendered 「在 `dt` 内唯一」. A key or relation override may carry free-text `basis` and
+  `note`, published beside `confirmed_by` / `date` (`basis` as `confirmed_basis`, because
+  `basis` on a cardinality is a machine token), and the card prints the three of them on
+  the confirmed line. A field this release does not understand is listed in
+  `overrides_applied.ignored_fields[]` instead of being dropped without a word.
+- The column comments that name a key are read as evidence (H3). The catalog had already
+  answered part of the identity question, in prose, and the ontology walked past it.
+  A comment holding 主键 / 唯一键 / 唯一编号 / 主键id / primary key / unique
+  (case-insensitive, `KEY_HINT_PHRASES`) now publishes
+  `entities[].identity.declared_hints[]` and appears in section 7 of the card. Where a hint
+  agrees with a candidate key, the key moves from `hypothesis` to `implied` -- a comment
+  and a JOIN are two independent sources pointing at one column. Where the candidate keys
+  are all hypotheses and none of them holds the hinted column, the disagreement is a
+  `key_hint_conflict` finding rather than a silent choice between the two.
+- Two competing identity hypotheses are a finding, not a list (H4). One entity carrying
+  `[id]` and `[id, dt]`, or two disjoint key sets, published both side by side with nothing
+  saying that at most one of them is the identity, and `findings` stayed empty. A strict
+  subset or a disjoint pair of `hypothesis` candidate keys now produces
+  `competing_candidate_keys`, carrying both key sets with their evidence, in 待人工判定 and
+  in section 11 of the card.
+- `ontology.json` gains `open_items[]`, and `ontology.md` a 「待人工判定清单（N 条）」 (H5).
+  The open questions lived one card at a time, so a second review round could not tell what
+  the first one bought. There is now one entry per hypothesis key, hypothesis relation and
+  finding -- a relation once, not once per side -- each with a content-derived `open:` id
+  that survives into the next round, the entity it concerns, its tier and the write-back
+  key its answer is filed under, ranked findings first, then relations by task count, then
+  keys. The index headline reads 「待人工判定 N 条（已确认 M 条）」 and section 11 of each
+  card cites the list id. `overrides_applied` and the golden fixtures move with them.
+- The ontology review prompt gets an evidence-first pass, and the skill follows it (H6).
+  An Agent reviewer may now close a hypothesis itself from three named kinds of corpus
+  evidence -- a producing task's proven grain, a column comment naming the key, two tasks
+  joining on the same key set -- each recorded with its `basis`; everything else stays in
+  the open list unchanged, and at most 8 items per round are turned into questions for a
+  person. Evidence-based confirmations are uncapped. The prompt says where the task
+  profiles are (`semantic.md` beside `lineage.json`) and to run `describe` first when they
+  are absent. `SKILL.md` and `docs/{zh-CN,en}/ontology-doc.md` follow in parity.
 - A SQL keyword in front of a parenthesis is no longer read as a function call (C2
   follow-up). `expression_features.functions` was collected by a regex over the
   expression's text -- `\b(name)\s*\(` -- which cannot tell `upper(a)` from `kind IN

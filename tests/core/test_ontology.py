@@ -800,6 +800,7 @@ def test_an_override_raises_one_relation_to_confirmed() -> None:
         "relations": 1,
         "keys": 0,
         "unmatched": [],
+        "ignored_fields": [],
     }
 
 
@@ -843,7 +844,11 @@ def test_an_override_that_matches_nothing_is_reported_rather_than_dropped() -> N
     assert ontology["overrides_applied"] == {
         "relations": 0,
         "keys": 0,
-        "unmatched": ["ods.absent", "ods.orders.nope->ods.customer.id"],
+        "unmatched": [
+            {"key": "ods.absent", "reason": "unknown_entity: ods.absent"},
+            {"key": "ods.orders.nope->ods.customer.id", "reason": "unknown_column: nope"},
+        ],
+        "ignored_fields": [],
     }
 
 
@@ -856,4 +861,9 @@ def test_without_overrides_nothing_is_confirmed() -> None:
     } | {str(item["cardinality"]["tier"]) for item in ontology["relations"]}
 
     assert TIER_CONFIRMED not in tiers
-    assert ontology["overrides_applied"] == {"relations": 0, "keys": 0, "unmatched": []}
+    assert ontology["overrides_applied"] == {
+        "relations": 0,
+        "keys": 0,
+        "unmatched": [],
+        "ignored_fields": [],
+    }

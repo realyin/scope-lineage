@@ -54,6 +54,10 @@ consumers: 0
 
 - `segment`、`band` — 已证明（`proven`）；证据 `golden_grouped_dedup_join/stmt:001`
 
+**元数据键线索**
+
+- 元数据注释没有把任何列称作主键或唯一键。
+
 **多行性**
 
 - 语料内没有任务按某个键对这张表去重或聚合。
