@@ -66,7 +66,27 @@
           }
         ],
         "metadata_complete": true,
-        "table_column_count": 3
+        "table_column_count": 3,
+        "declared_columns": [
+          {
+            "name": "segment",
+            "type": null,
+            "comment": null,
+            "used": true
+          },
+          {
+            "name": "segment_name",
+            "type": null,
+            "comment": null,
+            "used": true
+          },
+          {
+            "name": "updated_at",
+            "type": null,
+            "comment": null,
+            "used": true
+          }
+        ]
       },
       "ods.events_a": {
         "column_details": [
@@ -82,7 +102,21 @@
           }
         ],
         "metadata_complete": true,
-        "table_column_count": 2
+        "table_column_count": 2,
+        "declared_columns": [
+          {
+            "name": "segment",
+            "type": null,
+            "comment": null,
+            "used": true
+          },
+          {
+            "name": "amount",
+            "type": null,
+            "comment": null,
+            "used": true
+          }
+        ]
       },
       "ods.events_b": {
         "column_details": [
@@ -98,7 +132,21 @@
           }
         ],
         "metadata_complete": true,
-        "table_column_count": 2
+        "table_column_count": 2,
+        "declared_columns": [
+          {
+            "name": "seg_code",
+            "type": null,
+            "comment": null,
+            "used": true
+          },
+          {
+            "name": "amount",
+            "type": null,
+            "comment": null,
+            "used": true
+          }
+        ]
       }
     },
     "output_tables": {
@@ -136,6 +184,50 @@
           }
         ],
         "metadata_complete": true,
+        "declared_columns": [
+          {
+            "name": "segment",
+            "type": "string",
+            "comment": "Segment code",
+            "used": true
+          },
+          {
+            "name": "band",
+            "type": "string",
+            "comment": "Amount band",
+            "used": true
+          },
+          {
+            "name": "total",
+            "type": "decimal(18,2)",
+            "comment": "Summed amount",
+            "used": true
+          },
+          {
+            "name": "cnt",
+            "type": "bigint",
+            "comment": "Row count",
+            "used": true
+          },
+          {
+            "name": "band_total",
+            "type": "decimal(18,2)",
+            "comment": "Band level total",
+            "used": true
+          },
+          {
+            "name": "segment_name",
+            "type": "string",
+            "comment": "Segment display name",
+            "used": true
+          },
+          {
+            "name": "dt",
+            "type": "string",
+            "comment": "Partition date",
+            "used": false
+          }
+        ],
         "metadata_source": "target_ddl",
         "table_metadata": {
           "full_table_name": "spark_catalog.mart.metric_by_segment",

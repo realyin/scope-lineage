@@ -732,6 +732,13 @@ the basename for a single task file, or a POSIX-style path relative to the batch
   supplied schema, absent when the schema does not know the table — this is what lets a
   reader tell "a few columns used" apart from "the table's full width");
 - `output_tables`: keys are target table names, values are the corresponding target metadata — the `--schema` map when it knows the table, otherwise a fallback to the target table's own DDL/Schema export (`--target-ddl-metadata`), whose `type`/`comment` fill `column_details[]` for the columns this statement actually writes, with `full_table_name`/`source_file`/`structure_source` in `table_metadata`; the `metadata_source` key names which side answered — `schema` or `target_ddl` — and is absent when neither described the table;
+- `declared_columns`: **every** field the metadata declares, in DDL order, each
+  `{name, type, comment, used}` — `used` is `true` when the column is in this statement's
+  `column_details[]` (read, for an input table; written, for an output table). The key is
+  **absent** (not an empty array) when no metadata described the table: "nobody described
+  this table" and "this table has no fields" are two different statements. `column_details[]`
+  is unchanged and still the used subset; comment redaction and metadata patching reach
+  both lists identically, because both are built from the same field objects;
 - `metadata_complete`: whether the metadata the caller supplied covers the known fields — not a claim that the real catalog is always complete. When the metadata knows the table but agrees with none of the column names this statement writes, `column_details[]` is empty, `metadata_complete` is `false` (zero written columns described is not coverage), `metadata_source` still names which side answered, and the additive key `metadata_note: "no_output_column_matched"` is present — "the DDL was read and matched nothing" and "nobody supplied metadata" are two states with two different fixes.
 
 Each table's `table_metadata` is an **open object**, present only when the metadata described

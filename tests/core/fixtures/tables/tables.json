@@ -4,11 +4,11 @@
     "artifact_root": "corpus",
     "task_count": 5,
     "lineage_digests": {
-      "golden_commented_insert": "a631091cb58fc88a",
-      "golden_commented_task": "0e062578497c15f3",
-      "golden_directory_target": "c067a3d853c88d59",
-      "golden_grouped_dedup_join": "4e323ab37f990b59",
-      "golden_simple_insert": "ee7246d6cfdfe5e6"
+      "golden_commented_insert": "2802dca5f469248e",
+      "golden_commented_task": "0742cbd0452461e4",
+      "golden_directory_target": "bca71959d9438aea",
+      "golden_grouped_dedup_join": "b337ea20d7f3734e",
+      "golden_simple_insert": "1e33f30b4f377c8a"
     }
   },
   "tables": [
@@ -72,14 +72,25 @@
           "produced_summary": null,
           "consumer_usage_counts": {
             "join_key": 2
-          }
+          },
+          "used_in_corpus": true
+        },
+        {
+          "name": "channel_name",
+          "type": null,
+          "comment": null,
+          "produced_summary": null,
+          "consumer_usage_counts": {},
+          "used_in_corpus": false
         }
       ],
       "coverage": {
         "column_comment_ratio": 0.0,
         "table_comment": true,
         "producers": 0,
-        "consumers": 2
+        "consumers": 2,
+        "columns_used": 1,
+        "columns_declared": 2
       },
       "findings": [
         {
@@ -152,7 +163,8 @@
           "consumer_usage_counts": {
             "join_key": 1,
             "window_partition": 1
-          }
+          },
+          "used_in_corpus": true
         },
         {
           "name": "segment_name",
@@ -161,7 +173,8 @@
           "produced_summary": null,
           "consumer_usage_counts": {
             "output": 1
-          }
+          },
+          "used_in_corpus": true
         },
         {
           "name": "updated_at",
@@ -170,14 +183,17 @@
           "produced_summary": null,
           "consumer_usage_counts": {
             "window_order": 1
-          }
+          },
+          "used_in_corpus": true
         }
       ],
       "coverage": {
         "column_comment_ratio": 0.0,
         "table_comment": false,
         "producers": 0,
-        "consumers": 1
+        "consumers": 1,
+        "columns_used": 3,
+        "columns_declared": 3
       },
       "findings": [
         {
@@ -250,7 +266,7 @@
             "口径：仅统计生效状态的客户",
             "口径问题联系 <email>（合成地址）"
           ],
-          "lineage_digest": "a631091cb58fc88a"
+          "lineage_digest": "2802dca5f469248e"
         },
         {
           "task": "golden_commented_task",
@@ -303,7 +319,7 @@
             "任务：客户渠道汇总（合成示例）",
             "口径：仅统计生效状态的客户"
           ],
-          "lineage_digest": "0e062578497c15f3"
+          "lineage_digest": "0742cbd0452461e4"
         }
       ],
       "consumed_by": [],
@@ -313,28 +329,33 @@
           "type": null,
           "comment": null,
           "produced_summary": "（注释未知）：直接取自 ods.channel_event.customer_id（表：渠道事件明细（合成））；注释：客户号",
-          "consumer_usage_counts": {}
+          "consumer_usage_counts": {},
+          "used_in_corpus": true
         },
         {
           "name": "channel_name",
           "type": null,
           "comment": null,
           "produced_summary": "（注释未知）：channel_code = 'A' → 'ONLINE'；否则 'OFFLINE'；来源 ods.channel_event.channel_code（表：渠道事件明细（合成））；注释：渠道编码（合成值域）",
-          "consumer_usage_counts": {}
+          "consumer_usage_counts": {},
+          "used_in_corpus": true
         },
         {
           "name": "total_amount",
           "type": null,
           "comment": null,
           "produced_summary": "（注释未知）：按 customer_id、CASE WHEN channel_code = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END 聚合：SUM(amount)；来源 ods.channel_event.amount（表：渠道事件明细（合成））；注释：金额合计（元）",
-          "consumer_usage_counts": {}
+          "consumer_usage_counts": {},
+          "used_in_corpus": true
         }
       ],
       "coverage": {
         "column_comment_ratio": 0.0,
         "table_comment": false,
         "producers": 2,
-        "consumers": 0
+        "consumers": 0,
+        "columns_used": 3,
+        "columns_declared": null
       },
       "findings": [
         {
@@ -442,59 +463,75 @@
           ],
           "refresh": null,
           "header_comments": [],
-          "lineage_digest": "4e323ab37f990b59"
+          "lineage_digest": "b337ea20d7f3734e"
         }
       ],
       "consumed_by": [],
       "columns": [
         {
           "name": "segment",
-          "type": null,
+          "type": "string",
           "comment": "Segment code",
           "produced_summary": "Segment code：直接取自 ods.events_a.segment（注释未知）、ods.events_b.seg_code（注释未知）",
-          "consumer_usage_counts": {}
+          "consumer_usage_counts": {},
+          "used_in_corpus": true
         },
         {
           "name": "band",
-          "type": null,
+          "type": "string",
           "comment": "Amount band",
           "produced_summary": "Amount band：amount >= 100 → 'HIGH'；否则 'LOW'；来源 ods.events_a.amount（注释未知）、ods.events_b.amount（注释未知）",
-          "consumer_usage_counts": {}
+          "consumer_usage_counts": {},
+          "used_in_corpus": true
         },
         {
           "name": "total",
-          "type": null,
+          "type": "decimal(18,2)",
           "comment": "Summed amount",
           "produced_summary": "Summed amount：按 segment、CASE WHEN amount >= 100 THEN 'HIGH' ELSE 'LOW' END 聚合：SUM(amount)；来源 ods.events_a.amount（注释未知）、ods.events_b.amount（注释未知）",
-          "consumer_usage_counts": {}
+          "consumer_usage_counts": {},
+          "used_in_corpus": true
         },
         {
           "name": "cnt",
-          "type": null,
+          "type": "bigint",
           "comment": "Row count",
           "produced_summary": "Row count：按 segment、CASE WHEN amount >= 100 THEN 'HIGH' ELSE 'LOW' END 聚合：COUNT(1)",
-          "consumer_usage_counts": {}
+          "consumer_usage_counts": {},
+          "used_in_corpus": true
         },
         {
           "name": "band_total",
-          "type": null,
+          "type": "decimal(18,2)",
           "comment": "Band level total",
           "produced_summary": "Band level total：amount >= 100 → 'HIGH'；否则 'LOW'，再按 segment、CASE WHEN amount >= 100 THEN 'HIGH' ELSE 'LOW' END 聚合：SUM(amount)，再窗口函数 SUM(total)；按 band 分组；来源 ods.events_a.amount（注释未知）、ods.events_b.amount（注释未知）",
-          "consumer_usage_counts": {}
+          "consumer_usage_counts": {},
+          "used_in_corpus": true
         },
         {
           "name": "segment_name",
-          "type": null,
+          "type": "string",
           "comment": "Segment display name",
           "produced_summary": "Segment display name：直接取自 dim.segment_dim.segment_name（注释未知）（关联未命中时为空）",
-          "consumer_usage_counts": {}
+          "consumer_usage_counts": {},
+          "used_in_corpus": true
+        },
+        {
+          "name": "dt",
+          "type": "string",
+          "comment": "Partition date",
+          "produced_summary": null,
+          "consumer_usage_counts": {},
+          "used_in_corpus": false
         }
       ],
       "coverage": {
         "column_comment_ratio": 1.0,
         "table_comment": false,
         "producers": 1,
-        "consumers": 0
+        "consumers": 0,
+        "columns_used": 6,
+        "columns_declared": 7
       },
       "findings": [
         {
@@ -550,7 +587,7 @@
           ],
           "refresh": null,
           "header_comments": [],
-          "lineage_digest": "ee7246d6cfdfe5e6"
+          "lineage_digest": "1e33f30b4f377c8a"
         }
       ],
       "consumed_by": [],
@@ -560,21 +597,25 @@
           "type": null,
           "comment": null,
           "produced_summary": "（注释未知）：直接取自 ods.users.user_id（注释未知）",
-          "consumer_usage_counts": {}
+          "consumer_usage_counts": {},
+          "used_in_corpus": true
         },
         {
           "name": "user_name",
           "type": null,
           "comment": null,
           "produced_summary": "（注释未知）：直接取自 ods.users.user_name（注释未知）",
-          "consumer_usage_counts": {}
+          "consumer_usage_counts": {},
+          "used_in_corpus": true
         }
       ],
       "coverage": {
         "column_comment_ratio": 0.0,
         "table_comment": false,
         "producers": 1,
-        "consumers": 0
+        "consumers": 0,
+        "columns_used": 2,
+        "columns_declared": null
       },
       "findings": [
         {
@@ -692,7 +733,8 @@
           "consumer_usage_counts": {
             "group_by": 2,
             "output": 2
-          }
+          },
+          "used_in_corpus": true
         },
         {
           "name": "channel_code",
@@ -703,7 +745,8 @@
             "join_key": 2,
             "group_by": 2,
             "output": 2
-          }
+          },
+          "used_in_corpus": true
         },
         {
           "name": "amount",
@@ -712,7 +755,8 @@
           "produced_summary": null,
           "consumer_usage_counts": {
             "output": 2
-          }
+          },
+          "used_in_corpus": true
         },
         {
           "name": "status",
@@ -721,14 +765,17 @@
           "produced_summary": null,
           "consumer_usage_counts": {
             "filter": 2
-          }
+          },
+          "used_in_corpus": true
         }
       ],
       "coverage": {
         "column_comment_ratio": 0.0,
         "table_comment": true,
         "producers": 0,
-        "consumers": 2
+        "consumers": 2,
+        "columns_used": 4,
+        "columns_declared": 4
       },
       "findings": [
         {
@@ -800,7 +847,8 @@
             "join_key": 1,
             "group_by": 1,
             "output": 1
-          }
+          },
+          "used_in_corpus": true
         },
         {
           "name": "amount",
@@ -811,14 +859,17 @@
             "group_by": 1,
             "window_partition": 1,
             "output": 1
-          }
+          },
+          "used_in_corpus": true
         }
       ],
       "coverage": {
         "column_comment_ratio": 0.0,
         "table_comment": false,
         "producers": 0,
-        "consumers": 1
+        "consumers": 1,
+        "columns_used": 2,
+        "columns_declared": 2
       },
       "findings": [
         {
@@ -886,7 +937,8 @@
             "join_key": 1,
             "group_by": 1,
             "output": 1
-          }
+          },
+          "used_in_corpus": true
         },
         {
           "name": "amount",
@@ -897,14 +949,17 @@
             "group_by": 1,
             "window_partition": 1,
             "output": 1
-          }
+          },
+          "used_in_corpus": true
         }
       ],
       "coverage": {
         "column_comment_ratio": 0.0,
         "table_comment": false,
         "producers": 0,
-        "consumers": 1
+        "consumers": 1,
+        "columns_used": 2,
+        "columns_declared": 2
       },
       "findings": [
         {
@@ -995,7 +1050,8 @@
           "produced_summary": null,
           "consumer_usage_counts": {
             "output": 2
-          }
+          },
+          "used_in_corpus": true
         },
         {
           "name": "user_name",
@@ -1004,7 +1060,8 @@
           "produced_summary": null,
           "consumer_usage_counts": {
             "output": 2
-          }
+          },
+          "used_in_corpus": true
         },
         {
           "name": "is_active",
@@ -1013,14 +1070,17 @@
           "produced_summary": null,
           "consumer_usage_counts": {
             "filter": 1
-          }
+          },
+          "used_in_corpus": true
         }
       ],
       "coverage": {
         "column_comment_ratio": 0.0,
         "table_comment": false,
         "producers": 0,
-        "consumers": 2
+        "consumers": 2,
+        "columns_used": 3,
+        "columns_declared": 2
       },
       "findings": [
         {

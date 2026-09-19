@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "schema_version": "1.0",
   "statement_id": "stmt:003",
-  "lineage_digest": "cd2048bf120bc8b5",
+  "lineage_digest": "25127a04fed1fb9e",
   "task": {
     "task_name": "golden_multi_statement_script",
     "target_table": "mart.first_target",
@@ -18,6 +18,7 @@
     },
     "instance_dates": [],
     "structural_summary": "ROOT 直接读取 ods.source；输出 2 列。",
+    "target_declared_columns": [],
     "target_metadata_source": null,
     "header_comments": [],
     "meta": null
@@ -50,6 +51,20 @@
           "usages": [
             "output"
           ]
+        }
+      ],
+      "declared_columns": [
+        {
+          "name": "id",
+          "type": null,
+          "comment": null,
+          "used": true
+        },
+        {
+          "name": "v",
+          "type": null,
+          "comment": null,
+          "used": true
         }
       ],
       "metadata_complete": true,

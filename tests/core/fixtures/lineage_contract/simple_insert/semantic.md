@@ -4,7 +4,7 @@ schema_version: "1.0"
 task_name: "golden_simple_insert"
 target_table: "mart.user_names"
 stmt_kind: "INSERT_OVERWRITE"
-lineage_digest: "ee7246d6cfdfe5e6"
+lineage_digest: "1e33f30b4f377c8a"
 ---
 
 # 任务语义描述 mart.user_names

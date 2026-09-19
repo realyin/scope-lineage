@@ -71,6 +71,9 @@ def _input_table_metadata(
                 # The full schema width, not the used subset — so a reader can tell
                 # "a few columns used" from "the table's full width" at a glance.
                 item["table_column_count"] = len(details)
+                item["declared_columns"] = _declared_columns(
+                    details, [entry["name"] for entry in selected]
+                )
             table_detail = table_details_for_table(schema, table) if schema else {}
             if table_detail:
                 item["table_metadata"] = table_detail
@@ -113,6 +116,11 @@ def _output_table_metadata(
         "column_details": details,
         "metadata_complete": bool(source) and bool(details),
     }
+    declared = _output_declared_columns(
+        source, schema_details, target_table_metadata, output_names
+    )
+    if declared:
+        item["declared_columns"] = declared
     if source:
         # Which of the two descriptions answered. Without it a null comment and an
         # authoritative empty comment are the same document, and a consumer weighing the
@@ -128,6 +136,27 @@ def _output_table_metadata(
     if table_detail:
         item["table_metadata"] = table_detail
     return {result.target_table: item}
+
+
+def _output_declared_columns(
+    source: str,
+    schema_details: list[dict],
+    metadata: TargetTableMetadata | None,
+    output_names: list[str],
+) -> list[dict]:
+    """The target table's whole declared width, from whichever side described it.
+
+    Not only the columns this write produces: a reader of the target has to know which
+    columns the statement leaves untouched. Empty when nothing described the table, so
+    the key stays absent rather than claiming a zero-column table.
+    """
+    if source == "schema":
+        declared = schema_details
+    elif source == "target_ddl":
+        declared = _target_ddl_all_columns(metadata)
+    else:
+        return []
+    return _declared_columns(declared, output_names)
 
 
 def _target_ddl_column_details(
@@ -154,6 +183,41 @@ def _target_ddl_column_details(
         }
         for column in metadata.columns
         if column.name in written
+    ]
+
+
+def _target_ddl_all_columns(metadata: TargetTableMetadata | None) -> list[dict]:
+    """Every column the target's own definition declares, unfiltered, in DDL order."""
+    if metadata is None or not metadata.usable:
+        return []
+    return [
+        {
+            "name": column.name,
+            "type": column.data_type or None,
+            "comment": column.comment or None,
+        }
+        for column in metadata.columns
+    ]
+
+
+def _declared_columns(details: Iterable[Mapping], used: Iterable[str]) -> list[dict]:
+    """The table's declared columns in DDL order, each marked used by this statement.
+
+    Built from the very same detail dicts ``column_details[]`` is built from, so whatever
+    the pipeline does to a comment on its way out -- redaction, a reviewed metadata patch
+    -- reaches both lists or neither. A second, independently assembled copy of the same
+    comments would be a second place for a masked address to survive.
+    """
+    used_names = set(used)
+    return [
+        {
+            "name": detail["name"],
+            "type": detail.get("type"),
+            "comment": detail.get("comment"),
+            "used": detail["name"] in used_names,
+        }
+        for detail in details
+        if detail.get("name")
     ]
 
 

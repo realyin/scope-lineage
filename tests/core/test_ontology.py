@@ -575,9 +575,12 @@ def _known_names(documents: list[dict]) -> tuple[set[str], set[str], set[str]]:
         metadata = document.get("related_metadata") or {}
         for group in ("input_tables", "output_tables"):
             for item in (metadata.get(group) or {}).values():
-                columns.update(
-                    str(detail.get("name")) for detail in item.get("column_details") or []
-                )
+                # A1: the metadata's declared width is named by the document too, and
+                # an entity attribute may now come from a column no task read.
+                for key in ("column_details", "declared_columns"):
+                    columns.update(
+                        str(detail.get("name")) for detail in item.get(key) or []
+                    )
         columns.update(
             str(entry.get("column")) for entry in document.get("end_to_end_lineage") or []
         )

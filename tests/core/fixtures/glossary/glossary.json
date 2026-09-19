@@ -5,19 +5,19 @@
     "task_count": 13,
     "statement_count": 13,
     "lineage_digests": {
-      "golden_commented_insert": "a631091cb58fc88a",
-      "golden_complex_scope": "9b838357cd4232fd",
-      "golden_directory_target": "c067a3d853c88d59",
+      "golden_commented_insert": "2802dca5f469248e",
+      "golden_complex_scope": "5916c6127c587bb4",
+      "golden_directory_target": "bca71959d9438aea",
       "golden_fact_gap": "ab3330b352f0a01e",
-      "golden_grouped_dedup_join": "4e323ab37f990b59",
-      "golden_multi_statement_script": "cd2048bf120bc8b5",
-      "golden_self_join": "cd5641d03833f8d7",
-      "golden_simple_insert": "ee7246d6cfdfe5e6",
-      "golden_special_literals": "eb3a6f8c98261ebd",
+      "golden_grouped_dedup_join": "b337ea20d7f3734e",
+      "golden_multi_statement_script": "25127a04fed1fb9e",
+      "golden_self_join": "a6d1920bdb12ab1a",
+      "golden_simple_insert": "1e33f30b4f377c8a",
+      "golden_special_literals": "ca26ec66a7be738a",
       "golden_star_without_schema": "da69f10247007a28",
-      "golden_syntax_recovered": "6d8c220b824789a5",
-      "golden_target_ddl_binding": "49ca4ef5f9e34e0f",
-      "merge_contract": "4abbc5352d1e69a5"
+      "golden_syntax_recovered": "218797d5ee71d0e6",
+      "golden_target_ddl_binding": "1737591dc224e318",
+      "merge_contract": "b61fff94e3fe4f30"
     }
   },
   "terms": [

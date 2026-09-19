@@ -10,7 +10,7 @@ schema_version: "1.0"
 task_name: "golden_set_preamble_task#2"
 target_table: "mart.store_daily"
 stmt_kind: "INSERT_OVERWRITE"
-lineage_digest: "07d9c54fd002714a"
+lineage_digest: "eebc107556571c46"
 ---
 
 # 任务语义描述 mart.store_daily

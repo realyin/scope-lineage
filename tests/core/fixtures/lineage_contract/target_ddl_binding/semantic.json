@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "schema_version": "1.0",
   "statement_id": "stmt:001",
-  "lineage_digest": "49ca4ef5f9e34e0f",
+  "lineage_digest": "1737591dc224e318",
   "task": {
     "task_name": "golden_target_ddl_binding",
     "target_table": "dwd.account_daily",
@@ -22,6 +22,26 @@
     },
     "instance_dates": [],
     "structural_summary": "ROOT 直接读取 ods.account_snapshot；输出 2 列。",
+    "target_declared_columns": [
+      {
+        "name": "account_id",
+        "type": "bigint",
+        "comment": null,
+        "used": true
+      },
+      {
+        "name": "balance",
+        "type": "decimal(18,2)",
+        "comment": null,
+        "used": true
+      },
+      {
+        "name": "dt",
+        "type": "string",
+        "comment": null,
+        "used": false
+      }
+    ],
     "target_metadata_source": "target_ddl",
     "header_comments": [],
     "meta": null
@@ -54,6 +74,20 @@
           "usages": [
             "output"
           ]
+        }
+      ],
+      "declared_columns": [
+        {
+          "name": "account_key",
+          "type": null,
+          "comment": null,
+          "used": true
+        },
+        {
+          "name": "balance_value",
+          "type": null,
+          "comment": null,
+          "used": true
         }
       ],
       "metadata_complete": true,

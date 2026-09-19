@@ -144,7 +144,27 @@
               }
             ],
             "metadata_complete": true,
-            "table_column_count": 3
+            "table_column_count": 3,
+            "declared_columns": [
+              {
+                "name": "store_id",
+                "type": null,
+                "comment": null,
+                "used": true
+              },
+              {
+                "name": "amount",
+                "type": null,
+                "comment": null,
+                "used": true
+              },
+              {
+                "name": "status",
+                "type": null,
+                "comment": null,
+                "used": true
+              }
+            ]
           }
         },
         "output_tables": {

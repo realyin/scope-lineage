@@ -667,6 +667,9 @@ def _build_task_block(
         # statement, or one with no date filter at all -- never "it reads every day".
         "instance_dates": _instance_dates(document, rules),
         "structural_summary": _structural_summary(document),
+        # A1: the target's whole declared width, so a corpus can publish the columns this
+        # write leaves untouched. Empty when no metadata described the target table.
+        "target_declared_columns": _declared_columns(output_metadata),
         "target_metadata_source": output_metadata.get("metadata_source"),
         # WI-2.2. The author's header block, verbatim and in order. It is the one place
         # in this document where a line is neither copied from a structural fact nor
@@ -810,6 +813,13 @@ def _build_inputs(document: dict) -> list[dict]:
             entry = _insert_before(
                 entry, "read_by_scopes", "table_column_count", item["table_column_count"]
             )
+        if item.get("declared_columns"):
+            # A1: the table's whole declared width, so a corpus reading these profiles
+            # can publish the columns this task never touched instead of dropping them.
+            entry = _insert_before(
+                entry, "metadata_complete", "declared_columns",
+                _declared_columns(item),
+            )
         source = _comment_source(comment, _table_comment_is_patched(item))
         if source is not None:
             # WI-2.6: right behind the comment it describes, so the two are read together.
@@ -853,6 +863,24 @@ def _used_columns(
             }
         )
     return columns
+
+
+def _declared_columns(metadata_item: dict) -> list[dict]:
+    """The contract's ``declared_columns[]``, copied key for key and in DDL order.
+
+    Copied rather than referenced so a caller that edits a profile cannot reach back into
+    the document it was built from, and left exactly as the contract wrote it so the two
+    always answer "what is this table" with the same list.
+    """
+    return [
+        {
+            "name": str(detail.get("name")),
+            "type": detail.get("type"),
+            "comment": detail.get("comment"),
+            "used": bool(detail.get("used")),
+        }
+        for detail in metadata_item.get("declared_columns") or []
+    ]
 
 
 def _ordered_usages(usages: Iterable[str]) -> list[str]:

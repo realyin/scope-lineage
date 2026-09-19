@@ -351,8 +351,12 @@ def test_a_commented_column_raises_the_ratio() -> None:
 
     coverage = _card(build_table_cards([profile]), "ods.customer_base")["coverage"]
 
-    # the producer reads two of the table's columns; one of them now carries a comment
-    assert coverage["column_comment_ratio"] == 0.5
+    # A1: the ratio is over every column the card lists, which is the table's declared
+    # width (three) rather than the two columns the producer happens to read -- a card
+    # showing three rows and claiming 0.5 coverage would contradict itself.
+    assert coverage["column_comment_ratio"] == 0.3333
+    assert coverage["columns_used"] == 2
+    assert coverage["columns_declared"] == 3
 
 
 # -------------------------------------------------------------------------- determinism
@@ -391,8 +395,11 @@ def _known_columns(document: dict) -> set[str]:
         metadata = statement.get("related_metadata") or {}
         for group in ("input_tables", "output_tables"):
             for item in (metadata.get(group) or {}).values():
-                for detail in item.get("column_details") or []:
-                    columns.add(str(detail.get("name")))
+                # A1: a column the metadata declares is named by the document even
+                # when no logic block of this corpus ever read it.
+                for key in ("column_details", "declared_columns"):
+                    for detail in item.get(key) or []:
+                        columns.add(str(detail.get("name")))
         for entry in statement.get("end_to_end_lineage") or []:
             columns.add(str(entry.get("column")))
             for source in entry.get("physical_sources") or []:

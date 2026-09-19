@@ -4,11 +4,11 @@
     "artifact_root": "corpus",
     "task_count": 5,
     "lineage_digests": {
-      "golden_commented_insert": "a631091cb58fc88a",
-      "golden_commented_task": "0e062578497c15f3",
-      "golden_directory_target": "c067a3d853c88d59",
-      "golden_grouped_dedup_join": "4e323ab37f990b59",
-      "golden_simple_insert": "ee7246d6cfdfe5e6"
+      "golden_commented_insert": "2802dca5f469248e",
+      "golden_commented_task": "0742cbd0452461e4",
+      "golden_directory_target": "bca71959d9438aea",
+      "golden_grouped_dedup_join": "b337ea20d7f3734e",
+      "golden_simple_insert": "1e33f30b4f377c8a"
     }
   },
   "entities": [
@@ -50,6 +50,16 @@
           "observed_roles": [
             "join_key"
           ],
+          "used_in_corpus": true,
+          "not_null_observed": false,
+          "synonyms": []
+        },
+        {
+          "column": "channel_name",
+          "type": null,
+          "comment": null,
+          "observed_roles": [],
+          "used_in_corpus": false,
           "not_null_observed": false,
           "synonyms": []
         }
@@ -96,6 +106,7 @@
             "join_key",
             "window_partition"
           ],
+          "used_in_corpus": true,
           "not_null_observed": false,
           "synonyms": []
         },
@@ -106,6 +117,7 @@
           "observed_roles": [
             "output"
           ],
+          "used_in_corpus": true,
           "not_null_observed": false,
           "synonyms": []
         },
@@ -116,6 +128,7 @@
           "observed_roles": [
             "window_order"
           ],
+          "used_in_corpus": true,
           "not_null_observed": false,
           "synonyms": []
         }
@@ -144,6 +157,7 @@
           "type": null,
           "comment": null,
           "observed_roles": [],
+          "used_in_corpus": true,
           "not_null_observed": false,
           "synonyms": []
         },
@@ -152,6 +166,7 @@
           "type": null,
           "comment": null,
           "observed_roles": [],
+          "used_in_corpus": true,
           "not_null_observed": false,
           "synonyms": []
         },
@@ -160,6 +175,7 @@
           "type": null,
           "comment": null,
           "observed_roles": [],
+          "used_in_corpus": true,
           "not_null_observed": false,
           "synonyms": []
         }
@@ -201,49 +217,64 @@
       "attributes": [
         {
           "column": "segment",
-          "type": null,
+          "type": "string",
           "comment": "Segment code",
           "observed_roles": [],
+          "used_in_corpus": true,
           "not_null_observed": false,
           "synonyms": []
         },
         {
           "column": "band",
-          "type": null,
+          "type": "string",
           "comment": "Amount band",
           "observed_roles": [],
+          "used_in_corpus": true,
           "not_null_observed": false,
           "synonyms": []
         },
         {
           "column": "total",
-          "type": null,
+          "type": "decimal(18,2)",
           "comment": "Summed amount",
           "observed_roles": [],
+          "used_in_corpus": true,
           "not_null_observed": false,
           "synonyms": []
         },
         {
           "column": "cnt",
-          "type": null,
+          "type": "bigint",
           "comment": "Row count",
           "observed_roles": [],
+          "used_in_corpus": true,
           "not_null_observed": false,
           "synonyms": []
         },
         {
           "column": "band_total",
-          "type": null,
+          "type": "decimal(18,2)",
           "comment": "Band level total",
           "observed_roles": [],
+          "used_in_corpus": true,
           "not_null_observed": false,
           "synonyms": []
         },
         {
           "column": "segment_name",
-          "type": null,
+          "type": "string",
           "comment": "Segment display name",
           "observed_roles": [],
+          "used_in_corpus": true,
+          "not_null_observed": false,
+          "synonyms": []
+        },
+        {
+          "column": "dt",
+          "type": "string",
+          "comment": "Partition date",
+          "observed_roles": [],
+          "used_in_corpus": false,
           "not_null_observed": false,
           "synonyms": []
         }
@@ -270,6 +301,7 @@
           "type": null,
           "comment": null,
           "observed_roles": [],
+          "used_in_corpus": true,
           "not_null_observed": false,
           "synonyms": []
         },
@@ -278,6 +310,7 @@
           "type": null,
           "comment": null,
           "observed_roles": [],
+          "used_in_corpus": true,
           "not_null_observed": false,
           "synonyms": []
         }
@@ -332,6 +365,7 @@
             "group_by",
             "output"
           ],
+          "used_in_corpus": true,
           "not_null_observed": false,
           "synonyms": []
         },
@@ -344,6 +378,7 @@
             "group_by",
             "output"
           ],
+          "used_in_corpus": true,
           "not_null_observed": false,
           "synonyms": []
         },
@@ -354,6 +389,7 @@
           "observed_roles": [
             "output"
           ],
+          "used_in_corpus": true,
           "not_null_observed": false,
           "synonyms": []
         },
@@ -364,6 +400,7 @@
           "observed_roles": [
             "filter"
           ],
+          "used_in_corpus": true,
           "not_null_observed": false,
           "synonyms": []
         }
@@ -394,6 +431,7 @@
             "group_by",
             "output"
           ],
+          "used_in_corpus": true,
           "not_null_observed": false,
           "synonyms": [
             {
@@ -419,6 +457,7 @@
             "window_partition",
             "output"
           ],
+          "used_in_corpus": true,
           "not_null_observed": false,
           "synonyms": []
         }
@@ -449,6 +488,7 @@
             "group_by",
             "output"
           ],
+          "used_in_corpus": true,
           "not_null_observed": false,
           "synonyms": [
             {
@@ -474,6 +514,7 @@
             "window_partition",
             "output"
           ],
+          "used_in_corpus": true,
           "not_null_observed": false,
           "synonyms": []
         }
@@ -502,6 +543,7 @@
           "observed_roles": [
             "output"
           ],
+          "used_in_corpus": true,
           "not_null_observed": false,
           "synonyms": []
         },
@@ -512,6 +554,7 @@
           "observed_roles": [
             "output"
           ],
+          "used_in_corpus": true,
           "not_null_observed": false,
           "synonyms": []
         },
@@ -522,6 +565,7 @@
           "observed_roles": [
             "filter"
           ],
+          "used_in_corpus": true,
           "not_null_observed": false,
           "synonyms": []
         }

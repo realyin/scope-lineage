@@ -124,7 +124,21 @@
               }
             ],
             "metadata_complete": true,
-            "table_column_count": 2
+            "table_column_count": 2,
+            "declared_columns": [
+              {
+                "name": "account_id",
+                "type": null,
+                "comment": null,
+                "used": true
+              },
+              {
+                "name": "account_key",
+                "type": null,
+                "comment": null,
+                "used": true
+              }
+            ]
           },
           "ods.events": {
             "column_details": [
@@ -145,7 +159,27 @@
               }
             ],
             "metadata_complete": true,
-            "table_column_count": 3
+            "table_column_count": 3,
+            "declared_columns": [
+              {
+                "name": "id",
+                "type": null,
+                "comment": null,
+                "used": true
+              },
+              {
+                "name": "event_type",
+                "type": null,
+                "comment": null,
+                "used": true
+              },
+              {
+                "name": "account_id",
+                "type": null,
+                "comment": null,
+                "used": true
+              }
+            ]
           }
         },
         "output_tables": {
@@ -168,6 +202,26 @@
               }
             ],
             "metadata_complete": true,
+            "declared_columns": [
+              {
+                "name": "id",
+                "type": null,
+                "comment": null,
+                "used": true
+              },
+              {
+                "name": "event_type",
+                "type": null,
+                "comment": null,
+                "used": true
+              },
+              {
+                "name": "account_key",
+                "type": null,
+                "comment": null,
+                "used": true
+              }
+            ],
             "metadata_source": "schema"
           }
         }

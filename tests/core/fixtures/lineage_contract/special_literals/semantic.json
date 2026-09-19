@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "schema_version": "1.0",
   "statement_id": "stmt:001",
-  "lineage_digest": "eb3a6f8c98261ebd",
+  "lineage_digest": "ca26ec66a7be738a",
   "task": {
     "task_name": "golden_special_literals",
     "target_table": "mart.flags",
@@ -18,6 +18,7 @@
     },
     "instance_dates": [],
     "structural_summary": "ROOT 直接读取 ods.users；CASE WHEN 派生 1 个字段；输出 1 列。",
+    "target_declared_columns": [],
     "target_metadata_source": null,
     "header_comments": [],
     "meta": null
@@ -42,6 +43,14 @@
           "usages": [
             "output"
           ]
+        }
+      ],
+      "declared_columns": [
+        {
+          "name": "name",
+          "type": null,
+          "comment": null,
+          "used": true
         }
       ],
       "metadata_complete": true,

@@ -2115,6 +2115,37 @@
           "minimum": 0,
           "description": "Total column count of the table in the supplied schema metadata (the full width, not the used subset). Absent when the schema does not know the table."
         },
+        "declared_columns": {
+          "type": "array",
+          "description": "Every column the metadata declares for this table, in DDL order, with `used` true for the ones this statement reads (input tables) or writes (output tables). Absent -- never empty -- when no metadata described the table. `column_details[]` stays the used subset.",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "used"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "comment": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "used": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
         "metadata_complete": {
           "type": "boolean"
         },

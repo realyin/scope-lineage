@@ -54,7 +54,15 @@
           }
         ],
         "metadata_complete": true,
-        "table_column_count": 1
+        "table_column_count": 1,
+        "declared_columns": [
+          {
+            "name": "id",
+            "type": null,
+            "comment": null,
+            "used": true
+          }
+        ]
       }
     },
     "output_tables": {
