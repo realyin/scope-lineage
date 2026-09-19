@@ -15,6 +15,11 @@ import sys
 from pathlib import Path
 
 from .corpus_cache import add_incremental_arguments, open_cache
+from .metadata.column_samples import (
+    SAMPLES_TOP_DEFAULT,
+    ColumnSamplesError,
+    load_column_samples,
+)
 from .render.table_cards import (
     build_table_cards,
     render_table_card_markdown,
@@ -42,6 +47,24 @@ def add_tables_parser(subcommands) -> None:
         help="Directory for tables.json, tables.md and the tables/ card directory",
     )
     tables_cmd.add_argument(
+        "--samples",
+        help=(
+            "Sample values to put on the cards: a table,column,value[,count] CSV, a "
+            "directory of such CSVs, or a samples/1 JSON. Values are always masked for "
+            "contact shapes and cut to length; keys that match no table or column are "
+            "reported under samples_applied.unmatched rather than dropped"
+        ),
+    )
+    tables_cmd.add_argument(
+        "--samples-top",
+        type=int,
+        default=SAMPLES_TOP_DEFAULT,
+        help=(
+            "How many distinct values each column publishes, most frequent first where "
+            f"the file gave counts (default: {SAMPLES_TOP_DEFAULT})"
+        ),
+    )
+    tables_cmd.add_argument(
         "--format",
         default="json,md",
         help="Comma-separated output formats: json, md (default: json,md)",
@@ -57,6 +80,14 @@ def run_tables(args: argparse.Namespace) -> int:
     from .cli import _discover_lineage_documents, _load_contract_documents
     from .render.semantic_profile import build_semantic_profile
 
+    try:
+        samples = load_column_samples(
+            getattr(args, "samples", None),
+            top=getattr(args, "samples_top", SAMPLES_TOP_DEFAULT),
+        )
+    except ColumnSamplesError as error:
+        print(error, file=sys.stderr)
+        return 2
     found = _discover_lineage_documents(args.lineage)
     if isinstance(found, int):
         return found
@@ -65,10 +96,9 @@ def run_tables(args: argparse.Namespace) -> int:
         return loaded
     documents = loaded.documents
 
-    out_dir = Path(args.out)
-    cache = open_cache(
-        args, out_dir, found[1], "tables", [args.format, str(Path(args.lineage))]
-    )
+    out_dir, root = Path(args.out), str(Path(args.lineage))
+    options = [args.format, root, _samples_digest(args), args.samples_top]
+    cache = open_cache(args, out_dir, found[1], "tables", options)
     profiles = []
     for item in documents:
         try:
@@ -83,14 +113,14 @@ def run_tables(args: argparse.Namespace) -> int:
         except ValueError as error:
             print(f"{item.path}: {error}", file=sys.stderr)
             return 1
-    cards = build_table_cards(profiles, artifact_root=str(Path(args.lineage)))
+    cards = build_table_cards(profiles, artifact_root=root, samples=samples)
     chosen = formats(args.format)
     _write_cards(out_dir, cards, chosen)
     cache.commit(_written(cards, chosen))
 
     print(
         f"Carded {len(cards['tables'])} table(s) from {cards['corpus']['task_count']} "
-        f"task(s) ({loaded.counters()}{cache.counters()})"
+        f"task(s) ({loaded.counters()}{_samples_report(cards)}{cache.counters()})"
     )
     return 0
 
@@ -105,6 +135,42 @@ def _written(cards: dict, chosen: set[str]) -> list[str]:
         "tables.md",
         *(f"tables/{table_card_filename(card['table'])}" for card in cards["tables"]),
     ]
+
+
+def _samples_digest(args: argparse.Namespace) -> list[str | None]:
+    """The sample files' *contents*, so editing one in place invalidates the cache.
+
+    Samples land on the cards rather than in the per-task facts, so a cached profile is
+    still correct when they change. The digest is in the options anyway, for the reason
+    the whole options digest exists: one rule -- anything outside the corpus that steers
+    the run invalidates the index -- is worth more than a per-flag argument about which
+    half of the pipeline each flag reaches.
+    """
+    from .corpus_cache import file_digest
+
+    source = getattr(args, "samples", None)
+    if not source:
+        return []
+    root = Path(source)
+    files = sorted(root.rglob("*")) if root.is_dir() else [root]
+    return [file_digest(path) for path in files if path.is_file()]
+
+
+def _samples_report(cards: dict) -> str:
+    """The samples half of a run, or nothing at all when no samples file was supplied.
+
+    The unmatched keys are named, not merely counted: a typo in a hand-made export is
+    exactly what its author cannot see, and a count alone does not say which line to fix.
+    """
+    applied = cards.get("samples_applied")
+    if applied is None:
+        return ""
+    unmatched = applied["unmatched"]
+    detail = f" ({'、'.join(unmatched)})" if unmatched else ""
+    return (
+        f", samples_columns={applied['columns_sampled']}, "
+        f"samples_unmatched={len(unmatched)}{detail}"
+    )
 
 
 def _write_cards(out: Path, cards: dict, chosen: set[str]) -> None:

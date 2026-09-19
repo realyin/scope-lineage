@@ -14,7 +14,9 @@ from typing import NamedTuple
 
 from .cli_glossary import add_glossary_parser, formats as _glossary_formats, run_glossary
 from .cli_ontology import (
+    EXPORT_FORMATS as _ONTOLOGY_EXPORTS,
     add_ontology_parser,
+    exports as _ontology_exports,
     formats as _ontology_formats,
     run_ontology,
 )
@@ -216,6 +218,13 @@ def main(argv: list[str] | None = None) -> int:
         unknown_formats = _ontology_formats(args.format) - {"json", "md"}
         if unknown_formats:
             parser.error(f"--format accepts json and md, got {sorted(unknown_formats)}")
+        unknown_exports = [
+            name
+            for name in _ontology_exports(args.export)
+            if name not in _ONTOLOGY_EXPORTS
+        ]
+        if unknown_exports:
+            parser.error(f"--export accepts linkml and shacl, got {unknown_exports}")
         return run_ontology(args)
     if args.command == "validate":
         return _validate_inputs(args)

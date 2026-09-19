@@ -342,6 +342,8 @@ scope-lineage describe --lineage /tmp/scope-lineage-corpus --tables /tmp/scope-l
 
 `tables.json` 与每表一张的 `tables/<db.table>.md` 回答"谁写这张表、一行代表什么、谁读它读了哪些列"；
 会话内关系与 `directory:` 写入不成表，只差 catalog 限定的写法算同一张表。
+能导出每列几个值的团队还可以加 `--samples <文件或目录>`（`table,column,value[,count]` 的 CSV
+或 `samples/1` JSON），样例值会先脱敏、再截断，然后落到卡上——Core 自己不连数据库取数。
 详见 [语料级表卡](docs/zh-CN/tables-doc.md)。
 
 `'SF'`、`'F_00'` 这类 code 在单个任务里只能落"待业务确认"——但整份语料里，它们可能被注释解释过，
@@ -369,8 +371,9 @@ scope-lineage ontology --lineage /tmp/scope-lineage-corpus --out /tmp/scope-line
 以及两个任务互相矛盾的地方——每条断言都标 `proven` / `implied` / `hypothesis` / `conflict`
 并带证据。`ontology.md` 开头是整份语料的 Mermaid ER 总览，`tables/<db.table>.md` 则是表卡
 再追加五节：身份、关系、约束、属性同义、待人工判定。答案通过 `--overrides` 回写，被确认的
-断言升到第五级 `confirmed`。业务命名与类层次留给懂业务的人。
-详见 [语料级本体候选](docs/zh-CN/ontology-doc.md)。
+断言升到第五级 `confirmed`。业务命名与类层次留给懂业务的人。加上 `--export linkml,shacl`
+还会在 JSON 旁写出 `ontology.linkml.yaml` 与 `ontology.shacl.ttl`（层级一并带出），供 RDF
+工具链直接加载。详见 [语料级本体候选](docs/zh-CN/ontology-doc.md)。
 
 四个语料级命令（`describe`、`tables`、`glossary`、`ontology`）默认每次重跑都把每个任务重算
 一遍。加上 `--incremental`，重跑就只重算 `lineage.json` / `diagnostics.json` 变了的任务，

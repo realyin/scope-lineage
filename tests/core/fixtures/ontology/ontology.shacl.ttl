@@ -1,0 +1,323 @@
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix sl: <https://example.org/scope-lineage/ontology#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# Exported from an ontology candidate over a SQL corpus. The base IRI is a placeholder;
+# every shape carries sl:tier for the assertion it came from -- read it before validating.
+
+sl:dim_channelShape
+    a sh:NodeShape ;
+    sh:targetClass sl:dim_channel ;
+    rdfs:label "dim.channel" ;
+    rdfs:comment "渠道维表（合成）" ;
+    sl:tier "proven" ;
+    sh:property [
+        sh:path sl:channel_code ;
+        sh:name "channel_code" ;
+        sh:datatype xsd:string ;
+        sl:tier "proven"
+    ] ;
+    sh:property [
+        sh:path sl:channel_name ;
+        sh:name "channel_name" ;
+        sh:datatype xsd:string ;
+        sl:tier "proven"
+    ] ;
+    sl:candidateKey [
+        sl:keyColumn "channel_code" ;
+        rdfs:comment "candidate key; SHACL core has no composite uniqueness constraint, so this is an annotation rather than a validated shape" ;
+        sl:tier "hypothesis"
+    ] .
+
+sl:dim_segment_dimShape
+    a sh:NodeShape ;
+    sh:targetClass sl:dim_segment_dim ;
+    rdfs:label "dim.segment_dim" ;
+    sl:tier "proven" ;
+    sh:property [
+        sh:path sl:segment ;
+        sh:name "segment" ;
+        sh:datatype xsd:string ;
+        sl:tier "proven"
+    ] ;
+    sh:property [
+        sh:path sl:segment_name ;
+        sh:name "segment_name" ;
+        sh:datatype xsd:string ;
+        sl:tier "proven"
+    ] ;
+    sh:property [
+        sh:path sl:updated_at ;
+        sh:name "updated_at" ;
+        sh:datatype xsd:string ;
+        sl:tier "proven"
+    ] .
+
+sl:mart_channel_summaryShape
+    a sh:NodeShape ;
+    sh:targetClass sl:mart_channel_summary ;
+    rdfs:label "mart.channel_summary" ;
+    sl:tier "proven" ;
+    sh:property [
+        sh:path sl:customer_id ;
+        sh:name "customer_id" ;
+        sh:datatype xsd:string ;
+        sl:tier "proven"
+    ] ;
+    sh:property [
+        sh:path sl:channel_name ;
+        sh:name "channel_name" ;
+        sh:datatype xsd:string ;
+        sl:tier "proven"
+    ] ;
+    sh:property [
+        sh:path sl:total_amount ;
+        sh:name "total_amount" ;
+        sh:datatype xsd:string ;
+        sl:tier "proven"
+    ] ;
+    sh:property [
+        sh:path sl:channel_name ;
+        sh:in ( "OFFLINE" "ONLINE" ) ;
+        rdfs:comment "in_set (proven) on channel_name; observed values: OFFLINE, ONLINE" ;
+        sl:constraint "cst:002" ;
+        sl:tier "proven"
+    ] ;
+    sh:property [
+        sh:path sl:dt ;
+        rdfs:comment "partition (proven) on dt" ;
+        sl:constraint "cst:003" ;
+        sl:tier "proven"
+    ] ;
+    sl:compositeKey [
+        sl:constraint "cst:001" ;
+        sl:keyColumn "customer_id", "channel_name", "dt" ;
+        rdfs:comment "unique_per (proven) on customer_id, channel_name, dt; SHACL core has no composite uniqueness constraint, so this is an annotation rather than a validated shape" ;
+        sl:tier "proven"
+    ] ;
+    sl:candidateKey [
+        sl:keyColumn "customer_id", "channel_name" ;
+        rdfs:comment "candidate key; SHACL core has no composite uniqueness constraint, so this is an annotation rather than a validated shape" ;
+        sl:tier "proven"
+    ] .
+
+sl:mart_metric_by_segmentShape
+    a sh:NodeShape ;
+    sh:targetClass sl:mart_metric_by_segment ;
+    rdfs:label "mart.metric_by_segment" ;
+    sl:tier "proven" ;
+    sh:property [
+        sh:path sl:segment ;
+        sh:name "segment" ;
+        sh:datatype xsd:string ;
+        rdfs:comment "Segment code" ;
+        sl:tier "proven"
+    ] ;
+    sh:property [
+        sh:path sl:band ;
+        sh:name "band" ;
+        sh:datatype xsd:string ;
+        rdfs:comment "Amount band" ;
+        sl:tier "proven"
+    ] ;
+    sh:property [
+        sh:path sl:total ;
+        sh:name "total" ;
+        sh:datatype xsd:decimal ;
+        rdfs:comment "Summed amount" ;
+        sl:tier "proven"
+    ] ;
+    sh:property [
+        sh:path sl:cnt ;
+        sh:name "cnt" ;
+        sh:datatype xsd:integer ;
+        rdfs:comment "Row count" ;
+        sl:tier "proven"
+    ] ;
+    sh:property [
+        sh:path sl:band_total ;
+        sh:name "band_total" ;
+        sh:datatype xsd:decimal ;
+        rdfs:comment "Band level total" ;
+        sl:tier "proven"
+    ] ;
+    sh:property [
+        sh:path sl:segment_name ;
+        sh:name "segment_name" ;
+        sh:datatype xsd:string ;
+        rdfs:comment "Segment display name" ;
+        sl:tier "proven"
+    ] ;
+    sh:property [
+        sh:path sl:dt ;
+        sh:name "dt" ;
+        sh:datatype xsd:string ;
+        rdfs:comment "Partition date" ;
+        sl:tier "proven"
+    ] ;
+    sh:property [
+        sh:path sl:dt ;
+        rdfs:comment "partition (proven) on dt" ;
+        sl:constraint "cst:005" ;
+        sl:tier "proven"
+    ] ;
+    sl:compositeKey [
+        sl:constraint "cst:004" ;
+        sl:keyColumn "segment", "band", "dt" ;
+        rdfs:comment "unique_per (proven) on segment, band, dt; SHACL core has no composite uniqueness constraint, so this is an annotation rather than a validated shape" ;
+        sl:tier "proven"
+    ] ;
+    sl:candidateKey [
+        sl:keyColumn "segment", "band" ;
+        rdfs:comment "candidate key; SHACL core has no composite uniqueness constraint, so this is an annotation rather than a validated shape" ;
+        sl:tier "proven"
+    ] .
+
+sl:mart_user_namesShape
+    a sh:NodeShape ;
+    sh:targetClass sl:mart_user_names ;
+    rdfs:label "mart.user_names" ;
+    sl:tier "proven" ;
+    sh:property [
+        sh:path sl:user_id ;
+        sh:name "user_id" ;
+        sh:datatype xsd:string ;
+        sl:tier "proven"
+    ] ;
+    sh:property [
+        sh:path sl:user_name ;
+        sh:name "user_name" ;
+        sh:datatype xsd:string ;
+        sl:tier "proven"
+    ] .
+
+sl:ods_channel_eventShape
+    a sh:NodeShape ;
+    sh:targetClass sl:ods_channel_event ;
+    rdfs:label "ods.channel_event" ;
+    rdfs:comment "渠道事件明细（合成）" ;
+    sl:tier "proven" ;
+    sh:property [
+        sh:path sl:customer_id ;
+        sh:name "customer_id" ;
+        sh:datatype xsd:string ;
+        sl:tier "proven"
+    ] ;
+    sh:property [
+        sh:path sl:channel_code ;
+        sh:name "channel_code" ;
+        sh:datatype xsd:string ;
+        sl:tier "proven"
+    ] ;
+    sh:property [
+        sh:path sl:amount ;
+        sh:name "amount" ;
+        sh:datatype xsd:string ;
+        sl:tier "proven"
+    ] ;
+    sh:property [
+        sh:path sl:status ;
+        sh:name "status" ;
+        sh:datatype xsd:string ;
+        sl:tier "proven"
+    ] ;
+    sh:property [
+        sh:path sl:status ;
+        rdfs:comment "in_set (hypothesis) on status; observed values: ACTIVE; the SQL did not prove the set closed" ;
+        sl:constraint "cst:006" ;
+        sl:tier "hypothesis"
+    ] ;
+    sh:property [
+        sh:path sl:rel_001 ;
+        sh:class sl:dim_channel ;
+        sh:maxCount 1 ;
+        sl:relation "rel:001" ;
+        sl:claim "many_to_one_assumed" ;
+        sl:taskCount 2 ;
+        sl:tier "hypothesis"
+    ] .
+
+sl:ods_events_aShape
+    a sh:NodeShape ;
+    sh:targetClass sl:ods_events_a ;
+    rdfs:label "ods.events_a" ;
+    sl:tier "proven" ;
+    sh:property [
+        sh:path sl:segment ;
+        sh:name "segment" ;
+        sh:datatype xsd:string ;
+        sl:tier "proven"
+    ] ;
+    sh:property [
+        sh:path sl:amount ;
+        sh:name "amount" ;
+        sh:datatype xsd:string ;
+        sl:tier "proven"
+    ] ;
+    sh:property [
+        sh:path sl:rel_002 ;
+        sh:class sl:dim_segment_dim ;
+        sl:relation "rel:002" ;
+        sl:claim "one_to_many" ;
+        sl:taskCount 1 ;
+        sl:tier "implied"
+    ] ;
+    sh:property [
+        sh:path sl:rel_003 ;
+        sh:class sl:ods_events_b ;
+        sl:relation "rel:003" ;
+        sl:claim "unknown" ;
+        sl:taskCount 1 ;
+        sl:tier "implied"
+    ] .
+
+sl:ods_events_bShape
+    a sh:NodeShape ;
+    sh:targetClass sl:ods_events_b ;
+    rdfs:label "ods.events_b" ;
+    sl:tier "proven" ;
+    sh:property [
+        sh:path sl:seg_code ;
+        sh:name "seg_code" ;
+        sh:datatype xsd:string ;
+        sl:tier "proven"
+    ] ;
+    sh:property [
+        sh:path sl:amount ;
+        sh:name "amount" ;
+        sh:datatype xsd:string ;
+        sl:tier "proven"
+    ] ;
+    sh:property [
+        sh:path sl:rel_004 ;
+        sh:class sl:dim_segment_dim ;
+        sl:relation "rel:004" ;
+        sl:claim "one_to_many" ;
+        sl:taskCount 1 ;
+        sl:tier "implied"
+    ] .
+
+sl:ods_usersShape
+    a sh:NodeShape ;
+    sh:targetClass sl:ods_users ;
+    rdfs:label "ods.users" ;
+    sl:tier "proven" ;
+    sh:property [
+        sh:path sl:user_id ;
+        sh:name "user_id" ;
+        sh:datatype xsd:string ;
+        sl:tier "proven"
+    ] ;
+    sh:property [
+        sh:path sl:user_name ;
+        sh:name "user_name" ;
+        sh:datatype xsd:string ;
+        sl:tier "proven"
+    ] ;
+    sh:property [
+        sh:path sl:is_active ;
+        sh:name "is_active" ;
+        sh:datatype xsd:string ;
+        sl:tier "proven"
+    ] .

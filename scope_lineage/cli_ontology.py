@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 from .corpus_cache import add_incremental_arguments, open_cache
@@ -21,6 +22,7 @@ from .render.ontology import (
     render_ontology_index_markdown,
     render_ontology_table_card_markdown,
 )
+from .render.ontology_export import EXPORT_FILENAMES, EXPORT_FORMATS, render_export
 from .render.table_cards import table_card_filename
 
 
@@ -73,11 +75,39 @@ def add_ontology_parser(subcommands) -> None:
         default="json,md",
         help="Comma-separated output formats: json, md (default: json,md)",
     )
+    ontology_cmd.add_argument(
+        "--export",
+        action="append",
+        help=(
+            "Also export the candidate for an RDF toolchain: linkml writes "
+            "ontology.linkml.yaml and shacl writes ontology.shacl.ttl, beside "
+            "ontology.json. Repeatable, or one comma-separated list; nothing is "
+            "exported by default"
+        ),
+    )
     add_incremental_arguments(ontology_cmd)
 
 
 def formats(value: str | None) -> set[str]:
     return {name.strip() for name in (value or "json,md").split(",") if name.strip()}
+
+
+def exports(values) -> list[str]:
+    """The chosen export formats, in the exporter's own order so a run is stable.
+
+    ``--export`` is both repeatable and comma-separated because a corpus job is as
+    likely to be assembled by a shell loop as typed by hand, and the two spellings must
+    not mean different things. Anything unknown is kept, sorted, so the caller in
+    ``cli.py`` can name it in the argument error rather than silently write nothing.
+    """
+    chosen = {
+        name.strip()
+        for value in (values or ())
+        for name in str(value).split(",")
+        if name.strip()
+    }
+    known = [name for name in EXPORT_FORMATS if name in chosen]
+    return known + sorted(chosen - set(EXPORT_FORMATS))
 
 
 def _supplied_corpus(args: argparse.Namespace):
@@ -120,7 +150,8 @@ def run_ontology(args: argparse.Namespace) -> int:
 
     documents = [item.document for item in loaded.documents]
     out_dir, root = Path(args.out), str(Path(args.lineage))
-    options = [args.format, root, overrides, tables, glossary]
+    chosen_exports = exports(getattr(args, "export", None))
+    options = [args.format, root, overrides, tables, glossary, chosen_exports]
     cache = open_cache(args, out_dir, found[1], "ontology", options)
     try:
         collected = _collect(loaded.documents, cache, needs_glossary=glossary is None)
@@ -140,8 +171,11 @@ def run_ontology(args: argparse.Namespace) -> int:
     )
     chosen = formats(args.format)
     _write_ontology(out_dir, ontology, cards, chosen)
-    cache.commit(_written(cards, chosen))
-    _report(ontology, overrides, loaded.counters() + cache.counters())
+    _write_exports(out_dir, ontology, chosen_exports)
+    cache.commit(_written(cards, chosen, chosen_exports))
+    _report(
+        ontology, overrides, chosen_exports, loaded.counters() + cache.counters()
+    )
     return 0
 
 
@@ -169,9 +203,12 @@ def _layers(collected, documents, *, tables, glossary, root: str):
     return profiles, glossary, cards
 
 
-def _report(ontology: dict, overrides, counters: str) -> None:
+def _report(
+    ontology: dict, overrides, chosen_exports: Sequence[str], counters: str
+) -> None:
     """The one summary line this command prints."""
     applied = ontology["overrides_applied"]
+    exported = f", exported {', '.join(chosen_exports)}" if chosen_exports else ""
     confirmations = ""
     if overrides is not None:
         confirmations = (
@@ -183,7 +220,7 @@ def _report(ontology: dict, overrides, counters: str) -> None:
         f"{len(ontology['relations'])} relation(s), "
         f"{len(ontology['constraints'])} constraint(s) and "
         f"{len(ontology['findings'])} finding(s) from "
-        f"{ontology['corpus'].get('task_count')} task(s){confirmations} "
+        f"{ontology['corpus'].get('task_count')} task(s){confirmations}{exported} "
         f"({counters})"
     )
 
@@ -213,9 +250,12 @@ def _collect(items, cache, *, needs_glossary: bool) -> list[dict]:
     return collected
 
 
-def _written(cards: dict, chosen: set[str]) -> list[str]:
+def _written(
+    cards: dict, chosen: set[str], chosen_exports: Sequence[str]
+) -> list[str]:
     """Every document one run published, relative to ``--out``."""
     written = ["ontology.json"] if "json" in chosen else []
+    written += [EXPORT_FILENAMES[export] for export in chosen_exports]
     if "md" not in chosen:
         return written
     return [
@@ -246,4 +286,19 @@ def _write_ontology(out: Path, ontology: dict, cards: dict, chosen: set[str]) ->
     for card in cards.get("tables") or []:
         (card_dir / table_card_filename(card["table"])).write_text(
             render_ontology_table_card_markdown(card, ontology), encoding="utf-8"
+        )
+
+
+def _write_exports(out: Path, ontology: dict, chosen: Sequence[str]) -> None:
+    """The thin exports, beside ``ontology.json`` and independent of ``--format``.
+
+    Whoever reads the markdown and whoever loads a graph are two different people, so
+    asking for one is never a statement about the other.
+    """
+    if not chosen:
+        return
+    out.mkdir(parents=True, exist_ok=True)
+    for export in chosen:
+        (out / EXPORT_FILENAMES[export]).write_text(
+            render_export(ontology, export), encoding="utf-8"
         )

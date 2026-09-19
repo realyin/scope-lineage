@@ -36,7 +36,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Iterable, Mapping, Sequence
 
-from .markdown_text import cell, normalize_inline
+from .markdown_text import cell, expr_span, normalize_inline
 from .semantic_profile import (
     REFRESH_SOURCE_TASK_META,
     TASK_PROFILE_ARTIFACT_KIND,
@@ -329,13 +329,19 @@ def _consumed_inputs(record: _Statement) -> list[dict]:
 
 
 def build_table_cards(
-    profiles: Iterable[dict], *, artifact_root: str | None = None
+    profiles: Iterable[dict], *, artifact_root: str | None = None, samples=None
 ) -> dict:
     """Build the corpus's table cards from one semantic profile per task.
 
     ``profiles`` holds task profiles (``task_semantic``) and bare statement profiles in
     any order; the result is sorted by table name, so the same corpus always builds the
     same bytes whatever order the caller walked the artifact tree in.
+
+    ``samples`` is a loaded :class:`~scope_lineage.metadata.column_samples.ColumnSamples`
+    -- values somebody exported, never values this module read from a database. A6:
+    supplying it adds ``columns[].samples``, ``coverage.columns_sampled`` and the
+    ``samples_applied`` report; leaving it out builds the document it always built,
+    byte for byte.
     """
     records = _statement_records(profiles)
     produced: dict[str, list[_Statement]] = {}
@@ -347,19 +353,35 @@ def build_table_cards(
             consumed.setdefault(str(item.get("table") or ""), []).append((record, item))
     grouped, ambiguous = _group_spellings([*produced, *consumed])
     groups = {_primary_name(group): group for group in grouped}
+    tables = [
+        _table_card(
+            primary,
+            groups[primary],
+            produced,
+            consumed,
+            _bare_name_candidates(primary, groups) if primary in ambiguous else (),
+            samples,
+        )
+        for primary in sorted(groups)
+    ]
+    document = {"doc_format": DOC_FORMAT, "corpus": _corpus_block(records, artifact_root)}
+    if samples is not None:
+        document["samples_applied"] = _samples_applied(samples, tables)
+    document["tables"] = tables
+    return document
+
+
+def _samples_applied(samples, tables: Sequence[dict]) -> dict:
+    """What the supplied file did: which files, how many columns, and what missed.
+
+    ``unmatched`` is read after every card has been built, so it names exactly the
+    ``table.column`` keys no table in this corpus ever asked for -- the typo in a
+    hand-made export, reported rather than silently dropped.
+    """
     return {
-        "doc_format": DOC_FORMAT,
-        "corpus": _corpus_block(records, artifact_root),
-        "tables": [
-            _table_card(
-                primary,
-                groups[primary],
-                produced,
-                consumed,
-                _bare_name_candidates(primary, groups) if primary in ambiguous else (),
-            )
-            for primary in sorted(groups)
-        ],
+        "sources": list(samples.sources),
+        "columns_sampled": sum(card["coverage"]["columns_sampled"] for card in tables),
+        "unmatched": samples.unmatched(),
     }
 
 
@@ -389,6 +411,7 @@ def _table_card(
     produced: dict[str, list[_Statement]],
     consumed: dict[str, list[tuple[_Statement, dict]]],
     bare_name_candidates: Sequence[str] = (),
+    samples=None,
 ) -> dict:
     producers = [record for name in spellings for record in produced.get(name, [])]
     producers.sort(key=lambda record: (record.task, record.statement_id))
@@ -398,6 +421,7 @@ def _table_card(
     consumed_by = [_consumer_entry(record, item) for record, item in consumers]
     declared = _declared_columns(producers, consumers)
     columns = _columns(produced_by, consumers, declared)
+    _apply_samples(columns, [primary, *spellings], samples)
     comment = _table_comment(producers, consumers)
     card = {
         "table": primary,
@@ -408,7 +432,9 @@ def _table_card(
         "produced_by": produced_by,
         "consumed_by": consumed_by,
         "columns": columns,
-        "coverage": _coverage(comment, columns, produced_by, consumed_by, declared),
+        "coverage": _coverage(
+            comment, columns, produced_by, consumed_by, declared, samples
+        ),
         "findings": _findings(produced_by, consumed_by, bare_name_candidates),
     }
     return {key: card[key] for key in TABLE_KEY_ORDER}
@@ -549,6 +575,22 @@ def _columns(
     return [_ordered_column(entry) for entry in columns.values()]
 
 
+def _apply_samples(columns: Sequence[dict], spellings: Sequence[str], samples) -> None:
+    """A6: hang the supplied values on the columns they were exported for.
+
+    Applied after the columns are built rather than inside the union, because a samples
+    file answers about a column the corpus already knows -- a value for a column no task
+    ever touched and no catalog declared would be a column this corpus cannot prove
+    exists, and it is reported as unmatched instead.
+    """
+    if samples is None:
+        return
+    for column in columns:
+        values = samples.values(spellings, column["name"])
+        if values:
+            column["samples"] = values
+
+
 def _blank_column(name) -> dict:
     return {
         "name": str(name),
@@ -654,9 +696,10 @@ def _coverage(
     produced_by: Sequence[dict],
     consumed_by: Sequence[dict],
     declared: Sequence[dict] = (),
+    samples=None,
 ) -> dict:
     commented = sum(1 for column in columns if column["comment"])
-    return {
+    coverage = {
         "column_comment_ratio": round(commented / len(columns), 4) if columns else 0.0,
         "table_comment": comment is not None,
         "producers": len(produced_by),
@@ -667,6 +710,11 @@ def _coverage(
         "columns_used": sum(1 for column in columns if column["used_in_corpus"]),
         "columns_declared": len(declared) or None,
     }
+    # A6: how many columns somebody supplied values for. Absent -- not zero -- when no
+    # samples file was given: "nobody was asked" is not "nobody answered".
+    if samples is not None:
+        coverage["columns_sampled"] = sum(1 for column in columns if column.get("samples"))
+    return coverage
 
 
 # --------------------------------------------------------------------------- findings
@@ -1052,10 +1100,15 @@ def _render_columns(card: dict) -> list[str]:
         + f"；注释覆盖 {card['coverage']['column_comment_ratio']}（元数据事实）。",
         "",
     ]
+    # A6: the 样例值 column appears only when this card has values for some column, so a
+    # corpus built without --samples renders the table it always rendered. The decision
+    # is taken once per card rather than per sub-table: two column tables of different
+    # widths in one section would read as two different documents.
+    sampled = any(column.get("samples") for column in card["columns"])
     if len(unused) <= UNUSED_COLUMN_TAIL:
-        return lines + _column_table(card["columns"])
+        return lines + _column_table(card["columns"], sampled)
     used = [column for column in card["columns"] if column.get("used_in_corpus", True)]
-    lines.extend(_column_table(used))
+    lines.extend(_column_table(used, sampled))
     lines.extend(
         [
             "",
@@ -1063,13 +1116,14 @@ def _render_columns(card: dict) -> list[str]:
             "",
         ]
     )
-    return lines + _column_table(unused)
+    return lines + _column_table(unused, sampled)
 
 
-def _column_table(columns: Sequence[dict]) -> list[str]:
+def _column_table(columns: Sequence[dict], sampled: bool = False) -> list[str]:
+    head = ["列", "类型", "注释"] + (["样例值"] if sampled else [])
     lines = [
-        "| 列 | 类型 | 注释 | 生产侧语义（结构推断） | 消费侧用法（SQL事实） |",
-        "| --- | --- | --- | --- | --- |",
+        "| " + " | ".join([*head, "生产侧语义（结构推断）", "消费侧用法（SQL事实）"]) + " |",
+        "| " + " | ".join(["---"] * (len(head) + 2)) + " |",
     ]
     for column in columns:
         usages = "、".join(
@@ -1083,6 +1137,7 @@ def _column_table(columns: Sequence[dict]) -> list[str]:
                     cell(f"`{column['name']}`"),
                     cell(column["type"] or UNKNOWN_TEXT),
                     cell(normalize_inline(column["comment"]) if column["comment"] else UNKNOWN_TEXT),
+                    *([cell(_samples_text(column))] if sampled else []),
                     cell(normalize_inline(column["produced_summary"]) if column["produced_summary"] else "—"),
                     cell(usages or "—"),
                 ]
@@ -1090,6 +1145,17 @@ def _column_table(columns: Sequence[dict]) -> list[str]:
             + " |"
         )
     return lines
+
+
+def _samples_text(column: Mapping) -> str:
+    """The card's sample values, each in the quoted code span a value is rendered in.
+
+    ``'a'``、``'b'``、``'c'``: the quotes say "this is a value, as the export spelled
+    it", and the code span survives whatever punctuation the value carries -- the same
+    rendering glossary.md gives the literals it read out of the SQL.
+    """
+    values = column.get("samples") or []
+    return "、".join(expr_span(f"'{value}'") for value in values) or "—"
 
 
 def _render_producers(card: dict) -> list[str]:
