@@ -35,6 +35,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from itertools import combinations
 
 from sqlglot import exp
 
@@ -166,6 +167,34 @@ EVIDENCE_WINDOW_PARTITION = "window_partition"
 EVIDENCE_JOINED_AS_RIGHT = "joined_as_right_without_dedup"
 EVIDENCE_PRODUCER_KEY = "producer_key_confidence"
 EVIDENCE_HUMAN_CONFIRMATION = "human_confirmation"
+# H3: the catalog already answered part of the identity question, in prose, in the
+# column comment. Reading past it and then asking a person is asking twice.
+EVIDENCE_COLUMN_COMMENT = "column_comment"
+
+# A column comment holding one of these calls its column a key. Lower-cased before the
+# test, so `PRIMARY KEY` and `Unique` are the same phrase. The list is deliberately
+# short: it is a *hint*, weighed against the corpus, never a claim on its own.
+KEY_HINT_PHRASES = (
+    "主键id",
+    "主键",
+    "唯一键",
+    "唯一编号",
+    "primary key",
+    "unique",
+)
+
+# The fields an `ontology.overrides.json` entry may carry. Anything else is a typo or a
+# convention this release does not know, and either way the reviewer has to be told
+# rather than have it silently dropped (H2).
+KEY_OVERRIDE_FIELDS = (
+    "columns",
+    "scope_columns",
+    "basis",
+    "note",
+    "confirmed_by",
+    "date",
+)
+RELATION_OVERRIDE_FIELDS = ("cardinality", "basis", "note", "confirmed_by", "date")
 
 CLAIM_MULTIPLE_ROWS = "multiple_rows_per_key"
 
@@ -205,12 +234,31 @@ SYNONYM_TEXT = {
 }
 
 FINDING_CARDINALITY_CONFLICT = "cardinality_conflict"
+# H4: two authors assumed two different identities for one table. Publishing both with
+# no word between them reads as "either is fine"; at most one of them is the key.
+FINDING_COMPETING_CANDIDATE_KEYS = "competing_candidate_keys"
+# H3: the column comment names one column the key and the corpus assumed another.
+FINDING_KEY_HINT_CONFLICT = "key_hint_conflict"
 
 FINDING_KINDS = (
     FINDING_CARDINALITY_CONFLICT,
+    FINDING_COMPETING_CANDIDATE_KEYS,
+    FINDING_KEY_HINT_CONFLICT,
     FINDING_PRODUCER_KEY_CONFLICT,
     FINDING_AMBIGUOUS_BARE_NAME,
 )
+
+# H5: one open question, whatever it is about. `finding` is a contradiction to resolve,
+# `relation` an assumed cardinality, `candidate_key` an assumed identity.
+OPEN_ITEM_FINDING = "finding"
+OPEN_ITEM_RELATION = "relation"
+OPEN_ITEM_KEY = "candidate_key"
+
+OPEN_ITEM_TEXT = {
+    OPEN_ITEM_FINDING: "发现",
+    OPEN_ITEM_RELATION: "关系基数",
+    OPEN_ITEM_KEY: "候选键",
+}
 
 # `key_confidence` on a table card is a statement about the producing task's proof;
 # an ontology tier is a statement about the table. `proven_unexposed` proves the keys
@@ -239,6 +287,7 @@ _ONTOLOGY_KEYS = (
     "relations",
     "constraints",
     "findings",
+    "open_items",
     "overrides_applied",
 )
 _ATTRIBUTE_KEYS = (
@@ -260,7 +309,17 @@ _CONSTRAINT_KEYS = (
     "tier",
     "evidence",
 )
-_FINDING_KEYS = ("kind", "entity", "columns", "tasks", "text")
+_FINDING_KEYS = ("kind", "entity", "columns", "keys", "tasks", "text")
+_OPEN_ITEM_KEYS = (
+    "id",
+    "kind",
+    "entity",
+    "relation",
+    "columns",
+    "tier",
+    "write_back",
+    "text",
+)
 
 _DIRECT_TRANSFORM = "DIRECT"
 
@@ -319,16 +378,24 @@ def build_ontology(
         "synonyms": _synonyms(statements, names),
         "not_null": _not_null_columns(constraints),
     }
+    entities = [_entity(card, facts) for card in cards.get("tables") or []]
     ontology = {
         "doc_format": DOC_FORMAT,
         "corpus": dict(cards.get("corpus") or {}),
-        "entities": [_entity(card, facts) for card in cards.get("tables") or []],
+        "entities": entities,
         "relations": _relations(edges),
         "constraints": constraints,
-        "findings": _findings(cards, edges, facts["multiplicity"]),
-        "overrides_applied": {"relations": 0, "keys": 0, "unmatched": []},
+        "findings": _findings(cards, edges, facts["multiplicity"], entities),
+        "open_items": [],
+        "overrides_applied": {
+            "relations": 0,
+            "keys": 0,
+            "unmatched": [],
+            "ignored_fields": [],
+        },
     }
     _apply_overrides(ontology, overrides or {})
+    ontology["open_items"] = _open_items(ontology)
     return {key: ontology[key] for key in _ONTOLOGY_KEYS}
 
 
@@ -354,23 +421,76 @@ def _apply_overrides(ontology: dict, overrides: Mapping) -> None:
     document is worth reviewing twice: the hypotheses it publishes are questions, and an
     answered question must stop being asked. An override naming something the corpus does
     not contain is listed in ``overrides_applied.unmatched`` rather than dropped, because
-    a typo in a reviewed file is exactly what a reviewer cannot see.
+    a typo in a reviewed file is exactly what a reviewer cannot see -- and H1 is why the
+    *columns* are checked too: an override naming a column no entity carries used to be
+    published as a ``confirmed`` candidate key, which is a typo at the strongest tier.
     """
     applied = ontology["overrides_applied"]
-    relations = dict((overrides.get("relations") or {}))
-    matched = {
-        relation_override_key(relation)
-        for relation in ontology["relations"]
-        if relation_override_key(relation) in relations
-    }
-    for relation in ontology["relations"]:
-        entry = relations.get(relation_override_key(relation))
-        if entry is None:
+    columns = _entity_columns(ontology)
+    _apply_relation_overrides(ontology, overrides.get("relations") or {}, applied, columns)
+    _apply_key_overrides(ontology, overrides.get("keys") or {}, applied, columns)
+    applied["unmatched"].sort(key=lambda item: (item["key"], item["reason"]))
+    applied["ignored_fields"].sort(key=lambda item: item["key"])
+
+
+def _entity_columns(ontology: Mapping) -> dict[str, set[str]]:
+    """``entity -> every column name it carries``: declared, used, or already published."""
+    found: dict[str, set[str]] = {}
+    for entity in ontology.get("entities") or []:
+        identity = entity.get("identity") or {}
+        found[str(entity["id"])] = {
+            *(str(item["column"]) for item in entity.get("attributes") or []),
+            *(
+                str(column)
+                for key in identity.get("candidate_keys") or []
+                for column in key["columns"]
+            ),
+            *(str(column) for column in identity.get("partition_columns") or []),
+        }
+    return found
+
+
+def _apply_relation_overrides(
+    ontology: dict, relations: Mapping, applied: dict, columns: Mapping[str, set[str]]
+) -> None:
+    index = {relation_override_key(item): item for item in ontology["relations"]}
+    for name in sorted(relations):
+        entry = dict(relations[name] or {})
+        relation = index.get(str(name))
+        if relation is None:
+            applied["unmatched"].append(
+                {"key": str(name), "reason": _relation_reason(str(name), columns)}
+            )
             continue
+        _record_ignored(applied, str(name), entry, RELATION_OVERRIDE_FIELDS)
         relation["cardinality"] = _confirmed_cardinality(relation["cardinality"], entry)
         applied["relations"] += 1
-    applied["unmatched"].extend(sorted(set(relations) - matched))
-    applied["keys"] += _apply_key_overrides(ontology, overrides.get("keys") or {}, applied)
+
+
+def _relation_reason(name: str, columns: Mapping[str, set[str]]) -> str:
+    """Why one relation override matched nothing, as specifically as the string allows."""
+    sides = name.split("->")
+    if len(sides) != 2:
+        return "unparsable_key"
+    for side in sides:
+        entity, _, joined = side.rpartition(".")
+        if not entity or entity not in columns:
+            return f"unknown_entity: {entity}" if entity else "unparsable_key"
+        unknown = next(
+            (item for item in joined.split("+") if item not in columns[entity]), None
+        )
+        if unknown is not None:
+            return f"unknown_column: {unknown}"
+    return "unknown_relation"
+
+
+def _record_ignored(
+    applied: dict, name: str, entry: Mapping, known: Sequence[str]
+) -> None:
+    """H2: a field this release does not read is reported, never dropped in silence."""
+    extra = sorted(str(field) for field in entry if str(field) not in known)
+    if extra:
+        applied["ignored_fields"].append({"key": name, "fields": extra})
 
 
 def _confirmed_cardinality(current: Mapping, entry: Mapping) -> dict:
@@ -385,39 +505,84 @@ def _confirmed_cardinality(current: Mapping, entry: Mapping) -> dict:
 
 
 def _confirmation_stamp(entry: Mapping) -> dict:
+    """Who answered, when, and on what grounds (H2).
+
+    The reviewer's free-text ``basis`` is published as ``confirmed_basis`` because
+    ``basis`` on a cardinality is a machine token from ``BASIS_TEXT``; one slot cannot
+    be a vocabulary and a sentence at the same time.
+    """
     stamp = {}
-    for key in ("confirmed_by", "date"):
-        if entry.get(key):
-            stamp[key] = str(entry[key])
+    for field, published in (
+        ("confirmed_by", "confirmed_by"),
+        ("date", "date"),
+        ("basis", "confirmed_basis"),
+        ("note", "note"),
+    ):
+        if entry.get(field):
+            stamp[published] = str(entry[field])
     return stamp
 
 
-def _apply_key_overrides(ontology: dict, keys: Mapping, applied: dict) -> int:
+def _apply_key_overrides(
+    ontology: dict, keys: Mapping, applied: dict, columns: Mapping[str, set[str]]
+) -> None:
     """Confirm one entity's identity key, adding it when the corpus never guessed it."""
     entities = {str(entity["id"]): entity for entity in ontology["entities"]}
-    count = 0
     for name in sorted(keys):
-        entry = keys[name] or {}
+        entry = dict(keys[name] or {})
         entity = entities.get(str(name))
-        columns = [str(column) for column in entry.get("columns") or []]
-        if entity is None or not columns:
-            applied["unmatched"].append(str(name))
+        if entity is None:
+            applied["unmatched"].append(
+                {"key": str(name), "reason": f"unknown_entity: {name}"}
+            )
             continue
-        candidates = entity["identity"]["candidate_keys"]
-        current = next(
-            (item for item in candidates if list(item["columns"]) == columns), None
-        )
-        if current is None:
-            current = {"columns": columns, "tier": TIER_CONFIRMED, "evidence": []}
-            candidates.append(current)
-            candidates.sort(key=lambda item: tuple(item["columns"]))
-        current["tier"] = TIER_CONFIRMED
-        evidence = {"kind": EVIDENCE_HUMAN_CONFIRMATION, **_confirmation_stamp(entry)}
-        if evidence not in current["evidence"]:
-            current["evidence"].append(evidence)
-        count += 1
-    applied["unmatched"].sort()
-    return count
+        wanted = [str(column) for column in entry.get("columns") or []]
+        scope = [str(column) for column in entry.get("scope_columns") or []]
+        reason = _key_reason(wanted, scope, columns[str(name)])
+        if reason:
+            applied["unmatched"].append({"key": str(name), "reason": reason})
+            continue
+        _record_ignored(applied, str(name), entry, KEY_OVERRIDE_FIELDS)
+        _confirm_key(entity, wanted, scope, entry)
+        applied["keys"] += 1
+
+
+def _key_reason(
+    wanted: Sequence[str], scope: Sequence[str], carried: set[str]
+) -> str | None:
+    if not wanted:
+        return "missing_columns"
+    unknown = next(
+        (column for column in [*wanted, *scope] if column not in carried), None
+    )
+    return f"unknown_column: {unknown}" if unknown is not None else None
+
+
+def _confirm_key(
+    entity: dict, columns: list[str], scope: list[str], entry: Mapping
+) -> None:
+    """Raise (or add) one candidate key at ``confirmed``, scoped when the answer was.
+
+    ``scope_columns`` is the normal shape of a snapshot table: unique *within one* ``dt``
+    and duplicated across them. Without the slot a reviewer had to answer "not unique",
+    which is true and useless.
+    """
+    candidates = entity["identity"]["candidate_keys"]
+    current = next(
+        (item for item in candidates if list(item["columns"]) == columns), None
+    )
+    if current is None:
+        current = {"columns": columns, "tier": TIER_CONFIRMED, "evidence": []}
+        candidates.append(current)
+        candidates.sort(key=lambda item: tuple(item["columns"]))
+    current["tier"] = TIER_CONFIRMED
+    if scope:
+        evidence = current.pop("evidence")
+        current["scope_columns"] = scope
+        current["evidence"] = evidence
+    stamp = {"kind": EVIDENCE_HUMAN_CONFIRMATION, **_confirmation_stamp(entry)}
+    if stamp not in current["evidence"]:
+        current["evidence"].append(stamp)
 
 
 def _not_null_columns(constraints: Sequence[Mapping]) -> set[tuple[str, str]]:
@@ -1304,8 +1469,12 @@ def _identity(card: Mapping, entity: str, facts: Mapping) -> dict:
     and a third task's GROUP BY proves that the very same key set has many rows. Merging
     them into one "primary key" is exactly the guess this layer refuses to make.
     """
+    keys = _candidate_keys(card, entity, facts)
+    hints = _declared_hints(card)
+    _agree_with_hints(keys, hints)
     return {
-        "candidate_keys": _candidate_keys(card, entity, facts),
+        "candidate_keys": keys,
+        "declared_hints": hints,
         "multiplicity": [
             {
                 "columns": list(columns),
@@ -1353,6 +1522,53 @@ def _stronger_tier(current: str, other: str) -> str:
     return min([current, other], key=TIERS.index)
 
 
+def _declared_hints(card: Mapping) -> list[dict]:
+    """H3: the column comments that call a column a key, exactly as the catalog wrote them.
+
+    This is the ``declared`` evidence, and it is neither a candidate key nor proof: a
+    comment can be stale, and a comment cannot say which *combination* identifies a row.
+    It is published beside the corpus's own guesses so the two can be compared, and the
+    comparison is what section 7 and the ``key_hint_conflict`` finding do.
+    """
+    return [
+        {
+            "columns": [str(column.get("name"))],
+            "evidence": EVIDENCE_COLUMN_COMMENT,
+            "text": str(column.get("comment")),
+        }
+        for column in card.get("columns") or []
+        if _names_a_key(column.get("comment"))
+    ]
+
+
+def _names_a_key(comment) -> bool:
+    text = str(comment or "").lower()
+    return bool(text) and any(phrase in text for phrase in KEY_HINT_PHRASES)
+
+
+def _agree_with_hints(keys: list[dict], hints: Sequence[Mapping]) -> None:
+    """A comment and the corpus agreeing is one more tier than either one alone (H3).
+
+    Two independent sources -- what the catalog declares and what the tasks do -- pointing
+    at the same column is the definition of ``implied``: not written in the SQL, but not
+    a bare assumption either.
+    """
+    for key in keys:
+        if str(key["tier"]) != TIER_HYPOTHESIS:
+            continue
+        agreeing = [
+            hint for hint in hints if set(hint["columns"]) <= set(key["columns"])
+        ]
+        if not agreeing:
+            continue
+        key["tier"] = TIER_IMPLIED
+        for hint in agreeing:
+            for column in hint["columns"]:
+                evidence = {"kind": EVIDENCE_COLUMN_COMMENT, "column": str(column)}
+                if evidence not in key["evidence"]:
+                    key["evidence"].append(evidence)
+
+
 def _attribute(entity: str, column: Mapping, facts: Mapping) -> dict:
     """One column, as the corpus saw it used -- never as a schema declares it.
 
@@ -1382,11 +1598,16 @@ def _attribute(entity: str, column: Mapping, facts: Mapping) -> dict:
 
 
 def _findings(
-    cards: Mapping, edges: Sequence[Mapping], multiplicity: Mapping
+    cards: Mapping,
+    edges: Sequence[Mapping],
+    multiplicity: Mapping,
+    entities: Sequence[Mapping],
 ) -> list[dict]:
     """O7: where the corpus contradicts itself, and the card findings that carry over."""
     findings = [
         *_cardinality_conflicts(edges, multiplicity),
+        *_competing_candidate_keys(entities),
+        *_key_hint_conflicts(entities),
         *_card_findings(cards),
     ]
     ordered = sorted(
@@ -1397,7 +1618,100 @@ def _findings(
             tuple(item["columns"]),
         ),
     )
-    return [{key: item[key] for key in _FINDING_KEYS} for item in ordered]
+    return [
+        {key: item[key] for key in _FINDING_KEYS if key in item} for item in ordered
+    ]
+
+
+def _competing_candidate_keys(entities: Sequence[Mapping]) -> list[dict]:
+    """H4: two authors assumed two different identities for the same table.
+
+    A strict subset (``[id]`` against ``[id, dt]``) and two disjoint sets are the two
+    shapes that cannot both be the identity: the first says the partition column is
+    either needed or dead, the second says two tasks are modelling two different tables.
+    Overlapping sets that are neither are left alone -- they may be two real keys.
+    """
+    findings = []
+    for entity in entities:
+        keys = [
+            key
+            for key in (entity.get("identity") or {}).get("candidate_keys") or []
+            if str(key["tier"]) == TIER_HYPOTHESIS
+        ]
+        findings.extend(
+            _competing_finding(entity, first, second)
+            for first, second in combinations(keys, 2)
+            if _competes(first, second)
+        )
+    return findings
+
+
+def _competes(first: Mapping, second: Mapping) -> bool:
+    left, right = set(first["columns"]), set(second["columns"])
+    return left < right or right < left or not left & right
+
+
+def _competing_finding(entity: Mapping, first: Mapping, second: Mapping) -> dict:
+    sets = "；".join(
+        "、".join(f"`{column}`" for column in key["columns"]) for key in (first, second)
+    )
+    return {
+        "kind": FINDING_COMPETING_CANDIDATE_KEYS,
+        "entity": str(entity["id"]),
+        "columns": _dedupe([*first["columns"], *second["columns"]]),
+        "keys": [
+            {"columns": list(key["columns"]), "evidence": list(key["evidence"])}
+            for key in (first, second)
+        ],
+        "tasks": {
+            "assumed_unique": sorted(
+                {
+                    str(item["task"])
+                    for key in (first, second)
+                    for item in key["evidence"]
+                    if item.get("task")
+                }
+            )
+        },
+        "text": (
+            f"不同任务对 `{entity['id']}` 假设了两组不同的身份键：{sets}；"
+            "至多一组是这张表的身份键，请人工判定哪一组成立。"
+        ),
+    }
+
+
+def _key_hint_conflicts(entities: Sequence[Mapping]) -> list[dict]:
+    """H3: the catalog names one column the key and every corpus guess names another."""
+    findings = []
+    for entity in entities:
+        identity = entity.get("identity") or {}
+        keys = list(identity.get("candidate_keys") or [])
+        if not keys or any(str(key["tier"]) != TIER_HYPOTHESIS for key in keys):
+            continue
+        guessed = {str(column) for key in keys for column in key["columns"]}
+        findings.extend(
+            _key_hint_finding(entity, hint, keys)
+            for hint in identity.get("declared_hints") or []
+            if not set(hint["columns"]) & guessed
+        )
+    return findings
+
+
+def _key_hint_finding(entity: Mapping, hint: Mapping, keys: Sequence[Mapping]) -> dict:
+    hinted = "、".join(f"`{column}`" for column in hint["columns"])
+    guessed = "；".join(
+        "、".join(f"`{column}`" for column in key["columns"]) for key in keys
+    )
+    return {
+        "kind": FINDING_KEY_HINT_CONFLICT,
+        "entity": str(entity["id"]),
+        "columns": list(hint["columns"]),
+        "tasks": {},
+        "text": (
+            f"元数据注释称 {hinted} 为主键（{normalize_inline(str(hint['text']))}），"
+            f"语料候选键为 {guessed}——两者不一致，请人工判定哪一个是身份键。"
+        ),
+    }
 
 
 def _cardinality_conflicts(
@@ -1467,6 +1781,153 @@ def _card_findings(cards: Mapping) -> list[dict]:
     ]
 
 
+# ------------------------------------------------------------- H5: the open list
+
+
+def _open_items(ontology: Mapping) -> list[dict]:
+    """Every question this document still asks, once each, ranked by what it costs.
+
+    Round one of a review reads five cards and answers four questions; round two has no
+    way to tell what round one bought, because the questions live one card at a time.
+    This list is that missing view: findings first (a contradiction is somebody's wrong
+    number today), then the relations the most tasks depend on, then the identity keys.
+    A confirmed assertion is simply not in it any more -- which is the whole point.
+    """
+    items = [
+        *(_finding_item(finding) for finding in ontology.get("findings") or []),
+        *_relation_items(ontology.get("relations") or []),
+        *_key_items(ontology.get("entities") or []),
+    ]
+    return [{key: item[key] for key in _OPEN_ITEM_KEYS if key in item} for item in items]
+
+
+def _key_item_id(entity: str, columns: Sequence[str]) -> str:
+    """The list id one candidate-key question answers to, derived from the question."""
+    return f"open:key:{entity}={'+'.join(str(column) for column in columns)}"
+
+
+def _relation_item_id(relation: Mapping) -> str:
+    return f"open:rel:{relation_override_key(relation)}"
+
+
+def _finding_item_id(finding: Mapping) -> str:
+    """Content-derived, so the same question keeps the same id in the next round.
+
+    Competing key sets are part of the id rather than their union: three hypotheses over
+    one table produce three pairs, and all three unions are the same column set.
+    """
+    sets = finding.get("keys")
+    detail = (
+        "~".join("+".join(str(column) for column in key["columns"]) for key in sets)
+        if sets
+        else "+".join(str(column) for column in finding.get("columns") or [])
+    )
+    name = f"open:finding:{finding['kind']}:{finding['entity']}"
+    return f"{name}={detail}" if detail else name
+
+
+def _finding_item(finding: Mapping) -> dict:
+    # A hint conflict has exactly one answer shape -- "this column is the key, or it is
+    # not" -- so it can name its write-back target. A contradiction between two tasks
+    # cannot: answering it may confirm a key, a cardinality, or neither.
+    write_back = (
+        f"键:{finding['entity']}={'+'.join(str(item) for item in finding['columns'])}"
+        if str(finding["kind"]) == FINDING_KEY_HINT_CONFLICT
+        else None
+    )
+    return {
+        "id": _finding_item_id(finding),
+        "kind": OPEN_ITEM_FINDING,
+        "entity": str(finding["entity"]),
+        "columns": list(finding.get("columns") or []),
+        "tier": TIER_CONFLICT,
+        "write_back": write_back,
+        "text": str(finding.get("text") or ""),
+    }
+
+
+def _relation_items(relations: Sequence[Mapping]) -> list[dict]:
+    """One item per hypothesis edge -- not one per side, which is how a card reads it."""
+    ordered = sorted(
+        (
+            relation
+            for relation in relations
+            if str((relation.get("cardinality") or {}).get("tier")) == TIER_HYPOTHESIS
+        ),
+        key=lambda item: (-int(item.get("task_count") or 0), relation_override_key(item)),
+    )
+    return [
+        {
+            "id": _relation_item_id(relation),
+            "kind": OPEN_ITEM_RELATION,
+            "entity": str(relation["from"]["entity"]),
+            "relation": str(relation["id"]),
+            "columns": list(relation["to"]["columns"]),
+            "tier": TIER_HYPOTHESIS,
+            "write_back": f"关系:{relation_override_key(relation)}",
+            "text": _relation_question(relation),
+        }
+        for relation in ordered
+    ]
+
+
+def _key_items(entities: Sequence[Mapping]) -> list[dict]:
+    return [
+        {
+            "id": _key_item_id(str(entity["id"]), key["columns"]),
+            "kind": OPEN_ITEM_KEY,
+            "entity": str(entity["id"]),
+            "columns": list(key["columns"]),
+            "tier": TIER_HYPOTHESIS,
+            "write_back": f"键:{entity['id']}={'+'.join(key['columns'])}",
+            "text": _key_question(key),
+        }
+        for entity in entities
+        for key in (entity.get("identity") or {}).get("candidate_keys") or []
+        if str(key["tier"]) == TIER_HYPOTHESIS
+    ]
+
+
+def _key_question(key: Mapping) -> str:
+    columns = "、".join(f"`{column}`" for column in key["columns"])
+    return f"候选键 {columns}：只有任务直接关联时的假设，语料没有证明它唯一。"
+
+
+def _relation_question(relation: Mapping) -> str:
+    cardinality = relation.get("cardinality") or {}
+    claim = str(cardinality.get("claim"))
+    basis = str(cardinality.get("basis"))
+    return (
+        f"关系 `{relation['from']['entity']}` → `{relation['to']['entity']}` "
+        f"的基数写作「{CARDINALITY_TEXT.get(claim, claim)}」，依据只是"
+        f"{BASIS_TEXT.get(basis, basis)}。"
+    )
+
+
+def _confirmed_count(ontology: Mapping) -> int:
+    """How many assertions a person has answered so far -- the other half of the counter."""
+    return sum(
+        [
+            sum(
+                1
+                for entity in ontology.get("entities") or []
+                for key in (entity.get("identity") or {}).get("candidate_keys") or []
+                if str(key["tier"]) == TIER_CONFIRMED
+            ),
+            sum(
+                1
+                for relation in ontology.get("relations") or []
+                if str((relation.get("cardinality") or {}).get("tier")) == TIER_CONFIRMED
+            ),
+            sum(
+                1
+                for constraint in ontology.get("constraints") or []
+                if str(constraint.get("tier")) == TIER_CONFIRMED
+            ),
+        ]
+    )
+
+
 # ------------------------------------------------------------------------- markdown
 
 
@@ -1483,6 +1944,7 @@ def render_ontology_index_markdown(ontology: Mapping) -> str:
     relations = list(ontology.get("relations") or [])
     constraints = list(ontology.get("constraints") or [])
     findings = list(ontology.get("findings") or [])
+    items = list(ontology.get("open_items") or [])
     identifiers = mermaid_entity_ids(entities)
     lines = [
         "---",
@@ -1490,13 +1952,15 @@ def render_ontology_index_markdown(ontology: Mapping) -> str:
         f"task_count: {corpus.get('task_count')}",
         f"entity_count: {len(entities)}",
         f"relation_count: {len(relations)}",
+        f"open_item_count: {len(items)}",
         "---",
         "",
         "# 语料本体候选索引",
         "",
         f"共 {corpus.get('task_count')} 个任务、{len(entities)} 个实体、"
         f"{len(relations)} 条关系、{len(constraints)} 条约束、"
-        f"{len(findings)} 条待人工判定的发现。",
+        f"{len(findings)} 条矛盾发现；"
+        f"待人工判定 {len(items)} 条（已确认 {_confirmed_count(ontology)} 条）。",
         "",
         "每条断言都带置信层级：`proven`（已证明，SQL 直接写着）、`implied`（可推得，"
         "由结构证明的推论）、`hypothesis`（作者假设，未被证明）、`conflict`（矛盾，"
@@ -1507,6 +1971,7 @@ def render_ontology_index_markdown(ontology: Mapping) -> str:
     lines.extend(_relations_section(relations))
     lines.extend(_constraints_section(constraints))
     lines.extend(_findings_section(findings))
+    lines.extend(_open_items_section(items))
     lines.append("")
     return "\n".join(lines)
 
@@ -1863,6 +2328,40 @@ def _findings_section(findings: Sequence[Mapping]) -> list[str]:
     return lines
 
 
+def _open_items_section(items: Sequence[Mapping]) -> list[str]:
+    """The consolidated list: what is still open, in the order it is worth answering."""
+    if not items:
+        return ["", "## 待人工判定清单（0 条）", "", "本语料没有待人工判定项。"]
+    lines = [
+        "",
+        f"## 待人工判定清单（{len(items)} 条）",
+        "",
+        "矛盾与发现在前，其次是任务数多的关系，最后是候选键；`回写目标` 照抄进 "
+        "`ontology.overrides.json` 即可，答完的条目下一轮不再出现。",
+        "",
+        "| # | id | 类型 | 实体 | 层级 | 回写目标 | 说明 |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for index, item in enumerate(items, start=1):
+        kind = str(item["kind"])
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    cell(str(index)),
+                    cell(f"`{item['id']}`"),
+                    cell(OPEN_ITEM_TEXT.get(kind, kind)),
+                    cell(f"`{item['entity']}`"),
+                    cell(_tier_text(item["tier"])),
+                    cell(f"`{item['write_back']}`" if item.get("write_back") else "—"),
+                    cell(normalize_inline(str(item.get("text") or ""))),
+                ]
+            )
+            + " |"
+        )
+    return lines
+
+
 def _finding_tasks(finding: Mapping) -> str:
     tasks = finding.get("tasks") or {}
     return (
@@ -1932,6 +2431,53 @@ def _claim_line(text: str, tier, evidence: Sequence[Mapping]) -> str:
     return f"- {text} — {_tier_text(tier)}；证据 {_evidence_ids(evidence)}"
 
 
+def _key_line(key: Mapping) -> str:
+    """One candidate key, its scope when it has one, and who confirmed it (H2)."""
+    columns = "、".join(f"`{column}`" for column in key["columns"])
+    scope = key.get("scope_columns") or []
+    if scope:
+        columns += "（在 " + "、".join(f"`{column}`" for column in scope) + " 内唯一）"
+    evidence = key.get("evidence") or []
+    return _claim_line(columns, key.get("tier"), evidence) + _confirmation_text(evidence)
+
+
+def _confirmation_text(evidence: Sequence[Mapping]) -> str:
+    """``；确认人 X、确认日期 Y、依据 Z`` -- an answer without its basis is a rumour."""
+    stamp = next(
+        (
+            item
+            for item in evidence
+            if str(item.get("kind")) == EVIDENCE_HUMAN_CONFIRMATION
+        ),
+        None,
+    )
+    parts = [
+        f"{label}{normalize_inline(str(stamp[field]))}"
+        for field, label in (
+            ("confirmed_by", "确认人 "),
+            ("date", "确认日期 "),
+            ("confirmed_basis", "依据 "),
+        )
+        if stamp and stamp.get(field)
+    ]
+    return "；" + "、".join(parts) if parts else ""
+
+
+def _hint_lines(hints: Sequence[Mapping]) -> list[str]:
+    """H3: what the catalog already says about identity, beside what the corpus guessed."""
+    lines = ["", "**元数据键线索**", ""]
+    if not hints:
+        return [*lines, "- 元数据注释没有把任何列称作主键或唯一键。"]
+    lines.extend(
+        "- "
+        + "、".join(f"`{column}`" for column in hint["columns"])
+        + f" — 列注释：{normalize_inline(str(hint['text']))}"
+        + "（元数据线索，不是语料证据）"
+        for hint in hints
+    )
+    return lines
+
+
 def _card_identity(entity: Mapping) -> list[str]:
     """Candidate keys, multiplicity and partition columns -- three answers, never merged."""
     identity = entity.get("identity") or {}
@@ -1940,16 +2486,10 @@ def _card_identity(entity: Mapping) -> list[str]:
     partitions = identity.get("partition_columns") or []
     lines = [f"- 属性 {_attribute_count_text(entity)}", "", "**候选键**", ""]
     if keys:
-        lines.extend(
-            _claim_line(
-                "、".join(f"`{column}`" for column in key["columns"]),
-                key.get("tier"),
-                key.get("evidence") or [],
-            )
-            for key in keys
-        )
+        lines.extend(_key_line(key) for key in keys)
     else:
         lines.append("- 语料内没有可发布的候选键证据。")
+    lines.extend(_hint_lines(identity.get("declared_hints") or []))
     lines.extend(["", "**多行性**", ""])
     if multiplicity:
         lines.extend(
@@ -2095,6 +2635,7 @@ def _card_open_items(entity: Mapping, ontology: Mapping) -> list[str]:
     lines: list[str] = []
     lines.extend(
         f"- ⚠ {finding['kind']}：{normalize_inline(str(finding.get('text') or ''))}"
+        f"{_cites(_finding_item_id(finding))}"
         for finding in ontology.get("findings") or []
         if str(finding.get("entity")) == name
     )
@@ -2102,23 +2643,20 @@ def _card_open_items(entity: Mapping, ontology: Mapping) -> list[str]:
     for key in identity.get("candidate_keys") or []:
         if str(key.get("tier")) != TIER_HYPOTHESIS:
             continue
-        columns = "、".join(f"`{column}`" for column in key["columns"])
         lines.append(
-            f"- [待确认] 候选键 {columns}：只有任务直接关联时的假设，语料没有证明它唯一。"
+            f"- [待确认] {_key_question(key)}"
             f"回写 `键:{name}={'+'.join(key['columns'])}`。"
+            f"{_cites(_key_item_id(name, key['columns']))}"
         )
     for relation in ontology.get("relations") or []:
         if name not in (str(relation["from"]["entity"]), str(relation["to"]["entity"])):
             continue
-        cardinality = relation.get("cardinality") or {}
-        if str(cardinality.get("tier")) != TIER_HYPOTHESIS:
+        if str((relation.get("cardinality") or {}).get("tier")) != TIER_HYPOTHESIS:
             continue
-        claim = str(cardinality.get("claim"))
         lines.append(
-            f"- [待确认] 关系 `{relation['from']['entity']}` → `{relation['to']['entity']}` "
-            f"的基数写作「{CARDINALITY_TEXT.get(claim, claim)}」，依据只是"
-            f"{BASIS_TEXT.get(str(cardinality.get('basis')), cardinality.get('basis'))}。"
+            f"- [待确认] {_relation_question(relation)}"
             f"回写 `关系:{relation_override_key(relation)}`。"
+            f"{_cites(_relation_item_id(relation))}"
         )
     for constraint in ontology.get("constraints") or []:
         target = constraint.get("target") or {}
@@ -2131,6 +2669,11 @@ def _card_open_items(entity: Mapping, ontology: Mapping) -> list[str]:
             f"{'；' + normalize_inline(str(constraint['note'])) if constraint.get('note') else ''}"
         )
     return lines or ["- 本表没有待人工判定的项。"]
+
+
+def _cites(item_id: str) -> str:
+    """The card asks the question; the index's list is where the count of them lives."""
+    return f"（清单 `{item_id}`）"
 
 
 def _dedupe(items: Iterable) -> list:

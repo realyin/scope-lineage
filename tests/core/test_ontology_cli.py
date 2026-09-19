@@ -281,6 +281,7 @@ def test_ontology_applies_a_reviewed_overrides_file(tmp_path: Path, capsys) -> N
         "relations": 1,
         "keys": 1,
         "unmatched": [],
+        "ignored_fields": [],
     }
     assert "confirmed 1 relation(s) and 1 key(s), 0 unmatched" in capsys.readouterr().out
     card = (out / "tables" / "ods.customer_base.md").read_text(encoding="utf-8")

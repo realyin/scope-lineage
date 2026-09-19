@@ -40,7 +40,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
 | 文件 | 给谁读 | 内容 |
 | --- | --- | --- |
 | `ontology.json` | 机器 / RAG / 知识图谱入库 | 主产物，`doc_format: "ontology-json/1"` |
-| `ontology.md` | 人 | 索引：Mermaid ER 总览 + 实体表 + 关系表 + 约束表 + 待人工判定表，`doc_format: "ontology-index-md/1"` |
+| `ontology.md` | 人 | 索引：Mermaid ER 总览 + 实体表 + 关系表 + 约束表 + 待人工判定表 + 待人工判定清单，`doc_format: "ontology-index-md/1"` |
 | `tables/<db.table>.md` | 人 / RAG 按表切块 | 表卡的 6 节之后追加本体 5 节，`doc_format: "ontology-md/1"`；文件名规则与 `scope-lineage tables` 完全一致 |
 
 Python API（消费契约文档，与文件写出同一条路径）：
@@ -88,6 +88,8 @@ card = render_ontology_table_card_markdown(cards["tables"][0], ontology)
                            "evidence": [{"task": "task_a", "statement_id": "stmt:001",
                                          "kind": "joined_as_right_without_dedup",
                                          "logic_block_id": "logic:ROOT:join:001"}]}],
+       "declared_hints": [{"columns": ["id"], "evidence": "column_comment",
+                           "text": "customer primary key"}],
        "multiplicity": [{"columns": ["driver_id"], "tier": "implied",
                          "claim": "multiple_rows_per_key", "evidence": [{"kind": "group_by"}]}],
        "partition_columns": ["dt"]},
@@ -117,9 +119,20 @@ card = render_ontology_table_card_markdown(cards["tables"][0], ontology)
   "findings": [
     {"kind": "cardinality_conflict", "entity": "ods.pay", "columns": ["driver_id"],
      "tasks": {"multiple_rows_per_key": ["task_a"], "assumed_unique": ["task_b"]},
-     "text": "…"}
+     "text": "…"},
+    {"kind": "competing_candidate_keys", "entity": "ods.pay",
+     "columns": ["driver_id", "dt"],
+     "keys": [{"columns": ["driver_id"], "evidence": [{"task": "task_a"}]},
+              {"columns": ["driver_id", "dt"], "evidence": [{"task": "task_b"}]}],
+     "tasks": {"assumed_unique": ["task_a", "task_b"]}, "text": "…"}
   ],
-  "overrides_applied": {"relations": 0, "keys": 0, "unmatched": []}
+  "open_items": [
+    {"id": "open:key:ods.customer=id", "kind": "candidate_key",
+     "entity": "ods.customer", "columns": ["id"], "tier": "hypothesis",
+     "write_back": "键:ods.customer=id", "text": "…"}
+  ],
+  "overrides_applied": {"relations": 0, "keys": 0, "unmatched": [],
+                        "ignored_fields": []}
 }
 ```
 
@@ -131,6 +144,8 @@ card = render_ontology_table_card_markdown(cards["tables"][0], ontology)
 | `entities[].kind` | `physical_table` / `produced_table` | 语料内有生产任务的是 `produced_table` |
 | `entities[].comment`、`naming_hints` | 表注释 / 业务域 / 项目 / 负责人 | 元数据原样透传，Core 不据此推断任何业务语义 |
 | `entities[].identity.candidate_keys[]` | `columns` + `tier` + `evidence` | 生产任务证明的键（`producer_key_confidence`）与消费任务假设的键（`joined_as_right_without_dedup`）并列，不合并成「主键」 |
+| `entities[].identity.candidate_keys[].scope_columns` | 列名列表 | H2：该键只在这组列的同一取值内唯一（快照表的常态）；只可能来自人工确认 |
+| `entities[].identity.declared_hints[]` | `columns` + `evidence: column_comment` + `text` | H3：列注释把某列称作主键/唯一键，原样透传；它是元数据线索而不是候选键，与某个候选键一致时把那个键从 `hypothesis` 抬到 `implied` |
 | `entities[].identity.multiplicity[]` | `claim: multiple_rows_per_key` | O3：某任务按这组键对该表做过 GROUP BY 或窗口 partition |
 | `entities[].identity.partition_columns` | 列名列表 | 生产任务写入时的分区列（元数据事实） |
 | `entities[].attributes[].type`、`comment` | 元数据 | 表卡里的列类型与列注释，原样透传 |
@@ -150,9 +165,14 @@ card = render_ontology_table_card_markdown(cards["tables"][0], ontology)
 | `constraints[].values`、`completeness` | 取值列表、`complete` / `unknown` | 仅 `in_set`：只有封闭 `IN` 列表或穷尽 CASE 才是 `complete` |
 | `constraints[].columns` | 列名列表 | 仅 `unique_per`：候选键 + 分区列 |
 | `constraints[].note` | 一句话 | 仅 `not_null`：「任务用过滤丢弃了 NULL，源表本身可能仍含 NULL」 |
-| `findings[].kind` | `cardinality_conflict` / `producer_key_conflict` / `ambiguous_bare_name` | O7，后两者由表卡透传 |
+| `findings[].kind` | `cardinality_conflict` / `competing_candidate_keys` / `key_hint_conflict` / `producer_key_conflict` / `ambiguous_bare_name` | O7 与 O8，最后两者由表卡透传 |
 | `findings[].tasks` | 角色 → 任务名列表 | 矛盾的两边分别是哪些任务 |
-| `overrides_applied` | `relations` / `keys` / `unmatched` | 本次合并了几条人工确认，以及哪些确认在语料里找不到对应项 |
+| `findings[].keys[]` | 两组 `columns` + `evidence` | 仅 `competing_candidate_keys`：互相竞争的两组候选键各自的列与证据 |
+| `open_items[]` | `id` / `kind` / `entity` / `relation` / `columns` / `tier` / `write_back` / `text` | H5：整份语料的待人工判定清单，一个 `hypothesis` 候选键、一条 `hypothesis` 关系或一条 finding 各一条；关系只出现一次，不按两端各一次 |
+| `open_items[].id` | `open:key:<表>=<列+列>` / `open:rel:<关系回写键>` / `open:finding:<kind>:<表>=<列>` | 由内容派生，同一个问题在下一轮仍是同一个 id |
+| `open_items[].kind` | `candidate_key` / `relation` / `finding` | 数组顺序就是建议的回答顺序：发现 → 关系（按 `task_count` 降序）→ 候选键 |
+| `open_items[].write_back` | `键:<表>=<列+列>` / `关系:<回写键>` / `null` | 答案落回 `ontology.overrides.json` 的目标；跨任务矛盾没有单一目标，写 `null` |
+| `overrides_applied` | `relations` / `keys` / `unmatched` / `ignored_fields` | 本次合并了几条人工确认，哪些确认在语料里找不到对应项，以及哪些字段本版本读不懂 |
 
 ## 推断规则
 
@@ -163,7 +183,8 @@ card = render_ontology_table_card_markdown(cards["tables"][0], ontology)
 | O3 多行性 | 任一任务对表 T 按键集 K 做 GROUP BY 或窗口 partition → T 按 K 有多行（`implied`）；键集跨两张表时不做任何断言 |
 | O5 同义 | `end_to_end_lineage` 的 DIRECT 且列名不同 → `direct_rename`（`proven`）；UNION 同位置列名不同 → `union_alignment`（`implied`）；两端互相登记 |
 | O6 约束 | `NOT x IS NULL` 过滤 → `not_null`（`hypothesis`，附注「任务丢弃了 NULL，源表可能仍含 NULL」）；可枚举 code → `in_set`；分区列 → `partition`（`proven`）；产出表候选键 + 分区列 → `unique_per`（键置信 `proven` → `proven`，`candidate` → `hypothesis`）。**同一条断言只发一条**：（实体, kind, columns/values）相同的约束合并成一条，`tier` 取其中最强的一级、`evidence[]` 按语料顺序求并——一张表被两个任务按同一键集写出时，那是同一条约束被证明了两次，不是两条约束 |
-| O7 冲突 | 同一（表, 键集）上「去重」与「直接关联」并存 → `cardinality_conflict`；表卡的 `producer_key_conflict` 与 `ambiguous_bare_name` 原样透传 |
+| O7 冲突 | 同一（表, 键集）上「去重」与「直接关联」并存 → `cardinality_conflict`；同一张表上两组 `hypothesis` 候选键互为真子集或互不相交 → `competing_candidate_keys`（至多一组是身份键）；表卡的 `producer_key_conflict` 与 `ambiguous_bare_name` 原样透传 |
+| O8 元数据键线索 | 列注释含 `主键` / `唯一键` / `唯一编号` / `主键id` / `primary key` / `unique`（忽略大小写）→ `declared_hints`；线索与某个 `hypothesis` 候选键一致（线索列 ⊆ 键列）→ 该键升到 `implied`（注释与结构两个独立来源指向同一列）；候选键全是 `hypothesis` 且都不含线索列 → `key_hint_conflict` |
 
 ## 每表卡片：表卡之后追加的五节
 
@@ -172,11 +193,11 @@ card = render_ontology_table_card_markdown(cards["tables"][0], ontology)
 
 | 节 | 内容 |
 | --- | --- |
-| 7. 身份（本体） | 开头一行「属性 N（语料用到 n）」，与 `ontology.md` 实体表的「属性」列同一口径；其后候选键、多行性、分区列三者并列，逐条带中文层级与证据 id；三者回答三个不同问题，永不合并成「主键」 |
+| 7. 身份（本体） | 开头一行「属性 N（语料用到 n）」，与 `ontology.md` 实体表的「属性」列同一口径；其后候选键、元数据键线索、多行性、分区列四者并列，逐条带中文层级与证据 id；已确认的键在同一行打印确认人、确认日期与依据，带 `scope_columns` 的键读作「在 `dt` 内唯一」；四者回答四个不同问题，永不合并成「主键」 |
 | 8. 关系 | 出边、入边各一张表：对端（链到对端卡片）、键对、JOIN 类型、基数 claim、层级、依据 token 的人话翻译、任务数、证据 id |
 | 9. 约束 | SHACL 风格清单：约束种类、目标列或整表、值集与完整性、层级、证据 |
 | 10. 属性同义 | 本表列 ↔ 同义列、依据（改名投影 / UNION 同位置）、层级、证据 |
-| 11. 待人工判定 | 该表相关的 findings，加上所有 `hypothesis` 断言（候选键 / 基数 / 约束），每条标 `[待确认]` 并给出回写目标字符串 |
+| 11. 待人工判定 | 该表相关的 findings，加上所有 `hypothesis` 断言（候选键 / 基数 / 约束），每条标 `[待确认]`、给出回写目标字符串，并引用 `open_items[]` 里的清单 id |
 
 文件名规则与 `tables` 完全一致（`<db.table>.md`，文件系统不接受的字符换成 `_`），因此一份语料
 可以先跑 `tables` 再跑 `ontology`，后者原地覆盖前者的卡片目录，卡片之间的相对链接仍然成立。
@@ -220,6 +241,7 @@ erDiagram
   "relations": {
     "ods.orders.customer_id->ods.customer.id": {
       "cardinality": "many_to_one",
+      "basis": "two tasks join on this key set",
       "confirmed_by": "王某",
       "date": "2026-09-19"
     }
@@ -227,6 +249,9 @@ erDiagram
   "keys": {
     "ods.customer": {
       "columns": ["id"],
+      "scope_columns": ["dt"],
+      "basis": "the column comment names it the primary key",
+      "note": "a snapshot table: one full copy per partition",
       "confirmed_by": "王某",
       "date": "2026-09-19"
     }
@@ -239,12 +264,15 @@ erDiagram
 | `relations` 的键 | `<from 实体>.<列+列>-><to 实体>.<列+列>` | 与卡片「待人工判定」里打印的回写目标字符串逐字一致，照抄即可 |
 | `relations[].cardinality` | 五种 claim 之一 | 确认后的基数；不写就沿用语料原来的 claim，只把层级升到 `confirmed` |
 | `keys` 的键 | 实体 id | 该表的身份键；语料没猜到的键也可以直接新增 |
-| `keys[].columns` | 列名列表 | 构成身份的列集合，顺序即卡片上的展示顺序 |
+| `keys[].columns` | 列名列表 | 构成身份的列集合，顺序即卡片上的展示顺序；每一列都必须是该实体的属性（声明的或语料用过的），否则整条不合并 |
+| `keys[].scope_columns` | 列名列表 | 该键只在这组列的同一取值内唯一（快照表的常态）；卡片渲染成「在 `dt` 内唯一」 |
 | `confirmed_by`、`date` | 自由文本 | 谁在什么时候确认的，原样写进证据 |
-| `overrides_applied.unmatched` | 字符串列表 | 在语料里找不到对应项的确认——不丢弃，列出来让复核的人看见 |
+| `basis`、`note` | 自由文本 | 确认的依据与备注，与 `confirmed_by` / `date` 并列发布；`basis` 发布成 `confirmed_basis`——基数上的 `basis` 是机器 token，一个槽位不能同时装词表和句子 |
+| `overrides_applied.unmatched` | `{"key": …, "reason": …}` 列表 | 在语料里找不到对应项的确认——不丢弃，列出来让复核的人看见；`reason` 取 `unknown_entity: X` / `unknown_column: X` / `missing_columns` / `unknown_relation` / `unparsable_key` |
+| `overrides_applied.ignored_fields` | `{"key": …, "fields": ["…"]}` 列表 | 本版本读不懂的字段（多半是拼错的槽位名）——列出来而不是悄悄丢掉 |
 
 合并后这些断言的 `tier` 变成 `confirmed`、`basis` 变成 `human_confirmation`，证据里多一条
-`{"kind": "human_confirmation", "confirmed_by": …, "date": …}`。`confirmed` 是唯一一个语料
+`{"kind": "human_confirmation", "confirmed_by": …, "date": …, "confirmed_basis": …, "note": …}`。`confirmed` 是唯一一个语料
 自己永远产不出的层级。语料本身的 `findings` 不会被确认消音：矛盾是否还存在，要等语料重新解析
 后由 O7 重新判定。
 

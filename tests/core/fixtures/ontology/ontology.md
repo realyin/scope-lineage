@@ -3,11 +3,12 @@ doc_format: "ontology-index-md/1"
 task_count: 5
 entity_count: 9
 relation_count: 4
+open_item_count: 2
 ---
 
 # 语料本体候选索引
 
-共 5 个任务、9 个实体、4 条关系、6 条约束、0 条待人工判定的发现。
+共 5 个任务、9 个实体、4 条关系、5 条约束、0 条矛盾发现；待人工判定 2 条（已确认 0 条）。
 
 每条断言都带置信层级：`proven`（已证明，SQL 直接写着）、`implied`（可推得，由结构证明的推论）、`hypothesis`（作者假设，未被证明）、`conflict`（矛盾，跨任务证据打架）、`confirmed`（已确认，只来自人工回写的 `ontology.overrides.json`）。
 
@@ -19,10 +20,7 @@ erDiagram
         unknown channel_code PK
     }
     dim_segment_dim
-    mart_channel_summary {
-        unknown customer_id PK
-        unknown channel_name PK
-    }
+    mart_channel_summary
     mart_metric_by_segment {
         string segment PK
         string band PK
@@ -46,7 +44,7 @@ erDiagram
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | [`dim.channel`](tables/dim.channel.md) | `dim_channel` | physical_table | 渠道维表（合成） | 作者假设（hypothesis） | 2（语料用到 1） | 0 | 1 | 0 |
 | [`dim.segment_dim`](tables/dim.segment_dim.md) | `dim_segment_dim` | physical_table | — | 无候选键 | 3（语料用到 3） | 0 | 2 | 0 |
-| [`mart.channel_summary`](tables/mart.channel_summary.md) | `mart_channel_summary` | produced_table | — | 已证明（proven） | 3（语料用到 3） | 0 | 0 | 3 |
+| [`mart.channel_summary`](tables/mart.channel_summary.md) | `mart_channel_summary` | produced_table | — | 无候选键 | 3（语料用到 3） | 0 | 0 | 2 |
 | [`mart.metric_by_segment`](tables/mart.metric_by_segment.md) | `mart_metric_by_segment` | produced_table | — | 已证明（proven） | 7（语料用到 6） | 0 | 0 | 2 |
 | [`mart.user_names`](tables/mart.user_names.md) | `mart_user_names` | produced_table | — | 无候选键 | 2（语料用到 2） | 0 | 0 | 0 |
 | [`ods.channel_event`](tables/ods.channel_event.md) | `ods_channel_event` | physical_table | 渠道事件明细（合成） | 无候选键 | 4（语料用到 4） | 1 | 0 | 1 |
@@ -67,7 +65,6 @@ erDiagram
 
 | 实体 | 目标 | 约束 | 内容 | 层级 |
 | --- | --- | --- | --- | --- |
-| `mart.channel_summary` | 整表 | 每键唯一（unique_per） | `customer_id`、`channel_name`、`dt` | 已证明（`proven`） |
 | `mart.channel_summary` | `channel_name` | 取值集合（in_set） | `OFFLINE`、`ONLINE`（已封闭） | 已证明（`proven`） |
 | `mart.channel_summary` | `dt` | 分区列（partition） | — | 已证明（`proven`） |
 | `mart.metric_by_segment` | 整表 | 每键唯一（unique_per） | `segment`、`band`、`dt` | 已证明（`proven`） |
@@ -77,3 +74,12 @@ erDiagram
 ## 待人工判定
 
 本语料没有发现矛盾证据。
+
+## 待人工判定清单（2 条）
+
+矛盾与发现在前，其次是任务数多的关系，最后是候选键；`回写目标` 照抄进 `ontology.overrides.json` 即可，答完的条目下一轮不再出现。
+
+| # | id | 类型 | 实体 | 层级 | 回写目标 | 说明 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `open:rel:ods.channel_event.channel_code->dim.channel.channel_code` | 关系基数 | `ods.channel_event` | 作者假设（`hypothesis`） | `关系:ods.channel_event.channel_code->dim.channel.channel_code` | 关系 `ods.channel_event` → `dim.channel` 的基数写作「多对一，作者假设」，依据只是直接关联未去重，作者假设对端按该键唯一。 |
+| 2 | `open:key:dim.channel=channel_code` | 候选键 | `dim.channel` | 作者假设（`hypothesis`） | `键:dim.channel=channel_code` | 候选键 `channel_code`：只有任务直接关联时的假设，语料没有证明它唯一。 |
