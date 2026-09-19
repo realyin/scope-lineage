@@ -506,7 +506,12 @@ def _instance_date_lines(task: dict) -> list[str]:
     if not days:
         return []
     gap = _instance_date_gap(days)
-    return [_tagged(f"- 取数日：{'、'.join(days)}{gap}", TAG_SQL)]
+    return [
+        _tagged(
+            f"- 本实例取数日：{'、'.join(days)}{gap}（每次运行按实例日期替换，不是 SQL 固定日期）",
+            TAG_SQL,
+        )
+    ]
 
 
 def _instance_date_gap(days: Sequence[str]) -> str:

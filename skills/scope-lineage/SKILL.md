@@ -179,7 +179,7 @@ naming that day is the design, not a defect — `hardcoded_date_literal`,
 `partition_literal_mismatch` and `table_comment_missing` are therefore `info`, section 6
 counts them in one line instead of listing them, and a profile must not turn them into
 使用注意 or into questions. The day itself is published as `task.instance_dates[]` and on
-section 1's 取数日 line, and a metric's date filter reads `kind: "instance_date"`.
+section 1's 「本实例取数日」 line (worded as this instance's day, replaced on every run), and a metric's date filter reads `kind: "instance_date"`.
 
 Every line in the skeleton carries one of three tags: `SQL事实` (verbatim from the SQL),
 `元数据事实` (table/column comments and types), or `结构推断` (provable from the query
@@ -222,20 +222,25 @@ overrides, `字段注释` / `表注释` into a `metadata-patch/1` file — and n
 entry somebody already confirmed (`--dry-run` prints both documents instead of writing
 them). The next profile then reads `value_domain[].meaning.status: "confirmed"`,
 `fields[].target_comment_source: "patch"` and `inputs[].comment_source: "patch"`, must
-**not** ask those questions again, and lists them under appendix A2a instead — so each
-round the 待确认清单 gets shorter. `parse --metadata-patch` applies the same file when a
+**not** ask those questions again, and lists them under appendix A (已确认项) instead — so
+each round the 待确认清单 gets shorter. `parse --metadata-patch` applies the same file when a
 corpus is re-parsed; both paths write the same document.
 
-When the user wants a business profile, generate `business_profile.md` from the skeleton
-following `references/semantic-profile-prompt.md`. It delivers **three pieces plus an
-appendix** in one file: a **task semantic card** (≤ 1 page, business language, no source
-tags), a **field dictionary** (every output column, with a 7-row metric spec card per
-measure), and an **open-questions list** (≤ 5 items a business owner can answer in five
-minutes, restricted to column-position mismatches, comment-versus-derivation conflicts,
-unproven keys under a fan-out risk, and misnamed fields) — with the evidence, tag system,
-risk table, the overflow 备查项 / 待填取值 list and the self-check moved into the
-appendix. Fill `references/business-profile-template.md`. For a whole corpus, loop over
-the task directories yourself — there is no batch mode in the CLI.
+When the user wants a business profile, generate **two files** from the skeleton following
+`references/semantic-profile-prompt.md`. `business_profile.md` is what the reader gets:
+**three pieces plus a short appendix** — a **task semantic card** (≤ 1 page, business
+language, no source tags), a **field dictionary** (every output column, with a 7-row metric
+spec card per measure), an **open-questions list** (≤ 5 items a business owner can answer in
+five minutes, restricted to column-position mismatches, comment-versus-derivation conflicts,
+unproven keys under a fan-out risk, and misnamed fields), and appendices **A 已确认项 /
+B 备查项与待填取值 / C 风险边界**, which together must stay **≤ 1/3 of the body's character
+count**. `business_profile.check.md`, written next to it, is the writer's QA record — input
+file verification, the source-tag evidence table, the inferred-items list, the
+self-consistency pass and the 14-item self-check — a required quality gate that keeps every
+item but no longer sits in the reader's document. Fill
+`references/business-profile-template.md` and `references/business-profile-check-template.md`.
+For a whole corpus, loop over the task directories yourself — there is no batch mode in the
+CLI.
 
 ### "整理这批任务的实体关系 / 本体" — ontology
 
@@ -307,13 +312,17 @@ documented uncertainty).
 - `references/diagnostics.md` — every warning/gap type, its meaning, and honest
   phrasing for reporting it. Read when artifacts show warnings or gaps.
 - `references/semantic-profile-prompt.md` — how to turn a `describe` skeleton into a
-  `business_profile.md`: the three-piece delivery (task semantic card / field dictionary /
-  open-questions list) plus the evidence appendix, the `[推断]` `[待确认]` marking rule,
-  the structural-word-to-plain-language table, the length budget per piece, and the
-  self-consistency pass. Read when the user asks what a task does in business terms, not
-  just where a field comes from.
+  `business_profile.md` plus its `business_profile.check.md`: the three-piece delivery (task
+  semantic card / field dictionary / open-questions list) plus the A/B/C appendix capped at
+  1/3 of the body, the `[推断]` `[待确认]` marking rule, the structural-word-to-plain-language
+  table, the length budget per piece, and the self-consistency pass. Read when the user asks
+  what a task does in business terms, not just where a field comes from.
 - `references/business-profile-template.md` — the blank skeleton of those three pieces and
-  the appendix, with `{…}` placeholders. Fill it rather than inventing a layout.
+  the A/B/C appendix, with `{…}` placeholders. Fill it rather than inventing a layout.
+- `references/business-profile-check-template.md` — the blank skeleton of
+  `business_profile.check.md`: input file verification, source tags and evidence, inferred
+  items, the self-consistency result and the generation self-check. Written beside the
+  profile, never merged into it.
 - `references/ontology-review-prompt.md` — how to turn a corpus ontology's 待人工判定
   items into a question list a business owner can answer in five minutes, and how the
   answers are filed back into `ontology.overrides.json`. Read when the user asks about

@@ -1,6 +1,17 @@
 # Changelog
 
 ## Unreleased
+- The task profile is two files. `business_profile.md` keeps the three body sections and a
+  reader's appendix of exactly three tables (`附录 A 已确认项`, `附录 B 备查项与待填取值`,
+  `附录 C 风险边界`), capped at one third of the body; the writer's own record -- input-file
+  check, source-label table, inferred-item counts, self-consistency check and the 14-item
+  self-check, numbering unchanged -- moves to `business_profile.check.md` from the new
+  `business-profile-check-template.md`. On a real profile the appendix went from 101% of
+  the body to 30%. `confirmations.py apply` is unaffected.
+- The instance date is worded as the instance's, not the SQL's. Section 1's line now reads
+  「本实例取数日：20260814（每次运行按实例日期替换，不是 SQL 固定日期）」, and the profile
+  prompt and template say the same and forbid 「都按这一天取」 -- a reader took the old
+  「取数日 20260814」 as the statement's fixed day.
 - A positionally bound projection no longer borrows another column's logic block. When an
   INSERT has no column list, `target_field_binding` renames every ROOT output to the DDL
   column at that position and keeps the alias in `parsed_name`; `_populate_scope_outputs`
