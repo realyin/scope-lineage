@@ -36,6 +36,7 @@ write_task_lineage(result, "./output/daily_publish")
 | --- | --- |
 | artifact_kind | 固定为 task_lineage。 |
 | task_meta | **条件输出**：只有输入是任务 JSON 且其 `meta` 里至少有一项非空时才出现；`.sql` 输入无本键。九项中立键名的元信息副本，值全为字符串或 null。见下节。 |
+| script_comments[] | 脚本头部注释块：第一条写入语句之前那些未建模语句（`SET` 等）上的注释，按书写顺序。**恒存在**，空数组表示脚本不以这样一段注释开头。同一段话也会并入第一条写入语句的 `statement_comments`；放在这里是为了让多写入脚本只说一遍。见 lineage-json §18。 |
 | analysis_status | complete 或 partial，与语法/构图的 parse_status 分开。 |
 | statement_sequence[] | 按脚本顺序排列的全部可识别语句。 |
 | table_state_graph | 表在各语句执行前后的逻辑状态节点和转换边。 |

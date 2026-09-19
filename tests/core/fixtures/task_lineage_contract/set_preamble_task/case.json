@@ -1,0 +1,11 @@
+{
+  "task_id": "golden_set_preamble_task",
+  "sql": "-- 任务：门店日销汇总（合成示例）\n-- 口径：仅统计营业中的门店，金额单位为元\nSET spark.sql.shuffle.partitions=200;\nSET spark.sql.adaptive.enabled=true;\nINSERT OVERWRITE TABLE mart.store_daily PARTITION (dt = '${bizdate}')\nSELECT\n    s.store_id AS store_id, -- 门店号\n    SUM(s.amount) AS total_amount -- 金额合计（元）\nFROM ods.store_event s\nWHERE s.status = 'OPEN' -- 仅营业中\nGROUP BY s.store_id",
+  "schema": {
+    "ods.store_event": [
+      "store_id",
+      "amount",
+      "status"
+    ]
+  }
+}

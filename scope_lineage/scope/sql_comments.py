@@ -235,3 +235,42 @@ def _line_end(source: str, start: int) -> int:
         default=-1,
     )
     return len(source) if newline == -1 else newline
+
+
+def script_header_comments(statements: Iterable[exp.Expression | None]) -> list[str]:
+    """The opening comment block of a script, read off the statements before its first write.
+
+    A task script usually opens with the lines that say what the job does, and that block
+    is written above the session settings rather than above the INSERT. sqlglot attaches a
+    statement's leading comments to that statement's node, so those lines land on the first
+    ``SET`` -- a statement this tool does not model, whose comments therefore reached no
+    artifact at all. Read here from the statements that run *before* the first modelled
+    write, they can be published on that write and once at task level.
+
+    Only each statement's own node is read, not its subtree: a ``CREATE TABLE IF NOT
+    EXISTS`` preamble carries comments written inside its column list, and those describe a
+    column, not the job.
+    """
+    collected: list[str] = []
+    for statement in statements:
+        if statement is None:
+            continue
+        collected.extend(node_comments(statement))
+    return normalize(collected)
+
+
+def merge_comments(*groups: Iterable[str]) -> list[str]:
+    """Concatenate comment lists in order, publishing a repeated line once.
+
+    Full deduplication rather than :func:`normalize`'s adjacent-only rule, because the
+    groups are different *sources* for the same statement -- a script header hoisted onto
+    the first write and that write's own header block. A line written in both places is one
+    note the author wrote twice about the same statement, and publishing it twice would
+    claim otherwise.
+    """
+    merged: list[str] = []
+    for group in groups:
+        for text in group:
+            if text not in merged:
+                merged.append(text)
+    return merged

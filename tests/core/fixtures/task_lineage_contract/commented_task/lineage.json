@@ -13,6 +13,7 @@
     "expect_date": "2026-09-18",
     "source_file": "demo/channel_summary_daily.json"
   },
+  "script_comments": [],
   "parse_status": "ok",
   "syntax_status": "strict_ok",
   "syntax_errors": [],

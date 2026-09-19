@@ -22,11 +22,14 @@ def test_baseline_covers_the_required_task_contract_shapes() -> None:
     # through a query block are the two shapes whose task-level output is derived
     # rather than copied from the statement. `commented_task` is the third: the only
     # document shape that carries `task_meta`, which exists at task level and nowhere
-    # else (WI-2.2).
+    # else (WI-2.2). `set_preamble_task` is the fourth: a script whose header block is
+    # written above a `SET` preamble, so the block belongs to no modelled statement and
+    # has to be hoisted onto the first write and held once as `script_comments` (B1).
     assert [case.name for case in CASES] == [
         "commented_task",
         "delete_all",
         "merge_cte_source",
+        "set_preamble_task",
     ]
 
 

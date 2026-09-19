@@ -1,6 +1,16 @@
 # Changelog
 
 ## Unreleased
+- The script's header comment block reaches the artifacts. A task script usually opens with
+  the lines that say what the job does, written above a `SET` preamble -- so sqlglot
+  attached them to a statement nothing models, and `statement_comments` came back empty
+  while `sql_comment_counts.header` read 0. The comments on every statement before the
+  first modelled write are now published on that write's `statement_comments` (in source
+  order, ahead of its own header block, a repeat published once) and, for the task
+  document, once more as a new top-level `script_comments[]` -- always present, `[]` when
+  the script opens with no such block. A comment written *between* two writes is not moved:
+  it stays on the write it was written above. Redaction and `--strip-comments` behave
+  exactly as they do for every other comment.
 - The task profile is two files. `business_profile.md` keeps the three body sections and a
   reader's appendix of exactly three tables (`附录 A 已确认项`, `附录 B 备查项与待填取值`,
   `附录 C 风险边界`), capped at one third of the body; the writer's own record -- input-file

@@ -1,0 +1,1229 @@
+{
+  "schema_version": "2.0",
+  "artifact_kind": "task_lineage",
+  "task_id": "golden_set_preamble_task",
+  "script_comments": [
+    "任务：门店日销汇总（合成示例）",
+    "口径：仅统计营业中的门店，金额单位为元"
+  ],
+  "parse_status": "ok",
+  "syntax_status": "strict_ok",
+  "syntax_errors": [],
+  "analysis_status": {
+    "status": "complete",
+    "blocking_reasons": []
+  },
+  "statement_sequence": [
+    {
+      "statement_id": "stmt:001",
+      "statement_index": 0,
+      "stmt_kind": "SET",
+      "category": "control_statement",
+      "model_status": "ignored",
+      "normalized_sql": "SET spark.sql.shuffle.partitions = 200 /* 任务：门店日销汇总（合成示例） */ /* 口径：仅统计营业中的门店，金额单位为元 */"
+    },
+    {
+      "statement_id": "stmt:002",
+      "statement_index": 1,
+      "stmt_kind": "SET",
+      "category": "control_statement",
+      "model_status": "ignored",
+      "normalized_sql": "SET spark.sql.adaptive.enabled = TRUE"
+    },
+    {
+      "statement_id": "stmt:003",
+      "statement_index": 2,
+      "stmt_kind": "INSERT",
+      "category": "projection_write",
+      "model_status": "modeled",
+      "normalized_sql": "INSERT OVERWRITE TABLE mart.store_daily PARTITION(dt = '${bizdate}') SELECT s.store_id AS store_id /* 门店号 */, SUM(s.amount) AS total_amount /* 金额合计（元） */ FROM ods.store_event AS s WHERE s.status = 'OPEN' /* 仅营业中 */ GROUP BY s.store_id",
+      "target_table": "mart.store_daily",
+      "target_field_binding": {
+        "status": "absent",
+        "reason_code": "metadata_not_provided"
+      },
+      "input_states": [
+        "state:mart.store_daily:000"
+      ],
+      "output_state": "state:mart.store_daily:001",
+      "effect": {
+        "rowset_effect": {
+          "operation": "REPLACE_PARTITION"
+        },
+        "column_effect": {
+          "value_mode": "WRITE_PROJECTION"
+        }
+      }
+    }
+  ],
+  "table_state_graph": {
+    "nodes": [
+      {
+        "state_id": "state:mart.store_daily:000",
+        "table": "mart.store_daily",
+        "ordinal": 0,
+        "known_empty": false,
+        "columns_known": false,
+        "producer_statement_id": null
+      },
+      {
+        "state_id": "state:mart.store_daily:001",
+        "table": "mart.store_daily",
+        "ordinal": 1,
+        "known_empty": false,
+        "columns_known": false,
+        "producer_statement_id": "stmt:003"
+      }
+    ],
+    "edges": [
+      {
+        "from": "state:mart.store_daily:000",
+        "to": "state:mart.store_daily:001",
+        "statement_id": "stmt:003",
+        "effect": "REPLACE_PARTITION"
+      }
+    ]
+  },
+  "final_table_states": {
+    "mart.store_daily": "state:mart.store_daily:001"
+  },
+  "statement_lineage": {
+    "stmt:003": {
+      "schema_version": "1.0",
+      "task_id": "golden_set_preamble_task#2",
+      "statement_id": "stmt:003",
+      "statement_index": 2,
+      "target_table": "mart.store_daily",
+      "stmt_kind": "INSERT_OVERWRITE",
+      "parse_status": "ok",
+      "syntax_status": "strict_ok",
+      "syntax_errors": [],
+      "statement_comments": [
+        "任务：门店日销汇总（合成示例）",
+        "口径：仅统计营业中的门店，金额单位为元"
+      ],
+      "target_partition_spec": {
+        "dt": "${bizdate}"
+      },
+      "target_partition_columns": [
+        "dt"
+      ],
+      "target_partition_mode": "static",
+      "target_binding_absent_reason": "metadata_not_provided",
+      "task_dependencies": {
+        "upstream_tasks": [],
+        "downstream_tasks": [],
+        "source_summary": {
+          "source_format": "none",
+          "upstream_count": 0,
+          "downstream_count": 0,
+          "has_declared_task_dependencies": false
+        }
+      },
+      "source_tables": [
+        "ods.store_event"
+      ],
+      "related_metadata": {
+        "input_tables": {
+          "ods.store_event": {
+            "column_details": [
+              {
+                "name": "store_id",
+                "type": null,
+                "comment": null
+              },
+              {
+                "name": "amount",
+                "type": null,
+                "comment": null
+              },
+              {
+                "name": "status",
+                "type": null,
+                "comment": null
+              }
+            ],
+            "metadata_complete": true,
+            "table_column_count": 3
+          }
+        },
+        "output_tables": {
+          "mart.store_daily": {
+            "column_details": [
+              {
+                "name": "store_id",
+                "type": null,
+                "comment": null
+              },
+              {
+                "name": "total_amount",
+                "type": null,
+                "comment": null
+              }
+            ],
+            "metadata_complete": false
+          }
+        }
+      },
+      "scope_graph": {
+        "nodes": [
+          "ROOT",
+          "ods.store_event"
+        ],
+        "edges": [
+          {
+            "from": "ods.store_event",
+            "to": "ROOT"
+          }
+        ]
+      },
+      "scopes": {
+        "ROOT": {
+          "kind": "root",
+          "role": "aggregate",
+          "depends_on": [
+            "ods.store_event"
+          ],
+          "writes_to": "mart.store_daily",
+          "raw_sql": "SELECT `s`.`store_id` AS `store_id` /* 门店号 */, SUM(`s`.`amount`) AS `total_amount` /* 金额合计（元） */ FROM `ods`.`store_event` AS `s` WHERE `s`.`status` = 'OPEN' /* 仅营业中 */ GROUP BY `s`.`store_id`",
+          "raw_sql_available": true,
+          "raw_sql_quality": {
+            "status": "clean",
+            "placeholder_types": [],
+            "evidence": []
+          },
+          "source_coverage": {
+            "status": "covered",
+            "declared_source_tables": [
+              "ods.store_event"
+            ],
+            "raw_sql_source_tables": [
+              "ods.store_event"
+            ],
+            "missing_declared_source_tables": [],
+            "extra_source_tables": []
+          },
+          "input_edges": [
+            {
+              "source_id": "ods.store_event",
+              "source_type": "physical_table",
+              "position": "from",
+              "alias": "s"
+            }
+          ],
+          "input_source_refs": [
+            {
+              "input_ref_id": "input:ROOT:001",
+              "source_id": "ods.store_event",
+              "source_type": "physical_table",
+              "alias": "s",
+              "position": "from",
+              "relation_position": "from",
+              "join_type": null,
+              "physical_source_id": "ods.store_event",
+              "physical_source_ids": [
+                "ods.store_event"
+              ],
+              "source_resolution": {
+                "status": "resolved",
+                "resolution_type": "direct_physical_source",
+                "cardinality": "single_source",
+                "physical_source_tables": [
+                  "ods.store_event"
+                ],
+                "field_resolution_required": false,
+                "missing_reasons": []
+              },
+              "field_resolution_required": false,
+              "binding_status": "resolved",
+              "binding_trace": [
+                {
+                  "from": "s",
+                  "to": "ods.store_event",
+                  "relation": "alias_to_physical_source"
+                }
+              ],
+              "trace_status": "complete"
+            }
+          ],
+          "alias_source_bindings": [
+            {
+              "alias": "s",
+              "source_id": "ods.store_event",
+              "source_type": "physical_table",
+              "physical_source_id": "ods.store_event",
+              "physical_source_ids": [
+                "ods.store_event"
+              ],
+              "position": "from",
+              "relation_position": "from",
+              "join_type": null,
+              "source_resolution": {
+                "status": "resolved",
+                "resolution_type": "direct_physical_source",
+                "cardinality": "single_source",
+                "physical_source_tables": [
+                  "ods.store_event"
+                ],
+                "field_resolution_required": false,
+                "missing_reasons": []
+              },
+              "field_resolution_required": false,
+              "binding_status": "resolved",
+              "binding_trace": [
+                {
+                  "from": "s",
+                  "to": "ods.store_event",
+                  "relation": "alias_to_physical_source"
+                }
+              ],
+              "input_ref_id": "input:ROOT:001"
+            }
+          ],
+          "expression_source_bindings": [
+            {
+              "expression_sql": "WHERE `s`.`status` = 'OPEN' /* 仅营业中 */",
+              "logic_block_id": "logic:ROOT:filter:001",
+              "referenced_qualifiers": [
+                "s"
+              ],
+              "resolved_source_refs": [
+                {
+                  "qualifier": "s",
+                  "resolved_table": "ods.store_event",
+                  "field": "status",
+                  "status": "resolved"
+                }
+              ],
+              "unresolved_qualifiers": [],
+              "binding_status": "complete",
+              "evidence_path": "logic_blocks.logic:ROOT:filter:001.raw_expression"
+            },
+            {
+              "expression_sql": "`s`.`status` = 'OPEN' /* 仅营业中 */",
+              "logic_block_id": "logic:ROOT:filter:001",
+              "referenced_qualifiers": [
+                "s"
+              ],
+              "resolved_source_refs": [
+                {
+                  "qualifier": "s",
+                  "resolved_table": "ods.store_event",
+                  "field": "status",
+                  "status": "resolved"
+                }
+              ],
+              "unresolved_qualifiers": [],
+              "binding_status": "complete",
+              "evidence_path": "logic_blocks.logic:ROOT:filter:001.filter_predicate_detail.conjuncts"
+            },
+            {
+              "expression_sql": "SUM(`s`.`amount`)",
+              "logic_block_id": "logic:ROOT:aggregate:001",
+              "referenced_qualifiers": [
+                "s"
+              ],
+              "resolved_source_refs": [
+                {
+                  "qualifier": "s",
+                  "resolved_table": "ods.store_event",
+                  "field": "amount",
+                  "status": "resolved"
+                }
+              ],
+              "unresolved_qualifiers": [],
+              "binding_status": "complete",
+              "evidence_path": "logic_blocks.logic:ROOT:aggregate:001.raw_expression"
+            }
+          ],
+          "logic_blocks": [
+            {
+              "logic_block_id": "logic:ROOT:filter:001",
+              "logic_type": "filter",
+              "raw_expression": "WHERE `s`.`status` = 'OPEN' /* 仅营业中 */",
+              "normalized_expression": "where `s`.`status` = 'open' /* 仅营业中 */",
+              "fingerprint": "filter:where `s`.`status` = 'open' /* 仅营业中 */",
+              "fields": [
+                {
+                  "scope": "ods.store_event",
+                  "column": "status",
+                  "qualifier": "s",
+                  "binding_scope_id": "ROOT",
+                  "input_ref_id": "input:ROOT:001"
+                }
+              ],
+              "input_sources": [
+                "ods.store_event"
+              ],
+              "field_usage": [
+                {
+                  "source_id": "ods.store_event",
+                  "source_type": "physical_table",
+                  "used_fields": [
+                    "status"
+                  ],
+                  "used_field_details": [
+                    {
+                      "name": "status",
+                      "type": null,
+                      "comment": null
+                    }
+                  ],
+                  "used_by_logic_blocks": [
+                    "logic:ROOT:filter:001"
+                  ],
+                  "used_by_output_fields": [],
+                  "source_metadata": {}
+                }
+              ],
+              "expression_features": {
+                "functions": [],
+                "operators": [
+                  "=",
+                  "*",
+                  "/"
+                ],
+                "has_case_when": false,
+                "has_if": false,
+                "has_cast": false,
+                "has_window": false,
+                "has_aggregate": false,
+                "has_udf": false,
+                "has_constant_mapping": false,
+                "has_partition_filter": false
+              },
+              "filter_predicate_detail": {
+                "predicate_type": "where",
+                "expression": "WHERE `s`.`status` = 'OPEN' /* 仅营业中 */",
+                "fields": [
+                  {
+                    "scope": "ods.store_event",
+                    "column": "status",
+                    "qualifier": "s",
+                    "binding_scope_id": "ROOT",
+                    "input_ref_id": "input:ROOT:001"
+                  }
+                ],
+                "conjuncts": [
+                  {
+                    "expression": "`s`.`status` = 'OPEN' /* 仅营业中 */",
+                    "fields": [
+                      {
+                        "scope": "ods.store_event",
+                        "column": "status",
+                        "qualifier": "s",
+                        "binding_scope_id": "ROOT",
+                        "input_ref_id": "input:ROOT:001"
+                      }
+                    ],
+                    "expression_resolution": {
+                      "status": "resolved",
+                      "resolution_type": "qualified_expression",
+                      "physical_source_fields": [
+                        {
+                          "table": "ods.store_event",
+                          "field": "status"
+                        }
+                      ],
+                      "generated_sources": [],
+                      "source_kind": "physical",
+                      "missing_reasons": [],
+                      "expanded_expression": "`s`.`status` = 'OPEN' /* 仅营业中 */"
+                    }
+                  }
+                ],
+                "expression_resolution": {
+                  "status": "resolved",
+                  "resolution_type": "qualified_expression",
+                  "physical_source_fields": [
+                    {
+                      "table": "ods.store_event",
+                      "field": "status"
+                    }
+                  ],
+                  "generated_sources": [],
+                  "source_kind": "physical",
+                  "missing_reasons": [],
+                  "expanded_expression": "WHERE `ods.store_event`.`status` = 'OPEN' /* 仅营业中 */"
+                },
+                "subquery_dependencies": [],
+                "is_partition_filter": false,
+                "has_partition_predicate": false
+              },
+              "comments": [
+                "仅营业中"
+              ],
+              "display_expression": "where `status` = 'open' /* 仅营业中 */"
+            },
+            {
+              "logic_block_id": "logic:ROOT:group_by:001",
+              "logic_type": "group_by",
+              "fields": [
+                {
+                  "scope": "ods.store_event",
+                  "column": "store_id",
+                  "qualifier": "s",
+                  "binding_scope_id": "ROOT",
+                  "input_ref_id": "input:ROOT:001"
+                }
+              ],
+              "input_sources": [
+                "ods.store_event"
+              ],
+              "field_usage": [
+                {
+                  "source_id": "ods.store_event",
+                  "source_type": "physical_table",
+                  "used_fields": [
+                    "store_id"
+                  ],
+                  "used_field_details": [
+                    {
+                      "name": "store_id",
+                      "type": null,
+                      "comment": null
+                    }
+                  ],
+                  "used_by_logic_blocks": [
+                    "logic:ROOT:group_by:001"
+                  ],
+                  "used_by_output_fields": [],
+                  "source_metadata": {}
+                }
+              ],
+              "expression_features": {
+                "functions": [],
+                "operators": [],
+                "has_case_when": false,
+                "has_if": false,
+                "has_cast": false,
+                "has_window": false,
+                "has_aggregate": false,
+                "has_udf": false,
+                "has_constant_mapping": false,
+                "has_partition_filter": false
+              },
+              "aggregation_detail": {
+                "group_by_items": [
+                  {
+                    "expression_sql": "`s`.`store_id`",
+                    "source_fields": [
+                      {
+                        "scope": "ods.store_event",
+                        "column": "store_id",
+                        "qualifier": "s",
+                        "binding_scope_id": "ROOT",
+                        "input_ref_id": "input:ROOT:001"
+                      }
+                    ],
+                    "expression_resolution": {
+                      "status": "resolved",
+                      "resolution_type": "qualified_expression",
+                      "physical_source_fields": [
+                        {
+                          "table": "ods.store_event",
+                          "field": "store_id"
+                        }
+                      ],
+                      "generated_sources": [],
+                      "source_kind": "physical",
+                      "missing_reasons": [],
+                      "expanded_expression": "`ods.store_event`.`store_id`"
+                    },
+                    "expanded_expression": "`ods.store_event`.`store_id`",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.store_event",
+                        "field": "store_id"
+                      }
+                    ],
+                    "trace_status": "complete"
+                  }
+                ],
+                "aggregate_items": [
+                  {
+                    "output_field": "total_amount",
+                    "aggregate_function": "sum",
+                    "expression_sql": "SUM(`s`.`amount`)",
+                    "expanded_expression": "SUM(`ods.store_event`.`amount`)",
+                    "argument_expression_sql": "`s`.`amount`",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.store_event",
+                        "field": "amount"
+                      }
+                    ],
+                    "distinct": false,
+                    "filter_expression": null,
+                    "trace_status": "complete",
+                    "expression_resolution": {
+                      "status": "resolved",
+                      "resolution_type": "qualified_expression",
+                      "physical_source_fields": [
+                        {
+                          "table": "ods.store_event",
+                          "field": "amount"
+                        }
+                      ],
+                      "generated_sources": [],
+                      "source_kind": "physical",
+                      "missing_reasons": [],
+                      "expanded_expression": "SUM(`ods.store_event`.`amount`)"
+                    },
+                    "source_fields": [
+                      {
+                        "scope": "ods.store_event",
+                        "column": "amount",
+                        "qualifier": "s",
+                        "binding_scope_id": "ROOT",
+                        "input_ref_id": "input:ROOT:001"
+                      }
+                    ]
+                  }
+                ],
+                "having": [],
+                "trace_status": "complete"
+              }
+            },
+            {
+              "logic_block_id": "logic:ROOT:aggregate:001",
+              "logic_type": "aggregate",
+              "raw_expression": "SUM(`s`.`amount`)",
+              "normalized_expression": "sum(`s`.`amount`)",
+              "fingerprint": "aggregate:sum(`s`.`amount`)",
+              "fields": [
+                {
+                  "scope": "ods.store_event",
+                  "column": "amount",
+                  "qualifier": "s",
+                  "binding_scope_id": "ROOT",
+                  "input_ref_id": "input:ROOT:001"
+                }
+              ],
+              "output_fields": [
+                "total_amount"
+              ],
+              "input_sources": [
+                "ods.store_event"
+              ],
+              "field_usage": [
+                {
+                  "source_id": "ods.store_event",
+                  "source_type": "physical_table",
+                  "used_fields": [
+                    "amount"
+                  ],
+                  "used_field_details": [
+                    {
+                      "name": "amount",
+                      "type": null,
+                      "comment": null
+                    }
+                  ],
+                  "used_by_logic_blocks": [
+                    "logic:ROOT:aggregate:001"
+                  ],
+                  "used_by_output_fields": [
+                    "total_amount"
+                  ],
+                  "source_metadata": {}
+                }
+              ],
+              "expression_features": {
+                "functions": [
+                  "sum"
+                ],
+                "operators": [],
+                "has_case_when": false,
+                "has_if": false,
+                "has_cast": false,
+                "has_window": false,
+                "has_aggregate": true,
+                "has_udf": false,
+                "has_constant_mapping": false,
+                "has_partition_filter": false
+              },
+              "final_target_columns": [
+                "mart.store_daily.total_amount"
+              ],
+              "display_expression": "sum(`amount`)"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "store_id",
+              "transform": "DIRECT",
+              "sources": [
+                {
+                  "scope": "ods.store_event",
+                  "column": "store_id",
+                  "qualifier": "s",
+                  "binding_scope_id": "ROOT",
+                  "input_ref_id": "input:ROOT:001"
+                }
+              ],
+              "source_logic_blocks": [],
+              "downstream_fields": [],
+              "target_columns": [
+                "mart.store_daily.store_id"
+              ],
+              "final_target_columns": [
+                "mart.store_daily.store_id"
+              ],
+              "expression": "`s`.`store_id`",
+              "expanded_expression": "`ods.store_event`.`store_id`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "qualified_source_projection",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.store_event",
+                    "field": "store_id"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "expanded_expression": "`ods.store_event`.`store_id`",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "ROOT",
+                    "from_field": "store_id",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`s`.`store_id`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.store_event",
+                        "field": "store_id"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "consumer_readiness": {
+                "status": "ready",
+                "blocked_reasons": []
+              },
+              "expression_type": "direct_projection",
+              "expression_features": {
+                "functions": [],
+                "operators": [],
+                "has_case_when": false,
+                "has_if": false,
+                "has_cast": false,
+                "has_window": false,
+                "has_aggregate": false,
+                "has_udf": false,
+                "has_constant_mapping": false,
+                "has_partition_filter": false
+              },
+              "expression_role": "direct_projection",
+              "grain_effect": "preserved",
+              "output_ordinal": 0,
+              "comments": [
+                "门店号"
+              ],
+              "display_expression": "`store_id`"
+            },
+            {
+              "name": "total_amount",
+              "transform": "AGGREGATE",
+              "sources": [
+                {
+                  "scope": "ods.store_event",
+                  "column": "amount",
+                  "qualifier": "s",
+                  "binding_scope_id": "ROOT",
+                  "input_ref_id": "input:ROOT:001"
+                }
+              ],
+              "source_logic_blocks": [
+                "logic:ROOT:aggregate:001"
+              ],
+              "downstream_fields": [],
+              "target_columns": [
+                "mart.store_daily.total_amount"
+              ],
+              "final_target_columns": [
+                "mart.store_daily.total_amount"
+              ],
+              "expression": "SUM(`s`.`amount`)",
+              "expanded_expression": "SUM(`ods.store_event`.`amount`)",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "qualified_expression",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.store_event",
+                    "field": "amount"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "expanded_expression": "SUM(`ods.store_event`.`amount`)",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "ROOT",
+                    "from_field": "total_amount",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "SUM(`s`.`amount`)",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.store_event",
+                        "field": "amount"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "consumer_readiness": {
+                "status": "ready",
+                "blocked_reasons": []
+              },
+              "expression_type": "aggregate_expression",
+              "expression_features": {
+                "functions": [
+                  "sum"
+                ],
+                "operators": [],
+                "has_case_when": false,
+                "has_if": false,
+                "has_cast": false,
+                "has_window": false,
+                "has_aggregate": true,
+                "has_udf": false,
+                "has_constant_mapping": false,
+                "has_partition_filter": false
+              },
+              "expression_role": "metric_calculation",
+              "grain_effect": "changed",
+              "output_ordinal": 1,
+              "comments": [
+                "金额合计（元）"
+              ],
+              "display_expression": "SUM(`amount`)"
+            }
+          ],
+          "field_usage": [
+            {
+              "source_id": "ods.store_event",
+              "source_type": "physical_table",
+              "used_fields": [
+                "status",
+                "store_id",
+                "amount"
+              ],
+              "used_field_details": [
+                {
+                  "name": "status",
+                  "type": null,
+                  "comment": null
+                },
+                {
+                  "name": "store_id",
+                  "type": null,
+                  "comment": null
+                },
+                {
+                  "name": "amount",
+                  "type": null,
+                  "comment": null
+                }
+              ],
+              "used_by_logic_blocks": [
+                "logic:ROOT:filter:001",
+                "logic:ROOT:group_by:001",
+                "logic:ROOT:aggregate:001"
+              ],
+              "used_by_output_fields": [
+                "total_amount",
+                "store_id"
+              ],
+              "source_metadata": {}
+            }
+          ],
+          "columns": [
+            {
+              "name": "store_id",
+              "transform": "DIRECT",
+              "expression": "`s`.`store_id`",
+              "sources": [
+                {
+                  "scope": "ods.store_event",
+                  "column": "store_id",
+                  "qualifier": "s",
+                  "binding_scope_id": "ROOT",
+                  "input_ref_id": "input:ROOT:001"
+                }
+              ],
+              "display_expression": "`store_id`"
+            },
+            {
+              "name": "total_amount",
+              "transform": "AGGREGATE",
+              "expression": "SUM(`s`.`amount`)",
+              "sources": [
+                {
+                  "scope": "ods.store_event",
+                  "column": "amount",
+                  "qualifier": "s",
+                  "binding_scope_id": "ROOT",
+                  "input_ref_id": "input:ROOT:001"
+                }
+              ],
+              "agg_function": "SUM",
+              "display_expression": "SUM(`amount`)"
+            }
+          ],
+          "filters": [
+            {
+              "expression": "WHERE `s`.`status` = 'OPEN' /* 仅营业中 */",
+              "columns": [
+                {
+                  "scope": "ods.store_event",
+                  "column": "status",
+                  "qualifier": "s",
+                  "binding_scope_id": "ROOT",
+                  "input_ref_id": "input:ROOT:001"
+                }
+              ]
+            }
+          ],
+          "group_by": [
+            {
+              "scope": "ods.store_event",
+              "column": "store_id",
+              "qualifier": "s",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            }
+          ]
+        }
+      },
+      "field_mapping_chains": [
+        {
+          "mapping_chain_id": "mc:001",
+          "chain_id": "chain:ROOT:store_id:position:0",
+          "chain_type": "field_mapping",
+          "target_scope_id": "ROOT",
+          "target_field": "store_id",
+          "target_position": 0,
+          "chain_status": "resolved",
+          "source_kind": "physical",
+          "root_source_fields": [
+            "ods.store_event.store_id"
+          ],
+          "final_output_fields": [
+            "mart.store_daily.store_id"
+          ],
+          "ordered_steps": [
+            {
+              "step_no": 1,
+              "scope_id": "ROOT",
+              "step_type": "direct_projection",
+              "input_fields": [
+                "ods.store_event.store_id"
+              ],
+              "output_field": "mart.store_daily.store_id",
+              "expression_sql": "`s`.`store_id`",
+              "expanded_expression": "`ods.store_event`.`store_id`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "qualified_source_projection",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.store_event",
+                    "field": "store_id"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "ROOT",
+                    "from_field": "store_id",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`s`.`store_id`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.store_event",
+                        "field": "store_id"
+                      }
+                    ]
+                  }
+                ],
+                "expanded_expression_same_as_parent": true
+              },
+              "logic_ids": [],
+              "transform": "DIRECT",
+              "grain_effect": "preserved",
+              "final_output_fields": [
+                "mart.store_daily.store_id"
+              ],
+              "target_position": 0
+            }
+          ],
+          "expanded_expression": "`ods.store_event`.`store_id`",
+          "missing_reasons": [],
+          "trace_status": "complete"
+        },
+        {
+          "mapping_chain_id": "mc:002",
+          "chain_id": "chain:ROOT:total_amount:position:1",
+          "chain_type": "field_mapping",
+          "target_scope_id": "ROOT",
+          "target_field": "total_amount",
+          "target_position": 1,
+          "chain_status": "resolved",
+          "source_kind": "physical",
+          "root_source_fields": [
+            "ods.store_event.amount"
+          ],
+          "final_output_fields": [
+            "mart.store_daily.total_amount"
+          ],
+          "ordered_steps": [
+            {
+              "step_no": 1,
+              "scope_id": "ROOT",
+              "step_type": "aggregate",
+              "input_fields": [
+                "ods.store_event.amount"
+              ],
+              "output_field": "mart.store_daily.total_amount",
+              "expression_sql": "SUM(`s`.`amount`)",
+              "expanded_expression": "SUM(`ods.store_event`.`amount`)",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "qualified_expression",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.store_event",
+                    "field": "amount"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "ROOT",
+                    "from_field": "total_amount",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "SUM(`s`.`amount`)",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.store_event",
+                        "field": "amount"
+                      }
+                    ]
+                  }
+                ],
+                "expanded_expression_same_as_parent": true
+              },
+              "logic_ids": [
+                "logic:ROOT:aggregate:001"
+              ],
+              "transform": "AGGREGATE",
+              "grain_effect": "changed",
+              "final_output_fields": [
+                "mart.store_daily.total_amount"
+              ],
+              "target_position": 1
+            }
+          ],
+          "expanded_expression": "SUM(`ods.store_event`.`amount`)",
+          "missing_reasons": [],
+          "trace_status": "complete"
+        }
+      ],
+      "scope_profile": {
+        "profile_step_count": 1,
+        "steps": [
+          {
+            "scope_id": "ROOT",
+            "name": "ROOT",
+            "kind": "root",
+            "role": "aggregate",
+            "operations": [
+              "filter",
+              "aggregate"
+            ],
+            "business_summary": "读取 ods.store_event；按过滤条件保留记录；聚合生成指标",
+            "direct_inputs": [
+              "ods.store_event"
+            ],
+            "direct_source_tables": [
+              "ods.store_event"
+            ],
+            "physical_source_tables": [
+              "ods.store_event"
+            ],
+            "output_columns": 2,
+            "logic": {
+              "joins": [],
+              "filters": [
+                "WHERE `s`.`status` = 'OPEN' /* 仅营业中 */"
+              ],
+              "aggregations": [
+                {
+                  "column": "total_amount",
+                  "expression": "SUM(`s`.`amount`)",
+                  "function": "SUM"
+                }
+              ],
+              "window_functions": [],
+              "case_when": [],
+              "key_renames": [],
+              "distinct": false,
+              "union_branches": 0,
+              "lateral_views": []
+            }
+          }
+        ]
+      },
+      "end_to_end_lineage": [
+        {
+          "column": "store_id",
+          "transform": "DIRECT",
+          "expression": "`s`.`store_id`",
+          "trace_complete": true,
+          "physical_sources": [
+            {
+              "table": "ods.store_event",
+              "column": "store_id",
+              "transform": "DIRECT"
+            }
+          ],
+          "generated_sources": [],
+          "source_kind": "physical",
+          "output_ordinal": 0
+        },
+        {
+          "column": "total_amount",
+          "transform": "AGGREGATE",
+          "expression": "SUM(`s`.`amount`)",
+          "trace_complete": true,
+          "physical_sources": [
+            {
+              "table": "ods.store_event",
+              "column": "amount",
+              "transform": "AGGREGATE"
+            }
+          ],
+          "generated_sources": [],
+          "source_kind": "physical",
+          "output_ordinal": 1
+        }
+      ],
+      "diagnostics": {
+        "fallback_used": false,
+        "warning_count": 0,
+        "warning_types": {},
+        "lineage_fact_gap_count": 0,
+        "lineage_fact_gap_types": {},
+        "lineage_fact_gap_samples": [],
+        "stats": {
+          "scope_count": 2,
+          "physical_table_count": 1,
+          "cte_count": 0,
+          "subquery_count": 0,
+          "union_count": 0,
+          "union_branch_count": 0,
+          "max_depth": 1,
+          "case_when_count": 0,
+          "window_function_count": 0,
+          "join_count": 0,
+          "aggregate_function_count": 1
+        },
+        "full_diagnostics_file": "diagnostics.json"
+      }
+    }
+  },
+  "end_to_end_lineage": [
+    {
+      "target_state": "state:mart.store_daily:001",
+      "table": "mart.store_daily",
+      "column": "store_id",
+      "value_sources": [
+        {
+          "source_kind": "prior_table_state",
+          "state_id": "state:mart.store_daily:000",
+          "table": "mart.store_daily",
+          "column": "store_id"
+        },
+        {
+          "source_kind": "physical_field",
+          "table": "ods.store_event",
+          "column": "store_id",
+          "transform": "DIRECT"
+        }
+      ],
+      "row_membership_sources": [],
+      "value_condition_sources": [],
+      "trace_complete": false,
+      "missing_reasons": [
+        "schema_missing_for_state_passthrough"
+      ]
+    },
+    {
+      "target_state": "state:mart.store_daily:001",
+      "table": "mart.store_daily",
+      "column": "total_amount",
+      "value_sources": [
+        {
+          "source_kind": "prior_table_state",
+          "state_id": "state:mart.store_daily:000",
+          "table": "mart.store_daily",
+          "column": "total_amount"
+        },
+        {
+          "source_kind": "physical_field",
+          "table": "ods.store_event",
+          "column": "amount",
+          "transform": "AGGREGATE"
+        }
+      ],
+      "row_membership_sources": [],
+      "value_condition_sources": [],
+      "trace_complete": false,
+      "missing_reasons": [
+        "schema_missing_for_state_passthrough"
+      ]
+    }
+  ],
+  "task_dependencies": {},
+  "diagnostics": {
+    "fallback_used": false,
+    "warning_count": 0,
+    "warning_types": {},
+    "lineage_fact_gap_count": 0,
+    "lineage_fact_gap_types": {},
+    "lineage_fact_gap_samples": [],
+    "stats": {
+      "statement_count": 3,
+      "modeled_statement_count": 1,
+      "ignored_statement_count": 2,
+      "failed_statement_count": 0
+    },
+    "full_diagnostics_file": "diagnostics.json"
+  }
+}

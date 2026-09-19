@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "artifact_kind": "task_semantic",
   "task_id": "golden_merge_cte_source",
-  "lineage_digest": "313ba42bf8584a89",
+  "lineage_digest": "4f8c87a0f26630bf",
   "produced_tables": [
     "mart.event_target"
   ],

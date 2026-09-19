@@ -2,6 +2,7 @@
   "schema_version": "2.0",
   "artifact_kind": "task_lineage",
   "task_id": "golden_merge_cte_source",
+  "script_comments": [],
   "parse_status": "ok",
   "syntax_status": "strict_ok",
   "syntax_errors": [],

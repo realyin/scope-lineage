@@ -1,0 +1,381 @@
+{
+  "doc_format": "semantic-json/1",
+  "artifact_kind": "task_semantic",
+  "task_id": "golden_set_preamble_task",
+  "lineage_digest": "83a7b4265e436126",
+  "produced_tables": [
+    "mart.store_daily"
+  ],
+  "warning_counts": {},
+  "statements": [
+    {
+      "doc_format": "semantic-json/1",
+      "schema_version": "1.0",
+      "statement_id": "stmt:003",
+      "lineage_digest": "07d9c54fd002714a",
+      "task": {
+        "task_name": "golden_set_preamble_task#2",
+        "target_table": "mart.store_daily",
+        "target_table_comment": null,
+        "target_table_domain": null,
+        "target_table_project": null,
+        "target_table_owner": null,
+        "stmt_kind": "INSERT_OVERWRITE",
+        "partition": {
+          "columns": [
+            "dt"
+          ],
+          "mode": "static",
+          "spec": {
+            "dt": "${bizdate}"
+          }
+        },
+        "instance_dates": [],
+        "structural_summary": "ROOT 直接读取 ods.store_event；过滤 1 处；输出 2 列。",
+        "target_metadata_source": null,
+        "header_comments": [
+          "任务：门店日销汇总（合成示例）",
+          "口径：仅统计营业中的门店，金额单位为元"
+        ],
+        "meta": null
+      },
+      "inputs": [
+        {
+          "table": "ods.store_event",
+          "comment": null,
+          "domain": null,
+          "project": null,
+          "owner": null,
+          "layer": null,
+          "role_in_task": "aggregate_source",
+          "roles": [
+            "aggregate_source"
+          ],
+          "used_columns": [
+            {
+              "name": "store_id",
+              "type": null,
+              "comment": null,
+              "usages": [
+                "group_by",
+                "output"
+              ]
+            },
+            {
+              "name": "amount",
+              "type": null,
+              "comment": null,
+              "usages": [
+                "output"
+              ]
+            },
+            {
+              "name": "status",
+              "type": null,
+              "comment": null,
+              "usages": [
+                "filter"
+              ]
+            }
+          ],
+          "metadata_complete": true,
+          "table_column_count": 3,
+          "read_by_scopes": [
+            "ROOT"
+          ]
+        }
+      ],
+      "output_shape": {
+        "shape": "aggregated",
+        "shape_evidence": [
+          "logic:ROOT:group_by:001"
+        ],
+        "grain": {
+          "keys": [
+            {
+              "scope_id": "ROOT",
+              "name": "store_id",
+              "expression": "`s`.`store_id`",
+              "physical_sources": [
+                {
+                  "table": "ods.store_event",
+                  "column": "store_id"
+                }
+              ]
+            }
+          ],
+          "basis": "group_by",
+          "via_scopes": [],
+          "confidence": "structural",
+          "evidence": [
+            "logic:ROOT:group_by:001"
+          ]
+        },
+        "candidate_keys": [
+          "store_id"
+        ],
+        "unexposed_keys": [],
+        "key_evidence": [],
+        "key_confidence": "proven",
+        "partition_columns": [
+          "dt"
+        ],
+        "fan_out_risks": [],
+        "tag": "结构推断"
+      },
+      "stages": [
+        {
+          "scope_id": "ROOT",
+          "name": "ROOT",
+          "kind": "root",
+          "role": "aggregate",
+          "direct_inputs": [
+            "ods.store_event"
+          ],
+          "direct_source_tables": [
+            "ods.store_event"
+          ],
+          "upstream_physical_tables": [
+            "ods.store_event"
+          ],
+          "actions": [
+            {
+              "type": "filter",
+              "text": "只保留 status = 'OPEN' 的记录",
+              "expression": "`s`.`status` = 'OPEN' /* 仅营业中 */",
+              "fields": [
+                {
+                  "table": "ods.store_event",
+                  "column": "status",
+                  "comment": null
+                }
+              ],
+              "sql_comments": [
+                "仅营业中"
+              ],
+              "evidence": "logic:ROOT:filter:001",
+              "tag": "SQL事实"
+            },
+            {
+              "type": "aggregate",
+              "text": "按 store_id 分组聚合：SUM(amount)",
+              "fields": [
+                {
+                  "table": "ods.store_event",
+                  "column": "store_id",
+                  "comment": null
+                },
+                {
+                  "table": "ods.store_event",
+                  "column": "amount",
+                  "comment": null
+                }
+              ],
+              "evidence": "logic:ROOT:group_by:001",
+              "tag": "SQL事实"
+            }
+          ],
+          "outputs": [
+            "store_id",
+            "total_amount"
+          ],
+          "output_count": 2,
+          "pattern_signature": "role=aggregate|kind=root|inputs=tables:1,scopes:0,union:no|blocks=aggregate=1,filter=1,group_by=1|derive=0|window=|agg=sum"
+        }
+      ],
+      "rules": [
+        {
+          "rule_id": "rule:001",
+          "kind": "filter",
+          "scope_id": "ROOT",
+          "expression": "`s`.`status` = 'OPEN' /* 仅营业中 */",
+          "is_partition_filter": false,
+          "fields": [
+            {
+              "table": "ods.store_event",
+              "column": "status",
+              "comment": null
+            }
+          ],
+          "scope_fields": [],
+          "sql_comments": [
+            "仅营业中"
+          ],
+          "evidence": "logic:ROOT:filter:001",
+          "tag": "SQL事实"
+        }
+      ],
+      "fields": [
+        {
+          "column": "store_id",
+          "column_label": "mart.store_daily.store_id",
+          "summary": "（注释未知）：直接取自 ods.store_event.store_id（注释未知）；注释：门店号",
+          "target_comment": null,
+          "sql_comments": [
+            "门店号"
+          ],
+          "type": null,
+          "transform": "DIRECT",
+          "structural_role": "candidate_key",
+          "sources": [
+            {
+              "table": "ods.store_event",
+              "column": "store_id",
+              "comment": null,
+              "transform": "DIRECT"
+            }
+          ],
+          "generated_sources": [],
+          "derivation": [
+            {
+              "step_no": 1,
+              "scope_id": "ROOT",
+              "step_type": "direct_projection",
+              "grain": "preserved",
+              "text": "直接投影自 ods.store_event.store_id",
+              "expression": "`s`.`store_id`"
+            }
+          ],
+          "expression": "`s`.`store_id`",
+          "trace_complete": true,
+          "ambiguous": false,
+          "mapping_chain_id": "mc:001",
+          "tag": "SQL事实"
+        },
+        {
+          "column": "total_amount",
+          "column_label": "mart.store_daily.total_amount",
+          "summary": "（注释未知）：按 store_id 聚合：SUM(amount)；来源 ods.store_event.amount（注释未知）；注释：金额合计（元）",
+          "target_comment": null,
+          "sql_comments": [
+            "金额合计（元）"
+          ],
+          "type": null,
+          "transform": "AGGREGATE",
+          "structural_role": "measure",
+          "metric_spec": {
+            "subject": {
+              "scope_id": "ROOT",
+              "tables": [
+                "ods.store_event"
+              ],
+              "text": "ods.store_event 的记录"
+            },
+            "time_range": [],
+            "inclusion": [
+              {
+                "expression": "status = 'OPEN'",
+                "text": "只保留 status = 'OPEN' 的记录",
+                "scope_id": "ROOT",
+                "where": "filter",
+                "path": "grain"
+              }
+            ],
+            "aggregation": {
+              "function": "SUM",
+              "argument": "amount",
+              "argument_comment": null,
+              "group_keys": [
+                {
+                  "name": "store_id",
+                  "target_column": "store_id"
+                }
+              ],
+              "text": "按 store_id 汇总 SUM(amount)"
+            },
+            "unit": {
+              "type": null,
+              "hint": null,
+              "hint_source": null
+            },
+            "null_handling": {
+              "nullable_by_join": false,
+              "default": null,
+              "default_source": null
+            },
+            "refresh": null,
+            "post_aggregation": [],
+            "evidence": [
+              "logic:ROOT:aggregate:001",
+              "logic:ROOT:group_by:001",
+              "logic:ROOT:filter:001",
+              "mc:002"
+            ]
+          },
+          "sources": [
+            {
+              "table": "ods.store_event",
+              "column": "amount",
+              "comment": null,
+              "transform": "AGGREGATE"
+            }
+          ],
+          "generated_sources": [],
+          "derivation": [
+            {
+              "step_no": 1,
+              "scope_id": "ROOT",
+              "step_type": "aggregate",
+              "grain": "changed",
+              "text": "按 store_id 聚合：SUM(amount)",
+              "expression": "SUM(`s`.`amount`)"
+            }
+          ],
+          "expression": "SUM(`s`.`amount`)",
+          "trace_complete": true,
+          "ambiguous": false,
+          "mapping_chain_id": "mc:002",
+          "tag": "SQL事实"
+        }
+      ],
+      "confidence": {
+        "metadata_coverage": {
+          "input_tables_complete": 1,
+          "input_tables_total": 1,
+          "target_comments_available": false,
+          "target_metadata_source": null,
+          "sql_comment_counts": {
+            "header": 2,
+            "output": 2,
+            "logic": 1
+          }
+        },
+        "confirmations": {
+          "values_confirmed": 0,
+          "rule_values_confirmed": 0,
+          "terms_confirmed": 0,
+          "columns_patched": 0,
+          "tables_patched": 0
+        },
+        "trace_incomplete_fields": [],
+        "ambiguous_fields": [],
+        "diagnostics_available": true,
+        "fact_gap_count": 0,
+        "fact_gap_types": {},
+        "warning_counts": {},
+        "findings": [
+          {
+            "kind": "target_binding",
+            "severity": "warn",
+            "text": "未做目标列绑定（target_binding_absent_reason=metadata_not_provided）",
+            "evidence": []
+          },
+          {
+            "kind": "table_comment_missing",
+            "severity": "info",
+            "text": "缺少表注释的表（2 张）：ods.store_event、mart.store_daily",
+            "evidence": []
+          }
+        ],
+        "inferred_items": {
+          "fields[].structural_role": 2,
+          "output_shape.shape": 1,
+          "output_shape.grain": 1,
+          "output_shape.candidate_keys": 1,
+          "output_shape.unexposed_keys": 1,
+          "output_shape.key_confidence": 1
+        }
+      }
+    }
+  ]
+}

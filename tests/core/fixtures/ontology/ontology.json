@@ -5,7 +5,7 @@
     "task_count": 5,
     "lineage_digests": {
       "golden_commented_insert": "a631091cb58fc88a",
-      "golden_commented_task": "96bd2e7f84fb1ffc",
+      "golden_commented_task": "0e062578497c15f3",
       "golden_directory_target": "c067a3d853c88d59",
       "golden_grouped_dedup_join": "4e323ab37f990b59",
       "golden_simple_insert": "ee7246d6cfdfe5e6"

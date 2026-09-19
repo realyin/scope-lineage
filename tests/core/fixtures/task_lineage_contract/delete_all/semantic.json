@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "artifact_kind": "task_semantic",
   "task_id": "golden_delete_all",
-  "lineage_digest": "7e1aba73d3bbcb91",
+  "lineage_digest": "eb3aa04cbccdcee8",
   "produced_tables": [
     "mart.target"
   ],
