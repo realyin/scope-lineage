@@ -1,6 +1,22 @@
 # Changelog
 
 ## Unreleased
+- A confirmed code now reaches the line it is written on. A warehouse keeps most of its
+  business codes in `WHERE queue_code IN ('01','07')`, in a join's extra condition and in
+  a CASE's condition, while `fields[].value_domain` hangs off an output column -- so a
+  corpus could confirm seventeen codes and the task's document would explain four fields.
+  `describe --glossary` now also fills `rules[].value_meanings[]`: every code a rule pins
+  a column to, attributed exactly as the dictionary attributes it (a table name only where
+  one rule field carries it, a scope-level reference otherwise, and a scope-level
+  reference only against entries this very task observed), `meaning` null while nobody has
+  answered. `semantic.md` gains a 取值含义 column in the rule table, and a restated filter
+  or join ends in `（取值：'01'＝人工队列）`. A human-confirmed term travels too:
+  `inputs[].used_columns[].term_meaning` beside the column's own comment, and
+  `fields[].term_meaning` only where the field has no target comment -- with its own
+  `- 术语：` line, because a term is not a comment and never fills that slot.
+  `metadata_coverage.glossary` now counts both halves and their deduped union
+  (`values_total` / `rule_values_total` / `field_values_total`), and
+  `confirmations.rule_values_confirmed` counts the rule layer apart from the field layer.
 - A constant the SQL projects into one column is no longer published as a value of a
   column that merely reads it. A metric's chain legitimately contains the UNION branch
   step that writes `'contract' AS data_source` -- it is how the `SUM(CASE WHEN

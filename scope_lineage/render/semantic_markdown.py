@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import re
+from types import MappingProxyType
 from typing import Iterable, Mapping, Sequence
 
 from .markdown_text import cell as _cell
@@ -132,6 +133,31 @@ _SINGLE_BRANCH_UNION_TEXT = "合并 1 个分支"
 # and how many varying literals the folded row spells out before it counts them.
 RULE_FAMILY_FOLD_MINIMUM = 3
 RULE_FAMILY_VALUE_LIMIT = 6
+
+# WI-2.12. What the dictionary says the codes in a condition mean. The column and the
+# action suffix exist only when a corpus glossary answered something: an empty one would
+# add a column of em dashes to every document that never asked for a dictionary.
+# Read-only stand-in for "this document has no dictionary", so the renderers can take a
+# lookup without a mutable default.
+_NO_RULE_VALUES: Mapping = MappingProxyType({})
+
+RULE_VALUE_COLUMN_TITLE = "取值含义"
+RULE_VALUE_EQUALS = "＝"
+ACTION_VALUE_PREFIX = "（取值："
+ACTION_VALUE_SUFFIX = "）"
+ACTION_VALUE_SEPARATOR = "；"
+# Three fits at the end of a restatement line; past that the line would bury the action
+# it is annotating, and section 4 lists every one of them anyway.
+ACTION_VALUE_LIMIT = 3
+ACTION_VALUE_OVERFLOW = "等 {count} 个，见规则表"
+_VALUE_ANNOTATED_ACTIONS = frozenset({"filter", "having", "join"})
+
+# WI-2.12. The corpus's meaning for this column NAME, printed only where the target table
+# carries no comment of its own. Its own line and its own label: a term is what the
+# warehouse calls this column elsewhere, not the comment this table is missing.
+TERM_MEANING_PREFIX = "- 术语："
+TERM_MEANING_COLUMN_TITLE = "术语"
+CONFIRMED_MARK = "✓"
 
 _NUMBER_LITERAL = re.compile(r"\d+")
 
@@ -785,14 +811,41 @@ def _render_stages(profile: dict) -> list[str]:
     stages = profile.get("stages") or []
     if not stages:
         return ["", "- 本语句没有可展开的加工阶段。（SQL事实）"]
+    values = _rule_value_lookup(profile)
     if len(stages) <= STAGE_FOLD_THRESHOLD:
         lines = ["", f"共 {len(stages)} 个阶段，按拓扑序逐个展开。"]
         for index, stage in enumerate(stages, start=1):
             lines.extend(
-                _render_stage(stage, index, previous=stages[index - 2] if index > 1 else None)
+                _render_stage(
+                    stage,
+                    index,
+                    previous=stages[index - 2] if index > 1 else None,
+                    values=values,
+                )
             )
         return lines
-    return _render_folded_stages(stages)
+    return _render_folded_stages(stages, values)
+
+
+def _rule_value_lookup(profile: Mapping) -> dict[tuple, list]:
+    """``(evidence, expression) -> value meanings``: the rule behind one restated action.
+
+    WI-2.12. A stage action and the rule it came from are two views of one logic block,
+    and the block id alone does not separate the conjuncts a WHERE was split into -- so
+    the condition text joins the key. Without it, "过滤 A" would show the codes of "过滤 B".
+    """
+    lookup: dict[tuple, list] = {}
+    for statement in profile.get("statements") or [profile]:
+        for rule in statement.get("rules") or []:
+            meanings = [
+                item
+                for item in _glossary_values.rule_value_meanings(rule)
+                if item.get("meaning")
+            ]
+            if meanings:
+                key = (str(rule.get("evidence")), str(rule.get("expression")))
+                lookup.setdefault(key, []).extend(meanings)
+    return lookup
 
 
 def _fold_key(stage: dict):
@@ -802,7 +855,7 @@ def _fold_key(stage: dict):
     return ("signature", str(stage.get("pattern_signature")))
 
 
-def _render_folded_stages(stages: Sequence[dict]) -> list[str]:
+def _render_folded_stages(stages: Sequence[dict], values: Mapping = _NO_RULE_VALUES) -> list[str]:
     groups: dict = {}
     for index, stage in enumerate(stages, start=1):
         groups.setdefault(_fold_key(stage), []).append((index, stage))
@@ -820,13 +873,13 @@ def _render_folded_stages(stages: Sequence[dict]) -> list[str]:
         emitted.add(key)
         members = groups[key]
         if len(members) >= 2:
-            lines.extend(_render_folded_group(members))
+            lines.extend(_render_folded_group(members, values))
         else:
-            lines.extend(_render_stage(stage, index))
+            lines.extend(_render_stage(stage, index, values=values))
     return lines
 
 
-def _render_folded_group(members: Sequence[tuple]) -> list[str]:
+def _render_folded_group(members: Sequence[tuple], values: Mapping = _NO_RULE_VALUES) -> list[str]:
     """One table for a family of same-shaped stages, keyed by their topological number.
 
     WI-1g item E2: the heading used to say "阶段 2 等 3 个同模式阶段" and the table gave
@@ -863,7 +916,8 @@ def _render_folded_group(members: Sequence[tuple]) -> list[str]:
             )
             + " |"
         )
-    lines.extend(_render_stage(members[0][1], members[0][0], heading_level="####"))
+    first, number = members[0][1], members[0][0]
+    lines.extend(_render_stage(first, number, heading_level="####", values=values))
     return lines
 
 
@@ -873,6 +927,7 @@ def _render_stage(
     *,
     heading_level: str = "###",
     previous: dict | None = None,
+    values: Mapping = _NO_RULE_VALUES,
 ) -> list[str]:
     scope_id = stage.get("scope_id")
     lines = [
@@ -897,7 +952,7 @@ def _render_stage(
                 TAG_SQL,
             )
         )
-    lines.extend(_render_stage_actions(stage.get("actions") or []))
+    lines.extend(_render_stage_actions(stage.get("actions") or [], values))
     lines.append(_outputs_line(stage))
     return lines
 
@@ -923,7 +978,7 @@ def _upstream_is_redundant(stage: dict, previous: dict | None) -> bool:
     }
 
 
-def _render_stage_actions(actions: Sequence[dict]) -> list[str]:
+def _render_stage_actions(actions: Sequence[dict], values: Mapping = _NO_RULE_VALUES) -> list[str]:
     if not actions:
         return ["- 动作：无（该 scope 只做投影）。（SQL事实）"]
     lines = ["- 动作："]
@@ -938,7 +993,7 @@ def _render_stage_actions(actions: Sequence[dict]) -> list[str]:
         lines.append(
             "  "
             + _tagged(
-                _action_body(action),
+                _action_body(action, values),
                 str(action.get("tag") or TAG_SQL),
                 [action.get("evidence"), action.get("consumed_by")],
             )
@@ -946,7 +1001,7 @@ def _render_stage_actions(actions: Sequence[dict]) -> list[str]:
     return lines
 
 
-def _action_body(action: dict) -> str:
+def _action_body(action: dict, values: Mapping = _NO_RULE_VALUES) -> str:
     kind = str(action.get("type"))
     label = _ACTION_LABELS.get(kind, kind)
     if action.get("intent"):
@@ -959,7 +1014,30 @@ def _action_body(action: dict) -> str:
         if text
         else _expr_span(action.get("expression") or "")
     )
-    return f"- {label}：{body}{_comment_suffix(action.get('sql_comments'))}"
+    return (
+        f"- {label}：{body}{_action_value_suffix(action, values)}"
+        f"{_comment_suffix(action.get('sql_comments'))}"
+    )
+
+
+def _action_value_suffix(action: Mapping, values: Mapping) -> str:
+    """``（取值：'01'＝人工队列）`` on the restatement of a condition that pins codes.
+
+    WI-2.12. The restatement is where a reader learns what the stage does, and "只保留
+    queue_code 为 '01' 的行" is a sentence nobody can act on until somebody says what
+    '01' is. Only the answered codes are printed, and only for the actions that compare
+    a column against one.
+    """
+    if str(action.get("type")) not in _VALUE_ANNOTATED_ACTIONS:
+        return ""
+    items = values.get((str(action.get("evidence")), str(action.get("expression")))) or []
+    if not items:
+        return ""
+    shown = [_rule_value_text(item) for item in items[:ACTION_VALUE_LIMIT]]
+    if len(items) > ACTION_VALUE_LIMIT:
+        shown.append(ACTION_VALUE_OVERFLOW.format(count=len(items)))
+    body = _normalize_inline(ACTION_VALUE_SEPARATOR.join(shown))
+    return f"{ACTION_VALUE_PREFIX}{body}{ACTION_VALUE_SUFFIX}"
 
 
 def _comment_suffix(comments) -> str:
@@ -1008,37 +1086,90 @@ def _render_rules(profile: dict) -> list[str]:
     rules = profile.get("rules") or []
     if not rules:
         return ["", "- 本语句没有过滤、连接或 CASE 规则。（SQL事实）"]
-    counts: dict[str, int] = {}
-    for rule in rules:
-        counts[str(rule.get("kind"))] = counts.get(str(rule.get("kind")), 0) + 1
-    summary = "、".join(
-        f"{_RULE_KIND_LABELS.get(kind, kind)} {counts[kind]} 条" for kind in sorted(counts)
-    )
+    summary = _rule_kind_summary(rules)
     families = _rule_families(rules)
     folded = {
         rule["rule_id"]: family
         for family in families
         for rule in family[1:]
     }
-    rows = []
-    for rule in rules:
-        if rule.get("rule_id") in folded:
-            continue
-        family = next((item for item in families if item[0] is rule), None)
-        rows.append(_rule_family_row(family) if family else _rule_row(rule))
+    valued = _rules_carry_a_meaning(rules)
+    rows = _rule_rows(rules, families, folded, valued)
     note = (
         f"；其中 {len(families)} 组同构规则已折叠（semantic.json 不折叠）"
         if families
         else ""
     )
+    values_column = f" {RULE_VALUE_COLUMN_TITLE} |" if valued else ""
     return [
         "",
         f"共 {len(rules)} 条规则（{summary}）{note}；条件为 SQL 原文，字段注释为元数据事实。",
         "",
-        "| 规则 | 类型 | 阶段 | 条件 | 涉及字段（注释） | SQL注释 | 分区过滤 | 证据 |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| 规则 | 类型 | 阶段 | 条件 |"
+        + values_column
+        + " 涉及字段（注释） | SQL注释 | 分区过滤 | 证据 |",
+        "| --- | --- | --- | --- |"
+        + (" --- |" if valued else "")
+        + " --- | --- | --- | --- |",
         *rows,
     ]
+
+
+def _rules_carry_a_meaning(rules: Sequence[Mapping]) -> bool:
+    """WI-2.12: the 取值含义 column exists once the dictionary has ANSWERED something.
+
+    A glossary that merely recognises the codes would add a column of em dashes to every
+    rule table in the corpus, which tells a reader nothing they did not already know.
+    """
+    return any(
+        item.get("meaning")
+        for rule in rules
+        for item in _glossary_values.rule_value_meanings(rule)
+    )
+
+
+def _rule_rows(
+    rules: Sequence[dict], families: Sequence[Sequence[dict]], folded: Mapping, valued: bool
+) -> list[str]:
+    """One row per rule, except that a folded family answers with a single row."""
+    rows = []
+    for rule in rules:
+        if rule.get("rule_id") in folded:
+            continue
+        family = next((item for item in families if item[0] is rule), None)
+        rows.append(
+            _rule_family_row(family, valued) if family else _rule_row(rule, valued)
+        )
+    return rows
+
+
+def _rule_kind_summary(rules: Sequence[Mapping]) -> str:
+    """``过滤 6 条、连接条件 2 条`` -- the table's own census, in a stable order."""
+    counts: dict[str, int] = {}
+    for rule in rules:
+        counts[str(rule.get("kind"))] = counts.get(str(rule.get("kind")), 0) + 1
+    return "、".join(
+        f"{_RULE_KIND_LABELS.get(kind, kind)} {counts[kind]} 条" for kind in sorted(counts)
+    )
+
+
+def _rule_value_cell(rules: Sequence[Mapping]) -> str:
+    """``'01'＝人工队列；'07'＝? 自动队列`` -- only the codes somebody has answered."""
+    texts = _dedupe_text(
+        _rule_value_text(item)
+        for rule in rules
+        for item in _glossary_values.rule_value_meanings(rule)
+        if item.get("meaning")
+    )
+    return _normalize_inline("；".join(texts)) or "—"
+
+
+def _rule_value_text(item: Mapping) -> str:
+    """One code and its meaning, candidates marked exactly as ``- 取值：`` marks them."""
+    return (
+        f"{_glossary_values.displayed_value(item)}{RULE_VALUE_EQUALS}"
+        f"{_glossary_values.meaning_text(item.get('meaning'))}"
+    )
 
 
 def _rule_families(rules: Sequence[dict]) -> list[list[dict]]:
@@ -1064,7 +1195,7 @@ def _rule_families(rules: Sequence[dict]) -> list[list[dict]]:
     return [grouped[key] for key in order if len(grouped[key]) >= RULE_FAMILY_FOLD_MINIMUM]
 
 
-def _rule_family_row(family: Sequence[dict]) -> str:
+def _rule_family_row(family: Sequence[dict], valued: bool = False) -> str:
     kind = str(family[0].get("kind"))
     partitions = {rule.get("is_partition_filter") for rule in family}
     partition = partitions.pop() if len(partitions) == 1 else None
@@ -1077,6 +1208,7 @@ def _rule_family_row(family: Sequence[dict]) -> str:
                 _cell(f"{_RULE_KIND_LABELS.get(kind, kind)}（{kind}）"),
                 _cell(_span(family[0].get("scope_id"))),
                 _cell(_rule_family_condition(family)),
+                *([_cell(_rule_value_cell(family))] if valued else []),
                 _cell(_truncate("、".join(notes), ACTION_SUMMARY_LIMIT) or "—"),
                 _cell(
                     _rule_comment_text(
@@ -1118,7 +1250,7 @@ def _dedupe_text(values: Iterable[str]) -> list[str]:
     return unique_ordered(values)
 
 
-def _rule_row(rule: dict) -> str:
+def _rule_row(rule: dict, valued: bool = False) -> str:
     kind = str(rule.get("kind"))
     partition = rule.get("is_partition_filter")
     return (
@@ -1129,6 +1261,7 @@ def _rule_row(rule: dict) -> str:
                 _cell(f"{_RULE_KIND_LABELS.get(kind, kind)}（{kind}）"),
                 _cell(_span(rule.get("scope_id"))),
                 _cell(_rule_condition(rule)),
+                *([_cell(_rule_value_cell([rule]))] if valued else []),
                 _cell(_rule_fields_text(rule)),
                 _cell(_rule_comment_text(rule)),
                 _cell("是" if partition else ("否" if partition is False else "—")),
@@ -1223,6 +1356,7 @@ def _render_field(field: dict) -> list[str]:
             f"- 目标注释：{_comment(comment, field.get('target_comment_source'))}",
             TAG_METADATA,
         ),
+        *_term_meaning_lines(field),
         _tagged(f"- 类型：{field.get('type') or '未知'}", TAG_METADATA),
         _tagged(f"- 来源：{_sources_text(field)}", _sources_tag(field)),
         _tagged(
@@ -1238,6 +1372,26 @@ def _render_field(field: dict) -> list[str]:
     )
     lines.append(_trace_line(field))
     return lines
+
+
+def _term_meaning_lines(field: Mapping) -> list[str]:
+    """``- 术语：支付状态（人工确认）`` -- the corpus's meaning for this column NAME.
+
+    WI-2.12. Present only where ``目标注释`` is empty, and never folded into that line: a
+    term is what the warehouse calls this name elsewhere, confirmed by a person, while
+    the line above it reports what THIS table's metadata says. Merging the two would
+    publish a comment the catalog does not have.
+    """
+    text = (field.get("term_meaning") or {}).get("text")
+    if not text:
+        return []
+    return [
+        _tagged(
+            f"{TERM_MEANING_PREFIX}{_normalize_inline(str(text))}"
+            f"{PATCHED_COMMENT_SUFFIX}",
+            TAG_METADATA,
+        )
+    ]
 
 
 def _value_domain_lines(field: dict) -> list[str]:
@@ -1406,12 +1560,20 @@ def _trace_line(field: dict) -> str:
 
 
 def _render_field_table(fields: Sequence[dict]) -> list[str]:
+    # WI-2.12: the 术语 column exists only where the corpus answered a column this table
+    # has no comment for -- otherwise it would be a column of em dashes.
+    termed = any(field.get("term_meaning") for field in fields)
+    head = "| # | 字段 | 一句话语义 |"
+    ruler = "| --- | --- | --- |"
+    if termed:
+        head += f" {TERM_MEANING_COLUMN_TITLE} |"
+        ruler += " --- |"
     lines = [
         "",
         "### 完整字段清单",
         "",
-        "| # | 字段 | 一句话语义 | 结构角色 | 口径 | 追溯 |",
-        "| --- | --- | --- | --- | --- | --- |",
+        head + " 结构角色 | 口径 | 追溯 |",
+        ruler + " --- | --- | --- |",
     ]
     for index, field in enumerate(fields, start=1):
         traced = "✓" if field.get("trace_complete") and not field.get("ambiguous") else WARN
@@ -1422,6 +1584,7 @@ def _render_field_table(fields: Sequence[dict]) -> list[str]:
                     str(index),
                     _cell(_span(field.get("column_label"))),
                     _cell(str(field.get("summary") or "—")),
+                    *([_cell(_term_meaning_cell(field))] if termed else []),
                     _cell(str(field.get("structural_role") or "未知")),
                     _cell(_metric_cell(field)),
                     traced,
@@ -1430,6 +1593,14 @@ def _render_field_table(fields: Sequence[dict]) -> list[str]:
             + " |"
         )
     return lines
+
+
+def _term_meaning_cell(field: Mapping) -> str:
+    """The term standing in for a missing target comment, ticked as human-confirmed."""
+    text = (field.get("term_meaning") or {}).get("text")
+    if not text:
+        return "—"
+    return f"{_normalize_inline(str(text))} {CONFIRMED_MARK}"
 
 
 # ------------------------------------------------------------- 5b. 指标口径卡 (WI-2.1)

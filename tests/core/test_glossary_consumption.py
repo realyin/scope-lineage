@@ -85,6 +85,12 @@ def test_a_field_carries_its_own_statements_values_without_any_glossary() -> Non
         "values_total": 1,
         "confirmed": 0,
         "candidate": 0,
+        # WI-2.12: the rule half is zero because nothing in the dictionary answers the
+        # `'PAID'` this WHERE pins -- there is no dictionary at all here.
+        "rule_values_total": 0,
+        "rule_values_confirmed": 0,
+        "field_values_total": 1,
+        "field_values_confirmed": 0,
     }
 
 
@@ -140,9 +146,16 @@ def test_a_confirmed_override_reaches_the_field_and_its_summary() -> None:
     assert field["value_domain"][0]["meaning"] == {"text": "已支付", "status": "confirmed"}
     assert field["summary"].endswith("；取值：'PAID'（已支付）")
     assert profile["confidence"]["metadata_coverage"]["glossary"] == {
+        # WI-2.12: one code, counted once. `pay_status` is pinned to `'PAID'` by the
+        # WHERE and carries it into the output column of the same name -- that is one
+        # business question, not two, so the union总数 stays 1 while both halves say 1.
         "values_total": 1,
         "confirmed": 1,
         "candidate": 0,
+        "rule_values_total": 1,
+        "rule_values_confirmed": 1,
+        "field_values_total": 1,
+        "field_values_confirmed": 1,
     }
 
 
@@ -498,6 +511,9 @@ def test_confirmations_count_the_values_and_terms_a_human_confirmed() -> None:
 
     assert profile["confidence"]["confirmations"] == {
         "values_confirmed": 1,
+        # WI-2.12: the same `'PAID'`, counted where the WHERE pins it as well as where
+        # the field carries it -- two questions a reader asks in two different places.
+        "rule_values_confirmed": 1,
         "terms_confirmed": 1,
         "columns_patched": 0,
         "tables_patched": 0,
@@ -527,6 +543,7 @@ def test_without_a_glossary_the_confirmation_counts_stay_zero() -> None:
 
     assert profile["confidence"]["confirmations"] == {
         "values_confirmed": 0,
+        "rule_values_confirmed": 0,
         "terms_confirmed": 0,
         "columns_patched": 0,
         "tables_patched": 0,

@@ -566,11 +566,16 @@
       "glossary": {
         "values_total": 2,
         "confirmed": 0,
-        "candidate": 0
+        "candidate": 0,
+        "rule_values_total": 0,
+        "rule_values_confirmed": 0,
+        "field_values_total": 2,
+        "field_values_confirmed": 0
       }
     },
     "confirmations": {
       "values_confirmed": 0,
+      "rule_values_confirmed": 0,
       "terms_confirmed": 0,
       "columns_patched": 0,
       "tables_patched": 0

@@ -51,6 +51,9 @@ MEANING_SOURCE_OVERRIDE = "override"
 
 TASK_SCHEMA_VERSION = "2.0"
 
+# WI-2.12: where a confirmed corpus term lands on the describe side.
+TERM_MEANING_KEY = "term_meaning"
+
 GLOSSARY_KEYS = (
     "doc_format",
     "corpus",
@@ -337,33 +340,91 @@ def apply_glossary(profile: dict, glossary: Mapping | None) -> dict:
     if not glossary:
         return profile
     entries = glossary.get("values") or []
-    confirmed_terms = _confirmed_term_columns(glossary)
+    terms = _confirmed_term_meanings(glossary)
+    task = str(profile.get("task_id") or "")
     for statement in profile.get("statements") or [profile]:
-        fields = statement.get("fields") or []
-        glossary_values.apply_value_domains(
-            fields, entries, (statement.get("task") or {}).get("target_table")
-        )
-        coverage = glossary_values.glossary_coverage(fields)
-        confidence = statement.get("confidence") or {}
-        if confidence.get("metadata_coverage") is not None:
-            confidence["metadata_coverage"]["glossary"] = coverage
-        # WI-2.6: the two halves of "what has been answered" that only the corpus
-        # dictionary knows. The patched halves are already counted from the document.
-        if confidence.get("confirmations") is not None:
-            confidence["confirmations"]["values_confirmed"] = coverage["confirmed"]
-            confidence["confirmations"]["terms_confirmed"] = _term_confirmations(
-                statement, confirmed_terms
-            )
+        _apply_statement_glossary(statement, entries, terms, task)
     return profile
+
+
+def _apply_statement_glossary(
+    statement: dict, entries: Sequence[Mapping], terms: Mapping, task: str
+) -> None:
+    """One statement's three consumers of the dictionary: fields, rules and terms."""
+    fields = statement.get("fields") or []
+    rules = statement.get("rules") or []
+    task_block = statement.get("task") or {}
+    glossary_values.apply_value_domains(fields, entries, task_block.get("target_table"))
+    # WI-2.12. A 1.0 statement profile names its task only inside `task.task_name`; a 2.0
+    # task profile carries the id the observations were filed under at the top.
+    glossary_values.apply_rule_value_meanings(
+        rules, entries, task or str(task_block.get("task_name") or "")
+    )
+    _apply_term_meanings(statement, terms)
+    _record_confirmations(statement, fields, rules, terms)
+
+
+def _record_confirmations(
+    statement: dict, fields: Sequence[Mapping], rules: Sequence[Mapping], terms: Mapping
+) -> None:
+    """WI-2.6 / WI-2.12: the halves of "what has been answered" only the corpus knows."""
+    coverage = glossary_values.glossary_coverage(fields, rules)
+    confidence = statement.get("confidence") or {}
+    if confidence.get("metadata_coverage") is not None:
+        confidence["metadata_coverage"]["glossary"] = coverage
+    if confidence.get("confirmations") is None:
+        return
+    confirmations = confidence["confirmations"]
+    # `values_confirmed` stays the FIELD half it has always been; the rule half is its
+    # own count rather than folded in, because they are answered by different questions.
+    confirmations["values_confirmed"] = coverage["field_values_confirmed"]
+    confirmations["rule_values_confirmed"] = coverage["rule_values_confirmed"]
+    confirmations["terms_confirmed"] = _term_confirmations(statement, set(terms))
+
+
+def _apply_term_meanings(statement: dict, terms: Mapping) -> None:
+    """Carry a confirmed COLUMN meaning to the two places a reader looks for one.
+
+    WI-2.12. A term is not a comment: it is what the corpus calls this column name, and
+    the warehouse may never have written a comment for this particular table. So an
+    input column carries it beside its own comment, and a target field carries it only
+    where ``target_comment`` is empty -- filling that slot would publish a comment the
+    metadata does not have, which is the one thing this layer must never do.
+    """
+    for item in statement.get("inputs") or []:
+        for column in item.get("used_columns") or []:
+            meaning = terms.get(str(column.get("name")))
+            glossary_values.splice_before(column, "usages", TERM_MEANING_KEY, meaning)
+    for field in statement.get("fields") or []:
+        meaning = (
+            None if field.get("target_comment") else terms.get(str(field.get("column")))
+        )
+        glossary_values.splice_before(
+            field, ("sql_comments", "type"), TERM_MEANING_KEY, meaning
+        )
+
+
+def _confirmed_term_meanings(glossary: Mapping) -> dict[str, dict]:
+    """``column -> {text, status}`` for every term a human has confirmed, corpus-wide.
+
+    The same two-key shape ``value_domain[].meaning`` publishes, so a consumer reads one
+    shape wherever a meaning appears. Only ``confirmed`` is carried: a term has no
+    candidate half -- a column comment IS the comment, and this layer only republishes
+    what somebody signed.
+    """
+    return {
+        str(term.get("column")): {
+            "text": str((term.get("meaning") or {}).get("text") or ""),
+            "status": glossary_values.MEANING_STATUS_CONFIRMED,
+        }
+        for term in glossary.get("terms") or []
+        if (term.get("meaning") or {}).get("text")
+    }
 
 
 def _confirmed_term_columns(glossary: Mapping) -> set:
     """Column names a human has confirmed a meaning for, corpus-wide."""
-    return {
-        str(term.get("column"))
-        for term in glossary.get("terms") or []
-        if (term.get("meaning") or {}).get("text")
-    }
+    return set(_confirmed_term_meanings(glossary))
 
 
 def _term_confirmations(statement: Mapping, confirmed: set) -> int:

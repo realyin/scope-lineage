@@ -27,7 +27,7 @@ calls *it* (to give every field its ``value_domain``), and the corpus-level aggr
 from __future__ import annotations
 
 import re
-from typing import Mapping, Sequence
+from typing import Iterable, Mapping, Sequence
 
 from sqlglot import exp
 
@@ -835,6 +835,18 @@ MEANING_STATUS_CANDIDATE = "candidate"
 
 VALUE_DOMAIN_KEY = "value_domain"
 
+# WI-2.12. The rule half of the same dictionary. A warehouse's business codes live mostly
+# in its WHERE and ON clauses -- `queue_code IN ('01','07')` decides which rows a task is
+# about -- and a `value_domain` hangs off an OUTPUT column, so a confirmed meaning could
+# not reach the one place it explains the most. This key carries it to the rule.
+RULE_VALUE_MEANINGS_KEY = "value_meanings"
+
+# Where a rule's constant is a code somebody can define. A LIKE / RLIKE shape is not one
+# (WI-2.4b), and a JOIN key names another column's value rather than a constant.
+RULE_VALUE_CONTEXTS = frozenset(
+    {CONTEXT_FILTER_EQ, CONTEXT_FILTER_IN, CONTEXT_FILTER_NEQ, CONTEXT_CASE_CONDITION}
+)
+
 # What the markdown writes when nobody has said what a value means yet. The same three
 # states the glossary's own table uses, so a reader moving between the two documents
 # does not have to learn a second vocabulary.
@@ -982,23 +994,31 @@ def apply_value_domains(
 
 
 def _set_domain(field: dict, domain: Sequence[dict]) -> None:
-    """Write ``value_domain`` in front of ``sources``, keeping every other key in place.
+    """Write ``value_domain`` in front of ``sources``, keeping every other key in place."""
+    splice_before(field, "sources", VALUE_DOMAIN_KEY, list(domain) if domain else None)
 
-    The key order is part of ``semantic-json/1`` and this runs after the field dict was
-    assembled, so the entry is spliced in rather than appended -- and rather than this
-    module having to know the profile's whole key order.
+
+def splice_before(entry: dict, anchors: object, key: str, value) -> None:
+    """Put ``key`` in front of the first of ``anchors`` present; ``None`` removes it.
+
+    The key order is part of ``semantic-json/1`` and these writers run after the dict was
+    assembled, so an entry is spliced in rather than appended -- and rather than this
+    module having to know the profile's whole key order. Several anchors because an
+    optional key (``sql_comments``) is a fine landmark only when the entry has one.
     """
-    field.pop(VALUE_DOMAIN_KEY, None)
-    if not domain:
+    entry.pop(key, None)
+    if value is None:
         return
+    names = (anchors,) if isinstance(anchors, str) else tuple(anchors)
+    anchor = next((name for name in names if name in entry), None)
     rebuilt: dict = {}
-    for key, value in field.items():
-        if key == "sources":
-            rebuilt[VALUE_DOMAIN_KEY] = list(domain)
-        rebuilt[key] = value
-    rebuilt.setdefault(VALUE_DOMAIN_KEY, list(domain))
-    field.clear()
-    field.update(rebuilt)
+    for existing, current in entry.items():
+        if existing == anchor:
+            rebuilt[key] = value
+        rebuilt[existing] = current
+    rebuilt.setdefault(key, value)
+    entry.clear()
+    entry.update(rebuilt)
 
 
 def _field_domain(field: Mapping, index: Mapping, target_owner: tuple) -> list[dict]:
@@ -1142,6 +1162,130 @@ def _domain_meaning(entry: Mapping) -> dict | None:
     return None
 
 
+# --------------------------------------------------- rule value meanings (WI-2.12)
+
+
+def apply_rule_value_meanings(
+    rules: Sequence[dict], entries: Sequence[Mapping], task: object = None
+) -> None:
+    """Give each rule the dictionary's reading of the constants it pins a column to.
+
+    One item per ``(column_ref, value)`` the rule compares against, in the order the
+    rule writes them, each carrying the meaning the dictionary holds for exactly that
+    column and value -- ``null`` while nobody has answered. A rule whose constants the
+    dictionary has never seen keeps no key at all, so a profile built without
+    ``--glossary`` is byte for byte the document it was before.
+    """
+    index = value_domain_index(entries)
+    scoped = _scope_value_index(entries, task)
+    for rule in rules:
+        meanings = _merged_rule_meanings(
+            _rule_value_meaning(reference, index, scoped)
+            for reference in rule_value_references(rule)
+        )
+        splice_before(rule, "fields", RULE_VALUE_MEANINGS_KEY, meanings or None)
+
+
+def _scope_value_index(entries: Sequence[Mapping], task: object) -> dict:
+    """Scope-level entries by ``(scope owner, column)``, restricted to ONE task.
+
+    A scope id is a name inside one statement: ``cte_a.flag`` in another task is a
+    different CTE that happens to share a spelling, and a table name is the only thing
+    that makes two columns the same column across a corpus. So the logical bucket
+    answers a rule only when this very task is among the observations that filled it.
+    """
+    index: dict[tuple, list] = {}
+    for entry in entries:
+        observed = {str(item.get("task")) for item in entry.get("observations") or []}
+        if not entry.get("logical") or str(task) not in observed:
+            continue
+        owner = str(entry["column_ref"]).rsplit(".", 1)[0]
+        index.setdefault((owner, str(entry["column"])), []).append(entry)
+    return index
+
+
+def rule_value_references(rule: Mapping) -> list[tuple[str, bool, str]]:
+    """``(column_ref, logical, sql literal)`` for every code this rule pins a column to.
+
+    The same attribution the dictionary itself uses (:func:`_attribute`): a table only
+    when exactly one of the rule's fields carries the name, a scope reference otherwise.
+    Reading it back off the published rule rather than off the contract keeps the two
+    halves of the layer answering from one place.
+    """
+    references: list[tuple[str, bool, str]] = []
+    for expression in _rule_condition_expressions(rule):
+        parsed = _comparison(semantic_text.parse_expression(expression))
+        if parsed is None or parsed[2] not in RULE_VALUE_CONTEXTS:
+            continue
+        column, values, _context, _closes = parsed
+        column_ref, logical = _attribute(rule, column, {})
+        references.extend(
+            (column_ref, logical, semantic_text.expression_text(node))
+            for node in values
+            if not isinstance(node, exp.Null)
+            and _value_kind(node) in GLOSSARY_VALUE_KINDS
+        )
+    return references
+
+
+def _rule_condition_expressions(rule: Mapping) -> list:
+    """The conditions of one rule that compare a column against something."""
+    kind = str(rule.get("kind"))
+    if kind in _PREDICATE_RULE_KINDS:
+        return [rule.get("expression")]
+    if kind == "join_condition":
+        # The key pairs compare two columns; only the extra conditions carry constants.
+        return list(rule.get("extra_conditions") or [])
+    if kind == "case_branch":
+        return [branch.get("when") for branch in rule.get("branches") or []]
+    return []
+
+
+def _rule_value_meaning(
+    reference: tuple[str, bool, str], index: Mapping, scoped: Mapping
+) -> dict | None:
+    """The dictionary entry for one ``(column, value)``, read as a rule item."""
+    column_ref, logical, literal = reference
+    owner, _, column = str(column_ref).rpartition(".")
+    bucket = (
+        scoped.get((owner, column))
+        if logical
+        else index["by_column"].get((table_key(owner), column))
+    )
+    value = strip_quotes(literal)
+    entry = next(
+        (item for item in bucket or [] if str(item.get("value")) == value), None
+    )
+    if entry is None:
+        return None
+    return {
+        "column_ref": column_ref,
+        "value": value,
+        "sql_literal": literal,
+        "meaning": _domain_meaning(entry),
+    }
+
+
+def _merged_rule_meanings(items: Iterable[Mapping | None]) -> list[dict]:
+    """One item per ``(column_ref, value)``: a code repeated is one code."""
+    merged: dict[tuple, dict] = {}
+    for item in items:
+        if item is None:
+            continue
+        key = (item["column_ref"], item["value"])
+        current = merged.get(key)
+        if current is None:
+            merged[key] = dict(item)
+        else:
+            current["meaning"] = _better_meaning(current["meaning"], item["meaning"])
+    return list(merged.values())
+
+
+def rule_value_meanings(rule: Mapping) -> list[Mapping]:
+    """The rule's published items, or an empty list when the key is absent."""
+    return list(rule.get(RULE_VALUE_MEANINGS_KEY) or [])
+
+
 def enum_entries(domain: Sequence[Mapping]) -> list[Mapping]:
     """The values the column actually holds -- everything a pattern is not."""
     return [item for item in domain if str(item.get("kind")) != VALUE_KIND_PATTERN]
@@ -1196,6 +1340,13 @@ def _pattern_text(item: Mapping) -> str:
     return f"{displayed_value(item)}（{_meaning_mark(meaning)}{meaning.get('text')}）"
 
 
+def meaning_text(meaning: Mapping | None) -> str:
+    """``已支付`` when a human confirmed it, ``? 退款`` for a candidate, empty for none."""
+    if not meaning:
+        return ""
+    return f"{_meaning_mark(meaning)}{meaning.get('text')}"
+
+
 def _meaning_mark(meaning: Mapping) -> str:
     if meaning.get("status") == MEANING_STATUS_CONFIRMED:
         return ""
@@ -1225,14 +1376,70 @@ def _apply_summary_suffix(field: dict, domain: Sequence[Mapping]) -> None:
         field["summary"] = summary
 
 
-def glossary_coverage(fields: Sequence[Mapping]) -> dict[str, int]:
-    """``{values_total, confirmed, candidate}`` over every field's value domain."""
-    entries = [
-        item for field in fields for item in field.get(VALUE_DOMAIN_KEY) or []
-    ]
-    statuses = [(item.get("meaning") or {}).get("status") for item in entries]
+def glossary_coverage(
+    fields: Sequence[Mapping], rules: Sequence[Mapping] = ()
+) -> dict[str, int]:
+    """How much of this task's code vocabulary the dictionary can already explain.
+
+    WI-2.12. Two halves counted apart and then deduped into one total: the values a
+    FIELD holds (``value_domain``) and the codes a RULE pins a column to
+    (``value_meanings``). One code is one business question however often it is written,
+    so the key is ``(column name, value, kind)`` -- a status pinned in a WHERE and
+    carried unchanged into the output column of the same name is one value to confirm,
+    not two -- and the union is what an A2 coverage ratio is taken over.
+    """
+    field_values = _coverage_statuses(_field_value_items(fields))
+    rule_values = _coverage_statuses(_rule_value_items(rules))
+    merged = dict(field_values)
+    for key, status in rule_values.items():
+        merged[key] = _stronger_status(merged.get(key), status)
     return {
-        "values_total": len(entries),
-        "confirmed": statuses.count(MEANING_STATUS_CONFIRMED),
-        "candidate": statuses.count(MEANING_STATUS_CANDIDATE),
+        "values_total": len(merged),
+        "confirmed": _status_count(merged, MEANING_STATUS_CONFIRMED),
+        "candidate": _status_count(merged, MEANING_STATUS_CANDIDATE),
+        "rule_values_total": len(rule_values),
+        "rule_values_confirmed": _status_count(rule_values, MEANING_STATUS_CONFIRMED),
+        "field_values_total": len(field_values),
+        "field_values_confirmed": _status_count(field_values, MEANING_STATUS_CONFIRMED),
     }
+
+
+def _field_value_items(fields: Sequence[Mapping]) -> list[tuple[tuple, object]]:
+    return [
+        ((str(field.get("column")), str(item.get("value")), str(item.get("kind"))),
+         (item.get("meaning") or {}).get("status"))
+        for field in fields
+        for item in field.get(VALUE_DOMAIN_KEY) or []
+    ]
+
+
+def _rule_value_items(rules: Sequence[Mapping]) -> list[tuple[tuple, object]]:
+    """A rule's codes, keyed by the bare column name the field side also uses."""
+    return [
+        ((str(item.get("column_ref")).rpartition(".")[2],
+          str(item.get("value")),
+          VALUE_KIND_LITERAL),
+         (item.get("meaning") or {}).get("status"))
+        for rule in rules
+        for item in rule_value_meanings(rule)
+    ]
+
+
+def _coverage_statuses(items: Sequence[tuple[tuple, object]]) -> dict[tuple, object]:
+    counted: dict[tuple, object] = {}
+    for key, status in items:
+        counted[key] = _stronger_status(counted.get(key), status)
+    return counted
+
+
+def _stronger_status(current: object, other: object) -> object:
+    """Confirmed beats candidate beats nothing -- the same order ``_better_meaning`` uses."""
+    ranked = (MEANING_STATUS_CONFIRMED, MEANING_STATUS_CANDIDATE)
+    for status in ranked:
+        if status in (current, other):
+            return status
+    return current or other
+
+
+def _status_count(statuses: Mapping[tuple, object], status: str) -> int:
+    return sum(1 for item in statuses.values() if item == status)

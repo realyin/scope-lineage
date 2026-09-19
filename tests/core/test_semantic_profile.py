@@ -796,7 +796,17 @@ def test_confidence_reports_metadata_coverage_and_diagnostics_facts() -> None:
         "sql_comment_counts": {"header": 2, "output": 1, "logic": 1},
         # WI-2.4: the value dictionary's reach over this task's fields. No corpus
         # glossary was supplied, so nothing is confirmed and nothing is a candidate.
-        "glossary": {"values_total": 3, "confirmed": 0, "candidate": 0},
+        # WI-2.12: the rule half is zero without a dictionary to read the codes this
+        # task's conditions pin, so the field half is the whole of the total.
+        "glossary": {
+            "values_total": 3,
+            "confirmed": 0,
+            "candidate": 0,
+            "rule_values_total": 0,
+            "rule_values_confirmed": 0,
+            "field_values_total": 3,
+            "field_values_confirmed": 0,
+        },
     }
     assert confidence["diagnostics_available"] is True
     assert confidence["fact_gap_count"] == 0

@@ -180,6 +180,7 @@
     },
     "confirmations": {
       "values_confirmed": 0,
+      "rule_values_confirmed": 0,
       "terms_confirmed": 0,
       "columns_patched": 0,
       "tables_patched": 0

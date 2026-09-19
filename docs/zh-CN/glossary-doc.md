@@ -330,7 +330,7 @@ scope-lineage describe --lineage corpus --glossary dict/glossary.json \
 | `sql_literal` | 作者写的字面量。`semantic.md` 的 `- 取值：` 行显示它，`value_domain[].value` 与 overrides 的键用去引号形式 |
 | `meaning.status` | `confirmed`（人工确认）或 `candidate`（注释字面命中） |
 | `summary` 追加 | 只有**已确认**含义才会追加到那句话尾部（`；取值：'PAID'（已支付）`，最多 3 个）：候选是"某条注释里恰好出现了这个值"，写进读者会停下来读的那一句等于把它当成定义 |
-| `confidence.metadata_coverage.glossary` | `{values_total, confirmed, candidate}`；这条语句一个取值观察都没有时不写该键 |
+| `confidence.metadata_coverage.glossary` | `{values_total, confirmed, candidate, rule_values_total, rule_values_confirmed, field_values_total, field_values_confirmed}`；这条语句一个取值观察都没有时不写该键。`values_total` 是**字段取值 ∪ 规则引用取值**去重后的总数，按 `(列名, 取值, kind)` 归一——同一个 code 被 `WHERE` 钉住又原样带进同名输出列，是读者要答的**一个**问题而不是两个；画像附录 A2 的覆盖率按这个 `values_total` 算，`confirmed` / `candidate` 也是并集上的计数 |
 
 `semantic.md` 第 5 节的字段小节里多一行 `- 取值：`，已确认写含义、候选写 `? `、都没有写
 「待确认」；整列**枚举值**都封闭时追加「（该列取值已被 SQL 证明封闭）」——因为 `closed_set`
@@ -343,6 +343,25 @@ scope-lineage describe --lineage corpus --glossary dict/glossary.json \
   摘要，`semantic.json` 才是记录；
 - `pattern` 不与枚举值并列，单独排在行尾的「匹配模式：…」里，且不带「待确认」标记
   （一个匹配形状不是等着谁去确认业务含义的编码）。
+
+### 规则与术语层：`rules[].value_meanings` 与 `term_meaning`（WI-2.12）
+
+仓库的业务码多数不在输出字段上，而在 `WHERE queue_code IN ('01','07')`、连接的附加条件、
+CASE 的**条件**里。`value_domain` 只挂在输出列上，所以语料把十七个 code 全确认了，任务文档
+仍然只有四个字段受益——含义没有被送到写着这个 code 的那一行。传了 `--glossary` 之后：
+
+| 落点 | 内容 |
+| --- | --- |
+| `rules[].value_meanings[]` | 这条规则把列钉住的每个 code，`{column_ref, value, sql_literal, meaning}`。只收 `=` / `IN` / `<>` 与 CASE **条件**的常量；`LIKE` / `RLIKE` 的匹配模式不是业务码，连接键比较的是两列。按 `(column_ref, value)` 去重、按规则写出的顺序排列，没人回答时 `meaning` 为 `null`——被省略的不是问题，而是答案 |
+| 归属怎么算 | 与字典收集端同一套规则：规则的 `fields[]` 里恰好一列同名才写物理表名（复用 `values[]` 的按列索引与点号后缀归一），否则写 scope 级引用。scope 级引用**只认本任务观察到的条目**：`cte.flag` 在另一个任务里是另一个 CTE，只是恰好同名 |
+| `inputs[].used_columns[].term_meaning` | 字典 `terms[]` 里**已人工确认**的该列名含义 `{text, status}`，与该列自己的 `comment` 并排 |
+| `fields[].term_meaning` | 同样的 `{text, status}`，但只在该字段 `target_comment` **为空**时出现：术语不是注释，填进注释槽位等于发布一条元数据里没有的注释 |
+| `confidence.confirmations.rule_values_confirmed` | 规则层被确认的 code 数，与字段层的 `values_confirmed` 分开计 |
+
+`semantic.md` 里三处相应变化：第 3 节过滤 / 关联的复述末尾追加「（取值：'01'＝人工队列）」
+（只列已答的，超过 3 个写「等 N 个，见规则表」）；第 4 节规则表在「条件」后多一列「取值含义」
+（一条都没答过时整列不出现）；第 5 节字段小节在 `- 目标注释：` 后多一行 `- 术语：…（人工确认）`，
+「完整字段清单」相应多一列「术语」。
 
 ## glossary.md 的章节
 

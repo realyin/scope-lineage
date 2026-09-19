@@ -377,7 +377,7 @@ nothing.
 | `sql_literal` | The literal the author wrote. The `- 取值：` line of `semantic.md` shows it, while `value_domain[].value` and the overrides keys use the unquoted form |
 | `meaning.status` | `confirmed` (human) or `candidate` (a literal comment hit) |
 | `summary` suffix | Only a **confirmed** meaning is appended to the sentence (`；取值：'PAID'（已支付）`, at most 3): a candidate is "some comment happens to contain this value", and putting it into the line a reader stops at would read as a definition |
-| `confidence.metadata_coverage.glossary` | `{values_total, confirmed, candidate}`; absent when the statement has no value observation at all |
+| `confidence.metadata_coverage.glossary` | `{values_total, confirmed, candidate, rule_values_total, rule_values_confirmed, field_values_total, field_values_confirmed}`; absent when the statement has no value observation at all. `values_total` is the deduped **union of field values and rule-referenced values**, keyed by `(column name, value, kind)` — a code pinned by a `WHERE` and carried unchanged into the output column of the same name is **one** question to answer, not two; the A2 coverage ratio in a business profile is taken over this `values_total`, and `confirmed` / `candidate` count over the same union |
 
 Section 5 of `semantic.md` gains one `- 取值：` line per field subsection: a confirmed
 meaning is written plainly, a candidate is prefixed `? `, and neither gives 「待确认」.
@@ -395,6 +395,29 @@ WI-2.4b adds two bounds to that line:
 - a `pattern` is never listed beside the enumerated values. It trails the line under its
   own 「匹配模式：…」 label and carries no 「待确认」 marker, because a match shape is not a
   code waiting for somebody to define it.
+
+### The rule and term layers: `rules[].value_meanings` and `term_meaning` (WI-2.12)
+
+A warehouse keeps most of its business codes off the output columns: in
+`WHERE queue_code IN ('01','07')`, in a join's extra condition, in a CASE **condition**.
+A `value_domain` hangs off an output column, so a corpus could confirm all seventeen codes
+and a task's document would still explain four fields — the answer never reached the line
+the code is written on. With `--glossary`:
+
+| Where it lands | What it carries |
+| --- | --- |
+| `rules[].value_meanings[]` | Every code this rule pins a column to, as `{column_ref, value, sql_literal, meaning}`. Only the constants of `=` / `IN` / `<>` and of a CASE **condition**; a `LIKE` / `RLIKE` shape is not a business code and a join key compares two columns. Deduped by `(column_ref, value)`, in the order the rule writes them, `meaning` null while nobody has answered — what is missing is the answer, not the question |
+| How it is attributed | Exactly as the collecting side attributes it: a physical table name only when exactly one of the rule's `fields[]` carries the name (reusing the `values[]` by-column index and the dotted-suffix normalisation), a scope-level reference otherwise. A scope-level reference **only matches entries this very task observed**: `cte.flag` in another task is another CTE that happens to share a spelling |
+| `inputs[].used_columns[].term_meaning` | The dictionary's **human-confirmed** meaning for that column NAME from `terms[]`, `{text, status}`, published beside the column's own `comment` |
+| `fields[].term_meaning` | The same `{text, status}`, but only where the field's `target_comment` is **empty**: a term is not a comment, and filling that slot would publish a comment the metadata does not have |
+| `confidence.confirmations.rule_values_confirmed` | How many codes the rule layer has answered, counted apart from the field layer's `values_confirmed` |
+
+Three matching changes in `semantic.md`: a restated filter / join in section 3 ends in
+「（取值：'01'＝人工队列）」 (only the answered ones, 「等 N 个，见规则表」 past three);
+section 4's rule table gains a 「取值含义」 column after 「条件」 (absent as a whole when
+nothing was answered); and a field subsection in section 5 gains a
+`- 术语：…（人工确认）` line after `- 目标注释：`, with a matching 「术语」 column in the
+「完整字段清单」.
 
 ## The sections of glossary.md
 
