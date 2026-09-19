@@ -17,7 +17,8 @@ What it leaves out is the whole design:
   is a position, and a day is an instance date (WI-2.9 item A). None of the three has a
   business meaning waiting to be written down;
 - **no column left with fewer than two values**: one value is not a code system, and the
-  answer would teach a reader nothing about a set;
+  answer would teach a reader nothing about a set -- except under ``--template-top 0``,
+  which promises every askable value and therefore keeps them (WI-D);
 - **nothing already answered**: a value a human confirmed is not asked twice.
 
 WI-2.10 B: the first version ranked closed sets first and then by observation count, and
@@ -30,8 +31,8 @@ never a meaning -- a column called 状态 is *likely* to be worth asking about, 
 different claim from knowing what any of its values mean.
 
 ``--template-top`` still counts VALUES, so the cut can land inside a column; the columns
-before it are whole. Ranking is a total order over data the dictionary already carries,
-so two runs of one corpus produce the same bytes.
+before it are whole, and ``0`` means no cut at all -- single-value columns included. Ranking is a total order over data
+the dictionary already carries, so two runs of one corpus produce the same bytes.
 """
 
 from __future__ import annotations
@@ -45,6 +46,7 @@ from . import semantic_text
 from .markdown_text import cell as _cell
 from .markdown_text import expr_span as _expr_span
 from .markdown_text import normalize_inline as _normalize_inline
+from .markdown_text import sql_alias_note as _sql_alias_note
 from .sequences import unique_ordered
 
 
@@ -161,12 +163,15 @@ def _selection(glossary: Mapping, top: int) -> dict:
     ranked = [
         entry
         for _key, entries in sorted(
-            _by_column(askable).items(), key=lambda pair: _column_rank(pair[0], pair[1], clues)
+            _by_column(askable, keep_single=top <= 0).items(),
+            key=lambda pair: _column_rank(pair[0], pair[1], clues),
         )
         for entry in entries
     ]
     return {
-        "entries": ranked[: max(top, 0)],
+        # WI-D: `0` is "no cap". A corpus larger than the default is exactly when a
+        # reader asks for the whole form, and the old reading handed them an empty one.
+        "entries": ranked if top <= 0 else ranked[:top],
         "excluded_values": len(physical) - len(askable),
         "excluded_scope_columns": len(
             {str(item["column_ref"]) for item in unanswered if not _is_physical(item)}
@@ -174,15 +179,23 @@ def _selection(glossary: Mapping, top: int) -> dict:
     }
 
 
-def _by_column(entries: Sequence[Mapping]) -> dict[str, list[dict]]:
-    """The askable values of each column that has enough of them to be worth a section."""
+def _by_column(entries: Sequence[Mapping], *, keep_single: bool = False) -> dict[str, list[dict]]:
+    """The askable values of each column that has enough of them to be worth a section.
+
+    WI-D: ``MINIMUM_COLUMN_VALUES`` is a statement about ranking worth -- a one-value
+    column buys one answer and teaches nothing about a set, so it does not earn a place
+    in a form somebody fills in during one sitting. It was never a statement that the
+    value may not be asked about at all, and an uncapped form (``--template-top 0``)
+    promises every askable value, so it keeps them.
+    """
     grouped: dict[str, list[dict]] = {}
     for entry in entries:
         grouped.setdefault(str(entry["column_ref"]), []).append(entry)
+    minimum = 1 if keep_single else MINIMUM_COLUMN_VALUES
     return {
         column: sorted(items, key=_value_rank)
         for column, items in grouped.items()
-        if len(items) >= MINIMUM_COLUMN_VALUES
+        if len(items) >= minimum
     }
 
 
@@ -281,8 +294,11 @@ def _exclusion_note(template: Mapping) -> str:
 
 def _column_section(column: str, entries: Sequence[Mapping]) -> list[str]:
     closed = "是" if any(item.get("closed_set") for item in entries) else "未证明"
+    # WI-B: the person filling this in searches their SQL for the name they typed, which
+    # under a positional write is not the column name this section is headed by.
+    alias = next((str(item["sql_alias"]) for item in entries if item.get("sql_alias")), "")
     return [
-        f"## `{column}`（{len(entries)} 个取值）",
+        f"## `{column}`{_sql_alias_note(alias)}（{len(entries)} 个取值）",
         "",
         _CLOSED_NOTE.format(answer=closed),
         "",

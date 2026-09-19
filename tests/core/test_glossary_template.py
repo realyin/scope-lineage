@@ -28,6 +28,7 @@ from scope_lineage.render.glossary_template import (
     TEMPLATE_TOP_DEFAULT,
     build_overrides_template,
     render_overrides_template_markdown,
+    template_entries,
 )
 from scope_lineage.scope.scope_builder import parse_scope_lineage
 
@@ -369,3 +370,88 @@ def test_no_template_flag_writes_no_template(tmp_path: Path) -> None:
 
     assert main(["glossary", "--lineage", str(task / "lineage.json"), "--out", str(out)]) == 0
     assert not list(out.glob("*template*"))
+
+
+# ------------------- 5. WI-B: the alias of a positionally bound column, in the form
+
+
+def test_the_form_heading_says_which_alias_the_author_wrote() -> None:
+    """The person filling the form in searches their SQL for the name they typed."""
+    from .test_glossary import _positional_document
+
+    glossary = build_glossary([_positional_document()], artifact_root="corpus")
+    rendered = render_overrides_template_markdown(
+        build_overrides_template(glossary, today=DAY), glossary
+    )
+
+    assert (
+        "## `mart.hourly_gap_summary.gap_10`"
+        "（SQL 别名 `delta_18`，按 DDL 位置写入）（2 个取值）" in rendered
+    )
+
+
+# ------------------------------------ 6. WI-D: `--template-top 0` means "no cap"
+
+
+def test_a_top_of_zero_asks_about_every_askable_value() -> None:
+    """Zero used to produce an empty form, which is the one thing nobody wants: a
+    corpus with more values than the default is exactly when "ask about all" is asked
+    for."""
+    glossary = _glossary()
+    every = _keys(build_overrides_template(glossary, top=0, today=DAY))
+
+    assert every == _keys(build_overrides_template(glossary, top=TEMPLATE_TOP_DEFAULT, today=DAY))
+    assert len(every) == len(template_entries(glossary, top=0))
+    assert every
+
+
+def test_a_top_of_zero_is_not_cut_by_the_default(tmp_path: Path) -> None:
+    """The form is larger than the default cut, so 0 and 20 cannot agree by accident."""
+    glossary = _glossary()
+    assert len(template_entries(glossary, top=0)) == len(
+        [item for item in glossary["values"] if item["column"] in ("pay_status", "channel")]
+    )
+    assert len(_keys(build_overrides_template(glossary, top=1, today=DAY))) == 1
+
+
+def test_the_cli_takes_zero_as_no_cap(tmp_path: Path) -> None:
+    task = _artifacts(MIXED_SQL, tmp_path / "task_a", schema=MIXED_SCHEMA)
+    out = tmp_path / "dict"
+
+    assert (
+        main(
+            [
+                "glossary",
+                "--lineage",
+                str(task / "lineage.json"),
+                "--out",
+                str(out),
+                "--template",
+                str(out / "form.md"),
+                "--template-top",
+                "0",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads((out / "form.json").read_text(encoding="utf-8"))
+    assert payload["generated"]["top"] == 0
+    assert len(payload["values"]) == 4
+
+
+def test_a_top_of_zero_keeps_single_value_columns() -> None:
+    """The ≥2 rule is about ranking worth, not about hiding: a form that promises to
+    ask about every askable value cannot drop eight columns out of nine."""
+    sql = (
+        "INSERT INTO mart.t SELECT s.id FROM ods.src s "
+        "WHERE s.state = 'OK' AND s.kind IN ('A', 'B')"
+    )
+    glossary = _glossary(sql, schema={"ods.src": ["id", "state", "kind"]})
+
+    assert _columns(build_overrides_template(glossary, today=DAY)) == ["ods.src.kind"]
+    assert _columns(build_overrides_template(glossary, top=0, today=DAY)) == [
+        "ods.src.kind",
+        "ods.src.state",
+    ]
+    assert "ods.src.state=OK" in _keys(build_overrides_template(glossary, top=0, today=DAY))

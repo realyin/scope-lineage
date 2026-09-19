@@ -1,6 +1,25 @@
 # Changelog
 
 ## Unreleased
+- A positionally bound projection no longer borrows another column's logic block. When an
+  INSERT has no column list, `target_field_binding` renames every ROOT output to the DDL
+  column at that position and keeps the alias in `parsed_name`; `_populate_scope_outputs`
+  then looked the alias up in an index keyed by the *bound* names, so under a real
+  alias/position mismatch a DIRECT projection could carry the CASE block of a different
+  position and a CASE output could carry two. Binding always runs before the blocks are
+  built, so the fallback matched nothing but a different column -- removed.
+- The alias the SQL wrote is now shown beside a positionally bound column. `semantic.json`
+  `fields[]` gains `sql_alias` (positional binding, alias differs, name not generated);
+  the field dictionary and field sections of `semantic.md`, the `glossary.md` column
+  headings and the fill-in form append `（SQL 别名 `x`，按 DDL 位置写入）`, so a reader
+  can tell which of a mismatched task's rows describes the expression they wrote.
+- A numeric branch of a mixed CASE is a computation default, not a code. `CASE WHEN gap > 0
+  THEN 0 ELSE gap END` caps a number; the glossary no longer files `0` as a candidate value
+  of that column (a string branch of such a CASE is still recorded, with no closed set),
+  and the `in_set` hypotheses the ontology derived from them are gone with it.
+- `glossary --template-top 0` means no cap: the form asks about every askable value,
+  including columns with a single one.
+
 - The ontology lands where people read it. `ontology --out <dir>` now writes
   `<dir>/tables/<db.table>.md` -- the same card `tables` writes, under the same filename
   rule, with five sections appended (`ontology-md/1`): 身份 (candidate keys, multiplicity

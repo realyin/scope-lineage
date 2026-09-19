@@ -21,6 +21,11 @@ import pytest
 
 from scope_lineage.contract import to_lineage_dict
 from scope_lineage.metadata.schema_metadata import SchemaMap
+from scope_lineage.metadata.target_table_metadata import (
+    TargetColumnMetadata,
+    TargetMetadataMap,
+    TargetTableMetadata,
+)
 from scope_lineage.render.glossary import (
     DOC_FORMAT,
     build_glossary,
@@ -778,3 +783,134 @@ def test_no_projected_constant_is_published_under_a_column_that_only_consumes_it
             assert transform in _CARRIES_A_CONSTANT_THROUGH, (
                 f"{entry['column_ref']}={entry['value']} came out of a {transform} chain"
             )
+
+
+# ------------------- WI-B: the SQL alias beside a positionally bound target column
+
+
+_POSITIONAL_TARGET = TargetMetadataMap(
+    {
+        "mart.hourly_gap_summary": TargetTableMetadata(
+            table_name="mart.hourly_gap_summary",
+            full_table_name="mart.hourly_gap_summary",
+            columns=[
+                TargetColumnMetadata(
+                    name="gap_10", data_type="string", ordinal=0, is_partition=False
+                ),
+                TargetColumnMetadata(
+                    name="delta_18", data_type="string", ordinal=1, is_partition=False
+                ),
+            ],
+            partition_columns=[],
+            ddl="CREATE TABLE mart.hourly_gap_summary(gap_10 STRING, delta_18 STRING)",
+            source_file="synthetic-target-metadata.json",
+            structure_source="ddl",
+            table_detail={},
+        )
+    }
+)
+
+# The DDL's first column is `gap_10`; the SQL's first projection is aliased `delta_18`.
+# So the CASE's labels are values of `gap_10`, under a name the author never wrote there.
+_POSITIONAL_SQL = (
+    "INSERT OVERWRITE TABLE mart.hourly_gap_summary SELECT "
+    "CASE WHEN t.code = 'A1' THEN 'ok' ELSE 'bad' END AS delta_18, "
+    "t.gap_10 AS delta_18_src FROM mart.hourly_gap t"
+)
+
+
+def _positional_document() -> dict:
+    document = to_lineage_dict(
+        parse_scope_lineage(
+            _POSITIONAL_SQL,
+            "gap_positional",
+            schema={"mart.hourly_gap": ["code", "gap_10"]},
+            target_metadata=_POSITIONAL_TARGET,
+        )
+    )
+    assert document["target_field_binding"]["method"] == "ddl_position"
+    return document
+
+
+def test_a_positionally_bound_value_entry_carries_the_sql_alias() -> None:
+    entry = _value(_glossary(_positional_document()), "gap_10", "'ok'")
+
+    assert entry["column_ref"] == "mart.hourly_gap_summary.gap_10"
+    assert entry["sql_alias"] == "delta_18"
+    assert list(entry)[:3] == ["column_ref", "column", "sql_alias"]
+
+
+def test_a_source_column_nobody_renamed_carries_no_alias() -> None:
+    entry = _value(_glossary(_positional_document()), "code", "'A1'")
+
+    assert entry["column_ref"] == "mart.hourly_gap.code"
+    assert "sql_alias" not in entry
+
+
+def test_the_glossary_markdown_column_heading_carries_the_alias() -> None:
+    rendered = render_glossary_markdown(_glossary(_positional_document()))
+
+    assert "## gap_10（SQL 别名 `delta_18`，按 DDL 位置写入）" in rendered
+    assert "## code\n" in rendered
+
+
+# --------------- WI-C: a numeric literal in a mixed CASE is a clamp, not a code
+
+
+_CLAMP_SQL = (
+    "INSERT INTO mart.t SELECT o.order_id, "
+    "CASE WHEN o.gap_10 > 0 THEN 0 ELSE o.gap_10 END AS delta_18 "
+    "FROM ods.app_order o"
+)
+
+
+def test_a_numeric_branch_of_a_mixed_case_is_a_computation_default_not_a_value() -> None:
+    """``THEN 0 ELSE x`` caps a number at zero. Filing 0 as a candidate code of a
+    DECIMAL amount teaches every later reader a fact that is not one."""
+    glossary = _glossary(_document(_CLAMP_SQL))
+
+    assert _values(glossary, "delta_18") == []
+
+
+def test_a_string_branch_of_a_mixed_case_is_still_a_value() -> None:
+    """A string is a label whatever the other branch returns -- only the closed-set
+    claim is lost, which is what a non-exhaustive CASE already meant."""
+    glossary = _glossary(
+        _document(
+            "INSERT INTO mart.t SELECT o.order_id, "
+            "CASE WHEN o.pay_status = 'PAID' THEN 'DONE' ELSE o.pay_status END AS state "
+            "FROM ods.app_order o"
+        )
+    )
+    entry = _value(glossary, "state", "'DONE'")
+
+    assert entry["closed_set"] is None
+    assert entry["observations"][0]["context"] == "case_then"
+
+
+def test_an_all_constant_numeric_case_is_untouched() -> None:
+    glossary = _glossary(
+        _document(
+            "INSERT INTO mart.t SELECT o.order_id, "
+            "CASE WHEN o.gap_10 > 0 THEN 1 ELSE 0 END AS flag_7 "
+            "FROM ods.app_order o"
+        )
+    )
+
+    assert [item["value"] for item in _values(glossary, "flag_7")] == ["0", "1"]
+    assert _value(glossary, "flag_7", "1")["closed_set"] == {
+        "values": ["1", "0"],
+        "basis": "case_exhaustive",
+    }
+
+
+def test_a_constant_projection_of_zero_is_still_a_fact_about_the_column() -> None:
+    """The rule is about a branch of a mixed CASE, not about every numeric literal:
+    ``SELECT 0 AS delta_18`` says what the column holds, on every row."""
+    glossary = _glossary(
+        _document("INSERT INTO mart.t SELECT o.order_id, 0 AS delta_18 FROM ods.app_order o")
+    )
+
+    assert _value(glossary, "delta_18", "0")["observations"][0]["context"] == (
+        "constant_projection"
+    )

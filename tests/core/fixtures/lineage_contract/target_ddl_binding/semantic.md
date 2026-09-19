@@ -53,10 +53,10 @@ lineage_digest: "49ca4ef5f9e34e0f"
 
 | # | 字段 | 一句话语义 | 结构角色 | 口径 | 追溯 |
 | --- | --- | --- | --- | --- | --- |
-| 1 | `dwd.account_daily.account_id` | （注释未知）：直接取自 ods.account_snapshot.account_key（注释未知） | attribute | — | ✓ |
-| 2 | `dwd.account_daily.balance` | （注释未知）：直接取自 ods.account_snapshot.balance_value（注释未知） | attribute | — | ✓ |
+| 1 | `dwd.account_daily.account_id`（SQL 别名 `wrong_key`，按 DDL 位置写入） | （注释未知）：直接取自 ods.account_snapshot.account_key（注释未知） | attribute | — | ✓ |
+| 2 | `dwd.account_daily.balance`（SQL 别名 `wrong_balance`，按 DDL 位置写入） | （注释未知）：直接取自 ods.account_snapshot.balance_value（注释未知） | attribute | — | ✓ |
 
-### 字段 dwd.account_daily.account_id
+### 字段 dwd.account_daily.account_id（SQL 别名 `wrong_key`，按 DDL 位置写入）
 
 - 语义：（注释未知）：直接取自 ods.account_snapshot.account_key（注释未知）
 - 目标注释：注释未知（元数据事实）
@@ -68,7 +68,7 @@ lineage_digest: "49ca4ef5f9e34e0f"
 - 最终表达式：`` `s`.`account_key` ``（SQL事实）
 - 追溯：完整；mapping_chain_id=mc:001（SQL事实）
 
-### 字段 dwd.account_daily.balance
+### 字段 dwd.account_daily.balance（SQL 别名 `wrong_balance`，按 DDL 位置写入）
 
 - 语义：（注释未知）：直接取自 ods.account_snapshot.balance_value（注释未知）
 - 目标注释：注释未知（元数据事实）

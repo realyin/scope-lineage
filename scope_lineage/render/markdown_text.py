@@ -32,3 +32,14 @@ def cell(text: str) -> str:
     """Table-cell text. GFM honours the pipe escape inside code spans too, so an
     expression rendered into a cell keeps its literal pipes."""
     return normalize_inline(str(text)).replace("|", "\\|")
+
+
+def sql_alias_note(alias) -> str:
+    """The one spelling of "written into this column by DDL position, under that name".
+
+    Three documents print it -- semantic.md's field dictionary, glossary.md and the
+    overrides template -- and a reader holding two of them must not have to work out
+    that two different sentences are saying the same thing. Empty for no alias.
+    """
+    text = str(alias or "")
+    return f"（SQL 别名 {expr_span(text)}，按 DDL 位置写入）" if text else ""

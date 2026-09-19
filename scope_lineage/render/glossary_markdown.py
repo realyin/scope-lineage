@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Mapping, Sequence
 
 from .glossary_values import displayed_value
-from .markdown_text import cell, expr_span, normalize_inline
+from .markdown_text import cell, expr_span, normalize_inline, sql_alias_note
 
 
 CONFIRMED_MARK = "✓"
@@ -96,7 +96,7 @@ def _sections(glossary: Mapping) -> dict[str, dict]:
 
 
 def _render_column(column: str, section: Mapping) -> list[str]:
-    lines = ["", f"## {column}", ""]
+    lines = ["", f"## {column}{_alias_note(section.get('values') or ())}", ""]
     lines.extend(_term_lines(section.get("term")))
     values = section.get("values") or []
     if values:
@@ -109,6 +109,16 @@ def _render_column(column: str, section: Mapping) -> list[str]:
             f"来自 {expr_span(str(parameter['column_ref']))}）"
         )
     return lines
+
+
+def _alias_note(values: Sequence[Mapping]) -> str:
+    """WI-B. A section is one column NAME, so it names every alias its values carry.
+
+    Without it a reader sees a ``CASE`` they wrote as ``delta_18`` under the heading
+    ``gap_10`` and concludes the dictionary is wrong.
+    """
+    aliases = sorted({str(item["sql_alias"]) for item in values if item.get("sql_alias")})
+    return "".join(sql_alias_note(alias) for alias in aliases)
 
 
 def _term_lines(term: Mapping | None) -> list[str]:

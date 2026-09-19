@@ -39,6 +39,7 @@ from .markdown_text import cell as _cell
 from .markdown_text import expr_span as _expr_span
 from . import glossary_values as _glossary_values
 from .markdown_text import normalize_inline as _normalize_inline
+from .markdown_text import sql_alias_note as _sql_alias_note
 from .sequences import unique_ordered
 from .semantic_text import describe_nullable_argument as _describe_nullable_argument
 from .semantic_text import equality_conjunct
@@ -1344,7 +1345,7 @@ def _render_field(field: dict) -> list[str]:
     comment = field.get("target_comment")
     lines = [
         "",
-        f"### 字段 {field.get('column_label')}",
+        f"### 字段 {field.get('column_label')}{_sql_alias_note(field.get('sql_alias'))}",
         "",
         # WI-1f: the one-sentence meaning leads, unlabelled, because it is the line a
         # reader stops at. Its own facts keep their labels on the lines below it.
@@ -1582,7 +1583,10 @@ def _render_field_table(fields: Sequence[dict]) -> list[str]:
             + " | ".join(
                 [
                     str(index),
-                    _cell(_span(field.get("column_label"))),
+                    _cell(
+                        _span(field.get("column_label"))
+                        + _sql_alias_note(field.get("sql_alias"))
+                    ),
                     _cell(str(field.get("summary") or "—")),
                     *([_cell(_term_meaning_cell(field))] if termed else []),
                     _cell(str(field.get("structural_role") or "未知")),

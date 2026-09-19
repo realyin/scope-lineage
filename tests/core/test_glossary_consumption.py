@@ -582,11 +582,13 @@ def _case_field(sql: str, column: str) -> dict:
 
 
 def test_a_case_conditions_constant_never_reaches_the_column_the_case_produces() -> None:
-    domain = _case_field(CASE_CONDITION_SQL, "amt")["value_domain"]
+    # WI-C then took the ELSE constant too: `THEN o.amt ELSE 0` is a computation
+    # default of an amount column, not a code, so the column is left with no domain
+    # at all. `'N'` staying out of it is what this test is about either way.
+    domain = _case_field(CASE_CONDITION_SQL, "amt").get("value_domain") or []
 
     assert "N" not in [item["value"] for item in domain]
-    # its own ELSE constant is still the column's own output, so that one stays
-    assert [item["value"] for item in domain] == ["0"]
+    assert domain == []
 
 
 def test_a_case_conditions_constant_does_not_travel_to_a_pass_through_either() -> None:
