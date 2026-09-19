@@ -14,6 +14,7 @@ import json
 import sys
 from pathlib import Path
 
+from .corpus_cache import add_incremental_arguments, open_cache
 from .render.table_cards import (
     build_table_cards,
     render_table_card_markdown,
@@ -45,6 +46,7 @@ def add_tables_parser(subcommands) -> None:
         default="json,md",
         help="Comma-separated output formats: json, md (default: json,md)",
     )
+    add_incremental_arguments(tables_cmd)
 
 
 def formats(value: str | None) -> set[str]:
@@ -63,21 +65,46 @@ def run_tables(args: argparse.Namespace) -> int:
         return loaded
     documents = loaded.documents
 
+    out_dir = Path(args.out)
+    cache = open_cache(
+        args, out_dir, found[1], "tables", [args.format, str(Path(args.lineage))]
+    )
     profiles = []
     for item in documents:
         try:
-            profiles.append(build_semantic_profile(item.document, item.diagnostics))
+            profiles.append(
+                cache.facts(
+                    item,
+                    lambda item=item: {
+                        "profile": build_semantic_profile(item.document, item.diagnostics)
+                    },
+                )["profile"]
+            )
         except ValueError as error:
             print(f"{item.path}: {error}", file=sys.stderr)
             return 1
     cards = build_table_cards(profiles, artifact_root=str(Path(args.lineage)))
-    _write_cards(Path(args.out), cards, formats(args.format))
+    chosen = formats(args.format)
+    _write_cards(out_dir, cards, chosen)
+    cache.commit(_written(cards, chosen))
 
     print(
         f"Carded {len(cards['tables'])} table(s) from {cards['corpus']['task_count']} "
-        f"task(s) ({loaded.counters()})"
+        f"task(s) ({loaded.counters()}{cache.counters()})"
     )
     return 0
+
+
+def _written(cards: dict, chosen: set[str]) -> list[str]:
+    """Every document one run published, relative to ``--out``."""
+    written = ["tables.json"] if "json" in chosen else []
+    if "md" not in chosen:
+        return written
+    return [
+        *written,
+        "tables.md",
+        *(f"tables/{table_card_filename(card['table'])}" for card in cards["tables"]),
+    ]
 
 
 def _write_cards(out: Path, cards: dict, chosen: set[str]) -> None:

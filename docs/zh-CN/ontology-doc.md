@@ -64,6 +64,27 @@ card = render_ontology_table_card_markdown(cards["tables"][0], ontology)
   `tables/` 都不写。其他值直接报参数错误（退出码 2）。
 - 确定性：同一份语料无论以什么顺序被扫描，产出字节一致。
 
+## 增量运行：`--incremental` / `--no-cache`
+
+一份语料只改了一两个任务，重跑却要把每个任务重新读一遍、重新算一遍。`--incremental` 让这一遍
+只落在指纹变了的任务上：
+
+```bash
+scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incremental
+```
+
+- 它在 `--out` 下写两样可丢弃的东西：`.scope-lineage-corpus-index.json`（每个任务
+  `lineage.json` / `diagnostics.json` 的 sha256，加一份「影响推导的选项」的 sha256）与
+  `.cache/`（每个任务在语料级合并之前贡献的那份事实）。
+- **语料级合并照样跑全量**：复用的只是每个任务自己贡献的那一半，所以增量跑出来的
+  产物与全量跑逐字节一致。
+- 选项变了就整份作废、全部重算：`--overrides` 文件的**内容**、`--format`、读回来的
+  `glossary.json` / `tables.json`、以及工具版本，任何一项对不上，索引就当没有。
+  由别的子命令写下的索引或缓存（`command`、`doc_format` 对不上）同样当没有。
+- 摘要行末尾多出 `reused=N, recomputed=M, removed=K`：复用了几个、重算了几个、语料里少了几个。
+- 不给 `--incremental` 就是原来的全量跑，既不读也不写索引与缓存；`--no-cache` 先把这两样
+  删掉再全量跑。
+
 ## 置信五级
 
 | 层级 | md 上的中文 | 定义 | 例 |
@@ -316,4 +337,5 @@ erDiagram
 
 - 不产 OWL / SHACL / LinkML 文件；JSON 已带全部信息，导出器是后续的薄层。
 - 不做向量化、不入库、不调 LLM、不含业务词表——那些属于下游项目。
-- 跨语料增量（复用 `.scope-lineage-index.json` 指纹）是后续工作，本轮每次都是全量重算。
+- 语料内增量已经有了（`--incremental`，见「增量运行」一节）；**跨语料**复用——把一份语料的
+  索引喂给另一份——仍是后续工作。

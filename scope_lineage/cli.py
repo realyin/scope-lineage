@@ -20,6 +20,7 @@ from .cli_ontology import (
 )
 from .cli_tables import add_tables_parser, formats as _tables_formats, run_tables
 from .contract import write_task_lineage
+from .corpus_cache import add_incremental_arguments, open_cache
 from .metadata.schema_metadata import load_schema, load_schema_sources
 from .metadata.target_table_metadata import load_target_table_metadata
 from .scope.task_lineage import parse_task_lineage
@@ -369,6 +370,7 @@ def _add_derived_view_parsers(subcommands) -> None:
             "rewriting the artifact on disk. Repeatable"
         ),
     )
+    add_incremental_arguments(describe_cmd)
 
 
 def _validate_inputs(args: argparse.Namespace) -> int:
@@ -650,15 +652,9 @@ def _load_corpus_document(path: str | None, flag: str, doc_format: str):
 
 
 def _describe_inputs(args: argparse.Namespace) -> int:
-    from .render.semantic_markdown import render_semantic_markdown
-    from .render.semantic_profile import build_semantic_profile
-    from .metadata.metadata_patch import (
-        MetadataPatchError,
-        apply_metadata_patch_to_document,
-        load_metadata_patch,
-    )
-    from .render.glossary import DOC_FORMAT as GLOSSARY_DOC_FORMAT, apply_glossary
-    from .render.table_cards import DOC_FORMAT as TABLES_DOC_FORMAT, apply_table_cards
+    from .metadata.metadata_patch import MetadataPatchError, load_metadata_patch
+    from .render.glossary import DOC_FORMAT as GLOSSARY_DOC_FORMAT
+    from .render.table_cards import DOC_FORMAT as TABLES_DOC_FORMAT
 
     # WI-2.4: the corpus glossary, or None. Without it the profile keeps the value
     # domain it derived from this task alone.
@@ -691,23 +687,77 @@ def _describe_inputs(args: argparse.Namespace) -> int:
     )
     if isinstance(table_cards, int):
         return table_cards
+    cache = _describe_cache(args, found[1], glossary, table_cards)
+    failure = _describe_corpus(
+        documents,
+        cache,
+        reuse=cache.enabled and not _patch_is_corpus_wide(patch, cache),
+        formats=formats,
+        options=(patch, table_cards, glossary, sections),
+    )
+    if failure is not None:
+        return failure
+    cache.commit(sorted(_describe_output_names(formats)))
+    print(
+        f"Described {len(documents)} task(s) "
+        f"({loaded.counters()}{_patch_report(patch)}{cache.counters()})"
+    )
+    return 0
+
+
+def _describe_cache(args: argparse.Namespace, base: Path, glossary, table_cards):
+    """``describe``'s index and fact cache, beside the documents it writes.
+
+    Without ``--out`` the described documents land beside their lineage.json, so the
+    index does too: it belongs with the outputs it fingerprints, wherever those are.
+    """
+    from .corpus_cache import file_digest
+
+    patches = [
+        file_digest(Path(path))
+        for path in (getattr(args, "metadata_patch", None) or [])
+    ]
+    out = Path(args.out) if getattr(args, "out", None) else base
+    return open_cache(
+        args,
+        out,
+        base,
+        "describe",
+        [args.sections, args.format, glossary, table_cards, sorted(patches, key=str)],
+    )
+
+
+def _patch_is_corpus_wide(patch, cache) -> bool:
+    """A ``--metadata-patch`` run cannot skip tasks, and says so once.
+
+    ``patch_unmatched`` answers "which confirmed comment matched nothing *in the whole
+    corpus*", so it is only true when every task was actually described. Reuse would
+    turn a skipped match into a reported miss -- the one lie this report must not tell.
+    """
+    if not patch:
+        return False
+    if cache.enabled:
+        print(
+            "--incremental describes every task while --metadata-patch is in play: "
+            "the patch's unmatched report is corpus-wide",
+            file=sys.stderr,
+        )
+    return True
+
+
+def _describe_output_names(formats: set) -> list[str]:
+    names = ["semantic.json"] if "json" in formats else []
+    return [*names, "semantic.md"] if "md" in formats else names
+
+
+def _describe_corpus(documents, cache, *, reuse: bool, formats: set, options) -> int | None:
+    """Describe every task that needs it; the exit code of the first failure, or None."""
     for item in documents:
+        outputs = [item.target_dir / name for name in _describe_output_names(formats)]
+        if reuse and cache.unchanged(item, outputs):
+            continue
         try:
-            apply_metadata_patch_to_document(item.document, patch)
-            profile = apply_glossary(
-                apply_table_cards(
-                    build_semantic_profile(
-                        item.document, item.diagnostics, table_cards=table_cards
-                    ),
-                    table_cards,
-                ),
-                glossary,
-            )
-            markdown = (
-                render_semantic_markdown(profile, sections=sections)
-                if "md" in formats
-                else None
-            )
+            profile, markdown = _describe_one(item, formats, *options)
         except ValueError as error:
             print(f"{item.path}: {error}", file=sys.stderr)
             return 1
@@ -719,12 +769,34 @@ def _describe_inputs(args: argparse.Namespace) -> int:
             )
         if markdown is not None:
             _write_derived_document(item.target_dir, "semantic.md", markdown)
+        cache.record(item, outputs)
+    return None
 
-    print(
-        f"Described {len(documents)} task(s) "
-        f"({loaded.counters()}{_patch_report(patch)})"
+
+def _describe_one(item, formats: set, patch, table_cards, glossary, sections):
+    """``(semantic profile, semantic.md or None)`` for one task."""
+    from .render.semantic_markdown import render_semantic_markdown
+    from .render.semantic_profile import build_semantic_profile
+    from .metadata.metadata_patch import apply_metadata_patch_to_document
+    from .render.glossary import apply_glossary
+    from .render.table_cards import apply_table_cards
+
+    apply_metadata_patch_to_document(item.document, patch)
+    profile = apply_glossary(
+        apply_table_cards(
+            build_semantic_profile(
+                item.document, item.diagnostics, table_cards=table_cards
+            ),
+            table_cards,
+        ),
+        glossary,
     )
-    return 0
+    markdown = (
+        render_semantic_markdown(profile, sections=sections)
+        if "md" in formats
+        else None
+    )
+    return profile, markdown
 
 
 def _patch_report(patch) -> str:

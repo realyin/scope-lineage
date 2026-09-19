@@ -15,6 +15,7 @@ import json
 import sys
 from pathlib import Path
 
+from .corpus_cache import add_incremental_arguments, open_cache
 from .render.ontology import (
     build_ontology,
     render_ontology_index_markdown,
@@ -72,6 +73,7 @@ def add_ontology_parser(subcommands) -> None:
         default="json,md",
         help="Comma-separated output formats: json, md (default: json,md)",
     )
+    add_incremental_arguments(ontology_cmd)
 
 
 def formats(value: str | None) -> set[str]:
@@ -100,8 +102,6 @@ def _supplied_corpus(args: argparse.Namespace):
 def run_ontology(args: argparse.Namespace) -> int:
     from .cli import _discover_lineage_documents, _load_contract_documents
     from .cli_glossary import load_overrides
-    from .render.semantic_profile import build_semantic_profile
-    from .render.table_cards import build_table_cards
 
     overrides = load_overrides(getattr(args, "overrides", None))
     if isinstance(overrides, int):
@@ -119,21 +119,16 @@ def run_ontology(args: argparse.Namespace) -> int:
         return loaded
 
     documents = [item.document for item in loaded.documents]
-    profiles = []
-    for item in loaded.documents:
-        try:
-            profiles.append(build_semantic_profile(item.document, item.diagnostics))
-        except ValueError as error:
-            print(f"{item.path}: {error}", file=sys.stderr)
-            return 1
-    # The cards are built here rather than inside the builder because the markdown
-    # needs them too: an ontology card *is* a table card with five sections appended,
-    # and rendering it from a second, separately built copy would be a way for the two
-    # halves of one file to disagree.
-    cards = (
-        dict(tables)
-        if tables
-        else build_table_cards(profiles, artifact_root=str(Path(args.lineage)))
+    out_dir, root = Path(args.out), str(Path(args.lineage))
+    options = [args.format, root, overrides, tables, glossary]
+    cache = open_cache(args, out_dir, found[1], "ontology", options)
+    try:
+        collected = _collect(loaded.documents, cache, needs_glossary=glossary is None)
+    except ValueError as error:
+        print(str(error), file=sys.stderr)
+        return 1
+    profiles, glossary, cards = _layers(
+        collected, documents, tables=tables, glossary=glossary, root=root
     )
     ontology = build_ontology(
         documents,
@@ -141,9 +136,41 @@ def run_ontology(args: argparse.Namespace) -> int:
         tables=cards,
         glossary=glossary,
         overrides=overrides,
-        artifact_root=str(Path(args.lineage)),
+        artifact_root=root,
     )
-    _write_ontology(Path(args.out), ontology, cards, formats(args.format))
+    chosen = formats(args.format)
+    _write_ontology(out_dir, ontology, cards, chosen)
+    cache.commit(_written(cards, chosen))
+    _report(ontology, overrides, loaded.counters() + cache.counters())
+    return 0
+
+
+def _layers(collected, documents, *, tables, glossary, root: str):
+    """``(profiles, value dictionary, table cards)``: what the builder reads.
+
+    Both derived layers are built here rather than inside the builder, and for the same
+    reason: each is also read outside it. The cards are what the ontology *markdown*
+    renders -- an ontology card is a table card with five sections appended, and a
+    second, separately built copy would be a way for the two halves of one file to
+    disagree -- and the dictionary would otherwise be built from a second set of
+    profiles rather than the ones already collected (and cached) here.
+    """
+    from .render.glossary import build_glossary
+    from .render.table_cards import build_table_cards
+
+    profiles = [facts["profile"] for facts in collected]
+    if glossary is None:
+        glossary = build_glossary(
+            documents,
+            artifact_root=root,
+            profiles=[facts["glossary_profile"] for facts in collected],
+        )
+    cards = dict(tables) if tables else build_table_cards(profiles, artifact_root=root)
+    return profiles, glossary, cards
+
+
+def _report(ontology: dict, overrides, counters: str) -> None:
+    """The one summary line this command prints."""
     applied = ontology["overrides_applied"]
     confirmations = ""
     if overrides is not None:
@@ -157,9 +184,48 @@ def run_ontology(args: argparse.Namespace) -> int:
         f"{len(ontology['constraints'])} constraint(s) and "
         f"{len(ontology['findings'])} finding(s) from "
         f"{ontology['corpus'].get('task_count')} task(s){confirmations} "
-        f"({loaded.counters()})"
+        f"({counters})"
     )
-    return 0
+
+
+def _collect(items, cache, *, needs_glossary: bool) -> list[dict]:
+    """The per-document facts the ontology is merged from, cached under their digests.
+
+    Two profiles per document, because the ontology is derived from two layers that read
+    the corpus differently: the entity/relation half reads the profile *with* the task's
+    diagnostics, and the value dictionary underneath it reads the profile the document
+    alone proves. A supplied ``--glossary`` makes the second one unnecessary.
+    """
+    from .render.semantic_profile import build_semantic_profile
+
+    def build(item) -> dict:
+        facts = {"profile": build_semantic_profile(item.document, item.diagnostics)}
+        if needs_glossary:
+            facts["glossary_profile"] = build_semantic_profile(item.document)
+        return facts
+
+    collected = []
+    for item in items:
+        try:
+            collected.append(cache.facts(item, lambda item=item: build(item)))
+        except ValueError as error:
+            raise ValueError(f"{item.path}: {error}") from error
+    return collected
+
+
+def _written(cards: dict, chosen: set[str]) -> list[str]:
+    """Every document one run published, relative to ``--out``."""
+    written = ["ontology.json"] if "json" in chosen else []
+    if "md" not in chosen:
+        return written
+    return [
+        *written,
+        "ontology.md",
+        *(
+            f"tables/{table_card_filename(card['table'])}"
+            for card in cards.get("tables") or []
+        ),
+    ]
 
 
 def _write_ontology(out: Path, ontology: dict, cards: dict, chosen: set[str]) -> None:

@@ -93,6 +93,34 @@ short = render_semantic_markdown(profile, sections=["overview", "fields_table"])
   section 6 states "无 diagnostics 文档" ("no diagnostics document") explicitly and the run summary
   counts it in `missing_diagnostics=N`, rather than staying silent.
 
+## Incremental runs: `--incremental` / `--no-cache`
+
+One or two tasks changed, and the rerun still reads and re-derives every task in the
+corpus. `--incremental` narrows that pass to the tasks whose fingerprints moved:
+
+```bash
+scope-lineage describe --lineage /path/to/corpus --out /path/to/out --incremental
+```
+
+- It writes two disposable things under `--out`: `.scope-lineage-corpus-index.json` (the
+  sha256 of each task's `lineage.json` / `diagnostics.json`, plus one sha256 over the
+  options that steer the derivation) and `.cache/` (the facts each task contributed
+  before the corpus-level merge).
+- `describe` has no corpus-level merge -- one task is one document -- so a task whose
+  fingerprints, options and already-written `semantic.json` / `semantic.md` all stand
+  still is skipped whole, and a deleted or edited output is described again.
+- With `--metadata-patch` no task is skipped: `patch_unmatched` answers "this confirmed
+  comment matched nothing **in the whole corpus**", which is only true when every task
+  was actually described.
+- A changed option invalidates the whole index and recomputes everything: the **content**
+  of the `--overrides` file, `--format`, the `glossary.json` / `tables.json` read back,
+  and the tool version. An index or a cache file written by another subcommand (a
+  `command` or `doc_format` that disagrees) is ignored the same way.
+- The summary line gains `reused=N, recomputed=M, removed=K`: how many tasks were reused,
+  re-derived, and have disappeared from the corpus.
+- Without `--incremental` the run is the full one it always was, reading and writing
+  neither index nor cache; `--no-cache` deletes both first and then runs in full.
+
 ## The `semantic.json` structure (semantic-json/1)
 
 A statement profile is a flat seven-block structure with a fixed key order:

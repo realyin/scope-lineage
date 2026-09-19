@@ -58,6 +58,27 @@ markdown = render_glossary_markdown(glossary)
   一份被人工确认过的文件被静默忽略，比报错更危险。
 - `corpus.artifact_root` **原样记录** `--lineage` 的取值。要求产物字节可复现时传相对路径。
 
+## 增量运行：`--incremental` / `--no-cache`
+
+一份语料只改了一两个任务，重跑却要把每个任务重新读一遍、重新算一遍。`--incremental` 让这一遍
+只落在指纹变了的任务上：
+
+```bash
+scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --incremental
+```
+
+- 它在 `--out` 下写两样可丢弃的东西：`.scope-lineage-corpus-index.json`（每个任务
+  `lineage.json` / `diagnostics.json` 的 sha256，加一份「影响推导的选项」的 sha256）与
+  `.cache/`（每个任务在语料级合并之前贡献的那份事实）。
+- **语料级合并照样跑全量**：复用的只是每个任务自己贡献的那一半，所以增量跑出来的
+  产物与全量跑逐字节一致。
+- 选项变了就整份作废、全部重算：`--overrides` 文件的**内容**、`--format`、读回来的
+  `glossary.json` / `tables.json`、以及工具版本，任何一项对不上，索引就当没有。
+  由别的子命令写下的索引或缓存（`command`、`doc_format` 对不上）同样当没有。
+- 摘要行末尾多出 `reused=N, recomputed=M, removed=K`：复用了几个、重算了几个、语料里少了几个。
+- 不给 `--incremental` 就是原来的全量跑，既不读也不写索引与缓存；`--no-cache` 先把这两样
+  删掉再全量跑。
+
 ## glossary.json 结构（glossary-json/1）
 
 ```jsonc
