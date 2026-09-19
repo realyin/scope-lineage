@@ -142,8 +142,8 @@ The `context` vocabulary (`observations[].context`):
 | `filter_rlike` | `col LIKE 'pattern'` / `col RLIKE 'pattern'` -- **the whole pattern is one observation**, never split on `|`: splitting would invent two values the SQL never compares against. Its `kind` is `pattern`, not `literal` |
 | `case_condition` | `col = constant` inside a CASE branch's WHEN condition |
 | `case_then` | A CASE's THEN / ELSE constants, attributed to the column that CASE **produces** |
-| `union_constant` | A constant projected inside one UNION branch, attributed to the target column |
-| `constant_projection` | A constant projection outside any UNION branch, attributed to the target column |
+| `union_constant` | A constant projected inside one UNION branch, attributed to **the column that branch projects it as** (see below) |
+| `constant_projection` | A constant projection outside any UNION branch, attributed the same way: to the output column of the step that produces it |
 | `join_condition` | A JOIN's extra condition (`ON … AND d.rn = 1`) |
 
 Other rules:
@@ -166,6 +166,25 @@ Other rules:
   spells `'0'` here and `0` there therefore merges into one entry, whose `sql_literal` is
   the first spelling in sorted order. The markdown and the overrides keys follow the same
   rule: **display `sql_literal`, key on `value`**.
+- **A projected constant belongs to the column that step projects it as** (WI-2.10 A).
+  Every `constant` step of a field chain (`field_mapping_chains[].ordered_steps[]`)
+  carries an `output_field` -- `union:xxx:b01.data_source`, or `<target table>.<column>`
+  at the root -- and the observation is filed there. Following that output column
+  downstream, **while every step on the way is a pass-through (`DIRECT` / `UNION`)** the
+  constant still is what the target column holds, so it is published as
+  `<target table>.<column>`; as soon as one step **consumes** it (an aggregate, an
+  arithmetic step, a CASE reading it) the observation stays on the scope-level column
+  that produced it, flagged `logical: true`.
+  The counter-example came from a real corpus: the chain of
+  `x = SUM(CASE WHEN data_source = 'contract' THEN amt END)` legitimately contains the
+  step `'contract' AS data_source`, so attributing every constant step to the chain's
+  **target** published `contract` / `inner` as values of a `decimal` amount column. They
+  are values of `data_source`.
+- **The declared-type guard** (WI-2.10 A): a quoted literal only reaches a physical
+  column declared numeric or temporal when the text inside the quotes is itself of that
+  type -- `'Y'` is not a value any `decimal(15,2)` column ever held. A column whose type
+  the metadata does not give admits everything: this layer does not guess. The same rule
+  runs on the describe side (`value_domain`) and where the dictionary is collected.
 - `NULL` is not published as a value (it is an absence, not a code), but it does count
   towards a CASE's exhaustiveness: `ELSE NULL` closes the branch set just the same.
 - `closed_set` is published only when the corpus's closure claims for that column
@@ -226,21 +245,43 @@ straight back (`doc_format: "glossary-overrides-template/1"`, `values` keyed on
 `<table.column>=<unquoted value>`, an empty `meaning`, and today's `date`). Both files ask
 about the same values.
 
-**Which values reach the form** (nothing else is asked):
+`--template` still needs `--out`: the form is **a ranking of the dictionary**, not a
+replacement for it. Without `--out` the command stops with exit code 2 and prints that
+reason.
+
+**Which values reach the form** (nothing else is asked, WI-2.10 B):
 
 | Rule | Detail |
 | --- | --- |
 | `kind = literal` only | A `pattern` is a `LIKE` / `RLIKE` match shape rather than a value, and nobody can give a shape a business meaning |
+| Physical columns only | A `logical: true` reference, or any `column_ref` containing `:`, is a scope id, and as an overrides key it would match nothing |
+| No switches | `Y` / `N` / `yes` / `no` / `true` / `false` (case-insensitively) answer "yes or no", which the reader already knows |
+| No bare numbers | `rn = 1` and `flag = 0` are positions and switches -- **excluded even inside a proven closed set**, because `IN (0, 1, 2)` only pins a position to a set |
 | No date-shaped literals | `'20260814'` is an instance date, not a code (see `instance_date` in the semantic doc) |
-| No bare numbers with no enumerated context | `rn = 1` and `flag = 0` are positions and switches; **a number inside a proven closed set is kept** (`status IN (0, 1, 2)`) |
+| No column left with fewer than two values | One value is not a code system, and the answer describes no set |
 | Nothing already confirmed | A value whose `meaning` already carries text is not asked twice |
-| No observation that never reached a physical column | A `logical: true` `column_ref` is a scope id, and as an overrides key it would match nothing |
 
-**Order and size**: closed sets first (answering one completes a whole set), then by how
-many tasks use the value, then by how many observations there are, and finally by column
-and value -- so two runs over one corpus produce identical bytes. `--template-top` caps
-the number of **values** (default 20); after the cut, one column's values are regrouped so
-the form can be filled in column by column.
+**Order and size**: the first version ranked closed sets first and then by observation
+count, and a real corpus spent its whole first page on `Y` / `N`, `1` / `0` and
+scope-level columns -- the exclusions above are that finding. Ranking now runs over
+**columns**, scored
+
+```
+distinct values × 2 + Σ task_count + 3×(has filter_in) + 2×(has case_then) + 2×(comment clue)
+```
+
+where a comment clue is one of `编码` / `代码` / `类型` / `状态` / `标记` / `code` / `type` /
+`status` / `flag` in the column's corpus comment. It is a **ranking signal only** and never
+becomes a value's meaning -- "this column is probably worth asking about" and "I know what
+this value means" are different claims. Ties break on the column name, values inside a
+column order by task count, observation count and spelling, so two runs over one corpus
+produce identical bytes. `--template-top` still caps the number of **values** (default 20);
+the cut may land inside a column, and every column before it is whole.
+
+**What it did not ask about is in the header**: `generated.excluded_values` and
+`generated.excluded_scope_columns`, rendered in the markdown as one line,
+`> 排除了 N 个开关/数字/日期型取值与 M 个 scope 级列。` A form that asks about three columns
+has to let a reader tell "the corpus held nothing else" from "everything else was skipped".
 
 **A blank entry is not an answer**: the form ships entirely blank and comes back half
 filled, which is normal. When `--overrides` reads a key whose `meaning` is an empty

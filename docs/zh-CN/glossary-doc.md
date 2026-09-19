@@ -130,8 +130,8 @@ markdown = render_glossary_markdown(glossary)
 | `filter_rlike` | `col LIKE '模式'` / `col RLIKE '模式'`——**整个模式记成一条观察**，不拆 `|` 分支：拆开等于发明两个 SQL 从未比较过的值；这条观察的 `kind` 是 `pattern` 而不是 `literal` |
 | `case_condition` | CASE 分支的 WHEN 条件里的 `col = 常量` |
 | `case_then` | CASE 的 THEN / ELSE 常量，归到该 CASE **产出的那个列** |
-| `union_constant` | UNION 某个分支里写死的投影常量，归到目标列 |
-| `constant_projection` | 不在 UNION 分支里的投影常量，归到目标列 |
+| `union_constant` | UNION 某个分支里写死的投影常量，归到**该分支把它投影成的那一列**（见下） |
+| `constant_projection` | 不在 UNION 分支里的投影常量，同样归到产生它的那一步的输出列 |
 | `join_condition` | JOIN 的附加条件（`ON … AND d.rn = 1`） |
 
 其余规则：
@@ -149,6 +149,18 @@ markdown = render_glossary_markdown(glossary)
   `sql_literal` 里，谓词原文留在 `observations[].expression` 里。数值原样（`0` 就是 `0`）。
   一处写 `'0'`、另一处写 `0` 的同一个值因此归并成一条，`sql_literal` 取排序后的第一种写法。
   markdown 与 overrides 的键都跟着这条规则走：**展示用 `sql_literal`，键用 `value`**。
+- **投影常量归属于「这一步把它投影成的那一列」**（WI-2.10 A）：字段链
+  （`field_mapping_chains[].ordered_steps[]`）里的每个 `constant` 步都带一个 `output_field`
+  （形如 `union:xxx:b01.data_source` 或 `<目标表>.<列>`），观察就记在这个列上。从这个输出列
+  往下游走，**沿途每一步都是透传（`DIRECT` / `UNION`）**时，这个常量仍然就是目标列的取值，
+  于是记成 `<目标表>.<列>`；中间只要有一步把它**消费**掉（聚合、算术、读它的 CASE），观察就
+  停在产生它的那个 scope 级列上（`logical: true`）。
+  反例是真实语料给的：`x = SUM(CASE WHEN data_source = 'contract' THEN amt END)` 的链里
+  合法地含有 `'contract' AS data_source` 这一步——按链的**目标列**归属，会把
+  `contract` / `inner` 发布成一个 `decimal` 金额列的取值。它们是 `data_source` 的取值。
+- **声明类型守卫**（WI-2.10 A）：带引号的字面量只有在引号里的文本本身也是该类型时，才会落到
+  声明为数值 / 日期的物理列上——`'Y'` 不是任何 `decimal(15,2)` 列取过的值。元数据没给类型的
+  列一律放行：这一层不猜。同一条规则 describe 侧（`value_domain`）与字典采集侧共用。
 - `NULL` 不作为取值发布（它是缺失，不是编码），但参与 CASE 的穷尽性判定：
   `ELSE NULL` 同样把分支集合闭上。
 - `closed_set` 只在**整个语料对这一列的封闭断言唯一**时发布：两个任务给出不同的 `IN` 列表
@@ -202,19 +214,36 @@ scope-lineage glossary --lineage corpus --out dict --overrides dict/glossary.ove
 `--overrides` 直接读得回去的（`doc_format: "glossary-overrides-template/1"`，`values` 的键是
 `<表.列>=<去引号取值>`，`meaning` 为空串，`date` 取当天）。两个文件问的是同一批取值。
 
-**哪些取值进模板**（其余一律不问）：
+`--template` 仍然需要 `--out`：模板是**对字典的一次排名**，不是字典的替代品。少给 `--out`
+时命令以退出码 2 停下，并把这句理由一起打出来。
+
+**哪些取值进模板**（其余一律不问，WI-2.10 B）：
 
 | 规则 | 说明 |
 | --- | --- |
 | 只要 `kind = literal` | `pattern` 是 `LIKE` / `RLIKE` 的匹配形状，不是某个取值，没人能给它一个业务含义 |
+| 只要物理列 | `logical: true`、或 `column_ref` 里带 `:` 的是 scope 级引用，写成 overrides 的键命不中任何列 |
+| 排除开关 | `Y` / `N` / `yes` / `no` / `true` / `false`（不区分大小写）答的是「是或否」，读者本来就知道 |
+| 排除裸数字 | `rn = 1`、`flag = 0` 是位置与开关；**即使落在已证明封闭的集合里也不问**（`IN (0, 1, 2)` 只是把位置钉在一个集合里） |
 | 排除日期形字面量 | `'20260814'` 是实例日期，不是编码（见 semantic 文档的 `instance_date`） |
-| 排除无枚举上下文的裸数字 | `rn = 1`、`flag = 0` 是位置与开关；**落在已证明封闭的集合里的数字仍然保留**（`status IN (0, 1, 2)`） |
+| 排除只剩一个取值的整列 | 一个取值不成编码体系，答完也说不出一个集合 |
 | 排除已确认的取值 | `meaning` 已有文本的不再问第二遍 |
-| 排除穿不透物理列的观察 | `logical: true` 的 `column_ref` 是 scope id，写成 overrides 的键命不中任何列 |
 
-**排序与条数**：`closed_set` 优先（答完就补全了一整个集合），其次按出现任务数、再按观察条数，
-最后按列名与取值定序——同一份语料两次生成字节一致。`--template-top` 是**取值条数**上限，默认
-20；截断之后同一列的取值会重新聚到一起，好让人一列一列地填。
+**排序与条数**：上一版按 `closed_set` 优先 + 观察数排，真实语料的第一页于是被 `Y`/`N`、`1`/`0`
+与 scope 级列占满——上面那几条排除就是这个发现。现在按**列**排，列得分为
+
+```
+不同取值数 × 2 + Σ出现任务数 + 3×(有 filter_in) + 2×(有 case_then) + 2×(列注释含线索词)
+```
+
+线索词是 `编码`/`代码`/`类型`/`状态`/`标记`/`code`/`type`/`status`/`flag`。它只是**排序线索**，
+永远不会变成某个取值的含义——「这列大概值得问」和「知道这列的某个值是什么意思」是两回事。
+同分按列名定序，列内按出现任务数、观察数、取值拼写定序，所以同一份语料两次生成字节一致。
+`--template-top` 仍然是**取值条数**上限（默认 20），截断可能落在一列中间，它前面的列是完整的。
+
+**它没问什么也写在表头**：`generated.excluded_values` / `generated.excluded_scope_columns` 两个
+计数，md 里是一行 `> 排除了 N 个开关/数字/日期型取值与 M 个 scope 级列。`——一张只问三列的表，
+要让人分得清「语料里没别的」和「别的都被跳过了」。
 
 **空着的条目不算答案**：整张表初始全空，填了一半就交回来是常态。`--overrides` 读到 `meaning`
 为空串的键时**跳过并计入 `overrides_applied.blank`**，不会把它写成一条"含义是空字符串"的已确认

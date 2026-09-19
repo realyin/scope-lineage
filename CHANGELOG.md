@@ -1,6 +1,25 @@
 # Changelog
 
 ## Unreleased
+- A constant the SQL projects into one column is no longer published as a value of a
+  column that merely reads it. A metric's chain legitimately contains the UNION branch
+  step that writes `'contract' AS data_source` -- it is how the `SUM(CASE WHEN
+  data_source = ...)` gets its flag -- and attributing every `constant` step to the
+  chain's target column published those codes as values of a `decimal` amount. Each
+  constant step is filed under its own `output_field`, promoted to the target column only
+  while every downstream step carries it through unchanged (`DIRECT` / `UNION`). The
+  describe-side declared-type guard (`'Y'` is not a value of a `decimal(15,2)`) now also
+  runs where the dictionary is collected, so a corpus cannot publish the wrong fact in
+  the first place.
+- `glossary --template` asks about code columns instead of switches. The old ranking put
+  closed sets first and then counted observations, which filled a real corpus's first
+  page with `Y` / `N`, `1` / `0` and scope-level columns. The form now takes physical
+  columns only, drops switches, bare numbers and date-shaped literals, skips any column
+  left with fewer than two values, and ranks what is left by column -- distinct values,
+  task counts, whether an `IN` list or a `CASE` puts the column in enumerated position,
+  and whether its comment reads like a code column's (a ranking clue, never a meaning).
+  The markdown says how much it stepped over: `排除了 N 个开关/数字/日期型取值与 M 个
+  scope 级列`. `--out` stays required, and the refusal now names the reason.
 - One unreadable `lineage.json` no longer ends a whole corpus run. `describe`, `render`,
   `glossary` and `tables` share one input walk, and a truncated or half-written document
   used to raise out of `main` -- hiding every other task in the tree behind the one input

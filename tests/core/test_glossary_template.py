@@ -4,6 +4,12 @@ The open-questions list used to ask what every ``code`` meant, one question per 
 and the owner could not work through them. Those were never questions -- they were a
 form -- so the profile now points at this file and the CLI generates it.
 
+The first version of the form ranked closed sets first and then by observation count,
+and a real corpus filled its whole first page with ``Y`` / ``N``, ``1`` / ``0`` and
+scope-level columns: exactly the values nobody has a business meaning for. The form now
+asks about *columns* -- physical ones, with at least two non-trivial values -- ranked by
+how much of the corpus rests on them, and says at the top how much it left out.
+
 The tests pin what the form leaves out (one case per exclusion rule), what order it asks
 in, that the two files it writes say the same thing, and that two runs of one corpus
 produce the same bytes.
@@ -16,6 +22,7 @@ import json
 from pathlib import Path
 
 from scope_lineage.cli import main
+from scope_lineage.metadata.schema_metadata import SchemaMap
 from scope_lineage.render.glossary import build_glossary
 from scope_lineage.render.glossary_template import (
     TEMPLATE_TOP_DEFAULT,
@@ -29,16 +36,51 @@ from .statement_document import write_statement_documents
 
 DAY = datetime.date(2026, 9, 19)
 
+# Two askable columns (`pay_status`, `channel`), and one of each thing the form must not
+# ask about: a switch, a bare number, an instance date and a match pattern.
 MIXED_SQL = (
     "INSERT INTO mart.orders SELECT o.order_id, o.pay_status, o.channel "
     "FROM ods.app_order o "
-    "WHERE o.pay_status IN ('PAID', 'REFUND') AND o.channel = 'APP' "
-    "AND o.dt = '20260814' AND o.rn = 1 AND o.note RLIKE 'A|B'"
+    "WHERE o.pay_status IN ('PAID', 'REFUND') AND o.channel IN ('APP', 'WEB') "
+    "AND o.is_vip IN ('Y', 'N') AND o.dt IN ('20260814', '20260815') "
+    "AND o.rn IN (1, 2) AND o.note RLIKE 'A|B'"
 )
 
-MIXED_SCHEMA = {
-    "ods.app_order": ["order_id", "pay_status", "channel", "dt", "rn", "note"]
-}
+MIXED_COLUMNS = [
+    "order_id",
+    "pay_status",
+    "channel",
+    "is_vip",
+    "dt",
+    "rn",
+    "note",
+]
+
+# `支付状态` carries one of the ranking clues (状态); `来源渠道` deliberately carries
+# none, so the two columns differ by exactly the clue and nothing else.
+MIXED_COMMENTS = {"pay_status": "支付状态", "channel": "来源渠道"}
+
+MIXED_SCHEMA = SchemaMap(
+    {"ods.app_order": MIXED_COLUMNS},
+    column_details={
+        "ods.app_order": [
+            {
+                "name": name,
+                "type": "string",
+                "comment": MIXED_COMMENTS.get(name),
+            }
+            for name in MIXED_COLUMNS
+        ]
+    },
+)
+
+# A CASE inside a CTE: its labels never reach a named target column, so they are filed
+# against a scope id, which is not a key any overrides file can bind.
+SCOPE_SQL = (
+    "INSERT INTO mart.t WITH d AS ("
+    " SELECT s.id, CASE WHEN s.f = 'A' THEN 'X' ELSE 'Z' END AS tag FROM ods.s s) "
+    "SELECT d.id FROM d"
+)
 
 
 def _document(sql: str, task_id: str = "corpus", schema=None) -> dict:
@@ -57,6 +99,10 @@ def _keys(template: dict) -> list[str]:
     return list(template["values"])
 
 
+def _columns(template: dict) -> list[str]:
+    return list(dict.fromkeys(key.rsplit("=", 1)[0] for key in _keys(template)))
+
+
 # ------------------------------------------------------------------ 1. exclusions
 
 
@@ -67,10 +113,9 @@ def test_a_closed_set_value_is_asked_about() -> None:
     assert "ods.app_order.pay_status=REFUND" in _keys(template)
 
 
-def test_a_plain_equality_value_is_asked_about_too() -> None:
-    assert "ods.app_order.channel=APP" in _keys(
-        build_overrides_template(_glossary(), today=DAY)
-    )
+def test_a_switch_is_not_a_code_and_is_left_out() -> None:
+    assert not [key for key in _keys(build_overrides_template(_glossary(), today=DAY))
+                if ".is_vip=" in key]
 
 
 def test_a_date_shaped_literal_is_not_a_code_and_is_left_out() -> None:
@@ -78,21 +123,10 @@ def test_a_date_shaped_literal_is_not_a_code_and_is_left_out() -> None:
                 if key.endswith("=20260814")]
 
 
-def test_a_bare_number_with_no_enumerated_context_is_left_out() -> None:
+def test_a_bare_number_is_left_out_even_inside_a_proven_closed_set() -> None:
+    """`rn IN (1, 2)` is a position pinned to a set, not an enumeration of codes."""
     assert not [key for key in _keys(build_overrides_template(_glossary(), today=DAY))
-                if key.endswith(".rn=1")]
-
-
-def test_a_number_inside_a_proven_closed_set_is_kept() -> None:
-    sql = (
-        "INSERT INTO mart.t SELECT s.id, s.state FROM ods.src s "
-        "WHERE s.state IN (0, 1, 2)"
-    )
-    template = build_overrides_template(
-        _glossary(sql, schema={"ods.src": ["id", "state"]}), today=DAY
-    )
-
-    assert "ods.src.state=0" in _keys(template)
+                if ".rn=" in key]
 
 
 def test_a_match_pattern_is_a_shape_not_a_value_and_is_left_out() -> None:
@@ -100,43 +134,53 @@ def test_a_match_pattern_is_a_shape_not_a_value_and_is_left_out() -> None:
                 if "A|B" in key]
 
 
+def test_a_scope_level_column_is_left_out() -> None:
+    template = build_overrides_template(
+        _glossary(SCOPE_SQL, schema={"ods.s": ["id", "f"]}), today=DAY
+    )
+
+    assert not [key for key in _keys(template) if ":" in key]
+
+
+def test_a_column_with_only_one_value_left_is_not_worth_a_section() -> None:
+    """One value is not a code system: the answer teaches a reader nothing about a set."""
+    sql = (
+        "INSERT INTO mart.t SELECT s.id FROM ods.src s "
+        "WHERE s.state = 'OK' AND s.kind IN ('A', 'B')"
+    )
+    template = build_overrides_template(
+        _glossary(sql, schema={"ods.src": ["id", "state", "kind"]}), today=DAY
+    )
+
+    assert _columns(template) == ["ods.src.kind"]
+
+
 def test_a_value_somebody_already_confirmed_is_not_asked_twice() -> None:
     overrides = {"values": {"pay_status=PAID": {"meaning": "已支付"}}}
     template = build_overrides_template(_glossary(overrides=overrides), today=DAY)
 
     assert "ods.app_order.pay_status=PAID" not in _keys(template)
-    assert "ods.app_order.pay_status=REFUND" in _keys(template)
+    assert "ods.app_order.channel=APP" in _keys(template)
 
 
 # -------------------------------------------------------------------- 2. ordering
 
 
-TWO_TASK_SQL = (
-    "INSERT INTO mart.other SELECT o.id, o.channel FROM ods.other o "
-    "WHERE o.channel = 'WEB'"
-)
-
-
-def test_a_closed_set_outranks_a_value_used_by_more_tasks() -> None:
-    """Closedness is the stronger fact: the answer completes a set rather than a guess."""
-    documents = [
-        _document(MIXED_SQL, "task_a", schema=MIXED_SCHEMA),
-        _document(TWO_TASK_SQL, "task_b", schema={"ods.other": ["id", "channel"]}),
-        _document(TWO_TASK_SQL, "task_c", schema={"ods.other": ["id", "channel"]}),
+def test_a_comment_clue_lifts_a_column_above_an_otherwise_equal_one() -> None:
+    """Two columns, same counts; only `支付状态` reads like a code column."""
+    assert _columns(build_overrides_template(_glossary(), today=DAY)) == [
+        "ods.app_order.pay_status",
+        "ods.app_order.channel",
     ]
-    glossary = build_glossary(documents, artifact_root="corpus")
-    keys = _keys(build_overrides_template(glossary, today=DAY))
-
-    assert keys[0].startswith("ods.app_order.pay_status=")
-    assert "ods.other.channel=WEB" in keys
 
 
 def test_the_values_of_one_column_are_asked_together() -> None:
-    keys = _keys(build_overrides_template(_glossary(), today=DAY))
-    columns = [key.rsplit("=", 1)[0] for key in keys]
+    columns = [key.rsplit("=", 1)[0] for key in _keys(
+        build_overrides_template(_glossary(), today=DAY)
+    )]
 
-    assert len(columns) == len(set(columns)) + (len(columns) - len(dict.fromkeys(columns)))
     assert columns == sorted(columns, key=lambda name: columns.index(name))
+    assert len(set(columns)) == len(list(dict.fromkeys(columns)))
 
 
 def test_the_top_limit_cuts_the_form_and_defaults_to_twenty() -> None:
@@ -172,6 +216,26 @@ def test_the_markdown_asks_about_exactly_the_json_keys() -> None:
     assert markdown.count("| `") == len(template["values"]) * 2
 
 
+def test_the_markdown_counts_what_it_did_not_ask_about() -> None:
+    """A form that silently drops two thirds of a corpus reads as a form that saw it."""
+    glossary = _glossary()
+    template = build_overrides_template(glossary, today=DAY)
+
+    assert template["generated"]["excluded_values"] == 6
+    assert template["generated"]["excluded_scope_columns"] == 0
+    assert "排除了 6 个开关/数字/日期型取值与 0 个 scope 级列" in (
+        render_overrides_template_markdown(template, glossary)
+    )
+
+
+def test_the_scope_columns_it_stepped_over_are_counted_too() -> None:
+    glossary = _glossary(SCOPE_SQL, schema={"ods.s": ["id", "f"]})
+    template = build_overrides_template(glossary, today=DAY)
+
+    assert template["generated"]["excluded_scope_columns"] == 1
+    assert "1 个 scope 级列" in render_overrides_template_markdown(template, glossary)
+
+
 def test_the_markdown_says_whether_the_column_was_proven_closed() -> None:
     glossary = _glossary()
     markdown = render_overrides_template_markdown(
@@ -179,7 +243,6 @@ def test_the_markdown_says_whether_the_column_was_proven_closed() -> None:
     )
 
     assert "- 该列取值已被 SQL 证明封闭：是" in markdown
-    assert "- 该列取值已被 SQL 证明封闭：未证明" in markdown
 
 
 def test_a_corpus_with_nothing_to_ask_produces_a_form_that_says_so() -> None:
@@ -289,6 +352,15 @@ def test_the_generated_json_is_accepted_back_as_overrides(tmp_path: Path) -> Non
     glossary = json.loads((out / "glossary.json").read_text(encoding="utf-8"))
     assert glossary["overrides_applied"]["values"] == 1
     assert glossary["overrides_applied"]["unmatched"] == []
+
+
+def test_the_template_flag_says_it_still_needs_an_out_directory(capsys) -> None:
+    """`--out` stays required, so the refusal has to name the reason, not just the flag."""
+    assert main(["glossary", "--lineage", "x", "--template", "form.md"]) == 2
+
+    error = capsys.readouterr().err
+    assert "--out is required" in error
+    assert "--template ranks its form from that dictionary" in error
 
 
 def test_no_template_flag_writes_no_template(tmp_path: Path) -> None:

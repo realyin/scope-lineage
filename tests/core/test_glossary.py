@@ -655,3 +655,126 @@ def test_an_empty_overrides_file_changes_nothing(payload) -> None:
     assert build_glossary([document], artifact_root="corpus", overrides=payload) == (
         build_glossary([document], artifact_root="corpus")
     )
+
+
+# ------------- a constant belongs to the column the SQL projects it AS, not to the
+# ------------- column an aggregate later builds out of it
+
+# The real-corpus defect: a UNION branch writes `'contract' AS data_source`, and a
+# decimal metric is `SUM(CASE WHEN data_source = 'contract' THEN amt END)`. The metric's
+# chain legitimately contains the branch's constant step -- that is how the CASE reads
+# the flag -- so attributing every constant step of a chain to the chain's TARGET column
+# published `contract` / `inner` as values of a `decimal` amount. They are values of
+# `data_source`.
+AGGREGATED_UNION_SQL = (
+    "INSERT INTO mart.metric WITH base AS ("
+    " SELECT a.id, 'contract' AS data_source, a.amt FROM ods.a a"
+    " UNION ALL SELECT b.id, 'inner' AS data_source, b.amt FROM ods.b b) "
+    "SELECT s.id, SUM(CASE WHEN s.data_source = 'contract' THEN s.amt END) AS x "
+    "FROM base s GROUP BY s.id"
+)
+
+_AGGREGATED_UNION_SCHEMA = {"ods.a": ["id", "amt"], "ods.b": ["id", "amt"]}
+
+
+def _aggregated_union_glossary() -> dict:
+    return _glossary(
+        _document(AGGREGATED_UNION_SQL, schema=_AGGREGATED_UNION_SCHEMA)
+    )
+
+
+def test_a_branch_constant_under_an_aggregate_is_not_a_value_of_the_metric() -> None:
+    assert _values(_aggregated_union_glossary(), "x") == []
+
+
+def test_it_is_recorded_against_the_column_the_branch_projects_it_as() -> None:
+    glossary = _aggregated_union_glossary()
+
+    assert sorted({item["column_ref"] for item in _values(glossary, "data_source")}) == [
+        "union:base:b01.data_source",
+        "union:base:b02.data_source",
+    ]
+    entry = _value(glossary, "data_source", "'contract'")
+    assert entry["logical"] is True
+    assert entry["observations"][0]["context"] == "union_constant"
+
+
+def _typed_schema() -> SchemaMap:
+    return SchemaMap(
+        {"ods.src": ["id", "flag"], "mart.t": ["id", "amt"]},
+        column_details={
+            "ods.src": [
+                {"name": "id", "type": "bigint", "comment": None},
+                {"name": "flag", "type": "string", "comment": None},
+            ],
+            "mart.t": [
+                {"name": "id", "type": "bigint", "comment": None},
+                {"name": "amt", "type": "decimal(15,2)", "comment": None},
+            ],
+        },
+    )
+
+
+def _typed_glossary(then: str, otherwise: str) -> dict:
+    sql = (
+        f"INSERT INTO mart.t SELECT s.id, CASE WHEN s.flag = 'Y' THEN {then} "
+        f"ELSE {otherwise} END AS amt FROM ods.src s"
+    )
+    return _glossary(_document(sql, schema=_typed_schema()))
+
+
+def test_a_string_label_is_not_collected_against_a_decimal_target_column() -> None:
+    """The describe-side type guard, applied where the dictionary is built."""
+    glossary = _typed_glossary("'Y'", "'N'")
+
+    assert _values(glossary, "amt") == []
+    assert _value(glossary, "flag", "'Y'")["column_ref"] == "ods.src.flag"
+
+
+def test_a_quoted_number_still_reaches_a_decimal_target_column() -> None:
+    glossary = _typed_glossary("'1.00'", "'0.00'")
+
+    assert [item["value"] for item in _values(glossary, "amt")] == ["0.00", "1.00"]
+
+
+# Which transforms leave a projected constant still being the target column's own value.
+# Anything else -- an aggregate, an arithmetic expression, a CASE reading it -- consumes
+# the constant rather than emitting it.
+_CARRIES_A_CONSTANT_THROUGH = frozenset({"DIRECT", "UNION", "CONSTANT"})
+
+
+def _target_transforms(document: dict) -> dict[tuple[str, str], str]:
+    from scope_lineage.render.semantic_profile import build_semantic_profile
+
+    transforms: dict[tuple[str, str], str] = {}
+    for statement in _statement_documents(document):
+        target = str(statement.get("target_table") or "")
+        for field in build_semantic_profile(statement).get("fields") or []:
+            transforms[(target, str(field.get("column")))] = str(
+                field.get("transform") or ""
+            )
+    return transforms
+
+
+def test_no_projected_constant_is_published_under_a_column_that_only_consumes_it() -> None:
+    """The property behind both cases above, asserted over the whole fixture corpus."""
+    documents = [
+        *_corpus_documents(),
+        _document(AGGREGATED_UNION_SQL, schema=_AGGREGATED_UNION_SCHEMA),
+    ]
+    for document in documents:
+        transforms = _target_transforms(document)
+        for entry in _glossary(document)["values"]:
+            if entry.get("logical"):
+                continue
+            owner = str(entry["column_ref"]).rsplit(".", 1)[0]
+            transform = transforms.get((owner, entry["column"]))
+            contexts = {item["context"] for item in entry["observations"]}
+            if transform is None or not contexts & {
+                "union_constant",
+                "constant_projection",
+            }:
+                continue
+            assert transform in _CARRIES_A_CONSTANT_THROUGH, (
+                f"{entry['column_ref']}={entry['value']} came out of a {transform} chain"
+            )

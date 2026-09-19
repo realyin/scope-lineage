@@ -177,8 +177,24 @@ def _context(document: Mapping, task: str | None, statement_id: str | None) -> d
             for entry in document.get("end_to_end_lineage") or []
         },
         "block_outputs": _block_outputs(document),
+        "chains": _chain_steps(document),
         "input_tables": metadata.get("input_tables") or {},
         "output_tables": metadata.get("output_tables") or {},
+    }
+
+
+def _chain_steps(document: Mapping) -> dict[str, list[dict]]:
+    """``mapping_chain_id -> ordered_steps``: where a chain's steps say what they OUTPUT.
+
+    A profile's ``derivation[]`` restates a chain step for a reader and drops the one key
+    this module needs, ``output_field``. WI-2.10 A: a chain legitimately contains steps
+    that produce OTHER columns -- the flag a ``SUM(CASE WHEN flag = …)`` reads is part of
+    the metric's chain -- so a constant step is attributed by what that step outputs, not
+    by what the chain ends at.
+    """
+    return {
+        str(chain.get("mapping_chain_id")): list(chain.get("ordered_steps") or [])
+        for chain in document.get("field_mapping_chains") or []
     }
 
 
@@ -310,7 +326,7 @@ def _output_reference(rule: Mapping, name: str, context: dict) -> tuple[str, boo
 
 
 def _field_observations(field: Mapping, context: dict) -> list[dict]:
-    """A target column whose value is written into the SQL rather than read from a table."""
+    """A column whose value is written into the SQL rather than read from a table."""
     steps = [
         step
         for step in field.get("derivation") or []
@@ -322,22 +338,103 @@ def _field_observations(field: Mapping, context: dict) -> list[dict]:
     comments = field.get("sql_comments") or []
     if not steps:
         return _generated_source_observations(field, reference, column, evidence, context)
+    chain = context["chains"].get(str(field.get("mapping_chain_id"))) or []
     return [
         item
         for step in steps
-        for item in _observation(
-            reference,
-            False,
-            column,
-            semantic_text.parse_expression(step.get("expression")),
-            context=CONTEXT_UNION_CONSTANT if step.get("branch") else CONTEXT_CONSTANT_PROJECTION,
-            expression=str(step.get("expression") or ""),
-            closed_set=None,
-            lookups=context,
-            evidence=evidence,
-            comments=comments,
+        for item in _constant_observation(
+            step, chain, context, evidence, comments, (reference, False, column)
         )
     ]
+
+
+def _constant_observation(
+    step: Mapping,
+    chain: Sequence[Mapping],
+    context: dict,
+    evidence: str,
+    comments: Sequence,
+    fallback: tuple[str, bool, str],
+) -> list[dict]:
+    """One constant step, filed under the column THAT STEP projects it as (WI-2.10 A).
+
+    A UNION branch writing ``'contract' AS data_source`` beneath a
+    ``SUM(CASE WHEN data_source = 'contract' THEN amt END)`` is part of the metric's
+    chain, and filing it at the chain's target published ``contract`` as a value of a
+    ``decimal`` amount. The step's own ``output_field`` says which column it is. When
+    that column reaches the target table unchanged the two are the same column, and the
+    target's qualified name is the more useful of the two spellings.
+    """
+    column_ref, logical, column = _constant_reference(step, chain, context, fallback)
+    return _observation(
+        column_ref,
+        logical,
+        column,
+        semantic_text.parse_expression(step.get("expression")),
+        context=CONTEXT_UNION_CONSTANT if step.get("branch") else CONTEXT_CONSTANT_PROJECTION,
+        expression=str(step.get("expression") or ""),
+        closed_set=None,
+        lookups=context,
+        evidence=evidence,
+        comments=comments,
+    )
+
+
+def _constant_reference(
+    step: Mapping, chain: Sequence[Mapping], context: dict, fallback: tuple[str, bool, str]
+) -> tuple[str, bool, str]:
+    """``(column_ref, logical, column)`` for the output column of one constant step.
+
+    ``fallback`` is the chain's own target column, used when the contract published no
+    step to match -- the pre-WI-2.10 answer, which is right whenever a chain has nothing
+    else in it.
+    """
+    output_field = str(_chain_step(step, chain).get("output_field") or "")
+    if not output_field:
+        return fallback
+    name = output_field.rpartition(".")[2]
+    carried = _carried_to_target(output_field, chain, context["target_table"])
+    if carried:
+        return f"{context['target_table']}.{carried}", False, carried
+    return output_field, True, name
+
+
+def _chain_step(step: Mapping, chain: Sequence[Mapping]) -> Mapping:
+    """The chain step a ``derivation[]`` entry restates, matched on its step number."""
+    for item in chain:
+        if str(item.get("step_no")) == str(step.get("step_no")):
+            return item
+    return {}
+
+
+def _carried_to_target(
+    output_field: str, chain: Sequence[Mapping], target_table: str
+) -> str | None:
+    """The target column this constant still IS, or None when a later step consumes it.
+
+    Follows the chain forwards from the constant's own output column: every step that
+    reads it must be a pass-through (a plain projection or a UNION arm) for the constant
+    to still be what the target column holds. One aggregate, one arithmetic step or one
+    CASE reading it breaks the claim, because such a step consumes the value rather than
+    emitting it.
+    """
+    seen: set[str] = set()
+    current = str(output_field)
+    while current and current not in seen:
+        owner, _, name = current.rpartition(".")
+        if owner and target_table and same_table(owner, target_table):
+            return name
+        seen.add(current)
+        readers = [
+            item
+            for item in chain
+            if current in [str(field) for field in item.get("input_fields") or []]
+            and str(item.get("transform") or "") in PASS_THROUGH_TRANSFORMS
+        ]
+        if len(readers) != 1:
+            return None
+        current = str(readers[0].get("output_field") or "")
+    return None
 
 
 def _generated_source_observations(
@@ -400,6 +497,8 @@ def _observation(
         kind = VALUE_KIND_PATTERN
         closed_set = None
     literal = semantic_text.expression_text(node)
+    if not _declared_type_admits(column_ref, logical, column, literal, lookups):
+        return []
     return [
         {
             "column_ref": column_ref,
@@ -419,6 +518,23 @@ def _observation(
             "comments": _comment_pool(column_ref, logical, column, comments, lookups),
         }
     ]
+
+
+def _declared_type_admits(
+    column_ref: str, logical: bool, column: str, literal: str, lookups: dict
+) -> bool:
+    """WI-2.10 A: the describe-side type guard, applied where the dictionary is built.
+
+    ``'Y'`` is not a value a ``decimal(15,2)`` column holds, and a corpus that publishes
+    it there teaches every later reader the same wrong fact. The check needs a declared
+    type, so it only speaks for a physical column the metadata describes; a scope-level
+    reference names no table and is left alone.
+    """
+    if logical:
+        return True
+    table = str(column_ref).rsplit(".", 1)[0]
+    detail = _column_detail(_metadata_item(table, lookups), column)
+    return type_admits_literal(detail.get("type"), literal)
 
 
 def _attribute(rule: Mapping, column: str, lookups: dict) -> tuple[str, bool]:
@@ -522,11 +638,15 @@ def _metadata_item(table: str, lookups: dict) -> dict:
     return {}
 
 
-def _column_comment(item: Mapping, column: str) -> str | None:
+def _column_detail(item: Mapping, column: str) -> Mapping:
     for detail in item.get("column_details") or []:
         if str(detail.get("name")) == column:
-            return detail.get("comment")
-    return None
+            return detail
+    return {}
+
+
+def _column_comment(item: Mapping, column: str) -> str | None:
+    return _column_detail(item, column).get("comment")
 
 
 def _table_comment(item: Mapping) -> str | None:
@@ -784,6 +904,25 @@ _TEMPORAL_TEXT = re.compile(
 )
 
 
+def type_admits_literal(declared: object, literal: object) -> bool:
+    """False when a declared type says the column cannot hold this QUOTED literal.
+
+    Only a quoted literal is judged: an unquoted ``0`` beside a ``decimal`` is the same
+    number written without ceremony, while ``'Y'`` beside one is a value from a different
+    column entirely. An undeclared type admits everything -- the layer refuses to guess.
+    """
+    text = str(literal or "")
+    if not text.startswith(("'", '"')):
+        return True
+    kind = str(declared or "").strip().lower()
+    inner = strip_quotes(text)
+    if kind.startswith(NUMERIC_TYPE_PREFIXES):
+        return bool(_NUMERIC_TEXT.match(inner))
+    if kind.startswith(TEMPORAL_TYPE_PREFIXES):
+        return bool(_TEMPORAL_TEXT.match(inner))
+    return True
+
+
 #: Where a scope-level output observation is filed. ``cte:c`` is a name inside one
 #: statement, not a table, so it cannot be compared to a target table and shares one
 #: bucket instead -- see :func:`value_domain_index`.
@@ -932,16 +1071,9 @@ def _has_context(entry: Mapping, contexts: frozenset) -> bool:
 
 def _type_admits(field: Mapping, entry: Mapping) -> bool:
     """False when the declared type says the column cannot hold this quoted literal."""
-    literal = str(entry.get("sql_literal") or entry.get("value") or "")
-    if not literal.startswith(("'", '"')):
-        return True
-    declared = str(field.get("type") or "").strip().lower()
-    text = strip_quotes(literal)
-    if declared.startswith(NUMERIC_TYPE_PREFIXES):
-        return bool(_NUMERIC_TEXT.match(text))
-    if declared.startswith(TEMPORAL_TYPE_PREFIXES):
-        return bool(_TEMPORAL_TEXT.match(text))
-    return True
+    return type_admits_literal(
+        field.get("type"), entry.get("sql_literal") or entry.get("value")
+    )
 
 
 def _column_closed_set(matched: Sequence[tuple[Mapping, str]]) -> bool | None:
