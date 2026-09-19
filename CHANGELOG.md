@@ -26,6 +26,25 @@
   its old name, so every caller and import keeps working): the samples loader lives in
   `scope_lineage.metadata`, which by the repository's dependency direction may not import
   `scope`, and a masking rule over free text was never a SQL rule.
+- `scope-lineage ontology --export linkml,shacl` writes the candidate out for an RDF
+  toolchain (A4). The slot correspondence with LinkML and SHACL was already specified in
+  the ontology guide and already shaped `ontology.json`; it had no exporter behind it, so
+  loading a corpus into a graph meant writing one. `--export` (repeatable, or one comma
+  list; nothing by default, independent of `--format`) now writes
+  `<out>/ontology.linkml.yaml` -- a class per entity, a slot per attribute with its range
+  mapped from the SQL type, an `identifier` for a single-column proven key and
+  `unique_keys` for every other, a relation as a slot on the source class, an enum for a
+  closed value set -- and `<out>/ontology.shacl.ttl`, one `sh:NodeShape` per entity with
+  an `sh:property` per assertion. No tier is lost on the way out: every derived element
+  carries `annotations.tier` or `sl:tier`, and an entity or attribute carries `proven`
+  because the corpus read its name rather than inferring it. Two things are deliberately
+  not stretched to fit and say so in the file: SHACL core has no composite uniqueness
+  constraint, so `unique_per` and candidate keys are published as annotation blocks whose
+  `rdfs:comment` states the limitation, and a value set the SQL never proved closed gets
+  an annotation rather than an enum. The base IRI is a placeholder. Both formats are
+  emitted by a small deterministic writer in `scope_lineage/render/ontology_export.py`,
+  so the distribution gains **no new runtime dependency**, and
+  `tests/core/fixtures/ontology/` pins one golden per format.
 - A JOIN upstream of the grouping no longer costs the statement its key (B12).
   `key_confidence` dropped to `none` as soon as any grain-path fan-out risk was not
   `safe`, whatever the grain's basis -- which reads the risk against the wrong question

@@ -391,7 +391,9 @@ overview of the whole corpus, and `tables/<db.table>.md` is the table card with 
 sections appended: identity, relations, constraints, synonyms, and what still needs a
 human decision. Answers to those come back through `--overrides`, which raises a confirmed
 assertion to a fifth tier, `confirmed`. Business naming and class hierarchies are left to
-whoever knows the business. See the
+whoever knows the business. `--export linkml,shacl` additionally writes
+`ontology.linkml.yaml` and `ontology.shacl.ttl` beside the JSON, tiers and all, for an
+RDF toolchain to load. See the
 [ontology candidate guide](docs/en/ontology-doc.md).
 
 ### Catalog-prefix normalization

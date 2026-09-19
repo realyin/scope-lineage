@@ -18,7 +18,8 @@
 - Core 不给实体起业务名、不判断类型、不推断父子类、不做业务命名。`naming_hints` 只放元数据
   事实（表注释、业务域、项目、负责人），命名与建模交给懂业务的人或 Agent 确认。
 - 槽位刻意对齐常见本体语言（entity ~ owl:Class、attribute ~ owl:DatatypeProperty、
-  relation ~ owl:ObjectProperty、constraint ~ sh:NodeShape），一期不产 OWL/SHACL/LinkML 文件。
+  relation ~ owl:ObjectProperty、constraint ~ sh:NodeShape），`--export` 按这份对应导出
+  LinkML 与 SHACL；不产 OWL。
 - 稳定性分级与其他派生文档一致：`ontology-json/1` 内键名稳定，中文措辞可能微调，
   机器应读 JSON 而不是 Markdown。
 
@@ -62,6 +63,8 @@ card = render_ontology_table_card_markdown(cards["tables"][0], ontology)
   以它为底本追加本体节；不给就在内存里按同一份语料构建同样的表卡。
 - `--format` 取 `json`、`md` 或两者（默认 `json,md`）；只要 `md` 不在其中，`ontology.md` 与
   `tables/` 都不写。其他值直接报参数错误（退出码 2）。
+- `--export` 取 `linkml`、`shacl` 或两者（可重复，也可写成逗号列表），默认什么都不导出；
+  与 `--format` 相互独立，详见[导出 LinkML / SHACL](#导出-linkml--shacl)。
 - 确定性：同一份语料无论以什么顺序被扫描，产出字节一致。
 
 ## 置信五级
@@ -280,8 +283,8 @@ erDiagram
 
 ## 与 OWL / SHACL / LinkML 的槽位对应
 
-一期不导出任何 RDF 工具链的文件——JSON 已带全部信息，导出器（`--export linkml|shacl|owl`）是
-后续的薄层。槽位刻意按下表对齐，是为了那一层落地时不需要改本文件的结构：
+JSON 已带全部信息，导出器（`--export linkml,shacl`，见下一节）只是薄薄一层。槽位刻意按下表
+对齐，就是为了那一层落地时不需要改本文件的结构；OWL 一列目前只是对应关系，没有导出器：
 
 | ontology.json | OWL / RDFS | SHACL | LinkML |
 | --- | --- | --- | --- |
@@ -291,6 +294,106 @@ erDiagram
 | `constraints[].kind = in_set` / `not_null` | — | `sh:in` / `sh:minCount` | `enum` / `required` |
 | `constraints[].kind = unique_per` | — | 无原生唯一约束，需 SPARQL 约束 | `unique_keys` |
 | `tier` / `evidence` | 标注属性（`rdfs:comment` 或自定义 annotation） | 标注 | `annotations` |
+
+## 导出 LinkML / SHACL
+
+`--export` 把上表落地成文件。这一层是**改名，不是重新推断**：JSON 已经带全部信息，导出器只是
+把槽位翻译成另一套词汇；导出里出现了 JSON 没有的话，那是 bug。
+
+```bash
+# 与 ontology.json 并排写出 ontology.linkml.yaml 和 ontology.shacl.ttl
+scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
+  --export linkml,shacl
+
+# --export 可重复，且与 --format 相互独立：只写 json 也照样导出
+scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
+  --format json --export linkml --export shacl
+```
+
+| 文件 | 目标格式 | 内容 |
+| --- | --- | --- |
+| `ontology.linkml.yaml` | LinkML schema | 一个实体一个 class，一个属性一个 slot，一个已封闭值集一个 enum |
+| `ontology.shacl.ttl` | SHACL（Turtle） | 一个实体一个 `sh:NodeShape`，一条断言一个 `sh:property` |
+
+默认什么都不导出；`--export` 只认 `linkml` 与 `shacl`，其他值直接报参数错误（退出码 2）。
+两种格式都由本仓库自己的确定性写出器直接生成文本，**不引入任何新的运行时依赖**；同一份语料
+跑两次字节一致，与 `ontology.json` 的确定性同源。
+
+### 槽位怎么落地
+
+| ontology.json | LinkML | SHACL |
+| --- | --- | --- |
+| `entities[]` | `class`，id 与 Mermaid ER 用同一套安全标识符，原表名放 `title` | `sh:NodeShape` + `sh:targetClass`，原表名放 `rdfs:label` |
+| `entities[].attributes[]` | `attributes` 下的 slot，`range` 按 SQL 类型映射，`description` 取列注释 | `sh:property` + `sh:path` + `sh:datatype` |
+| 单列且 `proven` / `confirmed` 的候选键 | slot 上 `identifier: true` | 无原生形式，见下方限制 |
+| 其余候选键（多列，或未被证明） | `unique_keys` 条目，层级放 `annotations.tier` | `sl:candidateKey` 注解块 |
+| `relations[]` | 源 class 上的一个 slot，`range` 是目标 class，`multivalued` 由基数决定 | `sh:property` + `sh:class`（多对一再加 `sh:maxCount 1`） |
+| `constraints[].kind = not_null` | slot 上 `required: true` | `sh:minCount 1` |
+| `constraints[].kind = in_set`（已封闭） | 一个 `enum`，slot 的 `range` 指向它 | `sh:in ( … )` |
+| `constraints[].kind = in_set`（未封闭） | 只写注解，不造 enum | 只写 `rdfs:comment` |
+| `constraints[].kind = unique_per` | `unique_keys` 条目 | `sl:compositeKey` 注解块，见下方限制 |
+| `constraints[].kind = partition` | slot 上的一条注解 | 只带 `rdfs:comment` 的 `sh:property` |
+| `tier` | `annotations.tier` | `sl:tier` |
+
+SQL 类型按下表映射，带参数的类型只看头部：`decimal(18,2)` 当 `decimal`，`map<string,string>`
+当 `map`。认不出来的类型落到 `string`，而不是把这一列丢掉——语料多半不知道物理表的类型。
+
+| SQL 类型 | LinkML `range` | SHACL `sh:datatype` |
+| --- | --- | --- |
+| `string` / `varchar` / `char` / 其他 | `string` | `xsd:string` |
+| `tinyint` / `smallint` / `int` / `bigint` | `integer` | `xsd:integer` |
+| `decimal` / `numeric` | `float` | `xsd:decimal` |
+| `float` / `double` / `real` | `float` | `xsd:double` |
+| `date` | `date` | `xsd:date` |
+| `timestamp` | `datetime` | `xsd:dateTime` |
+| `boolean` | `boolean` | `xsd:boolean` |
+
+### 层级不会在导出里丢失
+
+每个由断言得到的元素都带着它的层级：LinkML 里是 `annotations.tier`，SHACL 里是 `sl:tier`。
+
+```yaml
+      channel_code:
+        range: "string"
+        annotations:
+          tier: "proven"
+          key_tier: "hypothesis"
+```
+
+```turtle
+    sh:property [
+        sh:path sl:rel_001 ;
+        sh:class sl:dim_channel ;
+        sh:maxCount 1 ;
+        sl:relation "rel:001" ;
+        sl:claim "many_to_one_assumed" ;
+        sl:taskCount 2 ;
+        sl:tier "hypothesis"
+    ] ;
+```
+
+实体与属性本身带 `proven`：它们不是推断出来的，是语料从 SQL 里读到的名字。关系带的是它那条
+基数的层级，约束带的是约束自己的层级。
+
+### 限制：刻意不迁就目标格式
+
+- **SHACL core 没有组合唯一约束。** `unique_per` 与候选键都是「这几列的组合唯一」，SHACL core
+  没有对应的约束组件（要表达得上 `sh:sparql`，那是另一套方言、另一套运行时）。所以它们发布成
+  `sl:compositeKey` / `sl:candidateKey` 注解块，并在 `rdfs:comment` 里把这条限制写明，而不是
+  退一步去校验一个更弱的东西。
+- **未封闭的值集不产 enum。** `completeness: "unknown"` 的意思是语料只观察到这些取值、没能
+  证明集合封闭；把它写成 enum 就是把观察冒充成事实。两种格式都只写注解，并列出观察到的取值。
+- **约束在导出里的 id 是位置号。** `ontology.json` 的约束没有自己的 id，导出按它在
+  `constraints[]` 里的位置编号成 `cst:001`…；那个数组本来就是确定性排序的，所以位置就是稳定
+  身份。
+- **基 IRI 是占位符**（`https://example.org/scope-lineage/ontology#`）。语料没有自己的命名空间，
+  编一个看起来权威的出来就是导出在编事实；入图的人把它换成自己的。
+- **不导出的部分**：`findings`、`open_items`、`evidence`、`naming_hints` 的
+  `domain` / `project` / `owner`，以及 `identity.declared_hints`、`identity.multiplicity`
+  和属性的 `synonyms`，都留在 `ontology.json` 里——它们是给人复核的治理与元数据信息，
+  不是 schema。
+- **不产 OWL。** 三种目标里只有 OWL 需要为「基数公理」这类断言额外选一套本体论承诺，这件事
+  不该由导出器替使用者决定。
 
 ## 与 tables / glossary 的关系
 
@@ -316,6 +419,6 @@ erDiagram
 
 ## 边界与后续
 
-- 不产 OWL / SHACL / LinkML 文件；JSON 已带全部信息，导出器是后续的薄层。
+- `--export` 只产 LinkML 与 SHACL；OWL 仍然只有槽位对应，没有导出器。
 - 不做向量化、不入库、不调 LLM、不含业务词表——那些属于下游项目。
 - 跨语料增量（复用 `.scope-lineage-index.json` 指纹）是后续工作，本轮每次都是全量重算。

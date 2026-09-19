@@ -25,7 +25,8 @@ assertions and labels each with its confidence tier and its evidence.
   business.
 - The slots deliberately line up with the usual ontology languages (entity ~ owl:Class,
   attribute ~ owl:DatatypeProperty, relation ~ owl:ObjectProperty, constraint ~
-  sh:NodeShape); this release emits no OWL/SHACL/LinkML file.
+  sh:NodeShape), and `--export` writes LinkML and SHACL from that correspondence; no
+  OWL file is emitted.
 - Stability is graded as in the other derived documents: key names are stable within
   `ontology-json/1`, the Chinese wording may be adjusted, and a machine should read the
   JSON rather than the Markdown.
@@ -74,6 +75,9 @@ card = render_ontology_table_card_markdown(cards["tables"][0], ontology)
 - `--format` takes `json`, `md` or both (default `json,md`); when `md` is not among them
   neither `ontology.md` nor `tables/` is written. Anything else is an argument error
   (exit code 2).
+- `--export` takes `linkml`, `shacl` or both (repeatable, or one comma-separated list)
+  and exports nothing by default; it is independent of `--format`. See
+  [Exporting LinkML / SHACL](#exporting-linkml--shacl).
 - Determinism: the same corpus produces the same bytes whatever order it was walked in.
 
 ## The five confidence tiers
@@ -302,9 +306,10 @@ contradiction still exists is decided by O7 the next time the corpus is parsed.
 
 ## Slot correspondence with OWL / SHACL / LinkML
 
-This release exports no file for any RDF toolchain — the JSON carries everything, and an
-exporter (`--export linkml|shacl|owl`) is a thin later layer. The slots are deliberately
-aligned as below so that layer will not need this document's structure to change:
+The JSON carries everything, and the exporter (`--export linkml,shacl`, the next
+section) is a thin layer. The slots are deliberately aligned as below so that layer did
+not need this document's structure to change; the OWL column is a correspondence only,
+with no exporter behind it:
 
 | ontology.json | OWL / RDFS | SHACL | LinkML |
 | --- | --- | --- | --- |
@@ -314,6 +319,120 @@ aligned as below so that layer will not need this document's structure to change
 | `constraints[].kind = in_set` / `not_null` | — | `sh:in` / `sh:minCount` | `enum` / `required` |
 | `constraints[].kind = unique_per` | — | no native uniqueness; needs a SPARQL constraint | `unique_keys` |
 | `tier` / `evidence` | annotation properties (`rdfs:comment` or a custom annotation) | annotations | `annotations` |
+
+## Exporting LinkML / SHACL
+
+`--export` turns the table above into files. That layer is a **rename, not a
+re-derivation**: the JSON already carries everything, and the exporter only translates
+the slots into another vocabulary. If an export says something the JSON does not, that is
+a bug.
+
+```bash
+# Writes ontology.linkml.yaml and ontology.shacl.ttl beside ontology.json
+scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
+  --export linkml,shacl
+
+# --export repeats, and is independent of --format: json only still exports
+scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
+  --format json --export linkml --export shacl
+```
+
+| File | Target format | Contents |
+| --- | --- | --- |
+| `ontology.linkml.yaml` | a LinkML schema | a class per entity, a slot per attribute, an enum per closed value set |
+| `ontology.shacl.ttl` | SHACL (Turtle) | an `sh:NodeShape` per entity, an `sh:property` per assertion |
+
+Nothing is exported by default; `--export` accepts `linkml` and `shacl` only, and any
+other value is an argument error (exit code 2). Both formats are emitted as text by this
+repository's own deterministic writers, so the export adds **no new runtime dependency**;
+the same corpus twice gives the same bytes, for the same reason `ontology.json` does.
+
+### How the slots land
+
+| ontology.json | LinkML | SHACL |
+| --- | --- | --- |
+| `entities[]` | a `class`, whose id is the safe identifier the Mermaid ER already uses, with the warehouse name in `title` | `sh:NodeShape` + `sh:targetClass`, with the warehouse name in `rdfs:label` |
+| `entities[].attributes[]` | a slot under `attributes`, `range` from the SQL type, `description` from the column comment | `sh:property` + `sh:path` + `sh:datatype` |
+| a single-column `proven` / `confirmed` candidate key | `identifier: true` on the slot | no native form, see the limitations below |
+| every other candidate key (composite, or unproven) | a `unique_keys` entry, with the tier in `annotations.tier` | an `sl:candidateKey` annotation block |
+| `relations[]` | a slot on the source class, `range` is the target class, `multivalued` from the cardinality | `sh:property` + `sh:class` (plus `sh:maxCount 1` when it is many-to-one) |
+| `constraints[].kind = not_null` | `required: true` on the slot | `sh:minCount 1` |
+| `constraints[].kind = in_set` (closed) | an `enum`, and the slot's `range` points at it | `sh:in ( … )` |
+| `constraints[].kind = in_set` (open) | an annotation only, no enum | an `rdfs:comment` only |
+| `constraints[].kind = unique_per` | a `unique_keys` entry | an `sl:compositeKey` annotation block, see the limitations below |
+| `constraints[].kind = partition` | one annotation on the slot | an `sh:property` carrying only an `rdfs:comment` |
+| `tier` | `annotations.tier` | `sl:tier` |
+
+SQL types map as below, and a parameterized type is matched on its head: `decimal(18,2)`
+is `decimal` and `map<string,string>` is `map`. A type nothing recognizes lands on
+`string` rather than dropping the column -- the corpus usually does not know a physical
+table's types at all.
+
+| SQL type | LinkML `range` | SHACL `sh:datatype` |
+| --- | --- | --- |
+| `string` / `varchar` / `char` / anything else | `string` | `xsd:string` |
+| `tinyint` / `smallint` / `int` / `bigint` | `integer` | `xsd:integer` |
+| `decimal` / `numeric` | `float` | `xsd:decimal` |
+| `float` / `double` / `real` | `float` | `xsd:double` |
+| `date` | `date` | `xsd:date` |
+| `timestamp` | `datetime` | `xsd:dateTime` |
+| `boolean` | `boolean` | `xsd:boolean` |
+
+### No tier is lost on the way out
+
+Every element that came from an assertion carries that assertion's tier:
+`annotations.tier` in LinkML, `sl:tier` in SHACL.
+
+```yaml
+      channel_code:
+        range: "string"
+        annotations:
+          tier: "proven"
+          key_tier: "hypothesis"
+```
+
+```turtle
+    sh:property [
+        sh:path sl:rel_001 ;
+        sh:class sl:dim_channel ;
+        sh:maxCount 1 ;
+        sl:relation "rel:001" ;
+        sl:claim "many_to_one_assumed" ;
+        sl:taskCount 2 ;
+        sl:tier "hypothesis"
+    ] ;
+```
+
+An entity and an attribute carry `proven` themselves: they were not inferred, the corpus
+read their names out of the SQL. A relation carries the tier of its cardinality, and a
+constraint carries its own.
+
+### Limitations: neither format is stretched to fit
+
+- **SHACL core has no composite uniqueness constraint.** A `unique_per` and a candidate
+  key are both "this tuple of columns is unique", and SHACL core has no constraint
+  component for that (expressing it takes `sh:sparql`, a different dialect and a
+  different runtime). So both are published as `sl:compositeKey` / `sl:candidateKey`
+  annotation blocks whose `rdfs:comment` states this limitation, rather than as a shape
+  that validates something weaker.
+- **An open value set gets no enum.** `completeness: "unknown"` means the corpus observed
+  these values and could not prove the set closed; writing that as an enum would pass an
+  observation off as a fact. Both formats emit an annotation listing the observed values
+  instead.
+- **A constraint's id in the exports is its position.** A constraint has no id of its own
+  in `ontology.json`, so the exports number it `cst:001` .. by its position in
+  `constraints[]`; that array is already deterministically sorted, so the position *is* a
+  stable identity.
+- **The base IRI is a placeholder** (`https://example.org/scope-lineage/ontology#`). The
+  corpus has no namespace of its own, and minting one that looks authoritative would be
+  the export inventing a fact; whoever loads the graph replaces it with theirs.
+- **What is not exported**: `findings`, `open_items`, `evidence`, `naming_hints`'
+  `domain` / `project` / `owner`, `identity.declared_hints`, `identity.multiplicity` and
+  an attribute's `synonyms` stay in `ontology.json` -- they are governance and metadata
+  material for a reviewer, not schema.
+- **No OWL.** Of the three targets only OWL needs an extra ontological commitment for
+  assertions such as cardinality axioms, and that is not a choice an exporter should make
+  on its user's behalf.
 
 ## Relationship with `tables` / `glossary`
 
@@ -348,8 +467,8 @@ All three share one semantic profile: the CLI parses and profiles one corpus exa
 
 ## Boundaries and what comes next
 
-- No OWL / SHACL / LinkML file is emitted; the JSON carries everything, and an exporter is
-  a thin later layer.
+- `--export` emits LinkML and SHACL only; OWL is still a slot correspondence with no
+  exporter behind it.
 - No embedding, no storage, no LLM call, no business vocabulary — those belong to
   downstream projects.
 - Incremental runs across corpora (reusing the `.scope-lineage-index.json` digests) are
