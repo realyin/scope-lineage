@@ -17,7 +17,7 @@ enums:
   mart_channel_summary__channel_name_enum:
     description: "the closed value set of column channel_name"
     annotations:
-      "cst:001": "in_set (proven) on channel_name; observed values: OFFLINE, ONLINE"
+      "cst:002": "in_set (proven) on channel_name; observed values: OFFLINE, ONLINE"
     permissible_values:
       OFFLINE: {}
       ONLINE: {}
@@ -68,7 +68,8 @@ classes:
     annotations:
       entity_kind: "produced_table"
       tier: "proven"
-      "cst:002": "partition (proven) on dt"
+      "cst:001": "unique_per (proven) on customer_id, channel_name, dt"
+      "cst:003": "partition (proven) on dt"
     attributes:
       customer_id:
         range: "string"
@@ -80,6 +81,14 @@ classes:
           tier: "proven"
       total_amount:
         range: "string"
+        annotations:
+          tier: "proven"
+    unique_keys:
+      key_customer_id_channel_name:
+        unique_key_slots:
+          - "customer_id"
+          - "channel_name"
+        description: "a candidate key the corpus proposed"
         annotations:
           tier: "proven"
   mart_metric_by_segment:
@@ -123,7 +132,7 @@ classes:
         description: "Partition date"
         annotations:
           tier: "proven"
-          "cst:004": "partition (proven) on dt"
+          "cst:005": "partition (proven) on dt"
     unique_keys:
       key_segment_band:
         unique_key_slots:
@@ -132,7 +141,7 @@ classes:
         description: "a candidate key the corpus proposed"
         annotations:
           tier: "proven"
-      cst_003:
+      cst_004:
         unique_key_slots:
           - "segment"
           - "band"
@@ -140,7 +149,7 @@ classes:
         description: "a unique_per constraint the corpus asserted"
         annotations:
           tier: "proven"
-          "cst:003": "unique_per (proven) on segment, band, dt"
+          "cst:004": "unique_per (proven) on segment, band, dt"
   mart_user_names:
     title: "mart.user_names"
     annotations:
@@ -178,7 +187,7 @@ classes:
         range: "string"
         annotations:
           tier: "proven"
-          "cst:005": "in_set (hypothesis) on status; observed values: ACTIVE; the SQL did not prove the set closed"
+          "cst:006": "in_set (hypothesis) on status; observed values: ACTIVE; the SQL did not prove the set closed"
       rel_001:
         range: "dim_channel"
         multivalued: false

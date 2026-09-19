@@ -81,13 +81,24 @@ sl:mart_channel_summaryShape
         sh:path sl:channel_name ;
         sh:in ( "OFFLINE" "ONLINE" ) ;
         rdfs:comment "in_set (proven) on channel_name; observed values: OFFLINE, ONLINE" ;
-        sl:constraint "cst:001" ;
+        sl:constraint "cst:002" ;
         sl:tier "proven"
     ] ;
     sh:property [
         sh:path sl:dt ;
         rdfs:comment "partition (proven) on dt" ;
-        sl:constraint "cst:002" ;
+        sl:constraint "cst:003" ;
+        sl:tier "proven"
+    ] ;
+    sl:compositeKey [
+        sl:constraint "cst:001" ;
+        sl:keyColumn "customer_id", "channel_name", "dt" ;
+        rdfs:comment "unique_per (proven) on customer_id, channel_name, dt; SHACL core has no composite uniqueness constraint, so this is an annotation rather than a validated shape" ;
+        sl:tier "proven"
+    ] ;
+    sl:candidateKey [
+        sl:keyColumn "customer_id", "channel_name" ;
+        rdfs:comment "candidate key; SHACL core has no composite uniqueness constraint, so this is an annotation rather than a validated shape" ;
         sl:tier "proven"
     ] .
 
@@ -148,11 +159,11 @@ sl:mart_metric_by_segmentShape
     sh:property [
         sh:path sl:dt ;
         rdfs:comment "partition (proven) on dt" ;
-        sl:constraint "cst:004" ;
+        sl:constraint "cst:005" ;
         sl:tier "proven"
     ] ;
     sl:compositeKey [
-        sl:constraint "cst:003" ;
+        sl:constraint "cst:004" ;
         sl:keyColumn "segment", "band", "dt" ;
         rdfs:comment "unique_per (proven) on segment, band, dt; SHACL core has no composite uniqueness constraint, so this is an annotation rather than a validated shape" ;
         sl:tier "proven"
@@ -214,7 +225,7 @@ sl:ods_channel_eventShape
     sh:property [
         sh:path sl:status ;
         rdfs:comment "in_set (hypothesis) on status; observed values: ACTIVE; the SQL did not prove the set closed" ;
-        sl:constraint "cst:005" ;
+        sl:constraint "cst:006" ;
         sl:tier "hypothesis"
     ] ;
     sh:property [
