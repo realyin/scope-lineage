@@ -1,6 +1,36 @@
 # Changelog
 
 ## Unreleased
+- The driving table is walked on its own instead of being read off the grain. R3's grain
+  walk stops at a `LATERAL VIEW`, a `UNION` or an unprovable FROM item, and the `driving`
+  role and the summary sentence were read off that same stop -- so a statement whose FROM
+  item was a subquery chain that exploded an event log twice published *every* input as
+  `enrich` and opened with 「ROOT 直接读取 <dimension>」, pointing a profile writer at a
+  lookup table. `task.driving_tables[]` now publishes the physical table every output row
+  comes from, each `{table, via_scopes[], lateral_view_scopes[]}`: from ROOT down the FROM
+  item only (a JOIN's right side is never one; a RIGHT JOIN swaps sides, a FULL JOIN takes
+  both, a UNION takes all branches), unstopped by a LATERAL VIEW, because an explode
+  multiplies the driving table's rows rather than replacing the driving table. Row *count*
+  stays undecidable there; row *source* was never in doubt. `structural_summary` opens with
+  「行来源 <表>（经 <scope> → <scope> 两次 LATERAL VIEW 展开）；补充 <其余表>」, `inputs[]` takes
+  its `driving` from that path (a RIGHT JOIN's left side falls back to `enrich`), and a new
+  role `filter_partner` names the other side of an INNER / SEMI / ANTI JOIN on the path --
+  it adds columns *and* drops the driving rows it cannot match, which `enrich` denied. An
+  aggregated or deduplicated shape and a MERGE publish `driving_tables: []`: there the rows
+  are counted by a key set, not by a table. Contract version unchanged.
+- An undecided grain offers a candidate instead of only a refusal. Where the walk ends
+  `unknown` because the driving path explodes, and the grain one layer *below* the
+  expansion is itself decided, `output_shape.grain.candidate` publishes the row shape that
+  follows -- `{keys[], row_source, basis: "candidate", confidence: "hypothesis", reason,
+  evidence[]}`, the pre-expansion keys plus each exploded column, with `row_source` naming
+  the table when the pre-expansion basis is `driving_table_rows` and no keys exist to list.
+  `grain.basis` stays `unknown` and `candidate_keys` / `key_confidence` are untouched: this
+  is a shape the structure suggests, not one it proves. `semantic.md` reads 「未能判定…；
+  候选：一行 = `<表>` 的一行 × `<展开列>`（<原因>）[推断]」, and the profile prompt and template
+  tell the writer to copy that line with its `[推断]` rather than invent a grain, which is
+  what the corpus measurement caught them doing. Nothing is offered for a decided grain, for
+  several driving tables (a UNION's rows are a sum, not a product) or for an upstream grain
+  that is itself `unknown`.
 - A column an equality filter pins to one value is a constant inside its scope, and no
   longer counts as part of a unique key set. A scope whose WHERE carries a top-level AND
   conjunct `col = <scalar literal | ${…}>` -- or which passes that column through

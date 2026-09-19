@@ -14,14 +14,14 @@ lineage_digest: "ab3330b352f0a01e"
 - 目标表：`mart.amounts`（表注释：注释未知）（元数据事实）
 - 语句类型：INSERT；无分区（SQL事实）
 - 目标表元数据来源：无（元数据事实）
-- 结构摘要：ROOT 直接读取 ods.ledger_a、ods.ledger_b；关联 1 个上游（1 个其他）；输出 1 列。（结构推断；证据 scope_profile）
+- 结构摘要：行来源 ods.ledger_a；补充 ods.ledger_b；关联 1 个上游（1 个其他）；输出 1 列。（结构推断；证据 scope_profile）
 
 共 2 张输入表（角色为结构推断，其余为 SQL/元数据事实）：
 
 | 输入表 | 表注释 | 角色 | 使用列 / 全宽 | 元数据 | 读取 scope |
 | --- | --- | --- | --- | --- | --- |
 | `ods.ledger_a` | 注释未知 | 主表（driving） | 1 / 未知 | ⚠ 不完整 | `ROOT` |
-| `ods.ledger_b` | 注释未知 | 关联补充（enrich） | 1 / 未知 | ⚠ 不完整 | `ROOT` |
+| `ods.ledger_b` | 注释未知 | 关联筛选（filter_partner） | 1 / 未知 | ⚠ 不完整 | `ROOT` |
 
 ## 2. 输出表形态与粒度
 

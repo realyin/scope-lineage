@@ -17,7 +17,27 @@
       "spec": null
     },
     "instance_dates": [],
-    "structural_summary": "ROOT 不直接读取物理表；关联 1 个上游（1 个合并）；输出 1 列。",
+    "driving_tables": [
+      {
+        "table": "ods.events",
+        "via_scopes": [
+          "union:main",
+          "union:main:b01",
+          "cte:ranked",
+          "cte:aggregated"
+        ],
+        "lateral_view_scopes": []
+      },
+      {
+        "table": "ods.fallback_users",
+        "via_scopes": [
+          "union:main",
+          "union:main:b02"
+        ],
+        "lateral_view_scopes": []
+      }
+    ],
+    "structural_summary": "行来源 ods.events（经 cte:aggregated → cte:ranked → union:main:b01 → union:main）、ods.fallback_users（经 union:main:b02 → union:main）；关联 1 个上游（1 个合并）；输出 1 列。",
     "target_declared_columns": [],
     "target_metadata_source": null,
     "header_comments": [],
@@ -124,6 +144,7 @@
       "role_in_task": "union_branch",
       "roles": [
         "union_branch",
+        "filter_partner",
         "enrich"
       ],
       "used_columns": [

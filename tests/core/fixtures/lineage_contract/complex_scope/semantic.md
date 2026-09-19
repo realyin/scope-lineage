@@ -14,7 +14,7 @@ lineage_digest: "5916c6127c587bb4"
 - 目标表：`mart.user_value`（表注释：注释未知）（元数据事实）
 - 语句类型：INSERT_OVERWRITE；无分区（SQL事实）
 - 目标表元数据来源：无（元数据事实）
-- 结构摘要：ROOT 不直接读取物理表；关联 1 个上游（1 个合并）；输出 1 列。（结构推断；证据 scope_profile）
+- 结构摘要：行来源 ods.events（经 cte:aggregated → cte:ranked → union:main:b01 → union:main）、ods.fallback_users（经 union:main:b02 → union:main）；关联 1 个上游（1 个合并）；输出 1 列。（结构推断；证据 scope_profile）
 
 共 3 张输入表（角色为结构推断，其余为 SQL/元数据事实）：
 

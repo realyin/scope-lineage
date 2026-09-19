@@ -14,7 +14,7 @@ lineage_digest: "1737591dc224e318"
 - 目标表：`dwd.account_daily`（表注释：账户日快照（合成）；业务域 账户域；项目 账户日报（合成）；负责人 demo_owner）（元数据事实）
 - 语句类型：INSERT_OVERWRITE；静态分区 dt = `20260801`（SQL事实）
 - 目标表元数据来源：target_ddl（元数据事实）
-- 结构摘要：ROOT 直接读取 ods.account_snapshot；输出 2 列。（结构推断；证据 scope_profile）
+- 结构摘要：行来源 ods.account_snapshot；输出 2 列。（结构推断；证据 scope_profile）
 
 共 1 张输入表（角色为结构推断，其余为 SQL/元数据事实）：
 

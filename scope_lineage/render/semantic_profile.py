@@ -13,6 +13,14 @@ It implements rules R1-R8 of dev-notes/plans/task-semantic-description-plan.md: 
 R8), the ``output_shape`` block (R2 shape, R3 grain / candidate keys / per-JOIN fan-out
 risk) and the ``stages`` block (per-scope actions, including the R6 window intents).
 
+R7's driving role and R1's summary sentence are answered by a walk of their own
+(``_driving_branches``, B2), not by R3's grain walk: a ``LATERAL VIEW`` makes the row
+*count* unprovable while leaving the row *source* plain, and reading the source off the
+grain's stop published a statement's real main table as ``enrich``. Where that same stop
+is a row-multiplying step whose upstream grain is decided, B3 publishes the row shape it
+implies as ``grain.candidate``, at ``confidence: hypothesis`` and beside -- never
+instead of -- the ``unknown`` verdict.
+
 **Two deliberate departures from the plan text, both in the conservative direction.**
 
 1. *Fan-out safety compares the other way round.* The plan writes "right-side GROUP BY
@@ -95,12 +103,17 @@ TAG_SQL_COMMENT = "SQL注释"
 REFRESH_SOURCE_TASK_META = "task_meta"
 
 # R7, most specific first: a table with several roles reports the first of these.
+# B2 adds `filter_partner` between the two: an INNER JOIN's right side on the driving
+# path is more than enrichment (an unmatched driving row is dropped by it) and less than
+# driving (the rows are not counted from it), and calling it `enrich` told a reader the
+# one thing about it that is false.
 ROLE_PRIORITY = (
     "driving",
     "merge_source",
     "aggregate_source",
     "dedup_source",
     "union_branch",
+    "filter_partner",
     "enrich",
     "rowset_only",
 )
@@ -273,6 +286,13 @@ BASIS_DRIVING_TABLE_ROWS = "driving_table_rows"
 BASIS_SINGLE_ROW = "single_row"
 BASIS_UNKNOWN = "unknown"
 
+# B3. The candidate's own basis and confidence, deliberately outside `GRAIN_BASES`: a
+# candidate never becomes `grain.basis`, which stays `unknown`, and `hypothesis` is
+# weaker than every other `confidence` this view publishes -- it is the row shape the
+# structure *suggests* after a row-multiplying step, not one it proves.
+BASIS_CANDIDATE = "candidate"
+CONFIDENCE_HYPOTHESIS = "hypothesis"
+
 GRAIN_BASES = (
     BASIS_GROUP_BY,
     BASIS_DISTINCT,
@@ -346,6 +366,11 @@ _PASS_THROUGH_STEP_TYPES = ("direct_projection", "union")
 
 # The contract's sentinel for a bare column several inputs could own.
 _AMBIGUOUS = "AMBIGUOUS"
+
+
+# B2. How the summary counts explodes. Chinese writes the first few as words, and "1 次
+# LATERAL VIEW 展开" in a sentence otherwise made of words reads like a defect.
+_EXPANSION_COUNTS = {1: "一次", 2: "两次", 3: "三次"}
 
 
 _SCOPE_ROLE_LABELS = (
@@ -689,6 +714,8 @@ def _build_task_block(
         # write it. Empty means no filter pins a day-shaped constant -- a parameterised
         # statement, or one with no date filter at all -- never "it reads every day".
         "instance_dates": _instance_dates(document, rules),
+        # B2, see `_driving_branches`: which physical table every output row comes from.
+        "driving_tables": _driving_branches(document),
         "structural_summary": _structural_summary(document),
         # A1: the target's whole declared width, so a corpus can publish the columns this
         # write leaves untouched. Empty when no metadata described the target table.
@@ -768,12 +795,22 @@ def _structural_summary(document: dict) -> str:
 
 
 def _root_read_clause(document: dict, direct_tables: Sequence[str]) -> str:
-    """How ROOT reaches its rows: directly, or through the scopes R3 pierced.
+    """How ROOT reaches its rows: the driving path first, then what it only reads.
 
-    A wide table built as ``FROM (SELECT ... WHERE ...) t1 LEFT JOIN ...`` reads no
-    physical table in ROOT itself, and "ROOT 不直接读取物理表" is true but useless when
-    the driving table is provable one layer down.
+    B2. The sentence used to open with what ROOT reads *directly*, which is the joined
+    dimension whenever the FROM item is a subquery -- so the one table the reader must
+    not mistake for the main one was the first one named. It now opens with the row
+    source and demotes the rest, and falls back to the old wording only where no driving
+    path resolves (an aggregation, a MERGE, an unprovable FROM item).
     """
+    branches = _driving_branches(document)
+    if branches:
+        named = "、".join(
+            f"{branch['table']}{_driving_path_note(branch)}" for branch in branches
+        )
+        driving = {branch["table"] for branch in branches}
+        rest = [item for item in direct_tables if item not in driving]
+        return f"行来源 {named}；补充 {'、'.join(rest)}" if rest else f"行来源 {named}"
     table, path, _ = _driving_source(document)
     if table and path:
         clause = f"ROOT 经 {path[0]} 读取 {table}"
@@ -782,6 +819,25 @@ def _root_read_clause(document: dict, direct_tables: Sequence[str]) -> str:
     if direct_tables:
         return f"ROOT 直接读取 {'、'.join(direct_tables)}"
     return "ROOT 不直接读取物理表"
+
+
+def _driving_path_note(branch: dict) -> str:
+    """The scopes the rows travelled up through, and how often they were exploded.
+
+    Written in data-flow order -- the sentence has just named the table, so it reads on
+    from there -- while ``driving_tables[].via_scopes`` keeps the descent order
+    ``grain.via_scopes`` uses. Same list, each spelled the way its sentence is read.
+    """
+    via = list(reversed(branch["via_scopes"]))
+    expansions = len(branch["lateral_view_scopes"])
+    if not via and not expansions:
+        return ""
+    counted = _EXPANSION_COUNTS.get(expansions, f"{expansions} 次")
+    # A table ROOT reads directly and explodes in place has no scope path to name, and
+    # dropping the note with the path would hide the one row-multiplying step there is.
+    parts = [f"经 {' → '.join(via)}" if via else ""]
+    parts.append(f"{counted} LATERAL VIEW 展开" if expansions else "")
+    return "（" + " ".join(item for item in parts if item) + "）"
 
 
 def _structural_summary_without_profile(document: dict) -> str:
@@ -1031,6 +1087,7 @@ def _input_roles(document: dict) -> dict[str, list[str]]:
         add(driving, "driving")
     for table in _upstream_driving_tables(document):
         add(table, "driving")
+    _apply_driving_path(document, found, joined, add)
     for table, item in _input_metadata(document).items():
         if item.get("column_details") == []:
             add(str(table), "rowset_only")
@@ -1038,6 +1095,30 @@ def _input_roles(document: dict) -> dict[str, list[str]]:
         table: [role for role in ROLE_PRIORITY if role in roles]
         for table, roles in sorted(found.items())
     }
+
+
+def _apply_driving_path(document: dict, found: dict, joined: set, add) -> None:
+    """B2: let the driving path decide ``driving``, and name the partners it passes.
+
+    The path is the authority where it resolves. A table it excludes loses the
+    ``driving`` an earlier rule granted off ROOT's own FROM list and falls back to
+    ``enrich`` when a JOIN reaches it -- a RIGHT JOIN's left side is exactly that
+    table, and the earlier rule, which only asks whether an input is a JOIN's right
+    side, called it the main table.
+    """
+    branches = _driving_branches(document)
+    if not branches:
+        return
+    driving = {branch["table"] for branch in branches}
+    for table, roles in found.items():
+        if table not in driving and "driving" in roles:
+            roles.discard("driving")
+            if table in joined:
+                roles.add("enrich")
+    for table in sorted(driving):
+        add(table, "driving")
+    for table in _filter_partner_tables(document, branches):
+        add(table, "filter_partner")
 
 
 def _upstream_driving_tables(document: dict) -> list[str]:
@@ -1194,6 +1275,144 @@ def _join_sides(document: dict) -> tuple[set[str], set[str], set[str]]:
                 if str(field.get("table")) in tables
             }
     return left, right, left | right | condition_only
+
+
+# ------------------------------------------------------------ driving path (B2, R7)
+
+# The contract's `input_edges[].position` vocabulary, which is what "the FROM item"
+# means without re-deriving it: the parser already recorded which input was written in
+# FROM, which was joined on, and which arrived through a LATERAL VIEW.
+_EDGE_FROM = "from"
+_EDGE_JOIN = "join"
+_EDGE_LATERAL_VIEW = "lateral_view"
+
+# The two join types that move the driving side off the FROM item. A RIGHT JOIN makes
+# the whole left relation optional, so the rows are the right side's; a FULL JOIN keeps
+# both sides' unmatched rows, so the rows follow both, exactly as a UNION's do. Every
+# other type leaves the FROM item driving.
+_JOIN_SWAPS_DRIVING = "RIGHT_OUTER"
+_JOIN_DRIVES_BOTH = "FULL_OUTER"
+
+# The join types whose right side can drop a driving row. An OUTER join cannot (the
+# unmatched left row survives with nulls) and a CROSS join has no condition to fail.
+_FILTERING_JOIN_TYPES = ("INNER", "LEFT_SEMI", "LEFT_ANTI", "SEMI", "ANTI")
+
+# The shapes whose row count follows a table at all. An aggregated or deduplicated ROOT
+# counts rows by its key set -- R7 already names those inputs `aggregate_source` /
+# `dedup_source`, and overwriting that with `driving` would lose the more specific fact
+# -- and a MERGE writes through branch semantics this view does not model.
+_DRIVING_PATH_SHAPES = (SHAPE_ENRICHED, SHAPE_FILTERED, SHAPE_UNION_MERGE)
+
+
+def _driving_branches(document: dict) -> list[dict]:
+    """B2: every physical table ROOT's rows come from, with the path walked to reach it.
+
+    R3's grain walk answers a different question and stops early: an explode or a UNION
+    ends it with ``unknown``, and the driving role and R1's summary sentence were read
+    off that same stop -- so a statement whose FROM item was an exploded subquery chain
+    published every input as ``enrich`` and opened its summary with the dimension table
+    that happened to be joined on. Row *count* is undecidable there; row *source* is
+    not, and this walk answers only the second question.
+
+    Each branch is ``{table, via_scopes, lateral_view_scopes}``, the two scope lists in
+    descent order (ROOT first, the table's own scope last), so they read like
+    ``grain.via_scopes``. One table appears once, keeping the left-most path to it.
+    """
+    if _classify_shape(document)[0] not in _DRIVING_PATH_SHAPES:
+        return []
+    found: dict[str, dict] = {}
+    for branch in _walk_driving(document, _ROOT, [], [], []):
+        found.setdefault(branch["table"], branch)
+    return list(found.values())
+
+
+def _walk_driving(
+    document: dict, item: str, crossed: list, lateral: list, seen: list
+) -> list[dict]:
+    """The descent itself, one branch per driving table, left to right."""
+    if item in set(document.get("source_tables") or []):
+        return [
+            {
+                "table": item,
+                "via_scopes": list(crossed),
+                "lateral_view_scopes": list(lateral),
+            }
+        ]
+    if item not in _scopes(document) or item in seen or len(seen) >= GRAIN_DEPTH_LIMIT:
+        return []
+    below = list(crossed) if item == _ROOT else [*crossed, item]
+    # A LATERAL VIEW multiplies the driving table's rows instead of replacing them, so
+    # the walk crosses it and remembers that it did -- B3 reads exactly this list.
+    expanded = [*lateral, item] if _lateral_view_inputs(document, item) else list(lateral)
+    return [
+        branch
+        for following in _driving_inputs_of(document, item)
+        for branch in _walk_driving(document, following, below, expanded, [*seen, item])
+    ]
+
+
+def _driving_inputs_of(document: dict, scope_id: str) -> list[str]:
+    """The inputs whose rows this scope's rows follow, left to right.
+
+    A UNION answers with every branch, because its row count is their sum. Everything
+    else answers with its FROM item, moved to the right side by a RIGHT JOIN and joined
+    by a FULL one. A scope the contract gave no ``input_edges`` (a UNION's own parent,
+    which reads nothing but the union) falls back to the dependency-level rule.
+    """
+    scope = _scopes(document).get(scope_id) or {}
+    branches = (scope.get("union_branch_alignment") or {}).get("branches") or []
+    if branches:
+        return [str(branch.get("branch_id")) for branch in branches]
+    edges = scope.get("input_edges") or []
+    driving = [
+        str(edge.get("source_id"))
+        for edge in edges
+        if str(edge.get("position")) == _EDGE_FROM
+    ]
+    for edge in edges:
+        if str(edge.get("position")) != _EDGE_JOIN:
+            continue
+        kind = str(edge.get("join_type") or "").upper()
+        if kind == _JOIN_SWAPS_DRIVING:
+            driving = [str(edge.get("source_id"))]
+        elif kind == _JOIN_DRIVES_BOTH:
+            driving = _dedupe([*driving, str(edge.get("source_id"))])
+    if driving:
+        return driving
+    item, _reason = _scope_from_item(document, scope_id)
+    return [item] if item else []
+
+
+def _lateral_view_inputs(document: dict, scope_id: str) -> list[str]:
+    """The UDTF scopes this scope reads through a LATERAL VIEW, in edge order."""
+    return [
+        str(edge.get("source_id"))
+        for edge in (_scopes(document).get(scope_id) or {}).get("input_edges") or []
+        if str(edge.get("position")) == _EDGE_LATERAL_VIEW
+    ]
+
+
+def _filter_partner_tables(document: dict, branches: Sequence[dict]) -> list[str]:
+    """B2: the tables an INNER-family JOIN *on the driving path* can drop rows by.
+
+    Only the partner's own driving table is named. A partner subquery that left-joins a
+    lookup of its own does not make that lookup a filter on this statement's rows, and
+    listing every table under the partner would say it does.
+    """
+    tables = set(document.get("source_tables") or [])
+    scopes = _dedupe([_ROOT, *[item for branch in branches for item in branch["via_scopes"]]])
+    found: list[str] = []
+    for scope_id in scopes:
+        for edge in (_scopes(document).get(scope_id) or {}).get("input_edges") or []:
+            if str(edge.get("position")) != _EDGE_JOIN:
+                continue
+            if str(edge.get("join_type") or "").upper() not in _FILTERING_JOIN_TYPES:
+                continue
+            found.extend(
+                branch["table"]
+                for branch in _walk_driving(document, str(edge.get("source_id")), [], [], [])
+            )
+    return [item for item in _dedupe(found) if item in tables]
 
 
 # --------------------------------------------------------------------- rules
@@ -2294,9 +2513,11 @@ def _predicate_block_keeps_first_row(block: dict, output_field: str) -> bool:
 def _build_grain(
     document: dict, shape: str, shape_evidence: Sequence[str]
 ) -> tuple[dict, list[str]]:
-    """R3's answer, with B9's pin markers applied to whatever keys the walk found."""
+    """R3's answer, with B9's pin markers and, when it gave up, B3's candidate."""
     grain, visited = _decide_grain(document, shape, shape_evidence)
-    return _with_pinned_keys(document, grain), visited
+    pinned = _with_pinned_keys(document, grain)
+    candidate = _grain_candidate(document, pinned)
+    return ({**pinned, "candidate": candidate} if candidate else pinned), visited
 
 
 def _decide_grain(
@@ -2321,8 +2542,9 @@ def _decide_grain(
     return _resolve_grain(document)
 
 
-def _resolve_grain(document: dict) -> tuple[dict, list[str]]:
-    """Walk from ROOT to whatever sets the output's row count.
+def _resolve_grain(document: dict, start: str = _ROOT) -> tuple[dict, list[str]]:
+    """Walk from ``start`` (ROOT, unless B3 asks about one layer of it) to whatever sets
+    the output's row count.
 
     Each step asks one scope the same question, so ROOT is not a special case: a scope
     that groups, or deduplicates, answers with its own key set; a scope that only
@@ -2334,7 +2556,7 @@ def _resolve_grain(document: dict) -> tuple[dict, list[str]]:
     scopes = _scopes(document)
     tables = set(document.get("source_tables") or [])
     visited: list[str] = []
-    item = _ROOT
+    item = start
     for _ in range(GRAIN_DEPTH_LIMIT):
         if item in tables:
             path = visited[1:]
@@ -2716,6 +2938,84 @@ def _with_pinned_keys(document: dict, grain: dict) -> dict:
         record = pins[scope_id].get(_key_column_name(key) or "")
         keys.append({**key, "pinned": {"value": record["value"]}} if record else key)
     return {**grain, "keys": keys}
+
+
+# ------------------------------------------------------ grain candidate (B3)
+
+
+def _grain_candidate(document: dict, grain: dict) -> dict | None:
+    """B3: what one row probably is, when a row-multiplying step stopped the walk.
+
+    ``unknown`` stays the verdict -- an explode really does make the row count
+    unprovable -- but it is not the whole of what the structure says. When the driving
+    path crosses a LATERAL VIEW whose own upstream grain *is* decided, the shape of the
+    answer follows: one upstream row per exploded value. That is published beside the
+    verdict as a hypothesis, so the profile writer copies it and marks it inferred
+    instead of inventing a grain of their own, which is what they did on the corpus.
+
+    Nothing is offered where the hypothesis would not be one: a decided grain, several
+    driving tables (a UNION's rows are a sum, not a product), a stop with some other
+    cause, or an upstream grain that is itself ``unknown``.
+    """
+    if str(grain.get("basis")) != BASIS_UNKNOWN:
+        return None
+    branches = _driving_branches(document)
+    if len(branches) != 1 or not branches[0]["lateral_view_scopes"]:
+        return None
+    branch = branches[0]
+    below = _below_expansion(branch)
+    upstream, _visited = _resolve_grain(document, below)
+    basis = str(upstream["basis"])
+    if basis == BASIS_UNKNOWN:
+        return None
+    return {
+        "keys": [
+            *upstream["keys"],
+            *_exploded_keys(document, branch["lateral_view_scopes"]),
+        ],
+        # Named only when the upstream grain is a table's own rows: that grain has no
+        # key list of its own, and "one row per <nothing> per exploded value" is not an
+        # answer. Every other basis carries its keys and leaves this null.
+        "row_source": below if basis == BASIS_DRIVING_TABLE_ROWS else None,
+        "basis": BASIS_CANDIDATE,
+        "confidence": CONFIDENCE_HYPOTHESIS,
+        "reason": _candidate_reason(branch, below, basis),
+        "evidence": list(branch["lateral_view_scopes"]),
+    }
+
+
+def _below_expansion(branch: dict) -> str:
+    """The item the driving path reaches just below its deepest LATERAL VIEW.
+
+    Deepest rather than first: two stacked explodes both multiply, and the grain the
+    candidate builds on is the one below every one of them.
+    """
+    chain = [_ROOT, *branch["via_scopes"], branch["table"]]
+    deepest = max(chain.index(item) for item in branch["lateral_view_scopes"])
+    return chain[deepest + 1]
+
+
+def _exploded_keys(document: dict, scopes: Sequence[str]) -> list[dict]:
+    """One logical key per column the LATERAL VIEWs on the path add, upstream first."""
+    keys: list[dict] = []
+    for scope_id in reversed(list(scopes)):
+        for udtf in _lateral_view_inputs(document, scope_id):
+            keys.extend(
+                _key_object(
+                    udtf,
+                    output.get("name"),
+                    output.get("expression"),
+                    output.get("expression_resolution"),
+                )
+                for output in (_scopes(document).get(udtf) or {}).get("outputs") or []
+            )
+    return keys
+
+
+def _candidate_reason(branch: dict, below: str, upstream_basis: str) -> str:
+    """Why this is only a candidate, in the same structural words the verdict uses."""
+    path = " → ".join(reversed(branch["lateral_view_scopes"]))
+    return f"{path} 的 LATERAL VIEW 使行数展开；展开前 {below} 的粒度依据 {upstream_basis}"
 
 
 def _unknown_grain(reason: str, via_scopes: Sequence[str]) -> dict:

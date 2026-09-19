@@ -17,7 +17,14 @@
       "spec": null
     },
     "instance_dates": [],
-    "structural_summary": "ROOT 直接读取 ods.ledger_a、ods.ledger_b；关联 1 个上游（1 个其他）；输出 1 列。",
+    "driving_tables": [
+      {
+        "table": "ods.ledger_a",
+        "via_scopes": [],
+        "lateral_view_scopes": []
+      }
+    ],
+    "structural_summary": "行来源 ods.ledger_a；补充 ods.ledger_b；关联 1 个上游（1 个其他）；输出 1 列。",
     "target_declared_columns": [],
     "target_metadata_source": null,
     "header_comments": [],
@@ -57,8 +64,9 @@
       "project": null,
       "owner": null,
       "layer": null,
-      "role_in_task": "enrich",
+      "role_in_task": "filter_partner",
       "roles": [
+        "filter_partner",
         "enrich"
       ],
       "used_columns": [

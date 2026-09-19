@@ -145,6 +145,9 @@ ROLE_TEXT = {
     "aggregate_source": "聚合来源",
     "dedup_source": "去重来源",
     "union_branch": "合并分支",
+    # B2: an INNER JOIN's partner on the driving path -- it drops driving rows it
+    # cannot match, so it is not mere enrichment.
+    "filter_partner": "关联筛选",
     "enrich": "关联补充",
     "rowset_only": "仅行集引用",
 }
