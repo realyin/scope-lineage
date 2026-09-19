@@ -1,6 +1,28 @@
 # Changelog
 
 ## Unreleased
+- A column an equality filter pins to one value is a constant inside its scope, and no
+  longer counts as part of a unique key set. A scope whose WHERE carries a top-level AND
+  conjunct `col = <scalar literal | ${…}>` -- or which passes that column through
+  unchanged from a scope on the driving path that does -- is unique by the rest of its
+  GROUP BY list, so `SELECT k, dt … WHERE dt = '20260815' GROUP BY k, dt` joined on `k`
+  alone is `safe` rather than a fan-out `risk` -- by some margin the commonest wrong
+  verdict the old reading produced. `<>`, `IN (a, b)`, `BETWEEN`, `LIKE`, a comparison
+  with another column and an equality nested in an OR all still leave the column free, and
+  so does a key that merely reads the pinned column inside an expression. The dropped
+  columns are published as `fan_out_risks[].pinned_keys[]` (`{scope_id, column, value}`)
+  and named in the reason; emptying the key set makes the right side a single row, which
+  is `safe` too. `output_shape.grain.keys[]` *keeps* the pinned key, marked
+  `pinned: {"value": "'20260815'"}` so the reader still sees the day the row covers, while
+  `candidate_keys` / `key_confidence` read past it -- a constant is neither a key nor, when
+  it is not written to the target, a `proven_unexposed` finding.
+- An aggregate over an empty grouping set is one row, not an undecided grain.
+  `SELECT COUNT(1) … FROM t` with no GROUP BY now publishes `grain.basis = "single_row"`
+  with `grain.keys: []` and `key_confidence: "proven"` (an empty key set is trivially
+  unique) instead of `group_by` / `none`, and `semantic.md` writes 「一行 = 全表汇总」 on the
+  grain line with 「输出只有一行，无需键即可唯一标识」 on the key line; a table card's
+  「一行代表什么」 reads 「整张输出一行（全表汇总）」. A UNION ALL of several such aggregates is
+  not one row and keeps its `unknown` grain. Contract version unchanged.
 - The script's header comment block reaches the artifacts. A task script usually opens with
   the lines that say what the job does, written above a `SET` preamble -- so sqlglot
   attached them to a statement nothing models, and `statement_comments` came back empty
