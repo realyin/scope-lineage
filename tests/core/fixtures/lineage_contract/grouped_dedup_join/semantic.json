@@ -20,6 +20,7 @@
         "dt": "20260101"
       }
     },
+    "instance_dates": [],
     "structural_summary": "ROOT 不直接读取物理表；关联 1 个上游（1 个去重）；输出 6 列。",
     "target_metadata_source": "target_ddl",
     "header_comments": [],
@@ -656,6 +657,7 @@
       "column_label": "mart.metric_by_segment.segment",
       "summary": "Segment code：直接取自 ods.events_a.segment（注释未知）、ods.events_b.seg_code（注释未知）",
       "target_comment": "Segment code",
+      "target_comment_source": "metadata",
       "type": "string",
       "transform": "DIRECT",
       "structural_role": "candidate_key",
@@ -759,12 +761,14 @@
       "column_label": "mart.metric_by_segment.band",
       "summary": "Amount band：amount >= 100 → 'HIGH'；否则 'LOW'；来源 ods.events_a.amount（注释未知）、ods.events_b.amount（注释未知）",
       "target_comment": "Amount band",
+      "target_comment_source": "metadata",
       "type": "string",
       "transform": "DIRECT",
       "structural_role": "candidate_key",
       "value_domain": [
         {
-          "value": "'HIGH'",
+          "value": "HIGH",
+          "sql_literal": "'HIGH'",
           "kind": "literal",
           "seen_in": [
             "rule:001"
@@ -773,7 +777,8 @@
           "meaning": null
         },
         {
-          "value": "'LOW'",
+          "value": "LOW",
+          "sql_literal": "'LOW'",
           "kind": "literal",
           "seen_in": [
             "rule:001"
@@ -882,6 +887,7 @@
       "column_label": "mart.metric_by_segment.total",
       "summary": "Summed amount：按 segment、CASE WHEN amount >= 100 THEN 'HIGH' ELSE 'LOW' END 聚合：SUM(amount)；来源 ods.events_a.amount（注释未知）、ods.events_b.amount（注释未知）",
       "target_comment": "Summed amount",
+      "target_comment_source": "metadata",
       "type": "decimal(18,2)",
       "transform": "DIRECT",
       "structural_role": "measure",
@@ -1030,6 +1036,7 @@
       "column_label": "mart.metric_by_segment.cnt",
       "summary": "Row count：按 segment、CASE WHEN amount >= 100 THEN 'HIGH' ELSE 'LOW' END 聚合：COUNT(1)",
       "target_comment": "Row count",
+      "target_comment_source": "metadata",
       "type": "bigint",
       "transform": "DIRECT",
       "structural_role": "measure",
@@ -1125,6 +1132,7 @@
       "column_label": "mart.metric_by_segment.band_total",
       "summary": "Band level total：amount >= 100 → 'HIGH'；否则 'LOW'，再按 segment、CASE WHEN amount >= 100 THEN 'HIGH' ELSE 'LOW' END 聚合：SUM(amount)，再窗口函数 SUM(total)；按 band 分组；来源 ods.events_a.amount（注释未知）、ods.events_b.amount（注释未知）",
       "target_comment": "Band level total",
+      "target_comment_source": "metadata",
       "type": "decimal(18,2)",
       "transform": "DIRECT",
       "structural_role": "conditional_label",
@@ -1303,6 +1311,7 @@
       "column_label": "mart.metric_by_segment.segment_name",
       "summary": "Segment display name：直接取自 dim.segment_dim.segment_name（注释未知）（关联未命中时为空）",
       "target_comment": "Segment display name",
+      "target_comment_source": "metadata",
       "type": "string",
       "transform": "DIRECT",
       "structural_role": "attribute",
@@ -1374,6 +1383,12 @@
         "candidate": 0
       }
     },
+    "confirmations": {
+      "values_confirmed": 0,
+      "terms_confirmed": 0,
+      "columns_patched": 0,
+      "tables_patched": 0
+    },
     "trace_incomplete_fields": [],
     "ambiguous_fields": [],
     "diagnostics_available": true,
@@ -1385,11 +1400,13 @@
     "findings": [
       {
         "kind": "target_binding",
+        "severity": "warn",
         "text": "status=applied、method=ddl_position（按 DDL 位置绑定，目标表 DDL 变更会导致列错位）",
         "evidence": []
       },
       {
         "kind": "table_comment_missing",
+        "severity": "info",
         "text": "缺少表注释的表（4 张）：dim.segment_dim、ods.events_a、ods.events_b、mart.metric_by_segment",
         "evidence": []
       }

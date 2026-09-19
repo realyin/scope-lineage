@@ -107,7 +107,7 @@ def build_glossary(
         "terms": _build_terms(statements, canonical),
         "values": aggregate_values(observations, canonical),
         "parameters": _build_parameters(observations, canonical),
-        "overrides_applied": {"terms": 0, "values": 0, "unmatched": []},
+        "overrides_applied": {"terms": 0, "values": 0, "blank": 0, "unmatched": []},
     }
     _apply_overrides(glossary, overrides or {})
     return {key: glossary[key] for key in GLOSSARY_KEYS}
@@ -240,22 +240,34 @@ def _build_parameters(observations: Sequence[Mapping], canonical: Mapping) -> li
 
 def _apply_overrides(glossary: dict, overrides: Mapping) -> None:
     unmatched: list[str] = []
-    terms = _apply_term_overrides(glossary["terms"], overrides.get("terms") or {}, unmatched)
+    blank: list[str] = []
+    terms = _apply_term_overrides(
+        glossary["terms"], overrides.get("terms") or {}, unmatched, blank
+    )
     values = _apply_value_overrides(
-        glossary["values"], overrides.get("values") or {}, unmatched
+        glossary["values"], overrides.get("values") or {}, unmatched, blank
     )
     glossary["overrides_applied"] = {
         "terms": terms,
         "values": values,
+        # WI-2.9 item C. A key whose meaning is still empty: the `glossary --template`
+        # form ships every entry blank, and a half-filled form comes back with the rest
+        # unanswered. Writing `""` in as a confirmed meaning would turn "nobody has said"
+        # into "somebody said nothing", which is the one reading this layer must not
+        # publish. So a blank is counted and left alone.
+        "blank": len(blank),
         "unmatched": sorted(unmatched),
     }
 
 
 def _apply_term_overrides(
-    terms: Sequence[dict], overrides: Mapping, unmatched: list[str]
+    terms: Sequence[dict], overrides: Mapping, unmatched: list[str], blank: list[str]
 ) -> int:
     applied = 0
     for key, payload in overrides.items():
+        if not _meaning(payload)["text"]:
+            blank.append(str(key))
+            continue
         matches = [term for term in terms if term["column"] == str(key).strip()]
         if not matches:
             unmatched.append(str(key))
@@ -267,10 +279,13 @@ def _apply_term_overrides(
 
 
 def _apply_value_overrides(
-    values: Sequence[dict], overrides: Mapping, unmatched: list[str]
+    values: Sequence[dict], overrides: Mapping, unmatched: list[str], blank: list[str]
 ) -> int:
     applied = 0
     for key, payload in overrides.items():
+        if not _meaning(payload)["text"]:
+            blank.append(str(key))
+            continue
         matches = [entry for entry in values if _value_key_matches(str(key), entry)]
         if not matches:
             unmatched.append(str(key))
@@ -322,10 +337,44 @@ def apply_glossary(profile: dict, glossary: Mapping | None) -> dict:
     if not glossary:
         return profile
     entries = glossary.get("values") or []
+    confirmed_terms = _confirmed_term_columns(glossary)
     for statement in profile.get("statements") or [profile]:
         fields = statement.get("fields") or []
         glossary_values.apply_value_domains(fields, entries)
-        coverage = (statement.get("confidence") or {}).get("metadata_coverage")
-        if coverage is not None:
-            coverage["glossary"] = glossary_values.glossary_coverage(fields)
+        coverage = glossary_values.glossary_coverage(fields)
+        confidence = statement.get("confidence") or {}
+        if confidence.get("metadata_coverage") is not None:
+            confidence["metadata_coverage"]["glossary"] = coverage
+        # WI-2.6: the two halves of "what has been answered" that only the corpus
+        # dictionary knows. The patched halves are already counted from the document.
+        if confidence.get("confirmations") is not None:
+            confidence["confirmations"]["values_confirmed"] = coverage["confirmed"]
+            confidence["confirmations"]["terms_confirmed"] = _term_confirmations(
+                statement, confirmed_terms
+            )
     return profile
+
+
+def _confirmed_term_columns(glossary: Mapping) -> set:
+    """Column names a human has confirmed a meaning for, corpus-wide."""
+    return {
+        str(term.get("column"))
+        for term in glossary.get("terms") or []
+        if (term.get("meaning") or {}).get("text")
+    }
+
+
+def _term_confirmations(statement: Mapping, confirmed: set) -> int:
+    """How many of the column names THIS task touches carry a confirmed meaning.
+
+    Counted over the names the task actually uses -- its output columns and the input
+    columns it reads -- because a corpus-wide count would say the same number for every
+    task and answer nobody's question about this one.
+    """
+    names = {str(field.get("column")) for field in statement.get("fields") or []}
+    names.update(
+        str(column.get("name"))
+        for item in statement.get("inputs") or []
+        for column in item.get("used_columns") or []
+    )
+    return len(names & confirmed)

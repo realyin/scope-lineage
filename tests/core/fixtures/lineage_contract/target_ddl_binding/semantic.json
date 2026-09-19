@@ -20,6 +20,7 @@
         "dt": "20260801"
       }
     },
+    "instance_dates": [],
     "structural_summary": "ROOT 直接读取 ods.account_snapshot；输出 2 列。",
     "target_metadata_source": "target_ddl",
     "header_comments": [],
@@ -191,6 +192,12 @@
         "logic": 0
       }
     },
+    "confirmations": {
+      "values_confirmed": 0,
+      "terms_confirmed": 0,
+      "columns_patched": 0,
+      "tables_patched": 0
+    },
     "trace_incomplete_fields": [],
     "ambiguous_fields": [],
     "diagnostics_available": true,
@@ -200,6 +207,7 @@
     "findings": [
       {
         "kind": "alias_position_mismatch",
+        "severity": "warn",
         "text": "按位置写入且 2/2 个投影的 SQL 别名与 DDL 同位置列名不同（如 目标 account_id ← 别名 wrong_key、目标 balance ← 别名 wrong_balance）——生产数据写错列或元数据列序过期，需 DESC 表核对",
         "evidence": [
           "mc:001",
@@ -208,11 +216,13 @@
       },
       {
         "kind": "target_binding",
+        "severity": "warn",
         "text": "status=applied、method=ddl_position（按 DDL 位置绑定，目标表 DDL 变更会导致列错位）",
         "evidence": []
       },
       {
         "kind": "table_comment_missing",
+        "severity": "info",
         "text": "缺少表注释的表（1 张）：ods.account_snapshot",
         "evidence": []
       }

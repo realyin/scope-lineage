@@ -34,6 +34,20 @@ the artifacts stay the single source of truth.
 
 One workflow in the skill does not go through `query.py`: for "what does this task do / what does this field mean", run `scope-lineage describe --lineage <artifact dir>` first to produce the `semantic.json` / `semantic.md` semantic skeleton and answer by reading `semantic.md` whole; when a business profile is wanted, generate `business_profile.md` from `references/semantic-profile-prompt.md` — one file holding three pieces: a task semantic card (≤ 1 page, business language, no source tags in the body), a field dictionary (every output column, with a 7-row metric spec card per measure) and an open-questions list (≤ 15 items a business owner can answer in five minutes), with the source tags, evidence ids, risk table and self-check collected in the appendix.
 
+The skill also ships a write-back script, `scripts/confirmations.py` (standard library too).
+Once the business owner has filled in the `- 答案：` line of each open question in a
+`business_profile.md`,
+
+```
+python3 skills/scope-lineage/scripts/confirmations.py apply <profile file> --by <name>
+```
+
+routes every answer by its own 回写目标 line — `术语` / `值域` merge into
+`glossary.overrides.json`, `字段注释` / `表注释` merge into `metadata-patch.json`
+(`--dry-run` only prints). Re-run `glossary --overrides` and
+`describe --glossary --metadata-patch`, and those items come back as confirmed facts
+instead of open questions, so the list gets shorter every round.
+
 ## Installation
 
 **Claude Code**:

@@ -338,6 +338,54 @@ DDL 与 Schema 的字段集合必须一致。存在同一表的多份元数据�
 | `query_time` / `ddl_update_time` | 可排序时间 | 多版本元数据选择依据。 |
 | `data_source` | string | 元数据来源标识，便于追溯。 |
 
+## 元数据补丁（metadata-patch/1）
+
+`--metadata-patch` 接收一份**人工确认过的**注释补丁（可重复，后面的文件覆盖前面的）。它是
+待确认清单的回写终点：业务方答了"这个字段是什么意思"，而团队又写不进数仓的 catalog 时，
+答案落在这份本地文件里，而不是丢失在一份 markdown 里。**它不修改任何源元数据文件。**
+
+```json
+{
+  "doc_format": "metadata-patch/1",
+  "tables": {
+    "mart.order_daily": {
+      "table_name_cn": "订单日汇总",
+      "table_desc": "每个渠道每天一行",
+      "confirmed_by": "owner",
+      "date": "2026-09-19"
+    }
+  },
+  "columns": {
+    "mart.order_daily.pay_status": {
+      "comment": "支付状态",
+      "confirmed_by": "owner",
+      "date": "2026-09-19"
+    }
+  }
+}
+```
+
+| Key | Value | 用途 |
+| --- | --- | --- |
+| `doc_format` | `metadata-patch/1` | 可省略；写了就必须是这个值，否则退出码 2。 |
+| `tables` | `{"db.table": {…}}` | 表级事实，键名与富 JSON 元数据同一套（`table_name_cn`、`table_desc`、`domain` …），并进 `table_metadata`。 |
+| `columns` | `{"db.table.column": {…}}` | 列注释；只认三段式的键，`表.列` 两段式不收（无法区分表名与列名，猜错就是把注释写到别处）。 |
+| `confirmed_by` / `date` | string | 谁在哪天确认的；原样保留在补丁文件里，供复核。 |
+
+规则：
+
+- **补丁优先**：同一列同时有 schema 注释与补丁注释时，产物里是补丁的那条；
+- **只改注释，不改结构**：补丁不带类型、不增列——列宽是数仓的事实，`SELECT *` 靠它展开；
+- **带标记**：被写过的列多 `comment_source: "patch"`，被写过的表多 `table_metadata.patch_applied: true`；
+- **表名匹配**与 schema 一致：大小写不敏感，`catalog.db.table` 与 `db.table` 是同一张表；
+- **没命中的键只报告不报错**：运行结束打印 `unmatched=N` 并列出键，拼错的键不会被静默吞掉；
+- 文件不存在、不是合法 JSON、顶层不是对象、或 `doc_format` 是别的值时退出码为 2。
+
+`describe --metadata-patch` 接收同一份文件，对已经写好的 `lineage.json` 在内存里做同样的覆盖
+再派生视图——不重跑 parse 也能看到答案落地，磁盘上的产物不会被改写。两条路径产出同一份
+`semantic.json`（含 `lineage_digest`）。回写文件怎么从画像生成，见
+[术语与值域字典](glossary-doc.md)。
+
 ## 失败策略
 
 默认情况下，任一输入读取失败或任一语句 `parse_status=failed` 都返回非零退出码。已经成功解析

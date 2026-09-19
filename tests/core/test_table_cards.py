@@ -662,3 +662,188 @@ def test_the_golden_corpus_exercises_the_shapes_the_cards_exist_for() -> None:
     assert FINDING_NEVER_PRODUCED in kinds
     assert not any(table.startswith("directory:") for table in tables)
     assert len(_card(cards, "mart.channel_summary")["produced_by"]) == 2
+
+
+# ------------------------------------------------- WI-2.8 D2: a card decides a fan-out
+
+CARD_JOIN_SCHEMA = {
+    **SCHEMA,
+    "ods.customer_event": ["customer_id", "country_code", "event_code", "dt"],
+    "mart.event_rollup": ["event_code", "n"],
+    "mart.event_enriched": ["customer_id", "country_code"],
+}
+
+# The right side of the JOIN is the table `PRODUCER_SQL` writes one row per
+# (customer_id, country_code), and the ON clause names both of those columns.
+CARDED_JOIN_SQL = (
+    "INSERT OVERWRITE TABLE mart.event_rollup "
+    "SELECT e.event_code, count(1) AS n FROM ods.customer_event e "
+    "LEFT JOIN mart.customer_daily d "
+    "ON e.customer_id = d.customer_id AND e.country_code = d.country_code "
+    "GROUP BY e.event_code"
+)
+
+# The same JOIN with half the key: one row of the right side per customer_id is exactly
+# what nobody proved, so the card has nothing to say about this ON clause.
+PARTIAL_JOIN_SQL = (
+    "INSERT OVERWRITE TABLE mart.event_rollup "
+    "SELECT e.event_code, count(1) AS n FROM ods.customer_event e "
+    "LEFT JOIN mart.customer_daily d ON e.customer_id = d.customer_id "
+    "GROUP BY e.event_code"
+)
+
+
+def _carded(sql: str, task: str = "downstream_task") -> tuple[dict, dict, dict]:
+    """``(enriched profile, plain profile, document)`` for one downstream statement."""
+    cards = build_table_cards(
+        [
+            _statement_profile(PRODUCER_SQL, "producer_task"),
+            _statement_profile(sql, task, schema=CARD_JOIN_SCHEMA),
+        ]
+    )
+    document = to_lineage_dict(parse_scope_lineage(sql, task, schema=CARD_JOIN_SCHEMA))
+    profile = build_semantic_profile(document)
+    return apply_table_cards(profile, cards, document), profile, document
+
+
+def test_a_proven_table_card_turns_an_unknown_join_into_a_safe_one() -> None:
+    """D2: the same document's `inputs[].card` already held the proof the verdict lacked."""
+    enriched, plain, _document = _carded(CARDED_JOIN_SQL)
+
+    assert [item["status"] for item in plain["output_shape"]["fan_out_risks"]] == ["unknown"]
+    risk = enriched["output_shape"]["fan_out_risks"][0]
+    assert risk["status"] == "safe"
+    assert risk["basis"] == "table_card"
+    assert "producer_task" in risk["reason"]
+    assert "customer_id" in risk["reason"] and "表卡" in risk["reason"]
+
+
+def test_the_keys_this_statement_may_claim_are_recomputed_with_the_card() -> None:
+    enriched, plain, _document = _carded(CARDED_JOIN_SQL)
+
+    assert plain["output_shape"]["key_confidence"] == "none"
+    assert plain["output_shape"]["candidate_keys"] == []
+    assert enriched["output_shape"]["key_confidence"] == "proven"
+    assert enriched["output_shape"]["candidate_keys"] == ["event_code"]
+
+
+def test_a_card_the_on_clause_does_not_cover_leaves_the_join_unknown() -> None:
+    """Half a proven key set proves nothing: one customer may hold many countries."""
+    enriched, _plain, _document = _carded(PARTIAL_JOIN_SQL)
+
+    risk = enriched["output_shape"]["fan_out_risks"][0]
+    assert risk["status"] == "unknown"
+    assert "basis" not in risk
+    assert enriched["output_shape"]["key_confidence"] == "none"
+
+
+def test_a_candidate_only_card_says_so_and_caps_the_confidence() -> None:
+    """A candidate key is the corpus's best guess, so the claim it lends is capped."""
+    cards = build_table_cards(
+        [
+            _statement_profile(PRODUCER_SQL, "producer_task"),
+            _statement_profile(CARDED_JOIN_SQL, "downstream_task", schema=CARD_JOIN_SCHEMA),
+        ]
+    )
+    _card(cards, "mart.customer_daily")["produced_by"][0]["key_confidence"] = "candidate"
+    document = to_lineage_dict(
+        parse_scope_lineage(CARDED_JOIN_SQL, "downstream_task", schema=CARD_JOIN_SCHEMA)
+    )
+
+    enriched = apply_table_cards(build_semantic_profile(document), cards, document)
+
+    risk = enriched["output_shape"]["fan_out_risks"][0]
+    assert risk["status"] == "safe"
+    assert "未证唯一" in risk["reason"]
+    assert enriched["output_shape"]["key_confidence"] == "candidate"
+    assert enriched["output_shape"]["candidate_keys"] == ["event_code"]
+
+
+def test_a_proven_unexposed_card_is_not_a_proof_of_anything() -> None:
+    """Its key list is the exposed SUBSET of a proven set, which identifies no row."""
+    cards = build_table_cards(
+        [
+            _statement_profile(PRODUCER_SQL, "producer_task"),
+            _statement_profile(CARDED_JOIN_SQL, "downstream_task", schema=CARD_JOIN_SCHEMA),
+        ]
+    )
+    _card(cards, "mart.customer_daily")["produced_by"][0]["key_confidence"] = (
+        "proven_unexposed"
+    )
+    document = to_lineage_dict(
+        parse_scope_lineage(CARDED_JOIN_SQL, "downstream_task", schema=CARD_JOIN_SCHEMA)
+    )
+
+    enriched = apply_table_cards(build_semantic_profile(document), cards, document)
+
+    assert enriched["output_shape"]["fan_out_risks"][0]["status"] == "unknown"
+
+
+def test_without_the_contract_document_the_fan_out_verdict_is_untouched() -> None:
+    """`--tables` still enriches the narrative; only the recomputation needs the source."""
+    cards = build_table_cards(
+        [
+            _statement_profile(PRODUCER_SQL, "producer_task"),
+            _statement_profile(CARDED_JOIN_SQL, "downstream_task", schema=CARD_JOIN_SCHEMA),
+        ]
+    )
+    profile = build_semantic_profile(
+        to_lineage_dict(
+            parse_scope_lineage(CARDED_JOIN_SQL, "downstream_task", schema=CARD_JOIN_SCHEMA)
+        )
+    )
+
+    enriched = apply_table_cards(profile, cards)
+
+    assert enriched["output_shape"] == profile["output_shape"]
+    assert enriched["inputs"][0]["card"] is not None or enriched["inputs"][1]["card"]
+
+
+# ------------------------------------------- WI-2.8 D6: "no producer" vs "producer, no grain"
+
+UNION_PRODUCER_SQL = (
+    "INSERT OVERWRITE TABLE mart.union_out SELECT customer_id FROM ods.customer_base "
+    "UNION ALL SELECT customer_id FROM ods.customer_event"
+)
+
+UNION_CONSUMER_SQL = (
+    "INSERT OVERWRITE TABLE mart.union_read SELECT customer_id FROM mart.union_out"
+)
+
+
+def test_an_input_card_names_the_upstream_task_that_could_not_decide_the_grain() -> None:
+    schema = {
+        **SCHEMA,
+        "mart.union_out": ["customer_id"],
+        "mart.union_read": ["customer_id"],
+    }
+    cards = build_table_cards(
+        [
+            _statement_profile(UNION_PRODUCER_SQL, "union_producer", schema=schema),
+            _statement_profile(UNION_CONSUMER_SQL, "union_consumer", schema=schema),
+        ]
+    )
+
+    enriched = apply_table_cards(
+        _statement_profile(UNION_CONSUMER_SQL, "union_consumer", schema=schema), cards
+    )
+
+    grain_text = enriched["inputs"][0]["card"]["grain_text"]
+    assert grain_text.startswith("生产任务 union_producer 未能判定粒度（")
+    assert not grain_text.startswith("未知")
+
+
+def test_the_table_card_itself_still_reads_its_grain_as_a_basis() -> None:
+    """Section 2 already names the producing statement in the line, so it stays terse."""
+    schema = {
+        **SCHEMA,
+        "mart.union_out": ["customer_id"],
+        "mart.union_read": ["customer_id"],
+    }
+    cards = build_table_cards(
+        [_statement_profile(UNION_PRODUCER_SQL, "union_producer", schema=schema)]
+    )
+
+    markdown = render_table_card_markdown(_card(cards, "mart.union_out"))
+
+    assert "`union_producer` / `stmt:001`：未知；" in markdown

@@ -36,6 +36,10 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict
 scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict \
   --overrides /path/to/glossary.overrides.json
 
+# also write a fill-in 取值含义 form (.md for a person, the same-named .json as --overrides)
+scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict \
+  --template /path/to/dict/glossary.overrides.template.md --template-top 20
+
 # JSON only
 scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --format json
 
@@ -78,18 +82,18 @@ markdown = render_glossary_markdown(glossary)
   ],
   "values": [
     {"column_ref": "ods.app_order.pay_status", "column": "pay_status",
-     "value": "'PAID'", "kind": "literal",
+     "value": "PAID", "sql_literal": "'PAID'", "kind": "literal",
      "observations": [{"task": "order_daily", "statement_id": "stmt:001",
                        "context": "filter_eq", "evidence": "rule:003",
                        "expression": "pay_status = 'PAID'"}],
      "task_count": 2,
-     "closed_set": {"values": ["'PAID'", "'REFUND'"], "basis": "in_list"},
+     "closed_set": {"values": ["PAID", "REFUND"], "basis": "in_list"},
      "meaning_candidates": [{"text": "Payment status; PAID means settled", "source": "column_comment",
                              "evidence": "column:ods.app_order.pay_status"}],
      "meaning": {"text": "Settled", "source": "override",
                  "confirmed_by": "owner", "date": "2026-09-18"}},
     {"column_ref": "cte:latest_dim.rn", "logical": true, "column": "rn",
-     "value": "1", "kind": "literal",
+     "value": "1", "sql_literal": "1", "kind": "literal",
      "observations": [{"task": "…", "statement_id": "stmt:001",
                        "context": "join_condition", "evidence": "rule:002",
                        "expression": "rn = 1"}],
@@ -97,7 +101,8 @@ markdown = render_glossary_markdown(glossary)
   ],
   "parameters": [{"column_ref": "ods.app_order.dt", "expression": "dt = '${bizdate}'",
                   "kind": "parameterized", "task_count": 6}],
-  "overrides_applied": {"terms": 1, "values": 2, "unmatched": ["pay_status='GONE'"]}
+  "overrides_applied": {"terms": 1, "values": 2, "blank": 0,
+                        "unmatched": ["pay_status='GONE'"]}
 }
 ```
 
@@ -105,9 +110,9 @@ markdown = render_glossary_markdown(glossary)
 | --- | --- |
 | `corpus` | What was scanned: `artifact_root` verbatim, the task count, the write-statement count, and each task's contract digest (the same digest function mapping.md / semantic.md use, so you can confirm the dictionary and a profile came from one snapshot) |
 | `terms[]` | Comments merged across tables by **column name**; one entry per name, sorted by name |
-| `values[]` | One entry per (column reference, value, `kind`); sorted by (column name, column reference, value, `kind`) |
+| `values[]` | One entry per (column reference, value, `kind`); sorted by (column name, column reference, value, `kind`). `value` is the normalized, unquoted form and `sql_literal` is the literal the author wrote |
 | `parameters[]` | Columns pinned by a `${…}` variable or a function call: they pin the column, but they are not its values |
-| `overrides_applied` | How many human confirmations took effect, and which keys matched nothing in the corpus |
+| `overrides_applied` | How many human confirmations took effect (`terms` / `values`), how many keys are still blank (`blank`), and which keys matched nothing in the corpus (`unmatched`) |
 
 ### Terms (terms[])
 
@@ -155,6 +160,12 @@ Other rules:
   listing it beside the enumerated values would say something the SQL never said.
   `LIKE '${prefix}%'` stays `parameterized`: being a substitution is the bigger fact
   about it.
+- A value is stored **with its SQL quotes stripped**: `value` is `PAID`, the author's
+  `'PAID'` stays in `sql_literal`, and the predicate as written stays in
+  `observations[].expression`. Numbers are unchanged (`0` is `0`). One value the corpus
+  spells `'0'` here and `0` there therefore merges into one entry, whose `sql_literal` is
+  the first spelling in sorted order. The markdown and the overrides keys follow the same
+  rule: **display `sql_literal`, key on `value`**.
 - `NULL` is not published as a value (it is an absence, not a code), but it does count
   towards a CASE's exhaustiveness: `ELSE NULL` closes the branch set just the same.
 - `closed_set` is published only when the corpus's closure claims for that column
@@ -192,9 +203,100 @@ backticks removed.
 | --- | --- |
 | Two key forms | Qualified (`ods.app_order.pay_status='PAID'`) matches that one column; bare (`pay_status='PAID'`) matches **every** same-named column in the corpus |
 | Table matching | The same rule the dictionary uses internally: suffix matching, so `ods.t` and `catalog.ods.t` are one table |
-| Value matching | Compared with quotes stripped, so `'PAID'` and `PAID` are the same value |
+| Value matching | Quotes are stripped on both sides, so `'PAID'` and `PAID` are the same value; **prefer the unquoted `pay_status=PAID`**, which is what `values[].value` holds |
 | Merge precedence | An override always beats a candidate: on a match `meaning.source` is `override`, and `meaning_candidates` is kept as it was |
 | Keys that match nothing | Go to `overrides_applied.unmatched` (sorted) and are **never dropped silently** -- a typo in a file a human reviewed is exactly what the reviewer cannot see |
+
+## The fill-in form: `glossary --template`
+
+Once the profile's open-questions list was capped at **five items** (WI-2.9), "what does
+this code mean" stopped being asked one question at a time -- it was never really a
+question, it is a **form**. `--template` generates that form:
+
+```bash
+scope-lineage glossary --lineage corpus --out dict \
+  --template dict/glossary.overrides.template.md --template-top 20
+# the owner writes the meanings into the .md and the same-named .json, then
+scope-lineage glossary --lineage corpus --out dict --overrides dict/glossary.overrides.template.json
+```
+
+One `--template` path writes two files: the `.md` is what a person fills in (one section
+per column, one row per value) and the same-named `.json` is what `--overrides` reads
+straight back (`doc_format: "glossary-overrides-template/1"`, `values` keyed on
+`<table.column>=<unquoted value>`, an empty `meaning`, and today's `date`). Both files ask
+about the same values.
+
+**Which values reach the form** (nothing else is asked):
+
+| Rule | Detail |
+| --- | --- |
+| `kind = literal` only | A `pattern` is a `LIKE` / `RLIKE` match shape rather than a value, and nobody can give a shape a business meaning |
+| No date-shaped literals | `'20260814'` is an instance date, not a code (see `instance_date` in the semantic doc) |
+| No bare numbers with no enumerated context | `rn = 1` and `flag = 0` are positions and switches; **a number inside a proven closed set is kept** (`status IN (0, 1, 2)`) |
+| Nothing already confirmed | A value whose `meaning` already carries text is not asked twice |
+| No observation that never reached a physical column | A `logical: true` `column_ref` is a scope id, and as an overrides key it would match nothing |
+
+**Order and size**: closed sets first (answering one completes a whole set), then by how
+many tasks use the value, then by how many observations there are, and finally by column
+and value -- so two runs over one corpus produce identical bytes. `--template-top` caps
+the number of **values** (default 20); after the cut, one column's values are regrouped so
+the form can be filled in column by column.
+
+**A blank entry is not an answer**: the form ships entirely blank and comes back half
+filled, which is normal. When `--overrides` reads a key whose `meaning` is an empty
+string it **skips it and counts it under `overrides_applied.blank`** rather than writing
+it in as a confirmed empty meaning -- "nobody has said" and "somebody said nothing" are
+different claims.
+
+## The write-back loop: how an answer reaches the dictionary and the metadata
+
+Every item of a profile's third piece (the open-questions list) carries a 回写目标 line, and
+that line is what routes it. Once the business owner has answered:
+
+```bash
+# 1. 业务方在 business_profile.md 的每条待确认项里填 `- 答案：…`
+# 2. 把答案分流成两份回写文件（--dry-run 只打印）
+python3 skills/scope-lineage/scripts/confirmations.py apply <画像>/business_profile.md \
+  --by owner --overrides dict/glossary.overrides.json --patch dict/metadata-patch.json
+
+# 3. 重跑字典与画像，已确认项就不再是问题
+scope-lineage glossary --lineage corpus --out dict --overrides dict/glossary.overrides.json
+scope-lineage describe --lineage corpus --glossary dict/glossary.json \
+  --metadata-patch dict/metadata-patch.json
+```
+
+| Write-back target | Which file | Written as |
+| --- | --- | --- |
+| `术语:<term>` | `glossary.overrides.json` | `terms["<term>"] = {meaning, confirmed_by, date}` |
+| `值域:<column>=<value>` | `glossary.overrides.json` | `values["<column>=<value>"] = {meaning, confirmed_by, date}` |
+| `字段注释:<table.column>` | `metadata-patch.json` | `columns["<table.column>"] = {comment, confirmed_by, date}` |
+| `表注释:<table>` | `metadata-patch.json` | `tables["<table>"] = {table_name_cn, confirmed_by, date}` |
+
+The script's rules:
+
+- **Merge, never overwrite**: a key the target file already holds is kept and counted under
+  `kept_existing` — two reviewers can each answer a round without either erasing the other;
+- **An unanswered item is skipped and counted**: `- 答案：（待填）`, an empty answer, or no
+  answer line at all counts as `unanswered` — a question nobody answered is not a blank answer;
+- **A write-back target that is not one of the four is skipped and counted** (`no_target`):
+  the template's four-way line left as written is not an answer, and guessing one of the four
+  would file the answer under the wrong key;
+- `--by` is recorded as each entry's `confirmed_by`, `date` defaults to today and `--date` overrides it;
+- **No empty file is created** when nothing was written — an empty file reads as "every
+  confirmation was cleared".
+
+In the next round the skeleton already carries those answers as facts, and the prompt requires
+that **no `Q` be generated for them** again:
+
+| Skeleton key | Filled by | Meaning |
+| --- | --- | --- |
+| `fields[].value_domain[].meaning.status = "confirmed"` | `glossary --overrides` | This value's meaning is confirmed |
+| `fields[].target_comment_source = "patch"` | `describe --metadata-patch` | The target field's comment came from a write-back |
+| `inputs[].comment_source = "patch"` | Likewise | The input table's readable name came from a write-back |
+| `confidence.confirmations` | Both | `{values_confirmed, terms_confirmed, columns_patched, tables_patched}`, the four counts of confirmed items |
+
+The patch file's own format, its matching rules and `parse --metadata-patch` are documented in
+[Core input formats](input-formats.md).
 
 ## describe consumption: fields[].value_domain
 
@@ -205,12 +307,12 @@ observations along with the meanings a human confirmed.
 
 ```jsonc
 "value_domain": [
-  {"value": "'PAID'", "kind": "literal", "seen_in": ["rule:003", "mc:004"],
-   "closed_set": true, "meaning": {"text": "已支付", "status": "confirmed"}},
-  {"value": "'REFUND'", "kind": "literal", "seen_in": ["rule:003"],
-   "closed_set": true, "meaning": {"text": "Payment status; REFUND means refunded", "status": "candidate"}},
-  {"value": "'%UNIT_OUT_%'", "kind": "pattern", "seen_in": ["rule:007"],
-   "closed_set": null, "meaning": null}
+  {"value": "PAID", "sql_literal": "'PAID'", "kind": "literal",
+   "seen_in": ["rule:003", "mc:004"], "closed_set": true, "meaning": {"text": "已支付", "status": "confirmed"}},
+  {"value": "REFUND", "sql_literal": "'REFUND'", "kind": "literal",
+   "seen_in": ["rule:003"], "closed_set": true, "meaning": {"text": "Payment status; REFUND means refunded", "status": "candidate"}},
+  {"value": "%UNIT_OUT_%", "sql_literal": "'%UNIT_OUT_%'", "kind": "pattern",
+   "seen_in": ["rule:007"], "closed_set": null, "meaning": null}
 ]
 ```
 
@@ -220,9 +322,11 @@ observations along with the meanings a human confirmed.
 | One entry per value | Deduplicated by (`value`, `kind`): a value several observations prove (two CASE branches, two branch scopes) is written once, and the evidence is merged into `seen_in` (deduplicated, order preserved). A field's domain is a **set** of values; how often each was seen belongs in `seen_in` |
 | Entry order | The order the values were **first observed**; never re-sorted |
 | `kind` | `literal` (an enumerated value) or `pattern` (a `LIKE` / `RLIKE` match shape). A `pattern` always has `closed_set: null`, takes no part in the closed-set decision, and never reaches the `summary` suffix |
-| Matching by source column | A field inherits its source physical column's values only when its last transform is `DIRECT` / `UNION` (the value reaches the target unchanged) -- `CASE WHEN pay_status = 'PAID' THEN 'Y' ELSE 'N' END` reads `pay_status`, but `'PAID'` is emphatically not a value of `paid_flag` |
+| Matching by source column | A field inherits its source physical column's values only when **every step of the chain** is `DIRECT` / `UNION` (the field's own `transform` and that source's `sources[].transform`; one non-pass-through step anywhere breaks it), and only the observations that pin the column with `=` / `IN` or match its shape with `LIKE` / `RLIKE` travel. `CASE WHEN pay_status = 'PAID' THEN 'Y' ELSE 'N' END` reads `pay_status`, but `'PAID'` is emphatically not a value of `paid_flag` |
 | Matching by target column name | The `case_then` / `union_constant` / `constant_projection` observations match by **column name**, which is how a CASE's enum reaches the same-named target field |
-| `closed_set` | `true` means this value belongs to a set the SQL proved closed; `null` means **not proven closed**, never "proven open" |
+| Type guard | A target column declared numeric (`decimal` / `int` / `bigint` / `double` …) or temporal (`date` / `timestamp`) admits same-typed literals only: a quoted `'Y'` never lands on an amount column, while a quoted `'0'` / `'2026-01-01'` still counts |
+| `closed_set` | `true` means this value belongs to a set the SQL proved closed; `null` means **not proven closed**, never "proven open". The verdict is the **column's**: every value of one field is either all `true` or all `null`. Two proofs make it `true` -- the column's own last-step CASE is exhaustive (an ELSE, and every branch a constant), or a pass-through source column carries a closed `IN` list |
+| `sql_literal` | The literal the author wrote. The `- 取值：` line of `semantic.md` shows it, while `value_domain[].value` and the overrides keys use the unquoted form |
 | `meaning.status` | `confirmed` (human) or `candidate` (a literal comment hit) |
 | `summary` suffix | Only a **confirmed** meaning is appended to the sentence (`；取值：'PAID'（已支付）`, at most 3): a candidate is "some comment happens to contain this value", and putting it into the line a reader stops at would read as a definition |
 | `confidence.metadata_coverage.glossary` | `{values_total, confirmed, candidate}`; absent when the statement has no value observation at all |
@@ -230,7 +334,9 @@ observations along with the meanings a human confirmed.
 Section 5 of `semantic.md` gains one `- 取值：` line per field subsection: a confirmed
 meaning is written plainly, a candidate is prefixed `? `, and neither gives 「待确认」.
 When every **enumerated** value in the column is closed, the line adds
-「（该列取值已被 SQL 证明封闭）」. The trailing `SQL事实` tag vouches for the values only --
+「（该列取值已被 SQL 证明封闭）」 -- and because `closed_set` is the column's verdict, one
+column can no longer hold some closed values beside some unproven ones.
+The trailing `SQL事实` tag vouches for the values only --
 a meaning is not a SQL fact, so its three-state marker is written inside the value.
 
 WI-2.4b adds two bounds to that line:

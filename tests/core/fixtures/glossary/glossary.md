@@ -12,8 +12,8 @@
 
 | 值 | 列引用 | 种类 | 出现任务数 | 上下文 | 封闭集 | 含义 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `'HIGH'` | `cte:agg.band`（scope 级） | literal | 1 | case_then | case_exhaustive：`'HIGH'`、`'LOW'` | 待确认 |
-| `'LOW'` | `cte:agg.band`（scope 级） | literal | 1 | case_then | case_exhaustive：`'HIGH'`、`'LOW'` | 待确认 |
+| `'HIGH'` | `cte:agg.band`（scope 级） | literal | 1 | case_then | case_exhaustive：`HIGH`、`LOW` | 待确认 |
+| `'LOW'` | `cte:agg.band`（scope 级） | literal | 1 | case_then | case_exhaustive：`HIGH`、`LOW` | 待确认 |
 
 ## band_total
 
@@ -38,8 +38,8 @@
 
 | 值 | 列引用 | 种类 | 出现任务数 | 上下文 | 封闭集 | 含义 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `'OFFLINE'` | `mart.channel_summary.channel_name` | literal | 1 | case_then | case_exhaustive：`'ONLINE'`、`'OFFLINE'` | 待确认 |
-| `'ONLINE'` | `mart.channel_summary.channel_name` | literal | 1 | case_then | case_exhaustive：`'ONLINE'`、`'OFFLINE'` | 待确认 |
+| `'OFFLINE'` | `mart.channel_summary.channel_name` | literal | 1 | case_then | case_exhaustive：`ONLINE`、`OFFLINE` | 待确认 |
+| `'ONLINE'` | `mart.channel_summary.channel_name` | literal | 1 | case_then | case_exhaustive：`ONLINE`、`OFFLINE` | 待确认 |
 
 ## cnt
 

@@ -98,7 +98,8 @@ lineage_digest: "cd5641d03833f8d7"
 
 #### 治理线索
 
-- ⚠ table_comment_missing：缺少表注释的表（2 张）：ods.nodes、mart.node_edges（元数据事实）
+- 治理线索：无（SQL事实）
+- 信息项：1（见 semantic.json findings）（SQL事实）
 
 ## 7. 给 Agent 的说明
 

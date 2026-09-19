@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Mapping, Sequence
 
+from .glossary_values import displayed_value
 from .markdown_text import cell, expr_span, normalize_inline
 
 
@@ -147,7 +148,7 @@ def _value_row(value: Mapping) -> str:
     if value.get("logical"):
         reference += "（scope 级）"
     return (
-        f"| {cell(expr_span(str(value['value'])))} | {reference} | {value['kind']} "
+        f"| {cell(expr_span(displayed_value(value)))} | {reference} | {value['kind']} "
         f"| {value['task_count']} | {cell('、'.join(contexts))} "
         f"| {_closed_set_text(value.get('closed_set'))} "
         f"| {cell(_meaning_text(value.get('meaning'), value.get('meaning_candidates') or []))} |"

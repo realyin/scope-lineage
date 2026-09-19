@@ -112,7 +112,8 @@ lineage_digest: "4abbc5352d1e69a5"
 
 #### 治理线索
 
-- ⚠ table_comment_missing：缺少表注释的表（2 张）：ods.customer_delta、mart.customer_profile（元数据事实）
+- 治理线索：无（SQL事实）
+- 信息项：1（见 semantic.json findings）（SQL事实）
 
 ## 7. 给 Agent 的说明
 

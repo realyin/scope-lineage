@@ -20,6 +20,7 @@
         "dt": "${bizdate}"
       }
     },
+    "instance_dates": [],
     "structural_summary": "ROOT 直接读取 dim.channel、ods.channel_event；过滤 1 处；CASE WHEN 派生 1 个字段；输出 3 列。",
     "target_metadata_source": null,
     "header_comments": [
@@ -33,6 +34,7 @@
     {
       "table": "dim.channel",
       "comment": "渠道维表（合成）",
+      "comment_source": "metadata",
       "domain": "渠道域",
       "project": null,
       "owner": null,
@@ -61,6 +63,7 @@
     {
       "table": "ods.channel_event",
       "comment": "渠道事件明细（合成）",
+      "comment_source": "metadata",
       "domain": "渠道域",
       "project": "渠道分析（合成）",
       "owner": "demo_owner",
@@ -413,7 +416,8 @@
       "structural_role": "conditional_label",
       "value_domain": [
         {
-          "value": "'OFFLINE'",
+          "value": "OFFLINE",
+          "sql_literal": "'OFFLINE'",
           "kind": "literal",
           "seen_in": [
             "rule:001"
@@ -422,7 +426,8 @@
           "meaning": null
         },
         {
-          "value": "'ONLINE'",
+          "value": "ONLINE",
+          "sql_literal": "'ONLINE'",
           "kind": "literal",
           "seen_in": [
             "rule:001"
@@ -564,6 +569,12 @@
         "candidate": 0
       }
     },
+    "confirmations": {
+      "values_confirmed": 0,
+      "terms_confirmed": 0,
+      "columns_patched": 0,
+      "tables_patched": 0
+    },
     "trace_incomplete_fields": [],
     "ambiguous_fields": [],
     "diagnostics_available": true,
@@ -573,11 +584,13 @@
     "findings": [
       {
         "kind": "target_binding",
+        "severity": "warn",
         "text": "未做目标列绑定（target_binding_absent_reason=metadata_not_provided）",
         "evidence": []
       },
       {
         "kind": "table_comment_missing",
+        "severity": "info",
         "text": "缺少表注释的表（1 张）：mart.channel_summary",
         "evidence": []
       }

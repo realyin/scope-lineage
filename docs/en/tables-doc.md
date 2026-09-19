@@ -164,7 +164,8 @@ scope-lineage describe --lineage /path/to/corpus/one_task/lineage.json \
   --tables /path/to/tables/tables.json
 ```
 
-With `--tables`, `semantic.json` gains three things (matched on the normalized table name):
+With `--tables`, `semantic.json` gains three things (matched on the normalized table name),
+and a fourth is **rewritten**: `output_shape` (see "Cards decide a fan-out" below):
 
 ```jsonc
 {
@@ -189,6 +190,27 @@ column, and the target-table lines are followed by a "下游消费：…" line.
 - When no task in the corpus writes an input table, that input's `card` is `null` and the
   table cell reads "⚠ 本语料内无生产任务" — **"no corpus was supplied" and "the corpus
   proves nobody writes it" are different answers and never render alike**.
+- When there IS a producing task but that task could not decide its own grain,
+  `card.grain_text` reads `生产任务 <task> 未能判定粒度（<why the upstream grain walk
+  stopped>）` rather than opening with 「未知」 — "no producer" and "a producer that could
+  not tell" are two different answers as well.
+
+### Cards decide a fan-out
+
+One statement can never prove a physical table unique by the join keys, so a JOIN onto one
+could only end at `unknown` / 「物理表无主键事实」. A table card holds another task's proof,
+so `describe --tables` **recomputes** `output_shape` once the cards are attached:
+
+| Condition | Result |
+| --- | --- |
+| The JOIN's right side is a physical table whose card has `key_confidence: "proven"` and whose `candidate_keys` are a subset of that JOIN's right-side key columns | that risk becomes `safe`, its `reason` reads 「生产任务 `<task>` 已证明 `<keys>` 唯一（表卡）」, and it carries `basis: "table_card"` |
+| The same, but the card's `key_confidence` is `candidate` | still `safe`, but the `reason` says 「表卡候选键，未证唯一」 and the statement's whole `key_confidence` is capped at `candidate` |
+| The card's `key_confidence` is `proven_unexposed` or `none`, or the join keys do not cover the candidate keys | nothing is re-decided; the original verdict stands |
+
+Once a verdict changes, `candidate_keys`, `unexposed_keys`, `key_evidence` and
+`key_confidence` are recomputed with the new risk set — they were always functions of
+"every JOIN on the path is `safe`". When no card re-decided anything, `output_shape` is
+returned as it was, byte for byte.
 - Without `--tables`, those three keys **do not appear at all**, and `semantic.json` /
   `semantic.md` are byte-identical to what they were before table cards existed. Pass
   `--tables` when you want the empty-value semantics.

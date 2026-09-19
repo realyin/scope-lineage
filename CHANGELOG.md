@@ -1,6 +1,93 @@
 # Changelog
 
 ## Unreleased
+- Stop calling a task instance's own date a governance problem. `confidence.findings[]`
+  now carries a `severity`: `warn` for the leads somebody has to act on, `info` for the
+  facts that need no action -- `hardcoded_date_literal`, `partition_literal_mismatch` and
+  `table_comment_missing`. Section 6 lists only the `warn` ones and counts the rest in a
+  single 「信息项：N」 line, so the one lead that matters is no longer buried among five
+  that need nothing. A metric's date filter pinned to a day-shaped literal reads
+  `kind: "instance_date"` and renders as 「实例日期 20260814」, the two sides of a metric
+  disagreeing now state which way round they go (「另一侧取前 1 日」) instead of being
+  scored as a defect, and section 1 publishes the days themselves as
+  `task.instance_dates[]` and a 取数日 line.
+- `scope-lineage glossary --template <path.md>` writes the 取值含义 fill-in form the
+  profile's open-questions list used to ask one code at a time: the markdown a person
+  fills in plus the same-named `.json` that `--overrides` reads straight back. It ranks
+  proven closed sets first, then by how much of the corpus rests on the value, and leaves
+  out match patterns, day literals, bare numbers with no enumerated context and anything
+  already confirmed; `--template-top` (default 20) caps how many values it asks about. An
+  overrides key whose meaning is still an empty string is now counted under
+  `overrides_applied.blank` and skipped, rather than written in as a confirmed empty
+  meaning.
+- Profile prompt: the open-questions list drops from 15 items to **5**, and asks only what
+  can change a number or a meaning -- column-position mismatches, a comment that contradicts
+  the derivation chain, an unproven key under a fan-out risk (asked once for all of them),
+  and misnamed fields. Whether a hardcoded date is substituted by the scheduler, what a code
+  means, and whether a key is unique in business terms are no longer asked at all; the
+  overflow candidates and every value still missing a meaning go to a new appendix A2b that
+  points at `glossary.overrides.template.md`.
+- Stop the value dictionary from lending a column somebody else's values. A target column's
+  `value_domain` now holds only what that column itself outputs -- a CASE's THEN / ELSE
+  labels, a UNION or plain constant projection -- plus the `=` / `IN` observations of a
+  source column the value reaches it from unchanged at *every* step (the field's own
+  transform and that source's, both `DIRECT` / `UNION`). A CASE **condition**'s constant
+  belongs to the column being tested, so `WHEN flag = 'N' THEN amount` no longer publishes
+  `'N'` as a value of the amount column, and a numeric or temporal target column admits
+  same-typed literals only. `closed_set` became the **column's** verdict rather than each
+  value's, so one field can no longer read "this value is proven closed, that one is not"
+  out of a single exhaustive CASE; it is `true` only where that column's own last-step CASE
+  is exhaustive or a pass-through source carries a closed `IN` list. Values are stored in
+  one spelling -- `value` with the SQL quotes stripped, the author's literal beside it in
+  the new `sql_literal`, which is what the markdown and the overrides examples show, while
+  an overrides key may still be written either way.
+- Let a table card decide a fan-out. One statement can never prove a physical table unique
+  by its join keys, so a JOIN onto one stopped at `unknown` even where the same document's
+  `inputs[].card` already carried another task's proof that the table is written one row
+  per exactly those columns. `describe --tables` now re-decides such a risk from the card
+  (`status: "safe"`, a reason naming the producing task, and `basis: "table_card"`) and
+  recomputes `candidate_keys`, `unexposed_keys`, `key_evidence` and `key_confidence` with
+  it; a card offering only candidate keys says so in the reason and caps the whole claim at
+  `candidate`. Without `--tables` nothing changes, byte for byte. An input card whose
+  producer could not decide its own grain now says so by name instead of opening with
+  「未知」, which read as a missing value beside 「本语料内无生产任务」.
+- Keep commented-out SQL out of a field's meaning. A `--` comment whose body parses into a
+  SQL shape and carries an ASCII SQL word (`cast(null as string) as x`) records what the
+  code used to do, not what the column means, so it no longer reaches
+  `fields[].sql_comments` or the `；注释：` tail of the field's sentence; the verbatim text
+  stays in the contract's own `comments`. Anything the test cannot prove is SQL stays a
+  note.
+- Profile prompt: the semantic card's length cap scales with the number of input tables
+  (`600 + 40 × max(0, inputs − 3)`, capped at 900) so the mandatory coverage and the word
+  limit stop contradicting each other on a multi-input task; warning counts are stated to
+  be the union of `statement_diagnostics[].warnings` and the top-level list, because an
+  empty top-level array is not "no warnings"; and the `- 证据：` line of an open question is
+  exempted from the "no structural words in the body" rule, since it is a pointer for the
+  reviewer rather than a sentence for the business owner.
+- Close the loop on the open-questions list: an answer now comes back as a fact instead of
+  being asked again. New `metadata-patch/1` file -- `{"tables": {"db.t": {…}}, "columns":
+  {"db.t.col": {"comment": …}}}`, the same vocabulary rich JSON metadata uses -- carries the
+  comments a human confirmed, without writing to anybody's catalog. `parse --metadata-patch`
+  (repeatable) applies it to each statement document on its way to disk and
+  `describe --metadata-patch` applies it in memory to a `lineage.json` already written, so an
+  answer lands without re-parsing a corpus; both go through one function, so the two paths
+  produce a byte-identical `semantic.json`, `lineage_digest` included, and the artifact on
+  disk is never rewritten by a derived view. Every patched entry says so -- `comment_source:
+  "patch"` on a column (in `related_metadata` and in the `field_usage` mirror),
+  `table_metadata.patch_applied: true` on a table -- and a key that matches no table or column
+  is reported as `unmatched`, never dropped. The semantic view sources every comment it
+  publishes (`fields[].target_comment_source`, `inputs[].comment_source`, each absent when
+  there is no comment to source) and counts what has been answered in
+  `confidence.confirmations` (`values_confirmed` / `terms_confirmed` / `columns_patched` /
+  `tables_patched`, always present) and `confidence.metadata_coverage.patch`. The skill gains
+  `scripts/confirmations.py apply <business_profile.md> --by <name>`, which reads the answers
+  the business owner wrote on each item's new `- 答案：` line and routes them by the item's own
+  回写目标 line -- `术语` / `值域` into `glossary.overrides.json`, `字段注释` / `表注释` into
+  `metadata-patch.json` -- merging without ever overwriting an entry somebody already
+  confirmed, skipping and counting unanswered items, and writing nothing under `--dry-run`.
+  The profile prompt must no longer generate a `Q` for an item the skeleton already shows as
+  confirmed; those move to appendix A2a, and the field dictionary's confidence column reads
+  `事实（已确认）`.
 - Say what a table *is*, not only what columns it has. Rich JSON metadata carries table-level
   facts -- a readable/Chinese name, a description, the business domain and its path, the
   project and its code, the owner, the storage layer, the physical type and whether the table

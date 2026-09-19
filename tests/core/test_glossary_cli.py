@@ -42,7 +42,8 @@ def test_glossary_writes_both_artifacts_into_out(tmp_path: Path, capsys) -> None
     glossary = _glossary(out)
     assert glossary["doc_format"] == "glossary-json/1"
     assert glossary["corpus"]["task_count"] == 1
-    assert [item["value"] for item in glossary["values"]] == ["'PAID'"]
+    assert [item["value"] for item in glossary["values"]] == ["PAID"]
+    assert [item["sql_literal"] for item in glossary["values"]] == ["'PAID'"]
     assert (out / "glossary.md").read_text(encoding="utf-8").startswith("# 术语与值域字典")
     assert "Collected" in capsys.readouterr().out
 

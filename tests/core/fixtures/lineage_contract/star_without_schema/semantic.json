@@ -16,6 +16,7 @@
       "mode": null,
       "spec": null
     },
+    "instance_dates": [],
     "structural_summary": "ROOT 直接读取 ods.raw_events；输出 1 列。",
     "target_metadata_source": null,
     "header_comments": [],
@@ -145,6 +146,12 @@
         "logic": 0
       }
     },
+    "confirmations": {
+      "values_confirmed": 0,
+      "terms_confirmed": 0,
+      "columns_patched": 0,
+      "tables_patched": 0
+    },
     "trace_incomplete_fields": [
       "*"
     ],
@@ -160,11 +167,13 @@
     "findings": [
       {
         "kind": "target_binding",
+        "severity": "warn",
         "text": "未做目标列绑定（target_binding_absent_reason=metadata_not_provided）",
         "evidence": []
       },
       {
         "kind": "table_comment_missing",
+        "severity": "info",
         "text": "缺少表注释的表（2 张）：ods.raw_events、mart.raw_copy",
         "evidence": []
       }

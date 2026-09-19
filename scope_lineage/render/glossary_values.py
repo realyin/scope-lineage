@@ -26,6 +26,7 @@ calls *it* (to give every field its ``value_domain``), and the corpus-level aggr
 
 from __future__ import annotations
 
+import re
 from typing import Mapping, Sequence
 
 from sqlglot import exp
@@ -398,12 +399,16 @@ def _observation(
         # `'${p}%'` stays `parameterized`: the substitution is the bigger fact about it.
         kind = VALUE_KIND_PATTERN
         closed_set = None
+    literal = semantic_text.expression_text(node)
     return [
         {
             "column_ref": column_ref,
             "logical": logical,
             "column": column,
-            "value": semantic_text.expression_text(node),
+            # WI-2.8 D4: one spelling for one value. The quotes belong to SQL, and the
+            # author's own literal is kept beside it for the markdown to show.
+            "value": strip_quotes(literal),
+            "sql_literal": literal,
             "kind": kind,
             "context": context,
             "expression": expression,
@@ -459,7 +464,7 @@ def _is_scalar_constant(node) -> bool:
 
 def _closed_set(nodes: Sequence, basis: str) -> dict | None:
     values = [
-        semantic_text.expression_text(node)
+        strip_quotes(semantic_text.expression_text(node))
         for node in nodes
         if node is not None and _is_scalar_constant(node)
     ]
@@ -575,6 +580,7 @@ _VALUE_KEYS = (
     "logical",
     "column",
     "value",
+    "sql_literal",
     "kind",
     "observations",
     "task_count",
@@ -640,6 +646,7 @@ def _value_entry(
         "column_ref": f"{owner}.{column}",
         "column": column,
         "value": value,
+        "sql_literal": _sql_literal(members),
         "kind": kind,
         "observations": _observation_rows(members),
         "task_count": len({item["task"] for item in members}),
@@ -654,6 +661,11 @@ def _value_entry(
     if first.get("logical"):
         entry["logical"] = True
     return {key_name: entry[key_name] for key_name in _VALUE_KEYS if key_name in entry}
+
+
+def _sql_literal(members: Sequence[Mapping]) -> str:
+    """The literal the author wrote. One corpus may spell ``0`` and ``'0'``; pick stably."""
+    return sorted({str(item.get("sql_literal") or item["value"]) for item in members})[0]
 
 
 def _observation_rows(members: Sequence[Mapping]) -> list[dict]:
@@ -725,7 +737,51 @@ VALUE_DOMAIN_OVERFLOW_NOTE = "，完整见 semantic.json value_domain"
 # `pay_status`, but `'PAID'` is emphatically not a value of `paid_flag` -- that column's
 # domain is its own branch labels. The WI-2.4 brief says "match the source physical
 # column"; this narrows it to the pass-through transforms, where the claim is true.
+#
+# WI-2.8 D1. The field-wide transform answers for the chain as a whole, and a chain can
+# be DIRECT while one of its sources reaches it through a CASE -- which is how a CASE
+# *condition*'s `'N'` ended up published as a value of the `decimal(15,2)` amount column
+# the CASE produces. Pass-through is therefore asked of every step: the field's own
+# transform and, per source, that source's. One non-pass-through step breaks the claim.
 PASS_THROUGH_TRANSFORMS = frozenset({"DIRECT", "UNION"})
+
+# What a pass-through source column may lend its target: the constants the SQL says that
+# column EQUALS, plus the shapes a WHERE-level LIKE / RLIKE says its values have (the
+# WI-2.4b `pattern` kind, which is never an enumerated value and never closes a set). A
+# `<>` names a value the rows do not take, a JOIN key is another column's value, and a
+# CASE condition belongs to the column being tested -- none of them is a value the
+# target column outputs.
+SOURCE_VALUE_CONTEXTS = frozenset(
+    {CONTEXT_FILTER_EQ, CONTEXT_FILTER_IN, CONTEXT_FILTER_RLIKE}
+)
+
+_VIA_SOURCE = "source"
+_VIA_OUTPUT = "output"
+
+# The second half of D1: a type guard. Even a correctly attributed pass-through can
+# carry a code observed on a same-named column elsewhere in the corpus, and `'Y'` is not
+# a value any amount or date column holds. A quoted literal is only admitted onto these
+# types when the text inside the quotes is itself of that type.
+NUMERIC_TYPE_PREFIXES = (
+    "decimal",
+    "numeric",
+    "number",
+    "int",
+    "bigint",
+    "smallint",
+    "tinyint",
+    "long",
+    "short",
+    "double",
+    "float",
+    "real",
+)
+TEMPORAL_TYPE_PREFIXES = ("date", "timestamp", "datetime")
+
+_NUMERIC_TEXT = re.compile(r"^[+-]?(\d+(\.\d*)?|\.\d+)$")
+_TEMPORAL_TEXT = re.compile(
+    r"^\d{4}-?\d{2}-?\d{2}([ T]\d{2}:\d{2}(:\d{2}(\.\d+)?)?)?$"
+)
 
 
 def value_domain_index(entries: Sequence[Mapping]) -> dict:
@@ -782,21 +838,90 @@ def _field_domain(field: Mapping, index: Mapping) -> list[dict]:
     ``'SA'（待确认）、'SA'（待确认）、'SA'（待确认）``. A field's domain is a set of
     values, not a list of sightings: the sightings belong in ``seen_in``.
     """
-    matched: list[Mapping] = []
-    if str(field.get("transform") or "") in PASS_THROUGH_TRANSFORMS:
-        for source in field.get("sources") or []:
-            key = (table_key(source.get("table")), str(source.get("column")))
-            matched.extend(index["by_column"].get(key) or [])
-    matched.extend(index["by_output"].get(str(field.get("column"))) or [])
+    matched = _matched_entries(field, index)
+    closed = _column_closed_set(matched)
     domain: dict[tuple, dict] = {}
-    for entry in matched:
+    for entry, _via in matched:
         key = (str(entry["value"]), str(entry["kind"]))
         current = domain.get(key)
         if current is None:
-            domain[key] = _domain_entry(entry)
+            domain[key] = _domain_entry(entry, closed)
         else:
-            _merge_domain_entry(current, _domain_entry(entry))
+            _merge_domain_entry(current, _domain_entry(entry, closed))
     return list(domain.values())
+
+
+def _matched_entries(field: Mapping, index: Mapping) -> list[tuple[Mapping, str]]:
+    """Every glossary entry that speaks about THIS column, paired with how it got here.
+
+    Two routes, and the route decides what the entry is allowed to say. ``_VIA_OUTPUT``
+    is the column's own projection -- a CASE label, a UNION constant, a constant
+    column -- matched by output name. ``_VIA_SOURCE`` is a source column the value
+    reaches the target from unchanged, and only its ``=`` / ``IN`` observations travel.
+    """
+    matched = [
+        (entry, _VIA_SOURCE)
+        for source in _pass_through_sources(field)
+        for entry in index["by_column"].get(
+            (table_key(source.get("table")), str(source.get("column")))
+        )
+        or []
+        if _has_context(entry, SOURCE_VALUE_CONTEXTS)
+    ]
+    matched.extend(
+        (entry, _VIA_OUTPUT)
+        for entry in index["by_output"].get(str(field.get("column"))) or []
+    )
+    return [pair for pair in matched if _type_admits(field, pair[0])]
+
+
+def _pass_through_sources(field: Mapping) -> list[Mapping]:
+    """The sources whose value reaches the target unchanged, checked step by step."""
+    if str(field.get("transform") or "") not in PASS_THROUGH_TRANSFORMS:
+        return []
+    return [
+        source
+        for source in field.get("sources") or []
+        if str(source.get("transform") or "") in PASS_THROUGH_TRANSFORMS
+    ]
+
+
+def _has_context(entry: Mapping, contexts: frozenset) -> bool:
+    return any(
+        str(item.get("context")) in contexts for item in entry.get("observations") or []
+    )
+
+
+def _type_admits(field: Mapping, entry: Mapping) -> bool:
+    """False when the declared type says the column cannot hold this quoted literal."""
+    literal = str(entry.get("sql_literal") or entry.get("value") or "")
+    if not literal.startswith(("'", '"')):
+        return True
+    declared = str(field.get("type") or "").strip().lower()
+    text = strip_quotes(literal)
+    if declared.startswith(NUMERIC_TYPE_PREFIXES):
+        return bool(_NUMERIC_TEXT.match(text))
+    if declared.startswith(TEMPORAL_TYPE_PREFIXES):
+        return bool(_TEMPORAL_TEXT.match(text))
+    return True
+
+
+def _column_closed_set(matched: Sequence[tuple[Mapping, str]]) -> bool | None:
+    """WI-2.8 D3: closed is a claim about the COLUMN, so all of its values share it.
+
+    Two proofs qualify, one per route. The column's own last step is a CASE whose
+    branches and ELSE are all constants, so nothing else can come out of it; or a source
+    column the value passes through unchanged was pinned by a closed ``IN`` list. A
+    per-value verdict left one column reading "0 未证明、1 已证明" out of a single
+    three-branch CASE, which answers a question nobody asked.
+    """
+    for entry, via in matched:
+        basis = str((entry.get("closed_set") or {}).get("basis") or "")
+        if via == _VIA_OUTPUT and basis == BASIS_CASE_EXHAUSTIVE:
+            return True
+        if via == _VIA_SOURCE and basis == BASIS_IN_LIST:
+            return True
+    return None
 
 
 def _merge_domain_entry(current: dict, other: Mapping) -> None:
@@ -804,9 +929,6 @@ def _merge_domain_entry(current: dict, other: Mapping) -> None:
     current["seen_in"].extend(
         item for item in other["seen_in"] if item not in current["seen_in"]
     )
-    # Two owners, two claims: the value is only inside a proven-closed set when every
-    # observation of it says so. One unproven sighting is enough to withdraw the claim.
-    current["closed_set"] = True if current["closed_set"] and other["closed_set"] else None
     current["meaning"] = _better_meaning(current["meaning"], other["meaning"])
 
 
@@ -819,16 +941,20 @@ def _better_meaning(current: dict | None, other: dict | None) -> dict | None:
     return other if other.get("status") == MEANING_STATUS_CONFIRMED else current
 
 
-def _domain_entry(entry: Mapping) -> dict:
+def _domain_entry(entry: Mapping, closed: bool | None = None) -> dict:
     return {
         "value": entry["value"],
+        "sql_literal": str(entry.get("sql_literal") or entry["value"]),
         "kind": entry["kind"],
         "seen_in": sorted(
             {str(item.get("evidence")) for item in entry.get("observations") or []}
         ),
         # True when the corpus PROVES the set is closed; null means "not proven", never
-        # "proven open" -- an observed set is a floor, not a ceiling.
-        "closed_set": True if entry.get("closed_set") else None,
+        # "proven open" -- an observed set is a floor, not a ceiling. The verdict is the
+        # column's (D3), and a match SHAPE is never part of an enumeration.
+        "closed_set": True
+        if closed and str(entry["kind"]) != VALUE_KIND_PATTERN
+        else None,
         "meaning": _domain_meaning(entry),
     }
 
@@ -879,11 +1005,16 @@ def pattern_domain_text(domain: Sequence[Mapping]) -> str:
     return "、".join(_pattern_text(item) for item in pattern_entries(domain))
 
 
+def displayed_value(item: Mapping) -> str:
+    """What a reader sees: the literal the author wrote, quotes and all (WI-2.8 D4)."""
+    return str(item.get("sql_literal") or item.get("value") or "")
+
+
 def _value_text(item: Mapping) -> str:
     meaning = item.get("meaning")
     if not meaning:
-        return f"{item['value']}（{VALUE_DOMAIN_UNCONFIRMED}）"
-    return f"{item['value']}（{_meaning_mark(meaning)}{meaning.get('text')}）"
+        return f"{displayed_value(item)}（{VALUE_DOMAIN_UNCONFIRMED}）"
+    return f"{displayed_value(item)}（{_meaning_mark(meaning)}{meaning.get('text')}）"
 
 
 def _pattern_text(item: Mapping) -> str:
@@ -891,8 +1022,8 @@ def _pattern_text(item: Mapping) -> str:
     nobody is ever going to write, because a match shape is not a business code."""
     meaning = item.get("meaning")
     if not meaning:
-        return str(item["value"])
-    return f"{item['value']}（{_meaning_mark(meaning)}{meaning.get('text')}）"
+        return displayed_value(item)
+    return f"{displayed_value(item)}（{_meaning_mark(meaning)}{meaning.get('text')}）"
 
 
 def _meaning_mark(meaning: Mapping) -> str:

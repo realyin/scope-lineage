@@ -79,7 +79,8 @@ lineage_digest: "da69f10247007a28"
 
 #### 治理线索
 
-- ⚠ table_comment_missing：缺少表注释的表（2 张）：ods.raw_events、mart.raw_copy（元数据事实）
+- 治理线索：无（SQL事实）
+- 信息项：1（见 semantic.json findings）（SQL事实）
 
 ## 7. 给 Agent 的说明
 

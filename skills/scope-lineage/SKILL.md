@@ -158,13 +158,27 @@ meaning of each value when a human confirmed one in `glossary.overrides.json` or
 literally spells it out. **Take the "取值含义" column of a field dictionary from
 `fields[].value_domain[].meaning` first** — `status: "confirmed"` is a fact, `candidate`
 is a lead to write with `?`, and a value with no meaning is 待确认. Never infer a code's
-meaning from its spelling.
+meaning from its spelling. A value is stored unquoted in `value` with the author's literal
+in `sql_literal` (show the literal, key an override on the unquoted form), `closed_set` is
+the whole column's verdict, and a column only carries values it outputs itself or inherits
+from a source it passes through unchanged — a CASE condition's constant belongs to the
+column being tested. With `--tables`, a JOIN onto a physical table whose card proves the ON
+clause's columns unique is re-decided `safe` (`basis: "table_card"`), and the statement's
+keys and `key_confidence` are recomputed with it.
 
 Read `semantic.md` — not lineage.json — to answer "what does this task do", "what does
 field X mean", "what is one row of the output table". It is written to be read whole;
 lineage.json is not. Pull `semantic.json` by path (`output_shape`, `stages`, `rules`,
 `fields`, `confidence`) when you need the structured form, and fall back to
 `scripts/query.py chain` for one field's full derivation.
+
+`confidence.findings[]` carries a `severity`: `warn` is a lead somebody has to act on,
+`info` is true and needs no action. A task instance covers one day, so a partition filter
+naming that day is the design, not a defect — `hardcoded_date_literal`,
+`partition_literal_mismatch` and `table_comment_missing` are therefore `info`, section 6
+counts them in one line instead of listing them, and a profile must not turn them into
+使用注意 or into questions. The day itself is published as `task.instance_dates[]` and on
+section 1's 取数日 line, and a metric's date filter reads `kind: "instance_date"`.
 
 Every line in the skeleton carries one of three tags: `SQL事实` (verbatim from the SQL),
 `元数据事实` (table/column comments and types), or `结构推断` (provable from the query
@@ -174,12 +188,51 @@ customer's latest status" is your inference and must be labelled as such. The sk
 deliberately contains no business entity names, no business table types (宽表/名单表/
 指标表), and no "the goal of this task is…" — their absence is the design, not a gap.
 
+#### 确认回写：让答完的问题不再被问第二遍
+
+The open-questions list is only worth writing if the answers come back. It is now capped
+at **five items** and asks only what changes a number or a meaning, so the bulk of the
+"what does this code mean" work runs through a generated form instead. Step 1 is to
+generate that form; steps 2-4 collect what came back:
+
+```bash
+# 1. the fill-in form: the corpus's most-used values that nobody has explained yet
+scope-lineage glossary --lineage <corpus> --out <dir> \
+  --template <dir>/glossary.overrides.template.md [--template-top 20]
+# the owner writes the meanings into the .md and the same-named .json
+
+# 2-4. the answered five-item list, routed back into the same two files
+python3 skills/scope-lineage/scripts/confirmations.py apply <task-dir>/business_profile.md \
+  --by <name> [--overrides <dir>/glossary.overrides.json] [--patch <dir>/metadata-patch.json]
+scope-lineage glossary --lineage <corpus> --out <dir> --overrides <dir>/glossary.overrides.json
+scope-lineage describe --lineage <corpus> --glossary <dir>/glossary.json \
+  --metadata-patch <dir>/metadata-patch.json
+```
+
+`--template` writes two files at one path — the markdown a person fills in and the
+same-named `.json` that `--overrides` reads back. It ranks proven closed sets first, then
+by how many tasks use the value, and it leaves out what nobody can answer or nobody needs
+to: match patterns, day literals, bare numbers with no enumerated context, and anything
+already confirmed. An entry left blank comes back as `blank` in the run summary and is
+**not** written in as a confirmed empty meaning.
+
+The script routes each answer by its own 回写目标 line — `术语` / `值域` into the glossary
+overrides, `字段注释` / `表注释` into a `metadata-patch/1` file — and never overwrites an
+entry somebody already confirmed (`--dry-run` prints both documents instead of writing
+them). The next profile then reads `value_domain[].meaning.status: "confirmed"`,
+`fields[].target_comment_source: "patch"` and `inputs[].comment_source: "patch"`, must
+**not** ask those questions again, and lists them under appendix A2a instead — so each
+round the 待确认清单 gets shorter. `parse --metadata-patch` applies the same file when a
+corpus is re-parsed; both paths write the same document.
+
 When the user wants a business profile, generate `business_profile.md` from the skeleton
 following `references/semantic-profile-prompt.md`. It delivers **three pieces plus an
 appendix** in one file: a **task semantic card** (≤ 1 page, business language, no source
 tags), a **field dictionary** (every output column, with a 7-row metric spec card per
-measure), and an **open-questions list** (≤ 15 items a business owner can answer in five
-minutes) — with the evidence, tag system, risk table and self-check moved into the
+measure), and an **open-questions list** (≤ 5 items a business owner can answer in five
+minutes, restricted to column-position mismatches, comment-versus-derivation conflicts,
+unproven keys under a fan-out risk, and misnamed fields) — with the evidence, tag system,
+risk table, the overflow 备查项 / 待填取值 list and the self-check moved into the
 appendix. Fill `references/business-profile-template.md`. For a whole corpus, loop over
 the task directories yourself — there is no batch mode in the CLI.
 
@@ -207,3 +260,7 @@ documented uncertainty).
   just where a field comes from.
 - `references/business-profile-template.md` — the blank skeleton of those three pieces and
   the appendix, with `{…}` placeholders. Fill it rather than inventing a layout.
+- `scripts/confirmations.py` — the write-back half: reads the answered 待确认清单 out of a
+  `business_profile.md` and merges it into `glossary.overrides.json` /
+  `metadata-patch.json`. Run it after the business owner answers, then re-run `glossary`
+  and `describe` with those two files.

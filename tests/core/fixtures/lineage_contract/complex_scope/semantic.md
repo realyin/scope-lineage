@@ -132,7 +132,8 @@ lineage_digest: "9b838357cd4232fd"
 
 #### 治理线索
 
-- ⚠ table_comment_missing：缺少表注释的表（4 张）：ods.events、ods.fallback_users、ods.users、mart.user_value（元数据事实）
+- 治理线索：无（SQL事实）
+- 信息项：1（见 semantic.json findings）（SQL事实）
 
 ## 7. 给 Agent 的说明
 
