@@ -114,7 +114,8 @@ card = render_ontology_table_card_markdown(cards["tables"][0], ontology)
         "observed_roles": ["filter", "output"], "used_in_corpus": true,
         "not_null_observed": false,
         "synonyms": [{"entity": "mart.t", "column": "order_state", "tier": "proven",
-                      "via": "direct_rename", "evidence": [{"task": "task_a"}]}]}],
+                      "via": "direct_rename", "evidence": [{"task": "task_a"}]}],
+        "samples": ["PAID", "NEW"]}],
      "naming_hints": {"table_comment": null, "domain": null, "project": null, "owner": null}}
   ],
   "relations": [
@@ -170,6 +171,7 @@ Slot by slot (every slot `ontology-json/1` publishes):
 | `entities[].attributes[].used_in_corpus` | `true` / `false` | whether any task in this corpus wrote or read the column; `false` alongside an empty `observed_roles` reads as "the metadata declares it and this corpus never went near it" |
 | `entities[].attributes[].not_null_observed` | `true` / `false` | some task in the corpus filtered this column with `NOT x IS NULL` |
 | `entities[].attributes[].synonyms[].via` | `direct_rename` / `union_alignment` | O5: two column names for one value |
+| `entities[].attributes[].samples[]` | array of strings | A6: the table card's sample values, carried across unchanged — they come only from a file passed to `tables --samples` (already redacted and cut), and the key is absent when that column has none |
 | `relations[].id` | `rel:NNN` | numbered after sorting, stable for one corpus |
 | `relations[].kind` | `join_association` / `union_sibling` | a JOIN key pair, or two branches of one UNION |
 | `relations[].cardinality.claim` | `one_to_many` / `many_to_one` / `many_to_one_assumed` / `one_to_one_assumed` / `unknown` | O2, in the direction `from` → `to`; `one_to_one_assumed` can only come from a human confirmation |

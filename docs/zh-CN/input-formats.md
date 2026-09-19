@@ -389,6 +389,45 @@ DDL 与 Schema 的字段集合必须一致。存在同一表的多份元数据�
 `semantic.json`（含 `lineage_digest`）。回写文件怎么从画像生成，见
 [术语与值域字典](glossary-doc.md)。
 
+## 列样例值（samples/1）
+
+`scope-lineage tables --samples` 接一份**别人导出的**列样例值，Core 自己永远不连数据库取数。
+一份表头为 `table,column,value[,count]` 的 CSV、一个装着这种 CSV 的目录，或一份 `samples/1`
+JSON 都可以：
+
+```csv
+table,column,value,count
+mart.customer_daily,country_code,US,30
+mart.customer_daily,country_code,JP,20
+```
+
+```json
+{
+  "doc_format": "samples/1",
+  "samples": [
+    {"table": "mart.customer_daily", "column": "country_code", "values": ["US", "JP"]}
+  ]
+}
+```
+
+| Key | Value | 用途 |
+| --- | --- | --- |
+| `table` | `db.table` 或全限定名 | 按表卡的规则匹配：取最后两段、忽略大小写。 |
+| `column` | 列名 | 忽略大小写；表或列在语料里不存在时进 `samples_applied.unmatched[]`。 |
+| `value` | 任意标量 | 去首尾空白后脱敏、超过 64 字符截断；空值跳过。 |
+| `count` | 整数，可省 | 给了就按它从大到小排；整列都没给就按文件顺序。 |
+
+规则：
+
+- **一定脱敏**：邮箱、手机／国际号码、身份证号按形状掩码，与 SQL 注释同一套规则，**没有关掉
+  它的开关**——样例值是本工具见过的最容易带个人信息的输入；
+- **每列最多 N 个不同的值**：默认 5，`--samples-top` 可改；
+- **没命中的键只报告不报错**：运行结束打印 `samples_unmatched=N` 并列出 `表.列`；
+- 文件不存在、CSV 表头不对、JSON 不是 `samples/1`、`count` 不是整数时退出码为 2。
+
+产物里对应 `columns[].samples[]`、`coverage.columns_sampled` 与顶层 `samples_applied`，
+详见[表卡文档](tables-doc.md)。
+
 ## 失败策略
 
 默认情况下，任一输入读取失败或任一语句 `parse_status=failed` 都返回非零退出码。已经成功解析

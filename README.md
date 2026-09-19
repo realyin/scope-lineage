@@ -352,7 +352,10 @@ scope-lineage describe --lineage /tmp/scope-lineage-corpus --tables /tmp/scope-l
 `tables.json` plus one `tables/<db.table>.md` per table answer "who writes this table, what
 does one row represent, who reads it and which columns"; session-scoped relations and
 `directory:` writes are excluded, and names differing only in catalog qualification are one
-table. See the [table card guide](docs/en/tables-doc.md).
+table. A team that can export a few values per column can add `--samples <file-or-dir>` (a
+`table,column,value[,count]` CSV or a `samples/1` JSON); the values are redacted and cut to
+length before they reach a card — Core never queries a database itself. See the
+[table card guide](docs/en/tables-doc.md).
 
 A code such as `'SF'` or `'F_00'` can only be "ask the business" inside one task — but across
 the corpus a comment may already explain it, or somebody may already have confirmed it once.

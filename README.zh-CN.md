@@ -342,6 +342,8 @@ scope-lineage describe --lineage /tmp/scope-lineage-corpus --tables /tmp/scope-l
 
 `tables.json` 与每表一张的 `tables/<db.table>.md` 回答"谁写这张表、一行代表什么、谁读它读了哪些列"；
 会话内关系与 `directory:` 写入不成表，只差 catalog 限定的写法算同一张表。
+能导出每列几个值的团队还可以加 `--samples <文件或目录>`（`table,column,value[,count]` 的 CSV
+或 `samples/1` JSON），样例值会先脱敏、再截断，然后落到卡上——Core 自己不连数据库取数。
 详见 [语料级表卡](docs/zh-CN/tables-doc.md)。
 
 `'SF'`、`'F_00'` 这类 code 在单个任务里只能落"待业务确认"——但整份语料里，它们可能被注释解释过，

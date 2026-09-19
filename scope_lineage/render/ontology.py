@@ -298,6 +298,8 @@ _ATTRIBUTE_KEYS = (
     "used_in_corpus",
     "not_null_observed",
     "synonyms",
+    # A6: present only when the card carries supplied sample values for this column.
+    "samples",
 )
 _CONSTRAINT_KEYS = (
     "target",
@@ -1591,7 +1593,12 @@ def _attribute(entity: str, column: Mapping, facts: Mapping) -> dict:
         "not_null_observed": (entity, name) in facts["not_null"],
         "synonyms": facts["synonyms"].get((entity, name)) or [],
     }
-    return {key: built[key] for key in _ATTRIBUTE_KEYS}
+    # A6: the card's supplied sample values, carried across unchanged. Absent when the
+    # card has none, so an ontology built over a corpus with no samples file is the
+    # document it always was.
+    if column.get("samples"):
+        built["samples"] = list(column["samples"])
+    return {key: built[key] for key in _ATTRIBUTE_KEYS if key in built}
 
 
 # --------------------------------------------------------------------- O7: findings

@@ -26,6 +26,10 @@ scope-lineage tables --lineage /path/to/corpus --out /path/to/tables
 
 # 只要机器读的 JSON
 scope-lineage tables --lineage /path/to/corpus --out /path/to/tables --format json
+
+# 带上导出的样例值（CSV / CSV 目录 / samples/1 JSON）
+scope-lineage tables --lineage /path/to/corpus --out /path/to/tables \
+  --samples /path/to/samples.csv --samples-top 5
 ```
 
 产物三件：
@@ -52,6 +56,8 @@ card = render_table_card_markdown(cards["tables"][0])
   同目录的 `diagnostics.json` 自动配对；版本不认识的文档在目录模式下跳过并计数。
 - `--out` 必填：表卡是语料级产物，没有"写在 lineage.json 旁边"的位置。
 - `--format` 取 `json`、`md` 或两者（默认 `json,md`）；其他值直接报参数错误（退出码 2）。
+- `--samples` 接一份**别人导出的**样例值文件（见下文「样例值」）；`--samples-top` 是每列最多
+  发布几个不同的值（默认 5）。没传 `--samples` 时产物与该功能上线之前逐字节一致。
 - 确定性：同一份语料无论以什么顺序被扫描，产出字节一致。
 
 ## tables.json 结构（tables-json/1）
@@ -60,6 +66,8 @@ card = render_table_card_markdown(cards["tables"][0])
 {
   "doc_format": "tables-json/1",
   "corpus": {"artifact_root": "…", "task_count": 5, "lineage_digests": {"<task>": "…"}},
+  "samples_applied": {"sources": ["…/samples.csv"], "columns_sampled": 1,
+                      "unmatched": ["mart.t.no_such_column"]},   // 只有传了 --samples 才出现
   "tables": [
     {
       "table": "spark_catalog.mart.customer_daily",   // 归一后的主名（最长写法）
@@ -84,10 +92,11 @@ card = render_table_card_markdown(cards["tables"][0])
       "columns": [
         {"name": "customer_id", "type": "string", "comment": null,
          "produced_summary": "…", "consumer_usage_counts": {"join_key": 2, "filter": 1},
-         "used_in_corpus": true}
+         "used_in_corpus": true,
+         "samples": ["C-001", "C-002"]}             // 只有传了 --samples 且这一列有值时才出现
       ],
       "coverage": {"column_comment_ratio": 0.0, "table_comment": false, "producers": 1, "consumers": 2,
-                   "columns_used": 2, "columns_declared": 3},
+                   "columns_used": 2, "columns_declared": 3, "columns_sampled": 1},
       "findings": [{"kind": "never_consumed_in_corpus", "text": "…",
                     "evidence": [{"task": "…", "statement_id": "stmt:001"}]}]
     }
@@ -119,6 +128,45 @@ card = render_table_card_markdown(cards["tables"][0])
 表与它后缀匹配时并入那张卡；有多张时它自成一张卡，并在该卡的 `findings` 里记
 `ambiguous_bare_name`，由人来确认脚本实际读写的是哪一张。
 
+### 样例值（`--samples`）
+
+Core 不连数据库，所以「这一列的值长什么样」只能由**别人导出**再传进来。`--samples` 接三种写法：
+一份表头为 `table,column,value[,count]` 的 CSV、一个装着这种 CSV 的目录（递归查找 `.csv`/`.json`），
+或一份 `samples/1` JSON。
+
+```csv
+table,column,value,count
+mart.customer_daily,country_code,US,30
+mart.customer_daily,country_code,JP,20
+mart.customer_daily,country_code,CN,10
+```
+
+```json
+{
+  "doc_format": "samples/1",
+  "samples": [
+    {"table": "mart.customer_daily", "column": "country_code", "values": ["US", "JP", "CN"]}
+  ]
+}
+```
+
+- **表名按表卡的规则匹配**：取最后两段、忽略大小写，所以 `spark_catalog.MART.t` 与卡上的
+  `mart.t` 是同一张表；列名也忽略大小写。
+- **每列最多 N 个不同的值**（默认 5，`--samples-top` 可改）：文件给了 `count` 就按 `count`
+  从大到小排，没给就按文件里的先后顺序；重复的值只占一个位置。
+- **永远脱敏，没有关掉它的开关**：样例值是本工具见过的最容易带个人信息的输入，每个值都先去掉
+  首尾空白，再过一遍与 SQL 注释同一套的形状脱敏（邮箱→`<email>`、手机/国际号码→`<phone>`、
+  身份证号→`<id>`），超过 64 个字符的值截断并加 `…`。它是**形状**匹配，既不穷尽也不保证准确——
+  真正敏感的列不要导出来。
+- **没命中的行只报告不丢弃**：文件里写了、但语料里没有这张表或这一列的键，进
+  `samples_applied.unmatched[]`（`表.列`，用文件里的原写法），CLI 末尾打印
+  `samples_columns=N, samples_unmatched=N` 并列出它们。
+- 文件不存在、目录里没有可读文件、CSV 表头不对、JSON 不是 `samples/1`、`count` 不是整数时
+  退出码为 2，报一句话，不抛 traceback。
+- 卡上多出三处：`columns[].samples[]`（这一列没有值时**不出现**）、
+  `coverage.columns_sampled`、顶层 `samples_applied`；表卡 Markdown 第 3 节多一列「样例值」，
+  渲染成 `` `'US'`、`'JP'`、`'CN'` ``。没传 `--samples` 时三处都不出现，那一列也不出现。
+
 ### 什么不会成为一张表
 
 - **会话内关系**：`CREATE TEMPORARY VIEW` 之类只活在脚本里的关系，别的任务读不到，
@@ -133,7 +181,7 @@ card = render_table_card_markdown(cards["tables"][0])
 | --- | --- | --- |
 | 1 这张表是什么 | 表注释、业务归属（业务域 / 项目 / 负责人 / 分层，元数据说了才出现）、别名写法、语料内的生产/消费语句数、「本语料用到 n/N 个字段」（`columns_declared` 已知时才有这一行） | 元数据事实 + 生产任务的语句头注释（`SQL注释`，原样引用） |
 | 2 一行代表什么 | 每个生产语句的粒度、逻辑键、候选键、键置信 | 结构推断（证据为 `statement_id`） |
-| 3 字段 | 列 / 类型 / 注释 / 生产侧一句语义 / 消费侧用法计数；语料没碰过的列用法一栏是 `—`，超过 20 列时它们移到用到的列之后、附一行说明 | 元数据事实 + SQL事实 + 结构推断 |
+| 3 字段 | 列 / 类型 / 注释 / 样例值（传了 `--samples` 才有这一列）/ 生产侧一句语义 / 消费侧用法计数；语料没碰过的列用法一栏是 `—`，超过 20 列时它们移到用到的列之后、附一行说明 | 元数据事实 + SQL事实 + 结构推断 + 导出的样例值 |
 | 4 谁生产 | 任务、语句、写入方式、分区、更新频率 | SQL事实 + 任务元信息 |
 | 5 谁消费 | 任务、语句、角色（词表同 `inputs[].role_in_task`，含 B2 的 `filter_partner`，见 [semantic-doc.md](semantic-doc.md)）、用到哪些列、怎么用 | SQL事实 + 结构推断（角色） |
 | 6 治理线索 | 多生产者、键冲突、无人读、无人写 | SQL事实（证据为 `<task>/<statement_id>`） |
@@ -213,6 +261,6 @@ scope-lineage describe --lineage /path/to/corpus/one_task/lineage.json \
 ## 不做的事
 
 - 不给表或列起中文名、不推断表类型、不猜 code 值的业务含义（值域与术语见字典层）；
-- 不接数据库取样例值，表卡里没有"样例值"槽位；
+- 不连数据库取样例值：`columns[].samples[]` 只可能来自 `--samples` 传进来的文件，Core 自己不会去查数；
 - 不做跨语料的传递闭包分析——表卡只陈述"这份语料里谁写谁读"，血缘链路追踪见
   [Agent 技能](agent-skill.md) 的 `query.py trace`。

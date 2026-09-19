@@ -418,6 +418,48 @@ artifact itself is never rewritten. Both paths produce the same `semantic.json`,
 included. How the file is generated from a profile is documented in
 [the term and value dictionary](glossary-doc.md).
 
+## Column sample values (samples/1)
+
+`scope-lineage tables --samples` takes a file of column sample values **somebody else
+exported**; Core never connects to a database to read data itself. A CSV whose header is
+`table,column,value[,count]`, a directory of such CSVs, or a `samples/1` JSON all work:
+
+```csv
+table,column,value,count
+mart.customer_daily,country_code,US,30
+mart.customer_daily,country_code,JP,20
+```
+
+```json
+{
+  "doc_format": "samples/1",
+  "samples": [
+    {"table": "mart.customer_daily", "column": "country_code", "values": ["US", "JP"]}
+  ]
+}
+```
+
+| Key | Value | Purpose |
+| --- | --- | --- |
+| `table` | `db.table` or a fully qualified name | matched the way a card normalizes it: last two segments, case ignored. |
+| `column` | column name | case ignored; a table or column the corpus does not know lands in `samples_applied.unmatched[]`. |
+| `value` | any scalar | trimmed, then redacted, then cut above 64 characters; an empty value is skipped. |
+| `count` | integer, optional | when given, values are ordered by it descending; a column with no counts keeps file order. |
+
+Rules:
+
+- **Always redacted**: emails, mobile and international numbers and ID numbers are masked
+  by shape, under the same rule SQL comments use, and **there is no flag that turns it
+  off** — sample values are the most PII-prone input this tool ever reads;
+- **At most N distinct values per column**: 5 by default, `--samples-top` to change it;
+- **A key that matches nothing is reported, not rejected**: the run prints
+  `samples_unmatched=N` and lists the `table.column` keys;
+- A missing file, a wrong CSV header, a JSON that is not `samples/1` and a non-integer
+  `count` all exit with code 2.
+
+On the artifacts this becomes `columns[].samples[]`, `coverage.columns_sampled` and the
+top-level `samples_applied`; see the [table card guide](tables-doc.md).
+
 ## Failure policy
 
 By default, any input that fails to load or any statement with `parse_status=failed` returns a
