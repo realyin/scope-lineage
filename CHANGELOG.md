@@ -1,6 +1,42 @@
 # Changelog
 
 ## Unreleased
+- A SQL keyword in front of a parenthesis is no longer read as a function call (C2
+  follow-up). `expression_features.functions` was collected by a regex over the
+  expression's text -- `\b(name)\s*\(` -- which cannot tell `upper(a)` from `kind IN
+  ('a', 'b')` or `NOT (a AND b)`, so `in` and `not` were published as functions, the
+  catalog could not place them, and an ordinary `SUM(CASE WHEN k IN (...) THEN ... END)`
+  came back `has_udf: true`. The scanner now skips the 38 SQL keywords that may precede a
+  parenthesis (`cast` / `case` / `if` / `over` were the four it already skipped) and strips
+  string literals before scanning, so a quoted value can no longer look like a call. Names
+  that are both a keyword and a Spark function -- `filter`, `exists`, `transform`, `left`,
+  `right`, `any`, `some` -- are still collected. Over the whole corpus only
+  `expression_features.functions` (a keyword leaving the list) and `has_udf` (true to
+  false, 60 of them) move; no golden fixture changes.
+- A scope that only computes window functions is no longer called a `dedup` (C1). The role
+  inferrer labelled every window-bearing scope `dedup`, so a CTE whose whole job is
+  `SUM(total) OVER (PARTITION BY band)` was published as a deduplicating stage in
+  `scopes.<id>.role`, in `scope_profile.steps[].role`, in the stage's `pattern_signature`
+  and in the 「角色」 of mapping.md section 6 and semantic.md section 3. `dedup` now needs
+  both halves of the pattern it was named after: a **ranking** window (`ROW_NUMBER` /
+  `RANK` / `DENSE_RANK` / `NTILE`) whose output column an `=` / `<=` / `<` predicate pins
+  to a small constant (<= 10), written either in that scope or in the scope that reads it
+  -- a WHERE, a HAVING, or a JOIN ON clause (`LEFT JOIN d ON x.k = d.k AND d.rn = 1` is
+  the same dedup, written in ON). Every other window scope gets the new role `window`. The
+  grain walk, `output_shape` and the window intents (R6) are unchanged: they never read
+  `role`. Two corpus scopes move, both correctly (`SUM(...) OVER` and a `LAG`).
+- The function catalog knows the Spark builtins, so `expression_features.has_udf` means UDF
+  (C2). The catalog was a hand-written list of ~40 names, so `HOUR`, `LAG`, `RANK`,
+  `EXPLODE` and `GET_JSON_OBJECT` were all reported as UDF black boxes -- one 52-field task
+  carried 148 such marks and not one of them was a UDF. It is now derived from sqlglot's
+  own Spark / Spark2 / Hive function registries plus every `exp.Func` class's `sql_names()`
+  (~700 names), with a curated list of the Hive/Spark builtins sqlglot registers under no
+  name of their own (`percentile_approx`, `json_tuple`, `from_json`, `bround`, `pmod`,
+  `hash`, `crc32`, `format_number`, `reflect`, `java_method`, `stack`, `now`, …). Names
+  compare case-insensitively. A name nobody can place is still `has_udf: true`, and
+  `expression_type` still reads `udf_expression` for it. Only `has_udf` moves, always from
+  true to false; the render side's own builtin whitelist already hid most of these from
+  semantic.md, so no 「UDF 黑盒」 line changes in the golden corpus.
 - The driving table is walked on its own instead of being read off the grain. R3's grain
   walk stops at a `LATERAL VIEW`, a `UNION` or an unprovable FROM item, and the `driving`
   role and the summary sentence were read off that same stop -- so a statement whose FROM

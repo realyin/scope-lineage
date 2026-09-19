@@ -209,7 +209,7 @@ happened in.
 | Key | Value | Meaning |
 | --- | --- | --- |
 | `kind` | enum string | `physical_table`, `cte`, `subquery`, `union`, `union_branch`, or `root`. |
-| `role` | string | A deterministic structural role such as `aggregate`, `dedup`, `join`; this is a SQL structure summary, not a business-domain judgment. |
+| `role` | string | A deterministic structural role: `aggregate`, `dedup`, `window`, `join`, `filter`, `label`, `pass_through`, `transform`, `union`, `union_branch`; this is a SQL structure summary, not a business-domain judgment. `dedup` requires both halves of the pattern: a **ranking** window (`ROW_NUMBER` / `RANK` / `DENSE_RANK` / `NTILE`) whose output column is pinned to a small constant (<= 10) by an `=` / `<=` / `<` predicate written in this scope or in **the scope that reads it** (a WHERE, a HAVING or a JOIN ON clause all count). Every other window-bearing scope is `window` -- a running aggregate, a `LAG` / `LEAD`, or a ranking nobody filters on adds a column and deduplicates nothing. |
 | `depends_on` | array<string> | Physical tables or other scope IDs it depends on directly. |
 | `alias_in_parent` | string | This scope's alias in the parent query. |
 | `writes_to` | string | The target table the ROOT scope writes. |
@@ -315,7 +315,7 @@ Every logic block has at least:
 | `output_fields[]` | array<string> | The scope output fields this logic produces or affects. |
 | `input_sources[]` | array<string> | The input scopes/physical tables the logic involves. |
 | `field_usage[]` | array<object> | Which logic block and which output use a field. |
-| `expression_features` | object | Functions, operators, and boolean features such as CASE/CAST/window/aggregate/UDF. |
+| `expression_features` | object | Functions, operators, and boolean features such as CASE/CAST/window/aggregate/UDF. `functions` holds **called function names** only -- not a SQL keyword that may also be followed by a parenthesis (`IN`, `NOT`, `AND`), and not text inside a string literal; `has_udf` is true only when one of those names is one the function catalog cannot place. |
 | `final_target_columns[]` | array<string> | The target fields this logic ultimately affects. |
 | `comments[]` | array<string> | The SQL comments written **inside this block's own expression**, verbatim. The key is absent when there are none. An alias comment sits outside the block expression and is published on the matching `outputs[].comments`. |
 

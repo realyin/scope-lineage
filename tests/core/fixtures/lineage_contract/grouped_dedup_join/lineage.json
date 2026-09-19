@@ -5471,7 +5471,7 @@
     },
     "cte:ranked": {
       "kind": "cte",
-      "role": "dedup",
+      "role": "window",
       "depends_on": [
         "cte:joined"
       ],
@@ -10635,7 +10635,7 @@
         "scope_id": "cte:ranked",
         "name": "ranked",
         "kind": "cte",
-        "role": "dedup",
+        "role": "window",
         "operations": [
           "window"
         ],

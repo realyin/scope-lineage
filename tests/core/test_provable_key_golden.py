@@ -186,17 +186,17 @@ def test_a_row_preserving_window_is_not_mistaken_for_a_dedup_filter(
     """``cte:ranked`` only adds ``SUM(...) OVER (PARTITION BY band)``; nothing filters on
     it, so its intent is a running aggregate and no consumer claims it.
 
-    The stage ``role`` is nonetheless ``dedup``, which is how the classifier labels any
-    window-bearing scope today. That is recorded here as implementation fact, not as the
-    intended reading -- the grain walk is the part that matters, and it correctly treats
-    the scope as row-preserving (see ``via_scopes`` above).
+    C1: the stage ``role`` says ``window`` for exactly that reason. It used to say
+    ``dedup`` -- the classifier labelled every window-bearing scope that way -- and a
+    reader took the label as the stage's purpose while the grain walk (correctly)
+    treated the scope as row-preserving (see ``via_scopes`` above).
     """
     stage = _stage(profile, "cte:ranked")
     action = stage["actions"][0]
     assert action["type"] == "window"
     assert action["intent"] == "running_aggregate"
     assert action["consumed_by"] is None
-    assert stage["role"] == "dedup"
+    assert stage["role"] == "window"
     # `band` is the derived CASE column `cte:agg` publishes; the statement never groups
     # by `amount`, so the restatement must not say it does.
     assert action["text"] == "按 band 分组，计算 SUM（band_total）；组内累计聚合"

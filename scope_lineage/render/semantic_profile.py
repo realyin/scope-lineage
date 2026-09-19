@@ -376,6 +376,7 @@ _EXPANSION_COUNTS = {1: "一次", 2: "两次", 3: "三次"}
 _SCOPE_ROLE_LABELS = (
     ("aggregate", "聚合"),
     ("dedup", "去重"),
+    ("window", "窗口"),
     ("union", "合并"),
     ("join", "关联"),
     ("filter", "过滤"),

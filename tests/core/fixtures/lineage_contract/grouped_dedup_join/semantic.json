@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "schema_version": "1.0",
   "statement_id": "stmt:001",
-  "lineage_digest": "b337ea20d7f3734e",
+  "lineage_digest": "0c34ee38cff93f20",
   "task": {
     "task_name": "golden_grouped_dedup_join",
     "target_table": "mart.metric_by_segment",
@@ -47,7 +47,7 @@
         "lateral_view_scopes": []
       }
     ],
-    "structural_summary": "行来源 ods.events_a（经 union:events_norm:b01 → union:events_norm → cte:events_norm → cte:agg → cte:joined → cte:ranked）、ods.events_b（经 union:events_norm:b02 → union:events_norm → cte:events_norm → cte:agg → cte:joined → cte:ranked）；关联 1 个上游（1 个去重）；输出 6 列。",
+    "structural_summary": "行来源 ods.events_a（经 union:events_norm:b01 → union:events_norm → cte:events_norm → cte:agg → cte:joined → cte:ranked）、ods.events_b（经 union:events_norm:b02 → union:events_norm → cte:events_norm → cte:agg → cte:joined → cte:ranked）；关联 1 个上游（1 个窗口）；输出 6 列。",
     "target_declared_columns": [
       {
         "name": "segment",
@@ -604,7 +604,7 @@
       "scope_id": "cte:ranked",
       "name": "ranked",
       "kind": "cte",
-      "role": "dedup",
+      "role": "window",
       "direct_inputs": [
         "cte:joined"
       ],
@@ -646,7 +646,7 @@
         "band_total"
       ],
       "output_count": 6,
-      "pattern_signature": "role=dedup|kind=cte|inputs=tables:0,scopes:1,union:no|blocks=window=1|derive=0|window=sum|agg="
+      "pattern_signature": "role=window|kind=cte|inputs=tables:0,scopes:1,union:no|blocks=window=1|derive=0|window=sum|agg="
     },
     {
       "scope_id": "ROOT",
