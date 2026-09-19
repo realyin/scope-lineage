@@ -272,6 +272,11 @@ scope-lineage describe --lineage corpus --glossary dict/glossary.json \
 这一条语句自己证明的取值，每条 `meaning` 都是 `null`（一条语句不可能知道一个值的含义）。
 传了 `--glossary` 才会换成语料级的观察，并带上人工确认的含义。
 
+`--glossary` 指向的文件不存在或不是合法 JSON（退出码 2）、或没有声明 `doc_format:
+"glossary-json/1"`（退出码 1）时直接报错，与 `--tables` 同一口径：两者都是 JSON 对象，
+把 `glossary.overrides.json` 误传成 `--glossary` 过去会被静默接受，结果是一份取值全空的
+文档——它读起来和"语料里什么都没观察到"一模一样。
+
 ```jsonc
 "value_domain": [
   {"value": "PAID", "sql_literal": "'PAID'", "kind": "literal",
@@ -290,7 +295,7 @@ scope-lineage describe --lineage corpus --glossary dict/glossary.json \
 | 条目顺序 | 按**首次出现顺序**，不重排 |
 | `kind` | `literal`（枚举值）或 `pattern`（`LIKE` / `RLIKE` 的匹配模式）；`pattern` 的 `closed_set` 恒为 `null`，且不参与封闭集判定，也不进 `summary` 追加 |
 | 按来源列匹配 | 只在**整条链每一步**都是 `DIRECT` / `UNION` 时（字段自己的 `transform` 与该来源的 `sources[].transform` 都要是，任一步非透传即断），才继承来源物理列的取值；继承的也只有该列被 `=` / `IN` 钉住的观察与 `LIKE` / `RLIKE` 的匹配形状。`CASE WHEN pay_status = 'PAID' THEN 'Y' ELSE 'N' END` 读了 `pay_status`，但 `'PAID'` 绝不是 `paid_flag` 的取值 |
-| 按目标列名匹配 | `case_then` / `union_constant` / `constant_projection` 三种观察按**列名**匹配，CASE 产出的枚举因此能落到同名目标字段上 |
+| 按目标表 + 列名匹配 | `case_then` / `union_constant` / `constant_projection` 三种观察按**目标表（点号后缀归一）+ 列名**匹配，CASE 产出的枚举因此能落到同名目标字段上；只按列名匹配会让任何任务写进 `status` 的标签变成所有 `status` 的取值，而 `mart.orders.status` 的枚举与 `mart.tickets.status` 无关。落在某个 scope 上、没有进到具名目标列的观察（CTE 里的 CASE）不属于任何表，仍然只对本语句自己的同名字段说话 |
 | 类型护栏 | 目标列声明为数值（`decimal` / `int` / `bigint` / `double` …）或日期（`date` / `timestamp`）时，只接受同类型字面量：引号里的 `'Y'` 不会挂到金额列，引号里的 `'0'` / `'2026-01-01'` 仍然算 |
 | `closed_set` | `true` 表示这个取值属于一个已被证明封闭的集合；`null` 表示**未证明封闭**，不表示"证明了不封闭"。这是**整列**的结论：同一字段的每条取值要么都是 `true`、要么都是 `null`。为 `true` 的两种证明——该列自己的末步 CASE 穷尽（带 ELSE 且各分支全是常量），或透传来源列存在封闭的 `IN` 列表 |
 | `sql_literal` | 作者写的字面量。`semantic.md` 的 `- 取值：` 行显示它，`value_domain[].value` 与 overrides 的键用去引号形式 |

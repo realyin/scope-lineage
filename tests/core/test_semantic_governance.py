@@ -20,6 +20,11 @@ from pathlib import Path
 import pytest
 
 from scope_lineage.contract import to_lineage_dict
+from scope_lineage.metadata.target_table_metadata import (
+    TargetColumnMetadata,
+    TargetMetadataMap,
+    TargetTableMetadata,
+)
 from scope_lineage.render.mapping_markdown import (
     render_mapping_markdown,
     render_warnings_markdown,
@@ -595,6 +600,39 @@ def _alias_document() -> dict:
     return json.loads((_ALIAS_CASE / "lineage.json").read_text(encoding="utf-8"))
 
 
+_GENERATED_TARGET = TargetMetadataMap(
+    {
+        "dwd.t": TargetTableMetadata(
+            table_name="dwd.t",
+            full_table_name="dwd.t",
+            columns=[
+                TargetColumnMetadata(name="a", data_type="string", ordinal=0, is_partition=False),
+                TargetColumnMetadata(name="flag", data_type="int", ordinal=1, is_partition=False),
+                TargetColumnMetadata(
+                    name="load_date", data_type="date", ordinal=2, is_partition=False
+                ),
+            ],
+            partition_columns=[],
+            ddl="CREATE TABLE dwd.t(a STRING, flag INT, load_date DATE)",
+            source_file="synthetic-target-metadata.json",
+            structure_source="ddl",
+            table_detail={},
+        )
+    }
+)
+
+
+def _generated_name_document() -> dict:
+    return to_lineage_dict(
+        parse_scope_lineage(
+            "INSERT INTO dwd.t SELECT a, 0, current_date() FROM ods.s",
+            "task_generated_names",
+            schema={"ods.s": ["a"]},
+            target_metadata=_GENERATED_TARGET,
+        )
+    )
+
+
 def test_a_positional_write_whose_aliases_disagree_with_the_ddl_is_a_finding() -> None:
     """Core has always counted these (`target_field_binding.corrected_column_count`).
 
@@ -629,6 +667,54 @@ def test_a_positional_write_whose_aliases_agree_is_not_a_finding() -> None:
     document = _alias_document()
     for entry in document["end_to_end_lineage"]:
         entry["parsed_column"] = entry["column"]
+    assert _findings(build_semantic_profile(document), "alias_position_mismatch") == []
+
+
+def test_a_generated_projection_name_is_not_an_alias_mismatch() -> None:
+    """``SELECT a, 0, current_date()`` writes two columns the SQL never named.
+
+    sqlglot gives an unaliased projection a ``_col_N`` placeholder, and positional
+    binding then renames it to the DDL column at that position -- leaving
+    ``parsed_column`` as the placeholder. Comparing the two strings called that a
+    mismatch, so every task that writes a constant or a bare function call was accused
+    of writing data into the wrong columns. A placeholder is the absence of an alias,
+    and an absent alias cannot disagree with anything.
+    """
+    document = _generated_name_document()
+    assert document["target_field_binding"]["method"] == "ddl_position"
+    assert [entry["parsed_column"] for entry in document["end_to_end_lineage"]] == [
+        "a",
+        "_col_1",
+        "_col_2",
+    ]
+
+    assert _findings(build_semantic_profile(document), "alias_position_mismatch") == []
+
+
+def test_a_real_alias_mismatch_beside_a_generated_name_is_still_a_finding() -> None:
+    """Only the placeholders are excused; the count is of the rest."""
+    document = _generated_name_document()
+    document["end_to_end_lineage"][0]["parsed_column"] = "wrong_key"
+
+    found = _findings(build_semantic_profile(document), "alias_position_mismatch")
+
+    assert len(found) == 1
+    assert "1/3 个投影" in found[0]["text"]
+    assert "目标 a ← 别名 wrong_key" in found[0]["text"]
+
+
+def test_the_contracts_own_generated_marker_is_honoured_when_present() -> None:
+    """``name_is_generated`` is the contract's answer; the shape regex is the fallback.
+
+    The contract only publishes the marker while the name is still *unbound*, which a
+    positional write never is -- so the regex is what actually runs here. The marker is
+    honoured anyway, because a contract fact outranks a guess at a spelling.
+    """
+    document = _generated_name_document()
+    for entry in document["end_to_end_lineage"][1:]:
+        entry["parsed_column"] = "anonymous_projection"
+        entry["name_is_generated"] = True
+
     assert _findings(build_semantic_profile(document), "alias_position_mismatch") == []
 
 

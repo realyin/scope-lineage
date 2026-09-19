@@ -174,3 +174,73 @@ def test_task_contract_statement_entry_carries_the_target_comments() -> None:
         "Customer identifier",
         "Derived customer level",
     ]
+
+
+# ---------------- a description that describes none of the written columns (WI-2.10)
+
+
+def _mismatched_target_metadata() -> TargetMetadataMap:
+    """A DDL of four columns, so the two-column projection cannot bind positionally."""
+    item = TargetTableMetadata(
+        table_name="mart.profile",
+        full_table_name="spark_catalog.mart.profile",
+        columns=[
+            TargetColumnMetadata("customer_id", "bigint", 0, False, "Customer identifier"),
+            TargetColumnMetadata("customer_level", "string", 1, False, "Derived level"),
+            TargetColumnMetadata("extra", "string", 2, False, "Added later"),
+            TargetColumnMetadata("dt", "string", 3, True, "Partition date"),
+        ],
+        partition_columns=["dt"],
+        ddl="CREATE TABLE mart.profile(customer_id BIGINT, customer_level STRING, "
+        "extra STRING, dt STRING)",
+        source_file="profile_metadata.json",
+        structure_source="ddl",
+    )
+    return TargetMetadataMap({item.table_name: item})
+
+
+def test_a_description_matching_no_written_column_is_not_complete_metadata() -> None:
+    """``metadata_complete`` answers about the *columns*, not about the lookup.
+
+    A target description that knows the table but agrees with none of the names this
+    statement writes leaves ``column_details`` empty -- and empty used to be published
+    as ``metadata_complete: true``, i.e. "every written column is described" said of a
+    document describing none of them. Downstream, the coverage counters read that as
+    full coverage and the reader was never told to check the table.
+    """
+    item = _output_table(target_metadata=_mismatched_target_metadata())
+
+    assert item["column_details"] == []
+    assert item["metadata_complete"] is False
+    # Who answered is still worth saying: "the DDL was read and matched nothing" is a
+    # different state from "no description was supplied", and they need different fixes.
+    assert item["metadata_source"] == "target_ddl"
+    assert item["metadata_note"] == "no_output_column_matched"
+
+
+def test_a_schema_matching_no_written_column_says_the_same() -> None:
+    schema = {**SOURCE_SCHEMA, "mart.profile": ["a", "b"]}
+
+    item = _output_table(schema=schema)
+
+    assert item["column_details"] == []
+    assert item["metadata_complete"] is False
+    assert item["metadata_source"] == "schema"
+    assert item["metadata_note"] == "no_output_column_matched"
+
+
+def test_a_matching_description_carries_no_note() -> None:
+    """The key is additive: it appears only when there is something to say."""
+    item = _output_table(target_metadata=_target_metadata())
+
+    assert item["metadata_complete"] is True
+    assert "metadata_note" not in item
+
+
+def test_no_metadata_at_all_still_carries_no_note() -> None:
+    """Nothing was read, so nothing matched nothing -- that is the source's absence."""
+    item = _output_table()
+
+    assert item["metadata_complete"] is False
+    assert "metadata_source" not in item
+    assert "metadata_note" not in item

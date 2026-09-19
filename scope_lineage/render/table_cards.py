@@ -34,14 +34,13 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
-from typing import Iterable, Sequence
+from typing import Iterable, Mapping, Sequence
 
 from .markdown_text import cell, normalize_inline
 from .semantic_profile import (
     REFRESH_SOURCE_TASK_META,
     TASK_PROFILE_ARTIFACT_KIND,
     USAGE_ORDER,
-    apply_card_fan_out,
 )
 
 
@@ -55,12 +54,14 @@ TABLE_KIND_PHYSICAL = "physical"
 
 DIRECTORY_TARGET_PREFIX = "directory:"
 
+FINDING_AMBIGUOUS_BARE_NAME = "ambiguous_bare_name"
 FINDING_MULTIPLE_PRODUCERS = "multiple_producers"
 FINDING_PRODUCER_KEY_CONFLICT = "producer_key_conflict"
 FINDING_NEVER_CONSUMED = "never_consumed_in_corpus"
 FINDING_NEVER_PRODUCED = "never_produced_in_corpus"
 
 FINDING_KINDS = (
+    FINDING_AMBIGUOUS_BARE_NAME,
     FINDING_MULTIPLE_PRODUCERS,
     FINDING_PRODUCER_KEY_CONFLICT,
     FINDING_NEVER_CONSUMED,
@@ -191,20 +192,53 @@ def same_table(left: str, right: str) -> bool:
 
 
 def table_groups(names: Iterable[str]) -> dict[str, list[str]]:
-    """``primary name -> every spelling seen``, most qualified spelling first.
+    """``primary name -> every spelling seen``, most qualified spelling first."""
+    groups, _ambiguous = _group_spellings(names)
+    return {_primary_name(group): group for group in groups}
 
-    Grouping is transitive: a bare ``t`` seen beside ``dwd.t`` and ``catalog.dwd.t`` joins
-    the one group rather than starting a second one whose membership depends on order.
+
+def ambiguous_bare_names(names: Iterable[str]) -> set[str]:
+    """The unqualified names more than one qualified table in the corpus could be."""
+    _groups, ambiguous = _group_spellings(names)
+    return ambiguous
+
+
+def _group_spellings(names: Iterable[str]) -> tuple[list[list[str]], set[str]]:
+    """``(groups, ambiguous bare names)`` -- the suffix rule, with its one stop.
+
+    Merging is transitive **between qualified names**: ``dwd.t`` and ``catalog.dwd.t``
+    are one table however many spellings sit between them. An unqualified name is not
+    allowed to be the bridge. ``ods.t`` and ``dwd.t`` are two tables, and a script that
+    once wrote a bare ``t`` used to merge them into one card -- publishing one table's
+    producer as the other's, which is the single worst thing a card can say.
+
+    A bare name is therefore resolved, not assumed: it joins the one qualified group it
+    could be, and when several could be it stays its own table and the card says so
+    (``ambiguous_bare_name``). Silently picking one would be a guess at which warehouse
+    database the author meant, and this module does not guess.
     """
+    ordered = sorted({str(name) for name in names})
     groups: list[list[str]] = []
-    for name in sorted(set(names)):
+    for name in [item for item in ordered if "." in item]:
         merged = [name]
         for group in list(groups):
             if any(same_table(name, member) for member in group):
                 merged.extend(group)
                 groups.remove(group)
         groups.append(sorted(set(merged)))
-    return {_primary_name(group): group for group in groups}
+    ambiguous: set[str] = set()
+    for name in [item for item in ordered if "." not in item]:
+        hosts = [
+            group for group in groups if any(same_table(name, item) for item in group)
+        ]
+        if len(hosts) == 1:
+            hosts[0].append(name)
+            hosts[0].sort()
+            continue
+        if hosts:
+            ambiguous.add(name)
+        groups.append([name])
+    return groups, ambiguous
 
 
 def _primary_name(group: Sequence[str]) -> str:
@@ -305,15 +339,31 @@ def build_table_cards(
             produced.setdefault(record.target, []).append(record)
         for item in _consumed_inputs(record):
             consumed.setdefault(str(item.get("table") or ""), []).append((record, item))
-    groups = table_groups([*produced, *consumed])
+    grouped, ambiguous = _group_spellings([*produced, *consumed])
+    groups = {_primary_name(group): group for group in grouped}
     return {
         "doc_format": DOC_FORMAT,
         "corpus": _corpus_block(records, artifact_root),
         "tables": [
-            _table_card(primary, groups[primary], produced, consumed)
+            _table_card(
+                primary,
+                groups[primary],
+                produced,
+                consumed,
+                _bare_name_candidates(primary, groups) if primary in ambiguous else (),
+            )
             for primary in sorted(groups)
         ],
     }
+
+
+def _bare_name_candidates(bare: str, groups: Mapping[str, list[str]]) -> list[str]:
+    """The qualified tables an unresolved bare name could have meant, named in the card."""
+    return sorted(
+        primary
+        for primary in groups
+        if primary != bare and same_table(bare, primary)
+    )
 
 
 def _corpus_block(records: Sequence[_Statement], artifact_root: str | None) -> dict:
@@ -332,6 +382,7 @@ def _table_card(
     spellings: Sequence[str],
     produced: dict[str, list[_Statement]],
     consumed: dict[str, list[tuple[_Statement, dict]]],
+    bare_name_candidates: Sequence[str] = (),
 ) -> dict:
     producers = [record for name in spellings for record in produced.get(name, [])]
     producers.sort(key=lambda record: (record.task, record.statement_id))
@@ -351,7 +402,7 @@ def _table_card(
         "consumed_by": consumed_by,
         "columns": columns,
         "coverage": _coverage(comment, columns, produced_by, consumed_by),
-        "findings": _findings(produced_by, consumed_by),
+        "findings": _findings(produced_by, consumed_by, bare_name_candidates),
     }
     return {key: card[key] for key in TABLE_KEY_ORDER}
 
@@ -574,8 +625,22 @@ def _coverage(
 # --------------------------------------------------------------------------- findings
 
 
-def _findings(produced_by: Sequence[dict], consumed_by: Sequence[dict]) -> list[dict]:
+def _findings(
+    produced_by: Sequence[dict],
+    consumed_by: Sequence[dict],
+    bare_name_candidates: Sequence[str] = (),
+) -> list[dict]:
     findings = []
+    if bare_name_candidates:
+        findings.append(
+            _finding(
+                FINDING_AMBIGUOUS_BARE_NAME,
+                f"这个表名没有库名限定，本语料内有 {len(bare_name_candidates)} 张表可能是它："
+                + "、".join(bare_name_candidates)
+                + "；它们没有被合并成一张卡，请人工确认脚本实际读写的是哪一张。",
+                [*produced_by, *consumed_by],
+            )
+        )
     if len(produced_by) > 1:
         findings.append(
             _finding(
@@ -666,44 +731,29 @@ def _undecided_grain_text(producer: dict, grain: dict) -> str:
 # -------------------------------------------------------------------- describe support
 
 
-def apply_table_cards(
-    profile: dict, cards: dict | None, document: dict | None = None
-) -> dict:
-    """Fold a corpus's answers into one task's semantic profile.
+def apply_table_cards(profile: dict, cards: dict | None) -> dict:
+    """Fold a corpus's *narrative* into one task's semantic profile.
 
     Returns the profile unchanged when no corpus was supplied, so ``describe`` without
     ``--tables`` writes exactly the document it wrote before this module existed.
 
-    ``document`` is the contract the profile was built from. It is optional, and only
-    the WI-2.8 D2 fan-out recomputation needs it: re-deciding a JOIN means re-deriving
-    which target columns the keys reach, which is a question about the contract's
-    mapping chains rather than about the profile. Without it the cards still reach
-    ``inputs[].card`` and ``task.downstream_consumers`` exactly as before.
+    Three keys and no inference: ``inputs[].card``, ``task.downstream_consumers`` and the
+    card counts under ``confidence.metadata_coverage``. The one *decision* a corpus
+    changes -- a JOIN onto a physical table that some other task proved unique (WI-2.8
+    D2) -- belongs to ``build_semantic_profile(..., table_cards=...)``, which is also
+    where everything derived from the shape can see it.
     """
     if not cards:
         return profile
     index = _card_index(cards)
     if profile.get("artifact_kind") == TASK_PROFILE_ARTIFACT_KIND:
         return {
-            key: [
-                _apply_statement(item, index, _statement_document(document, item))
-                for item in value
-            ]
+            key: [_apply_statement(item, index) for item in value]
             if key == "statements"
             else value
             for key, value in profile.items()
         }
-    return _apply_statement(profile, index, _statement_document(document, profile))
-
-
-def _statement_document(document: dict | None, statement: dict) -> dict | None:
-    """The contract document for one statement of a 1.0 or 2.0 artifact."""
-    if not document:
-        return None
-    lineage = document.get("statement_lineage")
-    if lineage is None:
-        return document
-    return lineage.get(str(statement.get("statement_id")))
+    return _apply_statement(profile, index)
 
 
 def _card_index(cards: dict) -> list[dict]:
@@ -717,18 +767,11 @@ def _lookup(index: Sequence[dict], table: str) -> dict | None:
     return None
 
 
-def _apply_statement(
-    profile: dict, index: Sequence[dict], document: dict | None = None
-) -> dict:
+def _apply_statement(profile: dict, index: Sequence[dict]) -> dict:
     inputs = [_apply_input(item, index) for item in profile.get("inputs") or []]
     consumers = _downstream_consumers(profile, index)
     applied = dict(profile)
     applied["inputs"] = inputs
-    shape = profile.get("output_shape")
-    if shape and document:
-        applied["output_shape"] = apply_card_fan_out(
-            document, shape, lambda name: _lookup(index, name)
-        )
     applied["task"] = _insert_after(
         dict(profile.get("task") or {}), "target_table_owner", "downstream_consumers", consumers
     )

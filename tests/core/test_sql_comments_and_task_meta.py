@@ -349,6 +349,13 @@ def _redacted_document() -> dict:
         ("身份证 110101199003078219", "身份证 <id>"),
         ("身份证 11010119900307821X", "身份证 <id>"),
         ("旧身份证 110101900307821", "旧身份证 <id>"),
+        ("旧身份证 110101900101123", "旧身份证 <id>"),
+        # a 15- or 18-digit run whose middle is not a legal birth date is not an ID
+        # number: a serial number, a bar code, an order key. The shape is what is
+        # masked, and these do not have it.
+        ("流水号 123456789012345", "流水号 123456789012345"),
+        ("流水号 123456789012345678", "流水号 123456789012345678"),
+        ("条码 000000199003078219", "条码 000000199003078219"),
         # not contact shapes: a partition date, an amount, a long key, a short code
         ("分区 20260814", "分区 20260814"),
         ("金额 1000.50 元", "金额 1000.50 元"),

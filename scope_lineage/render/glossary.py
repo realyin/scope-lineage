@@ -340,7 +340,9 @@ def apply_glossary(profile: dict, glossary: Mapping | None) -> dict:
     confirmed_terms = _confirmed_term_columns(glossary)
     for statement in profile.get("statements") or [profile]:
         fields = statement.get("fields") or []
-        glossary_values.apply_value_domains(fields, entries)
+        glossary_values.apply_value_domains(
+            fields, entries, (statement.get("task") or {}).get("target_table")
+        )
         coverage = glossary_values.glossary_coverage(fields)
         confidence = statement.get("confidence") or {}
         if confidence.get("metadata_coverage") is not None:

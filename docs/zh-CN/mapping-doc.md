@@ -46,6 +46,9 @@ markdown = render_mapping_markdown(lineage_document, diagnostics_document)
   `statement_sequence` 顺序每条写语句输出一个 `## <statement_id>` 小节，节内是该语句的
   完整映射文档；`statement_sequence` 未指向的条目排在有序条目之后照常渲染。其他版本在
   目录模式下跳过并计数（运行摘要里的 `skipped_unknown_version=N`），单文件模式直接报错。
+- 读不出来的文档同样只丢它自己：`lineage.json` 或同目录 `diagnostics.json` 不是合法 JSON、
+  或顶层不是对象时，目录模式在 stderr 各写一行并计入运行摘要的 `skipped_unreadable=N`，
+  其余任务照常渲染；单文件模式一行报错、退出码 2（与 `--lineage` 路径不存在时一致）。
 - 同目录没有 `diagnostics.json` 时照常渲染，但第 9 节会明确标注
   "无 diagnostics 文档"，而不是沉默。
 

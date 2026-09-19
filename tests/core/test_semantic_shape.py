@@ -1652,3 +1652,55 @@ def test_a_statement_without_an_argument_path_join_keeps_one_list() -> None:
     assert all(
         item["path"] == "grain" for item in profile["output_shape"]["fan_out_risks"]
     )
+
+
+# ------------------------- an argument-path risk is about the VALUE, not the row count
+
+
+_ARGUMENT_RISK_SCHEMA = {
+    "ods.main": ["k", "v", "dt"],
+    "ods.oper": ["id", "dt"],
+    "ods.extra": ["id", "tag"],
+}
+
+_ARGUMENT_RISK_SQL = (
+    "INSERT INTO mart.gap SELECT a.k, MAX(x.id) AS last_id, SUM(a.v) AS total "
+    "FROM ods.main a "
+    "LEFT JOIN (SELECT o.id FROM ods.oper o LEFT JOIN ods.extra e ON o.id = e.id "
+    "GROUP BY o.id) x ON a.k = x.id "
+    "WHERE a.dt = '20260814' GROUP BY a.k"
+)
+
+
+def test_an_argument_path_fan_out_does_not_cost_the_statement_its_keys() -> None:
+    """A JOIN that only feeds a metric's argument inflates a number, not the row count.
+
+    ``GROUP BY a.k`` proves one row per ``k`` whatever happens inside the subquery a
+    ``MAX`` reads from: the subquery is aggregated before ROOT joins it, so no row of
+    the output is duplicated. Counting the argument path's risk against the key set
+    published ``key_confidence: none`` for statements whose grain is proven --
+    the strongest claim the profile can make, withdrawn by a risk about a different
+    question. The risk itself stays: it is still true that ``MAX(x.id)`` may be read
+    over duplicated rows.
+    """
+    shape = _shape(_ARGUMENT_RISK_SQL, schema=_ARGUMENT_RISK_SCHEMA)
+
+    assert shape["key_confidence"] == "proven"
+    assert shape["candidate_keys"] == ["k"]
+    assert [(item["scope_id"], item["status"], item["path"]) for item in shape["fan_out_risks"]] == [
+        ("ROOT", "safe", "grain"),
+        ("subq:x", "unknown", "argument"),
+    ]
+
+
+def test_a_grain_path_fan_out_still_costs_the_statement_its_keys() -> None:
+    """The other direction, so the filter cannot quietly become "ignore every risk"."""
+    shape = _shape(
+        "INSERT INTO mart.gap SELECT a.k, SUM(a.v) AS total FROM ods.main a "
+        "LEFT JOIN ods.extra e ON a.k = e.id GROUP BY a.k",
+        schema=_ARGUMENT_RISK_SCHEMA,
+    )
+
+    assert [item["path"] for item in shape["fan_out_risks"]] == ["grain"]
+    assert shape["key_confidence"] == "none"
+    assert shape["candidate_keys"] == []

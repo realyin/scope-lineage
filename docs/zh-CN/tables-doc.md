@@ -107,6 +107,11 @@ card = render_table_card_markdown(cards["tables"][0])
 表卡按**点号后缀**规则把它们归为一张表（与 `skills/scope-lineage/scripts/query.py` 的
 `_same_table` 同语义），**限定级别最高的写法作主名**，其余写法进 `aliases`，不丢弃。
 
+后缀合并只发生在**带库名的写法之间**。不带点的裸表名不作为合并的桥梁：`ods.t` 与 `dwd.t`
+是两张表，一段写了裸 `t` 的脚本不能把它们并成一张卡。裸名只在语料里**恰好只有一张**带点的
+表与它后缀匹配时并入那张卡；有多张时它自成一张卡，并在该卡的 `findings` 里记
+`ambiguous_bare_name`，由人来确认脚本实际读写的是哪一张。
+
 ### 什么不会成为一张表
 
 - **会话内关系**：`CREATE TEMPORARY VIEW` 之类只活在脚本里的关系，别的任务读不到，
@@ -129,10 +134,11 @@ card = render_table_card_markdown(cards["tables"][0])
 行标签风格与 [semantic.md](semantic-doc.md) 一致：`（元数据事实）`、`（SQL事实）`、
 `（结构推断；证据 …）`、`（SQL注释）`。文件名把 `/`、空格等文件系统不接受的字符换成 `_`。
 
-`findings[].kind` 只有四种，含义都是"这是语料内可观察到的事实"，不是判决：
+`findings[].kind` 只有五种，含义都是"这是语料内可观察到的事实"，不是判决：
 
 | kind | 含义 |
 | --- | --- |
+| `ambiguous_bare_name` | 这个表名没有库名限定，语料内有多张表可能是它；它们没有被合并，需人工确认 |
 | `multiple_producers` | 语料内有多于一条写语句写这张表；下游读到谁的结果取决于调度顺序 |
 | `producer_key_conflict` | 多个生产语句给出的候选键不一致，口径需要人来裁决 |
 | `never_consumed_in_corpus` | 语料内没有任务读它；可能是对外出口，也可能是无人消费的产出 |
@@ -178,8 +184,10 @@ scope-lineage describe --lineage /path/to/corpus/one_task/lineage.json \
 ### 表卡参与 fan_out 判定
 
 一条语句永远无法证明一张物理表按连接键唯一，所以 JOIN 到物理表的 `fan_out_risks[]` 只能停在
-`unknown` / 「物理表无主键事实」。表卡里有另一个任务的证明，`describe --tables` 因此在挂完
-`inputs[].card` 之后**重算一次** `output_shape`：
+`unknown` / 「物理表无主键事实」。表卡里有另一个任务的证明，`describe --tables` 因此把表卡交给
+**画像构建本身**（`build_semantic_profile(..., table_cards=...)`）：fan_out 判定只有一处，
+表卡只是它的第四种证据来源。所以由 `output_shape` 派生的东西（字段的 `candidate_key` 角色、
+`inferred_items` 计数）看到的也是同一个答案：
 
 | 条件 | 结果 |
 | --- | --- |
@@ -187,9 +195,9 @@ scope-lineage describe --lineage /path/to/corpus/one_task/lineage.json \
 | 同上但表卡的 `key_confidence` 是 `candidate` | 同样改判 `safe`，但 `reason` 注明「表卡候选键，未证唯一」，且整条语句的 `key_confidence` 上限压到 `candidate` |
 | 表卡 `key_confidence` 是 `proven_unexposed` 或 `none`，或连接键没盖住候选键 | 不改判，仍是原来的结论 |
 
-改判之后 `candidate_keys`、`unexposed_keys`、`key_evidence`、`key_confidence` 按新的风险集合
-一并重算——它们本来就是「链路上每个 JOIN 都 `safe`」这个前提的函数。没有任何一条风险被表卡改判
-时，`output_shape` 原样返回，逐字节不变。
+`candidate_keys`、`unexposed_keys`、`key_evidence`、`key_confidence` 都由最终的风险集合算出——
+它们本来就是「粒度链路上每个 JOIN 都 `safe`」这个前提的函数。没有传 `--tables` 时，
+`output_shape` 与表卡功能上线之前逐字节一致。
 - 没有传 `--tables` 时，上面三个键**根本不出现**，`semantic.json` / `semantic.md` 与表卡功能
   上线之前逐字节一致。要"空值"语义就把 `--tables` 传上。
 - `--tables` 指向的文件不存在（退出码 2）或不是 `tables-json/1`（退出码 1）时直接报错，

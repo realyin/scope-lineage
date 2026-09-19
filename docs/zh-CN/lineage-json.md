@@ -679,7 +679,7 @@ ROOT.begin_date        transform=EXPRESSION       ← 本层只有 1 个直接�
   `metadata_complete`，以及 `table_column_count`（schema 中该表的**全表列宽**，
   schema 不识该表时缺席——有了它读者才能区分"用了少数几列"和"表的全宽"）；
 - `output_tables`：key 是目标表名，value 为对应目标元数据——`--schema` 认识该表时用它，否则回落到 `--target-ddl-metadata` 提供的目标表 DDL/Schema 元数据（字段 `type`/`comment` 取自其中，只保留本语句实际写出的列；表级的 `full_table_name`/`source_file`/`structure_source` 进 `table_metadata`）；新增键 `metadata_source` 说明这份元数据来自哪一侧，取值 `schema` 或 `target_ddl`，两侧都没有时该键缺席；
-- `metadata_complete`：表示调用方提供的元数据是否足以覆盖已知字段，不表示真实 catalog 永远完整。
+- `metadata_complete`：表示调用方提供的元数据是否足以覆盖已知字段，不表示真实 catalog 永远完整。元数据认识这张表、却与本语句写出的列名一个都对不上时，`column_details[]` 为空，`metadata_complete` 为 `false`（描述了零个写出列，不算覆盖），`metadata_source` 仍说明是哪一侧回答的，并附加键 `metadata_note: "no_output_column_matched"`——「读到了 DDL 但一列都没对上」与「没人提供元数据」是两种状态，修法不同。
 
 每张表的 `table_metadata` 是**开放对象**，只在元数据描述了表级事实时出现，additive：
 
@@ -864,11 +864,11 @@ scope-lineage validate --lineage /path/to/corpus
 | --- | --- | --- |
 | 邮箱地址 | `<email>` | 按地址本身可用的字符界定，不吞掉紧邻的中文或标点 |
 | 手机号 | `<phone>` | 中国大陆 `1[3-9]` 开头的 11 位号码，以及 `+86 138...` 这类国际写法 |
-| 身份证号 | `<id>` | 18 位（末位可为 `X`）或 15 位形态 |
+| 身份证号 | `<id>` | 18 位（末位可为 `X`）或 15 位形态，且中间的出生日期须是真实日期 |
 
 遮蔽发生在**采集时**，作用于注释文本本身，因此三个 `comments` 键和渲染表达式（如 `logic_blocks[].raw_expression`）里内联的那一份得到的是同一份已遮蔽文本；`task_meta.description` 同样过一遍——它也是人写的自由文本。SQL 表达式本身不被改动：`WHERE id_no = '110101199003078219'` 是这条语句操作的数据，改了就改变了 SQL 的含义。
 
-**遮蔽是形态匹配，不是识别，也不保证穷尽。** 写法稍有不同的号码会漏过去（分隔符、全角数字、写成文字的地址），而一串恰好 15 位的业务编码会被当成身份证遮掉。它降低误发概率，不构成合规保证；要求"注释绝不出境"时用 §18.4 的整体关闭。
+**遮蔽是形态匹配，不是识别，也不保证穷尽。** 写法稍有不同的号码会漏过去（分隔符、全角数字、写成文字的地址），而一串业务编码只要恰好符合身份证形态（6 位非零开头的地区码 + 合法出生日期）也会被遮掉——位数本身不构成形态，所以 `123456789012345` 这样的流水号原样保留。它降低误发概率，不构成合规保证；要求"注释绝不出境"时用 §18.4 的整体关闭。
 
 契约不因此新增任何键：被遮蔽的注释仍是一条注释，`<email>` 就是这条注释的原文。
 

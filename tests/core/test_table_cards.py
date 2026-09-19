@@ -38,6 +38,7 @@ from scope_lineage.render.table_cards import (
     render_table_card_markdown,
     render_table_index_markdown,
     table_card_filename,
+    table_groups,
 )
 from scope_lineage.scope.scope_builder import parse_scope_lineage
 from scope_lineage.scope.task_lineage import parse_task_lineage
@@ -703,7 +704,64 @@ def _carded(sql: str, task: str = "downstream_task") -> tuple[dict, dict, dict]:
     )
     document = to_lineage_dict(parse_scope_lineage(sql, task, schema=CARD_JOIN_SCHEMA))
     profile = build_semantic_profile(document)
-    return apply_table_cards(profile, cards, document), profile, document
+    carded = apply_table_cards(
+        build_semantic_profile(document, table_cards=cards), cards
+    )
+    return carded, profile, document
+
+
+def test_the_card_decides_the_fan_out_while_the_profile_is_being_built() -> None:
+    """D2 has one code path: the verdict, wherever its evidence comes from.
+
+    The card proof used to be applied by ``apply_table_cards`` *after* the profile was
+    finished, which meant two implementations of "is this JOIN safe" and two of "which
+    keys may this statement claim" -- and everything the build derives FROM the shape
+    (a field's ``candidate_key`` role, the inferred-item counts) still saw the answer
+    from before the card. ``build_semantic_profile(..., table_cards=...)`` is now the
+    only place the question is asked.
+    """
+    cards = build_table_cards(
+        [
+            _statement_profile(PRODUCER_SQL, "producer_task"),
+            _statement_profile(CARDED_JOIN_SQL, "downstream_task", schema=CARD_JOIN_SCHEMA),
+        ]
+    )
+    document = to_lineage_dict(
+        parse_scope_lineage(CARDED_JOIN_SQL, "downstream_task", schema=CARD_JOIN_SCHEMA)
+    )
+
+    profile = build_semantic_profile(document, None, table_cards=cards)
+
+    shape = profile["output_shape"]
+    assert shape["fan_out_risks"][0]["status"] == "safe"
+    assert shape["fan_out_risks"][0]["basis"] == "table_card"
+    assert shape["candidate_keys"] == ["event_code"]
+    assert shape["key_confidence"] == "proven"
+    roles = {
+        field["column"]: field["structural_role"]
+        for field in profile["fields"]
+        if field["column"] == "event_code"
+    }
+    assert roles == {"event_code": "candidate_key"}
+
+
+def test_applying_table_cards_never_recomputes_the_fan_out() -> None:
+    """The post-processing step folds in the narrative and nothing else."""
+    cards = build_table_cards(
+        [
+            _statement_profile(PRODUCER_SQL, "producer_task"),
+            _statement_profile(CARDED_JOIN_SQL, "downstream_task", schema=CARD_JOIN_SCHEMA),
+        ]
+    )
+    document = to_lineage_dict(
+        parse_scope_lineage(CARDED_JOIN_SQL, "downstream_task", schema=CARD_JOIN_SCHEMA)
+    )
+    profile = build_semantic_profile(document)
+
+    enriched = apply_table_cards(profile, cards)
+
+    assert enriched["output_shape"] == profile["output_shape"]
+    assert enriched["output_shape"]["fan_out_risks"][0]["status"] == "unknown"
 
 
 def test_a_proven_table_card_turns_an_unknown_join_into_a_safe_one() -> None:
@@ -750,7 +808,9 @@ def test_a_candidate_only_card_says_so_and_caps_the_confidence() -> None:
         parse_scope_lineage(CARDED_JOIN_SQL, "downstream_task", schema=CARD_JOIN_SCHEMA)
     )
 
-    enriched = apply_table_cards(build_semantic_profile(document), cards, document)
+    enriched = apply_table_cards(
+        build_semantic_profile(document, table_cards=cards), cards
+    )
 
     risk = enriched["output_shape"]["fan_out_risks"][0]
     assert risk["status"] == "safe"
@@ -774,7 +834,9 @@ def test_a_proven_unexposed_card_is_not_a_proof_of_anything() -> None:
         parse_scope_lineage(CARDED_JOIN_SQL, "downstream_task", schema=CARD_JOIN_SCHEMA)
     )
 
-    enriched = apply_table_cards(build_semantic_profile(document), cards, document)
+    enriched = apply_table_cards(
+        build_semantic_profile(document, table_cards=cards), cards
+    )
 
     assert enriched["output_shape"]["fan_out_risks"][0]["status"] == "unknown"
 
@@ -847,3 +909,79 @@ def test_the_table_card_itself_still_reads_its_grain_as_a_basis() -> None:
     markdown = render_table_card_markdown(_card(cards, "mart.union_out"))
 
     assert "`union_producer` / `stmt:001`：未知；" in markdown
+
+
+# ---------------------------------------------- suffix merging stops at the bare name
+
+
+def test_a_bare_table_name_does_not_bridge_two_qualified_tables() -> None:
+    """``ods.t`` and ``dwd.t`` are two tables, and a bare ``t`` cannot make them one.
+
+    The grouping rule was transitive over every spelling, so one script that wrote an
+    unqualified ``t`` -- a `USE db` script, a temporary spelling -- merged every
+    ``<db>.t`` in the corpus into a single card: one table's producer published as the
+    producer of another's, and the reader of a task told that its input's rows come from
+    a job that never touched it. Suffix merging is between *qualified* names only.
+    """
+    groups = table_groups(["ods.t", "dwd.t", "t"])
+
+    assert sorted(groups) == ["dwd.t", "ods.t", "t"]
+    assert all(group == [primary] for primary, group in groups.items())
+
+
+def test_a_bare_name_still_joins_the_one_qualified_table_it_can_only_be() -> None:
+    groups = table_groups(["spark_catalog.dwd.t", "dwd.t", "t"])
+
+    assert sorted(groups) == ["spark_catalog.dwd.t"]
+    assert groups["spark_catalog.dwd.t"] == ["dwd.t", "spark_catalog.dwd.t", "t"]
+
+
+def test_two_qualified_spellings_of_one_table_still_merge() -> None:
+    groups = table_groups(["spark_catalog.mart.t", "mart.t"])
+
+    assert groups == {"spark_catalog.mart.t": ["mart.t", "spark_catalog.mart.t"]}
+
+
+AMBIGUOUS_BARE_SQL = "INSERT OVERWRITE TABLE mart.bare_out SELECT id FROM t"
+
+
+def test_an_ambiguous_bare_name_gets_its_own_card_and_says_why() -> None:
+    cards = build_table_cards(
+        [
+            _statement_profile(
+                "INSERT OVERWRITE TABLE ods.t SELECT id FROM ods.src GROUP BY id",
+                "task_ods",
+                schema={"ods.src": ["id"]},
+            ),
+            _statement_profile(
+                "INSERT OVERWRITE TABLE dwd.t SELECT id FROM ods.src GROUP BY id",
+                "task_dwd",
+                schema={"ods.src": ["id"]},
+            ),
+            _statement_profile(AMBIGUOUS_BARE_SQL, "task_bare", schema={"t": ["id"]}),
+        ],
+        artifact_root="corpus",
+    )
+
+    assert {item["table"] for item in cards["tables"]} >= {"ods.t", "dwd.t", "t"}
+    assert "ambiguous_bare_name" in _kinds(_card(cards, "t"))
+    assert "ods.t" in _card(cards, "t")["findings"][0]["text"]
+    assert "dwd.t" in _card(cards, "t")["findings"][0]["text"]
+    assert _kinds(_card(cards, "ods.t")) == {"never_consumed_in_corpus"}
+
+
+def test_an_unambiguous_bare_name_raises_no_finding() -> None:
+    cards = build_table_cards(
+        [
+            _statement_profile(
+                "INSERT OVERWRITE TABLE dwd.t SELECT id FROM ods.src GROUP BY id",
+                "task_dwd",
+                schema={"ods.src": ["id"]},
+            ),
+            _statement_profile(AMBIGUOUS_BARE_SQL, "task_bare", schema={"t": ["id"]}),
+        ],
+        artifact_root="corpus",
+    )
+
+    assert "ambiguous_bare_name" not in _kinds(_card(cards, "dwd.t"))
+    assert _card(cards, "dwd.t")["aliases"] == ["t"]

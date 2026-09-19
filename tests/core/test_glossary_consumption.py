@@ -425,7 +425,58 @@ def test_a_missing_glossary_file_stops_describe_with_an_exit_code(
             str(tmp_path / "gone.json"),
         ]
     ) == 2
-    assert "does not exist" in capsys.readouterr().err
+    assert "--glossary path does not exist" in capsys.readouterr().err
+
+
+def test_describe_rejects_a_glossary_file_of_the_wrong_document_format(
+    tmp_path: Path, capsys
+) -> None:
+    """The predictable mistake is handing ``--glossary`` the overrides file instead.
+
+    ``glossary --overrides`` and ``describe --glossary`` sit one line apart in every
+    runbook, and the overrides document is a JSON object too -- so it used to be accepted
+    silently and the task described with no value domains at all, which reads exactly
+    like a corpus that observed nothing. ``--tables`` already refuses a stranger by its
+    declared format; ``--glossary`` now does the same.
+    """
+    task = tmp_path / "task_a"
+    write_statement_documents(parse_scope_lineage(APP_SQL, "task_a"), task)
+    stranger = tmp_path / "glossary.overrides.json"
+    stranger.write_text(
+        json.dumps({"values": {"pay_status='PAID'": {"meaning": "已支付"}}}),
+        encoding="utf-8",
+    )
+
+    assert main(
+        [
+            "describe",
+            "--lineage",
+            str(task / "lineage.json"),
+            "--glossary",
+            str(stranger),
+        ]
+    ) == 1
+    assert "--glossary expects a glossary-json/1 document" in capsys.readouterr().err
+
+
+def test_describe_rejects_a_glossary_file_that_is_not_json(
+    tmp_path: Path, capsys
+) -> None:
+    task = tmp_path / "task_a"
+    write_statement_documents(parse_scope_lineage(APP_SQL, "task_a"), task)
+    broken = tmp_path / "glossary.json"
+    broken.write_text("{not json", encoding="utf-8")
+
+    assert main(
+        [
+            "describe",
+            "--lineage",
+            str(task / "lineage.json"),
+            "--glossary",
+            str(broken),
+        ]
+    ) == 2
+    assert "not a readable JSON document" in capsys.readouterr().err
 
 
 # ------------------------------------------------------ WI-2.6: counting confirmations
@@ -673,3 +724,71 @@ def test_an_unquoted_override_key_confirms_the_same_value_as_a_quoted_one() -> N
         )
         assert glossary["overrides_applied"]["values"] == 1
         assert glossary["values"][0]["meaning"]["text"] == "已支付"
+
+
+# ------------------------------------- WI-2.4b: an output value belongs to ONE table
+
+
+ORDER_LABEL_SQL = (
+    "INSERT INTO mart.orders SELECT o.id, "
+    "CASE WHEN o.paid = 1 THEN 'SA' ELSE 'SB' END AS status FROM ods.app_order o"
+)
+TICKET_LABEL_SQL = (
+    "INSERT INTO mart.tickets SELECT t.id, "
+    "CASE WHEN t.opened = 1 THEN 'TA' ELSE 'TB' END AS status FROM ods.ticket t"
+)
+
+
+def _label_corpus() -> tuple[dict, dict, dict]:
+    documents = [
+        _document(ORDER_LABEL_SQL, "task_orders"),
+        _document(TICKET_LABEL_SQL, "task_tickets"),
+    ]
+    return (
+        documents[0],
+        documents[1],
+        build_glossary(documents, artifact_root="corpus"),
+    )
+
+
+def test_an_output_value_does_not_travel_to_the_same_name_in_another_table() -> None:
+    """``status`` is the most reused column name a warehouse has.
+
+    The output route used to be indexed by the bare column name, so every CASE label any
+    task ever wrote into a column called ``status`` was published as a value of every
+    other task's ``status`` -- a value domain that reads like an enumeration and is in
+    fact a collection of unrelated codes. An output value is a fact about the column of
+    ONE target table, and that is the key it is filed under.
+    """
+    orders, tickets, glossary = _label_corpus()
+
+    orders_domain = _field(apply_glossary(build_semantic_profile(orders), glossary), "status")
+    tickets_domain = _field(apply_glossary(build_semantic_profile(tickets), glossary), "status")
+
+    assert [item["value"] for item in orders_domain["value_domain"]] == ["SA", "SB"]
+    assert [item["value"] for item in tickets_domain["value_domain"]] == ["TA", "TB"]
+
+
+def test_the_output_route_matches_under_a_different_qualification_level() -> None:
+    """``spark_catalog.mart.orders`` and ``mart.orders`` are one table, here too."""
+    orders, _tickets, glossary = _label_corpus()
+    for entry in glossary["values"]:
+        entry["column_ref"] = entry["column_ref"].replace("mart.", "spark_catalog.mart.")
+
+    domain = _field(apply_glossary(build_semantic_profile(orders), glossary), "status")
+
+    assert [item["value"] for item in domain["value_domain"]] == ["SA", "SB"]
+
+
+def test_a_scope_level_label_still_reaches_the_column_it_produces() -> None:
+    """A CASE inside a CTE names no table, so it keeps speaking to its own statement."""
+    sql = (
+        "INSERT INTO mart.t WITH c AS (SELECT id, "
+        "CASE WHEN x = 1 THEN 'A' ELSE 'B' END AS status FROM ods.s) "
+        "SELECT id, status FROM c"
+    )
+    document = _document(sql, "task_cte")
+
+    domain = _field(build_semantic_profile(document), "status")["value_domain"]
+
+    assert [item["value"] for item in domain] == ["A", "B"]
