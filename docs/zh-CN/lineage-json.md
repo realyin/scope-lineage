@@ -294,7 +294,7 @@ CTE 名按所在查询块的词法作用域绑定。例如，一个嵌套查询�
 | `output_fields[]` | array<string> | 该逻辑生成或影响的 scope 输出字段。 |
 | `input_sources[]` | array<string> | 逻辑涉及的输入 scope/物理表。 |
 | `field_usage[]` | array<object> | 字段被哪个逻辑块、哪个输出使用。 |
-| `expression_features` | object | 函数、运算符及 CASE/CAST/window/aggregate/UDF 等布尔特征。 |
+| `expression_features` | object | 函数、运算符及 CASE/CAST/window/aggregate/UDF 等布尔特征。`functions` 只收**函数调用名**，不收 `IN` / `NOT` / `AND` 这类后面也跟括号的 SQL 关键字，字符串字面量里的内容同样不算；`has_udf` 为真仅当其中有一个名字函数目录放不进去。 |
 | `final_target_columns[]` | array<string> | 该逻辑最终影响的目标字段。 |
 | `comments[]` | array<string> | 该逻辑块**自身表达式内**的 SQL 注释原文。无注释时不发本键。别名注释不在块表达式内，发布在对应 `outputs[].comments` 上。 |
 

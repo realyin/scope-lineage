@@ -1,6 +1,18 @@
 # Changelog
 
 ## Unreleased
+- A SQL keyword in front of a parenthesis is no longer read as a function call (C2
+  follow-up). `expression_features.functions` was collected by a regex over the
+  expression's text -- `\b(name)\s*\(` -- which cannot tell `upper(a)` from `kind IN
+  ('a', 'b')` or `NOT (a AND b)`, so `in` and `not` were published as functions, the
+  catalog could not place them, and an ordinary `SUM(CASE WHEN k IN (...) THEN ... END)`
+  came back `has_udf: true`. The scanner now skips the 38 SQL keywords that may precede a
+  parenthesis (`cast` / `case` / `if` / `over` were the four it already skipped) and strips
+  string literals before scanning, so a quoted value can no longer look like a call. Names
+  that are both a keyword and a Spark function -- `filter`, `exists`, `transform`, `left`,
+  `right`, `any`, `some` -- are still collected. Over the whole corpus only
+  `expression_features.functions` (a keyword leaving the list) and `has_udf` (true to
+  false, 60 of them) move; no golden fixture changes.
 - A scope that only computes window functions is no longer called a `dedup` (C1). The role
   inferrer labelled every window-bearing scope `dedup`, so a CTE whose whole job is
   `SUM(total) OVER (PARTITION BY band)` was published as a deduplicating stage in

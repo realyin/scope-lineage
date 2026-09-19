@@ -315,7 +315,7 @@ Every logic block has at least:
 | `output_fields[]` | array<string> | The scope output fields this logic produces or affects. |
 | `input_sources[]` | array<string> | The input scopes/physical tables the logic involves. |
 | `field_usage[]` | array<object> | Which logic block and which output use a field. |
-| `expression_features` | object | Functions, operators, and boolean features such as CASE/CAST/window/aggregate/UDF. |
+| `expression_features` | object | Functions, operators, and boolean features such as CASE/CAST/window/aggregate/UDF. `functions` holds **called function names** only -- not a SQL keyword that may also be followed by a parenthesis (`IN`, `NOT`, `AND`), and not text inside a string literal; `has_udf` is true only when one of those names is one the function catalog cannot place. |
 | `final_target_columns[]` | array<string> | The target fields this logic ultimately affects. |
 | `comments[]` | array<string> | The SQL comments written **inside this block's own expression**, verbatim. The key is absent when there are none. An alias comment sits outside the block expression and is published on the matching `outputs[].comments`. |
 

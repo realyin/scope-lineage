@@ -20,6 +20,10 @@ from scope_lineage.contract import to_lineage_dict
 from scope_lineage.render.semantic_markdown import render_semantic_markdown
 from scope_lineage.render.semantic_profile import build_semantic_profile
 from scope_lineage.render.semantic_text import UDF_MARKER
+from scope_lineage.scope.expression_text import (
+    _SQL_KEYWORDS_BEFORE_PAREN,
+    _function_names,
+)
 from scope_lineage.scope.function_catalog import _KNOWN_SCALAR_FUNCTIONS
 from scope_lineage.scope.scope_builder import parse_scope_lineage
 
@@ -158,3 +162,92 @@ def test_a_genuinely_unknown_function_is_still_flagged() -> None:
     assert flagged
     assert all("my_udf" in expression.lower() for expression in flagged)
     assert UDF_MARKER in render_semantic_markdown(build_semantic_profile(document))
+
+
+# --------------------------------------------- keywords are not function calls (C2b)
+
+
+KEYWORD_SCHEMA = {
+    "ods.src": [
+        "id", "kind", "amt", "t", "s", "u", "tp", "st", "dt",
+        "comp", "bal", "x", "ts", "v",
+    ],
+}
+
+# Five shapes measured on real input, every one of them reported as a UDF black box and
+# not one of them calling anything but a builtin. They differ in which keyword sits in
+# front of the `(`: `IN`, `NOT`, both at once, an `OR`/`LIKE` chain, and a nested call.
+KEYWORD_MEASURES = {
+    "in_inside_case": "SUM(CASE WHEN src.kind IN ('a', 'b') THEN src.amt ELSE 0 END)",
+    "not_inside_if": (
+        "SUM(IF(src.t = 'C' AND NOT (src.s = 'P1' AND src.u = 'S5'), src.amt, 0))"
+    ),
+    "in_inside_if": "MIN(IF(src.tp = '03' AND src.st IN ('1', '3'), src.dt, NULL))",
+    "like_or_chain": (
+        "SUM(CASE WHEN src.comp LIKE 'Recv%' OR src.comp = 'AccruPint' THEN src.bal "
+        "WHEN src.comp = 'AccruInt' THEN 0 END)"
+    ),
+    "nested_builtin_call": (
+        "SUM(IF(src.x = 'C' "
+        "AND SUBSTRING(src.ts, 1, 19) <= '2026-08-14 00:00:00', src.v, 0))"
+    ),
+}
+
+
+def _measure_document(measure: str) -> dict:
+    sql = (
+        "INSERT OVERWRITE TABLE mart.t\n"
+        f"SELECT src.id, {measure} AS m\n"
+        "FROM ods.src src\n"
+        "GROUP BY src.id"
+    )
+    return to_lineage_dict(parse_scope_lineage(sql, "keyword_case", schema=KEYWORD_SCHEMA))
+
+
+@pytest.mark.parametrize("measure", KEYWORD_MEASURES.values(), ids=KEYWORD_MEASURES)
+def test_a_keyword_before_a_parenthesis_is_not_a_udf(measure: str) -> None:
+    assert _udf_expressions(_measure_document(measure)) == []
+
+
+@pytest.mark.parametrize("measure", KEYWORD_MEASURES.values(), ids=KEYWORD_MEASURES)
+def test_a_keyword_before_a_parenthesis_is_not_published_as_a_function(
+    measure: str,
+) -> None:
+    """``expression_features.functions`` is the catalog's input; it must hold calls only."""
+    document = _measure_document(measure)
+
+    found = set()
+    for scope in (document.get("scopes") or {}).values():
+        for item in [*(scope.get("logic_blocks") or []), *(scope.get("outputs") or [])]:
+            found.update((item.get("expression_features") or {}).get("functions") or [])
+
+    assert not found & {"in", "not", "and", "or", "when", "then", "else"}
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "x in ('a', 'b')",
+        "not (a = 1 and b = 2)",
+        "a and (b or c)",
+        "case when (a) then 1 else (2) end",
+        "x between (1) and (2)",
+        "y is not null and z in (select k from t)",
+    ],
+)
+def test_a_sql_keyword_is_never_read_as_a_function_name(expression: str) -> None:
+    """The scanner is a regex over text, so every keyword that may precede `(` is one it
+    would otherwise harvest as a call."""
+    assert _function_names(expression) == [
+        name for name in _function_names(expression) if name not in _SQL_KEYWORDS_BEFORE_PAREN
+    ]
+    assert not set(_function_names(expression)) & {
+        "in", "not", "and", "or", "when", "then", "else", "between", "is", "select",
+    }
+
+
+def test_a_real_call_beside_a_keyword_is_still_collected() -> None:
+    assert _function_names("not (upper(a) in ('x')) and coalesce(b, 0) = 1") == [
+        "upper",
+        "coalesce",
+    ]
