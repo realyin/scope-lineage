@@ -298,6 +298,19 @@ transformation-step analysis read the per-statement documents embedded in
 `statement_lineage`; audits, incident forensics, and final table state read the
 task-level facts.
 
+### Migrating to 0.3.0
+
+The parser contracts did not change. Three derived artifacts did, and code that reads
+them may need one adjustment each:
+
+- `ontology.json`: `overrides_applied.unmatched[]` entries are `{"key", "reason"}`
+  objects (`unknown_entity`, `unknown_column`, `unknown_relation`, …) instead of strings.
+- `tables.json`: `coverage.column_comment_ratio` is measured over every column the card
+  lists — declared and used — so it drops for wide tables the corpus barely reads; the
+  new `coverage.columns_used` / `columns_declared` say why.
+- `lineage.json` scope `role`: a scope that only computes window functions is `window`;
+  `dedup` now means a ranking window whose rank column is filtered to a small constant.
+
 ### Migrating from the removed contract 1.0
 
 The standalone contract-1.0 output mode (one artifact per projection write) has been
