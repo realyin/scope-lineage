@@ -49,8 +49,11 @@ from .sqlglot_walk import _find_alias_in_parent, render_sql_or_none
 from .sqlglot_walk import _source_item_from_ast_node
 from .lineage_fact_gaps import _mark_gaps_from_recovered_syntax
 from .sql_comments import (
+    merge_comments,
     node_comments,
+    redact as redact_comment_text,
     redact_comments as redact_sql_comments,
+    script_header_comments,
     strip_comments as strip_sql_comments,
 )
 from .scope_facts import _populate_enhanced_scope_facts
@@ -108,12 +111,19 @@ def _statement_category(statement_kind: str) -> str:
     return "unsupported_statement"
 
 
-def _collect_insert_trees(sql: str) -> tuple[list, list[dict], list[bool], list[int]]:
+def _collect_insert_trees(
+    sql: str,
+) -> tuple[list, list[dict], list[bool], list[int], list[str]]:
     """Top-level write statements, plus a record of every statement skipped.
 
     A multi-statement script can mix a write with statements this tool does not model. Those
     used to vanish from the result with nothing recorded, so a consumer could not tell a script
     of one INSERT from a script of one INSERT and three DELETEs (CONTRACT-001).
+
+    The fifth element is the script's header block: the comments carried by the statements
+    that run *before* the first write (see :func:`script_header_comments`). They are returned
+    rather than published here, because whether a comment may be published at all is the
+    caller's flag to apply.
     """
     sql, _ = repair_keyword_identifiers(
         repair_ctas_missing_as(_normalize_directory_insert_sql(sql))[0]
@@ -125,6 +135,10 @@ def _collect_insert_trees(sql: str) -> tuple[list, list[dict], list[bool], list[
     # carried alongside in write_indices.
     regex_flags: list[bool] = []
     write_indices: list[int] = []
+    # The statements before the first write, kept so their comments can be read as the
+    # script header. Only those: a note written between two writes belongs to the write it
+    # was written above, where sqlglot already attached it.
+    leading_statements: list = []
     regex_columns_enabled = DEFAULT_QUOTED_REGEX_COLUMN_NAMES
     for statement_index, tree in enumerate(trees):
         if tree is None:
@@ -156,6 +170,8 @@ def _collect_insert_trees(sql: str) -> tuple[list, list[dict], list[bool], list[
             regex_flags.append(regex_columns_enabled)
             write_indices.append(statement_index)
             continue
+        if not write_trees:
+            leading_statements.append(tree)
         statement_kind = _statement_kind_label(tree)
         category = _statement_category(statement_kind)
         skipped.append({
@@ -175,7 +191,13 @@ def _collect_insert_trees(sql: str) -> tuple[list, list[dict], list[bool], list[
             "reason": "not_a_table_write_from_select",
             "supported": SUPPORTED_STATEMENTS,
         })
-    return write_trees, skipped, regex_flags, write_indices
+    return (
+        write_trees,
+        skipped,
+        regex_flags,
+        write_indices,
+        script_header_comments(leading_statements),
+    )
 
 
 def _normalize_directory_insert_sql(sql: str) -> str:
@@ -379,8 +401,11 @@ def parse_scope_lineage(
     enabled = True if regex_columns_enabled is None else regex_columns_enabled
     script_records: list[dict] = []
     script_position: int | None = None
+    # The script's opening block, empty unless this call split the script itself: a caller
+    # handing over one tree has the rest of the script and publishes the header from there.
+    script_header: list[str] = []
     if tree is None:
-        insert_trees, skipped_statements, single_flags, write_indices = (
+        insert_trees, skipped_statements, single_flags, write_indices, script_header = (
             _collect_insert_trees(sql)
         )
         if not insert_trees:
@@ -396,6 +421,13 @@ def parse_scope_lineage(
                 strip_sql_comments(parsed)
             elif redact_comments:
                 redact_sql_comments(parsed)
+        # Applied to the text rather than to the preamble trees: those are not published
+        # anywhere else, and the two flags must reach the header block exactly as they
+        # reach every other comment.
+        if strip_comments:
+            script_header = []
+        elif redact_comments:
+            script_header = [redact_comment_text(item) for item in script_header]
         enabled = single_flags[0] if single_flags else DEFAULT_QUOTED_REGEX_COLUMN_NAMES
         script_position = write_indices[0]
         script_records = list(skipped_statements)
@@ -460,10 +492,12 @@ def parse_scope_lineage(
             )
     result.syntax_status, result.syntax_errors = _syntax_status(sql)
     _mark_gaps_from_recovered_syntax(result)
-    # Read off the statement node rather than off `sql`: a script's leading block belongs
-    # to the statement sqlglot attached it to, and text before the first INSERT of a
-    # multi-statement script is not this statement's header.
-    result.statement_comments = node_comments(tree)
+    # Read off the statement node rather than off `sql`: a comment written between two
+    # writes belongs to the statement sqlglot attached it to, and hoisting it here would
+    # file it under the wrong one. The script header is the one exception, and it is not a
+    # guess: it comes from the statements that run before this write, none of which is
+    # modelled, so the block would otherwise reach no artifact at all.
+    result.statement_comments = merge_comments(script_header, node_comments(tree))
     result.statement_identity_sql = statement_identity_sql
     if script_position is not None:
         result.statement_index = script_position
@@ -516,7 +550,7 @@ def parse_all_scope_lineage(
 ) -> list[ScopeLineageResult]:
     """Parse all INSERT/MERGE statements; return one ScopeLineageResult per target."""
     schema = _prepare_schema(schema)
-    insert_trees, skipped_statements, regex_flags, write_indices = (
+    insert_trees, skipped_statements, regex_flags, write_indices, _script_header = (
         _collect_insert_trees(sql)
     )
     if not insert_trees:

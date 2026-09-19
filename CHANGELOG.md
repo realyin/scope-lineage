@@ -23,6 +23,16 @@
   grain line with 「输出只有一行，无需键即可唯一标识」 on the key line; a table card's
   「一行代表什么」 reads 「整张输出一行（全表汇总）」. A UNION ALL of several such aggregates is
   not one row and keeps its `unknown` grain. Contract version unchanged.
+- The script's header comment block reaches the artifacts. A task script usually opens with
+  the lines that say what the job does, written above a `SET` preamble -- so sqlglot
+  attached them to a statement nothing models, and `statement_comments` came back empty
+  while `sql_comment_counts.header` read 0. The comments on every statement before the
+  first modelled write are now published on that write's `statement_comments` (in source
+  order, ahead of its own header block, a repeat published once) and, for the task
+  document, once more as a new top-level `script_comments[]` -- always present, `[]` when
+  the script opens with no such block. A comment written *between* two writes is not moved:
+  it stays on the write it was written above. Redaction and `--strip-comments` behave
+  exactly as they do for every other comment.
 - An entity's attributes cover the whole declared table, not only the columns the corpus
   read. `related_metadata.input_tables[<table>]` and `output_tables[<table>]` gain
   `declared_columns[]` -- every column the metadata declares, in DDL order, each

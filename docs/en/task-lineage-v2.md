@@ -39,6 +39,7 @@ write_task_lineage(result, "./output/daily_publish")
 | --- | --- |
 | artifact_kind | Fixed at task_lineage. |
 | task_meta | **Conditional**: present only when the input was a task JSON whose `meta` carried at least one of the facts below; a `.sql` input has no such key. Nine copied facts under neutral key names, each a string or null. See the next section. |
+| script_comments[] | The script's header comment block: the comments on the unmodeled statements (`SET` and friends) that run before the first write, in writing order. **Always present**; an empty array says the script does not open with such a block. The same lines are also merged into the first write statement's `statement_comments`; they are held here so a multi-write script says them once. See lineage-json §18. |
 | analysis_status | complete or partial, kept separate from the syntax/graph parse_status. |
 | statement_sequence[] | Every recognizable statement, in script order. |
 | table_state_graph | The logical state nodes of each table before and after each statement, and the transition edges. |

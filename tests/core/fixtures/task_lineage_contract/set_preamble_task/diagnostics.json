@@ -1,6 +1,6 @@
 {
   "schema_version": "2.0",
-  "task_id": "golden_commented_task",
+  "task_id": "golden_set_preamble_task",
   "analysis_status": {
     "status": "complete",
     "blocking_reasons": []
@@ -8,38 +8,37 @@
   "warnings": [],
   "lineage_fact_gaps": [],
   "metadata_coverage": {
-    "referenced_table_count": 3,
-    "covered_table_count": 2,
+    "referenced_table_count": 2,
+    "covered_table_count": 1,
     "missing_table_count": 1,
     "covered_tables": [
-      "dim.channel",
-      "ods.channel_event"
+      "ods.store_event"
     ],
     "missing_tables": [
-      "mart.channel_summary"
+      "mart.store_daily"
     ],
     "schema_source_count": 0,
     "metadata_conflicts": []
   },
   "stats": {
-    "statement_count": 1,
+    "statement_count": 3,
     "modeled_statement_count": 1,
-    "ignored_statement_count": 0,
+    "ignored_statement_count": 2,
     "failed_statement_count": 0
   },
   "statement_diagnostics": {
-    "stmt:001": {
+    "stmt:003": {
       "stats": {
-        "scope_count": 3,
-        "physical_table_count": 2,
+        "scope_count": 2,
+        "physical_table_count": 1,
         "cte_count": 0,
         "subquery_count": 0,
         "union_count": 0,
         "union_branch_count": 0,
         "max_depth": 1,
-        "case_when_count": 1,
+        "case_when_count": 0,
         "window_function_count": 0,
-        "join_count": 1,
+        "join_count": 0,
         "aggregate_function_count": 1
       },
       "warnings": [],

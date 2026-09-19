@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "artifact_kind": "task_semantic",
   "task_id": "golden_commented_task",
-  "lineage_digest": "321e3ac15560b9b3",
+  "lineage_digest": "0742cbd0452461e4",
   "produced_tables": [
     "mart.channel_summary"
   ],

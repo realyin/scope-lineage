@@ -28,6 +28,12 @@ def to_task_lineage_dict(result: TaskLineageResult) -> dict:
         # each a string or null. `owner_email` is excluded by name -- see
         # `scope.task_lineage.TASK_META_FIELDS`.
         **({"task_meta": dict(result.task_meta)} if result.task_meta else {}),
+        # B1. The script's opening comment block, held once for the whole task. Always
+        # present: an empty array says the script opens with no such block, where a missing
+        # key could not be told apart from "this producer does not carry comments". The
+        # same lines are copied onto the first modelled write's `statement_comments`, so a
+        # consumer reading one statement in isolation still sees them.
+        "script_comments": list(result.script_comments),
         "parse_status": result.parse_status,
         "syntax_status": result.syntax_status,
         "syntax_errors": copy.deepcopy(result.syntax_errors),

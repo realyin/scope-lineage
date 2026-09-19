@@ -765,7 +765,7 @@ def test_semantic_artifacts_match_golden_bytes(case_dir: Path) -> None:
 def test_the_baseline_covers_both_contract_shapes() -> None:
     groups = {case.parent.name for case in GOLDEN_CASES}
     assert groups == set(GOLDEN_GROUPS)
-    assert len(GOLDEN_CASES) == 16
+    assert len(GOLDEN_CASES) == 17
 
 
 # ------------------------------------------------------------------ WI-1g markdown
