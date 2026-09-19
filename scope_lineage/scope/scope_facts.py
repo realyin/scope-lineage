@@ -1172,11 +1172,10 @@ def _populate_scope_outputs(result: ScopeLineageResult) -> None:
             target_columns = []
             if scope_data.writes_to and column.name and _is_reliable_target_output_name(column):
                 target_columns.append(f"{scope_data.writes_to}.{column.name}")
+            # Keyed by the bound name only. Target-field binding always runs before the
+            # blocks are built, so the alias in ``parsed_name`` is never a key of this
+            # index -- under positional binding it is a *different* column's bound name.
             source_logic_blocks = list(logic_by_output.get(column.name, []))
-            if column.parsed_name and column.parsed_name != column.name:
-                for logic_block_id in logic_by_output.get(column.parsed_name, []):
-                    if logic_block_id not in source_logic_blocks:
-                        source_logic_blocks.append(logic_block_id)
             expression_resolution = _expression_resolution_for_scope_column(scope_data, column)
             outputs.append(
                 ScopeOutputField(
