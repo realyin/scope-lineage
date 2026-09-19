@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "artifact_kind": "task_semantic",
   "task_id": "golden_merge_cte_source",
-  "lineage_digest": "313ba42bf8584a89",
+  "lineage_digest": "ee687a3a9f9fb6d1",
   "produced_tables": [
     "mart.event_target"
   ],
@@ -12,7 +12,7 @@
       "doc_format": "semantic-json/1",
       "schema_version": "1.0",
       "statement_id": "stmt:001",
-      "lineage_digest": "b9ad3f3f34e19109",
+      "lineage_digest": "0c7c8256f8eb5427",
       "task": {
         "task_name": "golden_merge_cte_source#0",
         "target_table": "mart.event_target",
@@ -28,6 +28,26 @@
         },
         "instance_dates": [],
         "structural_summary": "ROOT 不直接读取物理表；关联 1 个上游（1 个其他）；输出 6 列。",
+        "target_declared_columns": [
+          {
+            "name": "id",
+            "type": null,
+            "comment": null,
+            "used": true
+          },
+          {
+            "name": "event_type",
+            "type": null,
+            "comment": null,
+            "used": true
+          },
+          {
+            "name": "account_key",
+            "type": null,
+            "comment": null,
+            "used": true
+          }
+        ],
         "target_metadata_source": "schema",
         "header_comments": [],
         "meta": null
@@ -61,6 +81,20 @@
               "usages": [
                 "output"
               ]
+            }
+          ],
+          "declared_columns": [
+            {
+              "name": "account_id",
+              "type": null,
+              "comment": null,
+              "used": true
+            },
+            {
+              "name": "account_key",
+              "type": null,
+              "comment": null,
+              "used": true
             }
           ],
           "metadata_complete": true,
@@ -105,6 +139,26 @@
               "usages": [
                 "join_key"
               ]
+            }
+          ],
+          "declared_columns": [
+            {
+              "name": "id",
+              "type": null,
+              "comment": null,
+              "used": true
+            },
+            {
+              "name": "event_type",
+              "type": null,
+              "comment": null,
+              "used": true
+            },
+            {
+              "name": "account_id",
+              "type": null,
+              "comment": null,
+              "used": true
             }
           ],
           "metadata_complete": true,

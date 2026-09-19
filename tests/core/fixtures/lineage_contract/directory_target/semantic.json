@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "schema_version": "1.0",
   "statement_id": "stmt:001",
-  "lineage_digest": "c067a3d853c88d59",
+  "lineage_digest": "bca71959d9438aea",
   "task": {
     "task_name": "golden_directory_target",
     "target_table": "directory:/warehouse/export/daily",
@@ -18,6 +18,7 @@
     },
     "instance_dates": [],
     "structural_summary": "ROOT 直接读取 ods.users；输出 2 列。",
+    "target_declared_columns": [],
     "target_metadata_source": null,
     "header_comments": [],
     "meta": null
@@ -50,6 +51,20 @@
           "usages": [
             "output"
           ]
+        }
+      ],
+      "declared_columns": [
+        {
+          "name": "user_id",
+          "type": null,
+          "comment": null,
+          "used": true
+        },
+        {
+          "name": "user_name",
+          "type": null,
+          "comment": null,
+          "used": true
         }
       ],
       "metadata_complete": true,

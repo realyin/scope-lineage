@@ -44,7 +44,21 @@
           }
         ],
         "metadata_complete": true,
-        "table_column_count": 2
+        "table_column_count": 2,
+        "declared_columns": [
+          {
+            "name": "user_id",
+            "type": null,
+            "comment": null,
+            "used": true
+          },
+          {
+            "name": "amount",
+            "type": null,
+            "comment": null,
+            "used": true
+          }
+        ]
       },
       "ods.fallback_users": {
         "column_details": [
@@ -55,7 +69,15 @@
           }
         ],
         "metadata_complete": true,
-        "table_column_count": 1
+        "table_column_count": 1,
+        "declared_columns": [
+          {
+            "name": "user_id",
+            "type": null,
+            "comment": null,
+            "used": true
+          }
+        ]
       },
       "ods.users": {
         "column_details": [
@@ -66,7 +88,15 @@
           }
         ],
         "metadata_complete": true,
-        "table_column_count": 1
+        "table_column_count": 1,
+        "declared_columns": [
+          {
+            "name": "user_id",
+            "type": null,
+            "comment": null,
+            "used": true
+          }
+        ]
       }
     },
     "output_tables": {

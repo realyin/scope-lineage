@@ -246,6 +246,7 @@ _ATTRIBUTE_KEYS = (
     "type",
     "comment",
     "observed_roles",
+    "used_in_corpus",
     "not_null_observed",
     "synonyms",
 )
@@ -1321,6 +1322,11 @@ def _attribute(entity: str, column: Mapping, facts: Mapping) -> dict:
     ``observed_roles`` is the card's own usage vocabulary (filter, join_key, group_by,
     window_partition, window_order, output, partition_filter) and nothing else, so a
     column no task read carries an empty list rather than an invented role.
+
+    A1: every column the metadata declares is an attribute, whether or not the corpus
+    touched it. ``used_in_corpus`` separates the two readings of an empty
+    ``observed_roles`` -- "read, but never in a role this vocabulary names" from "the
+    catalog declares it and no task in this corpus went near it".
     """
     name = str(column.get("name"))
     built = {
@@ -1328,6 +1334,7 @@ def _attribute(entity: str, column: Mapping, facts: Mapping) -> dict:
         "type": column.get("type"),
         "comment": column.get("comment"),
         "observed_roles": list((column.get("consumer_usage_counts") or {}).keys()),
+        "used_in_corpus": bool(column.get("used_in_corpus", True)),
         "not_null_observed": (entity, name) in facts["not_null"],
         "synonyms": facts["synonyms"].get((entity, name)) or [],
     }
@@ -1660,8 +1667,8 @@ def _entities_section(
         "",
         "## 实体",
         "",
-        "| 实体 | 图中 id | 类型 | 注释 | 键置信 | 出边 | 入边 | 约束数 |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| 实体 | 图中 id | 类型 | 注释 | 键置信 | 属性 | 出边 | 入边 | 约束数 |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for entity in entities:
         name = str(entity.get("id"))
@@ -1674,6 +1681,7 @@ def _entities_section(
                     cell(str(entity.get("kind"))),
                     cell(normalize_inline(entity["comment"]) if entity.get("comment") else "—"),
                     cell(_key_tier_text(entity)),
+                    cell(_attribute_count_text(entity)),
                     cell(str(outgoing.get(name, 0))),
                     cell(str(incoming.get(name, 0))),
                     cell(str(counts.get(name, 0))),
@@ -1682,6 +1690,17 @@ def _entities_section(
             + " |"
         )
     return lines
+
+
+def _attribute_count_text(entity: Mapping) -> str:
+    """``12（语料用到 4）`` -- A1: the table's declared width beside what the corpus read.
+
+    Without the second number a reader of an 88-column entity cannot tell a well-covered
+    table from one this corpus barely touched, and both used to publish the same count.
+    """
+    attributes = entity.get("attributes") or []
+    used = sum(1 for item in attributes if item.get("used_in_corpus", True))
+    return f"{len(attributes)}（语料用到 {used}）"
 
 
 def _key_tier_text(entity: Mapping) -> str:
@@ -1882,7 +1901,7 @@ def _card_identity(entity: Mapping) -> list[str]:
     keys = identity.get("candidate_keys") or []
     multiplicity = identity.get("multiplicity") or []
     partitions = identity.get("partition_columns") or []
-    lines = ["**候选键**", ""]
+    lines = [f"- 属性 {_attribute_count_text(entity)}", "", "**候选键**", ""]
     if keys:
         lines.extend(
             _claim_line(

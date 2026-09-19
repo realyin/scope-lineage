@@ -216,6 +216,12 @@ def _patch_columns(item: dict, table: str, patch: MetadataPatch) -> int:
     applied = 0
     for detail in item.get("column_details") or []:
         applied += _patch_column_detail(detail, table, patch)
+    # `declared_columns[]` republishes the same comments over the table's whole width.
+    # It is the same answer seen from the other end, like `field_usage`, so it is
+    # patched and not counted -- a patched comment left stale in one of the two lists
+    # would make the document contradict itself.
+    for detail in item.get("declared_columns") or []:
+        _patch_column_detail(detail, table, patch)
     return applied
 
 

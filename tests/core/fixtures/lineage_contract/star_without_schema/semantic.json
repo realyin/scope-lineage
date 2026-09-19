@@ -18,6 +18,7 @@
     },
     "instance_dates": [],
     "structural_summary": "ROOT 直接读取 ods.raw_events；输出 1 列。",
+    "target_declared_columns": [],
     "target_metadata_source": null,
     "header_comments": [],
     "meta": null

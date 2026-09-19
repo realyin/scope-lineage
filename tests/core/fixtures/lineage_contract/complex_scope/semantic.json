@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "schema_version": "1.0",
   "statement_id": "stmt:001",
-  "lineage_digest": "9b838357cd4232fd",
+  "lineage_digest": "5916c6127c587bb4",
   "task": {
     "task_name": "golden_complex_scope",
     "target_table": "mart.user_value",
@@ -18,6 +18,7 @@
     },
     "instance_dates": [],
     "structural_summary": "ROOT 不直接读取物理表；关联 1 个上游（1 个合并）；输出 1 列。",
+    "target_declared_columns": [],
     "target_metadata_source": null,
     "header_comments": [],
     "meta": null
@@ -57,6 +58,20 @@
           ]
         }
       ],
+      "declared_columns": [
+        {
+          "name": "user_id",
+          "type": null,
+          "comment": null,
+          "used": true
+        },
+        {
+          "name": "amount",
+          "type": null,
+          "comment": null,
+          "used": true
+        }
+      ],
       "metadata_complete": true,
       "table_column_count": 2,
       "read_by_scopes": [
@@ -85,6 +100,14 @@
           ]
         }
       ],
+      "declared_columns": [
+        {
+          "name": "user_id",
+          "type": null,
+          "comment": null,
+          "used": true
+        }
+      ],
       "metadata_complete": true,
       "table_column_count": 1,
       "read_by_scopes": [
@@ -111,6 +134,14 @@
           "usages": [
             "join_key"
           ]
+        }
+      ],
+      "declared_columns": [
+        {
+          "name": "user_id",
+          "type": null,
+          "comment": null,
+          "used": true
         }
       ],
       "metadata_complete": true,

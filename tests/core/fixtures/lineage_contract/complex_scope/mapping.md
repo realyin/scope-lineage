@@ -4,7 +4,7 @@ schema_version: "1.0"
 task_name: "golden_complex_scope"
 target_table: "mart.user_value"
 stmt_kind: "INSERT_OVERWRITE"
-lineage_digest: "9b838357cd4232fd"
+lineage_digest: "5916c6127c587bb4"
 ---
 
 # 字段映射文档 mart.user_value

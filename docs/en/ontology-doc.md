@@ -105,7 +105,8 @@ card = render_ontology_table_card_markdown(cards["tables"][0], ontology)
        "partition_columns": ["dt"]},
      "attributes": [
        {"column": "state", "type": "string", "comment": null,
-        "observed_roles": ["filter", "output"], "not_null_observed": false,
+        "observed_roles": ["filter", "output"], "used_in_corpus": true,
+        "not_null_observed": false,
         "synonyms": [{"entity": "mart.t", "column": "order_state", "tier": "proven",
                       "via": "direct_rename", "evidence": [{"task": "task_a"}]}]}],
      "naming_hints": {"table_comment": null, "domain": null, "project": null, "owner": null}}
@@ -145,7 +146,9 @@ Slot by slot (every slot `ontology-json/1` publishes):
 | `entities[].identity.multiplicity[]` | `claim: multiple_rows_per_key` | O3: some task grouped or window-partitioned this table by these columns |
 | `entities[].identity.partition_columns` | a list of column names | the partition columns a producing task writes (a metadata fact) |
 | `entities[].attributes[].type`, `comment` | metadata | the column type and comment from the table card, carried over verbatim |
+| `entities[].attributes[]` | one per column the metadata declares | attributes cover the whole table, not only the columns the corpus read or wrote, and follow the order of the table card's `columns[]` |
 | `entities[].attributes[].observed_roles` | `filter`, `partition_filter`, `join_key`, `group_by`, `window_partition`, `window_order`, `output` | the consumer usages the table card recorded; a column nobody read carries an empty list |
+| `entities[].attributes[].used_in_corpus` | `true` / `false` | whether any task in this corpus wrote or read the column; `false` alongside an empty `observed_roles` reads as "the metadata declares it and this corpus never went near it" |
 | `entities[].attributes[].not_null_observed` | `true` / `false` | some task in the corpus filtered this column with `NOT x IS NULL` |
 | `entities[].attributes[].synonyms[].via` | `direct_rename` / `union_alignment` | O5: two column names for one value |
 | `relations[].id` | `rel:NNN` | numbered after sorting, stable for one corpus |
@@ -182,7 +185,7 @@ tables` card (1 what this table is / 2 what one row means / 3 columns / 4 who wr
 
 | Section | Contents |
 | --- | --- |
-| 7. 身份（本体） | candidate keys, multiplicity and partition columns side by side, each with its tier in Chinese and its evidence ids; the three answer three different questions and are never merged into one "primary key" |
+| 7. 身份（本体） | opens with 「属性 N（语料用到 n）」, the same count the entity table in `ontology.md` carries; then candidate keys, multiplicity and partition columns side by side, each with its tier in Chinese and its evidence ids; the three answer three different questions and are never merged into one "primary key" |
 | 8. 关系 | one table for outgoing and one for incoming edges: the other end (linked to its card), the key pair, the JOIN types, the cardinality claim, the tier, the basis token in plain words, the task count and the evidence ids |
 | 9. 约束 | a SHACL-shaped list: the constraint kind, the target column or the whole table, the value set and its completeness, the tier, the evidence |
 | 10. 属性同义 | this table's column ↔ the synonym, the basis (a renaming projection / the same UNION position), the tier, the evidence |

@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "schema_version": "1.0",
   "statement_id": "stmt:001",
-  "lineage_digest": "4e323ab37f990b59",
+  "lineage_digest": "b337ea20d7f3734e",
   "task": {
     "task_name": "golden_grouped_dedup_join",
     "target_table": "mart.metric_by_segment",
@@ -22,6 +22,50 @@
     },
     "instance_dates": [],
     "structural_summary": "ROOT 不直接读取物理表；关联 1 个上游（1 个去重）；输出 6 列。",
+    "target_declared_columns": [
+      {
+        "name": "segment",
+        "type": "string",
+        "comment": "Segment code",
+        "used": true
+      },
+      {
+        "name": "band",
+        "type": "string",
+        "comment": "Amount band",
+        "used": true
+      },
+      {
+        "name": "total",
+        "type": "decimal(18,2)",
+        "comment": "Summed amount",
+        "used": true
+      },
+      {
+        "name": "cnt",
+        "type": "bigint",
+        "comment": "Row count",
+        "used": true
+      },
+      {
+        "name": "band_total",
+        "type": "decimal(18,2)",
+        "comment": "Band level total",
+        "used": true
+      },
+      {
+        "name": "segment_name",
+        "type": "string",
+        "comment": "Segment display name",
+        "used": true
+      },
+      {
+        "name": "dt",
+        "type": "string",
+        "comment": "Partition date",
+        "used": false
+      }
+    ],
     "target_metadata_source": "target_ddl",
     "header_comments": [],
     "meta": null
@@ -66,6 +110,26 @@
           ]
         }
       ],
+      "declared_columns": [
+        {
+          "name": "segment",
+          "type": null,
+          "comment": null,
+          "used": true
+        },
+        {
+          "name": "segment_name",
+          "type": null,
+          "comment": null,
+          "used": true
+        },
+        {
+          "name": "updated_at",
+          "type": null,
+          "comment": null,
+          "used": true
+        }
+      ],
       "metadata_complete": true,
       "table_column_count": 3,
       "read_by_scopes": [
@@ -107,6 +171,20 @@
           ]
         }
       ],
+      "declared_columns": [
+        {
+          "name": "segment",
+          "type": null,
+          "comment": null,
+          "used": true
+        },
+        {
+          "name": "amount",
+          "type": null,
+          "comment": null,
+          "used": true
+        }
+      ],
       "metadata_complete": true,
       "table_column_count": 2,
       "read_by_scopes": [
@@ -146,6 +224,20 @@
             "window_partition",
             "output"
           ]
+        }
+      ],
+      "declared_columns": [
+        {
+          "name": "seg_code",
+          "type": null,
+          "comment": null,
+          "used": true
+        },
+        {
+          "name": "amount",
+          "type": null,
+          "comment": null,
+          "used": true
         }
       ],
       "metadata_complete": true,

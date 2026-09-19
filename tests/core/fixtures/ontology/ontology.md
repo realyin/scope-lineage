@@ -21,8 +21,8 @@ erDiagram
     dim_segment_dim
     mart_channel_summary
     mart_metric_by_segment {
-        unknown segment PK
-        unknown band PK
+        string segment PK
+        string band PK
     }
     mart_user_names
     ods_channel_event
@@ -39,17 +39,17 @@ erDiagram
 
 ## 实体
 
-| 实体 | 图中 id | 类型 | 注释 | 键置信 | 出边 | 入边 | 约束数 |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| [`dim.channel`](tables/dim.channel.md) | `dim_channel` | physical_table | 渠道维表（合成） | 作者假设（hypothesis） | 0 | 1 | 0 |
-| [`dim.segment_dim`](tables/dim.segment_dim.md) | `dim_segment_dim` | physical_table | — | 无候选键 | 0 | 2 | 0 |
-| [`mart.channel_summary`](tables/mart.channel_summary.md) | `mart_channel_summary` | produced_table | — | 无候选键 | 0 | 0 | 2 |
-| [`mart.metric_by_segment`](tables/mart.metric_by_segment.md) | `mart_metric_by_segment` | produced_table | — | 已证明（proven） | 0 | 0 | 2 |
-| [`mart.user_names`](tables/mart.user_names.md) | `mart_user_names` | produced_table | — | 无候选键 | 0 | 0 | 0 |
-| [`ods.channel_event`](tables/ods.channel_event.md) | `ods_channel_event` | physical_table | 渠道事件明细（合成） | 无候选键 | 1 | 0 | 1 |
-| [`ods.events_a`](tables/ods.events_a.md) | `ods_events_a` | physical_table | — | 无候选键 | 2 | 0 | 0 |
-| [`ods.events_b`](tables/ods.events_b.md) | `ods_events_b` | physical_table | — | 无候选键 | 1 | 1 | 0 |
-| [`ods.users`](tables/ods.users.md) | `ods_users` | physical_table | — | 无候选键 | 0 | 0 | 0 |
+| 实体 | 图中 id | 类型 | 注释 | 键置信 | 属性 | 出边 | 入边 | 约束数 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| [`dim.channel`](tables/dim.channel.md) | `dim_channel` | physical_table | 渠道维表（合成） | 作者假设（hypothesis） | 2（语料用到 1） | 0 | 1 | 0 |
+| [`dim.segment_dim`](tables/dim.segment_dim.md) | `dim_segment_dim` | physical_table | — | 无候选键 | 3（语料用到 3） | 0 | 2 | 0 |
+| [`mart.channel_summary`](tables/mart.channel_summary.md) | `mart_channel_summary` | produced_table | — | 无候选键 | 3（语料用到 3） | 0 | 0 | 2 |
+| [`mart.metric_by_segment`](tables/mart.metric_by_segment.md) | `mart_metric_by_segment` | produced_table | — | 已证明（proven） | 7（语料用到 6） | 0 | 0 | 2 |
+| [`mart.user_names`](tables/mart.user_names.md) | `mart_user_names` | produced_table | — | 无候选键 | 2（语料用到 2） | 0 | 0 | 0 |
+| [`ods.channel_event`](tables/ods.channel_event.md) | `ods_channel_event` | physical_table | 渠道事件明细（合成） | 无候选键 | 4（语料用到 4） | 1 | 0 | 1 |
+| [`ods.events_a`](tables/ods.events_a.md) | `ods_events_a` | physical_table | — | 无候选键 | 2（语料用到 2） | 2 | 0 | 0 |
+| [`ods.events_b`](tables/ods.events_b.md) | `ods_events_b` | physical_table | — | 无候选键 | 2（语料用到 2） | 1 | 1 | 0 |
+| [`ods.users`](tables/ods.users.md) | `ods_users` | physical_table | — | 无候选键 | 3（语料用到 3） | 0 | 0 | 0 |
 
 ## 关系
 

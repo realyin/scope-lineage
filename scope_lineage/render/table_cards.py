@@ -390,7 +390,8 @@ def _table_card(
     consumers.sort(key=lambda pair: (pair[0].task, pair[0].statement_id))
     produced_by = [_producer_entry(record) for record in producers]
     consumed_by = [_consumer_entry(record, item) for record, item in consumers]
-    columns = _columns(produced_by, consumers)
+    declared = _declared_columns(producers, consumers)
+    columns = _columns(produced_by, consumers, declared)
     comment = _table_comment(producers, consumers)
     card = {
         "table": primary,
@@ -401,7 +402,7 @@ def _table_card(
         "produced_by": produced_by,
         "consumed_by": consumed_by,
         "columns": columns,
-        "coverage": _coverage(comment, columns, produced_by, consumed_by),
+        "coverage": _coverage(comment, columns, produced_by, consumed_by, declared),
         "findings": _findings(produced_by, consumed_by, bare_name_candidates),
     }
     return {key: card[key] for key in TABLE_KEY_ORDER}
@@ -486,24 +487,54 @@ def _consumer_entry(record: _Statement, item: dict) -> dict:
 # ---------------------------------------------------------------------------- columns
 
 
-def _columns(
-    produced_by: Sequence[dict], consumers: Sequence[tuple[_Statement, dict]]
+def _declared_columns(
+    producers: Sequence[_Statement], consumers: Sequence[tuple[_Statement, dict]]
 ) -> list[dict]:
-    """The union of the written columns and the read ones, written side first.
+    """The table's whole declared width, from the first document that carried it.
+
+    A1: the corpus's own documents only ever describe the columns each task touched, so
+    a table read four columns at a time published a four-column card whatever the
+    catalog declared. One document's ``declared_columns[]`` answers for the table, and
+    the first one asked wins rather than the widest: merging two catalogs' idea of the
+    same table would invent a shape no single document ever stated.
+    """
+    for record in producers:
+        declared = (record.profile.get("task") or {}).get("target_declared_columns")
+        if declared:
+            return [dict(column) for column in declared]
+    for _, item in consumers:
+        if item.get("declared_columns"):
+            return [dict(column) for column in item["declared_columns"]]
+    return []
+
+
+def _columns(
+    produced_by: Sequence[dict],
+    consumers: Sequence[tuple[_Statement, dict]],
+    declared: Sequence[dict] = (),
+) -> list[dict]:
+    """The union of the declared columns, the written ones and the read ones.
 
     Order follows the corpus rather than the alphabet: a producer publishes its target
-    columns in write order and a consumer its metadata in DDL order, which is the order a
-    reader of the table expects to see.
+    columns in write order, then the catalog's remaining columns in DDL order, which is
+    the order a reader of the table expects to see. A column nobody touched is still a
+    column of the table, and it is here with ``used_in_corpus: false`` rather than absent.
     """
     columns: dict[str, dict] = {}
     for producer in produced_by:
         for field in producer["fields"]:
             entry = columns.setdefault(str(field["column"]), _blank_column(field["column"]))
+            entry["used_in_corpus"] = True
             _fill(entry, "produced_summary", field.get("summary"))
             _fill(entry, "comment", field.get("comment"))
+    for column in declared:
+        entry = columns.setdefault(str(column.get("name")), _blank_column(column.get("name")))
+        _fill(entry, "type", column.get("type"))
+        _fill(entry, "comment", column.get("comment"))
     for _, item in consumers:
         for column in item.get("used_columns") or []:
             entry = columns.setdefault(str(column.get("name")), _blank_column(column.get("name")))
+            entry["used_in_corpus"] = True
             _fill(entry, "type", column.get("type"))
             _fill(entry, "comment", column.get("comment"))
             for usage in column.get("usages") or []:
@@ -519,6 +550,7 @@ def _blank_column(name) -> dict:
         "comment": None,
         "produced_summary": None,
         "consumer_usage_counts": Counter(),
+        "used_in_corpus": False,
     }
 
 
@@ -547,6 +579,9 @@ def _ordered_column(entry: dict) -> dict:
         "consumer_usage_counts": {
             usage: counts[usage] for usage in USAGE_ORDER if counts.get(usage)
         },
+        # A1: whether any task in this corpus wrote or read the column. `false` is the
+        # answer the catalog gave and the corpus never contradicted -- not "unused".
+        "used_in_corpus": bool(entry["used_in_corpus"]),
     }
 
 
@@ -612,6 +647,7 @@ def _coverage(
     columns: Sequence[dict],
     produced_by: Sequence[dict],
     consumed_by: Sequence[dict],
+    declared: Sequence[dict] = (),
 ) -> dict:
     commented = sum(1 for column in columns if column["comment"])
     return {
@@ -619,6 +655,11 @@ def _coverage(
         "table_comment": comment is not None,
         "producers": len(produced_by),
         "consumers": len(consumed_by),
+        # A1: how much of the table this corpus actually exercised. `columns_declared`
+        # is null, not zero, when no document declared the table -- "the catalog was
+        # never asked" is not "the table has no columns".
+        "columns_used": sum(1 for column in columns if column["used_in_corpus"]),
+        "columns_declared": len(declared) or None,
     }
 
 
@@ -933,6 +974,19 @@ def _render_identity(card: dict) -> list[str]:
             TAG_SQL_FACT,
         ),
     ]
+    if card["coverage"].get("columns_declared"):
+        # Absent rather than "用到 4/4" when nothing declared the table: the denominator
+        # would then be the corpus's own reading, and the line would prove itself.
+        # The denominator is the card's own column list rather than the declared count,
+        # because a corpus that reads a column the metadata never declared would
+        # otherwise publish "用到 3/2" -- a stale catalog is a real state, and the line
+        # has to stay readable in it.
+        lines.append(
+            _tagged(
+                f"- 本语料用到 {card['coverage']['columns_used']}/{len(card['columns'])} 个字段",
+                TAG_METADATA_FACT,
+            )
+        )
     for producer in card["produced_by"]:
         if not producer["header_comments"]:
             continue
@@ -973,17 +1027,45 @@ def _render_grain(card: dict) -> list[str]:
     return lines
 
 
+#: Above this many untouched columns the table stops being readable, so they move below
+#: the ones the corpus actually used instead of hiding them among the rows that matter.
+UNUSED_COLUMN_TAIL = 20
+
+
 def _render_columns(card: dict) -> list[str]:
     if not card["columns"]:
         return ["- 无可证明的字段。（SQL事实）"]
+    # `.get(..., True)` because a card may have been loaded from a `tables.json` written
+    # before `used_in_corpus` existed; an older card simply keeps its old rendering.
+    unused = [
+        column for column in card["columns"] if not column.get("used_in_corpus", True)
+    ]
     lines = [
-        f"共 {len(card['columns'])} 列；注释覆盖 "
-        f"{card['coverage']['column_comment_ratio']}（元数据事实）。",
+        f"共 {len(card['columns'])} 列"
+        + (f"，用到 {card['coverage']['columns_used']} 列" if unused else "")
+        + f"；注释覆盖 {card['coverage']['column_comment_ratio']}（元数据事实）。",
         "",
+    ]
+    if len(unused) <= UNUSED_COLUMN_TAIL:
+        return lines + _column_table(card["columns"])
+    used = [column for column in card["columns"] if column.get("used_in_corpus", True)]
+    lines.extend(_column_table(used))
+    lines.extend(
+        [
+            "",
+            f"本语料没有读写下列 {len(unused)} 个字段，按元数据声明顺序列出（元数据事实）：",
+            "",
+        ]
+    )
+    return lines + _column_table(unused)
+
+
+def _column_table(columns: Sequence[dict]) -> list[str]:
+    lines = [
         "| 列 | 类型 | 注释 | 生产侧语义（结构推断） | 消费侧用法（SQL事实） |",
         "| --- | --- | --- | --- | --- |",
     ]
-    for column in card["columns"]:
+    for column in columns:
         usages = "、".join(
             f"{USAGE_TEXT.get(usage, usage)} ×{count}"
             for usage, count in column["consumer_usage_counts"].items()
