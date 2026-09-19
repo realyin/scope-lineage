@@ -1525,7 +1525,7 @@
     "findings": [
       {
         "kind": "target_binding",
-        "severity": "warn",
+        "severity": "info",
         "text": "status=applied、method=ddl_position（按 DDL 位置绑定，目标表 DDL 变更会导致列错位）",
         "evidence": []
       },

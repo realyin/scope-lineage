@@ -653,7 +653,7 @@
         "findings": [
           {
             "kind": "target_binding",
-            "severity": "warn",
+            "severity": "info",
             "text": "未做目标列绑定（target_binding_absent_reason=binding_not_applicable_for_statement）",
             "evidence": []
           },

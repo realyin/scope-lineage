@@ -58,29 +58,52 @@ TASK_META_FIELDS = (
     ("source_file", ("source_file",)),
 )
 
+# B4: the two task-metadata facts that are LISTS rather than single values -- what the
+# scheduler registered as running before and after this task. They are kept apart from
+# `TASK_META_FIELDS` because their normalization is a different one (a list of names,
+# deduplicated, order kept) and because an empty list publishes no key at all: `[]` is
+# what an exporter writes for "nothing registered", and a key holding it would read as
+# the proven answer to "who consumes this table".
+#
+# This is scheduling registration, not lineage: `task.downstream_consumers` is the corpus
+# proving who reads the table, and the two are never merged.
+TASK_META_LIST_FIELDS = (
+    ("upstream_tasks", ("upstream_tasks",)),
+    ("downstream_tasks", ("downstream_tasks",)),
+)
+
 
 def normalize_task_meta(
     task_meta: Mapping[str, object] | None, *, redact: bool = True
-) -> dict[str, str | None] | None:
+) -> dict[str, object] | None:
     """The published ``task_meta`` object, or None when no task metadata was supplied.
 
-    Every value becomes a string or ``null``; nothing is composed, defaulted or inferred.
-    ``None`` and an object holding nothing this contract names both answer "no metadata",
-    because publishing nine nulls would state that a task JSON was read and found empty.
+    Every value becomes a string, ``null``, or -- for the two list facts -- an array of
+    strings; nothing is composed, defaulted or inferred. ``None`` and an object holding
+    nothing this contract names both answer "no metadata", because publishing nine nulls
+    would state that a task JSON was read and found empty.
 
     ``description`` is the one free-text field here -- a person writes it the way they
     write a comment, contact details included -- so it goes through the same masking the
-    comments do. The other eight are identifiers, names and schedules the exporter
-    produced, and rewriting those would corrupt a fact rather than protect a person.
+    comments do. The others are identifiers, names and schedules the exporter produced,
+    and rewriting those would corrupt a fact rather than protect a person.
     """
     if not task_meta:
         return None
-    normalized = {
+    normalized: dict[str, object] = {
         name: _task_meta_value(task_meta, sources) for name, sources in TASK_META_FIELDS
     }
     if redact and normalized.get("description"):
-        normalized["description"] = redact_comment_text(normalized["description"])
-    return normalized if any(value is not None for value in normalized.values()) else None
+        normalized["description"] = redact_comment_text(str(normalized["description"]))
+    lists = {
+        name: names
+        for name, sources in TASK_META_LIST_FIELDS
+        if (names := _task_meta_list(task_meta, sources))
+    }
+    if not lists and not any(value is not None for value in normalized.values()):
+        return None
+    normalized.update(lists)
+    return normalized
 
 
 def _task_meta_value(
@@ -94,6 +117,37 @@ def _task_meta_value(
         if text:
             return text
     return None
+
+
+def _task_meta_list(
+    task_meta: Mapping[str, object], sources: tuple[str, ...]
+) -> list[str]:
+    """The task names one list registers, in the exporter's order, each published once.
+
+    Order is kept because it is the only thing the list says beyond membership, and a
+    repeat is published once because one registration written twice is one dependency.
+    """
+    collected: list[str] = []
+    for key in sources:
+        value = task_meta.get(key)
+        if not isinstance(value, (list, tuple)):
+            continue
+        for item in value:
+            name = _task_reference_name(item)
+            if name and name not in collected:
+                collected.append(name)
+    return collected
+
+
+def _task_reference_name(item: object) -> str:
+    """One entry of a task list as a name: exporters write either a string or a record."""
+    if isinstance(item, Mapping):
+        for key in ("task_name", "task_id"):
+            text = str(item.get(key) or "").strip()
+            if text:
+                return text
+        return ""
+    return "" if item is None else str(item).strip()
 
 
 @dataclass
@@ -379,10 +433,12 @@ def parse_task_lineage(
 
     ``task_meta`` is an exported task object's ``meta`` block (plus, optionally, a
     ``source_file``). It is normalized by :func:`normalize_task_meta`, which copies the
-    nine facts ``TASK_META_FIELDS`` names and drops everything else -- ``owner_email``
+    facts ``TASK_META_FIELDS`` and ``TASK_META_LIST_FIELDS`` name and drops everything
+    else -- ``owner_email``
     included. ``strip_comments`` drops every SQL comment from the whole document;
     ``redact_comments``, on by default, instead keeps each comment and masks the contact
-    shapes inside it, and masks ``task_meta.description`` the same way.
+    shapes inside it, and masks ``task_meta.description`` and every comment loaded from
+    schema metadata (E1) the same way.
     """
     trees, ctas_repairs, quoted_identifiers = _parse_script_trees(
         sql, strip_comments=strip_comments, redact_comments=redact_comments
@@ -469,6 +525,7 @@ def parse_task_lineage(
                     regex_columns_enabled=regex_columns_enabled,
                     partition_overwrite_mode_observed=partition_overwrite_mode_observed,
                     declared_overwrite_mode=declared_overwrite_mode,
+                    redact_comments=redact_comments,
                 )
             elif isinstance(tree, exp.Delete):
                 _apply_delete(statement, tree, state_builder, gaps)
@@ -782,6 +839,7 @@ def _apply_projection_write(
     partition_overwrite_mode_observed: bool = False,
     declared_overwrite_mode: "str | None" = None,
     dynamic_partition_overwrite: bool = False,
+    redact_comments: bool = True,
 ) -> None:
     # Known inverted edge (scope -> contract), whitelisted by the dependency-direction
     # architecture test and kept at the v1 retirement (WI-12, 0.3.0): statement_lineage
@@ -804,6 +862,10 @@ def _apply_projection_write(
         # statement to an unqualified parse (ROUNDTRIP-001).
         tree=tree,
         regex_columns_enabled=regex_columns_enabled,
+        # E1: the tree was masked when this module parsed it, but the schema metadata
+        # this statement is described against was not -- and `parse_scope_lineage` is
+        # where `related_metadata` is built.
+        redact_comments=redact_comments,
     )
     statement_id = statement["statement_id"]
     # The nested v1 document self-describes the join key it is filed under: parsing went

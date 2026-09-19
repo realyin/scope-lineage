@@ -24,6 +24,7 @@ import pytest
 
 from scope_lineage import parse_task_lineage
 from scope_lineage.contract import to_lineage_dict
+from scope_lineage.metadata.schema_metadata import SchemaMap
 from scope_lineage.contract.task_lineage import to_task_lineage_dict
 from scope_lineage.contract.validation import validate_lineage_document
 from scope_lineage.scope import sql_comments
@@ -209,6 +210,77 @@ def test_an_empty_or_missing_value_becomes_null_and_unknown_keys_are_ignored() -
     assert meta["owner"] == "0"
     assert meta["schedule_cycle"] is None
     assert "instance_id" not in meta
+
+
+# B4: the scheduler's own registration of what runs before and after this task. The
+# lists are names the exporter wrote, not lineage this tool proved -- which is why they
+# are published under `task_meta` (a copy of the task JSON) and never merged into
+# `task_dependencies` or into the downstream consumers the corpus proves.
+
+
+def test_the_upstream_and_downstream_task_lists_reach_task_meta() -> None:
+    result = parse_task_lineage(
+        "INSERT INTO mart.t SELECT 1 AS id",
+        task_name="wi22",
+        task_meta={
+            **TASK_META_INPUT,
+            "upstream_tasks": [
+                {"task_id": "T-0001", "task_name": "order_detail_daily"},
+                {"task_id": "T-0002"},
+            ],
+            "downstream_tasks": ["profile_export_daily"],
+        },
+    )
+    meta = to_task_lineage_dict(result)["task_meta"]
+    assert meta["upstream_tasks"] == ["order_detail_daily", "T-0002"]
+    assert meta["downstream_tasks"] == ["profile_export_daily"]
+
+
+def test_a_task_list_keeps_its_order_and_publishes_a_repeat_once() -> None:
+    result = parse_task_lineage(
+        "INSERT INTO mart.t SELECT 1 AS id",
+        task_name="wi22",
+        task_meta={
+            "task_name": "demo",
+            "upstream_tasks": ["b_task", "a_task", "b_task", "  ", None],
+        },
+    )
+    meta = to_task_lineage_dict(result)["task_meta"]
+    assert meta["upstream_tasks"] == ["b_task", "a_task"]
+
+
+def test_a_task_json_without_the_lists_publishes_neither_key() -> None:
+    result = parse_task_lineage(
+        "INSERT INTO mart.t SELECT 1 AS id",
+        task_name="wi22",
+        task_meta=TASK_META_INPUT,
+    )
+    meta = to_task_lineage_dict(result)["task_meta"]
+    assert "upstream_tasks" not in meta
+    assert "downstream_tasks" not in meta
+
+
+def test_an_empty_task_list_publishes_no_key_either() -> None:
+    """`[]` is what an exporter writes for "nothing registered", not a fact to carry."""
+    result = parse_task_lineage(
+        "INSERT INTO mart.t SELECT 1 AS id",
+        task_name="wi22",
+        task_meta={"task_name": "demo", "upstream_tasks": [], "downstream_tasks": []},
+    )
+    meta = to_task_lineage_dict(result)["task_meta"]
+    assert "upstream_tasks" not in meta
+    assert "downstream_tasks" not in meta
+
+
+def test_the_lists_alone_are_enough_for_a_task_meta_object() -> None:
+    result = parse_task_lineage(
+        "INSERT INTO mart.t SELECT 1 AS id",
+        task_name="wi22",
+        task_meta={"downstream_tasks": ["profile_export_daily"]},
+    )
+    assert to_task_lineage_dict(result)["task_meta"]["downstream_tasks"] == [
+        "profile_export_daily"
+    ]
 
 
 def test_a_sql_input_has_no_task_meta_key_at_all() -> None:
@@ -623,3 +695,114 @@ def test_the_boundary_is_the_first_write_not_the_first_modelled_statement() -> N
     )
     assert _task(sql)["script_comments"] == ["清理昨天的分区（合成示例）"]
     assert _statement(sql)["statement_comments"] == ["清理昨天的分区（合成示例）"]
+
+
+# ------------------------------------------------- 8. metadata comments (E1)
+#
+# A column comment loaded from schema metadata is the same kind of text a SQL comment is
+# -- a person wrote it, contact details included -- and it is published in the same
+# artifacts. It goes through the same masking, at the one place `related_metadata` is
+# assembled, and the same `--no-redact-comments` switch turns both off.
+
+METADATA_SQL = (
+    "INSERT INTO mart.profile SELECT c.cust_id AS cust_id FROM ods.customer c"
+)
+
+
+def _metadata_schema() -> SchemaMap:
+    return SchemaMap(
+        {"ods.customer": ["cust_id", "status"], "mart.profile": ["cust_id"]},
+        column_details={
+            "ods.customer": [
+                {
+                    "name": "cust_id",
+                    "type": "bigint",
+                    "comment": "客户号，口径问题联系 someone@example.com",
+                },
+                {"name": "status", "type": "string", "comment": "状态，值班 13900000000"},
+            ],
+            "mart.profile": [
+                {
+                    "name": "cust_id",
+                    "type": "bigint",
+                    "comment": "客户号，对账找 someone@example.com",
+                }
+            ],
+        },
+        table_details={
+            "ods.customer": {"table_desc": "客户主表，值班 13900000000"},
+            "mart.profile": {"table_desc": "客户画像，值班 13900000000"},
+        },
+    )
+
+
+def _metadata_document(**kwargs) -> dict:
+    result = parse_task_lineage(
+        METADATA_SQL, task_name="e1", schema=_metadata_schema(), **kwargs
+    )
+    return to_task_lineage_dict(result)["statement_lineage"]["stmt:001"]
+
+
+def _related(document: dict, group: str, table: str) -> dict:
+    return document["related_metadata"][group][table]
+
+
+def test_a_schema_column_comment_is_masked_like_a_sql_comment() -> None:
+    document = _metadata_document()
+    source = _related(document, "input_tables", "ods.customer")
+
+    assert source["column_details"][0]["comment"] == "客户号，口径问题联系 <email>"
+    assert [item["comment"] for item in source["declared_columns"]] == [
+        "客户号，口径问题联系 <email>",
+        "状态，值班 <phone>",
+    ]
+
+
+def test_the_target_tables_own_comments_are_masked_too() -> None:
+    target = _related(_metadata_document(), "output_tables", "mart.profile")
+    assert target["column_details"][0]["comment"] == "客户号，对账找 <email>"
+    assert target["declared_columns"][0]["comment"] == "客户号，对账找 <email>"
+
+
+def test_the_table_level_facts_are_masked_as_well() -> None:
+    document = _metadata_document()
+    assert (
+        _related(document, "input_tables", "ods.customer")["table_metadata"]["table_desc"]
+        == "客户主表，值班 <phone>"
+    )
+    assert (
+        _related(document, "output_tables", "mart.profile")["table_metadata"]["table_desc"]
+        == "客户画像，值班 <phone>"
+    )
+
+
+def test_no_contact_shape_from_the_metadata_survives_in_the_task_document() -> None:
+    result = parse_task_lineage(METADATA_SQL, task_name="e1", schema=_metadata_schema())
+    serialized = json.dumps(to_task_lineage_dict(result), ensure_ascii=False)
+    for shape in ("someone@example.com", "13900000000"):
+        assert shape not in serialized
+
+
+def test_the_same_switch_turns_metadata_masking_off() -> None:
+    document = _metadata_document(redact_comments=False)
+    source = _related(document, "input_tables", "ods.customer")
+
+    assert source["column_details"][0]["comment"] == "客户号，口径问题联系 someone@example.com"
+    assert source["table_metadata"]["table_desc"] == "客户主表，值班 13900000000"
+
+
+def test_the_glossary_comment_pool_sees_the_masked_text() -> None:
+    """The dictionary republishes these comments; it must not undo the masking."""
+    from scope_lineage.render.glossary import build_glossary
+
+    sql = (
+        "INSERT INTO mart.profile SELECT c.cust_id AS cust_id FROM ods.customer c "
+        "WHERE c.status = 'ACTIVE'"
+    )
+    result = parse_task_lineage(sql, task_name="e1", schema=_metadata_schema())
+    document = to_task_lineage_dict(result)["statement_lineage"]["stmt:001"]
+    glossary = build_glossary([document], artifact_root="corpus")
+
+    term = next(item for item in glossary["terms"] if item["column"] == "status")
+    assert [item["text"] for item in term["comments"]] == ["状态，值班 <phone>"]
+    assert "13900000000" not in json.dumps(glossary, ensure_ascii=False)

@@ -23,6 +23,11 @@
     "schedule_cycle": "DAY",
     "description": "每日渠道汇总（合成示例）",
     "expect_date": "2026-09-18",
-    "source_file": "demo/channel_summary_daily.json"
+    "source_file": "demo/channel_summary_daily.json",
+    "upstream_tasks": [
+      {"task_id": "T-0000", "task_name": "channel_event_daily"},
+      {"task_id": "T-0000b"}
+    ],
+    "downstream_tasks": ["channel_summary_export"]
   }
 }
