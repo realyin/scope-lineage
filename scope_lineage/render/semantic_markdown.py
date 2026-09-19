@@ -181,8 +181,13 @@ _GRAIN_BASIS_LABELS = {
     "distinct": "DISTINCT 输出列",
     "window_partition": "窗口分区键",
     "driving_table_rows": "主表行",
+    "single_row": "全表汇总",
     "unknown": "未知",
 }
+
+# B10. What one row is, when there is exactly one: the sentence the reader needs is not
+# a key list but the absence of one, said out loud.
+SINGLE_ROW_GRAIN_TEXT = "一行 = 全表汇总"
 
 # WI-1d: how the candidate-key line is worded, per `output_shape.key_confidence`.
 _KEY_CONFIDENCE_NOTES = {
@@ -687,6 +692,11 @@ def _candidate_key_line(shape: dict) -> str:
     """
     keys = shape.get("candidate_keys") or []
     confidence = str(shape.get("key_confidence") or "none")
+    if str((shape.get("grain") or {}).get("basis")) == "single_row":
+        return _tagged(
+            f"- 键：输出只有一行，无需键即可唯一标识（key_confidence={confidence}）",
+            TAG_STRUCTURAL,
+        )
     if confidence == "proven_unexposed":
         return _unexposed_key_line(shape, keys)
     if not keys or confidence not in _KEY_CONFIDENCE_NOTES:
@@ -726,13 +736,24 @@ def _basis_phrase(shape: dict) -> str:
 
 
 def _key_labels(keys: Sequence[dict]) -> list[str]:
-    """A logical key reads as ``scope.column``, or as its expression when unprojected."""
-    return [
-        f"{key.get('scope_id')}.{key['name']}"
-        if key.get("name")
-        else str(key.get("expression") or key.get("scope_id"))
-        for key in keys
-    ]
+    """A logical key reads as ``scope.column``, or as its expression when unprojected.
+
+    B9: a key its own scope pins to one value keeps its place in the line and says so.
+    It is in the grain because the reader wants the day named, and out of the key set
+    because a constant identifies nothing -- both facts belong in the same span.
+    """
+    return [f"{_key_label(key)}{_pinned_suffix(key)}" for key in keys]
+
+
+def _key_label(key: dict) -> str:
+    if key.get("name"):
+        return f"{key.get('scope_id')}.{key['name']}"
+    return str(key.get("expression") or key.get("scope_id"))
+
+
+def _pinned_suffix(key: dict) -> str:
+    pinned = key.get("pinned") or {}
+    return f"（钉死为 {pinned['value']}）" if pinned.get("value") else ""
 
 
 def _grain_source_text(keys: Sequence[dict]) -> str:
@@ -763,7 +784,9 @@ def _grain_line(grain: dict) -> str:
     evidence = grain.get("evidence") or []
     via = [str(item) for item in grain.get("via_scopes") or []]
     through = f"，经 {' → '.join(_span(item) for item in via)} 穿透" if via else ""
-    if keys:
+    if basis == "single_row":
+        text = f"- 粒度：{SINGLE_ROW_GRAIN_TEXT}（整张输出一行，basis={basis}{through}）"
+    elif keys:
         text = (
             f"- 粒度：一行对应一组 {_join_spans(_key_labels(keys))}"
             f"{_grain_source_text(keys)}"

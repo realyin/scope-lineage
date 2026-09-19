@@ -265,6 +265,12 @@ BASIS_GROUP_BY = "group_by"
 BASIS_DISTINCT = "distinct"
 BASIS_WINDOW_PARTITION = "window_partition"
 BASIS_DRIVING_TABLE_ROWS = "driving_table_rows"
+# B10. An aggregate over an empty grouping set -- `SELECT COUNT(1) FROM t` -- returns
+# exactly one row for the whole relation. Published as `group_by` with no keys it read
+# as "could not decide", which is the opposite of what it is: the strongest uniqueness
+# statement this view can make. A UNION ALL of such aggregates is not one row, and the
+# union blocker that already stops the walk keeps it out.
+BASIS_SINGLE_ROW = "single_row"
 BASIS_UNKNOWN = "unknown"
 
 GRAIN_BASES = (
@@ -272,11 +278,28 @@ GRAIN_BASES = (
     BASIS_DISTINCT,
     BASIS_WINDOW_PARTITION,
     BASIS_DRIVING_TABLE_ROWS,
+    BASIS_SINGLE_ROW,
     BASIS_UNKNOWN,
 )
 
-# The three bases whose key set is proven unique by the operation itself.
+# The three bases whose key set is proven unique by the operation itself. `single_row`
+# is not one of them: it is unique with an *empty* key set, which every rule that walks
+# a key list has to answer separately rather than by looping over nothing.
 _PROVEN_BASES = (BASIS_GROUP_BY, BASIS_DISTINCT, BASIS_WINDOW_PARTITION)
+
+# B9. The two right-hand sides that pin a column to one value for a whole scope: a
+# scalar literal, and the `${...}` a scheduler substitutes (one value per run). An `IN`
+# list, a `BETWEEN`, a `<>`, a `LIKE` and a comparison with another column all leave the
+# column free to vary, and `semantic_text.equality_conjunct` already tells them apart.
+_PINNING_VALUE_KINDS = (
+    semantic_text.VALUE_KIND_LITERAL,
+    semantic_text.VALUE_KIND_PARAMETER,
+)
+
+# A logical key that *is* a column reference, rather than an expression that reads one.
+# `GROUP BY CASE WHEN dt = '20260815' THEN ... END` reads a pinned column without being
+# pinned by it, so only a bare reference can be dropped from a key set.
+_BARE_COLUMN = re.compile(r"[`\"]?\w+[`\"]?(?:\.[`\"]?\w+[`\"]?){0,2}")
 
 # How many scopes the grain walk may cross. A contract this deep is pathological; the
 # limit exists so a malformed document cannot make the walk run away, and it is reported
@@ -2271,6 +2294,14 @@ def _predicate_block_keeps_first_row(block: dict, output_field: str) -> bool:
 def _build_grain(
     document: dict, shape: str, shape_evidence: Sequence[str]
 ) -> tuple[dict, list[str]]:
+    """R3's answer, with B9's pin markers applied to whatever keys the walk found."""
+    grain, visited = _decide_grain(document, shape, shape_evidence)
+    return _with_pinned_keys(document, grain), visited
+
+
+def _decide_grain(
+    document: dict, shape: str, shape_evidence: Sequence[str]
+) -> tuple[dict, list[str]]:
     """R3, as ``(grain, the scopes the walk visited)``.
 
     Two shapes R2 already decided are answered from R2 instead of being re-walked: a
@@ -2340,6 +2371,11 @@ def _scope_grain(
     )
     if aggregating:
         keys = _aggregation_logical_keys(document, scope_id) or []
+        # B10: no GROUP BY clause at all is an *empty grouping set*, not a missing key
+        # list -- the relation collapses to one row. A GROUP BY that is present and
+        # resolved to nothing is a different, undecided case and keeps its old answer.
+        if not keys and not _blocks_of_type(document, scope_id, "group_by"):
+            return BASIS_SINGLE_ROW, [], _block_ids(aggregating), None
         return BASIS_GROUP_BY, keys, _block_ids(aggregating), None
     if "distinct" in types:
         distinct = _blocks_of_type(document, scope_id, "distinct")
@@ -2548,6 +2584,140 @@ def _wraps_whole(value: str) -> bool:
     return False
 
 
+# ------------------------------------------------- equality-pinned columns (B9)
+
+
+def _scope_pins(document: dict, scope_id: str) -> dict[str, str]:
+    """``lowered column -> the value text`` for one scope's own WHERE equality pins.
+
+    Only the contract's AND-split ``conjuncts`` are read, so a predicate nested inside an
+    OR is never a pin: the contract splits on ``AND`` alone, which leaves ``a = 1 OR
+    b = 2`` whole, and an OR does not parse as an equality. HAVING is a separate logic
+    type and is not read here -- it filters groups that already exist.
+    """
+    pins: dict[str, str] = {}
+    for block in _blocks_of_type(document, scope_id, "filter"):
+        detail = block.get("filter_predicate_detail") or {}
+        for conjunct in detail.get("conjuncts") or []:
+            parsed = semantic_text.equality_conjunct(conjunct.get("expression"))
+            if parsed and parsed[2] in _PINNING_VALUE_KINDS:
+                pins.setdefault(parsed[0].lower(), parsed[1])
+    return pins
+
+
+def _pinned_columns(document: dict, scope_id: str) -> dict[str, dict]:
+    """Every column that cannot vary inside ``scope_id``, as ``lowered name -> record``.
+
+    B9. A scope's own WHERE is read first, then the walk follows the FROM item down: a
+    column a CTE pins and passes through unchanged is just as constant one layer up, and
+    the driving path is the only direction a value travels without being recomputed. A
+    scope on the way that renames or rewrites the column ends the descent *for that
+    column*, so a pin can never be carried across an expression that could map two days
+    onto one value.
+    """
+    pinned: dict[str, dict] = {}
+    crossed: list[str] = []
+    item = scope_id
+    for _ in range(GRAIN_DEPTH_LIMIT):
+        if item not in _scopes(document) or item in crossed:
+            break
+        for column, value in _scope_pins(document, item).items():
+            if column in pinned or not _carried_through(document, crossed, column):
+                continue
+            pinned[column] = {"scope_id": item, "column": column, "value": value}
+        following, _ = _scope_from_item(document, item)
+        if following is None:
+            break
+        crossed.append(item)
+        item = following
+    return pinned
+
+
+def _carried_through(document: dict, scopes: Sequence[str], column: str) -> bool:
+    """True when every scope on the path publishes ``column`` as that very column."""
+    return all(_carries_column_unchanged(document, item, column) for item in scopes)
+
+
+def _carries_column_unchanged(document: dict, scope_id: str, column: str) -> bool:
+    """One scope publishes ``column`` under its own name, from a bare reference to it.
+
+    A scope with no output list states nothing either way -- a ``SELECT *`` that the
+    contract could not expand -- and is read as transparent, because the alternative is
+    to drop a pin the SQL plainly wrote.
+    """
+    outputs = (_scopes(document).get(scope_id) or {}).get("outputs") or []
+    for output in outputs:
+        if str(output.get("name") or "").lower() != column:
+            continue
+        text = output.get("expression") or output.get("name")
+        return _bare_column_name(text) == column
+    return not outputs
+
+
+def _bare_column_name(text) -> str | None:
+    """The unqualified name when ``text`` is a column reference, else None."""
+    value = _normalized_expression(text or "")
+    if not value or not _BARE_COLUMN.fullmatch(value):
+        return None
+    return value.split(".")[-1].strip('`"').lower()
+
+
+def _key_column_name(key: dict) -> str | None:
+    """A logical key's own column name, when the key *is* a column rather than reads one.
+
+    The expression is asked first and the output name only when there is none: a CASE
+    key projected as ``dt`` is named ``dt`` while being a different value from ``dt``,
+    and dropping it because ``dt`` is pinned would throw away a real key.
+    """
+    return _bare_column_name(key.get("expression") or key.get("name"))
+
+
+def _unpinned_keys(
+    document: dict, scope_id: str, keys: Sequence[dict]
+) -> tuple[list[dict], list[dict]]:
+    """``(the keys that can still vary, the pin records for the ones that cannot)``."""
+    pinned = _pinned_columns(document, scope_id)
+    kept: list[dict] = []
+    dropped: list[dict] = []
+    for key in keys:
+        name = _key_column_name(key)
+        record = pinned.get(name) if name else None
+        if record is None:
+            kept.append(key)
+        elif record not in dropped:
+            dropped.append(record)
+    return kept, dropped
+
+
+def _pin_note(pinned: Sequence[dict]) -> str:
+    """How a verdict sentence names the columns it dropped, or "" when it dropped none."""
+    if not pinned:
+        return ""
+    named = "、".join(
+        f"{item['column']} 被等值过滤钉死为 {item['value']}" for item in pinned
+    )
+    return f"（{named}，不计入键集）"
+
+
+def _with_pinned_keys(document: dict, grain: dict) -> dict:
+    """Mark every grain key its own scope pins to one value, without removing it.
+
+    The reader asking "what does one row represent" still wants the partition day
+    named, so the key stays in ``grain.keys`` carrying the value it is pinned to. The
+    *unique* key set drops it instead -- that is what the fan-out verdict and
+    :func:`_target_key_columns` read, through this same marker.
+    """
+    pins: dict[str, dict] = {}
+    keys = []
+    for key in grain.get("keys") or []:
+        scope_id = str(key.get("scope_id"))
+        if scope_id not in pins:
+            pins[scope_id] = _pinned_columns(document, scope_id)
+        record = pins[scope_id].get(_key_column_name(key) or "")
+        keys.append({**key, "pinned": {"value": record["value"]}} if record else key)
+    return {**grain, "keys": keys}
+
+
 def _unknown_grain(reason: str, via_scopes: Sequence[str]) -> dict:
     return _grain([], BASIS_UNKNOWN, [reason], via_scopes)
 
@@ -2626,6 +2796,10 @@ def _target_key_columns(
     if basis in _PROVEN_BASES:
         columns: list[str] = []
         for key in grain.get("keys") or []:
+            # B9: a column pinned to one value identifies nothing, so it is neither a
+            # candidate key nor a governance finding when the write leaves it out.
+            if key.get("pinned"):
+                continue
             target = exposed.get(_key_reference(key))
             if target:
                 columns.append(target)
@@ -2736,9 +2910,14 @@ def _key_confidence(
     only the last fails, the keys are still proven but the *target* columns are not, and
     ``proven_unexposed`` says exactly that.
     """
+    basis = str(grain.get("basis"))
+    # B10, asked before the risks: "the output is one row" is a statement about the
+    # grouping set, and a JOIN that duplicates the rows being counted inflates the
+    # number without adding a row to the output.
+    if basis == BASIS_SINGLE_ROW:
+        return KEY_CONFIDENCE_PROVEN
     if any(str(risk.get("status")) != "safe" for risk in risks):
         return KEY_CONFIDENCE_NONE
-    basis = str(grain.get("basis"))
     if basis in _PROVEN_BASES:
         if not grain.get("keys"):
             return KEY_CONFIDENCE_NONE
@@ -2830,7 +3009,7 @@ def _fan_out_risk(
     """
     detail = block.get("join_relation_detail") or {}
     block_id = str(block.get("logic_block_id"))
-    status, reason, basis, level = _fan_out_verdict(
+    status, reason, basis, level, pinned = _fan_out_verdict(
         document, block_id, detail, card_lookup
     )
     risk = {
@@ -2844,13 +3023,17 @@ def _fan_out_risk(
     }
     if basis:
         risk["basis"] = basis
+    # B9: the verdict rests on a column the right side cannot vary, so the decision is
+    # published beside it rather than left inside the sentence.
+    if pinned:
+        risk["pinned_keys"] = list(pinned)
     return risk, level
 
 
 def _fan_out_verdict(
     document: dict, block_id: str, detail: dict, card_lookup=None
-) -> tuple[str, str, str | None, str | None]:
-    """``(status, reason, basis, card key confidence)``.
+) -> tuple[str, str, str | None, str | None, list[dict]]:
+    """``(status, reason, basis, card key confidence, pinned keys)``.
 
     Only three shapes can be proven safe from inside one statement; everything else is
     ``risk`` or ``unknown``. The fourth shape needs a corpus: a JOIN onto a physical
@@ -2861,23 +3044,29 @@ def _fan_out_verdict(
     right = str(detail.get("right_input") or "")
     if right in set(document.get("source_tables") or []):
         carded = _card_verdict(right, detail, card_lookup)
-        return carded or ("unknown", "物理表无主键事实", None, None)
+        return (*carded, []) if carded else ("unknown", "物理表无主键事实", None, None, [])
     if right not in _scopes(document):
-        return "unknown", f"右侧 {right} 不是本语句的 scope，无唯一性事实", None, None
+        return "unknown", f"右侧 {right} 不是本语句的 scope，无唯一性事实", None, None, []
     columns = _join_side_columns(detail, "right")
     if not columns:
-        if _join_side_keys(detail, "right"):
-            return "risk", "右侧连接键没有 scope 级列名，唯一性无从判定", None, None
-        return "risk", "该 JOIN 无可证明的连接键，右侧唯一性无从判定", None, None
+        return (*_keyless_join_verdict(detail), None, None, [])
     grouped = _grouped_uniqueness(document, right, columns)
     if grouped is not None and grouped[0] == "safe":
-        return (*grouped, None, None)
+        return grouped[0], grouped[1], None, None, grouped[2]
     proven = _ranking_uniqueness(document, right, (block_id, detail), columns)
     if proven is not None:
         function, partition, consumer = proven
         scope = "无分区" if not partition else f"按 {'、'.join(partition)} 分区"
-        return "safe", f"右侧 {function} {scope}并以 = 1 过滤（{consumer}）", None, None
-    return (*(grouped or ("risk", "右侧未被证明按连接键唯一")), None, None)
+        return "safe", f"右侧 {function} {scope}并以 = 1 过滤（{consumer}）", None, None, []
+    fallback = grouped or ("risk", "右侧未被证明按连接键唯一", [])
+    return fallback[0], fallback[1], None, None, fallback[2]
+
+
+def _keyless_join_verdict(detail: dict) -> tuple[str, str]:
+    """``(status, reason)`` for a JOIN whose right side offers no scope-level column."""
+    if _join_side_keys(detail, "right"):
+        return "risk", "右侧连接键没有 scope 级列名，唯一性无从判定"
+    return "risk", "该 JOIN 无可证明的连接键，右侧唯一性无从判定"
 
 
 def _card_verdict(
@@ -2953,7 +3142,7 @@ def _capped_confidence(confidence: str, levels: Sequence[str | None]) -> str:
 
 def _grouped_uniqueness(
     document: dict, scope_id: str, columns: Sequence[str]
-) -> tuple[str, str] | None:
+) -> tuple[str, str, list[dict]] | None:
     """The GROUP BY verdict, decided on ``scope_id``'s own logical keys (WI-2.1d item 1).
 
     The comparison used to run on the columns both sides pierce to, which is a different
@@ -2971,15 +3160,25 @@ def _grouped_uniqueness(
     if keys is None:
         return None
     if not keys:
-        return "safe", "右侧为全表聚合，至多一行"
+        return "safe", "右侧为全表聚合，至多一行", []
+    # B9: a key the right side pins to one literal cannot make two rows out of one, so
+    # it leaves the set the join keys have to cover.
+    free, pinned = _unpinned_keys(document, scope_id, keys)
     labels = _logical_key_names(keys)
-    note = _physical_key_note(keys)
-    if _comparable(labels) <= _comparable(columns):
-        return "safe", f"右侧按 {'、'.join(labels)} GROUP BY，键集被连接键覆盖{note}"
+    note = f"{_pin_note(pinned)}{_physical_key_note(keys)}"
+    if not free:
+        return "safe", (
+            f"右侧按 {'、'.join(labels)} GROUP BY，等值过滤后键集为空，右侧至多一行{note}"
+        ), pinned
+    free_labels = _logical_key_names(free)
+    if _comparable(free_labels) <= _comparable(columns):
+        return "safe", (
+            f"右侧按 {'、'.join(free_labels)} GROUP BY，键集被连接键覆盖{note}"
+        ), pinned
     return "risk", (
-        f"右侧按 {'、'.join(labels)} GROUP BY，"
+        f"右侧按 {'、'.join(free_labels)} GROUP BY，"
         f"连接键 {'、'.join(columns)} 未覆盖该键集{note}"
-    )
+    ), pinned
 
 
 def _logical_key_names(keys: Sequence[dict]) -> list[str]:
