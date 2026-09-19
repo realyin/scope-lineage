@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
+- **Breaking** (derived artifacts only; the lineage contracts 1.0 / 2.0 are unchanged):
+  `ontology.json` `overrides_applied.unmatched[]` entries are objects `{"key", "reason"}`
+  instead of bare strings; a table card's `coverage.column_comment_ratio` is measured
+  over every column the card lists (declared and used) instead of the used subset; and
+  the scope `role` vocabulary gains `window`, with `dedup` narrowed to a ranking window
+  whose rank column is pinned to a small constant. See the READMEs' migration section.
 - Incremental corpus derivations: `--incremental` / `--no-cache` on `describe`, `tables`,
   `glossary` and `ontology` (A5). All four walk the whole corpus and re-derive every task
   on every run, however little changed since the last one -- and the expensive half of

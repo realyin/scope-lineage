@@ -299,6 +299,18 @@ scope-lineage parse \
 不确定场景该用哪份契约，见[按业务场景选契约](docs/zh-CN/contract-selection.md)：
 字段血缘、加工步骤分析用默认 1.0；审计、事故排查、最终表状态用 2.0。
 
+### 迁移到 0.3.0
+
+解析契约没有变化。三个派生产物变了，读它们的代码各需要一处调整：
+
+- `ontology.json`：`overrides_applied.unmatched[]` 的条目从字符串变为
+  `{"key", "reason"}` 对象（`unknown_entity`、`unknown_column`、`unknown_relation` 等）。
+- `tables.json`：`coverage.column_comment_ratio` 改为按表卡列出的全部列（声明列 + 用到的列）
+  计算，宽表在语料里只读少数列时比例会下降；新增的 `coverage.columns_used` /
+  `columns_declared` 说明原因。
+- `lineage.json` 的 scope `role`：只算窗口函数的 scope 是 `window`；`dedup` 现在只指
+  排名窗口且排名列被过滤到小常量的 scope。
+
 ### 从已移除的契约 1.0 迁移
 
 契约 1.0 的独立输出模式（每条投影写一份产物）已移除。迁移主要是"重新指向"：
