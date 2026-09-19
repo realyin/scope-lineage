@@ -358,6 +358,17 @@ scope-lineage describe --lineage /tmp/scope-lineage-corpus \
 `glossary.overrides.json` 里的人工确认，与注释里**字面出现**该值的片段（标 `?` 候选）——Core 不猜。
 `describe --glossary` 把结果接到 `fields[].value_domain`。详见 [术语与值域字典](docs/zh-CN/glossary-doc.md)。
 
+整份语料还知道一件单张表说不清的事：这些表之间是什么关系。把表卡与字典再聚合成一份本体候选：
+
+```bash
+scope-lineage ontology --lineage /tmp/scope-lineage-corpus --out /tmp/scope-lineage-onto \
+  --tables /tmp/scope-lineage-tables/tables.json --glossary /tmp/scope-lineage-dict/glossary.json
+```
+
+`ontology.json` 给出实体与身份键、JOIN 断言的关系及可证明的基数、过滤与 CASE 断言的约束，
+以及两个任务互相矛盾的地方——每条断言都标 `proven` / `implied` / `hypothesis` / `conflict`
+并带证据。业务命名与类层次留给懂业务的人。详见 [语料级本体候选](docs/zh-CN/ontology-doc.md)。
+
 更多完整输入见 [examples/README.zh-CN.md](examples/README.zh-CN.md)，字段级说明见
 [Core 输入格式](docs/zh-CN/input-formats.md)。
 
@@ -458,6 +469,7 @@ AI 下游必须同时读取诊断，不能把 `recovered`、歧义候选或缺�
 - [`semantic.json` / `semantic.md` 任务语义描述](docs/zh-CN/semantic-doc.md)
 - [`tables.json` / `tables.md` 语料级表卡](docs/zh-CN/tables-doc.md)
 - [`glossary.json` / `glossary.md` 术语与值域字典](docs/zh-CN/glossary-doc.md)
+- [`ontology.json` / `ontology.md` 语料级本体候选](docs/zh-CN/ontology-doc.md)
 
 ## AI agent 集成
 

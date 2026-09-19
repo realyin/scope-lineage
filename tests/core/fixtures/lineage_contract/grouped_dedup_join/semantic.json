@@ -1384,7 +1384,9 @@
         "rule_values_total": 0,
         "rule_values_confirmed": 0,
         "field_values_total": 2,
-        "field_values_confirmed": 0
+        "field_values_confirmed": 0,
+        "enumerable_total": 0,
+        "enumerable_confirmed": 0
       }
     },
     "confirmations": {

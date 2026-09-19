@@ -369,6 +369,21 @@ whose branches are exhaustive. A meaning has exactly two sources: a human confir
 Core does not guess. `describe --glossary` wires the result into `fields[].value_domain`.
 See the [term and value dictionary guide](docs/en/glossary-doc.md).
 
+A corpus knows one more thing no single table does: how these tables relate. Aggregate the
+cards and the dictionary into one ontology candidate:
+
+```bash
+scope-lineage ontology --lineage /tmp/scope-lineage-corpus --out /tmp/scope-lineage-onto \
+  --tables /tmp/scope-lineage-tables/tables.json --glossary /tmp/scope-lineage-dict/glossary.json
+```
+
+`ontology.json` publishes entities and their identity keys, the relations the JOINs assert
+with a provable cardinality, the constraints the filters and CASE branches assert, and the
+places two tasks contradict each other — every assertion tiered `proven` / `implied` /
+`hypothesis` / `conflict` and carrying its evidence. Business naming and class hierarchies
+are left to whoever knows the business. See the
+[ontology candidate guide](docs/en/ontology-doc.md).
+
 ### Catalog-prefix normalization
 
 Core preserves fully qualified table names by default. For example,
@@ -482,6 +497,7 @@ Documentation:
 - [`semantic.json` / `semantic.md` task-semantic descriptions](docs/en/semantic-doc.md)
 - [`tables.json` / `tables.md` corpus-level table cards](docs/en/tables-doc.md)
 - [`glossary.json` / `glossary.md` term and value dictionary](docs/en/glossary-doc.md)
+- [`ontology.json` / `ontology.md` corpus-level ontology candidate](docs/en/ontology-doc.md)
 
 ## AI agent integration
 

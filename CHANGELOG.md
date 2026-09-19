@@ -1,6 +1,44 @@
 # Changelog
 
 ## Unreleased
+- `scope-lineage ontology` turns a corpus into an **ontology candidate**
+  (`ontology-json/1`). The table cards say what each table is; the ontology says how the
+  tables relate, and it says it with the honesty the rest of the layer is built on: every
+  assertion carries one of four tiers (`proven` written in the SQL, `implied` provable
+  from what the SQL does, `hypothesis` assumed by an author and never proven, `conflict`
+  two tasks disagreeing) plus the task, statement and logic block it was read from.
+  Entities carry candidate keys (what a producer proved and what a consumer assumed, side
+  by side and never merged into a "primary key"), multiplicity evidence, partition
+  columns, attributes with their observed roles and synonyms. Relations come from JOIN key
+  pairs -- grouped by table pair so a key pair written over a UNION does not become a
+  dozen invented keys, and a CTE side pierced to its physical table with the path
+  recorded -- and from UNION branch alignment. Cardinality reads a dedup before a JOIN as
+  proof that the table under it holds many rows per key, a direct JOIN onto a physical
+  table as the author's assumption, and another task's proven write key as the one fact a
+  single statement can never reach. Constraints publish not-null (as a hypothesis, with
+  the note that the task discarded the NULLs), value sets (`complete` only for a closed
+  `IN` list or an exhaustive CASE), partitions and unique-per-key. `--tables` /
+  `--glossary` reuse documents you already built; without them both are built in memory
+  over the same corpus, byte for byte the same. No business name, no class hierarchy, no
+  OWL/SHACL file: `build_ontology` and `render_ontology_index_markdown` join the public
+  API, and the [guide](docs/en/ontology-doc.md) has the slots.
+- A fan-out under a metric's own aggregation is no longer invisible. Once a metric anchors
+  to its aggregating scope, the grain path starts there and follows driving inputs only --
+  so a lookup that scope joins in, and every JOIN inside it, was judged by nobody although
+  duplicating those rows inflates every number the anchor aggregates.
+  `fan_out_risks[].path` gains `anchor` for exactly that subtree, judged by the same
+  three-state verdict, listed in `semantic.md` under 影响指标取值的关联 beside the
+  argument path, and (like the argument path) never allowed to cost the statement its
+  keys: it changes a value, not a row's identity.
+- `metadata_coverage.glossary` gains `enumerable_total` / `enumerable_confirmed`, and the
+  A2 coverage ratio is taken over them. `values_total` counts every constant a column was
+  compared against, which is the right denominator for "how much did we observe" and the
+  wrong one for "how much is still unexplained": a batch date, a row limit and a `= 0`
+  guard are not business vocabulary and no owner will ever confirm them, so a real corpus
+  read as permanent failure. An enumerable code is a physical column's literal, seen in a
+  `filter_eq` / `filter_in` / `case_then` / `union_constant` / `constant_projection`
+  context, not shaped like a date, and -- when it is a bare number -- written as an `IN`
+  member, a CASE label or a projected constant rather than only pinned by `=`.
 - A confirmed code now reaches the line it is written on. A warehouse keeps most of its
   business codes in `WHERE queue_code IN ('01','07')`, in a join's extra condition and in
   a CASE's condition, while `fields[].value_domain` hangs off an output column -- so a
