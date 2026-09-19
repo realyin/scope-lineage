@@ -118,6 +118,56 @@ def test_an_incremental_run_is_byte_identical_to_a_full_one(
     assert _published(incremental_out) == _published(full_out)
 
 
+def test_the_flags_the_other_corpus_features_added_still_compose(
+    tmp_path: Path, capsys
+) -> None:
+    """`ontology --export` and `tables --samples` (A6) are options like any other: they
+    steer the run, so they belong in the options digest -- and the documents they add
+    must come out of an incremental run exactly as a full run writes them."""
+    corpus = _corpus(tmp_path / "corpus")
+    samples = tmp_path / "samples.csv"
+    samples.write_text(
+        "table,column,value,count\nods.app_order,pay_status,PAID,9\n", encoding="utf-8"
+    )
+    runs = (
+        ("ontology", ("--export", "linkml")),
+        ("tables", ("--samples", str(samples))),
+    )
+
+    for command, extra in runs:
+        assert _run(command, corpus, tmp_path / f"incremental-{command}", "--incremental", *extra) == 0
+    capsys.readouterr()
+    _change_one_task(corpus)
+
+    for command, extra in runs:
+        incremental_out = tmp_path / f"incremental-{command}"
+        assert _run(command, corpus, incremental_out, "--incremental", *extra) == 0
+        assert "reused=2, recomputed=1, removed=0" in capsys.readouterr().out
+
+        full_out = tmp_path / f"full-{command}"
+        assert _run(command, corpus, full_out, *extra) == 0
+        assert _published(incremental_out) == _published(full_out)
+
+    assert (tmp_path / "incremental-ontology" / "ontology.linkml.yaml").is_file()
+
+
+def test_a_different_samples_file_recomputes_every_task(tmp_path: Path, capsys) -> None:
+    corpus = _corpus(tmp_path / "corpus")
+    out = tmp_path / "cards"
+    samples = tmp_path / "samples.csv"
+    samples.write_text("table,column,value\nods.app_order,pay_status,PAID\n", encoding="utf-8")
+
+    assert _run("tables", corpus, out, "--incremental", "--samples", str(samples)) == 0
+    capsys.readouterr()
+
+    samples.write_text(
+        "table,column,value\nods.app_order,pay_status,REFUNDED\n", encoding="utf-8"
+    )
+    assert _run("tables", corpus, out, "--incremental", "--samples", str(samples)) == 0
+
+    assert "reused=0, recomputed=3, removed=0" in capsys.readouterr().out
+
+
 def test_describe_skips_the_tasks_whose_inputs_did_not_change(
     tmp_path: Path, capsys
 ) -> None:
