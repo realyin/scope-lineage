@@ -13,6 +13,14 @@ It implements rules R1-R8 of dev-notes/plans/task-semantic-description-plan.md: 
 R8), the ``output_shape`` block (R2 shape, R3 grain / candidate keys / per-JOIN fan-out
 risk) and the ``stages`` block (per-scope actions, including the R6 window intents).
 
+R7's driving role and R1's summary sentence are answered by a walk of their own
+(``_driving_branches``, B2), not by R3's grain walk: a ``LATERAL VIEW`` makes the row
+*count* unprovable while leaving the row *source* plain, and reading the source off the
+grain's stop published a statement's real main table as ``enrich``. Where that same stop
+is a row-multiplying step whose upstream grain is decided, B3 publishes the row shape it
+implies as ``grain.candidate``, at ``confidence: hypothesis`` and beside -- never
+instead of -- the ``unknown`` verdict.
+
 **Two deliberate departures from the plan text, both in the conservative direction.**
 
 1. *Fan-out safety compares the other way round.* The plan writes "right-side GROUP BY
@@ -95,12 +103,17 @@ TAG_SQL_COMMENT = "SQL注释"
 REFRESH_SOURCE_TASK_META = "task_meta"
 
 # R7, most specific first: a table with several roles reports the first of these.
+# B2 adds `filter_partner` between the two: an INNER JOIN's right side on the driving
+# path is more than enrichment (an unmatched driving row is dropped by it) and less than
+# driving (the rows are not counted from it), and calling it `enrich` told a reader the
+# one thing about it that is false.
 ROLE_PRIORITY = (
     "driving",
     "merge_source",
     "aggregate_source",
     "dedup_source",
     "union_branch",
+    "filter_partner",
     "enrich",
     "rowset_only",
 )
@@ -265,18 +278,48 @@ BASIS_GROUP_BY = "group_by"
 BASIS_DISTINCT = "distinct"
 BASIS_WINDOW_PARTITION = "window_partition"
 BASIS_DRIVING_TABLE_ROWS = "driving_table_rows"
+# B10. An aggregate over an empty grouping set -- `SELECT COUNT(1) FROM t` -- returns
+# exactly one row for the whole relation. Published as `group_by` with no keys it read
+# as "could not decide", which is the opposite of what it is: the strongest uniqueness
+# statement this view can make. A UNION ALL of such aggregates is not one row, and the
+# union blocker that already stops the walk keeps it out.
+BASIS_SINGLE_ROW = "single_row"
 BASIS_UNKNOWN = "unknown"
+
+# B3. The candidate's own basis and confidence, deliberately outside `GRAIN_BASES`: a
+# candidate never becomes `grain.basis`, which stays `unknown`, and `hypothesis` is
+# weaker than every other `confidence` this view publishes -- it is the row shape the
+# structure *suggests* after a row-multiplying step, not one it proves.
+BASIS_CANDIDATE = "candidate"
+CONFIDENCE_HYPOTHESIS = "hypothesis"
 
 GRAIN_BASES = (
     BASIS_GROUP_BY,
     BASIS_DISTINCT,
     BASIS_WINDOW_PARTITION,
     BASIS_DRIVING_TABLE_ROWS,
+    BASIS_SINGLE_ROW,
     BASIS_UNKNOWN,
 )
 
-# The three bases whose key set is proven unique by the operation itself.
+# The three bases whose key set is proven unique by the operation itself. `single_row`
+# is not one of them: it is unique with an *empty* key set, which every rule that walks
+# a key list has to answer separately rather than by looping over nothing.
 _PROVEN_BASES = (BASIS_GROUP_BY, BASIS_DISTINCT, BASIS_WINDOW_PARTITION)
+
+# B9. The two right-hand sides that pin a column to one value for a whole scope: a
+# scalar literal, and the `${...}` a scheduler substitutes (one value per run). An `IN`
+# list, a `BETWEEN`, a `<>`, a `LIKE` and a comparison with another column all leave the
+# column free to vary, and `semantic_text.equality_conjunct` already tells them apart.
+_PINNING_VALUE_KINDS = (
+    semantic_text.VALUE_KIND_LITERAL,
+    semantic_text.VALUE_KIND_PARAMETER,
+)
+
+# A logical key that *is* a column reference, rather than an expression that reads one.
+# `GROUP BY CASE WHEN dt = '20260815' THEN ... END` reads a pinned column without being
+# pinned by it, so only a bare reference can be dropped from a key set.
+_BARE_COLUMN = re.compile(r"[`\"]?\w+[`\"]?(?:\.[`\"]?\w+[`\"]?){0,2}")
 
 # How many scopes the grain walk may cross. A contract this deep is pathological; the
 # limit exists so a malformed document cannot make the walk run away, and it is reported
@@ -323,6 +366,11 @@ _PASS_THROUGH_STEP_TYPES = ("direct_projection", "union")
 
 # The contract's sentinel for a bare column several inputs could own.
 _AMBIGUOUS = "AMBIGUOUS"
+
+
+# B2. How the summary counts explodes. Chinese writes the first few as words, and "1 次
+# LATERAL VIEW 展开" in a sentence otherwise made of words reads like a defect.
+_EXPANSION_COUNTS = {1: "一次", 2: "两次", 3: "三次"}
 
 
 _SCOPE_ROLE_LABELS = (
@@ -667,6 +715,8 @@ def _build_task_block(
         # write it. Empty means no filter pins a day-shaped constant -- a parameterised
         # statement, or one with no date filter at all -- never "it reads every day".
         "instance_dates": _instance_dates(document, rules),
+        # B2, see `_driving_branches`: which physical table every output row comes from.
+        "driving_tables": _driving_branches(document),
         "structural_summary": _structural_summary(document),
         # A1: the target's whole declared width, so a corpus can publish the columns this
         # write leaves untouched. Empty when no metadata described the target table.
@@ -746,12 +796,22 @@ def _structural_summary(document: dict) -> str:
 
 
 def _root_read_clause(document: dict, direct_tables: Sequence[str]) -> str:
-    """How ROOT reaches its rows: directly, or through the scopes R3 pierced.
+    """How ROOT reaches its rows: the driving path first, then what it only reads.
 
-    A wide table built as ``FROM (SELECT ... WHERE ...) t1 LEFT JOIN ...`` reads no
-    physical table in ROOT itself, and "ROOT 不直接读取物理表" is true but useless when
-    the driving table is provable one layer down.
+    B2. The sentence used to open with what ROOT reads *directly*, which is the joined
+    dimension whenever the FROM item is a subquery -- so the one table the reader must
+    not mistake for the main one was the first one named. It now opens with the row
+    source and demotes the rest, and falls back to the old wording only where no driving
+    path resolves (an aggregation, a MERGE, an unprovable FROM item).
     """
+    branches = _driving_branches(document)
+    if branches:
+        named = "、".join(
+            f"{branch['table']}{_driving_path_note(branch)}" for branch in branches
+        )
+        driving = {branch["table"] for branch in branches}
+        rest = [item for item in direct_tables if item not in driving]
+        return f"行来源 {named}；补充 {'、'.join(rest)}" if rest else f"行来源 {named}"
     table, path, _ = _driving_source(document)
     if table and path:
         clause = f"ROOT 经 {path[0]} 读取 {table}"
@@ -760,6 +820,25 @@ def _root_read_clause(document: dict, direct_tables: Sequence[str]) -> str:
     if direct_tables:
         return f"ROOT 直接读取 {'、'.join(direct_tables)}"
     return "ROOT 不直接读取物理表"
+
+
+def _driving_path_note(branch: dict) -> str:
+    """The scopes the rows travelled up through, and how often they were exploded.
+
+    Written in data-flow order -- the sentence has just named the table, so it reads on
+    from there -- while ``driving_tables[].via_scopes`` keeps the descent order
+    ``grain.via_scopes`` uses. Same list, each spelled the way its sentence is read.
+    """
+    via = list(reversed(branch["via_scopes"]))
+    expansions = len(branch["lateral_view_scopes"])
+    if not via and not expansions:
+        return ""
+    counted = _EXPANSION_COUNTS.get(expansions, f"{expansions} 次")
+    # A table ROOT reads directly and explodes in place has no scope path to name, and
+    # dropping the note with the path would hide the one row-multiplying step there is.
+    parts = [f"经 {' → '.join(via)}" if via else ""]
+    parts.append(f"{counted} LATERAL VIEW 展开" if expansions else "")
+    return "（" + " ".join(item for item in parts if item) + "）"
 
 
 def _structural_summary_without_profile(document: dict) -> str:
@@ -1009,6 +1088,7 @@ def _input_roles(document: dict) -> dict[str, list[str]]:
         add(driving, "driving")
     for table in _upstream_driving_tables(document):
         add(table, "driving")
+    _apply_driving_path(document, found, joined, add)
     for table, item in _input_metadata(document).items():
         if item.get("column_details") == []:
             add(str(table), "rowset_only")
@@ -1016,6 +1096,30 @@ def _input_roles(document: dict) -> dict[str, list[str]]:
         table: [role for role in ROLE_PRIORITY if role in roles]
         for table, roles in sorted(found.items())
     }
+
+
+def _apply_driving_path(document: dict, found: dict, joined: set, add) -> None:
+    """B2: let the driving path decide ``driving``, and name the partners it passes.
+
+    The path is the authority where it resolves. A table it excludes loses the
+    ``driving`` an earlier rule granted off ROOT's own FROM list and falls back to
+    ``enrich`` when a JOIN reaches it -- a RIGHT JOIN's left side is exactly that
+    table, and the earlier rule, which only asks whether an input is a JOIN's right
+    side, called it the main table.
+    """
+    branches = _driving_branches(document)
+    if not branches:
+        return
+    driving = {branch["table"] for branch in branches}
+    for table, roles in found.items():
+        if table not in driving and "driving" in roles:
+            roles.discard("driving")
+            if table in joined:
+                roles.add("enrich")
+    for table in sorted(driving):
+        add(table, "driving")
+    for table in _filter_partner_tables(document, branches):
+        add(table, "filter_partner")
 
 
 def _upstream_driving_tables(document: dict) -> list[str]:
@@ -1172,6 +1276,144 @@ def _join_sides(document: dict) -> tuple[set[str], set[str], set[str]]:
                 if str(field.get("table")) in tables
             }
     return left, right, left | right | condition_only
+
+
+# ------------------------------------------------------------ driving path (B2, R7)
+
+# The contract's `input_edges[].position` vocabulary, which is what "the FROM item"
+# means without re-deriving it: the parser already recorded which input was written in
+# FROM, which was joined on, and which arrived through a LATERAL VIEW.
+_EDGE_FROM = "from"
+_EDGE_JOIN = "join"
+_EDGE_LATERAL_VIEW = "lateral_view"
+
+# The two join types that move the driving side off the FROM item. A RIGHT JOIN makes
+# the whole left relation optional, so the rows are the right side's; a FULL JOIN keeps
+# both sides' unmatched rows, so the rows follow both, exactly as a UNION's do. Every
+# other type leaves the FROM item driving.
+_JOIN_SWAPS_DRIVING = "RIGHT_OUTER"
+_JOIN_DRIVES_BOTH = "FULL_OUTER"
+
+# The join types whose right side can drop a driving row. An OUTER join cannot (the
+# unmatched left row survives with nulls) and a CROSS join has no condition to fail.
+_FILTERING_JOIN_TYPES = ("INNER", "LEFT_SEMI", "LEFT_ANTI", "SEMI", "ANTI")
+
+# The shapes whose row count follows a table at all. An aggregated or deduplicated ROOT
+# counts rows by its key set -- R7 already names those inputs `aggregate_source` /
+# `dedup_source`, and overwriting that with `driving` would lose the more specific fact
+# -- and a MERGE writes through branch semantics this view does not model.
+_DRIVING_PATH_SHAPES = (SHAPE_ENRICHED, SHAPE_FILTERED, SHAPE_UNION_MERGE)
+
+
+def _driving_branches(document: dict) -> list[dict]:
+    """B2: every physical table ROOT's rows come from, with the path walked to reach it.
+
+    R3's grain walk answers a different question and stops early: an explode or a UNION
+    ends it with ``unknown``, and the driving role and R1's summary sentence were read
+    off that same stop -- so a statement whose FROM item was an exploded subquery chain
+    published every input as ``enrich`` and opened its summary with the dimension table
+    that happened to be joined on. Row *count* is undecidable there; row *source* is
+    not, and this walk answers only the second question.
+
+    Each branch is ``{table, via_scopes, lateral_view_scopes}``, the two scope lists in
+    descent order (ROOT first, the table's own scope last), so they read like
+    ``grain.via_scopes``. One table appears once, keeping the left-most path to it.
+    """
+    if _classify_shape(document)[0] not in _DRIVING_PATH_SHAPES:
+        return []
+    found: dict[str, dict] = {}
+    for branch in _walk_driving(document, _ROOT, [], [], []):
+        found.setdefault(branch["table"], branch)
+    return list(found.values())
+
+
+def _walk_driving(
+    document: dict, item: str, crossed: list, lateral: list, seen: list
+) -> list[dict]:
+    """The descent itself, one branch per driving table, left to right."""
+    if item in set(document.get("source_tables") or []):
+        return [
+            {
+                "table": item,
+                "via_scopes": list(crossed),
+                "lateral_view_scopes": list(lateral),
+            }
+        ]
+    if item not in _scopes(document) or item in seen or len(seen) >= GRAIN_DEPTH_LIMIT:
+        return []
+    below = list(crossed) if item == _ROOT else [*crossed, item]
+    # A LATERAL VIEW multiplies the driving table's rows instead of replacing them, so
+    # the walk crosses it and remembers that it did -- B3 reads exactly this list.
+    expanded = [*lateral, item] if _lateral_view_inputs(document, item) else list(lateral)
+    return [
+        branch
+        for following in _driving_inputs_of(document, item)
+        for branch in _walk_driving(document, following, below, expanded, [*seen, item])
+    ]
+
+
+def _driving_inputs_of(document: dict, scope_id: str) -> list[str]:
+    """The inputs whose rows this scope's rows follow, left to right.
+
+    A UNION answers with every branch, because its row count is their sum. Everything
+    else answers with its FROM item, moved to the right side by a RIGHT JOIN and joined
+    by a FULL one. A scope the contract gave no ``input_edges`` (a UNION's own parent,
+    which reads nothing but the union) falls back to the dependency-level rule.
+    """
+    scope = _scopes(document).get(scope_id) or {}
+    branches = (scope.get("union_branch_alignment") or {}).get("branches") or []
+    if branches:
+        return [str(branch.get("branch_id")) for branch in branches]
+    edges = scope.get("input_edges") or []
+    driving = [
+        str(edge.get("source_id"))
+        for edge in edges
+        if str(edge.get("position")) == _EDGE_FROM
+    ]
+    for edge in edges:
+        if str(edge.get("position")) != _EDGE_JOIN:
+            continue
+        kind = str(edge.get("join_type") or "").upper()
+        if kind == _JOIN_SWAPS_DRIVING:
+            driving = [str(edge.get("source_id"))]
+        elif kind == _JOIN_DRIVES_BOTH:
+            driving = _dedupe([*driving, str(edge.get("source_id"))])
+    if driving:
+        return driving
+    item, _reason = _scope_from_item(document, scope_id)
+    return [item] if item else []
+
+
+def _lateral_view_inputs(document: dict, scope_id: str) -> list[str]:
+    """The UDTF scopes this scope reads through a LATERAL VIEW, in edge order."""
+    return [
+        str(edge.get("source_id"))
+        for edge in (_scopes(document).get(scope_id) or {}).get("input_edges") or []
+        if str(edge.get("position")) == _EDGE_LATERAL_VIEW
+    ]
+
+
+def _filter_partner_tables(document: dict, branches: Sequence[dict]) -> list[str]:
+    """B2: the tables an INNER-family JOIN *on the driving path* can drop rows by.
+
+    Only the partner's own driving table is named. A partner subquery that left-joins a
+    lookup of its own does not make that lookup a filter on this statement's rows, and
+    listing every table under the partner would say it does.
+    """
+    tables = set(document.get("source_tables") or [])
+    scopes = _dedupe([_ROOT, *[item for branch in branches for item in branch["via_scopes"]]])
+    found: list[str] = []
+    for scope_id in scopes:
+        for edge in (_scopes(document).get(scope_id) or {}).get("input_edges") or []:
+            if str(edge.get("position")) != _EDGE_JOIN:
+                continue
+            if str(edge.get("join_type") or "").upper() not in _FILTERING_JOIN_TYPES:
+                continue
+            found.extend(
+                branch["table"]
+                for branch in _walk_driving(document, str(edge.get("source_id")), [], [], [])
+            )
+    return [item for item in _dedupe(found) if item in tables]
 
 
 # --------------------------------------------------------------------- rules
@@ -2272,6 +2514,16 @@ def _predicate_block_keeps_first_row(block: dict, output_field: str) -> bool:
 def _build_grain(
     document: dict, shape: str, shape_evidence: Sequence[str]
 ) -> tuple[dict, list[str]]:
+    """R3's answer, with B9's pin markers and, when it gave up, B3's candidate."""
+    grain, visited = _decide_grain(document, shape, shape_evidence)
+    pinned = _with_pinned_keys(document, grain)
+    candidate = _grain_candidate(document, pinned)
+    return ({**pinned, "candidate": candidate} if candidate else pinned), visited
+
+
+def _decide_grain(
+    document: dict, shape: str, shape_evidence: Sequence[str]
+) -> tuple[dict, list[str]]:
     """R3, as ``(grain, the scopes the walk visited)``.
 
     Two shapes R2 already decided are answered from R2 instead of being re-walked: a
@@ -2291,8 +2543,9 @@ def _build_grain(
     return _resolve_grain(document)
 
 
-def _resolve_grain(document: dict) -> tuple[dict, list[str]]:
-    """Walk from ROOT to whatever sets the output's row count.
+def _resolve_grain(document: dict, start: str = _ROOT) -> tuple[dict, list[str]]:
+    """Walk from ``start`` (ROOT, unless B3 asks about one layer of it) to whatever sets
+    the output's row count.
 
     Each step asks one scope the same question, so ROOT is not a special case: a scope
     that groups, or deduplicates, answers with its own key set; a scope that only
@@ -2304,7 +2557,7 @@ def _resolve_grain(document: dict) -> tuple[dict, list[str]]:
     scopes = _scopes(document)
     tables = set(document.get("source_tables") or [])
     visited: list[str] = []
-    item = _ROOT
+    item = start
     for _ in range(GRAIN_DEPTH_LIMIT):
         if item in tables:
             path = visited[1:]
@@ -2341,6 +2594,11 @@ def _scope_grain(
     )
     if aggregating:
         keys = _aggregation_logical_keys(document, scope_id) or []
+        # B10: no GROUP BY clause at all is an *empty grouping set*, not a missing key
+        # list -- the relation collapses to one row. A GROUP BY that is present and
+        # resolved to nothing is a different, undecided case and keeps its old answer.
+        if not keys and not _blocks_of_type(document, scope_id, "group_by"):
+            return BASIS_SINGLE_ROW, [], _block_ids(aggregating), None
         return BASIS_GROUP_BY, keys, _block_ids(aggregating), None
     if "distinct" in types:
         distinct = _blocks_of_type(document, scope_id, "distinct")
@@ -2549,6 +2807,218 @@ def _wraps_whole(value: str) -> bool:
     return False
 
 
+# ------------------------------------------------- equality-pinned columns (B9)
+
+
+def _scope_pins(document: dict, scope_id: str) -> dict[str, str]:
+    """``lowered column -> the value text`` for one scope's own WHERE equality pins.
+
+    Only the contract's AND-split ``conjuncts`` are read, so a predicate nested inside an
+    OR is never a pin: the contract splits on ``AND`` alone, which leaves ``a = 1 OR
+    b = 2`` whole, and an OR does not parse as an equality. HAVING is a separate logic
+    type and is not read here -- it filters groups that already exist.
+    """
+    pins: dict[str, str] = {}
+    for block in _blocks_of_type(document, scope_id, "filter"):
+        detail = block.get("filter_predicate_detail") or {}
+        for conjunct in detail.get("conjuncts") or []:
+            parsed = semantic_text.equality_conjunct(conjunct.get("expression"))
+            if parsed and parsed[2] in _PINNING_VALUE_KINDS:
+                pins.setdefault(parsed[0].lower(), parsed[1])
+    return pins
+
+
+def _pinned_columns(document: dict, scope_id: str) -> dict[str, dict]:
+    """Every column that cannot vary inside ``scope_id``, as ``lowered name -> record``.
+
+    B9. A scope's own WHERE is read first, then the walk follows the FROM item down: a
+    column a CTE pins and passes through unchanged is just as constant one layer up, and
+    the driving path is the only direction a value travels without being recomputed. A
+    scope on the way that renames or rewrites the column ends the descent *for that
+    column*, so a pin can never be carried across an expression that could map two days
+    onto one value.
+    """
+    pinned: dict[str, dict] = {}
+    crossed: list[str] = []
+    item = scope_id
+    for _ in range(GRAIN_DEPTH_LIMIT):
+        if item not in _scopes(document) or item in crossed:
+            break
+        for column, value in _scope_pins(document, item).items():
+            if column in pinned or not _carried_through(document, crossed, column):
+                continue
+            pinned[column] = {"scope_id": item, "column": column, "value": value}
+        following, _ = _scope_from_item(document, item)
+        if following is None:
+            break
+        crossed.append(item)
+        item = following
+    return pinned
+
+
+def _carried_through(document: dict, scopes: Sequence[str], column: str) -> bool:
+    """True when every scope on the path publishes ``column`` as that very column."""
+    return all(_carries_column_unchanged(document, item, column) for item in scopes)
+
+
+def _carries_column_unchanged(document: dict, scope_id: str, column: str) -> bool:
+    """One scope publishes ``column`` under its own name, from a bare reference to it.
+
+    A scope with no output list states nothing either way -- a ``SELECT *`` that the
+    contract could not expand -- and is read as transparent, because the alternative is
+    to drop a pin the SQL plainly wrote.
+    """
+    outputs = (_scopes(document).get(scope_id) or {}).get("outputs") or []
+    for output in outputs:
+        if str(output.get("name") or "").lower() != column:
+            continue
+        text = output.get("expression") or output.get("name")
+        return _bare_column_name(text) == column
+    return not outputs
+
+
+def _bare_column_name(text) -> str | None:
+    """The unqualified name when ``text`` is a column reference, else None."""
+    value = _normalized_expression(text or "")
+    if not value or not _BARE_COLUMN.fullmatch(value):
+        return None
+    return value.split(".")[-1].strip('`"').lower()
+
+
+def _key_column_name(key: dict) -> str | None:
+    """A logical key's own column name, when the key *is* a column rather than reads one.
+
+    The expression is asked first and the output name only when there is none: a CASE
+    key projected as ``dt`` is named ``dt`` while being a different value from ``dt``,
+    and dropping it because ``dt`` is pinned would throw away a real key.
+    """
+    return _bare_column_name(key.get("expression") or key.get("name"))
+
+
+def _unpinned_keys(
+    document: dict, scope_id: str, keys: Sequence[dict]
+) -> tuple[list[dict], list[dict]]:
+    """``(the keys that can still vary, the pin records for the ones that cannot)``."""
+    pinned = _pinned_columns(document, scope_id)
+    kept: list[dict] = []
+    dropped: list[dict] = []
+    for key in keys:
+        name = _key_column_name(key)
+        record = pinned.get(name) if name else None
+        if record is None:
+            kept.append(key)
+        elif record not in dropped:
+            dropped.append(record)
+    return kept, dropped
+
+
+def _pin_note(pinned: Sequence[dict]) -> str:
+    """How a verdict sentence names the columns it dropped, or "" when it dropped none."""
+    if not pinned:
+        return ""
+    named = "、".join(
+        f"{item['column']} 被等值过滤钉死为 {item['value']}" for item in pinned
+    )
+    return f"（{named}，不计入键集）"
+
+
+def _with_pinned_keys(document: dict, grain: dict) -> dict:
+    """Mark every grain key its own scope pins to one value, without removing it.
+
+    The reader asking "what does one row represent" still wants the partition day
+    named, so the key stays in ``grain.keys`` carrying the value it is pinned to. The
+    *unique* key set drops it instead -- that is what the fan-out verdict and
+    :func:`_target_key_columns` read, through this same marker.
+    """
+    pins: dict[str, dict] = {}
+    keys = []
+    for key in grain.get("keys") or []:
+        scope_id = str(key.get("scope_id"))
+        if scope_id not in pins:
+            pins[scope_id] = _pinned_columns(document, scope_id)
+        record = pins[scope_id].get(_key_column_name(key) or "")
+        keys.append({**key, "pinned": {"value": record["value"]}} if record else key)
+    return {**grain, "keys": keys}
+
+
+# ------------------------------------------------------ grain candidate (B3)
+
+
+def _grain_candidate(document: dict, grain: dict) -> dict | None:
+    """B3: what one row probably is, when a row-multiplying step stopped the walk.
+
+    ``unknown`` stays the verdict -- an explode really does make the row count
+    unprovable -- but it is not the whole of what the structure says. When the driving
+    path crosses a LATERAL VIEW whose own upstream grain *is* decided, the shape of the
+    answer follows: one upstream row per exploded value. That is published beside the
+    verdict as a hypothesis, so the profile writer copies it and marks it inferred
+    instead of inventing a grain of their own, which is what they did on the corpus.
+
+    Nothing is offered where the hypothesis would not be one: a decided grain, several
+    driving tables (a UNION's rows are a sum, not a product), a stop with some other
+    cause, or an upstream grain that is itself ``unknown``.
+    """
+    if str(grain.get("basis")) != BASIS_UNKNOWN:
+        return None
+    branches = _driving_branches(document)
+    if len(branches) != 1 or not branches[0]["lateral_view_scopes"]:
+        return None
+    branch = branches[0]
+    below = _below_expansion(branch)
+    upstream, _visited = _resolve_grain(document, below)
+    basis = str(upstream["basis"])
+    if basis == BASIS_UNKNOWN:
+        return None
+    return {
+        "keys": [
+            *upstream["keys"],
+            *_exploded_keys(document, branch["lateral_view_scopes"]),
+        ],
+        # Named only when the upstream grain is a table's own rows: that grain has no
+        # key list of its own, and "one row per <nothing> per exploded value" is not an
+        # answer. Every other basis carries its keys and leaves this null.
+        "row_source": below if basis == BASIS_DRIVING_TABLE_ROWS else None,
+        "basis": BASIS_CANDIDATE,
+        "confidence": CONFIDENCE_HYPOTHESIS,
+        "reason": _candidate_reason(branch, below, basis),
+        "evidence": list(branch["lateral_view_scopes"]),
+    }
+
+
+def _below_expansion(branch: dict) -> str:
+    """The item the driving path reaches just below its deepest LATERAL VIEW.
+
+    Deepest rather than first: two stacked explodes both multiply, and the grain the
+    candidate builds on is the one below every one of them.
+    """
+    chain = [_ROOT, *branch["via_scopes"], branch["table"]]
+    deepest = max(chain.index(item) for item in branch["lateral_view_scopes"])
+    return chain[deepest + 1]
+
+
+def _exploded_keys(document: dict, scopes: Sequence[str]) -> list[dict]:
+    """One logical key per column the LATERAL VIEWs on the path add, upstream first."""
+    keys: list[dict] = []
+    for scope_id in reversed(list(scopes)):
+        for udtf in _lateral_view_inputs(document, scope_id):
+            keys.extend(
+                _key_object(
+                    udtf,
+                    output.get("name"),
+                    output.get("expression"),
+                    output.get("expression_resolution"),
+                )
+                for output in (_scopes(document).get(udtf) or {}).get("outputs") or []
+            )
+    return keys
+
+
+def _candidate_reason(branch: dict, below: str, upstream_basis: str) -> str:
+    """Why this is only a candidate, in the same structural words the verdict uses."""
+    path = " → ".join(reversed(branch["lateral_view_scopes"]))
+    return f"{path} 的 LATERAL VIEW 使行数展开；展开前 {below} 的粒度依据 {upstream_basis}"
+
+
 def _unknown_grain(reason: str, via_scopes: Sequence[str]) -> dict:
     return _grain([], BASIS_UNKNOWN, [reason], via_scopes)
 
@@ -2627,6 +3097,10 @@ def _target_key_columns(
     if basis in _PROVEN_BASES:
         columns: list[str] = []
         for key in grain.get("keys") or []:
+            # B9: a column pinned to one value identifies nothing, so it is neither a
+            # candidate key nor a governance finding when the write leaves it out.
+            if key.get("pinned"):
+                continue
             target = exposed.get(_key_reference(key))
             if target:
                 columns.append(target)
@@ -2737,9 +3211,14 @@ def _key_confidence(
     only the last fails, the keys are still proven but the *target* columns are not, and
     ``proven_unexposed`` says exactly that.
     """
+    basis = str(grain.get("basis"))
+    # B10, asked before the risks: "the output is one row" is a statement about the
+    # grouping set, and a JOIN that duplicates the rows being counted inflates the
+    # number without adding a row to the output.
+    if basis == BASIS_SINGLE_ROW:
+        return KEY_CONFIDENCE_PROVEN
     if any(str(risk.get("status")) != "safe" for risk in risks):
         return KEY_CONFIDENCE_NONE
-    basis = str(grain.get("basis"))
     if basis in _PROVEN_BASES:
         if not grain.get("keys"):
             return KEY_CONFIDENCE_NONE
@@ -2831,7 +3310,7 @@ def _fan_out_risk(
     """
     detail = block.get("join_relation_detail") or {}
     block_id = str(block.get("logic_block_id"))
-    status, reason, basis, level = _fan_out_verdict(
+    status, reason, basis, level, pinned = _fan_out_verdict(
         document, block_id, detail, card_lookup
     )
     risk = {
@@ -2845,13 +3324,17 @@ def _fan_out_risk(
     }
     if basis:
         risk["basis"] = basis
+    # B9: the verdict rests on a column the right side cannot vary, so the decision is
+    # published beside it rather than left inside the sentence.
+    if pinned:
+        risk["pinned_keys"] = list(pinned)
     return risk, level
 
 
 def _fan_out_verdict(
     document: dict, block_id: str, detail: dict, card_lookup=None
-) -> tuple[str, str, str | None, str | None]:
-    """``(status, reason, basis, card key confidence)``.
+) -> tuple[str, str, str | None, str | None, list[dict]]:
+    """``(status, reason, basis, card key confidence, pinned keys)``.
 
     Only three shapes can be proven safe from inside one statement; everything else is
     ``risk`` or ``unknown``. The fourth shape needs a corpus: a JOIN onto a physical
@@ -2862,23 +3345,29 @@ def _fan_out_verdict(
     right = str(detail.get("right_input") or "")
     if right in set(document.get("source_tables") or []):
         carded = _card_verdict(right, detail, card_lookup)
-        return carded or ("unknown", "物理表无主键事实", None, None)
+        return (*carded, []) if carded else ("unknown", "物理表无主键事实", None, None, [])
     if right not in _scopes(document):
-        return "unknown", f"右侧 {right} 不是本语句的 scope，无唯一性事实", None, None
+        return "unknown", f"右侧 {right} 不是本语句的 scope，无唯一性事实", None, None, []
     columns = _join_side_columns(detail, "right")
     if not columns:
-        if _join_side_keys(detail, "right"):
-            return "risk", "右侧连接键没有 scope 级列名，唯一性无从判定", None, None
-        return "risk", "该 JOIN 无可证明的连接键，右侧唯一性无从判定", None, None
+        return (*_keyless_join_verdict(detail), None, None, [])
     grouped = _grouped_uniqueness(document, right, columns)
     if grouped is not None and grouped[0] == "safe":
-        return (*grouped, None, None)
+        return grouped[0], grouped[1], None, None, grouped[2]
     proven = _ranking_uniqueness(document, right, (block_id, detail), columns)
     if proven is not None:
         function, partition, consumer = proven
         scope = "无分区" if not partition else f"按 {'、'.join(partition)} 分区"
-        return "safe", f"右侧 {function} {scope}并以 = 1 过滤（{consumer}）", None, None
-    return (*(grouped or ("risk", "右侧未被证明按连接键唯一")), None, None)
+        return "safe", f"右侧 {function} {scope}并以 = 1 过滤（{consumer}）", None, None, []
+    fallback = grouped or ("risk", "右侧未被证明按连接键唯一", [])
+    return fallback[0], fallback[1], None, None, fallback[2]
+
+
+def _keyless_join_verdict(detail: dict) -> tuple[str, str]:
+    """``(status, reason)`` for a JOIN whose right side offers no scope-level column."""
+    if _join_side_keys(detail, "right"):
+        return "risk", "右侧连接键没有 scope 级列名，唯一性无从判定"
+    return "risk", "该 JOIN 无可证明的连接键，右侧唯一性无从判定"
 
 
 def _card_verdict(
@@ -2954,7 +3443,7 @@ def _capped_confidence(confidence: str, levels: Sequence[str | None]) -> str:
 
 def _grouped_uniqueness(
     document: dict, scope_id: str, columns: Sequence[str]
-) -> tuple[str, str] | None:
+) -> tuple[str, str, list[dict]] | None:
     """The GROUP BY verdict, decided on ``scope_id``'s own logical keys (WI-2.1d item 1).
 
     The comparison used to run on the columns both sides pierce to, which is a different
@@ -2972,15 +3461,25 @@ def _grouped_uniqueness(
     if keys is None:
         return None
     if not keys:
-        return "safe", "右侧为全表聚合，至多一行"
+        return "safe", "右侧为全表聚合，至多一行", []
+    # B9: a key the right side pins to one literal cannot make two rows out of one, so
+    # it leaves the set the join keys have to cover.
+    free, pinned = _unpinned_keys(document, scope_id, keys)
     labels = _logical_key_names(keys)
-    note = _physical_key_note(keys)
-    if _comparable(labels) <= _comparable(columns):
-        return "safe", f"右侧按 {'、'.join(labels)} GROUP BY，键集被连接键覆盖{note}"
+    note = f"{_pin_note(pinned)}{_physical_key_note(keys)}"
+    if not free:
+        return "safe", (
+            f"右侧按 {'、'.join(labels)} GROUP BY，等值过滤后键集为空，右侧至多一行{note}"
+        ), pinned
+    free_labels = _logical_key_names(free)
+    if _comparable(free_labels) <= _comparable(columns):
+        return "safe", (
+            f"右侧按 {'、'.join(free_labels)} GROUP BY，键集被连接键覆盖{note}"
+        ), pinned
     return "risk", (
-        f"右侧按 {'、'.join(labels)} GROUP BY，"
+        f"右侧按 {'、'.join(free_labels)} GROUP BY，"
         f"连接键 {'、'.join(columns)} 未覆盖该键集{note}"
-    )
+    ), pinned
 
 
 def _logical_key_names(keys: Sequence[dict]) -> list[str]:

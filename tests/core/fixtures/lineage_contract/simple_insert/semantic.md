@@ -14,7 +14,7 @@ lineage_digest: "1e33f30b4f377c8a"
 - 目标表：`mart.user_names`（表注释：注释未知）（元数据事实）
 - 语句类型：INSERT_OVERWRITE；无分区（SQL事实）
 - 目标表元数据来源：无（元数据事实）
-- 结构摘要：ROOT 直接读取 ods.users；过滤 1 处；输出 2 列。（结构推断；证据 scope_profile）
+- 结构摘要：行来源 ods.users；过滤 1 处；输出 2 列。（结构推断；证据 scope_profile）
 
 共 1 张输入表（角色为结构推断，其余为 SQL/元数据事实）：
 

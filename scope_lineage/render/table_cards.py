@@ -123,6 +123,9 @@ GRAIN_BASIS_TEXT = {
     "distinct": "去重后的一行",
     "window_partition": "窗口分组内保留的一行",
     "driving_table_rows": "主表的一行",
+    # B10: the producer aggregates without a GROUP BY, so the table it writes holds one
+    # row per run of that task -- "一行代表什么" has a complete answer here, not a key list.
+    "single_row": "整张输出一行（全表汇总）",
     "unknown": "未知",
 }
 
@@ -142,6 +145,9 @@ ROLE_TEXT = {
     "aggregate_source": "聚合来源",
     "dedup_source": "去重来源",
     "union_branch": "合并分支",
+    # B2: an INNER JOIN's partner on the driving path -- it drops driving rows it
+    # cannot match, so it is not mere enrichment.
+    "filter_partner": "关联筛选",
     "enrich": "关联补充",
     "rowset_only": "仅行集引用",
 }

@@ -14,7 +14,7 @@ lineage_digest: "218797d5ee71d0e6"
 - 目标表：`mart.recovered`（表注释：注释未知）（元数据事实）
 - 语句类型：INSERT；无分区（SQL事实）
 - 目标表元数据来源：无（元数据事实）
-- 结构摘要：ROOT 直接读取 ods.events；过滤 1 处；输出 1 列。（结构推断；证据 scope_profile）
+- 结构摘要：行来源 ods.events；过滤 1 处；输出 1 列。（结构推断；证据 scope_profile）
 
 共 1 张输入表（角色为结构推断，其余为 SQL/元数据事实）：
 

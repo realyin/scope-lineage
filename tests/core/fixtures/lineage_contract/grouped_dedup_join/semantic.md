@@ -14,7 +14,7 @@ lineage_digest: "0c34ee38cff93f20"
 - 目标表：`mart.metric_by_segment`（表注释：注释未知）（元数据事实）
 - 语句类型：INSERT_OVERWRITE；静态分区 dt = `20260101`（SQL事实）
 - 目标表元数据来源：target_ddl（元数据事实）
-- 结构摘要：ROOT 不直接读取物理表；关联 1 个上游（1 个窗口）；输出 6 列。（结构推断；证据 scope_profile）
+- 结构摘要：行来源 ods.events_a（经 union:events_norm:b01 → union:events_norm → cte:events_norm → cte:agg → cte:joined → cte:ranked）、ods.events_b（经 union:events_norm:b02 → union:events_norm → cte:events_norm → cte:agg → cte:joined → cte:ranked）；关联 1 个上游（1 个窗口）；输出 6 列。（结构推断；证据 scope_profile）
 
 共 3 张输入表（角色为结构推断，其余为 SQL/元数据事实）：
 

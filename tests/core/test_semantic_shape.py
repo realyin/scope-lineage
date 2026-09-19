@@ -117,12 +117,19 @@ def test_a_root_group_by_makes_the_output_aggregated() -> None:
     assert shape["tag"] == "结构推断"
 
 
-def test_an_aggregate_without_group_by_is_still_aggregated_with_no_grain_keys() -> None:
+def test_an_aggregate_without_group_by_is_aggregated_with_a_single_row_grain() -> None:
+    """B10: an empty grouping set is a proof of uniqueness, not a missing key list.
+
+    The whole rule, with its negatives, lives in
+    ``test_grain_pinned_and_single_row.py``; this keeps R2's own answer beside R2's
+    other shapes, because the shape stays ``aggregated`` while the grain changes.
+    """
     shape = _shape("INSERT INTO mart.t SELECT COUNT(*) AS n FROM ods.orders")
     assert shape["shape"] == "aggregated"
     assert shape["grain"]["keys"] == []
-    assert shape["grain"]["basis"] == "group_by"
+    assert shape["grain"]["basis"] == "single_row"
     assert shape["candidate_keys"] == []
+    assert shape["key_confidence"] == "proven"
 
 
 def test_root_distinct_is_deduplicated() -> None:
@@ -317,8 +324,9 @@ def test_the_pierced_table_takes_the_driving_role_and_keeps_its_other_roles() ->
     roles = {item["table"]: item["roles"] for item in profile["inputs"]}
     assert roles["ods.base"] == ["driving", "enrich"]
     assert roles["ods.dim"] == ["enrich"]
+    # B2: the sentence opens with the row source and demotes what ROOT only reads.
     assert profile["task"]["structural_summary"].startswith(
-        "ROOT 经 subq:t1 读取 ods.base，直接读取 ods.dim；"
+        "行来源 ods.base（经 subq:t1）；补充 ods.dim；"
     )
 
 
@@ -1136,6 +1144,7 @@ def test_every_basis_the_builder_emits_is_a_declared_one() -> None:
             ") SELECT id, v FROM r WHERE rk = 1",
             "INSERT INTO mart.t SELECT id, amount FROM ods.a "
             "UNION ALL SELECT id, amount FROM ods.b",
+            "INSERT INTO mart.t SELECT COUNT(*) AS n FROM ods.orders",
         )
     }
     assert emitted == set(GRAIN_BASES)

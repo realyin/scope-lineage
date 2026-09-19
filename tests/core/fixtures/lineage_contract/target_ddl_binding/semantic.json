@@ -21,7 +21,14 @@
       }
     },
     "instance_dates": [],
-    "structural_summary": "ROOT 直接读取 ods.account_snapshot；输出 2 列。",
+    "driving_tables": [
+      {
+        "table": "ods.account_snapshot",
+        "via_scopes": [],
+        "lateral_view_scopes": []
+      }
+    ],
+    "structural_summary": "行来源 ods.account_snapshot；输出 2 列。",
     "target_declared_columns": [
       {
         "name": "account_id",

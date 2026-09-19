@@ -31,6 +31,7 @@
           }
         },
         "instance_dates": [],
+        "driving_tables": [],
         "structural_summary": "ROOT 直接读取 ods.store_event；过滤 1 处；输出 2 列。",
         "target_declared_columns": [],
         "target_metadata_source": null,
