@@ -80,6 +80,30 @@ card = render_ontology_table_card_markdown(cards["tables"][0], ontology)
   [Exporting LinkML / SHACL](#exporting-linkml--shacl).
 - Determinism: the same corpus produces the same bytes whatever order it was walked in.
 
+## Incremental runs: `--incremental` / `--no-cache`
+
+One or two tasks changed, and the rerun still reads and re-derives every task in the
+corpus. `--incremental` narrows that pass to the tasks whose fingerprints moved:
+
+```bash
+scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incremental
+```
+
+- It writes two disposable things under `--out`: `.scope-lineage-corpus-index.json` (the
+  sha256 of each task's `lineage.json` / `diagnostics.json`, plus one sha256 over the
+  options that steer the derivation) and `.cache/` (the facts each task contributed
+  before the corpus-level merge).
+- **The corpus-level merge still runs over every task**: only the per-task half is
+  reused, which is what makes an incremental run byte-identical to a full one.
+- A changed option invalidates the whole index and recomputes everything: the **content**
+  of the `--overrides` file, `--format`, the `glossary.json` / `tables.json` read back,
+  and the tool version. An index or a cache file written by another subcommand (a
+  `command` or `doc_format` that disagrees) is ignored the same way.
+- The summary line gains `reused=N, recomputed=M, removed=K`: how many tasks were reused,
+  re-derived, and have disappeared from the corpus.
+- Without `--incremental` the run is the full one it always was, reading and writing
+  neither index nor cache; `--no-cache` deletes both first and then runs in full.
+
 ## The five confidence tiers
 
 | Tier | In the Markdown | Definition | Example |
@@ -471,5 +495,5 @@ All three share one semantic profile: the CLI parses and profiles one corpus exa
   exporter behind it.
 - No embedding, no storage, no LLM call, no business vocabulary — those belong to
   downstream projects.
-- Incremental runs across corpora (reusing the `.scope-lineage-index.json` digests) are
-  later work; this release always recomputes the whole corpus.
+- Incremental runs within one corpus now exist (`--incremental`, see "Incremental
+  runs"); reuse *across* corpora -- one corpus's index feeding another -- is later work.

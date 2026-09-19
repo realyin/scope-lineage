@@ -16,6 +16,7 @@ import json
 import sys
 from pathlib import Path
 
+from .corpus_cache import add_incremental_arguments, open_cache
 from .render.glossary import build_glossary, render_glossary_markdown
 from .render.glossary_template import (
     TEMPLATE_TOP_DEFAULT,
@@ -76,6 +77,7 @@ def add_glossary_parser(subcommands) -> None:
         default="json,md",
         help="Comma-separated output formats: json, md (default: json,md)",
     )
+    add_incremental_arguments(glossary_cmd)
 
 
 def formats(value: str | None) -> set[str]:
@@ -122,19 +124,42 @@ def run_glossary(args: argparse.Namespace) -> int:
         return loaded
     documents = loaded.documents
 
+    out_dir, root = Path(args.out), str(Path(args.lineage))
+    options = [overrides, args.format, args.template, args.template_top, root]
+    cache = open_cache(args, out_dir, found[1], "glossary", options)
     try:
         glossary = build_glossary(
             [item.document for item in documents],
-            artifact_root=str(Path(args.lineage)),
+            artifact_root=root,
             overrides=overrides,
+            profiles=_profiles(documents, cache),
         )
     except ValueError as error:
         print(f"{args.lineage}: {error}", file=sys.stderr)
         return 1
-    _write(Path(args.out), glossary, formats(args.format))
+    chosen = formats(args.format)
+    _write(out_dir, glossary, chosen)
     template = _write_template(glossary, args)
-    _report(glossary, template, args, loaded.counters())
+    cache.commit([f"glossary.{name}" for name in sorted(chosen)])
+    _report(glossary, template, args, loaded.counters() + cache.counters())
     return 0
+
+
+def _profiles(documents, cache) -> list[dict]:
+    """One semantic profile per document, from the fact cache when it is unchanged.
+
+    The dictionary reads the profile the *document alone* proves, without diagnostics --
+    the same profile ``build_glossary`` builds for itself -- so what is cached here is
+    not interchangeable with what ``tables`` caches. The index's ``command`` says so.
+    """
+    from .render.semantic_profile import build_semantic_profile
+
+    return [
+        cache.facts(
+            item, lambda item=item: {"profile": build_semantic_profile(item.document)}
+        )["profile"]
+        for item in documents
+    ]
 
 
 def _report(

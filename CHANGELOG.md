@@ -1,6 +1,31 @@
 # Changelog
 
 ## Unreleased
+- Incremental corpus derivations: `--incremental` / `--no-cache` on `describe`, `tables`,
+  `glossary` and `ontology` (A5). All four walk the whole corpus and re-derive every task
+  on every run, however little changed since the last one -- and the expensive half of
+  that work, the semantic profile built *per document*, depends on nothing but that
+  document and its `diagnostics.json`. `--incremental` fingerprints exactly those bytes
+  (sha256) into `<out>/.scope-lineage-corpus-index.json` and caches what each task
+  contributed under `<out>/.cache/<task>.json` (`corpus-index/1`, `corpus-cache/1`), so a
+  later run re-derives only the tasks whose digests moved, loads the rest from the cache,
+  and drops the ones that left the corpus. What is deliberately *not* cached is the
+  corpus-level merge: it always runs over every task, reused and recomputed alike, which
+  is why an incremental run publishes the same bytes as a full one -- the guard test runs
+  a command in full, changes one task, runs it incrementally, and compares against a fresh
+  full run. Everything outside the corpus lands in one `options_sha256` and invalidates
+  the whole index when it moves: the *content* of an overrides file, the `glossary.json` /
+  `tables.json` read back, the format and template flags, the package version. An index or
+  fact file written by another subcommand is ignored on its `command` / `doc_format`.
+  `describe` has no corpus-level merge, so an unchanged task is skipped whole -- its own
+  `semantic.json` / `semantic.md` are part of its fingerprint, and a deleted or edited
+  output is described again; with `--metadata-patch` nothing is skipped, because
+  `patch_unmatched` only means "matched nothing in the whole corpus" when every task was
+  actually described. Both flags are off by default: a run that asks for nothing reads and
+  writes no index, no cache, and prints no extra counter. The summary line of an
+  incremental run gains `reused=N, recomputed=M, removed=K`. `ontology` also stops
+  building its in-memory value dictionary from a second set of profiles: the CLI builds it
+  from the cached ones instead, byte for byte the dictionary the builder built for itself.
 - A table card can show what a column's values look like, from a file somebody exported
   (A6). `scope-lineage tables --samples <file-or-dir>` reads a `table,column,value[,count]`
   CSV, a directory of such CSVs, or a `samples/1` JSON, and hangs the values on the card:

@@ -83,15 +83,24 @@ def build_glossary(
     *,
     artifact_root: str = ".",
     overrides: Mapping | None = None,
+    profiles: Sequence[Mapping] | None = None,
 ) -> dict:
     """Aggregate a corpus of lineage documents into one term / value dictionary.
 
     ``documents`` are contract documents (1.0 statement or 2.0 task shape), exactly what
     ``describe`` reads. ``artifact_root`` is recorded verbatim, so a caller that wants
-    reproducible bytes passes a relative label rather than an absolute path.
+    reproducible bytes passes a relative label rather than an absolute path. ``profiles``
+    is one semantic profile per document in the same order -- built *without* diagnostics,
+    which is what this builder would build for itself -- so a caller holding them already
+    (the incremental CLI reads them from its fact cache) does not pay for them twice.
     """
     documents = list(documents)
-    statements = [pair for document in documents for pair in _statement_pairs(document)]
+    supplied = list(profiles) if profiles is not None else [None] * len(documents)
+    statements = [
+        pair
+        for document, profile in zip(documents, supplied)
+        for pair in _statement_pairs(document, profile)
+    ]
     canonical = _canonical_tables(statements)
     observations = [
         observation
@@ -119,9 +128,11 @@ def build_glossary(
 # ---------------------------------------------------------------- corpus traversal
 
 
-def _statement_pairs(document: Mapping) -> list[tuple[dict, dict, str]]:
+def _statement_pairs(
+    document: Mapping, profile: Mapping | None = None
+) -> list[tuple[dict, dict, str]]:
     """``(statement document, statement profile, task id)`` for every write statement."""
-    profile = build_semantic_profile(document)
+    profile = dict(profile) if profile is not None else build_semantic_profile(document)
     task = str(document.get("task_id") or "")
     if document.get("schema_version") != TASK_SCHEMA_VERSION:
         return [(dict(document), profile, task)]

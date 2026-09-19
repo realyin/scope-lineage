@@ -396,6 +396,12 @@ whoever knows the business. `--export linkml,shacl` additionally writes
 RDF toolchain to load. See the
 [ontology candidate guide](docs/en/ontology-doc.md).
 
+All four corpus commands (`describe`, `tables`, `glossary`, `ontology`) re-derive every
+task on every run. Add `--incremental` and a rerun only re-derives the tasks whose
+`lineage.json` / `diagnostics.json` changed, reusing a per-task fact cache under `--out`
+for the rest; the corpus-level merge still runs over everything, so the published bytes
+are the same as a full run. `--no-cache` deletes that cache and index and runs in full.
+
 ### Catalog-prefix normalization
 
 Core preserves fully qualified table names by default. For example,
