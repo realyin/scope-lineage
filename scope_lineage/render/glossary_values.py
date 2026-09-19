@@ -784,27 +784,60 @@ _TEMPORAL_TEXT = re.compile(
 )
 
 
+#: Where a scope-level output observation is filed. ``cte:c`` is a name inside one
+#: statement, not a table, so it cannot be compared to a target table and shares one
+#: bucket instead -- see :func:`value_domain_index`.
+_LOGICAL_OWNER = ("<scope>",)
+
+
 def value_domain_index(entries: Sequence[Mapping]) -> dict:
-    """Two lookups: by physical source column, and by output column name."""
+    """Two lookups, both keyed by ``(normalized owner, column)``.
+
+    ``by_column`` is the physical source column a value travels from. ``by_output`` is
+    the column a projection *produces*, and its owner is the target table that
+    projection writes -- because ``status`` is the most reused column name a warehouse
+    has, and a CASE label written into ``mart.orders.status`` says nothing whatever
+    about ``mart.tickets.status``. Owners are normalized by :func:`table_key`, so the
+    two qualification levels one corpus records (``mart.t`` at a read,
+    ``catalog.mart.t`` at the writer) are one owner.
+
+    A scope-level output -- a CASE inside a CTE whose column never reaches a named
+    target column -- names no table at all, so it is filed under ``_LOGICAL_OWNER``: it
+    keeps speaking to the column it produces in its own statement, which is the only
+    place its observations came from.
+    """
     index: dict[str, dict] = {"by_column": {}, "by_output": {}}
     for entry in entries:
         owner = str(entry["column_ref"]).rsplit(".", 1)[0]
-        if not entry.get("logical"):
+        logical = bool(entry.get("logical"))
+        if not logical:
             key = (table_key(owner), str(entry["column"]))
             index["by_column"].setdefault(key, []).append(entry)
         if any(
             str(item.get("context")) in OUTPUT_CONTEXTS
             for item in entry.get("observations") or []
         ):
-            index["by_output"].setdefault(str(entry["column"]), []).append(entry)
+            output_key = (
+                _LOGICAL_OWNER if logical else table_key(owner),
+                str(entry["column"]),
+            )
+            index["by_output"].setdefault(output_key, []).append(entry)
     return index
 
 
-def apply_value_domains(fields: Sequence[dict], entries: Sequence[Mapping]) -> None:
-    """Give each field its ``value_domain`` (and, when confirmed, its summary suffix)."""
+def apply_value_domains(
+    fields: Sequence[dict], entries: Sequence[Mapping], target_table: object = None
+) -> None:
+    """Give each field its ``value_domain`` (and, when confirmed, its summary suffix).
+
+    ``target_table`` is the table these fields are written to: the second half of the
+    output route's key. Without it only the scope-level observations can match, because
+    a value published under some other table's column is not this column's value.
+    """
     index = value_domain_index(entries)
+    owner = table_key(target_table)
     for field in fields:
-        domain = _field_domain(field, index)
+        domain = _field_domain(field, index, owner)
         _set_domain(field, domain)
         _apply_summary_suffix(field, domain)
 
@@ -829,7 +862,7 @@ def _set_domain(field: dict, domain: Sequence[dict]) -> None:
     field.update(rebuilt)
 
 
-def _field_domain(field: Mapping, index: Mapping) -> list[dict]:
+def _field_domain(field: Mapping, index: Mapping, target_owner: tuple) -> list[dict]:
     """One entry per ``(value, kind)``, in the order the values were first observed.
 
     WI-2.4b. The key used to carry ``column_ref`` as well, so one value that several
@@ -838,7 +871,7 @@ def _field_domain(field: Mapping, index: Mapping) -> list[dict]:
     ``'SA'（待确认）、'SA'（待确认）、'SA'（待确认）``. A field's domain is a set of
     values, not a list of sightings: the sightings belong in ``seen_in``.
     """
-    matched = _matched_entries(field, index)
+    matched = _matched_entries(field, index, target_owner)
     closed = _column_closed_set(matched)
     domain: dict[tuple, dict] = {}
     for entry, _via in matched:
@@ -851,14 +884,18 @@ def _field_domain(field: Mapping, index: Mapping) -> list[dict]:
     return list(domain.values())
 
 
-def _matched_entries(field: Mapping, index: Mapping) -> list[tuple[Mapping, str]]:
+def _matched_entries(
+    field: Mapping, index: Mapping, target_owner: tuple
+) -> list[tuple[Mapping, str]]:
     """Every glossary entry that speaks about THIS column, paired with how it got here.
 
     Two routes, and the route decides what the entry is allowed to say. ``_VIA_OUTPUT``
     is the column's own projection -- a CASE label, a UNION constant, a constant
-    column -- matched by output name. ``_VIA_SOURCE`` is a source column the value
-    reaches the target from unchanged, and only its ``=`` / ``IN`` observations travel.
+    column -- matched by target table *and* output name. ``_VIA_SOURCE`` is a source
+    column the value reaches the target from unchanged, and only its ``=`` / ``IN``
+    observations travel.
     """
+    column = str(field.get("column"))
     matched = [
         (entry, _VIA_SOURCE)
         for source in _pass_through_sources(field)
@@ -870,7 +907,8 @@ def _matched_entries(field: Mapping, index: Mapping) -> list[tuple[Mapping, str]
     ]
     matched.extend(
         (entry, _VIA_OUTPUT)
-        for entry in index["by_output"].get(str(field.get("column"))) or []
+        for owner in (target_owner, _LOGICAL_OWNER)
+        for entry in index["by_output"].get((owner, column)) or []
     )
     return [pair for pair in matched if _type_admits(field, pair[0])]
 

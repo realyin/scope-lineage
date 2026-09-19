@@ -1,6 +1,56 @@
 # Changelog
 
 ## Unreleased
+- One unreadable `lineage.json` no longer ends a whole corpus run. `describe`, `render`,
+  `glossary` and `tables` share one input walk, and a truncated or half-written document
+  used to raise out of `main` -- hiding every other task in the tree behind the one input
+  the reader cannot fix. A directory now skips that file, names it on stderr and counts it
+  as `skipped_unreadable=N` in the run summary; a file the user named by name is one error
+  line and exit code 2. The same guard covers each document's sibling `diagnostics.json`,
+  and `--metadata-patch` reports a `tables` / `columns` section written as a list instead
+  of raising an `AttributeError`.
+- A value domain no longer travels between two tables that share a column name. The output
+  route of `fields[].value_domain` was indexed by the bare column name, so every CASE label
+  any task ever wrote into a `status` was published as a value of every other task's
+  `status`. It is keyed by target table (normalized by the dotted-suffix rule) and column
+  now; a CASE inside a CTE, which names no table, still speaks to the column it produces in
+  its own statement.
+- A fan-out on a metric's **argument** path no longer costs a statement its keys. It
+  duplicates the rows a `SUM` reads -- a wrong value -- without duplicating a row of the
+  output, so `candidate_keys` / `key_confidence` are decided from the `path: "grain"` risks
+  alone. The argument risk is still published; a `GROUP BY` whose own path is clean now
+  reads `proven` instead of `none`.
+- A projection the author did not alias is no longer reported as an alias/DDL column
+  mismatch. `SELECT a, 0, current_date()` bound positionally leaves sqlglot's `_col_N`
+  placeholder in `parsed_column`, and comparing that string to the DDL name accused every
+  statement writing a constant of putting data in the wrong columns. The contract's
+  `name_is_generated` decides where it is published, the placeholder shape where it is not.
+- `describe --glossary` validates the document it was given: a missing or unreadable file
+  exits 2, one that does not declare `doc_format: "glossary-json/1"` exits 1. Handing it
+  `glossary.overrides.json` -- the neighbouring line in every runbook -- used to be accepted
+  silently and produce a profile with no value domains, which reads like a corpus that
+  observed nothing.
+- Table-name suffix merging stops at the bare name. `ods.t` and `dwd.t` are two tables, and
+  one script that wrote an unqualified `t` used to merge every `<db>.t` in the corpus into a
+  single card -- publishing one table's producer as another's. A bare name now joins a card
+  only when exactly one qualified table matches it; when several do it gets its own card
+  carrying the new `ambiguous_bare_name` finding.
+- `related_metadata.output_tables[].metadata_complete` answers about the columns rather than
+  about the lookup. A target description that knows the table but agrees with none of the
+  written column names leaves `column_details[]` empty, and empty was published as
+  `metadata_complete: true`. It is `false` now, `metadata_source` still names which side
+  answered, and the additive `metadata_note: "no_output_column_matched"` separates "the DDL
+  was read and matched nothing" from "nobody supplied metadata".
+- Comment redaction stops masking 15- and 18-digit serial numbers as ID numbers. Length was
+  never the shape: an ID number carries a six-digit region code that does not start with a
+  zero followed by a real birth date, and a run whose middle digits are not a legal date is
+  left as the author wrote it.
+- `describe --tables` decides a JOIN's fan-out in one place. The table-card proof used to be
+  applied after the profile was finished, so there were two implementations of "is this JOIN
+  safe" and everything the build derives from the shape -- a field's `candidate_key` role,
+  the `inferred_items` counts -- still saw the answer from before the card.
+  `build_semantic_profile(..., table_cards=...)` is now the only path, and
+  `apply_table_cards` folds in the narrative only.
 - Stop calling a task instance's own date a governance problem. `confidence.findings[]`
   now carries a `severity`: `warn` for the leads somebody has to act on, `info` for the
   facts that need no action -- `hardcoded_date_literal`, `partition_literal_mismatch` and

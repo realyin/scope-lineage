@@ -18,6 +18,8 @@ from __future__ import annotations
 import json
 from typing import Iterable, Sequence
 
+from .sequences import unique_ordered
+
 
 TOP_LEVEL = None
 
@@ -35,17 +37,14 @@ def _statement_entry(diagnostics: dict | None, statement_id: str | None) -> dict
     return entry if isinstance(entry, dict) else {}
 
 
+def _content_key(item) -> str:
+    """What makes two warnings one fact: their content, whatever order it is written in."""
+    return json.dumps(item, ensure_ascii=False, sort_keys=True, default=str)
+
+
 def _dedupe(items: Iterable[dict]) -> list[dict]:
     """Order-preserving dedupe by content: the same warning in both places is one fact."""
-    seen: set[str] = set()
-    ordered: list[dict] = []
-    for item in items:
-        key = json.dumps(item, ensure_ascii=False, sort_keys=True, default=str)
-        if key in seen:
-            continue
-        seen.add(key)
-        ordered.append(item)
-    return ordered
+    return unique_ordered(items, _content_key)
 
 
 def warnings_for(diagnostics: dict | None, statement_id: str | None) -> list[dict]:
@@ -91,17 +90,7 @@ def located_warnings(diagnostics: dict | None) -> list[tuple[str | None, dict]]:
 
 
 def _dedupe_located(items: Sequence[tuple[str | None, dict]]) -> list[tuple]:
-    seen: set[str] = set()
-    ordered: list[tuple] = []
-    for statement_id, warning in items:
-        key = json.dumps(
-            [statement_id, warning], ensure_ascii=False, sort_keys=True, default=str
-        )
-        if key in seen:
-            continue
-        seen.add(key)
-        ordered.append((statement_id, warning))
-    return ordered
+    return unique_ordered(items, lambda pair: _content_key(list(pair)))
 
 
 def all_warnings(diagnostics: dict | None) -> list[dict]:

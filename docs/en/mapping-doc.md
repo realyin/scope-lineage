@@ -55,6 +55,11 @@ markdown = render_mapping_markdown(lineage_document, diagnostics_document)
   `statement_sequence` row points at are rendered after the ordered ones. Any other version is
   skipped and counted in directory mode (`skipped_unknown_version=N` in the run summary) and
   raises an error in single-file mode.
+- A document that cannot be read costs only itself: when a `lineage.json` or its sibling
+  `diagnostics.json` is not valid JSON, or its top level is not an object, directory mode writes
+  one line per file to stderr, counts it as `skipped_unreadable=N` in the run summary, and renders
+  the rest of the tree; single-file mode prints one line and exits 2, the code `--lineage <missing
+  path>` already answers with.
 - When there is no `diagnostics.json` in the same directory, rendering proceeds as usual, but
   section 9 states "无 diagnostics 文档" ("no diagnostics document") explicitly rather than staying
   silent.

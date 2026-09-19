@@ -24,14 +24,15 @@ Between "keep everything" and "keep nothing" there is a third position, and it i
 default: :func:`redact` masks the three contact shapes a comment most often carries --
 an email address, a phone number, a mainland-China ID number -- while leaving the
 sentence around them readable. It is *shape* matching over free text, so it is neither
-exhaustive (an unusually written number survives) nor certain (a 15-digit code that is
-not an ID is masked anyway); ``--strip-comments`` remains the only complete switch.
+exhaustive (an unusually written number survives) nor certain (a code that happens to
+have the shape is masked anyway); ``--strip-comments`` remains the only complete switch.
 """
 
 from __future__ import annotations
 
 import re
-from typing import Iterable
+from datetime import date
+from typing import Callable, Iterable
 
 from sqlglot import exp
 
@@ -50,9 +51,41 @@ from sqlglot import exp
 # the note. Masking a person's address must not delete the author's sentence; an address
 # written in characters this class does not cover is one of the cases the docs already
 # say shape matching does not catch.
-_REDACTIONS: tuple[tuple[re.Pattern[str], str], ...] = (
+_ID_NUMBER = re.compile(r"(?<!\d)(?:\d{17}[0-9Xx]|\d{15})(?!\d)")
+
+
+def _mask_id_number(match: re.Match[str]) -> str:
+    """Mask a run of digits only when it has the *shape* of a mainland ID number.
+
+    Length alone is not that shape. Warehouse comments are full of 15- and 18-digit
+    runs that are order keys, bar codes and serial numbers, and masking ``123456789012345``
+    as ``<id>`` deleted a value the author wrote down on purpose. An ID number carries a
+    six-digit region code (which never starts with a zero) followed by a birth date --
+    ``YYMMDD`` in the 15-digit form, which is always 19xx, and ``YYYYMMDD`` in the
+    18-digit one -- and a date that does not exist is the cheap, decisive test.
+
+    Still a shape and still not a certainty: a 15-digit code whose middle six digits do
+    read as a date is masked anyway, and ``--strip-comments`` remains the only complete
+    switch.
+    """
+    digits = match.group(0)
+    birth = ("19" + digits[6:12]) if len(digits) == 15 else digits[6:14]
+    if digits.startswith("0") or not _is_real_date(birth):
+        return digits
+    return "<id>"
+
+
+def _is_real_date(text: str) -> bool:
+    try:
+        date(int(text[:4]), int(text[4:6]), int(text[6:8]))
+    except ValueError:
+        return False
+    return True
+
+
+_REDACTIONS: tuple[tuple[re.Pattern[str], str | Callable[[re.Match[str]], str]], ...] = (
     (re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"), "<email>"),
-    (re.compile(r"(?<!\d)(?:\d{17}[0-9Xx]|\d{15})(?!\d)"), "<id>"),
+    (_ID_NUMBER, _mask_id_number),
     (re.compile(r"\+\d{1,3}[\s-]?\d{6,14}"), "<phone>"),
     (re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)"), "<phone>"),
 )
@@ -63,8 +96,9 @@ def redact(text: object) -> str:
 
     ``a@b.com`` becomes ``<email>``, a mainland-China mobile or an international number
     becomes ``<phone>``, an 18- or 15-digit ID number becomes ``<id>``. A date such as
-    ``20260814`` and an amount such as ``1000.50`` are not contact shapes and are left as
-    the author wrote them.
+    ``20260814``, an amount such as ``1000.50`` and a 15- or 18-digit serial number whose
+    middle digits are not a real birth date are not contact shapes and are left as the
+    author wrote them.
     """
     result = "" if text is None else str(text)
     for pattern, placeholder in _REDACTIONS:

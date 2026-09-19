@@ -109,7 +109,7 @@ def run_glossary(args: argparse.Namespace) -> int:
     loaded = _load_contract_documents(*found, args.out, "glossary builder")
     if isinstance(loaded, int):
         return loaded
-    documents, skipped_unknown_version, missing_diagnostics = loaded
+    documents = loaded.documents
 
     try:
         glossary = build_glossary(
@@ -122,7 +122,7 @@ def run_glossary(args: argparse.Namespace) -> int:
         return 1
     _write(Path(args.out), glossary, formats(args.format))
     template = _write_template(glossary, args)
-    _report(glossary, template, args, skipped_unknown_version, missing_diagnostics)
+    _report(glossary, template, args, loaded.counters())
     return 0
 
 
@@ -130,8 +130,7 @@ def _report(
     glossary: dict,
     template: dict | None,
     args: argparse.Namespace,
-    skipped_unknown_version: int,
-    missing_diagnostics: int,
+    counters: str,
 ) -> None:
     applied = glossary["overrides_applied"]
     print(
@@ -139,8 +138,7 @@ def _report(
         f"value observation(s) from {glossary['corpus']['task_count']} task(s) "
         f"(overrides terms={applied['terms']}, values={applied['values']}, "
         f"blank={applied['blank']}, unmatched={len(applied['unmatched'])}, "
-        f"skipped_unknown_version={skipped_unknown_version}, "
-        f"missing_diagnostics={missing_diagnostics})"
+        f"{counters})"
     )
     if template is not None:
         print(

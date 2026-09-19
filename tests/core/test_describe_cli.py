@@ -242,6 +242,6 @@ def test_describe_and_render_walk_the_same_input(tmp_path: Path, capsys) -> None
     assert main(["describe", "--lineage", str(corpus)]) == 0
     describe_out = capsys.readouterr().out
 
-    counters = "(skipped_unknown_version=1, missing_diagnostics=1)"
+    counters = "(skipped_unknown_version=1, missing_diagnostics=1, skipped_unreadable=0)"
     assert f"Rendered 2 mapping document(s) {counters}" in render_out
     assert f"Described 2 task(s) {counters}" in describe_out

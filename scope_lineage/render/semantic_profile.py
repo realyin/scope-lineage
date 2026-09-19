@@ -34,12 +34,14 @@ risk) and the ``stages`` block (per-scope actions, including the R6 window inten
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from typing import Iterable, Mapping, Sequence
 
 from . import glossary_values, semantic_text
 from .diagnostics_view import all_warnings, fact_gaps_for, warnings_for
 from .mapping_markdown import lineage_document_digest
+from .sequences import unique_ordered
 
 
 DOC_FORMAT = "semantic-json/1"
@@ -322,19 +324,30 @@ _SCOPE_ROLE_LABELS = (
 def build_semantic_profile(
     lineage_document: dict,
     diagnostics_document: dict | None = None,
+    *,
+    table_cards: Mapping | None = None,
 ) -> dict:
     """Build the semantic profile of one statement document or one task document.
 
     A 1.0 statement document profiles to a single statement profile; a 2.0 task document
     profiles to a task profile holding one statement profile per write statement, in
     ``statement_sequence`` order.
+
+    ``table_cards`` is an optional corpus (``tables-json/1``). One question needs it:
+    a JOIN onto a physical table can only end at 「物理表无主键事实」 from inside one
+    statement, and a card may carry another task's proof that the table is written one
+    row per the columns this ON clause names (WI-2.8 D2). It is a parameter of the build
+    rather than a post-processing step because everything else the build derives from
+    the shape -- a field's ``candidate_key`` role, the inferred-item counts -- has to see
+    the same answer. Without it the profile is byte for byte what it was before cards
+    existed.
     """
     version = lineage_document.get("schema_version")
     if (
         version == TASK_SCHEMA_VERSION
         and lineage_document.get("artifact_kind") == TASK_ARTIFACT_KIND
     ):
-        return _build_task_profile(lineage_document, diagnostics_document)
+        return _build_task_profile(lineage_document, diagnostics_document, table_cards)
     if version != SUPPORTED_SCHEMA_VERSION:
         raise ValueError(
             f"semantic profile builder supports schema_version "
@@ -343,13 +356,19 @@ def build_semantic_profile(
         )
     # A bare statement document has no task metadata to read: `task_meta` is a 2.0
     # top-level fact, and the statement it wraps cannot supply one.
-    return _build_statement_profile(lineage_document, diagnostics_document)
+    return _build_statement_profile(
+        lineage_document, diagnostics_document, table_cards=table_cards
+    )
 
 
 # --------------------------------------------------------------------- task document
 
 
-def _build_task_profile(task_document: dict, diagnostics_document: dict | None) -> dict:
+def _build_task_profile(
+    task_document: dict,
+    diagnostics_document: dict | None,
+    table_cards: Mapping | None = None,
+) -> dict:
     statement_lineage = task_document.get("statement_lineage") or {}
     ordered_ids = [
         str(statement.get("statement_id") or "")
@@ -384,6 +403,7 @@ def _build_task_profile(task_document: dict, diagnostics_document: dict | None) 
                 # WI-2.2: task metadata is a fact of the script, not of one statement,
                 # so it is handed down rather than looked up per statement.
                 task_meta=task_document.get("task_meta"),
+                table_cards=table_cards,
             )
             for sid in ordered_ids
         ],
@@ -410,7 +430,10 @@ def _produced_tables(task_document: dict) -> list[str]:
 
 
 def _build_statement_profile(
-    document: dict, diagnostics: dict | None, task_meta: dict | None = None
+    document: dict,
+    diagnostics: dict | None,
+    task_meta: dict | None = None,
+    table_cards: Mapping | None = None,
 ) -> dict:
     rules = _build_rules(document)
     # WI-2.1c item 5: the metric cards are what know where a metric's *argument* was
@@ -418,7 +441,9 @@ def _build_statement_profile(
     # shape block rather than the walk being repeated there.
     context = _field_context(document, rules, task_meta)
     fields = _build_fields(document, rules, context)
-    output_shape = _build_output_shape(document, context["metric_argument_scopes"])
+    output_shape = _build_output_shape(
+        document, context["metric_argument_scopes"], table_cards
+    )
     stages = _build_stages(document)
     # R5's last two roles need R3's result, so they are applied once the shape is known
     # rather than guessed from the column name inside `_structural_role`.
@@ -432,6 +457,7 @@ def _build_statement_profile(
         glossary_values.aggregate_values(
             glossary_values.statement_observations(document, rules, fields)
         ),
+        document.get("target_table"),
     )
     profile = {
         "doc_format": DOC_FORMAT,
@@ -594,15 +620,9 @@ def _physical_fields(resolution: dict | None) -> list[tuple[str, str]]:
 
 def _dedupe(items: Iterable) -> list:
     """Order-preserving dedupe that also accepts dict items (rendered key pairs)."""
-    seen = set()
-    ordered = []
-    for item in items:
-        key = repr(item) if isinstance(item, dict) else item
-        if key in seen:
-            continue
-        seen.add(key)
-        ordered.append(item)
-    return ordered
+    return unique_ordered(
+        items, lambda item: repr(item) if isinstance(item, dict) else item
+    )
 
 
 # --------------------------------------------------------------------- task block (R1)
@@ -2039,13 +2059,26 @@ def _is_temporal(declared_type: str | None) -> bool:
 
 
 def _build_output_shape(
-    document: dict, metric_argument_scopes: Sequence[str] = ()
+    document: dict,
+    metric_argument_scopes: Sequence[str] = (),
+    table_cards: Mapping | None = None,
 ) -> dict:
     shape, evidence = _classify_shape(document)
     grain, visited = _build_grain(document, shape, evidence)
-    risks = _fan_out_risks(document, visited, metric_argument_scopes)
-    keys, unexposed, key_evidence = _target_key_columns(document, grain, risks)
-    confidence = _key_confidence(grain, keys, unexposed, risks)
+    decided = _fan_out_risks(
+        document, visited, metric_argument_scopes, _card_lookup(table_cards)
+    )
+    risks = [risk for risk, _level in decided]
+    walked = _grain_path_risks(risks)
+    keys, unexposed, key_evidence = _target_key_columns(document, grain, walked)
+    confidence = _capped_confidence(
+        _key_confidence(grain, keys, unexposed, walked),
+        [
+            level
+            for risk, level in decided
+            if str(risk.get("path")) == METRIC_PATH_GRAIN
+        ],
+    )
     return {
         "shape": shape,
         "shape_evidence": evidence,
@@ -2655,7 +2688,8 @@ def _fan_out_risks(
     document: dict,
     scope_ids: Sequence[str],
     argument_scope_ids: Sequence[str] = (),
-) -> list[dict]:
+    card_lookup=None,
+) -> list[tuple[dict, str | None]]:
     """Every JOIN on the grain walk's path, then every JOIN on a metric argument path.
 
     ROOT's joins were always here; the walk adds the ones it crossed on the way down,
@@ -2673,7 +2707,7 @@ def _fan_out_risks(
     seen = set(grain)
     argument = [item for item in _dedupe(argument_scope_ids) if item not in seen]
     return [
-        _fan_out_risk(document, scope_id, block, path)
+        _fan_out_risk(document, scope_id, block, path, card_lookup)
         for path, walked in (
             (METRIC_PATH_GRAIN, grain),
             (METRIC_PATH_ARGUMENT, argument),
@@ -2683,11 +2717,36 @@ def _fan_out_risks(
     ]
 
 
-def _fan_out_risk(document: dict, scope_id: str, block: dict, path: str) -> dict:
+def _grain_path_risks(risks: Sequence[dict]) -> list[dict]:
+    """The risks that bear on row *identity*, i.e. the ones on the grain walk's path.
+
+    WI-2.1c item 5 gave every risk a ``path``, and the key set never learned to read it.
+    A JOIN that only feeds a metric's argument duplicates the rows a ``SUM`` reads, which
+    makes that number wrong -- it does not duplicate a row of the output, so it cannot
+    change which columns identify one. Letting it cost the statement its keys withdrew
+    the strongest claim the profile can make (``proven``) over a different question, and
+    left the reader with no key set at all rather than a key set and a caveat. The risk
+    stays published either way; only the key decision filters.
+    """
+    return [risk for risk in risks if str(risk.get("path")) == METRIC_PATH_GRAIN]
+
+
+def _fan_out_risk(
+    document: dict, scope_id: str, block: dict, path: str, card_lookup=None
+) -> tuple[dict, str | None]:
+    """One published risk, plus the card confidence that decided it (or ``None``).
+
+    The level is not part of the risk: what the reader needs is the verdict and the
+    sentence naming the proof. It is returned beside it because a *candidate* key is the
+    corpus's best guess rather than a proof, so a verdict that rests on one caps the key
+    confidence of the whole statement -- see :func:`_capped_confidence`.
+    """
     detail = block.get("join_relation_detail") or {}
     block_id = str(block.get("logic_block_id"))
-    status, reason = _fan_out_verdict(document, block_id, detail)
-    return {
+    status, reason, basis, level = _fan_out_verdict(
+        document, block_id, detail, card_lookup
+    )
+    risk = {
         "logic_block_id": block_id,
         "scope_id": scope_id,
         "join_type": detail.get("join_type"),
@@ -2696,85 +2755,87 @@ def _fan_out_risk(document: dict, scope_id: str, block: dict, path: str) -> dict
         "reason": reason,
         "path": path,
     }
+    if basis:
+        risk["basis"] = basis
+    return risk, level
 
 
-def _fan_out_verdict(document: dict, block_id: str, detail: dict) -> tuple[str, str]:
-    """Only three shapes can be proven safe; everything else is ``risk`` or ``unknown``."""
+def _fan_out_verdict(
+    document: dict, block_id: str, detail: dict, card_lookup=None
+) -> tuple[str, str, str | None, str | None]:
+    """``(status, reason, basis, card key confidence)``.
+
+    Only three shapes can be proven safe from inside one statement; everything else is
+    ``risk`` or ``unknown``. The fourth shape needs a corpus: a JOIN onto a physical
+    table has no primary key this statement can see, but a table card may carry another
+    task's proof that the table is written one row per the very columns this ON clause
+    names -- a fact, not a guess (WI-2.8 D2).
+    """
     right = str(detail.get("right_input") or "")
     if right in set(document.get("source_tables") or []):
-        return "unknown", "物理表无主键事实"
+        carded = _card_verdict(right, detail, card_lookup)
+        return carded or ("unknown", "物理表无主键事实", None, None)
     if right not in _scopes(document):
-        return "unknown", f"右侧 {right} 不是本语句的 scope，无唯一性事实"
+        return "unknown", f"右侧 {right} 不是本语句的 scope，无唯一性事实", None, None
     columns = _join_side_columns(detail, "right")
     if not columns:
         if _join_side_keys(detail, "right"):
-            return "risk", "右侧连接键没有 scope 级列名，唯一性无从判定"
-        return "risk", "该 JOIN 无可证明的连接键，右侧唯一性无从判定"
+            return "risk", "右侧连接键没有 scope 级列名，唯一性无从判定", None, None
+        return "risk", "该 JOIN 无可证明的连接键，右侧唯一性无从判定", None, None
     grouped = _grouped_uniqueness(document, right, columns)
     if grouped is not None and grouped[0] == "safe":
-        return grouped
+        return (*grouped, None, None)
     proven = _ranking_uniqueness(document, right, (block_id, detail), columns)
     if proven is not None:
         function, partition, consumer = proven
         scope = "无分区" if not partition else f"按 {'、'.join(partition)} 分区"
-        return "safe", f"右侧 {function} {scope}并以 = 1 过滤（{consumer}）"
-    return grouped or ("risk", "右侧未被证明按连接键唯一")
+        return "safe", f"右侧 {function} {scope}并以 = 1 过滤（{consumer}）", None, None
+    return (*(grouped or ("risk", "右侧未被证明按连接键唯一")), None, None)
 
 
-def apply_card_fan_out(document: dict, output_shape: dict, lookup) -> dict:
-    """Re-decide this statement's JOIN fan-out with what the corpus proved (WI-2.8 D2).
+def _card_verdict(
+    right: str, detail: dict, card_lookup
+) -> tuple[str, str, str, str] | None:
+    """The corpus's answer for a JOIN onto a physical table, or None when it has none.
 
-    ``_fan_out_verdict`` sees one statement, so a JOIN onto a physical table can only end
-    at 「物理表无主键事实」. A table card carries another task's proof that the table is
-    written one row per the very columns this ON clause names -- a fact, not a guess --
-    and once no risk is left, the keys and the key confidence this statement may claim
-    change with it. ``lookup`` answers ``table name -> card`` so this module never has to
-    import the card builder that calls it. Returns ``output_shape`` itself when no card
-    changed a verdict, which keeps ``describe`` without ``--tables`` byte for byte.
+    Half a proven key set proves nothing -- one customer may hold many countries -- so
+    the ON clause's right-hand columns must cover the card's whole key set before the
+    verdict changes.
     """
-    risks = output_shape.get("fan_out_risks") or []
-    decided = [_carded_risk(document, risk, lookup) for risk in risks]
-    rebuilt = [risk for risk, _level in decided]
-    if rebuilt == risks:
-        return output_shape
-    grain = output_shape.get("grain") or {}
-    keys, unexposed, evidence = _target_key_columns(document, grain, rebuilt)
-    confidence = _capped_confidence(
-        _key_confidence(grain, keys, unexposed, rebuilt),
-        [level for _risk, level in decided],
-    )
-    updated = dict(output_shape)
-    updated.update(
-        {
-            "candidate_keys": keys if confidence != KEY_CONFIDENCE_NONE else [],
-            "unexposed_keys": unexposed,
-            "key_evidence": evidence,
-            "key_confidence": confidence,
-            "fan_out_risks": rebuilt,
-        }
-    )
-    return updated
-
-
-def _carded_risk(document: dict, risk: dict, lookup) -> tuple[dict, str | None]:
-    """One risk, re-decided by a card when the card's keys cover the ON clause."""
-    right = str(risk.get("right") or "")
-    if str(risk.get("status")) == "safe" or right not in set(
-        document.get("source_tables") or []
-    ):
-        return risk, None
-    proof = _card_key_proof(lookup(right))
+    if card_lookup is None:
+        return None
+    proof = _card_key_proof(card_lookup(right))
     if proof is None:
-        return risk, None
+        return None
     task, keys, level = proof
-    columns = _join_side_columns(_risk_join_detail(document, risk), "right")
+    columns = _join_side_columns(detail, "right")
     if not columns or not _comparable(keys) <= _comparable(columns):
-        return risk, None
-    decided = dict(risk)
-    decided["status"] = "safe"
-    decided["reason"] = _card_reason(task, keys, level)
-    decided["basis"] = FAN_OUT_BASIS_TABLE_CARD
-    return decided, level
+        return None
+    return "safe", _card_reason(task, keys, level), FAN_OUT_BASIS_TABLE_CARD, level
+
+
+def _card_lookup(table_cards: Mapping | None):
+    """``table name -> card`` over a ``tables-json/1`` corpus, or None when none was given.
+
+    Re-implemented here rather than imported from ``table_cards``, which imports this
+    module: the identity rule is the corpus-wide suffix rule ``glossary_values`` already
+    owns, so only the walk is local.
+    """
+    index = list((table_cards or {}).get("tables") or [])
+    if not index:
+        return None
+
+    def lookup(name):
+        for card in index:
+            spellings = [card.get("table"), *(card.get("aliases") or [])]
+            if any(
+                spelling and glossary_values.same_table(name, spelling)
+                for spelling in spellings
+            ):
+                return card
+        return None
+
+    return lookup
 
 
 def _card_key_proof(card) -> tuple[str, list[str], str] | None:
@@ -2801,14 +2862,6 @@ def _capped_confidence(confidence: str, levels: Sequence[str | None]) -> str:
     if confidence in (KEY_CONFIDENCE_PROVEN, KEY_CONFIDENCE_PROVEN_UNEXPOSED):
         return KEY_CONFIDENCE_CANDIDATE
     return confidence
-
-
-def _risk_join_detail(document: dict, risk: dict) -> dict:
-    """The JOIN block one published risk was derived from, found again by its id."""
-    for block in _blocks_of_type(document, str(risk.get("scope_id")), "join"):
-        if str(block.get("logic_block_id")) == str(risk.get("logic_block_id")):
-            return block.get("join_relation_detail") or {}
-    return {}
 
 
 def _grouped_uniqueness(
@@ -4450,6 +4503,10 @@ ALIAS_MISMATCH_PREVIEW_COUNT = 3
 # order is stale.
 _POSITIONAL_BINDING_METHOD = "ddl_position"
 
+# The names sqlglot's `qualify` invents for a projection the author did not alias. They
+# are the absence of an alias, not an alias that disagrees -- see `_name_is_generated`.
+_GENERATED_NAME_SHAPE = re.compile(r"_col_\d+|_c\d+")
+
 _TARGET_BINDING_METHOD_NOTES = {
     "ddl_position": "按 DDL 位置绑定，目标表 DDL 变更会导致列错位",
     "projection_alias": "按投影别名绑定",
@@ -4513,6 +4570,7 @@ def _alias_position_findings(document: dict, fields: Sequence[dict]) -> list[dic
         for entry in entries
         if entry.get("parsed_column")
         and str(entry.get("parsed_column")) != str(entry.get("column"))
+        and not _name_is_generated(entry)
     ]
     if not mismatched:
         return []
@@ -4534,6 +4592,21 @@ def _alias_position_findings(document: dict, fields: Sequence[dict]) -> list[dic
             [chains.get(str(entry.get("column"))) for entry in mismatched],
         )
     ]
+
+
+def _name_is_generated(entry: Mapping) -> bool:
+    """Whether ``parsed_column`` is a placeholder rather than an alias somebody wrote.
+
+    Two answers, in order. The contract's own ``name_is_generated`` is the fact and wins
+    where it is published -- but it is published only while the generated name is still
+    *unbound*, and a positional write binds every one of them, which is exactly the case
+    this guard exists for. So the fallback is the placeholder's shape: sqlglot's
+    ``qualify`` names an unaliased projection ``_col_N`` (and ``_c_N`` in some
+    dialects), and ``select_scope`` already treats those two spellings as generated.
+    """
+    if entry.get("name_is_generated"):
+        return True
+    return bool(_GENERATED_NAME_SHAPE.fullmatch(str(entry.get("parsed_column") or "")))
 
 
 def _literal_comparisons(document: dict, rules: Sequence[dict]) -> list[dict]:
@@ -4711,19 +4784,7 @@ def _hardcoded_date_findings(comparisons: Sequence[dict]) -> list[dict]:
 
 
 def _dedupe_by_text(items: Sequence[dict]) -> list[dict]:
-    return _dedupe_objects(items, lambda item: (item["column"], item["value"]))
-
-
-def _dedupe_objects(items: Sequence[dict], key) -> list[dict]:
-    seen: set = set()
-    ordered: list[dict] = []
-    for item in items:
-        marker = key(item)
-        if marker in seen:
-            continue
-        seen.add(marker)
-        ordered.append(item)
-    return ordered
+    return unique_ordered(items, lambda item: (item["column"], item["value"]))
 
 
 def _metadata_conflict_findings(diagnostics: dict | None) -> list[dict]:

@@ -732,7 +732,7 @@ the basename for a single task file, or a POSIX-style path relative to the batch
   supplied schema, absent when the schema does not know the table — this is what lets a
   reader tell "a few columns used" apart from "the table's full width");
 - `output_tables`: keys are target table names, values are the corresponding target metadata — the `--schema` map when it knows the table, otherwise a fallback to the target table's own DDL/Schema export (`--target-ddl-metadata`), whose `type`/`comment` fill `column_details[]` for the columns this statement actually writes, with `full_table_name`/`source_file`/`structure_source` in `table_metadata`; the `metadata_source` key names which side answered — `schema` or `target_ddl` — and is absent when neither described the table;
-- `metadata_complete`: whether the metadata the caller supplied covers the known fields — not a claim that the real catalog is always complete.
+- `metadata_complete`: whether the metadata the caller supplied covers the known fields — not a claim that the real catalog is always complete. When the metadata knows the table but agrees with none of the column names this statement writes, `column_details[]` is empty, `metadata_complete` is `false` (zero written columns described is not coverage), `metadata_source` still names which side answered, and the additive key `metadata_note: "no_output_column_matched"` is present — "the DDL was read and matched nothing" and "nobody supplied metadata" are two states with two different fixes.
 
 Each table's `table_metadata` is an **open object**, present only when the metadata described
 the table at table level, and additive:
@@ -929,11 +929,11 @@ The personal data a comment most often carries is a way to reach a person, so **
 | --- | --- | --- |
 | Email address | `<email>` | Bounded to the characters an address is written with, so adjacent words and punctuation are not swallowed |
 | Phone number | `<phone>` | An 11-digit mainland-China mobile (`1[3-9]…`) and international forms such as `+86 138…` |
-| ID number | `<id>` | The 18-digit (final `X` allowed) and 15-digit shapes |
+| ID number | `<id>` | The 18-digit (final `X` allowed) and 15-digit shapes, whose middle digits must read as a real birth date |
 
 Masking happens **at collection time**, on the comment text itself, so the three `comments` keys and the inline copy inside a rendered expression (such as `logic_blocks[].raw_expression`) all carry the same masked text; `task_meta.description` goes through it too, being free text a person wrote. The SQL expression itself is never rewritten: `WHERE id_no = '110101199003078219'` is data the statement operates on, and masking it would change what the SQL says.
 
-**This is shape matching, not identification, and it is not exhaustive.** A number written a little differently slips through (other separators, full-width digits, an address spelled out in words), while a business code that happens to be 15 digits long is masked as if it were an ID. It lowers the chance of publishing contact details by accident; it is not a compliance guarantee. When no comment may leave the machine, use the complete switch in §18.4.
+**This is shape matching, not identification, and it is not exhaustive.** A number written a little differently slips through (other separators, full-width digits, an address spelled out in words), while a business code that happens to have the shape (a six-digit region code that does not start with a zero, followed by a real birth date) is masked as if it were an ID. Length alone is not the shape, so a serial number such as `123456789012345` is left as written. It lowers the chance of publishing contact details by accident; it is not a compliance guarantee. When no comment may leave the machine, use the complete switch in §18.4.
 
 No key is added for this: a masked comment is still a comment, and `<email>` is that comment's text.
 

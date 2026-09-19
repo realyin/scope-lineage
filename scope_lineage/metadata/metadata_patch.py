@@ -135,6 +135,17 @@ def _read_document(path: Path) -> Mapping:
             f"--metadata-patch expects a {DOC_FORMAT} document; {path} declares "
             f"{declared!r}"
         )
+    for section in ("tables", "columns"):
+        value = document.get(section)
+        # A reviewer who writes the section as a list of keys ("the questions I
+        # answered") rather than a mapping from key to answer has made a typo, and a
+        # typo in a reviewed file is exactly what the reviewer cannot see. Said here,
+        # where the file is still named, rather than as an AttributeError two calls on.
+        if value is not None and not isinstance(value, Mapping):
+            raise MetadataPatchError(
+                f"{path}: \"{section}\" must be a JSON object mapping each key to its "
+                f"answer, got {type(value).__name__}"
+            )
     return document
 
 

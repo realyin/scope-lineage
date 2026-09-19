@@ -121,6 +121,13 @@ rule (the same semantics as `_same_table` in `skills/scope-lineage/scripts/query
 the **most qualified spelling as the primary name**, and publish the rest under `aliases`
 rather than dropping them.
 
+Suffix merging happens **between qualified names only**. An unqualified name is never the
+bridge: `ods.t` and `dwd.t` are two tables, and one script that wrote a bare `t` may not
+merge them into one card. A bare name joins a card only when **exactly one** dotted table
+in the corpus matches it by suffix; when several do, it gets a card of its own and that
+card's `findings` carry `ambiguous_bare_name`, for a person to confirm which table the
+script actually reads and writes.
+
 ### What never becomes a table
 
 - **Session-scoped relations**: a `CREATE TEMPORARY VIEW` and friends live only inside the
@@ -146,11 +153,12 @@ Line tags follow [semantic.md](semantic-doc.md): `（元数据事实）`, `（SQ
 `（结构推断；证据 …）`, `（SQL注释）`. The file name replaces `/`, spaces and anything else
 a file system refuses with `_`.
 
-`findings[].kind` has exactly four values, each meaning "this is observable in the corpus"
+`findings[].kind` has exactly five values, each meaning "this is observable in the corpus"
 rather than a verdict:
 
 | kind | Meaning |
 | --- | --- |
+| `ambiguous_bare_name` | the name carries no database qualifier and several tables in the corpus could be it; they were not merged, and a person has to confirm which one |
 | `multiple_producers` | more than one write statement writes this table; which result a reader sees depends on scheduling order |
 | `producer_key_conflict` | the producing statements disagree about the candidate key, so a person has to settle the definition |
 | `never_consumed_in_corpus` | no task in the corpus reads it; it may be an external hand-off, or an unread output |
@@ -198,8 +206,11 @@ column, and the target-table lines are followed by a "下游消费：…" line.
 ### Cards decide a fan-out
 
 One statement can never prove a physical table unique by the join keys, so a JOIN onto one
-could only end at `unknown` / 「物理表无主键事实」. A table card holds another task's proof,
-so `describe --tables` **recomputes** `output_shape` once the cards are attached:
+could only end at `unknown` / 「物理表无主键事实」. A table card holds another task's proof, so
+`describe --tables` hands the cards to **the build itself**
+(`build_semantic_profile(..., table_cards=...)`): there is one fan-out verdict, and a card is
+simply its fourth source of evidence. Everything derived from `output_shape` — a field's
+`candidate_key` role, the `inferred_items` counts — therefore sees the same answer:
 
 | Condition | Result |
 | --- | --- |
@@ -207,10 +218,9 @@ so `describe --tables` **recomputes** `output_shape` once the cards are attached
 | The same, but the card's `key_confidence` is `candidate` | still `safe`, but the `reason` says 「表卡候选键，未证唯一」 and the statement's whole `key_confidence` is capped at `candidate` |
 | The card's `key_confidence` is `proven_unexposed` or `none`, or the join keys do not cover the candidate keys | nothing is re-decided; the original verdict stands |
 
-Once a verdict changes, `candidate_keys`, `unexposed_keys`, `key_evidence` and
-`key_confidence` are recomputed with the new risk set — they were always functions of
-"every JOIN on the path is `safe`". When no card re-decided anything, `output_shape` is
-returned as it was, byte for byte.
+`candidate_keys`, `unexposed_keys`, `key_evidence` and `key_confidence` are all derived from
+the final risk set — they were always functions of "every JOIN on the grain path is `safe`".
+Without `--tables`, `output_shape` is byte for byte what it was before cards existed.
 - Without `--tables`, those three keys **do not appear at all**, and `semantic.json` /
   `semantic.md` are byte-identical to what they were before table cards existed. Pass
   `--tables` when you want the empty-value semantics.

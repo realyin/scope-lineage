@@ -10,6 +10,7 @@ import traceback
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 from .cli_glossary import add_glossary_parser, formats as _glossary_formats, run_glossary
 from .cli_tables import add_tables_parser, formats as _tables_formats, run_tables
@@ -460,25 +461,74 @@ def _is_derivable_document(document: dict) -> bool:
     )
 
 
+class _ContractWalk(NamedTuple):
+    """What one walk over a corpus found, plus the three things it had to skip."""
+
+    documents: list[_ContractDocument]
+    skipped_unknown_version: int
+    missing_diagnostics: int
+    skipped_unreadable: int
+
+    def counters(self) -> str:
+        """The one summary every command that shares this walk prints."""
+        return (
+            f"skipped_unknown_version={self.skipped_unknown_version}, "
+            f"missing_diagnostics={self.missing_diagnostics}, "
+            f"skipped_unreadable={self.skipped_unreadable}"
+        )
+
+
+def _read_json_object(path: Path) -> dict | None:
+    """One JSON object read from disk, or None with one line on stderr saying why.
+
+    A corpus is written by somebody else's job, so a truncated or half-written file is
+    an input this tool meets rather than a bug in it: the walk skips that one document
+    instead of raising out of ``main`` and hiding every other task in the tree. A
+    document that parses but is not an object (a list, a bare string) is the same kind
+    of unusable input and is reported in the same sentence.
+    """
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        print(f"{path}: not a readable JSON document ({error})", file=sys.stderr)
+        return None
+    if not isinstance(document, dict):
+        print(
+            f"{path}: not a readable JSON document "
+            f"(top level is {type(document).__name__}, not an object)",
+            file=sys.stderr,
+        )
+        return None
+    return document
+
+
 def _load_contract_documents(
     paths: list[Path], base: Path, single_file: bool, out: str | None, label: str
 ):
-    """Read the documents both derived-view commands consume, with their two counters.
+    """Read the documents both derived-view commands consume, with their counters.
 
     ``render`` and ``describe`` answer different questions but walk the same input: a
     file or a tree, each document's sibling ``diagnostics.json``, an unsupported version
     that is fatal for one named file and merely counted in a corpus, and the output
-    directory that mirrors the input tree under ``--out``. Returns
-    ``(documents, skipped_unknown_version, missing_diagnostics)``, or exit code 1 when
-    the one file the user named is not a supported document.
+    directory that mirrors the input tree under ``--out``. Returns a
+    :class:`_ContractWalk`, or an exit code: 1 when the one file the user named is not a
+    supported document, 2 when it cannot be read at all -- the same code
+    ``--lineage <missing path>`` already answers with, because "the file you named is
+    not usable" is one answer however it failed.
     """
     from .render.mapping_markdown import SUPPORTED_SCHEMA_VERSION, TASK_SCHEMA_VERSION
 
     loaded: list[_ContractDocument] = []
     skipped_unknown_version = 0
     missing_diagnostics = 0
+    skipped_unreadable = 0
     for lineage_path in paths:
-        document = json.loads(lineage_path.read_text(encoding="utf-8"))
+        document = _read_json_object(lineage_path)
+        if document is None:
+            if single_file:
+                return 2
+            skipped_unreadable += 1
+            continue
         version = document.get("schema_version")
         if not _is_derivable_document(document):
             if single_file:
@@ -494,7 +544,11 @@ def _load_contract_documents(
         diagnostics_path = lineage_path.parent / "diagnostics.json"
         diagnostics = None
         if diagnostics_path.is_file():
-            diagnostics = json.loads(diagnostics_path.read_text(encoding="utf-8"))
+            diagnostics = _read_json_object(diagnostics_path)
+            if diagnostics is None:
+                # A present-but-unreadable sibling is not a missing one: the document
+                # still describes, and the counter says which of the two happened.
+                skipped_unreadable += 1
         else:
             missing_diagnostics += 1
         target_dir = (
@@ -505,7 +559,9 @@ def _load_contract_documents(
         loaded.append(
             _ContractDocument(lineage_path, document, diagnostics, target_dir)
         )
-    return loaded, skipped_unknown_version, missing_diagnostics
+    return _ContractWalk(
+        loaded, skipped_unknown_version, missing_diagnostics, skipped_unreadable
+    )
 
 
 def _write_derived_document(target_dir: Path, name: str, text: str) -> None:
@@ -525,7 +581,7 @@ def _render_inputs(args: argparse.Namespace) -> int:
     loaded = _load_contract_documents(*found, args.out, "mapping renderer")
     if isinstance(loaded, int):
         return loaded
-    documents, skipped_unknown_version, missing_diagnostics = loaded
+    documents = loaded.documents
 
     sections = args.sections.split(",") if args.sections else None
     for item in documents:
@@ -545,11 +601,7 @@ def _render_inputs(args: argparse.Namespace) -> int:
         if warnings_markdown is not None:
             _write_derived_document(item.target_dir, "warnings.md", warnings_markdown)
 
-    print(
-        f"Rendered {len(documents)} mapping document(s) "
-        f"(skipped_unknown_version={skipped_unknown_version}, "
-        f"missing_diagnostics={missing_diagnostics})"
-    )
+    print(f"Rendered {len(documents)} mapping document(s) ({loaded.counters()})")
     return 0
 
 
@@ -557,47 +609,51 @@ def _describe_formats(value: str | None) -> set[str]:
     return {name.strip() for name in (value or "json,md").split(",") if name.strip()}
 
 
-def _load_table_cards(path: str | None):
-    """WI-2.5: the corpus table cards ``describe --tables`` consumes, or the exit code.
+def _load_corpus_document(path: str | None, flag: str, doc_format: str):
+    """A corpus artifact named on a ``describe`` flag, or the exit code, or None.
 
     A path the user named and the tool cannot read is an error, never a silent fallback
-    to "no cards": the reader would get a document quietly missing the upstream answers
-    they asked for.
+    to "no corpus": the reader would get a document quietly missing the upstream answers
+    they asked for -- and a corpus that observed nothing looks exactly the same in the
+    output. Which is why the declared ``doc_format`` is checked as well as the bytes:
+    ``--glossary`` and ``glossary --overrides`` sit one line apart in every runbook, both
+    take a JSON object, and only the format tells them apart.
     """
-    from .render.table_cards import DOC_FORMAT
-
     if not path:
         return None
-    card_path = Path(path)
-    if not card_path.is_file():
-        print(f"--tables path does not exist: {card_path}", file=sys.stderr)
+    source = Path(path)
+    if not source.is_file():
+        print(f"{flag} path does not exist: {source}", file=sys.stderr)
         return 2
-    cards = json.loads(card_path.read_text(encoding="utf-8"))
-    if cards.get("doc_format") != DOC_FORMAT:
+    document = _read_json_object(source)
+    if document is None:
+        return 2
+    if document.get("doc_format") != doc_format:
         print(
-            f"--tables expects a {DOC_FORMAT} document; {card_path} declares "
-            f"{cards.get('doc_format')!r}",
+            f"{flag} expects a {doc_format} document; {source} declares "
+            f"{document.get('doc_format')!r}",
             file=sys.stderr,
         )
         return 1
-    return cards
+    return document
 
 
 def _describe_inputs(args: argparse.Namespace) -> int:
     from .render.semantic_markdown import render_semantic_markdown
     from .render.semantic_profile import build_semantic_profile
-    from .cli_glossary import load_overrides as _load_json_document
     from .metadata.metadata_patch import (
         MetadataPatchError,
         apply_metadata_patch_to_document,
         load_metadata_patch,
     )
-    from .render.glossary import apply_glossary
-    from .render.table_cards import apply_table_cards
+    from .render.glossary import DOC_FORMAT as GLOSSARY_DOC_FORMAT, apply_glossary
+    from .render.table_cards import DOC_FORMAT as TABLES_DOC_FORMAT, apply_table_cards
 
     # WI-2.4: the corpus glossary, or None. Without it the profile keeps the value
     # domain it derived from this task alone.
-    glossary = _load_json_document(getattr(args, "glossary", None))
+    glossary = _load_corpus_document(
+        getattr(args, "glossary", None), "--glossary", GLOSSARY_DOC_FORMAT
+    )
     if isinstance(glossary, int):
         return glossary
     # WI-2.6: the confirmed comments, applied to the document in memory. The artifact on
@@ -613,13 +669,15 @@ def _describe_inputs(args: argparse.Namespace) -> int:
     loaded = _load_contract_documents(*found, args.out, "semantic describer")
     if isinstance(loaded, int):
         return loaded
-    documents, skipped_unknown_version, missing_diagnostics = loaded
+    documents = loaded.documents
 
     sections = args.sections.split(",") if args.sections else None
     formats = _describe_formats(args.format)
     # WI-2.5: the corpus's table cards, or None. A profile built without them is byte
     # for byte the document describe wrote before table cards existed.
-    table_cards = _load_table_cards(getattr(args, "tables", None))
+    table_cards = _load_corpus_document(
+        getattr(args, "tables", None), "--tables", TABLES_DOC_FORMAT
+    )
     if isinstance(table_cards, int):
         return table_cards
     for item in documents:
@@ -627,9 +685,10 @@ def _describe_inputs(args: argparse.Namespace) -> int:
             apply_metadata_patch_to_document(item.document, patch)
             profile = apply_glossary(
                 apply_table_cards(
-                    build_semantic_profile(item.document, item.diagnostics),
+                    build_semantic_profile(
+                        item.document, item.diagnostics, table_cards=table_cards
+                    ),
                     table_cards,
-                    item.document,
                 ),
                 glossary,
             )
@@ -652,8 +711,7 @@ def _describe_inputs(args: argparse.Namespace) -> int:
 
     print(
         f"Described {len(documents)} task(s) "
-        f"(skipped_unknown_version={skipped_unknown_version}, "
-        f"missing_diagnostics={missing_diagnostics}{_patch_report(patch)})"
+        f"({loaded.counters()}{_patch_report(patch)})"
     )
     return 0
 

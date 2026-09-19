@@ -61,7 +61,7 @@ def run_tables(args: argparse.Namespace) -> int:
     loaded = _load_contract_documents(*found, args.out, "table card builder")
     if isinstance(loaded, int):
         return loaded
-    documents, skipped_unknown_version, missing_diagnostics = loaded
+    documents = loaded.documents
 
     profiles = []
     for item in documents:
@@ -75,8 +75,7 @@ def run_tables(args: argparse.Namespace) -> int:
 
     print(
         f"Carded {len(cards['tables'])} table(s) from {cards['corpus']['task_count']} "
-        f"task(s) (skipped_unknown_version={skipped_unknown_version}, "
-        f"missing_diagnostics={missing_diagnostics})"
+        f"task(s) ({loaded.counters()})"
     )
     return 0
 

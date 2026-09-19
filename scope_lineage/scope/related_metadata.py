@@ -78,6 +78,12 @@ def _input_table_metadata(
     return tables
 
 
+#: ``metadata_note``: the table was described, and the description named none of the
+#: columns this statement writes -- a stale DDL, a renamed column, or a write the
+#: description has not caught up with. Additive: absent when there is nothing to say.
+_NO_OUTPUT_COLUMN_MATCHED = "no_output_column_matched"
+
+
 def _output_table_metadata(
     result: ScopeLineageResult,
     schema: Mapping[str, Iterable[str]] | None,
@@ -99,14 +105,23 @@ def _output_table_metadata(
         details = [_unknown_column_detail(name) for name in output_names]
         source = ""
     item = {
+        # A description that knows the table but agrees with none of the names this
+        # statement writes describes no written column, and "every written column is
+        # described" is exactly what `metadata_complete` claims. Published as true, the
+        # coverage counters downstream read it as full coverage and nobody is told to go
+        # and look at the table.
         "column_details": details,
-        "metadata_complete": bool(source),
+        "metadata_complete": bool(source) and bool(details),
     }
     if source:
         # Which of the two descriptions answered. Without it a null comment and an
         # authoritative empty comment are the same document, and a consumer weighing the
         # target's own DDL against a catalog export cannot tell which one it is reading.
         item["metadata_source"] = source
+        if not details:
+            # "The DDL was read and matched nothing" and "no description was supplied"
+            # are two states with two different fixes, so the first says so out loud.
+            item["metadata_note"] = _NO_OUTPUT_COLUMN_MATCHED
     table_detail = table_details_for_table(schema, result.target_table) if schema else {}
     if not table_detail and source == "target_ddl":
         table_detail = _target_ddl_table_detail(target_table_metadata)

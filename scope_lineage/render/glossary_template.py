@@ -34,6 +34,7 @@ from . import semantic_text
 from .markdown_text import cell as _cell
 from .markdown_text import expr_span as _expr_span
 from .markdown_text import normalize_inline as _normalize_inline
+from .sequences import unique_ordered
 
 
 DOC_FORMAT = "glossary-overrides-template/1"
@@ -198,10 +199,5 @@ def _candidate_text(entry: Mapping) -> str:
 
 
 def _dedupe(items) -> list[str]:
-    seen: set = set()
-    ordered: list[str] = []
-    for item in items:
-        if item and item not in seen:
-            seen.add(item)
-            ordered.append(item)
-    return ordered
+    """Unique in first-seen order, with the empties dropped: a blank is not a column."""
+    return unique_ordered(item for item in items if item)

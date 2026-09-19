@@ -305,6 +305,13 @@ it then holds only what this one statement proves, with every `meaning` `null` (
 statement cannot know what a value means). Passing `--glossary` swaps in the corpus-level
 observations along with the meanings a human confirmed.
 
+A `--glossary` path that does not exist or is not valid JSON (exit code 2), or that does
+not declare `doc_format: "glossary-json/1"` (exit code 1), is an error -- the same rule
+`--tables` follows. Both are JSON objects, so handing `--glossary` the
+`glossary.overrides.json` by mistake used to be accepted silently, and the result was a
+document with no value domains at all, which reads exactly like a corpus that observed
+nothing.
+
 ```jsonc
 "value_domain": [
   {"value": "PAID", "sql_literal": "'PAID'", "kind": "literal",
@@ -323,7 +330,7 @@ observations along with the meanings a human confirmed.
 | Entry order | The order the values were **first observed**; never re-sorted |
 | `kind` | `literal` (an enumerated value) or `pattern` (a `LIKE` / `RLIKE` match shape). A `pattern` always has `closed_set: null`, takes no part in the closed-set decision, and never reaches the `summary` suffix |
 | Matching by source column | A field inherits its source physical column's values only when **every step of the chain** is `DIRECT` / `UNION` (the field's own `transform` and that source's `sources[].transform`; one non-pass-through step anywhere breaks it), and only the observations that pin the column with `=` / `IN` or match its shape with `LIKE` / `RLIKE` travel. `CASE WHEN pay_status = 'PAID' THEN 'Y' ELSE 'N' END` reads `pay_status`, but `'PAID'` is emphatically not a value of `paid_flag` |
-| Matching by target column name | The `case_then` / `union_constant` / `constant_projection` observations match by **column name**, which is how a CASE's enum reaches the same-named target field |
+| Matching by target table + column name | The `case_then` / `union_constant` / `constant_projection` observations match by **target table (normalized by dotted suffix) and column name**, which is how a CASE's enum reaches the same-named target field. Matching by column name alone published every label any task ever wrote into a `status` as a value of every other `status`, and `mart.orders.status` says nothing about `mart.tickets.status`. An observation that stayed on a scope and never reached a named target column (a CASE inside a CTE) belongs to no table and keeps speaking to the same-named field of its own statement only |
 | Type guard | A target column declared numeric (`decimal` / `int` / `bigint` / `double` …) or temporal (`date` / `timestamp`) admits same-typed literals only: a quoted `'Y'` never lands on an amount column, while a quoted `'0'` / `'2026-01-01'` still counts |
 | `closed_set` | `true` means this value belongs to a set the SQL proved closed; `null` means **not proven closed**, never "proven open". The verdict is the **column's**: every value of one field is either all `true` or all `null`. Two proofs make it `true` -- the column's own last-step CASE is exhaustive (an ELSE, and every branch a constant), or a pass-through source column carries a closed `IN` list |
 | `sql_literal` | The literal the author wrote. The `- 取值：` line of `semantic.md` shows it, while `value_domain[].value` and the overrides keys use the unquoted form |

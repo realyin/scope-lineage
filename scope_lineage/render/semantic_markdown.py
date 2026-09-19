@@ -38,6 +38,7 @@ from .markdown_text import cell as _cell
 from .markdown_text import expr_span as _expr_span
 from . import glossary_values as _glossary_values
 from .markdown_text import normalize_inline as _normalize_inline
+from .sequences import unique_ordered
 from .semantic_text import describe_nullable_argument as _describe_nullable_argument
 from .semantic_text import equality_conjunct
 from .semantic_text import predicate_literal_day_offset
@@ -1114,11 +1115,7 @@ def _rule_family_condition(family: Sequence[dict]) -> str:
 
 
 def _dedupe_text(values: Iterable[str]) -> list[str]:
-    ordered: list[str] = []
-    for value in values:
-        if value not in ordered:
-            ordered.append(value)
-    return ordered
+    return unique_ordered(values)
 
 
 def _rule_row(rule: dict) -> str:

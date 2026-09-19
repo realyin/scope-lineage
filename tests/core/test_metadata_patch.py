@@ -508,3 +508,35 @@ def test_load_metadata_patch_refuses_a_non_object_document(tmp_path: Path) -> No
 
     with pytest.raises(MetadataPatchError):
         load_metadata_patch([str(path)])
+
+
+@pytest.mark.parametrize("section", ["tables", "columns"])
+def test_load_metadata_patch_refuses_a_non_object_section(
+    tmp_path: Path, section: str
+) -> None:
+    """A reviewer's file that lists entries instead of mapping them is a typo, not a crash.
+
+    ``{"columns": ["db.t.c"]}`` is the predictable mistake -- the 待确认清单 reads as a
+    list -- and it used to leave ``.items()`` on a list, i.e. an AttributeError traceback
+    out of ``main``. The reviewer needs to be told which file and which section.
+    """
+    path = _write(tmp_path / "a.json", {"doc_format": "metadata-patch/1", section: ["db.t.c"]})
+
+    with pytest.raises(MetadataPatchError) as error:
+        load_metadata_patch([str(path)])
+
+    assert str(path) in str(error.value)
+    assert section in str(error.value)
+
+
+def test_describe_reports_a_malformed_patch_section_with_exit_2(
+    tmp_path: Path, capsys
+) -> None:
+    task = _parse(tmp_path, "artifacts")
+    patch = _write(
+        tmp_path / "patch.json", {"doc_format": "metadata-patch/1", "columns": []}
+    )
+
+    assert main(["describe", "--lineage", str(task), "--metadata-patch", str(patch)]) == 2
+
+    assert "columns" in capsys.readouterr().err
