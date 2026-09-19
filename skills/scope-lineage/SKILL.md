@@ -6,8 +6,9 @@ description: >-
   how a target column is derived step by step, find which tasks/columns depend on a table
   or column (impact analysis), and generate human-readable mapping.md documents. Use this
   skill whenever the user mentions 血缘 / lineage / 字段来源 / 加工步骤 / 影响分析 /
-  mapping 文档 / 字段映射 / 任务画像 / 语义描述 / 字段含义, asks "这个字段怎么算出来的",
-  "这个任务在做什么", "谁依赖这张表", "这个 SQL 读了哪些表", or wants to analyze,
+  mapping 文档 / 字段映射 / 任务画像 / 语义描述 / 字段含义 / 实体关系 / 本体 / 表关系 /
+  ER 图, asks "这个字段怎么算出来的", "这个任务在做什么", "谁依赖这张表",
+  "这个 SQL 读了哪些表", "这批任务里的表是什么关系", or wants to analyze,
   document, or audit warehouse SQL transformations — even if they do not name the
   scope-lineage tool.
 ---
@@ -236,6 +237,59 @@ risk table, the overflow 备查项 / 待填取值 list and the self-check moved 
 appendix. Fill `references/business-profile-template.md`. For a whole corpus, loop over
 the task directories yourself — there is no batch mode in the CLI.
 
+### "整理这批任务的实体关系 / 本体" — ontology
+
+```bash
+scope-lineage tables    --lineage <corpus> --out <dir>
+scope-lineage glossary  --lineage <corpus> --out <dir>
+scope-lineage ontology  --lineage <corpus> --out <dir> \
+  --tables <dir>/tables.json --glossary <dir>/glossary.json
+```
+
+A corpus-level question `describe` can never answer: **how do these tables relate**. The
+run writes `ontology.json` (machine), `ontology.md` (index) and `tables/<db.table>.md`
+(the table card with five ontology sections appended). `--tables` / `--glossary` only save
+a recomputation — the bytes are identical without them.
+
+**Read in this order.** `ontology.md` first: its Mermaid `erDiagram` is the whole corpus
+on one screen, and the entity table says which card is worth opening (the 图中 id column
+maps a diagram box back to its table). Then the one card you need — never the JSON, and
+never all the cards. A card's sections 7-11 are 身份 / 关系 / 约束 / 属性同义 /
+待人工判定; sections 1-6 are the ordinary table card.
+
+**Every assertion carries a tier, and the tier is the answer.** `proven` 已证明 is written
+in the SQL. `implied` 可推得 follows from what the SQL does. `hypothesis` 作者假设 is what
+an author assumed and nobody proved. `conflict` 矛盾 is two tasks disagreeing. `confirmed`
+已确认 exists only because a person answered the question in `ontology.overrides.json`.
+
+- **Never report an `assumed` claim as a fact.** `many_to_one_assumed` means "the author
+  joined this table directly and therefore assumed it is unique by that key" — write it
+  that way, not as "this is a many-to-one relationship". The same for a `hypothesis`
+  candidate key: it is a key somebody assumed, not a primary key.
+- **`hypothesis` and `conflict` items must be surfaced verbatim and marked `[待确认]`.**
+  They are the reason this document exists. Summarising them away, or averaging them into
+  a confident sentence, is the single worst thing to do with this artifact.
+- A `cardinality_conflict` is a **governance finding**, not an ontology fact: one task
+  deduplicates a table by k and another joins it directly on k, so either the second
+  multiplies rows or the first is dead weight. Report both sides and who to ask.
+- An `in_set` constraint with `completeness: "unknown"` is a floor, never a ceiling: those
+  values were *observed*, and the column may hold others.
+- Core names no entity and infers no class hierarchy. If a business name is wanted, it is
+  your inference over `naming_hints` and must be labelled `[推断]`.
+
+**When the user wants the open items turned into questions**, follow
+`references/ontology-review-prompt.md`: it produces a five-line-per-item list a business
+owner can answer, and the answers go back through `ontology.overrides.json`:
+
+```bash
+scope-lineage ontology --lineage <corpus> --out <dir> \
+  --overrides <dir>/ontology.overrides.json
+```
+
+Confirmed assertions come back at tier `confirmed`, and an override that matches nothing
+is listed in `overrides_applied.unmatched` rather than dropped — check that list every
+round, it is where a typo in a reviewed file shows up.
+
 ### "这个结果可信吗 / 为什么断了" — diagnostics
 
 Read the relevant warning and gap entries (they are in `query.py summary` counts;
@@ -260,6 +314,10 @@ documented uncertainty).
   just where a field comes from.
 - `references/business-profile-template.md` — the blank skeleton of those three pieces and
   the appendix, with `{…}` placeholders. Fill it rather than inventing a layout.
+- `references/ontology-review-prompt.md` — how to turn a corpus ontology's 待人工判定
+  items into a question list a business owner can answer in five minutes, and how the
+  answers are filed back into `ontology.overrides.json`. Read when the user asks about
+  entity relationships, keys or an ontology over a batch of tasks.
 - `scripts/confirmations.py` — the write-back half: reads the answered 待确认清单 out of a
   `business_profile.md` and merges it into `glossary.overrides.json` /
   `metadata-patch.json`. Run it after the business owner answers, then re-run `glossary`

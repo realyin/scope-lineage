@@ -13,6 +13,11 @@ from pathlib import Path
 from typing import NamedTuple
 
 from .cli_glossary import add_glossary_parser, formats as _glossary_formats, run_glossary
+from .cli_ontology import (
+    add_ontology_parser,
+    formats as _ontology_formats,
+    run_ontology,
+)
 from .cli_tables import add_tables_parser, formats as _tables_formats, run_tables
 from .contract import write_task_lineage
 from .metadata.schema_metadata import load_schema, load_schema_sources
@@ -155,6 +160,7 @@ def main(argv: list[str] | None = None) -> int:
     _add_derived_view_parsers(subcommands)
     add_tables_parser(subcommands)
     add_glossary_parser(subcommands)
+    add_ontology_parser(subcommands)
 
     validate_cmd = subcommands.add_parser(
         "validate",
@@ -205,6 +211,11 @@ def main(argv: list[str] | None = None) -> int:
         if unknown_formats:
             parser.error(f"--format accepts json and md, got {sorted(unknown_formats)}")
         return run_glossary(args)
+    if args.command == "ontology":
+        unknown_formats = _ontology_formats(args.format) - {"json", "md"}
+        if unknown_formats:
+            parser.error(f"--format accepts json and md, got {sorted(unknown_formats)}")
+        return run_ontology(args)
     if args.command == "validate":
         return _validate_inputs(args)
     parser.error(f"unknown command: {args.command}")

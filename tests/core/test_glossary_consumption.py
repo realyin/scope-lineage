@@ -91,6 +91,10 @@ def test_a_field_carries_its_own_statements_values_without_any_glossary() -> Non
         "rule_values_confirmed": 0,
         "field_values_total": 1,
         "field_values_confirmed": 0,
+        # WI-9 legacy b: `'PAID'` is a quoted code pinned by a `=`, so it is one of the
+        # values somebody can be asked to name -- and nobody has.
+        "enumerable_total": 1,
+        "enumerable_confirmed": 0,
     }
 
 
@@ -156,6 +160,8 @@ def test_a_confirmed_override_reaches_the_field_and_its_summary() -> None:
         "rule_values_confirmed": 1,
         "field_values_total": 1,
         "field_values_confirmed": 1,
+        "enumerable_total": 1,
+        "enumerable_confirmed": 1,
     }
 
 
@@ -809,3 +815,102 @@ def test_a_scope_level_label_still_reaches_the_column_it_produces() -> None:
     domain = _field(build_semantic_profile(document), "status")["value_domain"]
 
     assert [item["value"] for item in domain] == ["A", "B"]
+
+
+# ---------------------------------------- the enumerable half of A2 (WI-9 legacy b)
+
+
+_ENUM_SCHEMA = SchemaMap(
+    {"ods.ticket": ["ticket_id", "state", "level", "amount", "dt"]},
+    column_details={
+        "ods.ticket": [
+            {"name": "ticket_id", "type": "bigint", "comment": None},
+            {"name": "state", "type": "string", "comment": None},
+            {"name": "level", "type": "int", "comment": None},
+            {"name": "amount", "type": "decimal(18,2)", "comment": None},
+            {"name": "dt", "type": "string", "comment": None},
+        ]
+    },
+)
+
+
+def _enum_coverage(sql: str) -> dict:
+    document = to_lineage_dict(parse_scope_lineage(sql, "enum_case", schema=_ENUM_SCHEMA))
+    profile = build_semantic_profile(document)
+    return profile["confidence"]["metadata_coverage"].get("glossary") or {}
+
+
+def test_a_batch_date_is_observed_but_is_not_an_enumerable_code() -> None:
+    coverage = _enum_coverage(
+        "INSERT INTO mart.t SELECT t.ticket_id, t.dt FROM ods.ticket t "
+        "WHERE t.dt = '20250115'"
+    )
+
+    assert coverage["values_total"] == 1
+    assert coverage["enumerable_total"] == 0
+
+
+def test_a_bare_number_pinned_by_equals_is_not_an_enumerable_code() -> None:
+    """`= 0` is as likely a guard or a threshold as a code, and nobody can name it."""
+    coverage = _enum_coverage(
+        "INSERT INTO mart.t SELECT t.ticket_id, t.level FROM ods.ticket t "
+        "WHERE t.level = 0"
+    )
+
+    assert coverage["values_total"] == 1
+    assert coverage["enumerable_total"] == 0
+
+
+def test_the_same_number_written_as_an_in_list_is_enumerable() -> None:
+    coverage = _enum_coverage(
+        "INSERT INTO mart.t SELECT t.ticket_id, t.level FROM ods.ticket t "
+        "WHERE t.level IN (0, 1)"
+    )
+
+    assert coverage["values_total"] == 2
+    assert coverage["enumerable_total"] == 2
+
+
+def test_a_case_label_is_enumerable_and_a_case_condition_alone_is_not() -> None:
+    coverage = _enum_coverage(
+        "INSERT INTO mart.t SELECT t.ticket_id, "
+        "CASE WHEN t.amount > 100 THEN 'BIG' ELSE 'SMALL' END AS band FROM ods.ticket t"
+    )
+
+    assert coverage["enumerable_total"] == 2
+
+
+def test_a_renamed_pass_through_keeps_its_code_enumerable() -> None:
+    """The dictionary files the code under the source column; the field renames it."""
+    coverage = _enum_coverage(
+        "INSERT INTO mart.t SELECT t.ticket_id, t.state AS ticket_state "
+        "FROM ods.ticket t WHERE t.state = 'OPEN'"
+    )
+
+    assert coverage["values_total"] == 1
+    assert coverage["enumerable_total"] == 1
+
+
+def test_a_match_shape_is_never_an_enumerable_code() -> None:
+    coverage = _enum_coverage(
+        "INSERT INTO mart.t SELECT t.ticket_id, t.state FROM ods.ticket t "
+        "WHERE t.state RLIKE 'OPEN|CLOSED'"
+    )
+
+    assert coverage["values_total"] == 1
+    assert coverage["enumerable_total"] == 0
+
+
+def test_the_enumerable_count_never_exceeds_the_observed_total() -> None:
+    """Anti-fabrication: the narrowed denominator is a subset, never a second list."""
+    for sql in (
+        "INSERT INTO mart.t SELECT t.ticket_id, t.state FROM ods.ticket t "
+        "WHERE t.state = 'OPEN'",
+        "INSERT INTO mart.t SELECT t.ticket_id, t.level FROM ods.ticket t "
+        "WHERE t.level IN (0, 1)",
+        "INSERT INTO mart.t SELECT t.ticket_id, 'X' AS src FROM ods.ticket t",
+    ):
+        coverage = _enum_coverage(sql)
+        assert coverage["enumerable_total"] <= coverage["values_total"]
+        assert coverage["enumerable_confirmed"] <= coverage["enumerable_total"]
+        assert coverage["enumerable_confirmed"] <= coverage["confirmed"]

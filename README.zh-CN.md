@@ -177,7 +177,7 @@ flowchart LR
 
 Core 负责确定性解析和事实表达，不负责替用户选择向量数据库、图数据库或大模型。这样的边界使
 同一份解析结果可以服务代码检索、任务问答、影响分析、治理审查和后续业务知识生成。
-发行边界是"解析器 + 版本化契约 + 契约派生渲染器"：`mapping.md` 与 `semantic.json` / `semantic.md` 都属于契约派生渲染器——它们复述并重组契约里已有的事实，**不生成业务语义**；业务命名与画像叙事留给上层 Agent。
+发行边界是"解析器 + 版本化契约 + 契约派生产物（含语料级派生：glossary / tables / ontology）"：`mapping.md`、`semantic.json` / `semantic.md`，以及跨任务聚合的 `tables.json` / `glossary.json` / `ontology.json`，都属于契约派生产物——它们复述、重组并跨任务归并契约里已有的事实，每条断言都带来源与证据，**不生成业务语义**；业务命名、类层次与画像叙事留给上层 Agent。
 
 ## 为什么还需要这个项目
 
@@ -358,6 +358,20 @@ scope-lineage describe --lineage /tmp/scope-lineage-corpus \
 `glossary.overrides.json` 里的人工确认，与注释里**字面出现**该值的片段（标 `?` 候选）——Core 不猜。
 `describe --glossary` 把结果接到 `fields[].value_domain`。详见 [术语与值域字典](docs/zh-CN/glossary-doc.md)。
 
+整份语料还知道一件单张表说不清的事：这些表之间是什么关系。把表卡与字典再聚合成一份本体候选：
+
+```bash
+scope-lineage ontology --lineage /tmp/scope-lineage-corpus --out /tmp/scope-lineage-onto \
+  --tables /tmp/scope-lineage-tables/tables.json --glossary /tmp/scope-lineage-dict/glossary.json
+```
+
+`ontology.json` 给出实体与身份键、JOIN 断言的关系及可证明的基数、过滤与 CASE 断言的约束，
+以及两个任务互相矛盾的地方——每条断言都标 `proven` / `implied` / `hypothesis` / `conflict`
+并带证据。`ontology.md` 开头是整份语料的 Mermaid ER 总览，`tables/<db.table>.md` 则是表卡
+再追加五节：身份、关系、约束、属性同义、待人工判定。答案通过 `--overrides` 回写，被确认的
+断言升到第五级 `confirmed`。业务命名与类层次留给懂业务的人。
+详见 [语料级本体候选](docs/zh-CN/ontology-doc.md)。
+
 更多完整输入见 [examples/README.zh-CN.md](examples/README.zh-CN.md)，字段级说明见
 [Core 输入格式](docs/zh-CN/input-formats.md)。
 
@@ -458,6 +472,7 @@ AI 下游必须同时读取诊断，不能把 `recovered`、歧义候选或缺�
 - [`semantic.json` / `semantic.md` 任务语义描述](docs/zh-CN/semantic-doc.md)
 - [`tables.json` / `tables.md` 语料级表卡](docs/zh-CN/tables-doc.md)
 - [`glossary.json` / `glossary.md` 术语与值域字典](docs/zh-CN/glossary-doc.md)
+- [`ontology.json` / `ontology.md` 语料级本体候选](docs/zh-CN/ontology-doc.md)
 
 ## AI agent 集成
 

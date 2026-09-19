@@ -330,7 +330,7 @@ scope-lineage describe --lineage corpus --glossary dict/glossary.json \
 | `sql_literal` | 作者写的字面量。`semantic.md` 的 `- 取值：` 行显示它，`value_domain[].value` 与 overrides 的键用去引号形式 |
 | `meaning.status` | `confirmed`（人工确认）或 `candidate`（注释字面命中） |
 | `summary` 追加 | 只有**已确认**含义才会追加到那句话尾部（`；取值：'PAID'（已支付）`，最多 3 个）：候选是"某条注释里恰好出现了这个值"，写进读者会停下来读的那一句等于把它当成定义 |
-| `confidence.metadata_coverage.glossary` | `{values_total, confirmed, candidate, rule_values_total, rule_values_confirmed, field_values_total, field_values_confirmed}`；这条语句一个取值观察都没有时不写该键。`values_total` 是**字段取值 ∪ 规则引用取值**去重后的总数，按 `(列名, 取值, kind)` 归一——同一个 code 被 `WHERE` 钉住又原样带进同名输出列，是读者要答的**一个**问题而不是两个；画像附录 A2 的覆盖率按这个 `values_total` 算，`confirmed` / `candidate` 也是并集上的计数 |
+| `confidence.metadata_coverage.glossary` | `{values_total, confirmed, candidate, rule_values_total, rule_values_confirmed, field_values_total, field_values_confirmed, enumerable_total, enumerable_confirmed}`；这条语句一个取值观察都没有时不写该键。`values_total` 是**字段取值 ∪ 规则引用取值**去重后的总数，按 `(列名, 取值, kind)` 归一——同一个 code 被 `WHERE` 钉住又原样带进同名输出列，是读者要答的**一个**问题而不是两个；`confirmed` / `candidate` 是同一并集上的计数。`enumerable_total` 把这个并集收窄到**能被人认领含义的 code**，画像附录 A2 的覆盖率按它算（`enumerable_confirmed / enumerable_total`）：物理列上的 literal、上下文含 `filter_eq` / `filter_in` / `case_then` / `union_constant` / `constant_projection`、不是日期形，且纯数字还要额外出现在 `IN` 列表、CASE 标签或常量投影里而不是只被 `=` 钉过一次。跑批日期与 `= 0` 这类守卫是观察到的取值，但没有人会去确认它们，把它们计入分母会让 A2 永远像不及格 |
 
 `semantic.md` 第 5 节的字段小节里多一行 `- 取值：`，已确认写含义、候选写 `? `、都没有写
 「待确认」；整列**枚举值**都封闭时追加「（该列取值已被 SQL 证明封闭）」——因为 `closed_set`

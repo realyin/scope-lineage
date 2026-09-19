@@ -138,6 +138,19 @@ METRIC_PATH_ARGUMENT = "argument"
 
 METRIC_PATHS = (METRIC_PATH_GRAIN, METRIC_PATH_ARGUMENT)
 
+# The third path a fan-out verdict is asked about, and the one a metric card does not
+# read. Once a metric is anchored to its own aggregating scope, the grain path starts at
+# that anchor and follows driving inputs only -- so a JOIN sitting *under* the
+# aggregation on a non-driving branch (a lookup the anchor joins in, and the joins
+# inside it) was judged by nobody, although duplicating its rows inflates every number
+# the anchor aggregates. The anchor path is that scope's whole input subtree, minus what
+# the other two paths already walked. It is not a metric-card vocabulary: the card's
+# conditions are still read along ``METRIC_PATHS`` alone, because a condition on a
+# non-driving branch is not a condition on the counted rows.
+METRIC_PATH_ANCHOR = "anchor"
+
+FAN_OUT_PATHS = (METRIC_PATH_GRAIN, METRIC_PATH_ARGUMENT, METRIC_PATH_ANCHOR)
+
 # R6, for the window functions whose intent does not depend on a downstream `= 1`.
 WINDOW_INTENT_BY_FUNCTION = {
     "first_value": "pick_first_in_group",
@@ -442,7 +455,10 @@ def _build_statement_profile(
     context = _field_context(document, rules, task_meta)
     fields = _build_fields(document, rules, context)
     output_shape = _build_output_shape(
-        document, context["metric_argument_scopes"], table_cards
+        document,
+        context["metric_argument_scopes"],
+        table_cards,
+        context["metric_anchor_scopes"],
     )
     stages = _build_stages(document)
     # R5's last two roles need R3's result, so they are applied once the shape is known
@@ -452,13 +468,10 @@ def _build_statement_profile(
     # glossary replaces these entries wholesale through `glossary.apply_glossary`; on
     # its own the profile still answers "which constants does this column take here",
     # with every `meaning` null because one statement cannot know one.
-    glossary_values.apply_value_domains(
-        fields,
-        glossary_values.aggregate_values(
-            glossary_values.statement_observations(document, rules, fields)
-        ),
-        document.get("target_table"),
+    values = glossary_values.aggregate_values(
+        glossary_values.statement_observations(document, rules, fields)
     )
+    glossary_values.apply_value_domains(fields, values, document.get("target_table"))
     profile = {
         "doc_format": DOC_FORMAT,
         "schema_version": document.get("schema_version"),
@@ -471,7 +484,7 @@ def _build_statement_profile(
         "rules": rules,
         "fields": fields,
         "confidence": _build_confidence(
-            document, diagnostics, fields, output_shape, stages, rules
+            document, diagnostics, fields, output_shape, stages, rules, values
         ),
     }
     keys = [
@@ -1446,6 +1459,9 @@ def _field_context(
         "exposed": _exposed_target_columns(document),
         "aggregation_paths": {},
         "metric_argument_scopes": [],
+        # WI-9 legacy a: the input subtree of every scope a metric anchors to, for the
+        # same reason and written into the same way.
+        "metric_anchor_scopes": [],
         # WI-2.2: the two per-document comment lookups, resolved once like everything
         # else here -- a 100-field task would otherwise rebuild the index per field.
         "output_comments": _output_comments(document),
@@ -2068,11 +2084,16 @@ def _build_output_shape(
     document: dict,
     metric_argument_scopes: Sequence[str] = (),
     table_cards: Mapping | None = None,
+    metric_anchor_scopes: Sequence[str] = (),
 ) -> dict:
     shape, evidence = _classify_shape(document)
     grain, visited = _build_grain(document, shape, evidence)
     decided = _fan_out_risks(
-        document, visited, metric_argument_scopes, _card_lookup(table_cards)
+        document,
+        visited,
+        metric_argument_scopes,
+        _card_lookup(table_cards),
+        metric_anchor_scopes,
     )
     risks = [risk for risk, _level in decided]
     walked = _grain_path_risks(risks)
@@ -2695,6 +2716,7 @@ def _fan_out_risks(
     scope_ids: Sequence[str],
     argument_scope_ids: Sequence[str] = (),
     card_lookup=None,
+    anchor_scope_ids: Sequence[str] = (),
 ) -> list[tuple[dict, str | None]]:
     """Every JOIN on the grain walk's path, then every JOIN on a metric argument path.
 
@@ -2706,17 +2728,25 @@ def _fan_out_risks(
     never changes the output's row count, so the grain walk rightly refuses to go
     there -- but duplicating the rows a ``SUM`` reads inflates that number all the same,
     which is a wrong value rather than extra rows. Each entry says which path it is on
-    so the two are never read as one claim. A join in a scope neither path reached is
-    still not listed: nothing proves its rows reach the output.
+    so the two are never read as one claim. A join in a scope none of the paths reached
+    is still not listed: nothing proves its rows reach the output.
+
+    WI-9 legacy a adds the third list, for the joins the first two structurally cannot
+    reach: once a metric anchors to its own aggregating scope, the grain path starts
+    there and follows driving inputs, so a lookup that anchor joins in -- and every JOIN
+    inside that lookup -- was judged by nobody. They are the anchor's input subtree.
     """
     grain = _dedupe(scope_ids)
     seen = set(grain)
     argument = [item for item in _dedupe(argument_scope_ids) if item not in seen]
+    seen.update(argument)
+    anchor = [item for item in _dedupe(anchor_scope_ids) if item not in seen]
     return [
         _fan_out_risk(document, scope_id, block, path, card_lookup)
         for path, walked in (
             (METRIC_PATH_GRAIN, grain),
             (METRIC_PATH_ARGUMENT, argument),
+            (METRIC_PATH_ANCHOR, anchor),
         )
         for scope_id in walked
         for block in _blocks_of_type(document, scope_id, "join")
@@ -3029,6 +3059,90 @@ def _keeps_first_row_consumer(
         ):
             return block_id
     return None
+
+
+# ------------------------------------------------- corpus-layer facade (WI-8 / WI-9)
+#
+# `ontology` asks this module the questions it already answers -- is the right side of
+# this JOIN unique by its keys, which scope do a CTE's rows come from, which columns is
+# this scope grouped by -- one corpus at a time instead of one statement at a time. They
+# are published under public names rather than reached into privately: the rules stay
+# defined once, in the module that owns the concept, and a change to one of them shows
+# up in both layers at the same time.
+
+
+def join_blocks(document: dict) -> list[tuple[str, str, dict]]:
+    """``(scope_id, logic_block_id, join_relation_detail)`` for every JOIN, in scope order."""
+    return [
+        (scope_id, str(block.get("logic_block_id")), block.get("join_relation_detail") or {})
+        for scope_id, block in _logic_blocks(document)
+        if block.get("logic_type") == "join"
+    ]
+
+
+def driving_table(document: dict, item: str) -> tuple[str | None, list[str]]:
+    """``(the physical table whose rows this input is, the scopes walked to reach it)``.
+
+    R3's own descent, started from an arbitrary input rather than from ROOT: a JOIN side
+    that is a CTE is not an entity, and the entity behind it is whatever physical table
+    its rows are. A walk that ends anywhere else answers ``None`` and the reader is told
+    the path stopped rather than given a table the SQL did not name.
+    """
+    tables = set(document.get("source_tables") or [])
+    scopes = _scopes(document)
+    visited: list[str] = []
+    for _ in range(GRAIN_DEPTH_LIMIT):
+        if item in tables:
+            return item, visited
+        if item in visited or item not in scopes:
+            return None, visited
+        visited.append(item)
+        following, _reason = _scope_from_item(document, item)
+        if following is None:
+            return None, visited
+        item = following
+    return None, visited
+
+
+def ranking_partition_keys(document: dict) -> list[tuple[str, str, list[dict]]]:
+    """``(scope_id, logic_block_id, partition keys)`` per ranking window, keys logical."""
+    found = []
+    for scope_id, block_id, spec in _ranking_window_specifications(document):
+        names = _output_name_index(document, scope_id)
+        found.append(
+            (
+                scope_id,
+                block_id,
+                [
+                    _partition_item_key(scope_id, names, item)
+                    for item in spec.get("partition_by") or []
+                ],
+            )
+        )
+    return found
+
+
+#: One aggregating scope's GROUP BY items as logical keys, or None when it does not
+#: aggregate -- the same answer R3's grain walk reads.
+aggregation_keys = _aggregation_logical_keys
+
+#: The GROUP BY verdict for one JOIN's right side: ``(status, reason)`` or None.
+grouped_uniqueness = _grouped_uniqueness
+
+#: The ranking-window verdict for the same side: ``(function, partition, consumer)``.
+ranking_uniqueness = _ranking_uniqueness
+
+#: One side's join keys as the column names that side's own scope publishes them by.
+join_side_columns = _join_side_columns
+
+#: ``table name -> card`` over a ``tables-json/1`` corpus, or None when none was given.
+card_lookup = _card_lookup
+
+#: ``(task, keys, confidence)`` from the strongest producer on one card, or None.
+card_key_proof = _card_key_proof
+
+#: Names compared as SQL compares identifiers: unwrapped, unspaced, case-blind.
+comparable = _comparable
 
 
 def _all_join_blocks(document: dict) -> list[tuple[str, dict]]:
@@ -3580,6 +3694,7 @@ def _build_confidence(
     output_shape: dict,
     stages: Sequence[dict],
     rules: Sequence[dict] = (),
+    values: Sequence[dict] = (),
 ) -> dict:
     # WI-1f: a task-level diagnostics document keeps script-scoped facts at the top and
     # everything one statement produced under `statement_diagnostics.<id>`. Reading only
@@ -3589,11 +3704,11 @@ def _build_confidence(
     warnings = warnings_for(diagnostics, statement_id)
     available = diagnostics is not None
     return {
-        "metadata_coverage": _metadata_coverage(document, fields, rules),
+        "metadata_coverage": _metadata_coverage(document, fields, rules, values),
         # WI-2.6: how much of this task has been answered. Always present, and zero is a
         # fact worth publishing -- "nobody has confirmed anything here yet" is the state
         # the write-back loop exists to change, and a reader has to be able to see it.
-        "confirmations": _confirmations(document, fields, rules),
+        "confirmations": _confirmations(document, fields, rules, values),
         "trace_incomplete_fields": [
             field["column"] for field in fields if not field.get("trace_complete")
         ],
@@ -3614,7 +3729,10 @@ def _build_confidence(
 
 
 def _metadata_coverage(
-    document: dict, fields: Sequence[dict] = (), rules: Sequence[dict] = ()
+    document: dict,
+    fields: Sequence[dict] = (),
+    rules: Sequence[dict] = (),
+    values: Sequence[dict] = (),
 ) -> dict:
     """How much of what the fields mean the metadata could supply, counted not judged."""
     metadata = _input_metadata(document)
@@ -3638,7 +3756,7 @@ def _metadata_coverage(
     # WI-2.4: how far the value dictionary got with this task's fields. Absent rather
     # than zeroed when the task has no observed values at all -- a statement that
     # compares nothing against a constant has no value domain to be short of.
-    glossary = glossary_values.glossary_coverage(fields, rules)
+    glossary = glossary_values.glossary_coverage(fields, rules, values)
     if glossary["values_total"]:
         coverage["glossary"] = glossary
     # WI-2.6: what a reviewed metadata patch supplied for THIS statement. Absent when no
@@ -3674,7 +3792,10 @@ def _patch_counts(document: dict) -> dict[str, int]:
 
 
 def _confirmations(
-    document: dict, fields: Sequence[dict] = (), rules: Sequence[dict] = ()
+    document: dict,
+    fields: Sequence[dict] = (),
+    rules: Sequence[dict] = (),
+    values: Sequence[dict] = (),
 ) -> dict[str, int]:
     """WI-2.6: how many open questions this task has actually had answered.
 
@@ -3686,7 +3807,7 @@ def _confirmations(
     comment and a table comment come back through a metadata patch.
     """
     patched = _patch_counts(document)
-    coverage = glossary_values.glossary_coverage(fields, rules)
+    coverage = glossary_values.glossary_coverage(fields, rules, values)
     return {
         "values_confirmed": coverage["field_values_confirmed"],
         "rule_values_confirmed": coverage["rule_values_confirmed"],
@@ -3888,26 +4009,51 @@ def _metric_anchor(
     anchor = str(step.get("scope_id")) if step else _subject_scope(steps)
     paths = _metric_paths(document, chain, step, anchor, context)
     context["metric_argument_scopes"].extend(paths[METRIC_PATH_ARGUMENT])
+    context["metric_anchor_scopes"].extend(paths[METRIC_PATH_ANCHOR])
     return (anchor if anchor in _scopes(document) else None), paths
 
 
 def _metric_paths(
     document: dict, chain: dict | None, step: dict | None, anchor: str, context: dict
 ) -> dict[str, list[str]]:
-    """``{"grain": [...], "argument": [...]}`` -- the two scope paths the card reads.
+    """``{"grain": [...], "argument": [...], "anchor": [...]}`` -- three scope paths.
 
     A scope the grain path already walked is not repeated on the argument path: it is
     the same filter either way, and the reader asking "is this the driving side"
-    should get one answer per condition rather than two.
+    should get one answer per condition rather than two. The anchor path is the same
+    rule applied once more, and it is read by the fan-out verdict only -- ``METRIC_PATHS``
+    stays the two the card's conditions are read along.
     """
     grain = _aggregation_path(document, anchor if step else _ROOT, context)
     argument: list[str] = []
     for scope_id in _argument_scopes(document, chain, step):
         argument.extend(_aggregation_path(document, scope_id, context))
+    argument = _dedupe(item for item in argument if item not in grain)
+    walked = {*grain, *argument}
+    subtree = _input_subtree(document, anchor) if step else []
     return {
-        "grain": list(grain),
-        "argument": _dedupe(item for item in argument if item not in grain),
+        METRIC_PATH_GRAIN: list(grain),
+        METRIC_PATH_ARGUMENT: argument,
+        METRIC_PATH_ANCHOR: [item for item in subtree if item not in walked],
     }
+
+
+def _input_subtree(document: dict, scope_id: str) -> list[str]:
+    """Every scope ``scope_id`` reads, transitively -- driving side or not, breadth first.
+
+    The one walk in this module that does not ask which input sets the row count: below
+    an aggregation that question is already answered, and what is left to judge is every
+    branch whose rows the aggregate reads.
+    """
+    path: list[str] = []
+    queue = [scope_id]
+    while queue and len(path) < METRIC_PATH_DEPTH_LIMIT:
+        item = queue.pop(0)
+        if item in path or item not in _scopes(document):
+            continue
+        path.append(item)
+        queue.extend(_scope_inputs(document, item))
+    return path
 
 
 def _argument_scopes(document: dict, chain: dict | None, step: dict | None) -> list[str]:

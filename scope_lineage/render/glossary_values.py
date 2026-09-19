@@ -90,6 +90,29 @@ OUTPUT_CONTEXTS = frozenset(
 BASIS_IN_LIST = "in_list"
 BASIS_CASE_EXHAUSTIVE = "case_exhaustive"
 
+# WI-9 legacy b. The contexts in which a constant is plausibly a **business code** --
+# something a person could be asked to name -- rather than a bound, a batch date or a
+# guard. A `<>` , a `RLIKE` or a CASE *condition* pins nothing enumerable: the first
+# names what a row is not, the second a shape, and the third is a branch test whose
+# value may be a threshold.
+ENUMERABLE_CONTEXTS = frozenset(
+    {
+        CONTEXT_FILTER_EQ,
+        CONTEXT_FILTER_IN,
+        CONTEXT_CASE_THEN,
+        CONTEXT_UNION_CONSTANT,
+        CONTEXT_CONSTANT_PROJECTION,
+    }
+)
+
+# The subset that also proves a bare number is a code. `WHERE n = 0` is as likely a
+# threshold or a sentinel as a code, and asking an owner to name every such number is
+# how a 待确认 list becomes noise; an IN list, a CASE label and a projected constant are
+# each written as one of several alternatives, which is what an enumeration is.
+ENUMERABLE_NUMERIC_CONTEXTS = frozenset(
+    {CONTEXT_FILTER_IN, CONTEXT_CASE_THEN, CONTEXT_CONSTANT_PROJECTION}
+)
+
 COMMENT_SOURCE_COLUMN = "column_comment"
 COMMENT_SOURCE_TABLE = "table_comment"
 COMMENT_SOURCE_SQL = "sql_comment"
@@ -1376,8 +1399,50 @@ def _apply_summary_suffix(field: dict, domain: Sequence[Mapping]) -> None:
         field["summary"] = summary
 
 
+def enumerable_code(entry: Mapping) -> bool:
+    """Whether one dictionary entry is a **code somebody could be asked to name**.
+
+    WI-9 legacy b. ``values_total`` counts every constant the corpus saw a column
+    compared against, which is the right denominator for "how much did we observe" and
+    the wrong one for "how much is still unexplained": a batch date, a row limit and a
+    ``= 0`` guard are not business vocabulary, and no owner will ever confirm them. Five
+    conditions, each a fact of the observation rather than a judgement of the value:
+
+    1. it is filed under a PHYSICAL column -- a scope-level constant belongs to an
+       expression inside one statement, not to a column anyone can look up;
+    2. it is a literal, never a match shape;
+    3. some observation of it is in an :data:`ENUMERABLE_CONTEXTS` context;
+    4. it does not read as a date -- ``dt = '20250115'`` is a partition, not a code;
+    5. a bare number additionally needs an :data:`ENUMERABLE_NUMERIC_CONTEXTS` context.
+    """
+    if entry.get("logical") or str(entry.get("kind")) != VALUE_KIND_LITERAL:
+        return False
+    contexts = {
+        str(item.get("context")) for item in entry.get("observations") or []
+    }
+    if not contexts & ENUMERABLE_CONTEXTS:
+        return False
+    value = strip_quotes(str(entry.get("value") or ""))
+    if not value or _TEMPORAL_TEXT.match(value):
+        return False
+    if _NUMERIC_TEXT.match(value):
+        return bool(contexts & ENUMERABLE_NUMERIC_CONTEXTS)
+    return True
+
+
+def enumerable_codes(entries: Sequence[Mapping]) -> set[tuple]:
+    """``{(column, value, kind)}`` for the entries :func:`enumerable_code` admits."""
+    return {
+        (str(entry.get("column")), str(entry.get("value")), str(entry.get("kind")))
+        for entry in entries
+        if enumerable_code(entry)
+    }
+
+
 def glossary_coverage(
-    fields: Sequence[Mapping], rules: Sequence[Mapping] = ()
+    fields: Sequence[Mapping],
+    rules: Sequence[Mapping] = (),
+    entries: Sequence[Mapping] = (),
 ) -> dict[str, int]:
     """How much of this task's code vocabulary the dictionary can already explain.
 
@@ -1386,13 +1451,28 @@ def glossary_coverage(
     (``value_meanings``). One code is one business question however often it is written,
     so the key is ``(column name, value, kind)`` -- a status pinned in a WHERE and
     carried unchanged into the output column of the same name is one value to confirm,
-    not two -- and the union is what an A2 coverage ratio is taken over.
+    not two.
+
+    ``entries`` is the dictionary those values were read from, and it is what carries
+    the observation CONTEXT a published ``value_domain`` entry no longer has. It decides
+    the WI-9 pair: ``enumerable_*`` is the same union narrowed to the codes
+    :func:`enumerable_code` admits, which is the denominator the A2 coverage ratio is
+    taken over. Without it the pair is zero rather than absent -- "nothing qualified"
+    and "nobody asked" read the same to a counter, and the totals beside it say which.
     """
-    field_values = _coverage_statuses(_field_value_items(fields))
-    rule_values = _coverage_statuses(_rule_value_items(rules))
+    codes = enumerable_codes(entries)
+    field_items = _field_value_items(fields)
+    rule_items = _rule_value_items(rules)
+    field_values = _coverage_statuses(field_items)
+    rule_values = _coverage_statuses(rule_items)
     merged = dict(field_values)
     for key, status in rule_values.items():
         merged[key] = _stronger_status(merged.get(key), status)
+    enumerable = {
+        key
+        for key, _status, names in [*field_items, *rule_items]
+        if key in merged and any((name, key[1], key[2]) in codes for name in names)
+    }
     return {
         "values_total": len(merged),
         "confirmed": _status_count(merged, MEANING_STATUS_CONFIRMED),
@@ -1401,33 +1481,64 @@ def glossary_coverage(
         "rule_values_confirmed": _status_count(rule_values, MEANING_STATUS_CONFIRMED),
         "field_values_total": len(field_values),
         "field_values_confirmed": _status_count(field_values, MEANING_STATUS_CONFIRMED),
+        "enumerable_total": len(enumerable),
+        "enumerable_confirmed": sum(
+            1
+            for key in enumerable
+            if merged.get(key) == MEANING_STATUS_CONFIRMED
+        ),
     }
 
 
-def _field_value_items(fields: Sequence[Mapping]) -> list[tuple[tuple, object]]:
+def _field_value_items(fields: Sequence[Mapping]) -> list[tuple[tuple, object, list]]:
+    """``(key, status, the column names the dictionary may hold this value under)``.
+
+    A field publishes its domain under its own OUTPUT name, and the dictionary files an
+    observation under the column the SQL compared -- the same code, two names, whenever
+    a pass-through renames it. Both are offered, so a renamed code is not silently
+    dropped from the enumerable count.
+    """
     return [
-        ((str(field.get("column")), str(item.get("value")), str(item.get("kind"))),
-         (item.get("meaning") or {}).get("status"))
+        (
+            (str(field.get("column")), str(item.get("value")), str(item.get("kind"))),
+            (item.get("meaning") or {}).get("status"),
+            _dictionary_names(field),
+        )
         for field in fields
         for item in field.get(VALUE_DOMAIN_KEY) or []
     ]
 
 
-def _rule_value_items(rules: Sequence[Mapping]) -> list[tuple[tuple, object]]:
+def _dictionary_names(field: Mapping) -> list[str]:
+    names = [str(field.get("column"))]
+    names.extend(
+        str(source.get("column"))
+        for source in _pass_through_sources(field)
+        if source.get("column")
+    )
+    return names
+
+
+def _rule_value_items(rules: Sequence[Mapping]) -> list[tuple[tuple, object, list]]:
     """A rule's codes, keyed by the bare column name the field side also uses."""
     return [
-        ((str(item.get("column_ref")).rpartition(".")[2],
-          str(item.get("value")),
-          VALUE_KIND_LITERAL),
-         (item.get("meaning") or {}).get("status"))
+        (
+            (
+                str(item.get("column_ref")).rpartition(".")[2],
+                str(item.get("value")),
+                VALUE_KIND_LITERAL,
+            ),
+            (item.get("meaning") or {}).get("status"),
+            [str(item.get("column_ref")).rpartition(".")[2]],
+        )
         for rule in rules
         for item in rule_value_meanings(rule)
     ]
 
 
-def _coverage_statuses(items: Sequence[tuple[tuple, object]]) -> dict[tuple, object]:
+def _coverage_statuses(items: Sequence[tuple]) -> dict[tuple, object]:
     counted: dict[tuple, object] = {}
-    for key, status in items:
+    for key, status, *_rest in items:
         counted[key] = _stronger_status(counted.get(key), status)
     return counted
 

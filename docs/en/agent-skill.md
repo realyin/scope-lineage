@@ -48,6 +48,8 @@ routes every answer by its own 回写目标 line — `术语` / `值域` merge i
 `describe --glossary --metadata-patch`, and those items come back as confirmed facts
 instead of open questions, so the list gets shorter every round.
 
+For "how do the entities in this batch of tasks relate" there is one more: run `scope-lineage ontology --lineage <corpus> --out <dir>`, read the Mermaid ER overview in `<dir>/ontology.md` to find the entity, then the five ontology sections of `<dir>/tables/<table>.md`; a `hypothesis` or a `conflict` must be presented verbatim and marked `[待确认]`, and answered items are written back into `ontology.overrides.json` per `references/ontology-review-prompt.md` so the next run publishes them as `confirmed`.
+
 ## Installation
 
 **Claude Code**:

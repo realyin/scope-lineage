@@ -24,7 +24,7 @@ from scope_lineage.contract import to_lineage_dict
 from scope_lineage.metadata.schema_metadata import load_schema
 from scope_lineage.metadata.target_table_metadata import load_target_table_metadata
 from scope_lineage.render.semantic_markdown import render_semantic_markdown
-from scope_lineage.render.semantic_profile import METRIC_PATHS, build_semantic_profile
+from scope_lineage.render.semantic_profile import FAN_OUT_PATHS, build_semantic_profile
 from scope_lineage.scope.scope_builder import parse_scope_lineage
 
 from .statement_document import build_statement_documents
@@ -1622,7 +1622,7 @@ def test_every_fan_out_entry_declares_a_path_from_the_vocabulary() -> None:
 
     assert risks
     for risk in risks:
-        assert risk["path"] in METRIC_PATHS
+        assert risk["path"] in FAN_OUT_PATHS
 
 
 def test_section_two_lists_the_argument_path_joins_under_their_own_heading() -> None:
@@ -1704,3 +1704,106 @@ def test_a_grain_path_fan_out_still_costs_the_statement_its_keys() -> None:
     assert [item["path"] for item in shape["fan_out_risks"]] == ["grain"]
     assert shape["key_confidence"] == "none"
     assert shape["candidate_keys"] == []
+
+
+# --------------------------------- the metric anchor's own input subtree (WI-9 legacy a)
+
+
+ANCHOR_FAN_OUT_SCHEMA = {
+    "ods.drive": ["k", "amt"],
+    "ods.val": ["k"],
+    "ods.tag": ["k"],
+    "ods.lbl": ["k", "label"],
+    "ods.lx": ["k"],
+}
+
+# `total` aggregates inside `subq:a`. The JOIN in `subq:s` sits under that aggregation
+# without being on its driving path (s is a right input) or on the metric's argument
+# path (the argument is `d.amt`, read off the driving side), and duplicating s's rows
+# still inflates the SUM.
+ANCHOR_FAN_OUT_SQL = """
+INSERT INTO mart.t
+SELECT a.k AS k, a.total AS total
+FROM (
+  SELECT d.k AS k, SUM(d.amt) AS total
+  FROM ods.drive d
+  LEFT JOIN (
+    SELECT v.k AS k FROM ods.val v JOIN ods.tag g ON v.k = g.k
+  ) s ON d.k = s.k
+  GROUP BY d.k
+) a
+"""
+
+# The same statement with a lookup ROOT joins in for a non-metric column. The JOIN
+# inside that lookup is under neither the grain walk, the argument path, nor the
+# anchor's subtree, so it stays unlisted exactly as it always did.
+ANCHOR_BYPASS_SQL = """
+INSERT INTO mart.t
+SELECT a.k AS k, a.total AS total, o.label AS label
+FROM (
+  SELECT d.k AS k, SUM(d.amt) AS total
+  FROM ods.drive d
+  GROUP BY d.k
+) a
+LEFT JOIN (
+  SELECT l.k AS k, l.label AS label FROM ods.lbl l JOIN ods.lx x ON l.k = x.k
+) o ON a.k = o.k
+"""
+
+
+def test_a_join_below_the_metric_anchor_is_judged_and_labelled_anchor() -> None:
+    risks = _shape(ANCHOR_FAN_OUT_SQL, schema=ANCHOR_FAN_OUT_SCHEMA)["fan_out_risks"]
+    anchor = [item for item in risks if item["path"] == "anchor"]
+
+    assert [(item["scope_id"], item["right"], item["status"]) for item in anchor] == [
+        ("subq:s", "ods.tag", "unknown")
+    ]
+    # The join the grain walk itself crossed keeps its own path.
+    assert [item["path"] for item in risks if item["scope_id"] == "subq:a"] == ["grain"]
+
+
+def test_an_anchor_path_fan_out_does_not_cost_the_statement_its_keys() -> None:
+    """``GROUP BY d.k`` still proves one row per k: the anchor path inflates a number."""
+    shape = _shape(ANCHOR_FAN_OUT_SQL, schema=ANCHOR_FAN_OUT_SCHEMA)
+
+    assert any(item["path"] == "anchor" for item in shape["fan_out_risks"])
+    assert shape["grain"]["basis"] == "group_by"
+
+
+def test_a_join_outside_the_anchor_subtree_is_still_not_listed() -> None:
+    risks = _shape(ANCHOR_BYPASS_SQL, schema=ANCHOR_FAN_OUT_SCHEMA)["fan_out_risks"]
+
+    # ROOT's join onto the lookup is on the grain walk; the join *inside* the lookup is
+    # on no path at all, and the anchor's subtree is `ods.drive` alone.
+    assert {item["scope_id"] for item in risks} == {"ROOT"}
+
+
+def test_section_two_lists_the_anchor_path_joins_with_the_value_risks() -> None:
+    profile = build_semantic_profile(
+        _document(ANCHOR_FAN_OUT_SQL, schema=ANCHOR_FAN_OUT_SCHEMA)
+    )
+    rendered = render_semantic_markdown(profile, sections=["shape"])
+    heading = "- 影响指标取值的关联："
+
+    assert heading in rendered
+    assert "`subq:s`" in rendered.split(heading)[1]
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [ANCHOR_FAN_OUT_SQL, ANCHOR_BYPASS_SQL, ARGUMENT_FAN_OUT_SQL],
+    ids=["anchor", "bypass", "argument"],
+)
+def test_every_fan_out_risk_names_a_scope_the_document_declares(sql: str) -> None:
+    """Anti-fabrication: a path may widen what is judged, never what is named."""
+    document = _document(sql, schema=ANCHOR_FAN_OUT_SCHEMA | ARGUMENT_FAN_OUT_SCHEMA)
+    risks = build_semantic_profile(document)["output_shape"]["fan_out_risks"]
+
+    for risk in risks:
+        assert risk["path"] in FAN_OUT_PATHS
+        assert risk["scope_id"] in document["scopes"]
+        assert risk["logic_block_id"] in {
+            str(block.get("logic_block_id"))
+            for scope in document["scopes"].values()
+            for block in scope.get("logic_blocks") or []
+        }

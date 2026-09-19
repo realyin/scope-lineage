@@ -779,8 +779,8 @@ def _render_fan_out(risks: Sequence[dict]) -> list[str]:
     The risks are no longer ROOT's alone, so "LEFT JOIN x：安全" would leave the reader
     guessing which stage that join belongs to.
     """
-    grain = [item for item in risks if item.get("path") != METRIC_ARGUMENT_PATH]
-    argument = [item for item in risks if item.get("path") == METRIC_ARGUMENT_PATH]
+    grain = [item for item in risks if item.get("path") not in _VALUE_ONLY_PATHS]
+    argument = [item for item in risks if item.get("path") in _VALUE_ONLY_PATHS]
     if not grain:
         lines = ["- 行数放大风险：粒度链路上无 JOIN，不存在连接放大。（结构推断）"]
     else:
@@ -1662,6 +1662,12 @@ METRIC_ARGUMENT_PATH_MARK = "（参数来源侧）"
 
 # The profile's own name for that path, mirrored so the two cannot disagree.
 METRIC_ARGUMENT_PATH = "argument"
+
+# The paths whose JOINs change a *value* rather than the output's row count: the metric
+# argument's own path, and the input subtree below a metric's anchoring aggregation.
+# Both belong under one heading, because the reader's action is the same for both.
+METRIC_ANCHOR_PATH = "anchor"
+_VALUE_ONLY_PATHS = (METRIC_ARGUMENT_PATH, METRIC_ANCHOR_PATH)
 
 # WI-2.1c item 5. A JOIN that only feeds a metric's argument leaves the output's row
 # count alone, so it is listed apart from the grain-path joins rather than among them --

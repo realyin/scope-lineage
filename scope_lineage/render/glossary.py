@@ -361,14 +361,18 @@ def _apply_statement_glossary(
         rules, entries, task or str(task_block.get("task_name") or "")
     )
     _apply_term_meanings(statement, terms)
-    _record_confirmations(statement, fields, rules, terms)
+    _record_confirmations(statement, fields, rules, terms, entries)
 
 
 def _record_confirmations(
-    statement: dict, fields: Sequence[Mapping], rules: Sequence[Mapping], terms: Mapping
+    statement: dict,
+    fields: Sequence[Mapping],
+    rules: Sequence[Mapping],
+    terms: Mapping,
+    entries: Sequence[Mapping] = (),
 ) -> None:
     """WI-2.6 / WI-2.12: the halves of "what has been answered" only the corpus knows."""
-    coverage = glossary_values.glossary_coverage(fields, rules)
+    coverage = glossary_values.glossary_coverage(fields, rules, entries)
     confidence = statement.get("confidence") or {}
     if confidence.get("metadata_coverage") is not None:
         confidence["metadata_coverage"]["glossary"] = coverage

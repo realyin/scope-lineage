@@ -23,8 +23,8 @@ from scope_lineage.metadata.target_table_metadata import load_target_table_metad
 from scope_lineage.render.mapping_markdown import lineage_document_digest
 from scope_lineage.render.semantic_profile import (
     DOC_FORMAT,
+    FAN_OUT_PATHS,
     FINDING_KINDS,
-    METRIC_PATHS,
     OUTPUT_SHAPES,
     STATEMENT_PROFILE_KEYS,
     build_semantic_profile,
@@ -806,6 +806,10 @@ def test_confidence_reports_metadata_coverage_and_diagnostics_facts() -> None:
             "rule_values_confirmed": 0,
             "field_values_total": 3,
             "field_values_confirmed": 0,
+            # WI-9 legacy b: all three are quoted labels a CASE writes, so all three
+            # are codes somebody can be asked to name.
+            "enumerable_total": 3,
+            "enumerable_confirmed": 0,
         },
     }
     assert confidence["diagnostics_available"] is True
@@ -1056,7 +1060,7 @@ def _assert_no_fabricated_identifiers(profile: dict, document: dict) -> None:
     # clean", which is a claim the walk never made.
     for path, key, value in _walk(profile):
         if key == "path":
-            assert value in METRIC_PATHS, f"{path}: unknown path {value!r}"
+            assert value in FAN_OUT_PATHS, f"{path}: unknown path {value!r}"
         if key in _FLAG_ONLY_KEYS:
             assert value is True, f"{path}: {key} is published only when true"
         if key == "kind" and path.endswith(".kind") and "findings" in path:

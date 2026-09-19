@@ -1,6 +1,81 @@
 # Changelog
 
 ## Unreleased
+- The ontology lands where people read it. `ontology --out <dir>` now writes
+  `<dir>/tables/<db.table>.md` -- the same card `tables` writes, under the same filename
+  rule, with five sections appended (`ontology-md/1`): 身份 (candidate keys, multiplicity
+  and partition columns side by side, each with a Chinese tier and its evidence ids),
+  关系 (one table for outgoing and one for incoming edges, with the basis token
+  translated into a sentence), 约束, 属性同义, and 待人工判定, which collects the
+  table's findings *and* every `hypothesis` assertion about it and prints the write-back
+  key each answer is filed under. A reader with a question about a table opens one file.
+  `ontology.md` opens with a Mermaid `erDiagram` -- entities as boxes carrying their
+  candidate-key columns, cardinality claims as ER symbols, `?` on an edge nobody proved
+  and `!` on one two tasks disagree about -- followed by the entity, relation, constraint
+  and open-item tables. Warehouse names are flattened into Mermaid identifiers, and two
+  that flatten to one name keep two boxes rather than silently merging. Past 60 entities
+  the diagram keeps the best-connected 60 and says how many it left out.
+- A fifth tier, `confirmed`, and the round trip that produces it. `ontology --overrides
+  ontology.overrides.json` merges the answers a person gave to the hypotheses the
+  document asked about: a relation's cardinality, or a table's identity key -- including
+  a key the corpus never guessed. A confirmed assertion carries `tier: "confirmed"`,
+  `basis: "human_confirmation"` and who confirmed it when; `confirmed` is the one tier
+  the corpus can never reach on its own. An override matching nothing is reported in the
+  new `overrides_applied.unmatched` rather than dropped, because a typo in a reviewed
+  file is exactly what its reviewer cannot see. The skill's new
+  `references/ontology-review-prompt.md` is the other half: how to turn the 待人工判定
+  items into a question list a business owner answers in five minutes, and the two
+  write-back key forms (`关系:` / `键:`) the answers are filed under.
+- `test_ontology_properties.py` states what no single rule case can: every entity,
+  relation endpoint, constraint target and synonym counterpart -- table *and* column --
+  appears in some `lineage.json`; every assertion carries a known tier and non-empty
+  evidence whose task, statement and logic block dereference; the document is a function
+  of the corpus, not of the order its files were walked in; and every table/column
+  reference in a card's ontology sections resolves. The golden now pins the ER-bearing
+  `ontology.md` and three merged cards beside `ontology.json`.
+- The distribution boundary line in both READMEs now reads "parser + versioned contracts
+  + contract-derived artifacts (including the corpus-level derivations: glossary /
+  tables / ontology)". The corpus artifacts merge facts across tasks, which the old
+  wording ("contract-derived renderers") did not cover, and every merged assertion still
+  carries its source and its evidence.
+- `scope-lineage ontology` turns a corpus into an **ontology candidate**
+  (`ontology-json/1`). The table cards say what each table is; the ontology says how the
+  tables relate, and it says it with the honesty the rest of the layer is built on: every
+  assertion carries one of four tiers (`proven` written in the SQL, `implied` provable
+  from what the SQL does, `hypothesis` assumed by an author and never proven, `conflict`
+  two tasks disagreeing) plus the task, statement and logic block it was read from.
+  Entities carry candidate keys (what a producer proved and what a consumer assumed, side
+  by side and never merged into a "primary key"), multiplicity evidence, partition
+  columns, attributes with their observed roles and synonyms. Relations come from JOIN key
+  pairs -- grouped by table pair so a key pair written over a UNION does not become a
+  dozen invented keys, and a CTE side pierced to its physical table with the path
+  recorded -- and from UNION branch alignment. Cardinality reads a dedup before a JOIN as
+  proof that the table under it holds many rows per key, a direct JOIN onto a physical
+  table as the author's assumption, and another task's proven write key as the one fact a
+  single statement can never reach. Constraints publish not-null (as a hypothesis, with
+  the note that the task discarded the NULLs), value sets (`complete` only for a closed
+  `IN` list or an exhaustive CASE), partitions and unique-per-key. `--tables` /
+  `--glossary` reuse documents you already built; without them both are built in memory
+  over the same corpus, byte for byte the same. No business name, no class hierarchy, no
+  OWL/SHACL file: `build_ontology` and `render_ontology_index_markdown` join the public
+  API, and the [guide](docs/en/ontology-doc.md) has the slots.
+- A fan-out under a metric's own aggregation is no longer invisible. Once a metric anchors
+  to its aggregating scope, the grain path starts there and follows driving inputs only --
+  so a lookup that scope joins in, and every JOIN inside it, was judged by nobody although
+  duplicating those rows inflates every number the anchor aggregates.
+  `fan_out_risks[].path` gains `anchor` for exactly that subtree, judged by the same
+  three-state verdict, listed in `semantic.md` under 影响指标取值的关联 beside the
+  argument path, and (like the argument path) never allowed to cost the statement its
+  keys: it changes a value, not a row's identity.
+- `metadata_coverage.glossary` gains `enumerable_total` / `enumerable_confirmed`, and the
+  A2 coverage ratio is taken over them. `values_total` counts every constant a column was
+  compared against, which is the right denominator for "how much did we observe" and the
+  wrong one for "how much is still unexplained": a batch date, a row limit and a `= 0`
+  guard are not business vocabulary and no owner will ever confirm them, so a real corpus
+  read as permanent failure. An enumerable code is a physical column's literal, seen in a
+  `filter_eq` / `filter_in` / `case_then` / `union_constant` / `constant_projection`
+  context, not shaped like a date, and -- when it is a bare number -- written as an `IN`
+  member, a CASE label or a projected constant rather than only pinned by `=`.
 - A confirmed code now reaches the line it is written on. A warehouse keeps most of its
   business codes in `WHERE queue_code IN ('01','07')`, in a join's extra condition and in
   a CASE's condition, while `fields[].value_domain` hangs off an output column -- so a

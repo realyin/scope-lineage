@@ -74,6 +74,12 @@ from .render.glossary_template import (
     render_overrides_template_markdown,
 )
 from .render.mapping_markdown import render_mapping_markdown, render_warnings_markdown
+from .render.ontology import (
+    build_ontology,
+    relation_override_key,
+    render_ontology_index_markdown,
+    render_ontology_table_card_markdown,
+)
 from .render.semantic_markdown import render_semantic_markdown
 from .render.semantic_profile import build_semantic_profile
 from .render.table_cards import (
@@ -117,6 +123,7 @@ PUBLIC_CORE_API = frozenset({
     "apply_metadata_patch",
     "apply_table_cards",
     "build_glossary",
+    "build_ontology",
     "build_overrides_template",
     "build_semantic_profile",
     "build_table_cards",
@@ -136,6 +143,9 @@ PUBLIC_CORE_API = frozenset({
     "parse_scope_lineage",
     "parse_task_lineage",
     "render_glossary_markdown",
+    "relation_override_key",
+    "render_ontology_index_markdown",
+    "render_ontology_table_card_markdown",
     "render_overrides_template_markdown",
     "render_mapping_markdown",
     "render_semantic_markdown",
