@@ -1703,10 +1703,15 @@ def test_an_argument_path_fan_out_does_not_cost_the_statement_its_keys() -> None
 
 
 def test_a_grain_path_fan_out_still_costs_the_statement_its_keys() -> None:
-    """The other direction, so the filter cannot quietly become "ignore every risk"."""
+    """The other direction, so the filter cannot quietly become "ignore every risk".
+
+    B12 narrowed which grain-path risk counts -- only one *downstream* of the grouping
+    can duplicate what the grouping made unique -- so the JOIN that proves the filter
+    still bites is the one ROOT runs over the already-grouped CTE.
+    """
     shape = _shape(
-        "INSERT INTO mart.gap SELECT a.k, SUM(a.v) AS total FROM ods.main a "
-        "LEFT JOIN ods.extra e ON a.k = e.id GROUP BY a.k",
+        "INSERT INTO mart.gap WITH g AS (SELECT a.k, SUM(a.v) AS total FROM ods.main a "
+        "GROUP BY a.k) SELECT g.k, g.total FROM g LEFT JOIN ods.extra e ON g.k = e.id",
         schema=_ARGUMENT_RISK_SCHEMA,
     )
 

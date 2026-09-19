@@ -33,7 +33,8 @@ SQL 头部注释（原文，作者说法，非 SQL 事实）（SQL注释）：
 
 - 形态：聚合型（aggregated）（结构推断；证据 logic:ROOT:group_by:001）
 - 粒度：一行对应一组 `ROOT.customer_id`、`ROOT.channel_name`（物理来源：`ods.channel_event.customer_id`、`ods.channel_event.channel_code`）（依据 GROUP BY 键，basis=group_by）（结构推断；证据 logic:ROOT:group_by:001）
-- 候选键：无（结构未证明任一键唯一）（结构推断）
+- 键：目标表列 `customer_id`、`channel_name`——由 GROUP BY 键保证输出内唯一（分区内）（key_confidence=proven）（结构推断）
+- 说明：ROOT 的关联放大发生在分组之前，不影响输出键唯一性（结构推断）
 - 分区列：`dt`；分区列不计入候选键（元数据事实）
 - 行数放大风险：
   - LEFT_OUTER JOIN `dim.channel`：⚠ 未知（unknown）——物理表无主键事实（结构推断；证据 logic:ROOT:join:001）
@@ -71,8 +72,8 @@ SQL 头部注释（原文，作者说法，非 SQL 事实）（SQL注释）：
 
 | # | 字段 | 一句话语义 | 结构角色 | 口径 | 追溯 |
 | --- | --- | --- | --- | --- | --- |
-| 1 | `mart.channel_summary.customer_id` | （注释未知）：直接取自 ods.channel_event.customer_id（表：渠道事件明细（合成））；注释：客户号 | attribute | — | ✓ |
-| 2 | `mart.channel_summary.channel_name` | （注释未知）：channel_code = 'A' → 'ONLINE'；否则 'OFFLINE'；来源 ods.channel_event.channel_code（表：渠道事件明细（合成））；注释：渠道编码（合成值域） | conditional_label | — | ✓ |
+| 1 | `mart.channel_summary.customer_id` | （注释未知）：直接取自 ods.channel_event.customer_id（表：渠道事件明细（合成））；注释：客户号 | candidate_key | — | ✓ |
+| 2 | `mart.channel_summary.channel_name` | （注释未知）：channel_code = 'A' → 'ONLINE'；否则 'OFFLINE'；来源 ods.channel_event.channel_code（表：渠道事件明细（合成））；注释：渠道编码（合成值域） | candidate_key | — | ✓ |
 | 3 | `mart.channel_summary.total_amount` | （注释未知）：按 customer_id、CASE WHEN channel_code = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END 聚合：SUM(amount)；来源 ods.channel_event.amount（表：渠道事件明细（合成））；注释：金额合计（元） | measure | SUM(amount)；未在聚合路径上发现日期过滤 | ✓ |
 
 ### 字段 mart.channel_summary.customer_id
@@ -82,7 +83,7 @@ SQL 头部注释（原文，作者说法，非 SQL 事实）（SQL注释）：
 - 目标注释：注释未知（元数据事实）
 - 类型：未知（元数据事实）
 - 来源：`ods.channel_event.customer_id`（注释未知）（SQL事实）
-- 结构角色：attribute（末步变换 DIRECT）（结构推断；证据 mc:001）
+- 结构角色：candidate_key（末步变换 DIRECT）（结构推断；证据 mc:001）
 - 加工步骤：
   - 步骤 1/1 @ `ROOT`（direct_projection）：直接投影自 ods.channel_event.customer_id；粒度=preserved（SQL事实）
 - 最终表达式：`` `s`.`customer_id` ``（SQL事实）
@@ -96,7 +97,7 @@ SQL 头部注释（原文，作者说法，非 SQL 事实）（SQL注释）：
 - 目标注释：注释未知（元数据事实）
 - 类型：未知（元数据事实）
 - 来源：`ods.channel_event.channel_code`（注释未知）（SQL事实）
-- 结构角色：conditional_label（末步变换 CONDITIONAL）（结构推断；证据 mc:002）
+- 结构角色：candidate_key（末步变换 CONDITIONAL）（结构推断；证据 mc:002）
 - 加工步骤：
   - 步骤 1/1 @ `ROOT`（case_when）：channel_code = 'A' → 'ONLINE'；否则 'OFFLINE'；粒度=preserved（SQL事实）
 - 最终表达式：`` CASE WHEN `s`.`channel_code` = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END ``（SQL事实）

@@ -26,8 +26,8 @@ consumers: 0
 
 ## 2. 一行代表什么
 
-- `golden_commented_insert` / `stmt:001`：分组聚合后的一行；逻辑键 customer_id、channel_name；目标表无可证明的键；键置信 none（结构推断；证据 stmt:001）
-- `golden_commented_task` / `stmt:001`：分组聚合后的一行；逻辑键 customer_id、channel_name；目标表无可证明的键；键置信 none（结构推断；证据 stmt:001）
+- `golden_commented_insert` / `stmt:001`：分组聚合后的一行；逻辑键 customer_id、channel_name；目标表候选键 customer_id、channel_name；键置信 proven（结构推断；证据 stmt:001）
+- `golden_commented_task` / `stmt:001`：分组聚合后的一行；逻辑键 customer_id、channel_name；目标表候选键 customer_id、channel_name；键置信 proven（结构推断；证据 stmt:001）
 
 ## 3. 字段
 
