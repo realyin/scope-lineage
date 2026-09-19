@@ -39,8 +39,10 @@ def add_glossary_parser(subcommands) -> None:
     )
     glossary_cmd.add_argument(
         "--out",
-        required=True,
-        help="Directory for glossary.json and glossary.md",
+        help=(
+            "Directory for glossary.json and glossary.md. Required, including with "
+            "--template: the form is ranked from the dictionary written here"
+        ),
     )
     glossary_cmd.add_argument(
         "--overrides",
@@ -55,7 +57,9 @@ def add_glossary_parser(subcommands) -> None:
         help=(
             "Also write a fill-in glossary.overrides.template.md at this path, plus the "
             "same-named .json: the corpus's most-used unexplained values, with an empty "
-            "meaning each. Fill it in and pass the .json back as --overrides"
+            "meaning each. Fill it in and pass the .json back as --overrides. Needs "
+            "--out as well -- the form is a ranking OF the dictionary, not a "
+            "replacement for it"
         ),
     )
     glossary_cmd.add_argument(
@@ -100,6 +104,13 @@ def load_overrides(path: str | None):
 def run_glossary(args: argparse.Namespace) -> int:
     from .cli import _discover_lineage_documents, _load_contract_documents
 
+    if not getattr(args, "out", None):
+        print(
+            "--out is required: glossary writes glossary.json and glossary.md there, "
+            "and --template ranks its form from that dictionary",
+            file=sys.stderr,
+        )
+        return 2
     overrides = load_overrides(getattr(args, "overrides", None))
     if isinstance(overrides, int):
         return overrides

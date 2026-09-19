@@ -297,6 +297,7 @@ def test_the_profile_sources_every_comment_and_counts_what_was_answered(
     }
     assert statement["confidence"]["confirmations"] == {
         "values_confirmed": 0,
+        "rule_values_confirmed": 0,
         "terms_confirmed": 0,
         "columns_patched": 2,
         "tables_patched": 1,
@@ -327,6 +328,7 @@ def test_without_a_patch_the_profile_reports_no_patch_coverage(tmp_path: Path) -
     assert "patch" not in statement["confidence"]["metadata_coverage"]
     assert statement["confidence"]["confirmations"] == {
         "values_confirmed": 0,
+        "rule_values_confirmed": 0,
         "terms_confirmed": 0,
         "columns_patched": 0,
         "tables_patched": 0,

@@ -27,7 +27,7 @@ calls *it* (to give every field its ``value_domain``), and the corpus-level aggr
 from __future__ import annotations
 
 import re
-from typing import Mapping, Sequence
+from typing import Iterable, Mapping, Sequence
 
 from sqlglot import exp
 
@@ -177,8 +177,24 @@ def _context(document: Mapping, task: str | None, statement_id: str | None) -> d
             for entry in document.get("end_to_end_lineage") or []
         },
         "block_outputs": _block_outputs(document),
+        "chains": _chain_steps(document),
         "input_tables": metadata.get("input_tables") or {},
         "output_tables": metadata.get("output_tables") or {},
+    }
+
+
+def _chain_steps(document: Mapping) -> dict[str, list[dict]]:
+    """``mapping_chain_id -> ordered_steps``: where a chain's steps say what they OUTPUT.
+
+    A profile's ``derivation[]`` restates a chain step for a reader and drops the one key
+    this module needs, ``output_field``. WI-2.10 A: a chain legitimately contains steps
+    that produce OTHER columns -- the flag a ``SUM(CASE WHEN flag = …)`` reads is part of
+    the metric's chain -- so a constant step is attributed by what that step outputs, not
+    by what the chain ends at.
+    """
+    return {
+        str(chain.get("mapping_chain_id")): list(chain.get("ordered_steps") or [])
+        for chain in document.get("field_mapping_chains") or []
     }
 
 
@@ -310,7 +326,7 @@ def _output_reference(rule: Mapping, name: str, context: dict) -> tuple[str, boo
 
 
 def _field_observations(field: Mapping, context: dict) -> list[dict]:
-    """A target column whose value is written into the SQL rather than read from a table."""
+    """A column whose value is written into the SQL rather than read from a table."""
     steps = [
         step
         for step in field.get("derivation") or []
@@ -322,22 +338,103 @@ def _field_observations(field: Mapping, context: dict) -> list[dict]:
     comments = field.get("sql_comments") or []
     if not steps:
         return _generated_source_observations(field, reference, column, evidence, context)
+    chain = context["chains"].get(str(field.get("mapping_chain_id"))) or []
     return [
         item
         for step in steps
-        for item in _observation(
-            reference,
-            False,
-            column,
-            semantic_text.parse_expression(step.get("expression")),
-            context=CONTEXT_UNION_CONSTANT if step.get("branch") else CONTEXT_CONSTANT_PROJECTION,
-            expression=str(step.get("expression") or ""),
-            closed_set=None,
-            lookups=context,
-            evidence=evidence,
-            comments=comments,
+        for item in _constant_observation(
+            step, chain, context, evidence, comments, (reference, False, column)
         )
     ]
+
+
+def _constant_observation(
+    step: Mapping,
+    chain: Sequence[Mapping],
+    context: dict,
+    evidence: str,
+    comments: Sequence,
+    fallback: tuple[str, bool, str],
+) -> list[dict]:
+    """One constant step, filed under the column THAT STEP projects it as (WI-2.10 A).
+
+    A UNION branch writing ``'contract' AS data_source`` beneath a
+    ``SUM(CASE WHEN data_source = 'contract' THEN amt END)`` is part of the metric's
+    chain, and filing it at the chain's target published ``contract`` as a value of a
+    ``decimal`` amount. The step's own ``output_field`` says which column it is. When
+    that column reaches the target table unchanged the two are the same column, and the
+    target's qualified name is the more useful of the two spellings.
+    """
+    column_ref, logical, column = _constant_reference(step, chain, context, fallback)
+    return _observation(
+        column_ref,
+        logical,
+        column,
+        semantic_text.parse_expression(step.get("expression")),
+        context=CONTEXT_UNION_CONSTANT if step.get("branch") else CONTEXT_CONSTANT_PROJECTION,
+        expression=str(step.get("expression") or ""),
+        closed_set=None,
+        lookups=context,
+        evidence=evidence,
+        comments=comments,
+    )
+
+
+def _constant_reference(
+    step: Mapping, chain: Sequence[Mapping], context: dict, fallback: tuple[str, bool, str]
+) -> tuple[str, bool, str]:
+    """``(column_ref, logical, column)`` for the output column of one constant step.
+
+    ``fallback`` is the chain's own target column, used when the contract published no
+    step to match -- the pre-WI-2.10 answer, which is right whenever a chain has nothing
+    else in it.
+    """
+    output_field = str(_chain_step(step, chain).get("output_field") or "")
+    if not output_field:
+        return fallback
+    name = output_field.rpartition(".")[2]
+    carried = _carried_to_target(output_field, chain, context["target_table"])
+    if carried:
+        return f"{context['target_table']}.{carried}", False, carried
+    return output_field, True, name
+
+
+def _chain_step(step: Mapping, chain: Sequence[Mapping]) -> Mapping:
+    """The chain step a ``derivation[]`` entry restates, matched on its step number."""
+    for item in chain:
+        if str(item.get("step_no")) == str(step.get("step_no")):
+            return item
+    return {}
+
+
+def _carried_to_target(
+    output_field: str, chain: Sequence[Mapping], target_table: str
+) -> str | None:
+    """The target column this constant still IS, or None when a later step consumes it.
+
+    Follows the chain forwards from the constant's own output column: every step that
+    reads it must be a pass-through (a plain projection or a UNION arm) for the constant
+    to still be what the target column holds. One aggregate, one arithmetic step or one
+    CASE reading it breaks the claim, because such a step consumes the value rather than
+    emitting it.
+    """
+    seen: set[str] = set()
+    current = str(output_field)
+    while current and current not in seen:
+        owner, _, name = current.rpartition(".")
+        if owner and target_table and same_table(owner, target_table):
+            return name
+        seen.add(current)
+        readers = [
+            item
+            for item in chain
+            if current in [str(field) for field in item.get("input_fields") or []]
+            and str(item.get("transform") or "") in PASS_THROUGH_TRANSFORMS
+        ]
+        if len(readers) != 1:
+            return None
+        current = str(readers[0].get("output_field") or "")
+    return None
 
 
 def _generated_source_observations(
@@ -400,6 +497,8 @@ def _observation(
         kind = VALUE_KIND_PATTERN
         closed_set = None
     literal = semantic_text.expression_text(node)
+    if not _declared_type_admits(column_ref, logical, column, literal, lookups):
+        return []
     return [
         {
             "column_ref": column_ref,
@@ -419,6 +518,23 @@ def _observation(
             "comments": _comment_pool(column_ref, logical, column, comments, lookups),
         }
     ]
+
+
+def _declared_type_admits(
+    column_ref: str, logical: bool, column: str, literal: str, lookups: dict
+) -> bool:
+    """WI-2.10 A: the describe-side type guard, applied where the dictionary is built.
+
+    ``'Y'`` is not a value a ``decimal(15,2)`` column holds, and a corpus that publishes
+    it there teaches every later reader the same wrong fact. The check needs a declared
+    type, so it only speaks for a physical column the metadata describes; a scope-level
+    reference names no table and is left alone.
+    """
+    if logical:
+        return True
+    table = str(column_ref).rsplit(".", 1)[0]
+    detail = _column_detail(_metadata_item(table, lookups), column)
+    return type_admits_literal(detail.get("type"), literal)
 
 
 def _attribute(rule: Mapping, column: str, lookups: dict) -> tuple[str, bool]:
@@ -522,11 +638,15 @@ def _metadata_item(table: str, lookups: dict) -> dict:
     return {}
 
 
-def _column_comment(item: Mapping, column: str) -> str | None:
+def _column_detail(item: Mapping, column: str) -> Mapping:
     for detail in item.get("column_details") or []:
         if str(detail.get("name")) == column:
-            return detail.get("comment")
-    return None
+            return detail
+    return {}
+
+
+def _column_comment(item: Mapping, column: str) -> str | None:
+    return _column_detail(item, column).get("comment")
 
 
 def _table_comment(item: Mapping) -> str | None:
@@ -715,6 +835,18 @@ MEANING_STATUS_CANDIDATE = "candidate"
 
 VALUE_DOMAIN_KEY = "value_domain"
 
+# WI-2.12. The rule half of the same dictionary. A warehouse's business codes live mostly
+# in its WHERE and ON clauses -- `queue_code IN ('01','07')` decides which rows a task is
+# about -- and a `value_domain` hangs off an OUTPUT column, so a confirmed meaning could
+# not reach the one place it explains the most. This key carries it to the rule.
+RULE_VALUE_MEANINGS_KEY = "value_meanings"
+
+# Where a rule's constant is a code somebody can define. A LIKE / RLIKE shape is not one
+# (WI-2.4b), and a JOIN key names another column's value rather than a constant.
+RULE_VALUE_CONTEXTS = frozenset(
+    {CONTEXT_FILTER_EQ, CONTEXT_FILTER_IN, CONTEXT_FILTER_NEQ, CONTEXT_CASE_CONDITION}
+)
+
 # What the markdown writes when nobody has said what a value means yet. The same three
 # states the glossary's own table uses, so a reader moving between the two documents
 # does not have to learn a second vocabulary.
@@ -784,6 +916,25 @@ _TEMPORAL_TEXT = re.compile(
 )
 
 
+def type_admits_literal(declared: object, literal: object) -> bool:
+    """False when a declared type says the column cannot hold this QUOTED literal.
+
+    Only a quoted literal is judged: an unquoted ``0`` beside a ``decimal`` is the same
+    number written without ceremony, while ``'Y'`` beside one is a value from a different
+    column entirely. An undeclared type admits everything -- the layer refuses to guess.
+    """
+    text = str(literal or "")
+    if not text.startswith(("'", '"')):
+        return True
+    kind = str(declared or "").strip().lower()
+    inner = strip_quotes(text)
+    if kind.startswith(NUMERIC_TYPE_PREFIXES):
+        return bool(_NUMERIC_TEXT.match(inner))
+    if kind.startswith(TEMPORAL_TYPE_PREFIXES):
+        return bool(_TEMPORAL_TEXT.match(inner))
+    return True
+
+
 #: Where a scope-level output observation is filed. ``cte:c`` is a name inside one
 #: statement, not a table, so it cannot be compared to a target table and shares one
 #: bucket instead -- see :func:`value_domain_index`.
@@ -843,23 +994,31 @@ def apply_value_domains(
 
 
 def _set_domain(field: dict, domain: Sequence[dict]) -> None:
-    """Write ``value_domain`` in front of ``sources``, keeping every other key in place.
+    """Write ``value_domain`` in front of ``sources``, keeping every other key in place."""
+    splice_before(field, "sources", VALUE_DOMAIN_KEY, list(domain) if domain else None)
 
-    The key order is part of ``semantic-json/1`` and this runs after the field dict was
-    assembled, so the entry is spliced in rather than appended -- and rather than this
-    module having to know the profile's whole key order.
+
+def splice_before(entry: dict, anchors: object, key: str, value) -> None:
+    """Put ``key`` in front of the first of ``anchors`` present; ``None`` removes it.
+
+    The key order is part of ``semantic-json/1`` and these writers run after the dict was
+    assembled, so an entry is spliced in rather than appended -- and rather than this
+    module having to know the profile's whole key order. Several anchors because an
+    optional key (``sql_comments``) is a fine landmark only when the entry has one.
     """
-    field.pop(VALUE_DOMAIN_KEY, None)
-    if not domain:
+    entry.pop(key, None)
+    if value is None:
         return
+    names = (anchors,) if isinstance(anchors, str) else tuple(anchors)
+    anchor = next((name for name in names if name in entry), None)
     rebuilt: dict = {}
-    for key, value in field.items():
-        if key == "sources":
-            rebuilt[VALUE_DOMAIN_KEY] = list(domain)
-        rebuilt[key] = value
-    rebuilt.setdefault(VALUE_DOMAIN_KEY, list(domain))
-    field.clear()
-    field.update(rebuilt)
+    for existing, current in entry.items():
+        if existing == anchor:
+            rebuilt[key] = value
+        rebuilt[existing] = current
+    rebuilt.setdefault(key, value)
+    entry.clear()
+    entry.update(rebuilt)
 
 
 def _field_domain(field: Mapping, index: Mapping, target_owner: tuple) -> list[dict]:
@@ -932,16 +1091,9 @@ def _has_context(entry: Mapping, contexts: frozenset) -> bool:
 
 def _type_admits(field: Mapping, entry: Mapping) -> bool:
     """False when the declared type says the column cannot hold this quoted literal."""
-    literal = str(entry.get("sql_literal") or entry.get("value") or "")
-    if not literal.startswith(("'", '"')):
-        return True
-    declared = str(field.get("type") or "").strip().lower()
-    text = strip_quotes(literal)
-    if declared.startswith(NUMERIC_TYPE_PREFIXES):
-        return bool(_NUMERIC_TEXT.match(text))
-    if declared.startswith(TEMPORAL_TYPE_PREFIXES):
-        return bool(_TEMPORAL_TEXT.match(text))
-    return True
+    return type_admits_literal(
+        field.get("type"), entry.get("sql_literal") or entry.get("value")
+    )
 
 
 def _column_closed_set(matched: Sequence[tuple[Mapping, str]]) -> bool | None:
@@ -1010,6 +1162,130 @@ def _domain_meaning(entry: Mapping) -> dict | None:
     return None
 
 
+# --------------------------------------------------- rule value meanings (WI-2.12)
+
+
+def apply_rule_value_meanings(
+    rules: Sequence[dict], entries: Sequence[Mapping], task: object = None
+) -> None:
+    """Give each rule the dictionary's reading of the constants it pins a column to.
+
+    One item per ``(column_ref, value)`` the rule compares against, in the order the
+    rule writes them, each carrying the meaning the dictionary holds for exactly that
+    column and value -- ``null`` while nobody has answered. A rule whose constants the
+    dictionary has never seen keeps no key at all, so a profile built without
+    ``--glossary`` is byte for byte the document it was before.
+    """
+    index = value_domain_index(entries)
+    scoped = _scope_value_index(entries, task)
+    for rule in rules:
+        meanings = _merged_rule_meanings(
+            _rule_value_meaning(reference, index, scoped)
+            for reference in rule_value_references(rule)
+        )
+        splice_before(rule, "fields", RULE_VALUE_MEANINGS_KEY, meanings or None)
+
+
+def _scope_value_index(entries: Sequence[Mapping], task: object) -> dict:
+    """Scope-level entries by ``(scope owner, column)``, restricted to ONE task.
+
+    A scope id is a name inside one statement: ``cte_a.flag`` in another task is a
+    different CTE that happens to share a spelling, and a table name is the only thing
+    that makes two columns the same column across a corpus. So the logical bucket
+    answers a rule only when this very task is among the observations that filled it.
+    """
+    index: dict[tuple, list] = {}
+    for entry in entries:
+        observed = {str(item.get("task")) for item in entry.get("observations") or []}
+        if not entry.get("logical") or str(task) not in observed:
+            continue
+        owner = str(entry["column_ref"]).rsplit(".", 1)[0]
+        index.setdefault((owner, str(entry["column"])), []).append(entry)
+    return index
+
+
+def rule_value_references(rule: Mapping) -> list[tuple[str, bool, str]]:
+    """``(column_ref, logical, sql literal)`` for every code this rule pins a column to.
+
+    The same attribution the dictionary itself uses (:func:`_attribute`): a table only
+    when exactly one of the rule's fields carries the name, a scope reference otherwise.
+    Reading it back off the published rule rather than off the contract keeps the two
+    halves of the layer answering from one place.
+    """
+    references: list[tuple[str, bool, str]] = []
+    for expression in _rule_condition_expressions(rule):
+        parsed = _comparison(semantic_text.parse_expression(expression))
+        if parsed is None or parsed[2] not in RULE_VALUE_CONTEXTS:
+            continue
+        column, values, _context, _closes = parsed
+        column_ref, logical = _attribute(rule, column, {})
+        references.extend(
+            (column_ref, logical, semantic_text.expression_text(node))
+            for node in values
+            if not isinstance(node, exp.Null)
+            and _value_kind(node) in GLOSSARY_VALUE_KINDS
+        )
+    return references
+
+
+def _rule_condition_expressions(rule: Mapping) -> list:
+    """The conditions of one rule that compare a column against something."""
+    kind = str(rule.get("kind"))
+    if kind in _PREDICATE_RULE_KINDS:
+        return [rule.get("expression")]
+    if kind == "join_condition":
+        # The key pairs compare two columns; only the extra conditions carry constants.
+        return list(rule.get("extra_conditions") or [])
+    if kind == "case_branch":
+        return [branch.get("when") for branch in rule.get("branches") or []]
+    return []
+
+
+def _rule_value_meaning(
+    reference: tuple[str, bool, str], index: Mapping, scoped: Mapping
+) -> dict | None:
+    """The dictionary entry for one ``(column, value)``, read as a rule item."""
+    column_ref, logical, literal = reference
+    owner, _, column = str(column_ref).rpartition(".")
+    bucket = (
+        scoped.get((owner, column))
+        if logical
+        else index["by_column"].get((table_key(owner), column))
+    )
+    value = strip_quotes(literal)
+    entry = next(
+        (item for item in bucket or [] if str(item.get("value")) == value), None
+    )
+    if entry is None:
+        return None
+    return {
+        "column_ref": column_ref,
+        "value": value,
+        "sql_literal": literal,
+        "meaning": _domain_meaning(entry),
+    }
+
+
+def _merged_rule_meanings(items: Iterable[Mapping | None]) -> list[dict]:
+    """One item per ``(column_ref, value)``: a code repeated is one code."""
+    merged: dict[tuple, dict] = {}
+    for item in items:
+        if item is None:
+            continue
+        key = (item["column_ref"], item["value"])
+        current = merged.get(key)
+        if current is None:
+            merged[key] = dict(item)
+        else:
+            current["meaning"] = _better_meaning(current["meaning"], item["meaning"])
+    return list(merged.values())
+
+
+def rule_value_meanings(rule: Mapping) -> list[Mapping]:
+    """The rule's published items, or an empty list when the key is absent."""
+    return list(rule.get(RULE_VALUE_MEANINGS_KEY) or [])
+
+
 def enum_entries(domain: Sequence[Mapping]) -> list[Mapping]:
     """The values the column actually holds -- everything a pattern is not."""
     return [item for item in domain if str(item.get("kind")) != VALUE_KIND_PATTERN]
@@ -1064,6 +1340,13 @@ def _pattern_text(item: Mapping) -> str:
     return f"{displayed_value(item)}（{_meaning_mark(meaning)}{meaning.get('text')}）"
 
 
+def meaning_text(meaning: Mapping | None) -> str:
+    """``已支付`` when a human confirmed it, ``? 退款`` for a candidate, empty for none."""
+    if not meaning:
+        return ""
+    return f"{_meaning_mark(meaning)}{meaning.get('text')}"
+
+
 def _meaning_mark(meaning: Mapping) -> str:
     if meaning.get("status") == MEANING_STATUS_CONFIRMED:
         return ""
@@ -1093,14 +1376,70 @@ def _apply_summary_suffix(field: dict, domain: Sequence[Mapping]) -> None:
         field["summary"] = summary
 
 
-def glossary_coverage(fields: Sequence[Mapping]) -> dict[str, int]:
-    """``{values_total, confirmed, candidate}`` over every field's value domain."""
-    entries = [
-        item for field in fields for item in field.get(VALUE_DOMAIN_KEY) or []
-    ]
-    statuses = [(item.get("meaning") or {}).get("status") for item in entries]
+def glossary_coverage(
+    fields: Sequence[Mapping], rules: Sequence[Mapping] = ()
+) -> dict[str, int]:
+    """How much of this task's code vocabulary the dictionary can already explain.
+
+    WI-2.12. Two halves counted apart and then deduped into one total: the values a
+    FIELD holds (``value_domain``) and the codes a RULE pins a column to
+    (``value_meanings``). One code is one business question however often it is written,
+    so the key is ``(column name, value, kind)`` -- a status pinned in a WHERE and
+    carried unchanged into the output column of the same name is one value to confirm,
+    not two -- and the union is what an A2 coverage ratio is taken over.
+    """
+    field_values = _coverage_statuses(_field_value_items(fields))
+    rule_values = _coverage_statuses(_rule_value_items(rules))
+    merged = dict(field_values)
+    for key, status in rule_values.items():
+        merged[key] = _stronger_status(merged.get(key), status)
     return {
-        "values_total": len(entries),
-        "confirmed": statuses.count(MEANING_STATUS_CONFIRMED),
-        "candidate": statuses.count(MEANING_STATUS_CANDIDATE),
+        "values_total": len(merged),
+        "confirmed": _status_count(merged, MEANING_STATUS_CONFIRMED),
+        "candidate": _status_count(merged, MEANING_STATUS_CANDIDATE),
+        "rule_values_total": len(rule_values),
+        "rule_values_confirmed": _status_count(rule_values, MEANING_STATUS_CONFIRMED),
+        "field_values_total": len(field_values),
+        "field_values_confirmed": _status_count(field_values, MEANING_STATUS_CONFIRMED),
     }
+
+
+def _field_value_items(fields: Sequence[Mapping]) -> list[tuple[tuple, object]]:
+    return [
+        ((str(field.get("column")), str(item.get("value")), str(item.get("kind"))),
+         (item.get("meaning") or {}).get("status"))
+        for field in fields
+        for item in field.get(VALUE_DOMAIN_KEY) or []
+    ]
+
+
+def _rule_value_items(rules: Sequence[Mapping]) -> list[tuple[tuple, object]]:
+    """A rule's codes, keyed by the bare column name the field side also uses."""
+    return [
+        ((str(item.get("column_ref")).rpartition(".")[2],
+          str(item.get("value")),
+          VALUE_KIND_LITERAL),
+         (item.get("meaning") or {}).get("status"))
+        for rule in rules
+        for item in rule_value_meanings(rule)
+    ]
+
+
+def _coverage_statuses(items: Sequence[tuple[tuple, object]]) -> dict[tuple, object]:
+    counted: dict[tuple, object] = {}
+    for key, status in items:
+        counted[key] = _stronger_status(counted.get(key), status)
+    return counted
+
+
+def _stronger_status(current: object, other: object) -> object:
+    """Confirmed beats candidate beats nothing -- the same order ``_better_meaning`` uses."""
+    ranked = (MEANING_STATUS_CONFIRMED, MEANING_STATUS_CANDIDATE)
+    for status in ranked:
+        if status in (current, other):
+            return status
+    return current or other
+
+
+def _status_count(statuses: Mapping[tuple, object], status: str) -> int:
+    return sum(1 for item in statuses.values() if item == status)

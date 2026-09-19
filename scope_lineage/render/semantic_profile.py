@@ -1167,6 +1167,9 @@ _RULE_KEY_ORDER = (
     "extra_condition_fields",
     "branches",
     "else",
+    # WI-2.12: filled in by `apply_glossary`, so it sits beside the fields whose codes it
+    # explains rather than at the end of the rule.
+    "value_meanings",
     "fields",
     "scope_fields",
     "sql_comments",
@@ -1390,6 +1393,9 @@ _FIELD_KEY_ORDER = (
     "summary",
     "target_comment",
     "target_comment_source",
+    # WI-2.12: the corpus term's confirmed meaning, published only where the target table
+    # has no comment of its own. It is a term, never a comment, and never impersonates one.
+    "term_meaning",
     "sql_comments",
     "type",
     "transform",
@@ -3583,11 +3589,11 @@ def _build_confidence(
     warnings = warnings_for(diagnostics, statement_id)
     available = diagnostics is not None
     return {
-        "metadata_coverage": _metadata_coverage(document, fields),
+        "metadata_coverage": _metadata_coverage(document, fields, rules),
         # WI-2.6: how much of this task has been answered. Always present, and zero is a
         # fact worth publishing -- "nobody has confirmed anything here yet" is the state
         # the write-back loop exists to change, and a reader has to be able to see it.
-        "confirmations": _confirmations(document, fields),
+        "confirmations": _confirmations(document, fields, rules),
         "trace_incomplete_fields": [
             field["column"] for field in fields if not field.get("trace_complete")
         ],
@@ -3607,7 +3613,9 @@ def _build_confidence(
     }
 
 
-def _metadata_coverage(document: dict, fields: Sequence[dict] = ()) -> dict:
+def _metadata_coverage(
+    document: dict, fields: Sequence[dict] = (), rules: Sequence[dict] = ()
+) -> dict:
     """How much of what the fields mean the metadata could supply, counted not judged."""
     metadata = _input_metadata(document)
     output_metadata = _output_metadata(document)
@@ -3630,7 +3638,7 @@ def _metadata_coverage(document: dict, fields: Sequence[dict] = ()) -> dict:
     # WI-2.4: how far the value dictionary got with this task's fields. Absent rather
     # than zeroed when the task has no observed values at all -- a statement that
     # compares nothing against a constant has no value domain to be short of.
-    glossary = glossary_values.glossary_coverage(fields)
+    glossary = glossary_values.glossary_coverage(fields, rules)
     if glossary["values_total"]:
         coverage["glossary"] = glossary
     # WI-2.6: what a reviewed metadata patch supplied for THIS statement. Absent when no
@@ -3665,17 +3673,23 @@ def _patch_counts(document: dict) -> dict[str, int]:
     }
 
 
-def _confirmations(document: dict, fields: Sequence[dict] = ()) -> dict[str, int]:
+def _confirmations(
+    document: dict, fields: Sequence[dict] = (), rules: Sequence[dict] = ()
+) -> dict[str, int]:
     """WI-2.6: how many open questions this task has actually had answered.
 
-    Four counts, one per kind of answer the 待确认清单 can produce: a value's meaning and
-    a term's meaning come back through ``glossary.overrides.json`` (the term count is
-    filled in by ``apply_glossary``, which is the only side that has read the corpus
-    dictionary), a column comment and a table comment come back through a metadata patch.
+    Five counts, one per kind of answer the 待确认清单 can produce: a field value's
+    meaning, a RULE value's meaning (WI-2.12: the codes a WHERE or a CASE condition pins
+    a column to, which is where a warehouse keeps most of them) and a term's meaning come
+    back through ``glossary.overrides.json`` (those three are filled in by
+    ``apply_glossary``, the only side that has read the corpus dictionary), a column
+    comment and a table comment come back through a metadata patch.
     """
     patched = _patch_counts(document)
+    coverage = glossary_values.glossary_coverage(fields, rules)
     return {
-        "values_confirmed": glossary_values.glossary_coverage(fields)["confirmed"],
+        "values_confirmed": coverage["field_values_confirmed"],
+        "rule_values_confirmed": coverage["rule_values_confirmed"],
         "terms_confirmed": 0,
         "columns_patched": patched["columns"],
         "tables_patched": patched["tables"],

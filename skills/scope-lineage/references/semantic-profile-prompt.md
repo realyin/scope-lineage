@@ -159,6 +159,14 @@ GROUP BY 项就是一个键，哪怕它穿透到好几个物理列），键用 `
 调度频率）。有 `metric_spec` 时直接压缩它的 `time_range` 与 `aggregation`；`kind` 为
 `instance_date` 的写「实例日期 20260814」，**不要**写成「硬编码」「写死」「应该参数化」。
 
+**口径里出现 code 时优先读 `rules[].value_meanings[]`**（WI-2.12，`describe --glossary`
+接入后就有）：它是这条规则把列钉住的每个取值与人工确认的含义，`{column_ref, value,
+sql_literal, meaning}`。「只保留人工队列（`queue_code = '01'`）」这类句子的出处就在这里——
+`meaning.status = "confirmed"` 时直接当事实写（标 `SQL事实`，含义部分的证据写 `rule:0NN`），
+`candidate` 写成「…（含义待确认）」，`meaning` 为 `null` 的 code **不要猜**：句子里保留原始取值，
+该取值进附录 A2b 的待填清单。规则解释（第一件的「口径要点」「使用注意」与第三件的问题正文）
+一律先看这个键，再退回 `rules[].expression` 自己读。
+
 **使用注意** — `severity = warn` 的治理线索里读者**必须**知道的，每条一句，没有就写「无」。
 至少覆盖：`alias_position_mismatch`（列错位，正文只写「这张表的列名与实际写入值可能整体错位，
 核对列序前不要按注释解读数值」）、关联不上时为空的字段、UDF 与黑盒表达式、
@@ -173,8 +181,11 @@ GROUP BY 项就是一个键，哪怕它穿透到好几个物理列），键用 `
 | # | 字段 | 中文名 | 一句含义 | 口径 | 取值含义 | 可信度 |
 | --- | --- | --- | --- | --- | --- | --- |
 
-- **中文名**：`target_comment` 原文；没有注释时给一个推断名并后缀 `?`（如 `订单金额?`）。
-  `target_comment_source` 为 `patch` 时这个名字来自人工确认的回写，照写、不加 `?`、不再提问。
+- **中文名**：`target_comment` 原文；没有注释时先看 `fields[].term_meaning`（WI-2.12：语料字典里
+  这个列名**已人工确认**的含义，形如 `{text, status: "confirmed"}`，只在没有目标注释时出现）——
+  有就照写、**不加 `?`**、按 `[事实]` 处理并在附录 A2a 列一行「术语」，因为它是人答过的；两者都没有
+  才给一个推断名并后缀 `?`（如 `订单金额?`）。`target_comment_source` 为 `patch` 时这个名字来自
+  人工确认的回写，同样照写、不加 `?`、不再提问。
 - **一句含义**：**是什么，不是怎么算**。「这个客户当天下的订单总金额」是含义，「`SUM(pay_amount)`」不是。`fields[].summary` 是复述，只能作起点，不能直接抄进这一列。
 - **口径**：指标字段把 `metric_spec` 压成一行 `对象 · 时间范围 · 纳入条件 · 聚合`（槽位为 `null`
   写「未知」）；非指标字段写来源，形如 `取自 <表>.<列>` 或 `按 <条件> 打标` 或 `固定值 'X'`。
@@ -190,8 +201,11 @@ GROUP BY 项就是一个键，哪怕它穿透到好几个物理列），键用 `
   **透传来源列**被 `=`/`IN` 钉住的值；CASE **条件**里比较的常量属于被判断的那一列，不会出现在
   这里。`kind = "pattern"` 的条目
   是 `LIKE` / `RLIKE` 的匹配模式（WI-2.4b），**不是枚举值**：写成「匹配 `'%UNIT_OUT_%'`」，不要
-  当成该列取过的值，也不参与封闭判断。没有 `value_domain` 时
-  才退回自己从 `rules[].expression` 的 `IN` / `=`、CASE 分支、常量投影里读取值集合。
+  当成该列取过的值，也不参与封闭判断。`value_domain` 之外，**这个字段的来源列在规则里被钉住的
+  code 读 `rules[].value_meanings[]`**（WI-2.12）：仓库的业务码多数只出现在 `WHERE` / 连接附加
+  条件 / CASE 条件里，永远到不了 `value_domain`，而那里的 `meaning.status = "confirmed"` 同样是
+  人工确认过的事实。没有这两个键时才退回自己从 `rules[].expression` 的 `IN` / `=`、CASE 分支、
+  常量投影里读取值集合。
   **不要猜 code 代表什么，也不要为它生成 `Q`**（WI-2.9）：没有含义的取值统一写
   「含义待确认，见附录 A2b」，答案由 `glossary.overrides.template.md` 收。无枚举的字段写 `—`。
 - **可信度**：`事实` / `推断` / `待确认` 三档之一，一个字段一档（取该行最弱的一档）。写 `待确认`
@@ -285,8 +299,10 @@ Q<n>. <一句问题，业务方不看 SQL 也能懂>
 这些项改在**附录 A2 的「已确认项」小表**里列出（值/字段/表、确认后的含义、来源），让复核的人看到
 上一轮的答案落在哪儿了。字段字典的「可信度」列相应升档：该行的证据全部是事实或已确认项时写
 `事实（已确认）`，它与 `事实` 同档，只是多说明一句这份事实来自人工确认。
-`confidence.confirmations`（`{values_confirmed, terms_confirmed, columns_patched, tables_patched}`）
-是这四类已确认项的计数，附录 A2 直接转写它。
+`confidence.confirmations`（`{values_confirmed, rule_values_confirmed, terms_confirmed,
+columns_patched, tables_patched}`）是这几类已确认项的计数，附录 A2 直接转写它。
+`rule_values_confirmed`（WI-2.12）是**规则里**被确认的取值数，与字段层的 `values_confirmed`
+分开计——同一个 code 写在输出列上和写在 `WHERE` 里，是读者在两个地方各问一次的问题。
 
 来源只扫上面那四类。**不再标「（优先）」**：清单只剩 5 条，条条都是优先，标记不再区分任何东西。
 顺序仍按影响排：影响数值正确性 > 影响口径理解 > 影响命名。业务方应能几分钟答完——问题要能用
@@ -356,19 +372,27 @@ SQL 事实 > 元数据注释 > 你的推断），把被丢弃的另一种写成�
 | 类型 | 对象 | 确认后的含义 | 证据 |
 | --- | --- | --- | --- |
 | 取值 | `<列>='<值>'` | {meaning.text} | `fields[].value_domain[].meaning.status=confirmed` |
+| 规则取值 | `<列>='<值>'`（写在哪条规则上） | {meaning.text} | `rules[].value_meanings[].meaning.status=confirmed` |
+| 术语 | `<列名>` | {term_meaning.text} | `fields[].term_meaning` / `inputs[].used_columns[].term_meaning` |
 | 字段注释 | `<表.列>` | {target_comment} | `fields[].target_comment_source=patch` |
 | 表注释 | `<表>` | {inputs[].comment} | `inputs[].comment_source=patch` |
 
 表末写一行计数，直接转写 `confidence.confirmations`：
-`已确认：取值 N1、术语 N2、字段注释 N3、表注释 N4`。
+`已确认：字段取值 N1、规则取值 N2、术语 N3、字段注释 N4、表注释 N5`。覆盖率按
+`confidence.metadata_coverage.glossary` 写：`已确认 confirmed / values_total`——其中
+`values_total` 是**字段取值 ∪ 规则引用取值**去重后的总数（按列名与取值归一，同一个 code 在
+`WHERE` 与同名输出列上只算一次），`rule_values_*` / `field_values_*` 是它的两半。
 
 **A2b 备查项与待填取值清单**（WI-2.9，有则必须写）：第三件装不下的候选与所有没有含义的取值都落在
 这里。两段，都不用六行格式：
 
 - **备查项**：一行一条，格式 `- <一句话> —— 证据 <骨架路径>`。它们是真的线索，只是这一轮不占
   业务方的五条额度；下一轮清单空出来时再提上去。
-- **待填取值清单**：本任务 `fields[].value_domain[]` 里 `meaning` 为空（或 `status = candidate`）
-  的取值，**按列聚合**，一列一行：`- <表.列>：'A'、'B'、'C'（N 个，封闭/未证明封闭）`。表头前写
+- **待填取值清单**：本任务 `fields[].value_domain[]` **与 `rules[].value_meanings[]`** 里
+  `meaning` 为空（或 `status = candidate`）的取值，**按列聚合**，一列一行：
+  `- <表.列>：'A'、'B'、'C'（N 个，封闭/未证明封闭）`。两个来源合成一份清单并按
+  `(列, 取值)` 去重；只出现在规则里的取值同样要列出来——它们正是最该问的那一批，行末标
+  「（出现在 rule:0NN）」，`value_domain` 里也有的不必重复标。表头前写
   一句固定话：「取值含义请填 `glossary.overrides.template.md`，生成命令：
   `scope-lineage glossary --lineage <语料> --out <目录> --template <目录>/glossary.overrides.template.md`」。
   这一段**取代**了旧版逐个 code 提问的那些 `Q`。
@@ -423,6 +447,6 @@ DDL 列位置写入，且 N/M 个投影的 SQL 别名与目标表同位置列名
 | 12a. 每条的「回写目标」只写了四种形式中的一种，没留模板的四选一 | | |
 | 12b. 已确认项（confirmed / patch）没有再生成 Q，且都进了附录 A2a | | |
 | 12c. `severity = info` 的 findings（实例日期、两侧取不同天、缺表注释）**没有进正文**，也没有生成 Q | | |
-| 12d. 超出 5 条的候选与所有没有含义的取值都进了附录 A2b，正文里写了那句「取值含义请填 `glossary.overrides.template.md`」 | | |
+| 12d. 超出 5 条的候选与所有没有含义的取值（含只出现在 `rules[].value_meanings[]` 里的）都进了附录 A2b，正文里写了那句「取值含义请填 `glossary.overrides.template.md`」 | | |
 | 13. 自洽性检查已执行并写出结论 | | |
 | 14. 没有编造骨架中不存在的表、字段、规则 | | |
