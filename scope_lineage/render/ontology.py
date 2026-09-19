@@ -57,22 +57,43 @@ from .semantic_profile import (
     ranking_uniqueness,
 )
 from .table_cards import (
+    CARD_DOC_FORMAT as TABLE_CARD_DOC_FORMAT,
+)
+from .table_cards import (
     FINDING_AMBIGUOUS_BARE_NAME,
     FINDING_PRODUCER_KEY_CONFLICT,
     build_table_cards,
+    render_table_card_markdown,
     same_table,
+    table_card_filename,
 )
 
 DOC_FORMAT = "ontology-json/1"
 INDEX_DOC_FORMAT = "ontology-index-md/1"
+# A table card the ontology appended its sections to is no longer a `tables-md/1`
+# document: it carries five more sections and a different contract. It says so.
+CARD_DOC_FORMAT = "ontology-md/1"
 
-# The four tiers, strongest first. Everything published carries exactly one of them.
+# The five tiers, strongest first. Everything published carries exactly one of them.
+# `confirmed` is the only one the corpus cannot produce: it arrives from a reviewed
+# `ontology.overrides.json` and means a person answered the question.
+TIER_CONFIRMED = "confirmed"
 TIER_PROVEN = "proven"
 TIER_IMPLIED = "implied"
 TIER_HYPOTHESIS = "hypothesis"
 TIER_CONFLICT = "conflict"
 
-TIERS = (TIER_PROVEN, TIER_IMPLIED, TIER_HYPOTHESIS, TIER_CONFLICT)
+TIERS = (TIER_CONFIRMED, TIER_PROVEN, TIER_IMPLIED, TIER_HYPOTHESIS, TIER_CONFLICT)
+
+# The markdown says the tier in Chinese; the JSON keeps the English token, because the
+# JSON is what a knowledge graph loads and the markdown is what a person reads.
+TIER_TEXT = {
+    TIER_CONFIRMED: "已确认",
+    TIER_PROVEN: "已证明",
+    TIER_IMPLIED: "可推得",
+    TIER_HYPOTHESIS: "作者假设",
+    TIER_CONFLICT: "矛盾",
+}
 
 ENTITY_PHYSICAL = "physical_table"
 ENTITY_PRODUCED = "produced_table"
@@ -83,14 +104,40 @@ RELATION_UNION = "union_sibling"
 CARDINALITY_ONE_TO_MANY = "one_to_many"
 CARDINALITY_MANY_TO_ONE = "many_to_one"
 CARDINALITY_MANY_TO_ONE_ASSUMED = "many_to_one_assumed"
+# The corpus never claims this one: a JOIN proves at most one side unique, so "one row
+# each way" is something only a person can confirm. It exists so `--overrides` can say it.
+CARDINALITY_ONE_TO_ONE_ASSUMED = "one_to_one_assumed"
 CARDINALITY_UNKNOWN = "unknown"
 
 CARDINALITY_CLAIMS = (
     CARDINALITY_ONE_TO_MANY,
     CARDINALITY_MANY_TO_ONE,
     CARDINALITY_MANY_TO_ONE_ASSUMED,
+    CARDINALITY_ONE_TO_ONE_ASSUMED,
     CARDINALITY_UNKNOWN,
 )
+
+CARDINALITY_TEXT = {
+    CARDINALITY_ONE_TO_MANY: "一对多",
+    CARDINALITY_MANY_TO_ONE: "多对一",
+    CARDINALITY_MANY_TO_ONE_ASSUMED: "多对一，作者假设",
+    CARDINALITY_ONE_TO_ONE_ASSUMED: "一对一，作者假设",
+    CARDINALITY_UNKNOWN: "未知",
+}
+
+# The ER symbols, read `from <symbol> to`. Mermaid writes the "many" crow's foot on the
+# side that holds many rows, so `one_to_many` is `||--o{` and its mirror is `}o--||`.
+CARDINALITY_MERMAID = {
+    CARDINALITY_ONE_TO_MANY: "||--o{",
+    CARDINALITY_MANY_TO_ONE: "}o--||",
+    CARDINALITY_MANY_TO_ONE_ASSUMED: "}o--||",
+    CARDINALITY_ONE_TO_ONE_ASSUMED: "||--||",
+    CARDINALITY_UNKNOWN: "}o--o{",
+}
+
+# An ER diagram stops being readable long before it stops rendering. Past this many
+# entities the overview keeps the best-connected ones and says how many it left out.
+MERMAID_ENTITY_LIMIT = 60
 
 # Why a cardinality is claimed. A token rather than a sentence: the JSON is read by
 # machines, and the markdown renders the token into one line of Chinese.
@@ -100,11 +147,25 @@ BASIS_PRODUCER_KEY = "producer_key_confidence"
 BASIS_NO_DEDUP = "right_side_not_deduplicated"
 BASIS_UNION_ALIGNMENT = "union_branch_alignment"
 BASIS_NO_EVIDENCE = "no_uniqueness_evidence"
+BASIS_HUMAN_CONFIRMATION = "human_confirmation"
+
+# The markdown renders the token into one line of Chinese, so a reader never has to
+# learn the vocabulary to know why a claim was made.
+BASIS_TEXT = {
+    BASIS_GROUP_BY: "关联前已按连接键聚合去重",
+    BASIS_RANKING_WINDOW: "关联前已按连接键排名去重",
+    BASIS_PRODUCER_KEY: "生产任务已证明该键唯一",
+    BASIS_NO_DEDUP: "直接关联未去重，作者假设对端按该键唯一",
+    BASIS_UNION_ALIGNMENT: "同一 UNION 的分支按列位置对齐",
+    BASIS_NO_EVIDENCE: "语料内没有唯一性证据",
+    BASIS_HUMAN_CONFIRMATION: "人工确认",
+}
 
 EVIDENCE_GROUP_BY = "group_by"
 EVIDENCE_WINDOW_PARTITION = "window_partition"
 EVIDENCE_JOINED_AS_RIGHT = "joined_as_right_without_dedup"
 EVIDENCE_PRODUCER_KEY = "producer_key_confidence"
+EVIDENCE_HUMAN_CONFIRMATION = "human_confirmation"
 
 CLAIM_MULTIPLE_ROWS = "multiple_rows_per_key"
 
@@ -120,11 +181,28 @@ CONSTRAINT_KINDS = (
     CONSTRAINT_PARTITION,
 )
 
+CONSTRAINT_TEXT = {
+    CONSTRAINT_NOT_NULL: "非空",
+    CONSTRAINT_IN_SET: "取值集合",
+    CONSTRAINT_UNIQUE_PER: "每键唯一",
+    CONSTRAINT_PARTITION: "分区列",
+}
+
 COMPLETENESS_COMPLETE = "complete"
 COMPLETENESS_UNKNOWN = "unknown"
 
+COMPLETENESS_TEXT = {
+    COMPLETENESS_COMPLETE: "已封闭",
+    COMPLETENESS_UNKNOWN: "是否完整未知",
+}
+
 SYNONYM_DIRECT_RENAME = "direct_rename"
 SYNONYM_UNION_ALIGNMENT = "union_alignment"
+
+SYNONYM_TEXT = {
+    SYNONYM_DIRECT_RENAME: "直接改名投影",
+    SYNONYM_UNION_ALIGNMENT: "UNION 同一位置",
+}
 
 FINDING_CARDINALITY_CONFLICT = "cardinality_conflict"
 
@@ -161,6 +239,7 @@ _ONTOLOGY_KEYS = (
     "relations",
     "constraints",
     "findings",
+    "overrides_applied",
 )
 _ATTRIBUTE_KEYS = (
     "column",
@@ -204,6 +283,7 @@ def build_ontology(
     *,
     tables: Mapping | None = None,
     glossary: Mapping | None = None,
+    overrides: Mapping | None = None,
     artifact_root: str | None = None,
 ) -> dict:
     """Build one corpus's ontology candidate.
@@ -213,7 +293,9 @@ def build_ontology(
     in the same order, so a caller that already built them -- the CLI builds them once
     for all three corpus artifacts -- does not pay for them twice. ``tables`` and
     ``glossary`` are the two corpus documents this one is derived on top of; either is
-    built in memory from the same corpus when it is not supplied.
+    built in memory from the same corpus when it is not supplied. ``overrides`` is a
+    reviewed ``ontology.overrides.json``: the answers a person gave to the hypotheses
+    this document asked about, and the only way an assertion reaches ``confirmed``.
     """
     documents = [dict(document) for document in documents]
     profiles = (
@@ -243,8 +325,98 @@ def build_ontology(
         "relations": _relations(edges),
         "constraints": constraints,
         "findings": _findings(cards, edges, facts["multiplicity"]),
+        "overrides_applied": {"relations": 0, "keys": 0, "unmatched": []},
     }
+    _apply_overrides(ontology, overrides or {})
     return {key: ontology[key] for key in _ONTOLOGY_KEYS}
+
+
+# ------------------------------------------------------------------- confirmations
+
+
+def relation_override_key(relation: Mapping) -> str:
+    """The stable name one relation answers to in ``ontology.overrides.json``.
+
+    ``<from entity>.<col+col>-><to entity>.<col+col>``, exactly as the markdown prints
+    it, so a reviewer copies the string out of the card instead of reconstructing it.
+    """
+    return (
+        f"{relation['from']['entity']}.{'+'.join(relation['from']['columns'])}"
+        f"->{relation['to']['entity']}.{'+'.join(relation['to']['columns'])}"
+    )
+
+
+def _apply_overrides(ontology: dict, overrides: Mapping) -> None:
+    """Raise confirmed relations and keys to ``confirmed``; report what matched nothing.
+
+    A confirmation is the one thing the corpus cannot derive and the only reason this
+    document is worth reviewing twice: the hypotheses it publishes are questions, and an
+    answered question must stop being asked. An override naming something the corpus does
+    not contain is listed in ``overrides_applied.unmatched`` rather than dropped, because
+    a typo in a reviewed file is exactly what a reviewer cannot see.
+    """
+    applied = ontology["overrides_applied"]
+    relations = dict((overrides.get("relations") or {}))
+    matched = {
+        relation_override_key(relation)
+        for relation in ontology["relations"]
+        if relation_override_key(relation) in relations
+    }
+    for relation in ontology["relations"]:
+        entry = relations.get(relation_override_key(relation))
+        if entry is None:
+            continue
+        relation["cardinality"] = _confirmed_cardinality(relation["cardinality"], entry)
+        applied["relations"] += 1
+    applied["unmatched"].extend(sorted(set(relations) - matched))
+    applied["keys"] += _apply_key_overrides(ontology, overrides.get("keys") or {}, applied)
+
+
+def _confirmed_cardinality(current: Mapping, entry: Mapping) -> dict:
+    """The reviewed claim, or the corpus's own claim confirmed as it stands."""
+    claim = str(entry.get("cardinality") or current.get("claim"))
+    built = {
+        "claim": claim if claim in CARDINALITY_CLAIMS else str(current.get("claim")),
+        "tier": TIER_CONFIRMED,
+        "basis": BASIS_HUMAN_CONFIRMATION,
+    }
+    return {**built, **_confirmation_stamp(entry)}
+
+
+def _confirmation_stamp(entry: Mapping) -> dict:
+    stamp = {}
+    for key in ("confirmed_by", "date"):
+        if entry.get(key):
+            stamp[key] = str(entry[key])
+    return stamp
+
+
+def _apply_key_overrides(ontology: dict, keys: Mapping, applied: dict) -> int:
+    """Confirm one entity's identity key, adding it when the corpus never guessed it."""
+    entities = {str(entity["id"]): entity for entity in ontology["entities"]}
+    count = 0
+    for name in sorted(keys):
+        entry = keys[name] or {}
+        entity = entities.get(str(name))
+        columns = [str(column) for column in entry.get("columns") or []]
+        if entity is None or not columns:
+            applied["unmatched"].append(str(name))
+            continue
+        candidates = entity["identity"]["candidate_keys"]
+        current = next(
+            (item for item in candidates if list(item["columns"]) == columns), None
+        )
+        if current is None:
+            current = {"columns": columns, "tier": TIER_CONFIRMED, "evidence": []}
+            candidates.append(current)
+            candidates.sort(key=lambda item: tuple(item["columns"]))
+        current["tier"] = TIER_CONFIRMED
+        evidence = {"kind": EVIDENCE_HUMAN_CONFIRMATION, **_confirmation_stamp(entry)}
+        if evidence not in current["evidence"]:
+            current["evidence"].append(evidence)
+        count += 1
+    applied["unmatched"].sort()
+    return count
 
 
 def _not_null_columns(constraints: Sequence[Mapping]) -> set[tuple[str, str]]:
@@ -1255,15 +1427,19 @@ def _card_findings(cards: Mapping) -> list[dict]:
 
 
 def render_ontology_index_markdown(ontology: Mapping) -> str:
-    """``ontology.md``: the counts, then one row per relation.
+    """``ontology.md``: the ER overview first, then the four tables behind it.
 
-    The minimum a reviewer needs to accept the JSON. WI-10 adds the per-entity cards and
-    the Mermaid ER overview; the entry point is kept here so the caller does not change.
+    A reader opens this file to find out which entity card is worth opening, so the
+    diagram comes before the prose and every entity row links to its card. The diagram is
+    a *summary* -- it carries the identity columns and the cardinality symbols, and the
+    evidence behind each edge lives in the tables below and in the card itself.
     """
     corpus = ontology.get("corpus") or {}
-    entities = ontology.get("entities") or []
-    relations = ontology.get("relations") or []
-    findings = ontology.get("findings") or []
+    entities = list(ontology.get("entities") or [])
+    relations = list(ontology.get("relations") or [])
+    constraints = list(ontology.get("constraints") or [])
+    findings = list(ontology.get("findings") or [])
+    identifiers = mermaid_entity_ids(entities)
     lines = [
         "---",
         f'doc_format: "{INDEX_DOC_FORMAT}"',
@@ -1275,11 +1451,251 @@ def render_ontology_index_markdown(ontology: Mapping) -> str:
         "# 语料本体候选索引",
         "",
         f"共 {corpus.get('task_count')} 个任务、{len(entities)} 个实体、"
-        f"{len(relations)} 条关系、{len(ontology.get('constraints') or [])} 条约束、"
+        f"{len(relations)} 条关系、{len(constraints)} 条约束、"
         f"{len(findings)} 条待人工判定的发现。",
         "",
-        "每条断言都带置信层级：`proven`（SQL 直接写着）、`implied`（可由结构证明的推论）、"
-        "`hypothesis`（作者假设，未被证明）、`conflict`（跨任务证据矛盾）。",
+        "每条断言都带置信层级：`proven`（已证明，SQL 直接写着）、`implied`（可推得，"
+        "由结构证明的推论）、`hypothesis`（作者假设，未被证明）、`conflict`（矛盾，"
+        "跨任务证据打架）、`confirmed`（已确认，只来自人工回写的 `ontology.overrides.json`）。",
+    ]
+    lines.extend(_mermaid_section(entities, relations, findings, identifiers))
+    lines.extend(_entities_section(entities, relations, constraints, identifiers))
+    lines.extend(_relations_section(relations))
+    lines.extend(_constraints_section(constraints))
+    lines.extend(_findings_section(findings))
+    lines.append("")
+    return "\n".join(lines)
+
+
+# --------------------------------------------------------------------- mermaid ER
+
+
+def mermaid_entity_ids(entities: Sequence[Mapping]) -> dict[str, str]:
+    """``entity id -> the identifier the ER diagram calls it``.
+
+    Mermaid's entity names are identifiers, so a warehouse name has to be rewritten:
+    every character outside ``[A-Za-z0-9_]`` becomes ``_``. Two different tables can
+    rewrite to the same identifier (``a.b`` and ``a_b``), and then the later one -- in
+    the corpus's own sorted order, so the choice cannot drift between runs -- takes a
+    numeric suffix rather than silently merging two entities into one box.
+    """
+    identifiers: dict[str, str] = {}
+    taken: set[str] = set()
+    for entity in entities:
+        name = str(entity.get("id"))
+        base = "".join(
+            char if char.isascii() and (char.isalnum() or char == "_") else "_"
+            for char in name
+        ) or "entity"
+        if base[0].isdigit():
+            base = f"e_{base}"
+        candidate = base
+        suffix = 2
+        while candidate in taken:
+            candidate = f"{base}_{suffix}"
+            suffix += 1
+        taken.add(candidate)
+        identifiers[name] = candidate
+    return identifiers
+
+
+def _mermaid_section(
+    entities: Sequence[Mapping],
+    relations: Sequence[Mapping],
+    findings: Sequence[Mapping],
+    identifiers: Mapping[str, str],
+) -> list[str]:
+    if not entities:
+        return ["", "## 实体关系总览", "", "本语料没有实体。"]
+    shown = _diagram_entities(entities, relations)
+    names = {str(entity.get("id")) for entity in shown}
+    conflicted = _conflicted_pairs(findings)
+    lines = ["", "## 实体关系总览", ""]
+    omitted = len(entities) - len(shown)
+    if omitted:
+        lines.extend(
+            [
+                f"实体数 {len(entities)} 超过 {MERMAID_ENTITY_LIMIT}，"
+                f"下图按关系度数取前 {MERMAID_ENTITY_LIMIT} 个实体，省略 {omitted} 个；"
+                "完整清单见下面的实体表。",
+                "",
+            ]
+        )
+    lines.extend(["```mermaid", "erDiagram"])
+    for entity in shown:
+        lines.extend(_mermaid_entity(entity, identifiers))
+    for relation in relations:
+        left, right = str(relation["from"]["entity"]), str(relation["to"]["entity"])
+        if left not in names or right not in names:
+            continue
+        lines.append(_mermaid_relation(relation, identifiers, conflicted))
+    lines.extend(["```", ""])
+    lines.append(
+        "实体框里只列候选键列（标 `PK`），完整字段见每张表的卡片。边上的 `?` 表示这条基数"
+        "只是作者假设、未被证明，`!` 表示语料里对这组键存在矛盾证据。"
+    )
+    return lines
+
+
+def _diagram_entities(
+    entities: Sequence[Mapping], relations: Sequence[Mapping]
+) -> list[dict]:
+    """Every entity, or the best-connected ``MERMAID_ENTITY_LIMIT`` of them."""
+    if len(entities) <= MERMAID_ENTITY_LIMIT:
+        return [dict(entity) for entity in entities]
+    degree: dict[str, int] = {str(entity.get("id")): 0 for entity in entities}
+    for relation in relations:
+        for side in ("from", "to"):
+            name = str(relation[side]["entity"])
+            if name in degree:
+                degree[name] += 1
+    ranked = sorted(
+        entities, key=lambda entity: (-degree[str(entity.get("id"))], str(entity.get("id")))
+    )
+    kept = {str(entity.get("id")) for entity in ranked[:MERMAID_ENTITY_LIMIT]}
+    return [dict(entity) for entity in entities if str(entity.get("id")) in kept]
+
+
+def _mermaid_entity(entity: Mapping, identifiers: Mapping[str, str]) -> list[str]:
+    identity = entity.get("identity") or {}
+    types = {
+        str(attribute.get("column")): attribute.get("type")
+        for attribute in entity.get("attributes") or []
+    }
+    columns = _dedupe(
+        column
+        for key in identity.get("candidate_keys") or []
+        for column in key.get("columns") or []
+    )
+    name = identifiers[str(entity["id"])]
+    # An entity with no candidate key is declared bare rather than with an empty block:
+    # both parse, and the bare form does not invite the reader to read "{ }" as "no
+    # columns" when the truth is "no column the corpus could prove identifies a row".
+    if not columns:
+        return [f"    {name}"]
+    lines = [f"    {name} {{"]
+    lines.extend(
+        f"        {_mermaid_type(types.get(str(column)))} {_mermaid_word(column)} PK"
+        for column in columns
+    )
+    lines.append("    }")
+    return lines
+
+
+def _mermaid_type(value) -> str:
+    """A column type Mermaid can parse: one word, or ``unknown`` when there is none."""
+    return _mermaid_word(value) if value else "unknown"
+
+
+def _mermaid_word(value) -> str:
+    word = "".join(
+        char if char.isascii() and (char.isalnum() or char == "_") else "_"
+        for char in str(value or "")
+    )
+    return word or "unknown"
+
+
+def _mermaid_relation(
+    relation: Mapping, identifiers: Mapping[str, str], conflicted: set[tuple[str, tuple]]
+) -> str:
+    cardinality = relation.get("cardinality") or {}
+    symbol = CARDINALITY_MERMAID.get(str(cardinality.get("claim")), "}o--o{")
+    marker = ""
+    if str(cardinality.get("tier")) == TIER_HYPOTHESIS:
+        marker = " ?"
+    if (
+        str(relation["to"]["entity"]),
+        tuple(relation["to"]["columns"]),
+    ) in conflicted:
+        marker = f"{marker} !" if marker else " !"
+    return (
+        f"    {identifiers[str(relation['from']['entity'])]} {symbol} "
+        f"{identifiers[str(relation['to']['entity'])]} : "
+        f'"{_edge_label(relation)}{marker}"'
+    )
+
+
+def _edge_label(relation: Mapping) -> str:
+    """The joined keys, ``a = b`` per aligned pair, so the edge says what it joins on."""
+    left = [_mermaid_word(column) for column in relation["from"]["columns"]]
+    right = [_mermaid_word(column) for column in relation["to"]["columns"]]
+    if len(left) == len(right):
+        return ", ".join(f"{a} = {b}" for a, b in zip(left, right))
+    return f"{'+'.join(left)} = {'+'.join(right)}"
+
+
+def _conflicted_pairs(findings: Sequence[Mapping]) -> set[tuple[str, tuple]]:
+    return {
+        (str(finding["entity"]), tuple(finding["columns"]))
+        for finding in findings
+        if str(finding["kind"]) == FINDING_CARDINALITY_CONFLICT
+    }
+
+
+# ------------------------------------------------------------------ index sections
+
+
+def _entities_section(
+    entities: Sequence[Mapping],
+    relations: Sequence[Mapping],
+    constraints: Sequence[Mapping],
+    identifiers: Mapping[str, str],
+) -> list[str]:
+    if not entities:
+        return ["", "## 实体", "", "本语料没有实体。"]
+    outgoing: dict[str, int] = {}
+    incoming: dict[str, int] = {}
+    for relation in relations:
+        outgoing[str(relation["from"]["entity"])] = (
+            outgoing.get(str(relation["from"]["entity"]), 0) + 1
+        )
+        incoming[str(relation["to"]["entity"])] = (
+            incoming.get(str(relation["to"]["entity"]), 0) + 1
+        )
+    counts: dict[str, int] = {}
+    for constraint in constraints:
+        name = str((constraint.get("target") or {}).get("entity"))
+        counts[name] = counts.get(name, 0) + 1
+    lines = [
+        "",
+        "## 实体",
+        "",
+        "| 实体 | 图中 id | 类型 | 注释 | 键置信 | 出边 | 入边 | 约束数 |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for entity in entities:
+        name = str(entity.get("id"))
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    cell(f"[`{name}`](tables/{table_card_filename(name)})"),
+                    cell(f"`{identifiers[name]}`"),
+                    cell(str(entity.get("kind"))),
+                    cell(normalize_inline(entity["comment"]) if entity.get("comment") else "—"),
+                    cell(_key_tier_text(entity)),
+                    cell(str(outgoing.get(name, 0))),
+                    cell(str(incoming.get(name, 0))),
+                    cell(str(counts.get(name, 0))),
+                ]
+            )
+            + " |"
+        )
+    return lines
+
+
+def _key_tier_text(entity: Mapping) -> str:
+    keys = (entity.get("identity") or {}).get("candidate_keys") or []
+    if not keys:
+        return "无候选键"
+    tier = min((str(key.get("tier")) for key in keys), key=TIERS.index)
+    return f"{TIER_TEXT.get(tier, tier)}（{tier}）"
+
+
+def _relations_section(relations: Sequence[Mapping]) -> list[str]:
+    if not relations:
+        return ["", "## 关系", "", "本语料没有可证明的关系边。"]
+    lines = [
         "",
         "## 关系",
         "",
@@ -1287,9 +1703,7 @@ def render_ontology_index_markdown(ontology: Mapping) -> str:
         "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     lines.extend(_relation_row(relation) for relation in relations)
-    lines.extend(_findings_section(findings))
-    lines.append("")
-    return "\n".join(lines)
+    return lines
 
 
 def _relation_row(relation: Mapping) -> str:
@@ -1316,15 +1730,351 @@ def _columns(side: Mapping) -> str:
     return "、".join(f"`{column}`" for column in side.get("columns") or []) or "—"
 
 
+def _constraints_section(constraints: Sequence[Mapping]) -> list[str]:
+    if not constraints:
+        return ["", "## 约束", "", "本语料没有可证明的约束。"]
+    lines = [
+        "",
+        "## 约束",
+        "",
+        "| 实体 | 目标 | 约束 | 内容 | 层级 |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for constraint in constraints:
+        target = constraint.get("target") or {}
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    cell(f"`{target.get('entity')}`"),
+                    cell(f"`{target['column']}`" if target.get("column") else "整表"),
+                    cell(_constraint_kind_text(constraint)),
+                    cell(_constraint_body(constraint)),
+                    cell(_tier_text(constraint.get("tier"))),
+                ]
+            )
+            + " |"
+        )
+    return lines
+
+
+def _constraint_kind_text(constraint: Mapping) -> str:
+    kind = str(constraint.get("kind"))
+    return f"{CONSTRAINT_TEXT.get(kind, kind)}（{kind}）"
+
+
+def _constraint_body(constraint: Mapping) -> str:
+    """The one cell that differs per constraint kind: the value set, or the key set."""
+    if constraint.get("values") is not None:
+        values = "、".join(f"`{value}`" for value in constraint["values"])
+        completeness = str(constraint.get("completeness") or COMPLETENESS_UNKNOWN)
+        return f"{values}（{COMPLETENESS_TEXT.get(completeness, completeness)}）"
+    if constraint.get("columns"):
+        return "、".join(f"`{column}`" for column in constraint["columns"])
+    return normalize_inline(str(constraint.get("note") or "")) or "—"
+
+
+def _tier_text(tier) -> str:
+    """``已证明（`proven`）`` -- the Chinese for the reader, the token for a grep."""
+    name = str(tier)
+    return f"{TIER_TEXT.get(name, name)}（`{name}`）"
+
+
 def _findings_section(findings: Sequence[Mapping]) -> list[str]:
     if not findings:
         return ["", "## 待人工判定", "", "本语料没有发现矛盾证据。"]
-    lines = ["", "## 待人工判定", ""]
-    lines.extend(
-        f"- `{finding['entity']}`（{finding['kind']}）：{normalize_inline(finding['text'])}"
-        for finding in findings
-    )
+    lines = [
+        "",
+        "## 待人工判定",
+        "",
+        "| 实体 | 类型 | 列 | 涉及任务 | 说明 |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for finding in findings:
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    cell(f"`{finding['entity']}`"),
+                    cell(str(finding["kind"])),
+                    cell("、".join(f"`{column}`" for column in finding["columns"]) or "—"),
+                    cell(_finding_tasks(finding)),
+                    cell(normalize_inline(str(finding.get("text") or ""))),
+                ]
+            )
+            + " |"
+        )
     return lines
+
+
+def _finding_tasks(finding: Mapping) -> str:
+    tasks = finding.get("tasks") or {}
+    return (
+        "；".join(
+            f"{role}：{'、'.join(f'`{task}`' for task in names)}"
+            for role, names in sorted(tasks.items())
+            if names
+        )
+        or "—"
+    )
+
+
+# ---------------------------------------------------------------- per-entity cards
+
+
+def render_ontology_table_card_markdown(card: Mapping, ontology: Mapping) -> str:
+    """One table's card with the ontology's five sections appended (``ontology-md/1``).
+
+    The card the corpus already writes answers "what is this table"; these sections
+    answer "what is it in the model" -- its identity, what it relates to, what holds
+    about its values, which other columns carry the same value, and what a person still
+    has to decide. They are appended rather than published separately because a reader
+    with a question about a table opens one file, and splitting the answer across two
+    guarantees one of them is read without the other.
+    """
+    entity = _entity_by_id(ontology, str(card.get("table")))
+    base = render_table_card_markdown(dict(card)).replace(
+        f'doc_format: "{TABLE_CARD_DOC_FORMAT}"', f'doc_format: "{CARD_DOC_FORMAT}"', 1
+    )
+    lines = base.rstrip("\n").split("\n")
+    sections = (
+        ("7. 身份（本体）", _card_identity(entity)),
+        ("8. 关系", _card_relations(entity, ontology)),
+        ("9. 约束", _card_constraints(entity, ontology)),
+        ("10. 属性同义", _card_synonyms(entity)),
+        ("11. 待人工判定", _card_open_items(entity, ontology)),
+    )
+    for title, body in sections:
+        lines.extend(["", f"## {title}", ""])
+        lines.extend(body)
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _entity_by_id(ontology: Mapping, table: str) -> dict:
+    for entity in ontology.get("entities") or []:
+        if str(entity.get("id")) == table:
+            return dict(entity)
+    return {"id": table, "identity": {}, "attributes": []}
+
+
+def _evidence_ids(evidence: Sequence[Mapping]) -> str:
+    """``task/statement/logic block`` per item -- every id a reader can look up."""
+    ids = [
+        "/".join(
+            str(item[key])
+            for key in ("task", "statement_id", "rule_id", "scope_id", "logic_block_id")
+            if item.get(key)
+        )
+        or str(item.get("kind") or "")
+        for item in evidence or []
+    ]
+    return "、".join(f"`{item}`" for item in _dedupe(ids) if item) or "—"
+
+
+def _claim_line(text: str, tier, evidence: Sequence[Mapping]) -> str:
+    return f"- {text} — {_tier_text(tier)}；证据 {_evidence_ids(evidence)}"
+
+
+def _card_identity(entity: Mapping) -> list[str]:
+    """Candidate keys, multiplicity and partition columns -- three answers, never merged."""
+    identity = entity.get("identity") or {}
+    keys = identity.get("candidate_keys") or []
+    multiplicity = identity.get("multiplicity") or []
+    partitions = identity.get("partition_columns") or []
+    lines = ["**候选键**", ""]
+    if keys:
+        lines.extend(
+            _claim_line(
+                "、".join(f"`{column}`" for column in key["columns"]),
+                key.get("tier"),
+                key.get("evidence") or [],
+            )
+            for key in keys
+        )
+    else:
+        lines.append("- 语料内没有可发布的候选键证据。")
+    lines.extend(["", "**多行性**", ""])
+    if multiplicity:
+        lines.extend(
+            _claim_line(
+                "按 " + "、".join(f"`{column}`" for column in item["columns"]) + " 有多行",
+                item.get("tier"),
+                item.get("evidence") or [],
+            )
+            for item in multiplicity
+        )
+    else:
+        lines.append("- 语料内没有任务按某个键对这张表去重或聚合。")
+    lines.extend(["", "**分区列**", ""])
+    if partitions:
+        columns = "、".join(f"`{column}`" for column in partitions)
+        lines.append(f"- {columns} — {_tier_text(TIER_PROVEN)}")
+    else:
+        lines.append("- 语料内没有观察到分区列。")
+    return lines
+
+
+def _card_relations(entity: Mapping, ontology: Mapping) -> list[str]:
+    name = str(entity.get("id"))
+    relations = list(ontology.get("relations") or [])
+    outgoing = [item for item in relations if str(item["from"]["entity"]) == name]
+    incoming = [item for item in relations if str(item["to"]["entity"]) == name]
+    lines = ["**出边（本表在左）**", ""]
+    lines.extend(_relation_table(outgoing, "from", "to"))
+    lines.extend(["", "**入边（本表在右）**", ""])
+    lines.extend(_relation_table(incoming, "to", "from"))
+    return lines
+
+
+def _relation_table(relations: Sequence[Mapping], own: str, other: str) -> list[str]:
+    if not relations:
+        return ["- 无。"]
+    lines = [
+        "| 对端 | 键 | JOIN 类型 | 基数 | 层级 | 依据 | 任务数 | 证据 |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for relation in relations:
+        cardinality = relation.get("cardinality") or {}
+        claim = str(cardinality.get("claim"))
+        basis = str(cardinality.get("basis"))
+        keys = "、".join(
+            f"`{left}` = `{right}`"
+            for left, right in zip(relation[own]["columns"], relation[other]["columns"])
+        ) or "—"
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    cell(
+                        f"[`{relation[other]['entity']}`]"
+                        f"({table_card_filename(str(relation[other]['entity']))})"
+                    ),
+                    cell(keys),
+                    cell("、".join(relation.get("join_types") or []) or "—"),
+                    cell(f"{CARDINALITY_TEXT.get(claim, claim)}（{claim}）"),
+                    cell(_tier_text(cardinality.get("tier"))),
+                    cell(BASIS_TEXT.get(basis, basis)),
+                    cell(str(relation.get("task_count"))),
+                    cell(_evidence_ids(relation.get("evidence") or [])),
+                ]
+            )
+            + " |"
+        )
+    return lines
+
+
+def _card_constraints(entity: Mapping, ontology: Mapping) -> list[str]:
+    name = str(entity.get("id"))
+    constraints = [
+        item
+        for item in ontology.get("constraints") or []
+        if str((item.get("target") or {}).get("entity")) == name
+    ]
+    if not constraints:
+        return ["- 语料内没有可发布的约束。"]
+    lines = [
+        "| 约束 | 目标 | 值集 / 完整性 | 层级 | 证据 |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for constraint in constraints:
+        target = constraint.get("target") or {}
+        body = _constraint_body(constraint)
+        note = normalize_inline(str(constraint.get("note") or ""))
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    cell(_constraint_kind_text(constraint)),
+                    cell(f"`{target['column']}`" if target.get("column") else "整表"),
+                    cell(f"{body}（{note}）" if note and body != note else body),
+                    cell(_tier_text(constraint.get("tier"))),
+                    cell(_evidence_ids(constraint.get("evidence") or [])),
+                ]
+            )
+            + " |"
+        )
+    return lines
+
+
+def _card_synonyms(entity: Mapping) -> list[str]:
+    rows = [
+        (str(attribute.get("column")), synonym)
+        for attribute in entity.get("attributes") or []
+        for synonym in attribute.get("synonyms") or []
+    ]
+    if not rows:
+        return ["- 语料内没有证明本表任何列与别处同名异写。"]
+    lines = [
+        "| 本表列 | 同义列 | 依据 | 层级 | 证据 |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for column, synonym in rows:
+        via = str(synonym.get("via"))
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    cell(f"`{column}`"),
+                    cell(f"`{synonym['entity']}`.`{synonym['column']}`"),
+                    cell(f"{SYNONYM_TEXT.get(via, via)}（{via}）"),
+                    cell(_tier_text(synonym.get("tier"))),
+                    cell(_evidence_ids(synonym.get("evidence") or [])),
+                ]
+            )
+            + " |"
+        )
+    return lines
+
+
+def _card_open_items(entity: Mapping, ontology: Mapping) -> list[str]:
+    """Every hypothesis about this table, plus the findings, as one list of questions.
+
+    A hypothesis is a question the corpus asked and could not answer, and it stays a
+    question until a person answers it in ``ontology.overrides.json``. Listing them
+    together -- with the override key each answer is filed under -- is what turns the
+    document from a report into a round trip.
+    """
+    name = str(entity.get("id"))
+    lines: list[str] = []
+    lines.extend(
+        f"- ⚠ {finding['kind']}：{normalize_inline(str(finding.get('text') or ''))}"
+        for finding in ontology.get("findings") or []
+        if str(finding.get("entity")) == name
+    )
+    identity = entity.get("identity") or {}
+    for key in identity.get("candidate_keys") or []:
+        if str(key.get("tier")) != TIER_HYPOTHESIS:
+            continue
+        columns = "、".join(f"`{column}`" for column in key["columns"])
+        lines.append(
+            f"- [待确认] 候选键 {columns}：只有任务直接关联时的假设，语料没有证明它唯一。"
+            f"回写 `键:{name}={'+'.join(key['columns'])}`。"
+        )
+    for relation in ontology.get("relations") or []:
+        if name not in (str(relation["from"]["entity"]), str(relation["to"]["entity"])):
+            continue
+        cardinality = relation.get("cardinality") or {}
+        if str(cardinality.get("tier")) != TIER_HYPOTHESIS:
+            continue
+        claim = str(cardinality.get("claim"))
+        lines.append(
+            f"- [待确认] 关系 `{relation['from']['entity']}` → `{relation['to']['entity']}` "
+            f"的基数写作「{CARDINALITY_TEXT.get(claim, claim)}」，依据只是"
+            f"{BASIS_TEXT.get(str(cardinality.get('basis')), cardinality.get('basis'))}。"
+            f"回写 `关系:{relation_override_key(relation)}`。"
+        )
+    for constraint in ontology.get("constraints") or []:
+        target = constraint.get("target") or {}
+        if str(target.get("entity")) != name or str(constraint.get("tier")) != TIER_HYPOTHESIS:
+            continue
+        lines.append(
+            f"- [待确认] {_constraint_kind_text(constraint)}"
+            f"{'：`' + str(target['column']) + '`' if target.get('column') else ''}"
+            f" — {_constraint_body(constraint)}"
+            f"{'；' + normalize_inline(str(constraint['note'])) if constraint.get('note') else ''}"
+        )
+    return lines or ["- 本表没有待人工判定的项。"]
 
 
 def _dedupe(items: Iterable) -> list:

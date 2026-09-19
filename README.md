@@ -182,9 +182,12 @@ The Core owns deterministic parsing and fact representation. It does not force a
 graph database, or model choice. The same facts can support code search, task Q&A, impact analysis,
 governance review, and later business-knowledge generation.
 The distribution boundary is "the parser, its versioned contracts, and contract-derived
-renderers": `mapping.md` and `semantic.json` / `semantic.md` are both contract-derived
-renderers — they restate and regroup facts the contract already carries and **generate no
-business semantics**; business naming and profile narratives are left to an upper-layer Agent.
+artifacts (including the corpus-level derivations: glossary / tables / ontology)":
+`mapping.md`, `semantic.json` / `semantic.md`, and the cross-task `tables.json` /
+`glossary.json` / `ontology.json` are all contract-derived artifacts — they restate,
+regroup and merge across tasks the facts the contract already carries, with a source and
+an evidence trail on every assertion, and **generate no business semantics**; business
+naming, class hierarchies and profile narratives are left to an upper-layer Agent.
 
 ## Why another project
 
@@ -380,8 +383,12 @@ scope-lineage ontology --lineage /tmp/scope-lineage-corpus --out /tmp/scope-line
 `ontology.json` publishes entities and their identity keys, the relations the JOINs assert
 with a provable cardinality, the constraints the filters and CASE branches assert, and the
 places two tasks contradict each other — every assertion tiered `proven` / `implied` /
-`hypothesis` / `conflict` and carrying its evidence. Business naming and class hierarchies
-are left to whoever knows the business. See the
+`hypothesis` / `conflict` and carrying its evidence. `ontology.md` opens with a Mermaid ER
+overview of the whole corpus, and `tables/<db.table>.md` is the table card with five more
+sections appended: identity, relations, constraints, synonyms, and what still needs a
+human decision. Answers to those come back through `--overrides`, which raises a confirmed
+assertion to a fifth tier, `confirmed`. Business naming and class hierarchies are left to
+whoever knows the business. See the
 [ontology candidate guide](docs/en/ontology-doc.md).
 
 ### Catalog-prefix normalization

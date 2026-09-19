@@ -19,9 +19,10 @@ assertions and labels each with its confidence tier and its evidence.
 - Every assertion carries a `tier` and an `evidence` list and traces back to a concrete
   statement by task name, `statement_id` and `logic_block_id`; an assertion with no
   evidence is not published at all.
-- Core gives no entity a business name, a type or a parent class. `naming_hints` holds
-  metadata facts only (table comment, domain, project, owner), and the naming and the
-  modelling are left to a person or an agent who knows the business.
+- Core gives no entity a business name, a type or a parent class, and does no business
+  naming. `naming_hints` holds metadata facts only (table comment, domain, project,
+  owner); the naming and the modelling are left to a person or an agent who knows the
+  business.
 - The slots deliberately line up with the usual ontology languages (entity ~ owl:Class,
   attribute ~ owl:DatatypeProperty, relation ~ owl:ObjectProperty, constraint ~
   sh:NodeShape); this release emits no OWL/SHACL/LinkML file.
@@ -36,45 +37,54 @@ assertions and labels each with its confidence tier and its evidence.
 scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology
 
 # Reuse the cards and the dictionary you already built (both are built in memory over
-# the same corpus when they are not supplied)
+# the same corpus when they are not supplied); --overrides merges human confirmations,
+# which raise an assertion to the fifth tier, confirmed
 scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
-  --tables /path/to/tables/tables.json --glossary /path/to/glossary/glossary.json
+  --tables /path/to/tables/tables.json --glossary /path/to/glossary/glossary.json \
+  --overrides /path/to/ontology.overrides.json
 ```
 
-Two artifacts:
+Three artifacts:
 
 | File | Read by | Contents |
 | --- | --- | --- |
 | `ontology.json` | machines / RAG / knowledge-graph loaders | the main artifact, `doc_format: "ontology-json/1"` |
-| `ontology.md` | people | an index: entity / relation / constraint / finding counts, the relation table, and the list awaiting human judgement |
+| `ontology.md` | people | an index: the Mermaid ER overview plus the entity, relation, constraint and open-item tables, `doc_format: "ontology-index-md/1"` |
+| `tables/<db.table>.md` | people / RAG chunked per table | the table card's six sections plus five ontology sections, `doc_format: "ontology-md/1"`; the filename rule is exactly `scope-lineage tables`' own |
 
 Python API (consumes the contract documents, same path the files are written from):
 
 ```python
-from scope_lineage import build_ontology, build_semantic_profile
-from scope_lineage import render_ontology_index_markdown
+from scope_lineage import build_ontology, build_semantic_profile, build_table_cards
+from scope_lineage import render_ontology_index_markdown, render_ontology_table_card_markdown
 
 profiles = [build_semantic_profile(document) for document in documents]
-ontology = build_ontology(documents, profiles, artifact_root="/path/to/corpus")
+cards = build_table_cards(profiles, artifact_root="/path/to/corpus")
+ontology = build_ontology(documents, profiles, tables=cards, artifact_root="/path/to/corpus")
 index = render_ontology_index_markdown(ontology)
+card = render_ontology_table_card_markdown(cards["tables"][0], ontology)
 ```
 
 - `--lineage` behaves exactly as it does for `tables` / `glossary`: one `lineage.json`, or
   a directory tree searched recursively for them; a document of an unknown version is
   skipped and counted in directory mode.
 - `--tables` / `--glossary` only save a recomputation: the bytes are identical either way.
-- `--format` takes `json`, `md` or both (default `json,md`); anything else is an argument
-  error (exit code 2).
+  With `--tables`, the cards in that file are the base the ontology sections are appended
+  to; without it the same cards are built in memory over the same corpus.
+- `--format` takes `json`, `md` or both (default `json,md`); when `md` is not among them
+  neither `ontology.md` nor `tables/` is written. Anything else is an argument error
+  (exit code 2).
 - Determinism: the same corpus produces the same bytes whatever order it was walked in.
 
-## The four confidence tiers
+## The five confidence tiers
 
-| Tier | Definition | Example |
-| --- | --- | --- |
-| `proven` | written in the SQL | the join key pair exists; a partition column; a key a producing task proved; a DIRECT rename |
-| `implied` | follows from what the SQL does | a task deduplicates a table by k before joining it → that table holds many rows per k (otherwise the dedup is pointless); a UNION column alignment |
-| `hypothesis` | the author assumed it and the SQL does not prove it | joining a physical table directly on k assumes it is unique by k; whether an observed value set is the complete one |
-| `conflict` | two tasks disagree | T1 deduplicates a table by k, T2 joins the same table directly on k — a governance finding, not an ontology fact |
+| Tier | In the Markdown | Definition | Example |
+| --- | --- | --- | --- |
+| `proven` | 已证明 | written in the SQL | the join key pair exists; a partition column; a key a producing task proved; a DIRECT rename |
+| `implied` | 可推得 | follows from what the SQL does | a task deduplicates a table by k before joining it → that table holds many rows per k (otherwise the dedup is pointless); a UNION column alignment |
+| `hypothesis` | 作者假设 | the author assumed it and the SQL does not prove it | joining a physical table directly on k assumes it is unique by k; whether an observed value set is the complete one |
+| `conflict` | 矛盾 | two tasks disagree | T1 deduplicates a table by k, T2 joins the same table directly on k — a governance finding, not an ontology fact |
+| `confirmed` | 已确认 | **only ever from a human write-back**; the corpus can never reach this tier on its own | somebody confirmed a relation's cardinality or a table's identity key in `ontology.overrides.json` |
 
 ## The `ontology.json` structure
 
@@ -119,26 +129,39 @@ index = render_ontology_index_markdown(ontology)
     {"kind": "cardinality_conflict", "entity": "ods.pay", "columns": ["driver_id"],
      "tasks": {"multiple_rows_per_key": ["task_a"], "assumed_unique": ["task_b"]},
      "text": "…"}
-  ]
+  ],
+  "overrides_applied": {"relations": 0, "keys": 0, "unmatched": []}
 }
 ```
 
-Slot by slot:
+Slot by slot (every slot `ontology-json/1` publishes):
 
 | Slot | Values | Meaning |
 | --- | --- | --- |
+| `corpus` | `artifact_root` / `task_count` / `lineage_digests` | the same corpus block the table cards carry: the walked root, the task count, and one lineage digest per task |
 | `entities[].kind` | `physical_table` / `produced_table` | a table some task in the corpus writes is a `produced_table` |
+| `entities[].comment`, `naming_hints` | table comment / domain / project / owner | metadata carried over verbatim; Core infers no business semantics from it |
 | `entities[].identity.candidate_keys[]` | `columns` + `tier` + `evidence` | the key a producing task proved (`producer_key_confidence`) and the key a consuming task assumed (`joined_as_right_without_dedup`) stand side by side; they are never merged into one "primary key" |
 | `entities[].identity.multiplicity[]` | `claim: multiple_rows_per_key` | O3: some task grouped or window-partitioned this table by these columns |
+| `entities[].identity.partition_columns` | a list of column names | the partition columns a producing task writes (a metadata fact) |
+| `entities[].attributes[].type`, `comment` | metadata | the column type and comment from the table card, carried over verbatim |
 | `entities[].attributes[].observed_roles` | `filter`, `partition_filter`, `join_key`, `group_by`, `window_partition`, `window_order`, `output` | the consumer usages the table card recorded; a column nobody read carries an empty list |
+| `entities[].attributes[].not_null_observed` | `true` / `false` | some task in the corpus filtered this column with `NOT x IS NULL` |
 | `entities[].attributes[].synonyms[].via` | `direct_rename` / `union_alignment` | O5: two column names for one value |
+| `relations[].id` | `rel:NNN` | numbered after sorting, stable for one corpus |
 | `relations[].kind` | `join_association` / `union_sibling` | a JOIN key pair, or two branches of one UNION |
-| `relations[].cardinality.claim` | `one_to_many` / `many_to_one` / `many_to_one_assumed` / `unknown` | O2, in the direction `from` → `to` |
-| `relations[].cardinality.basis` | `group_by` / `ranking_window` / `producer_key_confidence` / `right_side_not_deduplicated` / `union_branch_alignment` / `no_uniqueness_evidence` | what the cardinality rests on |
+| `relations[].cardinality.claim` | `one_to_many` / `many_to_one` / `many_to_one_assumed` / `one_to_one_assumed` / `unknown` | O2, in the direction `from` → `to`; `one_to_one_assumed` can only come from a human confirmation |
+| `relations[].cardinality.tier` | one of the five tiers | the confidence tier of this cardinality claim |
+| `relations[].cardinality.basis` | `group_by` / `ranking_window` / `producer_key_confidence` / `right_side_not_deduplicated` / `union_branch_alignment` / `no_uniqueness_evidence` / `human_confirmation` | what the cardinality rests on |
+| `relations[].join_types`, `task_count` | the union of JOIN types, the task count | the JOIN types the same entity pair was joined with across tasks, merged |
 | `relations[].evidence[].left_via_scopes` | a list of scope ids | where one side of the JOIN was a CTE, the scopes the walk pierced through to reach a physical table (`right_via_scopes` for the other side) |
 | `constraints[].kind` | `not_null` / `in_set` / `unique_per` / `partition` | O6 |
-| `constraints[].completeness` | `complete` / `unknown` | `in_set` only: only a closed `IN` list or an exhaustive CASE is `complete` |
+| `constraints[].values`, `completeness` | a value list, `complete` / `unknown` | `in_set` only: only a closed `IN` list or an exhaustive CASE is `complete` |
+| `constraints[].columns` | a list of column names | `unique_per` only: the candidate keys plus the partition columns |
+| `constraints[].note` | one sentence | `not_null` only: "the task discarded the NULLs with a filter; the source itself may still hold some" |
 | `findings[].kind` | `cardinality_conflict` / `producer_key_conflict` / `ambiguous_bare_name` | O7; the last two are carried over from the table cards |
+| `findings[].tasks` | role → task names | which tasks stand on each side of the contradiction |
+| `overrides_applied` | `relations` / `keys` / `unmatched` | how many human confirmations this run merged, and which of them matched nothing in the corpus |
 
 ## The inference rules
 
@@ -151,11 +174,150 @@ Slot by slot:
 | O6 constraints | a `NOT x IS NULL` filter → `not_null` (`hypothesis`, with the note that the task discarded NULLs and the source may still hold some); an enumerable code → `in_set`; a partition column → `partition` (`proven`); a produced table's candidate keys plus its partition columns → `unique_per` (key confidence `proven` → `proven`, `candidate` → `hypothesis`) |
 | O7 conflicts | "deduplicated" and "joined directly" on the same (table, key set) → `cardinality_conflict`; the cards' `producer_key_conflict` and `ambiguous_bare_name` are carried over verbatim |
 
+## The per-table card: five sections appended to the table card
+
+`<dir>/tables/<db.table>.md`, written by `ontology --out <dir>`, *is* the `scope-lineage
+tables` card (1 what this table is / 2 what one row means / 3 columns / 4 who writes it /
+5 who reads it / 6 governance leads), with these appended after it:
+
+| Section | Contents |
+| --- | --- |
+| 7. 身份（本体） | candidate keys, multiplicity and partition columns side by side, each with its tier in Chinese and its evidence ids; the three answer three different questions and are never merged into one "primary key" |
+| 8. 关系 | one table for outgoing and one for incoming edges: the other end (linked to its card), the key pair, the JOIN types, the cardinality claim, the tier, the basis token in plain words, the task count and the evidence ids |
+| 9. 约束 | a SHACL-shaped list: the constraint kind, the target column or the whole table, the value set and its completeness, the tier, the evidence |
+| 10. 属性同义 | this table's column ↔ the synonym, the basis (a renaming projection / the same UNION position), the tier, the evidence |
+| 11. 待人工判定 | the findings about this table plus every `hypothesis` assertion (candidate key / cardinality / constraint), each marked `[待确认]` and carrying the write-back key its answer is filed under |
+
+The filename rule is exactly `tables`' own (`<db.table>.md`, with anything a file system
+would choke on replaced by `_`), so a corpus can be run through `tables` and then through
+`ontology`, the latter overwriting the former's card directory in place, and the relative
+links between the cards still hold.
+
+## The Mermaid ER mapping rules
+
+The first section of `ontology.md` is an `erDiagram` block. Mermaid entity names are
+identifiers, so every character of an entity id outside `[A-Za-z0-9_]` — including `.` and
+`-` — is replaced by `_`; when two different entities flatten to the same name, the later
+one (in the corpus's own sort order) takes a numeric suffix rather than merging two
+entities into one box. The entity table's "图中 id" column is that lookup. An entity block
+lists the candidate-key columns and marks them `PK`; an entity without candidate keys is
+declared bare rather than with an empty `{}`.
+
+| Cardinality claim | ER symbol | Reading |
+| --- | --- | --- |
+| `one_to_many` | `\|\|--o{` | one row on the left, many on the right |
+| `many_to_one` | `}o--\|\|` | many rows on the left, one on the right (proved by some producing task) |
+| `many_to_one_assumed` | `}o--\|\|` | the same shape, but only the author's assumption |
+| `one_to_one_assumed` | `\|\|--\|\|` | one to one; only ever from a human confirmation |
+| `unknown` | `}o--o{` | no uniqueness evidence, which also covers every `union_sibling` edge |
+
+The edge label carries the join keys (`a = b`, comma separated for several columns); an
+edge at tier `hypothesis` gets a trailing `?`, and an edge whose key set is named by a
+`cardinality_conflict` gets a `!`. Past 60 entities the diagram keeps the 60 with the
+highest relation degree and says above it how many were left out; the full list is still
+in the entity table.
+
+```mermaid
+erDiagram
+    ods_orders {
+        string order_id PK
+    }
+    ods_customer
+    ods_orders }o--|| ods_customer : "customer_id = id ?"
+```
+
+## Writing confirmations back: `ontology.overrides.json`
+
+Every line under 待人工判定 is a question, and a question that has been answered must stop
+being asked. An agent turns those items into a list a business owner can answer, following
+`skills/scope-lineage/references/ontology-review-prompt.md`, the answers are merged into
+`ontology.overrides.json`, and the corpus is re-run with `--overrides`:
+
+```json
+{
+  "relations": {
+    "ods.orders.customer_id->ods.customer.id": {
+      "cardinality": "many_to_one",
+      "confirmed_by": "王某",
+      "date": "2026-09-19"
+    }
+  },
+  "keys": {
+    "ods.customer": {
+      "columns": ["id"],
+      "confirmed_by": "王某",
+      "date": "2026-09-19"
+    }
+  }
+}
+```
+
+| Slot | Values | Meaning |
+| --- | --- | --- |
+| the key of `relations` | `<from entity>.<col+col>-><to entity>.<col+col>` | character for character the write-back key the card prints under 待人工判定; copy it rather than reconstructing it |
+| `relations[].cardinality` | one of the five claims | the confirmed cardinality; leaving it out keeps the corpus's own claim and only raises the tier to `confirmed` |
+| the key of `keys` | an entity id | that table's identity key; a key the corpus never guessed can be added outright |
+| `keys[].columns` | a list of column names | the columns that make up the identity, in the order the card shows them |
+| `confirmed_by`, `date` | free text | who confirmed it and when, written into the evidence verbatim |
+| `overrides_applied.unmatched` | a list of strings | confirmations with nothing to match in the corpus — never dropped, listed so a reviewer can see them |
+
+After the merge those assertions carry `tier: "confirmed"` and `basis:
+"human_confirmation"`, and one more evidence item, `{"kind": "human_confirmation",
+"confirmed_by": …, "date": …}`. `confirmed` is the one tier the corpus can never produce
+by itself. A confirmation does not silence the corpus's own `findings`: whether a
+contradiction still exists is decided by O7 the next time the corpus is parsed.
+
+## Slot correspondence with OWL / SHACL / LinkML
+
+This release exports no file for any RDF toolchain — the JSON carries everything, and an
+exporter (`--export linkml|shacl|owl`) is a thin later layer. The slots are deliberately
+aligned as below so that layer will not need this document's structure to change:
+
+| ontology.json | OWL / RDFS | SHACL | LinkML |
+| --- | --- | --- | --- |
+| `entities[]` | `owl:Class` | `sh:NodeShape` | `class` |
+| `entities[].attributes[]` | `owl:DatatypeProperty` | `sh:property` + `sh:datatype` | `attribute` / `slot` |
+| `relations[]` | `owl:ObjectProperty` (+ cardinality axioms) | `sh:property` + `sh:class` + `sh:maxCount` | a slot with a `range` |
+| `constraints[].kind = in_set` / `not_null` | — | `sh:in` / `sh:minCount` | `enum` / `required` |
+| `constraints[].kind = unique_per` | — | no native uniqueness; needs a SPARQL constraint | `unique_keys` |
+| `tier` / `evidence` | annotation properties (`rdfs:comment` or a custom annotation) | annotations | `annotations` |
+
+## Relationship with `tables` / `glossary`
+
+The three corpus artifacts stack, answer three different questions, and do not substitute
+for one another:
+
+- [`tables`](tables-doc.md) answers "**what is this table**": who writes it, what one row
+  means, who reads it and which columns. The ontology's entities, attributes, candidate
+  keys and partition columns all come from the cards, which is why `--tables` changes
+  nothing but the runtime.
+- [`glossary`](glossary-doc.md) answers "**what does this value mean**": comments merged
+  across tables, observed constant values, the enums the SQL proved closed. The ontology's
+  `in_set` constraints *are* the dictionary's enumerable codes, and `completeness` is the
+  dictionary's own `closed_set` verdict, so `--glossary` changes nothing but the runtime
+  either.
+- `ontology` answers "**how do these tables relate**": relation edges, cardinality,
+  multiplicity, synonyms, cross-task contradictions. It is the first conclusion that
+  requires more than one task — a single task's `describe` can never reach it.
+
+All three share one semantic profile: the CLI parses and profiles one corpus exactly once.
+
+## Determinism and the golden files
+
+- The same corpus run twice, or walked in any order, yields byte-identical
+  `ontology.json`, `ontology.md` and cards.
+  `tests/core/test_ontology_properties.py` holds that as a property, together with
+  "nothing was invented" and "every assertion below `proven` carries a tier and evidence
+  that dereferences".
+- `tests/core/fixtures/ontology/` pins the whole output of a five-task corpus
+  (`ontology.json`, the `ontology.md` with its ER diagram, and three merged cards), so any
+  change of wording or ordering shows up on the golden.
+
 ## Boundaries and what comes next
 
-- This release emits `ontology.json` and a minimal `ontology.md` index; one ontology card
-  per entity and the Mermaid ER overview are the next step.
 - No OWL / SHACL / LinkML file is emitted; the JSON carries everything, and an exporter is
   a thin later layer.
 - No embedding, no storage, no LLM call, no business vocabulary — those belong to
   downstream projects.
+- Incremental runs across corpora (reusing the `.scope-lineage-index.json` digests) are
+  later work; this release always recomputes the whole corpus.

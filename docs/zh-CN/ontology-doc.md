@@ -15,8 +15,8 @@
 
 - 每条断言都带 `tier` 与 `evidence`，可按任务名、`statement_id`、`logic_block_id` 回链到
   某个具体语句；没有证据的断言根本不会被发布。
-- Core 不给实体起业务名、不判断类型、不推断父子类。`naming_hints` 只放元数据事实
-  （表注释、业务域、项目、负责人），命名与建模交给懂业务的人或 Agent 确认。
+- Core 不给实体起业务名、不判断类型、不推断父子类、不做业务命名。`naming_hints` 只放元数据
+  事实（表注释、业务域、项目、负责人），命名与建模交给懂业务的人或 Agent 确认。
 - 槽位刻意对齐常见本体语言（entity ~ owl:Class、attribute ~ owl:DatatypeProperty、
   relation ~ owl:ObjectProperty、constraint ~ sh:NodeShape），一期不产 OWL/SHACL/LinkML 文件。
 - 稳定性分级与其他派生文档一致：`ontology-json/1` 内键名稳定，中文措辞可能微调，
@@ -28,43 +28,51 @@
 # 语料目录：递归查找 lineage.json，产物写到 --out
 scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology
 
-# 复用已经算好的表卡与值词典（不给就在内存里按同一份语料现场构建）
+# 复用已经算好的表卡与值词典（不给就在内存里按同一份语料现场构建）；
+# --overrides 合并人工确认，被确认的断言升到第五级 confirmed
 scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
-  --tables /path/to/tables/tables.json --glossary /path/to/glossary/glossary.json
+  --tables /path/to/tables/tables.json --glossary /path/to/glossary/glossary.json \
+  --overrides /path/to/ontology.overrides.json
 ```
 
-产物两件：
+产物三件：
 
 | 文件 | 给谁读 | 内容 |
 | --- | --- | --- |
 | `ontology.json` | 机器 / RAG / 知识图谱入库 | 主产物，`doc_format: "ontology-json/1"` |
-| `ontology.md` | 人 | 索引：实体数 / 关系数 / 约束数 / 发现数 + 关系表 + 待人工判定清单 |
+| `ontology.md` | 人 | 索引：Mermaid ER 总览 + 实体表 + 关系表 + 约束表 + 待人工判定表，`doc_format: "ontology-index-md/1"` |
+| `tables/<db.table>.md` | 人 / RAG 按表切块 | 表卡的 6 节之后追加本体 5 节，`doc_format: "ontology-md/1"`；文件名规则与 `scope-lineage tables` 完全一致 |
 
 Python API（消费契约文档，与文件写出同一条路径）：
 
 ```python
-from scope_lineage import build_ontology, build_semantic_profile
-from scope_lineage import render_ontology_index_markdown
+from scope_lineage import build_ontology, build_semantic_profile, build_table_cards
+from scope_lineage import render_ontology_index_markdown, render_ontology_table_card_markdown
 
 profiles = [build_semantic_profile(document) for document in documents]
-ontology = build_ontology(documents, profiles, artifact_root="/path/to/corpus")
+cards = build_table_cards(profiles, artifact_root="/path/to/corpus")
+ontology = build_ontology(documents, profiles, tables=cards, artifact_root="/path/to/corpus")
 index = render_ontology_index_markdown(ontology)
+card = render_ontology_table_card_markdown(cards["tables"][0], ontology)
 ```
 
 - `--lineage` 与 `tables` / `glossary` 完全一致：一个 `lineage.json` 或一棵递归查找它的目录树；
   版本不认识的文档在目录模式下跳过并计数。
-- `--tables` / `--glossary` 只是省一次重算：给与不给产出字节一致。
-- `--format` 取 `json`、`md` 或两者（默认 `json,md`）；其他值直接报参数错误（退出码 2）。
+- `--tables` / `--glossary` 只是省一次重算：给与不给产出字节一致。给了 `--tables` 时，表卡
+  以它为底本追加本体节；不给就在内存里按同一份语料构建同样的表卡。
+- `--format` 取 `json`、`md` 或两者（默认 `json,md`）；只要 `md` 不在其中，`ontology.md` 与
+  `tables/` 都不写。其他值直接报参数错误（退出码 2）。
 - 确定性：同一份语料无论以什么顺序被扫描，产出字节一致。
 
-## 置信四级
+## 置信五级
 
-| 层级 | 定义 | 例 |
-| --- | --- | --- |
-| `proven` | SQL 里直接写着 | 连接键对存在；分区列；生产任务已证明的键；DIRECT 重命名 |
-| `implied` | 由结构可证明的推论 | 任务在 JOIN 前按 k 去重 → 那张表按 k 有多行（否则作者不会去重）；UNION 列对齐 |
-| `hypothesis` | 作者假设，未被 SQL 证明 | 直接以 k 关联物理表 → 假设它按 k 唯一；过滤里出现过的取值集合是否完整 |
-| `conflict` | 跨任务证据矛盾 | T1 按 k 去重、T2 直接按 k 关联同一张表——这是治理发现，不是本体事实 |
+| 层级 | md 上的中文 | 定义 | 例 |
+| --- | --- | --- | --- |
+| `proven` | 已证明 | SQL 里直接写着 | 连接键对存在；分区列；生产任务已证明的键；DIRECT 重命名 |
+| `implied` | 可推得 | 由结构可证明的推论 | 任务在 JOIN 前按 k 去重 → 那张表按 k 有多行（否则作者不会去重）；UNION 列对齐 |
+| `hypothesis` | 作者假设 | 作者假设，未被 SQL 证明 | 直接以 k 关联物理表 → 假设它按 k 唯一；过滤里出现过的取值集合是否完整 |
+| `conflict` | 矛盾 | 跨任务证据矛盾 | T1 按 k 去重、T2 直接按 k 关联同一张表——这是治理发现，不是本体事实 |
+| `confirmed` | 已确认 | **只来自人工回写**，语料自己永远产不出这一级 | 业务方在 `ontology.overrides.json` 里确认了某条关系的基数或某张表的身份键 |
 
 ## ontology.json 结构
 
@@ -109,26 +117,39 @@ index = render_ontology_index_markdown(ontology)
     {"kind": "cardinality_conflict", "entity": "ods.pay", "columns": ["driver_id"],
      "tasks": {"multiple_rows_per_key": ["task_a"], "assumed_unique": ["task_b"]},
      "text": "…"}
-  ]
+  ],
+  "overrides_applied": {"relations": 0, "keys": 0, "unmatched": []}
 }
 ```
 
-槽位说明：
+槽位说明（`ontology-json/1` 的全部槽位）：
 
 | 槽位 | 取值 | 含义 |
 | --- | --- | --- |
+| `corpus` | `artifact_root` / `task_count` / `lineage_digests` | 与表卡同一个语料块：扫描根、任务数、每个任务的 lineage 指纹 |
 | `entities[].kind` | `physical_table` / `produced_table` | 语料内有生产任务的是 `produced_table` |
+| `entities[].comment`、`naming_hints` | 表注释 / 业务域 / 项目 / 负责人 | 元数据原样透传，Core 不据此推断任何业务语义 |
 | `entities[].identity.candidate_keys[]` | `columns` + `tier` + `evidence` | 生产任务证明的键（`producer_key_confidence`）与消费任务假设的键（`joined_as_right_without_dedup`）并列，不合并成「主键」 |
 | `entities[].identity.multiplicity[]` | `claim: multiple_rows_per_key` | O3：某任务按这组键对该表做过 GROUP BY 或窗口 partition |
+| `entities[].identity.partition_columns` | 列名列表 | 生产任务写入时的分区列（元数据事实） |
+| `entities[].attributes[].type`、`comment` | 元数据 | 表卡里的列类型与列注释，原样透传 |
 | `entities[].attributes[].observed_roles` | `filter`、`partition_filter`、`join_key`、`group_by`、`window_partition`、`window_order`、`output` | 表卡记录的消费用法，没人读过的列是空列表 |
+| `entities[].attributes[].not_null_observed` | `true` / `false` | 语料里有任务用 `NOT x IS NULL` 过滤过这一列 |
 | `entities[].attributes[].synonyms[].via` | `direct_rename` / `union_alignment` | O5：同一个值的两个列名 |
+| `relations[].id` | `rel:NNN` | 排序后编号，同一份语料稳定 |
 | `relations[].kind` | `join_association` / `union_sibling` | JOIN 键对，或同一 UNION 的兄弟分支 |
-| `relations[].cardinality.claim` | `one_to_many` / `many_to_one` / `many_to_one_assumed` / `unknown` | O2，方向为 `from` → `to` |
-| `relations[].cardinality.basis` | `group_by` / `ranking_window` / `producer_key_confidence` / `right_side_not_deduplicated` / `union_branch_alignment` / `no_uniqueness_evidence` | 该基数断言的依据 |
+| `relations[].cardinality.claim` | `one_to_many` / `many_to_one` / `many_to_one_assumed` / `one_to_one_assumed` / `unknown` | O2，方向为 `from` → `to`；`one_to_one_assumed` 只可能来自人工确认 |
+| `relations[].cardinality.tier` | 五级之一 | 该基数断言的置信层级 |
+| `relations[].cardinality.basis` | `group_by` / `ranking_window` / `producer_key_confidence` / `right_side_not_deduplicated` / `union_branch_alignment` / `no_uniqueness_evidence` / `human_confirmation` | 该基数断言的依据 |
+| `relations[].join_types`、`task_count` | JOIN 类型并集、任务数 | 同一对实体在不同任务里的 JOIN 类型合并 |
 | `relations[].evidence[].left_via_scopes` | scope id 列表 | JOIN 某一侧是 CTE 时，穿透到物理表所经过的 scope（右侧为 `right_via_scopes`） |
 | `constraints[].kind` | `not_null` / `in_set` / `unique_per` / `partition` | O6 |
-| `constraints[].completeness` | `complete` / `unknown` | 仅 `in_set`：只有封闭 `IN` 列表或穷尽 CASE 才是 `complete` |
+| `constraints[].values`、`completeness` | 取值列表、`complete` / `unknown` | 仅 `in_set`：只有封闭 `IN` 列表或穷尽 CASE 才是 `complete` |
+| `constraints[].columns` | 列名列表 | 仅 `unique_per`：候选键 + 分区列 |
+| `constraints[].note` | 一句话 | 仅 `not_null`：「任务用过滤丢弃了 NULL，源表本身可能仍含 NULL」 |
 | `findings[].kind` | `cardinality_conflict` / `producer_key_conflict` / `ambiguous_bare_name` | O7，后两者由表卡透传 |
+| `findings[].tasks` | 角色 → 任务名列表 | 矛盾的两边分别是哪些任务 |
+| `overrides_applied` | `relations` / `keys` / `unmatched` | 本次合并了几条人工确认，以及哪些确认在语料里找不到对应项 |
 
 ## 推断规则
 
@@ -141,8 +162,127 @@ index = render_ontology_index_markdown(ontology)
 | O6 约束 | `NOT x IS NULL` 过滤 → `not_null`（`hypothesis`，附注「任务丢弃了 NULL，源表可能仍含 NULL」）；可枚举 code → `in_set`；分区列 → `partition`（`proven`）；产出表候选键 + 分区列 → `unique_per`（键置信 `proven` → `proven`，`candidate` → `hypothesis`） |
 | O7 冲突 | 同一（表, 键集）上「去重」与「直接关联」并存 → `cardinality_conflict`；表卡的 `producer_key_conflict` 与 `ambiguous_bare_name` 原样透传 |
 
+## 每表卡片：表卡之后追加的五节
+
+`ontology --out <dir>` 写出的 `<dir>/tables/<db.table>.md` 就是 `scope-lineage tables` 的表卡
+（1 这张表是什么 / 2 一行代表什么 / 3 字段 / 4 谁生产 / 5 谁消费 / 6 治理线索），在它之后追加：
+
+| 节 | 内容 |
+| --- | --- |
+| 7. 身份（本体） | 候选键、多行性、分区列三者并列，逐条带中文层级与证据 id；三者回答三个不同问题，永不合并成「主键」 |
+| 8. 关系 | 出边、入边各一张表：对端（链到对端卡片）、键对、JOIN 类型、基数 claim、层级、依据 token 的人话翻译、任务数、证据 id |
+| 9. 约束 | SHACL 风格清单：约束种类、目标列或整表、值集与完整性、层级、证据 |
+| 10. 属性同义 | 本表列 ↔ 同义列、依据（改名投影 / UNION 同位置）、层级、证据 |
+| 11. 待人工判定 | 该表相关的 findings，加上所有 `hypothesis` 断言（候选键 / 基数 / 约束），每条标 `[待确认]` 并给出回写目标字符串 |
+
+文件名规则与 `tables` 完全一致（`<db.table>.md`，文件系统不接受的字符换成 `_`），因此一份语料
+可以先跑 `tables` 再跑 `ontology`，后者原地覆盖前者的卡片目录，卡片之间的相对链接仍然成立。
+
+## Mermaid ER 映射规则
+
+`ontology.md` 的第一节是一个 `erDiagram` 代码块。实体名是 Mermaid 标识符，所以把实体 id 里
+除 `[A-Za-z0-9_]` 以外的字符（包括 `.` 与 `-`）全部换成 `_`；两个不同实体压平成同一个名字时，
+后者按语料自身的排序加数字后缀，绝不合并成一个框。实体表里的「图中 id」列给出这张对照表。
+实体框里只列候选键列并标 `PK`，没有候选键的实体裸声明（不写空的 `{}`）。
+
+| 基数 claim | ER 符号 | 读法 |
+| --- | --- | --- |
+| `one_to_many` | `\|\|--o{` | 左边一行对右边多行 |
+| `many_to_one` | `}o--\|\|` | 左边多行对右边一行（已由某生产任务证明） |
+| `many_to_one_assumed` | `}o--\|\|` | 同上，但只是作者假设 |
+| `one_to_one_assumed` | `\|\|--\|\|` | 一对一，只可能来自人工确认 |
+| `unknown` | `}o--o{` | 没有唯一性证据，也包括 `union_sibling` 边 |
+
+边标签写连接键（`a = b`，多列逗号分隔）；`hypothesis` 层级的边在标签末尾加 `?`，命中
+`cardinality_conflict` 的边加 `!`。实体数超过 60 时按「关系度数」取前 60 个实体，图上方写明
+省略了多少个，完整清单仍在实体表里。
+
+```mermaid
+erDiagram
+    ods_orders {
+        string order_id PK
+    }
+    ods_customer
+    ods_orders }o--|| ods_customer : "customer_id = id ?"
+```
+
+## 人工确认回写：ontology.overrides.json
+
+`待人工判定` 里的每一条都是一个问题，问题答完就不该再被问第二遍。Agent 按
+`skills/scope-lineage/references/ontology-review-prompt.md` 把这些项整理成业务方能答的问题
+清单，答案合并进 `ontology.overrides.json`，再用 `--overrides` 跑一次：
+
+```json
+{
+  "relations": {
+    "ods.orders.customer_id->ods.customer.id": {
+      "cardinality": "many_to_one",
+      "confirmed_by": "王某",
+      "date": "2026-09-19"
+    }
+  },
+  "keys": {
+    "ods.customer": {
+      "columns": ["id"],
+      "confirmed_by": "王某",
+      "date": "2026-09-19"
+    }
+  }
+}
+```
+
+| 槽位 | 取值 | 含义 |
+| --- | --- | --- |
+| `relations` 的键 | `<from 实体>.<列+列>-><to 实体>.<列+列>` | 与卡片「待人工判定」里打印的回写目标字符串逐字一致，照抄即可 |
+| `relations[].cardinality` | 五种 claim 之一 | 确认后的基数；不写就沿用语料原来的 claim，只把层级升到 `confirmed` |
+| `keys` 的键 | 实体 id | 该表的身份键；语料没猜到的键也可以直接新增 |
+| `keys[].columns` | 列名列表 | 构成身份的列集合，顺序即卡片上的展示顺序 |
+| `confirmed_by`、`date` | 自由文本 | 谁在什么时候确认的，原样写进证据 |
+| `overrides_applied.unmatched` | 字符串列表 | 在语料里找不到对应项的确认——不丢弃，列出来让复核的人看见 |
+
+合并后这些断言的 `tier` 变成 `confirmed`、`basis` 变成 `human_confirmation`，证据里多一条
+`{"kind": "human_confirmation", "confirmed_by": …, "date": …}`。`confirmed` 是唯一一个语料
+自己永远产不出的层级。语料本身的 `findings` 不会被确认消音：矛盾是否还存在，要等语料重新解析
+后由 O7 重新判定。
+
+## 与 OWL / SHACL / LinkML 的槽位对应
+
+一期不导出任何 RDF 工具链的文件——JSON 已带全部信息，导出器（`--export linkml|shacl|owl`）是
+后续的薄层。槽位刻意按下表对齐，是为了那一层落地时不需要改本文件的结构：
+
+| ontology.json | OWL / RDFS | SHACL | LinkML |
+| --- | --- | --- | --- |
+| `entities[]` | `owl:Class` | `sh:NodeShape` | `class` |
+| `entities[].attributes[]` | `owl:DatatypeProperty` | `sh:property` + `sh:datatype` | `attribute` / `slot` |
+| `relations[]` | `owl:ObjectProperty`（+ 基数公理） | `sh:property` + `sh:class` + `sh:maxCount` | 带 `range` 的 slot |
+| `constraints[].kind = in_set` / `not_null` | — | `sh:in` / `sh:minCount` | `enum` / `required` |
+| `constraints[].kind = unique_per` | — | 无原生唯一约束，需 SPARQL 约束 | `unique_keys` |
+| `tier` / `evidence` | 标注属性（`rdfs:comment` 或自定义 annotation） | 标注 | `annotations` |
+
+## 与 tables / glossary 的关系
+
+三个语料级产物层层叠加，回答三个不同的问题，不要互相替代：
+
+- [`tables`](tables-doc.md) 回答「**这张表是什么**」：谁写它、一行代表什么、谁读它读了哪些列。
+  本体的实体、属性、候选键、分区列全部来自表卡，所以 `--tables` 给与不给结果一致。
+- [`glossary`](glossary-doc.md) 回答「**这个取值是什么意思**」：注释跨表归并、常量值域观察、
+  已被证明封闭的枚举。本体的 `in_set` 约束就是词典的可枚举 code，`completeness` 直接沿用词典
+  的 `closed_set` 判定，所以 `--glossary` 给与不给结果也一致。
+- `ontology` 回答「**这些表之间是什么关系**」：关系边、基数、多行性、同义、跨任务矛盾。
+  这是第一个必须跨任务才能得到的结论——单个任务的 `describe` 永远算不出来。
+
+三者共用同一次语义 profile：CLI 里一份语料只解析一遍、只 profile 一遍。
+
+## 确定性与 golden
+
+- 同一份语料跑两次、以任意顺序跑，`ontology.json`、`ontology.md` 与每张卡片都字节一致；
+  `tests/core/test_ontology_properties.py` 把这一条连同「没有编造的名字」「每条非 proven 断言
+  都带层级与可解引用的证据」一起作为属性测试。
+- `tests/core/fixtures/ontology/` 锁定一份 5 任务语料的完整产物（`ontology.json`、含 ER 的
+  `ontology.md`、三张合并后的表卡），任何措辞或排序改动都会在 golden 上显形。
+
 ## 边界与后续
 
-- 本轮只出 `ontology.json` 与最小 `ontology.md` 索引；每表一张本体卡片与 Mermaid ER 总览是下一轮。
 - 不产 OWL / SHACL / LinkML 文件；JSON 已带全部信息，导出器是后续的薄层。
 - 不做向量化、不入库、不调 LLM、不含业务词表——那些属于下游项目。
+- 跨语料增量（复用 `.scope-lineage-index.json` 指纹）是后续工作，本轮每次都是全量重算。

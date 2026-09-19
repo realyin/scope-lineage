@@ -1,6 +1,43 @@
 # Changelog
 
 ## Unreleased
+- The ontology lands where people read it. `ontology --out <dir>` now writes
+  `<dir>/tables/<db.table>.md` -- the same card `tables` writes, under the same filename
+  rule, with five sections appended (`ontology-md/1`): 身份 (candidate keys, multiplicity
+  and partition columns side by side, each with a Chinese tier and its evidence ids),
+  关系 (one table for outgoing and one for incoming edges, with the basis token
+  translated into a sentence), 约束, 属性同义, and 待人工判定, which collects the
+  table's findings *and* every `hypothesis` assertion about it and prints the write-back
+  key each answer is filed under. A reader with a question about a table opens one file.
+  `ontology.md` opens with a Mermaid `erDiagram` -- entities as boxes carrying their
+  candidate-key columns, cardinality claims as ER symbols, `?` on an edge nobody proved
+  and `!` on one two tasks disagree about -- followed by the entity, relation, constraint
+  and open-item tables. Warehouse names are flattened into Mermaid identifiers, and two
+  that flatten to one name keep two boxes rather than silently merging. Past 60 entities
+  the diagram keeps the best-connected 60 and says how many it left out.
+- A fifth tier, `confirmed`, and the round trip that produces it. `ontology --overrides
+  ontology.overrides.json` merges the answers a person gave to the hypotheses the
+  document asked about: a relation's cardinality, or a table's identity key -- including
+  a key the corpus never guessed. A confirmed assertion carries `tier: "confirmed"`,
+  `basis: "human_confirmation"` and who confirmed it when; `confirmed` is the one tier
+  the corpus can never reach on its own. An override matching nothing is reported in the
+  new `overrides_applied.unmatched` rather than dropped, because a typo in a reviewed
+  file is exactly what its reviewer cannot see. The skill's new
+  `references/ontology-review-prompt.md` is the other half: how to turn the 待人工判定
+  items into a question list a business owner answers in five minutes, and the two
+  write-back key forms (`关系:` / `键:`) the answers are filed under.
+- `test_ontology_properties.py` states what no single rule case can: every entity,
+  relation endpoint, constraint target and synonym counterpart -- table *and* column --
+  appears in some `lineage.json`; every assertion carries a known tier and non-empty
+  evidence whose task, statement and logic block dereference; the document is a function
+  of the corpus, not of the order its files were walked in; and every table/column
+  reference in a card's ontology sections resolves. The golden now pins the ER-bearing
+  `ontology.md` and three merged cards beside `ontology.json`.
+- The distribution boundary line in both READMEs now reads "parser + versioned contracts
+  + contract-derived artifacts (including the corpus-level derivations: glossary /
+  tables / ontology)". The corpus artifacts merge facts across tasks, which the old
+  wording ("contract-derived renderers") did not cover, and every merged assertion still
+  carries its source and its evidence.
 - `scope-lineage ontology` turns a corpus into an **ontology candidate**
   (`ontology-json/1`). The table cards say what each table is; the ontology says how the
   tables relate, and it says it with the honesty the rest of the layer is built on: every

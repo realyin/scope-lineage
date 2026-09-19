@@ -15,7 +15,12 @@ import json
 import sys
 from pathlib import Path
 
-from .render.ontology import build_ontology, render_ontology_index_markdown
+from .render.ontology import (
+    build_ontology,
+    render_ontology_index_markdown,
+    render_ontology_table_card_markdown,
+)
+from .render.table_cards import table_card_filename
 
 
 def add_ontology_parser(subcommands) -> None:
@@ -32,7 +37,12 @@ def add_ontology_parser(subcommands) -> None:
         help="One lineage.json file, or a directory searched recursively for lineage.json",
     )
     ontology_cmd.add_argument(
-        "--out", required=True, help="Directory for ontology.json and ontology.md"
+        "--out",
+        required=True,
+        help=(
+            "Directory for ontology.json, ontology.md and the tables/ card "
+            "directory (the table cards with the ontology sections appended)"
+        ),
     )
     ontology_cmd.add_argument(
         "--tables",
@@ -46,6 +56,15 @@ def add_ontology_parser(subcommands) -> None:
         help=(
             "A glossary.json written by `scope-lineage glossary`; built in memory over "
             "the same corpus when it is not given"
+        ),
+    )
+    ontology_cmd.add_argument(
+        "--overrides",
+        help=(
+            "A reviewed ontology.overrides.json: the confirmed relations and identity "
+            "keys. A confirmed assertion is published at tier `confirmed`; a key or "
+            "relation the corpus does not contain is reported in "
+            "overrides_applied.unmatched rather than dropped"
         ),
     )
     ontology_cmd.add_argument(
@@ -80,8 +99,13 @@ def _supplied_corpus(args: argparse.Namespace):
 
 def run_ontology(args: argparse.Namespace) -> int:
     from .cli import _discover_lineage_documents, _load_contract_documents
+    from .cli_glossary import load_overrides
     from .render.semantic_profile import build_semantic_profile
+    from .render.table_cards import build_table_cards
 
+    overrides = load_overrides(getattr(args, "overrides", None))
+    if isinstance(overrides, int):
+        return overrides
     supplied = _supplied_corpus(args)
     if isinstance(supplied, int):
         return supplied
@@ -102,31 +126,58 @@ def run_ontology(args: argparse.Namespace) -> int:
         except ValueError as error:
             print(f"{item.path}: {error}", file=sys.stderr)
             return 1
+    # The cards are built here rather than inside the builder because the markdown
+    # needs them too: an ontology card *is* a table card with five sections appended,
+    # and rendering it from a second, separately built copy would be a way for the two
+    # halves of one file to disagree.
+    cards = (
+        dict(tables)
+        if tables
+        else build_table_cards(profiles, artifact_root=str(Path(args.lineage)))
+    )
     ontology = build_ontology(
         documents,
         profiles,
-        tables=tables,
+        tables=cards,
         glossary=glossary,
+        overrides=overrides,
         artifact_root=str(Path(args.lineage)),
     )
-    _write_ontology(Path(args.out), ontology, formats(args.format))
+    _write_ontology(Path(args.out), ontology, cards, formats(args.format))
+    applied = ontology["overrides_applied"]
+    confirmations = ""
+    if overrides is not None:
+        confirmations = (
+            f", confirmed {applied['relations']} relation(s) and "
+            f"{applied['keys']} key(s), {len(applied['unmatched'])} unmatched"
+        )
     print(
         f"Modelled {len(ontology['entities'])} entity(ies), "
         f"{len(ontology['relations'])} relation(s), "
         f"{len(ontology['constraints'])} constraint(s) and "
         f"{len(ontology['findings'])} finding(s) from "
-        f"{ontology['corpus'].get('task_count')} task(s) ({loaded.counters()})"
+        f"{ontology['corpus'].get('task_count')} task(s){confirmations} "
+        f"({loaded.counters()})"
     )
     return 0
 
 
-def _write_ontology(out: Path, ontology: dict, chosen: set[str]) -> None:
+def _write_ontology(out: Path, ontology: dict, cards: dict, chosen: set[str]) -> None:
     out.mkdir(parents=True, exist_ok=True)
     if "json" in chosen:
         (out / "ontology.json").write_text(
             json.dumps(ontology, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
-    if "md" in chosen:
-        (out / "ontology.md").write_text(
-            render_ontology_index_markdown(ontology), encoding="utf-8"
+    if "md" not in chosen:
+        return
+    (out / "ontology.md").write_text(
+        render_ontology_index_markdown(ontology), encoding="utf-8"
+    )
+    # Same directory and same filename rule as `tables`, so a corpus can be re-rendered
+    # over an existing card directory and the links between the two documents hold.
+    card_dir = out / "tables"
+    card_dir.mkdir(parents=True, exist_ok=True)
+    for card in cards.get("tables") or []:
+        (card_dir / table_card_filename(card["table"])).write_text(
+            render_ontology_table_card_markdown(card, ontology), encoding="utf-8"
         )

@@ -19,6 +19,7 @@ import pytest
 
 from scope_lineage.contract import to_lineage_dict
 from scope_lineage.render.ontology import (
+    BASIS_HUMAN_CONFIRMATION,
     CARDINALITY_MANY_TO_ONE,
     CARDINALITY_MANY_TO_ONE_ASSUMED,
     CARDINALITY_ONE_TO_MANY,
@@ -32,15 +33,18 @@ from scope_lineage.render.ontology import (
     RELATION_UNION,
     SYNONYM_DIRECT_RENAME,
     SYNONYM_UNION_ALIGNMENT,
+    TIER_CONFIRMED,
     TIER_HYPOTHESIS,
     TIER_IMPLIED,
     TIER_PROVEN,
     TIERS,
     build_ontology,
+    relation_override_key,
     render_ontology_index_markdown,
+    render_ontology_table_card_markdown,
 )
 from scope_lineage.render.semantic_profile import build_semantic_profile
-from scope_lineage.render.table_cards import build_table_cards
+from scope_lineage.render.table_cards import build_table_cards, table_card_filename
 from scope_lineage.scope.scope_builder import parse_scope_lineage
 
 
@@ -66,11 +70,15 @@ def _document(task: str, sql: str, schema=None) -> dict:
     )
 
 
-def _one(cases, *, schema=None, tables=None, glossary=None) -> dict:
+def _one(cases, *, schema=None, tables=None, glossary=None, overrides=None) -> dict:
     """One ontology over the corpus these ``(task, sql)`` pairs describe."""
     documents = [_document(task, sql, schema) for task, sql in cases]
     return build_ontology(
-        documents, tables=tables, glossary=glossary, artifact_root="corpus"
+        documents,
+        tables=tables,
+        glossary=glossary,
+        overrides=overrides,
+        artifact_root="corpus",
     )
 
 
@@ -674,7 +682,14 @@ GOLDEN_CASES = (
 )
 
 
-def _golden_ontology() -> dict:
+# The cards recorded whole: a produced table with a proven key and both constraint
+# kinds, a physical table whose only identity claim is an author's assumption, and a
+# UNION branch whose columns are synonyms of another table's.
+GOLDEN_CARDS = ("dim.channel", "mart.metric_by_segment", "ods.events_a")
+
+
+def _golden_corpus() -> tuple[dict, dict]:
+    """``(ontology, table cards)`` over the fixed corpus, built exactly as the CLI does."""
     documents = []
     profiles = []
     for group, name in GOLDEN_CASES:
@@ -683,26 +698,36 @@ def _golden_ontology() -> dict:
         diagnostics = json.loads((case / "diagnostics.json").read_text(encoding="utf-8"))
         documents.append(lineage)
         profiles.append(build_semantic_profile(lineage, diagnostics))
-    return build_ontology(documents, profiles, artifact_root="corpus")
+    cards = build_table_cards(profiles, artifact_root="corpus")
+    return build_ontology(documents, profiles, tables=cards, artifact_root="corpus"), cards
 
 
-def _record_golden() -> tuple[str, str]:
+def _golden_ontology() -> dict:
+    return _golden_corpus()[0]
+
+
+def _record_golden() -> dict[str, str]:
     """The recording path and the asserted path, deliberately one function."""
-    ontology = _golden_ontology()
-    return (
-        json.dumps(ontology, ensure_ascii=False, indent=2) + "\n",
-        render_ontology_index_markdown(ontology),
-    )
+    ontology, cards = _golden_corpus()
+    recorded = {
+        "ontology.json": json.dumps(ontology, ensure_ascii=False, indent=2) + "\n",
+        "ontology.md": render_ontology_index_markdown(ontology),
+    }
+    index = {str(card["table"]): card for card in cards["tables"]}
+    for table in GOLDEN_CARDS:
+        recorded[f"tables/{table_card_filename(table)}"] = (
+            render_ontology_table_card_markdown(index[table], ontology)
+        )
+    return recorded
 
 
 def test_golden_ontology_matches_the_baseline() -> None:
-    first_json, first_md = _record_golden()
-    second_json, second_md = _record_golden()
+    first = _record_golden()
+    second = _record_golden()
 
-    assert first_json == (GOLDEN_DIR / "ontology.json").read_text(encoding="utf-8")
-    assert first_md == (GOLDEN_DIR / "ontology.md").read_text(encoding="utf-8")
-    assert second_json == first_json
-    assert second_md == first_md
+    for name, body in first.items():
+        assert body == (GOLDEN_DIR / name).read_text(encoding="utf-8"), name
+    assert second == first
 
 
 def test_the_golden_corpus_exercises_the_shapes_the_ontology_exists_for() -> None:
@@ -731,3 +756,101 @@ def test_the_golden_corpus_exercises_the_shapes_the_ontology_exists_for() -> Non
 @pytest.mark.parametrize("kind", ["entities", "relations", "constraints", "findings"])
 def test_the_golden_document_keeps_its_top_level_sections(kind: str) -> None:
     assert kind in _golden_ontology()
+
+
+# ------------------------------------------------- WI-12: the fifth tier, `confirmed`
+
+
+CONFIRMABLE = (
+    ("task_a", DIRECT_JOIN),
+    ("task_b", "INSERT INTO mart.u SELECT c.name FROM ods.orders o "
+               "LEFT JOIN ods.customer c ON o.customer_id = c.id"),
+)
+
+
+def test_an_override_raises_one_relation_to_confirmed() -> None:
+    """The only tier the corpus cannot reach: somebody answered the question."""
+    relation_key = "ods.orders.customer_id->ods.customer.id"
+    ontology = _one(
+        CONFIRMABLE,
+        overrides={
+            "relations": {
+                relation_key: {
+                    "cardinality": CARDINALITY_MANY_TO_ONE,
+                    "confirmed_by": "reviewer",
+                    "date": "2026-09-19",
+                }
+            }
+        },
+    )
+    edge = _edge(ontology, "ods.orders", "ods.customer")
+
+    assert relation_override_key(edge) == relation_key
+    assert edge["cardinality"] == {
+        "claim": CARDINALITY_MANY_TO_ONE,
+        "tier": TIER_CONFIRMED,
+        "basis": BASIS_HUMAN_CONFIRMATION,
+        "confirmed_by": "reviewer",
+        "date": "2026-09-19",
+    }
+    assert ontology["overrides_applied"] == {
+        "relations": 1,
+        "keys": 0,
+        "unmatched": [],
+    }
+
+
+def test_an_override_raises_one_candidate_key_to_confirmed() -> None:
+    ontology = _one(
+        CONFIRMABLE,
+        overrides={
+            "keys": {"ods.customer": {"columns": ["id"], "confirmed_by": "reviewer"}}
+        },
+    )
+    key = _entity(ontology, "ods.customer")["identity"]["candidate_keys"][0]
+
+    assert key["columns"] == ["id"]
+    assert key["tier"] == TIER_CONFIRMED
+    assert {"kind": "human_confirmation", "confirmed_by": "reviewer"} in key["evidence"]
+    assert ontology["overrides_applied"]["keys"] == 1
+
+
+def test_a_confirmed_key_the_corpus_never_guessed_is_added_with_its_stamp() -> None:
+    ontology = _one(
+        CONFIRMABLE,
+        overrides={"keys": {"ods.orders": {"columns": ["order_id"], "date": "2026-09-19"}}},
+    )
+    keys = _entity(ontology, "ods.orders")["identity"]["candidate_keys"]
+
+    assert [item["columns"] for item in keys] == [["order_id"]]
+    assert keys[0]["tier"] == TIER_CONFIRMED
+    assert keys[0]["evidence"] == [{"kind": "human_confirmation", "date": "2026-09-19"}]
+
+
+def test_an_override_that_matches_nothing_is_reported_rather_than_dropped() -> None:
+    """A typo in a reviewed file is the one thing its reviewer cannot see."""
+    ontology = _one(
+        CONFIRMABLE,
+        overrides={
+            "relations": {"ods.orders.nope->ods.customer.id": {"cardinality": "one_to_many"}},
+            "keys": {"ods.absent": {"columns": ["id"]}},
+        },
+    )
+
+    assert ontology["overrides_applied"] == {
+        "relations": 0,
+        "keys": 0,
+        "unmatched": ["ods.absent", "ods.orders.nope->ods.customer.id"],
+    }
+
+
+def test_without_overrides_nothing_is_confirmed() -> None:
+    ontology = _one(CONFIRMABLE)
+    tiers = {
+        str(key["tier"])
+        for entity in ontology["entities"]
+        for key in entity["identity"]["candidate_keys"]
+    } | {str(item["cardinality"]["tier"]) for item in ontology["relations"]}
+
+    assert TIER_CONFIRMED not in tiers
+    assert ontology["overrides_applied"] == {"relations": 0, "keys": 0, "unmatched": []}

@@ -204,3 +204,97 @@ def test_ontology_rejects_a_glossary_of_the_wrong_document_format(
         == 1
     )
     assert "--glossary expects a glossary-json/1 document" in capsys.readouterr().err
+
+
+def test_ontology_writes_one_merged_card_per_table(tmp_path: Path) -> None:
+    """The cards land where ``tables`` puts them, under the same names, with more in them."""
+    corpus = _corpus(tmp_path / "corpus")
+    out, cards = tmp_path / "out", tmp_path / "cards"
+
+    assert main(["tables", "--lineage", str(corpus), "--out", str(cards)]) == 0
+    assert _run("--lineage", str(corpus), "--out", str(out)) == 0
+
+    written = sorted(path.name for path in (out / "tables").glob("*.md"))
+    assert written == sorted(path.name for path in (cards / "tables").glob("*.md"))
+
+    card = (out / "tables" / "mart.customer_daily.md").read_text(encoding="utf-8")
+    assert 'doc_format: "ontology-md/1"' in card
+    for title in ("7. 身份（本体）", "8. 关系", "9. 约束", "10. 属性同义", "11. 待人工判定"):
+        assert f"## {title}" in card
+    # The table card's own sections are still there, unchanged and first.
+    assert card.index("## 1. 这张表是什么") < card.index("## 7. 身份（本体）")
+
+
+def test_the_index_carries_the_er_diagram(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    assert _run("--lineage", str(_corpus(tmp_path / "corpus")), "--out", str(out)) == 0
+
+    index = (out / "ontology.md").read_text(encoding="utf-8")
+
+    assert "```mermaid\nerDiagram\n" in index
+    assert "mart_customer_daily" in index
+    assert "}o--||" in index
+    assert "(tables/mart.customer_daily.md)" in index
+
+
+def test_ontology_format_json_writes_no_cards(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    assert (
+        _run(
+            "--lineage", str(_corpus(tmp_path / "corpus")), "--out", str(out),
+            "--format", "json",
+        )
+        == 0
+    )
+
+    assert not (out / "tables").exists()
+
+
+def test_ontology_applies_a_reviewed_overrides_file(tmp_path: Path, capsys) -> None:
+    corpus = _corpus(tmp_path / "corpus")
+    out = tmp_path / "out"
+    overrides = tmp_path / "ontology.overrides.json"
+    overrides.write_text(
+        json.dumps(
+            {
+                "relations": {
+                    "ods.customer_base.customer_id->mart.customer_daily.customer_id": {
+                        "cardinality": "many_to_one",
+                        "confirmed_by": "reviewer",
+                        "date": "2026-09-19",
+                    }
+                },
+                "keys": {"ods.customer_base": {"columns": ["customer_id"]}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert (
+        _run("--lineage", str(corpus), "--out", str(out), "--overrides", str(overrides))
+        == 0
+    )
+
+    ontology = json.loads((out / "ontology.json").read_text(encoding="utf-8"))
+    assert ontology["relations"][0]["cardinality"]["tier"] == "confirmed"
+    assert ontology["overrides_applied"] == {
+        "relations": 1,
+        "keys": 1,
+        "unmatched": [],
+    }
+    assert "confirmed 1 relation(s) and 1 key(s), 0 unmatched" in capsys.readouterr().out
+    card = (out / "tables" / "ods.customer_base.md").read_text(encoding="utf-8")
+    assert "已确认（`confirmed`）" in card
+
+
+def test_ontology_reports_an_overrides_path_that_is_not_there(tmp_path: Path, capsys) -> None:
+    corpus = _corpus(tmp_path / "corpus")
+
+    assert (
+        _run(
+            "--lineage", str(corpus), "--out", str(tmp_path / "out"),
+            "--overrides", str(tmp_path / "missing.json"),
+        )
+        == 2
+    )
+    assert "--overrides file does not exist" in capsys.readouterr().err

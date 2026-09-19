@@ -792,5 +792,10 @@
       ]
     }
   ],
-  "findings": []
+  "findings": [],
+  "overrides_applied": {
+    "relations": 0,
+    "keys": 0,
+    "unmatched": []
+  }
 }
