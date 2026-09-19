@@ -17,7 +17,7 @@
 
 ### 一行代表什么
 
-- 粒度：{一行 = {业务对象} × {维度}，来自 output_shape.grain 的逻辑键；grain.basis = single_row 时写「一行 = 全表汇总」，带 pinned 的键写成「{维度}（钉死为 {值}）」}
+- 粒度：{一行 = {业务对象} × {维度}，来自 output_shape.grain 的逻辑键；grain.basis = single_row 时写「一行 = 全表汇总」，带 pinned 的键写成「{维度}（钉死为 {值}）」；grain.basis = unknown 且有 grain.candidate 时写「无法判定；候选：一行 = {照抄 candidate 的 row_source 与 keys 译成业务语言}（{candidate.reason}）[推断]」，没有 candidate 时只写「无法判定一行代表什么」——两种情况都不得自己补一个粒度}
 - 键：{目标表的哪几列能唯一标识一行；按 key_confidence 措辞：确实唯一 / 唯一性依赖的列没写进表 / 只是候选 [待确认] / 没有}
 - 分区列：{列名｜无}（不是业务主键）
 

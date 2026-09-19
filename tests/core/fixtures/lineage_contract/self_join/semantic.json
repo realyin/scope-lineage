@@ -17,7 +17,14 @@
       "spec": null
     },
     "instance_dates": [],
-    "structural_summary": "ROOT 直接读取 ods.nodes；输出 2 列。",
+    "driving_tables": [
+      {
+        "table": "ods.nodes",
+        "via_scopes": [],
+        "lateral_view_scopes": []
+      }
+    ],
+    "structural_summary": "行来源 ods.nodes；输出 2 列。",
     "target_declared_columns": [],
     "target_metadata_source": null,
     "header_comments": [],
@@ -33,7 +40,8 @@
       "layer": null,
       "role_in_task": "driving",
       "roles": [
-        "driving"
+        "driving",
+        "filter_partner"
       ],
       "used_columns": [
         {

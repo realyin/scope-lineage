@@ -135,7 +135,7 @@ card = render_table_card_markdown(cards["tables"][0])
 | 2 一行代表什么 | 每个生产语句的粒度、逻辑键、候选键、键置信 | 结构推断（证据为 `statement_id`） |
 | 3 字段 | 列 / 类型 / 注释 / 生产侧一句语义 / 消费侧用法计数；语料没碰过的列用法一栏是 `—`，超过 20 列时它们移到用到的列之后、附一行说明 | 元数据事实 + SQL事实 + 结构推断 |
 | 4 谁生产 | 任务、语句、写入方式、分区、更新频率 | SQL事实 + 任务元信息 |
-| 5 谁消费 | 任务、语句、角色、用到哪些列、怎么用 | SQL事实 + 结构推断（角色） |
+| 5 谁消费 | 任务、语句、角色（词表同 `inputs[].role_in_task`，含 B2 的 `filter_partner`，见 [semantic-doc.md](semantic-doc.md)）、用到哪些列、怎么用 | SQL事实 + 结构推断（角色） |
 | 6 治理线索 | 多生产者、键冲突、无人读、无人写 | SQL事实（证据为 `<task>/<statement_id>`） |
 
 行标签风格与 [semantic.md](semantic-doc.md) 一致：`（元数据事实）`、`（SQL事实）`、

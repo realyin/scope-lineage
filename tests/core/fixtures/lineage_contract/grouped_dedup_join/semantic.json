@@ -21,7 +21,33 @@
       }
     },
     "instance_dates": [],
-    "structural_summary": "ROOT 不直接读取物理表；关联 1 个上游（1 个去重）；输出 6 列。",
+    "driving_tables": [
+      {
+        "table": "ods.events_a",
+        "via_scopes": [
+          "cte:ranked",
+          "cte:joined",
+          "cte:agg",
+          "cte:events_norm",
+          "union:events_norm",
+          "union:events_norm:b01"
+        ],
+        "lateral_view_scopes": []
+      },
+      {
+        "table": "ods.events_b",
+        "via_scopes": [
+          "cte:ranked",
+          "cte:joined",
+          "cte:agg",
+          "cte:events_norm",
+          "union:events_norm",
+          "union:events_norm:b02"
+        ],
+        "lateral_view_scopes": []
+      }
+    ],
+    "structural_summary": "行来源 ods.events_a（经 union:events_norm:b01 → union:events_norm → cte:events_norm → cte:agg → cte:joined → cte:ranked）、ods.events_b（经 union:events_norm:b02 → union:events_norm → cte:events_norm → cte:agg → cte:joined → cte:ranked）；关联 1 个上游（1 个去重）；输出 6 列。",
     "target_declared_columns": [
       {
         "name": "segment",

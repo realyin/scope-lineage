@@ -17,7 +17,14 @@
       "spec": null
     },
     "instance_dates": [],
-    "structural_summary": "ROOT 直接读取 ods.raw_events；输出 1 列。",
+    "driving_tables": [
+      {
+        "table": "ods.raw_events",
+        "via_scopes": [],
+        "lateral_view_scopes": []
+      }
+    ],
+    "structural_summary": "行来源 ods.raw_events；输出 1 列。",
     "target_declared_columns": [],
     "target_metadata_source": null,
     "header_comments": [],

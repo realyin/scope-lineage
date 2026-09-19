@@ -189,6 +189,11 @@ _GRAIN_BASIS_LABELS = {
 # a key list but the absence of one, said out loud.
 SINGLE_ROW_GRAIN_TEXT = "一行 = 全表汇总"
 
+# B3. The marker the profile skill already uses for a sentence the structure suggests
+# rather than proves. The candidate grain carries it in the document the writer copies
+# from, so the caveat travels with the line.
+INFERRED_MARK = "[推断]"
+
 # WI-1d: how the candidate-key line is worded, per `output_shape.key_confidence`.
 _KEY_CONFIDENCE_NOTES = {
     "proven": "由{basis}保证输出内唯一",
@@ -204,6 +209,9 @@ _ROLE_LABELS = {
     "aggregate_source": "聚合来源",
     "dedup_source": "去重来源",
     "union_branch": "合并分支",
+    # B2: an INNER JOIN's partner on the driving path. It enriches *and* drops the
+    # driving rows it cannot match, which "关联补充" denies.
+    "filter_partner": "关联筛选",
     "enrich": "关联补充",
     "rowset_only": "仅行集引用",
 }
@@ -799,7 +807,26 @@ def _grain_line(grain: dict) -> str:
         )
     else:
         text = f"- {WARN} 粒度：未能判定（basis={basis}{through}）"
-    return _tagged(text, TAG_STRUCTURAL, evidence)
+    return _tagged(text + _candidate_text(grain.get("candidate")), TAG_STRUCTURAL, evidence)
+
+
+def _candidate_text(candidate: dict | None) -> str:
+    """B3: the hypothesis offered beside an undecided verdict, marked as one.
+
+    The verdict keeps its ``未能判定`` -- the candidate never replaces it. ``[推断]`` is
+    the skill's own marker for "this is a guess", so a writer copying the line carries
+    the caveat with it instead of promoting the guess to a fact.
+    """
+    if not candidate:
+        return ""
+    parts = (
+        [f"{_span(candidate['row_source'])} 的一行"] if candidate.get("row_source") else []
+    )
+    parts.extend(_span(label) for label in _key_labels(candidate.get("keys") or []))
+    return (
+        f"；候选：一行 = {' × '.join(parts)}"
+        f"（{_normalize_inline(str(candidate.get('reason') or ''))}）{INFERRED_MARK}"
+    )
 
 
 def _render_fan_out(risks: Sequence[dict]) -> list[str]:

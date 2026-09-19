@@ -324,8 +324,9 @@ def test_the_pierced_table_takes_the_driving_role_and_keeps_its_other_roles() ->
     roles = {item["table"]: item["roles"] for item in profile["inputs"]}
     assert roles["ods.base"] == ["driving", "enrich"]
     assert roles["ods.dim"] == ["enrich"]
+    # B2: the sentence opens with the row source and demotes what ROOT only reads.
     assert profile["task"]["structural_summary"].startswith(
-        "ROOT 经 subq:t1 读取 ods.base，直接读取 ods.dim；"
+        "行来源 ods.base（经 subq:t1）；补充 ods.dim；"
     )
 
 

@@ -155,7 +155,7 @@ Neither becomes a card, and neither shows up in another table's `aliases`.
 | 2 What one row represents | each producing statement's grain, logical keys, candidate keys, key confidence | structural inference (evidence is the `statement_id`) |
 | 3 Columns | column / type / comment / one produced-side sentence / consumer usage counts; a column the corpus never touched shows `—` for its usage, and above 20 of them they move below the used ones under a one-line note | metadata facts + SQL facts + structural inference |
 | 4 Who produces it | task, statement, write mode, partition, refresh cadence | SQL facts + task metadata |
-| 5 Who consumes it | task, statement, role, which columns, how they are used | SQL facts + structural inference (the role) |
+| 5 Who consumes it | task, statement, role (the same vocabulary as `inputs[].role_in_task`, including B2's `filter_partner` — see [semantic-doc.md](semantic-doc.md)), which columns, how they are used | SQL facts + structural inference (the role) |
 | 6 Governance leads | multiple producers, key conflicts, never read, never written | SQL facts (evidence is `<task>/<statement_id>`) |
 
 Line tags follow [semantic.md](semantic-doc.md): `（元数据事实）`, `（SQL事实）`,

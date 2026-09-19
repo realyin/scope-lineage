@@ -116,7 +116,7 @@ v1 每句挂 `SQL事实` / `LLM推断` 让语义说明读起来像审计日志�
 | --- | --- |
 | `enriched_projection` / `filtered_projection` | 以某张主表为准再挂上补充信息 / 从一张表里筛出部分行与列 |
 | `aggregated` / `deduplicated` / `union_merge` | 按某几个维度汇总 / 同一对象只留一条 / 几路来源拼成一张表 |
-| `driving` / `enrich` / `dedup_source` / `aggregate_source` / `union_branch` / `merge_source` / `rowset_only` | 决定输出哪些行的主表 / 补充信息用 / 去重后取一条的来源 / 被汇总的明细来源 / 拼接的其中一路 / 更新时的来源 / 只借它的行集 |
+| `driving` / `filter_partner` / `enrich` / `dedup_source` / `aggregate_source` / `union_branch` / `merge_source` / `rowset_only` | 决定输出哪些行的主表 / 既补列又会把连不上的主表行丢掉 / 补充信息用 / 去重后取一条的来源 / 被汇总的明细来源 / 拼接的其中一路 / 更新时的来源 / 只借它的行集 |
 | `candidate_key` / `key_confidence=proven` / `proven_unexposed` / `candidate` / `none` | 能唯一标识一行的列 / 确实唯一 / **唯一性依赖的列没写进表，现有列不能唯一标识一行** / 只是候选，是否唯一未证明 / 没有能唯一标识一行的列 |
 | `keep_latest_per_group` / `keep_first_per_group` / `rank_within_group` | 每个对象只留最新一条 / 只留最早一条 / 组内排名（不筛第一名） |
 | `pick_first_in_group` / `pick_last_in_group` / `adjacent_row_offset` / `running_aggregate` | 取组内第一条的值 / 最后一条的值 / 相邻一行的值 / 累计值 |
@@ -152,12 +152,12 @@ GROUP BY 项就是一个键，哪怕它穿透到好几个物理列），键用 `
 表列名），措辞按 `key_confidence` 分四种：`proven` 写「这几列确实唯一」；`proven_unexposed`
 **必须写成一句使用注意**——「唯一性依赖的列没有写进这张表，用现有列去关联会重复」；`candidate`
 写「候选，是否唯一未证明 `[待确认]`」；`none` 不声称任何键唯一。分区列单说，不当业务主键。
-`grain.basis` 为 `unknown` 时写「无法判定一行代表什么」，不要补一个粒度当事实；`grain.basis` 为 `single_row` 时写「整张输出一行（全表汇总）」并说明键那句不适用（一行不需要键），带 `pinned` 的粒度键照写业务含义，但要说清它被等值过滤钉死成一个值（通常是数据日期），不是区分行的维度。
+`grain.basis` 为 `unknown` 时写「无法判定一行代表什么」，不要补一个粒度当事实——但 `grain.candidate` 存在时**照抄它**（`row_source` 是行的来源表、`keys` 是展开前的粒度键加上展开出的列），写成「无法判定；推测一行 = …，因为 <candidate.reason>」并标 `[推断]`，不得把它写成肯定句、也不得自己另编一个；`grain.basis` 为 `single_row` 时写「整张输出一行（全表汇总）」并说明键那句不适用（一行不需要键），带 `pinned` 的粒度键照写业务含义，但要说清它被等值过滤钉死成一个值（通常是数据日期），不是区分行的维度。
 
 **数据从哪来、到哪去** — 每张输入表一句：**是什么、在这里起什么作用**。有
 `inputs[].card` 时**优先用它**——那是写这张表的上游任务自己证明的粒度与键（`grain_text`、
 `candidate_keys`、`key_confidence`、`refresh`），比表名和注释都硬；`card` 为 `null` 或没传
-`--tables` 时才退回 `inputs[].comment` + `role_in_task` 译成人话，并写「上游未知」。输入表
+`--tables` 时才退回 `inputs[].comment` + `role_in_task` 译成人话，并写「上游未知」。**主表按 `task.driving_tables[]` 认**——它是行的来源表，`structural_summary` 的「行来源 …」说的就是它；不要拿「ROOT 直接读取」或第一张出现的表当主表，那常常是挂在主表上的维表。输入表
 > 6 张时按作用归成三四组，每组一句并列出表名。下游优先取 `task.downstream_consumers`（谁读本表、
 读了哪些列、起什么作用），其次才是任务元信息（下游任务、`description`），两者都拿不到就写
 「下游未知」，不要从表名猜。
