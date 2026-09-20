@@ -149,10 +149,14 @@ class TestExpansionBudget:
         assert final.transform
         assert resolution["status"] in {"resolved", "partially_resolved"}
 
-    def test_sql_alias_different_from_cte_name_is_a_precise_bounded_gap(
+    def test_sql_alias_different_from_cte_name_is_a_precise_capacity_fact(
         self, monkeypatch
     ):
-        """A retained SQL alias is a capacity fact, not a failed alias binding."""
+        """A retained SQL alias is a capacity fact, not a failed alias binding.
+
+        Since Q2 that fact is a truncation warning rather than a gap: the sources are
+        resolved, so nothing about the lineage is missing (see test_expansion_truncation).
+        """
         from scope_lineage.scope import expansion_budget
 
         monkeypatch.setattr(expansion_budget, "EXPANSION_MAX_CHARS", 400)
@@ -175,20 +179,25 @@ class TestExpansionBudget:
             schema={"ods.src": ["flag", "value"]},
         )
         output = result.scopes["ROOT"].outputs[0]
-        gaps = result.diagnostics.lineage_fact_gaps
 
         assert output.expansion_status == "bounded"
+        assert output.expansion_truncated is True
         assert output.expression_resolution["status"] == "resolved"
         assert output.expression_resolution["missing_reasons"] == []
         assert {item["table"] for item in output.expression_resolution["physical_source_fields"]} == {
             "ods.src"
         }
-        assert [gap["gap_type"] for gap in gaps] == ["expression_expansion_bounded"]
-        assert gaps[0]["missing_reasons"] == ["expression_expansion_bounded:max_chars"]
-        assert gaps[0]["owner_hint"] == "consumer_follow_unexpanded_refs"
-        assert gaps[0]["evidence_summary"]["unexpanded_refs"] == output.unexpanded_refs
+        assert result.diagnostics.lineage_fact_gaps == []
+        warnings = [
+            warning
+            for warning in result.diagnostics.warnings
+            if warning.type == "expansion_truncated"
+        ]
+        assert [warning.scope for warning in warnings] == ["ROOT"]
+        assert "max_chars" in warnings[0].msg
+        assert output.unexpanded_refs
 
-    def test_numeric_leading_field_keeps_only_the_precise_bounded_gap(
+    def test_numeric_leading_field_keeps_only_the_precise_capacity_fact(
         self, monkeypatch
     ):
         """A budget ref's display SQL need not itself be parseable without backticks."""
@@ -217,6 +226,9 @@ class TestExpansionBudget:
         assert any(ref["ref"] == "b.1st_value" for ref in output.unexpanded_refs)
         assert output.expression_resolution["status"] == "resolved"
         assert output.expression_resolution["missing_reasons"] == []
-        assert [gap["gap_type"] for gap in result.diagnostics.lineage_fact_gaps] == [
-            "expression_expansion_bounded"
-        ]
+        assert result.diagnostics.lineage_fact_gaps == []
+        assert [
+            warning.type
+            for warning in result.diagnostics.warnings
+            if warning.type == "expansion_truncated"
+        ] == ["expansion_truncated"]

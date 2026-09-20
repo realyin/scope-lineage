@@ -112,6 +112,7 @@ include:
 | `magic_number` | An expression contains an unexplained numeric constant. | Ask for the definition when generating upper-layer business knowledge. |
 | `complex_aggregate_with_case` | A CASE is nested inside an aggregate. | A metric explanation should keep the CASE branches, not just record SUM/COUNT. |
 | `duplicate_table_in_union` | The same physical table is a **FROM/JOIN source** of several UNION branches. Being read only by a branch's filtering subquery (such as `NOT EXISTS`) does not count. | Confirm whether a branch was copied without changing its source; anti-join deduplication is a normal pattern and no longer triggers this. |
+| `expansion_truncated` | Expression expansion reached a guard (`max_chars` or `max_substitutions`): `expanded_expression` is cut and ends in `/* expansion truncated at <guard>=<limit> */`, and `msg` names the field, the guard and the number. The source facts are complete, which is why this is a warning and not a gap. | Follow that output's `unexpanded_refs[]` when the full text is needed; for `max_substitutions`, re-run with `parse --expansion-limit N`. Do not read it as incomplete lineage. |
 | `target_field_binding_fallback` | Authoritative target-field binding was not fully applied. | See `lineage.json.target_field_binding.issues[]`. |
 
 Warnings are not a fixed closed enum; machine processing should set policies for known types and
@@ -249,7 +250,7 @@ Example:
 | `scope_output_mapping_missing` | The mapping from an upstream scope's output field to the current reference. |
 | `expression_source_unresolved` | The expression's physical or generated source. |
 | `expression_resolution_incomplete` | Some sources are known, but the expression resolution is not yet complete. |
-| `expression_expansion_bounded` | Source facts are known, but full expression text was not inlined because an expansion guard was reached; continue through `evidence_summary.unexpanded_refs`. |
+| `expression_expansion_bounded` | An expansion guard was reached AND this output's own sources did not fully resolve; continue through `evidence_summary.unexpanded_refs`. Where the sources are complete it is no longer a gap but an `expansion_truncated` warning (see §3.2). |
 
 ### 5.2 `gap_bucket`
 
@@ -266,8 +267,14 @@ A `capacity_guard` gap says which *number* it stopped at: `evidence_summary.expa
 `{guard, limit, raised_by}` and `needed_fact` says the same thing in prose. The substitution guard is
 raised with `parse --expansion-limit N` (its default is in `--help`), at the cost of a larger
 artifact; the size guard (`max_chars`) has no flag — the reference left in place is itself the
-pointer to the rest. How many tasks in one `parse` hit the guard is reported at the end of the run
-as `capacity_guard=N`, and left out when it is zero.
+pointer to the rest.
+
+The guard leaves a gap only where **the sources did not resolve either**. Where they are complete and
+only the text did not fit, it is an `expansion_truncated` warning instead: `analysis_status` stays
+`complete`, `expanded_expression` is published with its truncation marker, and the output and
+`field_mapping_chains[]` carry `expansion_truncated` / `expansion_limit`. Both shapes count as "hit the
+guard": how many tasks in one `parse` did is reported at the end of the run as `capacity_guard=N`, and
+left out when it is zero.
 
 ### 5.3 Deciding whether it is fit for automation
 

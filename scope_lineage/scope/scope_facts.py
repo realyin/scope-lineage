@@ -26,7 +26,13 @@ from .scope_types import (
     DiagnosticWarning,
     SourceRef,
 )
-from .expansion_budget import ExpansionBudget
+from .expansion_budget import (
+    EXPANSION_GUARD_FLAGS,
+    ExpansionBudget,
+    expansion_limit_fact,
+    expansion_sources_are_resolved,
+    truncated_expansion,
+)
 from .sqlglot_walk import _pivot_of_source_node, _source_item_from_ast_node
 from ._constants import DIALECT, PARSE_OPTS, _SCOPE_ID_ATTR
 from .expression_expansion import _ordered_physical_fields_in_expression, _physical_fields_referenced_in_expression, _replace_struct_field_access_from_upstream, _resolve_expression_resolution_from_output_sources, _resolved_expression_fact_from_source_refs
@@ -179,11 +185,64 @@ def _finalize_facts(result: ScopeLineageResult, schema: dict | None) -> None:
     _normalize_scope_expression_resolutions(result)
     _refresh_join_relation_physical_fields(result)
     _populate_window_filter_links(result)
+    # Before the gaps: what the guard cost is decided once, and the gap pass reads the
+    # same predicate rather than a second opinion about the same output.
+    _publish_truncated_expansions(result)
     _populate_lineage_fact_gaps(result)
     _populate_field_mapping_chains(result)
     _prune_resolved_star_warnings(result)
     _populate_logic_block_features(result)
 
+
+
+def _publish_truncated_expansions(result: ScopeLineageResult) -> None:
+    """Say a capped expansion cost text, not lineage (Q2).
+
+    The budget declines substitutions to keep one expression from growing multiplicatively,
+    and the sources are restored behind every declined reference just above. What was left
+    was a statement reported as an incomplete lineage fact although every physical column
+    feeding the output was known -- ``analysis_status`` went ``partial`` over the size of a
+    string. Where the sources are resolved, the guard now publishes a truncated expression
+    with a marker and a warning; where they are not, the gap pass still reports a gap.
+    """
+    for scope_id, scope_data in result.scopes.items():
+        for output in scope_data.outputs:
+            if output.expansion_status != "bounded" or not output.unexpanded_refs:
+                continue
+            if not expansion_sources_are_resolved(output.expression_resolution):
+                continue
+            _truncate_output_expansion(result, scope_id, output)
+
+
+def _truncate_output_expansion(
+    result: ScopeLineageResult,
+    scope_id: str,
+    output: ScopeOutputField,
+) -> None:
+    """Mark one output's text as truncated and record the warning that says so."""
+    guard = str(output.expansion_stop_reason or "")
+    limit = expansion_limit_fact(guard, output.expansion_limit)
+    if not limit:
+        return
+    truncated = truncated_expansion(output.expanded_expression or "", guard, limit["limit"])
+    resolution = output.expression_resolution or {}
+    # The resolution carries its own copy of the text; leaving it unmarked would publish
+    # the same expression twice, once admitting the cut and once not.
+    if resolution.get("expanded_expression") == output.expanded_expression:
+        resolution["expanded_expression"] = truncated
+    output.expanded_expression = truncated
+    output.expansion_truncated = True
+    flag = EXPANSION_GUARD_FLAGS.get(guard)
+    result.diagnostics.warnings.append(DiagnosticWarning(
+        type="expansion_truncated",
+        scope=scope_id,
+        msg=(
+            f"expanded_expression for '{output.name}' stopped at the {guard} guard "
+            f"({limit['limit']}) and is published truncated with a trailing marker; the "
+            "source facts are complete, so follow unexpanded_refs for the remaining text"
+            + (f", or re-run with `parse {flag} N`" if flag else "")
+        ),
+    ))
 
 
 def _restore_facts_behind_unexpanded_refs(result: ScopeLineageResult) -> None:
@@ -980,6 +1039,18 @@ def _populate_field_mapping_chains(result: ScopeLineageResult) -> None:
                 "final_output_fields": final_output_fields,
                 "ordered_steps": deduped_steps,
                 "expanded_expression": chain_resolution.get("expanded_expression") or output.expanded_expression,
+                # The same two facts the output carries: a reader who starts at the chain
+                # must not have to open the scope to learn the text was capped (Q2).
+                **(
+                    {
+                        "expansion_truncated": True,
+                        "expansion_limit": expansion_limit_fact(
+                            output.expansion_stop_reason, output.expansion_limit
+                        ),
+                    }
+                    if output.expansion_truncated
+                    else {}
+                ),
                 "missing_reasons": missing_reasons,
                 "trace_status": "complete" if trace_complete else "incomplete",
             }
