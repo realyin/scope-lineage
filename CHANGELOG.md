@@ -42,6 +42,23 @@
   `WHERE level IN (0, 1)` no longer contributes two "unexplained codes" to a ratio printed
   beside a form that never asks about them. **Breaking for consumers reading that pair**:
   `enumerable_total` can only shrink, never grow.
+- **An expansion that ran out of room no longer blocks the task** (Q2). The budget stops
+  inlining upstream expression text at `max_chars` / `max_substitutions` — right, and
+  unchanged. What was wrong was the verdict: the statement then carried an
+  `expression_expansion_bounded` lineage fact gap, so `analysis_status` went `partial`,
+  the field's `field_mapping_chains[].trace_status` read `incomplete` and its
+  `end_to_end_lineage` entry `trace_complete: false` — although the walk had named every
+  physical column behind the reference and only the concatenated *string* was too big to
+  publish. Where the sources are resolved, a tripped guard is now a statement-level
+  **warning** (`type: "expansion_truncated"`): `root_source_fields`, `end_to_end_lineage`
+  and `trace_status` stay exactly as the walk resolved them, `analysis_status` stays
+  `complete`, and the expression is published truncated at the limit ending in
+  `/* expansion truncated at <guard>=<limit> */`, with optional `expansion_truncated: true`
+  and `expansion_limit: {guard, limit}` on the output and on its mapping chain. A guard
+  that fires where the output's own sources did *not* resolve still yields the
+  `expression_expansion_bounded` / `capacity_guard` gap it always did. The run summary
+  keeps `capacity_guard=N`, now counting either shape — the cue to re-run with a larger
+  `--expansion-limit` does not depend on which one it was.
 
 ## 0.3.1
 - **Breaking** (glossary.json only; the lineage contracts are unchanged): a value's

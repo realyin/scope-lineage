@@ -16,7 +16,11 @@ from .scope_types import (
 # formed a cycle that only worked because Python hands out a partially-initialised
 # module, making import order load-bearing (ARCH-001).
 from ._constants import DIALECT, PARSE_OPTS
-from .expansion_budget import EXPANSION_LIMIT_FLAG
+from .expansion_budget import (
+    EXPANSION_GUARD_FLAGS,
+    expansion_limit_fact,
+    expansion_sources_are_resolved,
+)
 from .sequences import _unique_ordered
 from .source_refs import _source_kind_for_resolution
 
@@ -72,8 +76,15 @@ def _lineage_gap_from_bounded_expansion(
     output: ScopeOutputField,
     evidence_path: str,
 ) -> dict[str, object] | None:
-    """Describe an intentionally composable expression without calling its alias unknown."""
+    """Describe an intentionally composable expression without calling its alias unknown.
+
+    Only where the sources are unproved. A guard that cost text alone is published as a
+    truncation warning instead (Q2): reporting it here blocked the task over the size of a
+    string, although the walk had already named every physical column behind the reference.
+    """
     if output.expansion_status != 'bounded' or not output.unexpanded_refs:
+        return None
+    if expansion_sources_are_resolved(output.expression_resolution):
         return None
     stop_reason = str(output.expansion_stop_reason or 'limit_reached')
     target_columns = output.final_target_columns or output.target_columns
@@ -117,18 +128,12 @@ def _lineage_gap_from_bounded_expansion(
     }
 
 
-#: Which guard an operator can move, and with what. ``max_chars`` is the materialized
-#: size ceiling and has no flag: raising it would hand back the multiplicative blow-up
-#: the budget exists to prevent, while the untouched reference already points at the rest.
-_EXPANSION_GUARD_FLAGS = {'max_substitutions': EXPANSION_LIMIT_FLAG}
-
-
 def _expansion_limit_evidence(stop_reason: str, limit: int | None) -> dict | None:
     """The number this run stopped at, and the flag that moves it -- or nothing."""
-    if limit is None:
+    evidence = expansion_limit_fact(stop_reason, limit)
+    if evidence is None:
         return None
-    evidence: dict[str, object] = {'guard': stop_reason, 'limit': int(limit)}
-    flag = _EXPANSION_GUARD_FLAGS.get(stop_reason)
+    flag = EXPANSION_GUARD_FLAGS.get(stop_reason)
     if flag:
         evidence['raised_by'] = flag
     return evidence

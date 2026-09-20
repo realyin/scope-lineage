@@ -1033,13 +1033,9 @@ def _parse_task_inputs_v2(
                     str(reason)
                     for reason in result.analysis_status.get("blocking_reasons") or []
                 )
-            # One per task, not per gap: the operator's next move is to re-run the task
+            # One per task, not per event: the operator's next move is to re-run the task
             # with a larger --expansion-limit, and a task is what gets re-run.
-            capacity_guard_count += any(
-                gap.get("gap_bucket") == "capacity_guard"
-                for gap in result.diagnostics.get("lineage_fact_gaps", [])
-                if isinstance(gap, dict)
-            )
+            capacity_guard_count += _hit_the_expansion_guard(result)
             unsupported_mutation_count += sum(
                 item.get("category") == "row_mutation"
                 and item.get("model_status") != "modeled"
@@ -1140,6 +1136,28 @@ def _parse_task_inputs_v2(
     if quality_failed:
         return 1
     return 0 if args.allow_partial else 1
+
+
+def _hit_the_expansion_guard(result) -> bool:
+    """Whether one task's expansion stopped at a guard, however it was reported.
+
+    Two shapes, one fact: a truncation warning where the sources were nonetheless complete
+    (Q2), and a capacity gap where they were not. The counter is the cue to re-run with a
+    larger `--expansion-limit`, and that cue does not depend on which of the two it was.
+    """
+    if any(
+        gap.get("gap_bucket") == "capacity_guard"
+        for gap in result.diagnostics.get("lineage_fact_gaps", [])
+        if isinstance(gap, dict)
+    ):
+        return True
+    return any(
+        warning.get("type") == "expansion_truncated"
+        for lineage in result.statement_lineage.values()
+        if isinstance(lineage, dict)
+        for warning in (lineage.get("diagnostics") or {}).get("warnings") or []
+        if isinstance(warning, dict)
+    )
 
 
 def _capacity_guard_report(count: int) -> str:

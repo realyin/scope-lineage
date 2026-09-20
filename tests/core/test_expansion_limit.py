@@ -1,10 +1,13 @@
 """``parse --expansion-limit``: the capacity guard as a declared number, not a constant.
 
 The expansion budget stops inlining upstream expression text once it has made
-``EXPANSION_MAX_SUBSTITUTIONS`` substitutions, and the task that hits it ends ``partial``
-with an ``expression_expansion_bounded`` gap. Two things were missing for the operator
-holding that artifact: the number the run actually stopped at (the gap named the guard,
-never its limit) and any way to raise it short of editing the package.
+``EXPANSION_MAX_SUBSTITUTIONS`` substitutions. Two things were missing for the operator
+holding that artifact: the number the run actually stopped at (the diagnostic named the
+guard, never its limit) and any way to raise it short of editing the package.
+
+Since Q2 the guard is reported as a truncation warning where the sources are nonetheless
+complete, so these tests read the number off that warning; the gap shape stays covered by
+``test_expansion_truncation`` for the case where the sources really are missing.
 
 The flag defaults to the constant, so a run that does not pass it is the run it always
 was -- these tests pin that equality rather than the constant's value, which is tuning.
@@ -70,31 +73,38 @@ def _capacity_gaps(document: dict) -> list[dict]:
     ]
 
 
-def test_a_small_limit_trips_the_guard_and_the_gap_names_the_number(
+def _truncations(document: dict) -> list[dict]:
+    return [
+        warning
+        for statement in (document.get("statement_diagnostics") or {}).values()
+        for warning in statement.get("warnings") or []
+        if warning.get("type") == "expansion_truncated"
+    ]
+
+
+def test_a_small_limit_trips_the_guard_and_the_warning_names_the_number(
     tmp_path: Path,
 ) -> None:
     document = _document(_parse(tmp_path, "out", "--expansion-limit", "3"))
 
-    gaps = _capacity_gaps(document)
-    assert len(gaps) == 1
-    gap = gaps[0]
-    assert gap["gap_type"] == "expression_expansion_bounded"
-    assert gap["gap_sub_bucket"] == "max_substitutions"
+    truncations = _truncations(document)
+    assert len(truncations) == 1
     # The number the run stopped at, and the way to move it -- both in the sentence a
     # reader of the artifact already reads.
-    assert "3" in gap["needed_fact"]
-    assert "--expansion-limit" in gap["needed_fact"]
-    assert gap["evidence_summary"]["expansion_limit"] == {
-        "guard": "max_substitutions",
-        "limit": 3,
-        "raised_by": "--expansion-limit",
-    }
+    message = truncations[0]["msg"]
+    assert "max_substitutions" in message
+    assert "3" in message
+    assert "--expansion-limit" in message
+    # The sources were never in doubt, so the guard costs text, not a blocked task.
+    assert _capacity_gaps(document) == []
+    assert document["analysis_status"]["status"] == "complete"
 
 
-def test_the_same_statement_is_complete_at_the_default_limit(tmp_path: Path) -> None:
+def test_the_same_statement_is_untouched_at_the_default_limit(tmp_path: Path) -> None:
     document = _document(_parse(tmp_path, "out"))
 
     assert _capacity_gaps(document) == []
+    assert _truncations(document) == []
     assert document["analysis_status"]["status"] == "complete"
 
 
@@ -132,4 +142,4 @@ def test_the_limit_does_not_leak_into_the_next_parse(tmp_path: Path) -> None:
     """The flag is one run's policy, not a process-wide setting."""
     _parse(tmp_path, "bounded", "--expansion-limit", "3")
 
-    assert _capacity_gaps(_document(_parse(tmp_path, "after"))) == []
+    assert _truncations(_document(_parse(tmp_path, "after"))) == []
