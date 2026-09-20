@@ -132,8 +132,11 @@ Modelled 31 entity(ies), 21 relation(s), 20 constraint(s) and 0 finding(s) from 
 ```
 
 打开 `$OUT/corpus/ontology.md`：开头是整份语料的 Mermaid ER 总览，标题行写着还有多少条
-待人工判定、已确认多少条，最后一节把每个待判定项列成一行，每行带一个稳定的 `open:` id
-和它的回写键。`--tables` / `--glossary` 只是省一次重算，不传时产物逐字节相同。
+待人工判定、折叠成多少组、已确认多少条，最后一节按（类型，表族，问题形状）每组一行，每行
+带一个稳定的 `open:group:` id、`影响`、组内条数和一个把表名留成 `<table>` 的回写模式，按
+`影响` 降序排好（关系按对端归组，所以十个任务关联同一张维表是一行）；逐条的清单在
+`ontology.json` 的 `open_items[]` 里。`--tables` / `--glossary` 只是省一次重算，不传时
+产物逐字节相同。
 
 ### 5. 第二次跑：`--incremental`
 

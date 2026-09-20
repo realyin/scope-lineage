@@ -54,7 +54,7 @@ Three artifacts:
 | File | Read by | Contents |
 | --- | --- | --- |
 | `ontology.json` | machines / RAG / knowledge-graph loaders | the main artifact, `doc_format: "ontology-json/1"` |
-| `ontology.md` | people | an index: the Mermaid ER overview plus the entity, relation, constraint and findings tables and the consolidated open list, `doc_format: "ontology-index-md/1"` |
+| `ontology.md` | people | an index: the Mermaid ER overview plus the entity, relation, constraint and findings tables and the consolidated open list (the last two folded into groups by table family), `doc_format: "ontology-index-md/1"` |
 | `tables/<db.table>.md` | people / RAG chunked per table | the table card's six sections plus five ontology sections, `doc_format: "ontology-md/1"`; the filename rule is exactly `scope-lineage tables`' own |
 
 Python API (consumes the contract documents, same path the files are written from):
@@ -139,6 +139,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
              "external_evidence_tables": 2},   // only when merged cards hold tables this corpus never touched
   "entities": [
     {"id": "ods.customer", "kind": "physical_table",
+     "family": "ods.customer",   // Q3: the family key, the name without _di / _tmp / _mid01
      "comment": null,
      "identity": {
        "candidate_keys": [{"columns": ["id"], "tier": "hypothesis",
@@ -161,6 +162,9 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
      "relation_hints": [{"from_column": "pay_id",
                          "to": {"entity": "ods.pay", "column": "id"},
                          "evidence": "column_comment", "text": "payment, references ods.pay.id"}]}
+  ],
+  "families": [
+    {"family": "ods.pay", "tables": ["ods.pay_df", "ods.pay_di"], "size": 2}
   ],
   "relations": [
     {"id": "rel:001",
@@ -196,10 +200,18 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
               {"columns": ["driver_id", "dt"], "evidence": [{"task": "task_b"}]}],
      "tasks": {"assumed_unique": ["task_a", "task_b"]}, "text": "…"}
   ],
+  "finding_groups": [],   // the groups in open_item_groups whose kind is finding
   "open_items": [
     {"id": "open:key:ods.customer=id", "kind": "candidate_key",
      "entity": "ods.customer", "columns": ["id"], "tier": "hypothesis",
      "write_back": "键:ods.customer=id", "text": "…"}
+  ],
+  "open_item_groups": [
+    {"group_id": "open:group:key:ods.customer=id", "kind": "candidate_key",
+     "family": "ods.customer", "shape": "id",
+     "representative": "open:key:ods.customer=id",
+     "items": ["open:key:ods.customer=id"], "count": 1, "impact": 2,
+     "write_back_pattern": "键:<table>=id"}
   ],
   "overrides_applied": {"relations": 0, "keys": 0, "unmatched": [],
                         "ignored_fields": []}
@@ -212,6 +224,7 @@ Slot by slot (every slot `ontology-json/1` publishes):
 | --- | --- | --- |
 | `corpus` | `artifact_root` / `task_count` / `lineage_digests` / `external_evidence_tables` | the same corpus block the table cards carry: the walked root, the task count, one lineage digest per task, and how many tables lent evidence only without becoming entities (P7; absent when none did) |
 | `entities[].kind` | `physical_table` / `produced_table` | a table some task in the corpus writes is a `produced_table` |
+| `entities[].family` | `<database>.<table name without its copy suffixes>` | Q3: which table family this table belongs to, derived from its own name alone (the rule is under "Table families and the folded open list"); the same table name in two databases is two families |
 | `entities[].comment`, `naming_hints` | table comment / domain / project / owner | metadata carried over verbatim; Core infers no business semantics from it |
 | `entities[].identity.candidate_keys[]` | `columns` + `tier` + `evidence` | the key a producing task proved (`producer_key_confidence`) and the key a consuming task assumed (`joined_as_right_without_dedup`) stand side by side; they are never merged into one "primary key" |
 | `entities[].identity.candidate_keys[].scope_columns` | a list of column names | H2: the key is unique only within one value of these columns (the normal shape of a snapshot table); it can only come from a human confirmation |
@@ -226,6 +239,7 @@ Slot by slot (every slot `ontology-json/1` publishes):
 | `entities[].attributes[].not_null_observed` | `true` / `false` | some task in the corpus filtered this column with `NOT x IS NULL` |
 | `entities[].attributes[].synonyms[].via` | `direct_rename` / `union_alignment` | O5: two column names for one value |
 | `entities[].attributes[].samples[]` | array of strings | A6: the table card's sample values, carried across unchanged — they come only from a file passed to `tables --samples` (already redacted and cut), and the key is absent when that column has none |
+| `families[]` | `family` + `tables[]` + `size` | Q3: every table family the corpus names and the tables inside it, sorted by `family`; read it before answering a group, to check that the family really is one table written several times |
 | `relations[].id` | `rel:NNN` | numbered after sorting, stable for one corpus |
 | `relations[].kind` | `join_association` / `union_sibling` / `hinted` | a JOIN key pair, or two branches of one UNION; `hinted` is O9's edge -- proposed by a column comment and written by no task in the corpus (`task_count` 0, empty `join_types`) |
 | `relations[].cardinality.claim` | `one_to_many` / `many_to_one` / `many_to_one_assumed` / `one_to_one_assumed` / `unknown` | O2, in the direction `from` → `to`; `one_to_one_assumed` can only come from a human confirmation |
@@ -244,6 +258,11 @@ Slot by slot (every slot `ontology-json/1` publishes):
 | `open_items[].id` | `open:key:<table>=<col+col>` / `open:rel:<relation write-back key>` / `open:finding:<kind>:<table>=<cols>` | derived from the question itself, so the same question keeps the same id in the next round |
 | `open_items[].kind` | `candidate_key` / `relation` / `finding` | the array order is the suggested answering order: findings, then relations by `task_count` descending, then candidate keys |
 | `open_items[].write_back` | `键:<table>=<col+col>` / `关系:<write-back key>` / `null` | where the answer is filed in `ontology.overrides.json`; a cross-task contradiction has no single target and carries `null` |
+| `open_item_groups[]` | `group_id` / `kind` / `family` / `shape` / `representative` / `items[]` / `count` / `impact` / `write_back_pattern` | Q3: the list above folded by (kind, table family, question shape) -- one group is one question asked of a whole family; a relation groups by its **far** side, so `family` is the far table's; `items[]` holds every item id in it and `representative` the highest-ranked one |
+| `open_item_groups[].group_id` | `open:group:key:<family>=<col+col>` / `open:group:rel:<far family>=<far col+col>` / `open:group:finding:<family>=<kind>` | derived from the content as well, so it survives the next round; section 11 of a card cites it beside the item id |
+| `open_item_groups[].impact` | a non-negative integer | what answering the group unblocks: for a relation the tables joining the far side plus the tasks that do, for a candidate key the assumed edges confirming it would prove, for a finding the items it holds; the array order is `impact` descending, then `count` descending, then the representative's rank |
+| `open_item_groups[].write_back_pattern` | `键:<table>=<col+col>` / `关系:<near end>.<col+col>-><table>.<col+col>` / `null` | the group's write-back key, where `<table>` is the table the group is about (the far one for a relation) and a near side the members disagree on reads `<from_table>` / `<from_columns>`: answer once, then file it per table in the family; a finding with no single target carries `null` |
+| `finding_groups[]` | the same shape as `open_item_groups[]` | the subset of `open_item_groups[]` whose `kind` is `finding`, published on its own because the index's 待人工判定 table renders only those |
 | `overrides_applied` | `relations` / `keys` / `unmatched` / `ignored_fields` | how many human confirmations this run merged, which of them matched nothing in the corpus, and which fields this release does not understand |
 
 ## The inference rules
@@ -259,6 +278,34 @@ Slot by slot (every slot `ontology-json/1` publishes):
 | O8 metadata key hints | a column comment holding `主键` / `唯一键` / `唯一编号` / `主键id` / `primary key` / `unique` (case-insensitive) → `declared_hints`; a hint that agrees with a `hypothesis` candidate key (hint columns are a subset of the key's) raises that key to `implied` (comment and structure are two independent sources pointing at one column); candidate keys that are all `hypothesis` and none of which hold the hinted column → `key_hint_conflict` |
 | O9 comment relation hints | a column comment pointing at `<table>.<column>` or `<表> 的 <列>` with `关联` / `对应` / `引用` / `见` / `外键` / `FK` / `references` / `->` (case-insensitive; the table name is matched by the cards' own dotted-suffix rule, case-folded, and a bare name resolves only when one entity could be it) → `relation_hints[]`; a `hypothesis` relation already published for the same (from entity, to entity) and the same column pair → raised to `implied` with a `column_comment` evidence item; none → a new `kind: hinted` relation (`many_to_one_assumed` / `hypothesis` / `column_comment`, `task_count` 0) that joins the open list for a person to confirm; a `proven` relation out of the same column landing on another table → `relation_hint_conflict` |
 
+## Table families and the folded open list
+
+A warehouse writes one logical table many times: `_di` is today's increment, `_df` the
+full snapshot, `_tmp` and `_mid01` the steps that built it. The ontology asks each copy
+the same question, so the flat list repeats one decision a dozen times -- honest, and
+unreadable. Q3 folds it, mechanically:
+
+| # | Rule |
+| --- | --- |
+| 1 | **Table family**: lowercase the name, split it on `_`, and strip trailing segments while they are period suffixes (`_di` / `_df` / `_hi` / `_hf` / `_mi` / `_mf` / `_wi` / `_wf` / `_all`), stage suffixes (`_tmp` / `_mid<digits>` / `_step<digits>` / `_stage<digits>` / `_bak` / `_new` / `_old` / `_v<digits>`) or a purely numeric tail. Whole segments only, so `_dim` is not `_di` and `_info` is not `_i`; the database stays, and the last segment is never stripped (a table really called `tmp` is its own family) |
+| 2 | **Group key**: (kind, table family, question shape). A candidate key's shape is its column set; a finding's is the finding `kind`; **a relation groups by its far side** -- an edge's open question is "is that table unique on these columns", which neither the producer nor the name it gives its own column changes, so the key is (far table's family, far columns) and the family fold only merges the copies of that far table |
+| 3 | **Inside a group**: the items keep the flat list's order, the first of them is the `representative`, and `count` is how many there are |
+| 4 | **Impact**: `impact` is what answering the group unblocks -- for a relation, the number of tables that join the far side plus the number of tasks that do; for a candidate key, the number of assumed edges that confirming it would prove; for a finding, the number of items it holds |
+| 5 | **Between groups**: by `impact` descending, then `count` descending, then where the representative ranks in the flat list. Ranking a folded list by size still reads "most repeated" rather than "most worth answering"; findings are no longer forced to the front, because they already have their own section above |
+| 6 | **Write-back pattern**: the group's write-back key, where `<table>` is **the table the group is about** (the entity for a key or a finding, the far table for a relation); everything else in the key becomes a placeholder only when the members disagree on it (a relation's near table → `<from_table>`, its near columns → `<from_columns>`), because a placeholder that can only be filled one way is noise |
+
+The fold is **a view, not a merge**: every question is still in `open_items[]`, and an
+answer in `ontology.overrides.json` still binds one concrete table. A group that has been
+answered therefore shrinks by the number of tables confirmed rather than disappearing
+whole -- `items[]` and the cards say which tables those were.
+
+So both index sections print one row per group: 「待人工判定（N 条，折叠为 G 组）」 for the
+findings and 「待人工判定清单（N 条，折叠为 G 组）」 for everything open, the latter with an
+`影响` column carrying the number it is ranked on. Each prints the first 50 groups
+(`OPEN_ITEM_GROUPS_SHOWN`) and summarises the rest in one line, 「另有 K 组 M 条」, pointing
+at `open_item_groups[]` / `finding_groups[]` in `ontology.json`. The flat, item-by-item
+list is no longer in the markdown; it is in the JSON.
+
 ## The per-table card: five sections appended to the table card
 
 `<dir>/tables/<db.table>.md`, written by `ontology --out <dir>`, *is* the `scope-lineage
@@ -271,7 +318,7 @@ tables` card (1 what this table is / 2 what one row means / 3 columns / 4 who wr
 | 8. 关系 | one table for outgoing and one for incoming edges: the other end (linked to its card), the key pair, the JOIN types, the cardinality claim, the tier, the basis token in plain words, the task count and the evidence ids; a 「注释线索」 sub-block follows when this table's column comments point somewhere (O9): own column → other table.column, the comment verbatim, and the reason where it could not be resolved; no hints, no sub-block |
 | 9. 约束 | a SHACL-shaped list: the constraint kind, the target column or the whole table, the value set and its completeness, the tier, the evidence |
 | 10. 属性同义 | this table's column ↔ the synonym, the basis (a renaming projection / the same UNION position), the tier, the evidence |
-| 11. 待人工判定 | the findings about this table plus every `hypothesis` assertion (candidate key / cardinality / constraint), each marked `[待确认]`, carrying the write-back key its answer is filed under, and citing its id in `open_items[]` |
+| 11. 待人工判定 | the findings about this table plus every `hypothesis` assertion (candidate key / cardinality / constraint), each marked `[待确认]`, carrying the write-back key its answer is filed under, and citing both its id in `open_items[]` and its group in `open_item_groups[]` (「清单 `open:…`，组 `open:group:…`」 -- the group id tells whoever answers which other tables of the family the answer covers) |
 
 The filename rule is exactly `tables`' own (`<db.table>.md`, with anything a file system
 would choke on replaced by `_`), so a corpus can be run through `tables` and then through
@@ -314,7 +361,11 @@ erDiagram
 ## Writing confirmations back: `ontology.overrides.json`
 
 Every line under 待人工判定 is a question, and a question that has been answered must stop
-being asked. An agent turns those items into a list a business owner can answer, following
+being asked. Folded, the unit of answering is a group: take its `write_back_pattern`,
+replace `<table>` with each table the family holds in `families[]`, and file one override
+per table -- **a confirmation always binds a concrete table**; there is no such thing as
+confirming a family. An agent turns those items into a list a business owner can answer,
+following
 `skills/scope-lineage/references/ontology-review-prompt.md`, the answers are merged into
 `ontology.overrides.json`, and the corpus is re-run with `--overrides`:
 

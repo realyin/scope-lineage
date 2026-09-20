@@ -273,13 +273,18 @@ the user wants the candidate in an RDF toolchain: it writes `ontology.linkml.yam
 `ontology.shacl.ttl` beside the JSON, each element still carrying its tier.
 
 **Read in this order.** `ontology.md` first: its Mermaid `erDiagram` is the whole corpus
-on one screen, its headline line says 「待人工判定 N 条（已确认 M 条）」, and the entity
-table says which card is worth opening (the 图中 id column maps a diagram box back to its
-table). The last section, 「待人工判定清单（N 条）」, is every open question in one place —
-one row per hypothesis key, hypothesis relation and finding, each with a stable `open:` id
-and the write-back key its answer is filed under, ranked findings first, then relations by
-task count, then keys. Then the one card you need — never the JSON, and never all the
-cards. A card's sections 7-11 are 身份 / 关系 / 约束 / 属性同义 / 待人工判定; sections 1-6
+on one screen, its headline line says 「待人工判定 N 条 / G 组（已确认 M 条）」, and the
+entity table says which card is worth opening (the 图中 id column maps a diagram box back
+to its table). The last section, 「待人工判定清单（N 条，折叠为 G 组）」, is every open
+question in one place, folded by (kind, table family, question shape): one row per group,
+with a stable `open:group:` id, the representative question, an `影响` score, how many
+items it covers and a write-back pattern whose `<table>` the reviewer fills in per table.
+A relation's group is about its far side — "is that table unique on these columns" — so
+every task joining one dimension is one question. Groups rank by impact (a relation's
+producers plus their tasks; a key's assumed edges; a finding's items), then by size, then
+by the representative's rank; the first 50 print and the rest are summarised in one line. The item-by-item list lives in `open_items[]` in the
+JSON, and the family members in `families[]`. Then the one card you need — never the JSON,
+and never all the cards. A card's sections 7-11 are 身份 / 关系 / 约束 / 属性同义 / 待人工判定; sections 1-6
 are the ordinary table card.
 
 **Every assertion carries a tier, and the tier is the answer.** `proven` 已证明 is written
