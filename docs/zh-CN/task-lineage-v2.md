@@ -54,9 +54,14 @@ MERGE 的分支归属（`matched`/`not_matched`）在归并中被折叠；同一
 model_status。SET/空分号会保留在序列中但标为 ignored，不会被误算成数据变更失败。
 
 未建模语句会令 `analysis_status.status` 为 partial，但阻塞原因会区分语义：
-`unsupported_data_change` 表示 AST 能证明它会改变持久或会话状态，例如 DROP/ALTER/CREATE；
-`unsupported_statement` 表示独立 SELECT、UNION 等非变更语句。两者仍都会产生
-`unsupported_statement` warning——warning 说明“尚未建模”，blocking reason 说明实际影响。
+`unsupported_data_change` 表示 AST 能证明它会改变持久或会话状态，例如 `DROP DATABASE`、
+`DROP FUNCTION`、`ALTER`、不带 `AS SELECT` 的 `CREATE`；`unsupported_statement` 表示独立
+SELECT、UNION 等非变更语句。两者仍都会产生 `unsupported_statement` warning——warning 说明
+“尚未建模”，blocking reason 说明实际影响。
+
+**`DROP TABLE [IF EXISTS] t` 与 `DROP VIEW v` 不在其中：它们是已建模的表状态事件**
+（`stmt_kind: DROP`、`category: relation_mutation`、`model_status: modeled`），既不产生
+warning，也不是阻塞原因。详见下方「状态转换语义」。
 
 产出会话级关系的语句额外带 `is_session_scoped_relation: true`——`TEMP VIEW`、`GLOBAL TEMP VIEW`、
 `CACHE [LAZY] TABLE` 建出的关系只存活于会话。`final_table_states` 会为脚本产出的**每个**关系建条目，
@@ -384,6 +389,7 @@ insert overwrite table mart.y select id from v;      -- 读 state:v:002
 | CTAS | REPLACE | 创建没有旧目标分支的新状态。 |
 | DELETE | DELETE_MATCHED_ROWS | 未删除行 PASSTHROUGH_SURVIVING_ROWS；无 WHERE 时为 DELETE_ALL_ROWS。 |
 | TRUNCATE | RESET_ALL_ROWS | 行集合已知为空，字段集合保留，但字段 value_sources 为空。 |
+| DROP TABLE / DROP VIEW | DROP_RELATION | 关系本身消失：新状态没有任何字段条目，`known_dropped: true`。 |
 | TRUNCATE PARTITION | RESET_PARTITION | 未受影响分区及其既有字段来源保留。 |
 | UPDATE | PRESERVE_ROWS | 被赋值字段是条件更新，其他字段透传。 |
 | MERGE | MERGE | 旧状态与已解析的 update/delete/insert 分支共同形成新状态。 |
@@ -464,6 +470,21 @@ datasource 还是 Hive serde 写入路径，因此对 Hive serde 表的裸动态
 
 空状态也不是“无血缘”。全表 DELETE/TRUNCATE 后仍有目标表状态和字段条目；此时空的
 value_sources 表示没有存活字段值，known_empty 和状态转换边则解释行集合为何为空。
+
+### 被 DROP 掉的状态：`known_dropped`
+
+`DROP TABLE` / `DROP VIEW` 按同样的方式组合。`DROP TABLE IF EXISTS t; CREATE TABLE t AS
+SELECT …`（重建模式）会在 `t` 上留下三个状态：初始状态、`known_dropped: true` 的被删状态、
+以及 CTAS 产出的最终状态；`final_table_states[t]` 指向最后一个，删除动作保留在
+`table_state_graph` 的历史里（那条边 `effect: DROP`）。DROP 之后没有任何语句再写这张表时，
+`final_table_states[t]` 指向的就是那个 `known_dropped: true` 的状态——**这是「表已不存在」，
+不是「表还在、行被清空」**（后者是 `known_empty`，两者在被删状态上都为 true）。
+
+被删状态不带任何字段：它在 `end_to_end_lineage` 里没有行，紧随其后的 INSERT 也不会记录来自
+它的 `prior_table_state` 透传——被删掉的关系没有值可以透传。
+
+按 catalog 对账 `final_table_states` 时，除了排除会话级关系与 `directory:` 目标，还要把指向
+`known_dropped: true` 状态的表按「已删除」处理，否则会把一张脚本亲手删掉的表当成仓库里的表。
 
 ## 元数据与事实缺口
 

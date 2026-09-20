@@ -71,7 +71,7 @@ target-DDL metadata live rather than parsing bare (see rule 3).
 
 ```bash
 scope-lineage parse \
-  --sql-file <file.sql>            # or --task-file <task.json> / --input-dir <dir>
+  --sql-file <file.sql>            # or --task-file <task.json> / --input-dir <dir> (repeatable)
   --schema <rich-json-dir-or-file> \
   --schema-fallback <csv> \
   --target-ddl-metadata <ddl-dir> \
