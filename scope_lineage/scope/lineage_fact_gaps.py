@@ -16,6 +16,7 @@ from .scope_types import (
 # formed a cycle that only worked because Python hands out a partially-initialised
 # module, making import order load-bearing (ARCH-001).
 from ._constants import DIALECT, PARSE_OPTS
+from .expansion_budget import EXPANSION_LIMIT_FLAG
 from .sequences import _unique_ordered
 from .source_refs import _source_kind_for_resolution
 
@@ -86,6 +87,9 @@ def _lineage_gap_from_bounded_expansion(
     evidence_summary['unexpanded_refs'] = [
         dict(ref) for ref in output.unexpanded_refs if isinstance(ref, dict)
     ]
+    limit = _expansion_limit_evidence(stop_reason, output.expansion_limit)
+    if limit:
+        evidence_summary['expansion_limit'] = limit
     return {
         'gap_type': 'expression_expansion_bounded',
         'gap_bucket': 'capacity_guard',
@@ -101,7 +105,7 @@ def _lineage_gap_from_bounded_expansion(
             (output.expression_resolution or {}).get('source_kind') or 'unresolved'
         ),
         'missing_reasons': [f'expression_expansion_bounded:{stop_reason}'],
-        'needed_fact': 'remaining upstream expression expansions',
+        'needed_fact': _bounded_expansion_needed_fact(limit),
         'root_impact': bool(evidence_summary.get('has_target_impact')),
         'owner_hint': 'consumer_follow_unexpanded_refs',
         'evidence_path': evidence_path,
@@ -111,6 +115,33 @@ def _lineage_gap_from_bounded_expansion(
             'target_columns': [target for target in target_columns if target],
         },
     }
+
+
+#: Which guard an operator can move, and with what. ``max_chars`` is the materialized
+#: size ceiling and has no flag: raising it would hand back the multiplicative blow-up
+#: the budget exists to prevent, while the untouched reference already points at the rest.
+_EXPANSION_GUARD_FLAGS = {'max_substitutions': EXPANSION_LIMIT_FLAG}
+
+
+def _expansion_limit_evidence(stop_reason: str, limit: int | None) -> dict | None:
+    """The number this run stopped at, and the flag that moves it -- or nothing."""
+    if limit is None:
+        return None
+    evidence: dict[str, object] = {'guard': stop_reason, 'limit': int(limit)}
+    flag = _EXPANSION_GUARD_FLAGS.get(stop_reason)
+    if flag:
+        evidence['raised_by'] = flag
+    return evidence
+
+
+def _bounded_expansion_needed_fact(limit: dict | None) -> str:
+    """What is missing, said with the number that stopped it rather than a guard's name."""
+    base = 'remaining upstream expression expansions'
+    if not limit:
+        return base
+    said = f"{base}; the {limit['guard']} guard stopped at {limit['limit']}"
+    flag = limit.get('raised_by')
+    return f"{said}, raise it with `parse {flag} N`" if flag else said
 
 
 def _root_gap_reasons_for_output(

@@ -175,6 +175,13 @@ To confirm whether a batch of gaps is caused by missing metadata, the fastest te
 SQL again with `schema=None`, and if the gap count and distribution match this run, the metadata
 did not take effect this run.
 
+A whole corpus does not have to be opened task by task: beside `partial_tasks=N`, the summary
+`parse` prints at the end breaks the same `analysis_status.blocking_reasons` down as
+`partial_reasons=lineage_fact_gap:2,unsupported_statement:1` — one count per task per reason,
+commonest first and ties broken by name (so two runs over one corpus print the same line). A task
+that lists two reasons is counted under both, so the parts may add up to more than `partial_tasks`.
+Nothing is printed when no task came back partial.
+
 ## 5. `lineage_fact_gaps[]`: unproven facts
 
 The Schema keeps the gap value extensible, because different parse gaps need to carry different
@@ -254,6 +261,13 @@ Example:
 | `qualified_expression_unresolved` | A qualified expression still did not resolve to a source. |
 | `other_expression_unresolved` | Other expression source gaps. |
 | `capacity_guard` | Expansion stopped at a declared size/substitution guard; this is not an alias-binding failure. |
+
+A `capacity_guard` gap says which *number* it stopped at: `evidence_summary.expansion_limit` carries
+`{guard, limit, raised_by}` and `needed_fact` says the same thing in prose. The substitution guard is
+raised with `parse --expansion-limit N` (its default is in `--help`), at the cost of a larger
+artifact; the size guard (`max_chars`) has no flag — the reference left in place is itself the
+pointer to the rest. How many tasks in one `parse` hit the guard is reported at the end of the run
+as `capacity_guard=N`, and left out when it is zero.
 
 ### 5.3 Deciding whether it is fit for automation
 

@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased
+- A comment written back through `--metadata-patch` is redacted like every other comment.
+  The patch is applied after `parse_task_lineage` has already masked the SQL author's
+  comments and the ones loaded from `--schema` / `--target-ddl-metadata`, so a reviewed
+  answer was the one comment reaching the artifact verbatim -- and a reviewed file is
+  precisely where somebody writes a colleague's address down. The masking now happens
+  where the patch is read, so every surface it writes to agrees: `column_details[]`,
+  `declared_columns[]`, the `field_usage` copy, and `table_metadata.table_name_cn` /
+  `table_desc`. `parse --no-redact-comments` publishes them verbatim with the rest; the
+  patch's keys are untouched either way, so `unmatched` is unchanged.
+- `parse --input-dir` is repeatable. A second directory used to replace the first
+  silently, so a corpus spread across two trees was parsed by half and reported success.
+  Every directory is now walked, in the order given, with `--include-glob` /
+  `--exclude-glob` applied to each; a file named by more than one of them (a parent and
+  its own subdirectory, or one tree spelled two ways) is parsed once, under the first
+  directory that named it. Each file's relative parent -- and its
+  `task_dependencies[].source_file` -- is taken against its own `--input-dir`.
+- `parse --expansion-limit N` raises the expression-expansion substitution guard, and the
+  gap that guard produces now names the number it stopped at. A task that hits the guard
+  ends `partial` with an `expression_expansion_bounded` / `capacity_guard` gap, which used
+  to say only which guard had fired: the reader could not tell what the limit was, nor
+  that anything could be done about it. `needed_fact` now reads "the max_substitutions
+  guard stopped at N, raise it with `parse --expansion-limit N`" and
+  `evidence_summary.expansion_limit` carries `{guard, limit, raised_by}`. The flag
+  defaults to today's constant, so an artifact produced without it is unchanged, and the
+  limit applies to one call only (`parse_task_lineage(expansion_limit=...)`). The run's
+  summary gains `capacity_guard=N`, the number of tasks that hit it, when any did.
+- The `parse` summary says why its partial tasks are partial. Beside `partial_tasks=N` it
+  now prints `partial_reasons=lineage_fact_gap:2,unsupported_statement:1`, counted from
+  each task's own `analysis_status.blocking_reasons` -- one count per task per reason,
+  commonest first, ties broken by name. Omitted when no task came back partial.
+
 ## 0.3.0
 - **Breaking** (derived artifacts only; the lineage contracts 1.0 / 2.0 are unchanged):
   `ontology.json` `overrides_applied.unmatched[]` entries are objects `{"key", "reason"}`

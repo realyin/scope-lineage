@@ -160,6 +160,12 @@ warning 不是固定封闭枚举；机器处理应对已知类型设策略，对
 
 要确认某批缺口是否由元数据缺失造成，最快的判定是：同一条 SQL 再跑一次 `schema=None`，若缺口数与分布和本次一致，说明这次运行的元数据没有生效。
 
+整批跑完不用逐个打开产物：`parse` 的结尾摘要在 `partial_tasks=N` 之外，还会按同一份
+`analysis_status.blocking_reasons` 打出
+`partial_reasons=lineage_fact_gap:2,unsupported_statement:1`——每个任务每种原因计一次，
+按出现次数从多到少、同数按名称排序（因此同一份语料两次运行打出同一行）；一个任务列了两种原因就
+两边各计一次，所以各项之和可能大于 `partial_tasks`。没有 partial 任务时这一项不打印。
+
 ## 5. `lineage_fact_gaps[]`：未证明事实
 
 Schema 对 gap value 保持可扩展，因为不同解析缺口需要携带不同证据。Core 当前生成的公共字段如下：
@@ -238,6 +244,12 @@ Schema 对 gap value 保持可扩展，因为不同解析缺口需要携带不�
 | `qualified_expression_unresolved` | 有限定名的表达式仍未解析到来源。 |
 | `other_expression_unresolved` | 其他表达式来源缺口。 |
 | `capacity_guard` | 表达式达到大小/替换次数保护上限；这不是 alias 绑定失败。 |
+
+落到 `capacity_guard` 的缺口会说清它停在**哪个数**上：`evidence_summary.expansion_limit` 给出
+`{guard, limit, raised_by}`，`needed_fact` 把同一句话写成散文。替换次数这一档由
+`parse --expansion-limit N` 抬高（默认见 `--help`），抬高的代价是产物更大；大小上限
+（`max_chars`）没有开关——留在原地的那个引用本身就是继续追下去的指针。一次 `parse` 里有几个任务
+撞上这道闸，会在结尾摘要里以 `capacity_guard=N` 报出（为 0 时不打印）。
 
 ### 5.3 如何决定是否可用于自动化
 

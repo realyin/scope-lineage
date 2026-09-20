@@ -44,6 +44,7 @@ import json
 from pathlib import Path
 from typing import Iterable, Iterator, Mapping, Sequence
 
+from ..redaction import redact
 from .schema_metadata import (
     _blank_to_none,
     _normalize_table_detail,
@@ -59,6 +60,11 @@ COMMENT_SOURCE_METADATA = "metadata"
 TABLE_PATCH_MARKER = "patch_applied"
 
 _TASK_SCHEMA_VERSION = "2.0"
+
+#: The table facts a person wrote, and therefore the ones a contact detail can hide in.
+#: The same two keys ``scope.related_metadata`` masks in a schema-loaded table, for the
+#: same reason: the rest of a table detail is identifiers an export produced.
+_REDACTED_TABLE_KEYS = ("table_name_cn", "table_desc")
 
 
 class MetadataPatchError(ValueError):
@@ -107,16 +113,30 @@ class MetadataPatch:
         return sorted(missed)
 
 
-def load_metadata_patch(paths: Sequence[str] | None) -> MetadataPatch:
+def load_metadata_patch(
+    paths: Sequence[str] | None, *, redact_comments: bool = True
+) -> MetadataPatch:
     """Read every ``--metadata-patch`` file into one patch, later files winning.
 
     Repeatable on purpose: one file per review round keeps who-answered-what readable,
     and the loader merges them the way a reader would -- the later answer replaces the
     earlier one for the same key, and keys nobody repeated all survive.
+
+    ``redact_comments`` (on by default, off under ``parse --no-redact-comments``) masks
+    the contact shapes in the answers as they are read. A reviewed file is *the* place a
+    person writes down a colleague's address, and the patch is applied after the parse
+    has already masked everything it loaded -- so masking anywhere later than here would
+    leave the one comment nobody wrote in SQL as the one comment published verbatim.
+    Masked once, at the door, so every surface the patch writes to agrees.
     """
     patch = MetadataPatch()
     for raw in paths or []:
-        _merge_document(patch, _read_document(Path(raw)), str(raw))
+        _merge_document(
+            patch,
+            _read_document(Path(raw)),
+            str(raw),
+            redact_comments=redact_comments,
+        )
     return patch
 
 
@@ -149,7 +169,9 @@ def _read_document(path: Path) -> Mapping:
     return document
 
 
-def _merge_document(patch: MetadataPatch, document: Mapping, source: str) -> None:
+def _merge_document(
+    patch: MetadataPatch, document: Mapping, source: str, *, redact_comments: bool = True
+) -> None:
     patch.sources.append(source)
     for name, detail in (document.get("tables") or {}).items():
         key = normalize_table_name(str(name))
@@ -158,6 +180,7 @@ def _merge_document(patch: MetadataPatch, document: Mapping, source: str) -> Non
         normalized = _normalize_table_detail(key, detail, include_table_name=False)
         if not normalized:
             continue
+        normalized = _masked_table_detail(normalized, redact_comments)
         patch.tables[key] = {**patch.tables.get(key, {}), **normalized}
         patch._table_keys[key] = str(name)
     for reference, detail in (document.get("columns") or {}).items():
@@ -165,8 +188,18 @@ def _merge_document(patch: MetadataPatch, document: Mapping, source: str) -> Non
         comment = _comment_of(detail)
         if key is None or comment is None:
             continue
-        patch.columns[key] = comment
+        patch.columns[key] = redact(comment) if redact_comments else comment
         patch._column_keys[key] = str(reference)
+
+
+def _masked_table_detail(detail: dict, redact_comments: bool) -> dict:
+    """The table facts a person wrote, masked; the identifiers beside them untouched."""
+    if not redact_comments:
+        return detail
+    return {
+        name: redact(value) if name in _REDACTED_TABLE_KEYS and value else value
+        for name, value in detail.items()
+    }
 
 
 def _column_key(reference: str) -> tuple | None:

@@ -1,6 +1,9 @@
 """Budgeted expression expansion (PERF-001): bounded, composable, never damaged."""
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
+
 # Expansion budget for `expanded_expression`. Inlining an upstream field's expanded text copies
 # it once per reference, and each additional scope layer multiplies again; a moderately sized
 # statement expanded to a string and a lineage.json three orders of magnitude larger (PERF-001).
@@ -13,6 +16,46 @@ from __future__ import annotations
 EXPANSION_MAX_CHARS = 262_144       # 256 KiB per materialized expression
 EXPANSION_MAX_SUBSTITUTIONS = 2_000  # guards reference count, which chars alone does not
 
+#: The flag an operator raises the substitution guard with, quoted in the gap this guard
+#: produces. Named here, beside the number it moves, so the two cannot drift apart.
+EXPANSION_LIMIT_FLAG = "--expansion-limit"
+
+#: One run's substitution allowance, or None for the module default. A ContextVar rather
+#: than a rebound constant: the budget is constructed several layers below the caller
+#: that chose the number, and a process-wide assignment would outlive the parse that set
+#: it -- an in-process second call would silently inherit the first one's policy.
+_ACTIVE_MAX_SUBSTITUTIONS: ContextVar = ContextVar(
+    "scope_lineage_expansion_max_substitutions", default=None
+)
+
+
+@contextmanager
+def expansion_limit(max_substitutions: int | None):
+    """Run the block with ``max_substitutions`` as every budget's allowance.
+
+    ``None`` changes nothing, so a caller that was not asked for a limit is the caller it
+    always was. The value is restored on the way out, including on an exception.
+    """
+    if max_substitutions is None:
+        yield
+        return
+    if int(max_substitutions) < 1:
+        raise ValueError(
+            f"expansion limit must be a positive number of substitutions, got "
+            f"{max_substitutions!r}"
+        )
+    token = _ACTIVE_MAX_SUBSTITUTIONS.set(int(max_substitutions))
+    try:
+        yield
+    finally:
+        _ACTIVE_MAX_SUBSTITUTIONS.reset(token)
+
+
+def active_max_substitutions() -> int:
+    """This run's substitution allowance: the caller's, else the module's."""
+    active = _ACTIVE_MAX_SUBSTITUTIONS.get()
+    return EXPANSION_MAX_SUBSTITUTIONS if active is None else active
+
 class ExpansionBudget:
     """One expression's expansion allowance, and the record of what it had to decline.
 
@@ -20,7 +63,8 @@ class ExpansionBudget:
     grown from several places, and so the reason is reported the same way everywhere.
     """
 
-    __slots__ = ("max_chars", "max_substitutions", "substitutions", "stop_reason", "skipped_refs")
+    __slots__ = ("max_chars", "max_substitutions", "substitutions", "stop_reason",
+                 "stop_limit", "skipped_refs")
 
     def __init__(self, max_chars: int | None = None,
                  max_substitutions: int | None = None) -> None:
@@ -28,10 +72,13 @@ class ExpansionBudget:
         # and tests raise them to prove the case under test actually blows up without them.
         self.max_chars = EXPANSION_MAX_CHARS if max_chars is None else max_chars
         self.max_substitutions = (
-            EXPANSION_MAX_SUBSTITUTIONS if max_substitutions is None else max_substitutions
+            active_max_substitutions() if max_substitutions is None else max_substitutions
         )
         self.substitutions = 0
         self.stop_reason: str | None = None
+        # The number the run actually stopped at, so a diagnostic can quote it rather
+        # than the reader having to know which constant `stop_reason` refers to.
+        self.stop_limit: int | None = None
         self.skipped_refs: list[dict] = []
 
     @property
@@ -39,7 +86,11 @@ class ExpansionBudget:
         return "bounded" if self.stop_reason else "full"
 
     def _decline(self, reason: str, ref: str, scope_id: str | None, field: str | None) -> None:
-        self.stop_reason = self.stop_reason or reason
+        if not self.stop_reason:
+            self.stop_reason = reason
+            self.stop_limit = (
+                self.max_chars if reason == "max_chars" else self.max_substitutions
+            )
         entry = {"ref": ref, "reason": reason}
         if scope_id:
             entry["scope_id"] = scope_id
