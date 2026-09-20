@@ -8,7 +8,8 @@ comment literally spells the value out.
 
 The load-bearing properties here are the two honesty ones at the bottom: every
 ``column_ref`` the glossary publishes must exist in one of the source documents, and a
-meaning candidate must be a substring match against a real comment -- never an
+meaning candidate must be text the corpus itself wrote -- a substring match against a
+real comment, or (P5) the label a CASE branch returns for that very value -- never an
 inference from the value's own spelling.
 """
 
@@ -31,6 +32,7 @@ from scope_lineage.render.glossary import (
     build_glossary,
     render_glossary_markdown,
 )
+from scope_lineage.render.glossary_values import CANDIDATE_SOURCE_CASE_LABEL
 from scope_lineage.scope.scope_builder import parse_scope_lineage
 
 
@@ -663,6 +665,8 @@ def test_a_qualified_override_key_confirms_one_value() -> None:
         "values": 1,
         "blank": 0,
         "unmatched": [],
+        "ignored_fields": [],
+        "rejected": [],
     }
 
 
@@ -682,6 +686,8 @@ def test_a_key_left_blank_is_counted_rather_than_confirmed_as_empty() -> None:
         "values": 0,
         "blank": 2,
         "unmatched": [],
+        "ignored_fields": [],
+        "rejected": [],
     }
 
 
@@ -768,14 +774,28 @@ def test_every_published_column_ref_exists_in_a_source_document() -> None:
         assert owner in tables or owner in scopes, f"invented owner {owner!r}"
 
 
-def test_every_meaning_candidate_is_a_literal_substring_of_a_real_comment() -> None:
+def test_every_meaning_candidate_is_a_literal_the_corpus_itself_wrote() -> None:
+    """Never an inference from the value's own spelling, whichever route produced it.
+
+    P5 added the third route, and it is the one that does not come from a comment: a
+    ``case_label`` candidate is the string a CASE branch returns for this very value, so
+    what it owes the reader is that the corpus contains that string verbatim and that it
+    is not the code repeated back.
+    """
     documents = _corpus_documents()
+    written = json.dumps(documents, ensure_ascii=False)
     glossary = build_glossary(documents, artifact_root=GOLDEN_ROOT)
 
     for entry in glossary["values"]:
+        value = entry["value"].strip().strip("'\"")
         for candidate in entry["meaning_candidates"]:
-            value = entry["value"].strip().strip("'\"")
-            assert value.lower() in candidate["text"].lower()
+            if candidate["source"] == CANDIDATE_SOURCE_CASE_LABEL:
+                # Escaped the way the documents themselves are: a label may contain a
+                # backslash (`'a\nb'` is a four-character label, not a newline).
+                assert json.dumps(candidate["text"], ensure_ascii=False)[1:-1] in written
+                assert candidate["text"].lower() != value.lower()
+            else:
+                assert value.lower() in candidate["text"].lower()
 
 
 def test_the_glossary_is_byte_identical_for_the_same_corpus() -> None:

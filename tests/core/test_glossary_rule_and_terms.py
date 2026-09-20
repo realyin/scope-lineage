@@ -204,7 +204,10 @@ def test_a_code_confirmed_on_a_same_named_column_of_another_table_stays_there() 
         {"values": {"ods.web_order.queue_code='01'": "网页队列"}}, documents
     )
 
-    assert _rule(profile, "CASE WHEN")["value_meanings"][0]["meaning"] is None
+    # P5: this task's own CASE offers `MANUAL` as a candidate for `'01'`. What must not
+    # travel is the answer somebody confirmed about the OTHER table's column.
+    meaning = _rule(profile, "CASE WHEN")["value_meanings"][0]["meaning"]
+    assert meaning == {"text": "MANUAL", "status": "candidate"}
 
 
 def test_a_scope_level_name_speaks_only_inside_the_task_that_observed_it() -> None:
@@ -318,15 +321,17 @@ def test_an_input_column_carries_its_term_beside_its_own_comment() -> None:
 # --------------------------------------------------------------------- markdown
 
 
-def test_the_rule_table_gains_a_value_column_only_when_something_was_answered() -> None:
+def test_the_rule_table_gains_a_value_column_only_when_the_dictionary_speaks() -> None:
     answered = render_semantic_markdown(
         _profile({"values": {"ods.app_order.queue_code='99'": "无效队列"}})
     )
-    unanswered = render_semantic_markdown(_profile())
+    # A corpus with no comment and no CASE label: the dictionary has nothing to say
+    # about `'01'`, so the column is not there at all.
+    silent = render_semantic_markdown(_profile(documents=[_document(WEB_SQL, "task_b")]))
 
     assert "| 规则 | 类型 | 阶段 | 条件 | 取值含义 |" in answered
     assert "'99'＝无效队列" in answered
-    assert "取值含义" not in unanswered
+    assert "取值含义" not in silent
 
 
 def test_a_candidate_is_marked_in_the_rule_table_and_a_confirmed_one_is_not() -> None:

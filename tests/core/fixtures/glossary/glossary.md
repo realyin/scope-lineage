@@ -1,9 +1,9 @@
 # 术语与值域字典
 
 - 语料根目录：`tests/core/fixtures/lineage_contract`；任务 13 个，写语句 13 条。
-- 术语 29 个（注释冲突 0 个）；值域观察 11 条（封闭集 4 条，含义候选 0 条）；参数化值 0 条。
+- 术语 29 个（注释冲突 0 个）；值域观察 11 条（封闭集 4 条，含义候选 2 条）；参数化值 0 条。
 - 人工确认（overrides）：术语 0 条、值 0 条生效；未命中键 0 个。
-- 含义只有两个来源：人工确认（✓）与注释里字面出现该值（? 候选）；其余一律写「待确认」，Core 不猜。
+- 含义只有两个来源：人工确认（✓）与语料自己写下的候选（?：注释里字面出现或枚举该值，或 CASE 把它标成某个标签）；其余一律写「待确认」，Core 不猜。
 
 ## band
 
@@ -28,7 +28,7 @@
 
 | 值 | 列引用 | 种类 | 出现任务数 | 上下文 | 封闭集 | 含义 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `'A'` | `ods.channel_event.channel_code` | literal | 1 | case_condition | — | 待确认 |
+| `'A'` | `ods.channel_event.channel_code` | literal | 1 | case_condition | — | ? ONLINE（case_label） |
 
 ## channel_name
 
@@ -74,7 +74,7 @@
 
 | 值 | 列引用 | 种类 | 出现任务数 | 上下文 | 封闭集 | 含义 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `'x；y → z\|w'` | `ods.users.name` | literal | 1 | case_condition | — | 待确认 |
+| `'x；y → z\|w'` | `ods.users.name` | literal | 1 | case_condition | — | ? a\nb（case_label） |
 
 ## rn
 

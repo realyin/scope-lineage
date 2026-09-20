@@ -384,7 +384,8 @@ scope-lineage describe --lineage /tmp/scope-lineage-corpus \
 conflicting readings side by side), collect the constants in filters and CASE branches into
 per-column value observations, and claim "this set is closed" only for an `IN` list or a CASE
 whose branches are exhaustive. A meaning has exactly two sources: a human confirmation in
-`glossary.overrides.json`, and a comment that **literally contains** the value (marked `?`) —
+`glossary.overrides.json`, and a candidate the corpus wrote itself (marked `?`) — a comment
+that **literally contains or enumerates** the value, or a CASE that labels it —
 Core does not guess. `describe --glossary` wires the result into `fields[].value_domain`.
 See the [term and value dictionary guide](docs/en/glossary-doc.md).
 

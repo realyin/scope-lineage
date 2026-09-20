@@ -135,7 +135,8 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
   "parameters": [{"column_ref": "ods.app_order.dt", "expression": "dt = '${bizdate}'",
                   "kind": "parameterized", "task_count": 6}],
   "overrides_applied": {"terms": 1, "values": 2, "blank": 0,
-                        "unmatched": ["pay_status='GONE'"]}
+                        "unmatched": ["pay_status='GONE'"],
+                        "ignored_fields": [], "rejected": []}
 }
 ```
 
@@ -145,7 +146,7 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
 | `terms[]` | Comments merged across tables by **column name**; one entry per name, sorted by name |
 | `values[]` | One entry per (column reference, value, `kind`); sorted by (column name, column reference, value, `kind`). `value` is the normalized, unquoted form and `sql_literal` is the literal the author wrote |
 | `parameters[]` | Columns pinned by a `${…}` variable or a function call: they pin the column, but they are not its values |
-| `overrides_applied` | How many human confirmations took effect (`terms` / `values`), how many keys are still blank (`blank`), and which keys matched nothing in the corpus (`unmatched`) |
+| `overrides_applied` | How many human confirmations took effect (`terms` / `values`), how many keys are still blank (`blank`), which keys matched nothing in the corpus (`unmatched`), which confirmations were refused (`rejected`), and which fields this release does not read (`ignored_fields`) |
 
 ### Terms (terms[])
 
@@ -231,7 +232,7 @@ Other rules:
 - `closed_set` is published only when the corpus's closure claims for that column
   **agree**: two tasks with different `IN` lists give `null`, because contradictory
   evidence is not a closed set.
-- `meaning_candidates[]` has two routes, and one comment answers by whichever hits first.
+- `meaning_candidates[]` has three routes: the first two read a comment (and one comment answers by whichever hits first), the third reads the SQL.
   Candidate comments come from three places: that column's comment (`column_comment`,
   falling back to `declared_columns[]` where `column_details[]` does not carry the
   column), that table's comment (`table_comment`), and the SQL comment written on that
@@ -249,8 +250,19 @@ Other rules:
      occur in the comment text (case-insensitively). **A value shorter than 2 characters
      never matches** -- `0` occurs in almost any sentence, and one wrong candidate costs
      more than ten missed ones.
-  Both produce a **candidate** only: `glossary --template` still lists the value, because
-  a candidate is not a confirmation.
+  3. **A CASE in the corpus maps the value to a label** (P5): in
+     `CASE WHEN status = 'AA' THEN '有效'`, `有效` is the candidate -- `source` is
+     `case_label`, `evidence` is that CASE rule's id, and it is appended after the comment
+     candidates (so a `value_domain` still shows the metadata's answer first). Only a
+     branch whose **THEN is a string literal** counts: a THEN that is a column or an
+     expression is a value the row carries rather than a name somebody chose, and a label
+     equal to the value itself or shorter than 2 characters (`THEN 'X'` merely re-codes it)
+     is refused as well. A compound condition (`WHEN a = 'AA' AND b = 'GG'`) labels the
+     combination and not either value -- it produces no observation to label in the first
+     place -- while a branch written as an `IN` list gives every value it lists the same
+     label.
+  All three produce a **candidate** only: `glossary --template` still lists the value,
+  because a candidate is not a confirmation.
 
 ### Parameterised values (parameters[])
 
@@ -268,7 +280,12 @@ backticks removed.
   },
   "values": {
     "ods.app_order.pay_status='PAID'": {"meaning": "已支付", "confirmed_by": "owner", "date": "2026-09-18"},
-    "pay_status='REFUND'": {"meaning": "已退款"}
+    "pay_status='REFUND'": {"meaning": "已退款"},
+    "ods.app_order.pay_status='CLOSED'": {"meaning": "已关闭",
+                                          "basis": "列注释把该取值枚举为已关闭",
+                                          "note": "与上游口径一致",
+                                          "confirmed_by": "agent:glossary-review",
+                                          "date": "2026-09-21"}
   }
 }
 ```
@@ -280,6 +297,9 @@ backticks removed.
 | Value matching | Quotes are stripped on both sides, so `'PAID'` and `PAID` are the same value; **prefer the unquoted `pay_status=PAID`**, which is what `values[].value` holds |
 | Merge precedence | An override always beats a candidate: on a match `meaning.source` is `override`, and `meaning_candidates` is kept as it was |
 | Keys that match nothing | Go to `overrides_applied.unmatched` (sorted) and are **never dropped silently** -- a typo in a file a human reviewed is exactly what the reviewer cannot see |
+| `basis` / `note` (P5) | Free text, published only when the reviewer wrote it: `basis` is published as `meaning.confirmed_basis` (printed by `glossary.md` as 「（依据：…）」) and `note` under its own name, both after `confirmed_by` / `date` |
+| A confirmation signed `agent:` (P5) | **Must carry a `basis`**, or the whole entry is refused and reported under `overrides_applied.rejected` (`{"key", "reason": "missing_basis"}`) -- an Agent's answer is read off the corpus, and one that cannot say what closed the question is an inference written down as a fact. `unmatched` keeps its bare-string shape: a refused key is not a typo, it names something real |
+| Fields this release does not read (P5) | Anything other than `meaning` / `text` / `confirmed_by` / `date` / `basis` / `note` goes to `overrides_applied.ignored_fields` (`{"key", "fields"}`, sorted by key) while the rest of that confirmation takes effect -- usually a misspelled slot name |
 
 ## The fill-in form: `glossary --template`
 
@@ -316,9 +336,20 @@ reason.
 | No column left with fewer than two values | One value is not a code system, and the answer describes no set -- a statement about what earns a place in the form, not about what may be asked, so the uncapped form (`--template-top 0`) keeps them (WI-D) |
 | Nothing already confirmed | A value whose `meaning` already carries text is not asked twice |
 
+**Every row also says what evidence it has** (P5): the **候选来源** column beside 注释线索
+holds `comment` / `case_label` / `same_name_confirmed` / `—`. The first three are exactly the
+kinds of evidence a reviewer (or an Agent working from
+`skills/scope-lineage/references/glossary-review-prompt.md`) may **answer the value from**:
+the column's own comment enumerates it, a CASE in the corpus labels it, or a **human** has
+confirmed the same value on the same column name elsewhere. `same_name_confirmed` counts a
+human confirmation only -- an Agent's own answer spreading along same-named columns would be
+an inference proving itself. The `—` rows are the ones somebody has to be asked about.
+
 **Order and size**: the first version ranked closed sets first and then by observation
 count, and a real corpus spent its whole first page on `Y` / `N`, `1` / `0` and
-scope-level columns -- the exclusions above are that finding. Ranking now runs over
+scope-level columns -- the exclusions above are that finding. **Columns carrying evidence
+now come first** (any of their values has a 候选来源 other than `—`): those are the rows
+that can be closed by reading rather than by asking. The rest runs over
 **columns**, scored
 
 ```
