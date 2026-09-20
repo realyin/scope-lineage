@@ -20,7 +20,7 @@ lineage_digest: "cc26076f7841fe52"
 - 目标表：`mart.channel_daily`（表注释：注释未知）（元数据事实）
 - 语句类型：CTAS；无分区（SQL事实）
 - 目标表元数据来源：schema（元数据事实）
-- 结构摘要：ROOT 直接读取 ods.channel_events；输出 3 列。（结构推断；证据 scope_profile）
+- 结构摘要：按 channel_id、stat_date 汇总，行来自 ods.channel_events；输出 3 列。（结构推断；证据 scope_profile）
 
 共 1 张输入表（角色为结构推断，其余为 SQL/元数据事实）：
 

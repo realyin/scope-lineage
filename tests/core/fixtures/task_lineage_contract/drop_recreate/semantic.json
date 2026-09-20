@@ -27,8 +27,14 @@
           "spec": null
         },
         "instance_dates": [],
-        "driving_tables": [],
-        "structural_summary": "ROOT 直接读取 ods.channel_events；输出 3 列。",
+        "driving_tables": [
+          {
+            "table": "ods.channel_events",
+            "via_scopes": [],
+            "lateral_view_scopes": []
+          }
+        ],
+        "structural_summary": "按 channel_id、stat_date 汇总，行来自 ods.channel_events；输出 3 列。",
         "target_declared_columns": [
           {
             "name": "channel_id",
@@ -62,6 +68,7 @@
           "owner": null,
           "layer": null,
           "role_in_task": "aggregate_source",
+          "driving": true,
           "roles": [
             "aggregate_source"
           ],
@@ -472,6 +479,7 @@
           "owner": null,
           "layer": null,
           "role_in_task": "driving",
+          "driving": true,
           "roles": [
             "driving"
           ],
