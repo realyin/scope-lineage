@@ -106,7 +106,7 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
                        "expression": "pay_status = 'PAID'"}],
      "task_count": 2,
      "closed_set": {"values": ["PAID", "REFUND"], "basis": "in_list"},
-     "meaning_candidates": [{"text": "支付状态，PAID 表示已结算", "source": "column_comment",
+     "meaning_candidates": [{"text": "PAID 表示已结算", "source": "comment_mention",
                              "evidence": "column:ods.app_order.pay_status"}],
      "meaning": {"text": "已支付", "source": "override",
                  "confirmed_by": "owner", "date": "2026-09-18"}},

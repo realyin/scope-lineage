@@ -121,7 +121,7 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
                        "expression": "pay_status = 'PAID'"}],
      "task_count": 2,
      "closed_set": {"values": ["PAID", "REFUND"], "basis": "in_list"},
-     "meaning_candidates": [{"text": "Payment status; PAID means settled", "source": "column_comment",
+     "meaning_candidates": [{"text": "PAID means settled", "source": "comment_mention",
                              "evidence": "column:ods.app_order.pay_status"}],
      "meaning": {"text": "Settled", "source": "override",
                  "confirmed_by": "owner", "date": "2026-09-18"}},
