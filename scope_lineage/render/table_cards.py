@@ -482,7 +482,12 @@ def _table_card(
         "consumed_by": consumed_by,
         "columns": columns,
         "coverage": _coverage(
-            comment, columns, produced_by, consumed_by, declared, samples
+            comment,
+            columns,
+            produced_by,
+            consumed_by,
+            len(declared) or None,
+            samples is not None,
         ),
         "findings": _findings(produced_by, consumed_by, bare_name_candidates),
     }
@@ -744,8 +749,8 @@ def _coverage(
     columns: Sequence[dict],
     produced_by: Sequence[dict],
     consumed_by: Sequence[dict],
-    declared: Sequence[dict] = (),
-    samples=None,
+    declared_count: int | None = None,
+    sampled: bool = False,
 ) -> dict:
     commented = sum(1 for column in columns if column["comment"])
     coverage = {
@@ -757,11 +762,11 @@ def _coverage(
         # is null, not zero, when no document declared the table -- "the catalog was
         # never asked" is not "the table has no columns".
         "columns_used": sum(1 for column in columns if column["used_in_corpus"]),
-        "columns_declared": len(declared) or None,
+        "columns_declared": declared_count or None,
     }
     # A6: how many columns somebody supplied values for. Absent -- not zero -- when no
     # samples file was given: "nobody was asked" is not "nobody answered".
-    if samples is not None:
+    if sampled:
         coverage["columns_sampled"] = sum(1 for column in columns if column.get("samples"))
     return coverage
 
@@ -828,14 +833,313 @@ def _findings(
 
 
 def _finding(kind: str, text: str, entries: Sequence[dict]) -> dict:
-    return {
-        "kind": kind,
-        "text": text,
-        "evidence": [
-            {"task": entry["task"], "statement_id": entry["statement_id"]}
-            for entry in entries
-        ],
+    return {"kind": kind, "text": text, "evidence": [_evidence(entry) for entry in entries]}
+
+
+def _evidence(entry: Mapping) -> dict:
+    """The statement a finding was read off, and -- after a merge -- whose corpus it is.
+
+    A single corpus never carries the key: the document already says which root it was
+    walked from. After ``merge_table_cards`` it is the only thing that makes a finding
+    actionable, because "these two producers disagree" is a different conversation when
+    the two producers belong to two different teams' batches.
+    """
+    item = {"task": entry["task"], "statement_id": entry["statement_id"]}
+    if entry.get("corpus"):
+        item["corpus"] = entry["corpus"]
+    return item
+
+
+# --------------------------------------------------------------- cross-corpus merge
+
+
+#: The merged document's own key: which corpora were folded into it, and how big each
+#: was. A document built by ``build_table_cards`` never carries it -- it was not merged
+#: from anything -- so one corpus keeps publishing exactly the bytes it always did.
+MERGED_FROM_KEY = "merged_from"
+
+
+@dataclass(frozen=True)
+class _Source:
+    """One ``tables.json`` being merged: what to stamp its evidence with, and its size."""
+
+    label: str
+    task_count: int
+    merged_from: list[dict] | None
+
+
+def merge_table_cards(*card_documents: Mapping) -> dict:
+    """Fold several ``tables-json/1`` documents into one, keeping every corpus named.
+
+    One corpus can only prove what its own tasks wrote. The task that proved a table's
+    key often sits in another batch entirely, and until the two documents are one the
+    reader downstream has to take "this JOIN may fan out" for an answer. Merging is
+    therefore not a convenience: it is the only way a card, a ``safe`` verdict or an
+    ontology relation gets to stand on evidence from more than one walk.
+
+    Every producer and consumer entry gains a ``corpus``, so a borrowed proof always
+    says where to look for the task behind it, and the card's ``coverage`` and
+    ``findings`` are re-derived over the merged evidence rather than added up: a table
+    nobody read in corpus A is not ``never_consumed_in_corpus`` once corpus B's reader
+    is on the same card. Merging one document is the identity -- a document that was
+    not merged with anything says nothing about corpora, exactly as it was written.
+    """
+    documents = [_merge_input(document) for document in card_documents]
+    if not documents:
+        raise ValueError("merge_table_cards needs at least one tables-json/1 document")
+    if len(documents) == 1:
+        return dict(documents[0])
+    sources = [_source(document, index) for index, document in enumerate(documents)]
+    members = [
+        (source.label, card)
+        for source, document in zip(sources, documents)
+        for card in document.get("tables") or []
+    ]
+    merged_from = _merged_from(sources)
+    document = {
+        "doc_format": DOC_FORMAT,
+        "corpus": _merged_corpus(sources, documents, merged_from),
+        MERGED_FROM_KEY: merged_from,
     }
+    tables = _merged_tables(members)
+    applied = _merged_samples_applied(documents, tables)
+    if applied is not None:
+        document["samples_applied"] = applied
+    document["tables"] = tables
+    return document
+
+
+def _merge_input(document: Mapping) -> dict:
+    if not isinstance(document, Mapping) or document.get("doc_format") != DOC_FORMAT:
+        raise ValueError(
+            f"merge_table_cards expects {DOC_FORMAT} documents; got "
+            f"{(document or {}).get('doc_format')!r}"
+        )
+    return dict(document)
+
+
+def _source(document: Mapping, index: int) -> _Source:
+    """What a source document is called on the evidence it contributes.
+
+    The walked root is the label, because that is the one name the document itself
+    carries and the one a reader can walk again. A document written without a root gets
+    a positional stand-in rather than an empty string: unattributed evidence is the
+    single thing this merge exists to prevent.
+    """
+    corpus = document.get("corpus") or {}
+    label = str(corpus.get("artifact_root") or f"corpus:{index + 1}")
+    return _Source(label, int(corpus.get("task_count") or 0), document.get(MERGED_FROM_KEY))
+
+
+def _merged_from(sources: Sequence[_Source]) -> list[dict]:
+    """One flat entry per original corpus, in the order the caller named them.
+
+    A source that was itself merged contributes its own list rather than itself, so
+    merging in three steps and merging in one publish the same provenance.
+    """
+    entries: list[dict] = []
+    for source in sources:
+        listed = source.merged_from or [
+            {"corpus": source.label, "task_count": source.task_count}
+        ]
+        entries.extend(entry for entry in listed if entry not in entries)
+    return entries
+
+
+def _merged_corpus(
+    sources: Sequence[_Source], documents: Sequence[Mapping], merged_from: Sequence[dict]
+) -> dict:
+    """The merged corpus block: no single root, every task's digest still reachable.
+
+    ``artifact_root`` is null because there is no one tree to walk again -- ``merged_from``
+    names them all. The digests are qualified with the corpus they came from, because two
+    batches may hold a task of the same name at two different revisions and silently
+    keeping one of them would be a lie about what was read.
+    """
+    digests: dict[str, str] = {}
+    for source, document in zip(sources, documents):
+        carried = (document.get("corpus") or {}).get("lineage_digests") or {}
+        for task, digest in carried.items():
+            key = str(task) if source.merged_from else f"{source.label}/{task}"
+            digests.setdefault(key, digest)
+    return {
+        "artifact_root": None,
+        "task_count": sum(int(entry["task_count"]) for entry in merged_from),
+        "lineage_digests": {key: digests[key] for key in sorted(digests)},
+    }
+
+
+def _merged_samples_applied(
+    documents: Sequence[Mapping], tables: Sequence[Mapping]
+) -> dict | None:
+    """The samples reports folded into one, or None when no document carried one.
+
+    ``columns_sampled`` is counted off the merged cards rather than added up, for the
+    same reason ``coverage`` is recomputed: one column with values in two documents is
+    one sampled column, and the report may not say otherwise.
+    """
+    reports = [
+        document["samples_applied"]
+        for document in documents
+        if "samples_applied" in document
+    ]
+    if not reports:
+        return None
+    return {
+        "sources": _union(report.get("sources") or [] for report in reports),
+        "columns_sampled": sum(
+            card["coverage"].get("columns_sampled") or 0 for card in tables
+        ),
+        "unmatched": sorted(_union(report.get("unmatched") or [] for report in reports)),
+    }
+
+
+def _union(lists: Iterable[Sequence]) -> list:
+    """Every value, first appearance first -- the one order a merge can defend."""
+    found: list = []
+    for values in lists:
+        found.extend(value for value in values if value not in found)
+    return found
+
+
+def _merged_tables(members: Sequence[tuple[str, Mapping]]) -> list[dict]:
+    spellings = [
+        name
+        for _label, card in members
+        for name in [str(card.get("table")), *(card.get("aliases") or [])]
+    ]
+    grouped, ambiguous = _group_spellings(spellings)
+    groups = {_primary_name(group): group for group in grouped}
+    return [
+        _merged_card(
+            primary,
+            groups[primary],
+            members,
+            _bare_name_candidates(primary, groups) if primary in ambiguous else (),
+        )
+        for primary in sorted(groups)
+    ]
+
+
+def _merged_card(
+    primary: str,
+    spellings: Sequence[str],
+    members: Sequence[tuple[str, Mapping]],
+    bare_name_candidates: Sequence[str] = (),
+) -> dict:
+    group = set(spellings)
+    cards = [pair for pair in members if str(pair[1].get("table")) in group]
+    produced_by = _merged_entries(cards, "produced_by")
+    consumed_by = _merged_entries(cards, "consumed_by")
+    columns = _merged_columns(cards)
+    comment = _first_fact(cards, "comment")
+    card = {
+        "table": primary,
+        "aliases": [name for name in spellings if name != primary],
+        "comment": comment,
+        **{name: _first_fact(cards, name) for name in ("domain", "project", "owner", "layer")},
+        "kind": str(cards[0][1].get("kind") or TABLE_KIND_PHYSICAL),
+        "produced_by": produced_by,
+        "consumed_by": consumed_by,
+        "columns": columns,
+        "coverage": _coverage(
+            comment,
+            columns,
+            produced_by,
+            consumed_by,
+            _first_coverage(cards, "columns_declared"),
+            any("columns_sampled" in (item.get("coverage") or {}) for _label, item in cards),
+        ),
+        "findings": _findings(produced_by, consumed_by, bare_name_candidates),
+    }
+    return {key: card[key] for key in TABLE_KEY_ORDER}
+
+
+def _first_fact(cards: Sequence[tuple[str, Mapping]], key: str):
+    """First non-null across the documents, in the order the caller merged them."""
+    return next((card[key] for _label, card in cards if card.get(key) is not None), None)
+
+
+def _first_coverage(cards: Sequence[tuple[str, Mapping]], key: str):
+    return next(
+        (
+            (card.get("coverage") or {})[key]
+            for _label, card in cards
+            if (card.get("coverage") or {}).get(key) is not None
+        ),
+        None,
+    )
+
+
+def _merged_entries(cards: Sequence[tuple[str, Mapping]], key: str) -> list[dict]:
+    """``produced_by`` / ``consumed_by`` of every document, one entry per statement.
+
+    The identity of an entry is ``(task, statement_id, corpus)``: one task read twice in
+    one corpus is one reader, and the same task name in two corpora is two -- they are
+    two walks of two trees, and nothing here may assume they are the same code.
+    """
+    entries: dict[tuple[str, str, str], dict] = {}
+    for label, card in cards:
+        for entry in card.get(key) or []:
+            stamped = _stamped(entry, label)
+            entries.setdefault(
+                (
+                    str(stamped["task"]),
+                    str(stamped["statement_id"]),
+                    str(stamped["corpus"]),
+                ),
+                stamped,
+            )
+    return [entries[identity] for identity in sorted(entries)]
+
+
+def _stamped(entry: Mapping, label: str) -> dict:
+    """The entry with its corpus named, right after the statement it belongs to."""
+    if entry.get("corpus"):
+        return dict(entry)
+    return _insert_after(dict(entry), "statement_id", "corpus", label)
+
+
+def _merged_columns(cards: Sequence[tuple[str, Mapping]]) -> list[dict]:
+    """The union of every document's columns, in the order the first one published.
+
+    The first document's order is the declared order of whichever catalog answered for
+    the table; a column only a later document knows about is appended rather than sorted
+    in, because no document ever said where it belongs.
+    """
+    columns: dict[str, dict] = {}
+    for _label, card in cards:
+        for column in card.get("columns") or []:
+            entry = columns.setdefault(str(column["name"]), _blank_column(column["name"]))
+            if column.get("used_in_corpus", True):
+                entry["used_in_corpus"] = True
+            for key in ("type", "comment", "produced_summary"):
+                _fill(entry, key, column.get(key))
+            for usage, count in (column.get("consumer_usage_counts") or {}).items():
+                entry["consumer_usage_counts"][usage] += int(count)
+            _merge_samples(entry, column.get("samples"))
+    return [_merged_column(entry) for entry in columns.values()]
+
+
+def _merge_samples(entry: dict, values) -> None:
+    """Union the exported values, capped at the widest top-N any document published.
+
+    A merge cannot re-rank by frequency -- a card keeps the values, never the counts --
+    so the union keeps first-seen order and stops at the limit the corpora themselves
+    ran under, rather than inventing a wider column than either of them published.
+    """
+    if not values:
+        return
+    merged = entry.setdefault("samples", [])
+    entry["samples_top"] = max(entry.get("samples_top", 0), len(values))
+    merged.extend(value for value in values if value not in merged)
+
+
+def _merged_column(entry: dict) -> dict:
+    column = _ordered_column(entry)
+    if entry.get("samples"):
+        column["samples"] = entry["samples"][: entry["samples_top"]]
+    return column
 
 
 # ------------------------------------------------------------------------ grain wording
@@ -1207,13 +1511,28 @@ def _samples_text(column: Mapping) -> str:
     return "、".join(expr_span(f"'{value}'") for value in values) or "—"
 
 
+def _corpus_labelled(entries: Sequence[Mapping]) -> bool:
+    """P7: a merged card names the corpus of every entry; a built one has none to name."""
+    return any(entry.get("corpus") for entry in entries)
+
+
+def _head(labelled: bool, *names: str) -> list[str]:
+    head = (["语料"] if labelled else []) + list(names)
+    return [
+        "| " + " | ".join(head) + " |",
+        "| " + " | ".join(["---"] * len(head)) + " |",
+    ]
+
+
+def _corpus_cell(entry: Mapping, labelled: bool) -> list[str]:
+    return [cell(f"`{entry['corpus']}`" if entry.get("corpus") else "—")] if labelled else []
+
+
 def _render_producers(card: dict) -> list[str]:
     if not card["produced_by"]:
         return ["- 本语料内没有任务写这张表。（SQL事实）"]
-    lines = [
-        "| 任务 | 语句 | 写入方式 | 分区 | 更新频率 |",
-        "| --- | --- | --- | --- | --- |",
-    ]
+    labelled = _corpus_labelled(card["produced_by"])
+    lines = _head(labelled, "任务", "语句", "写入方式", "分区", "更新频率")
     for producer in card["produced_by"]:
         partition = producer["partition"]
         columns = "、".join(partition["columns"]) or "无分区"
@@ -1223,6 +1542,7 @@ def _render_producers(card: dict) -> list[str]:
             "| "
             + " | ".join(
                 [
+                    *_corpus_cell(producer, labelled),
                     cell(f"`{producer['task']}`"),
                     cell(f"`{producer['statement_id']}`"),
                     cell(str(producer["stmt_kind"] or UNKNOWN_TEXT)),
@@ -1238,10 +1558,8 @@ def _render_producers(card: dict) -> list[str]:
 def _render_consumers(card: dict) -> list[str]:
     if not card["consumed_by"]:
         return ["- 本语料内没有任务读这张表。（SQL事实）"]
-    lines = [
-        "| 任务 | 语句 | 角色 | 用到的列 | 怎么用 |",
-        "| --- | --- | --- | --- | --- |",
-    ]
+    labelled = _corpus_labelled(card["consumed_by"])
+    lines = _head(labelled, "任务", "语句", "角色", "用到的列", "怎么用")
     for consumer in card["consumed_by"]:
         role = consumer["role_in_task"]
         used = "、".join(f"`{column['name']}`" for column in consumer["columns"])
@@ -1258,6 +1576,7 @@ def _render_consumers(card: dict) -> list[str]:
             "| "
             + " | ".join(
                 [
+                    *_corpus_cell(consumer, labelled),
                     cell(f"`{consumer['task']}`"),
                     cell(f"`{consumer['statement_id']}`"),
                     cell(f"{ROLE_TEXT.get(str(role), UNKNOWN_TEXT)}（{role}）" if role else UNKNOWN_TEXT),

@@ -34,6 +34,10 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology
 scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
   --tables /path/to/tables/tables.json --glossary /path/to/glossary/glossary.json \
   --overrides /path/to/ontology.overrides.json
+
+# 跨语料：--tables 可重复，几份表卡先合并再建本体
+scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
+  --tables /path/to/a/tables.json --tables /path/to/b/tables.json
 ```
 
 产物三件：
@@ -61,6 +65,9 @@ card = render_ontology_table_card_markdown(cards["tables"][0], ontology)
   版本不认识的文档在目录模式下跳过并计数。
 - `--tables` / `--glossary` 只是省一次重算：给与不给产出字节一致。给了 `--tables` 时，表卡
   以它为底本追加本体节；不给就在内存里按同一份语料构建同样的表卡。
+- `--tables` **可重复**：多份先按[表卡的合并规则](tables-doc.md#跨语料合并--merge)合成一份，
+  再交给本体构建——于是别的语料里已经证明的键，可以为这份语料里的一条关系作证。见下文
+  「跨语料证据」。
 - `--format` 取 `json`、`md` 或两者（默认 `json,md`）；只要 `md` 不在其中，`ontology.md` 与
   `tables/` 都不写。其他值直接报参数错误（退出码 2）。
 - `--export` 取 `linkml`、`shacl` 或两者（可重复，也可写成逗号列表），默认什么都不导出；
@@ -109,7 +116,8 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 ```jsonc
 {
   "doc_format": "ontology-json/1",
-  "corpus": {"artifact_root": "…", "task_count": 12, "lineage_digests": {"task_a": "…"}},
+  "corpus": {"artifact_root": "…", "task_count": 12, "lineage_digests": {"task_a": "…"},
+             "external_evidence_tables": 2},   // 只有合并进来的表卡带了本语料没碰过的表时才出现
   "entities": [
     {"id": "ods.customer", "kind": "physical_table",
      "comment": null,
@@ -183,7 +191,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 
 | 槽位 | 取值 | 含义 |
 | --- | --- | --- |
-| `corpus` | `artifact_root` / `task_count` / `lineage_digests` | 与表卡同一个语料块：扫描根、任务数、每个任务的 lineage 指纹 |
+| `corpus` | `artifact_root` / `task_count` / `lineage_digests` / `external_evidence_tables` | 与表卡同一个语料块：扫描根、任务数、每个任务的 lineage 指纹；最后一个是只作为外部证据参与、未建实体的表数（P7，没有就不出现） |
 | `entities[].kind` | `physical_table` / `produced_table` | 语料内有生产任务的是 `produced_table` |
 | `entities[].comment`、`naming_hints` | 表注释 / 业务域 / 项目 / 负责人 | 元数据原样透传，Core 不据此推断任何业务语义 |
 | `entities[].identity.candidate_keys[]` | `columns` + `tier` + `evidence` | 生产任务证明的键（`producer_key_confidence`）与消费任务假设的键（`joined_as_right_without_dedup`）并列，不合并成「主键」 |
@@ -436,6 +444,38 @@ SQL 类型按下表映射，带参数的类型只看头部：`decimal(18,2)` 当
 - **不产 OWL。** 三种目标里只有 OWL 需要为「基数公理」这类断言额外选一套本体论承诺，这件事
   不该由导出器替使用者决定。
 
+## 跨语料证据：重复 `--tables`
+
+一条 JOIN 到物理表的关系，只有当**别人**证明过那张表按连接键唯一时才可能是 `proven`
+（`cardinality.basis` 为 `producer_key_confidence`）。证明它的那个任务不一定在本次 `--lineage`
+走过的树里：
+
+```bash
+scope-lineage tables   --lineage /path/to/a --out /path/to/a-tables
+scope-lineage ontology --lineage /path/to/b --out /path/to/onto \
+  --tables /path/to/a-tables/tables.json --tables /path/to/b-tables/tables.json
+```
+
+- 几份 `--tables` 先合并（`merge_table_cards`），本体只面对一份表卡，所以「表卡怎么说」
+  始终只有一个问法，与证据来自哪份语料无关。
+- 右侧被**外来表卡**证明的关系照常发 `proven`，并在 `evidence[]` 里多一条
+  `{"task": …, "statement_id": …, "corpus": …, "kind": "producer_key_confidence"}`——
+  本语料内的证明不加这一条：那个任务就在读者自己的产物里，`cardinality.producer` 已经点名了。
+  跨语料就必须带 `corpus`，否则这行证据指向一个读者根本找不到的任务。
+- `relations[].task_count` **只数写了这条 JOIN 的任务**。借来的证明是证据，不是这条边的另一个
+  作者，因此外来证据不参与计数。
+- 身份键与分区约束的 `evidence[]` 同理：来自合并表卡的生产者带 `corpus`，本语料的不带。
+- `ontology.md` 的证据 id 相应写成 `` `<corpus>/<task>/<statement_id>` ``；没有 `corpus` 时
+  与从前逐字节一致。
+- **证据不等于范围**：实体只建在 `--lineage` 这份语料**读过或写过**的表上。合并进来的表卡里
+  那些本语料没碰过的表，只把已证明的键、生产者与消费者借给上面的判定，不进 `entities[]`、
+  不进 ER 图、不出约束与发现，也不写 `tables/<db.table>.md`——否则一份几个任务的语料会得到
+  一张几千个实体的 ER 图，人读不了，也不是这份语料的模型。
+- 唯一的例外是**被本语料的关系引用到**的表：关系的两端必须都是实体，否则 ER 图上会缺一个框，
+  读者看到的是「漏了」而不是「有意不建」。
+- 因此被排除的表数写在 `corpus.external_evidence_tables`（没有就不出现），`ontology.md`
+  正文里对应一句「另有 N 张表仅作为外部证据参与，未建实体」。
+
 ## 与 tables / glossary 的关系
 
 三个语料级产物层层叠加，回答三个不同的问题，不要互相替代：
@@ -462,5 +502,7 @@ SQL 类型按下表映射，带参数的类型只看头部：`decimal(18,2)` 当
 
 - `--export` 只产 LinkML 与 SHACL；OWL 仍然只有槽位对应，没有导出器。
 - 不做向量化、不入库、不调 LLM、不含业务词表——那些属于下游项目。
-- 语料内增量已经有了（`--incremental`，见「增量运行」一节）；**跨语料**复用——把一份语料的
-  索引喂给另一份——仍是后续工作。
+- 语料内增量已经有了（`--incremental`，见「增量运行」一节）；**跨语料**复用也有了：
+  `tables --merge` 把几份语料的表卡合成一份，`ontology --tables` 可重复并先行合并，
+  外来证据一律带 `corpus`（见「跨语料证据」）。仍是后续工作的是跨语料的**画像**复用——
+  把一份语料的按任务事实缓存直接喂给另一份。

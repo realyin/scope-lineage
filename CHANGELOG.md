@@ -1,6 +1,41 @@
 # Changelog
 
 ## Unreleased
+- **Table cards reuse across corpora** (P7). A corpus can only prove what its own tasks
+  wrote: the statement that proved a table unique by its key is often in another batch
+  entirely, and until now everything downstream of that boundary had to settle for "this
+  JOIN may fan out". `merge_table_cards(*documents)` folds several `tables-json/1`
+  documents into one -- the same dotted-suffix table rule, `aliases` unioned,
+  `produced_by[]` / `consumed_by[]` unioned and deduplicated by
+  `(task, statement_id, corpus)`, `columns[]` unioned in the first declaring document's
+  order with `used_in_corpus` OR-ed, `consumer_usage_counts` summed and `samples` unioned
+  up to the widest top-N any document published. `coverage` is recomputed and `findings`
+  are re-derived over the merged evidence, so a table nobody read in one corpus stops
+  being `never_consumed_in_corpus` once another corpus's reader is on the same card, while
+  producers that disagree across corpora still raise `producer_key_conflict`. Every
+  producer and consumer entry gains a `corpus`, the document gains a `merged_from[]`
+  naming each source and its task count, and `corpus.lineage_digests` is keyed by
+  `<corpus>/<task>` because two corpora may hold a task of the same name at two revisions.
+  Merging one document is the identity -- an unmerged document is byte-identical to what
+  `tables` always wrote, and the `tables` / `ontology` goldens do not move.
+  `scope-lineage tables --merge a.json --merge b.json --out <dir>` writes the merged cards
+  (with `--lineage` the walked corpus is folded in as well, files first), and
+  `scope-lineage ontology --tables a.json --tables b.json` now repeats and merges before
+  building. A relation whose right side a foreign card proved reads `tier: proven` with the
+  foreign task in its `evidence[]` and `evidence[].corpus` set; `relations[].task_count`
+  still counts only the tasks that wrote the JOIN, because a borrowed proof is evidence and
+  not another author. Sections 4 and 5 of a merged card's markdown gain a corpus column; an
+  unmerged card renders exactly as before.
+- **Evidence is not scope**: the ontology models an entity only for a table its
+  `--lineage` corpus read or wrote (P7). Merging a large card set into a small corpus used
+  to publish an entity, an ER box, constraints, findings and a card file for every table of
+  the foreign set, drowning the corpus's own model in tables it never touches. A
+  merged-in table now lends its proven keys, producers and consumers to the verdicts and
+  nothing else, unless a relation of this corpus references it -- both ends of a relation
+  must be entities, or the diagram would be missing a box. How many were left out is
+  published as `corpus.external_evidence_tables` and stated in `ontology.md` as 「另有 N
+  张表仅作为外部证据参与，未建实体」, and `ontology` writes one `tables/<db.table>.md` per
+  entity. An ontology whose cards are its own corpus's is unchanged, byte for byte.
 - A column comment that points at another table's column is read as a **declared relation
   hint** (O9, P4). The warehouse never declared its foreign keys, but its catalog writers
   wrote them down in prose -- 「关联 <表>.<列>」, 「外键 …」,

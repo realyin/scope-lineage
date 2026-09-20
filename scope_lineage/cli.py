@@ -233,6 +233,8 @@ def main(argv: list[str] | None = None) -> int:
         unknown_formats = _tables_formats(args.format) - {"json", "md"}
         if unknown_formats:
             parser.error(f"--format accepts json and md, got {sorted(unknown_formats)}")
+        if not args.lineage and not args.merge:
+            parser.error("one of --lineage or --merge is required")
         return run_tables(args)
     if args.command == "glossary":
         unknown_formats = _glossary_formats(args.format) - {"json", "md"}

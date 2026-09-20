@@ -358,6 +358,15 @@ scope-lineage describe --lineage /tmp/scope-lineage-corpus --tables /tmp/scope-l
 或 `samples/1` JSON），样例值会先脱敏、再截断，然后落到卡上——Core 自己不连数据库取数。
 详见 [语料级表卡](docs/zh-CN/tables-doc.md)。
 
+证明某张表键唯一的那个任务，常常在别人那一批里。把几份语料的表卡折成一份，证明就能跨过边界，
+而每个生产者、消费者仍然说得出自己来自哪份语料：
+
+```bash
+scope-lineage tables   --merge /tmp/a/tables.json --merge /tmp/b/tables.json --out /tmp/merged
+scope-lineage ontology --lineage /tmp/scope-lineage-corpus --out /tmp/scope-lineage-onto \
+  --tables /tmp/a/tables.json --tables /tmp/b/tables.json
+```
+
 `'SF'`、`'F_00'` 这类 code 在单个任务里只能落"待业务确认"——但整份语料里，它们可能被注释解释过，
 也可能已经被人确认过一次。把语料聚合成一本按列名组织的字典，再让画像引用它：
 

@@ -28,6 +28,7 @@ from .render.ontology import (
 )
 from .render.ontology import (
     build_ontology,
+    entity_table_cards,
     render_ontology_index_markdown,
     render_ontology_table_card_markdown,
 )
@@ -67,9 +68,12 @@ def add_ontology_parser(subcommands) -> None:
     )
     ontology_cmd.add_argument(
         "--tables",
+        action="append",
         help=(
             "A tables.json written by `scope-lineage tables`; built in memory over the "
-            "same corpus when it is not given"
+            "same corpus when it is not given. Repeatable: several are merged first "
+            "(P7), so a key proven in another corpus can carry a relation here, with "
+            "that corpus named in the relation's evidence"
         ),
     )
     ontology_cmd.add_argument(
@@ -128,15 +132,32 @@ def exports(values) -> list[str]:
     return known + sorted(chosen - set(EXPORT_FORMATS))
 
 
+def _supplied_tables(args: argparse.Namespace):
+    """The ``--tables`` documents merged into one, None when none was given, or the code.
+
+    P7: several corpora's cards are folded together before anything is built, so the
+    ontology asks one question -- "what does the card say about this table" -- whether
+    the answer came from the corpus in front of it or from a batch walked elsewhere.
+    """
+    from .cli import _load_corpus_document
+    from .render.table_cards import DOC_FORMAT as TABLES_DOC_FORMAT
+    from .render.table_cards import merge_table_cards
+
+    documents = []
+    for path in getattr(args, "tables", None) or []:
+        document = _load_corpus_document(path, "--tables", TABLES_DOC_FORMAT)
+        if isinstance(document, int):
+            return document
+        documents.append(document)
+    return merge_table_cards(*documents) if documents else None
+
+
 def _supplied_corpus(args: argparse.Namespace):
     """``(tables, glossary)``, either of them None, or the exit code of a bad flag."""
     from .cli import _load_corpus_document
     from .render.glossary import DOC_FORMAT as GLOSSARY_DOC_FORMAT
-    from .render.table_cards import DOC_FORMAT as TABLES_DOC_FORMAT
 
-    tables = _load_corpus_document(
-        getattr(args, "tables", None), "--tables", TABLES_DOC_FORMAT
-    )
+    tables = _supplied_tables(args)
     if isinstance(tables, int):
         return tables
     glossary = _load_corpus_document(
@@ -187,6 +208,9 @@ def run_ontology(args: argparse.Namespace) -> int:
         overrides=overrides,
         artifact_root=root,
     )
+    # P7: one card file per entity. Cards merged in from another corpus that this one
+    # never touched lent their evidence to the build; they are not tables of this model.
+    cards = entity_table_cards(cards, ontology)
     chosen = formats(args.format)
     _write_ontology(out_dir, ontology, cards, chosen)
     _write_exports(out_dir, ontology, chosen_exports)

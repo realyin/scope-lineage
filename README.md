@@ -370,6 +370,16 @@ table. A team that can export a few values per column can add `--samples <file-o
 length before they reach a card — Core never queries a database itself. See the
 [table card guide](docs/en/tables-doc.md).
 
+The task that proved a table's key is often in somebody else's batch. Fold several corpora's
+cards into one so the proof crosses the boundary, with every producer and consumer still
+naming the corpus it came from:
+
+```bash
+scope-lineage tables   --merge /tmp/a/tables.json --merge /tmp/b/tables.json --out /tmp/merged
+scope-lineage ontology --lineage /tmp/scope-lineage-corpus --out /tmp/scope-lineage-onto \
+  --tables /tmp/a/tables.json --tables /tmp/b/tables.json
+```
+
 A code such as `'SF'` or `'F_00'` can only be "ask the business" inside one task — but across
 the corpus a comment may already explain it, or somebody may already have confirmed it once.
 Aggregate the corpus into one dictionary keyed by column name, then let a profile cite it:

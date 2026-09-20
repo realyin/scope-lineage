@@ -435,22 +435,26 @@ def build_ontology(
     # what publishes the strongest claim per pair, and the claims it overrode are
     # exactly what O7 reports as a conflict.
     edges = _edges(statements, names, cards)
-    constraints = _constraints(statements, cards, values, names)
+    joined = _relations(edges)
+    # P7: evidence is not scope. Merged cards may decide this corpus's JOINs without
+    # putting another corpus's whole warehouse into this corpus's model.
+    modelled = _modelled_cards(cards, statements, names, joined)
+    constraints = _constraints(statements, modelled, values, names)
     facts = {
         "multiplicity": _multiplicity(statements, names),
         "keys": _joined_keys(edges),
         "synonyms": _synonyms(statements, names),
         "not_null": _not_null_columns(constraints),
     }
-    entities = [_entity(card, facts) for card in cards.get("tables") or []]
-    relations = _relations_with_hints(_relations(edges), _relation_hints(entities))
+    entities = [_entity(card, facts) for card in modelled.get("tables") or []]
+    relations = _relations_with_hints(joined, _relation_hints(entities))
     ontology = {
         "doc_format": DOC_FORMAT,
-        "corpus": dict(cards.get("corpus") or {}),
+        "corpus": _corpus_block(cards, modelled),
         "entities": entities,
         "relations": relations,
         "constraints": constraints,
-        "findings": _findings(cards, edges, facts["multiplicity"], entities, relations),
+        "findings": _findings(modelled, edges, facts["multiplicity"], entities, relations),
         "open_items": [],
         "overrides_applied": {
             "relations": 0,
@@ -462,6 +466,78 @@ def build_ontology(
     _apply_overrides(ontology, overrides or {})
     ontology["open_items"] = _open_items(ontology)
     return {key: ontology[key] for key in _ONTOLOGY_KEYS}
+
+
+#: How many tables of the supplied cards lent evidence only. Present on the corpus block
+#: only when there were some, so a corpus whose cards are its own publishes the document
+#: it always did.
+EXTERNAL_TABLES_KEY = "external_evidence_tables"
+
+
+def entity_table_cards(cards: Mapping, ontology: Mapping) -> dict:
+    """The cards the ontology modelled, for a caller rendering one card per entity.
+
+    ``ontology`` publishes an entity per table this corpus touched; a card for a table it
+    did not would carry five empty sections and a link nothing points at.
+    """
+    published = {str(entity.get("id")) for entity in ontology.get("entities") or []}
+    return {
+        **cards,
+        "tables": [
+            card for card in cards.get("tables") or [] if str(card["table"]) in published
+        ],
+    }
+
+
+def _modelled_cards(
+    cards: Mapping,
+    statements: Sequence[_Statement],
+    names: Mapping[str, str],
+    relations: Sequence[Mapping],
+) -> dict:
+    """The cards this corpus models as entities: what it touched, plus what it relates to.
+
+    A card is a *fact* about a table; an entity is a claim that the table belongs to this
+    corpus's model. Merging another corpus's cards in (P7) hands this corpus thousands of
+    facts it should use and no mandate to model the tables behind them -- so a table this
+    corpus neither read nor wrote stays evidence, and the index says how many did.
+
+    The one exception is a table a published relation names: an edge to something that is
+    not an entity is a dangling reference, and the reader of the ER diagram would find a
+    box missing rather than a table deliberately left out.
+    """
+    modelled = _corpus_tables(statements, names) | {
+        str(relation[side]["entity"]) for relation in relations for side in ("from", "to")
+    }
+    return {
+        **cards,
+        "tables": [
+            card for card in cards.get("tables") or [] if str(card["table"]) in modelled
+        ],
+    }
+
+
+def _corpus_tables(statements: Sequence[_Statement], names: Mapping[str, str]) -> set[str]:
+    """Every entity this corpus read or wrote, under whatever spelling it used."""
+    found: set[str] = set()
+    for statement in statements:
+        spellings = [str(name) for name in statement.document.get("source_tables") or []]
+        target = (statement.profile.get("task") or {}).get("target_table")
+        if target:
+            spellings.append(str(target))
+        found.update(
+            entity for entity in (_entity_of(name, names) for name in spellings) if entity
+        )
+    return found
+
+
+def _corpus_block(cards: Mapping, modelled: Mapping) -> dict:
+    """The cards' corpus block, plus how many of their tables only lent evidence."""
+    corpus = dict(cards.get("corpus") or {})
+    external = len(cards.get("tables") or []) - len(modelled.get("tables") or [])
+    if external:
+        corpus[EXTERNAL_TABLES_KEY] = external
+    return corpus
 
 
 # ------------------------------------------------------------------- confirmations
@@ -781,7 +857,11 @@ def _merge_edge(merged: dict[tuple, dict], edge: dict) -> None:
     current["evidence"].extend(
         item for item in edge["evidence"] if item not in current["evidence"]
     )
-    current["task_count"] = len({item["task"] for item in current["evidence"]})
+    # Only the tasks that WROTE this JOIN are counted. A borrowed proof and a column
+    # comment are evidence carried on the edge, never another author of it.
+    current["task_count"] = len(
+        {item["task"] for item in current["evidence"] if not item.get("kind")}
+    )
     current["cardinality"] = _stronger_cardinality(
         current["cardinality"], edge["cardinality"]
     )
@@ -819,6 +899,8 @@ def _join_edges(
             to_entity = _entity_of(right, names)
             if not from_entity or not to_entity:
                 continue
+            evidence = [_join_evidence(statement, scope_id, block_id, sides)]
+            borrowed = _borrowed_proof(cardinality, lookup, sides["right"][0])
             edges.append(
                 {
                     "from": {"entity": from_entity, "columns": _dedupe(item[0] for item in pairs)},
@@ -827,10 +909,40 @@ def _join_edges(
                     "cardinality": cardinality,
                     "join_types": [str(detail.get("join_type") or "")],
                     "task_count": 1,
-                    "evidence": [_join_evidence(statement, scope_id, block_id, sides)],
+                    "evidence": [*evidence, *([borrowed] if borrowed else [])],
                 }
             )
     return edges
+
+
+def _borrowed_proof(cardinality: Mapping, lookup, right: str | None) -> dict | None:
+    """P7: the foreign task whose card granted this edge its ``proven``, or None.
+
+    Inside one corpus the proving task is already in the reader's own artifacts and the
+    claim names it (``cardinality.producer``), so nothing is added. Across corpora that
+    task is in a tree the reader has not walked, and an evidence line without the corpus
+    on it points at a task they cannot find -- which is worse than no evidence at all.
+    """
+    if lookup is None or not right:
+        return None
+    if str(cardinality.get("basis")) != BASIS_PRODUCER_KEY:
+        return None
+    producer = _named_producer(lookup(right), str(cardinality.get("producer") or ""))
+    if not (producer or {}).get("corpus"):
+        return None
+    return {
+        "task": str(producer["task"]),
+        "statement_id": str(producer["statement_id"]),
+        "corpus": str(producer["corpus"]),
+        "kind": EVIDENCE_PRODUCER_KEY,
+    }
+
+
+def _named_producer(card, task: str) -> Mapping | None:
+    for producer in (card or {}).get("produced_by") or []:
+        if str(producer.get("task")) == task:
+            return producer
+    return None
 
 
 def _join_evidence(
@@ -1142,7 +1254,10 @@ def _joined_keys(edges: Sequence[Mapping]) -> dict[tuple[str, tuple], list[dict]
                 "kind": EVIDENCE_JOINED_AS_RIGHT,
                 "logic_block_id": item.get("logic_block_id"),
             }
+            # Only the evidence of the JOIN itself. A borrowed proof (P7) and a column
+            # comment ride on the same edge, and neither one joined anything.
             for item in relation.get("evidence") or []
+            if not item.get("kind")
         )
     return found
 
@@ -1483,12 +1598,11 @@ def _unique_per_constraints(cards: Mapping) -> list[dict]:
                     tier,
                     columns=_dedupe([*keys, *_partition(producer)]),
                     evidence=[
-                        {
-                            "task": str(producer.get("task")),
-                            "statement_id": str(producer.get("statement_id")),
-                            "kind": EVIDENCE_PRODUCER_KEY,
-                            "basis": str(producer.get("key_confidence")),
-                        }
+                        _card_evidence(
+                            producer,
+                            kind=EVIDENCE_PRODUCER_KEY,
+                            basis=str(producer.get("key_confidence")),
+                        )
                     ],
                 )
             )
@@ -1506,10 +1620,18 @@ def _partition_columns(card: Mapping) -> list[str]:
 
 
 def _producer_evidence(card: Mapping) -> list[dict]:
-    return [
-        {"task": str(item.get("task")), "statement_id": str(item.get("statement_id"))}
-        for item in card.get("produced_by") or []
-    ]
+    return [_card_evidence(item) for item in card.get("produced_by") or []]
+
+
+def _card_evidence(producer: Mapping, **extra) -> dict:
+    """One producer of a card as evidence, naming its corpus after a P7 merge."""
+    item = {
+        "task": str(producer.get("task")),
+        "statement_id": str(producer.get("statement_id")),
+    }
+    if producer.get("corpus"):
+        item["corpus"] = str(producer["corpus"])
+    return {**item, **extra}
 
 
 # -------------------------------------------------------------------- entities
@@ -1575,12 +1697,11 @@ def _candidate_keys(card: Mapping, entity: str, facts: Mapping) -> list[dict]:
         )
         entry["tier"] = _stronger_tier(entry["tier"], tier)
         entry["evidence"].append(
-            {
-                "task": str(producer.get("task")),
-                "statement_id": str(producer.get("statement_id")),
-                "kind": EVIDENCE_PRODUCER_KEY,
-                "basis": str(producer.get("key_confidence")),
-            }
+            _card_evidence(
+                producer,
+                kind=EVIDENCE_PRODUCER_KEY,
+                basis=str(producer.get("key_confidence")),
+            )
         )
     for (owner, columns), evidence in sorted(facts["keys"].items()):
         if owner != entity or not columns:
@@ -2251,6 +2372,7 @@ def render_ontology_index_markdown(ontology: Mapping) -> str:
         "由结构证明的推论）、`hypothesis`（作者假设，未被证明）、`conflict`（矛盾，"
         "跨任务证据打架）、`confirmed`（已确认，只来自人工回写的 `ontology.overrides.json`）。",
     ]
+    lines.extend(_external_evidence_lines(corpus))
     lines.extend(_mermaid_section(entities, relations, findings, identifiers))
     lines.extend(_entities_section(entities, relations, constraints, identifiers))
     lines.extend(_relations_section(relations))
@@ -2259,6 +2381,24 @@ def render_ontology_index_markdown(ontology: Mapping) -> str:
     lines.extend(_open_items_section(items))
     lines.append("")
     return "\n".join(lines)
+
+
+def _external_evidence_lines(corpus: Mapping) -> list[str]:
+    """P7: say how many merged-in tables only lent evidence, or say nothing at all.
+
+    Absent when there are none, so an ontology built over its own corpus renders exactly
+    what it always rendered. Present, it answers the question a reader of a merged run
+    asks first -- "where did the rest of the tables go" -- before they go looking.
+    """
+    external = corpus.get(EXTERNAL_TABLES_KEY)
+    if not external:
+        return []
+    return [
+        "",
+        f"另有 {external} 张表仅作为外部证据参与，未建实体：它们来自合并进来的其它语料的表卡"
+        "（`--tables` / `tables --merge`），本语料既没读也没写，只把已证明的键与生产者借给"
+        "上面的判定。",
+    ]
 
 
 # --------------------------------------------------------------------- mermaid ER
@@ -2698,14 +2838,23 @@ def _entity_by_id(ontology: Mapping, table: str) -> dict:
     return {"id": table, "identity": {}, "attributes": []}
 
 
+#: P7 puts ``corpus`` first: after a merge the corpus is what tells a reader which tree
+#: to walk to find the task, so it reads ``corpus/task/statement``. Evidence from this
+#: corpus carries no ``corpus`` and renders exactly as it always did.
+_EVIDENCE_ID_KEYS = (
+    "corpus",
+    "task",
+    "statement_id",
+    "rule_id",
+    "scope_id",
+    "logic_block_id",
+)
+
+
 def _evidence_ids(evidence: Sequence[Mapping]) -> str:
     """``task/statement/logic block`` per item -- every id a reader can look up."""
     ids = [
-        "/".join(
-            str(item[key])
-            for key in ("task", "statement_id", "rule_id", "scope_id", "logic_block_id")
-            if item.get(key)
-        )
+        "/".join(str(item[key]) for key in _EVIDENCE_ID_KEYS if item.get(key))
         or str(item.get("kind") or "")
         for item in evidence or []
     ]
