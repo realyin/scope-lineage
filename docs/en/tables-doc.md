@@ -84,6 +84,14 @@ scope-lineage tables --lineage /path/to/corpus --out /path/to/tables --increment
   sha256 of each task's `lineage.json` / `diagnostics.json`, plus one sha256 over the
   options that steer the derivation) and `.cache/` (the facts each task contributed
   before the corpus-level merge).
+- The cache holds **only the fields the corpus-level merge reads**. The reader-facing
+  half of a semantic profile -- `stages`, `confidence`, each field's step-by-step
+  `derivation` -- is never merged and so is never stored. Which fields count is each
+  builder's own list (`PROFILE_FIELDS_READ`, beside the code that reads it); editing
+  one invalidates the whole index and recomputes everything.
+- The stored facts are **versioned**: `payload_version` (`corpus-cache/2` today). A
+  cache file or an index of another version is ignored and recomputed -- an older
+  version held something else, not the same thing with fewer keys.
 - **The corpus-level merge still runs over every task**: only the per-task half is
   reused, which is what makes an incremental run byte-identical to a full one.
 - A changed option invalidates the whole index and recomputes everything: the **content**

@@ -16,8 +16,12 @@ import json
 import sys
 from pathlib import Path
 
-from .corpus_cache import add_incremental_arguments, open_cache
-from .render.glossary import build_glossary, render_glossary_markdown
+from .corpus_cache import add_incremental_arguments, open_cache, project_profile
+from .render.glossary import (
+    PROFILE_FIELDS_READ,
+    build_glossary,
+    render_glossary_markdown,
+)
 from .render.glossary_template import (
     TEMPLATE_TOP_DEFAULT,
     build_overrides_template,
@@ -126,7 +130,7 @@ def run_glossary(args: argparse.Namespace) -> int:
 
     out_dir, root = Path(args.out), str(Path(args.lineage))
     options = [overrides, args.format, args.template, args.template_top, root]
-    cache = open_cache(args, out_dir, found[1], "glossary", options)
+    cache = open_cache(args, out_dir, found[1], "glossary", options, fields=[PROFILE_FIELDS_READ])
     try:
         glossary = build_glossary(
             [item.document for item in documents],
@@ -151,15 +155,18 @@ def _profiles(documents, cache) -> list[dict]:
     The dictionary reads the profile the *document alone* proves, without diagnostics --
     the same profile ``build_glossary`` builds for itself -- so what is cached here is
     not interchangeable with what ``tables`` caches. The index's ``command`` says so.
+
+    P2: what the builder is handed is the profile projected through
+    ``glossary.PROFILE_FIELDS_READ``, cached or not, so a reused task and a recomputed
+    one are the same shape and the two runs cannot drift apart.
     """
     from .render.semantic_profile import build_semantic_profile
 
-    return [
-        cache.facts(
-            item, lambda item=item: {"profile": build_semantic_profile(item.document)}
-        )["profile"]
-        for item in documents
-    ]
+    def build(item) -> dict:
+        profile = build_semantic_profile(item.document)
+        return {"profile": project_profile(profile, PROFILE_FIELDS_READ)}
+
+    return [cache.facts(item, lambda item=item: build(item))["profile"] for item in documents]
 
 
 def _report(

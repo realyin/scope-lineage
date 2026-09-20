@@ -75,6 +75,26 @@ INDEX_DOC_FORMAT = "ontology-index-md/1"
 # document: it carries five more sections and a different contract. It says so.
 CARD_DOC_FORMAT = "ontology-md/1"
 
+# P2: which keys of a semantic profile ``build_ontology`` reads *itself*, next to the
+# code that reads them; `tests/core/test_corpus_cache_projection.py` fails until the two
+# agree. The entity/relation half is read off the JOINs, so the profile answers for the
+# rules and for which entity the statement writes -- everything else it needs comes from
+# the table cards and the value dictionary underneath it.
+#
+# It is NOT the whole of what `scope-lineage ontology --incremental` stores: this command
+# stacks three builders on one collected profile, and builds the cards from it whenever
+# `--tables` was not supplied. Its runner therefore caches the union of this list and
+# ``table_cards.PROFILE_FIELDS_READ`` (see ``corpus_cache.union_fields``), plus a second,
+# glossary-projected profile when it has to build the dictionary as well.
+PROFILE_FIELDS_READ = {
+    "profile": ("artifact_kind",),
+    "statement": {
+        "statement_id": None,
+        "task": ("task_name", "target_table"),
+        "rules": None,
+    },
+}
+
 # The five tiers, strongest first. Everything published carries exactly one of them.
 # `confirmed` is the only one the corpus cannot produce: it arrives from a reviewed
 # `ontology.overrides.json` and means a person answered the question.

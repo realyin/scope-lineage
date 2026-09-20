@@ -70,6 +70,12 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
 - 它在 `--out` 下写两样可丢弃的东西：`.scope-lineage-corpus-index.json`（每个任务
   `lineage.json` / `diagnostics.json` 的 sha256，加一份「影响推导的选项」的 sha256）与
   `.cache/`（每个任务在语料级合并之前贡献的那份事实）。
+- 缓存里**只存语料级合并真正读的那些字段**：语义画像里给人看的那一半（`stages`、
+  `confidence`、每个字段逐步的 `derivation` 等）合并从不读，也就不进缓存。哪些字段算数，
+  由合并方自己那份清单说了算（`PROFILE_FIELDS_READ`，就写在读它的代码旁边）；清单改了，
+  索引整份作废、全部重算。
+- 存下来的那份事实**带版本号**：`payload_version`（当前 `corpus-cache/2`）。版本对不上的
+  缓存文件与索引一律当没有、重算——旧版本里存的是另一种东西，不是少了几个字段。
 - **语料级合并照样跑全量**：复用的只是每个任务自己贡献的那一半，所以增量跑出来的
   产物与全量跑逐字节一致。
 - 选项变了就整份作废、全部重算：`--overrides` 文件的**内容**、`--format`、读回来的
