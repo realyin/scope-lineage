@@ -182,6 +182,11 @@ class _State:
     ordinal: int
     known_empty: bool
     value_sources: dict[str, list[dict]]
+    # Whether the relation itself is gone, not merely emptied. `known_empty` cannot say
+    # this: a TRUNCATE leaves a table with a schema and no rows, a DROP leaves no table at
+    # all, and `final_table_states` names both. A consumer reconciling against a catalogue
+    # has to be able to tell them apart (DROP-001).
+    known_dropped: bool = False
     row_membership_sources: list[dict] = field(default_factory=list)
     value_condition_sources: dict[str, list[dict]] = field(default_factory=dict)
     # Per column: the keys a window grouped or ordered by. Parallel to value_sources,
@@ -246,6 +251,7 @@ class _StateBuilder:
         missing_reasons: list[str] | None = None,
         column_missing_reasons: dict[str, list[str]] | None = None,
         session_scoped: bool = False,
+        known_dropped: bool = False,
     ) -> _State:
         # Two different questions, and they used to share one answer. `previous` says what
         # this state inherits: a CTAS is handed None because it replaces the relation, so its
@@ -267,6 +273,7 @@ class _StateBuilder:
             ordinal=ordinal,
             session_scoped=session_scoped,
             known_empty=known_empty,
+            known_dropped=known_dropped,
             value_sources=value_sources,
             row_membership_sources=list(row_membership_sources or []),
             window_context_sources={
@@ -297,14 +304,19 @@ class _StateBuilder:
     def _add(self, state: _State, producer_statement_id: str | None) -> None:
         self.states[state.state_id] = state
         self.current_by_table[state.table] = state
-        self.nodes.append({
+        node = {
             "state_id": state.state_id,
             "table": state.table,
             "ordinal": state.ordinal,
             "known_empty": state.known_empty,
             "columns_known": state.columns_known,
             "producer_statement_id": producer_statement_id,
-        })
+        }
+        # Only true is recorded, so a node for a relation that still exists keeps exactly
+        # the shape it had before this field existed.
+        if state.known_dropped:
+            node["known_dropped"] = True
+        self.nodes.append(node)
 
     def graph(self) -> dict:
         return {
@@ -565,6 +577,8 @@ def _parse_task_lineage(
                 _apply_delete(statement, tree, state_builder, gaps)
             elif isinstance(tree, exp.TruncateTable):
                 _apply_truncate(statement, tree, state_builder)
+            elif _is_modeled_drop(tree):
+                _apply_drop(statement, tree, state_builder)
             elif isinstance(tree, exp.Update):
                 _apply_update(statement, tree, state_builder, gaps)
             elif statement["category"] in {
@@ -777,7 +791,14 @@ def _statement_record(
         )
     else:
         kind = _statement_kind_label(tree)
-        category = _statement_category(kind)
+        # Decided from the tree, not from the kind label: `DROP` names both the relation
+        # drop this module models and the `DROP DATABASE` / `DROP FUNCTION` it does not,
+        # and only the first is a relation state this document can state (DROP-001).
+        category = (
+            "relation_mutation"
+            if _is_modeled_drop(tree)
+            else _statement_category(kind)
+        )
     return {
         "statement_id": statement_id,
         "statement_index": statement_index,
@@ -1156,6 +1177,66 @@ def _apply_delete(
     })
     if not previous.columns_known:
         gaps.append(_schema_passthrough_gap(statement, table))
+
+
+def _is_modeled_drop(tree: exp.Expression) -> bool:
+    """Whether this DROP removes one named relation, which is a state this tool can state.
+
+    TABLE and VIEW only. `DROP DATABASE` removes relations this document never names, and
+    `DROP FUNCTION` removes no relation at all; both stay `unsupported_data_change`, which
+    is the honest answer for a change whose extent the document cannot describe.
+    """
+    if not isinstance(tree, exp.Drop):
+        return False
+    kind = str(tree.args.get("kind") or "").strip().upper()
+    return kind in {"TABLE", "VIEW"} and bool(_table_name(tree.this))
+
+
+def _apply_drop(
+    statement: dict,
+    tree: exp.Drop,
+    states: _StateBuilder,
+) -> None:
+    """Record the relation's removal as a state of its own.
+
+    The dropped state carries no columns and no value sources: the relation is gone, so a
+    later CREATE or INSERT on the same name inherits nothing, and the drop stays in the
+    history rather than being replaced by it -- the composition TRUNCATE-then-INSERT
+    already has. `IF EXISTS` is not recorded: whether the relation was there beforehand
+    changes nothing about the state this statement leaves behind.
+    """
+    table = _table_name(tree.this)
+    previous = states.current(table)
+    state = states.transition(
+        previous,
+        table=table,
+        statement_id=statement["statement_id"],
+        effect="DROP",
+        known_empty=True,
+        known_dropped=True,
+        value_sources={},
+        # Known to be none, rather than unknown: a dropped relation has no columns, so
+        # this must not raise a schema-passthrough gap for the statements after it.
+        columns_known=True,
+    )
+    statement.update({
+        "model_status": "modeled",
+        "target_table": table,
+        "input_states": [previous.state_id],
+        "output_state": state.state_id,
+        "effect": {
+            "rowset_effect": {
+                "operation": "DROP_RELATION",
+                "membership_sources": [],
+            },
+            "column_effect": {
+                "schema_preserved": False,
+                "value_mode": "RELATION_REMOVED",
+                "value_changed_columns": [],
+                "row_membership_affected_columns": ["*"],
+            },
+        },
+    })
 
 
 def _apply_truncate(
@@ -1653,6 +1734,12 @@ def _prior_values_for_written_columns(
         column: list(sources)
         for column, sources in previous.value_sources.items()
     }
+    # Nothing survives a drop. The fallback below exists for a column the previous state
+    # never named but which plainly had a value there; after a DROP the relation itself
+    # was gone, so claiming a passthrough from it would point the trace at a state that
+    # holds nothing (DROP-001).
+    if previous.known_dropped:
+        return result
     for column in written:
         result.setdefault(
             column,

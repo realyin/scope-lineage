@@ -1,0 +1,9 @@
+{
+  "task_id": "golden_drop_recreate",
+  "sql": "DROP TABLE IF EXISTS mart.channel_daily;\nCREATE TABLE mart.channel_daily AS\nSELECT channel_id, stat_date, SUM(amount) AS amount_sum\nFROM ods.channel_events\nGROUP BY channel_id, stat_date;\nINSERT INTO mart.channel_daily\nSELECT channel_id, stat_date, amount\nFROM ods.channel_backfill;",
+  "schema": {
+    "ods.channel_events": ["channel_id", "stat_date", "amount"],
+    "ods.channel_backfill": ["channel_id", "stat_date", "amount"],
+    "mart.channel_daily": ["channel_id", "stat_date", "amount_sum"]
+  }
+}

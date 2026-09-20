@@ -61,9 +61,14 @@ never miscounted as failed data changes.
 
 An unmodeled statement makes `analysis_status.status` partial. Its blocking reason distinguishes
 what was skipped: `unsupported_data_change` means the AST proves a persisted or session-state
-change such as DROP/ALTER/CREATE; `unsupported_statement` means a non-mutating shape such as a
-standalone SELECT or UNION. Both still emit the `unsupported_statement` warning because the
-warning names modeling support, while the blocking reason names operational impact.
+change such as `DROP DATABASE`, `DROP FUNCTION`, `ALTER`, or a `CREATE` without `AS SELECT`;
+`unsupported_statement` means a non-mutating shape such as a standalone SELECT or UNION. Both still
+emit the `unsupported_statement` warning because the warning names modeling support, while the
+blocking reason names operational impact.
+
+**`DROP TABLE [IF EXISTS] t` and `DROP VIEW v` are not among them: they are modelled table-state
+events** (`stmt_kind: DROP`, `category: relation_mutation`, `model_status: modeled`). They raise no
+warning and are not a blocking reason. See "State transition semantics" below.
 
 Statements that produce a session-scoped relation additionally carry
 `is_session_scoped_relation: true` — the relations created by `TEMP VIEW`, `GLOBAL TEMP VIEW`, and
@@ -438,6 +443,7 @@ retrievable from the document.
 | CTAS | REPLACE | Creates a new state with no old-target branch. |
 | DELETE | DELETE_MATCHED_ROWS | Surviving rows are PASSTHROUGH_SURVIVING_ROWS; without a WHERE it is DELETE_ALL_ROWS. |
 | TRUNCATE | RESET_ALL_ROWS | The row set is known to be empty, the field set is preserved, but the fields' value_sources are empty. |
+| DROP TABLE / DROP VIEW | DROP_RELATION | The relation itself is gone: the new state carries no field entries and is marked `known_dropped: true`. |
 | TRUNCATE PARTITION | RESET_PARTITION | Unaffected partitions and their existing field sources are preserved. |
 | UPDATE | PRESERVE_ROWS | Assigned fields are a conditional update; the others pass through. |
 | MERGE | MERGE | The old state plus the resolved update/delete/insert branches together form the new state. |
@@ -529,6 +535,25 @@ assert that the table is empty at the end of the task merely because TRUNCATE ap
 An empty state is not "no lineage" either. After a whole-table DELETE/TRUNCATE there are still
 target-table states and field entries; the empty value_sources then mean there are no surviving
 field values, while known_empty and the state transition edges explain why the row set is empty.
+
+### A dropped state: `known_dropped`
+
+`DROP TABLE` / `DROP VIEW` compose the same way. `DROP TABLE IF EXISTS t; CREATE TABLE t AS
+SELECT …` (the recreate pattern) leaves three states on `t`: the initial state, the dropped state
+marked `known_dropped: true`, and the final state the CTAS produced. `final_table_states[t]` points
+at the last of them, and the drop stays in the `table_state_graph` history (its edge carries
+`effect: DROP`). When nothing after the DROP writes the table again, `final_table_states[t]` points
+at that `known_dropped: true` state — meaning **the relation no longer exists**, which is not the
+same as "the table is still there with no rows" (that is `known_empty`; both are true on a dropped
+state).
+
+A dropped state carries no fields: it has no rows in `end_to_end_lineage`, and an INSERT right
+after it records no `prior_table_state` passthrough from it — a dropped relation has no values to
+pass through.
+
+When reconciling `final_table_states` against a catalog, besides excluding session-scoped relations
+and `directory:` targets, treat a table whose final state is `known_dropped: true` as deleted;
+otherwise you will count a table the script itself dropped as one the warehouse has.
 
 ## Metadata and fact gaps
 
