@@ -43,7 +43,7 @@ instead of -- the ``unknown`` verdict.
 from __future__ import annotations
 
 import re
-from collections import Counter
+from collections import Counter, OrderedDict
 from typing import Iterable, Mapping, Sequence
 
 from . import glossary_values, semantic_text
@@ -625,11 +625,45 @@ def _output_metadata(document: dict) -> dict:
     ) or {}
 
 
-def _column_detail(metadata_item: dict, column: str) -> dict:
+# Q5. Two lookups below are pure functions of one *object* inside the document, and both
+# used to be recomputed by every field that asked: the column detail re-scanned the whole
+# ``column_details`` list (quadratic on a wide table) and the output-name index was
+# rebuilt at each of its five call sites. The memo makes the unit of work the object
+# rather than the question. A key holds its owner alive, so an ``id`` cannot be reused
+# while it is cached, and only the handful of objects a corpus walk has open at once are
+# kept. Safe because a document is read-only by the time any profile reads it.
+_INDEX_MEMO_SIZE = 256
+_index_memo: "OrderedDict[tuple[int, str], tuple[object, dict]]" = OrderedDict()
+
+
+def _memoised_index(owner, part: str, build) -> dict:
+    """``build()`` for this owner object, computed once and remembered by identity."""
+    key = (id(owner), part)
+    cached = _index_memo.get(key)
+    if cached is not None and cached[0] is owner:
+        return cached[1]
+    value = build()
+    _index_memo[key] = (owner, value)
+    while len(_index_memo) > _INDEX_MEMO_SIZE:
+        _index_memo.popitem(last=False)
+    return value
+
+
+def _column_details_by_name(metadata_item: dict) -> dict[str, dict]:
+    """``column_details`` keyed by name, first occurrence winning as the scan did."""
+    index: dict[str, dict] = {}
     for detail in metadata_item.get("column_details") or []:
-        if str(detail.get("name")) == str(column):
-            return detail
-    return {}
+        index.setdefault(str(detail.get("name")), detail)
+    return index
+
+
+def _column_detail(metadata_item: dict, column: str) -> dict:
+    if not metadata_item:
+        return {}
+    index = _memoised_index(
+        metadata_item, "column_details", lambda: _column_details_by_name(metadata_item)
+    )
+    return index.get(str(column)) or {}
 
 
 def _input_column_comment(document: dict, table: str, column: str) -> str | None:
@@ -2877,7 +2911,15 @@ def _output_name_index(document: dict, scope_id: str) -> dict[str, str]:
     Expressions are registered first and bare names second, so a column whose expression
     matches wins over a column that merely shares the item's spelling.
     """
-    outputs = (_scopes(document).get(scope_id) or {}).get("outputs") or []
+    scope = _scopes(document).get(scope_id) or {}
+    if not scope:
+        return {}
+    # Q5. Five call sites ask one statement the same question, once per field.
+    return _memoised_index(scope, "output_names", lambda: _build_output_names(scope))
+
+
+def _build_output_names(scope: dict) -> dict[str, str]:
+    outputs = scope.get("outputs") or []
     index: dict[str, str] = {}
     for output in outputs:
         for text in (output.get("expression"), output.get("expanded_expression")):
