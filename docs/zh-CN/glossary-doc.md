@@ -120,7 +120,8 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
   "parameters": [{"column_ref": "ods.app_order.dt", "expression": "dt = '${bizdate}'",
                   "kind": "parameterized", "task_count": 6}],
   "overrides_applied": {"terms": 1, "values": 2, "blank": 0,
-                        "unmatched": ["pay_status='GONE'"]}
+                        "unmatched": ["pay_status='GONE'"],
+                        "ignored_fields": [], "rejected": []}
 }
 ```
 
@@ -130,7 +131,7 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
 | `terms[]` | 按**列名**跨表归并的注释；一个列名一条，按列名排序 |
 | `values[]` | 一条 =（列引用，取值，`kind`）；按（列名、列引用、取值、`kind`）排序。`value` 是去引号的规范形式，`sql_literal` 是作者写的字面量 |
 | `parameters[]` | `${…}` 变量与函数调用钉住的列：它们钉住这个列，但不是这个列的取值 |
-| `overrides_applied` | 本次人工确认生效了多少条（`terms` / `values`）、多少条还空着没填（`blank`），以及哪些键在语料里没有对应项（`unmatched`） |
+| `overrides_applied` | 本次人工确认生效了多少条（`terms` / `values`）、多少条还空着没填（`blank`）、哪些键在语料里没有对应项（`unmatched`）、哪些确认被拒绝（`rejected`），以及哪些字段本版本读不懂（`ignored_fields`） |
 
 ### 术语（terms[]）
 
@@ -199,7 +200,7 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
   `ELSE NULL` 同样把分支集合闭上。
 - `closed_set` 只在**整个语料对这一列的封闭断言唯一**时发布：两个任务给出不同的 `IN` 列表
   时写 `null`，因为互相矛盾的证据不构成封闭集。
-- `meaning_candidates[]` 有两条路，一条注释按先命中的那条作答。候选注释来自三处：该列的列注释
+- `meaning_candidates[]` 有三条路：前两条读注释（一条注释按先命中的那条作答），第三条读 SQL。候选注释来自三处：该列的列注释
   （`column_comment`，`column_details[]` 没有该列时退到 `declared_columns[]`）、该表的表注释
   （`table_comment`）、写在该条件/字段上的 SQL 注释（`sql_comment`）。
   1. **该列自己的注释把取值枚举出来了**（B6）：`0-未生效，1-生效` 这种写法是有人把码表写进了
@@ -212,7 +213,14 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
   2. **注释文字里字面出现了这个值**：把值去掉引号后（不区分大小写）在注释文本里能找到才算。
      **长度小于 2 的值一律不匹配**——`0` 会出现在几乎任何一句话里，一个错误候选比十个漏掉的
      候选代价更大。
-  两条都只产出**候选**：`glossary --template` 照样把这个取值列进待填表，候选不是确认。
+  3. **语料里有 CASE 把这个取值映射成一个标签**（P5）：`CASE WHEN status = 'AA' THEN '有效'`
+     里的 `有效` 就是候选，`source` 为 `case_label`，`evidence` 是那条 CASE 规则的 id，排在注释
+     候选之后（所以 `value_domain` 先显示的仍是注释那条）。只认 **THEN 是字符串字面量**的分支：
+     THEN 是列或表达式时不产出候选（那是这一行自己带的值，不是谁给它起的名）；标签与取值本身
+     相同、或长度小于 2（`THEN 'X'` 只是换了个码）时同样不产出。`WHEN a = 'AA' AND b = 'GG'`
+     这种复合条件标的是组合而不是某一个取值，它本来就不产生观察，所以也不会带标签；写成 `IN`
+     列表的分支则给它列出的每个取值都带上同一个标签。
+  三条都只产出**候选**：`glossary --template` 照样把这个取值列进待填表，候选不是确认。
 
 ### 参数化值（parameters[]）
 
@@ -229,7 +237,12 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
   },
   "values": {
     "ods.app_order.pay_status='PAID'": {"meaning": "已支付", "confirmed_by": "owner", "date": "2026-09-18"},
-    "pay_status='REFUND'": {"meaning": "已退款"}
+    "pay_status='REFUND'": {"meaning": "已退款"},
+    "ods.app_order.pay_status='CLOSED'": {"meaning": "已关闭",
+                                          "basis": "列注释把该取值枚举为已关闭",
+                                          "note": "与上游口径一致",
+                                          "confirmed_by": "agent:glossary-review",
+                                          "date": "2026-09-21"}
   }
 }
 ```
@@ -241,6 +254,9 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
 | 值匹配 | 两边都做去引号后比较，`'PAID'` 与 `PAID` 是同一个值；**推荐写去引号的 `pay_status=PAID`**，与 `values[].value` 一致 |
 | 合并优先级 | overrides 永远赢过候选：命中后 `meaning.source` 为 `override`，`meaning_candidates` 原样保留 |
 | 没命中的键 | 进 `overrides_applied.unmatched`（排序后），**不静默丢弃**——一份被人工确认过的文件里的拼写错误，正是审阅者看不见的那一类 |
+| `basis` / `note`（P5） | 自由文本，只在写了的时候出现：`basis` 发布成 `meaning.confirmed_basis`（`glossary.md` 的含义列打印成「（依据：…）」），`note` 原名发布，两者都排在 `confirmed_by` / `date` 之后 |
+| `agent:` 开头的确认（P5） | **必须带 `basis`**，否则整条不生效，记进 `overrides_applied.rejected`（`{"key", "reason": "missing_basis"}`）——Agent 的答案是从语料读出来的，说不出凭什么就等于把推断写成事实。`unmatched` 保持原来的纯字符串形状：被拒的键不是拼写错误，它指得到东西 |
+| 读不懂的字段（P5） | 除 `meaning` / `text` / `confirmed_by` / `date` / `basis` / `note` 之外的键进 `overrides_applied.ignored_fields`（`{"key", "fields"}`，按键排序），那条确认的其余部分照常生效——多半是把槽位名拼错了 |
 
 ## 待填模板：`glossary --template`
 
@@ -273,8 +289,17 @@ scope-lineage glossary --lineage corpus --out dict --overrides dict/glossary.ove
 | 排除只剩一个取值的整列 | 一个取值不成编码体系，答完也说不出一个集合——这是「值不值得排进表单」而不是「不许问」，所以 `--template-top 0` 的不限量表单会把它们收回来（WI-D） |
 | 排除已确认的取值 | `meaning` 已有文本的不再问第二遍 |
 
+**每一行还说它有什么证据**（P5）：「注释线索」右边的**「候选来源」**列写 `comment` /
+`case_label` / `same_name_confirmed` / `—`。前三者就是审阅者（或按
+`skills/scope-lineage/references/glossary-review-prompt.md` 工作的 Agent）**可以据以自答**的三类
+证据：该列自己的注释枚举了这个取值、语料里有 CASE 把它标成某个标签、同名列上的同一取值
+已经被**人**确认过。`same_name_confirmed` 只认人确认过的——Agent 自己的确认沿同名列扩散，
+等于让一条推断自证。`—` 的那些行才是要去问人的。
+
 **排序与条数**：上一版按 `closed_set` 优先 + 观察数排，真实语料的第一页于是被 `Y`/`N`、`1`/`0`
-与 scope 级列占满——上面那几条排除就是这个发现。现在按**列**排，列得分为
+与 scope 级列占满——上面那几条排除就是这个发现。现在**有证据的列排在最前**（任一取值的
+「候选来源」不是 `—`），它们是读一读就能关掉、不必占用业务方注意力的那部分；其余按**列**排，
+列得分为
 
 ```
 不同取值数 × 2 + Σ出现任务数 + 3×(有 filter_in) + 2×(有 case_then) + 2×(列注释含线索词)

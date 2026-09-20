@@ -394,7 +394,8 @@ scope-lineage describe --lineage /tmp/scope-lineage-corpus \
 conflicting readings side by side), collect the constants in filters and CASE branches into
 per-column value observations, and claim "this set is closed" only for an `IN` list or a CASE
 whose branches are exhaustive. A meaning has exactly two sources: a human confirmation in
-`glossary.overrides.json`, and a comment that **literally contains** the value (marked `?`) —
+`glossary.overrides.json`, and a candidate the corpus wrote itself (marked `?`) — a comment
+that **literally contains or enumerates** the value, or a CASE that labels it —
 Core does not guess. `describe --glossary` wires the result into `fields[].value_domain`.
 See the [term and value dictionary guide](docs/en/glossary-doc.md).
 
@@ -597,6 +598,10 @@ statement = parse_scope_lineage(
 )
 document = to_lineage_dict(statement)
 ```
+
+A corpus-level ontology candidate is built and exported through the same facade:
+`build_ontology(...)` then `render_export(ontology, "linkml")` / `render_linkml` /
+`render_shacl`.
 
 The supported public surface is declared by `scope_lineage.PUBLIC_CORE_API`. Consumers should use
 that facade or the JSON contracts instead of importing internal modules.

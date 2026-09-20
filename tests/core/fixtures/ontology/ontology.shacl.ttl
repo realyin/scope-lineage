@@ -11,6 +11,7 @@ sl:dim_channelShape
     sh:targetClass sl:dim_channel ;
     rdfs:label "dim.channel" ;
     rdfs:comment "渠道维表（合成）" ;
+    sl:domain "渠道域" ;
     sl:tier "proven" ;
     sh:property [
         sh:path sl:channel_code ;
@@ -27,6 +28,8 @@ sl:dim_channelShape
     sl:candidateKey [
         sl:keyColumn "channel_code" ;
         rdfs:comment "candidate key; SHACL core has no composite uniqueness constraint, so this is an annotation rather than a validated shape" ;
+        sl:evidenceCount 2 ;
+        sl:evidenceTask "golden_commented_insert" ;
         sl:tier "hypothesis"
     ] .
 
@@ -52,6 +55,11 @@ sl:dim_segment_dimShape
         sh:name "updated_at" ;
         sh:datatype xsd:string ;
         sl:tier "proven"
+    ] ;
+    sl:multiplicity [
+        sl:column "segment" ;
+        rdfs:comment "multiple_rows_per_key (implied) on segment; evidence_count 1, first task golden_grouped_dedup_join" ;
+        sl:tier "implied"
     ] .
 
 sl:mart_channel_summaryShape
@@ -99,6 +107,8 @@ sl:mart_channel_summaryShape
     sl:candidateKey [
         sl:keyColumn "customer_id", "channel_name" ;
         rdfs:comment "candidate key; SHACL core has no composite uniqueness constraint, so this is an annotation rather than a validated shape" ;
+        sl:evidenceCount 2 ;
+        sl:evidenceTask "golden_commented_insert" ;
         sl:tier "proven"
     ] .
 
@@ -171,6 +181,8 @@ sl:mart_metric_by_segmentShape
     sl:candidateKey [
         sl:keyColumn "segment", "band" ;
         rdfs:comment "candidate key; SHACL core has no composite uniqueness constraint, so this is an annotation rather than a validated shape" ;
+        sl:evidenceCount 1 ;
+        sl:evidenceTask "golden_grouped_dedup_join" ;
         sl:tier "proven"
     ] .
 
@@ -197,6 +209,9 @@ sl:ods_channel_eventShape
     sh:targetClass sl:ods_channel_event ;
     rdfs:label "ods.channel_event" ;
     rdfs:comment "渠道事件明细（合成）" ;
+    sl:domain "渠道域" ;
+    sl:project "渠道分析（合成）" ;
+    sl:owner "demo_owner" ;
     sl:tier "proven" ;
     sh:property [
         sh:path sl:customer_id ;
@@ -235,7 +250,14 @@ sl:ods_channel_eventShape
         sl:relation "rel:001" ;
         sl:claim "many_to_one_assumed" ;
         sl:taskCount 2 ;
+        sl:evidenceCount 2 ;
+        sl:evidenceTask "golden_commented_insert" ;
         sl:tier "hypothesis"
+    ] ;
+    sl:multiplicity [
+        sl:column "customer_id, channel_code" ;
+        rdfs:comment "multiple_rows_per_key (implied) on customer_id, channel_code; evidence_count 2, first task golden_commented_insert" ;
+        sl:tier "implied"
     ] .
 
 sl:ods_events_aShape
@@ -261,6 +283,8 @@ sl:ods_events_aShape
         sl:relation "rel:002" ;
         sl:claim "one_to_many" ;
         sl:taskCount 1 ;
+        sl:evidenceCount 1 ;
+        sl:evidenceTask "golden_grouped_dedup_join" ;
         sl:tier "implied"
     ] ;
     sh:property [
@@ -269,6 +293,14 @@ sl:ods_events_aShape
         sl:relation "rel:003" ;
         sl:claim "unknown" ;
         sl:taskCount 1 ;
+        sl:evidenceCount 1 ;
+        sl:evidenceTask "golden_grouped_dedup_join" ;
+        sl:tier "implied"
+    ] ;
+    sl:synonym [
+        sl:column "segment" ;
+        rdfs:comment "ods.events_b.seg_code (via union_alignment, implied); evidence_count 1, first task golden_grouped_dedup_join" ;
+        sl:via "union_alignment" ;
         sl:tier "implied"
     ] .
 
@@ -295,6 +327,14 @@ sl:ods_events_bShape
         sl:relation "rel:004" ;
         sl:claim "one_to_many" ;
         sl:taskCount 1 ;
+        sl:evidenceCount 1 ;
+        sl:evidenceTask "golden_grouped_dedup_join" ;
+        sl:tier "implied"
+    ] ;
+    sl:synonym [
+        sl:column "seg_code" ;
+        rdfs:comment "ods.events_a.segment (via union_alignment, implied); evidence_count 1, first task golden_grouped_dedup_join" ;
+        sl:via "union_alignment" ;
         sl:tier "implied"
     ] .
 
@@ -320,4 +360,19 @@ sl:ods_usersShape
         sh:name "is_active" ;
         sh:datatype xsd:string ;
         sl:tier "proven"
+    ] .
+
+sl:Ontology
+    rdfs:label "the governance items this corpus could not answer itself" ;
+    sl:openItem [
+        sl:id "open:rel:ods.channel_event.channel_code->dim.channel.channel_code" ;
+        rdfs:comment "relation (hypothesis) on ods.channel_event [channel_code]: 关系 `ods.channel_event` → `dim.channel` 的基数写作「多对一，作者假设」，依据只是直接关联未去重，作者假设对端按该键唯一。 (write back: 关系:ods.channel_event.channel_code->dim.channel.channel_code)" ;
+        sl:kind "relation" ;
+        sl:tier "hypothesis"
+    ] ;
+    sl:openItem [
+        sl:id "open:key:dim.channel=channel_code" ;
+        rdfs:comment "candidate_key (hypothesis) on dim.channel [channel_code]: 候选键 `channel_code`：只有任务直接关联时的假设，语料没有证明它唯一。 (write back: 键:dim.channel=channel_code)" ;
+        sl:kind "candidate_key" ;
+        sl:tier "hypothesis"
     ] .

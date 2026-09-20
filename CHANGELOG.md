@@ -36,6 +36,52 @@
   published as `corpus.external_evidence_tables` and stated in `ontology.md` as 「另有 N
   张表仅作为外部证据参与，未建实体」, and `ontology` writes one `tables/<db.table>.md` per
   entity. An ontology whose cards are its own corpus's is unchanged, byte for byte.
+- The value dictionary gets the **evidence-based confirmation mode** the ontology review
+  already had (P5). A `values` / `terms` entry of `glossary.overrides.json` may now carry
+  `basis` (what closed the question) and `note`, published beside `confirmed_by` / `date`
+  as `meaning.confirmed_basis` / `meaning.note` and printed by `glossary.md` as
+  「（依据：…）」; a field this release does not read is reported under
+  `overrides_applied.ignored_fields[]` instead of being dropped. A confirmation signed
+  `confirmed_by: "agent:<name>"` **must** carry a `basis`: without one the whole entry is
+  refused and listed in the new `overrides_applied.rejected[]` with
+  `reason: "missing_basis"` -- an Agent's answer is read off the corpus, and one that
+  cannot say what it was read from is an inference written down as a fact. `unmatched`
+  keeps its bare-string shape (a refused key is not a typo, so it is not one of those),
+  and `rejected` sits beside it. `skills/scope-lineage/references/glossary-review-prompt.md`
+  is the prompt for the pass: the three kinds of evidence an Agent may answer from, the
+  mandatory `basis` wording for each, the rule that it never overwrites a human
+  confirmation, uncapped evidence answers and at most 8 questions for a person.
+- `meaning_candidates[]` gains a third route: a **CASE label** (`case_label`). The
+  warehouse translates its own codes in exactly one place -- `WHEN status = 'AA' THEN
+  '有效'` -- and the dictionary used to file the label against the column the CASE
+  *produces* while leaving `'AA'` with nothing. The label is now offered as a candidate of
+  the value its branch tests, after the comment candidates. Only a branch whose THEN is a
+  string literal counts, and a label equal to the value or shorter than two characters
+  (`THEN 'X'` re-codes it) is refused; an `IN`-list branch labels each value it lists, and
+  a compound condition labels neither of its columns.
+- `glossary --template` says which values already have evidence: a **候选来源** column
+  (`comment` / `case_label` / `same_name_confirmed` / `—`) beside 注释线索, and columns
+  carrying any evidence are asked first, with the existing ranking deciding everything
+  else. `same_name_confirmed` counts a HUMAN confirmation of the same value on the same
+  column name only -- an Agent's own answer spreading along same-named columns would be an
+  inference proving itself.
+- The **LinkML and SHACL exports carry everything `ontology.json` carries** (P6), and
+  `render_export` / `render_linkml` / `render_shacl` join the public Python API. The two
+  exports used to drop eight slots on the floor -- the `domain` / `project` / `owner`
+  naming hints, the declared key hints and relation hints, an entity's multiplicity
+  claims, an attribute's synonyms, and both governance lists -- so a downstream tool that
+  consumed only the export saw a smaller corpus than the one that was published, and, in
+  the case of `findings` and `open_items`, a corpus that appeared to have no open
+  questions at all. Each now lands as a class or node-shape annotation carrying its tier,
+  and the two governance lists land on the schema itself: `sl:finding_NNN` /
+  `sl:open_item_<id>` annotations in LinkML, an `sl:finding` / `sl:openItem` block on an
+  `sl:Ontology` node in SHACL. A declared or relation hint is the one thing published
+  without a tier, because `ontology.json` gives it none -- it carries its `column_comment`
+  evidence and a note saying it is a catalog hint. `evidence` is the one list still
+  summarized rather than exported whole: every assertion gains `evidence_count` and the
+  first task id (`sl:evidenceCount` / `sl:evidenceTask`), and the statements stay in the
+  JSON. Both exports stay byte-deterministic, and the change is additive -- nothing that
+  was exported before moved or changed spelling.
 - A column comment that points at another table's column is read as a **declared relation
   hint** (O9, P4). The warehouse never declared its foreign keys, but its catalog writers
   wrote them down in prose -- 「关联 <表>.<列>」, 「外键 …」,

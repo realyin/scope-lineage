@@ -417,6 +417,14 @@ the same corpus twice gives the same bytes, for the same reason `ontology.json` 
 | `constraints[].kind = unique_per` | a `unique_keys` entry | an `sl:compositeKey` annotation block, see the limitations below |
 | `constraints[].kind = partition` | one annotation on the slot | an `sh:property` carrying only an `rdfs:comment` |
 | `tier` | `annotations.tier` | `sl:tier` |
+| `entities[].naming_hints` `domain` / `project` / `owner` | one annotation each on the class | `sl:domain` / `sl:project` / `sl:owner` on the node shape |
+| `entities[].identity.declared_hints[]` | one `declared_hint_<column>` annotation per hint, column and text | an `sl:declaredKeyHint` annotation block |
+| `entities[].relation_hints[]` | one `relation_hint_<column>` annotation per hint, resolved target or the reason it is not | an `sl:relationHint` annotation block |
+| `entities[].identity.multiplicity[]` | one `multiplicity_<columns>` annotation, claim and tier | an `sl:multiplicity` annotation block |
+| `entities[].attributes[].synonyms[]` | a `synonyms` list annotation on the slot, each entry with its `via` and tier | an `sl:synonym` annotation block |
+| `findings[]` | a schema-level `sl:finding_NNN` annotation | an `sl:finding` block on the `sl:Ontology` node |
+| `open_items[]` | a schema-level `sl:open_item_<id>` annotation | an `sl:openItem` block on the `sl:Ontology` node |
+| `evidence[]` | `evidence_count` plus `evidence_task`, never the list | `sl:evidenceCount` plus `sl:evidenceTask` |
 
 SQL types map as below, and a parameterized type is matched on its head: `decimal(18,2)`
 is `decimal` and `map<string,string>` is `map`. A type nothing recognizes lands on
@@ -481,10 +489,17 @@ constraint carries its own.
 - **The base IRI is a placeholder** (`https://example.org/scope-lineage/ontology#`). The
   corpus has no namespace of its own, and minting one that looks authoritative would be
   the export inventing a fact; whoever loads the graph replaces it with theirs.
-- **What is not exported**: `findings`, `open_items`, `evidence`, `naming_hints`'
-  `domain` / `project` / `owner`, `identity.declared_hints`, `relation_hints`, `identity.multiplicity` and
-  an attribute's `synonyms` stay in `ontology.json` -- they are governance and metadata
-  material for a reviewer, not schema.
+- **Only `evidence` is summarized rather than exported whole.** Every other slot of
+  `ontology-json/1` reaches both exports: a downstream tool that reads only the export
+  must not end up with a smaller corpus than the one that was published, and `findings`
+  and `open_items` are the sharp case -- an export without them reads as a corpus with no
+  open questions, so they are published on the schema itself. `evidence` is the exception
+  because of size: each assertion carries how much evidence it has and the first task to
+  read, and the statements stay in `ontology.json`.
+- **A metadata hint carries no tier, because the JSON gives it none.** A declared key hint
+  and a relation hint are the catalog's prose, not a corpus assertion; they are published
+  with their `column_comment` evidence and a note saying exactly that, rather than with an
+  invented tier. Every other exported assertion carries its own.
 - **No OWL.** Of the three targets only OWL needs an extra ontological commitment for
   assertions such as cardinality axioms, and that is not a choice an exporter should make
   on its user's behalf.

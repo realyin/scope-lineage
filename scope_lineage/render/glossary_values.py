@@ -117,6 +117,15 @@ COMMENT_SOURCE_COLUMN = "column_comment"
 COMMENT_SOURCE_TABLE = "table_comment"
 COMMENT_SOURCE_SQL = "sql_comment"
 
+# P5. The one meaning candidate that is not a comment: a CASE in the corpus maps this
+# value to a label, which is the warehouse translating its own code.
+CANDIDATE_SOURCE_CASE_LABEL = "case_label"
+
+# P5. What an Agent signs a confirmation with. A meaning confirmed under this prefix is
+# an answer read off the corpus, not an answer a person gave, and the two must stay
+# distinguishable wherever one of them is used as evidence for the next one.
+AGENT_CONFIRMATION_PREFIX = "agent:"
+
 # A one-character code matches almost any sentence by accident ("0" inside "2026"), and
 # one wrong candidate costs more than ten missed ones in a layer whose whole promise is
 # that it does not guess.
@@ -308,12 +317,51 @@ def _case_observations(rule: Mapping, context: dict) -> list[dict]:
     observations: list[dict] = []
     for branch in branches:
         observations.extend(
-            _predicate_observations(
-                rule, branch.get("when"), context, forced=CONTEXT_CASE_CONDITION
+            _labelled(
+                _predicate_observations(
+                    rule, branch.get("when"), context, forced=CONTEXT_CASE_CONDITION
+                ),
+                branch,
             )
         )
     observations.extend(_case_label_observations(rule, branches, context))
     return observations
+
+
+def _labelled(observations: list[dict], branch: Mapping) -> list[dict]:
+    """P5: ``WHEN status = 'A' THEN '有效'`` says what ``'A'`` means, on its own branch.
+
+    The warehouse's own translation of a code, written in the only place it ever wrote
+    one down. It is carried on the observation and becomes a ``case_label`` candidate --
+    a lead like any comment clue, never a meaning.
+
+    Two refusals, each of them a way the label would not be about the value: a THEN
+    that is a column or an expression is a value the row carries, not a name somebody
+    chose; and a label that is code-shaped (``THEN 'X'``) or the value repeated re-codes
+    it rather than defining it.
+
+    A branch testing two columns at once (``WHEN a = 'AA' AND b = 'GG' THEN …``) labels
+    the combination and not either value -- it needs no refusal of its own, because a
+    compound condition produces no observation to label. A branch written as an ``IN``
+    list does label each of its values: they are values of one column, and the CASE
+    says that label for every one of them.
+    """
+    label = semantic_text.parse_expression(branch.get("then"))
+    if not _is_label(label):
+        return observations
+    text = strip_quotes(semantic_text.expression_text(label))
+    for item in observations:
+        if item["kind"] == VALUE_KIND_LITERAL and text.lower() != str(item["value"]).lower():
+            item["case_label"] = text
+    return observations
+
+
+def _is_label(node) -> bool:
+    """A quoted label somebody wrote for a reader: a string, long enough to be a name."""
+    if not isinstance(node, exp.Literal) or not node.args.get("is_string"):
+        return False
+    text = strip_quotes(semantic_text.expression_text(node))
+    return len(text) >= MINIMUM_CANDIDATE_LENGTH and _is_meaning(text)
 
 
 def _case_label_observations(
@@ -729,8 +777,27 @@ def strip_quotes(value) -> str:
     return str(value or "").strip().strip("'\"")
 
 
-def meaning_candidates(value: str, comments: Sequence[Mapping], evidence: str) -> list[dict]:
-    """The comments that spell this value out, deduped and stably ordered.
+def human_confirmed(meaning: Mapping | None) -> bool:
+    """True when a PERSON signed this meaning (P5).
+
+    An ``agent:`` signature is an answer read off the corpus, and the same-name rule --
+    "this value is already confirmed on this column name elsewhere" -- may only rest on
+    a human one. Otherwise one Agent answer becomes its own evidence in the next table.
+    """
+    if not meaning or not str(meaning.get("text") or ""):
+        return False
+    signature = str(meaning.get("confirmed_by") or "")
+    return not signature.startswith(AGENT_CONFIRMATION_PREFIX)
+
+
+def meaning_candidates(
+    value: str,
+    comments: Sequence[Mapping],
+    evidence: str,
+    *,
+    labels: Sequence[Mapping] = (),
+) -> list[dict]:
+    """The evidence that spells this value out, deduped and stably ordered.
 
     Two ways a comment can spell a value out, and a comment answers by the first that
     applies. B6 added the second:
@@ -742,10 +809,22 @@ def meaning_candidates(value: str, comments: Sequence[Mapping], evidence: str) -
     2. *the comment contains the value* -- the rule this layer has always had, kept for
        the sentences a code table's shape does not cover.
 
-    Both are candidates and neither is a meaning: the dictionary keeps asking until a
+    ``labels`` is the third route (P5), the only one that is not a comment: the CASE
+    branches mapping this value to a label (``case_label``), appended after the comment
+    candidates so a field's ``value_domain`` still shows the metadata's answer first.
+
+    All three are candidates and none is a meaning: the dictionary keeps asking until a
     person signs one (``glossary --template`` still lists the value).
     """
-    needle = strip_quotes(value)
+    return _comment_candidates(strip_quotes(value), comments, evidence) + _label_candidates(
+        labels
+    )
+
+
+def _comment_candidates(
+    needle: str, comments: Sequence[Mapping], evidence: str
+) -> list[dict]:
+    """Routes 1 and 2: the comments that spell this value out, deduped and sorted."""
     seen: set = set()
     found: list[dict] = []
     for comment in comments:
@@ -763,6 +842,19 @@ def meaning_candidates(value: str, comments: Sequence[Mapping], evidence: str) -
         seen.add(key)
         found.append(entry)
     return sorted(found, key=lambda item: (item["source"], item["text"], item["evidence"]))
+
+
+def _label_candidates(labels: Sequence[Mapping]) -> list[dict]:
+    """The CASE labels of this value's observations, one per (label, rule)."""
+    found = {
+        (str(item["case_label"]), str(item.get("evidence") or ""))
+        for item in labels
+        if item.get("case_label")
+    }
+    return [
+        {"text": text, "source": CANDIDATE_SOURCE_CASE_LABEL, "evidence": evidence}
+        for text, evidence in sorted(found)
+    ]
 
 
 def _candidate_text(needle: str, comment: Mapping) -> str:
@@ -951,6 +1043,7 @@ def _value_entry(
             value,
             [comment for item in members for comment in item.get("comments") or []],
             str(first.get("evidence") or ""),
+            labels=members,
         ),
         "meaning": None,
     }

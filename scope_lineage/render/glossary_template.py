@@ -33,6 +33,12 @@ different claim from knowing what any of its values mean.
 ``--template-top`` still counts VALUES, so the cut can land inside a column; the columns
 before it are whole, and ``0`` means no cut at all -- single-value columns included. Ranking is a total order over data
 the dictionary already carries, so two runs of one corpus produce the same bytes.
+
+P5 adds the 候选来源 column and one ranking key in front of the score: which of the three
+evidence kinds each value carries (``comment`` / ``case_label`` / ``same_name_confirmed``
+/ ``—``), and the columns carrying any of them first. Those are the rows somebody can
+close by reading instead of by asking a business owner, which is the whole point of
+printing the evidence next to the question.
 """
 
 from __future__ import annotations
@@ -103,9 +109,17 @@ _PREAMBLE = (
 )
 
 _TABLE_HEADER = (
-    "| 取值 | 写法 | 出现任务数 | 观察次数 | 注释线索 | 含义（待填） |",
-    "| --- | --- | --- | --- | --- | --- |",
+    "| 取值 | 写法 | 出现任务数 | 观察次数 | 注释线索 | 候选来源 | 含义（待填） |",
+    "| --- | --- | --- | --- | --- | --- | --- |",
 )
+
+# P5. The three kinds of evidence a reviewer (or an Agent following
+# `references/glossary-review-prompt.md`) may answer a value FROM, printed per value so
+# the form says which rows can be closed without asking anybody.
+EVIDENCE_COMMENT = "comment"
+EVIDENCE_CASE_LABEL = glossary_values.CANDIDATE_SOURCE_CASE_LABEL
+EVIDENCE_SAME_NAME = "same_name_confirmed"
+EVIDENCE_NONE = "—"
 
 _CLOSED_NOTE = "- 该列取值已被 SQL 证明封闭：{answer}"
 
@@ -160,11 +174,12 @@ def _selection(glossary: Mapping, top: int) -> dict:
     physical = [item for item in unanswered if _is_physical(item)]
     askable = [item for item in physical if not _is_trivial(str(item.get("value") or ""))]
     clues = _clue_columns(glossary.get("terms") or [])
+    confirmed = same_name_confirmed(glossary)
     ranked = [
         entry
         for _key, entries in sorted(
             _by_column(askable, keep_single=top <= 0).items(),
-            key=lambda pair: _column_rank(pair[0], pair[1], clues),
+            key=lambda pair: _column_rank(pair[0], pair[1], clues, confirmed),
         )
         for entry in entries
     ]
@@ -199,8 +214,44 @@ def _by_column(entries: Sequence[Mapping], *, keep_single: bool = False) -> dict
     }
 
 
-def _column_rank(column: str, entries: Sequence[Mapping], clues: frozenset) -> tuple:
-    """How much of the corpus rests on this column, highest first, ties broken by name."""
+def same_name_confirmed(glossary: Mapping) -> frozenset:
+    """``(column name, value)`` pairs a PERSON has already confirmed somewhere (P5).
+
+    The same-name rule of the review prompt: ``pay_status='PAID'`` answered on one table
+    is evidence for the identically named column of another. Only a human confirmation
+    counts -- an Agent's own answer spreading itself across the corpus would be the
+    layer confirming its own inference.
+    """
+    return frozenset(
+        (str(entry.get("column")), str(entry.get("value")))
+        for entry in glossary.get("values") or []
+        if glossary_values.human_confirmed(entry.get("meaning"))
+    )
+
+
+def evidence_kinds(entry: Mapping, confirmed: frozenset) -> list[str]:
+    """Which of the three evidence kinds this one value carries, in reading order."""
+    sources = {str(item.get("source")) for item in entry.get("meaning_candidates") or []}
+    kinds = []
+    if sources - {EVIDENCE_CASE_LABEL}:
+        kinds.append(EVIDENCE_COMMENT)
+    if EVIDENCE_CASE_LABEL in sources:
+        kinds.append(EVIDENCE_CASE_LABEL)
+    if (str(entry.get("column")), str(entry.get("value"))) in confirmed:
+        kinds.append(EVIDENCE_SAME_NAME)
+    return kinds
+
+
+def _column_rank(
+    column: str, entries: Sequence[Mapping], clues: frozenset, confirmed: frozenset
+) -> tuple:
+    """How much of the corpus rests on this column, highest first, ties broken by name.
+
+    P5 puts one key in front of the score: a column any of whose values carries evidence
+    is asked first. Those are the rows a reviewer can close by reading rather than by
+    asking, so they are the cheapest part of the form -- and the score keeps deciding
+    everything else, exactly as it did.
+    """
     contexts = {
         str(item.get("context"))
         for entry in entries
@@ -213,7 +264,8 @@ def _column_rank(column: str, entries: Sequence[Mapping], clues: frozenset) -> t
         + (_CASE_THEN_WEIGHT if glossary_values.CONTEXT_CASE_THEN in contexts else 0)
         + (_COMMENT_CLUE_WEIGHT if column.rpartition(".")[2] in clues else 0)
     )
-    return (-score, column)
+    evidence = any(evidence_kinds(entry, confirmed) for entry in entries)
+    return (0 if evidence else 1, -score, column)
 
 
 def _value_rank(entry: Mapping) -> tuple:
@@ -276,9 +328,14 @@ def render_overrides_template_markdown(template: Mapping, glossary: Mapping) -> 
     if not entries:
         lines.append(EMPTY_TEMPLATE_NOTE)
         return "\n".join(lines) + "\n"
+    confirmed = same_name_confirmed(glossary)
     for column in _dedupe(item["column_ref"] for item in entries):
         lines.extend(
-            _column_section(column, [item for item in entries if item["column_ref"] == column])
+            _column_section(
+                column,
+                [item for item in entries if item["column_ref"] == column],
+                confirmed,
+            )
         )
     return "\n".join(lines).rstrip("\n") + "\n"
 
@@ -292,7 +349,9 @@ def _exclusion_note(template: Mapping) -> str:
     )
 
 
-def _column_section(column: str, entries: Sequence[Mapping]) -> list[str]:
+def _column_section(
+    column: str, entries: Sequence[Mapping], confirmed: frozenset
+) -> list[str]:
     closed = "是" if any(item.get("closed_set") for item in entries) else "未证明"
     # WI-B: the person filling this in searches their SQL for the name they typed, which
     # under a positional write is not the column name this section is headed by.
@@ -303,18 +362,20 @@ def _column_section(column: str, entries: Sequence[Mapping]) -> list[str]:
         _CLOSED_NOTE.format(answer=closed),
         "",
         *_TABLE_HEADER,
-        *[_row(item) for item in entries],
+        *[_row(item, confirmed) for item in entries],
         "",
     ]
 
 
-def _row(entry: Mapping) -> str:
+def _row(entry: Mapping, confirmed: frozenset) -> str:
+    kinds = evidence_kinds(entry, confirmed)
     return (
         f"| {_expr_span(str(entry['value']))} "
         f"| {_expr_span(str(entry.get('sql_literal') or entry['value']))} "
         f"| {entry.get('task_count') or 0} "
         f"| {len(entry.get('observations') or [])} "
-        f"| {_cell(_candidate_text(entry))} |  |"
+        f"| {_cell(_candidate_text(entry))} "
+        f"| {_cell('、'.join(kinds) if kinds else EVIDENCE_NONE)} |  |"
     )
 
 

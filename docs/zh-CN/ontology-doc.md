@@ -383,6 +383,14 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
 | `constraints[].kind = unique_per` | `unique_keys` 条目 | `sl:compositeKey` 注解块，见下方限制 |
 | `constraints[].kind = partition` | slot 上的一条注解 | 只带 `rdfs:comment` 的 `sh:property` |
 | `tier` | `annotations.tier` | `sl:tier` |
+| `entities[].naming_hints` 的 `domain` / `project` / `owner` | class 上各一条注解 | 节点形状上的 `sl:domain` / `sl:project` / `sl:owner` |
+| `entities[].identity.declared_hints[]` | 每条一个 `declared_hint_<列>` 注解，带列与注释原文 | 一个 `sl:declaredKeyHint` 注解块 |
+| `entities[].relation_hints[]` | 每条一个 `relation_hint_<列>` 注解，带解析到的对端或未解析原因 | 一个 `sl:relationHint` 注解块 |
+| `entities[].identity.multiplicity[]` | 一条 `multiplicity_<列>` 注解，带 claim 与层级 | 一个 `sl:multiplicity` 注解块 |
+| `entities[].attributes[].synonyms[]` | slot 上的 `synonyms` 列表注解，每条带 `via` 与层级 | 一个 `sl:synonym` 注解块 |
+| `findings[]` | schema 级的 `sl:finding_NNN` 注解 | `sl:Ontology` 节点上的 `sl:finding` 块 |
+| `open_items[]` | schema 级的 `sl:open_item_<id>` 注解 | `sl:Ontology` 节点上的 `sl:openItem` 块 |
+| `evidence[]` | `evidence_count` 加 `evidence_task`，不写整份列表 | `sl:evidenceCount` 加 `sl:evidenceTask` |
 
 SQL 类型按下表映射，带参数的类型只看头部：`decimal(18,2)` 当 `decimal`，`map<string,string>`
 当 `map`。认不出来的类型落到 `string`，而不是把这一列丢掉——语料多半不知道物理表的类型。
@@ -437,10 +445,14 @@ SQL 类型按下表映射，带参数的类型只看头部：`decimal(18,2)` 当
   身份。
 - **基 IRI 是占位符**（`https://example.org/scope-lineage/ontology#`）。语料没有自己的命名空间，
   编一个看起来权威的出来就是导出在编事实；入图的人把它换成自己的。
-- **不导出的部分**：`findings`、`open_items`、`evidence`、`naming_hints` 的
-  `domain` / `project` / `owner`，以及 `identity.declared_hints`、`relation_hints`、`identity.multiplicity`
-  和属性的 `synonyms`，都留在 `ontology.json` 里——它们是给人复核的治理与元数据信息，
-  不是 schema。
+- **只有 `evidence` 是摘要导出，不写整份。** `ontology-json/1` 的其余槽位全部进两种导出：
+  只读导出的下游工具，不该拿到一份比发布出来更小的语料；`findings` 与 `open_items` 是其中
+  最要紧的一类——导出里没有它们，读起来就是「这份语料没有待判定的问题」，所以它们挂在 schema
+  自己身上。`evidence` 是唯一的例外，理由是体量：每条断言带上证据条数与第一个任务名，具体语句
+  留在 `ontology.json` 里。
+- **元数据线索不带层级，因为 JSON 本来就没给。** 声明键线索与关系线索都是元数据写下的散文，
+  不是语料的断言；导出带上它们的 `column_comment` 证据与一句「这是元数据线索」，而不是编一个
+  层级出来。其余每一条导出的断言都带着自己的层级。
 - **不产 OWL。** 三种目标里只有 OWL 需要为「基数公理」这类断言额外选一套本体论承诺，这件事
   不该由导出器替使用者决定。
 

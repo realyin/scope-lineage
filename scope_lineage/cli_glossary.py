@@ -181,6 +181,8 @@ def _report(
         f"value observation(s) from {glossary['corpus']['task_count']} task(s) "
         f"(overrides terms={applied['terms']}, values={applied['values']}, "
         f"blank={applied['blank']}, unmatched={len(applied['unmatched'])}, "
+        f"rejected={len(applied['rejected'])}, "
+        f"ignored_fields={len(applied['ignored_fields'])}, "
         f"{counters})"
     )
     if template is not None:
