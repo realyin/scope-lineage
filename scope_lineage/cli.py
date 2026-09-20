@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import traceback
+from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +26,7 @@ from .contract import write_task_lineage
 from .corpus_cache import add_incremental_arguments, open_cache
 from .metadata.schema_metadata import load_schema, load_schema_sources
 from .metadata.target_table_metadata import load_target_table_metadata
+from .scope.expansion_budget import EXPANSION_MAX_SUBSTITUTIONS
 from .scope.task_lineage import parse_task_lineage
 
 
@@ -55,7 +57,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     input_group.add_argument(
         "--input-dir",
-        help="Directory of task JSON files; files are discovered recursively",
+        action="append",
+        help=(
+            "Directory of task JSON files; files are discovered recursively. "
+            "Repeatable: each directory is walked in the order given and a file named "
+            "by more than one of them is parsed once"
+        ),
     )
     parse_cmd.add_argument(
         "--include-glob",
@@ -101,8 +108,21 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "A reviewed metadata-patch/1 file: confirmed table and column comments that "
             "override the schema and the target DDL. Repeatable; later files win. "
-            "Patched entries are marked (comment_source / patch_applied) and keys that "
-            "match nothing are reported rather than dropped"
+            "Patched entries are marked (comment_source / patch_applied), their "
+            "comments are redacted like any other (--no-redact-comments), and keys "
+            "that match nothing are reported rather than dropped"
+        ),
+    )
+    parse_cmd.add_argument(
+        "--expansion-limit",
+        type=int,
+        default=None,
+        help=(
+            "How many upstream expressions may be inlined into one expanded_expression "
+            f"before the capacity guard stops (default: {EXPANSION_MAX_SUBSTITUTIONS}). "
+            "A task that hits it ends partial with an expression_expansion_bounded gap "
+            "naming the limit; raise it to expand deeper nesting at the cost of a "
+            "larger artifact"
         ),
     )
     parse_cmd.add_argument(
@@ -184,6 +204,11 @@ def main(argv: list[str] | None = None) -> int:
             parser.error("--task-name cannot be used with --input-dir")
         if (args.include_glob or args.exclude_glob) and not args.input_dir:
             parser.error("--include-glob/--exclude-glob require --input-dir")
+        if getattr(args, "expansion_limit", None) is not None and args.expansion_limit < 1:
+            parser.error(
+                "--expansion-limit must be a positive number of substitutions, got "
+                f"{args.expansion_limit}"
+            )
         if getattr(args, "partition_overwrite_mode", None) is not None:
             # Validated here rather than per input: one bad value is one error, not one
             # per task. `nonstrict` is the neighbouring Hive key's value and the
@@ -262,8 +287,9 @@ def _add_parse_policy_arguments(parse_cmd) -> None:
         action="store_true",
         help=(
             "Publish the comments exactly as written. By default an email address, a "
-            "phone number or an ID number inside a comment (and inside the task "
-            "description) is replaced by <email>/<phone>/<id>; the rest of the text is "
+            "phone number or an ID number inside a comment (the SQL author's, the "
+            "schema's, a --metadata-patch answer, and the task description) is replaced "
+            "by <email>/<phone>/<id>; the rest of the text is "
             "kept either way. Shape matching, so neither exhaustive nor certain -- use "
             "--strip-comments when no comment may leave the machine"
         ),
@@ -818,6 +844,17 @@ def _patch_report(patch) -> str:
     )
 
 
+class _SourceFile(NamedTuple):
+    """One input file and the ``--input-dir`` it was discovered under (None for a file).
+
+    The root travels with the file rather than with the run: ``--input-dir`` is
+    repeatable, so "relative to the input root" only has an answer per file.
+    """
+
+    path: Path
+    root: Path | None
+
+
 @dataclass(frozen=True)
 class _TaskInput:
     source_path: Path
@@ -871,22 +908,26 @@ def _parse_inputs(args: argparse.Namespace) -> int:
     )
     # WI-2.6. Applied to each statement document by the same function
     # `describe --metadata-patch` uses, so the two paths publish one document.
+    # The answers are masked as they are read, under the same switch the SQL author's
+    # comments obey: the patch lands after `parse_task_lineage` has already redacted what
+    # it loaded, so an unmasked patch would be the one comment published verbatim.
     from .metadata.metadata_patch import MetadataPatchError, load_metadata_patch
 
     try:
-        patch = load_metadata_patch(getattr(args, "metadata_patch", None))
+        patch = load_metadata_patch(
+            getattr(args, "metadata_patch", None),
+            redact_comments=not bool(getattr(args, "no_redact_comments", False)),
+        )
     except MetadataPatchError as error:
         print(str(error), file=sys.stderr)
         return 2
     out_root = Path(args.out)
-    source_paths, input_root = _source_paths(args)
     return _parse_task_inputs_v2(
         args,
         schema=schema,
         target_metadata=target_metadata,
         out_root=out_root,
-        source_paths=source_paths,
-        input_root=input_root,
+        source_files=_source_paths(args),
         metadata_patch=patch,
     )
 
@@ -896,8 +937,7 @@ def _parse_task_inputs_v2(
     schema,
     target_metadata,
     out_root: Path,
-    source_paths: list[Path],
-    input_root: Path | None,
+    source_files: list["_SourceFile"],
     metadata_patch=None,
 ) -> int:
     from .metadata.metadata_patch import apply_metadata_patch_to_statements
@@ -908,6 +948,8 @@ def _parse_task_inputs_v2(
     failed_count = 0
     input_failed_count = 0
     partial_task_count = 0
+    partial_reason_counts: Counter = Counter()
+    capacity_guard_count = 0
     unsupported_mutation_count = 0
     root_gap_result_count = 0
     binding_fallback_count = 0
@@ -918,7 +960,7 @@ def _parse_task_inputs_v2(
     covered_tables: set[str] = set()
     missing_referencers: dict[str, set[str]] = {}
 
-    for source_path in source_paths:
+    for source_path, input_root in source_files:
         try:
             task = _load_task_input(source_path, input_root, args.task_name)
             result = parse_task_lineage(
@@ -931,6 +973,7 @@ def _parse_task_inputs_v2(
                 task_meta=task.task_meta,
                 strip_comments=bool(getattr(args, "strip_comments", False)),
                 redact_comments=not bool(getattr(args, "no_redact_comments", False)),
+                expansion_limit=getattr(args, "expansion_limit", None),
             )
             if metadata_patch:
                 apply_metadata_patch_to_statements(
@@ -981,6 +1024,20 @@ def _parse_task_inputs_v2(
                 for item in result.statements
             )
             partial_task_count += result.analysis_status.get("status") == "partial"
+            if result.analysis_status.get("status") == "partial":
+                # The task's own answer to "why", not a second derivation of it: the same
+                # reasons `analysis_status.blocking_reasons` publishes, one count per task.
+                partial_reason_counts.update(
+                    str(reason)
+                    for reason in result.analysis_status.get("blocking_reasons") or []
+                )
+            # One per task, not per gap: the operator's next move is to re-run the task
+            # with a larger --expansion-limit, and a task is what gets re-run.
+            capacity_guard_count += any(
+                gap.get("gap_bucket") == "capacity_guard"
+                for gap in result.diagnostics.get("lineage_fact_gaps", [])
+                if isinstance(gap, dict)
+            )
             unsupported_mutation_count += sum(
                 item.get("category") == "row_mutation"
                 and item.get("model_status") != "modeled"
@@ -1013,7 +1070,7 @@ def _parse_task_inputs_v2(
             referenced_tables=referenced_tables,
             covered_tables=covered_tables,
             missing_referencers=missing_referencers,
-            input_count=len(source_paths),
+            input_count=len(source_files),
             input_failed_count=input_failed_count,
         )
         print(
@@ -1038,7 +1095,7 @@ def _parse_task_inputs_v2(
                 referenced_tables=referenced_tables,
                 covered_tables=covered_tables,
                 missing_referencers=missing_referencers,
-                input_count=len(source_paths),
+                input_count=len(source_files),
                 input_failed_count=input_failed_count,
             )
             detail = f"list written to {manifest_path}"
@@ -1058,14 +1115,16 @@ def _parse_task_inputs_v2(
             f"{len(metadata_patch.sources)} file(s), unmatched={len(unmatched)}{detail}"
         )
     print(
-        f"Parsed {statement_count} statement(s) from {len(source_paths)} input(s) "
+        f"Parsed {statement_count} statement(s) from {len(source_files)} input(s) "
         f"into {out_root} using contract 2.0 "
         f"(tasks={task_count}, modeled={modeled_count}, failed={failed_count}, "
         f"input_failed={input_failed_count}, partial_tasks={partial_task_count}, "
         f"unsupported_mutations={unsupported_mutation_count}, "
         f"root_gap_results={root_gap_result_count}, "
         f"binding_fallbacks={binding_fallback_count}, "
-        f"recovered_syntax={recovered_syntax_count})"
+        f"recovered_syntax={recovered_syntax_count}"
+        f"{_capacity_guard_report(capacity_guard_count)}"
+        f"{_partial_reasons_report(partial_reason_counts)})"
     )
     quality_failed = _quality_gate_failed(
         args,
@@ -1079,6 +1138,29 @@ def _parse_task_inputs_v2(
     if quality_failed:
         return 1
     return 0 if args.allow_partial else 1
+
+
+def _capacity_guard_report(count: int) -> str:
+    """The tasks whose expansion stopped at the guard, or nothing when none did.
+
+    Said only when it happened: a counter that is always zero is a counter nobody reads,
+    and this one is the cue to re-run with a larger --expansion-limit.
+    """
+    return f", capacity_guard={count}" if count else ""
+
+
+def _partial_reasons_report(counts: Counter) -> str:
+    """What the partial tasks were blocked on, commonest first, or nothing.
+
+    ``partial_tasks=7`` is not actionable on its own -- seven read-only SELECTs and seven
+    lineage gaps are the same number and different work. Ties break on the reason's name
+    so two runs over the same corpus print the same line.
+    """
+    if not counts:
+        return ""
+    ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    breakdown = ",".join(f"{reason}:{count}" for reason, count in ordered)
+    return f", partial_reasons={breakdown}"
 
 
 def _write_metadata_gap_manifest(
@@ -1166,12 +1248,31 @@ def _quality_gate_failed(
     )
 
 
-def _source_paths(args: argparse.Namespace) -> tuple[list[Path], Path | None]:
+def _source_paths(args: argparse.Namespace) -> list[_SourceFile]:
+    """Every input file to parse, each paired with the directory it was found under.
+
+    ``--input-dir`` is repeatable, so the root is per file rather than per run: the
+    output tree mirrors each file's position under *its own* directory, and a task
+    dependency names its source relative to the same root. Directories are walked in the
+    order given and a file two of them both name -- a parent and its own subdirectory,
+    or one tree spelled two ways -- is parsed once, under the first root that named it.
+    """
     if args.sql_file:
-        return [Path(args.sql_file)], None
+        return [_SourceFile(Path(args.sql_file), None)]
     if args.task_file:
-        return [Path(args.task_file)], None
-    input_root = Path(args.input_dir)
+        return [_SourceFile(Path(args.task_file), None)]
+    found: dict[Path, _SourceFile] = {}
+    for raw in args.input_dir:
+        for item in _directory_source_files(raw, args):
+            found.setdefault(item.path.resolve(), item)
+    return list(found.values())
+
+
+def _directory_source_files(
+    raw: str, args: argparse.Namespace
+) -> list[_SourceFile]:
+    """One directory's matching files, in path order; empty is refused, not ignored."""
+    input_root = Path(raw)
     if not input_root.is_dir():
         raise ValueError(f"task input directory does not exist: {input_root}")
     includes = args.include_glob or ["*.json"]
@@ -1187,7 +1288,7 @@ def _source_paths(args: argparse.Namespace) -> tuple[list[Path], Path | None]:
             "task input directory contains no JSON files matching the configured globs: "
             f"{input_root}"
         )
-    return paths, input_root
+    return [_SourceFile(path, input_root) for path in paths]
 
 
 def _load_task_input(

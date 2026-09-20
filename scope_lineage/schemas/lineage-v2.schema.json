@@ -125,6 +125,7 @@
               "projection_write",
               "conditional_write",
               "row_mutation",
+              "relation_mutation",
               "control_statement",
               "empty_statement",
               "unsupported_statement"
@@ -223,6 +224,10 @@
               },
               "known_empty": {
                 "type": "boolean"
+              },
+              "known_dropped": {
+                "type": "boolean",
+                "description": "仅在为 true 时出现。该状态是一次 DROP TABLE / DROP VIEW 留下的：关系本身已不存在，不是「表还在、行被清空」(那是 known_empty)。此状态没有任何字段条目，end_to_end_lineage 中也不会出现。消费者按 catalog 对账 final_table_states 时,指向本字段为 true 的状态的表应视为「已删除」。"
               },
               "columns_known": {
                 "type": "boolean"

@@ -14,7 +14,7 @@ lineage_digest: "b61fff94e3fe4f30"
 - 目标表：`mart.customer_profile`（表注释：注释未知）（元数据事实）
 - 语句类型：MERGE；无分区（SQL事实）
 - 目标表元数据来源：schema（元数据事实）
-- 结构摘要：ROOT 不直接读取物理表；关联 1 个上游（1 个其他）；输出 3 列。（结构推断；证据 scope_profile）
+- 结构摘要：行来源 ods.customer_delta（经 subq:source）；关联 1 个上游（1 个其他）；输出 3 列。（结构推断；证据 scope_profile）
 
 共 1 张输入表（角色为结构推断，其余为 SQL/元数据事实）：
 

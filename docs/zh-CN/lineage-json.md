@@ -879,6 +879,8 @@ scope-lineage validate --lineage /path/to/corpus
 
 **元数据里的注释走同一条规则（E1）**：`--schema` / `--target-ddl-metadata` 读进来的列注释与表级文字也是人写的、也随产物发布，因此在 `related_metadata` 组装处一次性过同一个遮蔽——`related_metadata.*.column_details[].comment`、`declared_columns[].comment`、`table_metadata.table_desc` / `table_name_cn`，以及 `scopes[].inputs[]` 里同源的那一份（`used_columns[].comment`、`source_metadata`）。`--no-redact-comments` 同时关掉这两类。`table_metadata` 的其余键（业务域、项目、负责人、分层、来源文件）是导出侧的标识与分类，不做改写——改一位数字是损坏事实，不是保护人。
 
+**人工确认回写的注释也一样**：`--metadata-patch` 里的 `columns[].comment` 与 `tables[].table_name_cn` / `table_desc` 在读入补丁时就过一遍同一个遮蔽。补丁是在解析之后才覆盖上去的，若不在此处遮蔽，唯一逃过遮蔽的就恰好是人工写下的那条注释——而复核文件正是有人会顺手写上联系方式的地方。`--no-redact-comments` 同样关掉它。
+
 SQL 表达式本身不被改动：`WHERE id_no = '110101199003078219'` 是这条语句操作的数据，改了就改变了 SQL 的含义。
 
 **遮蔽是形态匹配，不是识别，也不保证穷尽。** 写法稍有不同的号码会漏过去（分隔符、全角数字、写成文字的地址），而一串业务编码只要恰好符合身份证形态（6 位非零开头的地区码 + 合法出生日期）也会被遮掉——位数本身不构成形态，所以 `123456789012345` 这样的流水号原样保留。它降低误发概率，不构成合规保证；要求"注释绝不出境"时用 §18.4 的整体关闭。

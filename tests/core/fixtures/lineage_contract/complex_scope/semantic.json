@@ -52,6 +52,7 @@
       "owner": null,
       "layer": null,
       "role_in_task": "driving",
+      "driving": true,
       "roles": [
         "driving",
         "aggregate_source",
@@ -106,6 +107,7 @@
       "owner": null,
       "layer": null,
       "role_in_task": "driving",
+      "driving": true,
       "roles": [
         "driving",
         "union_branch"

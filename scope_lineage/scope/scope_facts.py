@@ -2198,6 +2198,7 @@ def _resolve_internal_scope_expression_resolution(result: ScopeLineageResult) ->
             output.expanded_expression = expanded_expression
             output.expansion_status = budget.status
             output.expansion_stop_reason = budget.stop_reason
+            output.expansion_limit = budget.stop_limit
             output.unexpanded_refs = list(budget.skipped_refs)
             status = "resolved" if not missing_reasons else "partially_resolved"
             source_anchor = {}

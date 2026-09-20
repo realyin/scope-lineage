@@ -347,6 +347,103 @@ def test_the_markdown_marks_a_confirmed_comment_as_one(tmp_path: Path) -> None:
     assert "- 目标注释：注释未知" in markdown
 
 
+# ------------------------------------------------------- the patch is text a person wrote
+
+
+#: A reviewer answers a 待确认清单 question in prose, so the answer carries whatever the
+#: reviewer happened to type -- including the on-call contact they meant as a courtesy.
+#: The table fact carries a phone rather than an address because a table fact containing
+#: ``@`` is refused outright by the shared normalizer (``schema_metadata._table_fact``),
+#: so an address never reaches the redaction step there; a phone does.
+CONTACT_PATCH = {
+    "doc_format": "metadata-patch/1",
+    "tables": {"ods.app_order": {"table_desc": "口径问题联系 13800000000"}},
+    "columns": {"ods.app_order.order_id": {"comment": "订单号，负责人 someone@example.com"}},
+}
+
+
+def _declared(metadata: dict, table: str, column: str) -> dict:
+    details = metadata["input_tables"][table]["declared_columns"]
+    return next(item for item in details if item["name"] == column)
+
+
+def test_a_patched_comment_is_masked_like_every_other_comment(
+    tmp_path: Path, capsys
+) -> None:
+    """A schema comment is redacted on its way out; a patch comment is the same text.
+
+    The patch is applied after ``parse_task_lineage`` has already redacted what it
+    loaded, so an answer written back through ``--metadata-patch`` was the one comment
+    that reached the artifact unmasked -- the reviewed file being exactly where a person
+    writes down a colleague's address.
+    """
+    patch = _write(tmp_path / "patch.json", CONTACT_PATCH)
+
+    task = _parse(tmp_path, "out", "--metadata-patch", str(patch))
+    report = capsys.readouterr().out
+
+    metadata = _statement(task)["related_metadata"]
+    assert _column(metadata, "input_tables", "ods.app_order", "order_id")["comment"] == (
+        "订单号，负责人 <email>"
+    )
+    assert _declared(metadata, "ods.app_order", "order_id")["comment"] == (
+        "订单号，负责人 <email>"
+    )
+    assert metadata["input_tables"]["ods.app_order"]["table_metadata"]["table_desc"] == (
+        "口径问题联系 <phone>"
+    )
+    # Masking rewrites the answer, never the key it answers to.
+    assert "unmatched=0" in report
+
+
+def test_the_patched_comment_still_says_it_came_from_the_patch(tmp_path: Path) -> None:
+    patch = _write(tmp_path / "patch.json", CONTACT_PATCH)
+
+    task = _parse(tmp_path, "out", "--metadata-patch", str(patch))
+
+    detail = _column(
+        _statement(task)["related_metadata"], "input_tables", "ods.app_order", "order_id"
+    )
+    assert detail["comment_source"] == "patch"
+
+
+def test_the_patch_reaches_field_usage_masked_too(tmp_path: Path) -> None:
+    """The same answer seen from the other end may not be the unmasked copy."""
+    patch = _write(tmp_path / "patch.json", CONTACT_PATCH)
+
+    task = _parse(tmp_path, "out", "--metadata-patch", str(patch))
+
+    statement = _statement(task)
+    used = [
+        detail
+        for scope in statement["scopes"].values()
+        for block in [scope, *(scope.get("logic_blocks") or [])]
+        for usage in block.get("field_usage") or []
+        for detail in usage.get("used_field_details") or []
+        if detail.get("name") == "order_id"
+    ]
+    assert used and all(item["comment"] == "订单号，负责人 <email>" for item in used)
+
+
+def test_no_redact_comments_publishes_the_patch_exactly_as_written(
+    tmp_path: Path,
+) -> None:
+    """One switch, one answer: the flag that keeps SQL comments verbatim keeps these."""
+    patch = _write(tmp_path / "patch.json", CONTACT_PATCH)
+
+    task = _parse(
+        tmp_path, "out", "--metadata-patch", str(patch), "--no-redact-comments"
+    )
+
+    metadata = _statement(task)["related_metadata"]
+    assert _column(metadata, "input_tables", "ods.app_order", "order_id")["comment"] == (
+        "订单号，负责人 someone@example.com"
+    )
+    assert metadata["input_tables"]["ods.app_order"]["table_metadata"]["table_desc"] == (
+        "口径问题联系 13800000000"
+    )
+
+
 # ------------------------------------------------------------- unmatched and misuse
 
 

@@ -17,6 +17,70 @@
   the same column lands on another table, it reports a `relation_hint_conflict` finding. A
   table whose comments point at nothing publishes exactly what it did before: no
   `relation_hints` key and no 「注释线索」 sub-block in section 8 of its card.
+- The driving path answers for **every output shape** (P3). `task.driving_tables[]` used
+  to be empty whenever ROOT aggregated or deduplicated, and for every MERGE, which on a
+  real corpus left most statements with nothing to say about where their rows came from.
+  An aggregated one's `structural_summary` opened with whatever table happened to be read
+  first -- usually the lookup joined onto the real source. A GROUP BY still has a row
+  source, so the same walk now descends from the aggregating or deduplicating scope's
+  left-most FROM item, and from a MERGE's USING relation, and names the physical
+  table(s) it ends at. Roles are untouched -- those inputs keep `aggregate_source` /
+  `dedup_source` / `merge_source`, which is the more specific thing to call them -- and
+  the path fact is published beside the role as `inputs[].driving: true`, present only
+  on the tables the path reaches. `structural_summary` now opens by shape: 「按 <粒度键>
+  汇总，行来自 <表>（经 …）；补充 …」 for an aggregate, 「全表汇总，行来自 …」 for an empty grouping set, 「按 <键>
+  去重，行来自 …」 for a dedup; a projection keeps its 「行来源 …」 sentence. A row-shape hypothesis
+  (B3's `grain.candidate`) is still offered only where the rows are counted from a
+  table, so a MERGE gains a row source without gaining a guess at its row count.
+- `DROP TABLE [IF EXISTS] t` and `DROP VIEW v` are modelled table-state events instead of
+  an unmodeled data change. On a real corpus every task left `partial` with
+  `blocking_reasons: ["unsupported_data_change"]` was the recreate pattern
+  `DROP TABLE IF EXISTS t; CREATE TABLE t AS SELECT ...` -- the CTAS half was always
+  modelled, and the DROP downgraded the whole task even though dropping a relation is a
+  state this document can state exactly. Such a statement now carries `stmt_kind: DROP`,
+  the new `category: relation_mutation` and `model_status: modeled`, with
+  `effect.rowset_effect.operation: DROP_RELATION`, and it produces a state transition
+  (`effect: DROP`) whose node is marked `known_dropped: true` -- a new optional node field,
+  present only when true, that says the relation is gone rather than merely emptied
+  (`known_empty`). The dropped state carries no columns, so it contributes no
+  `end_to_end_lineage` rows and a statement writing the same name afterwards inherits no
+  `prior_table_state` passthrough from it; the drop stays in the `table_state_graph`
+  history while the later statement's state becomes the final one, exactly the way
+  TRUNCATE-then-INSERT already composes. A DROP of a table nothing else touches ends
+  `known_dropped`, which consumers must exclude when reconciling `final_table_states`
+  against a catalogue. No warning is raised for a modelled DROP.
+  `DROP DATABASE`, `DROP FUNCTION` and `ALTER` stay `unsupported_data_change`: their
+  extent is not something the document can describe.
+- A comment written back through `--metadata-patch` is redacted like every other comment.
+  The patch is applied after `parse_task_lineage` has already masked the SQL author's
+  comments and the ones loaded from `--schema` / `--target-ddl-metadata`, so a reviewed
+  answer was the one comment reaching the artifact verbatim -- and a reviewed file is
+  precisely where somebody writes a colleague's address down. The masking now happens
+  where the patch is read, so every surface it writes to agrees: `column_details[]`,
+  `declared_columns[]`, the `field_usage` copy, and `table_metadata.table_name_cn` /
+  `table_desc`. `parse --no-redact-comments` publishes them verbatim with the rest; the
+  patch's keys are untouched either way, so `unmatched` is unchanged.
+- `parse --input-dir` is repeatable. A second directory used to replace the first
+  silently, so a corpus spread across two trees was parsed by half and reported success.
+  Every directory is now walked, in the order given, with `--include-glob` /
+  `--exclude-glob` applied to each; a file named by more than one of them (a parent and
+  its own subdirectory, or one tree spelled two ways) is parsed once, under the first
+  directory that named it. Each file's relative parent -- and its
+  `task_dependencies[].source_file` -- is taken against its own `--input-dir`.
+- `parse --expansion-limit N` raises the expression-expansion substitution guard, and the
+  gap that guard produces now names the number it stopped at. A task that hits the guard
+  ends `partial` with an `expression_expansion_bounded` / `capacity_guard` gap, which used
+  to say only which guard had fired: the reader could not tell what the limit was, nor
+  that anything could be done about it. `needed_fact` now reads "the max_substitutions
+  guard stopped at N, raise it with `parse --expansion-limit N`" and
+  `evidence_summary.expansion_limit` carries `{guard, limit, raised_by}`. The flag
+  defaults to today's constant, so an artifact produced without it is unchanged, and the
+  limit applies to one call only (`parse_task_lineage(expansion_limit=...)`). The run's
+  summary gains `capacity_guard=N`, the number of tasks that hit it, when any did.
+- The `parse` summary says why its partial tasks are partial. Beside `partial_tasks=N` it
+  now prints `partial_reasons=lineage_fact_gap:2,unsupported_statement:1`, counted from
+  each task's own `analysis_status.blocking_reasons` -- one count per task per reason,
+  commonest first, ties broken by name. Omitted when no task came back partial.
 - The incremental fact cache stores a **projection** of each task's semantic profile
   instead of the whole thing (`corpus-cache/2`, P2). A profile is mostly the reader-facing
   half of the view -- `stages`, `confidence`, every field's step-by-step `derivation` --

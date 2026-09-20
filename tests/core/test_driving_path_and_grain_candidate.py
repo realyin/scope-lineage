@@ -272,3 +272,176 @@ def test_an_undecided_grain_without_a_candidate_keeps_the_bare_verdict() -> None
 
     assert "未能判定" in line
     assert "候选" not in line
+
+
+# --------------------------------- P3: the driving path applies to every shape (B2)
+
+# An aggregated ROOT has a row *source* even though its row *count* is its key set: the
+# GROUP BY sits on top of a FROM item exactly as a projection does, and the reader asking
+# 「这张表的行从哪来」 is asking about that FROM item. What the corpus measured: most of
+# its statements published no `driving_tables` at all, because every aggregated,
+# deduplicated and MERGE statement answered 「ROOT 直接读取 <whatever came first>」 or
+# 「ROOT 不直接读取物理表」 -- and the first of those is usually a joined-on dimension.
+
+AGGREGATED_JOIN_SQL = (
+    "INSERT INTO mart.t SELECT m.unit_code, SUM(m.amount) AS amount "
+    "FROM ods.main m LEFT JOIN ods.side s ON m.unit_code = s.unit_code "
+    "WHERE m.dt = '20260101' GROUP BY m.unit_code"
+)
+
+DEDUP_SUBQUERY_SQL = (
+    "INSERT INTO mart.t SELECT q.unit_code, q.amount FROM "
+    "(SELECT unit_code, amount, row_number() OVER "
+    "(PARTITION BY unit_code ORDER BY dt DESC) AS rn FROM ods.main) q "
+    "WHERE q.rn = 1"
+)
+
+MERGE_SQL = (
+    "MERGE INTO mart.t t USING "
+    "(SELECT unit_code, amount FROM ods.main WHERE dt = '20260101') s "
+    "ON t.unit_code = s.unit_code "
+    "WHEN MATCHED THEN UPDATE SET t.amount = s.amount "
+    "WHEN NOT MATCHED THEN INSERT (unit_code, amount) VALUES (s.unit_code, s.amount)"
+)
+
+# Two aggregates unioned under ROOT, and one aggregate over a union: a UNION's rows are
+# the sum of its branches either way, so both list every branch's driving table.
+UNION_OF_AGGREGATES_SQL = (
+    "INSERT INTO mart.t SELECT u.unit_code, u.amount FROM "
+    "(SELECT unit_code, SUM(amount) AS amount FROM ods.main GROUP BY unit_code "
+    "UNION ALL SELECT unit_code, SUM(amount) AS amount FROM ods.side GROUP BY unit_code) u"
+)
+
+AGGREGATE_OVER_UNION_SQL = (
+    "INSERT INTO mart.t SELECT u.unit_code, SUM(u.amount) AS amount FROM "
+    "(SELECT unit_code, amount FROM ods.main "
+    "UNION ALL SELECT unit_code, amount FROM ods.side) u "
+    "GROUP BY u.unit_code"
+)
+
+
+def _driving_flags(profile: dict) -> dict[str, bool]:
+    return {item["table"]: item.get("driving", False) for item in profile["inputs"]}
+
+
+def _summary(sql: str) -> str:
+    return _profile(sql)["task"]["structural_summary"]
+
+
+def test_an_aggregated_root_names_the_table_its_group_by_reads() -> None:
+    profile = _profile(AGGREGATED_JOIN_SQL)
+
+    assert profile["task"]["driving_tables"] == [
+        {"table": "ods.main", "via_scopes": [], "lateral_view_scopes": []}
+    ]
+
+
+def test_an_aggregated_root_keeps_its_roles_and_marks_the_driving_source() -> None:
+    """Both facts, side by side: ``aggregate_source`` stays the most specific role the
+    cards read, and ``driving`` says which of those sources the rows are counted from."""
+    profile = _profile(AGGREGATED_JOIN_SQL)
+
+    assert _roles(profile) == {
+        "ods.main": "aggregate_source",
+        "ods.side": "aggregate_source",
+    }
+    assert _all_roles(profile) == {
+        "ods.main": ["aggregate_source", "enrich"],
+        "ods.side": ["aggregate_source", "enrich"],
+    }
+    assert _driving_flags(profile) == {"ods.main": True, "ods.side": False}
+
+
+def test_an_aggregated_summary_opens_with_the_keys_and_then_the_row_source() -> None:
+    assert _summary(AGGREGATED_JOIN_SQL).startswith(
+        "按 unit_code 汇总，行来自 ods.main；补充 ods.side；"
+    )
+
+
+def test_an_aggregated_root_descends_through_its_from_subquery() -> None:
+    profile = _profile(
+        "INSERT INTO mart.t SELECT q.unit_code, SUM(q.amount) AS amount FROM "
+        "(SELECT unit_code, amount FROM ods.main WHERE dt = '20260101') q "
+        "GROUP BY q.unit_code"
+    )
+
+    assert profile["task"]["driving_tables"] == [
+        {"table": "ods.main", "via_scopes": ["subq:q"], "lateral_view_scopes": []}
+    ]
+    assert profile["task"]["structural_summary"].startswith(
+        "按 unit_code 汇总，行来自 ods.main（经 subq:q）；"
+    )
+
+
+def test_a_deduplicated_root_names_the_table_the_ranking_window_ranked() -> None:
+    profile = _profile(DEDUP_SUBQUERY_SQL)
+
+    assert profile["task"]["driving_tables"] == [
+        {"table": "ods.main", "via_scopes": ["subq:q"], "lateral_view_scopes": []}
+    ]
+    assert _all_roles(profile) == {"ods.main": ["driving", "dedup_source"]}
+    assert _driving_flags(profile) == {"ods.main": True}
+
+
+def test_a_deduplicated_summary_says_by_which_keys_and_from_where() -> None:
+    assert _summary(DEDUP_SUBQUERY_SQL).startswith(
+        "按 unit_code 去重，行来自 ods.main（经 subq:q）；"
+    )
+
+
+def test_a_single_row_aggregate_still_names_the_rows_it_folded() -> None:
+    profile = _profile(
+        "INSERT INTO mart.t SELECT COUNT(1) AS unit_code, SUM(amount) AS amount "
+        "FROM ods.main WHERE dt = '20260101'"
+    )
+
+    assert profile["task"]["driving_tables"] == [
+        {"table": "ods.main", "via_scopes": [], "lateral_view_scopes": []}
+    ]
+    assert profile["task"]["structural_summary"].startswith("全表汇总，行来自 ods.main；")
+
+
+def test_a_merge_names_the_table_its_using_relation_reads() -> None:
+    """A MERGE's ROOT *is* the USING relation, so its FROM item is the source side."""
+    profile = _profile(MERGE_SQL)
+
+    assert profile["task"]["driving_tables"] == [
+        {"table": "ods.main", "via_scopes": ["subq:s"], "lateral_view_scopes": []}
+    ]
+    assert _all_roles(profile) == {"ods.main": ["merge_source"]}
+    assert _driving_flags(profile) == {"ods.main": True}
+    assert profile["task"]["structural_summary"].startswith("行来源 ods.main（经 subq:s）；")
+
+
+def test_a_union_of_two_aggregates_lists_every_branch_as_a_row_source() -> None:
+    profile = _profile(UNION_OF_AGGREGATES_SQL)
+
+    assert [item["table"] for item in profile["task"]["driving_tables"]] == [
+        "ods.main",
+        "ods.side",
+    ]
+    assert _driving_flags(profile) == {"ods.main": True, "ods.side": True}
+
+
+def test_an_aggregate_over_a_union_sums_its_branches_row_sources() -> None:
+    profile = _profile(AGGREGATE_OVER_UNION_SQL)
+
+    assert [item["table"] for item in profile["task"]["driving_tables"]] == [
+        "ods.main",
+        "ods.side",
+    ]
+    assert profile["task"]["structural_summary"].startswith(
+        "按 unit_code 汇总，行来自 ods.main"
+    )
+
+
+def test_a_projection_keeps_todays_sentence_and_gains_only_the_driving_marker() -> None:
+    profile = _profile(
+        "INSERT INTO mart.t SELECT m.unit_code, m.amount, s.flag "
+        "FROM ods.main m LEFT JOIN ods.side s ON m.unit_code = s.unit_code"
+    )
+
+    assert profile["task"]["structural_summary"].startswith(
+        "行来源 ods.main；补充 ods.side；"
+    )
+    assert _driving_flags(profile) == {"ods.main": True, "ods.side": False}
