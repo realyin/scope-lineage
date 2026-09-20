@@ -14,13 +14,14 @@ import json
 import sys
 from pathlib import Path
 
-from .corpus_cache import add_incremental_arguments, open_cache
+from .corpus_cache import add_incremental_arguments, open_cache, project_profile
 from .metadata.column_samples import (
     SAMPLES_TOP_DEFAULT,
     ColumnSamplesError,
     load_column_samples,
 )
 from .render.table_cards import (
+    PROFILE_FIELDS_READ,
     build_table_cards,
     render_table_card_markdown,
     render_table_index_markdown,
@@ -76,9 +77,21 @@ def formats(value: str | None) -> set[str]:
     return {name.strip() for name in (value or "json,md").split(",") if name.strip()}
 
 
+def _facts(item) -> dict:
+    """What one task contributes to the cards: its profile, cut to what they read.
+
+    P2. The builder is handed the projection whether it came from the fact cache or from
+    this run, so a reused task and a recomputed one are the same shape by construction
+    rather than by a comparison somebody remembered to make.
+    """
+    from .render.semantic_profile import build_semantic_profile
+
+    profile = build_semantic_profile(item.document, item.diagnostics)
+    return {"profile": project_profile(profile, PROFILE_FIELDS_READ)}
+
+
 def run_tables(args: argparse.Namespace) -> int:
     from .cli import _discover_lineage_documents, _load_contract_documents
-    from .render.semantic_profile import build_semantic_profile
 
     try:
         samples = load_column_samples(
@@ -98,18 +111,14 @@ def run_tables(args: argparse.Namespace) -> int:
 
     out_dir, root = Path(args.out), str(Path(args.lineage))
     options = [args.format, root, _samples_digest(args), args.samples_top]
-    cache = open_cache(args, out_dir, found[1], "tables", options)
+    cache = open_cache(
+        args, out_dir, found[1], "tables", options, fields=[PROFILE_FIELDS_READ]
+    )
+
     profiles = []
     for item in documents:
         try:
-            profiles.append(
-                cache.facts(
-                    item,
-                    lambda item=item: {
-                        "profile": build_semantic_profile(item.document, item.diagnostics)
-                    },
-                )["profile"]
-            )
+            profiles.append(cache.facts(item, lambda item=item: _facts(item))["profile"])
         except ValueError as error:
             print(f"{item.path}: {error}", file=sys.stderr)
             return 1

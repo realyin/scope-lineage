@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+- The incremental fact cache stores a **projection** of each task's semantic profile
+  instead of the whole thing (`corpus-cache/2`, P2). A profile is mostly the reader-facing
+  half of the view -- `stages`, `confidence`, every field's step-by-step `derivation` --
+  and no corpus-level merge reads any of it. Each builder now publishes the keys its merge
+  does read as a `PROFILE_FIELDS_READ` list beside the code that reads them
+  (`render/glossary.py`, `render/table_cards.py`, `render/ontology.py`), and `glossary`,
+  `tables` and `ontology` hand their merge exactly what they cached, reused or recomputed
+  alike. The artifacts are byte-identical to before, which is what the guard test proves:
+  it builds each merge over the golden corpora from the full profiles and from the
+  projected ones and compares. The list is part of the options digest, so editing one
+  invalidates every index written under the old one; the stored facts additionally carry a
+  `payload_version`, and a cache file or index of another version is recomputed rather than
+  read.
+
 ## 0.3.0
 - **Breaking** (derived artifacts only; the lineage contracts 1.0 / 2.0 are unchanged):
   `ontology.json` `overrides_applied.unmatched[]` entries are objects `{"key", "reason"}`

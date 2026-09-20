@@ -18,12 +18,29 @@ Two files, both under the command's own ``--out`` and both disposable:
     version), rather than trying to reason about which option touched which task.
 
 ``<out>/.cache/<task>.json``
-    ``corpus-cache/1``: the facts one task contributed, as JSON. Reused only when the
-    index entry matched AND the file declares the same command.
+    ``corpus-cache/2``: the facts one task contributed, as JSON. Reused only when the
+    index entry matched AND the file declares the same command AND the same
+    ``payload_version``.
 
 What is deliberately *not* cached is the corpus-level merge: it always runs over every
 task, reused and recomputed alike, which is what makes an incremental run byte-identical
 to a full one. The cache can only ever be wrong in the direction of doing more work.
+
+**What a task contributes is a PROJECTION of its semantic profile, not the profile**
+(P2). ``corpus-cache/1`` stored the profile whole, and a profile is mostly keys no
+corpus merge ever looks at -- ``stages``, ``confidence``, every field's step-by-step
+``derivation`` -- so the cache grew with the reader-facing half of a view the cache is
+not for. Each consumer now publishes the keys its merge reads as a ``PROFILE_FIELDS_READ``
+list beside the code that reads them, :func:`project_profile` cuts the profile down to
+that list, and the runner feeds the merge exactly what it cached. One shape in, one shape
+out: there is no second code path in which a reused task and a recomputed one are fed
+different things.
+
+The list is therefore load-bearing, and it is guarded two ways. It goes into the options
+digest, so editing one invalidates every index written under the old one; and
+``tests/core/test_corpus_cache_projection.py`` builds each merge over the golden corpora
+from the full profiles and from the projected ones and compares, which is the only real
+proof that a whitelist is complete.
 """
 
 from __future__ import annotations
@@ -37,9 +54,16 @@ from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
 INDEX_DOC_FORMAT = "corpus-index/1"
-CACHE_DOC_FORMAT = "corpus-cache/1"
+CACHE_DOC_FORMAT = "corpus-cache/2"
 INDEX_FILE_NAME = ".scope-lineage-corpus-index.json"
 CACHE_DIR_NAME = ".cache"
+
+# What a cache file's ``facts`` mean, independently of the file format around them.
+# Version 1 was the whole semantic profile; version 2 is the projection the command's
+# merge reads. A stored payload of another version is recomputed rather than read, in
+# the index as well as in the fact files -- an index is a promise about fact files that
+# a released version may no longer be able to keep.
+PAYLOAD_VERSION = 2
 
 _UNSAFE_IN_FILENAME = re.compile(r"[^A-Za-z0-9._-]")
 
@@ -93,14 +117,86 @@ def _package_version() -> str:
     return version()
 
 
+# ------------------------------------------------------------- profile projection
+#
+# A field list is ``{"profile": (<task-profile keys>,), "statement": {<key>: <sub-keys
+# or None>}}``. ``profile`` names what a 2.0 task profile carries around its statements
+# (``statements`` itself is always kept, so it is not listed); ``statement`` names one
+# statement profile's keys, mapped either to ``None`` for "the whole value" or to the
+# sub-keys of the mapping -- or of every mapping in the list -- underneath it. A 1.0
+# profile IS a statement profile, so the ``statement`` half is the whole answer for it.
+
+
+def project_profile(profile: Mapping, fields: Mapping) -> dict:
+    """The part of one semantic profile a corpus merge reads, and nothing else."""
+    statements = profile.get("statements")
+    if not isinstance(statements, list):
+        return _pick(profile, fields["statement"])
+    kept = {key: profile[key] for key in fields["profile"] if key in profile}
+    kept["statements"] = [_pick(statement, fields["statement"]) for statement in statements]
+    return kept
+
+
+def _pick(source: Mapping, fields: Mapping) -> dict:
+    """One mapping narrowed to ``fields``; an absent key stays absent rather than null."""
+    return {
+        key: source[key] if sub is None else _narrow(source[key], sub)
+        for key, sub in fields.items()
+        if key in source
+    }
+
+
+def _narrow(value, sub: Sequence[str]):
+    """``value`` with only ``sub`` kept, through a list of mappings where it is one."""
+    if isinstance(value, list):
+        return [_narrow(item, sub) for item in value]
+    if isinstance(value, Mapping):
+        return {key: item for key, item in value.items() if key in sub}
+    return value
+
+
+def union_fields(*lists: Mapping) -> dict:
+    """One field list that keeps what any of several merges reads.
+
+    ``ontology``'s runner stacks three builders on one collected profile, so the profile
+    it caches has to answer all three. A whole value always wins over a sub-key list:
+    the union of "all of ``fields``" and "two keys of ``fields``" is all of it.
+    """
+    profile: dict[str, None] = {}
+    statement: dict[str, tuple | None] = {}
+    for fields in lists:
+        profile.update(dict.fromkeys(fields["profile"]))
+        for key, sub in fields["statement"].items():
+            if key not in statement or sub is None:
+                statement[key] = None if sub is None else tuple(sub)
+            elif statement[key] is not None:
+                statement[key] = tuple(dict.fromkeys((*statement[key], *sub)))
+    return {"profile": tuple(profile), "statement": statement}
+
+
 def purge(out: Path) -> None:
     """Drop the index and the fact cache, leaving the published documents alone."""
     (out / INDEX_FILE_NAME).unlink(missing_ok=True)
     shutil.rmtree(out / CACHE_DIR_NAME, ignore_errors=True)
 
 
-def open_cache(args, out: Path, base: Path, command: str, options: Sequence):
-    """The cache one corpus command run should use, honouring its two flags."""
+def open_cache(
+    args,
+    out: Path,
+    base: Path,
+    command: str,
+    options: Sequence,
+    *,
+    fields: Sequence[Mapping] = (),
+):
+    """The cache one corpus command run should use, honouring its two flags.
+
+    ``fields`` is the field list (or lists) the run projects its profiles through. It
+    belongs in the options digest for the reason everything else there does: it steers
+    what the derivation stores, so a run under a different one may not reuse this one's
+    files. Passing it here rather than folding it into ``options`` by hand is what makes
+    that impossible to forget.
+    """
     if getattr(args, "no_cache", False):
         purge(out)
         return CorpusCache(out, base, command, "", enabled=False)
@@ -108,7 +204,7 @@ def open_cache(args, out: Path, base: Path, command: str, options: Sequence):
         out,
         base,
         command,
-        options_digest(options),
+        options_digest([*options, *fields]),
         enabled=bool(getattr(args, "incremental", False)),
     )
 
@@ -193,6 +289,7 @@ class CorpusCache:
         payload = {
             "doc_format": INDEX_DOC_FORMAT,
             "command": self._command,
+            "payload_version": PAYLOAD_VERSION,
             "inputs": {key: self._entries[key] for key in sorted(self._entries)},
             "options_sha256": self._options,
             "written": sorted(written),
@@ -230,6 +327,7 @@ class CorpusCache:
         if (
             document.get("doc_format") != CACHE_DOC_FORMAT
             or document.get("command") != self._command
+            or document.get("payload_version") != PAYLOAD_VERSION
         ):
             return None
         facts = document.get("facts")
@@ -241,6 +339,7 @@ class CorpusCache:
         document = {
             "doc_format": CACHE_DOC_FORMAT,
             "command": self._command,
+            "payload_version": PAYLOAD_VERSION,
             "facts": facts,
         }
         try:
@@ -255,6 +354,7 @@ class CorpusCache:
         if (
             document.get("doc_format") != INDEX_DOC_FORMAT
             or document.get("command") != self._command
+            or document.get("payload_version") != PAYLOAD_VERSION
             or document.get("options_sha256") != self._options
         ):
             return {}

@@ -20,7 +20,12 @@ from pathlib import Path
 import pytest
 
 from scope_lineage.cli import main
-from scope_lineage.corpus_cache import CACHE_DIR_NAME, INDEX_FILE_NAME
+from scope_lineage.corpus_cache import (
+    CACHE_DIR_NAME,
+    CACHE_DOC_FORMAT,
+    INDEX_FILE_NAME,
+    PAYLOAD_VERSION,
+)
 from scope_lineage.scope.scope_builder import parse_scope_lineage
 
 from .statement_document import write_statement_documents
@@ -247,7 +252,7 @@ def test_a_different_overrides_file_recomputes_every_task(tmp_path: Path, capsys
     assert "reused=0, recomputed=3, removed=0" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("field", ("command", "doc_format"))
+@pytest.mark.parametrize("field", ("command", "doc_format", "payload_version"))
 def test_an_index_written_by_another_command_is_ignored(
     tmp_path: Path, capsys, field: str
 ) -> None:
@@ -265,7 +270,7 @@ def test_an_index_written_by_another_command_is_ignored(
     assert "reused=0, recomputed=3, removed=0" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("field", ("command", "doc_format"))
+@pytest.mark.parametrize("field", ("command", "doc_format", "payload_version"))
 def test_a_fact_file_written_by_another_command_is_ignored(
     tmp_path: Path, capsys, field: str
 ) -> None:
@@ -369,9 +374,93 @@ def test_the_index_records_the_fingerprints_it_matched_on(
     index = json.loads((out / INDEX_FILE_NAME).read_text(encoding="utf-8"))
     assert index["doc_format"] == "corpus-index/1"
     assert index["command"] == command
+    assert index["payload_version"] == PAYLOAD_VERSION
     assert sorted(index["inputs"]) == ["task_a", "task_b", "task_c"]
     entry = index["inputs"]["task_a"]
     assert len(entry["lineage_sha256"]) == 64
     assert len(entry["diagnostics_sha256"]) == 64
     assert len(index["options_sha256"]) == 64
     assert index["written"]
+
+
+# ------------------------------------------------------- the trimmed payload
+
+
+def _fact_payloads(out: Path) -> list[dict]:
+    return [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in sorted((out / CACHE_DIR_NAME).glob("*.json"))
+    ]
+
+
+@pytest.mark.parametrize("command", ("glossary", "tables", "ontology"))
+def test_a_fact_file_declares_the_payload_it_holds(
+    tmp_path: Path, capsys, command: str
+) -> None:
+    corpus = _corpus(tmp_path / "corpus")
+    out = tmp_path / "out"
+
+    assert _run(command, corpus, out, "--incremental") == 0
+    capsys.readouterr()
+
+    payloads = _fact_payloads(out)
+    assert payloads
+    for payload in payloads:
+        assert payload["doc_format"] == CACHE_DOC_FORMAT == "corpus-cache/2"
+        assert payload["payload_version"] == PAYLOAD_VERSION
+        assert payload["command"] == command
+
+
+@pytest.mark.parametrize(
+    ("command", "dropped"),
+    (
+        ("glossary", ("stages", "confidence", "inputs", "task", "output_shape")),
+        ("tables", ("stages", "confidence", "rules")),
+        ("ontology", ("stages", "confidence")),
+    ),
+)
+def test_a_fact_file_holds_only_the_fields_the_merge_reads(
+    tmp_path: Path, capsys, command: str, dropped: tuple[str, ...]
+) -> None:
+    """P2. The payload used to be the whole semantic profile -- most of it keys no merge
+    ever looks at. What is *kept* is guarded by the projection tests; what is dropped is
+    the point of the exercise, so it is named here."""
+    corpus = _corpus(tmp_path / "corpus")
+    out = tmp_path / "out"
+
+    assert _run(command, corpus, out, "--incremental") == 0
+    capsys.readouterr()
+
+    for payload in _fact_payloads(out):
+        for profile in payload["facts"].values():
+            assert profile, "a projected profile is not an empty one"
+            for key in dropped:
+                assert key not in profile, f"{command} still caches {key}"
+
+
+def test_the_trimmed_payload_is_a_fraction_of_the_whole_profile(
+    tmp_path: Path, capsys
+) -> None:
+    """The size claim, measured rather than asserted from a comment: the cards' payload
+    is well under half of the profile it was cut from."""
+    from scope_lineage.render.semantic_profile import build_semantic_profile
+
+    corpus = _corpus(tmp_path / "corpus")
+    out = tmp_path / "out"
+    assert _run("tables", corpus, out, "--incremental") == 0
+    capsys.readouterr()
+
+    cached = sum(
+        len(json.dumps(payload["facts"], ensure_ascii=False).encode("utf-8"))
+        for payload in _fact_payloads(out)
+    )
+    whole = 0
+    for lineage in sorted(corpus.rglob("lineage.json")):
+        document = json.loads(lineage.read_text(encoding="utf-8"))
+        diagnostics = json.loads(
+            (lineage.parent / "diagnostics.json").read_text(encoding="utf-8")
+        )
+        profile = build_semantic_profile(document, diagnostics)
+        whole += len(json.dumps(profile, ensure_ascii=False).encode("utf-8"))
+
+    assert cached < whole * 0.4

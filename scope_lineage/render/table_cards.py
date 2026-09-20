@@ -54,6 +54,55 @@ TABLE_KIND_PHYSICAL = "physical"
 
 DIRECTORY_TARGET_PREFIX = "directory:"
 
+# P2: which keys of a semantic profile ``build_table_cards`` reads, and so the whole of
+# what `scope-lineage tables --incremental` stores per task. It lives here, next to the
+# code that reads them, so a builder that starts reading a new key has the list under its
+# nose; `tests/core/test_corpus_cache_projection.py` fails until the two agree.
+#
+# A card restates what each task PROVES about a table -- its grain, its keys, the columns
+# it wrote and read -- so it reads the conclusions and never the working. `stages` (how
+# the rows got there), `rules` (the JOIN / filter predicates) and `confidence` (the
+# profile's own self-assessment) are the working, and between them they are about a third
+# of a profile. So is every field's `derivation`, which is why `fields` is narrowed to the
+# four keys a card column carries.
+PROFILE_FIELDS_READ = {
+    "profile": ("artifact_kind", "task_id", "lineage_digest", "produced_tables"),
+    "statement": {
+        "statement_id": None,
+        # A 1.0 profile answers for its own task, so it carries the two keys a 2.0
+        # profile keeps above its statements rather than inside them.
+        "lineage_digest": None,
+        "task": (
+            "task_name",
+            "stmt_kind",
+            "partition",
+            "meta",
+            "header_comments",
+            "target_table",
+            "target_table_comment",
+            "target_table_domain",
+            "target_table_project",
+            "target_table_owner",
+            "target_declared_columns",
+        ),
+        "inputs": (
+            "table",
+            "comment",
+            "domain",
+            "project",
+            "owner",
+            "layer",
+            "role_in_task",
+            "roles",
+            "used_columns",
+            "declared_columns",
+            "read_by_scopes",
+        ),
+        "output_shape": ("grain", "candidate_keys", "key_confidence"),
+        "fields": ("column", "target_comment", "summary", "structural_role"),
+    },
+}
+
 FINDING_AMBIGUOUS_BARE_NAME = "ambiguous_bare_name"
 FINDING_MULTIPLE_PRODUCERS = "multiple_producers"
 FINDING_PRODUCER_KEY_CONFLICT = "producer_key_conflict"
