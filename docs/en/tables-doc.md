@@ -175,6 +175,12 @@ scope-lineage tables --lineage /path/to/corpus --merge /path/to/a/tables.json \
   business placement and the column order come from it.
 - Sections 4 and 5 of the card markdown each gain a `语料` (corpus) column once a card has
   been merged; an unmerged card does not carry it.
+- **`--merge` always folds in everything.** `merge_table_cards` has one more argument, and
+  it is for the ontology only: `needed` (Q6) narrows the merge to the table names a corpus
+  actually wrote, so borrowing a large foreign batch costs the corpus rather than the
+  batch. That path is `ontology --tables` (see [ontology-doc.md](ontology-doc.md),
+  "Cross-corpus evidence"); this one is not — the `tables.json` written here is for readers
+  with no corpus in hand, and a card missing from it is simply missing.
 
 Python API:
 

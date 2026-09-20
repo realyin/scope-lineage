@@ -65,6 +65,7 @@ from .table_cards import (
     FINDING_AMBIGUOUS_BARE_NAME,
     FINDING_PRODUCER_KEY_CONFLICT,
     build_table_cards,
+    considered_table_count,
     render_table_card_markdown,
     same_table,
     table_card_filename,
@@ -593,9 +594,14 @@ def _corpus_tables(statements: Sequence[_Statement], names: Mapping[str, str]) -
 
 
 def _corpus_block(cards: Mapping, modelled: Mapping) -> dict:
-    """The cards' corpus block, plus how many of their tables only lent evidence."""
+    """The cards' corpus block, plus how many of their tables only lent evidence.
+
+    Q6: the number counts the tables that were *on offer*, not the ones a narrowed merge
+    kept. Cards this corpus could never have borrowed a fact from were left unread, not
+    decided against, and the reader is owed the same count either way.
+    """
     corpus = dict(cards.get("corpus") or {})
-    external = len(cards.get("tables") or []) - len(modelled.get("tables") or [])
+    external = considered_table_count(cards) - len(modelled.get("tables") or [])
     if external:
         corpus[EXTERNAL_TABLES_KEY] = external
     return corpus
@@ -831,8 +837,53 @@ def _statements(
 # ------------------------------------------------------------------ name normalization
 
 
+#: Contract keys that hold a table name, and the ones that hold a list of them. Q6 reads
+#: the corpus's own names off these, before a profile exists, so the merge that feeds the
+#: builder can be narrowed without the narrowing depending on what the merge produced.
+_TABLE_NAME_KEYS = frozenset({"target_table", "table"})
+_TABLE_NAME_LIST_KEYS = frozenset({"source_tables", "produced_tables"})
+
+
+def corpus_table_names(documents: Iterable[Mapping]) -> set[str]:
+    """Q6: every table spelling a corpus's contract documents name, at any depth.
+
+    Read off the documents alone, because the one caller that needs it -- the CLI
+    narrowing a borrowed card set -- must know what to merge *before* it builds the
+    profiles, and the profiles' own digest already depends on the merged cards.
+
+    Deliberately generous: a UNION branch's own ``source_tables``, a 2.0 task's per
+    statement lineage and a pierced field's table all answer here. An extra name can only
+    keep a card the full merge would have carried anyway; a missing one would be the
+    corpus quietly losing evidence, which is the single thing this narrowing may not do.
+    """
+    found: set[str] = set()
+    for document in documents:
+        _collect_table_names(document, found)
+    return found
+
+
+def _collect_table_names(node, found: set[str]) -> None:
+    if isinstance(node, Mapping):
+        for key, value in node.items():
+            if key in _TABLE_NAME_LIST_KEYS and isinstance(value, (list, tuple)):
+                found.update(str(item) for item in value if isinstance(item, str))
+            elif key in _TABLE_NAME_KEYS and isinstance(value, str):
+                found.add(value)
+            else:
+                _collect_table_names(value, found)
+    elif isinstance(node, (list, tuple)):
+        for item in node:
+            _collect_table_names(item, found)
+
+
 def _name_index(cards: Mapping) -> dict[str, str]:
-    """``every spelling the corpus wrote -> the card's primary name``."""
+    """``every spelling the corpus wrote -> the card's primary name``.
+
+    Q6: built over whatever card set the builder was handed, which -- when the CLI
+    narrowed a borrowed batch -- is the buckets this corpus named and nothing else. The
+    index is therefore the size of the corpus, not of the batch, and so is every scan
+    ``_entity_of`` runs over it.
+    """
     index: dict[str, str] = {}
     for card in cards.get("tables") or []:
         primary = str(card.get("table"))

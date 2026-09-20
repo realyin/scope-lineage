@@ -1,6 +1,30 @@
 # Changelog
 
 ## Unreleased
+- **Borrowing a large card set now costs the corpus, not the card set** (Q6). P7 let
+  `ontology --tables` reach for another batch's table cards, and merged every one of them
+  first: a corpus of five tables against a warehouse-wide batch merged, held and rescanned
+  thousands of cards to consult five. `merge_table_cards` takes a new keyword
+  **`needed`** -- the table names the borrowing corpus wrote -- and folds in only the cards
+  in those names' `table_key` buckets (`table_key` is the last dotted segment, and the new
+  public helper says why: `same_table` holds only between names ending in the same segment,
+  so the merge's grouping never crosses a bucket). Taking whole buckets is what makes this
+  a narrowing and not a different answer: the groups published for them are the groups the
+  full merge would have published, `ambiguous_bare_name` included. `ontology --tables`
+  passes the corpus's own names (read off the contract documents by the new
+  `render.ontology.corpus_table_names`, before any profile is built), so the merged card
+  list and the ontology's name index are the size of the corpus. Synthetically: a 5-table
+  corpus against a 2000-card batch merges 5 cards instead of 2005, and the `ontology.json`
+  is byte-identical to the full-merge one.
+- `corpus.external_evidence_tables` is **unchanged in meaning**: it still counts the tables
+  that were on offer, because a card that was never merged was never read rather than
+  decided against. The narrowed document carries a top-level `cards_narrowed`
+  (`tables_considered` / `tables_merged`) for it, and the new
+  `render.table_cards.considered_table_count` reads the number whichever way the merge ran.
+- `merge_table_cards()` with no `needed` is unchanged and byte-identical, and `tables
+  --merge` never narrows: a merged `tables.json` is published for readers with no corpus in
+  hand and has to stay complete. `ontology` now walks its `--lineage` corpus before it
+  loads `--tables`, since the narrowing needs the corpus's table names first.
 - **One corpus can borrow another corpus's per-task cache** (Q7). `--incremental` only
   ever looked under its own `--out`, so the same tasks parsed into a second directory --
   a re-parse, or a larger corpus that contains them -- recomputed every profile although
