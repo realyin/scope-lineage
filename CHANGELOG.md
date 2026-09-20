@@ -1,6 +1,25 @@
 # Changelog
 
 ## Unreleased
+- `DROP TABLE [IF EXISTS] t` and `DROP VIEW v` are modelled table-state events instead of
+  an unmodeled data change. On a real corpus every task left `partial` with
+  `blocking_reasons: ["unsupported_data_change"]` was the recreate pattern
+  `DROP TABLE IF EXISTS t; CREATE TABLE t AS SELECT ...` -- the CTAS half was always
+  modelled, and the DROP downgraded the whole task even though dropping a relation is a
+  state this document can state exactly. Such a statement now carries `stmt_kind: DROP`,
+  the new `category: relation_mutation` and `model_status: modeled`, with
+  `effect.rowset_effect.operation: DROP_RELATION`, and it produces a state transition
+  (`effect: DROP`) whose node is marked `known_dropped: true` -- a new optional node field,
+  present only when true, that says the relation is gone rather than merely emptied
+  (`known_empty`). The dropped state carries no columns, so it contributes no
+  `end_to_end_lineage` rows and a statement writing the same name afterwards inherits no
+  `prior_table_state` passthrough from it; the drop stays in the `table_state_graph`
+  history while the later statement's state becomes the final one, exactly the way
+  TRUNCATE-then-INSERT already composes. A DROP of a table nothing else touches ends
+  `known_dropped`, which consumers must exclude when reconciling `final_table_states`
+  against a catalogue. No warning is raised for a modelled DROP.
+  `DROP DATABASE`, `DROP FUNCTION` and `ALTER` stay `unsupported_data_change`: their
+  extent is not something the document can describe.
 - A comment written back through `--metadata-patch` is redacted like every other comment.
   The patch is applied after `parse_task_lineage` has already masked the SQL author's
   comments and the ones loaded from `--schema` / `--target-ddl-metadata`, so a reviewed

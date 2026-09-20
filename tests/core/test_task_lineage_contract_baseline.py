@@ -25,9 +25,13 @@ def test_baseline_covers_the_required_task_contract_shapes() -> None:
     # else (WI-2.2). `set_preamble_task` is the fourth: a script whose header block is
     # written above a `SET` preamble, so the block belongs to no modelled statement and
     # has to be hoisted onto the first write and held once as `script_comments` (B1).
+    # `drop_recreate` is the fifth: the recreate pattern, where one relation carries a
+    # dropped state, a CTAS that starts from nothing and an append on top of it -- three
+    # states of one table whose composition only the task document states (DROP-001).
     assert [case.name for case in CASES] == [
         "commented_task",
         "delete_all",
+        "drop_recreate",
         "merge_cte_source",
         "set_preamble_task",
     ]

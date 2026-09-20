@@ -41,7 +41,7 @@ def _parse(tmp_path: Path, out: str) -> str:
 
 def test_two_partial_tasks_are_broken_down_by_reason(tmp_path: Path, capsys) -> None:
     _write_task(tmp_path / "tasks" / "a.json", "read_only", "SELECT id FROM ods.source")
-    _write_task(tmp_path / "tasks" / "b.json", "dropper", "DROP TABLE mart.target")
+    _write_task(tmp_path / "tasks" / "b.json", "dropper", "DROP DATABASE mart")
 
     _parse(tmp_path, "out")
 
@@ -70,7 +70,7 @@ def test_one_task_with_two_reasons_is_counted_under_both(
     _write_task(
         tmp_path / "tasks" / "a.json",
         "mixed",
-        "DROP TABLE mart.target; SELECT id FROM ods.source",
+        "DROP DATABASE mart; SELECT id FROM ods.source",
     )
 
     _parse(tmp_path, "out")

@@ -1,0 +1,2277 @@
+{
+  "schema_version": "2.0",
+  "artifact_kind": "task_lineage",
+  "task_id": "golden_drop_recreate",
+  "script_comments": [],
+  "parse_status": "ok",
+  "syntax_status": "strict_ok",
+  "syntax_errors": [],
+  "analysis_status": {
+    "status": "complete",
+    "blocking_reasons": []
+  },
+  "statement_sequence": [
+    {
+      "statement_id": "stmt:001",
+      "statement_index": 0,
+      "stmt_kind": "DROP",
+      "category": "relation_mutation",
+      "model_status": "modeled",
+      "normalized_sql": "DROP TABLE IF EXISTS mart.channel_daily",
+      "target_table": "mart.channel_daily",
+      "input_states": [
+        "state:mart.channel_daily:000"
+      ],
+      "output_state": "state:mart.channel_daily:001",
+      "effect": {
+        "rowset_effect": {
+          "operation": "DROP_RELATION",
+          "membership_sources": []
+        },
+        "column_effect": {
+          "schema_preserved": false,
+          "value_mode": "RELATION_REMOVED",
+          "value_changed_columns": [],
+          "row_membership_affected_columns": [
+            "*"
+          ]
+        }
+      }
+    },
+    {
+      "statement_id": "stmt:002",
+      "statement_index": 1,
+      "stmt_kind": "CTAS",
+      "category": "projection_write",
+      "model_status": "modeled",
+      "normalized_sql": "CREATE TABLE mart.channel_daily AS SELECT channel_id, stat_date, SUM(amount) AS amount_sum FROM ods.channel_events GROUP BY channel_id, stat_date",
+      "target_table": "mart.channel_daily",
+      "target_field_binding": {
+        "status": "absent",
+        "reason_code": "statement_defines_its_own_columns"
+      },
+      "input_states": [],
+      "output_state": "state:mart.channel_daily:002",
+      "effect": {
+        "rowset_effect": {
+          "operation": "REPLACE"
+        },
+        "column_effect": {
+          "value_mode": "WRITE_PROJECTION"
+        }
+      }
+    },
+    {
+      "statement_id": "stmt:003",
+      "statement_index": 2,
+      "stmt_kind": "INSERT",
+      "category": "projection_write",
+      "model_status": "modeled",
+      "normalized_sql": "INSERT INTO mart.channel_daily SELECT channel_id, stat_date, amount FROM ods.channel_backfill",
+      "target_table": "mart.channel_daily",
+      "target_field_binding": {
+        "status": "absent",
+        "reason_code": "metadata_not_provided"
+      },
+      "input_states": [
+        "state:mart.channel_daily:002"
+      ],
+      "output_state": "state:mart.channel_daily:003",
+      "effect": {
+        "rowset_effect": {
+          "operation": "APPEND"
+        },
+        "column_effect": {
+          "value_mode": "WRITE_PROJECTION"
+        }
+      }
+    }
+  ],
+  "table_state_graph": {
+    "nodes": [
+      {
+        "state_id": "state:mart.channel_daily:000",
+        "table": "mart.channel_daily",
+        "ordinal": 0,
+        "known_empty": false,
+        "columns_known": true,
+        "producer_statement_id": null
+      },
+      {
+        "state_id": "state:mart.channel_daily:001",
+        "table": "mart.channel_daily",
+        "ordinal": 1,
+        "known_empty": true,
+        "columns_known": true,
+        "producer_statement_id": "stmt:001",
+        "known_dropped": true
+      },
+      {
+        "state_id": "state:mart.channel_daily:002",
+        "table": "mart.channel_daily",
+        "ordinal": 2,
+        "known_empty": false,
+        "columns_known": true,
+        "producer_statement_id": "stmt:002"
+      },
+      {
+        "state_id": "state:mart.channel_daily:003",
+        "table": "mart.channel_daily",
+        "ordinal": 3,
+        "known_empty": false,
+        "columns_known": true,
+        "producer_statement_id": "stmt:003"
+      }
+    ],
+    "edges": [
+      {
+        "from": "state:mart.channel_daily:000",
+        "to": "state:mart.channel_daily:001",
+        "statement_id": "stmt:001",
+        "effect": "DROP"
+      },
+      {
+        "from": "state:mart.channel_daily:002",
+        "to": "state:mart.channel_daily:003",
+        "statement_id": "stmt:003",
+        "effect": "APPEND"
+      }
+    ]
+  },
+  "final_table_states": {
+    "mart.channel_daily": "state:mart.channel_daily:003"
+  },
+  "statement_lineage": {
+    "stmt:002": {
+      "schema_version": "1.0",
+      "task_id": "golden_drop_recreate#1",
+      "statement_id": "stmt:002",
+      "statement_index": 1,
+      "target_table": "mart.channel_daily",
+      "stmt_kind": "CTAS",
+      "parse_status": "ok",
+      "syntax_status": "strict_ok",
+      "syntax_errors": [],
+      "statement_comments": [],
+      "target_partition_spec": {},
+      "target_partition_columns": [],
+      "target_partition_mode": "none",
+      "target_binding_absent_reason": "statement_defines_its_own_columns",
+      "task_dependencies": {
+        "upstream_tasks": [],
+        "downstream_tasks": [],
+        "source_summary": {
+          "source_format": "none",
+          "upstream_count": 0,
+          "downstream_count": 0,
+          "has_declared_task_dependencies": false
+        }
+      },
+      "source_tables": [
+        "ods.channel_events"
+      ],
+      "related_metadata": {
+        "input_tables": {
+          "ods.channel_events": {
+            "column_details": [
+              {
+                "name": "channel_id",
+                "type": null,
+                "comment": null
+              },
+              {
+                "name": "stat_date",
+                "type": null,
+                "comment": null
+              },
+              {
+                "name": "amount",
+                "type": null,
+                "comment": null
+              }
+            ],
+            "metadata_complete": true,
+            "table_column_count": 3,
+            "declared_columns": [
+              {
+                "name": "channel_id",
+                "type": null,
+                "comment": null,
+                "used": true
+              },
+              {
+                "name": "stat_date",
+                "type": null,
+                "comment": null,
+                "used": true
+              },
+              {
+                "name": "amount",
+                "type": null,
+                "comment": null,
+                "used": true
+              }
+            ]
+          }
+        },
+        "output_tables": {
+          "mart.channel_daily": {
+            "column_details": [
+              {
+                "name": "channel_id",
+                "type": null,
+                "comment": null
+              },
+              {
+                "name": "stat_date",
+                "type": null,
+                "comment": null
+              },
+              {
+                "name": "amount_sum",
+                "type": null,
+                "comment": null
+              }
+            ],
+            "metadata_complete": true,
+            "declared_columns": [
+              {
+                "name": "channel_id",
+                "type": null,
+                "comment": null,
+                "used": true
+              },
+              {
+                "name": "stat_date",
+                "type": null,
+                "comment": null,
+                "used": true
+              },
+              {
+                "name": "amount_sum",
+                "type": null,
+                "comment": null,
+                "used": true
+              }
+            ],
+            "metadata_source": "schema"
+          }
+        }
+      },
+      "scope_graph": {
+        "nodes": [
+          "ROOT",
+          "ods.channel_events"
+        ],
+        "edges": [
+          {
+            "from": "ods.channel_events",
+            "to": "ROOT"
+          }
+        ]
+      },
+      "scopes": {
+        "ROOT": {
+          "kind": "root",
+          "role": "aggregate",
+          "depends_on": [
+            "ods.channel_events"
+          ],
+          "writes_to": "mart.channel_daily",
+          "raw_sql": "SELECT `channel_events`.`channel_id` AS `channel_id`, `channel_events`.`stat_date` AS `stat_date`, SUM(`channel_events`.`amount`) AS `amount_sum` FROM `ods`.`channel_events` AS `channel_events` GROUP BY `channel_events`.`channel_id`, `channel_events`.`stat_date`",
+          "raw_sql_available": true,
+          "raw_sql_quality": {
+            "status": "clean",
+            "placeholder_types": [],
+            "evidence": []
+          },
+          "source_coverage": {
+            "status": "covered",
+            "declared_source_tables": [
+              "ods.channel_events"
+            ],
+            "raw_sql_source_tables": [
+              "ods.channel_events"
+            ],
+            "missing_declared_source_tables": [],
+            "extra_source_tables": []
+          },
+          "input_edges": [
+            {
+              "source_id": "ods.channel_events",
+              "source_type": "physical_table",
+              "position": "from",
+              "alias": "channel_events"
+            }
+          ],
+          "input_source_refs": [
+            {
+              "input_ref_id": "input:ROOT:001",
+              "source_id": "ods.channel_events",
+              "source_type": "physical_table",
+              "alias": "channel_events",
+              "position": "from",
+              "relation_position": "from",
+              "join_type": null,
+              "physical_source_id": "ods.channel_events",
+              "physical_source_ids": [
+                "ods.channel_events"
+              ],
+              "source_resolution": {
+                "status": "resolved",
+                "resolution_type": "direct_physical_source",
+                "cardinality": "single_source",
+                "physical_source_tables": [
+                  "ods.channel_events"
+                ],
+                "field_resolution_required": false,
+                "missing_reasons": []
+              },
+              "field_resolution_required": false,
+              "binding_status": "resolved",
+              "binding_trace": [
+                {
+                  "from": "channel_events",
+                  "to": "ods.channel_events",
+                  "relation": "alias_to_physical_source"
+                }
+              ],
+              "trace_status": "complete"
+            }
+          ],
+          "alias_source_bindings": [
+            {
+              "alias": "channel_events",
+              "source_id": "ods.channel_events",
+              "source_type": "physical_table",
+              "physical_source_id": "ods.channel_events",
+              "physical_source_ids": [
+                "ods.channel_events"
+              ],
+              "position": "from",
+              "relation_position": "from",
+              "join_type": null,
+              "source_resolution": {
+                "status": "resolved",
+                "resolution_type": "direct_physical_source",
+                "cardinality": "single_source",
+                "physical_source_tables": [
+                  "ods.channel_events"
+                ],
+                "field_resolution_required": false,
+                "missing_reasons": []
+              },
+              "field_resolution_required": false,
+              "binding_status": "resolved",
+              "binding_trace": [
+                {
+                  "from": "channel_events",
+                  "to": "ods.channel_events",
+                  "relation": "alias_to_physical_source"
+                }
+              ],
+              "input_ref_id": "input:ROOT:001"
+            }
+          ],
+          "expression_source_bindings": [
+            {
+              "expression_sql": "SUM(`channel_events`.`amount`)",
+              "logic_block_id": "logic:ROOT:aggregate:001",
+              "referenced_qualifiers": [
+                "channel_events"
+              ],
+              "resolved_source_refs": [
+                {
+                  "qualifier": "channel_events",
+                  "resolved_table": "ods.channel_events",
+                  "field": "amount",
+                  "status": "resolved"
+                }
+              ],
+              "unresolved_qualifiers": [],
+              "binding_status": "complete",
+              "evidence_path": "logic_blocks.logic:ROOT:aggregate:001.raw_expression"
+            }
+          ],
+          "logic_blocks": [
+            {
+              "logic_block_id": "logic:ROOT:group_by:001",
+              "logic_type": "group_by",
+              "fields": [
+                {
+                  "scope": "ods.channel_events",
+                  "column": "channel_id",
+                  "qualifier": "channel_events",
+                  "binding_scope_id": "ROOT",
+                  "input_ref_id": "input:ROOT:001"
+                },
+                {
+                  "scope": "ods.channel_events",
+                  "column": "stat_date",
+                  "qualifier": "channel_events",
+                  "binding_scope_id": "ROOT",
+                  "input_ref_id": "input:ROOT:001"
+                }
+              ],
+              "input_sources": [
+                "ods.channel_events"
+              ],
+              "field_usage": [
+                {
+                  "source_id": "ods.channel_events",
+                  "source_type": "physical_table",
+                  "used_fields": [
+                    "channel_id",
+                    "stat_date"
+                  ],
+                  "used_field_details": [
+                    {
+                      "name": "channel_id",
+                      "type": null,
+                      "comment": null
+                    },
+                    {
+                      "name": "stat_date",
+                      "type": null,
+                      "comment": null
+                    }
+                  ],
+                  "used_by_logic_blocks": [
+                    "logic:ROOT:group_by:001"
+                  ],
+                  "used_by_output_fields": [],
+                  "source_metadata": {}
+                }
+              ],
+              "expression_features": {
+                "functions": [],
+                "operators": [],
+                "has_case_when": false,
+                "has_if": false,
+                "has_cast": false,
+                "has_window": false,
+                "has_aggregate": false,
+                "has_udf": false,
+                "has_constant_mapping": false,
+                "has_partition_filter": false
+              },
+              "aggregation_detail": {
+                "group_by_items": [
+                  {
+                    "expression_sql": "`channel_events`.`channel_id`",
+                    "source_fields": [
+                      {
+                        "scope": "ods.channel_events",
+                        "column": "channel_id",
+                        "qualifier": "channel_events",
+                        "binding_scope_id": "ROOT",
+                        "input_ref_id": "input:ROOT:001"
+                      }
+                    ],
+                    "expression_resolution": {
+                      "status": "resolved",
+                      "resolution_type": "qualified_expression",
+                      "physical_source_fields": [
+                        {
+                          "table": "ods.channel_events",
+                          "field": "channel_id"
+                        }
+                      ],
+                      "generated_sources": [],
+                      "source_kind": "physical",
+                      "missing_reasons": [],
+                      "expanded_expression": "`ods.channel_events`.`channel_id`"
+                    },
+                    "expanded_expression": "`ods.channel_events`.`channel_id`",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.channel_events",
+                        "field": "channel_id"
+                      }
+                    ],
+                    "trace_status": "complete"
+                  },
+                  {
+                    "expression_sql": "`channel_events`.`stat_date`",
+                    "source_fields": [
+                      {
+                        "scope": "ods.channel_events",
+                        "column": "stat_date",
+                        "qualifier": "channel_events",
+                        "binding_scope_id": "ROOT",
+                        "input_ref_id": "input:ROOT:001"
+                      }
+                    ],
+                    "expression_resolution": {
+                      "status": "resolved",
+                      "resolution_type": "qualified_expression",
+                      "physical_source_fields": [
+                        {
+                          "table": "ods.channel_events",
+                          "field": "stat_date"
+                        }
+                      ],
+                      "generated_sources": [],
+                      "source_kind": "physical",
+                      "missing_reasons": [],
+                      "expanded_expression": "`ods.channel_events`.`stat_date`"
+                    },
+                    "expanded_expression": "`ods.channel_events`.`stat_date`",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.channel_events",
+                        "field": "stat_date"
+                      }
+                    ],
+                    "trace_status": "complete"
+                  }
+                ],
+                "aggregate_items": [
+                  {
+                    "output_field": "amount_sum",
+                    "aggregate_function": "sum",
+                    "expression_sql": "SUM(`channel_events`.`amount`)",
+                    "expanded_expression": "SUM(`ods.channel_events`.`amount`)",
+                    "argument_expression_sql": "`channel_events`.`amount`",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.channel_events",
+                        "field": "amount"
+                      }
+                    ],
+                    "distinct": false,
+                    "filter_expression": null,
+                    "trace_status": "complete",
+                    "expression_resolution": {
+                      "status": "resolved",
+                      "resolution_type": "qualified_expression",
+                      "physical_source_fields": [
+                        {
+                          "table": "ods.channel_events",
+                          "field": "amount"
+                        }
+                      ],
+                      "generated_sources": [],
+                      "source_kind": "physical",
+                      "missing_reasons": [],
+                      "expanded_expression": "SUM(`ods.channel_events`.`amount`)"
+                    },
+                    "source_fields": [
+                      {
+                        "scope": "ods.channel_events",
+                        "column": "amount",
+                        "qualifier": "channel_events",
+                        "binding_scope_id": "ROOT",
+                        "input_ref_id": "input:ROOT:001"
+                      }
+                    ]
+                  }
+                ],
+                "having": [],
+                "trace_status": "complete"
+              }
+            },
+            {
+              "logic_block_id": "logic:ROOT:aggregate:001",
+              "logic_type": "aggregate",
+              "raw_expression": "SUM(`channel_events`.`amount`)",
+              "normalized_expression": "sum(`channel_events`.`amount`)",
+              "fingerprint": "aggregate:sum(`channel_events`.`amount`)",
+              "fields": [
+                {
+                  "scope": "ods.channel_events",
+                  "column": "amount",
+                  "qualifier": "channel_events",
+                  "binding_scope_id": "ROOT",
+                  "input_ref_id": "input:ROOT:001"
+                }
+              ],
+              "output_fields": [
+                "amount_sum"
+              ],
+              "input_sources": [
+                "ods.channel_events"
+              ],
+              "field_usage": [
+                {
+                  "source_id": "ods.channel_events",
+                  "source_type": "physical_table",
+                  "used_fields": [
+                    "amount"
+                  ],
+                  "used_field_details": [
+                    {
+                      "name": "amount",
+                      "type": null,
+                      "comment": null
+                    }
+                  ],
+                  "used_by_logic_blocks": [
+                    "logic:ROOT:aggregate:001"
+                  ],
+                  "used_by_output_fields": [
+                    "amount_sum"
+                  ],
+                  "source_metadata": {}
+                }
+              ],
+              "expression_features": {
+                "functions": [
+                  "sum"
+                ],
+                "operators": [],
+                "has_case_when": false,
+                "has_if": false,
+                "has_cast": false,
+                "has_window": false,
+                "has_aggregate": true,
+                "has_udf": false,
+                "has_constant_mapping": false,
+                "has_partition_filter": false
+              },
+              "final_target_columns": [
+                "mart.channel_daily.amount_sum"
+              ],
+              "display_expression": "sum(`amount`)"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "channel_id",
+              "transform": "DIRECT",
+              "sources": [
+                {
+                  "scope": "ods.channel_events",
+                  "column": "channel_id",
+                  "qualifier": "channel_events",
+                  "binding_scope_id": "ROOT",
+                  "input_ref_id": "input:ROOT:001"
+                }
+              ],
+              "source_logic_blocks": [],
+              "downstream_fields": [],
+              "target_columns": [
+                "mart.channel_daily.channel_id"
+              ],
+              "final_target_columns": [
+                "mart.channel_daily.channel_id"
+              ],
+              "expression": "`channel_events`.`channel_id`",
+              "expanded_expression": "`ods.channel_events`.`channel_id`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "qualified_source_projection",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.channel_events",
+                    "field": "channel_id"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "expanded_expression": "`ods.channel_events`.`channel_id`",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "ROOT",
+                    "from_field": "channel_id",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`channel_events`.`channel_id`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.channel_events",
+                        "field": "channel_id"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "consumer_readiness": {
+                "status": "ready",
+                "blocked_reasons": []
+              },
+              "expression_type": "direct_projection",
+              "expression_features": {
+                "functions": [],
+                "operators": [],
+                "has_case_when": false,
+                "has_if": false,
+                "has_cast": false,
+                "has_window": false,
+                "has_aggregate": false,
+                "has_udf": false,
+                "has_constant_mapping": false,
+                "has_partition_filter": false
+              },
+              "expression_role": "direct_projection",
+              "grain_effect": "preserved",
+              "output_ordinal": 0,
+              "display_expression": "`channel_id`"
+            },
+            {
+              "name": "stat_date",
+              "transform": "DIRECT",
+              "sources": [
+                {
+                  "scope": "ods.channel_events",
+                  "column": "stat_date",
+                  "qualifier": "channel_events",
+                  "binding_scope_id": "ROOT",
+                  "input_ref_id": "input:ROOT:001"
+                }
+              ],
+              "source_logic_blocks": [],
+              "downstream_fields": [],
+              "target_columns": [
+                "mart.channel_daily.stat_date"
+              ],
+              "final_target_columns": [
+                "mart.channel_daily.stat_date"
+              ],
+              "expression": "`channel_events`.`stat_date`",
+              "expanded_expression": "`ods.channel_events`.`stat_date`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "qualified_source_projection",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.channel_events",
+                    "field": "stat_date"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "expanded_expression": "`ods.channel_events`.`stat_date`",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "ROOT",
+                    "from_field": "stat_date",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`channel_events`.`stat_date`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.channel_events",
+                        "field": "stat_date"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "consumer_readiness": {
+                "status": "ready",
+                "blocked_reasons": []
+              },
+              "expression_type": "direct_projection",
+              "expression_features": {
+                "functions": [],
+                "operators": [],
+                "has_case_when": false,
+                "has_if": false,
+                "has_cast": false,
+                "has_window": false,
+                "has_aggregate": false,
+                "has_udf": false,
+                "has_constant_mapping": false,
+                "has_partition_filter": false
+              },
+              "expression_role": "direct_projection",
+              "grain_effect": "preserved",
+              "output_ordinal": 1,
+              "display_expression": "`stat_date`"
+            },
+            {
+              "name": "amount_sum",
+              "transform": "AGGREGATE",
+              "sources": [
+                {
+                  "scope": "ods.channel_events",
+                  "column": "amount",
+                  "qualifier": "channel_events",
+                  "binding_scope_id": "ROOT",
+                  "input_ref_id": "input:ROOT:001"
+                }
+              ],
+              "source_logic_blocks": [
+                "logic:ROOT:aggregate:001"
+              ],
+              "downstream_fields": [],
+              "target_columns": [
+                "mart.channel_daily.amount_sum"
+              ],
+              "final_target_columns": [
+                "mart.channel_daily.amount_sum"
+              ],
+              "expression": "SUM(`channel_events`.`amount`)",
+              "expanded_expression": "SUM(`ods.channel_events`.`amount`)",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "qualified_expression",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.channel_events",
+                    "field": "amount"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "expanded_expression": "SUM(`ods.channel_events`.`amount`)",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "ROOT",
+                    "from_field": "amount_sum",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "SUM(`channel_events`.`amount`)",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.channel_events",
+                        "field": "amount"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "consumer_readiness": {
+                "status": "ready",
+                "blocked_reasons": []
+              },
+              "expression_type": "aggregate_expression",
+              "expression_features": {
+                "functions": [
+                  "sum"
+                ],
+                "operators": [],
+                "has_case_when": false,
+                "has_if": false,
+                "has_cast": false,
+                "has_window": false,
+                "has_aggregate": true,
+                "has_udf": false,
+                "has_constant_mapping": false,
+                "has_partition_filter": false
+              },
+              "expression_role": "metric_calculation",
+              "grain_effect": "changed",
+              "output_ordinal": 2,
+              "display_expression": "SUM(`amount`)"
+            }
+          ],
+          "field_usage": [
+            {
+              "source_id": "ods.channel_events",
+              "source_type": "physical_table",
+              "used_fields": [
+                "channel_id",
+                "stat_date",
+                "amount"
+              ],
+              "used_field_details": [
+                {
+                  "name": "channel_id",
+                  "type": null,
+                  "comment": null
+                },
+                {
+                  "name": "stat_date",
+                  "type": null,
+                  "comment": null
+                },
+                {
+                  "name": "amount",
+                  "type": null,
+                  "comment": null
+                }
+              ],
+              "used_by_logic_blocks": [
+                "logic:ROOT:group_by:001",
+                "logic:ROOT:aggregate:001"
+              ],
+              "used_by_output_fields": [
+                "amount_sum",
+                "channel_id",
+                "stat_date"
+              ],
+              "source_metadata": {}
+            }
+          ],
+          "columns": [
+            {
+              "name": "channel_id",
+              "transform": "DIRECT",
+              "expression": "`channel_events`.`channel_id`",
+              "sources": [
+                {
+                  "scope": "ods.channel_events",
+                  "column": "channel_id",
+                  "qualifier": "channel_events",
+                  "binding_scope_id": "ROOT",
+                  "input_ref_id": "input:ROOT:001"
+                }
+              ],
+              "display_expression": "`channel_id`"
+            },
+            {
+              "name": "stat_date",
+              "transform": "DIRECT",
+              "expression": "`channel_events`.`stat_date`",
+              "sources": [
+                {
+                  "scope": "ods.channel_events",
+                  "column": "stat_date",
+                  "qualifier": "channel_events",
+                  "binding_scope_id": "ROOT",
+                  "input_ref_id": "input:ROOT:001"
+                }
+              ],
+              "display_expression": "`stat_date`"
+            },
+            {
+              "name": "amount_sum",
+              "transform": "AGGREGATE",
+              "expression": "SUM(`channel_events`.`amount`)",
+              "sources": [
+                {
+                  "scope": "ods.channel_events",
+                  "column": "amount",
+                  "qualifier": "channel_events",
+                  "binding_scope_id": "ROOT",
+                  "input_ref_id": "input:ROOT:001"
+                }
+              ],
+              "agg_function": "SUM",
+              "display_expression": "SUM(`amount`)"
+            }
+          ],
+          "group_by": [
+            {
+              "scope": "ods.channel_events",
+              "column": "channel_id",
+              "qualifier": "channel_events",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            },
+            {
+              "scope": "ods.channel_events",
+              "column": "stat_date",
+              "qualifier": "channel_events",
+              "binding_scope_id": "ROOT",
+              "input_ref_id": "input:ROOT:001"
+            }
+          ]
+        }
+      },
+      "field_mapping_chains": [
+        {
+          "mapping_chain_id": "mc:001",
+          "chain_id": "chain:ROOT:channel_id:position:0",
+          "chain_type": "field_mapping",
+          "target_scope_id": "ROOT",
+          "target_field": "channel_id",
+          "target_position": 0,
+          "chain_status": "resolved",
+          "source_kind": "physical",
+          "root_source_fields": [
+            "ods.channel_events.channel_id"
+          ],
+          "final_output_fields": [
+            "mart.channel_daily.channel_id"
+          ],
+          "ordered_steps": [
+            {
+              "step_no": 1,
+              "scope_id": "ROOT",
+              "step_type": "direct_projection",
+              "input_fields": [
+                "ods.channel_events.channel_id"
+              ],
+              "output_field": "mart.channel_daily.channel_id",
+              "expression_sql": "`channel_events`.`channel_id`",
+              "expanded_expression": "`ods.channel_events`.`channel_id`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "qualified_source_projection",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.channel_events",
+                    "field": "channel_id"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "ROOT",
+                    "from_field": "channel_id",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`channel_events`.`channel_id`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.channel_events",
+                        "field": "channel_id"
+                      }
+                    ]
+                  }
+                ],
+                "expanded_expression_same_as_parent": true
+              },
+              "logic_ids": [],
+              "transform": "DIRECT",
+              "grain_effect": "preserved",
+              "final_output_fields": [
+                "mart.channel_daily.channel_id"
+              ],
+              "target_position": 0
+            }
+          ],
+          "expanded_expression": "`ods.channel_events`.`channel_id`",
+          "missing_reasons": [],
+          "trace_status": "complete"
+        },
+        {
+          "mapping_chain_id": "mc:002",
+          "chain_id": "chain:ROOT:stat_date:position:1",
+          "chain_type": "field_mapping",
+          "target_scope_id": "ROOT",
+          "target_field": "stat_date",
+          "target_position": 1,
+          "chain_status": "resolved",
+          "source_kind": "physical",
+          "root_source_fields": [
+            "ods.channel_events.stat_date"
+          ],
+          "final_output_fields": [
+            "mart.channel_daily.stat_date"
+          ],
+          "ordered_steps": [
+            {
+              "step_no": 1,
+              "scope_id": "ROOT",
+              "step_type": "direct_projection",
+              "input_fields": [
+                "ods.channel_events.stat_date"
+              ],
+              "output_field": "mart.channel_daily.stat_date",
+              "expression_sql": "`channel_events`.`stat_date`",
+              "expanded_expression": "`ods.channel_events`.`stat_date`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "qualified_source_projection",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.channel_events",
+                    "field": "stat_date"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "ROOT",
+                    "from_field": "stat_date",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`channel_events`.`stat_date`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.channel_events",
+                        "field": "stat_date"
+                      }
+                    ]
+                  }
+                ],
+                "expanded_expression_same_as_parent": true
+              },
+              "logic_ids": [],
+              "transform": "DIRECT",
+              "grain_effect": "preserved",
+              "final_output_fields": [
+                "mart.channel_daily.stat_date"
+              ],
+              "target_position": 1
+            }
+          ],
+          "expanded_expression": "`ods.channel_events`.`stat_date`",
+          "missing_reasons": [],
+          "trace_status": "complete"
+        },
+        {
+          "mapping_chain_id": "mc:003",
+          "chain_id": "chain:ROOT:amount_sum:position:2",
+          "chain_type": "field_mapping",
+          "target_scope_id": "ROOT",
+          "target_field": "amount_sum",
+          "target_position": 2,
+          "chain_status": "resolved",
+          "source_kind": "physical",
+          "root_source_fields": [
+            "ods.channel_events.amount"
+          ],
+          "final_output_fields": [
+            "mart.channel_daily.amount_sum"
+          ],
+          "ordered_steps": [
+            {
+              "step_no": 1,
+              "scope_id": "ROOT",
+              "step_type": "aggregate",
+              "input_fields": [
+                "ods.channel_events.amount"
+              ],
+              "output_field": "mart.channel_daily.amount_sum",
+              "expression_sql": "SUM(`channel_events`.`amount`)",
+              "expanded_expression": "SUM(`ods.channel_events`.`amount`)",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "qualified_expression",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.channel_events",
+                    "field": "amount"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "ROOT",
+                    "from_field": "amount_sum",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "SUM(`channel_events`.`amount`)",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.channel_events",
+                        "field": "amount"
+                      }
+                    ]
+                  }
+                ],
+                "expanded_expression_same_as_parent": true
+              },
+              "logic_ids": [
+                "logic:ROOT:aggregate:001"
+              ],
+              "transform": "AGGREGATE",
+              "grain_effect": "changed",
+              "final_output_fields": [
+                "mart.channel_daily.amount_sum"
+              ],
+              "target_position": 2
+            }
+          ],
+          "expanded_expression": "SUM(`ods.channel_events`.`amount`)",
+          "missing_reasons": [],
+          "trace_status": "complete"
+        }
+      ],
+      "scope_profile": {
+        "profile_step_count": 1,
+        "steps": [
+          {
+            "scope_id": "ROOT",
+            "name": "ROOT",
+            "kind": "root",
+            "role": "aggregate",
+            "operations": [
+              "aggregate"
+            ],
+            "business_summary": "读取 ods.channel_events；聚合生成指标",
+            "direct_inputs": [
+              "ods.channel_events"
+            ],
+            "direct_source_tables": [
+              "ods.channel_events"
+            ],
+            "physical_source_tables": [
+              "ods.channel_events"
+            ],
+            "output_columns": 3,
+            "logic": {
+              "joins": [],
+              "filters": [],
+              "aggregations": [
+                {
+                  "column": "amount_sum",
+                  "expression": "SUM(`channel_events`.`amount`)",
+                  "function": "SUM"
+                }
+              ],
+              "window_functions": [],
+              "case_when": [],
+              "key_renames": [],
+              "distinct": false,
+              "union_branches": 0,
+              "lateral_views": []
+            }
+          }
+        ]
+      },
+      "end_to_end_lineage": [
+        {
+          "column": "channel_id",
+          "transform": "DIRECT",
+          "expression": "`channel_events`.`channel_id`",
+          "trace_complete": true,
+          "physical_sources": [
+            {
+              "table": "ods.channel_events",
+              "column": "channel_id",
+              "transform": "DIRECT"
+            }
+          ],
+          "generated_sources": [],
+          "source_kind": "physical",
+          "output_ordinal": 0
+        },
+        {
+          "column": "stat_date",
+          "transform": "DIRECT",
+          "expression": "`channel_events`.`stat_date`",
+          "trace_complete": true,
+          "physical_sources": [
+            {
+              "table": "ods.channel_events",
+              "column": "stat_date",
+              "transform": "DIRECT"
+            }
+          ],
+          "generated_sources": [],
+          "source_kind": "physical",
+          "output_ordinal": 1
+        },
+        {
+          "column": "amount_sum",
+          "transform": "AGGREGATE",
+          "expression": "SUM(`channel_events`.`amount`)",
+          "trace_complete": true,
+          "physical_sources": [
+            {
+              "table": "ods.channel_events",
+              "column": "amount",
+              "transform": "AGGREGATE"
+            }
+          ],
+          "generated_sources": [],
+          "source_kind": "physical",
+          "output_ordinal": 2
+        }
+      ],
+      "diagnostics": {
+        "fallback_used": false,
+        "warning_count": 0,
+        "warning_types": {},
+        "lineage_fact_gap_count": 0,
+        "lineage_fact_gap_types": {},
+        "lineage_fact_gap_samples": [],
+        "stats": {
+          "scope_count": 2,
+          "physical_table_count": 1,
+          "cte_count": 0,
+          "subquery_count": 0,
+          "union_count": 0,
+          "union_branch_count": 0,
+          "max_depth": 1,
+          "case_when_count": 0,
+          "window_function_count": 0,
+          "join_count": 0,
+          "aggregate_function_count": 1
+        },
+        "full_diagnostics_file": "diagnostics.json"
+      }
+    },
+    "stmt:003": {
+      "schema_version": "1.0",
+      "task_id": "golden_drop_recreate#2",
+      "statement_id": "stmt:003",
+      "statement_index": 2,
+      "target_table": "mart.channel_daily",
+      "stmt_kind": "INSERT",
+      "parse_status": "ok",
+      "syntax_status": "strict_ok",
+      "syntax_errors": [],
+      "statement_comments": [],
+      "target_partition_spec": {},
+      "target_partition_columns": [],
+      "target_partition_mode": "none",
+      "target_binding_absent_reason": "metadata_not_provided",
+      "task_dependencies": {
+        "upstream_tasks": [],
+        "downstream_tasks": [],
+        "source_summary": {
+          "source_format": "none",
+          "upstream_count": 0,
+          "downstream_count": 0,
+          "has_declared_task_dependencies": false
+        }
+      },
+      "source_tables": [
+        "ods.channel_backfill"
+      ],
+      "related_metadata": {
+        "input_tables": {
+          "ods.channel_backfill": {
+            "column_details": [
+              {
+                "name": "channel_id",
+                "type": null,
+                "comment": null
+              },
+              {
+                "name": "stat_date",
+                "type": null,
+                "comment": null
+              },
+              {
+                "name": "amount",
+                "type": null,
+                "comment": null
+              }
+            ],
+            "metadata_complete": true,
+            "table_column_count": 3,
+            "declared_columns": [
+              {
+                "name": "channel_id",
+                "type": null,
+                "comment": null,
+                "used": true
+              },
+              {
+                "name": "stat_date",
+                "type": null,
+                "comment": null,
+                "used": true
+              },
+              {
+                "name": "amount",
+                "type": null,
+                "comment": null,
+                "used": true
+              }
+            ]
+          }
+        },
+        "output_tables": {
+          "mart.channel_daily": {
+            "column_details": [
+              {
+                "name": "channel_id",
+                "type": null,
+                "comment": null
+              },
+              {
+                "name": "stat_date",
+                "type": null,
+                "comment": null
+              }
+            ],
+            "metadata_complete": true,
+            "declared_columns": [
+              {
+                "name": "channel_id",
+                "type": null,
+                "comment": null,
+                "used": true
+              },
+              {
+                "name": "stat_date",
+                "type": null,
+                "comment": null,
+                "used": true
+              },
+              {
+                "name": "amount_sum",
+                "type": null,
+                "comment": null,
+                "used": false
+              }
+            ],
+            "metadata_source": "schema"
+          }
+        }
+      },
+      "scope_graph": {
+        "nodes": [
+          "ROOT",
+          "ods.channel_backfill"
+        ],
+        "edges": [
+          {
+            "from": "ods.channel_backfill",
+            "to": "ROOT"
+          }
+        ]
+      },
+      "scopes": {
+        "ROOT": {
+          "kind": "root",
+          "role": "pass_through",
+          "depends_on": [
+            "ods.channel_backfill"
+          ],
+          "writes_to": "mart.channel_daily",
+          "raw_sql": "SELECT `channel_backfill`.`channel_id` AS `channel_id`, `channel_backfill`.`stat_date` AS `stat_date`, `channel_backfill`.`amount` AS `amount` FROM `ods`.`channel_backfill` AS `channel_backfill`",
+          "raw_sql_available": true,
+          "raw_sql_quality": {
+            "status": "clean",
+            "placeholder_types": [],
+            "evidence": []
+          },
+          "source_coverage": {
+            "status": "covered",
+            "declared_source_tables": [
+              "ods.channel_backfill"
+            ],
+            "raw_sql_source_tables": [
+              "ods.channel_backfill"
+            ],
+            "missing_declared_source_tables": [],
+            "extra_source_tables": []
+          },
+          "input_edges": [
+            {
+              "source_id": "ods.channel_backfill",
+              "source_type": "physical_table",
+              "position": "from",
+              "alias": "channel_backfill"
+            }
+          ],
+          "input_source_refs": [
+            {
+              "input_ref_id": "input:ROOT:001",
+              "source_id": "ods.channel_backfill",
+              "source_type": "physical_table",
+              "alias": "channel_backfill",
+              "position": "from",
+              "relation_position": "from",
+              "join_type": null,
+              "physical_source_id": "ods.channel_backfill",
+              "physical_source_ids": [
+                "ods.channel_backfill"
+              ],
+              "source_resolution": {
+                "status": "resolved",
+                "resolution_type": "direct_physical_source",
+                "cardinality": "single_source",
+                "physical_source_tables": [
+                  "ods.channel_backfill"
+                ],
+                "field_resolution_required": false,
+                "missing_reasons": []
+              },
+              "field_resolution_required": false,
+              "binding_status": "resolved",
+              "binding_trace": [
+                {
+                  "from": "channel_backfill",
+                  "to": "ods.channel_backfill",
+                  "relation": "alias_to_physical_source"
+                }
+              ],
+              "trace_status": "complete"
+            }
+          ],
+          "alias_source_bindings": [
+            {
+              "alias": "channel_backfill",
+              "source_id": "ods.channel_backfill",
+              "source_type": "physical_table",
+              "physical_source_id": "ods.channel_backfill",
+              "physical_source_ids": [
+                "ods.channel_backfill"
+              ],
+              "position": "from",
+              "relation_position": "from",
+              "join_type": null,
+              "source_resolution": {
+                "status": "resolved",
+                "resolution_type": "direct_physical_source",
+                "cardinality": "single_source",
+                "physical_source_tables": [
+                  "ods.channel_backfill"
+                ],
+                "field_resolution_required": false,
+                "missing_reasons": []
+              },
+              "field_resolution_required": false,
+              "binding_status": "resolved",
+              "binding_trace": [
+                {
+                  "from": "channel_backfill",
+                  "to": "ods.channel_backfill",
+                  "relation": "alias_to_physical_source"
+                }
+              ],
+              "input_ref_id": "input:ROOT:001"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "channel_id",
+              "transform": "DIRECT",
+              "sources": [
+                {
+                  "scope": "ods.channel_backfill",
+                  "column": "channel_id",
+                  "qualifier": "channel_backfill",
+                  "binding_scope_id": "ROOT",
+                  "input_ref_id": "input:ROOT:001"
+                }
+              ],
+              "source_logic_blocks": [],
+              "downstream_fields": [],
+              "target_columns": [
+                "mart.channel_daily.channel_id"
+              ],
+              "final_target_columns": [
+                "mart.channel_daily.channel_id"
+              ],
+              "expression": "`channel_backfill`.`channel_id`",
+              "expanded_expression": "`ods.channel_backfill`.`channel_id`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "qualified_source_projection",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.channel_backfill",
+                    "field": "channel_id"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "expanded_expression": "`ods.channel_backfill`.`channel_id`",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "ROOT",
+                    "from_field": "channel_id",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`channel_backfill`.`channel_id`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.channel_backfill",
+                        "field": "channel_id"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "consumer_readiness": {
+                "status": "ready",
+                "blocked_reasons": []
+              },
+              "expression_type": "direct_projection",
+              "expression_features": {
+                "functions": [],
+                "operators": [],
+                "has_case_when": false,
+                "has_if": false,
+                "has_cast": false,
+                "has_window": false,
+                "has_aggregate": false,
+                "has_udf": false,
+                "has_constant_mapping": false,
+                "has_partition_filter": false
+              },
+              "expression_role": "direct_projection",
+              "grain_effect": "preserved",
+              "output_ordinal": 0,
+              "display_expression": "`channel_id`"
+            },
+            {
+              "name": "stat_date",
+              "transform": "DIRECT",
+              "sources": [
+                {
+                  "scope": "ods.channel_backfill",
+                  "column": "stat_date",
+                  "qualifier": "channel_backfill",
+                  "binding_scope_id": "ROOT",
+                  "input_ref_id": "input:ROOT:001"
+                }
+              ],
+              "source_logic_blocks": [],
+              "downstream_fields": [],
+              "target_columns": [
+                "mart.channel_daily.stat_date"
+              ],
+              "final_target_columns": [
+                "mart.channel_daily.stat_date"
+              ],
+              "expression": "`channel_backfill`.`stat_date`",
+              "expanded_expression": "`ods.channel_backfill`.`stat_date`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "qualified_source_projection",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.channel_backfill",
+                    "field": "stat_date"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "expanded_expression": "`ods.channel_backfill`.`stat_date`",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "ROOT",
+                    "from_field": "stat_date",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`channel_backfill`.`stat_date`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.channel_backfill",
+                        "field": "stat_date"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "consumer_readiness": {
+                "status": "ready",
+                "blocked_reasons": []
+              },
+              "expression_type": "direct_projection",
+              "expression_features": {
+                "functions": [],
+                "operators": [],
+                "has_case_when": false,
+                "has_if": false,
+                "has_cast": false,
+                "has_window": false,
+                "has_aggregate": false,
+                "has_udf": false,
+                "has_constant_mapping": false,
+                "has_partition_filter": false
+              },
+              "expression_role": "direct_projection",
+              "grain_effect": "preserved",
+              "output_ordinal": 1,
+              "display_expression": "`stat_date`"
+            },
+            {
+              "name": "amount",
+              "transform": "DIRECT",
+              "sources": [
+                {
+                  "scope": "ods.channel_backfill",
+                  "column": "amount",
+                  "qualifier": "channel_backfill",
+                  "binding_scope_id": "ROOT",
+                  "input_ref_id": "input:ROOT:001"
+                }
+              ],
+              "source_logic_blocks": [],
+              "downstream_fields": [],
+              "target_columns": [
+                "mart.channel_daily.amount"
+              ],
+              "final_target_columns": [
+                "mart.channel_daily.amount"
+              ],
+              "expression": "`channel_backfill`.`amount`",
+              "expanded_expression": "`ods.channel_backfill`.`amount`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "qualified_source_projection",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.channel_backfill",
+                    "field": "amount"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "expanded_expression": "`ods.channel_backfill`.`amount`",
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "ROOT",
+                    "from_field": "amount",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`channel_backfill`.`amount`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.channel_backfill",
+                        "field": "amount"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "consumer_readiness": {
+                "status": "ready",
+                "blocked_reasons": []
+              },
+              "expression_type": "direct_projection",
+              "expression_features": {
+                "functions": [],
+                "operators": [],
+                "has_case_when": false,
+                "has_if": false,
+                "has_cast": false,
+                "has_window": false,
+                "has_aggregate": false,
+                "has_udf": false,
+                "has_constant_mapping": false,
+                "has_partition_filter": false
+              },
+              "expression_role": "direct_projection",
+              "grain_effect": "preserved",
+              "output_ordinal": 2,
+              "display_expression": "`amount`"
+            }
+          ],
+          "field_usage": [
+            {
+              "source_id": "ods.channel_backfill",
+              "source_type": "physical_table",
+              "used_fields": [
+                "channel_id",
+                "stat_date",
+                "amount"
+              ],
+              "used_field_details": [
+                {
+                  "name": "channel_id",
+                  "type": null,
+                  "comment": null
+                },
+                {
+                  "name": "stat_date",
+                  "type": null,
+                  "comment": null
+                },
+                {
+                  "name": "amount",
+                  "type": null,
+                  "comment": null
+                }
+              ],
+              "used_by_logic_blocks": [],
+              "used_by_output_fields": [
+                "channel_id",
+                "stat_date",
+                "amount"
+              ],
+              "source_metadata": {}
+            }
+          ],
+          "columns": [
+            {
+              "name": "channel_id",
+              "transform": "DIRECT",
+              "expression": "`channel_backfill`.`channel_id`",
+              "sources": [
+                {
+                  "scope": "ods.channel_backfill",
+                  "column": "channel_id",
+                  "qualifier": "channel_backfill",
+                  "binding_scope_id": "ROOT",
+                  "input_ref_id": "input:ROOT:001"
+                }
+              ],
+              "display_expression": "`channel_id`"
+            },
+            {
+              "name": "stat_date",
+              "transform": "DIRECT",
+              "expression": "`channel_backfill`.`stat_date`",
+              "sources": [
+                {
+                  "scope": "ods.channel_backfill",
+                  "column": "stat_date",
+                  "qualifier": "channel_backfill",
+                  "binding_scope_id": "ROOT",
+                  "input_ref_id": "input:ROOT:001"
+                }
+              ],
+              "display_expression": "`stat_date`"
+            },
+            {
+              "name": "amount",
+              "transform": "DIRECT",
+              "expression": "`channel_backfill`.`amount`",
+              "sources": [
+                {
+                  "scope": "ods.channel_backfill",
+                  "column": "amount",
+                  "qualifier": "channel_backfill",
+                  "binding_scope_id": "ROOT",
+                  "input_ref_id": "input:ROOT:001"
+                }
+              ],
+              "display_expression": "`amount`"
+            }
+          ]
+        }
+      },
+      "field_mapping_chains": [
+        {
+          "mapping_chain_id": "mc:001",
+          "chain_id": "chain:ROOT:channel_id:position:0",
+          "chain_type": "field_mapping",
+          "target_scope_id": "ROOT",
+          "target_field": "channel_id",
+          "target_position": 0,
+          "chain_status": "resolved",
+          "source_kind": "physical",
+          "root_source_fields": [
+            "ods.channel_backfill.channel_id"
+          ],
+          "final_output_fields": [
+            "mart.channel_daily.channel_id"
+          ],
+          "ordered_steps": [
+            {
+              "step_no": 1,
+              "scope_id": "ROOT",
+              "step_type": "direct_projection",
+              "input_fields": [
+                "ods.channel_backfill.channel_id"
+              ],
+              "output_field": "mart.channel_daily.channel_id",
+              "expression_sql": "`channel_backfill`.`channel_id`",
+              "expanded_expression": "`ods.channel_backfill`.`channel_id`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "qualified_source_projection",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.channel_backfill",
+                    "field": "channel_id"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "ROOT",
+                    "from_field": "channel_id",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`channel_backfill`.`channel_id`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.channel_backfill",
+                        "field": "channel_id"
+                      }
+                    ]
+                  }
+                ],
+                "expanded_expression_same_as_parent": true
+              },
+              "logic_ids": [],
+              "transform": "DIRECT",
+              "grain_effect": "preserved",
+              "final_output_fields": [
+                "mart.channel_daily.channel_id"
+              ],
+              "target_position": 0
+            }
+          ],
+          "expanded_expression": "`ods.channel_backfill`.`channel_id`",
+          "missing_reasons": [],
+          "trace_status": "complete"
+        },
+        {
+          "mapping_chain_id": "mc:002",
+          "chain_id": "chain:ROOT:stat_date:position:1",
+          "chain_type": "field_mapping",
+          "target_scope_id": "ROOT",
+          "target_field": "stat_date",
+          "target_position": 1,
+          "chain_status": "resolved",
+          "source_kind": "physical",
+          "root_source_fields": [
+            "ods.channel_backfill.stat_date"
+          ],
+          "final_output_fields": [
+            "mart.channel_daily.stat_date"
+          ],
+          "ordered_steps": [
+            {
+              "step_no": 1,
+              "scope_id": "ROOT",
+              "step_type": "direct_projection",
+              "input_fields": [
+                "ods.channel_backfill.stat_date"
+              ],
+              "output_field": "mart.channel_daily.stat_date",
+              "expression_sql": "`channel_backfill`.`stat_date`",
+              "expanded_expression": "`ods.channel_backfill`.`stat_date`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "qualified_source_projection",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.channel_backfill",
+                    "field": "stat_date"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "ROOT",
+                    "from_field": "stat_date",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`channel_backfill`.`stat_date`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.channel_backfill",
+                        "field": "stat_date"
+                      }
+                    ]
+                  }
+                ],
+                "expanded_expression_same_as_parent": true
+              },
+              "logic_ids": [],
+              "transform": "DIRECT",
+              "grain_effect": "preserved",
+              "final_output_fields": [
+                "mart.channel_daily.stat_date"
+              ],
+              "target_position": 1
+            }
+          ],
+          "expanded_expression": "`ods.channel_backfill`.`stat_date`",
+          "missing_reasons": [],
+          "trace_status": "complete"
+        },
+        {
+          "mapping_chain_id": "mc:003",
+          "chain_id": "chain:ROOT:amount:position:2",
+          "chain_type": "field_mapping",
+          "target_scope_id": "ROOT",
+          "target_field": "amount",
+          "target_position": 2,
+          "chain_status": "resolved",
+          "source_kind": "physical",
+          "root_source_fields": [
+            "ods.channel_backfill.amount"
+          ],
+          "final_output_fields": [
+            "mart.channel_daily.amount"
+          ],
+          "ordered_steps": [
+            {
+              "step_no": 1,
+              "scope_id": "ROOT",
+              "step_type": "direct_projection",
+              "input_fields": [
+                "ods.channel_backfill.amount"
+              ],
+              "output_field": "mart.channel_daily.amount",
+              "expression_sql": "`channel_backfill`.`amount`",
+              "expanded_expression": "`ods.channel_backfill`.`amount`",
+              "expression_resolution": {
+                "status": "resolved",
+                "resolution_type": "qualified_source_projection",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.channel_backfill",
+                    "field": "amount"
+                  }
+                ],
+                "generated_sources": [],
+                "source_kind": "physical",
+                "missing_reasons": [],
+                "scope_output_trace": [
+                  {
+                    "step": 1,
+                    "from_scope_id": "ROOT",
+                    "from_field": "amount",
+                    "to_scope_id": null,
+                    "to_field": null,
+                    "relation": "physical_expression",
+                    "expression_sql": "`channel_backfill`.`amount`",
+                    "resolution_status": "resolved",
+                    "physical_source_fields": [
+                      {
+                        "table": "ods.channel_backfill",
+                        "field": "amount"
+                      }
+                    ]
+                  }
+                ],
+                "expanded_expression_same_as_parent": true
+              },
+              "logic_ids": [],
+              "transform": "DIRECT",
+              "grain_effect": "preserved",
+              "final_output_fields": [
+                "mart.channel_daily.amount"
+              ],
+              "target_position": 2
+            }
+          ],
+          "expanded_expression": "`ods.channel_backfill`.`amount`",
+          "missing_reasons": [],
+          "trace_status": "complete"
+        }
+      ],
+      "scope_profile": {
+        "profile_step_count": 1,
+        "steps": [
+          {
+            "scope_id": "ROOT",
+            "name": "ROOT",
+            "kind": "root",
+            "role": "pass_through",
+            "operations": [
+              "pass_through"
+            ],
+            "business_summary": "读取 ods.channel_backfill",
+            "direct_inputs": [
+              "ods.channel_backfill"
+            ],
+            "direct_source_tables": [
+              "ods.channel_backfill"
+            ],
+            "physical_source_tables": [
+              "ods.channel_backfill"
+            ],
+            "output_columns": 3,
+            "logic": {
+              "joins": [],
+              "filters": [],
+              "aggregations": [],
+              "window_functions": [],
+              "case_when": [],
+              "key_renames": [],
+              "distinct": false,
+              "union_branches": 0,
+              "lateral_views": []
+            }
+          }
+        ]
+      },
+      "end_to_end_lineage": [
+        {
+          "column": "channel_id",
+          "transform": "DIRECT",
+          "expression": "`channel_backfill`.`channel_id`",
+          "trace_complete": true,
+          "physical_sources": [
+            {
+              "table": "ods.channel_backfill",
+              "column": "channel_id",
+              "transform": "DIRECT"
+            }
+          ],
+          "generated_sources": [],
+          "source_kind": "physical",
+          "output_ordinal": 0
+        },
+        {
+          "column": "stat_date",
+          "transform": "DIRECT",
+          "expression": "`channel_backfill`.`stat_date`",
+          "trace_complete": true,
+          "physical_sources": [
+            {
+              "table": "ods.channel_backfill",
+              "column": "stat_date",
+              "transform": "DIRECT"
+            }
+          ],
+          "generated_sources": [],
+          "source_kind": "physical",
+          "output_ordinal": 1
+        },
+        {
+          "column": "amount",
+          "transform": "DIRECT",
+          "expression": "`channel_backfill`.`amount`",
+          "trace_complete": true,
+          "physical_sources": [
+            {
+              "table": "ods.channel_backfill",
+              "column": "amount",
+              "transform": "DIRECT"
+            }
+          ],
+          "generated_sources": [],
+          "source_kind": "physical",
+          "output_ordinal": 2
+        }
+      ],
+      "diagnostics": {
+        "fallback_used": false,
+        "warning_count": 0,
+        "warning_types": {},
+        "lineage_fact_gap_count": 0,
+        "lineage_fact_gap_types": {},
+        "lineage_fact_gap_samples": [],
+        "stats": {
+          "scope_count": 2,
+          "physical_table_count": 1,
+          "cte_count": 0,
+          "subquery_count": 0,
+          "union_count": 0,
+          "union_branch_count": 0,
+          "max_depth": 1,
+          "case_when_count": 0,
+          "window_function_count": 0,
+          "join_count": 0,
+          "aggregate_function_count": 0
+        },
+        "full_diagnostics_file": "diagnostics.json"
+      }
+    }
+  },
+  "end_to_end_lineage": [
+    {
+      "target_state": "state:mart.channel_daily:003",
+      "table": "mart.channel_daily",
+      "column": "channel_id",
+      "value_sources": [
+        {
+          "source_kind": "physical_field",
+          "table": "ods.channel_events",
+          "column": "channel_id",
+          "transform": "DIRECT"
+        },
+        {
+          "source_kind": "physical_field",
+          "table": "ods.channel_backfill",
+          "column": "channel_id",
+          "transform": "DIRECT"
+        }
+      ],
+      "row_membership_sources": [],
+      "value_condition_sources": [],
+      "trace_complete": true,
+      "missing_reasons": []
+    },
+    {
+      "target_state": "state:mart.channel_daily:003",
+      "table": "mart.channel_daily",
+      "column": "stat_date",
+      "value_sources": [
+        {
+          "source_kind": "physical_field",
+          "table": "ods.channel_events",
+          "column": "stat_date",
+          "transform": "DIRECT"
+        },
+        {
+          "source_kind": "physical_field",
+          "table": "ods.channel_backfill",
+          "column": "stat_date",
+          "transform": "DIRECT"
+        }
+      ],
+      "row_membership_sources": [],
+      "value_condition_sources": [],
+      "trace_complete": true,
+      "missing_reasons": []
+    },
+    {
+      "target_state": "state:mart.channel_daily:003",
+      "table": "mart.channel_daily",
+      "column": "amount_sum",
+      "value_sources": [
+        {
+          "source_kind": "physical_field",
+          "table": "ods.channel_events",
+          "column": "amount",
+          "transform": "AGGREGATE"
+        }
+      ],
+      "row_membership_sources": [],
+      "value_condition_sources": [],
+      "trace_complete": true,
+      "missing_reasons": []
+    },
+    {
+      "target_state": "state:mart.channel_daily:003",
+      "table": "mart.channel_daily",
+      "column": "amount",
+      "value_sources": [
+        {
+          "source_kind": "prior_table_state",
+          "state_id": "state:mart.channel_daily:002",
+          "table": "mart.channel_daily",
+          "column": "amount"
+        },
+        {
+          "source_kind": "physical_field",
+          "table": "ods.channel_backfill",
+          "column": "amount",
+          "transform": "DIRECT"
+        }
+      ],
+      "row_membership_sources": [],
+      "value_condition_sources": [],
+      "trace_complete": true,
+      "missing_reasons": []
+    }
+  ],
+  "task_dependencies": {},
+  "diagnostics": {
+    "fallback_used": false,
+    "warning_count": 0,
+    "warning_types": {},
+    "lineage_fact_gap_count": 0,
+    "lineage_fact_gap_types": {},
+    "lineage_fact_gap_samples": [],
+    "stats": {
+      "statement_count": 3,
+      "modeled_statement_count": 3,
+      "ignored_statement_count": 0,
+      "failed_statement_count": 0
+    },
+    "full_diagnostics_file": "diagnostics.json"
+  }
+}

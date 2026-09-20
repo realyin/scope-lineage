@@ -15,7 +15,9 @@ from scope_lineage.scope.task_lineage import parse_task_lineage
             "SELECT id FROM ods.source UNION ALL SELECT id FROM ods.other",
             "unsupported_statement",
         ),
-        ("DROP TABLE mart.target", "unsupported_data_change"),
+        # A relation drop is modelled now (see test_drop_table_state); what is left
+        # under this reason is a change whose extent the document cannot describe.
+        ("DROP DATABASE mart", "unsupported_data_change"),
     ],
 )
 def test_unsupported_statement_blocker_names_its_semantics(
@@ -40,7 +42,7 @@ def test_unsupported_statement_blocker_names_its_semantics(
 
 def test_mixed_unsupported_kinds_keep_both_blocking_reasons() -> None:
     result = parse_task_lineage(
-        "DROP TABLE mart.target; SELECT id FROM ods.source",
+        "DROP DATABASE mart; SELECT id FROM ods.source",
         task_name="mixed_unsupported_taxonomy",
         schema={"ods.source": ["id"]},
     )

@@ -1,0 +1,730 @@
+{
+  "doc_format": "semantic-json/1",
+  "artifact_kind": "task_semantic",
+  "task_id": "golden_drop_recreate",
+  "lineage_digest": "9faf3871b6b923b0",
+  "produced_tables": [
+    "mart.channel_daily"
+  ],
+  "warning_counts": {},
+  "statements": [
+    {
+      "doc_format": "semantic-json/1",
+      "schema_version": "1.0",
+      "statement_id": "stmt:002",
+      "lineage_digest": "cc26076f7841fe52",
+      "task": {
+        "task_name": "golden_drop_recreate#1",
+        "target_table": "mart.channel_daily",
+        "target_table_comment": null,
+        "target_table_domain": null,
+        "target_table_project": null,
+        "target_table_owner": null,
+        "stmt_kind": "CTAS",
+        "partition": {
+          "columns": [],
+          "mode": null,
+          "spec": null
+        },
+        "instance_dates": [],
+        "driving_tables": [],
+        "structural_summary": "ROOT 直接读取 ods.channel_events；输出 3 列。",
+        "target_declared_columns": [
+          {
+            "name": "channel_id",
+            "type": null,
+            "comment": null,
+            "used": true
+          },
+          {
+            "name": "stat_date",
+            "type": null,
+            "comment": null,
+            "used": true
+          },
+          {
+            "name": "amount_sum",
+            "type": null,
+            "comment": null,
+            "used": true
+          }
+        ],
+        "target_metadata_source": "schema",
+        "header_comments": [],
+        "meta": null
+      },
+      "inputs": [
+        {
+          "table": "ods.channel_events",
+          "comment": null,
+          "domain": null,
+          "project": null,
+          "owner": null,
+          "layer": null,
+          "role_in_task": "aggregate_source",
+          "roles": [
+            "aggregate_source"
+          ],
+          "used_columns": [
+            {
+              "name": "channel_id",
+              "type": null,
+              "comment": null,
+              "usages": [
+                "group_by",
+                "output"
+              ]
+            },
+            {
+              "name": "stat_date",
+              "type": null,
+              "comment": null,
+              "usages": [
+                "group_by",
+                "output"
+              ]
+            },
+            {
+              "name": "amount",
+              "type": null,
+              "comment": null,
+              "usages": [
+                "output"
+              ]
+            }
+          ],
+          "declared_columns": [
+            {
+              "name": "channel_id",
+              "type": null,
+              "comment": null,
+              "used": true
+            },
+            {
+              "name": "stat_date",
+              "type": null,
+              "comment": null,
+              "used": true
+            },
+            {
+              "name": "amount",
+              "type": null,
+              "comment": null,
+              "used": true
+            }
+          ],
+          "metadata_complete": true,
+          "table_column_count": 3,
+          "read_by_scopes": [
+            "ROOT"
+          ]
+        }
+      ],
+      "output_shape": {
+        "shape": "aggregated",
+        "shape_evidence": [
+          "logic:ROOT:group_by:001"
+        ],
+        "grain": {
+          "keys": [
+            {
+              "scope_id": "ROOT",
+              "name": "channel_id",
+              "expression": "`channel_events`.`channel_id`",
+              "physical_sources": [
+                {
+                  "table": "ods.channel_events",
+                  "column": "channel_id"
+                }
+              ]
+            },
+            {
+              "scope_id": "ROOT",
+              "name": "stat_date",
+              "expression": "`channel_events`.`stat_date`",
+              "physical_sources": [
+                {
+                  "table": "ods.channel_events",
+                  "column": "stat_date"
+                }
+              ]
+            }
+          ],
+          "basis": "group_by",
+          "via_scopes": [],
+          "confidence": "structural",
+          "evidence": [
+            "logic:ROOT:group_by:001"
+          ]
+        },
+        "candidate_keys": [
+          "channel_id",
+          "stat_date"
+        ],
+        "unexposed_keys": [],
+        "key_evidence": [],
+        "key_confidence": "proven",
+        "partition_columns": [],
+        "fan_out_risks": [],
+        "tag": "结构推断"
+      },
+      "stages": [
+        {
+          "scope_id": "ROOT",
+          "name": "ROOT",
+          "kind": "root",
+          "role": "aggregate",
+          "direct_inputs": [
+            "ods.channel_events"
+          ],
+          "direct_source_tables": [
+            "ods.channel_events"
+          ],
+          "upstream_physical_tables": [
+            "ods.channel_events"
+          ],
+          "actions": [
+            {
+              "type": "aggregate",
+              "text": "按 channel_id、stat_date 分组聚合：SUM(amount)",
+              "fields": [
+                {
+                  "table": "ods.channel_events",
+                  "column": "channel_id",
+                  "comment": null
+                },
+                {
+                  "table": "ods.channel_events",
+                  "column": "stat_date",
+                  "comment": null
+                },
+                {
+                  "table": "ods.channel_events",
+                  "column": "amount",
+                  "comment": null
+                }
+              ],
+              "evidence": "logic:ROOT:group_by:001",
+              "tag": "SQL事实"
+            }
+          ],
+          "outputs": [
+            "channel_id",
+            "stat_date",
+            "amount_sum"
+          ],
+          "output_count": 3,
+          "pattern_signature": "role=aggregate|kind=root|inputs=tables:1,scopes:0,union:no|blocks=aggregate=1,group_by=1|derive=0|window=|agg=sum"
+        }
+      ],
+      "rules": [],
+      "fields": [
+        {
+          "column": "channel_id",
+          "column_label": "mart.channel_daily.channel_id",
+          "summary": "（注释未知）：直接取自 ods.channel_events.channel_id（注释未知）",
+          "target_comment": null,
+          "type": null,
+          "transform": "DIRECT",
+          "structural_role": "candidate_key",
+          "sources": [
+            {
+              "table": "ods.channel_events",
+              "column": "channel_id",
+              "comment": null,
+              "transform": "DIRECT"
+            }
+          ],
+          "generated_sources": [],
+          "derivation": [
+            {
+              "step_no": 1,
+              "scope_id": "ROOT",
+              "step_type": "direct_projection",
+              "grain": "preserved",
+              "text": "直接投影自 ods.channel_events.channel_id",
+              "expression": "`channel_events`.`channel_id`"
+            }
+          ],
+          "expression": "`channel_events`.`channel_id`",
+          "trace_complete": true,
+          "ambiguous": false,
+          "mapping_chain_id": "mc:001",
+          "tag": "SQL事实"
+        },
+        {
+          "column": "stat_date",
+          "column_label": "mart.channel_daily.stat_date",
+          "summary": "（注释未知）：直接取自 ods.channel_events.stat_date（注释未知）",
+          "target_comment": null,
+          "type": null,
+          "transform": "DIRECT",
+          "structural_role": "candidate_key",
+          "sources": [
+            {
+              "table": "ods.channel_events",
+              "column": "stat_date",
+              "comment": null,
+              "transform": "DIRECT"
+            }
+          ],
+          "generated_sources": [],
+          "derivation": [
+            {
+              "step_no": 1,
+              "scope_id": "ROOT",
+              "step_type": "direct_projection",
+              "grain": "preserved",
+              "text": "直接投影自 ods.channel_events.stat_date",
+              "expression": "`channel_events`.`stat_date`"
+            }
+          ],
+          "expression": "`channel_events`.`stat_date`",
+          "trace_complete": true,
+          "ambiguous": false,
+          "mapping_chain_id": "mc:002",
+          "tag": "SQL事实"
+        },
+        {
+          "column": "amount_sum",
+          "column_label": "mart.channel_daily.amount_sum",
+          "summary": "（注释未知）：按 channel_id、stat_date 聚合：SUM(amount)；来源 ods.channel_events.amount（注释未知）",
+          "target_comment": null,
+          "type": null,
+          "transform": "AGGREGATE",
+          "structural_role": "measure",
+          "metric_spec": {
+            "subject": {
+              "scope_id": "ROOT",
+              "tables": [
+                "ods.channel_events"
+              ],
+              "text": "ods.channel_events 的记录"
+            },
+            "time_range": [],
+            "inclusion": [],
+            "aggregation": {
+              "function": "SUM",
+              "argument": "amount",
+              "argument_comment": null,
+              "group_keys": [
+                {
+                  "name": "channel_id",
+                  "target_column": "channel_id"
+                },
+                {
+                  "name": "stat_date",
+                  "target_column": "stat_date"
+                }
+              ],
+              "text": "按 channel_id、stat_date 汇总 SUM(amount)"
+            },
+            "unit": {
+              "type": null,
+              "hint": null,
+              "hint_source": null
+            },
+            "null_handling": {
+              "nullable_by_join": false,
+              "default": null,
+              "default_source": null
+            },
+            "refresh": null,
+            "post_aggregation": [],
+            "evidence": [
+              "logic:ROOT:aggregate:001",
+              "logic:ROOT:group_by:001",
+              "mc:003"
+            ]
+          },
+          "sources": [
+            {
+              "table": "ods.channel_events",
+              "column": "amount",
+              "comment": null,
+              "transform": "AGGREGATE"
+            }
+          ],
+          "generated_sources": [],
+          "derivation": [
+            {
+              "step_no": 1,
+              "scope_id": "ROOT",
+              "step_type": "aggregate",
+              "grain": "changed",
+              "text": "按 channel_id、stat_date 聚合：SUM(amount)",
+              "expression": "SUM(`channel_events`.`amount`)"
+            }
+          ],
+          "expression": "SUM(`channel_events`.`amount`)",
+          "trace_complete": true,
+          "ambiguous": false,
+          "mapping_chain_id": "mc:003",
+          "tag": "SQL事实"
+        }
+      ],
+      "confidence": {
+        "metadata_coverage": {
+          "input_tables_complete": 1,
+          "input_tables_total": 1,
+          "target_comments_available": false,
+          "target_metadata_source": "schema",
+          "sql_comment_counts": {
+            "header": 0,
+            "output": 0,
+            "logic": 0
+          }
+        },
+        "confirmations": {
+          "values_confirmed": 0,
+          "rule_values_confirmed": 0,
+          "terms_confirmed": 0,
+          "columns_patched": 0,
+          "tables_patched": 0
+        },
+        "trace_incomplete_fields": [],
+        "ambiguous_fields": [],
+        "diagnostics_available": true,
+        "fact_gap_count": 0,
+        "fact_gap_types": {},
+        "warning_counts": {},
+        "findings": [
+          {
+            "kind": "target_binding",
+            "severity": "info",
+            "text": "未做目标列绑定（target_binding_absent_reason=statement_defines_its_own_columns）",
+            "evidence": []
+          },
+          {
+            "kind": "table_comment_missing",
+            "severity": "info",
+            "text": "缺少表注释的表（2 张）：ods.channel_events、mart.channel_daily",
+            "evidence": []
+          }
+        ],
+        "inferred_items": {
+          "fields[].structural_role": 3,
+          "output_shape.shape": 1,
+          "output_shape.grain": 1,
+          "output_shape.candidate_keys": 1,
+          "output_shape.unexposed_keys": 1,
+          "output_shape.key_confidence": 1
+        }
+      }
+    },
+    {
+      "doc_format": "semantic-json/1",
+      "schema_version": "1.0",
+      "statement_id": "stmt:003",
+      "lineage_digest": "9baefef9eaebeec6",
+      "task": {
+        "task_name": "golden_drop_recreate#2",
+        "target_table": "mart.channel_daily",
+        "target_table_comment": null,
+        "target_table_domain": null,
+        "target_table_project": null,
+        "target_table_owner": null,
+        "stmt_kind": "INSERT",
+        "partition": {
+          "columns": [],
+          "mode": null,
+          "spec": null
+        },
+        "instance_dates": [],
+        "driving_tables": [
+          {
+            "table": "ods.channel_backfill",
+            "via_scopes": [],
+            "lateral_view_scopes": []
+          }
+        ],
+        "structural_summary": "行来源 ods.channel_backfill；输出 3 列。",
+        "target_declared_columns": [
+          {
+            "name": "channel_id",
+            "type": null,
+            "comment": null,
+            "used": true
+          },
+          {
+            "name": "stat_date",
+            "type": null,
+            "comment": null,
+            "used": true
+          },
+          {
+            "name": "amount_sum",
+            "type": null,
+            "comment": null,
+            "used": false
+          }
+        ],
+        "target_metadata_source": "schema",
+        "header_comments": [],
+        "meta": null
+      },
+      "inputs": [
+        {
+          "table": "ods.channel_backfill",
+          "comment": null,
+          "domain": null,
+          "project": null,
+          "owner": null,
+          "layer": null,
+          "role_in_task": "driving",
+          "roles": [
+            "driving"
+          ],
+          "used_columns": [
+            {
+              "name": "channel_id",
+              "type": null,
+              "comment": null,
+              "usages": [
+                "output"
+              ]
+            },
+            {
+              "name": "stat_date",
+              "type": null,
+              "comment": null,
+              "usages": [
+                "output"
+              ]
+            },
+            {
+              "name": "amount",
+              "type": null,
+              "comment": null,
+              "usages": [
+                "output"
+              ]
+            }
+          ],
+          "declared_columns": [
+            {
+              "name": "channel_id",
+              "type": null,
+              "comment": null,
+              "used": true
+            },
+            {
+              "name": "stat_date",
+              "type": null,
+              "comment": null,
+              "used": true
+            },
+            {
+              "name": "amount",
+              "type": null,
+              "comment": null,
+              "used": true
+            }
+          ],
+          "metadata_complete": true,
+          "table_column_count": 3,
+          "read_by_scopes": [
+            "ROOT"
+          ]
+        }
+      ],
+      "output_shape": {
+        "shape": "filtered_projection",
+        "shape_evidence": [
+          "ROOT"
+        ],
+        "grain": {
+          "keys": [],
+          "basis": "driving_table_rows",
+          "via_scopes": [],
+          "confidence": "structural",
+          "evidence": [
+            "ods.channel_backfill"
+          ]
+        },
+        "candidate_keys": [],
+        "unexposed_keys": [],
+        "key_evidence": [],
+        "key_confidence": "none",
+        "partition_columns": [],
+        "fan_out_risks": [],
+        "tag": "结构推断"
+      },
+      "stages": [
+        {
+          "scope_id": "ROOT",
+          "name": "ROOT",
+          "kind": "root",
+          "role": "pass_through",
+          "direct_inputs": [
+            "ods.channel_backfill"
+          ],
+          "direct_source_tables": [
+            "ods.channel_backfill"
+          ],
+          "upstream_physical_tables": [
+            "ods.channel_backfill"
+          ],
+          "actions": [],
+          "outputs": [
+            "channel_id",
+            "stat_date",
+            "amount"
+          ],
+          "output_count": 3,
+          "pattern_signature": "role=pass_through|kind=root|inputs=tables:1,scopes:0,union:no|blocks=|derive=0|window=|agg="
+        }
+      ],
+      "rules": [],
+      "fields": [
+        {
+          "column": "channel_id",
+          "column_label": "mart.channel_daily.channel_id",
+          "summary": "（注释未知）：直接取自 ods.channel_backfill.channel_id（注释未知）",
+          "target_comment": null,
+          "type": null,
+          "transform": "DIRECT",
+          "structural_role": "attribute",
+          "sources": [
+            {
+              "table": "ods.channel_backfill",
+              "column": "channel_id",
+              "comment": null,
+              "transform": "DIRECT"
+            }
+          ],
+          "generated_sources": [],
+          "derivation": [
+            {
+              "step_no": 1,
+              "scope_id": "ROOT",
+              "step_type": "direct_projection",
+              "grain": "preserved",
+              "text": "直接投影自 ods.channel_backfill.channel_id",
+              "expression": "`channel_backfill`.`channel_id`"
+            }
+          ],
+          "expression": "`channel_backfill`.`channel_id`",
+          "trace_complete": true,
+          "ambiguous": false,
+          "mapping_chain_id": "mc:001",
+          "tag": "SQL事实"
+        },
+        {
+          "column": "stat_date",
+          "column_label": "mart.channel_daily.stat_date",
+          "summary": "（注释未知）：直接取自 ods.channel_backfill.stat_date（注释未知）",
+          "target_comment": null,
+          "type": null,
+          "transform": "DIRECT",
+          "structural_role": "attribute",
+          "sources": [
+            {
+              "table": "ods.channel_backfill",
+              "column": "stat_date",
+              "comment": null,
+              "transform": "DIRECT"
+            }
+          ],
+          "generated_sources": [],
+          "derivation": [
+            {
+              "step_no": 1,
+              "scope_id": "ROOT",
+              "step_type": "direct_projection",
+              "grain": "preserved",
+              "text": "直接投影自 ods.channel_backfill.stat_date",
+              "expression": "`channel_backfill`.`stat_date`"
+            }
+          ],
+          "expression": "`channel_backfill`.`stat_date`",
+          "trace_complete": true,
+          "ambiguous": false,
+          "mapping_chain_id": "mc:002",
+          "tag": "SQL事实"
+        },
+        {
+          "column": "amount",
+          "column_label": "mart.channel_daily.amount",
+          "summary": "（注释未知）：直接取自 ods.channel_backfill.amount（注释未知）",
+          "target_comment": null,
+          "type": null,
+          "transform": "DIRECT",
+          "structural_role": "attribute",
+          "sources": [
+            {
+              "table": "ods.channel_backfill",
+              "column": "amount",
+              "comment": null,
+              "transform": "DIRECT"
+            }
+          ],
+          "generated_sources": [],
+          "derivation": [
+            {
+              "step_no": 1,
+              "scope_id": "ROOT",
+              "step_type": "direct_projection",
+              "grain": "preserved",
+              "text": "直接投影自 ods.channel_backfill.amount",
+              "expression": "`channel_backfill`.`amount`"
+            }
+          ],
+          "expression": "`channel_backfill`.`amount`",
+          "trace_complete": true,
+          "ambiguous": false,
+          "mapping_chain_id": "mc:003",
+          "tag": "SQL事实"
+        }
+      ],
+      "confidence": {
+        "metadata_coverage": {
+          "input_tables_complete": 1,
+          "input_tables_total": 1,
+          "target_comments_available": false,
+          "target_metadata_source": "schema",
+          "sql_comment_counts": {
+            "header": 0,
+            "output": 0,
+            "logic": 0
+          }
+        },
+        "confirmations": {
+          "values_confirmed": 0,
+          "rule_values_confirmed": 0,
+          "terms_confirmed": 0,
+          "columns_patched": 0,
+          "tables_patched": 0
+        },
+        "trace_incomplete_fields": [],
+        "ambiguous_fields": [],
+        "diagnostics_available": true,
+        "fact_gap_count": 0,
+        "fact_gap_types": {},
+        "warning_counts": {},
+        "findings": [
+          {
+            "kind": "target_binding",
+            "severity": "info",
+            "text": "未做目标列绑定（target_binding_absent_reason=metadata_not_provided）",
+            "evidence": []
+          },
+          {
+            "kind": "table_comment_missing",
+            "severity": "info",
+            "text": "缺少表注释的表（2 张）：ods.channel_backfill、mart.channel_daily",
+            "evidence": []
+          }
+        ],
+        "inferred_items": {
+          "fields[].structural_role": 3,
+          "output_shape.shape": 1,
+          "output_shape.grain": 1,
+          "output_shape.candidate_keys": 1,
+          "output_shape.unexposed_keys": 1,
+          "output_shape.key_confidence": 1
+        }
+      }
+    }
+  ]
+}
