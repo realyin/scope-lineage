@@ -156,6 +156,22 @@ EVIDENCE_BUCKET = "case_label(桶 {count})"
 EVIDENCE_SINGLE_BRANCH = "case_label(单值分支)"
 EVIDENCE_LABEL_SYSTEM = "case_label(体系 {index}/{total})"
 
+# Q1b. A label the same CASE also wrote under an extra predicate: it is the second half
+# of a two-part rule, and the half a reviewer sees alone is not the code's meaning.
+EVIDENCE_CONDITIONAL = "case_label(有条件)"
+
+# Q1b. The column's own comment and a CASE of the corpus give this value two different
+# answers. The review prompt has always said that two contradicting pieces of evidence
+# close nothing; it was a sentence a reviewer had to apply by hand, one row at a time,
+# by reading 注释线索 against 候选来源 -- so the form now says it in the cell.
+EVIDENCE_CONTRADICTION = "⚠ 矛盾"
+
+# Q1b. Which member table of a `*.<column>` family supplied the evidence the row shows.
+# A family row is one question about many tables, and the answer somebody writes into it
+# rests on a code table that exists on exactly one of them.
+EVIDENCE_TABLE_KEY = "evidence_table"
+EVIDENCE_TABLE_NOTE = "（来自 {table}）"
+
 _LABEL_SYSTEM_NOTE = "⚠ {count} 套标签体系"
 
 _CLOSED_NOTE = "- 该列取值已被 SQL 证明封闭：{answer}"
@@ -312,10 +328,15 @@ def evidence_kinds(
 
     ``systems`` is the column's labelling systems in printing order; it is what turns a
     candidate's ``label_system`` into the ``体系 k/N`` a reader can act on.
+
+    Q1b puts :data:`EVIDENCE_CONTRADICTION` in FRONT of everything else when the two
+    routes disagree: whatever they each say, the row cannot be closed by reading, and
+    that is the first thing the cell has to say.
     """
     candidates = entry.get("meaning_candidates") or []
     sources = {str(item.get("source")) for item in candidates}
-    kinds = [
+    kinds = [EVIDENCE_CONTRADICTION] if contradicted(entry) else []
+    kinds += [
         kind
         for kind in (EVIDENCE_COMMENT_ENUM, EVIDENCE_COMMENT_MENTION)
         if kind in sources
@@ -364,6 +385,8 @@ def _label_kind(candidates: Sequence[Mapping], systems: Sequence[str] = ()) -> s
         return EVIDENCE_BUCKET.format(count=fan_out)
     if best.get("single_branch"):
         return EVIDENCE_SINGLE_BRANCH
+    if best.get("conditional"):
+        return EVIDENCE_CONDITIONAL
     system = str(best.get("label_system") or "")
     if system in systems:
         return EVIDENCE_LABEL_SYSTEM.format(
@@ -373,12 +396,43 @@ def _label_kind(candidates: Sequence[Mapping], systems: Sequence[str] = ()) -> s
 
 
 def _confirmable_label(item: Mapping) -> bool:
-    """A CASE label somebody may answer from: one value, one branch, one real name."""
+    """A CASE label somebody may answer from: one value, one branch, one real name.
+
+    Q1b adds the fourth way it is none of those: the same CASE also tested this value
+    beside another predicate, so the label holds under a condition the row does not say.
+    """
     return (
         str(item.get("source")) == EVIDENCE_CASE_LABEL
         and int(item.get("fan_out") or 1) <= 1
         and not item.get("single_branch")
+        and not item.get("conditional")
     )
+
+
+def contradicted(entry: Mapping) -> bool:
+    """Whether this value's comment and its CASE label give two different answers (Q1b).
+
+    The review prompt has always refused to close a value whose evidence disagrees with
+    itself, and a reviewer had to see it by reading one column of the form against
+    another. Only the two routes a row could otherwise be CLOSED on are compared: the
+    column's own comment enumerating the value, and a CASE label that is a one-to-one
+    translation. A bucket, a lone branch, a conditional label and a synonym close
+    nothing on their own, so they have nothing to contradict.
+    """
+    candidates = entry.get("meaning_candidates") or []
+    comments = [
+        str(item.get("text") or "")
+        for item in candidates
+        if str(item.get("source")) == EVIDENCE_COMMENT_ENUM
+    ]
+    labels = [str(item.get("text") or "") for item in candidates if _confirmable_label(item)]
+    return any(not _agrees(label, comment) for comment in comments for label in labels)
+
+
+def _agrees(label: str, comment: str) -> bool:
+    """Two texts saying one thing: the same answer, or the comment saying it at length."""
+    left, right = label.strip().casefold(), comment.strip().casefold()
+    return bool(left) and left in right
 
 
 def confirmable_evidence(entry: Mapping, confirmed: frozenset = frozenset()) -> bool:
@@ -391,7 +445,12 @@ def confirmable_evidence(entry: Mapping, confirmed: frozenset = frozenset()) -> 
     all leads for a person -- they used to lift a whole column to the front of the form,
     which is how a review round spent its first page on rows nobody could answer by
     reading.
+
+    Q1b: evidence that disagrees with itself closes nothing, whichever of the three
+    routes each half came in by. That check runs first, before the same-name rule.
     """
+    if contradicted(entry):
+        return False
     if (str(entry.get("column")), str(entry.get("value"))) in confirmed:
         return True
     return any(
@@ -569,10 +628,49 @@ def _family_section(
 
 def _unique_values(entries: Sequence[Mapping]) -> list[dict]:
     """One row per value: the same code observed in five tables is one question."""
-    found: dict[str, dict] = {}
+    found: dict[str, list[Mapping]] = {}
     for entry in entries:
-        found.setdefault(str(entry["value"]), dict(entry))
-    return [found[value] for value in sorted(found)]
+        found.setdefault(str(entry["value"]), []).append(entry)
+    return [_merged_value(found[value]) for value in sorted(found)]
+
+
+def _merged_value(members: Sequence[Mapping]) -> dict:
+    """One family row carrying what EVERY member table saw about this value (Q1b).
+
+    A family asks one question for the whole family, and the row used to be whichever
+    member happened to sort first -- so a code table somebody wrote down on ONE of the
+    five tables was invisible in the very row that asked about it. The candidates are
+    unioned instead, which makes 注释线索 and 候选来源 the union too, and
+    :func:`confirmable_evidence` true for the family row whenever it is true for any
+    member of it. The per-table entries in ``glossary.json`` are untouched.
+    """
+    merged = dict(members[0])
+    candidates: list[dict] = []
+    for member in members:
+        for item in member.get("meaning_candidates") or []:
+            if item not in candidates:
+                candidates.append(dict(item))
+    merged["meaning_candidates"] = candidates
+    merged["closed_set"] = next(
+        (member.get("closed_set") for member in members if member.get("closed_set")), None
+    )
+    merged[EVIDENCE_TABLE_KEY] = _evidence_table(members)
+    return merged
+
+
+def _evidence_table(members: Sequence[Mapping]) -> str:
+    """Which member table supplied the strongest evidence the family row now shows."""
+    best = min(
+        members,
+        key=lambda item: (
+            0 if confirmable_evidence(item) else 1,
+            0 if item.get("meaning_candidates") else 1,
+            str(item["column_ref"]),
+        ),
+    )
+    if not best.get("meaning_candidates"):
+        return ""
+    return str(best["column_ref"]).rpartition(".")[0]
 
 
 def _exclusion_note(template: Mapping) -> str:
@@ -612,13 +710,15 @@ def _label_system_note(entries: Sequence[Mapping]) -> str:
 
 def _row(entry: Mapping, confirmed: frozenset, systems: Sequence[str] = ()) -> str:
     kinds = evidence_kinds(entry, confirmed, systems)
+    table = str(entry.get(EVIDENCE_TABLE_KEY) or "")
+    evidence = "、".join(kinds) + (EVIDENCE_TABLE_NOTE.format(table=table) if table else "")
     return (
         f"| {_expr_span(str(entry['value']))} "
         f"| {_expr_span(str(entry.get('sql_literal') or entry['value']))} "
         f"| {entry.get('task_count') or 0} "
         f"| {len(entry.get('observations') or [])} "
         f"| {_cell(_candidate_text(entry))} "
-        f"| {_cell('、'.join(kinds) if kinds else EVIDENCE_NONE)} |  |"
+        f"| {_cell(evidence if kinds else EVIDENCE_NONE)} |  |"
     )
 
 

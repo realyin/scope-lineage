@@ -793,21 +793,50 @@ def _describe_corpus(documents, cache, *, reuse: bool, formats: set, options) ->
         outputs = [item.target_dir / name for name in _describe_output_names(formats)]
         if reuse and cache.unchanged(item, outputs):
             continue
+        if reuse and _write_borrowed_documents(item, cache, outputs):
+            continue
         try:
             profile, markdown = _describe_one(item, formats, *options)
         except ValueError as error:
             print(f"{item.path}: {error}", file=sys.stderr)
             return 1
-        if "json" in formats:
-            _write_derived_document(
-                item.target_dir,
-                "semantic.json",
-                json.dumps(profile, ensure_ascii=False, indent=2) + "\n",
-            )
-        if markdown is not None:
-            _write_derived_document(item.target_dir, "semantic.md", markdown)
-        cache.record(item, outputs)
+        written = _described_documents(profile, markdown, formats)
+        for name, text in written.items():
+            _write_derived_document(item.target_dir, name, text)
+        cache.record(item, outputs, facts={"documents": written})
     return None
+
+
+def _described_documents(profile: dict, markdown: str | None, formats: set) -> dict:
+    """What one described task publishes, by file name -- written to disk, and cached so
+    another corpus holding the same task can borrow the documents instead of deriving
+    them again (Q7). ``describe`` has no merge, so the documents *are* its facts."""
+    written = {}
+    if "json" in formats:
+        written["semantic.json"] = json.dumps(profile, ensure_ascii=False, indent=2) + "\n"
+    if markdown is not None:
+        written["semantic.md"] = markdown
+    return written
+
+
+def _write_borrowed_documents(item, cache, outputs) -> bool:
+    """Q7: a task another corpus already described, written here from its fact cache.
+
+    The documents are borrowed whole rather than re-rendered: same lineage/diagnostics
+    bytes and same options digest is the same describe run, so the bytes cannot differ.
+    A cache that does not hold every document this run publishes, as text, is no use to
+    it -- and a cache file, however it got that way, describes the task again rather than
+    raising.
+    """
+    documents = (cache.borrow(item) or {}).get("documents")
+    if not isinstance(documents, dict):
+        return False
+    if any(not isinstance(documents.get(path.name), str) for path in outputs):
+        return False
+    for path in outputs:
+        _write_derived_document(item.target_dir, path.name, documents[path.name])
+    cache.record(item, outputs, borrowed=True)
+    return True
 
 
 def _describe_one(item, formats: set, patch, table_cards, glossary, sections):

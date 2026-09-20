@@ -68,7 +68,7 @@ markdown = render_glossary_markdown(glossary)
 - `corpus.artifact_root` records the `--lineage` value **verbatim**. Pass a relative path
   when you want reproducible bytes.
 
-## Incremental runs: `--incremental` / `--no-cache`
+## Incremental runs: `--incremental` / `--no-cache` / `--cache-from`
 
 One or two tasks changed, and the rerun still reads and re-derives every task in the
 corpus. `--incremental` narrows that pass to the tasks whose fingerprints moved:
@@ -86,17 +86,30 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
   `derivation` -- is never merged and so is never stored. Which fields count is each
   builder's own list (`PROFILE_FIELDS_READ`, beside the code that reads it); editing
   one invalidates the whole index and recomputes everything.
-- The stored facts are **versioned**: `payload_version` (`corpus-cache/2` today). A
+- The stored facts are **versioned**: `payload_version` (`corpus-cache/3` today). A
   cache file or an index of another version is ignored and recomputed -- an older
   version held something else, not the same thing with fewer keys.
 - **The corpus-level merge still runs over every task**: only the per-task half is
   reused, which is what makes an incremental run byte-identical to a full one.
+- **Another corpus's cache can be reused too** (Q7): `--cache-from <dir>` names a further
+  fact cache -- the `--out` of another run, or the `.cache/` inside it. The same task parsed
+  into another directory (re-parsed, or walked again as part of a larger corpus) is borrowed
+  rather than re-derived when its `lineage.json` / `diagnostics.json` bytes and the options
+  digest match, and the borrowed file is copied into this run's own `.cache/`, so the next
+  run finds it locally and the lending directory can go away. Repeatable, tried in the order
+  given and after this run's own cache; it implies `--incremental`, and `--no-cache` still
+  wins. The corpus path is **not** part of the options digest: the same task has to derive
+  the same facts wherever it was parsed.
+- Fact files are keyed by task name, and two corpora may hold different tasks under one
+  name. What decides a borrow is the fingerprint and the options digest recorded inside the
+  file, not the file's name, so a task of the same name and other contents is recomputed.
 - A changed option invalidates the whole index and recomputes everything: the **content**
   of the `--overrides` file, `--format`, the `glossary.json` / `tables.json` read back,
   and the tool version. An index or a cache file written by another subcommand (a
   `command` or `doc_format` that disagrees) is ignored the same way.
 - The summary line gains `reused=N, recomputed=M, removed=K`: how many tasks were reused,
-  re-derived, and have disappeared from the corpus.
+  re-derived, and have disappeared from the corpus. With `--cache-from` the first counter
+  reads `reused=N (borrowed=B)`, `B` being the tasks borrowed from another corpus.
 - Without `--incremental` the run is the full one it always was, reading and writing
   neither index nor cache; `--no-cache` deletes both first and then runs in full.
 
@@ -276,8 +289,28 @@ Other rules:
      branch maps to this label. `fan_out: 1` is the corpus **translating** the code; more
      than one is the corpus **bucketing** codes, and `text` becomes
      `分类桶：<label>（同桶 N 个值）` -- `WHEN s IN ('AA','BB','CC') THEN '进行中'` says
-     those three codes share a bucket, not what any one of them means.
-  All three produce a **candidate** only: `glossary --template` still lists the value,
+     those three codes share a bucket, not what any one of them means. It may also carry
+     `conditional: true` with a `condition` (Q1b): **another branch of the same CASE tested
+     this value beside a second predicate** (`WHEN col = 'v' AND report_dt >= '20260101'
+     THEN '自营'`, followed by a plain `WHEN col = 'v' THEN '外包'`). The compound branch
+     labels the combination and produces no observation, so the plain one used to print as
+     a clean one-to-one translation -- it is the second half of a two-part rule. **Every**
+     candidate that CASE gives the value is then marked `conditional: true`, `condition`
+     holds the extra predicate, `text` is prefixed 「有条件：」, and it is not evidence.
+  4. **`code_alias` -- the "label" is itself a code from another coding system** (Q1):
+     `WHEN part_code = 'CU_OS_S1_1_1' THEN 'S1_1_1'` translates one coding system into
+     another and defines neither. `text` becomes `同义码：<label>`, and it is not evidence.
+  A candidate also carries `single_branch: true` when `fan_out` is 1 but the labelling
+  system it came from is **sorting** rather than translating -- either because it buckets
+  the column's **other** values (Q1), or because its **ELSE is a label of its own** (Q1b).
+  `CASE WHEN col = 'X' THEN '自营' ELSE '委外' END` splits the column into two classes and
+  the ELSE covers every other value, so `自营` is one side of a classification rather than
+  the meaning of `X`. Only the ELSE decides: a **scalar constant that is not `NULL`**
+  classifies (`ELSE NULL` says the other values have no label at all, `ELSE gap` is the
+  row's own value). The exception: when that system gives **every observed value of the
+  column** a THEN branch of its own, the ELSE is a default no row reaches, the CASE is an
+  exhaustive mapping, and its labels stay confirmable.
+  All of them produce a **candidate** only: `glossary --template` still lists the value,
   because a candidate is not a confirmation.
 
 ### Parameterised values (parameters[])
@@ -356,8 +389,9 @@ reason.
 
 **Every row also says what evidence it has** (P5): the **候选来源** column beside 注释线索
 holds `comment_enum` / `comment_mention` / `case_label` / `case_label(桶 N)` /
-`case_label(单值分支)` / `case_label(体系 k/N)` / `code_alias` /
-`same_name_confirmed` / `—`. Exactly three of them are evidence a reviewer (or an Agent
+`case_label(单值分支)` / `case_label(有条件)` / `case_label(体系 k/N)` / `code_alias` /
+`same_name_confirmed` / `—`, possibly preceded by a `⚠ 矛盾`.
+Exactly three of them are evidence a reviewer (or an Agent
 working from `skills/scope-lineage/references/glossary-review-prompt.md`) may **answer the
 value from**: `comment_enum` (the column's own comment enumerates it), `case_label` (a CASE
 in the corpus labels it one-to-one), or `same_name_confirmed` (a **human** has confirmed the
@@ -365,13 +399,22 @@ same value on the same column name elsewhere). None of the rest is:
 `comment_mention` is a sentence that happens to say the value, which is a lead for a human (P5b);
 `case_label(桶 N)` means this value and N-1 others were put in one bucket, and a bucket name
 is a category rather than this value's meaning (P5b); `case_label(单值分支)` means the CASE
-that produced this label buckets the column's **other** values, so it is sorting rather than
-translating (Q1); `code_alias` means the "label" is itself a code from another coding system
+that produced this label buckets the column's **other** values or names them all at once in
+its ELSE, so it is sorting rather than translating (Q1, Q1b); `case_label(有条件)` means the
+label holds only where another predicate of the same CASE holds (Q1b); `code_alias` means the
+"label" is itself a code from another coding system
 (Q1). `case_label(体系 k/N)` says the column carries N labelling systems and this candidate
 came from the k-th -- the column's heading then reads `⚠ N 套标签体系`, and **no value of
 that column may be answered on its own** (Q1). `same_name_confirmed` counts a
 human confirmation only -- an Agent's own answer spreading along same-named columns would be
 an inference proving itself. The `—` rows are the ones somebody has to be asked about.
+
+**`⚠ 矛盾` comes first when it comes** (Q1b): the column's own comment enumerates this value
+as one answer while a CASE in the corpus labels it one-to-one as a different one (compared
+after trimming and case-folding; a label **contained in** the comment's half counts as
+agreeing). Neither half closes the row then -- it goes to the ask-a-human list with both
+answers laid out. The review prompt has always said so; the form now decides it for the
+reviewer instead of leaving it to be read off two columns by hand.
 
 **One code table copied into many tables is asked once** (Q1): when the same
 `(column name, value)` pair is askable in **3 or more** tables, the form stops printing one
@@ -382,12 +425,21 @@ appear in the per-table sections, and a line under the heading says so. The same
 are not a family -- the same column name on two tables may legitimately mean two things,
 which is exactly the cross-table conflict a person has to be asked about.
 
+**A family row's evidence is the union over its member tables** (Q1b): usually only **one**
+table of a family had the code table written into its comment, and the row asks about the
+whole family. So a value's 注释线索 and 候选来源 in a family section are the union over the
+members -- the strongest kind wins the cell and `（来自 <table>）` names the member that
+supplied it -- and the family row is confirmable whenever **any** member row is, so a family
+key can be closed on evidence too. The per-table entries in `glossary.json` are untouched,
+and `overrides_applied.family_expansions` means exactly what it did.
+
 **Order and size**: the first version ranked closed sets first and then by observation
 count, and a real corpus spent its whole first page on `Y` / `N`, `1` / `0` and
 scope-level columns -- the exclusions above are that finding. **Columns carrying evidence
 now come first** -- since Q1 "evidence" means the three answerable routes above:
-`comment_enum`, a **confirmable** `case_label` (`fan_out` 1, not a lone branch of a
-bucketing CASE, not a `code_alias`), and `same_name_confirmed`. A column whose only clue
+`comment_enum`, a **confirmable** `case_label` (`fan_out` 1, not a lone branch of a sorting
+CASE, not conditional, not a `code_alias`, and not overturned by a `⚠ 矛盾`), and
+`same_name_confirmed`. A column whose only clue
 is a mention, a bucket, a lone branch or a synonym ranks with the ones that carry nothing,
 because that is what it is. The rest runs over
 **columns**, scored

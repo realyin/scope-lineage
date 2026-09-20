@@ -16,6 +16,52 @@
   byte, and the golden corpus was re-run rather than re-recorded to prove it. Memory is
   bounded — every cache holds a fixed number of entries, so a large corpus costs no more
   than a small one.
+- **One corpus can borrow another corpus's per-task cache** (Q7). `--incremental` only
+  ever looked under its own `--out`, so the same tasks parsed into a second directory --
+  a re-parse, or a larger corpus that contains them -- recomputed every profile although
+  the bytes were identical. The four corpus commands (`glossary`, `tables`, `ontology`,
+  `describe`) now take **`--cache-from <dir>`**, repeatable: further fact caches (another
+  run's `--out`, or the `.cache` directory inside it), tried in the order given and after
+  this run's own cache. A file is borrowed only when its `command`, `payload_version`,
+  options digest and recorded `lineage.json` / `diagnostics.json` fingerprints all equal
+  this task's -- two corpora may hold different tasks under one name, and the name is not
+  what decides. The borrowed file is copied into this run's own cache, so the next run
+  over that corpus finds it locally and the lending directory can go away. The summary
+  line reads `reused=N (borrowed=B), recomputed=M, removed=K`. `--cache-from` implies
+  `--incremental`; `--no-cache` still wins.
+- The corpus path is **no longer part of the options digest**: the same task derives the
+  same facts wherever it was parsed, which is what makes one corpus's cache usable by
+  another. A run that only changed `--lineage` now keeps its index instead of discarding
+  it.
+- Fact files are `corpus-cache/3`: they carry the options digest and the input
+  fingerprints they were derived under, so a file from another corpus can be judged on
+  its own rather than through the index beside it. A `corpus-cache/2` file is ignored and
+  recomputed, as a file of any other version is. `describe` now caches the documents it
+  wrote -- it has no corpus-level merge, so the documents *are* its facts, and they are
+  what another corpus borrows; its `.cache` grows by that much.
+- **Four more ways the fill-in form read cleaner than the evidence behind it** (Q1b). A
+  third review round closed rows it should not have, and each time the 候选来源 column
+  was the reason. (1) *A label may hold only under a condition*: one CASE maps
+  `col = 'v'` to one label under `WHEN col = 'v' AND report_dt >= '…'` and to another
+  under a later plain `WHEN col = 'v'`. The compound branch labels the combination and
+  produces no observation, so the plain one printed as a clean 1:1 translation. Every
+  candidate that CASE gives `v` now carries `conditional: true` with the extra predicate
+  in `condition`, its text is prefixed 「有条件：」, the form reads
+  `case_label(有条件)`, and it is not evidence. (2) *The comment and the CASE may
+  disagree*: a value carrying both a `comment_enum` candidate and a one-to-one
+  `case_label` whose texts differ (trimmed and case-folded; a label contained in the
+  comment's half agrees) now reads `⚠ 矛盾` at the head of its 候选来源 cell and is not
+  confirmable -- the prompt's "contradicting evidence closes nothing" rule, decided by
+  the form instead of by hand across two columns. (3) *An ELSE may be a class rather than
+  a default*: `CASE WHEN col = 'X' THEN '自营' ELSE '委外' END` sorts the column into two
+  classes, so a CASE whose ELSE is a scalar label (not `NULL`, not a column) makes its
+  THEN labels `single_branch: true` -- unless it gives every observed value of the column
+  its own THEN branch, which is an exhaustive mapping and stays confirmable. (4) *A
+  family section inherits its members' evidence*: in a ``*.<column>`` section a value's
+  注释线索 and 候选来源 are the union over the member tables, with `（来自 <表>）` naming
+  the member that supplied the strongest kind, and the family row is confirmable whenever
+  any member row is -- so a code table written down on one table of a family can now
+  close the family key. `family_expansions` and the per-table entries are unchanged.
 - **A binding that fell back now says why, and a statement with no binding to make says
   so** (Q4). `binding_fallbacks=N` in the run summary was a number nobody could act on:
   a target whose metadata is missing, a projection that disagrees with the DDL and a

@@ -17,10 +17,25 @@ Two files, both under the command's own ``--out`` and both disposable:
     *content*, the glossary/tables documents read back, the template flags, the package
     version), rather than trying to reason about which option touched which task.
 
-``<out>/.cache/<task>.json``
-    ``corpus-cache/2``: the facts one task contributed, as JSON. Reused only when the
-    index entry matched AND the file declares the same command AND the same
-    ``payload_version``.
+``<out>/.cache/<task>-<digest>.json``
+    ``corpus-cache/3``: the facts one task contributed, as JSON, over a copy of the
+    input fingerprints and the options digest they were derived under. Reused only when
+    the index entry matched AND the file declares the same command, ``payload_version``,
+    options digest and input fingerprints.
+
+**A fact file says what it was derived from, so another corpus may borrow it** (Q7).
+The same task parsed into a second directory -- re-parsed under another root, or walked
+again as part of a superset corpus -- is byte for byte the same input and derives byte
+for byte the same facts, yet it used to be recomputed, because a run only ever looked
+under its own ``--out``. ``--cache-from <dir>`` names further fact caches to look in
+after this run's own: a file there is borrowed when its command, ``payload_version``,
+options digest and recorded input fingerprints all equal this task's, and it is copied
+into this run's own cache, so the next run finds it locally. Two consequences, both
+deliberate. The corpus path is *not* in the options digest -- the same task has to hash
+the same wherever it was parsed, which is the whole point. And a fact file is named
+after the task, so two corpora that both hold a ``task_a`` look at the same file name:
+what makes that safe is not the name but the fingerprints, which a task of the same name
+and other contents cannot match.
 
 What is deliberately *not* cached is the corpus-level merge: it always runs over every
 task, reused and recomputed alike, which is what makes an incremental run byte-identical
@@ -54,7 +69,7 @@ from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
 INDEX_DOC_FORMAT = "corpus-index/1"
-CACHE_DOC_FORMAT = "corpus-cache/2"
+CACHE_DOC_FORMAT = "corpus-cache/3"
 INDEX_FILE_NAME = ".scope-lineage-corpus-index.json"
 CACHE_DIR_NAME = ".cache"
 
@@ -69,7 +84,7 @@ _UNSAFE_IN_FILENAME = re.compile(r"[^A-Za-z0-9._-]")
 
 
 def add_incremental_arguments(command) -> None:
-    """The two flags every corpus command shares. Off by default: a run that asks for
+    """The three flags every corpus command shares. Off by default: a run that asks for
     nothing pays nothing -- no digests, no cache files, no extra line in the summary."""
     command.add_argument(
         "--incremental",
@@ -89,6 +104,34 @@ def add_incremental_arguments(command) -> None:
             "cache, then run in full"
         ),
     )
+    command.add_argument(
+        "--cache-from",
+        action="append",
+        default=[],
+        metavar="DIR",
+        help=(
+            "Also reuse the per-task facts cached under another run's output directory "
+            "(or the .cache directory inside it): a task whose lineage.json / "
+            "diagnostics.json and options digest match a fact file there is borrowed "
+            "rather than re-derived, and the borrowed file is copied into this run's "
+            "own cache. Repeatable, tried in the order given and after this run's own "
+            "cache. Implies --incremental; --no-cache still wins"
+        ),
+    )
+
+
+def cache_roots(values: Sequence[str] | None) -> list[Path]:
+    """The ``--cache-from`` directories as fact-cache roots, in order and without repeats.
+
+    Both spellings are accepted -- the ``--out`` of the other run, or the ``.cache``
+    inside it -- because a reader who has just run a command knows the ``--out`` they
+    passed, and one who is looking at the files knows the directory they are in.
+    """
+    roots: dict[Path, None] = {}
+    for value in values or ():
+        path = Path(value)
+        roots[path if path.name == CACHE_DIR_NAME else path / CACHE_DIR_NAME] = None
+    return list(roots)
 
 
 def file_digest(path: Path) -> str | None:
@@ -200,12 +243,16 @@ def open_cache(
     if getattr(args, "no_cache", False):
         purge(out)
         return CorpusCache(out, base, command, "", enabled=False)
+    borrow_from = cache_roots(getattr(args, "cache_from", None))
     return CorpusCache(
         out,
         base,
         command,
         options_digest([*options, *fields]),
-        enabled=bool(getattr(args, "incremental", False)),
+        # ``--cache-from`` implies ``--incremental``: a run that names a cache to borrow
+        # from has already said it wants one, and it must write its own for the next run.
+        enabled=bool(getattr(args, "incremental", False)) or bool(borrow_from),
+        borrow_from=borrow_from,
     )
 
 
@@ -213,37 +260,55 @@ class CorpusCache:
     """The index and fact cache for one run of one corpus command."""
 
     def __init__(
-        self, out: Path, base: Path, command: str, options: str, *, enabled: bool
+        self,
+        out: Path,
+        base: Path,
+        command: str,
+        options: str,
+        *,
+        enabled: bool,
+        borrow_from: Sequence[Path] = (),
     ) -> None:
         self._out = Path(out)
         self._base = Path(base)
         self._command = command
         self._options = options
         self.enabled = enabled
+        self._borrow_from = _other_roots(self._out / CACHE_DIR_NAME, borrow_from)
         self._stored = self._load() if enabled else {}
         self._entries: dict[str, dict] = {}
         self.reused = 0
+        self.borrowed = 0
         self.recomputed = 0
 
     # ------------------------------------------------------------- per task
 
     def facts(self, item, build: Callable[[], dict]) -> dict:
-        """The facts one document contributes: from the cache when its inputs and the
+        """The facts one document contributes: from a cache when its inputs and the
         options are unchanged, otherwise from ``build`` (and written back)."""
         key = self._key(item)
         entry = self._fingerprint(item)
-        if self.enabled and self._stored.get(key) == entry:
-            payload = self._read_payload(key)
-            if payload is not None:
-                self._entries[key] = entry
-                self.reused += 1
-                return payload
+        payload = self._reuse(key, entry)
+        if payload is not None:
+            self._entries[key] = entry
+            return payload
         payload = build()
         if self.enabled:
-            self._write_payload(key, payload)
+            self._write_payload(key, entry, payload)
         self._entries[key] = entry
         self.recomputed += 1
         return payload
+
+    def borrow(self, item) -> dict | None:
+        """The facts another corpus cached for this exact task, or None (Q7).
+
+        ``describe`` reaches for this one directly: it has no merge to feed, so what it
+        borrows are the documents the other run already wrote, and it is the runner that
+        puts them on disk and calls :meth:`record` with ``borrowed=True``.
+        """
+        if not self.enabled:
+            return None
+        return self._borrow(self._key(item), self._fingerprint(item))
 
     def unchanged(self, item, outputs: Sequence[Path]) -> bool:
         """``describe`` has no corpus-level merge, so an unchanged task is skipped whole.
@@ -259,10 +324,29 @@ class CorpusCache:
             return True
         return False
 
-    def record(self, item, outputs: Sequence[Path] = ()) -> None:
-        """Count one task as recomputed and fingerprint what it just wrote."""
-        self._entries[self._key(item)] = self._fingerprint(item, outputs)
-        self.recomputed += 1
+    def record(
+        self,
+        item,
+        outputs: Sequence[Path] = (),
+        *,
+        facts: Mapping | None = None,
+        borrowed: bool = False,
+    ) -> None:
+        """Count one task and fingerprint what it just wrote.
+
+        ``facts`` is what another corpus could borrow instead of doing this work again.
+        For ``describe`` that is the documents themselves: its product is the documents,
+        not a contribution to a merge, so lending anything less would lend nothing.
+        """
+        key = self._key(item)
+        if facts is not None and self.enabled and not borrowed:
+            self._write_payload(key, self._fingerprint(item), facts)
+        self._entries[key] = self._fingerprint(item, outputs)
+        if borrowed:
+            self.reused += 1
+            self.borrowed += 1
+        else:
+            self.recomputed += 1
 
     # -------------------------------------------------------------- summary
 
@@ -271,11 +355,17 @@ class CorpusCache:
         return sum(1 for key in self._stored if key not in self._entries)
 
     def counters(self) -> str:
-        """The incremental half of the one summary line each command prints."""
+        """The incremental half of the one summary line each command prints.
+
+        ``borrowed`` is printed only by a run that named a ``--cache-from``: it answers
+        "how much of what this run reused came from another corpus", which is not a
+        question a run without one can be asked.
+        """
         if not self.enabled:
             return ""
+        borrowed = f" (borrowed={self.borrowed})" if self._borrow_from else ""
         return (
-            f", reused={self.reused}, recomputed={self.recomputed}, "
+            f", reused={self.reused}{borrowed}, recomputed={self.recomputed}, "
             f"removed={self.removed}"
         )
 
@@ -315,31 +405,67 @@ class CorpusCache:
             entry[_output_key(Path(path).name)] = file_digest(Path(path))
         return entry
 
-    def _payload_path(self, key: str) -> Path:
-        stem = _UNSAFE_IN_FILENAME.sub("_", key)[:80]
-        suffix = hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
-        return self._out / CACHE_DIR_NAME / f"{stem}-{suffix}.json"
+    def _reuse(self, key: str, inputs: Mapping) -> dict | None:
+        """One task's cached facts: this run's own cache first, then the borrowed ones."""
+        if not self.enabled:
+            return None
+        if self._stored.get(key) == inputs:
+            facts = self._read_payload(self._payload_path(key), inputs)
+            if facts is not None:
+                self.reused += 1
+                return facts
+        facts = self._borrow(key, inputs)
+        if facts is not None:
+            self.reused += 1
+            self.borrowed += 1
+        return facts
 
-    def _read_payload(self, key: str) -> dict | None:
-        document = _read_json_object(self._payload_path(key))
+    def _borrow(self, key: str, inputs: Mapping) -> dict | None:
+        """The first ``--cache-from`` fact file that proves it derived this exact task.
+
+        It is copied into this run's own cache on the way out, so the next run over this
+        corpus reuses it locally and the borrowed directory can go away.
+        """
+        for root in self._borrow_from:
+            facts = self._read_payload(root / _payload_name(key), inputs)
+            if facts is None:
+                continue
+            self._write_payload(key, inputs, facts)
+            return facts
+        return None
+
+    def _payload_path(self, key: str) -> Path:
+        return self._out / CACHE_DIR_NAME / _payload_name(key)
+
+    def _read_payload(self, path: Path, inputs: Mapping) -> dict | None:
+        """The facts in one fact file, if that file was derived from these exact inputs.
+
+        Every condition is read off the file itself rather than off the index beside it,
+        which is what lets a file from another corpus be judged at all (Q7).
+        """
+        document = _read_json_object(path)
         if document is None:
             return None
         if (
             document.get("doc_format") != CACHE_DOC_FORMAT
             or document.get("command") != self._command
             or document.get("payload_version") != PAYLOAD_VERSION
+            or document.get("options_sha256") != self._options
+            or document.get("inputs") != dict(inputs)
         ):
             return None
         facts = document.get("facts")
         return facts if isinstance(facts, dict) else None
 
-    def _write_payload(self, key: str, facts: Mapping) -> None:
+    def _write_payload(self, key: str, inputs: Mapping, facts: Mapping) -> None:
         path = self._payload_path(key)
         path.parent.mkdir(parents=True, exist_ok=True)
         document = {
             "doc_format": CACHE_DOC_FORMAT,
             "command": self._command,
             "payload_version": PAYLOAD_VERSION,
+            "options_sha256": self._options,
+            "inputs": dict(inputs),
             "facts": facts,
         }
         try:
@@ -360,6 +486,24 @@ class CorpusCache:
             return {}
         inputs = document.get("inputs")
         return inputs if isinstance(inputs, dict) else {}
+
+
+def _payload_name(key: str) -> str:
+    """One task's fact file name: the same name under every corpus's cache, so borrowing
+    is a lookup rather than a scan -- and so the fingerprints inside have to be read."""
+    stem = _UNSAFE_IN_FILENAME.sub("_", key)[:80]
+    suffix = hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
+    return f"{stem}-{suffix}.json"
+
+
+def _other_roots(own: Path, roots: Sequence[Path]) -> list[Path]:
+    """The borrowed caches that are not this run's own: borrowing from yourself is a
+    second, weaker way to read your own cache, and it must not happen behind the index."""
+    try:
+        mine = own.resolve()
+    except OSError:  # pragma: no cover - resolve() does not touch the filesystem here
+        mine = own
+    return [root for root in roots if root.resolve() != mine]
 
 
 def _output_key(name: str) -> str:

@@ -190,7 +190,9 @@ def run_ontology(args: argparse.Namespace) -> int:
     documents = [item.document for item in loaded.documents]
     out_dir, root = Path(args.out), str(Path(args.lineage))
     chosen_exports = exports(getattr(args, "export", None))
-    options = [args.format, root, overrides, tables, glossary, chosen_exports]
+    # Q7: no corpus path in the digest -- the same task modelled from another
+    # directory derives the same facts, and ``--cache-from`` borrows them.
+    options = [args.format, overrides, tables, glossary, chosen_exports]
     cache = open_cache(args, out_dir, found[1], "ontology", options, fields=CACHED_FIELDS)
     try:
         collected = _collect(loaded.documents, cache, needs_glossary=glossary is None)
