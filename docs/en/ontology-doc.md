@@ -583,6 +583,21 @@ scope-lineage ontology --lineage /path/to/b --out /path/to/onto \
 - The `--tables` documents are merged first (`merge_table_cards`), so the ontology faces a
   single set of cards and asks "what does the card say" in exactly one way, whichever
   corpus the answer came from.
+- **Only the part this corpus can use is merged** (Q6). Before merging, the table names
+  this corpus wrote in its contracts are turned into their **bucket keys** (`table_key`:
+  the last segment, without the database prefix), and only cards falling into those
+  buckets come in. This is not a sampling: `same_table` holds only between two names
+  ending in the same segment, so grouping never crosses a bucket, and taking a whole
+  bucket yields exactly the groups the full merge would have published -- including the
+  `ambiguous_bare_name` finding, which needs every qualified card in the bucket to be
+  present. Memory, the name index and every per-card scan therefore scale with **this
+  corpus**, not with the batch it borrowed from: a corpus of a few tasks reaching for a
+  whole warehouse's cards no longer pays for the warehouse.
+- `corpus.external_evidence_tables` still counts the tables that were **on offer**: a card
+  that was never merged was never read, not decided against, and the number may not change
+  meaning because the merge changed internally. The merged document gains a top-level
+  `cards_narrowed` (`tables_considered` / `tables_merged`) accordingly, absent when nothing
+  was narrowed.
 - A relation whose right side a **foreign** card proved is published `proven` as usual, and
   its `evidence[]` gains one more entry:
   `{"task": …, "statement_id": …, "corpus": …, "kind": "producer_key_confidence"}`. A proof

@@ -246,6 +246,23 @@ def same_table(left: str, right: str) -> bool:
     return left == right or left.endswith("." + right) or right.endswith("." + left)
 
 
+def table_key(name) -> str:
+    """Q6: the bucket one table spelling can ever be grouped in -- its last segment.
+
+    ``same_table`` only holds between names that end in the same unqualified name: the
+    rule is equality or "a dotted suffix of the other", and a dotted suffix ends where
+    the other name ends. So the grouping below never crosses two last segments, and a
+    caller that wants *the cards that could be this table* can select on this key alone
+    -- one dictionary lookup instead of a scan of every spelling in the corpus.
+
+    That is what makes a narrowed merge exact rather than approximate: taking the whole
+    bucket of every name a corpus asked for yields, for those buckets, the very groups
+    the full merge would have published -- including the bare name that stays ambiguous
+    because two qualified tables in the same bucket could be it.
+    """
+    return str(name or "").rpartition(".")[2]
+
+
 def table_groups(names: Iterable[str]) -> dict[str, list[str]]:
     """``primary name -> every spelling seen``, most qualified spelling first."""
     groups, _ambiguous = _group_spellings(names)
@@ -858,6 +875,11 @@ def _evidence(entry: Mapping) -> dict:
 #: from anything -- so one corpus keeps publishing exactly the bytes it always did.
 MERGED_FROM_KEY = "merged_from"
 
+#: Q6: the narrowed merge's own key -- how many tables were on offer and how many were
+#: actually folded in. Present only when the caller passed ``needed``; a full merge and a
+#: document built by ``build_table_cards`` publish exactly the bytes they always did.
+NARROWED_KEY = "cards_narrowed"
+
 
 @dataclass(frozen=True)
 class _Source:
@@ -868,7 +890,7 @@ class _Source:
     merged_from: list[dict] | None
 
 
-def merge_table_cards(*card_documents: Mapping) -> dict:
+def merge_table_cards(*card_documents: Mapping, needed: Iterable[str] | None = None) -> dict:
     """Fold several ``tables-json/1`` documents into one, keeping every corpus named.
 
     One corpus can only prove what its own tasks wrote. The task that proved a table's
@@ -883,16 +905,26 @@ def merge_table_cards(*card_documents: Mapping) -> dict:
     nobody read in corpus A is not ``never_consumed_in_corpus`` once corpus B's reader
     is on the same card. Merging one document is the identity -- a document that was
     not merged with anything says nothing about corpora, exactly as it was written.
+
+    Q6 -- ``needed``: a small corpus borrowing one very large batch of cards used to pay
+    for the whole batch, in memory and in every scan over it, to consult the handful of
+    tables it actually names. Given the table spellings the caller cares about, only the
+    cards in those names' ``table_key`` buckets are folded in, and the document says how
+    many were on offer (``cards_narrowed``). The buckets are what makes this a narrowing
+    rather than a different answer: the groups published for them are the groups the full
+    merge would have published. ``needed=None`` is the full merge, unchanged and
+    byte-identical -- a merged ``tables.json`` has to stay complete.
     """
     documents = [_merge_input(document) for document in card_documents]
     if not documents:
         raise ValueError("merge_table_cards needs at least one tables-json/1 document")
+    kept = [_needed_cards(document, needed) for document in documents]
     if len(documents) == 1:
-        return dict(documents[0])
+        return _narrowed(dict(kept[0]), documents, needed)
     sources = [_source(document, index) for index, document in enumerate(documents)]
     members = [
         (source.label, card)
-        for source, document in zip(sources, documents)
+        for source, document in zip(sources, kept)
         for card in document.get("tables") or []
     ]
     merged_from = _merged_from(sources)
@@ -902,11 +934,78 @@ def merge_table_cards(*card_documents: Mapping) -> dict:
         MERGED_FROM_KEY: merged_from,
     }
     tables = _merged_tables(members)
-    applied = _merged_samples_applied(documents, tables)
+    applied = _merged_samples_applied(kept, tables)
     if applied is not None:
         document["samples_applied"] = applied
     document["tables"] = tables
+    return _narrowed(document, documents, needed)
+
+
+def _needed_cards(document: Mapping, needed: Iterable[str] | None) -> dict:
+    """One input document with only the cards a needed name's bucket holds.
+
+    A card answers for every spelling it carries, so one alias in a wanted bucket keeps
+    it: dropping a card because its *primary* name is spelled elsewhere would lose the
+    very alias the borrowing corpus wrote.
+    """
+    if needed is None:
+        return dict(document)
+    keys = {table_key(name) for name in needed}
+    return {
+        **document,
+        "tables": [
+            card
+            for card in document.get("tables") or []
+            if any(
+                table_key(name) in keys
+                for name in [card.get("table"), *(card.get("aliases") or [])]
+            )
+        ],
+    }
+
+
+def _narrowed(document: dict, offered: Sequence[Mapping], needed) -> dict:
+    """The merged document, told how many tables the full merge would have published.
+
+    The count is what ``external_evidence_tables`` is derived from downstream, and it has
+    to mean the same thing after a narrowing as before it: *how many tables this corpus
+    could have borrowed a fact from*. Counting the groups is exact and cheap -- grouping
+    never crosses a ``table_key``, so each bucket is grouped on its own and the buckets
+    are added up.
+    """
+    if needed is None:
+        return document
+    document[NARROWED_KEY] = {
+        "tables_considered": _offered_table_count(offered),
+        "tables_merged": len(document.get("tables") or []),
+    }
     return document
+
+
+def _offered_table_count(offered: Sequence[Mapping]) -> int:
+    """How many cards the same documents would have published unnarrowed."""
+    if len(offered) == 1:
+        return len(offered[0].get("tables") or [])
+    buckets: dict[str, set[str]] = {}
+    for source in offered:
+        for card in source.get("tables") or []:
+            for name in [str(card.get("table")), *(card.get("aliases") or [])]:
+                buckets.setdefault(table_key(name), set()).add(str(name))
+    return sum(len(_group_spellings(names)[0]) for names in buckets.values())
+
+
+def considered_table_count(cards: Mapping) -> int:
+    """How many tables a card set stands for, narrowed or not (Q6).
+
+    A reader of the merged document sees the cards that survived; a reader of the numbers
+    derived from it must see the offer, or "how many tables lent evidence only" would
+    shrink to zero the moment the merge stopped carrying them.
+    """
+    narrowed = cards.get(NARROWED_KEY) or {}
+    considered = narrowed.get("tables_considered")
+    if considered is None:
+        return len(cards.get("tables") or [])
+    return int(considered)
 
 
 def _merge_input(document: Mapping) -> dict:

@@ -139,6 +139,10 @@ scope-lineage tables --lineage /path/to/corpus --merge /path/to/a/tables.json \
 - 确定性：结果按表名排序，与 `--merge` 的先后无关；先后只决定「第一份文档」是谁——
   表注释、业务归属、列序取它的。
 - 表卡 Markdown 第 4、5 节在合并后各多一列「语料」；没合并过的卡不多这一列。
+- **`--merge` 永远合全量**。`merge_table_cards` 还有一个只给本体用的参数 `needed`（Q6）：
+  它按一份语料真正写过的表名收窄合并，让借用一大批外来表卡的代价跟着语料走。这条路只在
+  `ontology --tables` 上（见 [ontology-doc.md](ontology-doc.md) 「跨语料证据」），这里不会——
+  `tables --merge` 写出来的那份 `tables.json` 是给手里没有语料的读者看的，缺一张卡就是缺一张卡。
 
 Python API：
 

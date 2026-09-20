@@ -13,7 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from .corpus_cache import (
@@ -132,32 +132,42 @@ def exports(values) -> list[str]:
     return known + sorted(chosen - set(EXPORT_FORMATS))
 
 
-def _supplied_tables(args: argparse.Namespace):
+def _supplied_tables(args: argparse.Namespace, documents: Sequence[Mapping]):
     """The ``--tables`` documents merged into one, None when none was given, or the code.
 
     P7: several corpora's cards are folded together before anything is built, so the
     ontology asks one question -- "what does the card say about this table" -- whether
     the answer came from the corpus in front of it or from a batch walked elsewhere.
+
+    Q6: folded together *for this corpus*. A batch walked over a whole warehouse can be
+    orders of magnitude larger than the corpus borrowing from it, and every table in it
+    the corpus never names is a card merged, held and scanned for nothing. The corpus's
+    own table names decide what comes in, so the run costs the corpus rather than the
+    batch. ``tables --merge`` still merges everything: that document is published for
+    readers who have no corpus in hand, and a card missing from it is simply missing.
     """
     from .cli import _load_corpus_document
+    from .render.ontology import corpus_table_names
     from .render.table_cards import DOC_FORMAT as TABLES_DOC_FORMAT
     from .render.table_cards import merge_table_cards
 
-    documents = []
+    supplied = []
     for path in getattr(args, "tables", None) or []:
         document = _load_corpus_document(path, "--tables", TABLES_DOC_FORMAT)
         if isinstance(document, int):
             return document
-        documents.append(document)
-    return merge_table_cards(*documents) if documents else None
+        supplied.append(document)
+    if not supplied:
+        return None
+    return merge_table_cards(*supplied, needed=corpus_table_names(documents))
 
 
-def _supplied_corpus(args: argparse.Namespace):
+def _supplied_corpus(args: argparse.Namespace, documents: Sequence[Mapping]):
     """``(tables, glossary)``, either of them None, or the exit code of a bad flag."""
     from .cli import _load_corpus_document
     from .render.glossary import DOC_FORMAT as GLOSSARY_DOC_FORMAT
 
-    tables = _supplied_tables(args)
+    tables = _supplied_tables(args, documents)
     if isinstance(tables, int):
         return tables
     glossary = _load_corpus_document(
@@ -175,11 +185,6 @@ def run_ontology(args: argparse.Namespace) -> int:
     overrides = load_overrides(getattr(args, "overrides", None))
     if isinstance(overrides, int):
         return overrides
-    supplied = _supplied_corpus(args)
-    if isinstance(supplied, int):
-        return supplied
-    tables, glossary = supplied
-
     found = _discover_lineage_documents(args.lineage)
     if isinstance(found, int):
         return found
@@ -188,6 +193,13 @@ def run_ontology(args: argparse.Namespace) -> int:
         return loaded
 
     documents = [item.document for item in loaded.documents]
+    # Q6: the corpus is walked first because the cards are merged *for* it -- the
+    # narrowing needs the table names before it can decide what to fold in.
+    supplied = _supplied_corpus(args, documents)
+    if isinstance(supplied, int):
+        return supplied
+    tables, glossary = supplied
+
     out_dir, root = Path(args.out), str(Path(args.lineage))
     chosen_exports = exports(getattr(args, "export", None))
     # Q7: no corpus path in the digest -- the same task modelled from another
