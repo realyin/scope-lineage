@@ -31,8 +31,14 @@
           }
         },
         "instance_dates": [],
-        "driving_tables": [],
-        "structural_summary": "ROOT 直接读取 ods.store_event；过滤 1 处；输出 2 列。",
+        "driving_tables": [
+          {
+            "table": "ods.store_event",
+            "via_scopes": [],
+            "lateral_view_scopes": []
+          }
+        ],
+        "structural_summary": "按 store_id 汇总，行来自 ods.store_event；过滤 1 处；输出 2 列。",
         "target_declared_columns": [],
         "target_metadata_source": null,
         "header_comments": [
@@ -50,6 +56,7 @@
           "owner": null,
           "layer": null,
           "role_in_task": "aggregate_source",
+          "driving": true,
           "roles": [
             "aggregate_source"
           ],

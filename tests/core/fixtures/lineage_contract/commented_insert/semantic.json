@@ -21,8 +21,14 @@
       }
     },
     "instance_dates": [],
-    "driving_tables": [],
-    "structural_summary": "ROOT 直接读取 dim.channel、ods.channel_event；过滤 1 处；CASE WHEN 派生 1 个字段；输出 3 列。",
+    "driving_tables": [
+      {
+        "table": "ods.channel_event",
+        "via_scopes": [],
+        "lateral_view_scopes": []
+      }
+    ],
+    "structural_summary": "按 customer_id、channel_name 汇总，行来自 ods.channel_event；补充 dim.channel；过滤 1 处；CASE WHEN 派生 1 个字段；输出 3 列。",
     "target_declared_columns": [],
     "target_metadata_source": null,
     "header_comments": [
@@ -85,6 +91,7 @@
       "owner": "demo_owner",
       "layer": "ODS",
       "role_in_task": "aggregate_source",
+      "driving": true,
       "roles": [
         "aggregate_source",
         "enrich"

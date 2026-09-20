@@ -1,6 +1,21 @@
 # Changelog
 
 ## Unreleased
+- The driving path answers for **every output shape** (P3). `task.driving_tables[]` used
+  to be empty whenever ROOT aggregated or deduplicated, and for every MERGE, which on a
+  real corpus left most statements with nothing to say about where their rows came from.
+  An aggregated one's `structural_summary` opened with whatever table happened to be read
+  first -- usually the lookup joined onto the real source. A GROUP BY still has a row
+  source, so the same walk now descends from the aggregating or deduplicating scope's
+  left-most FROM item, and from a MERGE's USING relation, and names the physical
+  table(s) it ends at. Roles are untouched -- those inputs keep `aggregate_source` /
+  `dedup_source` / `merge_source`, which is the more specific thing to call them -- and
+  the path fact is published beside the role as `inputs[].driving: true`, present only
+  on the tables the path reaches. `structural_summary` now opens by shape: 「按 <粒度键>
+  汇总，行来自 <表>（经 …）；补充 …」 for an aggregate, 「全表汇总，行来自 …」 for an empty grouping set, 「按 <键>
+  去重，行来自 …」 for a dedup; a projection keeps its 「行来源 …」 sentence. A row-shape hypothesis
+  (B3's `grain.candidate`) is still offered only where the rows are counted from a
+  table, so a MERGE gains a row source without gaining a guess at its row count.
 - The incremental fact cache stores a **projection** of each task's semantic profile
   instead of the whole thing (`corpus-cache/2`, P2). A profile is mostly the reader-facing
   half of the view -- `stages`, `confidence`, every field's step-by-step `derivation` --

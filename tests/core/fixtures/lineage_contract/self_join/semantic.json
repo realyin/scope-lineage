@@ -39,6 +39,7 @@
       "owner": null,
       "layer": null,
       "role_in_task": "driving",
+      "driving": true,
       "roles": [
         "driving",
         "filter_partner"

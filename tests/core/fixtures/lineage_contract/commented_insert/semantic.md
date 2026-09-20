@@ -14,7 +14,7 @@ lineage_digest: "2802dca5f469248e"
 - 目标表：`mart.channel_summary`（表注释：注释未知）（元数据事实）
 - 语句类型：INSERT_OVERWRITE；静态分区 dt = `${bizdate}`（SQL事实）
 - 目标表元数据来源：无（元数据事实）
-- 结构摘要：ROOT 直接读取 dim.channel、ods.channel_event；过滤 1 处；CASE WHEN 派生 1 个字段；输出 3 列。（结构推断；证据 scope_profile）
+- 结构摘要：按 customer_id、channel_name 汇总，行来自 ods.channel_event；补充 dim.channel；过滤 1 处；CASE WHEN 派生 1 个字段；输出 3 列。（结构推断；证据 scope_profile）
 
 SQL 头部注释（原文，作者说法，非 SQL 事实）（SQL注释）：
 

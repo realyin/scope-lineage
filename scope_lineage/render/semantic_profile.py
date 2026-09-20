@@ -139,6 +139,13 @@ OUTPUT_SHAPES = (
 # The two shapes whose row count follows one driving table rather than a key set.
 _PROJECTION_SHAPES = (SHAPE_ENRICHED, SHAPE_FILTERED)
 
+# P3: the two shapes that fold the rows they read, and the word R1's sentence uses for
+# the fold. Every other shape passes its rows through and says only where they came from.
+_ROW_FOLD_VERBS = {SHAPE_AGGREGATED: "汇总", SHAPE_DEDUPLICATED: "去重"}
+
+# How many grain keys R1's opening clause names before it counts the rest instead.
+_SUMMARY_KEY_LIMIT = 3
+
 # The two paths a metric card reads, and the order it reads them in. The grain path
 # decides which rows are counted; the argument path is where the counted value was read
 # from, which for a metric fed by a joined-in scope is a different place with different
@@ -526,7 +533,7 @@ def _build_statement_profile(
         "schema_version": document.get("schema_version"),
         "statement_id": document.get("statement_id"),
         "lineage_digest": lineage_document_digest(document),
-        "task": _build_task_block(document, task_meta, rules),
+        "task": _build_task_block(document, task_meta, rules, output_shape),
         "inputs": _build_inputs(document),
         "output_shape": output_shape,
         "stages": stages,
@@ -691,7 +698,10 @@ def _dedupe(items: Iterable) -> list:
 
 
 def _build_task_block(
-    document: dict, task_meta: dict | None = None, rules: Sequence[dict] = ()
+    document: dict,
+    task_meta: dict | None,
+    rules: Sequence[dict],
+    output_shape: Mapping,
 ) -> dict:
     output_metadata = _output_metadata(document)
     target_facts = _table_facts(output_metadata)
@@ -717,7 +727,7 @@ def _build_task_block(
         "instance_dates": _instance_dates(document, rules),
         # B2, see `_driving_branches`: which physical table every output row comes from.
         "driving_tables": _driving_branches(document),
-        "structural_summary": _structural_summary(document),
+        "structural_summary": _structural_summary(document, output_shape),
         # A1: the target's whole declared width, so a corpus can publish the columns this
         # write leaves untouched. Empty when no metadata described the target table.
         "target_declared_columns": _declared_columns(output_metadata),
@@ -771,14 +781,20 @@ def _output_comments(document: dict) -> dict[tuple[str, str], list[str]]:
     return index
 
 
-def _structural_summary(document: dict) -> str:
-    """R1: one template sentence built from counts, structural words and table names."""
+def _structural_summary(document: dict, output_shape: Mapping) -> str:
+    """R1: one template sentence built from counts, structural words and table names.
+
+    ``output_shape`` is R2's and R3's answer for this statement, which P3's opening
+    clause reads: an aggregated statement's sentence names the keys it folds by before
+    the table it folded. It is passed in rather than re-derived so the sentence and the
+    ``output_shape`` block can never tell different stories.
+    """
     steps = _profile_steps(document)
     root = next((step for step in steps if step.get("scope_id") == "ROOT"), None)
     if root is None:
         return _structural_summary_without_profile(document)
     direct_tables = list(root.get("direct_source_tables") or [])
-    parts = [_root_read_clause(document, direct_tables)]
+    parts = [_root_read_clause(document, direct_tables, output_shape)]
     derived = [
         item for item in root.get("direct_inputs") or [] if item not in direct_tables
     ]
@@ -795,14 +811,20 @@ def _structural_summary(document: dict) -> str:
     return "；".join(parts) + "。"
 
 
-def _root_read_clause(document: dict, direct_tables: Sequence[str]) -> str:
+def _root_read_clause(
+    document: dict, direct_tables: Sequence[str], output_shape: Mapping
+) -> str:
     """How ROOT reaches its rows: the driving path first, then what it only reads.
 
     B2. The sentence used to open with what ROOT reads *directly*, which is the joined
     dimension whenever the FROM item is a subquery -- so the one table the reader must
     not mistake for the main one was the first one named. It now opens with the row
     source and demotes the rest, and falls back to the old wording only where no driving
-    path resolves (an aggregation, a MERGE, an unprovable FROM item).
+    path resolves (an unprovable FROM item, or a document whose ROOT reads nothing).
+
+    P3: an aggregated or deduplicated statement says what it did to those rows first --
+    a reader who is told 「行来自 <table>」 about a GROUP BY would otherwise read it as
+    one output row per source row -- and every other shape keeps the B2 sentence.
     """
     branches = _driving_branches(document)
     if branches:
@@ -811,7 +833,9 @@ def _root_read_clause(document: dict, direct_tables: Sequence[str]) -> str:
         )
         driving = {branch["table"] for branch in branches}
         rest = [item for item in direct_tables if item not in driving]
-        return f"行来源 {named}；补充 {'、'.join(rest)}" if rest else f"行来源 {named}"
+        prefix = _row_shape_prefix(output_shape)
+        lead = f"{prefix}，行来自 {named}" if prefix else f"行来源 {named}"
+        return f"{lead}；补充 {'、'.join(rest)}" if rest else lead
     table, path, _ = _driving_source(document)
     if table and path:
         clause = f"ROOT 经 {path[0]} 读取 {table}"
@@ -839,6 +863,40 @@ def _driving_path_note(branch: dict) -> str:
     parts = [f"经 {' → '.join(via)}" if via else ""]
     parts.append(f"{counted} LATERAL VIEW 展开" if expansions else "")
     return "（" + " ".join(item for item in parts if item) + "）"
+
+
+def _row_shape_prefix(output_shape: Mapping) -> str:
+    """P3: what the statement did to the rows, said before where they came from.
+
+    Only the two shapes that fold rows say anything: 「按 <keys> 汇总」 and 「按 <keys>
+    去重」, with B10's empty grouping set written as 「全表汇总」 because there are no
+    keys to name and 「按 汇总」 would read as a missing list. A fold whose keys the walk
+    could not resolve keeps the bare verb -- the fold is proven, the key list is not.
+    """
+    verb = _ROW_FOLD_VERBS.get(str(output_shape.get("shape")))
+    if not verb:
+        return ""
+    grain = output_shape.get("grain") or {}
+    if str(grain.get("basis")) == BASIS_SINGLE_ROW:
+        return f"全表{verb}"
+    keys = _summary_key_names(grain.get("keys") or [])
+    return f"按 {keys} {verb}" if keys else verb
+
+
+def _summary_key_names(keys: Sequence[dict]) -> str:
+    """The grain's keys as one short span, truncated rather than allowed to run away.
+
+    A ten-key GROUP BY spelled out in full buries the rest of the sentence, and the
+    sentence's job is to say *that* the rows are folded and roughly by what;
+    ``output_shape.grain.keys`` carries the whole list for a reader who needs it.
+    """
+    names = _dedupe(
+        str(key.get("name") or key.get("expression") or key.get("scope_id"))
+        for key in keys
+    )
+    if len(names) <= _SUMMARY_KEY_LIMIT:
+        return "、".join(names)
+    return "、".join(names[:_SUMMARY_KEY_LIMIT]) + f" 等 {len(names)} 列"
 
 
 def _structural_summary_without_profile(document: dict) -> str:
@@ -873,6 +931,10 @@ def _build_inputs(document: dict) -> list[dict]:
     usages = _column_usages(document)
     readers = _read_by_scopes(document)
     metadata = _input_metadata(document)
+    # P3: the driving path, as a per-input flag. It is not a role -- an aggregated ROOT's
+    # row source is still `aggregate_source`, which is the more specific thing to call it
+    # -- so the two facts are published side by side instead of one overwriting the other.
+    driving = {branch["table"] for branch in _driving_branches(document)}
     inputs = []
     for table in sorted(document.get("source_tables") or []):
         item = metadata.get(table) or {}
@@ -888,24 +950,36 @@ def _build_inputs(document: dict) -> list[dict]:
             "metadata_complete": item.get("metadata_complete"),
             "read_by_scopes": readers.get(table, []),
         }
-        if "table_column_count" in item:
-            # placed next to the other metadata facts, only when the schema knew the table
-            entry = _insert_before(
-                entry, "read_by_scopes", "table_column_count", item["table_column_count"]
-            )
-        if item.get("declared_columns"):
-            # A1: the table's whole declared width, so a corpus reading these profiles
-            # can publish the columns this task never touched instead of dropping them.
-            entry = _insert_before(
-                entry, "metadata_complete", "declared_columns",
-                _declared_columns(item),
-            )
-        source = _comment_source(comment, _table_comment_is_patched(item))
-        if source is not None:
-            # WI-2.6: right behind the comment it describes, so the two are read together.
-            entry = _insert_before(entry, "domain", "comment_source", source)
-        inputs.append(entry)
+        inputs.append(_with_optional_facts(entry, item, comment, table in driving))
     return inputs
+
+
+def _with_optional_facts(entry: dict, item: dict, comment, driving: bool) -> dict:
+    """The input facts published only when there is one, each beside what it qualifies.
+
+    An absent key here is 「nothing said so」 and never a negative answer, which is why
+    none of them is published as ``null`` or ``false``.
+    """
+    if "table_column_count" in item:
+        # placed next to the other metadata facts, only when the schema knew the table
+        entry = _insert_before(
+            entry, "read_by_scopes", "table_column_count", item["table_column_count"]
+        )
+    if item.get("declared_columns"):
+        # A1: the table's whole declared width, so a corpus reading these profiles
+        # can publish the columns this task never touched instead of dropping them.
+        entry = _insert_before(
+            entry, "metadata_complete", "declared_columns", _declared_columns(item)
+        )
+    if driving:
+        # P3, beside the role rather than inside it: a table off the path is not
+        # 「not driving」 -- it is one this walk had nothing to say about.
+        entry = _insert_before(entry, "roles", "driving", True)
+    source = _comment_source(comment, _table_comment_is_patched(item))
+    if source is not None:
+        # WI-2.6: right behind the comment it describes, so the two are read together.
+        entry = _insert_before(entry, "domain", "comment_source", source)
+    return entry
 
 
 def _insert_before(entry: dict, anchor: str, key: str, value) -> dict:
@@ -1106,7 +1180,14 @@ def _apply_driving_path(document: dict, found: dict, joined: set, add) -> None:
     ``enrich`` when a JOIN reaches it -- a RIGHT JOIN's left side is exactly that
     table, and the earlier rule, which only asks whether an input is a JOIN's right
     side, called it the main table.
+
+    Only where the shape counts its rows from a table: P3 publishes the path for an
+    aggregated or deduplicated ROOT too, and there the rows are counted by a key set, so
+    ``aggregate_source`` / ``dedup_source`` stay the most specific thing to call those
+    inputs. ``inputs[].driving`` carries the path fact for them instead.
     """
+    if _classify_shape(document)[0] not in _ROW_COUNT_SHAPES:
+        return
     branches = _driving_branches(document)
     if not branches:
         return
@@ -1298,11 +1379,15 @@ _JOIN_DRIVES_BOTH = "FULL_OUTER"
 # unmatched left row survives with nulls) and a CROSS join has no condition to fail.
 _FILTERING_JOIN_TYPES = ("INNER", "LEFT_SEMI", "LEFT_ANTI", "SEMI", "ANTI")
 
-# The shapes whose row count follows a table at all. An aggregated or deduplicated ROOT
-# counts rows by its key set -- R7 already names those inputs `aggregate_source` /
-# `dedup_source`, and overwriting that with `driving` would lose the more specific fact
-# -- and a MERGE writes through branch semantics this view does not model.
-_DRIVING_PATH_SHAPES = (SHAPE_ENRICHED, SHAPE_FILTERED, SHAPE_UNION_MERGE)
+# The shapes whose row *count* follows a table at all. P3: the path itself is walked for
+# every shape -- a GROUP BY still has a row source, and the reader asking 「这张表的行从
+# 哪来」 wants it -- but only these shapes let reaching a table *count* rows. An
+# aggregated or deduplicated ROOT counts by its key set (R7 already names those inputs
+# `aggregate_source` / `dedup_source`, and overwriting that with `driving` would lose the
+# more specific fact), and a MERGE writes through branch semantics this view does not
+# model. So this tuple gates the two row-count readings of the path -- the `driving`
+# role and B3's row-shape hypothesis -- and nothing else.
+_ROW_COUNT_SHAPES = (SHAPE_ENRICHED, SHAPE_FILTERED, SHAPE_UNION_MERGE)
 
 
 def _driving_branches(document: dict) -> list[dict]:
@@ -1318,9 +1403,13 @@ def _driving_branches(document: dict) -> list[dict]:
     Each branch is ``{table, via_scopes, lateral_view_scopes}``, the two scope lists in
     descent order (ROOT first, the table's own scope last), so they read like
     ``grain.via_scopes``. One table appears once, keeping the left-most path to it.
+
+    P3: every shape is walked. An aggregated or deduplicated ROOT counts its rows by a
+    key set rather than by a table, and it still *reads* those rows from somewhere -- the
+    FROM item its GROUP BY sits on -- so the descent is the same one, and it is only the
+    row-count readings of the answer that ``_ROW_COUNT_SHAPES`` still holds back. A MERGE
+    answers too: its ROOT is the USING relation, whose FROM item is the source side.
     """
-    if _classify_shape(document)[0] not in _DRIVING_PATH_SHAPES:
-        return []
     found: dict[str, dict] = {}
     for branch in _walk_driving(document, _ROOT, [], [], []):
         found.setdefault(branch["table"], branch)
@@ -2968,9 +3057,13 @@ def _grain_candidate(document: dict, grain: dict) -> dict | None:
 
     Nothing is offered where the hypothesis would not be one: a decided grain, several
     driving tables (a UNION's rows are a sum, not a product), a stop with some other
-    cause, or an upstream grain that is itself ``unknown``.
+    cause, an upstream grain that is itself ``unknown``, or a shape whose rows are not
+    counted from a table at all -- a MERGE's row shape is its branch semantics, and P3's
+    widening of the path must not turn that into a guess at a row count.
     """
     if str(grain.get("basis")) != BASIS_UNKNOWN:
+        return None
+    if _classify_shape(document)[0] not in _ROW_COUNT_SHAPES:
         return None
     branches = _driving_branches(document)
     if len(branches) != 1 or not branches[0]["lateral_view_scopes"]:
