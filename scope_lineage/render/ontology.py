@@ -319,6 +319,27 @@ OPEN_ITEM_TEXT = {
     OPEN_ITEM_KEY: "候选键",
 }
 
+# Q3: the id prefix one folded question answers to, per kind. `open:group:` rather than
+# a namespace of its own, because a group id is a *handle on the same list*: a card
+# prints it beside the item id and both have to read as the open list's vocabulary.
+GROUP_ID_PREFIX = {
+    OPEN_ITEM_FINDING: "open:group:finding",
+    OPEN_ITEM_RELATION: "open:group:rel",
+    OPEN_ITEM_KEY: "open:group:key",
+}
+
+# Q3: the trailing segments a warehouse appends to one logical table's name. They say
+# *which copy* this table is -- the daily increment, the full snapshot, the staging step
+# -- and never *what it holds*, which is why stripping them is a mechanical fold and not
+# a guess about meaning. Two lists and one pattern, all matched against whole
+# underscore-separated segments: `_dim` is not `_di` and `_info` is not `_i`.
+PERIOD_SUFFIXES = ("di", "df", "hi", "hf", "mi", "mf", "wi", "wf", "all")
+STAGE_SUFFIXES = ("tmp", "bak", "new", "old")
+_NUMBERED_SUFFIX_RE = re.compile(r"\A(?:mid|step|stage|v)\d+\Z|\A\d+\Z")
+
+#: How many folded groups the index prints in full before summarising the rest.
+OPEN_ITEM_GROUPS_SHOWN = 50
+
 # `key_confidence` on a table card is a statement about the producing task's proof;
 # an ontology tier is a statement about the table. `proven_unexposed` proves the keys
 # and not the target columns, so it cannot carry the target's identity claim.
@@ -330,7 +351,16 @@ NOT_NULL_NOTE = "任务用过滤丢弃了 NULL，源表本身可能仍含 NULL"
 
 # O9 appends `relation_hints` after this list and only when the entity has one, so a
 # corpus whose comments point at nothing publishes the entity it always did.
-_ENTITY_KEYS = ("id", "kind", "comment", "identity", "attributes", "naming_hints")
+_ENTITY_KEYS = (
+    "id",
+    "kind",
+    # Q3: which table family this table is one copy of, derived from its own name.
+    "family",
+    "comment",
+    "identity",
+    "attributes",
+    "naming_hints",
+)
 _RELATION_HINT_KEYS = ("from_column", "to", "evidence", "text", "unresolved")
 _RELATION_KEYS = (
     "id",
@@ -346,10 +376,15 @@ _ONTOLOGY_KEYS = (
     "doc_format",
     "corpus",
     "entities",
+    # Q3: the fold the two group lists are built on, published so a reviewer can check
+    # whether a family really is one table before answering for all of it.
+    "families",
     "relations",
     "constraints",
     "findings",
+    "finding_groups",
     "open_items",
+    "open_item_groups",
     "overrides_applied",
 )
 _ATTRIBUTE_KEYS = (
@@ -383,6 +418,18 @@ _OPEN_ITEM_KEYS = (
     "tier",
     "write_back",
     "text",
+)
+_GROUP_KEYS = (
+    "group_id",
+    "kind",
+    "family",
+    "shape",
+    "representative",
+    "items",
+    "count",
+    # Q3: what answering the group unblocks -- and the key the list is ranked on.
+    "impact",
+    "write_back_pattern",
 )
 
 _DIRECT_TRANSFORM = "DIRECT"
@@ -452,10 +499,13 @@ def build_ontology(
         "doc_format": DOC_FORMAT,
         "corpus": _corpus_block(cards, modelled),
         "entities": entities,
+        "families": _families(entities),
         "relations": relations,
         "constraints": constraints,
         "findings": _findings(modelled, edges, facts["multiplicity"], entities, relations),
+        "finding_groups": [],
         "open_items": [],
+        "open_item_groups": [],
         "overrides_applied": {
             "relations": 0,
             "keys": 0,
@@ -464,8 +514,19 @@ def build_ontology(
         },
     }
     _apply_overrides(ontology, overrides or {})
-    ontology["open_items"] = _open_items(ontology)
+    _publish_open_list(ontology)
     return {key: ontology[key] for key in _ONTOLOGY_KEYS}
+
+
+def _publish_open_list(ontology: dict) -> None:
+    """The open questions and the two views of them, after the confirmations landed."""
+    records = _open_item_records(ontology)
+    groups = _open_item_groups(records)
+    ontology["open_items"] = [_published_item(record) for record in records]
+    ontology["open_item_groups"] = groups
+    ontology["finding_groups"] = [
+        group for group in groups if str(group["kind"]) == OPEN_ITEM_FINDING
+    ]
 
 
 #: How many tables of the supplied cards lent evidence only. Present on the corpus block
@@ -1637,11 +1698,58 @@ def _card_evidence(producer: Mapping, **extra) -> dict:
 # -------------------------------------------------------------------- entities
 
 
+def table_family(table: str) -> str:
+    """Q3: the family key one table name normalises to -- its name without the copies.
+
+    A warehouse writes one logical table many times: ``_di`` is today's increment,
+    ``_df`` the full snapshot, ``_tmp`` and ``_mid01`` the steps that built it. Those
+    segments say which *copy* this is, so dropping them leaves the name the copies share
+    -- and the ontology asks the same question of every copy, which is what makes the
+    fold worth having. The database stays in the key: two warehouses may spell the same
+    table name and they are not one table.
+
+    Purely mechanical: whole segments only (``_dim`` is not ``_di``), never the last
+    segment left (a table actually called ``tmp`` is its own family), and no vocabulary
+    beyond the two suffix lists above.
+    """
+    prefix, _, name = str(table).lower().rpartition(".")
+    parts = name.split("_")
+    while len(parts) > 1 and _is_family_suffix(parts[-1]):
+        parts.pop()
+    stripped = "_".join(parts)
+    return f"{prefix}.{stripped}" if prefix else stripped
+
+
+def _is_family_suffix(part: str) -> bool:
+    return (
+        part in PERIOD_SUFFIXES
+        or part in STAGE_SUFFIXES
+        or bool(_NUMBERED_SUFFIX_RE.match(part))
+    )
+
+
+def _families(entities: Sequence[Mapping]) -> list[dict]:
+    """``families[]``: every family this corpus names and the tables inside it.
+
+    A reviewer answering one question for a whole family has exactly one way to check
+    that the fold was right -- read the members -- so the members are published rather
+    than left to be recomputed from ``entities[].family``.
+    """
+    members: dict[str, list[str]] = {}
+    for entity in entities:
+        members.setdefault(str(entity["family"]), []).append(str(entity["id"]))
+    return [
+        {"family": name, "tables": sorted(members[name]), "size": len(members[name])}
+        for name in sorted(members)
+    ]
+
+
 def _entity(card: Mapping, facts: Mapping) -> dict:
     entity = str(card.get("table"))
     built = {
         "id": entity,
         "kind": ENTITY_PRODUCED if card.get("produced_by") else ENTITY_PHYSICAL,
+        "family": table_family(entity),
         "comment": card.get("comment"),
         "identity": _identity(card, entity, facts),
         "attributes": [
@@ -2199,12 +2307,130 @@ def _open_items(ontology: Mapping) -> list[dict]:
     number today), then the relations the most tasks depend on, then the identity keys.
     A confirmed assertion is simply not in it any more -- which is the whole point.
     """
-    items = [
+    return [_published_item(item) for item in _open_item_records(ontology)]
+
+
+def _open_item_records(ontology: Mapping) -> list[dict]:
+    """The same list before publication: each item still carries what it folds into.
+
+    ``_family`` and ``_shape`` are the two halves of the group key, and ``_to`` is the
+    far side of a relation. They are computed where the item is built -- the builder is
+    the only place that knows the question's shape -- and dropped on the way out.
+    """
+    return [
         *(_finding_item(finding) for finding in ontology.get("findings") or []),
         *_relation_items(ontology.get("relations") or []),
-        *_key_items(ontology.get("entities") or []),
+        *_key_items(
+            ontology.get("entities") or [], ontology.get("relations") or []
+        ),
     ]
-    return [{key: item[key] for key in _OPEN_ITEM_KEYS if key in item} for item in items]
+
+
+def _published_item(item: Mapping) -> dict:
+    return {key: item[key] for key in _OPEN_ITEM_KEYS if key in item}
+
+
+def _open_item_groups(records: Sequence[Mapping]) -> list[dict]:
+    """Q3: the flat list folded by ``(kind, table family, question shape)``.
+
+    Most of the flat list is one question asked again of the next copy of the same
+    table, and a review that reads it row by row spends its budget re-reading. A group
+    is that question once, with the tables it applies to and a write-back pattern, so
+    one answer becomes many.
+
+    Nothing is merged: ``open_items[]`` still holds every question, and an override
+    still binds one concrete table. The fold is a view over the list, not the list.
+
+    The order is by ``impact`` -- what the answer unblocks -- because a fold that is
+    honest about size is still the wrong list to read top-down: a group of twelve
+    copies nobody joins is worth less than one dimension the whole warehouse reads.
+    """
+    groups: dict[tuple, dict] = {}
+    for rank, item in enumerate(records):
+        kind = str(item["kind"])
+        key = (kind, str(item["_family"]), str(item["_shape"]))
+        group = groups.get(key)
+        if group is None:
+            group = groups[key] = {
+                "group_id": f"{GROUP_ID_PREFIX[kind]}:{key[1]}={key[2]}",
+                "kind": kind,
+                "family": key[1],
+                "shape": key[2],
+                "representative": str(item["id"]),
+                "items": [],
+                "rank": rank,
+                "members": [],
+            }
+        group["items"].append(str(item["id"]))
+        group["members"].append(item)
+    return [_published_group(group) for group in sorted(groups.values(), key=_group_rank)]
+
+
+def _group_rank(group: Mapping) -> tuple:
+    """What the answer unblocks, then how many questions it closes, then the list."""
+    return (
+        -_group_impact(group),
+        -len(group["items"]),
+        int(group["rank"]),
+    )
+
+
+def _group_impact(group: Mapping) -> int:
+    """How much rides on one answer, counted in what the corpus already wrote.
+
+    An edge's answer unblocks every table that joins that far table and every task that
+    does it, so both are counted. A key's answer would prove exactly the edges that
+    assumed it. A contradiction is worth the contradictions it holds -- there is nothing
+    downstream of it to count, because nobody has decided anything yet.
+    """
+    members = group["members"]
+    kind = str(group["kind"])
+    if kind == OPEN_ITEM_RELATION:
+        return len({str(item["_from"]) for item in members}) + len(
+            {task for item in members for task in item["_tasks"]}
+        )
+    if kind == OPEN_ITEM_KEY:
+        return sum(int(item["_proves"]) for item in members)
+    return len(members)
+
+
+def _published_group(group: Mapping) -> dict:
+    built = {
+        **group,
+        "count": len(group["items"]),
+        "impact": _group_impact(group),
+        "write_back_pattern": _write_back_pattern(group),
+    }
+    return {key: built[key] for key in _GROUP_KEYS}
+
+
+def _write_back_pattern(group: Mapping) -> str | None:
+    """The write-back key of the whole group: ``<table>`` is what it generalises over.
+
+    A reviewer answers once and then files one override per table, so the pattern has to
+    be true of every member. The table the group is *about* -- the entity for a key or a
+    finding, the far table for an edge -- is always the placeholder; anything else in
+    the key is blanked only when the members disagree on it, because a placeholder that
+    can only be filled one way is noise in a string that gets copied by hand.
+    """
+    members = group["members"]
+    first = members[0]
+    if not first.get("write_back"):
+        return None
+    if str(group["kind"]) != OPEN_ITEM_RELATION:
+        return str(first["write_back"]).replace(str(first["entity"]), "<table>", 1)
+    return f"关系:{_from_side(members)}-><table>.{group['shape']}"
+
+
+def _from_side(members: Sequence[Mapping]) -> str:
+    """``<producer>.<its columns>``, each half blanked when the group disagrees on it."""
+    first = members[0]
+    tables = {str(item["_from"]) for item in members}
+    columns = {str(item["_from_columns"]) for item in members}
+    return (
+        f"{first['_from'] if len(tables) == 1 else '<from_table>'}"
+        f".{first['_from_columns'] if len(columns) == 1 else '<from_columns>'}"
+    )
 
 
 def _key_item_id(entity: str, columns: Sequence[str]) -> str:
@@ -2249,6 +2475,10 @@ def _finding_item(finding: Mapping) -> dict:
         "tier": TIER_CONFLICT,
         "write_back": write_back,
         "text": str(finding.get("text") or ""),
+        # Q3: one contradiction of one kind over one table family is one decision --
+        # the columns are part of the *answer*, not of the question's shape.
+        "_family": table_family(str(finding["entity"])),
+        "_shape": str(finding["kind"]),
     }
 
 
@@ -2272,12 +2502,30 @@ def _relation_items(relations: Sequence[Mapping]) -> list[dict]:
             "tier": TIER_HYPOTHESIS,
             "write_back": f"关系:{relation_override_key(relation)}",
             "text": _relation_question(relation),
+            # Q3: an edge's open question is about its FAR side -- "is that table unique
+            # on these columns" -- and the answer does not depend on who joined it. So
+            # the producer is not in the group key, and the family fold only merges the
+            # copies of the far table itself.
+            "_family": table_family(str(relation["to"]["entity"])),
+            "_shape": "+".join(str(column) for column in relation["to"]["columns"]),
+            "_from": str(relation["from"]["entity"]),
+            "_from_columns": "+".join(
+                str(column) for column in relation["from"]["columns"]
+            ),
+            "_tasks": sorted(
+                {
+                    str(item["task"])
+                    for item in relation.get("evidence") or []
+                    if item.get("task")
+                }
+            ),
         }
         for relation in ordered
     ]
 
 
-def _key_items(entities: Sequence[Mapping]) -> list[dict]:
+def _key_items(entities: Sequence[Mapping], relations: Sequence[Mapping]) -> list[dict]:
+    assumed = _assumed_by_key(relations)
     return [
         {
             "id": _key_item_id(str(entity["id"]), key["columns"]),
@@ -2287,11 +2535,32 @@ def _key_items(entities: Sequence[Mapping]) -> list[dict]:
             "tier": TIER_HYPOTHESIS,
             "write_back": f"键:{entity['id']}={'+'.join(key['columns'])}",
             "text": _key_question(key),
+            "_family": table_family(str(entity["id"])),
+            "_shape": "+".join(str(column) for column in key["columns"]),
+            # Q3: what confirming this key would buy -- every edge that assumed it.
+            "_proves": assumed.get(
+                (str(entity["id"]), tuple(str(column) for column in key["columns"])), 0
+            ),
         }
         for entity in entities
         for key in (entity.get("identity") or {}).get("candidate_keys") or []
         if str(key["tier"]) == TIER_HYPOTHESIS
     ]
+
+
+def _assumed_by_key(relations: Sequence[Mapping]) -> dict[tuple, int]:
+    """``(entity, key columns) -> how many assumed edges that key would prove``."""
+    counted: dict[tuple, int] = {}
+    for relation in relations:
+        if str((relation.get("cardinality") or {}).get("tier")) != TIER_HYPOTHESIS:
+            continue
+        far = relation["to"]
+        key = (
+            str(far["entity"]),
+            tuple(str(column) for column in far["columns"]),
+        )
+        counted[key] = counted.get(key, 0) + 1
+    return counted
 
 
 def _key_question(key: Mapping) -> str:
@@ -2351,6 +2620,8 @@ def render_ontology_index_markdown(ontology: Mapping) -> str:
     constraints = list(ontology.get("constraints") or [])
     findings = list(ontology.get("findings") or [])
     items = list(ontology.get("open_items") or [])
+    groups = list(ontology.get("open_item_groups") or [])
+    finding_groups = list(ontology.get("finding_groups") or [])
     identifiers = mermaid_entity_ids(entities)
     lines = [
         "---",
@@ -2359,6 +2630,7 @@ def render_ontology_index_markdown(ontology: Mapping) -> str:
         f"entity_count: {len(entities)}",
         f"relation_count: {len(relations)}",
         f"open_item_count: {len(items)}",
+        f"open_item_group_count: {len(groups)}",
         "---",
         "",
         "# 语料本体候选索引",
@@ -2366,7 +2638,8 @@ def render_ontology_index_markdown(ontology: Mapping) -> str:
         f"共 {corpus.get('task_count')} 个任务、{len(entities)} 个实体、"
         f"{len(relations)} 条关系、{len(constraints)} 条约束、"
         f"{len(findings)} 条矛盾发现；"
-        f"待人工判定 {len(items)} 条（已确认 {_confirmed_count(ontology)} 条）。",
+        f"待人工判定 {len(items)} 条 / {len(groups)} 组"
+        f"（已确认 {_confirmed_count(ontology)} 条）。",
         "",
         "每条断言都带置信层级：`proven`（已证明，SQL 直接写着）、`implied`（可推得，"
         "由结构证明的推论）、`hypothesis`（作者假设，未被证明）、`conflict`（矛盾，"
@@ -2377,8 +2650,8 @@ def render_ontology_index_markdown(ontology: Mapping) -> str:
     lines.extend(_entities_section(entities, relations, constraints, identifiers))
     lines.extend(_relations_section(relations))
     lines.extend(_constraints_section(constraints))
-    lines.extend(_findings_section(findings))
-    lines.extend(_open_items_section(items))
+    lines.extend(_findings_section(findings, finding_groups))
+    lines.extend(_open_items_section(items, groups))
     lines.append("")
     return "\n".join(lines)
 
@@ -2726,65 +2999,132 @@ def _tier_text(tier) -> str:
     return f"{TIER_TEXT.get(name, name)}（`{name}`）"
 
 
-def _findings_section(findings: Sequence[Mapping]) -> list[str]:
+def _findings_section(findings: Sequence[Mapping], groups: Sequence[Mapping]) -> list[str]:
+    """Q3: the contradictions, folded the same way the open list is.
+
+    The same contradiction over ten copies of one table is one thing that is wrong, and
+    printing it ten times buries the other nine kinds under it.
+    """
     if not findings:
         return ["", "## 待人工判定", "", "本语料没有发现矛盾证据。"]
+    index = {_finding_item_id(finding): finding for finding in findings}
     lines = [
         "",
-        "## 待人工判定",
+        f"## 待人工判定（{len(findings)} 条，折叠为 {len(groups)} 组）",
         "",
-        "| 实体 | 类型 | 列 | 涉及任务 | 说明 |",
-        "| --- | --- | --- | --- | --- |",
+        "同一表族上同一类矛盾折叠成一组，只列代表条目；每组的全部条目见 "
+        "`ontology.json` 的 `finding_groups[]`，逐条正文见 `findings[]`。",
+        "",
+        "| # | 组 id | 类型 | 表族 | 条数 | 代表实体 | 列 | 涉及任务 | 说明 |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
-    for finding in findings:
-        lines.append(
-            "| "
-            + " | ".join(
-                [
-                    cell(f"`{finding['entity']}`"),
-                    cell(str(finding["kind"])),
-                    cell("、".join(f"`{column}`" for column in finding["columns"]) or "—"),
-                    cell(_finding_tasks(finding)),
-                    cell(normalize_inline(str(finding.get("text") or ""))),
-                ]
-            )
-            + " |"
-        )
+    shown, hidden = _split_groups(groups)
+    lines.extend(
+        _finding_group_row(number, group, index.get(str(group["representative"])) or {})
+        for number, group in enumerate(shown, start=1)
+    )
+    lines.extend(_hidden_groups_line(hidden, "finding_groups[]"))
     return lines
 
 
-def _open_items_section(items: Sequence[Mapping]) -> list[str]:
-    """The consolidated list: what is still open, in the order it is worth answering."""
+def _finding_group_row(number: int, group: Mapping, finding: Mapping) -> str:
+    return (
+        "| "
+        + " | ".join(
+            [
+                cell(str(number)),
+                cell(f"`{group['group_id']}`"),
+                cell(str(group["shape"])),
+                cell(f"`{group['family']}`"),
+                cell(str(group["count"])),
+                cell(f"`{finding.get('entity')}`"),
+                cell(
+                    "、".join(f"`{column}`" for column in finding.get("columns") or [])
+                    or "—"
+                ),
+                cell(_finding_tasks(finding)),
+                cell(normalize_inline(str(finding.get("text") or ""))),
+            ]
+        )
+        + " |"
+    )
+
+
+def _open_items_section(items: Sequence[Mapping], groups: Sequence[Mapping]) -> list[str]:
+    """The consolidated list, folded: one row per question rather than per table.
+
+    The flat list is still published -- in ``open_items[]``, where a tool reads it. What
+    a person reads is the fold, because the same question asked of every copy of one
+    table is one decision, and a list that repeats it is a list nobody finishes.
+    """
     if not items:
-        return ["", "## 待人工判定清单（0 条）", "", "本语料没有待人工判定项。"]
+        return ["", "## 待人工判定清单（0 条，折叠为 0 组）", "", "本语料没有待人工判定项。"]
+    index = {str(item["id"]): item for item in items}
     lines = [
         "",
-        f"## 待人工判定清单（{len(items)} 条）",
+        f"## 待人工判定清单（{len(items)} 条，折叠为 {len(groups)} 组）",
         "",
-        "矛盾与发现在前，其次是任务数多的关系，最后是候选键；`回写目标` 照抄进 "
-        "`ontology.overrides.json` 即可，答完的条目下一轮不再出现。",
+        "按（类型，表族，问题形状）折叠：一组是同一个问题问到一族表上，答一次即可；"
+        "关系问的是「对端那张表按这组列唯一吗」，所以按对端归组，谁来关联它不进分组键。"
+        "`影响` 是答完这一组能解开多少东西——关系算关联它的表数加任务数，候选键算确认后"
+        "能升为已证明的边数，发现算组内条数——排序就按影响降序、其次条数、最后代表条目的"
+        "原顺序。`回写模式` 里的 `<table>` 换成该族里的具体表名，就是照抄进 "
+        "`ontology.overrides.json` 的键，族里有哪些表见 `families[]`，组里有哪些条目见 "
+        "`open_item_groups[]`。",
         "",
-        "| # | id | 类型 | 实体 | 层级 | 回写目标 | 说明 |",
-        "| --- | --- | --- | --- | --- | --- | --- |",
+        "| # | 组 id | 类型 | 表族 | 影响 | 条数 | 代表条目 | 回写模式 | 说明 |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
-    for index, item in enumerate(items, start=1):
-        kind = str(item["kind"])
-        lines.append(
-            "| "
-            + " | ".join(
-                [
-                    cell(str(index)),
-                    cell(f"`{item['id']}`"),
-                    cell(OPEN_ITEM_TEXT.get(kind, kind)),
-                    cell(f"`{item['entity']}`"),
-                    cell(_tier_text(item["tier"])),
-                    cell(f"`{item['write_back']}`" if item.get("write_back") else "—"),
-                    cell(normalize_inline(str(item.get("text") or ""))),
-                ]
-            )
-            + " |"
-        )
+    shown, hidden = _split_groups(groups)
+    lines.extend(
+        _open_group_row(number, group, index.get(str(group["representative"])) or {})
+        for number, group in enumerate(shown, start=1)
+    )
+    lines.extend(_hidden_groups_line(hidden, "open_item_groups[]"))
     return lines
+
+
+def _open_group_row(number: int, group: Mapping, item: Mapping) -> str:
+    kind = str(group["kind"])
+    return (
+        "| "
+        + " | ".join(
+            [
+                cell(str(number)),
+                cell(f"`{group['group_id']}`"),
+                cell(OPEN_ITEM_TEXT.get(kind, kind)),
+                cell(f"`{group['family']}`"),
+                cell(str(group["impact"])),
+                cell(str(group["count"])),
+                cell(f"`{group['representative']}`"),
+                cell(
+                    f"`{group['write_back_pattern']}`"
+                    if group.get("write_back_pattern")
+                    else "—"
+                ),
+                cell(normalize_inline(str(item.get("text") or ""))),
+            ]
+        )
+        + " |"
+    )
+
+
+def _split_groups(groups: Sequence[Mapping]) -> tuple[list[dict], list[dict]]:
+    """``(printed in full, summarised)`` -- a document nobody scrolls answers nothing."""
+    shown = OPEN_ITEM_GROUPS_SHOWN
+    return [dict(group) for group in groups[:shown]], [
+        dict(group) for group in groups[shown:]
+    ]
+
+
+def _hidden_groups_line(hidden: Sequence[Mapping], slot: str) -> list[str]:
+    if not hidden:
+        return []
+    return [
+        "",
+        f"另有 {len(hidden)} 组 {sum(int(group['count']) for group in hidden)} 条，"
+        f"见 `ontology.json` 的 `{slot}`。",
+    ]
 
 
 def _finding_tasks(finding: Mapping) -> str:
@@ -3089,10 +3429,11 @@ def _card_open_items(entity: Mapping, ontology: Mapping) -> list[str]:
     document from a report into a round trip.
     """
     name = str(entity.get("id"))
+    groups = _group_index(ontology)
     lines: list[str] = []
     lines.extend(
         f"- ⚠ {finding['kind']}：{normalize_inline(str(finding.get('text') or ''))}"
-        f"{_cites(_finding_item_id(finding))}"
+        f"{_cites(_finding_item_id(finding), groups)}"
         for finding in ontology.get("findings") or []
         if str(finding.get("entity")) == name
     )
@@ -3103,7 +3444,7 @@ def _card_open_items(entity: Mapping, ontology: Mapping) -> list[str]:
         lines.append(
             f"- [待确认] {_key_question(key)}"
             f"回写 `键:{name}={'+'.join(key['columns'])}`。"
-            f"{_cites(_key_item_id(name, key['columns']))}"
+            f"{_cites(_key_item_id(name, key['columns']), groups)}"
         )
     for relation in ontology.get("relations") or []:
         if name not in (str(relation["from"]["entity"]), str(relation["to"]["entity"])):
@@ -3113,7 +3454,7 @@ def _card_open_items(entity: Mapping, ontology: Mapping) -> list[str]:
         lines.append(
             f"- [待确认] {_relation_question(relation)}"
             f"回写 `关系:{relation_override_key(relation)}`。"
-            f"{_cites(_relation_item_id(relation))}"
+            f"{_cites(_relation_item_id(relation), groups)}"
         )
     for constraint in ontology.get("constraints") or []:
         target = constraint.get("target") or {}
@@ -3128,9 +3469,24 @@ def _card_open_items(entity: Mapping, ontology: Mapping) -> list[str]:
     return lines or ["- 本表没有待人工判定的项。"]
 
 
-def _cites(item_id: str) -> str:
-    """The card asks the question; the index's list is where the count of them lives."""
-    return f"（清单 `{item_id}`）"
+def _group_index(ontology: Mapping) -> dict[str, str]:
+    """``open item id -> the group it folds into``, for the citations below."""
+    return {
+        str(item): str(group["group_id"])
+        for group in ontology.get("open_item_groups") or []
+        for item in group.get("items") or []
+    }
+
+
+def _cites(item_id: str, groups: Mapping[str, str] | None = None) -> str:
+    """The card asks the question; the index's list is where the count of them lives.
+
+    Q3: the group id comes with it, because the index no longer prints one row per
+    question -- a reader who wants this question's row looks the group up, and a
+    reviewer who answers it here knows how many other tables the answer covers.
+    """
+    group = (groups or {}).get(item_id)
+    return f"（清单 `{item_id}`，组 `{group}`）" if group else f"（清单 `{item_id}`）"
 
 
 def _dedupe(items: Iterable) -> list:

@@ -1,5 +1,41 @@
 # Changelog
 
+## Unreleased
+- **The ontology's open list is folded by table family** (Q3). A warehouse writes one
+  logical table many times -- `_di` the daily increment, `_df` the full snapshot, `_tmp`
+  and `_mid01` the steps that built it -- and the ontology asked every copy the same
+  question, so on a large corpus 「待人工判定清单」 was a flat ranked list long enough that
+  a review round spent its whole budget re-reading one decision. `ontology.json` now
+  publishes `entities[].family` and `families[]` (the family key is the lowercased name
+  with trailing period suffixes `_di` / `_df` / `_hi` / `_hf` / `_mi` / `_mf` / `_wi` /
+  `_wf` / `_all`, stage suffixes `_tmp` / `_mid<n>` / `_step<n>` / `_stage<n>` / `_bak` /
+  `_new` / `_old` / `_v<n>` and numeric tails stripped segment by segment -- whole
+  segments only, so `_dim` is not `_di`, and never the last segment), plus
+  `open_item_groups[]` and `finding_groups[]`: the open items folded by (kind, table
+  family, question shape), each group carrying a content-derived `open:group:` id, its
+  `items[]`, a `representative`, a `count`, an `impact` and a `write_back_pattern` --
+  the group's write-back key with the table it generalises over left as `<table>` (and a
+  relation's near side as `<from_table>` / `<from_columns>` when the members disagree on
+  it), so a reviewer answers once and copies the pattern per table. **A relation groups
+  by its far side alone**: the question an edge leaves open is "is that table unique on
+  these columns", which neither the producer nor the name it gives its own column
+  changes, so every task joining one dimension folds into one question and the family
+  fold only merges the copies of the far table. **`impact` is what the answer
+  unblocks** -- for a relation the tables joining the far side plus the tasks that do,
+  for a key the assumed edges confirming it would prove, for a finding the items it
+  holds -- and groups rank by it, then by size, then by the representative's rank in the
+  flat list: a folded list ranked by size still reads "most repeated" rather than "most
+  worth answering". `ontology.md` prints one row per group in both 「待人工判定」 and
+  「待人工判定清单」 (the first `OPEN_ITEM_GROUPS_SHOWN = 50`, the rest summarised as
+  「另有 K 组 M 条」, the open list carrying the `影响` column it is ranked on), its
+  headline counts 「N 条 / G 组」, its front matter carries
+  `open_item_group_count`, and a card's section 11 cites the group beside the item id.
+  The fold is a view, not a merge: `open_items[]` still holds every question and an
+  override still binds one concrete table, so answering part of a family shrinks the
+  group rather than closing it. The review prompt says how to answer a group -- verify
+  the family in `families[]`, ask once, then file one override per table, and never write
+  `<table>` into `ontology.overrides.json`.
+
 ## 0.3.1
 - **Breaking** (glossary.json only; the lineage contracts are unchanged): a value's
   `meaning_candidates[].source` no longer says `column_comment`; it names the route the

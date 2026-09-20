@@ -85,5 +85,5 @@ consumers: 2
 
 ## 11. 待人工判定
 
-- [待确认] 候选键 `channel_code`：只有任务直接关联时的假设，语料没有证明它唯一。回写 `键:dim.channel=channel_code`。（清单 `open:key:dim.channel=channel_code`）
-- [待确认] 关系 `ods.channel_event` → `dim.channel` 的基数写作「多对一，作者假设」，依据只是直接关联未去重，作者假设对端按该键唯一。回写 `关系:ods.channel_event.channel_code->dim.channel.channel_code`。（清单 `open:rel:ods.channel_event.channel_code->dim.channel.channel_code`）
+- [待确认] 候选键 `channel_code`：只有任务直接关联时的假设，语料没有证明它唯一。回写 `键:dim.channel=channel_code`。（清单 `open:key:dim.channel=channel_code`，组 `open:group:key:dim.channel=channel_code`）
+- [待确认] 关系 `ods.channel_event` → `dim.channel` 的基数写作「多对一，作者假设」，依据只是直接关联未去重，作者假设对端按该键唯一。回写 `关系:ods.channel_event.channel_code->dim.channel.channel_code`。（清单 `open:rel:ods.channel_event.channel_code->dim.channel.channel_code`，组 `open:group:rel:dim.channel=channel_code`）
