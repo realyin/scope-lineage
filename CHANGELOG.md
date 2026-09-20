@@ -35,6 +35,81 @@
   target-binding line reports it as 「不适用（…）」 from the new
   `confidence.target_binding_not_applicable`, instead of the 「契约未给出绑定事实」 it would
   otherwise fall through to.
+- **The ontology's open list is folded by table family** (Q3). A warehouse writes one
+  logical table many times -- `_di` the daily increment, `_df` the full snapshot, `_tmp`
+  and `_mid01` the steps that built it -- and the ontology asked every copy the same
+  question, so on a large corpus 「待人工判定清单」 was a flat ranked list long enough that
+  a review round spent its whole budget re-reading one decision. `ontology.json` now
+  publishes `entities[].family` and `families[]` (the family key is the lowercased name
+  with trailing period suffixes `_di` / `_df` / `_hi` / `_hf` / `_mi` / `_mf` / `_wi` /
+  `_wf` / `_all`, stage suffixes `_tmp` / `_mid<n>` / `_step<n>` / `_stage<n>` / `_bak` /
+  `_new` / `_old` / `_v<n>` and numeric tails stripped segment by segment -- whole
+  segments only, so `_dim` is not `_di`, and never the last segment), plus
+  `open_item_groups[]` and `finding_groups[]`: the open items folded by (kind, table
+  family, question shape), each group carrying a content-derived `open:group:` id, its
+  `items[]`, a `representative`, a `count`, an `impact` and a `write_back_pattern` --
+  the group's write-back key with the table it generalises over left as `<table>` (and a
+  relation's near side as `<from_table>` / `<from_columns>` when the members disagree on
+  it), so a reviewer answers once and copies the pattern per table. **A relation groups
+  by its far side alone**: the question an edge leaves open is "is that table unique on
+  these columns", which neither the producer nor the name it gives its own column
+  changes, so every task joining one dimension folds into one question and the family
+  fold only merges the copies of the far table. **`impact` is what the answer
+  unblocks** -- for a relation the tables joining the far side plus the tasks that do,
+  for a key the assumed edges confirming it would prove, for a finding the items it
+  holds -- and groups rank by it, then by size, then by the representative's rank in the
+  flat list: a folded list ranked by size still reads "most repeated" rather than "most
+  worth answering". `ontology.md` prints one row per group in both 「待人工判定」 and
+  「待人工判定清单」 (the first `OPEN_ITEM_GROUPS_SHOWN = 50`, the rest summarised as
+  「另有 K 组 M 条」, the open list carrying the `影响` column it is ranked on), its
+  headline counts 「N 条 / G 组」, its front matter carries
+  `open_item_group_count`, and a card's section 11 cites the group beside the item id.
+  The fold is a view, not a merge: `open_items[]` still holds every question and an
+  override still binds one concrete table, so answering part of a family shrinks the
+  group rather than closing it. The review prompt says how to answer a group -- verify
+  the family in `families[]`, ask once, then file one override per table, and never write
+  `<table>` into `ontology.overrides.json`.
+- **A CASE label is only a translation inside its own labelling system** (Q1). Two review
+  rounds rejected most of the one-to-one `case_label` rows the form offered them, for two
+  reasons the 候选来源 column had no way to say. First, one column can carry two CASEs at
+  once -- one sorting its values into ownership classes, another into stage classes -- so
+  a value that happened to be alone in a branch of one of them read as a 1:1 translation
+  of the code. A column whose CASEs disagree now publishes `values[].label_systems: N` on
+  every one of its values and `meaning_candidates[].label_system` on every candidate
+  (systems are identified by `<task>/<statement>/<rule id>`, because a rule id alone
+  repeats in every statement); the form's column heading gains `⚠ N 套标签体系` and the
+  cell reads `case_label(体系 k/N)`. A `fan_out: 1` label whose own CASE buckets the
+  column's *other* values carries `single_branch: true` and reads
+  `case_label(单值分支)` -- that CASE is sorting, not translating. Second, a "label" may
+  itself be a code: `CU_OS_S1_1_1 → S1_1_1` translates one coding system into another and
+  defines neither, so it is published under a new
+  `meaning_candidates[].source: "code_alias"` with the text 「同义码：<label>」 and reads
+  `code_alias`. A capitalised word with neither underscore nor digit (`ONLINE`, `Paid`)
+  stays a label. None of the three new readings is evidence anybody may answer from, and
+  `references/glossary-review-prompt.md` now says so in its own table.
+- **One code table copied into many tables is asked once** (Q1). `glossary.overrides.json`
+  accepts a **family key**, `*.<column>='VALUE'`, which answers that value on every table
+  whose same-named physical column observed it; a key that names a table still wins on
+  that table, and `overrides_applied.family_expansions` reports `{key, applied_to}` so a
+  reviewer can see how far one answer travelled. A family key matching nothing still goes
+  to `unmatched`. The fill-in form prints such a pair once, in a
+  ``## `*.<column>`（出现在 N 张表）`` section under the family key, once three or more
+  tables share it, and `scripts/confirmations.py apply` takes `值域:*.<列>=<值>` as a
+  write-back target. Two tables are not a family: the same column name on two tables may
+  legitimately mean two things, which is the cross-table conflict the prompt asks about.
+- **Ranking and the coverage denominator now say what the form says** (Q1). A column only
+  ranks ahead of the others when one of its values carries evidence somebody can answer
+  *from* -- the review prompt's own three routes: `comment_enum`, a `case_label` that is
+  1:1 and neither a lone branch of a bucketing CASE nor a `code_alias`, or
+  `same_name_confirmed`; a column whose only clue is a mention, a bucket, a lone branch or
+  a synonym ranks with the ones that carry nothing. And `enumerable_code` -- the denominator of
+  `metadata_coverage.glossary.enumerable_confirmed / enumerable_total` -- now applies the
+  *same* askable rule the form does (`glossary_values.askable_value`, written once and
+  referenced from both). A switch, a bare number, a date-shaped literal and a CJK-prose
+  value are unaskable unless the column's own comment enumerates them, so
+  `WHERE level IN (0, 1)` no longer contributes two "unexplained codes" to a ratio printed
+  beside a form that never asks about them. **Breaking for consumers reading that pair**:
+  `enumerable_total` can only shrink, never grow.
 - **An expansion that ran out of room no longer blocks the task** (Q2). The budget stops
   inlining upstream expression text at `max_chars` / `max_substitutions` — right, and
   unchanged. What was wrong was the verdict: the statement then carried an

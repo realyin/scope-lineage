@@ -15,6 +15,7 @@
     {
       "id": "dim.channel",
       "kind": "physical_table",
+      "family": "dim.channel",
       "comment": "渠道维表（合成）",
       "identity": {
         "candidate_keys": [
@@ -75,6 +76,7 @@
     {
       "id": "dim.segment_dim",
       "kind": "physical_table",
+      "family": "dim.segment_dim",
       "comment": null,
       "identity": {
         "candidate_keys": [],
@@ -145,6 +147,7 @@
     {
       "id": "mart.channel_summary",
       "kind": "produced_table",
+      "family": "mart.channel_summary",
       "comment": null,
       "identity": {
         "candidate_keys": [
@@ -215,6 +218,7 @@
     {
       "id": "mart.metric_by_segment",
       "kind": "produced_table",
+      "family": "mart.metric_by_segment",
       "comment": null,
       "identity": {
         "candidate_keys": [
@@ -315,6 +319,7 @@
     {
       "id": "mart.user_names",
       "kind": "produced_table",
+      "family": "mart.user_names",
       "comment": null,
       "identity": {
         "candidate_keys": [],
@@ -352,6 +357,7 @@
     {
       "id": "ods.channel_event",
       "kind": "physical_table",
+      "family": "ods.channel_event",
       "comment": "渠道事件明细（合成）",
       "identity": {
         "candidate_keys": [],
@@ -443,6 +449,7 @@
     {
       "id": "ods.events_a",
       "kind": "physical_table",
+      "family": "ods.events_a",
       "comment": null,
       "identity": {
         "candidate_keys": [],
@@ -501,6 +508,7 @@
     {
       "id": "ods.events_b",
       "kind": "physical_table",
+      "family": "ods.events_b",
       "comment": null,
       "identity": {
         "candidate_keys": [],
@@ -559,6 +567,7 @@
     {
       "id": "ods.users",
       "kind": "physical_table",
+      "family": "ods.users",
       "comment": null,
       "identity": {
         "candidate_keys": [],
@@ -607,6 +616,71 @@
         "project": null,
         "owner": null
       }
+    }
+  ],
+  "families": [
+    {
+      "family": "dim.channel",
+      "tables": [
+        "dim.channel"
+      ],
+      "size": 1
+    },
+    {
+      "family": "dim.segment_dim",
+      "tables": [
+        "dim.segment_dim"
+      ],
+      "size": 1
+    },
+    {
+      "family": "mart.channel_summary",
+      "tables": [
+        "mart.channel_summary"
+      ],
+      "size": 1
+    },
+    {
+      "family": "mart.metric_by_segment",
+      "tables": [
+        "mart.metric_by_segment"
+      ],
+      "size": 1
+    },
+    {
+      "family": "mart.user_names",
+      "tables": [
+        "mart.user_names"
+      ],
+      "size": 1
+    },
+    {
+      "family": "ods.channel_event",
+      "tables": [
+        "ods.channel_event"
+      ],
+      "size": 1
+    },
+    {
+      "family": "ods.events_a",
+      "tables": [
+        "ods.events_a"
+      ],
+      "size": 1
+    },
+    {
+      "family": "ods.events_b",
+      "tables": [
+        "ods.events_b"
+      ],
+      "size": 1
+    },
+    {
+      "family": "ods.users",
+      "tables": [
+        "ods.users"
+      ],
+      "size": 1
     }
   ],
   "relations": [
@@ -894,6 +968,7 @@
     }
   ],
   "findings": [],
+  "finding_groups": [],
   "open_items": [
     {
       "id": "open:rel:ods.channel_event.channel_code->dim.channel.channel_code",
@@ -917,6 +992,34 @@
       "tier": "hypothesis",
       "write_back": "键:dim.channel=channel_code",
       "text": "候选键 `channel_code`：只有任务直接关联时的假设，语料没有证明它唯一。"
+    }
+  ],
+  "open_item_groups": [
+    {
+      "group_id": "open:group:rel:dim.channel=channel_code",
+      "kind": "relation",
+      "family": "dim.channel",
+      "shape": "channel_code",
+      "representative": "open:rel:ods.channel_event.channel_code->dim.channel.channel_code",
+      "items": [
+        "open:rel:ods.channel_event.channel_code->dim.channel.channel_code"
+      ],
+      "count": 1,
+      "impact": 3,
+      "write_back_pattern": "关系:ods.channel_event.channel_code-><table>.channel_code"
+    },
+    {
+      "group_id": "open:group:key:dim.channel=channel_code",
+      "kind": "candidate_key",
+      "family": "dim.channel",
+      "shape": "channel_code",
+      "representative": "open:key:dim.channel=channel_code",
+      "items": [
+        "open:key:dim.channel=channel_code"
+      ],
+      "count": 1,
+      "impact": 1,
+      "write_back_pattern": "键:<table>=channel_code"
     }
   ],
   "overrides_applied": {

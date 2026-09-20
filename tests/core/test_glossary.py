@@ -669,6 +669,7 @@ def test_a_qualified_override_key_confirms_one_value() -> None:
         "values": 1,
         "blank": 0,
         "unmatched": [],
+        "family_expansions": [],
         "ignored_fields": [],
         "rejected": [],
     }
@@ -690,6 +691,7 @@ def test_a_key_left_blank_is_counted_rather_than_confirmed_as_empty() -> None:
         "values": 0,
         "blank": 2,
         "unmatched": [],
+        "family_expansions": [],
         "ignored_fields": [],
         "rejected": [],
     }

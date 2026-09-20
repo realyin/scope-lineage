@@ -437,7 +437,9 @@ def test_competing_keys_reach_the_index_and_the_card() -> None:
     index = render_ontology_index_markdown(ontology)
     card = _card(ontology, PARTY_KEY, cases=SUBSET_CASES)
 
-    assert FINDING_COMPETING_CANDIDATE_KEYS in _section(index, "待人工判定\n")
+    assert FINDING_COMPETING_CANDIDATE_KEYS in _section(
+        index, f"待人工判定（{len(ontology['findings'])} 条，"
+    )
     assert FINDING_COMPETING_CANDIDATE_KEYS in _section(card, "11. 待人工判定")
 
 
@@ -517,16 +519,25 @@ def test_the_index_headline_counts_what_is_open_and_what_was_confirmed() -> None
     )
     markdown = render_ontology_index_markdown(ontology)
 
-    assert f"待人工判定 {len(ontology['open_items'])} 条（已确认 1 条）" in markdown
+    assert (
+        f"待人工判定 {len(ontology['open_items'])} 条 / "
+        f"{len(ontology['open_item_groups'])} 组（已确认 1 条）"
+    ) in markdown
 
 
 def test_the_index_carries_the_consolidated_list_with_its_count() -> None:
+    """Q3: the list is folded, so what the index carries is one row per group."""
     ontology = _ontology(*SUBSET_CASES)
     markdown = render_ontology_index_markdown(ontology)
-    body = _section(markdown, f"待人工判定清单（{len(ontology['open_items'])} 条）")
+    body = _section(
+        markdown,
+        f"待人工判定清单（{len(ontology['open_items'])} 条，"
+        f"折叠为 {len(ontology['open_item_groups'])} 组）",
+    )
 
-    for item in ontology["open_items"]:
-        assert item["id"] in body
+    for group in ontology["open_item_groups"]:
+        assert group["group_id"] in body
+        assert group["representative"] in body
 
 
 def test_an_empty_corpus_list_says_so_rather_than_printing_an_empty_table() -> None:
