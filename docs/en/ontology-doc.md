@@ -43,6 +43,10 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology
 scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
   --tables /path/to/tables/tables.json --glossary /path/to/glossary/glossary.json \
   --overrides /path/to/ontology.overrides.json
+
+# Across corpora: --tables repeats, and the cards are merged before anything is built
+scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
+  --tables /path/to/a/tables.json --tables /path/to/b/tables.json
 ```
 
 Three artifacts:
@@ -72,6 +76,10 @@ card = render_ontology_table_card_markdown(cards["tables"][0], ontology)
 - `--tables` / `--glossary` only save a recomputation: the bytes are identical either way.
   With `--tables`, the cards in that file are the base the ontology sections are appended
   to; without it the same cards are built in memory over the same corpus.
+- `--tables` **repeats**: several documents are folded into one with the
+  [card merge rules](tables-doc.md#merging-across-corpora---merge) before the ontology is
+  built, so a key proven in another corpus can carry a relation here. See "Cross-corpus
+  evidence" below.
 - `--format` takes `json`, `md` or both (default `json,md`); when `md` is not among them
   neither `ontology.md` nor `tables/` is written. Anything else is an argument error
   (exit code 2).
@@ -127,7 +135,8 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 ```jsonc
 {
   "doc_format": "ontology-json/1",
-  "corpus": {"artifact_root": "…", "task_count": 12, "lineage_digests": {"task_a": "…"}},
+  "corpus": {"artifact_root": "…", "task_count": 12, "lineage_digests": {"task_a": "…"},
+             "external_evidence_tables": 2},   // only when merged cards hold tables this corpus never touched
   "entities": [
     {"id": "ods.customer", "kind": "physical_table",
      "comment": null,
@@ -201,7 +210,7 @@ Slot by slot (every slot `ontology-json/1` publishes):
 
 | Slot | Values | Meaning |
 | --- | --- | --- |
-| `corpus` | `artifact_root` / `task_count` / `lineage_digests` | the same corpus block the table cards carry: the walked root, the task count, and one lineage digest per task |
+| `corpus` | `artifact_root` / `task_count` / `lineage_digests` / `external_evidence_tables` | the same corpus block the table cards carry: the walked root, the task count, one lineage digest per task, and how many tables lent evidence only without becoming entities (P7; absent when none did) |
 | `entities[].kind` | `physical_table` / `produced_table` | a table some task in the corpus writes is a `produced_table` |
 | `entities[].comment`, `naming_hints` | table comment / domain / project / owner | metadata carried over verbatim; Core infers no business semantics from it |
 | `entities[].identity.candidate_keys[]` | `columns` + `tier` + `evidence` | the key a producing task proved (`producer_key_confidence`) and the key a consuming task assumed (`joined_as_right_without_dedup`) stand side by side; they are never merged into one "primary key" |
@@ -495,6 +504,45 @@ constraint carries its own.
   assertions such as cardinality axioms, and that is not a choice an exporter should make
   on its user's behalf.
 
+## Cross-corpus evidence: repeating `--tables`
+
+A JOIN straight onto a physical table can only be `proven` when **somebody else** proved
+that table unique by the join keys (`cardinality.basis` is `producer_key_confidence`), and
+the task that proved it need not be in the tree this run walked:
+
+```bash
+scope-lineage tables   --lineage /path/to/a --out /path/to/a-tables
+scope-lineage ontology --lineage /path/to/b --out /path/to/onto \
+  --tables /path/to/a-tables/tables.json --tables /path/to/b-tables/tables.json
+```
+
+- The `--tables` documents are merged first (`merge_table_cards`), so the ontology faces a
+  single set of cards and asks "what does the card say" in exactly one way, whichever
+  corpus the answer came from.
+- A relation whose right side a **foreign** card proved is published `proven` as usual, and
+  its `evidence[]` gains one more entry:
+  `{"task": …, "statement_id": …, "corpus": …, "kind": "producer_key_confidence"}`. A proof
+  from this corpus adds nothing — that task is already in the reader's own artifacts and
+  `cardinality.producer` names it. Across corpora the `corpus` is mandatory, or the
+  evidence line points at a task the reader cannot find.
+- `relations[].task_count` counts **only the tasks that wrote the JOIN**. A borrowed proof
+  is evidence, never another author of the edge, so foreign evidence is not counted.
+- Identity keys and partition constraints carry the same stamp: a producer that came from a
+  merged card carries its `corpus`, one from this corpus does not.
+- The evidence ids in `ontology.md` read `` `<corpus>/<task>/<statement_id>` `` accordingly;
+  without a `corpus` they are byte-identical to what they always were.
+- **Evidence is not scope**: an entity is published only for a table the `--lineage` corpus
+  **read or wrote**. A merged-in table this corpus never touched lends its proven keys,
+  producers and consumers to the verdicts above and nothing else: no `entities[]` row, no
+  box in the ER diagram, no constraints or findings, and no `tables/<db.table>.md`. A
+  corpus of a few tasks would otherwise publish an ER diagram of thousands of entities
+  that nobody can read and that is not this corpus's model.
+- The one exception is a table **a relation of this corpus references**: both ends of a
+  relation must be entities, or the ER diagram is missing a box and the reader sees an
+  omission rather than a deliberate exclusion.
+- The number left out is published as `corpus.external_evidence_tables` (absent when there
+  is none), and `ontology.md` says so in one line: 「另有 N 张表仅作为外部证据参与，未建实体」.
+
 ## Relationship with `tables` / `glossary`
 
 The three corpus artifacts stack, answer three different questions, and do not substitute
@@ -532,5 +580,8 @@ All three share one semantic profile: the CLI parses and profiles one corpus exa
   exporter behind it.
 - No embedding, no storage, no LLM call, no business vocabulary — those belong to
   downstream projects.
-- Incremental runs within one corpus now exist (`--incremental`, see "Incremental
-  runs"); reuse *across* corpora -- one corpus's index feeding another -- is later work.
+- Incremental runs within one corpus exist (`--incremental`, see "Incremental runs"), and
+  so does reuse *across* corpora: `tables --merge` folds several corpora's cards into one,
+  `ontology --tables` repeats and merges them first, and foreign evidence always carries
+  its `corpus` (see "Cross-corpus evidence"). What is still later work is cross-corpus
+  reuse of the *profiles* -- one corpus's per-task fact cache feeding another's run.

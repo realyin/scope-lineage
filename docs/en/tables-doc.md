@@ -36,6 +36,10 @@ scope-lineage tables --lineage /path/to/corpus --out /path/to/tables --format js
 # With exported sample values (a CSV, a directory of them, or a samples/1 JSON)
 scope-lineage tables --lineage /path/to/corpus --out /path/to/tables \
   --samples /path/to/samples.csv --samples-top 5
+
+# Across corpora: fold in a tables.json another corpus already produced (repeatable)
+scope-lineage tables --merge /path/to/a/tables.json --merge /path/to/b/tables.json \
+  --out /path/to/tables
 ```
 
 Three artifacts:
@@ -61,6 +65,10 @@ card = render_table_card_markdown(cards["tables"][0])
 - `--lineage` behaves exactly as it does for `render` / `describe`: one `lineage.json` or a
   tree searched recursively for it, with the sibling `diagnostics.json` paired
   automatically; documents of an unknown version are skipped and counted in directory mode.
+  With `--merge` it may be left out (merge-only mode); leaving out both is an argument
+  error (exit code 2).
+- `--merge` takes a `tables.json` written over **another** corpus, and repeats; see
+  "Merging across corpora" below.
 - `--out` is required: a table card is a corpus-level artifact, so there is no "next to the
   lineage.json" place to put it.
 - `--format` takes `json`, `md` or both (default `json,md`); anything else is an argument
@@ -103,12 +111,73 @@ scope-lineage tables --lineage /path/to/corpus --out /path/to/tables --increment
 - Without `--incremental` the run is the full one it always was, reading and writing
   neither index nor cache; `--no-cache` deletes both first and then runs in full.
 
+## Merging across corpora: `--merge`
+
+A corpus can only prove what its own tasks wrote. The statement that proved a table unique
+by some key is often in another batch of tasks entirely, and until the two `tables.json`
+documents are one, everything downstream has to settle for "this JOIN may fan out".
+Merging is not a convenience: it is the only way a card, a `safe` verdict or an ontology
+relation gets to stand on evidence from **more than one corpus**.
+
+```bash
+# Merge only: no corpus to walk, just cards to fold together
+scope-lineage tables --merge /path/to/a/tables.json --merge /path/to/b/tables.json \
+  --out /path/to/merged
+
+# Walk a corpus and fold somebody else's cards in (the files first, this corpus last)
+scope-lineage tables --lineage /path/to/corpus --merge /path/to/a/tables.json \
+  --out /path/to/merged
+```
+
+- **The grouping rule is unchanged**: the card's own dotted-suffix rule, `aliases` unioned,
+  the most qualified spelling as the primary name. A table with half a card in each
+  document (the producer in A, the consumers in B) comes out as one whole card.
+- `produced_by[]` / `consumed_by[]` are unioned and deduplicated by
+  `(task, statement_id, corpus)` — **the same task name in two corpora is two tasks**:
+  those are two walks of two trees, and nothing here assumes they are the same code. Every
+  entry therefore gains a `corpus` (the source document's `corpus.artifact_root`, or
+  `corpus:N` when the document recorded none), so borrowed evidence can always say which
+  tree to look in for the task behind it.
+- `columns[]` are unioned: **the order comes from the first document that declared them**
+  (that is some catalog's declared order), and a column only a later document knows about
+  is appended. `used_in_corpus` is OR-ed, `consumer_usage_counts` are summed, and `samples`
+  are unioned in first-seen order, capped at the widest top-N any document published — a
+  card keeps the values but not their counts, so a merge cannot re-rank by frequency and
+  must not publish a wider column than either document did.
+- `coverage` is recomputed and `findings` are re-derived over the **merged** evidence: a
+  table nobody read in A stops being `never_consumed_in_corpus` as soon as B's reader is on
+  the same card, and producers from two corpora that disagree on the candidate keys still
+  raise `producer_key_conflict`, with each side's `corpus` on the `evidence[]`.
+- The document gains a top-level `merged_from[]`, one entry per original corpus (`corpus`
+  and `task_count`). `corpus.artifact_root` is `null` — there is no single tree to walk
+  again, and `merged_from` is the list that replaces it — and `corpus.lineage_digests` is
+  keyed by `<corpus>/<task>`, because two corpora may hold a task of the same name at two
+  different revisions and quietly keeping one of them would be a lie.
+- **Merging one document is the identity**: a document that was not merged with anything
+  carries neither `corpus` on its entries nor `merged_from`, and is byte-identical to what
+  it was before this feature existed. Merging in two steps and merging in one publish the
+  same `merged_from`.
+- Deterministic: the result is sorted by table name, whatever order `--merge` was given in.
+  That order decides only which document is "the first one" — the table comment, the
+  business placement and the column order come from it.
+- Sections 4 and 5 of the card markdown each gain a `语料` (corpus) column once a card has
+  been merged; an unmerged card does not carry it.
+
+Python API:
+
+```python
+from scope_lineage.render.table_cards import merge_table_cards
+
+merged = merge_table_cards(first_tables_json, second_tables_json)
+```
+
 ## tables.json structure (tables-json/1)
 
 ```jsonc
 {
   "doc_format": "tables-json/1",
   "corpus": {"artifact_root": "…", "task_count": 5, "lineage_digests": {"<task>": "…"}},
+  "merged_from": [{"corpus": "…", "task_count": 5}],   // only after a --merge
   "samples_applied": {"sources": ["…/samples.csv"], "columns_sampled": 1,
                       "unmatched": ["mart.t.no_such_column"]},   // only with --samples
   "tables": [
@@ -119,7 +188,9 @@ scope-lineage tables --lineage /path/to/corpus --out /path/to/tables --increment
       "domain": null, "project": null, "owner": null, "layer": null,  // table-level metadata facts
       "kind": "physical",
       "produced_by": [
-        {"task": "…", "statement_id": "stmt:001", "stmt_kind": "INSERT_OVERWRITE",
+        {"task": "…", "statement_id": "stmt:001",
+         "corpus": "…",                                 // only after a merge
+         "stmt_kind": "INSERT_OVERWRITE",
          "partition": {"columns": ["dt"], "mode": "static", "spec": {"dt": "'20250101'"}},
          "grain": {"basis": "group_by", "keys": ["customer_id"]},
          "candidate_keys": ["customer_id"], "key_confidence": "proven",
@@ -244,8 +315,8 @@ Neither becomes a card, and neither shows up in another table's `aliases`.
 | 1 What this table is | table comment, business placement (domain / project / owner / layer, shown only when the metadata states it), alias spellings, producing/consuming statement counts, and 「本语料用到 n/N 个字段」 (only when `columns_declared` is known) | metadata facts + the producing statements' header comments (`SQL注释`, quoted verbatim) |
 | 2 What one row represents | each producing statement's grain, logical keys, candidate keys, key confidence | structural inference (evidence is the `statement_id`) |
 | 3 Columns | column / type / comment / sample values (only with `--samples`) / one produced-side sentence / consumer usage counts; a column the corpus never touched shows `—` for its usage, and above 20 of them they move below the used ones under a one-line note | metadata facts + SQL facts + structural inference + exported sample values |
-| 4 Who produces it | task, statement, write mode, partition, refresh cadence | SQL facts + task metadata |
-| 5 Who consumes it | task, statement, role (the same vocabulary as `inputs[].role_in_task`, including B2's `filter_partner` — see [semantic-doc.md](semantic-doc.md)), which columns, how they are used | SQL facts + structural inference (the role) |
+| 4 Who produces it | task, statement, write mode, partition, refresh cadence; a merged card gains a corpus column | SQL facts + task metadata |
+| 5 Who consumes it | task, statement, role (the same vocabulary as `inputs[].role_in_task`, including B2's `filter_partner` — see [semantic-doc.md](semantic-doc.md)), which columns, how they are used; a merged card gains a corpus column | SQL facts + structural inference (the role) |
 | 6 Governance leads | multiple producers, key conflicts, never read, never written | SQL facts (evidence is `<task>/<statement_id>`) |
 
 Line tags follow [semantic.md](semantic-doc.md): `（元数据事实）`, `（SQL事实）`,
@@ -331,6 +402,6 @@ Without `--tables`, `output_shape` is byte for byte what it was before cards exi
 - It does not name a table or column in business terms, infer a table type, or guess what a
   code value means (value domains and terms belong to the glossary layer);
 - It does not sample a database: `columns[].samples[]` can only come from a `--samples` file, never from a query Core ran itself;
-- It does not compute a transitive closure across the corpus — a card states only "who
-  writes and who reads, in this corpus"; for lineage tracing see `query.py trace` in the
-  [Agent skill](agent-skill.md).
+- It does not compute a transitive closure across corpora — `--merge` folds together facts
+  each corpus already stated, it does not trace chains between them; for lineage tracing
+  see `query.py trace` in the [Agent skill](agent-skill.md).

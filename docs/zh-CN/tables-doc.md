@@ -30,6 +30,10 @@ scope-lineage tables --lineage /path/to/corpus --out /path/to/tables --format js
 # 带上导出的样例值（CSV / CSV 目录 / samples/1 JSON）
 scope-lineage tables --lineage /path/to/corpus --out /path/to/tables \
   --samples /path/to/samples.csv --samples-top 5
+
+# 跨语料：把别的语料已经算好的 tables.json 合进来（可重复）
+scope-lineage tables --merge /path/to/a/tables.json --merge /path/to/b/tables.json \
+  --out /path/to/tables
 ```
 
 产物三件：
@@ -53,7 +57,9 @@ card = render_table_card_markdown(cards["tables"][0])
 ```
 
 - `--lineage` 与 `render` / `describe` 完全一致：一个 `lineage.json` 或一棵递归查找它的目录树，
-  同目录的 `diagnostics.json` 自动配对；版本不认识的文档在目录模式下跳过并计数。
+  同目录的 `diagnostics.json` 自动配对；版本不认识的文档在目录模式下跳过并计数。给了 `--merge`
+  时它可以不给（纯合并模式）；两个都不给是参数错误（退出码 2）。
+- `--merge` 接一份**别的语料**已经写出的 `tables.json`，可重复；见下文「跨语料合并」。
 - `--out` 必填：表卡是语料级产物，没有"写在 lineage.json 旁边"的位置。
 - `--format` 取 `json`、`md` 或两者（默认 `json,md`）；其他值直接报参数错误（退出码 2）。
 - `--samples` 接一份**别人导出的**样例值文件（见下文「样例值」）；`--samples-top` 是每列最多
@@ -87,12 +93,59 @@ scope-lineage tables --lineage /path/to/corpus --out /path/to/tables --increment
 - 不给 `--incremental` 就是原来的全量跑，既不读也不写索引与缓存；`--no-cache` 先把这两样
   删掉再全量跑。
 
+## 跨语料合并：`--merge`
+
+一份语料只能证明它自己的任务写下的东西。证明某张表按某个键唯一的，往往是另一批任务里的某个
+写语句；两份 `tables.json` 不合成一份，下游就只能拿到「这个 JOIN 可能扇出」。合并不是省事，
+它是一张卡、一个 `safe` 判定、一条本体关系得以站在**不止一份语料**的证据上的唯一办法。
+
+```bash
+# 纯合并：没有语料要走，只有卡要折叠
+scope-lineage tables --merge /path/to/a/tables.json --merge /path/to/b/tables.json \
+  --out /path/to/merged
+
+# 走一遍语料，再把别人的卡折进来（先文件、后本次语料）
+scope-lineage tables --lineage /path/to/corpus --merge /path/to/a/tables.json \
+  --out /path/to/merged
+```
+
+- **归并规则不变**：还是表卡自己的后缀规则，`aliases` 取并集，限定级别最高的写法作主名。
+  同一张表在两份文档里各有半张卡（A 里有生产者、B 里有消费者），合出来是一张完整的卡。
+- `produced_by[]` / `consumed_by[]` 取并集，按 `(task, statement_id, corpus)` 去重——
+  **同名任务在两份语料里算两个**：那是两棵树的两次扫描，这里不假定它们是同一段代码。
+  每条 entry 因此多一个 `corpus`（来源文档的 `corpus.artifact_root`，文档没记就是 `corpus:N`），
+  借来的证据永远说得出该去哪棵树里找那个任务。
+- `columns[]` 取并集：**顺序取第一份声明它们的文档**（那是某个 catalog 的声明顺序），
+  只有后面的文档知道的列追加在末尾；`used_in_corpus` 取或，`consumer_usage_counts` 相加，
+  `samples` 取并集、按首次出现排序，上限取各文档中最宽的那一份——卡上只有值没有 count，
+  合并无从重排频次，也就不该发布比任何一份文档都宽的一列。
+- `coverage` 全部重算，`findings` 在**合并后的证据**上重判：A 里没人读的表，一旦 B 里有人读，
+  就不再是 `never_consumed_in_corpus`；两份语料的生产者候选键不一致，照样报
+  `producer_key_conflict`，`evidence[]` 上带各自的 `corpus`。
+- 顶层多一个 `merged_from[]`，每个原始语料一条（`corpus` 与 `task_count`）；`corpus.artifact_root`
+  为 `null`（没有一棵树可以重走，`merged_from` 才是那份名单），`corpus.lineage_digests` 的键
+  改成 `<corpus>/<task>`——两份语料可能各有一个同名任务、指纹不同，悄悄留一个是撒谎。
+- **合并一份文档就是恒等**：没有跟任何东西合并过的文档不多出 `corpus`、也不多出 `merged_from`，
+  与本功能上线之前逐字节一致。分两步合与一步合给出同一份 `merged_from`。
+- 确定性：结果按表名排序，与 `--merge` 的先后无关；先后只决定「第一份文档」是谁——
+  表注释、业务归属、列序取它的。
+- 表卡 Markdown 第 4、5 节在合并后各多一列「语料」；没合并过的卡不多这一列。
+
+Python API：
+
+```python
+from scope_lineage.render.table_cards import merge_table_cards
+
+merged = merge_table_cards(first_tables_json, second_tables_json)
+```
+
 ## tables.json 结构（tables-json/1）
 
 ```jsonc
 {
   "doc_format": "tables-json/1",
   "corpus": {"artifact_root": "…", "task_count": 5, "lineage_digests": {"<task>": "…"}},
+  "merged_from": [{"corpus": "…", "task_count": 5}],   // 只有 --merge 合并过才出现
   "samples_applied": {"sources": ["…/samples.csv"], "columns_sampled": 1,
                       "unmatched": ["mart.t.no_such_column"]},   // 只有传了 --samples 才出现
   "tables": [
@@ -103,7 +156,9 @@ scope-lineage tables --lineage /path/to/corpus --out /path/to/tables --increment
       "domain": null, "project": null, "owner": null, "layer": null,  // 表级元数据事实
       "kind": "physical",
       "produced_by": [
-        {"task": "…", "statement_id": "stmt:001", "stmt_kind": "INSERT_OVERWRITE",
+        {"task": "…", "statement_id": "stmt:001",
+         "corpus": "…",                                 // 只有合并过才出现
+         "stmt_kind": "INSERT_OVERWRITE",
          "partition": {"columns": ["dt"], "mode": "static", "spec": {"dt": "'20250101'"}},
          "grain": {"basis": "group_by", "keys": ["customer_id"]},
          "candidate_keys": ["customer_id"], "key_confidence": "proven",
@@ -209,8 +264,8 @@ mart.customer_daily,country_code,CN,10
 | 1 这张表是什么 | 表注释、业务归属（业务域 / 项目 / 负责人 / 分层，元数据说了才出现）、别名写法、语料内的生产/消费语句数、「本语料用到 n/N 个字段」（`columns_declared` 已知时才有这一行） | 元数据事实 + 生产任务的语句头注释（`SQL注释`，原样引用） |
 | 2 一行代表什么 | 每个生产语句的粒度、逻辑键、候选键、键置信 | 结构推断（证据为 `statement_id`） |
 | 3 字段 | 列 / 类型 / 注释 / 样例值（传了 `--samples` 才有这一列）/ 生产侧一句语义 / 消费侧用法计数；语料没碰过的列用法一栏是 `—`，超过 20 列时它们移到用到的列之后、附一行说明 | 元数据事实 + SQL事实 + 结构推断 + 导出的样例值 |
-| 4 谁生产 | 任务、语句、写入方式、分区、更新频率 | SQL事实 + 任务元信息 |
-| 5 谁消费 | 任务、语句、角色（词表同 `inputs[].role_in_task`，含 B2 的 `filter_partner`，见 [semantic-doc.md](semantic-doc.md)）、用到哪些列、怎么用 | SQL事实 + 结构推断（角色） |
+| 4 谁生产 | 任务、语句、写入方式、分区、更新频率；合并过的卡多一列「语料」 | SQL事实 + 任务元信息 |
+| 5 谁消费 | 任务、语句、角色（词表同 `inputs[].role_in_task`，含 B2 的 `filter_partner`，见 [semantic-doc.md](semantic-doc.md)）、用到哪些列、怎么用；合并过的卡多一列「语料」 | SQL事实 + 结构推断（角色） |
 | 6 治理线索 | 多生产者、键冲突、无人读、无人写 | SQL事实（证据为 `<task>/<statement_id>`） |
 
 行标签风格与 [semantic.md](semantic-doc.md) 一致：`（元数据事实）`、`（SQL事实）`、
@@ -289,5 +344,5 @@ scope-lineage describe --lineage /path/to/corpus/one_task/lineage.json \
 
 - 不给表或列起中文名、不推断表类型、不猜 code 值的业务含义（值域与术语见字典层）；
 - 不连数据库取样例值：`columns[].samples[]` 只可能来自 `--samples` 传进来的文件，Core 自己不会去查数；
-- 不做跨语料的传递闭包分析——表卡只陈述"这份语料里谁写谁读"，血缘链路追踪见
-  [Agent 技能](agent-skill.md) 的 `query.py trace`。
+- 不做跨语料的传递闭包分析——`--merge` 合的是几份语料各自陈述过的事实，不跨语料推演链路；
+  血缘链路追踪见 [Agent 技能](agent-skill.md) 的 `query.py trace`。
