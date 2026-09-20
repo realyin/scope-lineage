@@ -20,7 +20,7 @@ lineage_digest: "eebc107556571c46"
 - 目标表：`mart.store_daily`（表注释：注释未知）（元数据事实）
 - 语句类型：INSERT_OVERWRITE；静态分区 dt = `${bizdate}`（SQL事实）
 - 目标表元数据来源：无（元数据事实）
-- 结构摘要：ROOT 直接读取 ods.store_event；过滤 1 处；输出 2 列。（结构推断；证据 scope_profile）
+- 结构摘要：按 store_id 汇总，行来自 ods.store_event；过滤 1 处；输出 2 列。（结构推断；证据 scope_profile）
 
 SQL 头部注释（原文，作者说法，非 SQL 事实）（SQL注释）：
 
