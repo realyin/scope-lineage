@@ -197,16 +197,55 @@
     },
     "target_field_binding": {
       "type": "object",
-      "description": "Only emitted when optional target DDL/Schema metadata mode was requested. Records whether authoritative target-column binding was applied or SQL projection names were retained.",
-      "required": [
-        "status",
-        "method",
-        "projection_count",
-        "target_column_count",
-        "corrected_column_count",
-        "static_partition_columns",
-        "dynamic_partition_columns",
-        "issues"
+      "description": "目标字段位置绑定的结果。`status: \"not_applicable\"` 的语句本来就没有可绑定的目标列(CTAS、MERGE、写目录、无写入目标),此时本对象只有 `status` 与 `reason` 两个键;其余状态(提供了目标 DDL/Schema 才会出现)按完整形状输出,说明是按权威顺序绑定了,还是保留了 SQL 投影名。",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "not_applicable"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "status",
+              "reason"
+            ]
+          },
+          "else": {
+            "required": [
+              "status",
+              "method",
+              "projection_count",
+              "target_column_count",
+              "corrected_column_count",
+              "static_partition_columns",
+              "dynamic_partition_columns",
+              "issues"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "fallback"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "fallback_reason"
+            ]
+          }
+        }
       ],
       "properties": {
         "status": {
@@ -214,8 +253,32 @@
           "enum": [
             "applied",
             "fallback",
-            "not_applied"
+            "not_applied",
+            "not_applicable"
           ]
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "ctas_defines_columns",
+            "merge_target",
+            "directory_target",
+            "no_write_target"
+          ],
+          "description": "仅 `status: \"not_applicable\"` 时出现:这条语句为什么没有可做的目标列绑定。`ctas_defines_columns`(CTAS 建表即定列)、`merge_target`(MERGE 在本机制之外解析目标列)、`directory_target`(写文件路径,没有目标表)、`no_write_target`(没有写入目标)。四种都不是缺口,不必补元数据。"
+        },
+        "fallback_reason": {
+          "type": "string",
+          "enum": [
+            "no_target_metadata",
+            "projection_target_count_mismatch",
+            "target_column_names_not_unique",
+            "star_projection_unexpanded",
+            "insert_column_list_unknown_column",
+            "unsupported_statement_kind",
+            "other"
+          ],
+          "description": "`status: \"fallback\"` 时必出现:这次绑定为什么退回 SQL 投影名。取自同一条记录的 `issues[]`,是它的闭集归类而不是替代——具体是哪一列、差几列仍然只在 `issues[]` 里。`other` 表示该原因尚未进入本枚举(此时必须读 `issues[]`)。"
         },
         "method": {
           "type": "string",

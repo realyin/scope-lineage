@@ -110,13 +110,21 @@ def test_an_explicit_column_list_is_untouched_and_never_binds():
         target_metadata=_target_metadata(),
     )
     assert [c.name for c in result.scopes["ROOT"].columns] == ["id", "amount"]
-    assert not result.target_field_binding
+    # Not "no block": a MERGE now says it had no binding to make (Q4). What it must never
+    # say is `applied` or `fallback`.
+    assert result.target_field_binding == {
+        "status": "not_applicable",
+        "reason": "merge_target",
+    }
 
 
 def test_a_star_branch_without_target_metadata_is_unchanged():
     result = _root(INSERT_STAR)
     assert [c.name for c in result.scopes["ROOT"].columns] == ["dt", "amt", "id"]
-    assert not result.target_field_binding
+    assert result.target_field_binding == {
+        "status": "not_applicable",
+        "reason": "merge_target",
+    }
 
 
 def test_a_named_update_assignment_is_unaffected():

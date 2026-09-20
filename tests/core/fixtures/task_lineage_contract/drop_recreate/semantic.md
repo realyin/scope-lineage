@@ -10,7 +10,7 @@ schema_version: "1.0"
 task_name: "golden_drop_recreate#1"
 target_table: "mart.channel_daily"
 stmt_kind: "CTAS"
-lineage_digest: "cc26076f7841fe52"
+lineage_digest: "76b4858a1429a05b"
 ---
 
 # 任务语义描述 mart.channel_daily
@@ -115,7 +115,7 @@ lineage_digest: "cc26076f7841fe52"
 - AMBIGUOUS 字段：无（SQL事实）
 - 事实缺口：0 条（SQL事实）
 - 解析警告：无（SQL事实）
-- 目标列绑定：未做目标列绑定（target_binding_absent_reason=statement_defines_its_own_columns）（元数据事实）
+- 目标列绑定：不适用（CTAS 建表即定列）（元数据事实）
 - 本文档的结构推断项：8 项（按 semantic.json 路径：fields[].structural_role 3、output_shape.candidate_keys 1、output_shape.grain 1、output_shape.key_confidence 1、output_shape.shape 1、output_shape.unexposed_keys 1；完整清单见 semantic.json 的 confidence.inferred_items）（结构推断）
 
 #### 治理线索

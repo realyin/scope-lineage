@@ -955,6 +955,8 @@ def _parse_task_inputs_v2(
     unsupported_mutation_count = 0
     root_gap_result_count = 0
     binding_fallback_count = 0
+    binding_fallback_reasons: Counter = Counter()
+    binding_not_applicable_count = 0
     recovered_syntax_count = 0
     claimed_output_dirs: dict[Path, Path] = {}
     preflight_only = bool(getattr(args, "metadata_preflight", False))
@@ -1046,11 +1048,11 @@ def _parse_task_inputs_v2(
                 for gap in result.diagnostics.get("lineage_fact_gaps", [])
                 if isinstance(gap, dict)
             )
-            binding_fallback_count += sum(
-                (lineage.get("target_field_binding") or {}).get("status")
-                == "fallback"
-                for lineage in result.statement_lineage.values()
+            fallbacks, not_applicable = _binding_status_counts(
+                result, binding_fallback_reasons
             )
+            binding_fallback_count += fallbacks
+            binding_not_applicable_count += not_applicable
             recovered_syntax_count += result.syntax_status == "recovered"
         except Exception as exc:  # noqa: BLE001 - batch boundary: one bad input must not kill the run; type+traceback go to stderr
             input_failed_count += 1
@@ -1119,8 +1121,10 @@ def _parse_task_inputs_v2(
         f"input_failed={input_failed_count}, partial_tasks={partial_task_count}, "
         f"unsupported_mutations={unsupported_mutation_count}, "
         f"root_gap_results={root_gap_result_count}, "
-        f"binding_fallbacks={binding_fallback_count}, "
+        f"binding_fallbacks={binding_fallback_count}"
+        f"{_binding_reasons_report(binding_fallback_reasons)}, "
         f"recovered_syntax={recovered_syntax_count}"
+        f"{_binding_not_applicable_report(binding_not_applicable_count)}"
         f"{_capacity_guard_report(capacity_guard_count)}"
         f"{_partial_reasons_report(partial_reason_counts)})"
     )
@@ -1158,6 +1162,49 @@ def _hit_the_expansion_guard(result) -> bool:
         for warning in (lineage.get("diagnostics") or {}).get("warnings") or []
         if isinstance(warning, dict)
     )
+
+
+def _binding_status_counts(result, reasons: Counter) -> tuple[int, int]:
+    """This task's fallen-back and not-applicable bindings, tallying the fallback reasons.
+
+    Read off the published block rather than recomputed: the block is what a consumer sees,
+    so a summary derived from anything else could disagree with the artifact it summarises.
+    """
+    fallbacks = 0
+    not_applicable = 0
+    for lineage in result.statement_lineage.values():
+        binding = lineage.get("target_field_binding") or {}
+        status = binding.get("status")
+        if status == "fallback":
+            fallbacks += 1
+            reasons[str(binding.get("fallback_reason") or "other")] += 1
+        elif status == "not_applicable":
+            not_applicable += 1
+    return fallbacks, not_applicable
+
+
+def _binding_reasons_report(counts: Counter) -> str:
+    """What the fallbacks fell back on, commonest first, or nothing when there were none.
+
+    `binding_fallbacks=9` is not actionable on its own -- a target nobody supplied metadata
+    for and a projection that disagrees with the DDL are the same number and different work.
+    Ties break on the token's name, like `partial_reasons`, so two runs over the same corpus
+    print the same line.
+    """
+    if not counts:
+        return ""
+    ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return " (" + ",".join(f"{reason}:{count}" for reason, count in ordered) + ")"
+
+
+def _binding_not_applicable_report(count: int) -> str:
+    """The statements with no binding to make, or nothing when every statement had one.
+
+    Said only when it happened, like `capacity_guard`: these are not a gap to close -- a
+    CTAS defines its own columns -- and a counter that is usually zero would only dilute the
+    one beside it that does need work.
+    """
+    return f", binding_not_applicable={count}" if count else ""
 
 
 def _capacity_guard_report(count: int) -> str:

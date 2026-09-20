@@ -12,7 +12,10 @@
   "target_partition_spec": {},
   "target_partition_columns": [],
   "target_partition_mode": "none",
-  "target_binding_absent_reason": "binding_not_applicable_for_statement",
+  "target_field_binding": {
+    "status": "not_applicable",
+    "reason": "merge_target"
+  },
   "task_dependencies": {
     "upstream_tasks": [],
     "downstream_tasks": [],

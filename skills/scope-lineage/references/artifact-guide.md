@@ -35,7 +35,7 @@ where field-level detail lives:
 | Step-by-step derivation of one column? | `field_mapping_chains[]`: `{target_field, chain_type, trace_status, ordered_steps[], root_source_fields[], expanded_expression, missing_reasons}`; each step: `{step_no, scope_id, step_type, transform, expression_sql, expanded_expression, input_fields, output_field, grain_effect}` |
 | The query's structure (CTEs, subqueries, unions)? | `scope_graph`, `scopes.<scope_id>` (`kind`, `depends_on`, `outputs[]`, `joins[]`, `filters[]`, `logic_blocks[]`) |
 | A staged, readable summary for retrieval? | `scope_profile.steps[]` |
-| Did projections bind to real target columns? | `target_field_binding` (`status: applied` + ordinals) or `target_binding_absent_reason` |
+| Did projections bind to real target columns? | `target_field_binding` (`status: applied` + ordinals; `fallback` carries `fallback_reason`, `not_applicable` carries `reason`) or `target_binding_absent_reason` |
 | Statement-level joins/filters/aggregations? | `scopes.<id>.logic_blocks[]` and the join/filter/aggregation/window detail objects |
 
 `statement_id` is the ONLY cross-reference key between task level and statement level

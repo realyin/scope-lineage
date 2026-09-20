@@ -10,6 +10,12 @@ The task document was worse than silent: it derived the reason at its own call s
 `metadata_requested`, so it labelled all four `target_table_not_found`, the harmful one.
 The classification now happens once, where the statement kind, the target name, the
 supplied metadata and the lookup result are all in scope, and both writers read it.
+
+Q4 split the four across two keys rather than merging them: the three with no binding to
+make publish it inside the block (`status: "not_applicable"`, with its own vocabulary --
+see ``test_binding_fallback_reasons``), while the two metadata gaps, which are the ones a
+reader may have to act on, keep ``target_binding_absent_reason`` beside a block that is
+genuinely absent. The tests below are the same guards read against that split.
 """
 from __future__ import annotations
 
@@ -43,7 +49,15 @@ def _reason(sql: str, target_metadata=None) -> str | None:
     return result.target_binding_absence
 
 
+def _binding(sql: str, target_metadata=None) -> dict:
+    result = parse_all_scope_lineage(
+        sql, task_name="t", schema=SCHEMA, target_metadata=target_metadata,
+    )[0]
+    return dict(result.target_field_binding or {})
+
+
 def _v2_reason_code(sql: str, target_metadata=None) -> str | None:
+    """Whichever of the two keys the task document uses to say why there is no binding."""
     task = parse_task_lineage(
         sql, task_name="t", schema=SCHEMA, target_metadata=target_metadata,
     )
@@ -51,6 +65,8 @@ def _v2_reason_code(sql: str, target_metadata=None) -> str | None:
         binding = statement.get("target_field_binding") or {}
         if binding.get("status") == "absent":
             return binding.get("reason_code")
+        if binding.get("status") == "not_applicable":
+            return binding.get("reason")
     return None
 
 
@@ -67,17 +83,20 @@ INSERT_MISSING = "INSERT INTO mart.absent SELECT id, amt FROM ods.a"
 # target_metadata is always None for these kinds -- yet must not get its value.
 
 def test_a_ctas_defines_its_own_columns_even_with_metadata_supplied():
-    assert _reason(CTAS, _metadata()) == "statement_defines_its_own_columns"
-    assert _v2_reason_code(CTAS, _metadata()) == "statement_defines_its_own_columns"
+    assert _binding(CTAS, _metadata())["reason"] == "ctas_defines_columns"
+    assert _reason(CTAS, _metadata()) is None
+    assert _v2_reason_code(CTAS, _metadata()) == "ctas_defines_columns"
 
 
 def test_a_merge_is_not_applicable_even_with_metadata_supplied():
-    assert _reason(MERGE, _metadata()) == "binding_not_applicable_for_statement"
-    assert _v2_reason_code(MERGE, _metadata()) == "binding_not_applicable_for_statement"
+    assert _binding(MERGE, _metadata())["reason"] == "merge_target"
+    assert _reason(MERGE, _metadata()) is None
+    assert _v2_reason_code(MERGE, _metadata()) == "merge_target"
 
 
 def test_a_path_target_is_not_a_table():
-    assert _reason(DIRECTORY, _metadata()) == "target_is_not_a_table"
+    assert _binding(DIRECTORY, _metadata())["reason"] == "directory_target"
+    assert _reason(DIRECTORY, _metadata()) is None
 
 
 def test_a_table_absent_from_the_supplied_ddl_is_the_harmful_one():
@@ -112,10 +131,10 @@ def test_the_v1_document_carries_the_reason():
     from scope_lineage.contract.lineage import to_lineage_dict
 
     document = to_lineage_dict(
-        parse_all_scope_lineage(CTAS, task_name="t", schema=SCHEMA,
+        parse_all_scope_lineage(INSERT_MISSING, task_name="t", schema=SCHEMA,
                                 target_metadata=_metadata())[0]
     )
-    assert document["target_binding_absent_reason"] == "statement_defines_its_own_columns"
+    assert document["target_binding_absent_reason"] == "target_table_not_found"
     assert "target_field_binding" not in document
 
 
