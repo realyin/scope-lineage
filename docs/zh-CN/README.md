@@ -10,19 +10,20 @@ Scope Lineage 把 Spark/Hive SQL 转换成两类机器可消费的事实：
 如果你第一次接触项目，建议按下面顺序阅读：
 
 1. [项目 README](../../README.zh-CN.md)：先了解工具解决什么问题、产物有什么价值；
-2. [安装与使用指南](getting-started.md)：完成安装、第一次解析，并了解常用 CLI 和 Python API；
-3. [Scope Lineage：把复杂 SQL 还原成可验证的字段加工链](value-and-use-cases.md)：通过完整案例了解加工血缘、可验证血缘和实际使用价值；
-4. [输入格式](input-formats.md)：了解 SQL、任务 JSON、Schema 和目标表元数据怎么传入；
-5. [读语句级还是任务级？按业务场景选层次](contract-selection.md)：字段血缘、加工步骤分析读内嵌的语句文档；审计、事故排查、最终表状态读任务级字段——先选对层次再读细节；
-6. [`lineage.json` 输出契约](lineage-json.md)：逐层理解顶层字段、scope、逻辑块、字段映射链和端到端血缘；
-7. [`diagnostics.json` 输出契约](diagnostics-json.md)：理解 warning、事实缺口以及什么结果不能当成已证明事实。
-8. [Task Lineage 2.0](task-lineage-v2.md)：理解 DELETE/TRUNCATE/UPDATE、行集合影响和多语句最终表状态。
-9. [mapping.md 字段映射文档](mapping-doc.md)：用 `scope-lineage render` 把契约渲染成对人和机器都可读的映射文档。
-10. [semantic.json / semantic.md 任务语义描述](semantic-doc.md)：用 `scope-lineage describe` 把契约派生成确定性的任务语义骨架——输出表形态与粒度、加工链路、规则清单、字段语义，每条都带来源标签与证据 id；业务命名不在其中。
-11. [tables.json / tables.md 语料级表卡](tables-doc.md)：用 `scope-lineage tables` 把一整份语料聚合成每张表一张卡——谁写它、一行代表什么、谁读它读了哪些列；`describe --tables` 让任务画像直接引用上游表卡。
-12. [glossary.json / glossary.md 术语与值域字典](glossary-doc.md)：用 `scope-lineage glossary` 把一整份语料聚合成一本按列名组织的字典——注释跨表归并、常量取值观察、已被 SQL 证明封闭的枚举；含义只来自人工确认与注释字面命中，`describe --glossary` 把它接到 `fields[].value_domain`。
-13. [ontology.json / ontology.md 语料级本体候选](ontology-doc.md)：用 `scope-lineage ontology` 在表卡与值词典之上把一整份语料整理成一份带置信分层的本体候选——实体与身份键、关系与可证明的基数、约束、跨任务矛盾；索引开头是 Mermaid ER 总览，每张表卡追加身份 / 关系 / 约束 / 同义 / 待人工判定五节，人工确认经 `--overrides` 回写为第五级 `confirmed`；业务命名与类层次留给人或 Agent 确认。
-14. [AI agent 技能](agent-skill.md)：让 Claude Code、Codex 等 AI 编码 agent 直接用上血缘解析、字段加工链和 mapping 文档能力。
+2. [端到端工作流：从任务 JSON 到画像与本体](workflow.md)：先看清全流程——`parse` 之后 `glossary` / `tables` / `describe` / `ontology` 按什么顺序跑、每一步要上一步的什么、人和 Agent 在哪里介入、确认过的答案怎么写回来；不确定下一条命令敲什么时先读这篇；
+3. [安装与使用指南](getting-started.md)：完成安装、第一次解析，并了解常用 CLI 和 Python API；
+4. [Scope Lineage：把复杂 SQL 还原成可验证的字段加工链](value-and-use-cases.md)：通过完整案例了解加工血缘、可验证血缘和实际使用价值；
+5. [输入格式](input-formats.md)：了解 SQL、任务 JSON、Schema 和目标表元数据怎么传入；
+6. [读语句级还是任务级？按业务场景选层次](contract-selection.md)：字段血缘、加工步骤分析读内嵌的语句文档；审计、事故排查、最终表状态读任务级字段——先选对层次再读细节；
+7. [`lineage.json` 输出契约](lineage-json.md)：逐层理解顶层字段、scope、逻辑块、字段映射链和端到端血缘；
+8. [`diagnostics.json` 输出契约](diagnostics-json.md)：理解 warning、事实缺口以及什么结果不能当成已证明事实。
+9. [Task Lineage 2.0](task-lineage-v2.md)：理解 DELETE/TRUNCATE/UPDATE、行集合影响和多语句最终表状态。
+10. [mapping.md 字段映射文档](mapping-doc.md)：用 `scope-lineage render` 把契约渲染成对人和机器都可读的映射文档。
+11. [semantic.json / semantic.md 任务语义描述](semantic-doc.md)：用 `scope-lineage describe` 把契约派生成确定性的任务语义骨架——输出表形态与粒度、加工链路、规则清单、字段语义，每条都带来源标签与证据 id；业务命名不在其中。
+12. [tables.json / tables.md 语料级表卡](tables-doc.md)：用 `scope-lineage tables` 把一整份语料聚合成每张表一张卡——谁写它、一行代表什么、谁读它读了哪些列；`describe --tables` 让任务画像直接引用上游表卡。
+13. [glossary.json / glossary.md 术语与值域字典](glossary-doc.md)：用 `scope-lineage glossary` 把一整份语料聚合成一本按列名组织的字典——注释跨表归并、常量取值观察、已被 SQL 证明封闭的枚举；含义只来自人工确认与注释字面命中，`describe --glossary` 把它接到 `fields[].value_domain`。
+14. [ontology.json / ontology.md 语料级本体候选](ontology-doc.md)：用 `scope-lineage ontology` 在表卡与值词典之上把一整份语料整理成一份带置信分层的本体候选——实体与身份键、关系与可证明的基数、约束、跨任务矛盾；索引开头是 Mermaid ER 总览，每张表卡追加身份 / 关系 / 约束 / 同义 / 待人工判定五节，人工确认经 `--overrides` 回写为第五级 `confirmed`；业务命名与类层次留给人或 Agent 确认。
+15. [AI agent 技能](agent-skill.md)：让 Claude Code、Codex 等 AI 编码 agent 直接用上血缘解析、字段加工链和 mapping 文档能力。
 
 ## 从问题找到字段
 

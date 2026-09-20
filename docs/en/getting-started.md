@@ -455,6 +455,7 @@ scope-lineage parse --help
 
 ## Next steps
 
+- [End-to-end workflow: from task JSON to profiles and ontology](workflow.md) — `parse` is the first of five commands; this page covers the order of `glossary` / `tables` / `describe` / `ontology`, what each needs from the others, and where a person or an agent enters
 - [Documentation map and question-to-field index](README.md)
 - [Complete input formats](input-formats.md)
 - [`lineage.json` output contract](lineage-json.md)

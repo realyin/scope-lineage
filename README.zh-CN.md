@@ -227,6 +227,9 @@ PyPI distribution 和 CLI 名均为 `scope-lineage`，Python import namespace �
 
 ## 快速开始
 
+> 想先看清全流程（`parse` → `glossary` / `tables` → `describe` → `ontology`，以及人和 Agent 在哪里介入），
+> 读[端到端工作流：从任务 JSON 到画像与本体](docs/zh-CN/workflow.md)。
+
 ### 1. 解析一个 SQL 文件
 
 ```bash
