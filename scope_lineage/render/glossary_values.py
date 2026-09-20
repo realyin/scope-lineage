@@ -138,6 +138,14 @@ CANDIDATE_SOURCE_CODE_ALIAS = "code_alias"
 
 CODE_ALIAS_TEXT = "同义码：{label}"
 
+# Q1b. What a label is worth when the CASE that wrote it also tested something else.
+# ``WHEN col = 'v' AND report_dt >= '…' THEN A`` followed by a plain ``WHEN col = 'v'
+# THEN B`` does not say that ``v`` means B: it says ``v`` means A inside one date window
+# and B outside it. The compound branch produces no observation (it labels the
+# COMBINATION), so the form used to print B as a clean one-to-one translation -- the
+# cleanest row on the page, and a wrong answer waiting to be signed.
+CONDITIONAL_LABEL_TEXT = "有条件：{text}"
+
 # P5. What an Agent signs a confirmation with. A meaning confirmed under this prefix is
 # an answer read off the corpus, not an answer a person gave, and the two must stay
 # distinguishable wherever one of them is used as evidence for the next one.
@@ -171,7 +179,18 @@ _CODE_LABEL_TEXT = re.compile(r"^[A-Za-z0-9_+\-./]+$")
 _UPPER_CODE_TEXT = re.compile(r"^(?=.*\d)[A-Z0-9_+\-./]+$")
 
 # The keys one meaning candidate publishes, in the order it publishes them.
-_CANDIDATE_KEYS = ("text", "source", "evidence", "fan_out", "single_branch", "label_system")
+_CANDIDATE_KEYS = (
+    "text",
+    "source",
+    "evidence",
+    "fan_out",
+    "single_branch",
+    # Q1b: the label holds only where some other predicate of the same CASE holds, and
+    # `condition` is that predicate, published so the form can say what it was.
+    "conditional",
+    "condition",
+    "label_system",
+)
 
 _PREDICATE_RULE_KINDS = frozenset({"filter", "having"})
 _ROOT = "ROOT"
@@ -366,8 +385,78 @@ def _case_observations(rule: Mapping, context: dict) -> list[dict]:
                 branch,
             )
         )
+    _qualify_labels(observations, branches, _catch_all_else(rule))
     observations.extend(_case_label_observations(rule, branches, context))
     return observations
+
+
+def _qualify_labels(
+    observations: list[dict], branches: Sequence[Mapping], catch_all: bool
+) -> None:
+    """Q1b: the two things a label's own branch does not say, read off the whole CASE.
+
+    A value written into a COMPOUND branch of this CASE is labelled under a condition
+    wherever else the same CASE names it, and a CASE whose ELSE is a label of its own is
+    sorting the column into classes rather than translating its codes. Both travel on
+    the observation, because both are facts about the CASE and not about the branch the
+    label was read from.
+    """
+    conditions = _conditional_values(branches)
+    for item in observations:
+        if not item.get("case_label"):
+            continue
+        condition = conditions.get((str(item["column"]), str(item["value"])))
+        if condition is not None:
+            item["label_conditional"] = True
+            item["label_condition"] = condition
+        if catch_all:
+            item["label_catch_all"] = True
+
+
+def _catch_all_else(rule: Mapping) -> bool:
+    """Whether this CASE's ELSE is a class of its own rather than a default (Q1b).
+
+    ``ELSE '委外'`` gives every value with no branch of its own a name, which makes the
+    CASE a two-sided classification: ``THEN '自营'`` is one side of it, not the meaning
+    of the code the branch tested. ``ELSE NULL`` (no name at all) and ``ELSE gap`` (the
+    row's own value) classify nothing and are left alone.
+    """
+    otherwise = semantic_text.parse_expression(rule.get("else"))
+    return _is_scalar_constant(otherwise) and not isinstance(otherwise, exp.Null)
+
+
+def _conditional_values(branches: Sequence[Mapping]) -> dict[tuple[str, str], str]:
+    """``(column, value) -> the rest of the branch``, for every compound branch."""
+    found: dict[tuple[str, str], str] = {}
+    for branch in branches:
+        parts = _conjuncts(semantic_text.parse_expression(branch.get("when")))
+        if len(parts) < 2:
+            continue
+        for index, node in enumerate(parts):
+            parsed = _comparison(node)
+            if parsed is None:
+                continue
+            rest = " AND ".join(
+                semantic_text.expression_text(other)
+                for position, other in enumerate(parts)
+                if position != index
+            )
+            for value in parsed[1]:
+                if _is_scalar_constant(value) and not isinstance(value, exp.Null):
+                    text = strip_quotes(semantic_text.expression_text(value))
+                    found[(parsed[0], text)] = rest
+    return found
+
+
+def _conjuncts(node) -> list:
+    """One branch condition flattened into the predicates it ANDs together."""
+    if node is None:
+        return []
+    if isinstance(node, exp.And):
+        return _conjuncts(node.this) + _conjuncts(node.expression)
+    if isinstance(node, exp.Paren):
+        return _conjuncts(node.this)
+    return [node]
 
 
 def _labelled(observations: list[dict], branch: Mapping) -> list[dict]:
@@ -384,9 +473,11 @@ def _labelled(observations: list[dict], branch: Mapping) -> list[dict]:
 
     A branch testing two columns at once (``WHEN a = 'AA' AND b = 'GG' THEN …``) labels
     the combination and not either value -- it needs no refusal of its own, because a
-    compound condition produces no observation to label. A branch written as an ``IN``
-    list does label each of its values: they are values of one column, and the CASE
-    says that label for every one of them.
+    compound condition produces no observation to label. Q1b: it does, however, change
+    what the CASE's OTHER branches say about the same value, which is why
+    :func:`_qualify_labels` reads the branch list once the branches are all labelled.
+    A branch written as an ``IN`` list does label each of its values: they are values of
+    one column, and the CASE says that label for every one of them.
 
     P5b records how many that is (``label_fan_out``). One value to one label is the
     warehouse translating a code; three values to one label is the warehouse *bucketing*
@@ -911,11 +1002,37 @@ def _label_candidates(labels: Sequence[Mapping]) -> list[dict]:
     Q1: one candidate per LABELLING SYSTEM, not per rule id. A rule id is statement
     local (`rule:001` is the first rule of every statement in the corpus), so grouping
     by it alone merges two unrelated CASEs into one system and hides the very
-    disagreement the column has to be read with. ``label`` and ``label_system`` are
-    working keys: :func:`_resolve_column_labels` answers them with what only the whole
-    column knows, and drops or keeps them accordingly.
+    disagreement the column has to be read with. ``label``, ``catch_all`` and
+    ``label_system`` are working keys: :func:`_resolve_column_labels` answers them with
+    what only the whole column knows, and drops or keeps them accordingly.
+
+    Q1b publishes one more thing the branch alone cannot say: ``conditional`` (with the
+    ``condition`` that made it so) when the same CASE also tested this value together
+    with another predicate.
     """
-    found: dict[tuple[str, str, str], int] = {}
+    found = _label_groups(labels)
+    return [
+        {
+            "text": _label_text(text, group["fan_out"]),
+            "source": CANDIDATE_SOURCE_CASE_LABEL,
+            "evidence": evidence,
+            "fan_out": group["fan_out"],
+            **(
+                {"conditional": True, "condition": group["condition"]}
+                if group["conditional"]
+                else {}
+            ),
+            "label": text,
+            "label_system": system,
+            "catch_all": group["catch_all"],
+        }
+        for (text, evidence, system), group in sorted(found.items())
+    ]
+
+
+def _label_groups(labels: Sequence[Mapping]) -> dict[tuple[str, str, str], dict]:
+    """One group per ``(label, rule, labelling system)``, with what the CASE added."""
+    found: dict[tuple[str, str, str], dict] = {}
     for item in labels:
         if not item.get("case_label"):
             continue
@@ -924,18 +1041,15 @@ def _label_candidates(labels: Sequence[Mapping]) -> list[dict]:
             str(item.get("evidence") or ""),
             label_system(item),
         )
-        found[key] = max(found.get(key, 1), int(item.get("label_fan_out") or 1))
-    return [
-        {
-            "text": _label_text(text, fan_out),
-            "source": CANDIDATE_SOURCE_CASE_LABEL,
-            "evidence": evidence,
-            "fan_out": fan_out,
-            "label": text,
-            "label_system": system,
-        }
-        for (text, evidence, system), fan_out in sorted(found.items())
-    ]
+        group = found.setdefault(
+            key, {"fan_out": 1, "conditional": False, "condition": "", "catch_all": False}
+        )
+        group["fan_out"] = max(group["fan_out"], int(item.get("label_fan_out") or 1))
+        group["catch_all"] = group["catch_all"] or bool(item.get("label_catch_all"))
+        if item.get("label_conditional"):
+            group["conditional"] = True
+            group["condition"] = group["condition"] or str(item.get("label_condition") or "")
+    return found
 
 
 def label_system(observation: Mapping) -> str:
@@ -1237,23 +1351,49 @@ def _resolve_labels(entries: list[dict]) -> None:
 def _resolve_column_labels(entries: list[dict]) -> None:
     """One column's labels, after the column has been read end to end."""
     systems: dict[str, set] = {}
-    bucketing: set[str] = set()
     for _entry, item in _label_items(entries):
         systems.setdefault(str(item["label_system"]), set()).add(str(item["label"]))
-        if int(item.get("fan_out") or 1) > 1:
-            bucketing.add(str(item["label_system"]))
     # Two systems that say the same thing are one code table written twice; it is the
     # DISAGREEMENT that makes a value's 1:1 label unreadable on its own.
     plural = len({frozenset(labels) for labels in systems.values()}) >= 2
     observed = {str(entry["value"]).strip().lower() for entry in entries}
+    sorting = _sorting_systems(entries, observed)
     for entry, item in _label_items(entries):
-        _finish_label(item, observed - {str(entry["value"]).strip().lower()}, bucketing)
+        _finish_label(item, observed - {str(entry["value"]).strip().lower()}, sorting)
         if not plural:
             item.pop("label_system", None)
     for entry in entries:
         if plural:
             entry["label_systems"] = len(systems)
         entry["meaning_candidates"] = _ordered_candidates(entry["meaning_candidates"])
+
+
+def _sorting_systems(entries: Sequence[Mapping], observed: set) -> set[str]:
+    """The labelling systems of this column that SORT its values instead of naming them.
+
+    Two shapes, one conclusion. A system with a branch several values wide is bucketing
+    them (P5b). Q1b adds the one a reader cannot see in any single branch: a system whose
+    ELSE is a label of its own has already named every value it gave no branch to, so
+    the whole CASE is a classification -- ``CASE WHEN col = 'X' THEN '自营' ELSE '委外'
+    END`` sorts the column into two classes and defines neither code.
+
+    Unless it gave EVERY observed value of the column a branch of its own: then the ELSE
+    is a default no row of this column reaches, the CASE is an exhaustive mapping, and
+    its labels are translations a reviewer may still close a question with.
+    """
+    bucketing: set[str] = set()
+    catch_all: set[str] = set()
+    labelled: dict[str, set] = {}
+    for entry, item in _label_items(entries):
+        system = str(item["label_system"])
+        labelled.setdefault(system, set()).add(str(entry["value"]).strip().lower())
+        if int(item.get("fan_out") or 1) > 1:
+            bucketing.add(system)
+        if item.get("catch_all"):
+            catch_all.add(system)
+    return bucketing | {
+        system for system in catch_all if labelled.get(system, set()) != observed
+    }
 
 
 def _label_items(entries: Sequence[Mapping]) -> list[tuple[Mapping, dict]]:
@@ -1266,17 +1406,20 @@ def _label_items(entries: Sequence[Mapping]) -> list[tuple[Mapping, dict]]:
     ]
 
 
-def _finish_label(item: dict, others: set, bucketing: set) -> None:
-    """One label candidate, told apart from a synonym and from a lone bucket branch."""
+def _finish_label(item: dict, others: set, sorting: set) -> None:
+    """One label candidate, told apart from a synonym and from a lone sorted branch."""
     label = str(item.pop("label"))
+    item.pop("catch_all", None)
     if _code_shaped(label, others):
         item["source"] = CANDIDATE_SOURCE_CODE_ALIAS
         item["text"] = CODE_ALIAS_TEXT.format(label=label)
-        return
-    if int(item.get("fan_out") or 1) <= 1 and str(item["label_system"]) in bucketing:
-        # A CASE that buckets this column's other values is sorting, not translating,
-        # and the one value that happens to be alone in a branch is not a definition.
+    elif int(item.get("fan_out") or 1) <= 1 and str(item["label_system"]) in sorting:
+        # A CASE that buckets this column's other values, or that names them all at once
+        # in its ELSE, is sorting rather than translating -- and the one value that
+        # happens to be alone in a branch of it is not a definition.
         item["single_branch"] = True
+    if item.get("conditional"):
+        item["text"] = CONDITIONAL_LABEL_TEXT.format(text=item["text"])
 
 
 def _code_shaped(label: str, others: set) -> bool:

@@ -227,7 +227,13 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
      列表的分支则给它列出的每个取值都带上同一个标签。这条候选还带 `fan_out`（P5b）：同一条
      分支把多少个不同取值映射到了这个标签。`fan_out: 1` 是语料在**翻译**这个码；大于 1 就是在
      **分桶**，`text` 写成 `分类桶：<标签>（同桶 N 个值）`——`WHEN s IN ('AA','BB','CC') THEN
-     '进行中'` 说的是这三个码同属一桶，没说其中任何一个是什么意思。
+     '进行中'` 说的是这三个码同属一桶，没说其中任何一个是什么意思。它还可能带
+     `conditional: true` 与 `condition`（Q1b）：**同一条 CASE 里有别的分支把这个取值和另一个谓词
+     写在一起**（`WHEN col = 'v' AND report_dt >= '20260101' THEN '自营'`，随后又有一条光杆的
+     `WHEN col = 'v' THEN '外包'`）。复合条件标的是组合、本来就不产生观察，于是光杆那条曾被印成
+     一条干干净净的一对一翻译——它其实是两段规则的后一半。这时**这条 CASE 给这个取值的每条候选**
+     都带上 `conditional: true`，`condition` 写那个多出来的谓词原文，`text` 前面加「有条件：」，
+     它不是可自答的证据。
   4. **`code_alias`：这个"标签"本身就是另一套编码里的码**（Q1）：`WHEN part_code =
      'CU_OS_S1_1_1' THEN 'S1_1_1'` 把一套码翻译成了另一套码，两边都没被定义。判定只看标签
      自己：不含汉字、只由 `A-Za-z0-9_+-./` 组成，并且**带下划线**、**是大写字母加数字的写法**、
@@ -246,9 +252,14 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
   只有一套、或两套写的是同一张码表时这个键不出现。同一列的**每个**取值都带上它，因为"这一列不可
   逐值自答"是关于整列的话。
 - `meaning_candidates[].label_system`：这条候选来自哪一套（`label_systems` 存在时才发布）。
-- `meaning_candidates[].single_branch`：`fan_out` 是 1，但产出它的那套体系把同一列的**别的**取值
-  分了桶——那条 CASE 在做分类而不是在做翻译，独占一个分支的那个取值不因此就有了定义。它**不是**
-  可自答的证据。
+- `meaning_candidates[].single_branch`：`fan_out` 是 1，但产出它的那套体系在**做分类**而不是在
+  做翻译——独占一个分支的那个取值不因此就有了定义。它**不是**可自答的证据。两种分类都算：
+  那套体系把同一列的**别的**取值分了桶（Q1），或者它的 **ELSE 本身就是一个标签**（Q1b）。
+  `CASE WHEN col = 'X' THEN '自营' ELSE '委外' END` 把这一列分成了两类，`ELSE` 罩住了这一列
+  其余**每一个**取值，`自营` 是分类的一边而不是 `X` 的含义。判定只看 ELSE：**标量常量且不是
+  `NULL`** 才算分类（`ELSE NULL` 说的是别的取值压根没有标签，`ELSE gap` 是这一行自己带的值，
+  两者都不算）。**例外**：这套体系给该列**每一个已观察取值**都配了自己的 THEN 分支时，ELSE 是
+  一条谁也走不到的兜底，这条 CASE 是一张穷尽的码表，它的标签照样可自答。
 
 ### 参数化值（parameters[]）
 
@@ -321,16 +332,23 @@ scope-lineage glossary --lineage corpus --out dict --overrides dict/glossary.ove
 
 **每一行还说它有什么证据**（P5）：「注释线索」右边的**「候选来源」**列写 `comment_enum` /
 `comment_mention` / `case_label` / `case_label(桶 N)` / `case_label(单值分支)` /
-`case_label(体系 k/N)` / `code_alias` / `same_name_confirmed` / `—`。
+`case_label(有条件)` / `case_label(体系 k/N)` / `code_alias` / `same_name_confirmed` / `—`，
+前面还可能先写一个 `⚠ 矛盾`。
 审阅者（或按 `skills/scope-lineage/references/glossary-review-prompt.md` 工作的 Agent）
 **可以据以自答**的只有三种：`comment_enum`（该列自己的注释枚举了这个取值）、
 `case_label`（语料里有 CASE 一对一地把它标成某个标签）、`same_name_confirmed`
 （同名列上的同一取值已经被**人**确认过）。其余都不是：`comment_mention` 只是某句话里
 提到了这个值，它是给人看的线索（P5b）；`case_label(桶 N)` 是这个值和另外 N-1 个值被归进了同一个桶，
 桶名是类别，不是这个值的含义（P5b）；`case_label(单值分支)` 是产出这个标签的那条 CASE 给同一列的
-**别的**取值分了桶，它在做分类而不是在做翻译（Q1）；`code_alias` 是这个"标签"本身就是另一套
+**别的**取值分了桶、或者它的 ELSE 本身就是一个标签，它在做分类而不是在做翻译（Q1、Q1b）；
+`case_label(有条件)` 是这个标签只在同一条 CASE 的另一个谓词成立时才成立（Q1b）；
+`code_alias` 是这个"标签"本身就是另一套
 编码里的码（Q1）。`case_label(体系 k/N)` 说的是这一列压着 N 套标签体系、这条候选来自第 k 套——
 列小节的标题会跟着写 `⚠ N 套标签体系`，**这一列整列都不可逐值自答**（Q1）。
+**`⚠ 矛盾`（Q1b）写在最前面**：该列自己的注释把这个取值枚举成一个答案、而语料里的 CASE 又一对一地
+把它标成另一个答案（去首尾空白、不区分大小写后不相等；标签**被包含在**注释那半句里算一致）。
+两边打架时这一行不可自答，得原样进问人清单并把两边都摆出来——这条纪律本来就写在评审提示词里，
+现在由表单直接替评审者判出来。
 `same_name_confirmed` 只认人确认过的——Agent 自己的确认沿同名列
 扩散，等于让一条推断自证。`—` 的那些行才是要去问人的。
 
@@ -340,9 +358,16 @@ scope-lineage glossary --lineage corpus --out dict --overrides dict/glossary.ove
 说明写清楚这一点。同名 `.json` 的 `values` 用的是同一批键，所以两个文件问的仍然是同一批问题。
 两张表不算一族——两张表的同名列本来就可能不是一回事，那正是要问人的"跨表同名冲突"。
 
+**家族行的证据是各成员表的并集**（Q1b）：一族里往往只有**一张**表把码表写进了注释，而这一行问的
+是整族。所以家族小节里一个取值的「注释线索」与「候选来源」取各成员表的并集——最强的那种证据
+胜出，并在「候选来源」后面写上 `（来自 <表>）`，指出它是哪张表给的；只要**任意一个**成员行可自答，
+这条家族行就可自答，于是一条家族键也能凭证据关掉。各表自己在 `glossary.json` 里的条目不受影响，
+`overrides_applied.family_expansions` 的口径也不变。
+
 **排序与条数**：上一版按 `closed_set` 优先 + 观察数排，真实语料的第一页于是被 `Y`/`N`、`1`/`0`
 与 scope 级列占满——上面那几条排除就是这个发现。现在**有证据的列排在最前**——Q1 之后"证据"只认上面那三类可自答的：
-`comment_enum`、**可自答的** `case_label`（`fan_out` 为 1、不是单值分支、不是 `code_alias`）与
+`comment_enum`、**可自答的** `case_label`（`fan_out` 为 1、不是单值分支、不带条件、不是
+`code_alias`，且没被 `⚠ 矛盾` 推翻）与
 `same_name_confirmed`。只有线索（`comment_mention`）、只有分类桶、只有单值分支或只有同义码的列，
 和没有证据的列排在一起，因为它们就是这样；其余按**列**排，
 列得分为
