@@ -24,6 +24,9 @@ UNCONFIRMED_TEXT = "待确认"
 CONFLICT_MARK = "⚠"
 EMPTY_CELL = "—"
 
+# P5. What a confirmed meaning was confirmed ON, printed beside who signed it.
+BASIS_PREFIX = "依据："
+
 # `列引用` is the one column the WI-2.4 brief's table did not list, and it has to be
 # here: a section is one column NAME, and one name can belong to nine tables. Without it
 # two rows reading `1` / `literal` / `1` are indistinguishable.
@@ -61,9 +64,11 @@ def _summary(glossary: Mapping) -> list[str]:
         f"- 人工确认（overrides）：术语 {applied.get('terms', 0)} 条、值 "
         f"{applied.get('values', 0)} 条生效；未命中键 "
         f"{len(applied.get('unmatched') or [])} 个。",
-        f"- 含义只有两个来源：人工确认（{CONFIRMED_MARK}）与注释里字面出现该值"
-        f"（{CANDIDATE_MARK} 候选）；其余一律写「{UNCONFIRMED_TEXT}」，Core 不猜。",
+        f"- 含义只有两个来源：人工确认（{CONFIRMED_MARK}）与语料自己写下的候选"
+        f"（{CANDIDATE_MARK}：注释里字面出现或枚举该值，或 CASE 把它标成某个标签）；"
+        f"其余一律写「{UNCONFIRMED_TEXT}」，Core 不猜。",
         *_unmatched_line(applied),
+        *_rejected_line(applied),
     ]
 
 
@@ -75,6 +80,32 @@ def _unmatched_line(applied: Mapping) -> list[str]:
         f"- {CONFLICT_MARK} overrides 里有 {len(unmatched)} 个键在本语料中没有对应项："
         + "、".join(expr_span(str(key)) for key in unmatched)
     ]
+
+
+def _rejected_line(applied: Mapping) -> list[str]:
+    """P5: a confirmation this run refused, and why. Silence would publish it as unasked."""
+    rejected = applied.get("rejected") or []
+    ignored = applied.get("ignored_fields") or []
+    lines = []
+    if rejected:
+        lines.append(
+            f"- {CONFLICT_MARK} overrides 里有 {len(rejected)} 条确认被拒绝，未写入："
+            + "、".join(
+                f"{expr_span(str(item.get('key')))}（{item.get('reason')}）"
+                for item in rejected
+            )
+        )
+    if ignored:
+        lines.append(
+            f"- {CONFLICT_MARK} overrides 里有 {len(ignored)} 条确认带本版本读不懂的字段："
+            + "、".join(
+                f"{expr_span(str(item.get('key')))}（"
+                + "、".join(str(field) for field in item.get("fields") or [])
+                + "）"
+                for item in ignored
+            )
+        )
+    return lines
 
 
 def _sections(glossary: Mapping) -> dict[str, dict]:
@@ -178,7 +209,12 @@ def _meaning_text(meaning: Mapping | None, candidates: Sequence[Mapping]) -> str
         date = meaning.get("date")
         suffix = "，".join(str(item) for item in (confirmed_by, date) if item)
         text = f"{CONFIRMED_MARK} {normalize_inline(str(meaning.get('text') or ''))}"
-        return f"{text}（{suffix}）" if suffix else text
+        if suffix:
+            text = f"{text}（{suffix}）"
+        # P5: what the confirmation rests on. An Agent's confirmation is required to
+        # carry one, and a reader who cannot see it cannot review it.
+        basis = normalize_inline(str(meaning.get("confirmed_basis") or ""))
+        return f"{text}（{BASIS_PREFIX}{basis}）" if basis else text
     if candidates:
         return f"{CANDIDATE_MARK} " + "；".join(
             f"{normalize_inline(str(item['text']))}（{item['source']}）" for item in candidates

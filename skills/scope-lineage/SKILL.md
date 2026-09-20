@@ -211,11 +211,22 @@ scope-lineage describe --lineage <corpus> --glossary <dir>/glossary.json \
 ```
 
 `--template` writes two files at one path — the markdown a person fills in and the
-same-named `.json` that `--overrides` reads back. It ranks proven closed sets first, then
-by how many tasks use the value, and it leaves out what nobody can answer or nobody needs
-to: match patterns, day literals, bare numbers with no enumerated context, and anything
-already confirmed. An entry left blank comes back as `blank` in the run summary and is
-**not** written in as a confirmed empty meaning.
+same-named `.json` that `--overrides` reads back. It asks the columns that carry evidence
+first, then ranks by how much of the corpus rests on the column, and it leaves out what
+nobody can answer or nobody needs to: match patterns, day literals, bare numbers with no
+enumerated context, and anything already confirmed. An entry left blank comes back as
+`blank` in the run summary and is **not** written in as a confirmed empty meaning.
+
+Each row's 候选来源 column says which evidence that value has — `comment`, `case_label`,
+`same_name_confirmed` or `—` — and those are exactly the three kinds an Agent may answer
+a value **from** instead of asking a person. Follow
+`references/glossary-review-prompt.md` for that pass: it writes the evidence answers into
+`glossary.overrides.json` itself, each with a mandatory `basis` and
+`confirmed_by: "agent:<name>"`, never overwriting a human confirmation, and turns at most
+8 of what is left into an open-questions file. A confirmation signed `agent:` with no
+`basis` is refused and reported under `overrides_applied.rejected`
+(`reason: "missing_basis"`); a misspelled slot lands in `overrides_applied.ignored_fields`.
+Check both lists every round, next to `unmatched`.
 
 The script routes each answer by its own 回写目标 line — `术语` / `值域` into the glossary
 overrides, `字段注释` / `表注释` into a `metadata-patch/1` file — and never overwrites an
@@ -345,6 +356,12 @@ documented uncertainty).
   `business_profile.check.md`: input file verification, source tags and evidence, inferred
   items, the self-consistency result and the generation self-check. Written beside the
   profile, never merged into it.
+- `references/glossary-review-prompt.md` — how to work the 取值含义待填模板: the three
+  kinds of evidence that let an Agent answer a value itself (the column's own comment
+  enumerates it, a CASE in the corpus labels it, a human confirmed the same value on the
+  same column name elsewhere), each written back with a mandatory `basis`, and how to turn
+  the rest into at most 8 questions a business owner can answer. Read when the user asks
+  what a corpus's codes mean, or before filling in a generated template.
 - `references/ontology-review-prompt.md` — how to turn a corpus ontology's 待人工判定
   items into a question list a business owner can answer in five minutes, and how the
   answers are filed back into `ontology.overrides.json`. Read when the user asks about

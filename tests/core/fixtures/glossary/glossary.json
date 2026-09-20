@@ -449,7 +449,13 @@
       ],
       "task_count": 1,
       "closed_set": null,
-      "meaning_candidates": [],
+      "meaning_candidates": [
+        {
+          "text": "ONLINE",
+          "source": "case_label",
+          "evidence": "rule:001"
+        }
+      ],
       "meaning": null
     },
     {
@@ -561,7 +567,13 @@
       ],
       "task_count": 1,
       "closed_set": null,
-      "meaning_candidates": [],
+      "meaning_candidates": [
+        {
+          "text": "a\\nb",
+          "source": "case_label",
+          "evidence": "rule:001"
+        }
+      ],
       "meaning": null
     },
     {
@@ -632,6 +644,8 @@
     "terms": 0,
     "values": 0,
     "blank": 0,
-    "unmatched": []
+    "unmatched": [],
+    "ignored_fields": [],
+    "rejected": []
   }
 }

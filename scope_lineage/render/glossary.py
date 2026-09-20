@@ -21,6 +21,15 @@ merged in with ``source: "override"``. A key that matches nothing is reported un
 ``overrides_applied.unmatched`` rather than dropped, because a typo in a reviewed file is
 exactly the thing a reviewer cannot see.
 
+P5 gives that file the ontology review's evidence discipline. An entry may say what its
+answer rests on (``basis``, published as ``meaning.confirmed_basis``) and add a ``note``;
+a field this release does not read is reported under ``ignored_fields`` rather than
+dropped; and an answer signed ``confirmed_by: "agent:…"`` **must** carry a ``basis``, or
+the whole entry is refused into ``rejected``. An Agent's answer is read off the corpus
+rather than known, so the sentence saying what it was read from is the only thing that
+makes it reviewable -- and an unreviewable ``confirmed`` is an inference wearing a
+signature.
+
 This module is the structure-aligned early slice of the phase-two ontology's
 ``value_domains`` / ``synonyms``: a ``values[]`` entry carries the same
 (column, value, evidence, task count, completeness) shape an ``in_set`` constraint does.
@@ -33,6 +42,7 @@ from typing import Iterable, Mapping, Sequence
 from . import glossary_values
 from .glossary_markdown import render_glossary_markdown  # noqa: F401 -- public facade
 from .glossary_values import (
+    AGENT_CONFIRMATION_PREFIX,
     aggregate_values,
     canonical_owner,
     canonical_name,
@@ -48,6 +58,14 @@ from .semantic_profile import build_semantic_profile
 DOC_FORMAT = "glossary-json/1"
 
 MEANING_SOURCE_OVERRIDE = "override"
+
+# P5. Every field one ``terms`` / ``values`` entry of an overrides file may carry.
+# Anything else is reported under ``overrides_applied.ignored_fields`` instead of being
+# dropped: a misspelled slot in a reviewed file takes effect nowhere and shows nowhere.
+OVERRIDE_FIELDS = ("meaning", "text", "confirmed_by", "date", "basis", "note")
+
+# P5. Why a confirmation this file names was refused rather than published.
+REASON_MISSING_BASIS = "missing_basis"
 
 TASK_SCHEMA_VERSION = "2.0"
 
@@ -278,13 +296,10 @@ def _build_parameters(observations: Sequence[Mapping], canonical: Mapping) -> li
 
 
 def _apply_overrides(glossary: dict, overrides: Mapping) -> None:
-    unmatched: list[str] = []
-    blank: list[str] = []
-    terms = _apply_term_overrides(
-        glossary["terms"], overrides.get("terms") or {}, unmatched, blank
-    )
+    report = _Report()
+    terms = _apply_term_overrides(glossary["terms"], overrides.get("terms") or {}, report)
     values = _apply_value_overrides(
-        glossary["values"], overrides.get("values") or {}, unmatched, blank
+        glossary["values"], overrides.get("values") or {}, report
     )
     glossary["overrides_applied"] = {
         "terms": terms,
@@ -294,22 +309,59 @@ def _apply_overrides(glossary: dict, overrides: Mapping) -> None:
         # unanswered. Writing `""` in as a confirmed meaning would turn "nobody has said"
         # into "somebody said nothing", which is the one reading this layer must not
         # publish. So a blank is counted and left alone.
-        "blank": len(blank),
-        "unmatched": sorted(unmatched),
+        "blank": len(report.blank),
+        "unmatched": sorted(report.unmatched),
+        # P5, mirroring the ontology's H2 / the rejection half of its evidence mode.
+        "ignored_fields": sorted(report.ignored_fields, key=lambda item: item["key"]),
+        "rejected": sorted(
+            report.rejected, key=lambda item: (item["key"], item["reason"])
+        ),
     }
 
 
-def _apply_term_overrides(
-    terms: Sequence[dict], overrides: Mapping, unmatched: list[str], blank: list[str]
-) -> int:
+class _Report:
+    """What one overrides file produced besides confirmations, gathered in one place."""
+
+    def __init__(self) -> None:
+        self.blank: list[str] = []
+        self.unmatched: list[str] = []
+        self.ignored_fields: list[dict] = []
+        self.rejected: list[dict] = []
+
+    def accepts(self, key: str, payload) -> bool:
+        """False for a confirmation this release refuses to publish (P5).
+
+        One refusal so far: an Agent signature with no ``basis``. An Agent's answer is
+        read off the corpus rather than known, so the sentence saying what closed the
+        question IS the confirmation's evidence -- without it nobody can ever review
+        why this value is ``confirmed``, which is the one thing a reviewed file owes
+        its next reader. Reported in its own list because ``unmatched`` is a list of
+        bare key strings that carries no room for a reason, and the key here is not a
+        typo: it names something real.
+        """
+        values = payload if isinstance(payload, Mapping) else {}
+        signature = str(values.get("confirmed_by") or "")
+        if signature.startswith(AGENT_CONFIRMATION_PREFIX) and not values.get("basis"):
+            self.rejected.append({"key": key, "reason": REASON_MISSING_BASIS})
+            return False
+        return True
+
+    def record_ignored(self, key: str, payload) -> None:
+        """A field this release does not read is reported, never dropped in silence."""
+        if not isinstance(payload, Mapping):
+            return
+        extra = sorted(
+            str(field) for field in payload if str(field) not in OVERRIDE_FIELDS
+        )
+        if extra:
+            self.ignored_fields.append({"key": key, "fields": extra})
+
+
+def _apply_term_overrides(terms: Sequence[dict], overrides: Mapping, report: _Report) -> int:
     applied = 0
     for key, payload in overrides.items():
-        if not _meaning(payload)["text"]:
-            blank.append(str(key))
-            continue
         matches = [term for term in terms if term["column"] == str(key).strip()]
-        if not matches:
-            unmatched.append(str(key))
+        if not _admitted(str(key), payload, matches, report):
             continue
         for term in matches:
             term["meaning"] = _meaning(payload)
@@ -318,21 +370,31 @@ def _apply_term_overrides(
 
 
 def _apply_value_overrides(
-    values: Sequence[dict], overrides: Mapping, unmatched: list[str], blank: list[str]
+    values: Sequence[dict], overrides: Mapping, report: _Report
 ) -> int:
     applied = 0
     for key, payload in overrides.items():
-        if not _meaning(payload)["text"]:
-            blank.append(str(key))
-            continue
         matches = [entry for entry in values if _value_key_matches(str(key), entry)]
-        if not matches:
-            unmatched.append(str(key))
+        if not _admitted(str(key), payload, matches, report):
             continue
         for entry in matches:
             entry["meaning"] = _meaning(payload)
             applied += 1
     return applied
+
+
+def _admitted(key: str, payload, matches: Sequence, report: _Report) -> bool:
+    """The three ways one entry stops short of becoming a confirmation, in order."""
+    if not _meaning(payload)["text"]:
+        report.blank.append(key)
+        return False
+    if not report.accepts(key, payload):
+        return False
+    if not matches:
+        report.unmatched.append(key)
+        return False
+    report.record_ignored(key, payload)
+    return True
 
 
 def _value_key_matches(key: str, entry: Mapping) -> bool:
@@ -351,13 +413,23 @@ def _value_key_matches(key: str, entry: Mapping) -> bool:
 
 
 def _meaning(payload) -> dict:
+    """One confirmation as the dictionary publishes it.
+
+    P5. ``basis`` is published as ``confirmed_basis`` -- the same name the ontology
+    gives it -- and both it and ``note`` appear only when the reviewer wrote them, so a
+    file that carries neither produces the four-key meaning it always has.
+    """
     values = payload if isinstance(payload, Mapping) else {"meaning": payload}
-    return {
+    meaning = {
         "text": str(values.get("meaning") or values.get("text") or ""),
         "source": MEANING_SOURCE_OVERRIDE,
         "confirmed_by": values.get("confirmed_by"),
         "date": values.get("date"),
     }
+    for field, published in (("basis", "confirmed_basis"), ("note", "note")):
+        if values.get(field):
+            meaning[published] = str(values[field])
+    return meaning
 
 
 # ------------------------------------------------------ describe-side consumption

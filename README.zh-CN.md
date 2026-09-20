@@ -369,7 +369,8 @@ scope-lineage describe --lineage /tmp/scope-lineage-corpus \
 
 `glossary.json` / `glossary.md` 把同名列的注释跨表归并（说法冲突就并列保留）、把过滤与 CASE 里的
 常量按列聚成值域观察，并只在 `IN` 列表或分支穷尽的 CASE 上写"这个集合已封闭"。含义只有两个来源：
-`glossary.overrides.json` 里的人工确认，与注释里**字面出现**该值的片段（标 `?` 候选）——Core 不猜。
+`glossary.overrides.json` 里的人工确认，与语料自己写下的候选（标 `?`）——注释里**字面出现**或
+**枚举**该值的片段，或把该值标成某个标签的 CASE——Core 不猜。
 `describe --glossary` 把结果接到 `fields[].value_domain`。详见 [术语与值域字典](docs/zh-CN/glossary-doc.md)。
 
 整份语料还知道一件单张表说不清的事：这些表之间是什么关系。把表卡与字典再聚合成一份本体候选：
