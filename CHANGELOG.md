@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.3.1
+- **Breaking** (glossary.json only; the lineage contracts are unchanged): a value's
+  `meaning_candidates[].source` no longer says `column_comment`; it names the route the
+  candidate came from -- `comment_enum` (the column comment enumerates the value),
+  `comment_mention` (the value is merely mentioned in prose, trimmed to its clause) or
+  `case_label` (with `fan_out`). The comment's origin stays readable from `evidence`.
+  Consumers that matched on `column_comment` should match on `comment_enum`.
 - **An end-to-end usage guide** (`docs/zh-CN/workflow.md`, `docs/en/workflow.md`). Every
   artifact had its own document and nobody wrote down the order they run in, so a new user
   who finished `getting-started.md` was left at `parse` with four more commands and three

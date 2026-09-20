@@ -302,6 +302,12 @@ scope-lineage parse \
 不确定场景该用哪份契约，见[按业务场景选契约](docs/zh-CN/contract-selection.md)：
 字段血缘、加工步骤分析用默认 1.0；审计、事故排查、最终表状态用 2.0。
 
+### 迁移到 0.3.1
+
+只有 `glossary.json` 变了形状：`meaning_candidates[].source` 改为写候选的来源路径
+（`comment_enum` / `comment_mention` / `case_label`），不再是 `column_comment`；原来按
+`column_comment` 匹配的地方改为 `comment_enum`。本版其余改动均为增量。
+
 ### 迁移到 0.3.0
 
 解析契约没有变化。三个派生产物变了，读它们的代码各需要一处调整：

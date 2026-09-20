@@ -302,6 +302,13 @@ transformation-step analysis read the per-statement documents embedded in
 `statement_lineage`; audits, incident forensics, and final table state read the
 task-level facts.
 
+### Migrating to 0.3.1
+
+Only `glossary.json` changed shape: `meaning_candidates[].source` names the candidate's
+route (`comment_enum` / `comment_mention` / `case_label`) instead of `column_comment`;
+match on `comment_enum` where you matched on `column_comment`. Everything else in this
+release is additive.
+
 ### Migrating to 0.3.0
 
 The parser contracts did not change. Three derived artifacts did, and code that reads
