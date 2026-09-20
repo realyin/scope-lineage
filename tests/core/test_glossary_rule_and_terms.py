@@ -190,7 +190,8 @@ def test_a_candidate_meaning_is_published_as_a_candidate() -> None:
     )
 
     assert _rule(profile, "<> '99'")["value_meanings"][0]["meaning"] == {
-        "text": "队列编码，99 表示无效",
+        # P5b: a mention is trimmed to the clause around the value.
+        "text": "99 表示无效",
         "status": "candidate",
     }
 

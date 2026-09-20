@@ -224,7 +224,7 @@ def test_the_markdown_counts_what_it_did_not_ask_about() -> None:
 
     assert template["generated"]["excluded_values"] == 6
     assert template["generated"]["excluded_scope_columns"] == 0
-    assert "排除了 6 个开关/数字/日期型取值与 0 个 scope 级列" in (
+    assert "排除了 6 个开关/数字/日期/中文自述型取值与 0 个 scope 级列" in (
         render_overrides_template_markdown(template, glossary)
     )
 

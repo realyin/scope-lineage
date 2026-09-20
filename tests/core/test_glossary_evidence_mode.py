@@ -225,6 +225,8 @@ def test_a_case_that_maps_a_value_to_a_label_offers_the_label_as_a_candidate() -
             "text": "有效",
             "source": "case_label",
             "evidence": _value(glossary, "status", "AA")["observations"][0]["evidence"],
+            # P5b: one value to this label, so the label IS this value's translation.
+            "fan_out": 1,
         }
     ]
     assert [item["text"] for item in _candidates(glossary, "status", "BB")] == ["失效"]
@@ -233,13 +235,18 @@ def test_a_case_that_maps_a_value_to_a_label_offers_the_label_as_a_candidate() -
 
 
 def test_an_in_list_branch_labels_every_value_it_tests() -> None:
-    """One column, one label: the CASE says 有效 for each of the values it lists."""
+    """One column, one label: the CASE puts each of the values it lists in one bucket.
+
+    P5b: the label reaches every value, as it always did, and now says how many values
+    it reached -- 有效 is what this branch calls the pair, not what either code means.
+    """
     glossary = _case_glossary(
         "CASE WHEN t.status IN ('AA', 'BB') THEN '有效' ELSE '未知' END"
     )
+    bucket = "分类桶：有效（同桶 2 个值）"
 
-    assert [item["text"] for item in _candidates(glossary, "status", "AA")] == ["有效"]
-    assert [item["text"] for item in _candidates(glossary, "status", "BB")] == ["有效"]
+    assert [item["text"] for item in _candidates(glossary, "status", "AA")] == [bucket]
+    assert [item["text"] for item in _candidates(glossary, "status", "BB")] == [bucket]
 
 
 def test_a_branch_that_returns_a_column_says_nothing_about_the_value() -> None:
@@ -324,7 +331,7 @@ def test_a_comment_candidate_and_a_case_label_are_both_offered() -> None:
 
     assert [
         (item["source"], item["text"]) for item in _candidates(glossary, "status", "AA")
-    ] == [("column_comment", "生效"), ("case_label", "有效")]
+    ] == [("comment_enum", "生效"), ("case_label", "有效")]
 
 
 # ------------------------------------------------------------- 3. the form's evidence
@@ -369,7 +376,7 @@ def test_the_form_names_the_evidence_each_value_has() -> None:
     )
 
     assert "| 注释线索 | 候选来源 |" in rendered
-    assert "| 线上 | comment |" in rendered
+    assert "| 线上 | comment_enum |" in rendered
     assert "| — | — |" in rendered
 
 

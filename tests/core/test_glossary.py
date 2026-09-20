@@ -33,6 +33,8 @@ from scope_lineage.render.glossary import (
     render_glossary_markdown,
 )
 from scope_lineage.render.glossary_values import CANDIDATE_SOURCE_CASE_LABEL
+from scope_lineage.render.glossary_values import CANDIDATE_SOURCE_COMMENT_ENUM
+from scope_lineage.render.glossary_values import CANDIDATE_SOURCE_COMMENT_MENTION
 from scope_lineage.scope.scope_builder import parse_scope_lineage
 
 
@@ -406,7 +408,8 @@ def _commented_schema(comment: str, table_comment: str | None = None) -> SchemaM
     )
 
 
-def test_a_column_comment_that_spells_the_value_out_becomes_a_candidate() -> None:
+def test_a_column_comment_that_mentions_the_value_becomes_a_candidate() -> None:
+    """P5b: a comment that only CONTAINS the value is a mention, cut to its clause."""
     document = _document(
         "INSERT INTO mart.t SELECT o.order_id FROM ods.app_order o WHERE o.pay_status = 'PAID'",
         schema=_commented_schema("payment state, PAID means settled"),
@@ -415,8 +418,8 @@ def test_a_column_comment_that_spells_the_value_out_becomes_a_candidate() -> Non
 
     assert entry["meaning_candidates"] == [
         {
-            "text": "payment state, PAID means settled",
-            "source": "column_comment",
+            "text": "PAID means settled",
+            "source": "comment_mention",
             "evidence": "column:ods.app_order.pay_status",
         }
     ]
@@ -438,7 +441,7 @@ def test_a_sql_comment_on_the_condition_is_a_candidate() -> None:
     )
     entry = _value(_glossary(document), "pay_status", "'PAID'")
 
-    assert [item["source"] for item in entry["meaning_candidates"]] == ["sql_comment"]
+    assert [item["source"] for item in entry["meaning_candidates"]] == ["comment_mention"]
     assert entry["meaning_candidates"][0]["text"] == "PAID is the settled state"
 
 
@@ -496,7 +499,7 @@ def test_a_column_comment_enumerating_the_value_becomes_a_candidate(comment) -> 
     )
     assert _candidate(_glossary(document), "eff_status", "'1'") == {
         "text": "生效",
-        "source": "column_comment",
+        "source": "comment_enum",
         "evidence": "column:ods.app_order.eff_status",
     }
 
@@ -550,7 +553,8 @@ def test_one_space_joined_pair_in_a_sentence_is_not_a_code_table() -> None:
             "meaning_candidates"
         ]
     ]
-    assert texts == ["队列编码，99 表示无效"]
+    # P5b: trimmed to the clause the value sits in -- a hint is one phrase.
+    assert texts == ["99 表示无效"]
 
 
 def test_an_in_list_on_a_source_column_reads_the_same_comment() -> None:
@@ -588,7 +592,7 @@ def test_a_constant_projection_reads_the_target_columns_own_comment() -> None:
     assert [item["context"] for item in entry["observations"]] == ["constant_projection"]
     assert entry["meaning_candidates"][0] == {
         "text": "生效",
-        "source": "column_comment",
+        "source": "comment_enum",
         "evidence": "column:mart.t.eff_status",
     }
 
@@ -780,7 +784,10 @@ def test_every_meaning_candidate_is_a_literal_the_corpus_itself_wrote() -> None:
     P5 added the third route, and it is the one that does not come from a comment: a
     ``case_label`` candidate is the string a CASE branch returns for this very value, so
     what it owes the reader is that the corpus contains that string verbatim and that it
-    is not the code repeated back.
+    is not the code repeated back. P5b splits the comment routes in two, and they owe
+    different things: a ``comment_mention`` is a clause CONTAINING the value, while a
+    ``comment_enum`` is the half of a code table that belongs to it and therefore does
+    not contain it at all.
     """
     documents = _corpus_documents()
     written = json.dumps(documents, ensure_ascii=False)
@@ -792,10 +799,23 @@ def test_every_meaning_candidate_is_a_literal_the_corpus_itself_wrote() -> None:
             if candidate["source"] == CANDIDATE_SOURCE_CASE_LABEL:
                 # Escaped the way the documents themselves are: a label may contain a
                 # backslash (`'a\nb'` is a four-character label, not a newline).
-                assert json.dumps(candidate["text"], ensure_ascii=False)[1:-1] in written
-                assert candidate["text"].lower() != value.lower()
-            else:
+                label = _labelled_text(candidate)
+                assert json.dumps(label, ensure_ascii=False)[1:-1] in written
+                assert label.lower() != value.lower()
+            elif candidate["source"] == CANDIDATE_SOURCE_COMMENT_MENTION:
                 assert value.lower() in candidate["text"].lower()
+            else:
+                assert candidate["source"] == CANDIDATE_SOURCE_COMMENT_ENUM
+                # The half of a code table that belongs to this value: still a string
+                # the corpus wrote, just not one that repeats the code back.
+                assert candidate["text"] in written
+
+
+def _labelled_text(candidate: dict) -> str:
+    """The label itself, whether it was published plainly or as the bucket it names."""
+    if int(candidate.get("fan_out") or 1) <= 1:
+        return str(candidate["text"])
+    return str(candidate["text"]).split("：", 1)[1].rsplit("（", 1)[0]
 
 
 def test_the_glossary_is_byte_identical_for_the_same_corpus() -> None:

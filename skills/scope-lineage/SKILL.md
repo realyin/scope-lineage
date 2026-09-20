@@ -217,9 +217,12 @@ nobody can answer or nobody needs to: match patterns, day literals, bare numbers
 enumerated context, and anything already confirmed. An entry left blank comes back as
 `blank` in the run summary and is **not** written in as a confirmed empty meaning.
 
-Each row's 候选来源 column says which evidence that value has — `comment`, `case_label`,
-`same_name_confirmed` or `—` — and those are exactly the three kinds an Agent may answer
-a value **from** instead of asking a person. Follow
+Each row's 候选来源 column says which evidence that value has — `comment_enum`,
+`comment_mention`, `case_label`, `case_label(桶 N)`, `same_name_confirmed` or `—`. Three of
+them are evidence an Agent may answer a value **from** instead of asking a person
+(`comment_enum`, a 1:1 `case_label`, `same_name_confirmed`); a `comment_mention` is a
+sentence that merely says the value and a `case_label(桶 N)` is the bucket N values share,
+and both are leads for a human rather than answers. Follow
 `references/glossary-review-prompt.md` for that pass: it writes the evidence answers into
 `glossary.overrides.json` itself, each with a mandatory `basis` and
 `confirmed_by: "agent:<name>"`, never overwriting a human confirmation, and turns at most
@@ -358,9 +361,11 @@ documented uncertainty).
   profile, never merged into it.
 - `references/glossary-review-prompt.md` — how to work the 取值含义待填模板: the three
   kinds of evidence that let an Agent answer a value itself (the column's own comment
-  enumerates it, a CASE in the corpus labels it, a human confirmed the same value on the
-  same column name elsewhere), each written back with a mandatory `basis`, and how to turn
-  the rest into at most 8 questions a business owner can answer. Read when the user asks
+  enumerates it, a CASE in the corpus labels it 1:1, a human confirmed the same value on
+  the same column name elsewhere), the two that look like evidence and are not (a comment
+  mention, a shared bucket label), the per-column conflict check, each answer written back
+  with a mandatory `basis`, and how to turn the rest into at most 8 questions a business
+  owner can answer — one of which may bind a whole code table by listing every key. Read when the user asks
   what a corpus's codes mean, or before filling in a generated template.
 - `references/ontology-review-prompt.md` — how to turn a corpus ontology's 待人工判定
   items into a question list a business owner can answer in five minutes, and how the

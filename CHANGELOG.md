@@ -1,6 +1,27 @@
 # Changelog
 
 ## Unreleased
+- **The evidence the form advertises is now evidence somebody can act on** (P5b). A review
+  round over a large corpus closed 23 of 1972 askable values, and every shortfall was in
+  the 候选来源 column. `meaning_candidates[].source` no longer names the comment a
+  candidate came from (`evidence` already does): it names the ROUTE, and the routes are
+  not worth the same. A comment that ENUMERATES the value is `comment_enum` and may be
+  answered from; a comment that merely CONTAINS it is `comment_mention`, published trimmed
+  to the clause the value sits in (cut at `，,。;；`, windowed to 40 characters with a `…`
+  at the cut) and treated as a lead for a human. A `case_label` candidate carries
+  `fan_out`: `1` is the corpus translating one code, and more than one is a bucket, whose
+  text becomes `分类桶：<标签>（同桶 N 个值）` and whose 候选来源 reads `case_label(桶 N)` —
+  `WHEN s IN ('AA','BB','CC') THEN '进行中'` says three codes share a bucket, never what one
+  of them means. Brackets now separate code-table pairs, so
+  `余额类别(Int-利息，…，IntFee-息费)` yields its first and last pair instead of gluing the
+  prose onto `Int` and a stray `)` onto `息费`. A switch or a bare number the column's own
+  comment enumerates is no longer dropped as trivial — that is the cheapest row in the
+  form — while a value that is already Chinese prose (two or more CJK characters, nothing
+  code-shaped in it) is published in the dictionary and left out of the form, counted in
+  `> 排除了 N 个开关/数字/日期/中文自述型取值…`. `glossary-review-prompt.md` says which two
+  of the five sources are not evidence, adds the per-column check that a column carrying
+  two labelling systems is not confirmable value by value, and lets one question bind a
+  whole code table by listing every key on its own `回写目标` line (`=*` is not a key).
 - **Table cards reuse across corpora** (P7). A corpus can only prove what its own tasks
   wrote: the statement that proved a table unique by its key is often in another batch
   entirely, and until now everything downstream of that boundary had to settle for "this

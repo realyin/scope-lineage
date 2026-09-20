@@ -453,7 +453,8 @@
         {
           "text": "ONLINE",
           "source": "case_label",
-          "evidence": "rule:001"
+          "evidence": "rule:001",
+          "fan_out": 1
         }
       ],
       "meaning": null
@@ -571,7 +572,8 @@
         {
           "text": "a\\nb",
           "source": "case_label",
-          "evidence": "rule:001"
+          "evidence": "rule:001",
+          "fan_out": 1
         }
       ],
       "meaning": null

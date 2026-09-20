@@ -233,26 +233,38 @@ Other rules:
   **agree**: two tasks with different `IN` lists give `null`, because contradictory
   evidence is not a closed set.
 - `meaning_candidates[]` has three routes: the first two read a comment (and one comment answers by whichever hits first), the third reads the SQL.
-  Candidate comments come from three places: that column's comment (`column_comment`,
-  falling back to `declared_columns[]` where `column_details[]` does not carry the
-  column), that table's comment (`table_comment`), and the SQL comment written on that
-  condition or field (`sql_comment`).
-  1. **The column's own comment enumerates the value** (B6): `0-未生效，1-生效` is a code
+  Candidate comments come from three places: that column's comment (falling back to
+  `declared_columns[]` where `column_details[]` does not carry the column), that table's
+  comment, and the SQL comment written on that condition or field; `evidence` says which
+  of the three it was (`column:<table>.<column>` / `table:<table>` / a rule id).
+  **`source` says which ROUTE produced the candidate** (P5b), which is what decides
+  whether it may be answered from:
+  1. **`comment_enum` -- the column's own comment enumerates the value** (B6):
+     `0-未生效，1-生效` is a code
      table somebody wrote into a comment, and the half belonging to this value is the
-     candidate -- `text` is that half (`生效`), `source` is `column_comment`, and the
-     form's 注释线索 column shows it. Separators are `，,;；|/、` and a space; a code and
+     candidate -- `text` is that half (`生效`), and the
+     form's 注释线索 column shows it. Separators are `，,;；|/、`, the brackets
+     `()（）[]【】` and a space; a code and
      its meaning are joined by `-`, `:`, `=`, `：` or a space. Only the column's **own**
      comment is read (source or target table), in every observation context (`filter_eq` /
      `filter_in` / `case_condition` / `case_then` / `constant_projection` /
      `union_constant`). The space-only form needs **at least two pairs** to count as a
-     table -- `队列编码，99 表示无效` is one sentence, not a table.
-  2. **The comment literally contains the value**: the value with its quotes stripped must
+     table -- `队列编码，99 表示无效` is one sentence, not a table. Brackets became
+     separators in P5b: `余额类别(Int-利息，…，IntFee-息费)` is how a comment writes a code
+     table when it also has to say what the column is, and reading the bracket as ordinary
+     text glued `余额类别(Int` into one token (losing the first pair) and left a stray `)`
+     on the last meaning.
+  2. **`comment_mention` -- the comment literally contains the value**: the value with its
+     quotes stripped must
      occur in the comment text (case-insensitively). **A value shorter than 2 characters
      never matches** -- `0` occurs in almost any sentence, and one wrong candidate costs
-     more than ten missed ones.
-  3. **A CASE in the corpus maps the value to a label** (P5): in
-     `CASE WHEN status = 'AA' THEN '有效'`, `有效` is the candidate -- `source` is
-     `case_label`, `evidence` is that CASE rule's id, and it is appended after the comment
+     more than ten missed ones. `text` carries **only the clause the value sits in**
+     (P5b): cut at `，,。;；`, and windowed around the value with a `…` at the cut once it
+     runs past 40 characters. A mention is a lead for a person, and a table cell does not
+     hold a paragraph.
+  3. **`case_label` -- a CASE in the corpus maps the value to a label** (P5): in
+     `CASE WHEN status = 'AA' THEN '有效'`, `有效` is the candidate --
+     `evidence` is that CASE rule's id, and it is appended after the comment
      candidates (so a `value_domain` still shows the metadata's answer first). Only a
      branch whose **THEN is a string literal** counts: a THEN that is a column or an
      expression is a value the row carries rather than a name somebody chose, and a label
@@ -260,7 +272,11 @@ Other rules:
      is refused as well. A compound condition (`WHEN a = 'AA' AND b = 'GG'`) labels the
      combination and not either value -- it produces no observation to label in the first
      place -- while a branch written as an `IN` list gives every value it lists the same
-     label.
+     label. This candidate also carries `fan_out` (P5b): how many distinct values that one
+     branch maps to this label. `fan_out: 1` is the corpus **translating** the code; more
+     than one is the corpus **bucketing** codes, and `text` becomes
+     `分类桶：<label>（同桶 N 个值）` -- `WHEN s IN ('AA','BB','CC') THEN '进行中'` says
+     those three codes share a bucket, not what any one of them means.
   All three produce a **candidate** only: `glossary --template` still lists the value,
   because a candidate is not a confirmation.
 
@@ -330,18 +346,23 @@ reason.
 | --- | --- |
 | `kind = literal` only | A `pattern` is a `LIKE` / `RLIKE` match shape rather than a value, and nobody can give a shape a business meaning |
 | Physical columns only | A `logical: true` reference, or any `column_ref` containing `:`, is a scope id, and as an overrides key it would match nothing |
-| No switches | `Y` / `N` / `yes` / `no` / `true` / `false` (case-insensitively) answer "yes or no", which the reader already knows |
-| No bare numbers | `rn = 1` and `flag = 0` are positions and switches -- **excluded even inside a proven closed set**, because `IN (0, 1, 2)` only pins a position to a set |
+| No switches | `Y` / `N` / `yes` / `no` / `true` / `false` (case-insensitively) answer "yes or no", which the reader already knows -- **unless the column's own comment enumerates the value** (P5b, it carries a `comment_enum` candidate): which is which has then been written down, and the row closes by reading |
+| No bare numbers | `rn = 1` and `flag = 0` are positions and switches -- **excluded even inside a proven closed set**, because `IN (0, 1, 2)` only pins a position to a set. The same exception applies: `0-未生效，1-生效` in the comment makes them askable |
 | No date-shaped literals | `'20260814'` is an instance date, not a code (see `instance_date` in the semantic doc) |
+| No self-describing values | `委外` and `触达成功` are already words, and defining one means writing it again (P5b): a value of **two or more CJK characters with no `[0-9A-Za-z_]` in it** is published in the dictionary but left out of the form, while mixed values like `SF_S1_1_1` and `A1` stay askable |
 | No column left with fewer than two values | One value is not a code system, and the answer describes no set -- a statement about what earns a place in the form, not about what may be asked, so the uncapped form (`--template-top 0`) keeps them (WI-D) |
 | Nothing already confirmed | A value whose `meaning` already carries text is not asked twice |
 
 **Every row also says what evidence it has** (P5): the **候选来源** column beside 注释线索
-holds `comment` / `case_label` / `same_name_confirmed` / `—`. The first three are exactly the
-kinds of evidence a reviewer (or an Agent working from
-`skills/scope-lineage/references/glossary-review-prompt.md`) may **answer the value from**:
-the column's own comment enumerates it, a CASE in the corpus labels it, or a **human** has
-confirmed the same value on the same column name elsewhere. `same_name_confirmed` counts a
+holds `comment_enum` / `comment_mention` / `case_label` / `case_label(桶 N)` /
+`same_name_confirmed` / `—`. Exactly three of them are evidence a reviewer (or an Agent
+working from `skills/scope-lineage/references/glossary-review-prompt.md`) may **answer the
+value from**: `comment_enum` (the column's own comment enumerates it), `case_label` (a CASE
+in the corpus labels it one-to-one), or `same_name_confirmed` (a **human** has confirmed the
+same value on the same column name elsewhere). The other two are not (P5b):
+`comment_mention` is a sentence that happens to say the value, which is a lead for a human;
+`case_label(桶 N)` means this value and N-1 others were put in one bucket, and a bucket name
+is a category rather than this value's meaning. `same_name_confirmed` counts a
 human confirmation only -- an Agent's own answer spreading along same-named columns would be
 an inference proving itself. The `—` rows are the ones somebody has to be asked about.
 
@@ -367,7 +388,7 @@ the form asks about every askable value, single-value columns included.
 
 **What it did not ask about is in the header**: `generated.excluded_values` and
 `generated.excluded_scope_columns`, rendered in the markdown as one line,
-`> 排除了 N 个开关/数字/日期型取值与 M 个 scope 级列。` A form that asks about three columns
+`> 排除了 N 个开关/数字/日期/中文自述型取值与 M 个 scope 级列。` A form that asks about three columns
 has to let a reader tell "the corpus held nothing else" from "everything else was skipped".
 
 **A blank entry is not an answer**: the form ships entirely blank and comes back half
