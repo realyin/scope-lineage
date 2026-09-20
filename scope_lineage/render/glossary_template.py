@@ -15,7 +15,11 @@ What it leaves out is the whole design:
   can bind one;
 - **no trivial values**: ``Y`` / ``N`` / ``true`` / ``false`` are switches, a bare number
   is a position, and a day is an instance date (WI-2.9 item A). None of the three has a
-  business meaning waiting to be written down;
+  business meaning waiting to be written down -- *unless the column's own comment
+  enumerates it* (P5b): ``Y``/``N`` answers "yes or no" only until somebody wrote down
+  which is which, and then it is the cheapest row in the form;
+- **no self-describing values**: ``委外`` is Chinese prose, and the only definition
+  anybody can give it is itself (P5b);
 - **no column left with fewer than two values**: one value is not a code system, and the
   answer would teach a reader nothing about a set -- except under ``--template-top 0``,
   which promises every askable value and therefore keeps them (WI-D);
@@ -34,11 +38,18 @@ different claim from knowing what any of its values mean.
 before it are whole, and ``0`` means no cut at all -- single-value columns included. Ranking is a total order over data
 the dictionary already carries, so two runs of one corpus produce the same bytes.
 
-P5 adds the 候选来源 column and one ranking key in front of the score: which of the three
-evidence kinds each value carries (``comment`` / ``case_label`` / ``same_name_confirmed``
-/ ``—``), and the columns carrying any of them first. Those are the rows somebody can
-close by reading instead of by asking a business owner, which is the whole point of
-printing the evidence next to the question.
+P5 adds the 候选来源 column and one ranking key in front of the score: which evidence kinds
+each value carries, and the columns carrying any of them first. Those are the rows
+somebody can close by reading instead of by asking a business owner, which is the whole
+point of printing the evidence next to the question.
+
+P5b says which of them can actually be closed. A review round over a real corpus closed
+23 values out of 1972, and the reason was in this column: ``comment`` covered both "the
+comment defines this value" and "the comment happens to mention it", and ``case_label``
+covered both a 1:1 translation and a bucket several codes share. The column now prints
+``comment_enum`` / ``comment_mention`` / ``case_label`` / ``case_label(桶 N)`` /
+``same_name_confirmed`` / ``—``, and the review prompt names the first and third as the
+only confirmable ones.
 """
 
 from __future__ import annotations
@@ -72,6 +83,11 @@ _BARE_NUMBER = re.compile(r"^[+-]?\d+(?:\.\d+)?$")
 # already knows. Matched case-insensitively, because one corpus writes all three.
 _SWITCH_VALUES = frozenset({"y", "n", "yes", "no", "true", "false"})
 
+# P5b. What makes a value its own answer: Chinese characters with nothing code-shaped
+# among them. Two is the floor -- one character is a code as often as it is a word.
+_CJK = re.compile(r"[\u4e00-\u9fff]")
+_CODE_PART = re.compile(r"[0-9A-Za-z_]")
+
 # A column with one value left is not a code system -- asking about it buys one answer
 # and no set.
 MINIMUM_COLUMN_VALUES = 2
@@ -96,7 +112,7 @@ _FILTER_IN_WEIGHT = 3
 _CASE_THEN_WEIGHT = 2
 _COMMENT_CLUE_WEIGHT = 2
 
-_EXCLUSION_NOTE = "> 排除了 {values} 个开关/数字/日期型取值与 {columns} 个 scope 级列。"
+_EXCLUSION_NOTE = "> 排除了 {values} 个开关/数字/日期/中文自述型取值与 {columns} 个 scope 级列。"
 
 _TITLE = "# 取值含义待填模板"
 
@@ -116,10 +132,15 @@ _TABLE_HEADER = (
 # P5. The three kinds of evidence a reviewer (or an Agent following
 # `references/glossary-review-prompt.md`) may answer a value FROM, printed per value so
 # the form says which rows can be closed without asking anybody.
-EVIDENCE_COMMENT = "comment"
+EVIDENCE_COMMENT_ENUM = glossary_values.CANDIDATE_SOURCE_COMMENT_ENUM
+EVIDENCE_COMMENT_MENTION = glossary_values.CANDIDATE_SOURCE_COMMENT_MENTION
 EVIDENCE_CASE_LABEL = glossary_values.CANDIDATE_SOURCE_CASE_LABEL
 EVIDENCE_SAME_NAME = "same_name_confirmed"
 EVIDENCE_NONE = "—"
+
+# P5b. A CASE label several values share, said out loud in the column a reviewer reads
+# to decide whether a row can be closed without asking anybody. It cannot.
+EVIDENCE_BUCKET = "case_label(桶 {count})"
 
 _CLOSED_NOTE = "- 该列取值已被 SQL 证明封闭：{answer}"
 
@@ -172,7 +193,7 @@ def _selection(glossary: Mapping, top: int) -> dict:
         item for item in glossary.get("values") or [] if _is_unanswered_literal(item)
     ]
     physical = [item for item in unanswered if _is_physical(item)]
-    askable = [item for item in physical if not _is_trivial(str(item.get("value") or ""))]
+    askable = [item for item in physical if _is_askable(item)]
     clues = _clue_columns(glossary.get("terms") or [])
     confirmed = same_name_confirmed(glossary)
     ranked = [
@@ -230,16 +251,39 @@ def same_name_confirmed(glossary: Mapping) -> frozenset:
 
 
 def evidence_kinds(entry: Mapping, confirmed: frozenset) -> list[str]:
-    """Which of the three evidence kinds this one value carries, in reading order."""
-    sources = {str(item.get("source")) for item in entry.get("meaning_candidates") or []}
-    kinds = []
-    if sources - {EVIDENCE_CASE_LABEL}:
-        kinds.append(EVIDENCE_COMMENT)
+    """Which kinds of evidence this one value carries, in reading order.
+
+    P5b splits what used to print as one word: an enumeration defines the value and a
+    mention only contains it, and a CASE label shared by several values is named as the
+    bucket it is. Two of the four are confirmable (``comment_enum``, a 1:1
+    ``case_label``) and the prompt says so -- printing them apart is what lets it.
+    """
+    candidates = entry.get("meaning_candidates") or []
+    sources = {str(item.get("source")) for item in candidates}
+    kinds = [
+        kind
+        for kind in (EVIDENCE_COMMENT_ENUM, EVIDENCE_COMMENT_MENTION)
+        if kind in sources
+    ]
     if EVIDENCE_CASE_LABEL in sources:
-        kinds.append(EVIDENCE_CASE_LABEL)
+        kinds.append(_label_kind(candidates))
     if (str(entry.get("column")), str(entry.get("value"))) in confirmed:
         kinds.append(EVIDENCE_SAME_NAME)
     return kinds
+
+
+def _label_kind(candidates: Sequence[Mapping]) -> str:
+    """``case_label`` when one CASE branch means this value alone; the bucket otherwise.
+
+    The strongest label wins: a value one CASE translates 1:1 and another lumps into a
+    bucket is still a value somebody can read an answer off.
+    """
+    fan_out = min(
+        int(item.get("fan_out") or 1)
+        for item in candidates
+        if str(item.get("source")) == EVIDENCE_CASE_LABEL
+    )
+    return EVIDENCE_CASE_LABEL if fan_out <= 1 else EVIDENCE_BUCKET.format(count=fan_out)
 
 
 def _column_rank(
@@ -302,6 +346,44 @@ def _is_unanswered_literal(entry: Mapping) -> bool:
 def _is_physical(entry: Mapping) -> bool:
     """False for a scope-level reference -- ``cte:d.rn`` binds nothing in an overrides."""
     return not entry.get("logical") and ":" not in str(entry.get("column_ref") or "")
+
+
+def _is_askable(entry: Mapping) -> bool:
+    """Whether a person could add anything by answering this one value (P5b).
+
+    Two corrections to "a switch is trivial", both of them found by a review round that
+    closed 23 values out of 1972:
+
+    - a switch the column's OWN comment enumerates is not trivial. ``Y``/``N`` answers
+      "yes or no" only until somebody writes down which is which, and once they have,
+      this is the cheapest row in the form -- it closes by reading;
+    - a value that is already Chinese prose answers itself. Nobody can define 委外
+      beyond writing 委外 again, so it is published in the dictionary (it IS a value the
+      corpus compares against) and left out of the form.
+    """
+    value = str(entry.get("value") or "")
+    if _self_describing(value):
+        return False
+    return _enumerated_by_comment(entry) or not _is_trivial(value)
+
+
+def _enumerated_by_comment(entry: Mapping) -> bool:
+    """True when the column's own comment spells this value out (a ``comment_enum``)."""
+    return any(
+        str(item.get("source")) == glossary_values.CANDIDATE_SOURCE_COMMENT_ENUM
+        for item in entry.get("meaning_candidates") or []
+    )
+
+
+def _self_describing(value: str) -> bool:
+    """A value that is its own meaning: Chinese prose with no code-shaped part in it.
+
+    ``委外`` and ``触达成功`` are words, not codes. ``A1`` and ``SF_S1_1_1`` are codes
+    whatever else they are, and a single character (``男``) is too short to be prose --
+    both stay askable, because a wrong exclusion here is a question nobody gets asked.
+    """
+    text = value.strip()
+    return len(_CJK.findall(text)) >= 2 and not _CODE_PART.search(text)
 
 
 def _is_trivial(value: str) -> bool:

@@ -121,6 +121,15 @@ COMMENT_SOURCE_SQL = "sql_comment"
 # value to a label, which is the warehouse translating its own code.
 CANDIDATE_SOURCE_CASE_LABEL = "case_label"
 
+# P5b. What a comment candidate actually is, which is the distinction a review round
+# spent its budget re-deriving by hand: a comment that ENUMERATES the value defines it
+# (`0-未生效，1-生效`), and a comment that merely CONTAINS the value is a sentence that
+# happens to say it. The first is evidence somebody may close a question with; the
+# second is a hint for a human and nothing more. They used to arrive under the same
+# name (the comment's origin -- which is still recoverable from `evidence`).
+CANDIDATE_SOURCE_COMMENT_ENUM = "comment_enum"
+CANDIDATE_SOURCE_COMMENT_MENTION = "comment_mention"
+
 # P5. What an Agent signs a confirmation with. A meaning confirmed under this prefix is
 # an answer read off the corpus, not an answer a person gave, and the two must stay
 # distinguishable wherever one of them is used as evidence for the next one.
@@ -130,6 +139,20 @@ AGENT_CONFIRMATION_PREFIX = "agent:"
 # one wrong candidate costs more than ten missed ones in a layer whose whole promise is
 # that it does not guess.
 MINIMUM_CANDIDATE_LENGTH = 2
+
+# P5b. Where one statement of a comment ends. A mention is cut to the clause the value
+# sits in, so the form's cell carries the phrase about this code rather than the whole
+# paragraph about the column.
+_CLAUSE_BOUNDARIES = "，,。;；"
+
+# How long a mention may be. Forty characters is a table cell somebody reads at a glance;
+# past that the clause is windowed around the value, with an ellipsis where it was cut.
+MENTION_MAX_LENGTH = 40
+
+# P5b. What a CASE label means when several values share it. `WHEN s IN ('AA','BB','CC')
+# THEN '进行中'` says those three codes fall in one bucket -- it never says what any one
+# of them means, and a form that prints 进行中 three times invites exactly that reading.
+BUCKET_LABEL_TEXT = "分类桶：{label}（同桶 {count} 个值）"
 
 _PREDICATE_RULE_KINDS = frozenset({"filter", "having"})
 _ROOT = "ROOT"
@@ -345,14 +368,24 @@ def _labelled(observations: list[dict], branch: Mapping) -> list[dict]:
     compound condition produces no observation to label. A branch written as an ``IN``
     list does label each of its values: they are values of one column, and the CASE
     says that label for every one of them.
+
+    P5b records how many that is (``label_fan_out``). One value to one label is the
+    warehouse translating a code; three values to one label is the warehouse *bucketing*
+    them, and a bucket is a category rather than any member's meaning.
     """
     label = semantic_text.parse_expression(branch.get("then"))
     if not _is_label(label):
         return observations
     text = strip_quotes(semantic_text.expression_text(label))
-    for item in observations:
-        if item["kind"] == VALUE_KIND_LITERAL and text.lower() != str(item["value"]).lower():
-            item["case_label"] = text
+    labelled = [
+        item
+        for item in observations
+        if item["kind"] == VALUE_KIND_LITERAL and text.lower() != str(item["value"]).lower()
+    ]
+    fan_out = len({(item["column_ref"], item["value"]) for item in labelled})
+    for item in labelled:
+        item["case_label"] = text
+        item["label_fan_out"] = fan_out
     return observations
 
 
@@ -799,19 +832,24 @@ def meaning_candidates(
 ) -> list[dict]:
     """The evidence that spells this value out, deduped and stably ordered.
 
-    Two ways a comment can spell a value out, and a comment answers by the first that
-    applies. B6 added the second:
+    Three routes, and P5b's whole point is that they are not worth the same:
 
-    1. *the column's own comment enumerates the value* -- ``0-未生效，1-生效`` is a code
-       table somebody wrote where they had room, and the half that belongs to this value
-       is the candidate. Read only off the column's OWN comment (source or target), in
-       every observation context: a code table describes the column, not the clause;
-    2. *the comment contains the value* -- the rule this layer has always had, kept for
-       the sentences a code table's shape does not cover.
-
-    ``labels`` is the third route (P5), the only one that is not a comment: the CASE
-    branches mapping this value to a label (``case_label``), appended after the comment
-    candidates so a field's ``value_domain`` still shows the metadata's answer first.
+    1. ``comment_enum`` -- *the column's own comment enumerates the value*. ``0-未生效，
+       1-生效`` is a code table somebody wrote where they had room, and the half that
+       belongs to this value is the candidate. Read only off the column's OWN comment
+       (source or target), in every observation context: a code table describes the
+       column, not the clause. This is the one comment route a reviewer may close a
+       question with;
+    2. ``comment_mention`` -- *a comment contains the value*. The rule this layer has
+       always had, kept for the sentences a code table's shape does not cover, and now
+       trimmed to the clause around the value: a sentence that happens to say ``AA`` is
+       a lead for a person, so it is printed as a phrase rather than as a paragraph;
+    3. ``case_label`` -- the CASE branches mapping this value to a label (P5), the only
+       route that is not a comment, appended after the comment candidates so a field's
+       ``value_domain`` still shows the metadata's answer first. It carries ``fan_out``:
+       how many distinct values that branch maps to the same label. ``1`` is the
+       warehouse translating one code; more than one is a bucket, and a bucket names a
+       category rather than any one of the values in it.
 
     All three are candidates and none is a meaning: the dictionary keeps asking until a
     person signs one (``glossary --template`` still lists the value).
@@ -824,18 +862,18 @@ def meaning_candidates(
 def _comment_candidates(
     needle: str, comments: Sequence[Mapping], evidence: str
 ) -> list[dict]:
-    """Routes 1 and 2: the comments that spell this value out, deduped and sorted."""
+    """Routes 1 and 2: the comments that spell this value out, deduped and sorted.
+
+    Sorted by source first, which puts every enumeration before every mention -- the
+    order a reviewer wants to read them in, and the order ``value_domain`` shows.
+    """
     seen: set = set()
     found: list[dict] = []
     for comment in comments:
-        text = _candidate_text(needle, comment)
-        if not text:
+        offer = _comment_candidate(needle, comment)
+        if not offer:
             continue
-        entry = {
-            "text": text,
-            "source": str(comment.get("source")),
-            "evidence": comment.get("evidence") or evidence,
-        }
+        entry = {**offer, "evidence": comment.get("evidence") or evidence}
         key = (entry["text"], entry["source"], entry["evidence"])
         if key in seen:
             continue
@@ -845,34 +883,103 @@ def _comment_candidates(
 
 
 def _label_candidates(labels: Sequence[Mapping]) -> list[dict]:
-    """The CASE labels of this value's observations, one per (label, rule)."""
-    found = {
-        (str(item["case_label"]), str(item.get("evidence") or ""))
-        for item in labels
-        if item.get("case_label")
-    }
+    """Route 3: the CASE labels of this value's observations, one per (label, rule).
+
+    A label several values share is published as what it is -- the bucket they were all
+    put in -- because the alternative is a form that offers 进行中 as the meaning of
+    three different codes and a reviewer who confirms it three times.
+    """
+    found: dict[tuple[str, str], int] = {}
+    for item in labels:
+        if not item.get("case_label"):
+            continue
+        key = (str(item["case_label"]), str(item.get("evidence") or ""))
+        found[key] = max(found.get(key, 1), int(item.get("label_fan_out") or 1))
     return [
-        {"text": text, "source": CANDIDATE_SOURCE_CASE_LABEL, "evidence": evidence}
-        for text, evidence in sorted(found)
+        {
+            "text": _label_text(text, fan_out),
+            "source": CANDIDATE_SOURCE_CASE_LABEL,
+            "evidence": evidence,
+            "fan_out": fan_out,
+        }
+        for (text, evidence), fan_out in sorted(found.items())
     ]
 
 
-def _candidate_text(needle: str, comment: Mapping) -> str:
-    """What one comment offers for this value: an enumerated half, the sentence, or ""."""
+def _label_text(label: str, fan_out: int) -> str:
+    """One CASE label as a candidate reads it: a translation, or the bucket it names."""
+    if fan_out <= 1:
+        return label
+    return BUCKET_LABEL_TEXT.format(label=label, count=fan_out)
+
+
+def _comment_candidate(needle: str, comment: Mapping) -> dict | None:
+    """What one comment offers for this value: an enumerated half, a clause, or nothing."""
     text = str(comment.get("text") or "")
     if str(comment.get("source")) == COMMENT_SOURCE_COLUMN:
         enumerated = enumerated_meanings(text).get(needle.lower())
         if enumerated:
-            return enumerated
+            return {"text": enumerated, "source": CANDIDATE_SOURCE_COMMENT_ENUM}
     if len(needle) < MINIMUM_CANDIDATE_LENGTH:
+        return None
+    clause = _mention_clause(needle, text)
+    return {"text": clause, "source": CANDIDATE_SOURCE_COMMENT_MENTION} if clause else None
+
+
+def _mention_clause(needle: str, text: str) -> str:
+    """The clause the value sits in, or "" when the comment does not contain it.
+
+    A mention is a lead, and a lead a person reads in a table cell is one phrase. The
+    clause is cut at the punctuation a comment separates its statements with, and a
+    clause still too long for a cell is windowed around the value itself -- the one part
+    of it the reader is looking for.
+    """
+    lowered = text.lower()
+    if len(lowered) != len(text):
+        # A lower() that changes LENGTH (`İ`) would misalign every index below, and a
+        # clause cut at the wrong offset is worse than one matched case-sensitively.
+        lowered = text
+    position = lowered.find(needle.lower())
+    if position < 0:
         return ""
-    return text if needle.lower() in text.lower() else ""
+    start = max(lowered.rfind(char, 0, position) for char in _CLAUSE_BOUNDARIES) + 1
+    ends = [
+        found
+        for found in (
+            lowered.find(char, position + len(needle)) for char in _CLAUSE_BOUNDARIES
+        )
+        if found >= 0
+    ]
+    clause = text[start : min(ends) if ends else len(text)]
+    offset = len(clause) - len(clause.lstrip())
+    return _windowed(clause.strip(), position - start - offset, len(needle))
+
+
+def _windowed(clause: str, position: int, length: int) -> str:
+    """A clause too long for a cell, cut to a window that still holds the value."""
+    if len(clause) <= MENTION_MAX_LENGTH:
+        return clause
+    start = min(
+        max(0, position - (MENTION_MAX_LENGTH - length) // 2),
+        len(clause) - MENTION_MAX_LENGTH,
+    )
+    window = list(clause[start : start + MENTION_MAX_LENGTH])
+    if start:
+        window[0] = "…"
+    if start + MENTION_MAX_LENGTH < len(clause):
+        window[-1] = "…"
+    return "".join(window)
 
 
 # B6. What separates one pair from the next, and what joins a code to its meaning. Both
 # sets are what warehouse comments are actually written with; a space does both jobs
 # (`Y 是 N 否`), which is why the scan below falls back to adjacent tokens.
-_PAIR_SEPARATORS = "，,;；|/、\t\r\n"
+#
+# P5b: brackets separate too. `余额类别(Int-利息，Fee-费用)` is how a comment writes a
+# code table when it also has to say what the column IS, and reading the bracket as
+# ordinary text glued `余额类别(Int` into one token (losing the first pair) and left a
+# stray `)` on the last meaning.
+_PAIR_SEPARATORS = "，,;；|/、\t\r\n" + "()（）[]【】"
 _PAIR_JOINERS = "-:=："
 
 # A code: ASCII letters, digits and underscore, short. The bound is what keeps an English
