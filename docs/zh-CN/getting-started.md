@@ -433,6 +433,7 @@ scope-lineage parse --help
 
 ## 下一步
 
+- [端到端工作流：从任务 JSON 到画像与本体](workflow.md)——`parse` 之后还有 `glossary` / `tables` / `describe` / `ontology`，这一篇讲它们的顺序、彼此要什么，以及人和 Agent 在哪里介入
 - [文档导航与问题—字段索引](README.md)
 - [完整输入格式](input-formats.md)
 - [`lineage.json` 输出契约](lineage-json.md)

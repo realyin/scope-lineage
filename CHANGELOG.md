@@ -1,6 +1,21 @@
 # Changelog
 
 ## Unreleased
+- **An end-to-end usage guide** (`docs/zh-CN/workflow.md`, `docs/en/workflow.md`). Every
+  artifact had its own document and nobody wrote down the order they run in, so a new user
+  who finished `getting-started.md` was left at `parse` with four more commands and three
+  write-back files to discover on their own. The new page is the missing map: one Mermaid
+  flowchart of the whole pipeline (`parse` → `tables` / `glossary` → `describe` →
+  `ontology`, with the agent loops drawn as the dashed edges they are), a five-minute pass
+  that runs as written over `examples/` — including a second `--incremental` run and one
+  `--overrides` round trip that turns `'HIGH'（待确认）` into a confirmed meaning — a table
+  saying what each step needs, writes and who reads it, the three agent workflows with the
+  prompt file and the write-back target for each, the safeguards worth knowing before the
+  first mistake (redaction on by default, `unmatched` / `rejected` / `ignored_fields`, the
+  five tiers, `severity`, `partial_tasks`), and the flags that only matter later. It links
+  to the per-artifact documents for field-level detail instead of restating them, and it is
+  now item 2 of both documentation maps, the first of `getting-started.md`'s next steps, a
+  pointer in both quick starts, and a reference in the agent skill.
 - **The evidence the form advertises is now evidence somebody can act on** (P5b). A review
   round over a large corpus closed 23 of 1972 askable values, and every shortfall was in
   the 候选来源 column. `meaning_candidates[].source` no longer names the comment a

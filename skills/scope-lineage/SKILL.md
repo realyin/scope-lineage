@@ -371,6 +371,12 @@ documented uncertainty).
   items into a question list a business owner can answer in five minutes, and how the
   answers are filed back into `ontology.overrides.json`. Read when the user asks about
   entity relationships, keys or an ontology over a batch of tasks.
+- `../../docs/en/workflow.md` (`docs/zh-CN/workflow.md` for the Chinese version) — the
+  end-to-end order of everything above: what `parse` / `tables` / `glossary` / `describe` /
+  `ontology` need from each other, a runnable five-minute pass over `examples/`, where each of
+  the three review workflows fits, and how confirmed answers flow back through
+  `glossary.overrides.json` / `ontology.overrides.json` / `metadata-patch.json`. Read when the
+  user asks how the whole thing is used, or when you are unsure which command comes next.
 - `scripts/confirmations.py` — the write-back half: reads the answered 待确认清单 out of a
   `business_profile.md` and merges it into `glossary.overrides.json` /
   `metadata-patch.json`. Run it after the business owner answers, then re-run `glossary`
