@@ -9,8 +9,13 @@ one by its `- 回写目标：` line into the file that owns that kind of answer.
 
   术语:<词>          -> glossary.overrides.json   terms
   值域:<列>=<值>     -> glossary.overrides.json   values
+  值域:*.<列>=<值>   -> glossary.overrides.json   values（家族键：同名列所在的每一张表）
   字段注释:<表.列>   -> metadata-patch.json       columns
   表注释:<表>        -> metadata-patch.json       tables
+
+一张码表被复制到很多张表上时，`*.<列>=<值>` 让业务方只答一次：字典会把这条答案写回每一张
+观察到该取值的表，并在 `overrides_applied.family_expansions` 里报出它落到了几张表上。
+`<列>=*` 这种「值通配」不是键，字典认不出来，会整条进 `unmatched`。
 
 Then re-run `scope-lineage glossary --overrides …` and
 `scope-lineage describe --glossary … --metadata-patch …`, and the confirmed items come

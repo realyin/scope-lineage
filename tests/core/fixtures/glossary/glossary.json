@@ -645,6 +645,7 @@
   "overrides_applied": {
     "terms": 0,
     "values": 0,
+    "family_expansions": [],
     "blank": 0,
     "unmatched": [],
     "ignored_fields": [],

@@ -185,6 +185,7 @@ def test_an_empty_overrides_file_still_reports_both_lists() -> None:
         "values": 0,
         "blank": 0,
         "unmatched": [],
+        "family_expansions": [],
         "ignored_fields": [],
         "rejected": [],
     }
