@@ -143,6 +143,21 @@ scope-lineage parse \
 Both glob flags are repeatable and apply only to `--input-dir`. Without them, every recursively
 discovered `*.json` remains an input, preserving the fail-visible default.
 
+`--input-dir` is repeatable too, so a corpus spread across several trees is one run:
+
+```bash
+scope-lineage parse \
+  --input-dir exported_tasks/domain_a \
+  --input-dir exported_tasks/domain_b \
+  --out /tmp/lineage
+```
+
+The directories are walked in the order given; a file named by more than one of them (a parent
+and its own subdirectory, or one tree spelled two ways) is parsed once, under the first directory
+that named it. The globs apply to each directory. A file's relative parent is taken against **its
+own** `--input-dir`, and so is `task_dependencies[].source_file` — so the same relative path in
+two trees is still an output conflict rather than a silent overwrite.
+
 Core reads `*.json` recursively and preserves each source file's relative parent directory. Two
 inputs that use the same task name inside the same relative directory are treated as an output
 conflict rather than silently overwritten.
@@ -408,6 +423,7 @@ Rules:
 - **The patch wins**: when a column has both a schema comment and a patched one, the artifact carries the patch;
 - **Comments only, never structure**: no types, no new columns — the table's width is the warehouse's fact and `SELECT *` expands by it;
 - **Marked**: a patched column gains `comment_source: "patch"`, a patched table gains `table_metadata.patch_applied: true`;
+- **Masked like any other comment**: a patched column comment and a patched `table_name_cn` / `table_desc` go through the same redaction as a schema comment (`<email>` / `<phone>` / `<id>`) as the patch is read; `parse --no-redact-comments` turns it off with the rest;
 - **Table matching** follows the schema's rule: case-insensitive, and `catalog.db.table` is the same table as `db.table`;
 - **An unmatched key is reported, not an error**: the run prints `unmatched=N` and lists the keys, so a typo is never swallowed;
 - Exit code 2 when the file is missing, is not valid JSON, is not a JSON object, or declares another `doc_format`.

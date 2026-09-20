@@ -781,3 +781,153 @@ def test_input_directory_globs_are_rejected_for_single_files(
             "--out",
             str(tmp_path / "output"),
         ])
+
+
+# ------------------------------------------------------- --input-dir is repeatable
+
+
+def test_two_input_directories_are_both_parsed(tmp_path: Path, capsys) -> None:
+    """A corpus that lives in two trees is one run, not two.
+
+    ``--input-dir`` took the last value argparse saw, so a second directory silently
+    replaced the first: the run reported success having parsed half the corpus.
+    """
+    first = tmp_path / "domain_a"
+    second = tmp_path / "domain_b"
+    _write_task(first / "orders.json", "orders")
+    _write_task(second / "refunds.json", "refunds")
+    output = tmp_path / "output"
+
+    assert main([
+        "parse",
+        "--input-dir",
+        str(first),
+        "--input-dir",
+        str(second),
+        "--out",
+        str(output),
+    ]) == 0
+
+    assert (output / "orders" / "lineage.json").is_file()
+    assert (output / "refunds" / "lineage.json").is_file()
+    assert "from 2 input(s)" in capsys.readouterr().out
+
+
+def test_each_input_directory_keeps_its_own_relative_tree(tmp_path: Path) -> None:
+    """Output mirrors the tree each file came from, not the first directory given."""
+    first = tmp_path / "domain_a"
+    second = tmp_path / "domain_b"
+    _write_task(first / "nested" / "orders.json", "orders")
+    _write_task(second / "refunds.json", "refunds")
+    output = tmp_path / "output"
+
+    assert main([
+        "parse",
+        "--input-dir",
+        str(first),
+        "--input-dir",
+        str(second),
+        "--out",
+        str(output),
+    ]) == 0
+
+    assert (output / "nested" / "orders" / "lineage.json").is_file()
+    assert (output / "refunds" / "lineage.json").is_file()
+
+
+def test_the_same_directory_twice_is_parsed_once(tmp_path: Path, capsys) -> None:
+    """Two entries that resolve to one tree are one corpus, not a collision."""
+    tasks = tmp_path / "tasks"
+    _write_task(tasks / "orders.json", "orders")
+    output = tmp_path / "output"
+
+    assert main([
+        "parse",
+        "--input-dir",
+        str(tasks),
+        "--input-dir",
+        str(tasks.resolve()),
+        "--out",
+        str(output),
+    ]) == 0
+
+    assert "from 1 input(s)" in capsys.readouterr().out
+    assert len(list(output.rglob("lineage.json"))) == 1
+
+
+def test_overlapping_directories_parse_each_file_once(tmp_path: Path, capsys) -> None:
+    """A parent and its own subdirectory name some of the same files.
+
+    Without deduplication the shared file is parsed twice and the second pass reports an
+    output-directory collision -- a run that fails for having been asked politely twice.
+    """
+    tasks = tmp_path / "tasks"
+    _write_task(tasks / "orders.json", "orders")
+    _write_task(tasks / "nested" / "refunds.json", "refunds")
+    output = tmp_path / "output"
+
+    assert main([
+        "parse",
+        "--input-dir",
+        str(tasks),
+        "--input-dir",
+        str(tasks / "nested"),
+        "--out",
+        str(output),
+    ]) == 0
+
+    assert "from 2 input(s)" in capsys.readouterr().out
+    assert len(list(output.rglob("lineage.json"))) == 2
+
+
+def test_globs_apply_to_every_input_directory(tmp_path: Path) -> None:
+    first = tmp_path / "domain_a"
+    second = tmp_path / "domain_b"
+    _write_task(first / "daily_info.json", "a_daily")
+    _write_task(first / "monthly_info.json", "a_monthly")
+    _write_task(second / "daily_info.json", "b_daily")
+    _write_task(second / "monthly_info.json", "b_monthly")
+    output = tmp_path / "output"
+
+    assert main([
+        "parse",
+        "--input-dir",
+        str(first),
+        "--input-dir",
+        str(second),
+        "--include-glob",
+        "*_info.json",
+        "--exclude-glob",
+        "*monthly_info.json",
+        "--out",
+        str(output),
+    ]) == 0
+
+    assert sorted(path.parent.name for path in output.rglob("lineage.json")) == [
+        "a_daily",
+        "b_daily",
+    ]
+
+
+def test_a_missing_second_directory_is_named(tmp_path: Path) -> None:
+    """Every directory given is checked, and the refusal names the one that is missing.
+
+    The same refusal a single missing ``--input-dir`` has always raised; what matters
+    here is that the second entry is not skipped because the first one existed.
+    """
+    first = tmp_path / "domain_a"
+    _write_task(first / "orders.json", "orders")
+    missing = tmp_path / "domain_b"
+
+    with pytest.raises(ValueError) as error:
+        main([
+            "parse",
+            "--input-dir",
+            str(first),
+            "--input-dir",
+            str(missing),
+            "--out",
+            str(tmp_path / "output"),
+        ])
+
+    assert str(missing) in str(error.value)

@@ -127,6 +127,20 @@ scope-lineage parse \
 两个 glob 参数都可重复，只对 `--input-dir` 生效。不传时仍递归处理全部 `*.json`，保留“错误可见”
 的默认行为。
 
+`--input-dir` 本身也可重复：一份语料分散在多棵树下时，一次运行全部读入。
+
+```bash
+scope-lineage parse \
+  --input-dir exported_tasks/domain_a \
+  --input-dir exported_tasks/domain_b \
+  --out /tmp/lineage
+```
+
+各目录按给出的顺序遍历；同一个文件被多个目录同时命中（父目录与其子目录、或同一棵树的两种写法）
+只解析一次，归属第一个命中它的目录。glob 对每个目录分别生效。每个文件的相对父目录是相对**它
+自己那个** `--input-dir` 算的，`task_dependencies[].source_file` 也一样——所以两棵树里同名的相对
+路径仍然会按输出冲突处理，而不是静默覆盖。
+
 Core 递归读取目录内的 `*.json`，并保留源文件的相对父目录。两个输入若在同一相对目录使用相同
 任务名，会被视为输出冲突，不会静默覆盖。
 
@@ -380,6 +394,7 @@ DDL 与 Schema 的字段集合必须一致。存在同一表的多份元数据�
 - **补丁优先**：同一列同时有 schema 注释与补丁注释时，产物里是补丁的那条；
 - **只改注释，不改结构**：补丁不带类型、不增列——列宽是数仓的事实，`SELECT *` 靠它展开；
 - **带标记**：被写过的列多 `comment_source: "patch"`，被写过的表多 `table_metadata.patch_applied: true`；
+- **注释同样遮蔽**：补丁里的列注释与 `table_name_cn` / `table_desc` 在读入时就过一遍与 schema 注释相同的遮蔽（`<email>` / `<phone>` / `<id>`），`parse --no-redact-comments` 一并关掉；
 - **表名匹配**与 schema 一致：大小写不敏感，`catalog.db.table` 与 `db.table` 是同一张表；
 - **没命中的键只报告不报错**：运行结束打印 `unmatched=N` 并列出键，拼错的键不会被静默吞掉；
 - 文件不存在、不是合法 JSON、顶层不是对象、或 `doc_format` 是别的值时退出码为 2。

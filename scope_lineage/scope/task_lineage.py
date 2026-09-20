@@ -10,6 +10,7 @@ from sqlglot import exp
 
 from ..metadata.schema_metadata import DictSchemaProvider
 from ._constants import DIALECT, PARSE_OPTS
+from .expansion_budget import expansion_limit as scoped_expansion_limit
 from .sqlglot_walk import render_sql_or_none
 from .end_to_end import _physical_fields_for_scope_column
 from .scope_types import ScopeLineageResult
@@ -428,6 +429,7 @@ def parse_task_lineage(
     task_meta: Mapping[str, object] | None = None,
     strip_comments: bool = False,
     redact_comments: bool = True,
+    expansion_limit: int | None = None,
 ) -> TaskLineageResult:
     """Parse an ordered SQL script into table-state and statement lineage.
 
@@ -439,7 +441,39 @@ def parse_task_lineage(
     ``redact_comments``, on by default, instead keeps each comment and masks the contact
     shapes inside it, and masks ``task_meta.description`` and every comment loaded from
     schema metadata (E1) the same way.
+
+    ``expansion_limit`` raises (or lowers) the expression-expansion substitution guard
+    for this call only; ``None`` keeps ``EXPANSION_MAX_SUBSTITUTIONS``, so a caller that
+    does not ask for one gets the artifact it always got. It is applied around the whole
+    script because the budget is constructed per output, several layers down.
     """
+    with scoped_expansion_limit(expansion_limit):
+        return _parse_task_lineage(
+            sql,
+            task_name,
+            schema=schema,
+            target_metadata=target_metadata,
+            task_dependencies=task_dependencies,
+            partition_overwrite_mode=partition_overwrite_mode,
+            task_meta=task_meta,
+            strip_comments=strip_comments,
+            redact_comments=redact_comments,
+        )
+
+
+def _parse_task_lineage(
+    sql: str,
+    task_name: str,
+    *,
+    schema: Mapping[str, Iterable[str]] | None = None,
+    target_metadata=None,
+    task_dependencies: dict | None = None,
+    partition_overwrite_mode: str | None = None,
+    task_meta: Mapping[str, object] | None = None,
+    strip_comments: bool = False,
+    redact_comments: bool = True,
+) -> TaskLineageResult:
+    """The script walk itself, inside whatever expansion allowance the caller set."""
     trees, ctas_repairs, quoted_identifiers = _parse_script_trees(
         sql, strip_comments=strip_comments, redact_comments=redact_comments
     )

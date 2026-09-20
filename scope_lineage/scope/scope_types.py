@@ -174,6 +174,10 @@ class ScopeOutputField:
     # "incomplete but composable", never "damaged".
     expansion_status: str = "full"
     expansion_stop_reason: Optional[str] = None  # "max_chars" | "max_substitutions"
+    # The number the guard named by `expansion_stop_reason` actually stopped at. Carried
+    # so the diagnostic can quote it: "bounded at max_substitutions" leaves the reader to
+    # guess whether that was the default or something the run was asked for.
+    expansion_limit: Optional[int] = None
     # Which references were left unexpanded, as {scope_id, field, ref} — follow them to the
     # named scope's output to continue the expansion by hand.
     unexpanded_refs: List[dict] = field(default_factory=list)
