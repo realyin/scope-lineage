@@ -17,6 +17,13 @@ Two rules shape the output.
    value set the SQL never proved closed would be a lie -- the assertion is published as
    an annotation or a comment that says so, rather than as a shape that validates the
    wrong thing.
+3. **Nothing in the JSON is silently absent (WI P6).** A slot a target language has no
+   room for still leaves as an annotation, because a downstream tool that consumes only
+   the export must not end up with a smaller corpus than the one that was published.
+   ``findings`` and ``open_items`` are the sharp case: they are the governance list, and
+   an export that drops them reads as a corpus with no open questions. ``evidence`` is
+   the one list published in summary rather than whole -- the count and the first task,
+   because a schema wants the weight of the evidence and not its rows.
 
 No third-party writer is used: both formats are emitted as text by the small
 deterministic writers at the bottom of this module, so the export adds no runtime
@@ -38,6 +45,7 @@ from .ontology import (
     CONSTRAINT_NOT_NULL,
     CONSTRAINT_UNIQUE_PER,
     DOC_FORMAT,
+    EVIDENCE_COLUMN_COMMENT,
     TIER_CONFIRMED,
     TIER_PROVEN,
     mermaid_entity_ids,
@@ -150,6 +158,16 @@ def constraint_ids(constraints: Sequence[Mapping]) -> list[str]:
     return [f"cst:{index:03d}" for index in range(1, len(constraints) + 1)]
 
 
+def finding_ids(findings: Sequence[Mapping]) -> list[str]:
+    """``sl:finding_001`` .. one per finding, by position.
+
+    A finding has no id in ``ontology.json`` either -- it is identified by its kind,
+    entity and columns, and ``findings[]`` is deterministically sorted. Both exports use
+    the same token so one governance item has one name wherever it is read.
+    """
+    return [f"sl:finding_{index:03d}" for index in range(1, len(findings) + 1)]
+
+
 @dataclass(frozen=True)
 class _Constraint:
     """One constraint, flattened, with the id the exports refer to it by."""
@@ -251,10 +269,117 @@ def _split_constraints(items: Sequence[_Constraint], columns: frozenset):
     return per_column, unique_keys, leftover
 
 
+# ------------------------------------------------- the facts neither format validates
+
+
+# A declared key hint and a relation hint are the two assertions in `ontology.json` with
+# no tier, and inventing one for them would be the export asserting something the corpus
+# never did. They carry their evidence kind and this sentence instead -- the same reading
+# `ontology.md` gives them (「元数据线索，不是语料证据」).
+METADATA_HINT_NOTE = "a catalog hint rather than a corpus assertion, so it has no tier"
+
+
+def _evidence_facts(evidence) -> dict:
+    """``{"evidence_count": n, "evidence_task": first task}`` -- the size, not the rows.
+
+    The evidence list is the largest thing in the JSON and the least useful to a schema:
+    a reader wants to know how much there is and where to start, then goes back to
+    ``ontology.json`` for the statements. The full list stays there.
+    """
+    items = list(evidence or ())
+    if not items:
+        return {}
+    facts: dict = {"evidence_count": len(items)}
+    task = next((str(item["task"]) for item in items if item.get("task")), "")
+    if task:
+        facts["evidence_task"] = task
+    return facts
+
+
+def _evidence_note(evidence) -> str:
+    """The same two facts, for the places that hold one string rather than a mapping."""
+    facts = _evidence_facts(evidence)
+    if not facts:
+        return ""
+    note = f"; evidence_count {facts['evidence_count']}"
+    task = facts.get("evidence_task")
+    return note + (f", first task {task}" if task else "")
+
+
+def _naming_facts(entity: Mapping) -> dict:
+    """``domain`` / ``project`` / ``owner``, when the catalog declared them."""
+    hints = entity.get("naming_hints") or {}
+    keys = ("domain", "project", "owner")
+    return {key: str(hints[key]) for key in keys if hints.get(key)}
+
+
+def _declared_hint_facts(entity: Mapping) -> list[tuple[str, str]]:
+    """H3: ``(columns, note)`` per column comment that calls a column a key."""
+    identity = entity.get("identity") or {}
+    facts = []
+    for hint in identity.get("declared_hints") or ():
+        columns = ", ".join(str(column) for column in hint.get("columns") or ())
+        text = str(hint.get("text") or "")
+        evidence = str(hint.get("evidence") or EVIDENCE_COLUMN_COMMENT)
+        note = f"declared key on {columns}: {text}"
+        facts.append((columns, f"{note} ({evidence}; {METADATA_HINT_NOTE})"))
+    return facts
+
+
+def _relation_hint_facts(entity: Mapping) -> list[tuple[str, str]]:
+    """O9: ``(from column, note)`` per comment pointing at another entity's column."""
+    facts = []
+    for hint in entity.get("relation_hints") or ():
+        column = str(hint.get("from_column") or "")
+        target = f"{hint['to']['entity']}.{hint['to']['column']}"
+        evidence = str(hint.get("evidence") or EVIDENCE_COLUMN_COMMENT)
+        note = f"{column} -> {target}: {hint.get('text') or ''} ({evidence}"
+        note += f"; unresolved: {hint['unresolved']}" if hint.get("unresolved") else ""
+        facts.append((column, f"{note}; {METADATA_HINT_NOTE})"))
+    return facts
+
+
+def _multiplicity_facts(entity: Mapping) -> list[tuple[str, str, str]]:
+    """O3: ``(columns, note, tier)`` per "some task saw many rows per this key"."""
+    identity = entity.get("identity") or {}
+    facts = []
+    for item in identity.get("multiplicity") or ():
+        columns = ", ".join(str(column) for column in item.get("columns") or ())
+        tier = str(item.get("tier") or "")
+        note = f"{item.get('claim')} ({tier}) on {columns}"
+        facts.append((columns, note + _evidence_note(item.get("evidence")), tier))
+    return facts
+
+
+def _synonym_facts(attribute: Mapping) -> list[tuple[str, str, str]]:
+    """O5: ``(note, via, tier)`` per other column the corpus saw hold the same value."""
+    facts = []
+    for synonym in attribute.get("synonyms") or ():
+        via, tier = str(synonym.get("via") or ""), str(synonym.get("tier") or "")
+        target = f"{synonym.get('entity')}.{synonym.get('column')}"
+        note = f"{target} (via {via}, {tier}){_evidence_note(synonym.get('evidence'))}"
+        facts.append((note, via, tier))
+    return facts
+
+
+def _finding_note(finding: Mapping) -> str:
+    columns = ", ".join(str(column) for column in finding.get("columns") or ())
+    where = f"{finding.get('entity')}" + (f" [{columns}]" if columns else "")
+    return f"{finding.get('kind')} on {where}: {finding.get('text') or ''}"
+
+
+def _open_item_note(item: Mapping) -> str:
+    columns = ", ".join(str(column) for column in item.get("columns") or ())
+    where = f"{item.get('entity')}" + (f" [{columns}]" if columns else "")
+    note = f"{item.get('kind')} ({item.get('tier')}) on {where}: {item.get('text') or ''}"
+    return note + (f" (write back: {item['write_back']})" if item.get("write_back") else "")
+
+
 # ---------------------------------------------------------------------------- LinkML
 
 
 def render_export(ontology: Mapping, export: str) -> str:
+    """One ontology candidate as ``export`` (``linkml`` or ``shacl``) text."""
     if export == EXPORT_LINKML:
         return render_linkml(ontology)
     if export == EXPORT_SHACL:
@@ -268,6 +393,7 @@ def render_linkml(ontology: Mapping) -> str:
     class_ids = entity_class_ids(entities)
     constraints = _constraints(ontology)
     schema = _linkml_header(ontology.get("corpus") or {})
+    schema["annotations"].update(_linkml_governance(ontology))
     enums = _linkml_enums(constraints, class_ids)
     if enums:
         schema["enums"] = enums
@@ -301,6 +427,37 @@ def _linkml_header(corpus: Mapping) -> dict:
     }
 
 
+def _linkml_governance(ontology: Mapping) -> dict:
+    """``findings`` and ``open_items`` as schema-level annotations.
+
+    They are not schema -- they are the list of questions the corpus could not answer --
+    but an export that leaves them out tells a downstream tool the corpus had none.
+    """
+    findings = list(ontology.get("findings") or ())
+    annotations = {
+        item_id: _finding_note(finding)
+        for item_id, finding in zip(finding_ids(findings), findings)
+    }
+    for item in ontology.get("open_items") or ():
+        annotations[f"sl:open_item_{item['id']}"] = _open_item_note(item)
+    return annotations
+
+
+def _linkml_entity_annotations(entity: Mapping) -> dict:
+    """Everything an entity asserts that is not a class, a slot or a constraint."""
+    annotations: dict = dict(_naming_facts(entity))
+    groups = (
+        ("declared_hint", [(key, note) for key, note in _declared_hint_facts(entity)]),
+        ("relation_hint", list(_relation_hint_facts(entity))),
+        ("multiplicity", [(key, note) for key, note, _ in _multiplicity_facts(entity)]),
+    )
+    for prefix, facts in groups:
+        for key, note in facts:
+            base = f"{prefix}_{_identifier(key)}"
+            annotations[_unique_name(annotations, base)] = note
+    return annotations
+
+
 def _enum_name(class_id: str, column: str) -> str:
     return f"{class_id}__{_identifier(column)}_enum"
 
@@ -332,7 +489,11 @@ def _linkml_class(
     node: dict = {"title": name}
     if entity.get("comment"):
         node["description"] = str(entity["comment"])
-    node["annotations"] = {"entity_kind": str(entity.get("kind") or ""), "tier": TIER_PROVEN}
+    node["annotations"] = {
+        "entity_kind": str(entity.get("kind") or ""),
+        "tier": TIER_PROVEN,
+        **_linkml_entity_annotations(entity),
+    }
     node["attributes"] = _linkml_attributes(
         attributes, per_column, keys, class_id, _relations_from(ontology, name), class_ids
     )
@@ -415,9 +576,12 @@ def _linkml_attribute(
         slot["required"] = True
     if identity:
         slot["identifier"] = True
-    annotations = {"tier": TIER_PROVEN}
+    annotations: dict = {"tier": TIER_PROVEN}
     if key_tier:
         annotations["key_tier"] = key_tier
+    synonyms = [note for note, _, _ in _synonym_facts(attribute)]
+    if synonyms:
+        annotations["synonyms"] = synonyms
     annotations.update({item.id: item.note() for item in items if item is not closed})
     slot["annotations"] = annotations
     return slot
@@ -439,6 +603,7 @@ def _linkml_relation(relation: Mapping, class_ids: Mapping) -> dict:
             "claim": str(cardinality.get("claim")),
             "basis": str(cardinality.get("basis") or ""),
             "task_count": int(relation.get("task_count") or 0),
+            **_evidence_facts(relation.get("evidence")),
         },
     }
 
@@ -455,7 +620,10 @@ def _linkml_unique_keys(keys: Sequence[Mapping], unique_per: Sequence[_Constrain
         entries[name] = {
             "unique_key_slots": columns,
             "description": "a candidate key the corpus proposed",
-            "annotations": {"tier": str(key.get("tier"))},
+            "annotations": {
+                "tier": str(key.get("tier")),
+                **_evidence_facts(key.get("evidence")),
+            },
         }
     for item in unique_per:
         entries[_identifier(item.id)] = {
@@ -505,7 +673,65 @@ def render_shacl(ontology: Mapping) -> str:
     for entity in entities:
         lines.append("")
         lines.extend(_shacl_node_shape(entity, class_ids, ontology, constraints))
+    governance = _shacl_governance(ontology)
+    if governance:
+        lines.extend(["", *governance])
     return "\n".join(lines) + "\n"
+
+
+def _shacl_governance(ontology: Mapping) -> list[str]:
+    """``findings`` and ``open_items`` on one schema-level ``sl:Ontology`` node.
+
+    They belong to no shape -- a contradiction between two tasks is about the corpus, not
+    about one table -- so they hang off the document itself rather than being dropped.
+    """
+    findings = list(ontology.get("findings") or ())
+    items = list(ontology.get("open_items") or ())
+    if not findings and not items:
+        return []
+    blocks = [
+        _shacl_annotation_block(
+            "sl:finding",
+            ("id", item_id),
+            _finding_note(finding),
+            kind=str(finding.get("kind") or ""),
+        )
+        for item_id, finding in zip(finding_ids(findings), findings)
+    ]
+    blocks.extend(
+        _shacl_annotation_block(
+            "sl:openItem",
+            ("id", str(item["id"])),
+            _open_item_note(item),
+            kind=str(item.get("kind") or ""),
+            tier=str(item.get("tier") or ""),
+        )
+        for item in items
+    )
+    head = [
+        "sl:Ontology",
+        '    rdfs:label "the governance items this corpus could not answer itself"',
+    ]
+    return _turtle_statement(head, blocks)
+
+
+def _shacl_annotation_block(
+    predicate: str, subject: tuple, note: str, **facts: str
+) -> list[str]:
+    """One blank node holding an assertion SHACL core has no shape for.
+
+    ``subject`` is the ``(predicate name, value)`` that says what the block is about --
+    an id for a governance item, the columns for an assertion about a key -- and
+    ``facts`` are the remaining ``sl:`` triples, empty values dropped.
+    """
+    triples = [
+        f"sl:{subject[0]} {_turtle_string(subject[1])}",
+        f"rdfs:comment {_turtle_string(note)}",
+        *(f"sl:{name} {_turtle_string(value)}" for name, value in facts.items() if value),
+    ]
+    lines = [f"{predicate} ["]
+    lines.extend(f"        {triple} ;" for triple in triples[:-1])
+    return [*lines, f"        {triples[-1]}", "    ]"]
 
 
 def _shacl_node_shape(
@@ -526,6 +752,7 @@ def _shacl_node_shape(
             blocks.append(_shacl_composite_key(item))
     for key in entity.get("identity", {}).get("candidate_keys") or []:
         blocks.append(_shacl_candidate_key(key))
+    blocks.extend(_shacl_entity_blocks(entity))
     head = [
         f"sl:{class_id}Shape",
         "    a sh:NodeShape ;",
@@ -534,8 +761,39 @@ def _shacl_node_shape(
     ]
     if entity.get("comment"):
         head.append(f"    rdfs:comment {_turtle_string(str(entity['comment']))} ;")
+    for name_, value in _naming_facts(entity).items():
+        head.append(f"    sl:{name_} {_turtle_string(value)} ;")
     head.append(f'    sl:tier "{TIER_PROVEN}"')
     return _turtle_statement(head, blocks)
+
+
+def _shacl_entity_blocks(entity: Mapping) -> list[list[str]]:
+    """The entity facts no shape validates: the two hint kinds, multiplicity, synonyms.
+
+    Each is an assertion about the table rather than a constraint on its rows, so each is
+    an annotation blank node that names what it is about and who says so.
+    """
+    hint = {"evidence": EVIDENCE_COLUMN_COMMENT}
+    blocks = [
+        _shacl_annotation_block("sl:declaredKeyHint", ("column", columns), note, **hint)
+        for columns, note in _declared_hint_facts(entity)
+    ]
+    blocks.extend(
+        _shacl_annotation_block("sl:relationHint", ("column", column), note, **hint)
+        for column, note in _relation_hint_facts(entity)
+    )
+    blocks.extend(
+        _shacl_annotation_block("sl:multiplicity", ("column", columns), note, tier=tier)
+        for columns, note, tier in _multiplicity_facts(entity)
+    )
+    blocks.extend(
+        _shacl_annotation_block(
+            "sl:synonym", ("column", str(attribute["column"])), note, via=via, tier=tier
+        )
+        for attribute in entity.get("attributes") or ()
+        for note, via, tier in _synonym_facts(attribute)
+    )
+    return blocks
 
 
 def _shacl_attribute_shape(attribute: Mapping) -> list[str]:
@@ -580,8 +838,20 @@ def _shacl_relation_shape(relation: Mapping, class_ids: Mapping) -> list[str]:
     lines.append(f"        sl:relation {_turtle_string(str(relation['id']))} ;")
     lines.append(f"        sl:claim \"{cardinality.get('claim')}\" ;")
     lines.append(f"        sl:taskCount {int(relation.get('task_count') or 0)} ;")
+    lines.extend(_shacl_evidence_lines(relation.get("evidence")))
     lines.append(f"        sl:tier \"{cardinality.get('tier')}\"")
     lines.append("    ]")
+    return lines
+
+
+def _shacl_evidence_lines(evidence) -> list[str]:
+    """The evidence in summary: how much there is, and one task to start reading at."""
+    facts = _evidence_facts(evidence)
+    lines = []
+    if facts.get("evidence_count"):
+        lines.append(f"        sl:evidenceCount {facts['evidence_count']} ;")
+    if facts.get("evidence_task"):
+        lines.append(f"        sl:evidenceTask {_turtle_string(facts['evidence_task'])} ;")
     return lines
 
 
@@ -606,6 +876,7 @@ def _shacl_candidate_key(key: Mapping) -> list[str]:
         "sl:candidateKey [",
         f"        sl:keyColumn {columns} ;",
         f"        rdfs:comment {_turtle_string(note)} ;",
+        *_shacl_evidence_lines(key.get("evidence")),
         f"        sl:tier \"{key.get('tier')}\"",
         "    ]",
     ]

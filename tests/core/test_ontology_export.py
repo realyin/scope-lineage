@@ -22,6 +22,7 @@ from scope_lineage.render.ontology_export import (
     EXPORT_FORMATS,
     constraint_ids,
     entity_class_ids,
+    finding_ids,
     linkml_range,
     render_export,
     render_linkml,
@@ -367,3 +368,269 @@ def _shacl_property(turtle: str, relation_id: str) -> str:
         if f'sl:relation "{relation_id}"' in block:
             return block.split("\n    ]")[0]
     raise AssertionError(f"no property shape for {relation_id}")
+
+
+# --------------------------------------- P6: the governance and metadata facts (WI P6)
+
+
+def _annotated_ontology() -> dict:
+    """A synthetic corpus carrying the facts the golden corpus has no example of.
+
+    The golden corpus has no finding, no declared key hint and no relation hint, and
+    growing it would change an inference fixture this work item must not touch. So the
+    export's completeness on those three is asserted against a corpus written here, by
+    hand, in the shape ``build_ontology`` produces.
+    """
+    return {
+        "corpus": {"artifact_root": "corpus", "task_count": 1},
+        "entities": [_annotated_entity(), _hint_target_entity()],
+        "relations": [],
+        "constraints": [],
+        "findings": [
+            {
+                "kind": "key_hint_conflict",
+                "entity": "ods.event",
+                "columns": ["event_id"],
+                "tasks": {},
+                "text": "注释与语料的候选键不一致，请人工判定（合成）。",
+            }
+        ],
+        "open_items": [
+            {
+                "id": "open:finding:key_hint_conflict:ods.event=event_id",
+                "kind": "finding",
+                "entity": "ods.event",
+                "relation": None,
+                "columns": ["event_id"],
+                "tier": "hypothesis",
+                "write_back": None,
+                "text": "请人工判定注释与语料哪一个是身份键（合成）。",
+            }
+        ],
+    }
+
+
+def _annotated_entity() -> dict:
+    return {
+        "id": "ods.event",
+        "kind": "physical_table",
+        "comment": None,
+        "identity": _annotated_identity(),
+        "attributes": [
+            {
+                "column": column,
+                "type": sql_type,
+                "comment": comment,
+                "synonyms": [],
+            }
+            for column, sql_type, comment in (
+                ("event_id", "bigint", "主键id（合成）"),
+                ("owner_code", "string", "关联 dim.party.party_code"),
+                ("loose_code", "string", "关联 dim.absent.code"),
+            )
+        ],
+        "naming_hints": {
+            "table_comment": None,
+            "domain": "合成域",
+            "project": "合成项目",
+            "owner": "synthetic_owner",
+        },
+        "relation_hints": _annotated_relation_hints(),
+    }
+
+
+def _annotated_identity() -> dict:
+    return {
+        "candidate_keys": [],
+        "declared_hints": [
+            {
+                "columns": ["event_id"],
+                "evidence": "column_comment",
+                "text": "主键id（合成）",
+            }
+        ],
+        "multiplicity": [
+            {
+                "columns": ["owner_code"],
+                "tier": "implied",
+                "claim": "multiple_rows_per_key",
+                "evidence": [{"task": "synthetic_task", "statement_id": "stmt:001"}],
+            }
+        ],
+        "partition_columns": [],
+    }
+
+
+def _annotated_relation_hints() -> list[dict]:
+    """One hint that resolves against the corpus, and one that names no known table."""
+    return [
+        {
+            "from_column": "owner_code",
+            "to": {"entity": "dim.party", "column": "party_code"},
+            "evidence": "column_comment",
+            "text": "关联 dim.party.party_code",
+        },
+        {
+            "from_column": "loose_code",
+            "to": {"entity": "dim.absent", "column": "code"},
+            "evidence": "column_comment",
+            "text": "关联 dim.absent.code",
+            "unresolved": "unknown_entity: dim.absent",
+        },
+    ]
+
+
+def _hint_target_entity() -> dict:
+    return {
+        "id": "dim.party",
+        "kind": "physical_table",
+        "comment": None,
+        "identity": {
+            "candidate_keys": [],
+            "declared_hints": [],
+            "multiplicity": [],
+            "partition_columns": [],
+        },
+        "attributes": [
+            {"column": "party_code", "type": "string", "comment": None, "synonyms": []}
+        ],
+        "naming_hints": {},
+    }
+
+
+@pytest.mark.parametrize("fmt", EXPORT_FORMATS)
+def test_the_naming_hints_reach_the_export(fmt: str) -> None:
+    """``domain`` / ``project`` / ``owner`` are metadata a downstream catalog wants.
+
+    Counted over the whole corpus rather than one entity: two tables may share a domain,
+    and each of them is supposed to say so once.
+    """
+    ontology = _golden_ontology()
+    declared = [
+        (key, str(entity["naming_hints"][key]))
+        for entity in ontology["entities"]
+        for key in ("domain", "project", "owner")
+        if (entity.get("naming_hints") or {}).get(key)
+    ]
+
+    assert declared, "the golden corpus is supposed to declare naming hints"
+    text = render_export(ontology, fmt)
+
+    for key, value in set(declared):
+        expected = sum(1 for item in declared if item == (key, value))
+        assert text.count(f'"{value}"') == expected, (key, value)
+
+
+@pytest.mark.parametrize("fmt", EXPORT_FORMATS)
+def test_a_declared_key_hint_reaches_the_export_exactly_once(fmt: str) -> None:
+    """The hint text is also the column's comment, so only the hint itself is counted."""
+    ontology = _annotated_ontology()
+    hint = ontology["entities"][0]["identity"]["declared_hints"][0]
+
+    text = render_export(ontology, fmt)
+
+    assert text.count(f"declared key on event_id: {hint['text']}") == 1
+    assert "column_comment" in text
+
+
+@pytest.mark.parametrize("fmt", EXPORT_FORMATS)
+def test_a_relation_hint_reaches_the_export_resolved_or_with_its_reason(
+    fmt: str,
+) -> None:
+    ontology = _annotated_ontology()
+    resolved, unresolved = ontology["entities"][0]["relation_hints"]
+
+    text = render_export(ontology, fmt)
+
+    assert text.count(f"owner_code -> dim.party.party_code: {resolved['text']}") == 1
+    assert text.count(f"loose_code -> dim.absent.code: {unresolved['text']}") == 1
+    assert text.count(f"unresolved: {unresolved['unresolved']}") == 1
+
+
+@pytest.mark.parametrize("fmt", EXPORT_FORMATS)
+def test_the_identity_multiplicity_reaches_the_export_with_its_tier(fmt: str) -> None:
+    ontology = _golden_ontology()
+    claims = [
+        item
+        for entity in ontology["entities"]
+        for item in entity["identity"]["multiplicity"]
+    ]
+
+    assert claims, "the golden corpus is supposed to contain a multiplicity claim"
+    text = render_export(ontology, fmt)
+
+    for item in claims:
+        assert ", ".join(item["columns"]) in text
+        assert item["claim"] in text
+        assert f'"{item["tier"]}"' in text
+
+
+@pytest.mark.parametrize("fmt", EXPORT_FORMATS)
+def test_a_synonym_reaches_the_export_with_its_via_and_tier(fmt: str) -> None:
+    ontology = _golden_ontology()
+    synonyms = [
+        synonym
+        for entity in ontology["entities"]
+        for attribute in entity["attributes"]
+        for synonym in attribute["synonyms"]
+    ]
+
+    assert synonyms, "the golden corpus is supposed to contain a synonym"
+    text = render_export(ontology, fmt)
+
+    for synonym in synonyms:
+        target = f"{synonym['entity']}.{synonym['column']}"
+        assert text.count(target) == 1, target
+        assert synonym["via"] in text
+        assert f'"{synonym["tier"]}"' in text
+
+
+@pytest.mark.parametrize("fmt", EXPORT_FORMATS)
+def test_every_governance_item_reaches_the_export_exactly_once(fmt: str) -> None:
+    """A finding absent from the export is a governance item no downstream ever sees."""
+    ontology = _annotated_ontology()
+    findings = ontology["findings"]
+
+    text = render_export(ontology, fmt)
+
+    for item_id in finding_ids(findings):
+        assert text.count(item_id) == 1, item_id
+    for finding in findings:
+        assert text.count(finding["text"]) == 1
+    for item in ontology["open_items"]:
+        assert text.count(item["id"]) == 1, item["id"]
+        assert text.count(item["text"]) == 1
+
+
+@pytest.mark.parametrize("fmt", EXPORT_FORMATS)
+def test_the_golden_open_items_reach_the_export_exactly_once(fmt: str) -> None:
+    ontology = _golden_ontology()
+
+    assert ontology["open_items"], "the golden corpus is supposed to have open items"
+    text = render_export(ontology, fmt)
+
+    for item in ontology["open_items"]:
+        assert text.count(item["id"]) == 1, item["id"]
+
+
+@pytest.mark.parametrize("fmt", EXPORT_FORMATS)
+def test_the_evidence_is_a_count_and_a_first_task_not_the_whole_list(fmt: str) -> None:
+    """Evidence is the biggest list in the JSON; a schema wants its size, not its rows."""
+    ontology = _golden_ontology()
+    relation = ontology["relations"][0]
+
+    text = render_export(ontology, fmt)
+
+    assert str(len(relation["evidence"])) in text
+    assert str(relation["evidence"][0]["task"]) in text
+    for item in relation["evidence"]:
+        assert str(item["logic_block_id"]) not in text
+    assert "statement_id" not in text
+
+
+def test_the_finding_ids_are_positional_and_stable() -> None:
+    findings = _annotated_ontology()["findings"]
+
+    assert finding_ids(findings) == [
+        f"sl:finding_{index:03d}" for index in range(1, len(findings) + 1)
+    ]
