@@ -30,6 +30,23 @@
   else. `same_name_confirmed` counts a HUMAN confirmation of the same value on the same
   column name only -- an Agent's own answer spreading along same-named columns would be an
   inference proving itself.
+- The **LinkML and SHACL exports carry everything `ontology.json` carries** (P6), and
+  `render_export` / `render_linkml` / `render_shacl` join the public Python API. The two
+  exports used to drop eight slots on the floor -- the `domain` / `project` / `owner`
+  naming hints, the declared key hints and relation hints, an entity's multiplicity
+  claims, an attribute's synonyms, and both governance lists -- so a downstream tool that
+  consumed only the export saw a smaller corpus than the one that was published, and, in
+  the case of `findings` and `open_items`, a corpus that appeared to have no open
+  questions at all. Each now lands as a class or node-shape annotation carrying its tier,
+  and the two governance lists land on the schema itself: `sl:finding_NNN` /
+  `sl:open_item_<id>` annotations in LinkML, an `sl:finding` / `sl:openItem` block on an
+  `sl:Ontology` node in SHACL. A declared or relation hint is the one thing published
+  without a tier, because `ontology.json` gives it none -- it carries its `column_comment`
+  evidence and a note saying it is a catalog hint. `evidence` is the one list still
+  summarized rather than exported whole: every assertion gains `evidence_count` and the
+  first task id (`sl:evidenceCount` / `sl:evidenceTask`), and the statements stay in the
+  JSON. Both exports stay byte-deterministic, and the change is additive -- nothing that
+  was exported before moved or changed spelling.
 - A column comment that points at another table's column is read as a **declared relation
   hint** (O9, P4). The warehouse never declared its foreign keys, but its catalog writers
   wrote them down in prose -- 「关联 <表>.<列>」, 「外键 …」,

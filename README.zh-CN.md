@@ -549,6 +549,9 @@ statement = parse_scope_lineage(
 document = to_lineage_dict(statement)
 ```
 
+语料级本体候选也走同一个门面：先 `build_ontology(...)`，再
+`render_export(ontology, "linkml")` / `render_linkml` / `render_shacl`。
+
 稳定公共面由 `scope_lineage.PUBLIC_CORE_API` 显式声明。下游应使用公共门面或读取 JSON 契约，
 不要穿透导入内部实现模块。
 

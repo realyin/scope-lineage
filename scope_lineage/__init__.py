@@ -80,6 +80,11 @@ from .render.ontology import (
     render_ontology_index_markdown,
     render_ontology_table_card_markdown,
 )
+from .render.ontology_export import (
+    render_export,
+    render_linkml,
+    render_shacl,
+)
 from .render.semantic_markdown import render_semantic_markdown
 from .render.semantic_profile import build_semantic_profile
 from .render.table_cards import (
@@ -142,9 +147,12 @@ PUBLIC_CORE_API = frozenset({
     "parse_all_scope_lineage",
     "parse_scope_lineage",
     "parse_task_lineage",
+    "render_export",
     "render_glossary_markdown",
+    "render_linkml",
     "relation_override_key",
     "render_ontology_index_markdown",
+    "render_shacl",
     "render_ontology_table_card_markdown",
     "render_overrides_template_markdown",
     "render_mapping_markdown",
