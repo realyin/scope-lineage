@@ -22,7 +22,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections import Counter
+from collections import Counter, OrderedDict
 from typing import Iterable
 
 from .diagnostics_view import fact_gaps_for, located_warnings, warnings_for
@@ -164,6 +164,16 @@ def _selected_sections(sections: Iterable[str] | None) -> set[str]:
     return chosen
 
 
+# Q5. One document is digested several times per run -- once for the task profile, once
+# per statement profile, once by the value dictionary -- and each call re-serialised the
+# whole document. The memo keys on the document *object*, holding it alive so its id
+# cannot be reused, and keeps only the handful of documents a corpus walk has open at
+# once. A document is read-only by the time anything digests it: a metadata patch is
+# applied before the first profile is built, never between two digests of one document.
+_DIGEST_MEMO_SIZE = 8
+_digest_memo: "OrderedDict[int, tuple[dict, str]]" = OrderedDict()
+
+
 def lineage_document_digest(document: dict) -> str:
     """Content digest of the source lineage document (16 hex chars).
 
@@ -172,10 +182,17 @@ def lineage_document_digest(document: dict) -> str:
     holds), different snapshot → different digest. Consumers recompute it to confirm
     which lineage.json a rendered mapping.md came from.
     """
+    cached = _digest_memo.get(id(document))
+    if cached is not None and cached[0] is document:
+        return cached[1]
     canonical = json.dumps(
         document, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     )
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+    _digest_memo[id(document)] = (document, digest)
+    while len(_digest_memo) > _DIGEST_MEMO_SIZE:
+        _digest_memo.popitem(last=False)
+    return digest
 
 
 def _front_matter(document: dict) -> list[str]:

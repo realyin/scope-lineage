@@ -1,6 +1,21 @@
 # Changelog
 
 ## Unreleased
+- **`describe` and `ontology` are substantially faster on a corpus, byte for byte the
+  same** (Q5). Profiling showed both commands spending most of their time re-doing work
+  they had already done: one expression text was handed to sqlglot once per *question*
+  the profile asked of it rather than once per expression, the restated form of a parsed
+  node was re-rendered from a fresh deep copy each time it was needed, one lineage
+  document was re-serialised in full for every digest of it, a table's column comment was
+  found by re-scanning the whole column list, and a scope's output-name index was rebuilt
+  at each of its five call sites. Each of those is now computed once and remembered for
+  as long as the thing it describes is in hand, which cuts both commands to well under
+  half their previous wall time (`ontology` more than `describe`, because it profiles
+  every task twice). Nothing about the outputs changes: the same corpus produces the same
+  `semantic.json`, `semantic.md`, `ontology.json`, `ontology.md` and table cards, to the
+  byte, and the golden corpus was re-run rather than re-recorded to prove it. Memory is
+  bounded — every cache holds a fixed number of entries, so a large corpus costs no more
+  than a small one.
 - **One corpus can borrow another corpus's per-task cache** (Q7). `--incremental` only
   ever looked under its own `--out`, so the same tasks parsed into a second directory --
   a re-parse, or a larger corpus that contains them -- recomputed every profile although
