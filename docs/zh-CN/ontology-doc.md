@@ -130,7 +130,10 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
         "synonyms": [{"entity": "mart.t", "column": "order_state", "tier": "proven",
                       "via": "direct_rename", "evidence": [{"task": "task_a"}]}],
         "samples": ["PAID", "NEW"]}],
-     "naming_hints": {"table_comment": null, "domain": null, "project": null, "owner": null}}
+     "naming_hints": {"table_comment": null, "domain": null, "project": null, "owner": null},
+     "relation_hints": [{"from_column": "pay_id",
+                         "to": {"entity": "ods.pay", "column": "id"},
+                         "evidence": "column_comment", "text": "payment, references ods.pay.id"}]}
   ],
   "relations": [
     {"id": "rel:001",
@@ -140,7 +143,16 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
      "cardinality": {"claim": "one_to_many", "tier": "implied", "basis": "group_by"},
      "join_types": ["LEFT_OUTER"], "task_count": 1,
      "evidence": [{"task": "task_a", "statement_id": "stmt:001",
-                   "scope_id": "ROOT", "logic_block_id": "logic:ROOT:join:001"}]}
+                   "scope_id": "ROOT", "logic_block_id": "logic:ROOT:join:001"}]},
+    {"id": "rel:002",
+     "from": {"entity": "ods.driver", "columns": ["pay_id"]},
+     "to": {"entity": "ods.pay", "columns": ["id"]},
+     "kind": "hinted",
+     "cardinality": {"claim": "many_to_one_assumed", "tier": "hypothesis",
+                     "basis": "column_comment"},
+     "join_types": [], "task_count": 0,
+     "evidence": [{"kind": "column_comment", "column": "pay_id",
+                   "text": "payment, references ods.pay.id"}]}
   ],
   "constraints": [
     {"target": {"entity": "ods.orders", "column": "state"}, "kind": "in_set",
@@ -177,6 +189,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 | `entities[].identity.candidate_keys[]` | `columns` + `tier` + `evidence` | 生产任务证明的键（`producer_key_confidence`）与消费任务假设的键（`joined_as_right_without_dedup`）并列，不合并成「主键」 |
 | `entities[].identity.candidate_keys[].scope_columns` | 列名列表 | H2：该键只在这组列的同一取值内唯一（快照表的常态）；只可能来自人工确认 |
 | `entities[].identity.declared_hints[]` | `columns` + `evidence: column_comment` + `text` | H3：列注释把某列称作主键/唯一键，原样透传；它是元数据线索而不是候选键，与某个候选键一致时把那个键从 `hypothesis` 抬到 `implied` |
+| `entities[].relation_hints[]` | `from_column` + `to.entity` / `to.column` + `evidence: column_comment` + `text`（+ `unresolved`） | O9：列注释指向另一张表的某一列（「关联 <表>.<列>」一类），原样透传并解析到语料自己的实体；解析不了时带 `unresolved`（`unknown_entity: X` / `ambiguous_entity: X` / `unknown_column: X`）且不产生任何影响；那一列没有线索时这个键不出现 |
 | `entities[].identity.multiplicity[]` | `claim: multiple_rows_per_key` | O3：某任务按这组键对该表做过 GROUP BY 或窗口 partition |
 | `entities[].identity.partition_columns` | 列名列表 | 生产任务写入时的分区列（元数据事实） |
 | `entities[].attributes[].type`、`comment` | 元数据 | 表卡里的列类型与列注释，原样透传 |
@@ -187,17 +200,17 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 | `entities[].attributes[].synonyms[].via` | `direct_rename` / `union_alignment` | O5：同一个值的两个列名 |
 | `entities[].attributes[].samples[]` | 字符串数组 | A6：表卡上的样例值原样带过来，只来自 `tables --samples` 传进来的文件（已脱敏、已截断）；那一列没有值时这个键不出现 |
 | `relations[].id` | `rel:NNN` | 排序后编号，同一份语料稳定 |
-| `relations[].kind` | `join_association` / `union_sibling` | JOIN 键对，或同一 UNION 的兄弟分支 |
+| `relations[].kind` | `join_association` / `union_sibling` / `hinted` | JOIN 键对，或同一 UNION 的兄弟分支；`hinted` 是 O9 只由列注释提出、语料里没有任何任务写过的边（`task_count` 为 0，`join_types` 为空） |
 | `relations[].cardinality.claim` | `one_to_many` / `many_to_one` / `many_to_one_assumed` / `one_to_one_assumed` / `unknown` | O2，方向为 `from` → `to`；`one_to_one_assumed` 只可能来自人工确认 |
 | `relations[].cardinality.tier` | 五级之一 | 该基数断言的置信层级 |
-| `relations[].cardinality.basis` | `group_by` / `ranking_window` / `producer_key_confidence` / `right_side_not_deduplicated` / `union_branch_alignment` / `no_uniqueness_evidence` / `human_confirmation` | 该基数断言的依据 |
+| `relations[].cardinality.basis` | `group_by` / `ranking_window` / `producer_key_confidence` / `right_side_not_deduplicated` / `union_branch_alignment` / `no_uniqueness_evidence` / `human_confirmation` / `column_comment` | 该基数断言的依据 |
 | `relations[].join_types`、`task_count` | JOIN 类型并集、任务数 | 同一对实体在不同任务里的 JOIN 类型合并 |
 | `relations[].evidence[].left_via_scopes` | scope id 列表 | JOIN 某一侧是 CTE 时，穿透到物理表所经过的 scope（右侧为 `right_via_scopes`） |
 | `constraints[].kind` | `not_null` / `in_set` / `unique_per` / `partition` | O6 |
 | `constraints[].values`、`completeness` | 取值列表、`complete` / `unknown` | 仅 `in_set`：只有封闭 `IN` 列表或穷尽 CASE 才是 `complete` |
 | `constraints[].columns` | 列名列表 | 仅 `unique_per`：候选键 + 分区列 |
 | `constraints[].note` | 一句话 | 仅 `not_null`：「任务用过滤丢弃了 NULL，源表本身可能仍含 NULL」 |
-| `findings[].kind` | `cardinality_conflict` / `competing_candidate_keys` / `key_hint_conflict` / `producer_key_conflict` / `ambiguous_bare_name` | O7 与 O8，最后两者由表卡透传 |
+| `findings[].kind` | `cardinality_conflict` / `competing_candidate_keys` / `key_hint_conflict` / `relation_hint_conflict` / `producer_key_conflict` / `ambiguous_bare_name` | O7、O8 与 O9，最后两者由表卡透传 |
 | `findings[].tasks` | 角色 → 任务名列表 | 矛盾的两边分别是哪些任务 |
 | `findings[].keys[]` | 两组 `columns` + `evidence` | 仅 `competing_candidate_keys`：互相竞争的两组候选键各自的列与证据 |
 | `open_items[]` | `id` / `kind` / `entity` / `relation` / `columns` / `tier` / `write_back` / `text` | H5：整份语料的待人工判定清单，一个 `hypothesis` 候选键、一条 `hypothesis` 关系或一条 finding 各一条；关系只出现一次，不按两端各一次 |
@@ -217,6 +230,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 | O6 约束 | `NOT x IS NULL` 过滤 → `not_null`（`hypothesis`，附注「任务丢弃了 NULL，源表可能仍含 NULL」）；可枚举 code → `in_set`；分区列 → `partition`（`proven`）；产出表候选键 + 分区列 → `unique_per`（键置信 `proven` → `proven`，`candidate` → `hypothesis`）。**同一条断言只发一条**：（实体, kind, columns/values）相同的约束合并成一条，`tier` 取其中最强的一级、`evidence[]` 按语料顺序求并——一张表被两个任务按同一键集写出时，那是同一条约束被证明了两次，不是两条约束 |
 | O7 冲突 | 同一（表, 键集）上「去重」与「直接关联」并存 → `cardinality_conflict`；同一张表上两组 `hypothesis` 候选键互为真子集或互不相交 → `competing_candidate_keys`（至多一组是身份键）；表卡的 `producer_key_conflict` 与 `ambiguous_bare_name` 原样透传 |
 | O8 元数据键线索 | 列注释含 `主键` / `唯一键` / `唯一编号` / `主键id` / `primary key` / `unique`（忽略大小写）→ `declared_hints`；线索与某个 `hypothesis` 候选键一致（线索列 ⊆ 键列）→ 该键升到 `implied`（注释与结构两个独立来源指向同一列）；候选键全是 `hypothesis` 且都不含线索列 → `key_hint_conflict` |
+| O9 注释关系线索 | 列注释以 `关联` / `对应` / `引用` / `见` / `外键` / `FK` / `references` / `->` 指向 `<表>.<列>` 或 `<表> 的 <列>`（忽略大小写，表名按表卡同一条规则折大小写后按点后缀匹配，裸表名只在唯一时解析）→ `relation_hints[]`；已有同一（from 实体, to 实体）与同一列对的 `hypothesis` 关系 → 抬到 `implied` 并追加一条 `column_comment` 证据；没有 → 新增一条 `kind: hinted` 的关系（`many_to_one_assumed` / `hypothesis` / `column_comment`，`task_count` 为 0），进待人工判定清单等人确认；与同一列上一条 `proven` 关系指向不同的表 → `relation_hint_conflict` |
 
 ## 每表卡片：表卡之后追加的五节
 
@@ -226,7 +240,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 | 节 | 内容 |
 | --- | --- |
 | 7. 身份（本体） | 开头一行「属性 N（语料用到 n）」，与 `ontology.md` 实体表的「属性」列同一口径；其后候选键、元数据键线索、多行性、分区列四者并列，逐条带中文层级与证据 id；已确认的键在同一行打印确认人、确认日期与依据，带 `scope_columns` 的键读作「在 `dt` 内唯一」；四者回答四个不同问题，永不合并成「主键」 |
-| 8. 关系 | 出边、入边各一张表：对端（链到对端卡片）、键对、JOIN 类型、基数 claim、层级、依据 token 的人话翻译、任务数、证据 id |
+| 8. 关系 | 出边、入边各一张表：对端（链到对端卡片）、键对、JOIN 类型、基数 claim、层级、依据 token 的人话翻译、任务数、证据 id；本表列注释里有指向时再追一个「注释线索」子块（O9）：本表列 → 对端表.列、原列注释，解析不了的写明原因；没有线索就没有这个子块 |
 | 9. 约束 | SHACL 风格清单：约束种类、目标列或整表、值集与完整性、层级、证据 |
 | 10. 属性同义 | 本表列 ↔ 同义列、依据（改名投影 / UNION 同位置）、层级、证据 |
 | 11. 待人工判定 | 该表相关的 findings，加上所有 `hypothesis` 断言（候选键 / 基数 / 约束），每条标 `[待确认]`、给出回写目标字符串，并引用 `open_items[]` 里的清单 id |
@@ -416,7 +430,7 @@ SQL 类型按下表映射，带参数的类型只看头部：`decimal(18,2)` 当
 - **基 IRI 是占位符**（`https://example.org/scope-lineage/ontology#`）。语料没有自己的命名空间，
   编一个看起来权威的出来就是导出在编事实；入图的人把它换成自己的。
 - **不导出的部分**：`findings`、`open_items`、`evidence`、`naming_hints` 的
-  `domain` / `project` / `owner`，以及 `identity.declared_hints`、`identity.multiplicity`
+  `domain` / `project` / `owner`，以及 `identity.declared_hints`、`relation_hints`、`identity.multiplicity`
   和属性的 `synonyms`，都留在 `ontology.json` 里——它们是给人复核的治理与元数据信息，
   不是 schema。
 - **不产 OWL。** 三种目标里只有 OWL 需要为「基数公理」这类断言额外选一套本体论承诺，这件事

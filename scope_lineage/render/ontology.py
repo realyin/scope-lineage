@@ -33,6 +33,7 @@ one index document; per-entity cards and the Mermaid ER overview are WI-10.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from itertools import combinations
@@ -121,6 +122,10 @@ ENTITY_PRODUCED = "produced_table"
 
 RELATION_JOIN = "join_association"
 RELATION_UNION = "union_sibling"
+# O9: an edge no task ever wrote. A column comment naming another table's column is
+# the foreign key the warehouse never declared, and it is published as an edge of its
+# own kind so a reader can never mistake a sentence for a JOIN.
+RELATION_HINTED = "hinted"
 
 CARDINALITY_ONE_TO_MANY = "one_to_many"
 CARDINALITY_MANY_TO_ONE = "many_to_one"
@@ -169,6 +174,8 @@ BASIS_NO_DEDUP = "right_side_not_deduplicated"
 BASIS_UNION_ALIGNMENT = "union_branch_alignment"
 BASIS_NO_EVIDENCE = "no_uniqueness_evidence"
 BASIS_HUMAN_CONFIRMATION = "human_confirmation"
+# O9: the only basis the corpus itself did not observe -- the catalog wrote it down.
+BASIS_COLUMN_COMMENT = "column_comment"
 
 # The markdown renders the token into one line of Chinese, so a reader never has to
 # learn the vocabulary to know why a claim was made.
@@ -180,6 +187,7 @@ BASIS_TEXT = {
     BASIS_UNION_ALIGNMENT: "同一 UNION 的分支按列位置对齐",
     BASIS_NO_EVIDENCE: "语料内没有唯一性证据",
     BASIS_HUMAN_CONFIRMATION: "人工确认",
+    BASIS_COLUMN_COMMENT: "列注释指向对端表的这一列",
 }
 
 EVIDENCE_GROUP_BY = "group_by"
@@ -201,6 +209,34 @@ KEY_HINT_PHRASES = (
     "唯一编号",
     "primary key",
     "unique",
+)
+
+# O9: the words a column comment uses to point at another table's column. A hint is a
+# *pointer*, not a key claim, so the vocabulary is separate from `KEY_HINT_PHRASES` and
+# just as short: everything here is a phrase a catalog writer uses on purpose, and the
+# resolution against the corpus's own entities is what stops a false positive from
+# becoming an edge.
+RELATION_HINT_MARKERS = (
+    "关联",
+    "对应",
+    "引用",
+    "见",
+    "外键",
+    "FK",
+    "references",
+    "->",
+)
+
+# `<marker> <table><separator><column>`: the table is `db.table` or bare, and the
+# separator is either the dot of `db.table.column` or the 的 of 「<表> 的 <列>」. The table
+# group is greedy so `db.table.column` gives up its *last* dot to the column, which is
+# what makes the qualified and the bare spelling one pattern rather than two.
+_RELATION_HINT_RE = re.compile(
+    "(?:" + "|".join(re.escape(marker) for marker in RELATION_HINT_MARKERS) + r")\s*"
+    r"(?P<table>[A-Za-z0-9_]+(?:\s*\.\s*[A-Za-z0-9_]+)*)"
+    r"\s*(?:\.|的)\s*"
+    r"(?P<column>[A-Za-z0-9_]+)",
+    re.IGNORECASE,
 )
 
 # The fields an `ontology.overrides.json` entry may carry. Anything else is a typo or a
@@ -259,11 +295,14 @@ FINDING_CARDINALITY_CONFLICT = "cardinality_conflict"
 FINDING_COMPETING_CANDIDATE_KEYS = "competing_candidate_keys"
 # H3: the column comment names one column the key and the corpus assumed another.
 FINDING_KEY_HINT_CONFLICT = "key_hint_conflict"
+# O9: the column comment points at one table and a proven JOIN points at another.
+FINDING_RELATION_HINT_CONFLICT = "relation_hint_conflict"
 
 FINDING_KINDS = (
     FINDING_CARDINALITY_CONFLICT,
     FINDING_COMPETING_CANDIDATE_KEYS,
     FINDING_KEY_HINT_CONFLICT,
+    FINDING_RELATION_HINT_CONFLICT,
     FINDING_PRODUCER_KEY_CONFLICT,
     FINDING_AMBIGUOUS_BARE_NAME,
 )
@@ -289,7 +328,10 @@ KEY_CONFIDENCE_TIERS = {"proven": TIER_PROVEN, "candidate": TIER_HYPOTHESIS}
 # task discarded the NULLs, which is evidence that there were some to discard.
 NOT_NULL_NOTE = "任务用过滤丢弃了 NULL，源表本身可能仍含 NULL"
 
+# O9 appends `relation_hints` after this list and only when the entity has one, so a
+# corpus whose comments point at nothing publishes the entity it always did.
 _ENTITY_KEYS = ("id", "kind", "comment", "identity", "attributes", "naming_hints")
+_RELATION_HINT_KEYS = ("from_column", "to", "evidence", "text", "unresolved")
 _RELATION_KEYS = (
     "id",
     "from",
@@ -401,13 +443,14 @@ def build_ontology(
         "not_null": _not_null_columns(constraints),
     }
     entities = [_entity(card, facts) for card in cards.get("tables") or []]
+    relations = _relations_with_hints(_relations(edges), _relation_hints(entities))
     ontology = {
         "doc_format": DOC_FORMAT,
         "corpus": dict(cards.get("corpus") or {}),
         "entities": entities,
-        "relations": _relations(edges),
+        "relations": relations,
         "constraints": constraints,
-        "findings": _findings(cards, edges, facts["multiplicity"], entities),
+        "findings": _findings(cards, edges, facts["multiplicity"], entities, relations),
         "open_items": [],
         "overrides_applied": {
             "relations": 0,
@@ -700,11 +743,20 @@ def _relations(edges: Sequence[Mapping]) -> list[dict]:
     merged: dict[tuple, dict] = {}
     for edge in edges:
         _merge_edge(merged, dict(edge))
-    ordered = sorted(merged.values(), key=_relation_sort_key)
+    return _numbered(merged.values())
+
+
+def _numbered(relations: Iterable[Mapping]) -> list[dict]:
+    """Sorted and given their ``rel:NNN`` ids -- the one place an edge id is minted.
+
+    O9 adds edges after the JOINs are merged, so the numbering runs again over the whole
+    list: ids follow the sort and nothing else, and an edge that arrived from a comment
+    is numbered by where it sorts rather than by when it was appended.
+    """
     numbered = []
-    for index, relation in enumerate(ordered, start=1):
-        relation["id"] = f"rel:{index:03d}"
-        numbered.append({key: relation[key] for key in _RELATION_KEYS if key in relation})
+    for index, relation in enumerate(sorted(relations, key=_relation_sort_key), start=1):
+        item = {**relation, "id": f"rel:{index:03d}"}
+        numbered.append({key: item[key] for key in _RELATION_KEYS if key in item})
     return numbered
 
 
@@ -1621,6 +1673,160 @@ def _attribute(entity: str, column: Mapping, facts: Mapping) -> dict:
     return {key: built[key] for key in _ATTRIBUTE_KEYS if key in built}
 
 
+# ------------------------------------------------------- O9: relation hints
+
+
+def _relation_hints(entities: list[dict]) -> list[tuple[str, dict]]:
+    """O9: read every column comment for a pointer at another entity's column.
+
+    The corpus can only relate two tables a task joined. A catalog writer relates them in
+    prose -- 「关联 <表>.<列>」 -- and that sentence is the foreign key nobody declared. It is
+    published on the entity as a hint and nothing stronger: a comment can be stale, and
+    the corpus has no way to check it. Resolution against the corpus's own entities is
+    what separates a pointer from a sentence, and an unresolved hint says why and stops.
+    """
+    columns = {
+        str(entity["id"]): [str(item["column"]) for item in entity.get("attributes") or []]
+        for entity in entities
+    }
+    found: list[tuple[str, dict]] = []
+    for entity in entities:
+        hints = _dedupe(
+            hint
+            for attribute in entity.get("attributes") or []
+            for hint in _column_hints(attribute, columns)
+        )
+        if hints:
+            entity["relation_hints"] = hints
+        found.extend((str(entity["id"]), hint) for hint in hints)
+    return found
+
+
+def _column_hints(attribute: Mapping, columns: Mapping[str, Sequence[str]]) -> list[dict]:
+    """Every pointer one column comment holds, resolved or with the reason it is not."""
+    text = str(attribute.get("comment") or "")
+    hints = []
+    for match in _RELATION_HINT_RE.finditer(text):
+        entity, reason = _hinted_entity(match.group("table"), columns)
+        column = _hinted_column(entity, match.group("column"), columns)
+        if entity is not None and column is None:
+            reason = f"unknown_column: {match.group('column')}"
+        hint = {
+            "from_column": str(attribute.get("column")),
+            "to": {
+                "entity": entity or str(match.group("table")),
+                "column": column or str(match.group("column")),
+            },
+            "evidence": EVIDENCE_COLUMN_COMMENT,
+            "text": text,
+            "unresolved": reason,
+        }
+        hints.append({key: hint[key] for key in _RELATION_HINT_KEYS if hint[key]})
+    return hints
+
+
+def _hinted_entity(
+    name: str, columns: Mapping[str, Sequence[str]]
+) -> tuple[str | None, str | None]:
+    """``(the entity this spelling names, why it names none)`` -- the cards' own rule.
+
+    ``same_table`` case-folded: a comment is prose, and prose does not keep the catalog's
+    capitalisation. A bare name resolves only when one entity could be it; two and the
+    hint is reported rather than filed against a database this module guessed.
+    """
+    text = str(name)
+    hosts = sorted(
+        entity for entity in columns if same_table(text.casefold(), entity.casefold())
+    )
+    if len(hosts) == 1:
+        return hosts[0], None
+    if hosts:
+        return None, f"ambiguous_entity: {text}"
+    return None, f"unknown_entity: {text}"
+
+
+def _hinted_column(
+    entity: str | None, name: str, columns: Mapping[str, Sequence[str]]
+) -> str | None:
+    """The attribute this spelling names, in the catalog's own capitalisation."""
+    if entity is None:
+        return None
+    return next(
+        (item for item in columns[entity] if item.casefold() == str(name).casefold()),
+        None,
+    )
+
+
+def _relations_with_hints(
+    relations: Sequence[Mapping], hints: Sequence[tuple[str, dict]]
+) -> list[dict]:
+    """O9's two effects on the edges: corroborate an assumption, or propose an edge."""
+    published = [dict(item) for item in relations]
+    added: list[dict] = []
+    for entity, hint in hints:
+        if hint.get("unresolved"):
+            continue
+        matched = _hinted_match([*published, *added], entity, hint)
+        if matched is None:
+            added.append(_hinted_relation(entity, hint))
+        elif str((matched.get("cardinality") or {}).get("tier")) == TIER_HYPOTHESIS:
+            _lift_relation(matched, hint)
+    return _numbered([*published, *added]) if added else published
+
+
+def _hinted_match(
+    relations: Sequence[dict], entity: str, hint: Mapping
+) -> dict | None:
+    """The published edge this hint is about: same two entities, same column pair."""
+    ends = (entity, str(hint["to"]["entity"]))
+    pair = (str(hint["from_column"]), str(hint["to"]["column"]))
+    for relation in relations:
+        if (str(relation["from"]["entity"]), str(relation["to"]["entity"])) != ends:
+            continue
+        if pair in list(zip(relation["from"]["columns"], relation["to"]["columns"])):
+            return relation
+    return None
+
+
+def _lift_relation(relation: dict, hint: Mapping) -> None:
+    """A comment and a JOIN saying the same thing is one tier more than either (O9).
+
+    Mirrors what H3 does to a candidate key, and for the same reason: the author assumed
+    the right side was unique by these columns, and the catalog independently says these
+    columns are what points at it. Two sources, one claim -- that is ``implied``.
+    """
+    relation["cardinality"] = {**relation["cardinality"], "tier": TIER_IMPLIED}
+    evidence = {"kind": EVIDENCE_COLUMN_COMMENT, "column": str(hint["from_column"])}
+    if evidence not in relation["evidence"]:
+        relation["evidence"] = [*relation["evidence"], evidence]
+
+
+def _hinted_relation(entity: str, hint: Mapping) -> dict:
+    """An edge no task wrote: published as a question, never as a corpus observation."""
+    return {
+        "from": {"entity": entity, "columns": [str(hint["from_column"])]},
+        "to": {
+            "entity": str(hint["to"]["entity"]),
+            "columns": [str(hint["to"]["column"])],
+        },
+        "kind": RELATION_HINTED,
+        "cardinality": _claim(
+            CARDINALITY_MANY_TO_ONE_ASSUMED, TIER_HYPOTHESIS, BASIS_COLUMN_COMMENT
+        ),
+        "join_types": [],
+        # No task joined these two tables: the count a reader compares edges by is zero,
+        # and that is exactly the thing to know about this edge.
+        "task_count": 0,
+        "evidence": [
+            {
+                "kind": EVIDENCE_COLUMN_COMMENT,
+                "column": str(hint["from_column"]),
+                "text": str(hint["text"]),
+            }
+        ],
+    }
+
+
 # --------------------------------------------------------------------- O7: findings
 
 
@@ -1629,12 +1835,14 @@ def _findings(
     edges: Sequence[Mapping],
     multiplicity: Mapping,
     entities: Sequence[Mapping],
+    relations: Sequence[Mapping],
 ) -> list[dict]:
     """O7: where the corpus contradicts itself, and the card findings that carry over."""
     findings = [
         *_cardinality_conflicts(edges, multiplicity),
         *_competing_candidate_keys(entities),
         *_key_hint_conflicts(entities),
+        *_relation_hint_conflicts(entities, relations),
         *_card_findings(cards),
     ]
     ordered = sorted(
@@ -1737,6 +1945,56 @@ def _key_hint_finding(entity: Mapping, hint: Mapping, keys: Sequence[Mapping]) -
         "text": (
             f"元数据注释称 {hinted} 为主键（{normalize_inline(str(hint['text']))}），"
             f"语料候选键为 {guessed}——两者不一致，请人工判定哪一个是身份键。"
+        ),
+    }
+
+
+def _relation_hint_conflicts(
+    entities: Sequence[Mapping], relations: Sequence[Mapping]
+) -> list[dict]:
+    """O9: the comment points one way and a proven JOIN points at another table.
+
+    A hint that merely differs from an assumption is not news -- the assumption is what
+    the hint exists to corroborate. A hint that differs from a *proven* edge is: either
+    the comment was copied from a table this column no longer points at, or the proven
+    edge joins through something nobody wrote down. Both are somebody's wrong answer.
+    """
+    return [
+        _relation_hint_finding(entity, hint, relation)
+        for entity in entities
+        for hint in entity.get("relation_hints") or []
+        if not hint.get("unresolved")
+        for relation in relations
+        if _contradicts(relation, str(entity["id"]), hint)
+    ]
+
+
+def _contradicts(relation: Mapping, entity: str, hint: Mapping) -> bool:
+    """A proven edge out of the same column that lands on another entity."""
+    return (
+        str(relation["from"]["entity"]) == entity
+        and str((relation.get("cardinality") or {}).get("tier")) == TIER_PROVEN
+        and str(hint["from_column"]) in relation["from"]["columns"]
+        and str(relation["to"]["entity"]) != str(hint["to"]["entity"])
+    )
+
+
+def _relation_hint_finding(entity: Mapping, hint: Mapping, relation: Mapping) -> dict:
+    tasks = sorted(
+        {str(item["task"]) for item in relation.get("evidence") or [] if item.get("task")}
+    )
+    return {
+        "kind": FINDING_RELATION_HINT_CONFLICT,
+        "entity": str(entity["id"]),
+        "columns": [str(hint["from_column"])],
+        "tasks": {"proven_by": tasks},
+        "text": (
+            f"元数据注释称 `{entity['id']}`.`{hint['from_column']}` 指向 "
+            f"`{hint['to']['entity']}`.`{hint['to']['column']}`"
+            f"（{normalize_inline(str(hint['text']))}），"
+            f"语料已证明它关联的是 `{relation['to']['entity']}`"
+            "——两者指向不同的表，"
+            "请人工判定注释与语料哪一个过时了。"
         ),
     }
 
@@ -2547,6 +2805,29 @@ def _card_relations(entity: Mapping, ontology: Mapping) -> list[str]:
     lines.extend(_relation_table(outgoing, "from", "to"))
     lines.extend(["", "**入边（本表在右）**", ""])
     lines.extend(_relation_table(incoming, "to", "from"))
+    lines.extend(_card_hint_lines(entity.get("relation_hints") or []))
+    return lines
+
+
+def _card_hint_lines(hints: Sequence[Mapping]) -> list[str]:
+    """O9: what the column comments say this table points at, resolved or not.
+
+    Absent when there are none: a table whose comments point at nothing is the same
+    table it was before O9, and an empty sub-block would say otherwise.
+    """
+    if not hints:
+        return []
+    lines = ["", "**注释线索**", ""]
+    lines.extend(
+        f"- `{hint['from_column']}` → `{hint['to']['entity']}`.`{hint['to']['column']}`"
+        f" — 列注释：{normalize_inline(str(hint['text']))}"
+        + (
+            f"（未解析：{hint['unresolved']}）"
+            if hint.get("unresolved")
+            else "（元数据线索，不是语料证据）"
+        )
+        for hint in hints
+    )
     return lines
 
 
