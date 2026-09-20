@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import copy
 import datetime
+import functools
 import re
 from typing import Iterable, Mapping, Sequence
 
@@ -171,15 +172,31 @@ NULLABLE_LEFT_JOIN_TYPES = frozenset({"RIGHT_OUTER", "FULL_OUTER"})
 # --------------------------------------------------------------------- parsing
 
 
+# Q5. One expression text is parsed by a dozen different questions of the same profile
+# -- "is it an aggregate", "is it nondeterministic", "what are its CASE branches" --
+# and each used to pay for its own sqlglot parse. The cache makes the text the unit of
+# work instead of the question: most of what one document parses it has parsed already.
+# It is keyed and bounded by text, so a corpus walk holds a fixed number of trees.
+#
+# Safe because nobody mutates a parsed node: every writer here (``_plain``,
+# ``describe_aggregate_wrapper``) works on ``copy.deepcopy`` of it first.
+_PARSE_CACHE_SIZE = 2048
+
+
+@functools.lru_cache(maxsize=_PARSE_CACHE_SIZE)
+def _parse_expression_cached(expression: str):
+    try:
+        return sqlglot.parse_one(expression, read=DIALECT)
+    except Exception:  # noqa: BLE001 - sqlglot raises many parse error types; any of
+        # them means "not restatable", which is a normal outcome here, not a failure.
+        return None
+
+
 def parse_expression(expression: str | None):
     """Parse one Spark expression, or return None when sqlglot cannot."""
     if not expression:
         return None
-    try:
-        return sqlglot.parse_one(str(expression), read=DIALECT)
-    except Exception:  # noqa: BLE001 - sqlglot raises many parse error types; any of
-        # them means "not restatable", which is a normal outcome here, not a failure.
-        return None
+    return _parse_expression_cached(str(expression))
 
 
 # ------------------------------------------------------------------ comment kinds
@@ -308,11 +325,39 @@ def _plain(node: exp.Expression) -> exp.Expression:
     return clone
 
 
+class _NodeKey:
+    """A cache key that is one *node object*, not one expression value.
+
+    ``exp.Expression`` hashes by content, which would mean walking the tree on every
+    lookup -- as costly as the deepcopy the cache exists to avoid. Identity is enough
+    because the key holds the node alive, so its ``id`` cannot be reused while cached.
+    """
+
+    __slots__ = ("node",)
+
+    def __init__(self, node: exp.Expression) -> None:
+        self.node = node
+
+    def __hash__(self) -> int:
+        return id(self.node)
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _NodeKey) and other.node is self.node
+
+
+@functools.lru_cache(maxsize=_PARSE_CACHE_SIZE)
+def _plain_sql(key: _NodeKey) -> str:
+    return _plain(key.node).sql(dialect=DIALECT)
+
+
 def expression_text(node: exp.Expression | None) -> str:
     """Render a parsed node back to SQL without quoting or column qualifiers."""
     if node is None:
         return ""
-    return _plain(node).sql(dialect=DIALECT)
+    # Q5. The deepcopy inside `_plain` was the second-largest cost after parsing, and
+    # most of it was spent re-rendering the *same* node: the parse cache above hands the
+    # same tree to every question asked about one expression.
+    return _plain_sql(_NodeKey(node))
 
 
 # sqlglot canonicalizes several surface functions onto one node type; map the canonical
