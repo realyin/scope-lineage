@@ -16,14 +16,32 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from .corpus_cache import add_incremental_arguments, open_cache
+from .corpus_cache import (
+    add_incremental_arguments,
+    open_cache,
+    project_profile,
+    union_fields,
+)
+from .render.glossary import PROFILE_FIELDS_READ as GLOSSARY_FIELDS_READ
+from .render.ontology import (
+    PROFILE_FIELDS_READ as ONTOLOGY_FIELDS_READ,
+)
 from .render.ontology import (
     build_ontology,
     render_ontology_index_markdown,
     render_ontology_table_card_markdown,
 )
 from .render.ontology_export import EXPORT_FILENAMES, EXPORT_FORMATS, render_export
+from .render.table_cards import PROFILE_FIELDS_READ as TABLE_FIELDS_READ
 from .render.table_cards import table_card_filename
+
+# P2. The ontology is merged from three builders over one collected profile -- itself,
+# the table cards (built here unless `--tables` supplied one) and, underneath both, the
+# value dictionary. The first two read the same profile, so the cached payload is the
+# union of their two lists; the dictionary reads a profile built *without* diagnostics,
+# which is a second, separately projected payload rather than a subset of the first.
+PROFILE_FIELDS_CACHED = union_fields(ONTOLOGY_FIELDS_READ, TABLE_FIELDS_READ)
+CACHED_FIELDS = (PROFILE_FIELDS_CACHED, GLOSSARY_FIELDS_READ)
 
 
 def add_ontology_parser(subcommands) -> None:
@@ -152,7 +170,7 @@ def run_ontology(args: argparse.Namespace) -> int:
     out_dir, root = Path(args.out), str(Path(args.lineage))
     chosen_exports = exports(getattr(args, "export", None))
     options = [args.format, root, overrides, tables, glossary, chosen_exports]
-    cache = open_cache(args, out_dir, found[1], "ontology", options)
+    cache = open_cache(args, out_dir, found[1], "ontology", options, fields=CACHED_FIELDS)
     try:
         collected = _collect(loaded.documents, cache, needs_glossary=glossary is None)
     except ValueError as error:
@@ -232,13 +250,19 @@ def _collect(items, cache, *, needs_glossary: bool) -> list[dict]:
     the corpus differently: the entity/relation half reads the profile *with* the task's
     diagnostics, and the value dictionary underneath it reads the profile the document
     alone proves. A supplied ``--glossary`` makes the second one unnecessary.
+
+    P2: each is cut to what the builders that read it read, and each builder is handed
+    the same cut whether it came from the cache or from this run.
     """
     from .render.semantic_profile import build_semantic_profile
 
     def build(item) -> dict:
-        facts = {"profile": build_semantic_profile(item.document, item.diagnostics)}
+        profile = build_semantic_profile(item.document, item.diagnostics)
+        facts = {"profile": project_profile(profile, PROFILE_FIELDS_CACHED)}
         if needs_glossary:
-            facts["glossary_profile"] = build_semantic_profile(item.document)
+            facts["glossary_profile"] = project_profile(
+                build_semantic_profile(item.document), GLOSSARY_FIELDS_READ
+            )
         return facts
 
     collected = []

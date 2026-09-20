@@ -63,6 +63,31 @@ GLOSSARY_KEYS = (
     "overrides_applied",
 )
 
+# P2: which keys of a semantic profile ``build_glossary`` reads, and so the whole of what
+# `scope-lineage glossary --incremental` stores per task. It lives here, next to the code
+# that reads them, so a builder that starts reading a new key has the list under its nose;
+# `tests/core/test_corpus_cache_projection.py` fails until the two agree. The dictionary
+# takes its terms and its table identity from the contract *documents*, so all it wants
+# from the profile is where the constants are: the rules, and the constant projections
+# inside each field's derivation. Everything the reader half of a profile is made of --
+# `stages`, `confidence`, `inputs`, `output_shape`, the field summaries -- is not read
+# here and is not stored.
+PROFILE_FIELDS_READ = {
+    "profile": (),
+    "statement": {
+        "statement_id": None,
+        "rules": None,
+        "fields": (
+            "column",
+            "sql_alias",
+            "sql_comments",
+            "mapping_chain_id",
+            "derivation",
+            "generated_sources",
+        ),
+    },
+}
+
 
 # A schema-less `SELECT *` leaves the wildcard itself in `column_details`. It is a
 # projection marker, not a column anybody can look a meaning up for.
