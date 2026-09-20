@@ -28,6 +28,7 @@ from ..scope.scope_types import (
     SourceRef,
 )
 from ..scope.end_to_end import build_end_to_end_lineage
+from ..scope.expansion_budget import expansion_limit_fact
 from ..scope.parser import resolve_display_expression
 from ..serialize.scope_profile import build_scope_profile
 
@@ -491,6 +492,13 @@ def _scope_output_field_to_dict(output: ScopeOutputField) -> dict:
             d["expansion_status"] = output.expansion_status
             d["expansion_stop_reason"] = output.expansion_stop_reason
             d["unexpanded_refs"] = output.unexpanded_refs
+            # Only where the guard cost text and not sources: the published expression is
+            # then cut at the limit and ends in a marker saying so (Q2).
+            if output.expansion_truncated:
+                d["expansion_truncated"] = True
+                d["expansion_limit"] = expansion_limit_fact(
+                    output.expansion_stop_reason, output.expansion_limit
+                )
     if output.expression_resolution:
         d["expression_resolution"] = to_dict(output.expression_resolution)
     if output.consumer_readiness:

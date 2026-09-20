@@ -20,6 +20,70 @@ EXPANSION_MAX_SUBSTITUTIONS = 2_000  # guards reference count, which chars alone
 #: produces. Named here, beside the number it moves, so the two cannot drift apart.
 EXPANSION_LIMIT_FLAG = "--expansion-limit"
 
+#: Which guard an operator can move, and with what. ``max_chars`` is the materialized
+#: size ceiling and has no flag: raising it would hand back the multiplicative blow-up
+#: the budget exists to prevent, while the untouched reference already points at the rest.
+EXPANSION_GUARD_FLAGS = {"max_substitutions": EXPANSION_LIMIT_FLAG}
+
+
+def expansion_limit_fact(guard: str | None, limit: int | None) -> dict | None:
+    """The guard that stopped an expansion and the number it stopped at, or nothing.
+
+    One shape for every place that publishes it -- the output, its mapping chain and the
+    gap's evidence -- so a consumer learns to read it once.
+    """
+    if not guard or limit is None:
+        return None
+    return {"guard": str(guard), "limit": int(limit)}
+
+#: The trailing note a guarded expression carries, so a consumer reading the text alone
+#: cannot mistake a capped expansion for the whole logic (Q2). A SQL block comment: the
+#: published expression stays parseable, exactly as the untouched `a.field` reference it
+#: sits beside does.
+EXPANSION_TRUNCATION_MARKER = "/* expansion truncated at {guard}={limit} */"
+
+
+def expansion_truncation_marker(guard: str, limit: int) -> str:
+    """The marker for one guard and the number it stopped at."""
+    return EXPANSION_TRUNCATION_MARKER.format(guard=guard, limit=int(limit))
+
+
+def truncated_expansion(expression: str, guard: str, limit: int) -> str:
+    """``expression`` published with its truncation marker, still within the ceiling.
+
+    Only ``max_chars`` is a size, so only it can require cutting text; the marker is then
+    made room for rather than added on top, and the published string stays inside the
+    limit the guard declared. ``max_substitutions`` counts references, so its number says
+    nothing about length and the text is marked as it stands.
+    """
+    marker = expansion_truncation_marker(guard, limit)
+    text = str(expression or "")
+    if guard == "max_chars":
+        room = max(int(limit) - len(marker) - 1, 0)
+        if len(text) > room:
+            text = text[:room].rstrip()
+    return f"{text} {marker}" if text else marker
+
+
+def expansion_sources_are_resolved(resolution: dict | None) -> bool:
+    """Whether the walk finished the source set that the text ran out of room for.
+
+    The two facts are independent: the budget caps the *concatenated text*, while the
+    source sets are unioned from each upstream output whether or not its text was inlined
+    (see ``_restore_facts_behind_unexpanded_refs``). When the sources are complete, a
+    tripped guard is a publishing limit — a warning — not a missing lineage fact.
+    """
+    resolution = resolution or {}
+    if str(resolution.get("status") or "") != "resolved":
+        return False
+    if [reason for reason in resolution.get("missing_reasons") or [] if reason]:
+        return False
+    return bool(
+        resolution.get("physical_source_fields")
+        or resolution.get("generated_sources")
+        or resolution.get("rowset_sources")
+    )
+
 #: One run's substitution allowance, or None for the module default. A ContextVar rather
 #: than a rebound constant: the budget is constructed several layers below the caller
 #: that chose the number, and a process-wide assignment would outlive the parse that set

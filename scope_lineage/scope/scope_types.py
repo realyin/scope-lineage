@@ -178,6 +178,11 @@ class ScopeOutputField:
     # so the diagnostic can quote it: "bounded at max_substitutions" leaves the reader to
     # guess whether that was the default or something the run was asked for.
     expansion_limit: Optional[int] = None
+    # True when the guard fired on an output whose SOURCES are nonetheless complete: the
+    # published text is then truncated and carries a trailing marker, and the event is a
+    # statement warning rather than a lineage fact gap (Q2). "bounded" says the budget
+    # stopped; this says the stop cost text only.
+    expansion_truncated: bool = False
     # Which references were left unexpanded, as {scope_id, field, ref} — follow them to the
     # named scope's output to continue the expansion by hand.
     unexpanded_refs: List[dict] = field(default_factory=list)

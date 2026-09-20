@@ -1045,6 +1045,31 @@
                     "null"
                   ]
                 },
+                "expansion_truncated": {
+                  "type": "boolean",
+                  "description": "可选，仅在为 true 时出现：`expanded_expression` 在展开保护上限处被截断，文本以 `/* expansion truncated at <guard>=<limit> */` 结尾。来源事实（`expression_resolution` / 链路）不受影响，这是一条发布长度限制，对应语句级 `expansion_truncated` warning，而不是 lineage_fact_gap。未展开的引用见 `unexpanded_refs`。"
+                },
+                "expansion_limit": {
+                  "type": "object",
+                  "required": [
+                    "guard",
+                    "limit"
+                  ],
+                  "properties": {
+                    "guard": {
+                      "type": "string",
+                      "enum": [
+                        "max_chars",
+                        "max_substitutions"
+                      ]
+                    },
+                    "limit": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  },
+                  "description": "可选，与 `expansion_truncated` 同时出现：停在哪道闸（`guard`）和哪个数（`limit`）。`max_substitutions` 可用 `parse --expansion-limit N` 抬高；`max_chars` 没有开关。"
+                },
                 "expression_type": {
                   "type": "string",
                   "enum": [
@@ -1542,6 +1567,31 @@
           "items": {
             "type": "string"
           }
+        },
+        "expansion_truncated": {
+          "type": "boolean",
+          "description": "可选，仅在为 true 时出现：该链的 `expanded_expression` 在展开保护上限处被截断并带尾部标记。`trace_status` / `root_source_fields` 不受影响——被截断的是文本，不是血缘。"
+        },
+        "expansion_limit": {
+          "type": "object",
+          "required": [
+            "guard",
+            "limit"
+          ],
+          "properties": {
+            "guard": {
+              "type": "string",
+              "enum": [
+                "max_chars",
+                "max_substitutions"
+              ]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "description": "可选，与 `expansion_truncated` 同时出现：停在哪道闸（`guard`）和哪个数（`limit`），与对应 output 上的同名字段一致。"
         },
         "trace_status": {
           "type": "string",
