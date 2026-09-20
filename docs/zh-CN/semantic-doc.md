@@ -75,7 +75,7 @@ short = render_semantic_markdown(profile, sections=["overview", "fields_table"])
 - 同目录没有 `diagnostics.json` 时照常渲染，但第 6 节会明确写"无 diagnostics 文档"，
   并计入运行摘要的 `missing_diagnostics=N`，而不是沉默。
 
-## 增量运行：`--incremental` / `--no-cache`
+## 增量运行：`--incremental` / `--no-cache` / `--cache-from`
 
 一份语料只改了一两个任务，重跑却要把每个任务重新读一遍、重新算一遍。`--incremental` 让这一遍
 只落在指纹变了的任务上：
@@ -86,15 +86,24 @@ scope-lineage describe --lineage /path/to/corpus --out /path/to/out --incrementa
 
 - 它在 `--out` 下写两样可丢弃的东西：`.scope-lineage-corpus-index.json`（每个任务
   `lineage.json` / `diagnostics.json` 的 sha256，加一份「影响推导的选项」的 sha256）与
-  `.cache/`（每个任务在语料级合并之前贡献的那份事实）。
+  `.cache/`（每个任务描出来的那份/那两份文档——`describe` 没有语料级合并，文档本身就是它的事实）。
 - `describe` 没有语料级合并，一个任务就是一份产物：指纹、选项和已写出的
   `semantic.json` / `semantic.md` 都没变的任务被整个跳过，产物被删掉或改过就重描一遍。
+- **换一份语料也能复用**（Q7）：`--cache-from <目录>` 再指一处事实缓存——另一次运行的
+  `--out`，或它下面的 `.cache/`。另一份语料已经描过的同一个任务（`lineage.json` /
+  `diagnostics.json` 字节相同、选项摘要也相同），它的 `semantic.json` / `semantic.md`
+  直接照抄过来，不重新渲染；借来的文件同时抄进本次运行自己的 `.cache/`。可重复，按给出的
+  顺序、在本地缓存之后依次尝试；它本身即蕴含 `--incremental`，`--no-cache` 仍然优先。
+  语料路径**不进**选项摘要：同一个任务在哪个目录下解析，都该描出同一份文档。
+- 事实文件按任务名存放，两份语料完全可能各有一个同名而内容不同的任务。能不能借用由文件里记着的
+  指纹与选项摘要说了算，不由文件名说了算——同名不同内容的任务照样重描。
 - `--metadata-patch` 在场时不跳过任何任务：`patch_unmatched` 回答的是「这条确认在
   **整份语料**里都没匹配上」，只有每个任务都真的描过才成立。
 - 选项变了就整份作废、全部重算：`--overrides` 文件的**内容**、`--format`、读回来的
   `glossary.json` / `tables.json`、以及工具版本，任何一项对不上，索引就当没有。
   由别的子命令写下的索引或缓存（`command`、`doc_format` 对不上）同样当没有。
 - 摘要行末尾多出 `reused=N, recomputed=M, removed=K`：复用了几个、重算了几个、语料里少了几个。
+  给了 `--cache-from` 时第一项写成 `reused=N (borrowed=B)`，B 是从别处借来的那几个。
 - 不给 `--incremental` 就是原来的全量跑，既不读也不写索引与缓存；`--no-cache` 先把这两样
   删掉再全量跑。
 

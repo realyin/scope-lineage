@@ -160,8 +160,9 @@ def _run_corpus(args: argparse.Namespace, merged: list) -> int:
 
     out_dir, root = Path(args.out), str(Path(args.lineage))
     # The merged documents steer the published cards, so editing one invalidates the
-    # index for the same reason a changed samples file does.
-    options = [args.format, root, _samples_digest(args), args.samples_top, merged]
+    # index for the same reason a changed samples file does. The corpus path is not in
+    # the digest (Q7): the same task carded from another directory is the same task.
+    options = [args.format, _samples_digest(args), args.samples_top, merged]
     cache = open_cache(
         args, out_dir, found[1], "tables", options, fields=[PROFILE_FIELDS_READ]
     )

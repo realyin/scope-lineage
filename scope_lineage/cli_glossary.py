@@ -129,7 +129,11 @@ def run_glossary(args: argparse.Namespace) -> int:
     documents = loaded.documents
 
     out_dir, root = Path(args.out), str(Path(args.lineage))
-    options = [overrides, args.format, args.template, args.template_top, root]
+    # Q7: the corpus path is deliberately not in the digest. ``artifact_root`` lands on
+    # the corpus-level document, which is rebuilt every run; the per-task facts under it
+    # are the same facts wherever the task was parsed, which is what lets a second corpus
+    # borrow them (``--cache-from``).
+    options = [overrides, args.format, args.template, args.template_top]
     cache = open_cache(args, out_dir, found[1], "glossary", options, fields=[PROFILE_FIELDS_READ])
     try:
         glossary = build_glossary(
