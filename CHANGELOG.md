@@ -1,6 +1,29 @@
 # Changelog
 
 ## Unreleased
+- **One corpus can borrow another corpus's per-task cache** (Q7). `--incremental` only
+  ever looked under its own `--out`, so the same tasks parsed into a second directory --
+  a re-parse, or a larger corpus that contains them -- recomputed every profile although
+  the bytes were identical. The four corpus commands (`glossary`, `tables`, `ontology`,
+  `describe`) now take **`--cache-from <dir>`**, repeatable: further fact caches (another
+  run's `--out`, or the `.cache` directory inside it), tried in the order given and after
+  this run's own cache. A file is borrowed only when its `command`, `payload_version`,
+  options digest and recorded `lineage.json` / `diagnostics.json` fingerprints all equal
+  this task's -- two corpora may hold different tasks under one name, and the name is not
+  what decides. The borrowed file is copied into this run's own cache, so the next run
+  over that corpus finds it locally and the lending directory can go away. The summary
+  line reads `reused=N (borrowed=B), recomputed=M, removed=K`. `--cache-from` implies
+  `--incremental`; `--no-cache` still wins.
+- The corpus path is **no longer part of the options digest**: the same task derives the
+  same facts wherever it was parsed, which is what makes one corpus's cache usable by
+  another. A run that only changed `--lineage` now keeps its index instead of discarding
+  it.
+- Fact files are `corpus-cache/3`: they carry the options digest and the input
+  fingerprints they were derived under, so a file from another corpus can be judged on
+  its own rather than through the index beside it. A `corpus-cache/2` file is ignored and
+  recomputed, as a file of any other version is. `describe` now caches the documents it
+  wrote -- it has no corpus-level merge, so the documents *are* its facts, and they are
+  what another corpus borrows; its `.cache` grows by that much.
 - **A binding that fell back now says why, and a statement with no binding to make says
   so** (Q4). `binding_fallbacks=N` in the run summary was a number nobody could act on:
   a target whose metadata is missing, a projection that disagrees with the DDL and a

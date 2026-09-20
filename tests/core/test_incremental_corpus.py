@@ -10,11 +10,16 @@ That last sentence is the only claim worth testing, and it is tested the only wa
 be proved: run the command full, change one task, run it incrementally, and compare the
 bytes against a fresh full run over the same changed corpus. The counters beside it say
 *why* the run was faster -- a run that reused nothing would pass a bytes comparison too.
+
+``--cache-from`` (Q7) makes the same claim across two corpora: a task another corpus
+already derived is borrowed rather than recomputed, and the run still has to come out
+byte for byte the way a full run over *this* corpus does. It is proved the same way.
 """
 
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -216,10 +221,9 @@ def test_a_removed_task_is_dropped_from_the_index_and_the_cache(
     out = tmp_path / "out"
     assert _run(command, corpus, out, "--incremental") == 0
     capsys.readouterr()
-    # `describe` has no corpus-level merge and so caches no facts: its own outputs are
-    # the cache, and an unchanged task is skipped whole.
-    expected_facts = 0 if command == "describe" else 3
-    assert _fact_files(out) == expected_facts
+    # `describe` has no corpus-level merge: an unchanged task is skipped whole, and what
+    # it caches are the documents it wrote, for another corpus to borrow (Q7).
+    assert _fact_files(out) == 3
 
     for name in ("lineage.json", "diagnostics.json"):
         (corpus / "task_b" / name).unlink()
@@ -229,7 +233,7 @@ def test_a_removed_task_is_dropped_from_the_index_and_the_cache(
 
     index = json.loads((out / INDEX_FILE_NAME).read_text(encoding="utf-8"))
     assert sorted(index["inputs"]) == ["task_a", "task_c"]
-    assert _fact_files(out) == max(expected_facts - 1, 0)
+    assert _fact_files(out) == 2
 
 
 # ------------------------------------------------------ invalidation
@@ -270,7 +274,9 @@ def test_an_index_written_by_another_command_is_ignored(
     assert "reused=0, recomputed=3, removed=0" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("field", ("command", "doc_format", "payload_version"))
+@pytest.mark.parametrize(
+    "field", ("command", "doc_format", "payload_version", "options_sha256", "inputs")
+)
 def test_a_fact_file_written_by_another_command_is_ignored(
     tmp_path: Path, capsys, field: str
 ) -> None:
@@ -403,12 +409,17 @@ def test_a_fact_file_declares_the_payload_it_holds(
     assert _run(command, corpus, out, "--incremental") == 0
     capsys.readouterr()
 
+    index = json.loads((out / INDEX_FILE_NAME).read_text(encoding="utf-8"))
     payloads = _fact_payloads(out)
     assert payloads
     for payload in payloads:
-        assert payload["doc_format"] == CACHE_DOC_FORMAT == "corpus-cache/2"
+        assert payload["doc_format"] == CACHE_DOC_FORMAT == "corpus-cache/3"
         assert payload["payload_version"] == PAYLOAD_VERSION
         assert payload["command"] == command
+        # Q7: a fact file carries what it was derived from, so another corpus can judge
+        # it on its own -- the index beside it is not travelling with it.
+        assert payload["options_sha256"] == index["options_sha256"]
+        assert payload["inputs"] in index["inputs"].values()
 
 
 @pytest.mark.parametrize(
@@ -464,3 +475,223 @@ def test_the_trimmed_payload_is_a_fraction_of_the_whole_profile(
         whole += len(json.dumps(profile, ensure_ascii=False).encode("utf-8"))
 
     assert cached < whole * 0.4
+
+
+# ------------------------------------------ borrowing another corpus's cache (Q7)
+
+
+def _copy_corpus(corpus: Path, destination: Path) -> Path:
+    """The same tasks under another root: byte for byte the corpus they were copied from,
+    which is the case `--cache-from` exists for."""
+    shutil.copytree(corpus, destination)
+    return destination
+
+
+@pytest.mark.parametrize("command", CORPUS_COMMANDS)
+def test_a_second_corpus_borrows_the_tasks_it_shares_with_the_first(
+    tmp_path: Path, capsys, command: str
+) -> None:
+    """The Q7 claim, proved the way the incremental one is: corpus B is corpus A with one
+    task changed, and a run that borrows A's cache publishes what a full run over B does.
+
+    `task_c` is in both corpora under one name with different contents -- the case a
+    name-keyed cache would get wrong -- and it is the task that is recomputed.
+    """
+    corpus_a = _corpus(tmp_path / "corpus-a")
+    out_a = tmp_path / "out-a"
+    assert _run(command, corpus_a, out_a, "--incremental") == 0
+    capsys.readouterr()
+
+    corpus_b = _copy_corpus(corpus_a, tmp_path / "corpus-b")
+    _change_one_task(corpus_b)
+    out_b = tmp_path / "out-b"
+    assert _run(command, corpus_b, out_b, "--incremental", "--cache-from", str(out_a)) == 0
+    assert "reused=2 (borrowed=2), recomputed=1, removed=0" in capsys.readouterr().out
+
+    full_out = tmp_path / "full"
+    assert _run(command, corpus_b, full_out) == 0
+    assert _published(out_b) == _published(full_out)
+
+
+def test_an_unchanged_copy_of_a_corpus_borrows_every_task(tmp_path: Path, capsys) -> None:
+    """The corpus path is not in the options digest: the same task derives the same facts
+    wherever it was parsed. `--cache-from` also takes the `.cache` directory itself."""
+    corpus_a = _corpus(tmp_path / "corpus-a")
+    out_a = tmp_path / "out-a"
+    assert _run("glossary", corpus_a, out_a, "--incremental") == 0
+    capsys.readouterr()
+
+    corpus_b = _copy_corpus(corpus_a, tmp_path / "corpus-b")
+    out_b = tmp_path / "out-b"
+    cache_a = out_a / CACHE_DIR_NAME
+    assert _run("glossary", corpus_b, out_b, "--incremental", "--cache-from", str(cache_a)) == 0
+    assert "reused=3 (borrowed=3), recomputed=0, removed=0" in capsys.readouterr().out
+
+    full_out = tmp_path / "full"
+    assert _run("glossary", corpus_b, full_out) == 0
+    assert _published(out_b) == _published(full_out)
+
+
+def test_a_borrowed_fact_becomes_this_corpus_s_own(tmp_path: Path, capsys) -> None:
+    """The borrowed file is copied in, so the corpus it was borrowed from can go away."""
+    corpus_a = _corpus(tmp_path / "corpus-a")
+    out_a = tmp_path / "out-a"
+    assert _run("tables", corpus_a, out_a, "--incremental") == 0
+    corpus_b = _copy_corpus(corpus_a, tmp_path / "corpus-b")
+    out_b = tmp_path / "out-b"
+    assert _run("tables", corpus_b, out_b, "--incremental", "--cache-from", str(out_a)) == 0
+    capsys.readouterr()
+    assert _fact_files(out_b) == 3
+
+    shutil.rmtree(out_a)
+    assert _run("tables", corpus_b, out_b, "--incremental") == 0
+
+    captured = capsys.readouterr().out
+    assert "reused=3, recomputed=0, removed=0" in captured
+    assert "borrowed" not in captured
+
+
+def test_cache_from_implies_incremental(tmp_path: Path, capsys) -> None:
+    """A run that names a cache to borrow from has already asked for one -- and it writes
+    its own index and cache, or the next run over this corpus would borrow all over."""
+    corpus_a = _corpus(tmp_path / "corpus-a")
+    out_a = tmp_path / "out-a"
+    assert _run("ontology", corpus_a, out_a, "--incremental") == 0
+    corpus_b = _copy_corpus(corpus_a, tmp_path / "corpus-b")
+    out_b = tmp_path / "out-b"
+    capsys.readouterr()
+
+    assert _run("ontology", corpus_b, out_b, "--cache-from", str(out_a)) == 0
+
+    assert "reused=3 (borrowed=3), recomputed=0, removed=0" in capsys.readouterr().out
+    assert (out_b / INDEX_FILE_NAME).is_file()
+    assert _fact_files(out_b) == 3
+
+
+def test_a_run_under_other_options_borrows_nothing(tmp_path: Path, capsys) -> None:
+    """The options digest guards a borrowed file exactly as it guards the own index: the
+    file says which options it was derived under, and this run's differ."""
+    corpus_a = _corpus(tmp_path / "corpus-a")
+    out_a = tmp_path / "out-a"
+    assert _run("glossary", corpus_a, out_a, "--incremental") == 0
+    overrides = tmp_path / "glossary.overrides.json"
+    overrides.write_text(
+        json.dumps({"terms": {"pay_status": {"text": "支付状态"}}}), encoding="utf-8"
+    )
+    corpus_b = _copy_corpus(corpus_a, tmp_path / "corpus-b")
+    capsys.readouterr()
+
+    assert (
+        _run(
+            "glossary",
+            corpus_b,
+            tmp_path / "out-b",
+            "--incremental",
+            "--cache-from",
+            str(out_a),
+            "--overrides",
+            str(overrides),
+        )
+        == 0
+    )
+
+    assert "reused=0 (borrowed=0), recomputed=3, removed=0" in capsys.readouterr().out
+
+
+def test_a_task_of_the_same_name_and_other_contents_is_described_again(
+    tmp_path: Path, capsys
+) -> None:
+    """Fact files are keyed by task name, and two corpora may hold different tasks under
+    one name. What makes a borrow safe is the fingerprint inside the file, not the name
+    of the file -- so the document this corpus publishes is its own task's."""
+    corpus_a = _corpus(tmp_path / "corpus-a")
+    out_a = tmp_path / "out-a"
+    assert _run("describe", corpus_a, out_a, "--incremental") == 0
+    corpus_b = _copy_corpus(corpus_a, tmp_path / "corpus-b")
+    _write_task(corpus_b, "task_a", CHANGED_TASK_C_SQL)
+    out_b = tmp_path / "out-b"
+    capsys.readouterr()
+
+    assert _run("describe", corpus_b, out_b, "--cache-from", str(out_a)) == 0
+
+    assert "reused=2 (borrowed=2), recomputed=1, removed=0" in capsys.readouterr().out
+    described = (out_b / "task_a" / "semantic.json").read_bytes()
+    assert described != (out_a / "task_a" / "semantic.json").read_bytes()
+    full_out = tmp_path / "full"
+    assert _run("describe", corpus_b, full_out) == 0
+    assert _published(out_b) == _published(full_out)
+
+
+def test_this_run_s_own_output_directory_is_not_a_second_cache(
+    tmp_path: Path, capsys
+) -> None:
+    """A run's own cache is read through its index, once. Naming it as `--cache-from`
+    does not add a weaker second way in -- and `borrowed` keeps meaning "from elsewhere"."""
+    corpus = _corpus(tmp_path / "corpus")
+    out = tmp_path / "out"
+    assert _run("glossary", corpus, out, "--incremental") == 0
+    capsys.readouterr()
+
+    assert _run("glossary", corpus, out, "--incremental", "--cache-from", str(out)) == 0
+
+    captured = capsys.readouterr().out
+    assert "reused=3, recomputed=0, removed=0" in captured
+    assert "borrowed" not in captured
+
+
+@pytest.mark.parametrize("command", CORPUS_COMMANDS)
+def test_no_cache_beats_cache_from(tmp_path: Path, capsys, command: str) -> None:
+    corpus_a = _corpus(tmp_path / "corpus-a")
+    out_a = tmp_path / "out-a"
+    assert _run(command, corpus_a, out_a, "--incremental") == 0
+    corpus_b = _copy_corpus(corpus_a, tmp_path / "corpus-b")
+    out_b = tmp_path / "out-b"
+    capsys.readouterr()
+
+    assert _run(command, corpus_b, out_b, "--no-cache", "--cache-from", str(out_a)) == 0
+
+    assert not (out_b / INDEX_FILE_NAME).exists()
+    assert not (out_b / CACHE_DIR_NAME).exists()
+    assert "reused=" not in capsys.readouterr().out
+
+
+def test_a_borrowed_file_is_judged_on_its_own_header(tmp_path: Path, capsys) -> None:
+    """The borrowed corpus's index is never read -- so every condition has to be in the
+    file, and a file that fails one of them is not borrowed."""
+    corpus_a = _corpus(tmp_path / "corpus-a")
+    out_a = tmp_path / "out-a"
+    assert _run("glossary", corpus_a, out_a, "--incremental") == 0
+    for payload_path in (out_a / CACHE_DIR_NAME).glob("*.json"):
+        payload = json.loads(payload_path.read_text(encoding="utf-8"))
+        payload["doc_format"] = "something-else"
+        payload_path.write_text(json.dumps(payload), encoding="utf-8")
+    corpus_b = _copy_corpus(corpus_a, tmp_path / "corpus-b")
+    capsys.readouterr()
+
+    assert _run("glossary", corpus_b, tmp_path / "out-b", "--cache-from", str(out_a)) == 0
+
+    assert "reused=0 (borrowed=0), recomputed=3, removed=0" in capsys.readouterr().out
+
+
+def test_describe_re_describes_a_task_whose_borrowed_documents_are_unusable(
+    tmp_path: Path, capsys
+) -> None:
+    """A cache file is a cache file: one that does not hold the documents this run
+    publishes costs a re-describe, never an exception."""
+    corpus_a = _corpus(tmp_path / "corpus-a")
+    out_a = tmp_path / "out-a"
+    assert _run("describe", corpus_a, out_a, "--incremental") == 0
+    for payload_path in (out_a / CACHE_DIR_NAME).glob("*.json"):
+        payload = json.loads(payload_path.read_text(encoding="utf-8"))
+        payload["facts"] = {"documents": {"semantic.json": None}}
+        payload_path.write_text(json.dumps(payload), encoding="utf-8")
+    corpus_b = _copy_corpus(corpus_a, tmp_path / "corpus-b")
+    out_b = tmp_path / "out-b"
+    capsys.readouterr()
+
+    assert _run("describe", corpus_b, out_b, "--cache-from", str(out_a)) == 0
+
+    assert "reused=0 (borrowed=0), recomputed=3, removed=0" in capsys.readouterr().out
+    full_out = tmp_path / "full"
+    assert _run("describe", corpus_b, full_out) == 0
+    assert _published(out_b) == _published(full_out)

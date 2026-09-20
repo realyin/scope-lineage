@@ -88,7 +88,7 @@ card = render_ontology_table_card_markdown(cards["tables"][0], ontology)
   [Exporting LinkML / SHACL](#exporting-linkml--shacl).
 - Determinism: the same corpus produces the same bytes whatever order it was walked in.
 
-## Incremental runs: `--incremental` / `--no-cache`
+## Incremental runs: `--incremental` / `--no-cache` / `--cache-from`
 
 One or two tasks changed, and the rerun still reads and re-derives every task in the
 corpus. `--incremental` narrows that pass to the tasks whose fingerprints moved:
@@ -106,17 +106,30 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
   `derivation` -- is never merged and so is never stored. Which fields count is each
   builder's own list (`PROFILE_FIELDS_READ`, beside the code that reads it); editing
   one invalidates the whole index and recomputes everything.
-- The stored facts are **versioned**: `payload_version` (`corpus-cache/2` today). A
+- The stored facts are **versioned**: `payload_version` (`corpus-cache/3` today). A
   cache file or an index of another version is ignored and recomputed -- an older
   version held something else, not the same thing with fewer keys.
 - **The corpus-level merge still runs over every task**: only the per-task half is
   reused, which is what makes an incremental run byte-identical to a full one.
+- **Another corpus's cache can be reused too** (Q7): `--cache-from <dir>` names a further
+  fact cache -- the `--out` of another run, or the `.cache/` inside it. The same task parsed
+  into another directory (re-parsed, or walked again as part of a larger corpus) is borrowed
+  rather than re-derived when its `lineage.json` / `diagnostics.json` bytes and the options
+  digest match, and the borrowed file is copied into this run's own `.cache/`, so the next
+  run finds it locally and the lending directory can go away. Repeatable, tried in the order
+  given and after this run's own cache; it implies `--incremental`, and `--no-cache` still
+  wins. The corpus path is **not** part of the options digest: the same task has to derive
+  the same facts wherever it was parsed.
+- Fact files are keyed by task name, and two corpora may hold different tasks under one
+  name. What decides a borrow is the fingerprint and the options digest recorded inside the
+  file, not the file's name, so a task of the same name and other contents is recomputed.
 - A changed option invalidates the whole index and recomputes everything: the **content**
   of the `--overrides` file, `--format`, the `glossary.json` / `tables.json` read back,
   and the tool version. An index or a cache file written by another subcommand (a
   `command` or `doc_format` that disagrees) is ignored the same way.
 - The summary line gains `reused=N, recomputed=M, removed=K`: how many tasks were reused,
-  re-derived, and have disappeared from the corpus.
+  re-derived, and have disappeared from the corpus. With `--cache-from` the first counter
+  reads `reused=N (borrowed=B)`, `B` being the tasks borrowed from another corpus.
 - Without `--incremental` the run is the full one it always was, reading and writing
   neither index nor cache; `--no-cache` deletes both first and then runs in full.
 
@@ -634,5 +647,10 @@ All three share one semantic profile: the CLI parses and profiles one corpus exa
 - Incremental runs within one corpus exist (`--incremental`, see "Incremental runs"), and
   so does reuse *across* corpora: `tables --merge` folds several corpora's cards into one,
   `ontology --tables` repeats and merges them first, and foreign evidence always carries
-  its `corpus` (see "Cross-corpus evidence"). What is still later work is cross-corpus
-  reuse of the *profiles* -- one corpus's per-task fact cache feeding another's run.
+  its `corpus` (see "Cross-corpus evidence"). Cross-corpus reuse of the *profiles* now
+  exists too -- `--cache-from` feeds one corpus's per-task fact cache to another's run
+  (Q7, see "Incremental runs").
+- Only the per-task half is ever borrowed: the corpus-level merge still runs over every
+  task, so a `--cache-from` run is byte-identical to a full one. What does not exist is a
+  cross-corpus *index* -- several corpora sharing one content-addressed cache directory --
+  so it is on the caller to point `--cache-from` at the right place.

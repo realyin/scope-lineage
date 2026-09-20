@@ -156,6 +156,18 @@ Carded 31 table(s) from 5 task(s) (..., reused=5, recomputed=0, removed=0)
 合并照样跑全量，所以增量跑出来的产物与全量跑逐字节一致。选项、overrides 内容或工具版本
 任何一项变了，索引整份作废、全部重算；`--no-cache` 先删掉这两样再全量跑。
 
+换一份语料（同样那些任务解析到另一个目录下，或是一份更大的语料）时，再加一个
+`--cache-from` 指向前一次的 `--out`，字节相同的任务就直接借用，不必重算：
+
+```bash
+scope-lineage tables --lineage "$OUT2/artifacts" --out "$OUT2/corpus" \
+  --cache-from "$OUT/corpus"
+```
+
+```text
+Carded 31 table(s) from 5 task(s) (..., reused=4 (borrowed=4), recomputed=1, removed=0)
+```
+
 ### 6. 人工确认回写一轮：`--overrides`
 
 到这里所有取值的含义都还是空的——Core 不从拼写猜含义。人确认过的含义写进一份
@@ -251,6 +263,7 @@ Core 只产确定性事实，业务命名、含义与实体关系的判断留给
 | 人工确认的注释要进产物本身 | `parse --metadata-patch <file>` | 与 `describe --metadata-patch` 读同一份 `metadata-patch/1` 文件；前者重写产物，后者只在内存里套用 |
 | 一条注释都不能离开机器 | `parse --strip-comments` | 默认收集作者注释（语句头、每个输出、每个逻辑块），脱敏是形状匹配、既不穷尽也不保证 |
 | 只要某几节 markdown | `describe --sections …`、`render --sections …` | 字段很多的大任务可以只留紧凑清单那一节 |
+| 同一批任务要在另一份语料里再跑一次 | `--cache-from <上一次的 --out>`（四条语料级命令都支持） | 字节相同、选项摘要相同的任务借用已缓存的事实，摘要行报 `reused=N (borrowed=B)`；借来的抄进本次自己的缓存，产物与全量跑逐字节一致 |
 
 输入格式、catalog 前缀、质量门禁等参数见[输入格式](input-formats.md)与
 [安装与使用指南](getting-started.md)。

@@ -409,7 +409,8 @@ scope-lineage ontology --lineage /tmp/scope-lineage-corpus --out /tmp/scope-line
 四个语料级命令（`describe`、`tables`、`glossary`、`ontology`）默认每次重跑都把每个任务重算
 一遍。加上 `--incremental`，重跑就只重算 `lineage.json` / `diagnostics.json` 变了的任务，
 其余任务从 `--out` 下的按任务事实缓存里取；语料级合并照样跑全量，因此产物与全量跑逐字节一致。
-`--no-cache` 先删掉缓存与索引再全量跑。
+`--cache-from <目录>`（可重复）再借用另一次运行缓存下来的事实，同一个任务被另一份语料再走
+一遍时就不必重算。`--no-cache` 先删掉缓存与索引再全量跑。
 
 更多完整输入见 [examples/README.zh-CN.md](examples/README.zh-CN.md)，字段级说明见
 [Core 输入格式](docs/zh-CN/input-formats.md)。

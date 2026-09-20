@@ -172,6 +172,19 @@ runs in full, so an incremental run is byte-identical to a full one. If any opti
 content of an overrides file, or the tool version changes, the whole index is discarded
 and everything is recomputed; `--no-cache` deletes both first and runs in full.
 
+For a second corpus — the same tasks parsed into another directory, or a larger corpus
+containing them — add a `--cache-from` pointing at the previous `--out`, and the tasks
+whose bytes are unchanged are borrowed rather than re-derived:
+
+```bash
+scope-lineage tables --lineage "$OUT2/artifacts" --out "$OUT2/corpus" \
+  --cache-from "$OUT/corpus"
+```
+
+```text
+Carded 31 table(s) from 5 task(s) (..., reused=4 (borrowed=4), recomputed=1, removed=0)
+```
+
 ### 6. One write-back round: `--overrides`
 
 Up to here no value has a meaning — Core never guesses one from the spelling. Confirmed
@@ -274,6 +287,7 @@ and the non-zero ones are what to open the artifacts for.
 | confirmed comments must land in the artifacts | `parse --metadata-patch <file>` | reads the same `metadata-patch/1` file as `describe --metadata-patch`; the former rewrites the artifacts, the latter applies it in memory only |
 | no comment may leave the machine | `parse --strip-comments` | author comments (statement header, per output, per logic block) are collected by default, and redaction is shape matching — neither exhaustive nor certain |
 | only some markdown sections | `describe --sections …`, `render --sections …` | a task with many fields can keep just the compact list section |
+| the same tasks run again as part of another corpus | `--cache-from <the previous --out>` (all four corpus-level commands) | a task whose bytes and options digest match borrows the cached facts, and the summary reads `reused=N (borrowed=B)`; the borrowed file is copied into this run's own cache, and the published bytes are those of a full run |
 
 Input formats, catalog prefixes, quality gates and the remaining flags are covered in
 [Input formats](input-formats.md) and the

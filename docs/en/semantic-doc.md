@@ -93,7 +93,7 @@ short = render_semantic_markdown(profile, sections=["overview", "fields_table"])
   section 6 states "无 diagnostics 文档" ("no diagnostics document") explicitly and the run summary
   counts it in `missing_diagnostics=N`, rather than staying silent.
 
-## Incremental runs: `--incremental` / `--no-cache`
+## Incremental runs: `--incremental` / `--no-cache` / `--cache-from`
 
 One or two tasks changed, and the rerun still reads and re-derives every task in the
 corpus. `--incremental` narrows that pass to the tasks whose fingerprints moved:
@@ -104,11 +104,22 @@ scope-lineage describe --lineage /path/to/corpus --out /path/to/out --incrementa
 
 - It writes two disposable things under `--out`: `.scope-lineage-corpus-index.json` (the
   sha256 of each task's `lineage.json` / `diagnostics.json`, plus one sha256 over the
-  options that steer the derivation) and `.cache/` (the facts each task contributed
-  before the corpus-level merge).
+  options that steer the derivation) and `.cache/` (the documents each task was described
+  into -- `describe` has no corpus-level merge, so the documents are its facts).
 - `describe` has no corpus-level merge -- one task is one document -- so a task whose
   fingerprints, options and already-written `semantic.json` / `semantic.md` all stand
   still is skipped whole, and a deleted or edited output is described again.
+- **Another corpus's cache can be reused too** (Q7): `--cache-from <dir>` names a further
+  fact cache -- the `--out` of another run, or the `.cache/` inside it. A task another
+  corpus has already described (identical `lineage.json` / `diagnostics.json` bytes,
+  identical options digest) has its `semantic.json` / `semantic.md` copied in rather than
+  rendered again, and the borrowed file lands in this run's own `.cache/` as well.
+  Repeatable, tried in the order given and after this run's own cache; it implies
+  `--incremental`, and `--no-cache` still wins. The corpus path is **not** part of the
+  options digest: the same task has to describe the same wherever it was parsed.
+- Fact files are keyed by task name, and two corpora may hold different tasks under one
+  name. What decides a borrow is the fingerprint and the options digest recorded inside the
+  file, not the file's name, so a task of the same name and other contents is described again.
 - With `--metadata-patch` no task is skipped: `patch_unmatched` answers "this confirmed
   comment matched nothing **in the whole corpus**", which is only true when every task
   was actually described.
@@ -117,7 +128,8 @@ scope-lineage describe --lineage /path/to/corpus --out /path/to/out --incrementa
   and the tool version. An index or a cache file written by another subcommand (a
   `command` or `doc_format` that disagrees) is ignored the same way.
 - The summary line gains `reused=N, recomputed=M, removed=K`: how many tasks were reused,
-  re-derived, and have disappeared from the corpus.
+  re-derived, and have disappeared from the corpus. With `--cache-from` the first counter
+  reads `reused=N (borrowed=B)`, `B` being the tasks borrowed from another corpus.
 - Without `--incremental` the run is the full one it always was, reading and writing
   neither index nor cache; `--no-cache` deletes both first and then runs in full.
 

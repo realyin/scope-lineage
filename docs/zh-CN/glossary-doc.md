@@ -58,7 +58,7 @@ markdown = render_glossary_markdown(glossary)
   一份被人工确认过的文件被静默忽略，比报错更危险。
 - `corpus.artifact_root` **原样记录** `--lineage` 的取值。要求产物字节可复现时传相对路径。
 
-## 增量运行：`--incremental` / `--no-cache`
+## 增量运行：`--incremental` / `--no-cache` / `--cache-from`
 
 一份语料只改了一两个任务，重跑却要把每个任务重新读一遍、重新算一遍。`--incremental` 让这一遍
 只落在指纹变了的任务上：
@@ -74,14 +74,23 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
   `confidence`、每个字段逐步的 `derivation` 等）合并从不读，也就不进缓存。哪些字段算数，
   由合并方自己那份清单说了算（`PROFILE_FIELDS_READ`，就写在读它的代码旁边）；清单改了，
   索引整份作废、全部重算。
-- 存下来的那份事实**带版本号**：`payload_version`（当前 `corpus-cache/2`）。版本对不上的
+- 存下来的那份事实**带版本号**：`payload_version`（当前 `corpus-cache/3`）。版本对不上的
   缓存文件与索引一律当没有、重算——旧版本里存的是另一种东西，不是少了几个字段。
 - **语料级合并照样跑全量**：复用的只是每个任务自己贡献的那一半，所以增量跑出来的
   产物与全量跑逐字节一致。
+- **换一份语料也能复用**（Q7）：`--cache-from <目录>` 再指一处事实缓存——另一次运行的
+  `--out`，或它下面的 `.cache/`。同一个任务被解析到另一个目录下（重新解析、或是被一份更大的
+  语料再走一遍），`lineage.json` / `diagnostics.json` 字节相同、选项摘要也相同时，就直接借用
+  那份事实而不是重算；借来的文件会抄进本次运行自己的 `.cache/`，下次即本地命中，借出的那份
+  目录可以删掉。可重复，按给出的顺序、在本地缓存之后依次尝试；它本身即蕴含 `--incremental`，
+  `--no-cache` 仍然优先。语料路径**不进**选项摘要：同一个任务在哪个目录下解析，都该算出同一份事实。
+- 事实文件按任务名存放，两份语料完全可能各有一个同名而内容不同的任务。能不能借用由文件里记着的
+  指纹与选项摘要说了算，不由文件名说了算——同名不同内容的任务照样重算。
 - 选项变了就整份作废、全部重算：`--overrides` 文件的**内容**、`--format`、读回来的
   `glossary.json` / `tables.json`、以及工具版本，任何一项对不上，索引就当没有。
   由别的子命令写下的索引或缓存（`command`、`doc_format` 对不上）同样当没有。
 - 摘要行末尾多出 `reused=N, recomputed=M, removed=K`：复用了几个、重算了几个、语料里少了几个。
+  给了 `--cache-from` 时第一项写成 `reused=N (borrowed=B)`，B 是从别处借来的那几个。
 - 不给 `--incremental` 就是原来的全量跑，既不读也不写索引与缓存；`--no-cache` 先把这两样
   删掉再全量跑。
 
