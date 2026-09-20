@@ -13,6 +13,8 @@ imports:
 annotations:
   source_doc_format: "ontology-json/1"
   task_count: 5
+  "sl:open_item_open:rel:ods.channel_event.channel_code->dim.channel.channel_code": "relation (hypothesis) on ods.channel_event [channel_code]: 关系 `ods.channel_event` → `dim.channel` 的基数写作「多对一，作者假设」，依据只是直接关联未去重，作者假设对端按该键唯一。 (write back: 关系:ods.channel_event.channel_code->dim.channel.channel_code)"
+  "sl:open_item_open:key:dim.channel=channel_code": "candidate_key (hypothesis) on dim.channel [channel_code]: 候选键 `channel_code`：只有任务直接关联时的假设，语料没有证明它唯一。 (write back: 键:dim.channel=channel_code)"
 enums:
   mart_channel_summary__channel_name_enum:
     description: "the closed value set of column channel_name"
@@ -28,6 +30,7 @@ classes:
     annotations:
       entity_kind: "physical_table"
       tier: "proven"
+      domain: "渠道域"
     attributes:
       channel_code:
         range: "string"
@@ -45,11 +48,14 @@ classes:
         description: "a candidate key the corpus proposed"
         annotations:
           tier: "hypothesis"
+          evidence_count: 2
+          evidence_task: "golden_commented_insert"
   dim_segment_dim:
     title: "dim.segment_dim"
     annotations:
       entity_kind: "physical_table"
       tier: "proven"
+      multiplicity_segment: "multiple_rows_per_key (implied) on segment; evidence_count 1, first task golden_grouped_dedup_join"
     attributes:
       segment:
         range: "string"
@@ -91,6 +97,8 @@ classes:
         description: "a candidate key the corpus proposed"
         annotations:
           tier: "proven"
+          evidence_count: 2
+          evidence_task: "golden_commented_insert"
   mart_metric_by_segment:
     title: "mart.metric_by_segment"
     annotations:
@@ -141,6 +149,8 @@ classes:
         description: "a candidate key the corpus proposed"
         annotations:
           tier: "proven"
+          evidence_count: 1
+          evidence_task: "golden_grouped_dedup_join"
       cst_004:
         unique_key_slots:
           - "segment"
@@ -170,6 +180,10 @@ classes:
     annotations:
       entity_kind: "physical_table"
       tier: "proven"
+      domain: "渠道域"
+      project: "渠道分析（合成）"
+      owner: "demo_owner"
+      multiplicity_customer_id__channel_code: "multiple_rows_per_key (implied) on customer_id, channel_code; evidence_count 2, first task golden_commented_insert"
     attributes:
       customer_id:
         range: "string"
@@ -198,6 +212,8 @@ classes:
           claim: "many_to_one_assumed"
           basis: "right_side_not_deduplicated"
           task_count: 2
+          evidence_count: 2
+          evidence_task: "golden_commented_insert"
   ods_events_a:
     title: "ods.events_a"
     annotations:
@@ -208,6 +224,8 @@ classes:
         range: "string"
         annotations:
           tier: "proven"
+          synonyms:
+            - "ods.events_b.seg_code (via union_alignment, implied); evidence_count 1, first task golden_grouped_dedup_join"
       amount:
         range: "string"
         annotations:
@@ -222,6 +240,8 @@ classes:
           claim: "one_to_many"
           basis: "ranking_window"
           task_count: 1
+          evidence_count: 1
+          evidence_task: "golden_grouped_dedup_join"
       rel_003:
         range: "ods_events_b"
         multivalued: true
@@ -232,6 +252,8 @@ classes:
           claim: "unknown"
           basis: "union_branch_alignment"
           task_count: 1
+          evidence_count: 1
+          evidence_task: "golden_grouped_dedup_join"
   ods_events_b:
     title: "ods.events_b"
     annotations:
@@ -242,6 +264,8 @@ classes:
         range: "string"
         annotations:
           tier: "proven"
+          synonyms:
+            - "ods.events_a.segment (via union_alignment, implied); evidence_count 1, first task golden_grouped_dedup_join"
       amount:
         range: "string"
         annotations:
@@ -256,6 +280,8 @@ classes:
           claim: "one_to_many"
           basis: "ranking_window"
           task_count: 1
+          evidence_count: 1
+          evidence_task: "golden_grouped_dedup_join"
   ods_users:
     title: "ods.users"
     annotations:

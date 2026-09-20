@@ -588,6 +588,10 @@ statement = parse_scope_lineage(
 document = to_lineage_dict(statement)
 ```
 
+A corpus-level ontology candidate is built and exported through the same facade:
+`build_ontology(...)` then `render_export(ontology, "linkml")` / `render_linkml` /
+`render_shacl`.
+
 The supported public surface is declared by `scope_lineage.PUBLIC_CORE_API`. Consumers should use
 that facade or the JSON contracts instead of importing internal modules.
 

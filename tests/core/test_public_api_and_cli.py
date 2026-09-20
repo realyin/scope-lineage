@@ -54,6 +54,20 @@ def test_public_api_covers_the_approved_consumer_surface() -> None:
     assert all(hasattr(scope_lineage, name) for name in required)
 
 
+def test_the_ontology_exporters_are_part_of_the_public_surface() -> None:
+    """WI P6: a downstream that builds an ontology can export it without reaching in.
+
+    ``build_ontology`` was already public and the two exports were not, which left the
+    only supported way to reach LinkML or SHACL going through the CLI.
+    """
+    exporters = {"render_export", "render_linkml", "render_shacl"}
+
+    assert exporters <= scope_lineage.PUBLIC_CORE_API
+    for name in sorted(exporters):
+        assert callable(getattr(scope_lineage, name)), name
+        assert getattr(scope_lineage, name).__doc__, name
+
+
 def test_core_cli_writes_only_lineage_and_diagnostics(tmp_path) -> None:
     sql_path = tmp_path / "demo.sql"
     sql_path.write_text(
