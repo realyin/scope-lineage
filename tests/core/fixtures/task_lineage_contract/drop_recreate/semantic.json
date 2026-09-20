@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "artifact_kind": "task_semantic",
   "task_id": "golden_drop_recreate",
-  "lineage_digest": "9faf3871b6b923b0",
+  "lineage_digest": "2ebb7749d9dab312",
   "produced_tables": [
     "mart.channel_daily"
   ],
@@ -12,7 +12,7 @@
       "doc_format": "semantic-json/1",
       "schema_version": "1.0",
       "statement_id": "stmt:002",
-      "lineage_digest": "cc26076f7841fe52",
+      "lineage_digest": "76b4858a1429a05b",
       "task": {
         "task_name": "golden_drop_recreate#1",
         "target_table": "mart.channel_daily",
@@ -397,18 +397,13 @@
         "warning_counts": {},
         "findings": [
           {
-            "kind": "target_binding",
-            "severity": "info",
-            "text": "未做目标列绑定（target_binding_absent_reason=statement_defines_its_own_columns）",
-            "evidence": []
-          },
-          {
             "kind": "table_comment_missing",
             "severity": "info",
             "text": "缺少表注释的表（2 张）：ods.channel_events、mart.channel_daily",
             "evidence": []
           }
         ],
+        "target_binding_not_applicable": "ctas_defines_columns",
         "inferred_items": {
           "fields[].structural_role": 3,
           "output_shape.shape": 1,

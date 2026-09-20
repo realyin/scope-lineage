@@ -75,7 +75,7 @@ scope-lineage parse \
 
 ```text
 Metadata gaps: 6 referenced table(s) have no schema metadata; list written to /tmp/scope-lineage-walkthrough/artifacts/metadata_gaps.json (run with --metadata-preflight to review before parsing)
-Parsed 7 statement(s) from 5 input(s) into /tmp/scope-lineage-walkthrough/artifacts using contract 2.0 (tasks=5, modeled=6, failed=0, input_failed=0, partial_tasks=0, unsupported_mutations=0, root_gap_results=0, binding_fallbacks=0, recovered_syntax=0)
+Parsed 7 statement(s) from 5 input(s) into /tmp/scope-lineage-walkthrough/artifacts using contract 2.0 (tasks=5, modeled=6, failed=0, input_failed=0, partial_tasks=0, unsupported_mutations=0, root_gap_results=0, binding_fallbacks=0, recovered_syntax=0, binding_not_applicable=1)
 ```
 
 产物按输入目录结构镜像出来，一个任务一个目录，里面是 `lineage.json` 与 `diagnostics.json`。
@@ -132,8 +132,11 @@ Modelled 31 entity(ies), 21 relation(s), 20 constraint(s) and 0 finding(s) from 
 ```
 
 打开 `$OUT/corpus/ontology.md`：开头是整份语料的 Mermaid ER 总览，标题行写着还有多少条
-待人工判定、已确认多少条，最后一节把每个待判定项列成一行，每行带一个稳定的 `open:` id
-和它的回写键。`--tables` / `--glossary` 只是省一次重算，不传时产物逐字节相同。
+待人工判定、折叠成多少组、已确认多少条，最后一节按（类型，表族，问题形状）每组一行，每行
+带一个稳定的 `open:group:` id、`影响`、组内条数和一个把表名留成 `<table>` 的回写模式，按
+`影响` 降序排好（关系按对端归组，所以十个任务关联同一张维表是一行）；逐条的清单在
+`ontology.json` 的 `open_items[]` 里。`--tables` / `--glossary` 只是省一次重算，不传时
+产物逐字节相同。
 
 ### 5. 第二次跑：`--incremental`
 

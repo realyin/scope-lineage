@@ -2007,20 +2007,42 @@ def _render_confidence(profile: dict) -> list[str]:
     ]
     lines.extend(_diagnostics_lines(confidence))
     findings = confidence.get("findings") or []
-    lines.append(_target_binding_line(findings))
+    lines.append(
+        _target_binding_line(
+            findings, str(confidence.get("target_binding_not_applicable") or "")
+        )
+    )
     lines.append(_inferred_line(confidence.get("inferred_items") or []))
     lines.extend(_render_findings(findings))
     return lines
 
 
-def _target_binding_line(findings: Sequence[dict]) -> str:
+# Q4. The Chinese gloss for each `target_field_binding.reason`, the vocabulary Core uses
+# for a statement that had no binding to make.
+_BINDING_NOT_APPLICABLE_GLOSSES = {
+    "ctas_defines_columns": "CTAS 建表即定列",
+    "merge_target": "MERGE 在绑定机制之外解析目标列",
+    "directory_target": "写入文件路径，没有可绑定的目标表",
+    "no_write_target": "该语句没有写入目标",
+}
+
+
+def _target_binding_line(findings: Sequence[dict], not_applicable: str = "") -> str:
     """WI-1f: how the written values reached their target columns, on its own line.
 
     A positional binding is the one thing in this section that silently goes wrong
     later -- the DDL changes and every value shifts one column -- so it is not listed
     among the other governance leads where it would be skimmed past.
+
+    Q4: a statement with no binding to make has no finding, because there is nothing to
+    act on -- but the contract does state the fact, so this line says it rather than
+    falling through to "契约未给出绑定事实", which would report a settled fact as a
+    silence.
     """
     found = [item for item in findings if item.get("kind") == FINDING_OWN_LINE]
+    if not found and not_applicable:
+        gloss = _BINDING_NOT_APPLICABLE_GLOSSES.get(not_applicable, not_applicable)
+        return _tagged(f"- 目标列绑定：不适用（{gloss}）", TAG_METADATA)
     if not found:
         return _tagged("- 目标列绑定：契约未给出绑定事实", TAG_METADATA)
     return _tagged(

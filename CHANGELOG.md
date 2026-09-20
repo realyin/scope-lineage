@@ -24,6 +24,74 @@
   the member that supplied the strongest kind, and the family row is confirmable whenever
   any member row is -- so a code table written down on one table of a family can now
   close the family key. `family_expansions` and the per-table entries are unchanged.
+- **A binding that fell back now says why, and a statement with no binding to make says
+  so** (Q4). `binding_fallbacks=N` in the run summary was a number nobody could act on:
+  a target whose metadata is missing, a projection that disagrees with the DDL and a
+  `SELECT *` nobody expanded are the same number and three different pieces of work. Every
+  `target_field_binding.status: "fallback"` now carries **`fallback_reason`**, one token
+  from a documented set (`no_target_metadata`, `projection_target_count_mismatch`,
+  `target_column_names_not_unique`, `star_projection_unexpanded`,
+  `insert_column_list_unknown_column`, `unsupported_statement_kind`, `other`), derived from
+  the same record's `issues[]` — which is unchanged and stays the place the particulars
+  live. The summary prints the breakdown, commonest first:
+  `binding_fallbacks=3 (no_target_metadata:2,star_projection_unexpanded:1)`.
+- **Breaking** (`lineage.json`, and the statement entries a task document embeds): the
+  statements that never had a binding to make — a CTAS, a MERGE, a write to a
+  `directory:` path, a statement with no write target — no longer omit the block and no
+  longer publish `target_binding_absent_reason`. They publish
+  `target_field_binding: {"status": "not_applicable", "reason": "<token>"}` with
+  `ctas_defines_columns` / `merge_target` / `directory_target` / `no_write_target`, whether
+  or not target metadata was supplied. `target_binding_absent_reason` keeps the two cases
+  that *are* a metadata gap (`metadata_not_provided`, `target_table_not_found`) — the ones
+  where Spark still writes positionally into columns nobody bound. Consumers matching
+  `statement_defines_its_own_columns` / `binding_not_applicable_for_statement` /
+  `target_is_not_a_table` should read `target_field_binding.reason`. The run summary counts
+  them separately as `binding_not_applicable=N`, printed only when there are any, and the
+  quality gates ignore them.
+- An `INSERT` whose column list names a column the target metadata does not declare now
+  falls back (`insert_column_list_unknown_column`) instead of binding to the list as
+  written: either the DDL is stale or the statement names a column that is not there, and
+  neither makes the binding authoritative.
+- `describe`'s `target_binding` finding names the reason a binding fell back (「按 SQL 投影
+  绑定：目标表无元数据」 and so on). A statement with no binding to make produces no
+  finding at all — nobody acts on a CTAS defining its own columns — and semantic.md's
+  target-binding line reports it as 「不适用（…）」 from the new
+  `confidence.target_binding_not_applicable`, instead of the 「契约未给出绑定事实」 it would
+  otherwise fall through to.
+- **The ontology's open list is folded by table family** (Q3). A warehouse writes one
+  logical table many times -- `_di` the daily increment, `_df` the full snapshot, `_tmp`
+  and `_mid01` the steps that built it -- and the ontology asked every copy the same
+  question, so on a large corpus 「待人工判定清单」 was a flat ranked list long enough that
+  a review round spent its whole budget re-reading one decision. `ontology.json` now
+  publishes `entities[].family` and `families[]` (the family key is the lowercased name
+  with trailing period suffixes `_di` / `_df` / `_hi` / `_hf` / `_mi` / `_mf` / `_wi` /
+  `_wf` / `_all`, stage suffixes `_tmp` / `_mid<n>` / `_step<n>` / `_stage<n>` / `_bak` /
+  `_new` / `_old` / `_v<n>` and numeric tails stripped segment by segment -- whole
+  segments only, so `_dim` is not `_di`, and never the last segment), plus
+  `open_item_groups[]` and `finding_groups[]`: the open items folded by (kind, table
+  family, question shape), each group carrying a content-derived `open:group:` id, its
+  `items[]`, a `representative`, a `count`, an `impact` and a `write_back_pattern` --
+  the group's write-back key with the table it generalises over left as `<table>` (and a
+  relation's near side as `<from_table>` / `<from_columns>` when the members disagree on
+  it), so a reviewer answers once and copies the pattern per table. **A relation groups
+  by its far side alone**: the question an edge leaves open is "is that table unique on
+  these columns", which neither the producer nor the name it gives its own column
+  changes, so every task joining one dimension folds into one question and the family
+  fold only merges the copies of the far table. **`impact` is what the answer
+  unblocks** -- for a relation the tables joining the far side plus the tasks that do,
+  for a key the assumed edges confirming it would prove, for a finding the items it
+  holds -- and groups rank by it, then by size, then by the representative's rank in the
+  flat list: a folded list ranked by size still reads "most repeated" rather than "most
+  worth answering". `ontology.md` prints one row per group in both 「待人工判定」 and
+  「待人工判定清单」 (the first `OPEN_ITEM_GROUPS_SHOWN = 50`, the rest summarised as
+  「另有 K 组 M 条」, the open list carrying the `影响` column it is ranked on), its
+  headline counts 「N 条 / G 组」, its front matter carries
+  `open_item_group_count`, and a card's section 11 cites the group beside the item id.
+  The fold is a view, not a merge: `open_items[]` still holds every question and an
+  override still binds one concrete table, so answering part of a family shrinks the
+  group rather than closing it. The review prompt says how to answer a group -- verify
+  the family in `families[]`, ask once, then file one override per table, and never write
+  `<table>` into `ontology.overrides.json`.
 - **A CASE label is only a translation inside its own labelling system** (Q1). Two review
   rounds rejected most of the one-to-one `case_label` rows the form offered them, for two
   reasons the 候选来源 column had no way to say. First, one column can carry two CASEs at

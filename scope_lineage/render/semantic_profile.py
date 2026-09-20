@@ -4420,6 +4420,7 @@ def _build_confidence(
     gaps = fact_gaps_for(diagnostics, statement_id)
     warnings = warnings_for(diagnostics, statement_id)
     available = diagnostics is not None
+    not_applicable = _binding_not_applicable_reason(document)
     return {
         "metadata_coverage": _metadata_coverage(document, fields, rules, values),
         # WI-2.6: how much of this task has been answered. Always present, and zero is a
@@ -4441,8 +4442,24 @@ def _build_confidence(
         if available
         else None,
         "findings": _build_findings(document, diagnostics, rules, fields),
+        # Q4. Only when the contract says this statement had no binding to make, and only
+        # the token it said it with. It is not a finding -- nobody acts on a CTAS defining
+        # its own columns -- but section 6 gives target binding its own line, and that line
+        # would otherwise report the one statement kind whose binding is a settled fact as
+        # "契约未给出绑定事实".
+        **(
+            {"target_binding_not_applicable": not_applicable} if not_applicable else {}
+        ),
         "inferred_items": _inferred_items(fields, output_shape, stages),
     }
+
+
+def _binding_not_applicable_reason(document: Mapping) -> str | None:
+    """The token behind ``target_field_binding.status == "not_applicable"``, if that is it."""
+    binding = document.get("target_field_binding") or {}
+    if binding.get("status") != _NOT_APPLICABLE_BINDING_STATUS:
+        return None
+    return str(binding.get("reason") or "") or None
 
 
 def _metadata_coverage(
@@ -5407,6 +5424,25 @@ _TARGET_BINDING_METHOD_NOTES = {
     "projection_alias": "按投影别名绑定",
 }
 
+# The status Core publishes for a statement that had no binding to make (Q4).
+_NOT_APPLICABLE_BINDING_STATUS = "not_applicable"
+
+# Q4. What a fallback fell back on, in the reader's words. `status=fallback、
+# method=sql_projection` was true and unusable: it said the target metadata was not applied
+# without saying whether anybody can act on that -- a target nobody supplied metadata for is
+# a gap to close, a projection that disagrees with the DDL is a statement to go and read,
+# and an unexpanded `SELECT *` is neither of those. The token is Core's; the gloss is this
+# document's.
+_TARGET_BINDING_FALLBACK_NOTES = {
+    "no_target_metadata": "按 SQL 投影绑定：目标表无元数据",
+    "projection_target_count_mismatch": "按 SQL 投影绑定：投影列数与目标列数不一致",
+    "target_column_names_not_unique": "按 SQL 投影绑定：目标列名不唯一",
+    "star_projection_unexpanded": "按 SQL 投影绑定：SELECT * 未展开，缺来源表结构",
+    "insert_column_list_unknown_column": "按 SQL 投影绑定：INSERT 列清单里有目标元数据没有的列",
+    "unsupported_statement_kind": "按 SQL 投影绑定：该语句种类不做位置绑定",
+    "other": "按 SQL 投影绑定：原因见 issues",
+}
+
 _FINDING_KEY_ORDER = ("kind", "severity", "text", "evidence")
 
 
@@ -5784,9 +5820,16 @@ def _target_binding_findings(document: dict, *, mismatched: bool = False) -> lis
     severity = SEVERITY_WARN if mismatched else SEVERITY_INFO
     binding = document.get("target_field_binding") or {}
     absent = document.get("target_binding_absent_reason")
+    if binding.get("status") == _NOT_APPLICABLE_BINDING_STATUS:
+        # Nothing was bound and nothing was meant to be: a CTAS defines the columns it
+        # writes. Listing it beside the bindings that did fall back would spend the reader's
+        # attention on the one entry that never needs any.
+        return []
     if binding:
         method = str(binding.get("method") or "未知")
-        note = _TARGET_BINDING_METHOD_NOTES.get(method)
+        note = _TARGET_BINDING_FALLBACK_NOTES.get(
+            str(binding.get("fallback_reason") or "")
+        ) or _TARGET_BINDING_METHOD_NOTES.get(method)
         text = f"status={binding.get('status')}、method={method}"
         return [
             _finding(

@@ -100,7 +100,7 @@ diagnostics summary.
 | `task_id` | string | Yes | The task identifier of this write statement; batch inputs and multi-statement tasks may derive separate identifiers from the input name. **Do not use it to correlate v1 and v2 artifacts**: for a multi-write script, v1 suffixes by write ordinal (`task#0`, `task#1`) and v2 by script position (`task#1`, `task#3`), so the same `task#1` points at different statements in the two artifacts. The correlation key is `statement_id`, below. |
 | `statement_id` | string | Conditional | Script-position form `stmt:NNN` (e.g. `stmt:002`); **it takes the same value as v2's `statement_sequence[].statement_id` for the same statement** — this is the **only specified correlation key** between the v1 and v2 artifacts. Emitted when the script text was parsed (the CLI, `parse_all_scope_lineage`, or `parse_scope_lineage` given SQL); not emitted when the caller passes an already-parsed AST (`tree=`) — the script position is unknowable there, and guessing one would silently match the wrong statement. |
 | `statement_index` | integer | Conditional | Zero-based script position, counting **every** statement in the script (including unmodeled ones such as SET and DELETE), on the same basis as v2's `statement_sequence[].statement_index`. It appears and is absent together with `statement_id`. |
-| `target_table` | string | Yes | What the SQL actually writes, e.g. `mart.customer_summary`. `INSERT OVERWRITE DIRECTORY` writes a file path rather than a table, and the value then looks like `directory:/warehouse/export/daily`, with a `directory:` prefix. **Consumers registering warehouse tables should exclude such values first**; lineage for these statements is produced as usual, and because the target is not a table, `target_field_binding` does not appear. |
+| `target_table` | string | Yes | What the SQL actually writes, e.g. `mart.customer_summary`. `INSERT OVERWRITE DIRECTORY` writes a file path rather than a table, and the value then looks like `directory:/warehouse/export/daily`, with a `directory:` prefix. **Consumers registering warehouse tables should exclude such values first**; lineage for these statements is produced as usual, and because the target is not a table, `target_field_binding` reads `{"status": "not_applicable", "reason": "directory_target"}`. |
 | `stmt_kind` | enum string | Yes | `INSERT_OVERWRITE`, `INSERT`, `CTAS`, `MERGE`, or `UNKNOWN`. Note the field is not named `statement_type`. |
 | `is_session_scoped_relation` | boolean | No | Present only when `true`. The relation this statement produces lives only for the session and is never stored: `TEMP VIEW`, `GLOBAL TEMP VIEW`, and `CACHE [LAZY] TABLE` all qualify. **Consumers must not register a new warehouse table on this basis**, and should exclude these when counting table-level coverage. The test comes from AST facts rather than naming patterns: a `CREATE VIEW` without `TEMPORARY` registers in the catalog and survives across sessions, so it does **not** carry this marker. `is_cached_relation` is the pre-existing subset of this field for CACHE syntax, with unchanged meaning. |
 | `parse_status` | enum string | Yes | `ok` means a verifiable lineage document was formed; `failed` means parsing failed and normal lineage must not be consumed. |
@@ -111,8 +111,8 @@ diagnostics summary.
 | `target_partition_spec` | object | Yes | Map of partition name to partition value. A dynamic partition's value may be `null`. |
 | `target_partition_columns` | array<string> | Yes | The target table's partition column names. |
 | `target_partition_mode` | enum string | Yes | `none`, `static`, `dynamic`, or `mixed`, describing **how the `PARTITION(...)` clause is written**: a value given is `static`, no value is `dynamic`, no clause at all is `none`. **It is unrelated to the session setting `spark.sql.sources.partitionOverwriteMode`** and does not state how much data this overwrite deletes — the two have similar names and different meanings. The actual blast radius of an overwrite is expressed by v2's `effect.rowset_effect`; see task-lineage-v2.md. |
-| `target_field_binding` | object | Conditional | Emitted when target-table DDL/Schema is provided; states whether target fields were bound in authoritative order. |
-| `target_binding_absent_reason` | enum string | Conditional | **Present only when there is no `target_field_binding`**, saying which of the cases applies. `statement_defines_its_own_columns` (CTAS: creating the table defines the columns), `binding_not_applicable_for_statement` (MERGE: target columns are resolved outside of binding), `target_is_not_a_table` (writing a file path), `metadata_not_provided` (the caller passed no `--target-ddl-metadata`), **`target_table_not_found` (a directory was passed but this table is missing — only this one carries risk**: Spark's `INSERT ... SELECT` writes by position, so an unbound projection may land in the wrong column).<br>Two places where the key does **not** appear: statements that failed to parse (`parse_status: "failed"`), and the few statements that return early in parsing and never reach the binding stage — consumers must not assume this set is closed over the artifact.<br>A MERGE caveat: when target DDL is provided, a `*` branch takes its column names from that DDL, in target order; without it, the source column names are used. Both are classified as `binding_not_applicable_for_statement`, and the artifact does not distinguish them. |
+| `target_field_binding` | object | Conditional | Emitted when target-table DDL/Schema is provided, stating whether target fields were bound in authoritative order — and, regardless of what metadata was supplied, whenever this statement had no binding to make at all (`status: "not_applicable"`, with its own `reason`). See §11. |
+| `target_binding_absent_reason` | enum string | Conditional | **Present only when there is no `target_field_binding`**, and now only for the two metadata gaps: `metadata_not_provided` (the caller passed no `--target-ddl-metadata`) and **`target_table_not_found` (a directory was passed but this table is missing — this one carries risk**: Spark's `INSERT ... SELECT` writes by position, so an unbound projection may land in the wrong column). The three cases that never had a binding to make — a CTAS, a MERGE, a write to a file path — no longer reach this key: they publish `target_field_binding.status: "not_applicable"` instead, and consumers that matched on `statement_defines_its_own_columns` / `binding_not_applicable_for_statement` / `target_is_not_a_table` should read `target_field_binding.reason` (§11.1).<br>Two places where the key does **not** appear: statements that failed to parse (`parse_status: "failed"`), and the few statements that return early in parsing and never reach the binding stage — consumers must not assume this set is closed over the artifact.<br>A MERGE caveat: when target DDL is provided, a `*` branch takes its column names from that DDL, in target order; without it, the source column names are used. Both are classified as `merge_target`, and the artifact does not distinguish them. |
 | `task_dependencies` | object | Yes | Upstream and downstream task declarations preserved from the task JSON, plus a dependency-source summary. |
 | `source_tables` | array<string> | Yes | The deduplicated list of every physical input table resolved. Suited to table-level search and first-pass impact analysis. |
 | `related_metadata` | object | Yes | Field types and comments for input and output tables, plus observations about metadata completeness. |
@@ -679,7 +679,9 @@ non-static-partition field of the target DDL/Schema:
 
 | Key | Meaning |
 | --- | --- |
-| `status` | `applied`, `fallback`, or `not_applied`. |
+| `status` | `applied`, `fallback`, `not_applied`, or `not_applicable`. |
+| `reason` | Present only with `not_applicable`: why this statement has no binding to make. See the token table below. With this status the object holds only `status` and `reason`; none of the other keys is emitted. |
+| `fallback_reason` | Always present with `fallback`: one token saying why the SQL projection names were kept. See the token table below. |
 | `method` | `ddl_position`, `schema_position`, `insert_column_list`, or `sql_projection`. |
 | `metadata_table` / `metadata_source_file` | The target metadata used and its source file. |
 | `projection_count` | The number of SQL projections. |
@@ -691,6 +693,33 @@ non-static-partition field of the target DDL/Schema:
 
 Its value is preventing `SELECT expr AS temporary_alias` from being mistaken for the final target
 field name, while preserving the correction evidence.
+
+### 11.1 `fallback_reason` and `reason`: why a binding did not happen
+
+`status: "fallback"` says the target metadata was not applied; these tokens say what to do
+about it. Each is derived from the same record's `issues[]`, which keeps the particulars
+(which column, which counts) and is unchanged by this classification:
+
+| `fallback_reason` | Meaning |
+| --- | --- |
+| `no_target_metadata` | The target's metadata is missing or could not be parsed, so there was nothing authoritative to bind against. |
+| `projection_target_count_mismatch` | The projection and the target declare different numbers of columns. |
+| `target_column_names_not_unique` | The bindable target columns repeat a name, so position cannot name a column unambiguously. |
+| `star_projection_unexpanded` | The projection is still `*`: the source schema for the expansion was never supplied. The gap is upstream, not in the target DDL. |
+| `insert_column_list_unknown_column` | The `INSERT` column list names a column the target metadata does not declare — a stale DDL, or a statement naming a column that is not there. |
+| `unsupported_statement_kind` | The statement's kind has no positional write semantics this contract models. |
+| `other` | Not yet named by this enum; read `issues[]`. |
+
+`status: "not_applicable"` is not a gap: nothing is missing and nothing needs supplying.
+It replaces the omitted block for the statements that never had a binding to make, so the
+absence is a stated fact rather than a missing key:
+
+| `reason` | Meaning |
+| --- | --- |
+| `ctas_defines_columns` | A CTAS: creating the table defines the columns. |
+| `merge_target` | A MERGE: target columns are resolved outside of this mechanism. |
+| `directory_target` | The write goes to a file path, so there is no target table. |
+| `no_write_target` | The statement has no write target at all. |
 
 ## 12. `task_dependencies` and `related_metadata`
 

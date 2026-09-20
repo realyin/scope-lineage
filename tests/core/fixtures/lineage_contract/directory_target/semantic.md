@@ -4,7 +4,7 @@ schema_version: "1.0"
 task_name: "golden_directory_target"
 target_table: "directory:/warehouse/export/daily"
 stmt_kind: "INSERT_OVERWRITE"
-lineage_digest: "bca71959d9438aea"
+lineage_digest: "1ba502ab8f5efe17"
 ---
 
 # 任务语义描述 （写入目录 /warehouse/export/daily）
@@ -87,7 +87,7 @@ lineage_digest: "bca71959d9438aea"
 - AMBIGUOUS 字段：无（SQL事实）
 - 事实缺口：0 条（SQL事实）
 - 解析警告：无（SQL事实）
-- 目标列绑定：未做目标列绑定（target_binding_absent_reason=target_is_not_a_table）（元数据事实）
+- 目标列绑定：不适用（写入文件路径，没有可绑定的目标表）（元数据事实）
 - 本文档的结构推断项：7 项（按 semantic.json 路径：fields[].structural_role 2、output_shape.candidate_keys 1、output_shape.grain 1、output_shape.key_confidence 1、output_shape.shape 1、output_shape.unexposed_keys 1；完整清单见 semantic.json 的 confidence.inferred_items）（结构推断）
 
 #### 治理线索

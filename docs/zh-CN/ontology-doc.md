@@ -45,7 +45,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
 | 文件 | 给谁读 | 内容 |
 | --- | --- | --- |
 | `ontology.json` | 机器 / RAG / 知识图谱入库 | 主产物，`doc_format: "ontology-json/1"` |
-| `ontology.md` | 人 | 索引：Mermaid ER 总览 + 实体表 + 关系表 + 约束表 + 待人工判定表 + 待人工判定清单，`doc_format: "ontology-index-md/1"` |
+| `ontology.md` | 人 | 索引：Mermaid ER 总览 + 实体表 + 关系表 + 约束表 + 待人工判定表 + 待人工判定清单（后两者按表族折叠成组），`doc_format: "ontology-index-md/1"` |
 | `tables/<db.table>.md` | 人 / RAG 按表切块 | 表卡的 6 节之后追加本体 5 节，`doc_format: "ontology-md/1"`；文件名规则与 `scope-lineage tables` 完全一致 |
 
 Python API（消费契约文档，与文件写出同一条路径）：
@@ -120,6 +120,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
              "external_evidence_tables": 2},   // 只有合并进来的表卡带了本语料没碰过的表时才出现
   "entities": [
     {"id": "ods.customer", "kind": "physical_table",
+     "family": "ods.customer",   // Q3：去掉 _di / _tmp / _mid01 一类后缀后的表族键
      "comment": null,
      "identity": {
        "candidate_keys": [{"columns": ["id"], "tier": "hypothesis",
@@ -142,6 +143,9 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
      "relation_hints": [{"from_column": "pay_id",
                          "to": {"entity": "ods.pay", "column": "id"},
                          "evidence": "column_comment", "text": "payment, references ods.pay.id"}]}
+  ],
+  "families": [
+    {"family": "ods.pay", "tables": ["ods.pay_df", "ods.pay_di"], "size": 2}
   ],
   "relations": [
     {"id": "rel:001",
@@ -177,10 +181,18 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
               {"columns": ["driver_id", "dt"], "evidence": [{"task": "task_b"}]}],
      "tasks": {"assumed_unique": ["task_a", "task_b"]}, "text": "…"}
   ],
+  "finding_groups": [],   // open_item_groups 里 kind 为 finding 的那些组
   "open_items": [
     {"id": "open:key:ods.customer=id", "kind": "candidate_key",
      "entity": "ods.customer", "columns": ["id"], "tier": "hypothesis",
      "write_back": "键:ods.customer=id", "text": "…"}
+  ],
+  "open_item_groups": [
+    {"group_id": "open:group:key:ods.customer=id", "kind": "candidate_key",
+     "family": "ods.customer", "shape": "id",
+     "representative": "open:key:ods.customer=id",
+     "items": ["open:key:ods.customer=id"], "count": 1, "impact": 2,
+     "write_back_pattern": "键:<table>=id"}
   ],
   "overrides_applied": {"relations": 0, "keys": 0, "unmatched": [],
                         "ignored_fields": []}
@@ -193,6 +205,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 | --- | --- | --- |
 | `corpus` | `artifact_root` / `task_count` / `lineage_digests` / `external_evidence_tables` | 与表卡同一个语料块：扫描根、任务数、每个任务的 lineage 指纹；最后一个是只作为外部证据参与、未建实体的表数（P7，没有就不出现） |
 | `entities[].kind` | `physical_table` / `produced_table` | 语料内有生产任务的是 `produced_table` |
+| `entities[].family` | `<库>.<去掉副本后缀的表名>` | Q3：这张表属于哪个表族，只由表名派生（规则见下面「表族与待判定分组」）；同名不同库不是一族 |
 | `entities[].comment`、`naming_hints` | 表注释 / 业务域 / 项目 / 负责人 | 元数据原样透传，Core 不据此推断任何业务语义 |
 | `entities[].identity.candidate_keys[]` | `columns` + `tier` + `evidence` | 生产任务证明的键（`producer_key_confidence`）与消费任务假设的键（`joined_as_right_without_dedup`）并列，不合并成「主键」 |
 | `entities[].identity.candidate_keys[].scope_columns` | 列名列表 | H2：该键只在这组列的同一取值内唯一（快照表的常态）；只可能来自人工确认 |
@@ -207,6 +220,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 | `entities[].attributes[].not_null_observed` | `true` / `false` | 语料里有任务用 `NOT x IS NULL` 过滤过这一列 |
 | `entities[].attributes[].synonyms[].via` | `direct_rename` / `union_alignment` | O5：同一个值的两个列名 |
 | `entities[].attributes[].samples[]` | 字符串数组 | A6：表卡上的样例值原样带过来，只来自 `tables --samples` 传进来的文件（已脱敏、已截断）；那一列没有值时这个键不出现 |
+| `families[]` | `family` + `tables[]` + `size` | Q3：语料里每个表族及其成员表，按 `family` 排序；答一个组之前用它确认这一族真的是同一张表的多份副本 |
 | `relations[].id` | `rel:NNN` | 排序后编号，同一份语料稳定 |
 | `relations[].kind` | `join_association` / `union_sibling` / `hinted` | JOIN 键对，或同一 UNION 的兄弟分支；`hinted` 是 O9 只由列注释提出、语料里没有任何任务写过的边（`task_count` 为 0，`join_types` 为空） |
 | `relations[].cardinality.claim` | `one_to_many` / `many_to_one` / `many_to_one_assumed` / `one_to_one_assumed` / `unknown` | O2，方向为 `from` → `to`；`one_to_one_assumed` 只可能来自人工确认 |
@@ -225,6 +239,11 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 | `open_items[].id` | `open:key:<表>=<列+列>` / `open:rel:<关系回写键>` / `open:finding:<kind>:<表>=<列>` | 由内容派生，同一个问题在下一轮仍是同一个 id |
 | `open_items[].kind` | `candidate_key` / `relation` / `finding` | 数组顺序就是建议的回答顺序：发现 → 关系（按 `task_count` 降序）→ 候选键 |
 | `open_items[].write_back` | `键:<表>=<列+列>` / `关系:<回写键>` / `null` | 答案落回 `ontology.overrides.json` 的目标；跨任务矛盾没有单一目标，写 `null` |
+| `open_item_groups[]` | `group_id` / `kind` / `family` / `shape` / `representative` / `items[]` / `count` / `impact` / `write_back_pattern` | Q3：把上面的清单按（类型，表族，问题形状）折叠，一组就是同一个问题问到一族表上；关系按**对端**归组，`family` 是对端表族；`items[]` 是组内全部条目 id，`representative` 是排名最高的那条 |
+| `open_item_groups[].group_id` | `open:group:key:<族>=<列+列>` / `open:group:rel:<对端族>=<对端列+列>` / `open:group:finding:<族>=<kind>` | 同样由内容派生，两轮之间稳定；卡片第 11 节在条目 id 旁边引用它 |
+| `open_item_groups[].impact` | 非负整数 | 答完这一组能解开多少东西：关系算关联对端的表数加任务数，候选键算确认后能升为已证明的边数，发现算组内条数；数组顺序就是 `impact` 降序 → `count` 降序 → 代表条目名次 |
+| `open_item_groups[].write_back_pattern` | `键:<table>=<列+列>` / `关系:<本端>.<列+列>-><table>.<列+列>` / `null` | 这一组的回写键，`<table>` 是这一组问的那张表（关系是对端）；本端在组内不一致时写成 `<from_table>` / `<from_columns>`。答一次，再按族里的表逐个套用；没有单一回写目标的发现写 `null` |
+| `finding_groups[]` | 与 `open_item_groups[]` 同形 | `open_item_groups[]` 中 `kind` 为 `finding` 的子集，单独发布是因为索引的「待人工判定」表只渲染它们 |
 | `overrides_applied` | `relations` / `keys` / `unmatched` / `ignored_fields` | 本次合并了几条人工确认，哪些确认在语料里找不到对应项，以及哪些字段本版本读不懂 |
 
 ## 推断规则
@@ -240,6 +259,30 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 | O8 元数据键线索 | 列注释含 `主键` / `唯一键` / `唯一编号` / `主键id` / `primary key` / `unique`（忽略大小写）→ `declared_hints`；线索与某个 `hypothesis` 候选键一致（线索列 ⊆ 键列）→ 该键升到 `implied`（注释与结构两个独立来源指向同一列）；候选键全是 `hypothesis` 且都不含线索列 → `key_hint_conflict` |
 | O9 注释关系线索 | 列注释以 `关联` / `对应` / `引用` / `见` / `外键` / `FK` / `references` / `->` 指向 `<表>.<列>` 或 `<表> 的 <列>`（忽略大小写，表名按表卡同一条规则折大小写后按点后缀匹配，裸表名只在唯一时解析）→ `relation_hints[]`；已有同一（from 实体, to 实体）与同一列对的 `hypothesis` 关系 → 抬到 `implied` 并追加一条 `column_comment` 证据；没有 → 新增一条 `kind: hinted` 的关系（`many_to_one_assumed` / `hypothesis` / `column_comment`，`task_count` 为 0），进待人工判定清单等人确认；与同一列上一条 `proven` 关系指向不同的表 → `relation_hint_conflict` |
 
+## 表族与待判定分组
+
+一份仓库会把同一张逻辑表写成很多份：`_di` 是当天增量、`_df` 是全量快照、`_tmp` 与
+`_mid01` 是搭出它的中间步骤。本体对每一份都问同一个问题，于是清单把同一个决定重复了十几
+遍——诚实，但没人读得完。Q3 把清单按机械规则折叠：
+
+| # | 规则 |
+| --- | --- |
+| 1 | **表族**：表名小写后按 `_` 切段，从尾部逐段剥掉周期后缀（`_di` / `_df` / `_hi` / `_hf` / `_mi` / `_mf` / `_wi` / `_wf` / `_all`）、阶段后缀（`_tmp` / `_mid<数字>` / `_step<数字>` / `_stage<数字>` / `_bak` / `_new` / `_old` / `_v<数字>`）与纯数字尾段，剥到不能再剥为止；剥的是**整段**，所以 `_dim` 不是 `_di`、`_info` 不是 `_i`，库名保留、最后一段永不剥（真叫 `tmp` 的表自成一族） |
+| 2 | **分组键**：（类型，表族，问题形状）。候选键的形状是列集合；发现的形状是发现的 `kind`；**关系按对端归组**——一条边的未决问题是「对端那张表按这组列唯一吗」，谁来关联、用本端哪个列名都不影响答案，所以分组键是（对端表族，对端列集合），表族折叠只负责把对端那张表的多份副本并成一组 |
+| 3 | **组内排序与代表**：组内条目保持清单原顺序，排第一的那条是 `representative`，`count` 是组内条数 |
+| 4 | **影响**：`impact` 是答完这一组能解开多少东西——关系算「关联对端的表数 + 关联它的任务数」，候选键算「确认后能从 `hypothesis` 升为已证明的边数」，发现算组内条数 |
+| 5 | **组间排序**：按 `impact` 降序，其次 `count` 降序，再按代表条目在清单里的名次。折叠之后仍然按条数排，读到的还是「最重复的」而不是「最该答的」；矛盾不再被强行排在最前，因为它们在上面的「待人工判定」表里本来就单独成节 |
+| 6 | **回写模式**：这一组的回写键，`<table>` 是这一组**问的那张表**（候选键与发现是实体本身，关系是对端）；键里的其它部分只在组内不一致时才变成占位符（关系的本端表 → `<from_table>`，本端列 → `<from_columns>`），一致就保持原样——只能填一个值的占位符是噪声 |
+
+折叠是**视图，不是合并**：`open_items[]` 里每个问题都还在，`ontology.overrides.json` 的答案
+依然绑定具体的表。所以一个组答完之后，下一轮它会按已确认的条数变小甚至消失，而不是整组一起
+消失——哪几张表确认过，看 `items[]` 与各自的卡片。
+
+索引里这两节因此变成每组一行：「待人工判定（N 条，折叠为 G 组）」是发现，「待人工判定清单
+（N 条，折叠为 G 组）」是全部未决项，后者带一列 `影响`，就是排序用的那个数；各自只印前 50
+组（`OPEN_ITEM_GROUPS_SHOWN`），其余汇总成一行「另有 K 组 M 条」，指回 `ontology.json` 的
+`open_item_groups[]` / `finding_groups[]`。逐条的平铺清单不再进 markdown，它在 JSON 里。
+
 ## 每表卡片：表卡之后追加的五节
 
 `ontology --out <dir>` 写出的 `<dir>/tables/<db.table>.md` 就是 `scope-lineage tables` 的表卡
@@ -251,7 +294,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 | 8. 关系 | 出边、入边各一张表：对端（链到对端卡片）、键对、JOIN 类型、基数 claim、层级、依据 token 的人话翻译、任务数、证据 id；本表列注释里有指向时再追一个「注释线索」子块（O9）：本表列 → 对端表.列、原列注释，解析不了的写明原因；没有线索就没有这个子块 |
 | 9. 约束 | SHACL 风格清单：约束种类、目标列或整表、值集与完整性、层级、证据 |
 | 10. 属性同义 | 本表列 ↔ 同义列、依据（改名投影 / UNION 同位置）、层级、证据 |
-| 11. 待人工判定 | 该表相关的 findings，加上所有 `hypothesis` 断言（候选键 / 基数 / 约束），每条标 `[待确认]`、给出回写目标字符串，并引用 `open_items[]` 里的清单 id |
+| 11. 待人工判定 | 该表相关的 findings，加上所有 `hypothesis` 断言（候选键 / 基数 / 约束），每条标 `[待确认]`、给出回写目标字符串，并引用 `open_items[]` 里的清单 id 与 `open_item_groups[]` 里的组 id（「清单 `open:…`，组 `open:group:…`」——组 id 告诉答题的人这一答还覆盖同族的哪些表） |
 
 文件名规则与 `tables` 完全一致（`<db.table>.md`，文件系统不接受的字符换成 `_`），因此一份语料
 可以先跑 `tables` 再跑 `ontology`，后者原地覆盖前者的卡片目录，卡片之间的相对链接仍然成立。
@@ -286,7 +329,9 @@ erDiagram
 
 ## 人工确认回写：ontology.overrides.json
 
-`待人工判定` 里的每一条都是一个问题，问题答完就不该再被问第二遍。Agent 按
+`待人工判定` 里的每一条都是一个问题，问题答完就不该再被问第二遍。折叠成组之后答题的单位是
+一个组：拿组里的 `write_back_pattern`，把 `<table>` 换成 `families[]` 里这一族的每张表，逐
+张写成一条 override——**确认永远绑定具体的表**，没有「按族确认」这种写法。Agent 按
 `skills/scope-lineage/references/ontology-review-prompt.md` 把这些项整理成业务方能答的问题
 清单，答案合并进 `ontology.overrides.json`，再用 `--overrides` 跑一次：
 

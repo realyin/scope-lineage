@@ -91,7 +91,7 @@ GROUP BY c.customer_id;
 | `task_id` | string | 是 | 本条写表语句的任务标识；批量输入和多语句任务可能基于输入名生成独立标识。**不要用它关联 v1 与 v2 产物**：多写入脚本下 v1 按写入序号加后缀（`task#0`、`task#1`），v2 按脚本位置（`task#1`、`task#3`），同一个 `task#1` 在两份产物里指向不同语句。关联键是下面的 `statement_id`。 |
 | `statement_id` | string | 条件输出 | 脚本位置形式 `stmt:NNN`（如 `stmt:002`），与 v2 `statement_sequence[].statement_id` **对同一条语句取值相同**——这是 v1 与 v2 产物之间**唯一被指定的关联键**。经脚本文本解析（CLI、`parse_all_scope_lineage`、`parse_scope_lineage` 传 SQL）时输出；调用方直接传入已解析 AST（`tree=`）时不输出——那时脚本位置不可知，猜一个会静默匹配到错误的语句。 |
 | `statement_index` | integer | 条件输出 | 零基脚本位置，计入脚本中**全部**语句（含 SET、DELETE 等未建模语句），与 v2 `statement_sequence[].statement_index` 同口径。与 `statement_id` 同出现、同缺席。 |
-| `target_table` | string | 是 | SQL 实际写入的目标，如 `mart.customer_summary`。`INSERT OVERWRITE DIRECTORY` 写的是文件路径而不是表，此时取值形如 `directory:/warehouse/export/daily`，带 `directory:` 前缀。**消费者登记仓库表时应先排除这类取值**；这类语句的血缘照常产出，且因为目标不是表，`target_field_binding` 不会出现。 |
+| `target_table` | string | 是 | SQL 实际写入的目标，如 `mart.customer_summary`。`INSERT OVERWRITE DIRECTORY` 写的是文件路径而不是表，此时取值形如 `directory:/warehouse/export/daily`，带 `directory:` 前缀。**消费者登记仓库表时应先排除这类取值**；这类语句的血缘照常产出；因为目标不是表，`target_field_binding` 取 `{"status": "not_applicable", "reason": "directory_target"}`。 |
 | `stmt_kind` | enum string | 是 | `INSERT_OVERWRITE`、`INSERT`、`CTAS`、`MERGE` 或 `UNKNOWN`。注意字段名不是 `statement_type`。 |
 | `is_session_scoped_relation` | boolean | 否 | 仅在为 `true` 时出现。该语句产出的关系只存活于会话、不落存储：`TEMP VIEW`、`GLOBAL TEMP VIEW`、`CACHE [LAZY] TABLE` 都属此列。**消费者不应据此登记仓库中新增了一张表**，统计表级覆盖时也应先排除。判据取自 AST 事实而非命名模式：不带 `TEMPORARY` 的 `CREATE VIEW` 会注册进 catalog 并跨会话存活，因此**不**带此标记。`is_cached_relation` 是本字段在 CACHE 语法上的既有子集，含义不变。 |
 | `parse_status` | enum string | 是 | `ok` 表示形成了可校验 Lineage 文档；`failed` 表示解析失败，不能消费正常血缘。 |
@@ -102,8 +102,8 @@ GROUP BY c.customer_id;
 | `target_partition_spec` | object | 是 | 分区名到分区值的映射。动态分区的 value 可以为 `null`。 |
 | `target_partition_columns` | array<string> | 是 | 目标表分区列名。 |
 | `target_partition_mode` | enum string | 是 | `none`、`static`、`dynamic` 或 `mixed`，描述的是 **`PARTITION(...)` 子句的写法**：给了值是 `static`、没给值是 `dynamic`、没有该子句是 `none`。**它与会话配置 `spark.sql.sources.partitionOverwriteMode` 无关**，也不表示这次覆写会删掉多少数据——两者名字相近但含义不同。覆写的实际影响范围由 v2 的 `effect.rowset_effect` 表达，见 task-lineage-v2.md。 |
-| `target_field_binding` | object | 条件输出 | 提供目标表 DDL/Schema 时输出，说明目标字段是否按权威顺序绑定。 |
-| `target_binding_absent_reason` | enum string | 条件输出 | **仅在没有 `target_field_binding` 时出现**，说明是四种情形中的哪一种。`statement_defines_its_own_columns`（CTAS：建表即定列）、`binding_not_applicable_for_statement`（MERGE：在绑定之外解析目标列）、`target_is_not_a_table`（写文件路径）、`metadata_not_provided`（调用方未传 `--target-ddl-metadata`）、**`target_table_not_found`（传了目录但缺这张表——只有这一种有风险**：Spark 的 `INSERT ... SELECT` 按位置写入，未绑定的投影可能落到错的列）。<br>两处**不会出现**该键：解析失败的语句（`parse_status: "failed"`），以及少数在解析早期返回、未走到绑定环节的语句——消费者不能假定该集合对产物封闭。<br>MERGE 的注意点：传了目标 DDL 时 `*` 分支的列名取自该 DDL、按目标顺序；未传时回落到源列名。两者都归为 `binding_not_applicable_for_statement`，产物中不区分。 |
+| `target_field_binding` | object | 条件输出 | 提供目标表 DDL/Schema 时输出，说明目标字段是否按权威顺序绑定；此外，只要这条语句本来就没有绑定可做，不论调用方传了什么元数据都会输出（`status: "not_applicable"`，带自己的 `reason`）。见 §11。 |
+| `target_binding_absent_reason` | enum string | 条件输出 | **仅在没有 `target_field_binding` 时出现**，现在只剩两种元数据缺口：`metadata_not_provided`（调用方未传 `--target-ddl-metadata`）与 **`target_table_not_found`（传了目录但缺这张表——这一种有风险**：Spark 的 `INSERT ... SELECT` 按位置写入，未绑定的投影可能落到错的列）。本来就没有绑定可做的三种情形——CTAS、MERGE、写文件路径——不再走这个键，改为输出 `target_field_binding.status: "not_applicable"`；原先匹配 `statement_defines_its_own_columns` / `binding_not_applicable_for_statement` / `target_is_not_a_table` 的消费者请改读 `target_field_binding.reason`（§11.1）。<br>两处**不会出现**该键：解析失败的语句（`parse_status: "failed"`），以及少数在解析早期返回、未走到绑定环节的语句——消费者不能假定该集合对产物封闭。<br>MERGE 的注意点：传了目标 DDL 时 `*` 分支的列名取自该 DDL、按目标顺序；未传时回落到源列名。两者都归为 `merge_target`，产物中不区分。 |
 | `task_dependencies` | object | 是 | 从任务 JSON 保留的上游、下游任务声明，以及依赖来源摘要。 |
 | `source_tables` | array<string> | 是 | 解析得到的全部物理输入表去重列表。适合表级检索和初步影响分析。 |
 | `related_metadata` | object | 是 | 输入表、输出表的字段类型、注释及元数据完整性观察结果。 |
@@ -630,7 +630,9 @@ ROOT.begin_date        transform=EXPRESSION       ← 本层只有 1 个直接�
 
 | Key | 含义 |
 | --- | --- |
-| `status` | `applied`、`fallback` 或 `not_applied`。 |
+| `status` | `applied`、`fallback`、`not_applied` 或 `not_applicable`。 |
+| `reason` | 仅 `not_applicable` 时出现：这条语句为什么没有可做的绑定。取值见下面的口径表。该状态下本对象只有 `status` 与 `reason` 两个键，其余键都不输出。 |
+| `fallback_reason` | `fallback` 时必出现：这次为什么保留了 SQL 投影名。取值见下面的口径表。 |
 | `method` | `ddl_position`、`schema_position`、`insert_column_list` 或 `sql_projection`。 |
 | `metadata_table` / `metadata_source_file` | 采用的目标元数据和来源文件。 |
 | `projection_count` | SQL 投影数量。 |
@@ -641,6 +643,32 @@ ROOT.begin_date        transform=EXPRESSION       ← 本层只有 1 个直接�
 | `issues[]` | 无法应用或降级时的原因。 |
 
 它的价值是避免 `SELECT expr AS 临时别名` 被误认为最终目标字段名，并保留纠正证据。
+
+### 11.1 `fallback_reason` 与 `reason`：绑定为什么没做成
+
+`status: "fallback"` 说的是"目标元数据没用上"，这些口径说的是"该去做什么"。每个取值都由
+同一条记录的 `issues[]` 归类而来——具体是哪一列、差几列仍然只在 `issues[]` 里，本次归类
+不改动它：
+
+| `fallback_reason` | 含义 |
+| --- | --- |
+| `no_target_metadata` | 目标表元数据缺失或解析不出来，没有权威顺序可依。 |
+| `projection_target_count_mismatch` | 投影列数与目标列数不一致。 |
+| `target_column_names_not_unique` | 可绑定的目标列里有重名，按位置无法唯一命名。 |
+| `star_projection_unexpanded` | 投影还是 `*`：缺的是来源表结构，缺口在上游而不在目标 DDL。 |
+| `insert_column_list_unknown_column` | `INSERT` 列清单里有目标元数据没有声明的列——要么 DDL 过期，要么语句写了不存在的列。 |
+| `unsupported_statement_kind` | 该语句种类没有本契约建模的位置写入语义。 |
+| `other` | 本枚举尚未命名的原因，此时读 `issues[]`。 |
+
+`status: "not_applicable"` 不是缺口：没有东西缺失，也不需要补任何元数据。它替代了从前
+"整块不输出"的做法——本来就没有绑定可做的语句现在把这件事说出来，而不是留一个缺键：
+
+| `reason` | 含义 |
+| --- | --- |
+| `ctas_defines_columns` | CTAS：建表即定列。 |
+| `merge_target` | MERGE：目标列在本机制之外解析。 |
+| `directory_target` | 写入文件路径，没有目标表。 |
+| `no_write_target` | 这条语句没有写入目标。 |
 
 ## 12. `task_dependencies` 与 `related_metadata`
 

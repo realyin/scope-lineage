@@ -20,8 +20,8 @@
       "normalized_sql": "WITH staged AS (SELECT e.id, e.event_type, a.account_key FROM ods.events AS e LEFT JOIN dim.accounts AS a ON e.account_id = a.account_id) MERGE INTO mart.event_target AS target USING (SELECT id, event_type, account_key FROM staged) AS source ON target.id = source.id WHEN MATCHED THEN UPDATE SET target.id = source.id, target.event_type = source.event_type, target.account_key = source.account_key WHEN NOT MATCHED THEN INSERT *",
       "target_table": "mart.event_target",
       "target_field_binding": {
-        "status": "absent",
-        "reason_code": "binding_not_applicable_for_statement"
+        "status": "not_applicable",
+        "reason": "merge_target"
       },
       "input_states": [
         "state:mart.event_target:000"
@@ -93,7 +93,10 @@
       "target_partition_spec": {},
       "target_partition_columns": [],
       "target_partition_mode": "none",
-      "target_binding_absent_reason": "binding_not_applicable_for_statement",
+      "target_field_binding": {
+        "status": "not_applicable",
+        "reason": "merge_target"
+      },
       "task_dependencies": {
         "upstream_tasks": [],
         "downstream_tasks": [],

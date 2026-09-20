@@ -4,7 +4,7 @@ schema_version: "1.0"
 task_name: "golden_directory_target"
 target_table: "directory:/warehouse/export/daily"
 stmt_kind: "INSERT_OVERWRITE"
-lineage_digest: "bca71959d9438aea"
+lineage_digest: "1ba502ab8f5efe17"
 ---
 
 # 字段映射文档 （写入目录 /warehouse/export/daily）
@@ -15,7 +15,7 @@ lineage_digest: "bca71959d9438aea"
 - 目标：directory:/warehouse/export/daily
 - 语句类型：INSERT_OVERWRITE
 - 解析状态：ok；语法状态：strict_ok
-- 目标绑定：未做（写入文件路径，没有可绑定的目标表）
+- 目标绑定：不适用（写入文件路径，没有可绑定的目标表）
 
 ## 2. 来源表
 

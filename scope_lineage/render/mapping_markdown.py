@@ -279,7 +279,13 @@ def _render_overview(document: dict) -> list[str]:
             parts.append(f"分区列={'、'.join(columns)}")
         lines.append(f"- 分区：{'；'.join(parts)}")
     binding = document.get("target_field_binding")
-    if binding:
+    if binding and binding.get("status") == "not_applicable":
+        # The block is present and says there was nothing to bind (Q4). Rendering it through
+        # the summary below would print `方法=None；投影 None → 目标列 None`: four counts that
+        # were never taken, about a binding nobody attempted.
+        gloss = _BINDING_NOT_APPLICABLE_GLOSSES.get(str(binding.get("reason")))
+        lines.append(f"- 目标绑定：不适用（{gloss or binding.get('reason')}）")
+    elif binding:
         summary = (
             f"- 目标绑定：{binding.get('status')}；方法={binding.get('method')}；"
             f"投影 {binding.get('projection_count')} → 目标列 {binding.get('target_column_count')}；"
@@ -303,11 +309,18 @@ def _render_overview(document: dict) -> list[str]:
     return lines
 
 
-# Chinese glosses for target_binding_absent_reason (contract 1.x, added in #92).
+# Chinese glosses for target_field_binding.reason -- the kinds with no binding to make,
+# which say so inside the block since Q4.
+_BINDING_NOT_APPLICABLE_GLOSSES = {
+    "ctas_defines_columns": "CTAS 建表即定列，无需绑定",
+    "merge_target": "MERGE 在绑定机制之外解析目标列",
+    "directory_target": "写入文件路径，没有可绑定的目标表",
+    "no_write_target": "该语句没有写入目标",
+}
+
+# Chinese glosses for target_binding_absent_reason (contract 1.x, added in #92). Since Q4
+# only the two metadata gaps reach this key; the other three moved into the block above.
 _BINDING_ABSENT_GLOSSES = {
-    "statement_defines_its_own_columns": "CTAS 建表即定列，无需绑定",
-    "binding_not_applicable_for_statement": "MERGE 在绑定机制之外解析目标列",
-    "target_is_not_a_table": "写入文件路径，没有可绑定的目标表",
     "metadata_not_provided": "调用方未提供 --target-ddl-metadata",
     "target_table_not_found": "提供了目标 DDL 目录但缺少该表——INSERT 按位置写入，"
     "未绑定的投影可能落错列",

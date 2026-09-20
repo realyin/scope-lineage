@@ -80,7 +80,7 @@ scope-lineage parse \
 
 ```text
 Metadata gaps: 6 referenced table(s) have no schema metadata; list written to /tmp/scope-lineage-walkthrough/artifacts/metadata_gaps.json (run with --metadata-preflight to review before parsing)
-Parsed 7 statement(s) from 5 input(s) into /tmp/scope-lineage-walkthrough/artifacts using contract 2.0 (tasks=5, modeled=6, failed=0, input_failed=0, partial_tasks=0, unsupported_mutations=0, root_gap_results=0, binding_fallbacks=0, recovered_syntax=0)
+Parsed 7 statement(s) from 5 input(s) into /tmp/scope-lineage-walkthrough/artifacts using contract 2.0 (tasks=5, modeled=6, failed=0, input_failed=0, partial_tasks=0, unsupported_mutations=0, root_gap_results=0, binding_fallbacks=0, recovered_syntax=0, binding_not_applicable=1)
 ```
 
 The output mirrors the input tree, one directory per task, holding `lineage.json` and
@@ -143,9 +143,12 @@ Modelled 31 entity(ies), 21 relation(s), 20 constraint(s) and 0 finding(s) from 
 ```
 
 Open `$OUT/corpus/ontology.md`: it starts with a Mermaid ER overview of the whole batch,
-its headline says how many items are still open and how many are already confirmed, and
-its last section lists every open item as one row, each with a stable `open:` id and the
-write-back key its answer is filed under. `--tables` / `--glossary` only save a
+its headline says how many items are still open, how many groups they fold into and how
+many are already confirmed, and its last section lists one row per (kind, table family,
+question shape) group, each with a stable `open:group:` id, an `影响` score, the number of
+items it holds and a write-back pattern that leaves the table name as `<table>`, ranked by
+impact (a relation groups by its far side, so ten tasks joining one dimension are one
+row); the item-by-item list is in `open_items[]` in `ontology.json`. `--tables` / `--glossary` only save a
 recomputation — the bytes are identical without them.
 
 ### 5. The second run: `--incremental`
