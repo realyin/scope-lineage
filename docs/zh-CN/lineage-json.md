@@ -343,6 +343,8 @@ CTE 名按所在查询块的词法作用域绑定。例如，一个嵌套查询�
 | `transform` | 粗粒度变换：`DIRECT`、`EXPRESSION`、`AGGREGATE`、`WINDOW`、`CONDITIONAL`、`CONSTANT`、`UNION`、`EXPAND_ALL`。 |
 | `expression` | 当前 scope 中的 SQL 表达式。 |
 | `expanded_expression` | 尽可能展开到物理来源限定名后的表达式。 |
+| `expansion_truncated` | 仅为 true 时出现：该表达式在展开保护上限处被截断，文本以 `/* expansion truncated at <guard>=<limit> */` 结尾。被截断的只有文本——来源事实、链路和端到端血缘仍然完整。 |
+| `expansion_limit` | 与 `expansion_truncated` 同时出现：`{guard, limit}`，停在哪道闸、停在哪个数。 |
 | `expression_resolution` | 解析状态、物理/生成/行集来源、缺失原因和跨 scope trace。 |
 | `expression_type` | 结构类型，如 direct、conditional、aggregate、window、arithmetic、constant、UDF。 |
 | `expression_role` | 用途，如 direct projection、standardization、cleaning、metric calculation、record selection。 |
@@ -558,6 +560,7 @@ ROOT.begin_date        transform=EXPRESSION       ← 本层只有 1 个直接�
 - `ordered_steps[]` 按 `step_no` 表示字段从上游到目标的变换顺序；
 - `root_source_fields[]` 只包含已经证明的根物理字段；
 - `trace_status=incomplete` 时查看 `missing_reasons[]`，不能把链当成完整证据；
+- 链上出现 `expansion_truncated: true`（附 `expansion_limit`）时，只说明 `expanded_expression` 的文本停在保护上限处；`trace_status` 和 `root_source_fields[]` 照常可信，按对应 output 的 `unexpanded_refs[]` 继续取剩余文本，同一事件在语句级 diagnostics 里是一条 `expansion_truncated` warning；
 - `target_position` 用于区分同名输出和保持 INSERT 位置语义。
 
 ## 10. `end_to_end_lineage[]`：最终字段血缘

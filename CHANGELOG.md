@@ -35,6 +35,64 @@
   group rather than closing it. The review prompt says how to answer a group -- verify
   the family in `families[]`, ask once, then file one override per table, and never write
   `<table>` into `ontology.overrides.json`.
+- **A CASE label is only a translation inside its own labelling system** (Q1). Two review
+  rounds rejected most of the one-to-one `case_label` rows the form offered them, for two
+  reasons the 候选来源 column had no way to say. First, one column can carry two CASEs at
+  once -- one sorting its values into ownership classes, another into stage classes -- so
+  a value that happened to be alone in a branch of one of them read as a 1:1 translation
+  of the code. A column whose CASEs disagree now publishes `values[].label_systems: N` on
+  every one of its values and `meaning_candidates[].label_system` on every candidate
+  (systems are identified by `<task>/<statement>/<rule id>`, because a rule id alone
+  repeats in every statement); the form's column heading gains `⚠ N 套标签体系` and the
+  cell reads `case_label(体系 k/N)`. A `fan_out: 1` label whose own CASE buckets the
+  column's *other* values carries `single_branch: true` and reads
+  `case_label(单值分支)` -- that CASE is sorting, not translating. Second, a "label" may
+  itself be a code: `CU_OS_S1_1_1 → S1_1_1` translates one coding system into another and
+  defines neither, so it is published under a new
+  `meaning_candidates[].source: "code_alias"` with the text 「同义码：<label>」 and reads
+  `code_alias`. A capitalised word with neither underscore nor digit (`ONLINE`, `Paid`)
+  stays a label. None of the three new readings is evidence anybody may answer from, and
+  `references/glossary-review-prompt.md` now says so in its own table.
+- **One code table copied into many tables is asked once** (Q1). `glossary.overrides.json`
+  accepts a **family key**, `*.<column>='VALUE'`, which answers that value on every table
+  whose same-named physical column observed it; a key that names a table still wins on
+  that table, and `overrides_applied.family_expansions` reports `{key, applied_to}` so a
+  reviewer can see how far one answer travelled. A family key matching nothing still goes
+  to `unmatched`. The fill-in form prints such a pair once, in a
+  ``## `*.<column>`（出现在 N 张表）`` section under the family key, once three or more
+  tables share it, and `scripts/confirmations.py apply` takes `值域:*.<列>=<值>` as a
+  write-back target. Two tables are not a family: the same column name on two tables may
+  legitimately mean two things, which is the cross-table conflict the prompt asks about.
+- **Ranking and the coverage denominator now say what the form says** (Q1). A column only
+  ranks ahead of the others when one of its values carries evidence somebody can answer
+  *from* -- the review prompt's own three routes: `comment_enum`, a `case_label` that is
+  1:1 and neither a lone branch of a bucketing CASE nor a `code_alias`, or
+  `same_name_confirmed`; a column whose only clue is a mention, a bucket, a lone branch or
+  a synonym ranks with the ones that carry nothing. And `enumerable_code` -- the denominator of
+  `metadata_coverage.glossary.enumerable_confirmed / enumerable_total` -- now applies the
+  *same* askable rule the form does (`glossary_values.askable_value`, written once and
+  referenced from both). A switch, a bare number, a date-shaped literal and a CJK-prose
+  value are unaskable unless the column's own comment enumerates them, so
+  `WHERE level IN (0, 1)` no longer contributes two "unexplained codes" to a ratio printed
+  beside a form that never asks about them. **Breaking for consumers reading that pair**:
+  `enumerable_total` can only shrink, never grow.
+- **An expansion that ran out of room no longer blocks the task** (Q2). The budget stops
+  inlining upstream expression text at `max_chars` / `max_substitutions` — right, and
+  unchanged. What was wrong was the verdict: the statement then carried an
+  `expression_expansion_bounded` lineage fact gap, so `analysis_status` went `partial`,
+  the field's `field_mapping_chains[].trace_status` read `incomplete` and its
+  `end_to_end_lineage` entry `trace_complete: false` — although the walk had named every
+  physical column behind the reference and only the concatenated *string* was too big to
+  publish. Where the sources are resolved, a tripped guard is now a statement-level
+  **warning** (`type: "expansion_truncated"`): `root_source_fields`, `end_to_end_lineage`
+  and `trace_status` stay exactly as the walk resolved them, `analysis_status` stays
+  `complete`, and the expression is published truncated at the limit ending in
+  `/* expansion truncated at <guard>=<limit> */`, with optional `expansion_truncated: true`
+  and `expansion_limit: {guard, limit}` on the output and on its mapping chain. A guard
+  that fires where the output's own sources did *not* resolve still yields the
+  `expression_expansion_bounded` / `capacity_guard` gap it always did. The run summary
+  keeps `capacity_guard=N`, now counting either shape — the cue to re-run with a larger
+  `--expansion-limit` does not depend on which one it was.
 
 ## 0.3.1
 - **Breaking** (glossary.json only; the lineage contracts are unchanged): a value's

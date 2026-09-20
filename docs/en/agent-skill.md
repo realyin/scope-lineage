@@ -44,7 +44,9 @@ python3 skills/scope-lineage/scripts/confirmations.py apply <profile file> --by 
 
 routes every answer by its own 回写目标 line — `术语` / `值域` merge into
 `glossary.overrides.json`, `字段注释` / `表注释` merge into `metadata-patch.json`
-(`--dry-run` only prints). Re-run `glossary --overrides` and
+(`--dry-run` only prints). `值域` also takes a **family key**, `值域:*.<column>=<value>`:
+when one code table has been copied into three or more tables, the owner answers it once
+and the answer reaches every table that observed the value. Re-run `glossary --overrides` and
 `describe --glossary --metadata-patch`, and those items come back as confirmed facts
 instead of open questions, so the list gets shorter every round.
 

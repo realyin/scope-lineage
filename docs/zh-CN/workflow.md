@@ -247,7 +247,7 @@ Core 只产确定性事实，业务命名、含义与实体关系的判断留给
 | 一张表在 A 批任务里被写、在 B 批里被读 | `tables --lineage B --merge A/tables.json --out …`，再 `ontology --tables A/tables.json --tables B/tables.json` | 跨语料合卡：两批的生产者与消费者并到同一张卡上，另一批证明的唯一性可以给这一批的关系定基数，每条证据注明来自哪一批 |
 | 卡片上想看到真实取值样例 | `tables --samples <CSV 或目录> --samples-top N` | `table,column,value[,count]` 形状；取值一律按联系方式形状打码并截断，对不上的键进 `samples_applied.unmatched` |
 | 把本体交给 RDF 工具链 | `ontology --export linkml,shacl` | 在 `ontology.json` 旁另写 `ontology.linkml.yaml` 与 `ontology.shacl.ttl`，每个元素仍带层级 |
-| 表达式嵌套太深、任务变成 partial | `parse --expansion-limit N` | 一条 `expanded_expression` 最多内联多少个上游表达式（默认 2000）；撞上限的任务以 `expression_expansion_bounded` 缺口结束 |
+| 表达式嵌套太深、`expanded_expression` 被截断 | `parse --expansion-limit N` | 一条 `expanded_expression` 最多内联多少个上游表达式（默认 2000）；撞上限时文本带截断标记发布，并记一条 `expansion_truncated` warning（来源未解析时才是 `expression_expansion_bounded` 缺口） |
 | 人工确认的注释要进产物本身 | `parse --metadata-patch <file>` | 与 `describe --metadata-patch` 读同一份 `metadata-patch/1` 文件；前者重写产物，后者只在内存里套用 |
 | 一条注释都不能离开机器 | `parse --strip-comments` | 默认收集作者注释（语句头、每个输出、每个逻辑块），脱敏是形状匹配、既不穷尽也不保证 |
 | 只要某几节 markdown | `describe --sections …`、`render --sections …` | 字段很多的大任务可以只留紧凑清单那一节 |

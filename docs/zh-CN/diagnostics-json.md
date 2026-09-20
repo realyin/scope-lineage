@@ -108,6 +108,7 @@ scope_lineage/schemas/diagnostics.schema.json
 | `magic_number` | 表达式包含缺少解释的数值常量。 | 上层业务知识生成时请求口径说明。 |
 | `complex_aggregate_with_case` | 聚合中嵌套 CASE。 | 指标解释应保留 CASE 分支，不只记录 SUM/COUNT。 |
 | `duplicate_table_in_union` | 同一物理表是多个 UNION 分支的 **FROM/JOIN 来源**。只被某个分支的过滤子查询读到（如 `NOT EXISTS`）不计入。 | 确认分支是否复制后忘记换来源；反连接排重是正常写法，不再触发。 |
+| `expansion_truncated` | 表达式展开撞上保护上限（`max_chars` 或 `max_substitutions`），`expanded_expression` 被截断并以 `/* expansion truncated at <guard>=<limit> */` 结尾；`msg` 给出字段、闸门和数字。来源事实完整，因此它是 warning 而不是缺口。 | 需要完整文本时沿该 output 的 `unexpanded_refs[]` 继续展开；`max_substitutions` 可用 `parse --expansion-limit N` 重跑。不要据此判定血缘不完整。 |
 | `target_field_binding_fallback` | 目标字段权威绑定没有完整应用。 | 查看 `lineage.json.target_field_binding.issues[]`。 |
 
 warning 不是固定封闭枚举；机器处理应对已知类型设策略，对未知类型保留并展示。
@@ -232,7 +233,7 @@ Schema 对 gap value 保持可扩展，因为不同解析缺口需要携带不�
 | `scope_output_mapping_missing` | 上游 scope 输出字段到当前引用的映射。 |
 | `expression_source_unresolved` | 表达式的物理或生成来源。 |
 | `expression_resolution_incomplete` | 部分来源已知，但表达式解析尚不完整。 |
-| `expression_expansion_bounded` | 来源事实已知，但表达式展开达到保护上限；可沿 `evidence_summary.unexpanded_refs` 继续追踪。 |
+| `expression_expansion_bounded` | 表达式展开达到保护上限，且该输出的来源本身也未解析完；可沿 `evidence_summary.unexpanded_refs` 继续追踪。来源已完整时不再是缺口，改为 `expansion_truncated` warning（见 §3.2）。 |
 
 ### 5.2 `gap_bucket`
 
@@ -248,8 +249,12 @@ Schema 对 gap value 保持可扩展，因为不同解析缺口需要携带不�
 落到 `capacity_guard` 的缺口会说清它停在**哪个数**上：`evidence_summary.expansion_limit` 给出
 `{guard, limit, raised_by}`，`needed_fact` 把同一句话写成散文。替换次数这一档由
 `parse --expansion-limit N` 抬高（默认见 `--help`），抬高的代价是产物更大；大小上限
-（`max_chars`）没有开关——留在原地的那个引用本身就是继续追下去的指针。一次 `parse` 里有几个任务
-撞上这道闸，会在结尾摘要里以 `capacity_guard=N` 报出（为 0 时不打印）。
+（`max_chars`）没有开关——留在原地的那个引用本身就是继续追下去的指针。
+
+这道闸只在**来源也没解析出来**时留下缺口。来源已经完整、只是文本装不下时，它是一条
+`expansion_truncated` warning：`analysis_status` 保持 `complete`，`expanded_expression` 带截断标记发布，
+output 和 `field_mapping_chains[]` 上带 `expansion_truncated` / `expansion_limit`。两种形态都算作"撞上这道闸"，
+一次 `parse` 里有几个任务撞上，会在结尾摘要里以 `capacity_guard=N` 报出（为 0 时不打印）。
 
 ### 5.3 如何决定是否可用于自动化
 

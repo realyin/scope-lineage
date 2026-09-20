@@ -836,8 +836,23 @@ _ENUM_SCHEMA = SchemaMap(
 )
 
 
-def _enum_coverage(sql: str) -> dict:
-    document = to_lineage_dict(parse_scope_lineage(sql, "enum_case", schema=_ENUM_SCHEMA))
+def _enum_schema(**comments: str) -> SchemaMap:
+    """``ods.ticket`` again, with a comment written on one of its columns."""
+    return SchemaMap(
+        {"ods.ticket": ["ticket_id", "state", "level", "amount", "dt"]},
+        column_details={
+            "ods.ticket": [
+                {**detail, "comment": comments.get(str(detail["name"]), detail["comment"])}
+                for detail in _ENUM_SCHEMA.column_details["ods.ticket"]
+            ]
+        },
+    )
+
+
+def _enum_coverage(sql: str, schema: SchemaMap | None = None) -> dict:
+    document = to_lineage_dict(
+        parse_scope_lineage(sql, "enum_case", schema=schema or _ENUM_SCHEMA)
+    )
     profile = build_semantic_profile(document)
     return profile["confidence"]["metadata_coverage"].get("glossary") or {}
 
@@ -863,11 +878,29 @@ def test_a_bare_number_pinned_by_equals_is_not_an_enumerable_code() -> None:
     assert coverage["enumerable_total"] == 0
 
 
-def test_the_same_number_written_as_an_in_list_is_enumerable() -> None:
-    coverage = _enum_coverage(
-        "INSERT INTO mart.t SELECT t.ticket_id, t.level FROM ods.ticket t "
-        "WHERE t.level IN (0, 1)"
-    )
+_IN_LIST_SQL = (
+    "INSERT INTO mart.t SELECT t.ticket_id, t.level FROM ods.ticket t "
+    "WHERE t.level IN (0, 1)"
+)
+
+
+def test_a_bare_number_in_an_in_list_is_still_nothing_anybody_can_name() -> None:
+    """Q1: the denominator asks the FORM's question, and the form does not ask this one.
+
+    An ``IN`` list proves ``0`` and ``1`` are alternatives; it does not turn them into
+    business vocabulary, and the fill-in form has always stepped over a bare number.
+    The count used to admit them anyway, so a reader saw a ratio taken over rows the
+    form would never print -- a form asking nothing beside "2 codes unexplained".
+    """
+    coverage = _enum_coverage(_IN_LIST_SQL)
+
+    assert coverage["values_total"] == 2
+    assert coverage["enumerable_total"] == 0
+
+
+def test_a_bare_number_the_column_comment_enumerates_is_counted() -> None:
+    """The positive half: once somebody wrote down which is which, it is a code table."""
+    coverage = _enum_coverage(_IN_LIST_SQL, _enum_schema(level="0-未生效，1-生效"))
 
     assert coverage["values_total"] == 2
     assert coverage["enumerable_total"] == 2

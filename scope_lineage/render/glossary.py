@@ -21,6 +21,11 @@ merged in with ``source: "override"``. A key that matches nothing is reported un
 ``overrides_applied.unmatched`` rather than dropped, because a typo in a reviewed file is
 exactly the thing a reviewer cannot see.
 
+Q1 adds the COLUMN FAMILY key, ``*.<column>='VALUE'``: one code table copied into table
+after table is one business question, and answering it once per table is transcription.
+A key that names a table wins on that table and the family key answers the rest; how far
+the one answer travelled is reported under ``overrides_applied.family_expansions``.
+
 P5 gives that file the ontology review's evidence discipline. An entry may say what its
 answer rests on (``basis``, published as ``meaning.confirmed_basis``) and add a ``note``;
 a field this release does not read is reported under ``ignored_fields`` rather than
@@ -58,6 +63,10 @@ from .semantic_profile import build_semantic_profile
 DOC_FORMAT = "glossary-json/1"
 
 MEANING_SOURCE_OVERRIDE = "override"
+
+# Q1. What a COLUMN FAMILY key starts with: `*.pay_status='PAID'` answers that value on
+# every table whose column of that name observed it.
+FAMILY_KEY_PREFIX = "*."
 
 # P5. Every field one ``terms`` / ``values`` entry of an overrides file may carry.
 # Anything else is reported under ``overrides_applied.ignored_fields`` instead of being
@@ -304,6 +313,10 @@ def _apply_overrides(glossary: dict, overrides: Mapping) -> None:
     glossary["overrides_applied"] = {
         "terms": terms,
         "values": values,
+        # Q1. What each `*.<column>=<value>` key reached. One code table repeated across
+        # many tables is one question, and a reviewer who answers it once has to be able
+        # to see how far that one answer travelled.
+        "family_expansions": report.family_expansions,
         # WI-2.9 item C. A key whose meaning is still empty: the `glossary --template`
         # form ships every entry blank, and a half-filled form comes back with the rest
         # unanswered. Writing `""` in as a confirmed meaning would turn "nobody has said"
@@ -327,6 +340,7 @@ class _Report:
         self.unmatched: list[str] = []
         self.ignored_fields: list[dict] = []
         self.rejected: list[dict] = []
+        self.family_expansions: list[dict] = []
 
     def accepts(self, key: str, payload) -> bool:
         """False for a confirmation this release refuses to publish (P5).
@@ -372,15 +386,58 @@ def _apply_term_overrides(terms: Sequence[dict], overrides: Mapping, report: _Re
 def _apply_value_overrides(
     values: Sequence[dict], overrides: Mapping, report: _Report
 ) -> int:
+    """Named keys first, then the family keys, over whatever the named ones left.
+
+    Q1. ``*.<column>=<value>`` is one answer for a code table the warehouse copied into
+    table after table -- the same business question, asked once. The order is the whole
+    rule: a key that NAMES a table is a statement about that table, so it wins there,
+    and the family key answers the rest. Applying them in file order instead would make
+    the answer depend on which line the reviewer happened to type first.
+    """
+    named = {key: payload for key, payload in overrides.items() if not _is_family_key(key)}
+    family = {key: payload for key, payload in overrides.items() if _is_family_key(key)}
     applied = 0
-    for key, payload in overrides.items():
+    answered: set[int] = set()
+    for key, payload in named.items():
         matches = [entry for entry in values if _value_key_matches(str(key), entry)]
         if not _admitted(str(key), payload, matches, report):
             continue
         for entry in matches:
             entry["meaning"] = _meaning(payload)
+            answered.add(id(entry))
+            applied += 1
+    for key, payload in family.items():
+        matches = [
+            entry
+            for entry in values
+            if id(entry) not in answered and _family_key_matches(str(key), entry)
+        ]
+        if not _admitted(str(key), payload, matches, report):
+            continue
+        report.family_expansions.append({"key": str(key), "applied_to": len(matches)})
+        for entry in matches:
+            entry["meaning"] = _meaning(payload)
             applied += 1
     return applied
+
+
+def _is_family_key(key) -> bool:
+    return str(key).strip().startswith(FAMILY_KEY_PREFIX)
+
+
+def _family_key_matches(key: str, entry: Mapping) -> bool:
+    """``*.pay_status='PAID'`` matches that value on every TABLE that observed it.
+
+    Physical columns only: ``*.`` says "every table", and a scope-level reference names
+    an expression inside one statement rather than a table anybody can look up.
+    """
+    left, separator, right = key.strip().partition("=")
+    if not separator or entry.get("logical"):
+        return False
+    column = left.strip()[len(FAMILY_KEY_PREFIX):]
+    return bool(column) and entry["column"] == column and strip_quotes(
+        entry["value"]
+    ) == strip_quotes(right.strip())
 
 
 def _admitted(key: str, payload, matches: Sequence, report: _Report) -> bool:

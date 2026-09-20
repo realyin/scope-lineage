@@ -366,6 +366,8 @@ Main keys:
 | `transform` | Coarse-grained transform: `DIRECT`, `EXPRESSION`, `AGGREGATE`, `WINDOW`, `CONDITIONAL`, `CONSTANT`, `UNION`, `EXPAND_ALL`. |
 | `expression` | The SQL expression in this scope. |
 | `expanded_expression` | The expression expanded to physical-source qualified names as far as possible. |
+| `expansion_truncated` | Present (true) only when the expansion stopped at a guard: the text is cut and ends in `/* expansion truncated at <guard>=<limit> */`. Only the text is cut — the source facts, the chain and the end-to-end lineage stay complete. |
+| `expansion_limit` | Present alongside `expansion_truncated`: `{guard, limit}`, which guard stopped it and at which number. |
 | `expression_resolution` | Resolution status, physical/generated/row-set sources, missing reasons, and cross-scope trace. |
 | `expression_type` | Structural type such as direct, conditional, aggregate, window, arithmetic, constant, UDF. |
 | `expression_role` | Purpose such as direct projection, standardization, cleaning, metric calculation, record selection. |
@@ -602,6 +604,7 @@ Key consumption rules:
 - `ordered_steps[]` expresses, by `step_no`, the transformation order from upstream to target;
 - `root_source_fields[]` contains only proven root physical fields;
 - when `trace_status=incomplete`, look at `missing_reasons[]` and do not treat the chain as complete evidence;
+- `expansion_truncated: true` on a chain (with `expansion_limit`) says only that the text of `expanded_expression` stopped at a guard; `trace_status` and `root_source_fields[]` remain trustworthy. Follow the output's `unexpanded_refs[]` for the remaining text; the same event is an `expansion_truncated` warning in the statement diagnostics;
 - `target_position` distinguishes same-named outputs and preserves INSERT positional semantics.
 
 ## 10. `end_to_end_lineage[]`: final field lineage

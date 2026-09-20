@@ -130,6 +130,14 @@ CANDIDATE_SOURCE_CASE_LABEL = "case_label"
 CANDIDATE_SOURCE_COMMENT_ENUM = "comment_enum"
 CANDIDATE_SOURCE_COMMENT_MENTION = "comment_mention"
 
+# Q1. A fourth route, carved out of `case_label`: the "label" is itself a code. A CASE
+# reading `WHEN part_code = 'CU_OS_S1_1_1' THEN 'S1_1_1'` translates one coding system
+# into another one and defines neither, so it is published as the synonym it is rather
+# than as a meaning somebody could sign.
+CANDIDATE_SOURCE_CODE_ALIAS = "code_alias"
+
+CODE_ALIAS_TEXT = "同义码：{label}"
+
 # P5. What an Agent signs a confirmation with. A meaning confirmed under this prefix is
 # an answer read off the corpus, not an answer a person gave, and the two must stay
 # distinguishable wherever one of them is used as evidence for the next one.
@@ -153,6 +161,17 @@ MENTION_MAX_LENGTH = 40
 # THEN '进行中'` says those three codes fall in one bucket -- it never says what any one
 # of them means, and a form that prints 进行中 three times invites exactly that reading.
 BUCKET_LABEL_TEXT = "分类桶：{label}（同桶 {count} 个值）"
+
+# Q1. What makes a "label" a code rather than a name. Three shapes, all of them read off
+# the label itself: it carries an underscore, it is written in the upper-case-and-digits
+# alphabet a code generator uses, or it repeats another value the same column was
+# observed with. A capitalised WORD (`ONLINE`, `Paid`) is none of the three and stays a
+# label -- a wrong demotion here hides the one translation somebody could have signed.
+_CODE_LABEL_TEXT = re.compile(r"^[A-Za-z0-9_+\-./]+$")
+_UPPER_CODE_TEXT = re.compile(r"^(?=.*\d)[A-Z0-9_+\-./]+$")
+
+# The keys one meaning candidate publishes, in the order it publishes them.
+_CANDIDATE_KEYS = ("text", "source", "evidence", "fan_out", "single_branch", "label_system")
 
 _PREDICATE_RULE_KINDS = frozenset({"filter", "having"})
 _ROOT = "ROOT"
@@ -883,17 +902,28 @@ def _comment_candidates(
 
 
 def _label_candidates(labels: Sequence[Mapping]) -> list[dict]:
-    """Route 3: the CASE labels of this value's observations, one per (label, rule).
+    """Route 3: the CASE labels of this value's observations, one per (label, CASE).
 
     A label several values share is published as what it is -- the bucket they were all
     put in -- because the alternative is a form that offers 进行中 as the meaning of
     three different codes and a reviewer who confirms it three times.
+
+    Q1: one candidate per LABELLING SYSTEM, not per rule id. A rule id is statement
+    local (`rule:001` is the first rule of every statement in the corpus), so grouping
+    by it alone merges two unrelated CASEs into one system and hides the very
+    disagreement the column has to be read with. ``label`` and ``label_system`` are
+    working keys: :func:`_resolve_column_labels` answers them with what only the whole
+    column knows, and drops or keeps them accordingly.
     """
-    found: dict[tuple[str, str], int] = {}
+    found: dict[tuple[str, str, str], int] = {}
     for item in labels:
         if not item.get("case_label"):
             continue
-        key = (str(item["case_label"]), str(item.get("evidence") or ""))
+        key = (
+            str(item["case_label"]),
+            str(item.get("evidence") or ""),
+            label_system(item),
+        )
         found[key] = max(found.get(key, 1), int(item.get("label_fan_out") or 1))
     return [
         {
@@ -901,9 +931,26 @@ def _label_candidates(labels: Sequence[Mapping]) -> list[dict]:
             "source": CANDIDATE_SOURCE_CASE_LABEL,
             "evidence": evidence,
             "fan_out": fan_out,
+            "label": text,
+            "label_system": system,
         }
-        for (text, evidence), fan_out in sorted(found.items())
+        for (text, evidence, system), fan_out in sorted(found.items())
     ]
+
+
+def label_system(observation: Mapping) -> str:
+    """Which CASE wrote a label, named so the name survives the whole corpus.
+
+    ``<task>/<statement>/<rule id>``, with the empty parts left out -- a rule id on its
+    own repeats in every statement, and two columns labelled by "rule:001" are not two
+    readings of one code table.
+    """
+    parts = (
+        observation.get("task"),
+        observation.get("statement_id"),
+        observation.get("evidence"),
+    )
+    return "/".join(str(part) for part in parts if part)
 
 
 def _label_text(label: str, fan_out: int) -> str:
@@ -1080,6 +1127,9 @@ _VALUE_KEYS = (
     "observations",
     "task_count",
     "closed_set",
+    # Q1. How many distinct labelling systems this column carries; present only when it
+    # carries more than one, which is when no value of it may be answered on its own.
+    "label_systems",
     "meaning_candidates",
     "meaning",
 )
@@ -1110,9 +1160,13 @@ def aggregate_values(
             continue
         if claim not in closed.setdefault((item["column"], owner_key), []):
             closed[(item["column"], owner_key)].append(claim)
-    return [
+    entries = [
         _value_entry(key, members, closed, canonical)
         for key, members in sorted(grouped.items(), key=lambda pair: _value_sort_key(pair[0]))
+    ]
+    _resolve_labels(entries)
+    return [
+        {name: entry[name] for name in _VALUE_KEYS if name in entry} for entry in entries
     ]
 
 
@@ -1158,7 +1212,109 @@ def _value_entry(
         entry["logical"] = True
     if first.get("sql_alias"):
         entry["sql_alias"] = str(first["sql_alias"])
-    return {key_name: entry[key_name] for key_name in _VALUE_KEYS if key_name in entry}
+    return entry
+
+
+# ------------------------------------------------ Q1: labels read column by column
+
+
+def _resolve_labels(entries: list[dict]) -> None:
+    """Finish every CASE-label candidate with what only the whole COLUMN can say.
+
+    Three of the four Q1 label facts are not facts about one value: whether the column
+    carries two labelling systems at once, whether the system a label came from buckets
+    the column's OTHER values, and whether a label merely repeats another value of the
+    same column. So the candidates are produced per value and answered here, once the
+    column is whole.
+    """
+    columns: dict[str, list[dict]] = {}
+    for entry in entries:
+        columns.setdefault(str(entry["column_ref"]), []).append(entry)
+    for column in columns.values():
+        _resolve_column_labels(column)
+
+
+def _resolve_column_labels(entries: list[dict]) -> None:
+    """One column's labels, after the column has been read end to end."""
+    systems: dict[str, set] = {}
+    bucketing: set[str] = set()
+    for _entry, item in _label_items(entries):
+        systems.setdefault(str(item["label_system"]), set()).add(str(item["label"]))
+        if int(item.get("fan_out") or 1) > 1:
+            bucketing.add(str(item["label_system"]))
+    # Two systems that say the same thing are one code table written twice; it is the
+    # DISAGREEMENT that makes a value's 1:1 label unreadable on its own.
+    plural = len({frozenset(labels) for labels in systems.values()}) >= 2
+    observed = {str(entry["value"]).strip().lower() for entry in entries}
+    for entry, item in _label_items(entries):
+        _finish_label(item, observed - {str(entry["value"]).strip().lower()}, bucketing)
+        if not plural:
+            item.pop("label_system", None)
+    for entry in entries:
+        if plural:
+            entry["label_systems"] = len(systems)
+        entry["meaning_candidates"] = _ordered_candidates(entry["meaning_candidates"])
+
+
+def _label_items(entries: Sequence[Mapping]) -> list[tuple[Mapping, dict]]:
+    """``(entry, candidate)`` for every candidate still carrying its working keys."""
+    return [
+        (entry, item)
+        for entry in entries
+        for item in entry.get("meaning_candidates") or []
+        if "label" in item
+    ]
+
+
+def _finish_label(item: dict, others: set, bucketing: set) -> None:
+    """One label candidate, told apart from a synonym and from a lone bucket branch."""
+    label = str(item.pop("label"))
+    if _code_shaped(label, others):
+        item["source"] = CANDIDATE_SOURCE_CODE_ALIAS
+        item["text"] = CODE_ALIAS_TEXT.format(label=label)
+        return
+    if int(item.get("fan_out") or 1) <= 1 and str(item["label_system"]) in bucketing:
+        # A CASE that buckets this column's other values is sorting, not translating,
+        # and the one value that happens to be alone in a branch is not a definition.
+        item["single_branch"] = True
+
+
+def _code_shaped(label: str, others: set) -> bool:
+    """Whether this "label" is a code from some other coding system rather than a name."""
+    text = label.strip()
+    if _CJK.search(text) or not _CODE_LABEL_TEXT.match(text):
+        return False
+    return "_" in text or bool(_UPPER_CODE_TEXT.match(text)) or text.lower() in others
+
+
+def _ordered_candidates(candidates: Sequence[Mapping]) -> list[dict]:
+    """Comments first, then labels, with the synonyms last and the duplicates gone.
+
+    A synonym defines nothing, so it must never be the candidate a field's
+    ``value_domain`` shows first -- that slot belongs to whatever evidence there is.
+    """
+    comments = [
+        item
+        for item in candidates
+        if str(item.get("source"))
+        in (CANDIDATE_SOURCE_COMMENT_ENUM, CANDIDATE_SOURCE_COMMENT_MENTION)
+    ]
+    labels = sorted(
+        (item for item in candidates if item not in comments),
+        key=lambda item: (
+            str(item.get("source")) == CANDIDATE_SOURCE_CODE_ALIAS,
+            str(item.get("text")),
+            str(item.get("evidence")),
+            str(item.get("label_system") or ""),
+        ),
+    )
+    ordered: list[dict] = []
+    for item in [*comments, *labels]:
+        entry = {name: item[name] for name in _CANDIDATE_KEYS if name in item}
+        entry.update({name: item[name] for name in item if name not in _CANDIDATE_KEYS})
+        if entry not in ordered:
+            ordered.append(entry)
+    return ordered
 
 
 def _sql_literal(members: Sequence[Mapping]) -> str:
@@ -1754,6 +1910,73 @@ def _apply_summary_suffix(field: dict, domain: Sequence[Mapping]) -> None:
         field["summary"] = summary
 
 
+# Q1. The askable rule, in one place. `1`, `-1`, `0.5`: a position or a switch, not a
+# code with a business meaning; the same argument in words for a two-state flag, matched
+# case-insensitively because one corpus writes all three spellings.
+_BARE_NUMBER = re.compile(r"^[+-]?\d+(?:\.\d+)?$")
+_SWITCH_VALUES = frozenset({"y", "n", "yes", "no", "true", "false"})
+
+# What makes a value its own answer: CJK characters with nothing code-shaped among them.
+# Two is the floor -- one character is a code as often as it is a word.
+_CJK = re.compile(r"[一-鿿]")
+_CODE_PART = re.compile(r"[0-9A-Za-z_]")
+
+
+def askable_value(entry: Mapping) -> bool:
+    """Whether a person could add anything by answering this one value.
+
+    **The one definition of "askable"**, read by the fill-in form (which asks exactly
+    these values) and by :func:`enumerable_code` (whose count is the denominator the
+    coverage ratio beside that form is taken over). Q1: they used to be written twice
+    and disagreed, so a reader saw a ratio over a larger set than the form's own
+    questions -- a form that asks nothing could still report 0/9 unexplained codes.
+
+    Two corrections to "a switch is trivial", both of them found by a review round:
+
+    - a switch the column's OWN comment enumerates is not trivial. ``Y``/``N`` answers
+      "yes or no" only until somebody writes down which is which, and once they have,
+      this is the cheapest row in the form -- it closes by reading;
+    - a value that is already Chinese prose answers itself. Nobody can define 委外
+      beyond writing 委外 again, so it is published in the dictionary (it IS a value the
+      corpus compares against) and left out of the form.
+
+    A bare number and a date literal are the other two nobody defines: ``rn = 1`` is a
+    position and ``dt = '20260814'`` is an instance date, unless -- again -- the
+    column's own comment spells the value out (``0-未生效，1-生效``).
+    """
+    value = str(entry.get("value") or "")
+    if _self_describing(value):
+        return False
+    return _enumerated_by_comment(entry) or not _trivial_value(value)
+
+
+def _enumerated_by_comment(entry: Mapping) -> bool:
+    """True when the column's own comment spells this value out (a ``comment_enum``)."""
+    return any(
+        str(item.get("source")) == CANDIDATE_SOURCE_COMMENT_ENUM
+        for item in entry.get("meaning_candidates") or []
+    )
+
+
+def _self_describing(value: str) -> bool:
+    """A value that is its own meaning: CJK prose with no code-shaped part in it.
+
+    ``委外`` and ``触达成功`` are words, not codes. ``A1`` and ``SF_S1_1_1`` are codes
+    whatever else they are, and a single character (``男``) is too short to be prose --
+    both stay askable, because a wrong exclusion here is a question nobody gets asked.
+    """
+    text = value.strip()
+    return len(_CJK.findall(text)) >= 2 and not _CODE_PART.search(text)
+
+
+def _trivial_value(value: str) -> bool:
+    """A switch, a position or an instance date: three things nobody defines."""
+    text = value.strip()
+    if text.lower() in _SWITCH_VALUES or _BARE_NUMBER.match(text):
+        return True
+    return semantic_text.looks_like_date_literal(text)
+
+
 def enumerable_code(entry: Mapping) -> bool:
     """Whether one dictionary entry is a **code somebody could be asked to name**.
 
@@ -1769,8 +1992,14 @@ def enumerable_code(entry: Mapping) -> bool:
     3. some observation of it is in an :data:`ENUMERABLE_CONTEXTS` context;
     4. it does not read as a date -- ``dt = '20250115'`` is a partition, not a code;
     5. a bare number additionally needs an :data:`ENUMERABLE_NUMERIC_CONTEXTS` context.
+
+    Q1 adds the sixth, which is not a sixth rule but the same one the form applies:
+    :func:`askable_value`. The count is the denominator of the ratio printed beside the
+    form, so anything the form will never ask about cannot be part of it.
     """
     if entry.get("logical") or str(entry.get("kind")) != VALUE_KIND_LITERAL:
+        return False
+    if not askable_value(entry):
         return False
     contexts = {
         str(item.get("context")) for item in entry.get("observations") or []
