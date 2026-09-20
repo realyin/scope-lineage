@@ -309,6 +309,7 @@ backticks removed.
 | Rule | Detail |
 | --- | --- |
 | Two key forms | Qualified (`ods.app_order.pay_status='PAID'`) matches that one column; bare (`pay_status='PAID'`) matches **every** same-named column in the corpus |
+| The family key `*.<column>=<value>` (Q1) | `*.pay_status='PAID'` matches the same-named physical column of **every** table that observed the value (a scope-level reference never). The order is the rule itself: **a key that names a table wins there**, and the family key answers only the tables it did not cover -- applying them in file order would make the answer depend on which line the reviewer typed first. Matches count towards `overrides_applied.values` as usual, and `overrides_applied.family_expansions` reports how far the one answer travelled as `{"key", "applied_to"}`; a family key that matches nothing still goes to `unmatched` |
 | Table matching | The same rule the dictionary uses internally: suffix matching, so `ods.t` and `catalog.ods.t` are one table |
 | Value matching | Quotes are stripped on both sides, so `'PAID'` and `PAID` are the same value; **prefer the unquoted `pay_status=PAID`**, which is what `values[].value` holds |
 | Merge precedence | An override always beats a candidate: on a match `meaning.source` is `override`, and `meaning_candidates` is kept as it was |
@@ -355,22 +356,40 @@ reason.
 
 **Every row also says what evidence it has** (P5): the **候选来源** column beside 注释线索
 holds `comment_enum` / `comment_mention` / `case_label` / `case_label(桶 N)` /
+`case_label(单值分支)` / `case_label(体系 k/N)` / `code_alias` /
 `same_name_confirmed` / `—`. Exactly three of them are evidence a reviewer (or an Agent
 working from `skills/scope-lineage/references/glossary-review-prompt.md`) may **answer the
 value from**: `comment_enum` (the column's own comment enumerates it), `case_label` (a CASE
 in the corpus labels it one-to-one), or `same_name_confirmed` (a **human** has confirmed the
-same value on the same column name elsewhere). The other two are not (P5b):
-`comment_mention` is a sentence that happens to say the value, which is a lead for a human;
+same value on the same column name elsewhere). None of the rest is:
+`comment_mention` is a sentence that happens to say the value, which is a lead for a human (P5b);
 `case_label(桶 N)` means this value and N-1 others were put in one bucket, and a bucket name
-is a category rather than this value's meaning. `same_name_confirmed` counts a
+is a category rather than this value's meaning (P5b); `case_label(单值分支)` means the CASE
+that produced this label buckets the column's **other** values, so it is sorting rather than
+translating (Q1); `code_alias` means the "label" is itself a code from another coding system
+(Q1). `case_label(体系 k/N)` says the column carries N labelling systems and this candidate
+came from the k-th -- the column's heading then reads `⚠ N 套标签体系`, and **no value of
+that column may be answered on its own** (Q1). `same_name_confirmed` counts a
 human confirmation only -- an Agent's own answer spreading along same-named columns would be
 an inference proving itself. The `—` rows are the ones somebody has to be asked about.
+
+**One code table copied into many tables is asked once** (Q1): when the same
+`(column name, value)` pair is askable in **3 or more** tables, the form stops printing one
+row per table and prints one section instead, ``## `*.<column>`（出现在 N 张表）``, listing
+the values once under the family key `*.<column>=<value>`; the values it covers no longer
+appear in the per-table sections, and a line under the heading says so. The same-named
+`.json` uses the same keys, so the two documents still ask the same questions. Two tables
+are not a family -- the same column name on two tables may legitimately mean two things,
+which is exactly the cross-table conflict a person has to be asked about.
 
 **Order and size**: the first version ranked closed sets first and then by observation
 count, and a real corpus spent its whole first page on `Y` / `N`, `1` / `0` and
 scope-level columns -- the exclusions above are that finding. **Columns carrying evidence
-now come first** (any of their values has a 候选来源 other than `—`): those are the rows
-that can be closed by reading rather than by asking. The rest runs over
+now come first** -- since Q1 "evidence" means the three answerable routes above:
+`comment_enum`, a **confirmable** `case_label` (`fan_out` 1, not a lone branch of a
+bucketing CASE, not a `code_alias`), and `same_name_confirmed`. A column whose only clue
+is a mention, a bucket, a lone branch or a synonym ranks with the ones that carry nothing,
+because that is what it is. The rest runs over
 **columns**, scored
 
 ```
@@ -418,6 +437,7 @@ scope-lineage describe --lineage corpus --glossary dict/glossary.json \
 | --- | --- | --- |
 | `术语:<term>` | `glossary.overrides.json` | `terms["<term>"] = {meaning, confirmed_by, date}` |
 | `值域:<column>=<value>` | `glossary.overrides.json` | `values["<column>=<value>"] = {meaning, confirmed_by, date}` |
+| `值域:*.<column>=<value>` (Q1) | `glossary.overrides.json` | `values["*.<column>=<value>"] = {meaning, confirmed_by, date}`: one answer written back to every table that observed the value |
 | `字段注释:<table.column>` | `metadata-patch.json` | `columns["<table.column>"] = {comment, confirmed_by, date}` |
 | `表注释:<table>` | `metadata-patch.json` | `tables["<table>"] = {table_name_cn, confirmed_by, date}` |
 
@@ -485,7 +505,7 @@ nothing.
 | `sql_literal` | The literal the author wrote. The `- 取值：` line of `semantic.md` shows it, while `value_domain[].value` and the overrides keys use the unquoted form |
 | `meaning.status` | `confirmed` (human) or `candidate` (a literal comment hit) |
 | `summary` suffix | Only a **confirmed** meaning is appended to the sentence (`；取值：'PAID'（已支付）`, at most 3): a candidate is "some comment happens to contain this value", and putting it into the line a reader stops at would read as a definition |
-| `confidence.metadata_coverage.glossary` | `{values_total, confirmed, candidate, rule_values_total, rule_values_confirmed, field_values_total, field_values_confirmed, enumerable_total, enumerable_confirmed}`; absent when the statement has no value observation at all. `values_total` is the deduped **union of field values and rule-referenced values**, keyed by `(column name, value, kind)` — a code pinned by a `WHERE` and carried unchanged into the output column of the same name is **one** question to answer, not two; `confirmed` / `candidate` count over the same union. `enumerable_total` narrows that union to the **codes somebody can be asked to name**, and it is the denominator the coverage ratio in the profile's generation record (来源标签与证据) is taken over (`enumerable_confirmed / enumerable_total`): a physical column's literal, observed in a `filter_eq` / `filter_in` / `case_then` / `union_constant` / `constant_projection` context, not shaped like a date, and — for a bare number — written as an `IN` member, a CASE label or a projected constant rather than only pinned by `=`. A batch date and a `= 0` guard are observed values that no owner will ever confirm, and counting them made that ratio read as permanent failure |
+| `confidence.metadata_coverage.glossary` | `{values_total, confirmed, candidate, rule_values_total, rule_values_confirmed, field_values_total, field_values_confirmed, enumerable_total, enumerable_confirmed}`; absent when the statement has no value observation at all. `values_total` is the deduped **union of field values and rule-referenced values**, keyed by `(column name, value, kind)` — a code pinned by a `WHERE` and carried unchanged into the output column of the same name is **one** question to answer, not two; `confirmed` / `candidate` count over the same union. `enumerable_total` narrows that union to the **codes somebody can be asked to name**, and it is the denominator the coverage ratio in the profile's generation record (来源标签与证据) is taken over (`enumerable_confirmed / enumerable_total`): a physical column's literal, observed in a `filter_eq` / `filter_in` / `case_then` / `union_constant` / `constant_projection` context, not shaped like a date, and — for a bare number — written as an `IN` member, a CASE label or a projected constant rather than only pinned by `=`. A batch date and a `= 0` guard are observed values that no owner will ever confirm, and counting them made that ratio read as permanent failure. Q1 also makes it apply **the same askable rule the form does** (`glossary_values.askable_value`: a switch, a bare number, a date-shaped literal and a CJK-prose value are all unaskable unless the column's own comment enumerates them) -- written twice, the two drifted apart, and a reader saw a denominator larger than the set of rows the form actually printed |
 
 Section 5 of `semantic.md` gains one `- 取值：` line per field subsection: a confirmed
 meaning is written plainly, a candidate is prefixed `? `, and neither gives 「待确认」.

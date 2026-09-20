@@ -39,7 +39,9 @@ python3 skills/scope-lineage/scripts/confirmations.py apply <画像文件> --by 
 ```
 
 按每条的「回写目标」分流——`术语` / `值域` 合并进 `glossary.overrides.json`，
-`字段注释` / `表注释` 合并进 `metadata-patch.json`（`--dry-run` 只打印）。再跑一次
+`字段注释` / `表注释` 合并进 `metadata-patch.json`（`--dry-run` 只打印）。`值域` 还认
+**家族键** `值域:*.<列>=<值>`：一张码表被复制到三张以上的表时，业务方只答一次，答案写回
+每一张观察到该取值的表。再跑一次
 `glossary --overrides` 与 `describe --glossary --metadata-patch`，这些项在下一轮画像里
 就从「待确认」变成已确认的事实，清单随每一轮变短。
 

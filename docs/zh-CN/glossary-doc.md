@@ -228,7 +228,27 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
      分支把多少个不同取值映射到了这个标签。`fan_out: 1` 是语料在**翻译**这个码；大于 1 就是在
      **分桶**，`text` 写成 `分类桶：<标签>（同桶 N 个值）`——`WHEN s IN ('AA','BB','CC') THEN
      '进行中'` 说的是这三个码同属一桶，没说其中任何一个是什么意思。
-  三条都只产出**候选**：`glossary --template` 照样把这个取值列进待填表，候选不是确认。
+  4. **`code_alias`：这个"标签"本身就是另一套编码里的码**（Q1）：`WHEN part_code =
+     'CU_OS_S1_1_1' THEN 'S1_1_1'` 把一套码翻译成了另一套码，两边都没被定义。判定只看标签
+     自己：不含汉字、只由 `A-Za-z0-9_+-./` 组成，并且**带下划线**、**是大写字母加数字的写法**、
+     或者**和同一列的另一个已观察取值相同**——三者占一就算。`text` 写成 `同义码：<标签>`，
+     `source` 写 `code_alias`，它不是证据。只由大写字母组成、既无下划线也无数字的词
+     （`ONLINE`、`Paid`）仍然是标签：把它误判成码，等于藏起唯一一条有人能签字的翻译。
+  三条产出**候选**、第四条产出**同义码**：`glossary --template` 照样把这个取值列进待填表，
+  候选不是确认。
+
+**一个标签只在它自己那套体系里才是翻译**（Q1）。同一列身上可能同时压着两条 CASE——一条按
+归属分桶、一条按阶段分桶——于是某个取值在其中一套里碰巧独占一个分支，就被读成了一对一的翻译。
+两条列级事实把这件事说出来：
+
+- `values[].label_systems`：这一列有几套标签体系。按 `<任务>/<语句>/<规则 id>` 归组
+  （只按 `rule:001` 归组会把每条语句的第一条规则并成一套），**且各套标签集合不完全相同**时才发布；
+  只有一套、或两套写的是同一张码表时这个键不出现。同一列的**每个**取值都带上它，因为"这一列不可
+  逐值自答"是关于整列的话。
+- `meaning_candidates[].label_system`：这条候选来自哪一套（`label_systems` 存在时才发布）。
+- `meaning_candidates[].single_branch`：`fan_out` 是 1，但产出它的那套体系把同一列的**别的**取值
+  分了桶——那条 CASE 在做分类而不是在做翻译，独占一个分支的那个取值不因此就有了定义。它**不是**
+  可自答的证据。
 
 ### 参数化值（parameters[]）
 
@@ -258,6 +278,7 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
 | 规则 | 说明 |
 | --- | --- |
 | 键的两种写法 | 带表名（`ods.app_order.pay_status='PAID'`）只命中那一列；只带列名（`pay_status='PAID'`）命中语料里**所有**同名列 |
+| 家族键 `*.<列>=<值>`（Q1） | `*.pay_status='PAID'` 命中**每一张**观察到该取值的表上的同名物理列（scope 级引用不算）。解析顺序是规则本身：**带表名的键先生效**，家族键只补它没覆盖到的表——按文件里的先后顺序生效，答案就取决于评审者先敲了哪一行。命中数照常计进 `overrides_applied.values`，另外在 `overrides_applied.family_expansions` 里按 `{"key", "applied_to"}` 报出这一条答案落到了几列上；一条谁都没命中的家族键照样进 `unmatched` |
 | 表名匹配 | 与字典内部一致：后缀匹配，`ods.t` 与 `catalog.ods.t` 是同一张表 |
 | 值匹配 | 两边都做去引号后比较，`'PAID'` 与 `PAID` 是同一个值；**推荐写去引号的 `pay_status=PAID`**，与 `values[].value` 一致 |
 | 合并优先级 | overrides 永远赢过候选：命中后 `meaning.source` 为 `override`，`meaning_candidates` 原样保留 |
@@ -299,18 +320,31 @@ scope-lineage glossary --lineage corpus --out dict --overrides dict/glossary.ove
 | 排除已确认的取值 | `meaning` 已有文本的不再问第二遍 |
 
 **每一行还说它有什么证据**（P5）：「注释线索」右边的**「候选来源」**列写 `comment_enum` /
-`comment_mention` / `case_label` / `case_label(桶 N)` / `same_name_confirmed` / `—`。
+`comment_mention` / `case_label` / `case_label(桶 N)` / `case_label(单值分支)` /
+`case_label(体系 k/N)` / `code_alias` / `same_name_confirmed` / `—`。
 审阅者（或按 `skills/scope-lineage/references/glossary-review-prompt.md` 工作的 Agent）
 **可以据以自答**的只有三种：`comment_enum`（该列自己的注释枚举了这个取值）、
 `case_label`（语料里有 CASE 一对一地把它标成某个标签）、`same_name_confirmed`
-（同名列上的同一取值已经被**人**确认过）。另外两种不是（P5b）：`comment_mention` 只是某句话里
-提到了这个值，它是给人看的线索；`case_label(桶 N)` 是这个值和另外 N-1 个值被归进了同一个桶，
-桶名是类别，不是这个值的含义。`same_name_confirmed` 只认人确认过的——Agent 自己的确认沿同名列
+（同名列上的同一取值已经被**人**确认过）。其余都不是：`comment_mention` 只是某句话里
+提到了这个值，它是给人看的线索（P5b）；`case_label(桶 N)` 是这个值和另外 N-1 个值被归进了同一个桶，
+桶名是类别，不是这个值的含义（P5b）；`case_label(单值分支)` 是产出这个标签的那条 CASE 给同一列的
+**别的**取值分了桶，它在做分类而不是在做翻译（Q1）；`code_alias` 是这个"标签"本身就是另一套
+编码里的码（Q1）。`case_label(体系 k/N)` 说的是这一列压着 N 套标签体系、这条候选来自第 k 套——
+列小节的标题会跟着写 `⚠ N 套标签体系`，**这一列整列都不可逐值自答**（Q1）。
+`same_name_confirmed` 只认人确认过的——Agent 自己的确认沿同名列
 扩散，等于让一条推断自证。`—` 的那些行才是要去问人的。
 
+**一张码表被复制到很多张表上时只问一次**（Q1）：同一个 `(列名, 取值)` 在 **3 张以上**的表里都
+可问时，表单不再一表一行地问它，而是合成一节 ``## `*.<列名>`（出现在 N 张表）``，取值只列一次，
+键写成家族键 `*.<列名>=<取值>`；被它覆盖掉的那些取值不再出现在各表自己的小节里，小节下面有一行
+说明写清楚这一点。同名 `.json` 的 `values` 用的是同一批键，所以两个文件问的仍然是同一批问题。
+两张表不算一族——两张表的同名列本来就可能不是一回事，那正是要问人的"跨表同名冲突"。
+
 **排序与条数**：上一版按 `closed_set` 优先 + 观察数排，真实语料的第一页于是被 `Y`/`N`、`1`/`0`
-与 scope 级列占满——上面那几条排除就是这个发现。现在**有证据的列排在最前**（任一取值的
-「候选来源」不是 `—`），它们是读一读就能关掉、不必占用业务方注意力的那部分；其余按**列**排，
+与 scope 级列占满——上面那几条排除就是这个发现。现在**有证据的列排在最前**——Q1 之后"证据"只认上面那三类可自答的：
+`comment_enum`、**可自答的** `case_label`（`fan_out` 为 1、不是单值分支、不是 `code_alias`）与
+`same_name_confirmed`。只有线索（`comment_mention`）、只有分类桶、只有单值分支或只有同义码的列，
+和没有证据的列排在一起，因为它们就是这样；其余按**列**排，
 列得分为
 
 ```
@@ -350,6 +384,7 @@ scope-lineage describe --lineage corpus --glossary dict/glossary.json \
 | --- | --- | --- |
 | `术语:<词>` | `glossary.overrides.json` | `terms["<词>"] = {meaning, confirmed_by, date}` |
 | `值域:<列>=<值>` | `glossary.overrides.json` | `values["<列>=<值>"] = {meaning, confirmed_by, date}` |
+| `值域:*.<列>=<值>`（Q1） | `glossary.overrides.json` | `values["*.<列>=<值>"] = {meaning, confirmed_by, date}`：一条答案写回每一张观察到该取值的表 |
 | `字段注释:<表.列>` | `metadata-patch.json` | `columns["<表.列>"] = {comment, confirmed_by, date}` |
 | `表注释:<表>` | `metadata-patch.json` | `tables["<表>"] = {table_name_cn, confirmed_by, date}` |
 
@@ -411,7 +446,7 @@ scope-lineage describe --lineage corpus --glossary dict/glossary.json \
 | `sql_literal` | 作者写的字面量。`semantic.md` 的 `- 取值：` 行显示它，`value_domain[].value` 与 overrides 的键用去引号形式 |
 | `meaning.status` | `confirmed`（人工确认）或 `candidate`（注释字面命中） |
 | `summary` 追加 | 只有**已确认**含义才会追加到那句话尾部（`；取值：'PAID'（已支付）`，最多 3 个）：候选是"某条注释里恰好出现了这个值"，写进读者会停下来读的那一句等于把它当成定义 |
-| `confidence.metadata_coverage.glossary` | `{values_total, confirmed, candidate, rule_values_total, rule_values_confirmed, field_values_total, field_values_confirmed, enumerable_total, enumerable_confirmed}`；这条语句一个取值观察都没有时不写该键。`values_total` 是**字段取值 ∪ 规则引用取值**去重后的总数，按 `(列名, 取值, kind)` 归一——同一个 code 被 `WHERE` 钉住又原样带进同名输出列，是读者要答的**一个**问题而不是两个；`confirmed` / `candidate` 是同一并集上的计数。`enumerable_total` 把这个并集收窄到**能被人认领含义的 code**，画像生成记录「来源标签与证据」一节的覆盖率按它算（`enumerable_confirmed / enumerable_total`）：物理列上的 literal、上下文含 `filter_eq` / `filter_in` / `case_then` / `union_constant` / `constant_projection`、不是日期形，且纯数字还要额外出现在 `IN` 列表、CASE 标签或常量投影里而不是只被 `=` 钉过一次。跑批日期与 `= 0` 这类守卫是观察到的取值，但没有人会去确认它们，把它们计入分母会让这个覆盖率永远像不及格 |
+| `confidence.metadata_coverage.glossary` | `{values_total, confirmed, candidate, rule_values_total, rule_values_confirmed, field_values_total, field_values_confirmed, enumerable_total, enumerable_confirmed}`；这条语句一个取值观察都没有时不写该键。`values_total` 是**字段取值 ∪ 规则引用取值**去重后的总数，按 `(列名, 取值, kind)` 归一——同一个 code 被 `WHERE` 钉住又原样带进同名输出列，是读者要答的**一个**问题而不是两个；`confirmed` / `candidate` 是同一并集上的计数。`enumerable_total` 把这个并集收窄到**能被人认领含义的 code**，画像生成记录「来源标签与证据」一节的覆盖率按它算（`enumerable_confirmed / enumerable_total`）：物理列上的 literal、上下文含 `filter_eq` / `filter_in` / `case_then` / `union_constant` / `constant_projection`、不是日期形，且纯数字还要额外出现在 `IN` 列表、CASE 标签或常量投影里而不是只被 `=` 钉过一次。跑批日期与 `= 0` 这类守卫是观察到的取值，但没有人会去确认它们，把它们计入分母会让这个覆盖率永远像不及格。Q1 还让它**和待填表用同一条「可问」规则**（`glossary_values.askable_value`，开关 / 裸数字 / 日期形 / 中文自述取值都不可问，除非该列自己的注释把它枚举了出来）：两边各写一遍就会分家，读者看到的分母于是大过表单真正问出口的行数 |
 
 `semantic.md` 第 5 节的字段小节里多一行 `- 取值：`，已确认写含义、候选写 `? `、都没有写
 「待确认」；整列**枚举值**都封闭时追加「（该列取值已被 SQL 证明封闭）」——因为 `closed_set`
