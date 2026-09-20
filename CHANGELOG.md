@@ -1,6 +1,22 @@
 # Changelog
 
 ## Unreleased
+- A column comment that points at another table's column is read as a **declared relation
+  hint** (O9, P4). The warehouse never declared its foreign keys, but its catalog writers
+  wrote them down in prose -- 「关联 <表>.<列>」, 「外键 …」,
+  `references <table>.<column>`, `-> <table>.<column>` and their kin, case-insensitive --
+  and the ontology used to read past all of it. Each pointer is resolved against the
+  corpus's own entities (the table cards' dotted-suffix rule, case-folded; a bare name only
+  when one entity could be it) and published as `entities[].relation_hints[]`; one that
+  resolves to nothing carries `unresolved` and acts on nothing. A resolved hint does one of
+  three things: it raises a relation some task merely assumed from `hypothesis` to
+  `implied` with a `column_comment` evidence item (comment and JOIN are two independent
+  sources), it publishes a `kind: "hinted"` relation for a column pair no task ever joined
+  -- `task_count` 0, straight into `open_items[]` with a write-back key, drawn in the
+  Mermaid ER with the `?` every hypothesis carries -- or, where a `proven` relation out of
+  the same column lands on another table, it reports a `relation_hint_conflict` finding. A
+  table whose comments point at nothing publishes exactly what it did before: no
+  `relation_hints` key and no 「注释线索」 sub-block in section 8 of its card.
 - The driving path answers for **every output shape** (P3). `task.driving_tables[]` used
   to be empty whenever ROOT aggregated or deduplicated, and for every MERGE, which on a
   real corpus left most statements with nothing to say about where their rows came from.

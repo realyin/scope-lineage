@@ -148,7 +148,10 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
         "synonyms": [{"entity": "mart.t", "column": "order_state", "tier": "proven",
                       "via": "direct_rename", "evidence": [{"task": "task_a"}]}],
         "samples": ["PAID", "NEW"]}],
-     "naming_hints": {"table_comment": null, "domain": null, "project": null, "owner": null}}
+     "naming_hints": {"table_comment": null, "domain": null, "project": null, "owner": null},
+     "relation_hints": [{"from_column": "pay_id",
+                         "to": {"entity": "ods.pay", "column": "id"},
+                         "evidence": "column_comment", "text": "payment, references ods.pay.id"}]}
   ],
   "relations": [
     {"id": "rel:001",
@@ -158,7 +161,16 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
      "cardinality": {"claim": "one_to_many", "tier": "implied", "basis": "group_by"},
      "join_types": ["LEFT_OUTER"], "task_count": 1,
      "evidence": [{"task": "task_a", "statement_id": "stmt:001",
-                   "scope_id": "ROOT", "logic_block_id": "logic:ROOT:join:001"}]}
+                   "scope_id": "ROOT", "logic_block_id": "logic:ROOT:join:001"}]},
+    {"id": "rel:002",
+     "from": {"entity": "ods.driver", "columns": ["pay_id"]},
+     "to": {"entity": "ods.pay", "columns": ["id"]},
+     "kind": "hinted",
+     "cardinality": {"claim": "many_to_one_assumed", "tier": "hypothesis",
+                     "basis": "column_comment"},
+     "join_types": [], "task_count": 0,
+     "evidence": [{"kind": "column_comment", "column": "pay_id",
+                   "text": "payment, references ods.pay.id"}]}
   ],
   "constraints": [
     {"target": {"entity": "ods.orders", "column": "state"}, "kind": "in_set",
@@ -195,6 +207,7 @@ Slot by slot (every slot `ontology-json/1` publishes):
 | `entities[].identity.candidate_keys[]` | `columns` + `tier` + `evidence` | the key a producing task proved (`producer_key_confidence`) and the key a consuming task assumed (`joined_as_right_without_dedup`) stand side by side; they are never merged into one "primary key" |
 | `entities[].identity.candidate_keys[].scope_columns` | a list of column names | H2: the key is unique only within one value of these columns (the normal shape of a snapshot table); it can only come from a human confirmation |
 | `entities[].identity.declared_hints[]` | `columns` + `evidence: column_comment` + `text` | H3: a column comment calling the column a key, carried over verbatim; it is a metadata hint and not a candidate key, and where it agrees with one, that key rises from `hypothesis` to `implied` |
+| `entities[].relation_hints[]` | `from_column` + `to.entity` / `to.column` + `evidence: column_comment` + `text` (+ `unresolved`) | O9: a column comment pointing at another table's column (「关联 <表>.<列>」 and its kin), carried over verbatim and resolved against the corpus's own entities; one that cannot be resolved carries `unresolved` (`unknown_entity: X` / `ambiguous_entity: X` / `unknown_column: X`) and acts on nothing; the key is absent when a table's comments point at nothing |
 | `entities[].identity.multiplicity[]` | `claim: multiple_rows_per_key` | O3: some task grouped or window-partitioned this table by these columns |
 | `entities[].identity.partition_columns` | a list of column names | the partition columns a producing task writes (a metadata fact) |
 | `entities[].attributes[].type`, `comment` | metadata | the column type and comment from the table card, carried over verbatim |
@@ -205,17 +218,17 @@ Slot by slot (every slot `ontology-json/1` publishes):
 | `entities[].attributes[].synonyms[].via` | `direct_rename` / `union_alignment` | O5: two column names for one value |
 | `entities[].attributes[].samples[]` | array of strings | A6: the table card's sample values, carried across unchanged — they come only from a file passed to `tables --samples` (already redacted and cut), and the key is absent when that column has none |
 | `relations[].id` | `rel:NNN` | numbered after sorting, stable for one corpus |
-| `relations[].kind` | `join_association` / `union_sibling` | a JOIN key pair, or two branches of one UNION |
+| `relations[].kind` | `join_association` / `union_sibling` / `hinted` | a JOIN key pair, or two branches of one UNION; `hinted` is O9's edge -- proposed by a column comment and written by no task in the corpus (`task_count` 0, empty `join_types`) |
 | `relations[].cardinality.claim` | `one_to_many` / `many_to_one` / `many_to_one_assumed` / `one_to_one_assumed` / `unknown` | O2, in the direction `from` → `to`; `one_to_one_assumed` can only come from a human confirmation |
 | `relations[].cardinality.tier` | one of the five tiers | the confidence tier of this cardinality claim |
-| `relations[].cardinality.basis` | `group_by` / `ranking_window` / `producer_key_confidence` / `right_side_not_deduplicated` / `union_branch_alignment` / `no_uniqueness_evidence` / `human_confirmation` | what the cardinality rests on |
+| `relations[].cardinality.basis` | `group_by` / `ranking_window` / `producer_key_confidence` / `right_side_not_deduplicated` / `union_branch_alignment` / `no_uniqueness_evidence` / `human_confirmation` / `column_comment` | what the cardinality rests on |
 | `relations[].join_types`, `task_count` | the union of JOIN types, the task count | the JOIN types the same entity pair was joined with across tasks, merged |
 | `relations[].evidence[].left_via_scopes` | a list of scope ids | where one side of the JOIN was a CTE, the scopes the walk pierced through to reach a physical table (`right_via_scopes` for the other side) |
 | `constraints[].kind` | `not_null` / `in_set` / `unique_per` / `partition` | O6 |
 | `constraints[].values`, `completeness` | a value list, `complete` / `unknown` | `in_set` only: only a closed `IN` list or an exhaustive CASE is `complete` |
 | `constraints[].columns` | a list of column names | `unique_per` only: the candidate keys plus the partition columns |
 | `constraints[].note` | one sentence | `not_null` only: "the task discarded the NULLs with a filter; the source itself may still hold some" |
-| `findings[].kind` | `cardinality_conflict` / `competing_candidate_keys` / `key_hint_conflict` / `producer_key_conflict` / `ambiguous_bare_name` | O7 and O8; the last two are carried over from the table cards |
+| `findings[].kind` | `cardinality_conflict` / `competing_candidate_keys` / `key_hint_conflict` / `relation_hint_conflict` / `producer_key_conflict` / `ambiguous_bare_name` | O7, O8 and O9; the last two are carried over from the table cards |
 | `findings[].tasks` | role → task names | which tasks stand on each side of the contradiction |
 | `findings[].keys[]` | two sets of `columns` + `evidence` | `competing_candidate_keys` only: the two competing key sets with the evidence behind each |
 | `open_items[]` | `id` / `kind` / `entity` / `relation` / `columns` / `tier` / `write_back` / `text` | H5: the whole corpus's open list, one entry per `hypothesis` key, `hypothesis` relation and finding; a relation appears once, not once per side |
@@ -235,6 +248,7 @@ Slot by slot (every slot `ontology-json/1` publishes):
 | O6 constraints | a `NOT x IS NULL` filter → `not_null` (`hypothesis`, with the note that the task discarded NULLs and the source may still hold some); an enumerable code → `in_set`; a partition column → `partition` (`proven`); a produced table's candidate keys plus its partition columns → `unique_per` (key confidence `proven` → `proven`, `candidate` → `hypothesis`). **One claim, one entry**: constraints sharing an (entity, kind, columns/values) are merged into one, keeping the strongest `tier` among them and the union of their `evidence[]` in corpus order -- a table two tasks write with the same key set is one constraint proved twice, not two constraints |
 | O7 conflicts | "deduplicated" and "joined directly" on the same (table, key set) → `cardinality_conflict`; two `hypothesis` candidate keys on one table where one is a strict subset of the other or the two are disjoint → `competing_candidate_keys` (at most one of them is the identity); the cards' `producer_key_conflict` and `ambiguous_bare_name` are carried over verbatim |
 | O8 metadata key hints | a column comment holding `主键` / `唯一键` / `唯一编号` / `主键id` / `primary key` / `unique` (case-insensitive) → `declared_hints`; a hint that agrees with a `hypothesis` candidate key (hint columns are a subset of the key's) raises that key to `implied` (comment and structure are two independent sources pointing at one column); candidate keys that are all `hypothesis` and none of which hold the hinted column → `key_hint_conflict` |
+| O9 comment relation hints | a column comment pointing at `<table>.<column>` or `<表> 的 <列>` with `关联` / `对应` / `引用` / `见` / `外键` / `FK` / `references` / `->` (case-insensitive; the table name is matched by the cards' own dotted-suffix rule, case-folded, and a bare name resolves only when one entity could be it) → `relation_hints[]`; a `hypothesis` relation already published for the same (from entity, to entity) and the same column pair → raised to `implied` with a `column_comment` evidence item; none → a new `kind: hinted` relation (`many_to_one_assumed` / `hypothesis` / `column_comment`, `task_count` 0) that joins the open list for a person to confirm; a `proven` relation out of the same column landing on another table → `relation_hint_conflict` |
 
 ## The per-table card: five sections appended to the table card
 
@@ -245,7 +259,7 @@ tables` card (1 what this table is / 2 what one row means / 3 columns / 4 who wr
 | Section | Contents |
 | --- | --- |
 | 7. 身份（本体） | opens with 「属性 N（语料用到 n）」, the same count the entity table in `ontology.md` carries; then candidate keys, the metadata key hints, multiplicity and partition columns side by side, each with its tier in Chinese and its evidence ids; a confirmed key prints who confirmed it, when, and on what basis on the same line, and a key with `scope_columns` reads 「在 `dt` 内唯一」; the four answer four different questions and are never merged into one "primary key" |
-| 8. 关系 | one table for outgoing and one for incoming edges: the other end (linked to its card), the key pair, the JOIN types, the cardinality claim, the tier, the basis token in plain words, the task count and the evidence ids |
+| 8. 关系 | one table for outgoing and one for incoming edges: the other end (linked to its card), the key pair, the JOIN types, the cardinality claim, the tier, the basis token in plain words, the task count and the evidence ids; a 「注释线索」 sub-block follows when this table's column comments point somewhere (O9): own column → other table.column, the comment verbatim, and the reason where it could not be resolved; no hints, no sub-block |
 | 9. 约束 | a SHACL-shaped list: the constraint kind, the target column or the whole table, the value set and its completeness, the tier, the evidence |
 | 10. 属性同义 | this table's column ↔ the synonym, the basis (a renaming projection / the same UNION position), the tier, the evidence |
 | 11. 待人工判定 | the findings about this table plus every `hypothesis` assertion (candidate key / cardinality / constraint), each marked `[待确认]`, carrying the write-back key its answer is filed under, and citing its id in `open_items[]` |
@@ -459,7 +473,7 @@ constraint carries its own.
   corpus has no namespace of its own, and minting one that looks authoritative would be
   the export inventing a fact; whoever loads the graph replaces it with theirs.
 - **What is not exported**: `findings`, `open_items`, `evidence`, `naming_hints`'
-  `domain` / `project` / `owner`, `identity.declared_hints`, `identity.multiplicity` and
+  `domain` / `project` / `owner`, `identity.declared_hints`, `relation_hints`, `identity.multiplicity` and
   an attribute's `synonyms` stay in `ontology.json` -- they are governance and metadata
   material for a reviewer, not schema.
 - **No OWL.** Of the three targets only OWL needs an extra ontological commitment for
