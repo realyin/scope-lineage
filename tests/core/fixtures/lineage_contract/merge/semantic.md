@@ -4,7 +4,7 @@ schema_version: "1.0"
 task_name: "merge_contract"
 target_table: "mart.customer_profile"
 stmt_kind: "MERGE"
-lineage_digest: "b61fff94e3fe4f30"
+lineage_digest: "c524dac5bed07ab7"
 ---
 
 # 任务语义描述 mart.customer_profile
@@ -107,7 +107,7 @@ lineage_digest: "b61fff94e3fe4f30"
 - AMBIGUOUS 字段：无（SQL事实）
 - 事实缺口：0 条（SQL事实）
 - 解析警告：无（SQL事实）
-- 目标列绑定：未做目标列绑定（target_binding_absent_reason=binding_not_applicable_for_statement）（元数据事实）
+- 目标列绑定：不适用（MERGE 在绑定机制之外解析目标列）（元数据事实）
 - 本文档的结构推断项：8 项（按 semantic.json 路径：fields[].structural_role 3、output_shape.candidate_keys 1、output_shape.grain 1、output_shape.key_confidence 1、output_shape.shape 1、output_shape.unexposed_keys 1；完整清单见 semantic.json 的 confidence.inferred_items）（结构推断）
 
 #### 治理线索

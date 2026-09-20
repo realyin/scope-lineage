@@ -4,7 +4,7 @@ schema_version: "1.0"
 task_name: "merge_contract"
 target_table: "mart.customer_profile"
 stmt_kind: "MERGE"
-lineage_digest: "b61fff94e3fe4f30"
+lineage_digest: "c524dac5bed07ab7"
 ---
 
 # 字段映射文档 mart.customer_profile
@@ -15,7 +15,7 @@ lineage_digest: "b61fff94e3fe4f30"
 - 目标：mart.customer_profile
 - 语句类型：MERGE
 - 解析状态：ok；语法状态：strict_ok
-- 目标绑定：未做（MERGE 在绑定机制之外解析目标列）
+- 目标绑定：不适用（MERGE 在绑定机制之外解析目标列）
 
 ## 2. 来源表
 

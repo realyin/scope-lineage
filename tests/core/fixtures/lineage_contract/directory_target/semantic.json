@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "schema_version": "1.0",
   "statement_id": "stmt:001",
-  "lineage_digest": "bca71959d9438aea",
+  "lineage_digest": "1ba502ab8f5efe17",
   "task": {
     "task_name": "golden_directory_target",
     "target_table": "directory:/warehouse/export/daily",
@@ -224,18 +224,13 @@
     "warning_counts": {},
     "findings": [
       {
-        "kind": "target_binding",
-        "severity": "info",
-        "text": "未做目标列绑定（target_binding_absent_reason=target_is_not_a_table）",
-        "evidence": []
-      },
-      {
         "kind": "table_comment_missing",
         "severity": "info",
         "text": "缺少表注释的表（2 张）：ods.users、directory:/warehouse/export/daily",
         "evidence": []
       }
     ],
+    "target_binding_not_applicable": "directory_target",
     "inferred_items": {
       "fields[].structural_role": 2,
       "output_shape.shape": 1,

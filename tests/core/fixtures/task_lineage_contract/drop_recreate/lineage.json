@@ -47,8 +47,8 @@
       "normalized_sql": "CREATE TABLE mart.channel_daily AS SELECT channel_id, stat_date, SUM(amount) AS amount_sum FROM ods.channel_events GROUP BY channel_id, stat_date",
       "target_table": "mart.channel_daily",
       "target_field_binding": {
-        "status": "absent",
-        "reason_code": "statement_defines_its_own_columns"
+        "status": "not_applicable",
+        "reason": "ctas_defines_columns"
       },
       "input_states": [],
       "output_state": "state:mart.channel_daily:002",
@@ -156,7 +156,10 @@
       "target_partition_spec": {},
       "target_partition_columns": [],
       "target_partition_mode": "none",
-      "target_binding_absent_reason": "statement_defines_its_own_columns",
+      "target_field_binding": {
+        "status": "not_applicable",
+        "reason": "ctas_defines_columns"
+      },
       "task_dependencies": {
         "upstream_tasks": [],
         "downstream_tasks": [],

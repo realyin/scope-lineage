@@ -75,7 +75,7 @@ scope-lineage parse \
 
 ```text
 Metadata gaps: 6 referenced table(s) have no schema metadata; list written to /tmp/scope-lineage-walkthrough/artifacts/metadata_gaps.json (run with --metadata-preflight to review before parsing)
-Parsed 7 statement(s) from 5 input(s) into /tmp/scope-lineage-walkthrough/artifacts using contract 2.0 (tasks=5, modeled=6, failed=0, input_failed=0, partial_tasks=0, unsupported_mutations=0, root_gap_results=0, binding_fallbacks=0, recovered_syntax=0)
+Parsed 7 statement(s) from 5 input(s) into /tmp/scope-lineage-walkthrough/artifacts using contract 2.0 (tasks=5, modeled=6, failed=0, input_failed=0, partial_tasks=0, unsupported_mutations=0, root_gap_results=0, binding_fallbacks=0, recovered_syntax=0, binding_not_applicable=1)
 ```
 
 产物按输入目录结构镜像出来，一个任务一个目录，里面是 `lineage.json` 与 `diagnostics.json`。

@@ -1,6 +1,40 @@
 # Changelog
 
 ## Unreleased
+- **A binding that fell back now says why, and a statement with no binding to make says
+  so** (Q4). `binding_fallbacks=N` in the run summary was a number nobody could act on:
+  a target whose metadata is missing, a projection that disagrees with the DDL and a
+  `SELECT *` nobody expanded are the same number and three different pieces of work. Every
+  `target_field_binding.status: "fallback"` now carries **`fallback_reason`**, one token
+  from a documented set (`no_target_metadata`, `projection_target_count_mismatch`,
+  `target_column_names_not_unique`, `star_projection_unexpanded`,
+  `insert_column_list_unknown_column`, `unsupported_statement_kind`, `other`), derived from
+  the same record's `issues[]` — which is unchanged and stays the place the particulars
+  live. The summary prints the breakdown, commonest first:
+  `binding_fallbacks=3 (no_target_metadata:2,star_projection_unexpanded:1)`.
+- **Breaking** (`lineage.json`, and the statement entries a task document embeds): the
+  statements that never had a binding to make — a CTAS, a MERGE, a write to a
+  `directory:` path, a statement with no write target — no longer omit the block and no
+  longer publish `target_binding_absent_reason`. They publish
+  `target_field_binding: {"status": "not_applicable", "reason": "<token>"}` with
+  `ctas_defines_columns` / `merge_target` / `directory_target` / `no_write_target`, whether
+  or not target metadata was supplied. `target_binding_absent_reason` keeps the two cases
+  that *are* a metadata gap (`metadata_not_provided`, `target_table_not_found`) — the ones
+  where Spark still writes positionally into columns nobody bound. Consumers matching
+  `statement_defines_its_own_columns` / `binding_not_applicable_for_statement` /
+  `target_is_not_a_table` should read `target_field_binding.reason`. The run summary counts
+  them separately as `binding_not_applicable=N`, printed only when there are any, and the
+  quality gates ignore them.
+- An `INSERT` whose column list names a column the target metadata does not declare now
+  falls back (`insert_column_list_unknown_column`) instead of binding to the list as
+  written: either the DDL is stale or the statement names a column that is not there, and
+  neither makes the binding authoritative.
+- `describe`'s `target_binding` finding names the reason a binding fell back (「按 SQL 投影
+  绑定：目标表无元数据」 and so on). A statement with no binding to make produces no
+  finding at all — nobody acts on a CTAS defining its own columns — and semantic.md's
+  target-binding line reports it as 「不适用（…）」 from the new
+  `confidence.target_binding_not_applicable`, instead of the 「契约未给出绑定事实」 it would
+  otherwise fall through to.
 - **An expansion that ran out of room no longer blocks the task** (Q2). The budget stops
   inlining upstream expression text at `max_chars` / `max_substitutions` — right, and
   unchanged. What was wrong was the verdict: the statement then carried an

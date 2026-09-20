@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "schema_version": "1.0",
   "statement_id": "stmt:001",
-  "lineage_digest": "b61fff94e3fe4f30",
+  "lineage_digest": "c524dac5bed07ab7",
   "task": {
     "task_name": "merge_contract",
     "target_table": "mart.customer_profile",
@@ -317,18 +317,13 @@
     "warning_counts": {},
     "findings": [
       {
-        "kind": "target_binding",
-        "severity": "info",
-        "text": "未做目标列绑定（target_binding_absent_reason=binding_not_applicable_for_statement）",
-        "evidence": []
-      },
-      {
         "kind": "table_comment_missing",
         "severity": "info",
         "text": "缺少表注释的表（2 张）：ods.customer_delta、mart.customer_profile",
         "evidence": []
       }
     ],
+    "target_binding_not_applicable": "merge_target",
     "inferred_items": {
       "fields[].structural_role": 3,
       "output_shape.shape": 1,

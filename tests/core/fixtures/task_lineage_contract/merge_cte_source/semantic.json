@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "artifact_kind": "task_semantic",
   "task_id": "golden_merge_cte_source",
-  "lineage_digest": "fe96f55ae658ceb7",
+  "lineage_digest": "c8198db4be71794d",
   "produced_tables": [
     "mart.event_target"
   ],
@@ -12,7 +12,7 @@
       "doc_format": "semantic-json/1",
       "schema_version": "1.0",
       "statement_id": "stmt:001",
-      "lineage_digest": "0c7c8256f8eb5427",
+      "lineage_digest": "30165136b9b0a8f3",
       "task": {
         "task_name": "golden_merge_cte_source#0",
         "target_table": "mart.event_target",
@@ -662,18 +662,13 @@
         "warning_counts": {},
         "findings": [
           {
-            "kind": "target_binding",
-            "severity": "info",
-            "text": "未做目标列绑定（target_binding_absent_reason=binding_not_applicable_for_statement）",
-            "evidence": []
-          },
-          {
             "kind": "table_comment_missing",
             "severity": "info",
             "text": "缺少表注释的表（3 张）：dim.accounts、ods.events、mart.event_target",
             "evidence": []
           }
         ],
+        "target_binding_not_applicable": "merge_target",
         "inferred_items": {
           "fields[].structural_role": 6,
           "output_shape.shape": 1,
