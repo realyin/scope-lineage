@@ -302,6 +302,17 @@ scope-lineage parse \
 不确定场景该用哪份契约，见[按业务场景选契约](docs/zh-CN/contract-selection.md)：
 字段血缘、加工步骤分析用默认 1.0；审计、事故排查、最终表状态用 2.0。
 
+### 迁移到 0.3.2
+
+两个派生形状变了，血缘事实本身没变：
+
+- CTAS、MERGE、目录写入或没有写目标的语句，`target_field_binding` 现在是
+  `{"status": "not_applicable", "reason": <token>}`；原来描述这些情形的三个
+  `target_binding_absent_reason` token 取消（两个元数据缺口 token 保留）。请改按块的
+  `status` 判断。
+- `glossary.json` 的 `metadata_coverage.enumerable_total` 只计表单会问的取值（开关、裸数字、
+  日期仅在注释枚举时计入；中文自述型取值排除），据此算的比例会变化。
+
 ### 迁移到 0.3.1
 
 只有 `glossary.json` 变了形状：`meaning_candidates[].source` 改为写候选的来源路径
