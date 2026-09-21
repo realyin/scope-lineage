@@ -302,6 +302,18 @@ transformation-step analysis read the per-statement documents embedded in
 `statement_lineage`; audits, incident forensics, and final table state read the
 task-level facts.
 
+### Migrating to 0.3.2
+
+Two derived shapes changed; the modelled lineage facts did not:
+
+- `target_field_binding` for a CTAS, MERGE, directory write or a statement with no write
+  target is now `{"status": "not_applicable", "reason": <token>}`; the three
+  `target_binding_absent_reason` tokens that described those cases are gone (the two
+  metadata-gap tokens remain). Match on the block's `status` instead.
+- `glossary.json` `metadata_coverage.enumerable_total` counts only values the fill-in
+  form would ask about (switches, bare numbers and dates only when a comment enumerates
+  them; Chinese prose values excluded), so ratios computed from it move.
+
 ### Migrating to 0.3.1
 
 Only `glossary.json` changed shape: `meaning_candidates[].source` names the candidate's

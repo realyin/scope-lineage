@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.3.2
+- **Breaking** (two additive-in-spirit shape changes; the lineage contracts' modelled
+  facts are unchanged): statements that never had a target binding to make (CTAS, MERGE,
+  a `directory:` write, no write target) now publish
+  `target_field_binding: {"status": "not_applicable", "reason"}` instead of omitting the
+  block and setting `target_binding_absent_reason`; and `glossary.json`'s
+  `enumerable_total` uses the same askable rule as the fill-in form, so it can only
+  shrink. See the READMEs' migration section. Everything else below is additive.
 - **Borrowing a large card set now costs the corpus, not the card set** (Q6). P7 let
   `ontology --tables` reach for another batch's table cards, and merged every one of them
   first: a corpus of five tables against a warehouse-wide batch merged, held and rescanned
