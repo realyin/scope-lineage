@@ -848,7 +848,11 @@ overrides 文件——评审根本做不完。N1 把这一轮拆成**一批一�
 - **同一份文件给两遍等于给一遍**：重复的 `(文件, 内容)` 在折叠之前就被丢掉，输出逐字节不变。
 - **`doc_format` 与 `comments` 这类文档级键取最后一份的**，它们都不是关于概念的答案。
 
-摘要行会把这一切说出来：`reviewed N concept(s) from M file(s), …, K conflict(s)`。
+摘要行会把这一切说出来：`reviewed N concept(s) from M file(s), …, K conflict(s),
+warnings N, dissolved N`（N4）。后两个和这一行其他计数一样，**零也照打**：`warnings` 是本轮
+**已经生效**、但仍值得回头看一眼的那些（`warnings[]`，目前只有 `merge_kept_two_primaries`），
+`dissolved` 是本轮顺手从盘面上拿掉的临时概念数（`dissolved[]`）——这个数只会作为 `add_tables`
+或 `new_concepts` 的副作用出现，也就是最不可能有人专门去 JSON 里翻的那一个。
 
 ### 二、`--review-batches`：把临时概念切成批
 
@@ -899,6 +903,11 @@ id）。批次之间、批次里的组之间、组里的概念之间都按它排
 已知键，不会被报成 `ignored_fields`。
 
 同一份 `ontology.json` 跑两遍写出逐字节相同的文件；这一节的所有排序都是全序。
+
+N4：只要 `--review-batches` 切过队列，这一跑的摘要行末尾就会多出
+`review batches: <目录> (<n> batch(es))`，紧接着第二行说这批是怎么切的（`by`、批量上限、临时
+概念总数）。队列是在这两行打印**之前**写盘的，所以摘要行上的数就是盘上的数。没给这个开关时两
+行都不打：摘要行照样说有多少个临时概念，想要队列的人去跑这个开关。
 
 ## 与 OWL / SHACL / LinkML 的槽位对应
 
@@ -969,6 +978,10 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
 | `representation_links[]` | 两张表的 class 上各一条 `representation_link` 注解 | 两个节点形状上各一条 `sl:representationLink` |
 | `table_relations[].concept_relation` | 表 class 那条关系 slot 上的 `evidence_for` 注解 | 那条属性形状上的 `sl:evidenceFor` |
 | 临时概念（M1） | 概念 class 上多一条注解 `provisional: true` | 概念 shape 上多一行 `sl:provisional true` |
+| `provisional_count`（N4） | schema 级的 `provisional_count` 注解，**零也照写** | `sl:Ontology` 节点上的 `sl:provisionalCount` |
+| `retired_stems[]`（N4） | schema 级的 `retired_stems` 列表注解，一条一行 `"<词根>: <n> tables"`；语料一个也没挡下时不写 | `sl:Ontology` 节点上一条一个 `sl:retiredStem` 块，带 `sl:stem` 与 `sl:tableCount` |
+| `concept_impact`（N4） | 概念 class 上的 `impact` 注解，`"<r> relation(s), <t> task(s)"` | 概念 shape 上的 `sl:impact`，同一个字符串 |
+| 有一端是临时概念的 `relations[]` 边（N4） | 那条关系 slot 上多一条注解 `provisional: true` | 那条属性形状上多一行 `sl:provisional true` |
 
 概念层的元素带的是**折叠**的层级：概念 class 与它的属性 slot 带 `concepts[].tier`，概念关系带
 它那条基数的层级。种类基类只在语料真的折出了概念时才写——一个没有子类的抽象基类，读起来就是

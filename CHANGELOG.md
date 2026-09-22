@@ -1,6 +1,34 @@
 # Changelog
 
 ## Unreleased
+- **The review report reaches the summary line, and the exports carry what the review
+  still owes** (N4). A reviewed round already knew two things it never said, and the two
+  exports already had two facts they never published.
+  - The `ontology` summary line's review part gains `warnings N` and `dissolved N` beside
+    `conflict(s)`, printed at zero like every other count there: `warnings[]` is what the
+    round **applied** and is still worth a second look (`merge_kept_two_primaries`), and
+    `dissolved[]` is how many provisional concepts it took off the board — a number that
+    only ever happens as a side effect of an `add_tables` or a `new_concepts` entry, so
+    nobody would have gone looking for it in the JSON.
+  - A run given `--review-batches` now ends its summary line with
+    `review batches: <dir> (<n> batch(es))`. The queue is cut **before** anything is
+    printed, so the count on the summary is the count on disk; the second line, which
+    says how the batches were cut, is unchanged.
+  - `--export linkml` writes two more schema-level annotations: `provisional_count`
+    (always, zero included — a schema silent about it reads as a model with no open
+    questions) and, when the corpus has any, `retired_stems` as a list of
+    `"<stem>: <n> tables"`. `--export shacl` puts the same on the `sl:Ontology` node:
+    `sl:provisionalCount`, and one `sl:retiredStem` block per stem carrying `sl:stem` and
+    `sl:tableCount`.
+  - Every concept class gains `impact` / `sl:impact` (`"<r> relation(s), <t> task(s)"`),
+    read off the shared `concept_impact` helper the review worksheets (N1b) and the index
+    (N2) already rank by — so a consumer sorting an export's concepts is handed the same
+    first question a reviewer was.
+  - A concept relation whose **either** end is provisional is marked `provisional: true` /
+    `sl:provisional true` on its slot, the same flag the concept class already carried: an
+    edge onto a table standing in for a concept says *some table takes part*, not that the
+    business has that relation.
+  - Both export goldens are re-recorded; the diff is additive only.
 - **One markdown file per concept, and `ontology.md` becomes an index** (N2). M3 gave
   every concept a section inside `ontology.md` and kept the whole table layer behind
   them, capped at 40 sections. On a wide corpus that is the entire model in one file and
