@@ -21,13 +21,21 @@ python3 skills/scope-lineage/scripts/query.py chain  db.table.column <目录>  #
 python3 skills/scope-lineage/scripts/query.py impact db.table[.col] <根目录> # 影响分析
 python3 skills/scope-lineage/scripts/query.py trace  db.table[.col] <根目录> \
     [--upstream N] [--downstream N]                                          # 跨任务上下游追溯
+python3 skills/scope-lineage/scripts/query.py concept-impact <概念 id | 名> \
+    --ontology <本体目录>/ontology.json --lineage <根目录> \
+    [--depth N] [--attribute 属性名] [--json]                                # 概念级影响分析
 ```
 
-这四个子命令对人也好用——不装任何 agent 也可以直接跑。
+这五个子命令对人也好用——不装任何 agent 也可以直接跑。
 `chain` 默认限制表达式输出长度；确实需要完整表达式时再加 `--expanded`。扫描任务集合时，
 脚本只保留当前产物，不会把全部已解析文档累积在内存里。`trace` 首次运行会在产物根目录
 生成 `.scope-lineage-index.json` 路由索引，之后按文件指纹增量刷新；索引只是可丢弃的
-缓存，产物始终是唯一事实源。
+缓存，产物始终是唯一事实源。`concept-impact` 是其中唯一一个还要读 `ontology.json`
+（`ontology-json/2`）的子命令：它按 id / 完整名 / 唯一前缀定位概念，打印这个概念的表现表
+（含 role）与概念关系（type、cardinality、tier），再用与 `trace` 同一套语料下游机制列出每张
+表现表的下游任务（按任务去重，注明读的是哪张表、第几跳）；`--attribute` 把答案收窄到该属性
+`sources[]` 的源列，并只保留 JOIN 列包含该属性的概念关系。前缀撞上多个概念时列出候选并退出
+2，本体缺失 / 版本过旧 / 概念或属性不存在同样是一句话加退出码 2。
 
 技能的工作流清单里还有一条不走 `query.py` 的：问"这个任务在做什么 / 这个字段什么含义"时，先跑 `scope-lineage describe --lineage <产物目录>` 生成 `semantic.json` / `semantic.md` 语义骨架，整读 `semantic.md` 回答；要业务画像时再按 `references/semantic-profile-prompt.md` 生成两个文件。`business_profile.md` 是给读者的：三件套——任务语义卡（≤ 1 页、业务语言、正文不挂来源标签）、字段字典（覆盖全部输出字段，指标附 7 行口径卡）、待确认清单（≤ 5 条，业务方几分钟答完）——后面只跟一个短附录：A 已确认项 / B 备查项与待填取值 / C 风险边界，三节合计 ≤ 正文字数的 1/3。`business_profile.check.md` 是写作方的质检记录：输入文件校验、来源标签与证据、结构推断项、自洽性检查与生成自检，一项都不能省，但不再占读者的篇幅。
 
