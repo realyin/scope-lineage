@@ -72,6 +72,11 @@ NONE_CELL = "（无）"
 MEMBER_OF_HEADING = "已是成员"
 #: N1b: the column compacting ``kind_evidence`` -- every signal's vote, grouped by vote.
 KIND_EVIDENCE_HEADING = "类别依据"
+#: N8b: the column beside it, carrying ``kind_tier`` -- what the rules actually read.
+#: The evidence says which signals voted; the tier says whether the prompt lets the
+#: reviewer answer the kind off them (``implied``) or has to ask (``hypothesis``), and
+#: reading that off the votes by hand meant opening ``ontology.json`` for every row.
+KIND_TIER_HEADING = "类别层级"
 #: N1b: the column carrying ``possible_duplicate_of`` onto the worksheet.
 DUPLICATE_HEADING = "疑似重复"
 #: N1b: the column showing how a candidate merge target scored, and on what.
@@ -127,6 +132,7 @@ def _rows(ontology: Mapping) -> list[dict]:
             "name": str(concept.get("name")),
             "name_tier": str(concept.get("name_tier")),
             "kind": str(concept.get("kind")),
+            "kind_tier": str(concept.get("kind_tier")),
             "tables": [str(item["table"]) for item in concept.get("tables") or []],
             "impact": impact.get(str(concept["id"]), {}).get("relations", 0),
             "tasks": impact.get(str(concept["id"]), {}).get("tasks", 0),
@@ -411,9 +417,10 @@ def render_batch_markdown(batch: Mapping, ontology: Mapping) -> str:
         "",
         "## 本批概念",
         "",
-        f"| 概念 | 种类 | {KIND_EVIDENCE_HEADING} | {DUPLICATE_HEADING} | 表 "
+        f"| 概念 | 种类 | {KIND_EVIDENCE_HEADING} | {KIND_TIER_HEADING} "
+        f"| {DUPLICATE_HEADING} | 表 "
         f"| {MEMBER_OF_HEADING} | 关系 | 命名候选 | 回写键 |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     index = {str(item["id"]): item for item in ontology.get("concepts") or []}
     memberships = _memberships(ontology, index)
@@ -459,6 +466,7 @@ def _concept_row(row: Mapping, concept: Mapping, memberships: Mapping[str, str])
         f"| {cell(str(row['name']))}（`{row['name_tier']}`） "
         f"| {row['kind']} "
         f"| {_kind_evidence(concept)} "
+        f"| {row['kind_tier']} "
         f"| {_duplicates(concept)} "
         f"| {'、'.join(f'`{table}`' for table in row['tables'])} "
         f"| {member_of or NONE_CELL} "

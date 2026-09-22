@@ -53,6 +53,8 @@ from scope_lineage.render.ontology import (
     render_ontology_appendix_markdown,
 )
 from scope_lineage.render.review_batches import (
+    KIND_EVIDENCE_HEADING,
+    KIND_TIER_HEADING,
     build_review_batches,
     render_batch_markdown,
 )
@@ -385,3 +387,39 @@ def test_the_value_dictionary_needs_no_rule_of_its_own_to_pick_the_answer_up() -
 
     assert GLOSSARY_PROVISIONAL_TIER == TIER_PROVISIONAL
     assert _by_id(document)[EXTRA_ID]["tier"] != GLOSSARY_PROVISIONAL_TIER
+
+
+# --------------------------------- 4. the worksheet prints the kind's own tier
+
+
+def test_the_worksheet_prints_the_kind_tier_beside_the_kind_evidence() -> None:
+    """The rules read the tier, not the votes, to say whether the kind may be self-answered."""
+    document = _built()
+
+    text = _worksheet(document)
+
+    assert f"| {KIND_EVIDENCE_HEADING} | {KIND_TIER_HEADING} |" in text
+    assert TIER_HYPOTHESIS in _row(text, EXTRA_ID)
+
+
+def test_the_kind_tier_the_worksheet_prints_is_the_one_the_document_publishes() -> None:
+    logged = _entity(
+        "ods.omega_log_di",
+        columns={"note_text": "说明（合成）"},
+        comment="欧米伽发送日志（合成）",
+    )
+    document = _built(entities=[ANCHOR, logged], relations=[])
+    identifier = table_concept_id(logged["id"])
+
+    row = _row(_worksheet(document), identifier)
+
+    assert _by_id(document)[identifier]["kind_tier"] == TIER_IMPLIED
+    assert f" {TIER_IMPLIED} " in row
+
+
+def test_every_worksheet_row_still_has_one_cell_per_heading() -> None:
+    text = _worksheet(_built())
+    header = next(line for line in text.splitlines() if KIND_TIER_HEADING in line)
+    row = _row(text, EXTRA_ID)
+
+    assert row.count("|") == header.count("|")
