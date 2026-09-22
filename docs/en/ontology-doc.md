@@ -1052,7 +1052,13 @@ one (still in the order of the previous section: created, fields, merges, splits
 - **Document-level keys like `doc_format` and `comments` are the last file's**: neither
   is an answer about a concept.
 
-The summary line says all of it: `reviewed N concept(s) from M file(s), …, K conflict(s)`.
+The summary line says all of it: `reviewed N concept(s) from M file(s), …, K conflict(s),
+warnings N, dissolved N` (N4). The last two are printed at zero like every other count on
+that line: `warnings` is what the round **applied** and is still worth a second look
+(`warnings[]`, so far only `merge_kept_two_primaries`), and `dissolved` is how many
+provisional concepts the round took off the board (`dissolved[]`) -- a number that only
+ever appears as a side effect of an `add_tables` or a `new_concepts` entry, and so the one
+nobody would go looking for in the JSON.
 
 ### 2. `--review-batches`: cutting the provisional concepts up
 
@@ -1115,6 +1121,13 @@ never reported as an `ignored_fields` typo.
 
 Two runs over one `ontology.json` write the same bytes; every ordering in this section
 is total.
+
+N4: the run's own summary line ends with `review batches: <dir> (<n> batch(es))` whenever
+`--review-batches` cut one, and a second line says how they were cut (`by`, the size cap,
+the provisional count). The queue is written **before** either line is printed, so the
+count on the summary is the count on disk. Without the flag neither is printed: the
+summary still says how many provisional concepts there are, and the reviewer who wants a
+queue runs the flag.
 
 ## Slot correspondence with OWL / SHACL / LinkML
 
@@ -1190,6 +1203,10 @@ the same corpus twice gives the same bytes, for the same reason `ontology.json` 
 | `representation_links[]` | a `representation_link` annotation on each of the two table classes | one `sl:representationLink` on each of the two node shapes |
 | `table_relations[].concept_relation` | an `evidence_for` annotation on the table class's relation slot | `sl:evidenceFor` on that property shape |
 | Provisional concepts (M1) | one more annotation on the concept class, `provisional: true` | one more line on the concept shape, `sl:provisional true` |
+| `provisional_count` (N4) | a schema-level `provisional_count` annotation, **always written, zero included** | `sl:provisionalCount` on the `sl:Ontology` node |
+| `retired_stems[]` (N4) | a schema-level `retired_stems` list annotation, one `"<stem>: <n> tables"` per entry; absent when the corpus refused none | one `sl:retiredStem` block per entry on the `sl:Ontology` node, carrying `sl:stem` and `sl:tableCount` |
+| `concept_impact` (N4) | an `impact` annotation on the concept class, `"<r> relation(s), <t> task(s)"` | `sl:impact` on the concept shape, the same string |
+| a `relations[]` edge with a provisional end (N4) | one more annotation on that relation slot, `provisional: true` | one more line on that property shape, `sl:provisional true` |
 
 An element of the concept layer carries the tier of the **fold**: the concept class and
 its attribute slots carry `concepts[].tier`, and a concept relation carries the tier of

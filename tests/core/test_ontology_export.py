@@ -20,6 +20,7 @@ from scope_lineage.render.ontology_export import (
     BASE_IRI,
     EXPORT_FILENAMES,
     EXPORT_FORMATS,
+    EXPORT_LINKML,
     concept_class_ids,
     constraint_ids,
     entity_class_ids,
@@ -245,6 +246,10 @@ def test_every_assertion_in_the_json_reaches_the_export_exactly_once(fmt: str) -
         assert text.count(f'"{relation["id"]}"') == 1, relation["id"]
     for item in constraint_ids(ontology["constraints"]):
         assert text.count(f'"{item}"') == 1, item
+    # N4: the stems a generic key rule refused are on the same footing -- a governance
+    # list, and an export that shrinks it publishes a corpus with fewer open answers.
+    for item in ontology.get("retired_stems") or ():
+        assert text.count(str(item["stem"])) == 1, item["stem"]
 
 
 def test_the_constraint_ids_are_positional_and_stable() -> None:
@@ -1003,3 +1008,23 @@ def test_the_golden_concept_reaches_both_exports(fmt: str) -> None:
     for concept in ontology["concepts"]:
         assert text.count(f'"{concept["id"]}"') == 1, concept["id"]
         assert concept["name"] in text
+
+
+@pytest.mark.parametrize("fmt", EXPORT_FORMATS)
+def test_the_golden_provisional_layer_is_marked_in_both_exports(fmt: str) -> None:
+    """N4: one mark per provisional concept, and one per relation that touches one."""
+    ontology = _golden_ontology()
+    provisional = {
+        str(item["id"]) for item in ontology["concepts"] if item["tier"] == "provisional"
+    }
+    edges = [
+        item
+        for item in ontology["relations"]
+        if str(item["from"]) in provisional or str(item["to"]) in provisional
+    ]
+
+    assert provisional and edges, "the golden corpus is supposed to fold both"
+    text = render_export(ontology, fmt)
+    mark = "provisional: true" if fmt == EXPORT_LINKML else "sl:provisional true"
+
+    assert text.count(mark) == len(provisional) + len(edges)
