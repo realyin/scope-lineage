@@ -1835,6 +1835,9 @@ def apply_concept_overrides(
         "concepts": 0,
         "created": [],
         "tables_added": 0,
+        # N8b: the memberships an `add_tables` lifted out of `reference` into a role a
+        # reviewer named. Not a table added -- the concept already pointed at it.
+        "roles_upgraded": 0,
         "merges": 0,
         "splits": 0,
         # M1: the provisional concepts an `add_tables` or a `new_concepts` entry took
@@ -2148,15 +2151,21 @@ def _add_tables(
     longer say that a person put it there.
     """
     asked = dict(entry.get("add_tables") or {})
-    members = {str(item["table"]) for item in concept.get("tables") or []}
+    members = {str(item["table"]): item for item in concept.get("tables") or []}
     touched = False
     for table in sorted(asked):
-        reason = _add_reason(str(table), str(asked[table]), corpus, members)
+        role = str(asked[table])
+        reason = _add_reason(str(table), role, corpus, members)
         if reason is not None:
             applied["unmatched"].append({"key": key, "reason": reason})
             continue
-        _add_member(concept, corpus, str(table), str(asked[table]), stamp)
-        applied["tables_added"] += 1
+        held = members.get(str(table))
+        if held is None:
+            _add_member(concept, corpus, str(table), role, stamp)
+            applied["tables_added"] += 1
+        else:
+            _upgrade_member(concept, held, role, stamp)
+            applied["roles_upgraded"] += 1
         touched = True
     return touched
 
@@ -2172,15 +2181,24 @@ def _member_basis(role: str) -> str:
     return BASIS_REFERENCE if role == ROLE_REFERENCE else BASIS_OVERRIDE
 
 
-def _add_reason(table: str, role: str, corpus: _Corpus, members: set) -> str | None:
-    """Why this table cannot be added, or None when it can."""
+def _add_reason(table: str, role: str, corpus: _Corpus, members: Mapping) -> str | None:
+    """Why this table cannot be added, or None when it can.
+
+    N8b: a table the concept merely *references* is not "already a member" in the sense
+    the refusal means. ``reference`` says the corpus watched a JOIN travel on the key
+    and nothing more; a reviewer naming a stronger role for that same table is answering
+    the question the reference left open, not overwriting an answer. So that one case is
+    an **upgrade**, and only a table already holding a role somebody decided -- a
+    reference included, once the reviewer asks for a reference again -- is refused.
+    """
     if table not in corpus.entities:
         return f"unknown_table: {table}"
     if role not in MEMBER_ROLES:
         return f"unknown_role: {role}"
-    if table in members:
-        return f"already_a_member: {table}"
-    return None
+    held = members.get(table)
+    if held is None or (str(held.get("role")) == ROLE_REFERENCE and role != ROLE_REFERENCE):
+        return None
+    return f"already_a_member: {table}"
 
 
 def _add_member(
@@ -2201,10 +2219,35 @@ def _add_member(
         "role_tier": TIER_CONFIRMED,
         **dict(stamp),
     }
-    concept["tables"] = sorted(
-        [*(concept.get("tables") or []), member],
-        key=lambda item: (str(item["role"]) == ROLE_REFERENCE, str(item["table"])),
+    concept["tables"] = sorted([*(concept.get("tables") or []), member], key=_member_order)
+
+
+def _member_order(member: Mapping) -> tuple:
+    """The order memberships publish in: the references last, then by table."""
+    return (str(member.get("role")) == ROLE_REFERENCE, str(member.get("table")))
+
+
+def _upgrade_member(
+    concept: dict, member: dict, role: str, stamp: Mapping
+) -> None:
+    """A membership the corpus could only call a reference, moved to a reviewed role (N8b).
+
+    Everything the reference row said stays -- it really does carry that key, and
+    ``key_columns`` is the evidence for it. What changes is what the membership *means*:
+    the role and the basis become the reviewed ones at ``role_tier: "confirmed"``, and
+    from that moment N9a's attribute rule reads the other way round, so the table's
+    columns count towards what the concept is made of. ``_concept_fields`` re-reads the
+    whole attribute list once every edit has landed, so that follows on its own.
+    """
+    member.update(
+        {
+            "role": role,
+            "membership_basis": _member_basis(role),
+            "role_tier": TIER_CONFIRMED,
+            **dict(stamp),
+        }
     )
+    concept["tables"] = sorted(concept.get("tables") or [], key=_member_order)
 
 
 def _dissolve_provisional(ontology: dict, applied: dict) -> None:
@@ -2671,10 +2714,7 @@ def _merge_members(current: Sequence[Mapping], extra: Sequence[Mapping]) -> list
         kept = merged.get(table)
         if kept is None or _role_strength(item) < _role_strength(kept):
             merged[table] = dict(item)
-    return sorted(
-        merged.values(),
-        key=lambda item: (str(item["role"]) == ROLE_REFERENCE, str(item["table"])),
-    )
+    return sorted(merged.values(), key=_member_order)
 
 
 def _role_strength(member: Mapping) -> int:

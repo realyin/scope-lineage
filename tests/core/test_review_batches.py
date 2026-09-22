@@ -296,6 +296,7 @@ def test_the_report_keeps_the_keys_a_single_file_round_already_published() -> No
         "concepts",
         "created",
         "tables_added",
+        "roles_upgraded",
         "merges",
         "splits",
         "dissolved",

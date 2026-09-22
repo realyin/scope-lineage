@@ -1,0 +1,195 @@
+"""N8b: the six gaps a *batched* concept review opened on a wide corpus.
+
+N1b cut the provisional pile into worksheets and N1a let a reviewer answer them one
+file per batch. An Agent reviewer then worked three of those batches end to end and
+came back with six places where the tool refused a judgement it had already made, or
+hid the one fact that judgement rests on:
+
+1. ``add_tables`` on a table the concept merely **referenced** was refused as
+   ``already_a_member`` -- yet naming a stronger role for a table the concept already
+   points at is the single most common answer a reviewer writes;
+2. ``merge_into`` could not say **which role** the folded tables take in the survivor,
+   so an answer that knew the table was a snapshot had to be written twice;
+3. a provisional concept the reviewer confirmed **standalone** ("it really is its own
+   thing") stayed at ``tier: "provisional"``, so the next batch run asked about it
+   again and the counters said the round had achieved nothing;
+4. the worksheet printed the kind's evidence but not the resulting ``kind_tier``, which
+   is the one thing the rules read to decide whether the kind may be self-answered;
+5. a real concept whose stem is a whole token of the provisional table's own name did
+   not reach the candidate list at all when nothing else scored;
+6. "not now, because" had nowhere to go: a reviewer who decided to leave a concept open
+   could only delete the entry, and the reason died with it.
+
+Every table, column, concept, comment and name in this file is synthetic. No real
+corpus, table, column, task, domain or business name is reproduced here.
+"""
+
+from __future__ import annotations
+
+from scope_lineage.render.concept_relations import build_concept_relations
+from scope_lineage.render.concepts import (
+    BASIS_OVERRIDE,
+    BASIS_REFERENCE,
+    CONCEPT_OVERRIDES_DOC_FORMAT,
+    ROLE_DETAIL,
+    ROLE_PRIMARY,
+    ROLE_REFERENCE,
+    TIER_CONFIRMED,
+    apply_concept_overrides,
+    build_concepts,
+    table_concept_id,
+)
+from scope_lineage.render.review_batches import (
+    build_review_batches,
+    render_batch_markdown,
+)
+
+from .test_concept_relations import _cards, _entity, _relation
+
+STAMP = {
+    "confirmed_by": "agent:concept-review",
+    "date": "2026-09-23",
+    "basis": "合成语料里评审读过这张表",
+}
+
+
+# ------------------------------------------------------------- the synthetic corpus
+
+
+#: The one concept a business key seeded: a dimension keyed by its own code column.
+ANCHOR = _entity("dim.omega", keys=["omega_code"], comment="欧米伽维表（合成）")
+#: A table no key places, which merely *carries* the anchor's key -- so the corpus makes
+#: it a ``reference`` member of the anchor and a provisional concept of its own.
+CARRIER = _entity(
+    "ods.carrier_di", columns={"omega_code": None, "memo_text": "备注（合成）"}
+)
+#: A table nothing at all places, whose *name* carries the anchor's stem as a token.
+EXTRA = _entity("ods.omega_extra_di", columns={"note_text": "说明（合成）"})
+
+CORPUS = [ANCHOR, CARRIER, EXTRA]
+JOINS = [
+    _relation("rel:901", "ods.carrier_di", ["omega_code"], "dim.omega", ["omega_code"])
+]
+
+ANCHOR_ID = "concept:omega"
+CARRIER_ID = table_concept_id("ods.carrier_di")
+EXTRA_ID = table_concept_id("ods.omega_extra_di")
+
+
+def _built(entities=CORPUS, relations=JOINS, overrides=None) -> dict:
+    """The builder's own order: concepts, then the overrides, then the relation fold."""
+    document = {
+        "doc_format": "ontology-json/2",
+        "tables": [dict(item) for item in entities],
+        "table_relations": [dict(item) for item in relations],
+    }
+    document.update(build_concepts(document, _cards()))
+    apply_concept_overrides(document, overrides if overrides is not None else {})
+    document.update(build_concept_relations(document))
+    return document
+
+
+def _overrides(**concepts) -> dict:
+    return {"doc_format": CONCEPT_OVERRIDES_DOC_FORMAT, "concepts": dict(concepts)}
+
+
+def _by_id(document) -> dict:
+    return {str(concept["id"]): concept for concept in document["concepts"]}
+
+
+def _members(concept) -> dict:
+    return {str(item["table"]): item for item in concept["tables"]}
+
+
+def _stems(concept) -> set:
+    return {str(item["stem"]) for item in concept["attributes"]}
+
+
+def _worksheet(document, *, by: str = "size", batch_size: int = 30) -> str:
+    """Every batch of this document's worksheets, as one text to read rows out of."""
+    batches = build_review_batches(document, by=by, batch_size=batch_size)
+    return "\n".join(
+        render_batch_markdown(batch, document) for batch in batches["batches"]
+    )
+
+
+def _row(text: str, marker: str) -> str:
+    """The one worksheet row that names ``marker`` -- the concept table's row for it."""
+    rows = [line for line in text.splitlines() if marker in line and line.startswith("|")]
+    assert rows, f"no worksheet row names {marker}"
+    return rows[0]
+
+
+# ----------------------- 1. add_tables upgrades a membership that was only a reference
+
+
+#: The reviewer's answer: the table the corpus could only call a carrier is a detail of
+#: the concept whose key it carries.
+UPGRADE = _overrides(**{ANCHOR_ID: {"add_tables": {CARRIER["id"]: ROLE_DETAIL}, **STAMP}})
+
+
+def test_add_tables_upgrades_a_reference_membership_rather_than_refusing_it() -> None:
+    document = _built(overrides=UPGRADE)
+
+    member = _members(_by_id(document)[ANCHOR_ID])[CARRIER["id"]]
+    assert member["role"] == ROLE_DETAIL
+    assert member["membership_basis"] == BASIS_OVERRIDE
+    assert member["role_tier"] == TIER_CONFIRMED
+    assert member["confirmed_by"] == STAMP["confirmed_by"]
+    assert document["concept_overrides_applied"]["unmatched"] == []
+
+
+def test_the_upgraded_member_lends_the_concept_its_columns() -> None:
+    """N9a read forwards: a reference lends nothing, and a detail lends everything."""
+    plain = _by_id(_built())[ANCHOR_ID]
+    upgraded = _by_id(_built(overrides=UPGRADE))[ANCHOR_ID]
+
+    assert "memo_text" not in _stems(plain)
+    assert "memo_text" in _stems(upgraded)
+
+
+def test_the_upgrade_is_reported_as_an_upgrade_and_not_as_an_added_table() -> None:
+    applied = _built(overrides=UPGRADE)["concept_overrides_applied"]
+
+    assert applied["roles_upgraded"] == 1
+    assert applied["tables_added"] == 0
+
+
+def test_the_upgrade_dissolves_the_tables_own_provisional_concept() -> None:
+    document = _built(overrides=UPGRADE)
+
+    assert CARRIER_ID not in _by_id(document)
+    assert [item["id"] for item in document["concept_overrides_applied"]["dissolved"]] == [
+        CARRIER_ID
+    ]
+
+
+def test_a_table_already_holding_a_stronger_role_is_still_already_a_member() -> None:
+    """The refusal is about a role a reviewer would be overwriting, not about the table."""
+    document = _built(
+        overrides=_overrides(**{ANCHOR_ID: {"add_tables": {ANCHOR["id"]: ROLE_DETAIL}}})
+    )
+
+    applied = document["concept_overrides_applied"]
+    assert applied["unmatched"] == [
+        {"key": ANCHOR_ID, "reason": f"already_a_member: {ANCHOR['id']}"}
+    ]
+    assert applied["roles_upgraded"] == 0
+    assert _members(_by_id(document)[ANCHOR_ID])[ANCHOR["id"]]["role"] == ROLE_PRIMARY
+
+
+def test_adding_a_reference_over_a_reference_changes_nothing_and_says_so() -> None:
+    """``reference`` is what it already was: there is no stronger role to move it to."""
+    document = _built(
+        overrides=_overrides(
+            **{ANCHOR_ID: {"add_tables": {CARRIER["id"]: ROLE_REFERENCE}}}
+        )
+    )
+
+    applied = document["concept_overrides_applied"]
+    assert applied["unmatched"] == [
+        {"key": ANCHOR_ID, "reason": f"already_a_member: {CARRIER['id']}"}
+    ]
+    assert applied["roles_upgraded"] == 0
+    member = _members(_by_id(document)[ANCHOR_ID])[CARRIER["id"]]
+    assert member["membership_basis"] == BASIS_REFERENCE

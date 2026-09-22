@@ -699,6 +699,8 @@ def test_the_overrides_report_is_present_even_when_nothing_was_reviewed() -> Non
         "concepts": 0,
         "created": [],
         "tables_added": 0,
+        # N8b: and no reference membership was lifted to a role a reviewer named.
+        "roles_upgraded": 0,
         "merges": 0,
         "splits": 0,
         "dissolved": [],

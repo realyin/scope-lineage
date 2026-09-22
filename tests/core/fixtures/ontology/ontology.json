@@ -745,6 +745,7 @@
     "concepts": 0,
     "created": [],
     "tables_added": 0,
+    "roles_upgraded": 0,
     "merges": 0,
     "splits": 0,
     "dissolved": [],
