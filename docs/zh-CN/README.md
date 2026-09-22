@@ -22,7 +22,7 @@ Scope Lineage 把 Spark/Hive SQL 转换成两类机器可消费的事实：
 11. [semantic.json / semantic.md 任务语义描述](semantic-doc.md)：用 `scope-lineage describe` 把契约派生成确定性的任务语义骨架——输出表形态与粒度、加工链路、规则清单、字段语义，每条都带来源标签与证据 id；业务命名不在其中。
 12. [tables.json / tables.md 语料级表卡](tables-doc.md)：用 `scope-lineage tables` 把一整份语料聚合成每张表一张卡——谁写它、一行代表什么、谁读它读了哪些列；`describe --tables` 让任务画像直接引用上游表卡。
 13. [glossary.json / glossary.md 术语与值域字典](glossary-doc.md)：用 `scope-lineage glossary` 把一整份语料聚合成一本按列名组织的字典——注释跨表归并、常量取值观察、已被 SQL 证明封闭的枚举；含义只来自人工确认与注释字面命中，`describe --glossary` 把它接到 `fields[].value_domain`。
-14. [ontology.json / ontology.md 语料级本体候选](ontology-doc.md)：用 `scope-lineage ontology` 在表卡与值词典之上把一整份语料整理成一份带置信分层的本体候选——业务概念与概念之间的关系，以及表现它们的表与底下的 JOIN 证据、身份键、约束、跨任务矛盾；索引开头是本体总览、随后每个概念一节，每张表卡追加身份 / 关系 / 约束 / 同义 / 待人工判定五节，人工确认经 `--overrides` 回写为第五级 `confirmed`；业务命名与类层次留给人或 Agent 确认。
+14. [ontology.json / ontology.md 语料级本体候选](ontology-doc.md)：用 `scope-lineage ontology` 在表卡与值词典之上把一整份语料整理成一份带置信分层的本体候选——业务概念与概念之间的关系，以及表现它们的表与底下的 JOIN 证据、身份键、约束、跨任务矛盾；索引开头是本体总览、随后每个概念一行链到它自己那份 `concepts/<文件>.md`（表一级的东西在 `appendix.md`），每张表卡追加身份 / 关系 / 约束 / 同义 / 待人工判定五节，人工确认经 `--overrides` 回写为第五级 `confirmed`；业务命名与类层次留给人或 Agent 确认。
 15. [AI agent 技能](agent-skill.md)：让 Claude Code、Codex 等 AI 编码 agent 直接用上血缘解析、字段加工链和 mapping 文档能力。
 
 ## 从问题找到字段

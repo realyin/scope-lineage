@@ -72,12 +72,14 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
   --concept-overrides /path/to/review/batches/batch-02.overrides.json
 ```
 
-Three artifacts:
+Five artifacts:
 
 | File | Read by | Contents |
 | --- | --- | --- |
 | `ontology.json` | machines / RAG / knowledge-graph loaders | the main artifact, `doc_format: "ontology-json/2"` |
-| `ontology.md` | people | an index, read concept-first since M3: `本体总览` (counts by kind, the concept ER, the concept table, the relation table) → `概念` (**one section per concept**, with the provisional-concept table at its end) → `附录：表与证据` (the table-level ER, the tables, the table relations, the constraints, the families, the retired key stems, the findings and the folded open list), `doc_format: "ontology-index-md/2"` |
+| `ontology.md` | people | **an index**, and since N2 nothing but an index: `本体总览` (counts by kind, the concept ER, the concept table whose names link to their own files, the relation table) → `概念` (one line saying where the files are, plus the provisional concepts' count, where the rest of them are, and the top 20 by impact) → `附录索引` (one line per section: the count and the link into `appendix.md`), `doc_format: "ontology-index-md/2"` |
+| `concepts/<file>.md` | people / RAG chunked per concept | N2: **one file per folded concept** — 表现 / 属性 / 约束 / 关系 / 待人工判定 / 命名与类别依据 / 评审回写键, `doc_format: "concept-md/1"`. A provisional concept gets no file |
+| `appendix.md` | people | N2: everything table-level (the table-level ER, the tables, the table relations, the constraints, the families, **the whole provisional-concept list**, the retired key stems, the findings and the folded open list), `doc_format: "ontology-appendix-md/1"` |
 | `tables/<db.table>.md` | people / RAG chunked per table | the table card's six sections plus five ontology sections, `doc_format: "ontology-md/2"`; the filename rule is exactly `scope-lineage tables`' own |
 
 Python API (consumes the contract documents, same path the files are written from):
@@ -633,28 +635,66 @@ The order is fixed: by type (`association` → `participation` → `aggregation`
 `derivation` → `self_reference`), then by the `from` concept id, then by the `to`
 concept id; `representation_links[]` is ordered by concept, then the two tables.
 
-### How `ontology.md` is rendered
+### How the markdown is rendered
 
-M3: the whole index reads concept-first. Three parts, in a fixed order -- `## 本体总览`,
-`## 概念` (**one section per concept**), `## 附录：表与证据`. Nothing table-level was
-dropped; all of it moved into the appendix and is marked as what it is, evidence rather
-than model: printing the JOINs in the main line taught every reader to model the business
-on the warehouse's own shape.
+N2: three kinds of document, and which one a reader opens is the point.
+`ontology.md` is the **index** -- three parts in a fixed order, `## 本体总览`, `## 概念`,
+`## 附录索引`. Each folded concept's own story is a file of its own under `concepts/`,
+and everything table-level is in `appendix.md` beside them, marked as what it is,
+evidence rather than model: printing the JOINs in the main line taught every reader to
+model the business on the warehouse's own shape.
+
+M3 had both of those inside the index, capped at 40 concept sections. That made the
+index the whole model in one file and still hid the tail. N2 replaced the cap with a
+**bound**: the index grows by one row per folded concept and one per relation. The one
+part that could still grow without limit is the provisional pile -- one row per table no
+key placed -- so that one place, and only that one, keeps a ceiling:
+`PROVISIONAL_SHOWN` (20) of them, ranked, with the rest in the appendix. No folded
+concept is summarised away and nothing says 「另有 N 个概念未展开」 any more.
 
 | Block | Contents |
 | --- | --- |
 | 本体总览 | Two sentences. The first is about concepts: how many, broken down by kind (entity N / event N / summary N), how many concept relations, how many **provisional concepts** and how many relations touch one. Only the second is about the warehouse: tasks, tables, table-level relations, constraints, findings, and the open list (N items / N groups, N already confirmed). Then the five-tier legend, and the count of tables that only lent evidence (P7, absent when there are none) |
 | The concept ER | one box per concept, labelled `<name>（<kind>）` and filled by kind (`classDef entity` / `event` / `summary`). It is a `flowchart LR` rather than an `erDiagram` because Mermaid's ER diagram has no `classDef`, and the boxes here carry a business name and a kind -- the kind being half of what there is to see. The edges come from `relations[]`, labelled 「type: cardinality」, with `?` for a cardinality that is only the author's assumption and a `participation`'s roles in brackets. `representation_links[]` is **not** drawn: that is a seam in K1's fold, not a relation. Past 40 concepts (`CONCEPT_MERMAID_LIMIT`) it keeps the 40 with the most concept relations and says how many it left out. **Provisional concepts are never drawn** (M1) |
-| The concept table (`### 概念`) | one row per concept: the name **with its tier** (「授信合同（`confirmed`）」 is a name a review round answered, 「合同（`hypothesis`）」 is the author's guess -- the two must not read alike), the kind with its tier, how many tables represent it (counted per `role`, **not** listed), the first three name candidates (`CONCEPT_NAME_CANDIDATES_SHOWN`), and whatever `possible_duplicate_of` points at |
+| The concept table (`### 概念`) | one row per concept: the name **with its tier** (「授信合同（`confirmed`）」 is a name a review round answered, 「合同（`hypothesis`）」 is the author's guess -- the two must not read alike) and **linked to the concept's own file** (N2), the kind with its tier, how many tables represent it (counted per `role`, **not** listed), the first three name candidates (`CONCEPT_NAME_CANDIDATES_SHOWN`), and whatever `possible_duplicate_of` points at |
 | The relation table (`### 关系`) | one row per concept relation: the type, both concept names, the participation roles, the cardinality with its tier, and how many table-level edges are behind it. A row touching a provisional concept carries `（临时）` after the type (M1) -- that row is a reading of the corpus, not yet one of the business |
-| One section per concept (`### <name>（<kind>）`) | M3's main line. It opens with the concept's identity line (id, name tier, kind tier, how many representations, how many attributes, possible duplicates), then five blocks: **表现表** (table / role / basis / grain, each table linked to its card), **属性摘要** (how many attributes, the commented ones first, at most `CONCEPT_ATTRIBUTES_SHOWN`), **约束** (the constraints on this concept's tables), **关系** (outgoing and incoming in one table), **待人工判定** (the question groups filed under this concept, with group id, count and impact). Past `CONCEPT_SECTIONS_SHOWN` (40) folded concepts only the first 40 are expanded; the rest get one line, 「另有 N 个概念未展开」, pointing back at the concept table above |
+| The concept part (`## 概念`) | N2: one line saying every folded concept has a file under `concepts/`, and that the names in the concept table above link to it. Nothing else -- the sections M3 printed here are those files now |
+| The provisional concepts (`### 临时概念（每表一个，待归并）`) | N2: **one paragraph and a short table**. The paragraph says how many there are, how each of the three ways out is written, that the whole list is in `appendix.md` under the same heading, and where the review queue is — a link to the directory when `--review-batches` cut one this run, and the command that would cut one when it did not. The table is the **top `PROVISIONAL_SHOWN` (20) by impact**, ranked by `concept_impact` (concept relations it carries, then tasks, then id) — the same order `--review-batches` queues them in, because a reviewer must not get one answer to "which first" from one document and a different one from another. Past the cap, one line: 「另有 N 个，见附录」 |
 | The provisional concepts (M1) | the last table of the concept part: one row per provisional concept -- its name with its tier, its kind, which table it is, and the key to write the answer under (`merge_into` on `concept:table:<…>`). A line above it says this is the review's **first** step and how each of the three ways out is written (merge into an existing concept / gather several into a new one / it really is its own thing). With none of them, the section says every table landed on a concept a business key grew |
-| 附录：表与证据 | everything table-level, each under its own `###`: `表级关系（证据）` (the former table-level Mermaid ER), `表` (the former entity table), `表级关系` (one column more than last release: which concept relation each edge folded into), `约束` (one column more: the concept), `表族` (`families[]`, for checking that a family really is copies of one table before answering for all of it), `退役键词根` (K4c), `矛盾发现` and `待人工判定清单` (the whole folded list, capped at `OPEN_ITEM_GROUPS_SHOWN`) |
+| The full list in the appendix | `appendix.md`'s 「临时概念（每表一个，待归并）」: **one row per** provisional concept -- its name with its tier, its kind, which table it is, its impact (how many concept relations / tasks), and the key to write the answer under (`merge_into` on `concept:table:<…>`). Same order as the index's short table, of which the index prints the first 20. With none of them, both documents say every table landed on a concept a business key grew |
 
-Three caps keep a wide corpus readable: `CONCEPT_MERMAID_LIMIT` (40 concepts) on the
-diagram, `CONCEPT_SECTIONS_SHOWN` (40) on the sections, `OPEN_ITEM_GROUPS_SHOWN` (50) on
-the folded list. Whatever is past a cap is summarised in one line that points back into
-`ontology.json` -- a document nobody scrolls to the end of answers nothing.
+The rows themselves are in `appendix.md` (`ontology-appendix-md/1`): `# 附录：表与证据`
+and then, each under its own `###`, `表级关系（证据）` (the table-level Mermaid ER), `表`
+(the entity table), `表级关系` (each edge naming the concept relation it folded into),
+`约束` (with a 概念 column), `表族` (`families[]`, for checking that a family really is
+copies of one table before answering for all of it), `临时概念（每表一个，待归并）` (M1's
+whole list, of which the index prints the first 20), `退役键词根` (K4c), `矛盾发现` and
+`待人工判定清单` (the whole folded list, capped at `OPEN_ITEM_GROUPS_SHOWN`).
+
+Two caps remain, both inside a document rather than on the index: `CONCEPT_MERMAID_LIMIT`
+(40 concepts) on the diagram and `OPEN_ITEM_GROUPS_SHOWN` (50) on the folded lists.
+Whatever is past one is summarised in a line that points back into `ontology.json`.
+
+### One file per concept (`concepts/<file>.md`)
+
+`doc_format: "concept-md/1"`. The filename is the concept id with `concept:` stripped,
+`:` written `-` and everything else escaped as `~<hex>~`: `concept:cust` is `cust.md`,
+`concept:table:ods_orders` is `table-ods_orders.md`. The escape is reversible, so two
+concepts can never land in one file -- a reviewed `new_concepts` entry may carry any id
+at all. **A provisional concept gets no file**: it is one table asking to be placed, and
+its whole content is the row the index's 「临时概念」 table already prints (M1).
+
+| Section | Contents |
+| --- | --- |
+| front matter | `doc_format`, `id`, `name`, `kind`, `tier`, `name_tier`, `table_count`, `relation_count` |
+| `# <name>（<kind>）` | the identity line (id, name tier, kind tier, concept tier, how many representations, how many attributes, possible duplicates), then links back to `../ontology.md` and `../appendix.md` |
+| `## 表现` | table / role / basis / grain, each table linked to its card at `../tables/<db.table>.md` |
+| `## 属性` | **every** attribute (N2 -- the index summarised because it had a paragraph): stem, type, comment, and the source columns each was folded from |
+| `## 约束` | the constraints filed under this concept, by table / target / kind / body / tier |
+| `## 关系` | outgoing and incoming in one table (direction, other concept, type, roles, cardinality, tier, evidence count, relation id), and beneath it **证据：表级 JOIN** -- the table-level edges each of those was read off, with which concept relation they fed, their cardinality, tier, basis and task count |
+| `## 待人工判定` | the question groups filed under this concept, with group id, count, impact and the write-back pattern |
+| `## 命名与类别依据` | the ranked `name_candidates[]` with their source and evidence tables, then `kind_evidence[]` -- which signal voted for which kind, on which table |
+| `## 评审回写键` | the exact key to write in `concepts.overrides.json` and which slots it takes; a provisional concept is answered with `merge_into` instead |
 
 The YAML front matter is concept-first too: `concept_count` / `relation_count` /
 `table_count` / `table_relation_count` / `open_item_count` / `open_item_group_count` (the
@@ -697,7 +737,7 @@ tables` card (1 what this table is / 2 what one row means / 3 columns / 4 who wr
 
 | Section | Contents |
 | --- | --- |
-| 7. 身份（本体） | opens with which copy of which concept this table is (「本表是「客户」（`concept:cust`，实体）的主表视图（`key:proven`）。」, one line per membership), or 「本表暂自成概念「<name>」（provisional），待评审归并（`concept:table:…`）。」 when nothing placed it (M1); then M3's **「概念中的其他表现」**: the other tables representing the same concept, each with its role and basis and linked to its own card -- a reader just told this table is 客户's snapshot asks next where the primary is; then 「属性 N（语料用到 n）」, the same count the appendix's table carries; then candidate keys, the metadata key hints, multiplicity and partition columns side by side, each with its tier in Chinese and its evidence ids; a confirmed key prints who confirmed it, when, and on what basis on the same line, and a key with `scope_columns` reads 「在 `dt` 内唯一」; the four answer four different questions and are never merged into one "primary key" |
+| 7. 身份（本体） | opens with which copy of which concept this table is, the concept name linked to its own file at `../concepts/<file>.md` (N2) (「本表是「客户」 (linked to `../concepts/cust.md`)（`concept:cust`，实体）的主表视图（`key:proven`）。」, one line per membership), or 「本表暂自成概念「<name>」（provisional），待评审归并（`concept:table:…`）。」 when nothing placed it (M1); then M3's **「概念中的其他表现」**: the other tables representing the same concept, each with its role and basis and linked to its own card -- a reader just told this table is 客户's snapshot asks next where the primary is; then 「属性 N（语料用到 n）」, the same count the appendix's table carries; then candidate keys, the metadata key hints, multiplicity and partition columns side by side, each with its tier in Chinese and its evidence ids; a confirmed key prints who confirmed it, when, and on what basis on the same line, and a key with `scope_columns` reads 「在 `dt` 内唯一」; the four answer four different questions and are never merged into one "primary key" |
 | 8. 关系 | M3: **「概念关系」** first -- which concept relations this table's JOINs fed (the relation id, both concept names, the type, the participation roles, the cardinality, the tier, and the table-level edge ids this table contributed); with none, one line, 「本表所属概念没有可发布的概念关系。」. **「表级 JOIN（证据）」** sits beneath it: one table for outgoing and one for incoming edges, the other end (linked to its card), the key pair, the JOIN types, the cardinality claim, the tier, the basis token in plain words, the task count and the evidence ids. The business relation is the answer and the JOIN is why it was published; printing the JOIN first taught every reader to model on the warehouse's shape. A 「注释线索」 sub-block follows when this table's column comments point somewhere (O9): own column → other table.column, the comment verbatim, and the reason where it could not be resolved; no hints, no sub-block |
 | 9. 约束 | opens with one line naming which concept, and which representation of it, these facts belong to (M3), then a SHACL-shaped list: the constraint kind, the target column or the whole table, the value set and its completeness, the tier, the evidence |
 | 10. 属性同义 | names the concept the same way (M3), then: this table's column ↔ the synonym, the basis (a renaming projection / the same UNION position), the tier, the evidence |

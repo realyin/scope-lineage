@@ -35,6 +35,7 @@ from scope_lineage.render.ontology import (
     TIER_HYPOTHESIS,
     TIER_IMPLIED,
     build_ontology,
+    render_ontology_appendix_markdown,
     render_ontology_index_markdown,
     render_ontology_table_card_markdown,
 )
@@ -435,13 +436,13 @@ def test_one_assumed_key_on_its_own_competes_with_nothing() -> None:
     assert _findings(_one(), FINDING_COMPETING_CANDIDATE_KEYS) == []
 
 
-def test_competing_keys_reach_the_index_and_the_card() -> None:
+def test_competing_keys_reach_the_appendix_and_the_card() -> None:
     ontology = _ontology(*SUBSET_CASES)
-    index = render_ontology_index_markdown(ontology)
+    appendix = render_ontology_appendix_markdown(ontology)
     card = _card(ontology, PARTY_KEY, cases=SUBSET_CASES)
 
     assert FINDING_COMPETING_CANDIDATE_KEYS in _section(
-        index, f"矛盾发现（{len(ontology['findings'])} 条，"
+        appendix, f"矛盾发现（{len(ontology['findings'])} 条，"
     )
     assert FINDING_COMPETING_CANDIDATE_KEYS in _section(card, "11. 待人工判定")
 
@@ -528,10 +529,10 @@ def test_the_index_headline_counts_what_is_open_and_what_was_confirmed() -> None
     ) in markdown
 
 
-def test_the_index_carries_the_consolidated_list_with_its_count() -> None:
-    """Q3: the list is folded, so what the index carries is one row per group."""
+def test_the_appendix_carries_the_consolidated_list_with_its_count() -> None:
+    """Q3: the list is folded, so it is one row per group. N2 moved it out of the index."""
     ontology = _ontology(*SUBSET_CASES)
-    markdown = render_ontology_index_markdown(ontology)
+    markdown = render_ontology_appendix_markdown(ontology)
     body = _section(
         markdown,
         f"待人工判定清单（{len(ontology['open_items'])} 条，"
@@ -553,7 +554,7 @@ def test_an_empty_corpus_list_says_so_rather_than_printing_an_empty_table() -> N
     )
 
     assert ontology["open_items"] == []
-    assert "本语料没有待人工判定项。" in render_ontology_index_markdown(ontology)
+    assert "本语料没有待人工判定项。" in render_ontology_appendix_markdown(ontology)
 
 
 def test_the_card_open_items_cite_the_list_id() -> None:

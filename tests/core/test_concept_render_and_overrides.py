@@ -37,6 +37,7 @@ from scope_lineage.render.ontology import (
     CONCEPT_ROLE_TEXT,
     build_ontology,
     mermaid_entity_ids,
+    render_ontology_appendix_markdown,
     render_ontology_index_markdown,
     render_ontology_table_card_markdown,
 )
@@ -167,12 +168,14 @@ def _two_concept_ontology() -> dict:
 # ---------------------------------------------------------- K4a: the concept layer
 
 
-def test_the_index_opens_with_the_concept_layer_before_the_table_level_er() -> None:
-    """A business reads the concepts; the table-level ER is the evidence under them."""
-    rendered = render_ontology_index_markdown(_two_concept_ontology())
+def test_the_index_opens_with_the_concept_layer_and_the_table_er_is_elsewhere() -> None:
+    """A business reads the concepts; N2 moved the table-level ER out of the index."""
+    ontology = _two_concept_ontology()
+    rendered = render_ontology_index_markdown(ontology)
 
     assert "## 本体总览" in rendered
-    assert rendered.index("## 本体总览") < rendered.index("### 表级关系（证据）")
+    assert "### 表级关系（证据）" not in rendered
+    assert "### 表级关系（证据）" in render_ontology_appendix_markdown(ontology)
 
 
 def test_every_concept_is_one_box_labelled_with_its_kind_and_styled_by_it() -> None:
@@ -245,7 +248,7 @@ def test_the_concept_table_carries_the_kind_the_tables_the_candidates_and_the_fl
     rendered = render_ontology_index_markdown(_two_concept_ontology())
 
     assert "| 概念 | 种类 | 表数 | 命名候选 | 疑似重复 |" in rendered
-    row = next(line for line in rendered.split("\n") if line.startswith("| 客户（"))
+    row = next(line for line in rendered.split("\n") if line.startswith("| [客户]("))
     assert "实体" in row and "implied" in row
     # Three tables, and the roles are counted rather than listed.
     assert "3" in row and "主表" in row and "引用" in row
@@ -792,11 +795,13 @@ def test_the_cli_applies_a_reviewed_concept_overrides_file(tmp_path: Path, capsy
         "0 merge(s) and 0 split(s), 0 unmatched, 0 conflict(s)"
         in capsys.readouterr().out
     )
-    assert f"| 客户（`{TIER_CONFIRMED}`） |" in (out / "ontology.md").read_text(
-        encoding="utf-8"
-    )
+    assert f"| [客户](concepts/cust.md)（`{TIER_CONFIRMED}`） |" in (
+        out / "ontology.md"
+    ).read_text(encoding="utf-8")
+    assert "# 客户（实体）" in (out / "concepts" / "cust.md").read_text(encoding="utf-8")
     card = (out / "tables" / "mart.cust_daily.md").read_text(encoding="utf-8")
-    assert "本表是「客户」" in card
+    # N2: the concept name in section 7 is the link to the concept's own file.
+    assert "本表是[「客户」](../concepts/cust.md)" in card
 
 
 def test_the_cli_reports_a_concept_overrides_path_that_is_not_there(

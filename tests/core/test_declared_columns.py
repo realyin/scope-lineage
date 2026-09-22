@@ -32,7 +32,7 @@ from scope_lineage.metadata.target_table_metadata import (
 )
 from scope_lineage.render.ontology import (
     build_ontology,
-    render_ontology_index_markdown,
+    render_ontology_appendix_markdown,
     render_ontology_table_card_markdown,
 )
 from scope_lineage.render.semantic_profile import build_semantic_profile
@@ -398,11 +398,11 @@ def test_an_unread_attribute_carries_the_empty_observed_roles_the_doc_promises()
 
 
 def test_the_entity_table_counts_attributes_against_the_used_ones() -> None:
-    rendered = render_ontology_index_markdown(_ontology(_document()))
+    rendered = render_ontology_appendix_markdown(_ontology(_document()))
 
     row = next(
         line
-        for line in rendered.split("## 附录：表与证据")[1].split("\n")
+        for line in rendered.split("### 表\n")[1].split("\n")
         if line.startswith("| [`ods.demo_event`]")
     )
     assert "8（语料用到 3）" in row

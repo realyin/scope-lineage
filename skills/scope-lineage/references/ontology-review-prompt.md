@@ -16,14 +16,15 @@
 
 ## 先读什么
 
-1. `ontology.md` 的 `erDiagram`：整份语料一屏，先看清有哪几个实体、谁连谁。
-2. `ontology.md` 「附录：表与证据」里的「待人工判定清单（N 条，折叠为 G 组）」：这一轮全部未决项，已经按
+1. `appendix.md` 的 `erDiagram`（N2：表一级的东西都搬到了 `ontology.md` 旁边这份附录里，
+   索引只留一节「附录索引」指过来）：整份语料一屏，先看清有哪几个实体、谁连谁。
+2. `appendix.md` 里的「待人工判定清单（N 条，折叠为 G 组）」：这一轮全部未决项，已经按
    （类型，表族，问题形状）折叠成组，组间按「`影响` 降序 → 组内条数降序 → 代表条目名次」
    排好序，每行带 `open:group:` 开头的组 id、代表条目的 `open:` id、影响、条数和回写模式。
    **它是这份工作的工作台**：清单条数减少多少，就是这一轮的产出。一个组是**一个问题**，
    不是一条——答一次覆盖一族表，所以先答组数多的。只印前 50 组，「另有 K 组 M 条」那一行
    指向 `ontology.json` 的 `open_item_groups[]`，逐条清单在 `open_items[]` 里。
-3. `ontology.md` 的「待人工判定（N 条，折叠为 G 组）」表：跨任务矛盾（`cardinality_conflict`）、
+3. `appendix.md` 的「矛盾发现（N 条，折叠为 G 组）」表：跨任务矛盾（`cardinality_conflict`）、
    `competing_candidate_keys`、`key_hint_conflict` 三类发现的正文，同样按表族折叠。
 4. 每张涉及的 `tables/<表>.md` 的第 11 节「待人工判定」：该表所有 `hypothesis` 断言，
    每条末尾已经打印好回写目标字符串与清单 id，**照抄，不要自己拼**。

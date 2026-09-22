@@ -19,7 +19,9 @@ import pytest
 
 from scope_lineage.contract import to_lineage_dict
 from scope_lineage.render.ontology import (
+    APPENDIX_FILENAME,
     BASIS_HUMAN_CONFIRMATION,
+    CONCEPTS_DIR,
     CARDINALITY_MANY_TO_ONE,
     CARDINALITY_MANY_TO_ONE_ASSUMED,
     CARDINALITY_ONE_TO_MANY,
@@ -39,7 +41,10 @@ from scope_lineage.render.ontology import (
     TIER_PROVEN,
     TIERS,
     build_ontology,
+    concept_files,
     relation_override_key,
+    render_concept_markdown,
+    render_ontology_appendix_markdown,
     render_ontology_index_markdown,
     render_ontology_table_card_markdown,
 )
@@ -773,12 +778,21 @@ def _golden_ontology() -> dict:
 
 
 def _record_golden() -> dict[str, str]:
-    """The recording path and the asserted path, deliberately one function."""
+    """The recording path and the asserted path, deliberately one function.
+
+    N2: the concept files and the appendix are recorded whole, like the cards. They are
+    where the per-concept sections and the table layer went, and a golden that kept only
+    the index would have shrunk by two hundred lines and proved nothing about where they
+    landed. Every folded concept of this corpus is recorded -- there is one.
+    """
     ontology, cards = _golden_corpus()
     recorded = {
         "ontology.json": json.dumps(ontology, ensure_ascii=False, indent=2) + "\n",
         "ontology.md": render_ontology_index_markdown(ontology),
+        APPENDIX_FILENAME: render_ontology_appendix_markdown(ontology),
     }
+    for name, concept in concept_files(ontology).items():
+        recorded[f"{CONCEPTS_DIR}/{name}"] = render_concept_markdown(concept, ontology)
     index = {str(card["table"]): card for card in cards["tables"]}
     for table in GOLDEN_CARDS:
         recorded[f"tables/{table_card_filename(table)}"] = (

@@ -34,6 +34,7 @@ from scope_lineage.render.ontology import (
     OPEN_ITEM_KEY,
     OPEN_ITEM_RELATION,
     build_ontology,
+    render_ontology_appendix_markdown,
     render_ontology_index_markdown,
     render_ontology_table_card_markdown,
     table_family,
@@ -449,8 +450,8 @@ def test_a_finding_without_a_write_back_target_has_no_pattern() -> None:
 # ------------------------------------------------------------------- 5. the markdown
 
 
-def test_the_index_prints_one_row_per_group_with_the_counts(corpus: dict) -> None:
-    markdown = render_ontology_index_markdown(corpus)
+def test_the_appendix_prints_one_row_per_group_with_the_counts(corpus: dict) -> None:
+    markdown = render_ontology_appendix_markdown(corpus)
     title = (
         f"待人工判定清单（{len(corpus['open_items'])} 条，"
         f"折叠为 {len(corpus['open_item_groups'])} 组）"
@@ -471,6 +472,7 @@ def test_the_index_prints_one_row_per_group_with_the_counts(corpus: dict) -> Non
 
 
 def test_the_headline_counts_the_groups_as_well_as_the_items(corpus: dict) -> None:
+    """The headline is the index's: the counts stayed there when the rows left (N2)."""
     markdown = render_ontology_index_markdown(corpus)
 
     assert (
@@ -482,7 +484,7 @@ def test_the_headline_counts_the_groups_as_well_as_the_items(corpus: dict) -> No
 def test_the_findings_table_is_folded_and_stands_above_the_open_list(
     corpus: dict,
 ) -> None:
-    markdown = render_ontology_index_markdown(corpus)
+    markdown = render_ontology_appendix_markdown(corpus)
     title = (
         f"矛盾发现（{len(corpus['findings'])} 条，"
         f"折叠为 {len(corpus['finding_groups'])} 组）"
@@ -490,7 +492,7 @@ def test_the_findings_table_is_folded_and_stands_above_the_open_list(
     body = _section(markdown, title)
 
     assert corpus["finding_groups"][0]["group_id"] in body
-    assert markdown.index(f"## {title}") < markdown.index("## 待人工判定清单（")
+    assert markdown.index(f"### {title}") < markdown.index("### 待人工判定清单（")
 
 
 def test_only_the_first_groups_are_printed_and_the_rest_are_counted(
@@ -500,7 +502,7 @@ def test_only_the_first_groups_are_printed_and_the_rest_are_counted(
     groups = corpus["open_item_groups"]
     hidden = groups[2:]
     body = _section(
-        render_ontology_index_markdown(corpus),
+        render_ontology_appendix_markdown(corpus),
         f"待人工判定清单（{len(corpus['open_items'])} 条，"
         f"折叠为 {len(groups)} 组）",
     )
@@ -519,7 +521,7 @@ def test_an_empty_list_still_says_so(corpus: dict) -> None:
     empty = {**corpus, "open_items": [], "open_item_groups": [], "findings": [],
              "finding_groups": []}
 
-    assert "本语料没有待人工判定项。" in render_ontology_index_markdown(empty)
+    assert "本语料没有待人工判定项。" in render_ontology_appendix_markdown(empty)
 
 
 def test_a_card_cites_the_group_beside_the_item(corpus: dict) -> None:

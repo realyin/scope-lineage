@@ -1,6 +1,44 @@
 # Changelog
 
 ## Unreleased
+- **One markdown file per concept, and `ontology.md` becomes an index** (N2). M3 gave
+  every concept a section inside `ontology.md` and kept the whole table layer behind
+  them, capped at 40 sections. On a wide corpus that is the entire model in one file and
+  the tail is hidden anyway — a document nobody scrolls answers nothing.
+  - `ontology --out <dir>` now writes `<dir>/concepts/<file>.md`, one per **folded**
+    concept (`doc_format: "concept-md/1"`): front matter (`id`, `name`, `kind`, `tier`,
+    `name_tier`, `table_count`, `relation_count`), then 表现 (tables with role, basis,
+    grain, each linked to its card), 属性 (**every** attribute with its comment and the
+    columns it was folded from — no cap), 约束, 关系 (in and out, with the table-level
+    JOINs each was read off printed beneath as evidence rows), 待人工判定, 命名与类别依据
+    (`name_candidates[]` with their sources, `kind_evidence[]`'s votes) and 评审回写键
+    (the exact `concepts.overrides.json` key). The filename is the concept id with
+    `concept:` stripped, `:` written `-` and everything else escaped `~<hex>~`, so
+    `concept:cust` is `cust.md`, `concept:table:ods_orders` is `table-ods_orders.md`,
+    and no two ids can ever reach one file. A **provisional** concept gets no file: it
+    is a question, and it stays one row of the index's 「临时概念」 table (M1).
+  - `<dir>/appendix.md` (`ontology-appendix-md/1`) holds everything table-level — the
+    table-level ER, the tables, the table relations, the constraints, the families, the
+    retired key stems, the findings and the folded open list — unchanged, just moved.
+  - `ontology.md` keeps 本体总览 (the counts, the legend, the concept ER, the concept
+    table whose names now **link to each concept's file**, the relation table), the
+    provisional summary, and a new 「附录索引」: one line per appendix section with its
+    count and a link, the two folded lists also naming their top 3 groups. The `CONCEPT_SECTIONS_SHOWN` cap is gone and with it
+    「另有 N 个概念未展开」: the index now grows by a row per folded concept and a row per
+    relation and by nothing else, which is a bound rather than a cap.
+  - **The provisional pile left the index too.** One row per table no key could place
+    *was* the index on a wide corpus. `ontology.md` now keeps a paragraph (how many,
+    the three ways out, where the whole list is, and a link to the `--review-batches`
+    queue when the run cut one) plus the top `PROVISIONAL_SHOWN` (20) ranked by impact —
+    the concept relations the concept carries, which is the same order `--review-batches`
+    queues them in, now shared through `concept_relations.concept_impact` so the two
+    cannot drift. The full one-row-per-concept table moved to `appendix.md` under
+    `### 临时概念（每表一个，待归并）`, in that same order, and both tables gained an
+    影响 column. The index's size bound is therefore
+    `~200 + 2·folded concepts + relations + 20` for any corpus.
+  - Section 7 of each table card links the concept file it names. The summary line
+    reports `concept files N`, and `--incremental` records `concepts/*.md` and
+    `appendix.md` in the cache index's `written[]` like the cards.
 - **Concept review at scale: several overrides files, and `ontology --review-batches`**
   (N1). A wide corpus publishes far more provisional concepts than one review round can
   answer — the round is capped at eight human questions and, until now, one overrides

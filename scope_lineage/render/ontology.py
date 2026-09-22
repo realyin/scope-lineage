@@ -61,11 +61,14 @@ from .concept_relations import (
     TYPE_PARTICIPATION,
     TYPE_SELF_REFERENCE,
     build_concept_relations,
+    concept_impact,
+    concept_impact_rank,
     identity_memberships,
     provisional_concept_ids,
     provisional_memberships,
 )
 from .concepts import (
+    CONCEPT_ID_PREFIX,
     CONCEPT_ENTITY,
     CONCEPT_EVENT,
     CONCEPT_SUMMARY,
@@ -115,6 +118,20 @@ INDEX_DOC_FORMAT = "ontology-index-md/2"
 # A table card the ontology appended its sections to is no longer a `tables-md/1`
 # document: it carries five more sections and a different contract. It says so.
 CARD_DOC_FORMAT = "ontology-md/2"
+# N2: one file per folded concept. A concept is the unit a business asks about, so it is
+# also the unit a file holds -- and the index is what says which file to open.
+CONCEPT_DOC_FORMAT = "concept-md/1"
+# N2: everything table-level, in a document of its own beside the index.
+APPENDIX_DOC_FORMAT = "ontology-appendix-md/1"
+
+#: N2: where the per-concept files are written, relative to ``--out``. Beside
+#: ``tables/``, so a card links a concept with ``../concepts/…`` and back with
+#: ``../tables/…`` -- two directories, one hop between them, whatever the corpus.
+CONCEPTS_DIR = "concepts"
+#: N2: the table layer, moved out of the index and written beside it.
+APPENDIX_FILENAME = "appendix.md"
+#: The index itself, named here because the concept files and the appendix link back.
+INDEX_FILENAME = "ontology.md"
 
 # P2: which keys of a semantic profile ``build_ontology`` reads *itself*, next to the
 # code that reads them; `tests/core/test_corpus_cache_projection.py` fails until the two
@@ -248,17 +265,22 @@ CONCEPT_KIND_STYLE = {
 #: How many of a concept's ranked name candidates the table prints before the JSON.
 CONCEPT_NAME_CANDIDATES_SHOWN = 3
 
-#: M3: the index's three parts. Named constants because the appendix title is the seam a
-#: reader -- and a test -- splits the business half of the document from the evidence.
+#: The index's opening section, and the title of the document the table layer moved to.
+#: N2 made the seam between the business half and the evidence a file boundary rather
+#: than a heading, and the second constant is now ``appendix.md``'s own ``#`` title.
 OVERVIEW_TITLE = "本体总览"
 APPENDIX_TITLE = "附录：表与证据"
 
-#: M3: how many concepts get a section of their own before the rest are summarised. The
-#: concept list is already ordered widest-first, so the cap keeps the folds a reviewer
-#: would open and turns the long tail into one line plus the concept table above it.
-CONCEPT_SECTIONS_SHOWN = 40
-#: How many of a concept's folded attribute stems the section names, commented first.
-CONCEPT_ATTRIBUTES_SHOWN = 8
+#: N2: how many of a section's groups the index's appendix entry names before it stops
+#: and points at ``appendix.md``. Three is what fits on one line and still says what the
+#: biggest questions are about.
+APPENDIX_GROUPS_SHOWN = 3
+
+#: N2: how many provisional concepts the index prints before it points at the appendix.
+#: A wide corpus publishes one per table no key could place, and that list *was* the
+#: index. Twenty is a screen: enough to start on, ranked so they are the right twenty,
+#: and a fixed ceiling on the only part of the index a pile of them could still grow.
+PROVISIONAL_SHOWN = 20
 
 #: The one paragraph every published tier is explained in, printed once in the overview.
 TIER_LEGEND = (
@@ -2888,24 +2910,34 @@ def _confirmed_count(ontology: Mapping) -> int:
 # ------------------------------------------------------------------------- markdown
 
 
-def render_ontology_index_markdown(ontology: Mapping) -> str:
-    """``ontology.md``: the business reading first, the warehouse behind it (M3).
+def render_ontology_index_markdown(
+    ontology: Mapping, *, review_batches: str | None = None
+) -> str:
+    """``ontology.md``: an index, and only an index (N2).
 
-    Three parts, and the order is the argument. 「本体总览」 says how many concepts of each
-    kind this corpus proposes and how much of that is still a question, then draws them.
-    「概念」 gives each folded concept a section of its own -- which tables represent it,
-    what it is made of, what holds about it, what it relates to, what a person still has
-    to answer -- because that is the unit a business asks about. Everything table-level
-    moved into 「附录：表与证据」, marked as what it is: the JOINs the concept relations
-    were read off, not the model.
+    M3 gave every concept a section here and kept the whole table layer behind them. On
+    a wide corpus that is one file nobody opens twice, and a document nobody scrolls
+    answers nothing -- so N2 moved both out. A concept's own story is in
+    ``concepts/<file>.md``, the table layer is in ``appendix.md``, and what is left is
+    what an index is for: 「本体总览」 (how many concepts of each kind, the diagram, one
+    row per concept linking to its file, one row per relation), the provisional table --
+    which is a question addressed to the review round rather than a reading -- and
+    「附录索引」, one line per appendix section saying how much is in it.
 
-    Three caps keep a wide corpus readable: ``CONCEPT_MERMAID_LIMIT`` on the diagram,
-    ``CONCEPT_SECTIONS_SHOWN`` on the sections, ``OPEN_ITEM_GROUPS_SHOWN`` on the list.
+    The size is the point, and it is bounded rather than capped: the index grows by a
+    row per folded concept and a row per relation, and by nothing else. The provisional
+    pile is the one part that could still grow without limit -- one row per table no key
+    placed -- so it is the one thing here with a ceiling: ``PROVISIONAL_SHOWN`` of them,
+    ranked, and the rest in the appendix.
+
+    ``review_batches`` is the link to the queue ``--review-batches`` cut, relative to
+    this file, when the run cut one. The renderer cannot know that by itself, and a link
+    to a directory nobody wrote is worse than the flag that would write it.
     """
     lines = _index_front_matter(ontology)
     lines.extend(_overview_section(ontology))
-    lines.extend(_concept_part(ontology))
-    lines.extend(_appendix_section(ontology))
+    lines.extend(_concept_part(ontology, review_batches))
+    lines.extend(_appendix_index_section(ontology))
     lines.append("")
     return "\n".join(lines)
 
@@ -3006,7 +3038,8 @@ def _overview_counts(
         f"{len(ontology.get('tables') or [])} 张表、"
         f"{len(ontology.get('table_relations') or [])} 条表级关系、"
         f"{len(ontology.get('constraints') or [])} 条约束、"
-        f"{len(ontology.get('findings') or [])} 条矛盾发现，逐条见附录；"
+        f"{len(ontology.get('findings') or [])} 条矛盾发现，逐条见 "
+        f"[`{APPENDIX_FILENAME}`]({APPENDIX_FILENAME})；"
         f"待人工判定 {len(items)} 条 / {len(groups)} 组"
         f"（已确认 {_confirmed_count(ontology)} 条）。",
     ]
@@ -3015,234 +3048,134 @@ def _overview_counts(
 # ------------------------------------------------------------- M3: one concept a section
 
 
-def _concept_part(ontology: Mapping) -> list[str]:
-    """One section per folded concept, then the provisional ones as a single table."""
+def _concept_part(ontology: Mapping, review_batches: str | None = None) -> list[str]:
+    """N2: where the concepts went, and what the provisional pile amounts to.
+
+    The folded concepts left this document -- each has a file, and the concept table in
+    the overview links to it. The provisional ones did not get files either: one of them
+    is a table asking 「我是不是某个已有概念的一份」, and a question is answered from the
+    queue, not from a page of its own. What is left here is the count, the way to that
+    queue, and the few whose answer unblocks the most.
+    """
     concepts = list(ontology.get("concepts") or [])
     provisional = provisional_concept_ids(concepts)
     folded = [item for item in concepts if str(item.get("id")) not in provisional]
     lines = ["", "## 概念", ""]
     if not folded:
-        lines.append(
-            "本语料没有折出概念：每张表都还是一个临时概念，见下面的表。"
-        )
+        lines.append("本语料没有折出概念：每张表都还是一个临时概念，见下面的表。")
     else:
         lines.append(
-            "每个概念一节：哪些表在表现它、它由什么组成、对它成立什么、它和谁有关系、"
-            "还有什么要人来判。"
+            f"{len(folded)} 个概念各有一份自己的文件，在 `{CONCEPTS_DIR}/` 下——哪些表在"
+            "表现它、它由什么组成、对它成立什么、它和谁有关系、还有什么要人来判，全在"
+            "那一份里。上面「概念」表里的名字就链到它。"
         )
-        for concept in folded[:CONCEPT_SECTIONS_SHOWN]:
-            lines.extend(_concept_detail(concept, ontology))
-        lines.extend(_hidden_concepts_line(folded[CONCEPT_SECTIONS_SHOWN:]))
-    lines.extend(_provisional_table(concepts, provisional))
+    lines.extend(_provisional_index_lines(ontology, review_batches))
     return lines
 
 
-def _hidden_concepts_line(hidden: Sequence[Mapping]) -> list[str]:
-    """A document nobody scrolls answers nothing: past the cap, a line and a pointer."""
-    if not hidden:
-        return []
-    shown = "、".join(cell(str(item.get("name"))) for item in hidden[:UNASSIGNED_REASONS_SHOWN])
-    rest = len(hidden) - min(len(hidden), UNASSIGNED_REASONS_SHOWN)
-    return [
-        "",
-        f"另有 {len(hidden)} 个概念未展开（上面按表现表数取前 {CONCEPT_SECTIONS_SHOWN} 个）："
-        + shown
-        + (f"，另有 {rest} 个" if rest else "")
-        + "；它们都在上面的概念表里，逐条见 `ontology.json` 的 `concepts[]`。",
-    ]
+PROVISIONAL_TITLE = "临时概念（每表一个，待归并）"
+
+#: How to answer one, whichever document a reader met it in. Printed once per document
+#: rather than per row: the three ways out are the same three every time.
+PROVISIONAL_HOW = (
+    "评审这一轮的**第一步**就是把它们归并掉：在 `concepts.overrides.json` 里按回写键"
+    "写一条 `merge_into`，或者用 `new_concepts` 把几张一起收成一个新概念；确实自成一件"
+    "事的，改名并确认。"
+)
+PROVISIONAL_NONE = "每张表都归到了某个业务键长出来的概念上。"
 
 
-def _concept_detail(concept: Mapping, ontology: Mapping) -> list[str]:
-    """One concept's whole story, in the order a reader asks for it."""
-    kind = str(concept.get("kind"))
-    lines = [
-        "",
-        f"### {cell(str(concept.get('name')))}（{CONCEPT_KIND_TEXT.get(kind, kind)}）",
-        "",
-        f"`{concept.get('id')}` · 名字 `{concept.get('name_tier')}` · "
-        f"种类 `{concept.get('kind_tier')}` · "
-        f"表现表 {len(concept.get('tables') or [])} 张 · "
-        f"属性 {len(concept.get('attributes') or [])} 个"
-        + (f" · 疑似重复 {_duplicate_text(concept)}" if concept.get("possible_duplicate_of") else ""),
-        "",
-        "**表现表**",
-        "",
-        "| 表 | 角色 | 依据 | 粒度 |",
-        "| --- | --- | --- | --- |",
-    ]
-    lines.extend(_representation_row(member) for member in concept.get("tables") or [])
-    lines.extend(_concept_attribute_lines(concept))
-    lines.extend(_concept_constraint_lines(concept, ontology))
-    lines.extend(_concept_relation_lines(concept, ontology))
-    lines.extend(_concept_open_item_lines(concept, ontology))
-    return lines
+def _provisional_concepts(ontology: Mapping) -> list[dict]:
+    """The provisional concepts, worst question first (N2).
+
+    Ranked by ``concept_impact`` -- the same order ``--review-batches`` works them in --
+    so the twenty the index prints are the twenty a reviewer would have been handed
+    first, rather than whichever twenty sorted earliest by table name.
+    """
+    concepts = list(ontology.get("concepts") or [])
+    provisional = provisional_concept_ids(concepts)
+    impact = concept_impact(list(ontology.get("relations") or []))
+    rows = [item for item in concepts if str(item.get("id")) in provisional]
+    return sorted(rows, key=lambda item: concept_impact_rank(item, impact))
 
 
-def _representation_row(member: Mapping) -> str:
-    role = str(member.get("role"))
-    table = str(member.get("table"))
-    grain = member.get("grain")
-    return (
-        f"| [`{table}`](tables/{table_card_filename(table)}) "
-        f"| {CONCEPT_ROLE_TEXT.get(role, role)} "
-        f"| `{member.get('membership_basis')}` "
-        f"| {f'`{grain}`' if grain else '—'} |"
-    )
+def _provisional_index_lines(ontology: Mapping, batches: str | None) -> list[str]:
+    """N2: how many there are, where the rest is, and the ones worth answering first.
 
-
-def _concept_attribute_lines(concept: Mapping) -> list[str]:
-    """What the concept is made of: the commented stems first, the rest counted."""
-    attributes = list(concept.get("attributes") or [])
-    lines = ["", "**属性摘要**", ""]
-    if not attributes:
-        return [*lines, "- 本概念的表现表没有可发布的列。"]
-    ranked = sorted(attributes, key=lambda item: (not item.get("comment"), str(item.get("stem"))))
-    shown = ranked[:CONCEPT_ATTRIBUTES_SHOWN]
-    text = "、".join(
-        f"`{item.get('stem')}`"
-        + (f"（{cell(normalize_inline(str(item['comment'])))}）" if item.get("comment") else "")
-        for item in shown
-    )
-    rest = len(attributes) - len(shown)
-    return [
-        *lines,
-        f"- 共 {len(attributes)} 个属性（按词根折叠）：{text}"
-        + (f"，另有 {rest} 个" if rest else "")
-        + "。逐条见 `ontology.json` 的 `concepts[].attributes[]`。",
-    ]
-
-
-def _concept_constraint_lines(concept: Mapping, ontology: Mapping) -> list[str]:
-    """What holds about this concept, read off its representations' constraints."""
-    identifier = str(concept.get("id"))
-    constraints = [
-        item
-        for item in ontology.get("constraints") or []
-        if str(item.get("concept")) == identifier
-    ]
-    lines = ["", "**约束**", ""]
-    if not constraints:
-        return [*lines, "- 本概念的表现表上没有可发布的约束。"]
-    lines.extend(["| 表 | 目标 | 约束 | 内容 | 层级 |", "| --- | --- | --- | --- | --- |"])
-    for constraint in constraints:
-        target = constraint.get("target") or {}
-        lines.append(
-            "| "
-            + " | ".join(
-                [
-                    cell(f"`{target.get('entity')}`"),
-                    cell(f"`{target['column']}`" if target.get("column") else "整表"),
-                    cell(_constraint_kind_text(constraint)),
-                    cell(_constraint_body(constraint)),
-                    cell(_tier_text(constraint.get("tier"))),
-                ]
-            )
-            + " |"
-        )
-    return lines
-
-
-def _concept_relation_lines(concept: Mapping, ontology: Mapping) -> list[str]:
-    """Both directions in one table: what this concept points at and what points at it."""
-    identifier = str(concept.get("id"))
-    names = {
-        str(item.get("id")): str(item.get("name")) for item in ontology.get("concepts") or []
-    }
-    rows = [
-        ("出", relation, str(relation["to"]))
-        for relation in ontology.get("relations") or []
-        if str(relation["from"]) == identifier
-    ] + [
-        ("入", relation, str(relation["from"]))
-        for relation in ontology.get("relations") or []
-        if str(relation["to"]) == identifier and str(relation["from"]) != identifier
-    ]
-    lines = ["", "**关系**", ""]
+    The pile itself is not an index entry -- on a wide corpus it *was* the index, one
+    row per table no key could place. What an index owes a reader is the count, the way
+    to the queue, and the few whose answer unblocks the most; the list is in the
+    appendix, where the lists are.
+    """
+    rows = _provisional_concepts(ontology)
+    lines = ["", f"### {PROVISIONAL_TITLE}", ""]
     if not rows:
-        return [*lines, "- 本概念在语料里没有折出概念关系。"]
+        return [*lines, PROVISIONAL_NONE]
+    shown = rows[:PROVISIONAL_SHOWN]
     lines.extend(
         [
-            "| 方向 | 对端 | 类型 | 角色 | 基数 | 层级 | 证据数 |",
-            "| --- | --- | --- | --- | --- | --- | --- |",
+            f"{len(rows)} 个临时概念：每一个都是一张语料没能归到任何业务键上的表，暂时"
+            f"自成一个概念（`tier: \"provisional\"`）。{PROVISIONAL_HOW}",
+            "",
+            f"完整清单见 [`{APPENDIX_FILENAME}`]({APPENDIX_FILENAME}) 的「{PROVISIONAL_TITLE}」"
+            + _batches_text(batches),
+            "",
+            f"下面是影响最大的 {len(shown)} 个（按它带的概念关系数、任务数排序，"
+            "与评审批次同一个顺序）：",
+            "",
+            "| 概念 | 种类 | 表 | 影响 | 回写 |",
+            "| --- | --- | --- | --- | --- |",
         ]
     )
-    lines.extend(_concept_edge_row(direction, relation, names, other) for direction, relation, other in rows)
-    return lines
+    impact = concept_impact(list(ontology.get("relations") or []))
+    lines.extend(_provisional_row(concept, impact) for concept in shown)
+    rest = len(rows) - len(shown)
+    return [*lines, "", f"另有 {rest} 个，见附录。"] if rest else lines
 
 
-def _concept_edge_row(
-    direction: str, relation: Mapping, names: Mapping[str, str], other: str
-) -> str:
-    cardinality = relation.get("cardinality") or {}
-    kind = str(relation.get("type"))
-    claim = str(cardinality.get("claim"))
-    return (
-        f"| {direction} "
-        f"| {cell(names.get(other, other))} "
-        f"| {CONCEPT_TYPE_TEXT.get(kind, kind)} "
-        f"| {cell(_role_text(relation)) or '—'} "
-        f"| {CARDINALITY_TEXT.get(claim, claim)} "
-        f"| `{cardinality.get('tier')}` "
-        f"| {len(relation.get('evidence') or [])} |"
-    )
+def _batches_text(batches: str | None) -> str:
+    """Where the review queue is: a link when this run cut one, the flag when it did not."""
+    if batches:
+        return f"；这一轮切好的评审批次在 [`{batches}`]({batches})，按 `index.md` 的顺序做。"
+    return "；用 `ontology --review-batches <目录>` 把它们切成一批批能做完的评审。"
 
 
-def _concept_open_item_lines(concept: Mapping, ontology: Mapping) -> list[str]:
-    """The questions filed under this concept, folded the way the appendix folds them."""
-    identifier = str(concept.get("id"))
-    groups = [
-        group
-        for group in ontology.get("open_item_groups") or []
-        if str(group.get("concept")) == identifier
-    ]
-    lines = ["", "**待人工判定**", ""]
-    if not groups:
-        return [*lines, "- 本概念没有待人工判定的项。"]
-    index = {str(item["id"]): item for item in ontology.get("open_items") or []}
-    lines.extend(
-        f"- {OPEN_ITEM_TEXT.get(str(group['kind']), str(group['kind']))}"
-        f"（`{group['group_id']}`，{group['count']} 条，影响 {group['impact']}）："
-        + normalize_inline(str((index.get(str(group["representative"])) or {}).get("text") or ""))
-        for group in groups[:OPEN_ITEM_GROUPS_SHOWN]
-    )
-    rest = len(groups) - min(len(groups), OPEN_ITEM_GROUPS_SHOWN)
-    return [*lines, *( [f"- 另有 {rest} 组，见附录的待人工判定清单。"] if rest else [] )]
-
-
-def _provisional_table(concepts: Sequence[Mapping], provisional: frozenset) -> list[str]:
-    """M1: the tables that are standing in for concepts, and how to answer for them.
+def _provisional_appendix_lines(ontology: Mapping) -> list[str]:
+    """M1: every table standing in for a concept, and the key to answer it under.
 
     Apart from the concept table on purpose. A folded concept is what the corpus read;
     one of these is a question — 「这张表是不是某个已有概念的一份」 — and the row carries
     exactly what an answer needs: the id to write in ``concepts.overrides.json`` and the
-    key to write it under.
+    key to write it under. N2 moved it here from the index, whole and in the same order.
     """
-    rows = [item for item in concepts if str(item.get("id")) in provisional]
-    lines = ["", "### 临时概念（每表一个，待归并）", ""]
+    rows = _provisional_concepts(ontology)
+    lines = ["", f"### {PROVISIONAL_TITLE}", ""]
     if not rows:
-        return [*lines, "每张表都归到了某个业务键长出来的概念上。"]
+        return [*lines, PROVISIONAL_NONE]
     lines.extend(
         [
-            f"{len(rows)} 张表没有归到任何业务键上，暂时各自成一个概念（`tier: \"provisional\"`）。"
-            "评审这一轮的**第一步**就是把它们归并掉：在 `concepts.overrides.json` 里按下面的"
-            "回写键写一条 `merge_into`，或者用 `new_concepts` 把几张一起收成一个新概念；"
-            "确实自成一件事的，改名并确认。",
+            f"{len(rows)} 张表没有归到任何业务键上，暂时各自成一个概念"
+            f"（`tier: \"provisional\"`）。{PROVISIONAL_HOW}下面按影响排序，"
+            f"索引里印的是这张表的前 {PROVISIONAL_SHOWN} 行。",
             "",
-            "| 概念 | 种类 | 表 | 回写 |",
-            "| --- | --- | --- | --- |",
+            "| 概念 | 种类 | 表 | 影响 | 回写 |",
+            "| --- | --- | --- | --- | --- |",
         ]
     )
-    lines.extend(_provisional_row(concept) for concept in rows)
+    impact = concept_impact(list(ontology.get("relations") or []))
+    lines.extend(_provisional_row(concept, impact) for concept in rows)
     return lines
 
 
-def _provisional_row(concept: Mapping) -> str:
+def _provisional_row(concept: Mapping, impact: Mapping) -> str:
     kind = str(concept.get("kind"))
     table = str(((concept.get("tables") or [{}])[0]).get("table"))
+    row = impact.get(str(concept.get("id"))) or {}
     return (
         f"| {cell(str(concept.get('name')))}（`{concept.get('name_tier')}`） "
         f"| {CONCEPT_KIND_TEXT.get(kind, kind)} "
         f"| `{table}` "
+        f"| {row.get('relations', 0)} 关系 / {row.get('tasks', 0)} 任务 "
         f"| `{concept.get('id')}` 的 `merge_into` |"
     )
 
@@ -3375,6 +3308,7 @@ def _mermaid_label(text: str) -> str:
 
 
 def _concept_table(concepts: Sequence[Mapping]) -> list[str]:
+    """N2: every folded concept, one row, and the row is the way into its file."""
     lines = [
         "",
         "### 概念",
@@ -3386,10 +3320,16 @@ def _concept_table(concepts: Sequence[Mapping]) -> list[str]:
     return lines
 
 
+def _concept_link(concept: Mapping) -> str:
+    """The concept's name, linked to the file that holds the rest of it (N2)."""
+    name = cell(str(concept.get("name")))
+    return f"[{name}]({CONCEPTS_DIR}/{concept_filename(str(concept.get('id')))})"
+
+
 def _concept_row(concept: Mapping) -> str:
     kind = str(concept.get("kind"))
     return (
-        f"| {cell(str(concept.get('name')))}（`{concept.get('name_tier')}`） "
+        f"| {_concept_link(concept)}（`{concept.get('name_tier')}`） "
         f"| {CONCEPT_KIND_TEXT.get(kind, kind)}（`{concept.get('kind_tier')}`） "
         f"| {_member_counts(concept.get('tables') or [])} "
         f"| {_candidate_text(concept.get('name_candidates') or [])} "
@@ -3635,31 +3575,54 @@ def _conflicted_pairs(findings: Sequence[Mapping]) -> set[tuple[str, tuple]]:
 # ------------------------------------------------- M3: the appendix, table by table
 
 
-def _appendix_section(ontology: Mapping) -> list[str]:
-    """Everything table-level, in one place, marked as the evidence it is.
+def render_ontology_appendix_markdown(ontology: Mapping) -> str:
+    """``appendix.md``: everything table-level, in a document of its own (N2).
 
-    The table layer did not get smaller -- it got demoted. A JOIN between two tables is
-    what the concept relations above were read off, and printing it in the main line
-    invited the reader to model the business on the warehouse's own shape.
+    The table layer did not get smaller -- it got demoted, and then it moved out. A JOIN
+    between two tables is what the concept relations were read off, and printing it in
+    the index invited the reader to model the business on the warehouse's own shape.
+    Now it is not even in the same file: the index carries one line per section saying
+    how much is here, and a reader who wants the evidence opens this.
     """
+    lines = [
+        "---",
+        f'doc_format: "{APPENDIX_DOC_FORMAT}"',
+        f"table_count: {len(ontology.get('tables') or [])}",
+        f"table_relation_count: {len(ontology.get('table_relations') or [])}",
+        f"constraint_count: {len(ontology.get('constraints') or [])}",
+        f"finding_count: {len(ontology.get('findings') or [])}",
+        f"open_item_count: {len(ontology.get('open_items') or [])}",
+        f"provisional_count: {len(provisional_concept_ids(ontology.get('concepts') or []))}",
+        "---",
+        "",
+        f"# {APPENDIX_TITLE}",
+        "",
+        "下面全是**表一级**的事实：语料里哪些表、它们被哪些 JOIN 连过、那些 JOIN 证明了"
+        "什么。概念关系就是从这里折出来的，所以这里是证据，不是模型——模型在 "
+        f"[`{INDEX_FILENAME}`]({INDEX_FILENAME}) 与它指向的 `{CONCEPTS_DIR}/` 里。",
+        *_appendix_body(ontology),
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def _appendix_body(ontology: Mapping) -> list[str]:
+    """The seven table-level sections, in the order the evidence is read in."""
     entities = list(ontology.get("tables") or [])
     relations = list(ontology.get("table_relations") or [])
     findings = list(ontology.get("findings") or [])
     identifiers = mermaid_entity_ids(entities)
-    lines = [
-        "",
-        f"## {APPENDIX_TITLE}",
-        "",
-        "下面全是**表一级**的事实：语料里哪些表、它们被哪些 JOIN 连过、那些 JOIN 证明了"
-        "什么。上面的概念关系就是从这里折出来的，所以这里是证据，不是模型。",
-    ]
-    lines.extend(_mermaid_section(entities, relations, findings, identifiers))
+    lines = list(_mermaid_section(entities, relations, findings, identifiers))
     lines.extend(
         _entities_section(entities, relations, ontology.get("constraints") or [], identifiers)
     )
     lines.extend(_relations_section(relations))
     lines.extend(_constraints_section(list(ontology.get("constraints") or [])))
     lines.extend(_families_section(list(ontology.get("families") or [])))
+    # N2: the whole provisional pile, beside the two other things a review round reads
+    # off the table layer -- which tables are copies of one, and which stems were
+    # refused. The index keeps only its count and the top of it.
+    lines.extend(_provisional_appendix_lines(ontology))
     lines.extend(_retired_stems_lines(ontology))
     lines.extend(_findings_section(findings, list(ontology.get("finding_groups") or [])))
     lines.extend(
@@ -3669,6 +3632,64 @@ def _appendix_section(ontology: Mapping) -> list[str]:
         )
     )
     return lines
+
+
+# ------------------------------------------------------- N2: the appendix, indexed
+
+
+def _appendix_index_section(ontology: Mapping) -> list[str]:
+    """One line per appendix section: how much is in it, and where it is.
+
+    The counts stay in the index because 「这批表有多少条约束」 is an index question. The
+    rows do not, because 「是哪 4000 条」 never was one.
+    """
+    link = f"[`{APPENDIX_FILENAME}`]({APPENDIX_FILENAME})"
+    lines = [
+        "",
+        "## 附录索引",
+        "",
+        f"表一级的事实全部在 {link} 里，每节一行：",
+        "",
+        f"- **表** {len(ontology.get('tables') or [])} 张 — {link} 的「表」；"
+        f"每张表一份卡片在 [`tables/`](tables/)。",
+        f"- **表级关系** {len(ontology.get('table_relations') or [])} 条 — {link} 的"
+        "「表级关系」与「表级关系（证据）」，每条都标明折进了哪条概念关系。",
+        f"- **约束** {len(ontology.get('constraints') or [])} 条 — {link} 的「约束」；"
+        "按概念读的话，每条也在它所属概念的文件里。",
+        f"- **表族** {len(ontology.get('families') or [])} 族 — {link} 的「表族」。",
+        f"- **{PROVISIONAL_TITLE}** "
+        f"{len(provisional_concept_ids(ontology.get('concepts') or []))} 个 — {link} 的"
+        f"「{PROVISIONAL_TITLE}」；影响最大的前 {PROVISIONAL_SHOWN} 个已经印在上面。",
+        f"- **退役键词根** {len(ontology.get('retired_stems') or [])} 个 — {link} 的"
+        "「退役键词根」。",
+    ]
+    lines.extend(
+        _folded_list_line(name, ontology, items, groups, link)
+        for name, items, groups in (
+            ("矛盾发现", "findings", "finding_groups"),
+            ("待人工判定清单", "open_items", "open_item_groups"),
+        )
+    )
+    return lines
+
+
+def _folded_list_line(
+    name: str, ontology: Mapping, items: str, groups: str, link: str
+) -> str:
+    """A folded list, counted both ways, and the groups worth answering first.
+
+    The top groups are named here rather than left to the appendix because they are the
+    one thing a reader of the index acts on: the question that unblocks the most.
+    """
+    counted = list(ontology.get(items) or [])
+    folded = list(ontology.get(groups) or [])
+    shown = folded[:APPENDIX_GROUPS_SHOWN]
+    top = "、".join(
+        f"`{group.get('group_id')}`（{group.get('count')} 条，影响 {group.get('impact')}）"
+        for group in shown
+    )
+    tail = f"影响最大的 {len(shown)} 组：{top}。" if top else ""
+    return f"- **{name}** {len(counted)} 条 / {len(folded)} 组 — {link} 的「{name}」。{tail}"
 
 
 def _families_section(families: Sequence[Mapping]) -> list[str]:
@@ -4174,8 +4195,11 @@ def _membership_line(concept: Mapping, member: Mapping) -> str:
             f"- 本表暂自成概念「{cell(str(concept.get('name')))}」（provisional），"
             f"待评审归并（`{concept.get('id')}`）。"
         )
+    # N2: the concept's own file is one hop away, and a card that names it without
+    # linking it is a card that sends the reader back to the index to find it.
+    link = f"../{CONCEPTS_DIR}/{concept_filename(str(concept.get('id')))}"
     return (
-        f"- 本表是「{cell(str(concept.get('name')))}」（`{concept.get('id')}`，"
+        f"- 本表是[「{cell(str(concept.get('name')))}」]({link})（`{concept.get('id')}`，"
         f"{CONCEPT_KIND_TEXT.get(str(concept.get('kind')), str(concept.get('kind')))}）的"
         f"{CONCEPT_ROLE_TEXT.get(str(member.get('role')), str(member.get('role')))}视图"
         f"（`{member.get('membership_basis')}`）。"
@@ -4521,3 +4545,416 @@ def _dedupe(items: Iterable) -> list:
         if item not in seen:
             seen.append(item)
     return seen
+
+
+# -------------------------------------------------------- N2: one file per concept
+
+
+#: The one character a concept id may keep in its filename beside ASCII letters and
+#: digits. Everything else becomes ``~<hex>~``, which makes the slug reversible -- and
+#: therefore injective, which is the property that matters: two concepts can never land
+#: in one file. ``:`` is the one exception, mapped to ``-``, so ``concept:table:x``
+#: reads as ``table-x.md`` the way a person would write it. ``.`` is *not* kept: a stem
+#: of nothing but dots would name ``..md``, and a slug is not worth a directory escape.
+_CONCEPT_FILENAME_SAFE = "_"
+
+
+def concept_filename(concept_id: str) -> str:
+    """``<slug>.md`` -- the file one concept's markdown is written to (N2).
+
+    ``concept:cust`` is ``cust.md`` and ``concept:table:ods_orders`` is
+    ``table-ods_orders.md``, which is what a reader following a link out of the index
+    expects to find in the directory listing. Everything a file system (or a git client,
+    or a Windows share) could choke on is escaped rather than flattened: a reviewed
+    ``new_concepts`` entry may carry any id at all, and two of them flattened onto one
+    name would publish one concept and silently drop the other.
+    """
+    stem = str(concept_id or "")
+    if stem.startswith(CONCEPT_ID_PREFIX):
+        stem = stem[len(CONCEPT_ID_PREFIX) :]
+    slug = "".join(_concept_slug_char(char) for char in stem)
+    return f"{slug or 'unknown'}.md"
+
+
+def _concept_slug_char(char: str) -> str:
+    if char.isascii() and (char.isalnum() or char in _CONCEPT_FILENAME_SAFE):
+        return char
+    return "-" if char == ":" else f"~{ord(char):x}~"
+
+
+def concept_files(ontology: Mapping) -> dict:
+    """``<file>.md -> the concept it holds``, for a caller writing one file per concept.
+
+    The ``entity_table_cards`` of the concept layer, and it answers the same question:
+    which of the things the ontology publishes are worth a file of their own. A
+    ``provisional`` concept is not -- it is one table asking to be placed, its whole
+    content is the row the index already prints, and a directory of one-question pages
+    is a review queue pretending to be a model (M1).
+    """
+    concepts = list(ontology.get("concepts") or [])
+    provisional = provisional_concept_ids(concepts)
+    return {
+        concept_filename(str(concept.get("id"))): dict(concept)
+        for concept in concepts
+        if str(concept.get("id")) not in provisional
+    }
+
+
+def render_concept_markdown(concept: Mapping, ontology: Mapping) -> str:
+    """One concept's whole story, in the order a reader asks for it (``concept-md/1``).
+
+    M3 wrote these sections into ``ontology.md``; N2 gives them a file, which is what
+    lets them stop being summaries. The attributes are all of them rather than the first
+    eight, the relations carry the table-level JOINs each was read off, and the two
+    things the review round needs -- what voted for this name and this kind, and the key
+    to answer under -- are sections rather than a pointer at the JSON.
+    """
+    lines = _concept_front_matter(concept, ontology)
+    lines.extend(_concept_heading(concept))
+    lines.extend(_concept_representation_section(concept))
+    lines.extend(_concept_attribute_section(concept))
+    lines.extend(_concept_constraint_section(concept, ontology))
+    lines.extend(_concept_relation_section(concept, ontology))
+    lines.extend(_concept_open_item_section(concept, ontology))
+    lines.extend(_concept_naming_section(concept))
+    lines.extend(_concept_write_back_section(concept))
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _concept_relations(concept: Mapping, ontology: Mapping) -> list[dict]:
+    """Every relation with this concept at either end, outgoing first."""
+    identifier = str(concept.get("id"))
+    relations = list(ontology.get("relations") or [])
+    outgoing = [item for item in relations if str(item["from"]) == identifier]
+    incoming = [
+        item
+        for item in relations
+        if str(item["to"]) == identifier and str(item["from"]) != identifier
+    ]
+    return outgoing + incoming
+
+
+def _concept_front_matter(concept: Mapping, ontology: Mapping) -> list[str]:
+    """The ids and counts a tool reads without parsing a word of the prose."""
+    return [
+        "---",
+        f'doc_format: "{CONCEPT_DOC_FORMAT}"',
+        'id: "' + _yaml_text(concept.get("id")) + '"',
+        'name: "' + _yaml_text(concept.get("name")) + '"',
+        'kind: "' + _yaml_text(concept.get("kind")) + '"',
+        'tier: "' + _yaml_text(concept.get("tier")) + '"',
+        'name_tier: "' + _yaml_text(concept.get("name_tier")) + '"',
+        f"table_count: {len(concept.get('tables') or [])}",
+        f"relation_count: {len(_concept_relations(concept, ontology))}",
+        "---",
+    ]
+
+
+def _yaml_text(value) -> str:
+    """One double-quoted YAML scalar's body: a name is free text, a header is not."""
+    return normalize_inline(str(value)).replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _concept_heading(concept: Mapping) -> list[str]:
+    """The title, the identity line, and the two documents this file sits between."""
+    kind = str(concept.get("kind"))
+    duplicate = (
+        f" · 疑似重复 {_duplicate_text(concept)}"
+        if concept.get("possible_duplicate_of")
+        else ""
+    )
+    return [
+        "",
+        f"# {cell(str(concept.get('name')))}（{CONCEPT_KIND_TEXT.get(kind, kind)}）",
+        "",
+        f"`{concept.get('id')}` · 名字 `{concept.get('name_tier')}` · "
+        f"种类 `{concept.get('kind_tier')}` · 概念 `{concept.get('tier')}` · "
+        f"表现表 {len(concept.get('tables') or [])} 张 · "
+        f"属性 {len(concept.get('attributes') or [])} 个" + duplicate,
+        "",
+        "概念是**候选**：名字永远是作者假设，种类由 `kind_evidence[]` 的投票决定。索引见 "
+        f"[`{INDEX_FILENAME}`](../{INDEX_FILENAME})，表一级的证据见 "
+        f"[`{APPENDIX_FILENAME}`](../{APPENDIX_FILENAME})。",
+    ]
+
+
+def _concept_representation_section(concept: Mapping) -> list[str]:
+    """Which tables are copies of this thing, in what role, at what grain."""
+    lines = ["", "## 表现", ""]
+    members = list(concept.get("tables") or [])
+    if not members:
+        return [*lines, "- 本概念没有表现表。"]
+    lines.extend(["| 表 | 角色 | 依据 | 粒度 |", "| --- | --- | --- | --- |"])
+    lines.extend(_representation_row(member) for member in members)
+    return lines
+
+
+def _representation_row(member: Mapping) -> str:
+    role = str(member.get("role"))
+    table = str(member.get("table"))
+    grain = member.get("grain")
+    return (
+        f"| [`{table}`](../tables/{table_card_filename(table)}) "
+        f"| {CONCEPT_ROLE_TEXT.get(role, role)} "
+        f"| `{member.get('membership_basis')}` "
+        f"| {_code_or_dash(grain)} |"
+    )
+
+
+def _code_or_dash(value) -> str:
+    """``` `x` ``` when there is an ``x``, an em dash when there is not."""
+    return f"`{value}`" if value else "—"
+
+
+def _concept_attribute_section(concept: Mapping) -> list[str]:
+    """What the concept is made of -- every stem, not the first few (N2).
+
+    The index summarised because it had one paragraph; a file has a table, and a
+    reviewer deciding whether two stems name one thing needs the columns behind them.
+    """
+    attributes = list(concept.get("attributes") or [])
+    lines = ["", "## 属性", ""]
+    if not attributes:
+        return [*lines, "- 本概念的表现表没有可发布的列。"]
+    lines.extend(
+        [
+            f"共 {len(attributes)} 个属性（按词根折叠），逐条如下：",
+            "",
+            "| 词根 | 类型 | 注释 | 来源列 |",
+            "| --- | --- | --- | --- |",
+        ]
+    )
+    lines.extend(_concept_attribute_row(item) for item in attributes)
+    return lines
+
+
+def _concept_attribute_row(attribute: Mapping) -> str:
+    sources = "、".join(
+        f"`{item.get('table')}`.`{item.get('column')}`"
+        for item in attribute.get("sources") or []
+    )
+    comment = attribute.get("comment")
+    return (
+        f"| `{attribute.get('stem')}` "
+        f"| {_code_or_dash(attribute.get('type'))} "
+        f"| {cell(normalize_inline(str(comment))) if comment else '—'} "
+        f"| {cell(sources) or '—'} |"
+    )
+
+
+def _concept_constraint_section(concept: Mapping, ontology: Mapping) -> list[str]:
+    """What holds about this concept, read off its representations' constraints."""
+    identifier = str(concept.get("id"))
+    constraints = [
+        item
+        for item in ontology.get("constraints") or []
+        if str(item.get("concept")) == identifier
+    ]
+    lines = ["", "## 约束", ""]
+    if not constraints:
+        return [*lines, "- 本概念的表现表上没有可发布的约束。"]
+    lines.extend(["| 表 | 目标 | 约束 | 内容 | 层级 |", "| --- | --- | --- | --- | --- |"])
+    lines.extend(_concept_constraint_row(constraint) for constraint in constraints)
+    return lines
+
+
+def _concept_constraint_row(constraint: Mapping) -> str:
+    target = constraint.get("target") or {}
+    return (
+        "| "
+        + " | ".join(
+            [
+                cell(f"`{target.get('entity')}`"),
+                cell(f"`{target['column']}`" if target.get("column") else "整表"),
+                cell(_constraint_kind_text(constraint)),
+                cell(_constraint_body(constraint)),
+                cell(_tier_text(constraint.get("tier"))),
+            ]
+        )
+        + " |"
+    )
+
+
+def _concept_relation_section(concept: Mapping, ontology: Mapping) -> list[str]:
+    """Both directions in one table, then the JOINs each of them was read off.
+
+    The evidence travels with the claim. A reviewer asked 「这条多对一是真的吗」 needs the
+    table-level edge, its basis and how many tasks wrote it -- and sending them to the
+    appendix for it is how a relation gets confirmed on the strength of its wording.
+    """
+    identifier = str(concept.get("id"))
+    names = {
+        str(item.get("id")): str(item.get("name"))
+        for item in ontology.get("concepts") or []
+    }
+    relations = _concept_relations(concept, ontology)
+    lines = ["", "## 关系", ""]
+    if not relations:
+        return [*lines, "- 本概念在语料里没有折出概念关系。"]
+    lines.extend(
+        [
+            "| 方向 | 对端 | 类型 | 角色 | 基数 | 层级 | 证据数 | 关系 id |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- |",
+        ]
+    )
+    lines.extend(
+        _concept_edge_row(relation, names, identifier) for relation in relations
+    )
+    lines.extend(_concept_evidence_rows(relations, ontology))
+    return lines
+
+
+def _concept_edge_row(relation: Mapping, names: Mapping, own: str) -> str:
+    outgoing = str(relation["from"]) == own
+    other = str(relation["to"]) if outgoing else str(relation["from"])
+    cardinality = relation.get("cardinality") or {}
+    kind = str(relation.get("type"))
+    claim = str(cardinality.get("claim"))
+    return (
+        f"| {'出' if outgoing else '入'} "
+        f"| {cell(names.get(other, other))} "
+        f"| {CONCEPT_TYPE_TEXT.get(kind, kind)} "
+        f"| {cell(_role_text(relation)) or '—'} "
+        f"| {CARDINALITY_TEXT.get(claim, claim)} "
+        f"| `{cardinality.get('tier')}` "
+        f"| {len(relation.get('evidence') or [])} "
+        f"| `{relation.get('id')}` |"
+    )
+
+
+def _concept_evidence_rows(relations: Sequence[Mapping], ontology: Mapping) -> list[str]:
+    """The table-level JOINs the relations above were folded from, one row each."""
+    index = {str(item.get("id")): item for item in ontology.get("table_relations") or []}
+    pairs = [
+        (str(relation.get("id")), index[str(item)])
+        for relation in relations
+        for item in relation.get("evidence") or []
+        if str(item) in index
+    ]
+    lines = ["", "**证据：表级 JOIN**", ""]
+    if not pairs:
+        return [*lines, "- 这些概念关系的证据不在本语料的表级关系里。"]
+    lines.extend(
+        [
+            "| 表级关系 | 折入 | 从 | 到 | 基数 | 层级 | 依据 | 任务数 |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- |",
+        ]
+    )
+    lines.extend(_concept_evidence_row(relation, edge) for relation, edge in pairs)
+    return lines
+
+
+def _concept_evidence_row(relation: str, edge: Mapping) -> str:
+    cardinality = edge.get("cardinality") or {}
+    basis = str(cardinality.get("basis"))
+    claim = str(cardinality.get("claim"))
+    return (
+        "| "
+        + " | ".join(
+            [
+                cell(f"`{edge.get('id')}`"),
+                cell(f"`{relation}`"),
+                cell(f"`{edge['from']['entity']}`.{_columns(edge['from'])}"),
+                cell(f"`{edge['to']['entity']}`.{_columns(edge['to'])}"),
+                cell(CARDINALITY_TEXT.get(claim, claim)),
+                cell(f"`{cardinality.get('tier')}`"),
+                cell(BASIS_TEXT.get(basis, basis)),
+                cell(str(edge.get("task_count"))),
+            ]
+        )
+        + " |"
+    )
+
+
+def _concept_open_item_section(concept: Mapping, ontology: Mapping) -> list[str]:
+    """The questions filed under this concept, folded the way the appendix folds them."""
+    identifier = str(concept.get("id"))
+    groups = [
+        group
+        for group in ontology.get("open_item_groups") or []
+        if str(group.get("concept")) == identifier
+    ]
+    lines = ["", "## 待人工判定", ""]
+    if not groups:
+        return [*lines, "- 本概念没有待人工判定的项。"]
+    index = {str(item["id"]): item for item in ontology.get("open_items") or []}
+    lines.extend(_concept_open_item_line(group, index) for group in groups)
+    return lines
+
+
+def _concept_open_item_line(group: Mapping, index: Mapping) -> str:
+    kind = str(group["kind"])
+    text = (index.get(str(group["representative"])) or {}).get("text") or ""
+    pattern = group.get("write_back_pattern")
+    return (
+        f"- {OPEN_ITEM_TEXT.get(kind, kind)}"
+        f"（`{group['group_id']}`，{group['count']} 条，影响 {group['impact']}）："
+        + normalize_inline(str(text))
+        + (f" 回写模式 `{pattern}`。" if pattern else "")
+    )
+
+
+def _concept_naming_section(concept: Mapping) -> list[str]:
+    """Why it is called this and why it is that kind -- what the review round answers."""
+    lines = ["", "## 命名与类别依据", "", "**命名候选**", ""]
+    candidates = list(concept.get("name_candidates") or [])
+    if not candidates:
+        lines.append("- 没有可发布的命名候选。")
+    else:
+        lines.extend(["| 名字 | 来源 | 次数 | 证据表 |", "| --- | --- | --- | --- |"])
+        lines.extend(_name_candidate_row(item) for item in candidates)
+    lines.extend(["", "**种类证据**", ""])
+    evidence = list(concept.get("kind_evidence") or [])
+    if not evidence:
+        return [*lines, "- 没有可发布的种类投票。"]
+    lines.extend(["| 信号 | 投票 | 表 | 细节 |", "| --- | --- | --- | --- |"])
+    lines.extend(_kind_evidence_row(item) for item in evidence)
+    return lines
+
+
+def _name_candidate_row(candidate: Mapping) -> str:
+    tables = "、".join(
+        f"`{item.get('table')}`" for item in candidate.get("name_evidence") or []
+    )
+    return (
+        f"| {cell(normalize_inline(str(candidate.get('text'))))} "
+        f"| `{candidate.get('source')}` "
+        f"| {candidate.get('count')} "
+        f"| {cell(tables) or '—'} |"
+    )
+
+
+def _kind_evidence_row(evidence: Mapping) -> str:
+    vote = str(evidence.get("vote"))
+    detail = evidence.get("detail")
+    return (
+        f"| `{evidence.get('signal')}` "
+        f"| {CONCEPT_KIND_TEXT.get(vote, vote)} "
+        f"| {_code_or_dash(evidence.get('table'))} "
+        f"| {cell(normalize_inline(str(detail))) if detail else '—'} |"
+    )
+
+
+def _concept_write_back_section(concept: Mapping) -> list[str]:
+    """The exact key a reviewer types, so nobody reconstructs an id from a heading."""
+    identifier = str(concept.get("id"))
+    lines = ["", "## 评审回写键", ""]
+    if str(concept.get("tier")) == TIER_PROVISIONAL:
+        table = ((concept.get("tables") or [{}])[0]).get("table")
+        return [
+            *lines,
+            f"- 本概念是**临时概念**（M1）：它就是 `{table}` 这一张表，语料没能把它归到"
+            "任何业务键上。",
+            f"- 在 `concepts.overrides.json` 的 `concepts` 下写 `{identifier}`，给它一条 "
+            "`merge_into`（并进某个已有概念），或者用 `new_concepts` 把它和几张表一起收成"
+            "一个新概念；确实自成一件事的，写 `name` 与 `kind` 确认。",
+        ]
+    return [
+        *lines,
+        f"- 在 `concepts.overrides.json` 的 `concepts` 下写 `{identifier}`——这一串与索引的"
+        "概念表、本文件的标题行、以及每张表卡第 7 节印的逐字一致。",
+        "- 可确认的槽位：`name`（业务名）、`kind`（`entity` / `event` / `summary`）、"
+        "`roles`（改某张成员表的角色）、`add_tables`（加一张成员表），连同 `confirmed_by` / "
+        "`date` / `basis` 一起写。",
+    ]

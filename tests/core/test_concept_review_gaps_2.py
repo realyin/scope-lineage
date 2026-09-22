@@ -48,7 +48,7 @@ from scope_lineage.render.concepts import (
     table_concept_id,
 )
 
-from scope_lineage.render.ontology import render_ontology_index_markdown
+from scope_lineage.render.ontology import render_ontology_appendix_markdown
 
 from .test_concept_relations import _cards, _entity, _relation
 from .test_concept_render_and_overrides import _cli_corpus, _ontology
@@ -366,11 +366,11 @@ def test_an_override_addressed_to_a_retired_stem_revives_the_concept() -> None:
     )
 
 
-def test_the_concept_section_says_a_retired_stem_can_be_named_again() -> None:
+def test_the_appendix_says_a_retired_stem_can_be_named_again() -> None:
     """A reviewer who lost a concept to a rule change has to read how to get it back."""
     document = _built([CUSTOMER, ROW_A, ROW_B])
 
-    text = render_ontology_index_markdown(
+    text = render_ontology_appendix_markdown(
         {
             **_ontology(concepts=document["concepts"]),
             "retired_stems": document["retired_stems"],
@@ -385,7 +385,7 @@ def test_a_corpus_with_no_retired_stem_says_nothing_about_them() -> None:
     document = _built([CUSTOMER])
 
     assert document["retired_stems"] == []
-    assert "retired_stems" not in render_ontology_index_markdown(
+    assert "retired_stems" not in render_ontology_appendix_markdown(
         _ontology(concepts=document["concepts"])
     )
 
