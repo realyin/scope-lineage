@@ -322,7 +322,7 @@ Slot by slot (every slot `ontology-json/1` publishes):
 | `concepts[].tables[].role` | `primary` / `snapshot` / `detail` / `summary` / `intermediate` / `reference` | K1: which copy of the concept this table is; `reference` is a table that is not unique by the key but *carries* it, which is how an event table takes part in 客户 |
 | `concepts[].tables[].membership_basis` | `key:<tier>` / `declared_hint` / `reference` / `override` | K1: what makes this table a member -- a candidate key the corpus read (carrying its own tier), a primary-key hint the catalog declared, or a JOIN; `override` is K4b's fourth: a reviewer put it there by hand with `add_tables`, and that member also carries `role_tier: "confirmed"`. K4d: a reviewed add whose role is `reference` publishes **`reference`**, not `override` -- "it merely carries this key" is exactly what `reference` means, and it must not turn round and change what the table itself is; the basis can then no longer say who put it there, so `confirmed_by` / `confirmed_basis` and the rest of the stamp stay on that member row |
 | `concepts[].identity` | `stem` + `columns_seen[]` (+ `merged_stems[]`) | K1: the concept's key stem, and the key columns the corpus reduced to it. `merged_stems[]` is every *other* stem the concept answers to: the ones K4b merged into it, and (K4d) the stems a created concept's own `key_columns` reduce to -- `concept:slot` spells `slot` in its id while the corpus writes `ad_slot_code`, and unless `ad_slot` joins the index the edge can never find it. Generic stems stay out (`dt` names nothing, whoever wrote it down) |
-| `concepts[].name`, `name_tier`, `name_candidates[]` | text; `hypothesis`, or `confirmed` once a review round answered; `text` / `source` / `count` / `name_evidence[]`, plus K2b's `junk_reason`, written only when one matched | K2: candidates ranked by `count` desc, then by source order (key column comment → table comment → key stem); `name` is the first of them, and from K2b a candidate that names a period, a measure or a filter (`junk_reason`) ranks below every clean one, and a comment is metadata that goes stale, so the corpus alone never proposes a name above `hypothesis`. A K4b confirmation raises `name_tier` to `confirmed` and moves the confirmed name to the head of the candidates with `source: override` (a candidate the corpus proposed under the same text keeps its `name_evidence` and only changes hands) |
+| `concepts[].name`, `name_tier`, `name_candidates[]` | text; `stem_only` (K2c: only the key stem proposed a name), `hypothesis`, or `confirmed` once a review round answered; `text` / `source` / `count` / `name_evidence[]`, plus K2b's `junk_reason`, written only when one matched | K2: candidates ranked by `count` desc, then by source order (key column comment → table comment → key stem); `name` is the first of them, and from K2b a candidate that names a period, a measure or a filter (`junk_reason`) ranks below every clean one, and a comment is metadata that goes stale, so the corpus alone never proposes a name above `hypothesis`. A K4b confirmation raises `name_tier` to `confirmed` and moves the confirmed name to the head of the candidates with `source: override` (a candidate the corpus proposed under the same text keeps its `name_evidence` and only changes hands) |
 | `concepts[].possible_duplicate_of[]` | concept ids | K2: another concept's first name candidate is the same word. They are **not** merged; both point at each other and the review round decides. The key is absent when nothing else claimed the name |
 | `unassigned_tables[]` | `table` + `reason` (`no_candidate_key` / `generic_key_only` / `key_spans_several_stems`) | K1: the tables no concept could take, and why -- "we could not tell" is an answer. A reviewer who can tell puts the table on its concept with K4b's `add_tables`, and it leaves this list |
 | `retired_stems[]` | `stem` + `tables[]` (`table` / `role` / `key_columns[]`) | K4c: the key stems a generic rule refused (the surrogate list, the log and tracing ids, the comment rule) although the corpus really keys tables by them -- without that rule each would have seeded a concept. Published so that an answer an earlier round wrote about `concept:<stem>` stays addressable when the rule changes: naming it in `concepts.overrides.json` rebuilds the concept from exactly these tables and roles, and the stem leaves this list in the same run (K4d; see "Writing the concept review back") |
@@ -419,7 +419,7 @@ The cascade runs from the most specific evidence to the least, first match wins:
 | `increment_with_event_time` | `event` | the member is a `_di` / `_hi` increment and carries a non-partition time column |
 | `all_members_summary` | `summary` | every member's role is `summary` |
 | `all_members_full_snapshot` | `entity` | K2b: every non-`reference` member is a full snapshot (no `_di` / `_hi` period-increment suffix), no member's key holds a time or event column outside the partitions, no member's name or comment carries an event word, and at least one of them says 信息 / 档案 / 主数据 / 维 / `dim` / `info` about itself. Under that shape `driving_rows_over_log_source` does **not** vote: a snapshot rebuilt one row per row of a change log says how it is built, not what it holds -- which is exactly how a 机构-shaped concept came out an `event`. A table that says nothing about itself has not claimed to be a dimension, so the log evidence still stands for it |
-| `word_hint` | any of the three | words in the name and the comment: 发送/回款/交易/日志/记录/流水/事件/log/event/hist → `event`; 信息/档案/主数据/维/dim/info → `entity`; 汇总/日报/统计/agg/report → `summary`. **Secondary evidence**: it never decides once a structural signal has spoken |
+| `word_hint` | any of the three | words in the name and the comment. Chinese matches as a **substring**: 发送/回款/交易/日志/记录/流水/事件 → `event`; 信息/档案/主数据/维 → `entity`; 汇总/日报/统计 → `summary`. From K2c latin matches as a **whole word**, case-insensitively, over the table name and the comment alike (`.`, `_` and spaces all separate words): log/event/hist/history/record/txn/transaction/send/sent/recv/click/expo/exposure/resp/response → `event`; agent/org/organization/dept/department/staff/user/customer/product/channel/dim/dimension/info/master → `entity`; agg/report → `summary`. Whole words are the point -- `catalogue` is not a `log`, and reading it as one turned a dimension into an event -- and the latin lists were widened at the same time, because a corpus whose comments are all latin matched no dimension word at all and so never satisfied `all_members_full_snapshot`. **Secondary evidence**: it never decides once a structural signal has spoken |
 
 `event` among the structural signals wins; otherwise `summary` among them; otherwise the
 word hints decide, and an unvoted concept is an `entity`. When **every** signal voted the
@@ -437,8 +437,13 @@ exactly where the disagreement is.
 
 Stripping suffixes is a Chinese metadata convention, so it **only applies to text that
 holds Chinese**: an English snake-case comment is kept exactly as the catalog wrote it,
-and the only latin suffixes stripped are the ones a `_` already marked as a segment
-(`_id` / `_no` / `_df` …). Ranking asks first whether a candidate still reads as a table
+and the only latin suffixes stripped are the ones already marked as a segment (`_id` /
+`_no` / `_df` …) -- from K2c a `-` marks one as surely as a `_` does, for the declared
+words `df` / `di` / `hf` / `hi` / `id` / `no` / `code` / `cd`, because a corpus writes
+「…日志表-DF」 as readily as 「…日志表_df」 and while that tail sits there no suffix rule
+can see the `表` in front of it. A tail nobody declared a storage marker stays put
+(「客户信息表-v2」 keeps its tail). The punctuation comes off either end **before and
+after** every suffix, whatever latin prefix the comment has. Ranking asks first whether a candidate still reads as a table
 name -- anything that kept an `_`, a `backup` or a `tmp` sinks below everything else,
 and is kept rather than dropped because it is still evidence -- then K2b's
 `junk_reason`, and only then by `count` desc and the source order above.
@@ -456,7 +461,23 @@ A candidate carrying one ranks below **every** clean candidate -- the key column
 comment, a plain table comment and the stem all come first -- so three tables sharing
 one 「已到期…」 table comment no longer outvote the single key column comment on `count`.
 It is still published, because it is genuinely evidence about those members; it is only
-not the concept's name. `name` is the first of them, `name_tier` is always
+not the concept's name.
+
+**When the stem is all that is left, one more look** (K2c). A stem like `queue` or `key`
+is the warehouse's spelling, not a business word. When the first candidate's source is
+`key_stem`, every junk candidate is read again with its period head, its filter words
+and its measure tail taken off; among the results that still hold **two or more Chinese
+characters and are no longer junk**, the **shortest** goes to the head of the candidates
+and becomes `name`, keeping the source and `name_evidence` of the candidate it came out
+of. 「2月时段队列欠款」 was never about 2月 and never about the 欠款: it was about 队列. The
+comment it was recovered from stays in the list with its `junk_reason` -- it is evidence,
+not a mistake.
+
+When nothing can be recovered, the stem stands, but `name_tier` is **`stem_only`** rather
+than `hypothesis`: "we guess it is called 客户" and "nothing ever named this" are different
+answers, and the review round reads exactly this tier to pick the concepts to ask a name
+for. `name_tier` therefore has three values: `stem_only` (only the stem), `hypothesis` (a
+comment proposed a name) and `confirmed` (a K4b review round answered). `name` is the first of them, `name_tier` is always
 `hypothesis`, and every candidate keeps a `name_evidence` saying which table and column
 supplied it -- so disagreeing metadata is visible rather than averaged away.
 

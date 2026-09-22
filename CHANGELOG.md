@@ -1,6 +1,27 @@
 # Changelog
 
 ## Unreleased
+- **Three residuals the wide corpus kept after K2b** (K2c). A storage suffix hiding behind
+  a latin tail: a `-` now marks a segment as surely as a `_` does, for the declared words
+  `df` / `di` / `hf` / `hi` / `id` / `no` / `code` / `cd`, so 「…日志表-DF」 reaches its 表
+  the way 「…日志表_df」 always did, while a tail nobody declared (「客户信息表-v2」) stays
+  put; the punctuation comes off either end before *and* after every suffix, whatever
+  latin prefix the comment carries. A dimension whose only word about itself is latin:
+  `word_hint` now reads latin as **whole words**, case-insensitively, over table names and
+  comments alike, so `catalogue` is no longer a `log` — and the latin lists were widened
+  (agent, org, organization, dept, department, staff, user, customer, product, channel,
+  dim, dimension, info, master for `entity`; log, event, hist, history, record, txn,
+  transaction, send, sent, recv, click, expo, exposure, resp, response for `event`),
+  because a corpus whose comments are all latin matched no dimension word at all and so
+  never satisfied `all_members_full_snapshot`, leaving a change-log rebuild to carry the
+  kind. And a stem published as if it were a name: when the first candidate's source is
+  `key_stem`, every junk candidate is read again with its period head, filter words and
+  measure tail off, and the shortest result still holding two Chinese characters goes to
+  the head of the candidates — 「2月时段队列欠款」 was about 队列 all along, and the comment
+  it came out of keeps its place with its `junk_reason`. When nothing can be recovered the
+  stem stands, but `name_tier` is the new **`stem_only`** rather than `hypothesis`: "we
+  guess it is called 客户" and "nothing ever named this" are different answers, and the
+  review prompt's question rules now read that tier to pick the concepts to ask about.
 - **The names and the kinds a wide corpus argued with** (K2b). Run over a much wider
   corpus, K2's ranking led with four things that are not names. A key comment that only
   *marks* the column: the trailing-marker set now also takes off 名称 / 名 / 键 and a bare

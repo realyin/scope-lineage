@@ -57,6 +57,12 @@ KIND_ORDER = (CONCEPT_ENTITY, CONCEPT_EVENT, CONCEPT_SUMMARY)
 # because `ontology` imports this module; `tests/core/test_concepts.py` pins them equal.
 TIER_IMPLIED = "implied"
 TIER_HYPOTHESIS = "hypothesis"
+#: K2c: a `name_tier` of its own, for the concept whose name is the **key stem** and
+#: nothing else. A stem is the warehouse's spelling, not a business word, so publishing
+#: it at `hypothesis` alongside 客户 said the two were equally good guesses. They are not:
+#: one is a guess at the name, the other is an admission that nothing named it, and the
+#: review round has to be able to tell them apart to know what to ask about.
+TIER_STEM_ONLY = "stem_only"
 
 #: Candidate-key tiers, strongest first. A warehouse rarely *proves* a key -- the proof
 #: needs a producing task that deduplicated by it -- so reading only the proven ones
@@ -204,11 +210,42 @@ DRIVING_ROLE = "driving"
 
 #: Secondary evidence only: a word in a name or a comment never decides a kind on its
 #: own when a structural signal spoke, and it is always published as its own vote.
+#:
+#: Chinese matches as a substring, because the language writes no word boundaries.
 WORD_HINTS = (
-    (CONCEPT_EVENT, ("发送", "回款", "交易", "日志", "记录", "流水", "事件", "log", "event", "hist")),
-    (CONCEPT_ENTITY, ("信息", "档案", "主数据", "维", "dim", "info")),
-    (CONCEPT_SUMMARY, ("汇总", "日报", "统计", "agg", "report")),
+    (CONCEPT_EVENT, ("发送", "回款", "交易", "日志", "记录", "流水", "事件")),
+    (CONCEPT_ENTITY, ("信息", "档案", "主数据", "维")),
+    (CONCEPT_SUMMARY, ("汇总", "日报", "统计")),
 )
+#: K2c: the same three votes in the words a latin-only catalog has. Matched as **whole
+#: words**, case-insensitively, over the table name and the comment alike -- `catalogue`
+#: is not a `log`, and reading it as one turned a dimension into an event. Widened at the
+#: same time, because a corpus whose comments are all latin had no dimension word at all
+#: and so never reached `all_members_full_snapshot`.
+LATIN_WORD_HINTS = (
+    (
+        CONCEPT_EVENT,
+        frozenset(
+            {
+                "log", "event", "hist", "history", "record", "txn", "transaction",
+                "send", "sent", "recv", "click", "expo", "exposure", "resp", "response",
+            }
+        ),
+    ),
+    (
+        CONCEPT_ENTITY,
+        frozenset(
+            {
+                "agent", "org", "organization", "dept", "department", "staff", "user",
+                "customer", "product", "channel", "dim", "dimension", "info", "master",
+            }
+        ),
+    ),
+    (CONCEPT_SUMMARY, frozenset({"agg", "report"})),
+)
+#: What counts as one latin word: the runs of letters and digits a `.`, a `_` or a space
+#: separates, which is exactly how a warehouse spells `dim.agent_df`.
+_LATIN_WORD_RE = re.compile(r"[a-z0-9]+")
 
 SIGNAL_KEY_EVENT_COLUMN = "key_event_column"
 SIGNAL_DRIVING_LOG_SOURCE = "driving_rows_over_log_source"
@@ -247,7 +284,13 @@ KEY_SUFFIX_PROTECTED = ("账号", "卡号", "型号", "工号", "学号", "代�
 #: How much has to survive a key marker for what is left to be a name.
 MIN_NAME_CJK = 2
 #: Segment-marked latin suffixes, safe on any comment because the `_` marks them.
-LATIN_COMMENT_SUFFIXES = ("_df", "_di", "_hf", "_hi", "_id", "_no", "_code", "_cd")
+#: K2c: a `-` marks a segment as surely as a `_` does. A wide corpus writes 「…日志表-DF」
+#: as readily as 「…日志表_df」, and while the tail sits there no storage suffix rule can
+#: see the 表 in front of it. Only these declared words, so 「客户信息表-v2」 keeps its tail.
+LATIN_COMMENT_BARE_SUFFIXES = ("df", "di", "hf", "hi", "id", "no", "code", "cd")
+LATIN_COMMENT_SUFFIXES = tuple(
+    f"{mark}{bare}" for bare in LATIN_COMMENT_BARE_SUFFIXES for mark in ("_", "-")
+)
 
 _CJK_RE = re.compile(r"[一-鿿]")
 #: A camelCase boundary, so ``collectionUnit`` reads as two words rather than one.
@@ -301,6 +344,12 @@ NAME_MEASURE_SUFFIXES = ("欠款", "金额", "目标", "分数据", "统计", "�
 #: not what 合同 is called, it is which 合同 this table kept.
 NAME_FILTER_WORDS = (
     "已到期", "未到期", "已还", "未还", "已结清", "未结清", "首期", "当日", "本月",
+)
+#: K2c: the period a junk candidate opens with, as much of it as there is. What is left
+#: after it -- and after the filters and the measure -- is the phrase the comment was
+#: naming all along: 「2月时段队列欠款」 was never about 2月, it was about 队列.
+_PERIOD_HEAD_RE = re.compile(
+    r"\A(?:\d+[年月日号周]?|本月|当月|上月|本年|当年|本期|当期|当日|昨日|今日|时段|期间)+"
 )
 
 _CONCEPT_KEYS = (
@@ -808,7 +857,7 @@ def _concept(
     built = {
         "id": f"{CONCEPT_ID_PREFIX}{stem}",
         "name": str(candidates[0]["text"]),
-        "name_tier": TIER_HYPOTHESIS,
+        "name_tier": _name_tier(candidates),
         "name_candidates": candidates,
         "kind": kind,
         "kind_tier": tier,
@@ -831,6 +880,18 @@ def _concept(
         ),
     }
     return {key: built[key] for key in _CONCEPT_KEYS if key in built}
+
+
+def _name_tier(candidates: Sequence[Mapping]) -> str:
+    """How much of an answer the concept's name is (K2c).
+
+    A name nothing but the key stem proposed is not a hypothesis about what the concept
+    is called -- it is the corpus saying nobody named it, and the review round reads
+    exactly this to know which concepts to ask a name for.
+    """
+    if str(candidates[0]["source"]) == NAME_FROM_STEM:
+        return TIER_STEM_ONLY
+    return TIER_HYPOTHESIS
 
 
 def _member(seed: _Seed, index: Mapping[str, Mapping]) -> dict:
@@ -1032,7 +1093,12 @@ def _member_text(seed: _Seed, index: Mapping[str, Mapping]) -> str:
 
 def _word_votes(text: str) -> list[str]:
     lowered = str(text or "").lower()
-    return [kind for kind, words in WORD_HINTS if any(word in lowered for word in words)]
+    words = set(_LATIN_WORD_RE.findall(lowered))
+    return [
+        kind
+        for (kind, chinese), (_, latin) in zip(WORD_HINTS, LATIN_WORD_HINTS)
+        if any(word in lowered for word in chinese) or words & latin
+    ]
 
 
 # ------------------------------------------------------------------ attributes
@@ -1090,7 +1156,7 @@ def _name_candidates(
         reason = _junk_reason(str(item["text"]))
         if reason is not None:
             item["junk_reason"] = reason
-    return sorted(
+    ranked = sorted(
         found,
         key=lambda item: (
             _is_junk(str(item["text"])),
@@ -1100,6 +1166,49 @@ def _name_candidates(
             str(item["text"]),
         ),
     )
+    recovered = _recovered_name(ranked)
+    return ranked if recovered is None else [recovered] + ranked
+
+
+def _recovered_name(ranked: Sequence[dict]) -> dict | None:
+    """The Chinese phrase hiding inside a junk candidate, when the stem would win (K2c).
+
+    Only when every candidate but the stem was ranked junk, because otherwise a real
+    name already won. 「2月时段队列欠款」 was never about 2月 and never about the 欠款: take
+    the period, the filters and the measure off and 队列 is what the comment was naming.
+    The shortest one wins -- the least this layer can claim the comment said -- and the
+    comment it came out of keeps its own place in the evidence, junk reason and all.
+    """
+    if not ranked or str(ranked[0]["source"]) != NAME_FROM_STEM:
+        return None
+    clean = [
+        (text, item)
+        for item in ranked
+        for text in [_without_junk(str(item["text"]))]
+        if len(_CJK_RE.findall(text)) >= MIN_NAME_CJK
+        and not _is_junk(text)
+        and _junk_reason(text) is None
+    ]
+    if not clean:
+        return None
+    text, origin = min(clean, key=lambda pair: (len(pair[0]), pair[0]))
+    return {
+        "text": text,
+        "source": str(origin["source"]),
+        "count": int(origin["count"]),
+        "name_evidence": list(origin["name_evidence"]),
+    }
+
+
+def _without_junk(text: str) -> str:
+    """A candidate with its period, its filters and its measure taken off (K2c)."""
+    current = _PERIOD_HEAD_RE.sub("", str(text))
+    for word in NAME_FILTER_WORDS:
+        current = current.replace(word, "")
+    while current.endswith(NAME_MEASURE_SUFFIXES):
+        suffix = next(item for item in NAME_MEASURE_SUFFIXES if current.endswith(item))
+        current = current[: -len(suffix)]
+    return _trim_edges(_PERIOD_HEAD_RE.sub("", current))
 
 
 def _is_junk(text: str) -> bool:
@@ -1332,15 +1441,20 @@ def _strip_suffixes(comment, cjk_suffixes: Sequence[str]) -> str:
 
     The Chinese suffix lists are a metadata convention, so they only ever apply to text
     that holds Chinese: an English comment is kept exactly as the catalog wrote it, and
-    the only latin suffixes stripped are the ones a ``_`` already marked as a segment.
+    the only latin suffixes stripped are the ones a ``_`` or a ``-`` already marked as a
+    segment.
+
+    K2c: the punctuation comes off **before and after** every suffix, whatever the
+    comment has in front of it. A latin prefix is not a reason to leave a dash sitting
+    where it hides the 表 behind it.
     """
-    current = _strip_latin_suffixes(_strip_tags(comment))
+    current = _strip_latin_suffixes(_trim_edges(_strip_tags(comment)))
     while current and _CJK_RE.search(current):
         cjk = next((item for item in cjk_suffixes if current.endswith(item)), None)
         if cjk is None:
             break
         current = _strip_latin_suffixes(_trim_edges(current[: -len(cjk)]))
-    return current
+    return _trim_edges(current)
 
 
 def _strip_tags(comment) -> str:
@@ -1364,8 +1478,8 @@ def _trim_edges(text) -> str:
 
 
 def _strip_latin_suffixes(text: str) -> str:
-    """The `_`-marked latin suffixes only. An English comment is otherwise untouched."""
-    current = str(text).strip()
+    """The `_`- and `-`-marked latin suffixes only (K2c). Other English is untouched."""
+    current = _trim_edges(text)
     while True:
         found = next(
             (
@@ -1377,7 +1491,7 @@ def _strip_latin_suffixes(text: str) -> str:
         )
         if found is None:
             return current
-        current = current[: -len(found)].strip()
+        current = _trim_edges(current[: -len(found)])
 
 
 def _cjk_bigrams(text: str) -> set[str]:

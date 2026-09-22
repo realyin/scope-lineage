@@ -21,6 +21,7 @@ import pytest
 from scope_lineage.render.concepts import (
     CONCEPT_ENTITY,
     CONCEPT_EVENT,
+    CONCEPT_SUMMARY,
     JUNK_FILTER,
     JUNK_MEASURE,
     JUNK_PERIOD,
@@ -29,9 +30,12 @@ from scope_lineage.render.concepts import (
     NAME_FROM_TABLE_COMMENT,
     SIGNAL_DIMENSION_MEMBERS,
     SIGNAL_DRIVING_LOG_SOURCE,
+    TIER_HYPOTHESIS,
     TIER_IMPLIED,
+    TIER_STEM_ONLY,
     key_comment_name,
 )
+from scope_lineage.render import concepts as concepts_module
 
 from .test_concepts import (
     _attribute,
@@ -319,3 +323,186 @@ def test_a_reference_member_never_casts_a_kind_vote() -> None:
     assert "dwd.pay_flow_di" not in {
         str(vote.get("table")) for vote in concept["kind_evidence"]
     }
+
+
+# =============================================================== K2c: three residuals
+#
+# The same wide corpus, run again after K2b. A table comment whose storage suffix hides
+# behind a latin tail the `_` convention never marked; a dimension whose only word about
+# itself is latin, so K2b's "at least one member calls itself a dimension" half never
+# fired and a change-log rebuild carried the kind; and a concept whose every candidate
+# was junk-ranked, so the *stem* won and was published as a name with nothing saying it
+# is not one.
+
+
+# ------------------------------------------- K2c rule 1: the latin tail after the dash
+
+
+def _table_named(comment: str) -> str:
+    """The name one table comment proposes, whatever its rank."""
+    ontology = _ontology(_entity("ods.cust_base", keys=["cust_no"], comment=comment))
+    cards = _cards(_card("ods.cust_base", comment=comment, columns=["cust_no"]))
+    found = [
+        str(item["text"])
+        for item in _candidates(ontology, cards, "concept:cust")
+        if str(item["source"]) == NAME_FROM_TABLE_COMMENT
+    ]
+    return found[0] if found else ""
+
+
+@pytest.mark.parametrize(
+    ("comment", "expected"),
+    [
+        # K2b already reached these; they stay locked down.
+        ("UBS流量日志表-", "UBS流量日志"),
+        ("ABC客户信息表—", "ABC客户"),
+        # The residual: a `-` marks a segment as surely as a `_` does.
+        ("UBS流量日志表-DF", "UBS流量日志"),
+        ("ABC客户信息表-df", "ABC客户"),
+        ("UBS流量日志表-id", "UBS流量日志"),
+    ],
+)
+def test_a_latin_tail_never_hides_the_storage_suffix(comment: str, expected: str) -> None:
+    assert _table_named(comment) == expected
+
+
+@pytest.mark.parametrize(
+    "comment",
+    # The negative: a latin tail nobody declared a storage marker stays where it is,
+    # and with it the 表 it is standing in front of.
+    ["客户信息表-v2", "客户信息表-2024"],
+)
+def test_an_undeclared_latin_tail_is_left_alone(comment: str) -> None:
+    assert _table_named(comment) == comment
+
+
+# ------------------------------------------ K2c rule 2: the dimension that says `agent`
+
+
+def _latin_dimension_corpus() -> tuple[dict, dict]:
+    """The 机构 shape again, except the only word about the table is latin."""
+    ontology = _ontology(
+        _entity(
+            "ods.agent_df",
+            keys=["agent_no"],
+            comment="agent",
+            attributes=[_attribute("agent_no", comment="机构名称")],
+        )
+    )
+    cards = _cards(
+        _card(
+            "ods.agent_df",
+            comment="agent",
+            columns=["agent_no"],
+            produced=[_producer("task:build", basis="driving_table_rows")],
+        ),
+        _card(
+            "ods.agent_chg_flow_di",
+            comment="机构变更流水",
+            columns=["agent_no"],
+            consumed=[_consumer("task:build", role="driving")],
+        ),
+    )
+    return ontology, cards
+
+
+def test_a_dimension_that_only_says_agent_is_still_an_entity() -> None:
+    """`agent` is the corpus calling the table a dimension, in the words it had."""
+    ontology, cards = _latin_dimension_corpus()
+
+    concept = _concepts(ontology, cards)["concept:agent"]
+    signals = [str(vote["signal"]) for vote in concept["kind_evidence"]]
+
+    assert concept["kind"] == CONCEPT_ENTITY
+    assert concept["kind_tier"] == TIER_IMPLIED
+    assert SIGNAL_DIMENSION_MEMBERS in signals
+    assert SIGNAL_DRIVING_LOG_SOURCE not in signals
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("ods.agent_df agent", [CONCEPT_ENTITY]),
+        ("dwd.click_di click stream", [CONCEPT_EVENT]),
+        ("ODS.ORG_DF ORG", [CONCEPT_ENTITY]),
+        ("dws.cust_agg_df report", [CONCEPT_SUMMARY]),
+        # The negative a whole-word match exists for: a word that merely *contains* one.
+        ("ods.catalogue_df catalogue", []),
+        ("ods.diagnostics_df diagnostics", []),
+    ],
+)
+def test_a_latin_word_hint_matches_whole_words_only(text: str, expected: list) -> None:
+    assert concepts_module._word_votes(text) == expected
+
+
+# ---------------------------------- K2c rule 3: the stem is not a name, and says so
+
+
+def _junk_only_corpus(comment: str) -> tuple[dict, dict]:
+    ontology = _ontology(
+        _entity("ods.queue_a", keys=["queue_no"], comment=comment),
+        _entity("ods.queue_b", keys=["queue_no"], comment=comment),
+    )
+    cards = _cards(
+        _card("ods.queue_a", comment=comment, columns=["queue_no"]),
+        _card("ods.queue_b", comment=comment, columns=["queue_no"]),
+    )
+    return ontology, cards
+
+
+@pytest.mark.parametrize(
+    ("comment", "expected"),
+    [
+        ("2月时段队列欠款", "队列"),
+        ("已到期队列欠款", "队列"),
+        ("未到期队列首期金额", "队列"),
+        ("2024年队列统计", "队列"),
+    ],
+)
+def test_a_clean_phrase_inside_a_junk_comment_beats_the_bare_stem(
+    comment: str, expected: str
+) -> None:
+    """`queue` is the warehouse's spelling; 队列 was in the comment all along."""
+    ontology, cards = _junk_only_corpus(comment)
+
+    concept = _concepts(ontology, cards)["concept:queue"]
+
+    assert concept["name"] == expected
+    assert concept["name_tier"] == TIER_HYPOTHESIS
+    assert str(concept["name_candidates"][0]["source"]) == NAME_FROM_TABLE_COMMENT
+    # The comment it was recovered from stays in the evidence, junk reason and all.
+    assert comment in {str(item["text"]) for item in concept["name_candidates"]}
+
+
+def test_a_concept_no_comment_named_says_its_name_is_only_the_stem() -> None:
+    """The negative of the rescue: nothing to recover, so the tier says so."""
+    ontology = _ontology(_entity("ods.queue_a", keys=["queue_no"]))
+    cards = _cards(_card("ods.queue_a", columns=["queue_no"]))
+
+    concept = _concepts(ontology, cards)["concept:queue"]
+
+    assert concept["name"] == "queue"
+    assert concept["name_tier"] == TIER_STEM_ONLY
+    assert [str(item["source"]) for item in concept["name_candidates"]] == [
+        NAME_FROM_STEM
+    ]
+
+
+def test_a_junk_comment_with_no_chinese_left_keeps_the_stem_tier() -> None:
+    """The negative again: 欠款 alone recovers nothing, so the stem stands and says so."""
+    ontology, cards = _junk_only_corpus("2月欠款")
+
+    concept = _concepts(ontology, cards)["concept:queue"]
+
+    assert concept["name"] == "queue"
+    assert concept["name_tier"] == TIER_STEM_ONLY
+
+
+def test_a_named_concept_is_still_a_hypothesis() -> None:
+    """The negative for the tier: a comment named it, so nothing changed."""
+    ontology, cards = _junk_only_corpus("队列信息表")
+
+    concept = _concepts(ontology, cards)["concept:queue"]
+
+    assert concept["name"] == "队列"
+    assert concept["name_tier"] == TIER_HYPOTHESIS
