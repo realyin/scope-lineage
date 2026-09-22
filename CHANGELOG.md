@@ -1,6 +1,43 @@
 # Changelog
 
 ## Unreleased
+- **The open list folds once more, at the level the answer is true** (N3). A concept with
+  five representation tables carrying the same candidate key produced five 「这张表按这组列
+  唯一吗」 questions, and a reviewer answered the same thing five times. Identity is a
+  property of the concept, not of the copy.
+  - `ontology.json` publishes `concept_open_items[]`: `open_items[]` folded by (concept,
+    question shape) — candidate keys by the **key stems** their columns reduce to (the
+    same `key_stem` K1 seeds a concept on, so `cust_no` and `cust_id` are one question),
+    relations by (near concept, far concept, far stems), findings by the finding `kind`.
+    Ids are `open:concept:<concept id>:key=<stems>` /
+    `open:concept:<near>:rel=<far>:<stems>` / `open:concept:<concept id>:finding=<kind>`,
+    derived from the content so they survive the next round. Each entry carries
+    `question` (one sentence about the concept), `tables[]`, `items[]` (the table-level
+    ids), `write_back[]` (one table-level key per representation the answer expands to),
+    `concept_write_back` (the one string a reviewer copies), `impact` (the sum over the
+    members, undeduplicated) and `tier` (the weakest member's). `open_items[]` and
+    `open_item_groups[]` are untouched — the fold is a view, and every group gained a
+    `concept_open_item` back-link to the question it belongs to.
+  - `ontology.overrides.json` gains a `concepts` section: `{"<concept id>": {"keys":
+    [{"columns": […], "scope_columns"?: […], …}], "relations": {"<far concept id>":
+    {"cardinality": …, …}}}}`. A key answer expands to **every representation whose
+    candidate key reduces to the same stems**, each confirmed in that table's own column
+    names; a relation answer expands to every table-level edge folded into that concept
+    relation, and the concept relation is then re-read off the confirmed evidence.
+    Expansions are reported in `overrides_applied.concept_expansions[]`
+    (`{key, applied_to}`, `key` being exactly `concept_write_back`) and counted in
+    `overrides_applied.keys` / `relations` as before; an unknown concept id, stems no
+    representation carries or a concept relation the corpus never read are reported in
+    `overrides_applied.unmatched` as `unknown_concept: <id>` /
+    `unmatched_stems: <stems>` / `unknown_concept_relation: <id>` rather than dropped.
+  - A concept file's 待人工判定 section now asks the concept-level questions — the
+    question, what it folded, the impact and tier, the representation tables it covers,
+    the concept write-back key and the table-level keys it expands to — with the
+    table-level ids kept as an evidence line. `ontology.md` carries
+    `concept_open_item_count` in its front matter and beside the item and group counts in
+    the overview sentence, and `ontology-review-prompt.md` now says to answer at the
+    concept level whenever the question is about a concept's identity or a concept
+    relation, and at the table level only when representations genuinely differ.
 - **One markdown file per concept, and `ontology.md` becomes an index** (N2). M3 gave
   every concept a section inside `ontology.md` and kept the whole table layer behind
   them, capped at 40 sections. On a wide corpus that is the entire model in one file and

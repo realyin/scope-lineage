@@ -282,6 +282,7 @@ def test_ontology_applies_a_reviewed_overrides_file(tmp_path: Path, capsys) -> N
     assert ontology["overrides_applied"] == {
         "relations": 1,
         "keys": 1,
+        "concept_expansions": [],
         "unmatched": [],
         "ignored_fields": [],
     }
