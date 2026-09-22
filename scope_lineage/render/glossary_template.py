@@ -63,6 +63,15 @@ Q1 finishes that split on the label side, because two further rounds rejected mo
 Q1 also stops asking one repeated code table once per table: a ``(column name, value)``
 pair askable in :data:`FAMILY_MINIMUM_TABLES` tables or more is asked once, under the
 family key ``*.<column>=<value>``, in a section of its own.
+
+N6 puts a stronger section in front of it. A family rests on a shared column NAME, which
+is a coincidence until something says otherwise; an ontology says otherwise, so a value
+askable on :data:`CONCEPT_MINIMUM_TABLES` representation tables of ONE concept attribute
+is asked once under the concept key ``concept:<id>.<attribute>=<value>``. Two tables are
+enough there for the reason three are needed for a family: somebody asserted these two
+columns are one attribute, and that assertion is the thing a bare name never carries.
+Concept sections come first and take their rows out of the family and per-table ones, so
+every value is still asked exactly once, under the strongest key that covers it.
 """
 
 from __future__ import annotations
@@ -71,6 +80,7 @@ import datetime
 from typing import Mapping, Sequence
 
 from . import glossary_values
+from .glossary_values import table_key
 from .markdown_text import cell as _cell
 from .markdown_text import expr_span as _expr_span
 from .markdown_text import normalize_inline as _normalize_inline
@@ -97,6 +107,15 @@ MINIMUM_COLUMN_VALUES = 2
 # table travelling with its column, and typing the same sentence once per table is how
 # a review round spends its budget on transcription.
 FAMILY_MINIMUM_TABLES = 3
+
+# N6. How many representation tables of one concept attribute have to carry a value
+# before the form asks it under the concept key. Two, where a family needs three: the
+# ontology has already asserted that these columns are one attribute, so the second
+# table is not a coincidence of spelling that a reviewer still has to rule out.
+CONCEPT_MINIMUM_TABLES = 2
+
+# N6. What a concept section's key and heading start with -- the concept's own id.
+CONCEPT_KEY_PREFIX = "concept:"
 
 # Words that make a column LOOK like it carries codes. A ranking clue and nothing else:
 # it moves a column up the form, and it never becomes a value's meaning.
@@ -182,6 +201,12 @@ _FAMILY_NOTE = (
     "答案会写回每一张观察到该取值的表，下面各表小节不再重复这些取值。"
 )
 
+_CONCEPT_HEADING = "## `{key}`（{name}·{attribute}，出现在 {tables} 张表）"
+_CONCEPT_NOTE = (
+    "- 本体说这 {tables} 张表的这一列是同一个概念属性，用概念键 `{key}=<取值>` 问一次即可："
+    "答案会写回该属性每一个观察到该取值的来源列，下面的家族小节与各表小节不再重复这些取值。"
+)
+
 EMPTY_TEMPLATE_NOTE = "语料里没有需要填含义的取值。"
 
 
@@ -210,7 +235,7 @@ def build_overrides_template(
         },
         "terms": {},
         "values": {
-            _form_key(item, selection["families"]): {
+            _form_key(item, selection["families"], selection["concepts"]): {
                 "meaning": "",
                 "confirmed_by": None,
                 "date": day,
@@ -251,8 +276,10 @@ def _selection(glossary: Mapping, top: int) -> dict:
         # reader asks for the whole form, and the old reading handed them an empty one.
         "entries": ranked if top <= 0 else ranked[:top],
         # Q1: counted over every askable value rather than over the cut, because a
-        # family key answers the tables the cut did not reach as well.
+        # family key answers the tables the cut did not reach as well. N6's concept
+        # pairs are counted the same way, and over the same values.
         "families": _family_pairs(askable),
+        "concepts": _concept_pairs(askable, glossary.get("concept_terms") or []),
         "excluded_values": len(physical) - len(askable),
         "excluded_scope_columns": len(
             {str(item["column_ref"]) for item in unanswered if not _is_physical(item)}
@@ -277,6 +304,48 @@ def _family_pairs(entries: Sequence[Mapping]) -> dict[tuple[str, str], int]:
         key: len(owners)
         for key, owners in tables.items()
         if len(owners) >= FAMILY_MINIMUM_TABLES
+    }
+
+
+def _concept_pairs(
+    entries: Sequence[Mapping], concept_terms: Sequence[Mapping]
+) -> dict[tuple[str, str], dict]:
+    """``(column_ref, value) -> the concept attribute one answer can close it under``.
+
+    N6. The counterpart of :func:`_family_pairs`, one level up: the group is not "every
+    column of this NAME" but "every source column of this ATTRIBUTE", which is a claim
+    the ontology made rather than a coincidence of spelling -- so it starts at
+    :data:`CONCEPT_MINIMUM_TABLES` tables. A column belonging to two concept attributes
+    is filed under the first in (concept, attribute) order, so the form is stable.
+    """
+    owners: dict[tuple, Mapping] = {}
+    for item in concept_terms:
+        for column in item.get("columns") or []:
+            owners.setdefault(
+                (table_key(column["table"]), str(column["column"])), item
+            )
+    grouped: dict[tuple, dict] = {}
+    for entry in entries:
+        owner = str(entry["column_ref"]).rsplit(".", 1)[0]
+        item = owners.get((table_key(owner), str(entry["column"])))
+        if item is None or entry.get("logical"):
+            continue
+        slot = grouped.setdefault(
+            (str(item["concept"]), str(item["attribute"]), str(entry["value"])),
+            {"item": item, "tables": set(), "refs": []},
+        )
+        slot["tables"].add(owner)
+        slot["refs"].append((str(entry["column_ref"]), str(entry["value"])))
+    return {
+        ref: {
+            "concept": str(slot["item"]["concept"]),
+            "name": str(slot["item"]["name"]),
+            "attribute": str(slot["item"]["attribute"]),
+            "tables": len(slot["tables"]),
+        }
+        for slot in grouped.values()
+        if len(slot["tables"]) >= CONCEPT_MINIMUM_TABLES
+        for ref in slot["refs"]
     }
 
 
@@ -548,8 +617,20 @@ def _is_family(entry: Mapping, families: Mapping) -> bool:
     return (str(entry["column"]), str(entry["value"])) in families
 
 
-def _form_key(entry: Mapping, families: Mapping) -> str:
-    """The key this row is asked under: the family key when one answer covers them all."""
+def _concept_of(entry: Mapping, concepts: Mapping) -> Mapping | None:
+    return concepts.get((str(entry["column_ref"]), str(entry["value"])))
+
+
+def _concept_attribute_key(item: Mapping) -> str:
+    """``concept:<id>.<attribute>``: the section heading and the override key's left half."""
+    return f"{item['concept']}.{item['attribute']}"
+
+
+def _form_key(entry: Mapping, families: Mapping, concepts: Mapping) -> str:
+    """The key this row is asked under: the strongest one that covers the whole group."""
+    item = _concept_of(entry, concepts)
+    if item is not None:
+        return f"{_concept_attribute_key(item)}={entry['value']}"
     return _family_key(entry) if _is_family(entry, families) else _override_key(entry)
 
 
@@ -565,22 +646,41 @@ def render_overrides_template_markdown(template: Mapping, glossary: Mapping) -> 
     and a family question is one question.
     """
     selection = _selection(glossary, _top_of(template))
-    families = selection["families"]
+    families, concepts = selection["families"], selection["concepts"]
     asked = set(template.get("values") or {})
     entries = [
-        entry for entry in selection["entries"] if _form_key(entry, families) in asked
+        entry
+        for entry in selection["entries"]
+        if _form_key(entry, families, concepts) in asked
     ]
     lines = [_TITLE, "", *_PREAMBLE, _exclusion_note(template), ""]
     if not entries:
         lines.append(EMPTY_TEMPLATE_NOTE)
         return "\n".join(lines) + "\n"
     confirmed = same_name_confirmed(glossary)
-    for section in _dedupe(_section_key(entry, families) for entry in entries):
+    for section in _ordered_sections(entries, families, concepts):
         members = [
-            entry for entry in entries if _section_key(entry, families) == section
+            entry
+            for entry in entries
+            if _section_key(entry, families, concepts) == section
         ]
-        lines.extend(_section(section, members, families, confirmed))
+        lines.extend(_section(section, members, families, concepts, confirmed))
     return "\n".join(lines).rstrip("\n") + "\n"
+
+
+def _ordered_sections(
+    entries: Sequence[Mapping], families: Mapping, concepts: Mapping
+) -> list[str]:
+    """Section headings in reading order: the concept sections, then everything else.
+
+    N6. Within each half the ranking decides, exactly as it always has. The concept
+    sections go first because they are the strongest key on offer -- a reviewer who
+    answers one of them has answered every table the ontology put under it, and reading
+    the per-table sections first is how a round spends its budget on transcription.
+    """
+    sections = _dedupe(_section_key(entry, families, concepts) for entry in entries)
+    first = [item for item in sections if item.startswith(CONCEPT_KEY_PREFIX)]
+    return first + [item for item in sections if not item.startswith(CONCEPT_KEY_PREFIX)]
 
 
 def _top_of(template: Mapping) -> int:
@@ -588,8 +688,11 @@ def _top_of(template: Mapping) -> int:
     return int(generated["top"]) if "top" in generated else TEMPLATE_TOP_DEFAULT
 
 
-def _section_key(entry: Mapping, families: Mapping) -> str:
-    """Which section this row belongs to: its own table's column, or the family."""
+def _section_key(entry: Mapping, families: Mapping, concepts: Mapping) -> str:
+    """Which section this row belongs to: its concept attribute, its family, or its table."""
+    item = _concept_of(entry, concepts)
+    if item is not None:
+        return _concept_attribute_key(item)
     return (
         f"*.{entry['column']}"
         if _is_family(entry, families)
@@ -598,11 +701,44 @@ def _section_key(entry: Mapping, families: Mapping) -> str:
 
 
 def _section(
-    section: str, entries: Sequence[Mapping], families: Mapping, confirmed: frozenset
+    section: str,
+    entries: Sequence[Mapping],
+    families: Mapping,
+    concepts: Mapping,
+    confirmed: frozenset,
 ) -> list[str]:
+    if section.startswith(CONCEPT_KEY_PREFIX):
+        return _concept_section(section, entries, concepts, confirmed)
     if not section.startswith("*."):
         return _column_section(section, entries, confirmed)
     return _family_section(section.partition(".")[2], entries, families, confirmed)
+
+
+def _concept_section(
+    section: str, entries: Sequence[Mapping], concepts: Mapping, confirmed: frozenset
+) -> list[str]:
+    """One concept attribute asked once, however many tables represent it."""
+    item = _concept_of(entries[0], concepts) or {}
+    tables = max(
+        int((_concept_of(entry, concepts) or {}).get("tables") or 0) for entry in entries
+    )
+    unique = _unique_values(entries)
+    closed = "是" if any(value.get("closed_set") for value in unique) else "未证明"
+    return [
+        _CONCEPT_HEADING.format(
+            key=section,
+            name=item.get("name") or item.get("concept"),
+            attribute=item.get("attribute"),
+            tables=tables,
+        ),
+        "",
+        _CONCEPT_NOTE.format(key=section, tables=tables),
+        _CLOSED_NOTE.format(answer=closed),
+        "",
+        *_TABLE_HEADER,
+        *[_row(value, confirmed, label_systems(unique)) for value in unique],
+        "",
+    ]
 
 
 def _family_section(

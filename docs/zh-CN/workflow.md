@@ -103,6 +103,16 @@ Carded 31 table(s) from 5 task(s) (skipped_unknown_version=0, missing_diagnostic
 Collected 214 term(s) and 62 value observation(s) from 5 task(s) (overrides terms=0, values=0, blank=0, unmatched=0, rejected=0, ignored_fields=0, skipped_unknown_version=0, missing_diagnostics=0, skipped_unreadable=0)
 ```
 
+本体已经跑过一轮的话，把它挂给字典（N6）：字典就多一层**概念**——同一个概念属性在它的几张
+表示表上是同一件事，于是术语、取值与待填表都按属性而不是按表归并，一条
+`concept:<概念 id>.<属性>=<取值>` 答完整族。第一轮还没有 `ontology.json` 很正常：
+先按上面跑一遍，第 4 步跑完本体之后再回来重跑这一条即可。
+
+```bash
+scope-lineage glossary --lineage "$OUT/artifacts" --out "$OUT/corpus" \
+  --ontology "$OUT/corpus/ontology.json"
+```
+
 ### 3. `describe`：每个任务一份语义骨架
 
 ```bash
@@ -218,7 +228,7 @@ Described 5 task(s) (skipped_unknown_version=0, missing_diagnostics=0, skipped_u
 | `parse` | 任务 JSON / SQL、`--schema`、`--target-ddl-metadata`、可选 `--metadata-patch` | 每任务一目录：`lineage.json`、`diagnostics.json` | 机器（后面每一步的唯一输入） | [安装与使用指南](getting-started.md) |
 | `render`（可选） | 一棵 `lineage.json` 树、`--field` / `--sections` | `mapping.md`（有警告时另出 `warnings.md`） | 分析师 | [mapping.md 字段映射文档](mapping-doc.md) |
 | `tables` | 一棵 `lineage.json` 树、可选 `--samples`、`--merge` | `tables.json`、`tables.md`、`tables/<db.table>.md` | 分析师；同时喂给 `describe` / `ontology` | [语料级表卡](tables-doc.md) |
-| `glossary` | 一棵 `lineage.json` 树、可选 `--overrides`、`--template` | `glossary.json`、`glossary.md`、可选待填模板 | 业务负责人填模板；机器读 JSON | [术语与值域字典](glossary-doc.md) |
+| `glossary` | 一棵 `lineage.json` 树、可选 `--overrides`、`--ontology`、`--template` | `glossary.json`、`glossary.md`、可选待填模板 | 业务负责人填模板；机器读 JSON | [术语与值域字典](glossary-doc.md) |
 | `describe` | `lineage.json` + `--tables` + `--glossary` + 可选 `--metadata-patch` | 每任务一份 `semantic.json`、`semantic.md` | Agent（写画像的原料）、分析师 | [任务语义描述](semantic-doc.md) |
 | `ontology` | `lineage.json` + `--tables` + `--glossary` + 可选 `--overrides`、`--concept-overrides`、`--export` | `ontology.json`、`ontology.md`、带本体小节的表卡 | Agent（整理待判定项）、分析师 | [语料级本体候选](ontology-doc.md) |
 | Agent 任务画像 | `semantic.md` + 技能里的提示词与模板 | `business_profile.md`、`business_profile.check.md` | 业务负责人（读画像、答待确认清单） | [AI agent 技能](agent-skill.md) |

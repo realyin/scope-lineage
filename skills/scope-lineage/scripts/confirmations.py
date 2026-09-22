@@ -7,15 +7,21 @@ tooling reads, and the next profile asks the same questions again. This script c
 loop: it reads `business_profile.md`, keeps the items that have an answer, and routes each
 one by its `- 回写目标：` line into the file that owns that kind of answer.
 
-  术语:<词>          -> glossary.overrides.json   terms
-  值域:<列>=<值>     -> glossary.overrides.json   values
-  值域:*.<列>=<值>   -> glossary.overrides.json   values（家族键：同名列所在的每一张表）
-  字段注释:<表.列>   -> metadata-patch.json       columns
-  表注释:<表>        -> metadata-patch.json       tables
+  术语:<词>                      -> glossary.overrides.json   terms
+  值域:<列>=<值>                 -> glossary.overrides.json   values
+  值域:concept:<id>.<属性>=<值>  -> glossary.overrides.json   values（概念键：该属性的每一个来源列）
+  值域:*.<列>=<值>               -> glossary.overrides.json   values（家族键：同名列所在的每一张表）
+  字段注释:<表.列>               -> metadata-patch.json       columns
+  表注释:<表>                    -> metadata-patch.json       tables
 
 一张码表被复制到很多张表上时，`*.<列>=<值>` 让业务方只答一次：字典会把这条答案写回每一张
 观察到该取值的表，并在 `overrides_applied.family_expansions` 里报出它落到了几张表上。
 `<列>=*` 这种「值通配」不是键，字典认不出来，会整条进 `unmatched`。
+
+概念键 `concept:<id>.<属性>=<值>`（N6）比家族键更强，也更该优先照抄：它答的是**本体说是
+同一件事**的那一组列，而不是碰巧同名的那一组。`glossary --ontology` 跑出来的待填表会直接
+把这种取值合成一节并给出这个键，落到了几个来源列上报在
+`overrides_applied.concept_expansions` 里。三种键的解析顺序是：带表名的 > 概念键 > 家族键。
 
 Then re-run `scope-lineage glossary --overrides …` and
 `scope-lineage describe --glossary … --metadata-patch …`, and the confirmed items come

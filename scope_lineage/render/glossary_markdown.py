@@ -8,6 +8,12 @@ and the parameterised predicates that pin it without giving it a value.
 The meaning column is a three-state answer and says which state it is in: ``✓`` for a
 human-confirmed meaning, ``?`` for a comment that literally spells the value out, and
 "待确认" for everything else. Nothing here upgrades a ``?`` to a ``✓``.
+
+N6 puts one section in front of the column sections when the dictionary was built with
+``--ontology``: 「按概念」, one row per concept ATTRIBUTE. It is the same facts read the
+other way round -- not "what does this column name mean" but "what does this concept
+call this thing, and how much of it has anybody answered" -- and it is the table a
+reviewer reads to decide which single ``concept:<id>.<attribute>=<value>`` key to write.
 """
 
 from __future__ import annotations
@@ -35,10 +41,22 @@ _VALUE_TABLE_HEADER = (
     "| --- | --- | --- | --- | --- | --- | --- |",
 )
 
+# N6. The concept layer, printed before the column sections because it is the coarser
+# reading of the same facts: one row per concept attribute, however many tables write it.
+_CONCEPT_TITLE = "## 按概念"
+_CONCEPT_NOTE = (
+    "- 概念层来自 `--ontology`：{concepts} 个概念、{attributes} 个属性。一个属性在它的各张"
+    "表示表上是同一件事，overrides 里写一条 `concept:<概念 id>.<属性>=<取值>` 就答完整族。"
+)
+_CONCEPT_TABLE_HEADER = (
+    "| 概念 | 属性 | 列 | 术语 | 取值（已确认 / 共计） |",
+    "| --- | --- | --- | --- | --- |",
+)
+
 
 def render_glossary_markdown(glossary: Mapping) -> str:
     """Render one ``glossary-json/1`` document. Same input, same bytes."""
-    lines = ["# 术语与值域字典", *_summary(glossary)]
+    lines = ["# 术语与值域字典", *_summary(glossary), *_concept_section(glossary)]
     sections = _sections(glossary)
     for column in sorted(sections):
         lines.extend(_render_column(column, sections[column]))
@@ -106,6 +124,56 @@ def _rejected_line(applied: Mapping) -> list[str]:
             )
         )
     return lines
+
+
+def _concept_section(glossary: Mapping) -> list[str]:
+    """N6's 「按概念」 table, or nothing at all when no ontology was read."""
+    concepts = glossary.get("concept_terms") or []
+    if not concepts:
+        return []
+    return [
+        "",
+        _CONCEPT_TITLE,
+        "",
+        _CONCEPT_NOTE.format(
+            concepts=len({str(item["concept"]) for item in concepts}),
+            attributes=len(concepts),
+        ),
+        "",
+        *_CONCEPT_TABLE_HEADER,
+        *[_concept_row(item) for item in concepts],
+    ]
+
+
+def _concept_row(entry: Mapping) -> str:
+    columns = "、".join(
+        expr_span(f"{item['table']}.{item['column']}")
+        for item in entry.get("columns") or []
+    )
+    return (
+        f"| {expr_span(str(entry['concept']))}"
+        f"（{cell(normalize_inline(str(entry.get('name') or '')))}） "
+        f"| {expr_span(str(entry['attribute']))} | {cell(columns)} "
+        f"| {cell(_concept_term_text(entry))} | {_concept_value_counts(entry)} |"
+    )
+
+
+def _concept_term_text(entry: Mapping) -> str:
+    """The attribute's merged comments, with the conflict said out loud rather than resolved."""
+    comments = entry.get("comments") or []
+    if not comments:
+        return EMPTY_CELL
+    text = "；".join(
+        f"{normalize_inline(str(item['text']))}（{item['count']} 张表）" for item in comments
+    )
+    return f"{CONFLICT_MARK} {text}" if entry.get("conflict") else text
+
+
+def _concept_value_counts(entry: Mapping) -> str:
+    """How much of this attribute's value domain somebody has already answered."""
+    values = entry.get("values") or []
+    confirmed = sum(1 for item in values if (item.get("meaning") or {}).get("text"))
+    return f"{confirmed} / {len(values)}"
 
 
 def _sections(glossary: Mapping) -> dict[str, dict]:

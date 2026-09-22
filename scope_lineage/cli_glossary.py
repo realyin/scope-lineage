@@ -58,6 +58,17 @@ def add_glossary_parser(subcommands) -> None:
         ),
     )
     glossary_cmd.add_argument(
+        "--ontology",
+        help=(
+            "An ontology.json written by `scope-lineage ontology`. Optional, and "
+            "additive: the dictionary then also publishes concept_terms[] (one entry "
+            "per concept attribute, its term facts merged across the concept's "
+            "representation tables), accepts the overrides key "
+            "concept:<id>.<attribute>=<value>, and asks one form section per concept "
+            "attribute instead of one per table. Without it nothing changes"
+        ),
+    )
+    glossary_cmd.add_argument(
         "--template",
         help=(
             "Also write a fill-in glossary.overrides.template.md at this path, plus the "
@@ -88,12 +99,14 @@ def formats(value: str | None) -> set[str]:
     return {name.strip() for name in (value or "json,md").split(",") if name.strip()}
 
 
-def load_overrides(path: str | None, flag: str = "--overrides"):
+def load_overrides(path: str | None, flag: str = "--overrides", label: str = "overrides"):
     """The reviewed overrides document, or the exit code when it cannot be read.
 
     ``flag`` is the argument the path came from, so a corpus with two reviewed files --
     ``--overrides`` for the table level and ``--concept-overrides`` for the concept
-    layer -- says which of the two a reviewer mistyped.
+    layer -- says which of the two a reviewer mistyped. ``label`` names what the file
+    was supposed to be, for the one message that has to say it (N6 reads an
+    ``ontology.json`` through the same three checks).
     """
     if not path:
         return None
@@ -107,7 +120,7 @@ def load_overrides(path: str | None, flag: str = "--overrides"):
         print(f"{source}: not valid JSON ({error})", file=sys.stderr)
         return 2
     if not isinstance(document, dict):
-        print(f"{source}: overrides must be a JSON object", file=sys.stderr)
+        print(f"{source}: {label} must be a JSON object", file=sys.stderr)
         return 2
     return document
 
@@ -125,6 +138,11 @@ def run_glossary(args: argparse.Namespace) -> int:
     overrides = load_overrides(getattr(args, "overrides", None))
     if isinstance(overrides, int):
         return overrides
+    ontology = load_overrides(
+        getattr(args, "ontology", None), "--ontology", "an ontology document"
+    )
+    if isinstance(ontology, int):
+        return ontology
     found = _discover_lineage_documents(args.lineage)
     if isinstance(found, int):
         return found
@@ -138,7 +156,7 @@ def run_glossary(args: argparse.Namespace) -> int:
     # the corpus-level document, which is rebuilt every run; the per-task facts under it
     # are the same facts wherever the task was parsed, which is what lets a second corpus
     # borrow them (``--cache-from``).
-    options = [overrides, args.format, args.template, args.template_top]
+    options = [overrides, ontology, args.format, args.template, args.template_top]
     cache = open_cache(args, out_dir, found[1], "glossary", options, fields=[PROFILE_FIELDS_READ])
     try:
         glossary = build_glossary(
@@ -146,6 +164,7 @@ def run_glossary(args: argparse.Namespace) -> int:
             artifact_root=root,
             overrides=overrides,
             profiles=_profiles(documents, cache),
+            ontology=ontology,
         )
     except ValueError as error:
         print(f"{args.lineage}: {error}", file=sys.stderr)
@@ -194,6 +213,14 @@ def _report(
         f"ignored_fields={len(applied['ignored_fields'])}, "
         f"{counters})"
     )
+    if "concept_terms" in glossary:
+        print(
+            f"Hung {len(glossary['concept_terms'])} concept attribute(s) on "
+            f"{len({item['concept'] for item in glossary['concept_terms']})} concept(s) "
+            f"(concept overrides applied_to="
+            f"{sum(item['applied_to'] for item in applied['concept_expansions'])}, "
+            f"unmatched={len(applied['concept_unmatched'])})"
+        )
     if template is not None:
         print(
             f"Wrote a fill-in template of {template['generated']['value_count']} value(s) "
