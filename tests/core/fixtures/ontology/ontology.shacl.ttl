@@ -279,6 +279,7 @@ sl:ods_channel_eventShape
         sh:class sl:dim_channel ;
         sh:maxCount 1 ;
         sl:relation "rel:001" ;
+        sl:evidenceFor "crel:001" ;
         sl:claim "many_to_one_assumed" ;
         sl:taskCount 2 ;
         sl:evidenceCount 2 ;
@@ -313,6 +314,7 @@ sl:ods_events_aShape
         sh:path sl:rel_002 ;
         sh:class sl:dim_segment_dim ;
         sl:relation "rel:002" ;
+        sl:evidenceFor "crel:002" ;
         sl:claim "one_to_many" ;
         sl:taskCount 1 ;
         sl:evidenceCount 1 ;
@@ -323,6 +325,7 @@ sl:ods_events_aShape
         sh:path sl:rel_003 ;
         sh:class sl:ods_events_b ;
         sl:relation "rel:003" ;
+        sl:evidenceFor "crel:003" ;
         sl:claim "unknown" ;
         sl:taskCount 1 ;
         sl:evidenceCount 1 ;
@@ -358,6 +361,7 @@ sl:ods_events_bShape
         sh:path sl:rel_004 ;
         sh:class sl:dim_segment_dim ;
         sl:relation "rel:004" ;
+        sl:evidenceFor "crel:004" ;
         sl:claim "one_to_many" ;
         sl:taskCount 1 ;
         sl:evidenceCount 1 ;

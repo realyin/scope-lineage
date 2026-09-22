@@ -1,5 +1,5 @@
 {
-  "doc_format": "ontology-json/1",
+  "doc_format": "ontology-json/2",
   "corpus": {
     "artifact_root": "corpus",
     "task_count": 5,
@@ -11,678 +11,6 @@
       "golden_simple_insert": "1e33f30b4f377c8a"
     }
   },
-  "entities": [
-    {
-      "id": "dim.channel",
-      "kind": "physical_table",
-      "family": "dim.channel",
-      "comment": "渠道维表（合成）",
-      "identity": {
-        "candidate_keys": [
-          {
-            "columns": [
-              "channel_code"
-            ],
-            "tier": "hypothesis",
-            "evidence": [
-              {
-                "task": "golden_commented_insert",
-                "statement_id": "stmt:001",
-                "kind": "joined_as_right_without_dedup",
-                "logic_block_id": "logic:ROOT:join:001"
-              },
-              {
-                "task": "golden_commented_task",
-                "statement_id": "stmt:001",
-                "kind": "joined_as_right_without_dedup",
-                "logic_block_id": "logic:ROOT:join:001"
-              }
-            ]
-          }
-        ],
-        "declared_hints": [],
-        "multiplicity": [],
-        "partition_columns": []
-      },
-      "attributes": [
-        {
-          "column": "channel_code",
-          "type": null,
-          "comment": null,
-          "observed_roles": [
-            "join_key"
-          ],
-          "used_in_corpus": true,
-          "not_null_observed": false,
-          "synonyms": []
-        },
-        {
-          "column": "channel_name",
-          "type": null,
-          "comment": null,
-          "observed_roles": [],
-          "used_in_corpus": false,
-          "not_null_observed": false,
-          "synonyms": []
-        }
-      ],
-      "naming_hints": {
-        "table_comment": "渠道维表（合成）",
-        "domain": "渠道域",
-        "project": null,
-        "owner": null
-      }
-    },
-    {
-      "id": "dim.segment_dim",
-      "kind": "physical_table",
-      "family": "dim.segment_dim",
-      "comment": null,
-      "identity": {
-        "candidate_keys": [],
-        "declared_hints": [],
-        "multiplicity": [
-          {
-            "columns": [
-              "segment"
-            ],
-            "tier": "implied",
-            "claim": "multiple_rows_per_key",
-            "evidence": [
-              {
-                "task": "golden_grouped_dedup_join",
-                "statement_id": "stmt:001",
-                "kind": "window_partition",
-                "scope_id": "cte:latest_dim",
-                "logic_block_id": "logic:cte:latest_dim:window:001"
-              }
-            ]
-          }
-        ],
-        "partition_columns": []
-      },
-      "attributes": [
-        {
-          "column": "segment",
-          "type": null,
-          "comment": null,
-          "observed_roles": [
-            "join_key",
-            "window_partition"
-          ],
-          "used_in_corpus": true,
-          "not_null_observed": false,
-          "synonyms": []
-        },
-        {
-          "column": "segment_name",
-          "type": null,
-          "comment": null,
-          "observed_roles": [
-            "output"
-          ],
-          "used_in_corpus": true,
-          "not_null_observed": false,
-          "synonyms": []
-        },
-        {
-          "column": "updated_at",
-          "type": null,
-          "comment": null,
-          "observed_roles": [
-            "window_order"
-          ],
-          "used_in_corpus": true,
-          "not_null_observed": false,
-          "synonyms": []
-        }
-      ],
-      "naming_hints": {
-        "table_comment": null,
-        "domain": null,
-        "project": null,
-        "owner": null
-      }
-    },
-    {
-      "id": "mart.channel_summary",
-      "kind": "produced_table",
-      "family": "mart.channel_summary",
-      "comment": null,
-      "identity": {
-        "candidate_keys": [
-          {
-            "columns": [
-              "customer_id",
-              "channel_name"
-            ],
-            "tier": "proven",
-            "evidence": [
-              {
-                "task": "golden_commented_insert",
-                "statement_id": "stmt:001",
-                "kind": "producer_key_confidence",
-                "basis": "proven"
-              },
-              {
-                "task": "golden_commented_task",
-                "statement_id": "stmt:001",
-                "kind": "producer_key_confidence",
-                "basis": "proven"
-              }
-            ]
-          }
-        ],
-        "declared_hints": [],
-        "multiplicity": [],
-        "partition_columns": [
-          "dt"
-        ]
-      },
-      "attributes": [
-        {
-          "column": "customer_id",
-          "type": null,
-          "comment": null,
-          "observed_roles": [],
-          "used_in_corpus": true,
-          "not_null_observed": false,
-          "synonyms": []
-        },
-        {
-          "column": "channel_name",
-          "type": null,
-          "comment": null,
-          "observed_roles": [],
-          "used_in_corpus": true,
-          "not_null_observed": false,
-          "synonyms": []
-        },
-        {
-          "column": "total_amount",
-          "type": null,
-          "comment": null,
-          "observed_roles": [],
-          "used_in_corpus": true,
-          "not_null_observed": false,
-          "synonyms": []
-        }
-      ],
-      "naming_hints": {
-        "table_comment": null,
-        "domain": null,
-        "project": null,
-        "owner": null
-      }
-    },
-    {
-      "id": "mart.metric_by_segment",
-      "kind": "produced_table",
-      "family": "mart.metric_by_segment",
-      "comment": null,
-      "identity": {
-        "candidate_keys": [
-          {
-            "columns": [
-              "segment",
-              "band"
-            ],
-            "tier": "proven",
-            "evidence": [
-              {
-                "task": "golden_grouped_dedup_join",
-                "statement_id": "stmt:001",
-                "kind": "producer_key_confidence",
-                "basis": "proven"
-              }
-            ]
-          }
-        ],
-        "declared_hints": [],
-        "multiplicity": [],
-        "partition_columns": [
-          "dt"
-        ]
-      },
-      "attributes": [
-        {
-          "column": "segment",
-          "type": "string",
-          "comment": "Segment code",
-          "observed_roles": [],
-          "used_in_corpus": true,
-          "not_null_observed": false,
-          "synonyms": []
-        },
-        {
-          "column": "band",
-          "type": "string",
-          "comment": "Amount band",
-          "observed_roles": [],
-          "used_in_corpus": true,
-          "not_null_observed": false,
-          "synonyms": []
-        },
-        {
-          "column": "total",
-          "type": "decimal(18,2)",
-          "comment": "Summed amount",
-          "observed_roles": [],
-          "used_in_corpus": true,
-          "not_null_observed": false,
-          "synonyms": []
-        },
-        {
-          "column": "cnt",
-          "type": "bigint",
-          "comment": "Row count",
-          "observed_roles": [],
-          "used_in_corpus": true,
-          "not_null_observed": false,
-          "synonyms": []
-        },
-        {
-          "column": "band_total",
-          "type": "decimal(18,2)",
-          "comment": "Band level total",
-          "observed_roles": [],
-          "used_in_corpus": true,
-          "not_null_observed": false,
-          "synonyms": []
-        },
-        {
-          "column": "segment_name",
-          "type": "string",
-          "comment": "Segment display name",
-          "observed_roles": [],
-          "used_in_corpus": true,
-          "not_null_observed": false,
-          "synonyms": []
-        },
-        {
-          "column": "dt",
-          "type": "string",
-          "comment": "Partition date",
-          "observed_roles": [],
-          "used_in_corpus": false,
-          "not_null_observed": false,
-          "synonyms": []
-        }
-      ],
-      "naming_hints": {
-        "table_comment": null,
-        "domain": null,
-        "project": null,
-        "owner": null
-      }
-    },
-    {
-      "id": "mart.user_names",
-      "kind": "produced_table",
-      "family": "mart.user_names",
-      "comment": null,
-      "identity": {
-        "candidate_keys": [],
-        "declared_hints": [],
-        "multiplicity": [],
-        "partition_columns": []
-      },
-      "attributes": [
-        {
-          "column": "user_id",
-          "type": null,
-          "comment": null,
-          "observed_roles": [],
-          "used_in_corpus": true,
-          "not_null_observed": false,
-          "synonyms": []
-        },
-        {
-          "column": "user_name",
-          "type": null,
-          "comment": null,
-          "observed_roles": [],
-          "used_in_corpus": true,
-          "not_null_observed": false,
-          "synonyms": []
-        }
-      ],
-      "naming_hints": {
-        "table_comment": null,
-        "domain": null,
-        "project": null,
-        "owner": null
-      }
-    },
-    {
-      "id": "ods.channel_event",
-      "kind": "physical_table",
-      "family": "ods.channel_event",
-      "comment": "渠道事件明细（合成）",
-      "identity": {
-        "candidate_keys": [],
-        "declared_hints": [],
-        "multiplicity": [
-          {
-            "columns": [
-              "customer_id",
-              "channel_code"
-            ],
-            "tier": "implied",
-            "claim": "multiple_rows_per_key",
-            "evidence": [
-              {
-                "task": "golden_commented_insert",
-                "statement_id": "stmt:001",
-                "kind": "group_by",
-                "scope_id": "ROOT",
-                "logic_block_id": "logic:ROOT:group_by:001"
-              },
-              {
-                "task": "golden_commented_task",
-                "statement_id": "stmt:001",
-                "kind": "group_by",
-                "scope_id": "ROOT",
-                "logic_block_id": "logic:ROOT:group_by:001"
-              }
-            ]
-          }
-        ],
-        "partition_columns": []
-      },
-      "attributes": [
-        {
-          "column": "customer_id",
-          "type": null,
-          "comment": null,
-          "observed_roles": [
-            "group_by",
-            "output"
-          ],
-          "used_in_corpus": true,
-          "not_null_observed": false,
-          "synonyms": []
-        },
-        {
-          "column": "channel_code",
-          "type": null,
-          "comment": null,
-          "observed_roles": [
-            "join_key",
-            "group_by",
-            "output"
-          ],
-          "used_in_corpus": true,
-          "not_null_observed": false,
-          "synonyms": []
-        },
-        {
-          "column": "amount",
-          "type": null,
-          "comment": null,
-          "observed_roles": [
-            "output"
-          ],
-          "used_in_corpus": true,
-          "not_null_observed": false,
-          "synonyms": []
-        },
-        {
-          "column": "status",
-          "type": null,
-          "comment": null,
-          "observed_roles": [
-            "filter"
-          ],
-          "used_in_corpus": true,
-          "not_null_observed": false,
-          "synonyms": []
-        }
-      ],
-      "naming_hints": {
-        "table_comment": "渠道事件明细（合成）",
-        "domain": "渠道域",
-        "project": "渠道分析（合成）",
-        "owner": "demo_owner"
-      }
-    },
-    {
-      "id": "ods.events_a",
-      "kind": "physical_table",
-      "family": "ods.events_a",
-      "comment": null,
-      "identity": {
-        "candidate_keys": [],
-        "declared_hints": [],
-        "multiplicity": [],
-        "partition_columns": []
-      },
-      "attributes": [
-        {
-          "column": "segment",
-          "type": null,
-          "comment": null,
-          "observed_roles": [
-            "join_key",
-            "group_by",
-            "output"
-          ],
-          "used_in_corpus": true,
-          "not_null_observed": false,
-          "synonyms": [
-            {
-              "entity": "ods.events_b",
-              "column": "seg_code",
-              "tier": "implied",
-              "via": "union_alignment",
-              "evidence": [
-                {
-                  "task": "golden_grouped_dedup_join",
-                  "statement_id": "stmt:001"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "column": "amount",
-          "type": null,
-          "comment": null,
-          "observed_roles": [
-            "group_by",
-            "window_partition",
-            "output"
-          ],
-          "used_in_corpus": true,
-          "not_null_observed": false,
-          "synonyms": []
-        }
-      ],
-      "naming_hints": {
-        "table_comment": null,
-        "domain": null,
-        "project": null,
-        "owner": null
-      }
-    },
-    {
-      "id": "ods.events_b",
-      "kind": "physical_table",
-      "family": "ods.events_b",
-      "comment": null,
-      "identity": {
-        "candidate_keys": [],
-        "declared_hints": [],
-        "multiplicity": [],
-        "partition_columns": []
-      },
-      "attributes": [
-        {
-          "column": "seg_code",
-          "type": null,
-          "comment": null,
-          "observed_roles": [
-            "join_key",
-            "group_by",
-            "output"
-          ],
-          "used_in_corpus": true,
-          "not_null_observed": false,
-          "synonyms": [
-            {
-              "entity": "ods.events_a",
-              "column": "segment",
-              "tier": "implied",
-              "via": "union_alignment",
-              "evidence": [
-                {
-                  "task": "golden_grouped_dedup_join",
-                  "statement_id": "stmt:001"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "column": "amount",
-          "type": null,
-          "comment": null,
-          "observed_roles": [
-            "group_by",
-            "window_partition",
-            "output"
-          ],
-          "used_in_corpus": true,
-          "not_null_observed": false,
-          "synonyms": []
-        }
-      ],
-      "naming_hints": {
-        "table_comment": null,
-        "domain": null,
-        "project": null,
-        "owner": null
-      }
-    },
-    {
-      "id": "ods.users",
-      "kind": "physical_table",
-      "family": "ods.users",
-      "comment": null,
-      "identity": {
-        "candidate_keys": [],
-        "declared_hints": [],
-        "multiplicity": [],
-        "partition_columns": []
-      },
-      "attributes": [
-        {
-          "column": "user_id",
-          "type": null,
-          "comment": null,
-          "observed_roles": [
-            "output"
-          ],
-          "used_in_corpus": true,
-          "not_null_observed": false,
-          "synonyms": []
-        },
-        {
-          "column": "user_name",
-          "type": null,
-          "comment": null,
-          "observed_roles": [
-            "output"
-          ],
-          "used_in_corpus": true,
-          "not_null_observed": false,
-          "synonyms": []
-        },
-        {
-          "column": "is_active",
-          "type": null,
-          "comment": null,
-          "observed_roles": [
-            "filter"
-          ],
-          "used_in_corpus": true,
-          "not_null_observed": false,
-          "synonyms": []
-        }
-      ],
-      "naming_hints": {
-        "table_comment": null,
-        "domain": null,
-        "project": null,
-        "owner": null
-      }
-    }
-  ],
-  "families": [
-    {
-      "family": "dim.channel",
-      "tables": [
-        "dim.channel"
-      ],
-      "size": 1
-    },
-    {
-      "family": "dim.segment_dim",
-      "tables": [
-        "dim.segment_dim"
-      ],
-      "size": 1
-    },
-    {
-      "family": "mart.channel_summary",
-      "tables": [
-        "mart.channel_summary"
-      ],
-      "size": 1
-    },
-    {
-      "family": "mart.metric_by_segment",
-      "tables": [
-        "mart.metric_by_segment"
-      ],
-      "size": 1
-    },
-    {
-      "family": "mart.user_names",
-      "tables": [
-        "mart.user_names"
-      ],
-      "size": 1
-    },
-    {
-      "family": "ods.channel_event",
-      "tables": [
-        "ods.channel_event"
-      ],
-      "size": 1
-    },
-    {
-      "family": "ods.events_a",
-      "tables": [
-        "ods.events_a"
-      ],
-      "size": 1
-    },
-    {
-      "family": "ods.events_b",
-      "tables": [
-        "ods.events_b"
-      ],
-      "size": 1
-    },
-    {
-      "family": "ods.users",
-      "tables": [
-        "ods.users"
-      ],
-      "size": 1
-    }
-  ],
   "concepts": [
     {
       "id": "concept:channel",
@@ -1412,7 +740,6 @@
     }
   ],
   "provisional_count": 8,
-  "unassigned_tables": [],
   "retired_stems": [],
   "concept_overrides_applied": {
     "concepts": 0,
@@ -1426,6 +753,828 @@
     "ignored_fields": []
   },
   "relations": [
+    {
+      "id": "crel:001",
+      "from": "concept:table:ods_channel_event",
+      "to": "concept:channel",
+      "type": "association",
+      "cardinality": {
+        "claim": "many_to_one_assumed",
+        "tier": "hypothesis",
+        "basis": [
+          "rel:001"
+        ]
+      },
+      "task_count": 2,
+      "evidence": [
+        "rel:001"
+      ]
+    },
+    {
+      "id": "crel:002",
+      "from": "concept:table:ods_events_a",
+      "to": "concept:table:dim_segment_dim",
+      "type": "association",
+      "cardinality": {
+        "claim": "one_to_many",
+        "tier": "implied",
+        "basis": [
+          "rel:002"
+        ]
+      },
+      "task_count": 1,
+      "evidence": [
+        "rel:002"
+      ]
+    },
+    {
+      "id": "crel:003",
+      "from": "concept:table:ods_events_a",
+      "to": "concept:table:ods_events_b",
+      "type": "association",
+      "cardinality": {
+        "claim": "unknown",
+        "tier": "implied",
+        "basis": [
+          "rel:003"
+        ]
+      },
+      "task_count": 1,
+      "evidence": [
+        "rel:003"
+      ]
+    },
+    {
+      "id": "crel:004",
+      "from": "concept:table:ods_events_b",
+      "to": "concept:table:dim_segment_dim",
+      "type": "association",
+      "cardinality": {
+        "claim": "one_to_many",
+        "tier": "implied",
+        "basis": [
+          "rel:004"
+        ]
+      },
+      "task_count": 1,
+      "evidence": [
+        "rel:004"
+      ]
+    }
+  ],
+  "provisional_relations": 4,
+  "representation_links": [],
+  "concept_relations_unmapped": {
+    "edges_total": 4,
+    "mapped": 4,
+    "total": 0,
+    "by_reason": {
+      "from_table_unplaced": 0,
+      "to_table_unplaced": 0,
+      "reference_only_edge": 0
+    }
+  },
+  "tables": [
+    {
+      "id": "dim.channel",
+      "kind": "physical_table",
+      "family": "dim.channel",
+      "comment": "渠道维表（合成）",
+      "identity": {
+        "candidate_keys": [
+          {
+            "columns": [
+              "channel_code"
+            ],
+            "tier": "hypothesis",
+            "evidence": [
+              {
+                "task": "golden_commented_insert",
+                "statement_id": "stmt:001",
+                "kind": "joined_as_right_without_dedup",
+                "logic_block_id": "logic:ROOT:join:001"
+              },
+              {
+                "task": "golden_commented_task",
+                "statement_id": "stmt:001",
+                "kind": "joined_as_right_without_dedup",
+                "logic_block_id": "logic:ROOT:join:001"
+              }
+            ]
+          }
+        ],
+        "declared_hints": [],
+        "multiplicity": [],
+        "partition_columns": []
+      },
+      "attributes": [
+        {
+          "column": "channel_code",
+          "type": null,
+          "comment": null,
+          "observed_roles": [
+            "join_key"
+          ],
+          "used_in_corpus": true,
+          "not_null_observed": false,
+          "synonyms": []
+        },
+        {
+          "column": "channel_name",
+          "type": null,
+          "comment": null,
+          "observed_roles": [],
+          "used_in_corpus": false,
+          "not_null_observed": false,
+          "synonyms": []
+        }
+      ],
+      "naming_hints": {
+        "table_comment": "渠道维表（合成）",
+        "domain": "渠道域",
+        "project": null,
+        "owner": null
+      },
+      "concepts": [
+        {
+          "id": "concept:channel",
+          "role": "primary",
+          "membership_basis": "key:hypothesis"
+        }
+      ]
+    },
+    {
+      "id": "dim.segment_dim",
+      "kind": "physical_table",
+      "family": "dim.segment_dim",
+      "comment": null,
+      "identity": {
+        "candidate_keys": [],
+        "declared_hints": [],
+        "multiplicity": [
+          {
+            "columns": [
+              "segment"
+            ],
+            "tier": "implied",
+            "claim": "multiple_rows_per_key",
+            "evidence": [
+              {
+                "task": "golden_grouped_dedup_join",
+                "statement_id": "stmt:001",
+                "kind": "window_partition",
+                "scope_id": "cte:latest_dim",
+                "logic_block_id": "logic:cte:latest_dim:window:001"
+              }
+            ]
+          }
+        ],
+        "partition_columns": []
+      },
+      "attributes": [
+        {
+          "column": "segment",
+          "type": null,
+          "comment": null,
+          "observed_roles": [
+            "join_key",
+            "window_partition"
+          ],
+          "used_in_corpus": true,
+          "not_null_observed": false,
+          "synonyms": []
+        },
+        {
+          "column": "segment_name",
+          "type": null,
+          "comment": null,
+          "observed_roles": [
+            "output"
+          ],
+          "used_in_corpus": true,
+          "not_null_observed": false,
+          "synonyms": []
+        },
+        {
+          "column": "updated_at",
+          "type": null,
+          "comment": null,
+          "observed_roles": [
+            "window_order"
+          ],
+          "used_in_corpus": true,
+          "not_null_observed": false,
+          "synonyms": []
+        }
+      ],
+      "naming_hints": {
+        "table_comment": null,
+        "domain": null,
+        "project": null,
+        "owner": null
+      },
+      "concepts": [
+        {
+          "id": "concept:table:dim_segment_dim",
+          "role": "primary",
+          "membership_basis": "provisional"
+        }
+      ]
+    },
+    {
+      "id": "mart.channel_summary",
+      "kind": "produced_table",
+      "family": "mart.channel_summary",
+      "comment": null,
+      "identity": {
+        "candidate_keys": [
+          {
+            "columns": [
+              "customer_id",
+              "channel_name"
+            ],
+            "tier": "proven",
+            "evidence": [
+              {
+                "task": "golden_commented_insert",
+                "statement_id": "stmt:001",
+                "kind": "producer_key_confidence",
+                "basis": "proven"
+              },
+              {
+                "task": "golden_commented_task",
+                "statement_id": "stmt:001",
+                "kind": "producer_key_confidence",
+                "basis": "proven"
+              }
+            ]
+          }
+        ],
+        "declared_hints": [],
+        "multiplicity": [],
+        "partition_columns": [
+          "dt"
+        ]
+      },
+      "attributes": [
+        {
+          "column": "customer_id",
+          "type": null,
+          "comment": null,
+          "observed_roles": [],
+          "used_in_corpus": true,
+          "not_null_observed": false,
+          "synonyms": []
+        },
+        {
+          "column": "channel_name",
+          "type": null,
+          "comment": null,
+          "observed_roles": [],
+          "used_in_corpus": true,
+          "not_null_observed": false,
+          "synonyms": []
+        },
+        {
+          "column": "total_amount",
+          "type": null,
+          "comment": null,
+          "observed_roles": [],
+          "used_in_corpus": true,
+          "not_null_observed": false,
+          "synonyms": []
+        }
+      ],
+      "naming_hints": {
+        "table_comment": null,
+        "domain": null,
+        "project": null,
+        "owner": null
+      },
+      "concepts": [
+        {
+          "id": "concept:table:mart_channel_summary",
+          "role": "primary",
+          "membership_basis": "provisional"
+        }
+      ]
+    },
+    {
+      "id": "mart.metric_by_segment",
+      "kind": "produced_table",
+      "family": "mart.metric_by_segment",
+      "comment": null,
+      "identity": {
+        "candidate_keys": [
+          {
+            "columns": [
+              "segment",
+              "band"
+            ],
+            "tier": "proven",
+            "evidence": [
+              {
+                "task": "golden_grouped_dedup_join",
+                "statement_id": "stmt:001",
+                "kind": "producer_key_confidence",
+                "basis": "proven"
+              }
+            ]
+          }
+        ],
+        "declared_hints": [],
+        "multiplicity": [],
+        "partition_columns": [
+          "dt"
+        ]
+      },
+      "attributes": [
+        {
+          "column": "segment",
+          "type": "string",
+          "comment": "Segment code",
+          "observed_roles": [],
+          "used_in_corpus": true,
+          "not_null_observed": false,
+          "synonyms": []
+        },
+        {
+          "column": "band",
+          "type": "string",
+          "comment": "Amount band",
+          "observed_roles": [],
+          "used_in_corpus": true,
+          "not_null_observed": false,
+          "synonyms": []
+        },
+        {
+          "column": "total",
+          "type": "decimal(18,2)",
+          "comment": "Summed amount",
+          "observed_roles": [],
+          "used_in_corpus": true,
+          "not_null_observed": false,
+          "synonyms": []
+        },
+        {
+          "column": "cnt",
+          "type": "bigint",
+          "comment": "Row count",
+          "observed_roles": [],
+          "used_in_corpus": true,
+          "not_null_observed": false,
+          "synonyms": []
+        },
+        {
+          "column": "band_total",
+          "type": "decimal(18,2)",
+          "comment": "Band level total",
+          "observed_roles": [],
+          "used_in_corpus": true,
+          "not_null_observed": false,
+          "synonyms": []
+        },
+        {
+          "column": "segment_name",
+          "type": "string",
+          "comment": "Segment display name",
+          "observed_roles": [],
+          "used_in_corpus": true,
+          "not_null_observed": false,
+          "synonyms": []
+        },
+        {
+          "column": "dt",
+          "type": "string",
+          "comment": "Partition date",
+          "observed_roles": [],
+          "used_in_corpus": false,
+          "not_null_observed": false,
+          "synonyms": []
+        }
+      ],
+      "naming_hints": {
+        "table_comment": null,
+        "domain": null,
+        "project": null,
+        "owner": null
+      },
+      "concepts": [
+        {
+          "id": "concept:table:mart_metric_by_segment",
+          "role": "primary",
+          "membership_basis": "provisional"
+        }
+      ]
+    },
+    {
+      "id": "mart.user_names",
+      "kind": "produced_table",
+      "family": "mart.user_names",
+      "comment": null,
+      "identity": {
+        "candidate_keys": [],
+        "declared_hints": [],
+        "multiplicity": [],
+        "partition_columns": []
+      },
+      "attributes": [
+        {
+          "column": "user_id",
+          "type": null,
+          "comment": null,
+          "observed_roles": [],
+          "used_in_corpus": true,
+          "not_null_observed": false,
+          "synonyms": []
+        },
+        {
+          "column": "user_name",
+          "type": null,
+          "comment": null,
+          "observed_roles": [],
+          "used_in_corpus": true,
+          "not_null_observed": false,
+          "synonyms": []
+        }
+      ],
+      "naming_hints": {
+        "table_comment": null,
+        "domain": null,
+        "project": null,
+        "owner": null
+      },
+      "concepts": [
+        {
+          "id": "concept:table:mart_user_names",
+          "role": "primary",
+          "membership_basis": "provisional"
+        }
+      ]
+    },
+    {
+      "id": "ods.channel_event",
+      "kind": "physical_table",
+      "family": "ods.channel_event",
+      "comment": "渠道事件明细（合成）",
+      "identity": {
+        "candidate_keys": [],
+        "declared_hints": [],
+        "multiplicity": [
+          {
+            "columns": [
+              "customer_id",
+              "channel_code"
+            ],
+            "tier": "implied",
+            "claim": "multiple_rows_per_key",
+            "evidence": [
+              {
+                "task": "golden_commented_insert",
+                "statement_id": "stmt:001",
+                "kind": "group_by",
+                "scope_id": "ROOT",
+                "logic_block_id": "logic:ROOT:group_by:001"
+              },
+              {
+                "task": "golden_commented_task",
+                "statement_id": "stmt:001",
+                "kind": "group_by",
+                "scope_id": "ROOT",
+                "logic_block_id": "logic:ROOT:group_by:001"
+              }
+            ]
+          }
+        ],
+        "partition_columns": []
+      },
+      "attributes": [
+        {
+          "column": "customer_id",
+          "type": null,
+          "comment": null,
+          "observed_roles": [
+            "group_by",
+            "output"
+          ],
+          "used_in_corpus": true,
+          "not_null_observed": false,
+          "synonyms": []
+        },
+        {
+          "column": "channel_code",
+          "type": null,
+          "comment": null,
+          "observed_roles": [
+            "join_key",
+            "group_by",
+            "output"
+          ],
+          "used_in_corpus": true,
+          "not_null_observed": false,
+          "synonyms": []
+        },
+        {
+          "column": "amount",
+          "type": null,
+          "comment": null,
+          "observed_roles": [
+            "output"
+          ],
+          "used_in_corpus": true,
+          "not_null_observed": false,
+          "synonyms": []
+        },
+        {
+          "column": "status",
+          "type": null,
+          "comment": null,
+          "observed_roles": [
+            "filter"
+          ],
+          "used_in_corpus": true,
+          "not_null_observed": false,
+          "synonyms": []
+        }
+      ],
+      "naming_hints": {
+        "table_comment": "渠道事件明细（合成）",
+        "domain": "渠道域",
+        "project": "渠道分析（合成）",
+        "owner": "demo_owner"
+      },
+      "concepts": [
+        {
+          "id": "concept:channel",
+          "role": "reference",
+          "membership_basis": "reference"
+        },
+        {
+          "id": "concept:table:ods_channel_event",
+          "role": "primary",
+          "membership_basis": "provisional"
+        }
+      ]
+    },
+    {
+      "id": "ods.events_a",
+      "kind": "physical_table",
+      "family": "ods.events_a",
+      "comment": null,
+      "identity": {
+        "candidate_keys": [],
+        "declared_hints": [],
+        "multiplicity": [],
+        "partition_columns": []
+      },
+      "attributes": [
+        {
+          "column": "segment",
+          "type": null,
+          "comment": null,
+          "observed_roles": [
+            "join_key",
+            "group_by",
+            "output"
+          ],
+          "used_in_corpus": true,
+          "not_null_observed": false,
+          "synonyms": [
+            {
+              "entity": "ods.events_b",
+              "column": "seg_code",
+              "tier": "implied",
+              "via": "union_alignment",
+              "evidence": [
+                {
+                  "task": "golden_grouped_dedup_join",
+                  "statement_id": "stmt:001"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "column": "amount",
+          "type": null,
+          "comment": null,
+          "observed_roles": [
+            "group_by",
+            "window_partition",
+            "output"
+          ],
+          "used_in_corpus": true,
+          "not_null_observed": false,
+          "synonyms": []
+        }
+      ],
+      "naming_hints": {
+        "table_comment": null,
+        "domain": null,
+        "project": null,
+        "owner": null
+      },
+      "concepts": [
+        {
+          "id": "concept:table:ods_events_a",
+          "role": "primary",
+          "membership_basis": "provisional"
+        }
+      ]
+    },
+    {
+      "id": "ods.events_b",
+      "kind": "physical_table",
+      "family": "ods.events_b",
+      "comment": null,
+      "identity": {
+        "candidate_keys": [],
+        "declared_hints": [],
+        "multiplicity": [],
+        "partition_columns": []
+      },
+      "attributes": [
+        {
+          "column": "seg_code",
+          "type": null,
+          "comment": null,
+          "observed_roles": [
+            "join_key",
+            "group_by",
+            "output"
+          ],
+          "used_in_corpus": true,
+          "not_null_observed": false,
+          "synonyms": [
+            {
+              "entity": "ods.events_a",
+              "column": "segment",
+              "tier": "implied",
+              "via": "union_alignment",
+              "evidence": [
+                {
+                  "task": "golden_grouped_dedup_join",
+                  "statement_id": "stmt:001"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "column": "amount",
+          "type": null,
+          "comment": null,
+          "observed_roles": [
+            "group_by",
+            "window_partition",
+            "output"
+          ],
+          "used_in_corpus": true,
+          "not_null_observed": false,
+          "synonyms": []
+        }
+      ],
+      "naming_hints": {
+        "table_comment": null,
+        "domain": null,
+        "project": null,
+        "owner": null
+      },
+      "concepts": [
+        {
+          "id": "concept:table:ods_events_b",
+          "role": "primary",
+          "membership_basis": "provisional"
+        }
+      ]
+    },
+    {
+      "id": "ods.users",
+      "kind": "physical_table",
+      "family": "ods.users",
+      "comment": null,
+      "identity": {
+        "candidate_keys": [],
+        "declared_hints": [],
+        "multiplicity": [],
+        "partition_columns": []
+      },
+      "attributes": [
+        {
+          "column": "user_id",
+          "type": null,
+          "comment": null,
+          "observed_roles": [
+            "output"
+          ],
+          "used_in_corpus": true,
+          "not_null_observed": false,
+          "synonyms": []
+        },
+        {
+          "column": "user_name",
+          "type": null,
+          "comment": null,
+          "observed_roles": [
+            "output"
+          ],
+          "used_in_corpus": true,
+          "not_null_observed": false,
+          "synonyms": []
+        },
+        {
+          "column": "is_active",
+          "type": null,
+          "comment": null,
+          "observed_roles": [
+            "filter"
+          ],
+          "used_in_corpus": true,
+          "not_null_observed": false,
+          "synonyms": []
+        }
+      ],
+      "naming_hints": {
+        "table_comment": null,
+        "domain": null,
+        "project": null,
+        "owner": null
+      },
+      "concepts": [
+        {
+          "id": "concept:table:ods_users",
+          "role": "primary",
+          "membership_basis": "provisional"
+        }
+      ]
+    }
+  ],
+  "families": [
+    {
+      "family": "dim.channel",
+      "tables": [
+        "dim.channel"
+      ],
+      "size": 1
+    },
+    {
+      "family": "dim.segment_dim",
+      "tables": [
+        "dim.segment_dim"
+      ],
+      "size": 1
+    },
+    {
+      "family": "mart.channel_summary",
+      "tables": [
+        "mart.channel_summary"
+      ],
+      "size": 1
+    },
+    {
+      "family": "mart.metric_by_segment",
+      "tables": [
+        "mart.metric_by_segment"
+      ],
+      "size": 1
+    },
+    {
+      "family": "mart.user_names",
+      "tables": [
+        "mart.user_names"
+      ],
+      "size": 1
+    },
+    {
+      "family": "ods.channel_event",
+      "tables": [
+        "ods.channel_event"
+      ],
+      "size": 1
+    },
+    {
+      "family": "ods.events_a",
+      "tables": [
+        "ods.events_a"
+      ],
+      "size": 1
+    },
+    {
+      "family": "ods.events_b",
+      "tables": [
+        "ods.events_b"
+      ],
+      "size": 1
+    },
+    {
+      "family": "ods.users",
+      "tables": [
+        "ods.users"
+      ],
+      "size": 1
+    }
+  ],
+  "table_relations": [
     {
       "id": "rel:001",
       "from": {
@@ -1463,7 +1612,8 @@
           "scope_id": "ROOT",
           "logic_block_id": "logic:ROOT:join:001"
         }
-      ]
+      ],
+      "concept_relation": "crel:001"
     },
     {
       "id": "rel:002",
@@ -1504,7 +1654,8 @@
             "cte:latest_dim"
           ]
         }
-      ]
+      ],
+      "concept_relation": "crel:002"
     },
     {
       "id": "rel:003",
@@ -1536,7 +1687,8 @@
           "statement_id": "stmt:001",
           "scope_id": "union:events_norm"
         }
-      ]
+      ],
+      "concept_relation": "crel:003"
     },
     {
       "id": "rel:004",
@@ -1577,87 +1729,10 @@
             "cte:latest_dim"
           ]
         }
-      ]
+      ],
+      "concept_relation": "crel:004"
     }
   ],
-  "concept_relations": [
-    {
-      "from": "concept:table:ods_channel_event",
-      "to": "concept:channel",
-      "type": "association",
-      "cardinality": {
-        "claim": "many_to_one_assumed",
-        "tier": "hypothesis",
-        "basis": [
-          "rel:001"
-        ]
-      },
-      "task_count": 2,
-      "evidence": [
-        "rel:001"
-      ]
-    },
-    {
-      "from": "concept:table:ods_events_a",
-      "to": "concept:table:dim_segment_dim",
-      "type": "association",
-      "cardinality": {
-        "claim": "one_to_many",
-        "tier": "implied",
-        "basis": [
-          "rel:002"
-        ]
-      },
-      "task_count": 1,
-      "evidence": [
-        "rel:002"
-      ]
-    },
-    {
-      "from": "concept:table:ods_events_a",
-      "to": "concept:table:ods_events_b",
-      "type": "association",
-      "cardinality": {
-        "claim": "unknown",
-        "tier": "implied",
-        "basis": [
-          "rel:003"
-        ]
-      },
-      "task_count": 1,
-      "evidence": [
-        "rel:003"
-      ]
-    },
-    {
-      "from": "concept:table:ods_events_b",
-      "to": "concept:table:dim_segment_dim",
-      "type": "association",
-      "cardinality": {
-        "claim": "one_to_many",
-        "tier": "implied",
-        "basis": [
-          "rel:004"
-        ]
-      },
-      "task_count": 1,
-      "evidence": [
-        "rel:004"
-      ]
-    }
-  ],
-  "provisional_relations": 4,
-  "concept_representation_links": [],
-  "concept_relations_unmapped": {
-    "edges_total": 4,
-    "mapped": 4,
-    "total": 0,
-    "by_reason": {
-      "from_table_unplaced": 0,
-      "to_table_unplaced": 0,
-      "reference_only_edge": 0
-    }
-  },
   "constraints": [
     {
       "target": {
@@ -1683,7 +1758,8 @@
           "kind": "producer_key_confidence",
           "basis": "proven"
         }
-      ]
+      ],
+      "concept": "concept:table:mart_channel_summary"
     },
     {
       "target": {
@@ -1708,7 +1784,8 @@
           "statement_id": "stmt:001",
           "context": "case_then"
         }
-      ]
+      ],
+      "concept": "concept:table:mart_channel_summary"
     },
     {
       "target": {
@@ -1726,7 +1803,8 @@
           "task": "golden_commented_task",
           "statement_id": "stmt:001"
         }
-      ]
+      ],
+      "concept": "concept:table:mart_channel_summary"
     },
     {
       "target": {
@@ -1746,7 +1824,8 @@
           "kind": "producer_key_confidence",
           "basis": "proven"
         }
-      ]
+      ],
+      "concept": "concept:table:mart_metric_by_segment"
     },
     {
       "target": {
@@ -1760,7 +1839,8 @@
           "task": "golden_grouped_dedup_join",
           "statement_id": "stmt:001"
         }
-      ]
+      ],
+      "concept": "concept:table:mart_metric_by_segment"
     },
     {
       "target": {
@@ -1784,7 +1864,8 @@
           "statement_id": "stmt:001",
           "context": "filter_eq"
         }
-      ]
+      ],
+      "concept": "concept:table:ods_channel_event"
     }
   ],
   "findings": [],
@@ -1800,7 +1881,8 @@
       ],
       "tier": "hypothesis",
       "write_back": "关系:ods.channel_event.channel_code->dim.channel.channel_code",
-      "text": "关系 `ods.channel_event` → `dim.channel` 的基数写作「多对一，作者假设」，依据只是直接关联未去重，作者假设对端按该键唯一。"
+      "text": "关系 `ods.channel_event` → `dim.channel` 的基数写作「多对一，作者假设」，依据只是直接关联未去重，作者假设对端按该键唯一。",
+      "concept": "concept:table:ods_channel_event"
     },
     {
       "id": "open:key:dim.channel=channel_code",
@@ -1811,7 +1893,8 @@
       ],
       "tier": "hypothesis",
       "write_back": "键:dim.channel=channel_code",
-      "text": "候选键 `channel_code`：只有任务直接关联时的假设，语料没有证明它唯一。"
+      "text": "候选键 `channel_code`：只有任务直接关联时的假设，语料没有证明它唯一。",
+      "concept": "concept:channel"
     }
   ],
   "open_item_groups": [
@@ -1826,7 +1909,8 @@
       ],
       "count": 1,
       "impact": 3,
-      "write_back_pattern": "关系:ods.channel_event.channel_code-><table>.channel_code"
+      "write_back_pattern": "关系:ods.channel_event.channel_code-><table>.channel_code",
+      "concept": "concept:table:ods_channel_event"
     },
     {
       "group_id": "open:group:key:dim.channel=channel_code",
@@ -1839,7 +1923,8 @@
       ],
       "count": 1,
       "impact": 1,
-      "write_back_pattern": "键:<table>=channel_code"
+      "write_back_pattern": "键:<table>=channel_code",
+      "concept": "concept:channel"
     }
   ],
   "overrides_applied": {

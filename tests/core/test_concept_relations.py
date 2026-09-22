@@ -145,8 +145,8 @@ def _built(entities, relations) -> dict:
     """The ontology document the two builders publish together, as ``ontology.py`` does."""
     document = {
         "doc_format": "ontology-json/1",
-        "entities": list(entities),
-        "relations": list(relations),
+        "tables": list(entities),
+        "table_relations": list(relations),
     }
     document.update(build_concepts(document, _cards()))
     document.update(build_concept_relations(document))
@@ -157,7 +157,7 @@ def _relations(entities, relations) -> dict:
     document = _built(entities, relations)
     return {
         (str(item["from"]), str(item["to"])): item
-        for item in document["concept_relations"]
+        for item in document["relations"]
     }
 
 
@@ -234,7 +234,7 @@ def test_the_concepts_the_relation_tests_stand_on_are_the_kinds_they_claim() -> 
     concepts = {
         str(concept["id"]): str(concept["kind"])
         for concept in build_concepts(
-            {"entities": [CUSTOMER, CHANNEL, MESSAGE, REPLY, SUMMARY], "relations": []},
+            {"tables": [CUSTOMER, CHANNEL, MESSAGE, REPLY, SUMMARY], "table_relations": []},
             _cards(),
         )["concepts"]
     }
@@ -281,7 +281,7 @@ def test_the_from_end_never_reads_a_membership_a_join_lent_the_table() -> None:
 
     assert memberships["concept:cust"][MESSAGE["id"]] == BASIS_REFERENCE
     assert memberships["concept:msg"][MESSAGE["id"]] != BASIS_REFERENCE
-    assert [str(item["from"]) for item in document["concept_relations"]] == ["concept:msg"]
+    assert [str(item["from"]) for item in document["relations"]] == ["concept:msg"]
 
 
 def test_a_from_table_no_key_placed_folds_onto_its_own_provisional_concept() -> None:
@@ -300,7 +300,7 @@ def test_a_from_table_no_key_placed_folds_onto_its_own_provisional_concept() -> 
     )
 
     assert [
-        (str(item["from"]), str(item["to"])) for item in document["concept_relations"]
+        (str(item["from"]), str(item["to"])) for item in document["relations"]
     ] == [(f"{CONCEPT_TABLE_PREFIX}ods_rows_a", "concept:cust")]
     assert document["concept_relations_unmapped"] == _unmapped({}, edges=1)
 
@@ -358,9 +358,9 @@ def test_the_clause_does_not_fire_when_the_to_table_is_the_same_concept() -> Non
 
     assert [
         (str(item["from"]), str(item["to"]), str(item["type"]))
-        for item in document["concept_relations"]
+        for item in document["relations"]
     ] == [("concept:cust", "concept:cust", TYPE_SELF_REFERENCE)]
-    assert document["concept_representation_links"] == []
+    assert document["representation_links"] == []
 
 
 def test_a_to_table_nothing_named_is_the_table_itself() -> None:
@@ -373,7 +373,7 @@ def test_a_to_table_nothing_named_is_the_table_itself() -> None:
     )
 
     assert [
-        (str(item["from"]), str(item["to"])) for item in document["concept_relations"]
+        (str(item["from"]), str(item["to"])) for item in document["relations"]
     ] == [("concept:cust", f"{CONCEPT_TABLE_PREFIX}ods_rows_b")]
     assert document["concept_relations_unmapped"] == _unmapped({}, edges=1)
 
@@ -412,7 +412,7 @@ def test_an_edge_between_two_tables_nothing_placed_folds_onto_both() -> None:
     )
 
     assert [
-        (str(item["from"]), str(item["to"])) for item in document["concept_relations"]
+        (str(item["from"]), str(item["to"])) for item in document["relations"]
     ] == [(f"{CONCEPT_TABLE_PREFIX}ods_rows_a", f"{CONCEPT_TABLE_PREFIX}ods_rows_b")]
     assert document["concept_relations_unmapped"] == _unmapped({}, edges=1)
 
@@ -484,8 +484,8 @@ def test_two_representations_of_one_concept_are_a_representation_link() -> None:
         [_relation("rel:001", SNAPSHOT["id"], ["cust_no"], CUSTOMER["id"], ["cust_no"])],
     )
 
-    assert document["concept_relations"] == []
-    assert document["concept_representation_links"] == [
+    assert document["relations"] == []
+    assert document["representation_links"] == [
         {
             "concept": "concept:cust",
             "from_table": SNAPSHOT["id"],
@@ -508,7 +508,7 @@ def test_a_representation_link_gathers_every_edge_between_the_two_tables() -> No
         ],
     )
 
-    assert [item["evidence"] for item in document["concept_representation_links"]] == [
+    assert [item["evidence"] for item in document["representation_links"]] == [
         ["rel:001", "rel:002"]
     ]
 
@@ -674,7 +674,7 @@ def test_two_concepts_that_may_be_duplicates_keep_their_own_relations() -> None:
 
     assert {str(item["name"]) for item in document["concepts"]} == {"合同", "客户"}
     assert [
-        (str(item["from"]), str(item["to"])) for item in document["concept_relations"]
+        (str(item["from"]), str(item["to"])) for item in document["relations"]
     ] == [("concept:contr", "concept:cust"), ("concept:contra", "concept:cust")]
 
 
@@ -692,7 +692,7 @@ def test_the_order_is_the_type_order_then_the_two_concept_ids() -> None:
 
     assert [
         (str(item["type"]), str(item["from"]), str(item["to"]))
-        for item in document["concept_relations"]
+        for item in document["relations"]
     ] == [
         (TYPE_ASSOCIATION, "concept:cust", "concept:chan"),
         (TYPE_PARTICIPATION, "concept:msg", "concept:cust"),
@@ -700,8 +700,8 @@ def test_the_order_is_the_type_order_then_the_two_concept_ids() -> None:
         (TYPE_DERIVATION, "concept:msg", "concept:reply"),
         (TYPE_SELF_REFERENCE, "concept:cust", "concept:cust"),
     ]
-    assert [item["type"] for item in document["concept_relations"]] == sorted(
-        (item["type"] for item in document["concept_relations"]),
+    assert [item["type"] for item in document["relations"]] == sorted(
+        (item["type"] for item in document["relations"]),
         key=TYPE_ORDER.index,
     )
 
@@ -718,7 +718,7 @@ def test_the_same_inputs_build_byte_identical_concept_relations() -> None:
     first = _built(entities, relations)
     second = _built(entities, relations)
 
-    for key in ("concept_relations", "concept_representation_links"):
+    for key in ("relations", "representation_links"):
         assert json.dumps(first[key], ensure_ascii=False) == json.dumps(
             second[key], ensure_ascii=False
         )
@@ -736,8 +736,8 @@ def test_a_concept_relation_publishes_its_keys_in_one_order() -> None:
 @pytest.mark.parametrize(
     "key",
     [
-        "concept_relations",
-        "concept_representation_links",
+        "relations",
+        "representation_links",
         "concept_relations_unmapped",
     ],
 )
@@ -799,11 +799,11 @@ def test_an_event_joined_onto_a_customer_key_folds_to_a_participation() -> None:
 
     assert [
         (str(item["from"]), str(item["to"]), str(item["type"]))
-        for item in ontology["concept_relations"]
+        for item in ontology["relations"]
     ] == [("concept:msg", "concept:cust", TYPE_PARTICIPATION)]
-    assert ontology["concept_representation_links"] == []
+    assert ontology["representation_links"] == []
     assert ontology["concept_relations_unmapped"] == _unmapped(
-        {}, edges=len(ontology["relations"])
+        {}, edges=len(ontology["table_relations"])
     )
 
 
@@ -811,7 +811,7 @@ def test_the_whole_pipeline_is_byte_identical_across_two_builds() -> None:
     first = _ontology()
     second = _ontology()
 
-    for key in ("concept_relations", "concept_representation_links"):
+    for key in ("relations", "representation_links"):
         assert json.dumps(first[key], ensure_ascii=False) == json.dumps(
             second[key], ensure_ascii=False
         )

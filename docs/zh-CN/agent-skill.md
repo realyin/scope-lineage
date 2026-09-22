@@ -45,7 +45,7 @@ python3 skills/scope-lineage/scripts/confirmations.py apply <画像文件> --by 
 `glossary --overrides` 与 `describe --glossary --metadata-patch`，这些项在下一轮画像里
 就从「待确认」变成已确认的事实，清单随每一轮变短。
 
-问"这批任务里的实体之间是什么关系"时走另一条：跑 `scope-lineage ontology --lineage <语料> --out <目录>`，先读 `<目录>/ontology.md` 的 Mermaid ER 总览定位实体，再读 `<目录>/tables/<表>.md` 的本体五节；`hypothesis` 与 `conflict` 必须原样标 `[待确认]` 呈现，答完的项按 `references/ontology-review-prompt.md` 回写 `ontology.overrides.json`，下一轮升为 `confirmed`。
+问"这批任务讲的是什么、它们之间是什么关系"时走另一条：跑 `scope-lineage ontology --lineage <语料> --out <目录>`，先读 `<目录>/ontology.md` 的「本体总览」，再读那个概念自己那一节看它由哪些表表现，然后读 `<目录>/tables/<表>.md` 的本体五节（表级 ER 与表清单在末尾的「附录：表与证据」里——那是证据，不是模型）；`hypothesis` 与 `conflict` 必须原样标 `[待确认]` 呈现，答完的项按 `references/ontology-review-prompt.md` 回写 `ontology.overrides.json`，下一轮升为 `confirmed`。
 
 ## 安装
 

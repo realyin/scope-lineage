@@ -138,8 +138,8 @@ def _document(entities, relations=(), cards=None) -> dict:
     """The ontology document the concept builders publish, exactly as `ontology.py` does."""
     document = {
         "doc_format": "ontology-json/1",
-        "entities": list(entities),
-        "relations": list(relations),
+        "tables": list(entities),
+        "table_relations": list(relations),
     }
     document.update(build_concepts(document, cards or _cards()))
     return document
@@ -243,10 +243,10 @@ def test_the_provisional_concept_carries_the_tables_attributes() -> None:
     assert [item["stem"] for item in concept["attributes"]] == ["gadget_size", "id"]
 
 
-def test_unassigned_tables_is_empty_by_construction_and_still_published() -> None:
+def test_every_table_gets_a_concept_so_nothing_is_left_unassigned() -> None:
     document = _document([_entity(KEYLESS), _entity(GENERIC, keys=["id"])])
 
-    assert document["unassigned_tables"] == []
+    assert {table_concept_id(KEYLESS), table_concept_id(GENERIC)} <= set(_index(document))
     assert document["provisional_count"] == 2
 
 
@@ -284,7 +284,7 @@ def test_provisional_concepts_are_published_after_the_concepts_a_key_seeded() ->
 
 def test_the_concept_layer_is_byte_identical_for_the_same_corpus() -> None:
     entities = [_entity(KEYLESS), _entity(GENERIC, keys=["id"])]
-    keys = ("concepts", "provisional_count", "unassigned_tables", "retired_stems")
+    keys = ("concepts", "provisional_count", "retired_stems")
     first = _document(entities)
     second = _document(list(reversed(entities)))
 
@@ -317,7 +317,7 @@ def test_every_table_level_relation_folds_once_every_table_is_placed() -> None:
 def test_a_relation_between_two_provisional_concepts_is_folded_like_any_other() -> None:
     document = _folded(*_two_provisional_tables())
 
-    assert [(item["from"], item["to"]) for item in document["concept_relations"]] == [
+    assert [(item["from"], item["to"]) for item in document["relations"]] == [
         (table_concept_id(KEYLESS), table_concept_id(GENERIC))
     ]
 
@@ -334,7 +334,7 @@ def test_provisional_relations_counts_the_edges_touching_a_provisional_concept()
     ]
     document = _folded(entities, relations)
 
-    assert len(document["concept_relations"]) == 2
+    assert len(document["relations"]) == 2
     assert document["provisional_relations"] == 1
 
 
@@ -360,7 +360,6 @@ def test_no_edge_of_the_golden_corpus_is_left_unplaced() -> None:
 
     assert unmapped["by_reason"][UNMAPPED_FROM_TABLE] == 0
     assert unmapped["by_reason"][UNMAPPED_TO_TABLE] == 0
-    assert ontology["unassigned_tables"] == []
     assert ontology["provisional_count"] > 0
 
 

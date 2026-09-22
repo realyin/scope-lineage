@@ -50,7 +50,7 @@ and the answer reaches every table that observed the value. Re-run `glossary --o
 `describe --glossary --metadata-patch`, and those items come back as confirmed facts
 instead of open questions, so the list gets shorter every round.
 
-For "how do the entities in this batch of tasks relate" there is one more: run `scope-lineage ontology --lineage <corpus> --out <dir>`, read the Mermaid ER overview in `<dir>/ontology.md` to find the entity, then the five ontology sections of `<dir>/tables/<table>.md`; a `hypothesis` or a `conflict` must be presented verbatim and marked `[待确认]`, and answered items are written back into `ontology.overrides.json` per `references/ontology-review-prompt.md` so the next run publishes them as `confirmed`.
+For "what is this batch of tasks about, and how do those things relate" there is one more: run `scope-lineage ontology --lineage <corpus> --out <dir>`, read 「本体总览」 in `<dir>/ontology.md` and then that concept's own section to find which tables represent it, then the five ontology sections of `<dir>/tables/<table>.md` (the table-level ER and tables are in the 「附录：表与证据」 appendix, where they are evidence rather than the model); a `hypothesis` or a `conflict` must be presented verbatim and marked `[待确认]`, and answered items are written back into `ontology.overrides.json` per `references/ontology-review-prompt.md` so the next run publishes them as `confirmed`.
 
 ## Installation
 

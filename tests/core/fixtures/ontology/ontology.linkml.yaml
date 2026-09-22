@@ -11,7 +11,7 @@ default_range: "string"
 imports:
   - "linkml:types"
 annotations:
-  source_doc_format: "ontology-json/1"
+  source_doc_format: "ontology-json/2"
   task_count: 5
   "sl:open_item_open:rel:ods.channel_event.channel_code->dim.channel.channel_code": "relation (hypothesis) on ods.channel_event [channel_code]: 关系 `ods.channel_event` → `dim.channel` 的基数写作「多对一，作者假设」，依据只是直接关联未去重，作者假设对端按该键唯一。 (write back: 关系:ods.channel_event.channel_code->dim.channel.channel_code)"
   "sl:open_item_open:key:dim.channel=channel_code": "candidate_key (hypothesis) on dim.channel [channel_code]: 候选键 `channel_code`：只有任务直接关联时的假设，语料没有证明它唯一。 (write back: 键:dim.channel=channel_code)"
@@ -236,6 +236,7 @@ classes:
         description: "join_association on channel_code = channel_code"
         annotations:
           relation_id: "rel:001"
+          evidence_for: "crel:001"
           tier: "hypothesis"
           claim: "many_to_one_assumed"
           basis: "right_side_not_deduplicated"
@@ -265,6 +266,7 @@ classes:
         description: "join_association on segment = segment"
         annotations:
           relation_id: "rel:002"
+          evidence_for: "crel:002"
           tier: "implied"
           claim: "one_to_many"
           basis: "ranking_window"
@@ -277,6 +279,7 @@ classes:
         description: "union_sibling on segment = seg_code, amount = amount"
         annotations:
           relation_id: "rel:003"
+          evidence_for: "crel:003"
           tier: "implied"
           claim: "unknown"
           basis: "union_branch_alignment"
@@ -306,6 +309,7 @@ classes:
         description: "join_association on seg_code = segment"
         annotations:
           relation_id: "rel:004"
+          evidence_for: "crel:004"
           tier: "implied"
           claim: "one_to_many"
           basis: "ranking_window"

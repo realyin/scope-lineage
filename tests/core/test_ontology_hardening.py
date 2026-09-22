@@ -113,7 +113,7 @@ def _one(overrides=None, schema=None) -> dict:
 
 
 def _entity(ontology: dict, name: str) -> dict:
-    return next(item for item in ontology["entities"] if item["id"] == name)
+    return next(item for item in ontology["tables"] if item["id"] == name)
 
 
 def _keys(ontology: dict, name: str) -> list[dict]:
@@ -139,10 +139,13 @@ def _card(ontology: dict, name: str, schema=None, cases=None) -> str:
 
 
 def _section(markdown: str, title: str) -> str:
-    _head, marker, tail = markdown.partition(f"\n## {title}")
-    assert marker, title
-    body, _, _rest = tail.partition("\n## ")
-    return body
+    """One `##` or `###` section's body. M3 demoted the table-level ones to `###`."""
+    for level in ("## ", "### "):
+        _head, marker, tail = markdown.partition(f"\n{level}{title}")
+        if marker:
+            body, _, _rest = tail.partition("\n## ")
+            return body.partition("\n### ")[0]
+    raise AssertionError(title)
 
 
 # --------------------------------------------- H1: an override names something real
@@ -302,7 +305,7 @@ def test_a_relation_confirmation_carries_its_basis_and_note_too() -> None:
             }
         }
     )
-    cardinality = ontology["relations"][0]["cardinality"]
+    cardinality = ontology["table_relations"][0]["cardinality"]
 
     assert cardinality["tier"] == TIER_CONFIRMED
     assert cardinality["basis"] == "human_confirmation"
@@ -438,7 +441,7 @@ def test_competing_keys_reach_the_index_and_the_card() -> None:
     card = _card(ontology, PARTY_KEY, cases=SUBSET_CASES)
 
     assert FINDING_COMPETING_CANDIDATE_KEYS in _section(
-        index, f"待人工判定（{len(ontology['findings'])} 条，"
+        index, f"矛盾发现（{len(ontology['findings'])} 条，"
     )
     assert FINDING_COMPETING_CANDIDATE_KEYS in _section(card, "11. 待人工判定")
 
@@ -456,13 +459,13 @@ def test_every_open_question_appears_exactly_once_in_the_consolidated_list() -> 
 
     hypothesis_keys = [
         key
-        for entity in ontology["entities"]
+        for entity in ontology["tables"]
         for key in entity["identity"]["candidate_keys"]
         if key["tier"] == TIER_HYPOTHESIS
     ]
     hypothesis_relations = [
         item
-        for item in ontology["relations"]
+        for item in ontology["table_relations"]
         if item["cardinality"]["tier"] == TIER_HYPOTHESIS
     ]
     assert len(items) == (

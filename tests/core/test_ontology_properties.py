@@ -185,7 +185,7 @@ def _known_column(table: str, column: str, pairs) -> bool:
 def _published_references(ontology: dict) -> list[tuple[str, str | None]]:
     """Every ``(table, column)`` the ontology names, ``column`` None for a whole table."""
     found: list[tuple[str, str | None]] = []
-    for entity in ontology["entities"]:
+    for entity in ontology["tables"]:
         found.append((entity["id"], None))
         found.extend((entity["id"], attribute["column"]) for attribute in entity["attributes"])
         found.extend(
@@ -206,7 +206,7 @@ def _published_references(ontology: dict) -> list[tuple[str, str | None]]:
             for attribute in entity["attributes"]
             for synonym in attribute["synonyms"]
         )
-    for relation in ontology["relations"]:
+    for relation in ontology["table_relations"]:
         for side in ("from", "to"):
             found.append((relation[side]["entity"], None))
             found.extend((relation[side]["entity"], column) for column in relation[side]["columns"])
@@ -248,7 +248,7 @@ def test_the_property_catches_a_table_the_corpus_never_wrote(corpus) -> None:
 def _assertions(ontology: dict) -> list[tuple[str, dict]]:
     """``(what it is, the assertion)`` for everything that carries a tier."""
     found: list[tuple[str, dict]] = []
-    for entity in ontology["entities"]:
+    for entity in ontology["tables"]:
         found.extend(
             (f"{entity['id']} candidate_key", key)
             for key in entity["identity"]["candidate_keys"]
@@ -264,7 +264,7 @@ def _assertions(ontology: dict) -> list[tuple[str, dict]]:
         )
     found.extend(
         (f"{relation['id']} cardinality", {**relation["cardinality"], "evidence": relation["evidence"]})
-        for relation in ontology["relations"]
+        for relation in ontology["table_relations"]
     )
     found.extend(
         (f"{constraint['target']['entity']} {constraint['kind']}", constraint)
@@ -397,9 +397,9 @@ def _reference_index(documents, ontology: dict) -> dict:
     }
     vocabulary = {
         *TIERS,
-        *(str(relation["cardinality"]["claim"]) for relation in ontology["relations"]),
-        *(str(relation["cardinality"]["basis"]) for relation in ontology["relations"]),
-        *(str(relation["kind"]) for relation in ontology["relations"]),
+        *(str(relation["cardinality"]["claim"]) for relation in ontology["table_relations"]),
+        *(str(relation["cardinality"]["basis"]) for relation in ontology["table_relations"]),
+        *(str(relation["kind"]) for relation in ontology["table_relations"]),
         *(str(constraint["kind"]) for constraint in ontology["constraints"]),
         *(
             str(value)
@@ -408,7 +408,7 @@ def _reference_index(documents, ontology: dict) -> dict:
         ),
         *(
             str(synonym["via"])
-            for entity in ontology["entities"]
+            for entity in ontology["tables"]
             for attribute in entity["attributes"]
             for synonym in attribute["synonyms"]
         ),
@@ -428,7 +428,6 @@ def _reference_index(documents, ontology: dict) -> dict:
             for concept in ontology.get("concepts") or []
             for member in concept["tables"]
         ),
-        *(str(item["reason"]) for item in ontology.get("unassigned_tables") or []),
     }
     return {
         "tables": tables,
@@ -444,7 +443,7 @@ def _resolvable(span: str, index: dict) -> bool:
     # A write-back target: `键:<table>=<cols>` / `关系:<from>-><to>`, or the id of one
     # entry in the index's consolidated open list. Their own parts are checked by the
     # entity and column rules, so the prefix is all that is asserted.
-    if span.startswith(("键:", "关系:", "open:")):
+    if span.startswith(("键:", "关系:", "open:", "crel:", "rel:")):
         return True
     # An evidence id: task/statement/scope/rule/logic block, slash separated.
     if "/" in span:
@@ -477,7 +476,7 @@ def test_every_card_the_corpus_publishes_carries_the_five_ontology_sections(corp
 
     for card in cards["tables"]:
         body = render_ontology_table_card_markdown(card, ontology)
-        assert 'doc_format: "ontology-md/1"' in body, card["table"]
+        assert 'doc_format: "ontology-md/2"' in body, card["table"]
         for title in titles:
             assert f"## {title}" in body, (card["table"], title)
 
@@ -496,7 +495,7 @@ def _mermaid_block(markdown: str) -> list[str]:
 def test_the_diagram_declares_exactly_the_published_entities(corpus) -> None:
     _documents_, ontology, _cards = corpus
     lines = _mermaid_block(render_ontology_index_markdown(ontology))
-    identifiers = mermaid_entity_ids(ontology["entities"])
+    identifiers = mermaid_entity_ids(ontology["tables"])
 
     assert lines[0] == "erDiagram"
     declared = {
@@ -506,13 +505,13 @@ def test_the_diagram_declares_exactly_the_published_entities(corpus) -> None:
     }
 
     assert declared == set(identifiers.values())
-    assert len(identifiers) == len(ontology["entities"])
+    assert len(identifiers) == len(ontology["tables"])
 
 
 def test_every_diagram_identifier_is_a_legal_mermaid_name(corpus) -> None:
     _documents_, ontology, _cards = corpus
 
-    for name, identifier in mermaid_entity_ids(ontology["entities"]).items():
+    for name, identifier in mermaid_entity_ids(ontology["tables"]).items():
         assert _MERMAID_ID.match(identifier), (name, identifier)
 
 
@@ -527,7 +526,7 @@ def test_two_entities_that_flatten_to_one_name_keep_two_identifiers() -> None:
 
 def test_every_diagram_edge_names_two_declared_entities(corpus) -> None:
     _documents_, ontology, _cards = corpus
-    identifiers = set(mermaid_entity_ids(ontology["entities"]).values())
+    identifiers = set(mermaid_entity_ids(ontology["tables"]).values())
 
     edges = [line for line in _mermaid_block(render_ontology_index_markdown(ontology)) if "--" in line]
 
@@ -557,8 +556,8 @@ def test_the_diagram_keeps_the_best_connected_entities_and_says_what_it_dropped(
     _documents_, ontology, _cards = corpus
     crowded = {
         **ontology,
-        "entities": [
-            *ontology["entities"],
+        "tables": [
+            *ontology["tables"],
             *(
                 {
                     "id": f"ods.spare_{index:03d}",
@@ -585,9 +584,9 @@ def test_the_diagram_keeps_the_best_connected_entities_and_says_what_it_dropped(
     ]
 
     assert len(declared) == MERMAID_ENTITY_LIMIT
-    assert f"省略 {len(crowded['entities']) - MERMAID_ENTITY_LIMIT} 个" in markdown
+    assert f"省略 {len(crowded['tables']) - MERMAID_ENTITY_LIMIT} 个" in markdown
     # The connected ones survive: every entity with an edge is still in the picture.
-    for relation in crowded["relations"]:
+    for relation in crowded["table_relations"]:
         for side in ("from", "to"):
             name = str(relation[side]["entity"])
-            assert mermaid_entity_ids(crowded["entities"])[name] in declared
+            assert mermaid_entity_ids(crowded["tables"])[name] in declared

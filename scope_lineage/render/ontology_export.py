@@ -1,4 +1,4 @@
-"""LinkML and SHACL exports of an ontology candidate (``ontology-json/1``).
+"""LinkML and SHACL exports of an ontology candidate (``ontology-json/2``).
 
 ``ontology.json`` was designed so that this module is a **rename, not a re-derivation**:
 the slot correspondence table in ``docs/*/ontology-doc.md`` is the specification, and
@@ -25,11 +25,15 @@ Two rules shape the output.
    the one list published in summary rather than whole -- the count and the first task,
    because a schema wants the weight of the evidence and not its rows.
 
-Both layers of the JSON leave: ``entities[]`` are the *table* entities -- how a concept is
-represented in the warehouse -- and ``concepts[]`` are the business concepts the fold
-proposed. A concept becomes a class under one of three abstract bases (``Entity`` /
-``Event`` / ``Summary``), a table class says which concept it represents and in which
-role, and both carry the tier of whichever assertion put them there.
+Both layers of the JSON leave, concept-first as M2 publishes them: ``concepts[]`` are the
+business concepts the fold proposed and ``relations[]`` the relations between them, while
+``tables[]`` are the warehouse's *representations* of those concepts and
+``table_relations[]`` the JOIN evidence the concept relations were read off. A concept
+becomes a class under one of three abstract bases (``Entity`` / ``Event`` / ``Summary``)
+with the concept relations as its object properties; a table class says which concepts it
+represents and in which role, and each of its relation slots names -- in ``evidence_for``
+/ ``sl:evidenceFor`` -- the concept relation that slot is evidence for. Everything carries
+the tier of whichever assertion put it there.
 
 No third-party writer is used: both formats are emitted as text by the small
 deterministic writers at the bottom of this module, so the export adds no runtime
@@ -223,7 +227,7 @@ def concept_class_ids(
 def _concept_relations_from(ontology: Mapping, concept: str) -> list[Mapping]:
     return [
         relation
-        for relation in ontology.get("concept_relations") or []
+        for relation in ontology.get("relations") or []
         if str(relation["from"]) == concept
     ]
 
@@ -280,20 +284,12 @@ def _table_concept_notes(ontology: Mapping) -> dict[str, dict]:
             entry = notes.setdefault(str(item.get("table")), {})
             note = f"{concept.get('id')} ({item.get('role')})"
             entry[_unique_name(entry, "represents")] = note
-    for link in ontology.get("concept_representation_links") or ():
+    for link in ontology.get("representation_links") or ():
         note = _representation_note(link)
         for table in (str(link.get("from_table")), str(link.get("to_table"))):
             entry = notes.setdefault(table, {})
             entry[_unique_name(entry, "representation_link")] = note
     return notes
-
-
-def _unassigned_notes(ontology: Mapping) -> list[str]:
-    """``<table> (<reason>)`` per table no concept claimed, and why it could not."""
-    return [
-        f"{item.get('table')} ({item.get('reason')})"
-        for item in ontology.get("unassigned_tables") or ()
-    ]
 
 
 @dataclass(frozen=True)
@@ -354,7 +350,7 @@ def _constraints(ontology: Mapping) -> list[_Constraint]:
 def _relations_from(ontology: Mapping, entity: str) -> list[Mapping]:
     return [
         relation
-        for relation in ontology.get("relations") or []
+        for relation in ontology.get("table_relations") or []
         if str(relation["from"]["entity"]) == entity
     ]
 
@@ -517,14 +513,11 @@ def render_export(ontology: Mapping, export: str) -> str:
 
 def render_linkml(ontology: Mapping) -> str:
     """The corpus as one LinkML schema: a class per entity, a slot per attribute."""
-    entities = list(ontology.get("entities") or [])
+    entities = list(ontology.get("tables") or [])
     class_ids = entity_class_ids(entities)
     constraints = _constraints(ontology)
     schema = _linkml_header(ontology.get("corpus") or {})
     schema["annotations"].update(_linkml_governance(ontology))
-    unassigned = _unassigned_notes(ontology)
-    if unassigned:
-        schema["annotations"]["unassigned_tables"] = unassigned
     enums = _linkml_enums(constraints, class_ids)
     if enums:
         schema["enums"] = enums
@@ -836,6 +829,9 @@ def _linkml_relation(relation: Mapping, class_ids: Mapping) -> dict:
         "description": f"{relation.get('kind')} on {columns}",
         "annotations": {
             "relation_id": str(relation["id"]),
+            # M2: a table-to-table JOIN is evidence, and this names the concept relation
+            # it was read into -- the object property a consumer models the business on.
+            "evidence_for": str(relation.get("concept_relation") or ""),
             "tier": str(cardinality.get("tier")),
             "claim": str(cardinality.get("claim")),
             "basis": str(cardinality.get("basis") or ""),
@@ -894,7 +890,7 @@ SHACL_PREFIXES = (
 
 def render_shacl(ontology: Mapping) -> str:
     """The corpus as SHACL shapes: one ``sh:NodeShape`` per entity."""
-    entities = list(ontology.get("entities") or [])
+    entities = list(ontology.get("tables") or [])
     class_ids = entity_class_ids(entities)
     concepts = list(ontology.get("concepts") or [])
     concept_ids = concept_class_ids(concepts, class_ids)
@@ -1031,8 +1027,7 @@ def _shacl_governance(ontology: Mapping) -> list[str]:
     """
     findings = list(ontology.get("findings") or ())
     items = list(ontology.get("open_items") or ())
-    unassigned = _unassigned_notes(ontology)
-    if not findings and not items and not unassigned:
+    if not findings and not items:
         return []
     blocks = [
         _shacl_annotation_block(
@@ -1055,7 +1050,6 @@ def _shacl_governance(ontology: Mapping) -> list[str]:
     )
     head = [
         "sl:Ontology",
-        *(f"    sl:unassignedTable {_turtle_string(note)} ;" for note in unassigned),
         '    rdfs:label "the governance items this corpus could not answer itself"',
     ]
     return _turtle_statement(head, blocks)
@@ -1190,6 +1184,10 @@ def _shacl_relation_shape(relation: Mapping, class_ids: Mapping) -> list[str]:
     if _single_valued(relation):
         lines.append("        sh:maxCount 1 ;")
     lines.append(f"        sl:relation {_turtle_string(str(relation['id']))} ;")
+    lines.append(
+        "        sl:evidenceFor "
+        f"{_turtle_string(str(relation.get('concept_relation') or ''))} ;"
+    )
     lines.append(f"        sl:claim \"{cardinality.get('claim')}\" ;")
     lines.append(f"        sl:taskCount {int(relation.get('task_count') or 0)} ;")
     lines.extend(_shacl_evidence_lines(relation.get("evidence")))

@@ -316,7 +316,7 @@ def test_the_ontology_reads_a_foreign_proof_as_proven_and_names_its_corpus() -> 
 
     edge = next(
         item
-        for item in ontology["relations"]
+        for item in ontology["table_relations"]
         if item["to"]["entity"] == "mart.customer_daily"
     )
     assert edge["cardinality"]["claim"] == CARDINALITY_MANY_TO_ONE
@@ -346,7 +346,7 @@ def test_a_single_corpus_ontology_carries_no_corpus_stamp() -> None:
 
     edge = next(
         item
-        for item in ontology["relations"]
+        for item in ontology["table_relations"]
         if item["to"]["entity"] == "mart.customer_daily"
     )
     assert edge["cardinality"]["tier"] == TIER_PROVEN
@@ -372,20 +372,20 @@ def test_a_table_only_the_foreign_cards_know_is_not_an_entity() -> None:
     without putting its whole warehouse in this corpus's ER diagram."""
     ontology = _foreign_ontology()
 
-    assert [entity["id"] for entity in ontology["entities"]] == [
+    assert [entity["id"] for entity in ontology["tables"]] == [
         "mart.customer_daily",
         "mart.event_rollup",
         "ods.customer_event",
     ]
-    assert "ods.customer_base" not in {entity["id"] for entity in ontology["entities"]}
-    assert "mart.country_rollup" not in {entity["id"] for entity in ontology["entities"]}
+    assert "ods.customer_base" not in {entity["id"] for entity in ontology["tables"]}
+    assert "mart.country_rollup" not in {entity["id"] for entity in ontology["tables"]}
 
 
 def test_a_foreign_carded_table_this_corpus_joins_is_an_entity_with_its_proof() -> None:
     ontology = _foreign_ontology()
 
     entity = next(
-        item for item in ontology["entities"] if item["id"] == "mart.customer_daily"
+        item for item in ontology["tables"] if item["id"] == "mart.customer_daily"
     )
     keys = entity["identity"]["candidate_keys"]
     assert [key["columns"] for key in keys] == [["customer_id"]]
@@ -399,10 +399,10 @@ def test_a_foreign_carded_table_this_corpus_joins_is_an_entity_with_its_proof() 
 def test_every_relation_endpoint_has_an_entity() -> None:
     ontology = _foreign_ontology()
 
-    published = {entity["id"] for entity in ontology["entities"]}
+    published = {entity["id"] for entity in ontology["tables"]}
     endpoints = {
         relation[side]["entity"]
-        for relation in ontology["relations"]
+        for relation in ontology["table_relations"]
         for side in ("from", "to")
     }
 
@@ -412,7 +412,7 @@ def test_every_relation_endpoint_has_an_entity() -> None:
 def test_constraints_and_findings_stay_inside_the_modelled_entities() -> None:
     ontology = _foreign_ontology()
 
-    published = {entity["id"] for entity in ontology["entities"]}
+    published = {entity["id"] for entity in ontology["tables"]}
     targets = {
         constraint["target"]["entity"] for constraint in ontology["constraints"]
     }
@@ -446,7 +446,7 @@ def test_a_single_corpus_ontology_models_every_card_and_counts_nothing() -> None
 
     ontology = build_ontology(documents, tables=cards, artifact_root="corpus_a")
 
-    assert [entity["id"] for entity in ontology["entities"]] == [
+    assert [entity["id"] for entity in ontology["tables"]] == [
         card["table"] for card in cards["tables"]
     ]
     assert "external_evidence_tables" not in ontology["corpus"]
@@ -629,7 +629,7 @@ def test_ontology_accepts_several_tables_documents(tmp_path: Path) -> None:
     ontology = json.loads((out / "ontology.json").read_text(encoding="utf-8"))
     edge = next(
         item
-        for item in ontology["relations"]
+        for item in ontology["table_relations"]
         if item["to"]["entity"] == "mart.customer_daily"
     )
     assert edge["cardinality"]["tier"] == TIER_PROVEN
@@ -637,7 +637,7 @@ def test_ontology_accepts_several_tables_documents(tmp_path: Path) -> None:
         str(tmp_path / "a")
     ]
     # Corpus A's own source table lent evidence and is not modelled, so no card for it.
-    assert {entity["id"] for entity in ontology["entities"]} == {
+    assert {entity["id"] for entity in ontology["tables"]} == {
         "mart.customer_daily",
         "mart.event_rollup",
         "ods.customer_event",

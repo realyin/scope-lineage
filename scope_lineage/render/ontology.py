@@ -1,12 +1,26 @@
-"""Corpus-level ontology candidates (``ontology-json/1``) derived from the contracts.
+"""Corpus-level ontology candidates (``ontology-json/2``) derived from the contracts.
 
 ``tables.json`` answers "what is this table". A corpus answers one more question that no
-single table card can: **how do these tables relate**. Every JOIN in the corpus is an
-assertion about two entities and their keys; every GROUP BY before a JOIN is an
-assertion that the grouped table holds many rows per that key; every closed ``IN`` list
-is an assertion about a column's value set. This module collects those assertions, one
-corpus at a time, and publishes them as an ontology **candidate**: entities, attributes,
-relations, constraints and the contradictions between them.
+single table card can: **what is this warehouse about, and how do those things relate**.
+Every JOIN in the corpus is an assertion about two tables and their keys; every GROUP BY
+before a JOIN is an assertion that the grouped table holds many rows per that key; every
+closed ``IN`` list is an assertion about a column's value set. This module collects those
+assertions, one corpus at a time, and publishes them as an ontology **candidate**.
+
+M2 spells the answer the way the owner reads it, and the key names are the argument:
+
+* 实体/事件/汇总 are **concepts** -- ``concepts[]``, one per business key (K1/K2), plus
+  M1's one per table no key could place;
+* ``relations[]`` hold **between concepts**, and ``representation_links[]`` are the pairs
+  of tables that turned out to be two copies of one concept;
+* a table is a **representation** of a concept -- ``tables[]``, each back-linking to the
+  concepts it represents and in which role;
+* a table-to-table JOIN is **evidence** -- ``table_relations[]``, each naming the concept
+  relation it folded into.
+
+``ontology-json/1`` called ``tables[]`` ``entities[]`` and ``table_relations[]``
+``relations[]``; ``LEGACY_KEY_ALIASES`` and ``ontology --legacy-keys`` carry the old
+spellings for one release.
 
 Three rules keep the candidate honest, and they are the reason it is a candidate.
 
@@ -25,10 +39,9 @@ Three rules keep the candidate honest, and they are the reason it is a candidate
    logic block here was copied from a contract document through a table card, a glossary
    entry or a semantic profile.
 
-The vocabulary deliberately lines up with OWL/SHACL/LinkML slots (entity ~ class,
-attribute ~ datatype property, relation ~ object property, constraint ~ node shape) so a
-later exporter is a rename rather than a re-derivation. This release publishes JSON and
-one index document; per-entity cards and the Mermaid ER overview are WI-10.
+The vocabulary deliberately lines up with OWL/SHACL/LinkML slots (concept ~ class,
+attribute ~ datatype property, concept relation ~ object property, constraint ~ node
+shape) so ``ontology_export`` is a rename rather than a re-derivation.
 """
 
 from __future__ import annotations
@@ -48,12 +61,15 @@ from .concept_relations import (
     TYPE_PARTICIPATION,
     TYPE_SELF_REFERENCE,
     build_concept_relations,
+    identity_memberships,
     provisional_concept_ids,
+    provisional_memberships,
 )
 from .concepts import (
     CONCEPT_ENTITY,
     CONCEPT_EVENT,
     CONCEPT_SUMMARY,
+    KIND_ORDER,
     ROLE_DETAIL,
     ROLE_INTERMEDIATE,
     ROLE_PRIMARY,
@@ -94,11 +110,11 @@ from .table_cards import (
     table_card_filename,
 )
 
-DOC_FORMAT = "ontology-json/1"
-INDEX_DOC_FORMAT = "ontology-index-md/1"
+DOC_FORMAT = "ontology-json/2"
+INDEX_DOC_FORMAT = "ontology-index-md/2"
 # A table card the ontology appended its sections to is no longer a `tables-md/1`
 # document: it carries five more sections and a different contract. It says so.
-CARD_DOC_FORMAT = "ontology-md/1"
+CARD_DOC_FORMAT = "ontology-md/2"
 
 # P2: which keys of a semantic profile ``build_ontology`` reads *itself*, next to the
 # code that reads them; `tests/core/test_corpus_cache_projection.py` fails until the two
@@ -231,6 +247,25 @@ CONCEPT_KIND_STYLE = {
 
 #: How many of a concept's ranked name candidates the table prints before the JSON.
 CONCEPT_NAME_CANDIDATES_SHOWN = 3
+
+#: M3: the index's three parts. Named constants because the appendix title is the seam a
+#: reader -- and a test -- splits the business half of the document from the evidence.
+OVERVIEW_TITLE = "本体总览"
+APPENDIX_TITLE = "附录：表与证据"
+
+#: M3: how many concepts get a section of their own before the rest are summarised. The
+#: concept list is already ordered widest-first, so the cap keeps the folds a reviewer
+#: would open and turns the long tail into one line plus the concept table above it.
+CONCEPT_SECTIONS_SHOWN = 40
+#: How many of a concept's folded attribute stems the section names, commented first.
+CONCEPT_ATTRIBUTES_SHOWN = 8
+
+#: The one paragraph every published tier is explained in, printed once in the overview.
+TIER_LEGEND = (
+    "每条断言都带置信层级：`proven`（已证明，SQL 直接写着）、`implied`（可推得，"
+    "由结构证明的推论）、`hypothesis`（作者假设，未被证明）、`conflict`（矛盾，"
+    "跨任务证据打架）、`confirmed`（已确认，只来自人工回写的 `ontology.overrides.json`）。"
+)
 #: How many reasons the 「未归入概念的表」 line names before it points at the JSON.
 UNASSIGNED_REASONS_SHOWN = 3
 
@@ -444,18 +479,13 @@ _RELATION_KEYS = (
 _ONTOLOGY_KEYS = (
     "doc_format",
     "corpus",
-    "entities",
-    # Q3: the fold the two group lists are built on, published so a reviewer can check
-    # whether a family really is one table before answering for all of it.
-    "families",
-    # K1/K2: the business reading above the table-level entities -- one concept per
-    # business key. M1: plus one per table no key could place, marked `provisional`, so
-    # the layer covers the corpus; `provisional_count` says how many of those there are.
+    # M2 reads the corpus concept-first, so the document does too: 实体/事件/汇总 are
+    # concepts, `relations[]` hold between concepts, a table is a *representation* of a
+    # concept, and a table-to-table JOIN is the *evidence* a concept relation was read
+    # off. K1/K2 seed one concept per business key; M1 adds one per table no key could
+    # place, marked `provisional`, and `provisional_count` says how many those are.
     "concepts",
     "provisional_count",
-    # M1: empty by construction now that every table gets a concept. Published for one
-    # more release so a consumer that reads the key does not break on its absence.
-    "unassigned_tables",
     # K4c: the key stems a generic rule refused although the corpus really keys tables
     # by them -- what keeps a reviewer's earlier answers addressable when that rule
     # changes, because `concept:<stem>` can be revived from exactly this list.
@@ -463,15 +493,27 @@ _ONTOLOGY_KEYS = (
     # K4b: what a reviewed `concepts.overrides.json` changed, and what it named that
     # this corpus does not contain.
     "concept_overrides_applied",
+    # K3/M2: the relations of the business, each between two concepts. This was
+    # `concept_relations[]` in `ontology-json/1`, where `relations[]` meant the
+    # table-level evidence -- which is `table_relations[]` below.
     "relations",
-    # K3: the same edges, read between concepts instead of between tables; the ones
-    # that joined two representations of a single concept rather than two concepts;
-    # and how many could not be placed, by which end failed.
-    "concept_relations",
     # M1: how many of them touch a concept that is still just a table.
     "provisional_relations",
-    "concept_representation_links",
+    # The JOINs that turned out to link two representations of one concept rather than
+    # two concepts: a seam in K1's fold, not a relation. Formerly
+    # `concept_representation_links[]`.
+    "representation_links",
     "concept_relations_unmapped",
+    # M2: the warehouse layer, formerly `entities[]`. One entry per table this corpus
+    # models, each carrying a `concepts[]` back-link -- which concepts it represents and
+    # in which role -- so the two layers can be walked from either end.
+    "tables",
+    # Q3: the fold the two group lists are built on, published so a reviewer can check
+    # whether a family really is one table before answering for all of it.
+    "families",
+    # M2: the evidence, formerly `relations[]`. One entry per merged JOIN or UNION edge,
+    # each naming the concept relation it folded into.
+    "table_relations",
     "constraints",
     "findings",
     "finding_groups",
@@ -479,6 +521,23 @@ _ONTOLOGY_KEYS = (
     "open_item_groups",
     "overrides_applied",
 )
+
+#: M2: the `ontology-json/1` spelling -> the `ontology-json/2` key it became, or ``None``
+#: for one that became nothing. ``ontology --legacy-keys`` publishes these beside the
+#: current keys for one release so a consumer migrates instead of breaking.
+#:
+#: ``relations`` is deliberately not in this table. It still exists and it now means
+#: something else, so a consumer that keeps reading it gets the *concept* relations: the
+#: one rename no alias can soften, and the reason this is a breaking change.
+#:
+#: **Deprecated.** The aliases go away in the release after this one.
+LEGACY_KEY_ALIASES = {
+    "entities": "tables",
+    "concept_relations": "relations",
+    "concept_representation_links": "representation_links",
+    # M1 already emptied this one; `concepts[]` covers every table now.
+    "unassigned_tables": None,
+}
 _ATTRIBUTE_KEYS = (
     "column",
     "type",
@@ -549,6 +608,7 @@ def build_ontology(
     overrides: Mapping | None = None,
     concept_overrides: Mapping | None = None,
     artifact_root: str | None = None,
+    legacy_keys: bool = False,
 ) -> dict:
     """Build one corpus's ontology candidate.
 
@@ -560,6 +620,8 @@ def build_ontology(
     built in memory from the same corpus when it is not supplied. ``overrides`` is a
     reviewed ``ontology.overrides.json``: the answers a person gave to the hypotheses
     this document asked about, and the only way an assertion reaches ``confirmed``.
+    ``legacy_keys`` additionally publishes the deprecated ``ontology-json/1`` spellings
+    of the renamed keys (``LEGACY_KEY_ALIASES``), for consumers mid-migration.
     """
     documents = [dict(document) for document in documents]
     profiles = (
@@ -591,9 +653,9 @@ def build_ontology(
     ontology = {
         "doc_format": DOC_FORMAT,
         "corpus": _corpus_block(cards, modelled),
-        "entities": entities,
+        "tables": entities,
         "families": _families(entities),
-        "relations": relations,
+        "table_relations": relations,
         "constraints": constraints,
         "findings": _findings(modelled, edges, facts["multiplicity"], entities, relations),
         "finding_groups": [],
@@ -616,7 +678,70 @@ def build_ontology(
     # K3 reads the concepts the two lines above published, so it runs after them.
     ontology.update(build_concept_relations(ontology))
     _publish_open_list(ontology)
-    return {key: ontology[key] for key in _ONTOLOGY_KEYS}
+    # M2 last of all: the back-links are a reading of the finished document, and the open
+    # list is the newest part of it.
+    _attach_concepts(ontology)
+    document = {key: ontology[key] for key in _ONTOLOGY_KEYS}
+    return _with_legacy_keys(document) if legacy_keys else document
+
+
+def _attach_concepts(ontology: dict) -> None:
+    """M2: the back-links that make the document readable from either end.
+
+    Every list under the concept layer says which concept it belongs to, so a reader --
+    or a consumer walking ``concepts[]`` -- never has to re-derive the fold to group a
+    constraint, a finding or an open question under the thing it is about. ``None`` is
+    published rather than omitted whenever the subject table has no single identity
+    concept: two identities are exactly the case K1 refuses to choose between, and a
+    missing key would read as "not asked".
+    """
+    concepts = list(ontology.get("concepts") or [])
+    # M1's provisional concept is what a table belongs to when nothing else placed it,
+    # exactly as K3's fold reads it, so the back-link answers for every table.
+    identity = {**provisional_memberships(concepts), **identity_memberships(concepts)}
+    for table in ontology["tables"]:
+        table["concepts"] = _table_concepts(str(table.get("id")), concepts)
+    folded = {
+        str(edge): str(relation["id"])
+        for relation in ontology["relations"]
+        for edge in relation.get("evidence") or []
+    }
+    for relation in ontology["table_relations"]:
+        relation["concept_relation"] = folded.get(str(relation.get("id")))
+    for constraint in ontology["constraints"]:
+        target = str((constraint.get("target") or {}).get("entity"))
+        constraint["concept"] = identity.get(target)
+    for item in [*ontology["findings"], *ontology["open_items"]]:
+        item["concept"] = identity.get(str(item.get("entity")))
+    subjects = {str(item["id"]): item.get("concept") for item in ontology["open_items"]}
+    for group in ontology["open_item_groups"]:
+        group["concept"] = subjects.get(str(group.get("representative")))
+
+
+def _table_concepts(table: str, concepts: Sequence[Mapping]) -> list[dict]:
+    """Which concepts this table represents, and as what -- its identity plus what it
+    merely carries. A list because both answers are true of one table at once."""
+    return [
+        {
+            "id": str(concept.get("id")),
+            "role": str(member.get("role")),
+            "membership_basis": str(member.get("membership_basis")),
+        }
+        for concept in concepts
+        for member in concept.get("tables") or []
+        if str(member.get("table")) == table
+    ]
+
+
+def _with_legacy_keys(document: dict) -> dict:
+    """The ``ontology-json/1`` spellings appended, deprecated, for one release."""
+    return {
+        **document,
+        **{
+            legacy: document[current] if current else []
+            for legacy, current in LEGACY_KEY_ALIASES.items()
+        },
+    }
 
 
 def _publish_open_list(ontology: dict) -> None:
@@ -642,7 +767,7 @@ def entity_table_cards(cards: Mapping, ontology: Mapping) -> dict:
     ``ontology`` publishes an entity per table this corpus touched; a card for a table it
     did not would carry five empty sections and a link nothing points at.
     """
-    published = {str(entity.get("id")) for entity in ontology.get("entities") or []}
+    published = {str(entity.get("id")) for entity in ontology.get("tables") or []}
     return {
         **cards,
         "tables": [
@@ -744,7 +869,7 @@ def _apply_overrides(ontology: dict, overrides: Mapping) -> None:
 def _entity_columns(ontology: Mapping) -> dict[str, set[str]]:
     """``entity -> every column name it carries``: declared, used, or already published."""
     found: dict[str, set[str]] = {}
-    for entity in ontology.get("entities") or []:
+    for entity in ontology.get("tables") or []:
         identity = entity.get("identity") or {}
         found[str(entity["id"])] = {
             *(str(item["column"]) for item in entity.get("attributes") or []),
@@ -761,7 +886,7 @@ def _entity_columns(ontology: Mapping) -> dict[str, set[str]]:
 def _apply_relation_overrides(
     ontology: dict, relations: Mapping, applied: dict, columns: Mapping[str, set[str]]
 ) -> None:
-    index = {relation_override_key(item): item for item in ontology["relations"]}
+    index = {relation_override_key(item): item for item in ontology["table_relations"]}
     for name in sorted(relations):
         entry = dict(relations[name] or {})
         relation = index.get(str(name))
@@ -835,7 +960,7 @@ def _apply_key_overrides(
     ontology: dict, keys: Mapping, applied: dict, columns: Mapping[str, set[str]]
 ) -> None:
     """Confirm one entity's identity key, adding it when the corpus never guessed it."""
-    entities = {str(entity["id"]): entity for entity in ontology["entities"]}
+    entities = {str(entity["id"]): entity for entity in ontology["tables"]}
     for name in sorted(keys):
         entry = dict(keys[name] or {})
         entity = entities.get(str(name))
@@ -2470,9 +2595,9 @@ def _open_item_records(ontology: Mapping) -> list[dict]:
     """
     return [
         *(_finding_item(finding) for finding in ontology.get("findings") or []),
-        *_relation_items(ontology.get("relations") or []),
+        *_relation_items(ontology.get("table_relations") or []),
         *_key_items(
-            ontology.get("entities") or [], ontology.get("relations") or []
+            ontology.get("tables") or [], ontology.get("table_relations") or []
         ),
     ]
 
@@ -2736,13 +2861,13 @@ def _confirmed_count(ontology: Mapping) -> int:
         [
             sum(
                 1
-                for entity in ontology.get("entities") or []
+                for entity in ontology.get("tables") or []
                 for key in (entity.get("identity") or {}).get("candidate_keys") or []
                 if str(key["tier"]) == TIER_CONFIRMED
             ),
             sum(
                 1
-                for relation in ontology.get("relations") or []
+                for relation in ontology.get("table_relations") or []
                 if str((relation.get("cardinality") or {}).get("tier")) == TIER_CONFIRMED
             ),
             sum(
@@ -2758,56 +2883,44 @@ def _confirmed_count(ontology: Mapping) -> int:
 
 
 def render_ontology_index_markdown(ontology: Mapping) -> str:
-    """``ontology.md``: the ER overview first, then the four tables behind it.
+    """``ontology.md``: the business reading first, the warehouse behind it (M3).
 
-    A reader opens this file to find out which entity card is worth opening, so the
-    diagram comes before the prose and every entity row links to its card. The diagram is
-    a *summary* -- it carries the identity columns and the cardinality symbols, and the
-    evidence behind each edge lives in the tables below and in the card itself.
+    Three parts, and the order is the argument. 「本体总览」 says how many concepts of each
+    kind this corpus proposes and how much of that is still a question, then draws them.
+    「概念」 gives each folded concept a section of its own -- which tables represent it,
+    what it is made of, what holds about it, what it relates to, what a person still has
+    to answer -- because that is the unit a business asks about. Everything table-level
+    moved into 「附录：表与证据」, marked as what it is: the JOINs the concept relations
+    were read off, not the model.
+
+    Three caps keep a wide corpus readable: ``CONCEPT_MERMAID_LIMIT`` on the diagram,
+    ``CONCEPT_SECTIONS_SHOWN`` on the sections, ``OPEN_ITEM_GROUPS_SHOWN`` on the list.
     """
+    lines = _index_front_matter(ontology)
+    lines.extend(_overview_section(ontology))
+    lines.extend(_concept_part(ontology))
+    lines.extend(_appendix_section(ontology))
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _index_front_matter(ontology: Mapping) -> list[str]:
+    """The counts a tool reads without parsing the prose -- concept-first, like the body."""
     corpus = ontology.get("corpus") or {}
-    entities = list(ontology.get("entities") or [])
-    relations = list(ontology.get("relations") or [])
-    constraints = list(ontology.get("constraints") or [])
-    findings = list(ontology.get("findings") or [])
-    items = list(ontology.get("open_items") or [])
-    groups = list(ontology.get("open_item_groups") or [])
-    finding_groups = list(ontology.get("finding_groups") or [])
-    identifiers = mermaid_entity_ids(entities)
-    lines = [
+    return [
         "---",
         f'doc_format: "{INDEX_DOC_FORMAT}"',
         f"task_count: {corpus.get('task_count')}",
-        f"entity_count: {len(entities)}",
-        f"relation_count: {len(relations)}",
-        f"open_item_count: {len(items)}",
-        f"open_item_group_count: {len(groups)}",
+        f"concept_count: {len(ontology.get('concepts') or [])}",
+        f"relation_count: {len(ontology.get('relations') or [])}",
+        f"table_count: {len(ontology.get('tables') or [])}",
+        f"table_relation_count: {len(ontology.get('table_relations') or [])}",
+        f"open_item_count: {len(ontology.get('open_items') or [])}",
+        f"open_item_group_count: {len(ontology.get('open_item_groups') or [])}",
         "---",
         "",
         "# 语料本体候选索引",
-        "",
-        f"共 {corpus.get('task_count')} 个任务、{len(entities)} 个实体、"
-        f"{len(relations)} 条关系、{len(constraints)} 条约束、"
-        f"{len(findings)} 条矛盾发现；"
-        f"待人工判定 {len(items)} 条 / {len(groups)} 组"
-        f"（已确认 {_confirmed_count(ontology)} 条）。",
-        "",
-        "每条断言都带置信层级：`proven`（已证明，SQL 直接写着）、`implied`（可推得，"
-        "由结构证明的推论）、`hypothesis`（作者假设，未被证明）、`conflict`（矛盾，"
-        "跨任务证据打架）、`confirmed`（已确认，只来自人工回写的 `ontology.overrides.json`）。",
     ]
-    lines.extend(_external_evidence_lines(corpus))
-    # K4a: the concepts first. A reader who opens this file asks a business question,
-    # and the table-level ER below is the evidence the answer was read off.
-    lines.extend(_concept_section(ontology))
-    lines.extend(_mermaid_section(entities, relations, findings, identifiers))
-    lines.extend(_entities_section(entities, relations, constraints, identifiers))
-    lines.extend(_relations_section(relations))
-    lines.extend(_constraints_section(constraints))
-    lines.extend(_findings_section(findings, finding_groups))
-    lines.extend(_open_items_section(items, groups))
-    lines.append("")
-    return "\n".join(lines)
 
 
 def _external_evidence_lines(corpus: Mapping) -> list[str]:
@@ -2831,42 +2944,263 @@ def _external_evidence_lines(corpus: Mapping) -> list[str]:
 # ------------------------------------------------------------ K4a: concept layer
 
 
-def _concept_section(ontology: Mapping) -> list[str]:
-    """The business reading of the corpus: a diagram, two tables, and what fell out.
+def _overview_section(ontology: Mapping) -> list[str]:
+    """M3: what this corpus proposes, counted by kind, then drawn.
 
-    It sits above the table-level ER because the two answer different questions. The ER
-    says which tables were joined on which columns; this says what the warehouse is
-    *about* -- and every line of it is a candidate, because a concept is an inference
-    over the corpus and never something the SQL wrote.
+    The one paragraph a reader has to read: how many concepts of each kind, how much of
+    that is still a table waiting to be placed, and how far the review has got. The
+    table-level counts follow it as a second sentence rather than leading, because the
+    number of tables is a fact about the warehouse and the number of concepts is the
+    answer this document exists to propose.
     """
     concepts = list(ontology.get("concepts") or [])
-    relations = list(ontology.get("concept_relations") or [])
+    relations = list(ontology.get("relations") or [])
     provisional = provisional_concept_ids(concepts)
     folded = [item for item in concepts if str(item.get("id")) not in provisional]
-    lines = ["", "## 概念层", ""]
+    lines = ["", f"## {OVERVIEW_TITLE}", ""]
     if not concepts:
-        lines.append(
-            "本语料没有可发布的概念：这份语料一张表也没有。"
-        )
-        return lines
+        return [*lines, "本语料没有可发布的概念：这份语料一张表也没有。"]
+    lines.extend(_overview_counts(ontology, folded, relations, provisional))
+    lines.extend(["", TIER_LEGEND])
+    lines.extend(_external_evidence_lines(ontology.get("corpus") or {}))
+    lines.extend(_concept_diagram(folded, relations, len(provisional)))
+    lines.extend(_concept_table(folded))
+    lines.extend(_concept_relation_table(relations, concepts, provisional))
+    return lines
+
+
+def _overview_counts(
+    ontology: Mapping,
+    folded: Sequence[Mapping],
+    relations: Sequence[Mapping],
+    provisional: frozenset,
+) -> list[str]:
+    """Two sentences: the concepts by kind, then the warehouse and the review."""
+    counts = {kind: 0 for kind in KIND_ORDER}
+    for concept in folded:
+        counts[str(concept.get("kind"))] = counts.get(str(concept.get("kind")), 0) + 1
+    by_kind = "、".join(
+        f"{CONCEPT_KIND_TEXT.get(kind, kind)} {counts.get(kind, 0)}" for kind in KIND_ORDER
+    )
     touching = sum(
         1
         for item in relations
         if str(item["from"]) in provisional or str(item["to"]) in provisional
     )
-    lines.append(
-        f"{len(folded)} 个概念、{len(relations)} 条概念关系，另有 {len(provisional)} 个"
-        "**临时概念**（M1：语料没能把它归到任何业务键上的表，暂时各自成一个概念，"
-        f"其中 {touching} 条概念关系至少有一端是临时的）。概念是**候选**：名字永远是作者假设，"
-        "种类由 `kind_evidence[]` 的投票决定，两个词根是不是同一件事留给评审那一轮判"
-        "（见 `concepts.overrides.json`）。"
-    )
-    lines.extend(_concept_diagram(folded, relations, len(provisional)))
-    lines.extend(_concept_table(folded))
+    items = list(ontology.get("open_items") or [])
+    groups = list(ontology.get("open_item_groups") or [])
+    return [
+        f"{len(folded)} 个概念（{by_kind}）、{len(relations)} 条概念关系，另有 "
+        f"{len(provisional)} 个**临时概念**（M1：语料没能把它归到任何业务键上的表，暂时"
+        f"各自成一个概念，其中 {touching} 条概念关系至少有一端是临时的）。概念是**候选**："
+        "名字永远是作者假设，种类由 `kind_evidence[]` 的投票决定，两个词根是不是同一件事"
+        "留给评审那一轮判（见 `concepts.overrides.json`）。",
+        "",
+        f"底下是 {(ontology.get('corpus') or {}).get('task_count')} 个任务、"
+        f"{len(ontology.get('tables') or [])} 张表、"
+        f"{len(ontology.get('table_relations') or [])} 条表级关系、"
+        f"{len(ontology.get('constraints') or [])} 条约束、"
+        f"{len(ontology.get('findings') or [])} 条矛盾发现，逐条见附录；"
+        f"待人工判定 {len(items)} 条 / {len(groups)} 组"
+        f"（已确认 {_confirmed_count(ontology)} 条）。",
+    ]
+
+
+# ------------------------------------------------------------- M3: one concept a section
+
+
+def _concept_part(ontology: Mapping) -> list[str]:
+    """One section per folded concept, then the provisional ones as a single table."""
+    concepts = list(ontology.get("concepts") or [])
+    provisional = provisional_concept_ids(concepts)
+    folded = [item for item in concepts if str(item.get("id")) not in provisional]
+    lines = ["", "## 概念", ""]
+    if not folded:
+        lines.append(
+            "本语料没有折出概念：每张表都还是一个临时概念，见下面的表。"
+        )
+    else:
+        lines.append(
+            "每个概念一节：哪些表在表现它、它由什么组成、对它成立什么、它和谁有关系、"
+            "还有什么要人来判。"
+        )
+        for concept in folded[:CONCEPT_SECTIONS_SHOWN]:
+            lines.extend(_concept_detail(concept, ontology))
+        lines.extend(_hidden_concepts_line(folded[CONCEPT_SECTIONS_SHOWN:]))
     lines.extend(_provisional_table(concepts, provisional))
-    lines.extend(_concept_relation_table(relations, concepts, provisional))
-    lines.extend(_retired_stems_lines(ontology))
     return lines
+
+
+def _hidden_concepts_line(hidden: Sequence[Mapping]) -> list[str]:
+    """A document nobody scrolls answers nothing: past the cap, a line and a pointer."""
+    if not hidden:
+        return []
+    shown = "、".join(cell(str(item.get("name"))) for item in hidden[:UNASSIGNED_REASONS_SHOWN])
+    rest = len(hidden) - min(len(hidden), UNASSIGNED_REASONS_SHOWN)
+    return [
+        "",
+        f"另有 {len(hidden)} 个概念未展开（上面按表现表数取前 {CONCEPT_SECTIONS_SHOWN} 个）："
+        + shown
+        + (f"，另有 {rest} 个" if rest else "")
+        + "；它们都在上面的概念表里，逐条见 `ontology.json` 的 `concepts[]`。",
+    ]
+
+
+def _concept_detail(concept: Mapping, ontology: Mapping) -> list[str]:
+    """One concept's whole story, in the order a reader asks for it."""
+    kind = str(concept.get("kind"))
+    lines = [
+        "",
+        f"### {cell(str(concept.get('name')))}（{CONCEPT_KIND_TEXT.get(kind, kind)}）",
+        "",
+        f"`{concept.get('id')}` · 名字 `{concept.get('name_tier')}` · "
+        f"种类 `{concept.get('kind_tier')}` · "
+        f"表现表 {len(concept.get('tables') or [])} 张 · "
+        f"属性 {len(concept.get('attributes') or [])} 个"
+        + (f" · 疑似重复 {_duplicate_text(concept)}" if concept.get("possible_duplicate_of") else ""),
+        "",
+        "**表现表**",
+        "",
+        "| 表 | 角色 | 依据 | 粒度 |",
+        "| --- | --- | --- | --- |",
+    ]
+    lines.extend(_representation_row(member) for member in concept.get("tables") or [])
+    lines.extend(_concept_attribute_lines(concept))
+    lines.extend(_concept_constraint_lines(concept, ontology))
+    lines.extend(_concept_relation_lines(concept, ontology))
+    lines.extend(_concept_open_item_lines(concept, ontology))
+    return lines
+
+
+def _representation_row(member: Mapping) -> str:
+    role = str(member.get("role"))
+    table = str(member.get("table"))
+    grain = member.get("grain")
+    return (
+        f"| [`{table}`](tables/{table_card_filename(table)}) "
+        f"| {CONCEPT_ROLE_TEXT.get(role, role)} "
+        f"| `{member.get('membership_basis')}` "
+        f"| {f'`{grain}`' if grain else '—'} |"
+    )
+
+
+def _concept_attribute_lines(concept: Mapping) -> list[str]:
+    """What the concept is made of: the commented stems first, the rest counted."""
+    attributes = list(concept.get("attributes") or [])
+    lines = ["", "**属性摘要**", ""]
+    if not attributes:
+        return [*lines, "- 本概念的表现表没有可发布的列。"]
+    ranked = sorted(attributes, key=lambda item: (not item.get("comment"), str(item.get("stem"))))
+    shown = ranked[:CONCEPT_ATTRIBUTES_SHOWN]
+    text = "、".join(
+        f"`{item.get('stem')}`"
+        + (f"（{cell(normalize_inline(str(item['comment'])))}）" if item.get("comment") else "")
+        for item in shown
+    )
+    rest = len(attributes) - len(shown)
+    return [
+        *lines,
+        f"- 共 {len(attributes)} 个属性（按词根折叠）：{text}"
+        + (f"，另有 {rest} 个" if rest else "")
+        + "。逐条见 `ontology.json` 的 `concepts[].attributes[]`。",
+    ]
+
+
+def _concept_constraint_lines(concept: Mapping, ontology: Mapping) -> list[str]:
+    """What holds about this concept, read off its representations' constraints."""
+    identifier = str(concept.get("id"))
+    constraints = [
+        item
+        for item in ontology.get("constraints") or []
+        if str(item.get("concept")) == identifier
+    ]
+    lines = ["", "**约束**", ""]
+    if not constraints:
+        return [*lines, "- 本概念的表现表上没有可发布的约束。"]
+    lines.extend(["| 表 | 目标 | 约束 | 内容 | 层级 |", "| --- | --- | --- | --- | --- |"])
+    for constraint in constraints:
+        target = constraint.get("target") or {}
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    cell(f"`{target.get('entity')}`"),
+                    cell(f"`{target['column']}`" if target.get("column") else "整表"),
+                    cell(_constraint_kind_text(constraint)),
+                    cell(_constraint_body(constraint)),
+                    cell(_tier_text(constraint.get("tier"))),
+                ]
+            )
+            + " |"
+        )
+    return lines
+
+
+def _concept_relation_lines(concept: Mapping, ontology: Mapping) -> list[str]:
+    """Both directions in one table: what this concept points at and what points at it."""
+    identifier = str(concept.get("id"))
+    names = {
+        str(item.get("id")): str(item.get("name")) for item in ontology.get("concepts") or []
+    }
+    rows = [
+        ("出", relation, str(relation["to"]))
+        for relation in ontology.get("relations") or []
+        if str(relation["from"]) == identifier
+    ] + [
+        ("入", relation, str(relation["from"]))
+        for relation in ontology.get("relations") or []
+        if str(relation["to"]) == identifier and str(relation["from"]) != identifier
+    ]
+    lines = ["", "**关系**", ""]
+    if not rows:
+        return [*lines, "- 本概念在语料里没有折出概念关系。"]
+    lines.extend(
+        [
+            "| 方向 | 对端 | 类型 | 角色 | 基数 | 层级 | 证据数 |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
+        ]
+    )
+    lines.extend(_concept_edge_row(direction, relation, names, other) for direction, relation, other in rows)
+    return lines
+
+
+def _concept_edge_row(
+    direction: str, relation: Mapping, names: Mapping[str, str], other: str
+) -> str:
+    cardinality = relation.get("cardinality") or {}
+    kind = str(relation.get("type"))
+    claim = str(cardinality.get("claim"))
+    return (
+        f"| {direction} "
+        f"| {cell(names.get(other, other))} "
+        f"| {CONCEPT_TYPE_TEXT.get(kind, kind)} "
+        f"| {cell(_role_text(relation)) or '—'} "
+        f"| {CARDINALITY_TEXT.get(claim, claim)} "
+        f"| `{cardinality.get('tier')}` "
+        f"| {len(relation.get('evidence') or [])} |"
+    )
+
+
+def _concept_open_item_lines(concept: Mapping, ontology: Mapping) -> list[str]:
+    """The questions filed under this concept, folded the way the appendix folds them."""
+    identifier = str(concept.get("id"))
+    groups = [
+        group
+        for group in ontology.get("open_item_groups") or []
+        if str(group.get("concept")) == identifier
+    ]
+    lines = ["", "**待人工判定**", ""]
+    if not groups:
+        return [*lines, "- 本概念没有待人工判定的项。"]
+    index = {str(item["id"]): item for item in ontology.get("open_items") or []}
+    lines.extend(
+        f"- {OPEN_ITEM_TEXT.get(str(group['kind']), str(group['kind']))}"
+        f"（`{group['group_id']}`，{group['count']} 条，影响 {group['impact']}）："
+        + normalize_inline(str((index.get(str(group["representative"])) or {}).get("text") or ""))
+        for group in groups[:OPEN_ITEM_GROUPS_SHOWN]
+    )
+    rest = len(groups) - min(len(groups), OPEN_ITEM_GROUPS_SHOWN)
+    return [*lines, *( [f"- 另有 {rest} 组，见附录的待人工判定清单。"] if rest else [] )]
 
 
 def _provisional_table(concepts: Sequence[Mapping], provisional: frozenset) -> list[str]:
@@ -2916,12 +3250,14 @@ def _retired_stems_lines(ontology: Mapping) -> list[str]:
     """
     retired = list(ontology.get("retired_stems") or [])
     if not retired:
-        return []
+        return ["", "### 退役键词根", "", "本语料没有被通用键规则挡下的词根。"]
     shown = "、".join(f"`{item['stem']}`" for item in retired[:UNASSIGNED_REASONS_SHOWN])
     rest = len(retired) - min(len(retired), UNASSIGNED_REASONS_SHOWN)
     return [
         "",
-        f"另有 {len(retired)} 个键词根被通用键规则挡下（{shown}"
+        "### 退役键词根",
+        "",
+        f"{len(retired)} 个键词根被通用键规则挡下（{shown}"
         + (f"，另有 {rest} 个）" if rest else "）")
         + "：这些词根在语料里确实是某些表的候选键，只是这一版判定它们不指向业务的东西。"
         "它们仍然**可以被点名**——`concepts.overrides.json` 里写 `concept:<词根>`，"
@@ -2970,7 +3306,7 @@ def _concept_diagram(
     lines.append(
         "框里是概念名与它的种类，底色按种类分；边上的 `?` 表示这条基数只是作者假设、未被"
         "证明，括号里是实体在事件里的身份。同一个概念的两张表之间那条 JOIN 是 K1 折叠的接缝、"
-        "不是业务关系，它在 `concept_representation_links[]` 里，图上不画。"
+        "不是业务关系，它在 `representation_links[]` 里，图上不画。"
     )
     return lines
 
@@ -3085,7 +3421,7 @@ def _duplicate_text(concept: Mapping) -> str:
 def _concept_relation_table(
     relations: Sequence[Mapping], concepts: Sequence[Mapping], provisional=frozenset()
 ) -> list[str]:
-    lines = ["", "### 概念关系", ""]
+    lines = ["", "### 关系", ""]
     if not relations:
         return [*lines, "本语料没有能折到两个概念上的关系。"]
     names = {str(concept.get("id")): str(concept.get("name")) for concept in concepts}
@@ -3164,11 +3500,11 @@ def _mermaid_section(
     identifiers: Mapping[str, str],
 ) -> list[str]:
     if not entities:
-        return ["", "## 实体关系总览", "", "本语料没有实体。"]
+        return ["", "### 表级关系（证据）", "", "本语料没有表。"]
     shown = _diagram_entities(entities, relations)
     names = {str(entity.get("id")) for entity in shown}
     conflicted = _conflicted_pairs(findings)
-    lines = ["", "## 实体关系总览", ""]
+    lines = ["", "### 表级关系（证据）", ""]
     omitted = len(entities) - len(shown)
     if omitted:
         lines.extend(
@@ -3290,6 +3626,65 @@ def _conflicted_pairs(findings: Sequence[Mapping]) -> set[tuple[str, tuple]]:
     }
 
 
+# ------------------------------------------------- M3: the appendix, table by table
+
+
+def _appendix_section(ontology: Mapping) -> list[str]:
+    """Everything table-level, in one place, marked as the evidence it is.
+
+    The table layer did not get smaller -- it got demoted. A JOIN between two tables is
+    what the concept relations above were read off, and printing it in the main line
+    invited the reader to model the business on the warehouse's own shape.
+    """
+    entities = list(ontology.get("tables") or [])
+    relations = list(ontology.get("table_relations") or [])
+    findings = list(ontology.get("findings") or [])
+    identifiers = mermaid_entity_ids(entities)
+    lines = [
+        "",
+        f"## {APPENDIX_TITLE}",
+        "",
+        "下面全是**表一级**的事实：语料里哪些表、它们被哪些 JOIN 连过、那些 JOIN 证明了"
+        "什么。上面的概念关系就是从这里折出来的，所以这里是证据，不是模型。",
+    ]
+    lines.extend(_mermaid_section(entities, relations, findings, identifiers))
+    lines.extend(
+        _entities_section(entities, relations, ontology.get("constraints") or [], identifiers)
+    )
+    lines.extend(_relations_section(relations))
+    lines.extend(_constraints_section(list(ontology.get("constraints") or [])))
+    lines.extend(_families_section(list(ontology.get("families") or [])))
+    lines.extend(_retired_stems_lines(ontology))
+    lines.extend(_findings_section(findings, list(ontology.get("finding_groups") or [])))
+    lines.extend(
+        _open_items_section(
+            list(ontology.get("open_items") or []),
+            list(ontology.get("open_item_groups") or []),
+        )
+    )
+    return lines
+
+
+def _families_section(families: Sequence[Mapping]) -> list[str]:
+    """Q3: the fold the two group lists are built on, so a reviewer can check it.
+
+    A group asks one question of a whole family of tables, and a reviewer who answers it
+    is answering for every table listed here. That list belongs where the groups are.
+    """
+    lines = ["", "### 表族", ""]
+    if not families:
+        return [*lines, "本语料没有可折叠的表族。"]
+    lines.extend(["| 表族 | 表数 | 表 |", "| --- | --- | --- |"])
+    lines.extend(
+        f"| `{family.get('family')}` | {len(family.get('tables') or [])} "
+        + "| "
+        + "、".join(f"`{table}`" for table in family.get("tables") or [])
+        + " |"
+        for family in families
+    )
+    return lines
+
+
 # ------------------------------------------------------------------ index sections
 
 
@@ -3300,7 +3695,7 @@ def _entities_section(
     identifiers: Mapping[str, str],
 ) -> list[str]:
     if not entities:
-        return ["", "## 实体", "", "本语料没有实体。"]
+        return ["", "### 表", "", "本语料没有表。"]
     outgoing: dict[str, int] = {}
     incoming: dict[str, int] = {}
     for relation in relations:
@@ -3316,9 +3711,9 @@ def _entities_section(
         counts[name] = counts.get(name, 0) + 1
     lines = [
         "",
-        "## 实体",
+        "### 表",
         "",
-        "| 实体 | 图中 id | 类型 | 注释 | 键置信 | 属性 | 出边 | 入边 | 约束数 |",
+        "| 表 | 图中 id | 类型 | 注释 | 键置信 | 属性 | 出边 | 入边 | 约束数 |",
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for entity in entities:
@@ -3364,13 +3759,13 @@ def _key_tier_text(entity: Mapping) -> str:
 
 def _relations_section(relations: Sequence[Mapping]) -> list[str]:
     if not relations:
-        return ["", "## 关系", "", "本语料没有可证明的关系边。"]
+        return ["", "### 表级关系", "", "本语料没有可证明的关系边。"]
     lines = [
         "",
-        "## 关系",
+        "### 表级关系",
         "",
-        "| 关系 | 从 | 到 | 类型 | 基数 | 层级 | 依据 | 任务数 |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| 关系 | 从 | 到 | 类型 | 基数 | 层级 | 依据 | 任务数 | 折入概念关系 |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     lines.extend(_relation_row(relation) for relation in relations)
     return lines
@@ -3390,6 +3785,11 @@ def _relation_row(relation: Mapping) -> str:
                 cell(str(cardinality.get("tier"))),
                 cell(str(cardinality.get("basis"))),
                 cell(str(relation.get("task_count"))),
+                cell(
+                    f"`{relation['concept_relation']}`"
+                    if relation.get("concept_relation")
+                    else "—"
+                ),
             ]
         )
         + " |"
@@ -3402,13 +3802,13 @@ def _columns(side: Mapping) -> str:
 
 def _constraints_section(constraints: Sequence[Mapping]) -> list[str]:
     if not constraints:
-        return ["", "## 约束", "", "本语料没有可证明的约束。"]
+        return ["", "### 约束", "", "本语料没有可证明的约束。"]
     lines = [
         "",
-        "## 约束",
+        "### 约束",
         "",
-        "| 实体 | 目标 | 约束 | 内容 | 层级 |",
-        "| --- | --- | --- | --- | --- |",
+        "| 概念 | 表 | 目标 | 约束 | 内容 | 层级 |",
+        "| --- | --- | --- | --- | --- | --- |",
     ]
     for constraint in constraints:
         target = constraint.get("target") or {}
@@ -3416,6 +3816,7 @@ def _constraints_section(constraints: Sequence[Mapping]) -> list[str]:
             "| "
             + " | ".join(
                 [
+                    cell(f"`{constraint['concept']}`" if constraint.get("concept") else "—"),
                     cell(f"`{target.get('entity')}`"),
                     cell(f"`{target['column']}`" if target.get("column") else "整表"),
                     cell(_constraint_kind_text(constraint)),
@@ -3457,11 +3858,11 @@ def _findings_section(findings: Sequence[Mapping], groups: Sequence[Mapping]) ->
     printing it ten times buries the other nine kinds under it.
     """
     if not findings:
-        return ["", "## 待人工判定", "", "本语料没有发现矛盾证据。"]
+        return ["", "### 矛盾发现", "", "本语料没有发现矛盾证据。"]
     index = {_finding_item_id(finding): finding for finding in findings}
     lines = [
         "",
-        f"## 待人工判定（{len(findings)} 条，折叠为 {len(groups)} 组）",
+        f"### 矛盾发现（{len(findings)} 条，折叠为 {len(groups)} 组）",
         "",
         "同一表族上同一类矛盾折叠成一组，只列代表条目；每组的全部条目见 "
         "`ontology.json` 的 `finding_groups[]`，逐条正文见 `findings[]`。",
@@ -3509,11 +3910,11 @@ def _open_items_section(items: Sequence[Mapping], groups: Sequence[Mapping]) -> 
     table is one decision, and a list that repeats it is a list nobody finishes.
     """
     if not items:
-        return ["", "## 待人工判定清单（0 条，折叠为 0 组）", "", "本语料没有待人工判定项。"]
+        return ["", "### 待人工判定清单（0 条，折叠为 0 组）", "", "本语料没有待人工判定项。"]
     index = {str(item["id"]): item for item in items}
     lines = [
         "",
-        f"## 待人工判定清单（{len(items)} 条，折叠为 {len(groups)} 组）",
+        f"### 待人工判定清单（{len(items)} 条，折叠为 {len(groups)} 组）",
         "",
         "按（类型，表族，问题形状）折叠：一组是同一个问题问到一族表上，答一次即可；"
         "关系问的是「对端那张表按这组列唯一吗」，所以按对端归组，谁来关联它不进分组键。"
@@ -3594,10 +3995,12 @@ def _finding_tasks(finding: Mapping) -> str:
 
 
 def render_ontology_table_card_markdown(card: Mapping, ontology: Mapping) -> str:
-    """One table's card with the ontology's five sections appended (``ontology-md/1``).
+    """One table's card with the ontology's five sections appended (``ontology-md/2``).
 
     The card the corpus already writes answers "what is this table"; these sections
-    answer "what is it in the model" -- its identity, what it relates to, what holds
+    answer "what is it in the model" -- M3: first *which concept it represents* and which
+    other tables represent the same one, then its own identity, then the concept
+    relations its joins fed with those joins beneath them as evidence, then what holds
     about its values, which other columns carry the same value, and what a person still
     has to decide. They are appended rather than published separately because a reader
     with a question about a table opens one file, and splitting the answer across two
@@ -3612,7 +4015,7 @@ def render_ontology_table_card_markdown(card: Mapping, ontology: Mapping) -> str
         ("7. 身份（本体）", _card_identity(entity, ontology)),
         ("8. 关系", _card_relations(entity, ontology)),
         ("9. 约束", _card_constraints(entity, ontology)),
-        ("10. 属性同义", _card_synonyms(entity)),
+        ("10. 属性同义", [*_card_concept_citation(entity, ontology), *_card_synonyms(entity)]),
         ("11. 待人工判定", _card_open_items(entity, ontology)),
     )
     for title, body in sections:
@@ -3623,7 +4026,7 @@ def render_ontology_table_card_markdown(card: Mapping, ontology: Mapping) -> str
 
 
 def _entity_by_id(ontology: Mapping, table: str) -> dict:
-    for entity in ontology.get("entities") or []:
+    for entity in ontology.get("tables") or []:
         if str(entity.get("id")) == table:
             return dict(entity)
     return {"id": table, "identity": {}, "attributes": []}
@@ -3710,6 +4113,7 @@ def _card_identity(entity: Mapping, ontology: Mapping) -> list[str]:
     multiplicity = identity.get("multiplicity") or []
     partitions = identity.get("partition_columns") or []
     lines = _concept_memberships(entity, ontology)
+    lines += _sibling_representations(entity, ontology)
     lines += [f"- 属性 {_attribute_count_text(entity)}", "", "**候选键**", ""]
     if keys:
         lines.extend(_key_line(key) for key in keys)
@@ -3772,17 +4176,109 @@ def _membership_line(concept: Mapping, member: Mapping) -> str:
     )
 
 
-def _card_relations(entity: Mapping, ontology: Mapping) -> list[str]:
+def _sibling_representations(entity: Mapping, ontology: Mapping) -> list[str]:
+    """M3: the other tables that represent the same concept, and as what.
+
+    A reader who has just been told this table is 「客户」的快照视图 asks immediately where
+    the primary is. The answer is one hop away in the index and one line away here, and
+    a card that makes them go and look is a card that gets read alone.
+    """
     name = str(entity.get("id"))
-    relations = list(ontology.get("relations") or [])
+    mine = {
+        str(concept.get("id")): concept
+        for concept in ontology.get("concepts") or []
+        for member in concept.get("tables") or []
+        if str(member.get("table")) == name
+    }
+    rows = [
+        (concept, member)
+        for concept in mine.values()
+        for member in concept.get("tables") or []
+        if str(member.get("table")) != name
+    ]
+    if not rows:
+        return []
+    lines = ["**概念中的其他表现**", ""]
+    lines.extend(_sibling_line(concept, member) for concept, member in rows)
+    return [*lines, ""]
+
+
+def _sibling_line(concept: Mapping, member: Mapping) -> str:
+    role = str(member.get("role"))
+    table = str(member.get("table"))
+    return (
+        f"- 「{cell(str(concept.get('name')))}」的"
+        f"{CONCEPT_ROLE_TEXT.get(role, role)}视图："
+        f"[`{table}`]({table_card_filename(table)})（`{member.get('membership_basis')}`）。"
+    )
+
+
+def _card_relations(entity: Mapping, ontology: Mapping) -> list[str]:
+    """M3: the concept relations this table's joins fed, then the joins themselves.
+
+    The business relation is the answer; the JOIN is why it was published. Printing the
+    JOIN first taught every reader of this card to model on the warehouse's shape.
+    """
+    name = str(entity.get("id"))
+    relations = list(ontology.get("table_relations") or [])
     outgoing = [item for item in relations if str(item["from"]["entity"]) == name]
     incoming = [item for item in relations if str(item["to"]["entity"]) == name]
-    lines = ["**出边（本表在左）**", ""]
+    lines = ["**概念关系**", ""]
+    lines.extend(_card_concept_relations(entity, ontology, [*outgoing, *incoming]))
+    lines.extend(["", "**表级 JOIN（证据）**", "", "*出边（本表在左）*", ""])
     lines.extend(_relation_table(outgoing, "from", "to"))
-    lines.extend(["", "**入边（本表在右）**", ""])
+    lines.extend(["", "*入边（本表在右）*", ""])
     lines.extend(_relation_table(incoming, "to", "from"))
     lines.extend(_card_hint_lines(entity.get("relation_hints") or []))
     return lines
+
+
+def _card_concept_relations(
+    entity: Mapping, ontology: Mapping, edges: Sequence[Mapping]
+) -> list[str]:
+    """The concept relations the edges below folded into, named by concept."""
+    wanted = {
+        str(edge["concept_relation"]) for edge in edges if edge.get("concept_relation")
+    }
+    names = {
+        str(item.get("id")): str(item.get("name")) for item in ontology.get("concepts") or []
+    }
+    rows = [
+        relation
+        for relation in ontology.get("relations") or []
+        if str(relation.get("id")) in wanted
+    ]
+    if not rows:
+        return ["- 本表所属概念没有可发布的概念关系。"]
+    lines = [
+        "| 关系 | 从 | 到 | 类型 | 角色 | 基数 | 层级 | 证据 |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    lines.extend(_card_concept_relation_row(relation, names, edges) for relation in rows)
+    return lines
+
+
+def _card_concept_relation_row(
+    relation: Mapping, names: Mapping[str, str], edges: Sequence[Mapping]
+) -> str:
+    cardinality = relation.get("cardinality") or {}
+    kind = str(relation.get("type"))
+    claim = str(cardinality.get("claim"))
+    mine = [
+        str(edge["id"])
+        for edge in edges
+        if str(edge.get("concept_relation")) == str(relation.get("id"))
+    ]
+    return (
+        f"| `{relation.get('id')}` "
+        f"| {cell(names.get(str(relation['from']), str(relation['from'])))} "
+        f"| {cell(names.get(str(relation['to']), str(relation['to'])))} "
+        f"| {CONCEPT_TYPE_TEXT.get(kind, kind)} "
+        f"| {cell(_role_text(relation)) or '—'} "
+        f"| {CARDINALITY_TEXT.get(claim, claim)} "
+        f"| `{cardinality.get('tier')}` "
+        f"| {'、'.join(f'`{item}`' for item in mine) or '—'} |"
+    )
 
 
 def _card_hint_lines(hints: Sequence[Mapping]) -> list[str]:
@@ -3844,6 +4340,38 @@ def _relation_table(relations: Sequence[Mapping], own: str, other: str) -> list[
     return lines
 
 
+def _card_concept_citation(entity: Mapping, ontology: Mapping) -> list[str]:
+    """M3: which concept the rest of this section is about, said once, at the top.
+
+    Sections 9-11 are facts about the *table*, and after M2 the table is a representation
+    of something. Naming that thing here is what stops the three from reading as a model
+    of their own.
+    """
+    identifier = next(
+        (
+            str(item.get("id"))
+            for item in entity.get("concepts") or []
+            if str(item.get("membership_basis")) != "reference"
+        ),
+        None,
+    )
+    concept = next(
+        (
+            item
+            for item in ontology.get("concepts") or []
+            if str(item.get("id")) == identifier
+        ),
+        None,
+    )
+    if concept is None:
+        return []
+    return [
+        f"以下都是「{cell(str(concept.get('name')))}」（`{concept.get('id')}`）"
+        "这一份表现上的事实。",
+        "",
+    ]
+
+
 def _card_constraints(entity: Mapping, ontology: Mapping) -> list[str]:
     name = str(entity.get("id"))
     constraints = [
@@ -3851,9 +4379,11 @@ def _card_constraints(entity: Mapping, ontology: Mapping) -> list[str]:
         for item in ontology.get("constraints") or []
         if str((item.get("target") or {}).get("entity")) == name
     ]
+    cited = _card_concept_citation(entity, ontology)
     if not constraints:
-        return ["- 语料内没有可发布的约束。"]
+        return [*cited, "- 语料内没有可发布的约束。"]
     lines = [
+        *cited,
         "| 约束 | 目标 | 值集 / 完整性 | 层级 | 证据 |",
         "| --- | --- | --- | --- | --- |",
     ]
@@ -3933,7 +4463,7 @@ def _card_open_items(entity: Mapping, ontology: Mapping) -> list[str]:
             f"回写 `键:{name}={'+'.join(key['columns'])}`。"
             f"{_cites(_key_item_id(name, key['columns']), groups)}"
         )
-    for relation in ontology.get("relations") or []:
+    for relation in ontology.get("table_relations") or []:
         if name not in (str(relation["from"]["entity"]), str(relation["to"]["entity"])):
             continue
         if str((relation.get("cardinality") or {}).get("tier")) != TIER_HYPOTHESIS:
@@ -3953,7 +4483,10 @@ def _card_open_items(entity: Mapping, ontology: Mapping) -> list[str]:
             f" — {_constraint_body(constraint)}"
             f"{'；' + normalize_inline(str(constraint['note'])) if constraint.get('note') else ''}"
         )
-    return lines or ["- 本表没有待人工判定的项。"]
+    return [
+        *_card_concept_citation(entity, ontology),
+        *(lines or ["- 本表没有待人工判定的项。"]),
+    ]
 
 
 def _group_index(ontology: Mapping) -> dict[str, str]:

@@ -1,27 +1,29 @@
 English | [中文](../zh-CN/ontology-doc.md)
 
-# `ontology.json` / `ontology.md` corpus-level ontology candidate (`ontology-json/1`)
+# `ontology.json` / `ontology.md` corpus-level ontology candidate (`ontology-json/2`)
 
 `scope-lineage ontology` walks every `lineage.json` under one corpus root and, on top of
 the [table cards](tables-doc.md) and the [value dictionary](glossary-doc.md), answers one
-question no single table can: **how do these tables relate**. Entities (a table plus its
-identity keys), attributes (a column plus its comment, its observed roles and its
-synonyms), relations (JOIN key pairs plus a provable cardinality), constraints (not null,
-value set, unique per key, partition) and the contradictions between tasks.
+question no single table can: **what is this warehouse about, and how do those things
+relate**. Concepts (entity / event / summary) and the relations between them; the tables
+that represent those concepts, with their identity keys and their attributes (a column
+plus its comment, its observed roles and its synonyms); the table-to-table JOINs that are
+the evidence each concept relation was read off; constraints (not null, value set, unique
+per key, partition); and the contradictions between tasks.
 
 Every JOIN in a corpus is an assertion about two entities and their keys; every "dedup by
 k, then join" is an assertion that the deduplicated table holds many rows per k; every
 closed `IN` list is an assertion about a column's value set. This document collects those
 assertions and labels each with its confidence tier and its evidence.
 
-> **Vocabulary**: `entities[]` holds **table entities** -- how a concept is represented in
-> the warehouse, one per table; `concepts[]` holds the **business concepts** (entity /
-> event / summary), and one concept is usually represented by several tables. The two are
-> not the same layer: 「客户」 is a concept, `dwd.customer_df` is one of its table entities.
-> The name `entities` comes from this document's first version and no longer fits, so
-> **0.4.0 renames it to `tables`** (`concepts[]` is unchanged). Consumers can prepare now:
-> read both keys (`tables` first, falling back to `entities`), and do not read `entities[]`
-> as a list of business entities.
+> **Terminology** (0.4.0 / `ontology-json/2`, already landed): `concepts[]` holds the
+> **business concepts** (entity / event / summary) and `relations[]` the relations **between
+> concepts**; `tables[]` holds the warehouse's **representations** of those concepts (one row
+> per table) and `table_relations[]` the table-to-table JOINs, which are the **evidence** the
+> concept relations were read off. 「客户」 is a concept, `dwd.customer_df` is one of its
+> representations. The previous release called `tables[]` `entities[]` and
+> `table_relations[]` `relations[]`; see
+> "[Migrating from ontology-json/1](#migrating-from-ontology-json1)" below.
 
 ## Position: an ontology **candidate**, not a business ontology
 
@@ -37,7 +39,7 @@ assertions and labels each with its confidence tier and its evidence.
   sh:NodeShape), and `--export` writes LinkML and SHACL from that correspondence; no
   OWL file is emitted.
 - Stability is graded as in the other derived documents: key names are stable within
-  `ontology-json/1`, the Chinese wording may be adjusted, and a machine should read the
+  `ontology-json/2`, the Chinese wording may be adjusted, and a machine should read the
   JSON rather than the Markdown.
 
 ## Usage
@@ -64,9 +66,9 @@ Three artifacts:
 
 | File | Read by | Contents |
 | --- | --- | --- |
-| `ontology.json` | machines / RAG / knowledge-graph loaders | the main artifact, `doc_format: "ontology-json/1"` |
-| `ontology.md` | people | an index: the concept layer (its diagram, the concept table, the provisional-concept table and the concept-relation table) first, then the Mermaid ER overview plus the entity, relation, constraint and findings tables and the consolidated open list (the last two folded into groups by table family), `doc_format: "ontology-index-md/1"` |
-| `tables/<db.table>.md` | people / RAG chunked per table | the table card's six sections plus five ontology sections, `doc_format: "ontology-md/1"`; the filename rule is exactly `scope-lineage tables`' own |
+| `ontology.json` | machines / RAG / knowledge-graph loaders | the main artifact, `doc_format: "ontology-json/2"` |
+| `ontology.md` | people | an index, read concept-first since M3: `本体总览` (counts by kind, the concept ER, the concept table, the relation table) → `概念` (**one section per concept**, with the provisional-concept table at its end) → `附录：表与证据` (the table-level ER, the tables, the table relations, the constraints, the families, the retired key stems, the findings and the folded open list), `doc_format: "ontology-index-md/2"` |
+| `tables/<db.table>.md` | people / RAG chunked per table | the table card's six sections plus five ontology sections, `doc_format: "ontology-md/2"`; the filename rule is exactly `scope-lineage tables`' own |
 
 Python API (consumes the contract documents, same path the files are written from):
 
@@ -97,6 +99,10 @@ card = render_ontology_table_card_markdown(cards["tables"][0], ontology)
 - `--export` takes `linkml`, `shacl` or both (repeatable, or one comma-separated list)
   and exports nothing by default; it is independent of `--format`. See
   [Exporting LinkML / SHACL](#exporting-linkml--shacl).
+- `--legacy-keys` (**deprecated**, off by default) additionally writes the
+  `ontology-json/1` key spellings as aliases of the new ones, giving a consumer one
+  release to migrate. See
+  [Migrating from ontology-json/1](#migrating-from-ontology-json1).
 - Determinism: the same corpus produces the same bytes whatever order it was walked in.
 
 ## Incremental runs: `--incremental` / `--no-cache` / `--cache-from`
@@ -158,38 +164,9 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 
 ```jsonc
 {
-  "doc_format": "ontology-json/1",
+  "doc_format": "ontology-json/2",
   "corpus": {"artifact_root": "…", "task_count": 12, "lineage_digests": {"task_a": "…"},
              "external_evidence_tables": 2},   // only when merged cards hold tables this corpus never touched
-  "entities": [
-    {"id": "ods.customer", "kind": "physical_table",
-     "family": "ods.customer",   // Q3: the family key, the name without _di / _tmp / _mid01
-     "comment": null,
-     "identity": {
-       "candidate_keys": [{"columns": ["id"], "tier": "hypothesis",
-                           "evidence": [{"task": "task_a", "statement_id": "stmt:001",
-                                         "kind": "joined_as_right_without_dedup",
-                                         "logic_block_id": "logic:ROOT:join:001"}]}],
-       "declared_hints": [{"columns": ["id"], "evidence": "column_comment",
-                           "text": "customer primary key"}],
-       "multiplicity": [{"columns": ["driver_id"], "tier": "implied",
-                         "claim": "multiple_rows_per_key", "evidence": [{"kind": "group_by"}]}],
-       "partition_columns": ["dt"]},
-     "attributes": [
-       {"column": "state", "type": "string", "comment": null,
-        "observed_roles": ["filter", "output"], "used_in_corpus": true,
-        "not_null_observed": false,
-        "synonyms": [{"entity": "mart.t", "column": "order_state", "tier": "proven",
-                      "via": "direct_rename", "evidence": [{"task": "task_a"}]}],
-        "samples": ["PAID", "NEW"]}],
-     "naming_hints": {"table_comment": null, "domain": null, "project": null, "owner": null},
-     "relation_hints": [{"from_column": "pay_id",
-                         "to": {"entity": "ods.pay", "column": "id"},
-                         "evidence": "column_comment", "text": "payment, references ods.pay.id"}]}
-  ],
-  "families": [
-    {"family": "ods.pay", "tables": ["ods.pay_df", "ods.pay_di"], "size": 2}
-  ],
   "concepts": [
     {"id": "concept:cust", "name": "客户", "name_tier": "hypothesis",
      "name_candidates": [
@@ -229,10 +206,6 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
      "tier": "provisional", "origin": "provisional"}
   ],
   "provisional_count": 1,                        // M1: how many of the above are provisional
-  "unassigned_tables": [                         // M1: always [], kept for one release
-    {"table": "ods.staging_rows", "reason": "generic_key_only"}   // keyed by `id` alone,
-                                                                 // and no hint and no JOIN placed it
-  ],
   "retired_stems": [                             // K4c: the stems a generic rule refused
     {"stem": "rowkey", "tables": [{"table": "ods.rows_a", "role": "primary",
                                    "key_columns": ["rowkey"]}]}
@@ -244,6 +217,56 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
                                 "unmatched": [], "warnings": [],
                                 "ignored_fields": []},
   "relations": [
+    {"id": "crel:001",
+     "from": "concept:msg", "to": "concept:cust", "type": "participation",
+     "roles": ["发送方", "接收方"],          // the entity's roles in the event
+     "cardinality": {"claim": "many_to_one", "tier": "proven",
+                     "basis": ["rel:003"]},  // the table-level edges that claimed it
+     "task_count": 2, "evidence": ["rel:003", "rel:004"]}
+  ],
+  "provisional_relations": 1,                // M1: relations touching a provisional concept
+  "representation_links": [          // two tables of one concept, joined
+    {"concept": "concept:cust", "from_table": "dwd.customer_df",
+     "to_table": "ods.customer_base", "evidence": ["rel:005"]}
+  ],
+  "concept_relations_unmapped": {"edges_total": 5, "mapped": 4,  // a fixed denominator
+     "total": 1,                              // counted by the end that failed
+     "by_reason": {"from_table_unplaced": 1, "to_table_unplaced": 0,
+                   "reference_only_edge": 0}},
+  "tables": [
+    {"id": "ods.customer", "kind": "physical_table",
+     "family": "ods.customer",   // Q3: the family key, the name without _di / _tmp / _mid01
+     "comment": null,
+     "identity": {
+       "candidate_keys": [{"columns": ["id"], "tier": "hypothesis",
+                           "evidence": [{"task": "task_a", "statement_id": "stmt:001",
+                                         "kind": "joined_as_right_without_dedup",
+                                         "logic_block_id": "logic:ROOT:join:001"}]}],
+       "declared_hints": [{"columns": ["id"], "evidence": "column_comment",
+                           "text": "customer primary key"}],
+       "multiplicity": [{"columns": ["driver_id"], "tier": "implied",
+                         "claim": "multiple_rows_per_key", "evidence": [{"kind": "group_by"}]}],
+       "partition_columns": ["dt"]},
+     "attributes": [
+       {"column": "state", "type": "string", "comment": null,
+        "observed_roles": ["filter", "output"], "used_in_corpus": true,
+        "not_null_observed": false,
+        "synonyms": [{"entity": "mart.t", "column": "order_state", "tier": "proven",
+                      "via": "direct_rename", "evidence": [{"task": "task_a"}]}],
+        "samples": ["PAID", "NEW"]}],
+     "naming_hints": {"table_comment": null, "domain": null, "project": null, "owner": null},
+     "relation_hints": [{"from_column": "pay_id",
+                         "to": {"entity": "ods.pay", "column": "id"},
+                         "evidence": "column_comment", "text": "payment, references ods.pay.id"}],
+     "concepts": [{"id": "concept:cust", "role": "primary",
+                   "membership_basis": "key:hypothesis"},
+                  {"id": "concept:pay", "role": "reference",
+                   "membership_basis": "reference"}]}
+  ],
+  "families": [
+    {"family": "ods.pay", "tables": ["ods.pay_df", "ods.pay_di"], "size": 2}
+  ],
+  "table_relations": [
     {"id": "rel:001",
      "from": {"entity": "ods.driver", "columns": ["id"]},
      "to": {"entity": "ods.pay", "columns": ["driver_id"]},
@@ -251,7 +274,8 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
      "cardinality": {"claim": "one_to_many", "tier": "implied", "basis": "group_by"},
      "join_types": ["LEFT_OUTER"], "task_count": 1,
      "evidence": [{"task": "task_a", "statement_id": "stmt:001",
-                   "scope_id": "ROOT", "logic_block_id": "logic:ROOT:join:001"}]},
+                   "scope_id": "ROOT", "logic_block_id": "logic:ROOT:join:001"}],
+     "concept_relation": "crel:001"},
     {"id": "rel:002",
      "from": {"entity": "ods.driver", "columns": ["pay_id"]},
      "to": {"entity": "ods.pay", "columns": ["id"]},
@@ -260,80 +284,69 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
                      "basis": "column_comment"},
      "join_types": [], "task_count": 0,
      "evidence": [{"kind": "column_comment", "column": "pay_id",
-                   "text": "payment, references ods.pay.id"}]}
+                   "text": "payment, references ods.pay.id"}],
+     "concept_relation": null}
   ],
-  "concept_relations": [
-    {"from": "concept:msg", "to": "concept:cust", "type": "participation",
-     "roles": ["发送方", "接收方"],          // the entity's roles in the event
-     "cardinality": {"claim": "many_to_one", "tier": "proven",
-                     "basis": ["rel:003"]},  // the table-level edges that claimed it
-     "task_count": 2, "evidence": ["rel:003", "rel:004"]}
-  ],
-  "provisional_relations": 1,                // M1: relations touching a provisional concept
-  "concept_representation_links": [          // two tables of one concept, joined
-    {"concept": "concept:cust", "from_table": "dwd.customer_df",
-     "to_table": "ods.customer_base", "evidence": ["rel:005"]}
-  ],
-  "concept_relations_unmapped": {"edges_total": 5, "mapped": 4,  // a fixed denominator
-     "total": 1,                              // counted by the end that failed
-     "by_reason": {"from_table_unplaced": 1, "to_table_unplaced": 0,
-                   "reference_only_edge": 0}},
   "constraints": [
     {"target": {"entity": "ods.orders", "column": "state"}, "kind": "in_set",
      "tier": "proven", "values": ["NEW", "PAID"], "completeness": "complete",
-     "evidence": [{"task": "task_a", "statement_id": "stmt:001", "context": "filter_in"}]}
+     "evidence": [{"task": "task_a", "statement_id": "stmt:001", "context": "filter_in"}],
+     "concept": "concept:order"}
   ],
   "findings": [
     {"kind": "cardinality_conflict", "entity": "ods.pay", "columns": ["driver_id"],
      "tasks": {"multiple_rows_per_key": ["task_a"], "assumed_unique": ["task_b"]},
-     "text": "…"},
+     "text": "…", "concept": "concept:pay"},
     {"kind": "competing_candidate_keys", "entity": "ods.pay",
      "columns": ["driver_id", "dt"],
      "keys": [{"columns": ["driver_id"], "evidence": [{"task": "task_a"}]},
               {"columns": ["driver_id", "dt"], "evidence": [{"task": "task_b"}]}],
-     "tasks": {"assumed_unique": ["task_a", "task_b"]}, "text": "…"}
+     "tasks": {"assumed_unique": ["task_a", "task_b"]}, "text": "…",
+     "concept": "concept:pay"}
   ],
   "finding_groups": [],   // the groups in open_item_groups whose kind is finding
   "open_items": [
     {"id": "open:key:ods.customer=id", "kind": "candidate_key",
      "entity": "ods.customer", "columns": ["id"], "tier": "hypothesis",
-     "write_back": "键:ods.customer=id", "text": "…"}
+     "write_back": "键:ods.customer=id", "text": "…",
+     "concept": "concept:cust"}
   ],
   "open_item_groups": [
     {"group_id": "open:group:key:ods.customer=id", "kind": "candidate_key",
      "family": "ods.customer", "shape": "id",
      "representative": "open:key:ods.customer=id",
      "items": ["open:key:ods.customer=id"], "count": 1, "impact": 2,
-     "write_back_pattern": "键:<table>=id"}
+     "write_back_pattern": "键:<table>=id", "concept": "concept:cust"}
   ],
   "overrides_applied": {"relations": 0, "keys": 0, "unmatched": [],
                         "ignored_fields": []}
 }
 ```
 
-Slot by slot (every slot `ontology-json/1` publishes):
+Slot by slot (every slot `ontology-json/2` publishes):
 
 | Slot | Values | Meaning |
 | --- | --- | --- |
 | `corpus` | `artifact_root` / `task_count` / `lineage_digests` / `external_evidence_tables` | the same corpus block the table cards carry: the walked root, the task count, one lineage digest per task, and how many tables lent evidence only without becoming entities (P7; absent when none did) |
-| `entities[].kind` | `physical_table` / `produced_table` | a table some task in the corpus writes is a `produced_table` |
-| `entities[].family` | `<database>.<table name without its copy suffixes>` | Q3: which table family this table belongs to, derived from its own name alone (the rule is under "Table families and the folded open list"); the same table name in two databases is two families |
-| `entities[].comment`, `naming_hints` | table comment / domain / project / owner | metadata carried over verbatim; Core infers no business semantics from it |
-| `entities[].identity.candidate_keys[]` | `columns` + `tier` + `evidence` | the key a producing task proved (`producer_key_confidence`) and the key a consuming task assumed (`joined_as_right_without_dedup`) stand side by side; they are never merged into one "primary key" |
-| `entities[].identity.candidate_keys[].scope_columns` | a list of column names | H2: the key is unique only within one value of these columns (the normal shape of a snapshot table); it can only come from a human confirmation |
-| `entities[].identity.declared_hints[]` | `columns` + `evidence: column_comment` + `text` | H3: a column comment calling the column a key, carried over verbatim; it is a metadata hint and not a candidate key, and where it agrees with one, that key rises from `hypothesis` to `implied` |
-| `entities[].relation_hints[]` | `from_column` + `to.entity` / `to.column` + `evidence: column_comment` + `text` (+ `unresolved`) | O9: a column comment pointing at another table's column (「关联 <表>.<列>」 and its kin), carried over verbatim and resolved against the corpus's own entities; one that cannot be resolved carries `unresolved` (`unknown_entity: X` / `ambiguous_entity: X` / `unknown_column: X`) and acts on nothing; the key is absent when a table's comments point at nothing |
-| `entities[].identity.multiplicity[]` | `claim: multiple_rows_per_key` | O3: some task grouped or window-partitioned this table by these columns |
-| `entities[].identity.partition_columns` | a list of column names | the partition columns a producing task writes (a metadata fact) |
-| `entities[].attributes[].type`, `comment` | metadata | the column type and comment from the table card, carried over verbatim |
-| `entities[].attributes[]` | one per column the metadata declares | attributes cover the whole table, not only the columns the corpus read or wrote, and follow the order of the table card's `columns[]` |
-| `entities[].attributes[].observed_roles` | `filter`, `partition_filter`, `join_key`, `group_by`, `window_partition`, `window_order`, `output` | the consumer usages the table card recorded; a column nobody read carries an empty list |
-| `entities[].attributes[].used_in_corpus` | `true` / `false` | whether any task in this corpus wrote or read the column; `false` alongside an empty `observed_roles` reads as "the metadata declares it and this corpus never went near it" |
-| `entities[].attributes[].not_null_observed` | `true` / `false` | some task in the corpus filtered this column with `NOT x IS NULL` |
-| `entities[].attributes[].synonyms[].via` | `direct_rename` / `union_alignment` | O5: two column names for one value |
-| `entities[].attributes[].samples[]` | array of strings | A6: the table card's sample values, carried across unchanged — they come only from a file passed to `tables --samples` (already redacted and cut), and the key is absent when that column has none |
+| `tables[].concepts[]` | `id` + `role` + `membership_basis` | M2: which concepts this table **represents** and in which role -- the back-link of `concepts[].tables[]`. A table may carry several: one is its own identity, the rest are concepts whose key it merely **carries** (`reference`). The two layers can therefore be walked from either end |
+| `tables[].kind` | `physical_table` / `produced_table` | a table some task in the corpus writes is a `produced_table` |
+| `tables[].family` | `<database>.<table name without its copy suffixes>` | Q3: which table family this table belongs to, derived from its own name alone (the rule is under "Table families and the folded open list"); the same table name in two databases is two families |
+| `tables[].comment`, `naming_hints` | table comment / domain / project / owner | metadata carried over verbatim; Core infers no business semantics from it |
+| `tables[].identity.candidate_keys[]` | `columns` + `tier` + `evidence` | the key a producing task proved (`producer_key_confidence`) and the key a consuming task assumed (`joined_as_right_without_dedup`) stand side by side; they are never merged into one "primary key" |
+| `tables[].identity.candidate_keys[].scope_columns` | a list of column names | H2: the key is unique only within one value of these columns (the normal shape of a snapshot table); it can only come from a human confirmation |
+| `tables[].identity.declared_hints[]` | `columns` + `evidence: column_comment` + `text` | H3: a column comment calling the column a key, carried over verbatim; it is a metadata hint and not a candidate key, and where it agrees with one, that key rises from `hypothesis` to `implied` |
+| `tables[].relation_hints[]` | `from_column` + `to.entity` / `to.column` + `evidence: column_comment` + `text` (+ `unresolved`) | O9: a column comment pointing at another table's column (「关联 <表>.<列>」 and its kin), carried over verbatim and resolved against the corpus's own entities; one that cannot be resolved carries `unresolved` (`unknown_entity: X` / `ambiguous_entity: X` / `unknown_column: X`) and acts on nothing; the key is absent when a table's comments point at nothing |
+| `tables[].identity.multiplicity[]` | `claim: multiple_rows_per_key` | O3: some task grouped or window-partitioned this table by these columns |
+| `tables[].identity.partition_columns` | a list of column names | the partition columns a producing task writes (a metadata fact) |
+| `tables[].attributes[].type`, `comment` | metadata | the column type and comment from the table card, carried over verbatim |
+| `tables[].attributes[]` | one per column the metadata declares | attributes cover the whole table, not only the columns the corpus read or wrote, and follow the order of the table card's `columns[]` |
+| `tables[].attributes[].observed_roles` | `filter`, `partition_filter`, `join_key`, `group_by`, `window_partition`, `window_order`, `output` | the consumer usages the table card recorded; a column nobody read carries an empty list |
+| `tables[].attributes[].used_in_corpus` | `true` / `false` | whether any task in this corpus wrote or read the column; `false` alongside an empty `observed_roles` reads as "the metadata declares it and this corpus never went near it" |
+| `tables[].attributes[].not_null_observed` | `true` / `false` | some task in the corpus filtered this column with `NOT x IS NULL` |
+| `tables[].attributes[].synonyms[].via` | `direct_rename` / `union_alignment` | O5: two column names for one value |
+| `tables[].attributes[].samples[]` | array of strings | A6: the table card's sample values, carried across unchanged — they come only from a file passed to `tables --samples` (already redacted and cut), and the key is absent when that column has none |
 | `families[]` | `family` + `tables[]` + `size` | Q3: every table family the corpus names and the tables inside it, sorted by `family`; read it before answering a group, to check that the family really is one table written several times |
-| `concepts[]` | `id` / `name` / `kind` / `identity` / `tables[]` / `attributes[]` / `tier` | K1: the tables that share one business key, folded into one concept; `entities[]` stay the table-level representations a concept merely points at (rules under "The concept layer" below) |
+| `concepts[]` | `id` / `name` / `kind` / `identity` / `tables[]` / `attributes[]` / `tier` | K1: the tables that share one business key, folded into one concept; `tables[]` stay the table-level representations a concept merely points at (rules under "The concept layer" below) |
 | `concepts[].kind`, `kind_tier`, `kind_evidence[]` | `entity` / `event` / `summary`; one of the five tiers; one vote per signal | K1: signals that agree earn `implied`, signals that disagree earn `hypothesis`, and every signal's vote is published as it was cast |
 | `concepts[].tables[].role` | `primary` / `snapshot` / `detail` / `summary` / `intermediate` / `reference` | K1: which copy of the concept this table is; `reference` is a table that is not unique by the key but *carries* it, which is how an event table takes part in 客户 |
 | `concepts[].tables[].membership_basis` | `key:<tier>` / `declared_hint` / `reference` / `override` | K1: what makes this table a member -- a candidate key the corpus read (carrying its own tier), a primary-key hint the catalog declared, or a JOIN; `override` is K4b's fourth: a reviewer put it there by hand with `add_tables`, and that member also carries `role_tier: "confirmed"`. K4d: a reviewed add whose role is `reference` publishes **`reference`**, not `override` -- "it merely carries this key" is exactly what `reference` means, and it must not turn round and change what the table itself is; the basis can then no longer say who put it there, so `confirmed_by` / `confirmed_basis` and the rest of the stamp stay on that member row |
@@ -343,27 +356,30 @@ Slot by slot (every slot `ontology-json/1` publishes):
 | `concepts[].tier` | `implied` / `hypothesis` / `confirmed` / **`provisional`** (M1) | K1: how sure the corpus is of the concept. `provisional` is M1's fourth value and is not the same kind of statement as the other three -- it does not say how believable the concept is, it says this is not a concept yet but a table waiting to be merged |
 | `concepts[].origin` | `override` (K4c) / `provisional` (M1) | Present only when a business key of the corpus did not grow the concept: `override` means a reviewer created it, `provisional` means M1 made one out of a table |
 | `provisional_count` | integer | M1: how many of `concepts[]` are provisional. It is what a review round reads for its own progress -- every merge takes one off |
-| `unassigned_tables[]` | always `[]` | M1: **empty by construction**. A table no business key placed is no longer left out; it becomes a `provisional` concept of its own. The key is kept for one release so a consumer that reads it does not break on its absence; the next release drops it |
 | `retired_stems[]` | `stem` + `tables[]` (`table` / `role` / `key_columns[]`) | K4c: the key stems a generic rule refused (the surrogate list, the log and tracing ids, the comment rule) although the corpus really keys tables by them -- without that rule each would have seeded a concept. Published so that an answer an earlier round wrote about `concept:<stem>` stays addressable when the rule changes: naming it in `concepts.overrides.json` rebuilds the concept from exactly these tables and roles, and the stem leaves this list in the same run (K4d; see "Writing the concept review back") |
-| `relations[].id` | `rel:NNN` | numbered after sorting, stable for one corpus |
-| `relations[].kind` | `join_association` / `union_sibling` / `hinted` | a JOIN key pair, or two branches of one UNION; `hinted` is O9's edge -- proposed by a column comment and written by no task in the corpus (`task_count` 0, empty `join_types`) |
-| `relations[].cardinality.claim` | `one_to_many` / `many_to_one` / `many_to_one_assumed` / `one_to_one_assumed` / `unknown` | O2, in the direction `from` → `to`; `one_to_one_assumed` can only come from a human confirmation |
-| `relations[].cardinality.tier` | one of the five tiers | the confidence tier of this cardinality claim |
-| `relations[].cardinality.basis` | `group_by` / `ranking_window` / `producer_key_confidence` / `right_side_not_deduplicated` / `union_branch_alignment` / `no_uniqueness_evidence` / `human_confirmation` / `column_comment` | what the cardinality rests on |
-| `relations[].join_types`, `task_count` | the union of JOIN types, the task count | the JOIN types the same entity pair was joined with across tasks, merged |
-| `relations[].evidence[].left_via_scopes` | a list of scope ids | where one side of the JOIN was a CTE, the scopes the walk pierced through to reach a physical table (`right_via_scopes` for the other side) |
-| `concept_relations[]` | `from` / `to` / `type` / `cardinality` / `task_count` / `evidence[]` | K3: the table-level relations above, folded onto the concepts -- `evidence[]` is the member edges' ids and `task_count` the distinct tasks behind them (rules under "Concept relations" below) |
-| `concept_relations[].from`, `to` | concept ids | K3: the two ends answer two different questions -- `from` is **what this table is** (the concept its own key or a declared hint placed it on, never a `reference` and never the columns this edge joined on), `to` is **what it points at** (the `to` table's own identity first, and only failing that the concept its columns name; when those columns name the very concept the `from` table already is, the membership a JOIN lent the far table answers instead). K4d: when several concepts hold the `to` table, **the identity one wins** -- exactly one identity membership plus any number of `reference` ones reads as that identity; only several identity memberships, or none at all with several references, leave the tie to the stem rule |
-| `concept_relations[].type` | `association` / `participation` / `aggregation` / `derivation` / `self_reference` | K3: read off the two endpoints' `kind`, never off a word |
-| `concept_relations[].roles[]` | a list of texts | K3: `participation` only -- what the entity is to the event, taken from the `from` side's column comment and stripped as a key comment is (发送方编号 → 发送方); when the comment says nothing it falls back to the column *name*, read as words rather than as an identifier (K4d). The key markers come off the segments the corpus itself marked with `_` (the rule `key_stem` uses) and **only** those; whatever survives is then split into words at its camelCase humps: `collection_unit_id` → `collection unit` and `trace_node_code` → `trace node`, while `openId` → `open id` -- a hump is not a segment anybody declared, `openId` is one word the warehouse wrote, and reading it as `open` throws half of it away. A CJK name is used as it stands. **The raw identifier is never published** -- a role is a word a business uses, and putting the warehouse's spelling there says the business calls it that. "The comment says nothing" takes the widest reading: an empty comment, a bare key marker (「ID」), and **a comment that is the column identifier over again** (which is how many catalogs fill them) all fall through to the name -- otherwise the comment route hands back `openId` whatever the fallback does. One group can carry several (发送方 and 接收方 are two edges between the same two concepts) |
-| `concept_relations[].cardinality` | `claim` / `tier` / `basis[]` | K3: the strongest member claim -- tier first (`proven` > `confirmed` > `implied` > `hypothesis`), then a definite claim over `unknown`; `basis[]` names the table-level relations that carried it |
-| `provisional_relations` | integer | M1: how many of `concept_relations[]` touch a provisional concept. Such an edge says "some table takes part", not yet "the business has this relation"; the number falls as the review merges the provisional concepts away |
-| `concept_representation_links[]` | `concept` + `from_table` + `to_table` + `evidence[]` | K3: both ends on one concept while the two *tables* are both representations of it (a snapshot joined onto its primary) -- a seam in K1's fold rather than a relation, so it gets its own section |
+| `table_relations[].id` | `rel:NNN` | numbered after sorting, stable for one corpus |
+| `table_relations[].concept_relation` | `crel:NNN` or `null` | M2: which concept relation this JOIN folded into. `null` has two readings: the edge is a seam between two representations of one concept (it is in `representation_links[]`), or it never travelled on the key that placed its two ends (counted under `concept_relations_unmapped.by_reason.reference_only_edge`). Since M1 the `*_unplaced` reasons are always 0, so every table relation is either folded or one of those two |
+| `table_relations[].kind` | `join_association` / `union_sibling` / `hinted` | a JOIN key pair, or two branches of one UNION; `hinted` is O9's edge -- proposed by a column comment and written by no task in the corpus (`task_count` 0, empty `join_types`) |
+| `table_relations[].cardinality.claim` | `one_to_many` / `many_to_one` / `many_to_one_assumed` / `one_to_one_assumed` / `unknown` | O2, in the direction `from` → `to`; `one_to_one_assumed` can only come from a human confirmation |
+| `table_relations[].cardinality.tier` | one of the five tiers | the confidence tier of this cardinality claim |
+| `table_relations[].cardinality.basis` | `group_by` / `ranking_window` / `producer_key_confidence` / `right_side_not_deduplicated` / `union_branch_alignment` / `no_uniqueness_evidence` / `human_confirmation` / `column_comment` | what the cardinality rests on |
+| `table_relations[].join_types`, `task_count` | the union of JOIN types, the task count | the JOIN types the same entity pair was joined with across tasks, merged |
+| `table_relations[].evidence[].left_via_scopes` | a list of scope ids | where one side of the JOIN was a CTE, the scopes the walk pierced through to reach a physical table (`right_via_scopes` for the other side) |
+| `relations[].id` | `crel:NNN` | M2: concept relations are numbered by publication order; this is what `table_relations[].concept_relation` names |
+| `relations[]` | `id` / `from` / `to` / `type` / `cardinality` / `task_count` / `evidence[]` | K3: the table-level relations above, folded onto the concepts -- `evidence[]` is the member edges' ids and `task_count` the distinct tasks behind them (rules under "Concept relations" below) |
+| `relations[].from`, `to` | concept ids | K3: the two ends answer two different questions -- `from` is **what this table is** (the concept its own key or a declared hint placed it on, never a `reference` and never the columns this edge joined on), `to` is **what it points at** (the `to` table's own identity first, and only failing that the concept its columns name; when those columns name the very concept the `from` table already is, the membership a JOIN lent the far table answers instead). K4d: when several concepts hold the `to` table, **the identity one wins** -- exactly one identity membership plus any number of `reference` ones reads as that identity; only several identity memberships, or none at all with several references, leave the tie to the stem rule |
+| `relations[].type` | `association` / `participation` / `aggregation` / `derivation` / `self_reference` | K3: read off the two endpoints' `kind`, never off a word |
+| `relations[].roles[]` | a list of texts | K3: `participation` only -- what the entity is to the event, taken from the `from` side's column comment and stripped as a key comment is (发送方编号 → 发送方); when the comment says nothing it falls back to the column *name*, read as words rather than as an identifier (K4d). The key markers come off the segments the corpus itself marked with `_` (the rule `key_stem` uses) and **only** those; whatever survives is then split into words at its camelCase humps: `collection_unit_id` → `collection unit` and `trace_node_code` → `trace node`, while `openId` → `open id` -- a hump is not a segment anybody declared, `openId` is one word the warehouse wrote, and reading it as `open` throws half of it away. A CJK name is used as it stands. **The raw identifier is never published** -- a role is a word a business uses, and putting the warehouse's spelling there says the business calls it that. "The comment says nothing" takes the widest reading: an empty comment, a bare key marker (「ID」), and **a comment that is the column identifier over again** (which is how many catalogs fill them) all fall through to the name -- otherwise the comment route hands back `openId` whatever the fallback does. One group can carry several (发送方 and 接收方 are two edges between the same two concepts) |
+| `relations[].cardinality` | `claim` / `tier` / `basis[]` | K3: the strongest member claim -- tier first (`proven` > `confirmed` > `implied` > `hypothesis`), then a definite claim over `unknown`; `basis[]` names the table-level relations that carried it |
+| `provisional_relations` | integer | M1: how many of `relations[]` touch a provisional concept. Such an edge says "some table takes part", not yet "the business has this relation"; the number falls as the review merges the provisional concepts away |
+| `representation_links[]` | `concept` + `from_table` + `to_table` + `evidence[]` | K3: both ends on one concept while the two *tables* are both representations of it (a snapshot joined onto its primary) -- a seam in K1's fold rather than a relation, so it gets its own section |
 | `concept_relations_unmapped` | `edges_total` + `mapped` + `total` + `by_reason` (`from_table_unplaced` / `to_table_unplaced` / `reference_only_edge`) | K3: the table-level relations that could not be folded, counted by **which end** failed to answer; the `from` end is asked first, so an edge that fails both is counted once under `from_table_unplaced`, and an edge whose two ends answered while never travelling on that key is counted under `reference_only_edge`. A wrong fold is worse than a missing one. `edges_total` is every table-level relation this fold read and `mapped` the ones that folded: **`by_reason` shifts as tables get placed** (a `from_table_unplaced` edge becomes a folded one the moment a reviewer places its table), so the denominator is published beside it and two runs are comparable |
+| `constraints[].concept` | a concept id or `null` | M2: the concept the target table **represents**. The target is still a table -- a constraint is a fact about one representation -- and this key only lets the document be read concept-first. `null` when the table has two identity concepts, which is exactly the case K1 refuses to choose between |
 | `constraints[].kind` | `not_null` / `in_set` / `unique_per` / `partition` | O6 |
 | `constraints[].values`, `completeness` | a value list, `complete` / `unknown` | `in_set` only: only a closed `IN` list or an exhaustive CASE is `complete` |
 | `constraints[].columns` | a list of column names | `unique_per` only: the candidate keys plus the partition columns |
 | `constraints[].note` | one sentence | `not_null` only: "the task discarded the NULLs with a filter; the source itself may still hold some" |
+| `findings[].concept`, `open_items[].concept`, `open_item_groups[].concept` | a concept id or `null` | M2: which concept the subject table belongs to, so the index can file the question under that concept's section. A group takes it from its representative item |
 | `findings[].kind` | `cardinality_conflict` / `competing_candidate_keys` / `key_hint_conflict` / `relation_hint_conflict` / `producer_key_conflict` / `ambiguous_bare_name` | O7, O8 and O9; the last two are carried over from the table cards |
 | `findings[].tasks` | role → task names | which tasks stand on each side of the contradiction |
 | `findings[].keys[]` | two sets of `columns` + `evidence` | `competing_candidate_keys` only: the two competing key sets with the evidence behind each |
@@ -378,6 +394,29 @@ Slot by slot (every slot `ontology-json/1` publishes):
 | `finding_groups[]` | the same shape as `open_item_groups[]` | the subset of `open_item_groups[]` whose `kind` is `finding`, published on its own because the index's 待人工判定 table renders only those |
 | `overrides_applied` | `relations` / `keys` / `unmatched` / `ignored_fields` | how many human confirmations this run merged, which of them matched nothing in the corpus, and which fields this release does not understand |
 | `concept_overrides_applied` | `concepts` / `created[]` / `tables_added` / `merges` / `splits` / `dissolved[]` / `unmatched` / `warnings` / `ignored_fields` | K4b/K4c: how many field confirmations the reviewed `concepts.overrides.json` applied, which concepts it created (`created[]` carries one `{id, tables[]}` each, and a revived retired stem carries `revived: true`), how many member tables it added, how many merges and splits, and which ids, tables or field names matched nothing in the corpus. `warnings[]` (K4d) is what **was** applied and is still worth a second look: one `{key, warning}` each, so far only `merge_kept_two_primaries: <t1>, <t2>` -- a merge folded two concepts that each had their own `primary` copy. `dissolved[]` (M1) is the provisional concepts an `add_tables` or a `new_concepts` entry took the table of, one `{id, table, into}` each: a person put that table on a real concept, so it no longer stands for one on its own. A `merge_into` dissolves one too and is counted as the merge it is, never twice |
+
+## Migrating from ontology-json/1
+
+0.4.0 is a **breaking** rename: the document reads concept-first, and so do the keys.
+
+| `ontology-json/1` | `ontology-json/2` | Notes |
+| --- | --- | --- |
+| `entities[]` | `tables[]` | same shape, plus the `concepts[]` back-link |
+| `relations[]` | `table_relations[]` | same shape, plus `concept_relation` |
+| `concept_relations[]` | `relations[]` | same shape, plus `id` |
+| `concept_representation_links[]` | `representation_links[]` | same shape |
+| `unassigned_tables[]` | — | empty by construction since M1 and dropped here; a table no business key placed is a concept with `tier: "provisional"` |
+| every other key | unchanged | `concepts` / `families` / `constraints` / `findings` / `open_items` / `open_item_groups` / `retired_stems` / `overrides_applied` / `concept_overrides_applied` / `corpus` |
+
+**The one an alias cannot soften**: `relations[]` did not disappear, it changed meaning --
+it now holds the **concept** relations. A consumer that keeps reading `relations[]` gets
+no error and the wrong layer, so it must move to `table_relations[]`. That is why this
+release is breaking.
+
+`ontology --legacy-keys` writes the left column's keys beside the new ones as aliases
+(`unassigned_tables` as `[]`), each **the same object** as its right-column key. It is
+**deprecated** and kept for exactly one release; `relations` is not among the aliases, for
+the reason above.
 
 ## The inference rules
 
@@ -394,14 +433,14 @@ Slot by slot (every slot `ontology-json/1` publishes):
 
 ## The concept layer (entity / event / summary)
 
-`entities[]` answer "what is this **table**". That is not what a business asks. A business
+`tables[]` answer "what is this **table**". That is not what a business asks. A business
 asks about 客户 (the customer), and the warehouse spells the customer as
 `ods.customer_base`, `dwd.customer_df`, `dwd.customer_di` and a few staging copies. It
 also asks about 消息发送 (message sending), which is not a thing but something that
 *happened* -- a sibling of the customer, not a child of it.
 
 K1/K2 fold that layer on top of the table-level ontology: **the entity is 「客户」, not
-「客户信息表」; a table is how a concept is represented.** Not one field of `entities[]`
+「客户信息表」; a table is how a concept is represented.** Not one field of `tables[]`
 changes -- a concept merely points at them, and the table-level reading is the only way
 to check the fold.
 
@@ -509,12 +548,12 @@ pointing at the other, and the review round decides.
 
 ### Concept relations
 
-The table-level `relations[]` answer "which two **tables** did a task join, on which
+The table-level `table_relations[]` answer "which two **tables** did a task join, on which
 columns, and how many rows does that imply". That is not what a business asks. It asks
 whether 「消息发送」 involves 「客户」 and in which role -- 发送方 or 接收方 -- and whether
 「客户日汇总」 aggregates that event or that entity. K3 folds each table-level edge onto
 two concepts, groups the result by (from concept, to concept), and publishes it as
-`concept_relations[]`.
+`relations[]`.
 
 **The two ends of an edge answer two different questions.** Reading both the same way
 folds nearly every edge onto itself:
@@ -547,7 +586,7 @@ one of its ends and stays the `self_reference` it is.
 
 `concept_relations_unmapped` publishes the denominator beside the reasons: `edges_total`
 is every table-level relation this fold read, `mapped` the ones that folded (the seams
-published as `concept_representation_links[]` included), and `total` / `by_reason` what
+published as `representation_links[]` included), and `total` / `by_reason` what
 is left. **`by_reason` shifts as tables get placed** -- a `from_table_unplaced` edge
 becomes a folded one the moment a reviewer places its table with `add_tables` or
 `new_concepts` -- so only read against that fixed denominator are two runs comparable.
@@ -564,8 +603,8 @@ The type is read off the two endpoints' `kind`, never off a word:
 
 When both ends land on one concept and the two *tables* are both representations of it
 (a snapshot joined onto its own primary), that is not a relation the business has -- it
-is a seam in K1's fold. Those edges stay out of `concept_relations[]` and are published
-in `concept_representation_links[]` instead: the concept, the two tables, and the
+is a seam in K1's fold. Those edges stay out of `relations[]` and are published
+in `representation_links[]` instead: the concept, the two tables, and the
 table-level relation ids that said so. A table joined to **itself** is the other case,
 and stays a `self_reference`.
 
@@ -574,7 +613,7 @@ and stays a `self_reference`.
 a single pair of tables, because this layer folds the corpus), then a definite claim over
 `unknown`; `basis[]` names the table-level relations that carried it. `evidence[]` is
 every member relation's id and `task_count` the distinct tasks behind them (the tasks
-that **wrote** the edge, the same discipline `relations[].task_count` keeps).
+that **wrote** the edge, the same discipline `table_relations[].task_count` keeps).
 
 A concept carrying `possible_duplicate_of` is **not** merged: its relations stay on its
 own id. Whether the two are one thing is the review round's question, and answering it
@@ -582,29 +621,35 @@ here would only hide it.
 
 The order is fixed: by type (`association` → `participation` → `aggregation` →
 `derivation` → `self_reference`), then by the `from` concept id, then by the `to`
-concept id; `concept_representation_links[]` is ordered by concept, then the two tables.
+concept id; `representation_links[]` is ordered by concept, then the two tables.
 
-### How the concept layer is rendered
+### How `ontology.md` is rendered
 
-`ontology.md` opens on 「概念层」, **before** the table-level ER: a reader of this file is
-asking a business question, and the ER diagram below is the evidence the answer was read
-off rather than the answer. Four blocks, in a fixed order:
+M3: the whole index reads concept-first. Three parts, in a fixed order -- `## 本体总览`,
+`## 概念` (**one section per concept**), `## 附录：表与证据`. Nothing table-level was
+dropped; all of it moved into the appendix and is marked as what it is, evidence rather
+than model: printing the JOINs in the main line taught every reader to model the business
+on the warehouse's own shape.
 
 | Block | Contents |
 | --- | --- |
-| The concept diagram | one box per concept, labelled `<name>（<kind>）` and filled by kind (`classDef entity` / `event` / `summary`). It is a `flowchart LR` rather than an `erDiagram` because Mermaid's ER diagram has no `classDef`, and the boxes here carry a business name and a kind -- the kind being half of what there is to see. The edges come from `concept_relations[]`, labelled 「type: cardinality」, with `?` for a cardinality that is only the author's assumption and a `participation`'s roles in brackets. `concept_representation_links[]` is **not** drawn: that is a seam in K1's fold, not a relation. Past 40 concepts (`CONCEPT_MERMAID_LIMIT`) it keeps the 40 with the most concept relations and says how many it left out. **Provisional concepts are never drawn** (M1): there are as many of them as there are tables nothing placed, and drawing them buries the reading the diagram exists for; a line under it says 「另有 N 个临时概念未画」 and the second concept table lists every one |
-| The concept table | one row per concept: the name **with its tier** (「授信合同（`confirmed`）」 is a name a review round answered, 「合同（`hypothesis`）」 is the author's guess -- the two must not read alike), the kind with its tier, how many tables represent it (counted per `role`, **not** listed), the first three name candidates (`CONCEPT_NAME_CANDIDATES_SHOWN`), and whatever `possible_duplicate_of` points at |
-| The provisional concepts (M1) | the second concept table, right after the first: one row per provisional concept -- its name with its tier, its kind, which table it is, and the key to write the answer under (`merge_into` on `concept:table:<…>`). A line above it says this is the review's **first** step and how each of the three ways out is written (merge into an existing concept / gather several into a new one / it really is its own thing). With none of them, the section says every table landed on a concept a business key grew |
-| The concept-relation table | one row per relation: the type, both concept names, the participation roles, the cardinality with its tier, and how many table-level edges are behind it. A row touching a provisional concept carries `（临时）` after the type (M1) -- that row is a reading of the corpus, not yet one of the business |
-| The refused key stems | present only when there really are some: how many stems a generic rule refused, the first three of them, and that **they can still be named** -- writing `concept:<stem>` in `concepts.overrides.json` rebuilds the concept. The stem-by-stem list stays in `ontology.json`'s `retired_stems[]` |
+| 本体总览 | Two sentences. The first is about concepts: how many, broken down by kind (entity N / event N / summary N), how many concept relations, how many **provisional concepts** and how many relations touch one. Only the second is about the warehouse: tasks, tables, table-level relations, constraints, findings, and the open list (N items / N groups, N already confirmed). Then the five-tier legend, and the count of tables that only lent evidence (P7, absent when there are none) |
+| The concept ER | one box per concept, labelled `<name>（<kind>）` and filled by kind (`classDef entity` / `event` / `summary`). It is a `flowchart LR` rather than an `erDiagram` because Mermaid's ER diagram has no `classDef`, and the boxes here carry a business name and a kind -- the kind being half of what there is to see. The edges come from `relations[]`, labelled 「type: cardinality」, with `?` for a cardinality that is only the author's assumption and a `participation`'s roles in brackets. `representation_links[]` is **not** drawn: that is a seam in K1's fold, not a relation. Past 40 concepts (`CONCEPT_MERMAID_LIMIT`) it keeps the 40 with the most concept relations and says how many it left out. **Provisional concepts are never drawn** (M1) |
+| The concept table (`### 概念`) | one row per concept: the name **with its tier** (「授信合同（`confirmed`）」 is a name a review round answered, 「合同（`hypothesis`）」 is the author's guess -- the two must not read alike), the kind with its tier, how many tables represent it (counted per `role`, **not** listed), the first three name candidates (`CONCEPT_NAME_CANDIDATES_SHOWN`), and whatever `possible_duplicate_of` points at |
+| The relation table (`### 关系`) | one row per concept relation: the type, both concept names, the participation roles, the cardinality with its tier, and how many table-level edges are behind it. A row touching a provisional concept carries `（临时）` after the type (M1) -- that row is a reading of the corpus, not yet one of the business |
+| One section per concept (`### <name>（<kind>）`) | M3's main line. It opens with the concept's identity line (id, name tier, kind tier, how many representations, how many attributes, possible duplicates), then five blocks: **表现表** (table / role / basis / grain, each table linked to its card), **属性摘要** (how many attributes, the commented ones first, at most `CONCEPT_ATTRIBUTES_SHOWN`), **约束** (the constraints on this concept's tables), **关系** (outgoing and incoming in one table), **待人工判定** (the question groups filed under this concept, with group id, count and impact). Past `CONCEPT_SECTIONS_SHOWN` (40) folded concepts only the first 40 are expanded; the rest get one line, 「另有 N 个概念未展开」, pointing back at the concept table above |
+| The provisional concepts (M1) | the last table of the concept part: one row per provisional concept -- its name with its tier, its kind, which table it is, and the key to write the answer under (`merge_into` on `concept:table:<…>`). A line above it says this is the review's **first** step and how each of the three ways out is written (merge into an existing concept / gather several into a new one / it really is its own thing). With none of them, the section says every table landed on a concept a business key grew |
+| 附录：表与证据 | everything table-level, each under its own `###`: `表级关系（证据）` (the former table-level Mermaid ER), `表` (the former entity table), `表级关系` (one column more than last release: which concept relation each edge folded into), `约束` (one column more: the concept), `表族` (`families[]`, for checking that a family really is copies of one table before answering for all of it), `退役键词根` (K4c), `矛盾发现` and `待人工判定清单` (the whole folded list, capped at `OPEN_ITEM_GROUPS_SHOWN`) |
 
-Section 7 of each table card, 身份（本体）, gains an opening line saying which copy of which
-concept this table is and what put it there: 「本表是「客户」（`concept:cust`，实体）的主表视图
-（`key:proven`）。」 A table can be a member of two concepts at once -- defined by one key and
-carrying another -- and then each membership gets its own line; a table no key, hint or
-JOIN gave an identity reads 「本表暂自成概念「<name>」（provisional），待评审归并
-（`concept:table:…`）。」 -- from M1 that is not "we could not tell" but a question with its
-next step written into it.
+Three caps keep a wide corpus readable: `CONCEPT_MERMAID_LIMIT` (40 concepts) on the
+diagram, `CONCEPT_SECTIONS_SHOWN` (40) on the sections, `OPEN_ITEM_GROUPS_SHOWN` (50) on
+the folded list. Whatever is past a cap is summarised in one line that points back into
+`ontology.json` -- a document nobody scrolls to the end of answers nothing.
+
+The YAML front matter is concept-first too: `concept_count` / `relation_count` /
+`table_count` / `table_relation_count` / `open_item_count` / `open_item_group_count` (the
+previous release wrote `entity_count` / `relation_count`, the latter meaning the
+table-level edges).
 
 ## Table families and the folded open list
 
@@ -642,10 +687,10 @@ tables` card (1 what this table is / 2 what one row means / 3 columns / 4 who wr
 
 | Section | Contents |
 | --- | --- |
-| 7. 身份（本体） | opens with which copy of which concept this table is (「本表是「客户」（`concept:cust`，实体）的主表视图（`key:proven`）。」, one line per membership), or 「本表暂自成概念「<name>」（provisional），待评审归并（`concept:table:…`）。」 when nothing placed it (M1); then 「属性 N（语料用到 n）」, the same count the entity table in `ontology.md` carries; then candidate keys, the metadata key hints, multiplicity and partition columns side by side, each with its tier in Chinese and its evidence ids; a confirmed key prints who confirmed it, when, and on what basis on the same line, and a key with `scope_columns` reads 「在 `dt` 内唯一」; the four answer four different questions and are never merged into one "primary key" |
-| 8. 关系 | one table for outgoing and one for incoming edges: the other end (linked to its card), the key pair, the JOIN types, the cardinality claim, the tier, the basis token in plain words, the task count and the evidence ids; a 「注释线索」 sub-block follows when this table's column comments point somewhere (O9): own column → other table.column, the comment verbatim, and the reason where it could not be resolved; no hints, no sub-block |
-| 9. 约束 | a SHACL-shaped list: the constraint kind, the target column or the whole table, the value set and its completeness, the tier, the evidence |
-| 10. 属性同义 | this table's column ↔ the synonym, the basis (a renaming projection / the same UNION position), the tier, the evidence |
+| 7. 身份（本体） | opens with which copy of which concept this table is (「本表是「客户」（`concept:cust`，实体）的主表视图（`key:proven`）。」, one line per membership), or 「本表暂自成概念「<name>」（provisional），待评审归并（`concept:table:…`）。」 when nothing placed it (M1); then M3's **「概念中的其他表现」**: the other tables representing the same concept, each with its role and basis and linked to its own card -- a reader just told this table is 客户's snapshot asks next where the primary is; then 「属性 N（语料用到 n）」, the same count the appendix's table carries; then candidate keys, the metadata key hints, multiplicity and partition columns side by side, each with its tier in Chinese and its evidence ids; a confirmed key prints who confirmed it, when, and on what basis on the same line, and a key with `scope_columns` reads 「在 `dt` 内唯一」; the four answer four different questions and are never merged into one "primary key" |
+| 8. 关系 | M3: **「概念关系」** first -- which concept relations this table's JOINs fed (the relation id, both concept names, the type, the participation roles, the cardinality, the tier, and the table-level edge ids this table contributed); with none, one line, 「本表所属概念没有可发布的概念关系。」. **「表级 JOIN（证据）」** sits beneath it: one table for outgoing and one for incoming edges, the other end (linked to its card), the key pair, the JOIN types, the cardinality claim, the tier, the basis token in plain words, the task count and the evidence ids. The business relation is the answer and the JOIN is why it was published; printing the JOIN first taught every reader to model on the warehouse's shape. A 「注释线索」 sub-block follows when this table's column comments point somewhere (O9): own column → other table.column, the comment verbatim, and the reason where it could not be resolved; no hints, no sub-block |
+| 9. 约束 | opens with one line naming which concept, and which representation of it, these facts belong to (M3), then a SHACL-shaped list: the constraint kind, the target column or the whole table, the value set and its completeness, the tier, the evidence |
+| 10. 属性同义 | names the concept the same way (M3), then: this table's column ↔ the synonym, the basis (a renaming projection / the same UNION position), the tier, the evidence |
 | 11. 待人工判定 | the findings about this table plus every `hypothesis` assertion (candidate key / cardinality / constraint), each marked `[待确认]`, carrying the write-back key its answer is filed under, and citing both its id in `open_items[]` and its group in `open_item_groups[]` (「清单 `open:…`，组 `open:group:…`」 -- the group id tells whoever answers which other tables of the family the answer covers) |
 
 The filename rule is exactly `tables`' own (`<db.table>.md`, with anything a file system
@@ -808,7 +853,7 @@ carries this key" is not an answer to "what is this table"):
 | `name` | free text | the confirmed business name; `name_tier` becomes `confirmed` |
 | `kind` | `entity` / `event` / `summary` | the confirmed kind; `kind_tier` becomes `confirmed`. Anything else is reported as `unknown_kind: X` and does not take effect |
 | `roles` | `{"<table>": "<role>"}` | moves one member table to another role, one of K1's six; that member gains `role_tier: "confirmed"` |
-| `add_tables` | `{"<table>": "<role>"}` | **adds** a table of this corpus to the concept (`roles` can only move a member the corpus already found). The table must appear in `entities[]` and the role is still one of the six; the member carries `membership_basis: "override"` and `role_tier: "confirmed"`, its columns join the concept's `attributes[]`, and that table's **provisional concept dissolves** (M1), reported in `concept_overrides_applied.dissolved[]`. **The `reference` role is the exception** (K4d): it publishes `membership_basis: "reference"` with the stamp kept on the member row, and what the table itself is does not move -- "it merely carries this key" must not turn round and lend an identity. One table may be added to several concepts (a detail table carrying two keys), but **identity is single**: a table its own key already placed on a concept only *carries* the key of any concept it is added to, and K3 still folds its edges from the concept that identified it. This runs before the concept relations are folded, so the JOINs that start at the table land on the concept the reviewer named |
+| `add_tables` | `{"<table>": "<role>"}` | **adds** a table of this corpus to the concept (`roles` can only move a member the corpus already found). The table must appear in `tables[]` and the role is still one of the six; the member carries `membership_basis: "override"` and `role_tier: "confirmed"`, its columns join the concept's `attributes[]`, and that table's **provisional concept dissolves** (M1), reported in `concept_overrides_applied.dissolved[]`. **The `reference` role is the exception** (K4d): it publishes `membership_basis: "reference"` with the stamp kept on the member row, and what the table itself is does not move -- "it merely carries this key" must not turn round and lend an identity. One table may be added to several concepts (a detail table carrying two keys), but **identity is single**: a table its own key already placed on a concept only *carries* the key of any concept it is added to, and K3 still folds its edges from the concept that identified it. This runs before the concept relations are folded, so the JOINs that start at the table land on the concept the reviewer named |
 | `merge_into` | another concept id | folds this concept into that one: its tables, attributes and key stem all travel, and its id is kept in the survivor's `merged_from[]`. K4d: a table both sides hold keeps the **stronger** of the two roles (`primary` > `snapshot` > `detail` > `summary` > `intermediate` > `reference`) rather than always the survivor's row -- what the folded concept read off that table should not be lost to the merge. When each side has its own, *different*, `primary` copy both rows stay (which one is *the* copy is the business's answer, not this layer's) and `warnings[] = {key, warning: "merge_kept_two_primaries: <t1>, <t2>"}` is published: a merge has a direction, and the side with fewer primaries goes into the other |
 | `new_concepts[]` | `{id, name, kind, tables, key_columns?, …}` | K4c: **creates** a concept the corpus never seeded. The `id` must be unused and slug-shaped, `concept:<lowercase stem>` (otherwise `already_a_concept: <id>` / `invalid_concept_id: <id>`); the keys of `tables` are tables of this corpus and the values their roles, and a table another concept already holds **by identity** may only take the `reference` role (otherwise `already_a_member: <table>`). The created concept carries `tier` / `name_tier` / `kind_tier` all `confirmed` and `origin: "override"`, its `identity.stem` is the id's stem, its `identity.columns_seen` is `key_columns` or the key columns its tables share, its attributes come from its members, and those members' **provisional concepts dissolve** (M1), reported in `dissolved[]`; a provisional concept does not count as "another concept", so a member never reports `already_a_member` because of one. K4d: the stems those key columns themselves reduce to (the non-generic ones that are not already the id's stem) join `identity.merged_stems[]`, which is the stem index K3 reads when it folds an edge -- that is how an edge written on `ad_slot_code` reaches `concept:slot`. It lands **before** the merges and the splits, and before the concept relations are folded |
 | a retired stem, named | a key of `concepts` spelled `concept:<a stem from retired_stems[]>` | K4c: the stem seeded nothing this run, but it is in `retired_stems[]` -- so that entry is applied as an implicit `new_concepts` entry over the tables and roles recorded there, reported in `created[]` with `revived: true` instead of as an `unknown_concept`; the stem **leaves `retired_stems[]`** in that same run (K4d: one document cannot both publish the concept and go on saying the stem was refused, and the 概念层 line stops naming it too). This is how a rule change does not invalidate the previous round's answers |
@@ -837,9 +882,9 @@ with no exporter behind it:
 
 | ontology.json | OWL / RDFS | SHACL | LinkML |
 | --- | --- | --- | --- |
-| `entities[]` | `owl:Class` | `sh:NodeShape` | `class` |
-| `entities[].attributes[]` | `owl:DatatypeProperty` | `sh:property` + `sh:datatype` | `attribute` / `slot` |
-| `relations[]` | `owl:ObjectProperty` (+ cardinality axioms) | `sh:property` + `sh:class` + `sh:maxCount` | a slot with a `range` |
+| `tables[]` | `owl:Class` | `sh:NodeShape` | `class` |
+| `tables[].attributes[]` | `owl:DatatypeProperty` | `sh:property` + `sh:datatype` | `attribute` / `slot` |
+| `table_relations[]` | `owl:ObjectProperty` (+ cardinality axioms) | `sh:property` + `sh:class` + `sh:maxCount` | a slot with a `range` |
 | `constraints[].kind = in_set` / `not_null` | — | `sh:in` / `sh:minCount` | `enum` / `required` |
 | `constraints[].kind = unique_per` | — | no native uniqueness; needs a SPARQL constraint | `unique_keys` |
 | `tier` / `evidence` | annotation properties (`rdfs:comment` or a custom annotation) | annotations | `annotations` |
@@ -875,33 +920,33 @@ the same corpus twice gives the same bytes, for the same reason `ontology.json` 
 
 | ontology.json | LinkML | SHACL |
 | --- | --- | --- |
-| `entities[]` | a `class`, whose id is the safe identifier the Mermaid ER already uses, with the warehouse name in `title` | `sh:NodeShape` + `sh:targetClass`, with the warehouse name in `rdfs:label` |
-| `entities[].attributes[]` | a slot under `attributes`, `range` from the SQL type, `description` from the column comment | `sh:property` + `sh:path` + `sh:datatype` |
+| `tables[]` | a `class`, whose id is the safe identifier the Mermaid ER already uses, with the warehouse name in `title` | `sh:NodeShape` + `sh:targetClass`, with the warehouse name in `rdfs:label` |
+| `tables[].attributes[]` | a slot under `attributes`, `range` from the SQL type, `description` from the column comment | `sh:property` + `sh:path` + `sh:datatype` |
 | a single-column `proven` / `confirmed` candidate key | `identifier: true` on the slot | no native form, see the limitations below |
 | every other candidate key (composite, or unproven) | a `unique_keys` entry, with the tier in `annotations.tier` | an `sl:candidateKey` annotation block |
-| `relations[]` | a slot on the source class, `range` is the target class, `multivalued` from the cardinality | `sh:property` + `sh:class` (plus `sh:maxCount 1` when it is many-to-one) |
+| `table_relations[]` | a slot on the source class, `range` is the target class, `multivalued` from the cardinality | `sh:property` + `sh:class` (plus `sh:maxCount 1` when it is many-to-one) |
 | `constraints[].kind = not_null` | `required: true` on the slot | `sh:minCount 1` |
 | `constraints[].kind = in_set` (closed) | an `enum`, and the slot's `range` points at it | `sh:in ( … )` |
 | `constraints[].kind = in_set` (open) | an annotation only, no enum | an `rdfs:comment` only |
 | `constraints[].kind = unique_per` | a `unique_keys` entry | an `sl:compositeKey` annotation block, see the limitations below |
 | `constraints[].kind = partition` | one annotation on the slot | an `sh:property` carrying only an `rdfs:comment` |
 | `tier` | `annotations.tier` | `sl:tier` |
-| `entities[].naming_hints` `domain` / `project` / `owner` | one annotation each on the class | `sl:domain` / `sl:project` / `sl:owner` on the node shape |
-| `entities[].identity.declared_hints[]` | one `declared_hint_<column>` annotation per hint, column and text | an `sl:declaredKeyHint` annotation block |
-| `entities[].relation_hints[]` | one `relation_hint_<column>` annotation per hint, resolved target or the reason it is not | an `sl:relationHint` annotation block |
-| `entities[].identity.multiplicity[]` | one `multiplicity_<columns>` annotation, claim and tier | an `sl:multiplicity` annotation block |
-| `entities[].attributes[].synonyms[]` | a `synonyms` list annotation on the slot, each entry with its `via` and tier | an `sl:synonym` annotation block |
+| `tables[].naming_hints` `domain` / `project` / `owner` | one annotation each on the class | `sl:domain` / `sl:project` / `sl:owner` on the node shape |
+| `tables[].identity.declared_hints[]` | one `declared_hint_<column>` annotation per hint, column and text | an `sl:declaredKeyHint` annotation block |
+| `tables[].relation_hints[]` | one `relation_hint_<column>` annotation per hint, resolved target or the reason it is not | an `sl:relationHint` annotation block |
+| `tables[].identity.multiplicity[]` | one `multiplicity_<columns>` annotation, claim and tier | an `sl:multiplicity` annotation block |
+| `tables[].attributes[].synonyms[]` | a `synonyms` list annotation on the slot, each entry with its `via` and tier | an `sl:synonym` annotation block |
 | `findings[]` | a schema-level `sl:finding_NNN` annotation | an `sl:finding` block on the `sl:Ontology` node |
 | `open_items[]` | a schema-level `sl:open_item_<id>` annotation | an `sl:openItem` block on the `sl:Ontology` node |
 | `evidence[]` | `evidence_count` plus `evidence_task`, never the list | `sl:evidenceCount` plus `sl:evidenceTask` |
 | the three concept kinds | three abstract base classes `Entity` / `Event` / `Summary`, each with a `category` annotation | `sl:Entity` / `sl:Event` / `sl:Summary`, each `rdfs:subClassOf sl:Concept` |
 | `concepts[]` | one class per concept, `is_a` its kind's base, `title` the `name`, the description listing the name candidates and the kind tier, annotations `kind_tier` / `name_tier` / `tables` / `possible_duplicate_of` | one `sh:NodeShape` with `sh:targetClass` the concept class and `rdfs:subClassOf` the kind class, carrying `sl:concept` / `sl:kindTier` / `sl:nameTier` / `sl:conceptTable` |
 | `concepts[].attributes[]` | a slot on the concept class, `range` from the source column's type, `description` the comment, annotation `sources` naming the source columns | `sh:property` plus `sh:datatype`, one `sl:source` per source column |
-| `concept_relations[]` | a slot on the `from` concept class, `range` the `to` concept class, `multivalued` from the cardinality, annotations `relation_type` / `roles` / `tier` / `evidence_count` | `sh:property` plus `sh:class` (plus `sh:maxCount 1` for many-to-one), with `sl:relationType` / `sl:role` / `sl:evidenceCount` |
+| `relations[]` | a slot on the `from` concept class, `range` the `to` concept class, `multivalued` from the cardinality, annotations `relation_type` / `roles` / `tier` / `evidence_count` | `sh:property` plus `sh:class` (plus `sh:maxCount 1` for many-to-one), with `sl:relationType` / `sl:role` / `sl:evidenceCount` |
 | `concepts[].tables[]` | a `represents` annotation on the table class: `concept:<stem> (<role>)` | `sl:represents` on the node shape |
-| `concept_representation_links[]` | a `representation_link` annotation on each of the two table classes | one `sl:representationLink` on each of the two node shapes |
+| `representation_links[]` | a `representation_link` annotation on each of the two table classes | one `sl:representationLink` on each of the two node shapes |
+| `table_relations[].concept_relation` | an `evidence_for` annotation on the table class's relation slot | `sl:evidenceFor` on that property shape |
 | Provisional concepts (M1) | one more annotation on the concept class, `provisional: true` | one more line on the concept shape, `sl:provisional true` |
-| `unassigned_tables[]` | the block is written only when the list is non-empty, and from M1 it never is, so it no longer appears | as on the left |
 
 An element of the concept layer carries the tier of the **fold**: the concept class and
 its attribute slots carry `concepts[].tier`, and a concept relation carries the tier of
@@ -973,7 +1018,7 @@ constraint carries its own.
   corpus has no namespace of its own, and minting one that looks authoritative would be
   the export inventing a fact; whoever loads the graph replaces it with theirs.
 - **Only `evidence` is summarized rather than exported whole.** Every other slot of
-  `ontology-json/1` reaches both exports: a downstream tool that reads only the export
+  `ontology-json/2` reaches both exports: a downstream tool that reads only the export
   must not end up with a smaller corpus than the one that was published, and `findings`
   and `open_items` are the sharp case -- an export without them reads as a corpus with no
   open questions, so they are published on the schema itself. `evidence` is the exception
@@ -1023,7 +1068,7 @@ scope-lineage ontology --lineage /path/to/b --out /path/to/onto \
   from this corpus adds nothing — that task is already in the reader's own artifacts and
   `cardinality.producer` names it. Across corpora the `corpus` is mandatory, or the
   evidence line points at a task the reader cannot find.
-- `relations[].task_count` counts **only the tasks that wrote the JOIN**. A borrowed proof
+- `table_relations[].task_count` counts **only the tasks that wrote the JOIN**. A borrowed proof
   is evidence, never another author of the edge, so foreign evidence is not counted.
 - Identity keys and partition constraints carry the same stamp: a producer that came from a
   merged card carries its `corpus`, one from this corpus does not.
@@ -1031,7 +1076,7 @@ scope-lineage ontology --lineage /path/to/b --out /path/to/onto \
   without a `corpus` they are byte-identical to what they always were.
 - **Evidence is not scope**: an entity is published only for a table the `--lineage` corpus
   **read or wrote**. A merged-in table this corpus never touched lends its proven keys,
-  producers and consumers to the verdicts above and nothing else: no `entities[]` row, no
+  producers and consumers to the verdicts above and nothing else: no `tables[]` row, no
   box in the ER diagram, no constraints or findings, and no `tables/<db.table>.md`. A
   corpus of a few tasks would otherwise publish an ER diagram of thousands of entities
   that nobody can read and that is not this corpus's model.
