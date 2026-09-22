@@ -55,6 +55,8 @@ from scope_lineage.render.ontology import (
 from scope_lineage.render.review_batches import (
     KIND_EVIDENCE_HEADING,
     KIND_TIER_HEADING,
+    MERGE_TARGETS_SHOWN,
+    SCORE_NAME_ROOT,
     build_review_batches,
     render_batch_markdown,
 )
@@ -423,3 +425,53 @@ def test_every_worksheet_row_still_has_one_cell_per_heading() -> None:
     row = _row(text, EXTRA_ID)
 
     assert row.count("|") == header.count("|")
+
+
+# ------------- 5. a concept whose stem is a whole token of the table's own name
+
+
+def _alone(document, identifier: str) -> dict:
+    """The batch holding exactly this one concept, so nothing else can score a target."""
+    batches = build_review_batches(document, by="size", batch_size=1)
+    return next(
+        batch for batch in batches["batches"] if batch["concepts"] == [identifier]
+    )
+
+
+def _targets(batch) -> dict:
+    return {str(item["id"]): item for item in batch["merge_targets"]}
+
+
+def test_a_concept_whose_stem_is_a_token_of_the_table_name_is_a_candidate() -> None:
+    """`ods.omega_extra_di` shares no key and no join with 欧米伽 -- only its own name."""
+    batch = _alone(_built(), EXTRA_ID)
+
+    target = _targets(batch)[ANCHOR_ID]
+    assert target["name_root"] == "omega"
+    assert target["relations"] == 0
+    assert target["shared_stems"] == []
+    assert target["score"] == SCORE_NAME_ROOT
+
+
+def test_the_worksheet_prints_the_name_token_the_candidate_matched_on() -> None:
+    text = render_batch_markdown(_alone(_built(), EXTRA_ID), _built())
+
+    assert "`omega`" in text.split("## 候选归并目标")[1]
+
+
+def test_a_stem_that_is_only_part_of_a_token_is_not_a_match() -> None:
+    """A whole ``_``-delimited token, not a prefix: `omegax` is a different word."""
+    unrelated = _entity("ods.omegax_rows", columns={"note_text": "说明（合成）"})
+    document = _built(entities=[ANCHOR, unrelated], relations=[])
+
+    batch = _alone(document, table_concept_id(unrelated["id"]))
+
+    assert _targets(batch) == {}
+
+
+def test_the_candidate_list_is_still_bounded() -> None:
+    document = _built()
+
+    batch = _alone(document, EXTRA_ID)
+
+    assert len(batch["merge_targets"]) <= MERGE_TARGETS_SHOWN
