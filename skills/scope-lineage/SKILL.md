@@ -340,8 +340,9 @@ did not take effect). Both are where a typo in a reviewed file shows up.
 张表」 — read `ontology.md`'s 「概念层」 and follow `references/concept-review-prompt.md`. It
 is the same corpus's *second* review round and it answers different questions: the kind of
 each concept (entity / event / summary, with the votes in `kind_evidence[]`), its business
-name (always a hypothesis — `name_candidates[]` is ranked, and a candidate whose only
-source is `key_stem` is an English abbreviation nobody asked for), which concepts are one
+name (never better than a hypothesis — `name_candidates[]` is ranked, and a concept whose
+`name_tier` is `stem_only` was named by nothing but the key stem, an English abbreviation
+nobody asked for), which concepts are one
 thing written twice (`possible_duplicate_of`), which one is two things, and which member
 tables were read as the wrong kind of copy. Same evidence discipline as the round above:
 close what the corpus answers yourself with a `basis` on every entry, ask a business owner
