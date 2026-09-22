@@ -505,12 +505,13 @@ def test_the_participation_role_is_the_from_side_column_comment() -> None:
 
 
 def test_the_participation_role_falls_back_to_the_column_name() -> None:
+    """K4d: to the column's name read as words -- never to the identifier itself."""
     built = _relations(
         [CHANNEL, MESSAGE],
         [_relation("rel:001", MESSAGE["id"], ["via_chan_no"], CHANNEL["id"], ["chan_no"])],
     )
 
-    assert built[("concept:msg", "concept:chan")]["roles"] == ["via_chan_no"]
+    assert built[("concept:msg", "concept:chan")]["roles"] == ["via chan"]
 
 
 def test_only_a_participation_carries_roles() -> None:

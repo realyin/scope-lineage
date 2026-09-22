@@ -134,6 +134,45 @@
   `from_table_unplaced` becomes a folded one the moment a reviewer places its table — and
   two runs of one corpus were not comparable without the denominator. The `ontology`
   summary line prints `created N` and `tables_added M` beside the concept counts.
+- **Six gaps a third concept-review round exposed** (K4d).
+  **(1) A reference add lends no identity.** `add_tables` published every reviewed
+  membership as `override`, so a table a reviewer added with the role `reference` — the
+  one role that *means* "this table merely carries the key" — started answering what that
+  table is. A reviewed `reference` add now publishes `membership_basis: "reference"`, with
+  the reviewer's stamp (`confirmed_by` / `date` / `confirmed_basis` / `note`) kept on the
+  member row because the basis can no longer say a person put it there; every other role
+  still publishes `override`. `new_concepts[]` members read the same rule. A table whose
+  identity is in 客户 and which a reviewer adds as a reference to 渠道 still folds its
+  edges from 客户.
+  **(2) The `to` end prefers the identity membership.** Asked about a table several
+  concepts hold, the far end now takes the identity one when there is exactly one, however
+  many `reference` memberships sit beside it. Only several identity memberships — or none
+  at all with several references — leave the tie to the stem rule, because that is the
+  case where there really was nothing to choose between.
+  **(3) A merge keeps the stronger role, and says when it kept two primaries.** Folding
+  one concept into another deduped a shared table into the survivor's row, silently
+  dropping what the folded side had read off it; the row now survives in the **stronger**
+  of the two roles (`primary` > `snapshot` > `detail` > `summary` > `intermediate` >
+  `reference`). When each side has its own, different, `primary` copy, both rows stay —
+  which one is *the* copy is the business's answer — and the new
+  `concept_overrides_applied.warnings[]` publishes `{key, warning:
+  "merge_kept_two_primaries: <t1>, <t2>"}`. The review prompt now says which way to merge:
+  the side with fewer primaries goes into the other.
+  **(4) A created concept's `key_columns` reach the stem index.** `concept:slot` spells
+  `slot` in its id while the warehouse writes `ad_slot_code`, so an edge written on the
+  very column the reviewer named could not find the concept it was named for. The stems a
+  created (or revived) concept's `key_columns` reduce to now join `identity.merged_stems[]`
+  — the index K3 already reads — unless they are generic or already the id's own stem.
+  **(5) A revived stem stops being a retired one.** A stem a `concepts` entry revived
+  stayed in `retired_stems[]` for the rest of the run, so one document both published the
+  concept and went on saying the stem had been refused. It now leaves the list in the same
+  run, the 概念层 line stops naming it, and it is reported once, in `created[]`, with
+  `revived: true`.
+  **(6) A participation role is never a raw column name.** `roles[]` fell back to the
+  column identifier when no comment named the role, publishing `collection_unit_id` as a
+  word the business uses. The fallback now reads the column *name* as words: the key
+  markers come off, `_` becomes a space (`collection_unit_id` → 「collection unit」), a
+  camelCase name is split at its own boundaries, and a CJK name is used as it stands.
 - **The concept layer reaches the LinkML and SHACL exports** (K5). `--export` published
   the table layer only, so a downstream graph that loaded it got the warehouse back and
   not the business. It now also carries the fold: three abstract base classes

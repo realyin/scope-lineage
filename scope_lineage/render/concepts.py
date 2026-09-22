@@ -81,6 +81,18 @@ ROLE_INTERMEDIATE = "intermediate"
 #: carries the key as a foreign key. That is how an event table takes part in 客户.
 ROLE_REFERENCE = "reference"
 
+#: K4d: how strong a claim one role makes about the concept. A merge that finds one
+#: table on both sides keeps the stronger of the two readings, because deduping into
+#: the survivor's row drops what the folded concept knew about that table.
+ROLE_STRENGTH = (
+    ROLE_PRIMARY,
+    ROLE_SNAPSHOT,
+    ROLE_DETAIL,
+    ROLE_SUMMARY,
+    ROLE_INTERMEDIATE,
+    ROLE_REFERENCE,
+)
+
 #: How representative a member's own comment is of the concept, for naming.
 ROLE_NAMING_RANK = {
     ROLE_PRIMARY: 0,
@@ -226,6 +238,8 @@ MIN_NAME_CJK = 2
 LATIN_COMMENT_SUFFIXES = ("_df", "_di", "_hf", "_hi", "_id", "_no", "_code", "_cd")
 
 _CJK_RE = re.compile(r"[一-鿿]")
+#: A camelCase boundary, so ``collectionUnit`` reads as two words rather than one.
+_CAMEL_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 #: A trailing aside -- 「渠道维表（合成）」 -- says something about the table, not about the
 #: thing it holds, and it hides the storage suffix behind it.
 _ASIDE_RE = re.compile(r"[（(][^（()）]*[）)]\s*$")
@@ -1036,6 +1050,26 @@ def key_comment_name(comment) -> str:
     return remainder if len(_CJK_RE.findall(remainder)) >= MIN_NAME_CJK else ""
 
 
+def key_column_name(column) -> str:
+    """What one key column's *name* says, once it stops being an identifier (K4d).
+
+    The fallback for a business role no column comment could name. Publishing
+    ``collection_unit_id`` as the role an entity plays publishes the warehouse's
+    spelling as the business's word, so the key markers come off exactly as
+    ``key_stem`` takes them off, a camelCase name is split at its own boundaries, and
+    the separators become spaces. A CJK name is already words and is used as it stands.
+    """
+    text = str(column or "").strip()
+    if _CJK_RE.search(text):
+        return text
+    parts = [part for part in _CAMEL_RE.sub("_", text).lower().split("_") if part]
+    while len(parts) > 1 and parts[-1] in KEY_AFFIXES:
+        parts.pop()
+    while len(parts) > 1 and parts[0] in KEY_AFFIXES:
+        parts.pop(0)
+    return " ".join(parts)
+
+
 def _key_comment_candidates(members: Sequence[_Seed], stem: str) -> list[dict]:
     items = []
     for seed in members:
@@ -1252,6 +1286,7 @@ def apply_concept_overrides(ontology: dict, overrides: Mapping) -> None:
         "merges": 0,
         "splits": 0,
         "unmatched": [],
+        "warnings": [],
         "ignored_fields": [],
     }
     ontology["concept_overrides_applied"] = applied
@@ -1268,6 +1303,7 @@ def apply_concept_overrides(ontology: dict, overrides: Mapping) -> None:
     _concept_splits(ontology, list(overrides.get("splits") or []), applied)
     applied["created"].sort(key=lambda item: str(item["id"]))
     applied["unmatched"].sort(key=lambda item: (item["key"], item["reason"]))
+    applied["warnings"].sort(key=lambda item: (item["key"], item["warning"]))
     applied["ignored_fields"].sort(key=lambda item: item["key"])
 
 
@@ -1312,7 +1348,7 @@ def _concept_fields(
             _confirm_name(concept, entry),
             _confirm_kind(concept, entry, applied, str(name)),
             _confirm_roles(concept, entry, applied, str(name)),
-            _add_tables(concept, entry, corpus, applied, str(name)),
+            _add_tables(concept, entry, corpus, applied, str(name), stamp),
         ]
         if any(touched):
             concept["confirmation"] = stamp
@@ -1407,7 +1443,12 @@ def _confirm_roles(concept: dict, entry: Mapping, applied: dict, key: str) -> bo
 
 
 def _add_tables(
-    concept: dict, entry: Mapping, corpus: _Corpus, applied: dict, key: str
+    concept: dict,
+    entry: Mapping,
+    corpus: _Corpus,
+    applied: dict,
+    key: str,
+    stamp: Mapping,
 ) -> bool:
     """Put tables on this concept that no key, no hint and no JOIN could place there.
 
@@ -1417,6 +1458,13 @@ def _add_tables(
     that is exactly what it is, at tier ``confirmed`` because a person answered, and it
     lends the concept the table's columns. It lands *before* the relation fold, so the
     edges that start at the table fold onto the concept the reviewer named.
+
+    One role is the exception (K4d). ``reference`` *means* "this table merely carries
+    the key", so a reviewed reference add publishes ``membership_basis: "reference"``
+    and never stands in for what the table is -- otherwise the one sentence that says
+    "it only carries this key" would move the table's identity onto the concept it was
+    added to. The reviewer's stamp travels on the row instead, because the basis can no
+    longer say that a person put it there.
     """
     asked = dict(entry.get("add_tables") or {})
     members = {str(item["table"]) for item in concept.get("tables") or []}
@@ -1426,11 +1474,22 @@ def _add_tables(
         if reason is not None:
             applied["unmatched"].append({"key": key, "reason": reason})
             continue
-        _add_member(concept, corpus, str(table), str(asked[table]))
+        _add_member(concept, corpus, str(table), str(asked[table]), stamp)
         corpus.added.add(str(table))
         applied["tables_added"] += 1
         touched = True
     return touched
+
+
+def _member_basis(role: str) -> str:
+    """The basis one reviewed membership publishes (K4d).
+
+    ``reference`` is the weakest thing K1 says about a table, and a reviewer writing it
+    is saying exactly that -- so it is published as a ``reference`` membership, which
+    ``build_concept_relations`` already knows never answers *what this table is*. Every
+    other role is a membership a person vouched for, and says so.
+    """
+    return BASIS_REFERENCE if role == ROLE_REFERENCE else BASIS_OVERRIDE
 
 
 def _add_reason(table: str, role: str, corpus: _Corpus, members: set) -> str | None:
@@ -1444,15 +1503,18 @@ def _add_reason(table: str, role: str, corpus: _Corpus, members: set) -> str | N
     return None
 
 
-def _add_member(concept: dict, corpus: _Corpus, table: str, role: str) -> None:
+def _add_member(
+    concept: dict, corpus: _Corpus, table: str, role: str, stamp: Mapping
+) -> None:
     """One reviewed membership, with the table's columns joining the attribute union."""
     member = {
         "table": table,
         "role": role,
-        "membership_basis": BASIS_OVERRIDE,
+        "membership_basis": _member_basis(role),
         "key_columns": [],
         "grain": None,
         "role_tier": TIER_CONFIRMED,
+        **dict(stamp),
     }
     concept["tables"] = sorted(
         [*(concept.get("tables") or []), member],
@@ -1595,12 +1657,13 @@ def _new_member(table: str, role: str) -> dict:
     """One membership of a created concept, at the only tier a person can give it.
 
     ``key_columns`` stays empty for the same reason ``add_tables`` leaves it empty: no
-    key placed this table here, and writing one would say a key did.
+    key placed this table here, and writing one would say a key did. The basis follows
+    the same K4d rule ``add_tables`` follows: a ``reference`` role lends no identity.
     """
     return {
         "table": table,
         "role": role,
-        "membership_basis": BASIS_OVERRIDE,
+        "membership_basis": _member_basis(role),
         "key_columns": [],
         "grain": None,
         "role_tier": TIER_CONFIRMED,
@@ -1624,10 +1687,7 @@ def _fresh_concept(
         "kind": kind,
         "kind_tier": TIER_CONFIRMED,
         "kind_evidence": [{"signal": SIGNAL_OVERRIDE, "vote": kind}],
-        "identity": {
-            "stem": stem,
-            "columns_seen": _created_columns(entry, tables, corpus),
-        },
+        "identity": _created_identity(stem, _created_columns(entry, tables, corpus)),
         "tables": list(members),
         "attributes": _attributes(_override_seeds(tables, corpus), corpus.synonyms),
         "tier": TIER_CONFIRMED,
@@ -1635,6 +1695,29 @@ def _fresh_concept(
         "confirmation": _confirmation(entry),
     }
     return {key: built[key] for key in _CONCEPT_KEYS if key in built}
+
+
+def _created_identity(stem: str, columns: Sequence[str]) -> dict:
+    """The stem the id spells, and the stems its own key columns answer to (K4d).
+
+    ``concept:slot`` is what the reviewer called the thing; ``ad_slot_code`` is what the
+    warehouse writes on the tables that point at it. An edge travels on the column, so
+    unless the column's own stem reaches the concept, the entry names a key that can
+    never find it. ``merged_stems`` is the index K3 already reads for exactly that --
+    the stems this concept answers to besides its own -- so the columns join it there.
+    A generic stem is left out for the reason it was generic in the first place: ``dt``
+    identifies a row without naming a thing, whoever wrote it down.
+    """
+    stems = {key_stem(column) for column in columns}
+    return {
+        "stem": stem,
+        "columns_seen": list(columns),
+        "merged_stems": sorted(
+            item
+            for item in stems
+            if item and item != stem and not is_generic_stem(item)
+        ),
+    }
 
 
 def _override_seeds(tables: Sequence[str], corpus: _Corpus) -> list[_Seed]:
@@ -1681,6 +1764,11 @@ def _revive(
     would quietly drop a decision a person made, so the stem's own ``retired_stems[]``
     entry -- the tables that carried it, in the roles they carried it in -- is read as an
     implicit ``new_concepts`` entry, and the concept comes back ``confirmed``.
+
+    A stem that came back leaves ``retired_stems[]`` in the same run (K4d): one document
+    cannot both publish the concept and go on saying the stem was refused, and the line
+    the 概念层 renders off that list is addressed to a reviewer who has *lost* a concept.
+    It is reported once, in ``created[]``, with ``revived: true``.
     """
     prefixed = identifier.startswith(CONCEPT_ID_PREFIX)
     stem = identifier[len(CONCEPT_ID_PREFIX) :] if prefixed else ""
@@ -1704,7 +1792,16 @@ def _revive(
             {column for item in tables for column in item.get("key_columns") or []}
         ),
     }
-    return _create_concept(ontology, implicit, identifier, applied, corpus, revived=True)
+    concept = _create_concept(
+        ontology, implicit, identifier, applied, corpus, revived=True
+    )
+    if concept is not None:
+        ontology["retired_stems"] = [
+            item
+            for item in ontology.get("retired_stems") or []
+            if str(item.get("stem")) != stem
+        ]
+    return concept
 
 
 def _reorder(concept: dict) -> None:
@@ -1730,7 +1827,7 @@ def _concept_merges(ontology: dict, merges: Sequence[tuple], applied: dict) -> N
         if reason is not None:
             applied["unmatched"].append({"key": source, "reason": reason})
             continue
-        _fold_concept(index[source], index[target], stamp)
+        _fold_concept(index[source], index[target], stamp, applied, source)
         ontology["concepts"] = [
             concept for concept in ontology["concepts"] if str(concept["id"]) != source
         ]
@@ -1749,18 +1846,14 @@ def _merge_reason(source: str, target: str, index: Mapping) -> str | None:
     return None
 
 
-def _fold_concept(source: Mapping, into: dict, stamp: Mapping) -> None:
-    seen = {str(item["table"]) for item in into.get("tables") or []}
-    into["tables"] = sorted(
-        [
-            *(into.get("tables") or []),
-            *(
-                item
-                for item in source.get("tables") or []
-                if str(item["table"]) not in seen
-            ),
-        ],
-        key=lambda item: (str(item["role"]) == ROLE_REFERENCE, str(item["table"])),
+def _fold_concept(
+    source: Mapping, into: dict, stamp: Mapping, applied: dict, key: str
+) -> None:
+    warning = _primary_warning(source, into)
+    if warning is not None:
+        applied["warnings"].append({"key": key, "warning": warning})
+    into["tables"] = _merge_members(
+        into.get("tables") or [], source.get("tables") or []
     )
     into["attributes"] = _merge_attributes(
         into.get("attributes") or [], source.get("attributes") or []
@@ -1775,6 +1868,56 @@ def _fold_concept(source: Mapping, into: dict, stamp: Mapping) -> None:
     )
     into["confirmation"] = dict(stamp)
     _reorder(into)
+
+
+def _merge_members(current: Sequence[Mapping], extra: Sequence[Mapping]) -> list[dict]:
+    """One row per table, in the stronger of the two roles the two sides read (K4d).
+
+    Deduping into the survivor's row drops what the folded concept knew: a table 客户
+    merely *carries* is 往来方's own snapshot, and after the fold it is a snapshot of
+    the surviving concept, not a reference to it.
+    """
+    merged: dict[str, dict] = {}
+    for item in [*current, *extra]:
+        table = str(item["table"])
+        kept = merged.get(table)
+        if kept is None or _role_strength(item) < _role_strength(kept):
+            merged[table] = dict(item)
+    return sorted(
+        merged.values(),
+        key=lambda item: (str(item["role"]) == ROLE_REFERENCE, str(item["table"])),
+    )
+
+
+def _role_strength(member: Mapping) -> int:
+    """Where this member's role sits in ``ROLE_STRENGTH``, unknown roles weakest."""
+    role = str(member.get("role"))
+    return ROLE_STRENGTH.index(role) if role in ROLE_STRENGTH else len(ROLE_STRENGTH)
+
+
+def _primary_warning(source: Mapping, into: Mapping) -> str | None:
+    """Why this merge is worth a second look, or None when it is not (K4d).
+
+    A merge is *directed*, and the direction is the reviewer's to choose: fold the side
+    with fewer ``primary`` copies into the other. Folding two concepts that each have
+    their own primary copy leaves one concept claiming two tables are *the* copy of it,
+    which is either two things after all or a merge written the wrong way round. Both
+    rows stay -- dropping one would answer a question only the reviewer can -- and the
+    two tables are named so the next round can answer it.
+    """
+    folded, kept = _primary_tables(source), _primary_tables(into)
+    tables = sorted(folded | kept)
+    if not folded or not kept or len(tables) < 2:
+        return None
+    return f"merge_kept_two_primaries: {', '.join(tables)}"
+
+
+def _primary_tables(concept: Mapping) -> set[str]:
+    return {
+        str(item["table"])
+        for item in concept.get("tables") or []
+        if str(item.get("role")) == ROLE_PRIMARY
+    }
 
 
 def _merge_identity(identity: Mapping, source: Mapping) -> dict:
