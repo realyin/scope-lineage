@@ -18,17 +18,22 @@
 
 1. `appendix.md` 的 `erDiagram`（N2：表一级的东西都搬到了 `ontology.md` 旁边这份附录里，
    索引只留一节「附录索引」指过来）：整份语料一屏，先看清有哪几个实体、谁连谁。
-2. `appendix.md` 里的「待人工判定清单（N 条，折叠为 G 组）」：这一轮全部未决项，已经按
+2. **先读概念那一层**（N3）：`ontology.md` 总览那句话里的「N 个概念级问题」就是这一轮真正
+   要做的决定数，逐条在 `ontology.json` 的 `concept_open_items[]` 里，也印在每个概念自己那份
+   `concepts/<文件>.md` 的「待人工判定」里。一条概念级条目把同一个概念下几张表现表的同一个
+   问题折成一问——候选键按键词根折（`cust_no` 与 `cust_id` 是同一个词根），关系按（本端概念，
+   对端概念，对端词根）折，发现按发现 `kind` 折。**从这里取题**，表级那两份清单是它的展开。
+3. `appendix.md` 里的「待人工判定清单（N 条，折叠为 G 组）」：这一轮全部未决项，已经按
    （类型，表族，问题形状）折叠成组，组间按「`影响` 降序 → 组内条数降序 → 代表条目名次」
    排好序，每行带 `open:group:` 开头的组 id、代表条目的 `open:` id、影响、条数和回写模式。
    **它是这份工作的工作台**：清单条数减少多少，就是这一轮的产出。一个组是**一个问题**，
    不是一条——答一次覆盖一族表，所以先答组数多的。只印前 50 组，「另有 K 组 M 条」那一行
    指向 `ontology.json` 的 `open_item_groups[]`，逐条清单在 `open_items[]` 里。
-3. `appendix.md` 的「矛盾发现（N 条，折叠为 G 组）」表：跨任务矛盾（`cardinality_conflict`）、
+4. `appendix.md` 的「矛盾发现（N 条，折叠为 G 组）」表：跨任务矛盾（`cardinality_conflict`）、
    `competing_candidate_keys`、`key_hint_conflict` 三类发现的正文，同样按表族折叠。
-4. 每张涉及的 `tables/<表>.md` 的第 11 节「待人工判定」：该表所有 `hypothesis` 断言，
+5. 每张涉及的 `tables/<表>.md` 的第 11 节「待人工判定」：该表所有 `hypothesis` 断言，
    每条末尾已经打印好回写目标字符串与清单 id，**照抄，不要自己拼**。
-5. 任务画像：`describe` 跑过的任务，`semantic.md` 与 `semantic.json` 就在该任务的
+6. 任务画像：`describe` 跑过的任务，`semantic.md` 与 `semantic.json` 就在该任务的
    `lineage.json` 旁边。里面的「一行代表什么」（grain）是下面「凭证据自答」的主要依据。
    **没有 `semantic.md` 就先跑 `describe`**：
 
@@ -36,9 +41,27 @@
    scope-lineage describe --lineage <corpus>   # semantic.json + semantic.md 写在每个 lineage.json 旁边
    ```
 
+## 在哪一层答（N3）
+
+先定层级，再动手。**问题问的是某个概念的身份、或者两个概念之间的关系时，答在概念那一层**：
+概念的身份键（「客户按什么唯一」）、概念之间的基数（「一个客户有几张订单」）——这两件事对这个
+概念的**所有**表现表同时成立，一张表答一次等于把一个答案抄五遍。
+
+**只有当几张表现表确实口径不同时，才退回表一级**：同一个概念下的某张表是别的批次、别的来源、
+或者明确只在分区内唯一而别的表全表唯一。判断办法和表族那一层一样——先去 `concept_open_items[]`
+那一条的 `tables[]` 把覆盖的表列出来，有一张不同就不许按概念答，把那一张拆出来单答。
+
+**发现（矛盾）永远答在表一级**：一条矛盾的答案可能确认键、可能确认基数、也可能两个都不确认，
+概念层没有对应的回写槽位（`concept_write_back` 因此是 `null`），概念级条目只负责告诉你
+「这个概念上有 N 条同一类矛盾」。
+
+一条概念级条目自带三样东西，照抄即可：`concept_write_back`（写进 `ontology.overrides.json`
+的 `concepts` 段的那一串）、`write_back[]`（这一答会展开成哪几条表级确认，用来复核）、
+`items[]`（折进来的表级条目 id，用来在表卡里找证据）。
+
 ## 怎么答一个组
 
-清单里的一行是一个**组**：同一个问题问到一族表上（`_di` / `_df` / `_hi` 是同一张逻辑表
+退回表一级之后，清单里的一行是一个**组**：同一个问题问到一族表上（`_di` / `_df` / `_hi` 是同一张逻辑表
 的三份副本，`_tmp` / `_mid01` 是搭它的中间步骤）。关系类的组按**对端**归：一条边问的是
 「对端那张表按这组列唯一吗」，所以十个任务从十张表关联同一张维表是**一个问题**，问一次。
 `影响` 那一列就是答完能解开多少东西（关系算关联它的表数加任务数，候选键算确认后能升为已
@@ -100,7 +123,7 @@ id 旁边（「清单 `open:…`，组 `open:group:…`」），照抄即可。
 某列的中文含义（走 `glossary.overrides.template.md`，不在这里问）、"请核对整张表"这类
 一句话答不了的问题、`proven` 与 `implied` 的断言（它们已经被证明了，再问等于不信任证据）。
 
-**一次最多 8 组**（一个组就是一条问题，不论它覆盖几张表），按影响排序（清单本身已经按
+**一次最多 8 组**（一个组就是一条问题，不论它覆盖几张表；一条 `concept_open_items[]` 同样只算一条，不论它折了几组几条），按影响排序（清单本身已经按
 `影响` 排好序，照它的顺序取前 8 组即可）。超出的放在清单末尾的「备查项」里，一行一组，不用五行格式。
 凭证据自答的条目不占这 8 组的额度，它们直接进 `ontology.overrides.json`。
 
@@ -115,6 +138,10 @@ Q<n>. <一句问题，业务方不看 SQL 也能懂>
 - 答案：（待填）
 ```
 
+- `- 回写目标：` 也可以写**概念级**的那一串（N3）——`概念键:<概念 id>=<词根>` 或
+  `概念关系:<本端概念 id>-><对端概念 id>`，逐字抄自概念文件「待人工判定」那一条的
+  「概念级回写」。写了概念级的就**不要**再写表级的：一行只能有一个回写目标，工具按
+  `write_back[]` 逐表展开。
 - `- 证据：` 这一行**豁免「正文不得出现结构词」**：`cardinality`、`hypothesis`、
   `candidate_keys`、`many_to_one_assumed` 这类原词照写，它是给复核者的指针。组 id、条数与
   影响照抄清单那一行的 `组 id` / `条数` / `影响`。
@@ -163,6 +190,44 @@ Q<n>. <一句问题，业务方不看 SQL 也能懂>
 }
 ```
 
+概念级的答案写在同一份文件的 `concepts` 段里（N3），一条答案工具逐表展开：
+
+```json
+{
+  "concepts": {
+    "concept:cust": {
+      "keys": [
+        {
+          "columns": ["cust_no"],
+          "scope_columns": ["dt"],
+          "basis": "<凭什么，自由文本>",
+          "confirmed_by": "<名字>",
+          "date": "<YYYY-MM-DD>"
+        }
+      ],
+      "relations": {
+        "concept:order": {
+          "cardinality": "many_to_one",
+          "basis": "<凭什么，自由文本>",
+          "confirmed_by": "<名字>",
+          "date": "<YYYY-MM-DD>"
+        }
+      }
+    }
+  }
+}
+```
+
+- `concepts` 的键是概念 id（`概念键:` 与 `=` 之间那一段，或 `概念关系:` 与 `->` 之间那一段），
+  `relations` 的键是 `->` 后面的对端概念 id。
+- `keys[].columns` 写**这个概念任意一张表现表的实际列名**就行：工具折成键词根，再对每一张候选
+  键落到同一组词根的表现表按它自己的列名写一条表级确认。`scope_columns` 只写各张表都有的分区列。
+- 展开结果在 `overrides_applied.concept_expansions[]`：一条 `{"key": …, "applied_to": N}`，
+  `key` 与你抄的那一串逐字相同，`applied_to` 要等于概念条目 `write_back[]` 的长度。不等就说明
+  有表现表没被覆盖，去看它的候选键是不是别的词根。
+- `unmatched` 里的概念级原因：`unknown_concept: <id>`、`unmatched_stems: <词根>`、
+  `unknown_concept_relation: <对端 id>`、`missing_columns`。
+
 - `relations` 的键就是 `关系:` 后面那一串（去掉 `关系:` 前缀）；`keys` 的键是 `键:` 与 `=`
   之间那一段，`columns` 是 `=` 之后按 `+` 拆开的列表。
 - `cardinality` 取 `one_to_many` / `many_to_one` / `many_to_one_assumed` /
@@ -181,13 +246,14 @@ scope-lineage ontology --lineage <corpus> --out <dir> \
 - `basis` 与 `note` 是自由文本，发布在 `confirmed_by` / `date` 旁边（`basis` 发布成
   `confirmed_basis`）。凭证据自答的条目**必须**写 `basis`；业务方答的条目建议写。
 
-跑完检查四件事：`overrides_applied.relations` / `keys` 的条数与你合并的条数相等；
+跑完检查四件事：`overrides_applied.relations` / `keys` 的条数与你合并的条数相等——概念级
+答案按**展开后**的表级条数计，对照 `concept_expansions[].applied_to` 的和；
 `overrides_applied.unmatched` 为空——它非空就说明某个回写目标字符串抄错了，`reason`
 直接告诉你错在哪（`unknown_column: x` / `unknown_entity: x` / `unknown_relation`）；
 `overrides_applied.ignored_fields` 为空——它非空说明某个字段名拼错了，那条确认里的这个
-字段没有生效；`ontology.md` 标题行的「待人工判定 N 条 / G 组（已确认 M 条）」里的 N 比上
+字段没有生效；`ontology.md` 标题行的「待人工判定 N 条 / G 组 / C 个概念级问题（已确认 M 条）」里的 N 比上
 一轮小，且小掉的条数等于你这一轮合并的条数（G 只有在整组答完时才会跟着变小，答了一族里的
-一部分表时 N 变小而 G 不变，这是对的）。
+一部分表时 N 变小而 G 不变，这是对的；C 同理，整个概念答完才会少一个）。
 
 ## 自检
 
@@ -202,5 +268,6 @@ scope-lineage ontology --lineage <corpus> --out <dir> \
 | 7 | 没有问实体业务名、类层次、取值含义 | |
 | 8 | 凭证据自答的条目只用了表里那四类证据，且每条都写了 `basis` | |
 | 9 | 没被自答、也没进前 8 组的条目，原样留在清单里，没有改写或合并 | |
+| 9a | 身份与基数类的问题先在 `concept_open_items[]` 那一层看过，能按概念答的答在概念那一层；退回表一级的都说得出哪张表现表口径不同 |
 | 9b | 按组答的每一条都先在 `families[]` 里核过这一族，并且逐表写成了具体的 override，没有把 `<table>` 写进文件 | |
 | 10 | 跑完 `--overrides` 后 `unmatched` 与 `ignored_fields` 都是空的 | |

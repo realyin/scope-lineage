@@ -82,6 +82,8 @@ from .concepts import (
     TIER_PROVISIONAL,
     apply_concept_overrides,
     build_concepts,
+    key_stem,
+    synonym_folding,
 )
 from .glossary import build_glossary
 from .markdown_text import cell, normalize_inline
@@ -378,6 +380,23 @@ KEY_OVERRIDE_FIELDS = (
 )
 RELATION_OVERRIDE_FIELDS = ("cardinality", "basis", "note", "confirmed_by", "date")
 
+# N3: the same file's `concepts` section -- one answer about a concept, expanded by the
+# tool onto every representation table it is true of. `keys` is a list because a concept
+# may be keyed two ways; `relations` is a map because one far concept has one answer.
+CONCEPT_OVERRIDE_FIELDS = ("keys", "relations")
+# `cardinality` is accepted on a concept key and read as nothing: a key answer is
+# 「唯一」 or it is not. It is in the list so a reviewer who copied the relation shape is
+# told nothing was dropped rather than told they typed a field name wrong (H2).
+CONCEPT_KEY_OVERRIDE_FIELDS = (*KEY_OVERRIDE_FIELDS, "cardinality")
+CONCEPT_RELATION_OVERRIDE_FIELDS = RELATION_OVERRIDE_FIELDS
+
+# N3: the prefix one concept-level question answers to, and the two strings a reviewer
+# copies out of a concept file. `概念键:` / `概念关系:` deliberately echo the table-level
+# `键:` / `关系:`: the vocabulary is one list read at two altitudes, not two lists.
+CONCEPT_ITEM_ID_PREFIX = "open:concept:"
+CONCEPT_KEY_WRITE_BACK = "概念键:"
+CONCEPT_RELATION_WRITE_BACK = "概念关系:"
+
 CLAIM_MULTIPLE_ROWS = "multiple_rows_per_key"
 
 CONSTRAINT_NOT_NULL = "not_null"
@@ -541,6 +560,10 @@ _ONTOLOGY_KEYS = (
     "finding_groups",
     "open_items",
     "open_item_groups",
+    # N3: the same questions folded once more, by (concept, question shape). A concept
+    # with five representation tables asks one identity question, not five, and this is
+    # the list a review round answers -- `open_item_groups[]` stays the table-level view.
+    "concept_open_items",
     "overrides_applied",
 )
 
@@ -603,6 +626,24 @@ _GROUP_KEYS = (
     # Q3: what answering the group unblocks -- and the key the list is ranked on.
     "impact",
     "write_back_pattern",
+)
+#: N3: one concept-level question. ``shape`` is what the fold keyed on -- the key stems,
+#: ``<far concept>:<its stems>`` for an edge, the finding kind for a contradiction --
+#: and ``concept_write_back`` is the one string a reviewer copies; ``write_back`` is the
+#: list of table-level keys that one answer expands to, one per representation.
+_CONCEPT_ITEM_KEYS = (
+    "id",
+    "kind",
+    "concept",
+    "shape",
+    "question",
+    "tier",
+    "impact",
+    "count",
+    "tables",
+    "items",
+    "concept_write_back",
+    "write_back",
 )
 
 _DIRECT_TRANSFORM = "DIRECT"
@@ -687,9 +728,14 @@ def build_ontology(
         "finding_groups": [],
         "open_items": [],
         "open_item_groups": [],
+        "concept_open_items": [],
         "overrides_applied": {
             "relations": 0,
             "keys": 0,
+            # N3: one entry per concept-level answer, saying how many table-level
+            # assertions it reached. The `relations` / `keys` counters above stay the
+            # count of assertions raised, concept expansions included.
+            "concept_expansions": [],
             "unmatched": [],
             "ignored_fields": [],
         },
@@ -705,6 +751,11 @@ def build_ontology(
     )
     # K3 reads the concepts the two lines above published, so it runs after them.
     ontology.update(build_concept_relations(ontology))
+    # N3: the concept-level half of `ontology.overrides.json`, which can only run here --
+    # it names a concept and a concept relation, and neither existed four lines ago. A
+    # confirmed edge changes what the concept edge claims, so K3 is read a second time.
+    if _apply_concept_assertions(ontology, (overrides or {}).get("concepts") or {}):
+        ontology.update(build_concept_relations(ontology))
     _publish_open_list(ontology)
     # M2 last of all: the back-links are a reading of the finished document, and the open
     # list is the newest part of it.
@@ -773,7 +824,13 @@ def _with_legacy_keys(document: dict) -> dict:
 
 
 def _publish_open_list(ontology: dict) -> None:
-    """The open questions and the two views of them, after the confirmations landed."""
+    """The open questions and the three views of them, after the confirmations landed.
+
+    N3 added the third: the table level, the family fold, and the concept fold. The
+    concept fold is published last because it is the one a review round reads first --
+    and the groups get a back-link to it, so a reader who started at the family fold can
+    climb to the question that actually has one answer.
+    """
     records = _open_item_records(ontology)
     groups = _open_item_groups(records)
     ontology["open_items"] = [_published_item(record) for record in records]
@@ -781,6 +838,10 @@ def _publish_open_list(ontology: dict) -> None:
     ontology["finding_groups"] = [
         group for group in groups if str(group["kind"]) == OPEN_ITEM_FINDING
     ]
+    items, folded = _concept_open_items(ontology, records)
+    ontology["concept_open_items"] = items
+    for group in groups:
+        group["concept_open_item"] = folded.get(str(group["representative"]))
 
 
 #: How many tables of the supplied cards lent evidence only. Present on the corpus block
@@ -1044,6 +1105,126 @@ def _confirm_key(
     stamp = {"kind": EVIDENCE_HUMAN_CONFIRMATION, **_confirmation_stamp(entry)}
     if stamp not in current["evidence"]:
         current["evidence"].append(stamp)
+
+
+def _apply_concept_assertions(ontology: dict, concepts: Mapping) -> bool:
+    """N3: answer once about a concept, and let the tool bind every representation.
+
+    The table-level half of ``ontology.overrides.json`` binds one concrete table, which
+    is right -- a confirmation is about a table, and always will be. What it made a
+    reviewer do is type the same answer five times when a concept had five
+    representations. This section takes the answer at the altitude it is true at and
+    expands it; every confirmation it writes is still a table-level one.
+
+    Returns whether any *relation* was confirmed, because a concept edge is a reading of
+    its table edges and would otherwise keep claiming a hypothesis the reviewer closed.
+    """
+    applied = ontology["overrides_applied"]
+    index = {str(concept["id"]): concept for concept in ontology.get("concepts") or []}
+    edges = 0
+    for name in sorted(concepts):
+        entry = dict(concepts[name] or {})
+        concept = index.get(str(name))
+        if concept is None:
+            applied["unmatched"].append(
+                {"key": str(name), "reason": f"unknown_concept: {name}"}
+            )
+            continue
+        _record_ignored(applied, str(name), entry, CONCEPT_OVERRIDE_FIELDS)
+        _expand_concept_keys(ontology, concept, entry.get("keys") or [], applied)
+        edges += _expand_concept_relations(
+            ontology, concept, entry.get("relations") or {}, applied
+        )
+    applied["unmatched"].sort(key=lambda item: (item["key"], item["reason"]))
+    applied["ignored_fields"].sort(key=lambda item: item["key"])
+    applied["concept_expansions"].sort(key=lambda item: item["key"])
+    return edges > 0
+
+
+def _expand_concept_keys(
+    ontology: dict, concept: Mapping, keys: Sequence, applied: dict
+) -> None:
+    """One identity answer onto every representation whose key reduces to those stems."""
+    synonyms = synonym_folding(list(ontology["tables"]))
+    entities = {str(entity["id"]): entity for entity in ontology["tables"]}
+    carried = _entity_columns(ontology)
+    members = [str(item["table"]) for item in concept.get("tables") or []]
+    for entry in keys:
+        entry = dict(entry or {})
+        stems = _stem_text(entry.get("columns") or [], synonyms)
+        key = f"{CONCEPT_KEY_WRITE_BACK}{concept['id']}={stems}"
+        if not entry.get("columns"):
+            applied["unmatched"].append({"key": key, "reason": "missing_columns"})
+            continue
+        _record_ignored(applied, key, entry, CONCEPT_KEY_OVERRIDE_FIELDS)
+        reached = [
+            table
+            for table in sorted(set(members))
+            if table in entities
+            and _confirm_concept_key(
+                entities[table], stems, entry, synonyms, carried[table]
+            )
+        ]
+        if not reached:
+            applied["unmatched"].append(
+                {"key": key, "reason": f"unmatched_stems: {stems}"}
+            )
+            continue
+        applied["keys"] += len(reached)
+        applied["concept_expansions"].append({"key": key, "applied_to": len(reached)})
+
+
+def _confirm_concept_key(
+    entity: dict, stems: str, entry: Mapping, synonyms: Mapping, carried: set[str]
+) -> bool:
+    """Confirm this table's own candidate key, when it reduces to the answered stems.
+
+    The reviewer's ``columns`` name one representation's spelling; the key written here
+    is the *table's* spelling, because a confirmation that named a column the table does
+    not carry is a typo published at the strongest tier (H1).
+    """
+    scope = [str(column) for column in entry.get("scope_columns") or []]
+    for key in list((entity.get("identity") or {}).get("candidate_keys") or []):
+        columns = [str(column) for column in key["columns"]]
+        if _stem_text(columns, synonyms) != stems:
+            continue
+        if _key_reason(columns, scope, carried):
+            continue
+        _confirm_key(entity, columns, scope, entry)
+        return True
+    return False
+
+
+def _expand_concept_relations(
+    ontology: dict, concept: Mapping, relations: Mapping, applied: dict
+) -> int:
+    """One cardinality answer onto every table edge that folded into that concept edge."""
+    edges = {str(item["id"]): item for item in ontology["table_relations"]}
+    folded: dict[str, list[str]] = {}
+    for relation in ontology.get("relations") or []:
+        if str(relation["from"]) != str(concept["id"]):
+            continue
+        folded.setdefault(str(relation["to"]), []).extend(
+            str(item) for item in relation.get("evidence") or []
+        )
+    reached = 0
+    for name in sorted(relations):
+        entry = dict(relations[name] or {})
+        key = f"{CONCEPT_RELATION_WRITE_BACK}{concept['id']}->{name}"
+        members = [item for item in sorted(set(folded.get(str(name)) or [])) if item in edges]
+        if not members:
+            applied["unmatched"].append(
+                {"key": key, "reason": f"unknown_concept_relation: {name}"}
+            )
+            continue
+        _record_ignored(applied, key, entry, CONCEPT_RELATION_OVERRIDE_FIELDS)
+        for identifier in members:
+            edge = edges[identifier]
+            edge["cardinality"] = _confirmed_cardinality(edge["cardinality"], entry)
+        applied["relations"] += len(members)
+        applied["concept_expansions"].append({"key": key, "applied_to": len(members)})
+        reached += len(members)
+    return reached
 
 
 def _not_null_columns(constraints: Sequence[Mapping]) -> set[tuple[str, str]]:
@@ -2907,6 +3088,210 @@ def _confirmed_count(ontology: Mapping) -> int:
     )
 
 
+# ----------------------------------------------- N3: the concept-level open list
+
+
+def _concept_open_items(
+    ontology: Mapping, records: Sequence[Mapping]
+) -> tuple[list[dict], dict[str, str]]:
+    """The open list folded by (concept, question shape), and the back-link to it.
+
+    Q3's fold merges the copies of one logical table, which is as far as a *name* can
+    reach. A concept reaches further: five tables can represent one business thing under
+    five unrelated names, each carrying the same candidate key spelled its own way, and
+    the table-level list then asks 「这张表按这组列唯一吗」 five times. Identity is a
+    property of the concept, so the five answers were always one answer.
+
+    Nothing is merged here either. ``open_items[]`` still holds every question and an
+    override still binds one concrete table -- what changes is that a reviewer answers
+    at the altitude the answer is true at, and the tool does the expanding.
+    """
+    context = _concept_fold_context(ontology)
+    folded: dict[str, dict] = {}
+    back: dict[str, str] = {}
+    for rank, record in enumerate(records):
+        seed = _concept_fold_seed(record, context)
+        if seed is None:
+            continue
+        back[str(record["id"])] = seed["id"]
+        item = folded.get(seed["id"])
+        if item is None:
+            item = folded[seed["id"]] = {**seed, "rank": rank, "members": []}
+        item["members"].append(record)
+    items = [
+        _published_concept_item(item, context)
+        for item in sorted(folded.values(), key=_concept_item_rank)
+    ]
+    return items, back
+
+
+def _concept_fold_context(ontology: Mapping) -> dict:
+    """What the fold has to look up: which concept a table *is*, and what it is called."""
+    concepts = list(ontology.get("concepts") or [])
+    return {
+        # The same reading `_attach_concepts` back-links with, so an item and its concept
+        # item never disagree about which concept the question belongs to.
+        "identity": {
+            **provisional_memberships(concepts),
+            **identity_memberships(concepts),
+        },
+        "names": {str(item.get("id")): str(item.get("name")) for item in concepts},
+        "synonyms": synonym_folding(list(ontology.get("tables") or [])),
+        "edges": {
+            str(item["id"]): item for item in ontology.get("table_relations") or []
+        },
+    }
+
+
+def _concept_fold_seed(record: Mapping, context: Mapping) -> dict | None:
+    """``{id, kind, concept, shape}`` for one table-level question, or ``None``.
+
+    ``None`` only when an endpoint belongs to no concept at all, which M1 made rare and
+    K4b can still produce: a table lent to two concepts has two identities and the layer
+    refuses to choose one, so its questions stay table-level rather than get filed under
+    a concept nobody said it was.
+    """
+    concept = context["identity"].get(str(record.get("entity")))
+    if concept is None:
+        return None
+    kind = str(record["kind"])
+    if kind == OPEN_ITEM_RELATION:
+        shape = _concept_relation_shape(record, context)
+        if shape is None:
+            return None
+    elif kind == OPEN_ITEM_KEY:
+        shape = _stem_text(record.get("columns") or [], context["synonyms"])
+    else:
+        shape = str(record["_shape"])
+    slot = {OPEN_ITEM_KEY: "key", OPEN_ITEM_RELATION: "rel"}.get(kind, "finding")
+    return {
+        "id": f"{CONCEPT_ITEM_ID_PREFIX}{concept}:{slot}={shape}",
+        "kind": kind,
+        "concept": concept,
+        "shape": shape,
+    }
+
+
+def _concept_relation_shape(record: Mapping, context: Mapping) -> str | None:
+    """``<far concept>:<the stems its side of the JOIN reduces to>``.
+
+    The far side alone, exactly as Q3 keys an edge: the question an edge leaves open is
+    「对端那张表按这组列唯一吗」, and who joined it does not change the answer.
+    """
+    edge = context["edges"].get(str(record.get("relation")))
+    far = context["identity"].get(str((edge or {}).get("to", {}).get("entity"))) if edge else None
+    if far is None:
+        return None
+    return f"{far}:{_stem_text(edge['to']['columns'], context['synonyms'])}"
+
+
+def _stem_text(columns: Sequence, synonyms: Mapping[str, str]) -> str:
+    """The business words one column list reduces to, joined the way an id joins them."""
+    return "+".join(key_stem(str(column), synonyms) for column in columns)
+
+
+def _published_concept_item(item: Mapping, context: Mapping) -> dict:
+    members = list(item["members"])
+    built = {
+        **item,
+        "question": _concept_question(item, members, context),
+        "tier": _weakest_tier(members),
+        "impact": sum(_open_item_impact(record) for record in members),
+        "count": len(members),
+        "tables": sorted({str(record["entity"]) for record in members}),
+        "items": [str(record["id"]) for record in members],
+        "concept_write_back": _concept_item_write_back(item),
+        # One per representation the answer reaches: the reviewer writes the concept
+        # answer once, and this is what the tool files under it.
+        "write_back": _dedupe(
+            str(record["write_back"]) for record in members if record.get("write_back")
+        ),
+    }
+    return {key: built[key] for key in _CONCEPT_ITEM_KEYS if key in built}
+
+
+def _concept_item_rank(item: Mapping) -> tuple:
+    """What the answer unblocks, then how many questions it closes, then the list."""
+    members = item["members"]
+    return (
+        -sum(_open_item_impact(record) for record in members),
+        -len(members),
+        int(item["rank"]),
+    )
+
+
+def _open_item_impact(record: Mapping) -> int:
+    """What one open question's answer unblocks, on the scale ``_group_impact`` counts.
+
+    A group dedupes the tables and tasks it folds because the *same* far table is asked
+    about once; a concept item sums instead, because its members are different tables
+    and an answer that reaches five of them is worth five times one.
+    """
+    kind = str(record["kind"])
+    if kind == OPEN_ITEM_RELATION:
+        return 1 + len(record["_tasks"])
+    if kind == OPEN_ITEM_KEY:
+        return int(record["_proves"])
+    return 1
+
+
+def _weakest_tier(members: Sequence[Mapping]) -> str:
+    """The weakest tier any member carries: one member still guessing is still a guess."""
+    return max(
+        (str(record["tier"]) for record in members),
+        key=lambda tier: TIERS.index(tier) if tier in TIERS else len(TIERS),
+    )
+
+
+def _concept_question(item: Mapping, members: Sequence[Mapping], context: Mapping) -> str:
+    """One sentence, asked of the concept rather than of whichever copy sorted first."""
+    names = context["names"]
+    name = names.get(str(item["concept"]), str(item["concept"]))
+    tables = len({str(record["entity"]) for record in members})
+    kind = str(item["kind"])
+    if kind == OPEN_ITEM_KEY:
+        return (
+            f"概念「{name}」是否按 {_concept_key_text(item, members)} 唯一？"
+            f"（{tables} 张表现表）"
+        )
+    if kind == OPEN_ITEM_RELATION:
+        far, _, _stems = str(item["shape"]).rpartition(":")
+        return (
+            f"概念「{name}」→「{names.get(far, far)}」的基数是几对几？"
+            f"（{tables} 张表现表上的 JOIN）"
+        )
+    return f"概念「{name}」上的 `{item['shape']}` 矛盾该怎么判？（{tables} 张表现表）"
+
+
+def _concept_key_text(item: Mapping, members: Sequence[Mapping]) -> str:
+    """The columns when every representation spells them alike, else the stems.
+
+    The fold is on the stems, so the stems are always true of the whole item; the
+    concrete spelling is printed when there is exactly one, because 「按 `cust_no` 唯一」
+    is a question a business answers and 「按 `cust` 唯一」 is one it has to decode.
+    """
+    spellings = {
+        tuple(str(column) for column in record["columns"]) for record in members
+    }
+    columns = spellings.pop() if len(spellings) == 1 else str(item["shape"]).split("+")
+    return "、".join(f"`{column}`" for column in columns)
+
+
+def _concept_item_write_back(item: Mapping) -> str | None:
+    """The one string a reviewer copies into ``ontology.overrides.json``'s ``concepts``.
+
+    A contradiction has none: the ``concepts`` section answers identity and cardinality,
+    and answering 「这两个任务谁对」 may confirm either, both, or neither.
+    """
+    kind = str(item["kind"])
+    if kind == OPEN_ITEM_KEY:
+        return f"{CONCEPT_KEY_WRITE_BACK}{item['concept']}={item['shape']}"
+    if kind == OPEN_ITEM_RELATION:
+        far, _, _stems = str(item["shape"]).rpartition(":")
+        return f"{CONCEPT_RELATION_WRITE_BACK}{item['concept']}->{far}"
+    return None
+
+
 # ------------------------------------------------------------------------- markdown
 
 
@@ -2955,6 +3340,9 @@ def _index_front_matter(ontology: Mapping) -> list[str]:
         f"table_relation_count: {len(ontology.get('table_relations') or [])}",
         f"open_item_count: {len(ontology.get('open_items') or [])}",
         f"open_item_group_count: {len(ontology.get('open_item_groups') or [])}",
+        # N3: beside the table-level count, because it is the smaller and truer one --
+        # how many decisions this review round actually has to make.
+        f"concept_open_item_count: {len(ontology.get('concept_open_items') or [])}",
         "---",
         "",
         "# 语料本体候选索引",
@@ -3027,6 +3415,7 @@ def _overview_counts(
     )
     items = list(ontology.get("open_items") or [])
     groups = list(ontology.get("open_item_groups") or [])
+    concept_items = list(ontology.get("concept_open_items") or [])
     return [
         f"{len(folded)} 个概念（{by_kind}）、{len(relations)} 条概念关系，另有 "
         f"{len(provisional)} 个**临时概念**（M1：语料没能把它归到任何业务键上的表，暂时"
@@ -3040,8 +3429,11 @@ def _overview_counts(
         f"{len(ontology.get('constraints') or [])} 条约束、"
         f"{len(ontology.get('findings') or [])} 条矛盾发现，逐条见 "
         f"[`{APPENDIX_FILENAME}`]({APPENDIX_FILENAME})；"
-        f"待人工判定 {len(items)} 条 / {len(groups)} 组"
-        f"（已确认 {_confirmed_count(ontology)} 条）。",
+        f"待人工判定 {len(items)} 条 / {len(groups)} 组 / "
+        f"{len(concept_items)} 个概念级问题"
+        f"（已确认 {_confirmed_count(ontology)} 条）。N3：概念级那一列才是这一轮要做的"
+        "决定数——同一个概念的几张表现表问的是同一件事，答一次工具逐表展开，"
+        f"每个概念的问题印在它自己的 `{CONCEPTS_DIR}/` 文件里。",
     ]
 
 
@@ -4868,31 +5260,56 @@ def _concept_evidence_row(relation: str, edge: Mapping) -> str:
 
 
 def _concept_open_item_section(concept: Mapping, ontology: Mapping) -> list[str]:
-    """The questions filed under this concept, folded the way the appendix folds them."""
+    """N3: the questions filed under this concept, asked *of* the concept.
+
+    They used to be the table-level groups that happened to be filed here, which meant a
+    concept with five representations printed five 「这张表按这组列唯一吗」 lines and a
+    reviewer answered the same thing five times. One question now, with the tables it
+    covers, the key to answer under, and the table-level ids it expands to as evidence.
+    """
     identifier = str(concept.get("id"))
-    groups = [
-        group
-        for group in ontology.get("open_item_groups") or []
-        if str(group.get("concept")) == identifier
+    items = [
+        item
+        for item in ontology.get("concept_open_items") or []
+        if str(item.get("concept")) == identifier
     ]
     lines = ["", "## 待人工判定", ""]
-    if not groups:
+    if not items:
         return [*lines, "- 本概念没有待人工判定的项。"]
-    index = {str(item["id"]): item for item in ontology.get("open_items") or []}
-    lines.extend(_concept_open_item_line(group, index) for group in groups)
+    lines.append(
+        f"{len(items)} 个**概念级**问题。一个问题答一次，工具按下面的「展开」逐表写回 "
+        f"`ontology.overrides.json`；表一级的逐条清单在 `open_items[]` 里，仍然完整。"
+    )
+    lines.append("")
+    for item in items:
+        lines.extend(_concept_open_item_lines(item))
     return lines
 
 
-def _concept_open_item_line(group: Mapping, index: Mapping) -> str:
-    kind = str(group["kind"])
-    text = (index.get(str(group["representative"])) or {}).get("text") or ""
-    pattern = group.get("write_back_pattern")
-    return (
-        f"- {OPEN_ITEM_TEXT.get(kind, kind)}"
-        f"（`{group['group_id']}`，{group['count']} 条，影响 {group['impact']}）："
-        + normalize_inline(str(text))
-        + (f" 回写模式 `{pattern}`。" if pattern else "")
+def _concept_open_item_lines(item: Mapping) -> list[str]:
+    """One concept question: what it asks, what it covers, and how one answer expands."""
+    kind = str(item["kind"])
+    tables = "、".join(f"`{table}`" for table in item.get("tables") or [])
+    write_back = item.get("concept_write_back")
+    expansion = "、".join(f"`{key}`" for key in item.get("write_back") or [])
+    lines = [
+        f"- {OPEN_ITEM_TEXT.get(kind, kind)}（`{item['id']}`，折了 {item['count']} 条，"
+        f"影响 {item['impact']}，层级 `{item['tier']}`）："
+        + normalize_inline(str(item.get("question") or "")),
+        f"  - 覆盖表现表 {len(item.get('tables') or [])} 张：{tables or '—'}",
+    ]
+    if write_back:
+        lines.append(
+            f"  - 概念级回写 `{write_back}`——写在 `ontology.overrides.json` 的 "
+            f"`concepts` 下，展开成 {len(item.get('write_back') or [])} 条表级确认："
+            f"{expansion or '—'}"
+        )
+    elif expansion:
+        lines.append(f"  - 表级回写目标：{expansion}")
+    lines.append(
+        "  - 表级条目：" + "、".join(f"`{name}`" for name in item.get("items") or [])
     )
+    return lines
 
 
 def _concept_naming_section(concept: Mapping) -> list[str]:

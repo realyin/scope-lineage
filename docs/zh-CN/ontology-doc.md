@@ -299,10 +299,19 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
      "family": "ods.customer", "shape": "id",
      "representative": "open:key:ods.customer=id",
      "items": ["open:key:ods.customer=id"], "count": 1, "impact": 2,
-     "write_back_pattern": "键:<table>=id", "concept": "concept:cust"}
+     "write_back_pattern": "键:<table>=id", "concept": "concept:cust",
+     "concept_open_item": "open:concept:concept:cust:key=cust"}
   ],
-  "overrides_applied": {"relations": 0, "keys": 0, "unmatched": [],
-                        "ignored_fields": []}
+  "concept_open_items": [                       // N3：同一份清单按概念再折一次
+    {"id": "open:concept:concept:cust:key=cust", "kind": "candidate_key",
+     "concept": "concept:cust", "shape": "cust", "question": "…",
+     "tier": "hypothesis", "impact": 2, "count": 1,
+     "tables": ["ods.customer"], "items": ["open:key:ods.customer=id"],
+     "concept_write_back": "概念键:concept:cust=cust",
+     "write_back": ["键:ods.customer=id"]}
+  ],
+  "overrides_applied": {"relations": 0, "keys": 0, "concept_expansions": [],
+                        "unmatched": [], "ignored_fields": []}
 }
 ```
 
@@ -374,6 +383,13 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 | `open_item_groups[].group_id` | `open:group:key:<族>=<列+列>` / `open:group:rel:<对端族>=<对端列+列>` / `open:group:finding:<族>=<kind>` | 同样由内容派生，两轮之间稳定；卡片第 11 节在条目 id 旁边引用它 |
 | `open_item_groups[].impact` | 非负整数 | 答完这一组能解开多少东西：关系算关联对端的表数加任务数，候选键算确认后能升为已证明的边数，发现算组内条数；数组顺序就是 `impact` 降序 → `count` 降序 → 代表条目名次 |
 | `open_item_groups[].write_back_pattern` | `键:<table>=<列+列>` / `关系:<本端>.<列+列>-><table>.<列+列>` / `null` | 这一组的回写键，`<table>` 是这一组问的那张表（关系是对端）；本端在组内不一致时写成 `<from_table>` / `<from_columns>`。答一次，再按族里的表逐个套用；没有单一回写目标的发现写 `null` |
+| `open_item_groups[].concept_open_item` | 概念级条目 id | N3：这一组属于哪个概念级问题。表族这一层答不了的，往上一层去答 |
+| `concept_open_items[]` | `id` / `kind` / `concept` / `shape` / `question` / `tier` / `impact` / `count` / `tables[]` / `items[]` / `concept_write_back` / `write_back[]` | N3：同一份清单按（概念，问题形状）再折一次——候选键按**键词根**折（`cust_no` 与 `cust_id` 同一个词根，所以一个概念的五张表现表问的是同一件事）、关系按（本端概念，对端概念，对端词根）折、发现按发现的 `kind` 折。这一层才是评审要做的决定数 |
+| `concept_open_items[].id` | `open:concept:<概念 id>:key=<词根+词根>` / `open:concept:<本端概念 id>:rel=<对端概念 id>:<对端词根>` / `open:concept:<概念 id>:finding=<kind>` | 同样由内容派生，两轮之间稳定 |
+| `concept_open_items[].tables` / `items` | 表名列表 / 条目 id 列表 | 这一问覆盖哪几张表现表，以及它折进来的表级条目 id。折叠依然是**视图**：`open_items[]` 一条都没少 |
+| `concept_open_items[].write_back` / `concept_write_back` | 表级回写键的**列表** / 一串 | 一条概念答案展开成的表级回写，一张表一条；`concept_write_back` 是回写它时该写的那一串（`概念键:<概念 id>=<词根>` / `概念关系:<本端概念>-><对端概念>`），矛盾类没有单一目标，写 `null` |
+| `concept_open_items[].impact` / `tier` | 非负整数 / 五级之一 | `impact` 是成员各条影响之**和**（不去重：同一个答案落到五张表上就值五份）；`tier` 取成员里**最弱**的那一级。数组顺序是 `impact` 降序 → `count` 降序 → 代表条目名次 |
+| `overrides_applied.concept_expansions` | `{"key": …, "applied_to": N}` 列表 | N3：每条概念级答案展开到了几条表级断言；`key` 与 `concept_open_items[].concept_write_back` 逐字相同。展开出来的条数同时计进上面的 `relations` / `keys` |
 | `finding_groups[]` | 与 `open_item_groups[]` 同形 | `open_item_groups[]` 中 `kind` 为 `finding` 的子集，单独发布是因为索引的「待人工判定」表只渲染它们 |
 | `overrides_applied` | `relations` / `keys` / `unmatched` / `ignored_fields` | 本次合并了几条人工确认，哪些确认在语料里找不到对应项，以及哪些字段本版本读不懂 |
 | `concept_overrides_applied` | `concepts` / `created[]` / `tables_added` / `merges` / `splits` / `dissolved[]` / `unmatched` / `warnings` / `ignored_fields` | K4b/K4c：`concepts.overrides.json` 这一轮生效了几条字段确认、新建了哪几个概念（`created[]` 一条一个 `{id, tables[]}`，被唤回的退役词根多一个 `revived: true`）、加进了几张成员表、几次合并、几次拆分，以及哪些 id、表名或字段名在语料里找不到对应项。`warnings[]`（K4d）是**应用下去了、但值得回头看一眼**的那些：每条 `{key, warning}`，目前只有 `merge_kept_two_primaries: <表1>, <表2>`——一次合并把两个各自有 `primary` 副本的概念折进了一个（N1b：被合掉的是临时概念时不算，它那条成员在并进来时就重新定了角色）。`dissolved[]`（M1）是 `add_tables` / `new_concepts` 顺手解散掉的临时概念，每条 `{id, table, into}`：那张表被人放进了一个真概念，它就不再自成一个；`merge_into` 解散掉的记在 `merges` 里，不重复记 |
@@ -389,7 +405,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 | `concept_relations[]` | `relations[]` | 同形，外加 `id` |
 | `concept_representation_links[]` | `representation_links[]` | 同形 |
 | `unassigned_tables[]` | —— | M1 起恒为空，本版删除；没归到业务键上的表是 `tier: "provisional"` 的概念 |
-| 其余键 | 原名不变 | `concepts` / `families` / `constraints` / `findings` / `open_items` / `open_item_groups` / `retired_stems` / `overrides_applied` / `concept_overrides_applied` / `corpus` |
+| 其余键 | 原名不变 | `concepts` / `families` / `constraints` / `findings` / `open_items` / `open_item_groups` / `concept_open_items` / `retired_stems` / `overrides_applied` / `concept_overrides_applied` / `corpus` |
 
 **唯一无法用别名兜住的一条**：`relations[]` 没有消失，它换了意思——现在装的是**概念关系**。
 照旧读 `relations[]` 的消费方不会报错，会读到另一层东西，所以必须改读 `table_relations[]`。
@@ -583,7 +599,7 @@ M3 时这两样都在索引里，并且按 40 节封顶。那等于把整个模�
 
 | 块 | 内容 |
 | --- | --- |
-| 本体总览 | 两句话。第一句是概念：几个概念、按种类拆开（实体 N、事件 N、汇总 N）、几条概念关系，另有几个**临时概念**、其中几条关系至少有一端是临时的。第二句才是仓库：几个任务、几张表、几条表级关系、几条约束、几条矛盾发现，以及待人工判定几条 / 几组（已确认几条）。之后是置信五级的说明，以及只作为外部证据参与的表数（P7，没有就不写） |
+| 本体总览 | 两句话。第一句是概念：几个概念、按种类拆开（实体 N、事件 N、汇总 N）、几条概念关系，另有几个**临时概念**、其中几条关系至少有一端是临时的。第二句才是仓库：几个任务、几张表、几条表级关系、几条约束、几条矛盾发现，以及待人工判定几条 / 几组 / 几个概念级问题（已确认几条）——第三个数（N3）才是这一轮要做的决定数。之后是置信五级的说明，以及只作为外部证据参与的表数（P7，没有就不写） |
 | 概念 ER | 一个概念一个框，标签是 `<名字>（<种类>）`，底色按种类分（`classDef entity` / `event` / `summary`）。用 `flowchart LR` 而不是 `erDiagram`：Mermaid 的 ER 图没有 `classDef`，而这一层的框里装的是业务名与种类，种类正是要看的那一半。边来自 `relations[]`，标签写成「类型：基数」，`?` 表示这条基数只是作者假设，`participation` 的参与身份写在括号里。`representation_links[]` **不画**——那是 K1 折叠的接缝，不是业务关系。概念超过 40 个（`CONCEPT_MERMAID_LIMIT`）时按概念关系度数取前 40 个，并写明省略了几个。**临时概念一律不画**（M1） |
 | 概念表（`### 概念`） | 一行一个概念：名字**与它的层级**（「授信合同（`confirmed`）」是评审确认过的，「合同（`hypothesis`）」是作者假设——两者读起来必须不一样），并且**名字就链到这个概念自己那份文件**（N2）；随后是种类与它的层级、表数（按 `role` 拆开计数，**不**逐个列表名）、前三个命名候选（`CONCEPT_NAME_CANDIDATES_SHOWN`）、`疑似重复` 指向的概念 id |
 | 关系表（`### 关系`） | 一行一条概念关系：类型、两端的概念名、参与身份、基数与它的层级、证据条数。至少有一端是临时概念的那一行，类型后面标 `（临时）`——那一行是对语料的读法，还不是对业务的 |
@@ -618,15 +634,18 @@ M3 时这两样都在索引里，并且按 40 节封顶。那等于把整个模�
 | `## 属性` | **全部**属性（N2——索引当年只印摘要，是因为它只有一段话）：词根、类型、注释、以及它是从哪几列折出来的 |
 | `## 约束` | 挂在这个概念名下的约束，按表 / 目标 / 种类 / 内容 / 层级 |
 | `## 关系` | 出与入一张表（方向、对端概念、类型、角色、基数、层级、证据数、关系 id），其下是 **证据：表级 JOIN**——这些概念关系各自是从哪几条表级边读出来的，带折入哪条概念关系、基数、层级、依据与任务数 |
-| `## 待人工判定` | 挂在这个概念上的问题组，带组 id、条数、影响与回写模式 |
+| `## 待人工判定` | N3：挂在这个概念上的**概念级**问题，一条一问——问题正文、折了几条、影响、层级、覆盖哪几张表现表、概念级回写键与它展开成的表级回写，最后一行是折进来的表级条目 id（证据） |
 | `## 命名与类别依据` | 排好序的 `name_candidates[]`，带来源与证据表；随后是 `kind_evidence[]`——哪个信号在哪张表上投了哪个种类 |
 | `## 评审回写键` | 在 `concepts.overrides.json` 里该写的那一串，以及它能填哪些槽位；临时概念改用 `merge_into` 回答 |
 
 YAML 头也跟着改成概念在前：`concept_count` / `relation_count` / `table_count` /
-`table_relation_count` / `open_item_count` / `open_item_group_count`（上一版是
+`table_relation_count` / `open_item_count` / `open_item_group_count` /
+`concept_open_item_count`（N3，上一版是
 `entity_count` / `relation_count`，后者当时指表级关系）。
 
 ## 表族与待判定分组
+
+### 表族这一层（Q3）
 
 一份仓库会把同一张逻辑表写成很多份：`_di` 是当天增量、`_df` 是全量快照、`_tmp` 与
 `_mid01` 是搭出它的中间步骤。本体对每一份都问同一个问题，于是清单把同一个决定重复了十几
@@ -649,6 +668,30 @@ YAML 头也跟着改成概念在前：`concept_count` / `relation_count` / `tabl
 （N 条，折叠为 G 组）」是全部未决项，后者带一列 `影响`，就是排序用的那个数；各自只印前 50
 组（`OPEN_ITEM_GROUPS_SHOWN`），其余汇总成一行「另有 K 组 M 条」，指回 `ontology.json` 的
 `open_item_groups[]` / `finding_groups[]`。逐条的平铺清单不再进 markdown，它在 JSON 里。
+
+### 概念这一层（N3）
+
+表族折的是**名字**：`_di` / `_df` / `_hi` 是同一张逻辑表的三份副本。概念比名字宽——同一件
+业务东西可以由五张名字毫不相干的表来表现，每张把同一个业务键拼成自己的写法（`cust_no`、
+`cust_id`、`customer_no`），于是表族折完清单里还是五条「这张表按这组列唯一吗」。**身份是概念
+的属性，不是副本的属性**：这五个答案从来就是一个答案。
+
+`concept_open_items[]` 就是把同一份清单按（概念，问题形状）再折一次：
+
+| # | 规则 |
+| --- | --- |
+| 1 | **候选键**按（概念，键列的**词根**）折。词根就是 K1 给概念播种用的那一个（`key_stem`：小写、剥掉 `_id` / `_no` / `_code` / `_cd` / `_num` / `_key` 这类只表示「这是个键」的整段，`synonyms` 折过的算同一个），所以一个概念下所有候选键落到同一组词根的表现表，合成一条 `open:concept:<概念 id>:key=<词根>` |
+| 2 | **关系**按（本端概念，对端概念，对端词根）折，`open:concept:<本端>:rel=<对端>:<词根>`。和 Q3 一样只看对端——一条边的未决问题是「对端那件东西按这组键唯一吗」 |
+| 3 | **发现**按（概念，发现的 `kind`）折，`open:concept:<概念 id>:finding=<kind>` |
+| 4 | **影响**是成员各条影响之**和**，不去重：关系每条算「本端那张表 + 关联它的任务数」，候选键每条算「确认后能升为已证明的边数」，发现每条算 1。组的 `impact` 会去重，概念的不会——同一个答案落到五张表上就是值五份 |
+| 5 | **层级**取成员里最弱的那一级：还有一张表在猜，这一问就还是猜 |
+| 6 | **回写**：`write_back` 是这一答展开成的表级回写键**列表**（一张表现表一条），`concept_write_back` 是回写它时该写的那一串。反过来，每个表族组都带一个 `concept_open_item`，说它属于哪个概念级问题 |
+
+问题正文按概念写：「概念「客户」是否按 `cust_no` 唯一？（5 张表现表）」。几张表现表拼法不
+一致时，正文退回印词根——词根才是这一问真正成立的那一层。
+
+一个概念的问题印在它自己那份 `concepts/<文件>.md` 的「待人工判定」里，索引的 YAML 头与总览
+那一句各印一个 `concept_open_item_count`，与表级的条数、组数并排。
 
 ## 每表卡片：表卡之后追加的五节
 
@@ -741,6 +784,50 @@ erDiagram
 `{"kind": "human_confirmation", "confirmed_by": …, "date": …, "confirmed_basis": …, "note": …}`。`confirmed` 是唯一一个语料
 自己永远产不出的层级。语料本身的 `findings` 不会被确认消音：矛盾是否还存在，要等语料重新解析
 后由 O7 重新判定。
+
+### 概念级确认：`concepts` 段（N3）
+
+表级那两段一条确认绑一张表，这是对的——确认说的就是某一张表。它让评审做的多余动作是：一个
+概念有五张表现表时，同一个答案要抄五遍。`concepts` 段让答案写在它真正成立的那一层，展开交给
+工具：
+
+```json
+{
+  "concepts": {
+    "concept:cust": {
+      "keys": [
+        {
+          "columns": ["cust_no"],
+          "scope_columns": ["dt"],
+          "basis": "the business owner confirmed one row per customer per partition",
+          "confirmed_by": "王某",
+          "date": "2026-09-19"
+        }
+      ],
+      "relations": {
+        "concept:order": {
+          "cardinality": "many_to_one",
+          "basis": "one customer has many orders",
+          "confirmed_by": "王某",
+          "date": "2026-09-19"
+        }
+      }
+    }
+  }
+}
+```
+
+| 槽位 | 取值 | 含义 |
+| --- | --- | --- |
+| `concepts` 的键 | 概念 id | 与概念文件标题行、索引概念表、表卡第 7 节印的逐字一致；语料里没有这个 id 就报 `unknown_concept: <id>` |
+| `concepts[].keys[]` | 列表 | 这个概念的身份键，一条一组。`columns` 随便写这一族里**任意一张**表现表的实际列名：工具把它折成键词根，再对**每一张候选键落到同一组词根**的表现表，按那张表自己的列名写一条表级确认——所以 `cust_no` 与 `cust_id` 一次答完。`scope_columns` / `basis` / `note` / `confirmed_by` / `date` 与表级同义，逐张带过去；`cardinality` 本版本读不到东西，写了不报错也不生效 |
+| `concepts[].relations` | `{"<对端概念 id>": {…}}` | 这个概念出发、指向那个概念的那条概念关系。答案落到**折进这条概念关系的每一条表级边**上，字段与表级 `relations[]` 同义。确认之后概念关系会按新证据重算，不会继续挂着 `hypothesis` |
+| `overrides_applied.concept_expansions` | `{"key": …, "applied_to": N}` 列表 | 每条概念级答案展开到了几条表级断言。`key` 就是 `concept_open_items[].concept_write_back` 那一串（`概念键:<概念 id>=<词根>` / `概念关系:<本端>-><对端>`），照抄即可核对 |
+| `overrides_applied.unmatched` 里的概念级原因 | 字符串 | `unknown_concept: <id>`（没有这个概念）、`unmatched_stems: <词根>`（这个概念没有一张表现表的候选键落到这组词根上——多半是列名抄错了，或者这个键这一轮根本没被当成候选键）、`unknown_concept_relation: <对端 id>`（语料没读出这两个概念之间的边）、`missing_columns` |
+
+概念级答案展开出来的条数同时计进 `overrides_applied.keys` / `relations`：那两个数始终是
+「这一轮升到 `confirmed` 的**表级**断言有几条」，`concept_expansions[]` 才说是哪几条概念答案
+带来的。表级与概念级可以同时写，互不冲突——都落在同一张表上时，后跑的那条覆盖前一条的确认戳。
 
 ## 概念确认回写：concepts.overrides.json
 

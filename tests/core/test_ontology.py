@@ -888,6 +888,7 @@ def test_an_override_raises_one_relation_to_confirmed() -> None:
     assert ontology["overrides_applied"] == {
         "relations": 1,
         "keys": 0,
+        "concept_expansions": [],
         "unmatched": [],
         "ignored_fields": [],
     }
@@ -933,6 +934,7 @@ def test_an_override_that_matches_nothing_is_reported_rather_than_dropped() -> N
     assert ontology["overrides_applied"] == {
         "relations": 0,
         "keys": 0,
+        "concept_expansions": [],
         "unmatched": [
             {"key": "ods.absent", "reason": "unknown_entity: ods.absent"},
             {"key": "ods.orders.nope->ods.customer.id", "reason": "unknown_column: nope"},
@@ -953,6 +955,7 @@ def test_without_overrides_nothing_is_confirmed() -> None:
     assert ontology["overrides_applied"] == {
         "relations": 0,
         "keys": 0,
+        "concept_expansions": [],
         "unmatched": [],
         "ignored_fields": [],
     }

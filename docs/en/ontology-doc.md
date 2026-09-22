@@ -328,10 +328,19 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
      "family": "ods.customer", "shape": "id",
      "representative": "open:key:ods.customer=id",
      "items": ["open:key:ods.customer=id"], "count": 1, "impact": 2,
-     "write_back_pattern": "键:<table>=id", "concept": "concept:cust"}
+     "write_back_pattern": "键:<table>=id", "concept": "concept:cust",
+     "concept_open_item": "open:concept:concept:cust:key=cust"}
   ],
-  "overrides_applied": {"relations": 0, "keys": 0, "unmatched": [],
-                        "ignored_fields": []}
+  "concept_open_items": [                       // N3: the same list, folded by concept
+    {"id": "open:concept:concept:cust:key=cust", "kind": "candidate_key",
+     "concept": "concept:cust", "shape": "cust", "question": "…",
+     "tier": "hypothesis", "impact": 2, "count": 1,
+     "tables": ["ods.customer"], "items": ["open:key:ods.customer=id"],
+     "concept_write_back": "概念键:concept:cust=cust",
+     "write_back": ["键:ods.customer=id"]}
+  ],
+  "overrides_applied": {"relations": 0, "keys": 0, "concept_expansions": [],
+                        "unmatched": [], "ignored_fields": []}
 }
 ```
 
@@ -403,6 +412,13 @@ Slot by slot (every slot `ontology-json/2` publishes):
 | `open_item_groups[].group_id` | `open:group:key:<family>=<col+col>` / `open:group:rel:<far family>=<far col+col>` / `open:group:finding:<family>=<kind>` | derived from the content as well, so it survives the next round; section 11 of a card cites it beside the item id |
 | `open_item_groups[].impact` | a non-negative integer | what answering the group unblocks: for a relation the tables joining the far side plus the tasks that do, for a candidate key the assumed edges confirming it would prove, for a finding the items it holds; the array order is `impact` descending, then `count` descending, then the representative's rank |
 | `open_item_groups[].write_back_pattern` | `键:<table>=<col+col>` / `关系:<near end>.<col+col>-><table>.<col+col>` / `null` | the group's write-back key, where `<table>` is the table the group is about (the far one for a relation) and a near side the members disagree on reads `<from_table>` / `<from_columns>`: answer once, then file it per table in the family; a finding with no single target carries `null` |
+| `open_item_groups[].concept_open_item` | a concept-level item id | N3: which concept question this group belongs to. What the family level cannot answer is answered one level up |
+| `concept_open_items[]` | `id` / `kind` / `concept` / `shape` / `question` / `tier` / `impact` / `count` / `tables[]` / `items[]` / `concept_write_back` / `write_back[]` | N3: the same list folded once more, by (concept, question shape) -- candidate keys by their **key stems** (`cust_no` and `cust_id` reduce to one stem, so a concept's five representation tables are asking one thing), relations by (near concept, far concept, far stems), findings by the finding `kind`. This is the number of decisions a review round actually has |
+| `concept_open_items[].id` | `open:concept:<concept id>:key=<stem+stem>` / `open:concept:<near concept id>:rel=<far concept id>:<far stems>` / `open:concept:<concept id>:finding=<kind>` | derived from the content as well, so it survives the next round |
+| `concept_open_items[].tables` / `items` | a list of tables / a list of item ids | which representation tables this one question covers, and the table-level item ids it folded. The fold is still **a view**: not one entry left `open_items[]` |
+| `concept_open_items[].write_back` / `concept_write_back` | a **list** of table-level write-back keys / one string | the table-level write-backs one concept answer expands to, one per representation; `concept_write_back` is the string to file it under (`概念键:<concept id>=<stems>` / `概念关系:<near>-><far>`), and a contradiction has no single target and carries `null` |
+| `concept_open_items[].impact` / `tier` | a non-negative integer / one of the five tiers | `impact` is the **sum** over the members, undeduplicated: one answer landing on five tables is worth five. `tier` is the **weakest** tier any member carries. The array order is `impact` descending, then `count` descending, then the representative's rank |
+| `overrides_applied.concept_expansions` | a list of `{"key": …, "applied_to": N}` | N3: how many table-level assertions each concept-level answer reached; `key` is character for character `concept_open_items[].concept_write_back`. What it expands to is counted in `relations` / `keys` above as well |
 | `finding_groups[]` | the same shape as `open_item_groups[]` | the subset of `open_item_groups[]` whose `kind` is `finding`, published on its own because the index's 待人工判定 table renders only those |
 | `overrides_applied` | `relations` / `keys` / `unmatched` / `ignored_fields` | how many human confirmations this run merged, which of them matched nothing in the corpus, and which fields this release does not understand |
 | `concept_overrides_applied` | `concepts` / `created[]` / `tables_added` / `merges` / `splits` / `dissolved[]` / `unmatched` / `warnings` / `ignored_fields` | K4b/K4c: how many field confirmations the reviewed `concepts.overrides.json` applied, which concepts it created (`created[]` carries one `{id, tables[]}` each, and a revived retired stem carries `revived: true`), how many member tables it added, how many merges and splits, and which ids, tables or field names matched nothing in the corpus. `warnings[]` (K4d) is what **was** applied and is still worth a second look: one `{key, warning}` each, so far only `merge_kept_two_primaries: <t1>, <t2>` -- a merge folded two concepts that each had their own `primary` copy (N1b: never a folded provisional concept, whose member is re-roled as it joins). `dissolved[]` (M1) is the provisional concepts an `add_tables` or a `new_concepts` entry took the table of, one `{id, table, into}` each: a person put that table on a real concept, so it no longer stands for one on its own. A `merge_into` dissolves one too and is counted as the merge it is, never twice |
@@ -418,7 +434,7 @@ Slot by slot (every slot `ontology-json/2` publishes):
 | `concept_relations[]` | `relations[]` | same shape, plus `id` |
 | `concept_representation_links[]` | `representation_links[]` | same shape |
 | `unassigned_tables[]` | — | empty by construction since M1 and dropped here; a table no business key placed is a concept with `tier: "provisional"` |
-| every other key | unchanged | `concepts` / `families` / `constraints` / `findings` / `open_items` / `open_item_groups` / `retired_stems` / `overrides_applied` / `concept_overrides_applied` / `corpus` |
+| every other key | unchanged | `concepts` / `families` / `constraints` / `findings` / `open_items` / `open_item_groups` / `concept_open_items` / `retired_stems` / `overrides_applied` / `concept_overrides_applied` / `corpus` |
 
 **The one an alias cannot soften**: `relations[]` did not disappear, it changed meaning --
 it now holds the **concept** relations. A consumer that keeps reading `relations[]` gets
@@ -654,7 +670,7 @@ concept is summarised away and nothing says 「另有 N 个概念未展开」 an
 
 | Block | Contents |
 | --- | --- |
-| 本体总览 | Two sentences. The first is about concepts: how many, broken down by kind (entity N / event N / summary N), how many concept relations, how many **provisional concepts** and how many relations touch one. Only the second is about the warehouse: tasks, tables, table-level relations, constraints, findings, and the open list (N items / N groups, N already confirmed). Then the five-tier legend, and the count of tables that only lent evidence (P7, absent when there are none) |
+| 本体总览 | Two sentences. The first is about concepts: how many, broken down by kind (entity N / event N / summary N), how many concept relations, how many **provisional concepts** and how many relations touch one. Only the second is about the warehouse: tasks, tables, table-level relations, constraints, findings, and the open list (N items / N groups / N concept-level questions, N already confirmed) -- the third number (N3) is the one that counts the decisions this round has to make. Then the five-tier legend, and the count of tables that only lent evidence (P7, absent when there are none) |
 | The concept ER | one box per concept, labelled `<name>（<kind>）` and filled by kind (`classDef entity` / `event` / `summary`). It is a `flowchart LR` rather than an `erDiagram` because Mermaid's ER diagram has no `classDef`, and the boxes here carry a business name and a kind -- the kind being half of what there is to see. The edges come from `relations[]`, labelled 「type: cardinality」, with `?` for a cardinality that is only the author's assumption and a `participation`'s roles in brackets. `representation_links[]` is **not** drawn: that is a seam in K1's fold, not a relation. Past 40 concepts (`CONCEPT_MERMAID_LIMIT`) it keeps the 40 with the most concept relations and says how many it left out. **Provisional concepts are never drawn** (M1) |
 | The concept table (`### 概念`) | one row per concept: the name **with its tier** (「授信合同（`confirmed`）」 is a name a review round answered, 「合同（`hypothesis`）」 is the author's guess -- the two must not read alike) and **linked to the concept's own file** (N2), the kind with its tier, how many tables represent it (counted per `role`, **not** listed), the first three name candidates (`CONCEPT_NAME_CANDIDATES_SHOWN`), and whatever `possible_duplicate_of` points at |
 | The relation table (`### 关系`) | one row per concept relation: the type, both concept names, the participation roles, the cardinality with its tier, and how many table-level edges are behind it. A row touching a provisional concept carries `（临时）` after the type (M1) -- that row is a reading of the corpus, not yet one of the business |
@@ -692,16 +708,19 @@ its whole content is the row the index's 「临时概念」 table already prints
 | `## 属性` | **every** attribute (N2 -- the index summarised because it had a paragraph): stem, type, comment, and the source columns each was folded from |
 | `## 约束` | the constraints filed under this concept, by table / target / kind / body / tier |
 | `## 关系` | outgoing and incoming in one table (direction, other concept, type, roles, cardinality, tier, evidence count, relation id), and beneath it **证据：表级 JOIN** -- the table-level edges each of those was read off, with which concept relation they fed, their cardinality, tier, basis and task count |
-| `## 待人工判定` | the question groups filed under this concept, with group id, count, impact and the write-back pattern |
+| `## 待人工判定` | N3: the **concept-level** questions filed under this concept, one per line -- the question itself, how many table-level items it folded, the impact, the tier, which representation tables it covers, the concept-level write-back key and the table-level write-backs it expands to, and a last line naming the table-level item ids it folded (the evidence) |
 | `## 命名与类别依据` | the ranked `name_candidates[]` with their source and evidence tables, then `kind_evidence[]` -- which signal voted for which kind, on which table |
 | `## 评审回写键` | the exact key to write in `concepts.overrides.json` and which slots it takes; a provisional concept is answered with `merge_into` instead |
 
 The YAML front matter is concept-first too: `concept_count` / `relation_count` /
-`table_count` / `table_relation_count` / `open_item_count` / `open_item_group_count` (the
+`table_count` / `table_relation_count` / `open_item_count` / `open_item_group_count` /
+`concept_open_item_count` (N3; the
 previous release wrote `entity_count` / `relation_count`, the latter meaning the
 table-level edges).
 
 ## Table families and the folded open list
+
+### The family level (Q3)
 
 A warehouse writes one logical table many times: `_di` is today's increment, `_df` the
 full snapshot, `_tmp` and `_mid01` the steps that built it. The ontology asks each copy
@@ -728,6 +747,34 @@ findings and 「待人工判定清单（N 条，折叠为 G 组）」 for everyt
 (`OPEN_ITEM_GROUPS_SHOWN`) and summarises the rest in one line, 「另有 K 组 M 条」, pointing
 at `open_item_groups[]` / `finding_groups[]` in `ontology.json`. The flat, item-by-item
 list is no longer in the markdown; it is in the JSON.
+
+### The concept level (N3)
+
+A family folds **names**: `_di` / `_df` / `_hi` are three copies of one logical table. A
+concept is wider than a name -- one business thing can be represented by five tables whose
+names have nothing to do with each other, each spelling the same business key its own way
+(`cust_no`, `cust_id`, `customer_no`), so after the family fold the list still asks "is
+this table unique on these columns" five times. **Identity is a property of the concept,
+not of the copy**: those five answers were always one answer.
+
+`concept_open_items[]` is the same list folded once more, by (concept, question shape):
+
+| # | Rule |
+| --- | --- |
+| 1 | **Candidate keys** fold by (concept, the **stems** of the key columns). The stem is the one K1 seeds a concept on (`key_stem`: lowercase, then drop whole leading and trailing segments that only say "this is a key" -- `_id` / `_no` / `_code` / `_cd` / `_num` / `_key` -- with `synonyms` folded to one spelling), so every representation of one concept whose candidate key reduces to the same stems becomes one `open:concept:<concept id>:key=<stems>` |
+| 2 | **Relations** fold by (near concept, far concept, far stems): `open:concept:<near>:rel=<far>:<stems>`. The far side alone, exactly as Q3 keys an edge -- the question is "is that thing unique on these keys" |
+| 3 | **Findings** fold by (concept, the finding `kind`): `open:concept:<concept id>:finding=<kind>` |
+| 4 | **Impact** is the **sum** over the members, not a deduplicated count: a relation item is worth its near table plus the tasks that join it, a candidate key the edges confirming it would prove, a finding 1. A group deduplicates; a concept item does not -- one answer landing on five tables is worth five |
+| 5 | **Tier** is the weakest any member carries: while one table is still a guess, the question is still a guess |
+| 6 | **Write-back**: `write_back` is the **list** of table-level write-back keys this one answer expands to (one per representation), and `concept_write_back` is the string to file the answer under. From the other end, every family group carries a `concept_open_item` naming the concept question it belongs to |
+
+The question is phrased about the concept: 「概念「客户」是否按 `cust_no` 唯一？（5 张表现表）」.
+When the representations disagree on the spelling it falls back to the stems -- the stems
+are the level this one question is actually true at.
+
+A concept's questions are printed in its own `concepts/<file>.md` under 待人工判定, and the
+index carries a `concept_open_item_count` in its front matter and in the overview
+sentence, beside the table-level item and group counts.
 
 ## The per-table card: five sections appended to the table card
 
@@ -832,6 +879,53 @@ After the merge those assertions carry `tier: "confirmed"` and `basis:
 "confirmed_by": …, "date": …, "confirmed_basis": …, "note": …}`. `confirmed` is the one tier the corpus can never produce
 by itself. A confirmation does not silence the corpus's own `findings`: whether a
 contradiction still exists is decided by O7 the next time the corpus is parsed.
+
+### Concept-level confirmations: the `concepts` section (N3)
+
+The two sections above bind one confirmation to one table, which is right -- a
+confirmation is about a table. What it made a reviewer do is type the same answer five
+times when a concept had five representations. The `concepts` section takes the answer at
+the level it is true at and leaves the expanding to the tool:
+
+```json
+{
+  "concepts": {
+    "concept:cust": {
+      "keys": [
+        {
+          "columns": ["cust_no"],
+          "scope_columns": ["dt"],
+          "basis": "the business owner confirmed one row per customer per partition",
+          "confirmed_by": "王某",
+          "date": "2026-09-19"
+        }
+      ],
+      "relations": {
+        "concept:order": {
+          "cardinality": "many_to_one",
+          "basis": "one customer has many orders",
+          "confirmed_by": "王某",
+          "date": "2026-09-19"
+        }
+      }
+    }
+  }
+}
+```
+
+| Slot | Values | Meaning |
+| --- | --- | --- |
+| the key of `concepts` | a concept id | character for character what the concept file's title line, the index's concept table and section 7 of a card print; an id the corpus does not hold is reported as `unknown_concept: <id>` |
+| `concepts[].keys[]` | a list | this concept's identity keys, one entry per key. `columns` may name **any one** representation's actual column names: the tool reduces them to key stems and then writes one table-level confirmation for **every representation whose candidate key reduces to the same stems**, each in that table's own spelling -- so `cust_no` and `cust_id` are answered once. `scope_columns` / `basis` / `note` / `confirmed_by` / `date` mean what they mean at the table level and travel to each table; `cardinality` is read as nothing in this release, accepted rather than reported as a typo |
+| `concepts[].relations` | `{"<far concept id>": {…}}` | the concept relation leaving this concept for that one. The answer lands on **every table-level edge folded into that concept relation**, with the same fields as a table-level `relations[]` entry. The concept relation is then re-read off the confirmed evidence rather than left claiming a hypothesis |
+| `overrides_applied.concept_expansions` | a list of `{"key": …, "applied_to": N}` | how many table-level assertions each concept-level answer reached. `key` is exactly the `concept_open_items[].concept_write_back` string (`概念键:<concept id>=<stems>` / `概念关系:<near>-><far>`), so the two can be checked against each other by eye |
+| the concept-level reasons in `overrides_applied.unmatched` | a string | `unknown_concept: <id>` (no such concept), `unmatched_stems: <stems>` (no representation of that concept has a candidate key reducing to those stems -- usually a mistyped column, or a key this round never treated as a candidate), `unknown_concept_relation: <far id>` (the corpus read no edge between those two concepts), `missing_columns` |
+
+What a concept-level answer expands to is counted in `overrides_applied.keys` /
+`relations` as well: those two are always "how many **table-level** assertions this run
+raised to `confirmed`", and `concept_expansions[]` is what says which concept answers
+brought them. Table-level and concept-level entries may both be written and do not
+conflict -- when both land on one table, the later one overwrites the earlier stamp.
 
 ## Writing concept confirmations back: `concepts.overrides.json`
 

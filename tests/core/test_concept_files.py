@@ -171,6 +171,7 @@ def _ontology(
     constraints=(),
     open_items=(),
     open_item_groups=(),
+    concept_open_items=(),
     families=(),
     findings=(),
     finding_groups=(),
@@ -195,9 +196,11 @@ def _ontology(
         "finding_groups": [dict(item) for item in finding_groups],
         "open_items": [dict(item) for item in open_items],
         "open_item_groups": [dict(item) for item in open_item_groups],
+        "concept_open_items": [dict(item) for item in concept_open_items],
         "overrides_applied": {
             "relations": 0,
             "keys": 0,
+            "concept_expansions": [],
             "unmatched": [],
             "ignored_fields": [],
         },
@@ -275,6 +278,24 @@ OPEN_GROUP = {
     "impact": 2,
     "write_back_pattern": "键:<table>=cust_no",
     "concept": "concept:cust",
+    "concept_open_item": "open:concept:concept:cust:key=cust",
+}
+
+# N3: the question the concept file actually prints -- the table-level item folded onto
+# the concept it is about, with the one key a reviewer answers under.
+CONCEPT_OPEN_ITEM = {
+    "id": "open:concept:concept:cust:key=cust",
+    "kind": "candidate_key",
+    "concept": "concept:cust",
+    "shape": "cust",
+    "question": "概念「客户」是否按 `cust_no` 唯一？（1 张表现表）",
+    "tier": "hypothesis",
+    "impact": 2,
+    "count": 1,
+    "tables": ["ods.cust_base"],
+    "items": [OPEN_ITEM["id"]],
+    "concept_write_back": "概念键:concept:cust=cust",
+    "write_back": [OPEN_ITEM["write_back"]],
 }
 
 
@@ -303,6 +324,7 @@ def _corpus_ontology() -> dict:
         constraints=[CONSTRAINT],
         open_items=[OPEN_ITEM],
         open_item_groups=[OPEN_GROUP],
+        concept_open_items=[CONCEPT_OPEN_ITEM],
         families=[{"family": "ods.cust_base", "tables": ["ods.cust_base"]}],
     )
 
@@ -449,10 +471,13 @@ def test_the_relation_section_carries_the_joins_each_relation_was_read_off() -> 
 
 
 def test_the_open_items_filed_under_the_concept_travel_with_it() -> None:
+    """N3: the question is asked of the concept, and the table-level id is the evidence."""
     rendered = _customer_file()
 
-    assert "`open:group:key:ods.cust_base=cust_no`" in rendered
-    assert "语料没有证明它唯一" in rendered
+    assert f"`{CONCEPT_OPEN_ITEM['id']}`" in rendered
+    assert CONCEPT_OPEN_ITEM["question"] in rendered
+    assert f"`{CONCEPT_OPEN_ITEM['concept_write_back']}`" in rendered
+    assert f"`{OPEN_ITEM['id']}`" in rendered
 
 
 def test_the_naming_section_shows_what_voted_for_the_name_and_the_kind() -> None:

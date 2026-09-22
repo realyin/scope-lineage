@@ -49,7 +49,12 @@ relation_count: 1
 
 ## 待人工判定
 
-- 候选键（`open:group:key:dim.channel=channel_code`，1 条，影响 1）：候选键 `channel_code`：只有任务直接关联时的假设，语料没有证明它唯一。 回写模式 `键:<table>=channel_code`。
+1 个**概念级**问题。一个问题答一次，工具按下面的「展开」逐表写回 `ontology.overrides.json`；表一级的逐条清单在 `open_items[]` 里，仍然完整。
+
+- 候选键（`open:concept:concept:channel:key=channel`，折了 1 条，影响 1，层级 `hypothesis`）：概念「渠道」是否按 `channel_code` 唯一？（1 张表现表）
+  - 覆盖表现表 1 张：`dim.channel`
+  - 概念级回写 `概念键:concept:channel=channel`——写在 `ontology.overrides.json` 的 `concepts` 下，展开成 1 条表级确认：`键:dim.channel=channel_code`
+  - 表级条目：`open:key:dim.channel=channel_code`
 
 ## 命名与类别依据
 
