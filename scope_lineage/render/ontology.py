@@ -41,6 +41,7 @@ from itertools import combinations
 from sqlglot import exp
 
 from . import glossary_values, semantic_text
+from .concept_relations import build_concept_relations
 from .concepts import build_concepts
 from .glossary import build_glossary
 from .markdown_text import cell, normalize_inline
@@ -386,6 +387,12 @@ _ONTOLOGY_KEYS = (
     "concepts",
     "unassigned_tables",
     "relations",
+    # K3: the same edges, read between concepts instead of between tables; the ones
+    # that joined two representations of a single concept rather than two concepts;
+    # and how many could not be placed, by which end failed.
+    "concept_relations",
+    "concept_representation_links",
+    "concept_relations_unmapped",
     "constraints",
     "findings",
     "finding_groups",
@@ -523,6 +530,8 @@ def build_ontology(
     # After the confirmations, never before: an override that raises a candidate key to
     # `confirmed` is exactly the evidence K1 seeds a concept on.
     ontology.update(build_concepts(ontology, cards))
+    # K3 reads the concepts the line above published, so it runs after them.
+    ontology.update(build_concept_relations(ontology))
     _publish_open_list(ontology)
     return {key: ontology[key] for key in _ONTOLOGY_KEYS}
 
