@@ -1744,6 +1744,9 @@ CONCEPT_OVERRIDE_FIELDS = (
     "name",
     "kind",
     "merge_into",
+    # N8b: the role the folded members take inside the survivor -- one role for all of
+    # them, or `{table: role}`. Only read beside a `merge_into`.
+    "merge_role",
     "roles",
     "add_tables",
     "confirmed_by",
@@ -1789,6 +1792,8 @@ NEW_CONCEPT_FIELDS = (
 #: A concept id a reviewer may write: the prefix and a slug, so the id stays the thing
 #: every other document spells it as.
 CONCEPT_ID_RE = re.compile(r"\Aconcept:[a-z0-9_-]+\Z")
+#: N8b: the key a ``merge_role`` string is folded under -- every folded member at once.
+MERGE_ROLE_ALL = "*"
 #: The roles a reviewer may move a member to -- exactly the ones K1 publishes.
 MEMBER_ROLES = (
     ROLE_PRIMARY,
@@ -2039,8 +2044,35 @@ def _concept_fields(
             _reorder(concept)
             applied["concepts"] += 1
         if entry.get("merge_into"):
-            merges.append((str(name), str(entry["merge_into"]), stamp))
+            roles = _merge_roles(entry, applied, str(name))
+            merges.append((str(name), str(entry["merge_into"]), stamp, roles))
     return merges
+
+
+def _merge_roles(entry: Mapping, applied: dict, key: str) -> dict[str, str]:
+    """The role a ``merge_into`` gives its folded members inside the survivor (N8b).
+
+    A reviewer who knows the concept is a copy of another one usually knows *which*
+    copy, and without this the answer had to be written twice -- once as the merge, once
+    as a ``roles`` entry against a concept that no longer exists by then. A string is
+    that role for every member the fold carries; a ``{table: role}`` mapping says it per
+    table, and a member the mapping does not name lands exactly as it did before.
+
+    A role outside the six is reported like every other unknown value and dropped, so
+    the merge itself still happens: refusing the fold over a misspelt role would lose
+    the answer the reviewer did give.
+    """
+    asked = entry.get("merge_role")
+    if not asked:
+        return {}
+    roles = (
+        {str(table): str(value) for table, value in asked.items()}
+        if isinstance(asked, Mapping)
+        else {MERGE_ROLE_ALL: str(asked)}
+    )
+    for role in sorted({value for value in roles.values() if value not in MEMBER_ROLES}):
+        applied["unmatched"].append({"key": key, "reason": f"unknown_role: {role}"})
+    return {table: role for table, role in roles.items() if role in MEMBER_ROLES}
 
 
 def _confirmation(entry: Mapping) -> dict:
@@ -2596,13 +2628,15 @@ def _concept_merges(
     of an edge; without it a merge would move the tables and leave the relations that
     named the folded concept pointing at an id nothing publishes any more.
     """
-    for source, target, stamp in merges:
+    for source, target, stamp, roles in merges:
         index = {str(concept["id"]): concept for concept in ontology["concepts"]}
         reason = _merge_reason(source, target, index)
         if reason is not None:
             applied["unmatched"].append({"key": source, "reason": reason})
             continue
-        _fold_concept(index[source], index[target], stamp, applied, source, corpus)
+        _fold_concept(
+            index[source], index[target], stamp, applied, source, corpus, roles=roles
+        )
         ontology["concepts"] = [
             concept for concept in ontology["concepts"] if str(concept["id"]) != source
         ]
@@ -2622,12 +2656,19 @@ def _merge_reason(source: str, target: str, index: Mapping) -> str | None:
 
 
 def _fold_concept(
-    source: Mapping, into: dict, stamp: Mapping, applied: dict, key: str, corpus: _Corpus
+    source: Mapping,
+    into: dict,
+    stamp: Mapping,
+    applied: dict,
+    key: str,
+    corpus: _Corpus,
+    *,
+    roles: Mapping[str, str] | None = None,
 ) -> None:
     # N1b: the roles the folded members arrive with are what the warning reads, so the
     # re-roling below happens first. A provisional member placed by a person is never a
     # second primary, and the round should not be told it is.
-    folded = _folded_members(source, into)
+    folded = _folded_members(source, into, dict(roles or {}))
     warning = _primary_warning({**dict(source), "tables": folded}, into)
     if warning is not None:
         applied["warnings"].append({"key": key, "warning": warning})
@@ -2647,7 +2688,9 @@ def _fold_concept(
     _reorder(into)
 
 
-def _folded_members(source: Mapping, into: Mapping) -> list[dict]:
+def _folded_members(
+    source: Mapping, into: Mapping, roles: Mapping[str, str]
+) -> list[dict]:
     """The folded concept's members, as memberships of the concept that survives.
 
     M1: a ``provisional`` membership says "nobody placed this table". Folding a
@@ -2660,20 +2703,31 @@ def _folded_members(source: Mapping, into: Mapping) -> list[dict]:
     provisional concept is one table standing alone, so its member is a ``primary`` by
     construction -- of a concept of one. Inside the survivor it is a primary only if the
     survivor has none; otherwise it is the copy its own table name and grain say it is.
+
+    N8b: unless the reviewer said which copy it is. ``merge_role`` outranks both rules,
+    for every member it names, and publishes the membership a person vouched for.
     """
-    return [
-        (
-            {
-                **dict(item),
-                "role": _placed_role(item, into),
-                "membership_basis": BASIS_OVERRIDE,
-                "role_tier": TIER_CONFIRMED,
-            }
-            if str(item.get("membership_basis")) == BASIS_PROVISIONAL
-            else dict(item)
-        )
-        for item in source.get("tables") or []
-    ]
+    return [_folded_member(item, into, roles) for item in source.get("tables") or []]
+
+
+def _folded_member(member: Mapping, into: Mapping, roles: Mapping[str, str]) -> dict:
+    """One membership of the folded concept, as the survivor publishes it."""
+    asked = roles.get(str(member.get("table"))) or roles.get(MERGE_ROLE_ALL)
+    if asked:
+        return _placed_member(member, asked)
+    if str(member.get("membership_basis")) == BASIS_PROVISIONAL:
+        return _placed_member(member, _placed_role(member, into))
+    return dict(member)
+
+
+def _placed_member(member: Mapping, role: str) -> dict:
+    """A membership a person placed: the role they gave it, and the basis that says so."""
+    return {
+        **dict(member),
+        "role": role,
+        "membership_basis": BASIS_OVERRIDE,
+        "role_tier": TIER_CONFIRMED,
+    }
 
 
 def _placed_role(member: Mapping, into: Mapping) -> str:

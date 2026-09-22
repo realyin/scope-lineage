@@ -34,6 +34,7 @@ from scope_lineage.render.concepts import (
     ROLE_DETAIL,
     ROLE_PRIMARY,
     ROLE_REFERENCE,
+    ROLE_SNAPSHOT,
     TIER_CONFIRMED,
     apply_concept_overrides,
     build_concepts,
@@ -193,3 +194,73 @@ def test_adding_a_reference_over_a_reference_changes_nothing_and_says_so() -> No
     assert applied["roles_upgraded"] == 0
     member = _members(_by_id(document)[ANCHOR_ID])[CARRIER["id"]]
     assert member["membership_basis"] == BASIS_REFERENCE
+
+
+# --------------------------- 2. merge_into may say which role the folded tables take
+
+
+def _merge(role=None) -> dict:
+    """Fold the unplaced table's provisional concept into the anchor, with a role or not."""
+    entry = {"merge_into": ANCHOR_ID, **STAMP}
+    return _overrides(
+        **{EXTRA_ID: entry if role is None else {**entry, "merge_role": role}}
+    )
+
+
+def test_a_merge_without_a_role_re_roles_the_folded_member_as_it_always_did() -> None:
+    """The negative first: nothing said, nothing changes about how a merge lands."""
+    member = _members(_by_id(_built(overrides=_merge()))[ANCHOR_ID])[EXTRA["id"]]
+
+    assert member["role"] == ROLE_SNAPSHOT
+    assert member["membership_basis"] == BASIS_OVERRIDE
+    assert member["role_tier"] == TIER_CONFIRMED
+
+
+def test_a_merge_role_string_is_applied_to_every_folded_member() -> None:
+    document = _built(overrides=_merge(ROLE_DETAIL))
+
+    member = _members(_by_id(document)[ANCHOR_ID])[EXTRA["id"]]
+    assert member["role"] == ROLE_DETAIL
+    assert member["membership_basis"] == BASIS_OVERRIDE
+    assert member["role_tier"] == TIER_CONFIRMED
+
+
+def test_a_merge_role_map_names_the_table_it_is_about() -> None:
+    document = _built(overrides=_merge({EXTRA["id"]: ROLE_DETAIL}))
+
+    assert _members(_by_id(document)[ANCHOR_ID])[EXTRA["id"]]["role"] == ROLE_DETAIL
+    assert document["concept_overrides_applied"]["unmatched"] == []
+
+
+def test_a_merge_role_map_leaves_the_members_it_does_not_name_alone() -> None:
+    document = _built(overrides=_merge({CARRIER["id"]: ROLE_DETAIL}))
+
+    assert _members(_by_id(document)[ANCHOR_ID])[EXTRA["id"]]["role"] == ROLE_SNAPSHOT
+
+
+def test_an_unknown_merge_role_is_reported_and_the_merge_lands_anyway() -> None:
+    document = _built(overrides=_merge("not_a_role"))
+
+    applied = document["concept_overrides_applied"]
+    assert {"key": EXTRA_ID, "reason": "unknown_role: not_a_role"} in applied["unmatched"]
+    assert applied["merges"] == 1
+    assert _members(_by_id(document)[ANCHOR_ID])[EXTRA["id"]]["role"] == ROLE_SNAPSHOT
+
+
+def test_a_reviewed_merge_role_lifts_the_folded_table_out_of_reference() -> None:
+    """A reviewer may fold a concept *and* say its table is more than a carrier."""
+    document = _built(
+        overrides=_overrides(
+            **{
+                CARRIER_ID: {
+                    "merge_into": ANCHOR_ID,
+                    "merge_role": ROLE_DETAIL,
+                    **STAMP,
+                }
+            }
+        )
+    )
+
+    concept = _by_id(document)[ANCHOR_ID]
+    assert _members(concept)[CARRIER["id"]]["role"] == ROLE_DETAIL
+    assert "memo_text" in _stems(concept)
