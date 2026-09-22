@@ -27,8 +27,13 @@ from .render.ontology import (
     PROFILE_FIELDS_READ as ONTOLOGY_FIELDS_READ,
 )
 from .render.ontology import (
+    APPENDIX_FILENAME,
+    CONCEPTS_DIR,
     build_ontology,
+    concept_files,
     entity_table_cards,
+    render_concept_markdown,
+    render_ontology_appendix_markdown,
     render_ontology_index_markdown,
     render_ontology_table_card_markdown,
 )
@@ -69,8 +74,10 @@ def add_ontology_parser(subcommands) -> None:
         "--out",
         required=True,
         help=(
-            "Directory for ontology.json, ontology.md and the tables/ card "
-            "directory (the table cards with the ontology sections appended)"
+            "Directory for ontology.json, ontology.md (the index), the concepts/ "
+            "directory (one markdown file per folded concept), appendix.md "
+            "(everything table-level) and the tables/ card directory (the table "
+            "cards with the ontology sections appended)"
         ),
     )
     ontology_cmd.add_argument(
@@ -263,7 +270,7 @@ def run_ontology(args: argparse.Namespace) -> int:
     reviewed = _concept_overrides(args)
     if isinstance(reviewed, int):
         return reviewed
-    concept_files, concept_overrides = reviewed
+    override_files, concept_overrides = reviewed
     found = _discover_lineage_documents(args.lineage)
     if isinstance(found, int):
         return found
@@ -310,7 +317,7 @@ def run_ontology(args: argparse.Namespace) -> int:
         glossary=glossary,
         overrides=overrides,
         concept_overrides=concept_overrides,
-        concept_override_files=concept_files,
+        concept_override_files=override_files,
         artifact_root=root,
         legacy_keys=bool(getattr(args, "legacy_keys", False)),
     )
@@ -318,15 +325,16 @@ def run_ontology(args: argparse.Namespace) -> int:
     # never touched lent their evidence to the build; they are not tables of this model.
     cards = entity_table_cards(cards, ontology)
     chosen = formats(args.format)
-    _write_ontology(out_dir, ontology, cards, chosen)
+    _write_ontology(out_dir, ontology, cards, chosen, _batches_link(args, out_dir))
     _write_exports(out_dir, ontology, chosen_exports)
-    cache.commit(_written(cards, chosen, chosen_exports))
+    cache.commit(_written(ontology, cards, chosen, chosen_exports))
     _report(
         ontology,
         overrides,
         concept_overrides,
         chosen_exports,
         loaded.counters() + cache.counters(),
+        concept_file_count=len(concept_files(ontology)) if "md" in chosen else None,
     )
     return _write_review_batches(args, ontology)
 
@@ -397,10 +405,15 @@ def _report(
     concept_overrides,
     chosen_exports: Sequence[str],
     counters: str,
+    concept_file_count: int | None = None,
 ) -> None:
     """The one summary line this command prints."""
     applied = ontology["overrides_applied"]
     exported = f", exported {', '.join(chosen_exports)}" if chosen_exports else ""
+    # N2: the index no longer holds the concepts, so the count of files it points at is
+    # the number that says the run published them -- absent when no markdown was asked
+    # for, because then it would be a count of nothing.
+    files = "" if concept_file_count is None else f", concept files {concept_file_count}"
     confirmations = ""
     if overrides is not None:
         confirmations = (
@@ -415,8 +428,8 @@ def _report(
         f"{len(ontology['table_relations'])} table relation(s), "
         f"{len(ontology['constraints'])} constraint(s) and "
         f"{len(ontology['findings'])} finding(s) from "
-        f"{ontology['corpus'].get('task_count')} task(s){confirmations}{exported} "
-        f"({counters})"
+        f"{ontology['corpus'].get('task_count')} task(s){files}{confirmations}"
+        f"{exported} ({counters})"
     )
 
 
@@ -473,9 +486,15 @@ def _collect(items, cache, *, needs_glossary: bool) -> list[dict]:
 
 
 def _written(
-    cards: dict, chosen: set[str], chosen_exports: Sequence[str]
+    ontology: dict, cards: dict, chosen: set[str], chosen_exports: Sequence[str]
 ) -> list[str]:
-    """Every document one run published, relative to ``--out``."""
+    """Every document one run published, relative to ``--out``.
+
+    N2: the concept files and the appendix are on this list for the same reason the
+    cards are. A file a run wrote and the incremental index never heard of is a file the
+    next run neither refreshes nor cleans up -- a concept merged away in a review round
+    would keep its page, and the page would keep answering.
+    """
     written = ["ontology.json"] if "json" in chosen else []
     written += [EXPORT_FILENAMES[export] for export in chosen_exports]
     if "md" not in chosen:
@@ -483,6 +502,8 @@ def _written(
     return [
         *written,
         "ontology.md",
+        APPENDIX_FILENAME,
+        *(f"{CONCEPTS_DIR}/{name}" for name in concept_files(ontology)),
         *(
             f"tables/{table_card_filename(card['table'])}"
             for card in cards.get("tables") or []
@@ -490,7 +511,27 @@ def _written(
     ]
 
 
-def _write_ontology(out: Path, ontology: dict, cards: dict, chosen: set[str]) -> None:
+def _batches_link(args: argparse.Namespace, out: Path) -> str | None:
+    """N2: where this run's review queue will be, as a link ``ontology.md`` can follow.
+
+    ``--review-batches`` runs after the index is written, but whether it *will* run is
+    known now, and that is what the index has to say: a reviewer told there are N
+    questions asks where the queue is. A target outside ``--out`` gets no link rather
+    than a `../..` walk out of the directory the reader was given.
+    """
+    target = getattr(args, "review_batches", None)
+    if not target:
+        return None
+    try:
+        inside = (Path(target) / BATCHES_DIR).resolve().relative_to(out.resolve())
+    except ValueError:
+        return None
+    return f"{inside.as_posix()}/"
+
+
+def _write_ontology(
+    out: Path, ontology: dict, cards: dict, chosen: set[str], batches: str | None = None
+) -> None:
     out.mkdir(parents=True, exist_ok=True)
     if "json" in chosen:
         (out / "ontology.json").write_text(
@@ -499,8 +540,13 @@ def _write_ontology(out: Path, ontology: dict, cards: dict, chosen: set[str]) ->
     if "md" not in chosen:
         return
     (out / "ontology.md").write_text(
-        render_ontology_index_markdown(ontology), encoding="utf-8"
+        render_ontology_index_markdown(ontology, review_batches=batches),
+        encoding="utf-8",
     )
+    (out / APPENDIX_FILENAME).write_text(
+        render_ontology_appendix_markdown(ontology), encoding="utf-8"
+    )
+    _write_concepts(out, ontology)
     # Same directory and same filename rule as `tables`, so a corpus can be re-rendered
     # over an existing card directory and the links between the two documents hold.
     card_dir = out / "tables"
@@ -508,6 +554,16 @@ def _write_ontology(out: Path, ontology: dict, cards: dict, chosen: set[str]) ->
     for card in cards.get("tables") or []:
         (card_dir / table_card_filename(card["table"])).write_text(
             render_ontology_table_card_markdown(card, ontology), encoding="utf-8"
+        )
+
+
+def _write_concepts(out: Path, ontology: dict) -> None:
+    """N2: one file per folded concept, under ``concepts/`` beside ``tables/``."""
+    concept_dir = out / CONCEPTS_DIR
+    concept_dir.mkdir(parents=True, exist_ok=True)
+    for name, concept in concept_files(ontology).items():
+        (concept_dir / name).write_text(
+            render_concept_markdown(concept, ontology), encoding="utf-8"
         )
 
 

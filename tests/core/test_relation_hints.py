@@ -33,7 +33,7 @@ from scope_lineage.render.ontology import (
     TIER_PROVEN,
     build_ontology,
     mermaid_entity_ids,
-    render_ontology_index_markdown,
+    render_ontology_appendix_markdown,
     render_ontology_table_card_markdown,
 )
 from scope_lineage.render.semantic_profile import build_semantic_profile
@@ -307,7 +307,7 @@ def test_a_hinted_relation_is_a_question_with_a_write_back_target() -> None:
 def test_a_hinted_relation_is_drawn_as_a_hypothesis_in_the_er_diagram() -> None:
     ontology = _unjoined()[0]
     identifiers = mermaid_entity_ids(ontology["tables"])
-    markdown = render_ontology_index_markdown(ontology)
+    markdown = render_ontology_appendix_markdown(ontology)
 
     assert (
         f"    {identifiers[ORDER]} }}o--|| {identifiers[PARTY]} : \"dt = dt ?\""

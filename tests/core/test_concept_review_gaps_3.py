@@ -42,7 +42,7 @@ from scope_lineage.render.concepts import (
     build_concepts,
     key_column_name,
 )
-from scope_lineage.render.ontology import render_ontology_index_markdown
+from scope_lineage.render.ontology import render_ontology_appendix_markdown
 
 from .test_concept_relations import _cards, _entity, _relation
 from .test_concept_render_and_overrides import _ontology
@@ -410,10 +410,10 @@ def test_a_stem_nobody_revived_stays_retired() -> None:
     ]
 
 
-def test_the_concept_section_stops_naming_a_stem_that_came_back() -> None:
+def test_the_appendix_stops_naming_a_stem_that_came_back() -> None:
     document = _built([CUSTOMER, ROW_A, ROW_B, REQ_A], overrides=REVIVE)
 
-    text = render_ontology_index_markdown(
+    text = render_ontology_appendix_markdown(
         {
             **_ontology(concepts=document["concepts"]),
             "retired_stems": document["retired_stems"],

@@ -131,17 +131,22 @@ scope-lineage ontology \
 ```
 
 ```text
-Modelled 12 concept(s), 9 relation(s), 31 table(s), 21 table relation(s), 20 constraint(s) and 0 finding(s) from 5 task(s) (skipped_unknown_version=0, missing_diagnostics=0, skipped_unreadable=0)
+Modelled 12 concept(s), 9 relation(s), 31 table(s), 21 table relation(s), 20 constraint(s) and 0 finding(s) from 5 task(s), concept files 12 (skipped_unknown_version=0, missing_diagnostics=0, skipped_unreadable=0)
 ```
 
+这一次写出的是：`ontology.json`、`ontology.md`（索引）、`concepts/<文件>.md`（**每个折出的
+概念一份**）、`appendix.md`（表一级的全部内容）、`tables/<db.table>.md`（表卡 + 本体五节）。
+
 打开 `$OUT/corpus/ontology.md`：开头是「本体总览」——几个概念、按种类拆开、几条概念关系、
-还有几个临时概念等着归并，以及还有多少条待人工判定、折叠成多少组、已确认多少条；随后
-**每个概念一节**（表现表 / 属性摘要 / 约束 / 关系 / 待人工判定）。表级的 Mermaid ER、表清单、
-表级关系与折叠后的完整待判定清单都在最后的「附录：表与证据」里——它们是概念关系被读出来的
-证据，不是模型本身。清单每组一行，带一个稳定的 `open:group:` id、`影响`、组内条数和一个把
-表名留成 `<table>` 的回写模式，按 `影响` 降序排好（关系按对端归组，所以十个任务关联同一张
-维表是一行）；逐条的清单在 `ontology.json` 的 `open_items[]` 里。`--tables` / `--glossary`
-只是省一次重算，不传时产物逐字节相同。
+还有几个临时概念等着归并，以及还有多少条待人工判定、折叠成多少组、已确认多少条；随后是
+概念表，**每个概念的名字就链到 `concepts/` 下它自己那份文件**（表现 / 属性 / 约束 / 关系 /
+待人工判定 / 命名与类别依据 / 评审回写键）。临时概念在索引里只剩计数与**影响最大的 20 个**，
+完整清单在 `appendix.md` 里。表级的 Mermaid ER、表清单、表级关系与折叠后的完整待判定清单
+也都在 `appendix.md` 里，索引只留「附录索引」——每节一行，数量加链接；它们是
+概念关系被读出来的证据，不是模型本身。清单每组一行，带一个稳定的 `open:group:` id、
+`影响`、组内条数和一个把表名留成 `<table>` 的回写模式，按 `影响` 降序排好（关系按对端归组，
+所以十个任务关联同一张维表是一行）；逐条的清单在 `ontology.json` 的 `open_items[]` 里。
+`--tables` / `--glossary` 只是省一次重算，不传时产物逐字节相同。
 
 ### 5. 第二次跑：`--incremental`
 

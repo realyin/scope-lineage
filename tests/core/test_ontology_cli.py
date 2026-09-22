@@ -225,16 +225,18 @@ def test_ontology_writes_one_merged_card_per_table(tmp_path: Path) -> None:
     assert card.index("## 1. 这张表是什么") < card.index("## 7. 身份（本体）")
 
 
-def test_the_index_carries_the_er_diagram(tmp_path: Path) -> None:
+def test_the_appendix_carries_the_er_diagram(tmp_path: Path) -> None:
+    """N2: the table-level ER is evidence, and it moved into ``appendix.md`` with it."""
     out = tmp_path / "out"
     assert _run("--lineage", str(_corpus(tmp_path / "corpus")), "--out", str(out)) == 0
 
-    index = (out / "ontology.md").read_text(encoding="utf-8")
+    appendix = (out / "appendix.md").read_text(encoding="utf-8")
 
-    assert "```mermaid\nerDiagram\n" in index
-    assert "mart_customer_daily" in index
-    assert "}o--||" in index
-    assert "(tables/mart.customer_daily.md)" in index
+    assert "```mermaid\nerDiagram\n" in appendix
+    assert "mart_customer_daily" in appendix
+    assert "}o--||" in appendix
+    assert "(tables/mart.customer_daily.md)" in appendix
+    assert "erDiagram" not in (out / "ontology.md").read_text(encoding="utf-8")
 
 
 def test_ontology_format_json_writes_no_cards(tmp_path: Path) -> None:

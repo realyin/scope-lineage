@@ -34,7 +34,7 @@ import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from .concept_relations import provisional_concept_ids
+from .concept_relations import concept_impact, provisional_concept_ids
 from .concepts import CONCEPT_OVERRIDES_DOC_FORMAT, key_stem
 from .markdown_text import cell
 from .ontology import table_family
@@ -87,7 +87,8 @@ def _rows(ontology: Mapping) -> list[dict]:
     """One row per provisional concept, ranked by what its relations unblock."""
     concepts = list(ontology.get("concepts") or [])
     provisional = provisional_concept_ids(concepts)
-    impact = _impact(list(ontology.get("relations") or []))
+    # N2: shared with the index, which prints the top of this same order.
+    impact = concept_impact(list(ontology.get("relations") or []))
     rows = [
         {
             "id": str(concept["id"]),
@@ -106,18 +107,6 @@ def _rows(ontology: Mapping) -> list[dict]:
 
 def _row_rank(row: Mapping) -> tuple:
     return (-int(row["impact"]), -int(row["tasks"]), str(row["id"]))
-
-
-def _impact(relations: Sequence[Mapping]) -> dict[str, dict]:
-    """How many concept relations touch each concept, and how many tasks wrote them."""
-    counted: dict[str, dict] = {}
-    for relation in relations:
-        for end in ("from", "to"):
-            identifier = str(relation.get(end))
-            row = counted.setdefault(identifier, {"relations": 0, "tasks": 0})
-            row["relations"] += 1
-            row["tasks"] += int(relation.get("task_count") or 0)
-    return counted
 
 
 def _groups(rows: Sequence[Mapping], ontology: Mapping, *, by: str) -> list[dict]:

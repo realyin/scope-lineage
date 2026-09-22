@@ -292,7 +292,8 @@ def test_the_concept_table_prints_the_name_with_its_tier() -> None:
 
     text = render_ontology_index_markdown(_ontology(concepts=document["concepts"]))
 
-    assert f"| 合同（`{TIER_HYPOTHESIS}`） |" in text
+    # N2: the name is also the link to the concept's own file.
+    assert f"| [合同](concepts/contr.md)（`{TIER_HYPOTHESIS}`） |" in text
 
 
 def test_a_confirmed_name_leads_the_candidates_and_prints_its_tier() -> None:
@@ -311,7 +312,7 @@ def test_a_confirmed_name_leads_the_candidates_and_prints_its_tier() -> None:
         "name_evidence": [],
     }
     text = render_ontology_index_markdown(_ontology(concepts=[concept]))
-    assert f"| 授信合同（`{TIER_CONFIRMED}`） |" in text
+    assert f"| [授信合同](concepts/contr.md)（`{TIER_CONFIRMED}`） |" in text
 
 
 def test_an_unconfirmed_name_gains_no_override_candidate() -> None:

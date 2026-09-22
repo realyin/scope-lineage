@@ -267,8 +267,9 @@ scope-lineage ontology  --lineage <corpus> --out <dir> \
 
 A corpus-level question `describe` can never answer: **what is this warehouse about, and
 how do those things relate**. The run writes `ontology.json` (machine, `ontology-json/2`),
-`ontology.md` (index) and `tables/<db.table>.md` (the table card with five ontology
-sections appended). The JSON is concept-first: `concepts[]` are the business concepts,
+`ontology.md` (the index), `concepts/<file>.md` (one per folded concept,
+`concept-md/1`), `appendix.md` (everything table-level, `ontology-appendix-md/1`) and
+`tables/<db.table>.md` (the table card with five ontology sections appended). The JSON is concept-first: `concepts[]` are the business concepts,
 `relations[]` the relations **between concepts**, `tables[]` the warehouse tables that
 *represent* them and `table_relations[]` the JOINs that are the **evidence** (0.4.0 renamed
 the old `entities[]` and `relations[]`; `--legacy-keys` writes the old names for one
@@ -280,12 +281,20 @@ the user wants the candidate in an RDF toolchain: it writes `ontology.linkml.yam
 **Read in this order.** `ontology.md` first, and it reads concept-first: 「本体总览」 says
 how many concepts of each kind the corpus proposes, how many are still 临时概念, and
 「待人工判定 N 条 / G 组（已确认 M 条）」; the concept `flowchart` is the whole business on one
-screen. Then 「概念」 gives each concept its own section — its 表现表 (which tables represent
-it, in which role, at which grain), its attributes, its constraints, its relations and its
-open questions — and that section, not the table list, is what answers a business question.
-Everything table-level is in 「附录：表与证据」: the Mermaid `erDiagram`, the table list
+screen. **To read one concept, open its own file**: every row of the 「概念」 table links to
+`concepts/<file>.md` (`concept:cust` → `concepts/cust.md`), and that file — not the table
+list — is what answers a business question: its 表现 (which tables represent it, in which
+role, at which grain, each linked to its card), every attribute with the columns behind
+it, its constraints, its relations with the table-level JOINs each was read off as
+evidence, its open questions, what voted for its name and kind, and the exact
+`concepts.overrides.json` key to answer under. A 临时概念 has no file: it is a question,
+and the answer to it is a `merge_into`. The index says how many there are and prints the
+**top 20 by impact** — the same order `--review-batches` queues them in; the whole list
+is in `appendix.md` under the same heading.
+Everything table-level is in `appendix.md`: the Mermaid `erDiagram`, the table list
 (its 图中 id column maps a diagram box back to its table), the table relations (each naming
-the concept relation it folded into) and the folded open list. That last section,
+the concept relation it folded into), that provisional list and the folded open list;
+`ontology.md` keeps only 「附录索引」, one line per section with its count and a link. That last section,
 「待人工判定清单（N 条，折叠为 G 组）」, is every open
 question in one place, folded by (kind, table family, question shape): one row per group,
 with a stable `open:group:` id, the representative question, an `影响` score, how many
@@ -350,8 +359,8 @@ unknown entity or column) and `overrides_applied.ignored_fields` (a misspelled s
 did not take effect). Both are where a typo in a reviewed file shows up.
 
 **When the user asks what the corpus is *about*** — 「这批表对应哪些业务概念」, 「客户是哪几
-张表」 — read `ontology.md`'s 「本体总览」 and 「概念」 parts and follow
-`references/concept-review-prompt.md`. It
+张表」 — read `ontology.md`'s 「本体总览」 and 「概念」 parts, open the concept files the table
+links to for the ones in question, and follow `references/concept-review-prompt.md`. It
 is the same corpus's *second* review round and it answers different questions: the kind of
 each concept (entity / event / summary, with the votes in `kind_evidence[]`), its business
 name (never better than a hypothesis — `name_candidates[]` is ranked, and a concept whose

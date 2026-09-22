@@ -45,7 +45,7 @@ consumers: 2
 
 ## 7. 身份（本体）
 
-- 本表是「渠道」（`concept:channel`，实体）的主表视图（`key:hypothesis`）。
+- 本表是[「渠道」](../concepts/channel.md)（`concept:channel`，实体）的主表视图（`key:hypothesis`）。
 
 **概念中的其他表现**
 

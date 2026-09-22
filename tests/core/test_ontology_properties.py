@@ -37,6 +37,7 @@ from scope_lineage.render.ontology import (
     TIERS,
     build_ontology,
     mermaid_entity_ids,
+    render_ontology_appendix_markdown,
     render_ontology_index_markdown,
     render_ontology_table_card_markdown,
 )
@@ -494,7 +495,7 @@ def _mermaid_block(markdown: str) -> list[str]:
 
 def test_the_diagram_declares_exactly_the_published_entities(corpus) -> None:
     _documents_, ontology, _cards = corpus
-    lines = _mermaid_block(render_ontology_index_markdown(ontology))
+    lines = _mermaid_block(render_ontology_appendix_markdown(ontology))
     identifiers = mermaid_entity_ids(ontology["tables"])
 
     assert lines[0] == "erDiagram"
@@ -528,7 +529,7 @@ def test_every_diagram_edge_names_two_declared_entities(corpus) -> None:
     _documents_, ontology, _cards = corpus
     identifiers = set(mermaid_entity_ids(ontology["tables"]).values())
 
-    edges = [line for line in _mermaid_block(render_ontology_index_markdown(ontology)) if "--" in line]
+    edges = [line for line in _mermaid_block(render_ontology_appendix_markdown(ontology)) if "--" in line]
 
     assert edges, "the corpus must exercise the ER edges"
     for edge in edges:
@@ -576,7 +577,7 @@ def test_the_diagram_keeps_the_best_connected_entities_and_says_what_it_dropped(
         ],
     }
 
-    markdown = render_ontology_index_markdown(crowded)
+    markdown = render_ontology_appendix_markdown(crowded)
     declared = [
         line.strip().split(" ")[0]
         for line in _mermaid_block(markdown)[1:]

@@ -452,8 +452,9 @@ between them, while `tables[]` are the warehouse tables that **represent** those
 and `table_relations[]` the JOINs that are the **evidence** each concept relation was read
 off. Constraints, contradictions and open questions hang off the same two layers — every
 assertion tiered `proven` / `implied` / `hypothesis` / `conflict` and carrying its
-evidence. `ontology.md` opens on the concept overview and gives every concept a section of
-its own, with the table-level ER and tables in one appendix marked as evidence;
+evidence. `ontology.md` is an **index**: the concept overview, then one row per concept
+linking to `concepts/<file>.md` — **one file per concept** — with the table-level ER and
+tables in `appendix.md` beside it, marked as evidence.
 `tables/<db.table>.md` is the table card with five more sections appended: what it
 represents and its identity, the concept relations its joins fed, constraints, synonyms,
 and what still needs a human decision. Answers come back through `--overrides`, which

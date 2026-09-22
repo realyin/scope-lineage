@@ -143,16 +143,24 @@ scope-lineage ontology \
 ```
 
 ```text
-Modelled 12 concept(s), 9 relation(s), 31 table(s), 21 table relation(s), 20 constraint(s) and 0 finding(s) from 5 task(s) (skipped_unknown_version=0, missing_diagnostics=0, skipped_unreadable=0)
+Modelled 12 concept(s), 9 relation(s), 31 table(s), 21 table relation(s), 20 constraint(s) and 0 finding(s) from 5 task(s), concept files 12 (skipped_unknown_version=0, missing_diagnostics=0, skipped_unreadable=0)
 ```
+
+This run writes `ontology.json`, `ontology.md` (the index), `concepts/<file>.md` (**one
+per folded concept**), `appendix.md` (everything table-level) and `tables/<db.table>.md`
+(the table card plus the five ontology sections).
 
 Open `$OUT/corpus/ontology.md`: it starts with 「本体总览」 — how many concepts, broken down
 by kind, how many concept relations, how many provisional concepts are still waiting to be
 merged, and how many items are still open, how many groups they fold into and how many are
-already confirmed. Then **one section per concept** (its representations, its attributes,
-its constraints, its relations, its open questions). The table-level Mermaid ER, the table
-list, the table relations and the whole folded open list live in the final 「附录：表与证据」
-— they are the evidence the concept relations were read off, not the model. That list has
+already confirmed. Then the concept table, where **each concept's name links to its own
+file under `concepts/`** (its representations, its attributes, its constraints, its
+relations, its open questions, what named it, and the review write-back key). The
+provisional concepts are down to a count and the **top 20 by impact** in the index, with
+the whole list in `appendix.md`. The table-level Mermaid ER, the table list, the table
+relations and the whole folded open list live there too; the index keeps only 「附录索引」,
+one line per section with its count and a link — they are the evidence the concept
+relations were read off, not the model. That list has
 one row per (kind, table family, question shape) group, each with a stable `open:group:`
 id, an `影响` score, the number of items it holds and a write-back pattern that leaves the
 table name as `<table>`, ranked by impact (a relation groups by its far side, so ten tasks

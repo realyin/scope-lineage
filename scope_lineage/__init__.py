@@ -76,7 +76,10 @@ from .render.glossary_template import (
 from .render.mapping_markdown import render_mapping_markdown, render_warnings_markdown
 from .render.ontology import (
     build_ontology,
+    concept_filename,
     relation_override_key,
+    render_concept_markdown,
+    render_ontology_appendix_markdown,
     render_ontology_index_markdown,
     render_ontology_table_card_markdown,
 )
@@ -134,6 +137,7 @@ PUBLIC_CORE_API = frozenset({
     "build_table_cards",
     "catalog_prefixes",
     "column_details_for_table",
+    "concept_filename",
     "check_metadata_file",
     "extract_qualified_field_refs",
     "load_metadata_patch",
@@ -149,8 +153,10 @@ PUBLIC_CORE_API = frozenset({
     "parse_task_lineage",
     "render_export",
     "render_glossary_markdown",
+    "render_concept_markdown",
     "render_linkml",
     "relation_override_key",
+    "render_ontology_appendix_markdown",
     "render_ontology_index_markdown",
     "render_shacl",
     "render_ontology_table_card_markdown",

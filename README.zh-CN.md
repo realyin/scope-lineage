@@ -428,8 +428,9 @@ scope-lineage ontology --lineage /tmp/scope-lineage-corpus --out /tmp/scope-line
 事件 / 汇总），`relations[]` 是**概念之间**的关系；`tables[]` 是**表现**这些概念的仓库表，
 `table_relations[]` 是表与表之间的 JOIN——概念关系正是从它们读出来的**证据**。约束、矛盾与
 待判定项都挂在这两层上，每条断言都标 `proven` / `implied` / `hypothesis` / `conflict` 并带
-证据。`ontology.md` 开头是概念总览，随后**每个概念一节**，表级 ER 与表清单全部移进标明为
-证据的附录；`tables/<db.table>.md` 则是表卡再追加五节：它表现了什么、它自己的身份、它的
+证据。`ontology.md` 是**索引**：概念总览，随后每个概念一行、链到 `concepts/<文件>.md`——
+**每个概念一份文件**；表级 ER 与表清单全部在标明为证据的 `appendix.md` 里。
+`tables/<db.table>.md` 则是表卡再追加五节：它表现了什么、它自己的身份、它的
 JOIN 折进了哪些概念关系、约束、属性同义、待人工判定。答案通过 `--overrides` 回写，被确认的
 断言升到第五级 `confirmed`。业务命名与类层次留给懂业务的人。0.4.0 把 `entities[]` 改名为
 `tables[]`、把原来的 `relations[]` 改名为 `table_relations[]`，`--legacy-keys` 可以再写一个

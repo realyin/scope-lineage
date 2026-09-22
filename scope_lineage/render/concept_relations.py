@@ -219,6 +219,29 @@ def provisional_concept_ids(concepts: Sequence[Mapping]) -> frozenset:
     )
 
 
+def concept_impact(relations: Sequence[Mapping]) -> dict:
+    """``concept id -> {relations, tasks}``: how much an answer about it unblocks.
+
+    Lives here rather than in either caller because both have to agree. The review
+    worksheets order the questions by this (N1b) and the index prints the top of the
+    same order (N2); two rankings of one pile would send a reviewer to a different
+    first question depending on which document they opened.
+    """
+    counted: dict = {}
+    for relation in relations:
+        for end in ("from", "to"):
+            row = counted.setdefault(str(relation.get(end)), {"relations": 0, "tasks": 0})
+            row["relations"] += 1
+            row["tasks"] += int(relation.get("task_count") or 0)
+    return counted
+
+
+def concept_impact_rank(concept: Mapping, impact: Mapping) -> tuple:
+    """Sort key for that order: most relations first, then most tasks, then by id."""
+    row = impact.get(str(concept.get("id"))) or {}
+    return (-int(row.get("relations", 0)), -int(row.get("tasks", 0)), str(concept.get("id")))
+
+
 def _provisional_relations(relations: Sequence[Mapping], concepts: Sequence[Mapping]) -> int:
     """How many folded relations touch a concept that is still a table (M1).
 
