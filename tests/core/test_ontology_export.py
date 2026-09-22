@@ -20,6 +20,7 @@ from scope_lineage.render.ontology_export import (
     BASE_IRI,
     EXPORT_FILENAMES,
     EXPORT_FORMATS,
+    concept_class_ids,
     constraint_ids,
     entity_class_ids,
     finding_ids,
@@ -634,3 +635,382 @@ def test_the_finding_ids_are_positional_and_stable() -> None:
     assert finding_ids(findings) == [
         f"sl:finding_{index:03d}" for index in range(1, len(findings) + 1)
     ]
+
+
+# ------------------------------------------- K5: the concept layer in the two exports
+
+
+#: The tables the synthetic concept corpus folds: ``(table, its one key column)``.
+_CONCEPT_TABLES = (
+    ("dim.party", "party_no"),
+    ("dwd.party_df", "party_no"),
+    ("ods.order_event", "order_no"),
+    ("mart.party_daily", "party_no"),
+    ("tmp.stage_party", "stage_no"),
+)
+
+
+def _concept_ontology() -> dict:
+    """A synthetic corpus carrying every concept shape the golden corpus lacks.
+
+    The golden corpus folds exactly one concept, no concept relation and no
+    representation link, and growing it would change an inference fixture this work item
+    must not touch. So the three kinds, a participation with roles, an aggregation, a
+    seam between two representations and an unassigned table are written here by hand,
+    in the shape ``build_concepts`` and ``build_concept_relations`` produce.
+    """
+    return {
+        "corpus": {"artifact_root": "corpus", "task_count": 2},
+        "entities": [_concept_entity(table, column) for table, column in _CONCEPT_TABLES],
+        "relations": [],
+        "constraints": [],
+        "concepts": [_party_concept(), _order_concept(), _daily_concept()],
+        "concept_relations": _synthetic_concept_relations(),
+        "concept_representation_links": [
+            {
+                "concept": "concept:party",
+                "from_table": "dwd.party_df",
+                "to_table": "dim.party",
+                "evidence": ["rel:004"],
+            }
+        ],
+        "unassigned_tables": [{"table": "tmp.stage_party", "reason": "no_candidate_key"}],
+    }
+
+
+def _concept_entity(table: str, column: str) -> dict:
+    return {
+        "id": table,
+        "kind": "physical_table",
+        "comment": None,
+        "identity": {
+            "candidate_keys": [],
+            "declared_hints": [],
+            "multiplicity": [],
+            "partition_columns": [],
+        },
+        "attributes": [
+            {"column": column, "type": "string", "comment": None, "synonyms": []}
+        ],
+        "naming_hints": {},
+    }
+
+
+def _party_concept() -> dict:
+    return {
+        "id": "concept:party",
+        "name": "客户（合成）",
+        "name_tier": "hypothesis",
+        "name_candidates": [
+            {"text": "客户（合成）", "source": "table_comment", "count": 2},
+            {"text": "party", "source": "key_stem", "count": 1},
+        ],
+        "kind": "entity",
+        "kind_tier": "implied",
+        "kind_evidence": [],
+        "identity": {"stem": "party", "columns_seen": ["party_no"]},
+        "tables": [
+            _member("dim.party", "primary", "key:hypothesis", "party_no"),
+            _member("dwd.party_df", "snapshot", "key:hypothesis", "party_no"),
+            _member("ods.order_event", "reference", "reference", "party_no"),
+        ],
+        "attributes": [
+            {
+                "stem": "party",
+                "type": "string",
+                "comment": "客户编号（合成）",
+                "sources": [{"table": "dim.party", "column": "party_no"}],
+            }
+        ],
+        "tier": "hypothesis",
+    }
+
+
+def _order_concept() -> dict:
+    return {
+        "id": "concept:order",
+        "name": "订单（合成）",
+        "name_tier": "hypothesis",
+        "name_candidates": [
+            {"text": "订单（合成）", "source": "table_comment", "count": 1}
+        ],
+        "kind": "event",
+        "kind_tier": "implied",
+        "kind_evidence": [],
+        "identity": {"stem": "order", "columns_seen": ["order_no"]},
+        "tables": [_member("ods.order_event", "primary", "key:hypothesis", "order_no")],
+        "attributes": [
+            {
+                "stem": "order",
+                "type": "bigint",
+                "comment": None,
+                "sources": [{"table": "ods.order_event", "column": "order_no"}],
+            }
+        ],
+        "tier": "hypothesis",
+    }
+
+
+def _daily_concept() -> dict:
+    return {
+        "id": "concept:party_daily",
+        "name": "客户日汇总（合成）",
+        "name_tier": "hypothesis",
+        "name_candidates": [
+            {"text": "客户日汇总（合成）", "source": "table_comment", "count": 1}
+        ],
+        "possible_duplicate_of": ["concept:party"],
+        "kind": "summary",
+        "kind_tier": "hypothesis",
+        "kind_evidence": [],
+        "identity": {"stem": "party_daily", "columns_seen": ["party_no"]},
+        "tables": [_member("mart.party_daily", "summary", "key:hypothesis", "party_no")],
+        "attributes": [
+            {
+                "stem": "party_daily",
+                "type": None,
+                "comment": None,
+                "sources": [{"table": "mart.party_daily", "column": "party_no"}],
+            }
+        ],
+        "tier": "hypothesis",
+    }
+
+
+def _member(table: str, role: str, basis: str, column: str) -> dict:
+    return {
+        "table": table,
+        "role": role,
+        "membership_basis": basis,
+        "key_columns": [column],
+        "grain": None,
+    }
+
+
+def _synthetic_concept_relations() -> list[dict]:
+    return [
+        {
+            "from": "concept:order",
+            "to": "concept:party",
+            "type": "participation",
+            "roles": ["下单方（合成）"],
+            "cardinality": {"claim": "many_to_one", "tier": "proven", "basis": ["rel:001"]},
+            "task_count": 2,
+            "evidence": ["rel:001", "rel:002"],
+        },
+        {
+            "from": "concept:party_daily",
+            "to": "concept:party",
+            "type": "aggregation",
+            "cardinality": {"claim": "one_to_many", "tier": "implied", "basis": ["rel:003"]},
+            "task_count": 1,
+            "evidence": ["rel:003"],
+        },
+    ]
+
+
+def _concept_ids(ontology) -> dict[str, str]:
+    return concept_class_ids(ontology["concepts"], entity_class_ids(ontology["entities"]))
+
+
+def _shacl_shape(turtle: str, class_id: str) -> str:
+    """The Turtle statement of one node shape, up to the blank line after it."""
+    start = turtle.index(f"sl:{class_id}Shape\n")
+    return turtle[start:].split("\n\n", 1)[0]
+
+
+def test_the_three_concept_kinds_become_abstract_base_classes() -> None:
+    """Whether a concept is a thing, a happening or a figure is what it inherits from."""
+    text = render_linkml(_concept_ontology())
+
+    for class_id, category in (
+        ("Entity", "continuant"),
+        ("Event", "occurrent"),
+        ("Summary", "aggregate"),
+    ):
+        block = _class_block(text, class_id)
+        assert "abstract: true" in block
+        assert f'category: "{category}"' in block
+
+
+def test_a_corpus_with_no_concept_gets_no_base_classes() -> None:
+    """The bases exist to be inherited from; with no concept they assert nothing."""
+    text = render_linkml(_annotated_ontology())
+
+    assert "abstract: true" not in text
+    assert "continuant" not in text
+
+
+def test_a_concept_becomes_a_class_under_its_kind_base() -> None:
+    ontology = _concept_ontology()
+    concept = ontology["concepts"][0]
+
+    block = _class_block(render_linkml(ontology), _concept_ids(ontology)[concept["id"]])
+
+    assert 'is_a: "Entity"' in block
+    assert f'title: "{concept["name"]}"' in block
+    assert "party" in block, "the description is supposed to list the name candidates"
+    assert f'kind_tier: "{concept["kind_tier"]}"' in block
+    assert f'name_tier: "{concept["name_tier"]}"' in block
+    assert "dim.party -> primary" in block
+
+
+def test_a_possible_duplicate_is_published_without_being_merged() -> None:
+    ontology = _concept_ontology()
+    ids = _concept_ids(ontology)
+
+    block = _class_block(render_linkml(ontology), ids["concept:party_daily"])
+
+    assert "possible_duplicate_of" in block
+    assert "concept:party" in block
+
+
+def test_a_concept_shape_targets_its_class_and_subclasses_its_kind() -> None:
+    ontology = _concept_ontology()
+    class_id = _concept_ids(ontology)["concept:order"]
+
+    shape = _shacl_shape(render_shacl(ontology), class_id)
+
+    assert "a sh:NodeShape ;" in shape
+    assert f"sh:targetClass sl:{class_id} ;" in shape
+    assert "rdfs:subClassOf sl:Event ;" in shape
+    assert 'sl:tier "hypothesis"' in shape
+
+
+def test_the_shacl_kind_classes_are_subclasses_of_concept() -> None:
+    turtle = render_shacl(_concept_ontology())
+
+    for class_id in ("Entity", "Event", "Summary"):
+        assert f"sl:{class_id}\n" in turtle
+    assert turtle.count("rdfs:subClassOf sl:Concept ;") == 3
+
+
+@pytest.mark.parametrize("fmt", EXPORT_FORMATS)
+def test_a_concept_attribute_reaches_the_export_with_its_sources(fmt: str) -> None:
+    ontology = _concept_ontology()
+    attribute = ontology["concepts"][0]["attributes"][0]
+
+    text = render_export(ontology, fmt)
+
+    assert text.count("dim.party.party_no") == 1
+    assert text.count(str(attribute["comment"])) == 1
+
+
+@pytest.mark.parametrize("fmt", EXPORT_FORMATS)
+def test_a_table_class_says_which_concept_it_represents(fmt: str) -> None:
+    """A table is a *representation* of a concept: the export says which, and as what."""
+    ontology = _concept_ontology()
+
+    text = render_export(ontology, fmt)
+
+    for concept in ontology["concepts"]:
+        for member in concept["tables"]:
+            assert text.count(f"{concept['id']} ({member['role']})") == 1
+
+
+def test_a_concept_relation_is_a_slot_on_the_from_class() -> None:
+    ontology = _concept_ontology()
+    ids = _concept_ids(ontology)
+    text = render_linkml(ontology)
+
+    for relation in ontology["concept_relations"]:
+        block = _class_block(text, ids[relation["from"]])
+        assert block.count(f'relation_type: "{relation["type"]}"') == 1
+        assert block.count(f'range: "{ids[relation["to"]]}"') == 1
+
+
+def test_a_concept_relation_multiplicity_follows_its_claim() -> None:
+    ontology = _concept_ontology()
+    ids = _concept_ids(ontology)
+    text, turtle = render_linkml(ontology), render_shacl(ontology)
+
+    for relation in ontology["concept_relations"]:
+        single = relation["cardinality"]["claim"] == "many_to_one"
+        block = _class_block(text, ids[relation["from"]])
+        shape = _shacl_shape(turtle, ids[relation["from"]])
+        assert ("multivalued: false" in block) is single
+        assert ("sh:maxCount 1" in shape) is single
+
+
+def test_a_concept_relation_property_shape_names_the_to_concept() -> None:
+    ontology = _concept_ontology()
+    ids = _concept_ids(ontology)
+    turtle = render_shacl(ontology)
+
+    for relation in ontology["concept_relations"]:
+        shape = _shacl_shape(turtle, ids[relation["from"]])
+        assert f"sh:class sl:{ids[relation['to']]} ;" in shape
+        assert f'sl:relationType "{relation["type"]}"' in shape
+        assert f'sl:tier "{relation["cardinality"]["tier"]}"' in shape
+
+
+@pytest.mark.parametrize("fmt", EXPORT_FORMATS)
+def test_a_participation_publishes_the_role_and_the_evidence_count(fmt: str) -> None:
+    ontology = _concept_ontology()
+    relation = ontology["concept_relations"][0]
+
+    text = render_export(ontology, fmt)
+
+    assert text.count(relation["roles"][0]) == 1
+    assert str(len(relation["evidence"])) in text
+    for item in relation["evidence"]:
+        assert item not in text, "the member edge ids stay in ontology.json"
+
+
+@pytest.mark.parametrize("fmt", EXPORT_FORMATS)
+def test_a_representation_link_reaches_both_table_classes(fmt: str) -> None:
+    """A seam in the fold belongs to the two tables it joins, so it lands on both."""
+    ontology = _concept_ontology()
+    link = ontology["concept_representation_links"][0]
+
+    text = render_export(ontology, fmt)
+
+    assert text.count(f"{link['from_table']} and {link['to_table']}") == 2
+
+
+@pytest.mark.parametrize("fmt", EXPORT_FORMATS)
+def test_an_unassigned_table_reaches_the_export_with_its_reason(fmt: str) -> None:
+    """A table no concept claimed is a governance fact, not a silence."""
+    ontology = _concept_ontology()
+    item = ontology["unassigned_tables"][0]
+
+    text = render_export(ontology, fmt)
+
+    assert text.count(f"{item['table']} ({item['reason']})") == 1
+
+
+@pytest.mark.parametrize("fmt", EXPORT_FORMATS)
+def test_every_concept_assertion_reaches_the_export_exactly_once(fmt: str) -> None:
+    """The round trip of K5: nothing folded is invented, nothing folded is lost."""
+    ontology = _concept_ontology()
+    text = render_export(ontology, fmt)
+
+    for concept in ontology["concepts"]:
+        assert text.count(f'"{concept["id"]}"') == 1, concept["id"]
+    for relation in ontology["concept_relations"]:
+        assert text.count(f'"{relation["type"]}"') == 1, relation["type"]
+    for entity in ontology["entities"]:
+        assert text.count(f'"{entity["id"]}"') == 1, entity["id"]
+
+
+def test_every_concept_triple_group_in_the_turtle_carries_a_tier() -> None:
+    ontology = _concept_ontology()
+    turtle = render_shacl(ontology)
+
+    for class_id in _concept_ids(ontology).values():
+        shape = _shacl_shape(turtle, class_id)
+        assert shape.count("sl:tier") == shape.count("sh:property [") + 1
+
+
+@pytest.mark.parametrize("fmt", EXPORT_FORMATS)
+def test_the_golden_concept_reaches_both_exports(fmt: str) -> None:
+    ontology = _golden_ontology()
+
+    assert ontology["concepts"], "the golden corpus is supposed to fold one concept"
+    text = render_export(ontology, fmt)
+
+    for concept in ontology["concepts"]:
+        assert text.count(f'"{concept["id"]}"') == 1, concept["id"]
+        assert concept["name"] in text
+    for item in ontology["unassigned_tables"]:
+        assert text.count(f"{item['table']} ({item['reason']})") == 1

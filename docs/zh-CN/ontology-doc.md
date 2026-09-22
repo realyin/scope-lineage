@@ -11,6 +11,12 @@
 关于那张表按 k 有多行的断言；每一个封闭 `IN` 列表都是一句关于列值域的断言。本产物把这些
 断言收集起来，逐条标注置信层级与证据。
 
+> **术语说明**：`entities[]` 是**表实体**——概念在仓库里的表现，一张表一条；`concepts[]` 才是
+> **业务概念**（实体 / 事件 / 汇总），一个概念常常由好几张表表现。两者不是同一层东西：
+> 「客户」是概念，`dwd.customer_df` 是它的一个表实体。`entities` 这个名字来自本产物的第一版，
+> 名不副实，**0.4.0 会把它改名为 `tables`**（`concepts[]` 不改）。消费方现在就可以准备：读取时
+> 两个键都认（先 `tables`，回落 `entities`），并且不要把 `entities[]` 当成业务实体清单。
+
 ## 定位：本体**候选**，不是业务本体
 
 - 每条断言都带 `tier` 与 `evidence`，可按任务名、`statement_id`、`logic_block_id` 回链到
@@ -584,8 +590,8 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
 
 | 文件 | 目标格式 | 内容 |
 | --- | --- | --- |
-| `ontology.linkml.yaml` | LinkML schema | 一个实体一个 class，一个属性一个 slot，一个已封闭值集一个 enum |
-| `ontology.shacl.ttl` | SHACL（Turtle） | 一个实体一个 `sh:NodeShape`，一条断言一个 `sh:property` |
+| `ontology.linkml.yaml` | LinkML schema | 一个表实体一个 class，一个属性一个 slot，一个已封闭值集一个 enum；再加三个概念种类基类与一个概念一个 class |
+| `ontology.shacl.ttl` | SHACL（Turtle） | 一个表实体一个 `sh:NodeShape`，一条断言一个 `sh:property`；再加一个概念一个节点形状 |
 
 默认什么都不导出；`--export` 只认 `linkml` 与 `shacl`，其他值直接报参数错误（退出码 2）。
 两种格式都由本仓库自己的确定性写出器直接生成文本，**不引入任何新的运行时依赖**；同一份语料
@@ -614,6 +620,17 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
 | `findings[]` | schema 级的 `sl:finding_NNN` 注解 | `sl:Ontology` 节点上的 `sl:finding` 块 |
 | `open_items[]` | schema 级的 `sl:open_item_<id>` 注解 | `sl:Ontology` 节点上的 `sl:openItem` 块 |
 | `evidence[]` | `evidence_count` 加 `evidence_task`，不写整份列表 | `sl:evidenceCount` 加 `sl:evidenceTask` |
+| 概念的三种种类 | `Entity` / `Event` / `Summary` 三个抽象基类，带 `category` 注解 | `sl:Entity` / `sl:Event` / `sl:Summary`，`rdfs:subClassOf sl:Concept` |
+| `concepts[]` | 一个概念一个 class，`is_a` 指向种类基类，`title` 是 `name`，描述里列命名候选与种类层级，注解带 `kind_tier` / `name_tier` / `tables` / `possible_duplicate_of` | 一个 `sh:NodeShape`，`sh:targetClass` 指向概念类，`rdfs:subClassOf` 指向种类类，带 `sl:concept` / `sl:kindTier` / `sl:nameTier` / `sl:conceptTable` |
+| `concepts[].attributes[]` | 概念 class 下的 slot，`range` 按来源列的类型映射，`description` 取注释，注解 `sources` 列出来源列 | `sh:property` + `sh:datatype`，每个来源一条 `sl:source` |
+| `concept_relations[]` | `from` 概念 class 上的一个 slot，`range` 是 `to` 概念 class，`multivalued` 由基数决定，注解带 `relation_type` / `roles` / `tier` / `evidence_count` | `sh:property` + `sh:class`（多对一再加 `sh:maxCount 1`），带 `sl:relationType` / `sl:role` / `sl:evidenceCount` |
+| `concepts[].tables[]` | 表 class 上的 `represents` 注解：`concept:<词根> (<角色>)` | 节点形状上的 `sl:represents` |
+| `concept_representation_links[]` | 两张表的 class 上各一条 `representation_link` 注解 | 两个节点形状上各一条 `sl:representationLink` |
+| `unassigned_tables[]` | schema 级的 `unassigned_tables` 注解列表，每条带原因 | `sl:Ontology` 节点上的 `sl:unassignedTable` |
+
+概念层的元素带的是**折叠**的层级：概念 class 与它的属性 slot 带 `concepts[].tier`，概念关系带
+它那条基数的层级。种类基类只在语料真的折出了概念时才写——一个没有子类的抽象基类，读起来就是
+「这份语料有概念层」，而没折出概念的语料并没有。
 
 SQL 类型按下表映射，带参数的类型只看头部：`decimal(18,2)` 当 `decimal`，`map<string,string>`
 当 `map`。认不出来的类型落到 `string`，而不是把这一列丢掉——语料多半不知道物理表的类型。

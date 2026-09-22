@@ -413,9 +413,11 @@ scope-lineage ontology --lineage /tmp/scope-lineage-corpus --out /tmp/scope-line
 以及两个任务互相矛盾的地方——每条断言都标 `proven` / `implied` / `hypothesis` / `conflict`
 并带证据。`ontology.md` 开头是整份语料的 Mermaid ER 总览，`tables/<db.table>.md` 则是表卡
 再追加五节：身份、关系、约束、属性同义、待人工判定。答案通过 `--overrides` 回写，被确认的
-断言升到第五级 `confirmed`。业务命名与类层次留给懂业务的人。加上 `--export linkml,shacl`
-还会在 JSON 旁写出 `ontology.linkml.yaml` 与 `ontology.shacl.ttl`（层级一并带出），供 RDF
-工具链直接加载。详见 [语料级本体候选](docs/zh-CN/ontology-doc.md)。
+断言升到第五级 `confirmed`。业务命名与类层次留给懂业务的人。`entities[]` 是**表实体**（概念在
+仓库里的表现），`concepts[]` 才是**业务概念**（实体 / 事件 / 汇总）——0.4.0 会把 `entities`
+改名为 `tables`，消费方现在读取时两个键都认即可。加上 `--export linkml,shacl`
+还会在 JSON 旁写出 `ontology.linkml.yaml` 与 `ontology.shacl.ttl`（概念层与层级一并带出），
+供 RDF 工具链直接加载。详见 [语料级本体候选](docs/zh-CN/ontology-doc.md)。
 
 四个语料级命令（`describe`、`tables`、`glossary`、`ontology`）默认每次重跑都把每个任务重算
 一遍。加上 `--incremental`，重跑就只重算 `lineage.json` / `diagnostics.json` 变了的任务，
