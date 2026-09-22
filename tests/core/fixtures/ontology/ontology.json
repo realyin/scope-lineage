@@ -801,6 +801,7 @@
   ],
   "concept_overrides_applied": {
     "concepts": 0,
+    "tables_added": 0,
     "merges": 0,
     "splits": 0,
     "unmatched": [],

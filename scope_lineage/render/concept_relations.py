@@ -15,13 +15,14 @@ to concept)``. Four rules keep it a reading of the corpus rather than a new clai
    ``reference`` membership a JOIN lent it, and never the columns this edge happened to
    join on. Reading the columns there folds every edge onto itself, because an event
    table joins 客户 *on* ``cust_no`` and is a ``reference`` member of 客户 for exactly
-   that reason. The ``to`` end answers *what it points at*: the concept the join columns
-   name (the same ``key_stem`` K1 seeds with, folded across the corpus's O5 synonyms),
-   and only failing that the ``to`` table's own identity -- with one mirror of the same
-   idea, that columns naming the very concept the ``from`` table *is* say nothing new,
-   so a ``to`` table the corpus placed elsewhere wins over them and 客户 joined onto
-   消息发送 is a participation written the other way round. An end that answers neither
-   leaves the edge out, counted in ``concept_relations_unmapped`` under
+   that reason. The ``to`` end answers *what it points at*: the concept that holds the
+   ``to`` table when exactly one does -- the corpus's own reading of that table, over
+   the whole warehouse -- and only failing that the concept the join columns name (the
+   same ``key_stem`` K1 seeds with, folded across the corpus's O5 synonyms), with one
+   mirror of the same idea, that columns naming the very concept the ``from`` table
+   *is* say nothing new, so the ``to`` table's identity wins over them and 客户 joined
+   onto 消息发送 is a participation written the other way round. An end that answers
+   neither leaves the edge out, counted in ``concept_relations_unmapped`` under
    ``from_table_unplaced`` or ``to_table_unplaced``, because a wrong fold is worse than a
    missing one.
 2. **The type is read off the two kinds**, never off a word: ``association`` between two
@@ -53,6 +54,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from .concepts import (
+    BASIS_OVERRIDE,
     BASIS_REFERENCE,
     CONCEPT_ENTITY,
     CONCEPT_EVENT,
@@ -126,6 +128,7 @@ class _Context:
 
     by_stem: Mapping[str, str]
     identity: Mapping[str, str]
+    membership: Mapping[str, str]
     synonyms: Mapping[str, str]
 
 
@@ -148,6 +151,7 @@ def build_concept_relations(ontology: Mapping) -> dict:
             for stem in _stems(concept)
         },
         identity=_identity_memberships(concepts),
+        membership=_memberships(concepts),
         synonyms=synonym_folding(entities),
     )
     groups, seams, unmapped = _fold(ontology.get("relations") or [], context)
@@ -195,14 +199,45 @@ def _identity_memberships(concepts: Sequence[Mapping]) -> dict[str, str]:
     *carries* that key -- so it never stands in for what a table *is*. A table with two
     identity-backed memberships is left out: the rule exists because there was nothing
     to choose between, and choosing anyway would invent the answer.
+
+    K4b's ``override`` membership only *lends* identity. A reviewer may put one table on
+    several concepts, and a table the corpus already identified keeps what its own key
+    said however many concepts it was added to; a table the corpus could not place at
+    all takes the one a reviewer named, which is the whole point of adding it.
     """
-    found: dict[str, list[str]] = {}
+    found: dict[str, list[tuple[bool, str]]] = {}
+    for concept in concepts:
+        identifier = str(concept.get("id"))
+        for item in concept.get("tables") or []:
+            basis = str(item.get("membership_basis"))
+            if basis == BASIS_REFERENCE:
+                continue
+            found.setdefault(str(item.get("table")), []).append(
+                (basis == BASIS_OVERRIDE, identifier)
+            )
+    placed: dict[str, str] = {}
+    for table, claims in found.items():
+        own = [concept_id for lent, concept_id in claims if not lent]
+        pool = own or [concept_id for _, concept_id in claims]
+        if len(pool) == 1:
+            placed[table] = pool[0]
+    return placed
+
+
+def _memberships(concepts: Sequence[Mapping]) -> dict[str, str]:
+    """``{table: concept id}`` for the tables exactly one concept holds, however placed.
+
+    A weaker question than the one above, and a different one: not *what is this table*
+    but *is this table spoken for*. The ``to`` end asks that one -- a table the corpus
+    placed on 合同 is what an edge reaching it points at, whichever key the JOIN happened
+    to be written on. A ``reference`` membership answers it too: carrying the key is
+    enough to be the thing pointed at, though never enough to say what the table is.
+    """
+    found: dict[str, set[str]] = {}
     for concept in concepts:
         for item in concept.get("tables") or []:
-            if str(item.get("membership_basis")) == BASIS_REFERENCE:
-                continue
-            found.setdefault(str(item.get("table")), []).append(str(concept.get("id")))
-    return {table: ids[0] for table, ids in found.items() if len(ids) == 1}
+            found.setdefault(str(item.get("table")), set()).add(str(concept.get("id")))
+    return {table: sorted(ids)[0] for table, ids in found.items() if len(ids) == 1}
 
 
 def _fold(relations: Sequence[Mapping], context: _Context) -> tuple[dict, dict, dict]:
@@ -228,23 +263,32 @@ def _fold(relations: Sequence[Mapping], context: _Context) -> tuple[dict, dict, 
 
 
 def _to_endpoint(side: Mapping, source: str, context: _Context) -> str | None:
-    """What this end points at: the concept its columns name, else what the table is.
+    """What this end points at: what the ``to`` table *is*, else what its columns name.
 
-    One exception, and it is the mirror of rule 1. When the columns name the very
-    concept the ``from`` table *is*, they say nothing new -- the two tables share that
-    key, which is why the JOIN could be written at all. If the corpus placed the ``to``
-    table on some other concept, that is the answer: 客户 joined onto 消息发送 on
-    ``cust_no`` is a participation written the other way round, not 客户 → 客户. A table
-    that really is the same concept (a self-join, or a snapshot of it) has nothing else
-    to reach for, and keeps what the stem said.
+    The table's own identity answers first (K4b). It is the corpus's reading of that
+    table over the whole warehouse, while the join columns are one task's spelling of
+    one key -- and two tables share a key precisely *because* an edge could be written
+    between them. 申请 joined onto 合同 on ``cust_no`` points at 合同, not at 客户:
+    reading the columns there publishes an edge to a concept neither end is.
+
+    The stem answers for a ``to`` table nothing identified, and its own mirror of rule 1
+    still applies: columns naming the very concept the ``from`` table *is* say nothing
+    new, so a membership a JOIN lent the table -- all that is left to know about it --
+    wins over them, and a table that really is the same concept (a self-join, or a
+    snapshot of it) has nothing else to reach for and keeps what the stem said. Columns
+    that name nothing at all leave the edge unmapped rather than folding it onto a
+    ``reference`` membership: a wrong fold is worse than a missing one.
     """
-    identity = context.identity.get(str(side.get("entity")))
+    table = str(side.get("entity"))
+    identity = context.identity.get(table)
+    if identity is not None:
+        return identity
     stems = {key_stem(str(column), context.synonyms) for column in side.get("columns") or []}
     named = context.by_stem.get(stems.pop()) if len(stems) == 1 else None
     if named is None:
-        return identity
-    if named == source and identity is not None and identity != source:
-        return identity
+        return None
+    if named == source:
+        return context.membership.get(table) or named
     return named
 
 

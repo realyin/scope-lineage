@@ -2955,7 +2955,7 @@ def _concept_table(concepts: Sequence[Mapping]) -> list[str]:
 def _concept_row(concept: Mapping) -> str:
     kind = str(concept.get("kind"))
     return (
-        f"| {cell(str(concept.get('name')))} "
+        f"| {cell(str(concept.get('name')))}（`{concept.get('name_tier')}`） "
         f"| {CONCEPT_KIND_TEXT.get(kind, kind)}（`{concept.get('kind_tier')}`） "
         f"| {_member_counts(concept.get('tables') or [])} "
         f"| {_candidate_text(concept.get('name_candidates') or [])} "

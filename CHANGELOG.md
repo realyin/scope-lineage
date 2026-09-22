@@ -36,10 +36,11 @@
   runs **before** K3 folds the concept relations, so a merge carries that concept's edges
   with it rather than leaving them on an id nothing publishes any more. Anything naming
   something the corpus does not contain is reported in the new
-  **`concept_overrides_applied`** — `{concepts, merges, splits, unmatched[], ignored_fields[]}`,
-  with `unknown_concept` / `unknown_concept: <id>` / `unknown_table: <t>` / `unknown_kind:
-  <k>` / `unknown_role: <r>` / `merge_into_self` — mirroring `overrides_applied`, because a
-  typo in a reviewed file is exactly what its author cannot see.
+  **`concept_overrides_applied`** — `{concepts, tables_added, merges, splits, unmatched[],
+  ignored_fields[]}`, with `unknown_concept` / `unknown_concept: <id>` / `unknown_table:
+  <t>` / `unknown_kind: <k>` / `unknown_role: <r>` / `already_a_member: <t>` /
+  `merge_into_self` — mirroring `overrides_applied`, because a typo in a reviewed file is
+  exactly what its author cannot see.
 - **`skills/scope-lineage/references/concept-review-prompt.md`**: the review round itself,
   in a fixed order — kind first (with the votes in `kind_evidence[]`), then the name (a
   candidate whose only source is `key_stem` is an English abbreviation nobody asked for),
@@ -49,6 +50,49 @@
   at most 8 questions go to a person and evidence-backed confirmations are unlimited, and a
   split may never be self-answered. Output is `concepts.overrides.json` plus
   `open-questions.md`. Linked from `SKILL.md` and from `ontology-review-prompt.md`.
+- **Five gaps a real concept-review round exposed** (K4b). Running the round over one
+  corpus found five things it could not say, each closed here.
+  **(1) `add_tables`.** `roles` could move a member the corpus had already found, but a
+  reviewer who recognised a table the corpus read as nothing had no way to put it on its
+  concept. A concept entry now takes `add_tables: {"<table>": "<role>"}`: the table has to
+  be one of `entities[]` (otherwise `unknown_table: <t>`) and the role one of K1's six
+  (otherwise `unknown_role: <r>`), the membership is published as `membership_basis:
+  "override"` with `role_tier: "confirmed"`, its columns join the concept's `attributes[]`,
+  it leaves `unassigned_tables[]`, and it counts in `concept_overrides_applied.tables_added`.
+  It lands before K3 folds the relations, so the JOINs that start at that table fold onto
+  the concept the reviewer named. One table may be added to several concepts, but identity
+  stays single: a table its own key already placed keeps that concept, and the added
+  membership only lends it the key — a table nothing identified takes the one a reviewer
+  named, which is the whole point.
+  **(2) Log ids never seed a concept.** Three unrelated tables sharing only a `rowkey`
+  grew one "concept" out of their row ids. The generic stems now carry the log and tracing
+  identifiers (`rowkey` / `rowid` / `logid` / `log` / `traceid` / `trace` / `reqid` /
+  `requestid` / `request` / `req` / `msgid` / `md5` / `hash` / `guid` / `snowflake` /
+  `random` / `rand`), and a key column whose *comment* says 日志id / 日志编号 / 日志主键 /
+  md5 / hash / 哈希 / 随机 / 雪花 / snowflake is set aside exactly as an event column is —
+  it stays in the member's `key_columns`, because it may well be what identifies one row
+  *inside* a concept some other key seeded. `uuid` / `guid` as a comment deliberately do
+  not count: they are already `NAME_STOPLIST` words saying the comment named nothing, and
+  a `cust_no` whose values are uuids is still 客户's key.
+  **(3) The name's tier is visible.** The 概念 table printed 「合同」 for an author's guess
+  and for a name a review round had answered alike; it now prints 「授信合同
+  (`confirmed`)」 / 「合同 (`hypothesis`)」, as the kind cell already did. A confirmed name
+  also leads `name_candidates[]` with `source: override` — a candidate the corpus proposed
+  under the same text keeps its `name_evidence` and only changes hands — so the published
+  name never contradicts every candidate under it.
+  **(4) The `to` end prefers what the table is.** It read the join columns' stem even when
+  the corpus had already placed that table on a concept of its own, so 申请 joined onto 合同
+  on `cust_no` published an edge to 客户 — a concept neither end is. The `to` table's own
+  identity now answers first; the stem answers for a table nothing identified, and its
+  mirror of rule 1 (columns naming the very concept the `from` table *is*) now falls back
+  to the one membership a JOIN lent that table. Columns that name nothing still leave the
+  edge unmapped rather than folding it onto a `reference` membership.
+  **(5) The prompt's own rule collision.** §1 called a word-hint-only kind worth asking a
+  person while 不问的事 forbade asking about an `implied` kind. A kind whose only evidence
+  is word hints is now *confirmable* when the hints agree and the tier is `implied` (a
+  fifth self-answer row, `basis` 「仅词汇线索一致」), and a question only when the hints
+  disagree or the tier is `hypothesis`; the self-check gained a row for it, and
+  `add_tables` is documented beside `roles` and in the write-back checks.
 - **The concept layer reaches the LinkML and SHACL exports** (K5). `--export` published
   the table layer only, so a downstream graph that loaded it got the warehouse back and
   not the business. It now also carries the fold: three abstract base classes
