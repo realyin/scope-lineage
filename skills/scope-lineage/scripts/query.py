@@ -2,7 +2,7 @@
 """Targeted extraction from scope-lineage artifacts.
 
 A lineage.json can be large; an agent that reads the whole file into its context wastes
-it and still has to find the needle. This script pulls only the answer out. Four
+it and still has to find the needle. This script pulls only the answer out. Five
 subcommands, stdlib only, Python 3.9+:
 
   summary <task_dir | lineage.json>          one task's status, statements, targets, gaps
@@ -11,6 +11,9 @@ subcommands, stdlib only, Python 3.9+:
   impact  <db.table[.column]> <root>         who reads this table/column, across artifacts
   trace   [--upstream N] [--downstream N] <db.table[.column]> <root>
                                              walk lineage across tasks, N hops each way
+  concept-impact [--depth N] [--attribute NAME] [--json]
+                 <concept id | name> --ontology <ontology.json> --lineage <root>
+                                             who breaks if this business concept changes
 
 Paths may be task artifact directories (containing lineage.json), lineage.json files,
 or (for impact/trace) a root directory that is scanned recursively. trace keeps a
@@ -638,6 +641,77 @@ def _trace_upstream(
     return printed
 
 
+def _consumer_edges(
+    docs: dict[str, dict],
+    cache: _DocCache,
+    rels: list[str],
+    table: str,
+    column: str | None,
+) -> set[tuple[str, str | None, str, str]]:
+    """Every (target table, target column, task, artifact) one hop downstream of
+    ``table`` (or of ``table.column``) across the given task documents."""
+    edges: set[tuple[str, str | None, str, str]] = set()
+    for rel in rels:
+        task_id = str(docs[rel].get("task_id"))
+        if column is None:
+            for target in docs[rel].get("targets") or []:
+                if not _same_table(target, table):
+                    edges.add((target, None, task_id, rel))
+            continue
+        document = cache.get(rel)
+        if document is None:
+            continue
+        for item in document.get("end_to_end_lineage") or []:
+            if _same_table(str(item.get("table")), table) and item.get("column") == column:
+                continue
+            for source in item.get("value_sources") or []:
+                if source.get("source_kind") != "physical_field":
+                    continue
+                if _same_table(str(source.get("table")), table) and source.get("column") == column:
+                    edges.add((item.get("table"), item.get("column"), task_id, rel))
+                    break
+    return edges
+
+
+def _downstream_edges(
+    docs: dict[str, dict],
+    consumers: dict[str, list[str]],
+    cache: _DocCache,
+    start: list[tuple[str, str | None]],
+    depth: int,
+) -> Iterator[tuple[int, str, str | None, str | None, str | None, str, str]]:
+    """Walk ``depth`` hops downstream, yielding one edge at a time in a stable order.
+
+    An edge is ``(hop, from table, from column, to table, to column, task, artifact)``;
+    ``to table`` is None when the frontier table has no consuming task in the corpus.
+    """
+    frontier = list(start)
+    visited = {(_equiv_key(table), column) for table, column in frontier}
+    for hop in range(1, depth + 1):
+        next_frontier: list[tuple[str, str | None]] = []
+        for table, column in frontier:
+            rels = _routing_lookup(consumers, table)
+            if not rels:
+                yield (hop, table, column, None, None, "", "")
+                continue
+            edges = _consumer_edges(docs, cache, rels, table, column)
+            for dst_table, dst_column, task_id, rel in sorted(
+                edges, key=lambda e: (str(e[0]), str(e[1]), e[3])
+            ):
+                yield (hop, table, column, dst_table, dst_column, task_id, rel)
+                key = (_equiv_key(str(dst_table)), dst_column)
+                if key not in visited:
+                    visited.add(key)
+                    next_frontier.append((dst_table, dst_column))
+        frontier = next_frontier
+        if not frontier:
+            break
+
+
+def _label(table: str, column: str | None) -> str:
+    return table if column is None else f"{table}.{column}"
+
+
 def _trace_downstream(
     docs: dict[str, dict],
     consumers: dict[str, list[str]],
@@ -646,50 +720,16 @@ def _trace_downstream(
     depth: int,
 ) -> bool:
     printed = False
-    frontier = list(start)
-    visited = {(_equiv_key(table), column) for table, column in frontier}
-    for hop in range(1, depth + 1):
-        next_frontier: list[tuple[str, str | None]] = []
-        for table, column in frontier:
-            label = table if column is None else f"{table}.{column}"
-            rels = _routing_lookup(consumers, table)
-            if not rels:
-                print(f"  [hop {hop}] {label}: no consuming task in corpus")
-                printed = True
-                continue
-            edges: set[tuple[str, str | None, str, str]] = set()
-            for rel in rels:
-                task_id = str(docs[rel].get("task_id"))
-                if column is None:
-                    for target in docs[rel].get("targets") or []:
-                        if not _same_table(target, table):
-                            edges.add((target, None, task_id, rel))
-                    continue
-                document = cache.get(rel)
-                if document is None:
-                    continue
-                for item in document.get("end_to_end_lineage") or []:
-                    if _same_table(str(item.get("table")), table) and item.get("column") == column:
-                        continue
-                    for source in item.get("value_sources") or []:
-                        if source.get("source_kind") != "physical_field":
-                            continue
-                        if _same_table(str(source.get("table")), table) and source.get("column") == column:
-                            edges.add((item.get("table"), item.get("column"), task_id, rel))
-                            break
-            for dst_table, dst_column, task_id, rel in sorted(
-                edges, key=lambda e: (str(e[0]), str(e[1]), e[3])
-            ):
-                dst_label = dst_table if dst_column is None else f"{dst_table}.{dst_column}"
-                print(f"  [hop {hop}] {label} -> {dst_label}  (task {task_id}, {rel})")
-                printed = True
-                key = (_equiv_key(str(dst_table)), dst_column)
-                if key not in visited:
-                    visited.add(key)
-                    next_frontier.append((dst_table, dst_column))
-        frontier = next_frontier
-        if not frontier:
-            break
+    for hop, table, column, dst_table, dst_column, task_id, rel in _downstream_edges(
+        docs, consumers, cache, start, depth
+    ):
+        label = _label(table, column)
+        if dst_table is None:
+            print(f"  [hop {hop}] {label}: no consuming task in corpus")
+        else:
+            dst_label = _label(dst_table, dst_column)
+            print(f"  [hop {hop}] {label} -> {dst_label}  (task {task_id}, {rel})")
+        printed = True
     return printed
 
 
@@ -758,9 +798,308 @@ def cmd_trace(args: list[str]) -> int:
     return 0
 
 
+# ---------------------------------------------------- concept-impact
+
+_ONTOLOGY_DOC_FORMAT = "ontology-json/2"
+
+
+def _fail(message: str) -> int:
+    """Every concept-impact error is one sentence on stderr and exit 2."""
+    print(message, file=sys.stderr)
+    return 2
+
+
+def _load_ontology(raw: str) -> tuple[dict | None, str]:
+    path = Path(raw)
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return None, f"cannot read ontology {path}: {exc}"
+    if not isinstance(document, dict):
+        return None, f"ontology {path} is not a JSON object"
+    found = str(document.get("doc_format") or "(no doc_format)")
+    if found != _ONTOLOGY_DOC_FORMAT:
+        return None, (
+            f"ontology {path} is {found}; concept-impact needs {_ONTOLOGY_DOC_FORMAT} "
+            "-- re-run `scope-lineage ontology` with the current version"
+        )
+    return document, ""
+
+
+def _resolve_concept(concepts: list[dict], query: str) -> tuple[dict | None, list[dict]]:
+    """Resolve by id, then by exact name, then by unique name prefix.
+
+    Returns (concept, candidates): a None concept with candidates is ambiguous, a None
+    concept without them is unknown.
+    """
+    for concept in concepts:
+        if str(concept.get("id")) == query:
+            return concept, []
+    wanted = query.casefold()
+    for match in (
+        [c for c in concepts if str(c.get("name") or "").casefold() == wanted],
+        [c for c in concepts if str(c.get("name") or "").casefold().startswith(wanted)],
+    ):
+        if len(match) == 1:
+            return match[0], []
+        if match:
+            return None, sorted(match, key=lambda c: str(c.get("id")))
+    return None, []
+
+
+def _relation_view(relation: dict, concept_id: str) -> dict:
+    outgoing = str(relation.get("from")) == concept_id
+    cardinality = relation.get("cardinality") or {}
+    return {
+        "id": str(relation.get("id")),
+        "direction": "out" if outgoing else "in",
+        "from": str(relation.get("from")),
+        "to": str(relation.get("to")),
+        "type": str(relation.get("type")),
+        "cardinality": str(cardinality.get("claim") or "unknown"),
+        "tier": str(cardinality.get("tier") or relation.get("tier") or "unknown"),
+        "other": str(relation.get("to") if outgoing else relation.get("from")),
+        "evidence": [str(item) for item in relation.get("evidence") or []],
+    }
+
+
+def _concept_relations(ontology: dict, concept_id: str) -> list[dict]:
+    views = [
+        _relation_view(relation, concept_id)
+        for relation in ontology.get("relations") or []
+        if concept_id in {str(relation.get("from")), str(relation.get("to"))}
+    ]
+    return sorted(views, key=lambda view: view["id"])
+
+
+def _attribute_sources(concept: dict, name: str) -> list[dict] | None:
+    wanted = name.casefold()
+    for attribute in concept.get("attributes") or []:
+        label = str(attribute.get("stem") or attribute.get("name") or "")
+        if label.casefold() != wanted:
+            continue
+        return sorted(
+            (
+                {"table": str(source.get("table")), "column": str(source.get("column"))}
+                for source in attribute.get("sources") or []
+            ),
+            key=lambda source: (source["table"], source["column"]),
+        )
+    return None
+
+
+def _join_pairs(table_relation: dict) -> set[tuple[str, str]]:
+    pairs: set[tuple[str, str]] = set()
+    for side in (table_relation.get("from"), table_relation.get("to")):
+        if not isinstance(side, dict):
+            continue
+        entity = str(side.get("entity"))
+        pairs.update((entity, str(column)) for column in side.get("columns") or [])
+    return pairs
+
+
+def _relations_joining_on(
+    ontology: dict,
+    views: list[dict],
+    sources: list[dict],
+) -> list[dict]:
+    """The concept's relations whose table-level JOIN evidence uses one of the
+    attribute's source columns."""
+    by_id = {str(item.get("id")): item for item in ontology.get("table_relations") or []}
+    wanted = {(source["table"], source["column"]) for source in sources}
+    matched = []
+    for view in views:
+        pairs: set[tuple[str, str]] = set()
+        for evidence in view["evidence"]:
+            table_relation = by_id.get(evidence)
+            if table_relation is not None:
+                pairs |= _join_pairs(table_relation)
+        if pairs & wanted:
+            matched.append(view)
+    return matched
+
+
+def _concept_downstream(
+    root: Path,
+    start: list[tuple[str, str | None]],
+    depth: int,
+) -> list[dict]:
+    """Downstream tasks of the concept's representation tables (or of one attribute's
+    source columns), one row per task -- the shallowest hop it was reached at wins."""
+    docs = _load_index(root)
+    _, consumers = _routing_maps(docs)
+    cache = _DocCache(root)
+    best: dict[str, tuple[int, str, str]] = {}
+    for hop, table, column, dst_table, _dst, task_id, rel in _downstream_edges(
+        docs, consumers, cache, start, depth
+    ):
+        if dst_table is None or not task_id:
+            continue
+        candidate = (hop, _label(table, column), rel)
+        if task_id not in best or candidate < best[task_id]:
+            best[task_id] = candidate
+    rows = [
+        {"task": task_id, "table": table, "depth": hop, "artifact": rel}
+        for task_id, (hop, table, rel) in best.items()
+    ]
+    return sorted(rows, key=lambda row: (row["depth"], row["task"], row["table"]))
+
+
+def _print_relation_lines(views: list[dict]) -> None:
+    for view in views:
+        print(
+            f"- {view['id']}  {view['direction']}: {view['from']} -> {view['to']}"
+            f"  ({view['type']}, {view['cardinality']}, tier: {view['tier']})"
+        )
+    if not views:
+        print("- (none)")
+
+
+def _print_attribute_section(attribute: dict) -> None:
+    print()
+    print(f"## attribute: {attribute['name']}  ({len(attribute['sources'])} source column(s))")
+    for source in attribute["sources"]:
+        print(f"- {source['table']}.{source['column']}")
+    if not attribute["sources"]:
+        print("- (none)")
+    print(f"### relations joining on this attribute ({len(attribute['relations'])})")
+    _print_relation_lines(attribute["relations"])
+
+
+def _render_concept_impact(payload: dict, depth: int) -> None:
+    concept = payload["concept"]
+    print(f"# concept: {concept['name']}  ({concept['id']})")
+    print(f"kind: {concept['kind']}  tier: {concept['tier']}")
+    print()
+    print(f"## representation tables ({len(payload['tables'])})")
+    for table in payload["tables"]:
+        print(f"- {table['table']}  [role: {table['role']}, basis: {table['membership_basis']}]")
+    if not payload["tables"]:
+        print("- (none)")
+    print()
+    print(f"## concept relations ({len(payload['relations'])})")
+    _print_relation_lines(payload["relations"])
+    if payload.get("attribute") is not None:
+        _print_attribute_section(payload["attribute"])
+    print()
+    print(f"## downstream tasks ({len(payload['downstream'])}, depth {depth})")
+    for row in payload["downstream"]:
+        print(f"- {row['task']}  reads {row['table']}  (depth {row['depth']})")
+    if not payload["downstream"]:
+        print("- (none)")
+
+
+_CONCEPT_IMPACT_USAGE = (
+    "usage: query.py concept-impact <concept id | name> --ontology <ontology.json> "
+    "--lineage <artifacts root> [--depth N] [--attribute NAME] [--json]"
+)
+
+
+def _parse_concept_impact_args(args: list[str]) -> tuple[dict | None, str]:
+    options: dict = {"json": False, "depth": 1, "attribute": None, "concept": None}
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg == "--json":
+            options["json"] = True
+            index += 1
+            continue
+        if arg in {"--ontology", "--lineage", "--depth", "--attribute"}:
+            if index + 1 >= len(args):
+                return None, f"{arg} requires a value"
+            value = args[index + 1]
+            if arg != "--depth":
+                options[arg[2:]] = value
+            elif value.isdigit() and int(value) >= 1:
+                options["depth"] = int(value)
+            else:
+                return None, "--depth requires a positive integer"
+            index += 2
+            continue
+        if options["concept"] is not None:
+            return None, f"unexpected argument: {arg}"
+        options["concept"] = arg
+        index += 1
+    if not all(options.get(key) for key in ("concept", "ontology", "lineage")):
+        return None, _CONCEPT_IMPACT_USAGE
+    return options, ""
+
+
+def _concept_tables(concept: dict) -> list[dict]:
+    rows = [
+        {
+            "table": str(item.get("table")),
+            "role": str(item.get("role") or "unknown"),
+            "membership_basis": str(item.get("membership_basis") or "unknown"),
+        }
+        for item in concept.get("tables") or []
+    ]
+    return sorted(rows, key=lambda row: row["table"])
+
+
+def _concept_payload(ontology: dict, concept: dict) -> dict:
+    concept_id = str(concept.get("id"))
+    return {
+        "concept": {
+            "id": concept_id,
+            "name": str(concept.get("name")),
+            "kind": str(concept.get("kind") or "unknown"),
+            "tier": str(concept.get("tier") or "unknown"),
+        },
+        "tables": _concept_tables(concept),
+        "relations": _concept_relations(ontology, concept_id),
+    }
+
+
+def cmd_concept_impact(args: list[str]) -> int:
+    options, error = _parse_concept_impact_args(args)
+    if options is None:
+        return _fail(error)
+    ontology, error = _load_ontology(str(options["ontology"]))
+    if ontology is None:
+        return _fail(error)
+    query = str(options["concept"])
+    concept, candidates = _resolve_concept(ontology.get("concepts") or [], query)
+    if concept is None:
+        if not candidates:
+            return _fail(f"concept {query!r} is not in this ontology")
+        return _fail(
+            f"concept {query!r} is ambiguous: "
+            + ", ".join(f"{c.get('id')} ({c.get('name')})" for c in candidates)
+        )
+    payload = _concept_payload(ontology, concept)
+    start: list[tuple[str, str | None]] = [(row["table"], None) for row in payload["tables"]]
+    if options["attribute"] is not None:
+        name = str(options["attribute"])
+        sources = _attribute_sources(concept, name)
+        if sources is None:
+            return _fail(f"attribute {name!r} is not an attribute of {payload['concept']['id']}")
+        payload["attribute"] = {
+            "name": name,
+            "sources": sources,
+            "relations": _relations_joining_on(ontology, payload["relations"], sources),
+        }
+        start = [(source["table"], source["column"]) for source in sources]
+    root = Path(str(options["lineage"]))
+    if not root.is_dir():
+        return _fail(f"artifacts root must be a directory: {root}")
+    payload["downstream"] = _concept_downstream(root, start, int(options["depth"]))
+    if options["json"]:
+        print(json.dumps(payload, ensure_ascii=False, indent=1))
+    else:
+        _render_concept_impact(payload, int(options["depth"]))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    commands = {"summary": cmd_summary, "chain": cmd_chain, "impact": cmd_impact, "trace": cmd_trace}
+    commands = {
+        "summary": cmd_summary,
+        "chain": cmd_chain,
+        "impact": cmd_impact,
+        "trace": cmd_trace,
+        "concept-impact": cmd_concept_impact,
+    }
     if not argv or argv[0] not in commands:
         print(__doc__, file=sys.stderr)
         return 2

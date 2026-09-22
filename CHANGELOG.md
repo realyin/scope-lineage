@@ -29,6 +29,22 @@
     edge onto a table standing in for a concept says *some table takes part*, not that the
     business has that relation.
   - Both export goldens are re-recorded; the diff is additive only.
+- **Concept-level impact analysis in the skill's query script** (N7). `impact` and
+  `trace` answer at the table/column level — the level the artifacts record, not the
+  level anyone asks at. `skills/scope-lineage/scripts/query.py` gains a fifth
+  subcommand, `concept-impact <concept id | name> --ontology <ontology.json> --lineage
+  <corpus> [--depth N] [--attribute NAME] [--json]`, that joins the ontology to the
+  corpus: it resolves the concept by id, exact name or unique name prefix (an ambiguous
+  prefix lists the candidates and exits 2 instead of guessing), prints its
+  **representation tables** with their roles and its **concept relations** in and out
+  with type, cardinality and tier, then reuses the same corpus downstream walk as
+  `trace` to name the **downstream tasks** of every representation table — deduplicated
+  per task, each naming the table it read and the hop it was found at (`--depth`,
+  default 1). `--attribute NAME` narrows the walk to that attribute's `sources[]`
+  columns and the relations to those whose table-level JOIN evidence uses one of them.
+  `--json` emits the same answer as `{concept, tables[], relations[], downstream[],
+  attribute?}`. A missing or pre-`ontology-json/2` ontology, an unknown concept and an
+  unknown attribute are each one sentence on stderr and exit 2. Stdlib only, as before.
 - **One markdown file per concept, and `ontology.md` becomes an index** (N2). M3 gave
   every concept a section inside `ontology.md` and kept the whole table layer behind
   them, capped at 40 sections. On a wide corpus that is the entire model in one file and
