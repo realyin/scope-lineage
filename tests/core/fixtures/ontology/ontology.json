@@ -749,6 +749,7 @@
     "merges": 0,
     "splits": 0,
     "dissolved": [],
+    "left": [],
     "unmatched": [],
     "warnings": [],
     "ignored_fields": [],

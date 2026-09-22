@@ -56,6 +56,7 @@ from scope_lineage.render.review_batches import (
     KIND_EVIDENCE_HEADING,
     KIND_TIER_HEADING,
     MERGE_TARGETS_SHOWN,
+    REVIEW_NOTE_HEADING,
     SCORE_NAME_ROOT,
     build_review_batches,
     render_batch_markdown,
@@ -475,3 +476,47 @@ def test_the_candidate_list_is_still_bounded() -> None:
     batch = _alone(document, EXTRA_ID)
 
     assert len(batch["merge_targets"]) <= MERGE_TARGETS_SHOWN
+
+
+# --------------------------------- 6. "not now, because" is a thing you can write
+
+
+REASON = "两张表的粒度对不上，等下一轮拿到调度元数据再判（合成）"
+LEFT = _overrides(**{EXTRA_ID: {"leave": REASON, **STAMP}})
+
+
+def test_leaving_a_concept_open_is_recorded_with_its_reason() -> None:
+    applied = _built(overrides=LEFT)["concept_overrides_applied"]
+
+    assert applied["left"] == [{"id": EXTRA_ID, "reason": REASON}]
+    assert applied["ignored_fields"] == []
+    assert applied["unmatched"] == []
+
+
+def test_leaving_a_concept_open_changes_nothing_about_the_concept() -> None:
+    plain, left = _by_id(_built())[EXTRA_ID], _by_id(_built(overrides=LEFT))[EXTRA_ID]
+
+    assert left["tier"] == TIER_PROVISIONAL
+    assert left["name"] == plain["name"]
+    assert left["kind"] == plain["kind"]
+    assert _built(overrides=LEFT)["concept_overrides_applied"]["concepts"] == 0
+
+
+def test_the_reason_rides_on_the_concept_so_the_next_worksheet_can_print_it() -> None:
+    document = _built(overrides=LEFT)
+
+    assert _by_id(document)[EXTRA_ID]["review_note"] == REASON
+    assert REASON in _row(_worksheet(document), EXTRA_ID)
+
+
+def test_the_worksheet_heading_says_what_that_column_is() -> None:
+    text = _worksheet(_built(overrides=LEFT))
+    header = next(line for line in text.splitlines() if REVIEW_NOTE_HEADING in line)
+
+    assert _row(text, EXTRA_ID).count("|") == header.count("|")
+
+
+def test_a_concept_nobody_left_carries_no_note_at_all() -> None:
+    """The key is absent rather than empty, so the document is the one it always was."""
+    assert "review_note" not in _by_id(_built())[EXTRA_ID]
+    assert _built()["concept_overrides_applied"]["left"] == []

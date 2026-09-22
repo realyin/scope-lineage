@@ -704,6 +704,8 @@ def test_the_overrides_report_is_present_even_when_nothing_was_reviewed() -> Non
         "merges": 0,
         "splits": 0,
         "dissolved": [],
+        # N8b: and nobody wrote down a concept they deliberately left open.
+        "left": [],
         "unmatched": [],
         "warnings": [],
         "ignored_fields": [],

@@ -300,6 +300,7 @@ def test_the_report_keeps_the_keys_a_single_file_round_already_published() -> No
         "merges",
         "splits",
         "dissolved",
+        "left",
         "unmatched",
         "warnings",
         "ignored_fields",

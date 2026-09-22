@@ -86,6 +86,10 @@ KIND_EVIDENCE_HEADING = "类别依据"
 KIND_TIER_HEADING = "类别层级"
 #: N1b: the column carrying ``possible_duplicate_of`` onto the worksheet.
 DUPLICATE_HEADING = "疑似重复"
+#: N8b: the column carrying ``review_note`` -- why a previous round put this one down.
+#: A reviewer who reads "the grain does not line up, ask after the next load" does not
+#: spend the round reaching that conclusion again.
+REVIEW_NOTE_HEADING = "上轮留待"
 #: N1b: the column showing how a candidate merge target scored, and on what.
 SCORE_HEADING = "匹配分"
 #: N8b: the column naming the token of this batch's table names that is the candidate's
@@ -475,8 +479,8 @@ def render_batch_markdown(batch: Mapping, ontology: Mapping) -> str:
         "",
         f"| 概念 | 种类 | {KIND_EVIDENCE_HEADING} | {KIND_TIER_HEADING} "
         f"| {DUPLICATE_HEADING} | 表 "
-        f"| {MEMBER_OF_HEADING} | 关系 | 命名候选 | 回写键 |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        f"| {MEMBER_OF_HEADING} | 关系 | 命名候选 | {REVIEW_NOTE_HEADING} | 回写键 |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     index = {str(item["id"]): item for item in ontology.get("concepts") or []}
     memberships = _memberships(ontology, index)
@@ -528,6 +532,7 @@ def _concept_row(row: Mapping, concept: Mapping, memberships: Mapping[str, str])
         f"| {member_of or NONE_CELL} "
         f"| {row['impact']} 条 / {row['tasks']} 个任务 "
         f"| {candidates or NONE_CELL} "
+        f"| {cell(str(concept.get('review_note') or '')) or NONE_CELL} "
         f"| `{row['id']}` 的 `merge_into` |"
     )
 

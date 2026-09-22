@@ -404,6 +404,9 @@ _CONCEPT_KEYS = (
     "merged_from",
     "split_from",
     "confirmation",
+    # N8b: present only when a reviewed file said `leave`: why this one was left open,
+    # carried so the next worksheet prints it in the concept's own row.
+    "review_note",
 )
 
 
@@ -1753,6 +1756,8 @@ CONCEPT_OVERRIDE_FIELDS = (
     "date",
     "basis",
     "note",
+    # N8b: "not now, because" -- a decision about the round, not about the concept.
+    "leave",
 )
 #: What the document itself may hold. ``comments`` is free text a batch skeleton (N1b)
 #: writes its open questions into: read by the reviewer, never applied, and named here
@@ -1848,6 +1853,8 @@ def apply_concept_overrides(
         # M1: the provisional concepts an `add_tables` or a `new_concepts` entry took
         # the table of. A merge dissolves one too, and is reported as the merge it is.
         "dissolved": [],
+        # N8b: the concepts a reviewer deliberately did not answer, and why.
+        "left": [],
         "unmatched": [],
         "warnings": [],
         "ignored_fields": [],
@@ -1869,6 +1876,7 @@ def apply_concept_overrides(
     _concept_splits(ontology, list(reviewed.get("splits") or []), applied)
     ontology["provisional_count"] = provisional_count(ontology["concepts"])
     applied["created"].sort(key=lambda item: str(item["id"]))
+    applied["left"].sort(key=lambda item: (item["id"], item["reason"]))
     applied["unmatched"].sort(key=lambda item: (item["key"], item["reason"]))
     applied["warnings"].sort(key=lambda item: (item["key"], item["warning"]))
     applied["ignored_fields"].sort(key=lambda item: item["key"])
@@ -2031,6 +2039,7 @@ def _concept_fields(
             continue
         index[str(name)] = concept
         _ignored_fields(applied, str(name), entry, CONCEPT_OVERRIDE_FIELDS)
+        _leave(concept, entry, applied, str(name))
         stamp = _confirmation(entry)
         named = _confirm_name(concept, entry)
         kinded = _confirm_kind(concept, entry, applied, str(name))
@@ -2077,6 +2086,30 @@ def _merge_roles(entry: Mapping, applied: dict, key: str) -> dict[str, str]:
     for role in sorted({value for value in roles.values() if value not in MEMBER_ROLES}):
         applied["unmatched"].append({"key": key, "reason": f"unknown_role: {role}"})
     return {table: role for table, role in roles.items() if role in MEMBER_ROLES}
+
+
+def _leave(concept: dict, entry: Mapping, applied: dict, key: str) -> None:
+    """"Not now, because": an answer about the round, never about the concept (N8b).
+
+    A reviewer working a batch reaches concepts they can decide, concepts they have to
+    ask about, and concepts they deliberately put down -- the grain does not line up,
+    the metadata is missing, the person who knows is away. The only way to write that
+    down was to delete the entry, and the reason died with it: the next round opened the
+    same worksheet, read the same row, and spent the same half hour reaching the same
+    "not yet".
+
+    ``leave`` is that third answer, and it is deliberately a **no-op on the concept**:
+    nothing about the reading changes, ``concepts`` does not count it, and the concept
+    stays in the provisional pile where it belongs. What it leaves behind is the note --
+    on the concept as ``review_note``, so the next worksheet prints it in the row, and in
+    ``left[]``, so the round's report says what was put down and why.
+    """
+    reason = str(entry.get("leave") or "")
+    if not reason:
+        return
+    concept["review_note"] = reason
+    applied["left"].append({"id": key, "reason": reason})
+    _reorder(concept)
 
 
 def _confirm_standalone(concept: dict) -> None:
