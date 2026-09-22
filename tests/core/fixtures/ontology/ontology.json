@@ -710,6 +710,10 @@
       "kind_tier": "implied",
       "kind_evidence": [
         {
+          "signal": "all_members_full_snapshot",
+          "vote": "entity"
+        },
+        {
           "signal": "word_hint",
           "vote": "entity",
           "table": "dim.channel",

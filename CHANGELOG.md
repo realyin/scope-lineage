@@ -1,6 +1,29 @@
 # Changelog
 
 ## Unreleased
+- **The names and the kinds a wide corpus argued with** (K2b). Run over a much wider
+  corpus, K2's ranking led with four things that are not names. A key comment that only
+  *marks* the column: the trailing-marker set now also takes off 名称 / 名 / 键 and a bare
+  latin `ID` (any case, no `_` needed), so 客户ID is 客户 and 机构名称 is 机构, and the
+  catalog's own punctuation (`_`, `-`, `—`, `:`, `：`, `/`, commas) comes off either end
+  afterwards — which is also what had left a table comment as 「…日志表-」, with the dash
+  hiding 表 from every suffix rule. A comment whose "this is a key" word sits in the
+  middle: the Chinese stoplist matches as a **substring** now, in two strengths — 主键 /
+  唯一 / 去重键 are read on the comment as written and nothing survives them (逻辑主键,
+  原始表主键, 唯一去重键 say *which kind of key* this is), while 标识 / 编号 / 编码 / 代码 /
+  序号 / 流水号 are read on the name that is left, so 交易流水号 stays 交易流水 and 客户标识
+  stays 客户 while 业务标识码 yields nothing. A table comment that names a *facet* rather
+  than the concept: a candidate that opens with a period (`2月时段合同`), ends in a measure
+  (`合同欠款`, `合同分数据`) or carries a filter (`已到期合同欠款`, `未到期合同首期欠款`) now
+  publishes a `junk_reason` and ranks below every clean candidate, so three tables sharing
+  one filtered comment no longer outvote the single key column comment on `count`. It is
+  still published, because it is genuinely evidence about those members. And one kind: a
+  new `all_members_full_snapshot` signal votes `entity` when every non-`reference` member
+  is a full snapshot, no key holds a time or event column, nothing says "event" and at
+  least one member calls itself 信息 / 维 / `dim`; under that shape
+  `driving_rows_over_log_source` no longer votes, because a 机构-shaped snapshot rebuilt
+  one row per row of a change log says how it is built, not what it holds. A table that
+  says nothing about itself has claimed nothing, so the log evidence still stands for it.
 - **The concept layer, rendered and reviewable** (K4). K1--K3 published the concept layer
   into `ontology.json` and nowhere else, which made it a layer only a program could read.
   `ontology.md` now **opens** on 「概念层」, above the table-level ER: a Mermaid `flowchart
