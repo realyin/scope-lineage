@@ -183,8 +183,16 @@ def test_a_keyless_table_becomes_its_own_provisional_concept() -> None:
 
 
 def test_the_id_is_the_table_key_the_cards_spell_with_dots_folded() -> None:
-    assert table_concept_id("ODS.Gadget_Feed_A") == f"{CONCEPT_TABLE_PREFIX}ods_gadget_feed_a"
     assert table_concept_id(KEYLESS) == f"{CONCEPT_TABLE_PREFIX}ods_gadget_feed_a"
+
+
+def test_a_table_name_the_corpus_wrote_in_another_case_keeps_an_id_of_its_own() -> None:
+    """N1b: two spellings are two tables, and each needs a slot to be answered in."""
+    cased = table_concept_id("ODS.Gadget_Feed_A")
+
+    assert cased.startswith(f"{CONCEPT_TABLE_PREFIX}ods_gadget_feed_a_")
+    assert cased != table_concept_id(KEYLESS)
+    assert cased == table_concept_id("ODS.Gadget_Feed_A")
 
 
 def test_a_generic_key_does_not_block_a_provisional_concept() -> None:

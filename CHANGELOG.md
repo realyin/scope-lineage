@@ -72,6 +72,37 @@
   - The concept review prompt gains a 「分批工作」 section: one batch at a time, one
     overrides file per batch, never edit another batch's file, at most eight human
     questions **per batch**, and conflicts are a person's call.
+- **The six gaps a batched review exposed** (N1b). A reviewer worked the batches and
+  came back with six places where the worksheet, or the merge behind it, asked for a
+  judgement it had already made impossible.
+  - The worksheet's concept table gains 「已是成员」: every folded concept that already
+    claims the table, with its role and membership basis, read off `tables[].concepts[]`.
+    A `merge_into` onto one of them collides with that membership (what `add_tables`
+    reports as `already_a_member`) and the **stronger** of the two roles survives — which
+    the reviewer could not see before without leaving the batch.
+  - **Folding a provisional concept no longer warns about two primaries.** A provisional
+    concept is one table, primary of itself by M1's construction, so every single answer
+    raised `merge_kept_two_primaries`. Its member is now **re-roled** as it joins:
+    `snapshot` / `summary` / `intermediate` / `detail` by its own table suffix and
+    producing grain when the survivor already has a primary, `primary` when it has none,
+    published as `membership_basis: "override"` at `role_tier: "confirmed"`. A merge
+    between two concepts that each grew their own primary copy still warns.
+  - The concept table also gains 「类别依据」 (every `kind_evidence` vote compacted, e.g.
+    `event: key_event_column×2 / entity: word_hint×1`) and 「疑似重复」
+    (`possible_duplicate_of[]`).
+  - The evidence block prints 「属性线索」 — the first 8 columns that carry a comment —
+    for a table with neither a comment nor a candidate key, which is M1 at its barest and
+    used to render as two empty cells.
+  - **Two table names that differ only in case keep two concept ids.** `table_concept_id`
+    appends a six-hex-character digest of the name as written when it is not already
+    lowercase, so neither table loses the slot it is answered in; an all-lowercase table
+    name keeps the id every earlier round wrote.
+  - **Candidate merge targets are ranked by the name first**: a weighted score of 3 per
+    shared CJK name word (over the concepts' `name_candidates[]`), 2 per shared
+    non-generic key stem and 1 per relation, with `GENERIC_STEMS` counting for nothing and
+    a target scoring 0 not listed at all. Each row prints the breakdown. Relations used to
+    rank above both, which put "some task joined them" ahead of "they are called the same
+    thing".
 
 ## 0.4.0
 - **Breaking — the ontology is concept-first.** `ontology.json` is `ontology-json/2`: the

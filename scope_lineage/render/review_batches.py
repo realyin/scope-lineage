@@ -21,9 +21,15 @@ an index saying in which order to work them. Three rules keep a batch worth open
    concept the whole corpus joins is worth more than one about a table nobody reads.
 3. **The worksheet carries the evidence, never the verdict.** Each batch names the
    non-provisional concepts its concepts most relate to -- candidate merge targets,
-   ranked by shared key stems and by the relations between them -- and the comments and
-   key columns a decision rests on. It never proposes the merge: that is the reviewer's
-   answer, and a skeleton that pre-filled it would be this layer confirming its own guess.
+   ranked by a shared name first, then a shared business key, then the relations between
+   them -- and the comments, key columns and memberships a decision rests on. It never
+   proposes the merge: that is the reviewer's answer, and a skeleton that pre-filled it
+   would be this layer confirming its own guess.
+
+N1b's second round added what a reviewer could not decide without: which concepts
+already claim the table (so a merge's collision is visible before it is written), the
+kind's own evidence and duplicate flag, the column comments of a table nothing else
+described, and the ranking above -- a name outranks a join.
 
 Everything is sorted, so two runs over one ontology write the same bytes.
 """
@@ -31,11 +37,12 @@ Everything is sorted, so two runs over one ontology write the same bytes.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from .concept_relations import concept_impact, provisional_concept_ids
-from .concepts import CONCEPT_OVERRIDES_DOC_FORMAT, key_stem
+from .concepts import CONCEPT_OVERRIDES_DOC_FORMAT, GENERIC_STEMS, key_stem
 from .markdown_text import cell
 from .ontology import table_family
 
@@ -56,6 +63,31 @@ MERGE_TARGETS_SHOWN = 8
 #: What the evidence table says when nothing keyed the table -- which is the M1 case
 #: itself, and the most useful thing the row can say.
 NO_CANDIDATE_KEY = "（没有候选键——这正是它成为临时概念的原因）"
+#: What a worksheet cell says when the corpus had nothing to put in it.
+NONE_CELL = "（无）"
+#: N1b: the column naming the folded concepts that already claim this concept's table.
+#: A merge into one of them collides with the membership rather than creating it, and
+#: the stronger of the two roles is what survives -- which is exactly what the reviewer
+#: has to see before writing ``merge_into``.
+MEMBER_OF_HEADING = "已是成员"
+#: N1b: the column compacting ``kind_evidence`` -- every signal's vote, grouped by vote.
+KIND_EVIDENCE_HEADING = "类别依据"
+#: N1b: the column carrying ``possible_duplicate_of`` onto the worksheet.
+DUPLICATE_HEADING = "疑似重复"
+#: N1b: the column showing how a candidate merge target scored, and on what.
+SCORE_HEADING = "匹配分"
+#: N1b: what the evidence row prints when the table has neither a comment nor a
+#: candidate key: the columns that *do* carry a comment are the last thing left to read.
+ATTRIBUTE_CLUE_LABEL = "属性线索"
+#: How many of them one row prints.
+ATTRIBUTE_CLUES_SHOWN = 8
+#: N1b: what a candidate merge target is scored on, strongest evidence first. A shared
+#: *name* is the thing a reviewer is actually looking for; a shared business key is the
+#: corpus agreeing about identity; a relation only says some task put the two in one
+#: query, which is the weakest of the three and used to rank above both.
+SCORE_NAME, SCORE_STEM, SCORE_RELATION = 3, 2, 1
+
+_CJK_RE = re.compile(r"[一-鿿]")
 
 
 # ------------------------------------------------------------------- the batches
@@ -217,33 +249,84 @@ def _open_item_groups(ontology: Mapping, identifiers: set) -> list[dict]:
 def _merge_targets(ontology: Mapping, identifiers: Sequence[str]) -> list[dict]:
     """The folded concepts this batch most relates to, ranked, never chosen.
 
-    Two kinds of evidence, counted apart because they say different things: an edge
-    between the two concepts means some task put them in one query, and a shared key
-    stem means both are written on the same business key. Neither is a merge. A reviewer
-    reading the pair decides, and the worksheet's job is to put the pair in front of
-    them rather than to make them search the whole document for it.
+    Three kinds of evidence, counted apart because they say different things and
+    weighted apart because they are not worth the same (N1b). The batch's *name*
+    candidates sharing a word with the target's name is the reviewer's own question
+    asked in the corpus's words, and weighs most; both sides being written on the same
+    business key weighs next; an edge between the two only says some task put them in
+    one query, and used to rank above both. Generic key stems count for nothing: a
+    surrogate ``id`` is on every table and names none of them.
+
+    None of this is a merge. A reviewer reading the pair decides, and the worksheet's
+    job is to put the pair in front of them, breakdown and all, rather than to make them
+    search the whole document for it. A target nothing scored is not on the list at all.
     """
     concepts = list(ontology.get("concepts") or [])
     provisional = provisional_concept_ids(concepts)
     batch = set(str(item) for item in identifiers)
-    stems = _stems({item["id"]: item for item in concepts}, batch)
+    index = {str(item["id"]): item for item in concepts}
+    stems = _stems(index, batch)
+    tokens = _batch_tokens(index, batch)
     edges = _edge_counts(list(ontology.get("relations") or []), batch)
     scored = [
-        {
-            "id": str(concept["id"]),
-            "name": str(concept.get("name")),
-            "kind": str(concept.get("kind")),
-            "relations": edges.get(str(concept["id"]), 0),
-            "shared_stems": sorted(stems & _concept_stems(concept)),
-        }
+        _scored_target(concept, stems, tokens, edges.get(str(concept["id"]), 0))
         for concept in concepts
         if str(concept["id"]) not in provisional and str(concept["id"]) not in batch
     ]
     ranked = sorted(
-        (item for item in scored if item["relations"] or item["shared_stems"]),
-        key=lambda item: (-item["relations"], -len(item["shared_stems"]), item["id"]),
+        (item for item in scored if item["score"] > 0),
+        key=lambda item: (-item["score"], -item["name_overlap"], item["id"]),
     )
     return ranked[:MERGE_TARGETS_SHOWN]
+
+
+def _scored_target(concept: Mapping, stems: set, tokens: set, relations: int) -> dict:
+    """One candidate, with the three counts its score is the weighted sum of."""
+    shared = sorted((stems & _concept_stems(concept)) - GENERIC_STEMS)
+    overlap = len(tokens & _cjk_tokens(str(concept.get("name") or "")))
+    return {
+        "id": str(concept["id"]),
+        "name": str(concept.get("name")),
+        "kind": str(concept.get("kind")),
+        "relations": relations,
+        "shared_stems": shared,
+        "name_overlap": overlap,
+        "score": (
+            overlap * SCORE_NAME + len(shared) * SCORE_STEM + relations * SCORE_RELATION
+        ),
+    }
+
+
+def _batch_tokens(index: Mapping[str, Mapping], batch: set) -> set:
+    """Every CJK word the batch's concepts propose for themselves -- name and candidates.
+
+    The candidates and not only the name, because a provisional concept's *name* is
+    often the table's spelling (``name_tier: "stem_only"``) while the word a reviewer
+    would recognise sits one row down in ``name_candidates[]``.
+    """
+    return {
+        token
+        for identifier in sorted(batch)
+        for text in _name_texts(index.get(identifier) or {})
+        for token in _cjk_tokens(text)
+    }
+
+
+def _name_texts(concept: Mapping) -> list[str]:
+    return [
+        str(concept.get("name") or ""),
+        *(str(item.get("text") or "") for item in concept.get("name_candidates") or []),
+    ]
+
+
+def _cjk_tokens(text: str) -> set:
+    """The CJK bigrams of one name -- the same word unit the concept layer folds on."""
+    chars = str(text)
+    return {
+        chars[index : index + 2]
+        for index in range(len(chars) - 1)
+        if _CJK_RE.match(chars[index]) and _CJK_RE.match(chars[index + 1])
+    }
 
 
 def _stems(index: Mapping[str, Mapping], batch: set) -> set:
@@ -328,28 +411,93 @@ def render_batch_markdown(batch: Mapping, ontology: Mapping) -> str:
         "",
         "## 本批概念",
         "",
-        "| 概念 | 种类 | 表 | 关系 | 命名候选 | 回写键 |",
-        "| --- | --- | --- | --- | --- | --- |",
+        f"| 概念 | 种类 | {KIND_EVIDENCE_HEADING} | {DUPLICATE_HEADING} | 表 "
+        f"| {MEMBER_OF_HEADING} | 关系 | 命名候选 | 回写键 |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     index = {str(item["id"]): item for item in ontology.get("concepts") or []}
-    lines.extend(_concept_row(row, index.get(str(row["id"])) or {}) for row in batch["rows"])
+    memberships = _memberships(ontology, index)
+    lines.extend(
+        _concept_row(row, index.get(str(row["id"])) or {}, memberships)
+        for row in batch["rows"]
+    )
     lines.extend(_merge_target_section(batch))
     lines.extend(_evidence_section(batch, ontology, index))
     return "\n".join(lines) + "\n"
 
 
-def _concept_row(row: Mapping, concept: Mapping) -> str:
+def _memberships(ontology: Mapping, index: Mapping) -> dict[str, str]:
+    """Per table, the folded concepts that already claim it, with role and basis (N1b).
+
+    Read off M2's own ``tables[].concepts[]`` back-link rather than re-derived, so the
+    worksheet says exactly what the document says. The table's own provisional concept
+    is left out: it is the question being asked, not a membership a merge would collide
+    with. ``already_a_member`` is what a reviewer avoids by reading this, and when the
+    merge goes ahead anyway it is the **stronger** of the two roles that survives.
+    """
+    provisional = provisional_concept_ids(list(index.values()))
+    return {
+        str(table.get("id")): "、".join(
+            f"{cell(str((index.get(str(item.get('id'))) or {}).get('name') or ''))}"
+            f"（`{item.get('id')}`，{item.get('role')} / {item.get('membership_basis')}）"
+            for item in table.get("concepts") or []
+            if str(item.get("id")) not in provisional
+        )
+        for table in ontology.get("tables") or []
+    }
+
+
+def _concept_row(row: Mapping, concept: Mapping, memberships: Mapping[str, str]) -> str:
     candidates = "、".join(
         f"{cell(str(item.get('text')))}（{item.get('source')}）"
         for item in (concept.get("name_candidates") or [])[:3]
     )
+    member_of = "；".join(
+        text for text in (memberships.get(table) or "" for table in row["tables"]) if text
+    )
     return (
         f"| {cell(str(row['name']))}（`{row['name_tier']}`） "
         f"| {row['kind']} "
+        f"| {_kind_evidence(concept)} "
+        f"| {_duplicates(concept)} "
         f"| {'、'.join(f'`{table}`' for table in row['tables'])} "
+        f"| {member_of or NONE_CELL} "
         f"| {row['impact']} 条 / {row['tasks']} 个任务 "
-        f"| {candidates or '（无）'} "
+        f"| {candidates or NONE_CELL} "
         f"| `{row['id']}` 的 `merge_into` |"
+    )
+
+
+def _kind_evidence(concept: Mapping) -> str:
+    """Every ``kind_evidence`` vote compacted to one cell: the vote, then its signals.
+
+    ``event: key_event_column×2 / entity: word_hint×1`` -- which is where a disagreement
+    between two signals becomes visible without leaving the batch. The votes are ordered
+    by how many signals cast them, so the reading the concept took comes first.
+    """
+    votes: dict[str, dict[str, int]] = {}
+    for item in concept.get("kind_evidence") or []:
+        signals = votes.setdefault(str(item.get("vote")), {})
+        signals[str(item.get("signal"))] = signals.get(str(item.get("signal")), 0) + 1
+    ordered = sorted(votes, key=lambda vote: (-sum(votes[vote].values()), vote))
+    return (
+        " / ".join(
+            f"{vote}: "
+            + " ".join(
+                f"{signal}×{votes[vote][signal]}"
+                for signal in sorted(votes[vote], key=lambda name: (-votes[vote][name], name))
+            )
+            for vote in ordered
+        )
+        or NONE_CELL
+    )
+
+
+def _duplicates(concept: Mapping) -> str:
+    """``possible_duplicate_of`` on the worksheet: who else already claims this name."""
+    return (
+        "、".join(f"`{item}`" for item in concept.get("possible_duplicate_of") or [])
+        or NONE_CELL
     )
 
 
@@ -364,20 +512,31 @@ def _merge_target_section(batch: Mapping) -> list[str]:
         ]
     lines.extend(
         [
-            "按「与本批概念之间的关系条数」「共同键词根」排序。**这不是建议**："
-            "同键不等于同一件事，同查询更不等于。读完两边的表再决定。",
+            f"按**匹配分**排序：名字对上算 {SCORE_NAME} 分一个词，共同键词根算 {SCORE_STEM} 分一个"
+            f"（通用词根如 `id` / `dt` 不算），关系每条 {SCORE_RELATION} 分；0 分的不列。"
+            "**这不是建议**：同名不等于同一件事，同键不等于，同查询更不等于。读完两边的表再决定。",
             "",
-            "| 概念 | 种类 | 关系 | 共同键词根 | 回写 |",
-            "| --- | --- | --- | --- | --- |",
+            f"| 概念 | 种类 | {SCORE_HEADING} | 关系 | 共同键词根 | 回写 |",
+            "| --- | --- | --- | --- | --- | --- |",
         ]
     )
     lines.extend(
-        f"| {cell(str(item['name']))} | {item['kind']} | {item['relations']} 条 "
-        f"| {'、'.join(f'`{stem}`' for stem in item['shared_stems']) or '（无）'} "
+        f"| {cell(str(item['name']))} | {item['kind']} | {_score_cell(item)} "
+        f"| {item['relations']} 条 "
+        f"| {'、'.join(f'`{stem}`' for stem in item['shared_stems']) or NONE_CELL} "
         f"| `merge_into: \"{item['id']}\"` |"
         for item in batch["merge_targets"]
     )
     return lines
+
+
+def _score_cell(item: Mapping) -> str:
+    """The score and the three counts it is the weighted sum of (N1b)."""
+    return (
+        f"{item['score']}（名 {item['name_overlap']}×{SCORE_NAME} + "
+        f"键 {len(item['shared_stems'])}×{SCORE_STEM} + "
+        f"关系 {item['relations']}×{SCORE_RELATION}）"
+    )
 
 
 def _evidence_section(batch: Mapping, ontology: Mapping, index: Mapping) -> list[str]:
@@ -407,12 +566,29 @@ def _evidence_row(table: str, entity: Mapping, concept: Mapping) -> str:
         if str(attribute.get("column")) in columns and attribute.get("comment")
     ]
     keys = "、".join(f"`{column}`" for column in columns) or NO_CANDIDATE_KEY
+    clues = _attribute_clues(entity) if not columns and not entity.get("comment") else ""
     return (
         f"| `{table}` "
-        f"| {cell(str(entity.get('comment') or '（无）'))} "
+        f"| {cell(str(entity.get('comment') or NONE_CELL))} "
         f"| {keys} "
-        f"| {'；'.join(comments) or '（无）'} |"
+        f"| {'；'.join(comments) or clues or NONE_CELL} |"
     )
+
+
+def _attribute_clues(entity: Mapping) -> str:
+    """The commented columns of a table with neither a comment nor a candidate key (N1b).
+
+    That table is the M1 case at its barest: nothing named it and nothing keyed it, so
+    the row said twice that there was nothing to read. Its *columns* were never nothing
+    -- a reviewer reads 「这张表有哪些列、列上写了什么」 and usually answers the merge off
+    them. The first few are the evidence; the whole list would be the table's DDL.
+    """
+    clues = [
+        f"{attribute['column']}：{cell(str(attribute.get('comment')))}"
+        for attribute in entity.get("attributes") or []
+        if attribute.get("comment")
+    ][:ATTRIBUTE_CLUES_SHOWN]
+    return f"{ATTRIBUTE_CLUE_LABEL}：{'；'.join(clues)}" if clues else ""
 
 
 def _evidence_columns(table: str, entity: Mapping, concept: Mapping) -> list[str]:
