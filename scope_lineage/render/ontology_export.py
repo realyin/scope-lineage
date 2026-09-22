@@ -46,6 +46,7 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
+from .concept_relations import concept_impact, provisional_concept_ids
 from .concepts import (
     CONCEPT_ENTITY,
     CONCEPT_EVENT,
@@ -256,6 +257,58 @@ def _attribute_sources(attribute: Mapping) -> list[str]:
         f"{item.get('table')}.{item.get('column')}"
         for item in attribute.get("sources") or ()
     ]
+
+
+@dataclass(frozen=True)
+class _ConceptReview:
+    """N4: the two corpus-wide readings every concept element is written against.
+
+    ``impact`` ranks the open questions and ``provisional`` says which concepts are still
+    one table asking to be placed. Both are folded once per export rather than per
+    concept, because both are answers about the whole ``relations[]`` list -- and both
+    exports read this one object, so the LinkML and the Turtle cannot come to different
+    conclusions about the same edge.
+    """
+
+    impact: Mapping
+    provisional: frozenset
+
+    @classmethod
+    def of(cls, ontology: Mapping, concepts: Sequence[Mapping]) -> "_ConceptReview":
+        return cls(
+            impact=concept_impact(list(ontology.get("relations") or [])),
+            provisional=provisional_concept_ids(concepts),
+        )
+
+    def note(self, concept_id: str) -> str:
+        return _impact_note(concept_id, self.impact)
+
+    def marks(self, relation: Mapping) -> bool:
+        """An edge with a provisional end says *some table* takes part, not the business."""
+        ends = (str(relation.get("from")), str(relation.get("to")))
+        return any(end in self.provisional for end in ends)
+
+
+def _impact_note(concept_id: str, impact: Mapping) -> str:
+    """N4: how much an answer about this concept unblocks, in the review's own ranking.
+
+    ``concept_impact`` is the one function the worksheets (N1b) and the index (N2) both
+    rank by; the export reads it rather than counting again, so a consumer that sorts an
+    export's concepts gets the same first question a reviewer was handed.
+    """
+    row = impact.get(concept_id) or {}
+    return f"{int(row.get('relations', 0))} relation(s), {int(row.get('tasks', 0))} task(s)"
+
+
+def _retired_stem_note(item: Mapping) -> str:
+    """``<stem>: <n> tables`` -- K4c's list of refused stems, as one line each."""
+    return f"{item.get('stem')}: {len(item.get('tables') or ())} tables"
+
+
+RETIRED_STEM_NOTE = (
+    "a stem a generic key rule refused although the corpus keys tables by it; "
+    "`concepts.overrides.json` can still name it and revive the concept"
+)
 
 
 def _duplicate_note(concept: Mapping) -> str:
@@ -517,6 +570,7 @@ def render_linkml(ontology: Mapping) -> str:
     class_ids = entity_class_ids(entities)
     constraints = _constraints(ontology)
     schema = _linkml_header(ontology.get("corpus") or {})
+    schema["annotations"].update(_linkml_review(ontology))
     schema["annotations"].update(_linkml_governance(ontology))
     enums = _linkml_enums(constraints, class_ids)
     if enums:
@@ -544,9 +598,10 @@ def _linkml_classes(
         node = _linkml_class(entity, class_ids, ontology, constraints)
         node["annotations"].update(notes.get(str(entity["id"]), {}))
         classes[class_ids[str(entity["id"])]] = node
+    review = _ConceptReview.of(ontology, concepts)
     for concept in concepts:
         classes[concept_ids[str(concept["id"])]] = _linkml_concept(
-            concept, concept_ids, ontology
+            concept, concept_ids, ontology, review
         )
     return classes
 
@@ -560,7 +615,9 @@ def _linkml_base(kind: str) -> dict:
     }
 
 
-def _linkml_concept(concept: Mapping, concept_ids: Mapping, ontology: Mapping) -> dict:
+def _linkml_concept(
+    concept: Mapping, concept_ids: Mapping, ontology: Mapping, review: _ConceptReview
+) -> dict:
     """One concept as a class under its kind's base, with its members and relations."""
     kind = str(concept.get("kind") or "")
     node: dict = {
@@ -573,6 +630,9 @@ def _linkml_concept(concept: Mapping, concept_ids: Mapping, ontology: Mapping) -
         "tier": str(concept.get("tier") or ""),
         "kind_tier": str(concept.get("kind_tier") or ""),
         "name_tier": str(concept.get("name_tier") or ""),
+        # N4: the review's own ranking, so an export sorts the open questions the way
+        # the worksheets and the index already do.
+        "impact": review.note(str(concept["id"])),
         "tables": _concept_table_notes(concept),
     }
     # M1: one table standing in for a concept nobody has named yet. Annotated rather
@@ -584,12 +644,12 @@ def _linkml_concept(concept: Mapping, concept_ids: Mapping, ontology: Mapping) -
     if duplicate:
         annotations["possible_duplicate_of"] = duplicate
     node["annotations"] = annotations
-    node["attributes"] = _linkml_concept_attributes(concept, concept_ids, ontology)
+    node["attributes"] = _linkml_concept_attributes(concept, concept_ids, ontology, review)
     return node
 
 
 def _linkml_concept_attributes(
-    concept: Mapping, concept_ids: Mapping, ontology: Mapping
+    concept: Mapping, concept_ids: Mapping, ontology: Mapping, review: _ConceptReview
 ) -> dict:
     tier = str(concept.get("tier") or "")
     slots: dict = {}
@@ -599,7 +659,7 @@ def _linkml_concept_attributes(
     for relation in _concept_relations_from(ontology, str(concept["id"])):
         target = concept_ids[str(relation["to"])]
         name = _unique_name(slots, _identifier(f"{relation['type']}_{target}"))
-        slots[name] = _linkml_concept_relation(relation, target)
+        slots[name] = _linkml_concept_relation(relation, target, review.marks(relation))
     return slots
 
 
@@ -615,7 +675,9 @@ def _linkml_concept_attribute(attribute: Mapping, tier: str) -> dict:
     return slot
 
 
-def _linkml_concept_relation(relation: Mapping, target: str) -> dict:
+def _linkml_concept_relation(
+    relation: Mapping, target: str, provisional: bool = False
+) -> dict:
     cardinality = relation.get("cardinality") or {}
     annotations: dict = {
         "relation_type": str(relation.get("type")),
@@ -624,6 +686,10 @@ def _linkml_concept_relation(relation: Mapping, target: str) -> dict:
         "task_count": int(relation.get("task_count") or 0),
         "evidence_count": len(relation.get("evidence") or ()),
     }
+    # N4: the same flag the concept class carries, for the same reason -- an edge onto a
+    # table standing in for a concept is a reading of the corpus, not a business fact.
+    if provisional:
+        annotations["provisional"] = True
     if relation.get("roles"):
         annotations["roles"] = [str(role) for role in relation["roles"]]
     return {
@@ -670,6 +736,21 @@ def _linkml_governance(ontology: Mapping) -> dict:
     }
     for item in ontology.get("open_items") or ():
         annotations[f"sl:open_item_{item['id']}"] = _open_item_note(item)
+    return annotations
+
+
+def _linkml_review(ontology: Mapping) -> dict:
+    """N4: what the concept layer still owes, as two schema-level annotations.
+
+    ``provisional_count`` is always written, zero included -- a schema that says nothing
+    about it reads as a model with no open questions, which is exactly the claim M1 was
+    built to stop making. ``retired_stems`` is written only when the corpus has one,
+    because an empty list is an annotation that says nothing the absent one does not.
+    """
+    annotations: dict = {"provisional_count": int(ontology.get("provisional_count") or 0)}
+    retired = list(ontology.get("retired_stems") or ())
+    if retired:
+        annotations["retired_stems"] = [_retired_stem_note(item) for item in retired]
     return annotations
 
 
@@ -911,12 +992,11 @@ def render_shacl(ontology: Mapping) -> str:
     for entity in entities:
         lines.append("")
         lines.extend(_shacl_node_shape(entity, class_ids, ontology, constraints, notes))
+    review = _ConceptReview.of(ontology, concepts)
     for concept in concepts:
         lines.append("")
-        lines.extend(_shacl_concept_shape(concept, concept_ids, ontology))
-    governance = _shacl_governance(ontology)
-    if governance:
-        lines.extend(["", *governance])
+        lines.extend(_shacl_concept_shape(concept, concept_ids, ontology, review))
+    lines.extend(["", *_shacl_governance(ontology)])
     return "\n".join(lines) + "\n"
 
 
@@ -934,7 +1014,7 @@ def _shacl_kind_class(kind: str) -> list[str]:
 
 
 def _shacl_concept_shape(
-    concept: Mapping, concept_ids: Mapping, ontology: Mapping
+    concept: Mapping, concept_ids: Mapping, ontology: Mapping, review: _ConceptReview
 ) -> list[str]:
     """One concept as a ``sh:NodeShape`` under its kind class, tier and members intact."""
     concept_id = str(concept["id"])
@@ -946,7 +1026,9 @@ def _shacl_concept_shape(
         for attribute in concept.get("attributes") or ()
     ]
     blocks.extend(
-        _shacl_concept_relation(relation, concept_ids[str(relation["to"])])
+        _shacl_concept_relation(
+            relation, concept_ids[str(relation["to"])], review.marks(relation)
+        )
         for relation in _concept_relations_from(ontology, concept_id)
     )
     head = [
@@ -959,6 +1041,7 @@ def _shacl_concept_shape(
         f"    sl:concept {_turtle_string(concept_id)} ;",
         f"    sl:kindTier {_turtle_string(str(concept.get('kind_tier') or ''))} ;",
         f"    sl:nameTier {_turtle_string(str(concept.get('name_tier') or ''))} ;",
+        f"    sl:impact {_turtle_string(review.note(concept_id))} ;",
         *_shacl_provisional_lines(concept),
         *(f"    sl:conceptTable {_turtle_string(n)} ;" for n in _concept_table_notes(concept)),
         *_shacl_duplicate_lines(concept),
@@ -998,13 +1081,17 @@ def _shacl_concept_attribute(attribute: Mapping, tier: str) -> list[str]:
     return lines
 
 
-def _shacl_concept_relation(relation: Mapping, target: str) -> list[str]:
+def _shacl_concept_relation(
+    relation: Mapping, target: str, provisional: bool = False
+) -> list[str]:
     cardinality = relation.get("cardinality") or {}
     lines = [
         "sh:property [",
         f"        sh:path sl:{_identifier(str(relation.get('type')) + '_' + target)} ;",
         f"        sh:class sl:{target} ;",
     ]
+    if provisional:
+        lines.append("        sl:provisional true ;")
     if _single_valued(relation):
         lines.append("        sh:maxCount 1 ;")
     lines.append(f"        sl:relationType {_turtle_string(str(relation.get('type')))} ;")
@@ -1020,15 +1107,17 @@ def _shacl_concept_relation(relation: Mapping, target: str) -> list[str]:
 
 
 def _shacl_governance(ontology: Mapping) -> list[str]:
-    """``findings`` and ``open_items`` on one schema-level ``sl:Ontology`` node.
+    """What the corpus says about itself, on one schema-level ``sl:Ontology`` node.
 
-    They belong to no shape -- a contradiction between two tasks is about the corpus, not
-    about one table -- so they hang off the document itself rather than being dropped.
+    ``findings`` and ``open_items`` belong to no shape -- a contradiction between two
+    tasks is about the corpus, not about one table -- so they hang off the document
+    itself rather than being dropped. N4 puts the review's two corpus-wide counts in the
+    same place: ``sl:provisionalCount`` on the node, and one ``sl:retiredStem`` block per
+    refused stem with the ``sl:tableCount`` that says how much the stem still keys. The
+    node is written unconditionally now, because the count is a fact even at zero.
     """
     findings = list(ontology.get("findings") or ())
     items = list(ontology.get("open_items") or ())
-    if not findings and not items:
-        return []
     blocks = [
         _shacl_annotation_block(
             "sl:finding",
@@ -1048,11 +1137,34 @@ def _shacl_governance(ontology: Mapping) -> list[str]:
         )
         for item in items
     )
+    blocks.extend(_shacl_retired_stems(ontology))
+    # The label is left exactly as it was: the node is the same document node, and a
+    # reworded line in a golden is churn a reviewer has to read as a change.
     head = [
         "sl:Ontology",
-        '    rdfs:label "the governance items this corpus could not answer itself"',
+        '    rdfs:label "the governance items this corpus could not answer itself" ;',
+        f"    sl:provisionalCount {int(ontology.get('provisional_count') or 0)}",
     ]
     return _turtle_statement(head, blocks)
+
+
+def _shacl_retired_stems(ontology: Mapping) -> list[list[str]]:
+    """N4: one ``sl:retiredStem`` block per stem a generic key rule refused (K4c).
+
+    The stem itself and the ``sl:tableCount`` that says how much of the corpus it still
+    keys, because the two together are the whole reason the list exists: a reviewer whose
+    answers were written under ``concept:<stem>`` needs to know the stem is still nameable
+    and how much would come back with it.
+    """
+    return [
+        _shacl_annotation_block(
+            "sl:retiredStem",
+            ("stem", str(item.get("stem"))),
+            RETIRED_STEM_NOTE,
+            tableCount=str(len(item.get("tables") or ())),
+        )
+        for item in ontology.get("retired_stems") or ()
+    ]
 
 
 def _shacl_annotation_block(

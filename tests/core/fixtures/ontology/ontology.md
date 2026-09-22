@@ -7,6 +7,7 @@ table_count: 9
 table_relation_count: 4
 open_item_count: 2
 open_item_group_count: 2
+concept_open_item_count: 2
 ---
 
 # 语料本体候选索引
@@ -15,7 +16,7 @@ open_item_group_count: 2
 
 1 个概念（实体 1、事件 0、汇总 0）、4 条概念关系，另有 8 个**临时概念**（M1：语料没能把它归到任何业务键上的表，暂时各自成一个概念，其中 4 条概念关系至少有一端是临时的）。概念是**候选**：名字永远是作者假设，种类由 `kind_evidence[]` 的投票决定，两个词根是不是同一件事留给评审那一轮判（见 `concepts.overrides.json`）。
 
-底下是 5 个任务、9 张表、4 条表级关系、6 条约束、0 条矛盾发现，逐条见 [`appendix.md`](appendix.md)；待人工判定 2 条 / 2 组（已确认 0 条）。
+底下是 5 个任务、9 张表、4 条表级关系、6 条约束、0 条矛盾发现，逐条见 [`appendix.md`](appendix.md)；待人工判定 2 条 / 2 组 / 2 个概念级问题（已确认 0 条）。N3：概念级那一列才是这一轮要做的决定数——同一个概念的几张表现表问的是同一件事，答一次工具逐表展开，每个概念的问题印在它自己的 `concepts/` 文件里。
 
 每条断言都带置信层级：`proven`（已证明，SQL 直接写着）、`implied`（可推得，由结构证明的推论）、`hypothesis`（作者假设，未被证明）、`conflict`（矛盾，跨任务证据打架）、`confirmed`（已确认，只来自人工回写的 `ontology.overrides.json`）。
 

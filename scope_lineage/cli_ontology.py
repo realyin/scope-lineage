@@ -328,6 +328,8 @@ def run_ontology(args: argparse.Namespace) -> int:
     _write_ontology(out_dir, ontology, cards, chosen, _batches_link(args, out_dir))
     _write_exports(out_dir, ontology, chosen_exports)
     cache.commit(_written(ontology, cards, chosen, chosen_exports))
+    # N4: the queue is cut before anything is printed, because the summary names it.
+    batches = _write_review_batches(args, ontology)
     _report(
         ontology,
         overrides,
@@ -335,8 +337,9 @@ def run_ontology(args: argparse.Namespace) -> int:
         chosen_exports,
         loaded.counters() + cache.counters(),
         concept_file_count=len(concept_files(ontology)) if "md" in chosen else None,
+        batches=batches,
     )
-    return _write_review_batches(args, ontology)
+    return 0
 
 
 def _concept_overrides(args: argparse.Namespace):
@@ -358,21 +361,30 @@ def _concept_overrides(args: argparse.Namespace):
     return files, documents
 
 
-def _write_review_batches(args: argparse.Namespace, ontology: Mapping) -> int:
-    """N1b: the review batches, written from the ontology this run just published."""
+def _write_review_batches(args: argparse.Namespace, ontology: Mapping) -> dict | None:
+    """N1b: the review batches, written from the ontology this run just published.
+
+    N4: returns ``{"dir", "batches", "note"}`` rather than printing, because the summary
+    line now names the queue too and the two must be counted once, not twice. ``_report``
+    prints both.
+    """
     target = getattr(args, "review_batches", None)
     if not target:
-        return 0
+        return None
     by = str(getattr(args, "review_batches_by", None) or BATCH_BY[0])
     size = int(getattr(args, "review_batch_size", None) or DEFAULT_BATCH_SIZE)
     written = write_review_batches(ontology, Path(target), by=by, batch_size=size)
+    directory = Path(target) / BATCHES_DIR
     batches = (len(written) - 1) // 2
-    print(
-        f"Wrote review batches: {batches} batch(es) over "
-        f"{ontology.get('provisional_count')} provisional concept(s) by {by} "
-        f"(at most {size} each) to {Path(target) / BATCHES_DIR}"
-    )
-    return 0
+    return {
+        "dir": str(directory),
+        "batches": batches,
+        "note": (
+            f"Wrote review batches: {batches} batch(es) over "
+            f"{ontology.get('provisional_count')} provisional concept(s) by {by} "
+            f"(at most {size} each) to {directory}"
+        ),
+    }
 
 
 def _layers(collected, documents, *, tables, glossary, root: str):
@@ -406,10 +418,16 @@ def _report(
     chosen_exports: Sequence[str],
     counters: str,
     concept_file_count: int | None = None,
+    batches: Mapping | None = None,
 ) -> None:
-    """The one summary line this command prints."""
+    """The one summary line this command prints, and how a cut review queue was cut.
+
+    N4: the queue's directory and its size are on the summary line itself; the second
+    line says how the batches were cut, which the summary has no room for.
+    """
     applied = ontology["overrides_applied"]
     exported = f", exported {', '.join(chosen_exports)}" if chosen_exports else ""
+    queue = _queue_note(batches)
     # N2: the index no longer holds the concepts, so the count of files it points at is
     # the number that says the run published them -- absent when no markdown was asked
     # for, because then it would be a count of nothing.
@@ -429,8 +447,22 @@ def _report(
         f"{len(ontology['constraints'])} constraint(s) and "
         f"{len(ontology['findings'])} finding(s) from "
         f"{ontology['corpus'].get('task_count')} task(s){files}{confirmations}"
-        f"{exported} ({counters})"
+        f"{exported}{queue} ({counters})"
     )
+    if batches:
+        print(batches["note"])
+
+
+def _queue_note(batches: Mapping | None) -> str:
+    """N4: where the review queue is, on the line that just counted its questions.
+
+    Empty when no queue was cut, because then it would be a path to nothing -- the
+    summary says how many provisional concepts there are either way, and the reviewer
+    who wants a queue runs ``--review-batches``.
+    """
+    if not batches:
+        return ""
+    return f", review batches: {batches['dir']} ({batches['batches']} batch(es))"
 
 
 def _concept_confirmations(ontology: dict, concept_overrides) -> str:
@@ -440,6 +472,12 @@ def _concept_confirmations(ontology: dict, concept_overrides) -> str:
     reviewer who split the round over several files finds out here that two of them
     answered the same question -- which is the one thing about a batched round that
     nobody set out to do.
+
+    N4: ``warnings`` and ``dissolved`` join it for the same reason, and are printed at
+    zero like every other count here. ``warnings[]`` is what the round *applied* and is
+    still worth a second look, and ``dissolved[]`` is the provisional concepts it took
+    off the board -- a number that only ever appears as a side effect of something else
+    the reviewer asked for, and so the one nobody would go looking for in the JSON.
     """
     if not concept_overrides:
         return ""
@@ -450,7 +488,9 @@ def _concept_confirmations(ontology: dict, concept_overrides) -> str:
         f"created {len(applied['created'])}, tables_added {applied['tables_added']}, "
         f"{applied['merges']} merge(s) "
         f"and {applied['splits']} split(s), {len(applied['unmatched'])} unmatched, "
-        f"{len(applied['conflicts'])} conflict(s)"
+        f"{len(applied['conflicts'])} conflict(s), "
+        f"warnings {len(applied['warnings'])}, "
+        f"dissolved {len(applied['dissolved'])}"
     )
 
 
