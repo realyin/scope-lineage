@@ -302,6 +302,22 @@ transformation-step analysis read the per-statement documents embedded in
 `statement_lineage`; audits, incident forensics, and final table state read the
 task-level facts.
 
+### Migrating to 0.4.0
+
+Only `ontology.json` (and its markdown / exports) changed shape. The ontology is now the
+concepts and their relations; tables are representations and table joins are evidence:
+
+| ontology-json/1 | ontology-json/2 |
+| --- | --- |
+| `entities[]` | `tables[]` (same shape, plus `concepts[]` back-links) |
+| `relations[]` (table ↔ table) | `table_relations[]` (evidence; `concept_relation` names the fold) |
+| `concept_relations[]` | `relations[]` (the ontology's relations, with ids) |
+| `concept_representation_links[]` | `representation_links[]` |
+| `unassigned_tables[]` | gone — every table has a concept (`tier: provisional` until reviewed) |
+
+`scope-lineage ontology --legacy-keys` writes the old keys beside the new ones for this
+one release. The lineage contracts and every other artifact are unchanged.
+
 ### Migrating to 0.3.2
 
 Two derived shapes changed; the modelled lineage facts did not:

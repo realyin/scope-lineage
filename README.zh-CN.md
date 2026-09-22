@@ -302,6 +302,21 @@ scope-lineage parse \
 不确定场景该用哪份契约，见[按业务场景选契约](docs/zh-CN/contract-selection.md)：
 字段血缘、加工步骤分析用默认 1.0；审计、事故排查、最终表状态用 2.0。
 
+### 迁移到 0.4.0
+
+只有 `ontology.json`（及其 markdown / 导出）变了形状。本体现在是概念与概念间的关系；表是概念的表现，
+表间 JOIN 是证据：
+
+| ontology-json/1 | ontology-json/2 |
+| --- | --- |
+| `entities[]` | `tables[]`（形状不变，多了 `concepts[]` 回链） |
+| `relations[]`（表 ↔ 表） | `table_relations[]`（证据；`concept_relation` 指出折入了哪条概念关系） |
+| `concept_relations[]` | `relations[]`（本体的关系，带 id） |
+| `concept_representation_links[]` | `representation_links[]` |
+| `unassigned_tables[]` | 取消——每张表都有概念（评审前 `tier: provisional`） |
+
+`scope-lineage ontology --legacy-keys` 在本版里额外写出旧键。血缘契约与其他产物不变。
+
 ### 迁移到 0.3.2
 
 两个派生形状变了，血缘事实本身没变：
