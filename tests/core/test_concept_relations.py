@@ -215,9 +215,11 @@ REPLY = _entity(
     columns=[("reply_id", None)],
     comment="回复发送记录表",
 )
+#: K2d: a summary is keyed by the thing **and the period it summarises over**. 「汇总」 in
+#: the comment says what this table is; the `dt` in its key is what makes the concept one.
 SUMMARY = _entity(
     "mart.cust_stat",
-    keys=["stat_no"],
+    keys=["stat_no", "dt"],
     columns=[("stat_no", None), ("owner_cust_no", None), ("of_msg_id", None)],
     comment="客户统计汇总表",
 )

@@ -194,6 +194,13 @@ TIME_SEGMENTS = frozenset(
 )
 #: Segments that make a column an event identifier.
 EVENT_SEGMENTS = frozenset({"event", "log", "trace", "flow", "serial"})
+#: K2d: segments that make a time column a **validity window** -- when the row is true,
+#: not when something happened. A slowly-changing dimension is keyed by the thing plus
+#: the window it was valid in, and reading `…_start_dt` as an event time turned every
+#: such snapshot into an event.
+VALIDITY_SEGMENTS = frozenset(
+    {"start", "end", "begin", "eff", "effective", "valid", "expire", "expiry"}
+)
 _TEMPORAL_TYPES = ("timestamp", "date", "datetime")
 
 #: Table-name suffixes, matched as whole segments (the same discipline `table_family`
@@ -831,10 +838,17 @@ def _is_event_time(column: str, types: Mapping[str, str]) -> bool:
     say when a row was loaded; neither is an event, and letting them vote turns every
     daily summary into an event. A column qualifies only when some segment of it names
     the thing that happened -- ``send_time``, ``paid_at``, ``event_time``.
+
+    K2d: a **validity window** is not that either. ``end_dt``, ``eff_date``,
+    ``valid_from`` and ``…_start_dt`` say when a row *is true*, which is how a warehouse
+    keeps a slowly-changing dimension -- the thing plus the window it held for. Reading
+    one as an event time made an event out of every such snapshot.
     """
     if not _is_event_column(column, types):
         return False
     segments = [part for part in str(column).lower().split("_") if part]
+    if set(segments) & VALIDITY_SEGMENTS:
+        return False
     return any(
         part not in TIME_SEGMENTS and part not in GENERIC_STEMS for part in segments
     )
@@ -897,7 +911,11 @@ def _name_tier(candidates: Sequence[Mapping]) -> str:
 def _member(seed: _Seed, index: Mapping[str, Mapping]) -> dict:
     card = index.get(seed.table) or {}
     grain = _producing_basis(card)
-    role = ROLE_REFERENCE if seed.basis == BASIS_REFERENCE else _role(seed, card, grain)
+    role = (
+        ROLE_REFERENCE
+        if seed.basis == BASIS_REFERENCE
+        else _role(seed, card, grain, _member_text(seed, index))
+    )
     return {
         "table": seed.table,
         "role": role,
@@ -915,13 +933,17 @@ def _producing_basis(card: Mapping) -> str | None:
     return None
 
 
-def _role(seed: _Seed, card: Mapping, grain: str | None) -> str:
+def _role(seed: _Seed, card: Mapping, grain: str | None, text: str = "") -> str:
     """Which copy of the concept this table is.
 
     The cascade is ordered by how specific the evidence is, not by how common the role
     is: a build step is a build step whatever its key says, an event time in the key
     outranks the name, a full snapshot keyed by the stem alone is the primary copy, and
     only then does the producing grain get to call the table a summary.
+
+    K2d: a summary word -- 汇总 / 日报 / 统计 / `report` / `agg` -- answers here, and only
+    here. 「机构外包日报」 says this *table* is a report; it says nothing about what the
+    table is a report **of**, which is the 机构 either way.
     """
     suffix = _name_suffix(seed.table)
     outside = [column for column in seed.extra_columns if column not in seed.partitions]
@@ -930,6 +952,8 @@ def _role(seed: _Seed, card: Mapping, grain: str | None) -> str:
         return ROLE_INTERMEDIATE
     if events:
         return ROLE_DETAIL
+    if CONCEPT_SUMMARY in _word_votes(text):
+        return ROLE_SUMMARY
     if not outside and (suffix in FULL_SNAPSHOT_SUFFIXES or suffix not in PERIOD_SUFFIXES):
         return ROLE_PRIMARY
     if grain in AGGREGATED_BASES:
@@ -1002,11 +1026,32 @@ def _structural_signals(
                 votes.append(
                     _vote(SIGNAL_INCREMENT_EVENT_TIME, CONCEPT_EVENT, seed.table, column)
                 )
-    if tables and all(str(item["role"]) == ROLE_SUMMARY for item in tables):
+    if (
+        tables
+        and all(str(item["role"]) == ROLE_SUMMARY for item in tables)
+        and _period_identity(members)
+    ):
         votes.append(_vote(SIGNAL_ALL_MEMBERS_SUMMARY, CONCEPT_SUMMARY))
     elif dimension and not votes:
         votes.append(_vote(SIGNAL_DIMENSION_MEMBERS, CONCEPT_ENTITY))
     return votes
+
+
+def _period_identity(members: Sequence[_Seed]) -> bool:
+    """Whether the concept's own key carries a period -- one row per thing *per day* (K2d).
+
+    What makes a summary a summary is its grain: 客户日汇总 is keyed by the customer **and
+    the day**. Tables that merely look like reports are not: 「机构外包日报」 keyed by the
+    机构 and the window it was valid in is three copies of the 机构, and calling the concept
+    a summary would tell everyone downstream to aggregate something that never aggregated.
+    A validity window is not a period, for the same reason it is not an event time.
+    """
+    return any(
+        _is_event_column(column, seed.types)
+        and not set(str(column).lower().split("_")) & VALIDITY_SEGMENTS
+        for seed in members
+        for column in seed.key_columns
+    )
 
 
 def _dimension_members(members: Sequence[_Seed], index: Mapping[str, Mapping]) -> bool:
@@ -1074,12 +1119,20 @@ def _driving_log_sources(card: Mapping, index: Mapping[str, Mapping]) -> list[st
 
 
 def _word_signals(members: Sequence[_Seed], index: Mapping[str, Mapping]) -> list[dict]:
+    """The kind votes a member's own words cast -- `entity` and `event` only.
+
+    K2d: a summary word is not among them any more. 汇总 / 日报 / 统计 / `report` / `agg`
+    say what this *table* is, which is a ``role``, and ``_role`` is where they are now
+    read. The concept only becomes a summary when every member is one **and** its key
+    carries the period they summarise over -- the question the words never answered.
+    """
     votes: list[dict] = []
     for seed in members:
         text = _member_text(seed, index)
         votes.extend(
             _vote(SIGNAL_WORD_HINT, kind, seed.table, text)
             for kind in _word_votes(text)
+            if kind != CONCEPT_SUMMARY
         )
     return votes
 
@@ -1386,7 +1439,7 @@ def _table_comment_candidates(
             break
     texts = {text for text, _ in items}
     if len(texts) > 1:
-        prefix = _common_prefix(sorted(texts))
+        prefix = _folded_prefix(sorted(texts))
         if prefix:
             return [
                 {
@@ -1397,6 +1450,20 @@ def _table_comment_candidates(
                 }
             ]
     return _grouped(items, NAME_FROM_TABLE_COMMENT)
+
+
+def _folded_prefix(texts: Sequence[str]) -> str:
+    """What several members' comments agree on, read as a comment in its own right (K2d).
+
+    A longest common prefix stops wherever two strings first differ, which is nowhere in
+    particular: 「UBS流量日志表-客户端日志」 and 「UBS流量日志表-服务端日志」 agree on
+    「UBS流量日志表-」, dash and storage suffix and all. So the fold goes back through the
+    same trim and the same suffix rules a single comment does, and a fold that leaves
+    fewer than two Chinese characters -- two comments that agreed on a latin prefix and
+    nothing else -- is no answer at all, so the comments are published one by one instead.
+    """
+    folded = _strip_suffixes(_trim_edges(_common_prefix(texts)), TABLE_COMMENT_SUFFIXES)
+    return folded if len(_CJK_RE.findall(folded)) >= MIN_NAME_CJK else ""
 
 
 def _table_comment_text(seed: _Seed, index: Mapping[str, Mapping]) -> str:

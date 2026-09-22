@@ -1,6 +1,27 @@
 # Changelog
 
 ## Unreleased
+- **A fold read twice, and a validity window that is not an event** (K2d). Two members
+  whose comments differ only in their tail fold to a longest common prefix, and a longest
+  common prefix stops wherever two strings happen to diverge: 「UBS流量日志表-客户端日志」
+  and 「UBS流量日志表-服务端日志」 agreed on 「UBS流量日志表-」, dash and storage suffix and
+  all, and that was published as the name. The fold now goes back through the same trim
+  and the same suffix rules a single comment does (`UBS流量日志`), and a fold left holding
+  fewer than two Chinese characters -- two comments agreeing on a latin prefix and nothing
+  else -- is discarded, so each comment becomes its own candidate again.
+  Two kind fixes travel together, from a concept keyed by 机构 whose members are daily
+  outsourcing reports and which came out `event/hypothesis`. A **validity window** is no
+  longer an event time: a column whose segments say start / end / begin / eff / effective
+  / valid / expire / expiry alongside dt / date / time says when a row *is true*, which is
+  how a warehouse keeps a slowly-changing dimension, so `end_dt`, `eff_date`, `valid_from`
+  and `…_start_dt` cast no `key_event_column` vote and no longer make their member a
+  `detail`. And a **summary word** — 汇总 / 日报 / 统计 / `report` / `agg` — now decides the
+  member's `role`, not the concept's kind: 「机构外包日报」 says what that *table* is, never
+  what it is a report of. A concept is a `summary` only when every keyed member is in the
+  `summary` role **and** its own key carries a period column (`dt`, `date`, `month`, never
+  a validity window), which is what a summary's grain actually means; otherwise it is an
+  `entity` unless structural event evidence remains. The 机构 case now publishes `entity`
+  with all three members in role `summary`.
 - **Three residuals the wide corpus kept after K2b** (K2c). A storage suffix hiding behind
   a latin tail: a `-` now marks a segment as surely as a `_` does, for the declared words
   `df` / `di` / `hf` / `hi` / `id` / `no` / `code` / `cd`, so 「…日志表-DF」 reaches its 表

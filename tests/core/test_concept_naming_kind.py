@@ -28,8 +28,11 @@ from scope_lineage.render.concepts import (
     NAME_FROM_KEY_COMMENT,
     NAME_FROM_STEM,
     NAME_FROM_TABLE_COMMENT,
+    ROLE_SUMMARY,
+    SIGNAL_ALL_MEMBERS_SUMMARY,
     SIGNAL_DIMENSION_MEMBERS,
     SIGNAL_DRIVING_LOG_SOURCE,
+    SIGNAL_KEY_EVENT_COLUMN,
     TIER_HYPOTHESIS,
     TIER_IMPLIED,
     TIER_STEM_ONLY,
@@ -506,3 +509,181 @@ def test_a_named_concept_is_still_a_hypothesis() -> None:
 
     assert concept["name"] == "队列"
     assert concept["name_tier"] == TIER_HYPOTHESIS
+
+
+# ================================================================= K2d: two residuals
+#
+# Two more the wide corpus found, each with its cause named. A fold: two members whose
+# comments differ only in their tail fold to the longest common prefix, and that prefix
+# was published as it fell out of the comparison -- dash, storage suffix and all. And a
+# kind: a concept keyed by 机构 whose members are daily outsourcing *reports* came out an
+# `event`, because the validity window in its key (`…_start_dt`) voted as an event time
+# while the three 「日报」 word hints, which describe each member's *shape*, were outvoted
+# as if they described the concept.
+
+
+# -------------------------------------------- K2d rule 1: the fold is a comment too
+
+
+def _folded_corpus(first: str, second: str) -> tuple[dict, dict]:
+    """Two members of one concept whose comments agree on a prefix and nothing else."""
+    ontology = _ontology(
+        _entity("ods.cust_a", keys=["cust_no"], comment=first),
+        _entity("ods.cust_b", keys=["cust_no"], comment=second),
+    )
+    cards = _cards(
+        _card("ods.cust_a", comment=first, columns=["cust_no"]),
+        _card("ods.cust_b", comment=second, columns=["cust_no"]),
+    )
+    return ontology, cards
+
+
+def test_a_folded_prefix_is_trimmed_and_stripped_like_any_comment() -> None:
+    """The fold left 「UBS流量日志表-」; a comment ending that way has always been UBS流量日志."""
+    ontology, cards = _folded_corpus("UBS流量日志表-客户端日志", "UBS流量日志表-服务端日志")
+
+    candidates = _candidates(ontology, cards, "concept:cust")
+    folded = [
+        item for item in candidates if str(item["source"]) == NAME_FROM_TABLE_COMMENT
+    ]
+
+    assert [str(item["text"]) for item in folded] == ["UBS流量日志"]
+    assert int(folded[0]["count"]) == 2
+    assert str(candidates[0]["text"]) == "UBS流量日志"
+
+
+def test_a_fold_that_leaves_no_chinese_falls_back_to_the_comments() -> None:
+    """The negative: 「UBS」 is what the two agreed on, and it names nothing."""
+    ontology, cards = _folded_corpus("UBS客户信息表", "UBS机构信息表")
+
+    folded = sorted(
+        str(item["text"])
+        for item in _candidates(ontology, cards, "concept:cust")
+        if str(item["source"]) == NAME_FROM_TABLE_COMMENT
+    )
+
+    assert folded == ["UBS客户", "UBS机构"]
+
+
+# ------------------------------- K2d rule 2a: a validity window is not an event time
+
+
+@pytest.mark.parametrize(
+    ("column", "type_"),
+    [
+        ("end_dt", "string"),
+        ("eff_date", "string"),
+        ("valid_from", "date"),
+        ("out_agent_start_dt", "string"),
+        ("expire_time", "timestamp"),
+        ("effective_date", "date"),
+    ],
+)
+def test_a_validity_window_is_not_an_event_time(column: str, type_: str) -> None:
+    """When a row *is true* is the shape of a snapshot, not something that happened."""
+    assert not concepts_module._is_event_time(column, {column: type_})
+
+
+@pytest.mark.parametrize(
+    ("column", "type_"),
+    [
+        ("send_time", "timestamp"),
+        ("paid_at", "timestamp"),
+        ("event_time", "timestamp"),
+        ("click_dt", "string"),
+    ],
+)
+def test_a_time_that_names_what_happened_is_still_an_event_time(
+    column: str, type_: str
+) -> None:
+    assert concepts_module._is_event_time(column, {column: type_})
+
+
+# ------------------------- K2d rule 2b: a summary word describes the table, not the thing
+
+
+def _report_corpus() -> tuple[dict, dict]:
+    """Three daily outsourcing reports, keyed by the 机构 and its validity window."""
+    tables = ("dws.out_agent_rpt_df", "dws.out_agent_day_df", "dws.out_agent_sum_df")
+    ontology = _ontology(
+        *(
+            _entity(
+                table,
+                keys=["agent_no", "out_agent_start_dt"],
+                comment="机构外包日报",
+                attributes=[
+                    _attribute("agent_no", comment="机构名称"),
+                    _attribute("out_agent_start_dt", type_="date"),
+                ],
+            )
+            for table in tables
+        )
+    )
+    cards = _cards(
+        *(
+            _card(
+                table,
+                comment="机构外包日报",
+                columns=["agent_no", "out_agent_start_dt"],
+            )
+            for table in tables
+        )
+    )
+    return ontology, cards
+
+
+def test_a_daily_report_of_a_thing_is_the_thing_in_a_summary_role() -> None:
+    """「日报」 says what each *table* is. What they are all reports *of* is the 机构."""
+    ontology, cards = _report_corpus()
+
+    concept = _concepts(ontology, cards)["concept:agent"]
+
+    assert concept["kind"] == CONCEPT_ENTITY
+    assert {str(item["role"]) for item in concept["tables"]} == {ROLE_SUMMARY}
+    assert CONCEPT_SUMMARY not in {
+        str(vote["vote"]) for vote in concept["kind_evidence"]
+    }
+    assert SIGNAL_KEY_EVENT_COLUMN not in {
+        str(vote["signal"]) for vote in concept["kind_evidence"]
+    }
+
+
+def test_a_summary_over_a_period_column_is_a_summary_concept() -> None:
+    """The negative: every member a summary *and* a period in the key is the real thing."""
+    ontology = _ontology(
+        _entity(
+            "dws.cust_day_df",
+            keys=["cust_no", "dt"],
+            comment="客户日汇总",
+            attributes=[_attribute("cust_no", comment="客户编号"), _attribute("dt")],
+        )
+    )
+    cards = _cards(
+        _card("dws.cust_day_df", comment="客户日汇总", columns=["cust_no", "dt"])
+    )
+
+    concept = _concepts(ontology, cards)["concept:cust"]
+
+    assert concept["kind"] == CONCEPT_SUMMARY
+    assert [str(item["role"]) for item in concept["tables"]] == [ROLE_SUMMARY]
+    assert SIGNAL_ALL_MEMBERS_SUMMARY in {
+        str(vote["signal"]) for vote in concept["kind_evidence"]
+    }
+
+
+def test_a_summary_word_alone_never_makes_the_concept_a_summary() -> None:
+    """The negative again: no period in the key, so 汇总 only described the table."""
+    ontology = _ontology(
+        _entity(
+            "dws.cust_all_df",
+            keys=["cust_no"],
+            comment="客户汇总",
+            attributes=[_attribute("cust_no", comment="客户编号")],
+        )
+    )
+    cards = _cards(_card("dws.cust_all_df", comment="客户汇总", columns=["cust_no"]))
+
+    concept = _concepts(ontology, cards)["concept:cust"]
+
+    assert concept["kind"] == CONCEPT_ENTITY
+    assert [str(item["role"]) for item in concept["tables"]] == [ROLE_SUMMARY]
