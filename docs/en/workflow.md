@@ -143,17 +143,22 @@ scope-lineage ontology \
 ```
 
 ```text
-Modelled 31 entity(ies), 21 relation(s), 20 constraint(s) and 0 finding(s) from 5 task(s) (skipped_unknown_version=0, missing_diagnostics=0, skipped_unreadable=0)
+Modelled 12 concept(s), 9 relation(s), 31 table(s), 21 table relation(s), 20 constraint(s) and 0 finding(s) from 5 task(s) (skipped_unknown_version=0, missing_diagnostics=0, skipped_unreadable=0)
 ```
 
-Open `$OUT/corpus/ontology.md`: it starts with a Mermaid ER overview of the whole batch,
-its headline says how many items are still open, how many groups they fold into and how
-many are already confirmed, and its last section lists one row per (kind, table family,
-question shape) group, each with a stable `open:group:` id, an `影响` score, the number of
-items it holds and a write-back pattern that leaves the table name as `<table>`, ranked by
-impact (a relation groups by its far side, so ten tasks joining one dimension are one
-row); the item-by-item list is in `open_items[]` in `ontology.json`. `--tables` / `--glossary` only save a
-recomputation — the bytes are identical without them.
+Open `$OUT/corpus/ontology.md`: it starts with 「本体总览」 — how many concepts, broken down
+by kind, how many concept relations, how many provisional concepts are still waiting to be
+merged, and how many items are still open, how many groups they fold into and how many are
+already confirmed. Then **one section per concept** (its representations, its attributes,
+its constraints, its relations, its open questions). The table-level Mermaid ER, the table
+list, the table relations and the whole folded open list live in the final 「附录：表与证据」
+— they are the evidence the concept relations were read off, not the model. That list has
+one row per (kind, table family, question shape) group, each with a stable `open:group:`
+id, an `影响` score, the number of items it holds and a write-back pattern that leaves the
+table name as `<table>`, ranked by impact (a relation groups by its far side, so ten tasks
+joining one dimension are one row); the item-by-item list is in `open_items[]` in
+`ontology.json`. `--tables` / `--glossary` only save a recomputation — the bytes are
+identical without them.
 
 ### 5. The second run: `--incremental`
 
@@ -253,7 +258,7 @@ lives under `skills/scope-lineage/references/` (paths relative to the
 | task profile | `semantic-profile-prompt.md`, with `business-profile-template.md` / `business-profile-check-template.md` | `business_profile.md` (semantic card + field dictionary + an open list capped at five items) and its QA record `business_profile.check.md` | the owner writes each answer on the item's `- 答案：` line; `confirmations.py apply` routes it by the same item's `- 回写目标：` line — `术语` / `值域` into `glossary.overrides.json`, `字段注释` / `表注释` into `metadata-patch.json` | `glossary --overrides`, then `describe --glossary --metadata-patch`; to land the comments in `lineage.json` itself, also `parse --metadata-patch` |
 | glossary review | `glossary-review-prompt.md`, fed by the form `glossary --template` writes | the entries the agent may answer itself (each with a mandatory `basis`, signed `confirmed_by: "agent:<name>"`), plus at most eight questions left for a person | `glossary.overrides.json` | `glossary --overrides`, then `describe --glossary` |
 | ontology review | `ontology-review-prompt.md`, fed by the open list in `ontology.md` plus each task's `semantic.md` | the confirmations the batch already proves (again with a `basis`), plus at most eight questions left for a person | `ontology.overrides.json`, keyed by the write-back string printed in the open list | `ontology --overrides` |
-| concept review | `concept-review-prompt.md`, fed by 「概念层」 in `ontology.md` plus section 7 of each card | one pass in a fixed order (kind → name → merges → splits → roles): self-answers carrying a `basis`, plus at most eight questions left for a person, written to `open-questions.md` | `concepts.overrides.json`, keyed by `concept:<stem>` | `ontology --concept-overrides` |
+| concept review | `concept-review-prompt.md`, fed by 「本体总览」 and 「概念」 in `ontology.md` plus section 7 of each card | one pass in a fixed order (kind → name → merges → splits → roles): self-answers carrying a `basis`, plus at most eight questions left for a person, written to `open-questions.md` | `concepts.overrides.json`, keyed by `concept:<stem>` | `ontology --concept-overrides` |
 
 What the four have in common: **an agent may not guess from spelling.** It may answer
 from three kinds of evidence only — the column's own comment enumerates the value, a CASE

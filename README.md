@@ -430,18 +430,21 @@ scope-lineage ontology --lineage /tmp/scope-lineage-corpus --out /tmp/scope-line
   --tables /tmp/scope-lineage-tables/tables.json --glossary /tmp/scope-lineage-dict/glossary.json
 ```
 
-`ontology.json` publishes entities and their identity keys, the relations the JOINs assert
-with a provable cardinality, the constraints the filters and CASE branches assert, and the
-places two tasks contradict each other — every assertion tiered `proven` / `implied` /
-`hypothesis` / `conflict` and carrying its evidence. `ontology.md` opens with a Mermaid ER
-overview of the whole corpus, and `tables/<db.table>.md` is the table card with five more
-sections appended: identity, relations, constraints, synonyms, and what still needs a
-human decision. Answers to those come back through `--overrides`, which raises a confirmed
-assertion to a fifth tier, `confirmed`. Business naming and class hierarchies are left to
-whoever knows the business. `entities[]` holds **table entities** (how a concept is
-represented in the warehouse) while `concepts[]` holds the **business concepts** (entity /
-event / summary) -- 0.4.0 renames `entities` to `tables`, so a consumer should read both
-keys from now on. `--export linkml,shacl` additionally writes
+`ontology.json` (`ontology-json/2`) is read concept-first: `concepts[]` are the business
+concepts the corpus proposes (entity / event / summary) and `relations[]` the relations
+between them, while `tables[]` are the warehouse tables that **represent** those concepts
+and `table_relations[]` the JOINs that are the **evidence** each concept relation was read
+off. Constraints, contradictions and open questions hang off the same two layers — every
+assertion tiered `proven` / `implied` / `hypothesis` / `conflict` and carrying its
+evidence. `ontology.md` opens on the concept overview and gives every concept a section of
+its own, with the table-level ER and tables in one appendix marked as evidence;
+`tables/<db.table>.md` is the table card with five more sections appended: what it
+represents and its identity, the concept relations its joins fed, constraints, synonyms,
+and what still needs a human decision. Answers come back through `--overrides`, which
+raises a confirmed assertion to a fifth tier, `confirmed`. Business naming and class
+hierarchies are left to whoever knows the business. 0.4.0 renamed `entities[]` to
+`tables[]` and the old `relations[]` to `table_relations[]`; `--legacy-keys` writes the old
+spellings for one release. `--export linkml,shacl` additionally writes
 `ontology.linkml.yaml` and `ontology.shacl.ttl` beside the JSON, concept layer and tiers
 and all, for an RDF toolchain to load. See the
 [ontology candidate guide](docs/en/ontology-doc.md).

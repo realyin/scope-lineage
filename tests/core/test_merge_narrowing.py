@@ -307,7 +307,7 @@ def test_the_ontology_is_byte_identical_to_the_full_merge() -> None:
     assert _dumped(narrowed) == _dumped(full)
     # Not a vacuous equality: the batch's card is what decides one of the relations.
     borrowed = next(
-        item for item in narrowed["relations"] if item["to"]["entity"] == "ods.sku_base"
+        item for item in narrowed["table_relations"] if item["to"]["entity"] == "ods.sku_base"
     )
     assert borrowed["cardinality"]["tier"] == TIER_PROVEN
     assert [item["corpus"] for item in borrowed["evidence"] if item.get("corpus")] == [
@@ -329,7 +329,7 @@ def test_the_external_evidence_count_still_counts_the_whole_batch() -> None:
     )
 
     assert narrowed["corpus"]["external_evidence_tables"] == BATCH_SIZE
-    assert len(narrowed["entities"]) == 5
+    assert len(narrowed["tables"]) == 5
 
 
 # -------------------------------------------------------------------------- the cost
@@ -380,7 +380,7 @@ def test_the_ontology_command_narrows_the_batch_it_was_given(tmp_path: Path) -> 
     )
 
     ontology = json.loads((out / "ontology.json").read_text(encoding="utf-8"))
-    assert {entity["id"] for entity in ontology["entities"]} == set(SCHEMA)
+    assert {entity["id"] for entity in ontology["tables"]} == set(SCHEMA)
     assert ontology["corpus"]["external_evidence_tables"] == BATCH_SIZE
     assert sorted(path.stem for path in (out / "tables").glob("*.md")) == sorted(SCHEMA)
     assert corpus_table_names(documents) >= set(SCHEMA)

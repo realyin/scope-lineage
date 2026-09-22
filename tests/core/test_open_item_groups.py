@@ -176,10 +176,13 @@ def _card(ontology: dict, name: str) -> str:
 
 
 def _section(markdown: str, title: str) -> str:
-    _head, marker, tail = markdown.partition(f"\n## {title}")
-    assert marker, title
-    body, _, _rest = tail.partition("\n## ")
-    return body
+    """One `##` or `###` section's body. M3 demoted the table-level ones to `###`."""
+    for level in ("## ", "### "):
+        _head, marker, tail = markdown.partition(f"\n{level}{title}")
+        if marker:
+            body, _, _rest = tail.partition("\n## ")
+            return body.partition("\n### ")[0]
+    raise AssertionError(title)
 
 
 # ------------------------------------------------------- 1. the family normalisation
@@ -240,7 +243,7 @@ def test_the_database_is_part_of_the_family() -> None:
 def test_the_entities_and_the_family_index_agree(corpus: dict) -> None:
     families = {item["family"]: item for item in corpus["families"]}
 
-    assert {entity["family"] for entity in corpus["entities"]} == set(families)
+    assert {entity["family"] for entity in corpus["tables"]} == set(families)
     assert families[PARTY_FAMILY]["tables"] == [
         f"ods.demo_party_{variant}" for variant in sorted(VARIANTS)
     ]
@@ -481,7 +484,7 @@ def test_the_findings_table_is_folded_and_stands_above_the_open_list(
 ) -> None:
     markdown = render_ontology_index_markdown(corpus)
     title = (
-        f"待人工判定（{len(corpus['findings'])} 条，"
+        f"矛盾发现（{len(corpus['findings'])} 条，"
         f"折叠为 {len(corpus['finding_groups'])} 组）"
     )
     body = _section(markdown, title)

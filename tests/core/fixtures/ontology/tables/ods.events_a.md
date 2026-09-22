@@ -1,5 +1,5 @@
 ---
-doc_format: "ontology-md/1"
+doc_format: "ontology-md/2"
 table: "ods.events_a"
 producers: 0
 consumers: 1
@@ -65,27 +65,42 @@ consumers: 1
 
 ## 8. 关系
 
-**出边（本表在左）**
+**概念关系**
+
+| 关系 | 从 | 到 | 类型 | 角色 | 基数 | 层级 | 证据 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `crel:002` | events_a | segment_dim | 关联 | — | 一对多 | `implied` | `rel:002` |
+| `crel:003` | events_a | events_b | 关联 | — | 未知 | `implied` | `rel:003` |
+
+**表级 JOIN（证据）**
+
+*出边（本表在左）*
 
 | 对端 | 键 | JOIN 类型 | 基数 | 层级 | 依据 | 任务数 | 证据 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | [`dim.segment_dim`](dim.segment_dim.md) | `segment` = `segment` | LEFT_OUTER | 一对多（one_to_many） | 可推得（`implied`） | 关联前已按连接键排名去重 | 1 | `golden_grouped_dedup_join/stmt:001/cte:joined/logic:cte:joined:join:001` |
 | [`ods.events_b`](ods.events_b.md) | `segment` = `seg_code`、`amount` = `amount` | — | 未知（unknown） | 可推得（`implied`） | 同一 UNION 的分支按列位置对齐 | 1 | `golden_grouped_dedup_join/stmt:001/union:events_norm` |
 
-**入边（本表在右）**
+*入边（本表在右）*
 
 - 无。
 
 ## 9. 约束
 
+以下都是「events_a」（`concept:table:ods_events_a`）这一份表现上的事实。
+
 - 语料内没有可发布的约束。
 
 ## 10. 属性同义
+
+以下都是「events_a」（`concept:table:ods_events_a`）这一份表现上的事实。
 
 | 本表列 | 同义列 | 依据 | 层级 | 证据 |
 | --- | --- | --- | --- | --- |
 | `segment` | `ods.events_b`.`seg_code` | UNION 同一位置（union_alignment） | 可推得（`implied`） | `golden_grouped_dedup_join/stmt:001` |
 
 ## 11. 待人工判定
+
+以下都是「events_a」（`concept:table:ods_events_a`）这一份表现上的事实。
 
 - 本表没有待人工判定的项。

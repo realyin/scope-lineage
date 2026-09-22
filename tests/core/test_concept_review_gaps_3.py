@@ -63,8 +63,8 @@ def _built(entities, relations=(), overrides=None) -> dict:
     """The builder's own order: concepts, then the overrides, then the relation fold."""
     document = {
         "doc_format": "ontology-json/1",
-        "entities": [dict(item) for item in entities],
-        "relations": [dict(item) for item in relations],
+        "tables": [dict(item) for item in entities],
+        "table_relations": [dict(item) for item in relations],
     }
     document.update(build_concepts(document, _cards()))
     apply_concept_overrides(document, overrides or {})
@@ -86,7 +86,7 @@ def _roles(concept) -> dict:
 
 def _pairs(document: dict) -> list[tuple[str, str]]:
     return [
-        (str(item["from"]), str(item["to"])) for item in document["concept_relations"]
+        (str(item["from"]), str(item["to"])) for item in document["relations"]
     ]
 
 
@@ -420,8 +420,9 @@ def test_the_concept_section_stops_naming_a_stem_that_came_back() -> None:
         }
     )
 
-    assert "`req`" in text
-    assert "`rowkey`" not in text
+    retired = text.split("### 退役键词根")[1].split("\n### ")[0]
+    assert "`req`" in retired
+    assert "`rowkey`" not in retired
 
 
 # --------------------------- 6. a participation role is never a raw column name
@@ -448,7 +449,7 @@ def _participation_roles(column: str) -> list[str]:
         [CUSTOMER, EVENT],
         [_relation("rel:005", EVENT["id"], [column], CUSTOMER["id"], ["cust_no"])],
     )
-    relation = document["concept_relations"][0]
+    relation = document["relations"][0]
     assert (str(relation["from"]), str(relation["to"])) == (
         "concept:msg",
         "concept:cust",

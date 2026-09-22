@@ -127,7 +127,7 @@ def _unjoined() -> tuple[dict, dict]:
 
 
 def _entity(ontology: dict, name: str) -> dict:
-    return next(item for item in ontology["entities"] if item["id"] == name)
+    return next(item for item in ontology["tables"] if item["id"] == name)
 
 
 def _hints(ontology: dict, name: str = ORDER) -> list[dict]:
@@ -138,7 +138,7 @@ def _relation(ontology: dict, from_column: str, to_column: str) -> dict | None:
     return next(
         (
             item
-            for item in ontology["relations"]
+            for item in ontology["table_relations"]
             if item["from"]["columns"] == [from_column]
             and item["to"]["columns"] == [to_column]
         ),
@@ -187,7 +187,7 @@ def test_a_comment_that_points_at_nothing_is_not_a_hint() -> None:
 
     assert "relation_hints" not in _entity(ontology, ORDER)
     assert "relation_hints" not in _entity(ontology, PARTY)
-    assert all(item["kind"] != RELATION_HINTED for item in ontology["relations"])
+    assert all(item["kind"] != RELATION_HINTED for item in ontology["table_relations"])
 
 
 # ------------------------------------------------------------------ O9: unresolved
@@ -250,7 +250,7 @@ def test_an_unresolved_hint_does_not_act_on_any_relation() -> None:
 
     assert relation is not None
     assert relation["cardinality"]["tier"] == TIER_HYPOTHESIS
-    assert all(item["kind"] != RELATION_HINTED for item in ontology["relations"])
+    assert all(item["kind"] != RELATION_HINTED for item in ontology["table_relations"])
 
 
 # ------------------------------------------------------- O9: the hint that lifts
@@ -306,7 +306,7 @@ def test_a_hinted_relation_is_a_question_with_a_write_back_target() -> None:
 
 def test_a_hinted_relation_is_drawn_as_a_hypothesis_in_the_er_diagram() -> None:
     ontology = _unjoined()[0]
-    identifiers = mermaid_entity_ids(ontology["entities"])
+    identifiers = mermaid_entity_ids(ontology["tables"])
     markdown = render_ontology_index_markdown(ontology)
 
     assert (
@@ -410,5 +410,5 @@ def test_no_fixture_comment_names_a_table_so_the_golden_does_not_move() -> None:
         (FIXTURES / "ontology" / "ontology.json").read_text(encoding="utf-8")
     )
 
-    assert all("relation_hints" not in entity for entity in body["entities"])
-    assert all(item["kind"] != RELATION_HINTED for item in body["relations"])
+    assert all("relation_hints" not in entity for entity in body["tables"])
+    assert all(item["kind"] != RELATION_HINTED for item in body["table_relations"])

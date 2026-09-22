@@ -1,21 +1,22 @@
 [English](../en/ontology-doc.md) | 中文
 
-# ontology.json / ontology.md 语料级本体候选（ontology-json/1）
+# ontology.json / ontology.md 语料级本体候选（ontology-json/2）
 
 `scope-lineage ontology` 扫描一棵语料目录下的所有 `lineage.json`，在
 [表卡](tables-doc.md) 与[值词典](glossary-doc.md)之上再回答一个单表回答不了的问题——
-**这些表之间是什么关系**：实体（表 + 身份键）、属性（列 + 注释 + 观察到的角色 + 同义列）、
-关系（JOIN 键对 + 可证明的基数）、约束（非空 / 枚举 / 每键唯一 / 分区）、以及跨任务的矛盾。
+**这个仓库讲的是什么、那些东西之间是什么关系**：概念（实体 / 事件 / 汇总）与概念之间的关系，
+表现这些概念的表与它们的身份键、属性（列 + 注释 + 观察到的角色 + 同义列）、表与表之间的
+JOIN（概念关系的证据）、约束（非空 / 枚举 / 每键唯一 / 分区）、以及跨任务的矛盾。
 
 语料里每一个 JOIN 都是一句关于两个实体及其键的断言；每一次「先按 k 去重再关联」都是一句
 关于那张表按 k 有多行的断言；每一个封闭 `IN` 列表都是一句关于列值域的断言。本产物把这些
 断言收集起来，逐条标注置信层级与证据。
 
-> **术语说明**：`entities[]` 是**表实体**——概念在仓库里的表现，一张表一条；`concepts[]` 才是
-> **业务概念**（实体 / 事件 / 汇总），一个概念常常由好几张表表现。两者不是同一层东西：
-> 「客户」是概念，`dwd.customer_df` 是它的一个表实体。`entities` 这个名字来自本产物的第一版，
-> 名不副实，**0.4.0 会把它改名为 `tables`**（`concepts[]` 不改）。消费方现在就可以准备：读取时
-> 两个键都认（先 `tables`，回落 `entities`），并且不要把 `entities[]` 当成业务实体清单。
+> **术语说明**（0.4.0 / `ontology-json/2` 已落地）：`concepts[]` 是**业务概念**（实体 / 事件 /
+> 汇总），`relations[]` 是**概念之间**的关系；`tables[]` 是概念在仓库里的**表现**（一张表一条），
+> `table_relations[]` 是表与表之间的 JOIN，它们是概念关系被读出来的**证据**。「客户」是概念，
+> `dwd.customer_df` 是它的一份表现。上一版把 `tables[]` 叫 `entities[]`、把 `table_relations[]`
+> 叫 `relations[]`，见下面「[从 ontology-json/1 迁移](#从-ontology-json1-迁移)」。
 
 ## 定位：本体**候选**，不是业务本体
 
@@ -26,7 +27,7 @@
 - 槽位刻意对齐常见本体语言（entity ~ owl:Class、attribute ~ owl:DatatypeProperty、
   relation ~ owl:ObjectProperty、constraint ~ sh:NodeShape），`--export` 按这份对应导出
   LinkML 与 SHACL；不产 OWL。
-- 稳定性分级与其他派生文档一致：`ontology-json/1` 内键名稳定，中文措辞可能微调，
+- 稳定性分级与其他派生文档一致：`ontology-json/2` 内键名稳定，中文措辞可能微调，
   机器应读 JSON 而不是 Markdown。
 
 ## 用法
@@ -52,9 +53,9 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
 
 | 文件 | 给谁读 | 内容 |
 | --- | --- | --- |
-| `ontology.json` | 机器 / RAG / 知识图谱入库 | 主产物，`doc_format: "ontology-json/1"` |
-| `ontology.md` | 人 | 索引：概念层（概念图 + 概念表 + 临时概念表 + 概念关系表）+ Mermaid ER 总览 + 实体表 + 关系表 + 约束表 + 待人工判定表 + 待人工判定清单（后两者按表族折叠成组），`doc_format: "ontology-index-md/1"` |
-| `tables/<db.table>.md` | 人 / RAG 按表切块 | 表卡的 6 节之后追加本体 5 节，`doc_format: "ontology-md/1"`；文件名规则与 `scope-lineage tables` 完全一致 |
+| `ontology.json` | 机器 / RAG / 知识图谱入库 | 主产物，`doc_format: "ontology-json/2"` |
+| `ontology.md` | 人 | 索引，M3 起按概念读：`本体总览`（按种类计数 + 概念 ER + 概念表 + 关系表）→ `概念`（**每概念一节**，末尾一张临时概念表）→ `附录：表与证据`（表级 ER、表、表级关系、约束、表族、退役键词根、矛盾发现、待人工判定清单），`doc_format: "ontology-index-md/2"` |
+| `tables/<db.table>.md` | 人 / RAG 按表切块 | 表卡的 6 节之后追加本体 5 节，`doc_format: "ontology-md/2"`；文件名规则与 `scope-lineage tables` 完全一致 |
 
 Python API（消费契约文档，与文件写出同一条路径）：
 
@@ -80,6 +81,8 @@ card = render_ontology_table_card_markdown(cards["tables"][0], ontology)
   `tables/` 都不写。其他值直接报参数错误（退出码 2）。
 - `--export` 取 `linkml`、`shacl` 或两者（可重复，也可写成逗号列表），默认什么都不导出；
   与 `--format` 相互独立，详见[导出 LinkML / SHACL](#导出-linkml--shacl)。
+- `--legacy-keys`（**已废弃**，默认关）：在新键之外，额外写出 `ontology-json/1` 的旧键名作为
+  别名，给来不及改的消费方一个发布周期的缓冲。见[从 ontology-json/1 迁移](#从-ontology-json1-迁移)。
 - 确定性：同一份语料无论以什么顺序被扫描，产出字节一致。
 
 ## 增量运行：`--incremental` / `--no-cache` / `--cache-from`
@@ -132,38 +135,9 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 
 ```jsonc
 {
-  "doc_format": "ontology-json/1",
+  "doc_format": "ontology-json/2",
   "corpus": {"artifact_root": "…", "task_count": 12, "lineage_digests": {"task_a": "…"},
              "external_evidence_tables": 2},   // 只有合并进来的表卡带了本语料没碰过的表时才出现
-  "entities": [
-    {"id": "ods.customer", "kind": "physical_table",
-     "family": "ods.customer",   // Q3：去掉 _di / _tmp / _mid01 一类后缀后的表族键
-     "comment": null,
-     "identity": {
-       "candidate_keys": [{"columns": ["id"], "tier": "hypothesis",
-                           "evidence": [{"task": "task_a", "statement_id": "stmt:001",
-                                         "kind": "joined_as_right_without_dedup",
-                                         "logic_block_id": "logic:ROOT:join:001"}]}],
-       "declared_hints": [{"columns": ["id"], "evidence": "column_comment",
-                           "text": "customer primary key"}],
-       "multiplicity": [{"columns": ["driver_id"], "tier": "implied",
-                         "claim": "multiple_rows_per_key", "evidence": [{"kind": "group_by"}]}],
-       "partition_columns": ["dt"]},
-     "attributes": [
-       {"column": "state", "type": "string", "comment": null,
-        "observed_roles": ["filter", "output"], "used_in_corpus": true,
-        "not_null_observed": false,
-        "synonyms": [{"entity": "mart.t", "column": "order_state", "tier": "proven",
-                      "via": "direct_rename", "evidence": [{"task": "task_a"}]}],
-        "samples": ["PAID", "NEW"]}],
-     "naming_hints": {"table_comment": null, "domain": null, "project": null, "owner": null},
-     "relation_hints": [{"from_column": "pay_id",
-                         "to": {"entity": "ods.pay", "column": "id"},
-                         "evidence": "column_comment", "text": "payment, references ods.pay.id"}]}
-  ],
-  "families": [
-    {"family": "ods.pay", "tables": ["ods.pay_df", "ods.pay_di"], "size": 2}
-  ],
   "concepts": [
     {"id": "concept:cust", "name": "客户", "name_tier": "hypothesis",
      "name_candidates": [
@@ -203,10 +177,6 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
      "tier": "provisional", "origin": "provisional"}
   ],
   "provisional_count": 1,                        // M1：上面有几个是临时概念
-  "unassigned_tables": [                         // M1 起恒为 []，保留一个发布周期
-    {"table": "ods.staging_rows", "reason": "generic_key_only"}   // 只有 id 这类通用键
-                                                                 // 既没有键与线索，也没有 JOIN 关联
-  ],
   "retired_stems": [                             // K4c：被通用键规则挡下的键词根
     {"stem": "rowkey", "tables": [{"table": "ods.rows_a", "role": "primary",
                                    "key_columns": ["rowkey"]}]}
@@ -218,6 +188,56 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
                                 "unmatched": [], "warnings": [],
                                 "ignored_fields": []},
   "relations": [
+    {"id": "crel:001",
+     "from": "concept:msg", "to": "concept:cust", "type": "participation",
+     "roles": ["发送方", "接收方"],          // 事件里客户扮演的角色，来自本端列注释
+     "cardinality": {"claim": "many_to_one", "tier": "proven",
+                     "basis": ["rel:003"]},  // 这条断言是哪几条表级关系给的
+     "task_count": 2, "evidence": ["rel:003", "rel:004"]}
+  ],
+  "provisional_relations": 1,                // M1：至少一端是临时概念的概念关系条数
+  "representation_links": [          // 同一个概念的两份表被 JOIN 到一起
+    {"concept": "concept:cust", "from_table": "dwd.customer_df",
+     "to_table": "ods.customer_base", "evidence": ["rel:005"]}
+  ],
+  "concept_relations_unmapped": {"edges_total": 5, "mapped": 4,  // 固定分母，两次运行可比
+     "total": 1,                              // 哪一端没答上来，分开计数
+     "by_reason": {"from_table_unplaced": 1, "to_table_unplaced": 0,
+                   "reference_only_edge": 0}},
+  "tables": [
+    {"id": "ods.customer", "kind": "physical_table",
+     "family": "ods.customer",   // Q3：去掉 _di / _tmp / _mid01 一类后缀后的表族键
+     "comment": null,
+     "identity": {
+       "candidate_keys": [{"columns": ["id"], "tier": "hypothesis",
+                           "evidence": [{"task": "task_a", "statement_id": "stmt:001",
+                                         "kind": "joined_as_right_without_dedup",
+                                         "logic_block_id": "logic:ROOT:join:001"}]}],
+       "declared_hints": [{"columns": ["id"], "evidence": "column_comment",
+                           "text": "customer primary key"}],
+       "multiplicity": [{"columns": ["driver_id"], "tier": "implied",
+                         "claim": "multiple_rows_per_key", "evidence": [{"kind": "group_by"}]}],
+       "partition_columns": ["dt"]},
+     "attributes": [
+       {"column": "state", "type": "string", "comment": null,
+        "observed_roles": ["filter", "output"], "used_in_corpus": true,
+        "not_null_observed": false,
+        "synonyms": [{"entity": "mart.t", "column": "order_state", "tier": "proven",
+                      "via": "direct_rename", "evidence": [{"task": "task_a"}]}],
+        "samples": ["PAID", "NEW"]}],
+     "naming_hints": {"table_comment": null, "domain": null, "project": null, "owner": null},
+     "relation_hints": [{"from_column": "pay_id",
+                         "to": {"entity": "ods.pay", "column": "id"},
+                         "evidence": "column_comment", "text": "payment, references ods.pay.id"}],
+     "concepts": [{"id": "concept:cust", "role": "primary",
+                   "membership_basis": "key:hypothesis"},
+                  {"id": "concept:pay", "role": "reference",
+                   "membership_basis": "reference"}]}
+  ],
+  "families": [
+    {"family": "ods.pay", "tables": ["ods.pay_df", "ods.pay_di"], "size": 2}
+  ],
+  "table_relations": [
     {"id": "rel:001",
      "from": {"entity": "ods.driver", "columns": ["id"]},
      "to": {"entity": "ods.pay", "columns": ["driver_id"]},
@@ -225,7 +245,8 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
      "cardinality": {"claim": "one_to_many", "tier": "implied", "basis": "group_by"},
      "join_types": ["LEFT_OUTER"], "task_count": 1,
      "evidence": [{"task": "task_a", "statement_id": "stmt:001",
-                   "scope_id": "ROOT", "logic_block_id": "logic:ROOT:join:001"}]},
+                   "scope_id": "ROOT", "logic_block_id": "logic:ROOT:join:001"}],
+     "concept_relation": "crel:001"},
     {"id": "rel:002",
      "from": {"entity": "ods.driver", "columns": ["pay_id"]},
      "to": {"entity": "ods.pay", "columns": ["id"]},
@@ -234,80 +255,69 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
                      "basis": "column_comment"},
      "join_types": [], "task_count": 0,
      "evidence": [{"kind": "column_comment", "column": "pay_id",
-                   "text": "payment, references ods.pay.id"}]}
+                   "text": "payment, references ods.pay.id"}],
+     "concept_relation": null}
   ],
-  "concept_relations": [
-    {"from": "concept:msg", "to": "concept:cust", "type": "participation",
-     "roles": ["发送方", "接收方"],          // 事件里客户扮演的角色，来自本端列注释
-     "cardinality": {"claim": "many_to_one", "tier": "proven",
-                     "basis": ["rel:003"]},  // 这条断言是哪几条表级关系给的
-     "task_count": 2, "evidence": ["rel:003", "rel:004"]}
-  ],
-  "provisional_relations": 1,                // M1：至少一端是临时概念的概念关系条数
-  "concept_representation_links": [          // 同一个概念的两份表被 JOIN 到一起
-    {"concept": "concept:cust", "from_table": "dwd.customer_df",
-     "to_table": "ods.customer_base", "evidence": ["rel:005"]}
-  ],
-  "concept_relations_unmapped": {"edges_total": 5, "mapped": 4,  // 固定分母，两次运行可比
-     "total": 1,                              // 哪一端没答上来，分开计数
-     "by_reason": {"from_table_unplaced": 1, "to_table_unplaced": 0,
-                   "reference_only_edge": 0}},
   "constraints": [
     {"target": {"entity": "ods.orders", "column": "state"}, "kind": "in_set",
      "tier": "proven", "values": ["NEW", "PAID"], "completeness": "complete",
-     "evidence": [{"task": "task_a", "statement_id": "stmt:001", "context": "filter_in"}]}
+     "evidence": [{"task": "task_a", "statement_id": "stmt:001", "context": "filter_in"}],
+     "concept": "concept:order"}
   ],
   "findings": [
     {"kind": "cardinality_conflict", "entity": "ods.pay", "columns": ["driver_id"],
      "tasks": {"multiple_rows_per_key": ["task_a"], "assumed_unique": ["task_b"]},
-     "text": "…"},
+     "text": "…", "concept": "concept:pay"},
     {"kind": "competing_candidate_keys", "entity": "ods.pay",
      "columns": ["driver_id", "dt"],
      "keys": [{"columns": ["driver_id"], "evidence": [{"task": "task_a"}]},
               {"columns": ["driver_id", "dt"], "evidence": [{"task": "task_b"}]}],
-     "tasks": {"assumed_unique": ["task_a", "task_b"]}, "text": "…"}
+     "tasks": {"assumed_unique": ["task_a", "task_b"]}, "text": "…",
+     "concept": "concept:pay"}
   ],
   "finding_groups": [],   // open_item_groups 里 kind 为 finding 的那些组
   "open_items": [
     {"id": "open:key:ods.customer=id", "kind": "candidate_key",
      "entity": "ods.customer", "columns": ["id"], "tier": "hypothesis",
-     "write_back": "键:ods.customer=id", "text": "…"}
+     "write_back": "键:ods.customer=id", "text": "…",
+     "concept": "concept:cust"}
   ],
   "open_item_groups": [
     {"group_id": "open:group:key:ods.customer=id", "kind": "candidate_key",
      "family": "ods.customer", "shape": "id",
      "representative": "open:key:ods.customer=id",
      "items": ["open:key:ods.customer=id"], "count": 1, "impact": 2,
-     "write_back_pattern": "键:<table>=id"}
+     "write_back_pattern": "键:<table>=id", "concept": "concept:cust"}
   ],
   "overrides_applied": {"relations": 0, "keys": 0, "unmatched": [],
                         "ignored_fields": []}
 }
 ```
 
-槽位说明（`ontology-json/1` 的全部槽位）：
+槽位说明（`ontology-json/2` 的全部槽位）：
 
 | 槽位 | 取值 | 含义 |
 | --- | --- | --- |
 | `corpus` | `artifact_root` / `task_count` / `lineage_digests` / `external_evidence_tables` | 与表卡同一个语料块：扫描根、任务数、每个任务的 lineage 指纹；最后一个是只作为外部证据参与、未建实体的表数（P7，没有就不出现） |
-| `entities[].kind` | `physical_table` / `produced_table` | 语料内有生产任务的是 `produced_table` |
-| `entities[].family` | `<库>.<去掉副本后缀的表名>` | Q3：这张表属于哪个表族，只由表名派生（规则见下面「表族与待判定分组」）；同名不同库不是一族 |
-| `entities[].comment`、`naming_hints` | 表注释 / 业务域 / 项目 / 负责人 | 元数据原样透传，Core 不据此推断任何业务语义 |
-| `entities[].identity.candidate_keys[]` | `columns` + `tier` + `evidence` | 生产任务证明的键（`producer_key_confidence`）与消费任务假设的键（`joined_as_right_without_dedup`）并列，不合并成「主键」 |
-| `entities[].identity.candidate_keys[].scope_columns` | 列名列表 | H2：该键只在这组列的同一取值内唯一（快照表的常态）；只可能来自人工确认 |
-| `entities[].identity.declared_hints[]` | `columns` + `evidence: column_comment` + `text` | H3：列注释把某列称作主键/唯一键，原样透传；它是元数据线索而不是候选键，与某个候选键一致时把那个键从 `hypothesis` 抬到 `implied` |
-| `entities[].relation_hints[]` | `from_column` + `to.entity` / `to.column` + `evidence: column_comment` + `text`（+ `unresolved`） | O9：列注释指向另一张表的某一列（「关联 <表>.<列>」一类），原样透传并解析到语料自己的实体；解析不了时带 `unresolved`（`unknown_entity: X` / `ambiguous_entity: X` / `unknown_column: X`）且不产生任何影响；那一列没有线索时这个键不出现 |
-| `entities[].identity.multiplicity[]` | `claim: multiple_rows_per_key` | O3：某任务按这组键对该表做过 GROUP BY 或窗口 partition |
-| `entities[].identity.partition_columns` | 列名列表 | 生产任务写入时的分区列（元数据事实） |
-| `entities[].attributes[].type`、`comment` | 元数据 | 表卡里的列类型与列注释，原样透传 |
-| `entities[].attributes[]` | 每个元数据声明的列一条 | 属性覆盖整张表，不只是语料读写过的那几列；表卡的 `columns[]` 是什么顺序，属性就是什么顺序 |
-| `entities[].attributes[].observed_roles` | `filter`、`partition_filter`、`join_key`、`group_by`、`window_partition`、`window_order`、`output` | 表卡记录的消费用法，没人读过的列是空列表 |
-| `entities[].attributes[].used_in_corpus` | `true` / `false` | 本语料有没有写过或读过这一列；`false` 配空 `observed_roles`，读作「元数据声明了、语料没碰过」 |
-| `entities[].attributes[].not_null_observed` | `true` / `false` | 语料里有任务用 `NOT x IS NULL` 过滤过这一列 |
-| `entities[].attributes[].synonyms[].via` | `direct_rename` / `union_alignment` | O5：同一个值的两个列名 |
-| `entities[].attributes[].samples[]` | 字符串数组 | A6：表卡上的样例值原样带过来，只来自 `tables --samples` 传进来的文件（已脱敏、已截断）；那一列没有值时这个键不出现 |
+| `tables[].concepts[]` | `id` + `role` + `membership_basis` | M2：这张表**表现**了哪些概念、各以什么角色，是 `concepts[].tables[]` 的反向链接。一张表可以有好几条：一条是它自己的身份，其余是它只**带着**那个键（`reference`）。两层因此可以从任一端走 |
+| `tables[].kind` | `physical_table` / `produced_table` | 语料内有生产任务的是 `produced_table` |
+| `tables[].family` | `<库>.<去掉副本后缀的表名>` | Q3：这张表属于哪个表族，只由表名派生（规则见下面「表族与待判定分组」）；同名不同库不是一族 |
+| `tables[].comment`、`naming_hints` | 表注释 / 业务域 / 项目 / 负责人 | 元数据原样透传，Core 不据此推断任何业务语义 |
+| `tables[].identity.candidate_keys[]` | `columns` + `tier` + `evidence` | 生产任务证明的键（`producer_key_confidence`）与消费任务假设的键（`joined_as_right_without_dedup`）并列，不合并成「主键」 |
+| `tables[].identity.candidate_keys[].scope_columns` | 列名列表 | H2：该键只在这组列的同一取值内唯一（快照表的常态）；只可能来自人工确认 |
+| `tables[].identity.declared_hints[]` | `columns` + `evidence: column_comment` + `text` | H3：列注释把某列称作主键/唯一键，原样透传；它是元数据线索而不是候选键，与某个候选键一致时把那个键从 `hypothesis` 抬到 `implied` |
+| `tables[].relation_hints[]` | `from_column` + `to.entity` / `to.column` + `evidence: column_comment` + `text`（+ `unresolved`） | O9：列注释指向另一张表的某一列（「关联 <表>.<列>」一类），原样透传并解析到语料自己的实体；解析不了时带 `unresolved`（`unknown_entity: X` / `ambiguous_entity: X` / `unknown_column: X`）且不产生任何影响；那一列没有线索时这个键不出现 |
+| `tables[].identity.multiplicity[]` | `claim: multiple_rows_per_key` | O3：某任务按这组键对该表做过 GROUP BY 或窗口 partition |
+| `tables[].identity.partition_columns` | 列名列表 | 生产任务写入时的分区列（元数据事实） |
+| `tables[].attributes[].type`、`comment` | 元数据 | 表卡里的列类型与列注释，原样透传 |
+| `tables[].attributes[]` | 每个元数据声明的列一条 | 属性覆盖整张表，不只是语料读写过的那几列；表卡的 `columns[]` 是什么顺序，属性就是什么顺序 |
+| `tables[].attributes[].observed_roles` | `filter`、`partition_filter`、`join_key`、`group_by`、`window_partition`、`window_order`、`output` | 表卡记录的消费用法，没人读过的列是空列表 |
+| `tables[].attributes[].used_in_corpus` | `true` / `false` | 本语料有没有写过或读过这一列；`false` 配空 `observed_roles`，读作「元数据声明了、语料没碰过」 |
+| `tables[].attributes[].not_null_observed` | `true` / `false` | 语料里有任务用 `NOT x IS NULL` 过滤过这一列 |
+| `tables[].attributes[].synonyms[].via` | `direct_rename` / `union_alignment` | O5：同一个值的两个列名 |
+| `tables[].attributes[].samples[]` | 字符串数组 | A6：表卡上的样例值原样带过来，只来自 `tables --samples` 传进来的文件（已脱敏、已截断）；那一列没有值时这个键不出现 |
 | `families[]` | `family` + `tables[]` + `size` | Q3：语料里每个表族及其成员表，按 `family` 排序；答一个组之前用它确认这一族真的是同一张表的多份副本 |
-| `concepts[]` | `id` / `name` / `kind` / `identity` / `tables[]` / `attributes[]` / `tier` | K1：把共用同一个业务键的表折成一个概念；`entities[]` 仍然是表级表现，概念只是指向它们（规则见下面「概念层」） |
+| `concepts[]` | `id` / `name` / `kind` / `identity` / `tables[]` / `attributes[]` / `tier` | K1：把共用同一个业务键的表折成一个概念；`tables[]` 仍然是表级表现，概念只是指向它们（规则见下面「概念层（实体 / 事件 / 汇总）」） |
 | `concepts[].kind`、`kind_tier`、`kind_evidence[]` | `entity` / `event` / `summary`；五级之一；每个信号一条投票 | K1：信号一致 → `implied`，信号打架 → `hypothesis`，并把每个信号投了什么原样列出来 |
 | `concepts[].tables[].role` | `primary` / `snapshot` / `detail` / `summary` / `intermediate` / `reference` | K1：这张表是这个概念的哪一份副本；`reference` 是它并不按这个键唯一、只是**带着**这个键（事件表参与「客户」就是这样） |
 | `concepts[].tables[].membership_basis` | `key:<层级>` / `declared_hint` / `reference` / `override` | K1：这张表凭什么算这个概念的成员——读到的候选键（带它自己的层级）、元数据声明的主键线索，还是一条 JOIN；`override` 是 K4b 的第四种：评审用 `add_tables` 亲手放进来的，那一条成员还带 `role_tier: "confirmed"`。K4d：评审把角色写成 `reference` 的那一条**发布成 `reference`**，不是 `override`——「只是带着这个键」正是 `reference` 的意思，它不该反过来改变这张表本身是什么；这时基准已经说不出是谁放的，所以 `confirmed_by` / `confirmed_basis` 等确认字段直接留在那一条成员上 |
@@ -317,27 +327,30 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 | `concepts[].tier` | `implied` / `hypothesis` / `confirmed` / **`provisional`**（M1） | K1：概念自身的置信层级。`provisional` 是 M1 加的第四种，意思与前三种不同类——它不是「这个概念有多可信」，而是「这还不是一个概念，是一张等着被归并的表」 |
 | `concepts[].origin` | `override`（K4c）/ `provisional`（M1） | 只在概念不是由语料的业务键长出来时出现：`override` 是评审新建的，`provisional` 是 M1 按表补的 |
 | `provisional_count` | 整数 | M1：`concepts[]` 里有几个是临时概念。评审这一轮的进度就读它——归并一条少一个 |
-| `unassigned_tables[]` | 恒为 `[]` | M1 起**由构造保证为空**：没归到任何业务键上的表不再被丢在外面，而是各自成为一个 `provisional` 概念。这个键保留一个发布周期，好让读它的消费方不至于因为键消失而崩；下一版删除 |
 | `retired_stems[]` | `stem` + `tables[]`（`table` / `role` / `key_columns[]`） | K4c：被通用键规则（通用词根清单、日志与链路 id、注释规则）挡下的键词根——语料里确实有表按它做候选键，没有这条规则它就会长出一个概念。发布出来是为了让上一轮评审对 `concept:<词根>` 写下的答案在规则改动之后仍然找得到落点：`concepts.overrides.json` 里点它的名，就按这里记下的表与角色把概念建回来，这个词根同时离开本清单（K4d；见下面「概念确认回写」） |
-| `relations[].id` | `rel:NNN` | 排序后编号，同一份语料稳定 |
-| `relations[].kind` | `join_association` / `union_sibling` / `hinted` | JOIN 键对，或同一 UNION 的兄弟分支；`hinted` 是 O9 只由列注释提出、语料里没有任何任务写过的边（`task_count` 为 0，`join_types` 为空） |
-| `relations[].cardinality.claim` | `one_to_many` / `many_to_one` / `many_to_one_assumed` / `one_to_one_assumed` / `unknown` | O2，方向为 `from` → `to`；`one_to_one_assumed` 只可能来自人工确认 |
-| `relations[].cardinality.tier` | 五级之一 | 该基数断言的置信层级 |
-| `relations[].cardinality.basis` | `group_by` / `ranking_window` / `producer_key_confidence` / `right_side_not_deduplicated` / `union_branch_alignment` / `no_uniqueness_evidence` / `human_confirmation` / `column_comment` | 该基数断言的依据 |
-| `relations[].join_types`、`task_count` | JOIN 类型并集、任务数 | 同一对实体在不同任务里的 JOIN 类型合并 |
-| `relations[].evidence[].left_via_scopes` | scope id 列表 | JOIN 某一侧是 CTE 时，穿透到物理表所经过的 scope（右侧为 `right_via_scopes`） |
-| `concept_relations[]` | `from` / `to` / `type` / `cardinality` / `task_count` / `evidence[]` | K3：把上面的表级关系折到概念之间——`evidence[]` 是参与折叠的表级关系 id，`task_count` 是它们背后去重后的任务数（规则见下面「概念关系」） |
-| `concept_relations[].from`、`to` | 概念 id | K3：两端问的是两个问题——`from` 是**这张表本身是什么**（它自己的键或元数据线索放进的那个概念，`reference` 不算，也不看这条边用了哪几列），`to` 是**它指向什么**（先看对端表自己的身份，没有身份才读对端列归到的词根；词根命中的正是 `from` 那张表本身的概念时，退回 JOIN 借给对端表的那个成员身份）。K4d：对端表被好几个概念收着时，**身份的那一条胜出**——恰好一条身份成员、外加任意多条 `reference` 成员，就按身份算；只有身份成员有好几条、或者一条都没有而 `reference` 有好几条，才把这个结让给词根规则 |
-| `concept_relations[].type` | `association` / `participation` / `aggregation` / `derivation` / `self_reference` | K3：由两端概念的 `kind` 读出来，不看词 |
-| `concept_relations[].roles[]` | 文本列表 | K3：仅 `participation`——实体在事件里扮演的角色，取自本端列注释（按键注释的规则掐后缀：发送方编号 → 发送方）；注释什么也没说时退到列**名**，但读成词而不是标识符（K4d）。键后缀只从**语料自己用 `_` 分出来的段**上掐（和 `key_stem` 同一条规则），剩下的段再按 camelCase 的驼峰拆成词：`collection_unit_id` → `collection unit`、`trace_node_code` → `trace node`，而 `openId` → `open id`——驼峰不是谁声明的分段，`openId` 是仓库写下的一个词，读成 `open` 等于扔掉一半。本来就是中文的列名原样用。**永远不会发布裸列名**——角色是业务说的词，把仓库的拼法写在那个位置，等于说业务就是这么叫的。「注释什么也没说」按最宽的读法算：空注释、只有一个键标记（「ID」），以及**注释里抄的就是列名本身**（元数据目录常这么填）——三种都退到列名，否则注释那一路会把 `openId` 原样发出去。一组里可能有好几个（发送方与接收方是同一对概念的两条边） |
-| `concept_relations[].cardinality` | `claim` / `tier` / `basis[]` | K3：组内最强的那条表级断言——先比层级（`proven` > `confirmed` > `implied` > `hypothesis`），同级里确定的断言压过 `unknown`；`basis[]` 写明这条断言由哪几条表级关系给出 |
-| `provisional_relations` | 整数 | M1：`concept_relations[]` 里至少有一端是临时概念的条数。这类边说的是「某张表参与了」，还不是「业务有这条关系」；这个数随着评审归并临时概念而下降 |
-| `concept_representation_links[]` | `concept` + `from_table` + `to_table` + `evidence[]` | K3：两端落到同一个概念、而两张表都是它的表现（快照 JOIN 自己的主表）——那是 K1 折叠的接缝，不是业务关系，所以单独出一节 |
+| `table_relations[].id` | `rel:NNN` | 排序后编号，同一份语料稳定 |
+| `table_relations[].concept_relation` | `crel:NNN` 或 `null` | M2：这条 JOIN 折进了哪条概念关系。`null` 有两种：它是同一概念两份表现之间的接缝（在 `representation_links[]` 里），或者它从没走在放置两端的那个键上（记在 `concept_relations_unmapped.by_reason.reference_only_edge` 里）。M1 之后 `*_unplaced` 恒为 0，所以每条表级关系要么折了、要么是这两种之一 |
+| `table_relations[].kind` | `join_association` / `union_sibling` / `hinted` | JOIN 键对，或同一 UNION 的兄弟分支；`hinted` 是 O9 只由列注释提出、语料里没有任何任务写过的边（`task_count` 为 0，`join_types` 为空） |
+| `table_relations[].cardinality.claim` | `one_to_many` / `many_to_one` / `many_to_one_assumed` / `one_to_one_assumed` / `unknown` | O2，方向为 `from` → `to`；`one_to_one_assumed` 只可能来自人工确认 |
+| `table_relations[].cardinality.tier` | 五级之一 | 该基数断言的置信层级 |
+| `table_relations[].cardinality.basis` | `group_by` / `ranking_window` / `producer_key_confidence` / `right_side_not_deduplicated` / `union_branch_alignment` / `no_uniqueness_evidence` / `human_confirmation` / `column_comment` | 该基数断言的依据 |
+| `table_relations[].join_types`、`task_count` | JOIN 类型并集、任务数 | 同一对实体在不同任务里的 JOIN 类型合并 |
+| `table_relations[].evidence[].left_via_scopes` | scope id 列表 | JOIN 某一侧是 CTE 时，穿透到物理表所经过的 scope（右侧为 `right_via_scopes`） |
+| `relations[].id` | `crel:NNN` | M2：概念关系按发布顺序编号，`table_relations[].concept_relation` 指的就是它 |
+| `relations[]` | `id` / `from` / `to` / `type` / `cardinality` / `task_count` / `evidence[]` | K3：把上面的表级关系折到概念之间——`evidence[]` 是参与折叠的表级关系 id，`task_count` 是它们背后去重后的任务数（规则见下面「概念关系」） |
+| `relations[].from`、`to` | 概念 id | K3：两端问的是两个问题——`from` 是**这张表本身是什么**（它自己的键或元数据线索放进的那个概念，`reference` 不算，也不看这条边用了哪几列），`to` 是**它指向什么**（先看对端表自己的身份，没有身份才读对端列归到的词根；词根命中的正是 `from` 那张表本身的概念时，退回 JOIN 借给对端表的那个成员身份）。K4d：对端表被好几个概念收着时，**身份的那一条胜出**——恰好一条身份成员、外加任意多条 `reference` 成员，就按身份算；只有身份成员有好几条、或者一条都没有而 `reference` 有好几条，才把这个结让给词根规则 |
+| `relations[].type` | `association` / `participation` / `aggregation` / `derivation` / `self_reference` | K3：由两端概念的 `kind` 读出来，不看词 |
+| `relations[].roles[]` | 文本列表 | K3：仅 `participation`——实体在事件里扮演的角色，取自本端列注释（按键注释的规则掐后缀：发送方编号 → 发送方）；注释什么也没说时退到列**名**，但读成词而不是标识符（K4d）。键后缀只从**语料自己用 `_` 分出来的段**上掐（和 `key_stem` 同一条规则），剩下的段再按 camelCase 的驼峰拆成词：`collection_unit_id` → `collection unit`、`trace_node_code` → `trace node`，而 `openId` → `open id`——驼峰不是谁声明的分段，`openId` 是仓库写下的一个词，读成 `open` 等于扔掉一半。本来就是中文的列名原样用。**永远不会发布裸列名**——角色是业务说的词，把仓库的拼法写在那个位置，等于说业务就是这么叫的。「注释什么也没说」按最宽的读法算：空注释、只有一个键标记（「ID」），以及**注释里抄的就是列名本身**（元数据目录常这么填）——三种都退到列名，否则注释那一路会把 `openId` 原样发出去。一组里可能有好几个（发送方与接收方是同一对概念的两条边） |
+| `relations[].cardinality` | `claim` / `tier` / `basis[]` | K3：组内最强的那条表级断言——先比层级（`proven` > `confirmed` > `implied` > `hypothesis`），同级里确定的断言压过 `unknown`；`basis[]` 写明这条断言由哪几条表级关系给出 |
+| `provisional_relations` | 整数 | M1：`relations[]` 里至少有一端是临时概念的条数。这类边说的是「某张表参与了」，还不是「业务有这条关系」；这个数随着评审归并临时概念而下降 |
+| `representation_links[]` | `concept` + `from_table` + `to_table` + `evidence[]` | K3：两端落到同一个概念、而两张表都是它的表现（快照 JOIN 自己的主表）——那是 K1 折叠的接缝，不是业务关系，所以单独出一节 |
 | `concept_relations_unmapped` | `edges_total` + `mapped` + `total` + `by_reason`（`from_table_unplaced` / `to_table_unplaced` / `reference_only_edge`） | K3：没能折下去的表级关系条数，按**哪一端**没答上来分开计；先问 `from`，所以两端都答不出来的边只记在 `from_table_unplaced` 上；两端都答上来、却从没走在那个键上的边记在 `reference_only_edge`。折错了比没折更糟。`edges_total` 是这次折叠读到的全部表级关系、`mapped` 是折下去的条数：**`by_reason` 会随着表被放进概念而移动**（一条 `from_table_unplaced` 在评审把那张表放好之后就变成一条折下去的边），所以分母跟着一起发布，两次运行才比得了 |
+| `constraints[].concept` | 概念 id 或 `null` | M2：目标表**表现**的那个概念。目标仍然是表——一条约束是关于某一份表现的事实——这个键只是让文档能按概念读。表恰好有两个身份概念（K1 拒绝在两者之间选）时写 `null` |
 | `constraints[].kind` | `not_null` / `in_set` / `unique_per` / `partition` | O6 |
 | `constraints[].values`、`completeness` | 取值列表、`complete` / `unknown` | 仅 `in_set`：只有封闭 `IN` 列表或穷尽 CASE 才是 `complete` |
 | `constraints[].columns` | 列名列表 | 仅 `unique_per`：候选键 + 分区列 |
 | `constraints[].note` | 一句话 | 仅 `not_null`：「任务用过滤丢弃了 NULL，源表本身可能仍含 NULL」 |
+| `findings[].concept`、`open_items[].concept`、`open_item_groups[].concept` | 概念 id 或 `null` | M2：出问题的那张表属于哪个概念，索引据此把问题挂到概念那一节下面。组按它的代表条目算 |
 | `findings[].kind` | `cardinality_conflict` / `competing_candidate_keys` / `key_hint_conflict` / `relation_hint_conflict` / `producer_key_conflict` / `ambiguous_bare_name` | O7、O8 与 O9，最后两者由表卡透传 |
 | `findings[].tasks` | 角色 → 任务名列表 | 矛盾的两边分别是哪些任务 |
 | `findings[].keys[]` | 两组 `columns` + `evidence` | 仅 `competing_candidate_keys`：互相竞争的两组候选键各自的列与证据 |
@@ -352,6 +365,27 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 | `finding_groups[]` | 与 `open_item_groups[]` 同形 | `open_item_groups[]` 中 `kind` 为 `finding` 的子集，单独发布是因为索引的「待人工判定」表只渲染它们 |
 | `overrides_applied` | `relations` / `keys` / `unmatched` / `ignored_fields` | 本次合并了几条人工确认，哪些确认在语料里找不到对应项，以及哪些字段本版本读不懂 |
 | `concept_overrides_applied` | `concepts` / `created[]` / `tables_added` / `merges` / `splits` / `dissolved[]` / `unmatched` / `warnings` / `ignored_fields` | K4b/K4c：`concepts.overrides.json` 这一轮生效了几条字段确认、新建了哪几个概念（`created[]` 一条一个 `{id, tables[]}`，被唤回的退役词根多一个 `revived: true`）、加进了几张成员表、几次合并、几次拆分，以及哪些 id、表名或字段名在语料里找不到对应项。`warnings[]`（K4d）是**应用下去了、但值得回头看一眼**的那些：每条 `{key, warning}`，目前只有 `merge_kept_two_primaries: <表1>, <表2>`——一次合并把两个各自有 `primary` 副本的概念折进了一个。`dissolved[]`（M1）是 `add_tables` / `new_concepts` 顺手解散掉的临时概念，每条 `{id, table, into}`：那张表被人放进了一个真概念，它就不再自成一个；`merge_into` 解散掉的记在 `merges` 里，不重复记 |
+
+## 从 ontology-json/1 迁移
+
+0.4.0 是一次**破坏性**改名：文档按概念读，键名也跟着按概念读。对应关系如下。
+
+| `ontology-json/1` | `ontology-json/2` | 说明 |
+| --- | --- | --- |
+| `entities[]` | `tables[]` | 同形，外加 `concepts[]` 反向链接 |
+| `relations[]` | `table_relations[]` | 同形，外加 `concept_relation` |
+| `concept_relations[]` | `relations[]` | 同形，外加 `id` |
+| `concept_representation_links[]` | `representation_links[]` | 同形 |
+| `unassigned_tables[]` | —— | M1 起恒为空，本版删除；没归到业务键上的表是 `tier: "provisional"` 的概念 |
+| 其余键 | 原名不变 | `concepts` / `families` / `constraints` / `findings` / `open_items` / `open_item_groups` / `retired_stems` / `overrides_applied` / `concept_overrides_applied` / `corpus` |
+
+**唯一无法用别名兜住的一条**：`relations[]` 没有消失，它换了意思——现在装的是**概念关系**。
+照旧读 `relations[]` 的消费方不会报错，会读到另一层东西，所以必须改读 `table_relations[]`。
+这正是这次改动是破坏性的原因。
+
+`ontology --legacy-keys` 会在新键之外把上表左列的旧键作为别名一并写出（`unassigned_tables`
+写成 `[]`），值与右列的新键**同一个对象**。它**已废弃**，只保留一个发布周期，下一版删除；
+`relations` 不在别名之列，理由见上。
 
 ## 推断规则
 
@@ -368,12 +402,12 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 
 ## 概念层（实体 / 事件 / 汇总）
 
-`entities[]` 回答的是「这张**表**是什么」。业务问的不是这个：业务问「客户」，而仓库把客户写成
+`tables[]` 回答的是「这张**表**是什么」。业务问的不是这个：业务问「客户」，而仓库把客户写成
 `ods.customer_base`、`dwd.customer_df`、`dwd.customer_di` 和几张中间表；业务还问「消息发送」，
 那不是一个东西，而是**发生过的事**，它与「客户」并列，不在「客户」之下。
 
 K1/K2 就在表级本体之上折出这一层：**实体应该是「客户」，不是「客户信息表」；表是概念的表现。**
-`entities[]` 一个字都不变，概念只是指向它们，而表级读法正是复核这次折叠的唯一办法。
+`tables[]` 一个字都不变，概念只是指向它们，而表级读法正是复核这次折叠的唯一办法。
 
 ### 种子：键词根
 
@@ -462,10 +496,10 @@ K2b 的 `junk_reason`，最后才按 `count` 降序、按上表顺序。
 
 ### 概念关系
 
-表级 `relations[]` 答的是「哪两张**表**被 JOIN 了、用哪几列、能推出多少行」。业务问的不是
+表级 `table_relations[]` 答的是「哪两张**表**被 JOIN 了、用哪几列、能推出多少行」。业务问的不是
 这个：它问「消息发送」牵不牵涉「客户」、以什么身份（发送方还是接收方），问「客户日汇总」
 汇总的是那个事件还是那个实体。K3 把每条表级边折到两个概念上，按（from 概念，to 概念）归组，
-写成 `concept_relations[]`。
+写成 `relations[]`。
 
 **一条边的两端问的是两个问题。** 两端用同一套规则读，几乎每条边都会折到自己身上：
 
@@ -489,7 +523,7 @@ K2b 的 `junk_reason`，最后才按 `count` 降序、按上表顺序。
 客户 写在 `cust_no` 上——两端有一端的列命中了词根，仍然是那条 `self_reference`。
 
 `concept_relations_unmapped` 同时发布分母：`edges_total` 是这次折叠读到的全部表级关系，
-`mapped` 是折下去的条数（含折成 `concept_representation_links[]` 的接缝），`total` 与
+`mapped` 是折下去的条数（含折成 `representation_links[]` 的接缝），`total` 与
 `by_reason` 是剩下的。**`by_reason` 会随着表被放进概念而移动**——一条 `from_table_unplaced`
 在评审用 `add_tables` 或 `new_concepts` 把那张表放好之后就变成一条折下去的边——所以只有
 带着固定分母读，两次运行的数字才比得了。
@@ -505,41 +539,46 @@ K2b 的 `junk_reason`，最后才按 `count` 降序、按上表顺序。
 | `self_reference` | 两端是同一个概念 | 上级客户 → 客户 这类自指；业务真的有这条关系，所以留着 |
 
 两端落到同一个概念、而那**两张表**又都是这个概念的表现（一份快照 JOIN 它自己的主表），那不
-是一条业务关系，是 K1 那次折叠的接缝：这种边不进 `concept_relations[]`，单独写进
-`concept_representation_links[]`——概念、本端表、对端表，以及给出它的表级关系 id。一张表
+是一条业务关系，是 K1 那次折叠的接缝：这种边不进 `relations[]`，单独写进
+`representation_links[]`——概念、本端表、对端表，以及给出它的表级关系 id。一张表
 JOIN 它**自己**是另一回事，仍然是 `self_reference`。
 
 `cardinality` 取组内**最强**的那条表级断言：先比层级（`proven` > `confirmed` > `implied` >
 `hypothesis`——语料证明过的压过某一对表上人工确认过的，因为这一层折的是语料），同级里确定的
 断言压过 `unknown`；`basis[]` 写明这条断言是哪几条表级关系给的。`evidence[]` 是组内全部表级
 关系 id，`task_count` 是它们背后去重后的任务数（只算**写过**这条边的任务，与
-`relations[].task_count` 一个口径）。
+`table_relations[].task_count` 一个口径）。
 
 带 `possible_duplicate_of` 的概念**不合并**：它的关系仍然挂在它自己的 id 上。是不是同一个
 东西留给评审那一轮判——在这里替它答了，只会把问题藏起来。
 
 排序恒定：先按类型顺序（`association` → `participation` → `aggregation` → `derivation` →
 `self_reference`），再按 from 的概念 id，再按 to 的概念 id；
-`concept_representation_links[]` 按概念 id、本端表、对端表排。
+`representation_links[]` 按概念 id、本端表、对端表排。
 
-### 概念层怎么渲染
+### `ontology.md` 怎么渲染
 
-`ontology.md` 一打开就是「概念层」，**在表级 ER 之前**——读这份文件的人问的是业务问题，下面
-那张 ER 图是答案的依据而不是答案。四块，顺序固定：
+M3：整份索引按概念读。三部分，顺序固定——`## 本体总览`、`## 概念`（**每概念一节**）、
+`## 附录：表与证据`。表一级的东西一条不少，只是全部移进附录，并且标明它是证据而不是模型：
+把 JOIN 印在正文里，等于教每个读者照着仓库的形状去建模。
 
 | 块 | 内容 |
 | --- | --- |
-| 概念图 | 一个概念一个框，标签是 `<名字>（<种类>）`，底色按种类分（`classDef entity` / `event` / `summary`）。用 `flowchart LR` 而不是 `erDiagram`：Mermaid 的 ER 图没有 `classDef`，而这一层的框里装的是业务名与种类，种类正是要看的那一半。边来自 `concept_relations[]`，标签写成「类型：基数」，`?` 表示这条基数只是作者假设，`participation` 的参与身份写在括号里。`concept_representation_links[]` **不画**——那是 K1 折叠的接缝，不是业务关系。概念超过 40 个（`CONCEPT_MERMAID_LIMIT`）时按概念关系度数取前 40 个，并写明省略了几个。**临时概念一律不画**（M1）：它们有多少张表没归好就有多少个，画出来会把这张图该有的读法埋掉；图下面写一行「另有 N 个临时概念未画」，逐个见下面的「临时概念」表 |
-| 概念表 | 一行一个概念：名字**与它的层级**（「授信合同（`confirmed`）」是评审确认过的，「合同（`hypothesis`）」是作者假设——两者读起来必须不一样）、种类与它的层级、表数（按 `role` 拆开计数，**不**逐个列表名）、前三个命名候选（`CONCEPT_NAME_CANDIDATES_SHOWN`）、`疑似重复` 指向的概念 id |
-| 临时概念（每表一个，待归并） | M1 加的第二张概念表，紧跟在概念表之后：一行一个临时概念——名字与它的层级、种类、是哪张表，以及回写时要用的那个键（`concept:table:<…>` 的 `merge_into`）。开头一行说清这是评审的**第一步**，三条出路（并进已有概念 / 几个一起新建 / 确实自成一件事）各怎么写。一个都没有时这一节说「每张表都归到了某个业务键长出来的概念上」 |
-| 概念关系表 | 一行一条：类型、两端的概念名、参与身份、基数与它的层级、证据条数。至少有一端是临时概念的那一行，类型后面标 `（临时）`——那一行是对语料的读法，还不是对业务的 |
-| 被挡下的键词根 | 只在真的有的时候出现：多少个词根被通用键规则挡下、前三个是什么，以及**它们仍然可以被点名**——在 `concepts.overrides.json` 里写 `concept:<词根>` 就把概念建回来。逐条指回 `ontology.json` 的 `retired_stems[]` |
+| 本体总览 | 两句话。第一句是概念：几个概念、按种类拆开（实体 N、事件 N、汇总 N）、几条概念关系，另有几个**临时概念**、其中几条关系至少有一端是临时的。第二句才是仓库：几个任务、几张表、几条表级关系、几条约束、几条矛盾发现，以及待人工判定几条 / 几组（已确认几条）。之后是置信五级的说明，以及只作为外部证据参与的表数（P7，没有就不写） |
+| 概念 ER | 一个概念一个框，标签是 `<名字>（<种类>）`，底色按种类分（`classDef entity` / `event` / `summary`）。用 `flowchart LR` 而不是 `erDiagram`：Mermaid 的 ER 图没有 `classDef`，而这一层的框里装的是业务名与种类，种类正是要看的那一半。边来自 `relations[]`，标签写成「类型：基数」，`?` 表示这条基数只是作者假设，`participation` 的参与身份写在括号里。`representation_links[]` **不画**——那是 K1 折叠的接缝，不是业务关系。概念超过 40 个（`CONCEPT_MERMAID_LIMIT`）时按概念关系度数取前 40 个，并写明省略了几个。**临时概念一律不画**（M1） |
+| 概念表（`### 概念`） | 一行一个概念：名字**与它的层级**（「授信合同（`confirmed`）」是评审确认过的，「合同（`hypothesis`）」是作者假设——两者读起来必须不一样）、种类与它的层级、表数（按 `role` 拆开计数，**不**逐个列表名）、前三个命名候选（`CONCEPT_NAME_CANDIDATES_SHOWN`）、`疑似重复` 指向的概念 id |
+| 关系表（`### 关系`） | 一行一条概念关系：类型、两端的概念名、参与身份、基数与它的层级、证据条数。至少有一端是临时概念的那一行，类型后面标 `（临时）`——那一行是对语料的读法，还不是对业务的 |
+| 每概念一节（`### <名字>（<种类>）`） | M3 的主线。开头一行是这个概念的身份证（id、名字层级、种类层级、几张表现表、几个属性、疑似重复），随后五块：**表现表**（表 / 角色 / 依据 / 粒度，表名链到它的卡片）、**属性摘要**（共几个属性，带注释的先列，最多 `CONCEPT_ATTRIBUTES_SHOWN` 个）、**约束**（这个概念名下各表的约束）、**关系**（出与入一张表）、**待人工判定**（挂在这个概念上的问题组，带组 id、条数与影响）。折出的概念多于 `CONCEPT_SECTIONS_SHOWN`（40）个时，只展开前 40 个，其余写一行「另有 N 个概念未展开」并指回上面的概念表 |
+| 临时概念（每表一个，待归并） | 概念部分的最后一张表：一行一个临时概念——名字与它的层级、种类、是哪张表，以及回写时要用的那个键（`concept:table:<…>` 的 `merge_into`）。开头一行说清这是评审的**第一步**，三条出路（并进已有概念 / 几个一起新建 / 确实自成一件事）各怎么写。一个都没有时这一节说「每张表都归到了某个业务键长出来的概念上」 |
+| 附录：表与证据 | 表一级的全部内容，各自一个 `###`：`表级关系（证据）`（原来的表级 Mermaid ER）、`表`（原来的实体表）、`表级关系`（比上一版多一列「折入概念关系」）、`约束`（多一列「概念」）、`表族`（`families[]`，答一组问题之前用它复核这一族真是同一张表的多份副本）、`退役键词根`（K4c）、`矛盾发现`、`待人工判定清单`（折叠后的完整清单，上限 `OPEN_ITEM_GROUPS_SHOWN`） |
 
-表卡第 7 节「身份（本体）」也跟着在开头多一行，说这张表是哪个概念的哪一份副本、凭什么进来：
-「本表是「客户」（`concept:cust`，实体）的主表视图（`key:proven`）。」一张表可以同时是两个
-概念的成员（被一个键定义，又带着另一个键），那就一个成员一行；没有任何键、线索或 JOIN 给它
-身份的，那一行写成「本表暂自成概念「<名字>」（provisional），待评审归并（`concept:table:…`）。」
-——M1 起这不是「我们分不出来」，而是一个写下了下一步的问题。
+三道上限保证宽语料仍然读得完：图上 `CONCEPT_MERMAID_LIMIT`（40 个概念）、正文
+`CONCEPT_SECTIONS_SHOWN`（40 节）、清单 `OPEN_ITEM_GROUPS_SHOWN`（50 组）。超出的一律
+写明「另有 N 个……」并指回 `ontology.json`——没人滚到底的文档什么也回答不了。
+
+YAML 头也跟着改成概念在前：`concept_count` / `relation_count` / `table_count` /
+`table_relation_count` / `open_item_count` / `open_item_group_count`（上一版是
+`entity_count` / `relation_count`，后者当时指表级关系）。
 
 ## 表族与待判定分组
 
@@ -572,10 +611,10 @@ JOIN 它**自己**是另一回事，仍然是 `self_reference`。
 
 | 节 | 内容 |
 | --- | --- |
-| 7. 身份（本体） | 开头先说这张表代表哪个概念的哪一份副本（「本表是「客户」（`concept:cust`，实体）的主表视图（`key:proven`）。」，成员多于一个就一行一条），一个都没落到就写「本表暂自成概念「<名字>」（provisional），待评审归并（`concept:table:…`）。」（M1）；随后一行「属性 N（语料用到 n）」，与 `ontology.md` 实体表的「属性」列同一口径；其后候选键、元数据键线索、多行性、分区列四者并列，逐条带中文层级与证据 id；已确认的键在同一行打印确认人、确认日期与依据，带 `scope_columns` 的键读作「在 `dt` 内唯一」；四者回答四个不同问题，永不合并成「主键」 |
-| 8. 关系 | 出边、入边各一张表：对端（链到对端卡片）、键对、JOIN 类型、基数 claim、层级、依据 token 的人话翻译、任务数、证据 id；本表列注释里有指向时再追一个「注释线索」子块（O9）：本表列 → 对端表.列、原列注释，解析不了的写明原因；没有线索就没有这个子块 |
-| 9. 约束 | SHACL 风格清单：约束种类、目标列或整表、值集与完整性、层级、证据 |
-| 10. 属性同义 | 本表列 ↔ 同义列、依据（改名投影 / UNION 同位置）、层级、证据 |
+| 7. 身份（本体） | 开头先说这张表代表哪个概念的哪一份副本（「本表是「客户」（`concept:cust`，实体）的主表视图（`key:proven`）。」，成员多于一个就一行一条），一个都没落到就写「本表暂自成概念「<名字>」（provisional），待评审归并（`concept:table:…`）。」（M1）；紧接着是 M3 加的 **「概念中的其他表现」**：同一个概念的别的表，各自的角色与依据，表名链到它们的卡片——刚被告知「本表是客户的快照视图」的人，下一句就想问主表在哪；随后一行「属性 N（语料用到 n）」，与附录表格的「属性」列同一口径；其后候选键、元数据键线索、多行性、分区列四者并列，逐条带中文层级与证据 id；已确认的键在同一行打印确认人、确认日期与依据，带 `scope_columns` 的键读作「在 `dt` 内唯一」；四者回答四个不同问题，永不合并成「主键」 |
+| 8. 关系 | M3：先 **「概念关系」**——本表的那些 JOIN 折进了哪几条概念关系（关系 id、两端概念名、类型、参与身份、基数、层级，以及本表贡献的那几条表级关系 id）；一条都没折进去时写一行「本表所属概念没有可发布的概念关系。」。其下才是 **「表级 JOIN（证据）」**：出边、入边各一张表，对端（链到对端卡片）、键对、JOIN 类型、基数 claim、层级、依据 token 的人话翻译、任务数、证据 id。业务关系是答案，JOIN 是它被发布的原因；把 JOIN 印在前面，读者就会照着仓库的形状建模。本表列注释里有指向时再追一个「注释线索」子块（O9）：本表列 → 对端表.列、原列注释，解析不了的写明原因；没有线索就没有这个子块 |
+| 9. 约束 | 开头一行点明这些事实属于哪个概念的哪一份表现（M3），随后是 SHACL 风格清单：约束种类、目标列或整表、值集与完整性、层级、证据 |
+| 10. 属性同义 | 同样先点明概念（M3），随后：本表列 ↔ 同义列、依据（改名投影 / UNION 同位置）、层级、证据 |
 | 11. 待人工判定 | 该表相关的 findings，加上所有 `hypothesis` 断言（候选键 / 基数 / 约束），每条标 `[待确认]`、给出回写目标字符串，并引用 `open_items[]` 里的清单 id 与 `open_item_groups[]` 里的组 id（「清单 `open:…`，组 `open:group:…`」——组 id 告诉答题的人这一答还覆盖同族的哪些表） |
 
 文件名规则与 `tables` 完全一致（`<db.table>.md`，文件系统不接受的字符换成 `_`），因此一份语料
@@ -721,7 +760,7 @@ erDiagram
 | `name` | 自由文本 | 确认后的业务名；`name_tier` 升到 `confirmed` |
 | `kind` | `entity` / `event` / `summary` | 确认后的种类；`kind_tier` 升到 `confirmed`。其它取值报成 `unknown_kind: X`，该项不生效 |
 | `roles` | `{"<表>": "<角色>"}` | 把某张成员表改成另一个角色，取值是 K1 的六个之一；那一条成员多一个 `role_tier: "confirmed"` |
-| `add_tables` | `{"<表>": "<角色>"}` | 把一张本语料的表**加进**这个概念（`roles` 只能移动已经在册的成员）。那张表必须在 `entities[]` 里，角色仍是那六个之一；成员的 `membership_basis` 是 `override`、`role_tier` 是 `confirmed`，它的列并进概念的 `attributes[]`；那张表原本的**临时概念随之解散**（M1），报在 `concept_overrides_applied.dissolved[]` 里。**角色写 `reference` 的那一条例外**（K4d）：它发布成 `membership_basis: "reference"`，确认字段留在成员行上，这张表本身是什么完全不变——「只是带着这个键」不该反过来给出身份。一张表可以加进好几个概念（一张明细表同时带着两个键），但**身份只有一个**：已经被自己的键放在某个概念上的表，再被加到别的概念只是「带着这个键」，K3 折边时仍按它自己的那个概念算。这一步在概念关系折叠之前，所以从这张表出发的 JOIN 会折到评审点名的那个概念上 |
+| `add_tables` | `{"<表>": "<角色>"}` | 把一张本语料的表**加进**这个概念（`roles` 只能移动已经在册的成员）。那张表必须在 `tables[]` 里，角色仍是那六个之一；成员的 `membership_basis` 是 `override`、`role_tier` 是 `confirmed`，它的列并进概念的 `attributes[]`；那张表原本的**临时概念随之解散**（M1），报在 `concept_overrides_applied.dissolved[]` 里。**角色写 `reference` 的那一条例外**（K4d）：它发布成 `membership_basis: "reference"`，确认字段留在成员行上，这张表本身是什么完全不变——「只是带着这个键」不该反过来给出身份。一张表可以加进好几个概念（一张明细表同时带着两个键），但**身份只有一个**：已经被自己的键放在某个概念上的表，再被加到别的概念只是「带着这个键」，K3 折边时仍按它自己的那个概念算。这一步在概念关系折叠之前，所以从这张表出发的 JOIN 会折到评审点名的那个概念上 |
 | `merge_into` | 另一个概念 id | 把本概念折进那一个：表、属性与键词根都并过去，本概念的 id 记进对方的 `merged_from[]`。K4d：同一张表两边都是成员时，按**较强**的那个角色留下（`primary` > `snapshot` > `detail` > `summary` > `intermediate` > `reference`），不再一律按留下来那一边的行算——被合掉那一边读出来的东西不该因为合并而丢掉。两边各有一个**不同**的 `primary` 副本时两条都留着（谁才是那一份只有业务答得了），并报一条 `warnings[] = {key, warning: "merge_kept_two_primaries: <表1>, <表2>"}`：合并是有方向的，把 `primary` 少的那一边合进多的那一边 |
 | `new_concepts[]` | `{id, name, kind, tables, key_columns?, …}` | K4c：**新建**一个语料没能发芽的概念。`id` 必须没人用过、且形如 `concept:<小写词根>`（否则报 `already_a_concept: <id>` / `invalid_concept_id: <id>`）；`tables` 的键是本语料的表、值是它的角色，已经被别的概念**按身份**收下的表只能给 `reference` 角色（否则报 `already_a_member: <表>`）。建出来的概念 `tier` / `name_tier` / `kind_tier` 全是 `confirmed`、`origin` 是 `override`，`identity.stem` 取 id 里的词根，`identity.columns_seen` 取 `key_columns` 或那几张表共有的键列，属性来自成员表，被点名那几张表的**临时概念随之解散**（M1），报在 `dissolved[]` 里；临时概念不算「别的概念」，所以它们不会因此报 `already_a_member`。K4d：这些键列自己归到的词根（非通用的、且不等于 id 里那个）还会进 `identity.merged_stems[]`，也就是 K3 折边时读的那份词根索引——写在 `ad_slot_code` 上的边这才找得到 `concept:slot`。它在合并与拆分**之前**、也在概念关系折叠之前生效 |
 | 被点名的退役词根 | `concepts` 里的键写 `concept:<retired_stems[] 里的词根>` | K4c：这个词根本轮没发芽，但它在 `retired_stems[]` 里——那一条就按记下的表与角色当成一条隐式的 `new_concepts` 执行，报在 `created[]` 里并带 `revived: true`，而不是报 `unknown_concept`；同一次运行里这个词根**随即离开 `retired_stems[]`**（K4d：一份文档不能既发布这个概念、又还在说这个词根被挡下了，概念层那一行也跟着不再点它的名）。**规则改了，上一轮评审的答案不作废**，靠的就是这一条 |
@@ -745,9 +784,9 @@ JSON 已带全部信息，导出器（`--export linkml,shacl`，见下一节）�
 
 | ontology.json | OWL / RDFS | SHACL | LinkML |
 | --- | --- | --- | --- |
-| `entities[]` | `owl:Class` | `sh:NodeShape` | `class` |
-| `entities[].attributes[]` | `owl:DatatypeProperty` | `sh:property` + `sh:datatype` | `attribute` / `slot` |
-| `relations[]` | `owl:ObjectProperty`（+ 基数公理） | `sh:property` + `sh:class` + `sh:maxCount` | 带 `range` 的 slot |
+| `tables[]` | `owl:Class` | `sh:NodeShape` | `class` |
+| `tables[].attributes[]` | `owl:DatatypeProperty` | `sh:property` + `sh:datatype` | `attribute` / `slot` |
+| `table_relations[]` | `owl:ObjectProperty`（+ 基数公理） | `sh:property` + `sh:class` + `sh:maxCount` | 带 `range` 的 slot |
 | `constraints[].kind = in_set` / `not_null` | — | `sh:in` / `sh:minCount` | `enum` / `required` |
 | `constraints[].kind = unique_per` | — | 无原生唯一约束，需 SPARQL 约束 | `unique_keys` |
 | `tier` / `evidence` | 标注属性（`rdfs:comment` 或自定义 annotation） | 标注 | `annotations` |
@@ -780,33 +819,33 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
 
 | ontology.json | LinkML | SHACL |
 | --- | --- | --- |
-| `entities[]` | `class`，id 与 Mermaid ER 用同一套安全标识符，原表名放 `title` | `sh:NodeShape` + `sh:targetClass`，原表名放 `rdfs:label` |
-| `entities[].attributes[]` | `attributes` 下的 slot，`range` 按 SQL 类型映射，`description` 取列注释 | `sh:property` + `sh:path` + `sh:datatype` |
+| `tables[]` | `class`，id 与 Mermaid ER 用同一套安全标识符，原表名放 `title` | `sh:NodeShape` + `sh:targetClass`，原表名放 `rdfs:label` |
+| `tables[].attributes[]` | `attributes` 下的 slot，`range` 按 SQL 类型映射，`description` 取列注释 | `sh:property` + `sh:path` + `sh:datatype` |
 | 单列且 `proven` / `confirmed` 的候选键 | slot 上 `identifier: true` | 无原生形式，见下方限制 |
 | 其余候选键（多列，或未被证明） | `unique_keys` 条目，层级放 `annotations.tier` | `sl:candidateKey` 注解块 |
-| `relations[]` | 源 class 上的一个 slot，`range` 是目标 class，`multivalued` 由基数决定 | `sh:property` + `sh:class`（多对一再加 `sh:maxCount 1`） |
+| `table_relations[]` | 源 class 上的一个 slot，`range` 是目标 class，`multivalued` 由基数决定 | `sh:property` + `sh:class`（多对一再加 `sh:maxCount 1`） |
 | `constraints[].kind = not_null` | slot 上 `required: true` | `sh:minCount 1` |
 | `constraints[].kind = in_set`（已封闭） | 一个 `enum`，slot 的 `range` 指向它 | `sh:in ( … )` |
 | `constraints[].kind = in_set`（未封闭） | 只写注解，不造 enum | 只写 `rdfs:comment` |
 | `constraints[].kind = unique_per` | `unique_keys` 条目 | `sl:compositeKey` 注解块，见下方限制 |
 | `constraints[].kind = partition` | slot 上的一条注解 | 只带 `rdfs:comment` 的 `sh:property` |
 | `tier` | `annotations.tier` | `sl:tier` |
-| `entities[].naming_hints` 的 `domain` / `project` / `owner` | class 上各一条注解 | 节点形状上的 `sl:domain` / `sl:project` / `sl:owner` |
-| `entities[].identity.declared_hints[]` | 每条一个 `declared_hint_<列>` 注解，带列与注释原文 | 一个 `sl:declaredKeyHint` 注解块 |
-| `entities[].relation_hints[]` | 每条一个 `relation_hint_<列>` 注解，带解析到的对端或未解析原因 | 一个 `sl:relationHint` 注解块 |
-| `entities[].identity.multiplicity[]` | 一条 `multiplicity_<列>` 注解，带 claim 与层级 | 一个 `sl:multiplicity` 注解块 |
-| `entities[].attributes[].synonyms[]` | slot 上的 `synonyms` 列表注解，每条带 `via` 与层级 | 一个 `sl:synonym` 注解块 |
+| `tables[].naming_hints` 的 `domain` / `project` / `owner` | class 上各一条注解 | 节点形状上的 `sl:domain` / `sl:project` / `sl:owner` |
+| `tables[].identity.declared_hints[]` | 每条一个 `declared_hint_<列>` 注解，带列与注释原文 | 一个 `sl:declaredKeyHint` 注解块 |
+| `tables[].relation_hints[]` | 每条一个 `relation_hint_<列>` 注解，带解析到的对端或未解析原因 | 一个 `sl:relationHint` 注解块 |
+| `tables[].identity.multiplicity[]` | 一条 `multiplicity_<列>` 注解，带 claim 与层级 | 一个 `sl:multiplicity` 注解块 |
+| `tables[].attributes[].synonyms[]` | slot 上的 `synonyms` 列表注解，每条带 `via` 与层级 | 一个 `sl:synonym` 注解块 |
 | `findings[]` | schema 级的 `sl:finding_NNN` 注解 | `sl:Ontology` 节点上的 `sl:finding` 块 |
 | `open_items[]` | schema 级的 `sl:open_item_<id>` 注解 | `sl:Ontology` 节点上的 `sl:openItem` 块 |
 | `evidence[]` | `evidence_count` 加 `evidence_task`，不写整份列表 | `sl:evidenceCount` 加 `sl:evidenceTask` |
 | 概念的三种种类 | `Entity` / `Event` / `Summary` 三个抽象基类，带 `category` 注解 | `sl:Entity` / `sl:Event` / `sl:Summary`，`rdfs:subClassOf sl:Concept` |
 | `concepts[]` | 一个概念一个 class，`is_a` 指向种类基类，`title` 是 `name`，描述里列命名候选与种类层级，注解带 `kind_tier` / `name_tier` / `tables` / `possible_duplicate_of` | 一个 `sh:NodeShape`，`sh:targetClass` 指向概念类，`rdfs:subClassOf` 指向种类类，带 `sl:concept` / `sl:kindTier` / `sl:nameTier` / `sl:conceptTable` |
 | `concepts[].attributes[]` | 概念 class 下的 slot，`range` 按来源列的类型映射，`description` 取注释，注解 `sources` 列出来源列 | `sh:property` + `sh:datatype`，每个来源一条 `sl:source` |
-| `concept_relations[]` | `from` 概念 class 上的一个 slot，`range` 是 `to` 概念 class，`multivalued` 由基数决定，注解带 `relation_type` / `roles` / `tier` / `evidence_count` | `sh:property` + `sh:class`（多对一再加 `sh:maxCount 1`），带 `sl:relationType` / `sl:role` / `sl:evidenceCount` |
+| `relations[]` | `from` 概念 class 上的一个 slot，`range` 是 `to` 概念 class，`multivalued` 由基数决定，注解带 `relation_type` / `roles` / `tier` / `evidence_count` | `sh:property` + `sh:class`（多对一再加 `sh:maxCount 1`），带 `sl:relationType` / `sl:role` / `sl:evidenceCount` |
 | `concepts[].tables[]` | 表 class 上的 `represents` 注解：`concept:<词根> (<角色>)` | 节点形状上的 `sl:represents` |
-| `concept_representation_links[]` | 两张表的 class 上各一条 `representation_link` 注解 | 两个节点形状上各一条 `sl:representationLink` |
+| `representation_links[]` | 两张表的 class 上各一条 `representation_link` 注解 | 两个节点形状上各一条 `sl:representationLink` |
+| `table_relations[].concept_relation` | 表 class 那条关系 slot 上的 `evidence_for` 注解 | 那条属性形状上的 `sl:evidenceFor` |
 | 临时概念（M1） | 概念 class 上多一条注解 `provisional: true` | 概念 shape 上多一行 `sl:provisional true` |
-| `unassigned_tables[]` | 这一段只在清单非空时才写，而 M1 起它恒为空，所以实际上不再出现 | 同左 |
 
 概念层的元素带的是**折叠**的层级：概念 class 与它的属性 slot 带 `concepts[].tier`，概念关系带
 它那条基数的层级。种类基类只在语料真的折出了概念时才写——一个没有子类的抽象基类，读起来就是
@@ -865,7 +904,7 @@ SQL 类型按下表映射，带参数的类型只看头部：`decimal(18,2)` 当
   身份。
 - **基 IRI 是占位符**（`https://example.org/scope-lineage/ontology#`）。语料没有自己的命名空间，
   编一个看起来权威的出来就是导出在编事实；入图的人把它换成自己的。
-- **只有 `evidence` 是摘要导出，不写整份。** `ontology-json/1` 的其余槽位全部进两种导出：
+- **只有 `evidence` 是摘要导出，不写整份。** `ontology-json/2` 的其余槽位全部进两种导出：
   只读导出的下游工具，不该拿到一份比发布出来更小的语料；`findings` 与 `open_items` 是其中
   最要紧的一类——导出里没有它们，读起来就是「这份语料没有待判定的问题」，所以它们挂在 schema
   自己身上。`evidence` 是唯一的例外，理由是体量：每条断言带上证据条数与第一个任务名，具体语句
@@ -903,13 +942,13 @@ scope-lineage ontology --lineage /path/to/b --out /path/to/onto \
   `{"task": …, "statement_id": …, "corpus": …, "kind": "producer_key_confidence"}`——
   本语料内的证明不加这一条：那个任务就在读者自己的产物里，`cardinality.producer` 已经点名了。
   跨语料就必须带 `corpus`，否则这行证据指向一个读者根本找不到的任务。
-- `relations[].task_count` **只数写了这条 JOIN 的任务**。借来的证明是证据，不是这条边的另一个
+- `table_relations[].task_count` **只数写了这条 JOIN 的任务**。借来的证明是证据，不是这条边的另一个
   作者，因此外来证据不参与计数。
 - 身份键与分区约束的 `evidence[]` 同理：来自合并表卡的生产者带 `corpus`，本语料的不带。
 - `ontology.md` 的证据 id 相应写成 `` `<corpus>/<task>/<statement_id>` ``；没有 `corpus` 时
   与从前逐字节一致。
 - **证据不等于范围**：实体只建在 `--lineage` 这份语料**读过或写过**的表上。合并进来的表卡里
-  那些本语料没碰过的表，只把已证明的键、生产者与消费者借给上面的判定，不进 `entities[]`、
+  那些本语料没碰过的表，只把已证明的键、生产者与消费者借给上面的判定，不进 `tables[]`、
   不进 ER 图、不出约束与发现，也不写 `tables/<db.table>.md`——否则一份几个任务的语料会得到
   一张几千个实体的 ER 图，人读不了，也不是这份语料的模型。
 - 唯一的例外是**被本语料的关系引用到**的表：关系的两端必须都是实体，否则 ER 图上会缺一个框，

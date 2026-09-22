@@ -292,7 +292,7 @@ def test_the_ontology_attribute_carries_the_card_s_samples(tmp_path: Path) -> No
     )
 
     entity = next(
-        item for item in ontology["entities"] if item["id"] == "mart.customer_daily"
+        item for item in ontology["tables"] if item["id"] == "mart.customer_daily"
     )
     attributes = {item["column"]: item for item in entity["attributes"]}
     assert attributes["country_code"]["samples"] == ["US", "JP", "CN"]

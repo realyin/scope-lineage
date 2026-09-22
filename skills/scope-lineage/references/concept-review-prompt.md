@@ -1,6 +1,6 @@
 # 把概念层的候选变成业务方认得出的概念
 
-读 `ontology.md` 的「概念层」之后用这份提示词。它和 `ontology-review-prompt.md` 是同一份
+读 `ontology.md` 的「本体总览」与「概念」两部分之后用这份提示词。它和 `ontology-review-prompt.md` 是同一份
 语料的两轮：那一轮问的是**表**（这张表按这组列唯一吗、这条边是几对几），这一轮问的是
 **概念**（这是一件什么东西、它叫什么、这两个是不是同一个）。表那一轮答完不会让概念层变准，
 概念这一轮答完也不会让键变准——两轮互不替代，先跑哪一轮都行。
@@ -25,21 +25,27 @@ scope-lineage ontology --lineage <corpus> --out <dir> \
 
 ## 先读什么
 
-1. `ontology.md` 的「概念层」：一屏看完这份语料被读成了哪几个概念、谁连谁。框里是概念名与
-   种类，底色按种类分；边上的 `?` 是「基数只是作者假设」。
+1. `ontology.md` 的「本体总览」：一屏看完这份语料被读成了哪几个概念、按种类各几个、谁连谁。
+   框里是概念名与种类，底色按种类分；边上的 `?` 是「基数只是作者假设」。
 2. 「概念」表：每个概念一行——名字、种类与它的层级、表数（按角色拆开）、前三个命名候选、
    `疑似重复`。**这是这一轮的工作台。**
-3. 「概念关系」表：类型、两端、参与身份、基数与层级、证据条数。
+3. 「关系」表：概念之间的关系——类型、两端、参与身份、基数与层级、证据条数。M2 起
+   `ontology.json` 里这一层就叫 `relations[]`；表与表之间的 JOIN 是它的**证据**，在
+   `table_relations[]`，每条写着自己折进了哪条概念关系（`concept_relation`）。
 4. 「临时概念（每表一个，待归并）」表：语料没能把它归到任何业务键上的表，每张各自成了一个
    概念（`tier: "provisional"`、`origin: "provisional"`，id 形如 `concept:table:<表名>`，
    点号换成 `_`）。**这是这一轮的第一步**，见下面第 1 节。行里写着名字、种类、是哪张表，以及
    回写时要用的那个 id。紧跟着的「被挡下的键词根」（只在有的时候出现）说哪些词根被通用键规则
-   挡下了——**它们仍然可以被点名**，逐条在 `retired_stems[]`。（`unassigned_tables[]` 这一版
-   起恒为 `[]`：每张表都有概念了，只是临时概念不是答案，是问题。）
-5. 每张表卡片第 7 节开头那一行：「本表是〈概念〉的〈角色〉视图（〈依据〉）」，或者
-   「本表暂自成概念〈名字〉（provisional），待评审归并」。**核对折叠对不对，看这一行最快。**
-6. 完整字段（`kind_evidence[]` 的逐条投票、`name_candidates[]` 的来源与出现次数、
-   `tables[].membership_basis`）在 `ontology.json` 的 `concepts[]` 里。
+   挡下了——**它们仍然可以被点名**，逐条在 `retired_stems[]`。（M2 删掉了
+   `unassigned_tables[]`：每张表都有概念了，只是临时概念不是答案，是问题。）
+5. `ontology.md` 「概念」部分里**每个概念自己那一节**：表现表（表 / 角色 / 依据 / 粒度）、
+   属性摘要、约束、关系、待人工判定。判断一个概念折得对不对，读它这一节最快。
+6. 每张表卡片第 7 节开头那一行：「本表是〈概念〉的〈角色〉视图（〈依据〉）」，或者
+   「本表暂自成概念〈名字〉（provisional），待评审归并」；紧接着的「概念中的其他表现」列出
+   同一概念的别的表。**核对某一张表归得对不对，看这两块最快。**
+7. 完整字段（`kind_evidence[]` 的逐条投票、`name_candidates[]` 的来源与出现次数、
+   `tables[].membership_basis`）在 `ontology.json` 的 `concepts[]` 里；反过来，
+   `tables[].concepts[]` 说一张表表现了哪些概念。
 
 ## 按这个顺序问：临时概念归并 → 种类 → 名字 → 合并 → 拆分 → 角色
 
@@ -105,7 +111,7 @@ scope-lineage ontology --lineage <corpus> --out <dir> \
 | 线索 | 证据在哪 | 还需要什么 |
 | --- | --- | --- |
 | 两个概念的 `name` 相同 | `possible_duplicate_of` | 问业务方这两组表是不是一件东西 |
-| 两个词根之间有 `association`，基数 `one_to_one_assumed` | 「概念关系」表 | 一对一不等于同一件事，仍要问 |
+| 两个词根之间有 `association`，基数 `one_to_one_assumed` | 「关系」表 | 一对一不等于同一件事，仍要问 |
 | 两个概念的 `attributes[].stem` 大面积重合 | `concepts[].attributes[]` | 重合的是通用字段（`dt`、`create_time`）时不算数 |
 
 合并是**有方向**的：`merge_into` 写"留下来的那个"的 id，被合掉的那个的表、属性与词根都并过去，
@@ -169,7 +175,7 @@ scope-lineage ontology --lineage <corpus> --out <dir> \
 | 1 | 名字 | 某个成员表的**表注释**或**键列注释**给出了一个中文业务词，且 `name_candidates[]` 里它的 `source` 是 `table_comment` / `key_column_comment` | `<表>.<列> 的注释 <原注释> 称它为 <名字>` |
 | 2 | 种类 | `kind_tier` 已是 `implied`，且要写的 `kind` 与它一致（把已推得的结论显式确认下来） | `kind_evidence 中 <N> 个信号一致投 <种类>` |
 | 3 | 角色 | 该表在 `tables[]` 里的 `membership_basis` 与卡片第 2 节的 grain 直接矛盾（例如 grain 证明它是按天聚合的，却被读成 `primary`） | `生产任务 <任务名> 的 grain 为 <basis>，本表是汇总而非主表` |
-| 4 | 合并 | 两个概念的**词根经 O5 同义证明同值**（`entities[].attributes[].synonyms[]` 里有一条把两个键列连起来），不是名字像 | `O5 已证明 <表A>.<列A> 与 <表B>.<列B> 同值` |
+| 4 | 合并 | 两个概念的**词根经 O5 同义证明同值**（`tables[].attributes[].synonyms[]` 里有一条把两个键列连起来），不是名字像 | `O5 已证明 <表A>.<列A> 与 <表B>.<列B> 同值` |
 | 5 | 种类（只有词汇线索） | `kind_evidence[]` 里 `signal` 全是 `word_hint` 或 `no_signal`，几条 `word_hint` **投的是同一票**，且 `kind_tier` 为 `implied` | `仅词汇线索一致：<N> 处词汇都投 <种类>，没有结构信号反对` |
 | 6 | 角色 / 成员 | 某张表的**表注释**同时命名了**概念**与**粒度**（「客户日快照」＝客户的快照，「客户还款明细」＝客户的明细）——那正是 `role` 与 `add_tables` 读的东西 | `表注释命名了概念与粒度：<表> 的注释 <原注释> 说它是 <概念> 的 <角色>` |
 
@@ -290,7 +296,7 @@ Q<n>. <一句问题，业务方不看 SQL 也能懂>
 - `kind` 只能是 `entity` / `event` / `summary`；`roles` 与 `add_tables` 的取值只能是
   `primary` / `snapshot` / `detail` / `summary` / `intermediate` / `reference`。写别的会被
   报成 `unknown_kind:` / `unknown_role:`，那一项不生效。
-- `add_tables` 的键是**表名**，必须是本语料 `entities[]` 里有的一张表，否则报
+- `add_tables` 的键是**表名**，必须是本语料 `tables[]` 里有的一张表，否则报
   `unknown_table: <表>`；已经是这个概念成员的表报 `already_a_member: <表>`，
   用 `roles` 改它的角色，不要用 `add_tables` 加第二遍。
 - `merge_into` 写留下来的那个概念的 id。合并在**概念关系折叠之前**生效，所以原本指向被合掉

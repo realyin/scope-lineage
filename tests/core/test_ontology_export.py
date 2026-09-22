@@ -89,7 +89,7 @@ def test_an_unknown_type_is_a_string_rather_than_a_dropped_slot() -> None:
     ontology = _golden_ontology()
     untyped = [
         attribute
-        for entity in ontology["entities"]
+        for entity in ontology["tables"]
         for attribute in entity["attributes"]
         if attribute["type"] is None
     ]
@@ -105,13 +105,13 @@ def test_the_class_id_is_the_identifier_the_er_diagram_already_uses() -> None:
     """One warehouse name, one safe identifier, in every rendering of this corpus."""
     ontology = _golden_ontology()
 
-    assert entity_class_ids(ontology["entities"]) == mermaid_entity_ids(
-        ontology["entities"]
+    assert entity_class_ids(ontology["tables"]) == mermaid_entity_ids(
+        ontology["tables"]
     )
 
 
 def _entity_with(ontology, key_columns, tier):
-    for entity in ontology["entities"]:
+    for entity in ontology["tables"]:
         for key in entity["identity"]["candidate_keys"]:
             if key["columns"] == list(key_columns) and key["tier"] == tier:
                 return entity
@@ -121,7 +121,7 @@ def _entity_with(ontology, key_columns, tier):
 def test_a_single_column_proven_key_becomes_an_identifier() -> None:
     ontology = {
         "corpus": {"artifact_root": "corpus", "task_count": 1},
-        "entities": [
+        "tables": [
             {
                 "id": "mart.t",
                 "kind": "produced_table",
@@ -140,7 +140,7 @@ def test_a_single_column_proven_key_becomes_an_identifier() -> None:
                 "naming_hints": {},
             }
         ],
-        "relations": [],
+        "table_relations": [],
         "constraints": [],
     }
 
@@ -154,7 +154,7 @@ def test_a_multi_column_key_becomes_a_unique_keys_entry_not_an_identifier() -> N
     """LinkML's ``identifier`` is one slot; a composite key is a ``unique_keys`` entry."""
     ontology = _golden_ontology()
     entity = _entity_with(ontology, ["segment", "band"], "proven")
-    class_id = entity_class_ids(ontology["entities"])[entity["id"]]
+    class_id = entity_class_ids(ontology["tables"])[entity["id"]]
 
     text = render_linkml(ontology)
     block = _class_block(text, class_id)
@@ -169,7 +169,7 @@ def test_a_key_the_corpus_only_assumed_is_not_an_identifier() -> None:
     would launder it into a fact."""
     ontology = _golden_ontology()
     entity = _entity_with(ontology, ["channel_code"], "hypothesis")
-    class_id = entity_class_ids(ontology["entities"])[entity["id"]]
+    class_id = entity_class_ids(ontology["tables"])[entity["id"]]
 
     block = _class_block(render_linkml(ontology), class_id)
 
@@ -186,7 +186,7 @@ def test_every_relation_slot_carries_its_tier_and_claim() -> None:
 
     text = render_linkml(ontology)
 
-    for relation in ontology["relations"]:
+    for relation in ontology["table_relations"]:
         block = _slot_block(text, relation["id"])
         assert f'tier: "{relation["cardinality"]["tier"]}"' in block
         assert f'claim: "{relation["cardinality"]["claim"]}"' in block
@@ -206,7 +206,7 @@ def test_every_shacl_shape_carries_a_tier() -> None:
 
 def test_no_tier_token_in_the_json_is_missing_from_either_export() -> None:
     ontology = _golden_ontology()
-    tiers = {relation["cardinality"]["tier"] for relation in ontology["relations"]}
+    tiers = {relation["cardinality"]["tier"] for relation in ontology["table_relations"]}
     tiers |= {constraint["tier"] for constraint in ontology["constraints"]}
 
     linkml, shacl = render_linkml(ontology), render_shacl(ontology)
@@ -222,7 +222,7 @@ def test_the_relation_multiplicity_follows_the_cardinality_claim() -> None:
     text = render_linkml(ontology)
     turtle = render_shacl(ontology)
 
-    for relation in ontology["relations"]:
+    for relation in ontology["table_relations"]:
         claim = relation["cardinality"]["claim"]
         block = _slot_block(text, relation["id"])
         single = claim in ("many_to_one", "many_to_one_assumed", "one_to_one_assumed")
@@ -239,9 +239,9 @@ def test_every_assertion_in_the_json_reaches_the_export_exactly_once(fmt: str) -
     ontology = _golden_ontology()
     text = render_export(ontology, fmt)
 
-    for entity in ontology["entities"]:
+    for entity in ontology["tables"]:
         assert text.count(f'"{entity["id"]}"') == 1, entity["id"]
-    for relation in ontology["relations"]:
+    for relation in ontology["table_relations"]:
         assert text.count(f'"{relation["id"]}"') == 1, relation["id"]
     for item in constraint_ids(ontology["constraints"]):
         assert text.count(f'"{item}"') == 1, item
@@ -296,8 +296,8 @@ def test_the_turtle_declares_the_placeholder_base_iri() -> None:
 def test_an_empty_ontology_still_renders_a_valid_skeleton() -> None:
     empty = {
         "corpus": {"artifact_root": "corpus", "task_count": 0},
-        "entities": [],
-        "relations": [],
+        "tables": [],
+        "table_relations": [],
         "constraints": [],
     }
 
@@ -384,8 +384,8 @@ def _annotated_ontology() -> dict:
     """
     return {
         "corpus": {"artifact_root": "corpus", "task_count": 1},
-        "entities": [_annotated_entity(), _hint_target_entity()],
-        "relations": [],
+        "tables": [_annotated_entity(), _hint_target_entity()],
+        "table_relations": [],
         "constraints": [],
         "findings": [
             {
@@ -509,7 +509,7 @@ def test_the_naming_hints_reach_the_export(fmt: str) -> None:
     ontology = _golden_ontology()
     declared = [
         (key, str(entity["naming_hints"][key]))
-        for entity in ontology["entities"]
+        for entity in ontology["tables"]
         for key in ("domain", "project", "owner")
         if (entity.get("naming_hints") or {}).get(key)
     ]
@@ -526,7 +526,7 @@ def test_the_naming_hints_reach_the_export(fmt: str) -> None:
 def test_a_declared_key_hint_reaches_the_export_exactly_once(fmt: str) -> None:
     """The hint text is also the column's comment, so only the hint itself is counted."""
     ontology = _annotated_ontology()
-    hint = ontology["entities"][0]["identity"]["declared_hints"][0]
+    hint = ontology["tables"][0]["identity"]["declared_hints"][0]
 
     text = render_export(ontology, fmt)
 
@@ -539,7 +539,7 @@ def test_a_relation_hint_reaches_the_export_resolved_or_with_its_reason(
     fmt: str,
 ) -> None:
     ontology = _annotated_ontology()
-    resolved, unresolved = ontology["entities"][0]["relation_hints"]
+    resolved, unresolved = ontology["tables"][0]["relation_hints"]
 
     text = render_export(ontology, fmt)
 
@@ -553,7 +553,7 @@ def test_the_identity_multiplicity_reaches_the_export_with_its_tier(fmt: str) ->
     ontology = _golden_ontology()
     claims = [
         item
-        for entity in ontology["entities"]
+        for entity in ontology["tables"]
         for item in entity["identity"]["multiplicity"]
     ]
 
@@ -571,7 +571,7 @@ def test_a_synonym_reaches_the_export_with_its_via_and_tier(fmt: str) -> None:
     ontology = _golden_ontology()
     synonyms = [
         synonym
-        for entity in ontology["entities"]
+        for entity in ontology["tables"]
         for attribute in entity["attributes"]
         for synonym in attribute["synonyms"]
     ]
@@ -621,7 +621,7 @@ def test_the_golden_open_items_reach_the_export_exactly_once(fmt: str) -> None:
 def test_the_evidence_is_a_count_and_a_first_task_not_the_whole_list(fmt: str) -> None:
     """Evidence is the biggest list in the JSON; a schema wants its size, not its rows."""
     ontology = _golden_ontology()
-    relation = ontology["relations"][0]
+    relation = ontology["table_relations"][0]
 
     text = render_export(ontology, fmt)
 
@@ -659,17 +659,17 @@ def _concept_ontology() -> dict:
     The golden corpus folds exactly one concept, no concept relation and no
     representation link, and growing it would change an inference fixture this work item
     must not touch. So the three kinds, a participation with roles, an aggregation, a
-    seam between two representations and an unassigned table are written here by hand,
-    in the shape ``build_concepts`` and ``build_concept_relations`` produce.
+    seam between two representations are written here by hand, in the shape
+    ``build_concepts`` and ``build_concept_relations`` produce.
     """
     return {
         "corpus": {"artifact_root": "corpus", "task_count": 2},
-        "entities": [_concept_entity(table, column) for table, column in _CONCEPT_TABLES],
-        "relations": [],
+        "tables": [_concept_entity(table, column) for table, column in _CONCEPT_TABLES],
+        "table_relations": [],
         "constraints": [],
         "concepts": [_party_concept(), _order_concept(), _daily_concept()],
-        "concept_relations": _synthetic_concept_relations(),
-        "concept_representation_links": [
+        "relations": _synthetic_concept_relations(),
+        "representation_links": [
             {
                 "concept": "concept:party",
                 "from_table": "dwd.party_df",
@@ -677,7 +677,6 @@ def _concept_ontology() -> dict:
                 "evidence": ["rel:004"],
             }
         ],
-        "unassigned_tables": [{"table": "tmp.stage_party", "reason": "no_candidate_key"}],
     }
 
 
@@ -813,7 +812,7 @@ def _synthetic_concept_relations() -> list[dict]:
 
 
 def _concept_ids(ontology) -> dict[str, str]:
-    return concept_class_ids(ontology["concepts"], entity_class_ids(ontology["entities"]))
+    return concept_class_ids(ontology["concepts"], entity_class_ids(ontology["tables"]))
 
 
 def _shacl_shape(turtle: str, class_id: str) -> str:
@@ -916,7 +915,7 @@ def test_a_concept_relation_is_a_slot_on_the_from_class() -> None:
     ids = _concept_ids(ontology)
     text = render_linkml(ontology)
 
-    for relation in ontology["concept_relations"]:
+    for relation in ontology["relations"]:
         block = _class_block(text, ids[relation["from"]])
         assert block.count(f'relation_type: "{relation["type"]}"') == 1
         assert block.count(f'range: "{ids[relation["to"]]}"') == 1
@@ -927,7 +926,7 @@ def test_a_concept_relation_multiplicity_follows_its_claim() -> None:
     ids = _concept_ids(ontology)
     text, turtle = render_linkml(ontology), render_shacl(ontology)
 
-    for relation in ontology["concept_relations"]:
+    for relation in ontology["relations"]:
         single = relation["cardinality"]["claim"] == "many_to_one"
         block = _class_block(text, ids[relation["from"]])
         shape = _shacl_shape(turtle, ids[relation["from"]])
@@ -940,7 +939,7 @@ def test_a_concept_relation_property_shape_names_the_to_concept() -> None:
     ids = _concept_ids(ontology)
     turtle = render_shacl(ontology)
 
-    for relation in ontology["concept_relations"]:
+    for relation in ontology["relations"]:
         shape = _shacl_shape(turtle, ids[relation["from"]])
         assert f"sh:class sl:{ids[relation['to']]} ;" in shape
         assert f'sl:relationType "{relation["type"]}"' in shape
@@ -950,7 +949,7 @@ def test_a_concept_relation_property_shape_names_the_to_concept() -> None:
 @pytest.mark.parametrize("fmt", EXPORT_FORMATS)
 def test_a_participation_publishes_the_role_and_the_evidence_count(fmt: str) -> None:
     ontology = _concept_ontology()
-    relation = ontology["concept_relations"][0]
+    relation = ontology["relations"][0]
 
     text = render_export(ontology, fmt)
 
@@ -964,22 +963,11 @@ def test_a_participation_publishes_the_role_and_the_evidence_count(fmt: str) -> 
 def test_a_representation_link_reaches_both_table_classes(fmt: str) -> None:
     """A seam in the fold belongs to the two tables it joins, so it lands on both."""
     ontology = _concept_ontology()
-    link = ontology["concept_representation_links"][0]
+    link = ontology["representation_links"][0]
 
     text = render_export(ontology, fmt)
 
     assert text.count(f"{link['from_table']} and {link['to_table']}") == 2
-
-
-@pytest.mark.parametrize("fmt", EXPORT_FORMATS)
-def test_an_unassigned_table_reaches_the_export_with_its_reason(fmt: str) -> None:
-    """A table no concept claimed is a governance fact, not a silence."""
-    ontology = _concept_ontology()
-    item = ontology["unassigned_tables"][0]
-
-    text = render_export(ontology, fmt)
-
-    assert text.count(f"{item['table']} ({item['reason']})") == 1
 
 
 @pytest.mark.parametrize("fmt", EXPORT_FORMATS)
@@ -990,9 +978,9 @@ def test_every_concept_assertion_reaches_the_export_exactly_once(fmt: str) -> No
 
     for concept in ontology["concepts"]:
         assert text.count(f'"{concept["id"]}"') == 1, concept["id"]
-    for relation in ontology["concept_relations"]:
+    for relation in ontology["relations"]:
         assert text.count(f'"{relation["type"]}"') == 1, relation["type"]
-    for entity in ontology["entities"]:
+    for entity in ontology["tables"]:
         assert text.count(f'"{entity["id"]}"') == 1, entity["id"]
 
 
@@ -1015,5 +1003,3 @@ def test_the_golden_concept_reaches_both_exports(fmt: str) -> None:
     for concept in ontology["concepts"]:
         assert text.count(f'"{concept["id"]}"') == 1, concept["id"]
         assert concept["name"] in text
-    for item in ontology["unassigned_tables"]:
-        assert text.count(f"{item['table']} ({item['reason']})") == 1

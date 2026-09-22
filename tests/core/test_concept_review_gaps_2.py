@@ -45,6 +45,7 @@ from scope_lineage.render.concepts import (
     TIER_CONFIRMED,
     apply_concept_overrides,
     build_concepts,
+    table_concept_id,
 )
 
 from scope_lineage.render.ontology import render_ontology_index_markdown
@@ -68,8 +69,8 @@ def _built(entities, relations=(), overrides=None) -> dict:
     """The builder's own order: concepts, then the overrides, then the relation fold."""
     document = {
         "doc_format": "ontology-json/1",
-        "entities": [dict(item) for item in entities],
-        "relations": [dict(item) for item in relations],
+        "tables": [dict(item) for item in entities],
+        "table_relations": [dict(item) for item in relations],
     }
     document.update(build_concepts(document, _cards()))
     apply_concept_overrides(document, overrides or {})
@@ -87,7 +88,7 @@ def _members(concept) -> dict:
 
 def _pairs(document: dict) -> list[tuple[str, str]]:
     return [
-        (str(item["from"]), str(item["to"])) for item in document["concept_relations"]
+        (str(item["from"]), str(item["to"])) for item in document["relations"]
     ]
 
 
@@ -158,9 +159,7 @@ def test_a_created_concept_is_reported_and_leaves_its_tables_placed() -> None:
     applied = document["concept_overrides_applied"]
     assert applied["created"] == [{"id": "concept:party", "tables": [PARTY["id"]]}]
     assert applied["unmatched"] == []
-    assert PARTY["id"] not in {
-        str(item["table"]) for item in document["unassigned_tables"]
-    }
+    assert table_concept_id(PARTY["id"]) not in _by_id(document)
 
 
 def test_a_created_concept_takes_the_key_columns_the_reviewer_named() -> None:
@@ -362,8 +361,8 @@ def test_an_override_addressed_to_a_retired_stem_revives_the_concept() -> None:
     assert concept["name"] == "行记录" and concept["kind"] == CONCEPT_EVENT
     assert concept["identity"]["columns_seen"] == ["rowkey"]
     assert set(_members(concept)) == {ROW_A["id"], ROW_B["id"]}
-    assert {str(item["table"]) for item in document["unassigned_tables"]}.isdisjoint(
-        {ROW_A["id"], ROW_B["id"]}
+    assert {table_concept_id(ROW_A["id"]), table_concept_id(ROW_B["id"])}.isdisjoint(
+        _by_id(document)
     )
 
 
@@ -434,7 +433,7 @@ def test_an_intra_table_join_off_the_concept_key_is_not_a_relation() -> None:
         ],
     )
 
-    assert document["concept_relations"] == []
+    assert document["relations"] == []
     assert _reasons(document)[UNMAPPED_REFERENCE_ONLY] == 1
 
 
@@ -455,7 +454,7 @@ def test_an_intra_table_join_on_the_concept_key_stays_a_self_reference() -> None
         ],
     )
 
-    assert [str(item["type"]) for item in document["concept_relations"]] == [
+    assert [str(item["type"]) for item in document["relations"]] == [
         TYPE_SELF_REFERENCE
     ]
     assert _reasons(document)[UNMAPPED_REFERENCE_ONLY] == 0
@@ -492,7 +491,7 @@ def test_a_reference_members_edge_off_the_key_is_not_a_relation() -> None:
     )
 
     assert _pairs(document) == [("concept:evt", "concept:cust")]
-    relation = document["concept_relations"][0]
+    relation = document["relations"][0]
     assert relation["type"] == TYPE_PARTICIPATION and relation["evidence"] == ["rel:001"]
     assert _reasons(document)[UNMAPPED_REFERENCE_ONLY] == 1
 
@@ -510,7 +509,7 @@ def test_a_reference_members_edge_on_the_key_is_kept() -> None:
     )
 
     assert _pairs(document) == [("concept:evt", "concept:cust")]
-    assert document["concept_relations"][0]["evidence"] == ["rel:001", "rel:002"]
+    assert document["relations"][0]["evidence"] == ["rel:001", "rel:002"]
     assert _reasons(document)[UNMAPPED_REFERENCE_ONLY] == 0
 
 

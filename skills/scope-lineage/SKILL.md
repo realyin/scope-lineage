@@ -265,17 +265,28 @@ scope-lineage ontology  --lineage <corpus> --out <dir> \
   --tables <dir>/tables.json --glossary <dir>/glossary.json
 ```
 
-A corpus-level question `describe` can never answer: **how do these tables relate**. The
-run writes `ontology.json` (machine), `ontology.md` (index) and `tables/<db.table>.md`
-(the table card with five ontology sections appended). `--tables` / `--glossary` only save
+A corpus-level question `describe` can never answer: **what is this warehouse about, and
+how do those things relate**. The run writes `ontology.json` (machine, `ontology-json/2`),
+`ontology.md` (index) and `tables/<db.table>.md` (the table card with five ontology
+sections appended). The JSON is concept-first: `concepts[]` are the business concepts,
+`relations[]` the relations **between concepts**, `tables[]` the warehouse tables that
+*represent* them and `table_relations[]` the JOINs that are the **evidence** (0.4.0 renamed
+the old `entities[]` and `relations[]`; `--legacy-keys` writes the old names for one
+release). `--tables` / `--glossary` only save
 a recomputation — the bytes are identical without them. Add `--export linkml,shacl` when
 the user wants the candidate in an RDF toolchain: it writes `ontology.linkml.yaml` and
 `ontology.shacl.ttl` beside the JSON, each element still carrying its tier.
 
-**Read in this order.** `ontology.md` first: its Mermaid `erDiagram` is the whole corpus
-on one screen, its headline line says 「待人工判定 N 条 / G 组（已确认 M 条）」, and the
-entity table says which card is worth opening (the 图中 id column maps a diagram box back
-to its table). The last section, 「待人工判定清单（N 条，折叠为 G 组）」, is every open
+**Read in this order.** `ontology.md` first, and it reads concept-first: 「本体总览」 says
+how many concepts of each kind the corpus proposes, how many are still 临时概念, and
+「待人工判定 N 条 / G 组（已确认 M 条）」; the concept `flowchart` is the whole business on one
+screen. Then 「概念」 gives each concept its own section — its 表现表 (which tables represent
+it, in which role, at which grain), its attributes, its constraints, its relations and its
+open questions — and that section, not the table list, is what answers a business question.
+Everything table-level is in 「附录：表与证据」: the Mermaid `erDiagram`, the table list
+(its 图中 id column maps a diagram box back to its table), the table relations (each naming
+the concept relation it folded into) and the folded open list. That last section,
+「待人工判定清单（N 条，折叠为 G 组）」, is every open
 question in one place, folded by (kind, table family, question shape): one row per group,
 with a stable `open:group:` id, the representative question, an `影响` score, how many
 items it covers and a write-back pattern whose `<table>` the reviewer fills in per table.
@@ -284,8 +295,10 @@ every task joining one dimension is one question. Groups rank by impact (a relat
 producers plus their tasks; a key's assumed edges; a finding's items), then by size, then
 by the representative's rank; the first 50 print and the rest are summarised in one line. The item-by-item list lives in `open_items[]` in the
 JSON, and the family members in `families[]`. Then the one card you need — never the JSON,
-and never all the cards. A card's sections 7-11 are 身份 / 关系 / 约束 / 属性同义 / 待人工判定; sections 1-6
-are the ordinary table card.
+and never all the cards. A card's sections 7-11 are 身份 / 关系 / 约束 / 属性同义 / 待人工判定;
+sections 1-6 are the ordinary table card. Section 7 opens with which concept this table
+represents and which other tables represent the same one; section 8 shows the concept
+relations its joins fed, with the table-level JOINs beneath them as evidence.
 
 **Every assertion carries a tier, and the tier is the answer.** `proven` 已证明 is written
 in the SQL. `implied` 可推得 follows from what the SQL does. `hypothesis` 作者假设 is what
@@ -337,7 +350,8 @@ unknown entity or column) and `overrides_applied.ignored_fields` (a misspelled s
 did not take effect). Both are where a typo in a reviewed file shows up.
 
 **When the user asks what the corpus is *about*** — 「这批表对应哪些业务概念」, 「客户是哪几
-张表」 — read `ontology.md`'s 「概念层」 and follow `references/concept-review-prompt.md`. It
+张表」 — read `ontology.md`'s 「本体总览」 and 「概念」 parts and follow
+`references/concept-review-prompt.md`. It
 is the same corpus's *second* review round and it answers different questions: the kind of
 each concept (entity / event / summary, with the votes in `kind_evidence[]`), its business
 name (never better than a hypothesis — `name_candidates[]` is ranked, and a concept whose

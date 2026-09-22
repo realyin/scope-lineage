@@ -50,7 +50,8 @@ def add_ontology_parser(subcommands) -> None:
         "ontology",
         help=(
             "Aggregate a corpus of Core artifacts into one ontology candidate: "
-            "entities, relations, constraints and cross-task conflicts"
+            "concepts, the relations between them, the tables that represent them, "
+            "constraints and cross-task conflicts"
         ),
     )
     ontology_cmd.add_argument(
@@ -116,6 +117,17 @@ def add_ontology_parser(subcommands) -> None:
             "ontology.linkml.yaml and shacl writes ontology.shacl.ttl, beside "
             "ontology.json. Repeatable, or one comma-separated list; nothing is "
             "exported by default"
+        ),
+    )
+    ontology_cmd.add_argument(
+        "--legacy-keys",
+        action="store_true",
+        help=(
+            "DEPRECATED. Also write the ontology-json/1 key spellings (entities, "
+            "concept_relations, concept_representation_links, unassigned_tables) as "
+            "aliases of the ontology-json/2 keys, so a consumer can migrate over one "
+            "release. `relations` is not aliased: it now holds the concept relations, "
+            "and the table-level edges moved to `table_relations`"
         ),
     )
     add_incremental_arguments(ontology_cmd)
@@ -222,6 +234,7 @@ def run_ontology(args: argparse.Namespace) -> int:
     # directory derives the same facts, and ``--cache-from`` borrows them.
     options = [
         args.format,
+        bool(getattr(args, "legacy_keys", False)),
         overrides,
         concept_overrides,
         tables,
@@ -245,6 +258,7 @@ def run_ontology(args: argparse.Namespace) -> int:
         overrides=overrides,
         concept_overrides=concept_overrides,
         artifact_root=root,
+        legacy_keys=bool(getattr(args, "legacy_keys", False)),
     )
     # P7: one card file per entity. Cards merged in from another corpus that this one
     # never touched lent their evidence to the build; they are not tables of this model.
@@ -305,8 +319,10 @@ def _report(
         )
     confirmations += _concept_confirmations(ontology, concept_overrides)
     print(
-        f"Modelled {len(ontology['entities'])} entity(ies), "
+        f"Modelled {len(ontology['concepts'])} concept(s), "
         f"{len(ontology['relations'])} relation(s), "
+        f"{len(ontology['tables'])} table(s), "
+        f"{len(ontology['table_relations'])} table relation(s), "
         f"{len(ontology['constraints'])} constraint(s) and "
         f"{len(ontology['findings'])} finding(s) from "
         f"{ontology['corpus'].get('task_count')} task(s){confirmations}{exported} "

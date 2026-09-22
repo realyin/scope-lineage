@@ -17,7 +17,7 @@
 - **观察到的值集合是下限，不是上限。** 只有两种情况写 `closed_set`：`IN` 列表，
   以及带 ELSE 且每个 THEN 与 ELSE 都是常量的 CASE。其余一律 `null`——
   "语料里只见过这 3 个值"不等于"这个列只有 3 个值"。
-- 它是阶段二本体（`ontology-json/1`）的 `value_domains` + `synonyms` 切片提前交付，
+- 它是阶段二本体（`ontology-json/2`）的 `value_domains` + `synonyms` 切片提前交付，
   槽位与后者的 `in_set` 约束对齐：同样是（列、值、证据、任务数、完备性）五元组。
 
 ## 用法

@@ -365,7 +365,7 @@ def _ontology(*documents: dict) -> dict:
 
 
 def _entity(ontology: dict, table: str) -> dict:
-    return next(item for item in ontology["entities"] if item["id"] == table)
+    return next(item for item in ontology["tables"] if item["id"] == table)
 
 
 def test_an_entity_has_one_attribute_per_declared_column() -> None:
@@ -402,7 +402,7 @@ def test_the_entity_table_counts_attributes_against_the_used_ones() -> None:
 
     row = next(
         line
-        for line in rendered.split("\n")
+        for line in rendered.split("## 附录：表与证据")[1].split("\n")
         if line.startswith("| [`ods.demo_event`]")
     )
     assert "8（语料用到 3）" in row

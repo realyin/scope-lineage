@@ -54,16 +54,16 @@ def test_ontology_writes_the_json_and_the_index(tmp_path: Path, capsys) -> None:
     assert _run("--lineage", str(corpus), "--out", str(out)) == 0
 
     ontology = json.loads((out / "ontology.json").read_text(encoding="utf-8"))
-    assert ontology["doc_format"] == "ontology-json/1"
+    assert ontology["doc_format"] == "ontology-json/2"
     assert ontology["corpus"]["task_count"] == 2
-    assert [item["id"] for item in ontology["entities"]] == [
+    assert [item["id"] for item in ontology["tables"]] == [
         "mart.customer_daily",
         "mart.customer_rollup",
         "ods.customer_base",
     ]
-    assert [item["id"] for item in ontology["relations"]] == ["rel:001"]
+    assert [item["id"] for item in ontology["table_relations"]] == ["rel:001"]
     assert (out / "ontology.md").read_text(encoding="utf-8").startswith("---\n")
-    assert "Modelled 3 entity(ies), 1 relation(s)" in capsys.readouterr().out
+    assert "Modelled 3 concept(s), 1 relation(s), 3 table(s)" in capsys.readouterr().out
 
 
 def test_the_corpus_proof_reaches_the_relation(tmp_path: Path) -> None:
@@ -71,7 +71,7 @@ def test_the_corpus_proof_reaches_the_relation(tmp_path: Path) -> None:
     out = tmp_path / "out"
     assert _run("--lineage", str(_corpus(tmp_path / "corpus")), "--out", str(out)) == 0
 
-    relation = json.loads((out / "ontology.json").read_text(encoding="utf-8"))["relations"][0]
+    relation = json.loads((out / "ontology.json").read_text(encoding="utf-8"))["table_relations"][0]
 
     assert relation["from"]["entity"] == "ods.customer_base"
     assert relation["to"]["entity"] == "mart.customer_daily"
@@ -218,7 +218,7 @@ def test_ontology_writes_one_merged_card_per_table(tmp_path: Path) -> None:
     assert written == sorted(path.name for path in (cards / "tables").glob("*.md"))
 
     card = (out / "tables" / "mart.customer_daily.md").read_text(encoding="utf-8")
-    assert 'doc_format: "ontology-md/1"' in card
+    assert 'doc_format: "ontology-md/2"' in card
     for title in ("7. 身份（本体）", "8. 关系", "9. 约束", "10. 属性同义", "11. 待人工判定"):
         assert f"## {title}" in card
     # The table card's own sections are still there, unchanged and first.
@@ -276,7 +276,7 @@ def test_ontology_applies_a_reviewed_overrides_file(tmp_path: Path, capsys) -> N
     )
 
     ontology = json.loads((out / "ontology.json").read_text(encoding="utf-8"))
-    assert ontology["relations"][0]["cardinality"]["tier"] == "confirmed"
+    assert ontology["table_relations"][0]["cardinality"]["tier"] == "confirmed"
     assert ontology["overrides_applied"] == {
         "relations": 1,
         "keys": 1,

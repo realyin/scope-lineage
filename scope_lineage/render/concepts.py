@@ -1,6 +1,6 @@
 """K1 / K2: a concept layer above the table-level ontology.
 
-``ontology.entities[]`` answer "what is this **table**": one entity per physical table,
+``ontology.tables[]`` answer "what is this **table**": one entry per physical table,
 its candidate keys, its columns, its family. That is the honest reading of a warehouse,
 and it is not the reading a business asks for. A business asks about 「客户」, and the
 warehouse spells 客户 as ``ods.customer_base``, ``dwd.customer_df``, ``dwd.customer_di``
@@ -22,8 +22,8 @@ Three rules keep it a candidate rather than a claim.
    the tier travelling along as ``membership_basis``), a ``declared_hints[]`` primary-key
    comment, or a JOIN, which makes it a ``reference`` member because it *carries* the key
    without being unique by it. A table whose only key is ``id`` and which no JOIN reaches
-   is published in ``unassigned_tables[]`` with the reason, because "we could not tell"
-   is an answer.
+   becomes its own ``provisional`` concept (M1) carrying the reason, because "we could
+   not tell" is an answer -- and it is the first question the review round answers.
 2. **Every kind carries its votes.** ``kind_evidence[]`` lists each signal and what it
    voted for. Signals that agree earn ``implied``; signals that disagree earn
    ``hypothesis`` and the reviewer sees exactly which two disagreed.
@@ -31,8 +31,9 @@ Three rules keep it a candidate rather than a claim.
    ``name_candidates[]`` and always ``hypothesis``: a column comment and a table comment
    are metadata, and metadata goes stale. The stem itself is the last resort.
 
-``entities[]`` stay exactly as they were: a concept *points at* the tables that represent
-it, and the table-level reading is what a reviewer checks the fold against.
+``tables[]`` stay exactly as they were: a concept *points at* the tables that represent
+it (and, since M2, each of them back-links to the concepts it represents), and the
+table-level reading is what a reviewer checks the fold against.
 
 Input is derived documents only -- the ontology dict this module is called from and the
 table cards underneath it. Grain and task roles are read off the cards' ``produced_by``
@@ -522,10 +523,11 @@ def build_concepts(ontology: Mapping, cards: Mapping) -> dict:
 
     M1: every table a key, a hint or a JOIN could not give an *identity* to becomes its
     own ``provisional`` concept, so the layer covers the corpus and K3 can lift every
-    edge. ``unassigned_tables[]`` is therefore empty by construction; it is published for
-    one more release so a consumer that reads it does not break on a missing key.
+    edge. M2 dropped the ``unassigned_tables[]`` this replaced: every table is in a
+    concept now, and a key that is empty by construction only invites a consumer to keep
+    reading it.
     """
-    entities = list(ontology.get("entities") or [])
+    entities = list(ontology.get("tables") or [])
     index = {str(card.get("table")): card for card in cards.get("tables") or []}
     synonyms = synonym_folding(entities)
     seeds = [_seed(entity, synonyms) for entity in entities]
@@ -555,7 +557,6 @@ def build_concepts(ontology: Mapping, cards: Mapping) -> dict:
     return {
         "concepts": concepts,
         "provisional_count": provisional_count(concepts),
-        "unassigned_tables": [],
         "retired_stems": _retired_stems(
             entities, synonyms, index, generic, set(members), identified
         ),
@@ -839,7 +840,7 @@ def _attach_references(
     the weakest one: it lends the concept neither a kind vote nor an attribute.
     """
     by_id = {str(entity.get("id")): entity for entity in entities}
-    for relation in ontology.get("relations") or []:
+    for relation in ontology.get("table_relations") or []:
         if str(relation.get("kind")) not in REFERENCE_RELATION_KINDS:
             continue
         target = _side_stem(relation.get("to") or {}, synonyms)
@@ -1795,7 +1796,7 @@ def apply_concept_overrides(ontology: dict, overrides: Mapping) -> None:
     }
     ontology["concept_overrides_applied"] = applied
     _ignored_fields(applied, "(document)", overrides, CONCEPT_OVERRIDES_DOC_FIELDS)
-    corpus = _Corpus(ontology.get("entities") or [])
+    corpus = _Corpus(ontology.get("tables") or [])
     ontology.setdefault("concepts", [])
     _new_concepts(ontology, list(overrides.get("new_concepts") or []), applied, corpus)
     index = {str(concept["id"]): concept for concept in ontology["concepts"]}

@@ -39,7 +39,7 @@ to concept)``. Four rules keep it a reading of the corpus rather than a new clai
    both sides is a ``self_reference`` -- 上级客户 → 客户 is a relation the business has --
    unless the two *tables* are two representations of that one concept, which is a seam
    in K1's fold rather than a relation: those are published apart, in
-   ``concept_representation_links[]``.
+   ``representation_links[]``.
 3. **The cardinality is the strongest member claim, and it says which.** Tier first
    (``proven`` outranks ``confirmed`` here: a claim the corpus proved outranks one a
    reviewer confirmed for a single pair of tables, because the fold is about the corpus),
@@ -122,7 +122,12 @@ CARDINALITY_CLAIMS = (
     "unknown",
 )
 
+#: M2: `crel:NNN`, minted by publication order so a table relation can say which
+#: concept relation it folded into (`table_relations[].concept_relation`).
+CONCEPT_RELATION_ID = "crel:{index:03d}"
+
 CONCEPT_RELATION_KEYS = (
+    "id",
     "from",
     "to",
     "type",
@@ -160,19 +165,19 @@ def build_concept_relations(ontology: Mapping) -> dict:
     table-level relations this folds.
     """
     concepts = list(ontology.get("concepts") or [])
-    entities = list(ontology.get("entities") or [])
-    relations = list(ontology.get("relations") or [])
+    entities = list(ontology.get("tables") or [])
+    relations = list(ontology.get("table_relations") or [])
     context = _Context(
         by_stem={
             stem: str(concept.get("id"))
             for concept in concepts
             for stem in _stems(concept)
         },
-        identity=_identity_memberships(concepts),
+        identity=identity_memberships(concepts),
         membership=_memberships(concepts),
         synonyms=synonym_folding(entities),
         carried=_carried_memberships(concepts),
-        provisional=_provisional_memberships(concepts),
+        provisional=provisional_memberships(concepts),
     )
     groups, seams, unmapped = _fold(relations, context)
     kinds = {str(concept.get("id")): str(concept.get("kind")) for concept in concepts}
@@ -181,16 +186,28 @@ def build_concept_relations(ontology: Mapping) -> dict:
         _concept_relation(pair, members, kinds, comments)
         for pair, members in groups.items()
     ]
-    built.sort(key=_order)
+    built = _numbered(sorted(built, key=_order))
     return {
-        "concept_relations": built,
+        "relations": built,
         "provisional_relations": _provisional_relations(built, concepts),
-        "concept_representation_links": sorted(
+        "representation_links": sorted(
             (_link(seam, members) for seam, members in seams.items()),
             key=lambda item: (item["concept"], item["from_table"], item["to_table"]),
         ),
         "concept_relations_unmapped": _unmapped_counts(len(relations), unmapped),
     }
+
+
+def _numbered(relations: Sequence[Mapping]) -> list[dict]:
+    """M2: ``crel:NNN`` by publication order -- the one place a concept edge is named.
+
+    The id exists so a table relation can say which concept relation it folded into, and
+    it follows the sort rather than the fold, so two runs of one corpus agree.
+    """
+    return [
+        {"id": CONCEPT_RELATION_ID.format(index=index), **relation}
+        for index, relation in enumerate(relations, start=1)
+    ]
 
 
 def provisional_concept_ids(concepts: Sequence[Mapping]) -> frozenset:
@@ -235,7 +252,7 @@ def _stems(concept: Mapping) -> list[str]:
     ]
 
 
-def _identity_memberships(concepts: Sequence[Mapping]) -> dict[str, str]:
+def identity_memberships(concepts: Sequence[Mapping]) -> dict[str, str]:
     """``{table: concept id}`` for the tables their own identity placed exactly once.
 
     A ``reference`` membership is the weakest one K1 publishes -- the table merely
@@ -311,7 +328,7 @@ def _fold(relations: Sequence[Mapping], context: _Context) -> tuple[dict, dict, 
     return groups, seams, unmapped
 
 
-def _provisional_memberships(concepts: Sequence[Mapping]) -> dict[str, str]:
+def provisional_memberships(concepts: Sequence[Mapping]) -> dict[str, str]:
     """``{table: concept id}`` for the concepts M1 published out of a table (M1).
 
     Held apart from ``identity`` and ``membership`` on purpose, and read only after

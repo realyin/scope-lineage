@@ -1,5 +1,5 @@
 ---
-doc_format: "ontology-md/1"
+doc_format: "ontology-md/2"
 table: "mart.metric_by_segment"
 producers: 1
 consumers: 0
@@ -70,15 +70,23 @@ consumers: 0
 
 ## 8. 关系
 
-**出边（本表在左）**
+**概念关系**
+
+- 本表所属概念没有可发布的概念关系。
+
+**表级 JOIN（证据）**
+
+*出边（本表在左）*
 
 - 无。
 
-**入边（本表在右）**
+*入边（本表在右）*
 
 - 无。
 
 ## 9. 约束
+
+以下都是「metric_by_segment」（`concept:table:mart_metric_by_segment`）这一份表现上的事实。
 
 | 约束 | 目标 | 值集 / 完整性 | 层级 | 证据 |
 | --- | --- | --- | --- | --- |
@@ -87,8 +95,12 @@ consumers: 0
 
 ## 10. 属性同义
 
+以下都是「metric_by_segment」（`concept:table:mart_metric_by_segment`）这一份表现上的事实。
+
 - 语料内没有证明本表任何列与别处同名异写。
 
 ## 11. 待人工判定
+
+以下都是「metric_by_segment」（`concept:table:mart_metric_by_segment`）这一份表现上的事实。
 
 - 本表没有待人工判定的项。

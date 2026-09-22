@@ -113,8 +113,8 @@ def _entity(
 def _ontology(*entities: dict, relations=()) -> dict:
     return {
         "doc_format": "ontology-json/1",
-        "entities": list(entities),
-        "relations": list(relations),
+        "tables": list(entities),
+        "table_relations": list(relations),
     }
 
 
@@ -1059,7 +1059,7 @@ def test_the_ontology_document_carries_the_concept_layer() -> None:
     ontology = _built()
 
     assert "concepts" in ontology
-    assert "unassigned_tables" in ontology
+    assert "provisional_count" in ontology
     assert [
         str(concept["id"])
         for concept in ontology["concepts"]
@@ -1076,4 +1076,4 @@ def test_the_concept_layer_is_byte_identical_across_two_builds() -> None:
     assert json.dumps(first["concepts"], ensure_ascii=False) == json.dumps(
         second["concepts"], ensure_ascii=False
     )
-    assert first["unassigned_tables"] == second["unassigned_tables"]
+    assert first["provisional_count"] == second["provisional_count"]

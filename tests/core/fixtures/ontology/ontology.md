@@ -1,21 +1,23 @@
 ---
-doc_format: "ontology-index-md/1"
+doc_format: "ontology-index-md/2"
 task_count: 5
-entity_count: 9
+concept_count: 9
 relation_count: 4
+table_count: 9
+table_relation_count: 4
 open_item_count: 2
 open_item_group_count: 2
 ---
 
 # 语料本体候选索引
 
-共 5 个任务、9 个实体、4 条关系、6 条约束、0 条矛盾发现；待人工判定 2 条 / 2 组（已确认 0 条）。
+## 本体总览
+
+1 个概念（实体 1、事件 0、汇总 0）、4 条概念关系，另有 8 个**临时概念**（M1：语料没能把它归到任何业务键上的表，暂时各自成一个概念，其中 4 条概念关系至少有一端是临时的）。概念是**候选**：名字永远是作者假设，种类由 `kind_evidence[]` 的投票决定，两个词根是不是同一件事留给评审那一轮判（见 `concepts.overrides.json`）。
+
+底下是 5 个任务、9 张表、4 条表级关系、6 条约束、0 条矛盾发现，逐条见附录；待人工判定 2 条 / 2 组（已确认 0 条）。
 
 每条断言都带置信层级：`proven`（已证明，SQL 直接写着）、`implied`（可推得，由结构证明的推论）、`hypothesis`（作者假设，未被证明）、`conflict`（矛盾，跨任务证据打架）、`confirmed`（已确认，只来自人工回写的 `ontology.overrides.json`）。
-
-## 概念层
-
-1 个概念、4 条概念关系，另有 8 个**临时概念**（M1：语料没能把它归到任何业务键上的表，暂时各自成一个概念，其中 4 条概念关系至少有一端是临时的）。概念是**候选**：名字永远是作者假设，种类由 `kind_evidence[]` 的投票决定，两个词根是不是同一件事留给评审那一轮判（见 `concepts.overrides.json`）。
 
 另有 8 个临时概念未画，逐个见下面的「临时概念」表。
 
@@ -27,13 +29,55 @@ flowchart LR
     classDef summary fill:#eaf6ed,stroke:#2e7d46,color:#10331d
 ```
 
-框里是概念名与它的种类，底色按种类分；边上的 `?` 表示这条基数只是作者假设、未被证明，括号里是实体在事件里的身份。同一个概念的两张表之间那条 JOIN 是 K1 折叠的接缝、不是业务关系，它在 `concept_representation_links[]` 里，图上不画。
+框里是概念名与它的种类，底色按种类分；边上的 `?` 表示这条基数只是作者假设、未被证明，括号里是实体在事件里的身份。同一个概念的两张表之间那条 JOIN 是 K1 折叠的接缝、不是业务关系，它在 `representation_links[]` 里，图上不画。
 
 ### 概念
 
 | 概念 | 种类 | 表数 | 命名候选 | 疑似重复 |
 | --- | --- | --- | --- | --- |
 | 渠道（`hypothesis`） | 实体（`implied`） | 2（主表 1、引用 1） | 渠道 / channel | — |
+
+### 关系
+
+| 类型 | 从 | 到 | 角色 | 基数 | 层级 | 证据数 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 关联（临时） | 渠道事件 | 渠道 | — | 多对一，作者假设 | `hypothesis` | 1 |
+| 关联（临时） | events_a | segment_dim | — | 一对多 | `implied` | 1 |
+| 关联（临时） | events_a | events_b | — | 未知 | `implied` | 1 |
+| 关联（临时） | events_b | segment_dim | — | 一对多 | `implied` | 1 |
+
+## 概念
+
+每个概念一节：哪些表在表现它、它由什么组成、对它成立什么、它和谁有关系、还有什么要人来判。
+
+### 渠道（实体）
+
+`concept:channel` · 名字 `hypothesis` · 种类 `implied` · 表现表 2 张 · 属性 2 个
+
+**表现表**
+
+| 表 | 角色 | 依据 | 粒度 |
+| --- | --- | --- | --- |
+| [`dim.channel`](tables/dim.channel.md) | 主表 | `key:hypothesis` | — |
+| [`ods.channel_event`](tables/ods.channel_event.md) | 引用 | `reference` | — |
+
+**属性摘要**
+
+- 共 2 个属性（按词根折叠）：`channel`、`channel_name`。逐条见 `ontology.json` 的 `concepts[].attributes[]`。
+
+**约束**
+
+- 本概念的表现表上没有可发布的约束。
+
+**关系**
+
+| 方向 | 对端 | 类型 | 角色 | 基数 | 层级 | 证据数 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 入 | 渠道事件 | 关联 | — | 多对一，作者假设 | `hypothesis` | 1 |
+
+**待人工判定**
+
+- 候选键（`open:group:key:dim.channel=channel_code`，1 条，影响 1）：候选键 `channel_code`：只有任务直接关联时的假设，语料没有证明它唯一。
 
 ### 临时概念（每表一个，待归并）
 
@@ -50,16 +94,11 @@ flowchart LR
 | events_b（`stem_only`） | 实体 | `ods.events_b` | `concept:table:ods_events_b` 的 `merge_into` |
 | users（`stem_only`） | 实体 | `ods.users` | `concept:table:ods_users` 的 `merge_into` |
 
-### 概念关系
+## 附录：表与证据
 
-| 类型 | 从 | 到 | 角色 | 基数 | 层级 | 证据数 |
-| --- | --- | --- | --- | --- | --- | --- |
-| 关联（临时） | 渠道事件 | 渠道 | — | 多对一，作者假设 | `hypothesis` | 1 |
-| 关联（临时） | events_a | segment_dim | — | 一对多 | `implied` | 1 |
-| 关联（临时） | events_a | events_b | — | 未知 | `implied` | 1 |
-| 关联（临时） | events_b | segment_dim | — | 一对多 | `implied` | 1 |
+下面全是**表一级**的事实：语料里哪些表、它们被哪些 JOIN 连过、那些 JOIN 证明了什么。上面的概念关系就是从这里折出来的，所以这里是证据，不是模型。
 
-## 实体关系总览
+### 表级关系（证据）
 
 ```mermaid
 erDiagram
@@ -88,9 +127,9 @@ erDiagram
 
 实体框里只列候选键列（标 `PK`），完整字段见每张表的卡片。边上的 `?` 表示这条基数只是作者假设、未被证明，`!` 表示语料里对这组键存在矛盾证据。
 
-## 实体
+### 表
 
-| 实体 | 图中 id | 类型 | 注释 | 键置信 | 属性 | 出边 | 入边 | 约束数 |
+| 表 | 图中 id | 类型 | 注释 | 键置信 | 属性 | 出边 | 入边 | 约束数 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | [`dim.channel`](tables/dim.channel.md) | `dim_channel` | physical_table | 渠道维表（合成） | 作者假设（hypothesis） | 2（语料用到 1） | 0 | 1 | 0 |
 | [`dim.segment_dim`](tables/dim.segment_dim.md) | `dim_segment_dim` | physical_table | — | 无候选键 | 3（语料用到 3） | 0 | 2 | 0 |
@@ -102,31 +141,49 @@ erDiagram
 | [`ods.events_b`](tables/ods.events_b.md) | `ods_events_b` | physical_table | — | 无候选键 | 2（语料用到 2） | 1 | 1 | 0 |
 | [`ods.users`](tables/ods.users.md) | `ods_users` | physical_table | — | 无候选键 | 3（语料用到 3） | 0 | 0 | 0 |
 
-## 关系
+### 表级关系
 
-| 关系 | 从 | 到 | 类型 | 基数 | 层级 | 依据 | 任务数 |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| rel:001 | `ods.channel_event`.`channel_code` | `dim.channel`.`channel_code` | join_association | many_to_one_assumed | hypothesis | right_side_not_deduplicated | 2 |
-| rel:002 | `ods.events_a`.`segment` | `dim.segment_dim`.`segment` | join_association | one_to_many | implied | ranking_window | 1 |
-| rel:003 | `ods.events_a`.`segment`、`amount` | `ods.events_b`.`seg_code`、`amount` | union_sibling | unknown | implied | union_branch_alignment | 1 |
-| rel:004 | `ods.events_b`.`seg_code` | `dim.segment_dim`.`segment` | join_association | one_to_many | implied | ranking_window | 1 |
+| 关系 | 从 | 到 | 类型 | 基数 | 层级 | 依据 | 任务数 | 折入概念关系 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| rel:001 | `ods.channel_event`.`channel_code` | `dim.channel`.`channel_code` | join_association | many_to_one_assumed | hypothesis | right_side_not_deduplicated | 2 | `crel:001` |
+| rel:002 | `ods.events_a`.`segment` | `dim.segment_dim`.`segment` | join_association | one_to_many | implied | ranking_window | 1 | `crel:002` |
+| rel:003 | `ods.events_a`.`segment`、`amount` | `ods.events_b`.`seg_code`、`amount` | union_sibling | unknown | implied | union_branch_alignment | 1 | `crel:003` |
+| rel:004 | `ods.events_b`.`seg_code` | `dim.segment_dim`.`segment` | join_association | one_to_many | implied | ranking_window | 1 | `crel:004` |
 
-## 约束
+### 约束
 
-| 实体 | 目标 | 约束 | 内容 | 层级 |
-| --- | --- | --- | --- | --- |
-| `mart.channel_summary` | 整表 | 每键唯一（unique_per） | `customer_id`、`channel_name`、`dt` | 已证明（`proven`） |
-| `mart.channel_summary` | `channel_name` | 取值集合（in_set） | `OFFLINE`、`ONLINE`（已封闭） | 已证明（`proven`） |
-| `mart.channel_summary` | `dt` | 分区列（partition） | — | 已证明（`proven`） |
-| `mart.metric_by_segment` | 整表 | 每键唯一（unique_per） | `segment`、`band`、`dt` | 已证明（`proven`） |
-| `mart.metric_by_segment` | `dt` | 分区列（partition） | — | 已证明（`proven`） |
-| `ods.channel_event` | `status` | 取值集合（in_set） | `ACTIVE`（是否完整未知） | 作者假设（`hypothesis`） |
+| 概念 | 表 | 目标 | 约束 | 内容 | 层级 |
+| --- | --- | --- | --- | --- | --- |
+| `concept:table:mart_channel_summary` | `mart.channel_summary` | 整表 | 每键唯一（unique_per） | `customer_id`、`channel_name`、`dt` | 已证明（`proven`） |
+| `concept:table:mart_channel_summary` | `mart.channel_summary` | `channel_name` | 取值集合（in_set） | `OFFLINE`、`ONLINE`（已封闭） | 已证明（`proven`） |
+| `concept:table:mart_channel_summary` | `mart.channel_summary` | `dt` | 分区列（partition） | — | 已证明（`proven`） |
+| `concept:table:mart_metric_by_segment` | `mart.metric_by_segment` | 整表 | 每键唯一（unique_per） | `segment`、`band`、`dt` | 已证明（`proven`） |
+| `concept:table:mart_metric_by_segment` | `mart.metric_by_segment` | `dt` | 分区列（partition） | — | 已证明（`proven`） |
+| `concept:table:ods_channel_event` | `ods.channel_event` | `status` | 取值集合（in_set） | `ACTIVE`（是否完整未知） | 作者假设（`hypothesis`） |
 
-## 待人工判定
+### 表族
+
+| 表族 | 表数 | 表 |
+| --- | --- | --- |
+| `dim.channel` | 1 | `dim.channel` |
+| `dim.segment_dim` | 1 | `dim.segment_dim` |
+| `mart.channel_summary` | 1 | `mart.channel_summary` |
+| `mart.metric_by_segment` | 1 | `mart.metric_by_segment` |
+| `mart.user_names` | 1 | `mart.user_names` |
+| `ods.channel_event` | 1 | `ods.channel_event` |
+| `ods.events_a` | 1 | `ods.events_a` |
+| `ods.events_b` | 1 | `ods.events_b` |
+| `ods.users` | 1 | `ods.users` |
+
+### 退役键词根
+
+本语料没有被通用键规则挡下的词根。
+
+### 矛盾发现
 
 本语料没有发现矛盾证据。
 
-## 待人工判定清单（2 条，折叠为 2 组）
+### 待人工判定清单（2 条，折叠为 2 组）
 
 按（类型，表族，问题形状）折叠：一组是同一个问题问到一族表上，答一次即可；关系问的是「对端那张表按这组列唯一吗」，所以按对端归组，谁来关联它不进分组键。`影响` 是答完这一组能解开多少东西——关系算关联它的表数加任务数，候选键算确认后能升为已证明的边数，发现算组内条数——排序就按影响降序、其次条数、最后代表条目的原顺序。`回写模式` 里的 `<table>` 换成该族里的具体表名，就是照抄进 `ontology.overrides.json` 的键，族里有哪些表见 `families[]`，组里有哪些条目见 `open_item_groups[]`。
 

@@ -131,15 +131,17 @@ scope-lineage ontology \
 ```
 
 ```text
-Modelled 31 entity(ies), 21 relation(s), 20 constraint(s) and 0 finding(s) from 5 task(s) (skipped_unknown_version=0, missing_diagnostics=0, skipped_unreadable=0)
+Modelled 12 concept(s), 9 relation(s), 31 table(s), 21 table relation(s), 20 constraint(s) and 0 finding(s) from 5 task(s) (skipped_unknown_version=0, missing_diagnostics=0, skipped_unreadable=0)
 ```
 
-打开 `$OUT/corpus/ontology.md`：开头是整份语料的 Mermaid ER 总览，标题行写着还有多少条
-待人工判定、折叠成多少组、已确认多少条，最后一节按（类型，表族，问题形状）每组一行，每行
-带一个稳定的 `open:group:` id、`影响`、组内条数和一个把表名留成 `<table>` 的回写模式，按
-`影响` 降序排好（关系按对端归组，所以十个任务关联同一张维表是一行）；逐条的清单在
-`ontology.json` 的 `open_items[]` 里。`--tables` / `--glossary` 只是省一次重算，不传时
-产物逐字节相同。
+打开 `$OUT/corpus/ontology.md`：开头是「本体总览」——几个概念、按种类拆开、几条概念关系、
+还有几个临时概念等着归并，以及还有多少条待人工判定、折叠成多少组、已确认多少条；随后
+**每个概念一节**（表现表 / 属性摘要 / 约束 / 关系 / 待人工判定）。表级的 Mermaid ER、表清单、
+表级关系与折叠后的完整待判定清单都在最后的「附录：表与证据」里——它们是概念关系被读出来的
+证据，不是模型本身。清单每组一行，带一个稳定的 `open:group:` id、`影响`、组内条数和一个把
+表名留成 `<table>` 的回写模式，按 `影响` 降序排好（关系按对端归组，所以十个任务关联同一张
+维表是一行）；逐条的清单在 `ontology.json` 的 `open_items[]` 里。`--tables` / `--glossary`
+只是省一次重算，不传时产物逐字节相同。
 
 ### 5. 第二次跑：`--incremental`
 
@@ -231,7 +233,7 @@ Core 只产确定性事实，业务命名、含义与实体关系的判断留给
 | 任务画像 | `semantic-profile-prompt.md`，模板 `business-profile-template.md` / `business-profile-check-template.md` | `business_profile.md`（任务语义卡 + 字段词典 + 待确认清单，清单最多五条）与它的质检记录 `business_profile.check.md` | 业务负责人把答案写在每条的 `- 答案：` 行上，`confirmations.py apply` 按同一条的 `- 回写目标：` 行路由：`术语` / `值域` 进 `glossary.overrides.json`，`字段注释` / `表注释` 进 `metadata-patch.json` | `glossary --overrides`，然后 `describe --glossary --metadata-patch`；要让注释落进 `lineage.json` 本身，再 `parse --metadata-patch` |
 | 值词典复核 | `glossary-review-prompt.md`，输入是 `glossary --template` 写出的待填表 | Agent 自己能答的条目（必须带 `basis`，签 `confirmed_by: "agent:<name>"`），加上最多八条留给人的问题 | `glossary.overrides.json` | `glossary --overrides`，然后 `describe --glossary` |
 | 本体复核 | `ontology-review-prompt.md`，输入是 `ontology.md` 的「待人工判定清单」加各任务 `semantic.md` | 语料已经能证明的确认项（同样带 `basis`），加上最多八条留给人的问题 | `ontology.overrides.json`，键照抄清单里的「回写目标」字符串 | `ontology --overrides` |
-| 概念复核 | `concept-review-prompt.md`，输入是 `ontology.md` 的「概念层」加各表卡第 7 节 | 按「种类 → 名字 → 合并 → 拆分 → 角色」走一遍，自答项带 `basis`，加上最多八条留给人的问题（写在 `open-questions.md`） | `concepts.overrides.json`，键是 `concept:<词根>` | `ontology --concept-overrides` |
+| 概念复核 | `concept-review-prompt.md`，输入是 `ontology.md` 的「本体总览」与「概念」两部分加各表卡第 7 节 | 按「种类 → 名字 → 合并 → 拆分 → 角色」走一遍，自答项带 `basis`，加上最多八条留给人的问题（写在 `open-questions.md`） | `concepts.overrides.json`，键是 `concept:<词根>` | `ontology --concept-overrides` |
 
 四个工作流的共同点：**Agent 不许凭字面猜**。它只能从三类证据里自答——列注释把取值枚举了出来、
 语料里有 CASE 把取值一对一地映射成标签、同名列在别处已被人确认过；剩下的整理成问题交给人。

@@ -35,6 +35,7 @@ from scope_lineage.render.concepts import (
     TIER_PROVISIONAL,
     apply_concept_overrides,
     build_concepts,
+    table_concept_id,
 )
 from scope_lineage.render.ontology import render_ontology_index_markdown
 
@@ -57,8 +58,8 @@ def _built(entities, relations=(), overrides=None) -> dict:
     """The builder's own order: concepts, then the overrides, then the relation fold."""
     document = {
         "doc_format": "ontology-json/1",
-        "entities": [dict(item) for item in entities],
-        "relations": [dict(item) for item in relations],
+        "tables": [dict(item) for item in entities],
+        "table_relations": [dict(item) for item in relations],
     }
     document.update(build_concepts(document, _cards()))
     apply_concept_overrides(document, overrides or {})
@@ -77,7 +78,7 @@ def _members(concept) -> dict:
 def _pairs(document: dict) -> list[tuple[str, str]]:
     return [
         (str(item["from"]), str(item["to"]))
-        for item in document["concept_relations"]
+        for item in document["relations"]
     ]
 
 
@@ -123,9 +124,7 @@ def test_a_reviewed_add_tables_puts_an_unplaced_table_on_the_concept() -> None:
     assert member["role_tier"] == TIER_CONFIRMED
     assert member["membership_basis"] == BASIS_OVERRIDE
     assert document["concept_overrides_applied"]["tables_added"] == 1
-    assert extra["id"] not in {
-        str(item["table"]) for item in document["unassigned_tables"]
-    }
+    assert table_concept_id(extra["id"]) not in _by_id(document)
 
 
 def test_an_added_table_lends_the_concept_its_own_attributes() -> None:

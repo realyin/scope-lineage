@@ -1,6 +1,41 @@
 # Changelog
 
 ## Unreleased
+- **Breaking — the ontology is concept-first (`ontology-json/2`)** (M2/M3). The owner's
+  reading is now the document's own vocabulary: 实体/事件/汇总 are **concepts**,
+  `relations[]` hold **between concepts**, a table is a **representation** of a concept,
+  and a table-to-table JOIN is the **evidence** a concept relation was read off. The key
+  mapping from `ontology-json/1`:
+
+  | `ontology-json/1` | `ontology-json/2` | note |
+  | --- | --- | --- |
+  | `entities[]` | `tables[]` | same shape, plus a `concepts[]` back-link (`id` / `role` / `membership_basis`; a table carries one identity plus any references) |
+  | `relations[]` | `table_relations[]` | same shape, plus `concept_relation` (the `crel:NNN` it folded into, or `null`) |
+  | `concept_relations[]` | `relations[]` | same shape, plus `id` (`crel:NNN`) |
+  | `concept_representation_links[]` | `representation_links[]` | same shape |
+  | `unassigned_tables[]` | — | dropped; empty by construction since M1 |
+
+  `constraints[]`, `findings[]`, `open_items[]` and `open_item_groups[]` each gain
+  `concept`, the concept their subject table represents, so the document can be read
+  concept-first without a join. Every other key is unchanged. **The one rename no alias
+  can soften**: `relations[]` still exists and now means something else, so a consumer
+  that keeps reading it gets the concept layer and must move to `table_relations[]` —
+  that is why this is breaking. `ontology --legacy-keys` (deprecated, off by default,
+  removed next release) additionally writes the four old spellings as aliases.
+  `ontology.md` (`ontology-index-md/2`) and the table cards (`ontology-md/2`) follow:
+  the index runs 「本体总览」 (counts by kind, the concept ER, the concept table, the
+  relation table) → 「概念」, **one section per concept** (表现表 / 属性摘要 / 约束 /
+  关系 / 待人工判定, capped at `CONCEPT_SECTIONS_SHOWN = 40` with the rest summarised,
+  and the provisional concepts collapsed into one table at the end) → 「附录：表与证据」,
+  which holds the former table-level ER (marked 「表级关系（证据）」), the table table,
+  the table-relation table (one column more: which concept relation each edge folded
+  into), the constraints (one column more: the concept), `families[]`, the retired key
+  stems, the findings and the whole folded open list. A card's section 7 opens with the
+  concept sentence, then 「概念中的其他表现」 (the sibling tables and their roles), then
+  the table's own identity; section 8 shows 「概念关系」 with 「表级 JOIN（证据）」
+  beneath; sections 9-11 are unchanged but name the concept. The LinkML and SHACL exports
+  follow the same rename, and each table relation slot names the concept relation it is
+  evidence for (`evidence_for` / `sl:evidenceFor`).
 - **Every table gets a concept, so every edge can be lifted** (M1). A concept was seeded
   by a business key, and a table keyed only by a surrogate — or by nothing at all —
   reached none: it went to `unassigned_tables[]` with the reason, and every edge that
@@ -20,9 +55,9 @@
   provisional concept is deliberately the **last** thing either end of an edge reaches
   for, after the far table's real identity and after the join columns' stem, so no fold
   that already worked changed. New beside the old keys: `provisional_count` beside
-  `concepts[]`, `provisional_relations` beside `concept_relations[]`, and
-  `concept_overrides_applied.dissolved[]`. `unassigned_tables[]` is now always `[]` and is
-  kept for one release before it is dropped.
+  `concepts[]`, `provisional_relations` beside the concept relations, and
+  `concept_overrides_applied.dissolved[]`. `unassigned_tables[]` became empty by
+  construction here and is dropped by M2 in the same release.
   A review answers a provisional concept three ways: `merge_into` a real concept (the
   expected first action — the folded member is republished as an `override` membership at
   `confirmed`, because a person placed it), `new_concepts` gathering several of them into

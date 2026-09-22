@@ -113,18 +113,17 @@ def _concept_relation(
     return built
 
 
-def _ontology(*, concepts=(), relations=(), unassigned=(), entities=()) -> dict:
+def _ontology(*, concepts=(), relations=(), entities=()) -> dict:
     """One ontology document with only the fields the index markdown reads."""
     return {
-        "doc_format": "ontology-json/1",
+        "doc_format": "ontology-json/2",
         "corpus": {"task_count": 1},
-        "entities": [dict(item) for item in entities],
+        "tables": [dict(item) for item in entities],
         "families": [],
         "concepts": [dict(item) for item in concepts],
-        "unassigned_tables": [dict(item) for item in unassigned],
-        "relations": [],
-        "concept_relations": [dict(item) for item in relations],
-        "concept_representation_links": [],
+        "table_relations": [],
+        "relations": [dict(item) for item in relations],
+        "representation_links": [],
         "concept_relations_unmapped": {"total": 0, "by_reason": {}},
         "constraints": [],
         "findings": [],
@@ -162,11 +161,6 @@ def _two_concept_ontology() -> dict:
             _concept_relation("msg", "cust", "participation", roles=["发送方", "接收方"]),
             _concept_relation("daily", "cust", "aggregation", tier="proven"),
         ],
-        unassigned=[
-            {"table": "ods.log_a", "reason": "no_candidate_key"},
-            {"table": "ods.log_b", "reason": "no_candidate_key"},
-            {"table": "mart.wide", "reason": "key_spans_several_stems"},
-        ],
     )
 
 
@@ -177,8 +171,8 @@ def test_the_index_opens_with_the_concept_layer_before_the_table_level_er() -> N
     """A business reads the concepts; the table-level ER is the evidence under them."""
     rendered = render_ontology_index_markdown(_two_concept_ontology())
 
-    assert "## 概念层" in rendered
-    assert rendered.index("## 概念层") < rendered.index("## 实体关系总览")
+    assert "## 本体总览" in rendered
+    assert rendered.index("## 本体总览") < rendered.index("### 表级关系（证据）")
 
 
 def test_every_concept_is_one_box_labelled_with_its_kind_and_styled_by_it() -> None:
@@ -215,7 +209,7 @@ def test_the_diagram_edges_carry_the_type_the_cardinality_and_the_roles() -> Non
 def test_representation_links_never_reach_the_diagram() -> None:
     """A snapshot joined onto its own primary is a seam in the fold, not a relation."""
     ontology = _two_concept_ontology()
-    ontology["concept_representation_links"] = [
+    ontology["representation_links"] = [
         {
             "concept": "concept:cust",
             "from_table": "ods.cust_snap",
@@ -281,7 +275,7 @@ def test_the_provisional_concepts_get_their_own_section_under_the_concept_table(
 def test_a_corpus_without_concepts_says_so_rather_than_drawing_nothing() -> None:
     rendered = render_ontology_index_markdown(_ontology())
 
-    assert "## 概念层" in rendered
+    assert "## 本体总览" in rendered
     assert "本语料没有可发布的概念" in rendered
     assert "```mermaid\nflowchart LR" not in rendered
 
@@ -447,9 +441,9 @@ def _cards(*tables: str) -> dict:
 def _built(entities, relations=(), overrides=None) -> dict:
     """The builder's own order: concepts, then the overrides, then the relation fold."""
     ontology = {
-        "doc_format": "ontology-json/1",
-        "entities": [dict(item) for item in entities],
-        "relations": [dict(item) for item in relations],
+        "doc_format": "ontology-json/2",
+        "tables": [dict(item) for item in entities],
+        "table_relations": [dict(item) for item in relations],
     }
     ontology.update(
         build_concepts(ontology, _cards(*(str(item["id"]) for item in entities)))
@@ -562,8 +556,8 @@ def test_a_merge_takes_effect_before_the_relations_are_folded() -> None:
         },
     )
 
-    assert [item["to"] for item in before["concept_relations"]] == ["concept:party"]
-    assert [item["to"] for item in after["concept_relations"]] == ["concept:cust"]
+    assert [item["to"] for item in before["relations"]] == ["concept:party"]
+    assert [item["to"] for item in after["relations"]] == ["concept:cust"]
 
 
 def test_a_split_publishes_one_numbered_concept_per_named_group() -> None:

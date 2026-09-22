@@ -23,7 +23,7 @@ distinct values in total".
   `closed_set`: an `IN` list, and a CASE with an ELSE whose every THEN and ELSE is a
   constant. Everything else is `null` -- "the corpus has only seen 3 values" is not
   "this column only has 3 values".
-- It is the early delivery of the phase-two ontology's (`ontology-json/1`)
+- It is the early delivery of the phase-two ontology's (`ontology-json/2`)
   `value_domains` + `synonyms` slice, with aligned slots: the same (column, value,
   evidence, task count, completeness) five-tuple its `in_set` constraint carries.
 

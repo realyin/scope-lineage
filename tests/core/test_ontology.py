@@ -83,19 +83,19 @@ def _one(cases, *, schema=None, tables=None, glossary=None, overrides=None) -> d
 
 
 def _relations(ontology: dict, kind: str = RELATION_JOIN) -> list[dict]:
-    return [item for item in ontology["relations"] if item["kind"] == kind]
+    return [item for item in ontology["table_relations"] if item["kind"] == kind]
 
 
 def _edge(ontology: dict, source: str, target: str) -> dict:
     return next(
         item
-        for item in ontology["relations"]
+        for item in ontology["table_relations"]
         if item["from"]["entity"] == source and item["to"]["entity"] == target
     )
 
 
 def _entity(ontology: dict, name: str) -> dict:
-    return next(item for item in ontology["entities"] if item["id"] == name)
+    return next(item for item in ontology["tables"] if item["id"] == name)
 
 
 def _attribute(ontology: dict, name: str, column: str) -> dict:
@@ -655,13 +655,13 @@ def test_the_ontology_never_names_a_table_column_or_task_the_corpus_did_not() ->
     ontology = build_ontology(documents, artifact_root="corpus")
     tables, columns, tasks = _known_names(documents)
 
-    for entity in ontology["entities"]:
+    for entity in ontology["tables"]:
         assert any(
             entity["id"] == name or name.endswith("." + entity["id"]) for name in tables
         ), f"invented entity {entity['id']!r}"
         for attribute in entity["attributes"]:
             assert attribute["column"] in columns, f"invented column {attribute['column']!r}"
-    for relation in ontology["relations"]:
+    for relation in ontology["table_relations"]:
         for side in ("from", "to"):
             assert any(column in columns for column in relation[side]["columns"])
         for item in relation["evidence"]:
@@ -671,7 +671,7 @@ def test_the_ontology_never_names_a_table_column_or_task_the_corpus_did_not() ->
 def _assertions(ontology: dict) -> list[tuple[str, dict]]:
     """Every published claim that carries a tier, with the path it was read from."""
     found = []
-    for entity in ontology["entities"]:
+    for entity in ontology["tables"]:
         identity = entity["identity"]
         found.extend((f"{entity['id']}.candidate_keys", item) for item in identity["candidate_keys"])
         found.extend((f"{entity['id']}.multiplicity", item) for item in identity["multiplicity"])
@@ -680,7 +680,7 @@ def _assertions(ontology: dict) -> list[tuple[str, dict]]:
             for attribute in entity["attributes"]
             for item in attribute["synonyms"]
         )
-    found.extend((relation["id"], relation["cardinality"]) for relation in ontology["relations"])
+    found.extend((relation["id"], relation["cardinality"]) for relation in ontology["table_relations"])
     found.extend(
         (f"{item['target']['entity']}.{item['kind']}", item)
         for item in ontology["constraints"]
@@ -800,12 +800,12 @@ def test_the_golden_corpus_exercises_the_shapes_the_ontology_exists_for() -> Non
     ontology = _golden_ontology()
 
     assert ontology["doc_format"] == DOC_FORMAT
-    assert {item["kind"] for item in ontology["relations"]} == {
+    assert {item["kind"] for item in ontology["table_relations"]} == {
         RELATION_JOIN,
         RELATION_UNION,
     }
     assert {
-        item["cardinality"]["claim"] for item in ontology["relations"]
+        item["cardinality"]["claim"] for item in ontology["table_relations"]
     } >= {CARDINALITY_ONE_TO_MANY, CARDINALITY_MANY_TO_ONE_ASSUMED}
     assert {item["kind"] for item in ontology["constraints"]} >= {
         CONSTRAINT_IN_SET,
@@ -814,7 +814,7 @@ def test_the_golden_corpus_exercises_the_shapes_the_ontology_exists_for() -> Non
     }
     assert any(
         attribute["synonyms"]
-        for entity in ontology["entities"]
+        for entity in ontology["tables"]
         for attribute in entity["attributes"]
     )
 
@@ -822,14 +822,13 @@ def test_the_golden_corpus_exercises_the_shapes_the_ontology_exists_for() -> Non
 @pytest.mark.parametrize(
     "kind",
     [
-        "entities",
-        "relations",
+        "tables",
+        "table_relations",
         "constraints",
         "findings",
         "concepts",
-        "unassigned_tables",
-        "concept_relations",
-        "concept_representation_links",
+        "relations",
+        "representation_links",
         "concept_relations_unmapped",
     ],
 )
@@ -932,9 +931,9 @@ def test_without_overrides_nothing_is_confirmed() -> None:
     ontology = _one(CONFIRMABLE)
     tiers = {
         str(key["tier"])
-        for entity in ontology["entities"]
+        for entity in ontology["tables"]
         for key in entity["identity"]["candidate_keys"]
-    } | {str(item["cardinality"]["tier"]) for item in ontology["relations"]}
+    } | {str(item["cardinality"]["tier"]) for item in ontology["table_relations"]}
 
     assert TIER_CONFIRMED not in tiers
     assert ontology["overrides_applied"] == {
