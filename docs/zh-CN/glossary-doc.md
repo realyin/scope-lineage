@@ -34,6 +34,10 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict \
 scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict \
   --template /path/to/dict/glossary.overrides.template.md --template-top 20
 
+# 把本体挂上去：字典多一层「概念」（N6）
+scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict \
+  --ontology /path/to/onto/ontology.json
+
 # 只要 JSON
 scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --format json
 
@@ -56,6 +60,12 @@ markdown = render_glossary_markdown(glossary)
 - `--out` 必填，写入 `glossary.json` 与 `glossary.md`；`--format` 取 `json`、`md` 或两者。
 - `--overrides` 指向的文件不存在、不是合法 JSON、或顶层不是对象时退出码为 2——
   一份被人工确认过的文件被静默忽略，比报错更危险。
+- `--ontology`（N6）可选，指向 `scope-lineage ontology` 写出的 `ontology.json`
+  （`ontology-json/2`）；读不了时同样退出码 2。**给了它才有概念层**：多出
+  `concept_terms[]`、`terms[]` 里多出 `concepts[]` 反链、overrides 多认一种
+  `concept:<概念 id>.<属性>=<取值>` 键、待填表多出概念小节、`glossary.md` 多出「按概念」一节。
+  不给它时产物与从前**逐字节相同**。字典只从本体里读一件事：
+  `concepts[].attributes[].sources[]` 说哪些（表、列）是同一个概念属性。
 - `corpus.artifact_root` **原样记录** `--lineage` 的取值。要求产物字节可复现时传相对路径。
 
 ## 增量运行：`--incremental` / `--no-cache` / `--cache-from`
@@ -138,6 +148,8 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
 | --- | --- |
 | `corpus` | 扫了什么：`artifact_root` 原样记录、任务数、写语句数、每个任务的契约摘要（与 mapping.md / semantic.md 用的是同一个 digest 函数，可据此确认字典与画像来自同一快照） |
 | `terms[]` | 按**列名**跨表归并的注释；一个列名一条，按列名排序 |
+| `concept_terms[]` | **只在给了 `--ontology` 时出现**：按**概念属性**归并的术语与取值；一个（概念、属性）一条，按（概念 id、属性）排序；**临时概念不进这一层** |
+| `concept_terms_summary` | 同样只在给了 `--ontology` 时出现：`{concepts, attributes, attributes_spanning_multiple_tables}`——概念层覆盖了几个概念、几个属性，其中几个属性跨 ≥ 2 张表 |
 | `values[]` | 一条 =（列引用，取值，`kind`）；按（列名、列引用、取值、`kind`）排序。`value` 是去引号的规范形式，`sql_literal` 是作者写的字面量 |
 | `parameters[]` | `${…}` 变量与函数调用钉住的列：它们钉住这个列，但不是这个列的取值 |
 | `overrides_applied` | 本次人工确认生效了多少条（`terms` / `values`）、多少条还空着没填（`blank`）、哪些键在语料里没有对应项（`unmatched`）、哪些确认被拒绝（`rejected`），以及哪些字段本版本读不懂（`ignored_fields`） |
@@ -150,7 +162,45 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
 | `tables_total` | 语料里有这个列的表数（输入表与目标表都算，同一张表的不同 catalog 写法算一张） |
 | `tables_without_comment[]` | 有这个列、但没写列注释的表——这是"待补注释"的清单 |
 | `conflict` | 同一个列名有 ≥ 2 种不同注释文本时为 `true`；字典**并列保留两种说法**，不替作者裁决 |
+| `concepts[]` | 只在给了 `--ontology` 时出现：这个列名喂给了哪些概念属性，`{concept, attribute}` 按（概念 id、属性）去重保序；只算非临时概念，一个不属于任何概念的列名这里是空数组 |
 | `meaning` | 人工确认的列含义；没人确认过时为 `null` |
+
+### 概念层（concept_terms[]，N6）
+
+`terms[]` 只能按**列名**归并——而列名相同是巧合，直到有人说它不是。本体就是那个说法：
+`ontology.json` 的 `concepts[].attributes[].sources[]` 说「这几张表的这几列是同一个概念的
+同一个属性」。给了 `--ontology`，字典就按这个说法再归并一遍：
+
+```jsonc
+"concept_terms": [
+  {"concept": "concept:order", "name": "Order", "attribute": "pay_status",
+   "columns": [{"table": "ods.app_order", "column": "pay_status"},
+               {"table": "ods.web_order", "column": "pay_status"}],
+   "representation_count": 2,
+   "comments": [{"text": "支付状态", "tables": ["ods.app_order", "ods.web_order"], "count": 2}],
+   "conflict": false,
+   "values": ["…这些列在 values[] 里的那些条目，原样引用…"]}
+],
+"concept_terms_summary": {"concepts": 9, "attributes": 214,
+                          "attributes_spanning_multiple_tables": 31}
+```
+
+| 键 | 含义 |
+| --- | --- |
+| `concept` / `name` | 概念 id 与本体给它的名字（名字可能只是词干，本体自己会标 `name_tier`） |
+| `attribute` | 属性的词干（本体 `attributes[].stem`） |
+| `columns[]` | 这个属性写在哪些（表、列）上；表名换成字典自己选定的那种拼写（点号后缀归一），按（表、列）排序 |
+| `representation_count` | 这个属性落在几张表示表上。`1` 表示它今天只对着一列——照常发布，但一条概念键对它而言并不比表级键多答什么；`≥ 2` 才是一条概念键真正省下的那种问题 |
+| `comments[]` / `conflict` | 与 `terms[]` 同一套归并，只不过归并范围是**这个属性的那几列**而不是同名的所有列；语料里没有的列不参与 |
+| `values[]` | `values[]` 里属于这些列的条目**原样引用**（scope 级引用不算）：后面 overrides 确认了含义，这里读到的也是已确认的那一条 |
+
+**临时概念（`tier: provisional`）不进这一层。** 本体给每一张没能被任何键放进概念的表都发一个
+临时概念，它代表的就是那一张表：它的属性就是那张表的列换了个长名字，`terms[]` 已经说过了。
+在一份宽语料上把它们一并发布，等于让真正跨表的那些属性——也就是一条概念键唯一能省下的那些
+问题——淹没在里面。已经被放进概念的概念，它的属性**一个不落**都发布（跨一张表的也发），
+用 `representation_count` 说明它今天够到多远：属性还在，只是那条概念键此刻还没有省下什么。
+
+一个列名不属于任何（非临时）概念属性时，它只留在 `terms[]` 里——概念层不为它发明一个概念。
 
 ### 值域观察（values[]）
 
@@ -298,6 +348,7 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
 | 规则 | 说明 |
 | --- | --- |
 | 键的两种写法 | 带表名（`ods.app_order.pay_status='PAID'`）只命中那一列；只带列名（`pay_status='PAID'`）命中语料里**所有**同名列 |
+| 概念键 `concept:<id>.<属性>=<值>`（N6） | 只在给了 `--ontology` 时认得。命中这个概念属性**每一个**观察到该取值的来源列（scope 级引用不算）。解析顺序：**带表名的键 > 概念键 > 家族键**——带表名的是关于那一张表的话，概念键是有人断言过这几列是一回事，家族键只靠同名。命中数照常计进 `overrides_applied.values`，另在 `overrides_applied.concept_expansions` 里按 `{"key", "applied_to"}` 报出落到了几列上；键里的概念或属性本体里没有时，进 `overrides_applied.concept_unmatched`（`{"key", "reason"}`，`reason` 取 `unknown_concept` / `unknown_attribute`），键本身照常进 `unmatched` |
 | 家族键 `*.<列>=<值>`（Q1） | `*.pay_status='PAID'` 命中**每一张**观察到该取值的表上的同名物理列（scope 级引用不算）。解析顺序是规则本身：**带表名的键先生效**，家族键只补它没覆盖到的表——按文件里的先后顺序生效，答案就取决于评审者先敲了哪一行。命中数照常计进 `overrides_applied.values`，另外在 `overrides_applied.family_expansions` 里按 `{"key", "applied_to"}` 报出这一条答案落到了几列上；一条谁都没命中的家族键照样进 `unmatched` |
 | 表名匹配 | 与字典内部一致：后缀匹配，`ods.t` 与 `catalog.ods.t` 是同一张表 |
 | 值匹配 | 两边都做去引号后比较，`'PAID'` 与 `PAID` 是同一个值；**推荐写去引号的 `pay_status=PAID`**，与 `values[].value` 一致 |
@@ -367,6 +418,14 @@ scope-lineage glossary --lineage corpus --out dict --overrides dict/glossary.ove
 说明写清楚这一点。同名 `.json` 的 `values` 用的是同一批键，所以两个文件问的仍然是同一批问题。
 两张表不算一族——两张表的同名列本来就可能不是一回事，那正是要问人的"跨表同名冲突"。
 
+**本体说是一回事的，两张表就够**（N6）：给了 `--ontology` 之后，同一个概念属性的**两张以上**
+表示表都可问的取值合成一节 ``## `concept:<id>.<属性>`（<概念名>·<属性>，出现在 N 张表）``，
+键写成概念键 `concept:<id>.<属性>=<取值>`。家族键要三张表才成立，是因为同名只是巧合、还要
+评审者自己排除；概念键两张就够，是因为本体已经断言过这几列是同一个属性——第二张表不再是巧合。
+**概念小节排在所有家族小节与各表小节之前**，被它覆盖的取值不再出现在家族小节或各表小节里，
+所以每个取值仍然只被问一次，而且是被能覆盖它的**最强**的那个键问。概念行的「注释线索」与
+「候选来源」同样取该属性各来源列的并集，后面同样写 `（来自 <表>）`。
+
 **家族行的证据是各成员表的并集**（Q1b）：一族里往往只有**一张**表把码表写进了注释，而这一行问的
 是整族。所以家族小节里一个取值的「注释线索」与「候选来源」取各成员表的并集——最强的那种证据
 胜出，并在「候选来源」后面写上 `（来自 <表>）`，指出它是哪张表给的；只要**任意一个**成员行可自答，
@@ -418,6 +477,7 @@ scope-lineage describe --lineage corpus --glossary dict/glossary.json \
 | --- | --- | --- |
 | `术语:<词>` | `glossary.overrides.json` | `terms["<词>"] = {meaning, confirmed_by, date}` |
 | `值域:<列>=<值>` | `glossary.overrides.json` | `values["<列>=<值>"] = {meaning, confirmed_by, date}` |
+| `值域:concept:<id>.<属性>=<值>`（N6） | `glossary.overrides.json` | `values["concept:<id>.<属性>=<值>"] = {meaning, confirmed_by, date}`：一条答案写回该概念属性的每一个来源列 |
 | `值域:*.<列>=<值>`（Q1） | `glossary.overrides.json` | `values["*.<列>=<值>"] = {meaning, confirmed_by, date}`：一条答案写回每一张观察到该取值的表 |
 | `字段注释:<表.列>` | `metadata-patch.json` | `columns["<表.列>"] = {comment, confirmed_by, date}` |
 | `表注释:<表>` | `metadata-patch.json` | `tables["<表>"] = {table_name_cn, confirmed_by, date}` |
@@ -480,7 +540,7 @@ scope-lineage describe --lineage corpus --glossary dict/glossary.json \
 | `sql_literal` | 作者写的字面量。`semantic.md` 的 `- 取值：` 行显示它，`value_domain[].value` 与 overrides 的键用去引号形式 |
 | `meaning.status` | `confirmed`（人工确认）或 `candidate`（注释字面命中） |
 | `summary` 追加 | 只有**已确认**含义才会追加到那句话尾部（`；取值：'PAID'（已支付）`，最多 3 个）：候选是"某条注释里恰好出现了这个值"，写进读者会停下来读的那一句等于把它当成定义 |
-| `confidence.metadata_coverage.glossary` | `{values_total, confirmed, candidate, rule_values_total, rule_values_confirmed, field_values_total, field_values_confirmed, enumerable_total, enumerable_confirmed}`；这条语句一个取值观察都没有时不写该键。`values_total` 是**字段取值 ∪ 规则引用取值**去重后的总数，按 `(列名, 取值, kind)` 归一——同一个 code 被 `WHERE` 钉住又原样带进同名输出列，是读者要答的**一个**问题而不是两个；`confirmed` / `candidate` 是同一并集上的计数。`enumerable_total` 把这个并集收窄到**能被人认领含义的 code**，画像生成记录「来源标签与证据」一节的覆盖率按它算（`enumerable_confirmed / enumerable_total`）：物理列上的 literal、上下文含 `filter_eq` / `filter_in` / `case_then` / `union_constant` / `constant_projection`、不是日期形，且纯数字还要额外出现在 `IN` 列表、CASE 标签或常量投影里而不是只被 `=` 钉过一次。跑批日期与 `= 0` 这类守卫是观察到的取值，但没有人会去确认它们，把它们计入分母会让这个覆盖率永远像不及格。Q1 还让它**和待填表用同一条「可问」规则**（`glossary_values.askable_value`，开关 / 裸数字 / 日期形 / 中文自述取值都不可问，除非该列自己的注释把它枚举了出来）：两边各写一遍就会分家，读者看到的分母于是大过表单真正问出口的行数 |
+| `confidence.metadata_coverage.glossary` | `{values_total, confirmed, candidate, rule_values_total, rule_values_confirmed, field_values_total, field_values_confirmed, enumerable_total, enumerable_confirmed}`；这条语句一个取值观察都没有时不写该键。`values_total` 是**字段取值 ∪ 规则引用取值**去重后的总数，按 `(列名, 取值, kind)` 归一——同一个 code 被 `WHERE` 钉住又原样带进同名输出列，是读者要答的**一个**问题而不是两个；`confirmed` / `candidate` 是同一并集上的计数。`enumerable_total` 把这个并集收窄到**能被人认领含义的 code**，画像生成记录「来源标签与证据」一节的覆盖率按它算（`enumerable_confirmed / enumerable_total`）：物理列上的 literal、上下文含 `filter_eq` / `filter_in` / `case_then` / `union_constant` / `constant_projection`、不是日期形，且纯数字还要额外出现在 `IN` 列表、CASE 标签或常量投影里而不是只被 `=` 钉过一次。跑批日期与 `= 0` 这类守卫是观察到的取值，但没有人会去确认它们，把它们计入分母会让这个覆盖率永远像不及格。Q1 还让它**和待填表用同一条「可问」规则**（`glossary_values.askable_value`，开关 / 裸数字 / 日期形 / 中文自述取值都不可问，除非该列自己的注释把它枚举了出来）：两边各写一遍就会分家，读者看到的分母于是大过表单真正问出口的行数。字典带了概念层（`glossary --ontology`）时这里还多出 `concept_attributes_total` / `concept_attributes_with_confirmed_values`（N6）：**这个任务用到的**概念属性有几个、其中几个已经有人确认过至少一个取值。按本任务用到的列名算，不按语料算——语料级的计数对每个任务都是同一个数，谁的问题都回答不了；字典没有概念层时这两个键**不出现**，而不是写成两个 0 |
 
 `semantic.md` 第 5 节的字段小节里多一行 `- 取值：`，已确认写含义、候选写 `? `、都没有写
 「待确认」；整列**枚举值**都封闭时追加「（该列取值已被 SQL 证明封闭）」——因为 `closed_set`
@@ -518,6 +578,13 @@ CASE 的**条件**里。`value_domain` 只挂在输出列上，所以语料把�
 一个列名一节（`## <列名>`），节内依次是：术语行（注释集合、`⚠` 冲突提示、缺注释的表、
 列含义）、值域表（值 / 列引用 / 种类 / 出现任务数 / 上下文 / 封闭集 / 含义）、参数化值行。
 既没有列注释也没有被任何常量比较过的列名，只在末尾的「其余列」里记一次名字。
+
+给了 `--ontology` 时，摘要之后、各列小节之前多一节**「按概念」**（N6）：一个概念属性一行，
+列出概念（id 与名字）、属性、表数（`representation_count`）、它的那些列、归并后的术语
+（注释冲突照样标 `⚠`），以及这个属性的取值「已确认 / 共计」；节首那两行写明覆盖了几个概念、
+几个属性、其中几个跨 ≥ 2 张表，以及临时概念不在其中。它是同一批事实换一个方向读——不是「这个列名是什么意思」，而是
+「这个概念管这件事叫什么、答掉了多少」——也是评审者据以决定该写哪一条
+`concept:<id>.<属性>=<取值>` 的那张表。
 
 同输入同字节：文档不含时间戳，所有列表与表格都按稳定键排序，语料读入顺序不影响结果。
 

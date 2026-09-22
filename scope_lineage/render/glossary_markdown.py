@@ -8,6 +8,12 @@ and the parameterised predicates that pin it without giving it a value.
 The meaning column is a three-state answer and says which state it is in: ``✓`` for a
 human-confirmed meaning, ``?`` for a comment that literally spells the value out, and
 "待确认" for everything else. Nothing here upgrades a ``?`` to a ``✓``.
+
+N6 puts one section in front of the column sections when the dictionary was built with
+``--ontology``: 「按概念」, one row per concept ATTRIBUTE. It is the same facts read the
+other way round -- not "what does this column name mean" but "what does this concept
+call this thing, and how much of it has anybody answered" -- and it is the table a
+reviewer reads to decide which single ``concept:<id>.<attribute>=<value>`` key to write.
 """
 
 from __future__ import annotations
@@ -35,10 +41,26 @@ _VALUE_TABLE_HEADER = (
     "| --- | --- | --- | --- | --- | --- | --- |",
 )
 
+# N6. The concept layer, printed before the column sections because it is the coarser
+# reading of the same facts: one row per concept attribute, however many tables write it.
+_CONCEPT_TITLE = "## 按概念"
+_CONCEPT_NOTE = (
+    "- 概念层来自 `--ontology`：{concepts} 个概念、{attributes} 个属性，其中 {spanning} 个"
+    "属性跨 ≥ 2 张表。一个属性在它的各张表示表上是同一件事，overrides 里写一条"
+    " `concept:<概念 id>.<属性>=<取值>` 就答完整族；只落在一张表上的属性（表数 1）"
+    "照常列出，但一条概念键对它而言并不比表级键多答什么。"
+)
+# N6b: 临时概念（每张放不进任何键的表都会有一个）不进这一层，否则它就是列层换了个长名字。
+_CONCEPT_PROVISIONAL_NOTE = "- 临时概念（`tier: provisional`）不进本节：它只代表一张表，没有多说任何事。"
+_CONCEPT_TABLE_HEADER = (
+    "| 概念 | 属性 | 表数 | 列 | 术语 | 取值（已确认 / 共计） |",
+    "| --- | --- | --- | --- | --- | --- |",
+)
+
 
 def render_glossary_markdown(glossary: Mapping) -> str:
     """Render one ``glossary-json/1`` document. Same input, same bytes."""
-    lines = ["# 术语与值域字典", *_summary(glossary)]
+    lines = ["# 术语与值域字典", *_summary(glossary), *_concept_section(glossary)]
     sections = _sections(glossary)
     for column in sorted(sections):
         lines.extend(_render_column(column, sections[column]))
@@ -106,6 +128,61 @@ def _rejected_line(applied: Mapping) -> list[str]:
             )
         )
     return lines
+
+
+def _concept_section(glossary: Mapping) -> list[str]:
+    """N6's 「按概念」 table, or nothing at all when no ontology was read."""
+    concepts = glossary.get("concept_terms") or []
+    if not concepts:
+        return []
+    summary = glossary.get("concept_terms_summary") or {}
+    return [
+        "",
+        _CONCEPT_TITLE,
+        "",
+        _CONCEPT_NOTE.format(
+            concepts=summary.get("concepts", 0),
+            attributes=summary.get("attributes", 0),
+            spanning=summary.get("attributes_spanning_multiple_tables", 0),
+        ),
+        _CONCEPT_PROVISIONAL_NOTE,
+        "",
+        *_CONCEPT_TABLE_HEADER,
+        *[_concept_row(item) for item in concepts],
+    ]
+
+
+def _concept_row(entry: Mapping) -> str:
+    columns = "、".join(
+        expr_span(f"{item['table']}.{item['column']}")
+        for item in entry.get("columns") or []
+    )
+    return (
+        f"| {expr_span(str(entry['concept']))}"
+        f"（{cell(normalize_inline(str(entry.get('name') or '')))}） "
+        f"| {expr_span(str(entry['attribute']))} "
+        f"| {entry.get('representation_count', len(entry.get('columns') or []))} "
+        f"| {cell(columns)} "
+        f"| {cell(_concept_term_text(entry))} | {_concept_value_counts(entry)} |"
+    )
+
+
+def _concept_term_text(entry: Mapping) -> str:
+    """The attribute's merged comments, with the conflict said out loud rather than resolved."""
+    comments = entry.get("comments") or []
+    if not comments:
+        return EMPTY_CELL
+    text = "；".join(
+        f"{normalize_inline(str(item['text']))}（{item['count']} 张表）" for item in comments
+    )
+    return f"{CONFLICT_MARK} {text}" if entry.get("conflict") else text
+
+
+def _concept_value_counts(entry: Mapping) -> str:
+    """How much of this attribute's value domain somebody has already answered."""
+    values = entry.get("values") or []
+    confirmed = sum(1 for item in values if (item.get("meaning") or {}).get("text"))
+    return f"{confirmed} / {len(values)}"
 
 
 def _sections(glossary: Mapping) -> dict[str, dict]:
