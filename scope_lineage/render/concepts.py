@@ -1055,19 +1055,46 @@ def key_column_name(column) -> str:
 
     The fallback for a business role no column comment could name. Publishing
     ``collection_unit_id`` as the role an entity plays publishes the warehouse's
-    spelling as the business's word, so the key markers come off exactly as
-    ``key_stem`` takes them off, a camelCase name is split at its own boundaries, and
-    the separators become spaces. A CJK name is already words and is used as it stands.
+    spelling as the business's word, so the key markers come off and the words come
+    out. A CJK name is already words and is used as it stands.
+
+    The markers come off the segments the warehouse itself marked with ``_``, exactly
+    as ``key_stem`` reads them -- and **only** those. A camelCase hump is not a segment
+    anybody declared: ``openId`` is one word the warehouse wrote, and reading it as
+    ``open`` would throw half of what it wrote away. So the segments answer first and
+    the humps are split into words afterwards: ``trace_node_code`` is 「trace node」,
+    while ``openId`` is 「open id」.
     """
     text = str(column or "").strip()
     if _CJK_RE.search(text):
         return text
-    parts = [part for part in _CAMEL_RE.sub("_", text).lower().split("_") if part]
-    while len(parts) > 1 and parts[-1] in KEY_AFFIXES:
+    parts = [part for part in text.split("_") if part]
+    while len(parts) > 1 and parts[-1].lower() in KEY_AFFIXES:
         parts.pop()
-    while len(parts) > 1 and parts[0] in KEY_AFFIXES:
+    while len(parts) > 1 and parts[0].lower() in KEY_AFFIXES:
         parts.pop(0)
-    return " ".join(parts)
+    return " ".join(
+        word for part in parts for word in _CAMEL_RE.sub(" ", part).lower().split()
+    )
+
+
+def key_comment_says_nothing(text, column) -> bool:
+    """Whether a column comment says nothing the column's own name does not (K4d).
+
+    A role reads the comment first and the column name second, and a catalog that fills
+    every comment with the column identifier -- or with 「ID」 -- makes the first route
+    answer with exactly the string the second one exists to rewrite. Such a comment has
+    to count as *no answer*, or the fallback never runs and the published role is the
+    raw identifier after all.
+
+    Three ways to say nothing: it is a key marker with no name in front of it (the rule
+    the naming candidates already use), it still reads as an identifier (it kept an
+    ``_``, or a staging word survived), or it is the column's own name over again.
+    """
+    lowered = str(text).strip().lower()
+    if _names_only_a_key(lowered, key_stem(column)) or _is_junk(lowered):
+        return True
+    return lowered == str(column).strip().lower()
 
 
 def _key_comment_candidates(members: Sequence[_Seed], stem: str) -> list[dict]:

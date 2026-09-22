@@ -171,8 +171,15 @@
   **(6) A participation role is never a raw column name.** `roles[]` fell back to the
   column identifier when no comment named the role, publishing `collection_unit_id` as a
   word the business uses. The fallback now reads the column *name* as words: the key
-  markers come off, `_` becomes a space (`collection_unit_id` → 「collection unit」), a
-  camelCase name is split at its own boundaries, and a CJK name is used as it stands.
+  markers come off the segments the corpus itself marked with `_` — the rule `key_stem`
+  uses, and only those — and whatever survives is split into words at its camelCase
+  humps, so `collection_unit_id` is 「collection unit」, `trace_node_code` is 「trace
+  node」, and `openId` is 「open id」 rather than 「open」, because a hump is not a segment
+  anybody declared and `openId` is one word the warehouse wrote. A CJK name is used as it
+  stands. The comment route now falls through to it on the widest reading of "says
+  nothing": an empty comment, a bare key marker (「ID」), and a comment that is the column
+  identifier over again — a catalog that fills every comment with the column name made
+  the first route hand back exactly the string the fallback exists to rewrite.
 - **The concept layer reaches the LinkML and SHACL exports** (K5). `--export` published
   the table layer only, so a downstream graph that loaded it got the warehouse back and
   not the business. It now also carries the fold: three abstract base classes

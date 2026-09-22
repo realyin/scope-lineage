@@ -66,6 +66,7 @@ from .concepts import (
     CONCEPT_SUMMARY,
     key_column_name,
     key_comment_name,
+    key_comment_says_nothing,
     key_stem,
     synonym_folding,
 )
@@ -517,12 +518,17 @@ def _role(relation: Mapping, comments: Mapping[tuple[str, str], str]) -> str:
     (K4d): ``collection_unit_id`` is 「collection unit」, never ``collection_unit_id``.
     A role is a word a business uses, and publishing the warehouse's spelling in that
     place says the business calls it that.
+
+    "Says nothing" is the wider reading a real corpus forced: an empty comment, a bare
+    「ID」, and a catalog that filled the comment with the column identifier all leave
+    the answer to the column name. A comment route that accepted its own input would
+    publish ``openId`` whatever the fallback does.
     """
     side = relation.get("from") or {}
     table = str(side.get("entity"))
     columns = [str(column) for column in side.get("columns") or []]
     for column in columns:
         text = key_comment_name(comments.get((table, column), ""))
-        if text:
+        if text and not key_comment_says_nothing(text, column):
             return text
     return key_column_name(columns[0]) if columns else ""

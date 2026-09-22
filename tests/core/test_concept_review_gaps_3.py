@@ -429,6 +429,8 @@ EVENT = _entity(
         ("collection_unit_id", None),
         ("collectionUnit", None),
         ("回收单位", None),
+        ("openId", "openId"),
+        ("trace_node_code", "ID"),
     ],
     comment="消息发送流水表",
 )
@@ -466,9 +468,30 @@ def test_a_cjk_column_name_is_used_as_it_stands() -> None:
 def test_the_column_name_reading_never_publishes_a_raw_identifier() -> None:
     """The negative, spelled on the helper: nothing it returns is an identifier."""
     assert key_column_name("collection_unit_id") == "collection unit"
-    assert key_column_name("senderPartyNo") == "sender party"
     assert key_column_name("cust_no") == "cust"
     assert key_column_name("") == ""
+
+
+def test_a_camel_hump_is_a_word_and_never_a_key_marker() -> None:
+    """The markers come off the segments `_` marked, exactly as ``key_stem`` reads them.
+
+    A camelCase hump is not a segment the warehouse marked, so `openId` is one word the
+    warehouse wrote and reading it as `open` would throw half of it away.
+    """
+    assert key_column_name("openId") == "open id"
+    assert key_column_name("collectionUnit") == "collection unit"
+    assert key_column_name("trace_node_code") == "trace node"
+    assert key_column_name("senderPartyNo") == "sender party no"
+
+
+def test_a_comment_that_only_repeats_the_column_falls_through_to_the_name() -> None:
+    """A catalog that fills every comment with the identifier answers nothing."""
+    assert _participation_roles("openId") == ["open id"]
+
+
+def test_a_comment_that_is_only_a_key_marker_falls_through_to_the_name() -> None:
+    """The other half of the same gap: 「ID」 says the comment named nothing."""
+    assert _participation_roles("trace_node_code") == ["trace node"]
 
 
 # -------------------------------------------- the prompt says which way to merge
