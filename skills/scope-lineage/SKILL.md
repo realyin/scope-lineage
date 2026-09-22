@@ -344,7 +344,10 @@ name (never better than a hypothesis — `name_candidates[]` is ranked, and a co
 `name_tier` is `stem_only` was named by nothing but the key stem, an English abbreviation
 nobody asked for), which concepts are one
 thing written twice (`possible_duplicate_of`), which one is two things, and which member
-tables were read as the wrong kind of copy. Same evidence discipline as the round above:
+tables were read as the wrong kind of copy. The round opens on the 「临时概念」 table: a
+table no business key placed is published as a concept of its own at
+`tier: "provisional"`, and deciding what each of those really is — a copy of an existing
+concept, part of a new one, or its own thing — is the first thing the prompt asks for. Same evidence discipline as the round above:
 close what the corpus answers yourself with a `basis` on every entry, ask a business owner
 **at most 8**, never self-answer a split. The answers go back through a separate file:
 
@@ -400,9 +403,10 @@ documented uncertainty).
   answers are filed back into `ontology.overrides.json`. Read when the user asks about
   entity relationships, keys or an ontology over a batch of tasks.
 - `references/concept-review-prompt.md` — the concept layer's own review round: the fixed
-  order (kind → name → merges → splits → roles), the four kinds of evidence that let an
-  Agent answer one itself, the four kinds worth a business owner's time, and how the
-  answers are filed back into `concepts.overrides.json`. Read when the user asks which
+  order (the provisional concepts first, then kind → name → merges → splits → roles), the
+  six kinds of evidence that let an Agent answer one itself, the five kinds worth a
+  business owner's time, and how the answers are filed back into
+  `concepts.overrides.json`. Read when the user asks which
   business concepts a corpus is about, or what a group of tables *is*, rather than which
   table joins which.
 - `../../docs/en/workflow.md` (`docs/zh-CN/workflow.md` for the Chinese version) — the

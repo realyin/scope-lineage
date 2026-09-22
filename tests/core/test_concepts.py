@@ -25,15 +25,13 @@ from scope_lineage.render.concepts import (
     NAME_FROM_KEY_COMMENT,
     NAME_FROM_STEM,
     NAME_FROM_TABLE_COMMENT,
-    REASON_GENERIC_KEY,
-    REASON_NO_CANDIDATE_KEY,
-    REASON_SPLIT_KEY,
     ROLE_DETAIL,
     ROLE_INTERMEDIATE,
     ROLE_PRIMARY,
     ROLE_REFERENCE,
     ROLE_SNAPSHOT,
     ROLE_SUMMARY,
+    TIER_PROVISIONAL,
     build_concepts,
     key_basis,
     is_generic_stem,
@@ -178,11 +176,22 @@ def _concepts(ontology: dict, cards: dict) -> dict:
     }
 
 
-def _unassigned(ontology: dict, cards: dict) -> dict:
+def _folded(ontology: dict, cards: dict) -> dict:
+    """Only the concepts a business key seeded -- M1's provisional ones left out."""
     return {
-        str(item["table"]): str(item["reason"])
-        for item in build_concepts(ontology, cards)["unassigned_tables"]
+        key: concept
+        for key, concept in _concepts(ontology, cards).items()
+        if str(concept.get("tier")) != TIER_PROVISIONAL
     }
+
+
+def _provisional(ontology: dict, cards: dict) -> list[str]:
+    """The tables M1 published as a concept of their own, because nothing placed them."""
+    return sorted(
+        str(concept["tables"][0]["table"])
+        for concept in _concepts(ontology, cards).values()
+        if str(concept.get("tier")) == TIER_PROVISIONAL
+    )
 
 
 # ------------------------------------------------------- K1: the key stem
@@ -300,7 +309,7 @@ def test_two_tables_sharing_one_business_key_seed_one_concept() -> None:
         "stem": "cust",
         "columns_seen": ["cust_no", "customer_id"],
     }
-    assert not _unassigned(ontology, cards)
+    assert not _provisional(ontology, cards)
 
 
 def test_a_key_the_corpus_only_assumed_still_seeds_a_hypothesis_concept() -> None:
@@ -312,7 +321,7 @@ def test_a_key_the_corpus_only_assumed_still_seeds_a_hypothesis_concept() -> Non
 
     assert concept["tier"] == TIER_HYPOTHESIS
     assert concept["tables"][0]["membership_basis"] == key_basis(TIER_HYPOTHESIS)
-    assert not _unassigned(ontology, cards)
+    assert not _provisional(ontology, cards)
 
 
 def test_a_proven_key_raises_the_concept_to_implied() -> None:
@@ -365,7 +374,7 @@ def test_a_join_onto_the_concepts_key_joins_the_source_as_a_reference() -> None:
     assert member["role"] == ROLE_REFERENCE
     assert member["membership_basis"] == BASIS_REFERENCE
     assert member["key_columns"] == ["cust_no"]
-    assert not _unassigned(ontology, cards)
+    assert not _provisional(ontology, cards)
 
 
 def test_a_reference_member_never_votes_on_the_kind_or_lends_attributes() -> None:
@@ -393,32 +402,33 @@ def test_a_reference_member_never_votes_on_the_kind_or_lends_attributes() -> Non
     assert [str(item["stem"]) for item in concept["attributes"]] == ["cust"]
 
 
-def test_a_table_no_key_hint_or_join_places_is_unassigned() -> None:
+def test_a_table_no_key_hint_or_join_places_seeds_nothing() -> None:
+    """M1: it is not left out either -- it becomes a concept of its own, provisionally."""
     ontology = _ontology(_entity("ods.orphan_rows"))
     cards = _cards(_card("ods.orphan_rows", columns=["value"]))
 
-    assert not _concepts(ontology, cards)
-    assert _unassigned(ontology, cards) == {"ods.orphan_rows": REASON_NO_CANDIDATE_KEY}
+    assert not _folded(ontology, cards)
+    assert _provisional(ontology, cards) == ["ods.orphan_rows"]
 
 
-def test_a_table_keyed_only_by_a_generic_column_is_unassigned() -> None:
+def test_a_table_keyed_only_by_a_generic_column_seeds_nothing() -> None:
     ontology = _ontology(
         _entity("ods.staging_rows", keys=["id"], attributes=[_attribute("id")])
     )
     cards = _cards(_card("ods.staging_rows", columns=["id"]))
 
-    assert not _concepts(ontology, cards)
-    assert _unassigned(ontology, cards) == {"ods.staging_rows": REASON_GENERIC_KEY}
+    assert not _folded(ontology, cards)
+    assert _provisional(ontology, cards) == ["ods.staging_rows"]
 
 
-def test_a_composite_key_spanning_two_stems_is_unassigned() -> None:
+def test_a_composite_key_spanning_two_stems_seeds_nothing() -> None:
     ontology = _ontology(
         _entity("mart.cust_channel_sum", keys=["cust_no", "channel_code"])
     )
     cards = _cards(_card("mart.cust_channel_sum", columns=["cust_no", "channel_code"]))
 
-    assert not _concepts(ontology, cards)
-    assert _unassigned(ontology, cards) == {"mart.cust_channel_sum": REASON_SPLIT_KEY}
+    assert not _folded(ontology, cards)
+    assert _provisional(ontology, cards) == ["mart.cust_channel_sum"]
 
 
 def test_a_composite_key_reduces_over_its_time_and_partition_columns() -> None:
@@ -1050,7 +1060,13 @@ def test_the_ontology_document_carries_the_concept_layer() -> None:
 
     assert "concepts" in ontology
     assert "unassigned_tables" in ontology
-    assert [str(concept["id"]) for concept in ontology["concepts"]] == ["concept:cust"]
+    assert [
+        str(concept["id"])
+        for concept in ontology["concepts"]
+        if str(concept.get("tier")) != TIER_PROVISIONAL
+    ] == ["concept:cust"]
+    # M1: every other table is published as a concept of its own, provisionally.
+    assert ontology["provisional_count"] == len(ontology["concepts"]) - 1
 
 
 def test_the_concept_layer_is_byte_identical_across_two_builds() -> None:

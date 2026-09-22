@@ -63,6 +63,12 @@ TIER_HYPOTHESIS = "hypothesis"
 #: one is a guess at the name, the other is an admission that nothing named it, and the
 #: review round has to be able to tell them apart to know what to ask about.
 TIER_STEM_ONLY = "stem_only"
+#: M1: the tier of a concept that is a **table waiting for a review**, not a fold. Every
+#: table nothing placed becomes one of these, so the concept layer covers the corpus and
+#: every table-level edge can be lifted; the first thing a review does with one is decide
+#: whether it is really an existing concept (`merge_into`), part of a new one
+#: (`new_concepts`), or genuinely its own thing (rename and confirm).
+TIER_PROVISIONAL = "provisional"
 
 #: Candidate-key tiers, strongest first. A warehouse rarely *proves* a key -- the proof
 #: needs a producing task that deduplicated by it -- so reading only the proven ones
@@ -76,6 +82,12 @@ STRONG_TIERS = ("confirmed", "proven")
 BASIS_KEY_PREFIX = "key:"
 BASIS_DECLARED_HINT = "declared_hint"
 BASIS_REFERENCE = "reference"
+#: M1: nothing placed this table, so the table stands for itself until a review says
+#: otherwise. It is an identity membership -- the `from` end of an edge reads it -- and
+#: it is the weakest claim in the vocabulary, because nobody made it.
+BASIS_PROVISIONAL = "provisional"
+#: M1: how a provisional concept says where it came from, beside `override` (K4c).
+ORIGIN_PROVISIONAL = "provisional"
 
 #: What one member table is to its concept.
 ROLE_PRIMARY = "primary"
@@ -124,6 +136,10 @@ NAME_FROM_STEM = "key_stem"
 NAME_FROM_OVERRIDE = "override"
 
 CONCEPT_ID_PREFIX = "concept:"
+#: M1: the id of a concept that is one table. Spelled apart from `concept:<stem>` on
+#: purpose -- a reader, and the review prompt, can tell at a glance that the id names a
+#: table rather than a business key, and that the answer to it is usually a merge.
+CONCEPT_TABLE_PREFIX = f"{CONCEPT_ID_PREFIX}table:"
 
 #: Whole name segments that say "this column is a key", not what the key is *of*.
 KEY_AFFIXES = ("no", "id", "code", "cd", "num", "key")
@@ -469,12 +485,45 @@ def key_basis(tier: str) -> str:
     return f"{BASIS_KEY_PREFIX}{tier}"
 
 
+def table_concept_id(table: str) -> str:
+    """``concept:table:<table key>`` -- the id the table's own provisional concept has.
+
+    The table name normalised the way every other identifier in these documents is:
+    lowercased, and everything a ``.`` separates folded to ``_``, so ``ods.Gadget_DF``
+    is ``concept:table:ods_gadget_df``. A reviewer writes exactly this string into
+    ``concepts.overrides.json`` to merge the table onto a real concept.
+    """
+    key = "".join(
+        char if char.isascii() and (char.isalnum() or char == "_") else "_"
+        for char in str(table or "").lower()
+    )
+    return f"{CONCEPT_TABLE_PREFIX}{key or 'unknown'}"
+
+
+def _table_stem(table: str) -> str:
+    """The short table name with its storage suffixes off -- ``ods.gadget_df`` → ``gadget``.
+
+    What names a provisional concept when the table carries no comment at all. It is the
+    warehouse's spelling rather than a business word, which is exactly what
+    ``name_tier: "stem_only"`` says about it.
+    """
+    parts = [part for part in str(table or "").lower().rpartition(".")[2].split("_") if part]
+    while len(parts) > 1 and parts[-1] in PERIOD_SUFFIXES:
+        parts.pop()
+    return "_".join(parts)
+
+
 def build_concepts(ontology: Mapping, cards: Mapping) -> dict:
-    """``{"concepts": [...], "unassigned_tables": [...]}`` for one corpus's ontology.
+    """``{"concepts": [...], "provisional_count": N, ...}`` for one corpus's ontology.
 
     ``ontology`` is the document being built -- entities, their identities, and the
     relations O1 read off the JOINs; ``cards`` are the table cards underneath it, read
     for grain, producers and consumers.
+
+    M1: every table a key, a hint or a JOIN could not give an *identity* to becomes its
+    own ``provisional`` concept, so the layer covers the corpus and K3 can lift every
+    edge. ``unassigned_tables[]`` is therefore empty by construction; it is published for
+    one more release so a consumer that reads it does not break on a missing key.
     """
     entities = list(ontology.get("entities") or [])
     index = {str(card.get("table")): card for card in cards.get("tables") or []}
@@ -490,21 +539,46 @@ def build_concepts(ontology: Mapping, cards: Mapping) -> dict:
         _concept(stem, sorted(group, key=_member_rank), index, synonyms)
         for stem, group in members.items()
     ]
-    concepts.sort(key=lambda concept: (-len(concept["tables"]), str(concept["id"])))
-    _mark_duplicate_names(concepts)
-    placed = {seed.table for group in members.values() for seed in group}
-    keyed = {
+    identified = {
         seed.table
-        for seed in seeds
-        if seed.stem is not None and seed.stem not in generic
+        for group in members.values()
+        for seed in group
+        if seed.basis != BASIS_REFERENCE
     }
+    concepts += [
+        _provisional_concept(entity, index, synonyms)
+        for entity in entities
+        if str(entity.get("id")) not in identified
+    ]
+    concepts.sort(key=_concept_order)
+    _mark_duplicate_names(concepts)
     return {
         "concepts": concepts,
-        "unassigned_tables": _unassigned(seeds, placed),
+        "provisional_count": provisional_count(concepts),
+        "unassigned_tables": [],
         "retired_stems": _retired_stems(
-            entities, synonyms, index, generic, set(members), keyed
+            entities, synonyms, index, generic, set(members), identified
         ),
     }
+
+
+def _concept_order(concept: Mapping) -> tuple:
+    """Publication order: the concepts a key seeded first, the widest of them first.
+
+    M1 puts the provisional concepts behind all of them, however many tables they have.
+    They are one table each and they are the review's inbox, not the corpus's reading of
+    the warehouse, so a reader who opens ``concepts[]`` meets the folds first.
+    """
+    return (
+        str(concept.get("tier")) == TIER_PROVISIONAL,
+        -len(concept.get("tables") or []),
+        str(concept.get("id")),
+    )
+
+
+def provisional_count(concepts: Sequence[Mapping]) -> int:
+    """How many of these concepts are a table waiting for a review to place it (M1)."""
+    return sum(1 for item in concepts if str(item.get("tier")) == TIER_PROVISIONAL)
 
 
 def _mark_duplicate_names(concepts: Sequence[dict]) -> None:
@@ -749,19 +823,6 @@ def _is_refused(stem: str, core: Sequence[str], comments: Mapping, generic: set)
     )
 
 
-def _unassigned(seeds: Sequence[_Seed], placed: set[str]) -> list[dict]:
-    """The tables no key, no declared hint and no JOIN could place, and why."""
-    found = [
-        {
-            "table": seed.table,
-            "reason": REASON_GENERIC_KEY if seed.stem else str(seed.reason),
-        }
-        for seed in seeds
-        if seed.table not in placed
-    ]
-    return sorted(found, key=lambda item: str(item["table"]))
-
-
 def _attach_references(
     ontology: Mapping,
     entities: Sequence[Mapping],
@@ -894,6 +955,86 @@ def _concept(
         ),
     }
     return {key: built[key] for key in _CONCEPT_KEYS if key in built}
+
+
+# ------------------------------------------------- M1: a table that is its own concept
+
+
+def _provisional_concept(
+    entity: Mapping, index: Mapping[str, Mapping], synonyms: Mapping[str, str]
+) -> dict:
+    """One table published as a concept of its own, until a review says what it is (M1).
+
+    Everything about it is read by the rules the folded concepts are read by -- the
+    kind by its signals, the name off its comment with the same trim, suffix and junk
+    rules -- with two differences that say what it is. Its ``identity.stem`` is the
+    *table*, not a business key, because no key named it; and its tier is
+    ``provisional``, which is not a claim about the business at all but a question
+    addressed to the review round.
+    """
+    seed = _provisional_seed(entity)
+    member = _member(seed, index)
+    kind, kind_tier, evidence = _kind([seed], [member], index)
+    candidates = _name_candidates(
+        _table_stem(seed.table), [seed], index, {seed.table: str(member["role"])}
+    )
+    identifier = table_concept_id(seed.table)
+    built = {
+        "id": identifier,
+        "name": str(candidates[0]["text"]),
+        "name_tier": _name_tier(candidates),
+        "name_candidates": candidates,
+        "kind": kind,
+        "kind_tier": kind_tier,
+        "kind_evidence": evidence,
+        "identity": {
+            "stem": identifier[len(CONCEPT_TABLE_PREFIX) :],
+            "columns_seen": list(seed.key_columns),
+        },
+        "tables": [member],
+        "attributes": _attributes([seed], synonyms),
+        "tier": TIER_PROVISIONAL,
+        "origin": ORIGIN_PROVISIONAL,
+    }
+    return {key: built[key] for key in _CONCEPT_KEYS if key in built}
+
+
+def _provisional_seed(entity: Mapping) -> _Seed:
+    """The seed a table that stands for itself carries.
+
+    The key columns are read exactly as ``_seed`` reads them -- the partitions, the
+    event columns and the log identifiers out of the core -- so the role and the kind
+    signals answer the same way they would for a folded member. They are published whole
+    in ``columns_seen`` all the same, generic and all: the table really is keyed by
+    them, it is only that no *concept* could grow out of them.
+    """
+    identity = entity.get("identity") or {}
+    types, comments = _column_facts(entity)
+    partitions = frozenset(str(column) for column in identity.get("partition_columns") or [])
+    claims = _identity_claims(identity)
+    columns = (
+        tuple(str(column) for column in claims[0].get("columns") or []) if claims else ()
+    )
+    core = tuple(
+        column
+        for column in columns
+        if column not in partitions
+        and not _is_event_column(column, types)
+        and not is_log_identifier(column, comments.get(column, ""))
+    )
+    return _Seed(
+        table=str(entity.get("id")),
+        entity=entity,
+        stem=None,
+        tier=None,
+        reason=None,
+        basis=BASIS_PROVISIONAL,
+        key_columns=columns,
+        stem_columns=core,
+        extra_columns=tuple(column for column in columns if column not in core),
+        partitions=partitions,
+        types=types,
+    )
 
 
 def _name_tier(candidates: Sequence[Mapping]) -> str:
@@ -1645,6 +1786,9 @@ def apply_concept_overrides(ontology: dict, overrides: Mapping) -> None:
         "tables_added": 0,
         "merges": 0,
         "splits": 0,
+        # M1: the provisional concepts an `add_tables` or a `new_concepts` entry took
+        # the table of. A merge dissolves one too, and is reported as the merge it is.
+        "dissolved": [],
         "unmatched": [],
         "warnings": [],
         "ignored_fields": [],
@@ -1658,9 +1802,10 @@ def apply_concept_overrides(ontology: dict, overrides: Mapping) -> None:
     merges = _concept_fields(
         ontology, dict(overrides.get("concepts") or {}), index, applied, corpus
     )
-    _forget_unassigned(ontology, corpus.added)
+    _dissolve_provisional(ontology, applied)
     _concept_merges(ontology, merges, applied)
     _concept_splits(ontology, list(overrides.get("splits") or []), applied)
+    ontology["provisional_count"] = provisional_count(ontology["concepts"])
     applied["created"].sort(key=lambda item: str(item["id"]))
     applied["unmatched"].sort(key=lambda item: (item["key"], item["reason"]))
     applied["warnings"].sort(key=lambda item: (item["key"], item["warning"]))
@@ -1677,16 +1822,11 @@ def _ignored_fields(
 
 
 class _Corpus:
-    """The tables the document publishes, for the entries that name one (K4b).
-
-    ``added`` collects the tables a reviewer put on a concept by hand, so the caller
-    can take them out of ``unassigned_tables[]`` once every entry has been read.
-    """
+    """The tables the document publishes, for the entries that name one (K4b)."""
 
     def __init__(self, entities: Sequence[Mapping]) -> None:
         self.entities = {str(entity.get("id")): entity for entity in entities}
         self.synonyms = synonym_folding(list(entities))
-        self.added: set[str] = set()
 
 
 def _concept_fields(
@@ -1835,7 +1975,6 @@ def _add_tables(
             applied["unmatched"].append({"key": key, "reason": reason})
             continue
         _add_member(concept, corpus, str(table), str(asked[table]), stamp)
-        corpus.added.add(str(table))
         applied["tables_added"] += 1
         touched = True
     return touched
@@ -1893,15 +2032,44 @@ def _add_member(
     )
 
 
-def _forget_unassigned(ontology: dict, added: set) -> None:
-    """A table a reviewer placed is no longer one the corpus could not place."""
-    if not added:
-        return
-    ontology["unassigned_tables"] = [
-        item
-        for item in ontology.get("unassigned_tables") or []
-        if str(item.get("table")) not in added
+def _dissolve_provisional(ontology: dict, applied: dict) -> None:
+    """A table a reviewer put on a real concept no longer stands for one on its own (M1).
+
+    ``add_tables`` and ``new_concepts`` both answer the question a provisional concept
+    *is* -- "what is this table" -- so the provisional concept goes, and the membership
+    the reviewer wrote is the one that remains. One role is the exception, for the reason
+    it is the exception everywhere else: a reviewed ``reference`` add says the table
+    merely carries the key, which is not an answer about what the table is, so the
+    provisional concept stays standing and the question stays open.
+    """
+    claimed = _claimed_tables(ontology)
+    dissolved = [
+        {"id": str(concept["id"]), "table": table, "into": claimed[table]}
+        for concept in ontology.get("concepts") or []
+        if str(concept.get("tier")) == TIER_PROVISIONAL
+        for table in [str((concept.get("tables") or [{}])[0].get("table"))]
+        if table in claimed
     ]
+    if not dissolved:
+        return
+    gone = {item["id"] for item in dissolved}
+    ontology["concepts"] = [
+        concept for concept in ontology["concepts"] if str(concept["id"]) not in gone
+    ]
+    applied["dissolved"].extend(sorted(dissolved, key=lambda item: str(item["id"])))
+
+
+def _claimed_tables(ontology: Mapping) -> dict[str, str]:
+    """``{table: concept id}`` for the tables a real concept says something about."""
+    claimed: dict[str, str] = {}
+    for concept in ontology.get("concepts") or []:
+        if str(concept.get("tier")) == TIER_PROVISIONAL:
+            continue
+        for item in concept.get("tables") or []:
+            basis = str(item.get("membership_basis"))
+            if basis not in (BASIS_REFERENCE, BASIS_PROVISIONAL):
+                claimed.setdefault(str(item.get("table")), str(concept["id"]))
+    return claimed
 
 
 # ------------------------------------------------- K4c: concepts a reviewer created
@@ -1955,7 +2123,6 @@ def _create_concept(
     tables = [str(item["table"]) for item in members]
     record = {"id": identifier, "tables": tables}
     applied["created"].append({**record, "revived": True} if revived else record)
-    corpus.added.update(tables)
     return concept
 
 
@@ -1977,12 +2144,16 @@ def _create_reason(
 def _new_members(
     asked: Mapping, key: str, applied: dict, corpus: _Corpus, index: Mapping
 ) -> list[dict]:
-    """The memberships the entry named that the corpus can carry, refusals reported."""
+    """The memberships the entry named that the corpus can carry, refusals reported.
+
+    M1: a ``provisional`` membership is not an identity anybody claimed -- it is the
+    question this entry is answering -- so it never makes a table ``already_a_member``.
+    """
     identified = {
         str(item.get("table"))
         for concept in index.values()
         for item in concept.get("tables") or []
-        if str(item.get("membership_basis")) != BASIS_REFERENCE
+        if str(item.get("membership_basis")) not in (BASIS_REFERENCE, BASIS_PROVISIONAL)
     }
     members = []
     for table in sorted(asked):
@@ -2213,7 +2384,7 @@ def _fold_concept(
     if warning is not None:
         applied["warnings"].append({"key": key, "warning": warning})
     into["tables"] = _merge_members(
-        into.get("tables") or [], source.get("tables") or []
+        into.get("tables") or [], _folded_members(source)
     )
     into["attributes"] = _merge_attributes(
         into.get("attributes") or [], source.get("attributes") or []
@@ -2228,6 +2399,25 @@ def _fold_concept(
     )
     into["confirmation"] = dict(stamp)
     _reorder(into)
+
+
+def _folded_members(source: Mapping) -> list[dict]:
+    """The folded concept's members, as memberships of the concept that survives.
+
+    M1: a ``provisional`` membership says "nobody placed this table". Folding a
+    provisional concept into a real one is a person placing it, so the row publishes
+    exactly what ``add_tables`` would have published -- an ``override`` membership at
+    ``confirmed`` -- rather than going on calling itself unplaced inside a concept a
+    reviewer vouched for. Every other membership travels unchanged.
+    """
+    return [
+        (
+            {**dict(item), "membership_basis": BASIS_OVERRIDE, "role_tier": TIER_CONFIRMED}
+            if str(item.get("membership_basis")) == BASIS_PROVISIONAL
+            else dict(item)
+        )
+        for item in source.get("tables") or []
+    ]
 
 
 def _merge_members(current: Sequence[Mapping], extra: Sequence[Mapping]) -> list[dict]:

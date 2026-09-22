@@ -62,6 +62,7 @@ sl:dim_segment_dimShape
     a sh:NodeShape ;
     sh:targetClass sl:dim_segment_dim ;
     rdfs:label "dim.segment_dim" ;
+    sl:represents "concept:table:dim_segment_dim (primary)" ;
     sl:tier "proven" ;
     sh:property [
         sh:path sl:segment ;
@@ -91,6 +92,7 @@ sl:mart_channel_summaryShape
     a sh:NodeShape ;
     sh:targetClass sl:mart_channel_summary ;
     rdfs:label "mart.channel_summary" ;
+    sl:represents "concept:table:mart_channel_summary (primary)" ;
     sl:tier "proven" ;
     sh:property [
         sh:path sl:customer_id ;
@@ -141,6 +143,7 @@ sl:mart_metric_by_segmentShape
     a sh:NodeShape ;
     sh:targetClass sl:mart_metric_by_segment ;
     rdfs:label "mart.metric_by_segment" ;
+    sl:represents "concept:table:mart_metric_by_segment (primary)" ;
     sl:tier "proven" ;
     sh:property [
         sh:path sl:segment ;
@@ -215,6 +218,7 @@ sl:mart_user_namesShape
     a sh:NodeShape ;
     sh:targetClass sl:mart_user_names ;
     rdfs:label "mart.user_names" ;
+    sl:represents "concept:table:mart_user_names (primary)" ;
     sl:tier "proven" ;
     sh:property [
         sh:path sl:user_id ;
@@ -238,6 +242,7 @@ sl:ods_channel_eventShape
     sl:project "渠道分析（合成）" ;
     sl:owner "demo_owner" ;
     sl:represents "concept:channel (reference)" ;
+    sl:represents "concept:table:ods_channel_event (primary)" ;
     sl:tier "proven" ;
     sh:property [
         sh:path sl:customer_id ;
@@ -290,6 +295,7 @@ sl:ods_events_aShape
     a sh:NodeShape ;
     sh:targetClass sl:ods_events_a ;
     rdfs:label "ods.events_a" ;
+    sl:represents "concept:table:ods_events_a (primary)" ;
     sl:tier "proven" ;
     sh:property [
         sh:path sl:segment ;
@@ -334,6 +340,7 @@ sl:ods_events_bShape
     a sh:NodeShape ;
     sh:targetClass sl:ods_events_b ;
     rdfs:label "ods.events_b" ;
+    sl:represents "concept:table:ods_events_b (primary)" ;
     sl:tier "proven" ;
     sh:property [
         sh:path sl:seg_code ;
@@ -368,6 +375,7 @@ sl:ods_usersShape
     a sh:NodeShape ;
     sh:targetClass sl:ods_users ;
     rdfs:label "ods.users" ;
+    sl:represents "concept:table:ods_users (primary)" ;
     sl:tier "proven" ;
     sh:property [
         sh:path sl:user_id ;
@@ -415,14 +423,337 @@ sl:concept_channelShape
         sl:tier "hypothesis"
     ] .
 
+sl:concept_table_dim_segment_dimShape
+    a sh:NodeShape ;
+    sh:targetClass sl:concept_table_dim_segment_dim ;
+    rdfs:subClassOf sl:Entity ;
+    rdfs:label "segment_dim" ;
+    rdfs:comment "kind entity (implied); name candidates: segment_dim (key_stem x1)" ;
+    sl:concept "concept:table:dim_segment_dim" ;
+    sl:kindTier "implied" ;
+    sl:nameTier "stem_only" ;
+    sl:provisional true ;
+    sl:conceptTable "dim.segment_dim -> primary (provisional)" ;
+    sl:tier "provisional" ;
+    sh:property [
+        sh:path sl:seg ;
+        sh:name "seg" ;
+        sh:datatype xsd:string ;
+        sl:source "dim.segment_dim.segment" ;
+        sl:tier "provisional"
+    ] ;
+    sh:property [
+        sh:path sl:segment_name ;
+        sh:name "segment_name" ;
+        sh:datatype xsd:string ;
+        sl:source "dim.segment_dim.segment_name" ;
+        sl:tier "provisional"
+    ] ;
+    sh:property [
+        sh:path sl:updated_at ;
+        sh:name "updated_at" ;
+        sh:datatype xsd:string ;
+        sl:source "dim.segment_dim.updated_at" ;
+        sl:tier "provisional"
+    ] .
+
+sl:concept_table_mart_channel_summaryShape
+    a sh:NodeShape ;
+    sh:targetClass sl:concept_table_mart_channel_summary ;
+    rdfs:subClassOf sl:Entity ;
+    rdfs:label "channel_summary" ;
+    rdfs:comment "kind entity (implied); name candidates: channel_summary (key_stem x1)" ;
+    sl:concept "concept:table:mart_channel_summary" ;
+    sl:kindTier "implied" ;
+    sl:nameTier "stem_only" ;
+    sl:provisional true ;
+    sl:conceptTable "mart.channel_summary -> primary (provisional)" ;
+    sl:tier "provisional" ;
+    sh:property [
+        sh:path sl:channel_name ;
+        sh:name "channel_name" ;
+        sh:datatype xsd:string ;
+        sl:source "mart.channel_summary.channel_name" ;
+        sl:tier "provisional"
+    ] ;
+    sh:property [
+        sh:path sl:customer ;
+        sh:name "customer" ;
+        sh:datatype xsd:string ;
+        sl:source "mart.channel_summary.customer_id" ;
+        sl:tier "provisional"
+    ] ;
+    sh:property [
+        sh:path sl:total_amount ;
+        sh:name "total_amount" ;
+        sh:datatype xsd:string ;
+        sl:source "mart.channel_summary.total_amount" ;
+        sl:tier "provisional"
+    ] .
+
+sl:concept_table_mart_metric_by_segmentShape
+    a sh:NodeShape ;
+    sh:targetClass sl:concept_table_mart_metric_by_segment ;
+    rdfs:subClassOf sl:Entity ;
+    rdfs:label "metric_by_segment" ;
+    rdfs:comment "kind entity (hypothesis); name candidates: metric_by_segment (key_stem x1)" ;
+    sl:concept "concept:table:mart_metric_by_segment" ;
+    sl:kindTier "hypothesis" ;
+    sl:nameTier "stem_only" ;
+    sl:provisional true ;
+    sl:conceptTable "mart.metric_by_segment -> primary (provisional)" ;
+    sl:tier "provisional" ;
+    sh:property [
+        sh:path sl:band ;
+        sh:name "band" ;
+        sh:datatype xsd:string ;
+        rdfs:comment "Amount band" ;
+        sl:source "mart.metric_by_segment.band" ;
+        sl:tier "provisional"
+    ] ;
+    sh:property [
+        sh:path sl:band_total ;
+        sh:name "band_total" ;
+        sh:datatype xsd:decimal ;
+        rdfs:comment "Band level total" ;
+        sl:source "mart.metric_by_segment.band_total" ;
+        sl:tier "provisional"
+    ] ;
+    sh:property [
+        sh:path sl:cnt ;
+        sh:name "cnt" ;
+        sh:datatype xsd:integer ;
+        rdfs:comment "Row count" ;
+        sl:source "mart.metric_by_segment.cnt" ;
+        sl:tier "provisional"
+    ] ;
+    sh:property [
+        sh:path sl:dt ;
+        sh:name "dt" ;
+        sh:datatype xsd:string ;
+        rdfs:comment "Partition date" ;
+        sl:source "mart.metric_by_segment.dt" ;
+        sl:tier "provisional"
+    ] ;
+    sh:property [
+        sh:path sl:seg ;
+        sh:name "seg" ;
+        sh:datatype xsd:string ;
+        rdfs:comment "Segment code" ;
+        sl:source "mart.metric_by_segment.segment" ;
+        sl:tier "provisional"
+    ] ;
+    sh:property [
+        sh:path sl:segment_name ;
+        sh:name "segment_name" ;
+        sh:datatype xsd:string ;
+        rdfs:comment "Segment display name" ;
+        sl:source "mart.metric_by_segment.segment_name" ;
+        sl:tier "provisional"
+    ] ;
+    sh:property [
+        sh:path sl:total ;
+        sh:name "total" ;
+        sh:datatype xsd:decimal ;
+        rdfs:comment "Summed amount" ;
+        sl:source "mart.metric_by_segment.total" ;
+        sl:tier "provisional"
+    ] .
+
+sl:concept_table_mart_user_namesShape
+    a sh:NodeShape ;
+    sh:targetClass sl:concept_table_mart_user_names ;
+    rdfs:subClassOf sl:Entity ;
+    rdfs:label "user_names" ;
+    rdfs:comment "kind entity (implied); name candidates: user_names (key_stem x1)" ;
+    sl:concept "concept:table:mart_user_names" ;
+    sl:kindTier "implied" ;
+    sl:nameTier "stem_only" ;
+    sl:provisional true ;
+    sl:conceptTable "mart.user_names -> primary (provisional)" ;
+    sl:tier "provisional" ;
+    sh:property [
+        sh:path sl:user ;
+        sh:name "user" ;
+        sh:datatype xsd:string ;
+        sl:source "mart.user_names.user_id" ;
+        sl:tier "provisional"
+    ] ;
+    sh:property [
+        sh:path sl:user_name ;
+        sh:name "user_name" ;
+        sh:datatype xsd:string ;
+        sl:source "mart.user_names.user_name" ;
+        sl:tier "provisional"
+    ] .
+
+sl:concept_table_ods_channel_eventShape
+    a sh:NodeShape ;
+    sh:targetClass sl:concept_table_ods_channel_event ;
+    rdfs:subClassOf sl:Entity ;
+    rdfs:label "渠道事件" ;
+    rdfs:comment "kind entity (hypothesis); name candidates: 渠道事件 (table_comment x1); channel_event (key_stem x1)" ;
+    sl:concept "concept:table:ods_channel_event" ;
+    sl:kindTier "hypothesis" ;
+    sl:nameTier "hypothesis" ;
+    sl:provisional true ;
+    sl:conceptTable "ods.channel_event -> primary (provisional)" ;
+    sl:tier "provisional" ;
+    sh:property [
+        sh:path sl:amount ;
+        sh:name "amount" ;
+        sh:datatype xsd:string ;
+        sl:source "ods.channel_event.amount" ;
+        sl:tier "provisional"
+    ] ;
+    sh:property [
+        sh:path sl:channel ;
+        sh:name "channel" ;
+        sh:datatype xsd:string ;
+        sl:source "ods.channel_event.channel_code" ;
+        sl:tier "provisional"
+    ] ;
+    sh:property [
+        sh:path sl:customer ;
+        sh:name "customer" ;
+        sh:datatype xsd:string ;
+        sl:source "ods.channel_event.customer_id" ;
+        sl:tier "provisional"
+    ] ;
+    sh:property [
+        sh:path sl:status ;
+        sh:name "status" ;
+        sh:datatype xsd:string ;
+        sl:source "ods.channel_event.status" ;
+        sl:tier "provisional"
+    ] ;
+    sh:property [
+        sh:path sl:association_concept_channel ;
+        sh:class sl:concept_channel ;
+        sh:maxCount 1 ;
+        sl:relationType "association" ;
+        sl:claim "many_to_one_assumed" ;
+        sl:taskCount 2 ;
+        sl:evidenceCount 1 ;
+        sl:tier "hypothesis"
+    ] .
+
+sl:concept_table_ods_events_aShape
+    a sh:NodeShape ;
+    sh:targetClass sl:concept_table_ods_events_a ;
+    rdfs:subClassOf sl:Entity ;
+    rdfs:label "events_a" ;
+    rdfs:comment "kind entity (hypothesis); name candidates: events_a (key_stem x1)" ;
+    sl:concept "concept:table:ods_events_a" ;
+    sl:kindTier "hypothesis" ;
+    sl:nameTier "stem_only" ;
+    sl:provisional true ;
+    sl:conceptTable "ods.events_a -> primary (provisional)" ;
+    sl:tier "provisional" ;
+    sh:property [
+        sh:path sl:amount ;
+        sh:name "amount" ;
+        sh:datatype xsd:string ;
+        sl:source "ods.events_a.amount" ;
+        sl:tier "provisional"
+    ] ;
+    sh:property [
+        sh:path sl:seg ;
+        sh:name "seg" ;
+        sh:datatype xsd:string ;
+        sl:source "ods.events_a.segment" ;
+        sl:tier "provisional"
+    ] ;
+    sh:property [
+        sh:path sl:association_concept_table_dim_segment_dim ;
+        sh:class sl:concept_table_dim_segment_dim ;
+        sl:relationType "association" ;
+        sl:claim "one_to_many" ;
+        sl:taskCount 1 ;
+        sl:evidenceCount 1 ;
+        sl:tier "implied"
+    ] ;
+    sh:property [
+        sh:path sl:association_concept_table_ods_events_b ;
+        sh:class sl:concept_table_ods_events_b ;
+        sl:relationType "association" ;
+        sl:claim "unknown" ;
+        sl:taskCount 1 ;
+        sl:evidenceCount 1 ;
+        sl:tier "implied"
+    ] .
+
+sl:concept_table_ods_events_bShape
+    a sh:NodeShape ;
+    sh:targetClass sl:concept_table_ods_events_b ;
+    rdfs:subClassOf sl:Entity ;
+    rdfs:label "events_b" ;
+    rdfs:comment "kind entity (hypothesis); name candidates: events_b (key_stem x1)" ;
+    sl:concept "concept:table:ods_events_b" ;
+    sl:kindTier "hypothesis" ;
+    sl:nameTier "stem_only" ;
+    sl:provisional true ;
+    sl:conceptTable "ods.events_b -> primary (provisional)" ;
+    sl:tier "provisional" ;
+    sh:property [
+        sh:path sl:amount ;
+        sh:name "amount" ;
+        sh:datatype xsd:string ;
+        sl:source "ods.events_b.amount" ;
+        sl:tier "provisional"
+    ] ;
+    sh:property [
+        sh:path sl:seg ;
+        sh:name "seg" ;
+        sh:datatype xsd:string ;
+        sl:source "ods.events_b.seg_code" ;
+        sl:tier "provisional"
+    ] ;
+    sh:property [
+        sh:path sl:association_concept_table_dim_segment_dim ;
+        sh:class sl:concept_table_dim_segment_dim ;
+        sl:relationType "association" ;
+        sl:claim "one_to_many" ;
+        sl:taskCount 1 ;
+        sl:evidenceCount 1 ;
+        sl:tier "implied"
+    ] .
+
+sl:concept_table_ods_usersShape
+    a sh:NodeShape ;
+    sh:targetClass sl:concept_table_ods_users ;
+    rdfs:subClassOf sl:Entity ;
+    rdfs:label "users" ;
+    rdfs:comment "kind entity (hypothesis); name candidates: users (key_stem x1)" ;
+    sl:concept "concept:table:ods_users" ;
+    sl:kindTier "hypothesis" ;
+    sl:nameTier "stem_only" ;
+    sl:provisional true ;
+    sl:conceptTable "ods.users -> primary (provisional)" ;
+    sl:tier "provisional" ;
+    sh:property [
+        sh:path sl:is_active ;
+        sh:name "is_active" ;
+        sh:datatype xsd:string ;
+        sl:source "ods.users.is_active" ;
+        sl:tier "provisional"
+    ] ;
+    sh:property [
+        sh:path sl:user ;
+        sh:name "user" ;
+        sh:datatype xsd:string ;
+        sl:source "ods.users.user_id" ;
+        sl:tier "provisional"
+    ] ;
+    sh:property [
+        sh:path sl:user_name ;
+        sh:name "user_name" ;
+        sh:datatype xsd:string ;
+        sl:source "ods.users.user_name" ;
+        sl:tier "provisional"
+    ] .
+
 sl:Ontology
-    sl:unassignedTable "dim.segment_dim (no_candidate_key)" ;
-    sl:unassignedTable "mart.channel_summary (key_spans_several_stems)" ;
-    sl:unassignedTable "mart.metric_by_segment (key_spans_several_stems)" ;
-    sl:unassignedTable "mart.user_names (no_candidate_key)" ;
-    sl:unassignedTable "ods.events_a (no_candidate_key)" ;
-    sl:unassignedTable "ods.events_b (no_candidate_key)" ;
-    sl:unassignedTable "ods.users (no_candidate_key)" ;
     rdfs:label "the governance items this corpus could not answer itself" ;
     sl:openItem [
         sl:id "open:rel:ods.channel_event.channel_code->dim.channel.channel_code" ;

@@ -37,6 +37,7 @@ from scope_lineage.render.concepts import (
     CONCEPT_ENTITY,
     CONCEPT_EVENT,
     CONCEPT_OVERRIDES_DOC_FORMAT,
+    CONCEPT_TABLE_PREFIX,
     NAME_FROM_OVERRIDE,
     ROLE_DETAIL,
     ROLE_PRIMARY,
@@ -225,7 +226,9 @@ def test_a_created_concept_lands_before_the_relations_fold() -> None:
         overrides=_new_entry("concept:party", {carrier["id"]: ROLE_PRIMARY}),
     )
 
-    assert _pairs(without) == []
+    # M1: without the entry the edge folds onto the table's own provisional concept --
+    # the corpus saying it could not read the table. The entry is what names the thing.
+    assert _pairs(without) == [(f"{CONCEPT_TABLE_PREFIX}ods_party_base", "concept:cust")]
     assert _pairs(created) == [("concept:party", "concept:cust")]
 
 

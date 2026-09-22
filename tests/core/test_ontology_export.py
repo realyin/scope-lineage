@@ -580,8 +580,11 @@ def test_a_synonym_reaches_the_export_with_its_via_and_tier(fmt: str) -> None:
     text = render_export(ontology, fmt)
 
     for synonym in synonyms:
+        # The qualified column also appears as a concept attribute's source (M1 gives
+        # every table a concept, so every column reaches one), so the *synonym note* is
+        # what has to appear exactly once.
         target = f"{synonym['entity']}.{synonym['column']}"
-        assert text.count(target) == 1, target
+        assert text.count(f"{target} (via ") == 1, target
         assert synonym["via"] in text
         assert f'"{synonym["tier"]}"' in text
 

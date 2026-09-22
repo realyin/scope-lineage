@@ -48,7 +48,7 @@ consumers: 0
 
 ## 7. 身份（本体）
 
-- 未归入任何概念（`key_spans_several_stems`）。
+- 本表暂自成概念「metric_by_segment」（provisional），待评审归并（`concept:table:mart_metric_by_segment`）。
 
 - 属性 7（语料用到 6）
 

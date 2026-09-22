@@ -60,10 +60,12 @@ from dataclasses import dataclass
 
 from .concepts import (
     BASIS_OVERRIDE,
+    BASIS_PROVISIONAL,
     BASIS_REFERENCE,
     CONCEPT_ENTITY,
     CONCEPT_EVENT,
     CONCEPT_SUMMARY,
+    TIER_PROVISIONAL,
     key_column_name,
     key_comment_name,
     key_comment_says_nothing,
@@ -142,6 +144,9 @@ class _Context:
     synonyms: Mapping[str, str]
     #: ``(table, concept id)`` for the memberships a JOIN lent and nothing else backs.
     carried: frozenset
+    #: M1: ``{table: concept id}`` for the table that is a concept of its own, which is
+    #: what *both* ends fall back to when nothing else about the table answered.
+    provisional: Mapping[str, str] = ()
 
 
 # ------------------------------------------------------------------------ public API
@@ -167,6 +172,7 @@ def build_concept_relations(ontology: Mapping) -> dict:
         membership=_memberships(concepts),
         synonyms=synonym_folding(entities),
         carried=_carried_memberships(concepts),
+        provisional=_provisional_memberships(concepts),
     )
     groups, seams, unmapped = _fold(relations, context)
     kinds = {str(concept.get("id")): str(concept.get("kind")) for concept in concepts}
@@ -178,12 +184,38 @@ def build_concept_relations(ontology: Mapping) -> dict:
     built.sort(key=_order)
     return {
         "concept_relations": built,
+        "provisional_relations": _provisional_relations(built, concepts),
         "concept_representation_links": sorted(
             (_link(seam, members) for seam, members in seams.items()),
             key=lambda item: (item["concept"], item["from_table"], item["to_table"]),
         ),
         "concept_relations_unmapped": _unmapped_counts(len(relations), unmapped),
     }
+
+
+def provisional_concept_ids(concepts: Sequence[Mapping]) -> frozenset:
+    """The ids of the concepts M1 published because no key placed their one table."""
+    return frozenset(
+        str(concept.get("id"))
+        for concept in concepts
+        if str(concept.get("tier")) == TIER_PROVISIONAL
+    )
+
+
+def _provisional_relations(relations: Sequence[Mapping], concepts: Sequence[Mapping]) -> int:
+    """How many folded relations touch a concept that is still a table (M1).
+
+    Published beside the relations because it is the honest reading of them: an edge
+    onto a provisional concept says *some* table takes part, not that the business has
+    that relation, and the number says how much of this layer the review still owes.
+    It falls as the review merges the provisional concepts away.
+    """
+    provisional = provisional_concept_ids(concepts)
+    return sum(
+        1
+        for relation in relations
+        if str(relation["from"]) in provisional or str(relation["to"]) in provisional
+    )
 
 
 # ------------------------------------------------------------ placing an endpoint
@@ -221,7 +253,7 @@ def _identity_memberships(concepts: Sequence[Mapping]) -> dict[str, str]:
         identifier = str(concept.get("id"))
         for item in concept.get("tables") or []:
             basis = str(item.get("membership_basis"))
-            if basis == BASIS_REFERENCE:
+            if basis in (BASIS_REFERENCE, BASIS_PROVISIONAL):
                 continue
             found.setdefault(str(item.get("table")), []).append(
                 (basis == BASIS_OVERRIDE, identifier)
@@ -247,6 +279,8 @@ def _memberships(concepts: Sequence[Mapping]) -> dict[str, str]:
     found: dict[str, set[str]] = {}
     for concept in concepts:
         for item in concept.get("tables") or []:
+            if str(item.get("membership_basis")) == BASIS_PROVISIONAL:
+                continue
             found.setdefault(str(item.get("table")), set()).add(str(concept.get("id")))
     return {table: sorted(ids)[0] for table, ids in found.items() if len(ids) == 1}
 
@@ -257,7 +291,8 @@ def _fold(relations: Sequence[Mapping], context: _Context) -> tuple[dict, dict, 
     seams: dict[tuple[str, str, str], list[Mapping]] = {}
     unmapped = {reason: 0 for reason in UNMAPPED_REASONS}
     for relation in relations:
-        source = context.identity.get(_table(relation, "from"))
+        table = _table(relation, "from")
+        source = context.identity.get(table) or context.provisional.get(table)
         if source is None:
             unmapped[UNMAPPED_FROM_TABLE] += 1
             continue
@@ -274,6 +309,24 @@ def _fold(relations: Sequence[Mapping], context: _Context) -> tuple[dict, dict, 
             continue
         groups.setdefault((source, target), []).append(relation)
     return groups, seams, unmapped
+
+
+def _provisional_memberships(concepts: Sequence[Mapping]) -> dict[str, str]:
+    """``{table: concept id}`` for the concepts M1 published out of a table (M1).
+
+    Held apart from ``identity`` and ``membership`` on purpose, and read only after
+    both of them have said nothing. A provisional concept is the corpus admitting it
+    could not read the table, so it must never outrank a reading it *did* manage: the
+    ``to`` end still prefers what the far table is and then what the join columns name,
+    and reaches for this only when neither answered. What it guarantees is that
+    something always answers, which is what makes ``*_unplaced`` impossible.
+    """
+    return {
+        str(item.get("table")): str(concept.get("id"))
+        for concept in concepts
+        if str(concept.get("tier")) == TIER_PROVISIONAL
+        for item in concept.get("tables") or []
+    }
 
 
 def _carried_memberships(concepts: Sequence[Mapping]) -> frozenset:
@@ -364,7 +417,7 @@ def _to_endpoint(side: Mapping, source: str, context: _Context) -> str | None:
     stems = {key_stem(str(column), context.synonyms) for column in side.get("columns") or []}
     named = context.by_stem.get(stems.pop()) if len(stems) == 1 else None
     if named is None:
-        return None
+        return context.provisional.get(table)
     if named == source:
         return context.membership.get(table) or named
     return named

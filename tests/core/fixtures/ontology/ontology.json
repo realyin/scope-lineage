@@ -771,38 +771,648 @@
         }
       ],
       "tier": "hypothesis"
+    },
+    {
+      "id": "concept:table:dim_segment_dim",
+      "name": "segment_dim",
+      "name_tier": "stem_only",
+      "name_candidates": [
+        {
+          "text": "segment_dim",
+          "source": "key_stem",
+          "count": 1,
+          "name_evidence": []
+        }
+      ],
+      "kind": "entity",
+      "kind_tier": "implied",
+      "kind_evidence": [
+        {
+          "signal": "all_members_full_snapshot",
+          "vote": "entity"
+        },
+        {
+          "signal": "word_hint",
+          "vote": "entity",
+          "table": "dim.segment_dim",
+          "detail": "dim.segment_dim"
+        }
+      ],
+      "identity": {
+        "stem": "dim_segment_dim",
+        "columns_seen": []
+      },
+      "tables": [
+        {
+          "table": "dim.segment_dim",
+          "role": "primary",
+          "membership_basis": "provisional",
+          "key_columns": [],
+          "grain": null
+        }
+      ],
+      "attributes": [
+        {
+          "stem": "seg",
+          "type": null,
+          "comment": null,
+          "sources": [
+            {
+              "table": "dim.segment_dim",
+              "column": "segment"
+            }
+          ]
+        },
+        {
+          "stem": "segment_name",
+          "type": null,
+          "comment": null,
+          "sources": [
+            {
+              "table": "dim.segment_dim",
+              "column": "segment_name"
+            }
+          ]
+        },
+        {
+          "stem": "updated_at",
+          "type": null,
+          "comment": null,
+          "sources": [
+            {
+              "table": "dim.segment_dim",
+              "column": "updated_at"
+            }
+          ]
+        }
+      ],
+      "tier": "provisional",
+      "origin": "provisional"
+    },
+    {
+      "id": "concept:table:mart_channel_summary",
+      "name": "channel_summary",
+      "name_tier": "stem_only",
+      "name_candidates": [
+        {
+          "text": "channel_summary",
+          "source": "key_stem",
+          "count": 1,
+          "name_evidence": []
+        }
+      ],
+      "kind": "entity",
+      "kind_tier": "implied",
+      "kind_evidence": [
+        {
+          "signal": "all_members_full_snapshot",
+          "vote": "entity"
+        },
+        {
+          "signal": "word_hint",
+          "vote": "entity",
+          "table": "mart.channel_summary",
+          "detail": "mart.channel_summary"
+        }
+      ],
+      "identity": {
+        "stem": "mart_channel_summary",
+        "columns_seen": [
+          "customer_id",
+          "channel_name"
+        ]
+      },
+      "tables": [
+        {
+          "table": "mart.channel_summary",
+          "role": "primary",
+          "membership_basis": "provisional",
+          "key_columns": [
+            "customer_id",
+            "channel_name"
+          ],
+          "grain": "group_by"
+        }
+      ],
+      "attributes": [
+        {
+          "stem": "channel_name",
+          "type": null,
+          "comment": null,
+          "sources": [
+            {
+              "table": "mart.channel_summary",
+              "column": "channel_name"
+            }
+          ]
+        },
+        {
+          "stem": "customer",
+          "type": null,
+          "comment": null,
+          "sources": [
+            {
+              "table": "mart.channel_summary",
+              "column": "customer_id"
+            }
+          ]
+        },
+        {
+          "stem": "total_amount",
+          "type": null,
+          "comment": null,
+          "sources": [
+            {
+              "table": "mart.channel_summary",
+              "column": "total_amount"
+            }
+          ]
+        }
+      ],
+      "tier": "provisional",
+      "origin": "provisional"
+    },
+    {
+      "id": "concept:table:mart_metric_by_segment",
+      "name": "metric_by_segment",
+      "name_tier": "stem_only",
+      "name_candidates": [
+        {
+          "text": "metric_by_segment",
+          "source": "key_stem",
+          "count": 1,
+          "name_evidence": []
+        }
+      ],
+      "kind": "entity",
+      "kind_tier": "hypothesis",
+      "kind_evidence": [
+        {
+          "signal": "no_signal",
+          "vote": "entity"
+        }
+      ],
+      "identity": {
+        "stem": "mart_metric_by_segment",
+        "columns_seen": [
+          "segment",
+          "band"
+        ]
+      },
+      "tables": [
+        {
+          "table": "mart.metric_by_segment",
+          "role": "primary",
+          "membership_basis": "provisional",
+          "key_columns": [
+            "segment",
+            "band"
+          ],
+          "grain": "group_by"
+        }
+      ],
+      "attributes": [
+        {
+          "stem": "band",
+          "type": "string",
+          "comment": "Amount band",
+          "sources": [
+            {
+              "table": "mart.metric_by_segment",
+              "column": "band"
+            }
+          ]
+        },
+        {
+          "stem": "band_total",
+          "type": "decimal(18,2)",
+          "comment": "Band level total",
+          "sources": [
+            {
+              "table": "mart.metric_by_segment",
+              "column": "band_total"
+            }
+          ]
+        },
+        {
+          "stem": "cnt",
+          "type": "bigint",
+          "comment": "Row count",
+          "sources": [
+            {
+              "table": "mart.metric_by_segment",
+              "column": "cnt"
+            }
+          ]
+        },
+        {
+          "stem": "dt",
+          "type": "string",
+          "comment": "Partition date",
+          "sources": [
+            {
+              "table": "mart.metric_by_segment",
+              "column": "dt"
+            }
+          ]
+        },
+        {
+          "stem": "seg",
+          "type": "string",
+          "comment": "Segment code",
+          "sources": [
+            {
+              "table": "mart.metric_by_segment",
+              "column": "segment"
+            }
+          ]
+        },
+        {
+          "stem": "segment_name",
+          "type": "string",
+          "comment": "Segment display name",
+          "sources": [
+            {
+              "table": "mart.metric_by_segment",
+              "column": "segment_name"
+            }
+          ]
+        },
+        {
+          "stem": "total",
+          "type": "decimal(18,2)",
+          "comment": "Summed amount",
+          "sources": [
+            {
+              "table": "mart.metric_by_segment",
+              "column": "total"
+            }
+          ]
+        }
+      ],
+      "tier": "provisional",
+      "origin": "provisional"
+    },
+    {
+      "id": "concept:table:mart_user_names",
+      "name": "user_names",
+      "name_tier": "stem_only",
+      "name_candidates": [
+        {
+          "text": "user_names",
+          "source": "key_stem",
+          "count": 1,
+          "name_evidence": []
+        }
+      ],
+      "kind": "entity",
+      "kind_tier": "implied",
+      "kind_evidence": [
+        {
+          "signal": "all_members_full_snapshot",
+          "vote": "entity"
+        },
+        {
+          "signal": "word_hint",
+          "vote": "entity",
+          "table": "mart.user_names",
+          "detail": "mart.user_names"
+        }
+      ],
+      "identity": {
+        "stem": "mart_user_names",
+        "columns_seen": []
+      },
+      "tables": [
+        {
+          "table": "mart.user_names",
+          "role": "primary",
+          "membership_basis": "provisional",
+          "key_columns": [],
+          "grain": "driving_table_rows"
+        }
+      ],
+      "attributes": [
+        {
+          "stem": "user",
+          "type": null,
+          "comment": null,
+          "sources": [
+            {
+              "table": "mart.user_names",
+              "column": "user_id"
+            }
+          ]
+        },
+        {
+          "stem": "user_name",
+          "type": null,
+          "comment": null,
+          "sources": [
+            {
+              "table": "mart.user_names",
+              "column": "user_name"
+            }
+          ]
+        }
+      ],
+      "tier": "provisional",
+      "origin": "provisional"
+    },
+    {
+      "id": "concept:table:ods_channel_event",
+      "name": "渠道事件",
+      "name_tier": "hypothesis",
+      "name_candidates": [
+        {
+          "text": "渠道事件",
+          "source": "table_comment",
+          "count": 1,
+          "name_evidence": [
+            {
+              "table": "ods.channel_event"
+            }
+          ]
+        },
+        {
+          "text": "channel_event",
+          "source": "key_stem",
+          "count": 1,
+          "name_evidence": []
+        }
+      ],
+      "kind": "entity",
+      "kind_tier": "hypothesis",
+      "kind_evidence": [
+        {
+          "signal": "word_hint",
+          "vote": "event",
+          "table": "ods.channel_event",
+          "detail": "ods.channel_event 渠道事件明细（合成）"
+        },
+        {
+          "signal": "word_hint",
+          "vote": "entity",
+          "table": "ods.channel_event",
+          "detail": "ods.channel_event 渠道事件明细（合成）"
+        }
+      ],
+      "identity": {
+        "stem": "ods_channel_event",
+        "columns_seen": []
+      },
+      "tables": [
+        {
+          "table": "ods.channel_event",
+          "role": "primary",
+          "membership_basis": "provisional",
+          "key_columns": [],
+          "grain": null
+        }
+      ],
+      "attributes": [
+        {
+          "stem": "amount",
+          "type": null,
+          "comment": null,
+          "sources": [
+            {
+              "table": "ods.channel_event",
+              "column": "amount"
+            }
+          ]
+        },
+        {
+          "stem": "channel",
+          "type": null,
+          "comment": null,
+          "sources": [
+            {
+              "table": "ods.channel_event",
+              "column": "channel_code"
+            }
+          ]
+        },
+        {
+          "stem": "customer",
+          "type": null,
+          "comment": null,
+          "sources": [
+            {
+              "table": "ods.channel_event",
+              "column": "customer_id"
+            }
+          ]
+        },
+        {
+          "stem": "status",
+          "type": null,
+          "comment": null,
+          "sources": [
+            {
+              "table": "ods.channel_event",
+              "column": "status"
+            }
+          ]
+        }
+      ],
+      "tier": "provisional",
+      "origin": "provisional"
+    },
+    {
+      "id": "concept:table:ods_events_a",
+      "name": "events_a",
+      "name_tier": "stem_only",
+      "name_candidates": [
+        {
+          "text": "events_a",
+          "source": "key_stem",
+          "count": 1,
+          "name_evidence": []
+        }
+      ],
+      "kind": "entity",
+      "kind_tier": "hypothesis",
+      "kind_evidence": [
+        {
+          "signal": "no_signal",
+          "vote": "entity"
+        }
+      ],
+      "identity": {
+        "stem": "ods_events_a",
+        "columns_seen": []
+      },
+      "tables": [
+        {
+          "table": "ods.events_a",
+          "role": "primary",
+          "membership_basis": "provisional",
+          "key_columns": [],
+          "grain": null
+        }
+      ],
+      "attributes": [
+        {
+          "stem": "amount",
+          "type": null,
+          "comment": null,
+          "sources": [
+            {
+              "table": "ods.events_a",
+              "column": "amount"
+            }
+          ]
+        },
+        {
+          "stem": "seg",
+          "type": null,
+          "comment": null,
+          "sources": [
+            {
+              "table": "ods.events_a",
+              "column": "segment"
+            }
+          ]
+        }
+      ],
+      "tier": "provisional",
+      "origin": "provisional"
+    },
+    {
+      "id": "concept:table:ods_events_b",
+      "name": "events_b",
+      "name_tier": "stem_only",
+      "name_candidates": [
+        {
+          "text": "events_b",
+          "source": "key_stem",
+          "count": 1,
+          "name_evidence": []
+        }
+      ],
+      "kind": "entity",
+      "kind_tier": "hypothesis",
+      "kind_evidence": [
+        {
+          "signal": "no_signal",
+          "vote": "entity"
+        }
+      ],
+      "identity": {
+        "stem": "ods_events_b",
+        "columns_seen": []
+      },
+      "tables": [
+        {
+          "table": "ods.events_b",
+          "role": "primary",
+          "membership_basis": "provisional",
+          "key_columns": [],
+          "grain": null
+        }
+      ],
+      "attributes": [
+        {
+          "stem": "amount",
+          "type": null,
+          "comment": null,
+          "sources": [
+            {
+              "table": "ods.events_b",
+              "column": "amount"
+            }
+          ]
+        },
+        {
+          "stem": "seg",
+          "type": null,
+          "comment": null,
+          "sources": [
+            {
+              "table": "ods.events_b",
+              "column": "seg_code"
+            }
+          ]
+        }
+      ],
+      "tier": "provisional",
+      "origin": "provisional"
+    },
+    {
+      "id": "concept:table:ods_users",
+      "name": "users",
+      "name_tier": "stem_only",
+      "name_candidates": [
+        {
+          "text": "users",
+          "source": "key_stem",
+          "count": 1,
+          "name_evidence": []
+        }
+      ],
+      "kind": "entity",
+      "kind_tier": "hypothesis",
+      "kind_evidence": [
+        {
+          "signal": "no_signal",
+          "vote": "entity"
+        }
+      ],
+      "identity": {
+        "stem": "ods_users",
+        "columns_seen": []
+      },
+      "tables": [
+        {
+          "table": "ods.users",
+          "role": "primary",
+          "membership_basis": "provisional",
+          "key_columns": [],
+          "grain": null
+        }
+      ],
+      "attributes": [
+        {
+          "stem": "is_active",
+          "type": null,
+          "comment": null,
+          "sources": [
+            {
+              "table": "ods.users",
+              "column": "is_active"
+            }
+          ]
+        },
+        {
+          "stem": "user",
+          "type": null,
+          "comment": null,
+          "sources": [
+            {
+              "table": "ods.users",
+              "column": "user_id"
+            }
+          ]
+        },
+        {
+          "stem": "user_name",
+          "type": null,
+          "comment": null,
+          "sources": [
+            {
+              "table": "ods.users",
+              "column": "user_name"
+            }
+          ]
+        }
+      ],
+      "tier": "provisional",
+      "origin": "provisional"
     }
   ],
-  "unassigned_tables": [
-    {
-      "table": "dim.segment_dim",
-      "reason": "no_candidate_key"
-    },
-    {
-      "table": "mart.channel_summary",
-      "reason": "key_spans_several_stems"
-    },
-    {
-      "table": "mart.metric_by_segment",
-      "reason": "key_spans_several_stems"
-    },
-    {
-      "table": "mart.user_names",
-      "reason": "no_candidate_key"
-    },
-    {
-      "table": "ods.events_a",
-      "reason": "no_candidate_key"
-    },
-    {
-      "table": "ods.events_b",
-      "reason": "no_candidate_key"
-    },
-    {
-      "table": "ods.users",
-      "reason": "no_candidate_key"
-    }
-  ],
+  "provisional_count": 8,
+  "unassigned_tables": [],
   "retired_stems": [],
   "concept_overrides_applied": {
     "concepts": 0,
@@ -810,6 +1420,7 @@
     "tables_added": 0,
     "merges": 0,
     "splits": 0,
+    "dissolved": [],
     "unmatched": [],
     "warnings": [],
     "ignored_fields": []
@@ -969,14 +1580,80 @@
       ]
     }
   ],
-  "concept_relations": [],
+  "concept_relations": [
+    {
+      "from": "concept:table:ods_channel_event",
+      "to": "concept:channel",
+      "type": "association",
+      "cardinality": {
+        "claim": "many_to_one_assumed",
+        "tier": "hypothesis",
+        "basis": [
+          "rel:001"
+        ]
+      },
+      "task_count": 2,
+      "evidence": [
+        "rel:001"
+      ]
+    },
+    {
+      "from": "concept:table:ods_events_a",
+      "to": "concept:table:dim_segment_dim",
+      "type": "association",
+      "cardinality": {
+        "claim": "one_to_many",
+        "tier": "implied",
+        "basis": [
+          "rel:002"
+        ]
+      },
+      "task_count": 1,
+      "evidence": [
+        "rel:002"
+      ]
+    },
+    {
+      "from": "concept:table:ods_events_a",
+      "to": "concept:table:ods_events_b",
+      "type": "association",
+      "cardinality": {
+        "claim": "unknown",
+        "tier": "implied",
+        "basis": [
+          "rel:003"
+        ]
+      },
+      "task_count": 1,
+      "evidence": [
+        "rel:003"
+      ]
+    },
+    {
+      "from": "concept:table:ods_events_b",
+      "to": "concept:table:dim_segment_dim",
+      "type": "association",
+      "cardinality": {
+        "claim": "one_to_many",
+        "tier": "implied",
+        "basis": [
+          "rel:004"
+        ]
+      },
+      "task_count": 1,
+      "evidence": [
+        "rel:004"
+      ]
+    }
+  ],
+  "provisional_relations": 4,
   "concept_representation_links": [],
   "concept_relations_unmapped": {
     "edges_total": 4,
-    "mapped": 0,
-    "total": 4,
+    "mapped": 4,
+    "total": 0,
     "by_reason": {
-      "from_table_unplaced": 4,
+      "from_table_unplaced": 0,
       "to_table_unplaced": 0,
       "reference_only_edge": 0
     }
