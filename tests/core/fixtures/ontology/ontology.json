@@ -811,6 +811,7 @@
     "merges": 0,
     "splits": 0,
     "unmatched": [],
+    "warnings": [],
     "ignored_fields": []
   },
   "relations": [

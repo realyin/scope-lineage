@@ -84,6 +84,13 @@ scope-lineage ontology --lineage <corpus> --out <dir> \
 它的 id 记在留下来那个的 `merged_from[]` 里。**概念关系在合并之后才折**，所以原本指向被合掉
 那个概念的边，会自动改指到留下来的那个。
 
+**方向怎么选**：把 `primary` 成员**少**的那一边合进多的那一边。两边各有自己的 `primary`
+副本时，两条成员都会留下来（谁才是「这个概念的那一份」只有业务方答得了，这一层不替你删），
+同时报一条 `concept_overrides_applied.warnings[] = {key, warning: "merge_kept_two_primaries: <表1>, <表2>"}`。
+看到这条就回头看一眼：要么方向写反了，要么这两组表本来就是两件东西，合并这一问应该原样去问业务方。
+同一张表在两边都是成员时，它按**较强**的那个角色留下（`primary` > `snapshot` > `detail` >
+`summary` > `intermediate` > `reference`）——被合掉那一边读出来的东西不该因为合并而丢掉。
+
 ### 4. 拆分（一个概念其实是两件事）
 
 反过来的情形：一个词根把两件事收到了一起（`cust` 同时收了签约客户与潜在客户）。线索是
@@ -252,7 +259,8 @@ Q<n>. <一句问题，业务方不看 SQL 也能懂>
   `unknown_table: <表>`；已经是这个概念成员的表报 `already_a_member: <表>`，
   用 `roles` 改它的角色，不要用 `add_tables` 加第二遍。
 - `merge_into` 写留下来的那个概念的 id。合并在**概念关系折叠之前**生效，所以原本指向被合掉
-  那个概念的边会自动改指过来。
+  那个概念的边会自动改指过来。**把 `primary` 少的那一边合进多的那一边**；两边各有一个
+  `primary` 时两条都留着，并报一条 `warnings[] = {"merge_kept_two_primaries: <表1>, <表2>"}`。
 - `splits[].into[]` 逐表点名，新概念是 `concept:<词根>-1`、`-2`，按文件顺序编号；
   没被点名的表留在原概念上。
 - `new_concepts[]` 新建一个语料没发芽的概念（见上面「补：新建概念」）。`id` 要没人用过、且形如
@@ -265,7 +273,8 @@ Q<n>. <一句问题，业务方不看 SQL 也能懂>
 `merges` / `splits` 的条数与你合并的条数相等；`concept_overrides_applied.unmatched` 为空——非空说明某个 id 或表名抄错了，`reason`
 直接说错在哪（`unknown_concept` / `unknown_concept: <id>` / `unknown_table: <表>` /
 `unknown_kind: <值>` / `unknown_role: <值>` / `already_a_member: <表>` /
-`merge_into_self`）；
+`merge_into_self`）；`concept_overrides_applied.warnings` 为空——非空说明某次合并把两个
+`primary` 副本折进了一个概念，回头确认方向，或者把这一问原样交给业务方；
 `concept_overrides_applied.ignored_fields` 为空——非空说明某个字段名拼错了，那一项没生效。
 
 ## 自检
@@ -285,3 +294,5 @@ Q<n>. <一句问题，业务方不看 SQL 也能懂>
 | 11 | 只有 `word_hint` 的种类：一致且 `implied` 的已按「仅词汇线索一致」自答，只有打架的或 `hypothesis` 的才去问人 | |
 | 12 | 新建的概念 id 都是没人用过的 `concept:<小写词根>`，成员表里没有一张是别的概念**按身份**收下的（那种只能给 `reference`） | |
 | 13 | `retired_stems[]` 里的词根若有上一轮的答案，已经照原 id 写进 `concepts`，没有当成 `unknown_concept` 丢掉 | |
+| 14 | 每次合并都把 `primary` 少的那一边合进多的那一边，`warnings` 里没有 `merge_kept_two_primaries` | |
+| 15 | `add_tables` 里写 `reference` 的表，本意确实是「只是带着这个键」——那一条不会改变这张表本身是什么 | |

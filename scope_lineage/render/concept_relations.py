@@ -34,7 +34,8 @@ to concept)``. Four rules keep it a reading of the corpus rather than a new clai
    summary meets either, ``derivation`` between two of a kind that are not entities. A
    participation also publishes the ``roles`` the event gives the entity, taken from the
    ``from`` side's column comment and stripped exactly as a key comment is (发送方编号 →
-   发送方), or from the column's own name when the metadata says nothing. One concept on
+   发送方), or, when the metadata says nothing, from the column's own name read as words
+   rather than as an identifier (``collection_unit_id`` → 「collection unit」). One concept on
    both sides is a ``self_reference`` -- 上级客户 → 客户 is a relation the business has --
    unless the two *tables* are two representations of that one concept, which is a seam
    in K1's fold rather than a relation: those are published apart, in
@@ -63,7 +64,9 @@ from .concepts import (
     CONCEPT_ENTITY,
     CONCEPT_EVENT,
     CONCEPT_SUMMARY,
+    key_column_name,
     key_comment_name,
+    key_comment_says_nothing,
     key_stem,
     synonym_folding,
 )
@@ -508,11 +511,24 @@ def _roles(
 
 
 def _role(relation: Mapping, comments: Mapping[tuple[str, str], str]) -> str:
+    """One role, read off the column that carries the entity's key into the event.
+
+    The comment answers first -- 发送方编号 is 发送方 -- and when the metadata says
+    nothing the column's own *name* answers, as words rather than as an identifier
+    (K4d): ``collection_unit_id`` is 「collection unit」, never ``collection_unit_id``.
+    A role is a word a business uses, and publishing the warehouse's spelling in that
+    place says the business calls it that.
+
+    "Says nothing" is the wider reading a real corpus forced: an empty comment, a bare
+    「ID」, and a catalog that filled the comment with the column identifier all leave
+    the answer to the column name. A comment route that accepted its own input would
+    publish ``openId`` whatever the fallback does.
+    """
     side = relation.get("from") or {}
     table = str(side.get("entity"))
     columns = [str(column) for column in side.get("columns") or []]
     for column in columns:
         text = key_comment_name(comments.get((table, column), ""))
-        if text:
+        if text and not key_comment_says_nothing(text, column):
             return text
-    return columns[0] if columns else ""
+    return key_column_name(columns[0]) if columns else ""
