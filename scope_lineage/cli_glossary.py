@@ -214,9 +214,12 @@ def _report(
         f"{counters})"
     )
     if "concept_terms" in glossary:
+        summary = glossary["concept_terms_summary"]
         print(
-            f"Hung {len(glossary['concept_terms'])} concept attribute(s) on "
-            f"{len({item['concept'] for item in glossary['concept_terms']})} concept(s) "
+            f"Hung {summary['attributes']} concept attribute(s) on "
+            f"{summary['concepts']} placed concept(s), "
+            f"{summary['attributes_spanning_multiple_tables']} of them spanning "
+            f"2+ tables "
             f"(concept overrides applied_to="
             f"{sum(item['applied_to'] for item in applied['concept_expansions'])}, "
             f"unmatched={len(applied['concept_unmatched'])})"

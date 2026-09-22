@@ -148,7 +148,8 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
 | --- | --- |
 | `corpus` | 扫了什么：`artifact_root` 原样记录、任务数、写语句数、每个任务的契约摘要（与 mapping.md / semantic.md 用的是同一个 digest 函数，可据此确认字典与画像来自同一快照） |
 | `terms[]` | 按**列名**跨表归并的注释；一个列名一条，按列名排序 |
-| `concept_terms[]` | **只在给了 `--ontology` 时出现**：按**概念属性**归并的术语与取值；一个（概念、属性）一条，按（概念 id、属性）排序 |
+| `concept_terms[]` | **只在给了 `--ontology` 时出现**：按**概念属性**归并的术语与取值；一个（概念、属性）一条，按（概念 id、属性）排序；**临时概念不进这一层** |
+| `concept_terms_summary` | 同样只在给了 `--ontology` 时出现：`{concepts, attributes, attributes_spanning_multiple_tables}`——概念层覆盖了几个概念、几个属性，其中几个属性跨 ≥ 2 张表 |
 | `values[]` | 一条 =（列引用，取值，`kind`）；按（列名、列引用、取值、`kind`）排序。`value` 是去引号的规范形式，`sql_literal` 是作者写的字面量 |
 | `parameters[]` | `${…}` 变量与函数调用钉住的列：它们钉住这个列，但不是这个列的取值 |
 | `overrides_applied` | 本次人工确认生效了多少条（`terms` / `values`）、多少条还空着没填（`blank`）、哪些键在语料里没有对应项（`unmatched`）、哪些确认被拒绝（`rejected`），以及哪些字段本版本读不懂（`ignored_fields`） |
@@ -161,7 +162,7 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
 | `tables_total` | 语料里有这个列的表数（输入表与目标表都算，同一张表的不同 catalog 写法算一张） |
 | `tables_without_comment[]` | 有这个列、但没写列注释的表——这是"待补注释"的清单 |
 | `conflict` | 同一个列名有 ≥ 2 种不同注释文本时为 `true`；字典**并列保留两种说法**，不替作者裁决 |
-| `concepts[]` | 只在给了 `--ontology` 时出现：这个列名喂给了哪些概念属性，`{concept, attribute}` 按（概念 id、属性）去重保序；一个不属于任何概念的列名这里是空数组 |
+| `concepts[]` | 只在给了 `--ontology` 时出现：这个列名喂给了哪些概念属性，`{concept, attribute}` 按（概念 id、属性）去重保序；只算非临时概念，一个不属于任何概念的列名这里是空数组 |
 | `meaning` | 人工确认的列含义；没人确认过时为 `null` |
 
 ### 概念层（concept_terms[]，N6）
@@ -175,10 +176,13 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
   {"concept": "concept:order", "name": "Order", "attribute": "pay_status",
    "columns": [{"table": "ods.app_order", "column": "pay_status"},
                {"table": "ods.web_order", "column": "pay_status"}],
+   "representation_count": 2,
    "comments": [{"text": "支付状态", "tables": ["ods.app_order", "ods.web_order"], "count": 2}],
    "conflict": false,
    "values": ["…这些列在 values[] 里的那些条目，原样引用…"]}
-]
+],
+"concept_terms_summary": {"concepts": 9, "attributes": 214,
+                          "attributes_spanning_multiple_tables": 31}
 ```
 
 | 键 | 含义 |
@@ -186,10 +190,17 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
 | `concept` / `name` | 概念 id 与本体给它的名字（名字可能只是词干，本体自己会标 `name_tier`） |
 | `attribute` | 属性的词干（本体 `attributes[].stem`） |
 | `columns[]` | 这个属性写在哪些（表、列）上；表名换成字典自己选定的那种拼写（点号后缀归一），按（表、列）排序 |
+| `representation_count` | 这个属性落在几张表示表上。`1` 表示它今天只对着一列——照常发布，但一条概念键对它而言并不比表级键多答什么；`≥ 2` 才是一条概念键真正省下的那种问题 |
 | `comments[]` / `conflict` | 与 `terms[]` 同一套归并，只不过归并范围是**这个属性的那几列**而不是同名的所有列；语料里没有的列不参与 |
 | `values[]` | `values[]` 里属于这些列的条目**原样引用**（scope 级引用不算）：后面 overrides 确认了含义，这里读到的也是已确认的那一条 |
 
-一个列名不属于任何概念属性时，它只留在 `terms[]` 里——概念层不为它发明一个概念。
+**临时概念（`tier: provisional`）不进这一层。** 本体给每一张没能被任何键放进概念的表都发一个
+临时概念，它代表的就是那一张表：它的属性就是那张表的列换了个长名字，`terms[]` 已经说过了。
+在一份宽语料上把它们一并发布，等于让真正跨表的那些属性——也就是一条概念键唯一能省下的那些
+问题——淹没在里面。已经被放进概念的概念，它的属性**一个不落**都发布（跨一张表的也发），
+用 `representation_count` 说明它今天够到多远：属性还在，只是那条概念键此刻还没有省下什么。
+
+一个列名不属于任何（非临时）概念属性时，它只留在 `terms[]` 里——概念层不为它发明一个概念。
 
 ### 值域观察（values[]）
 
@@ -569,8 +580,9 @@ CASE 的**条件**里。`value_domain` 只挂在输出列上，所以语料把�
 既没有列注释也没有被任何常量比较过的列名，只在末尾的「其余列」里记一次名字。
 
 给了 `--ontology` 时，摘要之后、各列小节之前多一节**「按概念」**（N6）：一个概念属性一行，
-列出概念（id 与名字）、属性、它的那些列、归并后的术语（注释冲突照样标 `⚠`），以及这个属性的
-取值「已确认 / 共计」。它是同一批事实换一个方向读——不是「这个列名是什么意思」，而是
+列出概念（id 与名字）、属性、表数（`representation_count`）、它的那些列、归并后的术语
+（注释冲突照样标 `⚠`），以及这个属性的取值「已确认 / 共计」；节首那两行写明覆盖了几个概念、
+几个属性、其中几个跨 ≥ 2 张表，以及临时概念不在其中。它是同一批事实换一个方向读——不是「这个列名是什么意思」，而是
 「这个概念管这件事叫什么、答掉了多少」——也是评审者据以决定该写哪一条
 `concept:<id>.<属性>=<取值>` 的那张表。
 

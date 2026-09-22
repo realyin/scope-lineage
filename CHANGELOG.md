@@ -46,6 +46,19 @@
   - **Without `--ontology` nothing changes**: no `concept_terms`, no `concepts` back-link,
     no concept report, no markdown section, no coverage keys — the artifacts are byte for
     byte what they were.
+  - **The concept layer is built over the concepts somebody could place** (N6b, found on a
+    wide corpus where the first cut published 9863 attributes over 448 concepts and most
+    of them mirrored the column layer). A **provisional** concept — the one the ontology
+    gives every table no key could place — stands for exactly one table, so its attributes
+    are that table's columns under longer names and `terms[]` already said them; they are
+    now left out of `concept_terms[]`, out of the `terms[].concepts[]` back-links, out of
+    the form's concept sections and out of 「按概念」. A concept that *was* placed keeps
+    **every** attribute, single-table ones included, and each one now publishes
+    `representation_count`: `1` is an attribute whose concept key saves nothing yet, `2` or
+    more is the question a concept key actually collapses. `glossary.json` also gains
+    `concept_terms_summary: {concepts, attributes, attributes_spanning_multiple_tables}`,
+    printed in the run summary and in the 「按概念」 header, so a reader can tell whether
+    the layer is worth reading without counting its rows.
 - **The open list folds once more, at the level the answer is true** (N3). A concept with
   five representation tables carrying the same candidate key produced five 「这张表按这组列
   唯一吗」 questions, and a reviewer answered the same thing five times. Identity is a

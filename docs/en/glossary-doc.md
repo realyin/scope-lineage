@@ -170,7 +170,8 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
 | --- | --- |
 | `corpus` | What was scanned: `artifact_root` verbatim, the task count, the write-statement count, and each task's contract digest (the same digest function mapping.md / semantic.md use, so you can confirm the dictionary and a profile came from one snapshot) |
 | `terms[]` | Comments merged across tables by **column name**; one entry per name, sorted by name |
-| `concept_terms[]` | **Present only with `--ontology`**: terms and values merged by **concept attribute**; one entry per (concept, attribute), sorted by (concept id, attribute) |
+| `concept_terms[]` | **Present only with `--ontology`**: terms and values merged by **concept attribute**; one entry per (concept, attribute), sorted by (concept id, attribute); **provisional concepts are not in this layer** |
+| `concept_terms_summary` | Also only with `--ontology`: `{concepts, attributes, attributes_spanning_multiple_tables}` -- how many concepts and attributes the layer covers, and how many of those attributes span 2 or more tables |
 | `values[]` | One entry per (column reference, value, `kind`); sorted by (column name, column reference, value, `kind`). `value` is the normalized, unquoted form and `sql_literal` is the literal the author wrote |
 | `parameters[]` | Columns pinned by a `${…}` variable or a function call: they pin the column, but they are not its values |
 | `overrides_applied` | How many human confirmations took effect (`terms` / `values`), how many keys are still blank (`blank`), which keys matched nothing in the corpus (`unmatched`), which confirmations were refused (`rejected`), and which fields this release does not read (`ignored_fields`) |
@@ -183,7 +184,7 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
 | `tables_total` | How many tables in the corpus hold this column (inputs and targets both count; two catalog spellings of one table count once) |
 | `tables_without_comment[]` | Tables that hold the column but wrote no column comment -- the "still undocumented" list |
 | `conflict` | `true` when one column name has 2 or more different comment texts; the dictionary **keeps both side by side** rather than deciding for the authors |
-| `concepts[]` | Present only with `--ontology`: the concept attributes this column name feeds, as `{concept, attribute}`, deduped in (concept id, attribute) order; an empty array for a name that belongs to no concept |
+| `concepts[]` | Present only with `--ontology`: the concept attributes this column name feeds, as `{concept, attribute}`, deduped in (concept id, attribute) order; provisional concepts do not count, and a name belonging to no concept gets an empty array |
 | `meaning` | The human-confirmed column meaning; `null` until somebody confirms one |
 
 ### The concept layer (concept_terms[], N6)
@@ -199,10 +200,13 @@ second time along that statement:
   {"concept": "concept:order", "name": "Order", "attribute": "pay_status",
    "columns": [{"table": "ods.app_order", "column": "pay_status"},
                {"table": "ods.web_order", "column": "pay_status"}],
+   "representation_count": 2,
    "comments": [{"text": "Payment status", "tables": ["ods.app_order", "ods.web_order"], "count": 2}],
    "conflict": false,
    "values": ["…the entries of those columns in values[], referenced as they are…"]}
-]
+],
+"concept_terms_summary": {"concepts": 9, "attributes": 214,
+                          "attributes_spanning_multiple_tables": 31}
 ```
 
 | Key | Meaning |
@@ -210,11 +214,20 @@ second time along that statement:
 | `concept` / `name` | The concept id and the name the ontology gave it (which may still be a stem -- the ontology marks that itself, in `name_tier`) |
 | `attribute` | The attribute's stem (the ontology's `attributes[].stem`) |
 | `columns[]` | The (table, column) pairs this attribute is written on, each table under the spelling the dictionary itself chose (dotted-suffix normalization), sorted by (table, column) |
+| `representation_count` | How many representation tables write this attribute. `1` means it reaches exactly one column today -- published as usual, but a concept key answers no more for it than a table key would; `2` or more is the kind of question a concept key actually collapses |
 | `comments[]` / `conflict` | The same merge `terms[]` does, taken over **this attribute's columns** instead of over every same-named one; a column the corpus never saw contributes nothing |
 | `values[]` | The `values[]` entries of those columns, **referenced as they are** (scope-level references excluded): an overrides confirmation applied afterwards is visible here too |
 
-A column name belonging to no concept attribute stays in `terms[]` alone -- the concept
-layer does not invent a concept for it.
+**Provisional concepts (`tier: provisional`) are not in this layer.** The ontology gives
+one to every table no key could place, and it stands for that one table: its attributes
+are that table's columns under longer names, which `terms[]` already said. Publishing
+them on a wide corpus buries the attributes that really do span several tables -- the
+only questions a concept key collapses. A concept somebody *could* place keeps **every**
+one of its attributes, single-table ones included, with `representation_count` saying how
+far each reaches today: the attribute is real, its concept key just saves nothing yet.
+
+A column name belonging to no (non-provisional) concept attribute stays in `terms[]`
+alone -- the concept layer does not invent a concept for it.
 
 ### Value observations (values[])
 
@@ -669,8 +682,10 @@ single constant comparison is named once, in the trailing "other columns" sectio
 
 With `--ontology` one more section sits between the summary and the column sections:
 **「按概念」** (N6), one row per concept attribute, naming the concept (id and name), the
-attribute, its columns, the merged term (a comment conflict still marked `⚠`), and the
-attribute's values as "confirmed / total". It is the same facts read the other way round
+attribute, its table count (`representation_count`), its columns, the merged term (a
+comment conflict still marked `⚠`), and the attribute's values as "confirmed / total";
+the two lines above the table say how many concepts and attributes it covers, how many
+of them span 2 or more tables, and that provisional concepts are not among them. It is the same facts read the other way round
 -- not "what does this column name mean" but "what does this concept call this thing, and
 how much of it has anybody answered" -- and it is the table a reviewer reads to decide
 which single `concept:<id>.<attribute>=<value>` key to write.

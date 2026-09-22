@@ -33,7 +33,9 @@ import pytest
 from scope_lineage.cli import main
 from scope_lineage.contract import to_lineage_dict
 from scope_lineage.metadata.schema_metadata import SchemaMap
+from scope_lineage.render import concepts
 from scope_lineage.render.glossary import (
+    PROVISIONAL_TIER,
     apply_glossary,
     build_glossary,
     render_glossary_markdown,
@@ -87,24 +89,34 @@ def _documents(comments=("Payment status", "Payment status", "Settlement state")
     ]
 
 
-def _ontology(attribute: str = "pay_status", sources=None) -> dict:
+def _concept(identifier: str, name: str, attributes: list, tier: str = "implied") -> dict:
+    return {
+        "id": identifier,
+        "name": name,
+        "kind": "event",
+        "tier": tier,
+        "tables": [{"table": table, "role": "primary"} for table in TABLES],
+        "attributes": attributes,
+    }
+
+
+def _ontology(attribute: str = "pay_status", sources=None, extra=()) -> dict:
     """An ``ontology-json/2`` document, read by the dictionary as a plain dict."""
     sources = sources or [{"table": table, "column": "pay_status"} for table in TABLES]
     return {
         "doc_format": "ontology-json/2",
         "concepts": [
-            {
-                "id": "concept:order",
-                "name": "Order",
-                "kind": "event",
-                "tables": [{"table": table, "role": "primary"} for table in TABLES],
-                "attributes": [
+            _concept(
+                "concept:order",
+                "Order",
+                [
                     {"stem": "order", "type": "bigint", "comment": None,
                      "sources": [{"table": TABLES[0], "column": "order_id"}]},
                     {"stem": attribute, "type": "string", "comment": None,
                      "sources": sources},
                 ],
-            }
+            ),
+            *extra,
         ],
         "tables": [
             {"id": table, "concepts": [{"id": "concept:order", "role": "primary"}]}
@@ -192,6 +204,51 @@ def test_a_term_belonging_to_no_concept_stays_only_in_terms() -> None:
     ]
     assert _attribute(glossary, "settlement_state")["values"] == []
     assert _attribute(glossary, "settlement_state")["comments"] == []
+
+
+def test_a_provisional_concept_contributes_nothing() -> None:
+    """N6b. A provisional concept is one table nobody could place -- it asserts nothing.
+
+    Every table gets one, so publishing them would make the concept layer a copy of the
+    column layer under longer names: on a wide corpus that is thousands of rows saying
+    what ``terms[]`` already said, and the 835 attributes that really do span several
+    tables -- the whole reason to answer at the concept level -- drown in them.
+    """
+    provisional = _concept(
+        "concept:table:ods_pos_order",
+        "pos_order",
+        [{"stem": "pay_status", "type": "string", "comment": None,
+          "sources": [{"table": TABLES[2], "column": "pay_status"}]}],
+        tier="provisional",
+    )
+    glossary = _glossary(ontology=_ontology(extra=[provisional]))
+
+    assert [item["concept"] for item in glossary["concept_terms"]] == [
+        "concept:order",
+        "concept:order",
+    ]
+    term = next(item for item in glossary["terms"] if item["column"] == "pay_status")
+    assert term["concepts"] == [{"concept": "concept:order", "attribute": "pay_status"}]
+    assert PROVISIONAL_TIER == concepts.TIER_PROVISIONAL
+
+
+def test_a_real_concepts_one_table_attribute_is_published_with_one_representation() -> None:
+    """Every attribute of a real concept stays; the row says how far it reaches."""
+    glossary = _glossary(ontology=_ontology())
+
+    assert _attribute(glossary, "order")["representation_count"] == 1
+    assert _attribute(glossary, "pay_status")["representation_count"] == 3
+
+
+def test_the_summary_counts_the_concepts_attributes_and_the_spanning_ones() -> None:
+    glossary = _glossary(ontology=_ontology())
+
+    assert glossary["concept_terms_summary"] == {
+        "concepts": 1,
+        "attributes": 2,
+        "attributes_spanning_multiple_tables": 1,
+    }
+    assert "concept_terms_summary" not in _glossary()
 
 
 # ---------------------------------------------------------------------- overrides
@@ -347,6 +404,11 @@ def test_the_markdown_lists_each_concept_attribute_with_its_value_counts() -> No
     # Two tables say one thing and the third another; the row says so rather than
     # resolving it, exactly as the column section does.
     assert CONFLICT_MARK in row
+    # N6b: how far the attribute reaches, and the note saying why the provisional
+    # concepts a wide corpus is full of are not in this table.
+    assert "| 3 |" in row
+    assert "1 个概念、2 个属性，其中 1 个属性跨 ≥ 2 张表" in markdown
+    assert "`tier: provisional`" in markdown
 
 
 def test_without_an_ontology_the_dictionary_is_the_document_it_was() -> None:
@@ -360,6 +422,7 @@ def test_without_an_ontology_the_dictionary_is_the_document_it_was() -> None:
         "parameters",
         "overrides_applied",
     ]
+    assert "concept_terms" not in glossary
     assert all("concepts" not in term for term in glossary["terms"])
     assert "按概念" not in render_glossary_markdown(glossary)
 

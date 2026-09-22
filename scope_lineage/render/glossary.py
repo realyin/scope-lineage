@@ -83,6 +83,15 @@ MEANING_SOURCE_OVERRIDE = "override"
 # every table whose column of that name observed it.
 FAMILY_KEY_PREFIX = "*."
 
+# N6b. The tier of a concept the ontology invented to hold ONE table nobody's key could
+# place (the ontology's own ``concepts.TIER_PROVISIONAL``; the test file pins the two
+# together). Such a concept asserts nothing this dictionary does not already know: every
+# table has one, its attributes are that table's columns under longer names, and on a
+# wide corpus publishing them buries the attributes that really do span several tables --
+# which are the only ones a concept-level answer is worth writing. So the concept layer
+# is built over the concepts somebody could actually place.
+PROVISIONAL_TIER = "provisional"
+
 # N6. What a CONCEPT key starts with -- it is the concept's own id, so the key reads
 # `concept:order.pay_status='PAID'`: that attribute of that concept, on every table the
 # ontology says represents it.
@@ -120,6 +129,7 @@ GLOSSARY_KEYS = (
     "corpus",
     "terms",
     "concept_terms",
+    "concept_terms_summary",
     "values",
     "parameters",
     "overrides_applied",
@@ -223,6 +233,7 @@ def build_glossary(
     }
     if concepts is not None:
         glossary["concept_terms"] = concepts
+        glossary["concept_terms_summary"] = _concept_terms_summary(concepts)
     _apply_overrides(glossary, overrides or {})
     return {key: glossary[key] for key in GLOSSARY_KEYS if key in glossary}
 
@@ -365,13 +376,37 @@ def _concept_terms(
     merge ``terms[]`` does taken over exactly those pairs, and its ``values`` are the
     dictionary's own entries for them -- the very objects, so a confirmation applied
     afterwards shows through here too.
+
+    N6b: over the concepts somebody could place, and then over **all** of their
+    attributes. Dropping a one-table attribute of a real concept would be the wrong cut:
+    it is still that concept's attribute, and the next corpus may well be where its
+    second representation shows up. What the row says instead is how far it reaches --
+    ``representation_count`` -- so a reader can tell the attribute worth one concept-level
+    answer from the one that currently has exactly one column.
     """
     entries = [
         _concept_term(concept, attribute, columns, values, canonical)
         for concept in ontology.get("concepts") or []
+        if str(concept.get("tier")) != PROVISIONAL_TIER
         for attribute in concept.get("attributes") or []
     ]
     return sorted(entries, key=lambda item: (item["concept"], item["attribute"]))
+
+
+def _concept_terms_summary(concepts: Sequence[Mapping]) -> dict[str, int]:
+    """The three numbers that say what the concept layer is worth on this corpus.
+
+    ``attributes_spanning_multiple_tables`` is the one that matters: those are the
+    questions a concept-level answer actually collapses. Published beside the layer so a
+    reader does not have to count the rows to find out whether reading it pays.
+    """
+    return {
+        "concepts": len({str(entry["concept"]) for entry in concepts}),
+        "attributes": len(concepts),
+        "attributes_spanning_multiple_tables": sum(
+            1 for entry in concepts if entry["representation_count"] > 1
+        ),
+    }
 
 
 def _concept_term(
@@ -402,6 +437,10 @@ def _concept_term(
         "name": str(concept.get("name") or ""),
         "attribute": str(attribute.get("stem") or ""),
         "columns": [{"table": table, "column": column} for table, column in sources],
+        # N6b. How many representation tables write this attribute. 1 is an attribute
+        # that reaches exactly one column today: real, kept, and not yet worth a
+        # concept-level answer.
+        "representation_count": len({table for table, _column in sources}),
         "comments": comments,
         "conflict": len(comments) >= 2,
         "values": _attribute_values(sources, values),
