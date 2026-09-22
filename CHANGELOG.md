@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
+- **Breaking — the ontology is concept-first.** `ontology.json` is `ontology-json/2`: the
+  ontology is `concepts[]` (实体 / 事件 / 汇总, every table has one) and `relations[]`
+  between them; tables are representations (`tables[]`, the former `entities[]`, with
+  `concepts[]` back-links) and table-to-table joins are evidence (`table_relations[]`,
+  the former `relations[]`, each naming the concept relation it fed). `entities`,
+  `concept_relations`, `concept_representation_links` and `unassigned_tables` are gone;
+  `ontology --legacy-keys` writes the old keys as aliases for this one release.
+  `ontology.md`, the table cards and the LinkML/SHACL exports follow the same shape. The
+  lineage contracts 1.0 / 2.0 and every other artifact are unchanged. Migration: the
+  READMEs' migration section and the ontology guide's 「从 ontology-json/1 迁移」 table.
 - **Breaking — the ontology is concept-first (`ontology-json/2`)** (M2/M3). The owner's
   reading is now the document's own vocabulary: 实体/事件/汇总 are **concepts**,
   `relations[]` hold **between concepts**, a table is a **representation** of a concept,
