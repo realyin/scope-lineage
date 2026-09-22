@@ -215,6 +215,8 @@ SIGNAL_DRIVING_LOG_SOURCE = "driving_rows_over_log_source"
 SIGNAL_INCREMENT_EVENT_TIME = "increment_with_event_time"
 SIGNAL_ALL_MEMBERS_SUMMARY = "all_members_summary"
 SIGNAL_WORD_HINT = "word_hint"
+#: K2b: every non-reference member is a full snapshot of a *thing*.
+SIGNAL_DIMENSION_MEMBERS = "all_members_full_snapshot"
 SIGNAL_NONE = "no_signal"
 #: K4c: the only "signal" behind a concept a reviewer created -- the reviewer.
 SIGNAL_OVERRIDE = "override"
@@ -228,7 +230,17 @@ TABLE_COMMENT_SUFFIXES = (
 )
 #: The same idea for the column comment that names the key: 客户编号 is 客户. Longest
 #: first, and at most one of them comes off -- 客户编号 is 客户, not 客.
-KEY_COMMENT_SUFFIXES = ("编号", "编码", "代码", "号码", "标识", "号")
+#: K2b: 名称 / 名 (the column holds the thing's name) and 键 (it is the key) join them,
+#: because a wide corpus led with 机构名称 and 合同键 where it meant 机构 and 合同.
+KEY_COMMENT_SUFFIXES = (
+    "编号", "编码", "代码", "号码", "标识", "名称", "号", "名", "键",
+)
+#: K2b: the same marker written in latin with no `_` in front of it -- 客户ID. Matched
+#: case-insensitively, and only when Chinese survives it.
+KEY_COMMENT_LATIN_SUFFIXES = ("id",)
+#: K2b: what a catalog leaves at either end of a comment. While one of these sits at the
+#: end, no suffix rule can see the word it is hiding (「…日志表-」 never reached 表).
+NAME_EDGE_CHARS = " \t_-—–:：/,，、"
 #: Words that merely *end* in a key marker. 账号 is what the column holds, not 账 plus a
 #: marker, so a bare 号 never comes off one of these.
 KEY_SUFFIX_PROTECTED = ("账号", "卡号", "型号", "工号", "学号", "代号", "席号")
@@ -253,12 +265,43 @@ _TAG_RE = re.compile(r"[【\[][^【】\[\]]*[】\]]")
 #: ones match whole, because `id`/`key` open plenty of real English phrases.
 NAME_STOPLIST_PREFIXES = ("唯一", "主键", "标识", "编号", "编码", "代码", "序号", "流水号")
 NAME_STOPLIST_EXACT = ("id", "unique", "key", "guid", "uuid", "pk", "no", "code")
-NAME_STOPLIST = frozenset(NAME_STOPLIST_PREFIXES + NAME_STOPLIST_EXACT)
+#: K2b: the words a wide corpus found in the *middle* of a comment -- 逻辑主键, 原始表主键,
+#: 唯一去重键. Read on the comment as written, before any marker comes off, and nothing
+#: survives them: whatever sits in front is the flavour of key, not the thing keyed.
+NAME_STOPLIST_ANYWHERE = ("主键", "唯一", "去重键")
+#: K2b: the same idea for the words a real subject *can* survive. Read on the name that
+#: is left instead, so 交易流水号 is still 交易流水 while 业务标识码 names nothing.
+NAME_STOPLIST_INSIDE = ("标识", "编号", "编码", "代码", "序号", "流水号")
+NAME_STOPLIST = frozenset(
+    NAME_STOPLIST_PREFIXES
+    + NAME_STOPLIST_EXACT
+    + NAME_STOPLIST_ANYWHERE
+    + NAME_STOPLIST_INSIDE
+)
 #: Words that say where a table sits in a pipeline rather than what it holds. Taken out
 #: wherever they appear, before the storage suffixes.
 STAGING_TOKENS = ("中间过程", "过程表", "临时", "备份", "backup", "tmp")
 #: A candidate still carrying one of these reads as a table name, not a business name.
 JUNK_MARKERS = ("_", "backup", "tmp")
+
+#: K2b: why a candidate reads as something *about* the concept rather than as its
+#: name. Published on the candidate, which keeps its place in the evidence and only
+#: loses the ranking.
+JUNK_PERIOD = "names_a_period"
+JUNK_MEASURE = "names_a_measure"
+JUNK_FILTER = "names_a_filter"
+
+#: A candidate that opens with a period says *when*, not *what* (2月时段…, 2024年…).
+NAME_PERIOD_PREFIXES = (
+    "本月", "当月", "上月", "本年", "当年", "本期", "当期", "当日", "昨日", "今日",
+)
+#: A candidate that ends in one of these is a number *about* the concept.
+NAME_MEASURE_SUFFIXES = ("欠款", "金额", "目标", "分数据", "统计", "数量", "次数", "率")
+#: A candidate carrying one of these names a *slice* of the concept -- 已到期合同欠款 is
+#: not what 合同 is called, it is which 合同 this table kept.
+NAME_FILTER_WORDS = (
+    "已到期", "未到期", "已还", "未还", "已结清", "未结清", "首期", "当日", "本月",
+)
 
 _CONCEPT_KEYS = (
     "id",
@@ -885,12 +928,13 @@ def _structural_signals(
 ) -> list[dict]:
     """The votes the corpus's own shape casts: keys, grain and period suffixes."""
     votes: list[dict] = []
+    dimension = _dimension_members(members, index)
     for seed in members:
         card = index.get(seed.table) or {}
         for column in seed.extra_columns:
             if column not in seed.partitions and _is_event_time(column, seed.types):
                 votes.append(_vote(SIGNAL_KEY_EVENT_COLUMN, CONCEPT_EVENT, seed.table, column))
-        for source in _driving_log_sources(card, index):
+        for source in [] if dimension else _driving_log_sources(card, index):
             votes.append(_vote(SIGNAL_DRIVING_LOG_SOURCE, CONCEPT_EVENT, seed.table, source))
         if _name_suffix(seed.table) in INCREMENT_SUFFIXES:
             for column in _event_times(card, seed):
@@ -899,7 +943,40 @@ def _structural_signals(
                 )
     if tables and all(str(item["role"]) == ROLE_SUMMARY for item in tables):
         votes.append(_vote(SIGNAL_ALL_MEMBERS_SUMMARY, CONCEPT_SUMMARY))
+    elif dimension and not votes:
+        votes.append(_vote(SIGNAL_DIMENSION_MEMBERS, CONCEPT_ENTITY))
     return votes
+
+
+def _dimension_members(members: Sequence[_Seed], index: Mapping[str, Mapping]) -> bool:
+    """Whether every non-reference member is a full snapshot of a *thing* (K2b).
+
+    Four things at once: no member is a period increment, no member's key holds a time
+    or an event column outside the partitions, no member's name or comment says "event",
+    and at least one of them says 「机构信息」 / 「维」 / `dim` -- the corpus calling the
+    table a dimension in its own words. A concept shaped like that is a thing the corpus
+    keeps a copy of, whatever the copy was *rebuilt from*: a wide corpus called a
+    机构-shaped concept an `event` only because its nightly snapshot is built one row per
+    row of a change log, so the log's words voted on the 机构's kind.
+
+    The positive half is what keeps that narrow: a table that says nothing about itself
+    has not claimed to be a dimension, and a driving-rows grain over a log is still the
+    best evidence anyone has about it.
+    """
+    if not members:
+        return False
+    words = [_word_votes(_member_text(seed, index)) for seed in members]
+    if not any(CONCEPT_ENTITY in vote for vote in words):
+        return False
+    return all(
+        _name_suffix(seed.table) not in INCREMENT_SUFFIXES
+        and not any(
+            column not in seed.partitions and _is_event_column(column, seed.types)
+            for column in seed.key_columns
+        )
+        and CONCEPT_EVENT not in vote
+        for seed, vote in zip(members, words)
+    )
 
 
 def _vote(signal: str, vote: str, table: str | None = None, detail: str | None = None) -> dict:
@@ -938,13 +1015,19 @@ def _driving_log_sources(card: Mapping, index: Mapping[str, Mapping]) -> list[st
 def _word_signals(members: Sequence[_Seed], index: Mapping[str, Mapping]) -> list[dict]:
     votes: list[dict] = []
     for seed in members:
-        card = index.get(seed.table) or {}
-        text = f"{seed.table} {card.get('comment') or seed.entity.get('comment') or ''}"
+        text = _member_text(seed, index)
         votes.extend(
-            _vote(SIGNAL_WORD_HINT, kind, seed.table, text.strip())
+            _vote(SIGNAL_WORD_HINT, kind, seed.table, text)
             for kind in _word_votes(text)
         )
     return votes
+
+
+def _member_text(seed: _Seed, index: Mapping[str, Mapping]) -> str:
+    """The words one member carries: its table name and whichever comment it has."""
+    card = index.get(seed.table) or {}
+    comment = card.get("comment") or seed.entity.get("comment") or ""
+    return f"{seed.table} {comment}".strip()
 
 
 def _word_votes(text: str) -> list[str]:
@@ -995,16 +1078,23 @@ def _name_candidates(
     the table and column it came from, so disagreeing metadata is visible rather than
     averaged away. A candidate that still reads as a table name (it kept an ``_``, or a
     staging word survived) sinks below the stem rather than being dropped -- it is
-    evidence, just not a name.
+    evidence, just not a name. K2b sinks one more shape the same way: a candidate that
+    names a period, a measure or a filter *over* the concept, which says so in its own
+    ``junk_reason``.
     """
     found = _key_comment_candidates(members, stem) + _table_comment_candidates(
         members, index, roles
     )
     found.append({"text": stem, "source": NAME_FROM_STEM, "count": 1, "name_evidence": []})
+    for item in found:
+        reason = _junk_reason(str(item["text"]))
+        if reason is not None:
+            item["junk_reason"] = reason
     return sorted(
         found,
         key=lambda item: (
             _is_junk(str(item["text"])),
+            "junk_reason" in item,
             -int(item["count"]),
             _SOURCE_ORDER[str(item["source"])],
             str(item["text"]),
@@ -1017,9 +1107,39 @@ def _is_junk(text: str) -> bool:
     return any(marker in lowered for marker in JUNK_MARKERS)
 
 
-def _names_only_a_key(text: str, stem: str) -> bool:
-    """Whether a key column's comment says "this is a key" and nothing else."""
+def _junk_reason(text: str) -> str | None:
+    """Why a candidate is something *about* the concept rather than its name (K2b).
+
+    Three shapes a wide corpus put at the head of the ranking, because several tables
+    agreed on them and ``count`` is read before the source: a period (2月时段…), a
+    measure (…欠款, …目标), and a filter (已到期…, 未到期…首期…) -- which is *which* 合同 a
+    table kept, not what 合同 is called. Published rather than dropped: the comment is
+    still evidence about that member, it is only not a name.
+    """
+    current = str(text)
+    if current[:1].isdigit() or current.startswith(NAME_PERIOD_PREFIXES):
+        return JUNK_PERIOD
+    if any(word in current for word in NAME_FILTER_WORDS):
+        return JUNK_FILTER
+    if current.endswith(NAME_MEASURE_SUFFIXES):
+        return JUNK_MEASURE
+    return None
+
+
+def _names_only_a_key(text: str, stem: str, comment: str = "") -> bool:
+    """Whether a key column's comment says "this is a key" and nothing else.
+
+    K2b reads the stoplist as a **substring**, in two strengths. 主键 / 唯一 / 去重键 are
+    read on ``comment`` as the catalog wrote it and nothing survives them, because 逻辑主键
+    and 原始表主键 say which key this is rather than what it keys. The rest are read on the
+    name that is *left*, which is what lets 交易流水号 stay 交易流水 while 业务标识码 -- whose
+    marker is still sitting in the middle -- names nothing.
+    """
     lowered = str(text).strip().lower()
+    if any(word in _strip_tags(comment) for word in NAME_STOPLIST_ANYWHERE):
+        return True
+    if any(word in str(text) for word in NAME_STOPLIST_INSIDE):
+        return True
     if not lowered or lowered in NAME_STOPLIST_EXACT:
         return True
     if lowered.startswith(NAME_STOPLIST_PREFIXES):
@@ -1037,8 +1157,11 @@ def key_comment_name(comment) -> str:
     is left is still a name: 合同号 is 合同 and 交易流水号 is 交易流水, but 编号 and 客编号
     are a marker with nothing in front of it, and 贷款账号 is not 贷款账, because 账号 is
     the word for what the column holds.
+
+    K2b widened the marker set (名称 / 名 / 键, and a bare latin `ID`) and takes the
+    catalog's punctuation off what is left, so 客户-编号 is 客户 and 机构名称： is 机构.
     """
-    current = _strip_latin_suffixes(_strip_tags(comment))
+    current = _strip_latin_marker(_strip_latin_suffixes(_strip_tags(comment)))
     if not _CJK_RE.search(current) or current.endswith(KEY_SUFFIX_PROTECTED):
         return current
     suffix = next(
@@ -1046,8 +1169,26 @@ def key_comment_name(comment) -> str:
     )
     if suffix is None:
         return current
-    remainder = current[: -len(suffix)].strip()
+    remainder = _trim_edges(current[: -len(suffix)])
     return remainder if len(_CJK_RE.findall(remainder)) >= MIN_NAME_CJK else ""
+
+
+def _strip_latin_marker(text: str) -> str:
+    """The bare `ID` a catalog writes with no `_` in front of it: 客户ID is 客户.
+
+    Only when Chinese survives it, so the comment that *is* the marker -- 「ID」 -- keeps
+    its spelling and is refused by the stoplist as the nothing it names.
+    """
+    current = str(text)
+    marker = next(
+        (
+            item
+            for item in KEY_COMMENT_LATIN_SUFFIXES
+            if current.lower().endswith(item) and _CJK_RE.search(current[: -len(item)])
+        ),
+        None,
+    )
+    return current if marker is None else _trim_edges(current[: -len(marker)])
 
 
 def key_column_name(column) -> str:
@@ -1090,9 +1231,15 @@ def key_comment_says_nothing(text, column) -> bool:
     Three ways to say nothing: it is a key marker with no name in front of it (the rule
     the naming candidates already use), it still reads as an identifier (it kept an
     ``_``, or a staging word survived), or it is the column's own name over again.
+
+    It asks the first of those exactly as ``_key_comment_candidates`` does, on the name
+    the comment leaves behind and with the comment itself alongside it, so K2b's
+    substring stoplist answers here too: 逻辑主键 says nothing while 客户编号 still says
+    客户.
     """
     lowered = str(text).strip().lower()
-    if _names_only_a_key(lowered, key_stem(column)) or _is_junk(lowered):
+    name = key_comment_name(lowered)
+    if _names_only_a_key(name, key_stem(column), lowered) or _is_junk(lowered):
         return True
     return lowered == str(column).strip().lower()
 
@@ -1102,7 +1249,7 @@ def _key_comment_candidates(members: Sequence[_Seed], stem: str) -> list[dict]:
     for seed in members:
         for column, comment in zip(seed.stem_columns, seed.comments):
             text = key_comment_name(comment)
-            if text and not _names_only_a_key(text, stem):
+            if text and not _names_only_a_key(text, stem, str(comment or "")):
                 items.append((text, {"table": seed.table, "column": column}))
     return _grouped(items, NAME_FROM_KEY_COMMENT)
 
@@ -1192,7 +1339,7 @@ def _strip_suffixes(comment, cjk_suffixes: Sequence[str]) -> str:
         cjk = next((item for item in cjk_suffixes if current.endswith(item)), None)
         if cjk is None:
             break
-        current = _strip_latin_suffixes(current[: -len(cjk)])
+        current = _strip_latin_suffixes(_trim_edges(current[: -len(cjk)]))
     return current
 
 
@@ -1207,8 +1354,13 @@ def _strip_tags(comment) -> str:
     while True:
         aside = _ASIDE_RE.search(current)
         if aside is None:
-            return current.strip(" \t_-/,，、")
+            return _trim_edges(current)
         current = current[: aside.start()].strip()
+
+
+def _trim_edges(text) -> str:
+    """The punctuation a catalog leaves at either end of a comment, out (K2b)."""
+    return str(text or "").strip(NAME_EDGE_CHARS)
 
 
 def _strip_latin_suffixes(text: str) -> str:

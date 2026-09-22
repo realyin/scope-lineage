@@ -296,7 +296,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 | `concepts[].tables[].role` | `primary` / `snapshot` / `detail` / `summary` / `intermediate` / `reference` | K1：这张表是这个概念的哪一份副本；`reference` 是它并不按这个键唯一、只是**带着**这个键（事件表参与「客户」就是这样） |
 | `concepts[].tables[].membership_basis` | `key:<层级>` / `declared_hint` / `reference` / `override` | K1：这张表凭什么算这个概念的成员——读到的候选键（带它自己的层级）、元数据声明的主键线索，还是一条 JOIN；`override` 是 K4b 的第四种：评审用 `add_tables` 亲手放进来的，那一条成员还带 `role_tier: "confirmed"`。K4d：评审把角色写成 `reference` 的那一条**发布成 `reference`**，不是 `override`——「只是带着这个键」正是 `reference` 的意思，它不该反过来改变这张表本身是什么；这时基准已经说不出是谁放的，所以 `confirmed_by` / `confirmed_basis` 等确认字段直接留在那一条成员上 |
 | `concepts[].identity` | `stem` + `columns_seen[]` (+ `merged_stems[]`) | K1：概念的键词根，以及语料里见过的、归到这个词根的键列。`merged_stems[]` 是这个概念**另外还答应**的词根：K4b 合并过来的那些，以及 K4c 新建概念时 `key_columns` 自己归到的词根（K4d）——`concept:slot` 的 id 里是 `slot`，而语料写的是 `ad_slot_code`，不把 `ad_slot` 也放进索引，这条边就永远找不到它。通用词根不进（`dt` 谁写下来都还是通用的） |
-| `concepts[].name`、`name_tier`、`name_candidates[]` | 文本；`hypothesis` 或（评审确认后）`confirmed`；`text` / `source` / `count` / `name_evidence[]` | K2：候选名按 `count` 降序、再按来源顺序（键列注释 → 表注释 → 键词根）排，`name` 是第一条；注释是元数据，会过期，所以语料自己永远给不出高于 `hypothesis` 的名字。K4b 确认之后 `name_tier` 升到 `confirmed`，被确认的那个名字排到候选第一条、`source` 写 `override`（语料也提过这个名字时，那一条保留它的 `name_evidence` 只换来源） |
+| `concepts[].name`、`name_tier`、`name_candidates[]` | 文本；`hypothesis` 或（评审确认后）`confirmed`；`text` / `source` / `count` / `name_evidence[]`，以及 K2b 只在命中时才写的 `junk_reason` | K2：候选名按 `count` 降序、再按来源顺序（键列注释 → 表注释 → 键词根）排，`name` 是第一条；K2b 起，讲的是某个周期、某个度量或某个筛选（`junk_reason`）的候选一律排在所有干净候选之后；注释是元数据，会过期，所以语料自己永远给不出高于 `hypothesis` 的名字。K4b 确认之后 `name_tier` 升到 `confirmed`，被确认的那个名字排到候选第一条、`source` 写 `override`（语料也提过这个名字时，那一条保留它的 `name_evidence` 只换来源） |
 | `concepts[].possible_duplicate_of[]` | 概念 id 列表 | K2：另有概念的首选名与本概念一字不差；**不合并**，两边互相指，留给评审那一轮判。没有同名时这个键不出现 |
 | `unassigned_tables[]` | `table` + `reason`（`no_candidate_key` / `generic_key_only` / `key_spans_several_stems`） | K1：没能落到任何概念上的表，以及落不下去的原因——「判不出来」也是一个答案。评审看得出它属于哪个概念时，用 K4b 的 `add_tables` 放进去，那张表就从这份清单里消失 |
 | `retired_stems[]` | `stem` + `tables[]`（`table` / `role` / `key_columns[]`） | K4c：被通用键规则（通用词根清单、日志与链路 id、注释规则）挡下的键词根——语料里确实有表按它做候选键，没有这条规则它就会长出一个概念。发布出来是为了让上一轮评审对 `concept:<词根>` 写下的答案在规则改动之后仍然找得到落点：`concepts.overrides.json` 里点它的名，就按这里记下的表与角色把概念建回来，这个词根同时离开本清单（K4d；见下面「概念确认回写」） |
@@ -388,6 +388,7 @@ K1/K2 就在表级本体之上折出这一层：**实体应该是「客户」，
 | `driving_rows_over_log_source` | `event` | 生产粒度是「主表的一行」，而那张主表按名字或注释看像日志 |
 | `increment_with_event_time` | `event` | 成员是 `_di` / `_hi` 这类增量，并且带了非分区的时间列 |
 | `all_members_summary` | `summary` | 所有成员的角色都是 `summary` |
+| `all_members_full_snapshot` | `entity` | K2b：所有非 `reference` 成员都是全量快照（没有 `_di` / `_hi` 这类周期增量后缀）、键里除分区列外没有时间列或事件列、谁的表名与注释都没有事件词，并且至少有一个成员自己说了「信息 / 档案 / 主数据 / 维 / dim / info」。这种形状下 `driving_rows_over_log_source` **不投票**：快照按变更日志一行一行重建，说的是它怎么建，不是它装了什么——一个 机构 形状的概念正是这样被判成 `event` 的。反过来，什么都没说的表没有声称自己是维度，那条日志证据仍然算数 |
 | `word_hint` | 三种之一 | 名字与注释里的词：发送/回款/交易/日志/记录/流水/事件/log/event/hist → `event`；信息/档案/主数据/维/dim/info → `entity`；汇总/日报/统计/agg/report → `summary`。这是**次级证据**，结构信号说过话时它不做主 |
 
 结构信号里出现 `event` → `event`，否则出现 `summary` → `summary`，都没有就看词提示，再没有就是 `entity`。
@@ -398,14 +399,26 @@ K1/K2 就在表级本体之上折出这一层：**实体应该是「客户」，
 
 | 来源 | 取法 | 反例 |
 | --- | --- | --- |
-| `key_column_comment` | 键列注释先掐掉**标注块**（`【…】` / `[…]`）与结尾括注，再掐掉**至多一个**结尾键标记（编号/编码/代码/号码/标识/号）：合同号 → 合同，交易流水号 → 交易流水；掐完剩不足两个汉字就什么都不产生（编号、客编号），`账号` / `卡号` / `型号` 一类整词里的 号 从不掐（贷款账号 还是 贷款账号） | 中文停用词（唯一、主键、标识、编号、编码、代码、序号、流水号）按**前缀**命中就丢——唯一键、唯一主键、主键id 全是标记加噪声；英文停用词（id、unique、key、guid、uuid、pk、no、code）按整条命中，因为 `id` / `key` 开头的英文短语多半是真的；只剩一个汉字、或者不含中文且就等于词根 → 同样不产生候选 |
+| `key_column_comment` | 键列注释先掐掉**标注块**（`【…】` / `[…]`）与结尾括注，再掐掉**至多一个**结尾键标记——K2b 把这套标记扩成 编号/编码/代码/号码/标识/名称/号/名/键，外加没有 `_` 打头的拉丁 `ID`（不分大小写）：合同号 → 合同，交易流水号 → 交易流水，客户ID → 客户，机构名称 → 机构，合同键 → 合同；掐完再把两头的标点掐掉（空格、`_`、`-`、`—`、`:`、`：`、`/`、逗号顿号），客户-编号 → 客户，机构名称： → 机构；掐完剩不足两个汉字就什么都不产生（编号、客编号、姓名），`账号` / `卡号` / `型号` 一类整词里的 号 从不掐（贷款账号 还是 贷款账号） | K2b 起中文停用词按**子串**命中，分两档：主键 / 唯一 / 去重键 读**原注释**，命中就什么都不产生——逻辑主键、原始表主键、唯一去重键 说的是这是哪一种键，不是它键的是什么；标识 / 编号 / 编码 / 代码 / 序号 / 流水号 读**掐完剩下的那个名字**，所以 交易流水号 还是 交易流水、客户标识 还是 客户，而 业务标识码（标记还卡在中间）什么都不产生。英文停用词（id、unique、key、guid、uuid、pk、no、code）按整条命中，因为 `id` / `key` 开头的英文短语多半是真的；只剩一个汉字、或者不含中文且就等于词根 → 同样不产生候选 |
 | `table_comment` | 先掐掉标注块（`【…】` / `[…]`）与结尾括注，再把 中间过程/过程表/临时/备份/backup/tmp 这类流水线用词从任意位置抠掉，最后掐 信息表/明细表/汇总表/临时表/记录表/快照/维表/日表/表 等存储用词；只读**最有代表性**的那一档成员（`primary` / `snapshot` → `detail` / `summary` → `intermediate` / `reference`，哪一档先给出候选就用哪一档），同档之内几个成员不一致时取最长公共前缀 | 注释整条就是一个后缀（「信息表」）→ 不产生候选 |
 | `key_stem` | 键词根本身（`cust`），兜底 | —— |
 
 掐后缀是中文元数据的习惯，所以**只作用于含中文的文本**：英文 snake-case 注释原样保留，只有
 `_` 已经切好段的 `_id` / `_no` / `_df` 一类才会被掐掉。排序先看**像不像表名**——掐完仍带着
-`_`、`backup` 或 `tmp` 的候选一律沉到最后（不删掉：它仍然是证据，只是不配当名字）——再按
-`count` 降序、再按上表顺序。`name` 就是第一条，`name_tier` 恒为 `hypothesis`，每条候选用
+`_`、`backup` 或 `tmp` 的候选一律沉到最后（不删掉：它仍然是证据，只是不配当名字）——再看
+K2b 的 `junk_reason`，最后才按 `count` 降序、按上表顺序。
+
+`junk_reason` 说的是这条候选讲的是概念的**某个侧面**，不是概念本身，三种：
+
+| `junk_reason` | 命中 | 例 |
+| --- | --- | --- |
+| `names_a_period` | 以数字开头，或以 本月/当月/上月/本年/当年/本期/当期/当日/昨日/今日 开头 | `2月时段合同`、`2024年…` |
+| `names_a_filter` | 里面带 已到期/未到期/已还/未还/已结清/未结清/首期/当日/本月 | `已到期合同欠款`、`未到期合同首期欠款` |
+| `names_a_measure` | 以 欠款/金额/目标/分数据/统计/数量/次数/率 结尾 | `合同欠款`、`合同分数据` |
+
+带 `junk_reason` 的候选排在**所有**干净候选之后（键列注释、普通表注释、词根都在它前面），
+这样三张表共用一条「已到期…」的表注释也不会凭 `count` 压过那条唯一的键列注释。它仍然发布，
+因为它确实是那几张表的证据，只是不配当这个概念的名字。`name` 就是第一条，`name_tier` 恒为 `hypothesis`，每条候选用
 `name_evidence` 说清是哪张表的哪一列给的——元数据互相打架时看得见，而不是被平均掉。
 
 两个概念的首选名撞成同一个词时（比如词根 `contr` 与 `contra` 都叫「合同」），**不合并**：
