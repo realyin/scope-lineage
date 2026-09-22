@@ -26,12 +26,13 @@ from scope_lineage.render.concept_relations import build_concept_relations
 from scope_lineage.render.concepts import (
     BASIS_OVERRIDE,
     BASIS_REFERENCE,
+    CONCEPT_TABLE_PREFIX,
     GENERIC_STEMS,
     NAME_FROM_OVERRIDE,
-    REASON_GENERIC_KEY,
     ROLE_DETAIL,
     TIER_CONFIRMED,
     TIER_HYPOTHESIS,
+    TIER_PROVISIONAL,
     apply_concept_overrides,
     build_concepts,
 )
@@ -147,12 +148,13 @@ def test_an_added_table_lends_the_concept_its_own_attributes() -> None:
 
 
 def test_an_added_table_is_placed_before_the_fold_so_its_joins_resolve() -> None:
-    """A table only a JOIN reached has no identity, so its own edges fell out.
+    """A table only a JOIN reached has no identity, so its own edges say nothing.
 
     ``ods.contr_ext`` carries ``cust_no`` and nothing else the corpus can key it by, so
-    K1 publishes it as a ``reference`` member of 客户 and K3 drops every edge that
-    starts there. The reviewer knows it is a 合同 detail table; saying so has to land
-    *before* the fold, or the edge stays unmapped.
+    K1 publishes it as a ``reference`` member of 客户 and the `from` end of its edges
+    falls back to M1's provisional concept -- the corpus saying it cannot read the
+    table. The reviewer knows it is a 合同 detail table; saying so has to land *before*
+    the fold, or the edge stays on that provisional id.
     """
     detail = _entity("ods.contr_ext", columns=[("cust_no", "客户编号")])
     edge = _relation("rel:001", detail["id"], ["cust_no"], CUSTOMER["id"], ["cust_no"])
@@ -166,8 +168,8 @@ def test_an_added_table_is_placed_before_the_fold_so_its_joins_resolve() -> None
         },
     )
 
-    assert without["concept_relations"] == []
-    assert without["concept_relations_unmapped"]["total"] == 1
+    assert _pairs(without) == [(f"{CONCEPT_TABLE_PREFIX}ods_contr_ext", "concept:cust")]
+    assert without["concept_relations_unmapped"]["total"] == 0
     assert _pairs(with_override) == [("concept:contr", "concept:cust")]
 
 
@@ -226,10 +228,12 @@ def test_three_tables_sharing_only_a_rowkey_grow_no_concept() -> None:
 
     document = _built(entities)
 
-    assert document["concepts"] == []
-    assert [item["reason"] for item in document["unassigned_tables"]] == [
-        REASON_GENERIC_KEY
-    ] * 3
+    # M1: each table is published as a concept of its own instead, which is a question
+    # about that one table -- never a `rowkey` concept the three of them share.
+    assert [str(item["tier"]) for item in document["concepts"]] == [TIER_PROVISIONAL] * 3
+    assert [str(item["id"]) for item in document["concepts"]] == [
+        f"{CONCEPT_TABLE_PREFIX}ods_rows_{name}" for name in ("a", "b", "c")
+    ]
 
 
 def test_a_key_column_whose_comment_says_it_is_a_log_id_seeds_nothing() -> None:
@@ -239,10 +243,10 @@ def test_a_key_column_whose_comment_says_it_is_a_log_id_seeds_nothing() -> None:
 
     document = _built([generated])
 
-    assert document["concepts"] == []
-    assert [str(item["reason"]) for item in document["unassigned_tables"]] == [
-        REASON_GENERIC_KEY
+    assert [str(item["id"]) for item in document["concepts"]] == [
+        f"{CONCEPT_TABLE_PREFIX}ods_trace_base"
     ]
+    assert str(document["concepts"][0]["tier"]) == TIER_PROVISIONAL
 
 
 def test_a_log_id_beside_a_business_key_still_identifies_the_event() -> None:

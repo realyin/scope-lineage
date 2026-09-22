@@ -38,6 +38,7 @@ from scope_lineage.render.concept_relations import (
 from scope_lineage.render.concepts import (
     BASIS_REFERENCE,
     CONCEPT_ENTITY,
+    CONCEPT_TABLE_PREFIX,
     CONCEPT_EVENT,
     CONCEPT_SUMMARY,
     build_concepts,
@@ -283,7 +284,14 @@ def test_the_from_end_never_reads_a_membership_a_join_lent_the_table() -> None:
     assert [str(item["from"]) for item in document["concept_relations"]] == ["concept:msg"]
 
 
-def test_a_from_table_no_key_placed_leaves_the_relation_unmapped() -> None:
+def test_a_from_table_no_key_placed_folds_onto_its_own_provisional_concept() -> None:
+    """M1: the `reference` membership still says nothing, so the table stands for itself.
+
+    Before M1 the edge was dropped under ``from_table_unplaced``: 客户 is what the table
+    *carries*, never what it is, and there was nothing else to put on the `from` end.
+    Now there is -- the table's own provisional concept -- and the edge is lifted, which
+    is what makes it visible to the review that has to name the thing.
+    """
     reference_only = _entity("ods.rows_a", columns=[("cust_no", "客户编号")])
 
     document = _built(
@@ -291,8 +299,10 @@ def test_a_from_table_no_key_placed_leaves_the_relation_unmapped() -> None:
         [_relation("rel:001", reference_only["id"], ["cust_no"], CUSTOMER["id"], ["cust_no"])],
     )
 
-    assert document["concept_relations"] == []
-    assert document["concept_relations_unmapped"] == _unmapped({UNMAPPED_FROM_TABLE: 1})
+    assert [
+        (str(item["from"]), str(item["to"])) for item in document["concept_relations"]
+    ] == [(f"{CONCEPT_TABLE_PREFIX}ods_rows_a", "concept:cust")]
+    assert document["concept_relations_unmapped"] == _unmapped({}, edges=1)
 
 
 # --------------------------------------------- the `to` end: what it POINTS AT
@@ -353,7 +363,8 @@ def test_the_clause_does_not_fire_when_the_to_table_is_the_same_concept() -> Non
     assert document["concept_representation_links"] == []
 
 
-def test_a_to_table_neither_the_columns_nor_a_key_placed_is_unmapped() -> None:
+def test_a_to_table_nothing_named_is_the_table_itself() -> None:
+    """The columns name nothing, so the `to` end falls back to what the table is (M1)."""
     orphan = _entity("ods.rows_b", columns=[("free_txt", None)])
 
     document = _built(
@@ -361,11 +372,19 @@ def test_a_to_table_neither_the_columns_nor_a_key_placed_is_unmapped() -> None:
         [_relation("rel:001", CUSTOMER["id"], ["bill_amt"], orphan["id"], ["free_txt"])],
     )
 
-    assert document["concept_relations"] == []
-    assert document["concept_relations_unmapped"] == _unmapped({UNMAPPED_TO_TABLE: 1})
+    assert [
+        (str(item["from"]), str(item["to"])) for item in document["concept_relations"]
+    ] == [("concept:cust", f"{CONCEPT_TABLE_PREFIX}ods_rows_b")]
+    assert document["concept_relations_unmapped"] == _unmapped({}, edges=1)
 
 
-def test_the_two_unmapped_reasons_are_counted_apart() -> None:
+def test_neither_unplaced_reason_can_be_reached_any_more() -> None:
+    """M1's point, stated as the invariant it is: every table-level edge is lifted.
+
+    ``from_table_unplaced`` and ``to_table_unplaced`` stay in the vocabulary -- a
+    consumer reading ``by_reason`` keeps its keys -- and they are both structurally
+    impossible while every table has a concept of its own to fall back on.
+    """
     orphan = _entity("ods.rows_b", columns=[("free_txt", None)])
 
     document = _built(
@@ -376,13 +395,14 @@ def test_the_two_unmapped_reasons_are_counted_apart() -> None:
             _relation("rel:003", MESSAGE["id"], ["msg_id"], CUSTOMER["id"], ["cust_no"]),
         ],
     )
+    counts = document["concept_relations_unmapped"]
 
-    assert document["concept_relations_unmapped"] == _unmapped(
-        {UNMAPPED_FROM_TABLE: 1, UNMAPPED_TO_TABLE: 1}, edges=3
-    )
+    assert counts["by_reason"][UNMAPPED_FROM_TABLE] == 0
+    assert counts["by_reason"][UNMAPPED_TO_TABLE] == 0
+    assert counts["mapped"] == counts["edges_total"] == 3
 
 
-def test_an_edge_that_fails_both_ends_is_counted_once_on_the_from_end() -> None:
+def test_an_edge_between_two_tables_nothing_placed_folds_onto_both() -> None:
     first = _entity("ods.rows_a", columns=[("free_txt", None)])
     second = _entity("ods.rows_b", columns=[("free_txt", None)])
 
@@ -391,7 +411,10 @@ def test_an_edge_that_fails_both_ends_is_counted_once_on_the_from_end() -> None:
         [_relation("rel:001", first["id"], ["free_txt"], second["id"], ["free_txt"])],
     )
 
-    assert document["concept_relations_unmapped"] == _unmapped({UNMAPPED_FROM_TABLE: 1})
+    assert [
+        (str(item["from"]), str(item["to"])) for item in document["concept_relations"]
+    ] == [(f"{CONCEPT_TABLE_PREFIX}ods_rows_a", f"{CONCEPT_TABLE_PREFIX}ods_rows_b")]
+    assert document["concept_relations_unmapped"] == _unmapped({}, edges=1)
 
 
 # --------------------------------------------------------------------- the types

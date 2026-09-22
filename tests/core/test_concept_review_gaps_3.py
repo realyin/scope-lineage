@@ -33,6 +33,7 @@ from scope_lineage.render.concepts import (
     BASIS_REFERENCE,
     CONCEPT_ENTITY,
     CONCEPT_EVENT,
+    CONCEPT_TABLE_PREFIX,
     ROLE_DETAIL,
     ROLE_PRIMARY,
     ROLE_REFERENCE,
@@ -200,6 +201,8 @@ def test_several_identity_memberships_leave_the_to_end_to_the_stem_rule() -> Non
         ),
     )
 
+    # Two reviewed identities dissolved the table's provisional concept (M1), and left
+    # nothing to choose between -- the one shape that can still leave a `to` end open.
     assert _pairs(document) == []
     assert document["concept_relations_unmapped"]["by_reason"]["to_table_unplaced"] == 1
 
@@ -217,8 +220,10 @@ def test_several_references_and_no_identity_leave_the_to_end_to_the_stem_rule() 
         ),
     )
 
-    assert _pairs(document) == []
-    assert document["concept_relations_unmapped"]["by_reason"]["to_table_unplaced"] == 1
+    # A reviewed `reference` add says nothing about what the table is, so M1's
+    # provisional concept is still standing and is what the `to` end falls back to.
+    assert _pairs(document) == [("concept:cust", f"{CONCEPT_TABLE_PREFIX}ods_wide_rows")]
+    assert document["concept_relations_unmapped"]["by_reason"]["to_table_unplaced"] == 0
 
 
 # ---------------------------------- 3. a merge keeps the stronger role, and warns
@@ -358,7 +363,8 @@ def test_a_column_the_created_entry_never_named_reaches_nothing() -> None:
         [CUSTOMER, SLOT, SLOT_REF], _on("ad_slot_code"), overrides=_slot(["slot_id"])
     )
 
-    assert _pairs(document) == []
+    # M1: nothing named the far table, so the edge reaches its provisional concept.
+    assert _pairs(document) == [("concept:cust", f"{CONCEPT_TABLE_PREFIX}ods_slot_rows")]
     assert _by_id(document)["concept:slot"]["identity"]["merged_stems"] == []
 
 
@@ -368,7 +374,8 @@ def test_a_created_entrys_generic_key_column_never_joins_the_index() -> None:
         [CUSTOMER, SLOT, SLOT_REF], _on("dt"), overrides=_slot(["ad_slot_code", "dt"])
     )
 
-    assert _pairs(document) == []
+    # M1: `dt` reaches nothing, so the edge folds onto the far table's own concept.
+    assert _pairs(document) == [("concept:cust", f"{CONCEPT_TABLE_PREFIX}ods_slot_rows")]
     assert _by_id(document)["concept:slot"]["identity"]["merged_stems"] == ["ad_slot"]
 
 

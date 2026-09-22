@@ -48,6 +48,7 @@ from .concept_relations import (
     TYPE_PARTICIPATION,
     TYPE_SELF_REFERENCE,
     build_concept_relations,
+    provisional_concept_ids,
 )
 from .concepts import (
     CONCEPT_ENTITY,
@@ -59,6 +60,7 @@ from .concepts import (
     ROLE_REFERENCE,
     ROLE_SNAPSHOT,
     ROLE_SUMMARY,
+    TIER_PROVISIONAL,
     apply_concept_overrides,
     build_concepts,
 )
@@ -447,8 +449,12 @@ _ONTOLOGY_KEYS = (
     # whether a family really is one table before answering for all of it.
     "families",
     # K1/K2: the business reading above the table-level entities -- one concept per
-    # business key, and the tables no key could place.
+    # business key. M1: plus one per table no key could place, marked `provisional`, so
+    # the layer covers the corpus; `provisional_count` says how many of those there are.
     "concepts",
+    "provisional_count",
+    # M1: empty by construction now that every table gets a concept. Published for one
+    # more release so a consumer that reads the key does not break on its absence.
     "unassigned_tables",
     # K4c: the key stems a generic rule refused although the corpus really keys tables
     # by them -- what keeps a reviewer's earlier answers addressable when that rule
@@ -462,6 +468,8 @@ _ONTOLOGY_KEYS = (
     # that joined two representations of a single concept rather than two concepts;
     # and how many could not be placed, by which end failed.
     "concept_relations",
+    # M1: how many of them touch a concept that is still just a table.
+    "provisional_relations",
     "concept_representation_links",
     "concept_relations_unmapped",
     "constraints",
@@ -2833,24 +2841,70 @@ def _concept_section(ontology: Mapping) -> list[str]:
     """
     concepts = list(ontology.get("concepts") or [])
     relations = list(ontology.get("concept_relations") or [])
-    unassigned = list(ontology.get("unassigned_tables") or [])
+    provisional = provisional_concept_ids(concepts)
+    folded = [item for item in concepts if str(item.get("id")) not in provisional]
     lines = ["", "## 概念层", ""]
     if not concepts:
         lines.append(
-            "本语料没有可发布的概念：没有一张表的候选键能归到一个非通用的业务词根上。"
+            "本语料没有可发布的概念：这份语料一张表也没有。"
         )
         return lines
-    lines.append(
-        f"{len(concepts)} 个概念、{len(relations)} 条概念关系，另有 {len(unassigned)} 张表"
-        "没有归入任何概念。概念是**候选**：名字永远是作者假设，种类由 `kind_evidence[]` 的"
-        "投票决定，两个词根是不是同一件事留给评审那一轮判（见 `concepts.overrides.json`）。"
+    touching = sum(
+        1
+        for item in relations
+        if str(item["from"]) in provisional or str(item["to"]) in provisional
     )
-    lines.extend(_concept_diagram(concepts, relations))
-    lines.extend(_concept_table(concepts))
-    lines.extend(_concept_relation_table(relations, concepts))
-    lines.extend(_unassigned_section(unassigned))
+    lines.append(
+        f"{len(folded)} 个概念、{len(relations)} 条概念关系，另有 {len(provisional)} 个"
+        "**临时概念**（M1：语料没能把它归到任何业务键上的表，暂时各自成一个概念，"
+        f"其中 {touching} 条概念关系至少有一端是临时的）。概念是**候选**：名字永远是作者假设，"
+        "种类由 `kind_evidence[]` 的投票决定，两个词根是不是同一件事留给评审那一轮判"
+        "（见 `concepts.overrides.json`）。"
+    )
+    lines.extend(_concept_diagram(folded, relations, len(provisional)))
+    lines.extend(_concept_table(folded))
+    lines.extend(_provisional_table(concepts, provisional))
+    lines.extend(_concept_relation_table(relations, concepts, provisional))
     lines.extend(_retired_stems_lines(ontology))
     return lines
+
+
+def _provisional_table(concepts: Sequence[Mapping], provisional: frozenset) -> list[str]:
+    """M1: the tables that are standing in for concepts, and how to answer for them.
+
+    Apart from the concept table on purpose. A folded concept is what the corpus read;
+    one of these is a question — 「这张表是不是某个已有概念的一份」 — and the row carries
+    exactly what an answer needs: the id to write in ``concepts.overrides.json`` and the
+    key to write it under.
+    """
+    rows = [item for item in concepts if str(item.get("id")) in provisional]
+    lines = ["", "### 临时概念（每表一个，待归并）", ""]
+    if not rows:
+        return [*lines, "每张表都归到了某个业务键长出来的概念上。"]
+    lines.extend(
+        [
+            f"{len(rows)} 张表没有归到任何业务键上，暂时各自成一个概念（`tier: \"provisional\"`）。"
+            "评审这一轮的**第一步**就是把它们归并掉：在 `concepts.overrides.json` 里按下面的"
+            "回写键写一条 `merge_into`，或者用 `new_concepts` 把几张一起收成一个新概念；"
+            "确实自成一件事的，改名并确认。",
+            "",
+            "| 概念 | 种类 | 表 | 回写 |",
+            "| --- | --- | --- | --- |",
+        ]
+    )
+    lines.extend(_provisional_row(concept) for concept in rows)
+    return lines
+
+
+def _provisional_row(concept: Mapping) -> str:
+    kind = str(concept.get("kind"))
+    table = str(((concept.get("tables") or [{}])[0]).get("table"))
+    return (
+        f"| {cell(str(concept.get('name')))}（`{concept.get('name_tier')}`） "
+        f"| {CONCEPT_KIND_TEXT.get(kind, kind)} "
+        f"| `{table}` "
+        f"| `{concept.get('id')}` 的 `merge_into` |"
+    )
 
 
 def _retired_stems_lines(ontology: Mapping) -> list[str]:
@@ -2878,8 +2932,15 @@ def _retired_stems_lines(ontology: Mapping) -> list[str]:
 
 
 def _concept_diagram(
-    concepts: Sequence[Mapping], relations: Sequence[Mapping]
+    concepts: Sequence[Mapping], relations: Sequence[Mapping], provisional: int = 0
 ) -> list[str]:
+    """The folded concepts as a diagram. M1's provisional ones are counted, never drawn.
+
+    A provisional concept is one table with no business key behind it, and there are as
+    many of them as there are such tables: drawing them would bury the reading the
+    diagram exists for under the corpus's own leftovers. The line beneath says how many
+    were left out, and the second concept table lists every one of them.
+    """
     identifiers = mermaid_entity_ids(concepts)
     shown = _diagram_concepts(concepts, relations)
     names = {str(concept.get("id")) for concept in shown}
@@ -2893,6 +2954,8 @@ def _concept_diagram(
                 "",
             ]
         )
+    if provisional:
+        lines.extend([f"另有 {provisional} 个临时概念未画，逐个见下面的「临时概念」表。", ""])
     lines.extend(["```mermaid", "flowchart LR"])
     lines.extend(_concept_node(concept, identifiers) for concept in shown)
     lines.extend(
@@ -3020,7 +3083,7 @@ def _duplicate_text(concept: Mapping) -> str:
 
 
 def _concept_relation_table(
-    relations: Sequence[Mapping], concepts: Sequence[Mapping]
+    relations: Sequence[Mapping], concepts: Sequence[Mapping], provisional=frozenset()
 ) -> list[str]:
     lines = ["", "### 概念关系", ""]
     if not relations:
@@ -3030,18 +3093,29 @@ def _concept_relation_table(
         [
             "| 类型 | 从 | 到 | 角色 | 基数 | 层级 | 证据数 |",
             "| --- | --- | --- | --- | --- | --- | --- |",
+            # M1: `（临时）` says at least one end is still a table waiting to be merged,
+            # so the row is a reading of the corpus rather than of the business.
         ]
     )
-    lines.extend(_concept_relation_row(relation, names) for relation in relations)
+    lines.extend(
+        _concept_relation_row(relation, names, provisional) for relation in relations
+    )
     return lines
 
 
-def _concept_relation_row(relation: Mapping, names: Mapping[str, str]) -> str:
+def _concept_relation_row(
+    relation: Mapping, names: Mapping[str, str], provisional=frozenset()
+) -> str:
     cardinality = relation.get("cardinality") or {}
     kind = str(relation.get("type"))
     claim = str(cardinality.get("claim"))
+    touching = (
+        "（临时）"
+        if str(relation["from"]) in provisional or str(relation["to"]) in provisional
+        else ""
+    )
     return (
-        f"| {CONCEPT_TYPE_TEXT.get(kind, kind)} "
+        f"| {CONCEPT_TYPE_TEXT.get(kind, kind)}{touching} "
         f"| {cell(names.get(str(relation['from']), str(relation['from'])))} "
         f"| {cell(names.get(str(relation['to']), str(relation['to'])))} "
         f"| {cell(_role_text(relation)) or '—'} "
@@ -3049,27 +3123,6 @@ def _concept_relation_row(relation: Mapping, names: Mapping[str, str]) -> str:
         f"| `{cardinality.get('tier')}` "
         f"| {len(relation.get('evidence') or [])} |"
     )
-
-
-def _unassigned_section(unassigned: Sequence[Mapping]) -> list[str]:
-    """「我们分不出来」 is an answer, and it is published as one."""
-    lines = ["", "### 未归入概念的表", ""]
-    if not unassigned:
-        lines.append("每张表都归到了某个概念上。")
-        return lines
-    counts: dict[str, int] = {}
-    for item in unassigned:
-        reason = str(item.get("reason"))
-        counts[reason] = counts.get(reason, 0) + 1
-    top = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
-    shown = "、".join(
-        f"`{reason}` {count} 张" for reason, count in top[:UNASSIGNED_REASONS_SHOWN]
-    )
-    lines.append(
-        f"{len(unassigned)} 张表没有归入任何概念，最常见的原因是 {shown}。"
-        "逐表清单见 `ontology.json` 的 `unassigned_tables[]`。"
-    )
-    return lines
 
 
 # --------------------------------------------------------------------- mermaid ER
@@ -3690,29 +3743,33 @@ def _concept_memberships(entity: Mapping, ontology: Mapping) -> list[str]:
     A table can represent more than one concept -- it is keyed by one and carries
     another -- so every membership gets a line, and the basis travels with it: a
     `reference` view of 客户 is a table that *carries* the key, not one 客户 is kept in.
-    A table no key could place says so, with the reason, rather than saying nothing.
+
+    M1: a table no key, no hint and no JOIN could place is its own ``provisional``
+    concept, and its line says exactly that rather than reading like a fold -- the
+    concept is this table, and the review round is what turns it into an answer.
     """
     name = str(entity.get("id"))
     lines = [
-        f"- 本表是「{cell(str(concept.get('name')))}」（`{concept.get('id')}`，"
-        f"{CONCEPT_KIND_TEXT.get(str(concept.get('kind')), str(concept.get('kind')))}）的"
-        f"{CONCEPT_ROLE_TEXT.get(str(member.get('role')), str(member.get('role')))}视图"
-        f"（`{member.get('membership_basis')}`）。"
+        _membership_line(concept, member)
         for concept in ontology.get("concepts") or []
         for member in concept.get("tables") or []
         if str(member.get("table")) == name
     ]
-    if lines:
-        return [*lines, ""]
-    reason = next(
-        (
-            str(item.get("reason"))
-            for item in ontology.get("unassigned_tables") or []
-            if str(item.get("table")) == name
-        ),
-        None,
+    return [*lines, ""] if lines else []
+
+
+def _membership_line(concept: Mapping, member: Mapping) -> str:
+    if str(concept.get("tier")) == TIER_PROVISIONAL:
+        return (
+            f"- 本表暂自成概念「{cell(str(concept.get('name')))}」（provisional），"
+            f"待评审归并（`{concept.get('id')}`）。"
+        )
+    return (
+        f"- 本表是「{cell(str(concept.get('name')))}」（`{concept.get('id')}`，"
+        f"{CONCEPT_KIND_TEXT.get(str(concept.get('kind')), str(concept.get('kind')))}）的"
+        f"{CONCEPT_ROLE_TEXT.get(str(member.get('role')), str(member.get('role')))}视图"
+        f"（`{member.get('membership_basis')}`）。"
     )
-    return [f"- 未归入任何概念（`{reason}`）。", ""] if reason else []
 
 
 def _card_relations(entity: Mapping, ontology: Mapping) -> list[str]:

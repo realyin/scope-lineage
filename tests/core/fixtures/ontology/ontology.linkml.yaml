@@ -15,14 +15,6 @@ annotations:
   task_count: 5
   "sl:open_item_open:rel:ods.channel_event.channel_code->dim.channel.channel_code": "relation (hypothesis) on ods.channel_event [channel_code]: 关系 `ods.channel_event` → `dim.channel` 的基数写作「多对一，作者假设」，依据只是直接关联未去重，作者假设对端按该键唯一。 (write back: 关系:ods.channel_event.channel_code->dim.channel.channel_code)"
   "sl:open_item_open:key:dim.channel=channel_code": "candidate_key (hypothesis) on dim.channel [channel_code]: 候选键 `channel_code`：只有任务直接关联时的假设，语料没有证明它唯一。 (write back: 键:dim.channel=channel_code)"
-  unassigned_tables:
-    - "dim.segment_dim (no_candidate_key)"
-    - "mart.channel_summary (key_spans_several_stems)"
-    - "mart.metric_by_segment (key_spans_several_stems)"
-    - "mart.user_names (no_candidate_key)"
-    - "ods.events_a (no_candidate_key)"
-    - "ods.events_b (no_candidate_key)"
-    - "ods.users (no_candidate_key)"
 enums:
   mart_channel_summary__channel_name_enum:
     description: "the closed value set of column channel_name"
@@ -86,6 +78,7 @@ classes:
       entity_kind: "physical_table"
       tier: "proven"
       multiplicity_segment: "multiple_rows_per_key (implied) on segment; evidence_count 1, first task golden_grouped_dedup_join"
+      represents: "concept:table:dim_segment_dim (primary)"
     attributes:
       segment:
         range: "string"
@@ -106,6 +99,7 @@ classes:
       tier: "proven"
       "cst:001": "unique_per (proven) on customer_id, channel_name, dt"
       "cst:003": "partition (proven) on dt"
+      represents: "concept:table:mart_channel_summary (primary)"
     attributes:
       customer_id:
         range: "string"
@@ -134,6 +128,7 @@ classes:
     annotations:
       entity_kind: "produced_table"
       tier: "proven"
+      represents: "concept:table:mart_metric_by_segment (primary)"
     attributes:
       segment:
         range: "string"
@@ -195,6 +190,7 @@ classes:
     annotations:
       entity_kind: "produced_table"
       tier: "proven"
+      represents: "concept:table:mart_user_names (primary)"
     attributes:
       user_id:
         range: "string"
@@ -215,6 +211,7 @@ classes:
       owner: "demo_owner"
       multiplicity_customer_id__channel_code: "multiple_rows_per_key (implied) on customer_id, channel_code; evidence_count 2, first task golden_commented_insert"
       represents: "concept:channel (reference)"
+      represents_2: "concept:table:ods_channel_event (primary)"
     attributes:
       customer_id:
         range: "string"
@@ -250,6 +247,7 @@ classes:
     annotations:
       entity_kind: "physical_table"
       tier: "proven"
+      represents: "concept:table:ods_events_a (primary)"
     attributes:
       segment:
         range: "string"
@@ -290,6 +288,7 @@ classes:
     annotations:
       entity_kind: "physical_table"
       tier: "proven"
+      represents: "concept:table:ods_events_b (primary)"
     attributes:
       seg_code:
         range: "string"
@@ -318,6 +317,7 @@ classes:
     annotations:
       entity_kind: "physical_table"
       tier: "proven"
+      represents: "concept:table:ods_users (primary)"
     attributes:
       user_id:
         range: "string"
@@ -356,3 +356,310 @@ classes:
           tier: "hypothesis"
           sources:
             - "dim.channel.channel_name"
+  concept_table_dim_segment_dim:
+    is_a: "Entity"
+    title: "segment_dim"
+    description: "kind entity (implied); name candidates: segment_dim (key_stem x1)"
+    annotations:
+      concept_id: "concept:table:dim_segment_dim"
+      tier: "provisional"
+      kind_tier: "implied"
+      name_tier: "stem_only"
+      tables:
+        - "dim.segment_dim -> primary (provisional)"
+      provisional: true
+    attributes:
+      seg:
+        range: "string"
+        annotations:
+          tier: "provisional"
+          sources:
+            - "dim.segment_dim.segment"
+      segment_name:
+        range: "string"
+        annotations:
+          tier: "provisional"
+          sources:
+            - "dim.segment_dim.segment_name"
+      updated_at:
+        range: "string"
+        annotations:
+          tier: "provisional"
+          sources:
+            - "dim.segment_dim.updated_at"
+  concept_table_mart_channel_summary:
+    is_a: "Entity"
+    title: "channel_summary"
+    description: "kind entity (implied); name candidates: channel_summary (key_stem x1)"
+    annotations:
+      concept_id: "concept:table:mart_channel_summary"
+      tier: "provisional"
+      kind_tier: "implied"
+      name_tier: "stem_only"
+      tables:
+        - "mart.channel_summary -> primary (provisional)"
+      provisional: true
+    attributes:
+      channel_name:
+        range: "string"
+        annotations:
+          tier: "provisional"
+          sources:
+            - "mart.channel_summary.channel_name"
+      customer:
+        range: "string"
+        annotations:
+          tier: "provisional"
+          sources:
+            - "mart.channel_summary.customer_id"
+      total_amount:
+        range: "string"
+        annotations:
+          tier: "provisional"
+          sources:
+            - "mart.channel_summary.total_amount"
+  concept_table_mart_metric_by_segment:
+    is_a: "Entity"
+    title: "metric_by_segment"
+    description: "kind entity (hypothesis); name candidates: metric_by_segment (key_stem x1)"
+    annotations:
+      concept_id: "concept:table:mart_metric_by_segment"
+      tier: "provisional"
+      kind_tier: "hypothesis"
+      name_tier: "stem_only"
+      tables:
+        - "mart.metric_by_segment -> primary (provisional)"
+      provisional: true
+    attributes:
+      band:
+        range: "string"
+        description: "Amount band"
+        annotations:
+          tier: "provisional"
+          sources:
+            - "mart.metric_by_segment.band"
+      band_total:
+        range: "float"
+        description: "Band level total"
+        annotations:
+          tier: "provisional"
+          sources:
+            - "mart.metric_by_segment.band_total"
+      cnt:
+        range: "integer"
+        description: "Row count"
+        annotations:
+          tier: "provisional"
+          sources:
+            - "mart.metric_by_segment.cnt"
+      dt:
+        range: "string"
+        description: "Partition date"
+        annotations:
+          tier: "provisional"
+          sources:
+            - "mart.metric_by_segment.dt"
+      seg:
+        range: "string"
+        description: "Segment code"
+        annotations:
+          tier: "provisional"
+          sources:
+            - "mart.metric_by_segment.segment"
+      segment_name:
+        range: "string"
+        description: "Segment display name"
+        annotations:
+          tier: "provisional"
+          sources:
+            - "mart.metric_by_segment.segment_name"
+      total:
+        range: "float"
+        description: "Summed amount"
+        annotations:
+          tier: "provisional"
+          sources:
+            - "mart.metric_by_segment.total"
+  concept_table_mart_user_names:
+    is_a: "Entity"
+    title: "user_names"
+    description: "kind entity (implied); name candidates: user_names (key_stem x1)"
+    annotations:
+      concept_id: "concept:table:mart_user_names"
+      tier: "provisional"
+      kind_tier: "implied"
+      name_tier: "stem_only"
+      tables:
+        - "mart.user_names -> primary (provisional)"
+      provisional: true
+    attributes:
+      user:
+        range: "string"
+        annotations:
+          tier: "provisional"
+          sources:
+            - "mart.user_names.user_id"
+      user_name:
+        range: "string"
+        annotations:
+          tier: "provisional"
+          sources:
+            - "mart.user_names.user_name"
+  concept_table_ods_channel_event:
+    is_a: "Entity"
+    title: "渠道事件"
+    description: "kind entity (hypothesis); name candidates: 渠道事件 (table_comment x1); channel_event (key_stem x1)"
+    annotations:
+      concept_id: "concept:table:ods_channel_event"
+      tier: "provisional"
+      kind_tier: "hypothesis"
+      name_tier: "hypothesis"
+      tables:
+        - "ods.channel_event -> primary (provisional)"
+      provisional: true
+    attributes:
+      amount:
+        range: "string"
+        annotations:
+          tier: "provisional"
+          sources:
+            - "ods.channel_event.amount"
+      channel:
+        range: "string"
+        annotations:
+          tier: "provisional"
+          sources:
+            - "ods.channel_event.channel_code"
+      customer:
+        range: "string"
+        annotations:
+          tier: "provisional"
+          sources:
+            - "ods.channel_event.customer_id"
+      status:
+        range: "string"
+        annotations:
+          tier: "provisional"
+          sources:
+            - "ods.channel_event.status"
+      association_concept_channel:
+        range: "concept_channel"
+        multivalued: false
+        description: "association (many_to_one_assumed)"
+        annotations:
+          relation_type: "association"
+          tier: "hypothesis"
+          claim: "many_to_one_assumed"
+          task_count: 2
+          evidence_count: 1
+  concept_table_ods_events_a:
+    is_a: "Entity"
+    title: "events_a"
+    description: "kind entity (hypothesis); name candidates: events_a (key_stem x1)"
+    annotations:
+      concept_id: "concept:table:ods_events_a"
+      tier: "provisional"
+      kind_tier: "hypothesis"
+      name_tier: "stem_only"
+      tables:
+        - "ods.events_a -> primary (provisional)"
+      provisional: true
+    attributes:
+      amount:
+        range: "string"
+        annotations:
+          tier: "provisional"
+          sources:
+            - "ods.events_a.amount"
+      seg:
+        range: "string"
+        annotations:
+          tier: "provisional"
+          sources:
+            - "ods.events_a.segment"
+      association_concept_table_dim_segment_dim:
+        range: "concept_table_dim_segment_dim"
+        multivalued: true
+        description: "association (one_to_many)"
+        annotations:
+          relation_type: "association"
+          tier: "implied"
+          claim: "one_to_many"
+          task_count: 1
+          evidence_count: 1
+      association_concept_table_ods_events_b:
+        range: "concept_table_ods_events_b"
+        multivalued: true
+        description: "association (unknown)"
+        annotations:
+          relation_type: "association"
+          tier: "implied"
+          claim: "unknown"
+          task_count: 1
+          evidence_count: 1
+  concept_table_ods_events_b:
+    is_a: "Entity"
+    title: "events_b"
+    description: "kind entity (hypothesis); name candidates: events_b (key_stem x1)"
+    annotations:
+      concept_id: "concept:table:ods_events_b"
+      tier: "provisional"
+      kind_tier: "hypothesis"
+      name_tier: "stem_only"
+      tables:
+        - "ods.events_b -> primary (provisional)"
+      provisional: true
+    attributes:
+      amount:
+        range: "string"
+        annotations:
+          tier: "provisional"
+          sources:
+            - "ods.events_b.amount"
+      seg:
+        range: "string"
+        annotations:
+          tier: "provisional"
+          sources:
+            - "ods.events_b.seg_code"
+      association_concept_table_dim_segment_dim:
+        range: "concept_table_dim_segment_dim"
+        multivalued: true
+        description: "association (one_to_many)"
+        annotations:
+          relation_type: "association"
+          tier: "implied"
+          claim: "one_to_many"
+          task_count: 1
+          evidence_count: 1
+  concept_table_ods_users:
+    is_a: "Entity"
+    title: "users"
+    description: "kind entity (hypothesis); name candidates: users (key_stem x1)"
+    annotations:
+      concept_id: "concept:table:ods_users"
+      tier: "provisional"
+      kind_tier: "hypothesis"
+      name_tier: "stem_only"
+      tables:
+        - "ods.users -> primary (provisional)"
+      provisional: true
+    attributes:
+      is_active:
+        range: "string"
+        annotations:
+          tier: "provisional"
+          sources:
+            - "ods.users.is_active"
+      user:
+        range: "string"
+        annotations:
+          tier: "provisional"
+          sources:
+            - "ods.users.user_id"
+      user_name:
+        range: "string"
+        annotations:
+          tier: "provisional"
+          sources:
+            - "ods.users.user_name"

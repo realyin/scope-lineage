@@ -47,6 +47,7 @@ from .concepts import (
     CONCEPT_EVENT,
     CONCEPT_SUMMARY,
     KIND_ORDER,
+    TIER_PROVISIONAL,
 )
 from .ontology import (
     CARDINALITY_MANY_TO_ONE,
@@ -581,6 +582,11 @@ def _linkml_concept(concept: Mapping, concept_ids: Mapping, ontology: Mapping) -
         "name_tier": str(concept.get("name_tier") or ""),
         "tables": _concept_table_notes(concept),
     }
+    # M1: one table standing in for a concept nobody has named yet. Annotated rather
+    # than left out, so a consumer chooses: the class is there for a pipeline that wants
+    # every table covered, and `provisional: true` is the one flag that filters it away.
+    if str(concept.get("tier")) == TIER_PROVISIONAL:
+        annotations["provisional"] = True
     duplicate = _duplicate_note(concept)
     if duplicate:
         annotations["possible_duplicate_of"] = duplicate
@@ -957,11 +963,19 @@ def _shacl_concept_shape(
         f"    sl:concept {_turtle_string(concept_id)} ;",
         f"    sl:kindTier {_turtle_string(str(concept.get('kind_tier') or ''))} ;",
         f"    sl:nameTier {_turtle_string(str(concept.get('name_tier') or ''))} ;",
+        *_shacl_provisional_lines(concept),
         *(f"    sl:conceptTable {_turtle_string(n)} ;" for n in _concept_table_notes(concept)),
         *_shacl_duplicate_lines(concept),
         f'    sl:tier "{tier}"',
     ]
     return _turtle_statement(head, blocks)
+
+
+def _shacl_provisional_lines(concept: Mapping) -> list[str]:
+    """M1: the one flag a consumer filters a table-standing-in-for-a-concept away by."""
+    if str(concept.get("tier")) != TIER_PROVISIONAL:
+        return []
+    return ["    sl:provisional true ;"]
 
 
 def _shacl_duplicate_lines(concept: Mapping) -> list[str]:

@@ -43,7 +43,7 @@ consumers: 1
 
 ## 7. 身份（本体）
 
-- 未归入任何概念（`no_candidate_key`）。
+- 本表暂自成概念「events_a」（provisional），待评审归并（`concept:table:ods_events_a`）。
 
 - 属性 2（语料用到 2）
 

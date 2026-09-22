@@ -268,14 +268,14 @@ def test_the_concept_relation_table_carries_the_claim_and_the_evidence_count() -
     assert "多对一，作者假设" in row and "hypothesis" in row
 
 
-def test_the_unassigned_tables_are_counted_with_their_top_reasons() -> None:
+def test_the_provisional_concepts_get_their_own_section_under_the_concept_table() -> None:
+    """M1 replaced 「未归入概念的表」: a table nothing placed is now a concept of its own."""
     rendered = render_ontology_index_markdown(_two_concept_ontology())
 
-    assert "### 未归入概念的表" in rendered
-    section = rendered.split("### 未归入概念的表")[1]
-    assert "3" in section
-    assert "no_candidate_key" in section and "2" in section
-    assert "unassigned_tables" in section
+    assert "### 未归入概念的表" not in rendered
+    assert "### 临时概念（每表一个，待归并）" in rendered
+    section = rendered.split("### 临时概念（每表一个，待归并）")[1]
+    assert "每张表都归到了某个业务键长出来的概念上。" in section
 
 
 def test_a_corpus_without_concepts_says_so_rather_than_drawing_nothing() -> None:
@@ -346,19 +346,33 @@ def test_a_reference_membership_is_named_as_one_on_the_card() -> None:
     assert CONCEPT_ROLE_TEXT[ROLE_REFERENCE] in section
 
 
-def test_a_table_no_key_could_place_says_so_with_the_reason() -> None:
+def test_a_table_no_key_could_place_says_it_is_its_own_provisional_concept() -> None:
+    """M1: the card's answer is a concept and a next step, not a reason code."""
     ontology, cards = _corpus()
-    ontology = dict(ontology)
-    ontology["concepts"] = []
-    ontology["unassigned_tables"] = [
-        {"table": "ods.cust_base", "reason": "no_candidate_key"}
-    ]
     card = next(item for item in cards["tables"] if str(item["table"]) == "ods.cust_base")
+    ontology = dict(ontology)
+    ontology["concepts"] = [
+        {
+            "id": "concept:table:ods_cust_base",
+            "name": "cust_base",
+            "kind": CONCEPT_ENTITY,
+            "tables": [
+                {
+                    "table": "ods.cust_base",
+                    "role": ROLE_PRIMARY,
+                    "membership_basis": "provisional",
+                }
+            ],
+            "tier": "provisional",
+            "origin": "provisional",
+        }
+    ]
 
     section = render_ontology_table_card_markdown(card, ontology)
     section = section.split("## 7. 身份（本体）")[1].split("## 8.")[0]
 
-    assert "未归入任何概念" in section and "no_candidate_key" in section
+    assert "本表暂自成概念「cust_base」（provisional），待评审归并" in section
+    assert "concept:table:ods_cust_base" in section
 
 
 # -------------------------------------------------------- K4b: concept overrides
@@ -690,6 +704,7 @@ def test_the_overrides_report_is_present_even_when_nothing_was_reviewed() -> Non
         "tables_added": 0,
         "merges": 0,
         "splits": 0,
+        "dissolved": [],
         "unmatched": [],
         "warnings": [],
         "ignored_fields": [],

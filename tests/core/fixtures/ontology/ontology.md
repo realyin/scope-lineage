@@ -15,7 +15,9 @@ open_item_group_count: 2
 
 ## 概念层
 
-1 个概念、0 条概念关系，另有 7 张表没有归入任何概念。概念是**候选**：名字永远是作者假设，种类由 `kind_evidence[]` 的投票决定，两个词根是不是同一件事留给评审那一轮判（见 `concepts.overrides.json`）。
+1 个概念、4 条概念关系，另有 8 个**临时概念**（M1：语料没能把它归到任何业务键上的表，暂时各自成一个概念，其中 4 条概念关系至少有一端是临时的）。概念是**候选**：名字永远是作者假设，种类由 `kind_evidence[]` 的投票决定，两个词根是不是同一件事留给评审那一轮判（见 `concepts.overrides.json`）。
+
+另有 8 个临时概念未画，逐个见下面的「临时概念」表。
 
 ```mermaid
 flowchart LR
@@ -33,13 +35,29 @@ flowchart LR
 | --- | --- | --- | --- | --- |
 | 渠道（`hypothesis`） | 实体（`implied`） | 2（主表 1、引用 1） | 渠道 / channel | — |
 
+### 临时概念（每表一个，待归并）
+
+8 张表没有归到任何业务键上，暂时各自成一个概念（`tier: "provisional"`）。评审这一轮的**第一步**就是把它们归并掉：在 `concepts.overrides.json` 里按下面的回写键写一条 `merge_into`，或者用 `new_concepts` 把几张一起收成一个新概念；确实自成一件事的，改名并确认。
+
+| 概念 | 种类 | 表 | 回写 |
+| --- | --- | --- | --- |
+| segment_dim（`stem_only`） | 实体 | `dim.segment_dim` | `concept:table:dim_segment_dim` 的 `merge_into` |
+| channel_summary（`stem_only`） | 实体 | `mart.channel_summary` | `concept:table:mart_channel_summary` 的 `merge_into` |
+| metric_by_segment（`stem_only`） | 实体 | `mart.metric_by_segment` | `concept:table:mart_metric_by_segment` 的 `merge_into` |
+| user_names（`stem_only`） | 实体 | `mart.user_names` | `concept:table:mart_user_names` 的 `merge_into` |
+| 渠道事件（`hypothesis`） | 实体 | `ods.channel_event` | `concept:table:ods_channel_event` 的 `merge_into` |
+| events_a（`stem_only`） | 实体 | `ods.events_a` | `concept:table:ods_events_a` 的 `merge_into` |
+| events_b（`stem_only`） | 实体 | `ods.events_b` | `concept:table:ods_events_b` 的 `merge_into` |
+| users（`stem_only`） | 实体 | `ods.users` | `concept:table:ods_users` 的 `merge_into` |
+
 ### 概念关系
 
-本语料没有能折到两个概念上的关系。
-
-### 未归入概念的表
-
-7 张表没有归入任何概念，最常见的原因是 `no_candidate_key` 5 张、`key_spans_several_stems` 2 张。逐表清单见 `ontology.json` 的 `unassigned_tables[]`。
+| 类型 | 从 | 到 | 角色 | 基数 | 层级 | 证据数 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 关联（临时） | 渠道事件 | 渠道 | — | 多对一，作者假设 | `hypothesis` | 1 |
+| 关联（临时） | events_a | segment_dim | — | 一对多 | `implied` | 1 |
+| 关联（临时） | events_a | events_b | — | 未知 | `implied` | 1 |
+| 关联（临时） | events_b | segment_dim | — | 一对多 | `implied` | 1 |
 
 ## 实体关系总览
 

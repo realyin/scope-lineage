@@ -1,6 +1,42 @@
 # Changelog
 
 ## Unreleased
+- **Every table gets a concept, so every edge can be lifted** (M1). A concept was seeded
+  by a business key, and a table keyed only by a surrogate — or by nothing at all —
+  reached none: it went to `unassigned_tables[]` with the reason, and every edge that
+  started there was dropped as `from_table_unplaced`. That is an honest answer about the
+  table and a hole in the concept layer, and it took out exactly the edges a warehouse
+  writes most of. Such a table is now published as its **own** concept, marked
+  `tier: "provisional"` / `origin: "provisional"`, with the id `concept:table:<table key>`
+  and one member at `membership_basis: "provisional"`. Everything else about it is read
+  by the rules that were already there: the name off its table comment with the same
+  trim, suffix and junk rules (no comment → the short table name with its storage
+  suffixes off, at `name_tier: "stem_only"`), the kind off its signals with a tie landing
+  on `entity` at `hypothesis`, the role off the role cascade. A generic stem does not
+  block it — a provisional concept is the table, not a key family — so `retired_stems[]`
+  is unchanged. With every table placed, `from_table_unplaced` and `to_table_unplaced` are
+  0 for a corpus-built document (the keys stay in `by_reason`, and a review that puts one
+  table on two concepts can still reach them); `reference_only_edge` is untouched. The
+  provisional concept is deliberately the **last** thing either end of an edge reaches
+  for, after the far table's real identity and after the join columns' stem, so no fold
+  that already worked changed. New beside the old keys: `provisional_count` beside
+  `concepts[]`, `provisional_relations` beside `concept_relations[]`, and
+  `concept_overrides_applied.dissolved[]`. `unassigned_tables[]` is now always `[]` and is
+  kept for one release before it is dropped.
+  A review answers a provisional concept three ways: `merge_into` a real concept (the
+  expected first action — the folded member is republished as an `override` membership at
+  `confirmed`, because a person placed it), `new_concepts` gathering several of them into
+  one thing, or a rename and a confirmation when it really is its own thing. `add_tables`
+  naming a provisional table does the same as a merge; both dissolve the provisional
+  concept and report it in `dissolved[]`. A reviewed `reference` add is the exception and
+  leaves it standing, for the reason `reference` is the exception everywhere: it never
+  says what a table is. `ontology.md` keeps the provisional concepts out of the concept
+  diagram (「另有 N 个临时概念未画」) and lists them in a second concept table, 「临时概念
+  （每表一个，待归并）」, with the write-back key; the concept-relation table marks a row
+  touching one with `（临时）`; a card's section 7 reads 「本表暂自成概念「…」（provisional），
+  待评审归并」. Both exports annotate them (`provisional: true` / `sl:provisional true`) so
+  a consumer can filter. The concept review prompt's **first** step is now 「临时概念归并」,
+  and the 8-question cap applies to whatever survives it.
 - **A fold read twice, and a validity window that is not an event** (K2d). Two members
   whose comments differ only in their tail fold to a longest common prefix, and a longest
   common prefix stops wherever two strings happen to diverge: 「UBS流量日志表-客户端日志」
