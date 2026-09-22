@@ -15,6 +15,14 @@ annotations:
   task_count: 5
   "sl:open_item_open:rel:ods.channel_event.channel_code->dim.channel.channel_code": "relation (hypothesis) on ods.channel_event [channel_code]: 关系 `ods.channel_event` → `dim.channel` 的基数写作「多对一，作者假设」，依据只是直接关联未去重，作者假设对端按该键唯一。 (write back: 关系:ods.channel_event.channel_code->dim.channel.channel_code)"
   "sl:open_item_open:key:dim.channel=channel_code": "candidate_key (hypothesis) on dim.channel [channel_code]: 候选键 `channel_code`：只有任务直接关联时的假设，语料没有证明它唯一。 (write back: 键:dim.channel=channel_code)"
+  unassigned_tables:
+    - "dim.segment_dim (no_candidate_key)"
+    - "mart.channel_summary (key_spans_several_stems)"
+    - "mart.metric_by_segment (key_spans_several_stems)"
+    - "mart.user_names (no_candidate_key)"
+    - "ods.events_a (no_candidate_key)"
+    - "ods.events_b (no_candidate_key)"
+    - "ods.users (no_candidate_key)"
 enums:
   mart_channel_summary__channel_name_enum:
     description: "the closed value set of column channel_name"
@@ -24,6 +32,27 @@ enums:
       OFFLINE: {}
       ONLINE: {}
 classes:
+  Entity:
+    abstract: true
+    title: "Entity"
+    description: "a business thing that persists through time (a continuant)"
+    annotations:
+      concept_kind: "entity"
+      category: "continuant"
+  Event:
+    abstract: true
+    title: "Event"
+    description: "something that happened to the business (an occurrent)"
+    annotations:
+      concept_kind: "event"
+      category: "occurrent"
+  Summary:
+    abstract: true
+    title: "Summary"
+    description: "a figure aggregated over entities or events (an aggregate)"
+    annotations:
+      concept_kind: "summary"
+      category: "aggregate"
   dim_channel:
     title: "dim.channel"
     description: "渠道维表（合成）"
@@ -31,6 +60,7 @@ classes:
       entity_kind: "physical_table"
       tier: "proven"
       domain: "渠道域"
+      represents: "concept:channel (primary)"
     attributes:
       channel_code:
         range: "string"
@@ -184,6 +214,7 @@ classes:
       project: "渠道分析（合成）"
       owner: "demo_owner"
       multiplicity_customer_id__channel_code: "multiple_rows_per_key (implied) on customer_id, channel_code; evidence_count 2, first task golden_commented_insert"
+      represents: "concept:channel (reference)"
     attributes:
       customer_id:
         range: "string"
@@ -300,3 +331,28 @@ classes:
         range: "string"
         annotations:
           tier: "proven"
+  concept_channel:
+    is_a: "Entity"
+    title: "渠道"
+    description: "kind entity (implied); name candidates: 渠道 (table_comment x1); channel (key_stem x1)"
+    annotations:
+      concept_id: "concept:channel"
+      tier: "hypothesis"
+      kind_tier: "implied"
+      name_tier: "hypothesis"
+      tables:
+        - "dim.channel -> primary (key:hypothesis)"
+        - "ods.channel_event -> reference (reference)"
+    attributes:
+      channel:
+        range: "string"
+        annotations:
+          tier: "hypothesis"
+          sources:
+            - "dim.channel.channel_code"
+      channel_name:
+        range: "string"
+        annotations:
+          tier: "hypothesis"
+          sources:
+            - "dim.channel.channel_name"
