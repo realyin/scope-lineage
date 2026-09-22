@@ -216,7 +216,8 @@ scope-lineage ontology --lineage <corpus> --out <dir> \
 表放进这个概念，值写它的角色。语料读不出它的键、元数据也没说话，而你在卡片里看得出它是这个概念
 的一份——这是唯一能说出口的地方。加进来的成员 `membership_basis` 是 `override`、`role_tier`
 是 `confirmed`，它的列并进概念的属性；那张表原本的**临时概念随之解散**，报在
-`concept_overrides_applied.dissolved[]` 里（`reference` 角色除外，见第 1 节）。一张表可以加进
+`concept_overrides_applied.dissolved[]` 里（`reference` 角色除外，见第 1 节：它既不解散那个
+临时概念，**列也不并进属性**——只是带着这个键，不被这个键描述）。一张表可以加进
 好几个概念（一张明细表同时带着两个键），但**身份只有一个**：这张表如果已经被自己的键放在某个
 概念上，再加到别的概念只是「带着这个键」，不会把身份抢过去。
 
@@ -412,6 +413,6 @@ Q<n>. <一句问题，业务方不看 SQL 也能懂>
 | 12 | 新建的概念 id 都是没人用过的 `concept:<小写词根>`，成员表里没有一张是别的概念**按身份**收下的（那种只能给 `reference`） | |
 | 13 | `retired_stems[]` 里的词根若有上一轮的答案，已经照原 id 写进 `concepts`，没有当成 `unknown_concept` 丢掉 | |
 | 14 | **两个真概念之间**的每次合并都把 `primary` 少的那一边合进多的那一边，`warnings` 里没有 `merge_kept_two_primaries`（把临时概念并进真概念不在此列：它那条成员会被重新定角色，本来就不会报） | |
-| 15 | `add_tables` 里写 `reference` 的表，本意确实是「只是带着这个键」——那一条不会改变这张表本身是什么，它的临时概念也不会因此解散 | |
+| 15 | `add_tables` 里写 `reference` 的表，本意确实是「只是带着这个键」——那一条不会改变这张表本身是什么，它的列也不进这个概念的 `attributes[]`，它的临时概念也不会因此解散 | |
 | 16 | 「临时概念」表逐行看过一遍，看得出归属的都已经写成 `merge_into` / `add_tables` / `new_concepts`，没有原样倒给业务方 | |
 | 17 | 跑完 `--concept-overrides` 后 `provisional_count` 比上一轮少，`dissolved[]` 的条数与你写下的归并条数对得上 | |

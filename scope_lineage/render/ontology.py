@@ -5104,11 +5104,23 @@ def _concept_attribute_section(concept: Mapping) -> list[str]:
 
     The index summarised because it had one paragraph; a file has a table, and a
     reviewer deciding whether two stems name one thing needs the columns behind them.
+
+    K4d: a ``reference`` member is listed under 「表现」 and lends nothing here, because
+    it carries the concept's key without being described by it. The section says so in
+    one line, so a reviewer reading a table above and not below knows it is the rule and
+    not a gap.
     """
     attributes = list(concept.get("attributes") or [])
-    lines = ["", "## 属性", ""]
+    lines = [
+        "",
+        "## 属性",
+        "",
+        # K4d: the one line that says why a member can be listed above and absent here.
+        "`reference` 成员只带着这个概念的键，不出属性——来源列只来自其余角色的表现表。",
+        "",
+    ]
     if not attributes:
-        return [*lines, "- 本概念的表现表没有可发布的列。"]
+        return [*lines, "- 本概念的其余表现表没有可发布的列。"]
     lines.extend(
         [
             f"共 {len(attributes)} 个属性（按词根折叠），逐条如下：",

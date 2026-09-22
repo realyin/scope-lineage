@@ -1857,7 +1857,7 @@ def apply_concept_overrides(
         ontology, dict(reviewed.get("concepts") or {}), index, applied, corpus
     )
     _dissolve_provisional(ontology, applied)
-    _concept_merges(ontology, merges, applied)
+    _concept_merges(ontology, merges, applied, corpus)
     _concept_splits(ontology, list(reviewed.get("splits") or []), applied)
     ontology["provisional_count"] = provisional_count(ontology["concepts"])
     applied["created"].sort(key=lambda item: str(item["id"]))
@@ -2031,6 +2031,7 @@ def _concept_fields(
             _add_tables(concept, entry, corpus, applied, str(name), stamp),
         ]
         if any(touched):
+            concept["attributes"] = _member_attributes(concept, corpus)
             concept["confirmation"] = stamp
             _reorder(concept)
             applied["concepts"] += 1
@@ -2185,7 +2186,12 @@ def _add_reason(table: str, role: str, corpus: _Corpus, members: set) -> str | N
 def _add_member(
     concept: dict, corpus: _Corpus, table: str, role: str, stamp: Mapping
 ) -> None:
-    """One reviewed membership, with the table's columns joining the attribute union."""
+    """One reviewed membership on the concept, in the order the members publish in.
+
+    What the table is *made of* is not decided here: ``_concept_fields`` re-reads the
+    whole attribute list off the members once every edit has landed, so a ``reference``
+    add lends the concept nothing but the row saying it carries the key (K4d).
+    """
     member = {
         "table": table,
         "role": role,
@@ -2198,17 +2204,6 @@ def _add_member(
     concept["tables"] = sorted(
         [*(concept.get("tables") or []), member],
         key=lambda item: (str(item["role"]) == ROLE_REFERENCE, str(item["table"])),
-    )
-    seed = _Seed(
-        table=table,
-        entity=corpus.entities[table],
-        stem=None,
-        tier=None,
-        reason=None,
-        basis=BASIS_OVERRIDE,
-    )
-    concept["attributes"] = _merge_attributes(
-        concept.get("attributes") or [], _attributes([seed], corpus.synonyms)
     )
 
 
@@ -2400,7 +2395,7 @@ def _fresh_concept(
         "kind_evidence": [{"signal": SIGNAL_OVERRIDE, "vote": kind}],
         "identity": _created_identity(stem, _created_columns(entry, tables, corpus)),
         "tables": list(members),
-        "attributes": _attributes(_override_seeds(tables, corpus), corpus.synonyms),
+        "attributes": _member_attributes({"tables": members}, corpus),
         "tier": TIER_CONFIRMED,
         "origin": BASIS_OVERRIDE,
         "confirmation": _confirmation(entry),
@@ -2432,7 +2427,7 @@ def _created_identity(stem: str, columns: Sequence[str]) -> dict:
 
 
 def _override_seeds(tables: Sequence[str], corpus: _Corpus) -> list[_Seed]:
-    """One seed per member of a created concept, so it lends the concept its columns."""
+    """One seed per named table, so it lends the concept the columns it declares."""
     return [
         _Seed(
             table=table,
@@ -2443,7 +2438,31 @@ def _override_seeds(tables: Sequence[str], corpus: _Corpus) -> list[_Seed]:
             basis=BASIS_OVERRIDE,
         )
         for table in tables
+        if table in corpus.entities
     ]
+
+
+def _member_attributes(concept: Mapping, corpus: _Corpus) -> list[dict]:
+    """The concept's attributes, re-read off its current members by role (K4d).
+
+    A ``reference`` member *carries* the key, it is not described by it, so its columns
+    are not what the concept is made of. The seed path has always read it that way; a
+    reviewed one has to read it the same way, and folding each edit's columns in one at
+    a time cannot -- an add would lend what a reference never lends, and a merge that
+    lifts a table out of ``reference`` would have nothing to lend afterwards.
+
+    So the list is *derived*, never accumulated: every member the concept holds right
+    now whose role is not ``reference``, in the order they publish in. An added
+    reference lends nothing, a merge that upgrades a table makes its columns count from
+    that moment, and a table that is only ever a reference never reaches ``sources[]``
+    of a stem the members that *do* describe the concept also carry.
+    """
+    tables = [
+        str(item["table"])
+        for item in concept.get("tables") or []
+        if str(item.get("role")) != ROLE_REFERENCE
+    ]
+    return _attributes(_override_seeds(tables, corpus), corpus.synonyms)
 
 
 def _created_columns(entry: Mapping, tables: Sequence[str], corpus: _Corpus) -> list[str]:
@@ -2525,7 +2544,9 @@ def _reorder(concept: dict) -> None:
 # ------------------------------------------------------------------- K4b: merges
 
 
-def _concept_merges(ontology: dict, merges: Sequence[tuple], applied: dict) -> None:
+def _concept_merges(
+    ontology: dict, merges: Sequence[tuple], applied: dict, corpus: _Corpus
+) -> None:
     """Fold one concept into another: its tables, its attributes and its stem.
 
     The stem travels because that is how ``build_concept_relations`` places the far end
@@ -2538,7 +2559,7 @@ def _concept_merges(ontology: dict, merges: Sequence[tuple], applied: dict) -> N
         if reason is not None:
             applied["unmatched"].append({"key": source, "reason": reason})
             continue
-        _fold_concept(index[source], index[target], stamp, applied, source)
+        _fold_concept(index[source], index[target], stamp, applied, source, corpus)
         ontology["concepts"] = [
             concept for concept in ontology["concepts"] if str(concept["id"]) != source
         ]
@@ -2558,7 +2579,7 @@ def _merge_reason(source: str, target: str, index: Mapping) -> str | None:
 
 
 def _fold_concept(
-    source: Mapping, into: dict, stamp: Mapping, applied: dict, key: str
+    source: Mapping, into: dict, stamp: Mapping, applied: dict, key: str, corpus: _Corpus
 ) -> None:
     # N1b: the roles the folded members arrive with are what the warning reads, so the
     # re-roling below happens first. A provisional member placed by a person is never a
@@ -2568,9 +2589,9 @@ def _fold_concept(
     if warning is not None:
         applied["warnings"].append({"key": key, "warning": warning})
     into["tables"] = _merge_members(into.get("tables") or [], folded)
-    into["attributes"] = _merge_attributes(
-        into.get("attributes") or [], source.get("attributes") or []
-    )
+    # K4d: the roles the survivor ends up with decide what describes it, so the
+    # attributes are re-read off the merged membership rather than unioned.
+    into["attributes"] = _member_attributes(into, corpus)
     into["identity"] = _merge_identity(into.get("identity") or {}, source)
     into["merged_from"] = sorted(
         {
@@ -2707,21 +2728,6 @@ def _merge_identity(identity: Mapping, source: Mapping) -> dict:
         {*(identity.get("columns_seen") or []), *(folded.get("columns_seen") or [])}
     )
     return merged
-
-
-def _merge_attributes(current: Sequence[Mapping], extra: Sequence[Mapping]) -> list[dict]:
-    """One row per stem, with both concepts' source columns behind it."""
-    merged: dict[str, dict] = {}
-    for attribute in [*current, *extra]:
-        item = merged.setdefault(str(attribute.get("stem")), {**attribute, "sources": []})
-        for origin in attribute.get("sources") or []:
-            if dict(origin) not in item["sources"]:
-                item["sources"].append(dict(origin))
-    for item in merged.values():
-        item["sources"].sort(
-            key=lambda origin: (str(origin.get("table")), str(origin.get("column")))
-        )
-    return [merged[stem] for stem in sorted(merged)]
 
 
 def _forget_merged(ontology: dict) -> None:
