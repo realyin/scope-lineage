@@ -1841,7 +1841,30 @@ def apply_concept_overrides(
     """
     documents = _overrides_documents(overrides, files)
     reviewed, sources, conflicts = merge_concept_overrides(documents)
-    applied = {
+    applied = _applied_report(conflicts, sources)
+    ontology["concept_overrides_applied"] = applied
+    _ignored_fields(applied, "(document)", reviewed, CONCEPT_OVERRIDES_DOC_FIELDS)
+    corpus = _Corpus(ontology.get("tables") or [])
+    ontology.setdefault("concepts", [])
+    _new_concepts(ontology, list(reviewed.get("new_concepts") or []), applied, corpus)
+    index = {str(concept["id"]): concept for concept in ontology["concepts"]}
+    merges = _concept_fields(
+        ontology, dict(reviewed.get("concepts") or {}), index, applied, corpus
+    )
+    _dissolve_provisional(ontology, applied)
+    _concept_merges(ontology, merges, applied, corpus)
+    _concept_splits(ontology, list(reviewed.get("splits") or []), applied)
+    ontology["provisional_count"] = provisional_count(ontology["concepts"])
+    applied["created"].sort(key=lambda item: str(item["id"]))
+    applied["left"].sort(key=lambda item: (item["id"], item["reason"]))
+    applied["unmatched"].sort(key=lambda item: (item["key"], item["reason"]))
+    applied["warnings"].sort(key=lambda item: (item["key"], item["warning"]))
+    applied["ignored_fields"].sort(key=lambda item: item["key"])
+
+
+def _applied_report(conflicts: list, sources: list) -> dict:
+    """The empty round's report: every key a round can fill, at zero."""
+    return {
         "concepts": 0,
         "created": [],
         "tables_added": 0,
@@ -1862,24 +1885,6 @@ def apply_concept_overrides(
         "conflicts": conflicts,
         "sources": sources,
     }
-    ontology["concept_overrides_applied"] = applied
-    _ignored_fields(applied, "(document)", reviewed, CONCEPT_OVERRIDES_DOC_FIELDS)
-    corpus = _Corpus(ontology.get("tables") or [])
-    ontology.setdefault("concepts", [])
-    _new_concepts(ontology, list(reviewed.get("new_concepts") or []), applied, corpus)
-    index = {str(concept["id"]): concept for concept in ontology["concepts"]}
-    merges = _concept_fields(
-        ontology, dict(reviewed.get("concepts") or {}), index, applied, corpus
-    )
-    _dissolve_provisional(ontology, applied)
-    _concept_merges(ontology, merges, applied, corpus)
-    _concept_splits(ontology, list(reviewed.get("splits") or []), applied)
-    ontology["provisional_count"] = provisional_count(ontology["concepts"])
-    applied["created"].sort(key=lambda item: str(item["id"]))
-    applied["left"].sort(key=lambda item: (item["id"], item["reason"]))
-    applied["unmatched"].sort(key=lambda item: (item["key"], item["reason"]))
-    applied["warnings"].sort(key=lambda item: (item["key"], item["warning"]))
-    applied["ignored_fields"].sort(key=lambda item: item["key"])
 
 
 def _overrides_documents(overrides, files: Sequence[str] | None) -> list[tuple]:
