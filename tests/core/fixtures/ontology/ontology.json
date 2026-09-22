@@ -750,7 +750,9 @@
     "dissolved": [],
     "unmatched": [],
     "warnings": [],
-    "ignored_fields": []
+    "ignored_fields": [],
+    "conflicts": [],
+    "sources": []
   },
   "relations": [
     {

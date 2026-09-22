@@ -60,6 +60,16 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
 # Across corpora: --tables repeats, and the cards are merged before anything is built
 scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
   --tables /path/to/a/tables.json --tables /path/to/b/tables.json
+
+# N1b: cut the provisional concepts into review batches under <dir>/batches/
+scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
+  --review-batches /path/to/review \
+  --review-batches-by family --review-batch-size 30
+
+# N1a: --concept-overrides repeats, applies in order, and the later file wins a clash
+scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
+  --concept-overrides /path/to/review/batches/batch-01.overrides.json \
+  --concept-overrides /path/to/review/batches/batch-02.overrides.json
 ```
 
 Three artifacts:
@@ -863,6 +873,8 @@ carries this key" is not an answer to "what is this table"):
 | `concept_overrides_applied.concepts` / `created[]` / `tables_added` / `merges` / `splits` | integers and a list | how many field confirmations took effect, which concepts were created (one `{id, tables[]}` each, a revived retired stem carrying `revived: true`), how many member tables were added, how many merges and splits |
 | `concept_overrides_applied.unmatched` | a list of `{"key": …, "reason": …}` | confirmations with nothing to match in the corpus — never dropped, listed; `reason` is `unknown_concept` / `unknown_concept: <id>` / `unknown_table: <table>` / `unknown_kind: <value>` / `unknown_role: <value>` / `already_a_member: <table>` (`add_tables` or `new_concepts` named a table identity already holds -- use `roles` to change its role, or give it `reference`) / `merge_into_self` / `already_a_concept: <id>` / `invalid_concept_id: <id>` / `no_tables` (a `new_concepts` entry named no table at all). What *was* applied and is still worth a look is not here but in `warnings[]` |
 | `concept_overrides_applied.ignored_fields` | a list of `{"key": …, "fields": ["…"]}` | fields this release does not understand (usually a misspelled slot name) — listed rather than silently dropped; stray keys on the document itself are filed under `(document)` |
+| `concept_overrides_applied.conflicts` | a list of `{"key": …, "field": …, "earlier": …, "later": …}` | N1a: two overrides files named the **same target key**. `key` is the concept id (the created id for `new_concepts`, the `from` id for `splits`), `field` the field name (`add_tables` / `roles` are spelled `add_tables.<table>` / `roles.<table>`, a whole entry is `new_concepts` / `splits`), and `earlier` / `later` the two files. **The later file wins**, and the row is left for a person to settle; a confirmation stamp (`confirmed_by` / `date` / `basis` / `note`) is not a target key and simply travels with the answer that won |
+| `concept_overrides_applied.sources` | a list of `{"file": …, "applied": N}` | N1a: which files were read, in the order they were given, and how many **leaf entries** each one won (one per `concepts[<id>].<field>`, per `roles` / `add_tables` table, per `new_concepts[]` and per `splits[]`). An entry a later file overrode is not counted for the earlier one, so this column answers "did the batch I just wrote actually land". Empty for a library call that hands one document and names no file |
 
 **The order is deliberate**: the created concepts first (`new_concepts` and any retired
 stem a key of `concepts` names), then the field edits (name, kind, roles, added members),
@@ -872,6 +884,82 @@ the later steps can address it. The whole pass runs **before** K3 folds the conc
 relations, so a merge carries the folded concept's edges with it instead of leaving them
 on an id nothing publishes any more, and the JOINs that start at a created concept's
 tables fold onto the concept the reviewer created.
+
+## Reviewing in batches: several overrides files and `--review-batches`
+
+A wide corpus publishes tens or hundreds of provisional concepts in `concepts[]`, while
+one review round is capped at eight human questions and a single overrides file -- the
+round simply cannot be finished. N1 splits it into **one file per batch**.
+
+### 1. `--concept-overrides` repeats
+
+`--concept-overrides` is `action="append"`: every file given is read, they are folded
+together **in the order they appear on the command line**, and the result is applied as
+one (still in the order of the previous section: created, fields, merges, splits).
+
+- **What does not collide accumulates**: two files naming different concepts, or
+  different fields of one concept, both land.
+- **One target key named by two files**: **the later file wins**, and a `conflicts[]`
+  row is published. A target key is "concept id + field", where `roles` / `add_tables`
+  go down to **each table**, `new_concepts` down to **each created id**, and
+  `merge_into` is simply the concept id the entry is written under. A confirmation stamp
+  (`confirmed_by` / `date` / `basis` / `note`) is not a target key and travels with the
+  answer that won.
+- **A conflict is left to a person**: `conflicts[]` is not an error and never fails the
+  command -- it says two batches gave two answers to one question, and reordering the
+  command line to make it go away is hiding the question.
+- **A blank is not an answer**: an entry whose value is the empty string (the skeleton's
+  unfilled `merge_into` is exactly that) **claims no target key** -- it is not counted in
+  `sources[].applied`, two files that both left it blank have not disagreed, and it can
+  never **overwrite** a real answer another file gave. An unfilled skeleton can only ever
+  do nothing.
+- **The same file twice is the same as once**: a repeated `(file, content)` pair is
+  dropped before the fold, and the output is byte-identical.
+- **Document-level keys like `doc_format` and `comments` are the last file's**: neither
+  is an answer about a concept.
+
+The summary line says all of it: `reviewed N concept(s) from M file(s), …, K conflict(s)`.
+
+### 2. `--review-batches`: cutting the provisional concepts up
+
+```bash
+scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
+  --review-batches /path/to/review \
+  --review-batches-by family --review-batch-size 30
+```
+
+It runs **after the ontology is built**, over the `ontology.json` this very run
+published, so it costs no second walk of the corpus. Three kinds of file land under
+`<dir>/batches/`:
+
+| File | Contents | Read by |
+| --- | --- | --- |
+| `index.md` | the batch list: order, batch id, concept count, groups, relation count, open-item-group count, and links to the two files | the reviewer, **top to bottom** |
+| `batch-NN.md` | this batch's worksheet: the concept table (name and tier, kind, tables, relation and task counts, the first three name candidates, the write-back key), the candidate merge targets (the concepts the corpus already folded, ranked by relations to this batch and by shared key stems), the evidence (table and key-column comments) and this batch's open item groups | the reviewer (an agent or a person) |
+| `batch-NN.overrides.json` | the skeleton: one `merge_into: ""` per provisional concept of the batch, plus a `comments` block with one line per open item group | filled in place; filled, it *is* the `--concept-overrides` input |
+
+`--review-batches-by` cuts three ways:
+
+| Value | How it groups | How it packs |
+| --- | --- | --- |
+| `family` (default) | by `table_family` -- `_di` / `_df` / `_tmp` are copies of one logical table, and so one question | groups are packed into batches and **a family is never split**; a family larger than `--review-batch-size` takes a batch of its own |
+| `domain` | by the table's `naming_hints.domain`, falling back to `project`, then to one unlabelled group | the same, with the domain as the unit |
+| `size` | no grouping | the ranked list flattened and chunked by `--review-batch-size` |
+
+The ordering is one thing throughout: **impact**, the number of concept relations the
+concept carries (ties broken by task count, then by id). Batches, the groups inside them
+and the concepts inside those are all ranked by it, so the first batch in `index.md` is
+the one whose answers unblock the most edges.
+
+An empty `merge_into` in the skeleton **is a real value**: `apply_concept_overrides`
+reads the empty string as "not answered this round", so a skeleton applied untouched
+changes nothing and reports nothing -- `unmatched` and `ignored_fields` are both empty,
+and the reviewer learns they have not answered from the counters rather than from a
+document that quietly grew a merge. `comments` is a known document-level key and is
+never reported as an `ignored_fields` typo.
+
+Two runs over one `ontology.json` write the same bytes; every ordering in this section
+is total.
 
 ## Slot correspondence with OWL / SHACL / LinkML
 

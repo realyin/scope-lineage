@@ -1736,8 +1736,29 @@ CONCEPT_OVERRIDE_FIELDS = (
     "basis",
     "note",
 )
-#: What the document itself may hold.
-CONCEPT_OVERRIDES_DOC_FIELDS = ("doc_format", "concepts", "new_concepts", "splits")
+#: What the document itself may hold. ``comments`` is free text a batch skeleton (N1b)
+#: writes its open questions into: read by the reviewer, never applied, and named here
+#: so a skeleton that reaches the builder unedited does not report itself as a typo.
+CONCEPT_OVERRIDES_DOC_FIELDS = (
+    "doc_format",
+    "concepts",
+    "new_concepts",
+    "splits",
+    "comments",
+)
+#: The document-level keys N1a folds entry by entry; everything else is last-file-wins.
+MERGED_DOC_FIELDS = ("concepts", "new_concepts", "splits")
+#: The fields of one concept entry that hold a table -> value mapping, and so collide
+#: per table rather than as a whole.
+MAPPING_FIELDS = ("roles", "add_tables")
+#: Who confirmed it, when and why. These ride along with an answer rather than being
+#: one, so two files that carry different stamps for one concept are not a conflict:
+#: the file whose answer won signs it, and nobody has to settle a date.
+CONFIRMATION_FIELDS = ("confirmed_by", "date", "basis", "note")
+#: What one ``concept_overrides_applied.sources[]`` row says.
+OVERRIDE_SOURCE_KEYS = ("file", "applied")
+#: What one ``concept_overrides_applied.conflicts[]`` row says.
+CONFLICT_KEYS = ("key", "field", "earlier", "later")
 #: What one ``new_concepts[]`` entry may say (K4c).
 NEW_CONCEPT_FIELDS = (
     "id",
@@ -1764,8 +1785,10 @@ MEMBER_ROLES = (
 )
 
 
-def apply_concept_overrides(ontology: dict, overrides: Mapping) -> None:
-    """Fold a reviewed ``concepts.overrides.json`` into the concept layer.
+def apply_concept_overrides(
+    ontology: dict, overrides, *, files: Sequence[str] | None = None
+) -> None:
+    """Fold the reviewed ``concepts.overrides.json`` file(s) into the concept layer.
 
     K1--K3 publish candidates: a name that is always a hypothesis, a kind decided by
     votes, and a fold that refuses to merge two stems it cannot tell apart. A review
@@ -1780,7 +1803,19 @@ def apply_concept_overrides(ontology: dict, overrides: Mapping) -> None:
     justify, then the splits. It runs *before* ``build_concept_relations`` so a merge
     moves the edges of the concept it folded rather than leaving them beside it, and so
     the edges that start at a created concept's tables fold onto it.
+
+    N1a: ``overrides`` is one document or **several**, and ``files`` names them. A wide
+    corpus is reviewed one batch at a time and each batch writes its own file, so the
+    files are folded here, left to right, before any of it is applied: a target key two
+    files both name is won by the later one and the pair is reported in ``conflicts[]``
+    rather than resolved in silence, and everything that does not collide accumulates.
+    ``sources[]`` says how many entries each file won, so a reviewer can see that the
+    batch they just wrote actually landed. The same file handed twice is dropped the
+    second time: it says nothing new, and a document must not depend on how many times
+    it was named.
     """
+    documents = _overrides_documents(overrides, files)
+    reviewed, sources, conflicts = merge_concept_overrides(documents)
     applied = {
         "concepts": 0,
         "created": [],
@@ -1793,24 +1828,153 @@ def apply_concept_overrides(ontology: dict, overrides: Mapping) -> None:
         "unmatched": [],
         "warnings": [],
         "ignored_fields": [],
+        # N1a: what two overrides files disagreed about, and which files were read.
+        "conflicts": conflicts,
+        "sources": sources,
     }
     ontology["concept_overrides_applied"] = applied
-    _ignored_fields(applied, "(document)", overrides, CONCEPT_OVERRIDES_DOC_FIELDS)
+    _ignored_fields(applied, "(document)", reviewed, CONCEPT_OVERRIDES_DOC_FIELDS)
     corpus = _Corpus(ontology.get("tables") or [])
     ontology.setdefault("concepts", [])
-    _new_concepts(ontology, list(overrides.get("new_concepts") or []), applied, corpus)
+    _new_concepts(ontology, list(reviewed.get("new_concepts") or []), applied, corpus)
     index = {str(concept["id"]): concept for concept in ontology["concepts"]}
     merges = _concept_fields(
-        ontology, dict(overrides.get("concepts") or {}), index, applied, corpus
+        ontology, dict(reviewed.get("concepts") or {}), index, applied, corpus
     )
     _dissolve_provisional(ontology, applied)
     _concept_merges(ontology, merges, applied)
-    _concept_splits(ontology, list(overrides.get("splits") or []), applied)
+    _concept_splits(ontology, list(reviewed.get("splits") or []), applied)
     ontology["provisional_count"] = provisional_count(ontology["concepts"])
     applied["created"].sort(key=lambda item: str(item["id"]))
     applied["unmatched"].sort(key=lambda item: (item["key"], item["reason"]))
     applied["warnings"].sort(key=lambda item: (item["key"], item["warning"]))
     applied["ignored_fields"].sort(key=lambda item: item["key"])
+
+
+def _overrides_documents(overrides, files: Sequence[str] | None) -> list[tuple]:
+    """``(file, document)`` pairs, in the order given, without the repeats (N1a).
+
+    One document or many, named or not: a library caller that hands a single mapping
+    and no name is the call this module has always had, and it publishes no
+    ``sources[]`` row, because there is no file to name. An unnamed empty document is
+    "no overrides were supplied" and is dropped, so a corpus reviewed by nobody
+    publishes an empty ``sources[]`` rather than a row about nothing.
+    """
+    documents = [overrides] if isinstance(overrides, Mapping) else list(overrides or [])
+    named = list(files or [])
+    named += [None] * (len(documents) - len(named))
+    pairs, seen = [], []
+    for name, document in zip(named, documents):
+        entry = (name, dict(document or {}))
+        if not entry[1] and name is None:
+            continue
+        if entry in seen:
+            continue
+        seen.append(entry)
+        pairs.append(entry)
+    return pairs
+
+
+def merge_concept_overrides(documents: Sequence[tuple]) -> tuple[dict, list, list]:
+    """``(one document, sources[], conflicts[])`` from several reviewed files (N1a).
+
+    The fold is per *target key*, never per file: a concept id and a field, one table of
+    a ``roles`` / ``add_tables`` mapping, one ``new_concepts[]`` id, one ``splits[]``
+    source. Two files that name different keys both land; two files that name the same
+    key are a disagreement only a person can settle, so the later file wins -- files
+    apply in the order they were given -- and the pair is published for that person to
+    look at. Every other document-level key (``doc_format``, ``comments``) is simply the
+    last file's, because none of them is an answer about a concept.
+    """
+    merged: dict = {}
+    listed: dict[str, dict] = {slot: {} for slot in MERGED_DOC_FIELDS[1:]}
+    state = {"winners": {}, "conflicts": [], "counts": {}}
+    for file, document in documents:
+        _fold_document(file, document, merged, listed, state)
+    for slot in MERGED_DOC_FIELDS[1:]:
+        if listed[slot]:
+            merged[slot] = list(listed[slot].values())
+    sources = [
+        {"file": file, "applied": state["counts"].get(file, 0)}
+        for file, _ in documents
+        if file is not None
+    ]
+    conflicts = sorted(state["conflicts"], key=lambda item: (item["key"], item["field"]))
+    return merged, sources, conflicts
+
+
+def _fold_document(file, document: Mapping, merged: dict, listed: dict, state) -> None:
+    """One reviewed file folded onto what the files before it said."""
+    for name, value in document.items():
+        if str(name) not in MERGED_DOC_FIELDS:
+            merged[str(name)] = value
+    _fold_concepts(file, dict(document.get("concepts") or {}), merged, state)
+    for slot, key in (("new_concepts", "id"), ("splits", "from")):
+        _fold_listed(file, slot, key, document.get(slot) or [], listed[slot], state)
+
+
+def _fold_concepts(file, entries: Mapping, merged: dict, state) -> None:
+    """The ``concepts`` block, one concept id and one field at a time.
+
+    A blank scalar is not an answer. ``merge_into: ""`` is exactly what N1b's skeleton
+    writes for a concept the reviewer has not reached, and the applier already reads a
+    falsy ``name`` / ``kind`` / ``merge_into`` as "not said". So a blank claims no target
+    key -- it is not counted in ``sources[]``, and two batches that both left one slot
+    empty have not disagreed about anything -- and it never overwrites an answer another
+    file gave, because a skeleton nobody filled in must not be able to erase one. It
+    still reaches the merged document when nothing else claimed the slot, so a lone
+    unedited skeleton behaves exactly as it does on its own.
+    """
+    into = merged.setdefault("concepts", {})
+    for name in entries:
+        entry = dict(entries[name] or {})
+        target = into.setdefault(str(name), {})
+        for slot, value in entry.items():
+            if str(slot) in MAPPING_FIELDS:
+                _fold_mapping(file, str(name), str(slot), value, target, state)
+                continue
+            if value == "":
+                target.setdefault(str(slot), value)
+                continue
+            if str(slot) not in CONFIRMATION_FIELDS:
+                _claim(file, str(name), str(slot), state)
+            target[str(slot)] = value
+
+
+def _fold_mapping(file, name: str, slot: str, value, target: dict, state) -> None:
+    """``roles`` / ``add_tables``: one table of the mapping is one target key."""
+    values = dict(value or {}) if isinstance(value, Mapping) else {}
+    into = target.get(slot)
+    if not isinstance(into, dict):
+        into = target[slot] = {}
+    for table in values:
+        _claim(file, name, f"{slot}.{table}", state)
+        into[str(table)] = values[table]
+
+
+def _fold_listed(file, slot: str, key: str, entries, into: dict, state) -> None:
+    """``new_concepts[]`` / ``splits[]``: one entry, addressed by the id it carries."""
+    for item in entries:
+        entry = dict(item or {})
+        _claim(file, str(entry.get(key) or ""), slot, state)
+        into[str(entry.get(key) or "")] = entry
+
+
+def _claim(file, key: str, slot: str, state) -> None:
+    """This file now owns that target key; whoever owned it before is a conflict.
+
+    The displacement is counted both ways: the loser's ``applied`` goes back down, so
+    ``sources[]`` reports what each file *won* rather than what it wrote.
+    """
+    earlier = state["winners"].get((key, slot))
+    counts = state["counts"]
+    if earlier is not None:
+        state["conflicts"].append(
+            {"key": key, "field": slot, "earlier": earlier, "later": file}
+        )
+        counts[earlier] = counts.get(earlier, 0) - 1
+    state["winners"][(key, slot)] = file
+    counts[file] = counts.get(file, 0) + 1
 
 
 def _ignored_fields(

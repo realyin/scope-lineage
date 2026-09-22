@@ -1,5 +1,40 @@
 # Changelog
 
+## Unreleased
+- **Concept review at scale: several overrides files, and `ontology --review-batches`**
+  (N1). A wide corpus publishes far more provisional concepts than one review round can
+  answer — the round is capped at eight human questions and, until now, one overrides
+  file — so the round is split into one file per batch.
+  - `ontology --concept-overrides` is **repeatable**. The files are folded in the order
+    given and applied as one. Entries that do not collide accumulate; a target key two
+    files both name (concept id + field, with `roles` / `add_tables` down to each table,
+    `new_concepts` down to each created id, and `merge_into` under its own concept id)
+    is won by the **later** file, and the pair is published in
+    `concept_overrides_applied.conflicts[] = {key, field, earlier, later}` for a person
+    to settle rather than resolved in silence. `concept_overrides_applied.sources[] =
+    {file, applied}` says how many leaf entries each file won. A confirmation stamp
+    (`confirmed_by` / `date` / `basis` / `note`) is not a target key and travels with
+    the answer that won; an empty value (the skeleton's unfilled `merge_into`) claims no
+    target key, so it neither conflicts nor overwrites an answer another file gave; the
+    same file given twice is the same as once, byte for byte.
+    `concept_overrides_applied` gains exactly those two keys (`conflicts`, `sources`),
+    and nothing else about the document moves.
+  - `ontology --review-batches <dir>` cuts the provisional concepts into batches under
+    `<dir>/batches/`: one `batch-NN.md` worksheet (the batch's concepts, the folded
+    concepts they most relate to as candidate merge targets ranked by relations and
+    shared key stems, the table and key-column comments a decision rests on, and the
+    batch's open item groups), one `batch-NN.overrides.json` skeleton (an empty
+    `merge_into` per concept, which applies as a no-op until it is filled, plus the open
+    item groups as `comments` lines) and one `index.md` giving the order to work them.
+    `--review-batches-by family|domain|size` groups by table family (never split),
+    by `naming_hints.domain`/`project`, or not at all; `--review-batch-size` (default 30)
+    caps a batch. Everything is ranked by impact — the concept relations a concept
+    carries — and is deterministic. It runs after the build, over the ontology the same
+    run published, so it costs no second walk of the corpus.
+  - The concept review prompt gains a 「分批工作」 section: one batch at a time, one
+    overrides file per batch, never edit another batch's file, at most eight human
+    questions **per batch**, and conflicts are a person's call.
+
 ## 0.4.0
 - **Breaking — the ontology is concept-first.** `ontology.json` is `ontology-json/2`: the
   ontology is `concepts[]` (实体 / 事件 / 汇总, every table has one) and `relations[]`

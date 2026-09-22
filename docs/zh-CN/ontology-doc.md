@@ -47,6 +47,16 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
 # 跨语料：--tables 可重复，几份表卡先合并再建本体
 scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
   --tables /path/to/a/tables.json --tables /path/to/b/tables.json
+
+# N1b：把临时概念切成评审批次，写到 <dir>/batches/
+scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
+  --review-batches /path/to/review \
+  --review-batches-by family --review-batch-size 30
+
+# N1a：--concept-overrides 可重复，按给的顺序生效，后给的赢冲突
+scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
+  --concept-overrides /path/to/review/batches/batch-01.overrides.json \
+  --concept-overrides /path/to/review/batches/batch-02.overrides.json
 ```
 
 产物三件：
@@ -770,12 +780,75 @@ erDiagram
 | `concept_overrides_applied.concepts` / `created[]` / `tables_added` / `merges` / `splits` | 整数与列表 | 分别生效了几条字段确认、新建了哪几个概念（一条一个 `{id, tables[]}`，唤回的退役词根多一个 `revived: true`）、加进了几张成员表、几次合并、几次拆分 |
 | `concept_overrides_applied.unmatched` | `{"key": …, "reason": …}` 列表 | 在语料里找不到对应项的确认——不丢弃，列出来；`reason` 取 `unknown_concept` / `unknown_concept: <id>` / `unknown_table: <表>` / `unknown_kind: <值>` / `unknown_role: <值>` / `already_a_member: <表>`（`add_tables` 或 `new_concepts` 点了一张已经被身份收下的表——用 `roles` 改它的角色，或给它 `reference`）/ `merge_into_self` / `already_a_concept: <id>` / `invalid_concept_id: <id>` / `no_tables`（`new_concepts` 的一条一张表都没点）。应用下去了但值得回头看的那些不在这里，在 `warnings[]` |
 | `concept_overrides_applied.ignored_fields` | `{"key": …, "fields": ["…"]}` 列表 | 本版本读不懂的字段（多半是拼错的槽位名）——列出来而不是悄悄丢掉；文档自身的多余键记在 `(document)` 名下 |
+| `concept_overrides_applied.conflicts` | `{"key": …, "field": …, "earlier": …, "later": …}` 列表 | N1a：两份 overrides 文件点到了**同一个目标键**。`key` 是概念 id（`new_concepts` 用新建的那个 id，`splits` 用 `from` 的那个），`field` 是字段名（`add_tables` / `roles` 写成 `add_tables.<表>` / `roles.<表>`，整条的写 `new_concepts` / `splits`），`earlier` / `later` 是那两份文件。**后给的那份生效**，这一条留给人回头定夺；确认戳（`confirmed_by` / `date` / `basis` / `note`）不算目标键，它跟着赢下来的那条答案走 |
+| `concept_overrides_applied.sources` | `{"file": …, "applied": N}` 列表 | N1a：读了哪几份文件（按给的顺序），每份赢下了几条**叶子条目**（一条 `concepts[<id>].<字段>`、`roles` / `add_tables` 的一张表、一条 `new_concepts[]`、一条 `splits[]` 各算一条）。被后面那份盖掉的不算在前面那份头上，所以这一列直接回答「我刚写的那一批真的落进去了吗」。库调用只给一份文档、不给文件名时是空的 |
 
 **顺序是有意的**：先新建概念（`new_concepts` 与被点名的退役词根），再字段（名字、种类、角色、
 加成员表），再合并，最后拆分——评审就是按这个顺序想的，而合并与拆分会改变成员表，新建的概念
 则要先在册，后面几步才点得到它。整套**在 K3 折叠概念关系之前**执行，所以一次合并会把被合掉那个
 概念的边一起搬过去，而不是把它们留在一个已经不再发布的 id 上，而从新建概念的表出发的那些 JOIN
 也会折到评审新建的那个概念上。
+
+## 分批评审：多份 overrides 与 `--review-batches`
+
+语料一宽，`concepts[]` 里的临时概念就是几十上百个，而一轮评审只许问人 8 条、只收一份
+overrides 文件——评审根本做不完。N1 把这一轮拆成**一批一份文件**。
+
+### 一、`--concept-overrides` 可重复
+
+`--concept-overrides` 是 `action="append"`：给几次就读几份，**按命令行上的顺序**折在一起，
+然后整体应用（顺序仍是「新建 → 字段 → 合并 → 拆分」，见上一节）。
+
+- **不冲突的累加**：两份文件点的是不同的概念、或者同一个概念的不同字段，两边都生效。
+- **同一个目标键被两份点到**：**后给的那份赢**，并报一条 `conflicts[]`。目标键的粒度是
+  「概念 id + 字段」，其中 `roles` / `add_tables` 细到**每张表**、`new_concepts` 细到**每个
+  新 id**、`merge_into` 就是写它的那个概念 id。确认戳（`confirmed_by` / `date` / `basis` /
+  `note`）不是目标键，它跟着赢下来的那条答案走。
+- **冲突留给人**：`conflicts[]` 不是错误，也不会让命令失败——它说的是「两批评审对同一个问题
+  给了两个答案」，靠调换命令行顺序蒙混过去是把问题藏起来。
+- **留空不算答案**：值是空串的那一项（骨架里没填的 `merge_into` 就是）**不占目标键**——不计进
+  `sources[].applied`，两份文件都留空不算冲突，也**盖不掉**另一份给出的真答案。没填的骨架永远
+  只可能什么都不做。
+- **同一份文件给两遍等于给一遍**：重复的 `(文件, 内容)` 在折叠之前就被丢掉，输出逐字节不变。
+- **`doc_format` 与 `comments` 这类文档级键取最后一份的**，它们都不是关于概念的答案。
+
+摘要行会把这一切说出来：`reviewed N concept(s) from M file(s), …, K conflict(s)`。
+
+### 二、`--review-batches`：把临时概念切成批
+
+```bash
+scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
+  --review-batches /path/to/review \
+  --review-batches-by family --review-batch-size 30
+```
+
+在**本体建完之后**跑，读的就是这一次刚发布的那份 `ontology.json`，所以不额外走一遍语料。
+产物写在 `<dir>/batches/` 下，三种：
+
+| 文件 | 内容 | 谁读 |
+| --- | --- | --- |
+| `index.md` | 批次清单：顺序、批次 id、概念数、分组、关系条数、待判定分组数、两个文件的链接 | 评审者，**从上往下做** |
+| `batch-NN.md` | 这一批的工作表：概念表（名字与层级、种类、表、关系条数与任务数、前三个命名候选、回写键）、候选归并目标（语料已折出的概念，按与本批的关系条数、共同键词根排序）、判断依据（表注释与键列注释）、本批的待判定分组 | 评审者（Agent 或人） |
+| `batch-NN.overrides.json` | 骨架：这一批每个临时概念一条 `merge_into: ""`，外加一段 `comments`（本批的待判定分组逐条一行） | 就地填，填完就是 `--concept-overrides` 的入参 |
+
+`--review-batches-by` 三种切法：
+
+| 取值 | 怎么分组 | 装箱规则 |
+| --- | --- | --- |
+| `family`（默认） | 按 `table_family`——`_di` / `_df` / `_tmp` 是同一张逻辑表的几份副本，同一个问题 | 按组装进批次，**同一族绝不拆开**；一族大过 `--review-batch-size` 就整个占一批 |
+| `domain` | 按表的 `naming_hints.domain`，没有退到 `project`，再没有进「未标注领域」一组 | 同上，只是组的单位换成域 |
+| `size` | 不分组 | 按影响从大到小平铺，按 `--review-batch-size` 切块 |
+
+排序自始至终是一件事：**影响**，也就是这个概念身上的概念关系条数（并列时看任务数，再并列看
+id）。批次之间、批次里的组之间、组里的概念之间都按它排，所以 `index.md` 的第一批就是「答完
+解开的边最多」的那一批。
+
+骨架里的 `merge_into` **留空是一个真的取值**：`apply_concept_overrides` 把空串读成「本轮没
+答」，所以一份原样没动过的骨架应用下去什么也不会发生，`unmatched` 与 `ignored_fields` 都是
+空的——评审者从计数器知道自己没答，而不是从一份悄悄长出了合并的文档。`comments` 是文档级的
+已知键，不会被报成 `ignored_fields`。
+
+同一份 `ontology.json` 跑两遍写出逐字节相同的文件；这一节的所有排序都是全序。
 
 ## 与 OWL / SHACL / LinkML 的槽位对应
 

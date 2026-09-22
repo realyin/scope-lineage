@@ -33,6 +33,12 @@ from .render.ontology import (
     render_ontology_table_card_markdown,
 )
 from .render.ontology_export import EXPORT_FILENAMES, EXPORT_FORMATS, render_export
+from .render.review_batches import (
+    BATCH_BY,
+    BATCHES_DIR,
+    DEFAULT_BATCH_SIZE,
+    write_review_batches,
+)
 from .render.table_cards import PROFILE_FIELDS_READ as TABLE_FIELDS_READ
 from .render.table_cards import table_card_filename
 
@@ -95,15 +101,22 @@ def add_ontology_parser(subcommands) -> None:
     )
     ontology_cmd.add_argument(
         "--concept-overrides",
+        action="append",
         help=(
             "A reviewed concepts.overrides.json (concept-overrides/1): the confirmed "
             "concept names, kinds, member roles, the concepts it creates, the merges "
             "and the splits. Applied after the concept layer is built and before the "
             "concept relations are folded, so a "
             "merge moves that concept's edges too; anything it names that the corpus "
-            "does not contain is reported in concept_overrides_applied.unmatched"
+            "does not contain is reported in concept_overrides_applied.unmatched. "
+            "Repeatable (N1a): a wide corpus is reviewed one batch at a time and each "
+            "batch writes its own file, so the files are folded in the order given -- "
+            "a target key two of them name is won by the later one and the pair is "
+            "reported in concept_overrides_applied.conflicts, and "
+            "concept_overrides_applied.sources says how many entries each file won"
         ),
     )
+    _add_review_batch_arguments(ontology_cmd)
     ontology_cmd.add_argument(
         "--format",
         default="json,md",
@@ -131,6 +144,45 @@ def add_ontology_parser(subcommands) -> None:
         ),
     )
     add_incremental_arguments(ontology_cmd)
+
+
+def _add_review_batch_arguments(ontology_cmd) -> None:
+    """N1b: cut the provisional concepts into batches a reviewer can finish.
+
+    A flag on ``ontology`` rather than an ``ontology review-batches`` sub-subcommand,
+    because every command of this CLI is a flat subcommand of one parser and a nested
+    one here would be the only place a reader has to look twice. It runs *after* the
+    build, over the ontology this same run published, which is also what makes it
+    cheap: the corpus is already walked and the concepts are already folded.
+    """
+    ontology_cmd.add_argument(
+        "--review-batches",
+        help=(
+            "Also cut the provisional concepts into review batches under "
+            f"<dir>/{BATCHES_DIR}: one batch-NN.md worksheet, one "
+            "batch-NN.overrides.json skeleton and one index.md saying in which order "
+            "to work them. Written after the ontology, from the one this run built"
+        ),
+    )
+    ontology_cmd.add_argument(
+        "--review-batches-by",
+        default=BATCH_BY[0],
+        help=(
+            "How the batches are cut: family groups the concepts by table family, "
+            "domain by the tables' naming_hints.domain (then project), size is a plain "
+            f"chunk in impact order (one of {', '.join(BATCH_BY)}; default {BATCH_BY[0]})"
+        ),
+    )
+    ontology_cmd.add_argument(
+        "--review-batch-size",
+        type=int,
+        default=DEFAULT_BATCH_SIZE,
+        help=(
+            "How many concepts one batch holds before the next one starts "
+            f"(default {DEFAULT_BATCH_SIZE}); a family or a domain larger than this "
+            "stays whole in a batch of its own rather than being cut in two"
+        ),
+    )
 
 
 def formats(value: str | None) -> set[str]:
@@ -208,11 +260,10 @@ def run_ontology(args: argparse.Namespace) -> int:
     overrides = load_overrides(getattr(args, "overrides", None))
     if isinstance(overrides, int):
         return overrides
-    concept_overrides = load_overrides(
-        getattr(args, "concept_overrides", None), "--concept-overrides"
-    )
-    if isinstance(concept_overrides, int):
-        return concept_overrides
+    reviewed = _concept_overrides(args)
+    if isinstance(reviewed, int):
+        return reviewed
+    concept_files, concept_overrides = reviewed
     found = _discover_lineage_documents(args.lineage)
     if isinstance(found, int):
         return found
@@ -241,6 +292,8 @@ def run_ontology(args: argparse.Namespace) -> int:
         glossary,
         chosen_exports,
     ]
+    # N1a: the digest is over the documents, not the paths -- but the *order* they
+    # apply in is part of the answer, and the list above already carries it.
     cache = open_cache(args, out_dir, found[1], "ontology", options, fields=CACHED_FIELDS)
     try:
         collected = _collect(loaded.documents, cache, needs_glossary=glossary is None)
@@ -257,6 +310,7 @@ def run_ontology(args: argparse.Namespace) -> int:
         glossary=glossary,
         overrides=overrides,
         concept_overrides=concept_overrides,
+        concept_override_files=concept_files,
         artifact_root=root,
         legacy_keys=bool(getattr(args, "legacy_keys", False)),
     )
@@ -273,6 +327,42 @@ def run_ontology(args: argparse.Namespace) -> int:
         concept_overrides,
         chosen_exports,
         loaded.counters() + cache.counters(),
+    )
+    return _write_review_batches(args, ontology)
+
+
+def _concept_overrides(args: argparse.Namespace):
+    """N1a: every ``--concept-overrides`` file, in order, or the exit code of a bad one.
+
+    ``(files, documents)`` rather than one merged document, because the merge itself is
+    what has to be reported: which file won a key both of them name is an answer a
+    reviewer needs, and only the builder can see whether a key was named twice.
+    """
+    from .cli_glossary import load_overrides
+
+    files, documents = [], []
+    for path in getattr(args, "concept_overrides", None) or []:
+        document = load_overrides(path, "--concept-overrides")
+        if isinstance(document, int):
+            return document
+        files.append(str(path))
+        documents.append(document)
+    return files, documents
+
+
+def _write_review_batches(args: argparse.Namespace, ontology: Mapping) -> int:
+    """N1b: the review batches, written from the ontology this run just published."""
+    target = getattr(args, "review_batches", None)
+    if not target:
+        return 0
+    by = str(getattr(args, "review_batches_by", None) or BATCH_BY[0])
+    size = int(getattr(args, "review_batch_size", None) or DEFAULT_BATCH_SIZE)
+    written = write_review_batches(ontology, Path(target), by=by, batch_size=size)
+    batches = (len(written) - 1) // 2
+    print(
+        f"Wrote review batches: {batches} batch(es) over "
+        f"{ontology.get('provisional_count')} provisional concept(s) by {by} "
+        f"(at most {size} each) to {Path(target) / BATCHES_DIR}"
     )
     return 0
 
@@ -331,15 +421,23 @@ def _report(
 
 
 def _concept_confirmations(ontology: dict, concept_overrides) -> str:
-    """What the reviewed concept layer changed, printed only when one was supplied."""
-    if concept_overrides is None:
+    """What the reviewed concept layer changed, printed only when one was supplied.
+
+    N1a: the conflict count is on this line rather than left to the JSON, because a
+    reviewer who split the round over several files finds out here that two of them
+    answered the same question -- which is the one thing about a batched round that
+    nobody set out to do.
+    """
+    if not concept_overrides:
         return ""
     applied = ontology["concept_overrides_applied"]
     return (
-        f", reviewed {applied['concepts']} concept(s), "
+        f", reviewed {applied['concepts']} concept(s) from "
+        f"{len(applied['sources'])} file(s), "
         f"created {len(applied['created'])}, tables_added {applied['tables_added']}, "
         f"{applied['merges']} merge(s) "
-        f"and {applied['splits']} split(s), {len(applied['unmatched'])} unmatched"
+        f"and {applied['splits']} split(s), {len(applied['unmatched'])} unmatched, "
+        f"{len(applied['conflicts'])} conflict(s)"
     )
 
 

@@ -258,7 +258,7 @@ lives under `skills/scope-lineage/references/` (paths relative to the
 | task profile | `semantic-profile-prompt.md`, with `business-profile-template.md` / `business-profile-check-template.md` | `business_profile.md` (semantic card + field dictionary + an open list capped at five items) and its QA record `business_profile.check.md` | the owner writes each answer on the item's `- 答案：` line; `confirmations.py apply` routes it by the same item's `- 回写目标：` line — `术语` / `值域` into `glossary.overrides.json`, `字段注释` / `表注释` into `metadata-patch.json` | `glossary --overrides`, then `describe --glossary --metadata-patch`; to land the comments in `lineage.json` itself, also `parse --metadata-patch` |
 | glossary review | `glossary-review-prompt.md`, fed by the form `glossary --template` writes | the entries the agent may answer itself (each with a mandatory `basis`, signed `confirmed_by: "agent:<name>"`), plus at most eight questions left for a person | `glossary.overrides.json` | `glossary --overrides`, then `describe --glossary` |
 | ontology review | `ontology-review-prompt.md`, fed by the open list in `ontology.md` plus each task's `semantic.md` | the confirmations the batch already proves (again with a `basis`), plus at most eight questions left for a person | `ontology.overrides.json`, keyed by the write-back string printed in the open list | `ontology --overrides` |
-| concept review | `concept-review-prompt.md`, fed by 「本体总览」 and 「概念」 in `ontology.md` plus section 7 of each card | one pass in a fixed order (kind → name → merges → splits → roles): self-answers carrying a `basis`, plus at most eight questions left for a person, written to `open-questions.md` | `concepts.overrides.json`, keyed by `concept:<stem>` | `ontology --concept-overrides` |
+| concept review | `concept-review-prompt.md`, fed by 「本体总览」 and 「概念」 in `ontology.md` plus section 7 of each card; on a wide corpus, by the `batch-NN.md` worksheets `--review-batches` cut instead | one pass in a fixed order (kind → name → merges → splits → roles): self-answers carrying a `basis`, plus at most eight questions left for a person, written to `open-questions.md`; batched, eight per batch | `concepts.overrides.json`, keyed by `concept:<stem>`; batched, one file per batch | `ontology --concept-overrides` (repeatable, in batch order) |
 
 What the four have in common: **an agent may not guess from spelling.** It may answer
 from three kinds of evidence only — the column's own comment enumerates the value, a CASE
@@ -272,6 +272,32 @@ this edge imply), the concept round about concepts (what kind of thing is this, 
 called, are these two the same one). Their answers land in two different overrides files and
 one command can carry both; running only one round leaves the other half of the questions
 unasked.
+
+On a wide corpus the concept round cannot be finished in one sitting: the provisional
+concepts run to tens or hundreds while the budget for human questions is eight. **Work it
+in batches** (N1; the full rules are in the
+[corpus-level ontology candidate](ontology-doc.md) guide, section 「分批评审」):
+
+```bash
+# 1. Cut: the provisional concepts by table family into <review>/batches/
+scope-lineage ontology --lineage "$OUT/artifacts" --out "$OUT/corpus" \
+  --review-batches "$REVIEW" --review-batches-by family --review-batch-size 30
+
+# 2. One batch at a time: read batch-NN.md, fill batch-NN.overrides.json, <= 8 questions
+
+# 3. Write back: --concept-overrides repeats, in the order the batches were worked
+scope-lineage ontology --lineage "$OUT/artifacts" --out "$OUT/corpus" \
+  --concept-overrides "$REVIEW/batches/batch-01.overrides.json" \
+  --concept-overrides "$REVIEW/batches/batch-02.overrides.json"
+```
+
+`index.md`'s order is the order to work them (the earlier the batch, the more edges its
+answers unblock). Entries that do not collide accumulate; when two files name one target
+key the later one wins and the pair is reported in
+`concept_overrides_applied.conflicts[]` -- which means two batches gave two answers to one
+question, so **a person settles it** rather than the command line order. `sources[]` says
+how many entries each file won, which is how you check that the batch you just wrote
+actually landed.
 
 ## What happens when something is wrong
 

@@ -606,7 +606,8 @@ def build_ontology(
     tables: Mapping | None = None,
     glossary: Mapping | None = None,
     overrides: Mapping | None = None,
-    concept_overrides: Mapping | None = None,
+    concept_overrides: Mapping | Sequence[Mapping] | None = None,
+    concept_override_files: Sequence[str] | None = None,
     artifact_root: str | None = None,
     legacy_keys: bool = False,
 ) -> dict:
@@ -620,6 +621,9 @@ def build_ontology(
     built in memory from the same corpus when it is not supplied. ``overrides`` is a
     reviewed ``ontology.overrides.json``: the answers a person gave to the hypotheses
     this document asked about, and the only way an assertion reaches ``confirmed``.
+    ``concept_overrides`` is one reviewed ``concepts.overrides.json`` or several (N1a:
+    a wide corpus is reviewed one batch at a time, one file per batch), applied in the
+    order given with ``concept_override_files`` naming them.
     ``legacy_keys`` additionally publishes the deprecated ``ontology-json/1`` spellings
     of the renamed keys (``LEGACY_KEY_ALIASES``), for consumers mid-migration.
     """
@@ -674,7 +678,9 @@ def build_ontology(
     ontology.update(build_concepts(ontology, cards))
     # K4b before K3, deliberately: a reviewed merge moves one concept's tables onto
     # another, and folding the edges first would leave them on an id nothing publishes.
-    apply_concept_overrides(ontology, concept_overrides or {})
+    apply_concept_overrides(
+        ontology, concept_overrides or {}, files=concept_override_files
+    )
     # K3 reads the concepts the two lines above published, so it runs after them.
     ontology.update(build_concept_relations(ontology))
     _publish_open_list(ontology)
