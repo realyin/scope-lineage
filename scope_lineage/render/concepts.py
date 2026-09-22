@@ -404,6 +404,9 @@ _CONCEPT_KEYS = (
     "merged_from",
     "split_from",
     "confirmation",
+    # N8b: present only when a reviewed file said `leave`: why this one was left open,
+    # carried so the next worksheet prints it in the concept's own row.
+    "review_note",
 )
 
 
@@ -1744,12 +1747,17 @@ CONCEPT_OVERRIDE_FIELDS = (
     "name",
     "kind",
     "merge_into",
+    # N8b: the role the folded members take inside the survivor -- one role for all of
+    # them, or `{table: role}`. Only read beside a `merge_into`.
+    "merge_role",
     "roles",
     "add_tables",
     "confirmed_by",
     "date",
     "basis",
     "note",
+    # N8b: "not now, because" -- a decision about the round, not about the concept.
+    "leave",
 )
 #: What the document itself may hold. ``comments`` is free text a batch skeleton (N1b)
 #: writes its open questions into: read by the reviewer, never applied, and named here
@@ -1789,6 +1797,8 @@ NEW_CONCEPT_FIELDS = (
 #: A concept id a reviewer may write: the prefix and a slug, so the id stays the thing
 #: every other document spells it as.
 CONCEPT_ID_RE = re.compile(r"\Aconcept:[a-z0-9_-]+\Z")
+#: N8b: the key a ``merge_role`` string is folded under -- every folded member at once.
+MERGE_ROLE_ALL = "*"
 #: The roles a reviewer may move a member to -- exactly the ones K1 publishes.
 MEMBER_ROLES = (
     ROLE_PRIMARY,
@@ -1831,22 +1841,7 @@ def apply_concept_overrides(
     """
     documents = _overrides_documents(overrides, files)
     reviewed, sources, conflicts = merge_concept_overrides(documents)
-    applied = {
-        "concepts": 0,
-        "created": [],
-        "tables_added": 0,
-        "merges": 0,
-        "splits": 0,
-        # M1: the provisional concepts an `add_tables` or a `new_concepts` entry took
-        # the table of. A merge dissolves one too, and is reported as the merge it is.
-        "dissolved": [],
-        "unmatched": [],
-        "warnings": [],
-        "ignored_fields": [],
-        # N1a: what two overrides files disagreed about, and which files were read.
-        "conflicts": conflicts,
-        "sources": sources,
-    }
+    applied = _applied_report(conflicts, sources)
     ontology["concept_overrides_applied"] = applied
     _ignored_fields(applied, "(document)", reviewed, CONCEPT_OVERRIDES_DOC_FIELDS)
     corpus = _Corpus(ontology.get("tables") or [])
@@ -1861,9 +1856,35 @@ def apply_concept_overrides(
     _concept_splits(ontology, list(reviewed.get("splits") or []), applied)
     ontology["provisional_count"] = provisional_count(ontology["concepts"])
     applied["created"].sort(key=lambda item: str(item["id"]))
+    applied["left"].sort(key=lambda item: (item["id"], item["reason"]))
     applied["unmatched"].sort(key=lambda item: (item["key"], item["reason"]))
     applied["warnings"].sort(key=lambda item: (item["key"], item["warning"]))
     applied["ignored_fields"].sort(key=lambda item: item["key"])
+
+
+def _applied_report(conflicts: list, sources: list) -> dict:
+    """The empty round's report: every key a round can fill, at zero."""
+    return {
+        "concepts": 0,
+        "created": [],
+        "tables_added": 0,
+        # N8b: the memberships an `add_tables` lifted out of `reference` into a role a
+        # reviewer named. Not a table added -- the concept already pointed at it.
+        "roles_upgraded": 0,
+        "merges": 0,
+        "splits": 0,
+        # M1: the provisional concepts an `add_tables` or a `new_concepts` entry took
+        # the table of. A merge dissolves one too, and is reported as the merge it is.
+        "dissolved": [],
+        # N8b: the concepts a reviewer deliberately did not answer, and why.
+        "left": [],
+        "unmatched": [],
+        "warnings": [],
+        "ignored_fields": [],
+        # N1a: what two overrides files disagreed about, and which files were read.
+        "conflicts": conflicts,
+        "sources": sources,
+    }
 
 
 def _overrides_documents(overrides, files: Sequence[str] | None) -> list[tuple]:
@@ -2023,21 +2044,113 @@ def _concept_fields(
             continue
         index[str(name)] = concept
         _ignored_fields(applied, str(name), entry, CONCEPT_OVERRIDE_FIELDS)
+        _leave(concept, entry, applied, str(name))
         stamp = _confirmation(entry)
+        named = _confirm_name(concept, entry)
+        kinded = _confirm_kind(concept, entry, applied, str(name))
         touched = [
-            _confirm_name(concept, entry),
-            _confirm_kind(concept, entry, applied, str(name)),
+            named,
+            kinded,
             _confirm_roles(concept, entry, applied, str(name)),
             _add_tables(concept, entry, corpus, applied, str(name), stamp),
         ]
+        if named or kinded:
+            _confirm_standalone(concept)
         if any(touched):
             concept["attributes"] = _member_attributes(concept, corpus)
             concept["confirmation"] = stamp
             _reorder(concept)
             applied["concepts"] += 1
         if entry.get("merge_into"):
-            merges.append((str(name), str(entry["merge_into"]), stamp))
+            roles = _merge_roles(entry, applied, str(name))
+            merges.append((str(name), str(entry["merge_into"]), stamp, roles))
     return merges
+
+
+def _merge_roles(entry: Mapping, applied: dict, key: str) -> dict[str, str]:
+    """The role a ``merge_into`` gives its folded members inside the survivor (N8b).
+
+    A reviewer who knows the concept is a copy of another one usually knows *which*
+    copy, and without this the answer had to be written twice -- once as the merge, once
+    as a ``roles`` entry against a concept that no longer exists by then. A string is
+    that role for every member the fold carries; a ``{table: role}`` mapping says it per
+    table, and a member the mapping does not name lands exactly as it did before.
+
+    A role outside the six is reported like every other unknown value and dropped, so
+    the merge itself still happens: refusing the fold over a misspelt role would lose
+    the answer the reviewer did give.
+    """
+    asked = entry.get("merge_role")
+    if not asked:
+        return {}
+    roles = (
+        {str(table): str(value) for table, value in asked.items()}
+        if isinstance(asked, Mapping)
+        else {MERGE_ROLE_ALL: str(asked)}
+    )
+    for role in sorted({value for value in roles.values() if value not in MEMBER_ROLES}):
+        applied["unmatched"].append({"key": key, "reason": f"unknown_role: {role}"})
+    return {table: role for table, role in roles.items() if role in MEMBER_ROLES}
+
+
+def _leave(concept: dict, entry: Mapping, applied: dict, key: str) -> None:
+    """"Not now, because": an answer about the round, never about the concept (N8b).
+
+    A reviewer working a batch reaches concepts they can decide, concepts they have to
+    ask about, and concepts they deliberately put down -- the grain does not line up,
+    the metadata is missing, the person who knows is away. The only way to write that
+    down was to delete the entry, and the reason died with it: the next round opened the
+    same worksheet, read the same row, and spent the same half hour reaching the same
+    "not yet".
+
+    ``leave`` is that third answer, and it is deliberately a **no-op on the concept**:
+    nothing about the reading changes, ``concepts`` does not count it, and the concept
+    stays in the provisional pile where it belongs. What it leaves behind is the note --
+    on the concept as ``review_note``, so the next worksheet prints it in the row, and in
+    ``left[]``, so the round's report says what was put down and why.
+    """
+    reason = str(entry.get("leave") or "")
+    if not reason:
+        return
+    concept["review_note"] = reason
+    applied["left"].append({"id": key, "reason": reason})
+    _reorder(concept)
+
+
+def _confirm_standalone(concept: dict) -> None:
+    """M1's third way out, taken: the reviewer says this one table is its own thing (N8b).
+
+    Naming a provisional concept -- or saying what kind it is -- *is* the answer M1
+    asked for, so the concept has to leave the pile. Without this the round achieved
+    nothing a counter could see: ``provisional_count`` stood still, the appendix went on
+    listing a concept somebody had already answered, and the next ``--review-batches``
+    run put it back in a worksheet.
+
+    Where it lands is what the corpus can still say about it. ``confirmed`` is not
+    available -- a concept is an inference over the warehouse, never something the SQL
+    wrote -- so it is ``implied`` when the kind is settled (the votes were unanimous, or
+    the reviewer said so) and ``hypothesis`` when it is not, exactly the reading
+    ``_concept`` gives a folded concept. The **id does not move**: every other document
+    spells the concept ``concept:table:<table>`` and the write-back key has to stay
+    answerable. Its one membership stops calling itself unplaced for the same reason the
+    folded ones do -- a person placed this table, and ``identity_memberships`` reads the
+    basis, not the tier.
+    """
+    if str(concept.get("tier")) != TIER_PROVISIONAL:
+        return
+    concept["tier"] = (
+        TIER_IMPLIED
+        if str(concept.get("kind_tier")) in (TIER_IMPLIED, TIER_CONFIRMED)
+        else TIER_HYPOTHESIS
+    )
+    concept["tables"] = [
+        (
+            _placed_member(item, str(item.get("role")))
+            if str(item.get("membership_basis")) == BASIS_PROVISIONAL
+            else dict(item)
+        )
+        for item in concept.get("tables") or []
+    ]
 
 
 def _confirmation(entry: Mapping) -> dict:
@@ -2148,15 +2261,21 @@ def _add_tables(
     longer say that a person put it there.
     """
     asked = dict(entry.get("add_tables") or {})
-    members = {str(item["table"]) for item in concept.get("tables") or []}
+    members = {str(item["table"]): item for item in concept.get("tables") or []}
     touched = False
     for table in sorted(asked):
-        reason = _add_reason(str(table), str(asked[table]), corpus, members)
+        role = str(asked[table])
+        reason = _add_reason(str(table), role, corpus, members)
         if reason is not None:
             applied["unmatched"].append({"key": key, "reason": reason})
             continue
-        _add_member(concept, corpus, str(table), str(asked[table]), stamp)
-        applied["tables_added"] += 1
+        held = members.get(str(table))
+        if held is None:
+            _add_member(concept, corpus, str(table), role, stamp)
+            applied["tables_added"] += 1
+        else:
+            _upgrade_member(concept, held, role, stamp)
+            applied["roles_upgraded"] += 1
         touched = True
     return touched
 
@@ -2172,15 +2291,24 @@ def _member_basis(role: str) -> str:
     return BASIS_REFERENCE if role == ROLE_REFERENCE else BASIS_OVERRIDE
 
 
-def _add_reason(table: str, role: str, corpus: _Corpus, members: set) -> str | None:
-    """Why this table cannot be added, or None when it can."""
+def _add_reason(table: str, role: str, corpus: _Corpus, members: Mapping) -> str | None:
+    """Why this table cannot be added, or None when it can.
+
+    N8b: a table the concept merely *references* is not "already a member" in the sense
+    the refusal means. ``reference`` says the corpus watched a JOIN travel on the key
+    and nothing more; a reviewer naming a stronger role for that same table is answering
+    the question the reference left open, not overwriting an answer. So that one case is
+    an **upgrade**, and only a table already holding a role somebody decided -- a
+    reference included, once the reviewer asks for a reference again -- is refused.
+    """
     if table not in corpus.entities:
         return f"unknown_table: {table}"
     if role not in MEMBER_ROLES:
         return f"unknown_role: {role}"
-    if table in members:
-        return f"already_a_member: {table}"
-    return None
+    held = members.get(table)
+    if held is None or (str(held.get("role")) == ROLE_REFERENCE and role != ROLE_REFERENCE):
+        return None
+    return f"already_a_member: {table}"
 
 
 def _add_member(
@@ -2201,10 +2329,35 @@ def _add_member(
         "role_tier": TIER_CONFIRMED,
         **dict(stamp),
     }
-    concept["tables"] = sorted(
-        [*(concept.get("tables") or []), member],
-        key=lambda item: (str(item["role"]) == ROLE_REFERENCE, str(item["table"])),
+    concept["tables"] = sorted([*(concept.get("tables") or []), member], key=_member_order)
+
+
+def _member_order(member: Mapping) -> tuple:
+    """The order memberships publish in: the references last, then by table."""
+    return (str(member.get("role")) == ROLE_REFERENCE, str(member.get("table")))
+
+
+def _upgrade_member(
+    concept: dict, member: dict, role: str, stamp: Mapping
+) -> None:
+    """A membership the corpus could only call a reference, moved to a reviewed role (N8b).
+
+    Everything the reference row said stays -- it really does carry that key, and
+    ``key_columns`` is the evidence for it. What changes is what the membership *means*:
+    the role and the basis become the reviewed ones at ``role_tier: "confirmed"``, and
+    from that moment N9a's attribute rule reads the other way round, so the table's
+    columns count towards what the concept is made of. ``_concept_fields`` re-reads the
+    whole attribute list once every edit has landed, so that follows on its own.
+    """
+    member.update(
+        {
+            "role": role,
+            "membership_basis": _member_basis(role),
+            "role_tier": TIER_CONFIRMED,
+            **dict(stamp),
+        }
     )
+    concept["tables"] = sorted(concept.get("tables") or [], key=_member_order)
 
 
 def _dissolve_provisional(ontology: dict, applied: dict) -> None:
@@ -2553,13 +2706,15 @@ def _concept_merges(
     of an edge; without it a merge would move the tables and leave the relations that
     named the folded concept pointing at an id nothing publishes any more.
     """
-    for source, target, stamp in merges:
+    for source, target, stamp, roles in merges:
         index = {str(concept["id"]): concept for concept in ontology["concepts"]}
         reason = _merge_reason(source, target, index)
         if reason is not None:
             applied["unmatched"].append({"key": source, "reason": reason})
             continue
-        _fold_concept(index[source], index[target], stamp, applied, source, corpus)
+        _fold_concept(
+            index[source], index[target], stamp, applied, source, corpus, roles=roles
+        )
         ontology["concepts"] = [
             concept for concept in ontology["concepts"] if str(concept["id"]) != source
         ]
@@ -2579,12 +2734,19 @@ def _merge_reason(source: str, target: str, index: Mapping) -> str | None:
 
 
 def _fold_concept(
-    source: Mapping, into: dict, stamp: Mapping, applied: dict, key: str, corpus: _Corpus
+    source: Mapping,
+    into: dict,
+    stamp: Mapping,
+    applied: dict,
+    key: str,
+    corpus: _Corpus,
+    *,
+    roles: Mapping[str, str] | None = None,
 ) -> None:
     # N1b: the roles the folded members arrive with are what the warning reads, so the
     # re-roling below happens first. A provisional member placed by a person is never a
     # second primary, and the round should not be told it is.
-    folded = _folded_members(source, into)
+    folded = _folded_members(source, into, dict(roles or {}))
     warning = _primary_warning({**dict(source), "tables": folded}, into)
     if warning is not None:
         applied["warnings"].append({"key": key, "warning": warning})
@@ -2604,7 +2766,9 @@ def _fold_concept(
     _reorder(into)
 
 
-def _folded_members(source: Mapping, into: Mapping) -> list[dict]:
+def _folded_members(
+    source: Mapping, into: Mapping, roles: Mapping[str, str]
+) -> list[dict]:
     """The folded concept's members, as memberships of the concept that survives.
 
     M1: a ``provisional`` membership says "nobody placed this table". Folding a
@@ -2617,20 +2781,31 @@ def _folded_members(source: Mapping, into: Mapping) -> list[dict]:
     provisional concept is one table standing alone, so its member is a ``primary`` by
     construction -- of a concept of one. Inside the survivor it is a primary only if the
     survivor has none; otherwise it is the copy its own table name and grain say it is.
+
+    N8b: unless the reviewer said which copy it is. ``merge_role`` outranks both rules,
+    for every member it names, and publishes the membership a person vouched for.
     """
-    return [
-        (
-            {
-                **dict(item),
-                "role": _placed_role(item, into),
-                "membership_basis": BASIS_OVERRIDE,
-                "role_tier": TIER_CONFIRMED,
-            }
-            if str(item.get("membership_basis")) == BASIS_PROVISIONAL
-            else dict(item)
-        )
-        for item in source.get("tables") or []
-    ]
+    return [_folded_member(item, into, roles) for item in source.get("tables") or []]
+
+
+def _folded_member(member: Mapping, into: Mapping, roles: Mapping[str, str]) -> dict:
+    """One membership of the folded concept, as the survivor publishes it."""
+    asked = roles.get(str(member.get("table"))) or roles.get(MERGE_ROLE_ALL)
+    if asked:
+        return _placed_member(member, asked)
+    if str(member.get("membership_basis")) == BASIS_PROVISIONAL:
+        return _placed_member(member, _placed_role(member, into))
+    return dict(member)
+
+
+def _placed_member(member: Mapping, role: str) -> dict:
+    """A membership a person placed: the role they gave it, and the basis that says so."""
+    return {
+        **dict(member),
+        "role": role,
+        "membership_basis": BASIS_OVERRIDE,
+        "role_tier": TIER_CONFIRMED,
+    }
 
 
 def _placed_role(member: Mapping, into: Mapping) -> str:
@@ -2671,10 +2846,7 @@ def _merge_members(current: Sequence[Mapping], extra: Sequence[Mapping]) -> list
         kept = merged.get(table)
         if kept is None or _role_strength(item) < _role_strength(kept):
             merged[table] = dict(item)
-    return sorted(
-        merged.values(),
-        key=lambda item: (str(item["role"]) == ROLE_REFERENCE, str(item["table"])),
-    )
+    return sorted(merged.values(), key=_member_order)
 
 
 def _role_strength(member: Mapping) -> int:

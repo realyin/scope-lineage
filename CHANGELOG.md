@@ -1,6 +1,43 @@
 # Changelog
 
 ## Unreleased
+- **The six things a batched concept review could not say** (N8b). An agent reviewer worked
+  three `--review-batches` worksheets end to end on a wide corpus and hit the same six walls
+  every batch. Each one is a tool refusing a judgement the reviewer had already made, or
+  hiding the fact that judgement rests on.
+  - **`add_tables` on a table the concept merely referenced is an upgrade, not
+    `already_a_member`.** `reference` says no more than "the corpus watched a JOIN travel on
+    this key", so a reviewed role answers the question it left open: the membership moves in
+    place to the reviewed role and basis at `role_tier: "confirmed"`, the stamp lands on the
+    row, the `key_columns` stay, N9a's rule reverses so the table's columns start counting
+    towards `attributes[]`, and the table's provisional concept dissolves. Reported as
+    `concept_overrides_applied.roles_upgraded`, apart from `tables_added` — the concept
+    already pointed at the table. A table holding any other role, or asked for as a
+    `reference` again, is still refused.
+  - **`merge_into` may carry `merge_role`**: a role string applied to every folded member, or
+    a `{table: role}` map. It outranks the provisional re-roling rule and the membership the
+    folded side carried, publishing `membership_basis: "override"` at `role_tier:
+    "confirmed"`; a table both sides hold still keeps the stronger role. Without it nothing
+    changes. Previously this half of an answer had nowhere to go, because `roles` addresses
+    the concept the merge has just removed.
+  - **A provisional concept answered standalone leaves the pile.** A `name` or a `kind` on it
+    is M1's third way out ("it really is its own thing"), and now takes its `tier` off
+    `provisional` — to `implied` when the kind is settled, `hypothesis` when it is not, never
+    `confirmed`. The id does not move and its member stops calling itself unplaced, so the
+    edges still resolve. `provisional_count`, the appendix list, the next `--review-batches`
+    queue and N6's `concept_terms[]` all key on that tier and follow with no rule of their own.
+  - **`leave: "<reason>"`**: "not now, because". A no-op on the concept — it stays in the
+    provisional pile and `concepts` does not count it — that records the reason in
+    `concept_overrides_applied.left[] = {id, reason}` and as `concepts[].review_note`, which
+    the next worksheet prints in the concept's own row. Deleting an unanswerable entry used to
+    take the reason with it.
+  - **The worksheet prints two more facts**: the resulting `kind_tier` beside the kind's
+    evidence (which is what the rules read to allow a self-answered kind), and 上轮留待, the
+    `review_note` a previous round left.
+  - **Name-token containment is a merge candidate** (`SCORE_NAME_ROOT = 2`): a concept whose
+    `identity.stem` is a whole `_`-delimited token of one of the batch's table names scores,
+    is reported as `name_root`, and gets its own 表名词根 column. A table nothing keyed and
+    nothing joined used to produce an empty candidate section, which is the M1 case itself.
 - **The value dictionary hangs its terms on concepts** (N6). `terms[]` merges comments by
   bare column NAME, which is all a dictionary alone can key on — and one name short of the
   question a reviewer actually asks. Three tables spelling `pay_status` are the same

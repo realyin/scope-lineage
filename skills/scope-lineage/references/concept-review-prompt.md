@@ -38,7 +38,7 @@ scope-lineage ontology --lineage <corpus> --out <dir> \
 | 文件 | 内容 | 怎么用 |
 | --- | --- | --- |
 | `index.md` | 批次清单：顺序、概念数、分组、关系条数、待判定分组数 | **从上往下做**。越靠前的批次，答案解开的边越多 |
-| `batch-NN.md` | 这一批的工作表：概念表（名字、种类、类别依据、疑似重复、表、已是成员、关系、命名候选、回写键）、候选归并目标（按匹配分：名字 3 / 共同键词根 2 / 关系 1，通用词根不算，0 分不列）、判断依据（表注释与键列注释；两样都没有时给「属性线索」——这张表带注释的前 8 个列）、本批的待判定分组 | 这是**这一批的工作台**，代替「概念」表通读一遍 |
+| `batch-NN.md` | 这一批的工作表：概念表（名字、种类、类别依据、**类别层级**、疑似重复、表、已是成员、关系、命名候选、**上轮留待**、回写键）、候选归并目标（按匹配分：名字 3 / 共同键词根 2 / **表名词根 2** / 关系 1，通用词根不算，0 分不列）、判断依据（表注释与键列注释；两样都没有时给「属性线索」——这张表带注释的前 8 个列）、本批的待判定分组 | 这是**这一批的工作台**，代替「概念」表通读一遍 |
 | `batch-NN.overrides.json` | 骨架：这一批每个临时概念一条 `merge_into: ""`，加一段 `comments`（本批的待判定分组） | 就地填答案，填不了的整条删掉 |
 
 `--review-batches-by` 三种切法，按语料的元数据挑一种：
@@ -58,7 +58,9 @@ scope-lineage ontology --lineage <corpus> --out <dir> \
 - **每批最多 8 条去问人的问题**，凭证据自答仍然不限条数。8 条是**每批**的额度，不是整轮的。
 - 只输出这一批的 overrides 文件；别把几批合并成一份，合并是下一步的事。
 - 写 `merge_into` 之前先看工作表的「已是成员」：这张表已经被哪个概念按什么角色收下了。  并到同一个概念上时撞的就是那一条（`add_tables` 报 `already_a_member` 的也是它），  留下来的是两个角色里**较强**的那个——这一点在批次里就能看见，不用回 `ontology.json` 翻。
-- 「匹配分」只是排序，不是建议：名字对上 3 分、共同键词根 2 分、关系 1 分，分高的先读，  读完两边的表再决定。
+- 「匹配分」只是排序，不是建议：名字对上 3 分、共同键词根 2 分、**本批表名里整词出现对方的词根 2 分**（N8b）、关系 1 分，分高的先读，读完两边的表再决定。最后那一项常常是一张既没有键、也没有 JOIN 的表仅剩的线索——`ods.slot_log_di` 对上 `concept:slot` 就是它。
+- 「类别层级」（N8b）是 `kind_tier`：`implied` 就按证据自答种类，`hypothesis` 才去问人。
+- 「上轮留待」（N8b）是上一轮写 `leave` 留下的理由——先读它，别再把同一个结论走一遍。
 - 骨架里 `merge_into` **留空表示「本轮没答」**：原样应用什么也不会发生，`unmatched` 与
   `ignored_fields` 都是空的，`sources[].applied` 是 0。留空**不占目标键**，既不算冲突，也盖不掉
   别的文件给出的真答案。答不出来就留着或删掉，不要为了填满而乱填。
@@ -121,19 +123,25 @@ scope-lineage ontology --lineage <corpus> --out <dir> \
 
 「临时概念」表里的每一行都是同一个问题：**这张表是什么**。语料答不出来——它的键要么是代理键，
 要么跨了两个词根，要么压根没有——所以这一版让它自成一个概念，好让它身上的每条边都能折下去。
-这不是一个判断，是一张待办。逐个看，三条出路选一条：
+这不是一个判断，是一张待办。逐个看，三条出路选一条；真的判不了的，用最后一行把理由留下：
 
 | 出路 | 什么时候选 | 怎么写 |
 | --- | --- | --- |
 | **归进一个已有概念** | 卡片第 2、3 节看得出它是某个概念的一份副本（主表 / 快照 / 明细 / 汇总 / 中间步骤） | `concepts` 里以这个临时概念的 id 为键写 `merge_into: "<留下来的概念 id>"`，带 `basis`。成员会连同属性一起并过去，成员的 `membership_basis` 发布成 `override`、`role_tier` 为 `confirmed` |
 | **和别的临时概念一起自成一个新概念** | 好几张临时概念说的是同一件事，而语料一个词根也没发芽 | `new_concepts` 里写一条，`tables` 里把这几张表逐个点名到角色上；它们的临时概念随之解散，报在 `concept_overrides_applied.dissolved[]` |
-| **它确实自成一件事** | 业务方认得出这一张表就是一件东西（一份独立的台账、一条独立的事件流） | 以这个临时概念的 id 为键写 `name` / `kind`（必要时还有 `roles`），跟别的概念一模一样地确认 |
+| **它确实自成一件事** | 业务方认得出这一张表就是一件东西（一份独立的台账、一条独立的事件流） | 以这个临时概念的 id 为键写 `name` / `kind`（必要时还有 `roles`），跟别的概念一模一样地确认。**写下 `name` 或 `kind` 它就离开临时那一堆**（N8b）：`tier` 从 `provisional` 变成 `implied`（种类已定）或 `hypothesis`，id 一个字不改，下一次 `--review-batches` 不会再问它，`provisional_count` 少一个 |
+| **这一轮答不了** | 粒度对不上、元数据没有、知道的人不在——不是「看不出」，是「现在判不了」 | 写 `leave: "<一句理由>"`（N8b）。它对概念什么也不做，概念仍留在临时那一堆里，只是理由被记进 `concept_overrides_applied.left[]` 和概念的 `review_note`，下一轮的工作表会把它印在这一行的「上轮留待」列里 |
 
 - 也可以反过来写：`concepts` 里对**已有概念**写 `add_tables: {"<那张表>": "<角色>"}`，效果与
   `merge_into` 相同，那张表的临时概念同样解散，报在 `dissolved[]` 里。两种写法选顺手的一种，
   **不要对同一张表同时写两种**。
 - 一个例外：`add_tables` 里写 `reference` 的**不算归并**。`reference` 的意思正是「这张表只是
   带着这个键」，它没有回答「这张表是什么」，所以那个临时概念**留着**，问题也留着。
+- 反过来最常见的那一步现在也走得通（N8b）：工作表的「已是成员」里写着这张表已经是某个概念的
+  `reference` 成员时，对那个概念写 `add_tables: {"<那张表>": "<更强的角色>"}` 是一次**升级**，
+  不再报 `already_a_member`——那一条成员就地换成你写的角色（`override` / `confirmed`），它的
+  列从这一刻起算进那个概念的属性，它的临时概念也随之解散。报在 `roles_upgraded` 里。
+  已经拿着别的角色的表照旧报 `already_a_member`，那种情形用 `roles` 改。
 - `merge_into` 的方向、`primary` 副本的取舍，与下面第 4 节的规则完全一致。
 - **临时概念不占去问人的额度**：它们的归并绝大多数看卡片就能自答（证据 6 正为此存在）。真的
   看不出来的，再按「只问四类」的第 5 类去问，**8 条的上限是留给剩下的问题的**。
@@ -146,6 +154,10 @@ scope-lineage ontology --lineage <corpus> --out <dir> \
 （增量表带事件时间）、`driving_rows_over_log_source`（主表行来自日志源）、
 `all_members_summary`（成员全是聚合产出）、`word_hint`（表名或注释里的词）。
 
+- **`kind` 不写就是「这一项还开着」，这完全可以**：一条 overrides 条目只写 `name`、不写 `kind`，
+  应用时 `kind` / `kind_tier` / `kind_evidence[]` 原样不动，什么也不会被报——不要为了把条目填满
+  而按猜测写一个 `kind`。种类是下一轮（或另一个人）可以单独答的一项。工作表上的**类别层级**那一
+  格就是给这个用的：`implied` 就按证据 2 / 证据 5 自答，`hypothesis` 就留着或去问人。
 - `kind_tier` 为 `implied`：投票一致，**别问人**，除非你能指出证据本身错了。
 - `kind_tier` 为 `hypothesis`：两个信号投了不同的票，`kind_evidence[]` 里看得见是哪两个。
   这是**值得问的第一类问题**。
@@ -187,6 +199,13 @@ scope-lineage ontology --lineage <corpus> --out <dir> \
 看到这条就回头看一眼：要么方向写反了，要么这两组表本来就是两件东西，合并这一问应该原样去问业务方。
 同一张表在两边都是成员时，它按**较强**的那个角色留下（`primary` > `snapshot` > `detail` >
 `summary` > `intermediate` > `reference`）——被合掉那一边读出来的东西不该因为合并而丢掉。
+
+**知道折过来的那几张表算哪一份时，就在同一条里写出来**（N8b）：`merge_role` 与 `merge_into`
+并排写，值是一个角色字符串（折过来的每一条都按它），或者 `{"<表>": "<角色>"}` 逐表说。没有它
+就按原来的规则落，有它就以它为准，并发布成 `membership_basis: "override"` /
+`role_tier: "confirmed"`。以前这半个答案没地方写：`roles` 只能改**已经在册**的成员，而被合掉
+的那个概念这时已经不在了，只能等下一轮再补一次。角色写错（不在那六个里）报
+`unknown_role: <值>` 并丢掉这一项，**合并照做**。
 
 **被合掉的是一个临时概念时，这条警告不适用**：它只有一张表，那张表按 M1 的构造必然是它自己的
 `primary`。它那条成员在并进来时**重新定角色**——留下来的概念已经有 `primary` 了，就按它自己的
@@ -328,8 +347,14 @@ Q<n>. <一句问题，业务方不看 SQL 也能懂>
     },
     "concept:party": {
       "merge_into": "concept:cust",
+      "merge_role": "snapshot",
       "basis": "<凭什么，自由文本>",
       "confirmed_by": "<名字>",
+      "date": "<YYYY-MM-DD>"
+    },
+    "concept:table:ods_late_rows": {
+      "leave": "<这一轮为什么判不了，一句话>",
+      "confirmed_by": "<名字或 agent:…>",
       "date": "<YYYY-MM-DD>"
     }
   },
@@ -369,7 +394,15 @@ Q<n>. <一句问题，业务方不看 SQL 也能懂>
   报成 `unknown_kind:` / `unknown_role:`，那一项不生效。
 - `add_tables` 的键是**表名**，必须是本语料 `tables[]` 里有的一张表，否则报
   `unknown_table: <表>`；已经是这个概念成员的表报 `already_a_member: <表>`，
-  用 `roles` 改它的角色，不要用 `add_tables` 加第二遍。
+  用 `roles` 改它的角色，不要用 `add_tables` 加第二遍。**只有一个例外**（N8b）：那张表目前
+  是这个概念的 `reference` 成员、而你写的是更强的角色时，这是一次**升级**而不是错误——那一条
+  成员就地改成你写的角色与依据，它的列开始算进属性，它的临时概念解散，报在 `roles_upgraded`
+  里（不是 `tables_added`，那张表本来就在册）。
+- `merge_role` 只和 `merge_into` 一起读（N8b）：折过来的成员在留下来的概念里算哪一份。一个
+  角色字符串管全部，或者 `{"<表>": "<角色>"}` 逐表说。
+- `leave` 是「这一轮不答，因为……」（N8b）：对概念什么也不做，只把理由记进 `left[]` 与概念的
+  `review_note`，下一轮的工作表会把它印出来。**答不了就写它，不要把整条删掉**——删掉，理由就
+  跟着没了。
 - `merge_into` 写留下来的那个概念的 id。合并在**概念关系折叠之前**生效，所以原本指向被合掉
   那个概念的边会自动改指过来。**把 `primary` 少的那一边合进多的那一边**；两边各有一个
   `primary` 时两条都留着，并报一条 `warnings[] = {"merge_kept_two_primaries: <表1>, <表2>"}`——  被合掉的是**临时概念**时不会有这一条，它那条成员是按留下来那个概念的角色规则重新定的。
@@ -388,7 +421,7 @@ Q<n>. <一句问题，业务方不看 SQL 也能懂>
 那几张表，是不是真的归并掉了」。
 
 跑完检查三件事：`concept_overrides_applied.concepts` / `created` / `tables_added` /
-`merges` / `splits` / `dissolved` 的条数与你合并的条数相等；`concept_overrides_applied.unmatched` 为空——非空说明某个 id 或表名抄错了，`reason`
+`roles_upgraded` / `merges` / `splits` / `dissolved` / `left` 的条数与你合并的条数相等；`concept_overrides_applied.unmatched` 为空——非空说明某个 id 或表名抄错了，`reason`
 直接说错在哪（`unknown_concept` / `unknown_concept: <id>` / `unknown_table: <表>` /
 `unknown_kind: <值>` / `unknown_role: <值>` / `already_a_member: <表>` /
 `merge_into_self`）；`concept_overrides_applied.warnings` 为空——非空说明某次合并把两个
@@ -415,4 +448,6 @@ Q<n>. <一句问题，业务方不看 SQL 也能懂>
 | 14 | **两个真概念之间**的每次合并都把 `primary` 少的那一边合进多的那一边，`warnings` 里没有 `merge_kept_two_primaries`（把临时概念并进真概念不在此列：它那条成员会被重新定角色，本来就不会报） | |
 | 15 | `add_tables` 里写 `reference` 的表，本意确实是「只是带着这个键」——那一条不会改变这张表本身是什么，它的列也不进这个概念的 `attributes[]`，它的临时概念也不会因此解散 | |
 | 16 | 「临时概念」表逐行看过一遍，看得出归属的都已经写成 `merge_into` / `add_tables` / `new_concepts`，没有原样倒给业务方 | |
-| 17 | 跑完 `--concept-overrides` 后 `provisional_count` 比上一轮少，`dissolved[]` 的条数与你写下的归并条数对得上 | |
+| 17 | 跑完 `--concept-overrides` 后 `provisional_count` 比上一轮少，`dissolved[]` 的条数与你写下的归并条数对得上（自成一件事的那几条不进 `dissolved[]`，它们是直接离开 `provisional` 的，同样计进这个差额） | |
+| 18 | 这一批里答不了的都写了 `leave` 并给了理由（`left[]` 的条数与你留下的条数对得上），没有为了少一条而把整条删掉 | |
+| 19 | 没有为了把条目填满而猜 `kind`：不写 `kind` 就是「这一项还开着」，是允许的 | |

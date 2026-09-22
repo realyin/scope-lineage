@@ -31,6 +31,13 @@ already claim the table (so a merge's collision is visible before it is written)
 kind's own evidence and duplicate flag, the column comments of a table nothing else
 described, and the ranking above -- a name outranks a join.
 
+N8b, after three batches worked end to end, added the two facts a reviewer still had to
+leave the worksheet for: the resulting ``kind_tier`` beside the kind's evidence, which is
+what the rules read to say whether the kind may be self-answered; and a fourth kind of
+score, for a concept whose stem is a whole word of the provisional table's *own name* --
+the warehouse's naming convention, which used to be worth nothing at all and is often
+the only evidence a table nobody keyed and nobody joined still carries.
+
 Everything is sorted, so two runs over one ontology write the same bytes.
 """
 
@@ -72,10 +79,22 @@ NONE_CELL = "（无）"
 MEMBER_OF_HEADING = "已是成员"
 #: N1b: the column compacting ``kind_evidence`` -- every signal's vote, grouped by vote.
 KIND_EVIDENCE_HEADING = "类别依据"
+#: N8b: the column beside it, carrying ``kind_tier`` -- what the rules actually read.
+#: The evidence says which signals voted; the tier says whether the prompt lets the
+#: reviewer answer the kind off them (``implied``) or has to ask (``hypothesis``), and
+#: reading that off the votes by hand meant opening ``ontology.json`` for every row.
+KIND_TIER_HEADING = "类别层级"
 #: N1b: the column carrying ``possible_duplicate_of`` onto the worksheet.
 DUPLICATE_HEADING = "疑似重复"
+#: N8b: the column carrying ``review_note`` -- why a previous round put this one down.
+#: A reviewer who reads "the grain does not line up, ask after the next load" does not
+#: spend the round reaching that conclusion again.
+REVIEW_NOTE_HEADING = "上轮留待"
 #: N1b: the column showing how a candidate merge target scored, and on what.
 SCORE_HEADING = "匹配分"
+#: N8b: the column naming the token of this batch's table names that is the candidate's
+#: own key stem -- the warehouse's naming convention, read as the evidence it is.
+NAME_ROOT_HEADING = "表名词根"
 #: N1b: what the evidence row prints when the table has neither a comment nor a
 #: candidate key: the columns that *do* carry a comment are the last thing left to read.
 ATTRIBUTE_CLUE_LABEL = "属性线索"
@@ -86,8 +105,17 @@ ATTRIBUTE_CLUES_SHOWN = 8
 #: corpus agreeing about identity; a relation only says some task put the two in one
 #: query, which is the weakest of the three and used to rank above both.
 SCORE_NAME, SCORE_STEM, SCORE_RELATION = 3, 2, 1
+#: N8b: and a fourth, which used to be worth nothing. A real concept whose stem is a
+#: whole ``_``-delimited token of the provisional *table's own name* -- `ods.slot_log_di`
+#: beside ``concept:slot`` -- is the warehouse's own naming convention pointing at the
+#: answer, and it scored 0 whenever the table carried neither the key nor a JOIN, which
+#: is exactly the M1 case. Worth what a shared key stem is worth: both are the corpus
+#: spelling one word twice, once in a column and once in a table name.
+SCORE_NAME_ROOT = 2
 
 _CJK_RE = re.compile(r"[一-鿿]")
+#: What splits a table identifier into the words a warehouse writes it out of.
+_TOKEN_RE = re.compile(r"[._]+")
 
 
 # ------------------------------------------------------------------- the batches
@@ -127,6 +155,7 @@ def _rows(ontology: Mapping) -> list[dict]:
             "name": str(concept.get("name")),
             "name_tier": str(concept.get("name_tier")),
             "kind": str(concept.get("kind")),
+            "kind_tier": str(concept.get("kind_tier")),
             "tables": [str(item["table"]) for item in concept.get("tables") or []],
             "impact": impact.get(str(concept["id"]), {}).get("relations", 0),
             "tasks": impact.get(str(concept["id"]), {}).get("tasks", 0),
@@ -267,9 +296,10 @@ def _merge_targets(ontology: Mapping, identifiers: Sequence[str]) -> list[dict]:
     index = {str(item["id"]): item for item in concepts}
     stems = _stems(index, batch)
     tokens = _batch_tokens(index, batch)
+    roots = _table_tokens(index, batch)
     edges = _edge_counts(list(ontology.get("relations") or []), batch)
     scored = [
-        _scored_target(concept, stems, tokens, edges.get(str(concept["id"]), 0))
+        _scored_target(concept, stems, tokens, roots, edges.get(str(concept["id"]), 0))
         for concept in concepts
         if str(concept["id"]) not in provisional and str(concept["id"]) not in batch
     ]
@@ -280,10 +310,13 @@ def _merge_targets(ontology: Mapping, identifiers: Sequence[str]) -> list[dict]:
     return ranked[:MERGE_TARGETS_SHOWN]
 
 
-def _scored_target(concept: Mapping, stems: set, tokens: set, relations: int) -> dict:
-    """One candidate, with the three counts its score is the weighted sum of."""
+def _scored_target(
+    concept: Mapping, stems: set, tokens: set, roots: set, relations: int
+) -> dict:
+    """One candidate, with the four counts its score is the weighted sum of."""
     shared = sorted((stems & _concept_stems(concept)) - GENERIC_STEMS)
     overlap = len(tokens & _cjk_tokens(str(concept.get("name") or "")))
+    root = _name_root(concept, roots)
     return {
         "id": str(concept["id"]),
         "name": str(concept.get("name")),
@@ -291,9 +324,42 @@ def _scored_target(concept: Mapping, stems: set, tokens: set, relations: int) ->
         "relations": relations,
         "shared_stems": shared,
         "name_overlap": overlap,
+        "name_root": root,
         "score": (
-            overlap * SCORE_NAME + len(shared) * SCORE_STEM + relations * SCORE_RELATION
+            overlap * SCORE_NAME
+            + len(shared) * SCORE_STEM
+            + bool(root) * SCORE_NAME_ROOT
+            + relations * SCORE_RELATION
         ),
+    }
+
+
+def _name_root(concept: Mapping, roots: set) -> str:
+    """The concept's own stem, when the batch's table names spell it as a word (N8b).
+
+    A whole token, never a prefix: ``omegax_rows`` is not a table of ``concept:omega``,
+    and matching the substring would put a stranger at the top of the list. A generic
+    stem is left out for the reason it is left out of the key-stem count -- ``id`` is a
+    token of half the warehouse and names none of it.
+    """
+    stem = str((concept.get("identity") or {}).get("stem") or "")
+    return stem if stem and stem in roots and stem not in GENERIC_STEMS else ""
+
+
+def _table_tokens(index: Mapping[str, Mapping], batch: set) -> set:
+    """Every ``_``-delimited word of the batch's own table names (N8b).
+
+    The *table's* name rather than the concept's: a provisional concept's name is often
+    the corpus admitting nobody named it (``name_tier: "stem_only"``), while the table it
+    stands for is written by a convention the warehouse follows everywhere. That
+    convention is evidence, and it was the one kind this list could not see.
+    """
+    return {
+        token
+        for identifier in sorted(batch)
+        for member in (index.get(identifier) or {}).get("tables") or []
+        for token in _TOKEN_RE.split(str(member.get("table") or ""))
+        if token
     }
 
 
@@ -411,9 +477,10 @@ def render_batch_markdown(batch: Mapping, ontology: Mapping) -> str:
         "",
         "## 本批概念",
         "",
-        f"| 概念 | 种类 | {KIND_EVIDENCE_HEADING} | {DUPLICATE_HEADING} | 表 "
-        f"| {MEMBER_OF_HEADING} | 关系 | 命名候选 | 回写键 |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        f"| 概念 | 种类 | {KIND_EVIDENCE_HEADING} | {KIND_TIER_HEADING} "
+        f"| {DUPLICATE_HEADING} | 表 "
+        f"| {MEMBER_OF_HEADING} | 关系 | 命名候选 | {REVIEW_NOTE_HEADING} | 回写键 |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     index = {str(item["id"]): item for item in ontology.get("concepts") or []}
     memberships = _memberships(ontology, index)
@@ -459,11 +526,13 @@ def _concept_row(row: Mapping, concept: Mapping, memberships: Mapping[str, str])
         f"| {cell(str(row['name']))}（`{row['name_tier']}`） "
         f"| {row['kind']} "
         f"| {_kind_evidence(concept)} "
+        f"| {row['kind_tier']} "
         f"| {_duplicates(concept)} "
         f"| {'、'.join(f'`{table}`' for table in row['tables'])} "
         f"| {member_of or NONE_CELL} "
         f"| {row['impact']} 条 / {row['tasks']} 个任务 "
         f"| {candidates or NONE_CELL} "
+        f"| {cell(str(concept.get('review_note') or '')) or NONE_CELL} "
         f"| `{row['id']}` 的 `merge_into` |"
     )
 
@@ -513,28 +582,37 @@ def _merge_target_section(batch: Mapping) -> list[str]:
     lines.extend(
         [
             f"按**匹配分**排序：名字对上算 {SCORE_NAME} 分一个词，共同键词根算 {SCORE_STEM} 分一个"
-            f"（通用词根如 `id` / `dt` 不算），关系每条 {SCORE_RELATION} 分；0 分的不列。"
+            f"（通用词根如 `id` / `dt` 不算），本批表名里整词出现对方的词根算 "
+            f"{SCORE_NAME_ROOT} 分，关系每条 {SCORE_RELATION} 分；0 分的不列。"
             "**这不是建议**：同名不等于同一件事，同键不等于，同查询更不等于。读完两边的表再决定。",
             "",
-            f"| 概念 | 种类 | {SCORE_HEADING} | 关系 | 共同键词根 | 回写 |",
-            "| --- | --- | --- | --- | --- | --- |",
+            f"| 概念 | 种类 | {SCORE_HEADING} | 关系 | 共同键词根 "
+            f"| {NAME_ROOT_HEADING} | 回写 |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
         ]
     )
     lines.extend(
         f"| {cell(str(item['name']))} | {item['kind']} | {_score_cell(item)} "
         f"| {item['relations']} 条 "
         f"| {'、'.join(f'`{stem}`' for stem in item['shared_stems']) or NONE_CELL} "
+        f"| {_root_cell(item)} "
         f"| `merge_into: \"{item['id']}\"` |"
         for item in batch["merge_targets"]
     )
     return lines
 
 
+def _root_cell(item: Mapping) -> str:
+    """The table-name token this candidate matched on, when one did (N8b)."""
+    return f"`{item['name_root']}`" if item["name_root"] else NONE_CELL
+
+
 def _score_cell(item: Mapping) -> str:
-    """The score and the three counts it is the weighted sum of (N1b)."""
+    """The score and the four counts it is the weighted sum of (N1b, N8b)."""
     return (
         f"{item['score']}（名 {item['name_overlap']}×{SCORE_NAME} + "
         f"键 {len(item['shared_stems'])}×{SCORE_STEM} + "
+        f"表名 {int(bool(item['name_root']))}×{SCORE_NAME_ROOT} + "
         f"关系 {item['relations']}×{SCORE_RELATION}）"
     )
 
