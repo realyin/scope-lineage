@@ -821,7 +821,17 @@ def test_the_golden_corpus_exercises_the_shapes_the_ontology_exists_for() -> Non
 
 @pytest.mark.parametrize(
     "kind",
-    ["entities", "relations", "constraints", "findings", "concepts", "unassigned_tables"],
+    [
+        "entities",
+        "relations",
+        "constraints",
+        "findings",
+        "concepts",
+        "unassigned_tables",
+        "concept_relations",
+        "concept_representation_links",
+        "concept_relations_unmapped",
+    ],
 )
 def test_the_golden_document_keeps_its_top_level_sections(kind: str) -> None:
     assert kind in _golden_ontology()

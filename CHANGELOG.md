@@ -1,6 +1,45 @@
 # Changelog
 
 ## Unreleased
+- **Concept-level relations** (K3). `relations[]` say which two *tables* a task joined;
+  a business asks whether 「消息发送」 involves 「客户」, in which role, and whether
+  「客户日汇总」 aggregates the event or the entity. `ontology.json` gains
+  **`concept_relations[]`**: each table-level edge is folded onto two concepts and
+  grouped by `(from concept, to concept)`. **The two ends answer two different
+  questions.** The `from` end answers *what this table is* -- the concept its own
+  candidate key or declared hint placed it on, never the columns this edge joined on and
+  never a `reference` membership a JOIN lent it, because an event table joins 客户
+  precisely *on* `cust_no` and is a `reference` member of 客户 for that reason, so reading
+  its columns there answers 客户 → 客户 for nearly every edge. The `to` end answers *what
+  it points at* -- the concept named by the stem its columns reduce to (the same
+  `key_stem` K1 seeds with, folded across the corpus's O5 synonyms), falling back to that
+  table's own identity, with one mirror of the same idea: columns naming the very concept
+  the `from` table already *is* say nothing new, so a `to` table the corpus placed on
+  something else wins over them and 客户 joined onto 消息发送 on `cust_no` publishes as a
+  participation written the other way round rather than 客户 → 客户 (a self-join, or a
+  snapshot of the same concept, has nothing else to reach for and keeps the stem's
+  answer). An end that answers neither leaves the edge out, counted in
+  **`concept_relations_unmapped`** as `{total, by_reason}` over `from_table_unplaced` /
+  `to_table_unplaced` (the `from` end is asked first, so an edge failing both is counted
+  once), because a wrong fold is worse than a missing one. The `type` is read off the two
+  endpoints' kinds and never off a word: `association` (entity/entity), `participation`
+  (event/entity, publishing the `roles[]` the entity has in the event -- taken from the
+  `from` side's column comment stripped as a key comment is, 发送方编号 → 发送方, or from
+  the column's own name), `aggregation` (a summary meeting either), `derivation`
+  (event/event, summary/summary), and `self_reference` when one concept is at both ends of
+  a relation the business really has (上级客户 → 客户). When both ends land on one concept
+  because the two *tables* are two representations of it -- a snapshot joined onto its own
+  primary -- that is a seam in K1's fold rather than a relation, and it is published apart
+  in **`concept_representation_links[]`** (the concept, the two tables, the edge ids).
+  `cardinality` is the strongest member claim -- tier first (`proven` outranks `confirmed`
+  here: what the corpus proved outranks what a reviewer confirmed for a single pair of
+  tables, because the fold is about the corpus), then a definite claim over `unknown` --
+  with `basis[]` naming the edges that carried it, `evidence[]` listing every member edge
+  and `task_count` counting the tasks that wrote them. A concept carrying
+  `possible_duplicate_of` is **not** merged: its relations stay on its own id, because
+  whether two stems are one thing is still the review round's question. The order is
+  fixed: type, then the two concept ids. Additive: `entities[]`, `relations[]`,
+  `concepts[]`, the markdown and the LinkML / SHACL exports are unchanged.
 - **A concept layer above the table-level ontology** (K1/K2). `entities[]` answer "what is
   this *table*"; a business asks about 「客户」, which the warehouse spells as four tables,
   and about 「消息发送」, which is not a thing but something that happened. `ontology.json`

@@ -282,7 +282,7 @@ def build_concepts(ontology: Mapping, cards: Mapping) -> dict:
     """
     entities = list(ontology.get("entities") or [])
     index = {str(card.get("table")): card for card in cards.get("tables") or []}
-    synonyms = _synonym_folding(entities)
+    synonyms = synonym_folding(entities)
     seeds = [_seed(entity, synonyms) for entity in entities]
     generic = _generic_stems(seeds)
     members: dict[str, list[_Seed]] = {}
@@ -331,7 +331,7 @@ def _member_rank(seed: _Seed) -> tuple:
 # ------------------------------------------------------------------------- seeding
 
 
-def _synonym_folding(entities: Sequence[Mapping]) -> dict[str, str]:
+def synonym_folding(entities: Sequence[Mapping]) -> dict[str, str]:
     """One spelling per O5 synonym group: the shortest stem, then alphabetical.
 
     The ontology publishes a synonym on both ends, so the graph is undirected; folding

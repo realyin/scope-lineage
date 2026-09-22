@@ -204,6 +204,19 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
      "evidence": [{"kind": "column_comment", "column": "pay_id",
                    "text": "payment, references ods.pay.id"}]}
   ],
+  "concept_relations": [
+    {"from": "concept:msg", "to": "concept:cust", "type": "participation",
+     "roles": ["发送方", "接收方"],          // 事件里客户扮演的角色，来自本端列注释
+     "cardinality": {"claim": "many_to_one", "tier": "proven",
+                     "basis": ["rel:003"]},  // 这条断言是哪几条表级关系给的
+     "task_count": 2, "evidence": ["rel:003", "rel:004"]}
+  ],
+  "concept_representation_links": [          // 同一个概念的两份表被 JOIN 到一起
+    {"concept": "concept:cust", "from_table": "dwd.customer_df",
+     "to_table": "ods.customer_base", "evidence": ["rel:005"]}
+  ],
+  "concept_relations_unmapped": {"total": 1,  // 哪一端没答上来，分开计数
+     "by_reason": {"from_table_unplaced": 1, "to_table_unplaced": 0}},
   "constraints": [
     {"target": {"entity": "ods.orders", "column": "state"}, "kind": "in_set",
      "tier": "proven", "values": ["NEW", "PAID"], "completeness": "complete",
@@ -274,6 +287,13 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 | `relations[].cardinality.basis` | `group_by` / `ranking_window` / `producer_key_confidence` / `right_side_not_deduplicated` / `union_branch_alignment` / `no_uniqueness_evidence` / `human_confirmation` / `column_comment` | 该基数断言的依据 |
 | `relations[].join_types`、`task_count` | JOIN 类型并集、任务数 | 同一对实体在不同任务里的 JOIN 类型合并 |
 | `relations[].evidence[].left_via_scopes` | scope id 列表 | JOIN 某一侧是 CTE 时，穿透到物理表所经过的 scope（右侧为 `right_via_scopes`） |
+| `concept_relations[]` | `from` / `to` / `type` / `cardinality` / `task_count` / `evidence[]` | K3：把上面的表级关系折到概念之间——`evidence[]` 是参与折叠的表级关系 id，`task_count` 是它们背后去重后的任务数（规则见下面「概念关系」） |
+| `concept_relations[].from`、`to` | 概念 id | K3：两端问的是两个问题——`from` 是**这张表本身是什么**（它自己的键或元数据线索放进的那个概念，`reference` 不算，也不看这条边用了哪几列），`to` 是**它指向什么**（对端列归到的词根命中的概念，命中不了、或命中的正是 `from` 那张表本身的概念时，退回对端表自己的身份） |
+| `concept_relations[].type` | `association` / `participation` / `aggregation` / `derivation` / `self_reference` | K3：由两端概念的 `kind` 读出来，不看词 |
+| `concept_relations[].roles[]` | 文本列表 | K3：仅 `participation`——实体在事件里扮演的角色，取自本端列注释（按键注释的规则掐后缀：发送方编号 → 发送方），注释说不出就用列名。一组里可能有好几个（发送方与接收方是同一对概念的两条边） |
+| `concept_relations[].cardinality` | `claim` / `tier` / `basis[]` | K3：组内最强的那条表级断言——先比层级（`proven` > `confirmed` > `implied` > `hypothesis`），同级里确定的断言压过 `unknown`；`basis[]` 写明这条断言由哪几条表级关系给出 |
+| `concept_representation_links[]` | `concept` + `from_table` + `to_table` + `evidence[]` | K3：两端落到同一个概念、而两张表都是它的表现（快照 JOIN 自己的主表）——那是 K1 折叠的接缝，不是业务关系，所以单独出一节 |
+| `concept_relations_unmapped` | `total` + `by_reason`（`from_table_unplaced` / `to_table_unplaced`） | K3：没能折下去的表级关系条数，按**哪一端**没答上来分开计；先问 `from`，所以两端都答不出来的边只记在 `from_table_unplaced` 上。折错了比没折更糟 |
 | `constraints[].kind` | `not_null` / `in_set` / `unique_per` / `partition` | O6 |
 | `constraints[].values`、`completeness` | 取值列表、`complete` / `unknown` | 仅 `in_set`：只有封闭 `IN` 列表或穷尽 CASE 才是 `complete` |
 | `constraints[].columns` | 列名列表 | 仅 `unique_per`：候选键 + 分区列 |
@@ -369,6 +389,53 @@ K1/K2 就在表级本体之上折出这一层：**实体应该是「客户」，
 两个概念的首选名撞成同一个词时（比如词根 `contr` 与 `contra` 都叫「合同」），**不合并**：
 语料证明的是两个不同的键，「是同一个东西的两种写法，还是两个东西共用一个词」不是这一层
 能答的问题。两边各写一条 `possible_duplicate_of` 指向对方，留给评审那一轮判。
+
+### 概念关系
+
+表级 `relations[]` 答的是「哪两张**表**被 JOIN 了、用哪几列、能推出多少行」。业务问的不是
+这个：它问「消息发送」牵不牵涉「客户」、以什么身份（发送方还是接收方），问「客户日汇总」
+汇总的是那个事件还是那个实体。K3 把每条表级边折到两个概念上，按（from 概念，to 概念）归组，
+写成 `concept_relations[]`。
+
+**一条边的两端问的是两个问题。** 两端用同一套规则读，几乎每条边都会折到自己身上：
+
+| 端 | 问的是 | 怎么答 |
+| --- | --- | --- |
+| `from` | 这张表**本身是什么** | 它自己的候选键（任何层级）或元数据声明的主键线索把它放进的那个概念。**不看**这条边用了哪几列，也**不认** JOIN 借给它的 `reference` 成员身份——事件表 JOIN「客户」正是**用** `cust_no`，也正因此成了客户的 `reference` 成员，照着列读就会答出「客户 → 客户」 |
+| `to` | 它**指向什么** | 这条边对端列归到的词根命中的那个概念（还是 K1 发芽用的 `key_stem`，同样折过 O5 同义列）；一个都没命中，才退回对端表自己的身份。**一个镜像的例外**：对端列命中的若正是 `from` 那张表**本身**的概念，它就什么也没说（两张表共用这个键，正是这条 JOIN 写得出来的原因），这时对端表自己的身份优先——「客户」JOIN「消息发送」写在 `cust_no` 上是反过来写的 participation，不是「客户 → 客户」；对端表真的就是同一个概念（自连接，或它的一份快照）时没有别的可取，仍按词根算 |
+
+哪一端答不出来，这条边就留在外面，计入 `concept_relations_unmapped`：`from_table_unplaced`
+是本端表没有「自己的」成员身份（只被 JOIN 关联过，或压根没落到概念上），`to_table_unplaced`
+是对端列没命中词根、对端表也没有自己的身份。先问 `from`，所以两端都答不出来的边只计一次，
+记在 `from_table_unplaced` 上。折错了比没折更糟。
+
+类型只看两端概念的 `kind`，不看词：
+
+| 类型 | 两端 | 含义 |
+| --- | --- | --- |
+| `association` | 实体 ↔ 实体 | 两个实体之间的关联 |
+| `participation` | 事件 ↔ 实体 | 实体参与了这个事件；`roles[]` 说明以什么身份（发送方 / 接收方 / 客户） |
+| `aggregation` | 汇总 ↔ 事件、汇总 ↔ 实体 | 汇总是对那个事件或那个实体的聚合 |
+| `derivation` | 事件 ↔ 事件、汇总 ↔ 汇总 | 同一种东西之间的派生 |
+| `self_reference` | 两端是同一个概念 | 上级客户 → 客户 这类自指；业务真的有这条关系，所以留着 |
+
+两端落到同一个概念、而那**两张表**又都是这个概念的表现（一份快照 JOIN 它自己的主表），那不
+是一条业务关系，是 K1 那次折叠的接缝：这种边不进 `concept_relations[]`，单独写进
+`concept_representation_links[]`——概念、本端表、对端表，以及给出它的表级关系 id。一张表
+JOIN 它**自己**是另一回事，仍然是 `self_reference`。
+
+`cardinality` 取组内**最强**的那条表级断言：先比层级（`proven` > `confirmed` > `implied` >
+`hypothesis`——语料证明过的压过某一对表上人工确认过的，因为这一层折的是语料），同级里确定的
+断言压过 `unknown`；`basis[]` 写明这条断言是哪几条表级关系给的。`evidence[]` 是组内全部表级
+关系 id，`task_count` 是它们背后去重后的任务数（只算**写过**这条边的任务，与
+`relations[].task_count` 一个口径）。
+
+带 `possible_duplicate_of` 的概念**不合并**：它的关系仍然挂在它自己的 id 上。是不是同一个
+东西留给评审那一轮判——在这里替它答了，只会把问题藏起来。
+
+排序恒定：先按类型顺序（`association` → `participation` → `aggregation` → `derivation` →
+`self_reference`），再按 from 的概念 id，再按 to 的概念 id；
+`concept_representation_links[]` 按概念 id、本端表、对端表排。
 
 ## 表族与待判定分组
 

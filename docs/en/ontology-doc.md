@@ -227,6 +227,19 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
      "evidence": [{"kind": "column_comment", "column": "pay_id",
                    "text": "payment, references ods.pay.id"}]}
   ],
+  "concept_relations": [
+    {"from": "concept:msg", "to": "concept:cust", "type": "participation",
+     "roles": ["发送方", "接收方"],          // the entity's roles in the event
+     "cardinality": {"claim": "many_to_one", "tier": "proven",
+                     "basis": ["rel:003"]},  // the table-level edges that claimed it
+     "task_count": 2, "evidence": ["rel:003", "rel:004"]}
+  ],
+  "concept_representation_links": [          // two tables of one concept, joined
+    {"concept": "concept:cust", "from_table": "dwd.customer_df",
+     "to_table": "ods.customer_base", "evidence": ["rel:005"]}
+  ],
+  "concept_relations_unmapped": {"total": 1,  // counted by the end that failed
+     "by_reason": {"from_table_unplaced": 1, "to_table_unplaced": 0}},
   "constraints": [
     {"target": {"entity": "ods.orders", "column": "state"}, "kind": "in_set",
      "tier": "proven", "values": ["NEW", "PAID"], "completeness": "complete",
@@ -297,6 +310,13 @@ Slot by slot (every slot `ontology-json/1` publishes):
 | `relations[].cardinality.basis` | `group_by` / `ranking_window` / `producer_key_confidence` / `right_side_not_deduplicated` / `union_branch_alignment` / `no_uniqueness_evidence` / `human_confirmation` / `column_comment` | what the cardinality rests on |
 | `relations[].join_types`, `task_count` | the union of JOIN types, the task count | the JOIN types the same entity pair was joined with across tasks, merged |
 | `relations[].evidence[].left_via_scopes` | a list of scope ids | where one side of the JOIN was a CTE, the scopes the walk pierced through to reach a physical table (`right_via_scopes` for the other side) |
+| `concept_relations[]` | `from` / `to` / `type` / `cardinality` / `task_count` / `evidence[]` | K3: the table-level relations above, folded onto the concepts -- `evidence[]` is the member edges' ids and `task_count` the distinct tasks behind them (rules under "Concept relations" below) |
+| `concept_relations[].from`, `to` | concept ids | K3: the two ends answer two different questions -- `from` is **what this table is** (the concept its own key or a declared hint placed it on, never a `reference` and never the columns this edge joined on), `to` is **what it points at** (the concept the `to` columns name, falling back to that table's own identity when they name none -- or when they name the very concept the `from` table already is) |
+| `concept_relations[].type` | `association` / `participation` / `aggregation` / `derivation` / `self_reference` | K3: read off the two endpoints' `kind`, never off a word |
+| `concept_relations[].roles[]` | a list of texts | K3: `participation` only -- what the entity is to the event, taken from the `from` side's column comment and stripped as a key comment is (发送方编号 → 发送方), or from the column name when the metadata says nothing. One group can carry several (发送方 and 接收方 are two edges between the same two concepts) |
+| `concept_relations[].cardinality` | `claim` / `tier` / `basis[]` | K3: the strongest member claim -- tier first (`proven` > `confirmed` > `implied` > `hypothesis`), then a definite claim over `unknown`; `basis[]` names the table-level relations that carried it |
+| `concept_representation_links[]` | `concept` + `from_table` + `to_table` + `evidence[]` | K3: both ends on one concept while the two *tables* are both representations of it (a snapshot joined onto its primary) -- a seam in K1's fold rather than a relation, so it gets its own section |
+| `concept_relations_unmapped` | `total` + `by_reason` (`from_table_unplaced` / `to_table_unplaced`) | K3: the table-level relations that could not be folded, counted by **which end** failed to answer; the `from` end is asked first, so an edge that fails both is counted once under `from_table_unplaced`. A wrong fold is worse than a missing one |
 | `constraints[].kind` | `not_null` / `in_set` / `unique_per` / `partition` | O6 |
 | `constraints[].values`, `completeness` | a value list, `complete` / `unknown` | `in_set` only: only a closed `IN` list or an exhaustive CASE is `complete` |
 | `constraints[].columns` | a list of column names | `unique_per` only: the candidate keys plus the partition columns |
@@ -404,6 +424,62 @@ When two concepts' first candidates land on the same word (the stems `contr` and
 distinct keys, and whether that is one thing spelled twice or two things sharing a
 word is not a question this layer can answer. Each gets a `possible_duplicate_of`
 pointing at the other, and the review round decides.
+
+### Concept relations
+
+The table-level `relations[]` answer "which two **tables** did a task join, on which
+columns, and how many rows does that imply". That is not what a business asks. It asks
+whether 「消息发送」 involves 「客户」 and in which role -- 发送方 or 接收方 -- and whether
+「客户日汇总」 aggregates that event or that entity. K3 folds each table-level edge onto
+two concepts, groups the result by (from concept, to concept), and publishes it as
+`concept_relations[]`.
+
+**The two ends of an edge answer two different questions.** Reading both the same way
+folds nearly every edge onto itself:
+
+| End | The question | How it is answered |
+| --- | --- | --- |
+| `from` | what this table **is** | the concept its own candidate key (at any tier) or a declared primary-key hint placed it on. **Not** the columns this edge joined on, and **never** a `reference` membership a JOIN lent it -- an event table joins 客户 precisely **on** `cust_no`, and is a `reference` member of 客户 for that very reason, so reading its columns answers 客户 → 客户 |
+| `to` | what it **points at** | the concept named by the stem the `to` columns reduce to (the same `key_stem` K1 seeds with, folded across the same O5 synonyms); only when no stem is named does it fall back to that table's own identity. **One mirror-image exception**: when those columns name the very concept the `from` table *is*, they say nothing new (the two tables share that key, which is why the JOIN could be written at all), so a `to` table the corpus placed elsewhere wins -- 客户 joined onto 消息发送 on `cust_no` is a participation written the other way round, not 客户 → 客户. A `to` table that really is the same concept (a self-join, or a snapshot of it) has nothing else to reach for and keeps the stem's answer |
+
+An end that answers neither leaves the edge out, counted in
+`concept_relations_unmapped`: `from_table_unplaced` is a `from` table with no identity of
+its own (only reached by a JOIN, or placed on no concept at all), and
+`to_table_unplaced` is a `to` side whose columns named no stem and whose table has no
+identity either. The `from` end is asked first, so an edge that fails both is counted
+once, under `from_table_unplaced`. A wrong fold is worse than a missing one.
+
+The type is read off the two endpoints' `kind`, never off a word:
+
+| Type | The endpoints | What it says |
+| --- | --- | --- |
+| `association` | entity ↔ entity | an association between two entities |
+| `participation` | event ↔ entity | the entity takes part in the event; `roles[]` says as what (发送方 / 接收方 / 客户) |
+| `aggregation` | summary ↔ event, summary ↔ entity | the summary aggregates that event or that entity |
+| `derivation` | event ↔ event, summary ↔ summary | one is derived from the other of the same kind |
+| `self_reference` | one concept on both sides | 上级客户 → 客户 and its like; the business really has that relation, so it is kept |
+
+When both ends land on one concept and the two *tables* are both representations of it
+(a snapshot joined onto its own primary), that is not a relation the business has -- it
+is a seam in K1's fold. Those edges stay out of `concept_relations[]` and are published
+in `concept_representation_links[]` instead: the concept, the two tables, and the
+table-level relation ids that said so. A table joined to **itself** is the other case,
+and stays a `self_reference`.
+
+`cardinality` is the **strongest** member claim: tier first (`proven` > `confirmed` >
+`implied` > `hypothesis` -- what the corpus proved outranks what a reviewer confirmed for
+a single pair of tables, because this layer folds the corpus), then a definite claim over
+`unknown`; `basis[]` names the table-level relations that carried it. `evidence[]` is
+every member relation's id and `task_count` the distinct tasks behind them (the tasks
+that **wrote** the edge, the same discipline `relations[].task_count` keeps).
+
+A concept carrying `possible_duplicate_of` is **not** merged: its relations stay on its
+own id. Whether the two are one thing is the review round's question, and answering it
+here would only hide it.
+
+The order is fixed: by type (`association` → `participation` → `aggregation` →
+`derivation` → `self_reference`), then by the `from` concept id, then by the `to`
+concept id; `concept_representation_links[]` is ordered by concept, then the two tables.
 
 ## Table families and the folded open list
 
