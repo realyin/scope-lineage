@@ -25,6 +25,12 @@ Two rules shape the output.
    the one list published in summary rather than whole -- the count and the first task,
    because a schema wants the weight of the evidence and not its rows.
 
+Both layers of the JSON leave: ``entities[]`` are the *table* entities -- how a concept is
+represented in the warehouse -- and ``concepts[]`` are the business concepts the fold
+proposed. A concept becomes a class under one of three abstract bases (``Entity`` /
+``Event`` / ``Summary``), a table class says which concept it represents and in which
+role, and both carry the tier of whichever assertion put them there.
+
 No third-party writer is used: both formats are emitted as text by the small
 deterministic writers at the bottom of this module, so the export adds no runtime
 dependency to a distribution whose dependency list is a product decision.
@@ -36,6 +42,12 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
+from .concepts import (
+    CONCEPT_ENTITY,
+    CONCEPT_EVENT,
+    CONCEPT_SUMMARY,
+    KIND_ORDER,
+)
 from .ontology import (
     CARDINALITY_MANY_TO_ONE,
     CARDINALITY_MANY_TO_ONE_ASSUMED,
@@ -76,6 +88,28 @@ SINGLE_VALUED_CLAIMS = (
     CARDINALITY_MANY_TO_ONE_ASSUMED,
     CARDINALITY_ONE_TO_ONE_ASSUMED,
 )
+
+# The concept layer's three kinds, as the base every concept class inherits from. The
+# names are the vocabulary K1 already publishes; the category is the one word an
+# ontologist reads them by, and it is exactly why the three are kept apart: 客户 is there
+# the whole time, 消息发送 happened, 客户日汇总 is a figure computed over the two.
+CONCEPT_BASE_CLASS = {
+    CONCEPT_ENTITY: "Entity",
+    CONCEPT_EVENT: "Event",
+    CONCEPT_SUMMARY: "Summary",
+}
+CONCEPT_BASE_CATEGORY = {
+    CONCEPT_ENTITY: "continuant",
+    CONCEPT_EVENT: "occurrent",
+    CONCEPT_SUMMARY: "aggregate",
+}
+CONCEPT_BASE_DESCRIPTION = {
+    CONCEPT_ENTITY: "a business thing that persists through time (a continuant)",
+    CONCEPT_EVENT: "something that happened to the business (an occurrent)",
+    CONCEPT_SUMMARY: "a figure aggregated over entities or events (an aggregate)",
+}
+#: The class the three bases hang under, so a consumer can ask for "any concept".
+CONCEPT_ROOT_CLASS = "Concept"
 
 # SQL type head -> LinkML range. The head is the type with its parameters removed, so
 # `decimal(18,2)`, `varchar(64)` and `map<string,string>` are matched as `decimal`,
@@ -166,6 +200,99 @@ def finding_ids(findings: Sequence[Mapping]) -> list[str]:
     the same token so one governance item has one name wherever it is read.
     """
     return [f"sl:finding_{index:03d}" for index in range(1, len(findings) + 1)]
+
+
+def concept_class_ids(
+    concepts: Sequence[Mapping], class_ids: Mapping[str, str]
+) -> dict[str, str]:
+    """``concept id -> the identifier both exports call it``.
+
+    ``concept:cust`` becomes ``concept_cust`` by the same rule every other identifier
+    follows, and is made unique against the *table* class ids: a concept and a table are
+    two classes in one schema, and one name may not mean both.
+    """
+    found: dict[str, str] = {}
+    taken = set(class_ids.values())
+    for concept in concepts:
+        name = _unique_name(taken | set(found.values()), _identifier(concept["id"]))
+        found[str(concept["id"])] = name
+    return found
+
+
+def _concept_relations_from(ontology: Mapping, concept: str) -> list[Mapping]:
+    return [
+        relation
+        for relation in ontology.get("concept_relations") or []
+        if str(relation["from"]) == concept
+    ]
+
+
+def _concept_description(concept: Mapping) -> str:
+    """What the concept is called, by whom, and how sure the corpus is of its kind."""
+    candidates = "; ".join(
+        f"{item.get('text')} ({item.get('source')} x{item.get('count')})"
+        for item in concept.get("name_candidates") or ()
+    )
+    kind = f"kind {concept.get('kind')} ({concept.get('kind_tier')})"
+    return f"{kind}; name candidates: {candidates}" if candidates else kind
+
+
+def _concept_table_notes(concept: Mapping) -> list[str]:
+    """``<table> -> <role>`` per member: which tables are this concept, and as what."""
+    return [
+        f"{item.get('table')} -> {item.get('role')} ({item.get('membership_basis')})"
+        for item in concept.get("tables") or ()
+    ]
+
+
+def _attribute_sources(attribute: Mapping) -> list[str]:
+    """``<table>.<column>`` per column the fold lifted this concept attribute from."""
+    return [
+        f"{item.get('table')}.{item.get('column')}"
+        for item in attribute.get("sources") or ()
+    ]
+
+
+def _duplicate_note(concept: Mapping) -> str:
+    """K2 proposes, it does not merge: the export says so rather than joining the two."""
+    others = ", ".join(str(item) for item in concept.get("possible_duplicate_of") or ())
+    return f"possibly the same concept as {others}" if others else ""
+
+
+def _representation_note(link: Mapping) -> str:
+    return (
+        f"{link.get('concept')}: {link.get('from_table')} and {link.get('to_table')} "
+        f"are two representations of one concept"
+        f" (evidence {len(link.get('evidence') or ())})"
+    )
+
+
+def _table_concept_notes(ontology: Mapping) -> dict[str, dict]:
+    """``table -> {name: note}`` -- what the concept layer says about each table.
+
+    A table may represent several concepts (it carries their keys), so the names are
+    made unique per table rather than assumed to be one each.
+    """
+    notes: dict[str, dict] = {}
+    for concept in ontology.get("concepts") or ():
+        for item in concept.get("tables") or ():
+            entry = notes.setdefault(str(item.get("table")), {})
+            note = f"{concept.get('id')} ({item.get('role')})"
+            entry[_unique_name(entry, "represents")] = note
+    for link in ontology.get("concept_representation_links") or ():
+        note = _representation_note(link)
+        for table in (str(link.get("from_table")), str(link.get("to_table"))):
+            entry = notes.setdefault(table, {})
+            entry[_unique_name(entry, "representation_link")] = note
+    return notes
+
+
+def _unassigned_notes(ontology: Mapping) -> list[str]:
+    """``<table> (<reason>)`` per table no concept claimed, and why it could not."""
+    return [
+        f"{item.get('table')} ({item.get('reason')})"
+        for item in ontology.get("unassigned_tables") or ()
+    ]
 
 
 @dataclass(frozen=True)
@@ -394,14 +521,118 @@ def render_linkml(ontology: Mapping) -> str:
     constraints = _constraints(ontology)
     schema = _linkml_header(ontology.get("corpus") or {})
     schema["annotations"].update(_linkml_governance(ontology))
+    unassigned = _unassigned_notes(ontology)
+    if unassigned:
+        schema["annotations"]["unassigned_tables"] = unassigned
     enums = _linkml_enums(constraints, class_ids)
     if enums:
         schema["enums"] = enums
-    schema["classes"] = {
-        class_ids[str(entity["id"])]: _linkml_class(entity, class_ids, ontology, constraints)
-        for entity in entities
-    }
+    schema["classes"] = _linkml_classes(ontology, entities, class_ids, constraints)
     return "\n".join(_yaml_lines(schema)) + "\n"
+
+
+def _linkml_classes(
+    ontology: Mapping, entities: Sequence[Mapping], class_ids: Mapping, constraints: Sequence
+) -> dict:
+    """The three concept bases, then one class per table, then one per concept.
+
+    The bases are emitted only when the corpus folded a concept: an abstract class with
+    nothing under it asserts that this corpus has a concept layer, and an unfolded one
+    does not.
+    """
+    concepts = list(ontology.get("concepts") or [])
+    concept_ids = concept_class_ids(concepts, class_ids)
+    notes = _table_concept_notes(ontology)
+    classes: dict = {}
+    if concepts:
+        classes.update({CONCEPT_BASE_CLASS[kind]: _linkml_base(kind) for kind in KIND_ORDER})
+    for entity in entities:
+        node = _linkml_class(entity, class_ids, ontology, constraints)
+        node["annotations"].update(notes.get(str(entity["id"]), {}))
+        classes[class_ids[str(entity["id"])]] = node
+    for concept in concepts:
+        classes[concept_ids[str(concept["id"])]] = _linkml_concept(
+            concept, concept_ids, ontology
+        )
+    return classes
+
+
+def _linkml_base(kind: str) -> dict:
+    return {
+        "abstract": True,
+        "title": CONCEPT_BASE_CLASS[kind],
+        "description": CONCEPT_BASE_DESCRIPTION[kind],
+        "annotations": {"concept_kind": kind, "category": CONCEPT_BASE_CATEGORY[kind]},
+    }
+
+
+def _linkml_concept(concept: Mapping, concept_ids: Mapping, ontology: Mapping) -> dict:
+    """One concept as a class under its kind's base, with its members and relations."""
+    kind = str(concept.get("kind") or "")
+    node: dict = {
+        "is_a": CONCEPT_BASE_CLASS.get(kind, CONCEPT_ROOT_CLASS),
+        "title": str(concept.get("name") or ""),
+        "description": _concept_description(concept),
+    }
+    annotations: dict = {
+        "concept_id": str(concept["id"]),
+        "tier": str(concept.get("tier") or ""),
+        "kind_tier": str(concept.get("kind_tier") or ""),
+        "name_tier": str(concept.get("name_tier") or ""),
+        "tables": _concept_table_notes(concept),
+    }
+    duplicate = _duplicate_note(concept)
+    if duplicate:
+        annotations["possible_duplicate_of"] = duplicate
+    node["annotations"] = annotations
+    node["attributes"] = _linkml_concept_attributes(concept, concept_ids, ontology)
+    return node
+
+
+def _linkml_concept_attributes(
+    concept: Mapping, concept_ids: Mapping, ontology: Mapping
+) -> dict:
+    tier = str(concept.get("tier") or "")
+    slots: dict = {}
+    for attribute in concept.get("attributes") or ():
+        name = _unique_name(slots, _identifier(attribute.get("stem")))
+        slots[name] = _linkml_concept_attribute(attribute, tier)
+    for relation in _concept_relations_from(ontology, str(concept["id"])):
+        target = concept_ids[str(relation["to"])]
+        name = _unique_name(slots, _identifier(f"{relation['type']}_{target}"))
+        slots[name] = _linkml_concept_relation(relation, target)
+    return slots
+
+
+def _linkml_concept_attribute(attribute: Mapping, tier: str) -> dict:
+    """A concept attribute is a column the fold lifted, so it keeps the fold's tier."""
+    slot: dict = {"range": linkml_range(attribute.get("type"))}
+    if attribute.get("comment"):
+        slot["description"] = str(attribute["comment"])
+    slot["annotations"] = {
+        "tier": tier,
+        "sources": _attribute_sources(attribute),
+    }
+    return slot
+
+
+def _linkml_concept_relation(relation: Mapping, target: str) -> dict:
+    cardinality = relation.get("cardinality") or {}
+    annotations: dict = {
+        "relation_type": str(relation.get("type")),
+        "tier": str(cardinality.get("tier")),
+        "claim": str(cardinality.get("claim")),
+        "task_count": int(relation.get("task_count") or 0),
+        "evidence_count": len(relation.get("evidence") or ()),
+    }
+    if relation.get("roles"):
+        annotations["roles"] = [str(role) for role in relation["roles"]]
+    return {
+        "range": target,
+        "multivalued": not _single_valued(relation),
+        "description": f"{relation.get('type')} ({cardinality.get('claim')})",
+        "annotations": annotations,
+    }
 
 
 def _linkml_header(corpus: Mapping) -> dict:
@@ -659,6 +890,9 @@ def render_shacl(ontology: Mapping) -> str:
     """The corpus as SHACL shapes: one ``sh:NodeShape`` per entity."""
     entities = list(ontology.get("entities") or [])
     class_ids = entity_class_ids(entities)
+    concepts = list(ontology.get("concepts") or [])
+    concept_ids = concept_class_ids(concepts, class_ids)
+    notes = _table_concept_notes(ontology)
     constraints = _constraints(ontology)
     lines = [f"@prefix {prefix}: <{iri}> ." for prefix, iri in SHACL_PREFIXES]
     lines.append("")
@@ -670,13 +904,109 @@ def render_shacl(ontology: Mapping) -> str:
         "# every shape carries sl:tier for the assertion it came from -- read it before "
         "validating."
     )
+    for kind in KIND_ORDER if concepts else ():
+        lines.extend(["", *_shacl_kind_class(kind)])
     for entity in entities:
         lines.append("")
-        lines.extend(_shacl_node_shape(entity, class_ids, ontology, constraints))
+        lines.extend(_shacl_node_shape(entity, class_ids, ontology, constraints, notes))
+    for concept in concepts:
+        lines.append("")
+        lines.extend(_shacl_concept_shape(concept, concept_ids, ontology))
     governance = _shacl_governance(ontology)
     if governance:
         lines.extend(["", *governance])
     return "\n".join(lines) + "\n"
+
+
+def _shacl_kind_class(kind: str) -> list[str]:
+    """One of the three concept bases, as a class the concept shapes hang under."""
+    return [
+        f"sl:{CONCEPT_BASE_CLASS[kind]}",
+        "    a rdfs:Class ;",
+        f"    rdfs:subClassOf sl:{CONCEPT_ROOT_CLASS} ;",
+        f"    rdfs:label {_turtle_string(CONCEPT_BASE_CLASS[kind])} ;",
+        f"    rdfs:comment {_turtle_string(CONCEPT_BASE_DESCRIPTION[kind])} ;",
+        f"    sl:conceptKind {_turtle_string(kind)} ;",
+        f"    sl:category {_turtle_string(CONCEPT_BASE_CATEGORY[kind])} .",
+    ]
+
+
+def _shacl_concept_shape(
+    concept: Mapping, concept_ids: Mapping, ontology: Mapping
+) -> list[str]:
+    """One concept as a ``sh:NodeShape`` under its kind class, tier and members intact."""
+    concept_id = str(concept["id"])
+    class_id = concept_ids[concept_id]
+    tier = str(concept.get("tier") or "")
+    kind = CONCEPT_BASE_CLASS.get(str(concept.get("kind") or ""), CONCEPT_ROOT_CLASS)
+    blocks = [
+        _shacl_concept_attribute(attribute, tier)
+        for attribute in concept.get("attributes") or ()
+    ]
+    blocks.extend(
+        _shacl_concept_relation(relation, concept_ids[str(relation["to"])])
+        for relation in _concept_relations_from(ontology, concept_id)
+    )
+    head = [
+        f"sl:{class_id}Shape",
+        "    a sh:NodeShape ;",
+        f"    sh:targetClass sl:{class_id} ;",
+        f"    rdfs:subClassOf sl:{kind} ;",
+        f"    rdfs:label {_turtle_string(str(concept.get('name') or ''))} ;",
+        f"    rdfs:comment {_turtle_string(_concept_description(concept))} ;",
+        f"    sl:concept {_turtle_string(concept_id)} ;",
+        f"    sl:kindTier {_turtle_string(str(concept.get('kind_tier') or ''))} ;",
+        f"    sl:nameTier {_turtle_string(str(concept.get('name_tier') or ''))} ;",
+        *(f"    sl:conceptTable {_turtle_string(n)} ;" for n in _concept_table_notes(concept)),
+        *_shacl_duplicate_lines(concept),
+        f'    sl:tier "{tier}"',
+    ]
+    return _turtle_statement(head, blocks)
+
+
+def _shacl_duplicate_lines(concept: Mapping) -> list[str]:
+    note = _duplicate_note(concept)
+    return [f"    sl:possibleDuplicateOf {_turtle_string(note)} ;"] if note else []
+
+
+def _shacl_concept_attribute(attribute: Mapping, tier: str) -> list[str]:
+    stem = str(attribute.get("stem") or "")
+    lines = [
+        "sh:property [",
+        f"        sh:path sl:{_identifier(stem)} ;",
+        f"        sh:name {_turtle_string(stem)} ;",
+        f"        sh:datatype {shacl_datatype(attribute.get('type'))} ;",
+    ]
+    if attribute.get("comment"):
+        lines.append(f"        rdfs:comment {_turtle_string(str(attribute['comment']))} ;")
+    lines.extend(
+        f"        sl:source {_turtle_string(source)} ;"
+        for source in _attribute_sources(attribute)
+    )
+    lines.append(f'        sl:tier "{tier}"')
+    lines.append("    ]")
+    return lines
+
+
+def _shacl_concept_relation(relation: Mapping, target: str) -> list[str]:
+    cardinality = relation.get("cardinality") or {}
+    lines = [
+        "sh:property [",
+        f"        sh:path sl:{_identifier(str(relation.get('type')) + '_' + target)} ;",
+        f"        sh:class sl:{target} ;",
+    ]
+    if _single_valued(relation):
+        lines.append("        sh:maxCount 1 ;")
+    lines.append(f"        sl:relationType {_turtle_string(str(relation.get('type')))} ;")
+    lines.extend(
+        f"        sl:role {_turtle_string(str(role))} ;" for role in relation.get("roles") or ()
+    )
+    lines.append(f"        sl:claim \"{cardinality.get('claim')}\" ;")
+    lines.append(f"        sl:taskCount {int(relation.get('task_count') or 0)} ;")
+    lines.append(f"        sl:evidenceCount {len(relation.get('evidence') or ())} ;")
+    lines.append(f"        sl:tier \"{cardinality.get('tier')}\"")
+    lines.append("    ]")
+    return lines
 
 
 def _shacl_governance(ontology: Mapping) -> list[str]:
@@ -687,7 +1017,8 @@ def _shacl_governance(ontology: Mapping) -> list[str]:
     """
     findings = list(ontology.get("findings") or ())
     items = list(ontology.get("open_items") or ())
-    if not findings and not items:
+    unassigned = _unassigned_notes(ontology)
+    if not findings and not items and not unassigned:
         return []
     blocks = [
         _shacl_annotation_block(
@@ -710,6 +1041,7 @@ def _shacl_governance(ontology: Mapping) -> list[str]:
     )
     head = [
         "sl:Ontology",
+        *(f"    sl:unassignedTable {_turtle_string(note)} ;" for note in unassigned),
         '    rdfs:label "the governance items this corpus could not answer itself"',
     ]
     return _turtle_statement(head, blocks)
@@ -735,7 +1067,11 @@ def _shacl_annotation_block(
 
 
 def _shacl_node_shape(
-    entity: Mapping, class_ids: Mapping, ontology: Mapping, constraints: Sequence
+    entity: Mapping,
+    class_ids: Mapping,
+    ontology: Mapping,
+    constraints: Sequence,
+    notes: Mapping[str, Mapping] | None = None,
 ) -> list[str]:
     name = str(entity["id"])
     class_id = class_ids[name]
@@ -763,6 +1099,10 @@ def _shacl_node_shape(
         head.append(f"    rdfs:comment {_turtle_string(str(entity['comment']))} ;")
     for name_, value in _naming_facts(entity).items():
         head.append(f"    sl:{name_} {_turtle_string(value)} ;")
+    for name_, note in (notes or {}).get(name, {}).items():
+        represents = name_.startswith("represents")
+        predicate = "sl:represents" if represents else "sl:representationLink"
+        head.append(f"    {predicate} {_turtle_string(note)} ;")
     head.append(f'    sl:tier "{TIER_PROVEN}"')
     return _turtle_statement(head, blocks)
 

@@ -14,6 +14,15 @@ k, then join" is an assertion that the deduplicated table holds many rows per k;
 closed `IN` list is an assertion about a column's value set. This document collects those
 assertions and labels each with its confidence tier and its evidence.
 
+> **Vocabulary**: `entities[]` holds **table entities** -- how a concept is represented in
+> the warehouse, one per table; `concepts[]` holds the **business concepts** (entity /
+> event / summary), and one concept is usually represented by several tables. The two are
+> not the same layer: 「客户」 is a concept, `dwd.customer_df` is one of its table entities.
+> The name `entities` comes from this document's first version and no longer fits, so
+> **0.4.0 renames it to `tables`** (`concepts[]` is unchanged). Consumers can prepare now:
+> read both keys (`tables` first, falling back to `entities`), and do not read `entities[]`
+> as a list of business entities.
+
 ## Position: an ontology **candidate**, not a business ontology
 
 - Every assertion carries a `tier` and an `evidence` list and traces back to a concrete
@@ -737,8 +746,8 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
 
 | File | Target format | Contents |
 | --- | --- | --- |
-| `ontology.linkml.yaml` | a LinkML schema | a class per entity, a slot per attribute, an enum per closed value set |
-| `ontology.shacl.ttl` | SHACL (Turtle) | an `sh:NodeShape` per entity, an `sh:property` per assertion |
+| `ontology.linkml.yaml` | a LinkML schema | a class per table entity, a slot per attribute, an enum per closed value set, plus the three concept kind bases and a class per concept |
+| `ontology.shacl.ttl` | SHACL (Turtle) | an `sh:NodeShape` per table entity, an `sh:property` per assertion, plus a node shape per concept |
 
 Nothing is exported by default; `--export` accepts `linkml` and `shacl` only, and any
 other value is an argument error (exit code 2). Both formats are emitted as text by this
@@ -768,6 +777,19 @@ the same corpus twice gives the same bytes, for the same reason `ontology.json` 
 | `findings[]` | a schema-level `sl:finding_NNN` annotation | an `sl:finding` block on the `sl:Ontology` node |
 | `open_items[]` | a schema-level `sl:open_item_<id>` annotation | an `sl:openItem` block on the `sl:Ontology` node |
 | `evidence[]` | `evidence_count` plus `evidence_task`, never the list | `sl:evidenceCount` plus `sl:evidenceTask` |
+| the three concept kinds | three abstract base classes `Entity` / `Event` / `Summary`, each with a `category` annotation | `sl:Entity` / `sl:Event` / `sl:Summary`, each `rdfs:subClassOf sl:Concept` |
+| `concepts[]` | one class per concept, `is_a` its kind's base, `title` the `name`, the description listing the name candidates and the kind tier, annotations `kind_tier` / `name_tier` / `tables` / `possible_duplicate_of` | one `sh:NodeShape` with `sh:targetClass` the concept class and `rdfs:subClassOf` the kind class, carrying `sl:concept` / `sl:kindTier` / `sl:nameTier` / `sl:conceptTable` |
+| `concepts[].attributes[]` | a slot on the concept class, `range` from the source column's type, `description` the comment, annotation `sources` naming the source columns | `sh:property` plus `sh:datatype`, one `sl:source` per source column |
+| `concept_relations[]` | a slot on the `from` concept class, `range` the `to` concept class, `multivalued` from the cardinality, annotations `relation_type` / `roles` / `tier` / `evidence_count` | `sh:property` plus `sh:class` (plus `sh:maxCount 1` for many-to-one), with `sl:relationType` / `sl:role` / `sl:evidenceCount` |
+| `concepts[].tables[]` | a `represents` annotation on the table class: `concept:<stem> (<role>)` | `sl:represents` on the node shape |
+| `concept_representation_links[]` | a `representation_link` annotation on each of the two table classes | one `sl:representationLink` on each of the two node shapes |
+| `unassigned_tables[]` | a schema-level `unassigned_tables` annotation list, each entry with its reason | `sl:unassignedTable` on the `sl:Ontology` node |
+
+An element of the concept layer carries the tier of the **fold**: the concept class and
+its attribute slots carry `concepts[].tier`, and a concept relation carries the tier of
+its cardinality. The kind bases are written only when the corpus actually folded a
+concept -- an abstract base with nothing under it reads as "this corpus has a concept
+layer", and a corpus that folded none does not.
 
 SQL types map as below, and a parameterized type is matched on its head: `decimal(18,2)`
 is `decimal` and `map<string,string>` is `map`. A type nothing recognizes lands on

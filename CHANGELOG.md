@@ -49,6 +49,31 @@
   at most 8 questions go to a person and evidence-backed confirmations are unlimited, and a
   split may never be self-answered. Output is `concepts.overrides.json` plus
   `open-questions.md`. Linked from `SKILL.md` and from `ontology-review-prompt.md`.
+- **The concept layer reaches the LinkML and SHACL exports** (K5). `--export` published
+  the table layer only, so a downstream graph that loaded it got the warehouse back and
+  not the business. It now also carries the fold: three abstract base classes
+  `Entity` / `Event` / `Summary` (annotated `continuant` / `occurrent` / `aggregate`, and
+  written only when the corpus actually folded a concept), one class per concept under
+  its kind's base -- `title` the business name, the description listing the name
+  candidates and the kind tier, annotations for `kind_tier`, `name_tier`, the member
+  tables with their roles and `possible_duplicate_of` -- concept attributes as slots
+  carrying the columns they were lifted from, and concept relations as slots on the
+  `from` class whose `range` is the `to` class, with `relation_type`, `roles`, tier and
+  evidence count. A table class now says which concept it represents and in which role,
+  a representation link lands on both of its table classes, and `unassigned_tables[]`
+  becomes a schema-level annotation so a table no concept claimed is a published fact
+  rather than a silence. SHACL mirrors all of it: `sl:Entity` / `sl:Event` / `sl:Summary`
+  under `rdfs:subClassOf sl:Concept`, an `sh:NodeShape` per concept, property shapes for
+  attributes and relations (`sh:class` the target concept, `sh:maxCount 1` for a
+  many-to-one claim), `sl:represents` on the table shapes, and `sl:tier` on every
+  concept-derived triple group -- an export with no tier reads as a validated fact, and
+  the fold is not one.
+- **Vocabulary: `entities[]` are table entities, `concepts[]` are business concepts.**
+  `entities[]` has meant "one table" since the first version of this document, which
+  reads as "business entity" to everybody who opens it for the first time. The guides
+  and both READMEs now say which is which, and **0.4.0 will rename `entities` to
+  `tables`** (`concepts[]` is unchanged). Consumers should read both keys from now on --
+  `tables` first, falling back to `entities`.
 - **Concept-level relations** (K3). `relations[]` say which two *tables* a task joined;
   a business asks whether 「消息发送」 involves 「客户」, in which role, and whether
   「客户日汇总」 aggregates the event or the entity. `ontology.json` gains

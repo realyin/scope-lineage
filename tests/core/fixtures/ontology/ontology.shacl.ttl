@@ -6,12 +6,37 @@
 # Exported from an ontology candidate over a SQL corpus. The base IRI is a placeholder;
 # every shape carries sl:tier for the assertion it came from -- read it before validating.
 
+sl:Entity
+    a rdfs:Class ;
+    rdfs:subClassOf sl:Concept ;
+    rdfs:label "Entity" ;
+    rdfs:comment "a business thing that persists through time (a continuant)" ;
+    sl:conceptKind "entity" ;
+    sl:category "continuant" .
+
+sl:Event
+    a rdfs:Class ;
+    rdfs:subClassOf sl:Concept ;
+    rdfs:label "Event" ;
+    rdfs:comment "something that happened to the business (an occurrent)" ;
+    sl:conceptKind "event" ;
+    sl:category "occurrent" .
+
+sl:Summary
+    a rdfs:Class ;
+    rdfs:subClassOf sl:Concept ;
+    rdfs:label "Summary" ;
+    rdfs:comment "a figure aggregated over entities or events (an aggregate)" ;
+    sl:conceptKind "summary" ;
+    sl:category "aggregate" .
+
 sl:dim_channelShape
     a sh:NodeShape ;
     sh:targetClass sl:dim_channel ;
     rdfs:label "dim.channel" ;
     rdfs:comment "渠道维表（合成）" ;
     sl:domain "渠道域" ;
+    sl:represents "concept:channel (primary)" ;
     sl:tier "proven" ;
     sh:property [
         sh:path sl:channel_code ;
@@ -212,6 +237,7 @@ sl:ods_channel_eventShape
     sl:domain "渠道域" ;
     sl:project "渠道分析（合成）" ;
     sl:owner "demo_owner" ;
+    sl:represents "concept:channel (reference)" ;
     sl:tier "proven" ;
     sh:property [
         sh:path sl:customer_id ;
@@ -362,7 +388,41 @@ sl:ods_usersShape
         sl:tier "proven"
     ] .
 
+sl:concept_channelShape
+    a sh:NodeShape ;
+    sh:targetClass sl:concept_channel ;
+    rdfs:subClassOf sl:Entity ;
+    rdfs:label "渠道" ;
+    rdfs:comment "kind entity (implied); name candidates: 渠道 (table_comment x1); channel (key_stem x1)" ;
+    sl:concept "concept:channel" ;
+    sl:kindTier "implied" ;
+    sl:nameTier "hypothesis" ;
+    sl:conceptTable "dim.channel -> primary (key:hypothesis)" ;
+    sl:conceptTable "ods.channel_event -> reference (reference)" ;
+    sl:tier "hypothesis" ;
+    sh:property [
+        sh:path sl:channel ;
+        sh:name "channel" ;
+        sh:datatype xsd:string ;
+        sl:source "dim.channel.channel_code" ;
+        sl:tier "hypothesis"
+    ] ;
+    sh:property [
+        sh:path sl:channel_name ;
+        sh:name "channel_name" ;
+        sh:datatype xsd:string ;
+        sl:source "dim.channel.channel_name" ;
+        sl:tier "hypothesis"
+    ] .
+
 sl:Ontology
+    sl:unassignedTable "dim.segment_dim (no_candidate_key)" ;
+    sl:unassignedTable "mart.channel_summary (key_spans_several_stems)" ;
+    sl:unassignedTable "mart.metric_by_segment (key_spans_several_stems)" ;
+    sl:unassignedTable "mart.user_names (no_candidate_key)" ;
+    sl:unassignedTable "ods.events_a (no_candidate_key)" ;
+    sl:unassignedTable "ods.events_b (no_candidate_key)" ;
+    sl:unassignedTable "ods.users (no_candidate_key)" ;
     rdfs:label "the governance items this corpus could not answer itself" ;
     sl:openItem [
         sl:id "open:rel:ods.channel_event.channel_code->dim.channel.channel_code" ;
