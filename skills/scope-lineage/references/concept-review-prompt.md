@@ -31,7 +31,8 @@ scope-lineage ontology --lineage <corpus> --out <dir> \
    `疑似重复`。**这是这一轮的工作台。**
 3. 「概念关系」表：类型、两端、参与身份、基数与层级、证据条数。
 4. 「未归入概念的表」：多少张表没有落到任何概念上，以及最常见的原因。逐表清单在
-   `ontology.json` 的 `unassigned_tables[]`。
+   `ontology.json` 的 `unassigned_tables[]`。紧跟着的「被挡下的键词根」（只在有的时候出现）
+   说哪些词根被通用键规则挡下了——**它们仍然可以被点名**，逐条在 `retired_stems[]`。
 5. 每张表卡片第 7 节开头那一行：「本表是〈概念〉的〈角色〉视图（〈依据〉）」，或者
    「未归入任何概念（〈原因〉）」。**核对折叠对不对，看这一行最快。**
 6. 完整字段（`kind_evidence[]` 的逐条投票、`name_candidates[]` 的来源与出现次数、
@@ -109,9 +110,22 @@ scope-lineage ontology --lineage <corpus> --out <dir> \
 表同时带着两个键），但**身份只有一个**：这张表如果已经被自己的键放在某个概念上，再加到别的
 概念只是「带着这个键」，不会把身份抢过去。
 
+### 补：新建概念（语料一个也没发芽，你却看得出来）
+
+`add_tables` 需要先有一个概念可加。**一个都没有**的时候用 `new_concepts`：这一件东西的每张表
+都只有代理键（`id`、`rowkey`），谁也没发芽，而卡片里看得出它们说的是同一件事。写 `id`
+（`concept:<小写词根>`，没人用过）、`name`、`kind`、`tables`（表 → 角色），可选 `key_columns`。
+建出来的概念三个层级全是 `confirmed`、`origin` 是 `override`，成员也从 `unassigned_tables[]`
+里消失。已经被自己的键放在别的概念上的表只能给 `reference` 角色，否则报 `already_a_member`。
+
+`ontology.md` 的「被挡下的键词根」/ `retired_stems[]` 是同一件事的另一半：某个词根这一版被
+通用键规则挡下了，**上一轮你对 `concept:<那个词根>` 写的答案照写不误**——`concepts` 里直接用
+那个 id，它会按 `retired_stems[]` 记下的表与角色把概念建回来，报在 `created[]` 里带
+`revived: true`，而不是报 `unknown_concept`。判定规则会改，评审的答案不该跟着作废。
+
 ## 凭证据自答：Agent 先答，剩下的才去问人
 
-只有下面四类证据可以自答，别的都不行：
+只有下面六类证据可以自答，别的都不行：
 
 | # | 可自答 | 证据 | 写进 `basis` 的话术 |
 | --- | --- | --- | --- |
@@ -120,10 +134,13 @@ scope-lineage ontology --lineage <corpus> --out <dir> \
 | 3 | 角色 | 该表在 `tables[]` 里的 `membership_basis` 与卡片第 2 节的 grain 直接矛盾（例如 grain 证明它是按天聚合的，却被读成 `primary`） | `生产任务 <任务名> 的 grain 为 <basis>，本表是汇总而非主表` |
 | 4 | 合并 | 两个概念的**词根经 O5 同义证明同值**（`entities[].attributes[].synonyms[]` 里有一条把两个键列连起来），不是名字像 | `O5 已证明 <表A>.<列A> 与 <表B>.<列B> 同值` |
 | 5 | 种类（只有词汇线索） | `kind_evidence[]` 里 `signal` 全是 `word_hint` 或 `no_signal`，几条 `word_hint` **投的是同一票**，且 `kind_tier` 为 `implied` | `仅词汇线索一致：<N> 处词汇都投 <种类>，没有结构信号反对` |
+| 6 | 角色 / 成员 | 某张表的**表注释**同时命名了**概念**与**粒度**（「客户日快照」＝客户的快照，「客户还款明细」＝客户的明细）——那正是 `role` 与 `add_tables` 读的东西 | `表注释命名了概念与粒度：<表> 的注释 <原注释> 说它是 <概念> 的 <角色>` |
 
 - 自答一律写进 `concepts.overrides.json`，**每条都必须带 `basis`**；`confirmed_by` 写
   `agent:concept-review` 之类的 Agent 标识。
-- 证据 1 只能确认**名字**，不能顺手把种类也确认了；证据 2 与证据 5 只能确认**种类**。
+- 证据 1 只能确认**名字**，不能顺手把种类也确认了；证据 2 与证据 5 只能确认**种类**；
+  证据 6 只能确认**角色或成员**（`roles` / `add_tables` / `new_concepts` 的一条成员），
+  不能顺手把名字或种类也确认了——注释里的「客户」是命名候选，不是被确认的名字。
 - 证据 5 比证据 2 弱，所以它多一条限制：`kind_tier` 是 `hypothesis`（几处词提示投了不同的
   票）时**一条都不许自答**，那是下面「只问四类」的第 1 类。
 - **拆分永远不许自答。** 把一个概念拆成两件事是业务判断，语料里没有任何东西能证明它。
@@ -147,7 +164,8 @@ scope-lineage ontology --lineage <corpus> --out <dir> \
 又写成问题）、某一列的中文含义（走 `glossary.overrides.template.md`）、
 表的候选键与基数（那是 `ontology-review-prompt.md` 那一轮的事）、
 `unassigned_tables[]` 里的表（它们没有概念可问；你自己看得出它属于哪个概念的，用
-`add_tables` 加上去，看不出的先补元数据或补语料）。
+`add_tables` 加上去，看得出它们自成一个概念而语料一个也没发芽的用 `new_concepts`，
+两样都看不出的先补元数据或补语料）。
 
 ## 每条固定五行加一行留白
 
@@ -199,6 +217,18 @@ Q<n>. <一句问题，业务方不看 SQL 也能懂>
       "date": "<YYYY-MM-DD>"
     }
   },
+  "new_concepts": [
+    {
+      "id": "concept:party",
+      "name": "往来方",
+      "kind": "entity",
+      "tables": {"ods.party_base": "primary", "ods.cust_base": "reference"},
+      "key_columns": ["party_no"],
+      "basis": "<凭什么，自由文本>",
+      "confirmed_by": "<名字或 agent:…>",
+      "date": "<YYYY-MM-DD>"
+    }
+  ],
   "splits": [
     {
       "from": "concept:acct",
@@ -225,9 +255,14 @@ Q<n>. <一句问题，业务方不看 SQL 也能懂>
   那个概念的边会自动改指过来。
 - `splits[].into[]` 逐表点名，新概念是 `concept:<词根>-1`、`-2`，按文件顺序编号；
   没被点名的表留在原概念上。
+- `new_concepts[]` 新建一个语料没发芽的概念（见上面「补：新建概念」）。`id` 要没人用过、且形如
+  `concept:<小写词根>`，否则报 `already_a_concept:` / `invalid_concept_id:`；一张表都没点
+  报 `no_tables`。**新建在合并与拆分之前生效**，所以后面几步点得到它。
+- `concepts` 的键若是 `retired_stems[]` 里的某个词根，那一条按记下的表与角色把概念建回来，
+  报在 `created[]` 里带 `revived: true`。
 
-跑完检查三件事：`concept_overrides_applied.concepts` / `tables_added` / `merges` /
-`splits` 的条数与你合并的条数相等；`concept_overrides_applied.unmatched` 为空——非空说明某个 id 或表名抄错了，`reason`
+跑完检查三件事：`concept_overrides_applied.concepts` / `created` / `tables_added` /
+`merges` / `splits` 的条数与你合并的条数相等；`concept_overrides_applied.unmatched` 为空——非空说明某个 id 或表名抄错了，`reason`
 直接说错在哪（`unknown_concept` / `unknown_concept: <id>` / `unknown_table: <表>` /
 `unknown_kind: <值>` / `unknown_role: <值>` / `already_a_member: <表>` /
 `merge_into_self`）；
@@ -243,8 +278,10 @@ Q<n>. <一句问题，业务方不看 SQL 也能懂>
 | 4 | 正文没有把 `hypothesis` 的候选写成事实 | |
 | 5 | 去问人的总数 ≤ 8 条，超出的进「备查项」 | |
 | 6 | 每条都有 `- 答案：（待填）` 行 | |
-| 7 | 凭证据自答只用了表里那五类证据，且每条都写了 `basis` | |
+| 7 | 凭证据自答只用了表里那六类证据（含证据 6：表注释命名了概念与粒度），且每条都写了 `basis` | |
 | 8 | 没有自答任何一个拆分，也没有把只有 `key_stem` 来源的名字自答掉 | |
 | 9 | 没有问成员角色、没有问 `implied` 的种类、没有问键与基数（那是另一轮） | |
 | 10 | 跑完 `--concept-overrides` 后 `unmatched` 与 `ignored_fields` 都是空的 | |
 | 11 | 只有 `word_hint` 的种类：一致且 `implied` 的已按「仅词汇线索一致」自答，只有打架的或 `hypothesis` 的才去问人 | |
+| 12 | 新建的概念 id 都是没人用过的 `concept:<小写词根>`，成员表里没有一张是别的概念**按身份**收下的（那种只能给 `reference`） | |
+| 13 | `retired_stems[]` 里的词根若有上一轮的答案，已经照原 id 写进 `concepts`，没有当成 `unknown_concept` 丢掉 | |

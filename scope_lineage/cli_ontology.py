@@ -96,8 +96,9 @@ def add_ontology_parser(subcommands) -> None:
         "--concept-overrides",
         help=(
             "A reviewed concepts.overrides.json (concept-overrides/1): the confirmed "
-            "concept names, kinds, member roles, merges and splits. Applied after the "
-            "concept layer is built and before the concept relations are folded, so a "
+            "concept names, kinds, member roles, the concepts it creates, the merges "
+            "and the splits. Applied after the concept layer is built and before the "
+            "concept relations are folded, so a "
             "merge moves that concept's edges too; anything it names that the corpus "
             "does not contain is reported in concept_overrides_applied.unmatched"
         ),
@@ -319,7 +320,9 @@ def _concept_confirmations(ontology: dict, concept_overrides) -> str:
         return ""
     applied = ontology["concept_overrides_applied"]
     return (
-        f", reviewed {applied['concepts']} concept(s), {applied['merges']} merge(s) "
+        f", reviewed {applied['concepts']} concept(s), "
+        f"created {len(applied['created'])}, tables_added {applied['tables_added']}, "
+        f"{applied['merges']} merge(s) "
         f"and {applied['splits']} split(s), {len(applied['unmatched'])} unmatched"
     )
 

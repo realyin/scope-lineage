@@ -193,7 +193,12 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
     {"table": "ods.staging_rows", "reason": "generic_key_only"}   // 只有 id 这类通用键
                                                                  // 既没有键与线索，也没有 JOIN 关联
   ],
-  "concept_overrides_applied": {"concepts": 0, "tables_added": 0,         // K4b
+  "retired_stems": [                             // K4c：被通用键规则挡下的键词根
+    {"stem": "rowkey", "tables": [{"table": "ods.rows_a", "role": "primary",
+                                   "key_columns": ["rowkey"]}]}
+  ],
+  "concept_overrides_applied": {"concepts": 0, "created": [],             // K4b / K4c
+                                "tables_added": 0,
                                 "merges": 0, "splits": 0,
                                 "unmatched": [], "ignored_fields": []},
   "relations": [
@@ -226,8 +231,10 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
     {"concept": "concept:cust", "from_table": "dwd.customer_df",
      "to_table": "ods.customer_base", "evidence": ["rel:005"]}
   ],
-  "concept_relations_unmapped": {"total": 1,  // 哪一端没答上来，分开计数
-     "by_reason": {"from_table_unplaced": 1, "to_table_unplaced": 0}},
+  "concept_relations_unmapped": {"edges_total": 5, "mapped": 4,  // 固定分母，两次运行可比
+     "total": 1,                              // 哪一端没答上来，分开计数
+     "by_reason": {"from_table_unplaced": 1, "to_table_unplaced": 0,
+                   "reference_only_edge": 0}},
   "constraints": [
     {"target": {"entity": "ods.orders", "column": "state"}, "kind": "in_set",
      "tier": "proven", "values": ["NEW", "PAID"], "completeness": "complete",
@@ -291,6 +298,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 | `concepts[].name`、`name_tier`、`name_candidates[]` | 文本；`hypothesis` 或（评审确认后）`confirmed`；`text` / `source` / `count` / `name_evidence[]` | K2：候选名按 `count` 降序、再按来源顺序（键列注释 → 表注释 → 键词根）排，`name` 是第一条；注释是元数据，会过期，所以语料自己永远给不出高于 `hypothesis` 的名字。K4b 确认之后 `name_tier` 升到 `confirmed`，被确认的那个名字排到候选第一条、`source` 写 `override`（语料也提过这个名字时，那一条保留它的 `name_evidence` 只换来源） |
 | `concepts[].possible_duplicate_of[]` | 概念 id 列表 | K2：另有概念的首选名与本概念一字不差；**不合并**，两边互相指，留给评审那一轮判。没有同名时这个键不出现 |
 | `unassigned_tables[]` | `table` + `reason`（`no_candidate_key` / `generic_key_only` / `key_spans_several_stems`） | K1：没能落到任何概念上的表，以及落不下去的原因——「判不出来」也是一个答案。评审看得出它属于哪个概念时，用 K4b 的 `add_tables` 放进去，那张表就从这份清单里消失 |
+| `retired_stems[]` | `stem` + `tables[]`（`table` / `role` / `key_columns[]`） | K4c：被通用键规则（通用词根清单、日志与链路 id、注释规则）挡下的键词根——语料里确实有表按它做候选键，没有这条规则它就会长出一个概念。发布出来是为了让上一轮评审对 `concept:<词根>` 写下的答案在规则改动之后仍然找得到落点：`concepts.overrides.json` 里点它的名，就按这里记下的表与角色把概念建回来（见下面「概念确认回写」） |
 | `relations[].id` | `rel:NNN` | 排序后编号，同一份语料稳定 |
 | `relations[].kind` | `join_association` / `union_sibling` / `hinted` | JOIN 键对，或同一 UNION 的兄弟分支；`hinted` 是 O9 只由列注释提出、语料里没有任何任务写过的边（`task_count` 为 0，`join_types` 为空） |
 | `relations[].cardinality.claim` | `one_to_many` / `many_to_one` / `many_to_one_assumed` / `one_to_one_assumed` / `unknown` | O2，方向为 `from` → `to`；`one_to_one_assumed` 只可能来自人工确认 |
@@ -304,7 +312,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 | `concept_relations[].roles[]` | 文本列表 | K3：仅 `participation`——实体在事件里扮演的角色，取自本端列注释（按键注释的规则掐后缀：发送方编号 → 发送方），注释说不出就用列名。一组里可能有好几个（发送方与接收方是同一对概念的两条边） |
 | `concept_relations[].cardinality` | `claim` / `tier` / `basis[]` | K3：组内最强的那条表级断言——先比层级（`proven` > `confirmed` > `implied` > `hypothesis`），同级里确定的断言压过 `unknown`；`basis[]` 写明这条断言由哪几条表级关系给出 |
 | `concept_representation_links[]` | `concept` + `from_table` + `to_table` + `evidence[]` | K3：两端落到同一个概念、而两张表都是它的表现（快照 JOIN 自己的主表）——那是 K1 折叠的接缝，不是业务关系，所以单独出一节 |
-| `concept_relations_unmapped` | `total` + `by_reason`（`from_table_unplaced` / `to_table_unplaced`） | K3：没能折下去的表级关系条数，按**哪一端**没答上来分开计；先问 `from`，所以两端都答不出来的边只记在 `from_table_unplaced` 上。折错了比没折更糟 |
+| `concept_relations_unmapped` | `edges_total` + `mapped` + `total` + `by_reason`（`from_table_unplaced` / `to_table_unplaced` / `reference_only_edge`） | K3：没能折下去的表级关系条数，按**哪一端**没答上来分开计；先问 `from`，所以两端都答不出来的边只记在 `from_table_unplaced` 上；两端都答上来、却从没走在那个键上的边记在 `reference_only_edge`。折错了比没折更糟。`edges_total` 是这次折叠读到的全部表级关系、`mapped` 是折下去的条数：**`by_reason` 会随着表被放进概念而移动**（一条 `from_table_unplaced` 在评审把那张表放好之后就变成一条折下去的边），所以分母跟着一起发布，两次运行才比得了 |
 | `constraints[].kind` | `not_null` / `in_set` / `unique_per` / `partition` | O6 |
 | `constraints[].values`、`completeness` | 取值列表、`complete` / `unknown` | 仅 `in_set`：只有封闭 `IN` 列表或穷尽 CASE 才是 `complete` |
 | `constraints[].columns` | 列名列表 | 仅 `unique_per`：候选键 + 分区列 |
@@ -322,7 +330,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 | `open_item_groups[].write_back_pattern` | `键:<table>=<列+列>` / `关系:<本端>.<列+列>-><table>.<列+列>` / `null` | 这一组的回写键，`<table>` 是这一组问的那张表（关系是对端）；本端在组内不一致时写成 `<from_table>` / `<from_columns>`。答一次，再按族里的表逐个套用；没有单一回写目标的发现写 `null` |
 | `finding_groups[]` | 与 `open_item_groups[]` 同形 | `open_item_groups[]` 中 `kind` 为 `finding` 的子集，单独发布是因为索引的「待人工判定」表只渲染它们 |
 | `overrides_applied` | `relations` / `keys` / `unmatched` / `ignored_fields` | 本次合并了几条人工确认，哪些确认在语料里找不到对应项，以及哪些字段本版本读不懂 |
-| `concept_overrides_applied` | `concepts` / `tables_added` / `merges` / `splits` / `unmatched` / `ignored_fields` | K4b：`concepts.overrides.json` 这一轮生效了几条字段确认、加进了几张成员表、几次合并、几次拆分，以及哪些 id、表名或字段名在语料里找不到对应项 |
+| `concept_overrides_applied` | `concepts` / `created[]` / `tables_added` / `merges` / `splits` / `unmatched` / `ignored_fields` | K4b/K4c：`concepts.overrides.json` 这一轮生效了几条字段确认、新建了哪几个概念（`created[]` 一条一个 `{id, tables[]}`，被唤回的退役词根多一个 `revived: true`）、加进了几张成员表、几次合并、几次拆分，以及哪些 id、表名或字段名在语料里找不到对应项 |
 
 ## 推断规则
 
@@ -356,6 +364,7 @@ K1/K2 就在表级本体之上折出这一层：**实体应该是「客户」，
 | 4 | **元数据线索**：一条候选键都落不下来时，看 `identity.declared_hints[]`——列注释把某列称作主键/唯一键，同样按词根发芽，成员基准写 `declared_hint` |
 | 5 | **JOIN 参与**：一条关系（`join_association` / `hinted`）的**对端**列归到某个概念的词根 → 本端实体以 `reference` 加入那个概念。事件表永远不会按「客户」唯一，它只是**带着**客户号；那正是它参与「客户」的方式。`reference` 成员刻意是最弱的一种：既不给种类投票，也不贡献属性 |
 | 6 | **落不下去**：键全是通用词根、键跨了两个词根、既没有键也没有线索，而且没有任何 JOIN 关联到某个概念 → 这张表进 `unassigned_tables[]`，并写明原因 |
+| 7 | **被挡下的词根记名**（K4c）：第 2 条挡下的词根若真的是某张表的候选键，它连同那几张表与角色进 `retired_stems[]`——判定是会改的，而上一轮评审对 `concept:<词根>` 写下的答案不该因为规则改了就变成 `unknown_concept`。点名它就能把概念建回来（见「概念确认回写」的 `new_concepts`） |
 
 ### 成员角色
 
@@ -421,6 +430,19 @@ K1/K2 就在表级本体之上折出这一层：**实体应该是「客户」，
 是对端列没命中词根、对端表也没有自己的身份。先问 `from`，所以两端都答不出来的边只计一次，
 记在 `from_table_unplaced` 上。折错了比没折更糟。
 
+两端都答上来也可能什么都没说：`reference_only_edge` 是**从没走在那个键上**的边（K4c）。
+两种形状，一条规则——一张表 JOIN **它自己**（层级列自连、去重回连），或者本端表只是
+**带着**对端概念的键（`reference` 成员，没有任何一条非 `reference` 的成员身份放它进去），
+而这条边用的列又归不到那个概念的词根上。这种边不发布，计在 `reference_only_edge` 上：
+它只是因为对端表恰好是那个概念的一份副本才够得着它。真的走在键上的自连接——上级客户 →
+客户 写在 `cust_no` 上——两端有一端的列命中了词根，仍然是那条 `self_reference`。
+
+`concept_relations_unmapped` 同时发布分母：`edges_total` 是这次折叠读到的全部表级关系，
+`mapped` 是折下去的条数（含折成 `concept_representation_links[]` 的接缝），`total` 与
+`by_reason` 是剩下的。**`by_reason` 会随着表被放进概念而移动**——一条 `from_table_unplaced`
+在评审用 `add_tables` 或 `new_concepts` 把那张表放好之后就变成一条折下去的边——所以只有
+带着固定分母读，两次运行的数字才比得了。
+
 类型只看两端概念的 `kind`，不看词：
 
 | 类型 | 两端 | 含义 |
@@ -460,6 +482,7 @@ JOIN 它**自己**是另一回事，仍然是 `self_reference`。
 | 概念表 | 一行一个概念：名字**与它的层级**（「授信合同（`confirmed`）」是评审确认过的，「合同（`hypothesis`）」是作者假设——两者读起来必须不一样）、种类与它的层级、表数（按 `role` 拆开计数，**不**逐个列表名）、前三个命名候选（`CONCEPT_NAME_CANDIDATES_SHOWN`）、`疑似重复` 指向的概念 id |
 | 概念关系表 | 一行一条：类型、两端的概念名、参与身份、基数与它的层级、证据条数 |
 | 未归入概念的表 | 一行：多少张表没有归入任何概念，最常见的三个原因（`UNASSIGNED_REASONS_SHOWN`）各几张；逐表清单指回 `ontology.json` 的 `unassigned_tables[]` |
+| 被挡下的键词根 | 只在真的有的时候出现：多少个词根被通用键规则挡下、前三个是什么，以及**它们仍然可以被点名**——在 `concepts.overrides.json` 里写 `concept:<词根>` 就把概念建回来。逐条指回 `ontology.json` 的 `retired_stems[]` |
 
 表卡第 7 节「身份（本体）」也跟着在开头多一行，说这张表是哪个概念的哪一份副本、凭什么进来：
 「本表是「客户」（`concept:cust`，实体）的主表视图（`key:proven`）。」一张表可以同时是两个
@@ -612,6 +635,18 @@ erDiagram
       "date": "2026-09-22"
     }
   },
+  "new_concepts": [
+    {
+      "id": "concept:party",
+      "name": "往来方",
+      "kind": "entity",
+      "tables": {"ods.party_base": "primary", "ods.cust_base": "reference"},
+      "key_columns": ["party_no"],
+      "basis": "no key seeded it; the card shows every table keyed by a surrogate",
+      "confirmed_by": "agent:concept-review",
+      "date": "2026-09-22"
+    }
+  ],
   "splits": [
     {
       "from": "concept:acct",
@@ -632,16 +667,20 @@ erDiagram
 | `roles` | `{"<表>": "<角色>"}` | 把某张成员表改成另一个角色，取值是 K1 的六个之一；那一条成员多一个 `role_tier: "confirmed"` |
 | `add_tables` | `{"<表>": "<角色>"}` | 把一张本语料的表**加进**这个概念（`roles` 只能移动已经在册的成员）。那张表必须在 `entities[]` 里，角色仍是那六个之一；成员的 `membership_basis` 是 `override`、`role_tier` 是 `confirmed`，它的列并进概念的 `attributes[]`，它也从 `unassigned_tables[]` 里消失。一张表可以加进好几个概念（一张明细表同时带着两个键），但**身份只有一个**：已经被自己的键放在某个概念上的表，再被加到别的概念只是「带着这个键」，K3 折边时仍按它自己的那个概念算。这一步在概念关系折叠之前，所以从这张表出发的 JOIN 会折到评审点名的那个概念上 |
 | `merge_into` | 另一个概念 id | 把本概念折进那一个：表、属性与键词根都并过去，本概念的 id 记进对方的 `merged_from[]` |
+| `new_concepts[]` | `{id, name, kind, tables, key_columns?, …}` | K4c：**新建**一个语料没能发芽的概念。`id` 必须没人用过、且形如 `concept:<小写词根>`（否则报 `already_a_concept: <id>` / `invalid_concept_id: <id>`）；`tables` 的键是本语料的表、值是它的角色，已经被别的概念**按身份**收下的表只能给 `reference` 角色（否则报 `already_a_member: <表>`）。建出来的概念 `tier` / `name_tier` / `kind_tier` 全是 `confirmed`、`origin` 是 `override`，`identity.stem` 取 id 里的词根，`identity.columns_seen` 取 `key_columns` 或那几张表共有的键列，属性来自成员表，成员表也从 `unassigned_tables[]` 里消失。它在合并与拆分**之前**、也在概念关系折叠之前生效 |
+| 被点名的退役词根 | `concepts` 里的键写 `concept:<retired_stems[] 里的词根>` | K4c：这个词根本轮没发芽，但它在 `retired_stems[]` 里——那一条就按记下的表与角色当成一条隐式的 `new_concepts` 执行，报在 `created[]` 里并带 `revived: true`，而不是报 `unknown_concept`。**规则改了，上一轮评审的答案不作废**，靠的就是这一条 |
 | `splits[]` | `{"from": …, "into": [{"name", "tables"}]}` | 把一个概念按表拆开，新概念 id 是 `concept:<词根>-<n>`，按 `into[]` 的顺序编号；没被点名的表留在原概念上，全被点走原概念就不再发布 |
 | `confirmed_by`、`date` | 自由文本 | 谁在什么时候确认的；Agent 自答写 `agent:<名字>`，不冒充人 |
 | `basis`、`note` | 自由文本 | 确认的依据与备注，发布在概念的 `confirmation` 里（`basis` 发布成 `confirmed_basis`——成员上的 `membership_basis` 是机器 token，一个词不能同时装词表和句子） |
-| `concept_overrides_applied.concepts` / `tables_added` / `merges` / `splits` | 整数 | 分别生效了几条字段确认、加进了几张成员表、几次合并、几次拆分 |
-| `concept_overrides_applied.unmatched` | `{"key": …, "reason": …}` 列表 | 在语料里找不到对应项的确认——不丢弃，列出来；`reason` 取 `unknown_concept` / `unknown_concept: <id>` / `unknown_table: <表>` / `unknown_kind: <值>` / `unknown_role: <值>` / `already_a_member: <表>`（`add_tables` 点了一张已经是成员的表——用 `roles` 改它的角色）/ `merge_into_self` |
+| `concept_overrides_applied.concepts` / `created[]` / `tables_added` / `merges` / `splits` | 整数与列表 | 分别生效了几条字段确认、新建了哪几个概念（一条一个 `{id, tables[]}`，唤回的退役词根多一个 `revived: true`）、加进了几张成员表、几次合并、几次拆分 |
+| `concept_overrides_applied.unmatched` | `{"key": …, "reason": …}` 列表 | 在语料里找不到对应项的确认——不丢弃，列出来；`reason` 取 `unknown_concept` / `unknown_concept: <id>` / `unknown_table: <表>` / `unknown_kind: <值>` / `unknown_role: <值>` / `already_a_member: <表>`（`add_tables` 或 `new_concepts` 点了一张已经被身份收下的表——用 `roles` 改它的角色，或给它 `reference`）/ `merge_into_self` / `already_a_concept: <id>` / `invalid_concept_id: <id>` / `no_tables`（`new_concepts` 的一条一张表都没点） |
 | `concept_overrides_applied.ignored_fields` | `{"key": …, "fields": ["…"]}` 列表 | 本版本读不懂的字段（多半是拼错的槽位名）——列出来而不是悄悄丢掉；文档自身的多余键记在 `(document)` 名下 |
 
-**顺序是有意的**：先字段（名字、种类、角色、加成员表），再合并，最后拆分——评审就是按这个顺序想的，
-而合并与拆分会改变成员表。整套**在 K3 折叠概念关系之前**执行，所以一次合并会把被合掉那个
-概念的边一起搬过去，而不是把它们留在一个已经不再发布的 id 上。
+**顺序是有意的**：先新建概念（`new_concepts` 与被点名的退役词根），再字段（名字、种类、角色、
+加成员表），再合并，最后拆分——评审就是按这个顺序想的，而合并与拆分会改变成员表，新建的概念
+则要先在册，后面几步才点得到它。整套**在 K3 折叠概念关系之前**执行，所以一次合并会把被合掉那个
+概念的边一起搬过去，而不是把它们留在一个已经不再发布的 id 上，而从新建概念的表出发的那些 JOIN
+也会折到评审新建的那个概念上。
 
 ## 与 OWL / SHACL / LinkML 的槽位对应
 

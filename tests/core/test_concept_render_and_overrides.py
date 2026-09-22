@@ -686,6 +686,7 @@ def test_the_overrides_report_is_present_even_when_nothing_was_reviewed() -> Non
 
     assert ontology["concept_overrides_applied"] == {
         "concepts": 0,
+        "created": [],
         "tables_added": 0,
         "merges": 0,
         "splits": 0,
@@ -773,7 +774,10 @@ def test_the_cli_applies_a_reviewed_concept_overrides_file(tmp_path: Path, capsy
     concept = next(item for item in ontology["concepts"] if item["id"] == "concept:cust")
     assert concept["name"] == "客户" and concept["name_tier"] == TIER_CONFIRMED
     assert ontology["concept_overrides_applied"]["concepts"] == 1
-    assert "reviewed 1 concept(s), 0 merge(s) and 0 split(s)" in capsys.readouterr().out
+    assert (
+        "reviewed 1 concept(s), created 0, tables_added 0, 0 merge(s) and 0 split(s)"
+        in capsys.readouterr().out
+    )
     assert f"| 客户（`{TIER_CONFIRMED}`） |" in (out / "ontology.md").read_text(
         encoding="utf-8"
     )
