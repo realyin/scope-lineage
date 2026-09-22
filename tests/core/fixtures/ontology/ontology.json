@@ -683,6 +683,122 @@
       "size": 1
     }
   ],
+  "concepts": [
+    {
+      "id": "concept:channel",
+      "name": "渠道",
+      "name_tier": "hypothesis",
+      "name_candidates": [
+        {
+          "text": "渠道",
+          "source": "table_comment",
+          "count": 1,
+          "name_evidence": [
+            {
+              "table": "dim.channel"
+            }
+          ]
+        },
+        {
+          "text": "channel",
+          "source": "key_stem",
+          "count": 1,
+          "name_evidence": []
+        }
+      ],
+      "kind": "entity",
+      "kind_tier": "implied",
+      "kind_evidence": [
+        {
+          "signal": "word_hint",
+          "vote": "entity",
+          "table": "dim.channel",
+          "detail": "dim.channel 渠道维表（合成）"
+        }
+      ],
+      "identity": {
+        "stem": "channel",
+        "columns_seen": [
+          "channel_code"
+        ]
+      },
+      "tables": [
+        {
+          "table": "dim.channel",
+          "role": "primary",
+          "membership_basis": "key:hypothesis",
+          "key_columns": [
+            "channel_code"
+          ],
+          "grain": null
+        },
+        {
+          "table": "ods.channel_event",
+          "role": "reference",
+          "membership_basis": "reference",
+          "key_columns": [
+            "channel_code"
+          ],
+          "grain": null
+        }
+      ],
+      "attributes": [
+        {
+          "stem": "channel",
+          "type": null,
+          "comment": null,
+          "sources": [
+            {
+              "table": "dim.channel",
+              "column": "channel_code"
+            }
+          ]
+        },
+        {
+          "stem": "channel_name",
+          "type": null,
+          "comment": null,
+          "sources": [
+            {
+              "table": "dim.channel",
+              "column": "channel_name"
+            }
+          ]
+        }
+      ],
+      "tier": "hypothesis"
+    }
+  ],
+  "unassigned_tables": [
+    {
+      "table": "dim.segment_dim",
+      "reason": "no_candidate_key"
+    },
+    {
+      "table": "mart.channel_summary",
+      "reason": "key_spans_several_stems"
+    },
+    {
+      "table": "mart.metric_by_segment",
+      "reason": "key_spans_several_stems"
+    },
+    {
+      "table": "mart.user_names",
+      "reason": "no_candidate_key"
+    },
+    {
+      "table": "ods.events_a",
+      "reason": "no_candidate_key"
+    },
+    {
+      "table": "ods.events_b",
+      "reason": "no_candidate_key"
+    },
+    {
+      "table": "ods.users",
+      "reason": "no_candidate_key"
+    }
+  ],
   "relations": [
     {
       "id": "rel:001",

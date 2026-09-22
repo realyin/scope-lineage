@@ -179,6 +179,35 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
   "families": [
     {"family": "ods.pay", "tables": ["ods.pay_df", "ods.pay_di"], "size": 2}
   ],
+  "concepts": [
+    {"id": "concept:cust", "name": "客户", "name_tier": "hypothesis",
+     "name_candidates": [
+       {"text": "客户", "source": "key_column_comment", "count": 2,
+        "name_evidence": [{"table": "ods.customer_base", "column": "cust_no"}]},
+       {"text": "cust", "source": "key_stem", "count": 1, "name_evidence": []}],
+     "possible_duplicate_of": ["concept:customer"],   // another concept proposed the same name
+     "kind": "entity", "kind_tier": "implied",
+     "kind_evidence": [{"signal": "word_hint", "vote": "entity",
+                        "table": "ods.customer_base",
+                        "detail": "ods.customer_base 客户信息表"}],
+     "identity": {"stem": "cust", "columns_seen": ["cust_no", "customer_id"]},
+     "tables": [{"table": "dwd.customer_df", "role": "primary",
+                 "membership_basis": "key:proven",
+                 "key_columns": ["cust_no"], "grain": "group_by"},
+                {"table": "ods.customer_base", "role": "primary",
+                 "membership_basis": "declared_hint",
+                 "key_columns": ["cust_no"], "grain": null},
+                {"table": "dwd.message_send_di", "role": "reference",
+                 "membership_basis": "reference",
+                 "key_columns": ["cust_no"], "grain": null}],
+     "attributes": [{"stem": "cust", "type": "string", "comment": "客户编号",
+                     "sources": [{"table": "ods.customer_base", "column": "cust_no"}]}],
+     "tier": "implied"}
+  ],
+  "unassigned_tables": [
+    {"table": "ods.staging_rows", "reason": "generic_key_only"}   // keyed by `id` alone,
+                                                                 // and no hint and no JOIN placed it
+  ],
   "relations": [
     {"id": "rel:001",
      "from": {"entity": "ods.driver", "columns": ["id"]},
@@ -253,6 +282,14 @@ Slot by slot (every slot `ontology-json/1` publishes):
 | `entities[].attributes[].synonyms[].via` | `direct_rename` / `union_alignment` | O5: two column names for one value |
 | `entities[].attributes[].samples[]` | array of strings | A6: the table card's sample values, carried across unchanged — they come only from a file passed to `tables --samples` (already redacted and cut), and the key is absent when that column has none |
 | `families[]` | `family` + `tables[]` + `size` | Q3: every table family the corpus names and the tables inside it, sorted by `family`; read it before answering a group, to check that the family really is one table written several times |
+| `concepts[]` | `id` / `name` / `kind` / `identity` / `tables[]` / `attributes[]` / `tier` | K1: the tables that share one business key, folded into one concept; `entities[]` stay the table-level representations a concept merely points at (rules under "The concept layer" below) |
+| `concepts[].kind`, `kind_tier`, `kind_evidence[]` | `entity` / `event` / `summary`; one of the five tiers; one vote per signal | K1: signals that agree earn `implied`, signals that disagree earn `hypothesis`, and every signal's vote is published as it was cast |
+| `concepts[].tables[].role` | `primary` / `snapshot` / `detail` / `summary` / `intermediate` / `reference` | K1: which copy of the concept this table is; `reference` is a table that is not unique by the key but *carries* it, which is how an event table takes part in 客户 |
+| `concepts[].tables[].membership_basis` | `key:<tier>` / `declared_hint` / `reference` | K1: what makes this table a member -- a candidate key the corpus read (carrying its own tier), a primary-key hint the catalog declared, or a JOIN |
+| `concepts[].identity` | `stem` + `columns_seen[]` | K1: the concept's key stem, and the key columns the corpus reduced to it |
+| `concepts[].name`, `name_tier`, `name_candidates[]` | text; always `hypothesis`; `text` / `source` / `count` / `name_evidence[]` | K2: candidates ranked by `count` desc, then by source order (key column comment → table comment → key stem); `name` is the first of them, and a comment is metadata that goes stale, so it never rises above `hypothesis` |
+| `concepts[].possible_duplicate_of[]` | concept ids | K2: another concept's first name candidate is the same word. They are **not** merged; both point at each other and the review round decides. The key is absent when nothing else claimed the name |
+| `unassigned_tables[]` | `table` + `reason` (`no_candidate_key` / `generic_key_only` / `key_spans_several_stems`) | K1: the tables no concept could take, and why -- "we could not tell" is an answer |
 | `relations[].id` | `rel:NNN` | numbered after sorting, stable for one corpus |
 | `relations[].kind` | `join_association` / `union_sibling` / `hinted` | a JOIN key pair, or two branches of one UNION; `hinted` is O9's edge -- proposed by a column comment and written by no task in the corpus (`task_count` 0, empty `join_types`) |
 | `relations[].cardinality.claim` | `one_to_many` / `many_to_one` / `many_to_one_assumed` / `one_to_one_assumed` / `unknown` | O2, in the direction `from` → `to`; `one_to_one_assumed` can only come from a human confirmation |
@@ -290,6 +327,83 @@ Slot by slot (every slot `ontology-json/1` publishes):
 | O7 conflicts | "deduplicated" and "joined directly" on the same (table, key set) → `cardinality_conflict`; two `hypothesis` candidate keys on one table where one is a strict subset of the other or the two are disjoint → `competing_candidate_keys` (at most one of them is the identity); the cards' `producer_key_conflict` and `ambiguous_bare_name` are carried over verbatim |
 | O8 metadata key hints | a column comment holding `主键` / `唯一键` / `唯一编号` / `主键id` / `primary key` / `unique` (case-insensitive) → `declared_hints`; a hint that agrees with a `hypothesis` candidate key (hint columns are a subset of the key's) raises that key to `implied` (comment and structure are two independent sources pointing at one column); candidate keys that are all `hypothesis` and none of which hold the hinted column → `key_hint_conflict` |
 | O9 comment relation hints | a column comment pointing at `<table>.<column>` or `<表> 的 <列>` with `关联` / `对应` / `引用` / `见` / `外键` / `FK` / `references` / `->` (case-insensitive; the table name is matched by the cards' own dotted-suffix rule, case-folded, and a bare name resolves only when one entity could be it) → `relation_hints[]`; a `hypothesis` relation already published for the same (from entity, to entity) and the same column pair → raised to `implied` with a `column_comment` evidence item; none → a new `kind: hinted` relation (`many_to_one_assumed` / `hypothesis` / `column_comment`, `task_count` 0) that joins the open list for a person to confirm; a `proven` relation out of the same column landing on another table → `relation_hint_conflict` |
+
+## The concept layer (entity / event / summary)
+
+`entities[]` answer "what is this **table**". That is not what a business asks. A business
+asks about 客户 (the customer), and the warehouse spells the customer as
+`ods.customer_base`, `dwd.customer_df`, `dwd.customer_di` and a few staging copies. It
+also asks about 消息发送 (message sending), which is not a thing but something that
+*happened* -- a sibling of the customer, not a child of it.
+
+K1/K2 fold that layer on top of the table-level ontology: **the entity is 「客户」, not
+「客户信息表」; a table is how a concept is represented.** Not one field of `entities[]`
+changes -- a concept merely points at them, and the table-level reading is the only way
+to check the fold.
+
+### The seed: a key stem
+
+| # | Rule |
+| --- | --- |
+| 1 | **Key stem**: lowercase the column, split on `_`, drop the leading and trailing whole segments that only say "this is a key" (`_no` / `_id` / `_code` / `_cd` / `_num` / `_key`), never the last segment left -- `cust_no` and `cust_id` are both `cust`. Columns the corpus itself proved synonymous (O5) are folded to one spelling first, so `customer_id` reaches `cust` because some task proved the two columns hold the same value, never because the two words look alike |
+| 2 | **Generic stems**: `id` / `uuid` / `dt` / `etl` / `create` / `update` / `row` / `seq` / `rn` / `pk` are the closed list; one evidence rule adds to it -- a stem whose key columns carry three or more *different* non-empty comments that share no two-character Chinese fragment once 编号/编码/代码 are taken off is generic too (渠道编码 / 省份编码 / 状态编码 agree on nothing that matters) |
+| 3 | **Seeding**: an entity whose candidate key at **any** tier (a warehouse rarely proves its own keys, and reading only `proven` leaves nearly every table unplaced) reduces, once time and partition columns are set aside, to exactly one non-generic stem seeds that stem's concept and joins it as `key:<tier>`; the tier travels with the membership |
+| 4 | **Declared hints**: when no candidate key lands, `identity.declared_hints[]` is read -- a column comment calling a column the primary or unique key seeds the same way, with basis `declared_hint` |
+| 5 | **JOIN participation**: when a relation's (`join_association` / `hinted`) **`to`** columns reduce to a concept's stem, the `from` entity joins that concept as `reference`. An event table is never unique by 客户 -- it merely *carries* the customer number, and that is how it takes part. A `reference` membership is deliberately the weakest one: it casts no kind vote and lends no attribute |
+| 6 | **No seed**: a key that is all generic, a key that spans two stems, or no key and no hint and no JOIN onto any concept -- the table goes to `unassigned_tables[]` with the reason |
+
+### Member roles
+
+The cascade runs from the most specific evidence to the least, first match wins:
+
+| Role | Test |
+| --- | --- |
+| `intermediate` | the table name ends in `_tmp` / `_mid<n>` / `_step<n>` / `_stage<n>` / `_bak`, or exactly one task both writes and reads it |
+| `detail` | the key carries a time or event column beyond the stem (and it is not a partition column) |
+| `primary` | a full snapshot (`_df` / `_hf` / `_mf` / `_wf` / `_all`) or no period suffix at all, and the key is the stem alone once partition columns are set aside |
+| `summary` | the producing statement's `output_shape.grain.basis` is `group_by` or `single_row` |
+| `snapshot` | a period increment (`_di` / `_hi` / `_mi` / `_wi`), the key is the stem alone once partition columns are set aside, and there is no event time |
+| `reference` | not unique by the key, merely carrying it -- the membership came from a JOIN rather than from the table's own key |
+
+### The concept kind
+
+| Signal | Vote | What it reads |
+| --- | --- | --- |
+| `key_event_column` | `event` | a member's key holds a timestamp or event-id column that is not a partition column |
+| `driving_rows_over_log_source` | `event` | the producing grain is "one row of the driving table", and that driving table looks log-like by name or comment |
+| `increment_with_event_time` | `event` | the member is a `_di` / `_hi` increment and carries a non-partition time column |
+| `all_members_summary` | `summary` | every member's role is `summary` |
+| `word_hint` | any of the three | words in the name and the comment: 发送/回款/交易/日志/记录/流水/事件/log/event/hist → `event`; 信息/档案/主数据/维/dim/info → `entity`; 汇总/日报/统计/agg/report → `summary`. **Secondary evidence**: it never decides once a structural signal has spoken |
+
+`event` among the structural signals wins; otherwise `summary` among them; otherwise the
+word hints decide, and an unvoted concept is an `entity`. When **every** signal voted the
+same way, `kind_tier` is `implied`; as soon as two votes differ it is `hypothesis`, and
+`kind_evidence[]` names each signal, its vote and the table it read, so a reviewer sees
+exactly where the disagreement is.
+
+### Naming candidates
+
+| Source | How | Negative |
+| --- | --- | --- |
+| `key_column_comment` | **annotation blocks** (`【…】` / `[…]`) and the trailing aside come off first, then **at most one** trailing key marker (编号/编码/代码/号码/标识/号): 合同号 → 合同, 交易流水号 → 交易流水. Fewer than two Chinese characters left means no candidate at all (编号, 客编号), and the 号 inside a whole word -- `账号`, `卡号`, `型号` -- never comes off (贷款账号 stays 贷款账号) | the Chinese stoplist (唯一, 主键, 标识, 编号, 编码, 代码, 序号, 流水号) matches as a **prefix**, because 唯一键, 唯一主键 and 主键id are all the marker plus noise; the latin one (id, unique, key, guid, uuid, pk, no, code) matches whole, because `id` and `key` open plenty of real English phrases; a single Chinese character, or no Chinese and equal to the stem, also yields nothing |
+| `table_comment` | annotation blocks (`【…】` / `[…]`) and the trailing aside come off first, then pipeline words (中间过程/过程表/临时/备份/backup/tmp) wherever they sit, then the storage words (信息表/明细表/汇总表/临时表/记录表/快照/维表/日表/表 …); only the **most representative** rank of members is read (`primary` / `snapshot` → `detail` / `summary` → `intermediate` / `reference`, the first rank that answers at all), and members of that rank that disagree keep their longest common prefix | a comment that is only a suffix (「信息表」) yields nothing |
+| `key_stem` | the stem itself (`cust`), as a last resort | -- |
+
+Stripping suffixes is a Chinese metadata convention, so it **only applies to text that
+holds Chinese**: an English snake-case comment is kept exactly as the catalog wrote it,
+and the only latin suffixes stripped are the ones a `_` already marked as a segment
+(`_id` / `_no` / `_df` …). Ranking asks first whether a candidate still reads as a table
+name -- anything that kept an `_`, a `backup` or a `tmp` sinks below everything else,
+and is kept rather than dropped because it is still evidence -- then by `count` desc,
+then by the source order above. `name` is the first of them, `name_tier` is always
+`hypothesis`, and every candidate keeps a `name_evidence` saying which table and column
+supplied it -- so disagreeing metadata is visible rather than averaged away.
+
+When two concepts' first candidates land on the same word (the stems `contr` and
+`contra` both proposing 「合同」), they are **not** merged: the corpus proved two
+distinct keys, and whether that is one thing spelled twice or two things sharing a
+word is not a question this layer can answer. Each gets a `possible_duplicate_of`
+pointing at the other, and the review round decides.
 
 ## Table families and the folded open list
 

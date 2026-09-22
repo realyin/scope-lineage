@@ -41,6 +41,7 @@ from itertools import combinations
 from sqlglot import exp
 
 from . import glossary_values, semantic_text
+from .concepts import build_concepts
 from .glossary import build_glossary
 from .markdown_text import cell, normalize_inline
 from .semantic_profile import (
@@ -380,6 +381,10 @@ _ONTOLOGY_KEYS = (
     # Q3: the fold the two group lists are built on, published so a reviewer can check
     # whether a family really is one table before answering for all of it.
     "families",
+    # K1/K2: the business reading above the table-level entities -- one concept per
+    # business key, and the tables no key could place.
+    "concepts",
+    "unassigned_tables",
     "relations",
     "constraints",
     "findings",
@@ -515,6 +520,9 @@ def build_ontology(
         },
     }
     _apply_overrides(ontology, overrides or {})
+    # After the confirmations, never before: an override that raises a candidate key to
+    # `confirmed` is exactly the evidence K1 seeds a concept on.
+    ontology.update(build_concepts(ontology, cards))
     _publish_open_list(ontology)
     return {key: ontology[key] for key in _ONTOLOGY_KEYS}
 
