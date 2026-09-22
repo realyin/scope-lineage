@@ -15,6 +15,7 @@ from typing import NamedTuple
 
 from .cli_glossary import add_glossary_parser, formats as _glossary_formats, run_glossary
 from .cli_ontology import (
+    BATCH_BY as _REVIEW_BATCH_BY,
     EXPORT_FORMATS as _ONTOLOGY_EXPORTS,
     add_ontology_parser,
     exports as _ontology_exports,
@@ -252,6 +253,16 @@ def main(argv: list[str] | None = None) -> int:
         ]
         if unknown_exports:
             parser.error(f"--export accepts linkml and shacl, got {unknown_exports}")
+        if args.review_batches_by not in _REVIEW_BATCH_BY:
+            parser.error(
+                f"--review-batches-by accepts {', '.join(_REVIEW_BATCH_BY)}, got "
+                f"{args.review_batches_by!r}"
+            )
+        if args.review_batch_size < 1:
+            parser.error(
+                "--review-batch-size must be a positive number of concepts, got "
+                f"{args.review_batch_size}"
+            )
         return run_ontology(args)
     if args.command == "validate":
         return _validate_inputs(args)

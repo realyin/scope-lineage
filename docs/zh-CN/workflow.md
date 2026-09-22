@@ -233,7 +233,7 @@ Core 只产确定性事实，业务命名、含义与实体关系的判断留给
 | 任务画像 | `semantic-profile-prompt.md`，模板 `business-profile-template.md` / `business-profile-check-template.md` | `business_profile.md`（任务语义卡 + 字段词典 + 待确认清单，清单最多五条）与它的质检记录 `business_profile.check.md` | 业务负责人把答案写在每条的 `- 答案：` 行上，`confirmations.py apply` 按同一条的 `- 回写目标：` 行路由：`术语` / `值域` 进 `glossary.overrides.json`，`字段注释` / `表注释` 进 `metadata-patch.json` | `glossary --overrides`，然后 `describe --glossary --metadata-patch`；要让注释落进 `lineage.json` 本身，再 `parse --metadata-patch` |
 | 值词典复核 | `glossary-review-prompt.md`，输入是 `glossary --template` 写出的待填表 | Agent 自己能答的条目（必须带 `basis`，签 `confirmed_by: "agent:<name>"`），加上最多八条留给人的问题 | `glossary.overrides.json` | `glossary --overrides`，然后 `describe --glossary` |
 | 本体复核 | `ontology-review-prompt.md`，输入是 `ontology.md` 的「待人工判定清单」加各任务 `semantic.md` | 语料已经能证明的确认项（同样带 `basis`），加上最多八条留给人的问题 | `ontology.overrides.json`，键照抄清单里的「回写目标」字符串 | `ontology --overrides` |
-| 概念复核 | `concept-review-prompt.md`，输入是 `ontology.md` 的「本体总览」与「概念」两部分加各表卡第 7 节 | 按「种类 → 名字 → 合并 → 拆分 → 角色」走一遍，自答项带 `basis`，加上最多八条留给人的问题（写在 `open-questions.md`） | `concepts.overrides.json`，键是 `concept:<词根>` | `ontology --concept-overrides` |
+| 概念复核 | `concept-review-prompt.md`，输入是 `ontology.md` 的「本体总览」与「概念」两部分加各表卡第 7 节；语料宽时改读 `--review-batches` 切出来的 `batch-NN.md` | 按「种类 → 名字 → 合并 → 拆分 → 角色」走一遍，自答项带 `basis`，加上最多八条留给人的问题（写在 `open-questions.md`）；分批做时每批各自八条 | `concepts.overrides.json`，键是 `concept:<词根>`；分批做时一批一份 | `ontology --concept-overrides`（可重复，按批次顺序给） |
 
 四个工作流的共同点：**Agent 不许凭字面猜**。它只能从三类证据里自答——列注释把取值枚举了出来、
 语料里有 CASE 把取值一对一地映射成标签、同名列在别处已被人确认过；剩下的整理成问题交给人。
@@ -242,6 +242,27 @@ Core 只产确定性事实，业务命名、含义与实体关系的判断留给
 最后两行是**同一份语料的两轮，互不替代**：本体复核问的是表（这张表按这组列唯一吗、这条边
 是几对几），概念复核问的是概念（这是一件什么东西、它叫什么、这两个是不是同一个）。答案落在
 两份不同的 overrides 文件里，一条命令可以同时带上它们；只跑一轮是把另一半问题留着不答。
+
+语料一宽，概念复核那一轮就一次做不完：临时概念动辄几十上百个，而问人的额度是 8 条。
+**这时候分批做**（N1，详见[语料级本体候选](ontology-doc.md)的「分批评审」一节）：
+
+```bash
+# 1. 切批：把临时概念按表族切成 <review>/batches/batch-NN.{md,overrides.json} 加一份 index.md
+scope-lineage ontology --lineage "$OUT/artifacts" --out "$OUT/corpus" \
+  --review-batches "$REVIEW" --review-batches-by family --review-batch-size 30
+
+# 2. 一次做一批：读 batch-NN.md，填 batch-NN.overrides.json，每批最多 8 条去问人的问题
+
+# 3. 回写：--concept-overrides 可重复，按做批次的顺序给
+scope-lineage ontology --lineage "$OUT/artifacts" --out "$OUT/corpus" \
+  --concept-overrides "$REVIEW/batches/batch-01.overrides.json" \
+  --concept-overrides "$REVIEW/batches/batch-02.overrides.json"
+```
+
+`index.md` 的顺序就是该做的顺序（越靠前，答完解开的边越多）。不冲突的条目累加；两份文件点到
+同一个目标键时后给的那份生效，并报进 `concept_overrides_applied.conflicts[]` ——看到它说明两批
+对同一个问题给了两个答案，**回头由人定夺**，别靠调换顺序蒙混。`sources[]` 说每份文件赢下了几
+条，用来核对刚写的那一批真的落进去了。
 
 ## 做错了会怎样
 

@@ -23,6 +23,61 @@ scope-lineage ontology --lineage <corpus> --out <dir> \
   --concept-overrides <dir>/concepts.overrides.json
 ```
 
+## 分批工作
+
+语料一宽，临时概念就是几十上百个，而一轮只许问人 8 条。**别在一个文件里从头做到尾**：
+先把它们切成批，一次做一批。
+
+```bash
+scope-lineage ontology --lineage <corpus> --out <dir> \
+  --review-batches <review> --review-batches-by family --review-batch-size 30
+```
+
+这会在 `<review>/batches/` 下写三种文件：
+
+| 文件 | 内容 | 怎么用 |
+| --- | --- | --- |
+| `index.md` | 批次清单：顺序、概念数、分组、关系条数、待判定分组数 | **从上往下做**。越靠前的批次，答案解开的边越多 |
+| `batch-NN.md` | 这一批的工作表：概念表（名字、种类、表、关系、命名候选、回写键）、候选归并目标（语料已折出的概念，按关系条数与共同键词根排序）、判断依据（表注释与键列注释）、本批的待判定分组 | 这是**这一批的工作台**，代替「概念」表通读一遍 |
+| `batch-NN.overrides.json` | 骨架：这一批每个临时概念一条 `merge_into: ""`，加一段 `comments`（本批的待判定分组） | 就地填答案，填不了的整条删掉 |
+
+`--review-batches-by` 三种切法，按语料的元数据挑一种：
+
+| 取值 | 怎么分 | 什么时候用 |
+| --- | --- | --- |
+| `family`（默认） | 按表族（`table_family`）分组，再按 `--review-batch-size` 装箱，**同一族绝不拆开** | 一张逻辑表被写成 `_di` / `_df` / `_tmp` 好几份——它们是同一个问题，分到两批就是问两遍 |
+| `domain` | 按表的 `naming_hints.domain`，没有就退到 `project`，再没有就进「未标注领域」一组 | 元数据标了域，而每个域背后是不同的业务方——一批正好对应一个人 |
+| `size` | 不分组，按影响（概念身上的关系条数）从大到小平铺切块 | 元数据两样都没说 |
+
+一族或一个域大过 `--review-batch-size` 时，它**整个留在自己那一批**里，不会被切成两半。
+
+**规矩**（这一段是这一节的全部意义）：
+
+- **一批一份 overrides 文件**，文件名就用 `batch-NN.overrides.json`。
+- **绝不改别的批次的文件**。你只对手上这一批负责。
+- **每批最多 8 条去问人的问题**，凭证据自答仍然不限条数。8 条是**每批**的额度，不是整轮的。
+- 只输出这一批的 overrides 文件；别把几批合并成一份，合并是下一步的事。
+- 骨架里 `merge_into` **留空表示「本轮没答」**：原样应用什么也不会发生，`unmatched` 与
+  `ignored_fields` 都是空的，`sources[].applied` 是 0。留空**不占目标键**，既不算冲突，也盖不掉
+  别的文件给出的真答案。答不出来就留着或删掉，不要为了填满而乱填。
+
+答完几批之后，`--concept-overrides` **可以重复**，按你做批次的顺序给：
+
+```bash
+scope-lineage ontology --lineage <corpus> --out <dir> \
+  --concept-overrides <review>/batches/batch-01.overrides.json \
+  --concept-overrides <review>/batches/batch-02.overrides.json
+```
+
+- 不冲突的条目**累加**：两份文件点的是不同的键，两边都生效。
+- 同一个目标键（概念 id + 字段、`add_tables` 的某张表、`new_concepts` 的某个 id、
+  `merge_into` 的来源）被两份文件都点到时，**后给的那份生效**，并报一条
+  `concept_overrides_applied.conflicts[] = {key, field, earlier, later}`。
+  **冲突由人来定**：看到它就回头确认两批里哪一条才是对的，不要靠调换命令行顺序蒙混过去。
+- `concept_overrides_applied.sources[]` 逐个文件写着它赢下了几条，拿它核对
+  「我刚写的那一批真的落进去了吗」。
+- 同一份文件给两遍等于给一遍，输出逐字节不变。
+
 ## 先读什么
 
 1. `ontology.md` 的「本体总览」：一屏看完这份语料被读成了哪几个概念、按种类各几个、谁连谁。
