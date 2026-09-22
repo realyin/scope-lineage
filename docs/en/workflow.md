@@ -114,6 +114,18 @@ Carded 31 table(s) from 5 task(s) (skipped_unknown_version=0, missing_diagnostic
 Collected 214 term(s) and 62 value observation(s) from 5 task(s) (overrides terms=0, values=0, blank=0, unmatched=0, rejected=0, ignored_fields=0, skipped_unknown_version=0, missing_diagnostics=0, skipped_unreadable=0)
 ```
 
+Once an ontology has been built, hang it on the dictionary (N6): the dictionary then
+carries a **concept** layer -- one concept attribute is the same thing on each of its
+representation tables, so terms, values and the fill-in form merge by attribute instead
+of by table, and one `concept:<concept id>.<attribute>=<value>` answers the whole family.
+Having no `ontology.json` on the first pass is normal: run the line above, build the
+ontology in step 4, then come back and re-run this one.
+
+```bash
+scope-lineage glossary --lineage "$OUT/artifacts" --out "$OUT/corpus" \
+  --ontology "$OUT/corpus/ontology.json"
+```
+
 ### 3. `describe`: one semantic skeleton per task
 
 ```bash
@@ -255,7 +267,7 @@ the summary line as `unmatched=1`.
 | `parse` | task JSON / SQL, `--schema`, `--target-ddl-metadata`, optional `--metadata-patch` | one directory per task: `lineage.json`, `diagnostics.json` | machine (the only input every later step has) | [Installation and usage guide](getting-started.md) |
 | `render` (optional) | a `lineage.json` tree, `--field` / `--sections` | `mapping.md` (plus `warnings.md` when there are warnings) | analyst | [`mapping.md` field mapping document](mapping-doc.md) |
 | `tables` | a `lineage.json` tree, optional `--samples`, `--merge` | `tables.json`, `tables.md`, `tables/<db.table>.md` | analyst; also fed to `describe` / `ontology` | [Corpus-level table cards](tables-doc.md) |
-| `glossary` | a `lineage.json` tree, optional `--overrides`, `--template` | `glossary.json`, `glossary.md`, optionally a fill-in form | business owner fills the form; machines read the JSON | [Term and value dictionary](glossary-doc.md) |
+| `glossary` | a `lineage.json` tree, optional `--overrides`, `--ontology`, `--template` | `glossary.json`, `glossary.md`, optionally a fill-in form | business owner fills the form; machines read the JSON | [Term and value dictionary](glossary-doc.md) |
 | `describe` | `lineage.json` + `--tables` + `--glossary` + optional `--ontology` / `--metadata-patch` | one `semantic.json`, `semantic.md` per task | agent (raw material for a profile), analyst | [Task-semantic description](semantic-doc.md) |
 | `ontology` | `lineage.json` + `--tables` + `--glossary` + optional `--overrides`, `--concept-overrides`, `--export` | `ontology.json`, `ontology.md`, cards with ontology sections | agent (turns open items into questions), analyst | [Corpus-level ontology candidate](ontology-doc.md) |
 | agent task profile | `semantic.md` plus the skill's prompt and templates | `business_profile.md`, `business_profile.check.md` | business owner (reads the profile, answers the open list) | [AI agent skill](agent-skill.md) |

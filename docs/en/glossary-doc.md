@@ -41,6 +41,10 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict \
 scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict \
   --template /path/to/dict/glossary.overrides.template.md --template-top 20
 
+# hang the ontology on it: the dictionary gains a concept layer (N6)
+scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict \
+  --ontology /path/to/onto/ontology.json
+
 # JSON only
 scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --format json
 
@@ -65,6 +69,15 @@ markdown = render_glossary_markdown(glossary)
   `json`, `md`, or both.
 - A `--overrides` path that does not exist, is not valid JSON, or is not a JSON object
   exits 2 -- silently ignoring a file a human has reviewed is worse than failing.
+- `--ontology` (N6) is optional and points at an `ontology.json`
+  (`ontology-json/2`) written by `scope-lineage ontology`; the same three checks and the
+  same exit 2. **The concept layer exists only when it is given**: `concept_terms[]`,
+  the `concepts[]` back-link inside `terms[]`, the extra overrides key
+  `concept:<concept id>.<attribute>=<value>`, the concept sections of the fill-in form,
+  and the 「按概念」 section of `glossary.md`. Without it the artifacts are **byte for
+  byte** what they were. The dictionary reads exactly one thing out of the ontology:
+  `concepts[].attributes[].sources[]`, which says which (table, column) pairs are one
+  concept attribute.
 - `corpus.artifact_root` records the `--lineage` value **verbatim**. Pass a relative path
   when you want reproducible bytes.
 
@@ -157,6 +170,8 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
 | --- | --- |
 | `corpus` | What was scanned: `artifact_root` verbatim, the task count, the write-statement count, and each task's contract digest (the same digest function mapping.md / semantic.md use, so you can confirm the dictionary and a profile came from one snapshot) |
 | `terms[]` | Comments merged across tables by **column name**; one entry per name, sorted by name |
+| `concept_terms[]` | **Present only with `--ontology`**: terms and values merged by **concept attribute**; one entry per (concept, attribute), sorted by (concept id, attribute); **provisional concepts are not in this layer** |
+| `concept_terms_summary` | Also only with `--ontology`: `{concepts, attributes, attributes_spanning_multiple_tables}` -- how many concepts and attributes the layer covers, and how many of those attributes span 2 or more tables |
 | `values[]` | One entry per (column reference, value, `kind`); sorted by (column name, column reference, value, `kind`). `value` is the normalized, unquoted form and `sql_literal` is the literal the author wrote |
 | `parameters[]` | Columns pinned by a `${…}` variable or a function call: they pin the column, but they are not its values |
 | `overrides_applied` | How many human confirmations took effect (`terms` / `values`), how many keys are still blank (`blank`), which keys matched nothing in the corpus (`unmatched`), which confirmations were refused (`rejected`), and which fields this release does not read (`ignored_fields`) |
@@ -169,7 +184,50 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
 | `tables_total` | How many tables in the corpus hold this column (inputs and targets both count; two catalog spellings of one table count once) |
 | `tables_without_comment[]` | Tables that hold the column but wrote no column comment -- the "still undocumented" list |
 | `conflict` | `true` when one column name has 2 or more different comment texts; the dictionary **keeps both side by side** rather than deciding for the authors |
+| `concepts[]` | Present only with `--ontology`: the concept attributes this column name feeds, as `{concept, attribute}`, deduped in (concept id, attribute) order; provisional concepts do not count, and a name belonging to no concept gets an empty array |
 | `meaning` | The human-confirmed column meaning; `null` until somebody confirms one |
+
+### The concept layer (concept_terms[], N6)
+
+`terms[]` can only merge by column NAME -- and a shared name is a coincidence until
+something says it is not. The ontology is that something:
+`concepts[].attributes[].sources[]` in `ontology.json` says "these columns of these
+tables are one attribute of one concept". Given `--ontology`, the dictionary merges a
+second time along that statement:
+
+```jsonc
+"concept_terms": [
+  {"concept": "concept:order", "name": "Order", "attribute": "pay_status",
+   "columns": [{"table": "ods.app_order", "column": "pay_status"},
+               {"table": "ods.web_order", "column": "pay_status"}],
+   "representation_count": 2,
+   "comments": [{"text": "Payment status", "tables": ["ods.app_order", "ods.web_order"], "count": 2}],
+   "conflict": false,
+   "values": ["…the entries of those columns in values[], referenced as they are…"]}
+],
+"concept_terms_summary": {"concepts": 9, "attributes": 214,
+                          "attributes_spanning_multiple_tables": 31}
+```
+
+| Key | Meaning |
+| --- | --- |
+| `concept` / `name` | The concept id and the name the ontology gave it (which may still be a stem -- the ontology marks that itself, in `name_tier`) |
+| `attribute` | The attribute's stem (the ontology's `attributes[].stem`) |
+| `columns[]` | The (table, column) pairs this attribute is written on, each table under the spelling the dictionary itself chose (dotted-suffix normalization), sorted by (table, column) |
+| `representation_count` | How many representation tables write this attribute. `1` means it reaches exactly one column today -- published as usual, but a concept key answers no more for it than a table key would; `2` or more is the kind of question a concept key actually collapses |
+| `comments[]` / `conflict` | The same merge `terms[]` does, taken over **this attribute's columns** instead of over every same-named one; a column the corpus never saw contributes nothing |
+| `values[]` | The `values[]` entries of those columns, **referenced as they are** (scope-level references excluded): an overrides confirmation applied afterwards is visible here too |
+
+**Provisional concepts (`tier: provisional`) are not in this layer.** The ontology gives
+one to every table no key could place, and it stands for that one table: its attributes
+are that table's columns under longer names, which `terms[]` already said. Publishing
+them on a wide corpus buries the attributes that really do span several tables -- the
+only questions a concept key collapses. A concept somebody *could* place keeps **every**
+one of its attributes, single-table ones included, with `representation_count` saying how
+far each reaches today: the attribute is real, its concept key just saves nothing yet.
+
+A column name belonging to no (non-provisional) concept attribute stays in `terms[]`
+alone -- the concept layer does not invent a concept for it.
 
 ### Value observations (values[])
 
@@ -342,6 +400,7 @@ backticks removed.
 | Rule | Detail |
 | --- | --- |
 | Two key forms | Qualified (`ods.app_order.pay_status='PAID'`) matches that one column; bare (`pay_status='PAID'`) matches **every** same-named column in the corpus |
+| The concept key `concept:<id>.<attribute>=<value>` (N6) | Recognized only with `--ontology`. It matches **every** source column of that concept attribute that observed the value (a scope-level reference never). The resolution order is **a key that names a table > a concept key > a family key**: a table key is a statement about that table, a concept key rests on somebody's assertion that these columns are one thing, and a family key rests on a shared spelling alone. Matches count towards `overrides_applied.values` as usual, and `overrides_applied.concept_expansions` reports how far the one answer travelled as `{"key", "applied_to"}`; a key naming a concept or an attribute this ontology does not have is reported in `overrides_applied.concept_unmatched` (`{"key", "reason"}`, the reason being `unknown_concept` or `unknown_attribute`) and still goes to `unmatched` |
 | The family key `*.<column>=<value>` (Q1) | `*.pay_status='PAID'` matches the same-named physical column of **every** table that observed the value (a scope-level reference never). The order is the rule itself: **a key that names a table wins there**, and the family key answers only the tables it did not cover -- applying them in file order would make the answer depend on which line the reviewer typed first. Matches count towards `overrides_applied.values` as usual, and `overrides_applied.family_expansions` reports how far the one answer travelled as `{"key", "applied_to"}`; a family key that matches nothing still goes to `unmatched` |
 | Table matching | The same rule the dictionary uses internally: suffix matching, so `ods.t` and `catalog.ods.t` are one table |
 | Value matching | Quotes are stripped on both sides, so `'PAID'` and `PAID` are the same value; **prefer the unquoted `pay_status=PAID`**, which is what `values[].value` holds |
@@ -425,6 +484,19 @@ appear in the per-table sections, and a line under the heading says so. The same
 are not a family -- the same column name on two tables may legitimately mean two things,
 which is exactly the cross-table conflict a person has to be asked about.
 
+**Two tables are enough when the ontology says they are one thing** (N6): with
+`--ontology`, a value askable on **2 or more** representation tables of one concept
+attribute collapses into
+``## `concept:<id>.<attribute>`（<concept name>·<attribute>，出现在 N 张表）``, asked under
+the concept key `concept:<id>.<attribute>=<value>`. A family needs three tables because a
+shared name is a coincidence the reviewer still has to rule out; a concept needs two
+because the ontology has already asserted that these columns are one attribute -- the
+second table is not a coincidence. **Concept sections come before every family and
+per-table section**, and the values they cover no longer appear in either, so each value
+is still asked exactly once, under the strongest key that covers it. A concept row's
+注释线索 and 候选来源 are the union over the attribute's source columns, with the same
+`（来自 <table>）` note.
+
 **A family row's evidence is the union over its member tables** (Q1b): usually only **one**
 table of a family had the code table written into its comment, and the row asks about the
 whole family. So a value's 注释线索 and 候选来源 in a family section are the union over the
@@ -489,6 +561,7 @@ scope-lineage describe --lineage corpus --glossary dict/glossary.json \
 | --- | --- | --- |
 | `术语:<term>` | `glossary.overrides.json` | `terms["<term>"] = {meaning, confirmed_by, date}` |
 | `值域:<column>=<value>` | `glossary.overrides.json` | `values["<column>=<value>"] = {meaning, confirmed_by, date}` |
+| `值域:concept:<id>.<attribute>=<value>` (N6) | `glossary.overrides.json` | `values["concept:<id>.<attribute>=<value>"] = {meaning, confirmed_by, date}`: one answer written back to every source column of that concept attribute |
 | `值域:*.<column>=<value>` (Q1) | `glossary.overrides.json` | `values["*.<column>=<value>"] = {meaning, confirmed_by, date}`: one answer written back to every table that observed the value |
 | `字段注释:<table.column>` | `metadata-patch.json` | `columns["<table.column>"] = {comment, confirmed_by, date}` |
 | `表注释:<table>` | `metadata-patch.json` | `tables["<table>"] = {table_name_cn, confirmed_by, date}` |
@@ -557,7 +630,7 @@ nothing.
 | `sql_literal` | The literal the author wrote. The `- 取值：` line of `semantic.md` shows it, while `value_domain[].value` and the overrides keys use the unquoted form |
 | `meaning.status` | `confirmed` (human) or `candidate` (a literal comment hit) |
 | `summary` suffix | Only a **confirmed** meaning is appended to the sentence (`；取值：'PAID'（已支付）`, at most 3): a candidate is "some comment happens to contain this value", and putting it into the line a reader stops at would read as a definition |
-| `confidence.metadata_coverage.glossary` | `{values_total, confirmed, candidate, rule_values_total, rule_values_confirmed, field_values_total, field_values_confirmed, enumerable_total, enumerable_confirmed}`; absent when the statement has no value observation at all. `values_total` is the deduped **union of field values and rule-referenced values**, keyed by `(column name, value, kind)` — a code pinned by a `WHERE` and carried unchanged into the output column of the same name is **one** question to answer, not two; `confirmed` / `candidate` count over the same union. `enumerable_total` narrows that union to the **codes somebody can be asked to name**, and it is the denominator the coverage ratio in the profile's generation record (来源标签与证据) is taken over (`enumerable_confirmed / enumerable_total`): a physical column's literal, observed in a `filter_eq` / `filter_in` / `case_then` / `union_constant` / `constant_projection` context, not shaped like a date, and — for a bare number — written as an `IN` member, a CASE label or a projected constant rather than only pinned by `=`. A batch date and a `= 0` guard are observed values that no owner will ever confirm, and counting them made that ratio read as permanent failure. Q1 also makes it apply **the same askable rule the form does** (`glossary_values.askable_value`: a switch, a bare number, a date-shaped literal and a CJK-prose value are all unaskable unless the column's own comment enumerates them) -- written twice, the two drifted apart, and a reader saw a denominator larger than the set of rows the form actually printed |
+| `confidence.metadata_coverage.glossary` | `{values_total, confirmed, candidate, rule_values_total, rule_values_confirmed, field_values_total, field_values_confirmed, enumerable_total, enumerable_confirmed}`; absent when the statement has no value observation at all. `values_total` is the deduped **union of field values and rule-referenced values**, keyed by `(column name, value, kind)` — a code pinned by a `WHERE` and carried unchanged into the output column of the same name is **one** question to answer, not two; `confirmed` / `candidate` count over the same union. `enumerable_total` narrows that union to the **codes somebody can be asked to name**, and it is the denominator the coverage ratio in the profile's generation record (来源标签与证据) is taken over (`enumerable_confirmed / enumerable_total`): a physical column's literal, observed in a `filter_eq` / `filter_in` / `case_then` / `union_constant` / `constant_projection` context, not shaped like a date, and — for a bare number — written as an `IN` member, a CASE label or a projected constant rather than only pinned by `=`. A batch date and a `= 0` guard are observed values that no owner will ever confirm, and counting them made that ratio read as permanent failure. Q1 also makes it apply **the same askable rule the form does** (`glossary_values.askable_value`: a switch, a bare number, a date-shaped literal and a CJK-prose value are all unaskable unless the column's own comment enumerates them) -- written twice, the two drifted apart, and a reader saw a denominator larger than the set of rows the form actually printed. When the dictionary carries a concept layer (`glossary --ontology`), the block also gains `concept_attributes_total` / `concept_attributes_with_confirmed_values` (N6): how many concept attributes **this task touches**, and how many of them already have at least one confirmed value. Counted over the column names this task uses rather than over the corpus -- a corpus-wide count says the same number for every task and answers nobody's question about this one -- and the two keys are **absent**, not zero, when there is no concept layer |
 
 Section 5 of `semantic.md` gains one `- 取值：` line per field subsection: a confirmed
 meaning is written plainly, a candidate is prefixed `? `, and neither gives 「待确认」.
@@ -606,6 +679,16 @@ merged comments, a `⚠` conflict note, the tables missing a comment, the column
 the value table (value / column reference / kind / task count / context / closed set /
 meaning), and the parameterised-value lines. A column name with neither a comment nor a
 single constant comparison is named once, in the trailing "other columns" section.
+
+With `--ontology` one more section sits between the summary and the column sections:
+**「按概念」** (N6), one row per concept attribute, naming the concept (id and name), the
+attribute, its table count (`representation_count`), its columns, the merged term (a
+comment conflict still marked `⚠`), and the attribute's values as "confirmed / total";
+the two lines above the table say how many concepts and attributes it covers, how many
+of them span 2 or more tables, and that provisional concepts are not among them. It is the same facts read the other way round
+-- not "what does this column name mean" but "what does this concept call this thing, and
+how much of it has anybody answered" -- and it is the table a reviewer reads to decide
+which single `concept:<id>.<attribute>=<value>` key to write.
 
 Same input, same bytes: the document carries no timestamp, every list and table is sorted
 on a stable key, and the order the corpus was read in does not change the result.

@@ -1,6 +1,64 @@
 # Changelog
 
 ## Unreleased
+- **The value dictionary hangs its terms on concepts** (N6). `terms[]` merges comments by
+  bare column NAME, which is all a dictionary alone can key on — and one name short of the
+  question a reviewer actually asks. Three tables spelling `pay_status` are the same
+  *attribute of one concept* only if something says those tables are three representations
+  of one thing; `ontology.json` says it. So `glossary --ontology <ontology.json>` (new,
+  optional) adds a concept layer over the same facts, reading nothing out of the ontology
+  but `concepts[].attributes[].sources[]`.
+  - `glossary.json` gains `concept_terms[]`: one entry per (concept, attribute), sorted by
+    (concept id, attribute), carrying `{concept, name, attribute, columns[], comments[],
+    conflict, values[]}` — the same comment merge `terms[]` does, taken over the
+    attribute's own (table, column) pairs, plus **the dictionary's own value entries for
+    those columns, referenced as they are**, so a confirmation applied later reads through
+    here too. `terms[]` entries gain `concepts[]`, the `{concept, attribute}` back-link;
+    a column name belonging to no concept stays in `terms[]` alone.
+  - **A third overrides key, between the two that existed**: `values` now accepts
+    `concept:<id>.<attribute>=<value>`, which answers every source column of that
+    attribute that observed the value. Resolution order is **exact table key > concept key
+    > family key**, and that order is the argument: a key naming a table is a statement
+    about that table, a concept key rests on somebody's assertion that these columns are
+    one thing, and `*.<column>` rests on a coincidence of spelling. Reported in
+    `overrides_applied.concept_expansions[] = {key, applied_to}`; a key naming a concept
+    or an attribute the ontology does not have lands in
+    `overrides_applied.concept_unmatched[] = {key, reason}` (`unknown_concept` /
+    `unknown_attribute`) and still in `unmatched`, which keeps its plain-string shape.
+  - **The form asks one concept section instead of one row per table.** A value askable on
+    2 or more representation tables of one concept attribute collapses into
+    ``## `concept:<id>.<attribute>`（<name>·<attribute>，出现在 N 张表）`` under the concept
+    key, placed before every family and per-table section, and the values it covers leave
+    those sections — so each value is asked exactly once, under the strongest key that
+    covers it. Two tables are enough where a family needs three, because the ontology has
+    already ruled out the coincidence. A concept row's 注释线索 / 候选来源 are the union
+    over the attribute's columns, with the same `（来自 <表>）` note, so a concept key can
+    be closed on evidence.
+  - `glossary.md` gains a 「按概念」 section between the summary and the column sections:
+    one row per concept attribute with its concept, columns, merged term (`⚠` on a
+    conflict) and its values as "confirmed / total". `confidence.metadata_coverage.glossary`
+    gains `concept_attributes_total` / `concept_attributes_with_confirmed_values`, counted
+    over the column names **this task** touches; absent, not zero, without a concept layer.
+  - `skills/scope-lineage/scripts/confirmations.py` documents
+    `值域:concept:<id>.<属性>=<值>` as a write-back target, and
+    `references/glossary-review-prompt.md` says to answer at the concept-attribute level
+    when the attribute is the same thing across representations.
+  - **Without `--ontology` nothing changes**: no `concept_terms`, no `concepts` back-link,
+    no concept report, no markdown section, no coverage keys — the artifacts are byte for
+    byte what they were.
+  - **The concept layer is built over the concepts somebody could place** (N6b, found on a
+    wide corpus where the first cut published 9863 attributes over 448 concepts and most
+    of them mirrored the column layer). A **provisional** concept — the one the ontology
+    gives every table no key could place — stands for exactly one table, so its attributes
+    are that table's columns under longer names and `terms[]` already said them; they are
+    now left out of `concept_terms[]`, out of the `terms[].concepts[]` back-links, out of
+    the form's concept sections and out of 「按概念」. A concept that *was* placed keeps
+    **every** attribute, single-table ones included, and each one now publishes
+    `representation_count`: `1` is an attribute whose concept key saves nothing yet, `2` or
+    more is the question a concept key actually collapses. `glossary.json` also gains
+    `concept_terms_summary: {concepts, attributes, attributes_spanning_multiple_tables}`,
+    printed in the run summary and in the 「按概念」 header, so a reader can tell whether
+    the layer is worth reading without counting its rows.
 - **A task profile can name the business objects it is about: `describe --ontology`**
   (N5). The concept layer answers what one statement never can — 「这张表代表什么业务
   对象」 — and until now a task profile could only name tables. `describe` takes the
