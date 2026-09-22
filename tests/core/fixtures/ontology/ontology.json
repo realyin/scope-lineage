@@ -1912,6 +1912,7 @@
       "count": 1,
       "impact": 3,
       "write_back_pattern": "关系:ods.channel_event.channel_code-><table>.channel_code",
+      "concept_open_item": "open:concept:concept:table:ods_channel_event:rel=concept:channel:channel",
       "concept": "concept:table:ods_channel_event"
     },
     {
@@ -1926,12 +1927,56 @@
       "count": 1,
       "impact": 1,
       "write_back_pattern": "键:<table>=channel_code",
+      "concept_open_item": "open:concept:concept:channel:key=channel",
       "concept": "concept:channel"
+    }
+  ],
+  "concept_open_items": [
+    {
+      "id": "open:concept:concept:table:ods_channel_event:rel=concept:channel:channel",
+      "kind": "relation",
+      "concept": "concept:table:ods_channel_event",
+      "shape": "concept:channel:channel",
+      "question": "概念「渠道事件」→「渠道」的基数是几对几？（1 张表现表上的 JOIN）",
+      "tier": "hypothesis",
+      "impact": 3,
+      "count": 1,
+      "tables": [
+        "ods.channel_event"
+      ],
+      "items": [
+        "open:rel:ods.channel_event.channel_code->dim.channel.channel_code"
+      ],
+      "concept_write_back": "概念关系:concept:table:ods_channel_event->concept:channel",
+      "write_back": [
+        "关系:ods.channel_event.channel_code->dim.channel.channel_code"
+      ]
+    },
+    {
+      "id": "open:concept:concept:channel:key=channel",
+      "kind": "candidate_key",
+      "concept": "concept:channel",
+      "shape": "channel",
+      "question": "概念「渠道」是否按 `channel_code` 唯一？（1 张表现表）",
+      "tier": "hypothesis",
+      "impact": 1,
+      "count": 1,
+      "tables": [
+        "dim.channel"
+      ],
+      "items": [
+        "open:key:dim.channel=channel_code"
+      ],
+      "concept_write_back": "概念键:concept:channel=channel",
+      "write_back": [
+        "键:dim.channel=channel_code"
+      ]
     }
   ],
   "overrides_applied": {
     "relations": 0,
     "keys": 0,
+    "concept_expansions": [],
     "unmatched": [],
     "ignored_fields": []
   }

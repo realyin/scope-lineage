@@ -23,14 +23,25 @@ python3 skills/scope-lineage/scripts/query.py chain  db.table.column <dir>      
 python3 skills/scope-lineage/scripts/query.py impact db.table[.col] <root dir>  # impact analysis
 python3 skills/scope-lineage/scripts/query.py trace  db.table[.col] <root dir> \
     [--upstream N] [--downstream N]                # cross-task lineage walk, N hops each way
+python3 skills/scope-lineage/scripts/query.py concept-impact <concept id | name> \
+    --ontology <ontology dir>/ontology.json --lineage <root dir> \
+    [--depth N] [--attribute NAME] [--json]        # concept-level impact analysis
 ```
 
-These four subcommands are useful to humans too — you can run them without installing any agent.
+These five subcommands are useful to humans too — you can run them without installing any agent.
 `chain` bounds expression text by default; add `--expanded` when the complete expression is needed.
 Corpus scans retain only the artifact currently being inspected rather than accumulating every
 decoded document. `trace` writes a routing index (`.scope-lineage-index.json`) at the corpus root
 on first run and refreshes it incrementally by file fingerprint; the index is a disposable cache —
-the artifacts stay the single source of truth.
+the artifacts stay the single source of truth. `concept-impact` is the one subcommand that also
+reads `ontology.json` (`ontology-json/2`): it resolves the concept by id, exact name or unique name
+prefix, prints its representation tables (with roles) and concept relations (type, cardinality,
+tier), then reuses the same corpus downstream machinery as `trace` to list the downstream tasks of
+every representation table — deduplicated per task, each naming the table it read and the hop it was
+found at. `--attribute` narrows the answer to that attribute's `sources[]` columns and to the concept
+relations whose join columns include it. An ambiguous prefix lists the candidates and exits 2; a
+missing or older ontology, an unknown concept and an unknown attribute are one sentence and exit 2
+as well.
 
 One workflow in the skill does not go through `query.py`: for "what does this task do / what does this field mean", run `scope-lineage describe --lineage <artifact dir>` first to produce the `semantic.json` / `semantic.md` semantic skeleton and answer by reading `semantic.md` whole; when a business profile is wanted, generate two files from `references/semantic-profile-prompt.md`. `business_profile.md` is the reader's: three pieces — a task semantic card (≤ 1 page, business language, no source tags in the body), a field dictionary (every output column, with a 7-row metric spec card per measure) and an open-questions list (≤ 5 items a business owner can answer in five minutes) — followed by a short appendix only: A 已确认项 / B 备查项与待填取值 / C 风险边界, the three together capped at 1/3 of the body's character count. `business_profile.check.md` is the writer's QA record: input file verification, source tags and evidence, inferred items, the self-consistency pass and the generation self-check — no item dropped, but no longer taking up the reader's page.
 

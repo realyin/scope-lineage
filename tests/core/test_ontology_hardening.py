@@ -525,7 +525,8 @@ def test_the_index_headline_counts_what_is_open_and_what_was_confirmed() -> None
 
     assert (
         f"待人工判定 {len(ontology['open_items'])} 条 / "
-        f"{len(ontology['open_item_groups'])} 组（已确认 1 条）"
+        f"{len(ontology['open_item_groups'])} 组 / "
+        f"{len(ontology['concept_open_items'])} 个概念级问题（已确认 1 条）"
     ) in markdown
 
 

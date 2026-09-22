@@ -44,6 +44,87 @@
     byte-identical to what they were before the concept layer existed. The flag is part
     of `describe`'s `--incremental` options digest, so adding or changing an ontology
     invalidates the index rather than reusing documents that never saw it.
+- **The open list folds once more, at the level the answer is true** (N3). A concept with
+  five representation tables carrying the same candidate key produced five 「这张表按这组列
+  唯一吗」 questions, and a reviewer answered the same thing five times. Identity is a
+  property of the concept, not of the copy.
+  - `ontology.json` publishes `concept_open_items[]`: `open_items[]` folded by (concept,
+    question shape) — candidate keys by the **key stems** their columns reduce to (the
+    same `key_stem` K1 seeds a concept on, so `cust_no` and `cust_id` are one question),
+    relations by (near concept, far concept, far stems), findings by the finding `kind`.
+    Ids are `open:concept:<concept id>:key=<stems>` /
+    `open:concept:<near>:rel=<far>:<stems>` / `open:concept:<concept id>:finding=<kind>`,
+    derived from the content so they survive the next round. Each entry carries
+    `question` (one sentence about the concept), `tables[]`, `items[]` (the table-level
+    ids), `write_back[]` (one table-level key per representation the answer expands to),
+    `concept_write_back` (the one string a reviewer copies), `impact` (the sum over the
+    members, undeduplicated) and `tier` (the weakest member's). `open_items[]` and
+    `open_item_groups[]` are untouched — the fold is a view, and every group gained a
+    `concept_open_item` back-link to the question it belongs to.
+  - `ontology.overrides.json` gains a `concepts` section: `{"<concept id>": {"keys":
+    [{"columns": […], "scope_columns"?: […], …}], "relations": {"<far concept id>":
+    {"cardinality": …, …}}}}`. A key answer expands to **every representation whose
+    candidate key reduces to the same stems**, each confirmed in that table's own column
+    names; a relation answer expands to every table-level edge folded into that concept
+    relation, and the concept relation is then re-read off the confirmed evidence.
+    Expansions are reported in `overrides_applied.concept_expansions[]`
+    (`{key, applied_to}`, `key` being exactly `concept_write_back`) and counted in
+    `overrides_applied.keys` / `relations` as before; an unknown concept id, stems no
+    representation carries or a concept relation the corpus never read are reported in
+    `overrides_applied.unmatched` as `unknown_concept: <id>` /
+    `unmatched_stems: <stems>` / `unknown_concept_relation: <id>` rather than dropped.
+  - A concept file's 待人工判定 section now asks the concept-level questions — the
+    question, what it folded, the impact and tier, the representation tables it covers,
+    the concept write-back key and the table-level keys it expands to — with the
+    table-level ids kept as an evidence line. `ontology.md` carries
+    `concept_open_item_count` in its front matter and beside the item and group counts in
+    the overview sentence, and `ontology-review-prompt.md` now says to answer at the
+    concept level whenever the question is about a concept's identity or a concept
+    relation, and at the table level only when representations genuinely differ.
+- **The review report reaches the summary line, and the exports carry what the review
+  still owes** (N4). A reviewed round already knew two things it never said, and the two
+  exports already had two facts they never published.
+  - The `ontology` summary line's review part gains `warnings N` and `dissolved N` beside
+    `conflict(s)`, printed at zero like every other count there: `warnings[]` is what the
+    round **applied** and is still worth a second look (`merge_kept_two_primaries`), and
+    `dissolved[]` is how many provisional concepts it took off the board — a number that
+    only ever happens as a side effect of an `add_tables` or a `new_concepts` entry, so
+    nobody would have gone looking for it in the JSON.
+  - A run given `--review-batches` now ends its summary line with
+    `review batches: <dir> (<n> batch(es))`. The queue is cut **before** anything is
+    printed, so the count on the summary is the count on disk; the second line, which
+    says how the batches were cut, is unchanged.
+  - `--export linkml` writes two more schema-level annotations: `provisional_count`
+    (always, zero included — a schema silent about it reads as a model with no open
+    questions) and, when the corpus has any, `retired_stems` as a list of
+    `"<stem>: <n> tables"`. `--export shacl` puts the same on the `sl:Ontology` node:
+    `sl:provisionalCount`, and one `sl:retiredStem` block per stem carrying `sl:stem` and
+    `sl:tableCount`.
+  - Every concept class gains `impact` / `sl:impact` (`"<r> relation(s), <t> task(s)"`),
+    read off the shared `concept_impact` helper the review worksheets (N1b) and the index
+    (N2) already rank by — so a consumer sorting an export's concepts is handed the same
+    first question a reviewer was.
+  - A concept relation whose **either** end is provisional is marked `provisional: true` /
+    `sl:provisional true` on its slot, the same flag the concept class already carried: an
+    edge onto a table standing in for a concept says *some table takes part*, not that the
+    business has that relation.
+  - Both export goldens are re-recorded; the diff is additive only.
+- **Concept-level impact analysis in the skill's query script** (N7). `impact` and
+  `trace` answer at the table/column level — the level the artifacts record, not the
+  level anyone asks at. `skills/scope-lineage/scripts/query.py` gains a fifth
+  subcommand, `concept-impact <concept id | name> --ontology <ontology.json> --lineage
+  <corpus> [--depth N] [--attribute NAME] [--json]`, that joins the ontology to the
+  corpus: it resolves the concept by id, exact name or unique name prefix (an ambiguous
+  prefix lists the candidates and exits 2 instead of guessing), prints its
+  **representation tables** with their roles and its **concept relations** in and out
+  with type, cardinality and tier, then reuses the same corpus downstream walk as
+  `trace` to name the **downstream tasks** of every representation table — deduplicated
+  per task, each naming the table it read and the hop it was found at (`--depth`,
+  default 1). `--attribute NAME` narrows the walk to that attribute's `sources[]`
+  columns and the relations to those whose table-level JOIN evidence uses one of them.
+  `--json` emits the same answer as `{concept, tables[], relations[], downstream[],
+  attribute?}`. A missing or pre-`ontology-json/2` ontology, an unknown concept and an
+  unknown attribute are each one sentence on stderr and exit 2. Stdlib only, as before.
 - **One markdown file per concept, and `ontology.md` becomes an index** (N2). M3 gave
   every concept a section inside `ontology.md` and kept the whole table layer behind
   them, capped at 40 sections. On a wide corpus that is the entire model in one file and
