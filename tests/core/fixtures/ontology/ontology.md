@@ -13,6 +13,34 @@ open_item_group_count: 2
 
 每条断言都带置信层级：`proven`（已证明，SQL 直接写着）、`implied`（可推得，由结构证明的推论）、`hypothesis`（作者假设，未被证明）、`conflict`（矛盾，跨任务证据打架）、`confirmed`（已确认，只来自人工回写的 `ontology.overrides.json`）。
 
+## 概念层
+
+1 个概念、0 条概念关系，另有 7 张表没有归入任何概念。概念是**候选**：名字永远是作者假设，种类由 `kind_evidence[]` 的投票决定，两个词根是不是同一件事留给评审那一轮判（见 `concepts.overrides.json`）。
+
+```mermaid
+flowchart LR
+    concept_channel["渠道（实体）"]:::entity
+    classDef entity fill:#e8f0fe,stroke:#3367d6,color:#102a43
+    classDef event fill:#fdf0e6,stroke:#c2660a,color:#43260f
+    classDef summary fill:#eaf6ed,stroke:#2e7d46,color:#10331d
+```
+
+框里是概念名与它的种类，底色按种类分；边上的 `?` 表示这条基数只是作者假设、未被证明，括号里是实体在事件里的身份。同一个概念的两张表之间那条 JOIN 是 K1 折叠的接缝、不是业务关系，它在 `concept_representation_links[]` 里，图上不画。
+
+### 概念
+
+| 概念 | 种类 | 表数 | 命名候选 | 疑似重复 |
+| --- | --- | --- | --- | --- |
+| 渠道 | 实体（`implied`） | 2（主表 1、引用 1） | 渠道 / channel | — |
+
+### 概念关系
+
+本语料没有能折到两个概念上的关系。
+
+### 未归入概念的表
+
+7 张表没有归入任何概念，最常见的原因是 `no_candidate_key` 5 张、`key_spans_several_stems` 2 张。逐表清单见 `ontology.json` 的 `unassigned_tables[]`。
+
 ## 实体关系总览
 
 ```mermaid

@@ -41,8 +41,27 @@ from itertools import combinations
 from sqlglot import exp
 
 from . import glossary_values, semantic_text
-from .concept_relations import build_concept_relations
-from .concepts import build_concepts
+from .concept_relations import (
+    TYPE_AGGREGATION,
+    TYPE_ASSOCIATION,
+    TYPE_DERIVATION,
+    TYPE_PARTICIPATION,
+    TYPE_SELF_REFERENCE,
+    build_concept_relations,
+)
+from .concepts import (
+    CONCEPT_ENTITY,
+    CONCEPT_EVENT,
+    CONCEPT_SUMMARY,
+    ROLE_DETAIL,
+    ROLE_INTERMEDIATE,
+    ROLE_PRIMARY,
+    ROLE_REFERENCE,
+    ROLE_SNAPSHOT,
+    ROLE_SUMMARY,
+    apply_concept_overrides,
+    build_concepts,
+)
 from .glossary import build_glossary
 from .markdown_text import cell, normalize_inline
 from .semantic_profile import (
@@ -167,6 +186,51 @@ CARDINALITY_MERMAID = {
 # An ER diagram stops being readable long before it stops rendering. Past this many
 # entities the overview keeps the best-connected ones and says how many it left out.
 MERMAID_ENTITY_LIMIT = 60
+
+# K4a: a *concept* diagram goes unreadable sooner than an ER one, because its boxes
+# carry business names and a business reads every one of them.
+CONCEPT_MERMAID_LIMIT = 40
+
+#: The three concept kinds, in Chinese. The token stays beside it everywhere a tier
+#: does: the diagram is read by people, `concepts[]` by programs.
+CONCEPT_KIND_TEXT = {
+    CONCEPT_ENTITY: "实体",
+    CONCEPT_EVENT: "事件",
+    CONCEPT_SUMMARY: "汇总",
+}
+
+#: What one member table is to its concept.
+CONCEPT_ROLE_TEXT = {
+    ROLE_PRIMARY: "主表",
+    ROLE_SNAPSHOT: "快照",
+    ROLE_DETAIL: "明细",
+    ROLE_SUMMARY: "汇总",
+    ROLE_INTERMEDIATE: "中间步骤",
+    ROLE_REFERENCE: "引用",
+}
+
+#: What one concept is to another (K3's vocabulary), in Chinese.
+CONCEPT_TYPE_TEXT = {
+    TYPE_ASSOCIATION: "关联",
+    TYPE_PARTICIPATION: "参与",
+    TYPE_AGGREGATION: "汇总",
+    TYPE_DERIVATION: "派生",
+    TYPE_SELF_REFERENCE: "自指",
+}
+
+#: One fill per kind, so 实体 / 事件 / 汇总 read apart at a glance. Mermaid's `erDiagram`
+#: has no `classDef`, so the concept overview is a `flowchart LR`: the boxes here carry
+#: a business name and a kind rather than columns, and the kind is the whole point.
+CONCEPT_KIND_STYLE = {
+    CONCEPT_ENTITY: "fill:#e8f0fe,stroke:#3367d6,color:#102a43",
+    CONCEPT_EVENT: "fill:#fdf0e6,stroke:#c2660a,color:#43260f",
+    CONCEPT_SUMMARY: "fill:#eaf6ed,stroke:#2e7d46,color:#10331d",
+}
+
+#: How many of a concept's ranked name candidates the table prints before the JSON.
+CONCEPT_NAME_CANDIDATES_SHOWN = 3
+#: How many reasons the 「未归入概念的表」 line names before it points at the JSON.
+UNASSIGNED_REASONS_SHOWN = 3
 
 # Why a cardinality is claimed. A token rather than a sentence: the JSON is read by
 # machines, and the markdown renders the token into one line of Chinese.
@@ -386,6 +450,9 @@ _ONTOLOGY_KEYS = (
     # business key, and the tables no key could place.
     "concepts",
     "unassigned_tables",
+    # K4b: what a reviewed `concepts.overrides.json` changed, and what it named that
+    # this corpus does not contain.
+    "concept_overrides_applied",
     "relations",
     # K3: the same edges, read between concepts instead of between tables; the ones
     # that joined two representations of a single concept rather than two concepts;
@@ -468,6 +535,7 @@ def build_ontology(
     tables: Mapping | None = None,
     glossary: Mapping | None = None,
     overrides: Mapping | None = None,
+    concept_overrides: Mapping | None = None,
     artifact_root: str | None = None,
 ) -> dict:
     """Build one corpus's ontology candidate.
@@ -530,7 +598,10 @@ def build_ontology(
     # After the confirmations, never before: an override that raises a candidate key to
     # `confirmed` is exactly the evidence K1 seeds a concept on.
     ontology.update(build_concepts(ontology, cards))
-    # K3 reads the concepts the line above published, so it runs after them.
+    # K4b before K3, deliberately: a reviewed merge moves one concept's tables onto
+    # another, and folding the edges first would leave them on an id nothing publishes.
+    apply_concept_overrides(ontology, concept_overrides or {})
+    # K3 reads the concepts the two lines above published, so it runs after them.
     ontology.update(build_concept_relations(ontology))
     _publish_open_list(ontology)
     return {key: ontology[key] for key in _ONTOLOGY_KEYS}
@@ -2714,6 +2785,9 @@ def render_ontology_index_markdown(ontology: Mapping) -> str:
         "跨任务证据打架）、`confirmed`（已确认，只来自人工回写的 `ontology.overrides.json`）。",
     ]
     lines.extend(_external_evidence_lines(corpus))
+    # K4a: the concepts first. A reader who opens this file asks a business question,
+    # and the table-level ER below is the evidence the answer was read off.
+    lines.extend(_concept_section(ontology))
     lines.extend(_mermaid_section(entities, relations, findings, identifiers))
     lines.extend(_entities_section(entities, relations, constraints, identifiers))
     lines.extend(_relations_section(relations))
@@ -2740,6 +2814,233 @@ def _external_evidence_lines(corpus: Mapping) -> list[str]:
         "（`--tables` / `tables --merge`），本语料既没读也没写，只把已证明的键与生产者借给"
         "上面的判定。",
     ]
+
+
+# ------------------------------------------------------------ K4a: concept layer
+
+
+def _concept_section(ontology: Mapping) -> list[str]:
+    """The business reading of the corpus: a diagram, two tables, and what fell out.
+
+    It sits above the table-level ER because the two answer different questions. The ER
+    says which tables were joined on which columns; this says what the warehouse is
+    *about* -- and every line of it is a candidate, because a concept is an inference
+    over the corpus and never something the SQL wrote.
+    """
+    concepts = list(ontology.get("concepts") or [])
+    relations = list(ontology.get("concept_relations") or [])
+    unassigned = list(ontology.get("unassigned_tables") or [])
+    lines = ["", "## 概念层", ""]
+    if not concepts:
+        lines.append(
+            "本语料没有可发布的概念：没有一张表的候选键能归到一个非通用的业务词根上。"
+        )
+        return lines
+    lines.append(
+        f"{len(concepts)} 个概念、{len(relations)} 条概念关系，另有 {len(unassigned)} 张表"
+        "没有归入任何概念。概念是**候选**：名字永远是作者假设，种类由 `kind_evidence[]` 的"
+        "投票决定，两个词根是不是同一件事留给评审那一轮判（见 `concepts.overrides.json`）。"
+    )
+    lines.extend(_concept_diagram(concepts, relations))
+    lines.extend(_concept_table(concepts))
+    lines.extend(_concept_relation_table(relations, concepts))
+    lines.extend(_unassigned_section(unassigned))
+    return lines
+
+
+def _concept_diagram(
+    concepts: Sequence[Mapping], relations: Sequence[Mapping]
+) -> list[str]:
+    identifiers = mermaid_entity_ids(concepts)
+    shown = _diagram_concepts(concepts, relations)
+    names = {str(concept.get("id")) for concept in shown}
+    lines: list[str] = [""]
+    omitted = len(concepts) - len(shown)
+    if omitted:
+        lines.extend(
+            [
+                f"概念数 {len(concepts)} 超过 {CONCEPT_MERMAID_LIMIT}，下图按概念关系度数取前 "
+                f"{CONCEPT_MERMAID_LIMIT} 个，省略 {omitted} 个；完整清单见下面的概念表。",
+                "",
+            ]
+        )
+    lines.extend(["```mermaid", "flowchart LR"])
+    lines.extend(_concept_node(concept, identifiers) for concept in shown)
+    lines.extend(
+        _concept_edge(relation, identifiers)
+        for relation in relations
+        if str(relation["from"]) in names and str(relation["to"]) in names
+    )
+    lines.extend(
+        f"    classDef {kind} {style}" for kind, style in CONCEPT_KIND_STYLE.items()
+    )
+    lines.extend(["```", ""])
+    lines.append(
+        "框里是概念名与它的种类，底色按种类分；边上的 `?` 表示这条基数只是作者假设、未被"
+        "证明，括号里是实体在事件里的身份。同一个概念的两张表之间那条 JOIN 是 K1 折叠的接缝、"
+        "不是业务关系，它在 `concept_representation_links[]` 里，图上不画。"
+    )
+    return lines
+
+
+def _diagram_concepts(
+    concepts: Sequence[Mapping], relations: Sequence[Mapping]
+) -> list[dict]:
+    """Every concept, or the best-connected ``CONCEPT_MERMAID_LIMIT`` of them."""
+    if len(concepts) <= CONCEPT_MERMAID_LIMIT:
+        return [dict(concept) for concept in concepts]
+    degree: dict[str, int] = {str(concept.get("id")): 0 for concept in concepts}
+    for relation in relations:
+        for side in ("from", "to"):
+            name = str(relation[side])
+            if name in degree:
+                degree[name] += 1
+    ranked = sorted(
+        concepts,
+        key=lambda concept: (-degree[str(concept.get("id"))], str(concept.get("id"))),
+    )
+    kept = {str(concept.get("id")) for concept in ranked[:CONCEPT_MERMAID_LIMIT]}
+    return [dict(concept) for concept in concepts if str(concept.get("id")) in kept]
+
+
+def _concept_node(concept: Mapping, identifiers: Mapping[str, str]) -> str:
+    kind = str(concept.get("kind"))
+    label = f"{concept.get('name')}（{CONCEPT_KIND_TEXT.get(kind, kind)}）"
+    return f'    {identifiers[str(concept["id"])]}["{_mermaid_label(label)}"]:::{kind}'
+
+
+def _concept_edge(relation: Mapping, identifiers: Mapping[str, str]) -> str:
+    label = _mermaid_label(_concept_edge_label(relation))
+    return (
+        f'    {identifiers[str(relation["from"])]} -->|"{label}"| '
+        f'{identifiers[str(relation["to"])]}'
+    )
+
+
+def _concept_edge_label(relation: Mapping) -> str:
+    """Type and cardinality, `?` when the cardinality is only an assumption."""
+    cardinality = relation.get("cardinality") or {}
+    claim, kind = str(cardinality.get("claim")), str(relation.get("type"))
+    marker = " ?" if str(cardinality.get("tier")) == TIER_HYPOTHESIS else ""
+    text = (
+        f"{CONCEPT_TYPE_TEXT.get(kind, kind)}："
+        f"{CARDINALITY_TEXT.get(claim, claim)}{marker}"
+    )
+    roles = _role_text(relation)
+    return f"{text}（{roles}）" if roles else text
+
+
+def _role_text(relation: Mapping) -> str:
+    """What the entity is to the event, on a `participation` and nowhere else."""
+    return "、".join(str(item) for item in relation.get("roles") or [])
+
+
+def _mermaid_label(text: str) -> str:
+    """One line Mermaid can hold: its own two delimiters cannot appear inside a label."""
+    return normalize_inline(str(text)).replace('"', "'").replace("|", "/")
+
+
+def _concept_table(concepts: Sequence[Mapping]) -> list[str]:
+    lines = [
+        "",
+        "### 概念",
+        "",
+        "| 概念 | 种类 | 表数 | 命名候选 | 疑似重复 |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    lines.extend(_concept_row(concept) for concept in concepts)
+    return lines
+
+
+def _concept_row(concept: Mapping) -> str:
+    kind = str(concept.get("kind"))
+    return (
+        f"| {cell(str(concept.get('name')))} "
+        f"| {CONCEPT_KIND_TEXT.get(kind, kind)}（`{concept.get('kind_tier')}`） "
+        f"| {_member_counts(concept.get('tables') or [])} "
+        f"| {_candidate_text(concept.get('name_candidates') or [])} "
+        f"| {_duplicate_text(concept)} |"
+    )
+
+
+def _member_counts(members: Sequence[Mapping]) -> str:
+    """How many tables represent the concept, and as what -- counted, never listed."""
+    counts: dict[str, int] = {}
+    for member in members:
+        role = str(member.get("role"))
+        counts[role] = counts.get(role, 0) + 1
+    ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    detail = "、".join(
+        f"{CONCEPT_ROLE_TEXT.get(role, role)} {count}" for role, count in ordered
+    )
+    return f"{len(members)}（{detail}）" if detail else str(len(members))
+
+
+def _candidate_text(candidates: Sequence[Mapping]) -> str:
+    """The ranked names, best first; the published one is the first of them."""
+    shown = candidates[:CONCEPT_NAME_CANDIDATES_SHOWN]
+    text = " / ".join(cell(str(item.get("text"))) for item in shown)
+    rest = len(candidates) - len(shown)
+    return f"{text}（另有 {rest} 个）" if rest > 0 else text or "无"
+
+
+def _duplicate_text(concept: Mapping) -> str:
+    """K2 flags a shared name and refuses to merge on it; K4b is where that is decided."""
+    others = concept.get("possible_duplicate_of") or []
+    return "、".join(f"`{item}`" for item in others) if others else "—"
+
+
+def _concept_relation_table(
+    relations: Sequence[Mapping], concepts: Sequence[Mapping]
+) -> list[str]:
+    lines = ["", "### 概念关系", ""]
+    if not relations:
+        return [*lines, "本语料没有能折到两个概念上的关系。"]
+    names = {str(concept.get("id")): str(concept.get("name")) for concept in concepts}
+    lines.extend(
+        [
+            "| 类型 | 从 | 到 | 角色 | 基数 | 层级 | 证据数 |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
+        ]
+    )
+    lines.extend(_concept_relation_row(relation, names) for relation in relations)
+    return lines
+
+
+def _concept_relation_row(relation: Mapping, names: Mapping[str, str]) -> str:
+    cardinality = relation.get("cardinality") or {}
+    kind = str(relation.get("type"))
+    claim = str(cardinality.get("claim"))
+    return (
+        f"| {CONCEPT_TYPE_TEXT.get(kind, kind)} "
+        f"| {cell(names.get(str(relation['from']), str(relation['from'])))} "
+        f"| {cell(names.get(str(relation['to']), str(relation['to'])))} "
+        f"| {cell(_role_text(relation)) or '—'} "
+        f"| {CARDINALITY_TEXT.get(claim, claim)} "
+        f"| `{cardinality.get('tier')}` "
+        f"| {len(relation.get('evidence') or [])} |"
+    )
+
+
+def _unassigned_section(unassigned: Sequence[Mapping]) -> list[str]:
+    """「我们分不出来」 is an answer, and it is published as one."""
+    lines = ["", "### 未归入概念的表", ""]
+    if not unassigned:
+        lines.append("每张表都归到了某个概念上。")
+        return lines
+    counts: dict[str, int] = {}
+    for item in unassigned:
+        reason = str(item.get("reason"))
+        counts[reason] = counts.get(reason, 0) + 1
+    top = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    shown = "、".join(
+        f"`{reason}` {count} 张" for reason, count in top[:UNASSIGNED_REASONS_SHOWN]
+    )
+    lines.append(
+        f"{len(unassigned)} 张表没有归入任何概念，最常见的原因是 {shown}。"
+        "逐表清单见 `ontology.json` 的 `unassigned_tables[]`。"
+    )
+    return lines
 
 
 # --------------------------------------------------------------------- mermaid ER
@@ -3226,7 +3527,7 @@ def render_ontology_table_card_markdown(card: Mapping, ontology: Mapping) -> str
     )
     lines = base.rstrip("\n").split("\n")
     sections = (
-        ("7. 身份（本体）", _card_identity(entity)),
+        ("7. 身份（本体）", _card_identity(entity, ontology)),
         ("8. 关系", _card_relations(entity, ontology)),
         ("9. 约束", _card_constraints(entity, ontology)),
         ("10. 属性同义", _card_synonyms(entity)),
@@ -3320,13 +3621,14 @@ def _hint_lines(hints: Sequence[Mapping]) -> list[str]:
     return lines
 
 
-def _card_identity(entity: Mapping) -> list[str]:
-    """Candidate keys, multiplicity and partition columns -- three answers, never merged."""
+def _card_identity(entity: Mapping, ontology: Mapping) -> list[str]:
+    """What the table represents, then its own identity -- three answers, never merged."""
     identity = entity.get("identity") or {}
     keys = identity.get("candidate_keys") or []
     multiplicity = identity.get("multiplicity") or []
     partitions = identity.get("partition_columns") or []
-    lines = [f"- 属性 {_attribute_count_text(entity)}", "", "**候选键**", ""]
+    lines = _concept_memberships(entity, ontology)
+    lines += [f"- 属性 {_attribute_count_text(entity)}", "", "**候选键**", ""]
     if keys:
         lines.extend(_key_line(key) for key in keys)
     else:
@@ -3351,6 +3653,37 @@ def _card_identity(entity: Mapping) -> list[str]:
     else:
         lines.append("- 语料内没有观察到分区列。")
     return lines
+
+
+def _concept_memberships(entity: Mapping, ontology: Mapping) -> list[str]:
+    """K4a: what business thing this table is a copy of, before what it is on its own.
+
+    A table can represent more than one concept -- it is keyed by one and carries
+    another -- so every membership gets a line, and the basis travels with it: a
+    `reference` view of 客户 is a table that *carries* the key, not one 客户 is kept in.
+    A table no key could place says so, with the reason, rather than saying nothing.
+    """
+    name = str(entity.get("id"))
+    lines = [
+        f"- 本表是「{cell(str(concept.get('name')))}」（`{concept.get('id')}`，"
+        f"{CONCEPT_KIND_TEXT.get(str(concept.get('kind')), str(concept.get('kind')))}）的"
+        f"{CONCEPT_ROLE_TEXT.get(str(member.get('role')), str(member.get('role')))}视图"
+        f"（`{member.get('membership_basis')}`）。"
+        for concept in ontology.get("concepts") or []
+        for member in concept.get("tables") or []
+        if str(member.get("table")) == name
+    ]
+    if lines:
+        return [*lines, ""]
+    reason = next(
+        (
+            str(item.get("reason"))
+            for item in ontology.get("unassigned_tables") or []
+            if str(item.get("table")) == name
+        ),
+        None,
+    )
+    return [f"- 未归入任何概念（`{reason}`）。", ""] if reason else []
 
 
 def _card_relations(entity: Mapping, ontology: Mapping) -> list[str]:

@@ -420,6 +420,15 @@ def _reference_index(documents, ontology: dict) -> dict:
             for item in assertion.get("evidence") or []
             if item.get("kind")
         ),
+        # K4a: section 7 opens with what the table represents -- the concept's id, the
+        # basis it belongs on, and, for a table no key could place, the reason.
+        *(str(concept["id"]) for concept in ontology.get("concepts") or []),
+        *(
+            str(member["membership_basis"])
+            for concept in ontology.get("concepts") or []
+            for member in concept["tables"]
+        ),
+        *(str(item["reason"]) for item in ontology.get("unassigned_tables") or []),
     }
     return {
         "tables": tables,
@@ -474,9 +483,14 @@ def test_every_card_the_corpus_publishes_carries_the_five_ontology_sections(corp
 
 
 def _mermaid_block(markdown: str) -> list[str]:
-    _head, _, tail = markdown.partition("```mermaid\n")
+    """The table-level ER diagram.
+
+    Named by its opening keyword rather than by position: K4a puts the concept-layer
+    `flowchart LR` above it, and the rules below are about the entities.
+    """
+    _head, _, tail = markdown.partition("```mermaid\nerDiagram\n")
     body, _, _rest = tail.partition("```")
-    return [line for line in body.split("\n") if line.strip()]
+    return ["erDiagram", *(line for line in body.split("\n") if line.strip())]
 
 
 def test_the_diagram_declares_exactly_the_published_entities(corpus) -> None:

@@ -1,6 +1,54 @@
 # Changelog
 
 ## Unreleased
+- **The concept layer, rendered and reviewable** (K4). K1--K3 published the concept layer
+  into `ontology.json` and nowhere else, which made it a layer only a program could read.
+  `ontology.md` now **opens** on 「概念层」, above the table-level ER: a Mermaid `flowchart
+  LR` with one box per concept labelled `<name>（<kind>）` and filled per kind (`classDef
+  entity` / `event` / `summary` — the ER diagram has no `classDef`, and the kind is half of
+  what there is to see here), edges from `concept_relations[]` labelled 「type:
+  cardinality」 with `?` on an assumed cardinality and a `participation`'s roles in
+  brackets, and `concept_representation_links[]` deliberately not drawn because a snapshot
+  joined onto its own primary is a seam in K1's fold rather than a relation the business
+  has. Past 40 concepts (`CONCEPT_MERMAID_LIMIT`) it keeps the 40 with the most relations
+  and says how many it left out. Under it, a concept table (name, kind with its tier, how
+  many tables represent it counted per role rather than listed, the first three name
+  candidates, whatever `possible_duplicate_of` points at), a concept-relation table (type,
+  both ends, roles, cardinality with its tier, evidence count) and one line for the tables
+  no key could place, with the three most common reasons and a pointer at
+  `unassigned_tables[]`. Each table card's section 7 gains an opening line saying which
+  copy of which concept the table is and what put it there — 「本表是「客户」
+  (`concept:cust`，实体) 的主表视图（`key:proven`）。」 — or 「未归入任何概念
+  (`no_candidate_key`)。」, because "we could not tell" is an answer.
+- **`ontology --concept-overrides`** (K4b), a second review round over the same corpus. The
+  first asks about *tables* (is this one unique on these columns, how many rows does this
+  edge imply); this one asks about *concepts* (what kind of thing is this, what is it
+  called, are these two the same one), and the two answers live in two files that never
+  overwrite each other. A reviewed `concepts.overrides.json` (`doc_format:
+  "concept-overrides/1"`) carries `concepts: {"concept:<stem>": {name, kind, merge_into,
+  roles, confirmed_by, date, basis, note}}` and `splits: [{from, into: [{name, tables}]}]`.
+  A confirmed name, kind or member role is published at tier `confirmed` (`name_tier` /
+  `kind_tier` / that member's `role_tier`) with who said so, when and why in the concept's
+  `confirmation` (`basis` published as `confirmed_basis`, because `membership_basis` beside
+  it is a machine token). `merge_into` folds one concept's tables, attributes and key stem
+  into another and keeps the folded id in `merged_from[]`; `splits[]` publishes
+  `concept:<stem>-<n>` per named group, leaving unclaimed tables on the original. The pass
+  runs **before** K3 folds the concept relations, so a merge carries that concept's edges
+  with it rather than leaving them on an id nothing publishes any more. Anything naming
+  something the corpus does not contain is reported in the new
+  **`concept_overrides_applied`** — `{concepts, merges, splits, unmatched[], ignored_fields[]}`,
+  with `unknown_concept` / `unknown_concept: <id>` / `unknown_table: <t>` / `unknown_kind:
+  <k>` / `unknown_role: <r>` / `merge_into_self` — mirroring `overrides_applied`, because a
+  typo in a reviewed file is exactly what its author cannot see.
+- **`skills/scope-lineage/references/concept-review-prompt.md`**: the review round itself,
+  in a fixed order — kind first (with the votes in `kind_evidence[]`), then the name (a
+  candidate whose only source is `key_stem` is an English abbreviation nobody asked for),
+  then merges (`possible_duplicate_of` and two other evidence-backed signals), splits, and
+  role corrections. The same evidence discipline as the ontology round: four kinds of
+  evidence may close an item, every self-answer carries a `basis` and an `agent:<name>`,
+  at most 8 questions go to a person and evidence-backed confirmations are unlimited, and a
+  split may never be self-answered. Output is `concepts.overrides.json` plus
+  `open-questions.md`. Linked from `SKILL.md` and from `ontology-review-prompt.md`.
 - **Concept-level relations** (K3). `relations[]` say which two *tables* a task joined;
   a business asks whether 「消息发送」 involves 「客户」, in which role, and whether
   「客户日汇总」 aggregates the event or the entity. `ontology.json` gains

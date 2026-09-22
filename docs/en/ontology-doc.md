@@ -38,11 +38,13 @@ assertions and labels each with its confidence tier and its evidence.
 scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology
 
 # Reuse the cards and the dictionary you already built (both are built in memory over
-# the same corpus when they are not supplied); --overrides merges human confirmations,
-# which raise an assertion to the fifth tier, confirmed
+# the same corpus when they are not supplied); --overrides merges the table-level human
+# confirmations and --concept-overrides the concept layer's, and a confirmed assertion
+# is published at the fifth tier, confirmed
 scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
   --tables /path/to/tables/tables.json --glossary /path/to/glossary/glossary.json \
-  --overrides /path/to/ontology.overrides.json
+  --overrides /path/to/ontology.overrides.json \
+  --concept-overrides /path/to/concepts.overrides.json
 
 # Across corpora: --tables repeats, and the cards are merged before anything is built
 scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
@@ -54,7 +56,7 @@ Three artifacts:
 | File | Read by | Contents |
 | --- | --- | --- |
 | `ontology.json` | machines / RAG / knowledge-graph loaders | the main artifact, `doc_format: "ontology-json/1"` |
-| `ontology.md` | people | an index: the Mermaid ER overview plus the entity, relation, constraint and findings tables and the consolidated open list (the last two folded into groups by table family), `doc_format: "ontology-index-md/1"` |
+| `ontology.md` | people | an index: the concept layer (its diagram, the concept and concept-relation tables and the unplaced tables) first, then the Mermaid ER overview plus the entity, relation, constraint and findings tables and the consolidated open list (the last two folded into groups by table family), `doc_format: "ontology-index-md/1"` |
 | `tables/<db.table>.md` | people / RAG chunked per table | the table card's six sections plus five ontology sections, `doc_format: "ontology-md/1"`; the filename rule is exactly `scope-lineage tables`' own |
 
 Python API (consumes the contract documents, same path the files are written from):
@@ -208,6 +210,8 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
     {"table": "ods.staging_rows", "reason": "generic_key_only"}   // keyed by `id` alone,
                                                                  // and no hint and no JOIN placed it
   ],
+  "concept_overrides_applied": {"concepts": 0, "merges": 0, "splits": 0,  // K4b
+                                "unmatched": [], "ignored_fields": []},
   "relations": [
     {"id": "rel:001",
      "from": {"entity": "ods.driver", "columns": ["id"]},
@@ -334,6 +338,7 @@ Slot by slot (every slot `ontology-json/1` publishes):
 | `open_item_groups[].write_back_pattern` | `键:<table>=<col+col>` / `关系:<near end>.<col+col>-><table>.<col+col>` / `null` | the group's write-back key, where `<table>` is the table the group is about (the far one for a relation) and a near side the members disagree on reads `<from_table>` / `<from_columns>`: answer once, then file it per table in the family; a finding with no single target carries `null` |
 | `finding_groups[]` | the same shape as `open_item_groups[]` | the subset of `open_item_groups[]` whose `kind` is `finding`, published on its own because the index's 待人工判定 table renders only those |
 | `overrides_applied` | `relations` / `keys` / `unmatched` / `ignored_fields` | how many human confirmations this run merged, which of them matched nothing in the corpus, and which fields this release does not understand |
+| `concept_overrides_applied` | `concepts` / `merges` / `splits` / `unmatched` / `ignored_fields` | K4b: how many field confirmations, merges and splits the reviewed `concepts.overrides.json` applied, and which ids, tables or field names matched nothing in the corpus |
 
 ## The inference rules
 
@@ -481,6 +486,26 @@ The order is fixed: by type (`association` → `participation` → `aggregation`
 `derivation` → `self_reference`), then by the `from` concept id, then by the `to`
 concept id; `concept_representation_links[]` is ordered by concept, then the two tables.
 
+### How the concept layer is rendered
+
+`ontology.md` opens on 「概念层」, **before** the table-level ER: a reader of this file is
+asking a business question, and the ER diagram below is the evidence the answer was read
+off rather than the answer. Four blocks, in a fixed order:
+
+| Block | Contents |
+| --- | --- |
+| The concept diagram | one box per concept, labelled `<name>（<kind>）` and filled by kind (`classDef entity` / `event` / `summary`). It is a `flowchart LR` rather than an `erDiagram` because Mermaid's ER diagram has no `classDef`, and the boxes here carry a business name and a kind -- the kind being half of what there is to see. The edges come from `concept_relations[]`, labelled 「type: cardinality」, with `?` for a cardinality that is only the author's assumption and a `participation`'s roles in brackets. `concept_representation_links[]` is **not** drawn: that is a seam in K1's fold, not a relation. Past 40 concepts (`CONCEPT_MERMAID_LIMIT`) it keeps the 40 with the most concept relations and says how many it left out |
+| The concept table | one row per concept: the name, the kind with its tier, how many tables represent it (counted per `role`, **not** listed), the first three name candidates (`CONCEPT_NAME_CANDIDATES_SHOWN`), and whatever `possible_duplicate_of` points at |
+| The concept-relation table | one row per relation: the type, both concept names, the participation roles, the cardinality with its tier, and how many table-level edges are behind it |
+| The unplaced tables | one line: how many tables landed on no concept and the three most common reasons (`UNASSIGNED_REASONS_SHOWN`) with a count each; the table-by-table list stays in `ontology.json`'s `unassigned_tables[]` |
+
+Section 7 of each table card, 身份（本体）, gains an opening line saying which copy of which
+concept this table is and what put it there: 「本表是「客户」（`concept:cust`，实体）的主表视图
+（`key:proven`）。」 A table can be a member of two concepts at once -- defined by one key and
+carrying another -- and then each membership gets its own line; a table nothing could place
+says 「未归入任何概念（`no_candidate_key`）。」, because "we could not tell" is an answer and
+deserves to be printed.
+
 ## Table families and the folded open list
 
 A warehouse writes one logical table many times: `_di` is today's increment, `_df` the
@@ -517,7 +542,7 @@ tables` card (1 what this table is / 2 what one row means / 3 columns / 4 who wr
 
 | Section | Contents |
 | --- | --- |
-| 7. 身份（本体） | opens with 「属性 N（语料用到 n）」, the same count the entity table in `ontology.md` carries; then candidate keys, the metadata key hints, multiplicity and partition columns side by side, each with its tier in Chinese and its evidence ids; a confirmed key prints who confirmed it, when, and on what basis on the same line, and a key with `scope_columns` reads 「在 `dt` 内唯一」; the four answer four different questions and are never merged into one "primary key" |
+| 7. 身份（本体） | opens with which copy of which concept this table is (「本表是「客户」（`concept:cust`，实体）的主表视图（`key:proven`）。」, one line per membership), or 「未归入任何概念（`<reason>`）。」 when nothing placed it; then 「属性 N（语料用到 n）」, the same count the entity table in `ontology.md` carries; then candidate keys, the metadata key hints, multiplicity and partition columns side by side, each with its tier in Chinese and its evidence ids; a confirmed key prints who confirmed it, when, and on what basis on the same line, and a key with `scope_columns` reads 「在 `dt` 内唯一」; the four answer four different questions and are never merged into one "primary key" |
 | 8. 关系 | one table for outgoing and one for incoming edges: the other end (linked to its card), the key pair, the JOIN types, the cardinality claim, the tier, the basis token in plain words, the task count and the evidence ids; a 「注释线索」 sub-block follows when this table's column comments point somewhere (O9): own column → other table.column, the comment verbatim, and the reason where it could not be resolved; no hints, no sub-block |
 | 9. 约束 | a SHACL-shaped list: the constraint kind, the target column or the whole table, the value set and its completeness, the tier, the evidence |
 | 10. 属性同义 | this table's column ↔ the synonym, the basis (a renaming projection / the same UNION position), the tier, the evidence |
@@ -612,6 +637,70 @@ After the merge those assertions carry `tier: "confirmed"` and `basis:
 "confirmed_by": …, "date": …, "confirmed_basis": …, "note": …}`. `confirmed` is the one tier the corpus can never produce
 by itself. A confirmation does not silence the corpus's own `findings`: whether a
 contradiction still exists is decided by O7 the next time the corpus is parsed.
+
+## Writing concept confirmations back: `concepts.overrides.json`
+
+Everything the concept layer publishes is a **candidate**: the name is always a
+`hypothesis`, the kind is decided by votes, and whether two stems are one thing is a
+question this layer refuses to answer for anybody. `concepts.overrides.json`
+(`doc_format: "concept-overrides/1"`) is the only way those candidates reach `confirmed`.
+An agent works one round following
+`skills/scope-lineage/references/concept-review-prompt.md` -- kind → name → merges →
+splits → roles -- writing what the corpus itself answers into this file, turning the rest
+into questions, merging the answers when they come back, and re-running the corpus with
+`--concept-overrides`:
+
+```json
+{
+  "doc_format": "concept-overrides/1",
+  "concepts": {
+    "concept:cust": {
+      "name": "客户",
+      "kind": "entity",
+      "roles": {"tmp.cust_step01": "intermediate"},
+      "basis": "the key column comment names it 客户编号",
+      "note": "reviewed with the owner of the 客户 domain",
+      "confirmed_by": "agent:concept-review",
+      "date": "2026-09-22"
+    },
+    "concept:party": {
+      "merge_into": "concept:cust",
+      "basis": "O5 proved the two key columns hold the same value",
+      "confirmed_by": "王某",
+      "date": "2026-09-22"
+    }
+  },
+  "splits": [
+    {
+      "from": "concept:acct",
+      "into": [
+        {"name": "签约账户", "tables": ["ods.acct_base"]},
+        {"name": "申请账户", "tables": ["ods.acct_apply"]}
+      ]
+    }
+  ]
+}
+```
+
+| Slot | Values | Meaning |
+| --- | --- | --- |
+| the key of `concepts` | `concept:<stem>` | the concept id, character for character as the concept table and card section 7 print it |
+| `name` | free text | the confirmed business name; `name_tier` becomes `confirmed` |
+| `kind` | `entity` / `event` / `summary` | the confirmed kind; `kind_tier` becomes `confirmed`. Anything else is reported as `unknown_kind: X` and does not take effect |
+| `roles` | `{"<table>": "<role>"}` | moves one member table to another role, one of K1's six; that member gains `role_tier: "confirmed"` |
+| `merge_into` | another concept id | folds this concept into that one: its tables, attributes and key stem all travel, and its id is kept in the survivor's `merged_from[]` |
+| `splits[]` | `{"from": …, "into": [{"name", "tables"}]}` | splits one concept by naming tables; the new ids are `concept:<stem>-<n>`, numbered as `into[]` lists them. Tables nobody claimed stay on the original, which stops being published when they all leave |
+| `confirmed_by`, `date` | free text | who confirmed it and when; an agent answering on evidence writes `agent:<name>` rather than impersonating a person |
+| `basis`, `note` | free text | why the answer is believed and anything else worth recording, published in the concept's `confirmation` (`basis` as `confirmed_basis` -- `membership_basis` beside it is a machine token, and one word cannot be a vocabulary and a sentence at once) |
+| `concept_overrides_applied.concepts` / `merges` / `splits` | integers | how many field confirmations, merges and splits took effect |
+| `concept_overrides_applied.unmatched` | a list of `{"key": …, "reason": …}` | confirmations with nothing to match in the corpus — never dropped, listed; `reason` is `unknown_concept` / `unknown_concept: <id>` / `unknown_table: <table>` / `unknown_kind: <value>` / `unknown_role: <value>` / `merge_into_self` |
+| `concept_overrides_applied.ignored_fields` | a list of `{"key": …, "fields": ["…"]}` | fields this release does not understand (usually a misspelled slot name) — listed rather than silently dropped; stray keys on the document itself are filed under `(document)` |
+
+**The order is deliberate**: the field edits first (name, kind, roles), then the merges,
+then the splits -- the order a reviewer arrives at them, and the last two change which
+tables a concept holds. The whole pass runs **before** K3 folds the concept relations, so
+a merge carries the folded concept's edges with it instead of leaving them on an id
+nothing publishes any more.
 
 ## Slot correspondence with OWL / SHACL / LinkML
 

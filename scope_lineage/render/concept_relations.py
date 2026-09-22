@@ -143,8 +143,9 @@ def build_concept_relations(ontology: Mapping) -> dict:
     entities = list(ontology.get("entities") or [])
     context = _Context(
         by_stem={
-            str((concept.get("identity") or {}).get("stem")): str(concept.get("id"))
+            stem: str(concept.get("id"))
             for concept in concepts
+            for stem in _stems(concept)
         },
         identity=_identity_memberships(concepts),
         synonyms=synonym_folding(entities),
@@ -171,6 +172,20 @@ def build_concept_relations(ontology: Mapping) -> dict:
 
 
 # ------------------------------------------------------------ placing an endpoint
+
+
+def _stems(concept: Mapping) -> list[str]:
+    """Every key stem this concept answers to.
+
+    Its own, plus whatever a reviewed ``concepts.overrides.json`` merged into it (K4b).
+    A merge that moved the tables but not the stems would leave the far end of every
+    edge that named the folded concept pointing at an id nothing publishes any more.
+    """
+    identity = concept.get("identity") or {}
+    return [
+        str(identity.get("stem")),
+        *(str(item) for item in identity.get("merged_stems") or []),
+    ]
 
 
 def _identity_memberships(concepts: Sequence[Mapping]) -> dict[str, str]:

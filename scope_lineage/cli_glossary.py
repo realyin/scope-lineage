@@ -88,13 +88,18 @@ def formats(value: str | None) -> set[str]:
     return {name.strip() for name in (value or "json,md").split(",") if name.strip()}
 
 
-def load_overrides(path: str | None):
-    """The reviewed overrides document, or the exit code when it cannot be read."""
+def load_overrides(path: str | None, flag: str = "--overrides"):
+    """The reviewed overrides document, or the exit code when it cannot be read.
+
+    ``flag`` is the argument the path came from, so a corpus with two reviewed files --
+    ``--overrides`` for the table level and ``--concept-overrides`` for the concept
+    layer -- says which of the two a reviewer mistyped.
+    """
     if not path:
         return None
     source = Path(path)
     if not source.is_file():
-        print(f"--overrides file does not exist: {source}", file=sys.stderr)
+        print(f"{flag} file does not exist: {source}", file=sys.stderr)
         return 2
     try:
         document = json.loads(source.read_text(encoding="utf-8"))

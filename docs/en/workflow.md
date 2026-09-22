@@ -47,16 +47,20 @@ flowchart TD
     AGENT_GLOSSARY -.-> G_OVR
     ONTO_OUT -.-> AGENT_ONTOLOGY["agent: ontology review"]
     AGENT_ONTOLOGY -.-> O_OVR["ontology.overrides.json"]
+    ONTO_OUT -.-> AGENT_CONCEPT["agent: concept review"]
+    AGENT_CONCEPT -.-> C_OVR["concepts.overrides.json"]
 
     G_OVR -.-> GLOSSARY
     O_OVR -.-> ONTOLOGY
+    C_OVR -.-> ONTOLOGY
     PATCH -.-> DESCRIBE
     PATCH -.-> PARSE
 ```
 
 Solid arrows are data flowing between commands; dashed arrows are the write-back loops.
-The loops have exactly three landing places: `glossary.overrides.json`,
-`ontology.overrides.json` and `metadata-patch.json`. Write an answer into one of them, run
+The loops have exactly four landing places: `glossary.overrides.json`,
+`ontology.overrides.json`, `concepts.overrides.json` and `metadata-patch.json`. Write an
+answer into one of them, run
 the same command again, and that question is not asked a second time — that is the only
 memory the whole pipeline has.
 
@@ -229,7 +233,7 @@ the summary line as `unmatched=1`.
 | `tables` | a `lineage.json` tree, optional `--samples`, `--merge` | `tables.json`, `tables.md`, `tables/<db.table>.md` | analyst; also fed to `describe` / `ontology` | [Corpus-level table cards](tables-doc.md) |
 | `glossary` | a `lineage.json` tree, optional `--overrides`, `--template` | `glossary.json`, `glossary.md`, optionally a fill-in form | business owner fills the form; machines read the JSON | [Term and value dictionary](glossary-doc.md) |
 | `describe` | `lineage.json` + `--tables` + `--glossary` + optional `--metadata-patch` | one `semantic.json`, `semantic.md` per task | agent (raw material for a profile), analyst | [Task-semantic description](semantic-doc.md) |
-| `ontology` | `lineage.json` + `--tables` + `--glossary` + optional `--overrides`, `--export` | `ontology.json`, `ontology.md`, cards with ontology sections | agent (turns open items into questions), analyst | [Corpus-level ontology candidate](ontology-doc.md) |
+| `ontology` | `lineage.json` + `--tables` + `--glossary` + optional `--overrides`, `--concept-overrides`, `--export` | `ontology.json`, `ontology.md`, cards with ontology sections | agent (turns open items into questions), analyst | [Corpus-level ontology candidate](ontology-doc.md) |
 | agent task profile | `semantic.md` plus the skill's prompt and templates | `business_profile.md`, `business_profile.check.md` | business owner (reads the profile, answers the open list) | [AI agent skill](agent-skill.md) |
 | `confirmations.py apply` | an answered `business_profile.md` | merged into `glossary.overrides.json`, `metadata-patch.json` | machine (the next round's input) | [AI agent skill](agent-skill.md) |
 
@@ -249,12 +253,20 @@ lives under `skills/scope-lineage/references/` (paths relative to the
 | task profile | `semantic-profile-prompt.md`, with `business-profile-template.md` / `business-profile-check-template.md` | `business_profile.md` (semantic card + field dictionary + an open list capped at five items) and its QA record `business_profile.check.md` | the owner writes each answer on the item's `- 答案：` line; `confirmations.py apply` routes it by the same item's `- 回写目标：` line — `术语` / `值域` into `glossary.overrides.json`, `字段注释` / `表注释` into `metadata-patch.json` | `glossary --overrides`, then `describe --glossary --metadata-patch`; to land the comments in `lineage.json` itself, also `parse --metadata-patch` |
 | glossary review | `glossary-review-prompt.md`, fed by the form `glossary --template` writes | the entries the agent may answer itself (each with a mandatory `basis`, signed `confirmed_by: "agent:<name>"`), plus at most eight questions left for a person | `glossary.overrides.json` | `glossary --overrides`, then `describe --glossary` |
 | ontology review | `ontology-review-prompt.md`, fed by the open list in `ontology.md` plus each task's `semantic.md` | the confirmations the batch already proves (again with a `basis`), plus at most eight questions left for a person | `ontology.overrides.json`, keyed by the write-back string printed in the open list | `ontology --overrides` |
+| concept review | `concept-review-prompt.md`, fed by 「概念层」 in `ontology.md` plus section 7 of each card | one pass in a fixed order (kind → name → merges → splits → roles): self-answers carrying a `basis`, plus at most eight questions left for a person, written to `open-questions.md` | `concepts.overrides.json`, keyed by `concept:<stem>` | `ontology --concept-overrides` |
 
-What the three have in common: **an agent may not guess from spelling.** It may answer
+What the four have in common: **an agent may not guess from spelling.** It may answer
 from three kinds of evidence only — the column's own comment enumerates the value, a CASE
 in the batch maps the value one-to-one onto a label, or the same value on the same column
 name was confirmed elsewhere by a person. Everything else becomes a question for a human.
 Every self-answer must record what it rests on; a confirmation without one is refused.
+
+The last two rows are **two rounds over one corpus, and neither replaces the other**: the
+ontology round asks about tables (is this table unique on these columns, how many rows does
+this edge imply), the concept round about concepts (what kind of thing is this, what is it
+called, are these two the same one). Their answers land in two different overrides files and
+one command can carry both; running only one round leaves the other half of the questions
+unasked.
 
 ## What happens when something is wrong
 

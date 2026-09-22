@@ -45,6 +45,8 @@ consumers: 2
 
 ## 7. 身份（本体）
 
+- 本表是「渠道」（`concept:channel`，实体）的主表视图（`key:hypothesis`）。
+
 - 属性 2（语料用到 1）
 
 **候选键**
