@@ -26,19 +26,31 @@ corpus, table, column, task, domain or business name is reproduced here.
 
 from __future__ import annotations
 
-from scope_lineage.render.concept_relations import build_concept_relations
+from scope_lineage.render.concept_relations import (
+    build_concept_relations,
+    provisional_concept_ids,
+)
 from scope_lineage.render.concepts import (
     BASIS_OVERRIDE,
     BASIS_REFERENCE,
+    CONCEPT_EVENT,
     CONCEPT_OVERRIDES_DOC_FORMAT,
     ROLE_DETAIL,
     ROLE_PRIMARY,
     ROLE_REFERENCE,
     ROLE_SNAPSHOT,
     TIER_CONFIRMED,
+    TIER_HYPOTHESIS,
+    TIER_IMPLIED,
+    TIER_PROVISIONAL,
     apply_concept_overrides,
     build_concepts,
     table_concept_id,
+)
+from scope_lineage.render.glossary import PROVISIONAL_TIER as GLOSSARY_PROVISIONAL_TIER
+from scope_lineage.render.ontology import (
+    PROVISIONAL_TITLE,
+    render_ontology_appendix_markdown,
 )
 from scope_lineage.render.review_batches import (
     build_review_batches,
@@ -46,6 +58,7 @@ from scope_lineage.render.review_batches import (
 )
 
 from .test_concept_relations import _cards, _entity, _relation
+from .test_concept_render_and_overrides import _ontology
 
 STAMP = {
     "confirmed_by": "agent:concept-review",
@@ -264,3 +277,111 @@ def test_a_reviewed_merge_role_lifts_the_folded_table_out_of_reference() -> None
     concept = _by_id(document)[ANCHOR_ID]
     assert _members(concept)[CARRIER["id"]]["role"] == ROLE_DETAIL
     assert "memo_text" in _stems(concept)
+
+
+# ------------------- 3. a provisional concept confirmed standalone leaves the pile
+
+
+#: The third way out of M1: neither a merge nor a new concept -- the reviewer recognises
+#: this one table as a thing of its own and names it.
+STANDALONE = _overrides(**{EXTRA_ID: {"name": "欧米伽补录", **STAMP}})
+#: The same answer with the kind said too.
+STANDALONE_KIND = _overrides(
+    **{EXTRA_ID: {"name": "欧米伽补录", "kind": CONCEPT_EVENT, **STAMP}}
+)
+
+
+def _provisional(document) -> set:
+    return set(provisional_concept_ids(document["concepts"]))
+
+
+def test_a_named_provisional_concept_leaves_the_provisional_tier() -> None:
+    document = _built(overrides=STANDALONE)
+
+    concept = _by_id(document)[EXTRA_ID]
+    assert concept["tier"] == TIER_HYPOTHESIS
+    assert concept["name"] == "欧米伽补录"
+    assert EXTRA_ID not in _provisional(document)
+
+
+def test_the_confirmed_concept_keeps_the_id_every_other_document_spells_it_as() -> None:
+    """A rename is not a re-identification: the write-back key has to stay answerable."""
+    document = _built(overrides=STANDALONE)
+
+    assert EXTRA_ID in _by_id(document)
+    assert document["concept_overrides_applied"]["unmatched"] == []
+
+
+def test_its_one_table_is_a_membership_somebody_placed_rather_than_an_open_question() -> None:
+    member = _members(_by_id(_built(overrides=STANDALONE))[EXTRA_ID])[EXTRA["id"]]
+
+    assert member["membership_basis"] == BASIS_OVERRIDE
+    assert member["role_tier"] == TIER_CONFIRMED
+
+
+def test_a_confirmed_kind_carries_the_concept_to_implied() -> None:
+    """``implied`` is as strong as an inference over the corpus gets, and the kind is one."""
+    document = _built(overrides=STANDALONE_KIND)
+
+    concept = _by_id(document)[EXTRA_ID]
+    assert concept["kind"] == CONCEPT_EVENT
+    assert concept["kind_tier"] == TIER_CONFIRMED
+    assert concept["tier"] == TIER_IMPLIED
+
+
+def test_a_kind_the_corpus_already_agreed_on_carries_it_to_implied_too() -> None:
+    """The reviewer named it and left the kind alone; the votes were unanimous already."""
+    logged = _entity(
+        "ods.omega_log_di",
+        columns={"note_text": "说明（合成）"},
+        comment="欧米伽发送日志（合成）",
+    )
+    identifier = table_concept_id(logged["id"])
+    document = _built(
+        entities=[ANCHOR, logged],
+        relations=[],
+        overrides=_overrides(**{identifier: {"name": "欧米伽发送", **STAMP}}),
+    )
+
+    concept = _by_id(document)[identifier]
+    assert concept["kind_tier"] == TIER_IMPLIED
+    assert concept["tier"] == TIER_IMPLIED
+
+
+def test_the_counters_and_the_next_batch_run_both_stop_asking_about_it() -> None:
+    before, after = _built(), _built(overrides=STANDALONE)
+
+    assert before["provisional_count"] - after["provisional_count"] == 1
+    listed = build_review_batches(after, by="size")
+    assert EXTRA_ID not in {
+        identifier for batch in listed["batches"] for identifier in batch["concepts"]
+    }
+    assert listed["provisional_count"] == after["provisional_count"]
+
+
+def test_the_appendix_stops_listing_a_concept_the_reviewer_answered() -> None:
+    document = _built(overrides=STANDALONE)
+
+    text = render_ontology_appendix_markdown(_ontology(concepts=document["concepts"]))
+
+    listed = text.split(PROVISIONAL_TITLE)[1].split("\n### ")[0]
+    assert CARRIER_ID in listed
+    assert EXTRA_ID not in listed
+
+
+def test_a_merge_or_a_role_alone_is_not_an_answer_about_what_the_table_is() -> None:
+    """Only a name or a kind says "it really is its own thing"; a role says nothing."""
+    document = _built(
+        overrides=_overrides(**{EXTRA_ID: {"roles": {EXTRA["id"]: ROLE_DETAIL}, **STAMP}})
+    )
+
+    assert _by_id(document)[EXTRA_ID]["tier"] == TIER_PROVISIONAL
+    assert EXTRA_ID in _provisional(document)
+
+
+def test_the_value_dictionary_needs_no_rule_of_its_own_to_pick_the_answer_up() -> None:
+    """N6 keys ``concept_terms[]`` on the tier, so leaving the pile is the whole change."""
+    document = _built(overrides=STANDALONE)
+
+    assert GLOSSARY_PROVISIONAL_TIER == TIER_PROVISIONAL
+    assert _by_id(document)[EXTRA_ID]["tier"] != GLOSSARY_PROVISIONAL_TIER

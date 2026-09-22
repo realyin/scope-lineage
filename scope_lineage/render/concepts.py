@@ -2032,12 +2032,16 @@ def _concept_fields(
         index[str(name)] = concept
         _ignored_fields(applied, str(name), entry, CONCEPT_OVERRIDE_FIELDS)
         stamp = _confirmation(entry)
+        named = _confirm_name(concept, entry)
+        kinded = _confirm_kind(concept, entry, applied, str(name))
         touched = [
-            _confirm_name(concept, entry),
-            _confirm_kind(concept, entry, applied, str(name)),
+            named,
+            kinded,
             _confirm_roles(concept, entry, applied, str(name)),
             _add_tables(concept, entry, corpus, applied, str(name), stamp),
         ]
+        if named or kinded:
+            _confirm_standalone(concept)
         if any(touched):
             concept["attributes"] = _member_attributes(concept, corpus)
             concept["confirmation"] = stamp
@@ -2073,6 +2077,42 @@ def _merge_roles(entry: Mapping, applied: dict, key: str) -> dict[str, str]:
     for role in sorted({value for value in roles.values() if value not in MEMBER_ROLES}):
         applied["unmatched"].append({"key": key, "reason": f"unknown_role: {role}"})
     return {table: role for table, role in roles.items() if role in MEMBER_ROLES}
+
+
+def _confirm_standalone(concept: dict) -> None:
+    """M1's third way out, taken: the reviewer says this one table is its own thing (N8b).
+
+    Naming a provisional concept -- or saying what kind it is -- *is* the answer M1
+    asked for, so the concept has to leave the pile. Without this the round achieved
+    nothing a counter could see: ``provisional_count`` stood still, the appendix went on
+    listing a concept somebody had already answered, and the next ``--review-batches``
+    run put it back in a worksheet.
+
+    Where it lands is what the corpus can still say about it. ``confirmed`` is not
+    available -- a concept is an inference over the warehouse, never something the SQL
+    wrote -- so it is ``implied`` when the kind is settled (the votes were unanimous, or
+    the reviewer said so) and ``hypothesis`` when it is not, exactly the reading
+    ``_concept`` gives a folded concept. The **id does not move**: every other document
+    spells the concept ``concept:table:<table>`` and the write-back key has to stay
+    answerable. Its one membership stops calling itself unplaced for the same reason the
+    folded ones do -- a person placed this table, and ``identity_memberships`` reads the
+    basis, not the tier.
+    """
+    if str(concept.get("tier")) != TIER_PROVISIONAL:
+        return
+    concept["tier"] = (
+        TIER_IMPLIED
+        if str(concept.get("kind_tier")) in (TIER_IMPLIED, TIER_CONFIRMED)
+        else TIER_HYPOTHESIS
+    )
+    concept["tables"] = [
+        (
+            _placed_member(item, str(item.get("role")))
+            if str(item.get("membership_basis")) == BASIS_PROVISIONAL
+            else dict(item)
+        )
+        for item in concept.get("tables") or []
+    ]
 
 
 def _confirmation(entry: Mapping) -> dict:
