@@ -93,6 +93,16 @@ def add_ontology_parser(subcommands) -> None:
         ),
     )
     ontology_cmd.add_argument(
+        "--concept-overrides",
+        help=(
+            "A reviewed concepts.overrides.json (concept-overrides/1): the confirmed "
+            "concept names, kinds, member roles, merges and splits. Applied after the "
+            "concept layer is built and before the concept relations are folded, so a "
+            "merge moves that concept's edges too; anything it names that the corpus "
+            "does not contain is reported in concept_overrides_applied.unmatched"
+        ),
+    )
+    ontology_cmd.add_argument(
         "--format",
         default="json,md",
         help="Comma-separated output formats: json, md (default: json,md)",
@@ -185,6 +195,11 @@ def run_ontology(args: argparse.Namespace) -> int:
     overrides = load_overrides(getattr(args, "overrides", None))
     if isinstance(overrides, int):
         return overrides
+    concept_overrides = load_overrides(
+        getattr(args, "concept_overrides", None), "--concept-overrides"
+    )
+    if isinstance(concept_overrides, int):
+        return concept_overrides
     found = _discover_lineage_documents(args.lineage)
     if isinstance(found, int):
         return found
@@ -204,7 +219,14 @@ def run_ontology(args: argparse.Namespace) -> int:
     chosen_exports = exports(getattr(args, "export", None))
     # Q7: no corpus path in the digest -- the same task modelled from another
     # directory derives the same facts, and ``--cache-from`` borrows them.
-    options = [args.format, overrides, tables, glossary, chosen_exports]
+    options = [
+        args.format,
+        overrides,
+        concept_overrides,
+        tables,
+        glossary,
+        chosen_exports,
+    ]
     cache = open_cache(args, out_dir, found[1], "ontology", options, fields=CACHED_FIELDS)
     try:
         collected = _collect(loaded.documents, cache, needs_glossary=glossary is None)
@@ -220,6 +242,7 @@ def run_ontology(args: argparse.Namespace) -> int:
         tables=cards,
         glossary=glossary,
         overrides=overrides,
+        concept_overrides=concept_overrides,
         artifact_root=root,
     )
     # P7: one card file per entity. Cards merged in from another corpus that this one
@@ -230,7 +253,11 @@ def run_ontology(args: argparse.Namespace) -> int:
     _write_exports(out_dir, ontology, chosen_exports)
     cache.commit(_written(cards, chosen, chosen_exports))
     _report(
-        ontology, overrides, chosen_exports, loaded.counters() + cache.counters()
+        ontology,
+        overrides,
+        concept_overrides,
+        chosen_exports,
+        loaded.counters() + cache.counters(),
     )
     return 0
 
@@ -260,7 +287,11 @@ def _layers(collected, documents, *, tables, glossary, root: str):
 
 
 def _report(
-    ontology: dict, overrides, chosen_exports: Sequence[str], counters: str
+    ontology: dict,
+    overrides,
+    concept_overrides,
+    chosen_exports: Sequence[str],
+    counters: str,
 ) -> None:
     """The one summary line this command prints."""
     applied = ontology["overrides_applied"]
@@ -271,6 +302,7 @@ def _report(
             f", confirmed {applied['relations']} relation(s) and "
             f"{applied['keys']} key(s), {len(applied['unmatched'])} unmatched"
         )
+    confirmations += _concept_confirmations(ontology, concept_overrides)
     print(
         f"Modelled {len(ontology['entities'])} entity(ies), "
         f"{len(ontology['relations'])} relation(s), "
@@ -278,6 +310,17 @@ def _report(
         f"{len(ontology['findings'])} finding(s) from "
         f"{ontology['corpus'].get('task_count')} task(s){confirmations}{exported} "
         f"({counters})"
+    )
+
+
+def _concept_confirmations(ontology: dict, concept_overrides) -> str:
+    """What the reviewed concept layer changed, printed only when one was supplied."""
+    if concept_overrides is None:
+        return ""
+    applied = ontology["concept_overrides_applied"]
+    return (
+        f", reviewed {applied['concepts']} concept(s), {applied['merges']} merge(s) "
+        f"and {applied['splits']} split(s), {len(applied['unmatched'])} unmatched"
     )
 
 

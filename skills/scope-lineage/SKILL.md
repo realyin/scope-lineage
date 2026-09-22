@@ -336,6 +336,28 @@ counter is how a second round sees what the first one bought. Check two lists ev
 unknown entity or column) and `overrides_applied.ignored_fields` (a misspelled slot that
 did not take effect). Both are where a typo in a reviewed file shows up.
 
+**When the user asks what the corpus is *about*** — 「这批表对应哪些业务概念」, 「客户是哪几
+张表」 — read `ontology.md`'s 「概念层」 and follow `references/concept-review-prompt.md`. It
+is the same corpus's *second* review round and it answers different questions: the kind of
+each concept (entity / event / summary, with the votes in `kind_evidence[]`), its business
+name (always a hypothesis — `name_candidates[]` is ranked, and a candidate whose only
+source is `key_stem` is an English abbreviation nobody asked for), which concepts are one
+thing written twice (`possible_duplicate_of`), which one is two things, and which member
+tables were read as the wrong kind of copy. Same evidence discipline as the round above:
+close what the corpus answers yourself with a `basis` on every entry, ask a business owner
+**at most 8**, never self-answer a split. The answers go back through a separate file:
+
+```bash
+scope-lineage ontology --lineage <corpus> --out <dir> \
+  --concept-overrides <dir>/concepts.overrides.json
+```
+
+Confirmed names, kinds and roles come back at tier `confirmed`; a `merge_into` folds one
+concept's tables, attributes and key stem into another (and, because it is applied before
+the concept relations are folded, moves that concept's edges with it); `splits[]` publishes
+`concept:<stem>-<n>` per named group. Check `concept_overrides_applied.unmatched` and
+`.ignored_fields` every round, exactly as above.
+
 ### "这个结果可信吗 / 为什么断了" — diagnostics
 
 Read the relevant warning and gap entries (they are in `query.py summary` counts;
@@ -376,6 +398,12 @@ documented uncertainty).
   items into a question list a business owner can answer in five minutes, and how the
   answers are filed back into `ontology.overrides.json`. Read when the user asks about
   entity relationships, keys or an ontology over a batch of tasks.
+- `references/concept-review-prompt.md` — the concept layer's own review round: the fixed
+  order (kind → name → merges → splits → roles), the four kinds of evidence that let an
+  Agent answer one itself, the four kinds worth a business owner's time, and how the
+  answers are filed back into `concepts.overrides.json`. Read when the user asks which
+  business concepts a corpus is about, or what a group of tables *is*, rather than which
+  table joins which.
 - `../../docs/en/workflow.md` (`docs/zh-CN/workflow.md` for the Chinese version) — the
   end-to-end order of everything above: what `parse` / `tables` / `glossary` / `describe` /
   `ontology` need from each other, a runnable five-minute pass over `examples/`, where each of

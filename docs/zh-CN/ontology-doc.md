@@ -36,10 +36,12 @@
 scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology
 
 # 复用已经算好的表卡与值词典（不给就在内存里按同一份语料现场构建）；
-# --overrides 合并人工确认，被确认的断言升到第五级 confirmed
+# --overrides 合并表级人工确认，--concept-overrides 合并概念层的，
+# 被确认的断言升到第五级 confirmed
 scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
   --tables /path/to/tables/tables.json --glossary /path/to/glossary/glossary.json \
-  --overrides /path/to/ontology.overrides.json
+  --overrides /path/to/ontology.overrides.json \
+  --concept-overrides /path/to/concepts.overrides.json
 
 # 跨语料：--tables 可重复，几份表卡先合并再建本体
 scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
@@ -51,7 +53,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
 | 文件 | 给谁读 | 内容 |
 | --- | --- | --- |
 | `ontology.json` | 机器 / RAG / 知识图谱入库 | 主产物，`doc_format: "ontology-json/1"` |
-| `ontology.md` | 人 | 索引：Mermaid ER 总览 + 实体表 + 关系表 + 约束表 + 待人工判定表 + 待人工判定清单（后两者按表族折叠成组），`doc_format: "ontology-index-md/1"` |
+| `ontology.md` | 人 | 索引：概念层（概念图 + 概念表 + 概念关系表 + 未归入概念的表）+ Mermaid ER 总览 + 实体表 + 关系表 + 约束表 + 待人工判定表 + 待人工判定清单（后两者按表族折叠成组），`doc_format: "ontology-index-md/1"` |
 | `tables/<db.table>.md` | 人 / RAG 按表切块 | 表卡的 6 节之后追加本体 5 节，`doc_format: "ontology-md/1"`；文件名规则与 `scope-lineage tables` 完全一致 |
 
 Python API（消费契约文档，与文件写出同一条路径）：
@@ -191,6 +193,8 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
     {"table": "ods.staging_rows", "reason": "generic_key_only"}   // 只有 id 这类通用键
                                                                  // 既没有键与线索，也没有 JOIN 关联
   ],
+  "concept_overrides_applied": {"concepts": 0, "merges": 0, "splits": 0,  // K4b
+                                "unmatched": [], "ignored_fields": []},
   "relations": [
     {"id": "rel:001",
      "from": {"entity": "ods.driver", "columns": ["id"]},
@@ -317,6 +321,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 | `open_item_groups[].write_back_pattern` | `键:<table>=<列+列>` / `关系:<本端>.<列+列>-><table>.<列+列>` / `null` | 这一组的回写键，`<table>` 是这一组问的那张表（关系是对端）；本端在组内不一致时写成 `<from_table>` / `<from_columns>`。答一次，再按族里的表逐个套用；没有单一回写目标的发现写 `null` |
 | `finding_groups[]` | 与 `open_item_groups[]` 同形 | `open_item_groups[]` 中 `kind` 为 `finding` 的子集，单独发布是因为索引的「待人工判定」表只渲染它们 |
 | `overrides_applied` | `relations` / `keys` / `unmatched` / `ignored_fields` | 本次合并了几条人工确认，哪些确认在语料里找不到对应项，以及哪些字段本版本读不懂 |
+| `concept_overrides_applied` | `concepts` / `merges` / `splits` / `unmatched` / `ignored_fields` | K4b：`concepts.overrides.json` 这一轮生效了几条字段确认、几次合并、几次拆分，以及哪些 id、表名或字段名在语料里找不到对应项 |
 
 ## 推断规则
 
@@ -443,6 +448,23 @@ JOIN 它**自己**是另一回事，仍然是 `self_reference`。
 `self_reference`），再按 from 的概念 id，再按 to 的概念 id；
 `concept_representation_links[]` 按概念 id、本端表、对端表排。
 
+### 概念层怎么渲染
+
+`ontology.md` 一打开就是「概念层」，**在表级 ER 之前**——读这份文件的人问的是业务问题，下面
+那张 ER 图是答案的依据而不是答案。四块，顺序固定：
+
+| 块 | 内容 |
+| --- | --- |
+| 概念图 | 一个概念一个框，标签是 `<名字>（<种类>）`，底色按种类分（`classDef entity` / `event` / `summary`）。用 `flowchart LR` 而不是 `erDiagram`：Mermaid 的 ER 图没有 `classDef`，而这一层的框里装的是业务名与种类，种类正是要看的那一半。边来自 `concept_relations[]`，标签写成「类型：基数」，`?` 表示这条基数只是作者假设，`participation` 的参与身份写在括号里。`concept_representation_links[]` **不画**——那是 K1 折叠的接缝，不是业务关系。概念超过 40 个（`CONCEPT_MERMAID_LIMIT`）时按概念关系度数取前 40 个，并写明省略了几个 |
+| 概念表 | 一行一个概念：名字、种类与它的层级、表数（按 `role` 拆开计数，**不**逐个列表名）、前三个命名候选（`CONCEPT_NAME_CANDIDATES_SHOWN`）、`疑似重复` 指向的概念 id |
+| 概念关系表 | 一行一条：类型、两端的概念名、参与身份、基数与它的层级、证据条数 |
+| 未归入概念的表 | 一行：多少张表没有归入任何概念，最常见的三个原因（`UNASSIGNED_REASONS_SHOWN`）各几张；逐表清单指回 `ontology.json` 的 `unassigned_tables[]` |
+
+表卡第 7 节「身份（本体）」也跟着在开头多一行，说这张表是哪个概念的哪一份副本、凭什么进来：
+「本表是「客户」（`concept:cust`，实体）的主表视图（`key:proven`）。」一张表可以同时是两个
+概念的成员（被一个键定义，又带着另一个键），那就一个成员一行；一张表都没落到，就写
+「未归入任何概念（`no_candidate_key`）。」——「我们分不出来」也是一个答案，它值得被印出来。
+
 ## 表族与待判定分组
 
 一份仓库会把同一张逻辑表写成很多份：`_di` 是当天增量、`_df` 是全量快照、`_tmp` 与
@@ -474,7 +496,7 @@ JOIN 它**自己**是另一回事，仍然是 `self_reference`。
 
 | 节 | 内容 |
 | --- | --- |
-| 7. 身份（本体） | 开头一行「属性 N（语料用到 n）」，与 `ontology.md` 实体表的「属性」列同一口径；其后候选键、元数据键线索、多行性、分区列四者并列，逐条带中文层级与证据 id；已确认的键在同一行打印确认人、确认日期与依据，带 `scope_columns` 的键读作「在 `dt` 内唯一」；四者回答四个不同问题，永不合并成「主键」 |
+| 7. 身份（本体） | 开头先说这张表代表哪个概念的哪一份副本（「本表是「客户」（`concept:cust`，实体）的主表视图（`key:proven`）。」，成员多于一个就一行一条），一个都没落到就写「未归入任何概念（`<原因>`）。」；随后一行「属性 N（语料用到 n）」，与 `ontology.md` 实体表的「属性」列同一口径；其后候选键、元数据键线索、多行性、分区列四者并列，逐条带中文层级与证据 id；已确认的键在同一行打印确认人、确认日期与依据，带 `scope_columns` 的键读作「在 `dt` 内唯一」；四者回答四个不同问题，永不合并成「主键」 |
 | 8. 关系 | 出边、入边各一张表：对端（链到对端卡片）、键对、JOIN 类型、基数 claim、层级、依据 token 的人话翻译、任务数、证据 id；本表列注释里有指向时再追一个「注释线索」子块（O9）：本表列 → 对端表.列、原列注释，解析不了的写明原因；没有线索就没有这个子块 |
 | 9. 约束 | SHACL 风格清单：约束种类、目标列或整表、值集与完整性、层级、证据 |
 | 10. 属性同义 | 本表列 ↔ 同义列、依据（改名投影 / UNION 同位置）、层级、证据 |
@@ -558,6 +580,65 @@ erDiagram
 `{"kind": "human_confirmation", "confirmed_by": …, "date": …, "confirmed_basis": …, "note": …}`。`confirmed` 是唯一一个语料
 自己永远产不出的层级。语料本身的 `findings` 不会被确认消音：矛盾是否还存在，要等语料重新解析
 后由 O7 重新判定。
+
+## 概念确认回写：concepts.overrides.json
+
+概念层发布的全是**候选**：名字永远是 `hypothesis`，种类由投票决定，两个词根像不像同一件事
+这一层拒绝替人判。`concepts.overrides.json`（`doc_format: "concept-overrides/1"`）是这些
+候选唯一能变成 `confirmed` 的路。Agent 按
+`skills/scope-lineage/references/concept-review-prompt.md` 走一轮——种类 → 名字 → 合并 →
+拆分 → 角色——把凭证据能自答的写进这份文件，把剩下的整理成问题，答案回来再合并进去，
+然后用 `--concept-overrides` 跑一次：
+
+```json
+{
+  "doc_format": "concept-overrides/1",
+  "concepts": {
+    "concept:cust": {
+      "name": "客户",
+      "kind": "entity",
+      "roles": {"tmp.cust_step01": "intermediate"},
+      "basis": "the key column comment names it 客户编号",
+      "note": "reviewed with the owner of the 客户 domain",
+      "confirmed_by": "agent:concept-review",
+      "date": "2026-09-22"
+    },
+    "concept:party": {
+      "merge_into": "concept:cust",
+      "basis": "O5 proved the two key columns hold the same value",
+      "confirmed_by": "王某",
+      "date": "2026-09-22"
+    }
+  },
+  "splits": [
+    {
+      "from": "concept:acct",
+      "into": [
+        {"name": "签约账户", "tables": ["ods.acct_base"]},
+        {"name": "申请账户", "tables": ["ods.acct_apply"]}
+      ]
+    }
+  ]
+}
+```
+
+| 槽位 | 取值 | 含义 |
+| --- | --- | --- |
+| `concepts` 的键 | `concept:<词根>` | 概念 id，与「概念」表和卡片第 7 节印的那一串逐字一致 |
+| `name` | 自由文本 | 确认后的业务名；`name_tier` 升到 `confirmed` |
+| `kind` | `entity` / `event` / `summary` | 确认后的种类；`kind_tier` 升到 `confirmed`。其它取值报成 `unknown_kind: X`，该项不生效 |
+| `roles` | `{"<表>": "<角色>"}` | 把某张成员表改成另一个角色，取值是 K1 的六个之一；那一条成员多一个 `role_tier: "confirmed"` |
+| `merge_into` | 另一个概念 id | 把本概念折进那一个：表、属性与键词根都并过去，本概念的 id 记进对方的 `merged_from[]` |
+| `splits[]` | `{"from": …, "into": [{"name", "tables"}]}` | 把一个概念按表拆开，新概念 id 是 `concept:<词根>-<n>`，按 `into[]` 的顺序编号；没被点名的表留在原概念上，全被点走原概念就不再发布 |
+| `confirmed_by`、`date` | 自由文本 | 谁在什么时候确认的；Agent 自答写 `agent:<名字>`，不冒充人 |
+| `basis`、`note` | 自由文本 | 确认的依据与备注，发布在概念的 `confirmation` 里（`basis` 发布成 `confirmed_basis`——成员上的 `membership_basis` 是机器 token，一个词不能同时装词表和句子） |
+| `concept_overrides_applied.concepts` / `merges` / `splits` | 整数 | 分别生效了几条字段确认、几次合并、几次拆分 |
+| `concept_overrides_applied.unmatched` | `{"key": …, "reason": …}` 列表 | 在语料里找不到对应项的确认——不丢弃，列出来；`reason` 取 `unknown_concept` / `unknown_concept: <id>` / `unknown_table: <表>` / `unknown_kind: <值>` / `unknown_role: <值>` / `merge_into_self` |
+| `concept_overrides_applied.ignored_fields` | `{"key": …, "fields": ["…"]}` 列表 | 本版本读不懂的字段（多半是拼错的槽位名）——列出来而不是悄悄丢掉；文档自身的多余键记在 `(document)` 名下 |
+
+**顺序是有意的**：先字段（名字、种类、角色），再合并，最后拆分——评审就是按这个顺序想的，
+而合并与拆分会改变成员表。整套**在 K3 折叠概念关系之前**执行，所以一次合并会把被合掉那个
+概念的边一起搬过去，而不是把它们留在一个已经不再发布的 id 上。
 
 ## 与 OWL / SHACL / LinkML 的槽位对应
 

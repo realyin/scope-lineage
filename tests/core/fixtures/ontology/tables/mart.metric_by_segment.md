@@ -48,6 +48,8 @@ consumers: 0
 
 ## 7. 身份（本体）
 
+- 未归入任何概念（`key_spans_several_stems`）。
+
 - 属性 7（语料用到 6）
 
 **候选键**

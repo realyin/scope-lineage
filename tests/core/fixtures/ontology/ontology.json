@@ -799,6 +799,13 @@
       "reason": "no_candidate_key"
     }
   ],
+  "concept_overrides_applied": {
+    "concepts": 0,
+    "merges": 0,
+    "splits": 0,
+    "unmatched": [],
+    "ignored_fields": []
+  },
   "relations": [
     {
       "id": "rel:001",

@@ -202,6 +202,12 @@ _CONCEPT_KEYS = (
     "tables",
     "attributes",
     "tier",
+    # K4b: present only after a reviewed `concepts.overrides.json` touched this
+    # concept -- which other concepts were folded into it, which one it was split out
+    # of, and who said so.
+    "merged_from",
+    "split_from",
+    "confirmation",
 )
 
 
@@ -986,3 +992,346 @@ def _cjk_bigrams(text: str) -> set[str]:
         for index in range(len(chars) - 1)
         if _CJK_RE.match(chars[index]) and _CJK_RE.match(chars[index + 1])
     }
+
+
+# ------------------------------------------------- K4b: the reviewed concept layer
+
+#: The reviewed document ``ontology --concept-overrides`` reads.
+CONCEPT_OVERRIDES_DOC_FORMAT = "concept-overrides/1"
+#: The one tier the corpus cannot reach on its own. Mirrors ``ontology.TIER_CONFIRMED``,
+#: spelled here for the same reason the other two tiers are.
+TIER_CONFIRMED = "confirmed"
+
+#: What one concept's entry may say. Anything else is reported, never applied.
+CONCEPT_OVERRIDE_FIELDS = (
+    "name",
+    "kind",
+    "merge_into",
+    "roles",
+    "confirmed_by",
+    "date",
+    "basis",
+    "note",
+)
+#: What the document itself may hold.
+CONCEPT_OVERRIDES_DOC_FIELDS = ("doc_format", "concepts", "splits")
+#: The roles a reviewer may move a member to -- exactly the ones K1 publishes.
+MEMBER_ROLES = (
+    ROLE_PRIMARY,
+    ROLE_SNAPSHOT,
+    ROLE_DETAIL,
+    ROLE_SUMMARY,
+    ROLE_INTERMEDIATE,
+    ROLE_REFERENCE,
+)
+
+
+def apply_concept_overrides(ontology: dict, overrides: Mapping) -> None:
+    """Fold a reviewed ``concepts.overrides.json`` into the concept layer.
+
+    K1--K3 publish candidates: a name that is always a hypothesis, a kind decided by
+    votes, and a fold that refuses to merge two stems it cannot tell apart. A review
+    round is the only thing that can answer those, so this is where the concept layer
+    reaches ``confirmed`` -- and, exactly like ``ontology.overrides.json``, an entry
+    naming something the corpus does not contain is reported rather than dropped,
+    because a typo in a reviewed file is what its author cannot see.
+
+    Three kinds of answer, applied in the order a reviewer arrives at them: the field
+    edits first (a name, a kind, a member's role), then the merges those names justify,
+    then the splits. It runs *before* ``build_concept_relations`` so a merge moves the
+    edges of the concept it folded rather than leaving them beside it.
+    """
+    applied = {
+        "concepts": 0,
+        "merges": 0,
+        "splits": 0,
+        "unmatched": [],
+        "ignored_fields": [],
+    }
+    ontology["concept_overrides_applied"] = applied
+    _ignored_fields(applied, "(document)", overrides, CONCEPT_OVERRIDES_DOC_FIELDS)
+    index = {str(concept["id"]): concept for concept in ontology.get("concepts") or []}
+    merges = _concept_fields(dict(overrides.get("concepts") or {}), index, applied)
+    _concept_merges(ontology, merges, applied)
+    _concept_splits(ontology, list(overrides.get("splits") or []), applied)
+    applied["unmatched"].sort(key=lambda item: (item["key"], item["reason"]))
+    applied["ignored_fields"].sort(key=lambda item: item["key"])
+
+
+def _ignored_fields(
+    applied: dict, name: str, entry: Mapping, known: Sequence[str]
+) -> None:
+    """A field this release does not read is reported, never dropped in silence."""
+    extra = sorted(str(field) for field in entry if str(field) not in known)
+    if extra:
+        applied["ignored_fields"].append({"key": name, "fields": extra})
+
+
+def _concept_fields(entries: Mapping, index: Mapping, applied: dict) -> list[tuple]:
+    """Apply the name, kind and role edits; hand back the merges filed beside them."""
+    merges = []
+    for name in sorted(entries):
+        entry = dict(entries[name] or {})
+        concept = index.get(str(name))
+        if concept is None:
+            applied["unmatched"].append({"key": str(name), "reason": "unknown_concept"})
+            continue
+        _ignored_fields(applied, str(name), entry, CONCEPT_OVERRIDE_FIELDS)
+        stamp = _confirmation(entry)
+        touched = [
+            _confirm_name(concept, entry),
+            _confirm_kind(concept, entry, applied, str(name)),
+            _confirm_roles(concept, entry, applied, str(name)),
+        ]
+        if any(touched):
+            concept["confirmation"] = stamp
+            _reorder(concept)
+            applied["concepts"] += 1
+        if entry.get("merge_into"):
+            merges.append((str(name), str(entry["merge_into"]), stamp))
+    return merges
+
+
+def _confirmation(entry: Mapping) -> dict:
+    """Who answered, when and on what grounds.
+
+    ``basis`` is published as ``confirmed_basis`` for the same reason the table-level
+    confirmations publish it that way: ``membership_basis`` beside it is a machine
+    token, and one word cannot be a vocabulary and a sentence at the same time.
+    """
+    stamp = {}
+    for field_name, published in (
+        ("confirmed_by", "confirmed_by"),
+        ("date", "date"),
+        ("basis", "confirmed_basis"),
+        ("note", "note"),
+    ):
+        if entry.get(field_name):
+            stamp[published] = str(entry[field_name])
+    return stamp
+
+
+def _confirm_name(concept: dict, entry: Mapping) -> bool:
+    if not entry.get("name"):
+        return False
+    concept["name"] = str(entry["name"])
+    concept["name_tier"] = TIER_CONFIRMED
+    return True
+
+
+def _confirm_kind(concept: dict, entry: Mapping, applied: dict, key: str) -> bool:
+    kind = str(entry.get("kind") or "")
+    if not kind:
+        return False
+    if kind not in KIND_ORDER:
+        applied["unmatched"].append({"key": key, "reason": f"unknown_kind: {kind}"})
+        return False
+    concept["kind"] = kind
+    concept["kind_tier"] = TIER_CONFIRMED
+    return True
+
+
+def _confirm_roles(concept: dict, entry: Mapping, applied: dict, key: str) -> bool:
+    """Move named members to the roles the reviewer read off the tables themselves."""
+    roles = dict(entry.get("roles") or {})
+    members = {str(item["table"]): item for item in concept.get("tables") or []}
+    touched = False
+    for table in sorted(roles):
+        role, member = str(roles[table]), members.get(str(table))
+        if member is None:
+            applied["unmatched"].append({"key": key, "reason": f"unknown_table: {table}"})
+        elif role not in MEMBER_ROLES:
+            applied["unmatched"].append({"key": key, "reason": f"unknown_role: {role}"})
+        else:
+            member["role"] = role
+            member["role_tier"] = TIER_CONFIRMED
+            touched = True
+    return touched
+
+
+def _reorder(concept: dict) -> None:
+    """One key order per concept, whatever order the edits above arrived in."""
+    ordered = {key: concept[key] for key in _CONCEPT_KEYS if key in concept}
+    concept.clear()
+    concept.update(ordered)
+
+
+# ------------------------------------------------------------------- K4b: merges
+
+
+def _concept_merges(ontology: dict, merges: Sequence[tuple], applied: dict) -> None:
+    """Fold one concept into another: its tables, its attributes and its stem.
+
+    The stem travels because that is how ``build_concept_relations`` places the far end
+    of an edge; without it a merge would move the tables and leave the relations that
+    named the folded concept pointing at an id nothing publishes any more.
+    """
+    for source, target, stamp in merges:
+        index = {str(concept["id"]): concept for concept in ontology["concepts"]}
+        reason = _merge_reason(source, target, index)
+        if reason is not None:
+            applied["unmatched"].append({"key": source, "reason": reason})
+            continue
+        _fold_concept(index[source], index[target], stamp)
+        ontology["concepts"] = [
+            concept for concept in ontology["concepts"] if str(concept["id"]) != source
+        ]
+        applied["merges"] += 1
+    _forget_merged(ontology)
+
+
+def _merge_reason(source: str, target: str, index: Mapping) -> str | None:
+    """Why this merge cannot be applied, or None when it can."""
+    if source == target:
+        return "merge_into_self"
+    if source not in index:
+        return "unknown_concept"
+    if target not in index:
+        return f"unknown_concept: {target}"
+    return None
+
+
+def _fold_concept(source: Mapping, into: dict, stamp: Mapping) -> None:
+    seen = {str(item["table"]) for item in into.get("tables") or []}
+    into["tables"] = sorted(
+        [
+            *(into.get("tables") or []),
+            *(
+                item
+                for item in source.get("tables") or []
+                if str(item["table"]) not in seen
+            ),
+        ],
+        key=lambda item: (str(item["role"]) == ROLE_REFERENCE, str(item["table"])),
+    )
+    into["attributes"] = _merge_attributes(
+        into.get("attributes") or [], source.get("attributes") or []
+    )
+    into["identity"] = _merge_identity(into.get("identity") or {}, source)
+    into["merged_from"] = sorted(
+        {
+            *(into.get("merged_from") or []),
+            str(source["id"]),
+            *(source.get("merged_from") or []),
+        }
+    )
+    into["confirmation"] = dict(stamp)
+    _reorder(into)
+
+
+def _merge_identity(identity: Mapping, source: Mapping) -> dict:
+    """The surviving concept's own stem, plus every stem folded into it."""
+    folded = dict(source.get("identity") or {})
+    merged = dict(identity)
+    merged["merged_stems"] = sorted(
+        {
+            *(identity.get("merged_stems") or []),
+            *(folded.get("merged_stems") or []),
+            str(folded.get("stem")),
+        }
+    )
+    merged["columns_seen"] = sorted(
+        {*(identity.get("columns_seen") or []), *(folded.get("columns_seen") or [])}
+    )
+    return merged
+
+
+def _merge_attributes(current: Sequence[Mapping], extra: Sequence[Mapping]) -> list[dict]:
+    """One row per stem, with both concepts' source columns behind it."""
+    merged: dict[str, dict] = {}
+    for attribute in [*current, *extra]:
+        item = merged.setdefault(str(attribute.get("stem")), {**attribute, "sources": []})
+        for origin in attribute.get("sources") or []:
+            if dict(origin) not in item["sources"]:
+                item["sources"].append(dict(origin))
+    for item in merged.values():
+        item["sources"].sort(
+            key=lambda origin: (str(origin.get("table")), str(origin.get("column")))
+        )
+    return [merged[stem] for stem in sorted(merged)]
+
+
+def _forget_merged(ontology: dict) -> None:
+    """A duplicate flag pointing at a concept a merge answered is no longer a question."""
+    published = {str(concept["id"]) for concept in ontology["concepts"]}
+    for concept in ontology["concepts"]:
+        if "possible_duplicate_of" not in concept:
+            continue
+        others = [item for item in concept["possible_duplicate_of"] if item in published]
+        if others:
+            concept["possible_duplicate_of"] = others
+        else:
+            concept.pop("possible_duplicate_of")
+
+
+# -------------------------------------------------------------------- K4b: splits
+
+
+def _concept_splits(ontology: dict, splits: Sequence[Mapping], applied: dict) -> None:
+    """Publish ``concept:<stem>-<n>`` per named group, keeping what nobody claimed."""
+    for split in splits:
+        source = str(split.get("from") or "")
+        index = {str(concept["id"]): concept for concept in ontology["concepts"]}
+        concept = index.get(source)
+        if concept is None:
+            applied["unmatched"].append({"key": source, "reason": "unknown_concept"})
+            continue
+        parts = _split_parts(concept, list(split.get("into") or []), applied)
+        if not parts:
+            continue
+        taken = {str(item["table"]) for part in parts for item in part["tables"]}
+        concept["tables"] = [
+            item for item in concept["tables"] if str(item["table"]) not in taken
+        ]
+        kept = [item for item in ontology["concepts"] if str(item["id"]) != source]
+        kept += [concept] if concept["tables"] else []
+        ontology["concepts"] = sorted(
+            kept + parts, key=lambda item: (-len(item["tables"]), str(item["id"]))
+        )
+        applied["splits"] += 1
+    _forget_merged(ontology)
+
+
+def _split_parts(concept: Mapping, into: Sequence[Mapping], applied: dict) -> list[dict]:
+    """One new concept per group the reviewer named, numbered as the file lists them."""
+    members = {str(item["table"]): item for item in concept.get("tables") or []}
+    stem = str((concept.get("identity") or {}).get("stem"))
+    parts = []
+    for number, part in enumerate(into, start=1):
+        tables = [str(table) for table in part.get("tables") or []]
+        for table in tables:
+            if table not in members:
+                applied["unmatched"].append(
+                    {"key": str(concept["id"]), "reason": f"unknown_table: {table}"}
+                )
+        claimed = [members[table] for table in tables if table in members]
+        if claimed:
+            identifier = f"{CONCEPT_ID_PREFIX}{stem}-{number}"
+            parts.append(_split_concept(concept, part, claimed, identifier))
+    return parts
+
+
+def _split_concept(
+    concept: Mapping, part: Mapping, claimed: Sequence[Mapping], identifier: str
+) -> dict:
+    """One of the concepts a split published: the named tables and what they carry."""
+    tables = {str(item["table"]) for item in claimed}
+    built = {
+        **{key: concept[key] for key in _CONCEPT_KEYS if key in concept},
+        "id": identifier,
+        "name": str(part.get("name") or concept.get("name")),
+        "name_tier": TIER_CONFIRMED,
+        "tables": [dict(item) for item in claimed],
+        "attributes": [
+            attribute
+            for attribute in concept.get("attributes") or []
+            if any(
+                str(origin.get("table")) in tables
+                for origin in attribute.get("sources") or []
+            )
+        ],
+        "split_from": str(concept["id"]),
+    }
+    for absent in ("possible_duplicate_of", "merged_from", "confirmation"):
+        built.pop(absent, None)
+    return {key: built[key] for key in _CONCEPT_KEYS if key in built}
