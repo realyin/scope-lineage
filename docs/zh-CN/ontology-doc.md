@@ -374,7 +374,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 | `open_item_groups[].write_back_pattern` | `键:<table>=<列+列>` / `关系:<本端>.<列+列>-><table>.<列+列>` / `null` | 这一组的回写键，`<table>` 是这一组问的那张表（关系是对端）；本端在组内不一致时写成 `<from_table>` / `<from_columns>`。答一次，再按族里的表逐个套用；没有单一回写目标的发现写 `null` |
 | `finding_groups[]` | 与 `open_item_groups[]` 同形 | `open_item_groups[]` 中 `kind` 为 `finding` 的子集，单独发布是因为索引的「待人工判定」表只渲染它们 |
 | `overrides_applied` | `relations` / `keys` / `unmatched` / `ignored_fields` | 本次合并了几条人工确认，哪些确认在语料里找不到对应项，以及哪些字段本版本读不懂 |
-| `concept_overrides_applied` | `concepts` / `created[]` / `tables_added` / `merges` / `splits` / `dissolved[]` / `unmatched` / `warnings` / `ignored_fields` | K4b/K4c：`concepts.overrides.json` 这一轮生效了几条字段确认、新建了哪几个概念（`created[]` 一条一个 `{id, tables[]}`，被唤回的退役词根多一个 `revived: true`）、加进了几张成员表、几次合并、几次拆分，以及哪些 id、表名或字段名在语料里找不到对应项。`warnings[]`（K4d）是**应用下去了、但值得回头看一眼**的那些：每条 `{key, warning}`，目前只有 `merge_kept_two_primaries: <表1>, <表2>`——一次合并把两个各自有 `primary` 副本的概念折进了一个。`dissolved[]`（M1）是 `add_tables` / `new_concepts` 顺手解散掉的临时概念，每条 `{id, table, into}`：那张表被人放进了一个真概念，它就不再自成一个；`merge_into` 解散掉的记在 `merges` 里，不重复记 |
+| `concept_overrides_applied` | `concepts` / `created[]` / `tables_added` / `merges` / `splits` / `dissolved[]` / `unmatched` / `warnings` / `ignored_fields` | K4b/K4c：`concepts.overrides.json` 这一轮生效了几条字段确认、新建了哪几个概念（`created[]` 一条一个 `{id, tables[]}`，被唤回的退役词根多一个 `revived: true`）、加进了几张成员表、几次合并、几次拆分，以及哪些 id、表名或字段名在语料里找不到对应项。`warnings[]`（K4d）是**应用下去了、但值得回头看一眼**的那些：每条 `{key, warning}`，目前只有 `merge_kept_two_primaries: <表1>, <表2>`——一次合并把两个各自有 `primary` 副本的概念折进了一个（N1b：被合掉的是临时概念时不算，它那条成员在并进来时就重新定了角色）。`dissolved[]`（M1）是 `add_tables` / `new_concepts` 顺手解散掉的临时概念，每条 `{id, table, into}`：那张表被人放进了一个真概念，它就不再自成一个；`merge_into` 解散掉的记在 `merges` 里，不重复记 |
 
 ## 从 ontology-json/1 迁移
 
@@ -428,7 +428,7 @@ K1/K2 就在表级本体之上折出这一层：**实体应该是「客户」，
 | 3 | **发芽**：某实体的候选键（**任何**层级，仓库很少真的证明过自己的键，只读 `proven` 会把几乎所有表都落在外面）**去掉时间列与分区列**之后恰好归到一个非通用词根 → 这个词根长出一个概念，该实体以 `key:<层级>` 加入；层级跟着这条成员走 |
 | 4 | **元数据线索**：一条候选键都落不下来时，看 `identity.declared_hints[]`——列注释把某列称作主键/唯一键，同样按词根发芽，成员基准写 `declared_hint` |
 | 5 | **JOIN 参与**：一条关系（`join_association` / `hinted`）的**对端**列归到某个概念的词根 → 本端实体以 `reference` 加入那个概念。事件表永远不会按「客户」唯一，它只是**带着**客户号；那正是它参与「客户」的方式。`reference` 成员刻意是最弱的一种：既不给种类投票，也不贡献属性 |
-| 6 | **临时概念**（M1）：第 3--5 条一条也没给这张表一个**身份**成员（键全是通用词根、键跨了两个词根、既没有键也没有线索，或者只被 JOIN 关联成了 `reference`）→ 这张表自成一个概念：id 是 `concept:table:<表名，点号换成 _>`、`tier` 与 `origin` 都是 `provisional`、唯一成员的 `membership_basis` 是 `provisional`、`identity.stem` 就是那个表名键、`identity.columns_seen` 是它的候选键列（通用的也照列）。名字、种类、角色一律按上面那几条现成的规则读：名字取表注释（同样掐后缀、排 junk、做回捞），没有注释就取表短名掐掉存储后缀并写 `name_tier: "stem_only"`；种类按信号读，平票落到 `entity` / `hypothesis`。通用词根**不挡**这一条——临时概念是这张表自己，不是一个键家族，所以 `retired_stems[]` 照旧 |
+| 6 | **临时概念**（M1）：第 3--5 条一条也没给这张表一个**身份**成员（键全是通用词根、键跨了两个词根、既没有键也没有线索，或者只被 JOIN 关联成了 `reference`）→ 这张表自成一个概念：id 是 `concept:table:<表名，点号换成 _>`、`tier` 与 `origin` 都是 `provisional`、唯一成员的 `membership_basis` 是 `provisional`、`identity.stem` 就是那个表名键、`identity.columns_seen` 是它的候选键列（通用的也照列）。名字、种类、角色一律按上面那几条现成的规则读：名字取表注释（同样掐后缀、排 junk、做回捞），没有注释就取表短名掐掉存储后缀并写 `name_tier: "stem_only"`；种类按信号读，平票落到 `entity` / `hypothesis`。通用词根**不挡**这一条——临时概念是这张表自己，不是一个键家族，所以 `retired_stems[]` 照旧。N1b：表名里带大写时，id 在表名键后面再挂一段 6 位十六进制的表名摘要（`concept:table:<表名键>_<摘要>`）——只有大小写不同的两张表**是两张表**，折成一个 id 会让其中一张在评审里根本没有槽位可答；全小写的表名，id 与从前一字不差 |
 | 7 | **被挡下的词根记名**（K4c）：第 2 条挡下的词根若真的是某张表的候选键，它连同那几张表与角色进 `retired_stems[]`——判定是会改的，而上一轮评审对 `concept:<词根>` 写下的答案不该因为规则改了就变成 `unknown_concept`。点名它就能把概念建回来（见「概念确认回写」的 `new_concepts`） |
 
 ### 成员角色
@@ -771,7 +771,7 @@ erDiagram
 | `kind` | `entity` / `event` / `summary` | 确认后的种类；`kind_tier` 升到 `confirmed`。其它取值报成 `unknown_kind: X`，该项不生效 |
 | `roles` | `{"<表>": "<角色>"}` | 把某张成员表改成另一个角色，取值是 K1 的六个之一；那一条成员多一个 `role_tier: "confirmed"` |
 | `add_tables` | `{"<表>": "<角色>"}` | 把一张本语料的表**加进**这个概念（`roles` 只能移动已经在册的成员）。那张表必须在 `tables[]` 里，角色仍是那六个之一；成员的 `membership_basis` 是 `override`、`role_tier` 是 `confirmed`，它的列并进概念的 `attributes[]`；那张表原本的**临时概念随之解散**（M1），报在 `concept_overrides_applied.dissolved[]` 里。**角色写 `reference` 的那一条例外**（K4d）：它发布成 `membership_basis: "reference"`，确认字段留在成员行上，这张表本身是什么完全不变——「只是带着这个键」不该反过来给出身份。一张表可以加进好几个概念（一张明细表同时带着两个键），但**身份只有一个**：已经被自己的键放在某个概念上的表，再被加到别的概念只是「带着这个键」，K3 折边时仍按它自己的那个概念算。这一步在概念关系折叠之前，所以从这张表出发的 JOIN 会折到评审点名的那个概念上 |
-| `merge_into` | 另一个概念 id | 把本概念折进那一个：表、属性与键词根都并过去，本概念的 id 记进对方的 `merged_from[]`。K4d：同一张表两边都是成员时，按**较强**的那个角色留下（`primary` > `snapshot` > `detail` > `summary` > `intermediate` > `reference`），不再一律按留下来那一边的行算——被合掉那一边读出来的东西不该因为合并而丢掉。两边各有一个**不同**的 `primary` 副本时两条都留着（谁才是那一份只有业务答得了），并报一条 `warnings[] = {key, warning: "merge_kept_two_primaries: <表1>, <表2>"}`：合并是有方向的，把 `primary` 少的那一边合进多的那一边 |
+| `merge_into` | 另一个概念 id | 把本概念折进那一个：表、属性与键词根都并过去，本概念的 id 记进对方的 `merged_from[]`。K4d：同一张表两边都是成员时，按**较强**的那个角色留下（`primary` > `snapshot` > `detail` > `summary` > `intermediate` > `reference`），不再一律按留下来那一边的行算——被合掉那一边读出来的东西不该因为合并而丢掉。两边各有一个**不同**的 `primary` 副本时两条都留着（谁才是那一份只有业务答得了），并报一条 `warnings[] = {key, warning: "merge_kept_two_primaries: <表1>, <表2>"}`：合并是有方向的，把 `primary` 少的那一边合进多的那一边。N1b：被合掉的是一个**临时概念**时不适用——它只有一张表，按 M1 的构造那张表必然是 `primary`，所以它那条成员在并进来时**重新定角色**：留下来的概念已经有 `primary` 了就按表名后缀与产出粒度降成 `snapshot` / `summary` / `intermediate` / `detail`，没有就当 `primary`，并发布成 `membership_basis: "override"`、`role_tier: "confirmed"`；这一类合并**不再**报 `merge_kept_two_primaries` |
 | `new_concepts[]` | `{id, name, kind, tables, key_columns?, …}` | K4c：**新建**一个语料没能发芽的概念。`id` 必须没人用过、且形如 `concept:<小写词根>`（否则报 `already_a_concept: <id>` / `invalid_concept_id: <id>`）；`tables` 的键是本语料的表、值是它的角色，已经被别的概念**按身份**收下的表只能给 `reference` 角色（否则报 `already_a_member: <表>`）。建出来的概念 `tier` / `name_tier` / `kind_tier` 全是 `confirmed`、`origin` 是 `override`，`identity.stem` 取 id 里的词根，`identity.columns_seen` 取 `key_columns` 或那几张表共有的键列，属性来自成员表，被点名那几张表的**临时概念随之解散**（M1），报在 `dissolved[]` 里；临时概念不算「别的概念」，所以它们不会因此报 `already_a_member`。K4d：这些键列自己归到的词根（非通用的、且不等于 id 里那个）还会进 `identity.merged_stems[]`，也就是 K3 折边时读的那份词根索引——写在 `ad_slot_code` 上的边这才找得到 `concept:slot`。它在合并与拆分**之前**、也在概念关系折叠之前生效 |
 | 被点名的退役词根 | `concepts` 里的键写 `concept:<retired_stems[] 里的词根>` | K4c：这个词根本轮没发芽，但它在 `retired_stems[]` 里——那一条就按记下的表与角色当成一条隐式的 `new_concepts` 执行，报在 `created[]` 里并带 `revived: true`，而不是报 `unknown_concept`；同一次运行里这个词根**随即离开 `retired_stems[]`**（K4d：一份文档不能既发布这个概念、又还在说这个词根被挡下了，概念层那一行也跟着不再点它的名）。**规则改了，上一轮评审的答案不作废**，靠的就是这一条 |
 | `splits[]` | `{"from": …, "into": [{"name", "tables"}]}` | 把一个概念按表拆开，新概念 id 是 `concept:<词根>-<n>`，按 `into[]` 的顺序编号；没被点名的表留在原概念上，全被点走原概念就不再发布 |
@@ -828,8 +828,22 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology \
 | 文件 | 内容 | 谁读 |
 | --- | --- | --- |
 | `index.md` | 批次清单：顺序、批次 id、概念数、分组、关系条数、待判定分组数、两个文件的链接 | 评审者，**从上往下做** |
-| `batch-NN.md` | 这一批的工作表：概念表（名字与层级、种类、表、关系条数与任务数、前三个命名候选、回写键）、候选归并目标（语料已折出的概念，按与本批的关系条数、共同键词根排序）、判断依据（表注释与键列注释）、本批的待判定分组 | 评审者（Agent 或人） |
+| `batch-NN.md` | 这一批的工作表：概念表（名字与层级、种类、**类别依据**、**疑似重复**、表、**已是成员**、关系条数与任务数、前三个命名候选、回写键）、候选归并目标（语料已折出的概念，按**匹配分**排序）、判断依据（表注释、键列注释，两样都没有时给**属性线索**）、本批的待判定分组 | 评审者（Agent 或人） |
 | `batch-NN.overrides.json` | 骨架：这一批每个临时概念一条 `merge_into: ""`，外加一段 `comments`（本批的待判定分组逐条一行） | 就地填，填完就是 `--concept-overrides` 的入参 |
+
+工作表上的每一列都是「不离开这一批就能作判断」的一部分（N1b）：
+
+- 「已是成员」：这张表**已经**被哪些已折出的概念收作成员，连角色与依据一起写出来（读的就是
+  `tables[].concepts[]`，临时概念自己不算）。`merge_into` 写到其中一个上去时，撞的是这条已有
+  成员（`add_tables` 的 `already_a_member` 说的也是它），留下来的是两个角色里**较强**的那个。
+- 「类别依据」：`kind_evidence[]` 压成一格，按票分组——`event: key_event_column×2 /
+  entity: word_hint×1`。两个信号打架看得见，不必再回 `ontology.json` 翻。
+- 「疑似重复」：`possible_duplicate_of[]`——同一个名字被别的概念也认领了。
+- 「匹配分」：候选归并目标的排序改成 **名字 3 分 / 共同键词根 2 分 / 关系 1 分** 的加权和，
+  通用词根（`id`、`dt` 这一类 `GENERIC_STEMS`）一概不算；每行把三项拆开写出来，0 分的不列。
+  名字排在关系前面：「两边叫一个名字」比「某个任务把两边写进了同一句查询」更像同一件事。
+- 「属性线索」：表既没有注释、也没有候选键时（这正是 M1 最裸的那一类），判断依据那一格改印
+  这张表**带注释的前 8 个列**——那是语料对它仅剩的说法。
 
 `--review-batches-by` 三种切法：
 

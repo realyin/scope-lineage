@@ -42,6 +42,7 @@ table cards underneath it. Grain and task roles are read off the cards' ``produc
 
 from __future__ import annotations
 
+import hashlib
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -141,6 +142,10 @@ CONCEPT_ID_PREFIX = "concept:"
 #: purpose -- a reader, and the review prompt, can tell at a glance that the id names a
 #: table rather than a business key, and that the answer to it is usually a merge.
 CONCEPT_TABLE_PREFIX = f"{CONCEPT_ID_PREFIX}table:"
+#: N1b: how many hex characters of the table name's digest keep two tables that differ
+#: only in case apart. Six is short enough to type into an overrides file and long
+#: enough that no corpus this layer reads collides by accident.
+TABLE_ID_DIGEST = 6
 
 #: Whole name segments that say "this column is a key", not what the key is *of*.
 KEY_AFFIXES = ("no", "id", "code", "cd", "num", "key")
@@ -490,15 +495,25 @@ def table_concept_id(table: str) -> str:
     """``concept:table:<table key>`` -- the id the table's own provisional concept has.
 
     The table name normalised the way every other identifier in these documents is:
-    lowercased, and everything a ``.`` separates folded to ``_``, so ``ods.Gadget_DF``
+    lowercased, and everything a ``.`` separates folded to ``_``, so ``ods.gadget_df``
     is ``concept:table:ods_gadget_df``. A reviewer writes exactly this string into
     ``concepts.overrides.json`` to merge the table onto a real concept.
+
+    N1b: a corpus keeps the case its SQL wrote, and a warehouse that holds both
+    ``ods.Gadget_DF`` and ``ods.gadget_df`` holds **two** tables. Lowercasing alone
+    folded them onto one id, so one of the two lost its provisional concept and with it
+    the slot a reviewer answers in. A name that is not already lowercase therefore
+    carries a short digest of the name as written -- a suffix, so the id a reviewer
+    typed for a lowercase table in an earlier round is exactly the id it still has.
     """
+    name = str(table or "")
     key = "".join(
         char if char.isascii() and (char.isalnum() or char == "_") else "_"
-        for char in str(table or "").lower()
-    )
-    return f"{CONCEPT_TABLE_PREFIX}{key or 'unknown'}"
+        for char in name.lower()
+    ) or "unknown"
+    if name != name.lower():
+        key = f"{key}_{hashlib.sha1(name.encode('utf-8')).hexdigest()[:TABLE_ID_DIGEST]}"
+    return f"{CONCEPT_TABLE_PREFIX}{key}"
 
 
 def _table_stem(table: str) -> str:
@@ -2545,12 +2560,14 @@ def _merge_reason(source: str, target: str, index: Mapping) -> str | None:
 def _fold_concept(
     source: Mapping, into: dict, stamp: Mapping, applied: dict, key: str
 ) -> None:
-    warning = _primary_warning(source, into)
+    # N1b: the roles the folded members arrive with are what the warning reads, so the
+    # re-roling below happens first. A provisional member placed by a person is never a
+    # second primary, and the round should not be told it is.
+    folded = _folded_members(source, into)
+    warning = _primary_warning({**dict(source), "tables": folded}, into)
     if warning is not None:
         applied["warnings"].append({"key": key, "warning": warning})
-    into["tables"] = _merge_members(
-        into.get("tables") or [], _folded_members(source)
-    )
+    into["tables"] = _merge_members(into.get("tables") or [], folded)
     into["attributes"] = _merge_attributes(
         into.get("attributes") or [], source.get("attributes") or []
     )
@@ -2566,7 +2583,7 @@ def _fold_concept(
     _reorder(into)
 
 
-def _folded_members(source: Mapping) -> list[dict]:
+def _folded_members(source: Mapping, into: Mapping) -> list[dict]:
     """The folded concept's members, as memberships of the concept that survives.
 
     M1: a ``provisional`` membership says "nobody placed this table". Folding a
@@ -2574,15 +2591,50 @@ def _folded_members(source: Mapping) -> list[dict]:
     exactly what ``add_tables`` would have published -- an ``override`` membership at
     ``confirmed`` -- rather than going on calling itself unplaced inside a concept a
     reviewer vouched for. Every other membership travels unchanged.
+
+    N1b: the *role* is re-read the same way, against the concept it is joining. A
+    provisional concept is one table standing alone, so its member is a ``primary`` by
+    construction -- of a concept of one. Inside the survivor it is a primary only if the
+    survivor has none; otherwise it is the copy its own table name and grain say it is.
     """
     return [
         (
-            {**dict(item), "membership_basis": BASIS_OVERRIDE, "role_tier": TIER_CONFIRMED}
+            {
+                **dict(item),
+                "role": _placed_role(item, into),
+                "membership_basis": BASIS_OVERRIDE,
+                "role_tier": TIER_CONFIRMED,
+            }
             if str(item.get("membership_basis")) == BASIS_PROVISIONAL
             else dict(item)
         )
         for item in source.get("tables") or []
     ]
+
+
+def _placed_role(member: Mapping, into: Mapping) -> str:
+    """The role a placed provisional member holds inside the concept it joins (N1b)."""
+    return _demoted_role(member) if _primary_tables(into) else ROLE_PRIMARY
+
+
+def _demoted_role(member: Mapping) -> str:
+    """Which copy this table is, once the concept already has *the* copy.
+
+    The same cascade ``_role`` reads, with the one answer removed that the survivor has
+    already given: a build step is still a build step, a periodic copy is a snapshot of
+    the concept, an aggregated grain is a summary of it, and everything else is a detail
+    of it. A member that never claimed to be the primary keeps what it claimed.
+    """
+    if str(member.get("role")) != ROLE_PRIMARY:
+        return str(member.get("role"))
+    suffix = _name_suffix(str(member.get("table")))
+    if _STAGE_RE.match(suffix):
+        return ROLE_INTERMEDIATE
+    if suffix in PERIOD_SUFFIXES:
+        return ROLE_SNAPSHOT
+    if str(member.get("grain")) in AGGREGATED_BASES:
+        return ROLE_SUMMARY
+    return ROLE_DETAIL
 
 
 def _merge_members(current: Sequence[Mapping], extra: Sequence[Mapping]) -> list[dict]:
@@ -2619,6 +2671,11 @@ def _primary_warning(source: Mapping, into: Mapping) -> str | None:
     which is either two things after all or a merge written the wrong way round. Both
     rows stay -- dropping one would answer a question only the reviewer can -- and the
     two tables are named so the next round can answer it.
+
+    N1b: ``_fold_concept`` asks this *after* ``_folded_members`` re-roled the folded
+    concept's provisional members, so a provisional concept -- one table, primary of
+    itself by construction -- never raises it. The warning is about two concepts that
+    each grew their own primary copy, which is a question; M1's shape is not.
     """
     folded, kept = _primary_tables(source), _primary_tables(into)
     tables = sorted(folded | kept)
