@@ -19,6 +19,12 @@ six more places where the layer said something the reviewer did not:
 6. a participation role fell back to the raw column identifier, publishing
    ``collection_unit_id`` as the name of a business role.
 
+Rule 1 had a second half nobody checked: a ``reference`` member carries the key and is
+not *described* by it, so it must lend the concept no attributes either. The seed path
+honoured that; every reviewed path -- ``add_tables``, ``new_concepts`` and the merges --
+folded the table's columns in anyway, so a concept ended up listing the columns of tables
+that merely point at it. Those tests live in section 1 below.
+
 Every table, column, concept, comment and name in this file is synthetic. No real
 corpus, table or business name is reproduced here.
 """
@@ -164,6 +170,134 @@ def test_any_other_reviewed_role_still_lends_the_table_its_identity() -> None:
     assert member["membership_basis"] == BASIS_OVERRIDE
     # Two concepts now say what this table is, so the rule refuses to choose.
     assert _pairs(document) == []
+
+
+# --- 1b. and it lends no attributes either: a reference carries the key, nothing else
+
+
+#: Two keyless tables spelling the same two columns: one the reviewer reads as a copy of
+#: the concept, one that merely carries its key.
+DESCRIBED = _entity(
+    "ods.zone_rows", columns=[("zone_no", "区域编码"), ("memo", "备注")]
+)
+CARRIER = _entity(
+    "ods.zone_carry", columns=[("zone_no", "区域编码"), ("memo", "备注")]
+)
+
+
+def _attributes(concept) -> dict:
+    """``{stem: {source tables}}`` for one concept's published attributes."""
+    return {
+        str(item["stem"]): {str(origin["table"]) for origin in item["sources"]}
+        for item in concept["attributes"]
+    }
+
+
+def test_a_reviewed_reference_add_lends_the_concept_no_attributes() -> None:
+    """The membership lands; the columns do not -- 宽表 is not what 渠道 is made of."""
+    document = _built([CUSTOMER, CHANNEL, PRODUCT, WIDE], overrides=_add(**WIDE_ADDS))
+
+    concept = _by_id(document)["concept:chan"]
+    assert WIDE["id"] in _members(concept)
+    assert WIDE["id"] not in {
+        table for tables in _attributes(concept).values() for table in tables
+    }
+
+
+def test_any_other_reviewed_role_still_lends_the_concept_its_columns() -> None:
+    """The negative: a ``detail`` add is a membership, and a membership describes."""
+    document = _built(
+        [CUSTOMER, CHANNEL, PRODUCT, WIDE],
+        overrides=_add(**{"concept:chan": {WIDE["id"]: ROLE_DETAIL}}),
+    )
+
+    assert _attributes(_by_id(document)["concept:chan"])["prod"] == {WIDE["id"]}
+
+
+def test_a_stem_two_members_carry_names_only_the_one_that_describes_it() -> None:
+    """The reference member's column never joins ``sources[]`` of a shared stem."""
+    document = _built(
+        [CHANNEL, DESCRIBED, CARRIER],
+        overrides=_add(
+            **{
+                "concept:chan": {
+                    DESCRIBED["id"]: ROLE_DETAIL,
+                    CARRIER["id"]: ROLE_REFERENCE,
+                }
+            }
+        ),
+    )
+
+    attributes = _attributes(_by_id(document)["concept:chan"])
+    assert attributes["zone"] == {DESCRIBED["id"]}
+    assert attributes["memo"] == {DESCRIBED["id"]}
+
+
+def test_a_created_concept_takes_no_columns_from_its_reference_members() -> None:
+    """K4c reads the roles the same way K4b does."""
+    document = _built(
+        [CHANNEL, DESCRIBED, CARRIER],
+        overrides={
+            "new_concepts": [
+                {
+                    "id": "concept:zone",
+                    "name": "区域",
+                    "kind": CONCEPT_ENTITY,
+                    "tables": {
+                        DESCRIBED["id"]: ROLE_PRIMARY,
+                        CARRIER["id"]: ROLE_REFERENCE,
+                    },
+                    **CONFIRMATION,
+                }
+            ]
+        },
+    )
+
+    attributes = _attributes(_by_id(document)["concept:zone"])
+    assert attributes["zone"] == {DESCRIBED["id"]}
+    assert attributes["memo"] == {DESCRIBED["id"]}
+
+
+def test_a_merge_that_upgrades_a_reference_member_makes_its_columns_count() -> None:
+    """The stronger role wins the row (K4d), so the columns behind it count too."""
+    document = _built(
+        [CHANNEL, PRODUCT, CARRIER],
+        overrides={
+            "concepts": {
+                "concept:chan": {"add_tables": {CARRIER["id"]: ROLE_REFERENCE}},
+                "concept:prod": {
+                    "add_tables": {CARRIER["id"]: ROLE_SNAPSHOT},
+                    "merge_into": "concept:chan",
+                    **CONFIRMATION,
+                },
+            }
+        },
+    )
+
+    concept = _by_id(document)["concept:chan"]
+    assert _roles(concept)[CARRIER["id"]] == ROLE_SNAPSHOT
+    assert _attributes(concept)["memo"] == {CARRIER["id"]}
+
+
+def test_a_merge_of_two_reference_memberships_still_lends_nothing() -> None:
+    """The negative: only ever a reference in the survivor, so only ever the key."""
+    document = _built(
+        [CHANNEL, PRODUCT, CARRIER],
+        overrides={
+            "concepts": {
+                "concept:chan": {"add_tables": {CARRIER["id"]: ROLE_REFERENCE}},
+                "concept:prod": {
+                    "add_tables": {CARRIER["id"]: ROLE_REFERENCE},
+                    "merge_into": "concept:chan",
+                    **CONFIRMATION,
+                },
+            }
+        },
+    )
+
+    concept = _by_id(document)["concept:chan"]
+    assert _roles(concept)[CARRIER["id"]] == ROLE_REFERENCE
+    assert "memo" not in _attributes(concept)
 
 
 # ------------------------- 2. the `to` end prefers the one identity membership

@@ -285,6 +285,16 @@
     a target scoring 0 not listed at all. Each row prints the breakdown. Relations used to
     rank above both, which put "some task joined them" ahead of "they are called the same
     thing".
+- **Fixed — a `reference` member no longer lends a concept its attributes** (K4d). A
+  reference carries the concept's key and is not described by it, which the seed path
+  already read that way and every reviewed path did not: `add_tables`, `new_concepts`
+  and a `merge_into` folded the table's columns into `concepts[].attributes[]` anyway,
+  so a concept listed the columns of tables that merely point at it and a stem's
+  `sources[]` named them beside the members that really carry it. `attributes[]` is now
+  *derived* from the members' current roles rather than accumulated edit by edit, so the
+  one rule holds on every path — and a merge that lifts a table out of `reference` into
+  a stronger role makes its columns count from that moment. The 概念 markdown says so in
+  one line under 「属性」.
 
 ## 0.4.0
 - **Breaking — the ontology is concept-first.** `ontology.json` is `ontology-json/2`: the
