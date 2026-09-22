@@ -408,6 +408,14 @@ def _add_derived_view_parsers(subcommands) -> None:
         ),
     )
     describe_cmd.add_argument(
+        "--ontology",
+        help=(
+            "An ontology.json written by `scope-lineage ontology` (ontology-json/2); "
+            "the task, its inputs, its fields and its grain then name the business "
+            "concepts the corpus placed those tables under"
+        ),
+    )
+    describe_cmd.add_argument(
         "--metadata-patch",
         action="append",
         default=[],
@@ -702,6 +710,7 @@ def _load_corpus_document(path: str | None, flag: str, doc_format: str):
 def _describe_inputs(args: argparse.Namespace) -> int:
     from .metadata.metadata_patch import MetadataPatchError, load_metadata_patch
     from .render.glossary import DOC_FORMAT as GLOSSARY_DOC_FORMAT
+    from .render.semantic_profile import ONTOLOGY_DOC_FORMAT
     from .render.table_cards import DOC_FORMAT as TABLES_DOC_FORMAT
 
     # WI-2.4: the corpus glossary, or None. Without it the profile keeps the value
@@ -735,13 +744,20 @@ def _describe_inputs(args: argparse.Namespace) -> int:
     )
     if isinstance(table_cards, int):
         return table_cards
-    cache = _describe_cache(args, found[1], glossary, table_cards)
+    # N5: the corpus's concept layer, or None. A profile built without it is byte for
+    # byte the document describe wrote before the concept layer existed.
+    ontology = _load_corpus_document(
+        getattr(args, "ontology", None), "--ontology", ONTOLOGY_DOC_FORMAT
+    )
+    if isinstance(ontology, int):
+        return ontology
+    cache = _describe_cache(args, found[1], glossary, table_cards, ontology)
     failure = _describe_corpus(
         documents,
         cache,
         reuse=cache.enabled and not _patch_is_corpus_wide(patch, cache),
         formats=formats,
-        options=(patch, table_cards, glossary, sections),
+        options=(patch, table_cards, glossary, ontology, sections),
     )
     if failure is not None:
         return failure
@@ -753,7 +769,7 @@ def _describe_inputs(args: argparse.Namespace) -> int:
     return 0
 
 
-def _describe_cache(args: argparse.Namespace, base: Path, glossary, table_cards):
+def _describe_cache(args: argparse.Namespace, base: Path, glossary, table_cards, ontology):
     """``describe``'s index and fact cache, beside the documents it writes.
 
     Without ``--out`` the described documents land beside their lineage.json, so the
@@ -771,7 +787,14 @@ def _describe_cache(args: argparse.Namespace, base: Path, glossary, table_cards)
         out,
         base,
         "describe",
-        [args.sections, args.format, glossary, table_cards, sorted(patches, key=str)],
+        [
+            args.sections,
+            args.format,
+            glossary,
+            table_cards,
+            ontology,
+            sorted(patches, key=str),
+        ],
     )
 
 
@@ -850,23 +873,28 @@ def _write_borrowed_documents(item, cache, outputs) -> bool:
     return True
 
 
-def _describe_one(item, formats: set, patch, table_cards, glossary, sections):
+def _describe_one(item, formats: set, patch, table_cards, glossary, ontology, sections):
     """``(semantic profile, semantic.md or None)`` for one task."""
     from .render.semantic_markdown import render_semantic_markdown
-    from .render.semantic_profile import build_semantic_profile
+    from .render.semantic_profile import apply_ontology, build_semantic_profile
     from .metadata.metadata_patch import apply_metadata_patch_to_document
     from .render.glossary import apply_glossary
     from .render.table_cards import apply_table_cards
 
     apply_metadata_patch_to_document(item.document, patch)
-    profile = apply_glossary(
-        apply_table_cards(
-            build_semantic_profile(
-                item.document, item.diagnostics, table_cards=table_cards
+    # N5 last: the concept layer is a reading of the finished profile -- it places the
+    # fields and the grain the three layers above it have already settled.
+    profile = apply_ontology(
+        apply_glossary(
+            apply_table_cards(
+                build_semantic_profile(
+                    item.document, item.diagnostics, table_cards=table_cards
+                ),
+                table_cards,
             ),
-            table_cards,
+            glossary,
         ),
-        glossary,
+        ontology,
     )
     markdown = (
         render_semantic_markdown(profile, sections=sections)

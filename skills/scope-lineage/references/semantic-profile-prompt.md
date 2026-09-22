@@ -34,7 +34,7 @@ v1 的 L1–L9 不再作正文。风险边界表留在读者文档的附录 C；
 | 文件 | 必读 | 读法 | 用途 |
 | --- | --- | --- | --- |
 | `semantic.md` | 是 | 整读（它已是压缩视图） | 任务概览、输出形态与粒度、加工链路、规则、字段语义、可信度 |
-| `semantic.json` | 是 | **按路径定向取**，不整读 | `task` / `inputs` / `output_shape` / `stages` / `rules` / `fields` / `confidence` |
+| `semantic.json` | 是 | **按路径定向取**，不整读 | `task` / `inputs` / `output_shape` / `stages` / `rules` / `fields` / `confidence`；概念层的五个键（`task.concepts[]`、`task.output_concept`、`inputs[].concept`、`fields[].concept_attribute`、`output_shape.grain.concept_text`）**只在 `describe --ontology` 跑过时存在**，整键缺席表示没接语料本体，不是缺陷，也不生成 `Q` |
 | `diagnostics.json` | 是 | 整读；**警告数以 `statement_diagnostics.<stmt>.warnings` 与顶层 `warnings[]` 的并集为准**，骨架的 `confidence.warning_counts` 已是这个并集。顶层 `warnings[]` 只装任务级警告，语句级的都在 `statement_diagnostics` 里——**顶层是空数组不等于「无警告」**。另按 `lineage_fact_gaps[]` / `analysis_status` 取 | 风险边界、断链、metadata 缺失，并与 `semantic.json.confidence` 交叉校验 |
 | `mapping.md` | 否 | 只读第 5/6 节 | 需要逐 scope 的技术细节或完整表达式时补充 |
 | `lineage.json` | 否 | **只通过 `scripts/query.py chain` / `summary` 定向取** | 单字段完整推导链、任务级统计。**永远不要整读** |
@@ -152,16 +152,16 @@ v1 每句挂 `SQL事实` / `LLM推断` 让语义说明读起来像审计日志�
 业务语言，短句，不出现结构词。
 
 **这个任务做什么** — 2–4 句。它解决什么业务问题、产出什么、给谁用。来源：`task`、任务元信息与
-SQL 头部注释；纯业务归纳的那句标 `[推断]`。
+SQL 头部注释；纯业务归纳的那句标 `[推断]`。**`task.output_concept` 存在时第一句先说产出的是哪个业务对象的哪一份表示**（`{concept, name, kind, role}`，例：「产出客户的日汇总」），`provisional: true` 时后缀「（暂定）」；`null`（本体不建模目标表）或没传 `--ontology` 时按原来的写法开头。`task.concepts[]` 是本语句读或写的全部概念（按概念去重，读写皆有时发的是**写入**那条），它是「这个任务做什么」与「数据从哪来」两节共用的底稿，不单独成节。
 
-**一行代表什么** — 一句话粒度 + 一句键。粒度来自 `output_shape.grain`（按**逻辑键**计数，一个
+**一行代表什么** — 一句话粒度 + 一句键。`output_shape.grain.concept_text` 存在时（`describe --ontology` 接入后）**照抄它**——「一行 = 一个客户 × 日期」已经是概念层用业务词写好的粒度，重写一遍只会和骨架说法不一致；句末的「等 N 列」**一起抄走**，它说的是概念层把几个粒度键折成了这几个词、真实键数是 N，丢掉它就把一个折叠过的说法读成了完整粒度（完整键表在 `output_shape.grain.keys[]`，键多到需要逐个交代时从那里取）；它缺席时（本体没覆盖到某个键，或没传 `--ontology`）照旧自己写。粒度来自 `output_shape.grain`（按**逻辑键**计数，一个
 GROUP BY 项就是一个键，哪怕它穿透到好几个物理列），键用 `output_shape.candidate_keys`（已是目标
 表列名），措辞按 `key_confidence` 分四种：`proven` 写「这几列确实唯一」；`proven_unexposed`
 **必须写成一句使用注意**——「唯一性依赖的列没有写进这张表，用现有列去关联会重复」；`candidate`
 写「候选，是否唯一未证明 `[待确认]`」；`none` 不声称任何键唯一。`key_evidence[]` 里「… 的关联放大发生在分组之前，不影响输出键唯一性」那句（semantic.md 里是键那行下面的「说明：」）是**解释键为什么仍然成立**的，只有当同一条语句还列着 `risk` / `unknown` 的关联、读者会因此不信这个键时才把它写进使用注意，而且写成解释——它永远不是一条警告。分区列单说，不当业务主键。
 `grain.basis` 为 `unknown` 时写「无法判定一行代表什么」，不要补一个粒度当事实——但 `grain.candidate` 存在时**照抄它**（`row_source` 是行的来源表、`keys` 是展开前的粒度键加上展开出的列），写成「无法判定；推测一行 = …，因为 <candidate.reason>」并标 `[推断]`，不得把它写成肯定句、也不得自己另编一个；`grain.basis` 为 `single_row` 时写「整张输出一行（全表汇总）」并说明键那句不适用（一行不需要键），带 `pinned` 的粒度键照写业务含义，但要说清它被等值过滤钉死成一个值（通常是数据日期），不是区分行的维度。
 
-**数据从哪来、到哪去** — 每张输入表一句：**是什么、在这里起什么作用**。有
+**数据从哪来、到哪去** — 每张输入表一句：**是什么、在这里起什么作用**。「是什么」那半句在 `inputs[].concept` 存在时**先写它代表的业务对象**（`{concept, name, kind, role}`：「客户的主表」「消息发送的明细」），再接表注释与作用；`provisional: true` 的概念后缀「（暂定）」并且**不得**当成已确认的业务对象写——那是本体提给评审轮的问题。`concept` 为 `null` 表示本体不建模这张表，整句退回原来的写法。有
 `inputs[].card` 时**优先用它**——那是写这张表的上游任务自己证明的粒度与键（`grain_text`、
 `candidate_keys`、`key_confidence`、`refresh`），比表名和注释都硬；`card` 为 `null` 或没传
 `--tables` 时才退回 `inputs[].comment` + `role_in_task` 译成人话，并写「上游未知」。**每张输入表
@@ -211,7 +211,7 @@ sql_literal, meaning}`。「只保留人工队列（`queue_code = '01'`）」这
   有就照写、**不加 `?`**、按 `[事实]` 处理并在附录 A 列一行「术语」，因为它是人答过的；两者都没有
   才给一个推断名并后缀 `?`（如 `订单金额?`）。`target_comment_source` 为 `patch` 时这个名字来自
   人工确认的回写，同样照写、不加 `?`、不再提问。
-- **一句含义**：**是什么，不是怎么算**。「这个客户当天下的订单总金额」是含义，「`SUM(pay_amount)`」不是。`fields[].summary` 是复述，只能作起点，不能直接抄进这一列。
+- **一句含义**：**是什么，不是怎么算**。「这个客户当天下的订单总金额」是含义，「`SUM(pay_amount)`」不是。`fields[].summary` 是复述，只能作起点，不能直接抄进这一列。`fields[].concept_attribute`（`{concept, name, attribute}`，`describe --ontology` 接入后就有）存在时**可以由它起头**——这一列在概念层里属于哪个业务对象的哪个属性；同时带 `is_concept_key: true` 的写成「{概念}的身份标识」，那是这一列在业务上的定义而不是它的算法；概念带 `provisional: true` 时后缀「（暂定）」。`semantic.md` 的「完整字段清单」里这一列叫「所属概念」。
 - **口径**：指标字段把 `metric_spec` 压成一行 `对象 · 时间范围 · 纳入条件 · 聚合`（槽位为 `null`
   写「未知」）；非指标字段写来源，形如 `取自 <表>.<列>` 或 `按 <条件> 打标` 或 `固定值 'X'`。
 - **取值含义**：枚举值、code、常量的业务含义。**优先读 `fields[].value_domain[]`**（WI-2.4 字典层，
@@ -488,6 +488,7 @@ code 含义、外键真实性、候选键业务唯一性、常量集合是否完
 | 6. 字段字典覆盖全部输出字段（N/M 核对） | | |
 | 7. 每个指标字段都有 7 行口径卡；`metric_spec` 缺失时的降级已标 `[推断]` | | |
 | 8. 「一行代表什么」按 `key_confidence` 正确措辞，`proven_unexposed` 进了使用注意 | | |
+| 8a. 概念键在场时（`describe --ontology`）：粒度照抄了 `grain.concept_text`，输入表与目标表写了它们代表的业务对象，`provisional: true` 的概念都带「（暂定）」且没有被当成已确认的业务定义 | | |
 | 9. 区分了「直接读取物理表」与「上游可追溯」 | | |
 | 10. 逐字段核对了目标注释与 `derivation[]` 是否语义冲突，冲突的进了清单 | | |
 | 11. `alias_position_mismatch`（若有）在附录 C 单独成段，写了 N/M、例子与核对动作 | | |
