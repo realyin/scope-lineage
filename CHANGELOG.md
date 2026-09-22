@@ -93,6 +93,47 @@
   fifth self-answer row, `basis` 「仅词汇线索一致」), and a question only when the hints
   disagree or the tier is `hypothesis`; the self-check gained a row for it, and
   `add_tables` is documented beside `roles` and in the write-back checks.
+- **Five more gaps a second concept-review round exposed** (K4c).
+  **(1) `new_concepts`.** `add_tables` needs a concept to add to; a thing whose every
+  table is keyed by a surrogate has none, so a reviewer who recognised it had nothing to
+  write. `concept-overrides/1` now takes a top-level `new_concepts: [{id, name, kind,
+  tables: {"<table>": "<role>"}, key_columns?, confirmed_by, date, basis, note}]`. The id
+  must be unused and slug-shaped `^concept:[a-z0-9_-]+$` (otherwise `already_a_concept:
+  <id>` / `invalid_concept_id: <id>`), each table must be one of `entities[]`, and a table
+  another concept already holds **by identity** may only take the `reference` role
+  (otherwise `already_a_member: <t>`). The concept is published `confirmed` throughout
+  with `origin: "override"`, `identity.stem` from the id, `identity.columns_seen` from
+  `key_columns` or the key columns its tables share, attributes from its members, and
+  those members leave `unassigned_tables[]`. It lands before the merges, the splits and
+  the relation fold, and is reported in `concept_overrides_applied.created[]`.
+  **(2) A retired stem stays addressable.** When a generic-key judgement changes, a stem
+  that seeded a concept last run seeds nothing this run and every answer written about
+  `concept:<stem>` becomes an `unknown_concept` — a decision a person made, dropped by a
+  rule change. `ontology.json` now publishes **`retired_stems[]`**: the stems the closed
+  generic list, the log-id rules or the comment rule refused although the corpus really
+  keys tables by them, each with those tables, the roles they carry and their key columns.
+  A `concepts` entry addressed to `concept:<retired stem>` is applied as an implicit
+  `new_concepts` entry over exactly those tables and reported under `created[]` with
+  `revived: true`. `ontology.md` says so in 「概念层」 when a corpus has any.
+  **(3) A reference member contributes no self-join.** An edge that never travelled on the
+  concept's key folded into a relation the business does not have: a table joined to
+  itself on a hierarchy column, or a table that merely *carries* a concept's key joined to
+  one of that concept's copies on a third column. Both are now left out of
+  `concept_relations[]` and counted under the new
+  `concept_relations_unmapped.by_reason.reference_only_edge`. A genuine self-join on the
+  key — 上级客户 → 客户 on `cust_no` — names the stem and stays a `self_reference`.
+  **(4) The prompt can read a role off a table comment.** A table comment naming the
+  concept *and* the grain (「客户日快照」 a snapshot of 客户, 「客户还款明细」 a detail) is
+  exactly what a `role` or an `add_tables` membership is read off, and the self-answer
+  table had no row for it. It gains one (evidence 6, `basis` 「表注释命名了概念与粒度」),
+  confirming a role or a membership and nothing else; self-check 7 counts six kinds of
+  evidence, and the prompt documents `new_concepts` and the revival of a retired stem.
+  **(5) Unmapped reasons read against a fixed denominator.**
+  `concept_relations_unmapped` gains `edges_total` (every table-level relation the fold
+  read) and `mapped`, because `by_reason` shifts as tables get placed — an edge counted
+  `from_table_unplaced` becomes a folded one the moment a reviewer places its table — and
+  two runs of one corpus were not comparable without the denominator. The `ontology`
+  summary line prints `created N` and `tables_added M` beside the concept counts.
 - **The concept layer reaches the LinkML and SHACL exports** (K5). `--export` published
   the table layer only, so a downstream graph that loaded it got the warehouse back and
   not the business. It now also carries the fold: three abstract base classes

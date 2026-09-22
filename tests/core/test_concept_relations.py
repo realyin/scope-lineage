@@ -160,10 +160,19 @@ def _relations(entities, relations) -> dict:
     }
 
 
-def _unmapped(reasons) -> dict:
-    """The counter as it is published: every reason, so its shape never moves."""
+def _unmapped(reasons, edges: int | None = None) -> dict:
+    """The counter as it is published: every reason, against a fixed denominator.
+
+    ``edges`` is how many table-level relations the fold read; it defaults to the number
+    that fell out, which is the common case here -- a test with one edge that never
+    folded. A test whose edges did fold passes its own count (K4c).
+    """
+    total = sum(reasons.values())
+    counted = total if edges is None else edges
     return {
-        "total": sum(reasons.values()),
+        "edges_total": counted,
+        "mapped": counted - total,
+        "total": total,
         "by_reason": {reason: reasons.get(reason, 0) for reason in UNMAPPED_REASONS},
     }
 
@@ -367,7 +376,7 @@ def test_the_two_unmapped_reasons_are_counted_apart() -> None:
     )
 
     assert document["concept_relations_unmapped"] == _unmapped(
-        {UNMAPPED_FROM_TABLE: 1, UNMAPPED_TO_TABLE: 1}
+        {UNMAPPED_FROM_TABLE: 1, UNMAPPED_TO_TABLE: 1}, edges=3
     )
 
 
@@ -459,7 +468,7 @@ def test_two_representations_of_one_concept_are_a_representation_link() -> None:
             "evidence": ["rel:001"],
         }
     ]
-    assert document["concept_relations_unmapped"] == _unmapped({})
+    assert document["concept_relations_unmapped"] == _unmapped({}, edges=1)
 
 
 def test_a_representation_link_gathers_every_edge_between_the_two_tables() -> None:
@@ -767,7 +776,9 @@ def test_an_event_joined_onto_a_customer_key_folds_to_a_participation() -> None:
         for item in ontology["concept_relations"]
     ] == [("concept:msg", "concept:cust", TYPE_PARTICIPATION)]
     assert ontology["concept_representation_links"] == []
-    assert ontology["concept_relations_unmapped"] == _unmapped({})
+    assert ontology["concept_relations_unmapped"] == _unmapped(
+        {}, edges=len(ontology["relations"])
+    )
 
 
 def test_the_whole_pipeline_is_byte_identical_across_two_builds() -> None:

@@ -204,6 +204,8 @@ SIGNAL_INCREMENT_EVENT_TIME = "increment_with_event_time"
 SIGNAL_ALL_MEMBERS_SUMMARY = "all_members_summary"
 SIGNAL_WORD_HINT = "word_hint"
 SIGNAL_NONE = "no_signal"
+#: K4c: the only "signal" behind a concept a reviewer created -- the reviewer.
+SIGNAL_OVERRIDE = "override"
 
 #: Chinese suffixes a table comment carries because of *how* the table is stored, not
 #: because of what it holds. Longest first: 「信息表」 is stripped before 「表」.
@@ -258,6 +260,9 @@ _CONCEPT_KEYS = (
     "tables",
     "attributes",
     "tier",
+    # K4c: present only on a concept a reviewed `concepts.overrides.json` created --
+    # no candidate key seeded it, a person did.
+    "origin",
     # K4b: present only after a reviewed `concepts.overrides.json` touched this
     # concept -- which other concepts were folded into it, which one it was split out
     # of, and who said so.
@@ -375,7 +380,18 @@ def build_concepts(ontology: Mapping, cards: Mapping) -> dict:
     concepts.sort(key=lambda concept: (-len(concept["tables"]), str(concept["id"])))
     _mark_duplicate_names(concepts)
     placed = {seed.table for group in members.values() for seed in group}
-    return {"concepts": concepts, "unassigned_tables": _unassigned(seeds, placed)}
+    keyed = {
+        seed.table
+        for seed in seeds
+        if seed.stem is not None and seed.stem not in generic
+    }
+    return {
+        "concepts": concepts,
+        "unassigned_tables": _unassigned(seeds, placed),
+        "retired_stems": _retired_stems(
+            entities, synonyms, index, generic, set(members), keyed
+        ),
+    }
 
 
 def _mark_duplicate_names(concepts: Sequence[dict]) -> None:
@@ -526,6 +542,98 @@ def _generic_stems(seeds: Sequence[_Seed]) -> set[str]:
     return {
         stem for stem in comments if is_generic_stem(stem, sorted(comments[stem]))
     }
+
+
+def _retired_stems(
+    entities: Sequence[Mapping],
+    synonyms: Mapping[str, str],
+    index: Mapping[str, Mapping],
+    generic: set,
+    seeded: set,
+    keyed: set,
+) -> list[dict]:
+    """The stems a generic rule refused although the corpus really keys tables by them.
+
+    A generic rule is a *judgement* -- the closed surrogate list, the log and tracing
+    ids, and the comment rule -- and a judgement changes between releases. When it does,
+    a stem that seeded a concept last run seeds nothing this run, and every answer a
+    reviewer wrote about ``concept:<stem>`` becomes an ``unknown_concept``. Publishing
+    the refused stems with the tables that carried them is what keeps those answers
+    addressable: ``apply_concept_overrides`` revives the concept from exactly this list.
+
+    A table some key really did place is left out: its identity is not in question, and a
+    revived concept could only *carry* its key anyway. A table a JOIN merely reached is
+    kept, because a ``reference`` membership never said what the table is.
+    """
+    found: dict[str, list[dict]] = {}
+    for entity in entities:
+        if str(entity.get("id")) in keyed:
+            continue
+        seed = _refused_seed(entity, synonyms, generic, seeded)
+        if seed is None or seed.stem is None:
+            continue
+        card = index.get(seed.table) or {}
+        found.setdefault(seed.stem, []).append(
+            {
+                "table": seed.table,
+                "role": _role(seed, card, _producing_basis(card)),
+                "key_columns": list(seed.stem_columns),
+            }
+        )
+    return [
+        {"stem": stem, "tables": sorted(found[stem], key=lambda item: item["table"])}
+        for stem in sorted(found)
+    ]
+
+
+def _refused_seed(
+    entity: Mapping, synonyms: Mapping[str, str], generic: set, seeded: set
+) -> _Seed | None:
+    """The seed this entity's strongest key would have given, had a rule not refused it.
+
+    Read exactly as ``_seed`` reads it -- partitions and event columns out, the O5
+    synonyms folded -- with one deliberate difference: the log-id columns stay in, because
+    taking them out is one of the very rules this list exists to survive.
+    """
+    identity = entity.get("identity") or {}
+    types, comments = _column_facts(entity)
+    partitions = frozenset(str(column) for column in identity.get("partition_columns") or [])
+    for key in _identity_claims(identity):
+        columns = tuple(str(column) for column in key.get("columns") or [])
+        core = tuple(
+            column
+            for column in columns
+            if column not in partitions and not _is_event_column(column, types)
+        )
+        stems = {key_stem(column, synonyms) for column in core}
+        if len(stems) != 1:
+            continue
+        stem = stems.pop()
+        if stem in seeded or not _is_refused(stem, core, comments, generic):
+            continue
+        return _Seed(
+            table=str(entity.get("id")),
+            entity=entity,
+            stem=stem,
+            tier=str(key.get("tier")) if key.get("tier") else None,
+            reason=None,
+            basis=BASIS_OVERRIDE,
+            key_columns=columns,
+            stem_columns=core,
+            extra_columns=tuple(column for column in columns if column not in core),
+            partitions=partitions,
+            types=types,
+        )
+    return None
+
+
+def _is_refused(stem: str, core: Sequence[str], comments: Mapping, generic: set) -> bool:
+    """Whether one of the generic rules is why this stem seeded nothing."""
+    return (
+        stem in GENERIC_STEMS
+        or stem in generic
+        or any(is_log_identifier(column, comments.get(column, "")) for column in core)
+    )
 
 
 def _unassigned(seeds: Sequence[_Seed], placed: set[str]) -> list[dict]:
@@ -1093,7 +1201,22 @@ CONCEPT_OVERRIDE_FIELDS = (
     "note",
 )
 #: What the document itself may hold.
-CONCEPT_OVERRIDES_DOC_FIELDS = ("doc_format", "concepts", "splits")
+CONCEPT_OVERRIDES_DOC_FIELDS = ("doc_format", "concepts", "new_concepts", "splits")
+#: What one ``new_concepts[]`` entry may say (K4c).
+NEW_CONCEPT_FIELDS = (
+    "id",
+    "name",
+    "kind",
+    "tables",
+    "key_columns",
+    "confirmed_by",
+    "date",
+    "basis",
+    "note",
+)
+#: A concept id a reviewer may write: the prefix and a slug, so the id stays the thing
+#: every other document spells it as.
+CONCEPT_ID_RE = re.compile(r"\Aconcept:[a-z0-9_-]+\Z")
 #: The roles a reviewer may move a member to -- exactly the ones K1 publishes.
 MEMBER_ROLES = (
     ROLE_PRIMARY,
@@ -1115,13 +1238,16 @@ def apply_concept_overrides(ontology: dict, overrides: Mapping) -> None:
     naming something the corpus does not contain is reported rather than dropped,
     because a typo in a reviewed file is what its author cannot see.
 
-    Three kinds of answer, applied in the order a reviewer arrives at them: the field
-    edits first (a name, a kind, a member's role), then the merges those names justify,
-    then the splits. It runs *before* ``build_concept_relations`` so a merge moves the
-    edges of the concept it folded rather than leaving them beside it.
+    Four kinds of answer, applied in the order a reviewer arrives at them: the concepts
+    the corpus never published (K4c) first, so every later entry can address them, then
+    the field edits (a name, a kind, a member's role), then the merges those names
+    justify, then the splits. It runs *before* ``build_concept_relations`` so a merge
+    moves the edges of the concept it folded rather than leaving them beside it, and so
+    the edges that start at a created concept's tables fold onto it.
     """
     applied = {
         "concepts": 0,
+        "created": [],
         "tables_added": 0,
         "merges": 0,
         "splits": 0,
@@ -1130,12 +1256,17 @@ def apply_concept_overrides(ontology: dict, overrides: Mapping) -> None:
     }
     ontology["concept_overrides_applied"] = applied
     _ignored_fields(applied, "(document)", overrides, CONCEPT_OVERRIDES_DOC_FIELDS)
-    index = {str(concept["id"]): concept for concept in ontology.get("concepts") or []}
     corpus = _Corpus(ontology.get("entities") or [])
-    merges = _concept_fields(dict(overrides.get("concepts") or {}), index, applied, corpus)
+    ontology.setdefault("concepts", [])
+    _new_concepts(ontology, list(overrides.get("new_concepts") or []), applied, corpus)
+    index = {str(concept["id"]): concept for concept in ontology["concepts"]}
+    merges = _concept_fields(
+        ontology, dict(overrides.get("concepts") or {}), index, applied, corpus
+    )
     _forget_unassigned(ontology, corpus.added)
     _concept_merges(ontology, merges, applied)
     _concept_splits(ontology, list(overrides.get("splits") or []), applied)
+    applied["created"].sort(key=lambda item: str(item["id"]))
     applied["unmatched"].sort(key=lambda item: (item["key"], item["reason"]))
     applied["ignored_fields"].sort(key=lambda item: item["key"])
 
@@ -1163,16 +1294,18 @@ class _Corpus:
 
 
 def _concept_fields(
-    entries: Mapping, index: Mapping, applied: dict, corpus: _Corpus
+    ontology: dict, entries: Mapping, index: dict, applied: dict, corpus: _Corpus
 ) -> list[tuple]:
     """Apply the name, kind, role and membership edits; hand back the merges beside them."""
     merges = []
     for name in sorted(entries):
         entry = dict(entries[name] or {})
-        concept = index.get(str(name))
+        concept = index.get(str(name)) or _revive(
+            ontology, str(name), entry, applied, corpus
+        )
         if concept is None:
-            applied["unmatched"].append({"key": str(name), "reason": "unknown_concept"})
             continue
+        index[str(name)] = concept
         _ignored_fields(applied, str(name), entry, CONCEPT_OVERRIDE_FIELDS)
         stamp = _confirmation(entry)
         touched = [
@@ -1347,6 +1480,231 @@ def _forget_unassigned(ontology: dict, added: set) -> None:
         for item in ontology.get("unassigned_tables") or []
         if str(item.get("table")) not in added
     ]
+
+
+# ------------------------------------------------- K4c: concepts a reviewer created
+
+
+def _new_concepts(
+    ontology: dict, entries: Sequence[Mapping], applied: dict, corpus: _Corpus
+) -> None:
+    """Publish the concepts the corpus could not seed and a reviewer recognised anyway.
+
+    ``add_tables`` needs a concept to add to; this is the case where there is none --
+    every table that holds the thing is keyed by a surrogate, so no stem ever grew. The
+    concept is ``confirmed`` throughout, because nothing but the reviewer says it exists,
+    and it lands before the merges, the splits and the relation fold.
+    """
+    for entry in entries:
+        item = dict(entry or {})
+        identifier = str(item.get("id") or "")
+        _ignored_fields(applied, identifier or "(new_concepts)", item, NEW_CONCEPT_FIELDS)
+        _create_concept(ontology, item, identifier, applied, corpus)
+
+
+def _create_concept(
+    ontology: dict,
+    entry: Mapping,
+    identifier: str,
+    applied: dict,
+    corpus: _Corpus,
+    *,
+    revived: bool = False,
+) -> dict | None:
+    """One published concept, or ``None`` with the reason it could not be published."""
+    index = {str(item["id"]): item for item in ontology.get("concepts") or []}
+    kind = str(entry.get("kind") or CONCEPT_ENTITY)
+    reason = _create_reason(identifier, kind, entry, index)
+    if reason is not None:
+        applied["unmatched"].append(
+            {"key": identifier or "(new_concepts)", "reason": reason}
+        )
+        return None
+    members = _new_members(
+        dict(entry.get("tables") or {}), identifier, applied, corpus, index
+    )
+    if not members:
+        return None
+    concept = _fresh_concept(identifier, entry, kind, members, corpus)
+    ontology["concepts"] = sorted(
+        [*(ontology.get("concepts") or []), concept],
+        key=lambda item: (-len(item["tables"]), str(item["id"])),
+    )
+    tables = [str(item["table"]) for item in members]
+    record = {"id": identifier, "tables": tables}
+    applied["created"].append({**record, "revived": True} if revived else record)
+    corpus.added.update(tables)
+    return concept
+
+
+def _create_reason(
+    identifier: str, kind: str, entry: Mapping, index: Mapping
+) -> str | None:
+    """Why this concept cannot be published, or None when it can."""
+    if not CONCEPT_ID_RE.match(identifier):
+        return f"invalid_concept_id: {identifier}"
+    if identifier in index:
+        return f"already_a_concept: {identifier}"
+    if kind not in KIND_ORDER:
+        return f"unknown_kind: {kind}"
+    if not entry.get("tables"):
+        return "no_tables"
+    return None
+
+
+def _new_members(
+    asked: Mapping, key: str, applied: dict, corpus: _Corpus, index: Mapping
+) -> list[dict]:
+    """The memberships the entry named that the corpus can carry, refusals reported."""
+    identified = {
+        str(item.get("table"))
+        for concept in index.values()
+        for item in concept.get("tables") or []
+        if str(item.get("membership_basis")) != BASIS_REFERENCE
+    }
+    members = []
+    for table in sorted(asked):
+        role = str(asked[table])
+        reason = _new_member_reason(str(table), role, corpus, identified)
+        if reason is not None:
+            applied["unmatched"].append({"key": key, "reason": reason})
+            continue
+        members.append(_new_member(str(table), role))
+    return members
+
+
+def _new_member_reason(
+    table: str, role: str, corpus: _Corpus, identified: set
+) -> str | None:
+    """Why this table cannot represent the new concept, or None when it can.
+
+    One identity at most, exactly as ``add_tables`` reads it: a table some other concept
+    is what it *is* may still carry this concept's key, so a ``reference`` role is
+    allowed anywhere and every other role is refused.
+    """
+    if table not in corpus.entities:
+        return f"unknown_table: {table}"
+    if role not in MEMBER_ROLES:
+        return f"unknown_role: {role}"
+    if role != ROLE_REFERENCE and table in identified:
+        return f"already_a_member: {table}"
+    return None
+
+
+def _new_member(table: str, role: str) -> dict:
+    """One membership of a created concept, at the only tier a person can give it.
+
+    ``key_columns`` stays empty for the same reason ``add_tables`` leaves it empty: no
+    key placed this table here, and writing one would say a key did.
+    """
+    return {
+        "table": table,
+        "role": role,
+        "membership_basis": BASIS_OVERRIDE,
+        "key_columns": [],
+        "grain": None,
+        "role_tier": TIER_CONFIRMED,
+    }
+
+
+def _fresh_concept(
+    identifier: str, entry: Mapping, kind: str, members: Sequence[Mapping], corpus: _Corpus
+) -> dict:
+    """The published shape of a created concept: confirmed throughout, and it says so."""
+    stem = identifier[len(CONCEPT_ID_PREFIX) :]
+    name = str(entry.get("name") or stem)
+    tables = [str(item["table"]) for item in members]
+    built = {
+        "id": identifier,
+        "name": name,
+        "name_tier": TIER_CONFIRMED,
+        "name_candidates": [
+            {"text": name, "source": NAME_FROM_OVERRIDE, "count": 1, "name_evidence": []}
+        ],
+        "kind": kind,
+        "kind_tier": TIER_CONFIRMED,
+        "kind_evidence": [{"signal": SIGNAL_OVERRIDE, "vote": kind}],
+        "identity": {
+            "stem": stem,
+            "columns_seen": _created_columns(entry, tables, corpus),
+        },
+        "tables": list(members),
+        "attributes": _attributes(_override_seeds(tables, corpus), corpus.synonyms),
+        "tier": TIER_CONFIRMED,
+        "origin": BASIS_OVERRIDE,
+        "confirmation": _confirmation(entry),
+    }
+    return {key: built[key] for key in _CONCEPT_KEYS if key in built}
+
+
+def _override_seeds(tables: Sequence[str], corpus: _Corpus) -> list[_Seed]:
+    """One seed per member of a created concept, so it lends the concept its columns."""
+    return [
+        _Seed(
+            table=table,
+            entity=corpus.entities[table],
+            stem=None,
+            tier=None,
+            reason=None,
+            basis=BASIS_OVERRIDE,
+        )
+        for table in tables
+    ]
+
+
+def _created_columns(entry: Mapping, tables: Sequence[str], corpus: _Corpus) -> list[str]:
+    """The columns that identify the concept: the reviewer's, else what its tables share."""
+    named = [str(column) for column in entry.get("key_columns") or []]
+    if named:
+        return sorted(set(named))
+    claimed = [_key_columns(corpus.entities[table]) for table in tables]
+    return sorted(set.intersection(*claimed)) if claimed else []
+
+
+def _key_columns(entity: Mapping) -> set[str]:
+    """Every column this table claims identifies a row, at any tier, hints included."""
+    identity = entity.get("identity") or {}
+    return {
+        str(column)
+        for claim in _identity_claims(identity)
+        for column in claim.get("columns") or []
+    }
+
+
+def _revive(
+    ontology: dict, identifier: str, entry: Mapping, applied: dict, corpus: _Corpus
+) -> dict | None:
+    """An answer addressed to a concept a generic rule retired, applied anyway.
+
+    The reviewer answered for ``concept:<stem>`` in an earlier run, and this run's
+    genericity judgement no longer lets that stem seed. Reporting ``unknown_concept``
+    would quietly drop a decision a person made, so the stem's own ``retired_stems[]``
+    entry -- the tables that carried it, in the roles they carried it in -- is read as an
+    implicit ``new_concepts`` entry, and the concept comes back ``confirmed``.
+    """
+    prefixed = identifier.startswith(CONCEPT_ID_PREFIX)
+    stem = identifier[len(CONCEPT_ID_PREFIX) :] if prefixed else ""
+    retired = next(
+        (
+            item
+            for item in ontology.get("retired_stems") or []
+            if str(item.get("stem")) == stem and stem
+        ),
+        None,
+    )
+    if retired is None:
+        applied["unmatched"].append({"key": identifier, "reason": "unknown_concept"})
+        return None
+    tables = list(retired.get("tables") or [])
+    implicit = {
+        **{field: entry[field] for field in NEW_CONCEPT_FIELDS if entry.get(field)},
+        "id": identifier,
+        "tables": {str(item["table"]): str(item["role"]) for item in tables},
+        "key_columns": sorted(
+            {column for item in tables for column in item.get("key_columns") or []}
+        ),
+    }
+    return _create_concept(ontology, implicit, identifier, applied, corpus, revived=True)
 
 
 def _reorder(concept: dict) -> None:

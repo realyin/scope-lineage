@@ -799,8 +799,10 @@
       "reason": "no_candidate_key"
     }
   ],
+  "retired_stems": [],
   "concept_overrides_applied": {
     "concepts": 0,
+    "created": [],
     "tables_added": 0,
     "merges": 0,
     "splits": 0,
@@ -965,10 +967,13 @@
   "concept_relations": [],
   "concept_representation_links": [],
   "concept_relations_unmapped": {
+    "edges_total": 4,
+    "mapped": 0,
     "total": 4,
     "by_reason": {
       "from_table_unplaced": 4,
-      "to_table_unplaced": 0
+      "to_table_unplaced": 0,
+      "reference_only_edge": 0
     }
   },
   "constraints": [

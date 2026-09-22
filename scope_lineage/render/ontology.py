@@ -450,6 +450,10 @@ _ONTOLOGY_KEYS = (
     # business key, and the tables no key could place.
     "concepts",
     "unassigned_tables",
+    # K4c: the key stems a generic rule refused although the corpus really keys tables
+    # by them -- what keeps a reviewer's earlier answers addressable when that rule
+    # changes, because `concept:<stem>` can be revived from exactly this list.
+    "retired_stems",
     # K4b: what a reviewed `concepts.overrides.json` changed, and what it named that
     # this corpus does not contain.
     "concept_overrides_applied",
@@ -2845,7 +2849,32 @@ def _concept_section(ontology: Mapping) -> list[str]:
     lines.extend(_concept_table(concepts))
     lines.extend(_concept_relation_table(relations, concepts))
     lines.extend(_unassigned_section(unassigned))
+    lines.extend(_retired_stems_lines(ontology))
     return lines
+
+
+def _retired_stems_lines(ontology: Mapping) -> list[str]:
+    """K4c: the stems a generic rule refused, and why they are still addressable.
+
+    Absent when there are none, so a corpus whose every key names something renders
+    exactly what it always rendered. Present, it answers the question a reviewer asks
+    the day a release changes that rule: 「我上一轮对 `concept:<词根>` 写的答案去哪了」。
+    """
+    retired = list(ontology.get("retired_stems") or [])
+    if not retired:
+        return []
+    shown = "、".join(f"`{item['stem']}`" for item in retired[:UNASSIGNED_REASONS_SHOWN])
+    rest = len(retired) - min(len(retired), UNASSIGNED_REASONS_SHOWN)
+    return [
+        "",
+        f"另有 {len(retired)} 个键词根被通用键规则挡下（{shown}"
+        + (f"，另有 {rest} 个）" if rest else "）")
+        + "：这些词根在语料里确实是某些表的候选键，只是这一版判定它们不指向业务的东西。"
+        "它们仍然**可以被点名**——`concepts.overrides.json` 里写 `concept:<词根>`，"
+        "就按 `retired_stems[]` 记下的那几张表把这个概念建回来（报在 "
+        "`concept_overrides_applied.created` 里，带 `revived: true`），所以判定规则改了"
+        "也不会把评审上一轮的答案作废。逐条见 `ontology.json` 的 `retired_stems[]`。",
+    ]
 
 
 def _concept_diagram(

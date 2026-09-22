@@ -24,7 +24,11 @@ to concept)``. Four rules keep it a reading of the corpus rather than a new clai
    onto 消息发送 is a participation written the other way round. An end that answers
    neither leaves the edge out, counted in ``concept_relations_unmapped`` under
    ``from_table_unplaced`` or ``to_table_unplaced``, because a wrong fold is worse than a
-   missing one.
+   missing one. An edge whose two ends answered and which never travelled on the key that
+   placed them -- a table joined to itself on a hierarchy column, or a table that merely
+   carries the key joined to one of the concept's copies on a third column -- is left out
+   the same way, under ``reference_only_edge``. The counter carries ``edges_total`` and
+   ``mapped`` beside the reasons, so two runs of one corpus are comparable.
 2. **The type is read off the two kinds**, never off a word: ``association`` between two
    entities, ``participation`` between an event and an entity, ``aggregation`` when a
    summary meets either, ``derivation`` between two of a kind that are not entities. A
@@ -95,7 +99,10 @@ _TYPE_BY_KINDS = {
 #: fails both is counted once, under the end that failed first.
 UNMAPPED_FROM_TABLE = "from_table_unplaced"
 UNMAPPED_TO_TABLE = "to_table_unplaced"
-UNMAPPED_REASONS = (UNMAPPED_FROM_TABLE, UNMAPPED_TO_TABLE)
+#: K4c: both ends answered, and the edge still says nothing about the two concepts --
+#: it never travelled on the key that placed them.
+UNMAPPED_REFERENCE_ONLY = "reference_only_edge"
+UNMAPPED_REASONS = (UNMAPPED_FROM_TABLE, UNMAPPED_TO_TABLE, UNMAPPED_REFERENCE_ONLY)
 
 # Mirrors `ontology.TIERS` and `ontology.CARDINALITY_CLAIMS`, spelled here rather than
 # imported because `ontology` imports this module; `tests/core/test_concept_relations.py`
@@ -130,6 +137,8 @@ class _Context:
     identity: Mapping[str, str]
     membership: Mapping[str, str]
     synonyms: Mapping[str, str]
+    #: ``(table, concept id)`` for the memberships a JOIN lent and nothing else backs.
+    carried: frozenset
 
 
 # ------------------------------------------------------------------------ public API
@@ -144,6 +153,7 @@ def build_concept_relations(ontology: Mapping) -> dict:
     """
     concepts = list(ontology.get("concepts") or [])
     entities = list(ontology.get("entities") or [])
+    relations = list(ontology.get("relations") or [])
     context = _Context(
         by_stem={
             stem: str(concept.get("id"))
@@ -153,8 +163,9 @@ def build_concept_relations(ontology: Mapping) -> dict:
         identity=_identity_memberships(concepts),
         membership=_memberships(concepts),
         synonyms=synonym_folding(entities),
+        carried=_carried_memberships(concepts),
     )
-    groups, seams, unmapped = _fold(ontology.get("relations") or [], context)
+    groups, seams, unmapped = _fold(relations, context)
     kinds = {str(concept.get("id")): str(concept.get("kind")) for concept in concepts}
     comments = _column_comments(entities)
     built = [
@@ -168,10 +179,7 @@ def build_concept_relations(ontology: Mapping) -> dict:
             (_link(seam, members) for seam, members in seams.items()),
             key=lambda item: (item["concept"], item["from_table"], item["to_table"]),
         ),
-        "concept_relations_unmapped": {
-            "total": sum(unmapped.values()),
-            "by_reason": {reason: unmapped[reason] for reason in UNMAPPED_REASONS},
-        },
+        "concept_relations_unmapped": _unmapped_counts(len(relations), unmapped),
     }
 
 
@@ -254,12 +262,79 @@ def _fold(relations: Sequence[Mapping], context: _Context) -> tuple[dict, dict, 
         if target is None:
             unmapped[UNMAPPED_TO_TABLE] += 1
             continue
+        if _reference_only(relation, target, context):
+            unmapped[UNMAPPED_REFERENCE_ONLY] += 1
+            continue
         seam = _representation_seam(relation, source, target, context)
         if seam is not None:
             seams.setdefault(seam, []).append(relation)
             continue
         groups.setdefault((source, target), []).append(relation)
     return groups, seams, unmapped
+
+
+def _carried_memberships(concepts: Sequence[Mapping]) -> frozenset:
+    """``(table, concept id)`` for the tables a JOIN lent to a concept and nothing else.
+
+    A ``reference`` membership says the table *carries* the concept's key, never that it
+    is a copy of the thing -- so an edge that starts there and does not travel on that
+    key has no claim on the concept at all (K4c).
+    """
+    lent, backed = set(), set()
+    for concept in concepts:
+        identifier = str(concept.get("id"))
+        for item in concept.get("tables") or []:
+            pair = (str(item.get("table")), identifier)
+            if str(item.get("membership_basis")) == BASIS_REFERENCE:
+                lent.add(pair)
+            else:
+                backed.add(pair)
+    return frozenset(lent - backed)
+
+
+def _reference_only(relation: Mapping, target: str, context: _Context) -> bool:
+    """Whether this edge reaches ``target`` without ever travelling on its key.
+
+    Two shapes, one rule. A table joined to *itself* on something that is not the
+    concept's key -- an intra-table join on a hierarchy column, a dedup rejoin -- says
+    nothing about the concept; publishing it claims 客户 relates to 客户. And a ``from``
+    table that merely *carries* the target's key, joined to one of the target's tables on
+    a third column entirely, reaches the concept only because the ``to`` table happens to
+    be one of its copies. Both are counted under ``reference_only_edge``.
+
+    A genuine self-join on the key -- 上级客户 → 客户 on ``cust_no`` -- names the stem on
+    one of its ends and stays the ``self_reference`` it is.
+    """
+    if _names_stem(relation, target, context):
+        return False
+    tables = (_table(relation, "from"), _table(relation, "to"))
+    return tables[0] == tables[1] or (tables[0], target) in context.carried
+
+
+def _names_stem(relation: Mapping, concept: str, context: _Context) -> bool:
+    """Whether either end's join columns reduce to a stem this concept answers to."""
+    return any(
+        context.by_stem.get(key_stem(str(column), context.synonyms)) == concept
+        for side in ("from", "to")
+        for column in (relation.get(side) or {}).get("columns") or []
+    )
+
+
+def _unmapped_counts(edges: int, unmapped: Mapping[str, int]) -> dict:
+    """The refusals, counted against every table-level edge there was.
+
+    ``by_reason`` moves as tables get placed -- an edge that was ``from_table_unplaced``
+    becomes a folded edge the moment a key or a reviewer places its table -- so the
+    counter publishes the denominator beside it: ``edges_total`` is every edge this fold
+    read and ``mapped`` the ones that reached a concept pair or a representation link.
+    """
+    total = sum(unmapped.values())
+    return {
+        "edges_total": edges,
+        "mapped": edges - total,
+        "total": total,
+        "by_reason": {reason: unmapped[reason] for reason in UNMAPPED_REASONS},
+    }
 
 
 def _to_endpoint(side: Mapping, source: str, context: _Context) -> str | None:
