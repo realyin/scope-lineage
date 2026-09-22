@@ -1,5 +1,45 @@
 # Changelog
 
+## Unreleased
+- **A concept layer above the table-level ontology** (K1/K2). `entities[]` answer "what is
+  this *table*"; a business asks about 「客户」, which the warehouse spells as four tables,
+  and about 「消息发送」, which is not a thing but something that happened. `ontology.json`
+  gains **`concepts[]`**: the tables whose proven candidate keys reduce to one non-generic
+  *key stem* (`cust_no` / `cust_id` → `cust`, folded across the corpus's own O5 synonyms)
+  are collected into one concept, each member carrying its `role` (`primary` / `snapshot` /
+  `detail` / `summary` / `intermediate` / `reference`) and its `membership_basis`, and the
+  concept carrying a `kind` -- `entity`, `event` or `summary`, siblings rather than a
+  hierarchy. Three things place a table: a candidate key at **any** tier (a warehouse
+  rarely proves its own keys, and reading only the proven ones leaves nearly every table
+  unplaced), a `declared_hints[]` primary-key comment, and O1's JOINs -- an entity whose
+  relation points at a concept's key joins it as a `reference`, because an event table is
+  never unique by 客户, it merely carries the customer number, and that is how it takes
+  part. A `reference` membership is the weakest one: it casts no kind vote and lends no
+  attribute, and a concept seeded only by assumed keys, hints or JOINs stays a
+  `hypothesis`. Every kind publishes
+  `kind_evidence[]`, one vote per signal: signals that agree earn `implied`, signals that
+  disagree earn `hypothesis` and the reviewer sees which two disagreed. K2 adds a ranked
+  `name_candidates[]` (key column comment → table comment → the stem itself, each with the
+  table and column that supplied it) and a `name` that is always a `hypothesis`, because a
+  comment is metadata and metadata goes stale. Naming reads the comments that describe the
+  *concept*: annotation blocks the catalog stamped in (`【updt:n】`, `[PII]`) and trailing
+  asides come out of every comment first, a stoplist drops what only says "this is a key"
+  (the Chinese words by prefix, so 唯一键 / 唯一主键 / 主键id all go; the latin ones whole),
+  at most one trailing key marker comes off and only when a name is left (合同号 → 合同,
+  交易流水号 → 交易流水, while 编号 yields nothing and 贷款账号 keeps its 账号), pipeline
+  words (中间过程, 临时, `backup`, `tmp`) come out before the storage suffix, table comments
+  are taken from the most representative members first (`primary` / `snapshot`, then
+  `detail` / `summary`, then `intermediate` / `reference`), and a candidate that still
+  reads as a table name sinks below the stem instead of being dropped. Two concepts whose
+  first candidate is the same word are **not** merged -- each publishes
+  **`possible_duplicate_of[]`** pointing at the other, because whether that is one thing
+  spelled twice is not a question this layer can answer. Tables nothing could place are
+  published in
+  **`unassigned_tables[]`** with the reason (`no_candidate_key` /
+  `generic_key_only` / `key_spans_several_stems`) -- "we could not tell" is an answer. The
+  new normalisation is public as `scope_lineage.render.concepts.key_stem`. Additive:
+  `entities[]`, the markdown and the LinkML / SHACL exports are unchanged.
+
 ## 0.3.2
 - **Breaking** (two additive-in-spirit shape changes; the lineage contracts' modelled
   facts are unchanged): statements that never had a target binding to make (CTAS, MERGE,

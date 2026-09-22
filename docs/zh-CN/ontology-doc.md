@@ -156,6 +156,35 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
   "families": [
     {"family": "ods.pay", "tables": ["ods.pay_df", "ods.pay_di"], "size": 2}
   ],
+  "concepts": [
+    {"id": "concept:cust", "name": "客户", "name_tier": "hypothesis",
+     "name_candidates": [
+       {"text": "客户", "source": "key_column_comment", "count": 2,
+        "name_evidence": [{"table": "ods.customer_base", "column": "cust_no"}]},
+       {"text": "cust", "source": "key_stem", "count": 1, "name_evidence": []}],
+     "possible_duplicate_of": ["concept:customer"],   // 另一个概念也叫「客户」，等人来判
+     "kind": "entity", "kind_tier": "implied",
+     "kind_evidence": [{"signal": "word_hint", "vote": "entity",
+                        "table": "ods.customer_base",
+                        "detail": "ods.customer_base 客户信息表"}],
+     "identity": {"stem": "cust", "columns_seen": ["cust_no", "customer_id"]},
+     "tables": [{"table": "dwd.customer_df", "role": "primary",
+                 "membership_basis": "key:proven",
+                 "key_columns": ["cust_no"], "grain": "group_by"},
+                {"table": "ods.customer_base", "role": "primary",
+                 "membership_basis": "declared_hint",
+                 "key_columns": ["cust_no"], "grain": null},
+                {"table": "dwd.message_send_di", "role": "reference",
+                 "membership_basis": "reference",
+                 "key_columns": ["cust_no"], "grain": null}],
+     "attributes": [{"stem": "cust", "type": "string", "comment": "客户编号",
+                     "sources": [{"table": "ods.customer_base", "column": "cust_no"}]}],
+     "tier": "implied"}
+  ],
+  "unassigned_tables": [
+    {"table": "ods.staging_rows", "reason": "generic_key_only"}   // 只有 id 这类通用键
+                                                                 // 既没有键与线索，也没有 JOIN 关联
+  ],
   "relations": [
     {"id": "rel:001",
      "from": {"entity": "ods.driver", "columns": ["id"]},
@@ -230,6 +259,14 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 | `entities[].attributes[].synonyms[].via` | `direct_rename` / `union_alignment` | O5：同一个值的两个列名 |
 | `entities[].attributes[].samples[]` | 字符串数组 | A6：表卡上的样例值原样带过来，只来自 `tables --samples` 传进来的文件（已脱敏、已截断）；那一列没有值时这个键不出现 |
 | `families[]` | `family` + `tables[]` + `size` | Q3：语料里每个表族及其成员表，按 `family` 排序；答一个组之前用它确认这一族真的是同一张表的多份副本 |
+| `concepts[]` | `id` / `name` / `kind` / `identity` / `tables[]` / `attributes[]` / `tier` | K1：把共用同一个业务键的表折成一个概念；`entities[]` 仍然是表级表现，概念只是指向它们（规则见下面「概念层」） |
+| `concepts[].kind`、`kind_tier`、`kind_evidence[]` | `entity` / `event` / `summary`；五级之一；每个信号一条投票 | K1：信号一致 → `implied`，信号打架 → `hypothesis`，并把每个信号投了什么原样列出来 |
+| `concepts[].tables[].role` | `primary` / `snapshot` / `detail` / `summary` / `intermediate` / `reference` | K1：这张表是这个概念的哪一份副本；`reference` 是它并不按这个键唯一、只是**带着**这个键（事件表参与「客户」就是这样） |
+| `concepts[].tables[].membership_basis` | `key:<层级>` / `declared_hint` / `reference` | K1：这张表凭什么算这个概念的成员——读到的候选键（带它自己的层级）、元数据声明的主键线索，还是一条 JOIN |
+| `concepts[].identity` | `stem` + `columns_seen[]` | K1：概念的键词根，以及语料里见过的、归到这个词根的键列 |
+| `concepts[].name`、`name_tier`、`name_candidates[]` | 文本；恒为 `hypothesis`；`text` / `source` / `count` / `name_evidence[]` | K2：候选名按 `count` 降序、再按来源顺序（键列注释 → 表注释 → 键词根）排，`name` 是第一条；注释是元数据，会过期，所以永远不超过 `hypothesis` |
+| `concepts[].possible_duplicate_of[]` | 概念 id 列表 | K2：另有概念的首选名与本概念一字不差；**不合并**，两边互相指，留给评审那一轮判。没有同名时这个键不出现 |
+| `unassigned_tables[]` | `table` + `reason`（`no_candidate_key` / `generic_key_only` / `key_spans_several_stems`） | K1：没能落到任何概念上的表，以及落不下去的原因——「判不出来」也是一个答案 |
 | `relations[].id` | `rel:NNN` | 排序后编号，同一份语料稳定 |
 | `relations[].kind` | `join_association` / `union_sibling` / `hinted` | JOIN 键对，或同一 UNION 的兄弟分支；`hinted` 是 O9 只由列注释提出、语料里没有任何任务写过的边（`task_count` 为 0，`join_types` 为空） |
 | `relations[].cardinality.claim` | `one_to_many` / `many_to_one` / `many_to_one_assumed` / `one_to_one_assumed` / `unknown` | O2，方向为 `from` → `to`；`one_to_one_assumed` 只可能来自人工确认 |
@@ -267,6 +304,71 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 | O7 冲突 | 同一（表, 键集）上「去重」与「直接关联」并存 → `cardinality_conflict`；同一张表上两组 `hypothesis` 候选键互为真子集或互不相交 → `competing_candidate_keys`（至多一组是身份键）；表卡的 `producer_key_conflict` 与 `ambiguous_bare_name` 原样透传 |
 | O8 元数据键线索 | 列注释含 `主键` / `唯一键` / `唯一编号` / `主键id` / `primary key` / `unique`（忽略大小写）→ `declared_hints`；线索与某个 `hypothesis` 候选键一致（线索列 ⊆ 键列）→ 该键升到 `implied`（注释与结构两个独立来源指向同一列）；候选键全是 `hypothesis` 且都不含线索列 → `key_hint_conflict` |
 | O9 注释关系线索 | 列注释以 `关联` / `对应` / `引用` / `见` / `外键` / `FK` / `references` / `->` 指向 `<表>.<列>` 或 `<表> 的 <列>`（忽略大小写，表名按表卡同一条规则折大小写后按点后缀匹配，裸表名只在唯一时解析）→ `relation_hints[]`；已有同一（from 实体, to 实体）与同一列对的 `hypothesis` 关系 → 抬到 `implied` 并追加一条 `column_comment` 证据；没有 → 新增一条 `kind: hinted` 的关系（`many_to_one_assumed` / `hypothesis` / `column_comment`，`task_count` 为 0），进待人工判定清单等人确认；与同一列上一条 `proven` 关系指向不同的表 → `relation_hint_conflict` |
+
+## 概念层（实体 / 事件 / 汇总）
+
+`entities[]` 回答的是「这张**表**是什么」。业务问的不是这个：业务问「客户」，而仓库把客户写成
+`ods.customer_base`、`dwd.customer_df`、`dwd.customer_di` 和几张中间表；业务还问「消息发送」，
+那不是一个东西，而是**发生过的事**，它与「客户」并列，不在「客户」之下。
+
+K1/K2 就在表级本体之上折出这一层：**实体应该是「客户」，不是「客户信息表」；表是概念的表现。**
+`entities[]` 一个字都不变，概念只是指向它们，而表级读法正是复核这次折叠的唯一办法。
+
+### 种子：键词根
+
+| # | 规则 |
+| --- | --- |
+| 1 | **键词根**：列名小写后按 `_` 切段，掐掉只表示「这是个键」的首尾整段（`_no` / `_id` / `_code` / `_cd` / `_num` / `_key`），最后一段永不掐——`cust_no`、`cust_id` 都是 `cust`。语料自己证过的同义列（O5）先折成同一个拼写，所以 `customer_id` 能走到 `cust`，靠的是某个任务证明过两列同值，而不是两个词长得像 |
+| 2 | **通用词根**：`id` / `uuid` / `dt` / `etl` / `create` / `update` / `row` / `seq` / `rn` / `pk` 是封闭清单；另有一条证据规则——归到同一词根的键列带了三条及以上**不同**的非空注释，而掐掉 编号/编码/代码 之后彼此没有任何共同的中文二字片段时，这个词根也是通用的（渠道编码 / 省份编码 / 状态编码 三者什么都没说好） |
+| 3 | **发芽**：某实体的候选键（**任何**层级，仓库很少真的证明过自己的键，只读 `proven` 会把几乎所有表都落在外面）**去掉时间列与分区列**之后恰好归到一个非通用词根 → 这个词根长出一个概念，该实体以 `key:<层级>` 加入；层级跟着这条成员走 |
+| 4 | **元数据线索**：一条候选键都落不下来时，看 `identity.declared_hints[]`——列注释把某列称作主键/唯一键，同样按词根发芽，成员基准写 `declared_hint` |
+| 5 | **JOIN 参与**：一条关系（`join_association` / `hinted`）的**对端**列归到某个概念的词根 → 本端实体以 `reference` 加入那个概念。事件表永远不会按「客户」唯一，它只是**带着**客户号；那正是它参与「客户」的方式。`reference` 成员刻意是最弱的一种：既不给种类投票，也不贡献属性 |
+| 6 | **落不下去**：键全是通用词根、键跨了两个词根、既没有键也没有线索，而且没有任何 JOIN 关联到某个概念 → 这张表进 `unassigned_tables[]`，并写明原因 |
+
+### 成员角色
+
+判定按证据的具体程度从严到宽，命中即止：
+
+| 角色 | 判定 |
+| --- | --- |
+| `intermediate` | 表名尾段是 `_tmp` / `_mid<数字>` / `_step<数字>` / `_stage<数字>` / `_bak`，或者只被同一个任务写、又只被同一个任务读 |
+| `detail` | 键里除词根之外还带了时间列或事件列（且不是分区列） |
+| `primary` | 全量快照（`_df` / `_hf` / `_mf` / `_wf` / `_all`）或没有周期后缀，且键除分区列外就是词根本身 |
+| `summary` | 生产语句的 `output_shape.grain.basis` 是 `group_by` 或 `single_row` |
+| `snapshot` | 周期增量（`_di` / `_hi` / `_mi` / `_wi`），键除分区列外就是词根本身，且没有事件时间 |
+| `reference` | 不按这个键唯一，只是带着它——成员是由一条 JOIN 而不是由自己的键放进来的 |
+
+### 概念种类
+
+| 信号 | 投票 | 内容 |
+| --- | --- | --- |
+| `key_event_column` | `event` | 成员的键里有时间戳或事件 id 列（且不是分区列） |
+| `driving_rows_over_log_source` | `event` | 生产粒度是「主表的一行」，而那张主表按名字或注释看像日志 |
+| `increment_with_event_time` | `event` | 成员是 `_di` / `_hi` 这类增量，并且带了非分区的时间列 |
+| `all_members_summary` | `summary` | 所有成员的角色都是 `summary` |
+| `word_hint` | 三种之一 | 名字与注释里的词：发送/回款/交易/日志/记录/流水/事件/log/event/hist → `event`；信息/档案/主数据/维/dim/info → `entity`；汇总/日报/统计/agg/report → `summary`。这是**次级证据**，结构信号说过话时它不做主 |
+
+结构信号里出现 `event` → `event`，否则出现 `summary` → `summary`，都没有就看词提示，再没有就是 `entity`。
+**所有**信号投的票一致 → `kind_tier` 为 `implied`；只要有两票不一样 → `hypothesis`，并且
+`kind_evidence[]` 把每个信号投了什么、在哪张表上投的都列出来，复核的人一眼看见分歧在哪。
+
+### 命名候选
+
+| 来源 | 取法 | 反例 |
+| --- | --- | --- |
+| `key_column_comment` | 键列注释先掐掉**标注块**（`【…】` / `[…]`）与结尾括注，再掐掉**至多一个**结尾键标记（编号/编码/代码/号码/标识/号）：合同号 → 合同，交易流水号 → 交易流水；掐完剩不足两个汉字就什么都不产生（编号、客编号），`账号` / `卡号` / `型号` 一类整词里的 号 从不掐（贷款账号 还是 贷款账号） | 中文停用词（唯一、主键、标识、编号、编码、代码、序号、流水号）按**前缀**命中就丢——唯一键、唯一主键、主键id 全是标记加噪声；英文停用词（id、unique、key、guid、uuid、pk、no、code）按整条命中，因为 `id` / `key` 开头的英文短语多半是真的；只剩一个汉字、或者不含中文且就等于词根 → 同样不产生候选 |
+| `table_comment` | 先掐掉标注块（`【…】` / `[…]`）与结尾括注，再把 中间过程/过程表/临时/备份/backup/tmp 这类流水线用词从任意位置抠掉，最后掐 信息表/明细表/汇总表/临时表/记录表/快照/维表/日表/表 等存储用词；只读**最有代表性**的那一档成员（`primary` / `snapshot` → `detail` / `summary` → `intermediate` / `reference`，哪一档先给出候选就用哪一档），同档之内几个成员不一致时取最长公共前缀 | 注释整条就是一个后缀（「信息表」）→ 不产生候选 |
+| `key_stem` | 键词根本身（`cust`），兜底 | —— |
+
+掐后缀是中文元数据的习惯，所以**只作用于含中文的文本**：英文 snake-case 注释原样保留，只有
+`_` 已经切好段的 `_id` / `_no` / `_df` 一类才会被掐掉。排序先看**像不像表名**——掐完仍带着
+`_`、`backup` 或 `tmp` 的候选一律沉到最后（不删掉：它仍然是证据，只是不配当名字）——再按
+`count` 降序、再按上表顺序。`name` 就是第一条，`name_tier` 恒为 `hypothesis`，每条候选用
+`name_evidence` 说清是哪张表的哪一列给的——元数据互相打架时看得见，而不是被平均掉。
+
+两个概念的首选名撞成同一个词时（比如词根 `contr` 与 `contra` 都叫「合同」），**不合并**：
+语料证明的是两个不同的键，「是同一个东西的两种写法，还是两个东西共用一个词」不是这一层
+能答的问题。两边各写一条 `possible_duplicate_of` 指向对方，留给评审那一轮判。
 
 ## 表族与待判定分组
 
