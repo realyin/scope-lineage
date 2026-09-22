@@ -5909,3 +5909,354 @@ def _table_comment_findings(document: dict) -> list[dict]:
             f"缺少表注释的表（{len(missing)} 张）：{'、'.join(missing)}",
         )
     ]
+
+
+# ----------------------------------------------------- N5: the corpus concept layer
+
+#: The only ontology this view reads. ``ontology-json/1`` published ``relations[]`` as the
+#: TABLE-level evidence and ``entities[]`` as the warehouse layer; in ``/2`` ``relations[]``
+#: are the concept relations and ``tables[]`` is the warehouse. A document that means
+#: something else by the same key cannot be read leniently -- it has to be refused.
+ONTOLOGY_DOC_FORMAT = "ontology-json/2"
+
+DIRECTION_READ = "read"
+DIRECTION_WRITE = "write"
+
+#: The concept layer's membership roles, strongest first -- ``concepts.ROLE_STRENGTH``,
+#: mirrored rather than imported because ``concepts`` imports this module.
+_CONCEPT_ROLE_STRENGTH = (
+    "primary",
+    "snapshot",
+    "detail",
+    "summary",
+    "intermediate",
+    "reference",
+)
+_CONCEPT_ROLE_REFERENCE = "reference"
+_CONCEPT_TIER_PROVISIONAL = "provisional"
+
+
+def apply_ontology(profile: dict, ontology: Mapping | None) -> dict:
+    """Fold a corpus's *concepts* into one task's semantic profile (N5).
+
+    Returns the profile unchanged when no ontology was supplied, so ``describe`` without
+    ``--ontology`` writes exactly the document it wrote before this layer existed.
+    「没给本体」 and 「本体说这张表没有概念」 are different answers and never render
+    alike: the second is a published ``null``, the first is no key at all.
+
+    Five keys, every one of them a *reading* of the ontology rather than a new inference:
+    ``task.concepts[]`` / ``task.output_concept``, ``inputs[].concept``,
+    ``fields[].concept_attribute`` (with ``is_concept_key``) and
+    ``output_shape.grain.concept_text``. Nothing here decides anything the ontology did
+    not already publish, and a concept the review round has not settled carries
+    ``provisional: true`` wherever it appears.
+    """
+    if not ontology:
+        return profile
+    declared = ontology.get("doc_format")
+    if declared != ONTOLOGY_DOC_FORMAT:
+        raise ValueError(
+            f"describe --ontology reads {ONTOLOGY_DOC_FORMAT} documents; this one "
+            f"declares {declared!r}. Rebuild it with `scope-lineage ontology`."
+        )
+    index = _ConceptIndex(ontology)
+    if profile.get("artifact_kind") == TASK_PROFILE_ARTIFACT_KIND:
+        return {
+            key: [_apply_statement_concepts(item, index) for item in value]
+            if key == "statements"
+            else value
+            for key, value in profile.items()
+        }
+    return _apply_statement_concepts(profile, index)
+
+
+class _ConceptIndex:
+    """The lookups this view needs over one ``ontology-json/2`` document.
+
+    Built once per run rather than per statement: a corpus ontology is one document and
+    the walks below are linear in its size, which a large corpus would otherwise pay for
+    once per task.
+    """
+
+    def __init__(self, ontology: Mapping) -> None:
+        concepts = list(ontology.get("concepts") or [])
+        self._members: list[tuple[str, Mapping, Mapping]] = [
+            (str(member.get("table")), member, concept)
+            for concept in concepts
+            for member in concept.get("tables") or []
+        ]
+        self._attributes: list[tuple[str, str, Mapping, Mapping]] = [
+            (str(source.get("table")), str(source.get("column")), attribute, concept)
+            for concept in concepts
+            for attribute in concept.get("attributes") or []
+            for source in attribute.get("sources") or []
+        ]
+
+    def memberships(self, table: str) -> list[tuple[Mapping, Mapping]]:
+        """``(member, concept)`` for every concept this table represents, strongest first."""
+        found = [
+            (member, concept)
+            for name, member, concept in self._members
+            if name and glossary_values.same_table(table, name)
+        ]
+        return sorted(found, key=lambda pair: _concept_sort_key(*pair))
+
+    def identity(self, table: str) -> tuple[Mapping, Mapping] | None:
+        """What this table *is* -- never a concept it merely points at (``reference``)."""
+        for member, concept in self.memberships(table):
+            if str(member.get("role")) != _CONCEPT_ROLE_REFERENCE:
+                return member, concept
+        return None
+
+    def key_of(self, table: str, column: str) -> Mapping | None:
+        """The concept this ``(table, column)`` is the identity key of, if any."""
+        for member, concept in self.memberships(table):
+            if column in [str(item) for item in member.get("key_columns") or []]:
+                return concept
+        return None
+
+    def attribute_of(self, table: str, column: str) -> tuple[Mapping, Mapping] | None:
+        """``(attribute, concept)`` this ``(table, column)`` was folded into, if any."""
+        found = [
+            (attribute, concept)
+            for name, owned, attribute, concept in self._attributes
+            if owned == column and name and glossary_values.same_table(table, name)
+        ]
+        found.sort(key=lambda pair: str(pair[1].get("id")))
+        return found[0] if found else None
+
+
+def _concept_sort_key(member: Mapping, concept: Mapping) -> tuple:
+    role = str(member.get("role"))
+    rank = (
+        _CONCEPT_ROLE_STRENGTH.index(role)
+        if role in _CONCEPT_ROLE_STRENGTH
+        else len(_CONCEPT_ROLE_STRENGTH)
+    )
+    return (_is_provisional(concept), rank, str(concept.get("id")))
+
+
+def _is_provisional(concept: Mapping) -> bool:
+    return str(concept.get("tier")) == _CONCEPT_TIER_PROVISIONAL
+
+
+def _with_provisional(entry: dict, concept: Mapping) -> dict:
+    """``provisional: true`` on a concept M1 published because nothing else placed it.
+
+    Published only when true and never as ``false``: a settled concept is not
+    「查过、不是暂定的」, it is simply a concept.
+    """
+    return {**entry, "provisional": True} if _is_provisional(concept) else entry
+
+
+def _concept_ref(concept: Mapping, role: str) -> dict:
+    return _with_provisional(
+        {
+            "concept": str(concept.get("id")),
+            "name": concept.get("name"),
+            "kind": concept.get("kind"),
+            "role": role,
+        },
+        concept,
+    )
+
+
+def _apply_statement_concepts(profile: dict, index: _ConceptIndex) -> dict:
+    applied = dict(profile)
+    task = dict(profile.get("task") or {})
+    task["concepts"] = _task_concepts(profile, index)
+    task["output_concept"] = _output_concept(str(task.get("target_table") or ""), index)
+    applied["task"] = task
+    applied["inputs"] = [_input_concept(item, index) for item in profile.get("inputs") or []]
+    applied["output_shape"] = _shape_with_concept_text(profile.get("output_shape"), index)
+    applied["fields"] = [_field_concept(item, index) for item in profile.get("fields") or []]
+    return applied
+
+
+def _task_concepts(profile: Mapping, index: _ConceptIndex) -> list[dict]:
+    """One entry per concept this statement touches, reads first and the write folded in.
+
+    A concept the statement both reads and writes is published once, **as the write**:
+    that this task produces a representation of 客户 is the stronger of the two facts,
+    and the read is still visible on the input it came from. The entry keeps the place
+    its first mention earned, so the list reads in the order the reader met the tables.
+    """
+    entries = [
+        _membership_entry(member, concept, table, DIRECTION_READ)
+        for item in profile.get("inputs") or []
+        for table in [str(item.get("table") or "")]
+        for member, concept in index.memberships(table)
+    ]
+    target = str((profile.get("task") or {}).get("target_table") or "")
+    entries.extend(
+        _membership_entry(member, concept, target, DIRECTION_WRITE)
+        for member, concept in index.memberships(target)
+    )
+    folded: dict[str, dict] = {}
+    for entry in entries:
+        seen = folded.get(entry["concept"])
+        if seen is None or (
+            seen["direction"] == DIRECTION_READ and entry["direction"] == DIRECTION_WRITE
+        ):
+            folded[entry["concept"]] = entry
+    return list(folded.values())
+
+
+def _membership_entry(member: Mapping, concept: Mapping, table: str, direction: str) -> dict:
+    return _with_provisional(
+        {
+            "concept": str(concept.get("id")),
+            "name": concept.get("name"),
+            "kind": concept.get("kind"),
+            "role": member.get("role"),
+            "membership_basis": member.get("membership_basis"),
+            "table": table,
+            "direction": direction,
+        },
+        concept,
+    )
+
+
+def _output_concept(target: str, index: _ConceptIndex) -> dict | None:
+    found = index.identity(target) if target else None
+    return None if found is None else _concept_ref(found[1], str(found[0].get("role")))
+
+
+def _input_concept(item: Mapping, index: _ConceptIndex) -> dict:
+    """The input's identity concept, beside the roles it plays in *this* task.
+
+    ``null`` is published rather than omitted: the ontology was asked, and 「本体不建模
+    这张表」 is an answer.
+    """
+    found = index.identity(str(item.get("table") or ""))
+    value = None if found is None else _concept_ref(found[1], str(found[0].get("role")))
+    return _insert_before(dict(item), "role_in_task", "concept", value)
+
+
+def _field_concept(field: Mapping, index: _ConceptIndex) -> dict:
+    """``concept_attribute`` (and ``is_concept_key``) for one output column.
+
+    Read off the field's own physical sources, first one the concept layer places: a
+    column the corpus folded into a concept's attribute is an attribute of it here too,
+    and a column some member is keyed by is that concept's identity -- which is why the
+    key is asked first. A field with no physical source (``count(1)``, a constant)
+    carries neither key, because there is no column to place.
+    """
+    for source in field.get("sources") or []:
+        table, column = str(source.get("table") or ""), str(source.get("column") or "")
+        if not table or not column:
+            continue
+        keyed = index.key_of(table, column)
+        if keyed is not None:
+            stem = str((keyed.get("identity") or {}).get("stem"))
+            entry = _insert_before(
+                dict(field), "sources", "concept_attribute", _concept_attribute(keyed, stem)
+            )
+            return _insert_before(entry, "sources", "is_concept_key", True)
+        found = index.attribute_of(table, column)
+        if found is not None:
+            entry = _concept_attribute(found[1], str(found[0].get("stem")))
+            return _insert_before(dict(field), "sources", "concept_attribute", entry)
+    return dict(field)
+
+
+def _concept_attribute(concept: Mapping, attribute: str) -> dict:
+    return _with_provisional(
+        {
+            "concept": str(concept.get("id")),
+            "name": concept.get("name"),
+            "attribute": attribute,
+        },
+        concept,
+    )
+
+
+def _shape_with_concept_text(shape: Mapping | None, index: _ConceptIndex) -> dict | None:
+    if not shape:
+        return shape
+    grain = dict(shape.get("grain") or {})
+    text = _grain_concept_text(grain.get("keys") or [], index)
+    if text is None:
+        return dict(shape)
+    return {**shape, "grain": _insert_before(grain, "basis", "concept_text", text)}
+
+
+#: How many terms the grain sentence names before it counts the rest. A wide GROUP BY
+#: spelled out in full buries the line it sits on, exactly as `_SUMMARY_KEY_LIMIT` does
+#: for the structural summary; `grain.keys` carries the whole list for anyone who needs it.
+CONCEPT_GRAIN_TERM_LIMIT = 6
+
+
+def _grain_concept_text(keys: Sequence[Mapping], index: _ConceptIndex) -> str | None:
+    """「一行 = 一个客户 × 日期」, or None when the concept layer cannot phrase the grain.
+
+    Three things stop the sentence from lying about a grain it is only *reading*:
+
+    - it is published only when the layer placed **at least half** the grain keys. One
+      key of four is not a reading of the grain, it is a quarter of one, and a sentence
+      naming that quarter reads as the whole;
+    - it names each business term **once** and caps the list at
+      ``CONCEPT_GRAIN_TERM_LIMIT``, because a warehouse that keys three tables by the
+      same id produced 「… × 投放单元id × 投放单元id × 投放单元id」, which says one thing
+      three times and buries the line;
+    - whenever it therefore does **not** name every grain key -- a key it could not
+      place, two keys folded onto one term, or the cap -- it ends in 「等 N 列」 with N
+      the real number of keys. The count is exactly what the folding costs the reader,
+      so it is the one thing the sentence may not leave out.
+    """
+    terms = [_grain_key_term(key, index) for key in keys]
+    placed = [term for term in terms if term is not None]
+    if not keys or len(placed) * 2 < len(keys):
+        return None
+    named = _named_grain_terms(placed)
+    head = named[:CONCEPT_GRAIN_TERM_LIMIT]
+    if not head:
+        return None
+    text = "一行 = " + " × ".join(head)
+    return text if len(head) == len(keys) else f"{text} 等 {len(keys)} 列"
+
+
+def _named_grain_terms(terms: Sequence[Mapping]) -> list[str]:
+    """The distinct business terms of a grain, in the order the keys introduced them.
+
+    A concept that named itself takes its own id column with it: where one key is
+    `concept:unit`'s identity and another is some other table's copy of the same
+    ``unit`` stem, 「一个投放单元 × 投放单元id」 is one thing said twice, and only the
+    first of the two is the concept.
+    """
+    keyed_stems = {str(term["stem"]) for term in terms if term["is_key"]}
+    named: list[str] = []
+    for term in terms:
+        if not term["is_key"] and str(term["stem"]) in keyed_stems:
+            continue
+        if str(term["text"]) not in named:
+            named.append(str(term["text"]))
+    return named
+
+
+def _grain_key_term(key: Mapping, index: _ConceptIndex) -> dict | None:
+    """One grain key as ``{is_key, stem, text}``, or None where the layer places neither.
+
+    ``text`` is 「一个<概念>」 for an identity key and the attribute otherwise, named by
+    its own comment when the warehouse wrote one and by its folded stem when it did not
+    -- never by a word this view made up for it. ``stem`` is what the two forms are
+    compared on, because the stem is the corpus-wide name of a business key: it is how
+    the layer already decided that these columns are the same thing.
+    """
+    for source in key.get("physical_sources") or []:
+        table, column = str(source.get("table") or ""), str(source.get("column") or "")
+        if not table or not column:
+            continue
+        keyed = index.key_of(table, column)
+        if keyed is not None:
+            stem = str((keyed.get("identity") or {}).get("stem"))
+            return {"is_key": True, "stem": stem, "text": f"一个{keyed.get('name')}"}
+        found = index.attribute_of(table, column)
+        if found is not None:
+            attribute = found[0]
+            return {
+                "is_key": False,
+                "stem": str(attribute.get("stem")),
+                "text": str(attribute.get("comment") or attribute.get("stem")),
+            }
+    return None

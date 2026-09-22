@@ -33,6 +33,7 @@ flowchart TD
     DICT --> ONTOLOGY
     ONTOLOGY --> ONTO_OUT["ontology.json / ontology.md<br/>带本体小节的表卡"]
     ONTO_OUT -.-> EXPORT["--export linkml,shacl"]
+    ONTO_OUT -.-> DESCRIBE
 
     SEMANTIC -.-> AGENT_PROFILE["Agent：任务画像"]
     AGENT_PROFILE -.-> PROFILE_MD["business_profile.md<br/>business_profile.check.md"]
@@ -130,6 +131,14 @@ Described 5 task(s) (skipped_unknown_version=0, missing_diagnostics=0, skipped_u
 `--tables` 让输入表带上它自己的上游表卡、让目标表列出下游读者；`--glossary` 填
 `fields[].value_domain[]`，也就是"这个列见过哪些取值、哪个取值有人确认过含义"。
 不传也能跑，只是这两块是空的。
+
+还有第三个可选输入 `--ontology`，它读的是**下一步**才写出来的 `ontology.json`
+（只接受 `ontology-json/2`）：传了之后，任务、输入表、字段与粒度都会带上语料概念层给出的
+业务对象——`task.concepts[]` / `task.output_concept`、`inputs[].concept`、
+`fields[].concept_attribute`、`output_shape.grain.concept_text`，粒度那行随之写成
+「一行 = 一个客户 × 日期」。所以它照例是**第 4 步跑完之后再回头重跑一次 `describe`**：
+`scope-lineage describe --lineage "$OUT/artifacts" --tables … --glossary … --ontology
+"$OUT/corpus/ontology.json"`。不传时这些键一个都不出现，产物与概念层上线之前逐字节一致。
 
 ### 4. `ontology`：表与表的关系
 
@@ -229,7 +238,7 @@ Described 5 task(s) (skipped_unknown_version=0, missing_diagnostics=0, skipped_u
 | `render`（可选） | 一棵 `lineage.json` 树、`--field` / `--sections` | `mapping.md`（有警告时另出 `warnings.md`） | 分析师 | [mapping.md 字段映射文档](mapping-doc.md) |
 | `tables` | 一棵 `lineage.json` 树、可选 `--samples`、`--merge` | `tables.json`、`tables.md`、`tables/<db.table>.md` | 分析师；同时喂给 `describe` / `ontology` | [语料级表卡](tables-doc.md) |
 | `glossary` | 一棵 `lineage.json` 树、可选 `--overrides`、`--ontology`、`--template` | `glossary.json`、`glossary.md`、可选待填模板 | 业务负责人填模板；机器读 JSON | [术语与值域字典](glossary-doc.md) |
-| `describe` | `lineage.json` + `--tables` + `--glossary` + 可选 `--metadata-patch` | 每任务一份 `semantic.json`、`semantic.md` | Agent（写画像的原料）、分析师 | [任务语义描述](semantic-doc.md) |
+| `describe` | `lineage.json` + `--tables` + `--glossary` + 可选 `--ontology` / `--metadata-patch` | 每任务一份 `semantic.json`、`semantic.md` | Agent（写画像的原料）、分析师 | [任务语义描述](semantic-doc.md) |
 | `ontology` | `lineage.json` + `--tables` + `--glossary` + 可选 `--overrides`、`--concept-overrides`、`--export` | `ontology.json`、`ontology.md`、带本体小节的表卡 | Agent（整理待判定项）、分析师 | [语料级本体候选](ontology-doc.md) |
 | Agent 任务画像 | `semantic.md` + 技能里的提示词与模板 | `business_profile.md`、`business_profile.check.md` | 业务负责人（读画像、答待确认清单） | [AI agent 技能](agent-skill.md) |
 | `confirmations.py apply` | 答完的 `business_profile.md` | 合并进 `glossary.overrides.json`、`metadata-patch.json` | 机器（下一轮的输入） | [AI agent 技能](agent-skill.md) |

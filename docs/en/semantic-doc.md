@@ -63,6 +63,11 @@ scope-lineage describe --lineage /path/to/corpus --out /path/to/docs
 scope-lineage describe --lineage lineage.json --format json
 scope-lineage describe --lineage lineage.json \
   --sections overview,shape,fields_table,confidence
+
+# With the three corpus layers: table cards, the glossary, the concept layer
+# (--ontology accepts ontology-json/2 only)
+scope-lineage describe --lineage /path/to/corpus --out /path/to/docs \
+  --tables tables.json --glossary glossary.json --ontology ontology.json
 ```
 
 Python API (consumes contract document dicts, the same code path as writing the files):
@@ -124,7 +129,7 @@ scope-lineage describe --lineage /path/to/corpus --out /path/to/out --incrementa
   comment matched nothing **in the whole corpus**", which is only true when every task
   was actually described.
 - A changed option invalidates the whole index and recomputes everything: the **content**
-  of the `--overrides` file, `--format`, the `glossary.json` / `tables.json` read back,
+  of the `--overrides` file, `--format`, the `glossary.json` / `tables.json` / `ontology.json` read back,
   and the tool version. An index or a cache file written by another subcommand (a
   `command` or `doc_format` that disagrees) is ignored the same way.
 - The summary line gains `reused=N, recomputed=M, removed=K`: how many tasks were reused,
@@ -312,6 +317,64 @@ Without `--tables` those three keys **do not appear at all**, and `semantic.json
 was supplied" and "the corpus proves nobody writes it" are different answers and never
 render alike.
 
+### Corpus concept layer: `describe --ontology`
+
+With an [`ontology.json`](ontology-doc.md) supplied (**`ontology-json/2` only**; an older
+document is refused with an error naming both `doc_format`s — `/1`'s `relations[]` meant
+the table-level evidence, and reading it as `/2` would take that for the concept
+relations), the profile gains five more things, **all matched on the normalized table
+name**, and every one of them merely restates what the ontology already published: this
+view adds no concept judgement of its own.
+
+- `task.concepts[]`: the concept each table this statement reads or writes belongs to,
+  each entry `{concept, name, kind, role, membership_basis, table, direction}` with
+  `direction` one of `read` / `write`; **deduplicated by concept**, and a concept both
+  read and written is published once, as the **write** ("this task produces a
+  representation of the customer" is the stronger of the two facts, and the read is still
+  visible on its own `inputs[]` entry), keeping the place its first mention earned.
+- `task.output_concept`: the concept the target table represents and its role in it,
+  `{concept, name, kind, role}`; `null` when the ontology does not model that table.
+- `inputs[].concept`: the input table's **identity** concept (the same four keys) — what it
+  **is**, never what it happens to point at: a member whose `membership_basis` is
+  `reference` is never read as an identity. `null` when the ontology does not model it.
+- `fields[].concept_attribute`: where the target column's physical source column (the
+  first entry of `sources[]` the concept layer can place) sits in the concept layer,
+  `{concept, name, attribute}`; where that column **is** the concept's identity key,
+  `is_concept_key: true` is published alongside it (the key is asked first, the attribute
+  second). A column with no physical source (`count(1)`, a constant) carries neither key.
+- `output_shape.grain.concept_text`: the grain phrased as 「一行 = 一个客户 × 日期」. Three
+  rules keep it a *reading* of the grain rather than a claim about one: it is published only
+  where the layer placed **at least half** the grain keys (one key of four is not another
+  way of saying the grain, it is a quarter of one); each business term is named **once** and
+  the list is capped at 6 terms (`CONCEPT_GRAIN_TERM_LIMIT`) — a warehouse keying three
+  tables by the same id used to produce 「… × 投放单元id × 投放单元id × 投放单元id」, which
+  says one thing three times and buries the line; and a concept counts as one term
+  **together with its own id column** (where one key is `concept:unit`'s identity and
+  another is some other table's copy of the same `unit` stem, 「一个投放单元 × 投放单元id」
+  is one thing said twice, and only the first is the concept). **Whenever it does not name
+  every grain key** — one it could not place, two folded onto one term, or the cap — the
+  sentence ends in 「等 N 列」 with N the real number of keys: that count is exactly what
+  the folding costs the reader, so it is the one thing the sentence may not leave out, and
+  the full list stays in `grain.keys[]`. An attribute is named by its own comment, falling
+  back to its folded stem, and never by a word this view invented for it.
+
+**A provisional concept (M1) carries `provisional: true` wherever it appears** above, and
+only when true: a table published as a concept because nothing else placed it is a question
+put to the review round, not an assertion about the business, and the reader has to be able
+to tell the two apart at a glance.
+
+`semantic.md` gains three things to match: section 1 gains a line 「- 涉及概念：客户（实体，
+写入：汇总）、消息发送（事件，汇总读取）」 (and says 「本语料的概念层未覆盖本语句涉及的表」 where
+the layer reaches none of this statement's tables, which is a different answer from the whole
+line being absent without `--ontology`); section 2's grain line uses `concept_text` when there
+is one (the `依据…`, `basis=…` and physical-source parts are unchanged); and section 5's
+「完整字段清单」 gains a 「所属概念」 column wherever **at least one** column was placed
+(`客户·cust_name`, or `客户·键` where the column is the identity key, `—` otherwise, with a
+`（暂定）` suffix for a provisional concept).
+
+Without `--ontology` those five keys **do not appear at all**, and `semantic.json` /
+`semantic.md` are byte-identical to what they were before the concept layer existed.
+
 ### Confirmed write-backs: `describe --metadata-patch`
 
 With a [`metadata-patch/1`](input-formats.md) file supplied, the view gains four more things,
@@ -347,11 +410,11 @@ documented under "the write-back loop" in [the term and value dictionary](glossa
 
 | Section | `--sections` name | Content | Fact source |
 | --- | --- | --- | --- |
-| 1. 任务概览 (Overview) | overview | Target table and its comment, statement kind and partitioning, which metadata described the target, one 「本实例取数日」 line (present only when `task.instance_dates` is non-empty, worded as this instance's day that the scheduler replaces on every run, with 「（相差 N 天）」 appended when it holds more than one day), the one-line structural summary, and the input-table table (comment, role, used/total columns, metadata completeness, reading scopes), one task-metadata line (project / owner / schedule cycle / schedule expression / expect date / description, with 「上游任务 N 个」 and 「下游任务 N 个」 appended per B4 — counts only, the names being in `task.meta`; a slot the metadata did not supply is left out, and the whole line disappears when none was supplied), the SQL header-comment blockquote (one `> ` line per comment, verbatim, under the heading 「SQL 头部注释（原文，作者说法，非 SQL 事实）」; the whole block is absent when there are none) | `task`, `inputs` |
-| 2. 输出表形态与粒度 (Output shape and grain) | shape | Shape, the grain's logical keys and basis (with the pierce path and the physical sources behind them), keys or candidate keys as **target column names** (worded by `key_confidence`), then one 「- 说明：`<scope>` 的关联放大发生在分组之前，不影响输出键唯一性」 line under it per B12 note (read off `output_shape.key_evidence[]`; absent when there is none, and the other notes in that list do not render here), partition columns, per-JOIN fan-out risk along the grain path; the JOINs whose `path` is `argument` are listed apart, under a 「影响指标取值的关联：」 heading — they change the numbers, not the row count; a pinned grain key reads as `ROOT.dt（钉死为 '20260815'）` on the grain line, and a `grain.basis = single_row` writes 「一行 = 全表汇总」 there with 「输出只有一行，无需键即可唯一标识」 on the key line; where `grain.candidate` exists the grain line carries on from 「未能判定」 with 「；候选：一行 = `<table>` 的一行 × `<exploded column>`（<reason>）[推断]」 — `[推断]` is the profile writer's own marker for a guess, and it is copied along with the sentence | `output_shape` |
+| 1. 任务概览 (Overview) | overview | Target table and its comment, statement kind and partitioning, which metadata described the target, one 「本实例取数日」 line (present only when `task.instance_dates` is non-empty, worded as this instance's day that the scheduler replaces on every run, with 「（相差 N 天）」 appended when it holds more than one day), the one-line structural summary, one 「涉及概念」 line (only under `describe --ontology`), and the input-table table (comment, role, used/total columns, metadata completeness, reading scopes), one task-metadata line (project / owner / schedule cycle / schedule expression / expect date / description, with 「上游任务 N 个」 and 「下游任务 N 个」 appended per B4 — counts only, the names being in `task.meta`; a slot the metadata did not supply is left out, and the whole line disappears when none was supplied), the SQL header-comment blockquote (one `> ` line per comment, verbatim, under the heading 「SQL 头部注释（原文，作者说法，非 SQL 事实）」; the whole block is absent when there are none) | `task`, `inputs` |
+| 2. 输出表形态与粒度 (Output shape and grain) | shape | Shape, the grain's logical keys and basis (with the pierce path and the physical sources behind them), keys or candidate keys as **target column names** (worded by `key_confidence`), then one 「- 说明：`<scope>` 的关联放大发生在分组之前，不影响输出键唯一性」 line under it per B12 note (read off `output_shape.key_evidence[]`; absent when there is none, and the other notes in that list do not render here), partition columns, per-JOIN fan-out risk along the grain path; the JOINs whose `path` is `argument` are listed apart, under a 「影响指标取值的关联：」 heading — they change the numbers, not the row count; a pinned grain key reads as `ROOT.dt（钉死为 '20260815'）` on the grain line, and a `grain.basis = single_row` writes 「一行 = 全表汇总」 there with 「输出只有一行，无需键即可唯一标识」 on the key line; where `grain.concept_text` exists (only under `describe --ontology`) the key half of the grain line is rewritten as 「一行 = 一个客户 × 日期」, leaving `依据…`, `basis=…` and the physical sources as they were; where `grain.candidate` exists the grain line carries on from 「未能判定」 with 「；候选：一行 = `<table>` 的一行 × `<exploded column>`（<reason>）[推断]」 — `[推断]` is the profile writer's own marker for a guess, and it is copied along with the sentence | `output_shape` |
 | 3. 加工链路 (Processing chain) | stages | Stage by stage in topological order: role, direct inputs / directly read physical tables / upstream physical tables, action lines, output columns (an action line that has a comment ends in `（注释：…；SQL注释）`; WI-2.12: a restated filter / HAVING / join ends in `（取值：'01'＝人工队列；…）` before that, listing only the codes the dictionary has answered and writing 「等 N 个，见规则表」 past three) | `stages` |
 | 4. 规则清单 (Rule list) | rules | Filters / HAVING / join conditions / CASE branches, one per row, with the involved fields' comments and an evidence id, plus an `SQL注释` column holding what the author wrote on that condition (`—` when there is none); WI-2.12: where the dictionary answered a code this statement writes, a 「取值含义」 column follows the condition (`'01'＝人工队列` confirmed, `'07'＝? 自动队列` candidate, `—` for a rule with no answer), and the whole column is absent when nothing was answered | `rules` |
-| 5. 字段语义 (Field semantics) | fields (sub-switch fields_table) | The compact "完整字段清单" (full field list) table comes **first** (`#` / field / one-sentence meaning / structural role / 口径 / trace, where 口径 compresses the aggregation call and the time range into one cell and a non-metric field reads `—`), **then** one `###` subsection per field whose first line is `- 语义：<summary>` (unlabelled). A metric field follows that with a fixed seven-line 口径 card (subject / time range / inclusion / aggregation / unit and type / nulls / refresh cadence; an empty slot states why, such as "未在聚合路径上发现日期过滤", instead of dropping its line; a date filter read from the argument path is marked "（参数来源侧）" at the end of its 时间范围 entry, and the 空值 line reads "参数来自 LEFT JOIN 右侧（<scope>），关联不上时为空" where the argument is the nullable one; the 更新频率 row reads "每日（cron …）" when `task.meta` supplies a schedule and "未知（任务元信息未提供）" otherwise), then a `- 注释：…（SQL注释）` line (the author's own words along this field's derivation chain; the whole line is absent when there are none), and then target comment, type, sources, structural role, step-by-step derivation, final expression and trace status; where values were observed, a `- 取值：` line follows the comment line (a confirmed meaning plainly, a candidate prefixed `? `, neither as 「待确认」, with a closure note appended when the whole column is closed); WI-2.12: where the target comment is empty and the dictionary holds a confirmed term, a `- 术语：<meaning>（人工确认）` line follows `- 目标注释：`, and the 「完整字段清单」 gains a 「术语」 column (`<meaning> ✓` where there is one, `—` elsewhere) that is absent when no field carries a term | `fields` |
+| 5. 字段语义 (Field semantics) | fields (sub-switch fields_table) | The compact "完整字段清单" (full field list) table comes **first** (`#` / field / one-sentence meaning / structural role / 口径 / trace, plus a 「所属概念」 column where one is due, see below, where 口径 compresses the aggregation call and the time range into one cell and a non-metric field reads `—`), **then** one `###` subsection per field whose first line is `- 语义：<summary>` (unlabelled). A metric field follows that with a fixed seven-line 口径 card (subject / time range / inclusion / aggregation / unit and type / nulls / refresh cadence; an empty slot states why, such as "未在聚合路径上发现日期过滤", instead of dropping its line; a date filter read from the argument path is marked "（参数来源侧）" at the end of its 时间范围 entry, and the 空值 line reads "参数来自 LEFT JOIN 右侧（<scope>），关联不上时为空" where the argument is the nullable one; the 更新频率 row reads "每日（cron …）" when `task.meta` supplies a schedule and "未知（任务元信息未提供）" otherwise), then a `- 注释：…（SQL注释）` line (the author's own words along this field's derivation chain; the whole line is absent when there are none), and then target comment, type, sources, structural role, step-by-step derivation, final expression and trace status; where values were observed, a `- 取值：` line follows the comment line (a confirmed meaning plainly, a candidate prefixed `? `, neither as 「待确认」, with a closure note appended when the whole column is closed); WI-2.12: where the target comment is empty and the dictionary holds a confirmed term, a `- 术语：<meaning>（人工确认）` line follows `- 目标注释：`, and the 「完整字段清单」 gains a 「术语」 column (`<meaning> ✓` where there is one, `—` elsewhere) that is absent when no field carries a term; N5: where `describe --ontology` placed at least one column in the concept layer, the 「完整字段清单」 gains a 「所属概念」 column right after the one-sentence meaning (`客户·cust_name`, `客户·键` for an identity key, `—` elsewhere, suffixed `（暂定）` for a provisional concept); the column is absent when nothing was placed | `fields` |
 | 6. 可信度与边界 (Confidence and boundaries) | confidence | Metadata coverage, incompletely traced fields, AMBIGUOUS, fact gaps, warning counts, one target-column-binding line, and a count of the document's own structural inferences, closing with a "治理线索" (governance leads) subsection that renders **only the `severity = warn`** entries of `findings[]`, one per line (or "治理线索：无" when there are none), and counts the `info` ones in a single "信息项：N（见 semantic.json findings）" line (omitted when N is 0); when there are warnings the line points at the `warnings.md` that `scope-lineage render` writes (`describe` does not write it) | `confidence`, `diagnostics.json` |
 | 7. 给 Agent 的说明 (Notes for the Agent) | agent | Three fixed lines: this document is a fact skeleton; the business profile is generated separately from the prompt; any Chinese meaning not tagged `元数据事实` is not a business definition | Fixed text |
 
