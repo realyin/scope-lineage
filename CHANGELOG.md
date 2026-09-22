@@ -1,6 +1,49 @@
 # Changelog
 
 ## Unreleased
+- **A task profile can name the business objects it is about: `describe --ontology`**
+  (N5). The concept layer answers what one statement never can — 「这张表代表什么业务
+  对象」 — and until now a task profile could only name tables. `describe` takes the
+  corpus `ontology.json` as a third optional input (**`ontology-json/2` only**; an older
+  document is refused with both `doc_format`s named, because `/1`'s `relations[]` meant
+  the table-level evidence and reading it as `/2` would take that for the concept
+  relations), and adds five keys, all matched on the normalized table name:
+  - `task.concepts[]`: one entry per concept this statement reads or writes —
+    `{concept, name, kind, role, membership_basis, table, direction}` — **deduplicated
+    by concept**, a concept both read and written published once as the **write** (the
+    read is still visible on its own input), each keeping the place its first mention
+    earned. `task.output_concept` says which concept the target represents and as what,
+    or `null`.
+  - `inputs[].concept`: the input's **identity** concept — what it *is*, never a concept
+    it merely points at, so a `reference` membership is never read as one. `null` when
+    the ontology does not model the table.
+  - `fields[].concept_attribute`: where the output column's physical source sits in the
+    concept layer, plus `is_concept_key: true` where that column is the concept's
+    identity key. A column with no physical source (`count(1)`, a constant) carries
+    neither.
+  - `output_shape.grain.concept_text`: the grain as 「一行 = 一个客户 × 日期」, published
+    where the layer placed **at least half** the grain keys — one key of four is not
+    another way of saying the grain, it is a quarter of one. Each business term is named
+    **once** and the list is capped at 6 (a warehouse keying three tables by the same id
+    otherwise produced 「… × 投放单元id × 投放单元id × 投放单元id」), and a concept counts
+    as one term together with its own id column, so 「一个投放单元 × 投放单元id」 folds to
+    the concept. Whenever the sentence does not name every grain key — unplaced, folded
+    or capped — it ends in 「等 N 列」 with N the real key count; the full list stays in
+    `grain.keys[]`. An attribute is named by its own comment, else by its folded stem,
+    never by a word this view invented.
+  - A **provisional** concept (M1) carries `provisional: true` wherever it appears: a
+    table published as a concept because nothing else placed it is a question put to the
+    review round, not an assertion about the business.
+  - `semantic.md` gains 「- 涉及概念：…」 in section 1, uses `concept_text` on section 2's
+    grain line, and gains a 「所属概念」 column in section 5's 完整字段清单 wherever at
+    least one column was placed. The profile prompt and the profile template read the
+    same keys: the 语义卡 opening names the concept the output represents, 「一行代表
+    什么」 copies `concept_text` rather than rewriting it, 「数据从哪来」 names each
+    input's concept, and the field dictionary's 「一句含义」 may lead with the attribute.
+  - Without `--ontology` none of this appears: `semantic.json` and `semantic.md` are
+    byte-identical to what they were before the concept layer existed. The flag is part
+    of `describe`'s `--incremental` options digest, so adding or changing an ontology
+    invalidates the index rather than reusing documents that never saw it.
 - **The open list folds once more, at the level the answer is true** (N3). A concept with
   five representation tables carrying the same candidate key produced five 「这张表按这组列
   唯一吗」 questions, and a reviewer answered the same thing five times. Identity is a

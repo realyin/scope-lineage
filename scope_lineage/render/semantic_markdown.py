@@ -161,6 +161,28 @@ TERM_MEANING_PREFIX = "- 术语："
 TERM_MEANING_COLUMN_TITLE = "术语"
 CONFIRMED_MARK = "✓"
 
+# N5. The corpus's concept layer, read into the three places a reader asks 「这一行、这一列
+#是关于什么业务对象的」: the overview line, the grain line and one field-table column. All
+# three exist only under `describe --ontology`; without it the document is what it was.
+CONCEPT_COLUMN_TITLE = "所属概念"
+# What the 所属概念 cell says when the column *is* the concept's identity, rather than one
+# of the things it carries. 「客户·cust」 would read as an attribute named `cust`.
+CONCEPT_KEY_CELL = "键"
+CONCEPT_EMPTY = "本语料的概念层未覆盖本语句涉及的表"
+# The concept layer's own vocabulary, in the words the rest of this document uses.
+_CONCEPT_KIND_LABELS = {"entity": "实体", "event": "事件", "summary": "汇总"}
+_CONCEPT_ROLE_LABELS = {
+    "primary": "主表",
+    "snapshot": "快照",
+    "detail": "明细",
+    "summary": "汇总",
+    "intermediate": "中间",
+    "reference": "引用",
+}
+# A concept M1 published because nothing else placed the table. It is a question put to
+# the review round, not a claim about the business, and the line has to say so.
+CONCEPT_PROVISIONAL_MARK = "暂定"
+
 _NUMBER_LITERAL = re.compile(r"\d+")
 
 _DIRECTORY_TARGET_PREFIX = "directory:"
@@ -501,6 +523,7 @@ def _render_overview(profile: dict) -> list[str]:
             ["scope_profile"],
         )
     )
+    lines.extend(_concept_lines(task))
     lines.extend(_downstream_lines(task))
     lines.extend(_meta_lines(task))
     lines.extend(_header_comment_lines(task))
@@ -538,6 +561,29 @@ def _instance_date_gap(days: Sequence[str]) -> str:
     ]
     measured = [abs(item) for item in spans if item is not None]
     return f"（相差 {max(measured)} 天）" if len(measured) == len(spans) else ""
+
+
+def _concept_lines(task: dict) -> list[str]:
+    """N5: which business objects this statement is about, from the corpus ontology.
+
+    Absent without ``describe --ontology``, because 「没给本体」 and 「本体覆盖不到这些表」
+    are different answers -- the second gets a line that says so.
+    """
+    if "concepts" not in task:
+        return []
+    concepts = task.get("concepts") or []
+    rendered = "、".join(_concept_text(item) for item in concepts) or CONCEPT_EMPTY
+    return [_tagged(f"- 涉及概念：{rendered}", TAG_STRUCTURAL, ["ontology.json"])]
+
+
+def _concept_text(item: Mapping) -> str:
+    """``客户（实体，写入：汇总）`` -- what it is, and how this statement touches it."""
+    role = _CONCEPT_ROLE_LABELS.get(str(item.get("role")), str(item.get("role")))
+    touch = f"写入：{role}" if item.get("direction") == "write" else f"{role}读取"
+    parts = [_CONCEPT_KIND_LABELS.get(str(item.get("kind")), str(item.get("kind"))), touch]
+    if item.get("provisional"):
+        parts.append(CONCEPT_PROVISIONAL_MARK)
+    return f"{_normalize_inline(str(item.get('name') or ''))}（{'，'.join(parts)}）"
 
 
 def _downstream_lines(task: dict) -> list[str]:
@@ -828,8 +874,12 @@ def _grain_line(grain: dict) -> str:
     if basis == "single_row":
         text = f"- 粒度：{SINGLE_ROW_GRAIN_TEXT}（整张输出一行，basis={basis}{through}）"
     elif keys:
+        # N5: the same verdict, phrased in the concepts the corpus placed these keys
+        # under. Present only when *every* key is one, so the sentence never names part
+        # of the grain in business words and the rest by column name.
+        head = grain.get("concept_text") or f"一行对应一组 {_join_spans(_key_labels(keys))}"
         text = (
-            f"- 粒度：一行对应一组 {_join_spans(_key_labels(keys))}"
+            f"- 粒度：{head}"
             f"{_grain_source_text(keys)}"
             f"（依据{_label_phrase(label)}，basis={basis}{through}）"
         )
@@ -1648,22 +1698,28 @@ def _trace_line(field: dict) -> str:
     )
 
 
-def _render_field_table(fields: Sequence[dict]) -> list[str]:
-    # WI-2.12: the 术语 column exists only where the corpus answered a column this table
-    # has no comment for -- otherwise it would be a column of em dashes.
-    termed = any(field.get("term_meaning") for field in fields)
+def _field_table_head(placed: bool, termed: bool) -> tuple[str, str]:
+    """``(header, ruler)`` for the compact field list, with the two optional columns.
+
+    Both are published only where a corpus answered something: the 术语 column where the
+    dictionary named a column this table has no comment for (WI-2.12), the 所属概念 column
+    where the ontology placed at least one column (N5). An unanswered corpus would
+    otherwise add a column of em dashes to every document that never asked for one.
+    """
     head = "| # | 字段 | 一句话语义 |"
     ruler = "| --- | --- | --- |"
-    if termed:
-        head += f" {TERM_MEANING_COLUMN_TITLE} |"
-        ruler += " --- |"
-    lines = [
-        "",
-        "### 完整字段清单",
-        "",
-        head + " 结构角色 | 口径 | 追溯 |",
-        ruler + " --- | --- | --- |",
-    ]
+    for title, present in ((CONCEPT_COLUMN_TITLE, placed), (TERM_MEANING_COLUMN_TITLE, termed)):
+        if present:
+            head += f" {title} |"
+            ruler += " --- |"
+    return head + " 结构角色 | 口径 | 追溯 |", ruler + " --- | --- | --- |"
+
+
+def _render_field_table(fields: Sequence[dict]) -> list[str]:
+    termed = any(field.get("term_meaning") for field in fields)
+    placed = any(field.get("concept_attribute") for field in fields)
+    head, ruler = _field_table_head(placed, termed)
+    lines = ["", "### 完整字段清单", "", head, ruler]
     for index, field in enumerate(fields, start=1):
         traced = "✓" if field.get("trace_complete") and not field.get("ambiguous") else WARN
         lines.append(
@@ -1676,6 +1732,7 @@ def _render_field_table(fields: Sequence[dict]) -> list[str]:
                         + _sql_alias_note(field.get("sql_alias"))
                     ),
                     _cell(str(field.get("summary") or "—")),
+                    *([_cell(_concept_attribute_cell(field))] if placed else []),
                     *([_cell(_term_meaning_cell(field))] if termed else []),
                     _cell(str(field.get("structural_role") or "未知")),
                     _cell(_metric_cell(field)),
@@ -1685,6 +1742,17 @@ def _render_field_table(fields: Sequence[dict]) -> list[str]:
             + " |"
         )
     return lines
+
+
+def _concept_attribute_cell(field: Mapping) -> str:
+    """``客户·cust_name``, or ``客户·键`` where the column IS the concept's identity."""
+    entry = field.get("concept_attribute") or {}
+    name = entry.get("name")
+    if not name:
+        return "—"
+    attribute = CONCEPT_KEY_CELL if field.get("is_concept_key") else entry.get("attribute")
+    text = f"{_normalize_inline(str(name))}·{_normalize_inline(str(attribute))}"
+    return f"{text}（{CONCEPT_PROVISIONAL_MARK}）" if entry.get("provisional") else text
 
 
 def _term_meaning_cell(field: Mapping) -> str:
