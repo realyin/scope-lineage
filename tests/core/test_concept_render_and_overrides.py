@@ -251,7 +251,7 @@ def test_the_concept_table_carries_the_kind_the_tables_the_candidates_and_the_fl
     rendered = render_ontology_index_markdown(_two_concept_ontology())
 
     assert "| 概念 | 种类 | 表数 | 命名候选 | 疑似重复 |" in rendered
-    row = next(line for line in rendered.split("\n") if line.startswith("| 客户 |"))
+    row = next(line for line in rendered.split("\n") if line.startswith("| 客户（"))
     assert "实体" in row and "implied" in row
     # Three tables, and the roles are counted rather than listed.
     assert "3" in row and "主表" in row and "引用" in row
@@ -686,6 +686,7 @@ def test_the_overrides_report_is_present_even_when_nothing_was_reviewed() -> Non
 
     assert ontology["concept_overrides_applied"] == {
         "concepts": 0,
+        "tables_added": 0,
         "merges": 0,
         "splits": 0,
         "unmatched": [],
@@ -773,7 +774,9 @@ def test_the_cli_applies_a_reviewed_concept_overrides_file(tmp_path: Path, capsy
     assert concept["name"] == "客户" and concept["name_tier"] == TIER_CONFIRMED
     assert ontology["concept_overrides_applied"]["concepts"] == 1
     assert "reviewed 1 concept(s), 0 merge(s) and 0 split(s)" in capsys.readouterr().out
-    assert "| 客户 |" in (out / "ontology.md").read_text(encoding="utf-8")
+    assert f"| 客户（`{TIER_CONFIRMED}`） |" in (out / "ontology.md").read_text(
+        encoding="utf-8"
+    )
     card = (out / "tables" / "mart.cust_daily.md").read_text(encoding="utf-8")
     assert "本表是「客户」" in card
 

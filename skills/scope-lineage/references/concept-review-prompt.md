@@ -54,8 +54,11 @@ scope-lineage ontology --lineage <corpus> --out <dir> \
 - `kind_tier` 为 `implied`：投票一致，**别问人**，除非你能指出证据本身错了。
 - `kind_tier` 为 `hypothesis`：两个信号投了不同的票，`kind_evidence[]` 里看得见是哪两个。
   这是**值得问的第一类问题**。
-- 只有 `word_hint` 一票（`signal` 全是 `word_hint` 或 `no_signal`）：这是按词猜的，
-  表名里有 `log` 不代表它是事件。也值得问。
+- 只有词汇线索（`signal` 全是 `word_hint` 或 `no_signal`）：**分两种，别混**。词提示彼此
+  一致、`kind_tier` 已是 `implied` → **自答**，`basis` 写「仅词汇线索一致」，那句话本身就
+  告诉复核者这一条比结构信号弱（见下面「凭证据自答」的证据 5）。词提示互相打架，或
+  `kind_tier` 为 `hypothesis` → **这才是去问人的那一类**。表名里有 `log` 不代表它是事件，
+  但几处措辞都说是日志、又没有任何结构信号反对时，为它占掉一条问人的额度并不值得。
 
 ### 2. 名字
 
@@ -98,6 +101,14 @@ scope-lineage ontology --lineage <corpus> --out <dir> \
 只在**卡片第 7 节那一行明显读错了**的时候改它，例如一张 `_tmp` 中间表被读成了 `primary`。
 角色不是业务判断，**不要为它去占那 8 条问人的额度**——能改就自己改，写清 `basis`。
 
+漏掉的成员用 `add_tables` 补：`roles` 只能移动已经在册的成员，`add_tables` 把一张
+`unassigned_tables[]` 里的表（或任何一张本语料的表）放进这个概念，值写它的角色。
+语料读不出它的键、元数据也没说话，而你在卡片里看得出它是这个概念的一份——这是唯一能说出口
+的地方。加进来的成员 `membership_basis` 是 `override`、`role_tier` 是 `confirmed`，它的列
+并进概念的属性，它也从 `unassigned_tables[]` 里消失。一张表可以加进好几个概念（一张明细
+表同时带着两个键），但**身份只有一个**：这张表如果已经被自己的键放在某个概念上，再加到别的
+概念只是「带着这个键」，不会把身份抢过去。
+
 ## 凭证据自答：Agent 先答，剩下的才去问人
 
 只有下面四类证据可以自答，别的都不行：
@@ -108,10 +119,13 @@ scope-lineage ontology --lineage <corpus> --out <dir> \
 | 2 | 种类 | `kind_tier` 已是 `implied`，且要写的 `kind` 与它一致（把已推得的结论显式确认下来） | `kind_evidence 中 <N> 个信号一致投 <种类>` |
 | 3 | 角色 | 该表在 `tables[]` 里的 `membership_basis` 与卡片第 2 节的 grain 直接矛盾（例如 grain 证明它是按天聚合的，却被读成 `primary`） | `生产任务 <任务名> 的 grain 为 <basis>，本表是汇总而非主表` |
 | 4 | 合并 | 两个概念的**词根经 O5 同义证明同值**（`entities[].attributes[].synonyms[]` 里有一条把两个键列连起来），不是名字像 | `O5 已证明 <表A>.<列A> 与 <表B>.<列B> 同值` |
+| 5 | 种类（只有词汇线索） | `kind_evidence[]` 里 `signal` 全是 `word_hint` 或 `no_signal`，几条 `word_hint` **投的是同一票**，且 `kind_tier` 为 `implied` | `仅词汇线索一致：<N> 处词汇都投 <种类>，没有结构信号反对` |
 
 - 自答一律写进 `concepts.overrides.json`，**每条都必须带 `basis`**；`confirmed_by` 写
   `agent:concept-review` 之类的 Agent 标识。
-- 证据 1 只能确认**名字**，不能顺手把种类也确认了；证据 2 只能确认**种类**。
+- 证据 1 只能确认**名字**，不能顺手把种类也确认了；证据 2 与证据 5 只能确认**种类**。
+- 证据 5 比证据 2 弱，所以它多一条限制：`kind_tier` 是 `hypothesis`（几处词提示投了不同的
+  票）时**一条都不许自答**，那是下面「只问四类」的第 1 类。
 - **拆分永远不许自答。** 把一个概念拆成两件事是业务判断，语料里没有任何东西能证明它。
 - 两条证据互相矛盾（表注释说 A、键列注释说 B）时一条都不许自答，原样留着去问人。
 - 只有 `key_stem` 一种来源的名字**不许自答**：把英文缩写确认成业务名，等于把"我们不知道"
@@ -123,15 +137,17 @@ scope-lineage ontology --lineage <corpus> --out <dir> \
 
 | 类 | 什么时候问 | 为什么值得问 |
 | --- | --- | --- |
-| 1. 种类打架 | `kind_tier` 为 `hypothesis`，或全部证据只有 `word_hint` | 种类错了，名字、关系类型与参与身份会一起错 |
+| 1. 种类打架 | `kind_tier` 为 `hypothesis`——两个结构信号投了不同的票，或只有词汇线索而几处词提示互相打架 | 种类错了，名字、关系类型与参与身份会一起错 |
 | 2. 名字没有中文来源 | `name_candidates[]` 只有 `key_stem` | 业务方看不懂英文缩写，这个概念等于没命名 |
 | 3. 疑似重复 | `possible_duplicate_of` 非空 | 一个词被两件事共用，还是一件事有两个词根，只有业务方知道 |
 | 4. 一个概念像两件事 | 成员表里两组 `primary` 的 grain 明显不同 | 合在一起会让下游按错误的口径统计 |
 
 **不问的事**：成员角色（自己改，见上）、`kind_tier` 已是 `implied` 的种类（证据一致，
-再问等于不信任证据）、某一列的中文含义（走 `glossary.overrides.template.md`）、
+再问等于不信任证据——**只有词汇线索时也一样**，按证据 5 自答，别把同一件事既写进自答表
+又写成问题）、某一列的中文含义（走 `glossary.overrides.template.md`）、
 表的候选键与基数（那是 `ontology-review-prompt.md` 那一轮的事）、
-`unassigned_tables[]` 里的表（它们没有概念可问，先补元数据或补语料）。
+`unassigned_tables[]` 里的表（它们没有概念可问；你自己看得出它属于哪个概念的，用
+`add_tables` 加上去，看不出的先补元数据或补语料）。
 
 ## 每条固定五行加一行留白
 
@@ -170,6 +186,7 @@ Q<n>. <一句问题，业务方不看 SQL 也能懂>
       "name": "客户",
       "kind": "entity",
       "roles": {"tmp.cust_step01": "intermediate"},
+      "add_tables": {"ods.cust_wide": "detail"},
       "basis": "<凭什么，自由文本>",
       "note": "<补充说明，可省>",
       "confirmed_by": "<名字或 agent:…>",
@@ -198,18 +215,22 @@ Q<n>. <一句问题，业务方不看 SQL 也能懂>
 - `name` / `kind` / `roles` 被确认的那一项会升到 `confirmed`（分别写在 `name_tier` /
   `kind_tier` / 该成员的 `role_tier` 上），`confirmed_by` / `date` / `basis`（发布成
   `confirmed_basis`）/ `note` 一起记在概念的 `confirmation` 里。
-- `kind` 只能是 `entity` / `event` / `summary`；`roles` 的取值只能是 `primary` /
-  `snapshot` / `detail` / `summary` / `intermediate` / `reference`。写别的会被报成
-  `unknown_kind:` / `unknown_role:`，那一项不生效。
+- `kind` 只能是 `entity` / `event` / `summary`；`roles` 与 `add_tables` 的取值只能是
+  `primary` / `snapshot` / `detail` / `summary` / `intermediate` / `reference`。写别的会被
+  报成 `unknown_kind:` / `unknown_role:`，那一项不生效。
+- `add_tables` 的键是**表名**，必须是本语料 `entities[]` 里有的一张表，否则报
+  `unknown_table: <表>`；已经是这个概念成员的表报 `already_a_member: <表>`，
+  用 `roles` 改它的角色，不要用 `add_tables` 加第二遍。
 - `merge_into` 写留下来的那个概念的 id。合并在**概念关系折叠之前**生效，所以原本指向被合掉
   那个概念的边会自动改指过来。
 - `splits[].into[]` 逐表点名，新概念是 `concept:<词根>-1`、`-2`，按文件顺序编号；
   没被点名的表留在原概念上。
 
-跑完检查三件事：`concept_overrides_applied.concepts` / `merges` / `splits` 的条数与你合并的
-条数相等；`concept_overrides_applied.unmatched` 为空——非空说明某个 id 或表名抄错了，`reason`
+跑完检查三件事：`concept_overrides_applied.concepts` / `tables_added` / `merges` /
+`splits` 的条数与你合并的条数相等；`concept_overrides_applied.unmatched` 为空——非空说明某个 id 或表名抄错了，`reason`
 直接说错在哪（`unknown_concept` / `unknown_concept: <id>` / `unknown_table: <表>` /
-`unknown_kind: <值>` / `unknown_role: <值>` / `merge_into_self`）；
+`unknown_kind: <值>` / `unknown_role: <值>` / `already_a_member: <表>` /
+`merge_into_self`）；
 `concept_overrides_applied.ignored_fields` 为空——非空说明某个字段名拼错了，那一项没生效。
 
 ## 自检
@@ -222,7 +243,8 @@ Q<n>. <一句问题，业务方不看 SQL 也能懂>
 | 4 | 正文没有把 `hypothesis` 的候选写成事实 | |
 | 5 | 去问人的总数 ≤ 8 条，超出的进「备查项」 | |
 | 6 | 每条都有 `- 答案：（待填）` 行 | |
-| 7 | 凭证据自答只用了表里那四类证据，且每条都写了 `basis` | |
+| 7 | 凭证据自答只用了表里那五类证据，且每条都写了 `basis` | |
 | 8 | 没有自答任何一个拆分，也没有把只有 `key_stem` 来源的名字自答掉 | |
 | 9 | 没有问成员角色、没有问 `implied` 的种类、没有问键与基数（那是另一轮） | |
 | 10 | 跑完 `--concept-overrides` 后 `unmatched` 与 `ignored_fields` 都是空的 | |
+| 11 | 只有 `word_hint` 的种类：一致且 `implied` 的已按「仅词汇线索一致」自答，只有打架的或 `hypothesis` 的才去问人 | |

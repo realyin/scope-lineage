@@ -102,6 +102,8 @@ REASON_SPLIT_KEY = "key_spans_several_stems"
 NAME_FROM_KEY_COMMENT = "key_column_comment"
 NAME_FROM_TABLE_COMMENT = "table_comment"
 NAME_FROM_STEM = "key_stem"
+#: K4b: a name no column and no table comment proposed -- a reviewer did.
+NAME_FROM_OVERRIDE = "override"
 
 CONCEPT_ID_PREFIX = "concept:"
 
@@ -110,8 +112,62 @@ KEY_AFFIXES = ("no", "id", "code", "cd", "num", "key")
 
 #: Stems that identify a row without naming a thing. A table keyed only by one of these
 #: is not a concept, it is a table with a surrogate key.
-GENERIC_STEMS = frozenset(
+SURROGATE_STEMS = frozenset(
     {"id", "uuid", "dt", "etl", "create", "update", "row", "seq", "rn", "pk"}
+)
+#: K4b: the same idea for the id a log, a trace or a digest hands a row. A warehouse
+#: writes ``rowkey`` on three unrelated tables because all three came off one log
+#: pipeline, never because the three hold one business thing -- and a review round
+#: watched exactly that grow a "concept" out of three row ids.
+#:
+#: Spelled as the stems ``key_stem`` reduces the columns to, so ``log_id`` is here as
+#: ``log`` and ``trace_id`` as ``trace``. The id-shaped spellings (``msgid``,
+#: ``traceid``, ``logid``) are listed whole *instead of* their bare stems wherever the
+#: bare word names a business thing as readily as a log: ``msg_id`` reduces to ``msg``,
+#: and 消息发送 is a concept a corpus really has, so only ``msgid`` is generic and a
+#: ``msg_id`` that is really a digest is caught by its comment below.
+LOG_ID_STEMS = frozenset(
+    {
+        "rowkey",
+        "rowid",
+        "logid",
+        "log",
+        "traceid",
+        "trace",
+        "reqid",
+        "requestid",
+        "request",
+        "req",
+        "msgid",
+        "md5",
+        "hash",
+        "guid",
+        "snowflake",
+        "random",
+        "rand",
+    }
+)
+GENERIC_STEMS = SURROGATE_STEMS | LOG_ID_STEMS
+
+#: What a key column's comment says when the value was *generated for this row* rather
+#: than named: a log id, a digest, a random, a snowflake. Matched anywhere in the
+#: comment, case-insensitively.
+#:
+#: ``uuid`` and ``guid`` are deliberately absent, although a column *named* one of them
+#: is generic above. As a comment they are already a ``NAME_STOPLIST_EXACT`` word --
+#: 「UUID」 says the comment named nothing -- and a ``cust_no`` whose values happen to be
+#: uuids is still 客户's key. One word cannot mean both "this comment named nothing" and
+#: "this column is nobody's business key".
+LOG_ID_COMMENT_MARKERS = (
+    "日志id",
+    "日志编号",
+    "日志主键",
+    "md5",
+    "hash",
+    "哈希",
+    "随机",
+    "雪花",
+    "snowflake",
 )
 
 #: Segments that make a column a point in time.
@@ -274,6 +330,22 @@ def is_generic_stem(stem: str, comments: Iterable = ()) -> bool:
     return not shared
 
 
+def is_log_identifier(column, comment="") -> bool:
+    """Whether a key column holds a *generated* id rather than a business key.
+
+    Either rule is enough: the comment says where the value came from (a log id, an
+    md5, a hash, a uuid, a snowflake, a random), or the stem is one of the log and
+    tracing identifiers above. Such a column never seeds a concept -- three tables
+    sharing a ``rowkey`` share a log pipeline, not a business thing -- but it stays in
+    the member's ``key_columns``, because it may well be what identifies a row *within*
+    a concept some other key seeded.
+    """
+    lowered = str(comment or "").lower()
+    if any(marker in lowered for marker in LOG_ID_COMMENT_MARKERS):
+        return True
+    return key_stem(column) in LOG_ID_STEMS
+
+
 def key_basis(tier: str) -> str:
     """The ``membership_basis`` a candidate key at ``tier`` gives a member."""
     return f"{BASIS_KEY_PREFIX}{tier}"
@@ -381,7 +453,9 @@ def _seed(entity: Mapping, synonyms: Mapping[str, str]) -> _Seed:
         core = tuple(
             column
             for column in columns
-            if column not in partitions and not _is_event_column(column, types)
+            if column not in partitions
+            and not _is_event_column(column, types)
+            and not is_log_identifier(column, comments.get(column, ""))
         )
         stems = {key_stem(column, synonyms) for column in core}
         if len(stems) != 1 or stems <= GENERIC_STEMS:
@@ -1002,12 +1076,17 @@ CONCEPT_OVERRIDES_DOC_FORMAT = "concept-overrides/1"
 #: spelled here for the same reason the other two tiers are.
 TIER_CONFIRMED = "confirmed"
 
+#: The membership a reviewer added by hand: neither a key, nor a hint, nor a JOIN said
+#: this table belongs here -- a person did.
+BASIS_OVERRIDE = "override"
+
 #: What one concept's entry may say. Anything else is reported, never applied.
 CONCEPT_OVERRIDE_FIELDS = (
     "name",
     "kind",
     "merge_into",
     "roles",
+    "add_tables",
     "confirmed_by",
     "date",
     "basis",
@@ -1043,6 +1122,7 @@ def apply_concept_overrides(ontology: dict, overrides: Mapping) -> None:
     """
     applied = {
         "concepts": 0,
+        "tables_added": 0,
         "merges": 0,
         "splits": 0,
         "unmatched": [],
@@ -1051,7 +1131,9 @@ def apply_concept_overrides(ontology: dict, overrides: Mapping) -> None:
     ontology["concept_overrides_applied"] = applied
     _ignored_fields(applied, "(document)", overrides, CONCEPT_OVERRIDES_DOC_FIELDS)
     index = {str(concept["id"]): concept for concept in ontology.get("concepts") or []}
-    merges = _concept_fields(dict(overrides.get("concepts") or {}), index, applied)
+    corpus = _Corpus(ontology.get("entities") or [])
+    merges = _concept_fields(dict(overrides.get("concepts") or {}), index, applied, corpus)
+    _forget_unassigned(ontology, corpus.added)
     _concept_merges(ontology, merges, applied)
     _concept_splits(ontology, list(overrides.get("splits") or []), applied)
     applied["unmatched"].sort(key=lambda item: (item["key"], item["reason"]))
@@ -1067,8 +1149,23 @@ def _ignored_fields(
         applied["ignored_fields"].append({"key": name, "fields": extra})
 
 
-def _concept_fields(entries: Mapping, index: Mapping, applied: dict) -> list[tuple]:
-    """Apply the name, kind and role edits; hand back the merges filed beside them."""
+class _Corpus:
+    """The tables the document publishes, for the entries that name one (K4b).
+
+    ``added`` collects the tables a reviewer put on a concept by hand, so the caller
+    can take them out of ``unassigned_tables[]`` once every entry has been read.
+    """
+
+    def __init__(self, entities: Sequence[Mapping]) -> None:
+        self.entities = {str(entity.get("id")): entity for entity in entities}
+        self.synonyms = synonym_folding(list(entities))
+        self.added: set[str] = set()
+
+
+def _concept_fields(
+    entries: Mapping, index: Mapping, applied: dict, corpus: _Corpus
+) -> list[tuple]:
+    """Apply the name, kind, role and membership edits; hand back the merges beside them."""
     merges = []
     for name in sorted(entries):
         entry = dict(entries[name] or {})
@@ -1082,6 +1179,7 @@ def _concept_fields(entries: Mapping, index: Mapping, applied: dict) -> list[tup
             _confirm_name(concept, entry),
             _confirm_kind(concept, entry, applied, str(name)),
             _confirm_roles(concept, entry, applied, str(name)),
+            _add_tables(concept, entry, corpus, applied, str(name)),
         ]
         if any(touched):
             concept["confirmation"] = stamp
@@ -1116,7 +1214,33 @@ def _confirm_name(concept: dict, entry: Mapping) -> bool:
         return False
     concept["name"] = str(entry["name"])
     concept["name_tier"] = TIER_CONFIRMED
+    concept["name_candidates"] = _confirmed_candidates(
+        str(entry["name"]), concept.get("name_candidates") or []
+    )
     return True
+
+
+def _confirmed_candidates(name: str, candidates: Sequence[Mapping]) -> list[dict]:
+    """The confirmed name at the head of the ranked list, saying who put it there.
+
+    A reviewer's name is evidence the corpus does not hold, and a confirmed name the
+    candidates never mention reads as the published name contradicting everything under
+    it. When the corpus *did* propose this name, that candidate keeps its
+    ``name_evidence`` and only changes hands -- the reviewer's answer is why it leads
+    now, and the column that first said it is still worth seeing.
+    """
+    same = [dict(item) for item in candidates if str(item.get("text")) == name]
+    fresh = {
+        "text": name,
+        "source": NAME_FROM_OVERRIDE,
+        "count": 1,
+        "name_evidence": [],
+    }
+    lead = same[0] if same else fresh
+    return [
+        {**lead, "source": NAME_FROM_OVERRIDE},
+        *(dict(item) for item in candidates if str(item.get("text")) != name),
+    ]
 
 
 def _confirm_kind(concept: dict, entry: Mapping, applied: dict, key: str) -> bool:
@@ -1147,6 +1271,82 @@ def _confirm_roles(concept: dict, entry: Mapping, applied: dict, key: str) -> bo
             member["role_tier"] = TIER_CONFIRMED
             touched = True
     return touched
+
+
+def _add_tables(
+    concept: dict, entry: Mapping, corpus: _Corpus, applied: dict, key: str
+) -> bool:
+    """Put tables on this concept that no key, no hint and no JOIN could place there.
+
+    ``roles`` moves a member the corpus already found; this adds one it never did --
+    a table whose only key is a surrogate, or whose metadata says nothing, and which a
+    reviewer recognises anyway. The membership is published as ``override`` because
+    that is exactly what it is, at tier ``confirmed`` because a person answered, and it
+    lends the concept the table's columns. It lands *before* the relation fold, so the
+    edges that start at the table fold onto the concept the reviewer named.
+    """
+    asked = dict(entry.get("add_tables") or {})
+    members = {str(item["table"]) for item in concept.get("tables") or []}
+    touched = False
+    for table in sorted(asked):
+        reason = _add_reason(str(table), str(asked[table]), corpus, members)
+        if reason is not None:
+            applied["unmatched"].append({"key": key, "reason": reason})
+            continue
+        _add_member(concept, corpus, str(table), str(asked[table]))
+        corpus.added.add(str(table))
+        applied["tables_added"] += 1
+        touched = True
+    return touched
+
+
+def _add_reason(table: str, role: str, corpus: _Corpus, members: set) -> str | None:
+    """Why this table cannot be added, or None when it can."""
+    if table not in corpus.entities:
+        return f"unknown_table: {table}"
+    if role not in MEMBER_ROLES:
+        return f"unknown_role: {role}"
+    if table in members:
+        return f"already_a_member: {table}"
+    return None
+
+
+def _add_member(concept: dict, corpus: _Corpus, table: str, role: str) -> None:
+    """One reviewed membership, with the table's columns joining the attribute union."""
+    member = {
+        "table": table,
+        "role": role,
+        "membership_basis": BASIS_OVERRIDE,
+        "key_columns": [],
+        "grain": None,
+        "role_tier": TIER_CONFIRMED,
+    }
+    concept["tables"] = sorted(
+        [*(concept.get("tables") or []), member],
+        key=lambda item: (str(item["role"]) == ROLE_REFERENCE, str(item["table"])),
+    )
+    seed = _Seed(
+        table=table,
+        entity=corpus.entities[table],
+        stem=None,
+        tier=None,
+        reason=None,
+        basis=BASIS_OVERRIDE,
+    )
+    concept["attributes"] = _merge_attributes(
+        concept.get("attributes") or [], _attributes([seed], corpus.synonyms)
+    )
+
+
+def _forget_unassigned(ontology: dict, added: set) -> None:
+    """A table a reviewer placed is no longer one the corpus could not place."""
+    if not added:
+        return
+    ontology["unassigned_tables"] = [
+        item
+        for item in ontology.get("unassigned_tables") or []
+        if str(item.get("table")) not in added
+    ]
 
 
 def _reorder(concept: dict) -> None:
