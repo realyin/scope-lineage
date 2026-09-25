@@ -269,6 +269,209 @@ def test_a_self_relation_counts_only_joins_on_its_self_referencing_column() -> N
     }
 
 
+# ------------------------------------------------ JOIN keys on the physical column
+#
+# A contact subquery ``b`` is joined to a call subquery ``a`` that renames the call's
+# phone column, on three conditions; an outer IF picks the contact's customer only when
+# ``b.phone_no`` matched, and a third table -- the customer's own -- is joined on the
+# column name all three tables share. The phone column feeds that IF only as a
+# condition, so it must never be reported as a customer key.
+
+CALL = "demo_dwd.dwd_call_outbound_di"
+CONTACT = "demo_dwd.dwd_contact_phone_df"
+CUSTOMER = "demo_dwd.dwd_party_customer_df"
+JOIN_SCHEMA = {
+    CALL: ["call_id", "cust_id", "caller_phone", "channel_code", "dt"],
+    CONTACT: ["cust_id", "phone_no", "channel_code", "dt"],
+    CUSTOMER: ["cust_id", "channel_code", "dt"],
+}
+RENAMED_KEY_SQL = f"""
+INSERT OVERWRITE TABLE demo_ads.ads_contact_call_stat_di
+SELECT cu.cust_id, f.call_cnt
+FROM {CUSTOMER} cu
+LEFT JOIN (
+  SELECT m.cust_id, COUNT(1) AS call_cnt
+  FROM (
+    SELECT IF(a.cust_id = '' AND b.phone_no IS NOT NULL, b.cust_id, a.cust_id) AS cust_id,
+           a.dt
+    FROM (SELECT call_id, cust_id, caller_phone AS dialed_no, channel_code, dt FROM {CALL}) a
+    LEFT JOIN (SELECT cust_id, phone_no, channel_code, dt FROM {CONTACT}) b
+      ON a.dialed_no = b.phone_no AND a.channel_code = b.channel_code AND a.dt = b.dt
+  ) m
+  GROUP BY m.cust_id
+) f ON cu.cust_id = f.cust_id
+"""
+
+
+def _binding(column: str, to: str, ref: str, **extra) -> dict:
+    return {"column": column, "to": to, "ref": ref, **extra}
+
+
+def _join_catalog() -> dict:
+    """The smallest document the relation merge reads: three concepts, one table each."""
+    return {
+        "concepts": [
+            {"id": "concept:customer", "identifiers": ["id:cust_id"]},
+            {"id": "concept:contact", "identifiers": ["id:phone_no"]},
+            {"id": "concept:call", "identifiers": ["id:call_id"]},
+        ],
+        "relations": [
+            {"id": "rel:customer_has_contact", "from": "concept:customer", "to": "concept:contact"},
+            {"id": "rel:call_reaches_contact", "from": "concept:call", "to": "concept:contact"},
+            {"id": "rel:customer_receives_call", "from": "concept:customer", "to": "concept:call"},
+        ],
+        "representations": [
+            {
+                "table": CUSTOMER,
+                "concept": "concept:customer",
+                "bindings": [_binding("cust_id", "identifier", "id:cust_id")],
+            },
+            {
+                "table": CONTACT,
+                "concept": "concept:contact",
+                "bindings": [
+                    _binding("phone_no", "identifier", "id:phone_no"),
+                    _binding("cust_id", "foreign_identifier", "id:cust_id"),
+                ],
+            },
+            {
+                "table": CALL,
+                "concept": "concept:call",
+                "bindings": [
+                    _binding("call_id", "identifier", "id:call_id"),
+                    _binding("caller_phone", "foreign_identifier", "id:phone_no"),
+                    _binding("cust_id", "foreign_identifier", "id:cust_id"),
+                ],
+            },
+        ],
+    }
+
+
+def _sql_facts(sql: str):
+    from scope_lineage.contract import to_lineage_dict
+    from scope_lineage.render.catalog_evidence import lineage_facts
+    from scope_lineage.scope.scope_builder import parse_scope_lineage
+
+    document = to_lineage_dict(parse_scope_lineage(sql, "t", schema=JOIN_SCHEMA))
+    return lineage_facts([(document, None)])
+
+
+def _samples(merged: dict, relation: str) -> list[str]:
+    joins = merged["evidence"]["relations"][relation]["joins"]
+    return [sample["on"] for sample in joins["samples"]]
+
+
+def test_a_renamed_join_key_is_reported_on_the_physical_column_behind_it() -> None:
+    merged = attach_evidence(_join_catalog(), lineage=_sql_facts(RENAMED_KEY_SQL))
+
+    assert _samples(merged, "rel:call_reaches_contact") == [
+        f"{CALL}.caller_phone = {CONTACT}.phone_no"
+    ]
+
+
+def test_a_column_that_only_conditions_a_computed_key_is_never_that_key() -> None:
+    """``f.cust_id`` is an IF over both sides; ``phone_no`` is only its condition."""
+    merged = attach_evidence(_join_catalog(), lineage=_sql_facts(RENAMED_KEY_SQL))
+
+    reported = [
+        sample
+        for relation in merged["evidence"]["relations"].values()
+        for sample in relation["joins"]["samples"]
+    ]
+    assert not [s for s in reported if f"{CUSTOMER}.cust_id = {CONTACT}.phone_no" in s["on"]]
+    assert merged["evidence"]["relations"]["rel:customer_has_contact"]["joins"]["count"] == 0
+    assert _samples(merged, "rel:customer_receives_call") == [
+        f"{CUSTOMER}.cust_id = {CALL}.cust_id"
+    ]
+
+
+def _key_pairs(sql: str) -> dict:
+    from scope_lineage.contract import to_lineage_dict
+    from scope_lineage.render.ontology import join_key_pairs
+    from scope_lineage.scope.scope_builder import parse_scope_lineage
+
+    document = to_lineage_dict(parse_scope_lineage(sql, "t", schema=JOIN_SCHEMA))
+    return {
+        table_pair: columns
+        for _, _, found in join_key_pairs(document)
+        for table_pair, columns in found.items()
+    }
+
+
+def test_a_key_computed_from_several_columns_is_carried_by_its_own_scopes_table() -> None:
+    """``u.cust_id`` reads two columns, so it is neither; it is ``u``'s key, and the second
+    ON names ``u`` -- not the JOIN's left input ``l`` -- so it is never ``l``'s table's."""
+    pairs = _key_pairs(f"""
+    INSERT OVERWRITE TABLE demo_ads.ads_t
+    SELECT l.call_id
+    FROM {CALL} l
+    JOIN (SELECT COALESCE(cust_id, channel_code) AS cust_id, dt FROM {CUSTOMER}) u ON l.dt = u.dt
+    JOIN {CONTACT} c ON u.cust_id = c.cust_id
+    """)
+
+    assert pairs[(CUSTOMER, CONTACT)] == [("cust_id", "cust_id")]
+    assert (CALL, CONTACT) not in pairs
+
+
+def test_a_key_computed_from_one_column_is_still_that_column() -> None:
+    pairs = _key_pairs(f"""
+    INSERT OVERWRITE TABLE demo_ads.ads_t
+    SELECT a.call_id
+    FROM (SELECT call_id, TRIM(caller_phone) AS dialed_no FROM {CALL}) a
+    JOIN {CONTACT} b ON a.dialed_no = b.phone_no
+    """)
+
+    assert pairs == {(CALL, CONTACT): [("caller_phone", "phone_no")]}
+
+
+def _one_join(left: str, right: str, *columns: tuple):
+    from scope_lineage.render.catalog_evidence import JoinFact, LineageFacts, WriteStatement
+
+    statement = WriteStatement(
+        task="t",
+        statement_id="stmt:001",
+        target="demo_ads.ads_t",
+        joins=(JoinFact("b1", left, right, tuple(columns)),),
+    )
+    return LineageFacts(statements=(statement,), tasks=1)
+
+
+@pytest.mark.parametrize(
+    ("left", "right", "columns"),
+    [
+        # one side is an identifier, the other is not bound as one at all
+        (CUSTOMER, CONTACT, ("cust_id", "channel_code")),
+        # both are identifying, but of two different identifiers
+        (CUSTOMER, CONTACT, ("cust_id", "phone_no")),
+        # both carry the same identifier -- of a third concept, not of these two
+        (CALL, CONTACT, ("cust_id", "cust_id")),
+    ],
+)
+def test_a_join_sample_needs_both_keys_bound_to_one_identifier_of_the_relation(
+    left: str, right: str, columns: tuple
+) -> None:
+    catalog = _join_catalog()
+    for rep in catalog["representations"]:
+        rep["bindings"].append(_binding("channel_code", "attribute", "attr:channel_code"))
+
+    merged = attach_evidence(catalog, lineage=_one_join(left, right, columns))
+
+    assert all(
+        entry["joins"] == {"count": 0, "samples": []}
+        for entry in merged["evidence"]["relations"].values()
+    )
+
+
+def test_a_join_on_the_shared_identifier_is_counted() -> None:
+    facts = _one_join(CONTACT, CUSTOMER, ("phone_no", "cust_id"), ("cust_id", "cust_id"))
+
+    merged = attach_evidence(_join_catalog(), lineage=facts)
+
+    assert _samples(merged, "rel:customer_has_contact") == [
+        f"{CONTACT}.cust_id = {CUSTOMER}.cust_id"
+    ]
+
+
 def test_a_relation_with_an_end_that_has_no_table_is_not_counted(built: dict) -> None:
     relations = built["evidence"]["relations"]
 

@@ -647,6 +647,8 @@ _CONCEPT_ITEM_KEYS = (
 )
 
 _DIRECT_TRANSFORM = "DIRECT"
+# How many scopes a JOIN key's pass-through walk descends before it stops answering.
+_KEY_WALK_LIMIT = 32
 
 
 @dataclass(frozen=True)
@@ -1561,8 +1563,8 @@ def _key_pairs_by_table(
     """
     grouped: dict[tuple[str, str], list[tuple[str, str]]] = {}
     for pair in detail.get("join_key_pairs") or []:
-        left = _pair_endpoints(pair, "left", sides["left"][0])
-        right = _pair_endpoints(pair, "right", sides["right"][0])
+        left = _pair_endpoints(document, pair, "left", sides["left"][0])
+        right = _pair_endpoints(document, pair, "right", sides["right"][0])
         for left_table, left_column in left:
             for right_table, right_column in right:
                 if (left_table, left_column) == (right_table, right_column):
@@ -1574,25 +1576,91 @@ def _key_pairs_by_table(
 
 
 def _pair_endpoints(
-    pair: Mapping, side: str, fallback_table: str | None
+    document: Mapping, pair: Mapping, side: str, fallback_table: str | None
 ) -> list[tuple[str, str]]:
     """One side of one key pair as ``(table, column)``, pierced or carried by the walk.
 
-    The contract's pierce answers first. When it cannot -- the key is a column the CTE
-    computed, so it has no single physical source -- the entity is the table that side's
-    rows come from and the column is the name the ON clause itself wrote.
+    The contract's pierce lists every physical column the key's expression reads, which
+    is the key only while each step carries one column's value: the ``phone_no`` of
+    ``IF(a.id = '' AND b.phone_no IS NOT NULL, b.id, a.id)`` is read, and is no id. So
+    the key is walked down from the scope the ON clause names (``_key_origin``), and the
+    pierce answers only where the walk cannot tell.
+
+    A key computed from several columns has no physical source, so the entity is the
+    table the rows of the scope the ON clause names come from -- that scope, not the JOIN
+    side's: ``u.id`` in ``FROM l JOIN u ... JOIN c ON u.id = c.id`` is ``u``'s -- and the
+    column is the name the ON clause itself wrote.
     """
-    fields = [
-        (str(field.get("table")), str(field.get("field")))
-        for field in pair.get(f"{side}_fields") or []
-        if field.get("table") and field.get("field")
-    ]
-    if fields:
-        return _dedupe(fields)
     reference = pair.get(side) or {}
-    if fallback_table and reference.get("column"):
-        return [(fallback_table, str(reference["column"]))]
+    origin = _key_origin(
+        document, str(reference.get("scope") or ""), str(reference.get("column") or "")
+    )
+    if origin is None:
+        origin = [
+            (str(field.get("table")), str(field.get("field")))
+            for field in pair.get(f"{side}_fields") or []
+            if field.get("table") and field.get("field")
+        ]
+    if origin:
+        return _dedupe(origin)
+    table = _reference_table(document, reference) or fallback_table
+    if table and reference.get("column"):
+        return [(table, str(reference["column"]))]
     return []
+
+
+def _key_origin(
+    document: Mapping, scope: str, column: str, depth: int = 0
+) -> list[tuple[str, str]] | None:
+    """The physical ``(table, column)`` s whose value ``scope.column`` carries.
+
+    A projection or a UNION passes its sources' values up, one per branch. A computed
+    step carries a value only when it reads one physical column (``CAST``, ``TRIM``,
+    ``COALESCE(x, '')``): from several it is none of them, and answers ``[]``. ``None``
+    when the contract does not record the step (a ``SELECT *``) and the walk cannot tell.
+    """
+    if not scope or not column:
+        return None
+    if scope in set(document.get("source_tables") or []):
+        return [(scope, column)]
+    scopes = document.get("scopes") or {}
+    if depth >= _KEY_WALK_LIMIT or scope not in scopes:
+        return None
+    output = next(
+        (item for item in scopes[scope].get("outputs") or [] if item.get("name") == column),
+        None,
+    )
+    if output is None or not output.get("sources"):
+        return None
+    if str(output.get("transform")) not in glossary_values.PASS_THROUGH_TRANSFORMS:
+        read = _dedupe(
+            (str(field.get("table")), str(field.get("field")))
+            for field in (output.get("expression_resolution") or {}).get(
+                "physical_source_fields"
+            )
+            or []
+            if field.get("table") and field.get("field")
+        )
+        return read if len(read) == 1 else []
+    found: list[tuple[str, str]] = []
+    for source in output["sources"]:
+        origin = _key_origin(
+            document, str(source.get("scope") or ""), str(source.get("column") or ""), depth + 1
+        )
+        if origin is None:
+            return None
+        found.extend(origin)
+    return found
+
+
+def _reference_table(document: Mapping, reference: Mapping) -> str | None:
+    """The physical table whose rows the scope an ON-clause reference names are."""
+    scope = str(reference.get("scope") or "")
+    if not scope:
+        return None
+    if scope in set(document.get("source_tables") or []):
+        return scope
+    return driving_table(dict(document), scope)[0]
 
 
 def _cardinality(document: Mapping, block_id: str, detail: Mapping, lookup) -> dict:

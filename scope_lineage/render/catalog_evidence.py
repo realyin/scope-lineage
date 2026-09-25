@@ -13,7 +13,8 @@ changed and a reader can always tell a claim from its evidence:
   expression of a bound column -- only where the binding has no hand-written derivation
   -- and ``declared_only`` for a column the metadata declares and no task touches.
 - ``evidence.relations["rel:..."]``: how many JOINs in the corpus connect the two
-  concepts' tables on an identifying column, with up to three samples. A relation from a
+  concepts' tables on a key pair whose two columns are both bound to one identifier of
+  either concept, with up to three samples. A relation from a
   concept to itself counts only JOINs on a column the build marked ``self_reference``
   (another instance of the concept), never the same instance met in a second table.
 
@@ -187,10 +188,25 @@ class _Catalog:
         self.by_concept: dict[str, set] = {}
         for table, rep in self.reps.items():
             self.by_concept.setdefault(rep["concept"], set()).add(table)
+        # table -> {column: the identifier it is bound to}, identifying bindings only
         self.identifying = {
-            table: {b["column"] for b in rep["bindings"] if b["to"] in IDENTIFYING_BINDINGS}
+            table: {
+                b["column"]: b.get("ref")
+                for b in rep["bindings"]
+                if b["to"] in IDENTIFYING_BINDINGS
+            }
             for table, rep in self.reps.items()
         }
+        # concept -> the identifiers naming its instances: those it declares, and those
+        # its tables bind as `identifier` (a role is named by its player's)
+        self.keys: dict[str, set] = {
+            concept["id"]: set(concept.get("identifiers") or [])
+            for concept in ontology.get("concepts") or []
+        }
+        for rep in self.reps.values():
+            self.keys.setdefault(rep["concept"], set()).update(
+                b.get("ref") for b in rep["bindings"] if b["to"] == "identifier"
+            )
         self.self_referencing = {
             table: {b["column"] for b in rep["bindings"] if b.get("self_reference")}
             for table, rep in self.reps.items()
@@ -349,15 +365,16 @@ def _relation_joins(catalog: _Catalog, statements: Iterable[WriteStatement]) -> 
         if not ends[0] or not ends[1]:
             continue
         match = _self_pair if relation["from"] == relation["to"] else _identifying_pair
-        found[relation["id"]] = {"joins": _count_joins(catalog, ends, statements, match)}
+        keys = catalog.keys.get(relation["from"], set()) | catalog.keys.get(relation["to"], set())
+        found[relation["id"]] = {"joins": _count_joins(catalog, ends, keys, statements, match)}
     return found
 
 
-def _count_joins(catalog: _Catalog, ends: tuple, statements: tuple, match) -> dict:
+def _count_joins(catalog: _Catalog, ends: tuple, keys: set, statements: tuple, match) -> dict:
     count, samples = 0, []
     for statement in statements:
         for join in statement.joins:
-            on = match(catalog, join, ends)
+            on = match(catalog, join, ends, keys)
             if on is None:
                 continue
             count += 1
@@ -368,8 +385,10 @@ def _count_joins(catalog: _Catalog, ends: tuple, statements: tuple, match) -> di
     return {"count": count, "samples": samples}
 
 
-def _identifying_pair(catalog: _Catalog, join: JoinFact, ends: tuple) -> Optional[str]:
-    """``"a.t.c = b.t.c"`` when this JOIN links the two ends on an identifying column."""
+def _identifying_pair(
+    catalog: _Catalog, join: JoinFact, ends: tuple, keys: set
+) -> Optional[str]:
+    """``"a.t.c = b.t.c"`` when this JOIN links the two ends on one of their identifiers."""
     first, second = ends
     crosses = (join.left in first and join.right in second) or (
         join.left in second and join.right in first
@@ -377,12 +396,12 @@ def _identifying_pair(catalog: _Catalog, join: JoinFact, ends: tuple) -> Optiona
     if join.left == join.right or not crosses:
         return None
     for left, right in join.columns:
-        if left in catalog.identifying[join.left] or right in catalog.identifying[join.right]:
+        if _same_key(catalog, join, left, right, keys):
             return f"{join.left}.{left} = {join.right}.{right}"
     return None
 
 
-def _self_pair(catalog: _Catalog, join: JoinFact, ends: tuple) -> Optional[str]:
+def _self_pair(catalog: _Catalog, join: JoinFact, ends: tuple, keys: set) -> Optional[str]:
     """``"a.t.c = b.t.c"`` when this JOIN links two instances of one concept: both sides
     carry it and one side's key is a self-referencing column (a table joined to itself
     counts too -- that is how a renewal meets the loan it renews)."""
@@ -392,9 +411,24 @@ def _self_pair(catalog: _Catalog, join: JoinFact, ends: tuple) -> Optional[str]:
     left_refs = catalog.self_referencing[join.left]
     right_refs = catalog.self_referencing[join.right]
     for left, right in join.columns:
-        if left in left_refs or right in right_refs:
+        if (left in left_refs or right in right_refs) and _same_key(
+            catalog, join, left, right, keys
+        ):
             return f"{join.left}.{left} = {join.right}.{right}"
     return None
+
+
+def _same_key(catalog: _Catalog, join: JoinFact, left: str, right: str, keys: set) -> bool:
+    """Both key columns are bound -- as ``identifier`` or ``foreign_identifier`` -- to one
+    identifier, and that identifier names an instance of one of the relation's concepts.
+
+    One bound side is not enough: a phone number met by a customer id is a JOIN on two
+    different things, and two customer ids meeting between a call and a contact back a
+    relation of the customer's, not one between the call and the contact.
+    """
+    left_ref = catalog.identifying[join.left].get(left)
+    right_ref = catalog.identifying[join.right].get(right)
+    return left_ref is not None and left_ref == right_ref and left_ref in keys
 
 
 def _merge_tables(evidence: dict, catalog: _Catalog, tables: Mapping) -> None:

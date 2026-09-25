@@ -421,7 +421,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 
 | 规则 | 内容 |
 | --- | --- |
-| O1 关系边 | JOIN 的 `join_key_pairs` 按（左表, 右表）归组成边；CTE 侧用 R3 的驱动路径穿透到物理表并记录穿透路径；UNION 分支两两成 `union_sibling`，列按位置对齐 |
+| O1 关系边 | JOIN 的 `join_key_pairs` 按（左表, 右表）归组成边；CTE 侧用 R3 的驱动路径穿透到物理表并记录穿透路径；连接列是键所携带的值所在的物理列（改名、只读一列的 `TRIM` / `CAST` / `COALESCE(x, '')` 也算），由多列算出的键不是其中任何一列，以 ON 子句写的列名落在该引用所指作用域的表上；UNION 分支两两成 `union_sibling`，列按位置对齐 |
 | O2 基数 | 右侧在 JOIN 前按连接键 GROUP BY / 排名窗口去重 → `one_to_many`（`implied`）；右侧物理表且某生产任务已证明该键唯一 → `many_to_one`（`proven`）；直接关联物理表 → `many_to_one_assumed`（`hypothesis`）；其余 `unknown` |
 | O3 多行性 | 任一任务对表 T 按键集 K 做 GROUP BY 或窗口 partition → T 按 K 有多行（`implied`）；键集跨两张表时不做任何断言 |
 | O5 同义 | `end_to_end_lineage` 的 DIRECT 且列名不同 → `direct_rename`（`proven`）；UNION 同位置列名不同 → `union_alignment`（`implied`）；两端互相登记 |
