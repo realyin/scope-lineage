@@ -1,0 +1,189 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "catalog-yaml/1 identifiers",
+  "type": "object",
+  "required": [
+    "identifiers"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "identifiers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/item"
+      }
+    }
+  },
+  "definitions": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+    },
+    "status": {
+      "enum": [
+        "drafted",
+        "confirmed",
+        "deprecated"
+      ]
+    },
+    "source": {
+      "enum": [
+        "owner",
+        "comment",
+        "task",
+        "sql",
+        "llm",
+        "mixed"
+      ]
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "notes": {
+      "type": "string"
+    },
+    "item": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "identifies",
+        "scope"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "identifies": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "scope": {
+          "oneOf": [
+            {
+              "const": "global"
+            },
+            {
+              "type": "object",
+              "required": [
+                "per"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "per": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+                  },
+                  "minItems": 1
+                }
+              }
+            }
+          ]
+        },
+        "arises_when": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "object",
+              "required": [
+                "condition"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "condition": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "state": {
+                  "type": "string",
+                  "pattern": "^concept:[a-z0-9_.]+#.+$"
+                }
+              }
+            }
+          ]
+        },
+        "spellings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "column"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "column": {
+                "type": "string",
+                "minLength": 1
+              },
+              "table": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_]+\\.[A-Za-z0-9_]+$"
+              }
+            }
+          }
+        },
+        "maps_to": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "identifier",
+              "cardinality"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "identifier": {
+                "type": "string",
+                "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+              },
+              "cardinality": {
+                "enum": [
+                  "one_to_one",
+                  "one_to_many",
+                  "many_to_one",
+                  "many_to_many"
+                ]
+              },
+              "via": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_]+\\.[A-Za-z0-9_]+$"
+                }
+              }
+            }
+          }
+        },
+        "format": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/definitions/status"
+        },
+        "source": {
+          "$ref": "#/definitions/source"
+        },
+        "evidence": {
+          "$ref": "#/definitions/evidence"
+        },
+        "notes": {
+          "$ref": "#/definitions/notes"
+        }
+      }
+    }
+  }
+}

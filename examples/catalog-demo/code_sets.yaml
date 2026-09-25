@@ -1,0 +1,35 @@
+code_sets:
+  - id: code:gender
+    name: 性别
+    values:
+      - {value: F, meaning: female}
+      - {value: M, meaning: male}
+      - {value: U, meaning: unknown, retired: true}
+    status: confirmed
+    source: comment
+
+  - id: code:verification_status
+    name: 认证状态
+    values:
+      - {value: 0, meaning: unverified}
+      - {value: 1, meaning: verified}
+    status: confirmed
+    source: owner
+
+  - id: code:loan_status
+    name: 借据状态
+    definition: Where a loan is in its life cycle.
+    values:
+      - {value: "1", meaning: normal}
+      - {value: "2", meaning: overdue}
+      - {value: "3", meaning: settled}
+    status: confirmed
+    source: owner
+
+  - id: code:waiver_type
+    name: 豁免类型
+    values:
+      - {value: PEN, meaning: penalty waived}
+      - {value: INT, meaning: interest waived}
+    status: drafted
+    source: llm

@@ -1,0 +1,95 @@
+representations:
+  - table: demo_dwd.dwd_lending_loan_df
+    concept: concept:loan
+    kind: core
+    grain:
+      identifiers: [id:loan_no]
+      source: proven
+    time: snapshot
+    refresh: daily
+    table_status: active
+    bindings:
+      - {column: loan_no, to: identifier, ref: id:loan_no}
+      - {column: customer_id, to: foreign_identifier, ref: id:customer_id}
+      - {column: principal_amt, to: attribute, ref: attr:loan.principal}
+      - column: loan_status
+        to: attribute
+        ref: attr:loan.loan_status
+        code_map: {"1": normal, "2": overdue, "3": settled}
+      - column: penalty_amt
+        to: attribute
+        ref: attr:loan.overdue_penalty
+        derivation: sum of the daily penalty accruals up to dt
+      - {column: dt, to: technical}
+    status: confirmed
+    source: sql
+
+  - table: demo_dwd.dwd_lending_loan_status_his
+    concept: concept:loan
+    kind: state_history
+    grain:
+      identifiers: [id:loan_no]
+      extra: [start_date]
+      source: declared
+    time: zipper
+    table_status: active
+    bindings:
+      - {column: loan_no, to: identifier, ref: id:loan_no}
+      - {column: loan_status, to: attribute, ref: attr:loan.loan_status}
+      - {column: start_date, to: technical}
+      - {column: end_date, to: technical}
+    status: confirmed
+    source: owner
+
+  - table: demo_dwd.dwd_lending_repayment_di
+    concept: concept:repayment
+    kind: event_detail
+    grain:
+      identifiers: [id:repayment_txn_no]
+      source: proven
+    time: incremental
+    refresh: daily
+    table_status: active
+    bindings:
+      - {column: repay_txn_no, to: identifier, ref: id:repayment_txn_no}
+      - {column: loan_no, to: foreign_identifier, ref: id:loan_no}
+      - {column: customer_id, to: foreign_identifier, ref: id:customer_id}
+      - {column: repay_amt, to: attribute, ref: attr:repayment.amount}
+      - {column: repay_time, to: attribute, ref: attr:repayment.repaid_at}
+      - {column: dt, to: technical}
+    status: confirmed
+    source: sql
+
+  - table: demo_dwd.dwd_lending_borrower_df
+    concept: concept:borrower
+    kind: role_view
+    grain:
+      identifiers: [id:customer_id]
+      source: inferred
+    time: snapshot
+    scope: [customers holding at least one loan that is not settled]
+    table_status: active
+    bindings:
+      - {column: customer_id, to: identifier, ref: id:customer_id}
+      - {column: credit_limit, to: attribute, ref: attr:borrower.credit_limit}
+      - {column: gender_cd, to: attribute, ref: attr:customer.gender}
+      - {column: dt, to: technical}
+    status: drafted
+    source: llm
+
+  - table: demo_dws.dws_lending_loan_summary_1d
+    concept: concept:loan
+    kind: summary
+    grain:
+      identifiers: [id:channel_code]
+      extra: [stat_date]
+      source: declared
+    time: incremental
+    table_status: deprecated
+    replaced_by: demo_dws.dws_lending_loan_summary_v2_1d
+    bindings:
+      - {column: channel_code, to: foreign_identifier, ref: id:channel_code}
+      - {column: loan_cnt, to: technical, derivation: count(distinct loan_no)}
+      - {column: stat_date, to: technical}
+    status: confirmed
+    source: owner

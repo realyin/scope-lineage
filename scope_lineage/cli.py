@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
 
+from .cli_catalog import add_catalog_parser, run_catalog
 from .cli_glossary import add_glossary_parser, formats as _glossary_formats, run_glossary
 from .cli_ontology import (
     BATCH_BY as _REVIEW_BATCH_BY,
@@ -185,6 +186,7 @@ def main(argv: list[str] | None = None) -> int:
     add_tables_parser(subcommands)
     add_glossary_parser(subcommands)
     add_ontology_parser(subcommands)
+    add_catalog_parser(subcommands)
 
     validate_cmd = subcommands.add_parser(
         "validate",
@@ -264,6 +266,8 @@ def main(argv: list[str] | None = None) -> int:
                 f"{args.review_batch_size}"
             )
         return run_ontology(args)
+    if args.command == "catalog":
+        return run_catalog(args)
     if args.command == "validate":
         return _validate_inputs(args)
     parser.error(f"unknown command: {args.command}")

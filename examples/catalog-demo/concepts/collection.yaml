@@ -1,0 +1,31 @@
+concepts:
+  - id: concept:fee_waiver
+    kind: event
+    name: 豁免
+    definition: The shop forgives part of what an overdue loan owes.
+    domain: domain:collection
+    occurred_at: attr:fee_waiver.waived_at
+    participants:
+      - {role_name: loan, concept: concept:loan, cardinality: one}
+      - {role_name: borrower, concept: concept:borrower, cardinality: one}
+    attributes:
+      - id: attr:fee_waiver.waived_at
+        name: 豁免时间
+        definition: When the waiver took effect.
+        category: time
+        type: timestamp
+      - id: attr:fee_waiver.waiver_type
+        name: 豁免类型
+        definition: What part of the debt was forgiven.
+        category: descriptive
+        type: string
+        code_set: code:waiver_type
+      - id: attr:fee_waiver.amount
+        name: 豁免金额
+        definition: The amount forgiven.
+        category: measure
+        type: decimal(18,2)
+        unit: CNY
+    status: drafted
+    source: llm
+    evidence: [demo_dwd.dwd_collection_fee_waiver_di]

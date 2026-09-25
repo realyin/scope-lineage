@@ -1,0 +1,40 @@
+relations:
+  - id: rel:customer_holds_app_account
+    kind: composition
+    from: concept:customer
+    to: concept:app_account
+    name: holds
+    inverse_name: is held by
+    cardinality: {from: "1", to: "0..*"}
+    definition: An account exists only for the customer who opened it.
+    status: confirmed
+    source: owner
+
+  - id: rel:app_account_opened_in_channel
+    kind: association
+    from: concept:app_account
+    to: concept:channel
+    name: is opened in
+    inverse_name: hosts
+    cardinality: {from: "0..*", to: "1"}
+    status: confirmed
+    source: sql
+
+  - id: rel:borrower_owes_loan
+    kind: association
+    from: concept:borrower
+    to: concept:loan
+    name: owes
+    inverse_name: is owed by
+    cardinality: {from: "1", to: "1..*"}
+    status: confirmed
+    source: owner
+
+  - id: rel:installment_loan_is_a_loan
+    kind: generalization
+    from: concept:installment_loan
+    to: concept:loan
+    name: is a kind of
+    cardinality: {from: "0..1", to: "1"}
+    status: drafted
+    source: llm

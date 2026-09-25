@@ -240,6 +240,7 @@ Described 5 task(s) (skipped_unknown_version=0, missing_diagnostics=0, skipped_u
 | `glossary` | 一棵 `lineage.json` 树、可选 `--overrides`、`--ontology`、`--template` | `glossary.json`、`glossary.md`、可选待填模板 | 业务负责人填模板；机器读 JSON | [术语与值域字典](glossary-doc.md) |
 | `describe` | `lineage.json` + `--tables` + `--glossary` + 可选 `--ontology` / `--metadata-patch` | 每任务一份 `semantic.json`、`semantic.md` | Agent（写画像的原料）、分析师 | [任务语义描述](semantic-doc.md) |
 | `ontology` | `lineage.json` + `--tables` + `--glossary` + 可选 `--overrides`、`--concept-overrides`、`--export` | `ontology.json`、`ontology.md`、带本体小节的表卡 | Agent（整理待判定项）、分析师 | [语料级本体候选](ontology-doc.md) |
+| `catalog validate` / `catalog build` | 人维护的目录文件夹（`catalog.yaml`、概念、标识符、映射……） | 文本或 `--json` 报告；`ontology.json`（`ontology-json/3`） | 目录的 owner；构建结果给机器读 | [本体目录](ontology-catalog.md) |
 | Agent 任务画像 | `semantic.md` + 技能里的提示词与模板 | `business_profile.md`、`business_profile.check.md` | 业务负责人（读画像、答待确认清单） | [AI agent 技能](agent-skill.md) |
 | `confirmations.py apply` | 答完的 `business_profile.md` | 合并进 `glossary.overrides.json`、`metadata-patch.json` | 机器（下一轮的输入） | [AI agent 技能](agent-skill.md) |
 

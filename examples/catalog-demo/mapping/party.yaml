@@ -1,0 +1,58 @@
+representations:
+  - table: demo_dwd.dwd_party_customer_info_df
+    concept: concept:customer
+    kind: core
+    grain:
+      identifiers: [id:customer_id]
+      source: proven
+    time: snapshot
+    refresh: daily
+    table_status: active
+    bindings:
+      - {column: customer_id, to: identifier, ref: id:customer_id}
+      - {column: verified_customer_no, to: identifier, ref: id:verified_customer_no}
+      - column: gender_cd
+        to: attribute
+        ref: attr:customer.gender
+        code_map: {F: female, M: male, U: unknown}
+      - column: register_time
+        to: attribute
+        ref: attr:customer.registered_at
+        derivation: from_unixtime(register_ts)
+      - {column: verify_status, to: attribute, ref: attr:customer.verification_status}
+      - {column: etl_time, to: technical}
+      - {column: dt, to: technical}
+    status: confirmed
+    source: sql
+
+  - table: demo_dwd.dwd_party_customer_ext_df
+    concept: concept:customer
+    kind: extension
+    grain:
+      identifiers: [id:customer_id]
+      source: declared
+    time: snapshot
+    table_status: active
+    bindings:
+      - {column: customer_id, to: identifier, ref: id:customer_id}
+      - {column: ext_json, to: unmapped}
+      - {column: dt, to: technical}
+    status: drafted
+    source: comment
+
+  - table: demo_dwd.dwd_party_account_map_df
+    concept: concept:app_account
+    kind: identifier_map
+    grain:
+      identifiers: [id:app_account_id, id:channel_code]
+      source: proven
+    time: snapshot
+    table_status: active
+    bindings:
+      - {column: account_id, to: identifier, ref: id:app_account_id}
+      - {column: channel_code, to: foreign_identifier, ref: id:channel_code}
+      - {column: customer_id, to: foreign_identifier, ref: id:customer_id}
+      - {column: opened_time, to: attribute, ref: attr:app_account.opened_at}
+      - {column: dt, to: technical}
+    status: confirmed
+    source: sql

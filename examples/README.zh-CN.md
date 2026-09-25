@@ -8,6 +8,7 @@
 examples/
 ├── sql/                    # 直接交给 Core 的 Spark SQL 文件
 ├── tasks/                  # 调度平台导出的 task JSON（支持递归目录）
+├── catalog-demo/           # 本体目录示例（catalog-yaml/1），供 scope-lineage catalog 使用
 ├── metadata/
     ├── schema_info.json    # 推荐：字段序号、DDL、类型和注释
     ├── schema_info.csv     # 候补：按行序读取的兼容格式
@@ -25,6 +26,7 @@ examples/
 | `sql/select_star_with_schema.sql` | 依赖 Schema 的 `SELECT *` 展开 |
 | `sql/multi_statement_publish.sql` | 一个任务内的多条写表语句 |
 | `sql/subscription_account_snapshot.sql` | 19 张源表、20 个 JOIN、多层子查询、条件聚合、窗口函数和 112 个目标字段的复杂脱敏样例 |
+| `catalog-demo/` | 一家虚构信贷公司的本体目录（`catalog-yaml/1`）：每种元素与每种绑定各出现一次；见[目录格式](../docs/zh-CN/ontology-catalog.md) |
 | `tasks/**/*.json` | 真实 `meta/query_time/data_source` 包装、任务依赖和目录批量输入 |
 
 ## 运行

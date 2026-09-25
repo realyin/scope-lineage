@@ -1,0 +1,5 @@
+doc_format: catalog-yaml/1
+name: demo-lending
+description: >-
+  A fictional consumer-lending shop. Every name in this catalog is synthetic; it exists
+  to show each element of the catalog-yaml/1 format once.
