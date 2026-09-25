@@ -475,7 +475,7 @@ scope-lineage catalog build examples/catalog-demo --out out/ \
 | `representations["库.表"]` | `declared_columns` / `used_columns` | `--tables` | 元数据声明了几列、语料用到了几列 |
 | `bindings["库.表.列"]` | `sources` / `expression` | `--lineage` | 上游物理列与最终表达式（最多 200 个字符），仅当绑定没有手写 `derivation` 时补充 |
 | `bindings["库.表.列"]` | `declared_only` | `--tables` | 元数据里有这一列，语料里没有任何任务碰过它 |
-| `relations["rel:..."]` | `joins` | `--lineage` | 在标识列上连接两个概念表现表的 JOIN：`count` 与至多三个 `samples` |
+| `relations["rel:..."]` | `joins` | `--lineage` | 连接两个概念表现表、且两侧连接列绑定到同一个它们的标识符的 JOIN：`count` 与至多三个 `samples` |
 
 ```json
 {
@@ -514,10 +514,16 @@ scope-lineage catalog build examples/catalog-demo --out out/ \
 - **粒度**：比较前两边都去掉分区列，所以目录粒度里写了 `stat_date`、而语句只写一个 `stat_date`
   分区时不算矛盾。声明粒度里某个标识符在本表没有绑定列时，不做比较。
 - **关系**只在两端概念都有表现表时统计；统计过但没有 JOIN 支持的是 `count: 0`，无法统计的没有条目。
-  一次 JOIN 计数的条件是：两侧分别是两个概念的表现表，且至少一侧的连接列绑定为标识符或外部标识符。
+  一次 JOIN 计数的条件是：两侧分别是两个概念的表现表，且同一对连接列的**两侧**都绑定（为
+  `identifier` 或 `foreign_identifier`）到同一个标识符，而这个标识符标识关系的某一端：关系两端的概念自己，
+  或角色的表现表所绑定的承担者标识符。客户号对上手机号，或两个客户号把一通电话连到一个联系人，都不是
+  「电话—联系人」关系的样例。participation 关系同样统计。
   两端是同一概念的关系只数至少一侧连接列带 `self_reference` 的 JOIN（表自连接也算）：同一实例出现在两张表里不说明关系。
-  participation 关系同样统计。
 - 语料用 `tables` 与 `ontology` 同一套读取器读；JOIN 的一侧是 CTE 时，顺着它追到提供行的物理表。
+  连接列是 ON 子句比较的那个值所在的物理列：改名的列（`caller_phone AS dialed_no`）按物理列名报告，
+  只由一列算出的键（`TRIM`、`CAST`、`COALESCE(x, '')`）报告为那一列。由多列算出的键
+  （`IF(a.id = '' AND b.phone IS NOT NULL, b.id, a.id)`）不是其中任何一列——只在条件里读到的列绝不会被报告为键——
+  它以 ON 子句写的列名、落在该 ON 引用所指作用域的表上。
 
 ## 页面：`catalog render`
 
