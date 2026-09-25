@@ -45,7 +45,8 @@ scope-lineage catalog query <dir>/ontology.json <kind> <term> --json
 scope-lineage catalog render <dir>/ontology.json --out <pages-dir>
 ```
 
-读 `concepts/<slug>.md`（slug 是概念 id 冒号后的部分），七节依次是：定义与身份、数据清单、
+读 `concepts/<slug>.md`（slug 是概念 id 冒号后的部分）：开头是一页纸概览（是什么、怎么认出来、状态、
+数据在哪、关系、事件、角色、要注意），先读它；附录 A1–A7 依次是：定义与身份、数据清单、
 带本概念标识的表、属性、关系、约束、治理缺口。`index.md` 按域列出全部概念，`governance.md` 列出
 全部缺口（含含义待确认的码值），`scopes.md` 按过滤类别列出每张表的记录范围和引用了表的业务规则。
 不要把整个 `ontology.json` 读进上下文。
@@ -55,7 +56,7 @@ scope-lineage catalog render <dir>/ontology.json --out <pages-dir>
 1. **状态**：`drafted`（草拟）是还没人确认的内容，说"目录草拟为……"；`confirmed` 才能当事实说。
 2. **证据标签**：页面里标「血缘」的、JSON 里 `evidence` 下的，是语料证明的事实，不是目录的声明。
    两者一致时一句带过；不一致时两边都说。
-3. **矛盾原样转述**：`evidence.representations[表].conflicts` 或页面第 7 节「证据与目录矛盾」
+3. **矛盾原样转述**：`evidence.representations[表].conflicts` 或页面附录 A7「证据与目录矛盾」
    有内容时，原样转述，例如"目录声明粒度已证明，但血缘只能给出候选键"。不要替任何一边圆。
 4. **没有证据不等于没有**：关系的证据连接是 0 次，说"语料里没有看到连接"，不说"关系不存在"；
    一端没有表现表的关系本来就不统计。这时看同一格（或 `related` 的 `carried_together` 与

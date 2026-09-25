@@ -588,22 +588,43 @@ documents; names are the catalog's own.
 | File | What it holds |
 | --- | --- |
 | `index.md` | the concepts by domain (name, kind, definition, number of tables, status), the identifiers, a summary of the governance gaps and of the record scopes |
-| `concepts/<slug>.md` | one page per concept (`concept:fee_waiver` → `fee_waiver.md`), seven sections |
+| `concepts/<slug>.md` | one page per concept (`concept:fee_waiver` → `fee_waiver.md`): a one-page overview, then seven sections as its appendix |
 | `identifiers.md` | every identifier in full, with the columns bound to it |
 | `governance.md` | every gap of every concept, one list per kind of gap; the code values whose meaning is not confirmed; plus the denormalised columns per table (informational, not a gap) |
 | `scopes.md` | every table's record scope grouped by the kind of filter it states; the tables declaring none; the business rules and value domains that cite a table |
 
-The seven sections of a concept page answer the seven things a reader opens it for:
+A concept page opens with one line naming the kind, the domain and the page's drafted share,
+then **一页纸概览** (the one-page overview): plain Chinese, names only (no ids such as `id:…` or
+`attr:…`, no English enum words, no table wider than two columns), answering what a reader
+asks first. A line with nothing to say is left out; a confirmed item is marked ✓:
+
+| Line | Content |
+| --- | --- |
+| 是什么 | the concept's definition |
+| 怎么认出来 | one bullet per identifier: its name, when it arises (「一开始就有」 without `arises_when`, else the condition and its state), its uniqueness scope in words (「全局唯一」 or 「每个客户×App 一个」), and whether it is the primary one |
+| 状态 | the state values in order joined by →, the events moving them written on the arrows (`未认证 —实名认证→ 已认证`); transitions between values that are not neighbours follow in brackets |
+| 数据在哪 | an entity's core and extension tables (a role's role-view tables), each with the table comment or the first line of its notes (≤30 characters); a deprecated table reads 「已废弃，改用 …」; then how many more tables carry the concept's identifiers and over how many domains (see appendix A3). For an event the line is 「记录在」 and lists its event-detail tables |
+| 拥有的 | the compositions whose whole this concept is: 「verb other-name」 |
+| 关联的 | the other associations, compositions and generalizations, read from this concept's side: `inverse_name` when the concept is the relation's `to` end, the whole sentence when there is none |
+| 参与的事件 | the events the concept takes part in, grouped by the event's domain |
+| 扮演的角色 | the roles this concept plays, with their condition (≤30 characters) |
+| 参与者 / 发生时间 | events only: each participant as 「role name → concept name」; the name of the occurred-at attribute |
+| 承担者 / 成立条件 | roles only |
+| 要注意 | at most 5: the constraints on the concept, its attributes or identifiers that are hard or business rules, confirmed first, each as its expression (≤60 characters, cut with …) |
+
+After the overview comes **附录** (the appendix): sections A1–A7 answer the seven things a
+reader opens the page for (A1's table
+has a 编号 row with the concept id):
 
 | Section | Content |
 | --- | --- |
-| 1. 定义与身份 | definition, kind, status, synonyms; identifiers (arising condition, uniqueness scope, physical spellings, mappings); the state machine (values, transition events); an event's participants, a role's player, context and condition |
-| 2. 数据清单 | the tables, grouped by representation kind (核心, 扩展, 从属, 事件明细, 状态历史, 标识映射, 角色视图, 汇总, 中间): a note (the table card's comment, the representation's `notes`), grain (identifiers, source, and what lineage proves), time semantics and how to read by them (a snapshot 「按单个 dt 分区取数」, a zipper by its validity window), refresh, record scope, producing tasks, deprecation and replacement; one hop of lineage per table |
-| 3. 带本概念标识的表 | every column, in the tables of any concept, binding one of this concept's identifiers as `identifier` or `foreign_identifier`: table, the table's concept, column, identifier, and how (a self reference is marked). A concept with no table of its own still shows where it can be joined in; a role has no identifier of its own and points to its player |
-| 4. 属性 | by category (描述, 状态, 度量, 时间): definition, type and unit, code values (value=meaning), every table column that holds it (with its code map; one another table repeats is marked 「冗余（经 via column）」), how it is derived |
-| 5. 关系 | association, composition and generalization read from this concept's side, with cardinality and JOIN count (a self relation's far end reads 「本概念」 with the columns that carry it); when the count is 0 or could not be taken, what the catalog itself shows: the tables holding both ends (representing one or binding its identifier; a role through its player's identifiers; a self relation only through a self-referencing column) and the relation's `evidence`; the events it takes part in (its role, how many tables the event has); the roles it plays, or — on a role's page — the player it belongs to |
-| 6. 约束 | the constraints on the concept, its attributes, identifiers and relations, by kind, with strength and status |
-| 7. 治理缺口 | drafted share, unmapped columns, attributes no table holds, state or coded attributes without values, whether the concept has any table; with evidence also the conflicts, bound columns nobody uses and relations no JOIN backs |
+| A1 定义与身份 | definition, kind, status, synonyms; identifiers (arising condition, uniqueness scope, physical spellings, mappings); the state machine (values, transition events); an event's participants, a role's player, context and condition |
+| A2 数据清单 | the tables, grouped by representation kind (核心, 扩展, 从属, 事件明细, 状态历史, 标识映射, 角色视图, 汇总, 中间): a note (the table card's comment, the representation's `notes`), grain (identifiers, source, and what lineage proves), time semantics and how to read by them (a snapshot 「按单个 dt 分区取数」, a zipper by its validity window), refresh, record scope, producing tasks, deprecation and replacement; one hop of lineage per table |
+| A3 带本概念标识的表 | every column, in the tables of any concept, binding one of this concept's identifiers as `identifier` or `foreign_identifier`: table, the table's concept, column, identifier, and how (a self reference is marked). A concept with no table of its own still shows where it can be joined in; a role has no identifier of its own and points to its player |
+| A4 属性 | by category (描述, 状态, 度量, 时间): definition, type and unit, code values (value=meaning), every table column that holds it (with its code map; one another table repeats is marked 「冗余（经 via column）」), how it is derived |
+| A5 关系 | association, composition and generalization read from this concept's side, with cardinality and JOIN count (a self relation's far end reads 「本概念」 with the columns that carry it); when the count is 0 or could not be taken, what the catalog itself shows: the tables holding both ends (representing one or binding its identifier; a role through its player's identifiers; a self relation only through a self-referencing column) and the relation's `evidence`; the events it takes part in (its role, how many tables the event has); the roles it plays, or — on a role's page — the player it belongs to |
+| A6 约束 | the constraints on the concept, its attributes, identifiers and relations, by kind, with strength and status |
+| A7 治理缺口 | drafted share, unmapped columns, attributes no table holds, state or coded attributes without values, whether the concept has any table; with evidence also the conflicts, bound columns nobody uses and relations no JOIN backs |
 
 Anything that came from the corpus is labelled 「血缘」; without evidence those cells show
 「—」 rather than a guess.
@@ -634,7 +655,7 @@ scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_l
 
 | Kind | Term | Answer |
 | --- | --- | --- |
-| `concept` | id, name, synonym or term | identity, identifiers, attributes, states, tables, the page to read |
+| `concept` | id, name, synonym or term | identity, identifiers, attributes, states, tables, the page to read, and the concept page's one-page overview (`overview`, the same fields as the page) |
 | `table` | `db.table` (a catalog prefix is ignored) | the concept it carries, its time semantics and how to read by them (`usage`), the table comment and `notes`, its record scope, the business rules and value domains citing it (`constraints`), and what every bound column points at, with evidence; a denormalised column reads `→ 冗余属性 <attribute> of <concept>（经 <via>）`, a self-referencing one names its relation |
 | `column` | `db.table.column` | the attribute or identifier it holds and its concept — or the identifier it spells |
 | `identifier` | id, name or physical spelling | what it identifies, its scope and spellings, the columns bound to it |
@@ -644,11 +665,14 @@ scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_l
 | `scope` | a kind of filter (`validity`/有效记录, `deletion`/删除, `dedup`/去重, `partition`/分区, `other`/其他; the label or either half of it works too) or a keyword | the tables whose scope lines or cited rules state it, each with those lines (and their kinds), the rules and how to read the table |
 
 Names match exactly, ignoring case and surrounding spaces, in that order (id, then name,
-then synonym, then term); nothing is guessed. The text answer is a few lines:
+then synonym, then term); nothing is guessed. The text answer is a few lines; for a `concept`
+it leads with the same 是什么 / 怎么认出来 / 数据在哪 (记录在 for an event) as the page's overview:
 
 ```text
 客户 concept:customer · 实体 · 客户与账户 · 已确认（owner）
-  A person the shop has registered, whether or not they ever borrow.
+  是什么：A person the shop has registered, whether or not they ever borrow.
+  怎么认出来：客户号：一开始就有，全局唯一（主标识） ✓；认证客户号：assigned when the customer passes identity verification（进入「已认证」状态时），全局唯一
+  数据在哪：demo_dwd.dwd_party_customer_info_df（Customer master, one row per …） ✓；demo_dwd.dwd_party_customer_ext_df；另有 4 张表带本概念的标识，分布在 2 个域
   标识符：客户号 id:customer_id（主）、认证客户号 id:verified_customer_no
   属性：性别、注册时间、认证状态
   状态：未认证、已认证

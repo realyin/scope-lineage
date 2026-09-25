@@ -2,7 +2,8 @@
 
 Eight kinds of question, each answered from the document alone:
 
-- ``concept``    -- by id, name, synonym or term: identity, attributes, states, tables;
+- ``concept``    -- by id, name, synonym or term: identity, attributes, states, tables, and
+  the concept page's one-page overview (``overview``);
 - ``table``      -- ``db.table`` (a catalog prefix is ignored): the concept it carries and
   what every bound column points at (another concept's attribute repeated here, with the
   column it is reached through; another instance of the same concept, with the relation),
@@ -29,6 +30,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from .catalog_concept_page import reading_text
+from .catalog_overview import concept_overview
 from .catalog_query_text import render_query_text
 from .catalog_scopes import query_scopes, rules_citing
 from .catalog_view import (
@@ -134,6 +136,7 @@ def _concept_answer(view: CatalogView, concept: dict, matched_by: str) -> dict:
         "states": [state["name"] for state in states],
         "tables": _tables(view, concept["id"]),
         "page": f"{CONCEPTS_DIR}/{concept_filename(concept['id'])}",
+        "overview": concept_overview(view, concept["id"]),
     }
     return answer
 

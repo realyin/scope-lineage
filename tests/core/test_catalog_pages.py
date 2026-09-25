@@ -54,7 +54,7 @@ def _row(page: str, first_cell: str) -> str:
 
 def _inventory_row(page: str, table: str) -> str:
     """A table's row in section 2 (section 3 names the same table again)."""
-    return _row(page.split("## 2. 数据清单")[1].split("\n## 3.")[0], table)
+    return _row(page.split("### A2 数据清单")[1].split("\n### A3 ")[0], table)
 
 
 # ------------------------------------------------------------------- the set
@@ -68,11 +68,12 @@ def test_one_page_per_concept_plus_four(pages: dict) -> None:
     assert "concepts/customer.md" in concepts
 
 
-def test_every_concept_page_has_the_seven_sections_in_order(pages: dict) -> None:
+def test_every_concept_page_has_the_seven_appendix_sections_in_order(pages: dict) -> None:
     for name, page in pages.items():
         if not name.startswith("concepts/"):
             continue
-        headings = re.findall(r"^## (\d)\. (.+)$", page, flags=re.MULTILINE)
+        appendix = page.split("\n## 附录\n")[1]
+        headings = re.findall(r"^### A(\d) (.+)$", appendix, flags=re.MULTILINE)
         assert headings == [(str(n), title) for n, title in enumerate(SECTIONS, 1)], name
 
 
@@ -124,9 +125,9 @@ def test_an_event_names_its_participants_and_a_role_its_player(pages: dict) -> N
 
 def test_the_inventory_groups_tables_by_how_they_carry_the_concept(pages: dict) -> None:
     page = pages["concepts/loan.md"]
-    inventory = page.split("## 2. 数据清单")[1].split("## 3.")[0]
+    inventory = page.split("### A2 数据清单")[1].split("### A3 ")[0]
 
-    assert re.findall(r"^### (.+)$", inventory, flags=re.MULTILINE) == ["核心", "状态历史", "汇总"]
+    assert re.findall(r"^#### (.+)$", inventory, flags=re.MULTILINE) == ["核心", "状态历史", "汇总"]
 
 
 def test_an_inventory_row_carries_grain_time_refresh_scope_and_producer(pages: dict) -> None:
@@ -193,7 +194,7 @@ def test_the_inventory_shows_one_hop_of_lineage(pages: dict) -> None:
 
 
 def _carriers(page: str) -> str:
-    return page.split("## 3. 带本概念标识的表")[1].split("\n## ")[0]
+    return page.split("### A3 带本概念标识的表")[1].split("\n### A")[0]
 
 
 def test_carriers_list_every_table_holding_the_concepts_identifier(pages: dict) -> None:
@@ -344,7 +345,7 @@ def test_a_player_page_links_to_its_roles(pages: dict) -> None:
 
 
 def test_constraints_on_the_concept_its_attributes_identifiers_and_relations(pages: dict) -> None:
-    constraints = pages["concepts/loan.md"].split("## 6. 约束")[1].split("## 7.")[0]
+    constraints = pages["concepts/loan.md"].split("### A6 约束")[1].split("### A7 ")[0]
     ids = re.findall(r"^\| `(cons:[a-z_]+)`", constraints, flags=re.MULTILINE)
 
     assert ids == [

@@ -83,7 +83,8 @@ def _add_render_parser(actions) -> None:
         "render",
         help=(
             "Write the catalog's pages from a built ontology.json: index.md, "
-            "identifiers.md, governance.md and one six-section page per concept"
+            "identifiers.md, governance.md, scopes.md and one page per concept "
+            "(a one-page overview, then seven sections as its appendix)"
         ),
     )
     render_cmd.add_argument("ontology", help=f"An {ONTOLOGY_FILENAME} written by `catalog build`")

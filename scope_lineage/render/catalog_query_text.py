@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from .catalog_overview import data_items, data_label, identifier_items
 from .catalog_scopes import SCOPE_KIND_TEXT
 from .catalog_view import (
     BINDING_TEXT,
@@ -56,7 +57,7 @@ def _concept(match: Mapping) -> list[str]:
     lines = [
         f"{match['name']} {match['id']} · {KIND_TEXT[match['kind']]} · "
         f"{match['domain']['name']} · {status_text(match)}",
-        f"  {match.get('definition') or '（目录未写定义）'}",
+        *_overview(match["overview"]),
         f"  标识符：{identifiers or '（无）'}",
         f"  属性：{_names(match['attributes'])}",
     ]
@@ -64,6 +65,16 @@ def _concept(match: Mapping) -> list[str]:
         lines.append(f"  状态：{'、'.join(match['states'])}")
     tables = "、".join(f"{t['table']}（{REP_KIND_TEXT[t['kind']]}）" for t in match["tables"])
     return lines + [f"  表：{tables or '（无）'}", f"  页面：{match['page']}"]
+
+
+def _overview(overview: Mapping) -> list[str]:
+    """是什么 / 怎么认出来 / 数据在哪 (记录在 for an event), as the concept page opens."""
+    fields = (
+        ("是什么", overview["what"] or "（目录未写定义）"),
+        ("怎么认出来", "；".join(identifier_items(overview))),
+        (data_label(overview), "；".join(data_items(overview, str))),
+    )
+    return [f"  {label}：{text}" for label, text in fields if text]
 
 
 def _grain(match: Mapping) -> str:

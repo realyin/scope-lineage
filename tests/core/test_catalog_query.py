@@ -90,6 +90,16 @@ def test_a_concept_answer_is_its_identity_attributes_and_tables(document: dict) 
     assert match["page"] == "concepts/customer.md"
 
 
+def test_a_concept_answer_carries_the_pages_overview(document: dict) -> None:
+    from scope_lineage.render.catalog_overview import concept_overview
+    from scope_lineage.render.catalog_view import CatalogView
+
+    match = _one(document, "concept", "客户")
+
+    assert match["overview"] == concept_overview(CatalogView(document), "concept:customer")
+    assert match["overview"]["carriers"] == {"tables": 4, "domains": 2}
+
+
 def test_nothing_matches_an_unknown_concept(document: dict) -> None:
     assert query_catalog(document, "concept", "供应商")["matches"] == []
 
@@ -398,7 +408,25 @@ def test_the_text_answer_is_short(document: dict) -> None:
 
     assert text.splitlines()[0] == "客户 concept:customer · 实体 · 客户与账户 · 已确认（owner）"
     assert "页面：concepts/customer.md" in text
-    assert len(text.splitlines()) <= 8
+    assert len(text.splitlines()) <= 10
+
+
+def test_the_concept_text_leads_with_the_overview(document: dict) -> None:
+    lines = render_query_text(query_catalog(document, "concept", "客户")).splitlines()
+
+    assert lines[1:4] == [
+        "  是什么：A person the shop has registered, whether or not they ever borrow.",
+        "  怎么认出来：客户号：一开始就有，全局唯一（主标识） ✓；认证客户号：assigned when the "
+        "customer pa…（进入「已认证」状态时），全局唯一",
+        "  数据在哪：demo_dwd.dwd_party_customer_info_df（Customer master, one row per …） ✓；"
+        "demo_dwd.dwd_party_customer_ext_df；另有 4 张表带本概念的标识，分布在 2 个域",
+    ]
+
+
+def test_an_event_text_says_where_it_is_recorded(document: dict) -> None:
+    text = render_query_text(query_catalog(document, "concept", "还款"))
+
+    assert "  记录在：demo_dwd.dwd_lending_repayment_di（Repayments） ✓" in text
 
 
 def test_every_kind_has_a_text_answer(document: dict) -> None:

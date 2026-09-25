@@ -2,7 +2,8 @@
 
 - ``index.md`` -- the concepts by domain (name, kind, definition, how many tables carry
   it, status), the identifiers, and a summary of the governance gaps;
-- ``concepts/<slug>.md`` -- one six-section page per concept (``catalog_concept_page``);
+- ``concepts/<slug>.md`` -- one page per concept (``catalog_concept_page``): a one-page
+  overview in plain Chinese, then the seven detailed sections as its appendix;
 - ``identifiers.md`` -- every identifier in full, with the columns bound to it;
 - ``governance.md`` -- every gap of every concept, one table per kind of gap;
 - ``scopes.md`` -- every table's record scope grouped by the kind of filter it states,

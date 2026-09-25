@@ -1,6 +1,6 @@
 """What one concept's catalog entry still lacks, and where the evidence disagrees with it.
 
-Section 6 of every concept page and the whole of ``governance.md`` read these. A gap is
+Section A7 of every concept page and the whole of ``governance.md`` read these. A gap is
 something a reviewer can act on: an object still ``drafted``, a column nobody bound, an
 attribute no table carries, a state or coded attribute without its values, a concept with
 no table at all -- and, once ``catalog build`` merged evidence, a grain the SQL does not
