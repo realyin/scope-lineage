@@ -307,6 +307,8 @@ def columns_text(view: CatalogView, ref: str) -> str:
     parts = []
     for rep, binding in view.bindings_of(ref):
         text = expr_span(f"{rep['table']}.{binding['column']}")
+        if binding["to"] == "foreign_attribute":
+            text += f" 冗余（经 {expr_span(binding['via'])}）"
         if binding.get("code_map"):
             pairs = ", ".join(f"{cell(k)}→{cell(v)}" for k, v in binding["code_map"].items())
             text += f"（码值映射 {pairs}）"
@@ -352,12 +354,18 @@ def _relation_row(view: CatalogView, concept_id: str, relation: dict) -> str:
         f"{cell(relation['name'])} {expr_span(relation['id'])}",
         _RELATION_KIND_TEXT[relation["kind"]],
         reading_text(view, concept_id, relation),
-        link(view, other),
+        _self_text(view, concept_id) if other == concept_id else link(view, other),
         f"{view.name(relation['from'])} {relation['cardinality']['from']} : "
         f"{view.name(relation['to'])} {relation['cardinality']['to']}",
         joins_text(view, relation["id"]),
         status_text(relation),
     )
+
+
+def _self_text(view: CatalogView, concept_id: str) -> str:
+    """The far end of a relation from the concept to itself, and the columns carrying it."""
+    columns = "、".join(expr_span(c) for c in view.self_reference_columns(concept_id))
+    return f"本概念（自关联，经 {columns}）" if columns else "本概念（自关联）"
 
 
 def reading_text(view: CatalogView, concept_id: str, relation: dict) -> str:

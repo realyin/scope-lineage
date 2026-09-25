@@ -84,6 +84,7 @@ One amount lent to a borrower, repaid over one or more instalments.
 | --- | --- | --- | --- | --- | --- | --- |
 | owes `rel:borrower_owes_loan` | 关联 | 借据 is owed by 借款人 | [借款人](borrower.md) | 借款人 1 : 借据 1..* | 1 次（如 `demo_dwd.dwd_lending_borrower_df.customer_id = demo_dwd.dwd_lending_loan_df.customer_id`） | 已确认（owner） |
 | is a kind of `rel:installment_loan_is_a_loan` | 泛化 | 分期借据 is a kind of 借据 | [分期借据](installment_loan.md) | 分期借据 0..1 : 借据 1 | —（一端无表现表） | 草拟（llm） |
+| renews `rel:loan_renews_loan` | 关联 | 借据 renews 借据 | 本概念（自关联，经 `demo_dwd.dwd_lending_loan_df.orig_loan_no`） | 借据 0..1 : 借据 0..1 | 0 次 | 草拟（sql） |
 
 ### 参与的事件
 
@@ -110,11 +111,11 @@ One amount lent to a borrower, repaid over one or more instalments.
 
 | 缺口 | 明细 |
 | --- | --- |
-| 草拟占比 | 3/30（10%） |
+| 草拟占比 | 4/33（12%） |
 | 没有表现表 | 否 |
 | 未绑定列 | 无 |
 | 未落表属性 | 无 |
 | 缺码值的状态/码值类属性 | 无 |
 | 证据与目录矛盾 | `demo_dwd.dwd_lending_loan_df`：目录声明粒度已证明，血缘只到候选（`loan_no`） |
 | 元数据有、语料未用的绑定列 | `demo_dwd.dwd_lending_loan_status_his.loan_status` |
-| 无连接证据的关系 | `rel:fee_waiver.loan` |
+| 无连接证据的关系 | `rel:fee_waiver.loan`；`rel:loan_renews_loan` |

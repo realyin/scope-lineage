@@ -34,6 +34,7 @@ def _binding(data: dict, table: str, column: str) -> dict:
 
 CUSTOMER_INFO = "demo_dwd.dwd_party_customer_info_df"
 LOAN_DF = "demo_dwd.dwd_lending_loan_df"
+REPAYMENT_DI = "demo_dwd.dwd_lending_repayment_di"
 
 
 def test_the_demo_catalog_is_valid() -> None:
@@ -74,6 +75,14 @@ SCHEMA_CASES = {
     "participants on an entity": (
         "concepts/party.yaml",
         lambda d: _concept(d, "concept:channel").update(participants=[]),
+    ),
+    "foreign attribute without via": (
+        "mapping/lending.yaml",
+        lambda d: _binding(d, LOAN_DF, "customer_gender_cd").pop("via"),
+    ),
+    "via on an attribute binding": (
+        "mapping/party.yaml",
+        lambda d: _binding(d, CUSTOMER_INFO, "gender_cd").update(via="customer_id"),
     ),
     "attribute binding without ref": (
         "mapping/party.yaml",
@@ -306,11 +315,35 @@ REFERENCE_CASES = {
     ),
     "binding_foreign_identifier": (
         "mapping/lending.yaml",
-        lambda d: _binding(d, LOAN_DF, "customer_id").update(ref="id:loan_no"),
+        lambda d: _binding(d, REPAYMENT_DI, "customer_id").update(ref="id:ghost"),
     ),
     "binding_foreign_identifier: not an identifier": (
         "mapping/lending.yaml",
-        lambda d: _binding(d, LOAN_DF, "customer_id").update(ref="concept:customer"),
+        lambda d: _binding(d, REPAYMENT_DI, "customer_id").update(ref="concept:customer"),
+    ),
+    "self_reference_without_relation": (
+        "mapping/lending.yaml",
+        lambda d: _binding(d, REPAYMENT_DI, "loan_no").update(ref="id:repayment_txn_no"),
+    ),
+    "binding_foreign_attribute: own concept's": (
+        "mapping/lending.yaml",
+        lambda d: _binding(d, LOAN_DF, "customer_gender_cd").update(ref="attr:loan.principal"),
+    ),
+    "binding_foreign_attribute: unknown": (
+        "mapping/lending.yaml",
+        lambda d: _binding(d, LOAN_DF, "customer_gender_cd").update(ref="attr:customer.ghost"),
+    ),
+    "binding_foreign_attribute_via: no such column": (
+        "mapping/lending.yaml",
+        lambda d: _binding(d, LOAN_DF, "customer_gender_cd").update(via="cust_ghost"),
+    ),
+    "binding_foreign_attribute_via: not a foreign identifier": (
+        "mapping/lending.yaml",
+        lambda d: _binding(d, LOAN_DF, "customer_gender_cd").update(via="principal_amt"),
+    ),
+    "binding_foreign_attribute_via: another concept's identifier": (
+        "mapping/lending.yaml",
+        lambda d: _binding(d, LOAN_DF, "customer_gender_cd").update(via="orig_loan_no"),
     ),
 }
 
@@ -343,6 +376,36 @@ def test_a_role_view_may_bind_its_players_identifier_and_attributes() -> None:
     report = _validate(DEMO)
 
     assert not [e for e in report.errors if e.rule.startswith("binding_")]
+
+
+def test_a_self_relation_lets_a_table_reference_its_own_concept() -> None:
+    """``dwd_lending_loan_df.orig_loan_no`` holds another loan's number: rel:loan_renews_loan."""
+    report = _validate(DEMO)
+    binding = item(
+        _rep(read_file(DEMO / "mapping" / "lending.yaml"), LOAN_DF)["bindings"],
+        "column",
+        "orig_loan_no",
+    )
+
+    assert (binding["to"], binding["ref"]) == ("foreign_identifier", "id:loan_no")
+    assert report.errors == []
+
+
+def test_a_denormalised_column_binds_another_concepts_attribute_via_its_identifier() -> None:
+    """``dwd_lending_loan_df.customer_gender_cd`` repeats the customer's gender."""
+    binding = item(
+        _rep(read_file(DEMO / "mapping" / "lending.yaml"), LOAN_DF)["bindings"],
+        "column",
+        "customer_gender_cd",
+    )
+
+    assert binding == {
+        "column": "customer_gender_cd",
+        "to": "foreign_attribute",
+        "ref": "attr:customer.gender",
+        "via": "customer_id",
+    }
+    assert _validate(DEMO).errors == []
 
 
 def test_a_subtype_may_list_its_supertypes_identifier() -> None:

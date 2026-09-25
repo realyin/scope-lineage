@@ -55,7 +55,7 @@ A person the shop has registered, whether or not they ever borrow.
 
 | 属性 | 定义 | 类型/单位 | 码值 | 所在表列 | 加工口径 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 性别 `attr:customer.gender` | The gender the customer declared at registration. | string | F=female；M=male；U=unknown（停用） | `demo_dwd.dwd_lending_borrower_df.gender_cd`；`demo_dwd.dwd_party_customer_info_df.gender_cd`（码值映射 F→female, M→male, U→unknown） | `demo_dwd.dwd_lending_borrower_df.gender_cd` = `` MAX(`c`.`gender_cd`) ``（血缘）；`demo_dwd.dwd_party_customer_info_df.gender_cd` = `` `latest`.`gender_cd` ``（血缘） | 已确认（owner） |
+| 性别 `attr:customer.gender` | The gender the customer declared at registration. | string | F=female；M=male；U=unknown（停用） | `demo_dwd.dwd_lending_borrower_df.gender_cd`；`demo_dwd.dwd_lending_loan_df.customer_gender_cd` 冗余（经 `customer_id`）；`demo_dwd.dwd_party_customer_info_df.gender_cd`（码值映射 F→female, M→male, U→unknown） | `demo_dwd.dwd_lending_borrower_df.gender_cd` = `` MAX(`c`.`gender_cd`) ``（血缘）；`demo_dwd.dwd_lending_loan_df.customer_gender_cd` = `` `l`.`cust_gender` ``（血缘）；`demo_dwd.dwd_party_customer_info_df.gender_cd` = `` `latest`.`gender_cd` ``（血缘） | 已确认（owner） |
 
 ### 状态
 

@@ -68,6 +68,25 @@ class Index:
         listed = {key for key in listed if self.is_type(key, "identifier")}
         return listed | self._identified.get(concept_id, set())
 
+    def binding_owners(self, concept_id: str) -> Optional[tuple[str, ...]]:
+        """The concepts whose attributes and identifiers a representation may bind as its own.
+
+        A role view carries its player's too: the borrower table's customer_id *is* the
+        customer's identifier. ``None`` when a role's player is itself broken -- that is
+        already a ``role_player`` error, and every binding would repeat it.
+        """
+        if self.concept_kind(concept_id) != "role":
+            return (concept_id,)
+        player = self.get(concept_id).obj["player"]
+        return (concept_id, player) if self.concept_kind(player) == "entity" else None
+
+    def has_self_relation(self, concept_id: str) -> bool:
+        """Some relation, of any kind, runs from ``concept_id`` to itself."""
+        return any(
+            entry.obj.get("from") == concept_id and entry.obj.get("to") == concept_id
+            for _key, entry in self.of_type("relation")
+        )
+
     def add(self, object_type: str, obj: dict, file: str, owner: str | None = None) -> None:
         object_id = obj["id"]
         _check_prefix(self, object_type, object_id, file, owner)

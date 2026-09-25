@@ -2,7 +2,7 @@
 
 A fictional consumer-lending shop. Every name in this catalog is synthetic; it exists to show each element of the catalog-yaml/1 format once.
 
-> ontology-json/3 · 10 个概念 · 18 个属性 · 11 条关系 · 9 张表现表 · 血缘证据 8 个任务 · 表卡证据 15 张
+> ontology-json/3 · 10 个概念 · 18 个属性 · 12 条关系 · 9 张表现表 · 血缘证据 8 个任务 · 表卡证据 15 张
 
 ## 概念
 
@@ -55,13 +55,13 @@ Who the shop lends to and the accounts they sign in with.
 
 | 缺口 | 数量 |
 | --- | --- |
-| 草拟对象占比 | 41/119（34%） |
+| 草拟对象占比 | 42/122（34%） |
 | 没有表现表的概念 | 4 |
 | 未绑定列 | 1 |
 | 未落表属性 | 5 |
 | 缺码值的状态/码值类属性 | 0 |
 | 证据与目录矛盾 | 1 |
 | 元数据有、语料未用的绑定列 | 1 |
-| 无连接证据的关系 | 3 |
+| 无连接证据的关系 | 4 |
 
 逐项明细见 [governance.md](governance.md)。

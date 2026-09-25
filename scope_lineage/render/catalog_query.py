@@ -4,7 +4,9 @@ Six kinds of question, each answered from the document alone:
 
 - ``concept``    -- by id, name, synonym or term: identity, attributes, states, tables;
 - ``table``      -- ``db.table`` (a catalog prefix is ignored): the concept it carries and
-  what every bound column points at, with the evidence merged at build time;
+  what every bound column points at (another concept's attribute repeated here, with the
+  column it is reached through; another instance of the same concept, with the relation),
+  with the evidence merged at build time;
 - ``column``     -- ``db.table.column``: the attribute or identifier it holds, or the
   identifier it spells when the catalog only names it as a spelling;
 - ``identifier`` -- by id, name or physical spelling: what it identifies, where it is bound;
@@ -143,6 +145,14 @@ def _column(view: CatalogView, rep: dict, binding: dict) -> dict:
     answer = {"column": binding["column"], "to": binding["to"]}
     if binding.get("ref"):
         answer.update(ref=binding["ref"], ref_name=view.name(binding["ref"]))
+    if binding["to"] == "foreign_attribute":
+        answer.update(via=binding["via"], concept=_owner(view, binding["ref"]))
+    if binding.get("self_reference"):
+        owner = _owner(view, binding["ref"]) or {}
+        answer["self_reference"] = True
+        answer["self_relations"] = [
+            {"id": r["id"], "name": r["name"]} for r in view.self_relations_of(owner.get("id"))
+        ]
     for key in ("code_map", "derivation"):
         if key in binding:
             answer[key] = binding[key]

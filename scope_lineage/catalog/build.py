@@ -12,11 +12,14 @@ Normalised means a reader never has to know how the catalog was written:
   moving an object to another file does not change a byte of the output. Lists inside
   an object -- attributes, values, bindings -- keep the author's order, which means
   something (column order, state order).
-Every event participant also becomes a ``participation`` relation.
+Every event participant also becomes a ``participation`` relation, and a
+``foreign_identifier`` naming another instance of the table's own concept is marked
+``self_reference`` (validation guarantees a relation from that concept to itself).
 """
 
 from __future__ import annotations
 
+from .index import Index, build_index
 from .model import CATALOG_FORMAT, ONTOLOGY_FORMAT, ONTOLOGY_SCHEMA, Catalog, CatalogError
 from .references import derived_relation_id
 from .validate import validate_catalog
@@ -62,6 +65,7 @@ def _lists(catalog: Catalog) -> dict:
 
     concepts = normalised("concepts", _concept)
     relations = normalised("relations", _relation) + _participations(concepts)
+    index = build_index(catalog)
     return {
         "domains": _by_id(normalised("domains", _domain)),
         "identifiers": _by_id(normalised("identifiers", _identifier)),
@@ -71,7 +75,8 @@ def _lists(catalog: Catalog) -> dict:
         "constraints": _by_id(normalised("constraints", _constraint)),
         "terms": sorted(normalised("terms", _term), key=lambda t: (t["term"], t["refers_to"])),
         "representations": sorted(
-            normalised("mapping", _representation), key=lambda r: r["table"]
+            normalised("mapping", lambda rep: _representation(rep, index)),
+            key=lambda r: r["table"],
         ),
     }
 
@@ -204,7 +209,7 @@ def _term(obj: dict) -> dict:
     return {**_pick(obj, ("term", "refers_to", "preferred")), **_common(obj)}
 
 
-def _representation(obj: dict) -> dict:
+def _representation(obj: dict, index: Index) -> dict:
     grain = obj["grain"]
     out = _pick(obj, ("table", "concept", "kind"))
     out["grain"] = {
@@ -215,12 +220,17 @@ def _representation(obj: dict) -> dict:
     out.update(_pick(obj, ("time",)))
     out["scope"] = list(obj.get("scope") or [])
     out.update(_pick(obj, ("refresh", "table_status", "replaced_by")))
-    out["bindings"] = [_binding(b, obj) for b in obj["bindings"]]
+    owners = index.binding_owners(obj["concept"]) or (obj["concept"],)
+    own_ids = set().union(*(index.identifiers_of(owner) for owner in owners))
+    out["bindings"] = [_binding(b, obj, own_ids) for b in obj["bindings"]]
     return {**out, **_common(obj)}
 
 
-def _binding(obj: dict, representation: dict) -> dict:
-    out = _pick(obj, ("column", "to", "ref", "derivation"))
+def _binding(obj: dict, representation: dict, own_ids: set) -> dict:
+    out = _pick(obj, ("column", "to", "ref", "via"))
+    if obj["to"] == "foreign_identifier" and obj["ref"] in own_ids:
+        out["self_reference"] = True
+    out.update(_pick(obj, ("derivation",)))
     if "code_map" in obj:
         out["code_map"] = {str(key): value for key, value in obj["code_map"].items()}
     return {**out, **_common(obj, representation)}

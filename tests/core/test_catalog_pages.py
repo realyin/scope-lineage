@@ -155,6 +155,13 @@ def test_an_attribute_lists_every_column_that_holds_it(pages: dict) -> None:
     assert "`demo_dwd.dwd_party_customer_info_df.gender_cd`（码值映射 F→female" in row
 
 
+def test_a_denormalised_column_is_listed_on_the_owning_concepts_page(pages: dict) -> None:
+    """The loan table repeats the customer's gender next to customer_id."""
+    row = _row(pages["concepts/customer.md"], "性别 `attr:customer.gender`")
+
+    assert "`demo_dwd.dwd_lending_loan_df.customer_gender_cd` 冗余（经 `customer_id`）" in row
+
+
 def test_derivation_prefers_the_hand_written_one_and_labels_lineage(pages: dict) -> None:
     customer = pages["concepts/customer.md"]
 
@@ -183,6 +190,13 @@ def test_a_relation_is_read_from_this_concepts_side(pages: dict) -> None:
     assert (
         "| 客户 holds 应用账户 | [应用账户](app_account.md) | 客户 1 : 应用账户 0..* |" in customer
     )
+
+
+def test_a_self_relation_names_the_columns_that_carry_it(pages: dict) -> None:
+    row = _row(pages["concepts/loan.md"], "renews `rel:loan_renews_loan`")
+
+    assert "| 借据 renews 借据 |" in row
+    assert "| 本概念（自关联，经 `demo_dwd.dwd_lending_loan_df.orig_loan_no`） |" in row
 
 
 def test_the_events_a_concept_takes_part_in(pages: dict) -> None:
@@ -223,7 +237,7 @@ def test_gaps_name_the_conflict_the_unmapped_column_and_the_missing_table(pages:
     loan = pages["concepts/loan.md"]
 
     assert "目录声明粒度已证明，血缘只到候选（`loan_no`）" in loan
-    assert "| 无连接证据的关系 | `rel:fee_waiver.loan` |" in loan
+    assert "| 无连接证据的关系 | `rel:fee_waiver.loan`；`rel:loan_renews_loan` |" in loan
     assert (
         "| 未绑定列 | `demo_dwd.dwd_party_customer_ext_df.ext_json` |"
         in pages["concepts/customer.md"]
@@ -261,6 +275,7 @@ def test_identifiers_page_shows_the_bound_columns(pages: dict) -> None:
 
     assert "`demo_dwd.dwd_lending_loan_df.loan_no`（标识符）" in block
     assert "`demo_dwd.dwd_lending_repayment_di.loan_no`（外部标识符）" in block
+    assert "`demo_dwd.dwd_lending_loan_df.orig_loan_no`（外部标识符，自关联）" in block
 
 
 def test_governance_lists_each_kind_of_gap(pages: dict) -> None:
@@ -268,6 +283,17 @@ def test_governance_lists_each_kind_of_gap(pages: dict) -> None:
 
     assert "## 没有表现表的概念\n\n- [渠道](concepts/channel.md)" in page
     assert "- `rel:repayment.payer`：还款 payer 客户" in page
+
+
+def test_governance_counts_denormalised_columns_per_table_without_calling_them_gaps(
+    pages: dict,
+) -> None:
+    page = pages["governance.md"]
+    section = page.split("## 冗余属性列（按表）")[1]
+
+    assert "| `demo_dwd.dwd_lending_loan_df` | 1 | `customer_gender_cd`：客户.性别（经 `customer_id`） |" in section
+    assert "冗余属性" not in page.split("## 冗余属性列（按表）")[0]
+    assert "冗余" not in pages["index.md"]
 
 
 # ----------------------------------------------------------------------- CLI

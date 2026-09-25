@@ -65,7 +65,7 @@
 | 物理拼写 | `loan_no` |
 | 对照 | — |
 | 格式 | — |
-| 绑定列 | `demo_dwd.dwd_collection_fee_waiver_di.loan_no`（外部标识符）；`demo_dwd.dwd_lending_loan_df.loan_no`（标识符）；`demo_dwd.dwd_lending_loan_status_his.loan_no`（标识符）；`demo_dwd.dwd_lending_repayment_di.loan_no`（外部标识符） |
+| 绑定列 | `demo_dwd.dwd_collection_fee_waiver_di.loan_no`（外部标识符）；`demo_dwd.dwd_lending_loan_df.loan_no`（标识符）；`demo_dwd.dwd_lending_loan_df.orig_loan_no`（外部标识符，自关联）；`demo_dwd.dwd_lending_loan_status_his.loan_no`（标识符）；`demo_dwd.dwd_lending_repayment_di.loan_no`（外部标识符） |
 | 状态 | 已确认（owner） |
 
 ## 还款流水号 `id:repayment_txn_no`

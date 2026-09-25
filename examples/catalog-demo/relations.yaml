@@ -38,3 +38,14 @@ relations:
     cardinality: {from: "0..1", to: "1"}
     status: drafted
     source: llm
+
+  - id: rel:loan_renews_loan
+    kind: association
+    from: concept:loan
+    to: concept:loan
+    name: renews
+    inverse_name: is renewed by
+    cardinality: {from: "0..1", to: "0..1"}
+    definition: A renewal loan pays off the loan it extends; orig_loan_no names that loan.
+    status: drafted
+    source: sql

@@ -10,13 +10,13 @@
     "identifiers": 7,
     "code_sets": 4,
     "concepts": 10,
-    "relations": 11,
+    "relations": 12,
     "constraints": 6,
     "terms": 7,
     "representations": 9,
     "attributes": 18,
     "derived_relations": 7,
-    "bindings": 44
+    "bindings": 46
   },
   "domains": [
     {
@@ -883,6 +883,22 @@
       "evidence": []
     },
     {
+      "id": "rel:loan_renews_loan",
+      "kind": "association",
+      "from": "concept:loan",
+      "to": "concept:loan",
+      "name": "renews",
+      "inverse_name": "is renewed by",
+      "cardinality": {
+        "from": "0..1",
+        "to": "0..1"
+      },
+      "definition": "A renewal loan pays off the loan it extends; orig_loan_no names that loan.",
+      "status": "drafted",
+      "source": "sql",
+      "evidence": []
+    },
+    {
       "id": "rel:repayment.loan",
       "kind": "participation",
       "from": "concept:repayment",
@@ -1197,6 +1213,15 @@
           "evidence": []
         },
         {
+          "column": "orig_loan_no",
+          "to": "foreign_identifier",
+          "ref": "id:loan_no",
+          "self_reference": true,
+          "status": "confirmed",
+          "source": "sql",
+          "evidence": []
+        },
+        {
           "column": "principal_amt",
           "to": "attribute",
           "ref": "attr:loan.principal",
@@ -1222,6 +1247,15 @@
           "to": "attribute",
           "ref": "attr:loan.overdue_penalty",
           "derivation": "sum of the daily penalty accruals up to dt",
+          "status": "confirmed",
+          "source": "sql",
+          "evidence": []
+        },
+        {
+          "column": "customer_gender_cd",
+          "to": "foreign_attribute",
+          "ref": "attr:customer.gender",
+          "via": "customer_id",
           "status": "confirmed",
           "source": "sql",
           "evidence": []
@@ -1594,7 +1628,7 @@
         "tasks": 8,
         "statements": 8,
         "representations_matched": 7,
-        "relations_checked": 6
+        "relations_checked": 7
       },
       "tables": {
         "cards": 15,
@@ -1660,8 +1694,8 @@
             "confidence": "candidate"
           }
         ],
-        "declared_columns": 6,
-        "used_columns": 6
+        "declared_columns": 8,
+        "used_columns": 8
       },
       "demo_dwd.dwd_lending_loan_status_his": {
         "downstream_tables": [
@@ -1788,6 +1822,12 @@
         ],
         "expression": "MAX(`c`.`gender_cd`)"
       },
+      "demo_dwd.dwd_lending_loan_df.customer_gender_cd": {
+        "sources": [
+          "demo_ods.ods_loan_contract_df.cust_gender"
+        ],
+        "expression": "`l`.`cust_gender`"
+      },
       "demo_dwd.dwd_lending_loan_df.customer_id": {
         "sources": [
           "demo_ods.ods_loan_contract_df.cust_no"
@@ -1805,6 +1845,12 @@
           "demo_ods.ods_loan_contract_df.loan_status"
         ],
         "expression": "`l`.`loan_status`"
+      },
+      "demo_dwd.dwd_lending_loan_df.orig_loan_no": {
+        "sources": [
+          "demo_ods.ods_loan_contract_df.orig_loan_no"
+        ],
+        "expression": "`l`.`orig_loan_no`"
       },
       "demo_dwd.dwd_lending_loan_df.principal_amt": {
         "sources": [
@@ -1941,6 +1987,12 @@
         }
       },
       "rel:fee_waiver.loan": {
+        "joins": {
+          "count": 0,
+          "samples": []
+        }
+      },
+      "rel:loan_renews_loan": {
         "joins": {
           "count": 0,
           "samples": []

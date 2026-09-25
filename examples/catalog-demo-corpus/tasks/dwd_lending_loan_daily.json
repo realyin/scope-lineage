@@ -5,7 +5,7 @@
     "task_type": "Spark SQL",
     "schedule": "0 20 2 * * ?",
     "schedule_cycle": "day",
-    "description": "Daily loan snapshot with the penalty accrued so far.",
-    "sql": "INSERT OVERWRITE TABLE spark_catalog.demo_dwd.dwd_lending_loan_df PARTITION (dt = '${bizdate}')\nSELECT l.loan_no,\n       l.cust_no AS customer_id,\n       l.principal AS principal_amt,\n       l.loan_status,\n       COALESCE(p.penalty_amt, 0) AS penalty_amt\nFROM demo_ods.ods_loan_contract_df l\nLEFT JOIN (\n    SELECT loan_no, SUM(penalty) AS penalty_amt\n    FROM demo_ods.ods_loan_penalty_di\n    WHERE dt <= '${bizdate}'\n    GROUP BY loan_no\n) p ON l.loan_no = p.loan_no\nWHERE l.dt = '${bizdate}'"
+    "description": "Daily loan snapshot with the penalty accrued so far and the borrower's gender as the contract copies it.",
+    "sql": "INSERT OVERWRITE TABLE spark_catalog.demo_dwd.dwd_lending_loan_df PARTITION (dt = '${bizdate}')\nSELECT l.loan_no,\n       l.cust_no AS customer_id,\n       l.orig_loan_no,\n       l.principal AS principal_amt,\n       l.loan_status,\n       COALESCE(p.penalty_amt, 0) AS penalty_amt,\n       l.cust_gender AS customer_gender_cd\nFROM demo_ods.ods_loan_contract_df l\nLEFT JOIN (\n    SELECT loan_no, SUM(penalty) AS penalty_amt\n    FROM demo_ods.ods_loan_penalty_di\n    WHERE dt <= '${bizdate}'\n    GROUP BY loan_no\n) p ON l.loan_no = p.loan_no\nWHERE l.dt = '${bizdate}'"
   }
 }
