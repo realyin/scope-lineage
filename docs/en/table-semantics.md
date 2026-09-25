@@ -14,7 +14,7 @@ deterministic work and never calls a model:
   **material packet** — the table's metadata, each producing task with its SQL, the input
   tables, and the lineage facts the semantic profile already derives;
 - `scope-lineage semantic validate` checks a written `table-semantics/1` document against
-  its JSON Schema and against the packet (nine cross checks), and lists per item what to
+  its JSON Schema and against the packet (thirteen cross checks), and lists per item what to
   rewrite;
 - `scope-lineage semantic confirm` writes a person's answers back into the documents;
 - `scope-lineage semantic render` renders the documents as one page per table and an
@@ -123,6 +123,22 @@ Each filter rule carries `partition_filter` and the `partition_basis` it rests o
 
 The same facts mark `partition` on the target's and the inputs' columns.
 
+Three more facts serve the meaning checks (10–13). Each join rule carries `right` (the
+right side: a `db.table`, or the profile's scope id such as `subq:p`), `right_aliases`
+(the aliases the ON clause and the scope give it), `right_tables` (the physical tables
+behind it) and `fan_out`, the profile's verdict on whether the right side is unique on the
+join keys (`{status, reason, path}`, `status` one of `safe` / `risk` / `unknown`; `null`
+for a join on no path the profile walked); `packet.md` shows it in the rules table's
+行数放大 column. Each column producer carries `case_outputs`: for a column whose last
+computing step is one CASE or IF with only string or number outputs (NULL and `''` aside), one entry per
+value with the branch conditions (`when`), the source values those conditions compare with
+(`source_values`, `null` when a condition is not an equality or `IN` list) and whether
+the ELSE returns it (`catch_all`). Each task carries `header_facts`, the lifecycle
+(`生命周期` / `保留` / `lifecycle` followed by a number of days or `永久`) and data volume
+(`数据规模` / `数据量` followed by a number) its header comment states, read from the
+published header and from the comment lines that open the script; `packet.md` prints them
+as 头注释.
+
 ### Owners and emails
 
 A packet is handed to a model, so it never carries a person: every owner key
@@ -147,7 +163,7 @@ One JSON document per target table. The schema is shipped as
 {
   "doc_format": "table-semantics/1",
   "table": "demo_dwd.dwd_party_customer_info_df",
-  "packet_digest": "d6ca0cf34298f8c1",
+  "packet_digest": "04439862460b03d6",
   "generator": {"prompt": "table-semantics-prompt@0", "model": "hand-written example"},
   "summary": {"what": "...", "row": {}, "refresh": {}, "scope": [], "upstream": [],
               "downstream": [], "good_for": [], "not_for": [], "watch": [], "questions": []},
@@ -234,9 +250,24 @@ document is checked against `<packet dir>/<table>/packet.json`:
 | 7 | `sources` | a sourced item has an empty `sources`, or there are more than five questions | — |
 | 8 | `digest` | `packet_digest` differs from the packet's (stale), or there is no packet for the table | — |
 | 9 | `time` | `refresh.time` is `incremental` while every input is a full snapshot read by one partition and no filter touches a business date | `refresh.time` is `snapshot` while the write filters on a business date |
+| 10 | `fan_out` | the right side of a join whose `fan_out.status` is not `safe` is named — by table (`db.table` or bare) or alias — neither in `summary.row.note` nor in a `summary.watch` item of kind `risk` (one item per right side, however many times it is joined) | a sentence of the note or a watch calls such a LEFT join harmless to the row count (无影响, 不影响行数, 不会放大 …); one warning per place |
+| 11 | `derived_codes` | a literal a column's CASE / IF returns (`case_outputs`) is missing from its `code_values` (one failure per value; NULL, `''` and TRUE / FALSE are not codes) | a code value whose meaning is success-like (成功 / 正常 / 通过 / 有效) comes from a branch that gathers several source values or the ELSE, and neither the column's `watch` nor a `summary.watch` with `refs` `column:<name>` says so |
+| 12 | `documented_meaning` | a code value marked `unconfirmed` or meaning 待确认 is explained by the column's comment or a source column's comment (`0-申请 1-成功` pairs, or a `正常、锁定、删除` list whose label the SQL quotes); a state whose documented meaning is itself 待确认 may say so | a qualifier (`增值税`, `税`, `手续费`, `罚息`, `冲正`, `测试`) in the main input's comment or a source column's comment, absent from the target's comments, is missing from `summary.what` (main input) or from every affected column's meaning / derivation (one warning per term) |
+| 13 | `header_facts` | — | the SQL header states a lifecycle (`header_facts.lifecycle`) or a data volume (`header_facts.volume`) that neither `summary.refresh.how_to_read` nor a watch mentions |
 
 Check 9 exists because a daily full snapshot described as incremental leads a reader to
 add partitions together and count every row once per day.
+
+Checks 1–9 hold a document's form to the packet: every column covered, every source
+cited, every quote found. Checks 10–13 hold what it means, because a page can pass all of
+the first nine and still mislead: a join that repeats rows left unsaid, a derived code
+value left out, a value the comment already explains left as a question, a qualifier
+such as 增值税 or 测试 dropped, a ten-day lifecycle not passed on. They read the packet
+facts described under "What a packet holds" (`fan_out`, `case_outputs`, `header_facts`)
+and the comments; a packet built before those facts existed has none, and those checks
+then find nothing to look at. The qualifier list is `QUALIFIER_TERMS` in
+`scope_lineage/semantics/checks_documented.py`; a term inside a longer one found in the
+same comment (税 in 增值税) is reported once, as the longer term.
 
 The normalization for check 5 lower-cases, drops identifier quotes, table qualifiers,
 whitespace and a leading `WHERE` / `AND` / `ON`, so the lineage's `` `latest`.`rn` = 1 ``,

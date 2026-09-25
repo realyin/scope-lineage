@@ -325,3 +325,77 @@ def test_an_only_run_parses_only_the_documents_it_needs(
     assert pack(CORPUS, packets.parent / "lineage", tmp_path / "x", "--only", DEMO_TABLE) == 0
     # The producer, its two consumers; its one input has no producer in the corpus.
     assert "from 3 task(s)" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- facts for checks 10-13
+
+
+def _joins(packet: dict) -> dict:
+    return {rule["right"]: rule for rule in packet["lineage"]["rules"] if rule["kind"] == "join"}
+
+
+def test_a_join_carries_its_right_side_and_the_profiles_fan_out_verdict(packets: Path) -> None:
+    joins = _joins(packet_of(packets, "demo_dwd.dwd_lending_borrower_df"))
+    limit = joins["demo_ods.ods_credit_limit_df"]
+    assert (limit["join_type"], limit["right_aliases"]) == ("LEFT_OUTER", ["cr"])
+    assert limit["right_tables"] == ["demo_ods.ods_credit_limit_df"]
+    assert limit["fan_out"]["status"] in {"risk", "unknown"}
+    assert limit["fan_out"]["reason"]
+
+
+def test_a_join_onto_a_grouped_subquery_is_published_as_safe(packets: Path) -> None:
+    (penalty,) = _joins(packet_of(packets, "demo_dwd.dwd_lending_loan_df")).values()
+    assert penalty["right"] == "subq:p"
+    assert penalty["right_aliases"] == ["p"]
+    assert penalty["right_tables"] == ["demo_ods.ods_loan_penalty_di"]
+    assert penalty["fan_out"]["status"] == "safe"
+
+
+def test_packets_without_a_case_or_a_header_carry_empty_facts(customer: dict) -> None:
+    (task,) = customer["tasks"]
+    assert task["header_facts"] == {"lifecycle": None, "volume": None}
+    producers = [p for c in customer["lineage"]["columns"] for p in c["producers"]]
+    assert all(producer["case_outputs"] == [] for producer in producers)
+
+
+@pytest.fixture(scope="module")
+def coded(tmp_path_factory) -> dict:
+    """The demo with a CASE-derived code column and a lifecycle in the script header."""
+    work = tmp_path_factory.mktemp("coded")
+    corpus = copy_corpus(work / "corpus")
+    task = corpus / "tasks" / "dwd_party_customer_info_daily.json"
+    data = read_json(task)
+    sql = data["meta"]["sql"].replace(
+        "verify_flag AS verify_status,  -- 1 已实名, 0 未实名",
+        "CASE WHEN verify_flag IN (1, 2) THEN '1' ELSE '0' END AS verify_status,",
+    )
+    data["meta"]["sql"] = f"-- 数据规模\t130万\n-- 生命周期\t10天\n{sql}"
+    write_json(task, data)
+    lineage = parse_corpus(corpus, work / "lineage")
+    assert pack(corpus, lineage, work / "packets", "--only", DEMO_TABLE) == 0
+    return packet_of(work / "packets")
+
+
+def test_a_case_column_publishes_its_literal_outputs(coded: dict) -> None:
+    column = next(c for c in coded["lineage"]["columns"] if c["column"] == "verify_status")
+    (producer,) = column["producers"]
+    assert [(o["value"], o["source_values"], o["catch_all"]) for o in producer["case_outputs"]] == [
+        ("1", ["1", "2"], False), ("0", [], True),
+    ]
+
+
+def test_a_task_publishes_the_lifecycle_and_volume_its_header_states(coded: dict) -> None:
+    (task,) = coded["tasks"]
+    assert task["header_facts"] == {"lifecycle": "10天", "volume": "130万"}
+
+
+def test_the_markdown_packet_shows_each_joins_fan_out_verdict(packets: Path) -> None:
+    text = (packets / "demo_dwd.dwd_lending_loan_df" / "packet.md").read_text(encoding="utf-8")
+    assert "| 编号 | 类型 | 表达式 | 分区过滤 | 涉及表 | 行数放大 | 说明 |" in text
+    assert "| safe：右侧按 loan_no GROUP BY" in text
+
+
+def test_the_markdown_packet_shows_the_header_facts(coded: dict) -> None:
+    from scope_lineage.semantics import render_packet_markdown
+
+    assert "- 头注释：生命周期 10天；数据规模 130万" in render_packet_markdown(coded)

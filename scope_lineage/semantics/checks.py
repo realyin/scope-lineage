@@ -1,9 +1,11 @@
-"""The nine cross checks of a ``table-semantics/1`` document against its packet.
+"""The cross checks of a ``table-semantics/1`` document against its packet, and checks 1-4.
 
 Each check returns one result per item it looked at -- ``pass``, ``warn`` or ``fail``
 with the path of the item (``columns[2].source_columns[0]``) and, when it is not a pass,
 a sentence saying what to change. A document reaches these only once it is legal under
-the schema, so every key the schema requires is present.
+the schema, so every key the schema requires is present. Checks 1-9 hold the document's
+form to the packet (``checks``, ``checks_context``); checks 10-13 hold what it means
+(``checks_meaning``, ``checks_documented``).
 """
 
 from __future__ import annotations
@@ -22,6 +24,10 @@ CHECKS = (
     "sources",
     "digest",
     "time",
+    "fan_out",
+    "derived_codes",
+    "documented_meaning",
+    "header_facts",
 )
 MAX_QUESTIONS = 5
 
@@ -121,18 +127,22 @@ def check_code_values(document: dict, packet: dict) -> list[dict]:
 
 def _column_comments(packet: dict, name: str) -> str:
     """The target column's comment and the comments of the columns it comes from."""
-    comments = [c["comment"] or "" for c in packet["target"]["columns"] if c["name"] == name]
+    target = [c["comment"] or "" for c in packet["target"]["columns"] if c["name"] == name]
+    return "\n".join(target + [comment for _, comment in source_comments(packet, name)])
+
+
+def source_comments(packet: dict, name: str) -> list[tuple[str, str]]:
+    """``(db.table.column, comment)`` for each commented input column a target column reads."""
     sources = {
         source
         for entry in packet["lineage"]["columns"] if entry["column"] == name
         for producer in entry["producers"] for source in producer["sources"]
     }
-    comments += [
-        column["comment"] or ""
+    return [
+        (f"{item['table']}.{column['name']}", column["comment"])
         for item in packet["inputs"] for column in item["columns"]
-        if f"{item['table']}.{column['name']}" in sources
+        if f"{item['table']}.{column['name']}" in sources and column["comment"]
     ]
-    return "\n".join(comments)
 
 
 # 4 ------------------------------------------------------------------ grain

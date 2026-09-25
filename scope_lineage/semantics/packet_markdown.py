@@ -71,12 +71,21 @@ def _tasks(tasks: list[dict]) -> list[str]:
             f"- 登记的上游任务：{_names(task['upstream_tasks'])}；"
             f"登记的下游任务：{_names(task['downstream_tasks'])}",
             f"- 写入语句：{_names(task['statements'])}；来源文件：{_text(task['source_file'])}",
+            *_header_facts(task.get("header_facts") or {}),
             "",
         ]
         lines += [f"> {comment}" for comment in task["header_comments"]]
         lines += [""] if task["header_comments"] else []
         lines += _sql(task["sql"])
     return lines
+
+
+def _header_facts(facts: dict) -> list[str]:
+    stated = [
+        f"{label} {facts[key]}"
+        for key, label in (("lifecycle", "生命周期"), ("volume", "数据规模")) if facts.get(key)
+    ]
+    return [f"- 头注释：{'；'.join(stated)}"] if stated else []
 
 
 def _sql(sql) -> list[str]:
@@ -148,18 +157,28 @@ def _rules(rules: list[dict]) -> list[str]:
     lines = [
         "### 4.2 规则（过滤 / 关联 / 去重 / 合并 / 分支）",
         "",
-        "| 编号 | 类型 | 表达式 | 分区过滤 | 涉及表 | 说明 |",
-        "| --- | --- | --- | --- | --- | --- |",
+        "| 编号 | 类型 | 表达式 | 分区过滤 | 涉及表 | 行数放大 | 说明 |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
     ]
     lines += [
         f"| {rule['id']} | {rule['kind']}{('（' + rule['join_type'] + '）') if rule.get('join_type') else ''} | "
         f"{_code(rule['expression'])} | {'是' if rule['partition_filter'] else ''} | "
-        f"{_names(rule['tables'])} | {_text(rule.get('text'))} |"
+        f"{_names(rule['tables'])} | {_fan_out(rule)} | {_text(rule.get('text'))} |"
         for rule in rules
     ]
     if not rules:
-        lines.append("| — | — | — | — | — | — |")
+        lines.append("| — | — | — | — | — | — | — |")
     return [*lines, ""]
+
+
+def _fan_out(rule: dict) -> str:
+    """A JOIN's verdict (anything but ``safe`` must be named in the document); else blank."""
+    if rule["kind"] != "join":
+        return ""
+    verdict = rule.get("fan_out")
+    if not verdict:
+        return "不在输出路径上"
+    return _text(f"{verdict['status']}：{verdict['reason']}")
 
 
 def _keys(keys: list[dict], partitions: list[dict]) -> list[str]:
