@@ -72,6 +72,11 @@ class SchemaMap(dict):
             normalize_table_name(table): _normalize_table_detail(table, detail, include_table_name=False)
             for table, detail in (table_details or {}).items()
         }
+        # Partition columns the metadata *states*, per table: a column flagged
+        # ``isPartition`` or named by ``PARTITIONED BY``. Kept beside the column details
+        # rather than inside them, so the details the contract publishes do not change;
+        # a table the metadata said nothing about has no entry at all.
+        self.partition_columns: dict[str, list[str]] = {}
         self.table_detail_provider = None
         self.metadata_conflicts: list[dict] = []
         self.metadata_source_count = 1
@@ -303,6 +308,7 @@ def load_schema(
     *,
     sanitize_nul: bool = False,
     provenance: list[dict] | None = None,
+    only_tables: Iterable[str] | None = None,
 ) -> SchemaMap:
     """Load source-table schema metadata from CSV, JSON, or a rich-JSON directory.
 
@@ -318,13 +324,17 @@ def load_schema(
       - ``{"db.table": {"column_details": [{"name": "c1"}]}}``
       - ``[{"table_name": "db.table", "column_name": "c1"}]``
       - ``{"tables": [{"table_name": "db.table", "columns": ["c1"]}]}``
+
+    ``only_tables`` narrows a rich-JSON *directory* to the files naming one of those
+    tables; a single file is read whole either way.
     """
 
     path = Path(path)
     if path.is_dir():
         return _raise_if_nothing_loaded(
             _load_schema_metadata_directory(
-                path, sanitize_nul=sanitize_nul, provenance=provenance
+                path, sanitize_nul=sanitize_nul, provenance=provenance,
+                only_tables=only_tables,
             )
         )
     suffix = path.suffix.lower()
@@ -344,6 +354,7 @@ def load_schema_sources(
     *,
     sanitize_nul: bool = False,
     provenance: list[dict] | None = None,
+    only_tables: Iterable[str] | None = None,
 ) -> SchemaMap:
     """Load ordered schema sources, keeping the first table definition as authoritative.
 
@@ -354,7 +365,10 @@ def load_schema_sources(
     for path in paths:
         try:
             loaded.append(
-                load_schema(path, sanitize_nul=sanitize_nul, provenance=provenance)
+                load_schema(
+                    path, sanitize_nul=sanitize_nul, provenance=provenance,
+                    only_tables=only_tables,
+                )
             )
         except MetadataFileError as exc:
             # One source yielding nothing costs that source. On-demand loading passes a
@@ -381,6 +395,7 @@ def load_schema_sources(
         "table_detail_provider",
         None,
     )
+    result.partition_columns = dict(getattr(loaded[0], "partition_columns", {}))
     # Rejected tables are carried across every source: a table whose metadata was supplied
     # and refused is a different problem from one nobody supplied, and only this list can
     # tell the two apart downstream.
@@ -397,6 +412,9 @@ def load_schema_sources(
                     result.column_details[table] = [
                         dict(item) for item in details
                     ]
+                partitions = getattr(fallback, "partition_columns", {}).get(table)
+                if partitions:
+                    result.partition_columns[table] = list(partitions)
                 continue
             if list(result[table]) != list(columns):
                 result.metadata_conflicts.append({
@@ -469,6 +487,7 @@ def load_schema_csv(
                 "name": column,
                 "type": row.get("type") or row.get("data_type") or row.get("column_type"),
                 "comment": row.get("comment") or row.get("column_comment"),
+                **{key: row[key] for key in _COLUMN_PARTITION_KEYS if row.get(key)},
             }
             _append_schema_column(schema, table, detail)
     return schema
@@ -585,6 +604,7 @@ def _load_schema_metadata_directory(
     *,
     sanitize_nul: bool,
     provenance: list[dict] | None,
+    only_tables: Iterable[str] | None = None,
 ) -> SchemaMap:
     # Import lazily because the target metadata module uses the shared file-reading
     # helpers above. Rich table metadata is deliberately one contract for source
@@ -596,6 +616,7 @@ def _load_schema_metadata_directory(
         sanitize_nul=sanitize_nul,
         provenance=provenance,
         provenance_role="schema",
+        only_tables=only_tables,
     )
     schema = SchemaMap()
     for item in metadata.values():
@@ -641,16 +662,17 @@ def _append_loaded_table_schema(schema: SchemaMap, item, source_path: Path) -> N
         return
     table = item.table_name or item.full_table_name
     _append_table_detail(schema, table, item.table_detail)
-    for column in item.columns:
-        _append_schema_column(
-            schema,
-            table,
-            {
-                "name": column.name,
-                "type": column.data_type,
-                "comment": column.comment,
-            },
-        )
+    _record_partition_columns(schema, table, item.partition_columns)
+    # One merge for the whole table: merging column by column rebuilt the table's detail
+    # index once per column, quadratic in its width.
+    _append_schema_columns(
+        schema,
+        table,
+        [
+            {"name": column.name, "type": column.data_type, "comment": column.comment}
+            for column in item.columns
+        ],
+    )
 
 
 def _iter_column_details(columns) -> Iterable[dict]:
@@ -668,16 +690,68 @@ def _iter_column_details(columns) -> Iterable[dict]:
     return details
 
 
+def _append_schema_columns(schema: SchemaMap, table: str, columns: list[dict]) -> None:
+    table_key = normalize_table_name(table)
+    details = [_normalize_column_detail(column) for column in columns]
+    details = [detail for detail in details if detail["name"]]
+    if not table_key or not details:
+        return
+    cols = schema.setdefault(table_key, [])
+    seen = set(cols)
+    for detail in details:
+        if detail["name"] not in seen:
+            cols.append(detail["name"])
+            seen.add(detail["name"])
+    _merge_column_details(schema, table_key, details)
+
+
 def _append_schema_column(schema: SchemaMap, table: str, column: str | dict) -> None:
     table_key = normalize_table_name(table)
     detail = _normalize_column_detail(column)
     column_name = detail["name"]
     if not table_key or not column_name:
         return
+    if isinstance(column, Mapping) and _column_partition_flag(column):
+        _record_partition_columns(schema, table_key, [column_name])
     cols = schema.setdefault(table_key, [])
     if column_name not in cols:
         cols.append(column_name)
     _merge_column_details(schema, table_key, [detail])
+
+
+# The spellings a column entry states "I am a partition column" with.
+_COLUMN_PARTITION_KEYS = ("isPartition", "is_partition", "partition")
+
+
+def _column_partition_flag(column: Mapping) -> bool:
+    for key in _COLUMN_PARTITION_KEYS:
+        value = column.get(key)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if value is not None and str(value).strip():
+            return str(value).strip().lower() in _TRUE_TEXT
+    return False
+
+
+def _record_partition_columns(schema: SchemaMap, table: str, columns: Iterable[str]) -> None:
+    table_key = normalize_table_name(table)
+    names = [str(name).strip().strip("`").lower() for name in columns if str(name).strip()]
+    if not table_key or not names:
+        return
+    known = schema.partition_columns.setdefault(table_key, [])
+    known.extend(name for name in names if name not in known)
+
+
+def partition_columns_for_table(schema: Mapping, table_name: str) -> list[str] | None:
+    """The partition columns the metadata states for a table, or None when it states none.
+
+    None is "the metadata does not say", never "the table has no partitions": most
+    exports flag nothing, and a reader must fall back rather than conclude.
+    """
+    known = getattr(schema, "partition_columns", {}).get(normalize_table_name(table_name))
+    return list(known) if known else None
 
 
 def _column_details_from_columns(columns) -> list[dict]:

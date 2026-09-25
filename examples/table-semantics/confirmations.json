@@ -1,0 +1,37 @@
+{
+  "doc_format": "semantic-confirmations/1",
+  "confirmations": [
+    {
+      "table": "demo_dwd.dwd_party_customer_info_df",
+      "target": "question:q1",
+      "value": "不会。注册系统只允许 F、M、U 三个值。",
+      "by": "demo-reviewer",
+      "date": "2026-09-26"
+    },
+    {
+      "table": "demo_dwd.dwd_party_customer_info_df",
+      "target": "column:verify_status.meaning",
+      "value": "实名认证状态",
+      "by": "demo-reviewer",
+      "date": "2026-09-26"
+    },
+    {
+      "table": "demo_dwd.dwd_party_customer_info_df",
+      "target": "column:gender_cd.code_values",
+      "value": [
+        {"value": "F", "meaning": "女"},
+        {"value": "M", "meaning": "男"},
+        {"value": "U", "meaning": "未知"}
+      ],
+      "by": "demo-reviewer",
+      "date": "2026-09-26"
+    },
+    {
+      "table": "demo_dwd.dwd_party_customer_info_df",
+      "target": "summary.row",
+      "value": {"unique": "yes", "note": "同一个 dt 分区内按客户号唯一，业务方已确认。"},
+      "by": "demo-reviewer",
+      "date": "2026-09-26"
+    }
+  ]
+}

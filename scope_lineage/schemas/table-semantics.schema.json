@@ -1,0 +1,240 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "table-semantics/1",
+  "description": "What one target table means, written for people over a deterministic material packet. The shape is checked here; agreement with the packet is `semantic validate`'s cross checks, which also own the counts (non-empty sources, at most five questions).",
+  "type": "object",
+  "required": ["doc_format", "table", "packet_digest", "summary", "columns", "steps", "rules"],
+  "additionalProperties": false,
+  "oneOf": [
+    {"required": ["task"], "not": {"required": ["tasks"]}},
+    {"required": ["tasks"], "not": {"required": ["task"]}}
+  ],
+  "properties": {
+    "doc_format": {"const": "table-semantics/1"},
+    "table": {"$ref": "#/definitions/table"},
+    "packet_digest": {"type": "string", "minLength": 1},
+    "generator": {
+      "type": "object",
+      "required": ["prompt"],
+      "additionalProperties": false,
+      "properties": {
+        "prompt": {"type": "string", "minLength": 1},
+        "model": {"type": "string"}
+      }
+    },
+    "summary": {"$ref": "#/definitions/summary"},
+    "columns": {"type": "array", "items": {"$ref": "#/definitions/column"}},
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 7,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "rules": {"type": "array", "items": {"$ref": "#/definitions/rule"}},
+    "task": {"$ref": "#/definitions/task"},
+    "tasks": {"type": "array", "minItems": 1, "items": {"$ref": "#/definitions/task"}},
+    "concept": {
+      "type": "object",
+      "required": ["concept"],
+      "additionalProperties": false,
+      "properties": {
+        "concept": {"type": "string", "pattern": "^concept:[a-z0-9_.]+$"},
+        "representation_kind": {"type": "string"}
+      }
+    },
+    "confirmed": {
+      "description": "Written by `semantic confirm`: every confirmation applied to this document, in order.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["target", "by", "date"],
+        "additionalProperties": false,
+        "properties": {
+          "target": {"type": "string"},
+          "by": {"type": "string"},
+          "date": {"type": "string"}
+        }
+      }
+    }
+  },
+  "definitions": {
+    "table": {"type": "string", "pattern": "^[^.\\s]+\\.[^.\\s]+$"},
+    "text": {"type": "string", "minLength": 1},
+    "sources": {
+      "type": "array",
+      "items": {"enum": ["comment", "sql", "sql_comment", "metadata", "task", "inferred", "confirmed"]}
+    },
+    "confidence": {"enum": ["high", "medium", "low"]},
+    "summary": {
+      "type": "object",
+      "required": ["what", "row", "refresh", "scope", "upstream", "downstream", "good_for", "not_for", "watch", "questions"],
+      "additionalProperties": false,
+      "properties": {
+        "what": {"$ref": "#/definitions/text"},
+        "row": {"$ref": "#/definitions/row"},
+        "refresh": {"$ref": "#/definitions/refresh"},
+        "scope": {"type": "array", "items": {"$ref": "#/definitions/scope"}},
+        "upstream": {"type": "array", "items": {"$ref": "#/definitions/upstream"}},
+        "downstream": {"type": "array", "items": {"$ref": "#/definitions/downstream"}},
+        "good_for": {"type": "array", "items": {"$ref": "#/definitions/text"}},
+        "not_for": {"type": "array", "items": {"$ref": "#/definitions/text"}},
+        "watch": {"type": "array", "items": {"$ref": "#/definitions/watch"}},
+        "questions": {"type": "array", "items": {"$ref": "#/definitions/question"}}
+      }
+    },
+    "row": {
+      "type": "object",
+      "required": ["text", "grain_columns", "grain_source", "unique", "sources"],
+      "additionalProperties": false,
+      "properties": {
+        "text": {"$ref": "#/definitions/text"},
+        "grain_columns": {"type": "array", "items": {"$ref": "#/definitions/text"}},
+        "grain_source": {"enum": ["declared", "inferred", "proven"]},
+        "unique": {"enum": ["yes", "no", "unknown"]},
+        "note": {"type": "string"},
+        "sources": {"$ref": "#/definitions/sources"},
+        "confidence": {"$ref": "#/definitions/confidence"},
+        "watch": {"type": "string"}
+      }
+    },
+    "refresh": {
+      "type": "object",
+      "required": ["cycle", "time", "how_to_read", "sources"],
+      "additionalProperties": false,
+      "properties": {
+        "cycle": {"$ref": "#/definitions/text"},
+        "time": {"enum": ["snapshot", "incremental", "zipper", "unknown"]},
+        "how_to_read": {"$ref": "#/definitions/text"},
+        "sources": {"$ref": "#/definitions/sources"},
+        "confidence": {"$ref": "#/definitions/confidence"},
+        "watch": {"type": "string"}
+      }
+    },
+    "scope": {
+      "type": "object",
+      "required": ["text", "sources"],
+      "additionalProperties": false,
+      "properties": {
+        "text": {"$ref": "#/definitions/text"},
+        "rule_refs": {"type": "array", "items": {"type": "string"}},
+        "sources": {"$ref": "#/definitions/sources"},
+        "confidence": {"$ref": "#/definitions/confidence"},
+        "watch": {"type": "string"}
+      }
+    },
+    "upstream": {
+      "type": "object",
+      "required": ["table", "role", "provides", "sources"],
+      "additionalProperties": false,
+      "properties": {
+        "table": {"type": "string", "minLength": 1},
+        "role": {"enum": ["main", "enrich", "filter", "dedup", "union_branch", "lookup", "other"]},
+        "provides": {"$ref": "#/definitions/text"},
+        "sources": {"$ref": "#/definitions/sources"},
+        "confidence": {"$ref": "#/definitions/confidence"},
+        "watch": {"type": "string"}
+      }
+    },
+    "downstream": {
+      "type": "object",
+      "required": ["task"],
+      "additionalProperties": false,
+      "properties": {
+        "task": {"$ref": "#/definitions/text"},
+        "table": {"type": "string", "minLength": 1}
+      }
+    },
+    "watch": {
+      "type": "object",
+      "required": ["text", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "text": {"$ref": "#/definitions/text"},
+        "kind": {"enum": ["conflict", "risk", "deprecated", "coverage", "other"]},
+        "refs": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "question": {
+      "type": "object",
+      "required": ["id", "text", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "pattern": "^q[0-9]+$"},
+        "text": {"$ref": "#/definitions/text"},
+        "about": {"type": "array", "items": {"type": "string"}},
+        "status": {"enum": ["open", "answered"]},
+        "answer": {"type": "string"},
+        "answered_by": {"type": "string"},
+        "answered_on": {"type": "string"}
+      }
+    },
+    "column": {
+      "type": "object",
+      "required": ["column", "meaning", "category", "derivation", "sources", "confidence"],
+      "additionalProperties": false,
+      "properties": {
+        "column": {"$ref": "#/definitions/text"},
+        "meaning": {"$ref": "#/definitions/text"},
+        "category": {"enum": ["identifier", "foreign_identifier", "descriptive", "state", "measure", "time", "technical"]},
+        "derivation": {"type": "string"},
+        "branches": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["branch", "text"],
+            "additionalProperties": false,
+            "properties": {
+              "branch": {"$ref": "#/definitions/text"},
+              "text": {"$ref": "#/definitions/text"}
+            }
+          }
+        },
+        "source_columns": {"type": "array", "items": {"type": "string", "pattern": "^[^.\\s]+(\\.[^.\\s]+){2,3}$"}},
+        "code_values": {"type": "array", "items": {"$ref": "#/definitions/code_value"}},
+        "unit": {"type": "string"},
+        "null_meaning": {"type": "string"},
+        "watch": {"type": "string"},
+        "sources": {"$ref": "#/definitions/sources"},
+        "confidence": {"$ref": "#/definitions/confidence"}
+      }
+    },
+    "code_value": {
+      "type": "object",
+      "required": ["value", "meaning", "sources"],
+      "additionalProperties": false,
+      "properties": {
+        "value": {"type": "string"},
+        "meaning": {"$ref": "#/definitions/text"},
+        "sources": {"$ref": "#/definitions/sources"},
+        "unconfirmed": {"type": "boolean"}
+      }
+    },
+    "rule": {
+      "type": "object",
+      "required": ["id", "kind", "text", "sources"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "pattern": "^r[0-9]+$"},
+        "kind": {"enum": ["filter", "join", "dedup", "derive", "union", "other"]},
+        "text": {"$ref": "#/definitions/text"},
+        "sql": {"type": "string", "minLength": 1},
+        "sources": {"$ref": "#/definitions/sources"},
+        "confidence": {"$ref": "#/definitions/confidence"},
+        "watch": {"type": "string"}
+      }
+    },
+    "task": {
+      "type": "object",
+      "required": ["name", "purpose", "outputs"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"$ref": "#/definitions/text"},
+        "purpose": {"$ref": "#/definitions/text"},
+        "cycle": {"type": "string"},
+        "outputs": {"type": "array", "items": {"type": "string"}},
+        "upstream_tasks": {"type": "array", "items": {"type": "string"}},
+        "downstream_tasks": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}

@@ -24,6 +24,8 @@ REQUIRED_CORE_PATHS = {
     "scope_lineage/schemas/lineage-v2.schema.json",
     "scope_lineage/schemas/lineage.schema.json",
     "scope_lineage/schemas/ontology-v3.schema.json",
+    "scope_lineage/schemas/semantic-confirmations.schema.json",
+    "scope_lineage/schemas/table-semantics.schema.json",
 }
 
 

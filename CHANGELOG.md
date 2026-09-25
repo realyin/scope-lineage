@@ -1,6 +1,43 @@
 # Changelog
 
 ## Unreleased
+- **Table semantics: `semantic packet`, `semantic validate`, `semantic confirm`.** A new
+  document, `table-semantics/1` (schema `scope_lineage/schemas/table-semantics.schema.json`),
+  says what one target table means for a business reader: a one-page summary (what it is,
+  what a row is, how it refreshes and how to read it, which records it keeps, upstream and
+  downstream, good for / not for, what to watch, at most five open questions), every
+  column in table order with meaning, derivation, source columns and code values, the
+  processing steps and the rules with their SQL quoted, each item carrying its sources. A
+  model writes it; Core does the deterministic halves. `semantic packet --lineage --tasks
+  [--schema --schema-fallback --tables --only] --out` writes `<db.table>/packet.md` and
+  `packet.json` per target table: its metadata, each producing task with its SQL, the
+  input tables (with how their partitions are read), and the lineage facts the semantic
+  profile derives (column sources and steps, filters / joins / dedups / unions, proven
+  keys, upstream and downstream), plus a `packet_digest`; owner keys are dropped and every
+  email masked, SQL included. `semantic validate <dir> --packets <dir> [--json]` checks a
+  document against the schema and nine cross checks (coverage and order of the columns,
+  source columns in the lineage, code values in a comment or the SQL, a proven grain
+  backed by a proven key, every non-partition filter cited and every quoted SQL found,
+  upstream and downstream known, sources present and at most five questions, the digest
+  current, and time semantics: `incremental` over full single-partition snapshots fails,
+  `snapshot` over a business-date filter warns), reporting a pass rate per table and a
+  per-item failure list meant as a rewrite prompt; it exits 1 on a schema error only.
+  `semantic confirm <dir> --confirmations <file> [--out]` applies a
+  `semantic-confirmations/1` file (answers to questions, a column's meaning or code values,
+  the row statement), marks each changed item `confirmed`, logs it, and lists what matched
+  nothing. `describe`'s semantic profile becomes an input to the packet. A hand-written
+  example document and confirmations for a demo table are in `examples/table-semantics/`;
+  the demo corpus's customer task gains two inline code-value comments. Whether a filter
+  reads partitions is decided per conjunct in the packet (`partition_basis`): the schema
+  metadata's `isPartition` / `PARTITIONED BY` first -- the loaders now keep that flag as
+  `SchemaMap.partition_columns` (`partition_columns_for_table`) without changing the
+  published column details -- then a constant comparison on `dt` / `ds` / `pt` / `p_date`
+  of a table marked partitioned, then the lineage's own flag. With `--only`, only the
+  lineage documents naming a requested table are parsed and profiled, and a metadata
+  directory is narrowed to the files naming the tables described
+  (`load_schema(..., only_tables=...)`); a table's columns are merged in one pass instead
+  of once per column. Guide:
+  `docs/*/table-semantics.md`.
 - **Concept pages open with a one-page overview in plain Chinese.** Every
   `concepts/<slug>.md` now starts with a status line (kind · domain · the page's drafted
   share) and 一页纸概览: 是什么, 怎么认出来 (each identifier by name, when it arises and its

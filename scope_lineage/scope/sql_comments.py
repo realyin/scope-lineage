@@ -103,7 +103,30 @@ def comments_in_sql(text: object) -> list[str]:
     the author's commentary.
     """
     source = str(text or "")
-    collected: list[str] = []
+    return normalize(source[start:end] for start, end in _comment_bodies(source))
+
+
+def redact_comments_in_sql(text: object) -> str:
+    """The SQL text with :func:`redact` applied to its comments and nothing else.
+
+    For a consumer that republishes a script as written (a table-semantics packet quotes
+    each task's SQL) rather than re-rendering a parsed tree: the same scan
+    :func:`comments_in_sql` reads with, so a quoted ``'-- x'`` stays data and a digit run
+    in an expression is never mistaken for a phone number.
+    """
+    source = str(text or "")
+    pieces: list[str] = []
+    cursor = 0
+    for start, end in _comment_bodies(source):
+        pieces.append(source[cursor:start])
+        pieces.append(redact(source[start:end]))
+        cursor = end
+    pieces.append(source[cursor:])
+    return "".join(pieces)
+
+
+def _comment_bodies(source: str):
+    """``(start, end)`` of every comment body in ``source``, markers excluded, in order."""
     index = 0
     length = len(source)
     while index < length:
@@ -114,16 +137,15 @@ def comments_in_sql(text: object) -> list[str]:
         if char == "/" and source.startswith("/*", index):
             end = source.find("*/", index + 2)
             end = length if end == -1 else end
-            collected.append(source[index + 2:end])
+            yield index + 2, end
             index = (end + 2) if end < length else length
             continue
         if char == "-" and source.startswith("--", index):
             end = _line_end(source, index)
-            collected.append(source[index + 2:end])
+            yield index + 2, end
             index = end
             continue
         index += 1
-    return normalize(collected)
 
 
 def strip_comments(tree: exp.Expression | None) -> None:
