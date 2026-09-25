@@ -446,6 +446,10 @@ scope-lineage semantic packet --lineage <artifacts-root> --tasks <task-json-dir>
 scope-lineage semantic validate <docs> --packets <packets> --json > <report.json>
 # 5. rewrite only the failed items (the prompt's 「校验不通过时（重写）」 section, fed the
 #    table's failures from the report), then validate again; stop when nothing fails
+# 5a. independent review: a separate model call reads the packet and the document with
+#     references/table-semantics-review-prompt.md and lists factual errors (high/medium/low)
+# 5b. fix: a model call applies the findings with references/table-semantics-fix-prompt.md,
+#     re-reads the whole page for contradictions, then validate again
 # 6. pages: one per table plus index.md; --ontology when a catalog exists
 scope-lineage semantic render <docs> --out <pages>/semantics \
   --validation <report.json> [--ontology <dir>/ontology.json]
@@ -461,6 +465,10 @@ scope-lineage semantic confirm <docs> --confirmations <answers.json>
   让它写 `concept`；有已确认的业务事实（例如某个标识的含义）时，作为「已确认事实」一并给它。
 - **重写**：只把失败清单里这张表的条目交回模型，已通过的条目不许动；同一处连续两轮还失败，就把它留给
   owner（写成 `questions` 或 `watch`），不要硬凑到通过。第 8 项（`digest`）失败表示材料包变了，要整份重写。
+- **审读与修订**：校验只能保证形式（覆盖、出处、原文、分区），保证不了含义。每张表写完、校验通过后，
+  另起一次调用做**独立审读**（不是写作者自己复查），只给材料包、文档和已确认事实；再按审读意见修订，修订后
+  通读全页消除前后矛盾，并把推断与事实分开。一轮就够；修订后再审读一轮只针对「全页一致、推断与事实、
+  已确认事实、兄弟表」四项。不要把验收问题集交给写作、审读或修订的调用，那是考卷。
 - **渲染**：`--out` 放在 `catalog render` 的输出目录下（`<pages>/semantics`），表语义页里的
   `../concepts/<slug>.md` 才能打开；`catalog render --semantics` 反过来让概念页里列出的每张表链到它的表语义页。
   页面上 ✓ 是已确认、⚠ 是矛盾或风险、✗n 是校验未通过（文末「校验」有说明），`值（含义待确认）` 是只有值
@@ -522,6 +530,11 @@ documented uncertainty).
   catalog: which `catalog query` kind answers which question, when to fall back to the
   rendered concept page, how to report status, evidence and conflicts, and what to say when
   nothing matches. Read when a catalog (`catalog-yaml/1`) or its `ontology.json` exists.
+- `references/table-semantics-review-prompt.md` — the independent review checklist (15 items, from
+  grain and derived-code NULLs to page consistency and sibling tables) that finds factual errors
+  validation cannot. Read when running the review step.
+- `references/table-semantics-fix-prompt.md` — how to apply review findings and re-read the page for
+  contradictions. Read when running the fix step.
 - `references/table-semantics-prompt.md` — the prompt a model writes one
   `table-semantics/1` document from, given one table's `packet.md`: the one-page summary
   first, then every column in table order, the steps, the rules with their SQL quoted and
