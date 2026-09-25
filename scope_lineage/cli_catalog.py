@@ -47,6 +47,23 @@ def add_catalog_parser(subcommands) -> None:
         help="Print the catalog-report/1 JSON (errors[], warnings[], counts) instead of text",
     )
     _add_build_parser(actions)
+    _add_render_parser(actions)
+
+
+def _add_render_parser(actions) -> None:
+    render_cmd = actions.add_parser(
+        "render",
+        help=(
+            "Write the catalog's pages from a built ontology.json: index.md, "
+            "identifiers.md, governance.md and one six-section page per concept"
+        ),
+    )
+    render_cmd.add_argument("ontology", help=f"An {ONTOLOGY_FILENAME} written by `catalog build`")
+    render_cmd.add_argument(
+        "--out",
+        required=True,
+        help="Directory for index.md, identifiers.md, governance.md and concepts/<slug>.md",
+    )
 
 
 def _add_build_parser(actions) -> None:
@@ -76,6 +93,8 @@ def _add_build_parser(actions) -> None:
 
 
 def run_catalog(args: argparse.Namespace) -> int:
+    if args.catalog_action == "render":
+        return _run_render(args)
     try:
         catalog = load_catalog(args.directory)
     except CatalogError as error:
@@ -96,6 +115,31 @@ def run_catalog(args: argparse.Namespace) -> int:
     if isinstance(evidence, int):
         return evidence
     return _write_ontology(catalog, Path(args.out), *evidence)
+
+
+def _load_ontology(path: str):
+    """A built ``ontology-json/3`` document, or the exit code (2 unreadable, 1 wrong format)."""
+    from .cli import _load_corpus_document
+    from .render.catalog_view import ONTOLOGY_FORMAT
+
+    return _load_corpus_document(path, "ontology", ONTOLOGY_FORMAT)
+
+
+def _run_render(args: argparse.Namespace) -> int:
+    from .render.catalog_pages import CONCEPTS_DIR, render_catalog_pages
+
+    document = _load_ontology(args.ontology)
+    if isinstance(document, int):
+        return document
+    out = Path(args.out)
+    pages = render_catalog_pages(document)
+    for name, text in pages.items():
+        target = out / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+    concepts = sum(1 for name in pages if name.startswith(f"{CONCEPTS_DIR}/"))
+    print(f"Rendered {len(pages)} page(s) ({concepts} concept page(s)) -> {out}")
+    return 0
 
 
 def _evidence_inputs(args: argparse.Namespace):
@@ -133,9 +177,7 @@ def _write_ontology(catalog, out: Path, lineage=None, tables=None) -> int:
     document = attach_evidence(build_ontology(catalog), lineage=lineage, tables=tables)
     out.mkdir(parents=True, exist_ok=True)
     target = out / ONTOLOGY_FILENAME
-    target.write_text(
-        json.dumps(document, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
+    target.write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     counts = document["counts"]
     print(
         f"Built {document['doc_format']} from catalog {catalog.name}: "

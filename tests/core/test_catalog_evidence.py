@@ -178,9 +178,7 @@ def test_a_hand_written_derivation_is_never_supplemented(built: dict) -> None:
 def test_a_declared_column_nobody_uses_is_marked(built: dict) -> None:
     bindings = built["evidence"]["bindings"]
 
-    assert bindings["demo_dwd.dwd_lending_loan_status_his.loan_status"] == {
-        "declared_only": True
-    }
+    assert bindings["demo_dwd.dwd_lending_loan_status_his.loan_status"] == {"declared_only": True}
     assert "declared_only" not in bindings["demo_dwd.dwd_lending_loan_df.principal_amt"]
 
 
@@ -264,7 +262,9 @@ def test_build_reports_what_the_evidence_matched(corpus: Path, tmp_path: Path, c
 def test_build_with_tables_only_carries_the_card_counts(tables_json: Path, tmp_path: Path) -> None:
     out = tmp_path / "out"
 
-    assert main(["catalog", "build", str(DEMO), "--out", str(out), "--tables", str(tables_json)]) == 0
+    assert (
+        main(["catalog", "build", str(DEMO), "--out", str(out), "--tables", str(tables_json)]) == 0
+    )
 
     document = json.loads((out / "ontology.json").read_text(encoding="utf-8"))
     loan = _rep(document, "demo_dwd.dwd_lending_loan_df")
@@ -273,10 +273,17 @@ def test_build_with_tables_only_carries_the_card_counts(tables_json: Path, tmp_p
 
 
 def test_a_missing_lineage_path_exits_two(tmp_path: Path, capsys) -> None:
-    code = main([
-        "catalog", "build", str(DEMO), "--out", str(tmp_path / "out"),
-        "--lineage", str(tmp_path / "nowhere"),
-    ])
+    code = main(
+        [
+            "catalog",
+            "build",
+            str(DEMO),
+            "--out",
+            str(tmp_path / "out"),
+            "--lineage",
+            str(tmp_path / "nowhere"),
+        ]
+    )
 
     assert code == 2
     assert "does not exist" in capsys.readouterr().err
@@ -287,7 +294,9 @@ def test_a_tables_file_of_the_wrong_format_exits_one(tmp_path: Path, capsys) -> 
     wrong = tmp_path / "wrong.json"
     wrong.write_text(json.dumps({"doc_format": "glossary-json/1"}), encoding="utf-8")
 
-    code = main(["catalog", "build", str(DEMO), "--out", str(tmp_path / "out"), "--tables", str(wrong)])
+    code = main(
+        ["catalog", "build", str(DEMO), "--out", str(tmp_path / "out"), "--tables", str(wrong)]
+    )
 
     assert code == 1
     assert "tables-json/1" in capsys.readouterr().err
@@ -296,6 +305,8 @@ def test_a_tables_file_of_the_wrong_format_exits_one(tmp_path: Path, capsys) -> 
 def test_merging_twice_writes_the_same_bytes(corpus: Path, tmp_path: Path) -> None:
     first, second = tmp_path / "a", tmp_path / "b"
     for out in (first, second):
-        assert main(["catalog", "build", str(DEMO), "--out", str(out), "--lineage", str(corpus)]) == 0
+        assert (
+            main(["catalog", "build", str(DEMO), "--out", str(out), "--lineage", str(corpus)]) == 0
+        )
 
     assert (first / "ontology.json").read_bytes() == (second / "ontology.json").read_bytes()

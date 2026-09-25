@@ -1,0 +1,1969 @@
+{
+  "doc_format": "ontology-json/3",
+  "catalog": {
+    "name": "demo-lending",
+    "description": "A fictional consumer-lending shop. Every name in this catalog is synthetic; it exists to show each element of the catalog-yaml/1 format once.",
+    "format": "catalog-yaml/1"
+  },
+  "counts": {
+    "domains": 3,
+    "identifiers": 7,
+    "code_sets": 4,
+    "concepts": 10,
+    "relations": 11,
+    "constraints": 6,
+    "terms": 7,
+    "representations": 9,
+    "attributes": 18,
+    "derived_relations": 7,
+    "bindings": 44
+  },
+  "domains": [
+    {
+      "id": "domain:collection",
+      "name": "催收",
+      "description": "Work on overdue loans, including the waivers granted to settle them.",
+      "status": "drafted",
+      "source": "llm",
+      "evidence": []
+    },
+    {
+      "id": "domain:lending",
+      "name": "贷款",
+      "description": "Loans from disbursement to settlement.",
+      "status": "confirmed",
+      "source": "owner",
+      "evidence": []
+    },
+    {
+      "id": "domain:party",
+      "name": "客户与账户",
+      "description": "Who the shop lends to and the accounts they sign in with.",
+      "status": "confirmed",
+      "source": "owner",
+      "evidence": []
+    }
+  ],
+  "identifiers": [
+    {
+      "id": "id:app_account_id",
+      "name": "应用账户号",
+      "identifies": "concept:app_account",
+      "scope": {
+        "per": [
+          "concept:channel"
+        ]
+      },
+      "spellings": [
+        {
+          "column": "account_id",
+          "table": "demo_dwd.dwd_party_account_map_df"
+        }
+      ],
+      "maps_to": [],
+      "status": "confirmed",
+      "source": "sql",
+      "evidence": [],
+      "notes": "The same number can appear under two channels, so it is unique only per channel."
+    },
+    {
+      "id": "id:channel_code",
+      "name": "渠道编码",
+      "identifies": "concept:channel",
+      "scope": "global",
+      "spellings": [
+        {
+          "column": "channel_code"
+        }
+      ],
+      "maps_to": [],
+      "status": "confirmed",
+      "source": "owner",
+      "evidence": []
+    },
+    {
+      "id": "id:customer_id",
+      "name": "客户号",
+      "identifies": "concept:customer",
+      "scope": "global",
+      "spellings": [
+        {
+          "column": "customer_id"
+        },
+        {
+          "column": "cust_no",
+          "table": "demo_ods.ods_core_customer_df"
+        }
+      ],
+      "maps_to": [
+        {
+          "identifier": "id:app_account_id",
+          "cardinality": "one_to_many",
+          "via": [
+            "demo_dwd.dwd_party_account_map_df"
+          ]
+        }
+      ],
+      "format": "C followed by ten digits",
+      "status": "confirmed",
+      "source": "owner",
+      "evidence": [
+        "demo_dwd.dwd_party_customer_info_df.customer_id"
+      ]
+    },
+    {
+      "id": "id:disbursement_txn_no",
+      "name": "放款流水号",
+      "identifies": "concept:disbursement",
+      "scope": "global",
+      "spellings": [
+        {
+          "column": "disburse_txn_no"
+        }
+      ],
+      "maps_to": [],
+      "status": "drafted",
+      "source": "sql",
+      "evidence": []
+    },
+    {
+      "id": "id:loan_no",
+      "name": "借据号",
+      "identifies": "concept:loan",
+      "scope": "global",
+      "spellings": [
+        {
+          "column": "loan_no"
+        }
+      ],
+      "maps_to": [],
+      "status": "confirmed",
+      "source": "owner",
+      "evidence": []
+    },
+    {
+      "id": "id:repayment_txn_no",
+      "name": "还款流水号",
+      "identifies": "concept:repayment",
+      "scope": "global",
+      "spellings": [
+        {
+          "column": "repay_txn_no"
+        }
+      ],
+      "maps_to": [],
+      "status": "confirmed",
+      "source": "mixed",
+      "evidence": []
+    },
+    {
+      "id": "id:verified_customer_no",
+      "name": "认证客户号",
+      "identifies": "concept:customer",
+      "scope": "global",
+      "arises_when": {
+        "condition": "assigned when the customer passes identity verification",
+        "state": "concept:customer#verified"
+      },
+      "spellings": [
+        {
+          "column": "verified_customer_no"
+        }
+      ],
+      "maps_to": [
+        {
+          "identifier": "id:customer_id",
+          "cardinality": "one_to_one",
+          "via": []
+        }
+      ],
+      "status": "drafted",
+      "source": "comment",
+      "evidence": []
+    }
+  ],
+  "code_sets": [
+    {
+      "id": "code:gender",
+      "name": "性别",
+      "values": [
+        {
+          "value": "F",
+          "meaning": "female",
+          "retired": false
+        },
+        {
+          "value": "M",
+          "meaning": "male",
+          "retired": false
+        },
+        {
+          "value": "U",
+          "meaning": "unknown",
+          "retired": true
+        }
+      ],
+      "status": "confirmed",
+      "source": "comment",
+      "evidence": []
+    },
+    {
+      "id": "code:loan_status",
+      "name": "借据状态",
+      "definition": "Where a loan is in its life cycle.",
+      "values": [
+        {
+          "value": "1",
+          "meaning": "normal",
+          "retired": false
+        },
+        {
+          "value": "2",
+          "meaning": "overdue",
+          "retired": false
+        },
+        {
+          "value": "3",
+          "meaning": "settled",
+          "retired": false
+        }
+      ],
+      "status": "confirmed",
+      "source": "owner",
+      "evidence": []
+    },
+    {
+      "id": "code:verification_status",
+      "name": "认证状态",
+      "values": [
+        {
+          "value": "0",
+          "meaning": "unverified",
+          "retired": false
+        },
+        {
+          "value": "1",
+          "meaning": "verified",
+          "retired": false
+        }
+      ],
+      "status": "confirmed",
+      "source": "owner",
+      "evidence": []
+    },
+    {
+      "id": "code:waiver_type",
+      "name": "豁免类型",
+      "values": [
+        {
+          "value": "PEN",
+          "meaning": "penalty waived",
+          "retired": false
+        },
+        {
+          "value": "INT",
+          "meaning": "interest waived",
+          "retired": false
+        }
+      ],
+      "status": "drafted",
+      "source": "llm",
+      "evidence": []
+    }
+  ],
+  "concepts": [
+    {
+      "id": "concept:app_account",
+      "kind": "entity",
+      "name": "应用账户",
+      "definition": "The sign-in account a customer holds in one channel.",
+      "domain": "domain:party",
+      "synonyms": [],
+      "identifiers": [
+        "id:app_account_id"
+      ],
+      "primary_identifier": "id:app_account_id",
+      "attributes": [
+        {
+          "id": "attr:app_account.opened_at",
+          "name": "开户时间",
+          "definition": "When the account was opened in its channel.",
+          "category": "time",
+          "type": "timestamp",
+          "status": "confirmed",
+          "source": "sql",
+          "evidence": []
+        }
+      ],
+      "status": "confirmed",
+      "source": "sql",
+      "evidence": []
+    },
+    {
+      "id": "concept:borrower",
+      "kind": "role",
+      "name": "借款人",
+      "definition": "A customer while they hold at least one loan that is not settled.",
+      "domain": "domain:lending",
+      "synonyms": [],
+      "player": "concept:customer",
+      "context": "domain:lending",
+      "condition": "holds at least one loan whose status is not settled",
+      "attributes": [
+        {
+          "id": "attr:borrower.credit_limit",
+          "name": "授信额度",
+          "definition": "The most the borrower may owe at once.",
+          "category": "measure",
+          "type": "decimal(18,2)",
+          "unit": "CNY",
+          "status": "confirmed",
+          "source": "owner",
+          "evidence": []
+        }
+      ],
+      "status": "confirmed",
+      "source": "owner",
+      "evidence": []
+    },
+    {
+      "id": "concept:channel",
+      "kind": "entity",
+      "name": "渠道",
+      "definition": "An app or partner through which customers reach the shop.",
+      "domain": "domain:party",
+      "synonyms": [],
+      "identifiers": [
+        "id:channel_code"
+      ],
+      "primary_identifier": "id:channel_code",
+      "attributes": [
+        {
+          "id": "attr:channel.channel_name",
+          "name": "渠道名称",
+          "definition": "The display name of the channel.",
+          "category": "descriptive",
+          "type": "string",
+          "status": "confirmed",
+          "source": "owner",
+          "evidence": []
+        }
+      ],
+      "status": "confirmed",
+      "source": "owner",
+      "evidence": []
+    },
+    {
+      "id": "concept:customer",
+      "kind": "entity",
+      "name": "客户",
+      "definition": "A person the shop has registered, whether or not they ever borrow.",
+      "domain": "domain:party",
+      "synonyms": [
+        "用户"
+      ],
+      "identifiers": [
+        "id:customer_id",
+        "id:verified_customer_no"
+      ],
+      "primary_identifier": "id:customer_id",
+      "states": {
+        "attribute": "attr:customer.verification_status",
+        "values": [
+          {
+            "value": "unverified",
+            "name": "未认证"
+          },
+          {
+            "value": "verified",
+            "name": "已认证"
+          }
+        ],
+        "transitions": [
+          {
+            "event": "concept:identity_verification",
+            "from": "unverified",
+            "to": "verified"
+          }
+        ]
+      },
+      "attributes": [
+        {
+          "id": "attr:customer.gender",
+          "name": "性别",
+          "definition": "The gender the customer declared at registration.",
+          "category": "descriptive",
+          "type": "string",
+          "code_set": "code:gender",
+          "status": "confirmed",
+          "source": "owner",
+          "evidence": []
+        },
+        {
+          "id": "attr:customer.registered_at",
+          "name": "注册时间",
+          "definition": "When the customer first registered.",
+          "category": "time",
+          "type": "timestamp",
+          "status": "confirmed",
+          "source": "owner",
+          "evidence": []
+        },
+        {
+          "id": "attr:customer.verification_status",
+          "name": "认证状态",
+          "definition": "Whether the customer has passed identity verification.",
+          "category": "state",
+          "type": "integer",
+          "code_set": "code:verification_status",
+          "status": "confirmed",
+          "source": "owner",
+          "evidence": []
+        }
+      ],
+      "status": "confirmed",
+      "source": "owner",
+      "evidence": []
+    },
+    {
+      "id": "concept:disbursement",
+      "kind": "event",
+      "name": "放款",
+      "definition": "The shop pays the principal of a loan out to the borrower.",
+      "domain": "domain:lending",
+      "synonyms": [],
+      "identifiers": [
+        "id:disbursement_txn_no"
+      ],
+      "occurred_at": "attr:disbursement.disbursed_at",
+      "participants": [
+        {
+          "role_name": "borrower",
+          "concept": "concept:borrower",
+          "cardinality": "one"
+        },
+        {
+          "role_name": "loan",
+          "concept": "concept:loan",
+          "cardinality": "one"
+        }
+      ],
+      "attributes": [
+        {
+          "id": "attr:disbursement.disbursed_at",
+          "name": "放款时间",
+          "definition": "When the money left the shop.",
+          "category": "time",
+          "type": "timestamp",
+          "status": "confirmed",
+          "source": "task",
+          "evidence": []
+        },
+        {
+          "id": "attr:disbursement.amount",
+          "name": "放款金额",
+          "definition": "The amount paid out.",
+          "category": "measure",
+          "type": "decimal(18,2)",
+          "unit": "CNY",
+          "status": "confirmed",
+          "source": "task",
+          "evidence": []
+        }
+      ],
+      "status": "confirmed",
+      "source": "task",
+      "evidence": []
+    },
+    {
+      "id": "concept:fee_waiver",
+      "kind": "event",
+      "name": "豁免",
+      "definition": "The shop forgives part of what an overdue loan owes.",
+      "domain": "domain:collection",
+      "synonyms": [],
+      "occurred_at": "attr:fee_waiver.waived_at",
+      "participants": [
+        {
+          "role_name": "loan",
+          "concept": "concept:loan",
+          "cardinality": "one"
+        },
+        {
+          "role_name": "borrower",
+          "concept": "concept:borrower",
+          "cardinality": "one"
+        }
+      ],
+      "attributes": [
+        {
+          "id": "attr:fee_waiver.waived_at",
+          "name": "豁免时间",
+          "definition": "When the waiver took effect.",
+          "category": "time",
+          "type": "timestamp",
+          "status": "drafted",
+          "source": "llm",
+          "evidence": []
+        },
+        {
+          "id": "attr:fee_waiver.waiver_type",
+          "name": "豁免类型",
+          "definition": "What part of the debt was forgiven.",
+          "category": "descriptive",
+          "type": "string",
+          "code_set": "code:waiver_type",
+          "status": "drafted",
+          "source": "llm",
+          "evidence": []
+        },
+        {
+          "id": "attr:fee_waiver.amount",
+          "name": "豁免金额",
+          "definition": "The amount forgiven.",
+          "category": "measure",
+          "type": "decimal(18,2)",
+          "unit": "CNY",
+          "status": "drafted",
+          "source": "llm",
+          "evidence": []
+        }
+      ],
+      "status": "drafted",
+      "source": "llm",
+      "evidence": [
+        "demo_dwd.dwd_collection_fee_waiver_di"
+      ]
+    },
+    {
+      "id": "concept:identity_verification",
+      "kind": "event",
+      "name": "实名认证",
+      "definition": "The customer proves who they are; afterwards they may borrow.",
+      "domain": "domain:party",
+      "synonyms": [],
+      "occurred_at": "attr:identity_verification.verified_at",
+      "participants": [
+        {
+          "role_name": "customer",
+          "concept": "concept:customer",
+          "cardinality": "one"
+        }
+      ],
+      "attributes": [
+        {
+          "id": "attr:identity_verification.verified_at",
+          "name": "认证时间",
+          "definition": "When the verification succeeded.",
+          "category": "time",
+          "type": "timestamp",
+          "status": "drafted",
+          "source": "comment",
+          "evidence": []
+        }
+      ],
+      "status": "drafted",
+      "source": "comment",
+      "evidence": []
+    },
+    {
+      "id": "concept:installment_loan",
+      "kind": "entity",
+      "name": "分期借据",
+      "definition": "A loan repaid in fixed monthly instalments.",
+      "domain": "domain:lending",
+      "synonyms": [],
+      "identifiers": [
+        "id:loan_no"
+      ],
+      "primary_identifier": "id:loan_no",
+      "attributes": [
+        {
+          "id": "attr:installment_loan.term_count",
+          "name": "期数",
+          "definition": "How many instalments the loan is split into.",
+          "category": "descriptive",
+          "type": "integer",
+          "status": "drafted",
+          "source": "llm",
+          "evidence": []
+        }
+      ],
+      "status": "drafted",
+      "source": "llm",
+      "evidence": []
+    },
+    {
+      "id": "concept:loan",
+      "kind": "entity",
+      "name": "借据",
+      "definition": "One amount lent to a borrower, repaid over one or more instalments.",
+      "domain": "domain:lending",
+      "synonyms": [
+        "对客借据"
+      ],
+      "identifiers": [
+        "id:loan_no"
+      ],
+      "primary_identifier": "id:loan_no",
+      "states": {
+        "attribute": "attr:loan.loan_status",
+        "values": [
+          {
+            "value": "normal",
+            "name": "正常"
+          },
+          {
+            "value": "overdue",
+            "name": "逾期"
+          },
+          {
+            "value": "settled",
+            "name": "结清"
+          }
+        ],
+        "transitions": [
+          {
+            "event": "concept:repayment",
+            "from": "overdue",
+            "to": "normal"
+          },
+          {
+            "event": "concept:repayment",
+            "from": "normal",
+            "to": "settled"
+          },
+          {
+            "event": "concept:fee_waiver",
+            "from": "overdue",
+            "to": "settled"
+          }
+        ]
+      },
+      "attributes": [
+        {
+          "id": "attr:loan.principal",
+          "name": "本金",
+          "definition": "The amount lent.",
+          "category": "measure",
+          "type": "decimal(18,2)",
+          "unit": "CNY",
+          "status": "confirmed",
+          "source": "owner",
+          "evidence": []
+        },
+        {
+          "id": "attr:loan.loan_status",
+          "name": "借据状态",
+          "definition": "Where the loan is in its life cycle.",
+          "category": "state",
+          "type": "string",
+          "code_set": "code:loan_status",
+          "status": "confirmed",
+          "source": "owner",
+          "evidence": []
+        },
+        {
+          "id": "attr:loan.overdue_penalty",
+          "name": "逾期罚息",
+          "definition": "Penalty interest accrued while the loan is overdue.",
+          "category": "measure",
+          "type": "decimal(18,2)",
+          "unit": "CNY",
+          "derivation": "overdue principal x daily penalty rate x days overdue",
+          "status": "confirmed",
+          "source": "owner",
+          "evidence": []
+        }
+      ],
+      "status": "confirmed",
+      "source": "owner",
+      "evidence": []
+    },
+    {
+      "id": "concept:repayment",
+      "kind": "event",
+      "name": "还款",
+      "definition": "A customer pays money back against one or more loans.",
+      "domain": "domain:lending",
+      "synonyms": [],
+      "identifiers": [
+        "id:repayment_txn_no"
+      ],
+      "occurred_at": "attr:repayment.repaid_at",
+      "participants": [
+        {
+          "role_name": "payer",
+          "concept": "concept:customer",
+          "cardinality": "one"
+        },
+        {
+          "role_name": "loan",
+          "concept": "concept:loan",
+          "cardinality": "many"
+        }
+      ],
+      "attributes": [
+        {
+          "id": "attr:repayment.repaid_at",
+          "name": "还款时间",
+          "definition": "When the payment was received.",
+          "category": "time",
+          "type": "timestamp",
+          "status": "confirmed",
+          "source": "sql",
+          "evidence": []
+        },
+        {
+          "id": "attr:repayment.amount",
+          "name": "还款金额",
+          "definition": "The amount received.",
+          "category": "measure",
+          "type": "decimal(18,2)",
+          "unit": "CNY",
+          "status": "confirmed",
+          "source": "sql",
+          "evidence": []
+        }
+      ],
+      "status": "confirmed",
+      "source": "sql",
+      "evidence": []
+    }
+  ],
+  "relations": [
+    {
+      "id": "rel:app_account_opened_in_channel",
+      "kind": "association",
+      "from": "concept:app_account",
+      "to": "concept:channel",
+      "name": "is opened in",
+      "inverse_name": "hosts",
+      "cardinality": {
+        "from": "0..*",
+        "to": "1"
+      },
+      "status": "confirmed",
+      "source": "sql",
+      "evidence": []
+    },
+    {
+      "id": "rel:borrower_owes_loan",
+      "kind": "association",
+      "from": "concept:borrower",
+      "to": "concept:loan",
+      "name": "owes",
+      "inverse_name": "is owed by",
+      "cardinality": {
+        "from": "1",
+        "to": "1..*"
+      },
+      "status": "confirmed",
+      "source": "owner",
+      "evidence": []
+    },
+    {
+      "id": "rel:customer_holds_app_account",
+      "kind": "composition",
+      "from": "concept:customer",
+      "to": "concept:app_account",
+      "name": "holds",
+      "inverse_name": "is held by",
+      "cardinality": {
+        "from": "1",
+        "to": "0..*"
+      },
+      "definition": "An account exists only for the customer who opened it.",
+      "status": "confirmed",
+      "source": "owner",
+      "evidence": []
+    },
+    {
+      "id": "rel:disbursement.borrower",
+      "kind": "participation",
+      "from": "concept:disbursement",
+      "to": "concept:borrower",
+      "name": "borrower",
+      "cardinality": {
+        "from": "0..*",
+        "to": "1"
+      },
+      "derived_from": {
+        "event": "concept:disbursement",
+        "role_name": "borrower"
+      },
+      "status": "confirmed",
+      "source": "task",
+      "evidence": []
+    },
+    {
+      "id": "rel:disbursement.loan",
+      "kind": "participation",
+      "from": "concept:disbursement",
+      "to": "concept:loan",
+      "name": "loan",
+      "cardinality": {
+        "from": "0..*",
+        "to": "1"
+      },
+      "derived_from": {
+        "event": "concept:disbursement",
+        "role_name": "loan"
+      },
+      "status": "confirmed",
+      "source": "task",
+      "evidence": []
+    },
+    {
+      "id": "rel:fee_waiver.borrower",
+      "kind": "participation",
+      "from": "concept:fee_waiver",
+      "to": "concept:borrower",
+      "name": "borrower",
+      "cardinality": {
+        "from": "0..*",
+        "to": "1"
+      },
+      "derived_from": {
+        "event": "concept:fee_waiver",
+        "role_name": "borrower"
+      },
+      "status": "drafted",
+      "source": "llm",
+      "evidence": []
+    },
+    {
+      "id": "rel:fee_waiver.loan",
+      "kind": "participation",
+      "from": "concept:fee_waiver",
+      "to": "concept:loan",
+      "name": "loan",
+      "cardinality": {
+        "from": "0..*",
+        "to": "1"
+      },
+      "derived_from": {
+        "event": "concept:fee_waiver",
+        "role_name": "loan"
+      },
+      "status": "drafted",
+      "source": "llm",
+      "evidence": []
+    },
+    {
+      "id": "rel:identity_verification.customer",
+      "kind": "participation",
+      "from": "concept:identity_verification",
+      "to": "concept:customer",
+      "name": "customer",
+      "cardinality": {
+        "from": "0..*",
+        "to": "1"
+      },
+      "derived_from": {
+        "event": "concept:identity_verification",
+        "role_name": "customer"
+      },
+      "status": "drafted",
+      "source": "comment",
+      "evidence": []
+    },
+    {
+      "id": "rel:installment_loan_is_a_loan",
+      "kind": "generalization",
+      "from": "concept:installment_loan",
+      "to": "concept:loan",
+      "name": "is a kind of",
+      "cardinality": {
+        "from": "0..1",
+        "to": "1"
+      },
+      "status": "drafted",
+      "source": "llm",
+      "evidence": []
+    },
+    {
+      "id": "rel:repayment.loan",
+      "kind": "participation",
+      "from": "concept:repayment",
+      "to": "concept:loan",
+      "name": "loan",
+      "cardinality": {
+        "from": "0..*",
+        "to": "1..*"
+      },
+      "derived_from": {
+        "event": "concept:repayment",
+        "role_name": "loan"
+      },
+      "status": "confirmed",
+      "source": "sql",
+      "evidence": []
+    },
+    {
+      "id": "rel:repayment.payer",
+      "kind": "participation",
+      "from": "concept:repayment",
+      "to": "concept:customer",
+      "name": "payer",
+      "cardinality": {
+        "from": "0..*",
+        "to": "1"
+      },
+      "derived_from": {
+        "event": "concept:repayment",
+        "role_name": "payer"
+      },
+      "status": "confirmed",
+      "source": "sql",
+      "evidence": []
+    }
+  ],
+  "constraints": [
+    {
+      "id": "cons:loan_no_unique",
+      "kind": "unique",
+      "on": "id:loan_no",
+      "expression": "no two loans share a loan_no, whatever the channel",
+      "strength": "hard",
+      "status": "confirmed",
+      "source": "owner",
+      "evidence": []
+    },
+    {
+      "id": "cons:one_account_per_channel",
+      "kind": "cardinality",
+      "on": "rel:customer_holds_app_account",
+      "expression": "a customer holds at most one account in each channel",
+      "strength": "soft",
+      "status": "drafted",
+      "source": "sql",
+      "evidence": []
+    },
+    {
+      "id": "cons:penalty_rule",
+      "kind": "derivation",
+      "on": "attr:loan.overdue_penalty",
+      "expression": "accrues only while loan_status is overdue",
+      "strength": "soft",
+      "status": "drafted",
+      "source": "comment",
+      "evidence": []
+    },
+    {
+      "id": "cons:principal_positive",
+      "kind": "value_domain",
+      "on": "attr:loan.principal",
+      "expression": "principal > 0",
+      "strength": "hard",
+      "status": "confirmed",
+      "source": "owner",
+      "evidence": []
+    },
+    {
+      "id": "cons:repaid_after_disbursed",
+      "kind": "temporal",
+      "on": "concept:repayment",
+      "expression": "repaid_at is not earlier than the disbursed_at of every loan it pays",
+      "strength": "hard",
+      "status": "confirmed",
+      "source": "owner",
+      "evidence": []
+    },
+    {
+      "id": "cons:settled_is_final",
+      "kind": "state_transition",
+      "on": "attr:loan.loan_status",
+      "expression": "a settled loan never changes status again",
+      "strength": "hard",
+      "status": "confirmed",
+      "source": "owner",
+      "evidence": []
+    }
+  ],
+  "terms": [
+    {
+      "term": "借据",
+      "refers_to": "concept:loan",
+      "preferred": true,
+      "status": "drafted",
+      "source": null,
+      "evidence": []
+    },
+    {
+      "term": "借据号",
+      "refers_to": "id:loan_no",
+      "preferred": true,
+      "status": "drafted",
+      "source": null,
+      "evidence": []
+    },
+    {
+      "term": "客户",
+      "refers_to": "concept:customer",
+      "preferred": true,
+      "status": "drafted",
+      "source": null,
+      "evidence": []
+    },
+    {
+      "term": "对客借据",
+      "refers_to": "concept:loan",
+      "preferred": false,
+      "status": "drafted",
+      "source": null,
+      "evidence": []
+    },
+    {
+      "term": "用户",
+      "refers_to": "concept:customer",
+      "preferred": false,
+      "status": "drafted",
+      "source": null,
+      "evidence": []
+    },
+    {
+      "term": "罚息",
+      "refers_to": "attr:loan.overdue_penalty",
+      "preferred": false,
+      "status": "drafted",
+      "source": "comment",
+      "evidence": []
+    },
+    {
+      "term": "豁免",
+      "refers_to": "concept:fee_waiver",
+      "preferred": true,
+      "status": "drafted",
+      "source": null,
+      "evidence": []
+    }
+  ],
+  "representations": [
+    {
+      "table": "demo_dwd.dwd_collection_fee_waiver_di",
+      "concept": "concept:fee_waiver",
+      "kind": "event_detail",
+      "grain": {
+        "identifiers": [],
+        "extra": [
+          "waiver_seq"
+        ],
+        "source": "inferred"
+      },
+      "time": "incremental",
+      "scope": [],
+      "table_status": "active",
+      "bindings": [
+        {
+          "column": "waiver_seq",
+          "to": "technical",
+          "status": "drafted",
+          "source": "llm",
+          "evidence": []
+        },
+        {
+          "column": "loan_no",
+          "to": "foreign_identifier",
+          "ref": "id:loan_no",
+          "status": "drafted",
+          "source": "llm",
+          "evidence": []
+        },
+        {
+          "column": "waiver_type",
+          "to": "attribute",
+          "ref": "attr:fee_waiver.waiver_type",
+          "code_map": {
+            "PEN": "penalty waived",
+            "INT": "interest waived"
+          },
+          "status": "drafted",
+          "source": "llm",
+          "evidence": []
+        },
+        {
+          "column": "waive_amt",
+          "to": "attribute",
+          "ref": "attr:fee_waiver.amount",
+          "status": "drafted",
+          "source": "llm",
+          "evidence": []
+        },
+        {
+          "column": "waive_time",
+          "to": "attribute",
+          "ref": "attr:fee_waiver.waived_at",
+          "status": "drafted",
+          "source": "llm",
+          "evidence": []
+        },
+        {
+          "column": "dt",
+          "to": "technical",
+          "status": "drafted",
+          "source": "llm",
+          "evidence": []
+        }
+      ],
+      "status": "drafted",
+      "source": "llm",
+      "evidence": [],
+      "notes": "Kept as JSON on purpose: any catalog file may be YAML or JSON."
+    },
+    {
+      "table": "demo_dwd.dwd_lending_borrower_df",
+      "concept": "concept:borrower",
+      "kind": "role_view",
+      "grain": {
+        "identifiers": [
+          "id:customer_id"
+        ],
+        "extra": [],
+        "source": "inferred"
+      },
+      "time": "snapshot",
+      "scope": [
+        "customers holding at least one loan that is not settled"
+      ],
+      "table_status": "active",
+      "bindings": [
+        {
+          "column": "customer_id",
+          "to": "identifier",
+          "ref": "id:customer_id",
+          "status": "drafted",
+          "source": "llm",
+          "evidence": []
+        },
+        {
+          "column": "credit_limit",
+          "to": "attribute",
+          "ref": "attr:borrower.credit_limit",
+          "status": "drafted",
+          "source": "llm",
+          "evidence": []
+        },
+        {
+          "column": "gender_cd",
+          "to": "attribute",
+          "ref": "attr:customer.gender",
+          "status": "drafted",
+          "source": "llm",
+          "evidence": []
+        },
+        {
+          "column": "dt",
+          "to": "technical",
+          "status": "drafted",
+          "source": "llm",
+          "evidence": []
+        }
+      ],
+      "status": "drafted",
+      "source": "llm",
+      "evidence": []
+    },
+    {
+      "table": "demo_dwd.dwd_lending_loan_df",
+      "concept": "concept:loan",
+      "kind": "core",
+      "grain": {
+        "identifiers": [
+          "id:loan_no"
+        ],
+        "extra": [],
+        "source": "proven"
+      },
+      "time": "snapshot",
+      "scope": [],
+      "refresh": "daily",
+      "table_status": "active",
+      "bindings": [
+        {
+          "column": "loan_no",
+          "to": "identifier",
+          "ref": "id:loan_no",
+          "status": "confirmed",
+          "source": "sql",
+          "evidence": []
+        },
+        {
+          "column": "customer_id",
+          "to": "foreign_identifier",
+          "ref": "id:customer_id",
+          "status": "confirmed",
+          "source": "sql",
+          "evidence": []
+        },
+        {
+          "column": "principal_amt",
+          "to": "attribute",
+          "ref": "attr:loan.principal",
+          "status": "confirmed",
+          "source": "sql",
+          "evidence": []
+        },
+        {
+          "column": "loan_status",
+          "to": "attribute",
+          "ref": "attr:loan.loan_status",
+          "code_map": {
+            "1": "normal",
+            "2": "overdue",
+            "3": "settled"
+          },
+          "status": "confirmed",
+          "source": "sql",
+          "evidence": []
+        },
+        {
+          "column": "penalty_amt",
+          "to": "attribute",
+          "ref": "attr:loan.overdue_penalty",
+          "derivation": "sum of the daily penalty accruals up to dt",
+          "status": "confirmed",
+          "source": "sql",
+          "evidence": []
+        },
+        {
+          "column": "dt",
+          "to": "technical",
+          "status": "confirmed",
+          "source": "sql",
+          "evidence": []
+        }
+      ],
+      "status": "confirmed",
+      "source": "sql",
+      "evidence": []
+    },
+    {
+      "table": "demo_dwd.dwd_lending_loan_status_his",
+      "concept": "concept:loan",
+      "kind": "state_history",
+      "grain": {
+        "identifiers": [
+          "id:loan_no"
+        ],
+        "extra": [
+          "start_date"
+        ],
+        "source": "declared"
+      },
+      "time": "zipper",
+      "scope": [],
+      "table_status": "active",
+      "bindings": [
+        {
+          "column": "loan_no",
+          "to": "identifier",
+          "ref": "id:loan_no",
+          "status": "confirmed",
+          "source": "owner",
+          "evidence": []
+        },
+        {
+          "column": "loan_status",
+          "to": "attribute",
+          "ref": "attr:loan.loan_status",
+          "status": "confirmed",
+          "source": "owner",
+          "evidence": []
+        },
+        {
+          "column": "start_date",
+          "to": "technical",
+          "status": "confirmed",
+          "source": "owner",
+          "evidence": []
+        },
+        {
+          "column": "end_date",
+          "to": "technical",
+          "status": "confirmed",
+          "source": "owner",
+          "evidence": []
+        }
+      ],
+      "status": "confirmed",
+      "source": "owner",
+      "evidence": []
+    },
+    {
+      "table": "demo_dwd.dwd_lending_repayment_di",
+      "concept": "concept:repayment",
+      "kind": "event_detail",
+      "grain": {
+        "identifiers": [
+          "id:repayment_txn_no"
+        ],
+        "extra": [],
+        "source": "proven"
+      },
+      "time": "incremental",
+      "scope": [],
+      "refresh": "daily",
+      "table_status": "active",
+      "bindings": [
+        {
+          "column": "repay_txn_no",
+          "to": "identifier",
+          "ref": "id:repayment_txn_no",
+          "status": "confirmed",
+          "source": "sql",
+          "evidence": []
+        },
+        {
+          "column": "loan_no",
+          "to": "foreign_identifier",
+          "ref": "id:loan_no",
+          "status": "confirmed",
+          "source": "sql",
+          "evidence": []
+        },
+        {
+          "column": "customer_id",
+          "to": "foreign_identifier",
+          "ref": "id:customer_id",
+          "status": "confirmed",
+          "source": "sql",
+          "evidence": []
+        },
+        {
+          "column": "repay_amt",
+          "to": "attribute",
+          "ref": "attr:repayment.amount",
+          "status": "confirmed",
+          "source": "sql",
+          "evidence": []
+        },
+        {
+          "column": "repay_time",
+          "to": "attribute",
+          "ref": "attr:repayment.repaid_at",
+          "status": "confirmed",
+          "source": "sql",
+          "evidence": []
+        },
+        {
+          "column": "dt",
+          "to": "technical",
+          "status": "confirmed",
+          "source": "sql",
+          "evidence": []
+        }
+      ],
+      "status": "confirmed",
+      "source": "sql",
+      "evidence": []
+    },
+    {
+      "table": "demo_dwd.dwd_party_account_map_df",
+      "concept": "concept:app_account",
+      "kind": "identifier_map",
+      "grain": {
+        "identifiers": [
+          "id:app_account_id",
+          "id:channel_code"
+        ],
+        "extra": [],
+        "source": "proven"
+      },
+      "time": "snapshot",
+      "scope": [],
+      "table_status": "active",
+      "bindings": [
+        {
+          "column": "account_id",
+          "to": "identifier",
+          "ref": "id:app_account_id",
+          "status": "confirmed",
+          "source": "sql",
+          "evidence": []
+        },
+        {
+          "column": "channel_code",
+          "to": "foreign_identifier",
+          "ref": "id:channel_code",
+          "status": "confirmed",
+          "source": "sql",
+          "evidence": []
+        },
+        {
+          "column": "customer_id",
+          "to": "foreign_identifier",
+          "ref": "id:customer_id",
+          "status": "confirmed",
+          "source": "sql",
+          "evidence": []
+        },
+        {
+          "column": "opened_time",
+          "to": "attribute",
+          "ref": "attr:app_account.opened_at",
+          "status": "confirmed",
+          "source": "sql",
+          "evidence": []
+        },
+        {
+          "column": "dt",
+          "to": "technical",
+          "status": "confirmed",
+          "source": "sql",
+          "evidence": []
+        }
+      ],
+      "status": "confirmed",
+      "source": "sql",
+      "evidence": []
+    },
+    {
+      "table": "demo_dwd.dwd_party_customer_ext_df",
+      "concept": "concept:customer",
+      "kind": "extension",
+      "grain": {
+        "identifiers": [
+          "id:customer_id"
+        ],
+        "extra": [],
+        "source": "declared"
+      },
+      "time": "snapshot",
+      "scope": [],
+      "table_status": "active",
+      "bindings": [
+        {
+          "column": "customer_id",
+          "to": "identifier",
+          "ref": "id:customer_id",
+          "status": "drafted",
+          "source": "comment",
+          "evidence": []
+        },
+        {
+          "column": "ext_json",
+          "to": "unmapped",
+          "status": "drafted",
+          "source": "comment",
+          "evidence": []
+        },
+        {
+          "column": "dt",
+          "to": "technical",
+          "status": "drafted",
+          "source": "comment",
+          "evidence": []
+        }
+      ],
+      "status": "drafted",
+      "source": "comment",
+      "evidence": []
+    },
+    {
+      "table": "demo_dwd.dwd_party_customer_info_df",
+      "concept": "concept:customer",
+      "kind": "core",
+      "grain": {
+        "identifiers": [
+          "id:customer_id"
+        ],
+        "extra": [],
+        "source": "proven"
+      },
+      "time": "snapshot",
+      "scope": [],
+      "refresh": "daily",
+      "table_status": "active",
+      "bindings": [
+        {
+          "column": "customer_id",
+          "to": "identifier",
+          "ref": "id:customer_id",
+          "status": "confirmed",
+          "source": "sql",
+          "evidence": []
+        },
+        {
+          "column": "verified_customer_no",
+          "to": "identifier",
+          "ref": "id:verified_customer_no",
+          "status": "confirmed",
+          "source": "sql",
+          "evidence": []
+        },
+        {
+          "column": "gender_cd",
+          "to": "attribute",
+          "ref": "attr:customer.gender",
+          "code_map": {
+            "F": "female",
+            "M": "male",
+            "U": "unknown"
+          },
+          "status": "confirmed",
+          "source": "sql",
+          "evidence": []
+        },
+        {
+          "column": "register_time",
+          "to": "attribute",
+          "ref": "attr:customer.registered_at",
+          "derivation": "from_unixtime(register_ts)",
+          "status": "confirmed",
+          "source": "sql",
+          "evidence": []
+        },
+        {
+          "column": "verify_status",
+          "to": "attribute",
+          "ref": "attr:customer.verification_status",
+          "status": "confirmed",
+          "source": "sql",
+          "evidence": []
+        },
+        {
+          "column": "etl_time",
+          "to": "technical",
+          "status": "confirmed",
+          "source": "sql",
+          "evidence": []
+        },
+        {
+          "column": "dt",
+          "to": "technical",
+          "status": "confirmed",
+          "source": "sql",
+          "evidence": []
+        }
+      ],
+      "status": "confirmed",
+      "source": "sql",
+      "evidence": []
+    },
+    {
+      "table": "demo_dws.dws_lending_loan_summary_1d",
+      "concept": "concept:loan",
+      "kind": "summary",
+      "grain": {
+        "identifiers": [
+          "id:channel_code"
+        ],
+        "extra": [
+          "stat_date"
+        ],
+        "source": "declared"
+      },
+      "time": "incremental",
+      "scope": [],
+      "table_status": "deprecated",
+      "replaced_by": "demo_dws.dws_lending_loan_summary_v2_1d",
+      "bindings": [
+        {
+          "column": "channel_code",
+          "to": "foreign_identifier",
+          "ref": "id:channel_code",
+          "status": "confirmed",
+          "source": "owner",
+          "evidence": []
+        },
+        {
+          "column": "loan_cnt",
+          "to": "technical",
+          "derivation": "count(distinct loan_no)",
+          "status": "confirmed",
+          "source": "owner",
+          "evidence": []
+        },
+        {
+          "column": "stat_date",
+          "to": "technical",
+          "status": "confirmed",
+          "source": "owner",
+          "evidence": []
+        }
+      ],
+      "status": "confirmed",
+      "source": "owner",
+      "evidence": []
+    }
+  ],
+  "evidence": {
+    "inputs": {
+      "lineage": {
+        "tasks": 8,
+        "statements": 8,
+        "representations_matched": 7,
+        "relations_checked": 6
+      },
+      "tables": {
+        "cards": 15,
+        "representations_matched": 7
+      }
+    },
+    "representations": {
+      "demo_dwd.dwd_lending_borrower_df": {
+        "producing_tasks": [
+          "dwd_lending_borrower_daily"
+        ],
+        "refresh": [
+          "day"
+        ],
+        "upstream_tables": [
+          "demo_dwd.dwd_lending_loan_df",
+          "demo_dwd.dwd_party_customer_info_df",
+          "demo_ods.ods_credit_limit_df"
+        ],
+        "downstream_tables": [
+          "demo_ads.ads_collection_overdue_loan_df"
+        ],
+        "grain_proof": {
+          "confidence": "proven",
+          "keys": [
+            "customer_id"
+          ],
+          "basis": "group_by",
+          "task": "dwd_lending_borrower_daily"
+        },
+        "declared_columns": 4,
+        "used_columns": 4
+      },
+      "demo_dwd.dwd_lending_loan_df": {
+        "producing_tasks": [
+          "dwd_lending_loan_daily"
+        ],
+        "refresh": [
+          "day"
+        ],
+        "upstream_tables": [
+          "demo_ods.ods_loan_contract_df",
+          "demo_ods.ods_loan_penalty_di"
+        ],
+        "downstream_tables": [
+          "demo_ads.ads_collection_overdue_loan_df",
+          "demo_dwd.dwd_lending_borrower_df",
+          "demo_dwd.dwd_lending_repayment_di",
+          "demo_dws.dws_lending_loan_summary_1d"
+        ],
+        "grain_proof": {
+          "confidence": "candidate",
+          "keys": [
+            "loan_no"
+          ],
+          "basis": "driving_table_rows",
+          "task": "dwd_lending_loan_daily"
+        },
+        "conflicts": [
+          {
+            "rule": "grain_not_proven",
+            "declared_source": "proven",
+            "confidence": "candidate"
+          }
+        ],
+        "declared_columns": 6,
+        "used_columns": 6
+      },
+      "demo_dwd.dwd_lending_loan_status_his": {
+        "downstream_tables": [
+          "demo_ads.ads_loan_status_span_df"
+        ],
+        "declared_columns": 4,
+        "used_columns": 3
+      },
+      "demo_dwd.dwd_lending_repayment_di": {
+        "producing_tasks": [
+          "dwd_lending_repayment_daily"
+        ],
+        "refresh": [
+          "day"
+        ],
+        "upstream_tables": [
+          "demo_dwd.dwd_lending_loan_df",
+          "demo_ods.ods_repay_txn_di"
+        ],
+        "downstream_tables": [
+          "demo_ads.ads_collection_overdue_loan_df"
+        ],
+        "grain_proof": {
+          "confidence": "proven",
+          "keys": [
+            "repay_txn_no"
+          ],
+          "basis": "group_by",
+          "task": "dwd_lending_repayment_daily"
+        },
+        "declared_columns": 6,
+        "used_columns": 5
+      },
+      "demo_dwd.dwd_party_account_map_df": {
+        "producing_tasks": [
+          "dwd_party_account_map_daily"
+        ],
+        "refresh": [
+          "day"
+        ],
+        "upstream_tables": [
+          "demo_ods.ods_app_account_df"
+        ],
+        "downstream_tables": [
+          "demo_dws.dws_lending_loan_summary_1d"
+        ],
+        "grain_proof": {
+          "confidence": "proven",
+          "keys": [
+            "account_id",
+            "channel_code"
+          ],
+          "basis": "group_by",
+          "task": "dwd_party_account_map_daily"
+        },
+        "declared_columns": 5,
+        "used_columns": 5
+      },
+      "demo_dwd.dwd_party_customer_info_df": {
+        "producing_tasks": [
+          "dwd_party_customer_info_daily"
+        ],
+        "refresh": [
+          "day"
+        ],
+        "upstream_tables": [
+          "demo_ods.ods_core_customer_df"
+        ],
+        "downstream_tables": [
+          "demo_dwd.dwd_lending_borrower_df",
+          "demo_dws.dws_lending_loan_summary_1d"
+        ],
+        "grain_proof": {
+          "confidence": "proven",
+          "keys": [
+            "customer_id"
+          ],
+          "basis": "window_partition",
+          "task": "dwd_party_customer_info_daily"
+        },
+        "declared_columns": 7,
+        "used_columns": 7
+      },
+      "demo_dws.dws_lending_loan_summary_1d": {
+        "producing_tasks": [
+          "dws_lending_loan_summary_daily"
+        ],
+        "refresh": [
+          "day"
+        ],
+        "upstream_tables": [
+          "demo_dwd.dwd_lending_loan_df",
+          "demo_dwd.dwd_party_account_map_df",
+          "demo_dwd.dwd_party_customer_info_df"
+        ],
+        "grain_proof": {
+          "confidence": "proven",
+          "keys": [
+            "channel_code"
+          ],
+          "basis": "group_by",
+          "task": "dws_lending_loan_summary_daily"
+        },
+        "declared_columns": 3,
+        "used_columns": 2
+      }
+    },
+    "bindings": {
+      "demo_dwd.dwd_lending_borrower_df.credit_limit": {
+        "sources": [
+          "demo_ods.ods_credit_limit_df.credit_limit"
+        ],
+        "expression": "MAX(`cr`.`credit_limit`)"
+      },
+      "demo_dwd.dwd_lending_borrower_df.customer_id": {
+        "sources": [
+          "demo_dwd.dwd_party_customer_info_df.customer_id"
+        ],
+        "expression": "`c`.`customer_id`"
+      },
+      "demo_dwd.dwd_lending_borrower_df.gender_cd": {
+        "sources": [
+          "demo_dwd.dwd_party_customer_info_df.gender_cd"
+        ],
+        "expression": "MAX(`c`.`gender_cd`)"
+      },
+      "demo_dwd.dwd_lending_loan_df.customer_id": {
+        "sources": [
+          "demo_ods.ods_loan_contract_df.cust_no"
+        ],
+        "expression": "`l`.`cust_no`"
+      },
+      "demo_dwd.dwd_lending_loan_df.loan_no": {
+        "sources": [
+          "demo_ods.ods_loan_contract_df.loan_no"
+        ],
+        "expression": "`l`.`loan_no`"
+      },
+      "demo_dwd.dwd_lending_loan_df.loan_status": {
+        "sources": [
+          "demo_ods.ods_loan_contract_df.loan_status"
+        ],
+        "expression": "`l`.`loan_status`"
+      },
+      "demo_dwd.dwd_lending_loan_df.principal_amt": {
+        "sources": [
+          "demo_ods.ods_loan_contract_df.principal"
+        ],
+        "expression": "`l`.`principal`"
+      },
+      "demo_dwd.dwd_lending_loan_status_his.loan_status": {
+        "declared_only": true
+      },
+      "demo_dwd.dwd_lending_repayment_di.customer_id": {
+        "sources": [
+          "demo_dwd.dwd_lending_loan_df.customer_id"
+        ],
+        "expression": "MAX(`l`.`customer_id`)"
+      },
+      "demo_dwd.dwd_lending_repayment_di.dt": {
+        "declared_only": true
+      },
+      "demo_dwd.dwd_lending_repayment_di.loan_no": {
+        "sources": [
+          "demo_ods.ods_repay_txn_di.loan_no"
+        ],
+        "expression": "MAX(`r`.`loan_no`)"
+      },
+      "demo_dwd.dwd_lending_repayment_di.repay_amt": {
+        "sources": [
+          "demo_ods.ods_repay_txn_di.amount"
+        ],
+        "expression": "SUM(CAST(`r`.`amount` AS DECIMAL(18, 2)))"
+      },
+      "demo_dwd.dwd_lending_repayment_di.repay_time": {
+        "sources": [
+          "demo_ods.ods_repay_txn_di.paid_time"
+        ],
+        "expression": "MAX(`r`.`paid_time`)"
+      },
+      "demo_dwd.dwd_lending_repayment_di.repay_txn_no": {
+        "sources": [
+          "demo_ods.ods_repay_txn_di.repay_txn_no"
+        ],
+        "expression": "`r`.`repay_txn_no`"
+      },
+      "demo_dwd.dwd_party_account_map_df.account_id": {
+        "sources": [
+          "demo_ods.ods_app_account_df.account_id"
+        ],
+        "expression": "`ods_app_account_df`.`account_id`"
+      },
+      "demo_dwd.dwd_party_account_map_df.channel_code": {
+        "sources": [
+          "demo_ods.ods_app_account_df.channel_code"
+        ],
+        "expression": "`ods_app_account_df`.`channel_code`"
+      },
+      "demo_dwd.dwd_party_account_map_df.customer_id": {
+        "sources": [
+          "demo_ods.ods_app_account_df.cust_no"
+        ],
+        "expression": "MAX(`ods_app_account_df`.`cust_no`)"
+      },
+      "demo_dwd.dwd_party_account_map_df.opened_time": {
+        "sources": [
+          "demo_ods.ods_app_account_df.open_time"
+        ],
+        "expression": "MIN(`ods_app_account_df`.`open_time`)"
+      },
+      "demo_dwd.dwd_party_customer_info_df.customer_id": {
+        "sources": [
+          "demo_ods.ods_core_customer_df.cust_no"
+        ],
+        "expression": "`latest`.`customer_id`"
+      },
+      "demo_dwd.dwd_party_customer_info_df.etl_time": {
+        "expression": "`latest`.`etl_time`"
+      },
+      "demo_dwd.dwd_party_customer_info_df.gender_cd": {
+        "sources": [
+          "demo_ods.ods_core_customer_df.gender"
+        ],
+        "expression": "`latest`.`gender_cd`"
+      },
+      "demo_dwd.dwd_party_customer_info_df.verified_customer_no": {
+        "sources": [
+          "demo_ods.ods_core_customer_df.verified_no"
+        ],
+        "expression": "`latest`.`verified_customer_no`"
+      },
+      "demo_dwd.dwd_party_customer_info_df.verify_status": {
+        "sources": [
+          "demo_ods.ods_core_customer_df.verify_flag"
+        ],
+        "expression": "`latest`.`verify_status`"
+      },
+      "demo_dws.dws_lending_loan_summary_1d.channel_code": {
+        "sources": [
+          "demo_dwd.dwd_party_account_map_df.channel_code"
+        ],
+        "expression": "`a`.`channel_code`"
+      },
+      "demo_dws.dws_lending_loan_summary_1d.stat_date": {
+        "declared_only": true
+      }
+    },
+    "relations": {
+      "rel:borrower_owes_loan": {
+        "joins": {
+          "count": 1,
+          "samples": [
+            {
+              "task": "ads_collection_overdue_borrower_daily",
+              "statement_id": "stmt:001",
+              "on": "demo_dwd.dwd_lending_borrower_df.customer_id = demo_dwd.dwd_lending_loan_df.customer_id"
+            }
+          ]
+        }
+      },
+      "rel:customer_holds_app_account": {
+        "joins": {
+          "count": 1,
+          "samples": [
+            {
+              "task": "dws_lending_loan_summary_daily",
+              "statement_id": "stmt:001",
+              "on": "demo_dwd.dwd_party_customer_info_df.customer_id = demo_dwd.dwd_party_account_map_df.customer_id"
+            }
+          ]
+        }
+      },
+      "rel:fee_waiver.borrower": {
+        "joins": {
+          "count": 0,
+          "samples": []
+        }
+      },
+      "rel:fee_waiver.loan": {
+        "joins": {
+          "count": 0,
+          "samples": []
+        }
+      },
+      "rel:repayment.loan": {
+        "joins": {
+          "count": 1,
+          "samples": [
+            {
+              "task": "ads_collection_overdue_borrower_daily",
+              "statement_id": "stmt:001",
+              "on": "demo_dwd.dwd_lending_loan_df.loan_no = demo_dwd.dwd_lending_repayment_di.loan_no"
+            }
+          ]
+        }
+      },
+      "rel:repayment.payer": {
+        "joins": {
+          "count": 0,
+          "samples": []
+        }
+      }
+    }
+  }
+}

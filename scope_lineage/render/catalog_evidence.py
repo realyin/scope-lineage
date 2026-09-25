@@ -121,11 +121,15 @@ def _write_statement(record) -> WriteStatement:
         task=record.task,
         statement_id=record.statement_id,
         target=catalog_table_name(target) if target else "",
-        inputs=tuple(sorted({
-            catalog_table_name(item["table"])
-            for item in profile.get("inputs") or []
-            if item.get("table")
-        })),
+        inputs=tuple(
+            sorted(
+                {
+                    catalog_table_name(item["table"])
+                    for item in profile.get("inputs") or []
+                    if item.get("table")
+                }
+            )
+        ),
         fields=tuple(_field(field) for field in profile.get("fields") or []),
         joins=tuple(_joins(record.document)),
         refresh=_cycle(task_block.get("meta")),
@@ -140,13 +144,19 @@ def _field(field: Mapping) -> dict:
         for source in field.get("sources") or []
         if source.get("table") and source.get("column")
     ]
-    return {"column": field.get("column"), "sources": sources, "expression": field.get("expression")}
+    return {
+        "column": field.get("column"),
+        "sources": sources,
+        "expression": field.get("expression"),
+    }
 
 
 def _joins(document: Mapping) -> Iterable[JoinFact]:
     for _scope_id, block_id, pairs in join_key_pairs(document):
         for (left, right), columns in pairs.items():
-            yield JoinFact(block_id, catalog_table_name(left), catalog_table_name(right), tuple(columns))
+            yield JoinFact(
+                block_id, catalog_table_name(left), catalog_table_name(right), tuple(columns)
+            )
 
 
 def _cycle(task_meta) -> Optional[str]:
@@ -274,7 +284,13 @@ def grain_conflicts(rep: Mapping, proof: Mapping, partition: set) -> list[dict]:
     if proof["confidence"] != "proven":
         if source != "proven":
             return []
-        return [{"rule": "grain_not_proven", "declared_source": source, "confidence": proof["confidence"]}]
+        return [
+            {
+                "rule": "grain_not_proven",
+                "declared_source": source,
+                "confidence": proof["confidence"],
+            }
+        ]
     declared = _declared_grain_columns(rep)
     if declared is None:
         return []
@@ -342,7 +358,9 @@ def _count_joins(catalog: _Catalog, ends: tuple, statements: tuple) -> dict:
                 continue
             count += 1
             if len(samples) < JOIN_SAMPLE_LIMIT:
-                samples.append({"task": statement.task, "statement_id": statement.statement_id, "on": on})
+                samples.append(
+                    {"task": statement.task, "statement_id": statement.statement_id, "on": on}
+                )
     return {"count": count, "samples": samples}
 
 
