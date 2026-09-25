@@ -15,7 +15,9 @@ PACKAGE_NAME = "scope_lineage"
 
 # First-level subpackages/modules whose edges are governed. Package-root leaf modules
 # (sqlglot_config, and any future ones) are usable from anywhere and not listed.
-GOVERNED = {"catalog", "cli", "contract", "metadata", "render", "scope", "serialize"}
+GOVERNED = {
+    "catalog", "cli", "contract", "metadata", "render", "scope", "semantics", "serialize",
+}
 
 ALLOWED_EDGES: dict[str, set[str]] = {
     "cli": {"contract", "metadata", "scope"},
@@ -25,6 +27,11 @@ ALLOWED_EDGES: dict[str, set[str]] = {
     "metadata": set(),
     "render": set(),  # contract-derived: consumes the JSON documents only
     "catalog": set(),  # the concept catalog: a person's files in, ontology-json/3 out
+    # Table semantics sits one step above the derived views: its packet is built from the
+    # semantic profile and the table cards (`render`), and nothing else. Lineage, task
+    # JSON and schema metadata are loaded by `cli_semantic` and handed over as plain data,
+    # so the parser and the metadata loaders stay out of this package.
+    "semantics": {"render"},
 }
 
 

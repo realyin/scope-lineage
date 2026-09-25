@@ -69,8 +69,10 @@ def _is_real_date(text: str) -> bool:
     return True
 
 
+_EMAIL = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+
 _REDACTIONS: tuple[tuple[re.Pattern[str], str | Callable[[re.Match[str]], str]], ...] = (
-    (re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"), "<email>"),
+    (_EMAIL, "<email>"),
     (_ID_NUMBER, _mask_id_number),
     (re.compile(r"\+\d{1,3}[\s-]?\d{6,14}"), "<phone>"),
     (re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)"), "<phone>"),
@@ -90,3 +92,14 @@ def redact(text: object) -> str:
     for pattern, placeholder in _REDACTIONS:
         result = pattern.sub(placeholder, result)
     return result
+
+
+def mask_emails(text: object) -> str:
+    """Mask only the email shape, anywhere in ``text`` -- SQL included.
+
+    :func:`redact` stays off SQL expressions because a digit run there is data the
+    statement operates on. An email address is the one shape with no such excuse: a
+    document that must never carry one (a table-semantics packet handed to a model) can
+    run the whole text, SQL and all, through this without corrupting a number.
+    """
+    return _EMAIL.sub("<email>", "" if text is None else str(text))

@@ -1,0 +1,187 @@
+{
+  "doc_format": "table-semantics/1",
+  "table": "demo_dwd.dwd_party_customer_info_df",
+  "packet_digest": "e21d636c4c7a990f",
+  "generator": {
+    "prompt": "table-semantics-prompt@0",
+    "model": "hand-written example"
+  },
+  "summary": {
+    "what": "客户主表：每个客户号一行，取核心系统客户注册记录里最后更新的一条。",
+    "row": {
+      "text": "一个客户（按客户号）在某一天的最新注册信息。",
+      "grain_columns": ["customer_id"],
+      "grain_source": "proven",
+      "unique": "yes",
+      "note": "同一个 dt 分区内按客户号唯一；每天各有一份全量。",
+      "sources": ["sql", "comment"],
+      "confidence": "high"
+    },
+    "refresh": {
+      "cycle": "daily",
+      "time": "snapshot",
+      "how_to_read": "取某一天的客户用 dt = 那一天；每个分区是当天的全量，不要把多个 dt 分区相加。",
+      "sources": ["sql", "task"],
+      "confidence": "high"
+    },
+    "scope": [
+      {
+        "text": "只看核心系统客户注册表当天分区里的记录。",
+        "rule_refs": ["r1"],
+        "sources": ["sql"]
+      },
+      {
+        "text": "同一个客户号有多条注册记录时，只保留最后更新的一条。",
+        "rule_refs": ["r2", "r3"],
+        "sources": ["sql", "sql_comment"]
+      }
+    ],
+    "upstream": [
+      {
+        "table": "demo_ods.ods_core_customer_df",
+        "role": "main",
+        "provides": "全部业务字段：客户号、实名客户号、性别、注册时间、实名状态；更新时间用来挑最新一条。",
+        "sources": ["sql"]
+      }
+    ],
+    "downstream": [
+      {"task": "dwd_lending_borrower_daily", "table": "demo_dwd.dwd_lending_borrower_df"},
+      {"task": "dws_lending_loan_summary_daily", "table": "demo_dws.dws_lending_loan_summary_1d"}
+    ],
+    "good_for": [
+      "按客户号查某一天客户的最新注册信息",
+      "按性别、实名状态统计某一天的客户数"
+    ],
+    "not_for": [
+      "看客户注册信息的变更历史：每天只留最新一条，改动之前的值不在这张表里"
+    ],
+    "watch": [
+      {
+        "text": "注册时间由秒级时间戳转换而来，按集群默认时区解释。",
+        "kind": "risk",
+        "refs": ["column:register_time"]
+      }
+    ],
+    "questions": [
+      {
+        "id": "q1",
+        "text": "性别码值除了 F、M、U 以外，还会不会出现其他值？",
+        "about": ["column:gender_cd"],
+        "status": "open"
+      }
+    ]
+  },
+  "columns": [
+    {
+      "column": "customer_id",
+      "meaning": "客户号",
+      "category": "identifier",
+      "derivation": "直接取注册表的客户号；每个客户号只留一行。",
+      "source_columns": ["demo_ods.ods_core_customer_df.cust_no"],
+      "sources": ["sql", "comment"],
+      "confidence": "high"
+    },
+    {
+      "column": "verified_customer_no",
+      "meaning": "实名客户号",
+      "category": "identifier",
+      "derivation": "直接取注册表的实名客户号；未实名的客户可能为空。",
+      "source_columns": ["demo_ods.ods_core_customer_df.verified_no"],
+      "null_meaning": "客户尚未实名",
+      "sources": ["sql", "comment", "inferred"],
+      "confidence": "medium"
+    },
+    {
+      "column": "gender_cd",
+      "meaning": "性别",
+      "category": "descriptive",
+      "derivation": "直接取注册表的性别码。",
+      "source_columns": ["demo_ods.ods_core_customer_df.gender"],
+      "code_values": [
+        {"value": "F", "meaning": "女", "sources": ["sql_comment"]},
+        {"value": "M", "meaning": "男", "sources": ["sql_comment"]},
+        {"value": "U", "meaning": "未知", "sources": ["sql_comment"]}
+      ],
+      "sources": ["sql", "sql_comment", "comment"],
+      "confidence": "high"
+    },
+    {
+      "column": "register_time",
+      "meaning": "注册时间",
+      "category": "time",
+      "derivation": "把注册表的秒级时间戳转换成时间。",
+      "source_columns": ["demo_ods.ods_core_customer_df.register_ts"],
+      "sources": ["sql", "comment"],
+      "confidence": "high"
+    },
+    {
+      "column": "verify_status",
+      "meaning": "实名状态",
+      "category": "state",
+      "derivation": "直接取注册表的实名标志。",
+      "source_columns": ["demo_ods.ods_core_customer_df.verify_flag"],
+      "code_values": [
+        {"value": "1", "meaning": "已实名", "sources": ["sql_comment"]},
+        {"value": "0", "meaning": "未实名", "sources": ["sql_comment"]}
+      ],
+      "sources": ["sql", "sql_comment", "comment"],
+      "confidence": "high"
+    },
+    {
+      "column": "etl_time",
+      "meaning": "装载时间",
+      "category": "technical",
+      "derivation": "任务运行时的当前时间，与业务无关。",
+      "sources": ["sql", "comment"],
+      "confidence": "high"
+    },
+    {
+      "column": "dt",
+      "meaning": "数据日期",
+      "category": "time",
+      "derivation": "调度日期，按天分区；每个分区是当天的全量。",
+      "sources": ["sql", "comment"],
+      "confidence": "high"
+    }
+  ],
+  "steps": [
+    "取核心系统客户注册表当天分区的记录。",
+    "按客户号分组、按更新时间倒序编号，每个客户号只留编号为 1 的一条。",
+    "转换注册时间、加上装载时间，写入当天分区。"
+  ],
+  "rules": [
+    {
+      "id": "r1",
+      "kind": "filter",
+      "text": "只取注册表当天分区",
+      "sql": "WHERE dt = '${bizdate}'",
+      "sources": ["sql"]
+    },
+    {
+      "id": "r2",
+      "kind": "dedup",
+      "text": "每个客户号按更新时间倒序编号",
+      "sql": "ROW_NUMBER() OVER (PARTITION BY cust_no ORDER BY update_ts DESC)",
+      "sources": ["sql", "sql_comment"]
+    },
+    {
+      "id": "r3",
+      "kind": "filter",
+      "text": "只保留编号为 1 的最新一条",
+      "sql": "WHERE rn = 1",
+      "sources": ["sql"]
+    }
+  ],
+  "task": {
+    "name": "dwd_party_customer_info_daily",
+    "purpose": "每天从核心系统客户注册表里为每个客户号保留最新一条注册记录，作为下游借款人和贷款汇总使用的客户主表。",
+    "cycle": "daily",
+    "outputs": ["demo_dwd.dwd_party_customer_info_df"],
+    "upstream_tasks": [],
+    "downstream_tasks": ["dwd_lending_borrower_daily", "dws_lending_loan_summary_daily"]
+  },
+  "concept": {
+    "concept": "concept:customer",
+    "representation_kind": "core"
+  }
+}
