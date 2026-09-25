@@ -1,6 +1,22 @@
 # Changelog
 
 ## Unreleased
+- **The ontology catalog: a concept-first source of truth** (S1). A new directory format,
+  `catalog-yaml/1`, that a person maintains: domains, identifiers (with their uniqueness
+  scope, the condition they arise under and their physical spellings), code sets, concepts
+  (entities with states and transitions, events with participants, roles with a player and
+  a context, each with its attributes), relations, constraints, terms, and a mapping layer
+  of table representations and column bindings. Any file may be YAML (optional extra
+  `scope-lineage[catalog]`, PyYAML) or JSON. `scope-lineage catalog validate <dir>
+  [--json]` checks every file against its packaged schema, then every reference (one named
+  rule each), then prints warnings (drafted share, missing definitions and verbs, empty code
+  sets, unmapped columns, unrecognised files); it exits 1 on errors.
+  `scope-lineage catalog build <dir> --out <dir>` refuses an invalid catalog and otherwise
+  writes `ontology.json` as `ontology-json/3`: the catalog normalised (defaults filled,
+  stable key and list order, independent of file layout) plus one `participation` relation
+  per event participant, with its own packaged schema. The existing `ontology` command and
+  `ontology-json/2` stay for one more release. Guide: `docs/*/ontology-catalog.md`; a full
+  synthetic example: `examples/catalog-demo/`.
 - **The six things a batched concept review could not say** (N8b). An agent reviewer worked
   three `--review-batches` worksheets end to end on a wide corpus and hit the same six walls
   every batch. Each one is a tool refusing a judgement the reviewer had already made, or

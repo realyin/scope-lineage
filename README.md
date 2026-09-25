@@ -588,6 +588,7 @@ Documentation:
 - [`tables.json` / `tables.md` corpus-level table cards](docs/en/tables-doc.md)
 - [`glossary.json` / `glossary.md` term and value dictionary](docs/en/glossary-doc.md)
 - [`ontology.json` / `ontology.md` corpus-level ontology candidate](docs/en/ontology-doc.md)
+- [Ontology catalog (`catalog-yaml/1`): the concept-first source of truth, `catalog validate` / `catalog build` into `ontology-json/3`](docs/en/ontology-catalog.md)
 
 ## AI agent integration
 

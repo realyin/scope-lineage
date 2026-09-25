@@ -270,6 +270,7 @@ the summary line as `unmatched=1`.
 | `glossary` | a `lineage.json` tree, optional `--overrides`, `--ontology`, `--template` | `glossary.json`, `glossary.md`, optionally a fill-in form | business owner fills the form; machines read the JSON | [Term and value dictionary](glossary-doc.md) |
 | `describe` | `lineage.json` + `--tables` + `--glossary` + optional `--ontology` / `--metadata-patch` | one `semantic.json`, `semantic.md` per task | agent (raw material for a profile), analyst | [Task-semantic description](semantic-doc.md) |
 | `ontology` | `lineage.json` + `--tables` + `--glossary` + optional `--overrides`, `--concept-overrides`, `--export` | `ontology.json`, `ontology.md`, cards with ontology sections | agent (turns open items into questions), analyst | [Corpus-level ontology candidate](ontology-doc.md) |
+| `catalog validate` / `catalog build` | a catalog directory a person maintains (`catalog.yaml`, concepts, identifiers, mapping, ...) | a text or `--json` report; `ontology.json` (`ontology-json/3`) | the catalog's owner; machines read the build | [Ontology catalog](ontology-catalog.md) |
 | agent task profile | `semantic.md` plus the skill's prompt and templates | `business_profile.md`, `business_profile.check.md` | business owner (reads the profile, answers the open list) | [AI agent skill](agent-skill.md) |
 | `confirmations.py apply` | an answered `business_profile.md` | merged into `glossary.overrides.json`, `metadata-patch.json` | machine (the next round's input) | [AI agent skill](agent-skill.md) |
 
