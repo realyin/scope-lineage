@@ -2667,10 +2667,16 @@ def _decide_grain(
     that window's partition keys -- a *stronger* statement than the driving table's rows,
     which is what the walk would otherwise report after crossing the row-preserving
     filter. Everything else is the recursive walk.
+
+    A MERGE withholds only the grain, not the path. Its USING source is read row for
+    row, so a JOIN that duplicates a source row duplicates what the MERGE inserts (or
+    makes its matched update ambiguous) exactly as it would an INSERT's rows; the walk
+    still runs so its scopes reach the fan-out verdicts, and its grain is dropped.
     """
     root_visited = [_ROOT] if _ROOT in _scopes(document) else []
     if shape == SHAPE_UNKNOWN:
-        return _grain([], BASIS_UNKNOWN, shape_evidence), root_visited
+        visited = _resolve_grain(document)[1] if root_visited else root_visited
+        return _grain([], BASIS_UNKNOWN, shape_evidence), visited
     if shape == SHAPE_DEDUPLICATED:
         keys = _root_dedup_logical_keys(document)
         if keys:

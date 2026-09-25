@@ -1,6 +1,15 @@
 # Changelog
 
 ## Unreleased
+- **Fixed — a MERGE's JOINs are on the output path again.** A MERGE keeps its grain
+  `unknown`, and the grain walk used to stop there with only ROOT visited, so no JOIN
+  under the USING source -- however many CTEs or subqueries down -- was given a fan-out
+  verdict: `output_shape.fan_out_risks` left them out, packet.md marked every one of them
+  不在输出路径上, and `semantic validate` check 10 never asked the document to name an
+  undeduplicated lookup that feeds output columns. The walk now runs for a MERGE too, from
+  ROOT through its USING source to the driving table, and its JOINs are published with
+  `path = grain` exactly as an INSERT's; only the grain it would report stays withheld, so
+  `grain`, `candidate_keys` and `key_confidence` are unchanged.
 - **`semantic validate` checks meaning, not only form: checks 10-13.** Checks 1-9 prove a
   document covers every column, cites every source and quotes the SQL faithfully; a page
   can pass all of them and still mislead. Four new checks hold what it says to the packet:
