@@ -29,6 +29,7 @@ from .catalog_view import (
     code_value_text,
     concept_filename,
     status_text,
+    usage_hint,
 )
 from .catalog_view import CONSTRAINT_KINDS as _CONSTRAINT_KINDS
 from .catalog_view import RELATION_KIND_TEXT as _RELATION_KIND_TEXT
@@ -204,7 +205,9 @@ def _inventory(view: CatalogView, concept: dict) -> list[str]:
         if not group:
             continue
         lines += [f"### {label}", ""]
-        lines += table_head("表", "粒度", "时间语义", "更新频率", "记录范围", "生产任务", "表状态")
+        lines += table_head(
+            "表", "说明", "粒度", "时间语义", "更新频率", "记录范围", "生产任务", "表状态"
+        )
         lines += [_rep_row(view, rep) for rep in group]
         lines += [*_lineage_lines(view, group), ""]
     return lines[:-1]
@@ -214,13 +217,30 @@ def _rep_row(view: CatalogView, rep: dict) -> str:
     evidence = view.rep_evidence(rep["table"])
     return table_row(
         expr_span(rep["table"]),
+        _about_text(rep, evidence),
         grain_text(view, rep),
-        TIME_TEXT[rep["time"]],
+        time_text(rep),
         _refresh_text(rep, evidence),
         cell("；".join(rep["scope"])) or "全部",
         "、".join(evidence.get("producing_tasks") or []) or NONE,
         _table_status(rep),
     )
+
+
+def _about_text(rep: dict, evidence: dict) -> str:
+    """The table comment from its card and the catalog's own notes on the table."""
+    parts = []
+    if evidence.get("table_comment"):
+        parts.append(f"表注释：{cell(evidence['table_comment'])}")
+    if rep.get("notes"):
+        parts.append(f"备注：{cell(rep['notes'])}")
+    return "；".join(parts) or NONE
+
+
+def time_text(rep: dict) -> str:
+    """``快照；按单个 dt 分区取数``: the time semantics and how to read the table by them."""
+    hint = usage_hint(rep)
+    return f"{TIME_TEXT[rep['time']]}；{hint}" if hint else TIME_TEXT[rep["time"]]
 
 
 def grain_text(view: CatalogView, rep: dict) -> str:

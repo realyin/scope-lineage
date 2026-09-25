@@ -23,9 +23,9 @@ A customer while they hold at least one loan that is not settled.
 
 ### 角色视图
 
-| 表 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
-| --- | --- | --- | --- | --- | --- | --- |
-| `demo_dwd.dwd_lending_borrower_df` | 客户号（推断）；血缘已证明 `customer_id` | 快照 | 调度 day | customers holding at least one loan that is not settled | dwd_lending_borrower_daily | 在用 · 草拟（llm） |
+| 表 | 说明 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `demo_dwd.dwd_lending_borrower_df` | 表注释：Borrowers | 客户号（推断）；血缘已证明 `customer_id` | 快照；按单个 dt 分区取数 | 调度 day | customers holding at least one loan that is not settled | dwd_lending_borrower_daily | 在用 · 草拟（llm） |
 
 - `demo_dwd.dwd_lending_borrower_df` 血缘一跳：上游 `demo_dwd.dwd_lending_loan_df`、`demo_dwd.dwd_party_customer_info_df`、`demo_ods.ods_credit_limit_df`；下游 `demo_ads.ads_collection_overdue_loan_df`
 

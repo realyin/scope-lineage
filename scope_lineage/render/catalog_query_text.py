@@ -16,6 +16,7 @@ from .catalog_view import (
     KIND_TEXT,
     REPRESENTATION_KINDS,
     TABLE_STATUS_TEXT,
+    TIME_TEXT,
     code_value_text,
     status_text,
 )
@@ -75,8 +76,17 @@ def _table(match: Mapping) -> list[str]:
         f"{match['table']} · {match['concept']['name']} {match['concept']['id']} · "
         f"{REP_KIND_TEXT[match['kind']]} · {TABLE_STATUS_TEXT[match['table_status']]}",
         _grain(match),
+        f"  时间语义：{TIME_TEXT[match['time']]}"
+        + (f"；{match['usage']}" if match.get("usage") else ""),
     ]
     evidence = match.get("evidence") or {}
+    about = [
+        f"{label} {text}"
+        for label, text in (("表注释", evidence.get("table_comment")), ("备注", match.get("notes")))
+        if text
+    ]
+    if about:
+        lines.append(f"  说明：{'；'.join(about)}")
     facts = [
         f"{label}：{'、'.join(evidence[key])}"
         for key, label in (

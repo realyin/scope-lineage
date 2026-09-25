@@ -28,6 +28,7 @@ from .catalog_view import (
     CatalogView,
     catalog_table_name,
     concept_filename,
+    usage_hint,
 )
 
 __all__ = ["QUERY_KINDS", "query_catalog", "render_query_text"]
@@ -130,9 +131,22 @@ def _table_matches(view: CatalogView, term: str) -> list[dict]:
     rep = view.representations.get(catalog_table_name(term))
     if rep is None:
         return []
-    keys = ("kind", "grain", "time", "refresh", "scope", "table_status", "replaced_by", "status")
+    keys = (
+        "kind",
+        "grain",
+        "time",
+        "refresh",
+        "scope",
+        "table_status",
+        "replaced_by",
+        "status",
+        "notes",
+    )
     answer = {"table": rep["table"], "concept": _ref(view, rep["concept"])}
     answer.update({key: rep[key] for key in keys if key in rep})
+    hint = usage_hint(rep)
+    if hint:
+        answer["usage"] = hint
     answer["columns"] = [_column(view, rep, binding) for binding in rep["bindings"]]
     evidence = view.rep_evidence(rep["table"])
     if evidence:

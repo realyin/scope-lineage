@@ -28,6 +28,7 @@ representations:
       - {column: dt, to: technical}
     status: confirmed
     source: sql
+    notes: A renewal loan names the loan it renews in orig_loan_no; the renewed loan stays in the table as settled.
 
   - table: demo_dwd.dwd_lending_loan_status_his
     concept: concept:loan

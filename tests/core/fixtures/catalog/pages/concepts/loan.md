@@ -39,25 +39,25 @@ One amount lent to a borrower, repaid over one or more instalments.
 
 ### 核心
 
-| 表 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
-| --- | --- | --- | --- | --- | --- | --- |
-| `demo_dwd.dwd_lending_loan_df` | 借据号（已证明）；血缘候选 `loan_no` | 快照 | daily；调度 day | 全部 | dwd_lending_loan_daily | 在用 · 已确认（sql） |
+| 表 | 说明 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `demo_dwd.dwd_lending_loan_df` | 表注释：Loan snapshot；备注：A renewal loan names the loan it renews in orig_loan_no; the renewed loan stays in the table as settled. | 借据号（已证明）；血缘候选 `loan_no` | 快照；按单个 dt 分区取数 | daily；调度 day | 全部 | dwd_lending_loan_daily | 在用 · 已确认（sql） |
 
 - `demo_dwd.dwd_lending_loan_df` 血缘一跳：上游 `demo_ods.ods_loan_contract_df`、`demo_ods.ods_loan_penalty_di`；下游 `demo_ads.ads_collection_overdue_loan_df`、`demo_dwd.dwd_lending_borrower_df`、`demo_dwd.dwd_lending_repayment_di`、`demo_dws.dws_lending_loan_summary_1d`
 
 ### 状态历史
 
-| 表 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
-| --- | --- | --- | --- | --- | --- | --- |
-| `demo_dwd.dwd_lending_loan_status_his` | 借据号 + `start_date`（声明） | 拉链 | — | 全部 | — | 在用 · 已确认（owner） |
+| 表 | 说明 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `demo_dwd.dwd_lending_loan_status_his` | 表注释：Loan status history (zipper) | 借据号 + `start_date`（声明） | 拉链；按有效期窗口取数（start_date ≤ 查询日 < end_date，端点开闭以表口径为准） | — | 全部 | — | 在用 · 已确认（owner） |
 
 - `demo_dwd.dwd_lending_loan_status_his` 血缘一跳：下游 `demo_ads.ads_loan_status_span_df`
 
 ### 汇总
 
-| 表 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
-| --- | --- | --- | --- | --- | --- | --- |
-| `demo_dws.dws_lending_loan_summary_1d` | 渠道编码 + `stat_date`（声明）；血缘已证明 `channel_code` | 增量 | 调度 day | 全部 | dws_lending_loan_summary_daily | 已废弃 · 已确认（owner）；由 `demo_dws.dws_lending_loan_summary_v2_1d` 替代 |
+| 表 | 说明 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `demo_dws.dws_lending_loan_summary_1d` | 表注释：Loans per channel per day | 渠道编码 + `stat_date`（声明）；血缘已证明 `channel_code` | 增量 | 调度 day | 全部 | dws_lending_loan_summary_daily | 已废弃 · 已确认（owner）；由 `demo_dws.dws_lending_loan_summary_v2_1d` 替代 |
 
 - `demo_dws.dws_lending_loan_summary_1d` 血缘一跳：上游 `demo_dwd.dwd_lending_loan_df`、`demo_dwd.dwd_party_account_map_df`、`demo_dwd.dwd_party_customer_info_df`
 

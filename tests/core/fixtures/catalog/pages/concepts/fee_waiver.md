@@ -23,9 +23,9 @@ The shop forgives part of what an overdue loan owes.
 
 ### 事件明细
 
-| 表 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
-| --- | --- | --- | --- | --- | --- | --- |
-| `demo_dwd.dwd_collection_fee_waiver_di` | `waiver_seq`（推断） | 增量 | — | 全部 | — | 在用 · 草拟（llm） |
+| 表 | 说明 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `demo_dwd.dwd_collection_fee_waiver_di` | 备注：Kept as JSON on purpose: any catalog file may be YAML or JSON. | `waiver_seq`（推断） | 增量 | — | 全部 | — | 在用 · 草拟（llm） |
 
 ## 3. 属性
 

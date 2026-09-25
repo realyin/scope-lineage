@@ -1292,7 +1292,8 @@
       ],
       "status": "confirmed",
       "source": "sql",
-      "evidence": []
+      "evidence": [],
+      "notes": "A renewal loan names the loan it renews in orig_loan_no; the renewed loan stays in the table as settled."
     },
     {
       "table": "demo_dwd.dwd_lending_loan_status_his",
@@ -1681,6 +1682,7 @@
           "basis": "group_by",
           "task": "dwd_lending_borrower_daily"
         },
+        "table_comment": "Borrowers",
         "declared_columns": 4,
         "used_columns": 4
       },
@@ -1716,6 +1718,7 @@
             "confidence": "candidate"
           }
         ],
+        "table_comment": "Loan snapshot",
         "declared_columns": 8,
         "used_columns": 8
       },
@@ -1723,6 +1726,7 @@
         "downstream_tables": [
           "demo_ads.ads_loan_status_span_df"
         ],
+        "table_comment": "Loan status history (zipper)",
         "declared_columns": 4,
         "used_columns": 3
       },
@@ -1748,6 +1752,7 @@
           "basis": "group_by",
           "task": "dwd_lending_repayment_daily"
         },
+        "table_comment": "Repayments",
         "declared_columns": 6,
         "used_columns": 5
       },
@@ -1773,6 +1778,7 @@
           "basis": "group_by",
           "task": "dwd_party_account_map_daily"
         },
+        "table_comment": "App account to customer map",
         "declared_columns": 5,
         "used_columns": 5
       },
@@ -1798,6 +1804,7 @@
           "basis": "window_partition",
           "task": "dwd_party_customer_info_daily"
         },
+        "table_comment": "Customer master, one row per customer",
         "declared_columns": 7,
         "used_columns": 7
       },
@@ -1821,6 +1828,7 @@
           "basis": "group_by",
           "task": "dws_lending_loan_summary_daily"
         },
+        "table_comment": "Loans per channel per day",
         "declared_columns": 3,
         "used_columns": 2
       }

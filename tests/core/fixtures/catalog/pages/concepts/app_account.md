@@ -23,9 +23,9 @@ The sign-in account a customer holds in one channel.
 
 ### 标识映射
 
-| 表 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
-| --- | --- | --- | --- | --- | --- | --- |
-| `demo_dwd.dwd_party_account_map_df` | 应用账户号 + 渠道编码（已证明）；血缘已证明 `account_id`、`channel_code` | 快照 | 调度 day | 全部 | dwd_party_account_map_daily | 在用 · 已确认（sql） |
+| 表 | 说明 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `demo_dwd.dwd_party_account_map_df` | 表注释：App account to customer map | 应用账户号 + 渠道编码（已证明）；血缘已证明 `account_id`、`channel_code` | 快照；按单个 dt 分区取数 | 调度 day | 全部 | dwd_party_account_map_daily | 在用 · 已确认（sql） |
 
 - `demo_dwd.dwd_party_account_map_df` 血缘一跳：上游 `demo_ods.ods_app_account_df`；下游 `demo_dws.dws_lending_loan_summary_1d`
 

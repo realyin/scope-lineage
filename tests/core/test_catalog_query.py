@@ -108,6 +108,23 @@ def test_a_table_answer_says_what_it_carries_and_what_each_column_points_at(docu
     assert match["evidence"]["producing_tasks"] == ["dwd_lending_loan_daily"]
 
 
+def test_a_table_answer_carries_its_notes_comment_and_how_to_read_it(document: dict) -> None:
+    loan = _one(document, "table", "demo_dwd.dwd_lending_loan_df")
+    history = _one(document, "table", "demo_dwd.dwd_lending_loan_status_his")
+
+    assert loan["notes"].startswith("A renewal loan names the loan it renews")
+    assert loan["evidence"]["table_comment"] == "Loan snapshot"
+    assert loan["usage"] == "按单个 dt 分区取数"
+    assert history["usage"].startswith("按有效期窗口取数（start_date ≤ 查询日 < end_date")
+
+
+def test_the_table_text_says_what_the_table_is_and_how_to_read_it(document: dict) -> None:
+    text = render_query_text(query_catalog(document, "table", "demo_dwd.dwd_lending_loan_df"))
+
+    assert "  时间语义：快照；按单个 dt 分区取数" in text
+    assert "  说明：表注释 Loan snapshot；备注 A renewal loan" in text
+
+
 def test_a_table_the_catalog_does_not_map_matches_nothing(document: dict) -> None:
     assert query_catalog(document, "table", "demo_ods.ods_loan_contract_df")["matches"] == []
 

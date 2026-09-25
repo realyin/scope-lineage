@@ -1164,6 +1164,11 @@
             }
           }
         },
+        "table_comment": {
+          "description": "The table comment on the table card (--tables)",
+          "type": "string",
+          "minLength": 1
+        },
         "declared_columns": {
           "type": "integer",
           "minimum": 0

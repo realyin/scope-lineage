@@ -66,6 +66,10 @@ MAPPING_TEXT = {
 }
 TABLE_STATUS_TEXT = {"active": "在用", "deprecated": "已废弃"}
 UNCONFIRMED = "待确认"
+# Column names a snapshot table partitions by, and the words naming a zipper's window ends.
+PARTITION_COLUMNS = ("dt", "ds", "pt", "p_date", "stat_date", "snapshot_date", "biz_date")
+WINDOW_START = ("start", "begin", "eff", "effective", "from")
+WINDOW_END = ("end", "expire", "exp", "expiry", "to")
 
 
 def catalog_table_name(name) -> str:
@@ -106,6 +110,27 @@ def code_value_text(value: Mapping) -> str:
         return f"{value['value']}={value['meaning']}"
     guess = unconfirmed_guess(value)
     return f"{value['value']}（含义待确认{'：' + guess if guess else ''}）"
+
+
+def usage_hint(rep: Mapping) -> Optional[str]:
+    """How to read the table given its time semantics, or None when there is nothing to say.
+
+    A snapshot table holds the whole population once per partition, so summing across
+    partitions counts every row again; a zipper table holds one row per validity window.
+    """
+    columns = [str(binding["column"]) for binding in rep.get("bindings") or []]
+    if rep.get("time") == "snapshot":
+        partition = next((c for c in columns if c in PARTITION_COLUMNS), "dt")
+        return f"按单个 {partition} 分区取数"
+    if rep.get("time") == "zipper":
+        start = next((c for c in columns if _names_window(c, WINDOW_START)), "开始日")
+        end = next((c for c in columns if _names_window(c, WINDOW_END)), "结束日")
+        return f"按有效期窗口取数（{start} ≤ 查询日 < {end}，端点开闭以表口径为准）"
+    return None
+
+
+def _names_window(column: str, words: tuple) -> bool:
+    return any(part in words for part in column.casefold().split("_"))
 
 
 def status_text(obj: Mapping) -> str:

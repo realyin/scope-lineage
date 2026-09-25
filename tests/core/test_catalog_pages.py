@@ -16,7 +16,7 @@ import pytest
 from scope_lineage.catalog import build_ontology, load_catalog
 from scope_lineage.cli import main
 from scope_lineage.render.catalog_pages import render_catalog_pages
-from scope_lineage.render.catalog_view import code_value_text
+from scope_lineage.render.catalog_view import code_value_text, usage_hint
 
 from .catalog_demo import DEMO, demo_tables, parse_demo_corpus
 
@@ -128,7 +128,41 @@ def test_an_inventory_row_carries_grain_time_refresh_scope_and_producer(pages: d
     row = _row(pages["concepts/loan.md"], "`demo_dwd.dwd_lending_loan_df`")
 
     assert "借据号（已证明）；血缘候选 `loan_no`" in row
-    assert "| 快照 | daily；调度 day | 全部 | dwd_lending_loan_daily |" in row
+    assert "| daily；调度 day | 全部 | dwd_lending_loan_daily |" in row
+
+
+def test_an_inventory_row_shows_the_table_comment_and_the_catalogs_notes(pages: dict) -> None:
+    row = _row(pages["concepts/loan.md"], "`demo_dwd.dwd_lending_loan_df`")
+    waiver = _row(pages["concepts/fee_waiver.md"], "`demo_dwd.dwd_collection_fee_waiver_di`")
+
+    assert "| `demo_dwd.dwd_lending_loan_df` | 表注释：Loan snapshot；备注：A renewal loan" in row
+    assert "| 备注：Kept as JSON on purpose" in waiver
+
+
+def test_an_inventory_row_says_how_to_read_a_snapshot_and_a_zipper(pages: dict) -> None:
+    snapshot = _row(pages["concepts/loan.md"], "`demo_dwd.dwd_lending_loan_df`")
+    zipper = _row(pages["concepts/loan.md"], "`demo_dwd.dwd_lending_loan_status_his`")
+
+    assert "| 快照；按单个 dt 分区取数 |" in snapshot
+    assert "| 拉链；按有效期窗口取数（start_date ≤ 查询日 < end_date，端点开闭以表口径为准） |" in zipper
+
+
+@pytest.mark.parametrize(
+    ("time", "columns", "hint"),
+    [
+        ("snapshot", ["id", "ds"], "按单个 ds 分区取数"),
+        ("snapshot", ["id"], "按单个 dt 分区取数"),
+        ("zipper", ["id", "eff_date", "exp_date"], "按有效期窗口取数（eff_date ≤ 查询日 < exp_date"),
+        ("zipper", ["id"], "按有效期窗口取数（开始日 ≤ 查询日 < 结束日"),
+        ("incremental", ["id", "dt"], None),
+    ],
+)
+def test_the_usage_hint_names_the_tables_own_columns(time: str, columns: list, hint) -> None:
+    rep = {"time": time, "bindings": [{"column": column} for column in columns]}
+
+    found = usage_hint(rep)
+
+    assert found == hint if hint is None else found.startswith(hint)
 
 
 def test_a_deprecated_table_names_its_replacement(pages: dict) -> None:

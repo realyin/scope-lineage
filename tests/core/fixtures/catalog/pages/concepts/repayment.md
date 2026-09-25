@@ -25,9 +25,9 @@ A customer pays money back against one or more loans.
 
 ### 事件明细
 
-| 表 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
-| --- | --- | --- | --- | --- | --- | --- |
-| `demo_dwd.dwd_lending_repayment_di` | 还款流水号（已证明）；血缘已证明 `repay_txn_no` | 增量 | daily；调度 day | 全部 | dwd_lending_repayment_daily | 在用 · 已确认（sql） |
+| 表 | 说明 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `demo_dwd.dwd_lending_repayment_di` | 表注释：Repayments | 还款流水号（已证明）；血缘已证明 `repay_txn_no` | 增量 | daily；调度 day | 全部 | dwd_lending_repayment_daily | 在用 · 已确认（sql） |
 
 - `demo_dwd.dwd_lending_repayment_di` 血缘一跳：上游 `demo_dwd.dwd_lending_loan_df`、`demo_ods.ods_repay_txn_di`；下游 `demo_ads.ads_collection_overdue_loan_df`
 

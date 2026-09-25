@@ -37,17 +37,17 @@ A person the shop has registered, whether or not they ever borrow.
 
 ### 核心
 
-| 表 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
-| --- | --- | --- | --- | --- | --- | --- |
-| `demo_dwd.dwd_party_customer_info_df` | 客户号（已证明）；血缘已证明 `customer_id` | 快照 | daily；调度 day | 全部 | dwd_party_customer_info_daily | 在用 · 已确认（sql） |
+| 表 | 说明 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `demo_dwd.dwd_party_customer_info_df` | 表注释：Customer master, one row per customer | 客户号（已证明）；血缘已证明 `customer_id` | 快照；按单个 dt 分区取数 | daily；调度 day | 全部 | dwd_party_customer_info_daily | 在用 · 已确认（sql） |
 
 - `demo_dwd.dwd_party_customer_info_df` 血缘一跳：上游 `demo_ods.ods_core_customer_df`；下游 `demo_dwd.dwd_lending_borrower_df`、`demo_dws.dws_lending_loan_summary_1d`
 
 ### 扩展
 
-| 表 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
-| --- | --- | --- | --- | --- | --- | --- |
-| `demo_dwd.dwd_party_customer_ext_df` | 客户号（声明） | 快照 | — | 全部 | — | 在用 · 草拟（comment） |
+| 表 | 说明 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `demo_dwd.dwd_party_customer_ext_df` | — | 客户号（声明） | 快照；按单个 dt 分区取数 | — | 全部 | — | 在用 · 草拟（comment） |
 
 ## 3. 属性
 
