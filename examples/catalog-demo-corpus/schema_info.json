@@ -1,0 +1,621 @@
+{
+  "tables": [
+    {
+      "table_name": "demo_ods.ods_core_customer_df",
+      "table_desc": "Customer registrations as the core system exports them",
+      "data_level": "ODS",
+      "is_partition": 1,
+      "schema": [
+        {
+          "columnName": "cust_no",
+          "columnType": "string",
+          "columnComment": "Customer number",
+          "columnIndex": 0,
+          "isPartition": 0
+        },
+        {
+          "columnName": "verified_no",
+          "columnType": "string",
+          "columnComment": "Verified customer number",
+          "columnIndex": 1,
+          "isPartition": 0
+        },
+        {
+          "columnName": "gender",
+          "columnType": "string",
+          "columnComment": "Gender code",
+          "columnIndex": 2,
+          "isPartition": 0
+        },
+        {
+          "columnName": "register_ts",
+          "columnType": "bigint",
+          "columnComment": "Registration epoch seconds",
+          "columnIndex": 3,
+          "isPartition": 0
+        },
+        {
+          "columnName": "verify_flag",
+          "columnType": "int",
+          "columnComment": "Verification flag",
+          "columnIndex": 4,
+          "isPartition": 0
+        },
+        {
+          "columnName": "update_ts",
+          "columnType": "bigint",
+          "columnComment": "Last update epoch seconds",
+          "columnIndex": 5,
+          "isPartition": 0
+        },
+        {
+          "columnName": "dt",
+          "columnType": "string",
+          "columnComment": "Partition date",
+          "columnIndex": 6,
+          "isPartition": 1
+        }
+      ]
+    },
+    {
+      "table_name": "demo_ods.ods_app_account_df",
+      "table_desc": "App accounts by channel",
+      "data_level": "ODS",
+      "is_partition": 1,
+      "schema": [
+        {
+          "columnName": "account_id",
+          "columnType": "string",
+          "columnComment": "Account id",
+          "columnIndex": 0,
+          "isPartition": 0
+        },
+        {
+          "columnName": "channel_code",
+          "columnType": "string",
+          "columnComment": "Channel code",
+          "columnIndex": 1,
+          "isPartition": 0
+        },
+        {
+          "columnName": "cust_no",
+          "columnType": "string",
+          "columnComment": "Customer number",
+          "columnIndex": 2,
+          "isPartition": 0
+        },
+        {
+          "columnName": "open_time",
+          "columnType": "timestamp",
+          "columnComment": "Opened at",
+          "columnIndex": 3,
+          "isPartition": 0
+        },
+        {
+          "columnName": "dt",
+          "columnType": "string",
+          "columnComment": "Partition date",
+          "columnIndex": 4,
+          "isPartition": 1
+        }
+      ]
+    },
+    {
+      "table_name": "demo_ods.ods_loan_contract_df",
+      "table_desc": "Loan contracts",
+      "data_level": "ODS",
+      "is_partition": 1,
+      "schema": [
+        {
+          "columnName": "loan_no",
+          "columnType": "string",
+          "columnComment": "Loan number",
+          "columnIndex": 0,
+          "isPartition": 0
+        },
+        {
+          "columnName": "cust_no",
+          "columnType": "string",
+          "columnComment": "Customer number",
+          "columnIndex": 1,
+          "isPartition": 0
+        },
+        {
+          "columnName": "principal",
+          "columnType": "decimal(18,2)",
+          "columnComment": "Principal",
+          "columnIndex": 2,
+          "isPartition": 0
+        },
+        {
+          "columnName": "loan_status",
+          "columnType": "string",
+          "columnComment": "Loan status code",
+          "columnIndex": 3,
+          "isPartition": 0
+        },
+        {
+          "columnName": "dt",
+          "columnType": "string",
+          "columnComment": "Partition date",
+          "columnIndex": 4,
+          "isPartition": 1
+        }
+      ]
+    },
+    {
+      "table_name": "demo_ods.ods_loan_penalty_di",
+      "table_desc": "Daily penalty accruals",
+      "data_level": "ODS",
+      "is_partition": 1,
+      "schema": [
+        {
+          "columnName": "loan_no",
+          "columnType": "string",
+          "columnComment": "Loan number",
+          "columnIndex": 0,
+          "isPartition": 0
+        },
+        {
+          "columnName": "penalty",
+          "columnType": "decimal(18,2)",
+          "columnComment": "Penalty accrued that day",
+          "columnIndex": 1,
+          "isPartition": 0
+        },
+        {
+          "columnName": "dt",
+          "columnType": "string",
+          "columnComment": "Partition date",
+          "columnIndex": 2,
+          "isPartition": 1
+        }
+      ]
+    },
+    {
+      "table_name": "demo_ods.ods_repay_txn_di",
+      "table_desc": "Repayment transactions",
+      "data_level": "ODS",
+      "is_partition": 1,
+      "schema": [
+        {
+          "columnName": "repay_txn_no",
+          "columnType": "string",
+          "columnComment": "Repayment transaction number",
+          "columnIndex": 0,
+          "isPartition": 0
+        },
+        {
+          "columnName": "loan_no",
+          "columnType": "string",
+          "columnComment": "Loan number",
+          "columnIndex": 1,
+          "isPartition": 0
+        },
+        {
+          "columnName": "amount",
+          "columnType": "string",
+          "columnComment": "Amount received",
+          "columnIndex": 2,
+          "isPartition": 0
+        },
+        {
+          "columnName": "paid_time",
+          "columnType": "timestamp",
+          "columnComment": "Received at",
+          "columnIndex": 3,
+          "isPartition": 0
+        },
+        {
+          "columnName": "dt",
+          "columnType": "string",
+          "columnComment": "Partition date",
+          "columnIndex": 4,
+          "isPartition": 1
+        }
+      ]
+    },
+    {
+      "table_name": "demo_ods.ods_credit_limit_df",
+      "table_desc": "Credit limits",
+      "data_level": "ODS",
+      "is_partition": 1,
+      "schema": [
+        {
+          "columnName": "cust_no",
+          "columnType": "string",
+          "columnComment": "Customer number",
+          "columnIndex": 0,
+          "isPartition": 0
+        },
+        {
+          "columnName": "credit_limit",
+          "columnType": "decimal(18,2)",
+          "columnComment": "Credit limit",
+          "columnIndex": 1,
+          "isPartition": 0
+        },
+        {
+          "columnName": "dt",
+          "columnType": "string",
+          "columnComment": "Partition date",
+          "columnIndex": 2,
+          "isPartition": 1
+        }
+      ]
+    },
+    {
+      "table_name": "demo_dwd.dwd_party_customer_info_df",
+      "table_desc": "Customer master, one row per customer",
+      "data_level": "DWD",
+      "is_partition": 1,
+      "schema": [
+        {
+          "columnName": "customer_id",
+          "columnType": "string",
+          "columnComment": "Customer number",
+          "columnIndex": 0,
+          "isPartition": 0
+        },
+        {
+          "columnName": "verified_customer_no",
+          "columnType": "string",
+          "columnComment": "Verified customer number",
+          "columnIndex": 1,
+          "isPartition": 0
+        },
+        {
+          "columnName": "gender_cd",
+          "columnType": "string",
+          "columnComment": "Gender code",
+          "columnIndex": 2,
+          "isPartition": 0
+        },
+        {
+          "columnName": "register_time",
+          "columnType": "timestamp",
+          "columnComment": "Registered at",
+          "columnIndex": 3,
+          "isPartition": 0
+        },
+        {
+          "columnName": "verify_status",
+          "columnType": "int",
+          "columnComment": "Verification status",
+          "columnIndex": 4,
+          "isPartition": 0
+        },
+        {
+          "columnName": "etl_time",
+          "columnType": "timestamp",
+          "columnComment": "Load time",
+          "columnIndex": 5,
+          "isPartition": 0
+        },
+        {
+          "columnName": "dt",
+          "columnType": "string",
+          "columnComment": "Partition date",
+          "columnIndex": 6,
+          "isPartition": 1
+        }
+      ]
+    },
+    {
+      "table_name": "demo_dwd.dwd_party_account_map_df",
+      "table_desc": "App account to customer map",
+      "data_level": "DWD",
+      "is_partition": 1,
+      "schema": [
+        {
+          "columnName": "account_id",
+          "columnType": "string",
+          "columnComment": "Account id",
+          "columnIndex": 0,
+          "isPartition": 0
+        },
+        {
+          "columnName": "channel_code",
+          "columnType": "string",
+          "columnComment": "Channel code",
+          "columnIndex": 1,
+          "isPartition": 0
+        },
+        {
+          "columnName": "customer_id",
+          "columnType": "string",
+          "columnComment": "Customer number",
+          "columnIndex": 2,
+          "isPartition": 0
+        },
+        {
+          "columnName": "opened_time",
+          "columnType": "timestamp",
+          "columnComment": "Opened at",
+          "columnIndex": 3,
+          "isPartition": 0
+        },
+        {
+          "columnName": "dt",
+          "columnType": "string",
+          "columnComment": "Partition date",
+          "columnIndex": 4,
+          "isPartition": 1
+        }
+      ]
+    },
+    {
+      "table_name": "demo_dwd.dwd_lending_loan_df",
+      "table_desc": "Loan snapshot",
+      "data_level": "DWD",
+      "is_partition": 1,
+      "schema": [
+        {
+          "columnName": "loan_no",
+          "columnType": "string",
+          "columnComment": "Loan number",
+          "columnIndex": 0,
+          "isPartition": 0
+        },
+        {
+          "columnName": "customer_id",
+          "columnType": "string",
+          "columnComment": "Customer number",
+          "columnIndex": 1,
+          "isPartition": 0
+        },
+        {
+          "columnName": "principal_amt",
+          "columnType": "decimal(18,2)",
+          "columnComment": "Principal",
+          "columnIndex": 2,
+          "isPartition": 0
+        },
+        {
+          "columnName": "loan_status",
+          "columnType": "string",
+          "columnComment": "Loan status code",
+          "columnIndex": 3,
+          "isPartition": 0
+        },
+        {
+          "columnName": "penalty_amt",
+          "columnType": "decimal(18,2)",
+          "columnComment": "Penalty accrued",
+          "columnIndex": 4,
+          "isPartition": 0
+        },
+        {
+          "columnName": "dt",
+          "columnType": "string",
+          "columnComment": "Partition date",
+          "columnIndex": 5,
+          "isPartition": 1
+        }
+      ]
+    },
+    {
+      "table_name": "demo_dwd.dwd_lending_loan_status_his",
+      "table_desc": "Loan status history (zipper)",
+      "data_level": "DWD",
+      "is_partition": 0,
+      "schema": [
+        {
+          "columnName": "loan_no",
+          "columnType": "string",
+          "columnComment": "Loan number",
+          "columnIndex": 0,
+          "isPartition": 0
+        },
+        {
+          "columnName": "loan_status",
+          "columnType": "string",
+          "columnComment": "Loan status code",
+          "columnIndex": 1,
+          "isPartition": 0
+        },
+        {
+          "columnName": "start_date",
+          "columnType": "string",
+          "columnComment": "Valid from",
+          "columnIndex": 2,
+          "isPartition": 0
+        },
+        {
+          "columnName": "end_date",
+          "columnType": "string",
+          "columnComment": "Valid to",
+          "columnIndex": 3,
+          "isPartition": 0
+        }
+      ]
+    },
+    {
+      "table_name": "demo_dwd.dwd_lending_repayment_di",
+      "table_desc": "Repayments",
+      "data_level": "DWD",
+      "is_partition": 1,
+      "schema": [
+        {
+          "columnName": "repay_txn_no",
+          "columnType": "string",
+          "columnComment": "Repayment transaction number",
+          "columnIndex": 0,
+          "isPartition": 0
+        },
+        {
+          "columnName": "loan_no",
+          "columnType": "string",
+          "columnComment": "Loan number",
+          "columnIndex": 1,
+          "isPartition": 0
+        },
+        {
+          "columnName": "customer_id",
+          "columnType": "string",
+          "columnComment": "Customer number",
+          "columnIndex": 2,
+          "isPartition": 0
+        },
+        {
+          "columnName": "repay_amt",
+          "columnType": "decimal(18,2)",
+          "columnComment": "Amount repaid",
+          "columnIndex": 3,
+          "isPartition": 0
+        },
+        {
+          "columnName": "repay_time",
+          "columnType": "timestamp",
+          "columnComment": "Repaid at",
+          "columnIndex": 4,
+          "isPartition": 0
+        },
+        {
+          "columnName": "dt",
+          "columnType": "string",
+          "columnComment": "Partition date",
+          "columnIndex": 5,
+          "isPartition": 1
+        }
+      ]
+    },
+    {
+      "table_name": "demo_dwd.dwd_lending_borrower_df",
+      "table_desc": "Borrowers",
+      "data_level": "DWD",
+      "is_partition": 1,
+      "schema": [
+        {
+          "columnName": "customer_id",
+          "columnType": "string",
+          "columnComment": "Customer number",
+          "columnIndex": 0,
+          "isPartition": 0
+        },
+        {
+          "columnName": "credit_limit",
+          "columnType": "decimal(18,2)",
+          "columnComment": "Credit limit",
+          "columnIndex": 1,
+          "isPartition": 0
+        },
+        {
+          "columnName": "gender_cd",
+          "columnType": "string",
+          "columnComment": "Gender code",
+          "columnIndex": 2,
+          "isPartition": 0
+        },
+        {
+          "columnName": "dt",
+          "columnType": "string",
+          "columnComment": "Partition date",
+          "columnIndex": 3,
+          "isPartition": 1
+        }
+      ]
+    },
+    {
+      "table_name": "demo_dws.dws_lending_loan_summary_1d",
+      "table_desc": "Loans per channel per day",
+      "data_level": "DWS",
+      "is_partition": 1,
+      "schema": [
+        {
+          "columnName": "channel_code",
+          "columnType": "string",
+          "columnComment": "Channel code",
+          "columnIndex": 0,
+          "isPartition": 0
+        },
+        {
+          "columnName": "loan_cnt",
+          "columnType": "bigint",
+          "columnComment": "Loan count",
+          "columnIndex": 1,
+          "isPartition": 0
+        },
+        {
+          "columnName": "stat_date",
+          "columnType": "string",
+          "columnComment": "Statistics date",
+          "columnIndex": 2,
+          "isPartition": 1
+        }
+      ]
+    },
+    {
+      "table_name": "demo_ads.ads_collection_overdue_loan_df",
+      "table_desc": "Overdue loans per borrower",
+      "data_level": "ADS",
+      "is_partition": 1,
+      "schema": [
+        {
+          "columnName": "customer_id",
+          "columnType": "string",
+          "columnComment": "Customer number",
+          "columnIndex": 0,
+          "isPartition": 0
+        },
+        {
+          "columnName": "loan_no",
+          "columnType": "string",
+          "columnComment": "Loan number",
+          "columnIndex": 1,
+          "isPartition": 0
+        },
+        {
+          "columnName": "principal_amt",
+          "columnType": "decimal(18,2)",
+          "columnComment": "Principal",
+          "columnIndex": 2,
+          "isPartition": 0
+        },
+        {
+          "columnName": "repaid_amt",
+          "columnType": "decimal(18,2)",
+          "columnComment": "Repaid so far",
+          "columnIndex": 3,
+          "isPartition": 0
+        },
+        {
+          "columnName": "dt",
+          "columnType": "string",
+          "columnComment": "Partition date",
+          "columnIndex": 4,
+          "isPartition": 1
+        }
+      ]
+    },
+    {
+      "table_name": "demo_ads.ads_loan_status_span_df",
+      "table_desc": "Days spent in each loan status",
+      "data_level": "ADS",
+      "is_partition": 0,
+      "schema": [
+        {
+          "columnName": "loan_no",
+          "columnType": "string",
+          "columnComment": "Loan number",
+          "columnIndex": 0,
+          "isPartition": 0
+        },
+        {
+          "columnName": "start_date",
+          "columnType": "string",
+          "columnComment": "Valid from",
+          "columnIndex": 1,
+          "isPartition": 0
+        },
+        {
+          "columnName": "span_days",
+          "columnType": "int",
+          "columnComment": "Days in status",
+          "columnIndex": 2,
+          "isPartition": 0
+        }
+      ]
+    }
+  ]
+}

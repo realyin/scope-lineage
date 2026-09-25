@@ -147,6 +147,9 @@
       "items": {
         "$ref": "#/definitions/representation"
       }
+    },
+    "evidence": {
+      "$ref": "#/definitions/evidence"
     }
   },
   "definitions": {
@@ -959,6 +962,196 @@
         },
         "notes": {
           "type": "string"
+        }
+      }
+    },
+    "evidence": {
+      "description": "Corpus evidence attached by `catalog build --lineage/--tables`, keyed by the catalog's own names; absent when neither input was given",
+      "type": "object",
+      "required": [
+        "inputs",
+        "representations",
+        "bindings",
+        "relations"
+      ],
+      "properties": {
+        "inputs": {
+          "type": "object",
+          "properties": {
+            "lineage": {
+              "type": "object",
+              "required": [
+                "tasks",
+                "statements",
+                "representations_matched",
+                "relations_checked"
+              ]
+            },
+            "tables": {
+              "type": "object",
+              "required": [
+                "cards",
+                "representations_matched"
+              ]
+            }
+          }
+        },
+        "representations": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9_]+\\.[A-Za-z0-9_]+$"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/representation_evidence"
+          }
+        },
+        "bindings": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/binding_evidence"
+          }
+        },
+        "relations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "joins"
+            ],
+            "properties": {
+              "joins": {
+                "type": "object",
+                "required": [
+                  "count",
+                  "samples"
+                ],
+                "properties": {
+                  "count": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "samples": {
+                    "type": "array",
+                    "maxItems": 3,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "task",
+                        "statement_id",
+                        "on"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "representation_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "producing_tasks": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "refresh": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "upstream_tables": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "downstream_tables": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "grain_proof": {
+          "type": "object",
+          "required": [
+            "confidence",
+            "keys",
+            "task"
+          ],
+          "properties": {
+            "confidence": {
+              "enum": [
+                "proven",
+                "candidate",
+                "none"
+              ]
+            },
+            "keys": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "task": {
+              "type": "string"
+            }
+          }
+        },
+        "conflicts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "rule"
+            ],
+            "properties": {
+              "rule": {
+                "enum": [
+                  "grain_not_proven",
+                  "grain_mismatch"
+                ]
+              }
+            }
+          }
+        },
+        "declared_columns": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "used_columns": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "binding_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "expression": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "declared_only": {
+          "const": true
         }
       }
     }

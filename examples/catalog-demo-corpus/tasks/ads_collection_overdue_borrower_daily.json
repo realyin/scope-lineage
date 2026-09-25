@@ -1,0 +1,11 @@
+{
+  "meta": {
+    "task_id": "demo-task-2007",
+    "task_name": "ads_collection_overdue_borrower_daily",
+    "task_type": "Spark SQL",
+    "schedule": "0 30 3 * * ?",
+    "schedule_cycle": "day",
+    "description": "Overdue loans of each borrower with what they repaid so far.",
+    "sql": "INSERT OVERWRITE TABLE demo_ads.ads_collection_overdue_loan_df PARTITION (dt = '${bizdate}')\nSELECT b.customer_id,\n       l.loan_no,\n       l.principal_amt,\n       COALESCE(r.repaid_amt, 0) AS repaid_amt\nFROM demo_dwd.dwd_lending_borrower_df b\nJOIN demo_dwd.dwd_lending_loan_df l ON b.customer_id = l.customer_id AND l.dt = '${bizdate}'\nLEFT JOIN (\n    SELECT loan_no, SUM(repay_amt) AS repaid_amt\n    FROM demo_dwd.dwd_lending_repayment_di\n    GROUP BY loan_no\n) r ON l.loan_no = r.loan_no\nWHERE b.dt = '${bizdate}' AND l.loan_status = '2'"
+  }
+}

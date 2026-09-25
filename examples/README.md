@@ -10,6 +10,7 @@ examples/
 ├── sql/                    # Spark SQL files handed straight to Core
 ├── tasks/                  # task JSON exported by a scheduler (recursive directories supported)
 ├── catalog-demo/           # an ontology catalog (catalog-yaml/1) for scope-lineage catalog
+├── catalog-demo-corpus/    # the task JSON and schema that give that catalog its lineage evidence
 ├── metadata/
     ├── schema_info.json    # recommended: field indexes, DDL, types, and comments
     ├── schema_info.csv     # fallback: a compatible format read in row order
@@ -28,6 +29,7 @@ examples/
 | `sql/multi_statement_publish.sql` | Several write statements inside one task |
 | `sql/subscription_account_snapshot.sql` | A complex desensitized sample with 19 source tables, 20 JOINs, multi-level subqueries, conditional aggregation, a window function, and 112 target fields |
 | `catalog-demo/` | A synthetic ontology catalog (`catalog-yaml/1`) for a fictional lending shop: every element and binding type once; see [the catalog format](../docs/en/ontology-catalog.md) |
+| `catalog-demo-corpus/` | Eight synthetic scheduler tasks writing and reading the demo catalog's tables (one target spelt with a catalog prefix, one table only read), for `catalog build --lineage/--tables` |
 | `tasks/**/*.json` | Real `meta/query_time/data_source` wrappers, task dependencies, and directory batch input |
 
 ## Running them

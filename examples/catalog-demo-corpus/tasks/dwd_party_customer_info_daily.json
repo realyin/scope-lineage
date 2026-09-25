@@ -1,0 +1,11 @@
+{
+  "meta": {
+    "task_id": "demo-task-2001",
+    "task_name": "dwd_party_customer_info_daily",
+    "task_type": "Spark SQL",
+    "schedule": "0 0 2 * * ?",
+    "schedule_cycle": "day",
+    "description": "Keep the latest registration record per customer.",
+    "sql": "-- 客户主表：每个客户号保留最新一条注册记录\nINSERT OVERWRITE TABLE demo_dwd.dwd_party_customer_info_df PARTITION (dt = '${bizdate}')\nSELECT customer_id, verified_customer_no, gender_cd, register_time, verify_status, etl_time\nFROM (\n    SELECT cust_no AS customer_id,\n           verified_no AS verified_customer_no,\n           gender AS gender_cd,\n           from_unixtime(register_ts) AS register_time,\n           verify_flag AS verify_status,\n           current_timestamp() AS etl_time,\n           ROW_NUMBER() OVER (PARTITION BY cust_no ORDER BY update_ts DESC) AS rn\n    FROM demo_ods.ods_core_customer_df\n    WHERE dt = '${bizdate}'\n) latest\nWHERE rn = 1"
+  }
+}

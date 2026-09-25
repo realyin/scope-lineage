@@ -1,6 +1,24 @@
 # Changelog
 
 ## Unreleased
+- **The catalog meets its evidence, and gets pages and a query** (S5).
+  `scope-lineage catalog build <dir> --out <dir> [--lineage <artifacts>] [--tables
+  <tables.json>]` reads a lineage corpus and its table cards with the existing readers and
+  files what they show in one top-level `evidence` block of `ontology.json`, keyed by the
+  catalog's own names (tables match on their last two segments, so a catalog prefix does not
+  matter): per representation the producing tasks, their schedule, one hop of table lineage,
+  the grain the SQL proves and `conflicts` where it disagrees with the declared grain, and the
+  declared/used column counts; per binding the physical sources and final expression (only
+  where no derivation is hand-written) and `declared_only`; per relation the JOINs linking
+  the two concepts' tables on an identifying column. No catalog object changes, and without
+  either flag the document is byte-identical. `scope-lineage catalog render <ontology.json>
+  --out <dir>` writes `index.md`, `identifiers.md`, `governance.md` and one six-section page
+  per concept (定义与身份, 数据清单, 属性, 关系, 约束, 治理缺口) from the built document alone.
+  `scope-lineage catalog query <ontology.json> concept|table|column|identifier|attribute|related
+  <term> [--json]` answers one question in a few lines or as `{query, matches[]}` for an
+  agent, exiting 1 when nothing matches. The skill learns to answer business questions from
+  the catalog (query first, pages as the fallback). A synthetic eight-task corpus for the demo
+  lives in `examples/catalog-demo-corpus/`. Guide: `docs/*/ontology-catalog.md`.
 - **The ontology catalog: a concept-first source of truth** (S1). A new directory format,
   `catalog-yaml/1`, that a person maintains: domains, identifiers (with their uniqueness
   scope, the condition they arise under and their physical spellings), code sets, concepts

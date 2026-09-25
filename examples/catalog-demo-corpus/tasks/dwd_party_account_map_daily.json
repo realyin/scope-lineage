@@ -1,0 +1,11 @@
+{
+  "meta": {
+    "task_id": "demo-task-2002",
+    "task_name": "dwd_party_account_map_daily",
+    "task_type": "Spark SQL",
+    "schedule": "0 10 2 * * ?",
+    "schedule_cycle": "day",
+    "description": "One row per app account and channel.",
+    "sql": "INSERT OVERWRITE TABLE demo_dwd.dwd_party_account_map_df PARTITION (dt = '${bizdate}')\nSELECT account_id, channel_code, MAX(cust_no) AS customer_id, MIN(open_time) AS opened_time\nFROM demo_ods.ods_app_account_df\nWHERE dt = '${bizdate}'\nGROUP BY account_id, channel_code"
+  }
+}

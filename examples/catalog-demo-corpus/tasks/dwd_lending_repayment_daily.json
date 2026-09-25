@@ -1,0 +1,11 @@
+{
+  "meta": {
+    "task_id": "demo-task-2004",
+    "task_name": "dwd_lending_repayment_daily",
+    "task_type": "Spark SQL",
+    "schedule": "0 30 2 * * ?",
+    "schedule_cycle": "day",
+    "description": "Repayments received on the business date.",
+    "sql": "INSERT OVERWRITE TABLE demo_dwd.dwd_lending_repayment_di PARTITION (dt = '${bizdate}')\nSELECT r.repay_txn_no,\n       MAX(r.loan_no) AS loan_no,\n       MAX(l.customer_id) AS customer_id,\n       SUM(CAST(r.amount AS DECIMAL(18,2))) AS repay_amt,\n       MAX(r.paid_time) AS repay_time\nFROM demo_ods.ods_repay_txn_di r\nJOIN demo_dwd.dwd_lending_loan_df l ON r.loan_no = l.loan_no AND l.dt = '${bizdate}'\nWHERE r.dt = '${bizdate}'\nGROUP BY r.repay_txn_no"
+  }
+}

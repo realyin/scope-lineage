@@ -1245,6 +1245,31 @@ def _glossary_values(
     return [dict(entry) for entry in built.get("values") or []]
 
 
+def write_statements(
+    documents: Sequence[Mapping], profiles: Sequence[Mapping]
+) -> list[_Statement]:
+    """Every write statement of a corpus as ``(task, statement_id, document, profile)``.
+
+    The same pairing this builder reads, published so the concept catalog's evidence
+    merge (``catalog_evidence``) walks a 1.0 or 2.0 corpus exactly as the ontology does
+    rather than through a second reading of the two contract shapes.
+    """
+    return _statements(documents, profiles)
+
+
+def join_key_pairs(document: Mapping) -> list[tuple[str, str, dict]]:
+    """``(scope_id, logic_block_id, {(left table, right table): [(left, right column)]})``.
+
+    One entry per JOIN, each side pierced to the physical table its rows are -- the key
+    pairs ``_join_edges`` turns into table relations, before any entity naming.
+    """
+    found = []
+    for scope_id, block_id, detail in join_blocks(document):
+        sides = {side: _side_entity(document, detail, side) for side in ("left", "right")}
+        found.append((scope_id, block_id, _key_pairs_by_table(document, detail, sides)))
+    return found
+
+
 def _statements(
     documents: Sequence[Mapping], profiles: Sequence[Mapping]
 ) -> list[_Statement]:

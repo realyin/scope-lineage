@@ -1,0 +1,11 @@
+{
+  "meta": {
+    "task_id": "demo-task-2008",
+    "task_name": "ads_loan_status_span_weekly",
+    "task_type": "Spark SQL",
+    "schedule": "0 0 4 ? * MON",
+    "schedule_cycle": "week",
+    "description": "How long each loan stayed in each status.",
+    "sql": "INSERT OVERWRITE TABLE demo_ads.ads_loan_status_span_df\nSELECT loan_no, start_date, DATEDIFF(end_date, start_date) AS span_days\nFROM demo_dwd.dwd_lending_loan_status_his\nWHERE end_date > start_date"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "meta": {
+    "task_id": "demo-task-2006",
+    "task_name": "dws_lending_loan_summary_daily",
+    "task_type": "Spark SQL",
+    "schedule": "0 0 3 * * ?",
+    "schedule_cycle": "day",
+    "description": "Loans per channel per day.",
+    "sql": "INSERT OVERWRITE TABLE demo_dws.dws_lending_loan_summary_1d PARTITION (stat_date = '${bizdate}')\nSELECT a.channel_code, COUNT(DISTINCT l.loan_no) AS loan_cnt\nFROM demo_dwd.dwd_lending_loan_df l\nJOIN demo_dwd.dwd_party_customer_info_df c ON l.customer_id = c.customer_id AND c.dt = '${bizdate}'\nJOIN demo_dwd.dwd_party_account_map_df a ON c.customer_id = a.customer_id AND a.dt = '${bizdate}'\nWHERE l.dt = '${bizdate}'\nGROUP BY a.channel_code"
+  }
+}
