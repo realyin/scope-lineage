@@ -10,14 +10,17 @@ layer, which table represents which concept and what each column binds to.
 
 **The catalog is the new, concept-first source of truth for the ontology.** Generators
 (lineage, table cards, an LLM) may propose changes to it; they do not own it.
-`scope-lineage catalog validate` checks a catalog and `scope-lineage catalog build`
-normalises it into one machine-readable `ontology-json/3` document.
+`scope-lineage catalog validate` checks a catalog, `scope-lineage catalog build`
+normalises it into one machine-readable `ontology-json/3` document (optionally with the
+evidence a lineage corpus and its table cards show), `scope-lineage catalog render` turns
+that document into one page per concept and `scope-lineage catalog query` answers one
+question from it.
 
 > **Transition.** The existing [`scope-lineage ontology`](ontology-doc.md) command, which
 > derives an `ontology-json/2` candidate bottom-up from a lineage corpus, stays for **one
 > more release** and keeps working unchanged. The catalog does not read it and it does not
-> read the catalog. Evidence from the corpus (lineage, cards, dictionary) is attached to
-> the catalog in a later step; this release defines the format, the checks and the build.
+> read the catalog. Lineage and table-card evidence is attached with `catalog build
+> --lineage/--tables`; the value dictionary is not read yet.
 
 A complete synthetic catalog — a fictional consumer-lending shop — lives in
 [`examples/catalog-demo/`](../../examples/catalog-demo/); every example below is taken
@@ -444,6 +447,147 @@ it writes `out/ontology.json`, whose schema ships as
   from the event to the participant, cardinality `{from: "0..*", to: "1"}` for `one` or
   `"1..*"` for `many`, carrying `derived_from` and the event's status and source. Such an
   id must not also be declared by hand.
+
+## Evidence: `--lineage` and `--tables`
+
+The catalog says what a person believes; a lineage corpus and its table cards show what the
+warehouse does. `build` can read both and file what they show beside the catalog:
+
+```bash
+scope-lineage parse --input-dir examples/catalog-demo-corpus/tasks \
+  --schema examples/catalog-demo-corpus/schema_info.json --out out/lineage
+scope-lineage tables --lineage out/lineage --out out/tables
+scope-lineage catalog build examples/catalog-demo --out out/ \
+  --lineage out/lineage --tables out/tables/tables.json
+```
+
+[`examples/catalog-demo-corpus/`](../../examples/catalog-demo-corpus/) holds eight synthetic
+scheduler tasks that write and read the demo's tables. The evidence lands in one top-level
+`evidence` block of `ontology.json`, keyed by the catalog's own names. **No catalog object is
+changed**, and without either flag there is no `evidence` key at all, so the document is
+byte for byte what it was.
+
+| Where | Key | From | What it says |
+| --- | --- | --- | --- |
+| `representations["db.table"]` | `producing_tasks` | `--lineage` | the tasks whose statements write the table |
+| `representations["db.table"]` | `refresh` | `--lineage` | those tasks' schedule cycle (or cron) |
+| `representations["db.table"]` | `upstream_tables` / `downstream_tables` | `--lineage` | one hop of table lineage: what the writers read, what the readers write |
+| `representations["db.table"]` | `grain_proof` | `--lineage` | the best grain any writer proves: `confidence` (`proven` / `candidate` / `none`), `keys`, `basis`, `task` |
+| `representations["db.table"]` | `conflicts` | `--lineage` | `grain_not_proven` (declared `proven`, lineage cannot prove it) or `grain_mismatch` (both proven, different columns) |
+| `representations["db.table"]` | `declared_columns` / `used_columns` | `--tables` | how many columns the metadata declares and the corpus uses |
+| `bindings["db.table.column"]` | `sources` / `expression` | `--lineage` | the physical source columns and the final expression (at most 200 characters), only for a binding without a hand-written `derivation` |
+| `bindings["db.table.column"]` | `declared_only` | `--tables` | the metadata declares the column and no task in the corpus touches it |
+| `relations["rel:..."]` | `joins` | `--lineage` | `count` and up to three `samples` of JOINs linking the two concepts' tables on an identifying column |
+
+```json
+{
+  "inputs": {
+    "lineage": {"tasks": 8, "statements": 8, "representations_matched": 7, "relations_checked": 6},
+    "tables": {"cards": 15, "representations_matched": 7}
+  },
+  "representations": {
+    "demo_dwd.dwd_lending_loan_df": {
+      "producing_tasks": ["dwd_lending_loan_daily"],
+      "refresh": ["day"],
+      "upstream_tables": ["demo_ods.ods_loan_contract_df", "demo_ods.ods_loan_penalty_di"],
+      "downstream_tables": ["demo_ads.ads_collection_overdue_loan_df", "demo_dwd.dwd_lending_borrower_df"],
+      "grain_proof": {"confidence": "candidate", "keys": ["loan_no"], "basis": "driving_table_rows", "task": "dwd_lending_loan_daily"},
+      "conflicts": [{"rule": "grain_not_proven", "declared_source": "proven", "confidence": "candidate"}],
+      "declared_columns": 6,
+      "used_columns": 6
+    }
+  },
+  "bindings": {
+    "demo_dwd.dwd_lending_loan_df.principal_amt": {"sources": ["demo_ods.ods_loan_contract_df.principal"], "expression": "`l`.`principal`"},
+    "demo_dwd.dwd_lending_loan_status_his.loan_status": {"declared_only": true}
+  },
+  "relations": {
+    "rel:borrower_owes_loan": {
+      "joins": {"count": 1, "samples": [{"task": "ads_collection_overdue_borrower_daily", "statement_id": "stmt:001", "on": "demo_dwd.dwd_lending_borrower_df.customer_id = demo_dwd.dwd_lending_loan_df.customer_id"}]}
+    }
+  }
+}
+```
+
+(Abridged.) How the evidence is matched:
+
+- **Tables** match on their last two dotted segments: the demo's loan task writes
+  `spark_catalog.demo_dwd.dwd_lending_loan_df`, and it lands on the representation
+  `demo_dwd.dwd_lending_loan_df`. A table the corpus never names gets no entry.
+- **Grain**: partition columns are left out of both sides before a grain is compared, so a
+  catalog grain that names `stat_date` does not disagree with a statement that writes one
+  `stat_date` partition. A declared grain whose identifier has no bound column is not
+  compared at all.
+- **Relations** are counted only when both ends have a representation; a relation checked
+  and backed by no JOIN has `count: 0`, one that could not be checked has no entry. A JOIN
+  counts when one side is a table of each concept and at least one key column is bound to an
+  identifier or foreign identifier. Participation relations are counted the same way.
+- The corpus is read with the same readers `tables` and `ontology` use; a JOIN side that is
+  a CTE is followed down to the physical table its rows come from.
+
+## Pages: `catalog render`
+
+```bash
+scope-lineage catalog render out/ontology.json --out out/pages
+```
+
+`render` reads the built document only — never the catalog directory — so the pages show
+exactly what was built, evidence included. Headings are Chinese, like the other rendered
+documents; names are the catalog's own.
+
+| File | What it holds |
+| --- | --- |
+| `index.md` | the concepts by domain (name, kind, definition, number of tables, status), the identifiers, a summary of the governance gaps |
+| `concepts/<slug>.md` | one page per concept (`concept:fee_waiver` → `fee_waiver.md`), six sections |
+| `identifiers.md` | every identifier in full, with the columns bound to it |
+| `governance.md` | every gap of every concept, one list per kind of gap |
+
+The six sections of a concept page answer the six things a reader opens it for:
+
+| Section | Content |
+| --- | --- |
+| 1. 定义与身份 | definition, kind, status, synonyms; identifiers (arising condition, uniqueness scope, physical spellings, mappings); the state machine (values, transition events); an event's participants, a role's player, context and condition |
+| 2. 数据清单 | the tables, grouped by representation kind (核心, 扩展, 从属, 事件明细, 状态历史, 标识映射, 角色视图, 汇总, 中间): grain (identifiers, source, and what lineage proves), time semantics, refresh, record scope, producing tasks, deprecation and replacement; one hop of lineage per table |
+| 3. 属性 | by category (描述, 状态, 度量, 时间): definition, type and unit, code values (value=meaning), every table column that holds it (with its code map), how it is derived |
+| 4. 关系 | association, composition and generalization read from this concept's side, with cardinality and JOIN count; the events it takes part in (its role, how many tables the event has); the roles it plays, or — on a role's page — the player it belongs to |
+| 5. 约束 | the constraints on the concept, its attributes, identifiers and relations, by kind, with strength and status |
+| 6. 治理缺口 | drafted share, unmapped columns, attributes no table holds, state or coded attributes without values, whether the concept has any table; with evidence also the conflicts, bound columns nobody uses and relations no JOIN backs |
+
+Anything that came from the corpus is labelled 「血缘」; without evidence those cells show
+「—」 rather than a guess.
+
+## Query: `catalog query`
+
+```bash
+scope-lineage catalog query out/ontology.json concept 用户
+scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_lending_loan_df --json
+```
+
+| Kind | Term | Answer |
+| --- | --- | --- |
+| `concept` | id, name, synonym or term | identity, identifiers, attributes, states, tables, the page to read |
+| `table` | `db.table` (a catalog prefix is ignored) | the concept it carries and what every bound column points at, with evidence |
+| `column` | `db.table.column` | the attribute or identifier it holds and its concept — or the identifier it spells |
+| `identifier` | id, name or physical spelling | what it identifies, its scope and spellings, the columns bound to it |
+| `attribute` | id, name or term | its concept, code values, derivation and every table column |
+| `related` | a concept's id, name, synonym or term | one hop: relations read from its side, events, participants, roles, player, tables |
+
+Names match exactly, ignoring case and surrounding spaces, in that order (id, then name,
+then synonym, then term); nothing is guessed. The text answer is a few lines:
+
+```text
+客户 concept:customer · 实体 · 客户与账户 · 已确认（owner）
+  A person the shop has registered, whether or not they ever borrow.
+  标识符：客户号 id:customer_id（主）、认证客户号 id:verified_customer_no
+  属性：性别、注册时间、认证状态
+  状态：未认证、已认证
+  表：demo_dwd.dwd_party_customer_ext_df（扩展）、demo_dwd.dwd_party_customer_info_df（核心）
+  页面：concepts/customer.md
+```
+
+`--json` prints `{"query": {"kind", "term"}, "matches": [...]}` for an agent. Exit code: `0`
+something matched, `1` nothing did, `2` the file could not be read (`1` too when it is not an
+`ontology-json/3` document).
 
 ## Writing YAML safely
 

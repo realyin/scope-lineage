@@ -8,11 +8,12 @@
 
 **目录是本体新的、概念先行的唯一事实来源。**生成器（血缘、表卡、LLM）可以对它提出变更，但不拥有它。
 `scope-lineage catalog validate` 校验目录，`scope-lineage catalog build` 把它规范化成一份给机器读的
-`ontology-json/3` 文档。
+`ontology-json/3` 文档（可同时带上血缘语料与表卡显示的证据），`scope-lineage catalog render` 把这份
+文档写成每个概念一页，`scope-lineage catalog query` 从中回答一个问题。
 
 > **过渡期。**现有的 [`scope-lineage ontology`](ontology-doc.md) 命令从血缘语料自下而上推出
-> `ontology-json/2` 候选，它**再保留一个版本**，行为不变。目录不读它，它也不读目录。语料里的证据
-> （血缘、表卡、值词典）在后续步骤里挂到目录上；本版本只定义格式、校验与构建。
+> `ontology-json/2` 候选，它**再保留一个版本**，行为不变。目录不读它，它也不读目录。血缘与表卡证据
+> 用 `catalog build --lineage/--tables` 挂到目录上；值词典暂不读取。
 
 一份完整的虚构目录——一家虚构的消费信贷公司——放在
 [`examples/catalog-demo/`](../../examples/catalog-demo/)；下面每个例子都取自它。
@@ -421,6 +422,136 @@ scope-lineage catalog build examples/catalog-demo --out out/
 - 每个事件参与者变成一条 `participation` 关系 `rel:<事件 slug>.<role_name>`，从事件指向参与者，
   基数为 `{from: "0..*", to: "1"}`（`one`）或 `"1..*"`（`many`），带 `derived_from` 以及事件的
   status 与 source。这样的 id 不能再手写一次。
+
+## 证据：`--lineage` 与 `--tables`
+
+目录写的是人的判断；血缘语料和它的表卡写的是数仓实际在做什么。`build` 可以同时读两者，把它们
+显示的事实放在目录旁边：
+
+```bash
+scope-lineage parse --input-dir examples/catalog-demo-corpus/tasks \
+  --schema examples/catalog-demo-corpus/schema_info.json --out out/lineage
+scope-lineage tables --lineage out/lineage --out out/tables
+scope-lineage catalog build examples/catalog-demo --out out/ \
+  --lineage out/lineage --tables out/tables/tables.json
+```
+
+[`examples/catalog-demo-corpus/`](../../examples/catalog-demo-corpus/) 里是八个虚构的调度任务，
+读写示例目录里的表。证据写进 `ontology.json` 顶层的一个 `evidence` 块，按目录自己的名字作键。
+**目录对象一个都不改**；两个参数都不给时根本没有 `evidence` 键，文档与原来逐字节相同。
+
+| 位置 | 键 | 来自 | 含义 |
+| --- | --- | --- | --- |
+| `representations["库.表"]` | `producing_tasks` | `--lineage` | 写这张表的语句所属的任务 |
+| `representations["库.表"]` | `refresh` | `--lineage` | 这些任务的调度周期（或 cron） |
+| `representations["库.表"]` | `upstream_tables` / `downstream_tables` | `--lineage` | 表级血缘一跳：写它的任务读了什么，读它的任务写了什么 |
+| `representations["库.表"]` | `grain_proof` | `--lineage` | 所有生产语句里证据最强的粒度：`confidence`（`proven` / `candidate` / `none`）、`keys`、`basis`、`task` |
+| `representations["库.表"]` | `conflicts` | `--lineage` | `grain_not_proven`（目录声明 `proven`，血缘证明不了）或 `grain_mismatch`（两边都已证明，列不同） |
+| `representations["库.表"]` | `declared_columns` / `used_columns` | `--tables` | 元数据声明了几列、语料用到了几列 |
+| `bindings["库.表.列"]` | `sources` / `expression` | `--lineage` | 上游物理列与最终表达式（最多 200 个字符），仅当绑定没有手写 `derivation` 时补充 |
+| `bindings["库.表.列"]` | `declared_only` | `--tables` | 元数据里有这一列，语料里没有任何任务碰过它 |
+| `relations["rel:..."]` | `joins` | `--lineage` | 在标识列上连接两个概念表现表的 JOIN：`count` 与至多三个 `samples` |
+
+```json
+{
+  "inputs": {
+    "lineage": {"tasks": 8, "statements": 8, "representations_matched": 7, "relations_checked": 6},
+    "tables": {"cards": 15, "representations_matched": 7}
+  },
+  "representations": {
+    "demo_dwd.dwd_lending_loan_df": {
+      "producing_tasks": ["dwd_lending_loan_daily"],
+      "refresh": ["day"],
+      "upstream_tables": ["demo_ods.ods_loan_contract_df", "demo_ods.ods_loan_penalty_di"],
+      "downstream_tables": ["demo_ads.ads_collection_overdue_loan_df", "demo_dwd.dwd_lending_borrower_df"],
+      "grain_proof": {"confidence": "candidate", "keys": ["loan_no"], "basis": "driving_table_rows", "task": "dwd_lending_loan_daily"},
+      "conflicts": [{"rule": "grain_not_proven", "declared_source": "proven", "confidence": "candidate"}],
+      "declared_columns": 6,
+      "used_columns": 6
+    }
+  },
+  "bindings": {
+    "demo_dwd.dwd_lending_loan_df.principal_amt": {"sources": ["demo_ods.ods_loan_contract_df.principal"], "expression": "`l`.`principal`"},
+    "demo_dwd.dwd_lending_loan_status_his.loan_status": {"declared_only": true}
+  },
+  "relations": {
+    "rel:borrower_owes_loan": {
+      "joins": {"count": 1, "samples": [{"task": "ads_collection_overdue_borrower_daily", "statement_id": "stmt:001", "on": "demo_dwd.dwd_lending_borrower_df.customer_id = demo_dwd.dwd_lending_loan_df.customer_id"}]}
+    }
+  }
+}
+```
+
+（有删节。）证据怎样对上目录：
+
+- **表**按最后两段匹配：示例里的借据任务写的是 `spark_catalog.demo_dwd.dwd_lending_loan_df`，
+  它落到表现 `demo_dwd.dwd_lending_loan_df` 上。语料没提到的表没有条目。
+- **粒度**：比较前两边都去掉分区列，所以目录粒度里写了 `stat_date`、而语句只写一个 `stat_date`
+  分区时不算矛盾。声明粒度里某个标识符在本表没有绑定列时，不做比较。
+- **关系**只在两端概念都有表现表时统计；统计过但没有 JOIN 支持的是 `count: 0`，无法统计的没有条目。
+  一次 JOIN 计数的条件是：两侧分别是两个概念的表现表，且至少一侧的连接列绑定为标识符或外部标识符。
+  participation 关系同样统计。
+- 语料用 `tables` 与 `ontology` 同一套读取器读；JOIN 的一侧是 CTE 时，顺着它追到提供行的物理表。
+
+## 页面：`catalog render`
+
+```bash
+scope-lineage catalog render out/ontology.json --out out/pages
+```
+
+`render` 只读构建出的文档，从不回读目录文件夹，所以页面展示的就是构建结果（含证据）。标题用中文，
+与其他渲染文档一致；名称用目录自己的。
+
+| 文件 | 内容 |
+| --- | --- |
+| `index.md` | 按域列出概念（名称、种类、定义、表现表数、状态）、标识符、治理缺口汇总 |
+| `concepts/<slug>.md` | 每个概念一页（`concept:fee_waiver` → `fee_waiver.md`），六节 |
+| `identifiers.md` | 每个标识符的完整说明，及绑定到它的列 |
+| `governance.md` | 所有概念的全部缺口，每类缺口一个列表 |
+
+概念页的六节回答打开它的人要问的六件事：
+
+| 节 | 内容 |
+| --- | --- |
+| 1. 定义与身份 | 定义、种类、状态、同义词；标识符（产生条件、唯一范围、物理拼写、对照）；状态机（值、迁移事件）；事件的参与者，角色的承担者、语境与成立条件 |
+| 2. 数据清单 | 按表现类型分组的表（核心、扩展、从属、事件明细、状态历史、标识映射、角色视图、汇总、中间）：粒度（标识符、来源，以及血缘证明了什么）、时间语义、更新频率、记录范围、生产任务、废弃及替代；每张表的血缘一跳 |
+| 3. 属性 | 按类别（描述、状态、度量、时间）：定义、类型与单位、码值（值=含义）、承载它的每个表列（含码值映射）、加工口径 |
+| 4. 关系 | 从本概念一侧读的关联、组成、泛化，带基数与 JOIN 次数；参与的事件（本概念的角色、事件的表现表数）；本概念承担的角色，或在角色页上反向链到承担者 |
+| 5. 约束 | 作用于概念本身、其属性、标识符与关系的约束，按种类列出，带强度与状态 |
+| 6. 治理缺口 | 草拟占比、未绑定列、没有落表的属性、缺码值的状态/码值类属性、有没有表现表；有证据时还有证据与目录矛盾、没人用的绑定列、没有 JOIN 支持的关系 |
+
+凡是来自语料的内容都标「血缘」；没有证据时这些格子写「—」，不猜。
+
+## 查询：`catalog query`
+
+```bash
+scope-lineage catalog query out/ontology.json concept 用户
+scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_lending_loan_df --json
+```
+
+| kind | term | 回答 |
+| --- | --- | --- |
+| `concept` | id、名称、同义词或术语 | 身份、标识符、属性、状态、表现表、该读的页面 |
+| `table` | `库.表`（忽略 catalog 前缀） | 它承载的概念，以及每个绑定列指向什么，带证据 |
+| `column` | `库.表.列` | 它承载的属性或标识符及其概念——或它是哪个标识符的物理拼写 |
+| `identifier` | id、名称或物理拼写 | 识别什么、唯一范围与拼写、绑定到它的列 |
+| `attribute` | id、名称或术语 | 所属概念、码值、口径、每个表列 |
+| `related` | 概念的 id、名称、同义词或术语 | 一跳邻居：从本概念一侧读的关系、事件、参与者、角色、承担者、表 |
+
+名称精确匹配（忽略大小写与首尾空格），依次试 id、名称、同义词、术语；不猜。文本回答只有几行：
+
+```text
+客户 concept:customer · 实体 · 客户与账户 · 已确认（owner）
+  A person the shop has registered, whether or not they ever borrow.
+  标识符：客户号 id:customer_id（主）、认证客户号 id:verified_customer_no
+  属性：性别、注册时间、认证状态
+  状态：未认证、已认证
+  表：demo_dwd.dwd_party_customer_ext_df（扩展）、demo_dwd.dwd_party_customer_info_df（核心）
+  页面：concepts/customer.md
+```
+
+`--json` 输出 `{"query": {"kind", "term"}, "matches": [...]}`，给 Agent 用。退出码：`0` 有匹配，
+`1` 没有匹配，`2` 文件读不了（不是 `ontology-json/3` 文档时也是 `1`）。
 
 ## 安全地写 YAML
 
