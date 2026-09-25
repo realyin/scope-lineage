@@ -17,8 +17,8 @@ from pathlib import Path
 
 from .metadata.schema_metadata import (
     column_details_for_table,
-    load_schema,
     load_schema_sources,
+    partition_columns_for_table,
     table_details_for_table,
 )
 from .scope.sql_comments import redact_comments_in_sql
@@ -115,18 +115,22 @@ def _run_packet(args: argparse.Namespace) -> int:
     found = _discover_lineage_documents(args.lineage)
     if isinstance(found, int):
         return found
-    loaded = _load_contract_documents(*found, None, "semantic packet")
+    paths, base, single_file = found
+    if args.only and not single_file:
+        paths = _related_paths(paths, args.only, input_producers=not args.tables)
+    loaded = _load_contract_documents(paths, base, single_file, None, "semantic packet")
     if isinstance(loaded, int):
         return loaded
     cards = _load_corpus_document(args.tables, "--tables", TABLES_DOC_FORMAT)
     tasks = _task_records(args.tasks)
-    metadata = _metadata_lookup(args)
+    documents = [(item.document, item.diagnostics) for item in loaded.documents]
+    metadata = _metadata_lookup(args, _tables_described(documents, args.only))
     for value in (cards, tasks, metadata):
         if isinstance(value, int):
             return value
     try:
         packets = build_packets(
-            [(item.document, item.diagnostics) for item in loaded.documents],
+            documents,
             tasks=tasks, metadata=metadata, cards=cards, only=args.only,
         )
     except UnknownTables as error:
@@ -139,6 +143,57 @@ def _run_packet(args: argparse.Namespace) -> int:
         f"(tasks_without_sql={missing}, {loaded.counters()})"
     )
     return 0
+
+
+def _related_paths(paths: list[Path], only: list[str], *, input_producers: bool) -> list[Path]:
+    """The lineage documents an ``--only`` run needs, found without profiling the corpus.
+
+    A document that writes or reads a table names it, so a byte search for the table's
+    last name segment finds every candidate (identifiers are lower-case in the contract);
+    only those are parsed. With ``--tables`` the cards already hold the consumers and the
+    input producers, so only the producers are kept. Without it the cards are built from
+    what is kept: the producers, every document that names the table (its consumers),
+    and, found by a second search, the producers of the producers' input tables.
+    """
+    from .semantics.packet import document_reads, document_writes
+
+    wanted = {bare_table(name) for name in only}
+    first = _parsed(_mentioning(paths, wanted))
+    producers = {path: doc for path, doc in first.items() if document_writes(doc) & wanted}
+    if not input_producers:
+        return sorted(producers)
+    inputs = set().union(*(document_reads(doc) for doc in producers.values())) - wanted
+    rest = [path for path in paths if path not in first]
+    second = _parsed(_mentioning(rest, inputs))
+    upstream = [path for path, doc in second.items() if document_writes(doc) & inputs]
+    return sorted([*first, *upstream])
+
+
+def _mentioning(paths: list[Path], tables: set[str]) -> list[Path]:
+    needles = {table.rsplit(".", 1)[-1].encode("utf-8") for table in tables}
+    if not needles:
+        return []
+    found = []
+    for path in paths:
+        try:
+            data = path.read_bytes()
+        except OSError:
+            found.append(path)  # unreadable: the walk reports it, not this filter
+            continue
+        if any(needle in data for needle in needles):
+            found.append(path)
+    return found
+
+
+def _parsed(paths: list[Path]) -> dict[Path, dict]:
+    parsed = {}
+    for path in paths:
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            document = {}
+        parsed[path] = document if isinstance(document, dict) else {}
+    return parsed
 
 
 def _write_packets(out: Path, packets: list[dict]) -> None:
@@ -178,13 +233,26 @@ def _task_records(directory: str):
     return records
 
 
-def _metadata_lookup(args: argparse.Namespace):
-    """``db.table -> {comment, description, layer, domain, columns}``, None, or the exit code."""
+def _tables_described(documents: list, only) -> set[str] | None:
+    """With ``--only``, the tables a packet describes: the targets and their inputs."""
+    from .semantics.packet import document_reads, document_writes
+
+    if not only:
+        return None
+    wanted = {bare_table(name) for name in only}
+    producers = [doc for doc, _ in documents if document_writes(doc) & wanted]
+    return wanted.union(*(document_reads(doc) for doc in producers))
+
+
+def _metadata_lookup(args: argparse.Namespace, tables: set[str] | None = None):
+    """``db.table -> {comment, description, layer, domain, columns, partition facts}``,
+    None, or the exit code. ``tables`` narrows a metadata directory to the files naming
+    them, so an ``--only`` run does not parse every table's DDL."""
     paths = [path for path in [args.schema, *args.schema_fallback] if path]
     if not paths:
         return None
     try:
-        schema = load_schema_sources(paths) if len(paths) > 1 else load_schema(paths[0])
+        schema = load_schema_sources(paths, only_tables=tables)
     except (OSError, ValueError) as error:
         print(f"--schema: {error}", file=sys.stderr)
         return 2
@@ -200,6 +268,8 @@ def _metadata_lookup(args: argparse.Namespace):
             "description": description if name and description != name else None,
             "layer": details.get("table_label_layer"),
             "domain": details.get("domain"),
+            "partitioned": details.get("is_partitioned"),
+            "partition_columns": partition_columns_for_table(schema, table),
             "columns": columns,
         }
 

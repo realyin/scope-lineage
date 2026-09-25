@@ -46,13 +46,35 @@ def build_packets(
 
     ``documents`` are ``(lineage document, diagnostics or None)`` pairs; ``tasks`` the
     task JSON records ``{name, source_file, sql}``; ``metadata`` answers
-    ``{comment, layer, domain, columns}`` for a ``db.table`` or None; ``cards`` a
-    ``tables-json/1`` document, built from the corpus itself when not given.
+    ``{comment, layer, domain, columns, partitioned, partition_columns}`` for a
+    ``db.table`` or None; ``cards`` a ``tables-json/1`` document, built from
+    ``documents`` when not given. Only the documents that write a selected table are
+    profiled for the packets; the others serve the cards alone.
     """
-    profiles, cards = _profiles(list(documents), cards)
+    documents = list(documents)
+    wanted = {bare_table(name) for name in only} if only else None
+    producers = [
+        pair for pair in documents if wanted is None or document_writes(pair[0]) & wanted
+    ]
+    profiles, cards = _profiles(producers, documents, cards)
     produced = _produced_statements(profiles)
     corpus = _Corpus(cards, _TaskIndex(tasks), metadata or (lambda _table: None))
     return [_packet(table, produced[table], corpus) for table in _selected(produced, only)]
+
+
+def document_writes(document: dict) -> set[str]:
+    """``db.table`` names a lineage document finally writes, read without profiling it."""
+    finals = document.get("final_table_states")
+    names = list(finals) if isinstance(finals, dict) else [document.get("target_table")]
+    return {bare_table(name) for name in names if name}
+
+
+def document_reads(document: dict) -> set[str]:
+    """``db.table`` names a lineage document reads, over every statement it holds."""
+    statements = list((document.get("statement_lineage") or {}).values()) or [document]
+    return {
+        bare_table(name) for statement in statements for name in statement.get("source_tables") or []
+    }
 
 
 def packet_digest(packet: Mapping) -> str:
@@ -62,10 +84,10 @@ def packet_digest(packet: Mapping) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
-def _profiles(documents: list, cards: dict | None) -> tuple[list[dict], dict]:
-    """Every task's semantic profile, read with the corpus's table cards.
+def _profiles(producers: list, documents: list, cards: dict | None) -> tuple[list[dict], dict]:
+    """The producers' semantic profiles, read with the corpus's table cards.
 
-    Without ``--tables`` the cards are built from this corpus first -- the same two
+    Without ``--tables`` the cards are built from ``documents`` first -- the same two
     passes ``tables`` then ``describe --tables`` make -- so a packet always knows its
     downstream consumers and every JOIN another task proved unique.
     """
@@ -76,7 +98,7 @@ def _profiles(documents: list, cards: dict | None) -> tuple[list[dict], dict]:
         cards = build_table_cards(build_semantic_profile(doc, diag) for doc, diag in documents)
     profiles = [
         apply_table_cards(build_semantic_profile(doc, diag, table_cards=cards), cards)
-        for doc, diag in documents
+        for doc, diag in producers
     ]
     return profiles, cards
 
@@ -123,32 +145,38 @@ class _TaskIndex:
 
 
 class _Corpus:
-    """What every packet reads besides its own statements."""
+    """What every packet reads besides its own statements, indexed once."""
 
     def __init__(self, cards: dict, tasks: _TaskIndex, metadata: MetadataLookup):
-        self.cards = list((cards or {}).get("tables") or [])
         self.tasks = tasks
-        self.metadata = metadata
+        self._metadata = metadata
+        self._looked_up: dict[str, Optional[dict]] = {}
+        self._cards: dict[str, dict] = {}
+        self._written: dict[str, set] = {}
+        for card in (cards or {}).get("tables") or []:
+            name = bare_table(card.get("table"))
+            for spelling in [card.get("table"), *card.get("aliases", [])]:
+                self._cards.setdefault(bare_table(spelling), card)
+            for producer in card.get("produced_by") or []:
+                self._written.setdefault(str(producer.get("task")), set()).add(name)
+
+    def metadata(self, table: str) -> Optional[dict]:
+        if table not in self._looked_up:
+            self._looked_up[table] = self._metadata(table)
+        return self._looked_up[table]
 
     def card(self, table: str) -> dict:
-        for card in self.cards:
-            if table in {bare_table(name) for name in [card.get("table"), *card.get("aliases", [])]}:
-                return card
-        return {}
+        return self._cards.get(table, {})
 
     def tables_written_by(self, task: str) -> list[str]:
-        return sorted({
-            bare_table(card.get("table"))
-            for card in self.cards
-            for producer in card.get("produced_by") or []
-            if producer.get("task") == task
-        })
+        return sorted(self._written.get(task, set()))
 
 
 def _packet(table: str, statements: list[tuple[str, dict]], corpus: _Corpus) -> dict:
     rules = [rule for task, statement in statements for rule in facts.statement_rules(task, statement)]
     for index, rule in enumerate(rules, start=1):
         rule["id"] = f"p{index}"
+    facts.mark_partition_filters(rules, corpus.metadata)
     target = target_section(table, statements, corpus)
     packet = scrub({
         "doc_format": PACKET_FORMAT,

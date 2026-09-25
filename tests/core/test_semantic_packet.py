@@ -297,3 +297,31 @@ def test_mask_emails_touches_nothing_but_the_address() -> None:
     assert mask_emails("WHERE id = 13912345678 AND m = 'x.y@demo.io'") == (
         "WHERE id = 13912345678 AND m = '<email>'"
     )
+
+
+# ---------------------------------------------------------------- --only reads less
+
+
+@pytest.mark.parametrize("with_tables", [False, True])
+def test_an_only_run_packs_the_same_facts_as_a_full_run(
+    tmp_path: Path, packets: Path, with_tables: bool
+) -> None:
+    """``--only`` parses just the documents naming the table; the packet must not notice."""
+    from .catalog_demo import CORPUS, demo_tables
+
+    lineage = packets.parent / "lineage"
+    extra = ["--tables", demo_tables(lineage, tmp_path / "tables")] if with_tables else []
+    for table in sorted(PRODUCED):
+        out = tmp_path / table
+        assert pack(CORPUS, lineage, out, "--only", table, *extra) == 0
+        assert packet_of(out, table) == packet_of(packets, table), table
+
+
+def test_an_only_run_parses_only_the_documents_it_needs(
+    tmp_path: Path, packets: Path, capsys
+) -> None:
+    from .catalog_demo import CORPUS
+
+    assert pack(CORPUS, packets.parent / "lineage", tmp_path / "x", "--only", DEMO_TABLE) == 0
+    # The producer, its two consumers; its one input has no producer in the corpus.
+    assert "from 3 task(s)" in capsys.readouterr().out

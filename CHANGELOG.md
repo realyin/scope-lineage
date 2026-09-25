@@ -27,7 +27,16 @@
   the row statement), marks each changed item `confirmed`, logs it, and lists what matched
   nothing. `describe`'s semantic profile becomes an input to the packet. A hand-written
   example document and confirmations for a demo table are in `examples/table-semantics/`;
-  the demo corpus's customer task gains two inline code-value comments. Guide:
+  the demo corpus's customer task gains two inline code-value comments. Whether a filter
+  reads partitions is decided per conjunct in the packet (`partition_basis`): the schema
+  metadata's `isPartition` / `PARTITIONED BY` first -- the loaders now keep that flag as
+  `SchemaMap.partition_columns` (`partition_columns_for_table`) without changing the
+  published column details -- then a constant comparison on `dt` / `ds` / `pt` / `p_date`
+  of a table marked partitioned, then the lineage's own flag. With `--only`, only the
+  lineage documents naming a requested table are parsed and profiled, and a metadata
+  directory is narrowed to the files naming the tables described
+  (`load_schema(..., only_tables=...)`); a table's columns are merged in one pass instead
+  of once per column. Guide:
   `docs/*/table-semantics.md`.
 - **Concept pages open with a one-page overview in plain Chinese.** Every
   `concepts/<slug>.md` now starts with a status line (kind · domain · the page's drafted

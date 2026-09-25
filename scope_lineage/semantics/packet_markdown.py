@@ -96,7 +96,8 @@ def _inputs(inputs: list[dict]) -> list[str]:
             "",
             f"- 在本表的作用：{_names(entry['roles'])}；主表：{'是' if entry['driving'] else '否'}；"
             f"层：{_text(entry['layer'])}；生产任务：{_names(entry['producers'])}",
-            f"- 分区读取：{entry['partition_read']}（{_names(entry['partition_filters'])}）；"
+            f"- 分区列（元数据）：{_names(entry['partition_columns'])}；"
+            f"分区读取：{entry['partition_read']}（{_names(entry['partition_filters'])}）；"
             f"表名约定：{entry['name_convention']}；全量快照：{'是' if entry['full_snapshot'] else '否'}",
             "- 业务日期过滤：" + (
                 "；".join(f"{_code(item['column'])}：{_code(item['expression'])}"

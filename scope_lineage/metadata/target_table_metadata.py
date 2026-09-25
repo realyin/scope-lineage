@@ -78,15 +78,22 @@ def load_target_table_metadata(
     sanitize_nul: bool = False,
     provenance: list[dict] | None = None,
     provenance_role: str = "target_ddl_metadata",
+    only_tables: Iterable[str] | None = None,
 ) -> TargetMetadataMap:
     """Load one metadata JSON file or a directory containing one file per table.
 
     File extensions are intentionally not semantic: platform downloads often append ``.txt``
     to JSON filenames. Every selected file must contain a JSON object; malformed JSON fails
     the metadata load before any task is parsed.
+
+    ``only_tables`` narrows a directory to the files whose bytes name one of those tables
+    (by the last segment of the name, which every spelling of the table contains): a
+    reader that needs a handful of tables does not parse the DDL of thousands.
     """
     root = Path(path)
     files = _metadata_files(root)
+    if only_tables is not None and root.is_dir():
+        files = files_naming(files, only_tables)
     candidates: dict[str, list[TargetTableMetadata]] = {}
     rejected: list[dict] = []
     provenance_by_file: dict[str, dict] = {}
@@ -173,6 +180,26 @@ def lookup_target_table_metadata(
         if normalize_table_name(candidate.full_table_name) == normalized:
             return candidate
     return None
+
+
+def files_naming(files: Iterable[Path], tables: Iterable[str]) -> list[Path]:
+    """The files whose bytes contain the last name segment of one of ``tables``.
+
+    A prefilter, never a verdict: a file it keeps is still read and checked in full, and a
+    file it cannot read is kept so the reader reports it.
+    """
+    needles = {str(table).rsplit(".", 1)[-1].strip("`").encode("utf-8") for table in tables}
+    needles.discard(b"")
+    kept = []
+    for file_path in files:
+        try:
+            data = Path(file_path).read_bytes()
+        except OSError:
+            kept.append(file_path)
+            continue
+        if any(needle in data for needle in needles):
+            kept.append(file_path)
+    return kept
 
 
 def _metadata_files(path: Path) -> list[Path]:

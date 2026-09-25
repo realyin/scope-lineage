@@ -73,6 +73,12 @@ A packet is written for every table a task finally writes (session views and tem
 tables are not target tables). A task whose JSON is missing from `--tasks` is packed
 without SQL; the summary line counts them as `tasks_without_sql`.
 
+With `--only` the corpus is not profiled as a whole. A document that writes or reads a
+table names it, so only the lineage documents whose bytes contain a requested table's name
+are parsed: with `--tables`, just the ones that write it; without, those plus the
+producers of its input tables, from which the cards are built. The packet is the same as a
+full run's; the summary line's task count says how many documents were read.
+
 ### What a packet holds
 
 `packet.json` (`table-semantics-packet/1`) and `packet.md` hold the same facts; the
@@ -96,6 +102,18 @@ it, `date_filters` (non-partition filters on a date- or time-like column), and
 `name_convention` (`full` for a `_df` / `_da` style name, `incremental` for `_di` / `_hi`,
 `unknown` otherwise) — a naming convention, published so a reader sees what the check
 assumed. `full_snapshot` is `equality` read of a `full` name.
+
+Whether a filter reads partitions is decided per conjunct, because the lineage's own flag
+is a name rule over a whole `WHERE` clause (`dt = x AND status = 0` marks neither half).
+Each filter rule carries `partition_filter` and the `partition_basis` it rests on:
+
+| `partition_basis` | When |
+| --- | --- |
+| `metadata` | every column of the filter has a partition fact in the schema metadata (`isPartition` on the column, or the DDL's `PARTITIONED BY`); a column flagged there is a partition column whatever its name |
+| `partition_name` | the metadata marks the table partitioned (`is_partition`) without naming the column, and the filter compares a `dt` / `ds` / `pt` / `p_date` column with a constant or a `${...}` parameter |
+| `lineage` | neither: the lineage's flag stands |
+
+The same facts mark `partition` on the target's and the inputs' columns.
 
 ### Owners and emails
 
@@ -121,7 +139,7 @@ One JSON document per target table. The schema is shipped as
 {
   "doc_format": "table-semantics/1",
   "table": "demo_dwd.dwd_party_customer_info_df",
-  "packet_digest": "e21d636c4c7a990f",
+  "packet_digest": "d6ca0cf34298f8c1",
   "generator": {"prompt": "table-semantics-prompt@0", "model": "hand-written example"},
   "summary": {"what": "...", "row": {}, "refresh": {}, "scope": [], "upstream": [],
               "downstream": [], "good_for": [], "not_for": [], "watch": [], "questions": []},

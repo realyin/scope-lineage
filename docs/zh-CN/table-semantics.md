@@ -63,6 +63,10 @@ scope-lineage semantic confirm examples/table-semantics \
 语料里每张被任务最终写入的表都会生成材料包（会话视图和临时表不算目标表）。`--tasks` 里找不到任务 JSON 的
 任务照样打包、只是没有 SQL；摘要行以 `tasks_without_sql` 计数。
 
+给了 `--only` 时不再为整个语料建画像。写或读一张表的文档一定写着它的名字，所以只解析字节里含有所请求表名的
+血缘文档：有 `--tables` 时只留写这张表的文档；没有时再加上它各输入表的生产文档，用这些文档建表卡。材料包与
+全量运行完全一致；摘要行的任务数就是读了多少份文档。
+
 ### 材料包里有什么
 
 `packet.json`（`table-semantics-packet/1`）与 `packet.md` 装的是同一批事实；校验读 JSON，模型读 markdown。
@@ -83,6 +87,17 @@ scope-lineage semantic confirm examples/table-semantics \
 （`_df` / `_da` 一类表名为 `full`，`_di` / `_hi` 为 `incremental`，其余 `unknown`）——这是命名约定，公开出来
 让读者看到检查的前提。`full_snapshot` 即以 `equality` 方式读取的 `full` 表。
 
+过滤是否在取分区，逐个合取项判断，因为血缘自己的标记是对整个 `WHERE` 子句的列名规则（`dt = x AND status = 0`
+两半都不会被标记）。每条过滤规则带 `partition_filter` 与它依据的 `partition_basis`：
+
+| `partition_basis` | 条件 |
+| --- | --- |
+| `metadata` | 过滤涉及的每一列在元数据里都有分区事实（列上的 `isPartition`，或 DDL 的 `PARTITIONED BY`）；在那里被标为分区的列，不论叫什么都算分区列 |
+| `partition_name` | 元数据标明表是分区表（`is_partition`）但没有指出哪一列，且过滤把 `dt` / `ds` / `pt` / `p_date` 列与常量或 `${...}` 参数比较 |
+| `lineage` | 两者都没有：沿用血缘的标记 |
+
+目标表和输入表各列的 `partition` 也按同样的事实标注。
+
 ### 负责人与邮箱
 
 材料包要交给模型，所以从不带人：任何负责人键（`owner`、`owner_email`、`target_table_owner` 等）出现在哪
@@ -102,7 +117,7 @@ scope-lineage semantic confirm examples/table-semantics \
 {
   "doc_format": "table-semantics/1",
   "table": "demo_dwd.dwd_party_customer_info_df",
-  "packet_digest": "e21d636c4c7a990f",
+  "packet_digest": "d6ca0cf34298f8c1",
   "generator": {"prompt": "table-semantics-prompt@0", "model": "hand-written example"},
   "summary": {"what": "...", "row": {}, "refresh": {}, "scope": [], "upstream": [],
               "downstream": [], "good_for": [], "not_for": [], "watch": [], "questions": []},

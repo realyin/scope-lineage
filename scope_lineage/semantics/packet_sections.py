@@ -24,7 +24,7 @@ def target_section(table: str, statements: list, corpus) -> dict:
     meta = corpus.metadata(table) or {}
     first = statements[0][1].get("task") or {}
     columns, source = _target_columns(meta, first, statements)
-    partitions = {
+    partitions = set(meta.get("partition_columns") or []) | {
         name
         for _, statement in statements
         for name in ((statement.get("task") or {}).get("partition") or {}).get("columns") or []
@@ -116,6 +116,8 @@ def _new_input(table: str, item: dict, corpus) -> dict:
         "table": table,
         "comment": _comment(meta.get("comment") or item.get("comment")),
         "layer": meta.get("layer") or item.get("layer"),
+        "partitioned": meta.get("partitioned"),
+        "partition_columns": list(meta.get("partition_columns") or []),
         "roles": [],
         "driving": False,
         "producers": sorted({str(task) for task in producers if task}),
@@ -131,6 +133,7 @@ def _finish_input(entry: dict, rules: list[dict]) -> dict:
     columns = [
         {"name": str(column.get("name")), "type": column.get("type"),
          "comment": _comment(column.get("comment")),
+         "partition": str(column.get("name")) in entry["partition_columns"],
          "used": str(column.get("name")) in used, "usages": used.get(str(column.get("name")), [])}
         for column in declared
     ]

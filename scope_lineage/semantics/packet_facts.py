@@ -68,6 +68,7 @@ def _profile_rule(task: str, statement: dict, rule: dict) -> dict:
         "scope": rule.get("scope_id"),
         "expression": rule.get("expression"),
         "partition_filter": bool(rule.get("is_partition_filter")),
+        "partition_basis": "lineage",
         "tables": _tables_of(rule.get("fields")),
         "columns": _columns_of(rule.get("fields")),
     }
@@ -84,6 +85,7 @@ def _stage_rule(task: str, statement: dict, stage: dict, action: dict, kind: str
         "scope": stage.get("scope_id"),
         "expression": action.get("expression"),
         "partition_filter": False,
+        "partition_basis": "lineage",
         "tables": _tables_of(action.get("fields")) or sorted(
             bare_table(table) for table in stage.get("upstream_physical_tables") or []
         ),
@@ -130,6 +132,50 @@ def statement_partition(task: str, statement: dict) -> dict:
         "mode": partition.get("mode"),
         "spec": partition.get("spec") or {},
     }
+
+
+# ------------------------------------------------------------------ partition filters
+
+# Names a warehouse gives its date partition column; read only for a table the metadata
+# marks partitioned without saying which column is the partition.
+_PARTITION_NAMES = frozenset({"dt", "ds", "pt", "p_date"})
+_CONSTANT = r"('[^']*'|\d+|\$\{[a-z0-9_.\-]+\})"
+_COMPARISON = re.compile(rf"^[a-z0-9_]+(=|<=|>=|<|>){_CONSTANT}$")
+_BETWEEN = re.compile(rf"^[a-z0-9_]+between{_CONSTANT}and{_CONSTANT}$")
+
+
+def mark_partition_filters(rules: list[dict], metadata) -> None:
+    """Decide per filter conjunct whether it selects partitions, metadata first.
+
+    The lineage's flag is a name rule over a whole WHERE clause, so ``dt = x AND
+    status = 0`` marks neither conjunct. Here each conjunct is judged alone: a filter
+    whose columns are all partition columns the metadata states (``isPartition``,
+    ``PARTITIONED BY``) is a partition filter; failing that, a comparison with a constant
+    on a ``dt``/``ds``/``pt``/``p_date`` column of a table the metadata marks partitioned
+    is one; with neither, the lineage's flag stands. ``partition_basis`` says which.
+    """
+    for rule in rules:
+        if rule["kind"] != "filter" or not rule.get("columns"):
+            continue
+        decided = [_partition_column(ref, rule["expression"], metadata) for ref in rule["columns"]]
+        if any(verdict is None for verdict, _ in decided):
+            continue
+        rule["partition_filter"] = all(verdict for verdict, _ in decided)
+        bases = {basis for _, basis in decided}
+        rule["partition_basis"] = "metadata" if bases == {"metadata"} else "partition_name"
+
+
+def _partition_column(reference: str, expression, metadata) -> tuple:
+    """``(is a partition column, basis)``; ``(None, "lineage")`` when nothing says."""
+    table, column = reference.rsplit(".", 1)
+    meta = metadata(table) or {}
+    if meta.get("partition_columns"):
+        return column in meta["partition_columns"], "metadata"
+    text = normalize_sql(expression)
+    if (meta.get("partitioned") and column in _PARTITION_NAMES
+            and (_COMPARISON.match(text) or _BETWEEN.match(text))):
+        return True, "partition_name"
+    return None, "lineage"
 
 
 # ------------------------------------------------------------------ input time facts
