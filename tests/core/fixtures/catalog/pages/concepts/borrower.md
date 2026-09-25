@@ -29,7 +29,11 @@ A customer while they hold at least one loan that is not settled.
 
 - `demo_dwd.dwd_lending_borrower_df` 血缘一跳：上游 `demo_dwd.dwd_lending_loan_df`、`demo_dwd.dwd_party_customer_info_df`、`demo_ods.ods_credit_limit_df`；下游 `demo_ads.ads_collection_overdue_loan_df`
 
-## 3. 属性
+## 3. 带本概念标识的表
+
+（角色没有自己的标识符，携带它的表见承担者[客户](customer.md)的这一节）
+
+## 4. 属性
 
 ### 度量
 
@@ -37,7 +41,7 @@ A customer while they hold at least one loan that is not settled.
 | --- | --- | --- | --- | --- | --- | --- |
 | 授信额度 `attr:borrower.credit_limit` | The most the borrower may owe at once. | decimal(18,2) / CNY | — | `demo_dwd.dwd_lending_borrower_df.credit_limit` | `demo_dwd.dwd_lending_borrower_df.credit_limit` = `` MAX(`cr`.`credit_limit`) ``（血缘） | 已确认（owner） |
 
-## 4. 关系
+## 5. 关系
 
 ### 关联、组成与泛化
 
@@ -56,11 +60,11 @@ A customer while they hold at least one loan that is not settled.
 
 本概念是[客户](customer.md)的角色，成立条件：holds at least one loan whose status is not settled
 
-## 5. 约束
+## 6. 约束
 
 （无）
 
-## 6. 治理缺口
+## 7. 治理缺口
 
 | 缺口 | 明细 |
 | --- | --- |

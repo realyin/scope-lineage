@@ -61,7 +61,17 @@ One amount lent to a borrower, repaid over one or more instalments.
 
 - `demo_dws.dws_lending_loan_summary_1d` 血缘一跳：上游 `demo_dwd.dwd_lending_loan_df`、`demo_dwd.dwd_party_account_map_df`、`demo_dwd.dwd_party_customer_info_df`
 
-## 3. 属性
+## 3. 带本概念标识的表
+
+| 表 | 表的概念 | 列 | 标识符 | 方式 |
+| --- | --- | --- | --- | --- |
+| `demo_dwd.dwd_collection_fee_waiver_di` | [豁免](fee_waiver.md) | `loan_no` | 借据号 `id:loan_no` | 外部标识符 |
+| `demo_dwd.dwd_lending_loan_df` | 本概念 | `loan_no` | 借据号 `id:loan_no` | 标识符 |
+| `demo_dwd.dwd_lending_loan_df` | 本概念 | `orig_loan_no` | 借据号 `id:loan_no` | 外部标识符（自关联） |
+| `demo_dwd.dwd_lending_loan_status_his` | 本概念 | `loan_no` | 借据号 `id:loan_no` | 标识符 |
+| `demo_dwd.dwd_lending_repayment_di` | [还款](repayment.md) | `loan_no` | 借据号 `id:loan_no` | 外部标识符 |
+
+## 4. 属性
 
 ### 状态
 
@@ -76,7 +86,7 @@ One amount lent to a borrower, repaid over one or more instalments.
 | 本金 `attr:loan.principal` | The amount lent. | decimal(18,2) / CNY | — | `demo_dwd.dwd_lending_loan_df.principal_amt` | `demo_dwd.dwd_lending_loan_df.principal_amt` = `` `l`.`principal` ``（血缘） | 已确认（owner） |
 | 逾期罚息 `attr:loan.overdue_penalty` | Penalty interest accrued while the loan is overdue. | decimal(18,2) / CNY | — | `demo_dwd.dwd_lending_loan_df.penalty_amt` | overdue principal x daily penalty rate x days overdue；`demo_dwd.dwd_lending_loan_df.penalty_amt`：sum of the daily penalty accruals up to dt | 已确认（owner） |
 
-## 4. 关系
+## 5. 关系
 
 ### 关联、组成与泛化
 
@@ -98,7 +108,7 @@ One amount lent to a borrower, repaid over one or more instalments.
 
 （无）
 
-## 5. 约束
+## 6. 约束
 
 | 约束 | 种类 | 作用对象 | 表达式 | 强度 | 状态 |
 | --- | --- | --- | --- | --- | --- |
@@ -107,7 +117,7 @@ One amount lent to a borrower, repaid over one or more instalments.
 | `cons:settled_is_final` | 状态迁移 | 借据状态 `attr:loan.loan_status` | a settled loan never changes status again | 硬 | 已确认（owner） |
 | `cons:penalty_rule` | 派生 | 逾期罚息 `attr:loan.overdue_penalty` | accrues only while loan_status is overdue | 软 | 草拟（comment） |
 
-## 6. 治理缺口
+## 7. 治理缺口
 
 | 缺口 | 明细 |
 | --- | --- |

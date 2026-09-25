@@ -36,6 +36,7 @@ def render_query_text(result: Mapping) -> str:
         "identifier": _identifier,
         "attribute": _attribute,
         "related": _related,
+        "carriers": _carriers,
     }[query["kind"]]
     return "\n\n".join("\n".join(render(match)) for match in matches) + "\n"
 
@@ -184,4 +185,26 @@ def _related(match: Mapping) -> list[str]:
     lines.append(f"  参与的事件：{events or '（无）'}")
     lines.append(f"  角色：{_names(match['roles'])}")
     lines.append(f"  表：{_names(match['tables'], 'table')}")
+    carriers = "、".join(f"{t['table']}（{t['concept']['name']}）" for t in match["carriers"])
+    lines.append(f"  带本概念标识的表：{carriers or '（无）'}")
     return lines
+
+
+def _carriers(match: Mapping) -> list[str]:
+    concept = match["concept"]
+    if not match["identifiers"]:
+        player = match.get("player")
+        where = f"，见承担者 {player['name']} {player['id']}" if player else ""
+        kind = "角色" if player else "本概念"
+        return [f"{concept['name']} {concept['id']}：{kind}没有自己的标识符{where}"]
+    identifiers = "、".join(f"{i['name']} {i['id']}" for i in match["identifiers"])
+    lines = [f"带 {concept['name']} {concept['id']} 标识的表（{identifiers}）"]
+    for table in match["tables"]:
+        columns = "；".join(_carrier_column(c) for c in table["columns"])
+        lines.append(f"  - {table['table']}（{table['concept']['name']}）：{columns}")
+    return lines if match["tables"] else [*lines, "  （没有表绑定这些标识符）"]
+
+
+def _carrier_column(column: Mapping) -> str:
+    text = f"{column['column']} → {BINDING_TEXT[column['to']]} {column['identifier']['name']}"
+    return text + ("（自关联）" if column.get("self_reference") else "")

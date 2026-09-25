@@ -1,6 +1,6 @@
 """``catalog query``: one question to a built ``ontology-json/3`` document, one short answer.
 
-Six kinds of question, each answered from the document alone:
+Seven kinds of question, each answered from the document alone:
 
 - ``concept``    -- by id, name, synonym or term: identity, attributes, states, tables;
 - ``table``      -- ``db.table`` (a catalog prefix is ignored): the concept it carries and
@@ -11,7 +11,10 @@ Six kinds of question, each answered from the document alone:
   identifier it spells when the catalog only names it as a spelling;
 - ``identifier`` -- by id, name or physical spelling: what it identifies, where it is bound;
 - ``attribute``  -- by id, name or term: its concept, code values and every table column;
-- ``related``    -- a concept's one-hop neighbourhood: relations, events, roles, tables.
+- ``related``    -- a concept's one-hop neighbourhood: relations, events, roles, tables,
+  and the tables carrying its identifiers;
+- ``carriers``   -- every table, of any concept, that binds one of a concept's identifiers
+  (as ``identifier`` or ``foreign_identifier``): where the concept can be joined in.
 
 ``query_catalog`` returns ``{"query": {kind, term}, "matches": [...]}`` -- the structure
 an agent reads (``--json``); ``render_query_text`` is the few lines a person reads.
@@ -33,7 +36,15 @@ from .catalog_view import (
 
 __all__ = ["QUERY_KINDS", "query_catalog", "render_query_text"]
 
-QUERY_KINDS = ("concept", "table", "column", "identifier", "attribute", "related")
+QUERY_KINDS = (
+    "concept",
+    "table",
+    "column",
+    "identifier",
+    "attribute",
+    "related",
+    "carriers",
+)
 CONCEPTS_DIR = "concepts"
 
 
@@ -48,6 +59,7 @@ def query_catalog(document: Mapping, kind: str, term: str) -> dict:
         "identifier": _identifier_matches,
         "attribute": _attribute_matches,
         "related": _related_matches,
+        "carriers": _carrier_matches,
     }[kind]
     return {"query": {"kind": kind, "term": term}, "matches": answer(view, term)}
 
@@ -307,6 +319,7 @@ def _neighbourhood(view: CatalogView, concept: dict) -> dict:
             for role in view.roles_played_by(concept_id)
         ],
         "tables": _tables(view, concept_id),
+        "carriers": _carriers(view, concept_id),
     }
     if concept["kind"] == "event":
         answer["participants"] = [
@@ -317,6 +330,43 @@ def _neighbourhood(view: CatalogView, concept: dict) -> dict:
     if concept.get("player"):
         answer["player"] = _ref(view, concept["player"])
     return answer
+
+
+def _carrier_matches(view: CatalogView, term: str) -> list[dict]:
+    return [_carrier_answer(view, concept) for concept, _ in find_concepts(view, term)]
+
+
+def _carrier_answer(view: CatalogView, concept: dict) -> dict:
+    answer = {
+        "concept": _ref(view, concept["id"]),
+        "identifiers": [_ref(view, i["id"]) for i in view.identifiers_of(concept["id"])],
+        "tables": _carriers(view, concept["id"]),
+    }
+    if concept.get("player"):
+        answer["player"] = _ref(view, concept["player"])
+    return answer
+
+
+def _carriers(view: CatalogView, concept_id: str) -> list[dict]:
+    return [
+        {
+            "table": rep["table"],
+            "concept": _ref(view, rep["concept"]),
+            "columns": [_carrier_column(view, binding) for binding in bindings],
+        }
+        for rep, bindings in view.carriers_of(concept_id)
+    ]
+
+
+def _carrier_column(view: CatalogView, binding: dict) -> dict:
+    column = {
+        "column": binding["column"],
+        "identifier": _ref(view, binding["ref"]),
+        "to": binding["to"],
+    }
+    if binding.get("self_reference"):
+        column["self_reference"] = True
+    return column
 
 
 def _relation(view: CatalogView, concept_id: str, relation: dict) -> dict:

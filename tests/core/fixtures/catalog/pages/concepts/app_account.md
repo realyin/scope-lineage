@@ -29,7 +29,13 @@ The sign-in account a customer holds in one channel.
 
 - `demo_dwd.dwd_party_account_map_df` 血缘一跳：上游 `demo_ods.ods_app_account_df`；下游 `demo_dws.dws_lending_loan_summary_1d`
 
-## 3. 属性
+## 3. 带本概念标识的表
+
+| 表 | 表的概念 | 列 | 标识符 | 方式 |
+| --- | --- | --- | --- | --- |
+| `demo_dwd.dwd_party_account_map_df` | 本概念 | `account_id` | 应用账户号 `id:app_account_id` | 标识符 |
+
+## 4. 属性
 
 ### 时间
 
@@ -37,7 +43,7 @@ The sign-in account a customer holds in one channel.
 | --- | --- | --- | --- | --- | --- | --- |
 | 开户时间 `attr:app_account.opened_at` | When the account was opened in its channel. | timestamp | — | `demo_dwd.dwd_party_account_map_df.opened_time` | `demo_dwd.dwd_party_account_map_df.opened_time` = `` MIN(`ods_app_account_df`.`open_time`) ``（血缘） | 已确认（sql） |
 
-## 4. 关系
+## 5. 关系
 
 ### 关联、组成与泛化
 
@@ -54,13 +60,13 @@ The sign-in account a customer holds in one channel.
 
 （无）
 
-## 5. 约束
+## 6. 约束
 
 | 约束 | 种类 | 作用对象 | 表达式 | 强度 | 状态 |
 | --- | --- | --- | --- | --- | --- |
 | `cons:one_account_per_channel` | 基数 | holds `rel:customer_holds_app_account` | a customer holds at most one account in each channel | 软 | 草拟（sql） |
 
-## 6. 治理缺口
+## 7. 治理缺口
 
 | 缺口 | 明细 |
 | --- | --- |

@@ -23,7 +23,14 @@ An app or partner through which customers reach the shop.
 
 （目录未登记表现表）
 
-## 3. 属性
+## 3. 带本概念标识的表
+
+| 表 | 表的概念 | 列 | 标识符 | 方式 |
+| --- | --- | --- | --- | --- |
+| `demo_dwd.dwd_party_account_map_df` | [应用账户](app_account.md) | `channel_code` | 渠道编码 `id:channel_code` | 外部标识符 |
+| `demo_dws.dws_lending_loan_summary_1d` | [借据](loan.md) | `channel_code` | 渠道编码 `id:channel_code` | 外部标识符 |
+
+## 4. 属性
 
 ### 描述
 
@@ -31,7 +38,7 @@ An app or partner through which customers reach the shop.
 | --- | --- | --- | --- | --- | --- | --- |
 | 渠道名称 `attr:channel.channel_name` | The display name of the channel. | string | — | （未落表） | — | 已确认（owner） |
 
-## 4. 关系
+## 5. 关系
 
 ### 关联、组成与泛化
 
@@ -47,11 +54,11 @@ An app or partner through which customers reach the shop.
 
 （无）
 
-## 5. 约束
+## 6. 约束
 
 （无）
 
-## 6. 治理缺口
+## 7. 治理缺口
 
 | 缺口 | 明细 |
 | --- | --- |

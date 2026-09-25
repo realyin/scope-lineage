@@ -58,6 +58,7 @@ BINDING_TEXT = {
     "unmapped": "未映射",
 }
 CONFIDENCE_TEXT = {"proven": "已证明", "candidate": "候选", "none": "无"}
+IDENTIFYING_BINDINGS = ("identifier", "foreign_identifier")
 MAPPING_TEXT = {
     "one_to_one": "一对一",
     "one_to_many": "一对多",
@@ -227,6 +228,22 @@ class CatalogView:
         for table in sorted(self.representations):
             rep = self.representations[table]
             bindings = [b for b in rep["bindings"] if b["to"] == "foreign_attribute"]
+            if bindings:
+                found.append((rep, bindings))
+        return found
+
+    def carriers_of(self, concept_id: str) -> list[tuple[dict, list[dict]]]:
+        """``(representation, its bindings)`` for every table, of any concept, that binds one
+        of the concept's identifiers as ``identifier`` or ``foreign_identifier``."""
+        own = {identifier["id"] for identifier in self.identifiers_of(concept_id)}
+        found = []
+        for table in sorted(self.representations):
+            rep = self.representations[table]
+            bindings = [
+                b
+                for b in rep["bindings"]
+                if b["to"] in IDENTIFYING_BINDINGS and b.get("ref") in own
+            ]
             if bindings:
                 found.append((rep, bindings))
         return found
