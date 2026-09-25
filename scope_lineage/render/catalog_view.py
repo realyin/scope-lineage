@@ -66,6 +66,15 @@ MAPPING_TEXT = {
 TABLE_STATUS_TEXT = {"active": "在用", "deprecated": "已废弃"}
 
 
+def catalog_table_name(name) -> str:
+    """The ``db.table`` a spelling names: its last two dotted segments.
+
+    The catalog names every table ``db.table``; a corpus or a reader may spell the same
+    table ``catalog.db.table``. Both the evidence merge and ``catalog query`` match on this.
+    """
+    return ".".join(str(name or "").split(".")[-2:])
+
+
 def concept_slug(concept_id: str) -> str:
     """``concept:fee_waiver`` -> ``fee_waiver``: the page's file stem."""
     return str(concept_id).split(":", 1)[-1]

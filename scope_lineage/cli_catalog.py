@@ -48,6 +48,34 @@ def add_catalog_parser(subcommands) -> None:
     )
     _add_build_parser(actions)
     _add_render_parser(actions)
+    _add_query_parser(actions)
+
+
+def _add_query_parser(actions) -> None:
+    from .render.catalog_query import QUERY_KINDS
+
+    query_cmd = actions.add_parser(
+        "query",
+        help=(
+            "Answer one question from a built ontology.json: a concept, a table, a column, "
+            "an identifier, an attribute, or a concept's one-hop neighbours; exit 1 when "
+            "nothing matches"
+        ),
+    )
+    query_cmd.add_argument("ontology", help=f"An {ONTOLOGY_FILENAME} written by `catalog build`")
+    query_cmd.add_argument("kind", choices=QUERY_KINDS, help="What the term names")
+    query_cmd.add_argument(
+        "term",
+        help=(
+            "An id, a name, a synonym or a term; db.table for table (a catalog prefix is "
+            "ignored); db.table.column for column; a spelling also finds an identifier"
+        ),
+    )
+    query_cmd.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the structured answer ({query, matches[]}) instead of text",
+    )
 
 
 def _add_render_parser(actions) -> None:
@@ -95,6 +123,8 @@ def _add_build_parser(actions) -> None:
 def run_catalog(args: argparse.Namespace) -> int:
     if args.catalog_action == "render":
         return _run_render(args)
+    if args.catalog_action == "query":
+        return _run_query(args)
     try:
         catalog = load_catalog(args.directory)
     except CatalogError as error:
@@ -140,6 +170,20 @@ def _run_render(args: argparse.Namespace) -> int:
     concepts = sum(1 for name in pages if name.startswith(f"{CONCEPTS_DIR}/"))
     print(f"Rendered {len(pages)} page(s) ({concepts} concept page(s)) -> {out}")
     return 0
+
+
+def _run_query(args: argparse.Namespace) -> int:
+    from .render.catalog_query import query_catalog, render_query_text
+
+    document = _load_ontology(args.ontology)
+    if isinstance(document, int):
+        return document
+    result = query_catalog(document, args.kind, args.term)
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    else:
+        print(render_query_text(result), end="")
+    return 0 if result["matches"] else 1
 
 
 def _evidence_inputs(args: argparse.Namespace):

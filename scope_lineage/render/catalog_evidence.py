@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from typing import NamedTuple, Optional
 
+from .catalog_view import catalog_table_name
 from .ontology import join_key_pairs, write_statements
 from .semantic_profile import build_semantic_profile
 from .table_cards import refresh_from_task_meta
@@ -60,11 +61,6 @@ REPRESENTATION_KEYS = (
     "used_columns",
 )
 BINDING_KEYS = ("sources", "expression", "declared_only")
-
-
-def catalog_table_name(name) -> str:
-    """The ``db.table`` a corpus spelling names: its last two dotted segments."""
-    return ".".join(str(name or "").split(".")[-2:])
 
 
 class JoinFact(NamedTuple):
