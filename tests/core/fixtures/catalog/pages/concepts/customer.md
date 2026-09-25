@@ -9,7 +9,7 @@
 **怎么认出来**：
 
 - 客户号：一开始就有，全局唯一（主标识） ✓
-- 认证客户号：assigned when the customer passes identity verification（进入「已认证」状态时），全局唯一
+- 认证客户号：assigned when the customer pa…（进入「已认证」状态时），全局唯一
 
 **状态**：未认证 —实名认证→ 已认证
 

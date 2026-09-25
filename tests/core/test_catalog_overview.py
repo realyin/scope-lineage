@@ -78,6 +78,12 @@ def test_arises_when_says_the_condition_and_the_state_it_names(view: CatalogView
     assert arises_words(view, {"condition": "on first login"}) == "on first login"
 
 
+def test_a_long_arising_condition_is_cut_to_one_short_phrase(view: CatalogView) -> None:
+    long_text = "assigned when the customer finishes the whole verification flow in any channel"
+    words = arises_words(view, {"condition": long_text})
+    assert len(words) == 30 and words.endswith("…")
+
+
 @pytest.mark.parametrize(
     ("text", "limit", "clipped"),
     [
@@ -215,7 +221,7 @@ def test_the_customer_overview_markdown(view: CatalogView) -> None:
         "**怎么认出来**：",
         "",
         "- 客户号：一开始就有，全局唯一（主标识） ✓",
-        "- 认证客户号：assigned when the customer passes identity verification"
+        "- 认证客户号：assigned when the customer pa…"
         "（进入「已认证」状态时），全局唯一",
         "",
         "**状态**：未认证 —实名认证→ 已认证",

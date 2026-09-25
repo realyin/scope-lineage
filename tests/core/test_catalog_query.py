@@ -417,7 +417,7 @@ def test_the_concept_text_leads_with_the_overview(document: dict) -> None:
     assert lines[1:4] == [
         "  是什么：A person the shop has registered, whether or not they ever borrow.",
         "  怎么认出来：客户号：一开始就有，全局唯一（主标识） ✓；认证客户号：assigned when the "
-        "customer passes identity verification（进入「已认证」状态时），全局唯一",
+        "customer pa…（进入「已认证」状态时），全局唯一",
         "  数据在哪：demo_dwd.dwd_party_customer_info_df（Customer master, one row per …） ✓；"
         "demo_dwd.dwd_party_customer_ext_df；另有 4 张表带本概念的标识，分布在 2 个域",
     ]

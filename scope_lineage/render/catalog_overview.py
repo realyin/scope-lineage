@@ -42,7 +42,7 @@ def arises_words(view: CatalogView, arises: Optional[Mapping]) -> str:
     """When an identifier comes into being: 一开始就有, or its condition and state."""
     if not arises:
         return "一开始就有"
-    text = normalize_inline(arises["condition"])
+    text = clip(arises["condition"], CONDITION_CHARS)
     if arises.get("state"):
         text += f"（进入「{view.state_name(arises['state'])}」状态时）"
     return text
