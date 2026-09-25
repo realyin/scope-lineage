@@ -45,6 +45,11 @@ _QUALIFIER = re.compile(r"\b[a-z_][a-z0-9_]*\.(?=[a-z_$])")
 _LEADING_KEYWORD = re.compile(r"^\s*(?:where|and|or|on|having)\b", re.IGNORECASE)
 
 
+def strip_leading_keyword(text: object) -> str:
+    """``WHERE x = 1`` -> ``x = 1``: a quoted fragment without its clause keyword."""
+    return _LEADING_KEYWORD.sub("", str(text or ""))
+
+
 def normalize_sql(text: object) -> str:
     """One comparable spelling of a SQL fragment.
 
@@ -53,6 +58,6 @@ def normalize_sql(text: object) -> str:
     ```latest`.`rn` = 1`` of the lineage, the ``WHERE rn = 1`` a writer quotes and the
     script's own ``latest.rn=1`` are one string.
     """
-    result = _LEADING_KEYWORD.sub("", str(text or "")).lower().replace("`", "")
+    result = strip_leading_keyword(text).lower().replace("`", "")
     result = _QUALIFIER.sub("", result)
     return re.sub(r"\s+", "", result).replace("!=", "<>")

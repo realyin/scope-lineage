@@ -212,6 +212,15 @@ scope-lineage semantic validate <documents> --packets <packet dir> [--json]
 第 5 项的规范化会转小写、去掉标识符引号、表限定、空白以及开头的 `WHERE` / `AND` / `ON`，所以血缘里的
 `` `latest`.`rn` = 1 ``、文档引用的 `WHERE rn = 1` 和脚本里的 `latest.rn=1` 视为相同。
 
+血缘里的每个谓词都经 SQLGlot 渲染，`rules[].sql` 却照抄脚本原文，所以第 5 项在同一个空间里比较两者。一段
+片段有两种形式：宽松文本，以及 SQLGlot 按血缘所用方言能解析时渲染出的文本。任务 SQL 有宽松文本、渲染文本，
+以及每个 `WHERE`、`HAVING`、`ON` 谓词和其中每个合取项各一个单元——按原样渲染一次，再把子查询或 CTE 算出的
+列替换成它背后的表达式渲染一次。引用的片段只要有一种形式出现在脚本里或等于某个单元，就算找到；过滤只要有
+一种形式与某条引用、或与该引用相等的单元的某种形式相合，就算被引用。因此脚本里的 `nvl(x, 0) = 1`、
+`substr(n, 1, 2) = 'AB'`、`x is not null` 分别引用了血缘的 `COALESCE(x, 0) = 1`、`SUBSTRING(n, 1, 2) = 'AB'`、
+`NOT x IS NULL`；子查询 `a` 这样算出 `dt` 时，引用 `a.dt = '${bizdate}'` 也就引用了
+`DATE_FORMAT(time_inst, 'yyyyMMdd') = '${bizdate}'`。SQLGlot 解析不了的片段或脚本，仍按宽松文本比较。
+
 ### 报告
 
 一张表的通过率是检查项中未失败的比例；警告会列出，但不计入失败。文字摘要先打印每张表一行，再逐行列出失败项，

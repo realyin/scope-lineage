@@ -21,6 +21,14 @@
   an orchestration section in `SKILL.md`: choose tables, packet, write, validate, rewrite
   the failures, render, confirm. Guide: `docs/*/table-semantics.md` (render section) and
   `docs/*/ontology-catalog.md` (`--semantics`).
+- **`semantic validate` check 5 compares quotes and lineage filters in one space.** The
+  lineage renders predicates through SQLGlot (`nvl` → `COALESCE`, `substr` → `SUBSTRING`,
+  `x is not null` → `NOT x IS NULL`, a derived table's column as the expression behind it),
+  while `rules[].sql` quotes the script as written, so a correct document failed both "filter
+  is cited" and "quoted SQL found". A fragment is now also rendered by SQLGlot in the
+  lineage's dialect, and the task SQL's `WHERE` / `HAVING` / `ON` predicates and their
+  conjuncts are rendered as written and with subquery and CTE columns resolved; a match in
+  the raw or the rendered form passes, and what SQLGlot cannot parse keeps the text match.
 - **Table semantics: `semantic packet`, `semantic validate`, `semantic confirm`.** A new
   document, `table-semantics/1` (schema `scope_lineage/schemas/table-semantics.schema.json`),
   says what one target table means for a business reader: a one-page summary (what it is,

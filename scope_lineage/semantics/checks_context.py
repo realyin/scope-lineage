@@ -9,31 +9,40 @@ partitions are to be read.
 from __future__ import annotations
 
 from .checks import MAX_QUESTIONS, _plain, result
-from .names import bare_table, normalize_sql
+from .names import bare_table
+from .sql_forms import fragment_forms, overlaps, task_sql
 
 # 5 ------------------------------------------------------------------ rules
 
 
 def check_rules(document: dict, packet: dict) -> list[dict]:
-    """Every non-partition filter is cited; every quoted rule is in the SQL; refs resolve."""
-    quoted = [normalize_sql(rule.get("sql")) for rule in document["rules"] if rule.get("sql")]
+    """Every non-partition filter is cited; every quoted rule is in the SQL; refs resolve.
+
+    Quotes, filters and the task SQL are compared as :mod:`.sql_forms` describes: the
+    script as written and as SQLGlot renders it, so a quote spelt the way the author wrote
+    it cites the filter the lineage spells its own way.
+    """
+    scripts = _scripts(packet)
+    sql = task_sql(scripts)
+    quoted = [sql.expand(fragment_forms(rule["sql"])) for rule in document["rules"] if rule.get("sql")]
     results = []
     for rule in packet["lineage"]["rules"]:
         if rule["kind"] != "filter" or rule["partition_filter"]:
             continue
-        expression = normalize_sql(rule["expression"])
-        cited = any(text and (text == expression or text in expression or expression in text)
-                    for text in quoted)
+        forms = fragment_forms(str(rule["expression"] or ""))
+        cited = any(overlaps(forms, text) for text in quoted)
         results.append(result("rules", "pass", "rules") if cited else result(
             "rules", "fail", "rules",
             f"过滤 {_plain(rule['expression'])}（{rule['task']}）没有被任何 rules[].sql 引用；"
             "补一条 filter 规则（照抄 SQL 原文），并在 summary.scope 里用 rule_refs 引用它"))
-    return results + _quoted_sql(document, packet) + _rule_refs(document)
+    return results + _quoted_sql(document, scripts, sql) + _rule_refs(document)
 
 
-def _quoted_sql(document: dict, packet: dict) -> list[dict]:
-    scripts = [task["sql"] for task in packet["tasks"] if task["sql"]]
-    text = normalize_sql("\n".join(scripts))
+def _scripts(packet: dict) -> tuple:
+    return tuple(task["sql"] for task in packet["tasks"] if task["sql"])
+
+
+def _quoted_sql(document: dict, scripts: tuple, sql) -> list[dict]:
     results = []
     for index, rule in enumerate(document["rules"]):
         if not rule.get("sql"):
@@ -41,7 +50,7 @@ def _quoted_sql(document: dict, packet: dict) -> list[dict]:
         at = f"rules[{index}].sql"
         if not scripts:
             results.append(result("rules", "warn", at, "材料包里没有任务 SQL，无法核对这段原文"))
-        elif normalize_sql(rule["sql"]) in text:
+        elif sql.contains(fragment_forms(rule["sql"])):
             results.append(result("rules", "pass", at))
         else:
             results.append(result("rules", "fail", at, (

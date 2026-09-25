@@ -242,6 +242,20 @@ The normalization for check 5 lower-cases, drops identifier quotes, table qualif
 whitespace and a leading `WHERE` / `AND` / `ON`, so the lineage's `` `latest`.`rn` = 1 ``,
 a quoted `WHERE rn = 1` and the script's `latest.rn=1` compare equal.
 
+The lineage renders every predicate through SQLGlot, while `rules[].sql` quotes the script
+as written, so check 5 compares both in one space. A fragment counts in two forms: its
+loose text, and — when SQLGlot parses it in the lineage's dialect — the text SQLGlot renders
+for it. The task SQL counts as its loose text, its rendered text, and one unit per `WHERE`,
+`HAVING` and `ON` predicate and per conjunct of each, rendered as written and with every
+column a subquery or CTE computes replaced by the expression behind it. A quote is found
+when any of its forms occurs in the script or equals a unit; a filter is cited when one of
+its forms meets a form of a quote or of a unit the quote equals. So the script's
+`nvl(x, 0) = 1`, `substr(n, 1, 2) = 'AB'` and `x is not null` cite the lineage's
+`COALESCE(x, 0) = 1`, `SUBSTRING(n, 1, 2) = 'AB'` and `NOT x IS NULL`, and a quoted
+`a.dt = '${bizdate}'` cites `DATE_FORMAT(time_inst, 'yyyyMMdd') = '${bizdate}'` when the
+subquery `a` computes `dt` that way. A fragment or script SQLGlot cannot parse keeps the
+loose text match.
+
 ### Report
 
 A table's pass rate is the share of checked items that did not fail; a warning is listed
