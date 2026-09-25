@@ -152,6 +152,12 @@ def test_a_table_nobody_writes_has_no_lineage_facts_but_keeps_its_card(built: di
     assert history["used_columns"] == 3
 
 
+def test_a_table_card_brings_the_table_comment(built: dict) -> None:
+    assert _rep(built, "demo_dwd.dwd_lending_loan_status_his")["table_comment"] == (
+        "Loan status history (zipper)"
+    )
+
+
 def test_a_table_outside_the_corpus_gets_no_entry(built: dict) -> None:
     assert "demo_dwd.dwd_party_customer_ext_df" not in built["evidence"]["representations"]
 
@@ -498,7 +504,7 @@ def test_build_with_tables_only_carries_the_card_counts(tables_json: Path, tmp_p
 
     document = json.loads((out / "ontology.json").read_text(encoding="utf-8"))
     loan = _rep(document, "demo_dwd.dwd_lending_loan_df")
-    assert loan == {"declared_columns": 8, "used_columns": 8}
+    assert loan == {"table_comment": "Loan snapshot", "declared_columns": 8, "used_columns": 8}
     assert "lineage" not in document["evidence"]["inputs"]
 
 

@@ -24,6 +24,8 @@ from .model import CATALOG_FORMAT, ONTOLOGY_FORMAT, ONTOLOGY_SCHEMA, Catalog, Ca
 from .references import derived_relation_id
 from .validate import validate_catalog
 
+UNCONFIRMED = "待确认"  # a code meaning that starts so is a guess, not a fact
+
 
 def build_ontology(catalog: Catalog) -> dict:
     """The ``ontology-json/3`` document; ``CatalogError`` when the catalog has errors."""
@@ -134,10 +136,21 @@ def _identifier(obj: dict) -> dict:
 
 def _code_set(obj: dict) -> dict:
     values = [
-        {"value": str(v["value"]), "meaning": v["meaning"], "retired": bool(v.get("retired", False))}
+        {
+            "value": str(v["value"]),
+            "meaning": v["meaning"],
+            "retired": bool(v.get("retired", False)),
+            "unconfirmed": _unconfirmed(v),
+        }
         for v in obj["values"]
     ]
     return {**_pick(obj, ("id", "name", "definition")), "values": values, **_common(obj)}
+
+
+def _unconfirmed(value: dict) -> bool:
+    """Flagged, or a meaning nobody has filled in (empty, or still starting 待确认)."""
+    meaning = str(value["meaning"]).strip()
+    return bool(value.get("unconfirmed")) or not meaning or meaning.startswith(UNCONFIRMED)
 
 
 def _concept(obj: dict) -> dict:

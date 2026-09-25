@@ -23,17 +23,21 @@ The shop forgives part of what an overdue loan owes.
 
 ### 事件明细
 
-| 表 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
-| --- | --- | --- | --- | --- | --- | --- |
-| `demo_dwd.dwd_collection_fee_waiver_di` | `waiver_seq`（推断） | 增量 | — | 全部 | — | 在用 · 草拟（llm） |
+| 表 | 说明 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `demo_dwd.dwd_collection_fee_waiver_di` | 备注：Kept as JSON on purpose: any catalog file may be YAML or JSON. | `waiver_seq`（推断） | 增量 | — | 全部 | — | 在用 · 草拟（llm） |
 
-## 3. 属性
+## 3. 带本概念标识的表
+
+（没有表绑定本概念的标识符）
+
+## 4. 属性
 
 ### 描述
 
 | 属性 | 定义 | 类型/单位 | 码值 | 所在表列 | 加工口径 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 豁免类型 `attr:fee_waiver.waiver_type` | What part of the debt was forgiven. | string | PEN=penalty waived；INT=interest waived | `demo_dwd.dwd_collection_fee_waiver_di.waiver_type`（码值映射 PEN→penalty waived, INT→interest waived） | — | 草拟（llm） |
+| 豁免类型 `attr:fee_waiver.waiver_type` | What part of the debt was forgiven. | string | PEN=penalty waived；INT=interest waived；OTH（含义待确认：other charges） | `demo_dwd.dwd_collection_fee_waiver_di.waiver_type`（码值映射 PEN→penalty waived, INT→interest waived） | — | 草拟（llm） |
 
 ### 度量
 
@@ -47,7 +51,7 @@ The shop forgives part of what an overdue loan owes.
 | --- | --- | --- | --- | --- | --- | --- |
 | 豁免时间 `attr:fee_waiver.waived_at` | When the waiver took effect. | timestamp | — | `demo_dwd.dwd_collection_fee_waiver_di.waive_time` | — | 草拟（llm） |
 
-## 4. 关系
+## 5. 关系
 
 ### 关联、组成与泛化
 
@@ -61,11 +65,11 @@ The shop forgives part of what an overdue loan owes.
 
 （无）
 
-## 5. 约束
+## 6. 约束
 
 （无）
 
-## 6. 治理缺口
+## 7. 治理缺口
 
 | 缺口 | 明细 |
 | --- | --- |

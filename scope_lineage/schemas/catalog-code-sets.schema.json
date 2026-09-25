@@ -82,10 +82,14 @@
                 ]
               },
               "meaning": {
-                "type": "string",
-                "minLength": 1
+                "description": "Empty, or starting 待确认, while the meaning is not confirmed",
+                "type": "string"
               },
               "retired": {
+                "type": "boolean"
+              },
+              "unconfirmed": {
+                "description": "The value is seen in the data but its meaning is not confirmed",
                 "type": "boolean"
               }
             }

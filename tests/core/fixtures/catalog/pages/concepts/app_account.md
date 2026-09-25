@@ -23,13 +23,19 @@ The sign-in account a customer holds in one channel.
 
 ### 标识映射
 
-| 表 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
-| --- | --- | --- | --- | --- | --- | --- |
-| `demo_dwd.dwd_party_account_map_df` | 应用账户号 + 渠道编码（已证明）；血缘已证明 `account_id`、`channel_code` | 快照 | 调度 day | 全部 | dwd_party_account_map_daily | 在用 · 已确认（sql） |
+| 表 | 说明 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `demo_dwd.dwd_party_account_map_df` | 表注释：App account to customer map | 应用账户号 + 渠道编码（已证明）；血缘已证明 `account_id`、`channel_code` | 快照；按单个 dt 分区取数 | 调度 day | latest row per account and channel (row_number = 1 by update_time) | dwd_party_account_map_daily | 在用 · 已确认（sql） |
 
 - `demo_dwd.dwd_party_account_map_df` 血缘一跳：上游 `demo_ods.ods_app_account_df`；下游 `demo_dws.dws_lending_loan_summary_1d`
 
-## 3. 属性
+## 3. 带本概念标识的表
+
+| 表 | 表的概念 | 列 | 标识符 | 方式 |
+| --- | --- | --- | --- | --- |
+| `demo_dwd.dwd_party_account_map_df` | 本概念 | `account_id` | 应用账户号 `id:app_account_id` | 标识符 |
+
+## 4. 属性
 
 ### 时间
 
@@ -37,13 +43,13 @@ The sign-in account a customer holds in one channel.
 | --- | --- | --- | --- | --- | --- | --- |
 | 开户时间 `attr:app_account.opened_at` | When the account was opened in its channel. | timestamp | — | `demo_dwd.dwd_party_account_map_df.opened_time` | `demo_dwd.dwd_party_account_map_df.opened_time` = `` MIN(`ods_app_account_df`.`open_time`) ``（血缘） | 已确认（sql） |
 
-## 4. 关系
+## 5. 关系
 
 ### 关联、组成与泛化
 
 | 关系 | 种类 | 读法 | 对端 | 基数 | 证据连接 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
-| is opened in `rel:app_account_opened_in_channel` | 关联 | 应用账户 is opened in 渠道 | [渠道](channel.md) | 应用账户 0..* : 渠道 1 | —（一端无表现表） | 已确认（sql） |
+| is opened in `rel:app_account_opened_in_channel` | 关联 | 应用账户 is opened in 渠道 | [渠道](channel.md) | 应用账户 0..* : 渠道 1 | —（一端无表现表）；同表携带两端：`demo_dwd.dwd_party_account_map_df`；目录证据：`demo_dwd.dwd_party_account_map_df.channel_code` | 已确认（sql） |
 | holds `rel:customer_holds_app_account` | 组成 | 应用账户 is held by 客户 | [客户](customer.md) | 客户 1 : 应用账户 0..* | 1 次（如 `demo_dwd.dwd_party_customer_info_df.customer_id = demo_dwd.dwd_party_account_map_df.customer_id`） | 已确认（owner） |
 
 ### 参与的事件
@@ -54,13 +60,13 @@ The sign-in account a customer holds in one channel.
 
 （无）
 
-## 5. 约束
+## 6. 约束
 
 | 约束 | 种类 | 作用对象 | 表达式 | 强度 | 状态 |
 | --- | --- | --- | --- | --- | --- |
 | `cons:one_account_per_channel` | 基数 | holds `rel:customer_holds_app_account` | a customer holds at most one account in each channel | 软 | 草拟（sql） |
 
-## 6. 治理缺口
+## 7. 治理缺口
 
 | 缺口 | 明细 |
 | --- | --- |

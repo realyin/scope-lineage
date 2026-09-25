@@ -22,7 +22,11 @@ The customer proves who they are; afterwards they may borrow.
 
 （目录未登记表现表）
 
-## 3. 属性
+## 3. 带本概念标识的表
+
+（没有表绑定本概念的标识符）
+
+## 4. 属性
 
 ### 时间
 
@@ -30,7 +34,7 @@ The customer proves who they are; afterwards they may borrow.
 | --- | --- | --- | --- | --- | --- | --- |
 | 认证时间 `attr:identity_verification.verified_at` | When the verification succeeded. | timestamp | — | （未落表） | — | 草拟（comment） |
 
-## 4. 关系
+## 5. 关系
 
 ### 关联、组成与泛化
 
@@ -44,11 +48,11 @@ The customer proves who they are; afterwards they may borrow.
 
 （无）
 
-## 5. 约束
+## 6. 约束
 
 （无）
 
-## 6. 治理缺口
+## 7. 治理缺口
 
 | 缺口 | 明细 |
 | --- | --- |

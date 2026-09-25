@@ -8,7 +8,7 @@ changed and a reader can always tell a claim from its evidence:
 - ``evidence.representations["db.table"]``: the tasks that write the table, their
   schedule, the tables one hop up and down, the grain the producing SQL proves, and any
   disagreement between that proof and the grain the catalog declares; with ``--tables``
-  also how many columns the metadata declares and how many the corpus uses.
+  also the table comment and how many columns the metadata declares and the corpus uses.
 - ``evidence.bindings["db.table.column"]``: the physical source columns and the final
   expression of a bound column -- only where the binding has no hand-written derivation
   -- and ``declared_only`` for a column the metadata declares and no task touches.
@@ -60,6 +60,7 @@ REPRESENTATION_KEYS = (
     "downstream_tables",
     "grain_proof",
     "conflicts",
+    "table_comment",
     "declared_columns",
     "used_columns",
 )
@@ -454,8 +455,11 @@ def _merge_tables(evidence: dict, catalog: _Catalog, tables: Mapping) -> None:
 
 
 def _card_counts(card: Mapping) -> dict:
+    """The card's table comment, and how many columns it declares and the corpus uses."""
     coverage = card.get("coverage") or {}
     counts = {}
+    if card.get("comment"):
+        counts["table_comment"] = str(card["comment"])
     if coverage.get("columns_declared") is not None:
         counts["declared_columns"] = coverage["columns_declared"]
     counts["used_columns"] = coverage.get("columns_used") or 0

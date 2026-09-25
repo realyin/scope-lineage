@@ -29,8 +29,17 @@ def _one(document: dict, kind: str, term: str) -> dict:
     return result["matches"][0]
 
 
-def test_the_six_kinds() -> None:
-    assert QUERY_KINDS == ("concept", "table", "column", "identifier", "attribute", "related")
+def test_the_query_kinds() -> None:
+    assert QUERY_KINDS == (
+        "concept",
+        "table",
+        "column",
+        "identifier",
+        "attribute",
+        "related",
+        "carriers",
+        "scope",
+    )
 
 
 # ---------------------------------------------------------------- concept
@@ -106,6 +115,35 @@ def test_a_table_answer_says_what_it_carries_and_what_each_column_points_at(docu
     assert columns["loan_status"]["code_map"] == {"1": "normal", "2": "overdue", "3": "settled"}
     assert columns["dt"] == {"column": "dt", "to": "technical"}
     assert match["evidence"]["producing_tasks"] == ["dwd_lending_loan_daily"]
+
+
+def test_a_table_answer_carries_its_notes_comment_and_how_to_read_it(document: dict) -> None:
+    loan = _one(document, "table", "demo_dwd.dwd_lending_loan_df")
+    history = _one(document, "table", "demo_dwd.dwd_lending_loan_status_his")
+
+    assert loan["notes"].startswith("A renewal loan names the loan it renews")
+    assert loan["evidence"]["table_comment"] == "Loan snapshot"
+    assert loan["usage"] == "按单个 dt 分区取数"
+    assert history["usage"].startswith("按有效期窗口取数（start_date ≤ 查询日 < end_date")
+
+
+def test_the_table_text_says_what_the_table_is_and_how_to_read_it(document: dict) -> None:
+    text = render_query_text(query_catalog(document, "table", "demo_dwd.dwd_lending_loan_df"))
+
+    assert "  时间语义：快照；按单个 dt 分区取数" in text
+    assert "  说明：表注释 Loan snapshot；备注 A renewal loan" in text
+
+
+def test_a_table_answer_carries_its_scope_and_the_rules_citing_it(document: dict) -> None:
+    match = _one(document, "table", "demo_dwd.dwd_party_customer_info_df")
+    text = render_query_text(query_catalog(document, "table", "demo_dwd.dwd_party_customer_info_df"))
+
+    assert [c["id"] for c in match["constraints"]] == ["cons:active_customers_only"]
+    assert (
+        "  记录范围：only customers whose customer_status is active；"
+        "注销客户不入表（is_cancelled = 1 的行被过滤）"
+    ) in text
+    assert "  规则：cons:active_customers_only（业务规则）customer counts read only rows" in text
 
 
 def test_a_table_the_catalog_does_not_map_matches_nothing(document: dict) -> None:
@@ -196,7 +234,12 @@ def test_an_attribute_lists_the_table_columns_it_lands_in(document: dict) -> Non
     match = _one(document, "attribute", "性别")
 
     assert match["concept"] == {"id": "concept:customer", "name": "客户"}
-    assert match["code_set"]["values"][0] == {"value": "F", "meaning": "female", "retired": False}
+    assert match["code_set"]["values"][0] == {
+        "value": "F",
+        "meaning": "female",
+        "retired": False,
+        "unconfirmed": False,
+    }
     assert [(c["table"], c["column"], c["to"]) for c in match["columns"]] == [
         ("demo_dwd.dwd_lending_borrower_df", "gender_cd", "attribute"),
         ("demo_dwd.dwd_lending_loan_df", "customer_gender_cd", "foreign_attribute"),
@@ -209,6 +252,63 @@ def test_an_attribute_by_a_term(document: dict) -> None:
 
     assert match["id"] == "attr:loan.overdue_penalty"
     assert match["columns"][0]["derivation"] == "sum of the daily penalty accruals up to dt"
+
+
+def test_an_attribute_text_marks_a_code_value_whose_meaning_is_not_confirmed(
+    document: dict,
+) -> None:
+    text = render_query_text(query_catalog(document, "attribute", "借据状态"))
+
+    assert "  码值：1=normal；2=overdue；3=settled；9（含义待确认：疑似核销）" in text
+
+
+# --------------------------------------------------------------- carriers
+
+
+def test_carriers_are_every_table_holding_the_concepts_identifier(document: dict) -> None:
+    match = _one(document, "carriers", "渠道")
+
+    assert match["concept"] == {"id": "concept:channel", "name": "渠道"}
+    assert match["identifiers"] == [{"id": "id:channel_code", "name": "渠道编码"}]
+    assert [(t["table"], t["concept"]["id"]) for t in match["tables"]] == [
+        ("demo_dwd.dwd_party_account_map_df", "concept:app_account"),
+        ("demo_dws.dws_lending_loan_summary_1d", "concept:loan"),
+    ]
+    assert match["tables"][0]["columns"] == [
+        {
+            "column": "channel_code",
+            "identifier": {"id": "id:channel_code", "name": "渠道编码"},
+            "to": "foreign_identifier",
+        }
+    ]
+
+
+def test_a_self_referencing_carrier_column_says_so(document: dict) -> None:
+    match = _one(document, "carriers", "concept:loan")
+
+    loan = [t for t in match["tables"] if t["table"] == "demo_dwd.dwd_lending_loan_df"][0]
+    assert [(c["column"], c.get("self_reference", False)) for c in loan["columns"]] == [
+        ("loan_no", False),
+        ("orig_loan_no", True),
+    ]
+
+
+def test_the_carriers_text(document: dict) -> None:
+    text = render_query_text(query_catalog(document, "carriers", "渠道"))
+
+    assert text.splitlines()[0] == "带 渠道 concept:channel 标识的表（渠道编码 id:channel_code）"
+    assert (
+        "  - demo_dwd.dwd_party_account_map_df（应用账户）：channel_code → 外部标识符 渠道编码"
+        in text
+    )
+
+
+def test_a_role_has_no_carriers_of_its_own(document: dict) -> None:
+    match = _one(document, "carriers", "借款人")
+    text = render_query_text(query_catalog(document, "carriers", "借款人"))
+
+    assert match["identifiers"] == [] and match["tables"] == []
+    assert "角色没有自己的标识符" in text and "客户" in text
 
 
 # ---------------------------------------------------------------- related
@@ -251,6 +351,36 @@ def test_related_of_a_player_and_of_a_role(document: dict) -> None:
     assert borrower["player"] == {"id": "concept:customer", "name": "客户"}
 
 
+def test_a_related_relation_carries_its_evidence_and_the_tables_holding_both_ends(
+    document: dict,
+) -> None:
+    match = _one(document, "related", "渠道")
+    text = render_query_text(query_catalog(document, "related", "渠道"))
+
+    relation = match["relations"][0]
+    assert relation["joins"] is None
+    assert relation["carried_together"] == ["demo_dwd.dwd_party_account_map_df"]
+    assert relation["evidence"] == ["demo_dwd.dwd_party_account_map_df.channel_code"]
+    assert (
+        "  关系：渠道 hosts 应用账户（同表携带：demo_dwd.dwd_party_account_map_df；"
+        "目录证据：demo_dwd.dwd_party_account_map_df.channel_code）"
+    ) in text
+
+
+def test_related_lists_the_tables_carrying_the_concepts_identifier(document: dict) -> None:
+    match = _one(document, "related", "渠道")
+    text = render_query_text(query_catalog(document, "related", "渠道"))
+
+    assert [t["table"] for t in match["carriers"]] == [
+        "demo_dwd.dwd_party_account_map_df",
+        "demo_dws.dws_lending_loan_summary_1d",
+    ]
+    assert (
+        "  带本概念标识的表：demo_dwd.dwd_party_account_map_df（应用账户）、"
+        "demo_dws.dws_lending_loan_summary_1d（借据）"
+    ) in text
+
+
 def test_related_of_an_event_names_its_participants(document: dict) -> None:
     match = _one(document, "related", "还款")
 
@@ -279,6 +409,8 @@ def test_every_kind_has_a_text_answer(document: dict) -> None:
         "identifier": "id:customer_id",
         "attribute": "attr:loan.principal",
         "related": "客户",
+        "carriers": "客户",
+        "scope": "去重",
     }
     for kind, term in terms.items():
         text = render_query_text(query_catalog(document, kind, term))

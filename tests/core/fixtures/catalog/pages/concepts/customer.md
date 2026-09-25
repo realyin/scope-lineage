@@ -37,19 +37,31 @@ A person the shop has registered, whether or not they ever borrow.
 
 ### 核心
 
-| 表 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
-| --- | --- | --- | --- | --- | --- | --- |
-| `demo_dwd.dwd_party_customer_info_df` | 客户号（已证明）；血缘已证明 `customer_id` | 快照 | daily；调度 day | 全部 | dwd_party_customer_info_daily | 在用 · 已确认（sql） |
+| 表 | 说明 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `demo_dwd.dwd_party_customer_info_df` | 表注释：Customer master, one row per customer | 客户号（已证明）；血缘已证明 `customer_id` | 快照；按单个 dt 分区取数 | daily；调度 day | only customers whose customer_status is active；注销客户不入表（is_cancelled = 1 的行被过滤） | dwd_party_customer_info_daily | 在用 · 已确认（sql） |
 
 - `demo_dwd.dwd_party_customer_info_df` 血缘一跳：上游 `demo_ods.ods_core_customer_df`；下游 `demo_dwd.dwd_lending_borrower_df`、`demo_dws.dws_lending_loan_summary_1d`
 
 ### 扩展
 
-| 表 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
-| --- | --- | --- | --- | --- | --- | --- |
-| `demo_dwd.dwd_party_customer_ext_df` | 客户号（声明） | 快照 | — | 全部 | — | 在用 · 草拟（comment） |
+| 表 | 说明 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `demo_dwd.dwd_party_customer_ext_df` | — | 客户号（声明） | 快照；按单个 dt 分区取数 | — | 全部 | — | 在用 · 草拟（comment） |
 
-## 3. 属性
+## 3. 带本概念标识的表
+
+| 表 | 表的概念 | 列 | 标识符 | 方式 |
+| --- | --- | --- | --- | --- |
+| `demo_dwd.dwd_lending_borrower_df` | [借款人](borrower.md) | `customer_id` | 客户号 `id:customer_id` | 标识符 |
+| `demo_dwd.dwd_lending_loan_df` | [借据](loan.md) | `customer_id` | 客户号 `id:customer_id` | 外部标识符 |
+| `demo_dwd.dwd_lending_repayment_di` | [还款](repayment.md) | `customer_id` | 客户号 `id:customer_id` | 外部标识符 |
+| `demo_dwd.dwd_party_account_map_df` | [应用账户](app_account.md) | `customer_id` | 客户号 `id:customer_id` | 外部标识符 |
+| `demo_dwd.dwd_party_customer_ext_df` | 本概念 | `customer_id` | 客户号 `id:customer_id` | 标识符 |
+| `demo_dwd.dwd_party_customer_info_df` | 本概念 | `customer_id` | 客户号 `id:customer_id` | 标识符 |
+| `demo_dwd.dwd_party_customer_info_df` | 本概念 | `verified_customer_no` | 认证客户号 `id:verified_customer_no` | 标识符 |
+
+## 4. 属性
 
 ### 描述
 
@@ -69,7 +81,7 @@ A person the shop has registered, whether or not they ever borrow.
 | --- | --- | --- | --- | --- | --- | --- |
 | 注册时间 `attr:customer.registered_at` | When the customer first registered. | timestamp | — | `demo_dwd.dwd_party_customer_info_df.register_time` | `demo_dwd.dwd_party_customer_info_df.register_time`：from_unixtime(register_ts) | 已确认（owner） |
 
-## 4. 关系
+## 5. 关系
 
 ### 关联、组成与泛化
 
@@ -82,7 +94,7 @@ A person the shop has registered, whether or not they ever borrow.
 | 事件 | 本概念角色 | 事件表现表数 | 证据连接 |
 | --- | --- | --- | --- |
 | [实名认证](identity_verification.md) | customer | 0 | —（一端无表现表） |
-| [还款](repayment.md) | payer | 1 | 0 次 |
+| [还款](repayment.md) | payer | 1 | 0 次；同表携带两端：`demo_dwd.dwd_lending_repayment_di` |
 
 ### 本概念的角色
 
@@ -90,17 +102,18 @@ A person the shop has registered, whether or not they ever borrow.
 | --- | --- | --- | --- |
 | [借款人](borrower.md) | 贷款 | holds at least one loan whose status is not settled | 1 |
 
-## 5. 约束
+## 6. 约束
 
 | 约束 | 种类 | 作用对象 | 表达式 | 强度 | 状态 |
 | --- | --- | --- | --- | --- | --- |
 | `cons:one_account_per_channel` | 基数 | holds `rel:customer_holds_app_account` | a customer holds at most one account in each channel | 软 | 草拟（sql） |
+| `cons:active_customers_only` | 业务规则 | 客户 `concept:customer` | customer counts read only rows whose customer_status is active | 软 | 草拟（owner） |
 
-## 6. 治理缺口
+## 7. 治理缺口
 
 | 缺口 | 明细 |
 | --- | --- |
-| 草拟占比 | 7/22（32%） |
+| 草拟占比 | 8/23（35%） |
 | 没有表现表 | 否 |
 | 未绑定列 | `demo_dwd.dwd_party_customer_ext_df.ext_json` |
 | 未落表属性 | 无 |

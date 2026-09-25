@@ -14,6 +14,16 @@ constraints:
     strength: hard
     status: confirmed
     source: owner
+    evidence: [demo_dwd.dwd_lending_loan_df.principal_amt]
+
+  - id: cons:active_customers_only
+    kind: business_rule
+    on: concept:customer
+    expression: customer counts read only rows whose customer_status is active
+    strength: soft
+    status: drafted
+    source: owner
+    evidence: [demo_dwd.dwd_party_customer_info_df]
 
   - id: cons:one_account_per_channel
     kind: cardinality

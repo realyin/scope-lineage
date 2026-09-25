@@ -23,7 +23,17 @@ A loan repaid in fixed monthly instalments.
 
 （目录未登记表现表）
 
-## 3. 属性
+## 3. 带本概念标识的表
+
+| 表 | 表的概念 | 列 | 标识符 | 方式 |
+| --- | --- | --- | --- | --- |
+| `demo_dwd.dwd_collection_fee_waiver_di` | [豁免](fee_waiver.md) | `loan_no` | 借据号 `id:loan_no` | 外部标识符 |
+| `demo_dwd.dwd_lending_loan_df` | [借据](loan.md) | `loan_no` | 借据号 `id:loan_no` | 标识符 |
+| `demo_dwd.dwd_lending_loan_df` | [借据](loan.md) | `orig_loan_no` | 借据号 `id:loan_no` | 外部标识符（自关联） |
+| `demo_dwd.dwd_lending_loan_status_his` | [借据](loan.md) | `loan_no` | 借据号 `id:loan_no` | 标识符 |
+| `demo_dwd.dwd_lending_repayment_di` | [还款](repayment.md) | `loan_no` | 借据号 `id:loan_no` | 外部标识符 |
+
+## 4. 属性
 
 ### 描述
 
@@ -31,13 +41,13 @@ A loan repaid in fixed monthly instalments.
 | --- | --- | --- | --- | --- | --- | --- |
 | 期数 `attr:installment_loan.term_count` | How many instalments the loan is split into. | integer | — | （未落表） | — | 草拟（llm） |
 
-## 4. 关系
+## 5. 关系
 
 ### 关联、组成与泛化
 
 | 关系 | 种类 | 读法 | 对端 | 基数 | 证据连接 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
-| is a kind of `rel:installment_loan_is_a_loan` | 泛化 | 分期借据 is a kind of 借据 | [借据](loan.md) | 分期借据 0..1 : 借据 1 | —（一端无表现表） | 草拟（llm） |
+| is a kind of `rel:installment_loan_is_a_loan` | 泛化 | 分期借据 is a kind of 借据 | [借据](loan.md) | 分期借据 0..1 : 借据 1 | —（一端无表现表）；同表携带两端：`demo_dwd.dwd_collection_fee_waiver_di`、`demo_dwd.dwd_lending_loan_df`、`demo_dwd.dwd_lending_loan_status_his`、`demo_dwd.dwd_lending_repayment_di` | 草拟（llm） |
 
 ### 参与的事件
 
@@ -47,13 +57,13 @@ A loan repaid in fixed monthly instalments.
 
 （无）
 
-## 5. 约束
+## 6. 约束
 
 | 约束 | 种类 | 作用对象 | 表达式 | 强度 | 状态 |
 | --- | --- | --- | --- | --- | --- |
 | `cons:loan_no_unique` | 唯一 | 借据号 `id:loan_no` | no two loans share a loan_no, whatever the channel | 硬 | 已确认（owner） |
 
-## 6. 治理缺口
+## 7. 治理缺口
 
 | 缺口 | 明细 |
 | --- | --- |

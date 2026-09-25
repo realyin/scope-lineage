@@ -16,11 +16,12 @@ import pytest
 from scope_lineage.catalog import build_ontology, load_catalog
 from scope_lineage.cli import main
 from scope_lineage.render.catalog_pages import render_catalog_pages
+from scope_lineage.render.catalog_view import code_value_text, usage_hint
 
 from .catalog_demo import DEMO, demo_tables, parse_demo_corpus
 
 GOLDEN = Path(__file__).parent / "fixtures" / "catalog"
-SECTIONS = ("定义与身份", "数据清单", "属性", "关系", "约束", "治理缺口")
+SECTIONS = ("定义与身份", "数据清单", "带本概念标识的表", "属性", "关系", "约束", "治理缺口")
 
 
 @pytest.fixture(scope="module")
@@ -51,18 +52,23 @@ def _row(page: str, first_cell: str) -> str:
     return rows[0]
 
 
+def _inventory_row(page: str, table: str) -> str:
+    """A table's row in section 2 (section 3 names the same table again)."""
+    return _row(page.split("## 2. 数据清单")[1].split("\n## 3.")[0], table)
+
+
 # ------------------------------------------------------------------- the set
 
 
-def test_one_page_per_concept_plus_three(pages: dict) -> None:
+def test_one_page_per_concept_plus_four(pages: dict) -> None:
     concepts = {name for name in pages if name.startswith("concepts/")}
 
-    assert set(pages) - concepts == {"index.md", "identifiers.md", "governance.md"}
+    assert set(pages) - concepts == {"index.md", "identifiers.md", "governance.md", "scopes.md"}
     assert len(concepts) == 10
     assert "concepts/customer.md" in concepts
 
 
-def test_every_concept_page_has_the_six_sections_in_order(pages: dict) -> None:
+def test_every_concept_page_has_the_seven_sections_in_order(pages: dict) -> None:
     for name, page in pages.items():
         if not name.startswith("concepts/"):
             continue
@@ -124,14 +130,53 @@ def test_the_inventory_groups_tables_by_how_they_carry_the_concept(pages: dict) 
 
 
 def test_an_inventory_row_carries_grain_time_refresh_scope_and_producer(pages: dict) -> None:
-    row = _row(pages["concepts/loan.md"], "`demo_dwd.dwd_lending_loan_df`")
+    row = _inventory_row(pages["concepts/loan.md"], "`demo_dwd.dwd_lending_loan_df`")
 
     assert "借据号（已证明）；血缘候选 `loan_no`" in row
-    assert "| 快照 | daily；调度 day | 全部 | dwd_lending_loan_daily |" in row
+    assert (
+        "| daily；调度 day | each dt partition is the full snapshot of that day "
+        "| dwd_lending_loan_daily |"
+    ) in row
+    history = _inventory_row(pages["concepts/loan.md"], "`demo_dwd.dwd_lending_loan_status_his`")
+    assert "| — | 全部 | — |" in history
+
+
+def test_an_inventory_row_shows_the_table_comment_and_the_catalogs_notes(pages: dict) -> None:
+    row = _inventory_row(pages["concepts/loan.md"], "`demo_dwd.dwd_lending_loan_df`")
+    waiver = _inventory_row(pages["concepts/fee_waiver.md"], "`demo_dwd.dwd_collection_fee_waiver_di`")
+
+    assert "| `demo_dwd.dwd_lending_loan_df` | 表注释：Loan snapshot；备注：A renewal loan" in row
+    assert "| 备注：Kept as JSON on purpose" in waiver
+
+
+def test_an_inventory_row_says_how_to_read_a_snapshot_and_a_zipper(pages: dict) -> None:
+    snapshot = _inventory_row(pages["concepts/loan.md"], "`demo_dwd.dwd_lending_loan_df`")
+    zipper = _inventory_row(pages["concepts/loan.md"], "`demo_dwd.dwd_lending_loan_status_his`")
+
+    assert "| 快照；按单个 dt 分区取数 |" in snapshot
+    assert "| 拉链；按有效期窗口取数（start_date ≤ 查询日 < end_date，端点开闭以表口径为准） |" in zipper
+
+
+@pytest.mark.parametrize(
+    ("time", "columns", "hint"),
+    [
+        ("snapshot", ["id", "ds"], "按单个 ds 分区取数"),
+        ("snapshot", ["id"], "按单个 dt 分区取数"),
+        ("zipper", ["id", "eff_date", "exp_date"], "按有效期窗口取数（eff_date ≤ 查询日 < exp_date"),
+        ("zipper", ["id"], "按有效期窗口取数（开始日 ≤ 查询日 < 结束日"),
+        ("incremental", ["id", "dt"], None),
+    ],
+)
+def test_the_usage_hint_names_the_tables_own_columns(time: str, columns: list, hint) -> None:
+    rep = {"time": time, "bindings": [{"column": column} for column in columns]}
+
+    found = usage_hint(rep)
+
+    assert found == hint if hint is None else found.startswith(hint)
 
 
 def test_a_deprecated_table_names_its_replacement(pages: dict) -> None:
-    row = _row(pages["concepts/loan.md"], "`demo_dws.dws_lending_loan_summary_1d`")
+    row = _inventory_row(pages["concepts/loan.md"], "`demo_dws.dws_lending_loan_summary_1d`")
 
     assert "已废弃" in row
     assert "由 `demo_dws.dws_lending_loan_summary_v2_1d` 替代" in row
@@ -144,7 +189,41 @@ def test_the_inventory_shows_one_hop_of_lineage(pages: dict) -> None:
     ) in pages["concepts/customer.md"]
 
 
-# ---------------------------------------------------------------- 3. 属性
+# ------------------------------------------------------ 3. 带本概念标识的表
+
+
+def _carriers(page: str) -> str:
+    return page.split("## 3. 带本概念标识的表")[1].split("\n## ")[0]
+
+
+def test_carriers_list_every_table_holding_the_concepts_identifier(pages: dict) -> None:
+    """The channel has no table of its own, yet two tables carry its code."""
+    section = _carriers(pages["concepts/channel.md"])
+
+    assert "（目录未登记" not in section
+    assert (
+        "| `demo_dwd.dwd_party_account_map_df` | [应用账户](app_account.md) | `channel_code` "
+        "| 渠道编码 `id:channel_code` | 外部标识符 |"
+    ) in section
+    assert "| `demo_dws.dws_lending_loan_summary_1d` | [借据](loan.md) | `channel_code` |" in section
+
+
+def test_carriers_include_the_concepts_own_tables_and_self_references(pages: dict) -> None:
+    section = _carriers(pages["concepts/loan.md"])
+
+    assert "| `demo_dwd.dwd_lending_loan_df` | 本概念 | `loan_no` | 借据号 `id:loan_no` | 标识符 |" in section
+    assert "| `orig_loan_no` | 借据号 `id:loan_no` | 外部标识符（自关联） |" in section
+    assert "| `demo_dwd.dwd_collection_fee_waiver_di` | [豁免](fee_waiver.md) | `loan_no` |" in section
+
+
+def test_a_role_has_no_identifier_of_its_own_to_carry(pages: dict) -> None:
+    section = _carriers(pages["concepts/borrower.md"])
+
+    assert "角色没有自己的标识符" in section
+    assert "[客户](customer.md)" in section
+
+
+# ---------------------------------------------------------------- 4. 属性
 
 
 def test_an_attribute_lists_every_column_that_holds_it(pages: dict) -> None:
@@ -178,7 +257,29 @@ def test_an_unused_declared_column_is_flagged_where_it_is_bound(pages: dict) -> 
     assert "`demo_dwd.dwd_lending_loan_status_his.loan_status`（元数据有、语料未用）" in row
 
 
-# ---------------------------------------------------------------- 4. 关系
+def test_a_code_value_whose_meaning_is_not_confirmed_says_so(pages: dict) -> None:
+    status = _row(pages["concepts/loan.md"], "借据状态 `attr:loan.loan_status`")
+    waiver = _row(pages["concepts/fee_waiver.md"], "豁免类型 `attr:fee_waiver.waiver_type`")
+
+    assert "3=settled；9（含义待确认：疑似核销）|" in status.replace(" |", "|")
+    assert "INT=interest waived；OTH（含义待确认：other charges）" in waiver
+
+
+@pytest.mark.parametrize(
+    ("value", "text"),
+    [
+        ({"value": "1", "meaning": "normal"}, "1=normal"),
+        ({"value": "9", "meaning": ""}, "9（含义待确认）"),
+        ({"value": "9", "meaning": "待确认"}, "9（含义待确认）"),
+        ({"value": "9", "meaning": "待确认：written off?"}, "9（含义待确认：written off?）"),
+        ({"value": "9", "meaning": "frozen", "unconfirmed": True}, "9（含义待确认：frozen）"),
+    ],
+)
+def test_a_code_value_text(value: dict, text: str) -> None:
+    assert code_value_text(value) == text
+
+
+# ---------------------------------------------------------------- 5. 关系
 
 
 def test_a_relation_is_read_from_this_concepts_side(pages: dict) -> None:
@@ -203,8 +304,33 @@ def test_the_events_a_concept_takes_part_in(pages: dict) -> None:
     page = pages["concepts/loan.md"]
 
     assert "| [还款](repayment.md) | loan | 1 | 1 次（如" in page
-    assert "| [豁免](fee_waiver.md) | loan | 1 | 0 次 |" in page
+    assert "| [豁免](fee_waiver.md) | loan | 1 | 0 次；同表携带两端：" in page
     assert "| [放款](disbursement.md) | loan | 0 | —（一端无表现表） |" in page
+
+
+def test_a_relation_no_join_backs_falls_back_to_the_catalogs_own_evidence(pages: dict) -> None:
+    """The channel has no table, so no JOIN is counted; the catalog still shows where the
+    relation lives: the account map carries both ends, and the relation cites its column."""
+    row = _row(pages["concepts/channel.md"], "is opened in `rel:app_account_opened_in_channel`")
+
+    assert (
+        "| —（一端无表现表）；同表携带两端：`demo_dwd.dwd_party_account_map_df`；"
+        "目录证据：`demo_dwd.dwd_party_account_map_df.channel_code` |"
+    ) in row
+
+
+def test_a_relation_counted_at_zero_joins_shows_the_tables_carrying_both_ends(
+    document: dict,
+) -> None:
+    zero = json.loads(json.dumps(document))
+    zero["evidence"]["relations"]["rel:loan_renews_loan"]["joins"] = {"count": 0, "samples": []}
+
+    row = _row(render_catalog_pages(zero)["concepts/loan.md"], "renews `rel:loan_renews_loan`")
+
+    assert (
+        "| 0 次；同表携带两端：`demo_dwd.dwd_lending_loan_df`；"
+        "目录证据：`demo_dwd.dwd_lending_loan_df.orig_loan_no` |"
+    ) in row
 
 
 def test_a_player_page_links_to_its_roles(pages: dict) -> None:
@@ -214,11 +340,11 @@ def test_a_player_page_links_to_its_roles(pages: dict) -> None:
     )
 
 
-# ---------------------------------------------------------------- 5. 约束
+# ---------------------------------------------------------------- 6. 约束
 
 
 def test_constraints_on_the_concept_its_attributes_identifiers_and_relations(pages: dict) -> None:
-    constraints = pages["concepts/loan.md"].split("## 5. 约束")[1].split("## 6.")[0]
+    constraints = pages["concepts/loan.md"].split("## 6. 约束")[1].split("## 7.")[0]
     ids = re.findall(r"^\| `(cons:[a-z_]+)`", constraints, flags=re.MULTILINE)
 
     assert ids == [
@@ -230,7 +356,7 @@ def test_constraints_on_the_concept_its_attributes_identifiers_and_relations(pag
     assert "| 硬 |" in constraints and "| 软 |" in constraints
 
 
-# --------------------------------------------------------------- 6. 治理缺口
+# --------------------------------------------------------------- 7. 治理缺口
 
 
 def test_gaps_name_the_conflict_the_unmapped_column_and_the_missing_table(pages: dict) -> None:
@@ -252,7 +378,9 @@ def test_without_evidence_the_pages_say_so_rather_than_guess(plain_pages: dict) 
 
     assert "血缘" not in loan
     assert "证据与目录矛盾" not in loan
-    assert _row(loan, "owes `rel:borrower_owes_loan`").count("| — |") == 1
+    owes = _row(loan, "owes `rel:borrower_owes_loan`")
+    assert "次" not in owes
+    assert "同表携带两端：`demo_dwd.dwd_lending_loan_df`、`demo_dwd.dwd_lending_repayment_di`" in owes
     assert "证据" not in plain_pages["index.md"].split("## 概念")[0]
 
 
@@ -285,6 +413,17 @@ def test_governance_lists_each_kind_of_gap(pages: dict) -> None:
     assert "- `rel:repayment.payer`：还款 payer 客户" in page
 
 
+def test_governance_lists_code_values_whose_meaning_is_not_confirmed(pages: dict) -> None:
+    section = pages["governance.md"].split("## 含义待确认的码值")[1].split("\n## ")[0]
+
+    assert (
+        "| 借据状态 `code:loan_status` | `9`（疑似核销） | 借据状态 `attr:loan.loan_status` |"
+        in section
+    )
+    assert "| 豁免类型 `code:waiver_type` | `OTH`（other charges） |" in section
+    assert "| 含义待确认的码值 | 2 |" in pages["index.md"]
+
+
 def test_governance_counts_denormalised_columns_per_table_without_calling_them_gaps(
     pages: dict,
 ) -> None:
@@ -308,7 +447,7 @@ def test_render_writes_every_page(document: dict, tmp_path: Path, capsys) -> Non
 
     written = {p.relative_to(out).as_posix() for p in out.rglob("*.md")}
     assert written == set(render_catalog_pages(document))
-    assert "Rendered 13 page(s) (10 concept page(s))" in capsys.readouterr().out
+    assert "Rendered 14 page(s) (10 concept page(s))" in capsys.readouterr().out
 
 
 def test_render_refuses_another_format(tmp_path: Path, capsys) -> None:

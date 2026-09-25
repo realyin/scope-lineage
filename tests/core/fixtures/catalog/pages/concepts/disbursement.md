@@ -25,7 +25,11 @@ The shop pays the principal of a loan out to the borrower.
 
 （目录未登记表现表）
 
-## 3. 属性
+## 3. 带本概念标识的表
+
+（没有表绑定本概念的标识符）
+
+## 4. 属性
 
 ### 度量
 
@@ -39,7 +43,7 @@ The shop pays the principal of a loan out to the borrower.
 | --- | --- | --- | --- | --- | --- | --- |
 | 放款时间 `attr:disbursement.disbursed_at` | When the money left the shop. | timestamp | — | （未落表） | — | 已确认（task） |
 
-## 4. 关系
+## 5. 关系
 
 ### 关联、组成与泛化
 
@@ -53,11 +57,11 @@ The shop pays the principal of a loan out to the borrower.
 
 （无）
 
-## 5. 约束
+## 6. 约束
 
 （无）
 
-## 6. 治理缺口
+## 7. 治理缺口
 
 | 缺口 | 明细 |
 | --- | --- |

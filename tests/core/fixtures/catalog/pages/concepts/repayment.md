@@ -25,13 +25,19 @@ A customer pays money back against one or more loans.
 
 ### 事件明细
 
-| 表 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
-| --- | --- | --- | --- | --- | --- | --- |
-| `demo_dwd.dwd_lending_repayment_di` | 还款流水号（已证明）；血缘已证明 `repay_txn_no` | 增量 | daily；调度 day | 全部 | dwd_lending_repayment_daily | 在用 · 已确认（sql） |
+| 表 | 说明 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `demo_dwd.dwd_lending_repayment_di` | 表注释：Repayments | 还款流水号（已证明）；血缘已证明 `repay_txn_no` | 增量 | daily；调度 day | 全部 | dwd_lending_repayment_daily | 在用 · 已确认（sql） |
 
 - `demo_dwd.dwd_lending_repayment_di` 血缘一跳：上游 `demo_dwd.dwd_lending_loan_df`、`demo_ods.ods_repay_txn_di`；下游 `demo_ads.ads_collection_overdue_loan_df`
 
-## 3. 属性
+## 3. 带本概念标识的表
+
+| 表 | 表的概念 | 列 | 标识符 | 方式 |
+| --- | --- | --- | --- | --- |
+| `demo_dwd.dwd_lending_repayment_di` | 本概念 | `repay_txn_no` | 还款流水号 `id:repayment_txn_no` | 标识符 |
+
+## 4. 属性
 
 ### 度量
 
@@ -45,7 +51,7 @@ A customer pays money back against one or more loans.
 | --- | --- | --- | --- | --- | --- | --- |
 | 还款时间 `attr:repayment.repaid_at` | When the payment was received. | timestamp | — | `demo_dwd.dwd_lending_repayment_di.repay_time` | `demo_dwd.dwd_lending_repayment_di.repay_time` = `` MAX(`r`.`paid_time`) ``（血缘） | 已确认（sql） |
 
-## 4. 关系
+## 5. 关系
 
 ### 关联、组成与泛化
 
@@ -59,13 +65,13 @@ A customer pays money back against one or more loans.
 
 （无）
 
-## 5. 约束
+## 6. 约束
 
 | 约束 | 种类 | 作用对象 | 表达式 | 强度 | 状态 |
 | --- | --- | --- | --- | --- | --- |
 | `cons:repaid_after_disbursed` | 时间 | 还款 `concept:repayment` | repaid_at is not earlier than the disbursed_at of every loan it pays | 硬 | 已确认（owner） |
 
-## 6. 治理缺口
+## 7. 治理缺口
 
 | 缺口 | 明细 |
 | --- | --- |

@@ -364,17 +364,21 @@
             "required": [
               "value",
               "meaning",
-              "retired"
+              "retired",
+              "unconfirmed"
             ],
             "properties": {
               "value": {
                 "type": "string"
               },
               "meaning": {
-                "type": "string",
-                "minLength": 1
+                "type": "string"
               },
               "retired": {
+                "type": "boolean"
+              },
+              "unconfirmed": {
+                "description": "Flagged in the catalog, or a meaning that is empty or starts 待确认",
                 "type": "boolean"
               }
             }
@@ -1159,6 +1163,11 @@
               }
             }
           }
+        },
+        "table_comment": {
+          "description": "The table comment on the table card (--tables)",
+          "type": "string",
+          "minLength": 1
         },
         "declared_columns": {
           "type": "integer",

@@ -58,6 +58,7 @@ BINDING_TEXT = {
     "unmapped": "未映射",
 }
 CONFIDENCE_TEXT = {"proven": "已证明", "candidate": "候选", "none": "无"}
+IDENTIFYING_BINDINGS = ("identifier", "foreign_identifier")
 MAPPING_TEXT = {
     "one_to_one": "一对一",
     "one_to_many": "一对多",
@@ -65,6 +66,11 @@ MAPPING_TEXT = {
     "many_to_many": "多对多",
 }
 TABLE_STATUS_TEXT = {"active": "在用", "deprecated": "已废弃"}
+UNCONFIRMED = "待确认"
+# Column names a snapshot table partitions by, and the words naming a zipper's window ends.
+PARTITION_COLUMNS = ("dt", "ds", "pt", "p_date", "stat_date", "snapshot_date", "biz_date")
+WINDOW_START = ("start", "begin", "eff", "effective", "from")
+WINDOW_END = ("end", "expire", "exp", "expiry", "to")
 
 
 def catalog_table_name(name) -> str:
@@ -83,6 +89,55 @@ def concept_slug(concept_id: str) -> str:
 
 def concept_filename(concept_id: str) -> str:
     return f"{concept_slug(concept_id)}.md"
+
+
+def is_unconfirmed(value: Mapping) -> bool:
+    """A code value whose meaning is still a guess: flagged, empty, or starting 待确认."""
+    meaning = str(value.get("meaning") or "").strip()
+    return bool(value.get("unconfirmed")) or not meaning or meaning.startswith(UNCONFIRMED)
+
+
+def unconfirmed_guess(value: Mapping) -> str:
+    """What the catalog guesses an unconfirmed value means, without the 待确认 marker."""
+    meaning = str(value.get("meaning") or "").strip()
+    if meaning.startswith(UNCONFIRMED):
+        meaning = meaning[len(UNCONFIRMED) :].lstrip("：:，,、 ")
+    return meaning
+
+
+def code_value_text(value: Mapping) -> str:
+    """``1=normal``, or ``9（含义待确认：guess）`` when the meaning is not confirmed."""
+    if not is_unconfirmed(value):
+        return f"{value['value']}={value['meaning']}"
+    guess = unconfirmed_guess(value)
+    return f"{value['value']}（含义待确认{'：' + guess if guess else ''}）"
+
+
+def usage_hint(rep: Mapping) -> Optional[str]:
+    """How to read the table given its time semantics, or None when there is nothing to say.
+
+    A snapshot table holds the whole population once per partition, so summing across
+    partitions counts every row again; a zipper table holds one row per validity window.
+    """
+    columns = [str(binding["column"]) for binding in rep.get("bindings") or []]
+    if rep.get("time") == "snapshot":
+        partition = next((c for c in columns if c in PARTITION_COLUMNS), "dt")
+        return f"按单个 {partition} 分区取数"
+    if rep.get("time") == "zipper":
+        start = next((c for c in columns if _names_window(c, WINDOW_START)), "开始日")
+        end = next((c for c in columns if _names_window(c, WINDOW_END)), "结束日")
+        return f"按有效期窗口取数（{start} ≤ 查询日 < {end}，端点开闭以表口径为准）"
+    return None
+
+
+def time_text(rep: Mapping) -> str:
+    """``快照；按单个 dt 分区取数``: the time semantics and how to read the table by them."""
+    hint = usage_hint(rep)
+    return f"{TIME_TEXT[rep['time']]}；{hint}" if hint else TIME_TEXT[rep["time"]]
+
+
+def _names_window(column: str, words: tuple) -> bool:
+    return any(part in words for part in column.casefold().split("_"))
 
 
 def status_text(obj: Mapping) -> str:
@@ -182,6 +237,69 @@ class CatalogView:
             if bindings:
                 found.append((rep, bindings))
         return found
+
+    def carriers_of(self, concept_id: str) -> list[tuple[dict, list[dict]]]:
+        """``(representation, its bindings)`` for every table, of any concept, that binds one
+        of the concept's identifiers as ``identifier`` or ``foreign_identifier``."""
+        own = {identifier["id"] for identifier in self.identifiers_of(concept_id)}
+        found = []
+        for table in sorted(self.representations):
+            rep = self.representations[table]
+            bindings = [
+                b
+                for b in rep["bindings"]
+                if b["to"] in IDENTIFYING_BINDINGS and b.get("ref") in own
+            ]
+            if bindings:
+                found.append((rep, bindings))
+        return found
+
+    def carried_together(self, relation: Mapping) -> list[str]:
+        """The tables holding both ends of a relation: what the catalog alone says about
+        where it lives, shown when no JOIN in the corpus backs it.
+
+        A table holds a concept when it represents it or binds one of its identifiers (a
+        role's are its player's); for a relation from a concept to itself, only a table
+        with a column naming another instance (``self_reference``) holds both ends.
+        """
+        source, target = relation["from"], relation["to"]
+        if source == target:
+            own = {i["id"] for i in self.identifiers_of(source)}
+            return [
+                rep["table"]
+                for rep, bindings in self.carriers_of(source)
+                if any(b.get("self_reference") and b["ref"] in own for b in bindings)
+            ]
+        return [
+            table
+            for table in sorted(self.representations)
+            if self._holds(table, source) and self._holds(table, target)
+        ]
+
+    def _holds(self, table: str, concept_id: str) -> bool:
+        rep = self.representations[table]
+        if rep["concept"] == concept_id:
+            return True
+        keys = {i["id"] for i in self.identifiers_of(concept_id)}
+        player = (self.concepts.get(concept_id) or {}).get("player")
+        if not keys and player:
+            keys = {i["id"] for i in self.identifiers_of(player)}
+        return any(
+            b["to"] in IDENTIFYING_BINDINGS and b.get("ref") in keys for b in rep["bindings"]
+        )
+
+    def unconfirmed_codes(self) -> list[tuple[dict, list[dict]]]:
+        """``(code set, its values whose meaning is not confirmed)`` for every set with any."""
+        found = []
+        for code_set_id in sorted(self.code_sets):
+            code_set = self.code_sets[code_set_id]
+            values = [v for v in code_set["values"] if is_unconfirmed(v)]
+            if values:
+                found.append((code_set, values))
+        return found
+
+    def attributes_coded_by(self, code_set_id: str) -> list[dict]:
+        return [a for a, _ in self.attributes.values() if a.get("code_set") == code_set_id]
 
     def roles_played_by(self, concept_id: str) -> list[dict]:
         return [c for c in self.concepts.values() if c.get("player") == concept_id]

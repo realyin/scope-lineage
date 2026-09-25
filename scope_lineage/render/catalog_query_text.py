@@ -8,19 +8,24 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from .catalog_scopes import SCOPE_KIND_TEXT
 from .catalog_view import (
     BINDING_TEXT,
     CATEGORIES,
+    CONSTRAINT_KINDS,
     CONFIDENCE_TEXT,
     GRAIN_SOURCE_TEXT,
     KIND_TEXT,
     REPRESENTATION_KINDS,
     TABLE_STATUS_TEXT,
+    TIME_TEXT,
+    code_value_text,
     status_text,
 )
 
 REP_KIND_TEXT = dict(REPRESENTATION_KINDS)
 CATEGORY_TEXT = dict(CATEGORIES)
+CONSTRAINT_TEXT = dict(CONSTRAINT_KINDS)
 
 
 def render_query_text(result: Mapping) -> str:
@@ -34,6 +39,8 @@ def render_query_text(result: Mapping) -> str:
         "identifier": _identifier,
         "attribute": _attribute,
         "related": _related,
+        "carriers": _carriers,
+        "scope": _scope,
     }[query["kind"]]
     return "\n\n".join("\n".join(render(match)) for match in matches) + "\n"
 
@@ -74,8 +81,19 @@ def _table(match: Mapping) -> list[str]:
         f"{match['table']} · {match['concept']['name']} {match['concept']['id']} · "
         f"{REP_KIND_TEXT[match['kind']]} · {TABLE_STATUS_TEXT[match['table_status']]}",
         _grain(match),
+        f"  时间语义：{TIME_TEXT[match['time']]}"
+        + (f"；{match['usage']}" if match.get("usage") else ""),
     ]
     evidence = match.get("evidence") or {}
+    about = [
+        f"{label} {text}"
+        for label, text in (("表注释", evidence.get("table_comment")), ("备注", match.get("notes")))
+        if text
+    ]
+    if about:
+        lines.append(f"  说明：{'；'.join(about)}")
+    lines.append(f"  记录范围：{'；'.join(match['scope']) or '全部'}")
+    lines += [_rule_text(rule) for rule in match.get("constraints") or []]
     facts = [
         f"{label}：{'、'.join(evidence[key])}"
         for key, label in (
@@ -146,31 +164,78 @@ def _attribute(match: Mapping) -> list[str]:
         f"  {match.get('definition') or '（目录未写定义）'}",
     ]
     if match.get("code_set"):
-        values = "；".join(f"{v['value']}={v['meaning']}" for v in match["code_set"]["values"])
+        values = "；".join(code_value_text(v) for v in match["code_set"]["values"])
         lines.append(f"  码值：{values}")
     if match.get("derivation"):
         lines.append(f"  口径：{match['derivation']}")
     return lines + [f"  - {c['table']}.{_column_text(c)}" for c in match["columns"]]
 
 
-def _related(match: Mapping) -> list[str]:
-    def joins(item) -> str:
-        return "" if item["joins"] is None else f"（{item['joins']} 次连接）"
+def _joins(item: Mapping) -> str:
+    """``（2 次连接）``; without a JOIN, the tables holding both ends and the citations."""
+    if item["joins"]:
+        return f"（{item['joins']} 次连接）"
+    parts = ["0 次连接"] if item["joins"] == 0 else []
+    if item.get("carried_together"):
+        parts.append("同表携带：" + "、".join(item["carried_together"]))
+    if item.get("evidence"):
+        parts.append("目录证据：" + "；".join(item["evidence"]))
+    return f"（{'；'.join(parts)}）" if parts else ""
 
+
+def _related(match: Mapping) -> list[str]:
     lines = [f"{match['concept']['name']} {match['concept']['id']} 的一跳邻居"]
     if match.get("player"):
         lines.append(f"  承担者：{match['player']['name']}")
-    relations = "；".join(r["reading"] + joins(r) for r in match["relations"])
+    relations = "；".join(r["reading"] + _joins(r) for r in match["relations"])
     lines.append(f"  关系：{relations or '（无）'}")
     if "participants" in match:
         parts = "、".join(
-            f"{p['concept']['name']}（{p['role_name']}）{joins(p)}" for p in match["participants"]
+            f"{p['concept']['name']}（{p['role_name']}）{_joins(p)}" for p in match["participants"]
         )
         lines.append(f"  参与者：{parts or '（无）'}")
     events = "、".join(
-        f"{e['event']['name']}（{e['role_name']}）{joins(e)}" for e in match["events"]
+        f"{e['event']['name']}（{e['role_name']}）{_joins(e)}" for e in match["events"]
     )
     lines.append(f"  参与的事件：{events or '（无）'}")
     lines.append(f"  角色：{_names(match['roles'])}")
     lines.append(f"  表：{_names(match['tables'], 'table')}")
+    carriers = "、".join(f"{t['table']}（{t['concept']['name']}）" for t in match["carriers"])
+    lines.append(f"  带本概念标识的表：{carriers or '（无）'}")
     return lines
+
+
+def _carriers(match: Mapping) -> list[str]:
+    concept = match["concept"]
+    if not match["identifiers"]:
+        player = match.get("player")
+        where = f"，见承担者 {player['name']} {player['id']}" if player else ""
+        kind = "角色" if player else "本概念"
+        return [f"{concept['name']} {concept['id']}：{kind}没有自己的标识符{where}"]
+    identifiers = "、".join(f"{i['name']} {i['id']}" for i in match["identifiers"])
+    lines = [f"带 {concept['name']} {concept['id']} 标识的表（{identifiers}）"]
+    for table in match["tables"]:
+        columns = "；".join(_carrier_column(c) for c in table["columns"])
+        lines.append(f"  - {table['table']}（{table['concept']['name']}）：{columns}")
+    return lines if match["tables"] else [*lines, "  （没有表绑定这些标识符）"]
+
+
+def _rule_text(rule: Mapping) -> str:
+    return f"  规则：{rule['id']}（{CONSTRAINT_TEXT[rule['kind']]}）{rule['expression']}"
+
+
+def _scope(match: Mapping) -> list[str]:
+    usage = f"；{match['usage']}" if match.get("usage") else ""
+    lines = [
+        f"{match['table']} · {match['concept']['name']} {match['concept']['id']} · "
+        f"{TIME_TEXT[match['time']]}{usage}"
+    ]
+    for item in match["scope"]:
+        kinds = "、".join(SCOPE_KIND_TEXT[kind] for kind in item["kinds"])
+        lines.append(f"  - {kinds}：{item['line']}")
+    return lines + [_rule_text(rule) for rule in match["constraints"]]
+
+
+def _carrier_column(column: Mapping) -> str:
+    text = f"{column['column']} → {BINDING_TEXT[column['to']]} {column['identifier']['name']}"
+    return text + ("（自关联）" if column.get("self_reference") else "")

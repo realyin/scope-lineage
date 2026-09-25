@@ -1,11 +1,13 @@
-"""One concept page (``concepts/<slug>.md``): the six things a reader asks of a concept.
+"""One concept page (``concepts/<slug>.md``): the seven things a reader asks of a concept.
 
 1. 定义与身份 -- what it is, how it is told apart (identifiers, states, synonyms);
 2. 数据清单 -- which tables carry it, grouped by how they carry it;
-3. 属性 -- its business attributes, each with the table columns that hold it;
-4. 关系 -- relations, the events it takes part in, the roles it plays or is;
-5. 约束 -- the rules on it, by kind;
-6. 治理缺口 -- what the catalog still lacks and where the corpus disagrees.
+3. 带本概念标识的表 -- every table, of any concept, holding one of its identifiers: where
+   a question about the concept can be joined in, even with no table of its own;
+4. 属性 -- its business attributes, each with the table columns that hold it;
+5. 关系 -- relations, the events it takes part in, the roles it plays or is;
+6. 约束 -- the rules on it, by kind;
+7. 治理缺口 -- what the catalog still lacks and where the corpus disagrees.
 
 The page reads the built ``ontology-json/3`` document only. Evidence merged by
 ``catalog build --lineage/--tables`` is shown beside the catalog's claim and labelled
@@ -16,6 +18,7 @@ from __future__ import annotations
 
 from .catalog_gaps import concept_gaps, conflict_text, share_text
 from .catalog_view import (
+    BINDING_TEXT,
     CATEGORIES,
     CONFIDENCE_TEXT,
     GRAIN_SOURCE_TEXT,
@@ -24,10 +27,11 @@ from .catalog_view import (
     REPRESENTATION_KINDS,
     STRENGTH_TEXT,
     TABLE_STATUS_TEXT,
-    TIME_TEXT,
     CatalogView,
+    code_value_text,
     concept_filename,
     status_text,
+    time_text,
 )
 from .catalog_view import CONSTRAINT_KINDS as _CONSTRAINT_KINDS
 from .catalog_view import RELATION_KIND_TEXT as _RELATION_KIND_TEXT
@@ -36,7 +40,15 @@ from .markdown_text import cell, expr_span
 NONE = "—"
 CONSTRAINT_TEXT = dict(_CONSTRAINT_KINDS)
 PARTICIPANT_TEXT = {"one": "一个", "many": "多个"}
-SECTION_TITLES = ("定义与身份", "数据清单", "属性", "关系", "约束", "治理缺口")
+SECTION_TITLES = (
+    "定义与身份",
+    "数据清单",
+    "带本概念标识的表",
+    "属性",
+    "关系",
+    "约束",
+    "治理缺口",
+)
 
 
 def render_concept_page(view: CatalogView, concept_id: str) -> str:
@@ -48,7 +60,15 @@ def render_concept_page(view: CatalogView, concept_id: str) -> str:
         f"{expr_span(concept_id)} · {KIND_TEXT[concept['kind']]} · "
         f"[{domain.get('name', concept['domain'])}](../index.md) · {status_text(concept)}",
     ]
-    sections = (_identity, _inventory, _attributes, _relations, _constraints, _gaps)
+    sections = (
+        _identity,
+        _inventory,
+        _carriers,
+        _attributes,
+        _relations,
+        _constraints,
+        _gaps,
+    )
     for number, (title, section) in enumerate(zip(SECTION_TITLES, sections), start=1):
         lines += ["", f"## {number}. {title}", "", *section(view, concept)]
     return "\n".join(lines) + "\n"
@@ -203,7 +223,9 @@ def _inventory(view: CatalogView, concept: dict) -> list[str]:
         if not group:
             continue
         lines += [f"### {label}", ""]
-        lines += table_head("表", "粒度", "时间语义", "更新频率", "记录范围", "生产任务", "表状态")
+        lines += table_head(
+            "表", "说明", "粒度", "时间语义", "更新频率", "记录范围", "生产任务", "表状态"
+        )
         lines += [_rep_row(view, rep) for rep in group]
         lines += [*_lineage_lines(view, group), ""]
     return lines[:-1]
@@ -213,13 +235,24 @@ def _rep_row(view: CatalogView, rep: dict) -> str:
     evidence = view.rep_evidence(rep["table"])
     return table_row(
         expr_span(rep["table"]),
+        _about_text(rep, evidence),
         grain_text(view, rep),
-        TIME_TEXT[rep["time"]],
+        time_text(rep),
         _refresh_text(rep, evidence),
         cell("；".join(rep["scope"])) or "全部",
         "、".join(evidence.get("producing_tasks") or []) or NONE,
         _table_status(rep),
     )
+
+
+def _about_text(rep: dict, evidence: dict) -> str:
+    """The table comment from its card and the catalog's own notes on the table."""
+    parts = []
+    if evidence.get("table_comment"):
+        parts.append(f"表注释：{cell(evidence['table_comment'])}")
+    if rep.get("notes"):
+        parts.append(f"备注：{cell(rep['notes'])}")
+    return "；".join(parts) or NONE
 
 
 def grain_text(view: CatalogView, rep: dict) -> str:
@@ -261,7 +294,34 @@ def _lineage_lines(view: CatalogView, reps: list[dict]) -> list[str]:
     return ["", *lines] if lines else []
 
 
-# ----------------------------------------------------------------- 3. 属性
+# -------------------------------------------------------- 3. 带本概念标识的表
+
+
+def _carriers(view: CatalogView, concept: dict) -> list[str]:
+    if concept["kind"] == "role" and not view.identifiers_of(concept["id"]):
+        player = link(view, concept["player"])
+        return [f"（角色没有自己的标识符，携带它的表见承担者{player}的这一节）"]
+    carriers = view.carriers_of(concept["id"])
+    if not carriers:
+        return ["（没有表绑定本概念的标识符）"]
+    lines = table_head("表", "表的概念", "列", "标识符", "方式")
+    for rep, bindings in carriers:
+        owner = "本概念" if rep["concept"] == concept["id"] else link(view, rep["concept"])
+        for binding in bindings:
+            lines.append(
+                table_row(
+                    expr_span(rep["table"]),
+                    owner,
+                    expr_span(binding["column"]),
+                    f"{view.name(binding['ref'])} {expr_span(binding['ref'])}",
+                    BINDING_TEXT[binding["to"]]
+                    + ("（自关联）" if binding.get("self_reference") else ""),
+                )
+            )
+    return lines
+
+
+# ----------------------------------------------------------------- 4. 属性
 
 
 def _attributes(view: CatalogView, concept: dict) -> list[str]:
@@ -297,7 +357,7 @@ def codes_text(view: CatalogView, code_set_id) -> str:
     if not code_set:
         return NONE
     values = [
-        f"{cell(v['value'])}={cell(v['meaning'])}" + ("（停用）" if v["retired"] else "")
+        cell(code_value_text(v)) + ("（停用）" if v["retired"] else "")
         for v in code_set["values"]
     ]
     return "；".join(values) or NONE
@@ -331,7 +391,7 @@ def derivation_text(view: CatalogView, attribute: dict) -> str:
     return "；".join(parts) or NONE
 
 
-# ----------------------------------------------------------------- 4. 关系
+# ----------------------------------------------------------------- 5. 关系
 
 
 def _relations(view: CatalogView, concept: dict) -> list[str]:
@@ -381,12 +441,28 @@ def reading_text(view: CatalogView, concept_id: str, relation: dict) -> str:
 
 
 def joins_text(view: CatalogView, relation_id: str) -> str:
+    """The JOINs backing the relation; without any, what the catalog itself shows."""
     joins = view.relation_joins(relation_id)
-    if joins is None:
-        return "—（一端无表现表）" if view.lineage_checked() else NONE
-    if not joins["count"]:
-        return "0 次"
-    return f"{joins['count']} 次（如 {expr_span(joins['samples'][0]['on'])}）"
+    if joins and joins["count"]:
+        return f"{joins['count']} 次（如 {expr_span(joins['samples'][0]['on'])}）"
+    parts = []
+    if joins is not None:
+        parts.append("0 次")
+    elif view.lineage_checked():
+        parts.append("—（一端无表现表）")
+    parts += catalog_backing(view, view.relations[relation_id])
+    return "；".join(parts) or NONE
+
+
+def catalog_backing(view: CatalogView, relation: dict) -> list[str]:
+    """The tables holding both ends and the relation's own evidence citations."""
+    parts = []
+    tables = view.carried_together(relation)
+    if tables:
+        parts.append("同表携带两端：" + "、".join(expr_span(t) for t in tables))
+    if relation.get("evidence"):
+        parts.append("目录证据：" + "；".join(expr_span(e) for e in relation["evidence"]))
+    return parts
 
 
 def _participations(view: CatalogView, concept: dict) -> list[str]:
@@ -436,7 +512,7 @@ def _roles(view: CatalogView, concept: dict) -> list[str]:
     return lines
 
 
-# ----------------------------------------------------------------- 5. 约束
+# ----------------------------------------------------------------- 6. 约束
 
 
 def _constraints(view: CatalogView, concept: dict) -> list[str]:
@@ -458,7 +534,7 @@ def _constraints(view: CatalogView, concept: dict) -> list[str]:
     return lines
 
 
-# --------------------------------------------------------------- 6. 治理缺口
+# --------------------------------------------------------------- 7. 治理缺口
 
 
 def _gaps(view: CatalogView, concept: dict) -> list[str]:

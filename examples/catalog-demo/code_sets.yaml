@@ -23,6 +23,7 @@ code_sets:
       - {value: "1", meaning: normal}
       - {value: "2", meaning: overdue}
       - {value: "3", meaning: settled}
+      - {value: "9", meaning: 待确认，疑似核销}
     status: confirmed
     source: owner
 
@@ -31,5 +32,6 @@ code_sets:
     values:
       - {value: PEN, meaning: penalty waived}
       - {value: INT, meaning: interest waived}
+      - {value: OTH, meaning: other charges, unconfirmed: true}
     status: drafted
     source: llm

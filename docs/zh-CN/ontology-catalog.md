@@ -111,7 +111,9 @@ identifiers:
 ### 码值集
 
 有限取值及其业务含义，可被多个属性共用。`id: code:<slug>`、`name`、
-`values: [{value, meaning, retired?}]`、`definition?`。取值是文字或整数；`0` 与 `"0"` 是同一个码。
+`values: [{value, meaning, retired?, unconfirmed?}]`、`definition?`。取值是文字或整数；`0` 与 `"0"`
+是同一个码。数据里见到、含义还没人确认的值写 `unconfirmed: true`，或让 `meaning` 留空、以「待确认」
+开头（其后是目录的猜测）；页面与查询把它写成「值（含义待确认：猜测）」，`governance.md` 列出含这类值的码值集。
 
 ```yaml
 code_sets:
@@ -121,6 +123,8 @@ code_sets:
       - {value: "1", meaning: normal}
       - {value: "2", meaning: overdue}
       - {value: "3", meaning: settled, retired: false}
+      - {value: "9", meaning: 待确认，疑似核销}
+      - {value: "0", meaning: "", unconfirmed: true}
 ```
 
 ### 概念：实体、事件、角色
@@ -242,7 +246,7 @@ terms:
 | `kind` | 是 | `core` / `extension`（与核心 1:1）/ `dependent` / `event_detail` / `state_history` / `identifier_map` / `role_view` / `summary` / `intermediate` |
 | `grain` | 是 | `{identifiers: [id], extra: [文字], source: declared/inferred/proven}` |
 | `time` | 是 | `snapshot` / `incremental` / `zipper` / `unknown` |
-| `scope` | 否 | 表里收哪些记录，文字 |
+| `scope` | 否 | 表里收哪些记录，文字；`render` 按关键词把每行归入过滤类别（见 `scopes.md`） |
 | `refresh` | 否 | 更新频率 |
 | `table_status` | 是 | `active` / `deprecated` |
 | `replaced_by` | 否 | 废弃表的替代表 |
@@ -439,7 +443,8 @@ scope-lineage catalog build examples/catalog-demo --out out/
 （列表有删节。）"规范化"指：
 
 - 每个对象都有 `status`、`source`（未知为 `null`）与 `evidence`；属性与绑定继承所属概念 / 表现的；
-- 每类对象的键按固定顺序输出；码值与状态值一律为文字；写成 `1` 的基数端输出为 `"1"`；
+- 每类对象的键按固定顺序输出；码值与状态值一律为文字，每个码值都带布尔 `unconfirmed`（标了
+  `unconfirmed: true`，或含义为空、以「待确认」开头）；写成 `1` 的基数端输出为 `"1"`；
   文字形式的 `arises_when` 变成 `{condition}`；
 - 顶层列表排序——按 `id`，术语按词再按指向，表现按表名——所以把对象挪到别的文件不改变输出。
   对象内部的列表（属性、状态值、绑定）保持作者的顺序；
@@ -472,6 +477,7 @@ scope-lineage catalog build examples/catalog-demo --out out/ \
 | `representations["库.表"]` | `upstream_tables` / `downstream_tables` | `--lineage` | 表级血缘一跳：写它的任务读了什么，读它的任务写了什么 |
 | `representations["库.表"]` | `grain_proof` | `--lineage` | 所有生产语句里证据最强的粒度：`confidence`（`proven` / `candidate` / `none`）、`keys`、`basis`、`task` |
 | `representations["库.表"]` | `conflicts` | `--lineage` | `grain_not_proven`（目录声明 `proven`，血缘证明不了）或 `grain_mismatch`（两边都已证明，列不同） |
+| `representations["库.表"]` | `table_comment` | `--tables` | 表卡上的表注释 |
 | `representations["库.表"]` | `declared_columns` / `used_columns` | `--tables` | 元数据声明了几列、语料用到了几列 |
 | `bindings["库.表.列"]` | `sources` / `expression` | `--lineage` | 上游物理列与最终表达式（最多 200 个字符），仅当绑定没有手写 `derivation` 时补充 |
 | `bindings["库.表.列"]` | `declared_only` | `--tables` | 元数据里有这一列，语料里没有任何任务碰过它 |
@@ -491,6 +497,7 @@ scope-lineage catalog build examples/catalog-demo --out out/ \
       "downstream_tables": ["demo_ads.ads_collection_overdue_loan_df", "demo_dwd.dwd_lending_borrower_df"],
       "grain_proof": {"confidence": "candidate", "keys": ["loan_no"], "basis": "driving_table_rows", "task": "dwd_lending_loan_daily"},
       "conflicts": [{"rule": "grain_not_proven", "declared_source": "proven", "confidence": "candidate"}],
+      "table_comment": "Loan snapshot",
       "declared_columns": 8,
       "used_columns": 8
     }
@@ -536,23 +543,38 @@ scope-lineage catalog render out/ontology.json --out out/pages
 
 | 文件 | 内容 |
 | --- | --- |
-| `index.md` | 按域列出概念（名称、种类、定义、表现表数、状态）、标识符、治理缺口汇总 |
-| `concepts/<slug>.md` | 每个概念一页（`concept:fee_waiver` → `fee_waiver.md`），六节 |
+| `index.md` | 按域列出概念（名称、种类、定义、表现表数、状态）、标识符、治理缺口汇总、记录范围汇总 |
+| `concepts/<slug>.md` | 每个概念一页（`concept:fee_waiver` → `fee_waiver.md`），七节 |
 | `identifiers.md` | 每个标识符的完整说明，及绑定到它的列 |
-| `governance.md` | 所有概念的全部缺口，每类缺口一个列表；另按表列出冗余属性列（信息项，不算缺口） |
+| `governance.md` | 所有概念的全部缺口，每类缺口一个列表；含义待确认的码值；另按表列出冗余属性列（信息项，不算缺口） |
+| `scopes.md` | 每张表的记录范围按过滤类别归组；没写记录范围的表；引用了表的业务规则与值域约束 |
 
-概念页的六节回答打开它的人要问的六件事：
+概念页的七节回答打开它的人要问的七件事：
 
 | 节 | 内容 |
 | --- | --- |
 | 1. 定义与身份 | 定义、种类、状态、同义词；标识符（产生条件、唯一范围、物理拼写、对照）；状态机（值、迁移事件）；事件的参与者，角色的承担者、语境与成立条件 |
-| 2. 数据清单 | 按表现类型分组的表（核心、扩展、从属、事件明细、状态历史、标识映射、角色视图、汇总、中间）：粒度（标识符、来源，以及血缘证明了什么）、时间语义、更新频率、记录范围、生产任务、废弃及替代；每张表的血缘一跳 |
-| 3. 属性 | 按类别（描述、状态、度量、时间）：定义、类型与单位、码值（值=含义）、承载它的每个表列（含码值映射；别的表冗余存放的标为「冗余（经 via 列）」）、加工口径 |
-| 4. 关系 | 从本概念一侧读的关联、组成、泛化，带基数与 JOIN 次数（自关联的对端写「本概念」及承载它的列）；参与的事件（本概念的角色、事件的表现表数）；本概念承担的角色，或在角色页上反向链到承担者 |
-| 5. 约束 | 作用于概念本身、其属性、标识符与关系的约束，按种类列出，带强度与状态 |
-| 6. 治理缺口 | 草拟占比、未绑定列、没有落表的属性、缺码值的状态/码值类属性、有没有表现表；有证据时还有证据与目录矛盾、没人用的绑定列、没有 JOIN 支持的关系 |
+| 2. 数据清单 | 按表现类型分组的表（核心、扩展、从属、事件明细、状态历史、标识映射、角色视图、汇总、中间）：说明（表卡的表注释、表现的 `notes`）、粒度（标识符、来源，以及血缘证明了什么）、时间语义及取数方式（快照「按单个 dt 分区取数」，拉链按有效期窗口）、更新频率、记录范围、生产任务、废弃及替代；每张表的血缘一跳 |
+| 3. 带本概念标识的表 | 所有概念的表里，把本概念的某个标识符绑定为 `identifier` 或 `foreign_identifier` 的每一列：表、表的概念、列、标识符、方式（自关联单独标出）。没有自己表现表的概念也能看到它从哪些表关联进来；角色没有自己的标识符，指向承担者 |
+| 4. 属性 | 按类别（描述、状态、度量、时间）：定义、类型与单位、码值（值=含义）、承载它的每个表列（含码值映射；别的表冗余存放的标为「冗余（经 via 列）」）、加工口径 |
+| 5. 关系 | 从本概念一侧读的关联、组成、泛化，带基数与 JOIN 次数（自关联的对端写「本概念」及承载它的列）；JOIN 次数为 0 或无法统计时，补上目录自己的依据：同表携带两端的表（表现某一端或绑定它的标识符；角色用承担者的标识符；自关联只看自关联列）与关系的 `evidence`；参与的事件（本概念的角色、事件的表现表数）；本概念承担的角色，或在角色页上反向链到承担者 |
+| 6. 约束 | 作用于概念本身、其属性、标识符与关系的约束，按种类列出，带强度与状态 |
+| 7. 治理缺口 | 草拟占比、未绑定列、没有落表的属性、缺码值的状态/码值类属性、有没有表现表；有证据时还有证据与目录矛盾、没人用的绑定列、没有 JOIN 支持的关系 |
 
 凡是来自语料的内容都标「血缘」；没有证据时这些格子写「—」，不猜。
+
+`scopes.md` 把每条 `scope` 按关键词归入过滤类别；一行说到几类时每类都列，一类都不像的归「其他」。
+中文关键词任意位置命中，英文关键词按整词命中（下划线分词，所以 `is_deleted` 算 `deleted`）：
+
+| 类别 | kind | 关键词（节选） |
+| --- | --- | --- |
+| 有效记录/记录状态 | `validity` | 有效、生效、状态、`valid`、`active`、`status` |
+| 删除/注销 | `deletion` | 删除、注销、作废、`deleted`、`cancelled`、`void` |
+| 去重/最新 | `dedup` | 去重、最新、`distinct`、`latest`、`row_number`、`rn` |
+| 分区/快照日期 | `partition` | 分区、快照、`dt`、`ds`、`partition`、`snapshot` |
+| 其他 | `other` | 以上都不像 |
+
+同一页还列出没写 `scope` 的表，以及种类为 `business_rule` / `value_domain`、在 `evidence` 或表达式里引用了某张表现表的约束。
 
 ## 查询：`catalog query`
 
@@ -564,11 +586,13 @@ scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_l
 | kind | term | 回答 |
 | --- | --- | --- |
 | `concept` | id、名称、同义词或术语 | 身份、标识符、属性、状态、表现表、该读的页面 |
-| `table` | `库.表`（忽略 catalog 前缀） | 它承载的概念，以及每个绑定列指向什么，带证据；冗余列写 `→ 冗余属性 <属性> of <概念>（经 <via>）`，自关联列写出关系 |
+| `table` | `库.表`（忽略 catalog 前缀） | 它承载的概念、时间语义与取数方式（`usage`）、表注释与 `notes`、记录范围、引用它的业务规则与值域约束（`constraints`），以及每个绑定列指向什么，带证据；冗余列写 `→ 冗余属性 <属性> of <概念>（经 <via>）`，自关联列写出关系 |
 | `column` | `库.表.列` | 它承载的属性或标识符及其概念——或它是哪个标识符的物理拼写 |
 | `identifier` | id、名称或物理拼写 | 识别什么、唯一范围与拼写、绑定到它的列 |
 | `attribute` | id、名称或术语 | 所属概念、码值、口径、每个表列 |
-| `related` | 概念的 id、名称、同义词或术语 | 一跳邻居：从本概念一侧读的关系、事件、参与者、角色、承担者、表 |
+| `related` | 概念的 id、名称、同义词或术语 | 一跳邻居：从本概念一侧读的关系、事件、参与者、角色、承担者、表、带本概念标识的表（`carriers`）；每条关系与事件带 `carried_together`（同表携带两端的表）与 `evidence`，没有 JOIN 时文本里写出 |
+| `carriers` | 概念的 id、名称、同义词或术语 | 所有概念的表里绑定了本概念标识符的列：表、表的概念、列、标识符、方式 |
+| `scope` | 过滤类别（`validity`/有效记录、`deletion`/删除、`dedup`/去重、`partition`/分区、`other`/其他，类别名或其一半都行）或关键词 | 记录范围或所引约束说到它的表，各带这些行（与其类别）、约束与取数方式 |
 
 名称精确匹配（忽略大小写与首尾空格），依次试 id、名称、同义词、术语；不猜。文本回答只有几行：
 
@@ -580,6 +604,14 @@ scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_l
   状态：未认证、已认证
   表：demo_dwd.dwd_party_customer_ext_df（扩展）、demo_dwd.dwd_party_customer_info_df（核心）
   页面：concepts/customer.md
+```
+
+没有自己表现表的概念，用 `carriers` 找到从哪里关联它：
+
+```text
+带 渠道 concept:channel 标识的表（渠道编码 id:channel_code）
+  - demo_dwd.dwd_party_account_map_df（应用账户）：channel_code → 外部标识符 渠道编码
+  - demo_dws.dws_lending_loan_summary_1d（借据）：channel_code → 外部标识符 渠道编码
 ```
 
 `--json` 输出 `{"query": {"kind", "term"}, "matches": [...]}`，给 Agent 用。退出码：`0` 有匹配，
