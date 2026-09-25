@@ -1,0 +1,242 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "catalog-yaml/1 mapping",
+  "type": "object",
+  "required": [
+    "representations"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "representations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/item"
+      }
+    }
+  },
+  "definitions": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+    },
+    "status": {
+      "enum": [
+        "drafted",
+        "confirmed",
+        "deprecated"
+      ]
+    },
+    "source": {
+      "enum": [
+        "owner",
+        "comment",
+        "task",
+        "sql",
+        "llm",
+        "mixed"
+      ]
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "notes": {
+      "type": "string"
+    },
+    "item": {
+      "type": "object",
+      "required": [
+        "table",
+        "concept",
+        "kind",
+        "grain",
+        "time",
+        "table_status",
+        "bindings"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "table": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_]+\\.[A-Za-z0-9_]+$"
+        },
+        "concept": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "kind": {
+          "enum": [
+            "core",
+            "extension",
+            "dependent",
+            "event_detail",
+            "state_history",
+            "identifier_map",
+            "role_view",
+            "summary",
+            "intermediate"
+          ]
+        },
+        "grain": {
+          "type": "object",
+          "required": [
+            "identifiers",
+            "source"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "identifiers": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+              }
+            },
+            "extra": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "source": {
+              "enum": [
+                "declared",
+                "inferred",
+                "proven"
+              ]
+            }
+          }
+        },
+        "time": {
+          "enum": [
+            "snapshot",
+            "incremental",
+            "zipper",
+            "unknown"
+          ]
+        },
+        "scope": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "refresh": {
+          "type": "string",
+          "minLength": 1
+        },
+        "table_status": {
+          "enum": [
+            "active",
+            "deprecated"
+          ]
+        },
+        "replaced_by": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_]+\\.[A-Za-z0-9_]+$"
+        },
+        "bindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/binding"
+          }
+        },
+        "status": {
+          "$ref": "#/definitions/status"
+        },
+        "source": {
+          "$ref": "#/definitions/source"
+        },
+        "evidence": {
+          "$ref": "#/definitions/evidence"
+        },
+        "notes": {
+          "$ref": "#/definitions/notes"
+        }
+      }
+    },
+    "binding": {
+      "type": "object",
+      "required": [
+        "column",
+        "to"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "column": {
+          "type": "string",
+          "minLength": 1
+        },
+        "to": {
+          "enum": [
+            "attribute",
+            "identifier",
+            "foreign_identifier",
+            "technical",
+            "unmapped"
+          ]
+        },
+        "ref": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "derivation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "code_map": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "status": {
+          "$ref": "#/definitions/status"
+        },
+        "source": {
+          "$ref": "#/definitions/source"
+        },
+        "evidence": {
+          "$ref": "#/definitions/evidence"
+        },
+        "notes": {
+          "$ref": "#/definitions/notes"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "to": {
+                "enum": [
+                  "attribute",
+                  "identifier",
+                  "foreign_identifier"
+                ]
+              }
+            },
+            "required": [
+              "to"
+            ]
+          },
+          "then": {
+            "required": [
+              "ref"
+            ]
+          },
+          "else": {
+            "properties": {
+              "ref": false
+            }
+          }
+        }
+      ]
+    }
+  }
+}

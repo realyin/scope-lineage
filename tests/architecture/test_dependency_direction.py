@@ -15,7 +15,7 @@ PACKAGE_NAME = "scope_lineage"
 
 # First-level subpackages/modules whose edges are governed. Package-root leaf modules
 # (sqlglot_config, and any future ones) are usable from anywhere and not listed.
-GOVERNED = {"cli", "contract", "metadata", "render", "scope", "serialize"}
+GOVERNED = {"catalog", "cli", "contract", "metadata", "render", "scope", "serialize"}
 
 ALLOWED_EDGES: dict[str, set[str]] = {
     "cli": {"contract", "metadata", "scope"},
@@ -24,6 +24,7 @@ ALLOWED_EDGES: dict[str, set[str]] = {
     "scope": {"metadata"},
     "metadata": set(),
     "render": set(),  # contract-derived: consumes the JSON documents only
+    "catalog": set(),  # the concept catalog: a person's files in, ontology-json/3 out
 }
 
 

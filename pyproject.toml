@@ -27,7 +27,10 @@ classifiers = [
 scope-lineage = "scope_lineage.cli:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=7", "build>=1", "ruff>=0.6"]
+# PyYAML reads a YAML ontology catalog (`scope-lineage catalog`); a catalog written as
+# JSON needs nothing extra. The dev extra carries it so the catalog tests run in CI.
+catalog = ["PyYAML>=6"]
+dev = ["pytest>=7", "build>=1", "ruff>=0.6", "PyYAML>=6"]
 
 [build-system]
 requires = ["setuptools>=61"]

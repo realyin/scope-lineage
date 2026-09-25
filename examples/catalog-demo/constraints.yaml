@@ -1,0 +1,48 @@
+constraints:
+  - id: cons:loan_no_unique
+    kind: unique
+    on: id:loan_no
+    expression: no two loans share a loan_no, whatever the channel
+    strength: hard
+    status: confirmed
+    source: owner
+
+  - id: cons:principal_positive
+    kind: value_domain
+    on: attr:loan.principal
+    expression: principal > 0
+    strength: hard
+    status: confirmed
+    source: owner
+
+  - id: cons:one_account_per_channel
+    kind: cardinality
+    on: rel:customer_holds_app_account
+    expression: a customer holds at most one account in each channel
+    strength: soft
+    status: drafted
+    source: sql
+
+  - id: cons:repaid_after_disbursed
+    kind: temporal
+    on: concept:repayment
+    expression: repaid_at is not earlier than the disbursed_at of every loan it pays
+    strength: hard
+    status: confirmed
+    source: owner
+
+  - id: cons:settled_is_final
+    kind: state_transition
+    on: attr:loan.loan_status
+    expression: a settled loan never changes status again
+    strength: hard
+    status: confirmed
+    source: owner
+
+  - id: cons:penalty_rule
+    kind: derivation
+    on: attr:loan.overdue_penalty
+    expression: accrues only while loan_status is overdue
+    strength: soft
+    status: drafted
+    source: comment

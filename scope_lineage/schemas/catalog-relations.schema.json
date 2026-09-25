@@ -1,0 +1,133 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "catalog-yaml/1 relations",
+  "type": "object",
+  "required": [
+    "relations"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "relations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/item"
+      }
+    }
+  },
+  "definitions": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+    },
+    "status": {
+      "enum": [
+        "drafted",
+        "confirmed",
+        "deprecated"
+      ]
+    },
+    "source": {
+      "enum": [
+        "owner",
+        "comment",
+        "task",
+        "sql",
+        "llm",
+        "mixed"
+      ]
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "notes": {
+      "type": "string"
+    },
+    "item": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "from",
+        "to",
+        "cardinality"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/id"
+        },
+        "kind": {
+          "enum": [
+            "association",
+            "composition",
+            "participation",
+            "generalization",
+            "derivation"
+          ]
+        },
+        "from": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "to": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "name": {
+          "type": "string"
+        },
+        "inverse_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cardinality": {
+          "type": "object",
+          "required": [
+            "from",
+            "to"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "from": {
+              "enum": [
+                "1",
+                "0..1",
+                "0..*",
+                "1..*",
+                1
+              ]
+            },
+            "to": {
+              "enum": [
+                "1",
+                "0..1",
+                "0..*",
+                "1..*",
+                1
+              ]
+            }
+          }
+        },
+        "definition": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/definitions/status"
+        },
+        "source": {
+          "$ref": "#/definitions/source"
+        },
+        "evidence": {
+          "$ref": "#/definitions/evidence"
+        },
+        "notes": {
+          "$ref": "#/definitions/notes"
+        }
+      }
+    }
+  }
+}

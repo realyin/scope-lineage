@@ -1,0 +1,966 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ontology-json/3 (scope-lineage catalog build)",
+  "type": "object",
+  "required": [
+    "doc_format",
+    "catalog",
+    "counts",
+    "domains",
+    "identifiers",
+    "code_sets",
+    "concepts",
+    "relations",
+    "constraints",
+    "terms",
+    "representations"
+  ],
+  "properties": {
+    "doc_format": {
+      "const": "ontology-json/3"
+    },
+    "catalog": {
+      "type": "object",
+      "required": [
+        "name",
+        "format"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string"
+        },
+        "format": {
+          "const": "catalog-yaml/1"
+        }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "required": [
+        "domains",
+        "identifiers",
+        "code_sets",
+        "concepts",
+        "attributes",
+        "relations",
+        "derived_relations",
+        "constraints",
+        "terms",
+        "representations",
+        "bindings"
+      ],
+      "properties": {
+        "domains": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "identifiers": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "code_sets": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "concepts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "attributes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "relations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "derived_relations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "constraints": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "terms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "representations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bindings": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "domains": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/domain"
+      }
+    },
+    "identifiers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/identifier"
+      }
+    },
+    "code_sets": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/code_set"
+      }
+    },
+    "concepts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/concept"
+      }
+    },
+    "relations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/relation"
+      }
+    },
+    "constraints": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/constraint"
+      }
+    },
+    "terms": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/term"
+      }
+    },
+    "representations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/representation"
+      }
+    }
+  },
+  "definitions": {
+    "domain": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "description",
+        "status",
+        "source",
+        "evidence"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "drafted",
+            "confirmed",
+            "deprecated"
+          ]
+        },
+        "source": {
+          "enum": [
+            "owner",
+            "comment",
+            "task",
+            "sql",
+            "llm",
+            "mixed",
+            null
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "identifier": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "identifies",
+        "scope",
+        "spellings",
+        "maps_to",
+        "status",
+        "source",
+        "evidence"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "identifies": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "scope": {
+          "oneOf": [
+            {
+              "const": "global"
+            },
+            {
+              "type": "object",
+              "required": [
+                "per"
+              ],
+              "properties": {
+                "per": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "arises_when": {
+          "type": "object",
+          "required": [
+            "condition"
+          ],
+          "properties": {
+            "condition": {
+              "type": "string",
+              "minLength": 1
+            },
+            "state": {
+              "type": "string"
+            }
+          }
+        },
+        "spellings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "column"
+            ],
+            "properties": {
+              "column": {
+                "type": "string",
+                "minLength": 1
+              },
+              "table": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_]+\\.[A-Za-z0-9_]+$"
+              }
+            }
+          }
+        },
+        "maps_to": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "identifier",
+              "cardinality",
+              "via"
+            ],
+            "properties": {
+              "identifier": {
+                "type": "string",
+                "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+              },
+              "cardinality": {
+                "enum": [
+                  "one_to_one",
+                  "one_to_many",
+                  "many_to_one",
+                  "many_to_many"
+                ]
+              },
+              "via": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_]+\\.[A-Za-z0-9_]+$"
+                }
+              }
+            }
+          }
+        },
+        "status": {
+          "enum": [
+            "drafted",
+            "confirmed",
+            "deprecated"
+          ]
+        },
+        "source": {
+          "enum": [
+            "owner",
+            "comment",
+            "task",
+            "sql",
+            "llm",
+            "mixed",
+            null
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "code_set": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "values",
+        "status",
+        "source",
+        "evidence"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "value",
+              "meaning",
+              "retired"
+            ],
+            "properties": {
+              "value": {
+                "type": "string"
+              },
+              "meaning": {
+                "type": "string",
+                "minLength": 1
+              },
+              "retired": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "status": {
+          "enum": [
+            "drafted",
+            "confirmed",
+            "deprecated"
+          ]
+        },
+        "source": {
+          "enum": [
+            "owner",
+            "comment",
+            "task",
+            "sql",
+            "llm",
+            "mixed",
+            null
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "attribute": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "definition",
+        "category",
+        "type",
+        "status",
+        "source",
+        "evidence"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "category": {
+          "enum": [
+            "descriptive",
+            "state",
+            "measure",
+            "time"
+          ]
+        },
+        "status": {
+          "enum": [
+            "drafted",
+            "confirmed",
+            "deprecated"
+          ]
+        },
+        "source": {
+          "enum": [
+            "owner",
+            "comment",
+            "task",
+            "sql",
+            "llm",
+            "mixed",
+            null
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "concept": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "name",
+        "domain",
+        "synonyms",
+        "attributes",
+        "status",
+        "source",
+        "evidence"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "kind": {
+          "enum": [
+            "entity",
+            "event",
+            "role"
+          ]
+        },
+        "domain": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "synonyms": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "attributes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/attribute"
+          }
+        },
+        "states": {
+          "type": "object",
+          "required": [
+            "attribute",
+            "values",
+            "transitions"
+          ],
+          "properties": {
+            "values": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "value",
+                  "name"
+                ],
+                "properties": {
+                  "value": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "transitions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "event",
+                  "from",
+                  "to"
+                ],
+                "properties": {
+                  "event": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+                  },
+                  "from": {
+                    "type": "string"
+                  },
+                  "to": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "participants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "role_name",
+              "concept",
+              "cardinality"
+            ],
+            "properties": {
+              "cardinality": {
+                "enum": [
+                  "one",
+                  "many"
+                ]
+              }
+            }
+          }
+        },
+        "status": {
+          "enum": [
+            "drafted",
+            "confirmed",
+            "deprecated"
+          ]
+        },
+        "source": {
+          "enum": [
+            "owner",
+            "comment",
+            "task",
+            "sql",
+            "llm",
+            "mixed",
+            null
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "relation": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "from",
+        "to",
+        "cardinality",
+        "status",
+        "source",
+        "evidence"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "kind": {
+          "enum": [
+            "association",
+            "composition",
+            "participation",
+            "generalization",
+            "derivation"
+          ]
+        },
+        "from": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "to": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "cardinality": {
+          "type": "object",
+          "required": [
+            "from",
+            "to"
+          ],
+          "properties": {
+            "from": {
+              "enum": [
+                "1",
+                "0..1",
+                "0..*",
+                "1..*"
+              ]
+            },
+            "to": {
+              "enum": [
+                "1",
+                "0..1",
+                "0..*",
+                "1..*"
+              ]
+            }
+          }
+        },
+        "derived_from": {
+          "type": "object",
+          "required": [
+            "event",
+            "role_name"
+          ],
+          "properties": {
+            "event": {
+              "type": "string",
+              "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+            },
+            "role_name": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "status": {
+          "enum": [
+            "drafted",
+            "confirmed",
+            "deprecated"
+          ]
+        },
+        "source": {
+          "enum": [
+            "owner",
+            "comment",
+            "task",
+            "sql",
+            "llm",
+            "mixed",
+            null
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "constraint": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "on",
+        "expression",
+        "strength",
+        "status",
+        "source",
+        "evidence"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "on": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "strength": {
+          "enum": [
+            "hard",
+            "soft"
+          ]
+        },
+        "status": {
+          "enum": [
+            "drafted",
+            "confirmed",
+            "deprecated"
+          ]
+        },
+        "source": {
+          "enum": [
+            "owner",
+            "comment",
+            "task",
+            "sql",
+            "llm",
+            "mixed",
+            null
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "term": {
+      "type": "object",
+      "required": [
+        "term",
+        "refers_to",
+        "preferred",
+        "status",
+        "source",
+        "evidence"
+      ],
+      "properties": {
+        "refers_to": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "preferred": {
+          "type": "boolean"
+        },
+        "status": {
+          "enum": [
+            "drafted",
+            "confirmed",
+            "deprecated"
+          ]
+        },
+        "source": {
+          "enum": [
+            "owner",
+            "comment",
+            "task",
+            "sql",
+            "llm",
+            "mixed",
+            null
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "representation": {
+      "type": "object",
+      "required": [
+        "table",
+        "concept",
+        "kind",
+        "grain",
+        "time",
+        "scope",
+        "table_status",
+        "bindings",
+        "status",
+        "source",
+        "evidence"
+      ],
+      "properties": {
+        "table": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_]+\\.[A-Za-z0-9_]+$"
+        },
+        "concept": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "grain": {
+          "type": "object",
+          "required": [
+            "identifiers",
+            "extra",
+            "source"
+          ],
+          "properties": {
+            "identifiers": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+              }
+            },
+            "extra": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "time": {
+          "enum": [
+            "snapshot",
+            "incremental",
+            "zipper",
+            "unknown"
+          ]
+        },
+        "table_status": {
+          "enum": [
+            "active",
+            "deprecated"
+          ]
+        },
+        "bindings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "column",
+              "to",
+              "status",
+              "source",
+              "evidence"
+            ],
+            "properties": {
+              "to": {
+                "enum": [
+                  "attribute",
+                  "identifier",
+                  "foreign_identifier",
+                  "technical",
+                  "unmapped"
+                ]
+              },
+              "code_map": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "status": {
+                "enum": [
+                  "drafted",
+                  "confirmed",
+                  "deprecated"
+                ]
+              },
+              "source": {
+                "enum": [
+                  "owner",
+                  "comment",
+                  "task",
+                  "sql",
+                  "llm",
+                  "mixed",
+                  null
+                ]
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "notes": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "status": {
+          "enum": [
+            "drafted",
+            "confirmed",
+            "deprecated"
+          ]
+        },
+        "source": {
+          "enum": [
+            "owner",
+            "comment",
+            "task",
+            "sql",
+            "llm",
+            "mixed",
+            null
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

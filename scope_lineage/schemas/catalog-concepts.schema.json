@@ -1,0 +1,376 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "catalog-yaml/1 concepts",
+  "type": "object",
+  "required": [
+    "concepts"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "concepts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/item"
+      }
+    }
+  },
+  "definitions": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+    },
+    "status": {
+      "enum": [
+        "drafted",
+        "confirmed",
+        "deprecated"
+      ]
+    },
+    "source": {
+      "enum": [
+        "owner",
+        "comment",
+        "task",
+        "sql",
+        "llm",
+        "mixed"
+      ]
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "notes": {
+      "type": "string"
+    },
+    "item": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "name",
+        "domain"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/id"
+        },
+        "kind": {
+          "enum": [
+            "entity",
+            "event",
+            "role"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "definition": {
+          "type": "string"
+        },
+        "domain": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "synonyms": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "identifiers": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+          }
+        },
+        "primary_identifier": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "states": {
+          "$ref": "#/definitions/states"
+        },
+        "occurred_at": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "participants": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/participant"
+          }
+        },
+        "player": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "context": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "condition": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attributes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/attribute"
+          }
+        },
+        "status": {
+          "$ref": "#/definitions/status"
+        },
+        "source": {
+          "$ref": "#/definitions/source"
+        },
+        "evidence": {
+          "$ref": "#/definitions/evidence"
+        },
+        "notes": {
+          "$ref": "#/definitions/notes"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "entity"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "identifiers",
+              "primary_identifier"
+            ],
+            "properties": {
+              "occurred_at": false,
+              "participants": false,
+              "player": false,
+              "context": false,
+              "condition": false
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "event"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "occurred_at",
+              "participants"
+            ],
+            "properties": {
+              "primary_identifier": false,
+              "states": false,
+              "player": false,
+              "context": false,
+              "condition": false
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "role"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "player",
+              "context",
+              "condition"
+            ],
+            "properties": {
+              "primary_identifier": false,
+              "states": false,
+              "occurred_at": false,
+              "participants": false,
+              "identifiers": false
+            }
+          }
+        }
+      ]
+    },
+    "attribute": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "definition",
+        "category",
+        "type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "definition": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "enum": [
+            "descriptive",
+            "state",
+            "measure",
+            "time"
+          ]
+        },
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "unit": {
+          "type": "string",
+          "minLength": 1
+        },
+        "code_set": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "derivation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "$ref": "#/definitions/status"
+        },
+        "source": {
+          "$ref": "#/definitions/source"
+        },
+        "evidence": {
+          "$ref": "#/definitions/evidence"
+        },
+        "notes": {
+          "$ref": "#/definitions/notes"
+        }
+      }
+    },
+    "states": {
+      "type": "object",
+      "required": [
+        "attribute",
+        "values"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "attribute": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "values": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "value",
+              "name"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "type": [
+                  "string",
+                  "integer"
+                ]
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "transitions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "event",
+              "from",
+              "to"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "event": {
+                "type": "string",
+                "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+              },
+              "from": {
+                "type": [
+                  "string",
+                  "integer"
+                ]
+              },
+              "to": {
+                "type": [
+                  "string",
+                  "integer"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "participant": {
+      "type": "object",
+      "required": [
+        "role_name",
+        "concept",
+        "cardinality"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "role_name": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+$"
+        },
+        "concept": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "cardinality": {
+          "enum": [
+            "one",
+            "many"
+          ]
+        }
+      }
+    }
+  }
+}

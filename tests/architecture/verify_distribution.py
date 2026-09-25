@@ -10,10 +10,20 @@ from pathlib import Path, PurePosixPath
 
 FORBIDDEN_PARTS = {".claude", ".claude-plugin", "dev-notes", "docs", "skills", "tests", "__pycache__"}
 REQUIRED_CORE_PATHS = {
+    "scope_lineage/schemas/catalog-code-sets.schema.json",
+    "scope_lineage/schemas/catalog-concepts.schema.json",
+    "scope_lineage/schemas/catalog-constraints.schema.json",
+    "scope_lineage/schemas/catalog-domains.schema.json",
+    "scope_lineage/schemas/catalog-identifiers.schema.json",
+    "scope_lineage/schemas/catalog-manifest.schema.json",
+    "scope_lineage/schemas/catalog-mapping.schema.json",
+    "scope_lineage/schemas/catalog-relations.schema.json",
+    "scope_lineage/schemas/catalog-terms.schema.json",
     "scope_lineage/schemas/diagnostics-v2.schema.json",
     "scope_lineage/schemas/diagnostics.schema.json",
     "scope_lineage/schemas/lineage-v2.schema.json",
     "scope_lineage/schemas/lineage.schema.json",
+    "scope_lineage/schemas/ontology-v3.schema.json",
 }
 
 
