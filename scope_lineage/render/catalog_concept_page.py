@@ -68,7 +68,7 @@ def render_concept_page(view: CatalogView, concept_id: str) -> str:
         "",
         "## 一页纸概览",
         "",
-        *overview_lines(overview),
+        *overview_lines(overview, view.semantic_page),
         "",
         "## 附录",
     ]
@@ -247,7 +247,7 @@ def _inventory(view: CatalogView, concept: dict) -> list[str]:
 def _rep_row(view: CatalogView, rep: dict) -> str:
     evidence = view.rep_evidence(rep["table"])
     return table_row(
-        expr_span(rep["table"]),
+        linked_table(view, rep["table"]),
         _about_text(rep, evidence),
         grain_text(view, rep),
         time_text(rep),
@@ -266,6 +266,12 @@ def _about_text(rep: dict, evidence: dict) -> str:
     if rep.get("notes"):
         parts.append(f"备注：{cell(rep['notes'])}")
     return "；".join(parts) or NONE
+
+
+def linked_table(view: CatalogView, table: str) -> str:
+    """The table's name, linked to its table-semantics page when one was rendered."""
+    page = view.semantic_page(table)
+    return f"[{expr_span(table)}]({page})" if page else expr_span(table)
 
 
 def grain_text(view: CatalogView, rep: dict) -> str:

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -93,6 +94,13 @@ def _add_render_parser(actions) -> None:
         required=True,
         help="Directory for index.md, identifiers.md, governance.md and concepts/<slug>.md",
     )
+    render_cmd.add_argument(
+        "--semantics",
+        help=(
+            "A directory of `semantic render` pages (<db.table>.md): link each table a "
+            "concept page lists to its table-semantics page"
+        ),
+    )
 
 
 def _add_build_parser(actions) -> None:
@@ -163,7 +171,10 @@ def _run_render(args: argparse.Namespace) -> int:
     if isinstance(document, int):
         return document
     out = Path(args.out)
-    pages = render_catalog_pages(document)
+    links = _semantic_links(args.semantics, out / CONCEPTS_DIR)
+    if isinstance(links, int):
+        return links
+    pages = render_catalog_pages(document, links)
     for name, text in pages.items():
         target = out / name
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -171,6 +182,27 @@ def _run_render(args: argparse.Namespace) -> int:
     concepts = sum(1 for name in pages if name.startswith(f"{CONCEPTS_DIR}/"))
     print(f"Rendered {len(pages)} page(s) ({concepts} concept page(s)) -> {out}")
     return 0
+
+
+def _semantic_links(directory, concepts: Path):
+    """``db.table -> link`` from the concept pages to each rendered table-semantics page.
+
+    The pages are found by name (``<db.table>.md``, the index aside), and each link is
+    relative to ``concepts/`` so the two sets of pages can move together. None without
+    the flag; the exit code for a directory that does not exist.
+    """
+    if not directory:
+        return None
+    root = Path(directory)
+    if not root.is_dir():
+        print(f"--semantics directory does not exist: {root}", file=sys.stderr)
+        return 2
+    base = os.path.relpath(root.resolve(), concepts.resolve())
+    return {
+        path.stem: Path(base, path.name).as_posix()
+        for path in sorted(root.glob("*.md"))
+        if path.name != "index.md"
+    }
 
 
 def _run_query(args: argparse.Namespace) -> int:

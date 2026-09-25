@@ -282,14 +282,24 @@ def _kind_lines(overview: Mapping) -> list[tuple[str, str]]:
     ]
 
 
-def overview_lines(overview: Mapping) -> list[str]:
-    """The overview as markdown: one paragraph per field, lists as bullets, no tables."""
+def overview_lines(
+    overview: Mapping, link: Callable[[str], Optional[str]] = lambda _table: None
+) -> list[str]:
+    """The overview as markdown: one paragraph per field, lists as bullets, no tables.
+
+    ``link`` gives a table's page to link its name to (``catalog render --semantics``).
+    """
+
+    def code(table: str) -> str:
+        target = link(table)
+        return f"[{_code(table)}]({target})" if target else _code(table)
+
     blocks = [
         _line("是什么", overview["what"] or ""),
         _bullets("怎么认出来", identifier_items(overview)),
         _line("状态", overview["states"] or ""),
         *(_line(label, text) for label, text in _kind_lines(overview)),
-        _bullets(data_label(overview), data_items(overview, _code, "（见附录 A3）")),
+        _bullets(data_label(overview), data_items(overview, code, "（见附录 A3）")),
         _line("拥有的", _joined(overview["owns"])),
         _line("关联的", _joined(overview["associates"])),
         _bullets(

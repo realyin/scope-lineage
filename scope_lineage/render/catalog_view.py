@@ -149,8 +149,13 @@ def status_text(obj: Mapping) -> str:
 class CatalogView:
     """Read-only lookups over one built document."""
 
-    def __init__(self, document: Mapping) -> None:
+    def __init__(self, document: Mapping, semantic_pages: Optional[Mapping] = None) -> None:
         self.document = document
+        # ``db.table -> link`` to its table-semantics page, relative to concepts/ (render only).
+        self._semantic_pages = {
+            catalog_table_name(table).lower(): link
+            for table, link in (semantic_pages or {}).items()
+        }
         self.concepts = {c["id"]: c for c in document.get("concepts") or []}
         self.attributes = {
             a["id"]: (a, c) for c in self.concepts.values() for a in c.get("attributes") or []
@@ -330,6 +335,10 @@ class CatalogView:
         """``{count, samples}`` when the build checked this relation, else None."""
         entry = self._relation_evidence.get(relation_id)
         return dict(entry["joins"]) if entry else None
+
+    def semantic_page(self, table: str) -> Optional[str]:
+        """The link to the table's ``semantic render`` page, when ``--semantics`` gave one."""
+        return self._semantic_pages.get(catalog_table_name(table).lower())
 
     def lineage_checked(self) -> bool:
         return "lineage" in self.evidence_inputs
