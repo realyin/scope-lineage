@@ -111,7 +111,7 @@
 | 标记 | 结果 | 检查 | 位置 | 说明 |
 | --- | --- | --- | --- | --- |
 | ✗1 | 未通过 | 2 来源列 | `columns[3].source_columns[1]` | demo_ods.ods_loan_account_df.acct_no 既不在列 loan_no 的血缘来源里，也不是任何输入表的列；改成材料包 4.1 列出的来源列 |
-| ✗2 | 未通过 | 5 规则 | `rules` | 过滤 record_status = 0（dwd_collection_fee_waiver_daily）没有被任何 rules[].sql 引用；补一条 filter 规则（照抄 SQL 原文），并在 summary.scope 里用 rule_refs 引用它 |
+| ✗2 | 未通过 | 5 规则 | `rules` | 过滤 is_deleted = 0（dwd_collection_fee_waiver_daily）没有被任何 rules[].sql 引用；补一条 filter 规则（照抄 SQL 原文），并在 summary.scope 里用 rule_refs 引用它 |
 | ✗3 | 未通过 | 5 规则 | `rules[4].sql` | "COALESCE(reduce_amt, 0) \|\| ''" 规范化后在任务 SQL 里找不到；照抄 SQL 原文片段，不要改写 |
 | ✗4 | 未通过 | 6 上下游 | `summary.upstream[3].table` | demo_ods.ods_product_main_df 不是本表血缘里的输入表；上游只能写材料包 4.4 列出的表 |
 | — | 警告 | 2 来源列 | `columns[7].source_columns[0]` | demo_ods.ods_loan_waiver_detail_di.reduce_amt 不在列 waive_amt 的血缘来源里，只在输入表元数据中；确认它真的参与口径，否则删掉 |

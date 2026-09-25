@@ -35,7 +35,7 @@
           "check": "rules",
           "status": "fail",
           "at": "rules",
-          "message": "过滤 record_status = 0（dwd_collection_fee_waiver_daily）没有被任何 rules[].sql 引用；补一条 filter 规则（照抄 SQL 原文），并在 summary.scope 里用 rule_refs 引用它"
+          "message": "过滤 is_deleted = 0（dwd_collection_fee_waiver_daily）没有被任何 rules[].sql 引用；补一条 filter 规则（照抄 SQL 原文），并在 summary.scope 里用 rule_refs 引用它"
         },
         {
           "check": "rules",

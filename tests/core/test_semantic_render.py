@@ -271,7 +271,7 @@ def test_the_validation_section_lists_every_failure_and_warning(pages: dict) -> 
     section = _section(pages[f"{WAIVER}.md"], "校验")
     assert section.startswith("\n通过率 93.8%：64 项检查，4 项未通过、2 项警告。")
     assert _row(section, "✗2") == (
-        "| ✗2 | 未通过 | 5 规则 | `rules` | 过滤 record_status = 0（dwd_collection_fee_waiver_daily）"
+        "| ✗2 | 未通过 | 5 规则 | `rules` | 过滤 is_deleted = 0（dwd_collection_fee_waiver_daily）"
         "没有被任何 rules[].sql 引用；补一条 filter 规则（照抄 SQL 原文），并在 summary.scope 里用 "
         "rule_refs 引用它 |"
     )
