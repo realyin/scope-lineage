@@ -1,6 +1,21 @@
 # Changelog
 
 ## Unreleased
+- **Concept pages open with a one-page overview in plain Chinese.** Every
+  `concepts/<slug>.md` now starts with a status line (kind · domain · the page's drafted
+  share) and 一页纸概览: 是什么, 怎么认出来 (each identifier by name, when it arises and its
+  scope in words -- 全局唯一 / 每个客户×App 一个), 状态 (the values joined by → with the
+  moving events on the arrows), 数据在哪 (the core and extension tables with their comment,
+  deprecated ones with their replacement, and how many more tables carry the identifiers
+  over how many domains), 拥有的, 关联的 (read from this concept's side), 参与的事件 (grouped
+  by domain), 扮演的角色 and 要注意 (at most five hard or business rules, confirmed first); an
+  event shows 参与者, 发生时间 and 记录在, a role 承担者 and 成立条件. Names only -- no ids, no
+  English enum words, no table wider than two columns; confirmed items are marked ✓ and
+  empty lines are left out. The seven detailed sections follow unchanged as 附录 A1–A7
+  (their sub-headings one level down; A1's table gains a 编号 row with the concept id).
+  `catalog query concept` leads its text with the same 是什么 / 怎么认出来 / 数据在哪 lines
+  and adds the same fields to the JSON answer as `overview`. Guide:
+  `docs/*/ontology-catalog.md`.
 - **Catalog pages and query show what the document already knows** (R1). Concept pages
   gain section 3, 带本概念标识的表 (seven sections now): every table, of any concept,
   binding one of the concept's identifiers, with the table's concept, the column, the
