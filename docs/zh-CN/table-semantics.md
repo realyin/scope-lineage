@@ -1,19 +1,21 @@
 [English](../en/table-semantics.md) | 中文
 
-# 表语义（`table-semantics/1`）：材料包、校验、确认
+# 表语义（`table-semantics/1`）：材料包、校验、确认、渲染
 
 表语义针对一张目标表，用业务读者的话回答：这张表是什么、一行是什么、怎么更新、怎么取一天和一段时间、
 收哪些记录、数据从哪来给谁用、每个字段什么意思怎么算、字段有哪些码值、要注意什么。
 
-文档由模型写、由机器对照事实校验。Core 只做前后两段确定性的工作，从不调用模型：
+文档由模型写、由机器对照事实校验。Core 只做确定性的工作，从不调用模型：
 
 - `scope-lineage semantic packet` 把写一张表所需的全部事实收成一份**材料包**——表的元数据、每个生产任务
   及其 SQL、输入表、语义画像已经推出的血缘事实；
 - `scope-lineage semantic validate` 用 JSON Schema 和材料包（九项交叉校验）检查写好的
   `table-semantics/1` 文档，逐条列出要重写的地方；
-- `scope-lineage semantic confirm` 把人的回答写回文档。
+- `scope-lineage semantic confirm` 把人的回答写回文档；
+- `scope-lineage semantic render` 把文档渲染成每表一页和一页索引，并与本体目录的概念页互相链接。
 
-写文档（提示词、重写循环）属于 Agent 技能。把文档渲染成页面（`semantic render`）是下一步，不在这一版里。
+写文档（提示词、重写循环）属于 Agent 技能：提示词在 `skills/scope-lineage/references/table-semantics-prompt.md`，
+编排步骤见技能的 `SKILL.md`。
 
 [`examples/table-semantics/`](../../examples/table-semantics/) 里有一份为演示表手写的示例文档和一份
 配套的确认文件；两者和它们描述的演示语料一样，都是虚构的。
@@ -25,7 +27,7 @@
 | 1. 材料包 | 机器 | `semantic packet` | `<out>/<db.table>/packet.md` 与 `packet.json` |
 | 2. 写作 | 模型，经 Agent 技能 | — | 每表一份 `table-semantics/1` JSON |
 | 3. 校验 | 机器 | `semantic validate` | 文字摘要，或 `--json` 报告（其中的失败清单就是重写提示） |
-| 4. 渲染 | 机器 | `semantic render`（下一步） | 每表一页 |
+| 4. 渲染 | 机器 | `semantic render` | 每表一页 `<db.table>.md` 与 `index.md` |
 | 5. 确认 | 人回答，机器套用 | `semantic confirm` | 带 `confirmed` 标记的文档 |
 
 ## 五分钟跑通演示
@@ -41,6 +43,12 @@ scope-lineage semantic packet --lineage out/lineage \
 scope-lineage semantic validate examples/table-semantics --packets out/packets
 scope-lineage semantic confirm examples/table-semantics \
   --confirmations examples/table-semantics/confirmations.json --out out/confirmed
+scope-lineage semantic validate out/confirmed --packets out/packets --json > out/validation.json
+scope-lineage catalog build examples/catalog-demo --out out/catalog
+scope-lineage semantic render out/confirmed --out out/pages/semantics \
+  --validation out/validation.json --ontology out/catalog/ontology.json
+scope-lineage catalog render out/catalog/ontology.json --out out/pages \
+  --semantics out/pages/semantics
 ```
 
 `validate` 每份文档打印一行（`demo_dwd.dwd_party_customer_info_df: 52/52 checks passed
@@ -283,11 +291,76 @@ scope-lineage semantic confirm <documents> --confirmations <file> [--out <dir>]
 或套用后文档会违反 Schema 的确认，**不套用、也不丢弃**：摘要行计入 `unmatched`，并逐条列出原因。不给 `--out`
 时就地改写有变化的文档；给了 `--out` 时所有文档写到那里，原文件不动。确认文件本身格式不对时退出码 2。
 
+## `semantic render`
+
+```bash
+scope-lineage semantic render <documents> --out <dir> \
+  [--validation <report.json>] [--ontology <ontology.json>]
+```
+
+把 `<documents>` 下每份合法的 `table-semantics/1` 文档渲染成一页 `<dir>/<db.table>.md`，再写一页
+`<dir>/index.md`。工具链自己的其他文档（确认文件、材料包、报告）跳过；不合 Schema 的文档在 stderr 报出、
+不渲染，退出码为 1。
+
+| 选项 | 必填 | 含义 |
+| --- | --- | --- |
+| `<documents>` | 是 | `table-semantics/1` 文档目录 |
+| `--out` | 是 | 输出目录 |
+| `--validation` | 否 | `semantic validate --json` 写出的 `table-semantics-validation/1` 报告：页面标出未通过的条目，文末加「校验」一节，索引写通过率 |
+| `--ontology` | 否 | `catalog build` 写出的 `ontology.json`：每张表的域与概念取自目录，概念链到 `../concepts/<slug>.md` |
+
+### 表语义页
+
+页面顺序照一页样例排：
+
+| 部分 | 内容 |
+| --- | --- |
+| 标题行 | 表名；下一行是域（有 `--ontology` 时是概念所属的域，否则是库名）、「本表是 <概念> 的 <表现类型>表」、本页已确认的条目数；有报告时再加通过率 |
+| 一页纸 | 这张表是什么、一行是什么（粒度列、粒度来源、是否唯一）、更新与取数、收哪些数据（引用的规则）、数据从哪来（上游表及其作用）、谁在用、适合用来 / 不适合、要注意（每条带种类）、待确认问题（已回答的带回答、回答人与日期） |
+| 字段 | 按五组列出：标识与关联、状态与码值（有码值的列都在这一组，多一列「码值」）、金额（含义后带单位）、时间，各一张「字段 / 含义 / 口径 / 来源」表；描述与技术列写成一行。口径依次写各分支（`线上：…；线下：…`）、总的说法、为空的情形 |
+| 加工过程 | 产出任务（周期与用途），然后是加工步骤 |
+| 规则（原文） | 每条规则的编号与种类、业务说法、SQL 原文 |
+| 来源说明 | 来源词与各个标记的意思；写作所用的提示词与依据的材料包摘要 |
+| 校验 | 只在给了 `--validation` 时出现：通过率，以及每个未通过项和警告的检查、位置与改法 |
+
+页面上的标记：
+
+| 标记 | 意思 |
+| --- | --- |
+| ✓ | 条目的 `sources` 含 `confirmed`（`semantic confirm` 写入），或问题已回答；标在它确认的内容旁（列的含义、码值、规则等） |
+| ⚠ | 条目带 `watch`，后面跟着 `watch` 的文字；列或规则只被一页纸的「要注意」引用（`column:<列>`、`rule:<id>`）时写「⚠（见要注意）」 |
+| ✗n | 报告里第 n 个未通过项落在这个条目上（按报告顺序编号）；指向整张表的未通过项（缺列、未引用的过滤、过期摘要）只列在「校验」一节 |
+| `值（含义待确认）` | 标了 `unconfirmed: true`（或含义以「待确认」开头）的码值 |
+| （中置信）（低置信） | 条目的 `confidence` 不是 `high` |
+
+### 索引
+
+`index.md` 先按域、再按概念列出每张表：表（链到它的页）、这张表是什么（`summary.what`）、校验通过率
+（没有报告时写 —，报告里没有这张表时写「未校验」）、待确认问题数（仍为 `open` 的问题）；按概念的表多一列
+表现类型。有 `--ontology` 时，域是表所表现概念的域、概念标题链到概念页；否则域用库名，概念取文档自己的
+`concept`、只写编号不加链接。不属于任何概念的表列在最后的「未关联概念」下。不按任何公司的表名约定分组。
+
+### 与概念页互链
+
+概念归属以本体目录为准：目录把这张表登记为某个概念的表现时，用目录里的概念和表现类型；目录没有登记这张表
+时才用文档自己的 `concept`。表语义页链到 `../concepts/<slug>.md`，也就是 `catalog render` 写的概念页，所以
+`--out` 要放在 `catalog render` 输出目录下的一个子目录里，例如 `<pages>/semantics`。反方向由
+`catalog render --semantics <pages>/semantics` 负责，见[本体目录](ontology-catalog.md)。两个选项都可不给；
+不给时两边的输出与没有这个功能时逐字节相同。
+
+### 退出码
+
+| 退出码 | 条件 |
+| --- | --- |
+| 0 | 所有文档都已渲染 |
+| 1 | 有文档不合 Schema（其余照常渲染），目录里没有可渲染的文档，或 `--validation` / `--ontology` 的 `doc_format` 不对 |
+| 2 | 文档目录、`--validation` 或 `--ontology` 不存在或读不了 |
+
 ## 与本体目录、与 `describe` 的关系
 
 两层回答不同的问题。表语义针对一张表、一列、一段 SQL；[本体目录](ontology-catalog.md)针对跨很多张表的业务
 概念。表语义是本体的原料：它的 `concept` 键写明本表表现的概念（`concept:<id>`）与表现类型（本体目录里表现的
-`kind`，如 `core`），让表语义页与概念页可以互相链接；本体发现的跨表问题（例如某列实际存的是另一个标识）以
+`kind`，如 `core`），让表语义页与概念页可以互相链接（`semantic render --ontology` 与 `catalog render --semantics`）；本体发现的跨表问题（例如某列实际存的是另一个标识）以
 `watch` 的形式回写到这张表的文档。
 
 [任务语义描述](semantic-doc.md)（`describe`，旧的语义卡）不再作为给读者的交付物：它的构建器是材料包血缘事实的

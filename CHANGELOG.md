@@ -1,6 +1,26 @@
 # Changelog
 
 ## Unreleased
+- **Table semantics pages: `semantic render`, and concept pages linked to them.**
+  `semantic render <dir> --out <dir> [--validation <report.json>] [--ontology
+  <ontology.json>]` writes one page per `table-semantics/1` document,
+  `<db.table>.md`, in the layout of the hand-made sample: a title line (domain, 「本表是
+  <概念> 的 <表现类型>表」, how many items are confirmed), 一页纸 with the nine questions in
+  order, 字段 grouped as 标识与关联 / 状态与码值 / 金额 / 时间 / 描述与技术列 (each branch of a
+  口径 spelt out), 加工过程, 规则（原文） and 来源说明; items with a `watch` show ⚠,
+  confirmed items ✓, unconfirmed code values `值（含义待确认）`. With a
+  `table-semantics-validation/1` report the failed items are marked ✗n where they stand and
+  listed, with the warnings, in a closing 校验 section. `index.md` lists every table by
+  domain and by concept with its one-line `what`, pass rate and open question count. With
+  `--ontology` the domain and concept come from the catalog (it wins over the document's own
+  `concept`) and link to `../concepts/<slug>.md`; without it the database stands in for the
+  domain. `catalog render` gains `--semantics <dir>`: each table a concept page lists (the
+  overview's 数据在哪 / 记录在 and appendix A2) links to its table-semantics page; without the
+  flag the pages are byte-for-byte unchanged. The skill gains
+  `references/table-semantics-prompt.md` (the writing prompt with its rewrite section) and
+  an orchestration section in `SKILL.md`: choose tables, packet, write, validate, rewrite
+  the failures, render, confirm. Guide: `docs/*/table-semantics.md` (render section) and
+  `docs/*/ontology-catalog.md` (`--semantics`).
 - **Table semantics: `semantic packet`, `semantic validate`, `semantic confirm`.** A new
   document, `table-semantics/1` (schema `scope_lineage/schemas/table-semantics.schema.json`),
   says what one target table means for a business reader: a one-page summary (what it is,

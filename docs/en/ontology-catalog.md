@@ -578,12 +578,20 @@ byte for byte what it was.
 ## Pages: `catalog render`
 
 ```bash
-scope-lineage catalog render out/ontology.json --out out/pages
+scope-lineage catalog render out/ontology.json --out out/pages \
+  [--semantics out/pages/semantics]
 ```
 
 `render` reads the built document only — never the catalog directory — so the pages show
 exactly what was built, evidence included. Headings are Chinese, like the other rendered
 documents; names are the catalog's own.
+
+`--semantics` names the directory of table pages `semantic render` wrote (`<db.table>.md`).
+With it, every table a concept page lists (数据在哪 / 记录在 in the overview, and the A2
+数据清单 inventory in the appendix) links to that table's table-semantics page, the link
+computed relative to `concepts/`; a table with no page in the directory stays unlinked.
+Without it the pages are byte-for-byte unchanged. The table pages link back to the concept
+pages with `semantic render --ontology`; see [table semantics](table-semantics.md).
 
 | File | What it holds |
 | --- | --- |
