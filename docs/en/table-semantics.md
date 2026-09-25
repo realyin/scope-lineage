@@ -1,14 +1,14 @@
 English | [中文](../zh-CN/table-semantics.md)
 
-# Table semantics (`table-semantics/1`): packet, validate, confirm
+# Table semantics (`table-semantics/1`): packet, validate, confirm, render
 
 Table semantics answers, for one target table and in words a business reader uses: what
 the table is, what one row is, how it is refreshed and how to read a day or a range, which
 records it keeps, where its data comes from and who uses it, what each column means and
 how it is computed, which code values a column holds, and what to watch out for.
 
-The document is written by a model and held to the facts by machine. Core does the two
-deterministic halves and never calls a model:
+The document is written by a model and held to the facts by machine. Core does the
+deterministic work and never calls a model:
 
 - `scope-lineage semantic packet` gathers every fact a writer needs about one table into a
   **material packet** — the table's metadata, each producing task with its SQL, the input
@@ -16,11 +16,13 @@ deterministic halves and never calls a model:
 - `scope-lineage semantic validate` checks a written `table-semantics/1` document against
   its JSON Schema and against the packet (nine cross checks), and lists per item what to
   rewrite;
-- `scope-lineage semantic confirm` writes a person's answers back into the documents.
+- `scope-lineage semantic confirm` writes a person's answers back into the documents;
+- `scope-lineage semantic render` renders the documents as one page per table and an
+  index, linked both ways with the ontology catalog's concept pages.
 
-Writing the document (the prompt, the rewrite loop) belongs to the agent skill. Rendering
-the documents into pages (`semantic render`) is the next step and is not part of this
-release.
+Writing the document (the prompt, the rewrite loop) belongs to the agent skill: the prompt
+is `skills/scope-lineage/references/table-semantics-prompt.md`, and the skill's `SKILL.md`
+gives the order of the steps.
 
 A hand-written example document for a demo table lives in
 [`examples/table-semantics/`](../../examples/table-semantics/), beside a confirmations file
@@ -33,7 +35,7 @@ for it; both are synthetic, like the demo corpus they describe.
 | 1. packet | machine | `semantic packet` | `<out>/<db.table>/packet.md` and `packet.json` |
 | 2. write | model, through the agent skill | — | one `table-semantics/1` JSON per table |
 | 3. validate | machine | `semantic validate` | a text summary, or a `--json` report whose failure list is the rewrite prompt |
-| 4. render | machine | `semantic render` (next step) | one page per table |
+| 4. render | machine | `semantic render` | one page per table, `<db.table>.md`, and `index.md` |
 | 5. confirm | a person answers, the machine applies | `semantic confirm` | the documents with `confirmed` marks |
 
 ## Five minutes on the demo
@@ -49,6 +51,12 @@ scope-lineage semantic packet --lineage out/lineage \
 scope-lineage semantic validate examples/table-semantics --packets out/packets
 scope-lineage semantic confirm examples/table-semantics \
   --confirmations examples/table-semantics/confirmations.json --out out/confirmed
+scope-lineage semantic validate out/confirmed --packets out/packets --json > out/validation.json
+scope-lineage catalog build examples/catalog-demo --out out/catalog
+scope-lineage semantic render out/confirmed --out out/pages/semantics \
+  --validation out/validation.json --ontology out/catalog/ontology.json
+scope-lineage catalog render out/catalog/ontology.json --out out/pages \
+  --semantics out/pages/semantics
 ```
 
 `validate` prints one line per document (`demo_dwd.dwd_party_customer_info_df: 52/52
@@ -234,6 +242,20 @@ The normalization for check 5 lower-cases, drops identifier quotes, table qualif
 whitespace and a leading `WHERE` / `AND` / `ON`, so the lineage's `` `latest`.`rn` = 1 ``,
 a quoted `WHERE rn = 1` and the script's `latest.rn=1` compare equal.
 
+The lineage renders every predicate through SQLGlot, while `rules[].sql` quotes the script
+as written, so check 5 compares both in one space. A fragment counts in two forms: its
+loose text, and — when SQLGlot parses it in the lineage's dialect — the text SQLGlot renders
+for it. The task SQL counts as its loose text, its rendered text, and one unit per `WHERE`,
+`HAVING` and `ON` predicate and per conjunct of each, rendered as written and with every
+column a subquery or CTE computes replaced by the expression behind it. A quote is found
+when any of its forms occurs in the script or equals a unit; a filter is cited when one of
+its forms meets a form of a quote or of a unit the quote equals. So the script's
+`nvl(x, 0) = 1`, `substr(n, 1, 2) = 'AB'` and `x is not null` cite the lineage's
+`COALESCE(x, 0) = 1`, `SUBSTRING(n, 1, 2) = 'AB'` and `NOT x IS NULL`, and a quoted
+`a.dt = '${bizdate}'` cites `DATE_FORMAT(time_inst, 'yyyyMMdd') = '${bizdate}'` when the
+subquery `a` computes `dt` that way. A fragment or script SQLGlot cannot parse keeps the
+loose text match.
+
 ### Report
 
 A table's pass rate is the share of checked items that did not fail; a warning is listed
@@ -319,6 +341,79 @@ names it with the reason. Without `--out` the changed documents are rewritten in
 with `--out` every document is written there and the originals are left alone. A malformed
 confirmations file exits 2.
 
+## `semantic render`
+
+```bash
+scope-lineage semantic render <documents> --out <dir> \
+  [--validation <report.json>] [--ontology <ontology.json>]
+```
+
+Renders every legal `table-semantics/1` document under `<documents>` as one page,
+`<dir>/<db.table>.md`, and writes `<dir>/index.md`. The toolchain's other documents
+(confirmations, packets, reports) are passed over; a document that does not fit the schema
+is reported on stderr and not rendered, and the exit code is 1.
+
+| Option | Required | Meaning |
+| --- | --- | --- |
+| `<documents>` | yes | The directory of `table-semantics/1` documents |
+| `--out` | yes | The output directory |
+| `--validation` | no | A `table-semantics-validation/1` report written by `semantic validate --json`: the page marks the failed items and ends with a 校验 section, the index shows the pass rate |
+| `--ontology` | no | An `ontology.json` written by `catalog build`: each table's domain and concept come from the catalog, the concept linked to `../concepts/<slug>.md` |
+
+### The table page
+
+The page follows the order of a hand-made sample page:
+
+| Part | Content |
+| --- | --- |
+| Title line | The table name; under it the domain (with `--ontology` the domain of the table's concept, else the database name), 「本表是 <concept> 的 <representation kind>表」, and how many items on the page are confirmed; with a report, the pass rate too |
+| 一页纸 | What the table is, what a row is (grain columns, where the grain comes from, whether it is unique), refresh and how to read, which records it keeps (citing its rules), where the data comes from (each upstream table and its role), who uses it, good for / not for, what to watch (each with its kind), open questions (an answered one with its answer, who answered and when) |
+| 字段 | Five groups: identifiers (标识与关联), states and codes (状态与码值 — every column with code values is here, with an extra 码值 column), amounts (金额 — the unit after the meaning) and time (时间), each a 字段 / 含义 / 口径 / 来源 table; descriptive and technical columns (描述与技术列) as one line. A 口径 spells out each branch (`线上：…；线下：…`), then the general wording, then when the column is empty |
+| 加工过程 | The producing task (its cycle and purpose), then the steps |
+| 规则（原文） | Each rule's id and kind, its business wording and its SQL |
+| 来源说明 | What the source words and the marks mean; the prompt the page was written with and the packet digest it was written against |
+| 校验 | Only with `--validation`: the pass rate, and each failed item and warning with its check, its place and how to fix it |
+
+The marks on a page:
+
+| Mark | Meaning |
+| --- | --- |
+| ✓ | The item's `sources` include `confirmed` (written by `semantic confirm`), or the question was answered; shown beside what it confirms (a column's meaning, a code value, a rule, …) |
+| ⚠ | The item carries a `watch`, whose text follows; a column or rule named only by the summary's watch list (`column:<name>`, `rule:<id>`) shows 「⚠（见要注意）」 |
+| ✗n | The report's n-th failed item falls on this item (numbered in report order); a failure about the whole table (a missing column, an uncited filter, a stale digest) is listed in the 校验 section only |
+| `值（含义待确认）` | A code value marked `unconfirmed: true` (or whose meaning starts with 待确认) |
+| （中置信）（低置信） | The item's `confidence` is not `high` |
+
+### The index
+
+`index.md` lists every table by domain, then by concept: the table (linked to its page),
+what it is (`summary.what`), the validation pass rate (— without a report, 未校验 when the
+report does not cover the table) and the number of open questions (still `open`); the
+by-concept tables add the representation kind. With `--ontology` the domain is that of the
+concept the table represents and each concept heading links to its concept page; without
+it the database name stands in for the domain and the concept is the document's own
+`concept`, shown as its id without a link. Tables that represent no concept are listed last
+under 未关联概念. No company's table-name convention is used for grouping.
+
+### Links to and from the concept pages
+
+The catalog decides which concept a table belongs to: a table the catalog lists as a
+representation takes the catalog's concept and representation kind; only a table the
+catalog does not list falls back to the document's own `concept`. A table page links to
+`../concepts/<slug>.md`, the concept page `catalog render` writes, so `--out` belongs in a
+subdirectory of the `catalog render` output, such as `<pages>/semantics`. The other
+direction is `catalog render --semantics <pages>/semantics`; see the
+[ontology catalog](ontology-catalog.md). Both flags are optional; without them both
+outputs are byte-for-byte what they were before this feature.
+
+### Exit codes
+
+| Code | When |
+| --- | --- |
+| 0 | Every document was rendered |
+| 1 | A document does not fit the schema (the rest are still rendered), no document could be rendered, or `--validation` / `--ontology` declares the wrong `doc_format` |
+| 2 | The document directory, `--validation` or `--ontology` does not exist or cannot be read |
+
 ## Relation to the ontology catalog and to `describe`
 
 The two layers answer different questions. Table semantics is about one table, one
@@ -326,7 +421,8 @@ column, one piece of SQL; the [ontology catalog](ontology-catalog.md) is about b
 concepts that span many tables. Table semantics is raw material for the catalog: its
 `concept` key names the concept this table represents (`concept:<id>`) and the kind of
 representation (the catalog's representation `kind`, such as `core`), so a table page and a
-concept page can link to each other, and a cross-table problem the catalog finds (a column
+concept page can link to each other (`semantic render --ontology` and
+`catalog render --semantics`), and a cross-table problem the catalog finds (a column
 that actually holds another identifier) comes back to the table's document as a `watch`.
 
 The [task-semantic description](semantic-doc.md) (`describe`, the semantic card) is no

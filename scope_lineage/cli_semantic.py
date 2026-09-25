@@ -1,4 +1,4 @@
-"""The ``scope-lineage semantic`` subcommands: ``packet``, ``validate``, ``confirm``.
+"""The ``scope-lineage semantic`` subcommands: ``packet``, ``validate``, ``confirm``, ``render``.
 
 Kept out of ``cli.py`` like ``tables`` and ``catalog``. This module is where the inputs
 are loaded -- the lineage walk ``describe`` uses, the task JSON reader ``parse`` uses,
@@ -29,6 +29,7 @@ from .semantics import (
     apply_confirmations,
     build_packets,
     render_packet_markdown,
+    render_semantic_pages,
     render_validation_text,
     schema_errors,
     validation_report,
@@ -44,7 +45,10 @@ _OTHER_FORMATS = frozenset({CONFIRMATIONS_FORMAT, PACKET_FORMAT, REPORT_FORMAT})
 def add_semantic_parser(subcommands) -> None:
     semantic = subcommands.add_parser(
         "semantic",
-        help="Table semantics: build material packets, validate written documents, apply confirmations",
+        help=(
+            "Table semantics: build material packets, validate written documents, apply "
+            "confirmations, render pages"
+        ),
     )
     actions = semantic.add_subparsers(dest="semantic_command", required=True)
     _add_packet_parser(actions)
@@ -65,6 +69,26 @@ def add_semantic_parser(subcommands) -> None:
     confirm.add_argument("--confirmations", required=True, help="A semantic-confirmations/1 file")
     confirm.add_argument(
         "--out", help="Write the confirmed documents here instead of rewriting them in place"
+    )
+    _add_render_parser(actions)
+
+
+def _add_render_parser(actions) -> None:
+    render = actions.add_parser(
+        "render", help="Write one markdown page per table-semantics/1 document and an index.md"
+    )
+    render.add_argument("directory", help="Directory of table-semantics/1 JSON documents")
+    render.add_argument("--out", required=True, help="Directory for index.md and <db.table>.md")
+    render.add_argument(
+        "--validation",
+        help="A table-semantics-validation/1 report (`semantic validate --json`): mark failures",
+    )
+    render.add_argument(
+        "--ontology",
+        help=(
+            "An ontology.json from `catalog build`: domain and concept per table, linked to "
+            "../concepts/<slug>.md (put --out beside the `catalog render` pages)"
+        ),
     )
 
 
@@ -102,6 +126,8 @@ def run_semantic(args: argparse.Namespace) -> int:
         return _run_packet(args)
     if args.semantic_command == "validate":
         return _run_validate(args)
+    if args.semantic_command == "render":
+        return _run_render(args)
     return _run_confirm(args)
 
 
@@ -381,3 +407,68 @@ def _semantic_documents(directory: Path) -> tuple[dict, dict]:
             documents[table] = document
             files[table] = path.relative_to(directory)
     return documents, files
+
+
+# ------------------------------------------------------------------ render
+
+
+def _run_render(args: argparse.Namespace) -> int:
+    """Pages for every legal document; exit 1 when one was skipped or none was found.
+
+    The report and the ontology are read before anything is written, so a mistyped
+    flag leaves no half-written output.
+    """
+    from .cli import _load_corpus_document
+    from .render.catalog_view import ONTOLOGY_FORMAT
+
+    directory = Path(args.directory)
+    if not directory.is_dir():
+        print(f"directory does not exist: {directory}", file=sys.stderr)
+        return 2
+    validation = _load_corpus_document(args.validation, "--validation", REPORT_FORMAT)
+    ontology = _load_corpus_document(args.ontology, "--ontology", ONTOLOGY_FORMAT)
+    for value in (validation, ontology):
+        if isinstance(value, int):
+            return value
+    documents, skipped = _renderable_documents(directory)
+    if not documents:
+        print(f"no table-semantics/1 document to render under {directory}", file=sys.stderr)
+        return 1
+    pages = render_semantic_pages(documents, validation=validation, ontology=ontology)
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    for name, body in pages.items():
+        (out / name).write_text(body, encoding="utf-8")
+    print(f"Rendered {len(documents)} table page(s) and index.md (skipped={skipped}) -> {out}")
+    return 1 if skipped else 0
+
+
+def _renderable_documents(directory: Path) -> tuple[list[dict], int]:
+    """The schema-valid documents under ``directory`` and how many were skipped.
+
+    The toolchain's other documents are passed over silently, as ``validate`` does; any
+    other JSON is a document that does not fit the schema, reported on stderr.
+    """
+    documents, skipped = [], 0
+    for path in sorted(directory.rglob("*.json")):
+        file = path.relative_to(directory).as_posix()
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            print(f"{file}: not a readable JSON document ({error}), skipped", file=sys.stderr)
+            skipped += 1
+            continue
+        if isinstance(document, dict) and document.get("doc_format") in _OTHER_FORMATS:
+            continue
+        errors = schema_errors(document, DOC_FORMAT)
+        if errors:
+            first = errors[0]
+            print(
+                f"{file}: not a legal {DOC_FORMAT} document "
+                f"({first['at'] or '(document)'}: {first['message']}), skipped",
+                file=sys.stderr,
+            )
+            skipped += 1
+            continue
+        documents.append(document)
+    return documents, skipped

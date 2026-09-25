@@ -18,6 +18,7 @@ catalog's own.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Optional
 
 from .catalog_concept_page import (
     arises_text,
@@ -47,13 +48,19 @@ IDENTIFIERS_FILENAME = "identifiers.md"
 GOVERNANCE_FILENAME = "governance.md"
 
 
-def render_catalog_pages(document: Mapping) -> dict[str, str]:
-    """``{relative path: markdown}`` for every page, in a stable order."""
+def render_catalog_pages(
+    document: Mapping, semantic_pages: Optional[Mapping[str, str]] = None
+) -> dict[str, str]:
+    """``{relative path: markdown}`` for every page, in a stable order.
+
+    ``semantic_pages`` (``db.table -> link relative to concepts/``) links each table a
+    concept page lists to its ``semantic render`` page; without it nothing changes.
+    """
     if document.get("doc_format") != ONTOLOGY_FORMAT:
         raise ValueError(
             f"expects an {ONTOLOGY_FORMAT} document, got {document.get('doc_format')!r}"
         )
-    view = CatalogView(document)
+    view = CatalogView(document, semantic_pages)
     pages = {
         INDEX_FILENAME: render_index(view),
         IDENTIFIERS_FILENAME: render_identifiers(view),

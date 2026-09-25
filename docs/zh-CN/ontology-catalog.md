@@ -535,11 +535,17 @@ scope-lineage catalog build examples/catalog-demo --out out/ \
 ## 页面：`catalog render`
 
 ```bash
-scope-lineage catalog render out/ontology.json --out out/pages
+scope-lineage catalog render out/ontology.json --out out/pages \
+  [--semantics out/pages/semantics]
 ```
 
 `render` 只读构建出的文档，从不回读目录文件夹，所以页面展示的就是构建结果（含证据）。标题用中文，
 与其他渲染文档一致；名称用目录自己的。
+
+`--semantics` 指向 `semantic render` 写出的表语义页目录（`<db.table>.md`）。给了它，概念页里列出的每张表
+（一页纸概览的「数据在哪 / 记录在」与附录 A2 数据清单）都链到这张表的表语义页，链接相对 `concepts/` 计算；
+目录里没有页面的表照旧不加链接。不给时页面逐字节不变。表语义页反过来用 `semantic render --ontology`
+链回概念页，见[表语义](table-semantics.md)。
 
 | 文件 | 内容 |
 | --- | --- |

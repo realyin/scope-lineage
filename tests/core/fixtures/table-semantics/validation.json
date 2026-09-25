@@ -1,0 +1,80 @@
+{
+  "doc_format": "table-semantics-validation/1",
+  "tables": [
+    {
+      "table": "demo_dwd.dwd_collection_fee_waiver_di",
+      "file": "demo_dwd.dwd_collection_fee_waiver_di.json",
+      "schema_errors": [],
+      "counts": {"pass": 58, "warn": 2, "fail": 4},
+      "pass_rate": 0.9375,
+      "checks": {
+        "coverage": {"pass": 13, "warn": 0, "fail": 0},
+        "source_columns": {"pass": 14, "warn": 1, "fail": 1},
+        "code_values": {"pass": 7, "warn": 0, "fail": 0},
+        "grain": {"pass": 1, "warn": 0, "fail": 0},
+        "rules": {"pass": 5, "warn": 0, "fail": 2},
+        "neighbours": {"pass": 3, "warn": 1, "fail": 1},
+        "sources": {"pass": 13, "warn": 0, "fail": 0},
+        "digest": {"pass": 1, "warn": 0, "fail": 0},
+        "time": {"pass": 1, "warn": 0, "fail": 0}
+      },
+      "failures": [
+        {
+          "check": "source_columns",
+          "status": "fail",
+          "at": "columns[3].source_columns[1]",
+          "message": "demo_ods.ods_loan_account_df.acct_no 既不在列 loan_no 的血缘来源里，也不是任何输入表的列；改成材料包 4.1 列出的来源列"
+        },
+        {
+          "check": "source_columns",
+          "status": "warn",
+          "at": "columns[7].source_columns[0]",
+          "message": "demo_ods.ods_loan_waiver_detail_di.reduce_amt 不在列 waive_amt 的血缘来源里，只在输入表元数据中；确认它真的参与口径，否则删掉"
+        },
+        {
+          "check": "rules",
+          "status": "fail",
+          "at": "rules",
+          "message": "过滤 is_deleted = 0（dwd_collection_fee_waiver_daily）没有被任何 rules[].sql 引用；补一条 filter 规则（照抄 SQL 原文），并在 summary.scope 里用 rule_refs 引用它"
+        },
+        {
+          "check": "rules",
+          "status": "fail",
+          "at": "rules[4].sql",
+          "message": "\"COALESCE(reduce_amt, 0) || ''\" 规范化后在任务 SQL 里找不到；照抄 SQL 原文片段，不要改写"
+        },
+        {
+          "check": "neighbours",
+          "status": "fail",
+          "at": "summary.upstream[3].table",
+          "message": "demo_ods.ods_product_main_df 不是本表血缘里的输入表；上游只能写材料包 4.4 列出的表"
+        },
+        {
+          "check": "neighbours",
+          "status": "warn",
+          "at": "summary.downstream[0].table",
+          "message": "不知道任务 ads_collection_waiver_daily 写哪些表，无法核对 demo_ads.ads_collection_waiver_1d"
+        }
+      ]
+    },
+    {
+      "table": "demo_dwd.dwd_party_customer_info_df",
+      "file": "demo_dwd.dwd_party_customer_info_df.json",
+      "schema_errors": [],
+      "counts": {"pass": 52, "warn": 0, "fail": 0},
+      "pass_rate": 1.0,
+      "checks": {
+        "coverage": {"pass": 7, "warn": 0, "fail": 0}
+      },
+      "failures": []
+    }
+  ],
+  "summary": {
+    "documents": 2,
+    "clean": 1,
+    "tables_with_failures": 1,
+    "tables_with_warnings_only": 0,
+    "tables_with_schema_errors": 0,
+    "pass_rate": 0.9655
+  }
+}

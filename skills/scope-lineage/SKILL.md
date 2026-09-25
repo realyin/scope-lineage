@@ -6,7 +6,7 @@ description: >-
   how a target column is derived step by step, find which tasks/columns depend on a table
   or column (impact analysis), and generate human-readable mapping.md documents. Use this
   skill whenever the user mentions 血缘 / lineage / 字段来源 / 加工步骤 / 影响分析 /
-  mapping 文档 / 字段映射 / 任务画像 / 语义描述 / 字段含义 / 实体关系 / 本体 / 表关系 /
+  mapping 文档 / 字段映射 / 任务画像 / 语义描述 / 表语义 / 字段含义 / 实体关系 / 本体 / 表关系 /
   ER 图, asks "这个字段怎么算出来的", "这个任务在做什么", "谁依赖这张表",
   "这个 SQL 读了哪些表", "这批任务里的表是什么关系", or wants to analyze,
   document, or audit warehouse SQL transformations — even if they do not name the
@@ -430,6 +430,47 @@ scope-lineage catalog render <dir>/ontology.json --out <pages-dir>   # the fallb
 `conflicts` 或页面附录 A7 的「证据与目录矛盾」要原样转述。细节见
 `references/catalog-questions.md`。
 
+### "这张表是什么意思 / 给这批表写表语义" — table semantics
+
+一张表对业务读者意味着什么（一行是什么、怎么取数、收哪些记录、每个字段什么意思、要注意什么），由你用
+提示词写、由 CLI 对照材料校验。顺序固定，每一步的产物是下一步的输入：
+
+```bash
+# 1. choose the tables: the ones the user asked about, or a layer / a concept's tables
+# 2. one material packet per table
+scope-lineage semantic packet --lineage <artifacts-root> --tasks <task-json-dir> \
+  --schema <schema> [--schema-fallback <path>] [--only <db.table> ...] --out <packets>
+# 3. for each table: the model reads <packets>/<db.table>/packet.md with
+#    references/table-semantics-prompt.md and writes <docs>/<db.table>.json
+# 4. hold every document to its schema and its packet
+scope-lineage semantic validate <docs> --packets <packets> --json > <report.json>
+# 5. rewrite only the failed items (the prompt's 「校验不通过时（重写）」 section, fed the
+#    table's failures from the report), then validate again; stop when nothing fails
+# 6. pages: one per table plus index.md; --ontology when a catalog exists
+scope-lineage semantic render <docs> --out <pages>/semantics \
+  --validation <report.json> [--ontology <dir>/ontology.json]
+scope-lineage catalog render <dir>/ontology.json --out <pages> --semantics <pages>/semantics
+# 7. the owner answers each page's 待确认问题; file the answers as semantic-confirmations/1
+scope-lineage semantic confirm <docs> --confirmations <answers.json>
+# then render again
+```
+
+- **挑表**：只挑用户问到的表，或一个层、一个概念的表；`--only` 让材料包只解析相关的血缘文档。
+- **写作**：每张表单独一次调用，只给这张表的 `packet.md` 和提示词，不要把别的表、整份血缘或本体读进去。
+  有本体目录时，把 `catalog query <ontology.json> table <db.table> --json` 答出的概念与表现类型告诉模型，
+  让它写 `concept`；有已确认的业务事实（例如某个标识的含义）时，作为「已确认事实」一并给它。
+- **重写**：只把失败清单里这张表的条目交回模型，已通过的条目不许动；同一处连续两轮还失败，就把它留给
+  owner（写成 `questions` 或 `watch`），不要硬凑到通过。第 8 项（`digest`）失败表示材料包变了，要整份重写。
+- **渲染**：`--out` 放在 `catalog render` 的输出目录下（`<pages>/semantics`），表语义页里的
+  `../concepts/<slug>.md` 才能打开；`catalog render --semantics` 反过来让概念页里列出的每张表链到它的表语义页。
+  页面上 ✓ 是已确认、⚠ 是矛盾或风险、✗n 是校验未通过（文末「校验」有说明），`值（含义待确认）` 是只有值
+  没有含义的码值。
+- **确认**：把页面的「待确认问题」原样交给 owner；回答写成 `question:<id>`、`column:<c>.meaning`、
+  `column:<c>.code_values` 或 `summary.row` 四种目标之一。`confirm` 列出的 `unmatched` 要逐条告诉用户，
+  不要默默丢掉。
+
+格式、九项检查和确认文件见 `docs/zh-CN/table-semantics.md`。
+
 ### "这个结果可信吗 / 为什么断了" — diagnostics
 
 Read the relevant warning and gap entries (they are in `query.py summary` counts;
@@ -481,6 +522,12 @@ documented uncertainty).
   catalog: which `catalog query` kind answers which question, when to fall back to the
   rendered concept page, how to report status, evidence and conflicts, and what to say when
   nothing matches. Read when a catalog (`catalog-yaml/1`) or its `ontology.json` exists.
+- `references/table-semantics-prompt.md` — the prompt a model writes one
+  `table-semantics/1` document from, given one table's `packet.md`: the one-page summary
+  first, then every column in table order, the steps, the rules with their SQL quoted and
+  the producing task, every item with its sources; and the rewrite section to hand back
+  with `semantic validate`'s failures. Read when the user asks what a table means, or
+  wants a batch of tables documented.
 - `../../docs/en/workflow.md` (`docs/zh-CN/workflow.md` for the Chinese version) — the
   end-to-end order of everything above: what `parse` / `tables` / `glossary` / `describe` /
   `ontology` need from each other, a runnable five-minute pass over `examples/`, where each of

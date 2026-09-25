@@ -1,0 +1,356 @@
+{
+  "doc_format": "table-semantics/1",
+  "table": "demo_dwd.dwd_collection_fee_waiver_di",
+  "packet_digest": "0f1e2d3c4b5a6978",
+  "generator": {
+    "prompt": "table-semantics-prompt@2",
+    "model": "hand-written fixture"
+  },
+  "summary": {
+    "what": "借据上发生的每一笔豁免，把「线上按余额成分豁免」和「线下豁免还款」两类合在一张表里。",
+    "row": {
+      "text": "线下豁免是一笔交易一行；线上豁免是一笔交易的某一个余额成分一行，同一个交易流水号会有多行。",
+      "grain_columns": ["waiver_seq"],
+      "grain_source": "inferred",
+      "unique": "no",
+      "note": "两类的序号来自两张不同源表的自增主键，合并后没有去重。",
+      "sources": ["sql", "inferred"],
+      "confidence": "medium",
+      "watch": "两类序号可能撞号"
+    },
+    "refresh": {
+      "cycle": "daily",
+      "time": "incremental",
+      "how_to_read": "取某一天的豁免用 dt = 那一天；取一段时间把这段的 dt 分区合起来。",
+      "sources": ["sql", "task"],
+      "confidence": "high"
+    },
+    "scope": [
+      {
+        "text": "线上豁免：当天的减免明细里记录状态正常的。",
+        "rule_refs": ["r1"],
+        "sources": ["sql"]
+      },
+      {
+        "text": "线下豁免：当天交易主表里交易场景为线下豁免还款的。",
+        "rule_refs": ["r2"],
+        "sources": ["sql", "sql_comment"]
+      },
+      {
+        "text": "两类都要能在产品表里找到产品，否则整行不进表。",
+        "rule_refs": ["r3"],
+        "sources": ["sql"],
+        "watch": "产品表没有按生效日期过滤"
+      }
+    ],
+    "upstream": [
+      {
+        "table": "demo_ods.ods_loan_waiver_detail_di",
+        "role": "union_branch",
+        "provides": "线上豁免的主表：余额成分、豁免类型、豁免金额",
+        "sources": ["sql"]
+      },
+      {
+        "table": "demo_ods.ods_loan_trade_main_di",
+        "role": "union_branch",
+        "provides": "线下豁免的主表；线上豁免的状态与时间补充",
+        "sources": ["sql"]
+      },
+      {
+        "table": "demo_ods.ods_loan_account_df",
+        "role": "enrich",
+        "provides": "线下豁免的客户号与借据号补充",
+        "sources": ["sql"]
+      },
+      {
+        "table": "demo_ods.ods_product_main_df",
+        "role": "filter",
+        "provides": "只留能找到产品的交易",
+        "sources": ["sql"],
+        "watch": "关联时没有按生效日期过滤，同一产品有多个版本时一笔会变多行"
+      }
+    ],
+    "downstream": [
+      {"task": "ads_collection_waiver_daily", "table": "demo_ads.ads_collection_waiver_1d"}
+    ],
+    "good_for": [
+      "统计每天的豁免笔数与金额",
+      "查某个借据被豁免的记录"
+    ],
+    "not_for": [
+      "看豁免申请与审批过程",
+      "按豁免类型统计线下豁免：线下没有豁免类型"
+    ],
+    "watch": [
+      {
+        "text": "「豁免类型」两套码值说法打架：表注释是字母码，SQL 注释是数字码；实际存哪套待确认。",
+        "kind": "conflict",
+        "refs": ["column:waiver_type"]
+      },
+      {
+        "text": "「借据号」两类来源不同：线上取借据号，线下取贷款账号。",
+        "kind": "conflict",
+        "refs": ["column:loan_no"]
+      },
+      {
+        "text": "与产品表关联时没有按生效日期过滤，可能一笔变多行。",
+        "kind": "risk",
+        "refs": ["rule:r3"]
+      },
+      {
+        "text": "只覆盖老核心；新核心的豁免不在这张表里。",
+        "kind": "coverage"
+      }
+    ],
+    "questions": [
+      {
+        "id": "q1",
+        "text": "处理状态 1 是不是「成功」？",
+        "about": ["column:waiver_status"],
+        "status": "answered",
+        "answer": "是，1 表示成功。",
+        "answered_by": "demo-reviewer",
+        "answered_on": "2026-09-26"
+      },
+      {
+        "id": "q2",
+        "text": "豁免类型实际存的是字母码还是数字码？",
+        "about": ["column:waiver_type"],
+        "status": "open"
+      },
+      {
+        "id": "q3",
+        "text": "同一产品编码在产品表里会不会有多个版本同时生效？",
+        "about": ["rule:r3"],
+        "status": "open"
+      }
+    ]
+  },
+  "columns": [
+    {
+      "column": "waiver_seq",
+      "meaning": "豁免记录序号",
+      "category": "identifier",
+      "derivation": "两类编号体系不同",
+      "branches": [
+        {"branch": "线上", "text": "取减免明细的序号"},
+        {"branch": "线下", "text": "取交易主表的序号"}
+      ],
+      "source_columns": [
+        "demo_ods.ods_loan_waiver_detail_di.id",
+        "demo_ods.ods_loan_trade_main_di.id"
+      ],
+      "sources": ["sql"],
+      "confidence": "high"
+    },
+    {
+      "column": "trade_sn",
+      "meaning": "交易流水号",
+      "category": "identifier",
+      "derivation": "两类都取交易流水号；线上用它关联交易主表。",
+      "source_columns": ["demo_ods.ods_loan_trade_main_di.trade_sn"],
+      "sources": ["sql"],
+      "confidence": "high"
+    },
+    {
+      "column": "customer_id",
+      "meaning": "客户号",
+      "category": "foreign_identifier",
+      "derivation": "",
+      "branches": [
+        {"branch": "线上", "text": "取减免明细的客户号"},
+        {"branch": "线下", "text": "取贷款账户的客户号"}
+      ],
+      "source_columns": [
+        "demo_ods.ods_loan_waiver_detail_di.cust_no",
+        "demo_ods.ods_loan_account_df.cust_no"
+      ],
+      "null_meaning": "线下交易在贷款账户里没找到",
+      "sources": ["sql", "comment", "confirmed"],
+      "confidence": "high"
+    },
+    {
+      "column": "loan_no",
+      "meaning": "借据号",
+      "category": "foreign_identifier",
+      "derivation": "",
+      "branches": [
+        {"branch": "线上", "text": "取借据号"},
+        {"branch": "线下", "text": "取贷款账号"}
+      ],
+      "source_columns": [
+        "demo_ods.ods_loan_waiver_detail_di.loan_no",
+        "demo_ods.ods_loan_account_df.acct_no"
+      ],
+      "watch": "两者不完全等同",
+      "sources": ["sql", "comment"],
+      "confidence": "medium"
+    },
+    {
+      "column": "waive_scene",
+      "meaning": "豁免方式",
+      "category": "state",
+      "derivation": "线上固定写 1，线下固定写 2。",
+      "code_values": [
+        {"value": "1", "meaning": "线上豁免", "sources": ["sql"]},
+        {"value": "2", "meaning": "线下豁免", "sources": ["sql"]}
+      ],
+      "sources": ["sql", "comment"],
+      "confidence": "high"
+    },
+    {
+      "column": "waiver_type",
+      "meaning": "豁免类型",
+      "category": "descriptive",
+      "derivation": "仅线上有值，取减免类型。",
+      "source_columns": ["demo_ods.ods_loan_waiver_detail_di.reduce_type"],
+      "code_values": [
+        {"value": "INT", "meaning": "利息", "sources": ["comment"]},
+        {"value": "PEN", "meaning": "罚息", "sources": ["comment"]},
+        {"value": "2", "meaning": "待确认", "sources": ["sql_comment"], "unconfirmed": true},
+        {"value": "3", "meaning": "待确认：可能是费用", "sources": ["sql_comment"], "unconfirmed": true}
+      ],
+      "null_meaning": "线下豁免",
+      "watch": "表注释与 SQL 注释给了两套码值",
+      "sources": ["comment", "sql_comment"],
+      "confidence": "low"
+    },
+    {
+      "column": "waiver_status",
+      "meaning": "处理状态",
+      "category": "state",
+      "derivation": "取交易主表的处理状态。",
+      "source_columns": ["demo_ods.ods_loan_trade_main_di.trade_status"],
+      "code_values": [
+        {"value": "0", "meaning": "申请", "sources": ["comment"]},
+        {"value": "1", "meaning": "成功", "sources": ["comment", "confirmed"], "unconfirmed": false},
+        {"value": "2", "meaning": "失败", "sources": ["comment"]},
+        {"value": "9", "meaning": "待确认", "sources": ["sql"], "unconfirmed": true}
+      ],
+      "sources": ["sql", "comment"],
+      "confidence": "high"
+    },
+    {
+      "column": "waive_amt",
+      "meaning": "豁免金额",
+      "category": "measure",
+      "derivation": "",
+      "branches": [
+        {"branch": "线上", "text": "取减免金额"},
+        {"branch": "线下", "text": "取交易金额"}
+      ],
+      "source_columns": [
+        "demo_ods.ods_loan_waiver_detail_di.reduce_amt",
+        "demo_ods.ods_loan_trade_main_di.trade_amt"
+      ],
+      "unit": "元",
+      "watch": "两类金额来源不同",
+      "sources": ["sql", "comment"],
+      "confidence": "medium"
+    },
+    {
+      "column": "waive_time",
+      "meaning": "豁免时间",
+      "category": "time",
+      "derivation": "取交易主表的交易时间。",
+      "source_columns": ["demo_ods.ods_loan_trade_main_di.trade_time"],
+      "sources": ["sql"],
+      "confidence": "high"
+    },
+    {
+      "column": "post_date",
+      "meaning": "入账日期",
+      "category": "time",
+      "derivation": "取交易的成功日期，不是交易主表的入账日期列。",
+      "source_columns": ["demo_ods.ods_loan_trade_main_di.success_date"],
+      "watch": "列名与口径不一致",
+      "sources": ["sql", "comment"],
+      "confidence": "medium"
+    },
+    {
+      "column": "remark",
+      "meaning": "备注",
+      "category": "descriptive",
+      "derivation": "取交易主表的备注。",
+      "source_columns": ["demo_ods.ods_loan_trade_main_di.remark"],
+      "sources": ["sql"],
+      "confidence": "high"
+    },
+    {
+      "column": "etl_time",
+      "meaning": "装载时间",
+      "category": "technical",
+      "derivation": "任务运行时的当前时间",
+      "sources": ["sql"],
+      "confidence": "high"
+    },
+    {
+      "column": "dt",
+      "meaning": "数据日期",
+      "category": "time",
+      "derivation": "调度日期，按天分区；每个分区是当天发生的豁免。",
+      "sources": ["sql"],
+      "confidence": "high"
+    }
+  ],
+  "steps": [
+    "线上：减免明细（当天、状态正常）左关联交易主表（按交易流水号），内关联产品表（按产品编码）。",
+    "线下：交易主表（当天、场景为线下豁免还款）左关联贷款账户（按合同号），内关联产品表。",
+    "两类上下拼接（不去重），写入当天分区。"
+  ],
+  "rules": [
+    {
+      "id": "r1",
+      "kind": "filter",
+      "text": "只收记录状态正常的减免明细",
+      "sql": "record_status = 0",
+      "sources": ["sql"]
+    },
+    {
+      "id": "r2",
+      "kind": "filter",
+      "text": "线下只收豁免还款场景",
+      "sql": "trade_scene = 'OFFLINE_WAIVE'",
+      "sources": ["sql", "sql_comment"]
+    },
+    {
+      "id": "r3",
+      "kind": "join",
+      "text": "找不到产品的交易不进表",
+      "sql": "INNER JOIN demo_ods.ods_product_main_df p ON t.prod_cd = p.prod_cd",
+      "sources": ["sql"],
+      "watch": "没有按生效日期过滤"
+    },
+    {
+      "id": "r4",
+      "kind": "union",
+      "text": "两类直接拼接，不去重",
+      "sql": "UNION ALL",
+      "sources": ["sql"]
+    },
+    {
+      "id": "r5",
+      "kind": "derive",
+      "text": "金额为空时记为 0",
+      "sql": "COALESCE(reduce_amt, 0) || ''",
+      "sources": ["sql"]
+    }
+  ],
+  "task": {
+    "name": "dwd_collection_fee_waiver_daily",
+    "purpose": "每天把线上、线下两类豁免合成一张豁免明细，给催收的豁免统计使用。",
+    "cycle": "daily",
+    "outputs": ["demo_dwd.dwd_collection_fee_waiver_di"],
+    "upstream_tasks": [],
+    "downstream_tasks": ["ads_collection_waiver_daily"]
+  },
+  "concept": {
+    "concept": "concept:fee_waiver",
+    "representation_kind": "event_detail"
+  },
+  "confirmed": [
+    {"target": "question:q1", "by": "demo-reviewer", "date": "2026-09-26"},
+    {"target": "column:customer_id.meaning", "by": "demo-reviewer", "date": "2026-09-26"},
+    {"target": "column:waiver_status.code_values", "by": "demo-reviewer", "date": "2026-09-26"}
+  ]
+}
