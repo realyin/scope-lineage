@@ -286,6 +286,17 @@ Validated 1 document(s): 0 clean, 1 with failures, 0 with warnings only, 0 with 
 | 1 | 至少一份文档有 Schema 错误，或目录里没有 JSON |
 | 2 | 文档目录或 `--packets` 不存在 |
 
+## 独立审读与修订
+
+`semantic validate` 保证的是形式：每列都写了、出处在血缘里、规则照抄了原文、时间语义与分区一致、行数放大被点名。它保证不了含义——一个派生列在什么情况下为空、页面写的是目标码还是原码、回填的 0 是「真的为 0」还是「没有值」、取数说明和适用说明是否互相矛盾，这些在真实验收里都出现过「校验全过、内容却错」的页面。
+
+所以写作之后加两步，都在 Agent 技能里：
+
+1. **独立审读**（`skills/scope-lineage/references/table-semantics-review-prompt.md`）：另起一次调用，只读材料包、文档和已确认事实，按十五项清单找事实错误，按严重程度列出「文档原话 / 材料原文 / 应改成」。审读员可以读兄弟表的材料包，核实文档对其他表的说法。
+2. **修订**（`skills/scope-lineage/references/table-semantics-fix-prompt.md`）：逐条核实后修改，改完通读全页消除前后矛盾，推断与事实分开，再跑一次 `semantic validate`。
+
+两条经验：审读必须是独立的调用，写作者自查找不出自己的盲点；修订容易在一处改对、另一处留下旧说法，所以修订后通读全页那一步不能省。验收问题集不要交给写作、审读或修订的调用。
+
 ## `semantic confirm`
 
 ```bash

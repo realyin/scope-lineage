@@ -332,6 +332,17 @@ Validated 1 document(s): 0 clean, 1 with failures, 0 with warnings only, 0 with 
 | 1 | at least one document has a schema error, or the directory holds no JSON |
 | 2 | the documents directory or `--packets` does not exist |
 
+## Independent review and revision
+
+`semantic validate` guarantees form: every column is written, sources are in the lineage, rules quote the SQL, time semantics match the partitions, row-multiplying joins are named. It cannot guarantee meaning — when a derived column is NULL, whether a page shows target codes or source codes, whether a backfilled 0 means "zero" or "no value", whether the reading notes contradict the usage notes. A real acceptance run found pages that passed every check and were still wrong on exactly these points.
+
+So two steps follow writing, both in the agent skill:
+
+1. **Independent review** (`skills/scope-lineage/references/table-semantics-review-prompt.md`): a separate model call reads only the packet, the document and the confirmed facts, works through a fifteen-item checklist and lists factual errors by severity as "document says / material shows / change to". The reviewer may read sibling tables' packets to check what the document says about them.
+2. **Revision** (`skills/scope-lineage/references/table-semantics-fix-prompt.md`): verify each finding, apply it, re-read the whole page to remove contradictions, keep inference apart from fact, and run `semantic validate` again.
+
+Two lessons: the review must be a separate call — a writer re-checking its own page does not find its blind spots; and a revision easily fixes one sentence while leaving the old claim elsewhere on the page, so the whole-page re-read is not optional. Never give the acceptance questions to the writing, review or revision calls.
+
 ## `semantic confirm`
 
 ```bash

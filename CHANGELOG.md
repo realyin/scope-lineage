@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+
+- **Table semantics: independent review and revision.** Validation guarantees form, not meaning, so the agent skill gains two steps after writing: an independent review prompt (`references/table-semantics-review-prompt.md`, a fifteen-item checklist from branch-level grain and derived-code NULLs to page consistency, inference vs fact and sibling tables) and a revision prompt (`references/table-semantics-fix-prompt.md`, apply verified findings, re-read the whole page, validate again). The writing prompt gains a section on the errors review most often finds; `SKILL.md` orchestrates write → validate → review → fix → validate → render; docs zh/en describe the loop.
 - **Fixed — a MERGE's JOINs are on the output path again.** A MERGE keeps its grain
   `unknown`, and the grain walk used to stop there with only ROOT visited, so no JOIN
   under the USING source -- however many CTEs or subqueries down -- was given a fan-out
