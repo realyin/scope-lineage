@@ -407,6 +407,28 @@ python3 scripts/query.py concept-impact <concept id | 概念名> \
 本体缺失或版本过旧、概念或属性不存在，都是一句话 + 退出码 2。回答时把 tier 带上：
 `hypothesis` 的关系是作者假设，不能说成事实（见上一节的分级规则）。
 
+### "客户是什么 / 这张表装的是什么 / 这个字段指什么" — 用目录回答业务问题
+
+有人维护的本体目录（`catalog-yaml/1`）时，业务问题先问目录，不要从 SQL 重新推。
+
+```bash
+scope-lineage catalog build <catalog-dir> --out <dir> \
+  [--lineage <artifacts-root>] [--tables <tables.json>]     # once: ontology.json + evidence
+scope-lineage catalog query <dir>/ontology.json <kind> <term> --json
+scope-lineage catalog render <dir>/ontology.json --out <pages-dir>   # the fallback
+```
+
+**query 优先，页面兜底。** `query` 的六种 kind 各答一类问题：`concept`（这是什么）、
+`table`（这张表承载什么、每列指向什么）、`column`（`库.表.列` 是哪个属性/标识符）、
+`identifier`（怎么唯一识别、落在哪些列）、`attribute`（这个属性在哪些表列、码值、口径）、
+`related`（一跳邻居：关系、事件、角色、表）。`--json` 的 `{query, matches[]}` 直接引用；
+没有匹配时退出 1，**如实说目录里没有**，不要拿近似名去猜。只有一个问题要连着看六节
+（定义、数据清单、属性、关系、约束、治理缺口）时，才读 `render` 出的
+`concepts/<slug>.md`；不要把整个 `ontology.json` 读进上下文。答案里带上状态
+（`drafted` = 草拟，未经确认）和证据标签（「血缘」是语料证明的，不是目录的声明）；
+`conflicts` 或页面第 6 节的「证据与目录矛盾」要原样转述。细节见
+`references/catalog-questions.md`。
+
 ### "这个结果可信吗 / 为什么断了" — diagnostics
 
 Read the relevant warning and gap entries (they are in `query.py summary` counts;
@@ -454,6 +476,10 @@ documented uncertainty).
   `concepts.overrides.json`. Read when the user asks which
   business concepts a corpus is about, or what a group of tables *is*, rather than which
   table joins which.
+- `references/catalog-questions.md` — answering business questions from an ontology
+  catalog: which `catalog query` kind answers which question, when to fall back to the
+  rendered concept page, how to report status, evidence and conflicts, and what to say when
+  nothing matches. Read when a catalog (`catalog-yaml/1`) or its `ontology.json` exists.
 - `../../docs/en/workflow.md` (`docs/zh-CN/workflow.md` for the Chinese version) — the
   end-to-end order of everything above: what `parse` / `tables` / `glossary` / `describe` /
   `ontology` need from each other, a runnable five-minute pass over `examples/`, where each of
