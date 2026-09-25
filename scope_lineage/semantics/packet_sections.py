@@ -11,6 +11,7 @@ from __future__ import annotations
 from ..redaction import redact
 from . import packet_facts as facts
 from .names import bare_table
+from .packet_meaning import header_facts
 
 
 def _comment(text) -> str | None:
@@ -86,6 +87,7 @@ def _task_entry(task: str, group: list[dict], corpus) -> dict:
         "upstream_tasks": list(meta.get("upstream_tasks") or []),
         "downstream_tasks": list(meta.get("downstream_tasks") or []),
         "header_comments": list(info.get("header_comments") or []),
+        "header_facts": header_facts(info.get("header_comments"), record.get("sql")),
         "statements": [statement.get("statement_id") for statement in group],
         "source_file": meta.get("source_file") or record.get("source_file"),
         "sql": record.get("sql"),

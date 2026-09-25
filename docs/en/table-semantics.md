@@ -123,6 +123,22 @@ Each filter rule carries `partition_filter` and the `partition_basis` it rests o
 
 The same facts mark `partition` on the target's and the inputs' columns.
 
+Three more facts serve the meaning checks (10–13). Each join rule carries `right` (the
+right side: a `db.table`, or the profile's scope id such as `subq:p`), `right_aliases`
+(the aliases the ON clause and the scope give it), `right_tables` (the physical tables
+behind it) and `fan_out`, the profile's verdict on whether the right side is unique on the
+join keys (`{status, reason, path}`, `status` one of `safe` / `risk` / `unknown`; `null`
+for a join on no path the profile walked); `packet.md` shows it in the rules table's
+行数放大 column. Each column producer carries `case_outputs`: for a column whose last
+computing step is one CASE or IF with only literal outputs (NULL aside), one entry per
+value with the branch conditions (`when`), the source values those conditions compare with
+(`source_values`, `null` when a condition is not an equality or `IN` list) and whether
+the ELSE returns it (`catch_all`). Each task carries `header_facts`, the lifecycle
+(`生命周期` / `保留` / `lifecycle` followed by a number of days or `永久`) and data volume
+(`数据规模` / `数据量` followed by a number) its header comment states, read from the
+published header and from the comment lines that open the script; `packet.md` prints them
+as 头注释.
+
 ### Owners and emails
 
 A packet is handed to a model, so it never carries a person: every owner key
@@ -147,7 +163,7 @@ One JSON document per target table. The schema is shipped as
 {
   "doc_format": "table-semantics/1",
   "table": "demo_dwd.dwd_party_customer_info_df",
-  "packet_digest": "d6ca0cf34298f8c1",
+  "packet_digest": "04439862460b03d6",
   "generator": {"prompt": "table-semantics-prompt@0", "model": "hand-written example"},
   "summary": {"what": "...", "row": {}, "refresh": {}, "scope": [], "upstream": [],
               "downstream": [], "good_for": [], "not_for": [], "watch": [], "questions": []},

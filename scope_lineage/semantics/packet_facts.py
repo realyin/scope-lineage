@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 
 from .names import bare_column, bare_table, normalize_sql
+from .packet_meaning import case_outputs, code_expression, join_facts
 
 _RULE_KINDS = {"filter": "filter", "having": "filter", "join_condition": "join",
                "case_branch": "case"}
@@ -44,6 +45,7 @@ def column_producer(task: str, statement: dict, field: dict) -> dict:
         "expression": field.get("expression"),
         "sources": sources,
         "steps": [str(step.get("text")) for step in field.get("derivation") or []],
+        "case_outputs": case_outputs(code_expression(field)),
     }
 
 
@@ -74,6 +76,8 @@ def _profile_rule(task: str, statement: dict, rule: dict) -> dict:
     }
     if rule.get("join_type"):
         entry["join_type"] = rule["join_type"]
+    if entry["kind"] == "join":
+        entry.update(join_facts(statement, rule))
     return entry
 
 

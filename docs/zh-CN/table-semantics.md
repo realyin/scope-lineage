@@ -106,6 +106,16 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 
 目标表和输入表各列的 `partition` 也按同样的事实标注。
 
+另有三类事实供含义检查（第 10–13 项）使用。每条关联规则带 `right`（右侧：`库.表`，或画像的 scope 编号，
+如 `subq:p`）、`right_aliases`（ON 子句与 scope 给它的别名）、`right_tables`（它背后的物理表）和
+`fan_out`——画像对右侧是否按关联键唯一的判定（`{status, reason, path}`，`status` 为 `safe` / `risk` /
+`unknown`；画像没有走到的关联为 `null`）；`packet.md` 在规则表的「行数放大」一列里给出。每个列的生产语句带
+`case_outputs`：该列最后一步计算是一个输出全为字面量（NULL 除外）的 CASE 或 IF 时，每个值一条，写明分支条件
+（`when`）、这些条件比较的来源值（`source_values`；条件不是等值或 `IN` 列表时为 `null`）以及是否由 ELSE 返回
+（`catch_all`）。每个任务带 `header_facts`：头注释写明的生命周期（`生命周期` / `保留` / `lifecycle` 后跟天数
+或 `永久`）与数据规模（`数据规模` / `数据量` 后跟数字），从血缘发布的头注释和脚本开头的注释行里读取；
+`packet.md` 以「头注释」一行列出。
+
 ### 负责人与邮箱
 
 材料包要交给模型，所以从不带人：任何负责人键（`owner`、`owner_email`、`target_table_owner` 等）出现在哪
@@ -125,7 +135,7 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 {
   "doc_format": "table-semantics/1",
   "table": "demo_dwd.dwd_party_customer_info_df",
-  "packet_digest": "d6ca0cf34298f8c1",
+  "packet_digest": "04439862460b03d6",
   "generator": {"prompt": "table-semantics-prompt@0", "model": "hand-written example"},
   "summary": {"what": "...", "row": {}, "refresh": {}, "scope": [], "upstream": [],
               "downstream": [], "good_for": [], "not_for": [], "watch": [], "questions": []},
