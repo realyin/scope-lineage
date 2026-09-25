@@ -299,8 +299,33 @@ def test_the_events_a_concept_takes_part_in(pages: dict) -> None:
     page = pages["concepts/loan.md"]
 
     assert "| [还款](repayment.md) | loan | 1 | 1 次（如" in page
-    assert "| [豁免](fee_waiver.md) | loan | 1 | 0 次 |" in page
+    assert "| [豁免](fee_waiver.md) | loan | 1 | 0 次；同表携带两端：" in page
     assert "| [放款](disbursement.md) | loan | 0 | —（一端无表现表） |" in page
+
+
+def test_a_relation_no_join_backs_falls_back_to_the_catalogs_own_evidence(pages: dict) -> None:
+    """The channel has no table, so no JOIN is counted; the catalog still shows where the
+    relation lives: the account map carries both ends, and the relation cites its column."""
+    row = _row(pages["concepts/channel.md"], "is opened in `rel:app_account_opened_in_channel`")
+
+    assert (
+        "| —（一端无表现表）；同表携带两端：`demo_dwd.dwd_party_account_map_df`；"
+        "目录证据：`demo_dwd.dwd_party_account_map_df.channel_code` |"
+    ) in row
+
+
+def test_a_relation_counted_at_zero_joins_shows_the_tables_carrying_both_ends(
+    document: dict,
+) -> None:
+    zero = json.loads(json.dumps(document))
+    zero["evidence"]["relations"]["rel:loan_renews_loan"]["joins"] = {"count": 0, "samples": []}
+
+    row = _row(render_catalog_pages(zero)["concepts/loan.md"], "renews `rel:loan_renews_loan`")
+
+    assert (
+        "| 0 次；同表携带两端：`demo_dwd.dwd_lending_loan_df`；"
+        "目录证据：`demo_dwd.dwd_lending_loan_df.orig_loan_no` |"
+    ) in row
 
 
 def test_a_player_page_links_to_its_roles(pages: dict) -> None:
@@ -348,7 +373,9 @@ def test_without_evidence_the_pages_say_so_rather_than_guess(plain_pages: dict) 
 
     assert "血缘" not in loan
     assert "证据与目录矛盾" not in loan
-    assert _row(loan, "owes `rel:borrower_owes_loan`").count("| — |") == 1
+    owes = _row(loan, "owes `rel:borrower_owes_loan`")
+    assert "次" not in owes
+    assert "同表携带两端：`demo_dwd.dwd_lending_loan_df`、`demo_dwd.dwd_lending_repayment_di`" in owes
     assert "证据" not in plain_pages["index.md"].split("## 概念")[0]
 
 

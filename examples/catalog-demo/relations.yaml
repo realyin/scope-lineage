@@ -19,6 +19,7 @@ relations:
     cardinality: {from: "0..*", to: "1"}
     status: confirmed
     source: sql
+    evidence: [demo_dwd.dwd_party_account_map_df.channel_code]
 
   - id: rel:borrower_owes_loan
     kind: association
@@ -49,3 +50,4 @@ relations:
     definition: A renewal loan pays off the loan it extends; orig_loan_no names that loan.
     status: drafted
     source: sql
+    evidence: [demo_dwd.dwd_lending_loan_df.orig_loan_no]

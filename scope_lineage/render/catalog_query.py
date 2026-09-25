@@ -379,6 +379,7 @@ def _relation(view: CatalogView, concept_id: str, relation: dict) -> dict:
         "other": _ref(view, other),
         "cardinality": relation["cardinality"],
         "joins": joins["count"] if joins else None,
+        **_backing(view, relation),
     }
 
 
@@ -390,4 +391,13 @@ def _participation(view: CatalogView, relation: dict, other: str) -> dict:
         "role_name": relation["name"],
         "tables": len(view.representations_of(other)),
         "joins": joins["count"] if joins else None,
+        **_backing(view, relation),
+    }
+
+
+def _backing(view: CatalogView, relation: dict) -> dict:
+    """What the catalog itself says about where the relation lives, JOINs or not."""
+    return {
+        "carried_together": view.carried_together(relation),
+        "evidence": list(relation.get("evidence") or []),
     }

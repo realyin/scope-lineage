@@ -49,7 +49,7 @@ The sign-in account a customer holds in one channel.
 
 | 关系 | 种类 | 读法 | 对端 | 基数 | 证据连接 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
-| is opened in `rel:app_account_opened_in_channel` | 关联 | 应用账户 is opened in 渠道 | [渠道](channel.md) | 应用账户 0..* : 渠道 1 | —（一端无表现表） | 已确认（sql） |
+| is opened in `rel:app_account_opened_in_channel` | 关联 | 应用账户 is opened in 渠道 | [渠道](channel.md) | 应用账户 0..* : 渠道 1 | —（一端无表现表）；同表携带两端：`demo_dwd.dwd_party_account_map_df`；目录证据：`demo_dwd.dwd_party_account_map_df.channel_code` | 已确认（sql） |
 | holds `rel:customer_holds_app_account` | 组成 | 应用账户 is held by 客户 | [客户](customer.md) | 客户 1 : 应用账户 0..* | 1 次（如 `demo_dwd.dwd_party_customer_info_df.customer_id = demo_dwd.dwd_party_account_map_df.customer_id`） | 已确认（owner） |
 
 ### 参与的事件

@@ -93,15 +93,15 @@ One amount lent to a borrower, repaid over one or more instalments.
 | 关系 | 种类 | 读法 | 对端 | 基数 | 证据连接 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
 | owes `rel:borrower_owes_loan` | 关联 | 借据 is owed by 借款人 | [借款人](borrower.md) | 借款人 1 : 借据 1..* | 1 次（如 `demo_dwd.dwd_lending_borrower_df.customer_id = demo_dwd.dwd_lending_loan_df.customer_id`） | 已确认（owner） |
-| is a kind of `rel:installment_loan_is_a_loan` | 泛化 | 分期借据 is a kind of 借据 | [分期借据](installment_loan.md) | 分期借据 0..1 : 借据 1 | —（一端无表现表） | 草拟（llm） |
-| renews `rel:loan_renews_loan` | 关联 | 借据 renews 借据 | 本概念（自关联，经 `demo_dwd.dwd_lending_loan_df.orig_loan_no`） | 借据 0..1 : 借据 0..1 | 0 次 | 草拟（sql） |
+| is a kind of `rel:installment_loan_is_a_loan` | 泛化 | 分期借据 is a kind of 借据 | [分期借据](installment_loan.md) | 分期借据 0..1 : 借据 1 | —（一端无表现表）；同表携带两端：`demo_dwd.dwd_collection_fee_waiver_di`、`demo_dwd.dwd_lending_loan_df`、`demo_dwd.dwd_lending_loan_status_his`、`demo_dwd.dwd_lending_repayment_di` | 草拟（llm） |
+| renews `rel:loan_renews_loan` | 关联 | 借据 renews 借据 | 本概念（自关联，经 `demo_dwd.dwd_lending_loan_df.orig_loan_no`） | 借据 0..1 : 借据 0..1 | 0 次；同表携带两端：`demo_dwd.dwd_lending_loan_df`；目录证据：`demo_dwd.dwd_lending_loan_df.orig_loan_no` | 草拟（sql） |
 
 ### 参与的事件
 
 | 事件 | 本概念角色 | 事件表现表数 | 证据连接 |
 | --- | --- | --- | --- |
 | [放款](disbursement.md) | loan | 0 | —（一端无表现表） |
-| [豁免](fee_waiver.md) | loan | 1 | 0 次 |
+| [豁免](fee_waiver.md) | loan | 1 | 0 次；同表携带两端：`demo_dwd.dwd_collection_fee_waiver_di` |
 | [还款](repayment.md) | loan | 1 | 1 次（如 `demo_dwd.dwd_lending_loan_df.loan_no = demo_dwd.dwd_lending_repayment_di.loan_no`） |
 
 ### 本概念的角色

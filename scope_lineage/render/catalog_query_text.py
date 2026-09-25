@@ -165,22 +165,31 @@ def _attribute(match: Mapping) -> list[str]:
     return lines + [f"  - {c['table']}.{_column_text(c)}" for c in match["columns"]]
 
 
-def _related(match: Mapping) -> list[str]:
-    def joins(item) -> str:
-        return "" if item["joins"] is None else f"（{item['joins']} 次连接）"
+def _joins(item: Mapping) -> str:
+    """``（2 次连接）``; without a JOIN, the tables holding both ends and the citations."""
+    if item["joins"]:
+        return f"（{item['joins']} 次连接）"
+    parts = ["0 次连接"] if item["joins"] == 0 else []
+    if item.get("carried_together"):
+        parts.append("同表携带：" + "、".join(item["carried_together"]))
+    if item.get("evidence"):
+        parts.append("目录证据：" + "；".join(item["evidence"]))
+    return f"（{'；'.join(parts)}）" if parts else ""
 
+
+def _related(match: Mapping) -> list[str]:
     lines = [f"{match['concept']['name']} {match['concept']['id']} 的一跳邻居"]
     if match.get("player"):
         lines.append(f"  承担者：{match['player']['name']}")
-    relations = "；".join(r["reading"] + joins(r) for r in match["relations"])
+    relations = "；".join(r["reading"] + _joins(r) for r in match["relations"])
     lines.append(f"  关系：{relations or '（无）'}")
     if "participants" in match:
         parts = "、".join(
-            f"{p['concept']['name']}（{p['role_name']}）{joins(p)}" for p in match["participants"]
+            f"{p['concept']['name']}（{p['role_name']}）{_joins(p)}" for p in match["participants"]
         )
         lines.append(f"  参与者：{parts or '（无）'}")
     events = "、".join(
-        f"{e['event']['name']}（{e['role_name']}）{joins(e)}" for e in match["events"]
+        f"{e['event']['name']}（{e['role_name']}）{_joins(e)}" for e in match["events"]
     )
     lines.append(f"  参与的事件：{events or '（无）'}")
     lines.append(f"  角色：{_names(match['roles'])}")

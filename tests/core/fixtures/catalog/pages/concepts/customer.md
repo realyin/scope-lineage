@@ -94,7 +94,7 @@ A person the shop has registered, whether or not they ever borrow.
 | 事件 | 本概念角色 | 事件表现表数 | 证据连接 |
 | --- | --- | --- | --- |
 | [实名认证](identity_verification.md) | customer | 0 | —（一端无表现表） |
-| [还款](repayment.md) | payer | 1 | 0 次 |
+| [还款](repayment.md) | payer | 1 | 0 次；同表携带两端：`demo_dwd.dwd_lending_repayment_di` |
 
 ### 本概念的角色
 

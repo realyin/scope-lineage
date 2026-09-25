@@ -44,7 +44,7 @@ An app or partner through which customers reach the shop.
 
 | 关系 | 种类 | 读法 | 对端 | 基数 | 证据连接 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
-| is opened in `rel:app_account_opened_in_channel` | 关联 | 渠道 hosts 应用账户 | [应用账户](app_account.md) | 应用账户 0..* : 渠道 1 | —（一端无表现表） | 已确认（sql） |
+| is opened in `rel:app_account_opened_in_channel` | 关联 | 渠道 hosts 应用账户 | [应用账户](app_account.md) | 应用账户 0..* : 渠道 1 | —（一端无表现表）；同表携带两端：`demo_dwd.dwd_party_account_map_df`；目录证据：`demo_dwd.dwd_party_account_map_df.channel_code` | 已确认（sql） |
 
 ### 参与的事件
 

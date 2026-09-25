@@ -248,6 +248,40 @@ class CatalogView:
                 found.append((rep, bindings))
         return found
 
+    def carried_together(self, relation: Mapping) -> list[str]:
+        """The tables holding both ends of a relation: what the catalog alone says about
+        where it lives, shown when no JOIN in the corpus backs it.
+
+        A table holds a concept when it represents it or binds one of its identifiers (a
+        role's are its player's); for a relation from a concept to itself, only a table
+        with a column naming another instance (``self_reference``) holds both ends.
+        """
+        source, target = relation["from"], relation["to"]
+        if source == target:
+            own = {i["id"] for i in self.identifiers_of(source)}
+            return [
+                rep["table"]
+                for rep, bindings in self.carriers_of(source)
+                if any(b.get("self_reference") and b["ref"] in own for b in bindings)
+            ]
+        return [
+            table
+            for table in sorted(self.representations)
+            if self._holds(table, source) and self._holds(table, target)
+        ]
+
+    def _holds(self, table: str, concept_id: str) -> bool:
+        rep = self.representations[table]
+        if rep["concept"] == concept_id:
+            return True
+        keys = {i["id"] for i in self.identifiers_of(concept_id)}
+        player = (self.concepts.get(concept_id) or {}).get("player")
+        if not keys and player:
+            keys = {i["id"] for i in self.identifiers_of(player)}
+        return any(
+            b["to"] in IDENTIFYING_BINDINGS and b.get("ref") in keys for b in rep["bindings"]
+        )
+
     def unconfirmed_codes(self) -> list[tuple[dict, list[dict]]]:
         """``(code set, its values whose meaning is not confirmed)`` for every set with any."""
         found = []

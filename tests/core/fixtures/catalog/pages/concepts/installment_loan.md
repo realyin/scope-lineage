@@ -47,7 +47,7 @@ A loan repaid in fixed monthly instalments.
 
 | 关系 | 种类 | 读法 | 对端 | 基数 | 证据连接 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
-| is a kind of `rel:installment_loan_is_a_loan` | 泛化 | 分期借据 is a kind of 借据 | [借据](loan.md) | 分期借据 0..1 : 借据 1 | —（一端无表现表） | 草拟（llm） |
+| is a kind of `rel:installment_loan_is_a_loan` | 泛化 | 分期借据 is a kind of 借据 | [借据](loan.md) | 分期借据 0..1 : 借据 1 | —（一端无表现表）；同表携带两端：`demo_dwd.dwd_collection_fee_waiver_di`、`demo_dwd.dwd_lending_loan_df`、`demo_dwd.dwd_lending_loan_status_his`、`demo_dwd.dwd_lending_repayment_di` | 草拟（llm） |
 
 ### 参与的事件
 

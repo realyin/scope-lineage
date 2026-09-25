@@ -448,12 +448,28 @@ def reading_text(view: CatalogView, concept_id: str, relation: dict) -> str:
 
 
 def joins_text(view: CatalogView, relation_id: str) -> str:
+    """The JOINs backing the relation; without any, what the catalog itself shows."""
     joins = view.relation_joins(relation_id)
-    if joins is None:
-        return "—（一端无表现表）" if view.lineage_checked() else NONE
-    if not joins["count"]:
-        return "0 次"
-    return f"{joins['count']} 次（如 {expr_span(joins['samples'][0]['on'])}）"
+    if joins and joins["count"]:
+        return f"{joins['count']} 次（如 {expr_span(joins['samples'][0]['on'])}）"
+    parts = []
+    if joins is not None:
+        parts.append("0 次")
+    elif view.lineage_checked():
+        parts.append("—（一端无表现表）")
+    parts += catalog_backing(view, view.relations[relation_id])
+    return "；".join(parts) or NONE
+
+
+def catalog_backing(view: CatalogView, relation: dict) -> list[str]:
+    """The tables holding both ends and the relation's own evidence citations."""
+    parts = []
+    tables = view.carried_together(relation)
+    if tables:
+        parts.append("同表携带两端：" + "、".join(expr_span(t) for t in tables))
+    if relation.get("evidence"):
+        parts.append("目录证据：" + "；".join(expr_span(e) for e in relation["evidence"]))
+    return parts
 
 
 def _participations(view: CatalogView, concept: dict) -> list[str]:

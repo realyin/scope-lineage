@@ -338,6 +338,22 @@ def test_related_of_a_player_and_of_a_role(document: dict) -> None:
     assert borrower["player"] == {"id": "concept:customer", "name": "客户"}
 
 
+def test_a_related_relation_carries_its_evidence_and_the_tables_holding_both_ends(
+    document: dict,
+) -> None:
+    match = _one(document, "related", "渠道")
+    text = render_query_text(query_catalog(document, "related", "渠道"))
+
+    relation = match["relations"][0]
+    assert relation["joins"] is None
+    assert relation["carried_together"] == ["demo_dwd.dwd_party_account_map_df"]
+    assert relation["evidence"] == ["demo_dwd.dwd_party_account_map_df.channel_code"]
+    assert (
+        "  关系：渠道 hosts 应用账户（同表携带：demo_dwd.dwd_party_account_map_df；"
+        "目录证据：demo_dwd.dwd_party_account_map_df.channel_code）"
+    ) in text
+
+
 def test_related_lists_the_tables_carrying_the_concepts_identifier(document: dict) -> None:
     match = _one(document, "related", "渠道")
     text = render_query_text(query_catalog(document, "related", "渠道"))
