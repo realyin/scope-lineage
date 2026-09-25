@@ -1,0 +1,11 @@
+{
+  "meta": {
+    "task_id": "demo-task-2005",
+    "task_name": "dwd_lending_borrower_daily",
+    "task_type": "Spark SQL",
+    "schedule": "0 40 2 * * ?",
+    "schedule_cycle": "day",
+    "description": "Customers holding at least one loan that is not settled.",
+    "sql": "INSERT OVERWRITE TABLE demo_dwd.dwd_lending_borrower_df PARTITION (dt = '${bizdate}')\nSELECT c.customer_id,\n       MAX(cr.credit_limit) AS credit_limit,\n       MAX(c.gender_cd) AS gender_cd\nFROM demo_dwd.dwd_party_customer_info_df c\nJOIN demo_dwd.dwd_lending_loan_df l ON c.customer_id = l.customer_id AND l.dt = '${bizdate}'\nLEFT JOIN demo_ods.ods_credit_limit_df cr ON c.customer_id = cr.cust_no AND cr.dt = '${bizdate}'\nWHERE c.dt = '${bizdate}' AND l.loan_status <> '3'\nGROUP BY c.customer_id"
+  }
+}

@@ -16,6 +16,31 @@ import yaml
 from scope_lineage.catalog.loader import yaml_loader
 
 DEMO = Path(__file__).resolve().parents[2] / "examples" / "catalog-demo"
+# The demo's lineage corpus: eight synthetic scheduler tasks that write and read the
+# demo's tables, and the schema metadata they are parsed with.
+CORPUS = Path(__file__).resolve().parents[2] / "examples" / "catalog-demo-corpus"
+
+
+def parse_demo_corpus(target: Path) -> Path:
+    """Parse the demo's tasks into ``target`` exactly as the docs tell a reader to."""
+    from scope_lineage.cli import main
+
+    code = main([
+        "parse",
+        "--input-dir", str(CORPUS / "tasks"),
+        "--schema", str(CORPUS / "schema_info.json"),
+        "--out", str(target),
+    ])
+    assert code == 0, "the demo corpus must parse"
+    return target
+
+
+def demo_tables(lineage: Path, target: Path) -> Path:
+    """``scope-lineage tables`` over the parsed corpus: the file ``--tables`` reads."""
+    from scope_lineage.cli import main
+
+    assert main(["tables", "--lineage", str(lineage), "--out", str(target)]) == 0
+    return target / "tables.json"
 
 
 def copy_demo(tmp_path: Path) -> Path:
