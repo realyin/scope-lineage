@@ -1,6 +1,6 @@
 """``catalog query``: one question to a built ``ontology-json/3`` document, one short answer.
 
-Seven kinds of question, each answered from the document alone:
+Eight kinds of question, each answered from the document alone:
 
 - ``concept``    -- by id, name, synonym or term: identity, attributes, states, tables;
 - ``table``      -- ``db.table`` (a catalog prefix is ignored): the concept it carries and
@@ -14,7 +14,10 @@ Seven kinds of question, each answered from the document alone:
 - ``related``    -- a concept's one-hop neighbourhood: relations, events, roles, tables,
   and the tables carrying its identifiers;
 - ``carriers``   -- every table, of any concept, that binds one of a concept's identifiers
-  (as ``identifier`` or ``foreign_identifier``): where the concept can be joined in.
+  (as ``identifier`` or ``foreign_identifier``): where the concept can be joined in;
+- ``scope``      -- a kind of filter (``validity``/有效记录, ``deletion``/删除, ``dedup``/去重,
+  ``partition``/分区, ``other``/其他) or a keyword: the tables whose scope lines or cited
+  business rules state it, each with those lines.
 
 ``query_catalog`` returns ``{"query": {kind, term}, "matches": [...]}`` -- the structure
 an agent reads (``--json``); ``render_query_text`` is the few lines a person reads.
@@ -27,6 +30,7 @@ from collections.abc import Mapping
 
 from .catalog_concept_page import reading_text
 from .catalog_query_text import render_query_text
+from .catalog_scopes import query_scopes, rules_citing
 from .catalog_view import (
     CatalogView,
     catalog_table_name,
@@ -44,6 +48,7 @@ QUERY_KINDS = (
     "attribute",
     "related",
     "carriers",
+    "scope",
 )
 CONCEPTS_DIR = "concepts"
 
@@ -60,6 +65,7 @@ def query_catalog(document: Mapping, kind: str, term: str) -> dict:
         "attribute": _attribute_matches,
         "related": _related_matches,
         "carriers": _carrier_matches,
+        "scope": query_scopes,
     }[kind]
     return {"query": {"kind": kind, "term": term}, "matches": answer(view, term)}
 
@@ -160,6 +166,7 @@ def _table_matches(view: CatalogView, term: str) -> list[dict]:
     if hint:
         answer["usage"] = hint
     answer["columns"] = [_column(view, rep, binding) for binding in rep["bindings"]]
+    answer["constraints"] = rules_citing(view, rep["table"])
     evidence = view.rep_evidence(rep["table"])
     if evidence:
         answer["evidence"] = evidence

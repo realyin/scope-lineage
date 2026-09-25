@@ -4,7 +4,9 @@
   it, status), the identifiers, and a summary of the governance gaps;
 - ``concepts/<slug>.md`` -- one six-section page per concept (``catalog_concept_page``);
 - ``identifiers.md`` -- every identifier in full, with the columns bound to it;
-- ``governance.md`` -- every gap of every concept, one table per kind of gap.
+- ``governance.md`` -- every gap of every concept, one table per kind of gap;
+- ``scopes.md`` -- every table's record scope grouped by the kind of filter it states,
+  and the business rules and value domains that cite a table (``catalog_scopes``).
 
 Only the document is read, never the catalog directory: the pages show exactly what was
 built, including the evidence ``catalog build --lineage/--tables`` attached. Headings are
@@ -26,6 +28,7 @@ from .catalog_concept_page import (
     table_row,
 )
 from .catalog_gaps import concept_gaps, conflict_text, share_text
+from .catalog_scopes import SCOPES_FILENAME, cited_rules, render_scopes
 from .catalog_view import (
     BINDING_TEXT,
     KIND_TEXT,
@@ -54,6 +57,7 @@ def render_catalog_pages(document: Mapping) -> dict[str, str]:
         INDEX_FILENAME: render_index(view),
         IDENTIFIERS_FILENAME: render_identifiers(view),
         GOVERNANCE_FILENAME: render_governance(view),
+        SCOPES_FILENAME: render_scopes(view),
     }
     for concept_id in sorted(view.concepts):
         pages[f"{CONCEPTS_DIR}/{concept_filename(concept_id)}"] = render_concept_page(
@@ -79,7 +83,16 @@ def render_index(view: CatalogView) -> str:
         lines += ["", *_domain_block(view, domain_id)]
     lines += ["", "## 标识符", "", *_identifier_summary(view)]
     lines += ["", "## 治理缺口", "", *_gap_summary(view)]
+    lines += ["", "## 记录范围与有效性", "", _scope_summary(view)]
     return "\n".join(lines) + "\n"
+
+
+def _scope_summary(view: CatalogView) -> str:
+    scoped = sum(1 for rep in view.representations.values() if rep["scope"])
+    return (
+        f"{scoped} 张表声明了记录范围，{len(cited_rules(view))} 条业务规则/值域约束引用了表；"
+        f"按过滤类别归组见 [{SCOPES_FILENAME}]({SCOPES_FILENAME})。"
+    )
 
 
 def _index_summary(view: CatalogView) -> str:

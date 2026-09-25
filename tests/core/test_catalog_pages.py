@@ -60,10 +60,10 @@ def _inventory_row(page: str, table: str) -> str:
 # ------------------------------------------------------------------- the set
 
 
-def test_one_page_per_concept_plus_three(pages: dict) -> None:
+def test_one_page_per_concept_plus_four(pages: dict) -> None:
     concepts = {name for name in pages if name.startswith("concepts/")}
 
-    assert set(pages) - concepts == {"index.md", "identifiers.md", "governance.md"}
+    assert set(pages) - concepts == {"index.md", "identifiers.md", "governance.md", "scopes.md"}
     assert len(concepts) == 10
     assert "concepts/customer.md" in concepts
 
@@ -133,7 +133,12 @@ def test_an_inventory_row_carries_grain_time_refresh_scope_and_producer(pages: d
     row = _inventory_row(pages["concepts/loan.md"], "`demo_dwd.dwd_lending_loan_df`")
 
     assert "借据号（已证明）；血缘候选 `loan_no`" in row
-    assert "| daily；调度 day | 全部 | dwd_lending_loan_daily |" in row
+    assert (
+        "| daily；调度 day | each dt partition is the full snapshot of that day "
+        "| dwd_lending_loan_daily |"
+    ) in row
+    history = _inventory_row(pages["concepts/loan.md"], "`demo_dwd.dwd_lending_loan_status_his`")
+    assert "| — | 全部 | — |" in history
 
 
 def test_an_inventory_row_shows_the_table_comment_and_the_catalogs_notes(pages: dict) -> None:
@@ -442,7 +447,7 @@ def test_render_writes_every_page(document: dict, tmp_path: Path, capsys) -> Non
 
     written = {p.relative_to(out).as_posix() for p in out.rglob("*.md")}
     assert written == set(render_catalog_pages(document))
-    assert "Rendered 13 page(s) (10 concept page(s))" in capsys.readouterr().out
+    assert "Rendered 14 page(s) (10 concept page(s))" in capsys.readouterr().out
 
 
 def test_render_refuses_another_format(tmp_path: Path, capsys) -> None:

@@ -130,6 +130,12 @@ def usage_hint(rep: Mapping) -> Optional[str]:
     return None
 
 
+def time_text(rep: Mapping) -> str:
+    """``快照；按单个 dt 分区取数``: the time semantics and how to read the table by them."""
+    hint = usage_hint(rep)
+    return f"{TIME_TEXT[rep['time']]}；{hint}" if hint else TIME_TEXT[rep["time"]]
+
+
 def _names_window(column: str, words: tuple) -> bool:
     return any(part in words for part in column.casefold().split("_"))
 

@@ -9,7 +9,7 @@
 | [应用账户](concepts/app_account.md) | 1/12（8%） | 否 | 0 | 0 | 0 |
 | [借款人](concepts/borrower.md) | 6/10（60%） | 否 | 0 | 0 | 0 |
 | [渠道](concepts/channel.md) | 0/4（0%） | 是 | 0 | 1 | 0 |
-| [客户](concepts/customer.md) | 7/22（32%） | 否 | 1 | 0 | 0 |
+| [客户](concepts/customer.md) | 8/23（35%） | 否 | 1 | 0 | 0 |
 | [放款](concepts/disbursement.md) | 1/6（17%） | 是 | 0 | 2 | 0 |
 | [豁免](concepts/fee_waiver.md) | 13/13（100%） | 否 | 0 | 0 | 0 |
 | [实名认证](concepts/identity_verification.md) | 3/3（100%） | 是 | 0 | 1 | 0 |

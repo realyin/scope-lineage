@@ -38,6 +38,7 @@ def test_the_query_kinds() -> None:
         "attribute",
         "related",
         "carriers",
+        "scope",
     )
 
 
@@ -131,6 +132,18 @@ def test_the_table_text_says_what_the_table_is_and_how_to_read_it(document: dict
 
     assert "  时间语义：快照；按单个 dt 分区取数" in text
     assert "  说明：表注释 Loan snapshot；备注 A renewal loan" in text
+
+
+def test_a_table_answer_carries_its_scope_and_the_rules_citing_it(document: dict) -> None:
+    match = _one(document, "table", "demo_dwd.dwd_party_customer_info_df")
+    text = render_query_text(query_catalog(document, "table", "demo_dwd.dwd_party_customer_info_df"))
+
+    assert [c["id"] for c in match["constraints"]] == ["cons:active_customers_only"]
+    assert (
+        "  记录范围：only customers whose customer_status is active；"
+        "注销客户不入表（is_cancelled = 1 的行被过滤）"
+    ) in text
+    assert "  规则：cons:active_customers_only（业务规则）customer counts read only rows" in text
 
 
 def test_a_table_the_catalog_does_not_map_matches_nothing(document: dict) -> None:
@@ -397,6 +410,7 @@ def test_every_kind_has_a_text_answer(document: dict) -> None:
         "attribute": "attr:loan.principal",
         "related": "客户",
         "carriers": "客户",
+        "scope": "去重",
     }
     for kind, term in terms.items():
         text = render_query_text(query_catalog(document, kind, term))

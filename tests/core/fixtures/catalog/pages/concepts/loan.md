@@ -41,7 +41,7 @@ One amount lent to a borrower, repaid over one or more instalments.
 
 | 表 | 说明 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `demo_dwd.dwd_lending_loan_df` | 表注释：Loan snapshot；备注：A renewal loan names the loan it renews in orig_loan_no; the renewed loan stays in the table as settled. | 借据号（已证明）；血缘候选 `loan_no` | 快照；按单个 dt 分区取数 | daily；调度 day | 全部 | dwd_lending_loan_daily | 在用 · 已确认（sql） |
+| `demo_dwd.dwd_lending_loan_df` | 表注释：Loan snapshot；备注：A renewal loan names the loan it renews in orig_loan_no; the renewed loan stays in the table as settled. | 借据号（已证明）；血缘候选 `loan_no` | 快照；按单个 dt 分区取数 | daily；调度 day | each dt partition is the full snapshot of that day | dwd_lending_loan_daily | 在用 · 已确认（sql） |
 
 - `demo_dwd.dwd_lending_loan_df` 血缘一跳：上游 `demo_ods.ods_loan_contract_df`、`demo_ods.ods_loan_penalty_di`；下游 `demo_ads.ads_collection_overdue_loan_df`、`demo_dwd.dwd_lending_borrower_df`、`demo_dwd.dwd_lending_repayment_di`、`demo_dws.dws_lending_loan_summary_1d`
 

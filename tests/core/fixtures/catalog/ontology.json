@@ -11,7 +11,7 @@
     "code_sets": 4,
     "concepts": 10,
     "relations": 12,
-    "constraints": 6,
+    "constraints": 7,
     "terms": 7,
     "representations": 9,
     "attributes": 18,
@@ -963,6 +963,18 @@
   ],
   "constraints": [
     {
+      "id": "cons:active_customers_only",
+      "kind": "business_rule",
+      "on": "concept:customer",
+      "expression": "customer counts read only rows whose customer_status is active",
+      "strength": "soft",
+      "status": "drafted",
+      "source": "owner",
+      "evidence": [
+        "demo_dwd.dwd_party_customer_info_df"
+      ]
+    },
+    {
       "id": "cons:loan_no_unique",
       "kind": "unique",
       "on": "id:loan_no",
@@ -1000,7 +1012,9 @@
       "strength": "hard",
       "status": "confirmed",
       "source": "owner",
-      "evidence": []
+      "evidence": [
+        "demo_dwd.dwd_lending_loan_df.principal_amt"
+      ]
     },
     {
       "id": "cons:repaid_after_disbursed",
@@ -1218,7 +1232,9 @@
         "source": "proven"
       },
       "time": "snapshot",
-      "scope": [],
+      "scope": [
+        "each dt partition is the full snapshot of that day"
+      ],
       "refresh": "daily",
       "table_status": "active",
       "bindings": [
@@ -1432,7 +1448,9 @@
         "source": "proven"
       },
       "time": "snapshot",
-      "scope": [],
+      "scope": [
+        "latest row per account and channel (row_number = 1 by update_time)"
+      ],
       "table_status": "active",
       "bindings": [
         {
@@ -1533,7 +1551,10 @@
         "source": "proven"
       },
       "time": "snapshot",
-      "scope": [],
+      "scope": [
+        "only customers whose customer_status is active",
+        "注销客户不入表（is_cancelled = 1 的行被过滤）"
+      ],
       "refresh": "daily",
       "table_status": "active",
       "bindings": [

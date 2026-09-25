@@ -6,6 +6,7 @@ representations:
       identifiers: [id:loan_no]
       source: proven
     time: snapshot
+    scope: [each dt partition is the full snapshot of that day]
     refresh: daily
     table_status: active
     bindings:

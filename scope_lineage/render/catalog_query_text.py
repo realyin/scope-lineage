@@ -8,9 +8,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from .catalog_scopes import SCOPE_KIND_TEXT
 from .catalog_view import (
     BINDING_TEXT,
     CATEGORIES,
+    CONSTRAINT_KINDS,
     CONFIDENCE_TEXT,
     GRAIN_SOURCE_TEXT,
     KIND_TEXT,
@@ -23,6 +25,7 @@ from .catalog_view import (
 
 REP_KIND_TEXT = dict(REPRESENTATION_KINDS)
 CATEGORY_TEXT = dict(CATEGORIES)
+CONSTRAINT_TEXT = dict(CONSTRAINT_KINDS)
 
 
 def render_query_text(result: Mapping) -> str:
@@ -37,6 +40,7 @@ def render_query_text(result: Mapping) -> str:
         "attribute": _attribute,
         "related": _related,
         "carriers": _carriers,
+        "scope": _scope,
     }[query["kind"]]
     return "\n\n".join("\n".join(render(match)) for match in matches) + "\n"
 
@@ -88,6 +92,8 @@ def _table(match: Mapping) -> list[str]:
     ]
     if about:
         lines.append(f"  说明：{'；'.join(about)}")
+    lines.append(f"  记录范围：{'；'.join(match['scope']) or '全部'}")
+    lines += [_rule_text(rule) for rule in match.get("constraints") or []]
     facts = [
         f"{label}：{'、'.join(evidence[key])}"
         for key, label in (
@@ -212,6 +218,22 @@ def _carriers(match: Mapping) -> list[str]:
         columns = "；".join(_carrier_column(c) for c in table["columns"])
         lines.append(f"  - {table['table']}（{table['concept']['name']}）：{columns}")
     return lines if match["tables"] else [*lines, "  （没有表绑定这些标识符）"]
+
+
+def _rule_text(rule: Mapping) -> str:
+    return f"  规则：{rule['id']}（{CONSTRAINT_TEXT[rule['kind']]}）{rule['expression']}"
+
+
+def _scope(match: Mapping) -> list[str]:
+    usage = f"；{match['usage']}" if match.get("usage") else ""
+    lines = [
+        f"{match['table']} · {match['concept']['name']} {match['concept']['id']} · "
+        f"{TIME_TEXT[match['time']]}{usage}"
+    ]
+    for item in match["scope"]:
+        kinds = "、".join(SCOPE_KIND_TEXT[kind] for kind in item["kinds"])
+        lines.append(f"  - {kinds}：{item['line']}")
+    return lines + [_rule_text(rule) for rule in match["constraints"]]
 
 
 def _carrier_column(column: Mapping) -> str:

@@ -55,7 +55,7 @@ Who the shop lends to and the accounts they sign in with.
 
 | 缺口 | 数量 |
 | --- | --- |
-| 草拟对象占比 | 42/122（34%） |
+| 草拟对象占比 | 43/123（35%） |
 | 没有表现表的概念 | 4 |
 | 未绑定列 | 1 |
 | 未落表属性 | 5 |
@@ -66,3 +66,7 @@ Who the shop lends to and the accounts they sign in with.
 | 无连接证据的关系 | 4 |
 
 逐项明细见 [governance.md](governance.md)。
+
+## 记录范围与有效性
+
+4 张表声明了记录范围，2 条业务规则/值域约束引用了表；按过滤类别归组见 [scopes.md](scopes.md)。

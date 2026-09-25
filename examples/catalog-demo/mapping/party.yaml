@@ -6,6 +6,9 @@ representations:
       identifiers: [id:customer_id]
       source: proven
     time: snapshot
+    scope:
+      - only customers whose customer_status is active
+      - 注销客户不入表（is_cancelled = 1 的行被过滤）
     refresh: daily
     table_status: active
     bindings:
@@ -47,6 +50,7 @@ representations:
       identifiers: [id:app_account_id, id:channel_code]
       source: proven
     time: snapshot
+    scope: [latest row per account and channel (row_number = 1 by update_time)]
     table_status: active
     bindings:
       - {column: account_id, to: identifier, ref: id:app_account_id}

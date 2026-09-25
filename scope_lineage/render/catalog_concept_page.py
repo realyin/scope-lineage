@@ -27,12 +27,11 @@ from .catalog_view import (
     REPRESENTATION_KINDS,
     STRENGTH_TEXT,
     TABLE_STATUS_TEXT,
-    TIME_TEXT,
     CatalogView,
     code_value_text,
     concept_filename,
     status_text,
-    usage_hint,
+    time_text,
 )
 from .catalog_view import CONSTRAINT_KINDS as _CONSTRAINT_KINDS
 from .catalog_view import RELATION_KIND_TEXT as _RELATION_KIND_TEXT
@@ -254,12 +253,6 @@ def _about_text(rep: dict, evidence: dict) -> str:
     if rep.get("notes"):
         parts.append(f"备注：{cell(rep['notes'])}")
     return "；".join(parts) or NONE
-
-
-def time_text(rep: dict) -> str:
-    """``快照；按单个 dt 分区取数``: the time semantics and how to read the table by them."""
-    hint = usage_hint(rep)
-    return f"{TIME_TEXT[rep['time']]}；{hint}" if hint else TIME_TEXT[rep["time"]]
 
 
 def grain_text(view: CatalogView, rep: dict) -> str:
