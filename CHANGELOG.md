@@ -1,6 +1,25 @@
 # Changelog
 
 ## Unreleased
+- **Catalog pages and query show what the document already knows** (R1). Concept pages
+  gain section 3, 带本概念标识的表 (seven sections now): every table, of any concept,
+  binding one of the concept's identifiers, with the table's concept, the column, the
+  identifier and whether it is a self reference -- so a concept with no table of its own
+  still shows where it is joined in; `catalog query carriers <concept>` answers the same and
+  `related` lists it. A relation no JOIN backs (0 次, or not counted because an end has no
+  table) now shows the tables holding both ends and the relation's own `evidence` instead of
+  only 「0 次」; `related` returns them as `carried_together` and `evidence`. The 数据清单
+  rows gain a 说明 column (the table card's comment, now filed by `catalog build --tables` as
+  `evidence.representations[table].table_comment`, and the representation's `notes`) and
+  say how to read the table: 按单个 dt 分区取数 for a snapshot, the validity window for a
+  zipper (`usage` in `catalog query table`, which also prints the scope and the rules citing
+  the table). A new page `scopes.md` files every `scope` line under a kind of filter by
+  keywords (有效记录/记录状态, 删除/注销, 去重/最新, 分区/快照日期, 其他) beside the
+  business rules and value domains that cite a table; `catalog query scope <keyword|kind>`
+  answers from it. A code value may carry `unconfirmed: true`, or a meaning that is empty or
+  starts 待确认; `ontology-json/3` gives every code value an `unconfirmed` boolean, pages and
+  queries print it as 值（含义待确认：guess）, and `governance.md` lists the code sets holding
+  one. The demo catalog gains an example of each. Guide: `docs/*/ontology-catalog.md`.
 - **Denormalised and self-referencing columns in the catalog** (S6). A new binding
   `to: foreign_attribute` with `ref` (another concept's attribute) and `via` (the column of
   the same table bound as `foreign_identifier` to that concept's identifier) binds a wide

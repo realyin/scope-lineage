@@ -122,8 +122,11 @@ identifiers:
 ### Code set
 
 A finite set of values and their business meanings, shareable by several attributes.
-`id: code:<slug>`, `name`, `values: [{value, meaning, retired?}]`, `definition?`. A value
-is text or an integer; `0` and `"0"` are the same code.
+`id: code:<slug>`, `name`, `values: [{value, meaning, retired?, unconfirmed?}]`,
+`definition?`. A value is text or an integer; `0` and `"0"` are the same code. A value seen
+in the data whose meaning nobody has confirmed carries `unconfirmed: true`, or leaves
+`meaning` empty or starting 「待确认」 (followed by the catalog's guess); pages and queries
+print it as 「值（含义待确认：guess）」 and `governance.md` lists the code sets holding one.
 
 ```yaml
 code_sets:
@@ -133,6 +136,8 @@ code_sets:
       - {value: "1", meaning: normal}
       - {value: "2", meaning: overdue}
       - {value: "3", meaning: settled, retired: false}
+      - {value: "9", meaning: 待确认，疑似核销}
+      - {value: "0", meaning: "", unconfirmed: true}
 ```
 
 ### Concept: entity, event, role
@@ -259,7 +264,7 @@ representation per table).
 | `kind` | yes | `core` / `extension` (1:1 with the core) / `dependent` / `event_detail` / `state_history` / `identifier_map` / `role_view` / `summary` / `intermediate` |
 | `grain` | yes | `{identifiers: [id], extra: [text], source: declared/inferred/proven}` |
 | `time` | yes | `snapshot` / `incremental` / `zipper` / `unknown` |
-| `scope` | no | which records the table holds, in words |
+| `scope` | no | which records the table holds, in words; `render` files each line under a kind of filter by keywords (see `scopes.md`) |
 | `refresh` | no | update frequency |
 | `table_status` | yes | `active` / `deprecated` |
 | `replaced_by` | no | the table that replaces a deprecated one |
@@ -465,8 +470,10 @@ it writes `out/ontology.json`, whose schema ships as
 
 - every object has `status`, `source` (`null` when unknown) and `evidence`; attributes and
   bindings inherit from their concept / representation;
-- keys come out in one fixed order per object type; code and state values are text; a
-  cardinality end written `1` is `"1"`; a text `arises_when` becomes `{condition}`;
+- keys come out in one fixed order per object type; code and state values are text, and
+  every code value carries a boolean `unconfirmed` (flagged `unconfirmed: true`, or a meaning
+  that is empty or starts 「待确认」); a cardinality end written `1` is `"1"`; a text
+  `arises_when` becomes `{condition}`;
 - top-level lists are sorted — by `id`, terms by term then target, representations by
   table — so moving an object to another file changes nothing. Lists inside an object
   (attributes, state values, bindings) keep the author's order;
@@ -503,6 +510,7 @@ byte for byte what it was.
 | `representations["db.table"]` | `upstream_tables` / `downstream_tables` | `--lineage` | one hop of table lineage: what the writers read, what the readers write |
 | `representations["db.table"]` | `grain_proof` | `--lineage` | the best grain any writer proves: `confidence` (`proven` / `candidate` / `none`), `keys`, `basis`, `task` |
 | `representations["db.table"]` | `conflicts` | `--lineage` | `grain_not_proven` (declared `proven`, lineage cannot prove it) or `grain_mismatch` (both proven, different columns) |
+| `representations["db.table"]` | `table_comment` | `--tables` | the table comment on the table card |
 | `representations["db.table"]` | `declared_columns` / `used_columns` | `--tables` | how many columns the metadata declares and the corpus uses |
 | `bindings["db.table.column"]` | `sources` / `expression` | `--lineage` | the physical source columns and the final expression (at most 200 characters), only for a binding without a hand-written `derivation` |
 | `bindings["db.table.column"]` | `declared_only` | `--tables` | the metadata declares the column and no task in the corpus touches it |
@@ -522,6 +530,7 @@ byte for byte what it was.
       "downstream_tables": ["demo_ads.ads_collection_overdue_loan_df", "demo_dwd.dwd_lending_borrower_df"],
       "grain_proof": {"confidence": "candidate", "keys": ["loan_no"], "basis": "driving_table_rows", "task": "dwd_lending_loan_daily"},
       "conflicts": [{"rule": "grain_not_proven", "declared_source": "proven", "confidence": "candidate"}],
+      "table_comment": "Loan snapshot",
       "declared_columns": 8,
       "used_columns": 8
     }
@@ -569,24 +578,43 @@ documents; names are the catalog's own.
 
 | File | What it holds |
 | --- | --- |
-| `index.md` | the concepts by domain (name, kind, definition, number of tables, status), the identifiers, a summary of the governance gaps |
-| `concepts/<slug>.md` | one page per concept (`concept:fee_waiver` → `fee_waiver.md`), six sections |
+| `index.md` | the concepts by domain (name, kind, definition, number of tables, status), the identifiers, a summary of the governance gaps and of the record scopes |
+| `concepts/<slug>.md` | one page per concept (`concept:fee_waiver` → `fee_waiver.md`), seven sections |
 | `identifiers.md` | every identifier in full, with the columns bound to it |
-| `governance.md` | every gap of every concept, one list per kind of gap; plus the denormalised columns per table (informational, not a gap) |
+| `governance.md` | every gap of every concept, one list per kind of gap; the code values whose meaning is not confirmed; plus the denormalised columns per table (informational, not a gap) |
+| `scopes.md` | every table's record scope grouped by the kind of filter it states; the tables declaring none; the business rules and value domains that cite a table |
 
-The six sections of a concept page answer the six things a reader opens it for:
+The seven sections of a concept page answer the seven things a reader opens it for:
 
 | Section | Content |
 | --- | --- |
 | 1. 定义与身份 | definition, kind, status, synonyms; identifiers (arising condition, uniqueness scope, physical spellings, mappings); the state machine (values, transition events); an event's participants, a role's player, context and condition |
-| 2. 数据清单 | the tables, grouped by representation kind (核心, 扩展, 从属, 事件明细, 状态历史, 标识映射, 角色视图, 汇总, 中间): grain (identifiers, source, and what lineage proves), time semantics, refresh, record scope, producing tasks, deprecation and replacement; one hop of lineage per table |
-| 3. 属性 | by category (描述, 状态, 度量, 时间): definition, type and unit, code values (value=meaning), every table column that holds it (with its code map; one another table repeats is marked 「冗余（经 via column）」), how it is derived |
-| 4. 关系 | association, composition and generalization read from this concept's side, with cardinality and JOIN count (a self relation's far end reads 「本概念」 with the columns that carry it); the events it takes part in (its role, how many tables the event has); the roles it plays, or — on a role's page — the player it belongs to |
-| 5. 约束 | the constraints on the concept, its attributes, identifiers and relations, by kind, with strength and status |
-| 6. 治理缺口 | drafted share, unmapped columns, attributes no table holds, state or coded attributes without values, whether the concept has any table; with evidence also the conflicts, bound columns nobody uses and relations no JOIN backs |
+| 2. 数据清单 | the tables, grouped by representation kind (核心, 扩展, 从属, 事件明细, 状态历史, 标识映射, 角色视图, 汇总, 中间): a note (the table card's comment, the representation's `notes`), grain (identifiers, source, and what lineage proves), time semantics and how to read by them (a snapshot 「按单个 dt 分区取数」, a zipper by its validity window), refresh, record scope, producing tasks, deprecation and replacement; one hop of lineage per table |
+| 3. 带本概念标识的表 | every column, in the tables of any concept, binding one of this concept's identifiers as `identifier` or `foreign_identifier`: table, the table's concept, column, identifier, and how (a self reference is marked). A concept with no table of its own still shows where it can be joined in; a role has no identifier of its own and points to its player |
+| 4. 属性 | by category (描述, 状态, 度量, 时间): definition, type and unit, code values (value=meaning), every table column that holds it (with its code map; one another table repeats is marked 「冗余（经 via column）」), how it is derived |
+| 5. 关系 | association, composition and generalization read from this concept's side, with cardinality and JOIN count (a self relation's far end reads 「本概念」 with the columns that carry it); when the count is 0 or could not be taken, what the catalog itself shows: the tables holding both ends (representing one or binding its identifier; a role through its player's identifiers; a self relation only through a self-referencing column) and the relation's `evidence`; the events it takes part in (its role, how many tables the event has); the roles it plays, or — on a role's page — the player it belongs to |
+| 6. 约束 | the constraints on the concept, its attributes, identifiers and relations, by kind, with strength and status |
+| 7. 治理缺口 | drafted share, unmapped columns, attributes no table holds, state or coded attributes without values, whether the concept has any table; with evidence also the conflicts, bound columns nobody uses and relations no JOIN backs |
 
 Anything that came from the corpus is labelled 「血缘」; without evidence those cells show
 「—」 rather than a guess.
+
+`scopes.md` files every `scope` line under a kind of filter by keywords; a line stating two
+kinds is listed under both, and one stating none goes to 「其他」. Chinese keywords match
+anywhere, English ones as whole words (an underscore separates words, so `is_deleted` says
+`deleted`):
+
+| Kind | kind | Keywords (a selection) |
+| --- | --- | --- |
+| 有效记录/记录状态 | `validity` | 有效, 生效, 状态, `valid`, `active`, `status` |
+| 删除/注销 | `deletion` | 删除, 注销, 作废, `deleted`, `cancelled`, `void` |
+| 去重/最新 | `dedup` | 去重, 最新, `distinct`, `latest`, `row_number`, `rn` |
+| 分区/快照日期 | `partition` | 分区, 快照, `dt`, `ds`, `partition`, `snapshot` |
+| 其他 | `other` | none of the above |
+
+The same page lists the tables that declare no `scope`, and the constraints of kind
+`business_rule` / `value_domain` that cite a representation's table in their `evidence` or
+expression.
 
 ## Query: `catalog query`
 
@@ -598,11 +626,13 @@ scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_l
 | Kind | Term | Answer |
 | --- | --- | --- |
 | `concept` | id, name, synonym or term | identity, identifiers, attributes, states, tables, the page to read |
-| `table` | `db.table` (a catalog prefix is ignored) | the concept it carries and what every bound column points at, with evidence; a denormalised column reads `→ 冗余属性 <attribute> of <concept>（经 <via>）`, a self-referencing one names its relation |
+| `table` | `db.table` (a catalog prefix is ignored) | the concept it carries, its time semantics and how to read by them (`usage`), the table comment and `notes`, its record scope, the business rules and value domains citing it (`constraints`), and what every bound column points at, with evidence; a denormalised column reads `→ 冗余属性 <attribute> of <concept>（经 <via>）`, a self-referencing one names its relation |
 | `column` | `db.table.column` | the attribute or identifier it holds and its concept — or the identifier it spells |
 | `identifier` | id, name or physical spelling | what it identifies, its scope and spellings, the columns bound to it |
 | `attribute` | id, name or term | its concept, code values, derivation and every table column |
-| `related` | a concept's id, name, synonym or term | one hop: relations read from its side, events, participants, roles, player, tables |
+| `related` | a concept's id, name, synonym or term | one hop: relations read from its side, events, participants, roles, player, tables, and the tables carrying its identifiers (`carriers`); every relation and event carries `carried_together` (the tables holding both ends) and `evidence`, printed when no JOIN backs it |
+| `carriers` | a concept's id, name, synonym or term | every column, in the tables of any concept, binding one of its identifiers: table, the table's concept, column, identifier, and how |
+| `scope` | a kind of filter (`validity`/有效记录, `deletion`/删除, `dedup`/去重, `partition`/分区, `other`/其他; the label or either half of it works too) or a keyword | the tables whose scope lines or cited rules state it, each with those lines (and their kinds), the rules and how to read the table |
 
 Names match exactly, ignoring case and surrounding spaces, in that order (id, then name,
 then synonym, then term); nothing is guessed. The text answer is a few lines:
@@ -615,6 +645,14 @@ then synonym, then term); nothing is guessed. The text answer is a few lines:
   状态：未认证、已认证
   表：demo_dwd.dwd_party_customer_ext_df（扩展）、demo_dwd.dwd_party_customer_info_df（核心）
   页面：concepts/customer.md
+```
+
+For a concept with no table of its own, `carriers` finds where it can be joined in:
+
+```text
+带 渠道 concept:channel 标识的表（渠道编码 id:channel_code）
+  - demo_dwd.dwd_party_account_map_df（应用账户）：channel_code → 外部标识符 渠道编码
+  - demo_dws.dws_lending_loan_summary_1d（借据）：channel_code → 外部标识符 渠道编码
 ```
 
 `--json` prints `{"query": {"kind", "term"}, "matches": [...]}` for an agent. Exit code: `0`
