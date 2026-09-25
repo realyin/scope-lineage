@@ -246,7 +246,7 @@ terms:
 | `refresh` | 否 | 更新频率 |
 | `table_status` | 是 | `active` / `deprecated` |
 | `replaced_by` | 否 | 废弃表的替代表 |
-| `bindings` | 是 | `[{column, to, ref?, derivation?, code_map?}]` |
+| `bindings` | 是 | `[{column, to, ref?, via?, derivation?, code_map?}]` |
 
 绑定的 `to` 说明这一列是什么：
 
@@ -254,7 +254,8 @@ terms:
 | --- | --- | --- |
 | `attribute` | 必填 | 所表现概念的一个属性（角色视图也可以绑定其承担者的） |
 | `identifier` | 必填 | 所表现概念的一个标识符（角色视图也可以绑定其承担者的） |
-| `foreign_identifier` | 必填 | 另一个概念的标识符——即物理上的关系 |
+| `foreign_identifier` | 必填 | 另一个概念的标识符——即物理上的关系；也可以是本概念自己的标识符（同一概念的另一个实例），前提是目录里有一条两端都是本概念的关系 |
+| `foreign_attribute` | 必填 | 另一个概念 X 的属性，在本行冗余存放（宽表）；`via` 必填，写本表中绑定为 `foreign_identifier`、指向 X 的标识符的那一列 |
 | `technical` | 不写 | 分区、加载时间、代理键 |
 | `unmapped` | 不写 | 尚未决定（会警告） |
 
@@ -271,11 +272,31 @@ representations:
     bindings:
       - {column: loan_no, to: identifier, ref: id:loan_no}
       - {column: customer_id, to: foreign_identifier, ref: id:customer_id}
+      - {column: orig_loan_no, to: foreign_identifier, ref: id:loan_no}
       - column: loan_status
         to: attribute
         ref: attr:loan.loan_status
         code_map: {"1": normal, "2": overdue, "3": settled}
+      - column: customer_gender_cd
+        to: foreign_attribute
+        ref: attr:customer.gender
+        via: customer_id
       - {column: dt, to: technical}
+```
+
+示例里的借据表有两种以前表达不了的列。`customer_gender_cd` 是客户的性别，冗余在借据行上、紧挨着客户号：
+它绑定为 `foreign_attribute`，`via: customer_id` 说明它说的是哪个客户。`orig_loan_no` 是续借借据所续的原借据号，
+即同一概念的另一个实例：它绑定为 `foreign_identifier` 并指向借据自己的标识符，这只在目录登记了从借据到借据的关系时才允许：
+
+```yaml
+relations:
+  - id: rel:loan_renews_loan
+    kind: association
+    from: concept:loan
+    to: concept:loan
+    name: renews
+    inverse_name: is renewed by
+    cardinality: {from: "0..1", to: "0..1"}
 ```
 
 ## 校验
@@ -326,7 +347,10 @@ scope-lineage catalog validate examples/catalog-demo --json
 | `duplicate_column` | 同一个表现里一列绑定了两次 |
 | `binding_attribute` | 该属性不属于所表现的概念（角色视图：也不属于其承担者） |
 | `binding_identifier` | 该标识符不属于所表现的概念（角色视图：也不属于其承担者） |
-| `binding_foreign_identifier` | 该标识符属于所表现概念自己，或根本不是标识符 |
+| `binding_foreign_identifier` | `ref` 根本不是标识符（或不存在） |
+| `self_reference_without_relation` | 该标识符属于所表现概念自己，但目录里没有两端都是该概念的关系 |
+| `binding_foreign_attribute` | `ref` 不是属性，或属于所表现概念自己（角色视图：或其承担者）——那应绑定为 `attribute` |
+| `binding_foreign_attribute_via` | `via` 不是本表的列，该列不是 `foreign_identifier`，或它指向的标识符不属于该属性的概念 |
 
 "标识符属于某概念"指：概念在 `identifiers` 里列了它，或标识符的 `identifies` 指向该概念。
 因此子类型可以列出父类型的标识符（示例里分期借据列了 `id:loan_no`）。
@@ -387,7 +411,7 @@ scope-lineage catalog build examples/catalog-demo --out out/
 {
   "doc_format": "ontology-json/3",
   "catalog": {"name": "demo-lending", "description": "...", "format": "catalog-yaml/1"},
-  "counts": {"domains": 3, "concepts": 10, "relations": 11, "derived_relations": 7},
+  "counts": {"domains": 3, "concepts": 10, "relations": 12, "derived_relations": 7},
   "domains": [],
   "identifiers": [],
   "code_sets": [],
@@ -419,6 +443,7 @@ scope-lineage catalog build examples/catalog-demo --out out/
   文字形式的 `arises_when` 变成 `{condition}`；
 - 顶层列表排序——按 `id`，术语按词再按指向，表现按表名——所以把对象挪到别的文件不改变输出。
   对象内部的列表（属性、状态值、绑定）保持作者的顺序；
+- 绑定原样带出 `via`；指向本概念自己标识符的 `foreign_identifier` 带 `self_reference: true`；
 - 每个事件参与者变成一条 `participation` 关系 `rel:<事件 slug>.<role_name>`，从事件指向参与者，
   基数为 `{from: "0..*", to: "1"}`（`one`）或 `"1..*"`（`many`），带 `derived_from` 以及事件的
   status 与 source。这样的 id 不能再手写一次。
@@ -455,7 +480,7 @@ scope-lineage catalog build examples/catalog-demo --out out/ \
 ```json
 {
   "inputs": {
-    "lineage": {"tasks": 8, "statements": 8, "representations_matched": 7, "relations_checked": 6},
+    "lineage": {"tasks": 8, "statements": 8, "representations_matched": 7, "relations_checked": 7},
     "tables": {"cards": 15, "representations_matched": 7}
   },
   "representations": {
@@ -466,8 +491,8 @@ scope-lineage catalog build examples/catalog-demo --out out/ \
       "downstream_tables": ["demo_ads.ads_collection_overdue_loan_df", "demo_dwd.dwd_lending_borrower_df"],
       "grain_proof": {"confidence": "candidate", "keys": ["loan_no"], "basis": "driving_table_rows", "task": "dwd_lending_loan_daily"},
       "conflicts": [{"rule": "grain_not_proven", "declared_source": "proven", "confidence": "candidate"}],
-      "declared_columns": 6,
-      "used_columns": 6
+      "declared_columns": 8,
+      "used_columns": 8
     }
   },
   "bindings": {
@@ -490,6 +515,7 @@ scope-lineage catalog build examples/catalog-demo --out out/ \
   分区时不算矛盾。声明粒度里某个标识符在本表没有绑定列时，不做比较。
 - **关系**只在两端概念都有表现表时统计；统计过但没有 JOIN 支持的是 `count: 0`，无法统计的没有条目。
   一次 JOIN 计数的条件是：两侧分别是两个概念的表现表，且至少一侧的连接列绑定为标识符或外部标识符。
+  两端是同一概念的关系只数至少一侧连接列带 `self_reference` 的 JOIN（表自连接也算）：同一实例出现在两张表里不说明关系。
   participation 关系同样统计。
 - 语料用 `tables` 与 `ontology` 同一套读取器读；JOIN 的一侧是 CTE 时，顺着它追到提供行的物理表。
 
@@ -507,7 +533,7 @@ scope-lineage catalog render out/ontology.json --out out/pages
 | `index.md` | 按域列出概念（名称、种类、定义、表现表数、状态）、标识符、治理缺口汇总 |
 | `concepts/<slug>.md` | 每个概念一页（`concept:fee_waiver` → `fee_waiver.md`），六节 |
 | `identifiers.md` | 每个标识符的完整说明，及绑定到它的列 |
-| `governance.md` | 所有概念的全部缺口，每类缺口一个列表 |
+| `governance.md` | 所有概念的全部缺口，每类缺口一个列表；另按表列出冗余属性列（信息项，不算缺口） |
 
 概念页的六节回答打开它的人要问的六件事：
 
@@ -515,8 +541,8 @@ scope-lineage catalog render out/ontology.json --out out/pages
 | --- | --- |
 | 1. 定义与身份 | 定义、种类、状态、同义词；标识符（产生条件、唯一范围、物理拼写、对照）；状态机（值、迁移事件）；事件的参与者，角色的承担者、语境与成立条件 |
 | 2. 数据清单 | 按表现类型分组的表（核心、扩展、从属、事件明细、状态历史、标识映射、角色视图、汇总、中间）：粒度（标识符、来源，以及血缘证明了什么）、时间语义、更新频率、记录范围、生产任务、废弃及替代；每张表的血缘一跳 |
-| 3. 属性 | 按类别（描述、状态、度量、时间）：定义、类型与单位、码值（值=含义）、承载它的每个表列（含码值映射）、加工口径 |
-| 4. 关系 | 从本概念一侧读的关联、组成、泛化，带基数与 JOIN 次数；参与的事件（本概念的角色、事件的表现表数）；本概念承担的角色，或在角色页上反向链到承担者 |
+| 3. 属性 | 按类别（描述、状态、度量、时间）：定义、类型与单位、码值（值=含义）、承载它的每个表列（含码值映射；别的表冗余存放的标为「冗余（经 via 列）」）、加工口径 |
+| 4. 关系 | 从本概念一侧读的关联、组成、泛化，带基数与 JOIN 次数（自关联的对端写「本概念」及承载它的列）；参与的事件（本概念的角色、事件的表现表数）；本概念承担的角色，或在角色页上反向链到承担者 |
 | 5. 约束 | 作用于概念本身、其属性、标识符与关系的约束，按种类列出，带强度与状态 |
 | 6. 治理缺口 | 草拟占比、未绑定列、没有落表的属性、缺码值的状态/码值类属性、有没有表现表；有证据时还有证据与目录矛盾、没人用的绑定列、没有 JOIN 支持的关系 |
 
@@ -532,7 +558,7 @@ scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_l
 | kind | term | 回答 |
 | --- | --- | --- |
 | `concept` | id、名称、同义词或术语 | 身份、标识符、属性、状态、表现表、该读的页面 |
-| `table` | `库.表`（忽略 catalog 前缀） | 它承载的概念，以及每个绑定列指向什么，带证据 |
+| `table` | `库.表`（忽略 catalog 前缀） | 它承载的概念，以及每个绑定列指向什么，带证据；冗余列写 `→ 冗余属性 <属性> of <概念>（经 <via>）`，自关联列写出关系 |
 | `column` | `库.表.列` | 它承载的属性或标识符及其概念——或它是哪个标识符的物理拼写 |
 | `identifier` | id、名称或物理拼写 | 识别什么、唯一范围与拼写、绑定到它的列 |
 | `attribute` | id、名称或术语 | 所属概念、码值、口径、每个表列 |

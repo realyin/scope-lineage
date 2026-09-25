@@ -263,7 +263,7 @@ representation per table).
 | `refresh` | no | update frequency |
 | `table_status` | yes | `active` / `deprecated` |
 | `replaced_by` | no | the table that replaces a deprecated one |
-| `bindings` | yes | `[{column, to, ref?, derivation?, code_map?}]` |
+| `bindings` | yes | `[{column, to, ref?, via?, derivation?, code_map?}]` |
 
 A binding's `to` says what the column is:
 
@@ -271,7 +271,8 @@ A binding's `to` says what the column is:
 | --- | --- | --- |
 | `attribute` | required | an attribute of the represented concept (a role view may also bind its player's) |
 | `identifier` | required | an identifier of the represented concept (a role view may also bind its player's) |
-| `foreign_identifier` | required | another concept's identifier — a relation, physically |
+| `foreign_identifier` | required | another concept's identifier — a relation, physically; or the represented concept's own identifier (another instance of the same concept), provided the catalog has a relation whose two ends are that concept |
+| `foreign_attribute` | required | an attribute of another concept X, repeated on this row (a wide table); `via` is required and names the column of this table bound as `foreign_identifier` to an identifier of X |
 | `technical` | none | partition, load time, surrogate keys |
 | `unmapped` | none | not decided yet (warned about) |
 
@@ -288,11 +289,34 @@ representations:
     bindings:
       - {column: loan_no, to: identifier, ref: id:loan_no}
       - {column: customer_id, to: foreign_identifier, ref: id:customer_id}
+      - {column: orig_loan_no, to: foreign_identifier, ref: id:loan_no}
       - column: loan_status
         to: attribute
         ref: attr:loan.loan_status
         code_map: {"1": normal, "2": overdue, "3": settled}
+      - column: customer_gender_cd
+        to: foreign_attribute
+        ref: attr:customer.gender
+        via: customer_id
       - {column: dt, to: technical}
+```
+
+The demo's loan table has two columns the format could not express before.
+`customer_gender_cd` is the customer's gender, repeated on the loan row next to the
+customer number: it is bound as `foreign_attribute`, and `via: customer_id` says which
+customer it describes. `orig_loan_no` is the loan a renewal renews — another instance of
+the same concept: it is bound as `foreign_identifier` to the loan's own identifier, which
+is allowed only because the catalog declares a relation from loan to loan:
+
+```yaml
+relations:
+  - id: rel:loan_renews_loan
+    kind: association
+    from: concept:loan
+    to: concept:loan
+    name: renews
+    inverse_name: is renewed by
+    cardinality: {from: "0..1", to: "0..1"}
 ```
 
 ## Validation
@@ -345,7 +369,10 @@ directory, no manifest, YAML without PyYAML).
 | `duplicate_column` | a column is bound twice in one representation |
 | `binding_attribute` | the attribute is not the represented concept's (or, for a role view, its player's) |
 | `binding_identifier` | the identifier is not the represented concept's (or, for a role view, its player's) |
-| `binding_foreign_identifier` | the identifier is the represented concept's own, or not an identifier at all |
+| `binding_foreign_identifier` | `ref` is not an identifier at all (or does not exist) |
+| `self_reference_without_relation` | the identifier is the represented concept's own, and no relation has that concept at both ends |
+| `binding_foreign_attribute` | `ref` is not an attribute, or is the represented concept's own (for a role view, or its player's) — bind that as `attribute` |
+| `binding_foreign_attribute_via` | `via` is not a column of this table, that column is not a `foreign_identifier`, or the identifier it holds does not identify the attribute's concept |
 
 An identifier "is the concept's" when the concept lists it in `identifiers` or the
 identifier `identifies` the concept. A subtype may therefore list its supertype's
@@ -409,7 +436,7 @@ it writes `out/ontology.json`, whose schema ships as
 {
   "doc_format": "ontology-json/3",
   "catalog": {"name": "demo-lending", "description": "...", "format": "catalog-yaml/1"},
-  "counts": {"domains": 3, "concepts": 10, "relations": 11, "derived_relations": 7},
+  "counts": {"domains": 3, "concepts": 10, "relations": 12, "derived_relations": 7},
   "domains": [],
   "identifiers": [],
   "code_sets": [],
@@ -443,6 +470,8 @@ it writes `out/ontology.json`, whose schema ships as
 - top-level lists are sorted — by `id`, terms by term then target, representations by
   table — so moving an object to another file changes nothing. Lists inside an object
   (attributes, state values, bindings) keep the author's order;
+- bindings carry `via` through as written; a `foreign_identifier` holding the concept's
+  own identifier carries `self_reference: true`;
 - each event participant becomes a `participation` relation `rel:<event slug>.<role_name>`
   from the event to the participant, cardinality `{from: "0..*", to: "1"}` for `one` or
   `"1..*"` for `many`, carrying `derived_from` and the event's status and source. Such an
@@ -482,7 +511,7 @@ byte for byte what it was.
 ```json
 {
   "inputs": {
-    "lineage": {"tasks": 8, "statements": 8, "representations_matched": 7, "relations_checked": 6},
+    "lineage": {"tasks": 8, "statements": 8, "representations_matched": 7, "relations_checked": 7},
     "tables": {"cards": 15, "representations_matched": 7}
   },
   "representations": {
@@ -493,8 +522,8 @@ byte for byte what it was.
       "downstream_tables": ["demo_ads.ads_collection_overdue_loan_df", "demo_dwd.dwd_lending_borrower_df"],
       "grain_proof": {"confidence": "candidate", "keys": ["loan_no"], "basis": "driving_table_rows", "task": "dwd_lending_loan_daily"},
       "conflicts": [{"rule": "grain_not_proven", "declared_source": "proven", "confidence": "candidate"}],
-      "declared_columns": 6,
-      "used_columns": 6
+      "declared_columns": 8,
+      "used_columns": 8
     }
   },
   "bindings": {
@@ -521,7 +550,10 @@ byte for byte what it was.
 - **Relations** are counted only when both ends have a representation; a relation checked
   and backed by no JOIN has `count: 0`, one that could not be checked has no entry. A JOIN
   counts when one side is a table of each concept and at least one key column is bound to an
-  identifier or foreign identifier. Participation relations are counted the same way.
+  identifier or foreign identifier. Participation relations are counted the same way. A
+  relation whose two ends are one concept counts only JOINs with a `self_reference` key
+  column on at least one side (a table joined to itself included): the same instance met in
+  two tables says nothing about the relation.
 - The corpus is read with the same readers `tables` and `ontology` use; a JOIN side that is
   a CTE is followed down to the physical table its rows come from.
 
@@ -540,7 +572,7 @@ documents; names are the catalog's own.
 | `index.md` | the concepts by domain (name, kind, definition, number of tables, status), the identifiers, a summary of the governance gaps |
 | `concepts/<slug>.md` | one page per concept (`concept:fee_waiver` → `fee_waiver.md`), six sections |
 | `identifiers.md` | every identifier in full, with the columns bound to it |
-| `governance.md` | every gap of every concept, one list per kind of gap |
+| `governance.md` | every gap of every concept, one list per kind of gap; plus the denormalised columns per table (informational, not a gap) |
 
 The six sections of a concept page answer the six things a reader opens it for:
 
@@ -548,8 +580,8 @@ The six sections of a concept page answer the six things a reader opens it for:
 | --- | --- |
 | 1. 定义与身份 | definition, kind, status, synonyms; identifiers (arising condition, uniqueness scope, physical spellings, mappings); the state machine (values, transition events); an event's participants, a role's player, context and condition |
 | 2. 数据清单 | the tables, grouped by representation kind (核心, 扩展, 从属, 事件明细, 状态历史, 标识映射, 角色视图, 汇总, 中间): grain (identifiers, source, and what lineage proves), time semantics, refresh, record scope, producing tasks, deprecation and replacement; one hop of lineage per table |
-| 3. 属性 | by category (描述, 状态, 度量, 时间): definition, type and unit, code values (value=meaning), every table column that holds it (with its code map), how it is derived |
-| 4. 关系 | association, composition and generalization read from this concept's side, with cardinality and JOIN count; the events it takes part in (its role, how many tables the event has); the roles it plays, or — on a role's page — the player it belongs to |
+| 3. 属性 | by category (描述, 状态, 度量, 时间): definition, type and unit, code values (value=meaning), every table column that holds it (with its code map; one another table repeats is marked 「冗余（经 via column）」), how it is derived |
+| 4. 关系 | association, composition and generalization read from this concept's side, with cardinality and JOIN count (a self relation's far end reads 「本概念」 with the columns that carry it); the events it takes part in (its role, how many tables the event has); the roles it plays, or — on a role's page — the player it belongs to |
 | 5. 约束 | the constraints on the concept, its attributes, identifiers and relations, by kind, with strength and status |
 | 6. 治理缺口 | drafted share, unmapped columns, attributes no table holds, state or coded attributes without values, whether the concept has any table; with evidence also the conflicts, bound columns nobody uses and relations no JOIN backs |
 
@@ -566,7 +598,7 @@ scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_l
 | Kind | Term | Answer |
 | --- | --- | --- |
 | `concept` | id, name, synonym or term | identity, identifiers, attributes, states, tables, the page to read |
-| `table` | `db.table` (a catalog prefix is ignored) | the concept it carries and what every bound column points at, with evidence |
+| `table` | `db.table` (a catalog prefix is ignored) | the concept it carries and what every bound column points at, with evidence; a denormalised column reads `→ 冗余属性 <attribute> of <concept>（经 <via>）`, a self-referencing one names its relation |
 | `column` | `db.table.column` | the attribute or identifier it holds and its concept — or the identifier it spells |
 | `identifier` | id, name or physical spelling | what it identifies, its scope and spellings, the columns bound to it |
 | `attribute` | id, name or term | its concept, code values, derivation and every table column |

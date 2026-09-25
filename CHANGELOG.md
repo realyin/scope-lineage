@@ -1,6 +1,21 @@
 # Changelog
 
 ## Unreleased
+- **Denormalised and self-referencing columns in the catalog** (S6). A new binding
+  `to: foreign_attribute` with `ref` (another concept's attribute) and `via` (the column of
+  the same table bound as `foreign_identifier` to that concept's identifier) binds a wide
+  table's repeated attributes instead of leaving them `unmapped`; new errors
+  `binding_foreign_attribute` and `binding_foreign_attribute_via`. A `foreign_identifier`
+  may now name the table's own concept (another instance, e.g. the loan a renewal renews)
+  when a relation has that concept at both ends; otherwise `self_reference_without_relation`
+  (`binding_foreign_identifier` now means only "not an identifier"). `ontology-json/3`
+  carries `via` and marks such columns `self_reference: true`; a self relation's JOIN
+  evidence counts only JOINs on a self-referencing column. Concept pages list repeated
+  columns under the owning attribute as 冗余（经 via 列）and a self relation's far end as
+  本概念 with its columns, `governance.md` counts denormalised columns per table
+  (informational, not a gap), and `catalog query table` prints
+  `→ 冗余属性 <attr> of <concept>（经 <via>）`. The demo catalog and corpus gain one of
+  each. Guide: `docs/*/ontology-catalog.md`.
 - **The catalog meets its evidence, and gets pages and a query** (S5).
   `scope-lineage catalog build <dir> --out <dir> [--lineage <artifacts>] [--tables
   <tables.json>]` reads a lineage corpus and its table cards with the existing readers and
