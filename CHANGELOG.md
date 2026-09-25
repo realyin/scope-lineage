@@ -1,6 +1,21 @@
 # Changelog
 
 ## Unreleased
+- **Fixed — a JOIN key is no longer attributed to a column its expression only reads**
+  (E1). `ontology.join_key_pairs` took a key's physical columns from the contract's pierce,
+  which lists every column the key's expression reads: a key computed as
+  `IF(a.id = '' AND b.phone IS NOT NULL, b.id, a.id)` and joined to a customer table became
+  three key pairs, one of them `customer.id = contact.phone`, and `catalog build --lineage`
+  published it as a sample of the customer–contact relation. The key is now walked down
+  from the scope the ON clause names: a projection or UNION branch carries its source, a
+  computed step carries its one physical column (`TRIM`, `CAST`, `COALESCE(x, '')`), and a
+  key computed from several columns is none of them — it stands under its ON-clause name
+  on the table of the scope that reference names (before, the table of the JOIN's own
+  side input, which differs when an ON clause names an earlier alias). The ontology's
+  `table_relations` share the fix. Relation evidence also records a JOIN only when **both**
+  key columns are bound, as `identifier` or `foreign_identifier`, to the same identifier of
+  one of the relation's two concepts (before, one bound side was enough). The demo
+  catalog's relation evidence is unchanged. Guide: `docs/*/ontology-catalog.md`.
 - **Denormalised and self-referencing columns in the catalog** (S6). A new binding
   `to: foreign_attribute` with `ref` (another concept's attribute) and `via` (the column of
   the same table bound as `foreign_identifier` to that concept's identifier) binds a wide

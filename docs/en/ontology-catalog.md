@@ -506,7 +506,7 @@ byte for byte what it was.
 | `representations["db.table"]` | `declared_columns` / `used_columns` | `--tables` | how many columns the metadata declares and the corpus uses |
 | `bindings["db.table.column"]` | `sources` / `expression` | `--lineage` | the physical source columns and the final expression (at most 200 characters), only for a binding without a hand-written `derivation` |
 | `bindings["db.table.column"]` | `declared_only` | `--tables` | the metadata declares the column and no task in the corpus touches it |
-| `relations["rel:..."]` | `joins` | `--lineage` | `count` and up to three `samples` of JOINs linking the two concepts' tables on an identifying column |
+| `relations["rel:..."]` | `joins` | `--lineage` | `count` and up to three `samples` of JOINs linking the two concepts' tables on columns bound to one identifier of theirs |
 
 ```json
 {
@@ -549,13 +549,22 @@ byte for byte what it was.
   compared at all.
 - **Relations** are counted only when both ends have a representation; a relation checked
   and backed by no JOIN has `count: 0`, one that could not be checked has no entry. A JOIN
-  counts when one side is a table of each concept and at least one key column is bound to an
-  identifier or foreign identifier. Participation relations are counted the same way. A
-  relation whose two ends are one concept counts only JOINs with a `self_reference` key
-  column on at least one side (a table joined to itself included): the same instance met in
-  two tables says nothing about the relation.
+  counts when one side is a table of each concept and **both** key columns of one key pair
+  are bound (as `identifier` or `foreign_identifier`) to the same identifier, one that
+  identifies either end: the relation's own concepts, or for a role the player its tables
+  bind. A customer id met by a phone number, or two customer ids linking a call to a contact,
+  is not a sample of a call–contact relation. Participation relations are counted the same
+  way. A relation whose two ends are one concept counts only JOINs with a `self_reference`
+  key column on at least one side (a table joined to itself included): the same instance met
+  in two tables says nothing about the relation.
 - The corpus is read with the same readers `tables` and `ontology` use; a JOIN side that is
-  a CTE is followed down to the physical table its rows come from.
+  a CTE is followed down to the physical table its rows come from. A key column is the
+  physical column whose value the ON clause compares: a renamed column (`caller_phone AS
+  dialed_no`) is reported under its physical name, and a key computed from one column
+  (`TRIM`, `CAST`, `COALESCE(x, '')`) as that column. A key computed from several columns
+  (`IF(a.id = '' AND b.phone IS NOT NULL, b.id, a.id)`) is none of them — a column its
+  condition only reads is never reported as a key — and stands under the name the ON clause
+  wrote, on the table of the scope that ON reference names.
 
 ## Pages: `catalog render`
 
