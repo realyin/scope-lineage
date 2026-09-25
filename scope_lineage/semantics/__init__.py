@@ -6,7 +6,7 @@ Deterministic steps around one model-written document (``table-semantics/1``):
   tasks and their SQL, input tables, and the lineage facts the semantic profile derives
   -- into a packet a model writes from;
 - :func:`validate_document` holds a written document to its JSON Schema and to the
-  packet (nine cross checks), and says per item what to rewrite;
+  packet (thirteen cross checks: form, then meaning), and says per item what to rewrite;
 - :func:`apply_confirmations` writes a person's answers back into the documents;
 - :func:`render_semantic_pages` renders the documents as one page per table and an
   index, marking what was confirmed, what to watch and what failed validation, and

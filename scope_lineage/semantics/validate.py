@@ -1,4 +1,4 @@
-"""``semantic validate``: schema first, then the nine cross checks, then one report.
+"""``semantic validate``: schema first, then the thirteen cross checks, then one report.
 
 A table's pass rate is the share of checked items that did not fail (a ``warn`` is
 listed but does not count against it). The failure list -- every ``fail`` and ``warn``
@@ -25,6 +25,8 @@ from .checks_context import (
     check_time,
     missing_packet,
 )
+from .checks_documented import check_documented_meaning, check_header_facts
+from .checks_meaning import check_derived_codes, check_fan_out
 from .schema import DOC_FORMAT, schema_errors
 
 REPORT_FORMAT = "table-semantics-validation/1"
@@ -39,6 +41,10 @@ _CHECK_FUNCTIONS = (
     check_sources,
     check_digest,
     check_time,
+    check_fan_out,
+    check_derived_codes,
+    check_documented_meaning,
+    check_header_facts,
 )
 _STATUSES = ("pass", "warn", "fail")
 

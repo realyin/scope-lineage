@@ -20,6 +20,8 @@ _GLUED = re.compile(
 )
 _LIST_SPLIT = re.compile(r"[、，,/|；;\s]+")
 _LABEL = re.compile(r"^[一-鿿A-Za-z]{1,8}$")
+# ``A或B或C`` lists values; the word between two of them is not a meaning.
+_CONJUNCTIONS = frozenset({"或", "或者", "和", "与", "及", "至", "到"})
 
 
 def value_labels(comment) -> dict[str, str]:
@@ -28,7 +30,8 @@ def value_labels(comment) -> dict[str, str]:
     found: dict[str, str] = {}
     for pattern in (_PAIR, _GLUED):
         for value, label in pattern.findall(text):
-            found.setdefault(value, label)
+            if label not in _CONJUNCTIONS:
+                found.setdefault(value, label)
     return found
 
 

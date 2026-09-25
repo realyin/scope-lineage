@@ -81,8 +81,9 @@ def code_expression(field: dict):
 def case_outputs(expression) -> list[dict]:
     """``[{value, when, source_values, catch_all}]`` per literal a CASE / IF can return.
 
-    Only for an expression that is one CASE or IF whose every output is a literal (NULL
-    aside): a branch that computes its value makes the column a measure or a pass-through,
+    Only for an expression that is one CASE or IF whose every output is a string or number
+    literal (NULL and ``''`` aside, which say "no value"): a branch that computes its value
+    makes the column a measure or a pass-through, and a TRUE / FALSE flag is a boolean,
     not a code. ``source_values`` are the literals the branch conditions compare the
     source with (``x = 1``, ``x IN (1, 2)``, ``OR`` of those), ``None`` when a condition is
     anything else; ``catch_all`` marks the value the ELSE returns.
@@ -95,7 +96,7 @@ def case_outputs(expression) -> list[dict]:
     outputs: dict[str, dict] = {}
     for condition, value in branches:
         literal = _literal(value)
-        if literal is None:
+        if not literal:
             continue
         entry = outputs.setdefault(
             literal, {"value": literal, "when": [], "source_values": [], "catch_all": False})
@@ -166,8 +167,6 @@ def _literal(node) -> str | None:
         return None if inner is None else f"-{inner}"
     if isinstance(node, exp.Literal):
         return str(node.this)
-    if isinstance(node, exp.Boolean):
-        return "true" if node.this else "false"
     return None
 
 

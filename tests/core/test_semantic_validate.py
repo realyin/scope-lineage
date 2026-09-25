@@ -52,7 +52,9 @@ def test_the_example_passes_every_check(document: dict, packet: dict) -> None:
     report = validate_document(document, packet)
     assert report["failures"] == []
     assert report["pass_rate"] == 1.0
-    assert set(report["checks"]) == set(CHECKS)
+    # The demo table has no join, no CASE and no header lifecycle: checks 10-13 find
+    # nothing to look at there and have their own fixtures (test_semantic_validate_meaning).
+    assert set(CHECKS[:9]) <= set(report["checks"]) <= set(CHECKS)
     assert all(counts["pass"] for counts in report["checks"].values())
 
 

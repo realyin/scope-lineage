@@ -94,6 +94,12 @@ def test_the_case_is_read_where_it_was_computed_not_where_it_was_projected() -> 
 def test_null_outputs_are_not_code_values() -> None:
     outputs = case_outputs("CASE WHEN `x` = 'A' THEN '1' ELSE NULL END")
     assert [o["value"] for o in outputs] == ["1"]
+    blank = case_outputs("CASE WHEN `x` = 'A' THEN '1' ELSE '' END")
+    assert [o["value"] for o in blank] == ["1"]
+
+
+def test_a_true_false_flag_is_a_boolean_not_a_code() -> None:
+    assert case_outputs("CASE WHEN `x` > 0 THEN TRUE ELSE FALSE END") == []
 
 
 # ------------------------------------------------------------------ comments
@@ -105,6 +111,10 @@ def test_value_meaning_pairs_are_read_in_the_usual_spellings() -> None:
     assert value_labels("类型:I是分期，R非分期") == {"I": "是分期", "R": "非分期"}
     assert value_labels("1:是,0:否") == {"1": "是", "0": "否"}
     assert value_labels("客户号") == {}
+
+
+def test_values_joined_by_a_conjunction_are_a_list_not_pairs() -> None:
+    assert value_labels("子卡类型,A或B或C") == {}
 
 
 def test_a_comment_listing_labels_yields_its_items() -> None:
