@@ -198,7 +198,17 @@
         "key_evidence": [],
         "key_confidence": "none",
         "partition_columns": [],
-        "fan_out_risks": [],
+        "fan_out_risks": [
+          {
+            "logic_block_id": "logic:cte:staged:join:001",
+            "scope_id": "cte:staged",
+            "join_type": "LEFT_OUTER",
+            "right": "dim.accounts",
+            "status": "unknown",
+            "reason": "物理表无主键事实",
+            "path": "grain"
+          }
+        ],
         "tag": "结构推断"
       },
       "stages": [
@@ -675,7 +685,8 @@
           "output_shape.grain": 1,
           "output_shape.candidate_keys": 1,
           "output_shape.unexposed_keys": 1,
-          "output_shape.key_confidence": 1
+          "output_shape.key_confidence": 1,
+          "output_shape.fan_out_risks[]": 1
         }
       }
     }

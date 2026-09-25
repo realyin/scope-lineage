@@ -343,6 +343,41 @@ def test_a_merge_statement_reports_an_unknown_shape_rather_than_guessing() -> No
     assert shape["candidate_keys"] == []
 
 
+def test_a_merge_publishes_the_fan_out_of_joins_on_its_using_source_path() -> None:
+    """The MERGE's own row shape stays unknown, but the rows it reads do not.
+
+    A MERGE writes whatever its USING source hands it, so a JOIN that duplicates a source
+    row -- here an undeduplicated lookup two CTEs below the source -- duplicates what the
+    MERGE inserts or makes its matched update ambiguous. The walk from ROOT through the
+    source down to the driving table is the same walk an INSERT gets; only the grain it
+    would report is withheld, because a MERGE's written rows are not its source's rows.
+    """
+    shape = _shape(
+        "WITH enriched AS ("
+        "  SELECT a.id, p.pid, p.ts, l.label"
+        "  FROM (SELECT id, dt FROM ods.base WHERE dt = '1') a"
+        "  LEFT JOIN (SELECT id AS pid, ts FROM ods.e WHERE dt = '1') p ON a.id = p.pid"
+        "  LEFT JOIN (SELECT id, name AS label FROM ods.dim) l ON a.id = l.id"
+        "), final AS ("
+        "  SELECT x.id, x.pid, x.ts, x.label"
+        "  FROM (SELECT * FROM enriched WHERE id IS NOT NULL) x"
+        ") "
+        "MERGE INTO mart.t target USING (SELECT * FROM final) source "
+        "ON target.id = source.id "
+        "WHEN MATCHED THEN UPDATE SET target.pid = source.pid, target.ts = source.ts "
+        "WHEN NOT MATCHED THEN INSERT (id, pid, ts, label) "
+        "VALUES (source.id, source.pid, source.ts, source.label)"
+    )
+    assert shape["shape"] == "unknown"
+    assert shape["grain"]["basis"] == "unknown"
+    assert shape["candidate_keys"] == []
+    risks = {risk["right"]: risk for risk in shape["fan_out_risks"]}
+    assert set(risks) == {"subq:p", "subq:l"}
+    assert {risk["scope_id"] for risk in risks.values()} == {"cte:enriched"}
+    assert {risk["path"] for risk in risks.values()} == {"grain"}
+    assert risks["subq:p"]["status"] == "risk"
+
+
 # ------------------------------------------------------- R3: fan-out risk, three ways
 
 

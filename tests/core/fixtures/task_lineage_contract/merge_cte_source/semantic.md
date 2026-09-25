@@ -35,7 +35,8 @@ lineage_digest: "30165136b9b0a8f3"
 - ⚠ 粒度：未能判定（basis=unknown）（结构推断；证据 ROOT）
 - 候选键：无（结构未证明任一键唯一）（结构推断）
 - 分区列：无；分区列不计入候选键（元数据事实）
-- 行数放大风险：粒度链路上无 JOIN，不存在连接放大。（结构推断）
+- 行数放大风险：
+  - `cte:staged` 中的 LEFT_OUTER JOIN `dim.accounts`：⚠ 未知（unknown）——物理表无主键事实（结构推断；证据 logic:cte:staged:join:001）
 
 ## 3. 加工链路
 
@@ -166,7 +167,7 @@ lineage_digest: "30165136b9b0a8f3"
 - 事实缺口：0 条（SQL事实）
 - 解析警告：无（SQL事实）
 - 目标列绑定：不适用（MERGE 在绑定机制之外解析目标列）（元数据事实）
-- 本文档的结构推断项：11 项（按 semantic.json 路径：fields[].structural_role 6、output_shape.candidate_keys 1、output_shape.grain 1、output_shape.key_confidence 1、output_shape.shape 1、output_shape.unexposed_keys 1；完整清单见 semantic.json 的 confidence.inferred_items）（结构推断）
+- 本文档的结构推断项：12 项（按 semantic.json 路径：fields[].structural_role 6、output_shape.candidate_keys 1、output_shape.fan_out_risks[] 1、output_shape.grain 1、output_shape.key_confidence 1、output_shape.shape 1、output_shape.unexposed_keys 1；完整清单见 semantic.json 的 confidence.inferred_items）（结构推断）
 
 #### 治理线索
 
