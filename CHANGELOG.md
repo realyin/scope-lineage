@@ -1,6 +1,26 @@
 # Changelog
 
 ## Unreleased
+- **`semantic validate` checks meaning, not only form: checks 10-13.** Checks 1-9 prove a
+  document covers every column, cites every source and quotes the SQL faithfully; a page
+  can pass all of them and still mislead. Four new checks hold what it says to the packet:
+  10 `fan_out` fails when the right side of a join the semantic profile did not prove
+  unique on its keys (`fan_out_risks`) is named -- by table or alias -- neither in
+  `summary.row.note` nor in a `summary.watch` of kind `risk`, and warns when a LEFT join
+  is called harmless to the row count; 11 `derived_codes` fails per literal a CASE / IF
+  column returns that `code_values` omits, and warns when a success-like value (成功 /
+  正常 / 通过 / 有效) gathers several source values without a watch; 12
+  `documented_meaning` fails when a value the column's or a source column's comment
+  explains (`0-申请 1-成功`, `正常、锁定、删除`) is left `unconfirmed` / 待确认, quoting the
+  comment, and warns when a qualifier of the main input or a source column (增值税, 税,
+  手续费, 罚息, 冲正, 测试; `QUALIFIER_TERMS`) that the target's comments drop is missing
+  from `summary.what` or the affected columns; 13 `header_facts` warns when a lifecycle or
+  data volume the SQL header states is not in `how_to_read` or a watch. Each failure's
+  message is a rewrite instruction. The packet gains the facts they read: join rules
+  carry `right`, `right_aliases`, `right_tables` and the profile's `fan_out` verdict
+  (packet.md: a 行数放大 column), column producers carry `case_outputs`, tasks carry
+  `header_facts` (packet.md: 头注释). A packet built before them makes checks 10, 11 and
+  13 find nothing to check. The writing prompt is `table-semantics-prompt@3`.
 - **Table semantics pages: `semantic render`, and concept pages linked to them.**
   `semantic render <dir> --out <dir> [--validation <report.json>] [--ontology
   <ontology.json>]` writes one page per `table-semantics/1` document,

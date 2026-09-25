@@ -469,7 +469,7 @@ scope-lineage semantic confirm <docs> --confirmations <answers.json>
   `column:<c>.code_values` 或 `summary.row` 四种目标之一。`confirm` 列出的 `unmatched` 要逐条告诉用户，
   不要默默丢掉。
 
-格式、九项检查和确认文件见 `docs/zh-CN/table-semantics.md`。
+格式、十三项检查和确认文件见 `docs/zh-CN/table-semantics.md`。
 
 ### "这个结果可信吗 / 为什么断了" — diagnostics
 

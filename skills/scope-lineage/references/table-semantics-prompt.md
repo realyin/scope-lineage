@@ -1,4 +1,4 @@
-# 表语义提示词（table-semantics-prompt@2）
+# 表语义提示词（table-semantics-prompt@3）
 
 用法：Agent 为每张目标表把这份提示词连同它的材料包 `<packets>/<db.table>/packet.md` 交给模型，
 模型输出一份 `table-semantics/1` JSON（格式见 `docs/zh-CN/table-semantics.md`，Schema 见
@@ -27,9 +27,12 @@
    - `what`：一句话说这张表是什么（业务说法，不是表名翻译）。
    - `row`：一行是什么；粒度列；粒度来源（表注释写明 = `declared`，SQL 的 GROUP BY/去重可证明 =
      `proven`，其余 = `inferred`）；是否唯一（`yes` / `no` / `unknown`）以及不唯一的原因（写在 `note`）。
+     材料包 4.2 里「行数放大」不是 `safe` 的每个关联，都要在 `note` 或一条 `kind: risk` 的 `watch` 里
+     用表名或别名点名，写明会不会放大行数；左关联同样可能放大，不要写「不影响行数」。
    - `refresh`：调度周期；快照 / 增量 / 拉链（`snapshot` / `incremental` / `zipper`）；怎么取一天、
      怎么取一段时间（`how_to_read`）。上游都是按单一分区读取的全量表、又没有按业务日期筛选时，本表是
-     快照，不是增量。
+     快照，不是增量。任务的「头注释」写了生命周期或数据规模时，在 `how_to_read` 里写明（例如「分区只
+     保留最近 10 天」）。
    - `scope`：每个过滤、每个会丢行的关联各写一条业务说法，并用 `rule_refs` 引用对应 `rules` 的 id。
    - `upstream`：每张输入表在本表的作用（`main` 主表、`enrich` 补充字段、`filter` 过滤、`dedup` 去重、
      `union_branch` 合并分支、`lookup` 查码、`other`），`provides` 写它提供什么。
@@ -48,7 +51,11 @@
      分别写（`{"branch": "线上", "text": "…"}`）；常量写出含义。
    - `source_columns`：口径引用的上游物理列（`库.表.列`），与材料包 4.1 的血缘来源一致。
    - `code_values`：码值只来自注释、SQL 的 CASE/IF、SQL 注释；每个值写来源；材料只给了值没给含义的，
-     `meaning` 写「待确认」并标 `unconfirmed: true`，同时在 `questions` 里提问。
+     `meaning` 写「待确认」并标 `unconfirmed: true`，同时在 `questions` 里提问。CASE/IF 派生的列要列出
+     它能输出的每个值；注释里已写明含义（如「0-申请 1-成功」）的值直接采用，不要标待确认。一个像
+     「成功 / 正常 / 有效」的值由多个来源值归并而来时，在该列 `watch` 里写明归并了哪些值。
+   - 上游主表或来源列注释里的限定词（增值税、手续费、罚息、冲正、测试等）要写进 `what` 或相关列的
+     `meaning` / `derivation`，不要把它写成一般口径。
    - `unit`：金额、数量的单位，材料写明时才写。
    - `null_meaning`：会为空的情形（左关联没匹配上、某分支固定为空等）。
    - `watch`：该列的矛盾或风险。
@@ -58,7 +65,7 @@
 5. **任务（task）**：`name`、做什么和为什么（`purpose`，取自任务描述与 SQL 头注释）、`cycle`、
    `outputs`、`upstream_tasks`、`downstream_tasks`。多个任务写同一张表时改用 `tasks` 列表。
 6. **其余键**：`doc_format` 写 `table-semantics/1`；`table` 写 `库.表`；`packet_digest` 从材料包照抄；
-   `generator` 写 `{"prompt": "table-semantics-prompt@2"}`。调用方给了本体目录里这张表对应的概念与
+   `generator` 写 `{"prompt": "table-semantics-prompt@3"}`。调用方给了本体目录里这张表对应的概念与
    表现类型时，写 `concept`（`{"concept": "concept:<id>", "representation_kind": "<kind>"}`）。
 
 ## 规则
@@ -75,5 +82,7 @@
 调用方会给出 `semantic validate` 的失败清单（每条是 `FAIL` / `WARN`、检查编号与名称、条目位置和一句
 改法）。只修改失败的条目：补齐缺的列、改正与血缘不符的来源列、删掉材料里找不到的码值（或标
 `unconfirmed: true` 并提问）、为未引用的过滤补上 `rules` 与 `scope`（`rule_refs`）、把改写过的 SQL 换成
-原文、把「增量」改回「快照」并写清取数方式。不要改动已通过的条目；`packet_digest` 过期时按新材料包重写
+原文、把「增量」改回「快照」并写清取数方式；第 10–13 项（含义检查）则按每条的改法点名会放大行数的
+关联、补上 CASE/IF 漏掉的码值、按注释写出已有含义的码值、写回丢掉的限定词、在取数方式里写明生命周期。
+不要改动已通过的条目；`packet_digest` 过期时按新材料包重写
 整份文档。输出修改后的完整 JSON。

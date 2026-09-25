@@ -9,7 +9,7 @@
 
 - `scope-lineage semantic packet` 把写一张表所需的全部事实收成一份**材料包**——表的元数据、每个生产任务
   及其 SQL、输入表、语义画像已经推出的血缘事实；
-- `scope-lineage semantic validate` 用 JSON Schema 和材料包（九项交叉校验）检查写好的
+- `scope-lineage semantic validate` 用 JSON Schema 和材料包（十三项交叉校验）检查写好的
   `table-semantics/1` 文档，逐条列出要重写的地方；
 - `scope-lineage semantic confirm` 把人的回答写回文档；
 - `scope-lineage semantic render` 把文档渲染成每表一页和一页索引，并与本体目录的概念页互相链接。
@@ -110,7 +110,7 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 如 `subq:p`）、`right_aliases`（ON 子句与 scope 给它的别名）、`right_tables`（它背后的物理表）和
 `fan_out`——画像对右侧是否按关联键唯一的判定（`{status, reason, path}`，`status` 为 `safe` / `risk` /
 `unknown`；画像没有走到的关联为 `null`）；`packet.md` 在规则表的「行数放大」一列里给出。每个列的生产语句带
-`case_outputs`：该列最后一步计算是一个输出全为字面量（NULL 除外）的 CASE 或 IF 时，每个值一条，写明分支条件
+`case_outputs`：该列最后一步计算是一个输出全为字符串或数字字面量（NULL 与 `''` 除外）的 CASE 或 IF 时，每个值一条，写明分支条件
 （`when`）、这些条件比较的来源值（`source_values`；条件不是等值或 `IN` 列表时为 `null`）以及是否由 ELSE 返回
 （`catch_all`）。每个任务带 `header_facts`：头注释写明的生命周期（`生命周期` / `保留` / `lifecycle` 后跟天数
 或 `永久`）与数据规模（`数据规模` / `数据量` 后跟数字），从血缘发布的头注释和脚本开头的注释行里读取；
@@ -216,8 +216,19 @@ scope-lineage semantic validate <documents> --packets <packet dir> [--json]
 | 7 | `sources` | 带来源的条目 `sources` 为空，或问题超过五个 | — |
 | 8 | `digest` | `packet_digest` 与材料包不一致（过期），或没有这张表的材料包 | — |
 | 9 | `time` | `refresh.time` 写 `incremental`，而所有输入都是按单一分区读取的全量快照、且没有按业务日期过滤 | `refresh.time` 写 `snapshot`，而写入按业务日期筛选 |
+| 10 | `fan_out` | `fan_out.status` 不是 `safe` 的关联，其右侧既没有在 `summary.row.note` 里、也没有在任何 kind 为 `risk` 的 `summary.watch` 里被点名（表名 `库.表` 或不带库名，或别名；同一右侧不论关联几次只算一项） | 行说明或某条 watch 的某句话把这样的左关联写成不影响行数（无影响、不影响行数、不会放大……）；每处一条警告 |
+| 11 | `derived_codes` | 列的 CASE / IF 返回的字面量（`case_outputs`）不在它的 `code_values` 里（每缺一个值一条失败；NULL、`''` 和 TRUE / FALSE 不算码值） | 含义像「成功」的码值（成功 / 正常 / 通过 / 有效）来自归并多个来源值的分支或 ELSE，而该列的 `watch` 和 `refs` 含 `column:<列>` 的 `summary.watch` 都没有说明 |
+| 12 | `documented_meaning` | 标了 `unconfirmed` 或含义写「待确认」的码值，其含义在该列注释或来源列注释里已写明（`0-申请 1-成功` 式的值-含义对，或 SQL 里引用了其标签的 `正常、锁定、删除` 式列表）；注释写明的含义本身就是「待确认」的状态可以照写 | 主输入表注释或来源列注释里有限定词（`增值税`、`税`、`手续费`、`罚息`、`冲正`、`测试`）而目标表注释里没有，`summary.what`（主输入表）或所有受影响列的 meaning / derivation 里也没写（每个词一条警告） |
+| 13 | `header_facts` | — | SQL 头注释写明了生命周期（`header_facts.lifecycle`）或数据规模（`header_facts.volume`），而 `summary.refresh.how_to_read` 和 watch 都没有提到 |
 
 第 9 项存在的原因：把每日全量快照写成增量，读者就会把多个分区相加，每一行按天数重复计数。
+
+第 1–9 项核对文档的形式：每一列都覆盖、每个来源都有出处、每段引用都找得到。第 10–13 项核对含义，因为一页
+文档可以通过前九项却依然误导读者：会重复行的关联没有提、派生出来的码值漏了、注释已经解释的值被当成问题、
+增值税或测试这样的限定被丢掉、十天的生命周期没有传达。它们读取「材料包里有什么」一节所述的事实（`fan_out`、
+`case_outputs`、`header_facts`）和注释；在这些事实出现之前生成的材料包里没有它们，相应检查就无事可查。
+限定词清单是 `scope_lineage/semantics/checks_documented.py` 里的 `QUALIFIER_TERMS`；同一条注释里被更长的词
+包含的词（增值税里的税）只按更长的词报一次。
 
 第 5 项的规范化会转小写、去掉标识符引号、表限定、空白以及开头的 `WHERE` / `AND` / `ON`，所以血缘里的
 `` `latest`.`rn` = 1 ``、文档引用的 `WHERE rn = 1` 和脚本里的 `latest.rn=1` 视为相同。
