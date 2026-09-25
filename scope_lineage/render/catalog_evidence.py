@@ -13,7 +13,9 @@ changed and a reader can always tell a claim from its evidence:
   expression of a bound column -- only where the binding has no hand-written derivation
   -- and ``declared_only`` for a column the metadata declares and no task touches.
 - ``evidence.relations["rel:..."]``: how many JOINs in the corpus connect the two
-  concepts' tables on an identifying column, with up to three samples.
+  concepts' tables on an identifying column, with up to three samples. A relation from a
+  concept to itself counts only JOINs on a column the build marked ``self_reference``
+  (another instance of the concept), never the same instance met in a second table.
 
 Nothing here parses a contract document: the statements and their profiles come from
 ``semantic_profile`` and ``ontology.write_statements``, the JOIN key pairs from
@@ -188,6 +190,10 @@ class _Catalog:
             table: {b["column"] for b in rep["bindings"] if b["to"] in IDENTIFYING_BINDINGS}
             for table, rep in self.reps.items()
         }
+        self.self_referencing = {
+            table: {b["column"] for b in rep["bindings"] if b.get("self_reference")}
+            for table, rep in self.reps.items()
+        }
 
 
 # ------------------------------------------------------------------------- merging
@@ -341,15 +347,16 @@ def _relation_joins(catalog: _Catalog, statements: Iterable[WriteStatement]) -> 
         ends = (catalog.by_concept.get(relation["from"]), catalog.by_concept.get(relation["to"]))
         if not ends[0] or not ends[1]:
             continue
-        found[relation["id"]] = {"joins": _count_joins(catalog, ends, statements)}
+        match = _self_pair if relation["from"] == relation["to"] else _identifying_pair
+        found[relation["id"]] = {"joins": _count_joins(catalog, ends, statements, match)}
     return found
 
 
-def _count_joins(catalog: _Catalog, ends: tuple, statements: tuple) -> dict:
+def _count_joins(catalog: _Catalog, ends: tuple, statements: tuple, match) -> dict:
     count, samples = 0, []
     for statement in statements:
         for join in statement.joins:
-            on = _identifying_pair(catalog, join, ends)
+            on = match(catalog, join, ends)
             if on is None:
                 continue
             count += 1
@@ -370,6 +377,21 @@ def _identifying_pair(catalog: _Catalog, join: JoinFact, ends: tuple) -> Optiona
         return None
     for left, right in join.columns:
         if left in catalog.identifying[join.left] or right in catalog.identifying[join.right]:
+            return f"{join.left}.{left} = {join.right}.{right}"
+    return None
+
+
+def _self_pair(catalog: _Catalog, join: JoinFact, ends: tuple) -> Optional[str]:
+    """``"a.t.c = b.t.c"`` when this JOIN links two instances of one concept: both sides
+    carry it and one side's key is a self-referencing column (a table joined to itself
+    counts too -- that is how a renewal meets the loan it renews)."""
+    tables = ends[0]
+    if join.left not in tables or join.right not in tables:
+        return None
+    left_refs = catalog.self_referencing[join.left]
+    right_refs = catalog.self_referencing[join.right]
+    for left, right in join.columns:
+        if left in left_refs or right in right_refs:
             return f"{join.left}.{left} = {join.right}.{right}"
     return None
 

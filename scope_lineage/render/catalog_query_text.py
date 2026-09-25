@@ -95,8 +95,13 @@ def _column_text(column: Mapping) -> str:
     text = f"{column['column']} → {BINDING_TEXT[column['to']]}"
     if column.get("ref"):
         text += f" {column['ref_name']} {column['ref']}"
-    if column.get("concept"):
+    if column["to"] == "foreign_attribute":
+        text += f" of {column['concept']['name']}（经 {column['via']}）"
+    elif column.get("concept"):
         text += f"（概念 {column['concept']['name']}）"
+    if column.get("self_reference"):
+        relations = "、".join(f"{r['name']} {r['id']}" for r in column["self_relations"])
+        text += f"（自关联：{relations}）"
     if column.get("code_map"):
         text += "（码值 " + ", ".join(f"{k}→{v}" for k, v in column["code_map"].items()) + "）"
     evidence = column.get("evidence") or {}

@@ -139,6 +139,41 @@ def test_bindings_keep_their_column_order(demo: dict) -> None:
     assert gender["code_map"] == {"F": "female", "M": "male", "U": "unknown"}
 
 
+def _loan_binding(document: dict, column: str) -> dict:
+    loan = item(document["representations"], "table", "demo_dwd.dwd_lending_loan_df")
+    return item(loan["bindings"], "column", column)
+
+
+def test_a_foreign_attribute_carries_its_via(demo: dict) -> None:
+    assert _loan_binding(demo, "customer_gender_cd") == {
+        "column": "customer_gender_cd",
+        "to": "foreign_attribute",
+        "ref": "attr:customer.gender",
+        "via": "customer_id",
+        "status": "confirmed",
+        "source": "sql",
+        "evidence": [],
+    }
+
+
+def test_a_foreign_identifier_of_the_tables_own_concept_is_a_self_reference(demo: dict) -> None:
+    assert _loan_binding(demo, "orig_loan_no")["self_reference"] is True
+    assert "self_reference" not in _loan_binding(demo, "customer_id")
+
+
+def test_the_schema_requires_via_on_a_foreign_attribute(demo: dict) -> None:
+    import copy
+
+    import jsonschema
+
+    broken = copy.deepcopy(demo)
+    loan = item(broken["representations"], "table", "demo_dwd.dwd_lending_loan_df")
+    del item(loan["bindings"], "column", "customer_gender_cd")["via"]
+
+    with pytest.raises(jsonschema.ValidationError):
+        validate_ontology_document(broken)
+
+
 def test_the_build_does_not_depend_on_file_layout(tmp_path: Path, demo: dict) -> None:
     """Same objects, other files and order: the same bytes."""
     root = copy_demo(tmp_path)

@@ -211,10 +211,10 @@ def _identifier_block(view: CatalogView, identifier: dict) -> list[str]:
 
 
 def _bound_columns(view: CatalogView, ref: str) -> str:
-    parts = [
-        f"{expr_span(rep['table'] + '.' + binding['column'])}（{BINDING_TEXT[binding['to']]}）"
-        for rep, binding in view.bindings_of(ref)
-    ]
+    parts = []
+    for rep, binding in view.bindings_of(ref):
+        label = BINDING_TEXT[binding["to"]] + ("，自关联" if binding.get("self_reference") else "")
+        parts.append(f"{expr_span(rep['table'] + '.' + binding['column'])}（{label}）")
     return "；".join(parts) or "（无）"
 
 
@@ -237,7 +237,35 @@ def render_governance(view: CatalogView) -> str:
             )
         )
     lines += _gap_lists(view, gaps)
+    lines += _foreign_attribute_tables(view)
     return "\n".join(lines) + "\n"
+
+
+def _foreign_attribute_tables(view: CatalogView) -> list[str]:
+    """Wide tables repeating another concept's attributes: counted, not a gap."""
+    lines = [
+        "",
+        "## 冗余属性列（按表）",
+        "",
+        "信息项，不算缺口：这些列在另一个概念的标识符旁重复该概念的属性。",
+        "",
+    ]
+    found = view.foreign_attribute_bindings()
+    if not found:
+        return lines + ["（无）"]
+    lines += table_head("表", "冗余属性列数", "列")
+    for rep, bindings in found:
+        columns = "；".join(_foreign_attribute_text(view, b) for b in bindings)
+        lines.append(table_row(expr_span(rep["table"]), str(len(bindings)), columns))
+    return lines
+
+
+def _foreign_attribute_text(view: CatalogView, binding: dict) -> str:
+    attribute, concept = view.attributes[binding["ref"]]
+    return (
+        f"{expr_span(binding['column'])}：{concept['name']}.{attribute['name']}"
+        f"（经 {expr_span(binding['via'])}）"
+    )
 
 
 def _gap_lists(view: CatalogView, gaps: dict) -> list[str]:

@@ -14,7 +14,7 @@
 | [豁免](concepts/fee_waiver.md) | 13/13（100%） | 否 | 0 | 0 | 0 |
 | [实名认证](concepts/identity_verification.md) | 3/3（100%） | 是 | 0 | 1 | 0 |
 | [分期借据](concepts/installment_loan.md) | 3/5（60%） | 是 | 0 | 1 | 0 |
-| [借据](concepts/loan.md) | 3/30（10%） | 否 | 0 | 0 | 0 |
+| [借据](concepts/loan.md) | 4/33（12%） | 否 | 0 | 0 | 0 |
 | [还款](concepts/repayment.md) | 0/14（0%） | 否 | 0 | 0 | 0 |
 
 ## 没有表现表的概念
@@ -53,3 +53,12 @@
 - `rel:fee_waiver.borrower`：豁免 borrower 借款人
 - `rel:repayment.payer`：还款 payer 客户
 - `rel:fee_waiver.loan`：豁免 loan 借据
+- `rel:loan_renews_loan`：借据 renews 借据
+
+## 冗余属性列（按表）
+
+信息项，不算缺口：这些列在另一个概念的标识符旁重复该概念的属性。
+
+| 表 | 冗余属性列数 | 列 |
+| --- | --- | --- |
+| `demo_dwd.dwd_lending_loan_df` | 1 | `customer_gender_cd`：客户.性别（经 `customer_id`） |

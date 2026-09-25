@@ -177,6 +177,7 @@
             "attribute",
             "identifier",
             "foreign_identifier",
+            "foreign_attribute",
             "technical",
             "unmapped"
           ]
@@ -184,6 +185,11 @@
         "ref": {
           "type": "string",
           "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "via": {
+          "description": "foreign_attribute only: the column of this table, bound as foreign_identifier, that names the instance whose attribute this column repeats",
+          "type": "string",
+          "minLength": 1
         },
         "derivation": {
           "type": "string",
@@ -217,7 +223,8 @@
                 "enum": [
                   "attribute",
                   "identifier",
-                  "foreign_identifier"
+                  "foreign_identifier",
+                  "foreign_attribute"
                 ]
               }
             },
@@ -233,6 +240,28 @@
           "else": {
             "properties": {
               "ref": false
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "to": {
+                "const": "foreign_attribute"
+              }
+            },
+            "required": [
+              "to"
+            ]
+          },
+          "then": {
+            "required": [
+              "via"
+            ]
+          },
+          "else": {
+            "properties": {
+              "via": false
             }
           }
         }

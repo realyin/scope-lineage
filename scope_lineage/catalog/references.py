@@ -207,29 +207,17 @@ def _representation(checks: _Checks, file: str, representation: dict) -> None:
     for column, count in sorted(columns.items()):
         if count > 1:
             checks.fail("duplicate_column", file, f"{table}.{column}", f"bound {count} times")
-    owners = _binding_owners(checks.index, representation["concept"]) if concept_ok else None
+    owners = checks.index.binding_owners(representation["concept"]) if concept_ok else None
     if owners is None:
         return  # no concept to judge the bindings against; reported above
+    by_column = {b["column"]: b for b in reversed(representation["bindings"])}
     for binding in representation["bindings"]:
-        _binding(checks, file, table, binding, owners)
+        at = f"{table}.{binding['column']}"
+        _binding(checks, file, at, binding, owners, by_column)
 
 
-def _binding_owners(index: Index, concept_id: str):
-    """The concepts whose attributes and identifiers a representation may bind as its own.
-
-    A role view carries its player's too: the borrower table's customer_id *is* the
-    customer's identifier. ``None`` when a role's player is itself broken -- that is
-    already a ``role_player`` error, and every binding would repeat it.
-    """
-    if index.concept_kind(concept_id) != "role":
-        return (concept_id,)
-    player = index.get(concept_id).obj["player"]
-    return (concept_id, player) if index.concept_kind(player) == "entity" else None
-
-
-def _binding(checks: _Checks, file: str, table: str, binding: dict, owners) -> None:
+def _binding(checks: _Checks, file: str, at: str, binding: dict, owners, by_column) -> None:
     to, ref = binding["to"], binding.get("ref")
-    at = f"{table}.{binding['column']}"
     index = checks.index
     own_ids = set().union(*(index.identifiers_of(owner) for owner in owners))
     if to == "attribute":
@@ -238,9 +226,58 @@ def _binding(checks: _Checks, file: str, table: str, binding: dict, owners) -> N
             checks.fail("binding_attribute", file, at, f"{ref!r} {_not_own(index, ref, 'attribute')}")
     elif to == "identifier" and ref not in own_ids:
         checks.fail("binding_identifier", file, at, f"{ref!r} {_not_own(index, ref, 'identifier')}")
-    elif to == "foreign_identifier" and (ref in own_ids or not index.is_type(ref, "identifier")):
-        reason = "identifies this table's own concept" if ref in own_ids else _describe(index, ref)
-        checks.fail("binding_foreign_identifier", file, at, f"{ref!r} {reason}; expected another concept's identifier")
+    elif to == "foreign_identifier":
+        _foreign_identifier(checks, file, at, ref, owners)
+    elif to == "foreign_attribute":
+        _foreign_attribute(checks, file, at, binding, owners, by_column)
+
+
+def _foreign_identifier(checks: _Checks, file: str, at: str, ref, owners) -> None:
+    """Another concept's identifier -- or this concept's own, when a relation links the
+    concept to itself (a renewal loan's column naming the loan it renews)."""
+    index = checks.index
+    if not index.is_type(ref, "identifier"):
+        message = f"{ref!r} {_describe(index, ref)}; expected an identifier"
+        checks.fail("binding_foreign_identifier", file, at, message)
+        return
+    selves = [owner for owner in owners if ref in index.identifiers_of(owner)]
+    if selves and not any(index.has_self_relation(owner) for owner in selves):
+        checks.fail(
+            "self_reference_without_relation", file, at,
+            f"{ref!r} identifies this table's own concept, and no relation runs from "
+            f"{selves[0]} to itself",
+        )
+
+
+def _foreign_attribute(checks: _Checks, file: str, at: str, binding: dict, owners, by_column) -> None:
+    """Another concept's attribute, repeated on this row next to that concept's identifier."""
+    index = checks.index
+    ref, via = binding["ref"], binding["via"]
+    owner = index.get(ref).owner if index.is_type(ref, "attribute") else None
+    if owner is None or owner in owners:
+        reason = "belongs to this table's own concept" if owner else _describe(index, ref)
+        message = f"{ref!r} {reason}; expected another concept's attribute"
+        checks.fail("binding_foreign_attribute", file, at, message)
+        return
+    reason = _via_problem(index, by_column.get(via), owner)
+    if reason:
+        checks.fail(
+            "binding_foreign_attribute_via", file, at,
+            f"via {via!r} {reason}; expected a column of this table bound as "
+            f"foreign_identifier to an identifier of {owner}",
+        )
+
+
+def _via_problem(index: Index, target, owner: str):
+    """Why the ``via`` column cannot name the instance of ``owner``, or None when it can."""
+    if target is None:
+        return "is not a column of this table"
+    if target["to"] != "foreign_identifier":
+        return f"is bound as {target['to']}"
+    owners = index.binding_owners(owner) or (owner,)
+    if target["ref"] not in set().union(*(index.identifiers_of(o) for o in owners)):
+        return f"holds {target['ref']!r}, which does not identify {owner}"
+    return None
 
 
 def _not_own(index: Index, ref, what: str) -> str:

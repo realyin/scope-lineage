@@ -133,6 +133,30 @@ def test_a_column_bound_to_an_identifier(document: dict) -> None:
     assert match["concept"] == {"id": "concept:loan", "name": "借据"}
 
 
+def test_a_denormalised_column_names_the_other_concept_and_its_via(document: dict) -> None:
+    match = _one(document, "column", "demo_dwd.dwd_lending_loan_df.customer_gender_cd")
+
+    assert (match["to"], match["ref"], match["via"]) == (
+        "foreign_attribute",
+        "attr:customer.gender",
+        "customer_id",
+    )
+    assert match["concept"] == {"id": "concept:customer", "name": "客户"}
+
+
+def test_the_table_text_shows_denormalised_and_self_referencing_columns(document: dict) -> None:
+    text = render_query_text(query_catalog(document, "table", "demo_dwd.dwd_lending_loan_df"))
+
+    assert "  - customer_gender_cd → 冗余属性 性别 attr:customer.gender of 客户（经 customer_id）" in text
+    assert "  - orig_loan_no → 外部标识符 借据号 id:loan_no（自关联：renews rel:loan_renews_loan）" in text
+
+
+def test_a_self_referencing_column_names_its_relation(document: dict) -> None:
+    match = _one(document, "column", "demo_dwd.dwd_lending_loan_df.orig_loan_no")
+
+    assert match["self_relations"] == [{"id": "rel:loan_renews_loan", "name": "renews"}]
+
+
 def test_a_column_the_catalog_only_spells_is_answered_by_the_spelling(document: dict) -> None:
     match = _one(document, "column", "demo_ods.ods_core_customer_df.cust_no")
 
@@ -173,9 +197,10 @@ def test_an_attribute_lists_the_table_columns_it_lands_in(document: dict) -> Non
 
     assert match["concept"] == {"id": "concept:customer", "name": "客户"}
     assert match["code_set"]["values"][0] == {"value": "F", "meaning": "female", "retired": False}
-    assert [(c["table"], c["column"]) for c in match["columns"]] == [
-        ("demo_dwd.dwd_lending_borrower_df", "gender_cd"),
-        ("demo_dwd.dwd_party_customer_info_df", "gender_cd"),
+    assert [(c["table"], c["column"], c["to"]) for c in match["columns"]] == [
+        ("demo_dwd.dwd_lending_borrower_df", "gender_cd", "attribute"),
+        ("demo_dwd.dwd_lending_loan_df", "customer_gender_cd", "foreign_attribute"),
+        ("demo_dwd.dwd_party_customer_info_df", "gender_cd", "attribute"),
     ]
 
 

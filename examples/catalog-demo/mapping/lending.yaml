@@ -11,6 +11,7 @@ representations:
     bindings:
       - {column: loan_no, to: identifier, ref: id:loan_no}
       - {column: customer_id, to: foreign_identifier, ref: id:customer_id}
+      - {column: orig_loan_no, to: foreign_identifier, ref: id:loan_no}
       - {column: principal_amt, to: attribute, ref: attr:loan.principal}
       - column: loan_status
         to: attribute
@@ -20,6 +21,10 @@ representations:
         to: attribute
         ref: attr:loan.overdue_penalty
         derivation: sum of the daily penalty accruals up to dt
+      - column: customer_gender_cd
+        to: foreign_attribute
+        ref: attr:customer.gender
+        via: customer_id
       - {column: dt, to: technical}
     status: confirmed
     source: sql

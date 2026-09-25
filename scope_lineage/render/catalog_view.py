@@ -53,6 +53,7 @@ BINDING_TEXT = {
     "attribute": "属性",
     "identifier": "标识符",
     "foreign_identifier": "外部标识符",
+    "foreign_attribute": "冗余属性",
     "technical": "技术列",
     "unmapped": "未映射",
 }
@@ -158,6 +159,29 @@ class CatalogView:
 
     def relations_of(self, concept_id: str) -> list[dict]:
         return [r for r in self.relations.values() if concept_id in (r["from"], r["to"])]
+
+    def self_relations_of(self, concept_id) -> list[dict]:
+        """Relations from the concept to itself (a loan renews a loan)."""
+        return [r for r in self.relations_of(concept_id) if r["from"] == r["to"]]
+
+    def self_reference_columns(self, concept_id: str) -> list[str]:
+        """``db.table.column`` of every column holding another instance of the concept."""
+        return [
+            f"{rep['table']}.{binding['column']}"
+            for identifier in self.identifiers_of(concept_id)
+            for rep, binding in self.bindings_of(identifier["id"])
+            if binding.get("self_reference")
+        ]
+
+    def foreign_attribute_bindings(self) -> list[tuple[dict, list[dict]]]:
+        """``(representation, its foreign_attribute bindings)`` for every table with any."""
+        found = []
+        for table in sorted(self.representations):
+            rep = self.representations[table]
+            bindings = [b for b in rep["bindings"] if b["to"] == "foreign_attribute"]
+            if bindings:
+                found.append((rep, bindings))
+        return found
 
     def roles_played_by(self, concept_id: str) -> list[dict]:
         return [c for c in self.concepts.values() if c.get("player") == concept_id]

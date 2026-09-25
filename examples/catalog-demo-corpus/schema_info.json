@@ -121,24 +121,38 @@
           "isPartition": 0
         },
         {
+          "columnName": "orig_loan_no",
+          "columnType": "string",
+          "columnComment": "Loan number this renewal extends",
+          "columnIndex": 2,
+          "isPartition": 0
+        },
+        {
           "columnName": "principal",
           "columnType": "decimal(18,2)",
           "columnComment": "Principal",
-          "columnIndex": 2,
+          "columnIndex": 3,
           "isPartition": 0
         },
         {
           "columnName": "loan_status",
           "columnType": "string",
           "columnComment": "Loan status code",
-          "columnIndex": 3,
+          "columnIndex": 4,
+          "isPartition": 0
+        },
+        {
+          "columnName": "cust_gender",
+          "columnType": "string",
+          "columnComment": "Borrower gender code as the contract system copies it",
+          "columnIndex": 5,
           "isPartition": 0
         },
         {
           "columnName": "dt",
           "columnType": "string",
           "columnComment": "Partition date",
-          "columnIndex": 4,
+          "columnIndex": 6,
           "isPartition": 1
         }
       ]
@@ -365,31 +379,45 @@
           "isPartition": 0
         },
         {
+          "columnName": "orig_loan_no",
+          "columnType": "string",
+          "columnComment": "Loan number this renewal extends",
+          "columnIndex": 2,
+          "isPartition": 0
+        },
+        {
           "columnName": "principal_amt",
           "columnType": "decimal(18,2)",
           "columnComment": "Principal",
-          "columnIndex": 2,
+          "columnIndex": 3,
           "isPartition": 0
         },
         {
           "columnName": "loan_status",
           "columnType": "string",
           "columnComment": "Loan status code",
-          "columnIndex": 3,
+          "columnIndex": 4,
           "isPartition": 0
         },
         {
           "columnName": "penalty_amt",
           "columnType": "decimal(18,2)",
           "columnComment": "Penalty accrued",
-          "columnIndex": 4,
+          "columnIndex": 5,
+          "isPartition": 0
+        },
+        {
+          "columnName": "customer_gender_cd",
+          "columnType": "string",
+          "columnComment": "Borrower gender code, repeated from the customer table",
+          "columnIndex": 6,
           "isPartition": 0
         },
         {
           "columnName": "dt",
           "columnType": "string",
           "columnComment": "Partition date",
-          "columnIndex": 5,
+          "columnIndex": 7,
           "isPartition": 1
         }
       ]

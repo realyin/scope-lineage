@@ -894,9 +894,19 @@
                   "attribute",
                   "identifier",
                   "foreign_identifier",
+                  "foreign_attribute",
                   "technical",
                   "unmapped"
                 ]
+              },
+              "via": {
+                "description": "foreign_attribute only: the column of the same table, bound as foreign_identifier, naming the instance whose attribute this column repeats",
+                "type": "string",
+                "minLength": 1
+              },
+              "self_reference": {
+                "description": "foreign_identifier only: the identifier belongs to the table's own concept, linked to itself by a relation",
+                "const": true
               },
               "code_map": {
                 "type": "object",
@@ -932,7 +942,32 @@
               "notes": {
                 "type": "string"
               }
-            }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "to": {
+                      "const": "foreign_attribute"
+                    }
+                  },
+                  "required": [
+                    "to"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "ref",
+                    "via"
+                  ]
+                },
+                "else": {
+                  "properties": {
+                    "via": false
+                  }
+                }
+              }
+            ]
           }
         },
         "status": {

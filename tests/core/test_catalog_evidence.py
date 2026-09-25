@@ -236,6 +236,33 @@ def test_participation_relations_are_counted_too(built: dict) -> None:
     assert relations["rel:fee_waiver.loan"]["joins"] == {"count": 0, "samples": []}
 
 
+def test_a_self_relation_counts_only_joins_on_its_self_referencing_column() -> None:
+    """``loan.orig_loan_no = loan.loan_no`` is a renewal; loan_no = loan_no across two
+    loan tables is the same loan twice and says nothing about the relation."""
+    from scope_lineage.render.catalog_evidence import JoinFact, LineageFacts, WriteStatement
+
+    loan, history = "demo_dwd.dwd_lending_loan_df", "demo_dwd.dwd_lending_loan_status_his"
+    statement = WriteStatement(
+        task="t",
+        statement_id="stmt:001",
+        target="demo_ads.ads_renewal_chain_df",
+        joins=(
+            JoinFact("b1", loan, loan, (("orig_loan_no", "loan_no"),)),
+            JoinFact("b2", loan, history, (("loan_no", "loan_no"),)),
+        ),
+    )
+    document = build_ontology(load_catalog(DEMO))
+
+    merged = attach_evidence(document, lineage=LineageFacts(statements=(statement,), tasks=1))
+
+    assert merged["evidence"]["relations"]["rel:loan_renews_loan"]["joins"] == {
+        "count": 1,
+        "samples": [
+            {"task": "t", "statement_id": "stmt:001", "on": f"{loan}.orig_loan_no = {loan}.loan_no"}
+        ],
+    }
+
+
 def test_a_relation_with_an_end_that_has_no_table_is_not_counted(built: dict) -> None:
     relations = built["evidence"]["relations"]
 
@@ -268,7 +295,7 @@ def test_build_with_tables_only_carries_the_card_counts(tables_json: Path, tmp_p
 
     document = json.loads((out / "ontology.json").read_text(encoding="utf-8"))
     loan = _rep(document, "demo_dwd.dwd_lending_loan_df")
-    assert loan == {"declared_columns": 6, "used_columns": 6}
+    assert loan == {"declared_columns": 8, "used_columns": 8}
     assert "lineage" not in document["evidence"]["inputs"]
 
 
