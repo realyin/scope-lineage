@@ -33,7 +33,7 @@ The shop forgives part of what an overdue loan owes.
 
 | 属性 | 定义 | 类型/单位 | 码值 | 所在表列 | 加工口径 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 豁免类型 `attr:fee_waiver.waiver_type` | What part of the debt was forgiven. | string | PEN=penalty waived；INT=interest waived | `demo_dwd.dwd_collection_fee_waiver_di.waiver_type`（码值映射 PEN→penalty waived, INT→interest waived） | — | 草拟（llm） |
+| 豁免类型 `attr:fee_waiver.waiver_type` | What part of the debt was forgiven. | string | PEN=penalty waived；INT=interest waived；OTH（含义待确认：other charges） | `demo_dwd.dwd_collection_fee_waiver_di.waiver_type`（码值映射 PEN→penalty waived, INT→interest waived） | — | 草拟（llm） |
 
 ### 度量
 

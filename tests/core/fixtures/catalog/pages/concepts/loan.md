@@ -67,7 +67,7 @@ One amount lent to a borrower, repaid over one or more instalments.
 
 | 属性 | 定义 | 类型/单位 | 码值 | 所在表列 | 加工口径 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 借据状态 `attr:loan.loan_status` | Where the loan is in its life cycle. | string | 1=normal；2=overdue；3=settled | `demo_dwd.dwd_lending_loan_df.loan_status`（码值映射 1→normal, 2→overdue, 3→settled）；`demo_dwd.dwd_lending_loan_status_his.loan_status`（元数据有、语料未用） | `demo_dwd.dwd_lending_loan_df.loan_status` = `` `l`.`loan_status` ``（血缘） | 已确认（owner） |
+| 借据状态 `attr:loan.loan_status` | Where the loan is in its life cycle. | string | 1=normal；2=overdue；3=settled；9（含义待确认：疑似核销） | `demo_dwd.dwd_lending_loan_df.loan_status`（码值映射 1→normal, 2→overdue, 3→settled）；`demo_dwd.dwd_lending_loan_status_his.loan_status`（元数据有、语料未用） | `demo_dwd.dwd_lending_loan_df.loan_status` = `` `l`.`loan_status` ``（血缘） | 已确认（owner） |
 
 ### 度量
 

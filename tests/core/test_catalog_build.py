@@ -112,6 +112,26 @@ def test_arises_when_scope_and_code_values_are_normalised(demo: dict) -> None:
     assert [v["retired"] for v in values] == [False, False]
 
 
+def test_a_code_value_whose_meaning_is_not_confirmed_is_marked(tmp_path: Path) -> None:
+    """Flagged ``unconfirmed``, or a meaning that is empty or starts 待确认."""
+    root = copy_demo(tmp_path)
+    mutate(
+        root,
+        "code_sets.yaml",
+        lambda d: item(d["code_sets"], "code:gender")["values"].extend([
+            {"value": "X", "meaning": "other", "unconfirmed": True},
+            {"value": "Y", "meaning": "待确认，疑似未填"},
+            {"value": "Z", "meaning": ""},
+        ]),
+    )
+
+    document = validate_ontology_document(build_ontology(load_catalog(root)))
+
+    values = item(document["code_sets"], "code:gender")["values"]
+    assert [v["unconfirmed"] for v in values] == [False, False, False, True, True, True]
+    assert values[3] == {"value": "X", "meaning": "other", "retired": False, "unconfirmed": True}
+
+
 def test_a_text_arises_when_becomes_a_condition(tmp_path: Path) -> None:
     root = copy_demo(tmp_path)
     mutate(

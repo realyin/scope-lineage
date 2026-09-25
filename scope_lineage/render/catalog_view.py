@@ -65,6 +65,7 @@ MAPPING_TEXT = {
     "many_to_many": "多对多",
 }
 TABLE_STATUS_TEXT = {"active": "在用", "deprecated": "已废弃"}
+UNCONFIRMED = "待确认"
 
 
 def catalog_table_name(name) -> str:
@@ -83,6 +84,28 @@ def concept_slug(concept_id: str) -> str:
 
 def concept_filename(concept_id: str) -> str:
     return f"{concept_slug(concept_id)}.md"
+
+
+def is_unconfirmed(value: Mapping) -> bool:
+    """A code value whose meaning is still a guess: flagged, empty, or starting 待确认."""
+    meaning = str(value.get("meaning") or "").strip()
+    return bool(value.get("unconfirmed")) or not meaning or meaning.startswith(UNCONFIRMED)
+
+
+def unconfirmed_guess(value: Mapping) -> str:
+    """What the catalog guesses an unconfirmed value means, without the 待确认 marker."""
+    meaning = str(value.get("meaning") or "").strip()
+    if meaning.startswith(UNCONFIRMED):
+        meaning = meaning[len(UNCONFIRMED) :].lstrip("：:，,、 ")
+    return meaning
+
+
+def code_value_text(value: Mapping) -> str:
+    """``1=normal``, or ``9（含义待确认：guess）`` when the meaning is not confirmed."""
+    if not is_unconfirmed(value):
+        return f"{value['value']}={value['meaning']}"
+    guess = unconfirmed_guess(value)
+    return f"{value['value']}（含义待确认{'：' + guess if guess else ''}）"
 
 
 def status_text(obj: Mapping) -> str:
@@ -182,6 +205,19 @@ class CatalogView:
             if bindings:
                 found.append((rep, bindings))
         return found
+
+    def unconfirmed_codes(self) -> list[tuple[dict, list[dict]]]:
+        """``(code set, its values whose meaning is not confirmed)`` for every set with any."""
+        found = []
+        for code_set_id in sorted(self.code_sets):
+            code_set = self.code_sets[code_set_id]
+            values = [v for v in code_set["values"] if is_unconfirmed(v)]
+            if values:
+                found.append((code_set, values))
+        return found
+
+    def attributes_coded_by(self, code_set_id: str) -> list[dict]:
+        return [a for a, _ in self.attributes.values() if a.get("code_set") == code_set_id]
 
     def roles_played_by(self, concept_id: str) -> list[dict]:
         return [c for c in self.concepts.values() if c.get("player") == concept_id]

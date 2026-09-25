@@ -33,6 +33,7 @@ from .catalog_view import (
     CatalogView,
     concept_filename,
     status_text,
+    unconfirmed_guess,
 )
 from .markdown_text import cell, expr_span
 
@@ -144,6 +145,7 @@ def _gap_summary(view: CatalogView) -> list[str]:
         ("未绑定列", str(len({c for g in all_gaps for c in g.unmapped_columns}))),
         ("未落表属性", str(sum(len(g.unbound_attributes) for g in all_gaps))),
         ("缺码值的状态/码值类属性", str(sum(len(g.missing_codes) for g in all_gaps))),
+        ("含义待确认的码值", str(sum(len(values) for _, values in view.unconfirmed_codes()))),
     ]
     if view.has_evidence:
         rows += [
@@ -237,8 +239,32 @@ def render_governance(view: CatalogView) -> str:
             )
         )
     lines += _gap_lists(view, gaps)
+    lines += _unconfirmed_code_lines(view)
     lines += _foreign_attribute_tables(view)
     return "\n".join(lines) + "\n"
+
+
+def _unconfirmed_code_lines(view: CatalogView) -> list[str]:
+    """Code values seen in the data whose meaning nobody has confirmed yet."""
+    lines = ["", "## 含义待确认的码值", ""]
+    found = view.unconfirmed_codes()
+    if not found:
+        return lines + ["（无）"]
+    lines += table_head("码值集", "待确认的值（目录的猜测）", "使用它的属性")
+    for code_set, values in found:
+        guesses = "；".join(_guess_text(value) for value in values)
+        users = "；".join(
+            f"{a['name']} {expr_span(a['id'])}" for a in view.attributes_coded_by(code_set["id"])
+        )
+        lines.append(
+            table_row(f"{code_set['name']} {expr_span(code_set['id'])}", guesses, users or "（无）")
+        )
+    return lines
+
+
+def _guess_text(value: dict) -> str:
+    guess = unconfirmed_guess(value)
+    return expr_span(value["value"]) + (f"（{cell(guess)}）" if guess else "")
 
 
 def _foreign_attribute_tables(view: CatalogView) -> list[str]:

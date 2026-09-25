@@ -26,6 +26,7 @@ from .catalog_view import (
     TABLE_STATUS_TEXT,
     TIME_TEXT,
     CatalogView,
+    code_value_text,
     concept_filename,
     status_text,
 )
@@ -297,7 +298,7 @@ def codes_text(view: CatalogView, code_set_id) -> str:
     if not code_set:
         return NONE
     values = [
-        f"{cell(v['value'])}={cell(v['meaning'])}" + ("（停用）" if v["retired"] else "")
+        cell(code_value_text(v)) + ("（停用）" if v["retired"] else "")
         for v in code_set["values"]
     ]
     return "；".join(values) or NONE

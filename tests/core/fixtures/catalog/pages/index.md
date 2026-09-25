@@ -60,6 +60,7 @@ Who the shop lends to and the accounts they sign in with.
 | 未绑定列 | 1 |
 | 未落表属性 | 5 |
 | 缺码值的状态/码值类属性 | 0 |
+| 含义待确认的码值 | 2 |
 | 证据与目录矛盾 | 1 |
 | 元数据有、语料未用的绑定列 | 1 |
 | 无连接证据的关系 | 4 |

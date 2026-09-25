@@ -16,6 +16,7 @@ from .catalog_view import (
     KIND_TEXT,
     REPRESENTATION_KINDS,
     TABLE_STATUS_TEXT,
+    code_value_text,
     status_text,
 )
 
@@ -146,7 +147,7 @@ def _attribute(match: Mapping) -> list[str]:
         f"  {match.get('definition') or '（目录未写定义）'}",
     ]
     if match.get("code_set"):
-        values = "；".join(f"{v['value']}={v['meaning']}" for v in match["code_set"]["values"])
+        values = "；".join(code_value_text(v) for v in match["code_set"]["values"])
         lines.append(f"  码值：{values}")
     if match.get("derivation"):
         lines.append(f"  口径：{match['derivation']}")

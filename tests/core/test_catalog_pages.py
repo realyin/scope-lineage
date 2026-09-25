@@ -16,6 +16,7 @@ import pytest
 from scope_lineage.catalog import build_ontology, load_catalog
 from scope_lineage.cli import main
 from scope_lineage.render.catalog_pages import render_catalog_pages
+from scope_lineage.render.catalog_view import code_value_text
 
 from .catalog_demo import DEMO, demo_tables, parse_demo_corpus
 
@@ -178,6 +179,28 @@ def test_an_unused_declared_column_is_flagged_where_it_is_bound(pages: dict) -> 
     assert "`demo_dwd.dwd_lending_loan_status_his.loan_status`（元数据有、语料未用）" in row
 
 
+def test_a_code_value_whose_meaning_is_not_confirmed_says_so(pages: dict) -> None:
+    status = _row(pages["concepts/loan.md"], "借据状态 `attr:loan.loan_status`")
+    waiver = _row(pages["concepts/fee_waiver.md"], "豁免类型 `attr:fee_waiver.waiver_type`")
+
+    assert "3=settled；9（含义待确认：疑似核销）|" in status.replace(" |", "|")
+    assert "INT=interest waived；OTH（含义待确认：other charges）" in waiver
+
+
+@pytest.mark.parametrize(
+    ("value", "text"),
+    [
+        ({"value": "1", "meaning": "normal"}, "1=normal"),
+        ({"value": "9", "meaning": ""}, "9（含义待确认）"),
+        ({"value": "9", "meaning": "待确认"}, "9（含义待确认）"),
+        ({"value": "9", "meaning": "待确认：written off?"}, "9（含义待确认：written off?）"),
+        ({"value": "9", "meaning": "frozen", "unconfirmed": True}, "9（含义待确认：frozen）"),
+    ],
+)
+def test_a_code_value_text(value: dict, text: str) -> None:
+    assert code_value_text(value) == text
+
+
 # ---------------------------------------------------------------- 4. 关系
 
 
@@ -283,6 +306,17 @@ def test_governance_lists_each_kind_of_gap(pages: dict) -> None:
 
     assert "## 没有表现表的概念\n\n- [渠道](concepts/channel.md)" in page
     assert "- `rel:repayment.payer`：还款 payer 客户" in page
+
+
+def test_governance_lists_code_values_whose_meaning_is_not_confirmed(pages: dict) -> None:
+    section = pages["governance.md"].split("## 含义待确认的码值")[1].split("\n## ")[0]
+
+    assert (
+        "| 借据状态 `code:loan_status` | `9`（疑似核销） | 借据状态 `attr:loan.loan_status` |"
+        in section
+    )
+    assert "| 豁免类型 `code:waiver_type` | `OTH`（other charges） |" in section
+    assert "| 含义待确认的码值 | 2 |" in pages["index.md"]
 
 
 def test_governance_counts_denormalised_columns_per_table_without_calling_them_gaps(

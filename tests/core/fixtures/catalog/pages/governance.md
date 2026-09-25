@@ -55,6 +55,13 @@
 - `rel:fee_waiver.loan`：豁免 loan 借据
 - `rel:loan_renews_loan`：借据 renews 借据
 
+## 含义待确认的码值
+
+| 码值集 | 待确认的值（目录的猜测） | 使用它的属性 |
+| --- | --- | --- |
+| 借据状态 `code:loan_status` | `9`（疑似核销） | 借据状态 `attr:loan.loan_status` |
+| 豁免类型 `code:waiver_type` | `OTH`（other charges） | 豁免类型 `attr:fee_waiver.waiver_type` |
+
 ## 冗余属性列（按表）
 
 信息项，不算缺口：这些列在另一个概念的标识符旁重复该概念的属性。

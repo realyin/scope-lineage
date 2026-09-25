@@ -190,17 +190,20 @@
         {
           "value": "F",
           "meaning": "female",
-          "retired": false
+          "retired": false,
+          "unconfirmed": false
         },
         {
           "value": "M",
           "meaning": "male",
-          "retired": false
+          "retired": false,
+          "unconfirmed": false
         },
         {
           "value": "U",
           "meaning": "unknown",
-          "retired": true
+          "retired": true,
+          "unconfirmed": false
         }
       ],
       "status": "confirmed",
@@ -215,17 +218,26 @@
         {
           "value": "1",
           "meaning": "normal",
-          "retired": false
+          "retired": false,
+          "unconfirmed": false
         },
         {
           "value": "2",
           "meaning": "overdue",
-          "retired": false
+          "retired": false,
+          "unconfirmed": false
         },
         {
           "value": "3",
           "meaning": "settled",
-          "retired": false
+          "retired": false,
+          "unconfirmed": false
+        },
+        {
+          "value": "9",
+          "meaning": "待确认，疑似核销",
+          "retired": false,
+          "unconfirmed": true
         }
       ],
       "status": "confirmed",
@@ -239,12 +251,14 @@
         {
           "value": "0",
           "meaning": "unverified",
-          "retired": false
+          "retired": false,
+          "unconfirmed": false
         },
         {
           "value": "1",
           "meaning": "verified",
-          "retired": false
+          "retired": false,
+          "unconfirmed": false
         }
       ],
       "status": "confirmed",
@@ -258,12 +272,20 @@
         {
           "value": "PEN",
           "meaning": "penalty waived",
-          "retired": false
+          "retired": false,
+          "unconfirmed": false
         },
         {
           "value": "INT",
           "meaning": "interest waived",
-          "retired": false
+          "retired": false,
+          "unconfirmed": false
+        },
+        {
+          "value": "OTH",
+          "meaning": "other charges",
+          "retired": false,
+          "unconfirmed": true
         }
       ],
       "status": "drafted",

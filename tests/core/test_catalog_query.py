@@ -196,7 +196,12 @@ def test_an_attribute_lists_the_table_columns_it_lands_in(document: dict) -> Non
     match = _one(document, "attribute", "性别")
 
     assert match["concept"] == {"id": "concept:customer", "name": "客户"}
-    assert match["code_set"]["values"][0] == {"value": "F", "meaning": "female", "retired": False}
+    assert match["code_set"]["values"][0] == {
+        "value": "F",
+        "meaning": "female",
+        "retired": False,
+        "unconfirmed": False,
+    }
     assert [(c["table"], c["column"], c["to"]) for c in match["columns"]] == [
         ("demo_dwd.dwd_lending_borrower_df", "gender_cd", "attribute"),
         ("demo_dwd.dwd_lending_loan_df", "customer_gender_cd", "foreign_attribute"),
@@ -209,6 +214,14 @@ def test_an_attribute_by_a_term(document: dict) -> None:
 
     assert match["id"] == "attr:loan.overdue_penalty"
     assert match["columns"][0]["derivation"] == "sum of the daily penalty accruals up to dt"
+
+
+def test_an_attribute_text_marks_a_code_value_whose_meaning_is_not_confirmed(
+    document: dict,
+) -> None:
+    text = render_query_text(query_catalog(document, "attribute", "借据状态"))
+
+    assert "  码值：1=normal；2=overdue；3=settled；9（含义待确认：疑似核销）" in text
 
 
 # ---------------------------------------------------------------- related
