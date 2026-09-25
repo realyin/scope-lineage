@@ -1,4 +1,8 @@
-"""One concept page (``concepts/<slug>.md``): the seven things a reader asks of a concept.
+"""One concept page (``concepts/<slug>.md``): an overview, then the seven things in full.
+
+The page opens with 一页纸概览 (``catalog_overview``): what the concept is, how it is told
+apart, where its data lives and what it is tied to, in plain Chinese and names only. The
+detail follows as 附录, sections A1-A7:
 
 1. 定义与身份 -- what it is, how it is told apart (identifiers, states, synonyms);
 2. 数据清单 -- which tables carry it, grouped by how they carry it;
@@ -17,6 +21,7 @@ The page reads the built ``ontology-json/3`` document only. Evidence merged by
 from __future__ import annotations
 
 from .catalog_gaps import concept_gaps, conflict_text, share_text
+from .catalog_overview import concept_overview, overview_lines
 from .catalog_view import (
     BINDING_TEXT,
     CATEGORIES,
@@ -54,11 +59,18 @@ SECTION_TITLES = (
 def render_concept_page(view: CatalogView, concept_id: str) -> str:
     concept = view.concepts[concept_id]
     domain = view.domains.get(concept["domain"]) or {}
+    overview = concept_overview(view, concept_id)
     lines = [
         f"# {concept['name']}",
         "",
-        f"{expr_span(concept_id)} · {KIND_TEXT[concept['kind']]} · "
-        f"[{domain.get('name', concept['domain'])}](../index.md) · {status_text(concept)}",
+        f"{KIND_TEXT[concept['kind']]} · [{domain.get('name', concept['domain'])}](../index.md)"
+        f" · 本页 {overview['drafted_percent']}% 草拟、已确认的条目标 ✓",
+        "",
+        "## 一页纸概览",
+        "",
+        *overview_lines(overview),
+        "",
+        "## 附录",
     ]
     sections = (
         _identity,
@@ -70,7 +82,7 @@ def render_concept_page(view: CatalogView, concept_id: str) -> str:
         _gaps,
     )
     for number, (title, section) in enumerate(zip(SECTION_TITLES, sections), start=1):
-        lines += ["", f"## {number}. {title}", "", *section(view, concept)]
+        lines += ["", f"### A{number} {title}", "", *section(view, concept)]
     return "\n".join(lines) + "\n"
 
 
@@ -94,6 +106,7 @@ def table_head(*names) -> list[str]:
 def _identity(view: CatalogView, concept: dict) -> list[str]:
     lines = [cell(concept.get("definition") or "（目录未写定义）"), ""]
     lines += table_head("项", "内容")
+    lines.append(table_row("编号", expr_span(concept["id"])))
     lines.append(table_row("种类", KIND_TEXT[concept["kind"]]))
     lines.append(table_row("状态", status_text(concept)))
     lines.append(table_row("同义词", cell("、".join(concept["synonyms"])) or NONE))
@@ -133,8 +146,8 @@ def _kind_rows(view: CatalogView, concept: dict) -> list[str]:
 def _identifier_table(view: CatalogView, concept: dict) -> list[str]:
     identifiers = view.identifiers_of(concept["id"])
     if not identifiers:
-        return ["", "### 标识符", "", "（目录未登记标识符）"]
-    lines = ["", "### 标识符", ""]
+        return ["", "#### 标识符", "", "（目录未登记标识符）"]
+    lines = ["", "#### 标识符", ""]
     lines += table_head("标识符", "产生条件", "唯一范围", "物理拼写", "对照", "状态")
     for identifier in identifiers:
         primary = "（主）" if identifier["id"] == concept.get("primary_identifier") else ""
@@ -192,7 +205,7 @@ def _state_machine(view: CatalogView, concept: dict) -> list[str]:
     names = {item["value"]: item["name"] for item in states["values"]}
     lines = [
         "",
-        "### 状态机",
+        "#### 状态机",
         "",
         f"状态属性：{view.name(states['attribute'])} {expr_span(states['attribute'])}",
         "",
@@ -222,7 +235,7 @@ def _inventory(view: CatalogView, concept: dict) -> list[str]:
         group = [rep for rep in reps if rep["kind"] == kind]
         if not group:
             continue
-        lines += [f"### {label}", ""]
+        lines += [f"#### {label}", ""]
         lines += table_head(
             "表", "说明", "粒度", "时间语义", "更新频率", "记录范围", "生产任务", "表状态"
         )
@@ -333,7 +346,7 @@ def _attributes(view: CatalogView, concept: dict) -> list[str]:
         group = [a for a in attributes if a["category"] == category]
         if not group:
             continue
-        lines += [f"### {label}", ""]
+        lines += [f"#### {label}", ""]
         lines += table_head("属性", "定义", "类型/单位", "码值", "所在表列", "加工口径", "状态")
         lines += [_attribute_row(view, attribute) for attribute in group] + [""]
     return lines[:-1]
@@ -397,7 +410,7 @@ def derivation_text(view: CatalogView, attribute: dict) -> str:
 def _relations(view: CatalogView, concept: dict) -> list[str]:
     concept_id = concept["id"]
     plain = [r for r in view.relations_of(concept_id) if r["kind"] != "participation"]
-    lines = ["### 关联、组成与泛化", ""]
+    lines = ["#### 关联、组成与泛化", ""]
     if plain:
         lines += table_head("关系", "种类", "读法", "对端", "基数", "证据连接", "状态")
         lines += [_relation_row(view, concept_id, relation) for relation in plain]
@@ -472,7 +485,7 @@ def _participations(view: CatalogView, concept: dict) -> list[str]:
         for r in view.relations_of(concept_id)
         if r["kind"] == "participation" and r["to"] == concept_id
     ]
-    lines = ["", "### 参与的事件", ""]
+    lines = ["", "#### 参与的事件", ""]
     if not taking:
         return lines + ["（无）"]
     lines += table_head("事件", "本概念角色", "事件表现表数", "证据连接")
@@ -491,7 +504,7 @@ def _participations(view: CatalogView, concept: dict) -> list[str]:
 
 def _roles(view: CatalogView, concept: dict) -> list[str]:
     roles = view.roles_played_by(concept["id"])
-    lines = ["", "### 本概念的角色", ""]
+    lines = ["", "#### 本概念的角色", ""]
     if concept["kind"] == "role":
         return lines + [
             f"本概念是{link(view, concept['player'])}的角色，成立条件：{cell(concept['condition'])}"

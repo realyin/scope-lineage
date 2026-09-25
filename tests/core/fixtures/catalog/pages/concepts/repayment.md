@@ -1,13 +1,36 @@
 # 还款
 
-`concept:repayment` · 事件 · [贷款](../index.md) · 已确认（sql）
+事件 · [贷款](../index.md) · 本页 0% 草拟、已确认的条目标 ✓
 
-## 1. 定义与身份
+## 一页纸概览
+
+**是什么**：A customer pays money back against one or more loans.
+
+**怎么认出来**：
+
+- 还款流水号：一开始就有，全局唯一 ✓
+
+**参与者**：payer → 客户；loan → 借据
+
+**发生时间**：还款时间
+
+**记录在**：
+
+- `demo_dwd.dwd_lending_repayment_di`（Repayments） ✓
+
+**要注意**：
+
+- repaid_at is not earlier than the disbursed_at of every loa… ✓
+
+## 附录
+
+### A1 定义与身份
 
 A customer pays money back against one or more loans.
 
 | 项 | 内容 |
 | --- | --- |
+| 编号 | `concept:repayment` |
 | 种类 | 事件 |
 | 状态 | 已确认（sql） |
 | 同义词 | — |
@@ -15,15 +38,15 @@ A customer pays money back against one or more loans.
 | 参与者 payer | [客户](customer.md)（一个） |
 | 参与者 loan | [借据](loan.md)（多个） |
 
-### 标识符
+#### 标识符
 
 | 标识符 | 产生条件 | 唯一范围 | 物理拼写 | 对照 | 状态 |
 | --- | --- | --- | --- | --- | --- |
 | 还款流水号 `id:repayment_txn_no` | 始终 | 全局 | `repay_txn_no` | — | 已确认（mixed） |
 
-## 2. 数据清单
+### A2 数据清单
 
-### 事件明细
+#### 事件明细
 
 | 表 | 说明 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -31,47 +54,47 @@ A customer pays money back against one or more loans.
 
 - `demo_dwd.dwd_lending_repayment_di` 血缘一跳：上游 `demo_dwd.dwd_lending_loan_df`、`demo_ods.ods_repay_txn_di`；下游 `demo_ads.ads_collection_overdue_loan_df`
 
-## 3. 带本概念标识的表
+### A3 带本概念标识的表
 
 | 表 | 表的概念 | 列 | 标识符 | 方式 |
 | --- | --- | --- | --- | --- |
 | `demo_dwd.dwd_lending_repayment_di` | 本概念 | `repay_txn_no` | 还款流水号 `id:repayment_txn_no` | 标识符 |
 
-## 4. 属性
+### A4 属性
 
-### 度量
+#### 度量
 
 | 属性 | 定义 | 类型/单位 | 码值 | 所在表列 | 加工口径 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 还款金额 `attr:repayment.amount` | The amount received. | decimal(18,2) / CNY | — | `demo_dwd.dwd_lending_repayment_di.repay_amt` | `demo_dwd.dwd_lending_repayment_di.repay_amt` = `` SUM(CAST(`r`.`amount` AS DECIMAL(18, 2))) ``（血缘） | 已确认（sql） |
 
-### 时间
+#### 时间
 
 | 属性 | 定义 | 类型/单位 | 码值 | 所在表列 | 加工口径 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 还款时间 `attr:repayment.repaid_at` | When the payment was received. | timestamp | — | `demo_dwd.dwd_lending_repayment_di.repay_time` | `demo_dwd.dwd_lending_repayment_di.repay_time` = `` MAX(`r`.`paid_time`) ``（血缘） | 已确认（sql） |
 
-## 5. 关系
+### A5 关系
 
-### 关联、组成与泛化
-
-（无）
-
-### 参与的事件
+#### 关联、组成与泛化
 
 （无）
 
-### 本概念的角色
+#### 参与的事件
 
 （无）
 
-## 6. 约束
+#### 本概念的角色
+
+（无）
+
+### A6 约束
 
 | 约束 | 种类 | 作用对象 | 表达式 | 强度 | 状态 |
 | --- | --- | --- | --- | --- | --- |
 | `cons:repaid_after_disbursed` | 时间 | 还款 `concept:repayment` | repaid_at is not earlier than the disbursed_at of every loan it pays | 硬 | 已确认（owner） |
 
-## 7. 治理缺口
+### A7 治理缺口
 
 | 缺口 | 明细 |
 | --- | --- |

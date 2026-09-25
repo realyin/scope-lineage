@@ -1,26 +1,61 @@
 # 客户
 
-`concept:customer` · 实体 · [客户与账户](../index.md) · 已确认（owner）
+实体 · [客户与账户](../index.md) · 本页 35% 草拟、已确认的条目标 ✓
 
-## 1. 定义与身份
+## 一页纸概览
+
+**是什么**：A person the shop has registered, whether or not they ever borrow.
+
+**怎么认出来**：
+
+- 客户号：一开始就有，全局唯一（主标识） ✓
+- 认证客户号：assigned when the customer passes identity verification（进入「已认证」状态时），全局唯一
+
+**状态**：未认证 —实名认证→ 已认证
+
+**数据在哪**：
+
+- `demo_dwd.dwd_party_customer_info_df`（Customer master, one row per …） ✓
+- `demo_dwd.dwd_party_customer_ext_df`
+- 另有 4 张表带本概念的标识，分布在 2 个域（见附录 A3）
+
+**拥有的**：holds 应用账户 ✓
+
+**参与的事件**：
+
+- 客户与账户：实名认证
+- 贷款：还款 ✓
+
+**扮演的角色**：
+
+- 借款人：holds at least one loan whose… ✓
+
+**要注意**：
+
+- customer counts read only rows whose customer_status is act…
+
+## 附录
+
+### A1 定义与身份
 
 A person the shop has registered, whether or not they ever borrow.
 
 | 项 | 内容 |
 | --- | --- |
+| 编号 | `concept:customer` |
 | 种类 | 实体 |
 | 状态 | 已确认（owner） |
 | 同义词 | 用户 |
 | 主标识符 | 客户号 `id:customer_id` |
 
-### 标识符
+#### 标识符
 
 | 标识符 | 产生条件 | 唯一范围 | 物理拼写 | 对照 | 状态 |
 | --- | --- | --- | --- | --- | --- |
 | 客户号 `id:customer_id`（主） | 始终 | 全局 | `customer_id`；`demo_ods.ods_core_customer_df.cust_no` | 应用账户号 一对多，经 `demo_dwd.dwd_party_account_map_df` | 已确认（owner） |
 | 认证客户号 `id:verified_customer_no` | assigned when the customer passes identity verification（状态：已认证） | 全局 | `verified_customer_no` | 客户号 一对一 | 草拟（comment） |
 
-### 状态机
+#### 状态机
 
 状态属性：认证状态 `attr:customer.verification_status`
 
@@ -33,9 +68,9 @@ A person the shop has registered, whether or not they ever borrow.
 | --- | --- | --- |
 | [实名认证](identity_verification.md) | 未认证 | 已认证 |
 
-## 2. 数据清单
+### A2 数据清单
 
-### 核心
+#### 核心
 
 | 表 | 说明 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -43,13 +78,13 @@ A person the shop has registered, whether or not they ever borrow.
 
 - `demo_dwd.dwd_party_customer_info_df` 血缘一跳：上游 `demo_ods.ods_core_customer_df`；下游 `demo_dwd.dwd_lending_borrower_df`、`demo_dws.dws_lending_loan_summary_1d`
 
-### 扩展
+#### 扩展
 
 | 表 | 说明 | 粒度 | 时间语义 | 更新频率 | 记录范围 | 生产任务 | 表状态 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `demo_dwd.dwd_party_customer_ext_df` | — | 客户号（声明） | 快照；按单个 dt 分区取数 | — | 全部 | — | 在用 · 草拟（comment） |
 
-## 3. 带本概念标识的表
+### A3 带本概念标识的表
 
 | 表 | 表的概念 | 列 | 标识符 | 方式 |
 | --- | --- | --- | --- | --- |
@@ -61,55 +96,55 @@ A person the shop has registered, whether or not they ever borrow.
 | `demo_dwd.dwd_party_customer_info_df` | 本概念 | `customer_id` | 客户号 `id:customer_id` | 标识符 |
 | `demo_dwd.dwd_party_customer_info_df` | 本概念 | `verified_customer_no` | 认证客户号 `id:verified_customer_no` | 标识符 |
 
-## 4. 属性
+### A4 属性
 
-### 描述
+#### 描述
 
 | 属性 | 定义 | 类型/单位 | 码值 | 所在表列 | 加工口径 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 性别 `attr:customer.gender` | The gender the customer declared at registration. | string | F=female；M=male；U=unknown（停用） | `demo_dwd.dwd_lending_borrower_df.gender_cd`；`demo_dwd.dwd_lending_loan_df.customer_gender_cd` 冗余（经 `customer_id`）；`demo_dwd.dwd_party_customer_info_df.gender_cd`（码值映射 F→female, M→male, U→unknown） | `demo_dwd.dwd_lending_borrower_df.gender_cd` = `` MAX(`c`.`gender_cd`) ``（血缘）；`demo_dwd.dwd_lending_loan_df.customer_gender_cd` = `` `l`.`cust_gender` ``（血缘）；`demo_dwd.dwd_party_customer_info_df.gender_cd` = `` `latest`.`gender_cd` ``（血缘） | 已确认（owner） |
 
-### 状态
+#### 状态
 
 | 属性 | 定义 | 类型/单位 | 码值 | 所在表列 | 加工口径 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 认证状态 `attr:customer.verification_status` | Whether the customer has passed identity verification. | integer | 0=unverified；1=verified | `demo_dwd.dwd_party_customer_info_df.verify_status` | `demo_dwd.dwd_party_customer_info_df.verify_status` = `` `latest`.`verify_status` ``（血缘） | 已确认（owner） |
 
-### 时间
+#### 时间
 
 | 属性 | 定义 | 类型/单位 | 码值 | 所在表列 | 加工口径 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 注册时间 `attr:customer.registered_at` | When the customer first registered. | timestamp | — | `demo_dwd.dwd_party_customer_info_df.register_time` | `demo_dwd.dwd_party_customer_info_df.register_time`：from_unixtime(register_ts) | 已确认（owner） |
 
-## 5. 关系
+### A5 关系
 
-### 关联、组成与泛化
+#### 关联、组成与泛化
 
 | 关系 | 种类 | 读法 | 对端 | 基数 | 证据连接 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
 | holds `rel:customer_holds_app_account` | 组成 | 客户 holds 应用账户 | [应用账户](app_account.md) | 客户 1 : 应用账户 0..* | 1 次（如 `demo_dwd.dwd_party_customer_info_df.customer_id = demo_dwd.dwd_party_account_map_df.customer_id`） | 已确认（owner） |
 
-### 参与的事件
+#### 参与的事件
 
 | 事件 | 本概念角色 | 事件表现表数 | 证据连接 |
 | --- | --- | --- | --- |
 | [实名认证](identity_verification.md) | customer | 0 | —（一端无表现表） |
 | [还款](repayment.md) | payer | 1 | 0 次；同表携带两端：`demo_dwd.dwd_lending_repayment_di` |
 
-### 本概念的角色
+#### 本概念的角色
 
 | 角色 | 语境 | 成立条件 | 表现表数 |
 | --- | --- | --- | --- |
 | [借款人](borrower.md) | 贷款 | holds at least one loan whose status is not settled | 1 |
 
-## 6. 约束
+### A6 约束
 
 | 约束 | 种类 | 作用对象 | 表达式 | 强度 | 状态 |
 | --- | --- | --- | --- | --- | --- |
 | `cons:one_account_per_channel` | 基数 | holds `rel:customer_holds_app_account` | a customer holds at most one account in each channel | 软 | 草拟（sql） |
 | `cons:active_customers_only` | 业务规则 | 客户 `concept:customer` | customer counts read only rows whose customer_status is active | 软 | 草拟（owner） |
 
-## 7. 治理缺口
+### A7 治理缺口
 
 | 缺口 | 明细 |
 | --- | --- |

@@ -1,64 +1,81 @@
 # 渠道
 
-`concept:channel` · 实体 · [客户与账户](../index.md) · 已确认（owner）
+实体 · [客户与账户](../index.md) · 本页 0% 草拟、已确认的条目标 ✓
 
-## 1. 定义与身份
+## 一页纸概览
+
+**是什么**：An app or partner through which customers reach the shop.
+
+**怎么认出来**：
+
+- 渠道编码：一开始就有，全局唯一（主标识） ✓
+
+**数据在哪**：
+
+- 2 张表带本概念的标识，分布在 2 个域（见附录 A3）
+
+**关联的**：hosts 应用账户 ✓
+
+## 附录
+
+### A1 定义与身份
 
 An app or partner through which customers reach the shop.
 
 | 项 | 内容 |
 | --- | --- |
+| 编号 | `concept:channel` |
 | 种类 | 实体 |
 | 状态 | 已确认（owner） |
 | 同义词 | — |
 | 主标识符 | 渠道编码 `id:channel_code` |
 
-### 标识符
+#### 标识符
 
 | 标识符 | 产生条件 | 唯一范围 | 物理拼写 | 对照 | 状态 |
 | --- | --- | --- | --- | --- | --- |
 | 渠道编码 `id:channel_code`（主） | 始终 | 全局 | `channel_code` | — | 已确认（owner） |
 
-## 2. 数据清单
+### A2 数据清单
 
 （目录未登记表现表）
 
-## 3. 带本概念标识的表
+### A3 带本概念标识的表
 
 | 表 | 表的概念 | 列 | 标识符 | 方式 |
 | --- | --- | --- | --- | --- |
 | `demo_dwd.dwd_party_account_map_df` | [应用账户](app_account.md) | `channel_code` | 渠道编码 `id:channel_code` | 外部标识符 |
 | `demo_dws.dws_lending_loan_summary_1d` | [借据](loan.md) | `channel_code` | 渠道编码 `id:channel_code` | 外部标识符 |
 
-## 4. 属性
+### A4 属性
 
-### 描述
+#### 描述
 
 | 属性 | 定义 | 类型/单位 | 码值 | 所在表列 | 加工口径 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 渠道名称 `attr:channel.channel_name` | The display name of the channel. | string | — | （未落表） | — | 已确认（owner） |
 
-## 5. 关系
+### A5 关系
 
-### 关联、组成与泛化
+#### 关联、组成与泛化
 
 | 关系 | 种类 | 读法 | 对端 | 基数 | 证据连接 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
 | is opened in `rel:app_account_opened_in_channel` | 关联 | 渠道 hosts 应用账户 | [应用账户](app_account.md) | 应用账户 0..* : 渠道 1 | —（一端无表现表）；同表携带两端：`demo_dwd.dwd_party_account_map_df`；目录证据：`demo_dwd.dwd_party_account_map_df.channel_code` | 已确认（sql） |
 
-### 参与的事件
+#### 参与的事件
 
 （无）
 
-### 本概念的角色
+#### 本概念的角色
 
 （无）
 
-## 6. 约束
+### A6 约束
 
 （无）
 
-## 7. 治理缺口
+### A7 治理缺口
 
 | 缺口 | 明细 |
 | --- | --- |
