@@ -76,12 +76,21 @@ def check_coverage(document: dict, packet: dict) -> list[dict]:
 
 
 def check_source_columns(document: dict, packet: dict) -> list[dict]:
-    """Each ``source_columns`` entry is in that column's lineage (input metadata: warn)."""
+    """Each ``source_columns`` entry is in that column's lineage (input metadata: warn).
+
+    The reference, the lineage sources and the input metadata are all compared as
+    ``bare_column`` spells them, whatever case the schema export or the script used.
+    """
     lineage = {
-        entry["column"]: {source for producer in entry["producers"] for source in producer["sources"]}
+        entry["column"]: {
+            bare_column(source) for producer in entry["producers"] for source in producer["sources"]
+        }
         for entry in packet["lineage"]["columns"]
     }
-    known = {f"{item['table']}.{column['name']}" for item in packet["inputs"] for column in item["columns"]}
+    known = {
+        bare_column(f"{item['table']}.{column['name']}")
+        for item in packet["inputs"] for column in item["columns"]
+    }
     results = []
     for ci, column in enumerate(document["columns"]):
         for si, reference in enumerate(column.get("source_columns") or []):

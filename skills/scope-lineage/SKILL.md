@@ -46,7 +46,17 @@ scope-lineage --version 2>/dev/null \
   || python3 -c "import importlib.metadata as m; print(m.version('scope-lineage'))"
 ```
 
-Need >= 0.2.0 (`--version` itself exists from 0.2.1; the fallback covers 0.2.0).
+The minimum version depends on the workflow (`--version` itself exists from 0.2.1; the
+fallback covers 0.2.0):
+
+| Workflow | Needs |
+| --- | --- |
+| parse, derivation chain, impact, cross-task trace, render | >= 0.2.0 |
+| describe, `tables`, `glossary`, `ontology` | >= 0.3.0 |
+| concept-level impact (`concept-impact`), `catalog build` / `query` / `render` / `validate`, table semantics (`semantic *`), `catalog digest` / `merge`, acceptance (`questions *`) | >= 0.5.0 |
+| confirmed answers in material packets (`semantic packet --glossary` / `--metadata-patch`) | >= 0.6.0 |
+
+When unsure which workflows the session will need, require >= 0.6.0.
 Not installed → `pipx install scope-lineage` (or `pip install scope-lineage`). Too old
 → upgrade in place. This check is not optional: a stale install silently produces the
 removed pre-0.2.0 per-statement format, every downstream step here then misbehaves, and
