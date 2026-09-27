@@ -3,7 +3,8 @@
 ``expression_features.has_udf`` is a contract field, and it was computed against a
 hand-written list of 40-odd names. ``HOUR``, ``LAG``, ``RANK``, ``EXPLODE`` and
 ``GET_JSON_OBJECT`` were all missing, so ordinary Spark SQL was published as a black
-box -- one real 52-field task carried 148 "UDF 黑盒" marks and not one of them was a UDF.
+box -- an ordinary task could carry a "UDF 黑盒" mark on most of its fields without a
+single UDF in it.
 
 Two properties are pinned here: every function name sqlglot's Spark dialect knows is
 known to the catalog too, and a name nobody knows is still reported.

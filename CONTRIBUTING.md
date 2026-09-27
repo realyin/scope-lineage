@@ -49,13 +49,19 @@ function as part of the same change -- they shrink opportunistically, never grow
 `except Exception` must carry a `noqa: BLE001 - <reason>` naming why the boundary is
 allowed to be blind.
 
-Keep Core domain-neutral. Warehouse layer names, business-domain rules, report builders, and
-modeling recommendations belong in downstream projects rather than this package.
+Keep every layer domain-neutral. The fact engine (`scope`, `metadata`, `contract`,
+`serialize`) states what the SQL proves; the derived views (`render`) are computed from the
+contract alone; the knowledge-production support (`catalog`, `semantics`, `questions`) gives
+people and models structure, checks and write-back for the business meaning they write, and
+never writes that meaning itself. Warehouse layer names, business-domain rules, business
+prose, and modeling recommendations belong in downstream projects rather than this package.
 
 ## Architecture rules (each enforced by a test)
 
 - **Package dependency direction is locked** -- `cli -> contract -> (serialize, scope) ->
-  metadata`; `render` consumes contract JSON dicts only. A new cross-package edge is an
+  metadata`; `render` consumes contract JSON dicts only; `cli` (with every `cli_*` command
+  module) routes to any package and nothing imports it back. Plain `import` statements
+  are governed as well as `from ... import`. A new cross-package edge is an
   architecture decision: extend the allowed set or whitelist in
   `tests/architecture/test_dependency_direction.py` with a written reason, or do not
   create the edge.

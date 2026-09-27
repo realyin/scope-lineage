@@ -16,9 +16,19 @@ JOINs, filters, aggregates, windows, and uncertainty as versioned `lineage.json`
 `diagnostics.json` artifacts. AI applications can reason from addressable evidence instead of
 guessing from raw SQL or a flat table-lineage edge.
 
-This repository contains the open-source Core: SQL/task ingestion, scope parsing, column-level
-lineage, and diagnostics. It does not require a Spark cluster, database credentials, or an LLM.
-Embeddings, knowledge-graph storage, and business-semantic generation remain downstream concerns.
+The package has three layers, each with its own remit:
+
+1. **Fact engine** (`scope`, `metadata`, `contract`, `serialize`): SQL/task ingestion, scope
+   parsing, column-level lineage, task state and diagnostics -- the versioned contract.
+2. **Derived views** (`render`): deterministic documents computed from that contract only --
+   mapping, task semantic skeletons, corpus table cards, glossary and ontology candidates.
+3. **Knowledge-production support** (`catalog`, `semantics`, `questions`): the concept
+   catalog, table-semantics packets and checks, confirmation write-back, and acceptance
+   question sets -- structure and verification for the people and models who write business
+   meaning, never that meaning itself.
+
+It does not require a Spark cluster, database credentials, or an LLM. Writing business prose,
+embeddings, and knowledge-graph storage remain downstream concerns.
 
 ## See the difference
 
@@ -661,7 +671,7 @@ that facade or the JSON contracts instead of importing internal modules.
 
 The task documents carry `schema_version: "2.0"`; each `statement_lineage` entry keeps the
 statement-document shape (`schema_version: "1.0"`). Both are validated before writing.
-Within major version 1, consumers must tolerate additive optional fields. Removal, renaming, or a
+Within a major version, consumers must tolerate additive optional fields. Removal, renaming, or a
 semantic change requires a new major contract version.
 
 - [Lineage contract](docs/en/lineage-json.md)

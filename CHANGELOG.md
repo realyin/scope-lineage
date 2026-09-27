@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+- **The public-surface scanner catches measurements worded less plainly, and the ones it had
+  missed are gone.** A count now reaches its noun through a hyphen or up to three qualifier
+  words ("an N-field job", "N opaque-call marks", "all N+ of their columns"), over nouns for
+  what a run reports (fields, rows, marks, warnings, errors, diagnostics, UDFs) as well as
+  what it reads; a hyphenated size of one asset is rejected even without a corpus-context
+  word (`asset-size`). Docstrings, comments, docs and changelog entries that carried
+  absolute figures from private runs now say it qualitatively; the synthetic example's
+  figures are unchanged.
+- **Dependency direction covers every import form and the command modules.** Plain `import
+  scope_lineage.x` statements are governed as well as `from ... import`; `cli.py` and the
+  `cli_*` modules are one routing layer whose relative imports now resolve to their real
+  targets (they were read as internal edges and never checked), and nothing may import it
+  back.
+- **The corpus cache is keyed on the code, not only on the version string.** The options
+  digest also carries a digest of the package's own files, so a source checkout whose
+  install metadata is stale no longer reuses facts derived by older code; the location of
+  the package does not enter it, so `--cache-from` still borrows across checkouts. `--version`
+  prints the sqlglot version and that source digest beside the package version.
+- **README, README.zh-CN and CONTRIBUTING describe the three layers that ship** -- fact
+  engine, derived views, knowledge-production support -- instead of calling report and
+  semantic work downstream, and the contract section speaks of "a major version" now that
+  task documents are 2.0; `tests/architecture/test_product_boundary_docs.py` checks both
+  against the code.
+
 ## 0.5.0
 - **Semantics and ontology as a tool, end to end.** No breaking changes: every schema
   change since 0.4.0 is an addition (fixes are listed below). New in this release: the
@@ -1676,8 +1701,8 @@
   `role`. Two corpus scopes move, both correctly (`SUM(...) OVER` and a `LAG`).
 - The function catalog knows the Spark builtins, so `expression_features.has_udf` means UDF
   (C2). The catalog was a hand-written list of ~40 names, so `HOUR`, `LAG`, `RANK`,
-  `EXPLODE` and `GET_JSON_OBJECT` were all reported as UDF black boxes -- one 52-field task
-  carried 148 such marks and not one of them was a UDF. It is now derived from sqlglot's
+  `EXPLODE` and `GET_JSON_OBJECT` were all reported as UDF black boxes -- an ordinary task
+  could carry such a mark on most of its fields without a single UDF in it. It is now derived from sqlglot's
   own Spark / Spark2 / Hive function registries plus every `exp.Func` class's `sql_names()`
   (~700 names), with a curated list of the Hive/Spark builtins sqlglot registers under no
   name of their own (`percentile_approx`, `json_tuple`, `from_json`, `bround`, `pmod`,
@@ -1756,12 +1781,12 @@
   `columns[]` is now that union, each column carrying `used_in_corpus`, with
   `coverage.columns_used` / `coverage.columns_declared` (the second `null` when nothing
   declared the table); section 1 adds 「本语料用到 n/N 个字段」 and section 3 moves a tail of
-  more than 20 untouched columns below the used ones. An ontology entity therefore has one
+  more than twenty untouched columns below the used ones. An ontology entity therefore has one
   attribute per declared column, an untouched one carrying the empty `observed_roles` the
   document always promised plus `used_in_corpus: false`, and both `ontology.md`'s entity
   table and section 7 of each card show 「属性 N（语料用到 n）」. `column_comment_ratio` is
-  now over the card's whole column list, so a card showing 88 rows can no longer claim the
-  coverage of the 4 the corpus happened to read; contract version unchanged.
+  now over the card's whole column list, so a wide card can no longer claim the
+  coverage of the few columns the corpus happened to read; contract version unchanged.
 - The task profile is two files. `business_profile.md` keeps the three body sections and a
   reader's appendix of exactly three tables (`附录 A 已确认项`, `附录 B 备查项与待填取值`,
   `附录 C 风险边界`), capped at one third of the body; the writer's own record -- input-file

@@ -1839,7 +1839,7 @@ def _field_context(
 ) -> dict:
     """The per-document lookups every field reads, resolved once.
 
-    A 100-field task walks thousands of chain steps, so nothing in here is recomputed
+    A wide task walks thousands of chain steps, so nothing in here is recomputed
     per field. ``metric_argument_scopes`` is the one entry written *into*: each metric
     card records the scopes its argument was read from, and the shape block asks those
     scopes for their fan-out verdicts (WI-2.1c item 5).
@@ -1860,7 +1860,7 @@ def _field_context(
         # same reason and written into the same way.
         "metric_anchor_scopes": [],
         # WI-2.2: the two per-document comment lookups, resolved once like everything
-        # else here -- a 100-field task would otherwise rebuild the index per field.
+        # else here -- a wide task would otherwise rebuild the index per field.
         "output_comments": _output_comments(document),
         "task_meta": dict(task_meta) if task_meta else None,
     }
@@ -4622,8 +4622,8 @@ def _inferred_items(
 ) -> dict[str, int]:
     """Which paths in this document hold an inference rather than a copied fact, counted.
 
-    WI-1g item E7: a 52-field task listed 52 separate ``fields[7].structural_role``
-    entries, one per index, which is a count written out longhand -- the index says
+    WI-1g item E7: a task listed a separate ``fields[7].structural_role`` entry for
+    every one of its fields, which is a count written out longhand -- the index says
     nothing a reader can act on, and the markdown already grouped them back. The JSON
     now publishes the grouping itself, keyed by the path pattern.
     """
@@ -5540,7 +5540,7 @@ def _alias_position_findings(document: dict, fields: Sequence[dict]) -> list[dic
 
     WI-1g item C. Core already counts these (``target_field_binding.corrected_column_count``)
     and keeps the alias under ``end_to_end_lineage[].parsed_column``, but the skeleton
-    only said "按 DDL 位置绑定" -- the reader never learned that 25 of 52 written values
+    only said "按 DDL 位置绑定" -- the reader never learned that half the written values
     landed in a column whose declared name is not the one the SQL wrote. It is one of
     two things and both need a person: the job writes data into the wrong columns, or
     the target metadata's column order is out of date. Neither is decided here.

@@ -74,7 +74,7 @@ _SECTION_TITLES = {
 
 # Not a section: the one sub-switch of section 5. Passing it instead of ``fields`` keeps
 # the closing "完整字段清单" table and drops the per-field subsections, which is what a
-# 112-field task needs when the document is read by a person rather than chunked.
+# wide task needs when the document is read by a person rather than chunked.
 FIELDS_TABLE_ONLY = "fields_table"
 
 SECTION_NAMES = (*SECTION_ORDER, FIELDS_TABLE_ONLY)
@@ -2151,8 +2151,8 @@ def _inferred_line(inferred) -> str:
     """The inference inventory, grouped by ``semantic.json`` path.
 
     These are paths into the profile, not catalog identifiers, so they are written as
-    plain text: putting them in code spans would make them look like table ids. A 112
-    field task has one entry per field, which is a count, not a list worth printing --
+    plain text: putting them in code spans would make them look like table ids. A wide
+    task has one entry per field, which is a count, not a list worth printing --
     the exact paths stay in ``confidence.inferred_items``.
     """
     if not inferred:
