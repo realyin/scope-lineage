@@ -10,8 +10,11 @@
 - 目录格式：`docs/zh-CN/ontology-catalog.md`（「元素」「表现与绑定」「起草」三节），示例
   `examples/catalog-demo/`（`mapping/party.yaml`、`concepts/*.yaml`、`code_sets.yaml` 的形状照抄）与
   `examples/catalog-fragments/disbursement.json`（片段的形状照抄）。
-- 当前目录（只读）：`<catalog-dir>`。概念、标识符、关系已经起草好；不要改它，只写片段。
+- 当前目录（只读）：`<catalog-dir>`。概念、标识符、关系已经起草好；不要改它，只写片段。片段不能新增概念，
+  也不能改已有标识符（包括给它加拼写）：缺概念、缺事件的时间属性、已有标识符缺拼写时，写进 `notes` 并告诉
+  编排者，不要绕开。
 - 分配（编排者给出）：本组的概念 id 列表；分给本组的表，以及每张表初拟的概念、表现类型、粒度、时间语义。
+  只有一组、分配没写这些时，由你来定，并在 `notes` 里说明。
 - 起草材料：`<digest-dir>/digest.md`（`catalog digest` 的输出）里本组的表。
 - 每张表的语义：`<docs-dir>/<db.table>.json`（`table-semantics/1`）。列的含义、码值、加工口径以它为准；
   只有它说不清时才看材料包 `<packets-dir>/<db.table>/packet.md`。
@@ -71,6 +74,10 @@
   - `dt`、`etl_time`、来源库标记等是 `technical`；
   - 实在判断不了才 `unmapped`，并在 `notes` 里说为什么。
 - 本表特有的加工口径写在 binding 的 `derivation`；码值写成可复用的 `code_set`，或本表特有的 `code_map`。
+  `code_map` 里含义没确认的值，含义以「待确认：」开头（页面原样显示这个前缀）。
+- 一个码和它的描述列是**同一个属性**（描述是码的展示），两列都绑到它；同一角色的 id、登录名、姓名是三个属性。
+- 员工、经办人、客户经理这类「某角色的人」的列，目录里没有人员概念时，按目录已有先例绑成本概念的属性，
+  并在 `notes` 里列为候选概念。
 - 状态类、代码类属性尽量挂 `code_set`。码值只来自注释、SQL 的 CASE 或表语义的 `code_values`，不要编；含义
   没确认的值写 `"unconfirmed": true`，或让 `meaning` 以「待确认」开头。
 - 表现的 `kind`、`grain`、`time` 以分配为起点，可以按表语义修正，修正要在 `notes` 里说明。

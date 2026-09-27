@@ -373,10 +373,13 @@ scope-lineage semantic status <run> --next {draft,review,fix,render} [--batch-si
 scope-lineage semantic digest <doc.json> ...
 ```
 
-默认打印一行各阶段的计数，再每个标记一行列出带它的表：
+默认打印一行各阶段的计数，再每张表一行（阶段与标记），最后每个标记一行列出带它的表：
 
 ```text
-Status of 8 table(s): no_packet 0, packet 6, drafted 1, valid 1, reviewed 0, fixed 0, rendered 0
+Status of 3 table(s): no_packet 0, packet 1, drafted 1, valid 1, reviewed 0, fixed 0, rendered 0
+  demo_dwd.dwd_lending_borrower_df     packet
+  demo_dwd.dwd_lending_loan_df         drafted packet_stale
+  demo_dwd.dwd_party_customer_info_df  valid
   packet_stale: demo_dwd.dwd_lending_loan_df
 ```
 

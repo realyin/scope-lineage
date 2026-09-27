@@ -103,7 +103,10 @@ grades:
 
 The scoring rules (in `grade-prompt.md`): 2 = correct and complete, pinned to columns, codes, conditions; 1 = right direction but incomplete, or reasoning with a claim
 that contradicts the material; 0 = wrong or not found. When the material truly cannot decide a fact, answering the known part and marking the rest owner-to-confirm earns
-full credit; marking as uncertain what the material does decide loses a point.
+full credit; marking as uncertain what the material does decide loses a point, unless the page itself wrongly
+hedged and the answer repeated it (no deduction; the gap is `page_wrong`). A 2 may still carry a page gap: the
+answer is right but the page needs a fix (two statements contradict, say). Only points the question asks
+about cost marks; material the reference answer adds beyond the question does not.
 
 ### Answers file
 
