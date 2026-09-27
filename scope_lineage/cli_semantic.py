@@ -1,4 +1,5 @@
-"""The ``scope-lineage semantic`` subcommands: ``packet``, ``validate``, ``confirm``, ``render``.
+"""The ``scope-lineage semantic`` subcommands: ``packet``, ``validate``, ``confirm``, ``render``,
+and ``status`` / ``digest`` (in :mod:`scope_lineage.cli_semantic_status`).
 
 Kept out of ``cli.py`` like ``tables`` and ``catalog``. This module is where the inputs
 are loaded -- the lineage walk ``describe`` uses, the task JSON reader ``parse`` uses,
@@ -15,6 +16,7 @@ import json
 import sys
 from pathlib import Path
 
+from .cli_semantic_status import add_status_parsers, run_digest, run_status
 from .metadata.schema_metadata import (
     column_details_for_table,
     load_schema_sources,
@@ -36,10 +38,13 @@ from .semantics import (
 )
 from .semantics.names import bare_table
 from .semantics.packet import PACKET_FORMAT
+from .semantics.status import NEXT_FORMAT, STATUS_FORMAT
 from .semantics.validate import REPORT_FORMAT, check_file
 
 # The toolchain's own documents that may sit beside the ones `validate` checks.
-_OTHER_FORMATS = frozenset({CONFIRMATIONS_FORMAT, PACKET_FORMAT, REPORT_FORMAT})
+_OTHER_FORMATS = frozenset(
+    {CONFIRMATIONS_FORMAT, PACKET_FORMAT, REPORT_FORMAT, STATUS_FORMAT, NEXT_FORMAT}
+)
 
 
 def add_semantic_parser(subcommands) -> None:
@@ -47,7 +52,7 @@ def add_semantic_parser(subcommands) -> None:
         "semantic",
         help=(
             "Table semantics: build material packets, validate written documents, apply "
-            "confirmations, render pages"
+            "confirmations, render pages, report a run's progress"
         ),
     )
     actions = semantic.add_subparsers(dest="semantic_command", required=True)
@@ -71,6 +76,7 @@ def add_semantic_parser(subcommands) -> None:
         "--out", help="Write the confirmed documents here instead of rewriting them in place"
     )
     _add_render_parser(actions)
+    add_status_parsers(actions)
 
 
 def _add_render_parser(actions) -> None:
@@ -128,6 +134,10 @@ def run_semantic(args: argparse.Namespace) -> int:
         return _run_validate(args)
     if args.semantic_command == "render":
         return _run_render(args)
+    if args.semantic_command == "status":
+        return run_status(args)
+    if args.semantic_command == "digest":
+        return run_digest(args)
     return _run_confirm(args)
 
 

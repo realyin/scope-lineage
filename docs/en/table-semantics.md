@@ -18,7 +18,9 @@ deterministic work and never calls a model:
   rewrite;
 - `scope-lineage semantic confirm` writes a person's answers back into the documents;
 - `scope-lineage semantic render` renders the documents as one page per table and an
-  index, linked both ways with the ontology catalog's concept pages.
+  index, linked both ways with the ontology catalog's concept pages;
+- `scope-lineage semantic status` reads a run directory back, reports each table's stage
+  and batches the tables the next step still needs.
 
 Writing the document (the prompt, the rewrite loop) belongs to the agent skill: the prompt
 is `skills/scope-lineage/references/table-semantics-prompt.md`, and the skill's `SKILL.md`
@@ -37,6 +39,7 @@ for it; both are synthetic, like the demo corpus they describe.
 | 3. validate | machine | `semantic validate` | a text summary, or a `--json` report whose failure list is the rewrite prompt |
 | 4. render | machine | `semantic render` | one page per table, `<db.table>.md`, and `index.md` |
 | 5. confirm | a person answers, the machine applies | `semantic confirm` | the documents with `confirmed` marks |
+| throughout | machine | `semantic status` | each table's stage and flags; `--next` batches the next step |
 
 ## Five minutes on the demo
 
@@ -342,6 +345,158 @@ So two steps follow writing, both in the agent skill:
 2. **Revision** (`skills/scope-lineage/references/table-semantics-fix-prompt.md`): verify each finding, apply it, re-read the whole page to remove contradictions, keep inference apart from fact, and run `semantic validate` again.
 
 Two lessons: the review must be a separate call — a writer re-checking its own page does not find its blind spots; and a revision easily fixes one sentence while leaving the old claim elsewhere on the page, so the whole-page re-read is not optional. Never give the acceptance questions to the writing, review or revision calls.
+
+## `semantic status`: batch runs that resume
+
+With a few dozen tables, writing, review and revision are handed to the model in batches, and
+a run can be interrupted halfway. `semantic status` reads a run directory back and says where
+each table stands and which tables the next step still needs. It only reads files and calls
+the validator in-process; it never calls a model and never changes a file.
+
+### The run directory
+
+```text
+<run>/packets/<db.table>/packet.json   semantic packet --out <run>/packets
+<run>/docs/<db.table>.json             the table-semantics/1 documents the model writes and fixes
+<run>/reviews/<db.table>.md            the independent review, opening with front matter
+<run>/pages/<db.table>.md              semantic render <run>/docs --out <run>/pages
+```
+
+Each directory can be moved with `--packets`, `--docs`, `--reviews` and `--pages` (for
+example to put the pages at `<pages>/semantics` under the `catalog render` output). The
+tables are those that appear in any of the packets, documents or reviews; with `--only` they
+are exactly those tables, and a table with nothing in the run is `no_packet`. The
+toolchain's other documents in the documents directory (confirmations, validation reports,
+status reports, batch files) are skipped, as `validate` skips them.
+
+### Stages
+
+Every table is at one of seven stages, each requiring the one before:
+
+| Stage | Condition |
+| --- | --- |
+| `no_packet` | no `packet.json` |
+| `packet` | a packet, no document |
+| `drafted` | a document flagged `invalid` or `packet_stale` |
+| `valid` | the document meets its schema and fails no cross check (warnings allowed), and no review applies to it |
+| `reviewed` | a review of this very document (`reviewed_doc_digest` is the document's digest) with high or medium findings; or a review without front matter |
+| `fixed` | a review of this very document with no high or medium finding; or a review with high or medium findings, after which the document changed and validates again |
+| `rendered` | `fixed`, and the page is not older than the document (by modification time) |
+
+The document digest is the first sixteen hex digits of SHA-256 over the document's canonical
+JSON (sorted keys, no whitespace, UTF-8) — the same algorithm as `packet_digest`
+(`scope_lineage/semantics/digests.py`), so re-indenting or reordering keys keeps it and
+changing any value changes it. `scope-lineage semantic digest <doc.json>` prints it, and so
+does each table's `doc_digest` in the status report.
+
+### Flags
+
+| Flag | Condition | Effect |
+| --- | --- | --- |
+| `packet_stale` | the document's `packet_digest` is not the current packet's | stage `drafted`; rewrite from the new packet |
+| `invalid` | a schema error, an unreadable file, or a failed cross check other than check 8 (`digest`) | stage `drafted`; rewrite from the failure list |
+| `review_stale` | the review found no high or medium issue, yet the document changed after it: the review read another version | back to `valid`; review again |
+| `review_unparsed` | the review file has no complete front matter | stage `reviewed`, and no step dispatches it again; add the front matter or delete the review to review again |
+| `render_stale` | `fixed`, and the page is older than the document | stage `fixed`; render again |
+
+A document that changed after a review with high or medium findings counts as revised: the
+fix prompt runs validation after its edits, and status calls it `fixed` only once it
+validates again — otherwise it is back at `drafted`.
+
+### The review's front matter
+
+A review is markdown a model writes, and it must open with a block like this
+(`semantic digest` gives the digest):
+
+```yaml
+---
+reviewed_doc_digest: 2a9b25086e81590f
+high: 1
+medium: 2
+low: 0
+---
+```
+
+All four keys are required; the digest must not be empty and the three counts are
+non-negative whole numbers. Anything less is treated as no front matter (`review_unparsed`).
+The parser needs no YAML library: one `key: value` per line.
+
+### Output
+
+```bash
+scope-lineage semantic status <run> [--only <db.table> ...] [--json <path>|-]
+scope-lineage semantic status <run> --next {draft,review,fix,render} [--batch-size 5] [--out <path>]
+scope-lineage semantic digest <doc.json> ...
+```
+
+By default it prints one line of stage counts, then one line per flag naming its tables:
+
+```text
+Status of 8 table(s): no_packet 0, packet 6, drafted 1, valid 1, reviewed 0, fixed 0, rendered 0
+  packet_stale: demo_dwd.dwd_lending_loan_df
+```
+
+`--json` writes the `table-semantics-status/1` report (`-` for standard output):
+
+```json
+{
+  "doc_format": "table-semantics-status/1",
+  "directories": {"packets": "run/packets", "docs": "run/docs", "reviews": "run/reviews", "pages": "run/pages"},
+  "tables": [
+    {
+      "table": "demo_dwd.dwd_party_customer_info_df",
+      "stage": "valid",
+      "flags": [],
+      "packet_digest": "04439862460b03d6",
+      "doc_digest": "2a9b25086e81590f",
+      "doc_packet_digest": "04439862460b03d6",
+      "schema_errors": 0,
+      "failures": 0,
+      "review": null
+    }
+  ],
+  "summary": {
+    "tables": 1,
+    "stages": {"no_packet": 0, "packet": 0, "drafted": 0, "valid": 1, "reviewed": 0, "fixed": 0, "rendered": 0},
+    "flags": {"packet_stale": [], "invalid": [], "review_stale": [], "review_unparsed": [], "render_stale": []}
+  }
+}
+```
+
+`review` is the parsed front matter (`reviewed_doc_digest`, `high`, `medium`, `low`), or
+`null` with no review or one that does not parse; `failures` counts the failed cross checks
+other than check 8.
+
+### `--next`: batches and resuming
+
+`--next <step>` lists the tables that step still needs, sorted by name, `--batch-size` to a
+batch, as `table-semantics-next/1` (on standard output without `--out`):
+
+```json
+{"doc_format": "table-semantics-next/1", "step": "review", "batches": [["demo_dwd.dwd_party_customer_info_df"]]}
+```
+
+| Step | Tables selected |
+| --- | --- |
+| `draft` | `packet` and `drafted`: no document yet, a stale one, or one that fails validation |
+| `review` | `valid`, including those flagged `review_stale` |
+| `fix` | `reviewed` with front matter: the review has high or medium findings and the document has not changed |
+| `render` | `fixed`, including those flagged `render_stale` |
+
+A table that is past a step never comes back for it, so after an interruption, running
+`status --next` again resumes where the run stopped. A `no_packet` table is in no batch;
+build its packet first. `render` is one deterministic command and is batched only to keep
+the orchestration uniform; rendering the whole documents directory at once is fine too. A
+table still `drafted` after two `draft` rounds has a failure left to the owner (the rewrite
+rule: stop forcing a spot that failed two rounds running); the orchestrator should take it
+out of the round and tell the user rather than dispatch it forever.
+
+### Exit codes
+
+| Exit code | Condition |
+| --- | --- |
+| 0 | reported (stale or failing tables still exit 0) |
+| 2 | the run directory does not exist, or `--json -` and `--next` without `--out` both want standard output |
 
 ## `semantic confirm`
 

@@ -433,32 +433,45 @@ scope-lineage catalog render <dir>/ontology.json --out <pages-dir>   # the fallb
 ### "这张表是什么意思 / 给这批表写表语义" — table semantics
 
 一张表对业务读者意味着什么（一行是什么、怎么取数、收哪些记录、每个字段什么意思、要注意什么），由你用
-提示词写、由 CLI 对照材料校验。顺序固定，每一步的产物是下一步的输入：
+提示词写、由 CLI 对照材料校验。所有产物放在一个运行目录 `<run>` 里（`packets/`、`docs/`、`reviews/`、
+`pages/`），顺序固定，每一步的产物是下一步的输入：
 
 ```bash
 # 1. choose the tables: the ones the user asked about, or a layer / a concept's tables
 # 2. one material packet per table
 scope-lineage semantic packet --lineage <artifacts-root> --tasks <task-json-dir> \
-  --schema <schema> [--schema-fallback <path>] [--only <db.table> ...] --out <packets>
-# 3. for each table: the model reads <packets>/<db.table>/packet.md with
-#    references/table-semantics-prompt.md and writes <docs>/<db.table>.json
-# 4. hold every document to its schema and its packet
-scope-lineage semantic validate <docs> --packets <packets> --json > <report.json>
-# 5. rewrite only the failed items (the prompt's 「校验不通过时（重写）」 section, fed the
-#    table's failures from the report), then validate again; stop when nothing fails
-# 5a. independent review: a separate model call reads the packet and the document with
-#     references/table-semantics-review-prompt.md and lists factual errors (high/medium/low)
-# 5b. fix: a model call applies the findings with references/table-semantics-fix-prompt.md,
-#     re-reads the whole page for contradictions, then validate again
-# 6. pages: one per table plus index.md; --ontology when a catalog exists
-scope-lineage semantic render <docs> --out <pages>/semantics \
-  --validation <report.json> [--ontology <dir>/ontology.json]
+  --schema <schema> [--schema-fallback <path>] [--only <db.table> ...] --out <run>/packets
+# 3. every round starts here: where each table stands, then the batches of the next step
+scope-lineage semantic status <run>
+scope-lineage semantic status <run> --next draft --batch-size 5 --out <run>/next.json
+# 4. draft (--next draft): per table, the model reads <run>/packets/<db.table>/packet.md with
+#    references/table-semantics-prompt.md and writes <run>/docs/<db.table>.json; then
+scope-lineage semantic validate <run>/docs --packets <run>/packets --json > <run>/validation.json
+#    and rewrites only the failed items (the prompt's 「校验不通过时（重写）」 section, fed the
+#    table's failures from the report), validating again; stop when nothing fails
+# 5. review (--next review): a separate model call reads the packet and the document with
+#    references/table-semantics-review-prompt.md and writes <run>/reviews/<db.table>.md,
+#    opening with front matter; its reviewed_doc_digest comes from
+scope-lineage semantic digest <run>/docs/<db.table>.json
+# 6. fix (--next fix): a model call applies the findings with
+#    references/table-semantics-fix-prompt.md, re-reads the whole page for contradictions,
+#    then validates again
+# 7. render (--next render lists what is left): one page per table plus index.md
+scope-lineage semantic render <run>/docs --out <run>/pages \
+  --validation <run>/validation.json [--ontology <dir>/ontology.json]
 scope-lineage catalog render <dir>/ontology.json --out <pages> --semantics <pages>/semantics
-# 7. the owner answers each page's 待确认问题; file the answers as semantic-confirmations/1
-scope-lineage semantic confirm <docs> --confirmations <answers.json>
+# 8. the owner answers each page's 待确认问题; file the answers as semantic-confirmations/1
+scope-lineage semantic confirm <run>/docs --confirmations <answers.json>
 # then render again
 ```
 
+- **分批与续跑**：一批表不要靠记忆或手工清点。每一轮先跑 `semantic status <run>`，再用
+  `--next <draft|review|fix|render>` 取这一步的分批；**一批交给一个子代理**，子代理只处理批里的表、
+  自己不再派子代理（一张表一次调用的要求在子代理内部照旧：写、审、改各自独立）。一轮做完、被中断或额度用完，
+  都只需重新跑 `status --next`：已经走过这一步的表自动跳过，从断点继续。`status` 列出的标记要看：
+  `packet_stale`（材料包变了，整份重写）、`invalid`（按失败清单重写）、`review_stale`（审读之后文档又改过，
+  重新审读）、`review_unparsed`（审读没有 front matter，不会再被派发——补上或删掉重审）、`render_stale`。
+  一张表连续两轮 `draft` 仍在 `drafted`，把它从本轮拿掉并告诉用户，不要一直派发。
 - **挑表**：只挑用户问到的表，或一个层、一个概念的表；`--only` 让材料包只解析相关的血缘文档。
 - **写作**：每张表单独一次调用，只给这张表的 `packet.md` 和提示词，不要把别的表、整份血缘或本体读进去。
   有本体目录时，把 `catalog query <ontology.json> table <db.table> --json` 答出的概念与表现类型告诉模型，
@@ -468,16 +481,19 @@ scope-lineage semantic confirm <docs> --confirmations <answers.json>
 - **审读与修订**：校验只能保证形式（覆盖、出处、原文、分区），保证不了含义。每张表写完、校验通过后，
   另起一次调用做**独立审读**（不是写作者自己复查），只给材料包、文档和已确认事实；再按审读意见修订，修订后
   通读全页消除前后矛盾，并把推断与事实分开。一轮就够；修订后再审读一轮只针对「全页一致、推断与事实、
-  已确认事实、兄弟表」四项。不要把验收问题集交给写作、审读或修订的调用，那是考卷。
-- **渲染**：`--out` 放在 `catalog render` 的输出目录下（`<pages>/semantics`），表语义页里的
-  `../concepts/<slug>.md` 才能打开；`catalog render --semantics` 反过来让概念页里列出的每张表链到它的表语义页。
+  已确认事实、兄弟表」四项（这一轮的审读照样带 front matter，覆盖原审读文件）。审读文件开头的
+  front matter（`reviewed_doc_digest` 与高 / 中 / 低条数）是 `status` 判断「已修订」的唯一依据：审读有高 / 中
+  问题、文档之后改过且重新通过校验，才算 `fixed`。不要把验收问题集交给写作、审读或修订的调用，那是考卷。
+- **渲染**：有本体目录时 `--out` 放在 `catalog render` 的输出目录下（`<pages>/semantics`），表语义页里的
+  `../concepts/<slug>.md` 才能打开，此时 `status` 加 `--pages <pages>/semantics`（默认 `<run>/pages`）；
+  `catalog render --semantics` 反过来让概念页里列出的每张表链到它的表语义页。
   页面上 ✓ 是已确认、⚠ 是矛盾或风险、✗n 是校验未通过（文末「校验」有说明），`值（含义待确认）` 是只有值
   没有含义的码值。
 - **确认**：把页面的「待确认问题」原样交给 owner；回答写成 `question:<id>`、`column:<c>.meaning`、
   `column:<c>.code_values` 或 `summary.row` 四种目标之一。`confirm` 列出的 `unmatched` 要逐条告诉用户，
   不要默默丢掉。
 
-格式、十三项检查和确认文件见 `docs/zh-CN/table-semantics.md`。
+格式、十三项检查、确认文件和 `semantic status` 的阶段与标记见 `docs/zh-CN/table-semantics.md`。
 
 ### "这个结果可信吗 / 为什么断了" — diagnostics
 
@@ -532,7 +548,8 @@ documented uncertainty).
   nothing matches. Read when a catalog (`catalog-yaml/1`) or its `ontology.json` exists.
 - `references/table-semantics-review-prompt.md` — the independent review checklist (15 items, from
   grain and derived-code NULLs to page consistency and sibling tables) that finds factual errors
-  validation cannot. Read when running the review step.
+  validation cannot, and the front matter (`reviewed_doc_digest`, high / medium / low counts) every
+  review opens with. Read when running the review step.
 - `references/table-semantics-fix-prompt.md` — how to apply review findings and re-read the page for
   contradictions. Read when running the fix step.
 - `references/table-semantics-prompt.md` — the prompt a model writes one
