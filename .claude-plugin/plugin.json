@@ -1,6 +1,8 @@
 {
   "name": "scope-lineage",
-  "description": "Answer Spark/Hive SQL lineage questions with verifiable evidence: parse SQL/task JSON into field-level lineage artifacts, explain column derivations step by step, run impact analysis, and generate mapping documents.",
-  "version": "0.2.1",
-  "author": {"name": "realyin"}
+  "description": "Answer Spark/Hive SQL lineage questions with verifiable evidence: parse SQL/task JSON into field-level lineage artifacts, explain column derivations, run impact analysis, generate mapping documents, and turn tables and SQL into table semantics and an ontology catalog.",
+  "version": "0.5.0",
+  "author": {
+    "name": "realyin"
+  }
 }

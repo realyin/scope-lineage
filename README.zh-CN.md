@@ -545,8 +545,9 @@ AI 下游必须同时读取诊断，不能把 `recovered`、歧义候选或缺�
 - [`tables.json` / `tables.md` 语料级表卡](docs/zh-CN/tables-doc.md)
 - [`glossary.json` / `glossary.md` 术语与值域字典](docs/zh-CN/glossary-doc.md)
 - [`ontology.json` / `ontology.md` 语料级本体候选](docs/zh-CN/ontology-doc.md)
-- [本体目录（`catalog-yaml/1`）：概念先行的事实来源，`catalog validate` / `catalog build` 生成 `ontology-json/3`](docs/zh-CN/ontology-catalog.md)
-- [表语义（`table-semantics/1`）：`semantic packet` / `semantic validate` / `semantic confirm` / `semantic render`](docs/zh-CN/table-semantics.md)
+- [本体目录（`catalog-yaml/1`）：概念先行的事实来源，`catalog validate` / `catalog build` 生成 `ontology-json/3`，用 `catalog digest` / `catalog merge` 从表语义起草](docs/zh-CN/ontology-catalog.md)
+- [表语义（`table-semantics/1`）：`semantic packet` / `semantic validate` / `semantic confirm` / `semantic render`，`semantic status` 分批续跑](docs/zh-CN/table-semantics.md)
+- [验收问题集（`question-set/1`）：`questions validate` / `sheet` / `grading-sheet` / `score`](docs/zh-CN/questions.md)
 
 ## AI agent 集成
 
