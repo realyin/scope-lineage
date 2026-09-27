@@ -141,10 +141,15 @@ def status_report(entries: list[dict], directories: dict) -> dict:
 
 
 def render_status_text(report: dict) -> str:
-    """One line of stage counts, then one line per flag naming its tables."""
+    """One line of stage counts, one line per table (stage, flags), one line per flag."""
     summary = report["summary"]
     counts = ", ".join(f"{stage} {count}" for stage, count in summary["stages"].items())
     lines = [f"Status of {summary['tables']} table(s): {counts}"]
+    width = max((len(entry["table"]) for entry in report["tables"]), default=0)
+    lines += [
+        f"  {entry['table']:<{width}}  {' '.join([entry['stage'], *entry['flags']])}"
+        for entry in report["tables"]
+    ]
     lines += [
         f"  {flag}: {', '.join(tables)}" for flag, tables in summary["flags"].items() if tables
     ]

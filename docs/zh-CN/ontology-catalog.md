@@ -289,6 +289,8 @@ representations:
       - {column: dt, to: technical}
 ```
 
+`code_map` 写本表特有的码值含义；含义还没确认的值，含义以「待确认：」开头，页面原样显示这个前缀。
+
 示例里的借据表有两种以前表达不了的列。`customer_gender_cd` 是客户的性别，冗余在借据行上、紧挨着客户号：
 它绑定为 `foreign_attribute`，`via: customer_id` 说明它说的是哪个客户。`orig_loan_no` 是续借借据所续的原借据号，
 即同一概念的另一个实例：它绑定为 `foreign_identifier` 并指向借据自己的标识符，这只在目录登记了从借据到借据的关系时才允许：
@@ -651,7 +653,8 @@ scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_l
 已经给一批表写好[表语义](table-semantics.md)（`table-semantics/1`）时，目录可以从它们起草，而不用每次写临时脚本：
 
 1. `catalog digest` 把表语义浓缩成起草材料，并对照现有目录标出还没覆盖的表和列；
-2. 人或模型据此起草概念与关系（`concepts/`、`relations.yaml`、`identifiers.yaml`）；
+2. 人或模型据此起草概念与关系（`concepts/`、`relations.yaml`、`identifiers.yaml`）；片段不能新增概念、不能改已有
+   标识符，所以各组要用的新概念（事件连同它的时间属性）、新标识符和已有标识符的新拼写都在这一步写好；
 3. 把表分组，每组写一个片段（`catalog-fragment/1`）：属性、码值集、约束、术语、每张表的表现与列绑定；
 4. `catalog merge` 把片段合并进目录的一份拷贝，报告冲突，自动校验，并给出覆盖报告；
 5. `catalog build` / `catalog render` 后交 owner 审读。

@@ -254,6 +254,26 @@ def test_the_text_summary_counts_stages_and_names_flagged_tables(
     assert "no_packet 0" in out
 
 
+def test_the_text_output_lists_every_table_with_its_stage_and_flags(
+    valid_run: Path, capsys
+) -> None:
+    document = _doc(valid_run)
+    document["packet_digest"] = "0000000000000000"
+    write_json(valid_run / "docs" / f"{DEMO_TABLE}.json", document)
+    report = _status(valid_run)
+    capsys.readouterr()
+    assert run("semantic", "status", valid_run) == 0
+    first, *rest = capsys.readouterr().out.splitlines()
+
+    assert first.startswith(f"Status of {len(report['tables'])} table(s): no_packet ")
+    rows = {line.split()[0]: line.split()[1:] for line in rest if not line.split()[0].endswith(":")}
+    assert set(rows) == {entry["table"] for entry in report["tables"]}
+    assert rows[DEMO_TABLE] == ["drafted", "packet_stale"]
+    assert all(rows[entry["table"]] == [entry["stage"]]
+               for entry in report["tables"] if entry["table"] != DEMO_TABLE)
+    assert rest[-1] == f"  packet_stale: {DEMO_TABLE}"
+
+
 def test_json_dash_prints_the_report(valid_run: Path, capsys) -> None:
     capsys.readouterr()
     assert run("semantic", "status", valid_run, "--json", "-") == 0

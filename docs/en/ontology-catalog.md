@@ -307,6 +307,9 @@ representations:
       - {column: dt, to: technical}
 ```
 
+`code_map` holds code meanings specific to this table; a meaning not confirmed yet starts
+with 「待确认：」 ("to be confirmed:"), and pages show that prefix as written.
+
 The demo's loan table has two columns the format could not express before.
 `customer_gender_cd` is the customer's gender, repeated on the loan row next to the
 customer number: it is bound as `foreign_attribute`, and `via: customer_id` says which
@@ -709,7 +712,10 @@ catalog can be drafted from them without an ad-hoc script each time:
 1. `catalog digest` condenses the table semantics into drafting material and, against an
    existing catalog, names the tables and columns it does not cover yet;
 2. a person or a model drafts the concepts and relations from it (`concepts/`,
-   `relations.yaml`, `identifiers.yaml`);
+   `relations.yaml`, `identifiers.yaml`); a fragment cannot add a concept or change an
+   existing identifier, so every new concept the groups need (an event with its time
+   attribute), every new identifier and every new spelling of an existing one is written
+   here;
 3. the tables are split into groups and each group gets one fragment (`catalog-fragment/1`):
    attributes, code sets, constraints, terms, and each table's representation with its
    column bindings;

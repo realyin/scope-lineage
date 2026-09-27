@@ -429,10 +429,13 @@ scope-lineage semantic status <run> --next {draft,review,fix,render} [--batch-si
 scope-lineage semantic digest <doc.json> ...
 ```
 
-By default it prints one line of stage counts, then one line per flag naming its tables:
+By default it prints one line of stage counts, then one line per table (its stage and flags), then one line per flag naming its tables:
 
 ```text
-Status of 8 table(s): no_packet 0, packet 6, drafted 1, valid 1, reviewed 0, fixed 0, rendered 0
+Status of 3 table(s): no_packet 0, packet 1, drafted 1, valid 1, reviewed 0, fixed 0, rendered 0
+  demo_dwd.dwd_lending_borrower_df     packet
+  demo_dwd.dwd_lending_loan_df         drafted packet_stale
+  demo_dwd.dwd_party_customer_info_df  valid
   packet_stale: demo_dwd.dwd_lending_loan_df
 ```
 
