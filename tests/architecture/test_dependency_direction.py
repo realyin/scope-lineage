@@ -16,7 +16,8 @@ PACKAGE_NAME = "scope_lineage"
 # First-level subpackages/modules whose edges are governed. Package-root leaf modules
 # (sqlglot_config, and any future ones) are usable from anywhere and not listed.
 GOVERNED = {
-    "catalog", "cli", "contract", "metadata", "render", "scope", "semantics", "serialize",
+    "catalog", "cli", "contract", "metadata", "questions", "render", "scope", "semantics",
+    "serialize",
 }
 
 ALLOWED_EDGES: dict[str, set[str]] = {
@@ -32,6 +33,9 @@ ALLOWED_EDGES: dict[str, set[str]] = {
     # JSON and schema metadata are loaded by `cli_semantic` and handed over as plain data,
     # so the parser and the metadata loaders stay out of this package.
     "semantics": {"render"},
+    # Acceptance questions: question sets, grades and answers in, sheets and scores out.
+    # `cli_questions` reads the files and hands them over as plain data.
+    "questions": set(),
 }
 
 

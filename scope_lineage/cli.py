@@ -23,6 +23,7 @@ from .cli_ontology import (
     formats as _ontology_formats,
     run_ontology,
 )
+from .cli_questions import add_questions_parser, run_questions
 from .cli_semantic import add_semantic_parser, run_semantic
 from .cli_tables import add_tables_parser, formats as _tables_formats, run_tables
 from .contract import write_task_lineage
@@ -189,6 +190,7 @@ def main(argv: list[str] | None = None) -> int:
     add_ontology_parser(subcommands)
     add_catalog_parser(subcommands)
     add_semantic_parser(subcommands)
+    add_questions_parser(subcommands)
 
     validate_cmd = subcommands.add_parser(
         "validate",
@@ -272,6 +274,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_catalog(args)
     if args.command == "semantic":
         return run_semantic(args)
+    if args.command == "questions":
+        return run_questions(args)
     if args.command == "validate":
         return _validate_inputs(args)
     parser.error(f"unknown command: {args.command}")

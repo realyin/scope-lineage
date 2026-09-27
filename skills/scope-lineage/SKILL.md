@@ -7,7 +7,7 @@ description: >-
   or column (impact analysis), and generate human-readable mapping.md documents. Use this
   skill whenever the user mentions 血缘 / lineage / 字段来源 / 加工步骤 / 影响分析 /
   mapping 文档 / 字段映射 / 任务画像 / 语义描述 / 表语义 / 字段含义 / 实体关系 / 本体 / 表关系 /
-  ER 图, asks "这个字段怎么算出来的", "这个任务在做什么", "谁依赖这张表",
+  ER 图 / 验收 / 问题集 / 判分, asks "这个字段怎么算出来的", "这个任务在做什么", "谁依赖这张表",
   "这个 SQL 读了哪些表", "这批任务里的表是什么关系", or wants to analyze,
   document, or audit warehouse SQL transformations — even if they do not name the
   scope-lineage tool.
@@ -495,6 +495,44 @@ scope-lineage semantic confirm <run>/docs --confirmations <answers.json>
 
 格式、十三项检查、确认文件和 `semantic status` 的阶段与标记见 `docs/zh-CN/table-semantics.md`。
 
+### "这些页面能不能用 / 给页面打分" — 验收
+
+表语义页和概念页写好后，用一套问题集（`question-set/1`：题目、参考答案、证据、`owner_check`）考页面：
+作答者只读页面答题，判分者对照参考答案和材料判 2/1/0，CLI 汇总。确定性的部分都由
+`scope-lineage questions` 做，你只派两次模型调用：
+
+```bash
+# 0. the set holds to its schema: unique ids, a reference answer for every question
+scope-lineage questions validate <questions.yaml>
+# 1. the answerer's sheet: ids, tables and question text only -- no keys, no evidence
+scope-lineage questions sheet <questions.yaml> --pages <pages> \
+  [--only-table <db.table> ...] [--ids <id> ...] --out <run>/sheet.md
+# 2. answerer sub-agent: references/answer-prompt.md + sheet.md + read access to <pages> only;
+#    writes <run>/answers.md with one `## <id>` section per question
+# 3. the grader's material: question, type, reference answer, evidence, owner_check, answer
+scope-lineage questions grading-sheet <questions.yaml> --answers <run>/answers.md \
+  [same --only-table / --ids] --out <run>/grading.md
+# 4. grader sub-agent: references/grade-prompt.md + grading.md (+ the packets / SQL the
+#    evidence names); writes <run>/grades.yaml (question-grades/1), then
+scope-lineage questions validate <run>/grades.yaml
+# 5. the round's score, earlier rounds as comparison columns
+scope-lineage questions score <run>/grades.yaml --set <questions.yaml> \
+  [--previous <earlier-grades.yaml> ...] [same subset] --out <run>/score
+```
+
+- **两个调用分开**：作答者和判分者各是一个独立的子代理。作答者不能看到问题集、参考答案、材料包或 SQL，
+  只给题单和页面目录，便宜一点的模型就够；判分者要核实参考答案、识别过度保留，用强模型。
+- **先抽小样**：`--only-table` / `--ids` 在 sheet、grading-sheet、score 里含义一致，调提示词时每轮只跑几张表、十来道题，
+  省 token；确认改进后再跑全集。
+- **留出集**：另备一套题，覆盖调提示词时没用过的表，只在收尾时跑一次，看改进是不是只对考过的题有效。
+  问题集同样不要交给写作、审读或修订的调用。
+- **读分数**：`score.md` 的「按缺口」说失分落在哪里——`page_missing` / `page_wrong` /
+  `page_contradiction` 回去改页面（或它的提示词），`answerer` 改作答提示词，`key_wrong` 改参考答案
+  （列在「参考答案待修正」），`owner_only` 交给 owner。未判分的题单独列出、不计入总分；判分文件里有
+  问题集没有的题号时 `score` 拒绝汇总（退出 1）。
+
+格式与命令见 `docs/zh-CN/questions.md`。
+
 ### "这个结果可信吗 / 为什么断了" — diagnostics
 
 Read the relevant warning and gap entries (they are in `query.py summary` counts;
@@ -558,6 +596,12 @@ documented uncertainty).
   the producing task, every item with its sources; and the rewrite section to hand back
   with `semantic validate`'s failures. Read when the user asks what a table means, or
   wants a batch of tables documented.
+- `references/answer-prompt.md` — the acceptance answerer: read only the pages, cite page and
+  section, mark only what the pages truly cannot decide as owner-to-confirm, no over-hedging, one
+  `## <id>` section per answer. Read when running the answer step of an acceptance round.
+- `references/grade-prompt.md` — the acceptance grader: 2/1/0, the owner-only, over-hedging and
+  wrong-reference-answer rules, the seven gaps, and the `question-grades/1` YAML it outputs. Read
+  when running the grading step.
 - `../../docs/en/workflow.md` (`docs/zh-CN/workflow.md` for the Chinese version) — the
   end-to-end order of everything above: what `parse` / `tables` / `glossary` / `describe` /
   `ontology` need from each other, a runnable five-minute pass over `examples/`, where each of

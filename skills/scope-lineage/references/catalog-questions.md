@@ -70,3 +70,10 @@ scope-lineage catalog render <dir>/ontology.json --out <pages-dir>
    `constraints` 里的过滤（有效记录、删除注销、去重）要写进条件，或明说没有写进去。
 7. **含义待确认的码值照实说**：页面与查询里写成「值（含义待确认：猜测）」的码值，说"目录里这个
    值的含义还没确认，猜测是……"，不要当成已确认的含义用。
+
+## 验收：用问题集给页面打分
+
+上面是回答真实用户的做法。验收时考的是页面本身：作答者只读 `catalog render` / `semantic render` 出的页面
+（不跑 `query`），按 `answer-prompt.md` 作答，上面七条照样适用；判分者按 `grade-prompt.md` 对照参考答案和材料
+判 2/1/0 并标出失分落在页面还是作答。题单、判分材料和汇总由 `scope-lineage questions` 生成，流程见
+`SKILL.md`「验收」一节。
