@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "question-grades/1",
+  "description": "One grading round over a question-set/1: a score of 0, 1 or 2 per question, why, and which gap the lost points belong to. Written by the grader, summed by `questions score`.",
+  "type": "object",
+  "required": ["doc_format", "grades"],
+  "additionalProperties": false,
+  "properties": {
+    "doc_format": {"const": "question-grades/1"},
+    "set": {"type": "string"},
+    "round": {"type": ["string", "integer"]},
+    "notes": {"type": "string"},
+    "grades": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "score"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "pattern": "^\\S+$"},
+          "score": {"enum": [0, 1, 2]},
+          "reason": {"type": "string"},
+          "gap": {
+            "enum": [
+              "page_missing", "page_wrong", "page_contradiction", "answerer",
+              "key_wrong", "owner_only", "none"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

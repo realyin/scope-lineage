@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "question-set/1",
+  "description": "An acceptance question set for generated pages (table-semantics pages, catalog concept pages): each question with its reference answer and the evidence behind it. An answerer sees only the question text; a grader sees everything. Keys beyond these are kept and ignored, so older hand-written sets stay valid.",
+  "type": "object",
+  "required": ["doc_format", "questions"],
+  "properties": {
+    "doc_format": {"const": "question-set/1"},
+    "subject": {"type": "string"},
+    "status": {"enum": ["draft", "confirmed"]},
+    "scoring": {
+      "type": "object",
+      "propertyNames": {"enum": ["0", "1", "2"]},
+      "additionalProperties": {"type": "string"}
+    },
+    "questions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "text", "answer_key"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^\\S+$"},
+          "table": {"type": "string", "minLength": 1},
+          "concept": {"type": "string", "minLength": 1},
+          "type": {"type": "string", "minLength": 1},
+          "text": {"type": "string", "minLength": 1},
+          "answer_key": {"type": "string", "minLength": 1},
+          "evidence": {
+            "anyOf": [
+              {"type": "string"},
+              {"type": "array", "items": {"type": "string"}}
+            ]
+          },
+          "owner_check": {"type": "string"}
+        }
+      }
+    }
+  }
+}
