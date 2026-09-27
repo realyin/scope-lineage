@@ -495,6 +495,42 @@ scope-lineage semantic confirm <run>/docs --confirmations <answers.json>
 
 格式、十三项检查、确认文件和 `semantic status` 的阶段与标记见 `docs/zh-CN/table-semantics.md`。
 
+### "从表语义起草本体目录" — table semantics → catalog
+
+一批表已经有表语义（`table-semantics/1`）后，本体目录（`catalog-yaml/1`）从它们起草。不要写临时脚本，
+按下面的顺序用 CLI：
+
+```bash
+# 1. drafting material: row, grain, time, identifier/state/time/measure columns, related
+#    tables, open questions per table; with --catalog, what the catalog does not cover yet
+scope-lineage catalog digest <docs> [--catalog <catalog-dir>] [--only <db.table> ...] --out <digest>
+# 2. draft concepts, identifiers and relations from <digest>/digest.md (by hand, or one model
+#    call that reads only the digest and the catalog format), into <catalog-dir>
+scope-lineage catalog validate <catalog-dir>
+# 3. split the tables into groups (one group = a few related concepts and their tables)
+# 4. one sub-agent per group writes <fragments>/<group>.json (catalog-fragment/1) with
+#    references/catalog-fragment-prompt.md, self-checking with `catalog merge --out <scratch>`
+# 5. merge every fragment into a copy; conflicts and validation errors exit 1
+scope-lineage catalog merge <catalog-dir> <fragments>/*.json --out <merged>
+# 6. build and render, then the owner reviews
+scope-lineage catalog build <merged> --out <dir>
+scope-lineage catalog render <dir>/ontology.json --out <pages>
+```
+
+- **起草材料**：`digest.md` 就是起草概念的全部输入；不要把整份表语义读进一次调用。`--catalog` 列出的
+  「没有表现的表」「没有绑定的列」就是这一轮要补的。
+- **分组**：按概念分组，每组的表不超过十来张；同一张表只分给一组。给每个子代理的分配写清：组名、本组概念、
+  本组的表以及初拟的概念、表现类型、粒度、时间语义。
+- **片段**：子代理只写自己的 `<group>.json`，不改目录；每个条目的形状与目录文件相同。自检用
+  `catalog merge <catalog-dir> <group>.json --out <scratch>`，退出码 0 才算写完。
+- **合并**：`merge` 按 id（术语按 `term` + `refers_to`，表现按表）去重；同 id 内容不同是**冲突**，后来的不应用，
+  逐条交回对应的组去改，不要手工挑一个。概念不存在是错误。退出码 1 时先解决冲突和校验错误再往下走。
+  `--out` 要是新目录；`--in-place` 才写回原目录。
+- **覆盖报告**：合并最后打印每张表有没有表现、列按绑定去向各多少；`unmapped` 与片段的 `notes` 交给 owner。
+- **审读**：渲染后把概念页和 notes 给 owner；确认的内容把 `status` 改成 `confirmed`、`source` 改成 `owner`。
+
+片段格式、合并规则和退出码见 `docs/zh-CN/ontology-catalog.md` 的「起草」一节。
+
 ### "这些页面能不能用 / 给页面打分" — 验收
 
 表语义页和概念页写好后，用一套问题集（`question-set/1`：题目、参考答案、证据、`owner_check`）考页面：
@@ -584,6 +620,10 @@ documented uncertainty).
   catalog: which `catalog query` kind answers which question, when to fall back to the
   rendered concept page, how to report status, evidence and conflicts, and what to say when
   nothing matches. Read when a catalog (`catalog-yaml/1`) or its `ontology.json` exists.
+- `references/catalog-fragment-prompt.md` — the prompt one sub-agent per group follows to
+  draft a `catalog-fragment/1` file from table semantics: what to read, the fragment shape,
+  one attribute per business meaning, a binding for every column, and the `catalog merge`
+  self-check. Read when drafting a catalog from table semantics.
 - `references/table-semantics-review-prompt.md` — the independent review checklist (15 items, from
   grain and derived-code NULLs to page consistency and sibling tables) that finds factual errors
   validation cannot, and the front matter (`reviewed_doc_digest`, high / medium / low counts) every

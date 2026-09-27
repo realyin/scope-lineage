@@ -1,5 +1,8 @@
 """The ``scope-lineage catalog`` subcommand: ``validate``, ``build``, ``render``, ``query``.
 
+``digest`` and ``merge``, which draft a catalog from table semantics, live in
+``cli_catalog_draft``.
+
 Kept out of ``cli.py`` like the other corpus commands. Its first input is a catalog
 directory a person maintains; ``build`` may also read a lineage corpus and a table-card
 file and attach what they show as evidence. This module is where the two meet: the
@@ -24,6 +27,7 @@ from .catalog import (
     render_summary,
     validate_catalog,
 )
+from .cli_catalog_draft import add_draft_parsers, run_digest, run_merge
 
 ONTOLOGY_FILENAME = "ontology.json"
 
@@ -33,7 +37,8 @@ def add_catalog_parser(subcommands) -> None:
         "catalog",
         help=(
             "Validate a concept-first ontology catalog (catalog-yaml/1), build it into "
-            "ontology-json/3 with optional corpus evidence, render concept pages, query it"
+            "ontology-json/3 with optional corpus evidence, render concept pages, query it; "
+            "draft it from table semantics (digest, merge)"
         ),
     )
     actions = catalog_cmd.add_subparsers(dest="catalog_action", required=True)
@@ -50,6 +55,7 @@ def add_catalog_parser(subcommands) -> None:
     _add_build_parser(actions)
     _add_render_parser(actions)
     _add_query_parser(actions)
+    add_draft_parsers(actions)
 
 
 def _add_query_parser(actions) -> None:
@@ -134,6 +140,10 @@ def run_catalog(args: argparse.Namespace) -> int:
         return _run_render(args)
     if args.catalog_action == "query":
         return _run_query(args)
+    if args.catalog_action == "digest":
+        return run_digest(args)
+    if args.catalog_action == "merge":
+        return run_merge(args)
     try:
         catalog = load_catalog(args.directory)
     except CatalogError as error:

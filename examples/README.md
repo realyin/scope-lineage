@@ -11,6 +11,7 @@ examples/
 ├── tasks/                  # task JSON exported by a scheduler (recursive directories supported)
 ├── catalog-demo/           # an ontology catalog (catalog-yaml/1) for scope-lineage catalog
 ├── catalog-demo-corpus/    # the task JSON and schema that give that catalog its lineage evidence
+├── catalog-fragments/      # a catalog fragment (catalog-fragment/1) adding one table to that catalog, for catalog merge
 ├── table-semantics/        # a hand-written table-semantics/1 document for a demo table, and confirmations for it
 ├── metadata/
     ├── schema_info.json    # recommended: field indexes, DDL, types, and comments
@@ -31,6 +32,7 @@ examples/
 | `sql/subscription_account_snapshot.sql` | A complex desensitized sample with 19 source tables, 20 JOINs, multi-level subqueries, conditional aggregation, a window function, and 112 target fields |
 | `catalog-demo/` | A synthetic ontology catalog (`catalog-yaml/1`) for a fictional lending shop: every element and binding type once; see [the catalog format](../docs/en/ontology-catalog.md) |
 | `catalog-demo-corpus/` | Eight synthetic scheduler tasks writing and reading the demo catalog's tables (one target spelt with a catalog prefix, one table only read), for `catalog build --lineage/--tables` and `semantic packet` |
+| `catalog-fragments/` | One `catalog-fragment/1` file adding a disbursement table's attributes, code set, constraint, terms and representation to the demo catalog; `catalog merge` merges it without validation errors; see [drafting](../docs/en/ontology-catalog.md) |
 | `table-semantics/` | A hand-written `table-semantics/1` document for `demo_dwd.dwd_party_customer_info_df` that passes `semantic validate` against the demo corpus's packet, and a `semantic-confirmations/1` file for it; see [table semantics](../docs/en/table-semantics.md) |
 | `tasks/**/*.json` | Real `meta/query_time/data_source` wrappers, task dependencies, and directory batch input |
 

@@ -1,0 +1,674 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "catalog-fragment/1",
+  "description": "One group's additions to a catalog-yaml/1 catalog, drafted from table semantics and merged by `catalog merge`. Every item has the shape of the catalog file it lands in: attributes go into their concept (keyed by concept id), code sets, identifiers, constraints and terms into the top-level files, representations into mapping/<group>.yaml. The item definitions are copies of the catalog schemas' and a test keeps them equal.",
+  "type": "object",
+  "required": [
+    "doc_format",
+    "group"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "doc_format": {
+      "const": "catalog-fragment/1"
+    },
+    "group": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+    },
+    "attributes": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^concept:[a-z0-9_.]+$"
+      },
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "$ref": "#/definitions/attribute"
+        }
+      }
+    },
+    "code_sets": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/code_set"
+      }
+    },
+    "identifiers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/identifier"
+      }
+    },
+    "constraints": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/constraint"
+      }
+    },
+    "terms": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/term"
+      }
+    },
+    "representations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/representation"
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "definitions": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+    },
+    "status": {
+      "enum": [
+        "drafted",
+        "confirmed",
+        "deprecated"
+      ]
+    },
+    "source": {
+      "enum": [
+        "owner",
+        "comment",
+        "task",
+        "sql",
+        "llm",
+        "mixed"
+      ]
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "notes": {
+      "type": "string"
+    },
+    "attribute": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "definition",
+        "category",
+        "type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "definition": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "enum": [
+            "descriptive",
+            "state",
+            "measure",
+            "time"
+          ]
+        },
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "unit": {
+          "type": "string",
+          "minLength": 1
+        },
+        "code_set": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "derivation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "$ref": "#/definitions/status"
+        },
+        "source": {
+          "$ref": "#/definitions/source"
+        },
+        "evidence": {
+          "$ref": "#/definitions/evidence"
+        },
+        "notes": {
+          "$ref": "#/definitions/notes"
+        }
+      }
+    },
+    "code_set": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "values"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "definition": {
+          "type": "string"
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "value",
+              "meaning"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "type": [
+                  "string",
+                  "integer"
+                ]
+              },
+              "meaning": {
+                "description": "Empty, or starting 待确认, while the meaning is not confirmed",
+                "type": "string"
+              },
+              "retired": {
+                "type": "boolean"
+              },
+              "unconfirmed": {
+                "description": "The value is seen in the data but its meaning is not confirmed",
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "status": {
+          "$ref": "#/definitions/status"
+        },
+        "source": {
+          "$ref": "#/definitions/source"
+        },
+        "evidence": {
+          "$ref": "#/definitions/evidence"
+        },
+        "notes": {
+          "$ref": "#/definitions/notes"
+        }
+      }
+    },
+    "identifier": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "identifies",
+        "scope"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "identifies": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "scope": {
+          "oneOf": [
+            {
+              "const": "global"
+            },
+            {
+              "type": "object",
+              "required": [
+                "per"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "per": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+                  },
+                  "minItems": 1
+                }
+              }
+            }
+          ]
+        },
+        "arises_when": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "object",
+              "required": [
+                "condition"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "condition": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "state": {
+                  "type": "string",
+                  "pattern": "^concept:[a-z0-9_.]+#.+$"
+                }
+              }
+            }
+          ]
+        },
+        "spellings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "column"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "column": {
+                "type": "string",
+                "minLength": 1
+              },
+              "table": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_]+\\.[A-Za-z0-9_]+$"
+              }
+            }
+          }
+        },
+        "maps_to": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "identifier",
+              "cardinality"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "identifier": {
+                "type": "string",
+                "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+              },
+              "cardinality": {
+                "enum": [
+                  "one_to_one",
+                  "one_to_many",
+                  "many_to_one",
+                  "many_to_many"
+                ]
+              },
+              "via": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_]+\\.[A-Za-z0-9_]+$"
+                }
+              }
+            }
+          }
+        },
+        "format": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/definitions/status"
+        },
+        "source": {
+          "$ref": "#/definitions/source"
+        },
+        "evidence": {
+          "$ref": "#/definitions/evidence"
+        },
+        "notes": {
+          "$ref": "#/definitions/notes"
+        }
+      }
+    },
+    "constraint": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "on",
+        "expression",
+        "strength"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/id"
+        },
+        "kind": {
+          "enum": [
+            "unique",
+            "cardinality",
+            "mandatory",
+            "value_domain",
+            "referential",
+            "temporal",
+            "state_transition",
+            "derivation",
+            "business_rule"
+          ]
+        },
+        "on": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "expression": {
+          "type": "string",
+          "minLength": 1
+        },
+        "strength": {
+          "enum": [
+            "hard",
+            "soft"
+          ]
+        },
+        "status": {
+          "$ref": "#/definitions/status"
+        },
+        "source": {
+          "$ref": "#/definitions/source"
+        },
+        "evidence": {
+          "$ref": "#/definitions/evidence"
+        },
+        "notes": {
+          "$ref": "#/definitions/notes"
+        }
+      }
+    },
+    "term": {
+      "type": "object",
+      "required": [
+        "term",
+        "refers_to",
+        "preferred"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "term": {
+          "type": "string",
+          "minLength": 1
+        },
+        "refers_to": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "preferred": {
+          "type": "boolean"
+        },
+        "status": {
+          "$ref": "#/definitions/status"
+        },
+        "source": {
+          "$ref": "#/definitions/source"
+        },
+        "evidence": {
+          "$ref": "#/definitions/evidence"
+        },
+        "notes": {
+          "$ref": "#/definitions/notes"
+        }
+      }
+    },
+    "representation": {
+      "type": "object",
+      "required": [
+        "table",
+        "concept",
+        "kind",
+        "grain",
+        "time",
+        "table_status",
+        "bindings"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "table": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_]+\\.[A-Za-z0-9_]+$"
+        },
+        "concept": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "kind": {
+          "enum": [
+            "core",
+            "extension",
+            "dependent",
+            "event_detail",
+            "state_history",
+            "identifier_map",
+            "role_view",
+            "summary",
+            "intermediate"
+          ]
+        },
+        "grain": {
+          "type": "object",
+          "required": [
+            "identifiers",
+            "source"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "identifiers": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+              }
+            },
+            "extra": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "source": {
+              "enum": [
+                "declared",
+                "inferred",
+                "proven"
+              ]
+            }
+          }
+        },
+        "time": {
+          "enum": [
+            "snapshot",
+            "incremental",
+            "zipper",
+            "unknown"
+          ]
+        },
+        "scope": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "refresh": {
+          "type": "string",
+          "minLength": 1
+        },
+        "table_status": {
+          "enum": [
+            "active",
+            "deprecated"
+          ]
+        },
+        "replaced_by": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_]+\\.[A-Za-z0-9_]+$"
+        },
+        "bindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/binding"
+          }
+        },
+        "status": {
+          "$ref": "#/definitions/status"
+        },
+        "source": {
+          "$ref": "#/definitions/source"
+        },
+        "evidence": {
+          "$ref": "#/definitions/evidence"
+        },
+        "notes": {
+          "$ref": "#/definitions/notes"
+        }
+      }
+    },
+    "binding": {
+      "type": "object",
+      "required": [
+        "column",
+        "to"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "column": {
+          "type": "string",
+          "minLength": 1
+        },
+        "to": {
+          "enum": [
+            "attribute",
+            "identifier",
+            "foreign_identifier",
+            "foreign_attribute",
+            "technical",
+            "unmapped"
+          ]
+        },
+        "ref": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "via": {
+          "description": "foreign_attribute only: the column of this table, bound as foreign_identifier, that names the instance whose attribute this column repeats",
+          "type": "string",
+          "minLength": 1
+        },
+        "derivation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "code_map": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "status": {
+          "$ref": "#/definitions/status"
+        },
+        "source": {
+          "$ref": "#/definitions/source"
+        },
+        "evidence": {
+          "$ref": "#/definitions/evidence"
+        },
+        "notes": {
+          "$ref": "#/definitions/notes"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "to": {
+                "enum": [
+                  "attribute",
+                  "identifier",
+                  "foreign_identifier",
+                  "foreign_attribute"
+                ]
+              }
+            },
+            "required": [
+              "to"
+            ]
+          },
+          "then": {
+            "required": [
+              "ref"
+            ]
+          },
+          "else": {
+            "properties": {
+              "ref": false
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "to": {
+                "const": "foreign_attribute"
+              }
+            },
+            "required": [
+              "to"
+            ]
+          },
+          "then": {
+            "required": [
+              "via"
+            ]
+          },
+          "else": {
+            "properties": {
+              "via": false
+            }
+          }
+        }
+      ]
+    }
+  }
+}

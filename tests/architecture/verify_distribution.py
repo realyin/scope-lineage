@@ -14,6 +14,7 @@ REQUIRED_CORE_PATHS = {
     "scope_lineage/schemas/catalog-concepts.schema.json",
     "scope_lineage/schemas/catalog-constraints.schema.json",
     "scope_lineage/schemas/catalog-domains.schema.json",
+    "scope_lineage/schemas/catalog-fragment.schema.json",
     "scope_lineage/schemas/catalog-identifiers.schema.json",
     "scope_lineage/schemas/catalog-manifest.schema.json",
     "scope_lineage/schemas/catalog-mapping.schema.json",

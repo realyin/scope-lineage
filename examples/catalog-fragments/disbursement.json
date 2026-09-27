@@ -1,0 +1,84 @@
+{
+  "doc_format": "catalog-fragment/1",
+  "group": "disbursement",
+  "attributes": {
+    "concept:disbursement": [
+      {
+        "id": "attr:disbursement.amount",
+        "name": "放款金额",
+        "definition": "The amount paid out.",
+        "category": "measure",
+        "type": "decimal(18,2)",
+        "unit": "CNY"
+      },
+      {
+        "id": "attr:disbursement.pay_method",
+        "name": "放款方式",
+        "definition": "How the money reached the borrower.",
+        "category": "descriptive",
+        "type": "string",
+        "code_set": "code:pay_method",
+        "status": "drafted",
+        "source": "comment",
+        "evidence": ["demo_dwd.dwd_lending_disbursement_di.pay_method"]
+      }
+    ]
+  },
+  "code_sets": [
+    {
+      "id": "code:pay_method",
+      "name": "放款方式",
+      "values": [
+        {"value": "BANK", "meaning": "bank transfer"},
+        {"value": "WALLET", "meaning": "in-app wallet"}
+      ],
+      "status": "drafted",
+      "source": "comment",
+      "evidence": ["demo_dwd.dwd_lending_disbursement_di.pay_method"]
+    }
+  ],
+  "constraints": [
+    {
+      "id": "cons:disbursed_amount_positive",
+      "kind": "value_domain",
+      "on": "attr:disbursement.amount",
+      "expression": "amount > 0",
+      "strength": "hard",
+      "status": "drafted",
+      "source": "sql",
+      "evidence": ["demo_dwd.dwd_lending_disbursement_di.disburse_amt"]
+    }
+  ],
+  "terms": [
+    {"term": "放款", "refers_to": "concept:disbursement", "preferred": true},
+    {"term": "出款", "refers_to": "concept:disbursement", "preferred": false, "source": "comment"}
+  ],
+  "representations": [
+    {
+      "table": "demo_dwd.dwd_lending_disbursement_di",
+      "concept": "concept:disbursement",
+      "kind": "event_detail",
+      "grain": {"identifiers": ["id:disbursement_txn_no"], "source": "inferred"},
+      "time": "incremental",
+      "refresh": "daily",
+      "scope": ["only disbursements that succeeded"],
+      "table_status": "active",
+      "bindings": [
+        {"column": "disburse_txn_no", "to": "identifier", "ref": "id:disbursement_txn_no"},
+        {"column": "loan_no", "to": "foreign_identifier", "ref": "id:loan_no"},
+        {"column": "customer_id", "to": "foreign_identifier", "ref": "id:customer_id"},
+        {"column": "disburse_amt", "to": "attribute", "ref": "attr:disbursement.amount"},
+        {"column": "disburse_time", "to": "attribute", "ref": "attr:disbursement.disbursed_at"},
+        {"column": "pay_method", "to": "attribute", "ref": "attr:disbursement.pay_method"},
+        {"column": "remark", "to": "unmapped"},
+        {"column": "dt", "to": "technical"}
+      ],
+      "status": "drafted",
+      "source": "mixed",
+      "evidence": ["the daily disbursement task"]
+    }
+  ],
+  "notes": [
+    "remark holds free text; is any of it a business attribute?"
+  ]
+}
