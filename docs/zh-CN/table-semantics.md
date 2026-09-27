@@ -12,7 +12,8 @@
 - `scope-lineage semantic validate` 用 JSON Schema 和材料包（十三项交叉校验）检查写好的
   `table-semantics/1` 文档，逐条列出要重写的地方；
 - `scope-lineage semantic confirm` 把人的回答写回文档；
-- `scope-lineage semantic render` 把文档渲染成每表一页和一页索引，并与本体目录的概念页互相链接。
+- `scope-lineage semantic render` 把文档渲染成每表一页和一页索引，并与本体目录的概念页互相链接；
+- `scope-lineage semantic status` 读回一个运行目录，报告每张表走到哪一步，并把下一步要处理的表分好批。
 
 写文档（提示词、重写循环）属于 Agent 技能：提示词在 `skills/scope-lineage/references/table-semantics-prompt.md`，
 编排步骤见技能的 `SKILL.md`。
@@ -29,6 +30,7 @@
 | 3. 校验 | 机器 | `semantic validate` | 文字摘要，或 `--json` 报告（其中的失败清单就是重写提示） |
 | 4. 渲染 | 机器 | `semantic render` | 每表一页 `<db.table>.md` 与 `index.md` |
 | 5. 确认 | 人回答，机器套用 | `semantic confirm` | 带 `confirmed` 标记的文档 |
+| 贯穿 | 机器 | `semantic status` | 每张表的阶段与标记；`--next` 给出下一步的分批 |
 
 ## 五分钟跑通演示
 
@@ -296,6 +298,145 @@ Validated 1 document(s): 0 clean, 1 with failures, 0 with warnings only, 0 with 
 2. **修订**（`skills/scope-lineage/references/table-semantics-fix-prompt.md`）：逐条核实后修改，改完通读全页消除前后矛盾，推断与事实分开，再跑一次 `semantic validate`。
 
 两条经验：审读必须是独立的调用，写作者自查找不出自己的盲点；修订容易在一处改对、另一处留下旧说法，所以修订后通读全页那一步不能省。验收问题集不要交给写作、审读或修订的调用。
+
+## `semantic status`：批量运行与断点续跑
+
+一批几十张表时，写作、审读、修订都要分批交给模型，中途还可能被打断。`semantic status` 读回一个运行目录，
+说出每张表走到了哪一步、下一步该处理哪些表；它只读文件、在进程内调用校验，不调用模型，也不改任何文件。
+
+### 运行目录
+
+```text
+<run>/packets/<db.table>/packet.json   semantic packet --out <run>/packets
+<run>/docs/<db.table>.json             模型写作、修订的 table-semantics/1 文档
+<run>/reviews/<db.table>.md            独立审读意见，开头是 front matter
+<run>/pages/<db.table>.md              semantic render <run>/docs --out <run>/pages
+```
+
+每个目录都可以用 `--packets`、`--docs`、`--reviews`、`--pages` 换到别处（例如把页面放在 `catalog render`
+输出目录下的 `<pages>/semantics`）。表的集合是材料包、文档、审读三处出现过的表的并集；给了 `--only` 时就是
+这几张表，运行目录里什么都没有的表记为 `no_packet`。文档目录里工具链自己的其他文档（确认文件、校验报告、
+status 报告、分批文件）跳过，与 `validate` 相同。
+
+### 阶段
+
+每张表处在七个阶段之一，后一个阶段要求前一个已经达到：
+
+| 阶段 | 条件 |
+| --- | --- |
+| `no_packet` | 没有 `packet.json` |
+| `packet` | 有材料包，没有文档 |
+| `drafted` | 有文档，但带 `invalid` 或 `packet_stale` 标记 |
+| `valid` | 文档合 Schema、交叉检查没有失败（警告不算），且没有适用于它的审读 |
+| `reviewed` | 审读的正是当前文档（`reviewed_doc_digest` 等于文档摘要）且有高 / 中问题；或审读没有 front matter |
+| `fixed` | 审读的正是当前文档且没有高 / 中问题；或审读有高 / 中问题、文档之后改过且重新通过校验 |
+| `rendered` | 已 `fixed`，且页面不比文档旧（按修改时间） |
+
+文档摘要是整份文档规范化 JSON（键排序、无空白、UTF-8）的 SHA-256 前十六位十六进制——与 `packet_digest`
+同一个算法（`scope_lineage/semantics/digests.py`），所以重排缩进或键的顺序不改变它，改任何一个值都会改变它。
+`scope-lineage semantic digest <doc.json>` 打印它，status 报告里每张表的 `doc_digest` 也是它。
+
+### 标记
+
+| 标记 | 条件 | 影响 |
+| --- | --- | --- |
+| `packet_stale` | 文档的 `packet_digest` 与当前材料包不同 | 阶段为 `drafted`，要按新材料包重写 |
+| `invalid` | Schema 错误、文件读不了，或除第 8 项（`digest`）以外的交叉检查有失败 | 阶段为 `drafted`，按失败清单重写 |
+| `review_stale` | 审读没有高 / 中问题，文档却在审读之后改过：审读读的是另一个版本 | 阶段退回 `valid`，重新审读 |
+| `review_unparsed` | 审读文件没有完整的 front matter | 阶段为 `reviewed`，任何一步都不再派发它；补上 front matter 或删掉审读文件重审 |
+| `render_stale` | 已 `fixed`，页面比文档旧 | 阶段为 `fixed`，重新渲染 |
+
+有高 / 中问题的审读之后文档改过，就认为是修订过了：修订提示词要求改完再跑校验，status 也只在文档重新通过校验
+时算 `fixed`，否则回到 `drafted`。
+
+### 审读的 front matter
+
+审读意见是模型写的 markdown，开头必须是这样一段（`semantic digest` 给出摘要）：
+
+```yaml
+---
+reviewed_doc_digest: 2a9b25086e81590f
+high: 1
+medium: 2
+low: 0
+---
+```
+
+四个键都要有；摘要不能为空，三个计数是非负整数。缺任何一项都当作没有 front matter（`review_unparsed`）。
+解析不依赖 YAML 库，只认 `键: 值` 一行一个。
+
+### 输出
+
+```bash
+scope-lineage semantic status <run> [--only <db.table> ...] [--json <path>|-]
+scope-lineage semantic status <run> --next {draft,review,fix,render} [--batch-size 5] [--out <path>]
+scope-lineage semantic digest <doc.json> ...
+```
+
+默认打印一行各阶段的计数，再每个标记一行列出带它的表：
+
+```text
+Status of 8 table(s): no_packet 0, packet 6, drafted 1, valid 1, reviewed 0, fixed 0, rendered 0
+  packet_stale: demo_dwd.dwd_lending_loan_df
+```
+
+`--json` 写出 `table-semantics-status/1` 报告（`-` 表示标准输出）：
+
+```json
+{
+  "doc_format": "table-semantics-status/1",
+  "directories": {"packets": "run/packets", "docs": "run/docs", "reviews": "run/reviews", "pages": "run/pages"},
+  "tables": [
+    {
+      "table": "demo_dwd.dwd_party_customer_info_df",
+      "stage": "valid",
+      "flags": [],
+      "packet_digest": "04439862460b03d6",
+      "doc_digest": "2a9b25086e81590f",
+      "doc_packet_digest": "04439862460b03d6",
+      "schema_errors": 0,
+      "failures": 0,
+      "review": null
+    }
+  ],
+  "summary": {
+    "tables": 1,
+    "stages": {"no_packet": 0, "packet": 0, "drafted": 0, "valid": 1, "reviewed": 0, "fixed": 0, "rendered": 0},
+    "flags": {"packet_stale": [], "invalid": [], "review_stale": [], "review_unparsed": [], "render_stale": []}
+  }
+}
+```
+
+`review` 是解析出的 front matter（`reviewed_doc_digest`、`high`、`medium`、`low`），没有审读或解析不了时为
+`null`；`failures` 是除第 8 项以外失败的交叉检查条数。
+
+### `--next`：分批与续跑
+
+`--next <步骤>` 列出这一步还要处理的表，按表名排序、每 `--batch-size` 张一批，写出
+`table-semantics-next/1`（不给 `--out` 时打印到标准输出）：
+
+```json
+{"doc_format": "table-semantics-next/1", "step": "review", "batches": [["demo_dwd.dwd_party_customer_info_df"]]}
+```
+
+| 步骤 | 选中的表 |
+| --- | --- |
+| `draft` | `packet` 与 `drafted`：还没有文档、文档过期或校验不通过 |
+| `review` | `valid`：包括 `review_stale` 的表 |
+| `fix` | `reviewed` 且有 front matter：审读有高 / 中问题、文档还没改 |
+| `render` | `fixed`：包括 `render_stale` 的表 |
+
+已经走过这一步的表不会再出现，所以中断之后重跑 `status --next` 就从断点继续。`no_packet` 的表不进任何一批，
+先为它生成材料包。`render` 是确定性的一条命令，分批只是为了让编排统一；也可以直接渲染整个文档目录。
+一张表连续两轮 `draft` 之后还在 `drafted`，说明有校验失败留给了 owner（重写规则：同一处连续两轮失败就不再
+硬凑），编排方应把它从本轮拿掉并告诉用户，而不是一直派发。
+
+### 退出码
+
+| 退出码 | 条件 |
+| --- | --- |
+| 0 | 已报告（有表过期或校验不通过也是 0） |
+| 2 | 运行目录不存在，或 `--json -` 与不带 `--out` 的 `--next` 都要占用标准输出 |
 
 ## `semantic confirm`
 

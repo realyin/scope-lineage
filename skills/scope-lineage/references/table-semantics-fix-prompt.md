@@ -6,3 +6,4 @@
 2. 改完把整份文档从头读一遍：新改的地方不能与页面其他地方（取数说明、适用/不适用、一行是什么、相关列、要注意）矛盾，有就一并改齐；推断的结论标「推断」或待确认；不得与已确认事实矛盾。
 3. `generator.prompt` 在原值后加 `+review`；其余格式不变（`table-semantics/1`）。
 4. 跑 `scope-lineage semantic validate`，只修失败项，最多 2 轮；仍失败的在 `summary.watch` 说明。
+5. 不要改审读文件：`semantic status` 看到文档摘要与审读的 `reviewed_doc_digest` 不同、且文档重新通过校验，就算修订完成。

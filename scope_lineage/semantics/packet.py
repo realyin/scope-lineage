@@ -13,11 +13,10 @@ Everything leaving this module passes :func:`~.names.scrub`: no owner key, no em
 
 from __future__ import annotations
 
-import hashlib
-import json
 from typing import Callable, Iterable, Mapping, Optional
 
 from . import packet_facts as facts
+from .digests import canonical_digest
 from .names import bare_table, scrub
 from .packet_sections import inputs_section, lineage_section, target_section, tasks_section
 
@@ -79,9 +78,7 @@ def document_reads(document: dict) -> set[str]:
 
 def packet_digest(packet: Mapping) -> str:
     """Sixteen hex digits over every fact in the packet but the digest itself."""
-    body = {key: value for key, value in packet.items() if key != "packet_digest"}
-    text = json.dumps(body, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+    return canonical_digest({key: value for key, value in packet.items() if key != "packet_digest"})
 
 
 def _profiles(producers: list, documents: list, cards: dict | None) -> tuple[list[dict], dict]:
