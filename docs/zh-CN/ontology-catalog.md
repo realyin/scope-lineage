@@ -9,7 +9,8 @@
 **目录是本体新的、概念先行的唯一事实来源。**生成器（血缘、表卡、LLM）可以对它提出变更，但不拥有它。
 `scope-lineage catalog validate` 校验目录，`scope-lineage catalog build` 把它规范化成一份给机器读的
 `ontology-json/3` 文档（可同时带上血缘语料与表卡显示的证据），`scope-lineage catalog render` 把这份
-文档写成每个概念一页，`scope-lineage catalog query` 从中回答一个问题。
+文档写成每个概念一页，`scope-lineage catalog query` 从中回答一个问题；`catalog digest` 与
+`catalog merge` 帮助从表语义起草目录（见[起草](#起草catalog-digest-与-catalog-merge)）。
 
 > **过渡期。**现有的 [`scope-lineage ontology`](ontology-doc.md) 命令从血缘语料自下而上推出
 > `ontology-json/2` 候选，它**再保留一个版本**，行为不变。目录不读它，它也不读目录。血缘与表卡证据
@@ -644,6 +645,129 @@ scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_l
 
 `--json` 输出 `{"query": {"kind", "term"}, "matches": [...]}`，给 Agent 用。退出码：`0` 有匹配，
 `1` 没有匹配，`2` 文件读不了（不是 `ontology-json/3` 文档时也是 `1`）。
+
+## 起草：`catalog digest` 与 `catalog merge`
+
+已经给一批表写好[表语义](table-semantics.md)（`table-semantics/1`）时，目录可以从它们起草，而不用每次写临时脚本：
+
+1. `catalog digest` 把表语义浓缩成起草材料，并对照现有目录标出还没覆盖的表和列；
+2. 人或模型据此起草概念与关系（`concepts/`、`relations.yaml`、`identifiers.yaml`）；
+3. 把表分组，每组写一个片段（`catalog-fragment/1`）：属性、码值集、约束、术语、每张表的表现与列绑定；
+4. `catalog merge` 把片段合并进目录的一份拷贝，报告冲突，自动校验，并给出覆盖报告；
+5. `catalog build` / `catalog render` 后交 owner 审读。
+
+Agent 技能里的完整流程与片段提示词见 `skills/scope-lineage/references/catalog-fragment-prompt.md`。
+
+### `catalog-fragment/1`
+
+一个片段是一组表的起草结果。每个条目的形状与它要落进的目录文件**完全相同**（schema 里的条目定义就是目录
+schema 的拷贝，有测试保证两者一致），所以合并只搬运条目，不做转换：
+
+| 键 | 内容 | 合并到 |
+| --- | --- | --- |
+| `doc_format` | `catalog-fragment/1`（必需） | — |
+| `group` | 组名，小写字母、数字、`_`、`-`（必需） | 新表现写进 `mapping/<group>.yaml` |
+| `attributes` | `{"concept:<id>": [属性, ...]}`，形状同概念里的 `attributes` | 该概念所在的 `concepts/` 文件 |
+| `code_sets` | 码值集，形状同 `code_sets.yaml` | `code_sets.yaml` |
+| `identifiers` | 标识符，形状同 `identifiers.yaml`；只在确实缺时新增 | `identifiers.yaml` |
+| `constraints` | 约束，形状同 `constraints.yaml`；只写有证据的 | `constraints.yaml` |
+| `terms` | 术语，形状同 `terms.yaml` | `terms.yaml` |
+| `representations` | 表现与绑定，形状同 `mapping/*.yaml` | `mapping/<group>.yaml` |
+| `notes` | 给 owner 的问题或冲突，文字列表 | 只在合并报告里打印 |
+
+示例 [`examples/catalog-fragments/disbursement.json`](../../examples/catalog-fragments/disbursement.json)
+给演示目录补上放款表（下面是节选）：
+
+```json
+{
+  "doc_format": "catalog-fragment/1",
+  "group": "disbursement",
+  "attributes": {
+    "concept:disbursement": [
+      {"id": "attr:disbursement.pay_method", "name": "放款方式", "definition": "How the money reached the borrower.", "category": "descriptive", "type": "string", "code_set": "code:pay_method"}
+    ]
+  },
+  "code_sets": [
+    {"id": "code:pay_method", "name": "放款方式", "values": [{"value": "BANK", "meaning": "bank transfer"}, {"value": "WALLET", "meaning": "in-app wallet"}]}
+  ],
+  "representations": [
+    {
+      "table": "demo_dwd.dwd_lending_disbursement_di",
+      "concept": "concept:disbursement",
+      "kind": "event_detail",
+      "grain": {"identifiers": ["id:disbursement_txn_no"], "source": "inferred"},
+      "time": "incremental",
+      "table_status": "active",
+      "bindings": [
+        {"column": "disburse_txn_no", "to": "identifier", "ref": "id:disbursement_txn_no"},
+        {"column": "pay_method", "to": "attribute", "ref": "attr:disbursement.pay_method"},
+        {"column": "remark", "to": "unmapped"},
+        {"column": "dt", "to": "technical"}
+      ]
+    }
+  ],
+  "notes": ["remark holds free text; is any of it a business attribute?"]
+}
+```
+
+Schema 在 `scope_lineage/schemas/catalog-fragment.schema.json`。
+
+### `catalog digest`
+
+```bash
+scope-lineage catalog digest out/semantics [--catalog examples/catalog-demo] \
+  [--only demo_dwd.dwd_party_customer_info_df ...] --out out/digest
+```
+
+读目录下每份合法的 `table-semantics/1` 文档（确认文件等工具自己的文档跳过；不合 schema 的文档跳过并在
+stderr 说明），按表名排序写出 `digest.md` 与 `digest.json`（`catalog-digest/1`）。每张表一段：
+
+- 一句话说明、文档写的概念与表现类型；
+- 行含义、粒度列（及来源、是否唯一）、时间语义（`snapshot` / `incremental` / `zipper`）与取数方式、记录范围；
+- 标识列、外部标识列、状态列、时间列、度量列、描述列（各带含义，有码值时带码值），技术列只列名；
+- 由哪些表加工而来（带角色）、被哪些表读取；要注意的点（`watch`）与未回答的问题。
+
+给 `--catalog` 时，开头多一段「目录覆盖」：没有表现的表，以及已有表现的表里没有绑定的列（表名忽略大小写与
+catalog 前缀）；每张表的段落末尾也标出它在目录里的情况。输出是确定的：同样的输入，逐字节相同。
+
+退出码：`0` 写出；`1` 没有合法文档、有文档被跳过（其余照常写出），或 `--only` 点名的表没有文档；`2` 目录或
+`--catalog` 读不了。
+
+### `catalog merge`
+
+```bash
+scope-lineage catalog merge examples/catalog-demo \
+  examples/catalog-fragments/disbursement.json --out out/merged
+scope-lineage catalog merge <catalog-dir> <group>.json ... --in-place
+```
+
+1. 先读所有片段并按 schema 检查；有一处不合就什么都不写。基础目录的文件读不了或不合 schema 时也不合并。
+2. 把基础目录拷到 `--out`（新目录或空目录；隐藏文件不拷）。`--out` 等于基础目录会被拒绝，除非用
+   `--in-place`；`--out` 在基础目录里面也会被拒绝。
+3. 按命令行顺序合并片段。每个条目按键在整个目录和先合并的片段里找：属性、码值集、标识符、约束按 `id`，术语按
+   `term` + `refers_to`，表现按 `table`。内容相同算「未变」；**同键内容不同是冲突**，列进报告，后来的那个不应用。
+   属性挂到它的概念所在的文件；概念不存在是错误，其属性不应用；同一个属性 id 已挂在别的概念上也是冲突。
+4. 只重写有变化的文件（YAML 用 YAML 1.2 布尔规则读、按安全方式写回；JSON 写回 JSON），没动的文件逐字节不变。
+   被重写的 YAML 文件里的注释会丢失。
+5. 在进程内对结果跑 `catalog validate`，打印错误与警告；最后打印覆盖报告：片段里的每张表有没有表现、
+   列按绑定去向（`identifier`、`foreign_identifier`、`attribute`、`foreign_attribute`、`technical`、`unmapped`）
+   各多少。
+
+```text
+Merged 1 fragment(s) into out/merged: added attribute=1, code_set=1, constraint=1, term=2, representation=1; 1 unchanged; 0 conflict(s), 0 unknown concept(s)
+  files written: code_sets.yaml, concepts/lending.yaml, constraints.yaml, mapping/disbursement.yaml, terms.yaml
+note    (disbursement) remark holds free text; is any of it a business attribute?
+Catalog demo-lending (catalog-yaml/1): 0 error(s), 3 warning(s)
+...
+Coverage: 1 table(s) in the fragments, 1 with a representation, 1 unmapped column(s)
+  demo_dwd.dwd_lending_disbursement_di  concept:disbursement  event_detail  8 column(s): identifier=1 foreign_identifier=2 attribute=3 technical=1 unmapped=1
+```
+
+| 退出码 | 含义 |
+| --- | --- |
+| `0` | 合并完成，结果校验没有错误（可以有警告） |
+| `1` | 片段不合 schema、基础目录不合 schema（都不写任何东西）；或有冲突、未知概念、合并后校验有错误（已写出，便于就地查看） |
+| `2` | 片段或基础目录读不了；`--out` 是基础目录（没有 `--in-place`）、在基础目录里面，或不是空目录 |
 
 ## 安全地写 YAML
 

@@ -14,7 +14,8 @@ layer, which table represents which concept and what each column binds to.
 normalises it into one machine-readable `ontology-json/3` document (optionally with the
 evidence a lineage corpus and its table cards show), `scope-lineage catalog render` turns
 that document into one page per concept and `scope-lineage catalog query` answers one
-question from it.
+question from it; `catalog digest` and `catalog merge` help draft a catalog from table
+semantics (see [Drafting](#drafting-catalog-digest-and-catalog-merge)).
 
 > **Transition.** The existing [`scope-lineage ontology`](ontology-doc.md) command, which
 > derives an `ontology-json/2` candidate bottom-up from a lineage corpus, stays for **one
@@ -699,6 +700,156 @@ For a concept with no table of its own, `carriers` finds where it can be joined 
 `--json` prints `{"query": {"kind", "term"}, "matches": [...]}` for an agent. Exit code: `0`
 something matched, `1` nothing did, `2` the file could not be read (`1` too when it is not an
 `ontology-json/3` document).
+
+## Drafting: `catalog digest` and `catalog merge`
+
+Once a batch of tables has [table semantics](table-semantics.md) (`table-semantics/1`), a
+catalog can be drafted from them without an ad-hoc script each time:
+
+1. `catalog digest` condenses the table semantics into drafting material and, against an
+   existing catalog, names the tables and columns it does not cover yet;
+2. a person or a model drafts the concepts and relations from it (`concepts/`,
+   `relations.yaml`, `identifiers.yaml`);
+3. the tables are split into groups and each group gets one fragment (`catalog-fragment/1`):
+   attributes, code sets, constraints, terms, and each table's representation with its
+   column bindings;
+4. `catalog merge` merges the fragments into a copy of the catalog, reports conflicts,
+   validates the result and prints a coverage report;
+5. `catalog build` / `catalog render`, then the owner reviews.
+
+The agent skill's full workflow and the fragment prompt are in
+`skills/scope-lineage/references/catalog-fragment-prompt.md`.
+
+### `catalog-fragment/1`
+
+A fragment is what drafting one group of tables produces. Every item has **exactly** the
+shape of the catalog file it lands in (the schema's item definitions are copies of the
+catalog schemas', and a test keeps them equal), so a merge moves items and never
+translates them:
+
+| Key | Holds | Merged into |
+| --- | --- | --- |
+| `doc_format` | `catalog-fragment/1` (required) | — |
+| `group` | the group name: lower-case letters, digits, `_`, `-` (required) | new representations go to `mapping/<group>.yaml` |
+| `attributes` | `{"concept:<id>": [attribute, ...]}`, shaped like a concept's `attributes` | the `concepts/` file that declares the concept |
+| `code_sets` | code sets, shaped like `code_sets.yaml` | `code_sets.yaml` |
+| `identifiers` | identifiers, shaped like `identifiers.yaml`; only ones that are really missing | `identifiers.yaml` |
+| `constraints` | constraints, shaped like `constraints.yaml`; only ones with evidence | `constraints.yaml` |
+| `terms` | terms, shaped like `terms.yaml` | `terms.yaml` |
+| `representations` | representations and bindings, shaped like `mapping/*.yaml` | `mapping/<group>.yaml` |
+| `notes` | questions or conflicts for the owner, as a list of text | printed in the merge report only |
+
+The example
+[`examples/catalog-fragments/disbursement.json`](../../examples/catalog-fragments/disbursement.json)
+adds a disbursement table to the demo catalog (an excerpt):
+
+```json
+{
+  "doc_format": "catalog-fragment/1",
+  "group": "disbursement",
+  "attributes": {
+    "concept:disbursement": [
+      {"id": "attr:disbursement.pay_method", "name": "放款方式", "definition": "How the money reached the borrower.", "category": "descriptive", "type": "string", "code_set": "code:pay_method"}
+    ]
+  },
+  "code_sets": [
+    {"id": "code:pay_method", "name": "放款方式", "values": [{"value": "BANK", "meaning": "bank transfer"}, {"value": "WALLET", "meaning": "in-app wallet"}]}
+  ],
+  "representations": [
+    {
+      "table": "demo_dwd.dwd_lending_disbursement_di",
+      "concept": "concept:disbursement",
+      "kind": "event_detail",
+      "grain": {"identifiers": ["id:disbursement_txn_no"], "source": "inferred"},
+      "time": "incremental",
+      "table_status": "active",
+      "bindings": [
+        {"column": "disburse_txn_no", "to": "identifier", "ref": "id:disbursement_txn_no"},
+        {"column": "pay_method", "to": "attribute", "ref": "attr:disbursement.pay_method"},
+        {"column": "remark", "to": "unmapped"},
+        {"column": "dt", "to": "technical"}
+      ]
+    }
+  ],
+  "notes": ["remark holds free text; is any of it a business attribute?"]
+}
+```
+
+The schema is `scope_lineage/schemas/catalog-fragment.schema.json`.
+
+### `catalog digest`
+
+```bash
+scope-lineage catalog digest out/semantics [--catalog examples/catalog-demo] \
+  [--only demo_dwd.dwd_party_customer_info_df ...] --out out/digest
+```
+
+Reads every legal `table-semantics/1` document in the directory (the toolchain's own
+documents, such as a confirmations file, are passed over; a document that fails its schema
+is skipped with a line on stderr) and writes `digest.md` and `digest.json`
+(`catalog-digest/1`) in table order. One section per table:
+
+- the one-line summary, and the concept and representation kind the document names;
+- what a row is, the grain columns (with their source and whether they are unique), the
+  time semantics (`snapshot` / `incremental` / `zipper`) and how to read it, the scope;
+- identifier, foreign-identifier, state, time, measure and descriptive columns (each with
+  its meaning, and its codes when it has them); technical columns by name only;
+- the tables it is built from (with their role) and the tables that read it; what to watch
+  and the open questions.
+
+With `--catalog` a "catalog coverage" section comes first: tables with no representation,
+and columns of represented tables with no binding (table names match ignoring case and a
+catalog prefix); each table's section also ends with its standing in the catalog. The
+output is deterministic: the same inputs give byte-identical files.
+
+Exit codes: `0` written; `1` no legal document, a document was skipped (the rest is still
+written), or a table named by `--only` has no document; `2` the directory or `--catalog`
+cannot be read.
+
+### `catalog merge`
+
+```bash
+scope-lineage catalog merge examples/catalog-demo \
+  examples/catalog-fragments/disbursement.json --out out/merged
+scope-lineage catalog merge <catalog-dir> <group>.json ... --in-place
+```
+
+1. Every fragment is read and checked against its schema first; if one fails, nothing is
+   written. A base catalog whose files do not parse or do not fit their schemas is not
+   merged either.
+2. The base catalog is copied to `--out` (a new or empty directory; hidden files are not
+   copied). An `--out` equal to the base is refused unless `--in-place` is given; an
+   `--out` inside the base is refused too.
+3. Fragments are merged in command-line order. Each item is looked up by its key across the
+   whole catalog and the fragments merged before it: attributes, code sets, identifiers
+   and constraints by `id`, terms by `term` + `refers_to`, representations by `table`. An
+   equal item counts as unchanged; **the same key with different content is a conflict**,
+   listed in the report, and the later item is not applied. Attributes go into the file
+   that declares their concept; an unknown concept is an error and its attributes are not
+   applied; an attribute id already declared on another concept is a conflict too.
+4. Only the files that changed are rewritten (YAML read with YAML 1.2 booleans and written
+   back safely; JSON written back as JSON); every other file stays byte-identical. Comments
+   in a rewritten YAML file are lost.
+5. `catalog validate` runs in-process on the result and its errors and warnings are
+   printed; last comes the coverage report: for each table in the fragments, whether it has
+   a representation and how many columns bind to each target (`identifier`,
+   `foreign_identifier`, `attribute`, `foreign_attribute`, `technical`, `unmapped`).
+
+```text
+Merged 1 fragment(s) into out/merged: added attribute=1, code_set=1, constraint=1, term=2, representation=1; 1 unchanged; 0 conflict(s), 0 unknown concept(s)
+  files written: code_sets.yaml, concepts/lending.yaml, constraints.yaml, mapping/disbursement.yaml, terms.yaml
+note    (disbursement) remark holds free text; is any of it a business attribute?
+Catalog demo-lending (catalog-yaml/1): 0 error(s), 3 warning(s)
+...
+Coverage: 1 table(s) in the fragments, 1 with a representation, 1 unmapped column(s)
+  demo_dwd.dwd_lending_disbursement_di  concept:disbursement  event_detail  8 column(s): identifier=1 foreign_identifier=2 attribute=3 technical=1 unmapped=1
+```
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | merged, and the result validates without errors (warnings allowed) |
+| `1` | a fragment or the base catalog fails its schemas (nothing written); or there are conflicts, unknown concepts, or validation errors after the merge (written, so they can be read in place) |
+| `2` | a fragment or the base catalog cannot be read; `--out` is the base (without `--in-place`), inside it, or not empty |
 
 ## Writing YAML safely
 

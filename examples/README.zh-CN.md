@@ -10,6 +10,7 @@ examples/
 ├── tasks/                  # 调度平台导出的 task JSON（支持递归目录）
 ├── catalog-demo/           # 本体目录示例（catalog-yaml/1），供 scope-lineage catalog 使用
 ├── catalog-demo-corpus/    # 给这份目录提供血缘证据的任务 JSON 与 schema
+├── catalog-fragments/      # 给这份目录补一张表的目录片段（catalog-fragment/1），供 catalog merge 使用
 ├── table-semantics/        # 为一张演示表手写的 table-semantics/1 文档，以及它的确认文件
 ├── metadata/
     ├── schema_info.json    # 推荐：字段序号、DDL、类型和注释
@@ -30,6 +31,7 @@ examples/
 | `sql/subscription_account_snapshot.sql` | 19 张源表、20 个 JOIN、多层子查询、条件聚合、窗口函数和 112 个目标字段的复杂脱敏样例 |
 | `catalog-demo/` | 一家虚构信贷公司的本体目录（`catalog-yaml/1`）：每种元素与每种绑定各出现一次；见[目录格式](../docs/zh-CN/ontology-catalog.md) |
 | `catalog-demo-corpus/` | 八个虚构调度任务，读写示例目录里的表（一个目标带 catalog 前缀，一张表只被读），供 `catalog build --lineage/--tables` 与 `semantic packet` 使用 |
+| `catalog-fragments/` | 一个 `catalog-fragment/1` 片段：给示例目录补上放款表的属性、码值集、约束、术语与表现，`catalog merge` 合并后校验无错误；见[起草](../docs/zh-CN/ontology-catalog.md) |
 | `table-semantics/` | 为 `demo_dwd.dwd_party_customer_info_df` 手写的 `table-semantics/1` 文档（对照演示语料的材料包能通过 `semantic validate`），以及它的 `semantic-confirmations/1` 文件；见[表语义](../docs/zh-CN/table-semantics.md) |
 | `tasks/**/*.json` | 真实 `meta/query_time/data_source` 包装、任务依赖和目录批量输入 |
 
