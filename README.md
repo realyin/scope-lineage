@@ -588,8 +588,9 @@ Documentation:
 - [`tables.json` / `tables.md` corpus-level table cards](docs/en/tables-doc.md)
 - [`glossary.json` / `glossary.md` term and value dictionary](docs/en/glossary-doc.md)
 - [`ontology.json` / `ontology.md` corpus-level ontology candidate](docs/en/ontology-doc.md)
-- [Ontology catalog (`catalog-yaml/1`): the concept-first source of truth, `catalog validate` / `catalog build` into `ontology-json/3`](docs/en/ontology-catalog.md)
-- [Table semantics (`table-semantics/1`): `semantic packet` / `semantic validate` / `semantic confirm` / `semantic render`](docs/en/table-semantics.md)
+- [Ontology catalog (`catalog-yaml/1`): the concept-first source of truth, `catalog validate` / `catalog build` into `ontology-json/3`, drafted from table semantics with `catalog digest` / `catalog merge`](docs/en/ontology-catalog.md)
+- [Table semantics (`table-semantics/1`): `semantic packet` / `semantic validate` / `semantic confirm` / `semantic render`, resumable batches with `semantic status`](docs/en/table-semantics.md)
+- [Acceptance question sets (`question-set/1`): `questions validate` / `sheet` / `grading-sheet` / `score`](docs/en/questions.md)
 
 ## AI agent integration
 
