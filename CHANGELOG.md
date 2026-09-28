@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- **Value sets are claims too (assertion model WP2).** The glossary's closed set is now a
+  `Claim` -- `R-CASE-OUTPUT` about the column a statement writes, or `R-IN-FILTER` about the
+  rows of the statement that filtered -- and a field is closed only when that subject covers
+  the statement being described (the F3 `reader` is now a `Subject`). The ontology's `in_set`
+  and `not_null` are claims on the physical column: proven only from an exhaustive CASE,
+  otherwise the new heuristic rule `R-FILTER-HINT`. No output changes (examples byte-identical).
 - **A row condition read through a temp view names the table behind it.** The query
   conditions added to `row_membership_sources` (F5) named a session relation such as a
   temp view directly, where the field promises a physical table. Such an entry now carries
