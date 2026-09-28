@@ -136,15 +136,30 @@ behind it is recorded rather than the CTE name, and when USING is a UNION, the p
 of every branch are preserved. When the trace cannot be completed, no name is filled in; a
 merge_condition_source_unresolved fact gap is recorded instead (see the next section).
 
-## value_sources[].source_kind: three kinds of source, and how to fold prior-state edges
+The written query decides which rows exist as well: the physical fields read by the WHERE, JOIN
+conditions, HAVING and QUALIFY on an INSERT / INSERT OVERWRITE / CTAS query's path enter
+row_membership_sources. "The query's path" is ROOT and every scope it reads as a relation (FROM,
+JOIN, UNION branch, CTE), so a CTE's filter and each UNION branch's own filter count; the WHERE of a
+scalar subquery in the SELECT list decides one value and does not; the columns of an `IN (subquery)`
+in a WHERE are already fields of the parent's filter. GROUP BY keys do not count -- they are the
+output's values. On an append (INSERT INTO) the new batch's conditions stand beside those already on
+the previous state. A condition field that cannot be traced to a physical field gets no name; it is
+recorded as a row_condition_source_unresolved fact gap.
 
-Every `value_sources[]` entry carries `source_kind`, with only three possible values:
+Read the two together for an aggregate column: a `COUNT(*)`'s value comes from the row set it counts
+(`rowset`, next section), and that row set is decided by the conditions in row_membership_sources --
+they change the count's **value**, not only which row exists.
+
+## value_sources[].source_kind: four kinds of source, and how to fold prior-state edges
+
+Every `value_sources[]` entry carries `source_kind`, with four possible values:
 
 | source_kind | Meaning | Typical case |
 | --- | --- | --- |
 | `physical_field` | The value comes from a column of some physical table | The vast majority of lineage |
 | `generated` | The value is produced by a constant or an expression referencing no input column | `'rcs' AS send_type` |
 | `prior_table_state` | The value passes through from **the target table's own previous state** | Partitions not covered by `INSERT OVERWRITE ... PARTITION`, fields not assigned by `UPDATE`, rows surviving a `DELETE` |
+| `rowset` | The value is decided by the **rows** of a physical table and reads no column; carries `table`, `transform`, `expression` and no `column` | `COUNT(*)` / `COUNT(1)`; a CTE read names the physical table behind it, a JOIN gives one entry per table |
 
 ### Why prior-state edges exist, and when to fold them
 

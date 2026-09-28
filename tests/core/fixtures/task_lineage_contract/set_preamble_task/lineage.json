@@ -1197,7 +1197,12 @@
           "transform": "DIRECT"
         }
       ],
-      "row_membership_sources": [],
+      "row_membership_sources": [
+        {
+          "table": "ods.store_event",
+          "column": "status"
+        }
+      ],
       "value_condition_sources": [],
       "trace_complete": false,
       "missing_reasons": [
@@ -1222,7 +1227,12 @@
           "transform": "AGGREGATE"
         }
       ],
-      "row_membership_sources": [],
+      "row_membership_sources": [
+        {
+          "table": "ods.store_event",
+          "column": "status"
+        }
+      ],
       "value_condition_sources": [],
       "trace_complete": false,
       "missing_reasons": [

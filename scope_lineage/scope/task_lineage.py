@@ -1750,9 +1750,9 @@ def _query_row_conditions(
         for block in scope.logic_blocks or []:
             if block.logic_type not in _ROW_CONDITION_LOGIC_TYPES:
                 continue
-            for field in block.fields or []:
+            for ref in block.fields or []:
                 sources.extend(
-                    _row_condition_fields(result, field.scope, field.column, statement_id, gaps)
+                    _row_condition_fields(result, ref.scope, ref.column, statement_id, gaps)
                 )
     return _dedupe_dicts(sources)
 

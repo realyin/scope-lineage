@@ -159,3 +159,22 @@ def test_the_task_document_still_validates() -> None:
     )
 
     validate_lineage_document(document)
+
+
+def test_a_condition_on_a_column_nobody_resolved_is_a_gap_not_a_name() -> None:
+    """The CTE reads a table with no schema, so ``c.b`` has no physical field behind it."""
+    result = parse_task_lineage(
+        "CREATE TABLE mart.out AS WITH c AS (SELECT * FROM ods.unknown) "
+        "SELECT c.a AS id FROM c WHERE c.b = 1",
+        task_name="deps",
+        schema=SCHEMA,
+    )
+    row = next(item for item in result.end_to_end_lineage if item["table"] == "mart.out")
+    gaps = [
+        gap
+        for gap in result.diagnostics["lineage_fact_gaps"]
+        if gap["gap_type"] == "row_condition_source_unresolved"
+    ]
+
+    assert all(item["table"] != "cte:c" for item in row["row_membership_sources"])
+    assert [(gap["scope_id"], gap["column"]) for gap in gaps] == [("cte:c", "b")]
