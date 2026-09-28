@@ -1,6 +1,25 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
+- **Conclusions that hold where they are claimed, and say so.** No schema change: the task
+  contract stays 2.0 and every existing field keeps its meaning. A deep review of how
+  conclusions travel between objects found six places where one held for a query, a batch
+  or a statement and was published for a table or a column (details below); they are fixed,
+  and the rules behind every conclusion now live in one registry (`render/claims.py`),
+  are checked against data in SQLite, and are published beside the conclusion.
+  **What a consumer will see change:** fewer `proven` keys and `safe` joins where the proof
+  did not reach (`rank() = 1`; a producer that appends, merges, disagrees on the key or
+  writes one partition); ontology author-intent relations at `hypothesis` instead of
+  `implied`; glossary closed sets only for the statement that filtered; task-level
+  `value_sources` carrying a fourth `source_kind`, `rowset`, for counts; `row_membership_sources`
+  filled for ordinary WHERE / JOIN / HAVING conditions; and new optional fields `key_claim`,
+  `fan_out_risks[].claim`, `cardinality.validity` and `closed_for`. `task-lineage-v2.md`
+  gives a runnable rule for when a row is a complete fact. Also in this release: `catalog
+  build` checks its output against `ontology-json/3` before writing, catalog table names
+  ignore case in `validate`, `query` and evidence, and `semantic packet` takes
+  `--metadata-patch` / `--glossary` to carry the comments and code meanings the owner
+  confirmed.
+
 - **`semantic packet` carries the comments and code meanings the owner confirmed.** New
   `--metadata-patch` (repeatable) and `--glossary`, as `describe` takes them. The patch is
   applied to the lineage in memory and laid over the `--schema` metadata, so a confirmed
