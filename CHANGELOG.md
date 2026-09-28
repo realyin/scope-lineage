@@ -1,6 +1,18 @@
 # Changelog
 
 ## Unreleased
+- **`semantic packet` carries the comments and code meanings the owner confirmed.** New
+  `--metadata-patch` (repeatable) and `--glossary`, as `describe` takes them. The patch is
+  applied to the lineage in memory and laid over the `--schema` metadata, so a confirmed
+  comment wins whichever source the packet reads; a table or column whose comment is the
+  patch's answer carries `comment_source: "patch"`, and the summary line reports
+  `patch_unmatched`. Every target and input column gains `confirmed_values`
+  (`[{value, meaning}]`) from the glossary's confirmed `values[]`;
+  `packet.md` marks both (「（已确认，元数据补丁）」, an 已确认码值 column). Check 3 accepts a
+  value confirmed on the column or a source column, and check 12 fails one such value left
+  `unconfirmed` / 待确认. The writing prompt is `table-semantics-prompt@5` (review prompt
+  `@3`): write a confirmed meaning as it stands, sourced `confirmed`, never as a question.
+  Without the flags a packet is byte for byte what it was. Docs zh/en: `table-semantics.md`.
 - **Catalog table names ignore case everywhere.** `merge`, `digest` and the coverage report
   already matched `DEMO_DWD.T` and `demo_dwd.t` as one table; `validate`'s `duplicate_table`,
   `catalog query table|column|identifier` and the evidence merge did not, so a table spelled in

@@ -17,9 +17,16 @@ import sys
 from pathlib import Path
 
 from .cli_semantic_status import add_status_parsers, run_digest, run_status
+from .metadata.metadata_patch import (
+    MetadataPatch,
+    MetadataPatchError,
+    apply_metadata_patch_to_document,
+    load_metadata_patch,
+)
 from .metadata.schema_metadata import (
     column_details_for_table,
     load_schema_sources,
+    normalize_table_name,
     partition_columns_for_table,
     table_details_for_table,
 )
@@ -124,6 +131,20 @@ def _add_packet_parser(actions) -> None:
         "--only", nargs="+", action="extend", default=None, metavar="TABLE",
         help="Only these target tables (db.table, a catalog prefix is ignored)",
     )
+    packet.add_argument(
+        "--glossary",
+        help=(
+            "A glossary.json from `scope-lineage glossary`: every target and input column "
+            "then lists the value meanings confirmed in it (confirmed_values)"
+        ),
+    )
+    packet.add_argument(
+        "--metadata-patch", action="append", default=[],
+        help=(
+            "A reviewed metadata-patch/1 file, laid over the lineage and --schema comments "
+            "in memory; the patched comments are marked comment_source: patch. Repeatable"
+        ),
+    )
     packet.add_argument("--out", required=True, help="Directory for <db.table>/packet.{md,json}")
 
 
@@ -145,9 +166,23 @@ def run_semantic(args: argparse.Namespace) -> int:
 
 
 def _run_packet(args: argparse.Namespace) -> int:
-    from .cli import _discover_lineage_documents, _load_contract_documents, _load_corpus_document
+    from .cli import (
+        _discover_lineage_documents,
+        _load_contract_documents,
+        _load_corpus_document,
+        _patch_report,
+    )
+    from .render.glossary import DOC_FORMAT as GLOSSARY_DOC_FORMAT
     from .render.table_cards import DOC_FORMAT as TABLES_DOC_FORMAT
 
+    glossary = _load_corpus_document(args.glossary, "--glossary", GLOSSARY_DOC_FORMAT)
+    if isinstance(glossary, int):
+        return glossary
+    try:
+        patch = load_metadata_patch(args.metadata_patch)
+    except MetadataPatchError as error:
+        print(str(error), file=sys.stderr)
+        return 2
     found = _discover_lineage_documents(args.lineage)
     if isinstance(found, int):
         return found
@@ -159,8 +194,12 @@ def _run_packet(args: argparse.Namespace) -> int:
         return loaded
     cards = _load_corpus_document(args.tables, "--tables", TABLES_DOC_FORMAT)
     tasks = _task_records(args.tasks)
+    # The confirmed comments, applied in memory the way `describe --metadata-patch`
+    # applies them: the lineage on disk is never rewritten.
+    for item in loaded.documents:
+        apply_metadata_patch_to_document(item.document, patch)
     documents = [(item.document, item.diagnostics) for item in loaded.documents]
-    metadata = _metadata_lookup(args, _tables_described(documents, args.only))
+    metadata = _metadata_lookup(args, _tables_described(documents, args.only), patch)
     for value in (cards, tasks, metadata):
         if isinstance(value, int):
             return value
@@ -168,6 +207,7 @@ def _run_packet(args: argparse.Namespace) -> int:
         packets = build_packets(
             documents,
             tasks=tasks, metadata=metadata, cards=cards, only=args.only,
+            glossary=glossary, patched=_patched_comments(patch),
         )
     except UnknownTables as error:
         print(str(error), file=sys.stderr)
@@ -176,7 +216,7 @@ def _run_packet(args: argparse.Namespace) -> int:
     missing = sum(1 for p in packets for task in p["tasks"] if task["sql"] is None)
     print(
         f"Packed {len(packets)} table(s) from {len(loaded.documents)} task(s) "
-        f"(tasks_without_sql={missing}, {loaded.counters()})"
+        f"(tasks_without_sql={missing}, {loaded.counters()}{_patch_report(patch)})"
     )
     return 0
 
@@ -280,10 +320,17 @@ def _tables_described(documents: list, only) -> set[str] | None:
     return wanted.union(*(document_reads(doc) for doc in producers))
 
 
-def _metadata_lookup(args: argparse.Namespace, tables: set[str] | None = None):
+def _metadata_lookup(
+    args: argparse.Namespace, tables: set[str] | None = None, patch: MetadataPatch | None = None
+):
     """``db.table -> {comment, description, layer, domain, columns, partition facts}``,
     None, or the exit code. ``tables`` narrows a metadata directory to the files naming
-    them, so an ``--only`` run does not parse every table's DDL."""
+    them, so an ``--only`` run does not parse every table's DDL.
+
+    ``patch`` is laid over what the schema says, because the schema wins over the profile
+    in a packet: a confirmed comment patched into the lineage alone would lose to the very
+    comment it corrects. A table the schema does not know stays unknown here -- its
+    comments come from the lineage, which the patch has already reached."""
     paths = [path for path in [args.schema, *args.schema_fallback] if path]
     if not paths:
         return None
@@ -298,6 +345,8 @@ def _metadata_lookup(args: argparse.Namespace, tables: set[str] | None = None):
         details = table_details_for_table(schema, table)
         if not columns and not details:
             return None
+        if patch:
+            columns, details = _patched_schema(patch, table, columns, details)
         name, description = details.get("table_name_cn"), details.get("table_desc")
         return {
             "comment": name or description,
@@ -310,6 +359,46 @@ def _metadata_lookup(args: argparse.Namespace, tables: set[str] | None = None):
         }
 
     return lookup
+
+
+def _patched_schema(patch: MetadataPatch, table: str, columns: list, details: dict):
+    """One table's schema columns and details with the patch's answers over them.
+
+    The same merge ``apply_metadata_patch`` makes on a lineage document -- the table's
+    patched facts over its own, a patched comment over a column's -- and matched under
+    the same keys, so the unmatched report counts an answer the schema carried to the
+    packet as used.
+    """
+    key = normalize_table_name(table)
+    patched = patch.table_detail(table)
+    if patched:
+        details = {**details, **patched}
+        patch.mark_matched(key)
+    merged = []
+    for column in columns:
+        comment = patch.column_comment(table, str(column.get("name")))
+        if comment is not None:
+            column = {**column, "comment": comment}
+            patch.mark_matched((key, str(column.get("name")).lower()))
+        merged.append(column)
+    return merged, details
+
+
+def _patched_comments(patch: MetadataPatch) -> dict | None:
+    """The patch's answers as plain data for the packet, which marks the comments they gave.
+
+    A table answers with its name or its description, whichever the packet shows as its
+    comment (the lookup's own mapping); a column with its comment.
+    """
+    if not patch:
+        return None
+    return {
+        "tables": {
+            table: [detail[key] for key in ("table_name_cn", "table_desc") if detail.get(key)]
+            for table, detail in patch.tables.items()
+        },
+        "columns": {f"{table}.{column}": text for (table, column), text in patch.columns.items()},
+    }
 
 
 # ------------------------------------------------------------------ validate

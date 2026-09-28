@@ -18,6 +18,7 @@ from typing import Callable, Iterable, Mapping, Optional
 from . import packet_facts as facts
 from .digests import canonical_digest
 from .names import bare_table, scrub
+from .packet_confirmed import Confirmed
 from .packet_sections import inputs_section, lineage_section, target_section, tasks_section
 
 PACKET_FORMAT = "table-semantics-packet/1"
@@ -40,6 +41,8 @@ def build_packets(
     metadata: MetadataLookup | None = None,
     cards: dict | None = None,
     only: Iterable[str] | None = None,
+    glossary: Mapping | None = None,
+    patched: Mapping | None = None,
 ) -> list[dict]:
     """One packet per table the corpus writes (or per ``only`` table), sorted by name.
 
@@ -49,6 +52,11 @@ def build_packets(
     ``db.table`` or None; ``cards`` a ``tables-json/1`` document, built from
     ``documents`` when not given. Only the documents that write a selected table are
     profiled for the packets; the others serve the cards alone.
+
+    ``glossary`` (a ``glossary-json/1`` document) and ``patched`` (the reviewed metadata
+    patch as plain data, see :class:`~.packet_confirmed.Confirmed`) mark what the owner
+    already confirmed; the caller has applied the patch to ``documents`` and ``metadata``
+    already, so ``patched`` only says which of the comments are its answers.
     """
     documents = list(documents)
     wanted = {bare_table(name) for name in only} if only else None
@@ -57,7 +65,9 @@ def build_packets(
     ]
     profiles, cards = _profiles(producers, documents, cards)
     produced = _produced_statements(profiles)
-    corpus = _Corpus(cards, _TaskIndex(tasks), metadata or (lambda _table: None))
+    corpus = _Corpus(
+        cards, _TaskIndex(tasks), metadata or (lambda _table: None), Confirmed(glossary, patched)
+    )
     return [_packet(table, produced[table], corpus) for table in _selected(produced, only)]
 
 
@@ -144,8 +154,11 @@ class _TaskIndex:
 class _Corpus:
     """What every packet reads besides its own statements, indexed once."""
 
-    def __init__(self, cards: dict, tasks: _TaskIndex, metadata: MetadataLookup):
+    def __init__(
+        self, cards: dict, tasks: _TaskIndex, metadata: MetadataLookup, confirmed: Confirmed
+    ):
         self.tasks = tasks
+        self.confirmed = confirmed
         self._metadata = metadata
         self._looked_up: dict[str, Optional[dict]] = {}
         self._cards: dict[str, dict] = {}

@@ -3,7 +3,9 @@
 Each section reads the producing statements' semantic profiles, the corpus's table cards
 and, when the caller has one, the schema metadata. Metadata wins where both speak (it
 holds every column, the profile only the ones the statement used), and every comment is
-masked the way ``parse`` masks comments by default.
+masked the way ``parse`` masks comments by default. What the owner already confirmed --
+a patched comment, a value meaning in the glossary -- is marked on the table or column
+it answers (``corpus.confirmed``), and only there.
 """
 
 from __future__ import annotations
@@ -31,18 +33,31 @@ def target_section(table: str, statements: list, corpus) -> dict:
         for name in ((statement.get("task") or {}).get("partition") or {}).get("columns") or []
     }
     card = corpus.card(table)
+    comment = _comment(meta.get("comment") or first.get("target_table_comment"))
     return {
         "table": table,
-        "comment": _comment(meta.get("comment") or first.get("target_table_comment")),
+        "comment": comment,
+        **corpus.confirmed.table_source(table, comment),
         "description": _comment(meta.get("description")),
         "layer": meta.get("layer") or card.get("layer"),
         "domain": meta.get("domain") or card.get("domain"),
         "metadata_source": source,
         "columns": [
-            {"name": column["name"], "type": column.get("type"),
-             "comment": _comment(column.get("comment")), "partition": column["name"] in partitions}
+            _column(table, {"name": column["name"], "type": column.get("type"),
+                            "comment": _comment(column.get("comment"))},
+                    {"partition": column["name"] in partitions}, corpus)
             for column in columns
         ],
+    }
+
+
+def _column(table: str, head: dict, rest: dict, corpus) -> dict:
+    """One column entry: ``comment_source`` right behind the comment, confirmed values last."""
+    return {
+        **head,
+        **corpus.confirmed.column_source(table, head["name"], head["comment"]),
+        **rest,
+        **corpus.confirmed.values(table, head["name"]),
     }
 
 
@@ -108,15 +123,17 @@ def inputs_section(statements: list, rules: list[dict], corpus) -> list[dict]:
             for column in item.get("used_columns") or []:
                 usages = entry["_used"].setdefault(str(column.get("name")), [])
                 usages.extend(u for u in column.get("usages") or [] if u not in usages)
-    return [_finish_input(merged[table], rules) for table in sorted(merged)]
+    return [_finish_input(merged[table], rules, corpus) for table in sorted(merged)]
 
 
 def _new_input(table: str, item: dict, corpus) -> dict:
     meta = corpus.metadata(table) or {}
     producers = [p.get("task") for p in corpus.card(table).get("produced_by") or []]
+    comment = _comment(meta.get("comment") or item.get("comment"))
     return {
         "table": table,
-        "comment": _comment(meta.get("comment") or item.get("comment")),
+        "comment": comment,
+        **corpus.confirmed.table_source(table, comment),
         "layer": meta.get("layer") or item.get("layer"),
         "partitioned": meta.get("partitioned"),
         "partition_columns": list(meta.get("partition_columns") or []),
@@ -128,15 +145,18 @@ def _new_input(table: str, item: dict, corpus) -> dict:
     }
 
 
-def _finish_input(entry: dict, rules: list[dict]) -> dict:
+def _finish_input(entry: dict, rules: list[dict], corpus) -> dict:
     declared, used = entry.pop("_declared"), entry.pop("_used")
     names = [str(column.get("name")) for column in declared]
     declared = declared + [{"name": name} for name in used if name not in names]
     columns = [
-        {"name": str(column.get("name")), "type": column.get("type"),
-         "comment": _comment(column.get("comment")),
-         "partition": str(column.get("name")) in entry["partition_columns"],
-         "used": str(column.get("name")) in used, "usages": used.get(str(column.get("name")), [])}
+        _column(entry["table"],
+                {"name": str(column.get("name")), "type": column.get("type"),
+                 "comment": _comment(column.get("comment"))},
+                {"partition": str(column.get("name")) in entry["partition_columns"],
+                 "used": str(column.get("name")) in used,
+                 "usages": used.get(str(column.get("name")), [])},
+                corpus)
         for column in declared
     ]
     return {**entry, **facts.input_time_facts(entry["table"], rules, columns), "columns": columns}

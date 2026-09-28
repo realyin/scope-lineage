@@ -1,7 +1,7 @@
 """Cross checks 12-13: what the material already says, passed on to the reader.
 
-- 12 ``documented_meaning`` -- a value whose meaning a column comment spells out is not
-  a question (fail); a distinctive qualifier of the upstream -- 增值税, 手续费, 测试 ... --
+- 12 ``documented_meaning`` -- a value whose meaning a column comment spells out, or
+  the glossary confirms, is not a question (fail); a distinctive qualifier of the upstream -- 增值税, 手续费, 测试 ... --
   that the target's own comments drop must reach the summary or the columns it affects
   (warn);
 - 13 ``header_facts`` -- a lifecycle or data volume the script header states belongs in
@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 
-from .checks import result, source_comments
+from .checks import confirmed_values, result, source_comments
 from .comment_values import listed_labels, value_labels
 from .names import bare_table
 
@@ -27,14 +27,19 @@ PENDING = "待确认"
 def check_documented_meaning(
     document: dict, packet: dict, terms: tuple[str, ...] = QUALIFIER_TERMS
 ) -> list[dict]:
-    """No 待确认 for a value a comment explains; upstream qualifiers reach the page."""
+    """No 待确认 for a value a comment explains or the glossary confirms; upstream
+    qualifiers reach the page."""
     sql = "\n".join(task["sql"] or "" for task in packet["tasks"])
     results = []
     for ci, column in enumerate(document["columns"]):
         comments = _comments(packet, column["column"])
+        confirmed = confirmed_values(packet, column["column"])
         for vi, code in enumerate(column.get("code_values") or []):
             if code.get("unconfirmed") or PENDING in code["meaning"]:
-                results.append(_documented(f"columns[{ci}].code_values[{vi}]", code, comments, sql))
+                at = f"columns[{ci}].code_values[{vi}]"
+                results.append(
+                    _confirmed(at, code, confirmed) or _documented(at, code, comments, sql)
+                )
     return results + _qualifiers(document, packet, terms)
 
 
@@ -57,6 +62,21 @@ def _documented(at: str, code: dict, comments: list[str], sql: str) -> dict:
                 f"（{value} = {label}）；meaning 写「{label}」，sources 写 comment，去掉 "
                 "unconfirmed，并删掉就此提的问题"))
     return result("documented_meaning", "pass", at)
+
+
+def _confirmed(at: str, code: dict, confirmed: dict[str, str]) -> dict | None:
+    """The failure for a value the glossary already answers; None when it does not.
+
+    A confirmed meaning that is itself 待确认 (a state of that name) may be written as it
+    stands, the same exception a comment gets.
+    """
+    value = str(code["value"]).strip()
+    meaning = confirmed.get(value)
+    if meaning is None or (PENDING in meaning and not code.get("unconfirmed")):
+        return None
+    return result("documented_meaning", "fail", at, (
+        f"码值 {value!r} 标成了待确认，但字典已确认它的含义（{value} = {meaning}）；"
+        f"meaning 写「{meaning}」，sources 写 confirmed，去掉 unconfirmed，并删掉就此提的问题"))
 
 
 def _quoted_in(value: str, sql: str) -> bool:

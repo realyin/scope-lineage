@@ -68,6 +68,8 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 | `--schema` / `--schema-fallback` | 否 | 元数据，与 `parse` 同一套参数和加载器；不给时列和注释取自血缘 |
 | `--tables` | 否 | `scope-lineage tables` 写出的 `tables.json`；不给时先从 `--lineage` 建表卡 |
 | `--only` | 否 | 一张或多张目标表（`db.table`，忽略目录前缀）；名字不存在时退出码 1 |
+| `--glossary` | 否 | `scope-lineage glossary` 写出的 `glossary.json`；每个目标列和输入列带上字典已确认的码值含义（`confirmed_values`），见「已确认的事实」 |
+| `--metadata-patch` | 否 | 审过的 `metadata-patch/1` 文件，可重复；在内存里覆盖到血缘和 `--schema` 的注释上，被覆盖的注释标 `comment_source: "patch"`；文件读不了时退出码 2 |
 | `--out` | 是 | 输出目录：每张目标表一个 `<db.table>/` |
 
 语料里每张被任务最终写入的表都会生成材料包（会话视图和临时表不算目标表）。`--tasks` 里找不到任务 JSON 的
@@ -118,11 +120,30 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 或 `永久`）与数据规模（`数据规模` / `数据量` 后跟数字），从血缘发布的头注释和脚本开头的注释行里读取；
 `packet.md` 以「头注释」一行列出。
 
+### 已确认的事实
+
+负责人已经回答过的，写作者不该再猜、更不该再问。两类答案在给了相应选项时进入材料包：
+
+- **确认过的注释**（`--metadata-patch`）。补丁先套到每份血缘文档上——与 `describe --metadata-patch` 同一个
+  函数，磁盘上的血缘不改——再覆盖到 `--schema` 的元数据上：材料包里元数据优先于血缘，只补血缘的话，被纠正的
+  旧注释反而会赢。表的补丁事实整条并入该表的元数据，列按名字（不区分大小写）换注释；`--schema` 不认识的表照旧
+  取血缘里（已套过补丁）的注释。材料包显示的注释正是补丁给出的那条时，这张表（`target`、`inputs[]`）或这一列
+  带 `"comment_source": "patch"`，紧跟在 `comment` 之后；补丁只给了说明、表注释仍取自元数据里的表名时不标。
+  摘要行照 `describe` 的样子报 `patch_unmatched`，列出没有答到任何表或列的补丁键；给了 `--only` 时只算读到的文档。
+- **确认过的码值含义**（`--glossary`）。字典 `values[]` 里 `meaning` 已填（`glossary --overrides` 写入）的条目，
+  按 `column_ref` 的表（后缀匹配，目录前缀不影响）与列名（不区分大小写）落到目标列和输入列上，成为
+  `"confirmed_values": [{"value", "meaning"}]`（谁确认、何时确认留在字典里）：按字典顺序，同一个值只取第一条；
+  `logical: true`（scope 里的列）与没有 `meaning` 的条目跳过。
+
+`packet.md` 在补丁给出的注释后加「（已确认，元数据补丁）」，列表里有已确认码值时多一列「已确认码值」
+（`0=否；1=是`），开头多一行提示：照写，`sources` 写 `confirmed`，不标 `unconfirmed`，不再提问。第 3、12 项
+检查按同样的事实判断。两个键只在有内容时出现：不给这两个选项，材料包（连同 `packet_digest`）与之前逐字节相同。
+
 ### 负责人与邮箱
 
 材料包要交给模型，所以从不带人：任何负责人键（`owner`、`owner_email`、`target_table_owner` 等）出现在哪
 都删掉；每条注释按 `parse` 默认的方式脱敏（邮箱、电话、证件号）；SQL 里的注释同样脱敏；最后再扫一遍，
-材料包里任何位置（包括 SQL）剩下的邮箱地址都会被遮盖。
+材料包里任何位置（包括 SQL）剩下的邮箱地址都会被遮盖。`confirmed_values[]` 只带码值和含义，不带字典里的确认人。
 
 ### 摘要
 
@@ -167,6 +188,7 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 每个陈述性条目都带 `sources`，取值 `comment`、`sql`、`sql_comment`、`metadata`、`task`、`inferred`、
 `confirmed`；可以带 `confidence`（`high` / `medium` / `low`），以及写矛盾或风险的 `watch`。带来源的条目是
 `summary.row`、`summary.refresh`、每条 `summary.scope[]` 与 `summary.upstream[]`、每一列、每个码值、每条规则。
+材料包里的 `confirmed_values` 与 `comment_source: "patch"` 的注释是负责人确认过的事实，据此写的条目来源写 `confirmed`。
 
 ### 一页纸
 
@@ -211,7 +233,7 @@ scope-lineage semantic validate <documents> --packets <packet dir> [--json]
 | --- | --- | --- | --- |
 | 1 | `coverage` | 缺目标表的列、多出或重复的列、顺序与表内不一致 | — |
 | 2 | `source_columns` | 来源列既不在该列的血缘里，也不在任何输入表里 | 只在输入表元数据里，不在该列的血缘里 |
-| 3 | `code_values` | 未标 `unconfirmed` 的码值在相关注释和 SQL 里都找不到 | — |
+| 3 | `code_values` | 未标 `unconfirmed` 的码值在相关注释和 SQL 里都找不到，字典也没有在该列或它读取的来源列上确认它（`confirmed_values`） | — |
 | 4 | `grain` | 粒度列不是目标表的列，或写了 `grain_source: proven` 而材料包里没有证明的键 | 声称的粒度列与证明的键不同 |
 | 5 | `rules` | 非分区过滤没有被任何 `rules[].sql` 引用；引用的 `sql` 规范化后在任务 SQL 里找不到；`rule_refs` 指向不存在的规则 | 材料包里没有 SQL，无法核对原文 |
 | 6 | `neighbours` | 上游表不是血缘里的输入表；下游任务（或声称它写的表）不认识 | 下游任务认识，但不知道它写哪些表 |
@@ -220,7 +242,7 @@ scope-lineage semantic validate <documents> --packets <packet dir> [--json]
 | 9 | `time` | `refresh.time` 写 `incremental`，而所有输入都是按单一分区读取的全量快照、且没有按业务日期过滤 | `refresh.time` 写 `snapshot`，而写入按业务日期筛选 |
 | 10 | `fan_out` | `fan_out.status` 不是 `safe` 的关联，其右侧既没有在 `summary.row.note` 里、也没有在任何 kind 为 `risk` 的 `summary.watch` 里被点名（表名 `库.表` 或不带库名，或别名；同一右侧不论关联几次只算一项） | 行说明或某条 watch 的某句话把这样的左关联写成不影响行数（无影响、不影响行数、不会放大……）；每处一条警告 |
 | 11 | `derived_codes` | 列的 CASE / IF 返回的字面量（`case_outputs`）不在它的 `code_values` 里（每缺一个值一条失败；NULL、`''` 和 TRUE / FALSE 不算码值） | 含义像「成功」的码值（成功 / 正常 / 通过 / 有效）来自归并多个来源值的分支或 ELSE，而该列的 `watch` 和 `refs` 含 `column:<列>` 的 `summary.watch` 都没有说明 |
-| 12 | `documented_meaning` | 标了 `unconfirmed` 或含义写「待确认」的码值，其含义在该列注释或来源列注释里已写明（`0-申请 1-成功` 式的值-含义对，或 SQL 里引用了其标签的 `正常、锁定、删除` 式列表）；注释写明的含义本身就是「待确认」的状态可以照写 | 主输入表注释或来源列注释里有限定词（`增值税`、`税`、`手续费`、`罚息`、`冲正`、`测试`）而目标表注释里没有，`summary.what`（主输入表）或所有受影响列的 meaning / derivation 里也没写（每个词一条警告） |
+| 12 | `documented_meaning` | 标了 `unconfirmed` 或含义写「待确认」的码值，其含义在该列注释或来源列注释里已写明（`0-申请 1-成功` 式的值-含义对，或 SQL 里引用了其标签的 `正常、锁定、删除` 式列表），或字典已在该列或来源列上确认（`confirmed_values`，改法：照写字典的含义，`sources` 写 `confirmed`）；注释或字典写明的含义本身就是「待确认」的状态可以照写 | 主输入表注释或来源列注释里有限定词（`增值税`、`税`、`手续费`、`罚息`、`冲正`、`测试`）而目标表注释里没有，`summary.what`（主输入表）或所有受影响列的 meaning / derivation 里也没写（每个词一条警告） |
 | 13 | `header_facts` | — | SQL 头注释写明了生命周期（`header_facts.lifecycle`）或数据规模（`header_facts.volume`），而 `summary.refresh.how_to_read` 和 watch 都没有提到 |
 
 第 9 项存在的原因：把每日全量快照写成增量，读者就会把多个分区相加，每一行按天数重复计数。
