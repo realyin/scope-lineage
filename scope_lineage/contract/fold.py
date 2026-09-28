@@ -43,6 +43,56 @@ def _index(document: dict) -> dict[tuple[str, str], list[dict]]:
     }
 
 
+def _row_index(document: dict) -> dict[tuple[str, str], list[dict]]:
+    return {
+        (item.get("table"), item.get("column")): item.get("row_membership_sources") or []
+        for item in document.get("end_to_end_lineage") or []
+        if item.get("table") is not None
+    }
+
+
+def _resolve_condition(
+    condition: dict,
+    by_column: dict[tuple[str, str], list[dict]],
+    rows_by_column: dict[tuple[str, str], list[dict]],
+    states_present: set[str],
+    reasons: set[str],
+    depth: int = 0,
+) -> list[dict]:
+    """A row condition read through a session relation, as the physical fields it reads.
+
+    ``tv.keep`` decides a row as ``tv``'s own ``keep`` does: the physical columns that
+    value comes from, plus whatever decided which rows ``tv`` holds at all. Only
+    ``(table, column)`` survives, because a condition names a field, not a path.
+    """
+    if not condition.get("session_scoped"):
+        return [{"table": condition.get("table"), "column": condition.get("column")}]
+    if depth >= _MAX_HOPS:
+        reasons.add("fold_depth_exceeded")
+        return [condition]
+    key = (condition.get("table"), condition.get("column"))
+    leaves = _resolve(
+        {**condition, "source_kind": "physical_field"},
+        by_column,
+        states_present,
+        reasons,
+    )
+    if any(leaf.get("session_scoped") for leaf in leaves):
+        return [condition]
+    resolved = [
+        {"table": leaf.get("table"), "column": leaf.get("column")}
+        for leaf in leaves
+        if leaf.get("table") is not None and leaf.get("column") is not None
+    ]
+    for inner in rows_by_column.get(key) or []:
+        resolved.extend(
+            _resolve_condition(
+                inner, by_column, rows_by_column, states_present, reasons, depth + 1
+            )
+        )
+    return resolved
+
+
 def _states_present(document: dict) -> set[str]:
     return {
         item.get("target_state")
@@ -128,6 +178,7 @@ def fold_session_scoped(document: dict) -> dict:
     """
     folded = copy.deepcopy(document)
     by_column = _index(document)
+    rows_by_column = _row_index(document)
     states_present = _states_present(document)
     scoped_tables = {
         source.get("table")
@@ -137,25 +188,44 @@ def fold_session_scoped(document: dict) -> dict:
     }
 
     rows: list[dict[str, Any]] = []
+    scoped_tables |= {
+        condition.get("table")
+        for conditions in rows_by_column.values()
+        for condition in conditions
+        if condition.get("session_scoped")
+    }
     for row in folded.get("end_to_end_lineage") or []:
         if row.get("table") in scoped_tables:
             continue
         sources = row.get("value_sources") or []
-        if not any(source.get("session_scoped") for source in sources):
+        conditions = row.get("row_membership_sources") or []
+        scoped_values = any(source.get("session_scoped") for source in sources)
+        scoped_conditions = any(item.get("session_scoped") for item in conditions)
+        if not scoped_values and not scoped_conditions:
             rows.append(row)
             continue
 
         reasons: set[str] = set()
-        resolved: list[dict] = []
-        seen: set[str] = set()
-        for source in sources:
-            for item in _resolve(source, by_column, states_present, reasons):
-                key = _identity(item)
-                if key in seen:
-                    continue
-                seen.add(key)
-                resolved.append(item)
-        row["value_sources"] = resolved
+        if scoped_values:
+            resolved: list[dict] = []
+            seen: set[str] = set()
+            for source in sources:
+                for item in _resolve(source, by_column, states_present, reasons):
+                    key = _identity(item)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    resolved.append(item)
+            row["value_sources"] = resolved
+        if scoped_conditions:
+            fields: list[dict] = []
+            for condition in conditions:
+                for item in _resolve_condition(
+                    condition, by_column, rows_by_column, states_present, reasons
+                ):
+                    if item not in fields:
+                        fields.append(item)
+            row["row_membership_sources"] = fields
         row["value_sources_folded"] = not reasons
         if reasons:
             row["fold_incomplete_reasons"] = sorted(reasons)

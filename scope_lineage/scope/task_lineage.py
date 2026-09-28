@@ -1055,7 +1055,7 @@ def _apply_projection_write(
     else:
         row_membership_sources = _dedupe_dicts([
             *row_membership_sources,
-            *_query_row_conditions(result, statement_id, gaps),
+            *_query_row_conditions(result, statement_id, gaps, states),
         ])
     value_condition_sources = (
         {
@@ -1727,7 +1727,10 @@ _ROW_CONDITION_LOGIC_TYPES = frozenset({"filter", "join", "having", "qualify"})
 
 
 def _query_row_conditions(
-    result: ScopeLineageResult, statement_id: str, gaps: list[dict]
+    result: ScopeLineageResult,
+    statement_id: str,
+    gaps: list[dict],
+    states: _StateBuilder | None = None,
 ) -> list[dict]:
     """F5: the physical fields a written query's conditions read, as row-membership sources.
 
@@ -1752,7 +1755,9 @@ def _query_row_conditions(
                 continue
             for ref in block.fields or []:
                 sources.extend(
-                    _row_condition_fields(result, ref.scope, ref.column, statement_id, gaps)
+                    _row_condition_fields(
+                        result, ref.scope, ref.column, statement_id, gaps, states
+                    )
                 )
     return _dedupe_dicts(sources)
 
@@ -1763,11 +1768,15 @@ def _row_condition_fields(
     column: str,
     statement_id: str,
     gaps: list[dict],
+    states: _StateBuilder | None = None,
 ) -> list[dict]:
     if not relation or not column or column == "*":
         return []
     if relation not in result.scopes:
-        return [{"table": relation, "column": column}]
+        # A relation the script itself wrote is stamped like a value source: which state
+        # was read, and whether it lives only in the session -- so the fold can resolve a
+        # temp view's column to the table behind it instead of naming the view.
+        return [{"table": relation, "column": column, **_source_state(states, relation)}]
     fields, incomplete_reasons = _physical_fields_for_scope_column(result, relation, column)
     if incomplete_reasons or not fields:
         gaps.append({

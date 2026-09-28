@@ -1,6 +1,23 @@
 # Changelog
 
 ## Unreleased
+- **A row condition read through a temp view names the table behind it.** The query
+  conditions added to `row_membership_sources` (F5) named a session relation such as a
+  temp view directly, where the field promises a physical table. Such an entry now carries
+  `session_scoped` / `source_state` like a value source, and `fold_session_scoped` resolves
+  it to the physical columns behind the view plus the view's own row conditions. Found by
+  the metamorphic tests below; no example or golden output changes.
+- **Claims are checked against data (assertion model WP4).** `tests/core/claim_witness.py`
+  runs a statement's SQL in SQLite over seeded three-value corpora; every sound rule's claim
+  must hold on every corpus (`test_claim_witnesses.py`), each negative case must be
+  withheld *and* broken by some corpus, and the three first-round defects (F1, F2, F3)
+  re-introduced by hand are each caught. `test_claim_metamorphic.py` requires the same
+  sources, row conditions and key through a temp view, a CTE or a `SELECT *` subquery;
+  `test_claim_monotonicity.py` requires that adding an appending producer, a producer with
+  another key, or another filtering task never strengthens a conclusion and always weakens
+  one. Two known gaps are kept visible: a keyless JOIN onto a one-row aggregate is not yet
+  called safe (conservative), and a row set counted through a temp view is not yet folded
+  (strict xfail, owed to WP5).
 - **Conclusions carry their subject and rule internally (assertion model WP0, WP1).** A new
   `render/claims.py` declares every inference the package makes (`RULES`, each *sound* or
   *heuristic*) and a `Claim` record -- subject (a query's rows, a write batch, a partition, a
