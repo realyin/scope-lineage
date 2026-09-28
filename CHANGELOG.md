@@ -1,6 +1,14 @@
 # Changelog
 
 ## Unreleased
+- **When a row is a complete fact: one published rule (assertion model WP7).** A task document
+  says "incomplete" five ways -- `analysis_status`, `trace_complete`, `value_sources_folded`,
+  a `session_scoped` edge left unfolded, a `row_condition_source_unresolved` gap -- and
+  `trace_complete` alone stays `true` for a row whose row conditions name no physical field.
+  `task-lineage-v2.md` (zh/en) now gives the combination as runnable code,
+  `usable_as_complete(document, row)`; `tests/core/test_completeness_recipe.py` executes that
+  very block against real and hand-built documents, one criterion at a time, and requires
+  both languages to carry the same code. No new field (owner decision E).
 - **A keyless JOIN onto a one-row aggregate is `safe`.** `... JOIN (SELECT MAX(v) ...) r ON 1 = 1`
   was answered by the "no join key" branch before the right side's grouping was looked at,
   so a JOIN that cannot duplicate a row read `risk`. A right side aggregating with no GROUP

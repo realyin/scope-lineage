@@ -129,6 +129,54 @@ scope（FROM、JOIN、UNION 分支、CTE），所以 CTE 里的过滤、每个 U
 聚合列要把这两类放在一起读：`COUNT(*)` 的值来自它计数的行集（见下一节的 `rowset`），而行集由
 row_membership_sources 里的条件决定——这些条件改变的是计数的**值**，不只是哪一行存在。
 
+## 什么时候一个字段可以当作完整事实使用
+
+"缺了什么"在任务文档里有五个独立的说法，没有一个字段把它们合起来（owner 决定：给出组合规则，不新增字段）：
+
+| 口径 | 问的是 | 看哪里 |
+| --- | --- | --- |
+| `analysis_complete` | 整个任务都建模了吗 | `analysis_status.status == "complete"` |
+| `root_closed` | 值来源都走到物理列、常量或行集了吗 | 行的 `trace_complete` |
+| `state_closed` | 还有没折叠、或折不动的会话关系跳吗 | 行的 `value_sources_folded`，以及来源上的 `session_scoped` |
+| `conditions_closed` | 行条件都追到物理字段了吗 | `row_condition_source_unresolved` fact gap |
+| `hop_resolved` | 每一跳的直接来源都解析了吗 | 语句级 mapping chain（由上面几项间接覆盖） |
+
+`trace_complete` 只回答第二项：一个值来源完整、但决定行存在的条件追不到物理字段的行，仍然是
+`trace_complete: true`。要把一行当作完整事实使用，四项都要成立。下面这段代码就是这条规则
+（`tests/core/test_completeness_recipe.py` 直接执行这一段）：
+
+<!-- recipe: usable-as-complete -->
+```python
+def usable_as_complete(document, row):
+    """Whether one end_to_end_lineage row of a task document is a complete fact."""
+    # analysis_complete: the task as a whole was modelled
+    if (document.get("analysis_status") or {}).get("status") != "complete":
+        return False
+    # root_closed: every value source reached a physical column, a constant or a row set
+    if not row.get("trace_complete"):
+        return False
+    # state_closed: no hop through a session relation is left, folded or not
+    edges = [*row.get("value_sources", []), *row.get("row_membership_sources", [])]
+    if row.get("value_sources_folded") is False:
+        return False
+    if any(edge.get("session_scoped") for edge in edges):
+        return False
+    # conditions_closed: no statement writing this table left a condition untraced
+    writers = {
+        step.get("statement_id")
+        for step in document.get("statement_sequence", [])
+        if step.get("target_table") == row.get("table")
+    }
+    gaps = (document.get("diagnostics") or {}).get("lineage_fact_gaps", [])
+    return not any(
+        gap.get("gap_type") == "row_condition_source_unresolved"
+        and gap.get("statement_id") in writers
+        for gap in gaps
+    )
+```
+
+读临时视图的任务，先 `fold_session_scoped(document)` 再判断；没折叠的会话关系跳一律不算完整。
+
 ## value_sources[].source_kind：四种来源，以及怎么折叠前态边
 
 每条 `value_sources[]` 都带 `source_kind`，取值有四种：

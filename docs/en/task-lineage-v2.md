@@ -150,6 +150,57 @@ Read the two together for an aggregate column: a `COUNT(*)`'s value comes from t
 (`rowset`, next section), and that row set is decided by the conditions in row_membership_sources --
 they change the count's **value**, not only which row exists.
 
+## When a row may be used as a complete fact
+
+A task document says "something is missing" in five separate ways, and no field combines them
+(owner decision: a composition rule, not a new field):
+
+| Criterion | Asks | Where to look |
+| --- | --- | --- |
+| `analysis_complete` | was the whole task modelled | `analysis_status.status == "complete"` |
+| `root_closed` | did every value source reach a physical column, a constant or a row set | the row's `trace_complete` |
+| `state_closed` | is a hop through a session relation left, unfolded or unfoldable | the row's `value_sources_folded`, and `session_scoped` on its sources |
+| `conditions_closed` | were the row conditions traced to physical fields | the `row_condition_source_unresolved` fact gap |
+| `hop_resolved` | was each hop's direct source resolved | the statement-level mapping chain (covered by the rows above) |
+
+`trace_complete` answers only the second: a row whose value sources are complete but whose row
+conditions name no physical field is still `trace_complete: true`. A row is a complete fact when
+all four hold. This code is that rule (`tests/core/test_completeness_recipe.py` executes this
+very block):
+
+<!-- recipe: usable-as-complete -->
+```python
+def usable_as_complete(document, row):
+    """Whether one end_to_end_lineage row of a task document is a complete fact."""
+    # analysis_complete: the task as a whole was modelled
+    if (document.get("analysis_status") or {}).get("status") != "complete":
+        return False
+    # root_closed: every value source reached a physical column, a constant or a row set
+    if not row.get("trace_complete"):
+        return False
+    # state_closed: no hop through a session relation is left, folded or not
+    edges = [*row.get("value_sources", []), *row.get("row_membership_sources", [])]
+    if row.get("value_sources_folded") is False:
+        return False
+    if any(edge.get("session_scoped") for edge in edges):
+        return False
+    # conditions_closed: no statement writing this table left a condition untraced
+    writers = {
+        step.get("statement_id")
+        for step in document.get("statement_sequence", [])
+        if step.get("target_table") == row.get("table")
+    }
+    gaps = (document.get("diagnostics") or {}).get("lineage_fact_gaps", [])
+    return not any(
+        gap.get("gap_type") == "row_condition_source_unresolved"
+        and gap.get("statement_id") in writers
+        for gap in gaps
+    )
+```
+
+For a task that reads temp views, call `fold_session_scoped(document)` first; an unfolded hop
+through a session relation is never complete.
+
 ## value_sources[].source_kind: four kinds of source, and how to fold prior-state edges
 
 Every `value_sources[]` entry carries `source_kind`, with four possible values:
