@@ -14,19 +14,10 @@ from .scope_types import (
     ScopeLineageResult,
     ScopeOutputField,
 )
+from .composition import dominant_transform
 from .lineage_fact_gaps import _root_gap_reasons_for_output
 
 
-_TRANSFORM_PRIORITY: dict[str, int] = {
-    "CONSTANT": 0,
-    "DIRECT": 1,
-    "EXPAND_ALL": 2,
-    "UNION": 3,
-    "EXPRESSION": 4,
-    "CONDITIONAL": 5,
-    "WINDOW": 6,
-    "AGGREGATE": 7,
-}
 
 
 @dataclass
@@ -712,15 +703,3 @@ def _window_context_dicts(context: list[tuple[str, str, str]]) -> list[dict[str,
             continue
         seen[(table, column, role)] = {"table": table, "column": column, "role": role}
     return list(seen.values())
-
-
-def dominant_transform(left: str, right: str) -> str:
-    """The transform a path of two hops carries: the stronger of the two.
-
-    A path records the strongest expression kind it crosses, so ``DIRECT`` then
-    ``EXPRESSION`` is ``EXPRESSION`` whichever hop applied it. The task-level fold
-    composes hops through session-scoped relations with the same rule.
-    """
-    if _TRANSFORM_PRIORITY.get(left, 0) >= _TRANSFORM_PRIORITY.get(right, 0):
-        return left
-    return right

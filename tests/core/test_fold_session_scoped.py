@@ -211,3 +211,27 @@ def test_a_condition_read_through_a_temp_view_names_the_table_behind_it():
         (item["table"], item["column"]) for item in row["row_membership_sources"]
     ) == [("ods.real", "amt"), ("ods.real", "id")]
     assert row["value_sources_folded"] is True
+
+
+def test_a_count_through_a_temp_view_counts_the_rows_behind_it():
+    """``COUNT(*) FROM tv`` counts ``tv``'s rows: those of the tables ``tv`` reads, kept
+    by ``tv``'s own conditions. Folded, the count names those tables and those conditions
+    instead of a relation that never reached storage."""
+    document = _document(
+        "create or replace temp view tv as select r.id from ods.real r "
+        "join ods.a a on r.id = a.id where r.amt > 0;\n"
+        "insert overwrite table mart.daily select count(*) as id from tv"
+    )
+    row = _folded(document, "mart.daily", "id")
+
+    assert sorted(
+        (s["source_kind"], s["table"], s["transform"], s["expression"])
+        for s in row["value_sources"]
+    ) == [
+        ("rowset", "ods.a", "AGGREGATE", "COUNT(*)"),
+        ("rowset", "ods.real", "AGGREGATE", "COUNT(*)"),
+    ]
+    assert sorted(
+        (item["table"], item["column"]) for item in row["row_membership_sources"]
+    ) == [("ods.a", "id"), ("ods.real", "amt"), ("ods.real", "id")]
+    assert row["value_sources_folded"] is True

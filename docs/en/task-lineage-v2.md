@@ -379,6 +379,12 @@ Each hop's `transform` is composed by the same rule as the statement-level end-t
 (the stronger of the two on the path), so `v * 2` read through a pass-through view is still
 `EXPRESSION`; two sources merge only when their content is identical, so distinct constants
 behind one view column and different participation paths to one physical column all stay.
+Row conditions and row sets fold the same way: a `row_membership_sources` entry reading a temp view
+(it carries `session_scoped`) resolves to the physical fields behind the view column, plus the view's
+own row conditions; a `rowset` source such as a `COUNT(*)` over a temp view expands to one entry per
+physical table the view reads, and the view's row conditions join the target row's
+`row_membership_sources`. These composition rules (identity, merging, transform composition) are the
+ones the statement and task levels use, in `scope/composition.py`.
 
 **What cannot be folded is not quietly dropped.** Such a row keeps its original edges and reports:
 
@@ -387,7 +393,7 @@ behind one view column and different participation paths to one physical column 
 | `value_sources_folded` | `true` = every hop in this row folded successfully; `false` = some hop could not be folded |
 | `fold_incomplete_reasons` | Why folding stopped, present only when `false` |
 
-There are four reasons, each corresponding to a situation that really occurs:
+There are five reasons, each corresponding to a situation that really occurs:
 
 - `source_state_not_in_document` — the read happened **before** that relation was redefined.
   `end_to_end_lineage` is a final-state view, and that state has no row; substituting the surviving
@@ -396,6 +402,7 @@ There are four reasons, each corresponding to a situation that really occurs:
   unexpanded `SELECT *` with only a single `*` row).
 - `source_column_has_no_sources` — the column has no sources at all in the document.
 - `fold_depth_exceeded` — the relations form a cycle.
+- `rowset_relation_unresolved` — a row set read through a temp view whose statement's physical tables cannot be found (or are themselves another session relation).
 
 **Empty sources after folding ≠ this column has no lineage**, which is why this implementation never
 returns empty — when it cannot fold, it keeps the original edge and says so. That is exactly what

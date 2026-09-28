@@ -25,10 +25,9 @@ this whole exercise exists to avoid.
 from __future__ import annotations
 
 import copy
-import json
 from typing import Any
 
-from ..scope.end_to_end import dominant_transform
+from ..scope.composition import compose_hop, source_identity
 
 # A relation defined through more than this many session-scoped hops is not something to keep
 # walking; the bound exists so a cycle terminates rather than to model real nesting.
@@ -49,6 +48,68 @@ def _row_index(document: dict) -> dict[tuple[str, str], list[dict]]:
         for item in document.get("end_to_end_lineage") or []
         if item.get("table") is not None
     }
+
+
+def _relation_rowsets(document: dict) -> dict[str, list[str]]:
+    """``state_id -> the physical tables whose rows that state's statement reads``.
+
+    Walked from the statement's ROOT through the relations each scope reads, the same
+    walk the task level uses for a ``COUNT(*)``'s own row set.
+    """
+    statements = document.get("statement_lineage") or {}
+    found: dict[str, list[str]] = {}
+    for step in document.get("statement_sequence") or []:
+        state = step.get("output_state")
+        scopes = (statements.get(step.get("statement_id")) or {}).get("scopes") or {}
+        if not state or "ROOT" not in scopes:
+            continue
+        tables: list[str] = []
+        pending, seen = ["ROOT"], set()
+        while pending:
+            scope_id = pending.pop(0)
+            if scope_id in seen:
+                continue
+            seen.add(scope_id)
+            for item in (scopes.get(scope_id) or {}).get("depends_on") or []:
+                if item in scopes:
+                    pending.append(item)
+                elif item not in tables:
+                    tables.append(item)
+        found[state] = tables
+    return found
+
+
+def _state_conditions(document: dict) -> dict[str, list[dict]]:
+    """``state_id -> the row conditions that decided which rows that state holds``."""
+    found: dict[str, list[dict]] = {}
+    for row in document.get("end_to_end_lineage") or []:
+        bucket = found.setdefault(str(row.get("target_state")), [])
+        for condition in row.get("row_membership_sources") or []:
+            if condition not in bucket:
+                bucket.append(condition)
+    return found
+
+
+def _resolve_rowset(
+    source: dict,
+    rowsets: dict[str, list[str]],
+    scoped_tables: set,
+    reasons: set[str],
+) -> list[dict]:
+    """A ``COUNT(*)`` read through a session relation, as the row sets of its tables."""
+    tables = rowsets.get(str(source.get("source_state")))
+    if not tables or any(table in scoped_tables for table in tables):
+        reasons.add("rowset_relation_unresolved")
+        return [source]
+    return [
+        {
+            "source_kind": "rowset",
+            "table": table,
+            "transform": source.get("transform"),
+            "expression": source.get("expression"),
+        }
+        for table in tables
+    ]
 
 
 def _resolve_condition(
@@ -136,31 +197,8 @@ def _resolve(
     resolved: list[dict] = []
     for item in upstream:
         for leaf in _resolve(item, by_column, states_present, reasons, depth + 1):
-            resolved.append(_through(source, leaf))
+            resolved.append(compose_hop(source, leaf))
     return resolved
-
-
-def _through(hop: dict, leaf: dict) -> dict:
-    """``leaf`` as read through ``hop``: the path's transform is the stronger of the two.
-
-    Returning the upstream fact unchanged dropped what the hop itself did -- ``v * 2``
-    over a pass-through view came back ``DIRECT`` -- so the same SQL read through one
-    more relation got a different explanation.
-    """
-    if not hop.get("transform") or not leaf.get("transform"):
-        return leaf
-    composed = dominant_transform(str(hop["transform"]), str(leaf["transform"]))
-    return leaf if composed == leaf["transform"] else {**leaf, "transform": composed}
-
-
-def _identity(source: dict) -> str:
-    """A source's whole content: `(table, column, source_kind)` is not an identity.
-
-    Two constants both have no table and no column, and two paths to one column differ
-    by transform; the contract keeps each participation path, so only an exact
-    duplicate is one.
-    """
-    return json.dumps(source, sort_keys=True, ensure_ascii=False, default=str)
 
 
 def fold_session_scoped(document: dict) -> dict:
@@ -187,6 +225,8 @@ def fold_session_scoped(document: dict) -> dict:
         if source.get("session_scoped")
     }
 
+    rowsets = _relation_rowsets(document)
+    conditions_by_state = _state_conditions(document)
     rows: list[dict[str, Any]] = []
     scoped_tables |= {
         condition.get("table")
@@ -210,8 +250,18 @@ def fold_session_scoped(document: dict) -> dict:
             resolved: list[dict] = []
             seen: set[str] = set()
             for source in sources:
-                for item in _resolve(source, by_column, states_present, reasons):
-                    key = _identity(item)
+                if source.get("source_kind") == "rowset" and source.get("session_scoped"):
+                    # The relation's rows are its tables' rows kept by its own conditions,
+                    # and those conditions decide the count as much as any of the outer.
+                    leaves = _resolve_rowset(source, rowsets, scoped_tables, reasons)
+                    if leaves != [source]:
+                        extra = conditions_by_state.get(str(source.get("source_state"))) or []
+                        conditions = [*conditions, *(item for item in extra if item not in conditions)]
+                        scoped_conditions = True
+                else:
+                    leaves = _resolve(source, by_column, states_present, reasons)
+                for item in leaves:
+                    key = source_identity(item)
                     if key in seen:
                         continue
                     seen.add(key)
