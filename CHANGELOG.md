@@ -9,6 +9,12 @@
   column present only there was reported `fail` instead of `warn` (and an upper-case
   lineage source never matched). All three are now spelt the same way (`db.table.column`,
   lower case).
+- **Checks 3 and 12 find a source column's comment and confirmed values whatever its case.**
+  The lookup of the input columns a target column reads compared the input metadata with the
+  lineage sources as written, so with upper-case metadata check 3 did not see a code value
+  explained in, or confirmed on, a source column, and check 12 missed both the value a source
+  comment explains and a source column's qualifier (增值税, 测试 …). Both sides are now
+  compared as `bare_column` spells them.
 - **The 校验 section of a table page names checks 10–13 in Chinese.** It showed
   `10 fan_out`, `11 derived_codes` …; they are now 关联放大, 派生码值, 注释已写明的含义 and
   头注释事实, in the wording of the check table in `docs/zh-CN/table-semantics.md`.
@@ -16,6 +22,7 @@
   >= 0.2.0 for everything, but `semantic *`, `questions *`, `catalog *` and
   `concept-impact` need 0.5.0, `semantic packet --glossary` / `--metadata-patch` 0.6.0,
   and `describe` / `tables` / `glossary` / `ontology` 0.3.0.
+
 ## 0.6.0
 - **Conclusions that hold where they are claimed, and say so.** No schema change: the task
   contract stays 2.0 and every existing field keeps its meaning. A deep review of how

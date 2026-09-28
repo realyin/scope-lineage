@@ -145,20 +145,23 @@ def _column_comments(packet: dict, name: str) -> str:
 
 
 def _sources(packet: dict, name: str) -> set[str]:
-    """The ``db.table.column`` references a target column reads, over every producer."""
+    """The ``db.table.column`` references a target column reads, over every producer,
+    spelt as ``bare_column`` spells them."""
     return {
-        source
+        bare_column(source)
         for entry in packet["lineage"]["columns"] if entry["column"] == name
         for producer in entry["producers"] for source in producer["sources"]
     }
 
 
 def _source_columns(packet: dict, name: str) -> list[tuple[str, dict]]:
+    """``(db.table.column, column)`` for each input column a target column reads, matched
+    whatever case the schema export or the script used."""
     sources = _sources(packet, name)
     return [
         (f"{item['table']}.{column['name']}", column)
         for item in packet["inputs"] for column in item["columns"]
-        if f"{item['table']}.{column['name']}" in sources
+        if bare_column(f"{item['table']}.{column['name']}") in sources
     ]
 
 
