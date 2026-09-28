@@ -70,6 +70,23 @@ RULES: dict[str, Rule] = {
 }
 
 
+# ------------------------------------------------------------------ premises
+
+# What SQL text can never prove and a conclusion may still rest on, named so a claim can
+# say which of them it needs instead of leaving them implicit.
+ASSUMPTIONS: dict[str, str] = {
+    "A-WRITERS-CLOSED": "语料包含了这张表的全部写入任务",
+    "A-METADATA-AUTHORITATIVE": "元数据（DDL、分区、覆盖模式声明）与线上一致",
+    "A-RUN-SUCCEEDED": "脚本按顺序完整执行成功",
+    "A-NO-CONCURRENT-WRITE": "读取时刻没有并发写入",
+    "A-DIALECT-SEMANTICS": "Spark/Hive 按默认配置的语义（排序稳定性、NULL 语义）",
+}
+
+# The premises a `proven` claim may rest on. Owner decision A (2026-09-28): all of them.
+# A claim needing any other premise is at most `conditional`.
+STANDARD_ASSUMPTIONS: tuple[str, ...] = tuple(ASSUMPTIONS)
+
+
 # ------------------------------------------------------------------ the claim record
 
 # What a claim is about. The order is the only direction a claim may be carried, and only
@@ -136,6 +153,11 @@ class Claim:
             raise ValueError(f"{self.rule} is a heuristic rule and cannot prove")
         if self.status == PROVEN and self.defeaters:
             raise ValueError("a claim with a defeater cannot be proven")
+        for assumption in self.assumptions:
+            if assumption not in ASSUMPTIONS:
+                raise ValueError(f"unregistered premise {assumption!r}")
+            if self.status == PROVEN and assumption not in STANDARD_ASSUMPTIONS:
+                raise ValueError(f"a proven claim cannot rest on {assumption}")
 
     def weakened_to(self, status: str) -> "Claim":
         """This claim at ``status`` or weaker -- never stronger than it already is."""
