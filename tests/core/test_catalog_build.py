@@ -11,6 +11,7 @@ from scope_lineage.catalog import (
     CatalogError,
     build_ontology,
     load_catalog,
+    ontology_findings,
     validate_ontology_document,
 )
 
@@ -232,3 +233,20 @@ def test_a_derived_id_that_collides_with_a_declared_one_is_an_error(tmp_path: Pa
 
     with pytest.raises(CatalogError, match="duplicate_id"):
         build_ontology(load_catalog(root))
+
+
+def test_ontology_findings_is_empty_for_a_built_document(demo: dict) -> None:
+    assert ontology_findings(demo) == []
+
+
+def test_ontology_findings_points_at_each_violation(demo: dict) -> None:
+    import copy
+
+    broken = copy.deepcopy(demo)
+    broken["concepts"][0]["kind"] = "gadget"
+    del broken["counts"]
+
+    findings = ontology_findings(broken, "ontology.json")
+
+    assert [(f.rule, f.file) for f in findings] == [("schema", "ontology.json")] * 2
+    assert {f.at for f in findings} == {None, "concepts[0].kind"}

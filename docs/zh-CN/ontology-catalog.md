@@ -412,7 +412,9 @@ scope-lineage catalog build examples/catalog-demo --out out/
 ```
 
 `build` 先校验，有任何错误就**什么也不写**。否则写出 `out/ontology.json`，其 schema 随包提供，
-为 `scope_lineage/schemas/ontology-v3.schema.json`：
+为 `scope_lineage/schemas/ontology-v3.schema.json`。写出前，`build` 会拿这份 schema 把生成的文档（连同
+`--lineage/--tables` 挂上的证据）再核对一遍；不符合时逐条报出路径、什么也不写、退出码 `1`——这说明
+构建器与 schema 不一致，是 scope-lineage 的缺陷，不是目录写错了：
 
 ```json
 {

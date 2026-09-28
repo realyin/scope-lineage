@@ -8,8 +8,9 @@ directory a person maintains; ``build`` may also read a lineage corpus and a tab
 file and attach what they show as evidence. This module is where the two meet: the
 ``catalog`` package reads no lineage artifact and ``render`` reads no catalog file, so
 the composition happens here, at the command line, and neither package imports the
-other. Exit codes: 0 success (warnings allowed), 1 the catalog has errors or a query found
-nothing, 2 an input could not be read.
+other. ``build`` checks what it built against the ``ontology-json/3`` schema before it
+writes. Exit codes: 0 success (warnings allowed), 1 the catalog has errors, the built
+document does not fit its schema, or a query found nothing, 2 an input could not be read.
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ from .catalog import (
     CatalogError,
     build_ontology,
     load_catalog,
+    ontology_findings,
     render_summary,
     validate_catalog,
 )
@@ -262,6 +264,16 @@ def _write_ontology(catalog, out: Path, lineage=None, tables=None) -> int:
     from .render.catalog_evidence import attach_evidence
 
     document = attach_evidence(build_ontology(catalog), lineage=lineage, tables=tables)
+    findings = ontology_findings(document, ONTOLOGY_FILENAME)
+    if findings:
+        for finding in findings:
+            print(finding.render(), file=sys.stderr)
+        print(
+            f"catalog: not built -- the document does not fit its schema "
+            f"({len(findings)} problem(s)); this is a scope-lineage bug, please report it",
+            file=sys.stderr,
+        )
+        return 1
     out.mkdir(parents=True, exist_ok=True)
     target = out / ONTOLOGY_FILENAME
     target.write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
