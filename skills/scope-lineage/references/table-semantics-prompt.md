@@ -1,4 +1,4 @@
-# 表语义提示词（table-semantics-prompt@4）
+# 表语义提示词（table-semantics-prompt@5）
 
 用法：Agent 为每张目标表把这份提示词连同它的材料包 `<packets>/<db.table>/packet.md` 交给模型，
 模型输出一份 `table-semantics/1` JSON（格式见 `docs/zh-CN/table-semantics.md`，Schema 见
@@ -13,10 +13,20 @@
 ## 只用材料包
 
 材料包里有：目标表元数据（表注释、每列注释）、生产任务信息与 SQL（含作者写在 SQL 里的注释）、
-输入表元数据、血缘事实（每列的来源链与表达式、过滤/关联/去重规则、可证明的键、上下游表与任务）。
+输入表元数据、血缘事实（每列的来源链与表达式、过滤/关联/去重规则、可证明的键、上下游表与任务），
+以及负责人已确认的事实（「已确认码值」一列、标「已确认，元数据补丁」的注释，见下一节）。
 不要读别的文件，不要上网，不要猜材料里没有的业务事实。
 
 ## 已确认的业务事实
+
+材料包自己带着两类已确认事实，与调用方附带的清单同等对待：
+
+- **已确认码值**（`packet.md` 列表里的「已确认码值」一列，`packet.json` 列上的 `confirmed_values`）：
+  字典里负责人确认过的码值含义。目标列或它读取的来源列有这一项时，对应码值的 `meaning` 照抄那条含义，
+  `sources` 写 `["confirmed"]`；**不标 `unconfirmed`，不写「待确认」，也不就它提问**。
+- **确认过的注释**（`packet.md` 里注释后标「（已确认，元数据补丁）」，`packet.json` 里
+  `comment_source: "patch"`）：负责人回写的表注释或列注释。据它写的条目，`sources` 写 `confirmed`
+  （可以与 `sql` 等并列）；它与 SQL 矛盾时同样按 SQL 实际行为写，并记一条 `conflict` 的 `watch`。
 
 如果调用方附带了「已确认事实」清单（例如某些标识的含义），直接采用，并在对应条目的 `sources` 里写
 `confirmed`；与本表无关的事实忽略。本表某列名字像某条事实里的列、实际装的却是别的（例如名字像客户标识，
@@ -56,7 +66,8 @@ SQL 显示取的是员工 id）时，按实际写，加一条 `conflict` 的 `wa
    - `source_columns`：口径引用的上游物理列（`库.表.列`），与材料包 4.1 的血缘来源一致。
    - `code_values`：码值只来自注释、SQL 的 CASE/IF、SQL 注释；每个值写来源；材料只给了值没给含义的，
      `meaning` 写「待确认」并标 `unconfirmed: true`，同时在 `questions` 里提问。CASE/IF 派生的列要列出
-     它能输出的每个值；注释里已写明含义（如「0-申请 1-成功」）的值直接采用，不要标待确认。一个像
+     它能输出的每个值；注释里已写明含义（如「0-申请 1-成功」）的值直接采用，不要标待确认。该列或其来源列
+     「已确认码值」里有的值，照抄那条含义，`sources` 写 `["confirmed"]`，绝不标待确认、绝不提问。一个像
      「成功 / 正常 / 有效」的值由多个来源值归并而来时，在该列 `watch` 里写明归并了哪些值。
    - 上游主表或来源列注释里的限定词（增值税、手续费、罚息、冲正、测试等）要写进 `what` 或相关列的
      `meaning` / `derivation`，不要把它写成一般口径。
@@ -70,7 +81,7 @@ SQL 显示取的是员工 id）时，按实际写，加一条 `conflict` 的 `wa
 5. **任务（task）**：`name`、做什么和为什么（`purpose`，取自任务描述与 SQL 头注释）、`cycle`、
    `outputs`、`upstream_tasks`、`downstream_tasks`。多个任务写同一张表时改用 `tasks` 列表。
 6. **其余键**：`doc_format` 写 `table-semantics/1`；`table` 写 `库.表`；`packet_digest` 从材料包照抄；
-   `generator` 写 `{"prompt": "table-semantics-prompt@4"}`。调用方给了本体目录里这张表对应的概念与
+   `generator` 写 `{"prompt": "table-semantics-prompt@5"}`。调用方给了本体目录里这张表对应的概念与
    表现类型时，写 `concept`（`{"concept": "concept:<id>", "representation_kind": "<kind>"}`）。
 
 ## 容易写错的地方（来自验收）
@@ -100,7 +111,7 @@ SQL 显示取的是员工 id）时，按实际写，加一条 `conflict` 的 `wa
 
 调用方会给出 `semantic validate` 的失败清单（每条是 `FAIL` / `WARN`、检查编号与名称、条目位置和一句
 改法）。只修改失败的条目：补齐缺的列、改正与血缘不符的来源列、删掉材料里找不到的码值（或标
-`unconfirmed: true` 并提问）、为未引用的过滤补上 `rules` 与 `scope`（`rule_refs`）、把改写过的 SQL 换成
+`unconfirmed: true` 并提问；「已确认码值」里有的照抄其含义、来源写 `confirmed`）、为未引用的过滤补上 `rules` 与 `scope`（`rule_refs`）、把改写过的 SQL 换成
 原文、把「增量」改回「快照」并写清取数方式；第 10–13 项（含义检查）则按每条的改法点名会放大行数的
 关联、补上 CASE/IF 漏掉的码值、按注释写出已有含义的码值、写回丢掉的限定词、在取数方式里写明生命周期。
 不要改动已通过的条目；`packet_digest` 过期时按新材料包重写

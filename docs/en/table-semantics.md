@@ -78,6 +78,8 @@ example as stale while every other check still passes.
 | `--schema` / `--schema-fallback` | no | schema metadata, the same options and loaders as `parse`; without them the columns and comments come from the lineage |
 | `--tables` | no | a `tables.json` from `scope-lineage tables`; without it the table cards are built from `--lineage` first |
 | `--only` | no | one or more target tables (`db.table`; a catalog prefix is ignored); an unknown name exits 1 |
+| `--glossary` | no | a `glossary.json` from `scope-lineage glossary`; every target and input column then lists the value meanings the dictionary confirms (`confirmed_values`), see "Confirmed facts" |
+| `--metadata-patch` | no | a reviewed `metadata-patch/1` file, repeatable; laid over the lineage and `--schema` comments in memory, each patched comment marked `comment_source: "patch"`; a file that cannot be read exits 2 |
 | `--out` | yes | the output directory: one `<db.table>/` per target table |
 
 A packet is written for every table a task finally writes (session views and temporary
@@ -142,13 +144,46 @@ the ELSE returns it (`catch_all`). Each task carries `header_facts`, the lifecyc
 published header and from the comment lines that open the script; `packet.md` prints them
 as 头注释.
 
+### Confirmed facts
+
+What the owner has already answered, a writer should neither guess again nor ask again.
+Two kinds of answer reach the packet when their option is given:
+
+- **Confirmed comments** (`--metadata-patch`). The patch is applied to every lineage
+  document first — the same function `describe --metadata-patch` uses, the lineage on disk
+  is never rewritten — and then laid over the `--schema` metadata: in a packet the metadata
+  wins over the lineage, so patching the lineage alone would let the very comment the patch
+  corrects win. A table's patched facts are merged into its metadata, a column's comment
+  is replaced by name (ignoring case); a table `--schema` does not know keeps the
+  (already patched) lineage comments. Where the comment the packet shows is the patch's
+  answer, that table (`target`, `inputs[]`) or column carries `"comment_source": "patch"`,
+  right behind `comment`; a patch that gave only a description while the comment is still
+  the metadata's table name marks nothing. The summary line reports `patch_unmatched` as
+  `describe` does, naming each patch key no table or column answered to; with `--only`
+  only the documents read count.
+- **Confirmed value meanings** (`--glossary`). Every dictionary `values[]` entry whose
+  `meaning` is filled (written by `glossary --overrides`) lands on the target and input
+  columns its `column_ref` names — the table by dotted suffix, so a catalog prefix does not
+  matter, the column by name, ignoring case — as
+  `"confirmed_values": [{"value", "meaning"}]` (who confirmed it, and when, stays in the
+  dictionary), in dictionary order, the first entry of a value winning; `logical: true`
+  entries (a scope's columns) and entries without a `meaning` are skipped.
+
+`packet.md` appends 「（已确认，元数据补丁）」 to a patched comment, gives a column table
+an extra 已确认码值 column (`0=否；1=是`) when one of its columns has confirmed values, and
+opens with a line telling the writer to use them as written, with `sources` `confirmed`,
+never `unconfirmed`, never as a question. Checks 3 and 12 read the same facts. Both keys
+appear only when there is something to say: without the two options a packet, its
+`packet_digest` included, is byte for byte what it was.
+
 ### Owners and emails
 
 A packet is handed to a model, so it never carries a person: every owner key
 (`owner`, `owner_email`, `target_table_owner`, …) is dropped wherever it appears, every
 comment is masked the way `parse` masks comments by default (email, phone, ID number), the
 SQL's comments are masked the same way, and a last pass masks any email address left
-anywhere in the packet, SQL included.
+anywhere in the packet, SQL included. `confirmed_values[]` carries the value and its
+meaning only, never the dictionary's confirmer.
 
 ### The digest
 
@@ -197,7 +232,9 @@ Every item that states something carries `sources`, drawn from `comment`, `sql`,
 `sql_comment`, `metadata`, `task`, `inferred` and `confirmed`; it may carry `confidence`
 (`high` / `medium` / `low`) and a `watch` sentence for a conflict or a risk. The sourced
 items are `summary.row`, `summary.refresh`, each `summary.scope[]` and `summary.upstream[]`,
-each column, each code value and each rule.
+each column, each code value and each rule. A packet's `confirmed_values` and its comments
+marked `comment_source: "patch"` are facts the owner confirmed; an item written from them
+is sourced `confirmed`.
 
 ### The one-page summary
 
@@ -246,7 +283,7 @@ document is checked against `<packet dir>/<table>/packet.json`:
 | --- | --- | --- | --- |
 | 1 | `coverage` | a target column is missing, a column is extra or repeated, or the order differs from the table's | — |
 | 2 | `source_columns` | a source column is neither in that column's lineage nor in any input table | it is only in an input table's metadata, not in the column's lineage |
-| 3 | `code_values` | a code value not marked `unconfirmed` appears neither in the related comments nor in the SQL | — |
+| 3 | `code_values` | a code value not marked `unconfirmed` appears neither in the related comments nor in the SQL, and the dictionary does not confirm it on the column or a source column it reads (`confirmed_values`) | — |
 | 4 | `grain` | a grain column is not a target column, or `grain_source: proven` has no proven key in the packet | the claimed grain columns differ from the proven key |
 | 5 | `rules` | a non-partition filter is not cited by any `rules[].sql`, a quoted `sql` is not found in the task SQL (normalized), or a `rule_refs` entry names no rule | the packet has no SQL to check a quote against |
 | 6 | `neighbours` | an upstream table is not a lineage input, or a downstream task (or the table it is said to write) is not known | the downstream task is known but the tables it writes are not |
@@ -255,7 +292,7 @@ document is checked against `<packet dir>/<table>/packet.json`:
 | 9 | `time` | `refresh.time` is `incremental` while every input is a full snapshot read by one partition and no filter touches a business date | `refresh.time` is `snapshot` while the write filters on a business date |
 | 10 | `fan_out` | the right side of a join whose `fan_out.status` is not `safe` is named — by table (`db.table` or bare) or alias — neither in `summary.row.note` nor in a `summary.watch` item of kind `risk` (one item per right side, however many times it is joined) | a sentence of the note or a watch calls such a LEFT join harmless to the row count (无影响, 不影响行数, 不会放大 …); one warning per place |
 | 11 | `derived_codes` | a literal a column's CASE / IF returns (`case_outputs`) is missing from its `code_values` (one failure per value; NULL, `''` and TRUE / FALSE are not codes) | a code value whose meaning is success-like (成功 / 正常 / 通过 / 有效) comes from a branch that gathers several source values or the ELSE, and neither the column's `watch` nor a `summary.watch` with `refs` `column:<name>` says so |
-| 12 | `documented_meaning` | a code value marked `unconfirmed` or meaning 待确认 is explained by the column's comment or a source column's comment (`0-申请 1-成功` pairs, or a `正常、锁定、删除` list whose label the SQL quotes); a state whose documented meaning is itself 待确认 may say so | a qualifier (`增值税`, `税`, `手续费`, `罚息`, `冲正`, `测试`) in the main input's comment or a source column's comment, absent from the target's comments, is missing from `summary.what` (main input) or from every affected column's meaning / derivation (one warning per term) |
+| 12 | `documented_meaning` | a code value marked `unconfirmed` or meaning 待确认 is explained by the column's comment or a source column's comment (`0-申请 1-成功` pairs, or a `正常、锁定、删除` list whose label the SQL quotes), or the dictionary confirms it on the column or a source column (`confirmed_values`; the fix: write the dictionary's meaning, sourced `confirmed`); a state whose documented or confirmed meaning is itself 待确认 may say so | a qualifier (`增值税`, `税`, `手续费`, `罚息`, `冲正`, `测试`) in the main input's comment or a source column's comment, absent from the target's comments, is missing from `summary.what` (main input) or from every affected column's meaning / derivation (one warning per term) |
 | 13 | `header_facts` | — | the SQL header states a lifecycle (`header_facts.lifecycle`) or a data volume (`header_facts.volume`) that neither `summary.refresh.how_to_read` nor a watch mentions |
 
 Check 9 exists because a daily full snapshot described as incremental leads a reader to

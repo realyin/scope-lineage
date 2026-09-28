@@ -103,7 +103,8 @@ def check_source_columns(document: dict, packet: dict) -> list[dict]:
 
 
 def check_code_values(document: dict, packet: dict) -> list[dict]:
-    """A code value not marked ``unconfirmed`` is written in a comment or in the SQL."""
+    """A code value not marked ``unconfirmed`` is written in a comment or in the SQL, or
+    the glossary confirms it on the column or on a column it reads."""
     shared = "\n".join(
         [task["sql"] or "" for task in packet["tasks"]]
         + [line for task in packet["tasks"] for line in task["header_comments"]]
@@ -111,12 +112,15 @@ def check_code_values(document: dict, packet: dict) -> list[dict]:
     results = []
     for ci, column in enumerate(document["columns"]):
         text = "\n".join([_column_comments(packet, column["column"]), shared])
+        confirmed = confirmed_values(packet, column["column"])
         for vi, code in enumerate(column.get("code_values") or []):
             if code.get("unconfirmed"):
                 continue
             at = f"columns[{ci}].code_values[{vi}]"
             pattern = rf"(?<![A-Za-z0-9_]){re.escape(code['value'])}(?![A-Za-z0-9_])"
-            if code["value"] and re.search(pattern, text):
+            if str(code["value"]).strip() in confirmed:
+                results.append(result("code_values", "pass", at))
+            elif code["value"] and re.search(pattern, text):
                 results.append(result("code_values", "pass", at))
             else:
                 results.append(result("code_values", "fail", at, (
@@ -131,18 +135,45 @@ def _column_comments(packet: dict, name: str) -> str:
     return "\n".join(target + [comment for _, comment in source_comments(packet, name)])
 
 
-def source_comments(packet: dict, name: str) -> list[tuple[str, str]]:
-    """``(db.table.column, comment)`` for each commented input column a target column reads."""
-    sources = {
+def _sources(packet: dict, name: str) -> set[str]:
+    """The ``db.table.column`` references a target column reads, over every producer."""
+    return {
         source
         for entry in packet["lineage"]["columns"] if entry["column"] == name
         for producer in entry["producers"] for source in producer["sources"]
     }
+
+
+def _source_columns(packet: dict, name: str) -> list[tuple[str, dict]]:
+    sources = _sources(packet, name)
     return [
-        (f"{item['table']}.{column['name']}", column["comment"])
+        (f"{item['table']}.{column['name']}", column)
         for item in packet["inputs"] for column in item["columns"]
-        if f"{item['table']}.{column['name']}" in sources and column["comment"]
+        if f"{item['table']}.{column['name']}" in sources
     ]
+
+
+def source_comments(packet: dict, name: str) -> list[tuple[str, str]]:
+    """``(db.table.column, comment)`` for each commented input column a target column reads."""
+    return [
+        (reference, column["comment"])
+        for reference, column in _source_columns(packet, name) if column["comment"]
+    ]
+
+
+def confirmed_values(packet: dict, name: str) -> dict[str, str]:
+    """``value -> meaning`` the glossary confirms on a target column or a column it reads.
+
+    The target column's own answer first, then its sources' in packet order; the first
+    meaning of a value wins. Empty for a packet built without ``--glossary``.
+    """
+    target = [c for c in packet["target"]["columns"] if c["name"] == name]
+    columns = target + [column for _, column in _source_columns(packet, name)]
+    found: dict[str, str] = {}
+    for column in columns:
+        for item in column.get("confirmed_values") or []:
+            found.setdefault(str(item["value"]), str(item["meaning"]))
+    return found
 
 
 # 4 ------------------------------------------------------------------ grain

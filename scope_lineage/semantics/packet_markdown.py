@@ -4,6 +4,11 @@ Same facts as ``packet.json``, in the order a writer needs them: the table, the 
 and their SQL, the inputs, the lineage facts, and last the column order the document
 must follow. Nothing here is added or dropped relative to the JSON; the validator reads
 the JSON.
+
+What the owner already confirmed is shown where it applies and only when there is some:
+a patched comment carries 「（已确认，元数据补丁）」, and a column table gains an
+「已确认码值」 column when one of its columns has confirmed values -- so a packet built
+without either renders exactly as it did before.
 """
 
 from __future__ import annotations
@@ -18,6 +23,7 @@ def render_packet_markdown(packet: dict) -> str:
         f"- 格式：`{packet['doc_format']}`",
         f"- packet_digest：`{packet['packet_digest']}`（原样写进 table-semantics/1 的 "
         "`packet_digest`；材料变了它就变，校验据此判断文档是否过期）",
+        *_confirmed_note(packet),
         "",
     ]
     lines += _target(packet["target"])
@@ -40,22 +46,59 @@ def _names(values) -> str:
     return "、".join(_code(value) for value in values) if values else "—"
 
 
+PATCHED = "（已确认，元数据补丁）"
+
+
+def _confirmed_note(packet: dict) -> list[str]:
+    """One line saying how to use the confirmed facts, in a packet that has any."""
+    items = [packet["target"], *packet["inputs"]]
+    entries = items + [column for item in items for column in item["columns"]]
+    if not any("comment_source" in entry or "confirmed_values" in entry for entry in entries):
+        return []
+    return [
+        "- 已确认事实：标「已确认，元数据补丁」的注释与「已确认码值」一列都是负责人确认过的，照写，"
+        "`sources` 写 `confirmed`；这些码值不标 `unconfirmed`，也不再提问"
+    ]
+
+
+def _comment(entry: dict) -> str:
+    """A table's or a column's comment, marked when the metadata patch gave it."""
+    text = _text(entry["comment"])
+    return text + PATCHED if entry.get("comment_source") == "patch" else text
+
+
+def _confirmed_values(column: dict) -> str:
+    values = column.get("confirmed_values") or []
+    return _text("；".join(f"{item['value']}={item['meaning']}" for item in values))
+
+
+def _column_table(header: list[str], rows: list[list[str]], columns: list[dict]) -> list[str]:
+    """A markdown table of columns, with 已确认码值 last when any column has one."""
+    if any(column.get("confirmed_values") for column in columns):
+        header = [*header, "已确认码值"]
+        rows = [[*row, _confirmed_values(column)] for row, column in zip(rows, columns)]
+    return [
+        "| " + " | ".join(header) + " |",
+        "| " + " | ".join("---" for _ in header) + " |",
+        *("| " + " | ".join(row) + " |" for row in rows),
+    ]
+
+
 def _target(target: dict) -> list[str]:
     lines = [
         "## 1. 目标表",
         "",
-        f"- 表：{_code(target['table'])}；表注释：{_text(target['comment'])}",
+        f"- 表：{_code(target['table'])}；表注释：{_comment(target)}",
         f"- 说明：{_text(target['description'])}；层：{_text(target['layer'])}；"
         f"域：{_text(target['domain'])}；元数据来源：{target['metadata_source']}",
         "",
-        "| # | 列 | 类型 | 注释 | 分区列 |",
-        "| --- | --- | --- | --- | --- |",
     ]
-    for index, column in enumerate(target["columns"], start=1):
-        lines.append(
-            f"| {index} | {_code(column['name'])} | {_text(column['type'])} | "
-            f"{_text(column['comment'])} | {'是' if column['partition'] else ''} |"
-        )
+    rows = [
+        [str(index), _code(column["name"]), _text(column["type"]), _comment(column),
+         "是" if column["partition"] else ""]
+        for index, column in enumerate(target["columns"], start=1)
+    ]
+    lines += _column_table(["#", "列", "类型", "注释", "分区列"], rows, target["columns"])
     return [*lines, ""]
 
 
@@ -101,7 +144,7 @@ def _inputs(inputs: list[dict]) -> list[str]:
         return [*lines, "（没有输入表）", ""]
     for entry in inputs:
         lines += [
-            f"### {_code(entry['table'])}（{_text(entry['comment'])}）",
+            f"### {_code(entry['table'])}（{_comment(entry)}）",
             "",
             f"- 在本表的作用：{_names(entry['roles'])}；主表：{'是' if entry['driving'] else '否'}；"
             f"层：{_text(entry['layer'])}；生产任务：{_names(entry['producers'])}",
@@ -113,14 +156,13 @@ def _inputs(inputs: list[dict]) -> list[str]:
                          for item in entry["date_filters"]) or "无"
             ),
             "",
-            "| 列 | 类型 | 注释 | 本表用到 |",
-            "| --- | --- | --- | --- |",
         ]
-        lines += [
-            f"| {_code(c['name'])} | {_text(c['type'])} | {_text(c['comment'])} | "
-            f"{'、'.join(c['usages']) or ('是' if c['used'] else '')} |"
+        rows = [
+            [_code(c["name"]), _text(c["type"]), _comment(c),
+             "、".join(c["usages"]) or ("是" if c["used"] else "")]
             for c in entry["columns"]
         ]
+        lines += _column_table(["列", "类型", "注释", "本表用到"], rows, entry["columns"])
         lines.append("")
     return lines
 

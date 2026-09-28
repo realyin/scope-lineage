@@ -440,7 +440,8 @@ scope-lineage catalog render <dir>/ontology.json --out <pages-dir>   # the fallb
 # 1. choose the tables: the ones the user asked about, or a layer / a concept's tables
 # 2. one material packet per table
 scope-lineage semantic packet --lineage <artifacts-root> --tasks <task-json-dir> \
-  --schema <schema> [--schema-fallback <path>] [--only <db.table> ...] --out <run>/packets
+  --schema <schema> [--schema-fallback <path>] [--only <db.table> ...] \
+  [--glossary <dir>/glossary.json] [--metadata-patch <dir>/metadata-patch.json] --out <run>/packets
 # 3. every round starts here: where each table stands, then the batches of the next step
 scope-lineage semantic status <run>
 scope-lineage semantic status <run> --next draft --batch-size 5 --out <run>/next.json
@@ -473,6 +474,11 @@ scope-lineage semantic confirm <run>/docs --confirmations <answers.json>
   重新审读）、`review_unparsed`（审读没有 front matter，不会再被派发——补上或删掉重审）、`render_stale`。
   一张表连续两轮 `draft` 仍在 `drafted`，把它从本轮拿掉并告诉用户，不要一直派发。
 - **挑表**：只挑用户问到的表，或一个层、一个概念的表；`--only` 让材料包只解析相关的血缘文档。
+- **已确认的答案要带上**：这一轮有 `glossary.json`（跑过 `glossary --overrides`）或审过的
+  `metadata-patch.json` 时，建材料包就传 `--glossary` / `--metadata-patch`（补丁可重复）。材料包于是带上
+  「已确认码值」（`confirmed_values`）和标「已确认，元数据补丁」的注释（`comment_source: patch`），模型照写、
+  来源写 `confirmed`、不再提问；不传，负责人答过的问题会被原样再问一遍。摘要行的 `patch_unmatched` 要看：
+  非 0 说明补丁里有键没答到任何表或列（多半是拼写错了）。
 - **写作**：每张表单独一次调用，只给这张表的 `packet.md` 和提示词，不要把别的表、整份血缘或本体读进去。
   有本体目录时，把 `catalog query <ontology.json> table <db.table> --json` 答出的概念与表现类型告诉模型，
   让它写 `concept`；有已确认的业务事实（例如某个标识的含义）时，作为「已确认事实」一并给它。
