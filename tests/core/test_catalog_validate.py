@@ -189,6 +189,10 @@ def _duplicate_table(data: dict) -> None:
     data["representations"].append(dict(_rep(data, LOAN_DF)))
 
 
+def _duplicate_table_in_other_case(data: dict) -> None:
+    data["representations"].append({**_rep(data, LOAN_DF), "table": LOAN_DF.upper()})
+
+
 def _duplicate_column(data: dict) -> None:
     bindings = _rep(data, LOAN_DF)["bindings"]
     bindings.append(dict(bindings[0]))
@@ -300,6 +304,7 @@ REFERENCE_CASES = {
         lambda d: _rep(d, LOAN_DF)["grain"].update(identifiers=["attr:loan.principal"]),
     ),
     "duplicate_table": ("mapping/lending.yaml", _duplicate_table),
+    "duplicate_table: another case": ("mapping/lending.yaml", _duplicate_table_in_other_case),
     "duplicate_column": ("mapping/lending.yaml", _duplicate_column),
     "binding_attribute: another concept's": (
         "mapping/party.yaml",
@@ -496,3 +501,13 @@ def test_the_file_schemas_share_one_definition_of_the_common_fields() -> None:
         for kind in FILE_KINDS.values()
     ]
     assert all(shape == shapes[0] for shape in shapes)
+
+
+def test_a_duplicate_in_another_case_names_the_first_spelling(tmp_path: Path) -> None:
+    root = copy_demo(tmp_path)
+    mutate(root, "mapping/lending.yaml", _duplicate_table_in_other_case)
+
+    [error] = _validate(root).errors
+
+    assert error.at == LOAN_DF.upper()
+    assert error.message == f"already represented in mapping/lending.yaml (as {LOAN_DF})"

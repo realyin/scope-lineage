@@ -242,7 +242,7 @@ terms:
 
 | 字段 | 必填 | 含义 |
 | --- | --- | --- |
-| `table` | 是 | `库.表` |
+| `table` | 是 | `库.表`；不分大小写，`build` 一律写成小写 |
 | `concept` | 是 | 它表现的概念 |
 | `kind` | 是 | `core` / `extension`（与核心 1:1）/ `dependent` / `event_detail` / `state_history` / `identifier_map` / `role_view` / `summary` / `intermediate` |
 | `grain` | 是 | `{identifiers: [id], extra: [文字], source: declared/inferred/proven}` |
@@ -350,7 +350,7 @@ scope-lineage catalog validate examples/catalog-demo --json
 | `term_refers_to` | `refers_to` 不存在 |
 | `representation_concept` | 表现的 `concept` 不是概念 |
 | `representation_grain` | 粒度里有一项不是标识符 |
-| `duplicate_table` | 同一张表有两个表现 |
+| `duplicate_table` | 同一张表有两个表现（表名不分大小写） |
 | `duplicate_column` | 同一个表现里一列绑定了两次 |
 | `binding_attribute` | 该属性不属于所表现的概念（角色视图：也不属于其承担者） |
 | `binding_identifier` | 该标识符不属于所表现的概念（角色视图：也不属于其承担者） |
@@ -451,6 +451,8 @@ scope-lineage catalog build examples/catalog-demo --out out/
 - 每类对象的键按固定顺序输出；码值与状态值一律为文字，每个码值都带布尔 `unconfirmed`（标了
   `unconfirmed: true`，或含义为空、以「待确认」开头）；写成 `1` 的基数端输出为 `"1"`；
   文字形式的 `arises_when` 变成 `{condition}`；
+- 表名一律小写（表现的 `table` 与 `replaced_by`、标识符拼写的 `table`、`maps_to` 的 `via`）：Hive 表名
+  不分大小写，血缘契约里的表名都是小写，这样证据合并与查询才对得上；
 - 顶层列表排序——按 `id`，术语按词再按指向，表现按表名——所以把对象挪到别的文件不改变输出。
   对象内部的列表（属性、状态值、绑定）保持作者的顺序；
 - 绑定原样带出 `via`；指向本概念自己标识符的 `foreign_identifier` 带 `self_reference: true`；
@@ -624,7 +626,8 @@ scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_l
 | `carriers` | 概念的 id、名称、同义词或术语 | 所有概念的表里绑定了本概念标识符的列：表、表的概念、列、标识符、方式 |
 | `scope` | 过滤类别（`validity`/有效记录、`deletion`/删除、`dedup`/去重、`partition`/分区、`other`/其他，类别名或其一半都行）或关键词 | 记录范围或所引约束说到它的表，各带这些行（与其类别）、约束与取数方式 |
 
-名称精确匹配（忽略大小写与首尾空格），依次试 id、名称、同义词、术语；不猜。文本回答只有几行，
+名称精确匹配（忽略大小写与首尾空格），依次试 id、名称、同义词、术语；不猜。`table`、`column` 与按拼写查
+`identifier` 时，表名和列名同样不分大小写。文本回答只有几行，
 `concept` 先给出与概念页概览相同的「是什么 / 怎么认出来 / 数据在哪」（事件是「记录在」）：
 
 ```text

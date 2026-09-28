@@ -21,7 +21,7 @@ from scope_lineage.render.catalog_evidence import (
     catalog_table_name,
 )
 
-from .catalog_demo import DEMO, demo_tables, parse_demo_corpus
+from .catalog_demo import DEMO, copy_demo, demo_tables, item, mutate, parse_demo_corpus
 
 
 @pytest.fixture(scope="module")
@@ -109,6 +109,21 @@ def test_a_prefixed_target_still_reaches_its_representation(built: dict) -> None
         "demo_dwd.dwd_lending_repayment_di",
         "demo_dws.dws_lending_loan_summary_1d",
     ]
+
+
+def test_a_table_the_catalog_spells_in_upper_case_still_gets_its_evidence(
+    corpus: Path, tmp_path: Path
+) -> None:
+    root = copy_demo(tmp_path / "catalog")
+    loan = "demo_dwd.dwd_lending_loan_df"
+    mutate(root, "mapping/lending.yaml",
+           lambda d: item(d["representations"], "table", loan).update(table=loan.upper()))
+    out = tmp_path / "out"
+
+    assert main(["catalog", "build", str(root), "--out", str(out), "--lineage", str(corpus)]) == 0
+
+    document = json.loads((out / "ontology.json").read_text(encoding="utf-8"))
+    assert _rep(document, loan)["producing_tasks"] == ["dwd_lending_loan_daily"]
 
 
 def test_grain_proof_comes_from_the_producing_task(built: dict) -> None:

@@ -184,13 +184,16 @@ def _relation(checks: _Checks, file: str, relation: dict) -> None:
 
 
 def _representations(checks: _Checks, catalog: Catalog) -> None:
-    seen: dict[str, str] = {}
+    # Hive table names ignore case, and so do `build`, `merge` and `digest`.
+    seen: dict[str, tuple[str, str]] = {}
     for file, representation in catalog.records("mapping"):
         table = representation["table"]
-        if table in seen:
-            checks.fail("duplicate_table", file, table, f"already represented in {seen[table]}")
+        if table.lower() in seen:
+            first_file, first = seen[table.lower()]
+            spelled = f" (as {first})" if first != table else ""
+            checks.fail("duplicate_table", file, table, f"already represented in {first_file}{spelled}")
             continue
-        seen[table] = file
+        seen[table.lower()] = (file, table)
         _representation(checks, file, representation)
 
 

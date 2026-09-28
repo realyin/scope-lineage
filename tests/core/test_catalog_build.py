@@ -250,3 +250,30 @@ def test_ontology_findings_points_at_each_violation(demo: dict) -> None:
 
     assert [(f.rule, f.file) for f in findings] == [("schema", "ontology.json")] * 2
     assert {f.at for f in findings} == {None, "concepts[0].kind"}
+
+
+def test_table_names_are_built_lower_case(tmp_path: Path) -> None:
+    """Hive names ignore case; the lineage contract and every lookup use lower case."""
+    root = copy_demo(tmp_path)
+    loan = "demo_dwd.dwd_lending_loan_df"
+    summary = "demo_dws.dws_lending_loan_summary_v2_1d"
+
+    def shout(data: dict) -> None:
+        rep = item(data["representations"], "table", loan)
+        rep["table"] = loan.upper()
+        for other in data["representations"]:
+            if other.get("replaced_by") == summary:
+                other["replaced_by"] = summary.upper()
+
+    def shout_identifiers(data: dict) -> None:
+        for identifier in data["identifiers"]:
+            for spelling in identifier.get("spellings") or []:
+                if "table" in spelling:
+                    spelling["table"] = spelling["table"].upper()
+            for mapping in identifier.get("maps_to") or []:
+                mapping["via"] = [table.upper() for table in mapping.get("via") or []]
+
+    mutate(root, "mapping/lending.yaml", shout)
+    mutate(root, "identifiers.yaml", shout_identifiers)
+
+    assert build_ontology(load_catalog(root)) == build_ontology(load_catalog(DEMO))

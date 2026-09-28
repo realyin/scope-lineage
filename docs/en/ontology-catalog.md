@@ -260,7 +260,7 @@ representation per table).
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `table` | yes | `db.table` |
+| `table` | yes | `db.table`; case does not matter, `build` writes it lower-case |
 | `concept` | yes | the concept it represents |
 | `kind` | yes | `core` / `extension` (1:1 with the core) / `dependent` / `event_detail` / `state_history` / `identifier_map` / `role_view` / `summary` / `intermediate` |
 | `grain` | yes | `{identifiers: [id], extra: [text], source: declared/inferred/proven}` |
@@ -374,7 +374,7 @@ directory, no manifest, YAML without PyYAML).
 | `term_refers_to` | `refers_to` does not exist |
 | `representation_concept` | the representation's `concept` is not a concept |
 | `representation_grain` | a grain identifier is not an identifier |
-| `duplicate_table` | a table is represented twice |
+| `duplicate_table` | a table is represented twice (table names ignore case) |
 | `duplicate_column` | a column is bound twice in one representation |
 | `binding_attribute` | the attribute is not the represented concept's (or, for a role view, its player's) |
 | `binding_identifier` | the identifier is not the represented concept's (or, for a role view, its player's) |
@@ -481,6 +481,9 @@ is a scope-lineage bug, not a fault in the catalog:
   every code value carries a boolean `unconfirmed` (flagged `unconfirmed: true`, or a meaning
   that is empty or starts 「待确认」); a cardinality end written `1` is `"1"`; a text
   `arises_when` becomes `{condition}`;
+- table names are lower-case (a representation's `table` and `replaced_by`, a spelling's
+  `table`, the `via` of `maps_to`): Hive table names ignore case and the lineage contract
+  spells every table in lower case, so the evidence merge and queries match;
 - top-level lists are sorted — by `id`, terms by term then target, representations by
   table — so moving an object to another file changes nothing. Lists inside an object
   (attributes, state values, bindings) keep the author's order;
@@ -680,7 +683,8 @@ scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_l
 | `scope` | a kind of filter (`validity`/有效记录, `deletion`/删除, `dedup`/去重, `partition`/分区, `other`/其他; the label or either half of it works too) or a keyword | the tables whose scope lines or cited rules state it, each with those lines (and their kinds), the rules and how to read the table |
 
 Names match exactly, ignoring case and surrounding spaces, in that order (id, then name,
-then synonym, then term); nothing is guessed. The text answer is a few lines; for a `concept`
+then synonym, then term); nothing is guessed. Table and column names in `table`, `column`
+and an `identifier` spelling ignore case too. The text answer is a few lines; for a `concept`
 it leads with the same 是什么 / 怎么认出来 / 数据在哪 (记录在 for an event) as the page's overview:
 
 ```text
