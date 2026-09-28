@@ -18,6 +18,7 @@ See ``dev-notes/plans/2026-09-28-assertion-model-design.md``.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, replace
 from typing import NamedTuple
 
 SOUND = "sound"
@@ -66,3 +67,81 @@ RULES: dict[str, Rule] = {
     # -- evidence against a conclusion
     "R-CONFLICT": Rule(CONFLICT, "两条结论互相矛盾，发布为发现，不发布为事实"),
 }
+
+
+# ------------------------------------------------------------------ the claim record
+
+# What a claim is about. The order is the only direction a claim may be carried, and only
+# by a named rule: a query's rows, the batch a write stores, one partition of a table,
+# the whole table, and what one read of it sees.
+SUBJECT_QUERY_ROWS = "query_rows"
+SUBJECT_WRITE_BATCH = "write_batch"
+SUBJECT_PARTITION_STATE = "partition_state"
+SUBJECT_TABLE_STATE = "table_state"
+SUBJECT_READ_VIEW = "read_view"
+SUBJECT_PHYSICAL_COLUMN = "physical_column"
+SUBJECT_KINDS = (
+    SUBJECT_QUERY_ROWS,
+    SUBJECT_WRITE_BATCH,
+    SUBJECT_PARTITION_STATE,
+    SUBJECT_TABLE_STATE,
+    SUBJECT_READ_VIEW,
+    SUBJECT_PHYSICAL_COLUMN,
+)
+
+# Strongest first. `conditional` is a sound rule with a condition this subject does not
+# discharge itself; `conflicted` has evidence against it; `unknown` is no conclusion.
+PROVEN = "proven"
+CONFIRMED = "confirmed"
+CONDITIONAL = "conditional"
+HYPOTHESIS = "hypothesis"
+CONFLICTED = "conflicted"
+UNKNOWN = "unknown"
+STATUSES = (PROVEN, CONFIRMED, CONDITIONAL, HYPOTHESIS, CONFLICTED, UNKNOWN)
+
+
+class Subject(NamedTuple):
+    kind: str
+    ref: tuple
+
+
+@dataclass(frozen=True)
+class Claim:
+    """One conclusion about one subject, by one rule.
+
+    ``defeaters`` are ``(code, text)`` pairs: evidence the corpus holds against carrying
+    the conclusion to this subject. A claim with any defeater is never ``proven`` -- the
+    card that reports a producer conflict used to show it and prove the key anyway.
+    """
+
+    kind: str
+    subject: Subject
+    content: tuple
+    status: str
+    rule: str
+    evidence: tuple = ()
+    conditions: tuple = ()
+    assumptions: tuple = ()
+    defeaters: tuple = ()
+
+    def __post_init__(self) -> None:
+        if self.rule not in RULES:
+            raise ValueError(f"undeclared rule {self.rule!r}")
+        if self.status not in STATUSES:
+            raise ValueError(f"unknown status {self.status!r}")
+        if self.subject.kind not in SUBJECT_KINDS:
+            raise ValueError(f"unknown subject kind {self.subject.kind!r}")
+        if self.status == PROVEN and RULES[self.rule].kind != SOUND:
+            raise ValueError(f"{self.rule} is a heuristic rule and cannot prove")
+        if self.status == PROVEN and self.defeaters:
+            raise ValueError("a claim with a defeater cannot be proven")
+
+    def weakened_to(self, status: str) -> "Claim":
+        """This claim at ``status`` or weaker -- never stronger than it already is."""
+        weaker = max(STATUSES.index(self.status), STATUSES.index(status))
+        return replace(self, status=STATUSES[weaker])
+
+    def defeated_by(self, code: str, text: str) -> "Claim":
+        """This claim with one more piece of evidence against it, no longer a proof."""
+        weakened = self.weakened_to(UNKNOWN) if self.status == PROVEN else self
+        return replace(weakened, defeaters=(*self.defeaters, (code, text)))
