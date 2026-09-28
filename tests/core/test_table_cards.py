@@ -988,6 +988,50 @@ def test_a_pin_on_the_left_table_does_not_pin_the_right_one() -> None:
     assert shape["fan_out_risks"][0]["status"] != "safe"
 
 
+def _card_claim(*producers: tuple[str, str]):
+    from scope_lineage.render.semantic_profile import card_key_claim
+
+    cards = build_table_cards([_statement_profile(text, task) for task, text in producers])
+    return card_key_claim(_card(cards, "mart.customer_daily"))
+
+
+def test_a_whole_table_producer_proves_the_tables_key_under_the_writers_premise() -> None:
+    claim = _card_claim(("producer_task", CARD_PRODUCER_SQL))
+
+    assert claim.subject == ("table_state", ("mart.customer_daily",))
+    assert claim.status == "proven"
+    assert claim.rule == "R-REPLACE-STATE"
+    assert claim.content == ("customer_id", "country_code")
+    assert claim.evidence == ("producer_task",)
+    assert claim.assumptions == ("A-WRITERS-CLOSED",)
+    assert claim.defeaters == ()
+
+
+def test_a_partition_producers_claim_carries_the_partition_in_its_key() -> None:
+    claim = _card_claim(("producer_task", PRODUCER_SQL))
+
+    assert claim.rule == "R-PARTITION-STATE"
+    assert claim.content == ("customer_id", "country_code", "dt")
+    assert claim.status == "proven"
+
+
+def test_an_appending_producer_is_a_defeater_not_a_proof() -> None:
+    claim = _card_claim(("producer_task", APPEND_PRODUCER_SQL))
+
+    assert claim.status != "proven"
+    assert [code for code, _text in claim.defeaters] == ["appending_producer"]
+
+
+def test_disagreeing_producers_are_a_defeater() -> None:
+    other = (
+        "INSERT OVERWRITE TABLE mart.customer_daily "
+        "SELECT customer_id, country_code FROM ods.customer_event"
+    )
+    claim = _card_claim(("producer_task", CARD_PRODUCER_SQL), ("other_task", other))
+
+    assert [code for code, _text in claim.defeaters] == ["producer_key_conflict"]
+
+
 UNION_PRODUCER_SQL = (
     "INSERT OVERWRITE TABLE mart.union_out SELECT customer_id FROM ods.customer_base "
     "UNION ALL SELECT customer_id FROM ods.customer_event"

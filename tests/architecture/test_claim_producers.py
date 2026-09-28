@@ -48,6 +48,9 @@ PRODUCERS: dict[str, tuple[str, ...]] = {
         "R-REPLACE-STATE", "R-PARTITION-STATE", "R-READ-PIN", "R-PRODUCERS-AGREE",
     ),
     "render/semantic_profile.py:_capped_confidence": ("R-CANDIDATE-CAP",),
+    "render/semantic_profile.py:_card_key_claim": (
+        "R-REPLACE-STATE", "R-PARTITION-STATE", "R-PRODUCERS-AGREE",
+    ),
     # corpus level: the ontology
     "render/ontology.py:_cardinality": ("R-INTENT-DEDUP",),
     "render/ontology.py:_physical_cardinality": (
@@ -104,6 +107,7 @@ READERS: frozenset[str] = frozenset({
     "render/semantic_markdown.py:_candidate_key_line",
     "render/semantic_profile.py:_driving_key_columns",
     "render/semantic_profile.py:_card_reason",
+    "render/semantic_profile.py:_card_claim_level",
     "semantics/checks.py:check_grain",
     "semantics/checks_meaning.py:check_fan_out",
     "semantics/packet_facts.py:statement_keys",
