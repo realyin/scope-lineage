@@ -3633,6 +3633,13 @@ def _fan_out_verdict(
         return "unknown", f"右侧 {right} 不是本语句的 scope，无唯一性事实", None, None, []
     columns = _join_side_columns(detail, "right")
     if not columns:
+        # A right side that aggregates with no GROUP BY is one row whatever the ON clause
+        # says (``R-EMPTY-GROUPING``), so no key is needed to call the JOIN safe.
+        grouped = _grouped_uniqueness(document, right, columns)
+        if grouped is not None and grouped[0] == "safe" and not _aggregation_logical_keys(
+            document, right
+        ):
+            return grouped[0], grouped[1], None, None, grouped[2]
         return (*_keyless_join_verdict(detail), None, None, [])
     grouped = _grouped_uniqueness(document, right, columns)
     if grouped is not None and grouped[0] == "safe":

@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- **A keyless JOIN onto a one-row aggregate is `safe`.** `... JOIN (SELECT MAX(v) ...) r ON 1 = 1`
+  was answered by the "no join key" branch before the right side's grouping was looked at,
+  so a JOIN that cannot duplicate a row read `risk`. A right side aggregating with no GROUP
+  BY is one row (`R-EMPTY-GROUPING`); the SQLite witness that flagged this case as a
+  conservative miss now requires the claim.
 - **The documents publish the claims behind their conclusions (assertion model WP6).** New
   optional fields, every existing field unchanged: `semantic.json` `output_shape.key_claim`
   (`null` when no key is claimed) and `fan_out_risks[].claim`; each `tables.json` card's
