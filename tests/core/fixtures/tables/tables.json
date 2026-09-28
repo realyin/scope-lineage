@@ -107,7 +107,8 @@
             }
           ]
         }
-      ]
+      ],
+      "key_claim": null
     },
     {
       "table": "dim.segment_dim",
@@ -206,7 +207,8 @@
             }
           ]
         }
-      ]
+      ],
+      "key_claim": null
     },
     {
       "table": "mart.channel_summary",
@@ -392,7 +394,32 @@
             }
           ]
         }
-      ]
+      ],
+      "key_claim": {
+        "kind": "unique_by",
+        "subject": {
+          "kind": "table_state",
+          "ref": [
+            "mart.channel_summary"
+          ]
+        },
+        "content": [
+          "customer_id",
+          "channel_name",
+          "dt"
+        ],
+        "status": "proven",
+        "rule": "R-PARTITION-STATE",
+        "evidence": [
+          "golden_commented_insert"
+        ],
+        "conditions": [],
+        "assumptions": [
+          "A-WRITERS-CLOSED",
+          "A-METADATA-AUTHORITATIVE"
+        ],
+        "defeaters": []
+      }
     },
     {
       "table": "mart.metric_by_segment",
@@ -550,7 +577,32 @@
             }
           ]
         }
-      ]
+      ],
+      "key_claim": {
+        "kind": "unique_by",
+        "subject": {
+          "kind": "table_state",
+          "ref": [
+            "mart.metric_by_segment"
+          ]
+        },
+        "content": [
+          "segment",
+          "band",
+          "dt"
+        ],
+        "status": "proven",
+        "rule": "R-PARTITION-STATE",
+        "evidence": [
+          "golden_grouped_dedup_join"
+        ],
+        "conditions": [],
+        "assumptions": [
+          "A-WRITERS-CLOSED",
+          "A-METADATA-AUTHORITATIVE"
+        ],
+        "defeaters": []
+      }
     },
     {
       "table": "mart.user_names",
@@ -634,7 +686,8 @@
             }
           ]
         }
-      ]
+      ],
+      "key_claim": null
     },
     {
       "table": "ods.channel_event",
@@ -798,7 +851,8 @@
             }
           ]
         }
-      ]
+      ],
+      "key_claim": null
     },
     {
       "table": "ods.events_a",
@@ -888,7 +942,8 @@
             }
           ]
         }
-      ]
+      ],
+      "key_claim": null
     },
     {
       "table": "ods.events_b",
@@ -978,7 +1033,8 @@
             }
           ]
         }
-      ]
+      ],
+      "key_claim": null
     },
     {
       "table": "ods.users",
@@ -1103,7 +1159,8 @@
             }
           ]
         }
-      ]
+      ],
+      "key_claim": null
     }
   ]
 }

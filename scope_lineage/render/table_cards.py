@@ -36,11 +36,13 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Iterable, Mapping, Sequence
 
+from . import claims
 from .markdown_text import cell, expr_span, normalize_inline
 from .semantic_profile import (
     REFRESH_SOURCE_TASK_META,
     TASK_PROFILE_ARTIFACT_KIND,
     USAGE_ORDER,
+    card_key_claim,
 )
 
 
@@ -131,6 +133,7 @@ TABLE_KEY_ORDER = (
     "columns",
     "coverage",
     "findings",
+    "key_claim",
 )
 
 PRODUCER_KEY_ORDER = (
@@ -508,6 +511,16 @@ def _table_card(
         ),
         "findings": _findings(produced_by, consumed_by, bare_name_candidates),
     }
+    return _with_key_claim(card)
+
+
+def _with_key_claim(card: dict) -> dict:
+    """The card in its key order, with the claim its producers make about the table (WP6).
+
+    Computed from the card's own ``produced_by``, so a merged card's claim reflects every
+    producer the merge brought together, and a defeater any of them adds.
+    """
+    card["key_claim"] = claims.claim_json(card_key_claim(card))
     return {key: card[key] for key in TABLE_KEY_ORDER}
 
 
@@ -1151,7 +1164,7 @@ def _merged_card(
         ),
         "findings": _findings(produced_by, consumed_by, bare_name_candidates),
     }
-    return {key: card[key] for key in TABLE_KEY_ORDER}
+    return _with_key_claim(card)
 
 
 def _first_fact(cards: Sequence[tuple[str, Mapping]], key: str):

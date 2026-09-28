@@ -2531,7 +2531,58 @@ def _build_output_shape(
         "partition_columns": list(document.get("target_partition_columns") or []),
         "fan_out_risks": risks,
         "tag": TAG_STRUCTURAL_INFERENCE,
+        # WP6: the claim behind `key_confidence` -- which rule, about which write, under
+        # which open condition. Null exactly when no key is claimed.
+        "key_claim": claims.claim_json(
+            _output_key_claim(document, grain, keys, unexposed, confidence)
+        ),
     }
+
+
+#: The rule behind each grain basis's key set.
+_BASIS_RULES = {
+    BASIS_GROUP_BY: "R-GROUPBY-KEY",
+    BASIS_DISTINCT: "R-DISTINCT-KEY",
+    BASIS_WINDOW_PARTITION: "R-ROWNUM-FIRST",
+    BASIS_SINGLE_ROW: "R-EMPTY-GROUPING",
+    BASIS_DRIVING_TABLE_ROWS: "R-DRIVING-KEYS",
+}
+
+
+def _output_key_claim(
+    document: dict,
+    grain: dict,
+    keys: Sequence[str],
+    unexposed: Sequence,
+    confidence: str,
+) -> claims.Claim | None:
+    """``key_confidence`` as a claim about the batch this statement writes.
+
+    ``proven_unexposed`` is a key that holds but is not all written, so on the written
+    batch it is ``conditional`` on writing the rest; ``candidate`` is a hypothesis.
+    """
+    rule = _BASIS_RULES.get(str(grain.get("basis")))
+    if confidence == KEY_CONFIDENCE_NONE or rule is None:
+        return None
+    missing = tuple(
+        str(item.get("name") if isinstance(item, Mapping) else item) for item in unexposed
+    )
+    status = {
+        KEY_CONFIDENCE_PROVEN: claims.PROVEN,
+        KEY_CONFIDENCE_PROVEN_UNEXPOSED: claims.CONDITIONAL,
+    }.get(confidence, claims.HYPOTHESIS)
+    return claims.Claim(
+        "unique_by",
+        claims.Subject(
+            claims.SUBJECT_WRITE_BATCH,
+            (document.get("task_id"), document.get("statement_id"), document.get("target_table")),
+        ),
+        tuple(keys),
+        status if claims.RULES[rule].kind == claims.SOUND else claims.HYPOTHESIS,
+        rule,
+        tuple(str(item) for item in grain.get("evidence") or []),
+        conditions=(("keys_written", missing),) if status == claims.CONDITIONAL else (),
+    )
 
 
 def _key_block(
@@ -3555,6 +3606,9 @@ def _fan_out_risk(
     # published beside it rather than left inside the sentence.
     if pinned:
         risk["pinned_keys"] = list(pinned)
+    claim = _fan_out_claim(document, block_id, detail, card_lookup)
+    if claim is not None:
+        risk["claim"] = claims.claim_json(claim)
     return risk, level
 
 
@@ -3579,6 +3633,13 @@ def _fan_out_verdict(
         return "unknown", f"右侧 {right} 不是本语句的 scope，无唯一性事实", None, None, []
     columns = _join_side_columns(detail, "right")
     if not columns:
+        # A right side that aggregates with no GROUP BY is one row whatever the ON clause
+        # says (``R-EMPTY-GROUPING``), so no key is needed to call the JOIN safe.
+        grouped = _grouped_uniqueness(document, right, columns)
+        if grouped is not None and grouped[0] == "safe" and not _aggregation_logical_keys(
+            document, right
+        ):
+            return grouped[0], grouped[1], None, None, grouped[2]
         return (*_keyless_join_verdict(detail), None, None, [])
     grouped = _grouped_uniqueness(document, right, columns)
     if grouped is not None and grouped[0] == "safe":
@@ -3590,6 +3651,33 @@ def _fan_out_verdict(
         return "safe", f"右侧 {function} {scope}并以 = 1 过滤（{consumer}）", None, None, []
     fallback = grouped or ("risk", "右侧未被证明按连接键唯一", [])
     return fallback[0], fallback[1], None, None, fallback[2]
+
+
+def _fan_out_claim(
+    document: dict, block_id: str, detail: dict, card_lookup=None
+) -> claims.Claim | None:
+    """The claim about the JOIN's right side the verdict rests on, when there is one (WP6)."""
+    right = str(detail.get("right_input") or "")
+    if right in set(document.get("source_tables") or []):
+        if card_lookup is None:
+            return None
+        card = card_lookup(right)
+        claim = _card_key_claim(card)
+        if claim is None or claim.defeaters:
+            return claim
+        return _read_claim(
+            claim,
+            detail,
+            _right_table_pins(document, block_id, right),
+            _card_partition_columns(card),
+        )
+    if right not in _scopes(document):
+        return None
+    grouped = _grouped_key_claim(document, right)
+    if grouped is not None:
+        return grouped
+    columns = _join_side_columns(detail, "right")
+    return _ranking_key_claim(document, right, (block_id, detail), columns) if columns else None
 
 
 def _keyless_join_verdict(detail: dict) -> tuple[str, str]:

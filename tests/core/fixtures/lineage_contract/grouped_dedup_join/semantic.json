@@ -341,10 +341,54 @@
         "right": "cte:latest_dim",
         "status": "safe",
         "reason": "右侧 row_number 按 segment 分区并以 = 1 过滤（logic:cte:joined:join:001）",
-        "path": "grain"
+        "path": "grain",
+        "claim": {
+          "kind": "at_most_one_row",
+          "subject": {
+            "kind": "query_rows",
+            "ref": [
+              "cte:latest_dim"
+            ]
+          },
+          "content": [
+            "segment"
+          ],
+          "status": "proven",
+          "rule": "R-ROWNUM-FIRST",
+          "evidence": [
+            "logic:cte:joined:join:001",
+            "row_number"
+          ],
+          "conditions": [],
+          "assumptions": [],
+          "defeaters": []
+        }
       }
     ],
-    "tag": "结构推断"
+    "tag": "结构推断",
+    "key_claim": {
+      "kind": "unique_by",
+      "subject": {
+        "kind": "write_batch",
+        "ref": [
+          "golden_grouped_dedup_join",
+          "stmt:001",
+          "mart.metric_by_segment"
+        ]
+      },
+      "content": [
+        "segment",
+        "band"
+      ],
+      "status": "proven",
+      "rule": "R-GROUPBY-KEY",
+      "evidence": [
+        "logic:cte:agg:group_by:001"
+      ],
+      "conditions": [],
+      "assumptions": [],
+      "defeaters": []
+    }
   },
   "stages": [
     {
@@ -894,6 +938,29 @@
             "rule:001"
           ],
           "closed_set": true,
+          "closed_for": {
+            "kind": "value_subset",
+            "subject": {
+              "kind": "write_batch",
+              "ref": [
+                "golden_grouped_dedup_join",
+                "stmt:001",
+                "cte:agg.band"
+              ]
+            },
+            "content": [
+              "HIGH",
+              "LOW"
+            ],
+            "status": "proven",
+            "rule": "R-CASE-OUTPUT",
+            "evidence": [
+              "cte:agg.band"
+            ],
+            "conditions": [],
+            "assumptions": [],
+            "defeaters": []
+          },
           "meaning": null
         },
         {
@@ -904,6 +971,29 @@
             "rule:001"
           ],
           "closed_set": true,
+          "closed_for": {
+            "kind": "value_subset",
+            "subject": {
+              "kind": "write_batch",
+              "ref": [
+                "golden_grouped_dedup_join",
+                "stmt:001",
+                "cte:agg.band"
+              ]
+            },
+            "content": [
+              "HIGH",
+              "LOW"
+            ],
+            "status": "proven",
+            "rule": "R-CASE-OUTPUT",
+            "evidence": [
+              "cte:agg.band"
+            ],
+            "conditions": [],
+            "assumptions": [],
+            "defeaters": []
+          },
           "meaning": null
         }
       ],

@@ -1,6 +1,30 @@
 # Changelog
 
 ## Unreleased
+- **When a row is a complete fact: one published rule (assertion model WP7).** A task document
+  says "incomplete" five ways -- `analysis_status`, `trace_complete`, `value_sources_folded`,
+  a `session_scoped` edge left unfolded, a `row_condition_source_unresolved` gap -- and
+  `trace_complete` alone stays `true` for a row whose row conditions name no physical field.
+  `task-lineage-v2.md` (zh/en) now gives the combination as runnable code,
+  `usable_as_complete(document, row)`; `tests/core/test_completeness_recipe.py` executes that
+  very block against real and hand-built documents, one criterion at a time, and requires
+  both languages to carry the same code. No new field (owner decision E).
+- **A keyless JOIN onto a one-row aggregate is `safe`.** `... JOIN (SELECT MAX(v) ...) r ON 1 = 1`
+  was answered by the "no join key" branch before the right side's grouping was looked at,
+  so a JOIN that cannot duplicate a row read `risk`. A right side aggregating with no GROUP
+  BY is one row (`R-EMPTY-GROUPING`); the SQLite witness that flagged this case as a
+  conservative miss now requires the claim.
+- **The documents publish the claims behind their conclusions (assertion model WP6).** New
+  optional fields, every existing field unchanged: `semantic.json` `output_shape.key_claim`
+  (`null` when no key is claimed) and `fan_out_risks[].claim`; each `tables.json` card's
+  `key_claim` (the table-level claim, recomputed on a merge, with `appending_producer` /
+  `producer_key_conflict` defeaters); the ontology's `table_relations[].cardinality.validity`
+  for a producer-proven relation; and `closed_for` on a closed `value_domain` entry. A
+  claim is `{kind, subject: {kind, ref}, content, status, rule, evidence, conditions,
+  assumptions, defeaters}`: what the conclusion is about (a write batch, a query's rows, a
+  read, a table state), which registered rule gave it, what is still open and which premises
+  it rests on. Goldens gain only these fields; no markdown changes. Docs zh/en:
+  `semantic-doc.md`, `tables-doc.md`, `ontology-doc.md`, `glossary-doc.md`.
 - **One composition module; the fold expands row sets (assertion model WP5).** Source
   identity, deduplication and transform composition now live once in `scope/composition.py`
   and the statement trace, the task rows and `fold_session_scoped` all use it (differential

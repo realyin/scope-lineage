@@ -357,6 +357,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 | `table_relations[].cardinality.claim` | `one_to_many` / `many_to_one` / `many_to_one_assumed` / `one_to_one_assumed` / `unknown` | O2，方向为 `from` → `to`；`one_to_one_assumed` 只可能来自人工确认 |
 | `table_relations[].cardinality.tier` | 五级之一 | 该基数断言的置信层级 |
 | `table_relations[].cardinality.basis` | `group_by` / `ranking_window` / `producer_key_confidence` / `right_side_not_deduplicated` / `union_branch_alignment` / `no_uniqueness_evidence` / `human_confirmation` / `column_comment` | 该基数断言的依据 |
+| `table_relations[].cardinality.validity` | 断言对象（格式同 `semantic-doc.md` 的 `key_claim`），仅在基数由生产任务的键证明给出（`producer_key_confidence`）时出现 | 这条 `proven` 关于哪次读取、依赖哪些前提：`subject` 为 `read_view`，`rule` 为 `R-REPLACE-STATE` / `R-PARTITION-STATE` / `R-READ-PIN`，`assumptions` 至少含 `A-WRITERS-CLOSED`（语料包含了这张表的全部写入任务），分区写入时还有 `A-METADATA-AUTHORITATIVE` |
 | `table_relations[].join_types`、`task_count` | JOIN 类型并集、任务数 | 同一对实体在不同任务里的 JOIN 类型合并 |
 | `table_relations[].evidence[].left_via_scopes` | scope id 列表 | JOIN 某一侧是 CTE 时，穿透到物理表所经过的 scope（右侧为 `right_via_scopes`） |
 | `relations[].id` | `crel:NNN` | M2：概念关系按发布顺序编号，`table_relations[].concept_relation` 指的就是它 |

@@ -284,6 +284,8 @@ mart.customer_daily,country_code,CN,10
 行标签风格与 [semantic.md](semantic-doc.md) 一致：`（元数据事实）`、`（SQL事实）`、
 `（结构推断；证据 …）`、`（SQL注释）`。文件名把 `/`、空格等文件系统不接受的字符换成 `_`。
 
+每张卡还有 `key_claim`：生产任务的键对**这张表**说了什么（格式同 `semantic-doc.md` 的 `key_claim`；没有任何生产任务给出键时为 `null`）。`subject` 是 `table_state`；整表覆盖写入为 `R-REPLACE-STATE`，分区覆盖写入为 `R-PARTITION-STATE` 且 `content` 含分区列；`defeaters` 写出撤销证明的原因——`appending_producer`（有生产任务追加或合并写入）、`producer_key_conflict`（生产任务的键不一致）——此时 `status` 不再是 `proven`。合并语料时它按合并后的 `produced_by` 重算。
+
 `findings[].kind` 只有五种，含义都是"这是语料内可观察到的事实"，不是判决：
 
 | kind | 含义 |

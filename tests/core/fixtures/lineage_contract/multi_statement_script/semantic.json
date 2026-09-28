@@ -102,7 +102,8 @@
     "key_confidence": "none",
     "partition_columns": [],
     "fan_out_risks": [],
-    "tag": "结构推断"
+    "tag": "结构推断",
+    "key_claim": null
   },
   "stages": [
     {

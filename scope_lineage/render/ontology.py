@@ -93,6 +93,7 @@ from .semantic_profile import (
     aggregation_keys,
     build_semantic_profile,
     card_key_claim,
+    card_read_claim,
     card_lookup,
     comparable,
     driving_table,
@@ -1678,7 +1679,7 @@ def _cardinality(document: Mapping, block_id: str, detail: Mapping, lookup) -> d
     columns = join_side_columns(detail, "right")
     if right in set(document.get("source_tables") or []):
         pinned = right_table_pins(dict(document), block_id, right)
-        return _physical_cardinality(right, [*columns, *pinned], lookup)
+        return _physical_cardinality(right, [*columns, *pinned], lookup, document, block_id, detail)
     if not columns or right not in (document.get("scopes") or {}):
         return _claim(CARDINALITY_UNKNOWN, TIER_HYPOTHESIS, BASIS_NO_EVIDENCE)
     # A dedup before the join reads as "that table has many rows per key", but only as
@@ -1690,16 +1691,27 @@ def _cardinality(document: Mapping, block_id: str, detail: Mapping, lookup) -> d
     return _claim(CARDINALITY_UNKNOWN, TIER_HYPOTHESIS, BASIS_NO_EVIDENCE)
 
 
-def _physical_cardinality(right: str, columns: Sequence[str], lookup) -> dict:
+def _physical_cardinality(
+    right: str,
+    columns: Sequence[str],
+    lookup,
+    document: Mapping | None = None,
+    block_id: str = "",
+    detail: Mapping | None = None,
+) -> dict:
     """A JOIN straight onto a table: the corpus's proof if there is one, else the guess."""
     claim = card_key_claim(lookup(right)) if lookup is not None else None
     if claim is not None and claim.status == claims.PROVEN:
         if columns and comparable(list(claim.content)) <= comparable(columns):
+            read = card_read_claim(
+                dict(document or {}), block_id, dict(detail or {}), {"tables": [lookup(right)]}
+            ) if document is not None else None
             return _claim(
                 CARDINALITY_MANY_TO_ONE,
                 TIER_PROVEN,
                 BASIS_PRODUCER_KEY,
                 producer=claim.evidence[0],
+                validity=claims.claim_json(read or claim),
             )
     return _claim(CARDINALITY_MANY_TO_ONE_ASSUMED, TIER_HYPOTHESIS, BASIS_NO_DEDUP)
 

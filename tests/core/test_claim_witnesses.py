@@ -168,10 +168,7 @@ FAN_OUT_CASES = [
         "b.id = r.id",
         True,
     ),
-    # A keyless JOIN is answered before the right side's one-row aggregate is looked at.
-    FanOutCase(
-        "R-EMPTY-GROUPING", "SELECT MAX(v) AS v FROM ods.e", "1 = 1", False, conservative=True
-    ),
+    FanOutCase("R-EMPTY-GROUPING", "SELECT MAX(v) AS v FROM ods.e", "1 = 1", True),
 ]
 
 
