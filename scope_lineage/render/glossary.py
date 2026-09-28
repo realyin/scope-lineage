@@ -812,7 +812,13 @@ def _apply_statement_glossary(
     fields = statement.get("fields") or []
     rules = statement.get("rules") or []
     task_block = statement.get("task") or {}
-    glossary_values.apply_value_domains(fields, entries, task_block.get("target_table"))
+    reader = (
+        task or str(task_block.get("task_name") or ""),
+        statement.get("statement_id"),
+    )
+    glossary_values.apply_value_domains(
+        fields, entries, task_block.get("target_table"), reader
+    )
     # WI-2.12. A 1.0 statement profile names its task only inside `task.task_name`; a 2.0
     # task profile carries the id the observations were filed under at the top.
     glossary_values.apply_rule_value_meanings(

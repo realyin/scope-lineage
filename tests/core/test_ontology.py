@@ -485,7 +485,9 @@ def test_o6_an_equality_filter_is_not_a_not_null_constraint() -> None:
     assert _attribute(ontology, "ods.orders", "state")["not_null_observed"] is False
 
 
-def test_o6_a_closed_in_list_is_a_complete_and_proven_value_set() -> None:
+def test_o6_a_filters_in_list_is_not_the_columns_value_set() -> None:
+    """F3: ``WHERE state IN ('NEW', 'PAID')`` picks this task's rows; the table's
+    ``state`` may hold anything, so the values are observed, never complete."""
     sql = (
         "INSERT INTO mart.t SELECT o.order_id, o.state FROM ods.orders o "
         "WHERE o.state IN ('NEW', 'PAID')"
@@ -493,8 +495,8 @@ def test_o6_a_closed_in_list_is_a_complete_and_proven_value_set() -> None:
     found = _constraints(_one([("task_a", sql)]), CONSTRAINT_IN_SET, "ods.orders")
 
     assert found[0]["values"] == ["NEW", "PAID"]
-    assert found[0]["completeness"] == "complete"
-    assert found[0]["tier"] == TIER_PROVEN
+    assert found[0]["completeness"] == "unknown"
+    assert found[0]["tier"] == TIER_HYPOTHESIS
 
 
 def test_o6_an_observed_value_set_is_never_called_complete() -> None:

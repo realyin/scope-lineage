@@ -2174,8 +2174,10 @@ def _in_set_constraints(
 
     Completeness is the dictionary's own ``closed_set`` claim and nothing weaker: an
     observed set is a floor, never a ceiling, so a column whose values were merely seen
-    is published ``unknown`` at ``hypothesis`` tier. Only a closed ``IN`` list or an
-    exhaustive CASE makes it ``complete``, and then the set is ``proven``.
+    is published ``unknown`` at ``hypothesis`` tier. Only an exhaustive CASE makes it
+    ``complete``, and then the set is ``proven``. A closed ``IN`` list does not (F3): it
+    picks the rows of the statement that filtered with it, and says nothing about what
+    else the table's column holds.
     """
     grouped: dict[tuple[str, str], list[Mapping]] = {}
     for entry in values:
@@ -2192,7 +2194,10 @@ def _in_set_constraints(
 
 
 def _in_set_constraint(entity: str, column: str, entries: Sequence[Mapping]) -> dict:
-    closed = all(entry.get("closed_set") for entry in entries)
+    closed = all(
+        (entry.get("closed_set") or {}).get("basis") == glossary_values.BASIS_CASE_EXHAUSTIVE
+        for entry in entries
+    )
     return _constraint(
         CONSTRAINT_IN_SET,
         entity,

@@ -167,8 +167,8 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 | Tier | In the Markdown | Definition | Example |
 | --- | --- | --- | --- |
 | `proven` | 已证明 | written in the SQL | the join key pair exists; a partition column; a key a producing task proved; a DIRECT rename |
-| `implied` | 可推得 | follows from what the SQL does | a task deduplicates a table by k before joining it → that table holds many rows per k (otherwise the dedup is pointless); a UNION column alignment |
-| `hypothesis` | 作者假设 | the author assumed it and the SQL does not prove it | joining a physical table directly on k assumes it is unique by k; whether an observed value set is the complete one |
+| `implied` | 可推得 | follows from what the SQL does | a UNION column alignment; a metadata hint agreeing with a candidate key |
+| `hypothesis` | 作者假设 | the author assumed it and the SQL does not prove it | joining a physical table directly on k assumes it is unique by k; whether an observed value set is the complete one; a task deduplicating a table by k before joining it → that table holds many rows per k (the author's expectation: the query never saw the rows, and the dedup may be defensive) |
 | `conflict` | 矛盾 | two tasks disagree | T1 deduplicates a table by k, T2 joins the same table directly on k — a governance finding, not an ontology fact |
 | `confirmed` | 已确认 | **only ever from a human write-back**; the corpus can never reach this tier on its own | somebody confirmed a relation's cardinality or a table's identity key in `ontology.overrides.json` |
 
@@ -256,7 +256,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
                                          "logic_block_id": "logic:ROOT:join:001"}]}],
        "declared_hints": [{"columns": ["id"], "evidence": "column_comment",
                            "text": "customer primary key"}],
-       "multiplicity": [{"columns": ["driver_id"], "tier": "implied",
+       "multiplicity": [{"columns": ["driver_id"], "tier": "hypothesis",
                          "claim": "multiple_rows_per_key", "evidence": [{"kind": "group_by"}]}],
        "partition_columns": ["dt"]},
      "attributes": [
@@ -283,7 +283,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
      "from": {"entity": "ods.driver", "columns": ["id"]},
      "to": {"entity": "ods.pay", "columns": ["driver_id"]},
      "kind": "join_association",
-     "cardinality": {"claim": "one_to_many", "tier": "implied", "basis": "group_by"},
+     "cardinality": {"claim": "one_to_many", "tier": "hypothesis", "basis": "group_by"},
      "join_types": ["LEFT_OUTER"], "task_count": 1,
      "evidence": [{"task": "task_a", "statement_id": "stmt:001",
                    "scope_id": "ROOT", "logic_block_id": "logic:ROOT:join:001"}],
@@ -301,7 +301,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
   ],
   "constraints": [
     {"target": {"entity": "ods.orders", "column": "state"}, "kind": "in_set",
-     "tier": "proven", "values": ["NEW", "PAID"], "completeness": "complete",
+     "tier": "hypothesis", "values": ["NEW", "PAID"], "completeness": "unknown",
      "evidence": [{"task": "task_a", "statement_id": "stmt:001", "context": "filter_in"}],
      "concept": "concept:order"}
   ],
@@ -399,7 +399,7 @@ Slot by slot (every slot `ontology-json/2` publishes):
 | `concept_relations_unmapped` | `edges_total` + `mapped` + `total` + `by_reason` (`from_table_unplaced` / `to_table_unplaced` / `reference_only_edge`) | K3: the table-level relations that could not be folded, counted by **which end** failed to answer; the `from` end is asked first, so an edge that fails both is counted once under `from_table_unplaced`, and an edge whose two ends answered while never travelling on that key is counted under `reference_only_edge`. A wrong fold is worse than a missing one. `edges_total` is every table-level relation this fold read and `mapped` the ones that folded: **`by_reason` shifts as tables get placed** (a `from_table_unplaced` edge becomes a folded one the moment a reviewer places its table), so the denominator is published beside it and two runs are comparable |
 | `constraints[].concept` | a concept id or `null` | M2: the concept the target table **represents**. The target is still a table -- a constraint is a fact about one representation -- and this key only lets the document be read concept-first. `null` when the table has two identity concepts, which is exactly the case K1 refuses to choose between |
 | `constraints[].kind` | `not_null` / `in_set` / `unique_per` / `partition` | O6 |
-| `constraints[].values`, `completeness` | a value list, `complete` / `unknown` | `in_set` only: only a closed `IN` list or an exhaustive CASE is `complete` |
+| `constraints[].values`, `completeness` | a value list, `complete` / `unknown` | `in_set` only: only an exhaustive CASE is `complete`; a closed `IN` list in a filter picks the rows of the statement that wrote it and says nothing about what else the column holds (F3) |
 | `constraints[].columns` | a list of column names | `unique_per` only: the candidate keys plus the partition columns |
 | `constraints[].note` | one sentence | `not_null` only: "the task discarded the NULLs with a filter; the source itself may still hold some" |
 | `findings[].concept`, `open_items[].concept`, `open_item_groups[].concept` | a concept id or `null` | M2: which concept the subject table belongs to, so the index can file the question under that concept's section. A group takes it from its representative item |
@@ -453,10 +453,10 @@ the reason above.
 | Rule | Content |
 | --- | --- |
 | O1 relations | a JOIN's `join_key_pairs` are grouped into edges by (left table, right table); a CTE side is pierced to its physical table by R3's driving-input walk and the path is recorded; a key column is the physical column whose value the key carries (a rename or a one-column `TRIM` / `CAST` / `COALESCE(x, '')` included), while a key computed from several columns is none of them and stands under its ON-clause name on the table of the scope that reference names; the branches of a UNION pair up as `union_sibling` with columns aligned by position |
-| O2 cardinality | the right side grouped or ranked by the join keys before the JOIN → `one_to_many` (`implied`); a physical right side whose key some producing task proved unique → `many_to_one` (`proven`); a physical table joined directly → `many_to_one_assumed` (`hypothesis`); anything else `unknown` |
-| O3 multiplicity | any task grouping or window-partitioning table T by key set K → T holds many rows per K (`implied`); a key set spanning two tables asserts nothing about either |
+| O2 cardinality | the right side grouped or ranked by the join keys before the JOIN → `one_to_many` (`hypothesis`); a physical right side whose table card proves the key for the whole table a reader sees (every producer replaces the table and all agree on the key; for a partitioned write the partition columns are also matched in ON or pinned to a constant by WHERE) → `many_to_one` (`proven`); a physical table joined directly → `many_to_one_assumed` (`hypothesis`); anything else `unknown` |
+| O3 multiplicity | any task grouping or window-partitioning table T by key set K → T holds many rows per K (`hypothesis`); a key set spanning two tables asserts nothing about either |
 | O5 synonyms | a DIRECT `end_to_end_lineage` entry whose column names differ → `direct_rename` (`proven`); differently named columns in the same UNION position → `union_alignment` (`implied`); both ends record each other |
-| O6 constraints | a `NOT x IS NULL` filter → `not_null` (`hypothesis`, with the note that the task discarded NULLs and the source may still hold some); an enumerable code → `in_set`; a partition column → `partition` (`proven`); a produced table's candidate keys plus its partition columns → `unique_per` (key confidence `proven` → `proven`, `candidate` → `hypothesis`). **One claim, one entry**: constraints sharing an (entity, kind, columns/values) are merged into one, keeping the strongest `tier` among them and the union of their `evidence[]` in corpus order -- a table two tasks write with the same key set is one constraint proved twice, not two constraints |
+| O6 constraints | a `NOT x IS NULL` filter → `not_null` (`hypothesis`, with the note that the task discarded NULLs and the source may still hold some); an enumerable code → `in_set`; a partition column → `partition` (`proven`); a produced table's candidate keys plus its partition columns → `unique_per` (key confidence `proven` → `proven`, `candidate` → `hypothesis`; always `hypothesis` when some producer appends or merges, or the producers disagree on the key). **One claim, one entry**: constraints sharing an (entity, kind, columns/values) are merged into one, keeping the strongest `tier` among them and the union of their `evidence[]` in corpus order -- a table two tasks write with the same key set is one constraint proved twice, not two constraints |
 | O7 conflicts | "deduplicated" and "joined directly" on the same (table, key set) → `cardinality_conflict`; two `hypothesis` candidate keys on one table where one is a strict subset of the other or the two are disjoint → `competing_candidate_keys` (at most one of them is the identity); the cards' `producer_key_conflict` and `ambiguous_bare_name` are carried over verbatim |
 | O8 metadata key hints | a column comment holding `主键` / `唯一键` / `唯一编号` / `主键id` / `primary key` / `unique` (case-insensitive) → `declared_hints`; a hint that agrees with a `hypothesis` candidate key (hint columns are a subset of the key's) raises that key to `implied` (comment and structure are two independent sources pointing at one column); candidate keys that are all `hypothesis` and none of which hold the hinted column → `key_hint_conflict` |
 | O9 comment relation hints | a column comment pointing at `<table>.<column>` or `<表> 的 <列>` with `关联` / `对应` / `引用` / `见` / `外键` / `FK` / `references` / `->` (case-insensitive; the table name is matched by the cards' own dotted-suffix rule, case-folded, and a bare name resolves only when one entity could be it) → `relation_hints[]`; a `hypothesis` relation already published for the same (from entity, to entity) and the same column pair → raised to `implied` with a `column_comment` evidence item; none → a new `kind: hinted` relation (`many_to_one_assumed` / `hypothesis` / `column_comment`, `task_count` 0) that joins the open list for a person to confirm; a `proven` relation out of the same column landing on another table → `relation_hint_conflict` |

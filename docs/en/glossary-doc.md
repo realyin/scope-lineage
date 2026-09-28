@@ -303,6 +303,11 @@ Other rules:
 - `closed_set` is published only when the corpus's closure claims for that column
   **agree**: two tasks with different `IN` lists give `null`, because contradictory
   evidence is not a closed set.
+- An `IN` list closes the column only for **the statement that filtered with it** (F3):
+  when `describe --glossary` applies the dictionary to another task that reads the same
+  source column without that filter, the field's `value_domain` still lists the values
+  but `closed_set` is no longer `true`; the ontology's `in_set` constraint likewise counts
+  only an exhaustive CASE as `complete`.
 - `meaning_candidates[]` has three routes: the first two read a comment (and one comment answers by whichever hits first), the third reads the SQL.
   Candidate comments come from three places: that column's comment (falling back to
   `declared_columns[]` where `column_details[]` does not carry the column), that table's

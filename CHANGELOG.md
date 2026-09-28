@@ -1,6 +1,27 @@
 # Changelog
 
 ## Unreleased
+- **A producer's key proves the table only when every write replaces it** (deep assessment
+  F2). A table card's key used to decide a JOIN `safe` and an ontology relation
+  `many_to_one` / `unique_per` `proven` whatever the write: an `INSERT INTO ... GROUP BY`
+  is unique per batch and the table keeps every batch, and a static-partition overwrite is
+  unique per partition. Now the card lends its key only when every producer is a CTAS or
+  INSERT OVERWRITE and all agree on the key; a partitioned write adds its partition
+  columns to the key set, which the JOIN covers by matching them in ON or pinning the right
+  table's column to a constant in WHERE. Otherwise the risk is `unknown` with the reason,
+  the relation stays `many_to_one_assumed` and `unique_per` is `hypothesis`. The conflict
+  the card already reported (`producer_key_conflict`) now takes part in the verdict, and
+  the table-semantics packet's fan-out check follows it. Test fixtures that joined a
+  one-partition producer across partitions and expected `safe` asserted the flaw.
+- **Author intent is a hypothesis** (F2). "A task deduplicated table T by k before joining
+  it, so T holds many rows per k" -- `one_to_many` from a GROUP BY / ranking right side and
+  `identity.multiplicity[]` -- moves from `implied` to `hypothesis`: the query never saw the
+  rows, and the dedup may be defensive. Such relations now appear in the open items for a
+  person to confirm. Ontology and export goldens change accordingly and in no other way.
+- **An `IN` filter closes a column only for the statement that wrote it** (F3). Applying a
+  corpus glossary to a task that reads the same source column without the filter no longer
+  marks its values `closed_set`; the ontology's `in_set` is `complete` / `proven` only from
+  an exhaustive CASE. Docs zh/en: `ontology-doc.md`, `tables-doc.md`, `glossary-doc.md`.
 - **`rank()` / `dense_rank()` = 1 no longer proves a key set** (deep assessment F1). Every
   row tied for first ranks 1 and survives the filter, so only `row_number()` leaves at most
   one row per partition. Such a filter still makes the shape `deduplicated` -- that is
