@@ -31,7 +31,7 @@ from typing import Iterable, Mapping, Sequence
 
 from sqlglot import exp
 
-from . import semantic_text
+from . import claims, semantic_text
 
 
 # What kind of thing stands on the right of the comparison. `literal` and `pattern` reach
@@ -1657,7 +1657,7 @@ def apply_value_domains(
     fields: Sequence[dict],
     entries: Sequence[Mapping],
     target_table: object = None,
-    reader: tuple[str, str | None] | None = None,
+    reader: claims.Subject | None = None,
 ) -> None:
     """Give each field its ``value_domain`` (and, when confirmed, its summary suffix).
 
@@ -1665,7 +1665,7 @@ def apply_value_domains(
     output route's key. Without it only the scope-level observations can match, because
     a value published under some other table's column is not this column's value.
 
-    ``reader`` is ``(task, statement_id)`` of the statement these fields belong to, given
+    ``reader`` is the ``query_rows`` subject of the statement these fields belong to, given
     when ``entries`` come from a corpus: an ``IN`` list closes a source column only for
     the rows of the statement that filtered with it (F3). Without it the entries are
     taken to be this statement's own observations.
@@ -1710,7 +1710,7 @@ def _field_domain(
     field: Mapping,
     index: Mapping,
     target_owner: tuple,
-    reader: tuple[str, str | None] | None = None,
+    reader: claims.Subject | None = None,
 ) -> list[dict]:
     """One entry per ``(value, kind)``, in the order the values were first observed.
 
@@ -1721,7 +1721,7 @@ def _field_domain(
     values, not a list of sightings: the sightings belong in ``seen_in``.
     """
     matched = _matched_entries(field, index, target_owner)
-    closed = _column_closed_set(matched, reader)
+    closed = True if _column_closed_claim(matched, reader) is not None else None
     domain: dict[tuple, dict] = {}
     for entry, _via in matched:
         key = (str(entry["value"]), str(entry["kind"]))
@@ -1786,41 +1786,60 @@ def _type_admits(field: Mapping, entry: Mapping) -> bool:
     )
 
 
-def _column_closed_set(
-    matched: Sequence[tuple[Mapping, str]], reader: tuple[str, str | None] | None = None
-) -> bool | None:
+def _column_closed_claim(
+    matched: Sequence[tuple[Mapping, str]], reader: claims.Subject | None = None
+) -> claims.Claim | None:
     """WI-2.8 D3: closed is a claim about the COLUMN, so all of its values share it.
 
     Two proofs qualify, one per route. The column's own last step is a CASE whose
-    branches and ELSE are all constants, so nothing else can come out of it; or a source
-    column the value passes through unchanged was pinned by a closed ``IN`` list. A
-    per-value verdict left one column reading "0 未证明、1 已证明" out of a single
+    branches and ELSE are all constants, so nothing else can come out of it
+    (``R-CASE-OUTPUT``, about the column the statement writes); or a source column the
+    value passes through unchanged was pinned by a closed ``IN`` list (``R-IN-FILTER``).
+    A per-value verdict left one column reading "0 未证明、1 已证明" out of a single
     three-branch CASE, which answers a question nobody asked.
 
-    F3: an ``IN`` list limits the rows of the statement that wrote it, not the source
-    column, so it closes this field only when this very statement filtered with it. Its
-    values still travel as observed values; only the closure stays where it was proven.
+    F3: an ``IN`` list is a claim about the rows of the statement that filtered with it,
+    so it closes this field only when ``reader`` -- the statement these fields belong to
+    -- is that statement. Without a reader the entries are the statement's own.
     """
     for entry, via in matched:
         basis = str((entry.get("closed_set") or {}).get("basis") or "")
         if via == _VIA_OUTPUT and basis == BASIS_CASE_EXHAUSTIVE:
-            return True
-        if via == _VIA_SOURCE and basis == BASIS_IN_LIST and _filtered_by(entry, reader):
-            return True
+            return _closure_claim(entry, "R-CASE-OUTPUT", claims.SUBJECT_WRITE_BATCH)
+        if via == _VIA_SOURCE and basis == BASIS_IN_LIST:
+            for item in entry.get("observations") or []:
+                if str(item.get("context")) != CONTEXT_FILTER_IN:
+                    continue
+                claim = _closure_claim(entry, "R-IN-FILTER", claims.SUBJECT_QUERY_ROWS, item)
+                if reader is None or _same_statement(claim.subject, reader):
+                    return claim
     return None
 
 
-def _filtered_by(entry: Mapping, reader: tuple[str, str | None] | None) -> bool:
-    """Whether ``reader``'s own ``IN`` filter is among the entry's observations."""
-    if reader is None:
-        return True
-    task, statement_id = reader
-    return any(
-        str(item.get("context")) == CONTEXT_FILTER_IN
-        and str(item.get("task")) == task
-        and (not statement_id or not item.get("statement_id")
-             or str(item.get("statement_id")) == str(statement_id))
-        for item in entry.get("observations") or []
+def _closure_claim(
+    entry: Mapping, rule: str, subject_kind: str, observation: Mapping | None = None
+) -> claims.Claim:
+    source = observation or next(iter(entry.get("observations") or []), {})
+    task, statement = str(source.get("task") or ""), source.get("statement_id")
+    ref = (task, statement, str(entry.get("column_ref") or "")) if (
+        subject_kind == claims.SUBJECT_WRITE_BATCH
+    ) else (task, statement)
+    return claims.Claim(
+        "value_subset",
+        claims.Subject(subject_kind, ref),
+        tuple(str(value) for value in (entry.get("closed_set") or {}).get("values") or []),
+        claims.PROVEN,
+        rule,
+        (str(entry.get("column_ref") or ""),),
+    )
+
+
+def _same_statement(subject: claims.Subject, reader: claims.Subject) -> bool:
+    """One statement's rows, allowing an id either side does not record (1.0 documents)."""
+    task, statement = subject.ref[0], subject.ref[1]
+    reader_task, reader_statement = reader.ref[0], reader.ref[1]
+    return task == reader_task and (
+        not statement or not reader_statement or str(statement) == str(reader_statement)
     )
 
 
@@ -2314,3 +2333,7 @@ def _stronger_status(current: object, other: object) -> object:
 
 def _status_count(statuses: Mapping[tuple, object], status: str) -> int:
     return sum(1 for item in statuses.values() if item == status)
+
+
+#: The claim that closes a field's value set, or None (WP2).
+column_closed_claim = _column_closed_claim

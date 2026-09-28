@@ -59,6 +59,7 @@ RULES: dict[str, Rule] = {
     "R-INTENT-DEDUP": Rule(HEURISTIC, "关联前按 k 去重，推测那张表按 k 有多行"),
     "R-DIRECT-JOIN": Rule(HEURISTIC, "直接按 k 关联物理表，推测作者认为它按 k 唯一"),
     "R-COMMENT-HINT": Rule(HEURISTIC, "列注释称某列为主键/唯一键"),
+    "R-FILTER-HINT": Rule(HEURISTIC, "某个任务的过滤条件（取值、非空）暗示物理列的取值特征"),
     "R-COMMENT-RELATION": Rule(HEURISTIC, "列注释指向另一张表的列"),
     "R-HINT-AGREEMENT": Rule(HEURISTIC, "两条独立线索说同一件事，比任一条强一级"),
     "R-KIND-VOTES": Rule(HEURISTIC, "概念种类由各信号投票，一致为 implied，打架为 hypothesis"),

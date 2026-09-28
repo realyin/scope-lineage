@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from scope_lineage.contract import to_lineage_dict
+from scope_lineage.render import glossary_values
 from scope_lineage.render.claims import (
     CONDITIONAL,
     CONFLICTED,
@@ -160,3 +161,55 @@ def test_rank_first_is_an_intent_only_when_asked_for() -> None:
     )
     assert intent.rule == "R-RANK-FIRST"
     assert intent.status == "hypothesis"
+
+
+# ------------------------------------------------------------ WP2: value-set claims
+
+
+def _entry(basis: str, *observations: tuple[str, str, str]) -> dict:
+    return {
+        "closed_set": {"values": ["1", "2"], "basis": basis},
+        "observations": [
+            {"task": task, "statement_id": statement, "context": context}
+            for task, statement, context in observations
+        ],
+    }
+
+
+def _reader(task: str, statement: str | None = "stmt:001") -> Subject:
+    return Subject("query_rows", (task, statement))
+
+
+def test_an_in_list_closes_the_rows_of_the_statement_that_filtered() -> None:
+    entry = _entry("in_list", ("task_a", "stmt:001", "filter_in"))
+
+    claim = glossary_values.column_closed_claim([(entry, "source")], _reader("task_a"))
+
+    assert claim.rule == "R-IN-FILTER"
+    assert claim.subject == ("query_rows", ("task_a", "stmt:001"))
+    assert claim.status == "proven"
+
+
+def test_an_in_list_does_not_close_another_statements_rows() -> None:
+    entry = _entry("in_list", ("task_a", "stmt:001", "filter_in"))
+
+    assert glossary_values.column_closed_claim([(entry, "source")], _reader("task_b")) is None
+
+
+def test_an_exhaustive_case_closes_the_column_it_writes() -> None:
+    entry = _entry("case_exhaustive", ("task_a", "stmt:001", "case_then"))
+
+    claim = glossary_values.column_closed_claim([(entry, "output")], _reader("task_b"))
+
+    assert claim.rule == "R-CASE-OUTPUT"
+    assert claim.subject.kind == "write_batch"
+
+
+def test_a_filter_is_only_a_hint_about_a_physical_column() -> None:
+    from scope_lineage.render.ontology import value_set_claim
+
+    claim = value_set_claim("ods.orders", "state", [_entry("in_list", ("t", "s", "filter_in"))])
+
+    assert claim.subject == ("physical_column", ("ods.orders", "state"))
+    assert claim.rule == "R-FILTER-HINT"
+    assert claim.status == "hypothesis"

@@ -2119,13 +2119,20 @@ def _not_null_constraints(
                 "rule_id": str(rule.get("rule_id") or ""),
                 "logic_block_id": str(rule.get("evidence") or ""),
             }
+            claim = claims.Claim(
+                "not_null",
+                claims.Subject(claims.SUBJECT_PHYSICAL_COLUMN, (entity, name)),
+                (name,),
+                claims.HYPOTHESIS,
+                "R-FILTER-HINT",
+            )
             current = found.setdefault(
                 (entity, name),
                 _constraint(
                     CONSTRAINT_NOT_NULL,
                     entity,
                     name,
-                    TIER_HYPOTHESIS,
+                    _tier_of(claim),
                     note=NOT_NULL_NOTE,
                     evidence=[],
                 ),
@@ -2193,19 +2200,39 @@ def _in_set_constraints(
 
 
 def _in_set_constraint(entity: str, column: str, entries: Sequence[Mapping]) -> dict:
-    closed = all(
-        (entry.get("closed_set") or {}).get("basis") == glossary_values.BASIS_CASE_EXHAUSTIVE
-        for entry in entries
-    )
+    claim = _value_set_claim(entity, column, entries)
+    closed = claim.status == claims.PROVEN
     return _constraint(
         CONSTRAINT_IN_SET,
         entity,
         column,
-        TIER_PROVEN if closed else TIER_HYPOTHESIS,
+        _tier_of(claim),
         values=sorted({str(entry.get("value")) for entry in entries}),
         completeness=COMPLETENESS_COMPLETE if closed else COMPLETENESS_UNKNOWN,
         evidence=_value_evidence(entries),
     )
+
+
+def _tier_of(claim: claims.Claim) -> str:
+    """A claim's status in the ontology's tier vocabulary (proven, or a hypothesis)."""
+    return TIER_PROVEN if claim.status == claims.PROVEN else TIER_HYPOTHESIS
+
+
+def _value_set_claim(entity: str, column: str, entries: Sequence[Mapping]) -> claims.Claim:
+    """What the corpus's values say about a table column's value set.
+
+    Proven only from an exhaustive CASE writing every one of them (``R-CASE-OUTPUT``);
+    values a filter compared the column against describe that statement's rows, so on the
+    column they are only a hint (``R-FILTER-HINT``).
+    """
+    subject = claims.Subject(claims.SUBJECT_PHYSICAL_COLUMN, (entity, column))
+    values = tuple(sorted({str(entry.get("value")) for entry in entries}))
+    if all(
+        (entry.get("closed_set") or {}).get("basis") == glossary_values.BASIS_CASE_EXHAUSTIVE
+        for entry in entries
+    ):
+        return claims.Claim("value_subset", subject, values, claims.PROVEN, "R-CASE-OUTPUT")
+    return claims.Claim("value_subset", subject, values, claims.HYPOTHESIS, "R-FILTER-HINT")
 
 
 def _value_evidence(entries: Sequence[Mapping]) -> list[dict]:
@@ -5520,3 +5547,7 @@ def _concept_write_back_section(concept: Mapping) -> list[str]:
         "`roles`（改某张成员表的角色）、`add_tables`（加一张成员表），连同 `confirmed_by` / "
         "`date` / `basis` 一起写。",
     ]
+
+
+#: What the corpus's values say about a table column's value set (WP2).
+value_set_claim = _value_set_claim

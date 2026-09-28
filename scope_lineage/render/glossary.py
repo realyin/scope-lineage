@@ -59,7 +59,7 @@ from __future__ import annotations
 
 from typing import Iterable, Mapping, Sequence
 
-from . import glossary_values
+from . import claims, glossary_values
 from .glossary_markdown import render_glossary_markdown  # noqa: F401 -- public facade
 from .glossary_values import (
     AGENT_CONFIRMATION_PREFIX,
@@ -812,9 +812,9 @@ def _apply_statement_glossary(
     fields = statement.get("fields") or []
     rules = statement.get("rules") or []
     task_block = statement.get("task") or {}
-    reader = (
-        task or str(task_block.get("task_name") or ""),
-        statement.get("statement_id"),
+    reader = claims.Subject(
+        claims.SUBJECT_QUERY_ROWS,
+        (task or str(task_block.get("task_name") or ""), statement.get("statement_id")),
     )
     glossary_values.apply_value_domains(
         fields, entries, task_block.get("target_table"), reader
