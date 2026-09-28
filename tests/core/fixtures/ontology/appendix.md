@@ -4,7 +4,7 @@ table_count: 9
 table_relation_count: 4
 constraint_count: 6
 finding_count: 0
-open_item_count: 2
+open_item_count: 4
 provisional_count: 8
 ---
 
@@ -34,9 +34,9 @@ erDiagram
     ods_events_b
     ods_users
     ods_channel_event }o--|| dim_channel : "channel_code = channel_code ?"
-    ods_events_a ||--o{ dim_segment_dim : "segment = segment"
+    ods_events_a ||--o{ dim_segment_dim : "segment = segment ?"
     ods_events_a }o--o{ ods_events_b : "segment = seg_code, amount = amount"
-    ods_events_b ||--o{ dim_segment_dim : "seg_code = segment"
+    ods_events_b ||--o{ dim_segment_dim : "seg_code = segment ?"
 ```
 
 实体框里只列候选键列（标 `PK`），完整字段见每张表的卡片。边上的 `?` 表示这条基数只是作者假设、未被证明，`!` 表示语料里对这组键存在矛盾证据。
@@ -60,9 +60,9 @@ erDiagram
 | 关系 | 从 | 到 | 类型 | 基数 | 层级 | 依据 | 任务数 | 折入概念关系 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | rel:001 | `ods.channel_event`.`channel_code` | `dim.channel`.`channel_code` | join_association | many_to_one_assumed | hypothesis | right_side_not_deduplicated | 2 | `crel:001` |
-| rel:002 | `ods.events_a`.`segment` | `dim.segment_dim`.`segment` | join_association | one_to_many | implied | ranking_window | 1 | `crel:002` |
+| rel:002 | `ods.events_a`.`segment` | `dim.segment_dim`.`segment` | join_association | one_to_many | hypothesis | ranking_window | 1 | `crel:002` |
 | rel:003 | `ods.events_a`.`segment`、`amount` | `ods.events_b`.`seg_code`、`amount` | union_sibling | unknown | implied | union_branch_alignment | 1 | `crel:003` |
-| rel:004 | `ods.events_b`.`seg_code` | `dim.segment_dim`.`segment` | join_association | one_to_many | implied | ranking_window | 1 | `crel:004` |
+| rel:004 | `ods.events_b`.`seg_code` | `dim.segment_dim`.`segment` | join_association | one_to_many | hypothesis | ranking_window | 1 | `crel:004` |
 
 ### 约束
 
@@ -112,11 +112,12 @@ erDiagram
 
 本语料没有发现矛盾证据。
 
-### 待人工判定清单（2 条，折叠为 2 组）
+### 待人工判定清单（4 条，折叠为 3 组）
 
 按（类型，表族，问题形状）折叠：一组是同一个问题问到一族表上，答一次即可；关系问的是「对端那张表按这组列唯一吗」，所以按对端归组，谁来关联它不进分组键。`影响` 是答完这一组能解开多少东西——关系算关联它的表数加任务数，候选键算确认后能升为已证明的边数，发现算组内条数——排序就按影响降序、其次条数、最后代表条目的原顺序。`回写模式` 里的 `<table>` 换成该族里的具体表名，就是照抄进 `ontology.overrides.json` 的键，族里有哪些表见 `families[]`，组里有哪些条目见 `open_item_groups[]`。
 
 | # | 组 id | 类型 | 表族 | 影响 | 条数 | 代表条目 | 回写模式 | 说明 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `open:group:rel:dim.channel=channel_code` | 关系基数 | `dim.channel` | 3 | 1 | `open:rel:ods.channel_event.channel_code->dim.channel.channel_code` | `关系:ods.channel_event.channel_code-><table>.channel_code` | 关系 `ods.channel_event` → `dim.channel` 的基数写作「多对一，作者假设」，依据只是直接关联未去重，作者假设对端按该键唯一。 |
-| 2 | `open:group:key:dim.channel=channel_code` | 候选键 | `dim.channel` | 1 | 1 | `open:key:dim.channel=channel_code` | `键:<table>=channel_code` | 候选键 `channel_code`：只有任务直接关联时的假设，语料没有证明它唯一。 |
+| 1 | `open:group:rel:dim.segment_dim=segment` | 关系基数 | `dim.segment_dim` | 3 | 2 | `open:rel:ods.events_a.segment->dim.segment_dim.segment` | `关系:<from_table>.<from_columns>-><table>.segment` | 关系 `ods.events_a` → `dim.segment_dim` 的基数写作「一对多」，依据只是关联前已按连接键排名去重。 |
+| 2 | `open:group:rel:dim.channel=channel_code` | 关系基数 | `dim.channel` | 3 | 1 | `open:rel:ods.channel_event.channel_code->dim.channel.channel_code` | `关系:ods.channel_event.channel_code-><table>.channel_code` | 关系 `ods.channel_event` → `dim.channel` 的基数写作「多对一，作者假设」，依据只是直接关联未去重，作者假设对端按该键唯一。 |
+| 3 | `open:group:key:dim.channel=channel_code` | 候选键 | `dim.channel` | 1 | 1 | `open:key:dim.channel=channel_code` | `键:<table>=channel_code` | 候选键 `channel_code`：只有任务直接关联时的假设，语料没有证明它唯一。 |

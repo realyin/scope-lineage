@@ -3570,7 +3570,9 @@ def _fan_out_verdict(
     """
     right = str(detail.get("right_input") or "")
     if right in set(document.get("source_tables") or []):
-        carded = _card_verdict(right, detail, card_lookup)
+        carded = _card_verdict(
+            right, detail, card_lookup, _right_table_pins(document, block_id, right)
+        )
         return (*carded, []) if carded else ("unknown", "物理表无主键事实", None, None, [])
     if right not in _scopes(document):
         return "unknown", f"右侧 {right} 不是本语句的 scope，无唯一性事实", None, None, []
@@ -3597,7 +3599,7 @@ def _keyless_join_verdict(detail: dict) -> tuple[str, str]:
 
 
 def _card_verdict(
-    right: str, detail: dict, card_lookup
+    right: str, detail: dict, card_lookup, pinned: Sequence[str] = ()
 ) -> tuple[str, str, str, str] | None:
     """The corpus's answer for a JOIN onto a physical table, or None when it has none.
 
@@ -3607,12 +3609,21 @@ def _card_verdict(
     """
     if card_lookup is None:
         return None
-    proof = _card_key_proof(card_lookup(right))
+    card = card_lookup(right)
+    limit = _card_key_limit(card)
+    if limit is not None:
+        return "unknown", limit, FAN_OUT_BASIS_TABLE_CARD, None
+    proof = _card_key_proof(card)
     if proof is None:
         return None
     task, keys, level = proof
     columns = _join_side_columns(detail, "right")
-    if not columns or not _comparable(keys) <= _comparable(columns):
+    if not columns or not _comparable(keys) <= _comparable([*columns, *pinned]):
+        partition = _card_partition_columns(card)
+        if partition and _comparable(
+            [key for key in keys if key not in partition]
+        ) <= _comparable(columns):
+            return "unknown", _partition_reason(task, partition), FAN_OUT_BASIS_TABLE_CARD, None
         return None
     return "safe", _card_reason(task, keys, level), FAN_OUT_BASIS_TABLE_CARD, level
 
@@ -3641,14 +3652,110 @@ def _card_lookup(table_cards: Mapping | None):
     return lookup
 
 
+#: The writes that replace what the reader will see. An ``INSERT`` keeps every earlier
+#: batch and a ``MERGE`` keeps every row it does not match, so a key one of them proves
+#: unique in its own output says nothing about the table (F2).
+_REPLACING_WRITES = frozenset({"CTAS", "INSERT_OVERWRITE"})
+
+
 def _card_key_proof(card) -> tuple[str, list[str], str] | None:
-    """``(task, keys, confidence)`` from the strongest producer on one card, or None."""
+    """``(task, keys, confidence)`` for the table a reader sees, or None.
+
+    A producer proves its key *in the rows it wrote*. That becomes a statement about the
+    table only when every producer replaces the table's contents and every one of them
+    writes by the same key -- see :func:`_card_key_limit` for the cases that stop it. A
+    partitioned write replaces one partition, so its partition columns join the key set:
+    one row per key per day is many rows per key across days.
+    """
+    if _card_key_limit(card) is not None:
+        return None
     for level in _CARD_KEY_CONFIDENCES:
         for producer in (card or {}).get("produced_by") or []:
             keys = [str(key) for key in producer.get("candidate_keys") or []]
             if keys and str(producer.get("key_confidence")) == level:
-                return str(producer.get("task")), keys, level
+                partition = _card_partition_columns(card)
+                return str(producer.get("task")), _dedupe([*keys, *partition]), level
     return None
+
+
+def _card_key_limit(card) -> str | None:
+    """Why a card's producer key does not describe the table a reader sees, or None.
+
+    Asked only when some producer offers a key at all: a card with no key has nothing
+    to limit.
+    """
+    producers = list((card or {}).get("produced_by") or [])
+    offered = [
+        producer
+        for producer in producers
+        if producer.get("candidate_keys")
+        and str(producer.get("key_confidence")) in _CARD_KEY_CONFIDENCES
+    ]
+    if not offered:
+        return None
+    appending = [
+        producer
+        for producer in producers
+        if str(producer.get("stmt_kind")) not in _REPLACING_WRITES
+    ]
+    if appending:
+        names = "、".join(
+            f"{item.get('task')}（{item.get('stmt_kind') or '写入方式未知'}）" for item in appending
+        )
+        return (
+            f"生产任务 {names} 以追加或合并方式写入，键只在单批写入内唯一，"
+            "表里可能同时留着多批数据（表卡）"
+        )
+    keys = {tuple(str(key) for key in item.get("candidate_keys") or []) for item in producers}
+    if len(keys) > 1:
+        return "多个生产任务写同一张表而给出的键不一致，读到哪一版取决于调度顺序（表卡）"
+    return None
+
+
+def _right_table_pins(document: dict, block_id: str, right: str) -> list[str]:
+    """Columns of the physical ``right`` table the JOIN's own scope pins to one value.
+
+    ``WHERE d.dt = '20250101'`` reads one partition of ``d``, so a key that is unique
+    per partition is unique in what this JOIN sees. Only an AND-level equality against
+    a literal or a parameter whose one column belongs to ``right`` counts.
+    """
+    owner = next(
+        (
+            scope_id
+            for scope_id, block in _logic_blocks(document)
+            if str(block.get("logic_block_id")) == block_id
+        ),
+        None,
+    )
+    if owner is None:
+        return []
+    pins: list[str] = []
+    for block in _blocks_of_type(document, owner, "filter"):
+        detail = block.get("filter_predicate_detail") or {}
+        for conjunct in detail.get("conjuncts") or []:
+            fields = conjunct.get("fields") or []
+            if len(fields) != 1 or str(fields[0].get("scope")) != right:
+                continue
+            parsed = semantic_text.equality_conjunct(conjunct.get("expression"))
+            if parsed and parsed[2] in _PINNING_VALUE_KINDS:
+                pins.append(str(fields[0].get("column")))
+    return _dedupe(pins)
+
+
+def _card_partition_columns(card) -> list[str]:
+    return _dedupe(
+        str(column)
+        for producer in (card or {}).get("produced_by") or []
+        for column in (producer.get("partition") or {}).get("columns") or []
+    )
+
+
+def _partition_reason(task: str, partition: Sequence[str]) -> str:
+    names = "、".join(partition)
+    return (
+        f"生产任务 {task} 按分区写入，键只在每个分区内唯一；"
+        f"连接没有按分区列 {names} 对齐（表卡）"
+    )
 
 
 def _card_reason(task: str, keys: Sequence[str], level: str) -> str:
@@ -3921,6 +4028,12 @@ card_lookup = _card_lookup
 
 #: ``(task, keys, confidence)`` from the strongest producer on one card, or None.
 card_key_proof = _card_key_proof
+
+#: Why a card's producer key does not describe the table a reader sees, or None (F2).
+card_key_limit = _card_key_limit
+
+#: Columns of a physical right side the JOIN's own scope pins to one value.
+right_table_pins = _right_table_pins
 
 #: Names compared as SQL compares identifiers: unwrapped, unspaced, case-blind.
 comparable = _comparable

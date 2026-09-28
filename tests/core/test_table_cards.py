@@ -674,6 +674,14 @@ def test_the_golden_corpus_exercises_the_shapes_the_cards_exist_for() -> None:
 
 # ------------------------------------------------- WI-2.8 D2: a card decides a fan-out
 
+# The card verdicts below need a producer whose proof covers the whole table a reader
+# sees: `PRODUCER_SQL` overwrites one static partition, which proves one row per key
+# *per day* and nothing about a read that does not pin the day (F2).
+CARD_PRODUCER_SQL = (
+    "CREATE TABLE mart.customer_daily AS "
+    "SELECT customer_id, country_code FROM ods.customer_base GROUP BY customer_id, country_code"
+)
+
 CARD_JOIN_SCHEMA = {
     **SCHEMA,
     "ods.customer_event": ["customer_id", "country_code", "event_code", "dt"],
@@ -681,7 +689,7 @@ CARD_JOIN_SCHEMA = {
     "mart.event_enriched": ["customer_id", "country_code"],
 }
 
-# The right side of the JOIN is the table `PRODUCER_SQL` writes one row per
+# The right side of the JOIN is the table `CARD_PRODUCER_SQL` writes one row per
 # (customer_id, country_code), and the ON clause names both of those columns.
 CARDED_JOIN_SQL = (
     "INSERT OVERWRITE TABLE mart.event_rollup "
@@ -715,7 +723,7 @@ def _carded(sql: str, task: str = "downstream_task") -> tuple[dict, dict, dict]:
     """``(enriched profile, plain profile, document)`` for one downstream statement."""
     cards = build_table_cards(
         [
-            _statement_profile(PRODUCER_SQL, "producer_task"),
+            _statement_profile(CARD_PRODUCER_SQL, "producer_task"),
             _statement_profile(sql, task, schema=CARD_JOIN_SCHEMA),
         ]
     )
@@ -739,7 +747,7 @@ def test_the_card_decides_the_fan_out_while_the_profile_is_being_built() -> None
     """
     cards = build_table_cards(
         [
-            _statement_profile(PRODUCER_SQL, "producer_task"),
+            _statement_profile(CARD_PRODUCER_SQL, "producer_task"),
             _statement_profile(CARDED_JOIN_SQL, "downstream_task", schema=CARD_JOIN_SCHEMA),
         ]
     )
@@ -766,7 +774,7 @@ def test_applying_table_cards_never_recomputes_the_fan_out() -> None:
     """The post-processing step folds in the narrative and nothing else."""
     cards = build_table_cards(
         [
-            _statement_profile(PRODUCER_SQL, "producer_task"),
+            _statement_profile(CARD_PRODUCER_SQL, "producer_task"),
             _statement_profile(CARDED_JOIN_SQL, "downstream_task", schema=CARD_JOIN_SCHEMA),
         ]
     )
@@ -823,7 +831,7 @@ def test_a_candidate_only_card_says_so_and_caps_the_confidence() -> None:
     """A candidate key is the corpus's best guess, so the claim it lends is capped."""
     cards = build_table_cards(
         [
-            _statement_profile(PRODUCER_SQL, "producer_task"),
+            _statement_profile(CARD_PRODUCER_SQL, "producer_task"),
             _statement_profile(CARDED_JOIN_SQL, "downstream_task", schema=CARD_JOIN_SCHEMA),
         ]
     )
@@ -847,7 +855,7 @@ def test_a_proven_unexposed_card_is_not_a_proof_of_anything() -> None:
     """Its key list is the exposed SUBSET of a proven set, which identifies no row."""
     cards = build_table_cards(
         [
-            _statement_profile(PRODUCER_SQL, "producer_task"),
+            _statement_profile(CARD_PRODUCER_SQL, "producer_task"),
             _statement_profile(CARDED_JOIN_SQL, "downstream_task", schema=CARD_JOIN_SCHEMA),
         ]
     )
@@ -869,7 +877,7 @@ def test_without_the_contract_document_the_fan_out_verdict_is_untouched() -> Non
     """`--tables` still enriches the narrative; only the recomputation needs the source."""
     cards = build_table_cards(
         [
-            _statement_profile(PRODUCER_SQL, "producer_task"),
+            _statement_profile(CARD_PRODUCER_SQL, "producer_task"),
             _statement_profile(CARDED_JOIN_SQL, "downstream_task", schema=CARD_JOIN_SCHEMA),
         ]
     )
@@ -886,6 +894,99 @@ def test_without_the_contract_document_the_fan_out_verdict_is_untouched() -> Non
 
 
 # ------------------------------------------- WI-2.8 D6: "no producer" vs "producer, no grain"
+
+def _verdict_with_producers(*producers: tuple[str, str], sql: str = CARDED_JOIN_SQL) -> dict:
+    cards = build_table_cards(
+        [
+            *(_statement_profile(text, task) for task, text in producers),
+            _statement_profile(sql, "downstream_task", schema=CARD_JOIN_SCHEMA),
+        ]
+    )
+    document = to_lineage_dict(
+        parse_scope_lineage(sql, "downstream_task", schema=CARD_JOIN_SCHEMA)
+    )
+    return build_semantic_profile(document, table_cards=cards)["output_shape"]
+
+
+APPEND_PRODUCER_SQL = (
+    "INSERT INTO mart.customer_daily "
+    "SELECT customer_id, country_code FROM ods.customer_base GROUP BY customer_id, country_code"
+)
+
+
+def test_an_appending_producer_proves_one_batch_not_the_table() -> None:
+    """F2: GROUP BY makes each batch unique, and INSERT INTO keeps every earlier batch.
+
+    Run twice over one source row, the table holds that row twice, and a JOIN on the
+    key doubles the reader's rows -- so the card's key says nothing about what a reader
+    of the table sees.
+    """
+    shape = _verdict_with_producers(("producer_task", APPEND_PRODUCER_SQL))
+
+    risk = shape["fan_out_risks"][0]
+    assert risk["status"] != "safe"
+    assert "追加" in risk["reason"]
+
+
+def test_an_appending_producer_no_longer_lends_its_key_downstream() -> None:
+    """Where only the card could save the key set (the JOIN runs after the grouping)."""
+    shape = _verdict_with_producers(
+        ("producer_task", APPEND_PRODUCER_SQL), sql=CARDED_DOWNSTREAM_JOIN_SQL
+    )
+
+    assert shape["key_confidence"] == "none"
+
+
+def test_a_second_producer_without_the_key_withdraws_the_proof() -> None:
+    """F2: the card reports the conflict, and the conflict now takes part in the verdict."""
+    other = (
+        "INSERT OVERWRITE TABLE mart.customer_daily "
+        "SELECT customer_id, country_code FROM ods.customer_event"
+    )
+    shape = _verdict_with_producers(
+        ("producer_task", CARD_PRODUCER_SQL), ("other_task", other)
+    )
+
+    risk = shape["fan_out_risks"][0]
+    assert risk["status"] != "safe"
+    assert "不一致" in risk["reason"]
+
+
+def test_a_partition_overwrite_proves_the_key_only_within_a_partition() -> None:
+    """F2: one row per key per day is many rows per key across days."""
+    shape = _verdict_with_producers(("producer_task", PRODUCER_SQL))
+
+    risk = shape["fan_out_risks"][0]
+    assert risk["status"] != "safe"
+    assert "dt" in risk["reason"]
+
+
+def test_a_partition_overwrite_joined_on_the_partition_column_too_is_safe() -> None:
+    sql = CARDED_JOIN_SQL.replace(
+        "AND e.country_code = d.country_code",
+        "AND e.country_code = d.country_code AND e.dt = d.dt",
+    )
+    shape = _verdict_with_producers(("producer_task", PRODUCER_SQL), sql=sql)
+
+    risk = shape["fan_out_risks"][0]
+    assert risk["status"] == "safe"
+    assert risk["basis"] == "table_card"
+
+
+def test_a_partition_overwrite_read_one_partition_at_a_time_is_safe() -> None:
+    """``WHERE d.dt = '...'`` reads one partition, where the producer's key is unique."""
+    sql = CARDED_JOIN_SQL.replace("GROUP BY", "WHERE d.dt = '20250101' GROUP BY")
+    shape = _verdict_with_producers(("producer_task", PRODUCER_SQL), sql=sql)
+
+    assert shape["fan_out_risks"][0]["status"] == "safe"
+
+
+def test_a_pin_on_the_left_table_does_not_pin_the_right_one() -> None:
+    sql = CARDED_JOIN_SQL.replace("GROUP BY", "WHERE e.dt = '20250101' GROUP BY")
+    shape = _verdict_with_producers(("producer_task", PRODUCER_SQL), sql=sql)
+
+    assert shape["fan_out_risks"][0]["status"] != "safe"
+
 
 UNION_PRODUCER_SQL = (
     "INSERT OVERWRITE TABLE mart.union_out SELECT customer_id FROM ods.customer_base "

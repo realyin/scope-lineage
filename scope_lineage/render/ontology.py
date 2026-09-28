@@ -92,6 +92,7 @@ from .semantic_profile import (
     TASK_SCHEMA_VERSION,
     aggregation_keys,
     build_semantic_profile,
+    card_key_limit,
     card_key_proof,
     card_lookup,
     comparable,
@@ -101,6 +102,7 @@ from .semantic_profile import (
     join_side_columns,
     ranking_partition_keys,
     ranking_uniqueness,
+    right_table_pins,
 )
 from .table_cards import (
     CARD_DOC_FORMAT as TABLE_CARD_DOC_FORMAT,
@@ -1676,13 +1678,16 @@ def _cardinality(document: Mapping, block_id: str, detail: Mapping, lookup) -> d
     right = str(detail.get("right_input") or "")
     columns = join_side_columns(detail, "right")
     if right in set(document.get("source_tables") or []):
-        return _physical_cardinality(right, columns, lookup)
+        pinned = right_table_pins(dict(document), block_id, right)
+        return _physical_cardinality(right, [*columns, *pinned], lookup)
     if not columns or right not in (document.get("scopes") or {}):
         return _claim(CARDINALITY_UNKNOWN, TIER_HYPOTHESIS, BASIS_NO_EVIDENCE)
+    # A dedup before the join reads as "that table has many rows per key", but only as
+    # the author's expectation: grouping can be defensive, and the SQL never saw the rows.
     if _right_is_grouped(document, right, columns):
-        return _claim(CARDINALITY_ONE_TO_MANY, TIER_IMPLIED, BASIS_GROUP_BY)
+        return _claim(CARDINALITY_ONE_TO_MANY, TIER_HYPOTHESIS, BASIS_GROUP_BY)
     if _right_is_ranked(document, right, block_id, detail, columns):
-        return _claim(CARDINALITY_ONE_TO_MANY, TIER_IMPLIED, BASIS_RANKING_WINDOW)
+        return _claim(CARDINALITY_ONE_TO_MANY, TIER_HYPOTHESIS, BASIS_RANKING_WINDOW)
     return _claim(CARDINALITY_UNKNOWN, TIER_HYPOTHESIS, BASIS_NO_EVIDENCE)
 
 
@@ -2231,14 +2236,22 @@ def _partition_constraints(cards: Mapping) -> list[dict]:
 
 
 def _unique_per_constraints(cards: Mapping) -> list[dict]:
-    """A produced table's identity: its candidate keys, per partition, at the card's tier."""
+    """A produced table's identity: its candidate keys, per partition, at the card's tier.
+
+    F2: a producer proves its key in the rows it wrote. When some producer appends or
+    merges, or the producers disagree on the key, the table's own identity is no more
+    than a hypothesis whatever each producer proved.
+    """
     found = []
     for card in cards.get("tables") or []:
+        limited = card_key_limit(card) is not None
         for producer in card.get("produced_by") or []:
             keys = [str(key) for key in producer.get("candidate_keys") or []]
             tier = KEY_CONFIDENCE_TIERS.get(str(producer.get("key_confidence")))
             if not keys or tier is None:
                 continue
+            if limited:
+                tier = TIER_HYPOTHESIS
             found.append(
                 _constraint(
                     CONSTRAINT_UNIQUE_PER,
@@ -2370,7 +2383,9 @@ def _identity(card: Mapping, entity: str, facts: Mapping) -> dict:
         "multiplicity": [
             {
                 "columns": list(columns),
-                "tier": TIER_IMPLIED,
+                # The author's expectation, read off a GROUP BY or a ranking window --
+                # not something the SQL can prove about the table's rows.
+                "tier": TIER_HYPOTHESIS,
                 "claim": CLAIM_MULTIPLE_ROWS,
                 "evidence": evidence,
             }
