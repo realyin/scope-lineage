@@ -2402,12 +2402,17 @@ def _identity(card: Mapping, entity: str, facts: Mapping) -> dict:
 
 
 def _candidate_keys(card: Mapping, entity: str, facts: Mapping) -> list[dict]:
+    # F2: a producer that appends or merges, or producers that disagree, prove their key
+    # for a batch only -- the same limit `_unique_per_constraints` applies.
+    limited = card_key_limit(card) is not None
     keys: dict[tuple, dict] = {}
     for producer in card.get("produced_by") or []:
         columns = tuple(str(key) for key in producer.get("candidate_keys") or [])
         tier = KEY_CONFIDENCE_TIERS.get(str(producer.get("key_confidence")))
         if not columns or tier is None:
             continue
+        if limited:
+            tier = TIER_HYPOTHESIS
         entry = keys.setdefault(
             columns, {"columns": list(columns), "tier": tier, "evidence": []}
         )

@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- **The ontology's table identity applies the F2 limit too.** `tables[].identity.candidate_keys[]`
+  still took a producer's key at its own tier, so an appending producer's per-batch key read
+  `proven` there while `unique_per` and the relation already said `hypothesis`. It now drops to
+  `hypothesis` under the same conditions (an appending or merging producer, or producers that
+  disagree on the key). Found while registering every strength-deciding function (WP0).
 - **A written query's row sets and row conditions reach the task-level row** (deep
   assessment F4, F5). `end_to_end_lineage[]` of a task document dropped both: a
   `COUNT(*)` column had no `value_sources` at all, and `row_membership_sources` -- defined

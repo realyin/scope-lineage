@@ -331,6 +331,17 @@ def test_o6_an_appending_producer_key_is_only_a_hypothesis_unique_per() -> None:
     assert found[0]["tier"] == TIER_HYPOTHESIS
 
 
+def test_o3_an_appending_producers_key_is_only_a_hypothesis_candidate_key() -> None:
+    """F2, the identity half: the producer's key holds per batch, not for the table."""
+    keys = _entity(_one([("producer", APPEND_PRODUCER_SQL)]), "mart.customer_daily")[
+        "identity"
+    ]["candidate_keys"]
+
+    assert [(item["columns"], item["tier"]) for item in keys] == [
+        (["customer_id"], TIER_HYPOTHESIS)
+    ]
+
+
 def test_o2_a_key_the_producer_only_half_covers_stays_an_assumption() -> None:
     """Half a proven key set proves nothing: one customer may hold many countries."""
     producer = PRODUCER_SQL.replace(
