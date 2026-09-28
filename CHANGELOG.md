@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.5.1
+- **Public-surface hygiene and boundary fixes.** No schema or contract change. Wording in
+  docstrings, docs and earlier changelog entries that carried absolute figures from
+  private runs is now qualitative, and the scanner that should have caught it is
+  stricter; the corpus cache and `--version` now identify the code, not only the version
+  string; the dependency-direction test covers every import form; README and
+  CONTRIBUTING describe the three layers that ship. Details below.
 - **The public-surface scanner catches measurements worded less plainly, and the ones it had
   missed are gone.** A count now reaches its noun through a hyphen or up to three qualifier
   words ("an N-field job", "N opaque-call marks", "all N+ of their columns"), over nouns for
