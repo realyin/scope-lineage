@@ -2616,13 +2616,19 @@ def _root_dedup_evidence(document: dict) -> list[str]:
     return _dedupe(evidence)
 
 
-def _ranking_window_specifications(document: dict) -> list[tuple[str, str, dict]]:
-    """``(scope_id, logic_block_id, window_specification)`` for row_number/rank/dense_rank."""
+def _ranking_window_specifications(
+    document: dict, functions: frozenset[str] = semantic_text.RANKING_WINDOW_FUNCTIONS
+) -> list[tuple[str, str, dict]]:
+    """``(scope_id, logic_block_id, window_specification)`` for row_number/rank/dense_rank.
+
+    ``functions`` narrows the family: every ranking function reads as a dedup, but only
+    :data:`semantic_text.UNIQUE_RANKING_WINDOW_FUNCTIONS` prove a key set unique.
+    """
     found = []
     for scope_id, block in _logic_blocks(document):
         spec = block.get("window_specification") or {}
         function = str(spec.get("window_function") or "").lower()
-        if function in semantic_text.RANKING_WINDOW_FUNCTIONS:
+        if function in functions:
             found.append((scope_id, str(block.get("logic_block_id")), spec))
     return found
 
@@ -2837,10 +2843,16 @@ def _aggregation_logical_keys(document: dict, scope_id: str) -> list[dict] | Non
 
 
 def _root_dedup_logical_keys(document: dict) -> list[dict]:
-    """The partition items of every ranking window ROOT filters to ``= 1``."""
+    """The partition items of every ``row_number`` window ROOT filters to ``= 1``.
+
+    ``rank`` / ``dense_rank`` windows are dedup evidence for the shape but give no keys:
+    their ``= 1`` keeps every tie, so the grain falls back to the walk.
+    """
     evidence = _root_dedup_evidence(document)
     keys: list[dict] = []
-    for scope_id, block_id, spec in _ranking_window_specifications(document):
+    for scope_id, block_id, spec in _ranking_window_specifications(
+        document, semantic_text.UNIQUE_RANKING_WINDOW_FUNCTIONS
+    ):
         if block_id not in evidence:
             continue
         names = _output_name_index(document, scope_id)
@@ -3762,8 +3774,12 @@ def _ranking_uniqueness(
     scope_id: str,
     join_block: tuple[str, dict],
     join_columns: Sequence[str],
+    functions: frozenset[str] = semantic_text.UNIQUE_RANKING_WINDOW_FUNCTIONS,
 ) -> tuple[str, list[str], str] | None:
     """``(function, partition labels, consumer id)`` when the right side proves one row per key.
+
+    By default only ``row_number`` proves it (ties survive ``rank() = 1``). A caller
+    asking whether the author *meant* one row per key passes the whole ranking family.
 
     WI-2.1d item 1: the subset test runs on the partition's *logical* keys -- the column
     each PARTITION BY item is published as on this scope -- against the column names the
@@ -3772,7 +3788,7 @@ def _ranking_uniqueness(
     which is a wider key set than the SQL wrote.
     """
     names = _output_name_index(document, scope_id)
-    for owner, _, spec in _ranking_window_specifications(document):
+    for owner, _, spec in _ranking_window_specifications(document, functions):
         if owner != scope_id:
             continue
         keys = [

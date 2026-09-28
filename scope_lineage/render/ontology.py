@@ -1713,9 +1713,19 @@ def _right_is_grouped(document: Mapping, scope_id: str, columns: Sequence[str]) 
 def _right_is_ranked(
     document: Mapping, scope_id: str, block_id: str, detail: Mapping, columns: Sequence[str]
 ) -> bool:
-    """R3's own ranking verdict: a window over the join keys, filtered to ``= 1``."""
+    """A ranking window over the join keys, filtered to ``= 1``.
+
+    This backs an ``implied`` claim about the author's intent, not a uniqueness proof,
+    so ``rank`` / ``dense_rank`` count as well as ``row_number``.
+    """
     return (
-        ranking_uniqueness(dict(document), scope_id, (block_id, dict(detail)), list(columns))
+        ranking_uniqueness(
+            dict(document),
+            scope_id,
+            (block_id, dict(detail)),
+            list(columns),
+            semantic_text.RANKING_WINDOW_FUNCTIONS,
+        )
         is not None
     )
 
