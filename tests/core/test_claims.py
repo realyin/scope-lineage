@@ -86,7 +86,7 @@ def test_a_claim_is_about_one_subject() -> None:
 
 # ------------------------------------------------ WP1c: one statement's uniqueness claims
 
-SCHEMA = {"ods.e": ["id", "v", "ts", "dt"], "ods.base": ["id", "b"]}
+SCHEMA = {"ods.e": ["id", "v", "ts", "dt"], "ods.base": ["id", "b"], "mart.dim": ["id", "v", "dt"]}
 
 
 def _document(sql: str) -> dict:
@@ -213,3 +213,99 @@ def test_a_filter_is_only_a_hint_about_a_physical_column() -> None:
     assert claim.subject == ("physical_column", ("ods.orders", "state"))
     assert claim.rule == "R-FILTER-HINT"
     assert claim.status == "hypothesis"
+
+
+# ------------------------------------------------------ WP3: premises and conditions
+
+
+def test_a_claim_cites_only_registered_premises() -> None:
+    with pytest.raises(ValueError, match="A-NOT-A-PREMISE"):
+        _claim(assumptions=("A-NOT-A-PREMISE",))
+
+
+def test_every_standard_premise_is_registered() -> None:
+    from scope_lineage.render.claims import ASSUMPTIONS, STANDARD_ASSUMPTIONS
+
+    assert set(STANDARD_ASSUMPTIONS) <= set(ASSUMPTIONS)
+    assert "A-WRITERS-CLOSED" in STANDARD_ASSUMPTIONS
+
+
+def test_a_claim_resting_on_a_non_standard_premise_is_not_proven(monkeypatch) -> None:
+    from scope_lineage.render import claims
+
+    monkeypatch.setattr(claims, "STANDARD_ASSUMPTIONS", ("A-RUN-SUCCEEDED",))
+    with pytest.raises(ValueError, match="A-WRITERS-CLOSED"):
+        _claim(assumptions=("A-WRITERS-CLOSED",))
+
+
+def _read(producer: str, consumer: str):
+    from scope_lineage.render.semantic_profile import card_read_claim
+    from scope_lineage.render.table_cards import build_table_cards
+
+    cards = build_table_cards([_profile_of(producer, "producer")])
+    document = _document(consumer)
+    return card_read_claim(document, *_join(document), cards)
+
+
+def _profile_of(sql: str, task: str) -> dict:
+    from scope_lineage.render.semantic_profile import build_semantic_profile
+
+    return build_semantic_profile(to_lineage_dict(parse_scope_lineage(sql, task, schema=SCHEMA)))
+
+
+PARTITION_PRODUCER = (
+    "INSERT OVERWRITE TABLE mart.dim PARTITION (dt = '1') "
+    "SELECT id, MAX(v) AS v FROM ods.e GROUP BY id"
+)
+
+
+def test_a_read_pinning_the_partition_is_proven() -> None:
+    claim = _read(
+        PARTITION_PRODUCER,
+        "INSERT INTO mart.t SELECT b.id, d.v FROM ods.base b LEFT JOIN mart.dim d "
+        "ON b.id = d.id WHERE d.dt = '1'",
+    )
+
+    assert claim.rule == "R-READ-PIN"
+    assert claim.status == "proven"
+    assert claim.subject.kind == "read_view"
+
+
+def test_a_read_across_partitions_is_conditional_on_pinning_them() -> None:
+    claim = _read(
+        PARTITION_PRODUCER,
+        "INSERT INTO mart.t SELECT b.id, d.v FROM ods.base b LEFT JOIN mart.dim d "
+        "ON b.id = d.id",
+    )
+
+    assert claim.status == "conditional"
+    assert claim.conditions == (("partition_columns_pinned", ("dt",)),)
+
+
+def test_a_partition_producers_claim_rests_on_the_metadata_too() -> None:
+    from scope_lineage.render.semantic_profile import card_key_claim
+    from scope_lineage.render.table_cards import build_table_cards
+
+    cards = build_table_cards([_profile_of(PARTITION_PRODUCER, "producer")])
+    claim = card_key_claim(next(item for item in cards["tables"] if item["table"] == "mart.dim"))
+
+    assert claim.assumptions == ("A-WRITERS-CLOSED", "A-METADATA-AUTHORITATIVE")
+
+
+def test_a_candidate_key_read_across_partitions_stays_a_hypothesis() -> None:
+    """A condition only ever weakens: it cannot lift a candidate key to ``conditional``."""
+    from scope_lineage.render.semantic_profile import card_read_claim
+    from scope_lineage.render.table_cards import build_table_cards
+
+    cards = build_table_cards([_profile_of(PARTITION_PRODUCER, "producer")])
+    card = next(item for item in cards["tables"] if item["table"] == "mart.dim")
+    card["produced_by"][0]["key_confidence"] = "candidate"
+    document = _document(
+        "INSERT INTO mart.t SELECT b.id, d.v FROM ods.base b LEFT JOIN mart.dim d "
+        "ON b.id = d.id"
+    )
+
+    claim = card_read_claim(document, *_join(document), cards)
+
+    assert claim.status == "hypothesis"
+    assert claim.conditions == (("partition_columns_pinned", ("dt",)),)

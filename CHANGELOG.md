@@ -1,6 +1,15 @@
 # Changelog
 
 ## Unreleased
+- **Premises are named, and a read across partitions is `conditional` (assertion model WP3).**
+  `claims.ASSUMPTIONS` registers what SQL cannot prove -- all writers are in the corpus, the
+  metadata is authoritative, the run succeeded, no concurrent write, default dialect
+  semantics -- and `STANDARD_ASSUMPTIONS` (all five, per the owner's decision) are the only
+  ones a `proven` claim may rest on. A partition-overwrite key claim now names the metadata
+  premise too. A JOIN onto a carded table gets a `read_view` claim (`R-READ-PIN`): proven
+  when the ON clause plus the right table's pinned columns cover the key, `conditional` on
+  pinning the partition when only that is missing -- a condition that can only weaken, so a
+  candidate key stays a hypothesis. The published verdicts are unchanged.
 - **Value sets are claims too (assertion model WP2).** The glossary's closed set is now a
   `Claim` -- `R-CASE-OUTPUT` about the column a statement writes, or `R-IN-FILTER` about the
   rows of the statement that filtered -- and a field is closed only when that subject covers

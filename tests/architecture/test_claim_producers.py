@@ -52,6 +52,7 @@ PRODUCERS: dict[str, tuple[str, ...]] = {
         "R-REPLACE-STATE", "R-PARTITION-STATE", "R-READ-PIN", "R-PRODUCERS-AGREE",
     ),
     "render/semantic_profile.py:_capped_confidence": ("R-CANDIDATE-CAP",),
+    "render/semantic_profile.py:_read_claim": ("R-READ-PIN",),
     "render/semantic_profile.py:_card_key_claim": (
         "R-REPLACE-STATE", "R-PARTITION-STATE", "R-PRODUCERS-AGREE",
     ),

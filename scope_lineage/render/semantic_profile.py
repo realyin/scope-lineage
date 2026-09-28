@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter, OrderedDict
+from dataclasses import replace
 from typing import Iterable, Mapping, Sequence
 
 from . import claims, glossary_values, semantic_text
@@ -3615,16 +3616,44 @@ def _card_verdict(
         return None
     if claim.defeaters:
         return "unknown", claim.defeaters[0][1], FAN_OUT_BASIS_TABLE_CARD, None
-    task, keys, level = claim.evidence[0], list(claim.content), _card_claim_level(claim)
-    columns = _join_side_columns(detail, "right")
-    if not columns or not _comparable(keys) <= _comparable([*columns, *pinned]):
-        partition = _card_partition_columns(card)
-        if partition and _comparable(
-            [key for key in keys if key not in partition]
-        ) <= _comparable(columns):
-            return "unknown", _partition_reason(task, partition), FAN_OUT_BASIS_TABLE_CARD, None
+    read = _read_claim(claim, detail, pinned, _card_partition_columns(card))
+    if read is None:
         return None
-    return "safe", _card_reason(task, keys, level), FAN_OUT_BASIS_TABLE_CARD, level
+    task = claim.evidence[0]
+    if read.conditions:
+        (_condition, partition), = read.conditions
+        return "unknown", _partition_reason(task, partition), FAN_OUT_BASIS_TABLE_CARD, None
+    level = _card_claim_level(claim)
+    return "safe", _card_reason(task, list(claim.content), level), FAN_OUT_BASIS_TABLE_CARD, level
+
+
+def _read_claim(
+    table: claims.Claim, detail: dict, pinned: Sequence[str], partition: Sequence[str]
+) -> claims.Claim | None:
+    """What a table's key claim says about the rows one JOIN reads, or None.
+
+    The ON clause's right-hand columns, together with the right table's columns this
+    scope pins to one value, must cover the key set. A partitioned write's key includes
+    its partition columns (``R-PARTITION-STATE``); a read that covers every other key but
+    leaves a partition column free is ``conditional`` on pinning it (``R-READ-PIN``) --
+    one row per key per day is many rows per key across days.
+    """
+    keys = list(table.content)
+    columns = _join_side_columns(detail, "right")
+    subject = claims.Subject(claims.SUBJECT_READ_VIEW, (str(detail.get("right_input")),))
+    rule = "R-READ-PIN" if partition else table.rule
+    if columns and _comparable(keys) <= _comparable([*columns, *pinned]):
+        return replace(table, subject=subject, rule=rule)
+    free = [key for key in keys if key not in partition]
+    if partition and columns and _comparable(free) <= _comparable(columns):
+        return replace(
+            table,
+            subject=subject,
+            rule="R-READ-PIN",
+            content=tuple(free),
+            conditions=(("partition_columns_pinned", tuple(partition)),),
+        ).weakened_to(claims.CONDITIONAL)
+    return None
 
 
 def _card_lookup(table_cards: Mapping | None):
@@ -3695,7 +3724,10 @@ def _card_key_claim(card) -> claims.Claim | None:
         ),
         rule="R-PARTITION-STATE" if partition else "R-REPLACE-STATE",
         evidence=(str(offered.get("task")),),
-        assumptions=("A-WRITERS-CLOSED",),
+        # A partitioned write is read off the target's metadata as well.
+        assumptions=(
+            ("A-WRITERS-CLOSED", "A-METADATA-AUTHORITATIVE") if partition else ("A-WRITERS-CLOSED",)
+        ),
     )
     appending = [
         producer
@@ -4099,6 +4131,21 @@ card_lookup = _card_lookup
 
 #: ``(task, keys, confidence)`` from the strongest producer on one card, or None.
 card_key_claim = _card_key_claim
+
+
+def card_read_claim(document: dict, block_id: str, detail: dict, table_cards: Mapping):
+    """The read-side claim for one JOIN onto a carded table (WP3); None when there is none."""
+    right = str(detail.get("right_input") or "")
+    card = (_card_lookup(table_cards) or (lambda _name: None))(right)
+    claim = _card_key_claim(card)
+    if claim is None or claim.defeaters:
+        return claim
+    return _read_claim(
+        claim,
+        detail,
+        _right_table_pins(document, block_id, right),
+        _card_partition_columns(card),
+    )
 
 #: Columns of a physical right side the JOIN's own scope pins to one value.
 right_table_pins = _right_table_pins
