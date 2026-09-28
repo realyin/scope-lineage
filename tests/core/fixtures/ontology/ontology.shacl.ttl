@@ -84,8 +84,8 @@ sl:dim_segment_dimShape
     ] ;
     sl:multiplicity [
         sl:column "segment" ;
-        rdfs:comment "multiple_rows_per_key (implied) on segment; evidence_count 1, first task golden_grouped_dedup_join" ;
-        sl:tier "implied"
+        rdfs:comment "multiple_rows_per_key (hypothesis) on segment; evidence_count 1, first task golden_grouped_dedup_join" ;
+        sl:tier "hypothesis"
     ] .
 
 sl:mart_channel_summaryShape
@@ -288,8 +288,8 @@ sl:ods_channel_eventShape
     ] ;
     sl:multiplicity [
         sl:column "customer_id, channel_code" ;
-        rdfs:comment "multiple_rows_per_key (implied) on customer_id, channel_code; evidence_count 2, first task golden_commented_insert" ;
-        sl:tier "implied"
+        rdfs:comment "multiple_rows_per_key (hypothesis) on customer_id, channel_code; evidence_count 2, first task golden_commented_insert" ;
+        sl:tier "hypothesis"
     ] .
 
 sl:ods_events_aShape
@@ -319,7 +319,7 @@ sl:ods_events_aShape
         sl:taskCount 1 ;
         sl:evidenceCount 1 ;
         sl:evidenceTask "golden_grouped_dedup_join" ;
-        sl:tier "implied"
+        sl:tier "hypothesis"
     ] ;
     sh:property [
         sh:path sl:rel_003 ;
@@ -366,7 +366,7 @@ sl:ods_events_bShape
         sl:taskCount 1 ;
         sl:evidenceCount 1 ;
         sl:evidenceTask "golden_grouped_dedup_join" ;
-        sl:tier "implied"
+        sl:tier "hypothesis"
     ] ;
     sl:synonym [
         sl:column "seg_code" ;
@@ -684,7 +684,7 @@ sl:concept_table_ods_events_aShape
         sl:claim "one_to_many" ;
         sl:taskCount 1 ;
         sl:evidenceCount 1 ;
-        sl:tier "implied"
+        sl:tier "hypothesis"
     ] ;
     sh:property [
         sh:path sl:association_concept_table_ods_events_b ;
@@ -732,7 +732,7 @@ sl:concept_table_ods_events_bShape
         sl:claim "one_to_many" ;
         sl:taskCount 1 ;
         sl:evidenceCount 1 ;
-        sl:tier "implied"
+        sl:tier "hypothesis"
     ] .
 
 sl:concept_table_ods_usersShape
@@ -776,6 +776,18 @@ sl:Ontology
     sl:openItem [
         sl:id "open:rel:ods.channel_event.channel_code->dim.channel.channel_code" ;
         rdfs:comment "relation (hypothesis) on ods.channel_event [channel_code]: 关系 `ods.channel_event` → `dim.channel` 的基数写作「多对一，作者假设」，依据只是直接关联未去重，作者假设对端按该键唯一。 (write back: 关系:ods.channel_event.channel_code->dim.channel.channel_code)" ;
+        sl:kind "relation" ;
+        sl:tier "hypothesis"
+    ] ;
+    sl:openItem [
+        sl:id "open:rel:ods.events_a.segment->dim.segment_dim.segment" ;
+        rdfs:comment "relation (hypothesis) on ods.events_a [segment]: 关系 `ods.events_a` → `dim.segment_dim` 的基数写作「一对多」，依据只是关联前已按连接键排名去重。 (write back: 关系:ods.events_a.segment->dim.segment_dim.segment)" ;
+        sl:kind "relation" ;
+        sl:tier "hypothesis"
+    ] ;
+    sl:openItem [
+        sl:id "open:rel:ods.events_b.seg_code->dim.segment_dim.segment" ;
+        rdfs:comment "relation (hypothesis) on ods.events_b [segment]: 关系 `ods.events_b` → `dim.segment_dim` 的基数写作「一对多」，依据只是关联前已按连接键排名去重。 (write back: 关系:ods.events_b.seg_code->dim.segment_dim.segment)" ;
         sl:kind "relation" ;
         sl:tier "hypothesis"
     ] ;

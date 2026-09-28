@@ -67,11 +67,13 @@ HOME_CONSUMER_SQL = (
     "GROUP BY country_code"
 )
 
-# Corpus B: a task that joins the shared table on the whole key corpus A proved.
+# Corpus B: a task that joins the shared table on the whole key corpus A proved. The
+# producer overwrites one partition, so the read pins that partition as well (F2).
 FOREIGN_CONSUMER_SQL = (
     "INSERT OVERWRITE TABLE mart.event_rollup "
     "SELECT e.event_code, count(1) AS n FROM ods.customer_event e "
     "LEFT JOIN mart.customer_daily d ON e.customer_id = d.customer_id "
+    "WHERE d.dt = '20250101' "
     "GROUP BY e.event_code"
 )
 

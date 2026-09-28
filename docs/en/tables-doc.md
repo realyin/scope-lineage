@@ -406,6 +406,8 @@ simply its fourth source of evidence. Everything derived from `output_shape` —
 | The JOIN's right side is a physical table whose card has `key_confidence: "proven"` and whose `candidate_keys` are a subset of that JOIN's right-side key columns | that risk becomes `safe`, its `reason` reads 「生产任务 `<task>` 已证明 `<keys>` 唯一（表卡）」, and it carries `basis: "table_card"` |
 | The same, but the card's `key_confidence` is `candidate` | still `safe`, but the `reason` says 「表卡候选键，未证唯一」 and the statement's whole `key_confidence` is capped at `candidate` |
 | The card's `key_confidence` is `proven_unexposed` or `none`, or the join keys do not cover the candidate keys | nothing is re-decided; the original verdict stands |
+| Some producer appends (`INSERT INTO`) or merges (`MERGE`) into the table, or the producers disagree on the candidate keys | re-decided `unknown`, the `reason` saying why: the key is unique within one batch only / which version is read depends on the schedule (F2) |
+| A producer writes by partition, and the JOIN neither matches the partition columns in ON nor pins the right table's partition columns to a constant in WHERE | re-decided `unknown`, the `reason` saying the key is unique within each partition only; matched or pinned, the verdict is `safe` as before (F2) |
 
 `candidate_keys`, `unexposed_keys`, `key_evidence` and `key_confidence` are all derived from
 the final risk set — they were always functions of "every JOIN on the grain path is `safe`".

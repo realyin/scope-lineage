@@ -138,8 +138,8 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 | 层级 | md 上的中文 | 定义 | 例 |
 | --- | --- | --- | --- |
 | `proven` | 已证明 | SQL 里直接写着 | 连接键对存在；分区列；生产任务已证明的键；DIRECT 重命名 |
-| `implied` | 可推得 | 由结构可证明的推论 | 任务在 JOIN 前按 k 去重 → 那张表按 k 有多行（否则作者不会去重）；UNION 列对齐 |
-| `hypothesis` | 作者假设 | 作者假设，未被 SQL 证明 | 直接以 k 关联物理表 → 假设它按 k 唯一；过滤里出现过的取值集合是否完整 |
+| `implied` | 可推得 | 由结构可证明的推论 | UNION 列对齐；元数据线索与候选键一致 |
+| `hypothesis` | 作者假设 | 作者假设，未被 SQL 证明 | 直接以 k 关联物理表 → 假设它按 k 唯一；过滤里出现过的取值集合是否完整；任务在 JOIN 前按 k 去重 → 那张表按 k 有多行（这是作者的预期，查询没见过数据，去重也可能只是防御） |
 | `conflict` | 矛盾 | 跨任务证据矛盾 | T1 按 k 去重、T2 直接按 k 关联同一张表——这是治理发现，不是本体事实 |
 | `confirmed` | 已确认 | **只来自人工回写**，语料自己永远产不出这一级 | 业务方在 `ontology.overrides.json` 里确认了某条关系的基数或某张表的身份键 |
 
@@ -227,7 +227,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
                                          "logic_block_id": "logic:ROOT:join:001"}]}],
        "declared_hints": [{"columns": ["id"], "evidence": "column_comment",
                            "text": "customer primary key"}],
-       "multiplicity": [{"columns": ["driver_id"], "tier": "implied",
+       "multiplicity": [{"columns": ["driver_id"], "tier": "hypothesis",
                          "claim": "multiple_rows_per_key", "evidence": [{"kind": "group_by"}]}],
        "partition_columns": ["dt"]},
      "attributes": [
@@ -254,7 +254,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
      "from": {"entity": "ods.driver", "columns": ["id"]},
      "to": {"entity": "ods.pay", "columns": ["driver_id"]},
      "kind": "join_association",
-     "cardinality": {"claim": "one_to_many", "tier": "implied", "basis": "group_by"},
+     "cardinality": {"claim": "one_to_many", "tier": "hypothesis", "basis": "group_by"},
      "join_types": ["LEFT_OUTER"], "task_count": 1,
      "evidence": [{"task": "task_a", "statement_id": "stmt:001",
                    "scope_id": "ROOT", "logic_block_id": "logic:ROOT:join:001"}],
@@ -272,7 +272,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
   ],
   "constraints": [
     {"target": {"entity": "ods.orders", "column": "state"}, "kind": "in_set",
-     "tier": "proven", "values": ["NEW", "PAID"], "completeness": "complete",
+     "tier": "hypothesis", "values": ["NEW", "PAID"], "completeness": "unknown",
      "evidence": [{"task": "task_a", "statement_id": "stmt:001", "context": "filter_in"}],
      "concept": "concept:order"}
   ],
@@ -370,7 +370,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 | `concept_relations_unmapped` | `edges_total` + `mapped` + `total` + `by_reason`（`from_table_unplaced` / `to_table_unplaced` / `reference_only_edge`） | K3：没能折下去的表级关系条数，按**哪一端**没答上来分开计；先问 `from`，所以两端都答不出来的边只记在 `from_table_unplaced` 上；两端都答上来、却从没走在那个键上的边记在 `reference_only_edge`。折错了比没折更糟。`edges_total` 是这次折叠读到的全部表级关系、`mapped` 是折下去的条数：**`by_reason` 会随着表被放进概念而移动**（一条 `from_table_unplaced` 在评审把那张表放好之后就变成一条折下去的边），所以分母跟着一起发布，两次运行才比得了 |
 | `constraints[].concept` | 概念 id 或 `null` | M2：目标表**表现**的那个概念。目标仍然是表——一条约束是关于某一份表现的事实——这个键只是让文档能按概念读。表恰好有两个身份概念（K1 拒绝在两者之间选）时写 `null` |
 | `constraints[].kind` | `not_null` / `in_set` / `unique_per` / `partition` | O6 |
-| `constraints[].values`、`completeness` | 取值列表、`complete` / `unknown` | 仅 `in_set`：只有封闭 `IN` 列表或穷尽 CASE 才是 `complete` |
+| `constraints[].values`、`completeness` | 取值列表、`complete` / `unknown` | 仅 `in_set`：只有穷尽 CASE 才是 `complete`；过滤里的封闭 `IN` 列表只挑出那条语句的行，不说明表里这一列还有什么值（F3） |
 | `constraints[].columns` | 列名列表 | 仅 `unique_per`：候选键 + 分区列 |
 | `constraints[].note` | 一句话 | 仅 `not_null`：「任务用过滤丢弃了 NULL，源表本身可能仍含 NULL」 |
 | `findings[].concept`、`open_items[].concept`、`open_item_groups[].concept` | 概念 id 或 `null` | M2：出问题的那张表属于哪个概念，索引据此把问题挂到概念那一节下面。组按它的代表条目算 |
@@ -422,10 +422,10 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 | 规则 | 内容 |
 | --- | --- |
 | O1 关系边 | JOIN 的 `join_key_pairs` 按（左表, 右表）归组成边；CTE 侧用 R3 的驱动路径穿透到物理表并记录穿透路径；连接列是键所携带的值所在的物理列（改名、只读一列的 `TRIM` / `CAST` / `COALESCE(x, '')` 也算），由多列算出的键不是其中任何一列，以 ON 子句写的列名落在该引用所指作用域的表上；UNION 分支两两成 `union_sibling`，列按位置对齐 |
-| O2 基数 | 右侧在 JOIN 前按连接键 GROUP BY / 排名窗口去重 → `one_to_many`（`implied`）；右侧物理表且某生产任务已证明该键唯一 → `many_to_one`（`proven`）；直接关联物理表 → `many_to_one_assumed`（`hypothesis`）；其余 `unknown` |
-| O3 多行性 | 任一任务对表 T 按键集 K 做 GROUP BY 或窗口 partition → T 按 K 有多行（`implied`）；键集跨两张表时不做任何断言 |
+| O2 基数 | 右侧在 JOIN 前按连接键 GROUP BY / 排名窗口去重 → `one_to_many`（`hypothesis`）；右侧物理表且表卡的键证明覆盖读到的整张表（每个生产任务都整表覆盖写入且键一致；分区写入时分区列也须在 ON 中对齐或被 WHERE 钉成常量）→ `many_to_one`（`proven`）；直接关联物理表 → `many_to_one_assumed`（`hypothesis`）；其余 `unknown` |
+| O3 多行性 | 任一任务对表 T 按键集 K 做 GROUP BY 或窗口 partition → T 按 K 有多行（`hypothesis`）；键集跨两张表时不做任何断言 |
 | O5 同义 | `end_to_end_lineage` 的 DIRECT 且列名不同 → `direct_rename`（`proven`）；UNION 同位置列名不同 → `union_alignment`（`implied`）；两端互相登记 |
-| O6 约束 | `NOT x IS NULL` 过滤 → `not_null`（`hypothesis`，附注「任务丢弃了 NULL，源表可能仍含 NULL」）；可枚举 code → `in_set`；分区列 → `partition`（`proven`）；产出表候选键 + 分区列 → `unique_per`（键置信 `proven` → `proven`，`candidate` → `hypothesis`）。**同一条断言只发一条**：（实体, kind, columns/values）相同的约束合并成一条，`tier` 取其中最强的一级、`evidence[]` 按语料顺序求并——一张表被两个任务按同一键集写出时，那是同一条约束被证明了两次，不是两条约束 |
+| O6 约束 | `NOT x IS NULL` 过滤 → `not_null`（`hypothesis`，附注「任务丢弃了 NULL，源表可能仍含 NULL」）；可枚举 code → `in_set`；分区列 → `partition`（`proven`）；产出表候选键 + 分区列 → `unique_per`（键置信 `proven` → `proven`，`candidate` → `hypothesis`；有生产任务以追加或合并方式写入、或生产任务给出的键不一致时一律 `hypothesis`）。**同一条断言只发一条**：（实体, kind, columns/values）相同的约束合并成一条，`tier` 取其中最强的一级、`evidence[]` 按语料顺序求并——一张表被两个任务按同一键集写出时，那是同一条约束被证明了两次，不是两条约束 |
 | O7 冲突 | 同一（表, 键集）上「去重」与「直接关联」并存 → `cardinality_conflict`；同一张表上两组 `hypothesis` 候选键互为真子集或互不相交 → `competing_candidate_keys`（至多一组是身份键）；表卡的 `producer_key_conflict` 与 `ambiguous_bare_name` 原样透传 |
 | O8 元数据键线索 | 列注释含 `主键` / `唯一键` / `唯一编号` / `主键id` / `primary key` / `unique`（忽略大小写）→ `declared_hints`；线索与某个 `hypothesis` 候选键一致（线索列 ⊆ 键列）→ 该键升到 `implied`（注释与结构两个独立来源指向同一列）；候选键全是 `hypothesis` 且都不含线索列 → `key_hint_conflict` |
 | O9 注释关系线索 | 列注释以 `关联` / `对应` / `引用` / `见` / `外键` / `FK` / `references` / `->` 指向 `<表>.<列>` 或 `<表> 的 <列>`（忽略大小写，表名按表卡同一条规则折大小写后按点后缀匹配，裸表名只在唯一时解析）→ `relation_hints[]`；已有同一（from 实体, to 实体）与同一列对的 `hypothesis` 关系 → 抬到 `implied` 并追加一条 `column_comment` 证据；没有 → 新增一条 `kind: hinted` 的关系（`many_to_one_assumed` / `hypothesis` / `column_comment`，`task_count` 为 0），进待人工判定清单等人确认；与同一列上一条 `proven` 关系指向不同的表 → `relation_hint_conflict` |

@@ -781,7 +781,7 @@
       "type": "association",
       "cardinality": {
         "claim": "one_to_many",
-        "tier": "implied",
+        "tier": "hypothesis",
         "basis": [
           "rel:002"
         ]
@@ -815,7 +815,7 @@
       "type": "association",
       "cardinality": {
         "claim": "one_to_many",
-        "tier": "implied",
+        "tier": "hypothesis",
         "basis": [
           "rel:004"
         ]
@@ -920,7 +920,7 @@
             "columns": [
               "segment"
             ],
-            "tier": "implied",
+            "tier": "hypothesis",
             "claim": "multiple_rows_per_key",
             "evidence": [
               {
@@ -1230,7 +1230,7 @@
               "customer_id",
               "channel_code"
             ],
-            "tier": "implied",
+            "tier": "hypothesis",
             "claim": "multiple_rows_per_key",
             "evidence": [
               {
@@ -1636,7 +1636,7 @@
       "kind": "join_association",
       "cardinality": {
         "claim": "one_to_many",
-        "tier": "implied",
+        "tier": "hypothesis",
         "basis": "ranking_window"
       },
       "join_types": [
@@ -1711,7 +1711,7 @@
       "kind": "join_association",
       "cardinality": {
         "claim": "one_to_many",
-        "tier": "implied",
+        "tier": "hypothesis",
         "basis": "ranking_window"
       },
       "join_types": [
@@ -1889,6 +1889,32 @@
       "concept": "concept:table:ods_channel_event"
     },
     {
+      "id": "open:rel:ods.events_a.segment->dim.segment_dim.segment",
+      "kind": "relation",
+      "entity": "ods.events_a",
+      "relation": "rel:002",
+      "columns": [
+        "segment"
+      ],
+      "tier": "hypothesis",
+      "write_back": "关系:ods.events_a.segment->dim.segment_dim.segment",
+      "text": "关系 `ods.events_a` → `dim.segment_dim` 的基数写作「一对多」，依据只是关联前已按连接键排名去重。",
+      "concept": "concept:table:ods_events_a"
+    },
+    {
+      "id": "open:rel:ods.events_b.seg_code->dim.segment_dim.segment",
+      "kind": "relation",
+      "entity": "ods.events_b",
+      "relation": "rel:004",
+      "columns": [
+        "segment"
+      ],
+      "tier": "hypothesis",
+      "write_back": "关系:ods.events_b.seg_code->dim.segment_dim.segment",
+      "text": "关系 `ods.events_b` → `dim.segment_dim` 的基数写作「一对多」，依据只是关联前已按连接键排名去重。",
+      "concept": "concept:table:ods_events_b"
+    },
+    {
       "id": "open:key:dim.channel=channel_code",
       "kind": "candidate_key",
       "entity": "dim.channel",
@@ -1902,6 +1928,22 @@
     }
   ],
   "open_item_groups": [
+    {
+      "group_id": "open:group:rel:dim.segment_dim=segment",
+      "kind": "relation",
+      "family": "dim.segment_dim",
+      "shape": "segment",
+      "representative": "open:rel:ods.events_a.segment->dim.segment_dim.segment",
+      "items": [
+        "open:rel:ods.events_a.segment->dim.segment_dim.segment",
+        "open:rel:ods.events_b.seg_code->dim.segment_dim.segment"
+      ],
+      "count": 2,
+      "impact": 3,
+      "write_back_pattern": "关系:<from_table>.<from_columns>-><table>.segment",
+      "concept_open_item": "open:concept:concept:table:ods_events_a:rel=concept:table:dim_segment_dim:seg",
+      "concept": "concept:table:ods_events_a"
+    },
     {
       "group_id": "open:group:rel:dim.channel=channel_code",
       "kind": "relation",
@@ -1952,6 +1994,46 @@
       "concept_write_back": "概念关系:concept:table:ods_channel_event->concept:channel",
       "write_back": [
         "关系:ods.channel_event.channel_code->dim.channel.channel_code"
+      ]
+    },
+    {
+      "id": "open:concept:concept:table:ods_events_a:rel=concept:table:dim_segment_dim:seg",
+      "kind": "relation",
+      "concept": "concept:table:ods_events_a",
+      "shape": "concept:table:dim_segment_dim:seg",
+      "question": "概念「events_a」→「segment_dim」的基数是几对几？（1 张表现表上的 JOIN）",
+      "tier": "hypothesis",
+      "impact": 2,
+      "count": 1,
+      "tables": [
+        "ods.events_a"
+      ],
+      "items": [
+        "open:rel:ods.events_a.segment->dim.segment_dim.segment"
+      ],
+      "concept_write_back": "概念关系:concept:table:ods_events_a->concept:table:dim_segment_dim",
+      "write_back": [
+        "关系:ods.events_a.segment->dim.segment_dim.segment"
+      ]
+    },
+    {
+      "id": "open:concept:concept:table:ods_events_b:rel=concept:table:dim_segment_dim:seg",
+      "kind": "relation",
+      "concept": "concept:table:ods_events_b",
+      "shape": "concept:table:dim_segment_dim:seg",
+      "question": "概念「events_b」→「segment_dim」的基数是几对几？（1 张表现表上的 JOIN）",
+      "tier": "hypothesis",
+      "impact": 2,
+      "count": 1,
+      "tables": [
+        "ods.events_b"
+      ],
+      "items": [
+        "open:rel:ods.events_b.seg_code->dim.segment_dim.segment"
+      ],
+      "concept_write_back": "概念关系:concept:table:ods_events_b->concept:table:dim_segment_dim",
+      "write_back": [
+        "关系:ods.events_b.seg_code->dim.segment_dim.segment"
       ]
     },
     {

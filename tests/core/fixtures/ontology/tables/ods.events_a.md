@@ -69,7 +69,7 @@ consumers: 1
 
 | 关系 | 从 | 到 | 类型 | 角色 | 基数 | 层级 | 证据 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `crel:002` | events_a | segment_dim | 关联 | — | 一对多 | `implied` | `rel:002` |
+| `crel:002` | events_a | segment_dim | 关联 | — | 一对多 | `hypothesis` | `rel:002` |
 | `crel:003` | events_a | events_b | 关联 | — | 未知 | `implied` | `rel:003` |
 
 **表级 JOIN（证据）**
@@ -78,7 +78,7 @@ consumers: 1
 
 | 对端 | 键 | JOIN 类型 | 基数 | 层级 | 依据 | 任务数 | 证据 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| [`dim.segment_dim`](dim.segment_dim.md) | `segment` = `segment` | LEFT_OUTER | 一对多（one_to_many） | 可推得（`implied`） | 关联前已按连接键排名去重 | 1 | `golden_grouped_dedup_join/stmt:001/cte:joined/logic:cte:joined:join:001` |
+| [`dim.segment_dim`](dim.segment_dim.md) | `segment` = `segment` | LEFT_OUTER | 一对多（one_to_many） | 作者假设（`hypothesis`） | 关联前已按连接键排名去重 | 1 | `golden_grouped_dedup_join/stmt:001/cte:joined/logic:cte:joined:join:001` |
 | [`ods.events_b`](ods.events_b.md) | `segment` = `seg_code`、`amount` = `amount` | — | 未知（unknown） | 可推得（`implied`） | 同一 UNION 的分支按列位置对齐 | 1 | `golden_grouped_dedup_join/stmt:001/union:events_norm` |
 
 *入边（本表在右）*
@@ -103,4 +103,4 @@ consumers: 1
 
 以下都是「events_a」（`concept:table:ods_events_a`）这一份表现上的事实。
 
-- 本表没有待人工判定的项。
+- [待确认] 关系 `ods.events_a` → `dim.segment_dim` 的基数写作「一对多」，依据只是关联前已按连接键排名去重。回写 `关系:ods.events_a.segment->dim.segment_dim.segment`。（清单 `open:rel:ods.events_a.segment->dim.segment_dim.segment`，组 `open:group:rel:dim.segment_dim=segment`）

@@ -344,6 +344,8 @@ scope-lineage describe --lineage /path/to/corpus/one_task/lineage.json \
 | JOIN 右侧是物理表，其表卡的 `key_confidence` 是 `proven`，且 `candidate_keys` ⊆ 该 JOIN 右侧连接键列名 | 该条风险改判 `safe`，`reason` 写「生产任务 `<task>` 已证明 `<keys>` 唯一（表卡）」，并加 `basis: "table_card"` |
 | 同上但表卡的 `key_confidence` 是 `candidate` | 同样改判 `safe`，但 `reason` 注明「表卡候选键，未证唯一」，且整条语句的 `key_confidence` 上限压到 `candidate` |
 | 表卡 `key_confidence` 是 `proven_unexposed` 或 `none`，或连接键没盖住候选键 | 不改判，仍是原来的结论 |
+| 有生产任务以追加（`INSERT INTO`）或合并（`MERGE`）方式写这张表，或多个生产任务给出的候选键不一致 | 改判 `unknown`，`reason` 说明原因：键只在单批写入内唯一 / 读到哪一版取决于调度顺序（F2） |
+| 生产任务按分区写入，而连接既没有在 ON 中对齐分区列、也没有在 WHERE 里把右表的分区列钉成常量 | 改判 `unknown`，`reason` 说明键只在每个分区内唯一；分区列被对齐或钉住时照常判 `safe`（F2） |
 
 `candidate_keys`、`unexposed_keys`、`key_evidence`、`key_confidence` 都由最终的风险集合算出——
 它们本来就是「粒度链路上每个 JOIN 都 `safe`」这个前提的函数。没有传 `--tables` 时，

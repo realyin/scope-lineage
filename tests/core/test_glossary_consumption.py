@@ -132,6 +132,53 @@ def test_a_glossary_widens_the_domain_to_what_other_tasks_observed() -> None:
     ]
 
 
+FILTERED_SQL = (
+    "INSERT INTO mart.filtered SELECT o.order_id, o.pay_status FROM ods.app_order o "
+    "WHERE o.pay_status IN ('PAID', 'REFUND')"
+)
+UNFILTERED_SQL = (
+    "INSERT INTO mart.unfiltered SELECT o.order_id, o.pay_status FROM ods.app_order o"
+)
+
+
+def _closed_flags(profile: dict) -> list:
+    return [item["closed_set"] for item in _field(profile, "pay_status")["value_domain"]]
+
+
+def test_another_tasks_in_list_does_not_close_this_tasks_column() -> None:
+    """F3: task A's ``IN ('PAID', 'REFUND')`` limits A's rows, not the column.
+
+    Task B reads the same source column with no filter, so B can write any value the
+    source holds. The values A compared against still travel -- they are values of the
+    column -- but the claim that nothing else comes out does not.
+    """
+    glossary = build_glossary(
+        [_document(FILTERED_SQL, "task_a"), _document(UNFILTERED_SQL, "task_b")],
+        artifact_root="corpus",
+    )
+    profile = apply_glossary(
+        build_semantic_profile(_document(UNFILTERED_SQL, "task_b")), glossary
+    )
+
+    assert [item["value"] for item in _field(profile, "pay_status")["value_domain"]] == [
+        "PAID",
+        "REFUND",
+    ]
+    assert not any(_closed_flags(profile))
+
+
+def test_a_tasks_own_in_list_still_closes_its_column() -> None:
+    glossary = build_glossary(
+        [_document(FILTERED_SQL, "task_a"), _document(UNFILTERED_SQL, "task_b")],
+        artifact_root="corpus",
+    )
+    profile = apply_glossary(
+        build_semantic_profile(_document(FILTERED_SQL, "task_a")), glossary
+    )
+
+    assert all(_closed_flags(profile))
+
+
 def test_a_confirmed_override_reaches_the_field_and_its_summary() -> None:
     overrides = {
         "values": {

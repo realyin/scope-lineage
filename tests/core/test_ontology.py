@@ -223,34 +223,36 @@ RANKED_RIGHT = (
 )
 
 
-def test_o2_a_right_side_grouped_by_the_join_key_proves_one_to_many() -> None:
-    """Nobody aggregates a table that already holds one row per the grouping key."""
+def test_o2_a_right_side_grouped_by_the_join_key_suggests_one_to_many() -> None:
+    """Nobody aggregates a table that already holds one row per the grouping key -- but
+    that is a reading of the author's intent: grouping may be defensive, or run over data
+    that is already unique. The SQL never saw the rows, so the claim is a hypothesis."""
     edge = _edge(_one([("task_a", AGGREGATED_RIGHT)]), "ods.driver", "ods.pay")
 
     assert edge["cardinality"] == {
         "claim": CARDINALITY_ONE_TO_MANY,
-        "tier": TIER_IMPLIED,
+        "tier": TIER_HYPOTHESIS,
         "basis": "group_by",
     }
 
 
-def test_o2_a_right_side_ranked_to_one_row_per_key_proves_one_to_many() -> None:
+def test_o2_a_right_side_ranked_to_one_row_per_key_suggests_one_to_many() -> None:
     edge = _edge(_one([("task_a", RANKED_RIGHT)]), "ods.driver", "ods.pay")
 
     assert edge["cardinality"]["claim"] == CARDINALITY_ONE_TO_MANY
     assert edge["cardinality"]["basis"] == "ranking_window"
-    assert edge["cardinality"]["tier"] == TIER_IMPLIED
+    assert edge["cardinality"]["tier"] == TIER_HYPOTHESIS
 
 
-def test_o2_a_right_side_ranked_with_rank_still_implies_one_to_many() -> None:
-    """The implied claim is about the author's intent -- nobody dedups a unique table --
-    and ``rank() = 1`` states that intent as plainly as ``row_number() = 1`` does."""
+def test_o2_a_right_side_ranked_with_rank_still_suggests_one_to_many() -> None:
+    """The claim is about the author's intent -- nobody dedups a unique table -- and
+    ``rank() = 1`` states that intent as plainly as ``row_number() = 1`` does."""
     sql = RANKED_RIGHT.replace("ROW_NUMBER()", "RANK()")
     edge = _edge(_one([("task_a", sql)]), "ods.driver", "ods.pay")
 
     assert edge["cardinality"]["claim"] == CARDINALITY_ONE_TO_MANY
     assert edge["cardinality"]["basis"] == "ranking_window"
-    assert edge["cardinality"]["tier"] == TIER_IMPLIED
+    assert edge["cardinality"]["tier"] == TIER_HYPOTHESIS
 
 
 def test_o2_a_direct_join_onto_a_physical_table_is_only_an_assumption() -> None:
@@ -274,16 +276,59 @@ CONSUMER_SQL = (
     "LEFT JOIN mart.customer_daily d ON o.customer_id = d.customer_id"
 )
 
+# The same write replacing the whole table: its proof covers every row a reader sees.
+WHOLE_TABLE_PRODUCER_SQL = (
+    "CREATE TABLE mart.customer_daily AS "
+    "SELECT c.id AS customer_id, MAX(c.country) AS country FROM ods.customer c "
+    "GROUP BY c.id"
+)
+
 
 def test_o2_a_producing_task_that_proved_the_key_makes_the_join_many_to_one() -> None:
     """The one answer a single statement cannot reach: another task's proof."""
-    ontology = _one([("producer", PRODUCER_SQL), ("consumer", CONSUMER_SQL)])
+    ontology = _one([("producer", WHOLE_TABLE_PRODUCER_SQL), ("consumer", CONSUMER_SQL)])
     edge = _edge(ontology, "ods.orders", "mart.customer_daily")
 
     assert edge["cardinality"]["claim"] == CARDINALITY_MANY_TO_ONE
     assert edge["cardinality"]["tier"] == TIER_PROVEN
     assert edge["cardinality"]["basis"] == "producer_key_confidence"
     assert edge["cardinality"]["producer"] == "producer"
+
+
+def test_o2_a_partition_overwrite_proves_nothing_about_a_join_across_days() -> None:
+    """F2: one row per customer per day is many rows per customer in the table."""
+    ontology = _one([("producer", PRODUCER_SQL), ("consumer", CONSUMER_SQL)])
+    edge = _edge(ontology, "ods.orders", "mart.customer_daily")
+
+    assert edge["cardinality"]["claim"] == CARDINALITY_MANY_TO_ONE_ASSUMED
+    assert edge["cardinality"]["tier"] == TIER_HYPOTHESIS
+
+
+APPEND_PRODUCER_SQL = (
+    "INSERT INTO mart.customer_daily "
+    "SELECT c.id AS customer_id, MAX(c.country) AS country FROM ods.customer c "
+    "GROUP BY c.id"
+)
+
+
+def test_o2_an_appending_producer_proves_nothing_about_the_table() -> None:
+    """F2: each batch is unique by customer_id; the table keeps every batch."""
+    ontology = _one([("producer", APPEND_PRODUCER_SQL), ("consumer", CONSUMER_SQL)])
+    edge = _edge(ontology, "ods.orders", "mart.customer_daily")
+
+    assert edge["cardinality"]["claim"] == CARDINALITY_MANY_TO_ONE_ASSUMED
+    assert edge["cardinality"]["tier"] == TIER_HYPOTHESIS
+
+
+def test_o6_an_appending_producer_key_is_only_a_hypothesis_unique_per() -> None:
+    found = _constraints(
+        _one([("producer", APPEND_PRODUCER_SQL)]),
+        CONSTRAINT_UNIQUE_PER,
+        "mart.customer_daily",
+    )
+
+    assert found[0]["columns"] == ["customer_id"]
+    assert found[0]["tier"] == TIER_HYPOTHESIS
 
 
 def test_o2_a_key_the_producer_only_half_covers_stays_an_assumption() -> None:
@@ -301,13 +346,14 @@ def test_o2_a_key_the_producer_only_half_covers_stays_an_assumption() -> None:
 # -------------------------------------------------------------- O3: multiplicity
 
 
-def test_o3_grouping_a_table_by_a_key_proves_it_holds_many_rows_per_key() -> None:
+def test_o3_grouping_a_table_by_a_key_suggests_it_holds_many_rows_per_key() -> None:
+    """A hypothesis: the query shows the author's expectation, not the table's rows."""
     identity = _entity(_one([("task_a", AGGREGATED_RIGHT)]), "ods.pay")["identity"]
 
     assert identity["multiplicity"] == [
         {
             "columns": ["driver_id"],
-            "tier": TIER_IMPLIED,
+            "tier": TIER_HYPOTHESIS,
             "claim": "multiple_rows_per_key",
             "evidence": [
                 {
@@ -439,7 +485,9 @@ def test_o6_an_equality_filter_is_not_a_not_null_constraint() -> None:
     assert _attribute(ontology, "ods.orders", "state")["not_null_observed"] is False
 
 
-def test_o6_a_closed_in_list_is_a_complete_and_proven_value_set() -> None:
+def test_o6_a_filters_in_list_is_not_the_columns_value_set() -> None:
+    """F3: ``WHERE state IN ('NEW', 'PAID')`` picks this task's rows; the table's
+    ``state`` may hold anything, so the values are observed, never complete."""
     sql = (
         "INSERT INTO mart.t SELECT o.order_id, o.state FROM ods.orders o "
         "WHERE o.state IN ('NEW', 'PAID')"
@@ -447,8 +495,8 @@ def test_o6_a_closed_in_list_is_a_complete_and_proven_value_set() -> None:
     found = _constraints(_one([("task_a", sql)]), CONSTRAINT_IN_SET, "ods.orders")
 
     assert found[0]["values"] == ["NEW", "PAID"]
-    assert found[0]["completeness"] == "complete"
-    assert found[0]["tier"] == TIER_PROVEN
+    assert found[0]["completeness"] == "unknown"
+    assert found[0]["tier"] == TIER_HYPOTHESIS
 
 
 def test_o6_an_observed_value_set_is_never_called_complete() -> None:

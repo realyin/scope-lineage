@@ -1654,18 +1654,26 @@ def value_domain_index(entries: Sequence[Mapping]) -> dict:
 
 
 def apply_value_domains(
-    fields: Sequence[dict], entries: Sequence[Mapping], target_table: object = None
+    fields: Sequence[dict],
+    entries: Sequence[Mapping],
+    target_table: object = None,
+    reader: tuple[str, str | None] | None = None,
 ) -> None:
     """Give each field its ``value_domain`` (and, when confirmed, its summary suffix).
 
     ``target_table`` is the table these fields are written to: the second half of the
     output route's key. Without it only the scope-level observations can match, because
     a value published under some other table's column is not this column's value.
+
+    ``reader`` is ``(task, statement_id)`` of the statement these fields belong to, given
+    when ``entries`` come from a corpus: an ``IN`` list closes a source column only for
+    the rows of the statement that filtered with it (F3). Without it the entries are
+    taken to be this statement's own observations.
     """
     index = value_domain_index(entries)
     owner = table_key(target_table)
     for field in fields:
-        domain = _field_domain(field, index, owner)
+        domain = _field_domain(field, index, owner, reader)
         _set_domain(field, domain)
         _apply_summary_suffix(field, domain)
 
@@ -1698,7 +1706,12 @@ def splice_before(entry: dict, anchors: object, key: str, value) -> None:
     entry.update(rebuilt)
 
 
-def _field_domain(field: Mapping, index: Mapping, target_owner: tuple) -> list[dict]:
+def _field_domain(
+    field: Mapping,
+    index: Mapping,
+    target_owner: tuple,
+    reader: tuple[str, str | None] | None = None,
+) -> list[dict]:
     """One entry per ``(value, kind)``, in the order the values were first observed.
 
     WI-2.4b. The key used to carry ``column_ref`` as well, so one value that several
@@ -1708,7 +1721,7 @@ def _field_domain(field: Mapping, index: Mapping, target_owner: tuple) -> list[d
     values, not a list of sightings: the sightings belong in ``seen_in``.
     """
     matched = _matched_entries(field, index, target_owner)
-    closed = _column_closed_set(matched)
+    closed = _column_closed_set(matched, reader)
     domain: dict[tuple, dict] = {}
     for entry, _via in matched:
         key = (str(entry["value"]), str(entry["kind"]))
@@ -1773,7 +1786,9 @@ def _type_admits(field: Mapping, entry: Mapping) -> bool:
     )
 
 
-def _column_closed_set(matched: Sequence[tuple[Mapping, str]]) -> bool | None:
+def _column_closed_set(
+    matched: Sequence[tuple[Mapping, str]], reader: tuple[str, str | None] | None = None
+) -> bool | None:
     """WI-2.8 D3: closed is a claim about the COLUMN, so all of its values share it.
 
     Two proofs qualify, one per route. The column's own last step is a CASE whose
@@ -1781,14 +1796,32 @@ def _column_closed_set(matched: Sequence[tuple[Mapping, str]]) -> bool | None:
     column the value passes through unchanged was pinned by a closed ``IN`` list. A
     per-value verdict left one column reading "0 未证明、1 已证明" out of a single
     three-branch CASE, which answers a question nobody asked.
+
+    F3: an ``IN`` list limits the rows of the statement that wrote it, not the source
+    column, so it closes this field only when this very statement filtered with it. Its
+    values still travel as observed values; only the closure stays where it was proven.
     """
     for entry, via in matched:
         basis = str((entry.get("closed_set") or {}).get("basis") or "")
         if via == _VIA_OUTPUT and basis == BASIS_CASE_EXHAUSTIVE:
             return True
-        if via == _VIA_SOURCE and basis == BASIS_IN_LIST:
+        if via == _VIA_SOURCE and basis == BASIS_IN_LIST and _filtered_by(entry, reader):
             return True
     return None
+
+
+def _filtered_by(entry: Mapping, reader: tuple[str, str | None] | None) -> bool:
+    """Whether ``reader``'s own ``IN`` filter is among the entry's observations."""
+    if reader is None:
+        return True
+    task, statement_id = reader
+    return any(
+        str(item.get("context")) == CONTEXT_FILTER_IN
+        and str(item.get("task")) == task
+        and (not statement_id or not item.get("statement_id")
+             or str(item.get("statement_id")) == str(statement_id))
+        for item in entry.get("observations") or []
+    )
 
 
 def _merge_domain_entry(current: dict, other: Mapping) -> None:

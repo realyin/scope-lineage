@@ -259,6 +259,9 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
   `ELSE NULL` 同样把分支集合闭上。
 - `closed_set` 只在**整个语料对这一列的封闭断言唯一**时发布：两个任务给出不同的 `IN` 列表
   时写 `null`，因为互相矛盾的证据不构成封闭集。
+- `IN` 列表的封闭只对**写了这个过滤的那条语句**成立（F3）：`describe --glossary` 把字典接到
+  另一个任务的字段上时，那个任务读同一源列却没有这条过滤，字段的 `value_domain` 仍列出这些值，
+  但 `closed_set` 不再为 `true`；本体的 `in_set` 约束也只把穷尽 CASE 算作 `complete`。
 - `meaning_candidates[]` 有三条路：前两条读注释（一条注释按先命中的那条作答），第三条读 SQL。候选注释来自三处：该列的列注释
   （`column_details[]` 没有该列时退到 `declared_columns[]`）、该表的表注释、写在该条件/字段上的
   SQL 注释；`evidence` 写的就是来自哪一处（`column:<表.列>` / `table:<表>` / 规则 id）。
