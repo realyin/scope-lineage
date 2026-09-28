@@ -59,7 +59,7 @@ scope-lineage describe --lineage /path/to/task/lineage.json
 # A corpus directory: lineage.json is found recursively; --out mirrors the input tree
 scope-lineage describe --lineage /path/to/corpus --out /path/to/docs
 
-# JSON only; or render a subset of sections (a 112-field task keeps only section 5's table)
+# JSON only; or render a subset of sections (a task as wide as the complex example keeps only section 5's table)
 scope-lineage describe --lineage lineage.json --format json
 scope-lineage describe --lineage lineage.json \
   --sections overview,shape,fields_table,confidence
@@ -422,7 +422,7 @@ documented under "the write-back loop" in [the term and value dictionary](glossa
   "section 5" means the same thing in every rendered document.
 - `fields_table` is not an eighth section but a **sub-switch** of section 5: passing it (instead of
   `fields`) keeps the "完整字段清单" table and drops the per-field subsections — exactly what a
-  112-field task needs when a person reads it. Passing `fields_table` enables `fields`
+  wide task needs when a person reads it. Passing `fields_table` enables `fields`
   automatically; there is no need to pass both.
 
 ## Line grammar (semantic-md/1)

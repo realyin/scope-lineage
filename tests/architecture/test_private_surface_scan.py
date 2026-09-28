@@ -37,6 +37,45 @@ def test_private_corpus_measurements_are_rejected() -> None:
     }
 
 
+def _hyphenated_measurement() -> str:
+    # The shape a real docstring used to slip past the guard: a hyphenated size and a
+    # count whose noun is not one of the asset words.
+    size = "4" + "7-field task"
+    marks = "1" + "3" + "6 opaque-call marks"
+    return f"One real {size} carried {marks}, and none were justified."
+
+
+def test_hyphenated_sizes_in_corpus_context_are_rejected() -> None:
+    findings = scan_text(_hyphenated_measurement(), source="module.py")
+
+    assert "private-corpus-measurement" in {finding.rule for finding in findings}
+
+
+def test_counts_of_any_noun_in_corpus_context_are_rejected() -> None:
+    text = "In production the parser raised " + "2" + "3" + "1 warnings on one job."
+
+    findings = scan_text(text, source="module.py")
+
+    assert "private-corpus-measurement" in {finding.rule for finding in findings}
+
+
+def test_the_size_of_one_asset_is_rejected_without_a_context_word() -> None:
+    text = "The hand-written list missed them: one " + "4" + "7-column job carried many."
+
+    findings = scan_text(text, source="module.py")
+
+    assert "asset-size" in {finding.rule for finding in findings}
+
+
+def test_versions_and_small_ordinals_in_corpus_context_are_allowed() -> None:
+    findings = scan_text(
+        "A real task document uses schema 2.0; see step 3 and Python 3.12.",
+        source="module.py",
+    )
+
+    assert findings == []
+
+
 def test_local_absolute_paths_are_rejected() -> None:
     findings = scan_text(_local_path(), source="body.md")
 

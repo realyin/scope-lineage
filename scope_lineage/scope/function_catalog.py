@@ -69,8 +69,8 @@ def _spark_builtin_function_names() -> frozenset[str]:
     ``expression_features.has_udf`` answers "is this name opaque to us". The honest
     reference list is the grammar that parses the SQL, not a hand-written sample of it:
     the sample stopped at 40-odd names, so ``HOUR`` / ``LAG`` / ``RANK`` / ``EXPLODE``
-    were all reported as UDFs (one 52-field task carried 148 such marks, none of them a
-    UDF). The dialect registries answer for the names Spark spells specially, and the
+    were all reported as UDFs (an ordinary task could carry dozens of such marks with not
+    one UDF among them). The dialect registries answer for the names Spark spells specially, and the
     ``exp.Func`` classes for the ones every dialect shares.
     """
     names: set[str] = set(_CURATED_BUILTIN_FUNCTIONS)

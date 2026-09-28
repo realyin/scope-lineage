@@ -27,7 +27,7 @@ from .cli_questions import add_questions_parser, run_questions
 from .cli_semantic import add_semantic_parser, run_semantic
 from .cli_tables import add_tables_parser, formats as _tables_formats, run_tables
 from .contract import write_task_lineage
-from .corpus_cache import add_incremental_arguments, open_cache
+from .corpus_cache import _code_digest, add_incremental_arguments, open_cache
 from .metadata.schema_metadata import load_schema, load_schema_sources
 from .metadata.target_table_metadata import load_target_table_metadata
 from .scope.expansion_budget import EXPANSION_MAX_SUBSTITUTIONS
@@ -43,10 +43,31 @@ def _package_version() -> str:
         return "unknown (source checkout)"
 
 
+class _VersionAction(argparse.Action):
+    """``--version``: the package version, the sqlglot it runs on, and which code it is.
+
+    The package version comes from install metadata, which a source checkout can leave
+    stale, so the digest of the package's own files goes beside it -- the same digest
+    the corpus cache is keyed on. It is computed only when asked for.
+    """
+
+    def __init__(self, option_strings, dest=argparse.SUPPRESS, **kwargs):
+        super().__init__(option_strings, dest=dest, nargs=0, default=argparse.SUPPRESS, **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        import sqlglot
+
+        print(
+            f"scope-lineage {_package_version()} "
+            f"(sqlglot {sqlglot.__version__}, source {_code_digest()[:12]})"
+        )
+        parser.exit()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="scope-lineage")
     parser.add_argument(
-        "--version", action="version", version=f"scope-lineage {_package_version()}"
+        "--version", action=_VersionAction, help="show version information and exit"
     )
     subcommands = parser.add_subparsers(dest="command", required=True)
     parse_cmd = subcommands.add_parser(

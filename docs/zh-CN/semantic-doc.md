@@ -46,7 +46,7 @@ scope-lineage describe --lineage /path/to/task/lineage.json
 # 语料目录：递归查找 lineage.json；--out 镜像输入目录结构
 scope-lineage describe --lineage /path/to/corpus --out /path/to/docs
 
-# 只要 JSON；或只渲染部分章节（112 字段的大任务只保留第 5 节的紧凑清单）
+# 只要 JSON；或只渲染部分章节（像复杂示例那样的宽任务只保留第 5 节的紧凑清单）
 scope-lineage describe --lineage lineage.json --format json
 scope-lineage describe --lineage lineage.json \
   --sections overview,shape,fields_table,confidence
@@ -367,7 +367,7 @@ scope-lineage describe --lineage /path/to/corpus --out /path/to/out --incrementa
 
 - 章节编号固定：`--sections` 只是隐藏章节，**从不重编号**，所以"第 5 节"在任何一份文档里都指同一件事。
 - `fields_table` 不是第八节，而是第 5 节的**子开关**：传它（而不是 `fields`）会保留"完整字段清单"
-  表格、去掉逐字段小节——112 个字段的大任务给人读时正需要这个。传 `fields_table` 时 `fields`
+  表格、去掉逐字段小节——宽任务给人读时正需要这个。传 `fields_table` 时 `fields`
   自动生效，不必同时写。
 
 ## 行语法（semantic-md/1）

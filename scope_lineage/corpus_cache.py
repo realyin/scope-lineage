@@ -15,7 +15,8 @@ Two files, both under the command's own ``--out`` and both disposable:
     ``doc_format`` or ``options_sha256`` disagrees with this run is ignored outright --
     that is the invalidation rule for everything outside the corpus (an overrides file's
     *content*, the glossary/tables documents read back, the template flags, the package
-    version), rather than trying to reason about which option touched which task.
+    version and a digest of the package's own files), rather than trying to reason about
+    which option touched which task.
 
 ``<out>/.cache/<task>-<digest>.json``
     ``corpus-cache/3``: the facts one task contributed, as JSON, over a copy of the
@@ -65,6 +66,7 @@ import json
 import re
 import shutil
 import sys
+from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
@@ -149,9 +151,34 @@ def options_digest(parts: Sequence) -> str:
     place invalidates the cache the same way a different ``--overrides`` path does.
     """
     payload = json.dumps(
-        [_package_version(), *parts], ensure_ascii=False, sort_keys=True, default=str
+        [_package_version(), _code_digest(), *parts],
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def source_digest(root: Path) -> str:
+    """One digest over a package's own files: relative paths and bytes, bytecode excluded.
+
+    The version string alone does not identify the code: a source checkout keeps whatever
+    version its install metadata last recorded, so a run after an edit would reuse facts
+    the old code derived. Where the package lives does not enter the digest, so the same
+    code borrows the same caches (``--cache-from``) from any checkout.
+    """
+    digest = hashlib.sha256()
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or "__pycache__" in path.parts or path.suffix == ".pyc":
+            continue
+        digest.update(path.relative_to(root).as_posix().encode("utf-8") + b"\0")
+        digest.update(hashlib.sha256(path.read_bytes()).digest())
+    return digest.hexdigest()
+
+
+@lru_cache(maxsize=1)
+def _code_digest() -> str:
+    return source_digest(Path(__file__).resolve().parent)
 
 
 def _package_version() -> str:

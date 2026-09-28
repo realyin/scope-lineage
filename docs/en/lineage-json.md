@@ -463,7 +463,7 @@ ROOT.begin_date        transform=EXPRESSION       ← only 1 direct source at th
         └ subq:s0.rn   WINDOW   window={partition_by[15], order_by[1]}
 ```
 
-`rn`'s 15 `partition_by` columns and 1 `order_by` column are **context**; the real value source of
+`rn`'s 15 `partition_by` columns and 1 `order_by` column are **context**; the actual value source of
 `start_dt` is `dt`. Note that `begin_date` has only one direct source at this level — those 16
 context columns only appear once `end_to_end_lineage` flattens the whole chain.
 

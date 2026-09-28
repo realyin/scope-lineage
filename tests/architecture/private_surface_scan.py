@@ -51,6 +51,23 @@ _COUNT_PATTERN = re.compile(
     r"(?:数十|数百|数千|数万)(?:个|条|张|份)?(?:任务|语句|表|列|边|缺口|报告|文件))",
     re.IGNORECASE,
 )
+# The same measurement worded less plainly: a multi-digit count that reaches its noun
+# through a hyphen or a few qualifier words ("N-field job", "N opaque-call marks",
+# "all N+ of their columns"), over nouns for what a run reports as well as what it reads.
+_QUALIFIED_COUNT_PATTERN = re.compile(
+    r"(?<![\w.])[1-9]\d+(?:,\d{3})*\+?(?![\w.]*\d)"
+    r"(?:-[a-z]+|\s+(?:of\s+)?[\"'“”a-z(][^\s\d]*){0,3}?[\s-]+"
+    r"(?:tasks?|statements?|tables?|columns?|fields?|edges?|gaps?|reports?|files?|ddls?|"
+    r"jobs?|rows?|marks?|warnings?|errors?|diagnostics?|udfs?)\b|"
+    r"(?<![\w.])[1-9]\d+\+?\s*(?:个|条|处)?(?:字段|标记|告警)",
+    re.IGNORECASE,
+)
+# "an N-field job" sizes one particular asset; nothing synthetic needs saying that way.
+_ASSET_SIZE_PATTERN = re.compile(
+    r"(?<![\w.])[1-9]\d+-(?:fields?|columns?|statements?|tables?|lines?|steps?)\s+"
+    r"(?:tasks?|jobs?|tables?|statements?|scripts?|queries|query|reports?)\b",
+    re.IGNORECASE,
+)
 _LARGE_COUNT_PATTERN = re.compile(
     r"\b(?:[1-9]\d{2,}|\d{1,3}(?:,\d{3})+)\s*(?:-\s*)?"
     r"(?:tasks?|statements?|tables?|columns?|edges?|gaps?|reports?|files?|ddls?)\b",
@@ -65,7 +82,8 @@ _PER_ITEM_MEASUREMENT_PATTERN = re.compile(
     r"(?:\b(?:task|statement|artifact|output)\b|任务|语句|产物|输出)"
     r"[\s\S]{0,160}?"
     r"(?:\b\d+(?:\.\d+)?\s*(?:kb|mb|gb|seconds?|minutes?|calls?)\b|"
-    r"\b(?:megabytes?|gigabytes?)\b|\d+(?:\.\d+)?\s*(?:秒|分钟|次调用))",
+    # (mega|giga)bytes, spelt so this module's own text does not match itself
+    r"\b(?:mega|giga)bytes?\b|\d+(?:\.\d+)?\s*(?:秒|分钟|次调用))",
     re.IGNORECASE,
 )
 _MAGNITUDE_PATTERN = re.compile(
@@ -145,8 +163,10 @@ def scan_text(
                 Finding(source, line_number, "private-term", _excerpt(paragraph))
             )
         has_context = _CORPUS_CONTEXT_PATTERN.search(paragraph)
-        has_quantity = _COUNT_PATTERN.search(paragraph) or _MAGNITUDE_PATTERN.search(
-            paragraph
+        has_quantity = (
+            _COUNT_PATTERN.search(paragraph)
+            or _QUALIFIED_COUNT_PATTERN.search(paragraph)
+            or _MAGNITUDE_PATTERN.search(paragraph)
         )
         if has_context and has_quantity:
             findings.append(
@@ -155,6 +175,10 @@ def scan_text(
         if _LARGE_COUNT_PATTERN.search(paragraph) or _RATIO_PATTERN.search(paragraph):
             findings.append(
                 Finding(source, line_number, "asset-count", _excerpt(paragraph))
+            )
+        if _ASSET_SIZE_PATTERN.search(paragraph):
+            findings.append(
+                Finding(source, line_number, "asset-size", _excerpt(paragraph))
             )
         if _MAGNITUDE_ASSET_PATTERN.search(paragraph):
             findings.append(

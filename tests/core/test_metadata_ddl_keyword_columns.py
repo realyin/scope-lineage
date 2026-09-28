@@ -3,7 +3,7 @@
 sqlglot's Spark dialect does not terminate when it parses a ``CREATE TABLE`` whose column
 name is an unquoted ``not`` — a 51-character statement runs forever, on 30.0.0, 30.6.0 and
 30.17.0 alike. Backquoting the name makes it parse in milliseconds. Since the metadata DDL
-is a platform export and such a column is both legal and real, and since a pure-Python
+is a platform export and such a column is both legal and seen in exports, and since a pure-Python
 caller cannot put a timeout around sqlglot (``signal.alarm`` is swallowed by sqlglot's own
 ``except Exception``), the trigger has to be removed before the text is handed over
 (METADATA-002).
@@ -130,7 +130,7 @@ def test_keyword_column_that_only_failed_to_parse_is_also_recovered():
     """Not every keyword column hangs — some merely fail, and cost the whole table.
 
     ``like`` is the shape seen in practice: tables were rejected outright
-    with ``ddl_parse_failed:ParseError`` and lost all 3005+ of their columns. Quoting
+    with ``ddl_parse_failed:ParseError`` and lost every one of their columns. Quoting
     recovers them by the same rule that stops ``not`` from hanging.
     """
     ddl = "CREATE TABLE db.t (a DOUBLE, like DOUBLE COMMENT 'x')"
