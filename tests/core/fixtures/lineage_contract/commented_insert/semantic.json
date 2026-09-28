@@ -226,7 +226,30 @@
         "path": "grain"
       }
     ],
-    "tag": "结构推断"
+    "tag": "结构推断",
+    "key_claim": {
+      "kind": "unique_by",
+      "subject": {
+        "kind": "write_batch",
+        "ref": [
+          "golden_commented_insert",
+          "stmt:001",
+          "mart.channel_summary"
+        ]
+      },
+      "content": [
+        "customer_id",
+        "channel_name"
+      ],
+      "status": "proven",
+      "rule": "R-GROUPBY-KEY",
+      "evidence": [
+        "logic:ROOT:group_by:001"
+      ],
+      "conditions": [],
+      "assumptions": [],
+      "defeaters": []
+    }
   },
   "stages": [
     {
@@ -477,6 +500,29 @@
             "rule:001"
           ],
           "closed_set": true,
+          "closed_for": {
+            "kind": "value_subset",
+            "subject": {
+              "kind": "write_batch",
+              "ref": [
+                "golden_commented_insert",
+                "stmt:001",
+                "mart.channel_summary.channel_name"
+              ]
+            },
+            "content": [
+              "ONLINE",
+              "OFFLINE"
+            ],
+            "status": "proven",
+            "rule": "R-CASE-OUTPUT",
+            "evidence": [
+              "mart.channel_summary.channel_name"
+            ],
+            "conditions": [],
+            "assumptions": [],
+            "defeaters": []
+          },
           "meaning": null
         },
         {
@@ -487,6 +533,29 @@
             "rule:001"
           ],
           "closed_set": true,
+          "closed_for": {
+            "kind": "value_subset",
+            "subject": {
+              "kind": "write_batch",
+              "ref": [
+                "golden_commented_insert",
+                "stmt:001",
+                "mart.channel_summary.channel_name"
+              ]
+            },
+            "content": [
+              "ONLINE",
+              "OFFLINE"
+            ],
+            "status": "proven",
+            "rule": "R-CASE-OUTPUT",
+            "evidence": [
+              "mart.channel_summary.channel_name"
+            ],
+            "conditions": [],
+            "assumptions": [],
+            "defeaters": []
+          },
           "meaning": null
         }
       ],

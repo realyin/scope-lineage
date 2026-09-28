@@ -1721,7 +1721,8 @@ def _field_domain(
     values, not a list of sightings: the sightings belong in ``seen_in``.
     """
     matched = _matched_entries(field, index, target_owner)
-    closed = True if _column_closed_claim(matched, reader) is not None else None
+    claim = _column_closed_claim(matched, reader)
+    closed = True if claim is not None else None
     domain: dict[tuple, dict] = {}
     for entry, _via in matched:
         key = (str(entry["value"]), str(entry["kind"]))
@@ -1730,7 +1731,13 @@ def _field_domain(
             domain[key] = _domain_entry(entry, closed)
         else:
             _merge_domain_entry(current, _domain_entry(entry, closed))
-    return list(domain.values())
+    entries = list(domain.values())
+    if claim is not None:
+        # WP6: which statement's rows -- or which written column -- the closure is about.
+        for item in entries:
+            if item.get("closed_set"):
+                splice_before(item, "meaning", "closed_for", claims.claim_json(claim))
+    return entries
 
 
 def _matched_entries(

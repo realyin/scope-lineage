@@ -58,6 +58,7 @@ RULES: dict[str, Rule] = {
     # -- the author's intent, names and comments
     "R-INTENT-DEDUP": Rule(HEURISTIC, "关联前按 k 去重，推测那张表按 k 有多行"),
     "R-DIRECT-JOIN": Rule(HEURISTIC, "直接按 k 关联物理表，推测作者认为它按 k 唯一"),
+    "R-DRIVING-KEYS": Rule(HEURISTIC, "驱动表粒度下写出的全部连接键作为候选键"),
     "R-COMMENT-HINT": Rule(HEURISTIC, "列注释称某列为主键/唯一键"),
     "R-FILTER-HINT": Rule(HEURISTIC, "某个任务的过滤条件（取值、非空）暗示物理列的取值特征"),
     "R-COMMENT-RELATION": Rule(HEURISTIC, "列注释指向另一张表的列"),
@@ -168,3 +169,28 @@ class Claim:
         """This claim with one more piece of evidence against it, no longer a proof."""
         weakened = self.weakened_to(UNKNOWN) if self.status == PROVEN else self
         return replace(weakened, defeaters=(*self.defeaters, (code, text)))
+
+
+def claim_json(claim: Claim | None) -> dict | None:
+    """A claim as the plain JSON the documents publish: tuples become lists."""
+    if claim is None:
+        return None
+    return {
+        "kind": claim.kind,
+        "subject": {"kind": claim.subject.kind, "ref": _plain(claim.subject.ref)},
+        "content": _plain(claim.content),
+        "status": claim.status,
+        "rule": claim.rule,
+        "evidence": _plain(claim.evidence),
+        "conditions": _plain(claim.conditions),
+        "assumptions": _plain(claim.assumptions),
+        "defeaters": _plain(claim.defeaters),
+    }
+
+
+def _plain(value):
+    if isinstance(value, (tuple, list)):
+        return [_plain(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _plain(item) for key, item in value.items()}
+    return value

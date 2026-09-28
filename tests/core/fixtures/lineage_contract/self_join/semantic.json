@@ -128,7 +128,8 @@
         "path": "grain"
       }
     ],
-    "tag": "结构推断"
+    "tag": "结构推断",
+    "key_claim": null
   },
   "stages": [
     {

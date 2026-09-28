@@ -150,7 +150,29 @@
           "dt"
         ],
         "fan_out_risks": [],
-        "tag": "结构推断"
+        "tag": "结构推断",
+        "key_claim": {
+          "kind": "unique_by",
+          "subject": {
+            "kind": "write_batch",
+            "ref": [
+              "golden_set_preamble_task#2",
+              "stmt:003",
+              "mart.store_daily"
+            ]
+          },
+          "content": [
+            "store_id"
+          ],
+          "status": "proven",
+          "rule": "R-GROUPBY-KEY",
+          "evidence": [
+            "logic:ROOT:group_by:001"
+          ],
+          "conditions": [],
+          "assumptions": [],
+          "defeaters": []
+        }
       },
       "stages": [
         {

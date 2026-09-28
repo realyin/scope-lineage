@@ -1,6 +1,17 @@
 # Changelog
 
 ## Unreleased
+- **The documents publish the claims behind their conclusions (assertion model WP6).** New
+  optional fields, every existing field unchanged: `semantic.json` `output_shape.key_claim`
+  (`null` when no key is claimed) and `fan_out_risks[].claim`; each `tables.json` card's
+  `key_claim` (the table-level claim, recomputed on a merge, with `appending_producer` /
+  `producer_key_conflict` defeaters); the ontology's `table_relations[].cardinality.validity`
+  for a producer-proven relation; and `closed_for` on a closed `value_domain` entry. A
+  claim is `{kind, subject: {kind, ref}, content, status, rule, evidence, conditions,
+  assumptions, defeaters}`: what the conclusion is about (a write batch, a query's rows, a
+  read, a table state), which registered rule gave it, what is still open and which premises
+  it rests on. Goldens gain only these fields; no markdown changes. Docs zh/en:
+  `semantic-doc.md`, `tables-doc.md`, `ontology-doc.md`, `glossary-doc.md`.
 - **One composition module; the fold expands row sets (assertion model WP5).** Source
   identity, deduplication and transform composition now live once in `scope/composition.py`
   and the statement trace, the task rows and `fold_session_scoped` all use it (differential

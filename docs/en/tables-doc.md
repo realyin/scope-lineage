@@ -342,6 +342,8 @@ Line tags follow [semantic.md](semantic-doc.md): `（元数据事实）`, `（SQ
 `（结构推断；证据 …）`, `（SQL注释）`. The file name replaces `/`, spaces and anything else
 a file system refuses with `_`.
 
+Each card also carries `key_claim`: what its producers' keys say about **the table** (the shape of `key_claim` in `semantic-doc.md`; `null` when no producer offers a key). The `subject` is `table_state`; a whole-table overwrite gives `R-REPLACE-STATE`, a partition overwrite `R-PARTITION-STATE` with the partition columns in `content`; `defeaters` name what withdrew the proof -- `appending_producer` (a producer appends or merges) or `producer_key_conflict` (the producers disagree on the key) -- and then `status` is no longer `proven`. A merge recomputes it over the merged `produced_by`.
+
 `findings[].kind` has exactly five values, each meaning "this is observable in the corpus"
 rather than a verdict:
 

@@ -540,6 +540,7 @@ scope-lineage describe --lineage corpus --glossary dict/glossary.json \
 | 按目标表 + 列名匹配 | `case_then` / `union_constant` / `constant_projection` 三种观察按**目标表（点号后缀归一）+ 列名**匹配，CASE 产出的枚举因此能落到同名目标字段上；只按列名匹配会让任何任务写进 `status` 的标签变成所有 `status` 的取值，而 `mart.orders.status` 的枚举与 `mart.tickets.status` 无关。落在某个 scope 上、没有进到具名目标列的观察（CTE 里的 CASE）不属于任何表，仍然只对本语句自己的同名字段说话 |
 | 类型护栏 | 目标列声明为数值（`decimal` / `int` / `bigint` / `double` …）或日期（`date` / `timestamp`）时，只接受同类型字面量：引号里的 `'Y'` 不会挂到金额列，引号里的 `'0'` / `'2026-01-01'` 仍然算 |
 | `closed_set` | `true` 表示这个取值属于一个已被证明封闭的集合；`null` 表示**未证明封闭**，不表示"证明了不封闭"。这是**整列**的结论：同一字段的每条取值要么都是 `true`、要么都是 `null`。为 `true` 的两种证明——该列自己的末步 CASE 穷尽（带 ELSE 且各分支全是常量），或透传来源列存在封闭的 `IN` 列表 |
+| `closed_for` | 仅在 `closed_set` 为 `true` 的 `value_domain` 项上出现：封闭所依据的断言对象（格式同 `semantic-doc.md` 的 `key_claim`）。`rule` 为 `R-CASE-OUTPUT` 时 `subject` 是写出该列的那一批（`write_batch`），为 `R-IN-FILTER` 时是写了该 `IN` 过滤的那条语句的行（`query_rows`） |
 | `sql_literal` | 作者写的字面量。`semantic.md` 的 `- 取值：` 行显示它，`value_domain[].value` 与 overrides 的键用去引号形式 |
 | `meaning.status` | `confirmed`（人工确认）或 `candidate`（注释字面命中） |
 | `summary` 追加 | 只有**已确认**含义才会追加到那句话尾部（`；取值：'PAID'（已支付）`，最多 3 个）：候选是"某条注释里恰好出现了这个值"，写进读者会停下来读的那一句等于把它当成定义 |

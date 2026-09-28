@@ -53,6 +53,10 @@ PRODUCERS: dict[str, tuple[str, ...]] = {
     ),
     "render/semantic_profile.py:_capped_confidence": ("R-CANDIDATE-CAP",),
     "render/semantic_profile.py:_read_claim": ("R-READ-PIN",),
+    "render/semantic_profile.py:_output_key_claim": (
+        "R-GROUPBY-KEY", "R-DISTINCT-KEY", "R-ROWNUM-FIRST", "R-EMPTY-GROUPING",
+        "R-DRIVING-KEYS",
+    ),
     "render/semantic_profile.py:_card_key_claim": (
         "R-REPLACE-STATE", "R-PARTITION-STATE", "R-PRODUCERS-AGREE",
     ),

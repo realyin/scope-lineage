@@ -173,7 +173,30 @@
         "key_confidence": "proven",
         "partition_columns": [],
         "fan_out_risks": [],
-        "tag": "结构推断"
+        "tag": "结构推断",
+        "key_claim": {
+          "kind": "unique_by",
+          "subject": {
+            "kind": "write_batch",
+            "ref": [
+              "golden_drop_recreate#1",
+              "stmt:002",
+              "mart.channel_daily"
+            ]
+          },
+          "content": [
+            "channel_id",
+            "stat_date"
+          ],
+          "status": "proven",
+          "rule": "R-GROUPBY-KEY",
+          "evidence": [
+            "logic:ROOT:group_by:001"
+          ],
+          "conditions": [],
+          "assumptions": [],
+          "defeaters": []
+        }
       },
       "stages": [
         {
@@ -551,7 +574,8 @@
         "key_confidence": "none",
         "partition_columns": [],
         "fan_out_risks": [],
-        "tag": "结构推断"
+        "tag": "结构推断",
+        "key_claim": null
       },
       "stages": [
         {
