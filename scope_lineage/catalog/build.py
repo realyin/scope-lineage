@@ -8,6 +8,8 @@ Normalised means a reader never has to know how the catalog was written:
 - code and state values are text (``0`` and ``"0"`` are the same code);
   a cardinality end written as the number ``1`` is ``"1"``;
 - a text ``arises_when`` becomes ``{condition}``;
+- table names are lower-case (``DEMO_DWD.T`` and ``demo_dwd.t`` are one Hive table, and
+  the lineage contract spells every table in lower case, so evidence and queries match);
 - lists are sorted by id (terms by term then target, representations by table), so
   moving an object to another file does not change a byte of the output. Lists inside
   an object -- attributes, values, bindings -- keep the author's order, which means
@@ -138,9 +140,9 @@ def _identifier(obj: dict) -> dict:
     arises = obj.get("arises_when")
     if arises is not None:
         out["arises_when"] = {"condition": arises} if isinstance(arises, str) else dict(arises)
-    out["spellings"] = [_pick(s, ("column", "table")) for s in obj.get("spellings") or []]
+    out["spellings"] = [_spelling(s) for s in obj.get("spellings") or []]
     out["maps_to"] = [
-        {**_pick(m, ("identifier", "cardinality")), "via": list(m.get("via") or [])}
+        {**_pick(m, ("identifier", "cardinality")), "via": [_table(t) for t in m.get("via") or []]}
         for m in obj.get("maps_to") or []
     ]
     return {**out, **_pick(obj, ("format",)), **_common(obj)}
@@ -234,9 +236,20 @@ def _term(obj: dict) -> dict:
     return {**_pick(obj, ("term", "refers_to", "preferred")), **_common(obj)}
 
 
+def _spelling(obj: dict) -> dict:
+    out = _pick(obj, ("column",))
+    if "table" in obj:
+        out["table"] = _table(obj["table"])
+    return out
+
+
+def _table(name: str) -> str:
+    return str(name).lower()
+
+
 def _representation(obj: dict, index: Index) -> dict:
     grain = obj["grain"]
-    out = _pick(obj, ("table", "concept", "kind"))
+    out = {"table": _table(obj["table"]), **_pick(obj, ("concept", "kind"))}
     out["grain"] = {
         "identifiers": list(grain["identifiers"]),
         "extra": list(grain.get("extra") or []),
@@ -244,7 +257,9 @@ def _representation(obj: dict, index: Index) -> dict:
     }
     out.update(_pick(obj, ("time",)))
     out["scope"] = list(obj.get("scope") or [])
-    out.update(_pick(obj, ("refresh", "table_status", "replaced_by")))
+    out.update(_pick(obj, ("refresh", "table_status")))
+    if "replaced_by" in obj:
+        out["replaced_by"] = _table(obj["replaced_by"])
     owners = index.binding_owners(obj["concept"]) or (obj["concept"],)
     own_ids = set().union(*(index.identifiers_of(owner) for owner in owners))
     out["bindings"] = [_binding(b, obj, own_ids) for b in obj["bindings"]]

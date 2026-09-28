@@ -149,7 +149,7 @@ def _tables(view: CatalogView, concept_id: str) -> list[dict]:
 
 
 def _table_matches(view: CatalogView, term: str) -> list[dict]:
-    rep = view.representations.get(catalog_table_name(term))
+    rep = view.representation(term)
     if rep is None:
         return []
     keys = (
@@ -209,9 +209,9 @@ def _owner(view: CatalogView, ref: str) -> dict | None:
 
 def _column_matches(view: CatalogView, term: str) -> list[dict]:
     table_part, _, column = str(term).strip().rpartition(".")
-    table = catalog_table_name(table_part)
-    rep = view.representations.get(table)
-    bound = [b for b in (rep or {}).get("bindings") or [] if b["column"] == column]
+    rep = view.representation(table_part)
+    table = rep["table"] if rep else catalog_table_name(table_part).lower()
+    bound = [b for b in (rep or {}).get("bindings") or [] if _same(b["column"], column)]
     if bound:
         return [_bound_column(view, rep, binding) for binding in bound]
     return [
@@ -230,7 +230,14 @@ def _bound_column(view: CatalogView, rep: dict, binding: dict) -> dict:
 
 
 def _spells(spelling: Mapping, table: str, column: str) -> bool:
-    return spelling["column"] == column and spelling.get("table") in (None, table)
+    return _same(spelling["column"], column) and (
+        spelling.get("table") is None or _same(spelling["table"], table)
+    )
+
+
+def _same(left, right) -> bool:
+    """Hive names ignore case."""
+    return str(left).lower() == str(right).lower()
 
 
 # ------------------------------------------------------------- identifier
@@ -251,9 +258,9 @@ def _identifier_matches(view: CatalogView, term: str) -> list[dict]:
 
 
 def _spelled_as(spelling: Mapping, table, column: str) -> bool:
-    if spelling["column"] != column:
+    if not _same(spelling["column"], column):
         return False
-    return table is None or spelling.get("table") in (None, table)
+    return table is None or spelling.get("table") is None or _same(spelling["table"], table)
 
 
 def _identifier_answer(view: CatalogView, identifier: dict, matched_by: str) -> dict:

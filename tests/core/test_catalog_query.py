@@ -215,6 +215,21 @@ def test_a_column_the_catalog_only_spells_is_answered_by_the_spelling(document: 
     }
 
 
+def test_table_and_column_names_ignore_case(document: dict) -> None:
+    table = _one(document, "table", " DEMO_DWD.DWD_Lending_Loan_DF ")
+    column = _one(document, "column", "DEMO_DWD.DWD_PARTY_CUSTOMER_INFO_DF.GENDER_CD")
+    spelled = _one(document, "column", "Demo_Ods.Ods_Core_Customer_Df.CUST_NO")
+
+    assert table["table"] == "demo_dwd.dwd_lending_loan_df"
+    assert (column["table"], column["ref"]) == (
+        "demo_dwd.dwd_party_customer_info_df",
+        "attr:customer.gender",
+    )
+    assert spelled["table"] == "demo_ods.ods_core_customer_df"
+    assert spelled["spelling_of"]["id"] == "id:customer_id"
+    assert _one(document, "identifier", "CUST_NO")["id"] == "id:customer_id"
+
+
 # ------------------------------------------------------------- identifier
 
 

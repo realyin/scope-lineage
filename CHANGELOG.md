@@ -1,6 +1,14 @@
 # Changelog
 
 ## Unreleased
+- **Catalog table names ignore case everywhere.** `merge`, `digest` and the coverage report
+  already matched `DEMO_DWD.T` and `demo_dwd.t` as one table; `validate`'s `duplicate_table`,
+  `catalog query table|column|identifier` and the evidence merge did not, so a table spelled in
+  upper case got no lineage evidence and could be represented twice. `build` now writes every
+  table name lower-case (a representation's `table` and `replaced_by`, a spelling's `table`,
+  `maps_to[].via`), `duplicate_table` compares ignoring case (naming the first spelling), and
+  `catalog query` matches table and column names ignoring case. A catalog written in lower
+  case builds byte for byte as before. Docs zh/en: `ontology-catalog.md`.
 - **`catalog build` checks its output against `ontology-json/3` before writing.** The
   document it built, with any `--lineage/--tables` evidence, is checked against the packaged
   schema; a mismatch is listed path by path (`[schema] ontology.json concepts[0].kind: ...`),

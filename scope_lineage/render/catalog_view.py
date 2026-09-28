@@ -167,6 +167,8 @@ class CatalogView:
         self.constraints = list(document.get("constraints") or [])
         self.terms = list(document.get("terms") or [])
         self.representations = {r["table"]: r for r in document.get("representations") or []}
+        # Table names ignore case: `build` writes them lower-case, a reader may not.
+        self._by_table = {table.lower(): rep for table, rep in self.representations.items()}
         self.bindings_by_ref: dict[str, list] = {}
         for rep in self.representations.values():
             for binding in rep["bindings"]:
@@ -206,6 +208,10 @@ class CatalogView:
         return str(reference)
 
     # -------------------------------------------------------------- concepts
+
+    def representation(self, name) -> Optional[dict]:
+        """The representation of a table however it is spelled: case, a catalog prefix."""
+        return self._by_table.get(catalog_table_name(str(name or "").strip()).lower())
 
     def representations_of(self, concept_id: str) -> list[dict]:
         return [r for r in self.representations.values() if r["concept"] == concept_id]
