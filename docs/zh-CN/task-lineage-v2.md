@@ -119,15 +119,26 @@ USING 别名则沿已解析的 USING scope 一路追踪到物理根字段：USIN
 物理表而不是 CTE 名，USING 是 UNION 时保留每个分支的物理根字段。追踪无法完成时不补位任何名字，
 改为记录 merge_condition_source_unresolved fact gap（见下一节）。
 
-## value_sources[].source_kind：三种来源，以及怎么折叠前态边
+写入的查询本身同样决定哪些行存在：INSERT / INSERT OVERWRITE / CTAS 查询路径上的 WHERE、JOIN 条件、
+HAVING、QUALIFY 读到的物理字段进入 row_membership_sources。"查询路径"是 ROOT 及它作为关系读入的每个
+scope（FROM、JOIN、UNION 分支、CTE），所以 CTE 里的过滤、每个 UNION 分支各自的过滤都算；SELECT 列表里
+标量子查询的 WHERE 只决定一个值，不算；WHERE 里的 `IN (子查询)` 的列已经是父查询过滤的字段。GROUP BY
+的键不算——它们是输出的值。追加（INSERT INTO）时，新写入这批行的条件与前一状态已有的条件并列。
+追踪不到物理字段的条件字段不补位名字，记为 row_condition_source_unresolved fact gap。
 
-每条 `value_sources[]` 都带 `source_kind`，取值只有三种：
+聚合列要把这两类放在一起读：`COUNT(*)` 的值来自它计数的行集（见下一节的 `rowset`），而行集由
+row_membership_sources 里的条件决定——这些条件改变的是计数的**值**，不只是哪一行存在。
+
+## value_sources[].source_kind：四种来源，以及怎么折叠前态边
+
+每条 `value_sources[]` 都带 `source_kind`，取值有四种：
 
 | source_kind | 含义 | 典型场景 |
 | --- | --- | --- |
 | `physical_field` | 值来自某张物理表的某一列 | 绝大多数血缘 |
 | `generated` | 值由常量或不引用任何输入列的表达式产生 | `'rcs' AS send_type` |
 | `prior_table_state` | 值从**目标表自身的前一个状态**透传而来 | `INSERT OVERWRITE ... PARTITION` 未被覆盖的分区、`UPDATE` 未赋值的字段、`DELETE` 后存活行 |
+| `rowset` | 值由某张物理表的**行集**决定，不读任何列；带 `table`、`transform`、`expression`，没有 `column` | `COUNT(*)` / `COUNT(1)`；读 CTE 时记它背后的物理表，读 JOIN 时每张表各一条 |
 
 ### 前态边为什么存在，以及什么时候该折叠
 

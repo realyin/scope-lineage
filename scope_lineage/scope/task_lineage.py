@@ -1052,6 +1052,11 @@ def _apply_projection_write(
             *row_membership_sources,
             *merge_conditions,
         ])
+    else:
+        row_membership_sources = _dedupe_dicts([
+            *row_membership_sources,
+            *_query_row_conditions(result, statement_id, gaps),
+        ])
     value_condition_sources = (
         {
             column: list(sources)
@@ -1678,6 +1683,18 @@ def _write_projection_facts(
                 "source_kind": "generated",
                 **dict(generated),
             })
+        # F4: `COUNT(*)` reads no column, only the rows of a relation. The statement
+        # document says so with `source_kind: rowset`; dropping it here left the task row
+        # with no source at all while it still read `trace_complete: true`.
+        for rowset in item.get("rowset_sources") or []:
+            for table in _relation_tables(result, str(rowset.get("scope") or "")):
+                sources.append({
+                    "source_kind": "rowset",
+                    "table": table,
+                    "transform": item.get("transform", "AGGREGATE"),
+                    "expression": rowset.get("expression"),
+                    **_source_state(states, table),
+                })
         values[item["column"]] = _dedupe_dicts(sources)
         reasons = [
             str(reason)
@@ -1687,6 +1704,82 @@ def _write_projection_facts(
         if reasons:
             missing_reasons[item["column"]] = list(dict.fromkeys(reasons))
     return values, missing_reasons
+
+
+def _relation_tables(result, relation: str, seen: frozenset = frozenset()) -> list[str]:
+    """The physical tables whose rows ``relation`` -- a table or a scope -- is made of."""
+    scope = result.scopes.get(relation)
+    if scope is None:
+        return [relation] if relation else []
+    tables: list[str] = []
+    for item in scope.depends_on or []:
+        if item in seen:
+            continue
+        for table in _relation_tables(result, item, seen | {relation}):
+            if table not in tables:
+                tables.append(table)
+    return tables
+
+
+# The logic blocks whose fields decide which rows a query returns. GROUP BY is not one:
+# its keys are the output's values, and a grouping keeps a group for every key present.
+_ROW_CONDITION_LOGIC_TYPES = frozenset({"filter", "join", "having", "qualify"})
+
+
+def _query_row_conditions(
+    result: ScopeLineageResult, statement_id: str, gaps: list[dict]
+) -> list[dict]:
+    """F5: the physical fields a written query's conditions read, as row-membership sources.
+
+    Walked from ROOT through the relations each scope reads (``depends_on``: FROM, JOIN,
+    UNION branch, CTE), so a scalar subquery in the SELECT list -- which decides a value,
+    not which rows exist -- stays out, while a subquery in a WHERE is already among its
+    parent's filter fields. A field whose scope cannot be traced to a physical column is a
+    fact gap, never a guessed name.
+    """
+    sources: list[dict] = []
+    visited: set[str] = set()
+    pending = ["ROOT"] if "ROOT" in result.scopes else []
+    while pending:
+        scope_id = pending.pop(0)
+        if scope_id in visited:
+            continue
+        visited.add(scope_id)
+        scope = result.scopes[scope_id]
+        pending.extend(item for item in scope.depends_on or [] if item in result.scopes)
+        for block in scope.logic_blocks or []:
+            if block.logic_type not in _ROW_CONDITION_LOGIC_TYPES:
+                continue
+            for ref in block.fields or []:
+                sources.extend(
+                    _row_condition_fields(result, ref.scope, ref.column, statement_id, gaps)
+                )
+    return _dedupe_dicts(sources)
+
+
+def _row_condition_fields(
+    result: ScopeLineageResult,
+    relation: str,
+    column: str,
+    statement_id: str,
+    gaps: list[dict],
+) -> list[dict]:
+    if not relation or not column or column == "*":
+        return []
+    if relation not in result.scopes:
+        return [{"table": relation, "column": column}]
+    fields, incomplete_reasons = _physical_fields_for_scope_column(result, relation, column)
+    if incomplete_reasons or not fields:
+        gaps.append({
+            "gap_type": "row_condition_source_unresolved",
+            "statement_id": statement_id,
+            "scope_id": relation,
+            "column": column,
+            "root_impact": True,
+            "needed_fact": "physical field behind a query condition",
+        })
+        return []
+    return [{"table": field["table"], "column": field["column"]} for field in fields]
 
 
 def _merge_column_missing_reasons(

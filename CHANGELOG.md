@@ -1,6 +1,20 @@
 # Changelog
 
 ## Unreleased
+- **A written query's row sets and row conditions reach the task-level row** (deep
+  assessment F4, F5). `end_to_end_lineage[]` of a task document dropped both: a
+  `COUNT(*)` column had no `value_sources` at all, and `row_membership_sources` -- defined
+  as the fields that decide whether a target row exists -- was filled only by DELETE and
+  MERGE. Now `value_sources[]` gains `source_kind: "rowset"` (`table`, `transform`,
+  `expression`, no `column`) for each physical table a count reads, a CTE traced to the
+  table behind it; and the physical fields read by WHERE / JOIN / HAVING / QUALIFY on an
+  INSERT / INSERT OVERWRITE / CTAS query's relation path (ROOT, CTEs, subqueries in FROM,
+  UNION branches -- not a scalar subquery in the SELECT list) enter
+  `row_membership_sources`, beside the earlier state's on an append. An unresolvable
+  condition field is a `row_condition_source_unresolved` fact gap. Additive within task
+  contract 2.0: a consumer that filters on `source_kind == "physical_field"` reads the same
+  edges; the two task golden cases gain their conditions, and the derived goldens change
+  only by the input digest. Docs zh/en: `task-lineage-v2.md`.
 - **A producer's key proves the table only when every write replaces it** (deep assessment
   F2). A table card's key used to decide a JOIN `safe` and an ontology relation
   `many_to_one` / `unique_per` `proven` whatever the write: an `INSERT INTO ... GROUP BY`

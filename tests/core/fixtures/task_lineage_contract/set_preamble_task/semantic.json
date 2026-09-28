@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "artifact_kind": "task_semantic",
   "task_id": "golden_set_preamble_task",
-  "lineage_digest": "955c0f63c7f4b22e",
+  "lineage_digest": "d784d2355ddd7a96",
   "produced_tables": [
     "mart.store_daily"
   ],
