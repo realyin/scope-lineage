@@ -439,7 +439,10 @@ scope-lineage catalog build examples/catalog-demo --out out/
 
 `build` validates first and **refuses to write anything** when there is an error. Otherwise
 it writes `out/ontology.json`, whose schema ships as
-`scope_lineage/schemas/ontology-v3.schema.json`:
+`scope_lineage/schemas/ontology-v3.schema.json`. Before writing, `build` checks the document
+it built (with any `--lineage/--tables` evidence) against that schema; on a mismatch it
+lists each path, writes nothing and exits `1` -- the builder and the schema disagree, which
+is a scope-lineage bug, not a fault in the catalog:
 
 ```json
 {

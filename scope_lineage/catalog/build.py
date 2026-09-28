@@ -20,7 +20,7 @@ Every event participant also becomes a ``participation`` relation, and a
 from __future__ import annotations
 
 from .index import Index, build_index
-from .model import CATALOG_FORMAT, ONTOLOGY_FORMAT, ONTOLOGY_SCHEMA, Catalog, CatalogError
+from .model import CATALOG_FORMAT, ONTOLOGY_FORMAT, ONTOLOGY_SCHEMA, Catalog, CatalogError, Finding
 from .references import derived_relation_id
 from .validate import validate_catalog
 
@@ -51,6 +51,18 @@ def validate_ontology_document(document: dict) -> dict:
 
     jsonschema.validate(document, packaged_schema(ONTOLOGY_SCHEMA))
     return document
+
+
+def ontology_findings(document: dict, file: str | None = None) -> list[Finding]:
+    """Every place a built document breaks the ``ontology-json/3`` schema, one finding each.
+
+    Empty for anything ``build_ontology`` and the evidence attachment write; a finding
+    means the builder and the schema disagree, which is a bug to report, not a fault
+    in the catalog.
+    """
+    from .structure import schema_findings
+
+    return schema_findings(ONTOLOGY_SCHEMA, document, file)
 
 
 def _catalog_header(catalog: Catalog) -> dict:

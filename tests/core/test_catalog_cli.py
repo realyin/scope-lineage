@@ -78,3 +78,27 @@ def test_build_refuses_an_invalid_catalog(tmp_path: Path, capsys) -> None:
 def test_catalog_requires_an_action() -> None:
     with pytest.raises(SystemExit):
         main(["catalog"])
+
+
+def test_build_checks_the_document_against_its_schema(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    """A builder bug that breaks ontology-json/3 is caught before anything is written."""
+    import scope_lineage.cli_catalog as cli_catalog
+
+    real = cli_catalog.build_ontology
+
+    def broken(catalog):
+        document = real(catalog)
+        document["concepts"][0]["kind"] = "gadget"
+        return document
+
+    monkeypatch.setattr(cli_catalog, "build_ontology", broken)
+    out = tmp_path / "out"
+
+    assert main(["catalog", "build", str(DEMO), "--out", str(out)]) == 1
+
+    assert not (out / "ontology.json").exists()
+    err = capsys.readouterr().err
+    assert "[schema] ontology.json concepts[0].kind" in err
+    assert "does not fit its schema" in err

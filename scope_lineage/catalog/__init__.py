@@ -11,7 +11,7 @@ artifact and imports nothing from the rest of the package: the catalog comes fir
 evidence is attached to it later.
 """
 
-from .build import build_ontology, validate_ontology_document
+from .build import build_ontology, ontology_findings, validate_ontology_document
 from .coverage import render_coverage, table_coverage
 from .digest import DIGEST_FORMAT, digest_tables, render_digest_markdown
 from .fragment import FRAGMENT_FORMAT, check_fragment
@@ -46,6 +46,7 @@ __all__ = [
     "digest_tables",
     "load_catalog",
     "merge_fragments",
+    "ontology_findings",
     "render_coverage",
     "render_digest_markdown",
     "render_summary",

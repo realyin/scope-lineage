@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- **`catalog build` checks its output against `ontology-json/3` before writing.** The
+  document it built, with any `--lineage/--tables` evidence, is checked against the packaged
+  schema; a mismatch is listed path by path (`[schema] ontology.json concepts[0].kind: ...`),
+  nothing is written and the exit code is `1`. A valid catalog builds exactly as before.
+  New `ontology_findings(document)` in `scope_lineage.catalog`. Docs zh/en:
+  `ontology-catalog.md`.
 - **When a row is a complete fact: one published rule (assertion model WP7).** A task document
   says "incomplete" five ways -- `analysis_status`, `trace_complete`, `value_sources_folded`,
   a `session_scoped` edge left unfolded, a `row_condition_source_unresolved` gap -- and
