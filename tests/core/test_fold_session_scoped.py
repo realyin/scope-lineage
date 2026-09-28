@@ -83,6 +83,43 @@ def test_a_constant_survives_the_fold():
     assert [s["source_kind"] for s in row["value_sources"]] == ["generated"]
 
 
+def test_distinct_constants_behind_one_view_column_all_survive_the_fold():
+    """Two generated sources share `(table, column, source_kind)` -- all three are empty or
+    `generated` -- so that triple is not a source's identity: folding on it kept `'A'` and
+    silently dropped `'B'` while still reporting the row as folded."""
+    document = _document(
+        "create or replace temp view tv as select 'A' as tag union all select 'B' as tag;\n"
+        "insert overwrite table mart.daily select tag from tv"
+    )
+    unfolded = next(
+        item for item in document["end_to_end_lineage"] if item.get("table") == "tv"
+    )
+    row = _folded(document, "mart.daily", "tag")
+
+    assert row["value_sources_folded"] is True
+    assert sorted(s.get("value") for s in row["value_sources"]) == sorted(
+        s.get("value") for s in unfolded["value_sources"]
+    )
+    assert len(row["value_sources"]) == 2
+
+
+def test_a_hop_through_a_view_keeps_the_transform_it_applied():
+    """`v * 2` read through a pass-through view is the same EXPRESSION as `v * 2` read
+    directly; the fold composes the hops the way the statement-level trace does."""
+    direct = _document("insert overwrite table mart.direct select amt * 2 as amt from ods.real")
+    through_view = _document(
+        "create or replace temp view tv as select amt from ods.real;\n"
+        "insert overwrite table mart.via select amt * 2 as amt from tv"
+    )
+    direct_row = _folded(direct, "mart.direct", "amt")
+    via_row = _folded(through_view, "mart.via", "amt")
+
+    assert [(s["table"], s["column"], s["transform"]) for s in via_row["value_sources"]] == [
+        (s["table"], s["column"], s["transform"]) for s in direct_row["value_sources"]
+    ]
+    assert via_row["value_sources"][0]["transform"] == "EXPRESSION"
+
+
 def test_a_hop_into_a_state_no_row_describes_is_kept_not_guessed():
     """The redefinition case. Substituting the surviving definition asserts a false origin."""
     document = _document(

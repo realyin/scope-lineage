@@ -323,7 +323,7 @@ def _dominant_physical_transform(
 ) -> str:
     dominant = fallback
     for item in sources:
-        dominant = _dominant_transform(dominant, str(item.get("transform") or ""))
+        dominant = dominant_transform(dominant, str(item.get("transform") or ""))
     return dominant
 
 
@@ -354,7 +354,7 @@ def _trace_column(
         return _TraceResult(incomplete_reasons=["missing_scope_column"])
     output = output_override or _find_output(scope.outputs, column_name)
 
-    dominant = _dominant_transform(incoming_transform, column.transform)
+    dominant = dominant_transform(incoming_transform, column.transform)
     if not column.sources:
         return _TraceResult(incomplete_reasons=_output_terminal_incomplete_reasons(output))
 
@@ -714,7 +714,13 @@ def _window_context_dicts(context: list[tuple[str, str, str]]) -> list[dict[str,
     return list(seen.values())
 
 
-def _dominant_transform(left: str, right: str) -> str:
+def dominant_transform(left: str, right: str) -> str:
+    """The transform a path of two hops carries: the stronger of the two.
+
+    A path records the strongest expression kind it crosses, so ``DIRECT`` then
+    ``EXPRESSION`` is ``EXPRESSION`` whichever hop applied it. The task-level fold
+    composes hops through session-scoped relations with the same rule.
+    """
     if _TRANSFORM_PRIORITY.get(left, 0) >= _TRANSFORM_PRIORITY.get(right, 0):
         return left
     return right

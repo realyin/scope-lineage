@@ -360,6 +360,10 @@ folded = fold_session_scoped(document)     # the input is not modified
 It resolves `final_table.v ← temp_view.v ← real_table.v` into `final_table.v ← real_table.v`, and
 also removes the rows of those temporary relations themselves along with their entries in
 `final_table_states`.
+Each hop's `transform` is composed by the same rule as the statement-level end-to-end trace
+(the stronger of the two on the path), so `v * 2` read through a pass-through view is still
+`EXPRESSION`; two sources merge only when their content is identical, so distinct constants
+behind one view column and different participation paths to one physical column all stay.
 
 **What cannot be folded is not quietly dropped.** Such a row keeps its original edges and reports:
 
