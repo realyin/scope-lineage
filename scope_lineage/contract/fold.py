@@ -25,10 +25,9 @@ this whole exercise exists to avoid.
 from __future__ import annotations
 
 import copy
-import json
 from typing import Any
 
-from ..scope.end_to_end import dominant_transform
+from ..scope.composition import compose_hop, source_identity
 
 # A relation defined through more than this many session-scoped hops is not something to keep
 # walking; the bound exists so a cycle terminates rather than to model real nesting.
@@ -136,31 +135,8 @@ def _resolve(
     resolved: list[dict] = []
     for item in upstream:
         for leaf in _resolve(item, by_column, states_present, reasons, depth + 1):
-            resolved.append(_through(source, leaf))
+            resolved.append(compose_hop(source, leaf))
     return resolved
-
-
-def _through(hop: dict, leaf: dict) -> dict:
-    """``leaf`` as read through ``hop``: the path's transform is the stronger of the two.
-
-    Returning the upstream fact unchanged dropped what the hop itself did -- ``v * 2``
-    over a pass-through view came back ``DIRECT`` -- so the same SQL read through one
-    more relation got a different explanation.
-    """
-    if not hop.get("transform") or not leaf.get("transform"):
-        return leaf
-    composed = dominant_transform(str(hop["transform"]), str(leaf["transform"]))
-    return leaf if composed == leaf["transform"] else {**leaf, "transform": composed}
-
-
-def _identity(source: dict) -> str:
-    """A source's whole content: `(table, column, source_kind)` is not an identity.
-
-    Two constants both have no table and no column, and two paths to one column differ
-    by transform; the contract keeps each participation path, so only an exact
-    duplicate is one.
-    """
-    return json.dumps(source, sort_keys=True, ensure_ascii=False, default=str)
 
 
 def fold_session_scoped(document: dict) -> dict:
@@ -211,7 +187,7 @@ def fold_session_scoped(document: dict) -> dict:
             seen: set[str] = set()
             for source in sources:
                 for item in _resolve(source, by_column, states_present, reasons):
-                    key = _identity(item)
+                    key = source_identity(item)
                     if key in seen:
                         continue
                     seen.add(key)

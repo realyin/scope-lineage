@@ -12,6 +12,7 @@ from ..metadata.schema_metadata import DictSchemaProvider
 from ._constants import DIALECT, PARSE_OPTS
 from .expansion_budget import expansion_limit as scoped_expansion_limit
 from .sqlglot_walk import render_sql_or_none
+from .composition import dedupe_sources
 from .end_to_end import _physical_fields_for_scope_column
 from .scope_types import ScopeLineageResult
 from .ctas_missing_as import repair_ctas_missing_as
@@ -2190,12 +2191,4 @@ def _metadata_coverage(
 
 
 def _dedupe_dicts(items: Iterable[dict]) -> list[dict]:
-    result: list[dict] = []
-    seen: set[tuple] = set()
-    for item in items:
-        key = tuple(sorted((key, repr(value)) for key, value in item.items()))
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append(dict(item))
-    return result
+    return dedupe_sources(items)
