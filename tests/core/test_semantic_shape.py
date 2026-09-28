@@ -147,11 +147,11 @@ def test_root_distinct_is_deduplicated() -> None:
     assert shape["key_confidence"] == "proven"
 
 
-def test_root_filtering_a_rank_to_one_is_deduplicated_on_the_partition_keys() -> None:
+def test_root_filtering_a_row_number_to_one_is_unique_on_the_partition_keys() -> None:
     shape = _shape(
         "INSERT INTO mart.t WITH r AS ("
-        "  SELECT id, v, RANK() OVER (PARTITION BY id ORDER BY ts) AS rk FROM ods.e"
-        ") SELECT id, v FROM r WHERE rk = 1"
+        "  SELECT id, v, ROW_NUMBER() OVER (PARTITION BY id ORDER BY ts) AS rn FROM ods.e"
+        ") SELECT id, v FROM r WHERE rn = 1"
     )
     assert shape["shape"] == "deduplicated"
     assert [(item["scope_id"], item["name"]) for item in shape["grain"]["keys"]] == [
@@ -159,7 +159,26 @@ def test_root_filtering_a_rank_to_one_is_deduplicated_on_the_partition_keys() ->
     ]
     assert shape["grain"]["basis"] == "window_partition"
     assert shape["candidate_keys"] == ["id"]
+    assert shape["key_confidence"] == "proven"
     assert "logic:cte:r:window:001" in shape["shape_evidence"]
+
+
+@pytest.mark.parametrize("function", ["RANK", "DENSE_RANK"])
+def test_root_filtering_a_rank_to_one_keeps_every_tie(function: str) -> None:
+    """``rank() = 1`` keeps every row tied for first, so the partition keys are not unique.
+
+    Two rows ``(id=1, ts=100)`` both rank 1 and both survive. The filter still reads as a
+    dedup -- that is what the author meant, and the shape says so -- but the grain is not
+    the partition, and no key set is proven by it.
+    """
+    shape = _shape(
+        "INSERT INTO mart.t WITH r AS ("
+        f"  SELECT id, v, {function}() OVER (PARTITION BY id ORDER BY ts) AS rk FROM ods.e"
+        ") SELECT id, v FROM r WHERE rk = 1"
+    )
+    assert shape["shape"] == "deduplicated"
+    assert shape["grain"]["basis"] != "window_partition"
+    assert shape["key_confidence"] not in ("proven", "proven_unexposed")
 
 
 def test_a_root_reading_only_union_scopes_is_a_union_merge() -> None:
@@ -474,6 +493,17 @@ def test_a_row_number_equals_one_right_side_is_safe() -> None:
     assert risk["status"] == "safe"
     assert risk["right"] == "cte:latest_status"
     assert "row_number" in risk["reason"]
+
+
+@pytest.mark.parametrize("function", ["RANK", "DENSE_RANK"])
+def test_a_rank_equals_one_right_side_is_not_safe(function: str) -> None:
+    """Ties for first all survive a ``rank() = 1`` filter, so each can match one left row."""
+    shape = _shape(
+        "INSERT INTO mart.t WITH r AS ("
+        f"  SELECT id, v, {function}() OVER (PARTITION BY id ORDER BY ts) AS rk FROM ods.e"
+        ") SELECT b.id, r.v FROM ods.base b LEFT JOIN r ON b.id = r.id AND r.rk = 1"
+    )
+    assert _risk(shape, "logic:ROOT:join:001")["status"] != "safe"
 
 
 def test_a_window_partition_without_an_equals_one_filter_is_a_risk() -> None:
@@ -1175,8 +1205,8 @@ def test_every_basis_the_builder_emits_is_a_declared_one() -> None:
             "INSERT INTO mart.t SELECT DISTINCT customer_id FROM ods.orders",
             "INSERT INTO mart.t SELECT id, name FROM ods.users WHERE dt = '1'",
             "INSERT INTO mart.t WITH r AS ("
-            "  SELECT id, v, RANK() OVER (PARTITION BY id ORDER BY ts) AS rk FROM ods.e"
-            ") SELECT id, v FROM r WHERE rk = 1",
+            "  SELECT id, v, ROW_NUMBER() OVER (PARTITION BY id ORDER BY ts) AS rn FROM ods.e"
+            ") SELECT id, v FROM r WHERE rn = 1",
             "INSERT INTO mart.t SELECT id, amount FROM ods.a "
             "UNION ALL SELECT id, amount FROM ods.b",
             "INSERT INTO mart.t SELECT COUNT(*) AS n FROM ods.orders",

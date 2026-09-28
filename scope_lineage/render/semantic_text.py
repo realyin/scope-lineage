@@ -1613,6 +1613,10 @@ _DIRECTION_TEXT = {"DESC": "降序", "ASC": "升序"}
 
 # The ranking family, shared by the intent rule (R6) and by the sentence below.
 RANKING_WINDOW_FUNCTIONS = frozenset({"row_number", "rank", "dense_rank"})
+#: The ranking functions whose ``= 1`` leaves at most one row per partition. All three
+#: read as a dedup, but ``rank`` / ``dense_rank`` give every row tied for first the value
+#: 1 and keep them all, so only ``row_number`` proves the partition keys unique.
+UNIQUE_RANKING_WINDOW_FUNCTIONS = frozenset({"row_number"})
 
 
 def describe_window_action(

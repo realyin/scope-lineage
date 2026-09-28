@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+- **`rank()` / `dense_rank()` = 1 no longer proves a key set** (deep assessment F1). Every
+  row tied for first ranks 1 and survives the filter, so only `row_number()` leaves at most
+  one row per partition. Such a filter still makes the shape `deduplicated` -- that is
+  what the author meant -- but the grain walks on instead of using the partition keys, so
+  `key_confidence` is no longer `proven` on its account, and a JOIN onto a right side
+  filtered that way is no longer `safe`. The ontology's `implied` one-to-many claim, which
+  is about the author's intent, still reads all three functions. The test that pinned
+  `rank() = 1` as unique asserted the wrong SQL semantics and now asserts the opposite.
+- **`fold_session_scoped` keeps distinct constants and the transform of each hop** (F6).
+  Folded sources were deduplicated on `(table, column, source_kind)`, which every constant
+  shares, so a view column built from `'A'` and `'B'` folded to `'A'` alone while the row
+  still said `value_sources_folded: true`; sources now merge only when identical. A hop's
+  own transform was dropped -- `v * 2` over a pass-through view came back `DIRECT` -- and
+  is now composed with the upstream one by the statement-level rule (the stronger kind on
+  the path). Docs zh/en: `semantic-doc.md`, `task-lineage-v2.md`.
+
 ## 0.5.1
 - **Public-surface hygiene and boundary fixes.** No schema or contract change. Wording in
   docstrings, docs and earlier changelog entries that carried absolute figures from

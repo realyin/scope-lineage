@@ -242,6 +242,17 @@ def test_o2_a_right_side_ranked_to_one_row_per_key_proves_one_to_many() -> None:
     assert edge["cardinality"]["tier"] == TIER_IMPLIED
 
 
+def test_o2_a_right_side_ranked_with_rank_still_implies_one_to_many() -> None:
+    """The implied claim is about the author's intent -- nobody dedups a unique table --
+    and ``rank() = 1`` states that intent as plainly as ``row_number() = 1`` does."""
+    sql = RANKED_RIGHT.replace("ROW_NUMBER()", "RANK()")
+    edge = _edge(_one([("task_a", sql)]), "ods.driver", "ods.pay")
+
+    assert edge["cardinality"]["claim"] == CARDINALITY_ONE_TO_MANY
+    assert edge["cardinality"]["basis"] == "ranking_window"
+    assert edge["cardinality"]["tier"] == TIER_IMPLIED
+
+
 def test_o2_a_direct_join_onto_a_physical_table_is_only_an_assumption() -> None:
     edge = _edge(_one([("task_a", DIRECT_JOIN)]), "ods.orders", "ods.customer")
 
