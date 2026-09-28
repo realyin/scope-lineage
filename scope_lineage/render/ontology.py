@@ -53,7 +53,7 @@ from itertools import combinations
 
 from sqlglot import exp
 
-from . import glossary_values, semantic_text
+from . import claims, glossary_values, semantic_text
 from .concept_relations import (
     TYPE_AGGREGATION,
     TYPE_ASSOCIATION,
@@ -92,8 +92,7 @@ from .semantic_profile import (
     TASK_SCHEMA_VERSION,
     aggregation_keys,
     build_semantic_profile,
-    card_key_limit,
-    card_key_proof,
+    card_key_claim,
     card_lookup,
     comparable,
     driving_table,
@@ -1693,14 +1692,14 @@ def _cardinality(document: Mapping, block_id: str, detail: Mapping, lookup) -> d
 
 def _physical_cardinality(right: str, columns: Sequence[str], lookup) -> dict:
     """A JOIN straight onto a table: the corpus's proof if there is one, else the guess."""
-    proof = card_key_proof(lookup(right)) if lookup is not None else None
-    if proof is not None:
-        task, keys, level = proof
-        if columns and comparable(keys) <= comparable(columns) and KEY_CONFIDENCE_TIERS.get(
-            level
-        ) == TIER_PROVEN:
+    claim = card_key_claim(lookup(right)) if lookup is not None else None
+    if claim is not None and claim.status == claims.PROVEN:
+        if columns and comparable(list(claim.content)) <= comparable(columns):
             return _claim(
-                CARDINALITY_MANY_TO_ONE, TIER_PROVEN, BASIS_PRODUCER_KEY, producer=task
+                CARDINALITY_MANY_TO_ONE,
+                TIER_PROVEN,
+                BASIS_PRODUCER_KEY,
+                producer=claim.evidence[0],
             )
     return _claim(CARDINALITY_MANY_TO_ONE_ASSUMED, TIER_HYPOTHESIS, BASIS_NO_DEDUP)
 
@@ -2249,7 +2248,7 @@ def _unique_per_constraints(cards: Mapping) -> list[dict]:
     """
     found = []
     for card in cards.get("tables") or []:
-        limited = card_key_limit(card) is not None
+        limited = _card_key_defeated(card)
         for producer in card.get("produced_by") or []:
             keys = [str(key) for key in producer.get("candidate_keys") or []]
             tier = KEY_CONFIDENCE_TIERS.get(str(producer.get("key_confidence")))
@@ -2274,6 +2273,12 @@ def _unique_per_constraints(cards: Mapping) -> list[dict]:
                 )
             )
     return found
+
+
+def _card_key_defeated(card: Mapping) -> bool:
+    """Whether the corpus holds evidence against carrying a producer key to the table."""
+    claim = card_key_claim(card)
+    return bool(claim and claim.defeaters)
 
 
 def _partition(producer: Mapping) -> list[str]:
@@ -2402,12 +2407,17 @@ def _identity(card: Mapping, entity: str, facts: Mapping) -> dict:
 
 
 def _candidate_keys(card: Mapping, entity: str, facts: Mapping) -> list[dict]:
+    # F2: a producer that appends or merges, or producers that disagree, prove their key
+    # for a batch only -- the same limit `_unique_per_constraints` applies.
+    limited = _card_key_defeated(card)
     keys: dict[tuple, dict] = {}
     for producer in card.get("produced_by") or []:
         columns = tuple(str(key) for key in producer.get("candidate_keys") or [])
         tier = KEY_CONFIDENCE_TIERS.get(str(producer.get("key_confidence")))
         if not columns or tier is None:
             continue
+        if limited:
+            tier = TIER_HYPOTHESIS
         entry = keys.setdefault(
             columns, {"columns": list(columns), "tier": tier, "evidence": []}
         )

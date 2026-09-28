@@ -1,6 +1,21 @@
 # Changelog
 
 ## Unreleased
+- **Conclusions carry their subject and rule internally (assertion model WP0, WP1).** A new
+  `render/claims.py` declares every inference the package makes (`RULES`, each *sound* or
+  *heuristic*) and a `Claim` record -- subject (a query's rows, a write batch, a partition, a
+  table state, a read, a column), status, rule, evidence, conditions, premises and
+  defeaters; a heuristic rule cannot prove, and a claim with a defeater is never `proven`.
+  The table-card key proof and the GROUP BY / `row_number()` uniqueness verdicts are now
+  built as claims. `tests/architecture/test_claim_producers.py` requires every function
+  that decides a strength to name its rules. No output changes: goldens are untouched and a
+  full `parse` / `tables` / `glossary` / `ontology` / `describe` run over the examples is
+  byte-identical before and after.
+- **The ontology's table identity applies the F2 limit too.** `tables[].identity.candidate_keys[]`
+  still took a producer's key at its own tier, so an appending producer's per-batch key read
+  `proven` there while `unique_per` and the relation already said `hypothesis`. It now drops to
+  `hypothesis` under the same conditions (an appending or merging producer, or producers that
+  disagree on the key). Found while registering every strength-deciding function (WP0).
 - **A written query's row sets and row conditions reach the task-level row** (deep
   assessment F4, F5). `end_to_end_lineage[]` of a task document dropped both: a
   `COUNT(*)` column had no `value_sources` at all, and `row_membership_sources` -- defined

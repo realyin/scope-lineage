@@ -46,7 +46,7 @@ import re
 from collections import Counter, OrderedDict
 from typing import Iterable, Mapping, Sequence
 
-from . import glossary_values, semantic_text
+from . import claims, glossary_values, semantic_text
 from .diagnostics_view import all_warnings, fact_gaps_for, warnings_for
 from .mapping_markdown import lineage_document_digest
 from .sequences import unique_ordered
@@ -3610,13 +3610,12 @@ def _card_verdict(
     if card_lookup is None:
         return None
     card = card_lookup(right)
-    limit = _card_key_limit(card)
-    if limit is not None:
-        return "unknown", limit, FAN_OUT_BASIS_TABLE_CARD, None
-    proof = _card_key_proof(card)
-    if proof is None:
+    claim = _card_key_claim(card)
+    if claim is None:
         return None
-    task, keys, level = proof
+    if claim.defeaters:
+        return "unknown", claim.defeaters[0][1], FAN_OUT_BASIS_TABLE_CARD, None
+    task, keys, level = claim.evidence[0], list(claim.content), _card_claim_level(claim)
     columns = _join_side_columns(detail, "right")
     if not columns or not _comparable(keys) <= _comparable([*columns, *pinned]):
         partition = _card_partition_columns(card)
@@ -3658,41 +3657,46 @@ def _card_lookup(table_cards: Mapping | None):
 _REPLACING_WRITES = frozenset({"CTAS", "INSERT_OVERWRITE"})
 
 
-def _card_key_proof(card) -> tuple[str, list[str], str] | None:
-    """``(task, keys, confidence)`` for the table a reader sees, or None.
+def _card_key_claim(card) -> claims.Claim | None:
+    """What a card's producers say about the key of the table a reader sees, or None.
 
-    A producer proves its key *in the rows it wrote*. That becomes a statement about the
-    table only when every producer replaces the table's contents and every one of them
-    writes by the same key -- see :func:`_card_key_limit` for the cases that stop it. A
-    partitioned write replaces one partition, so its partition columns join the key set:
-    one row per key per day is many rows per key across days.
-    """
-    if _card_key_limit(card) is not None:
-        return None
-    for level in _CARD_KEY_CONFIDENCES:
-        for producer in (card or {}).get("produced_by") or []:
-            keys = [str(key) for key in producer.get("candidate_keys") or []]
-            if keys and str(producer.get("key_confidence")) == level:
-                partition = _card_partition_columns(card)
-                return str(producer.get("task")), _dedupe([*keys, *partition]), level
-    return None
+    A producer proves its key *in the rows it wrote* (``R-GROUPBY-KEY`` on its query).
+    Carried to the table (``R-REPLACE-STATE``), that holds only when every producer
+    replaces the table's contents and all of them write by the same key; an appending or
+    merging producer, or two keys, are defeaters. A partitioned write replaces one
+    partition (``R-PARTITION-STATE``), so its partition columns join the key set: one row
+    per key per day is many rows per key across days. The corpus holding every writer of
+    the table is the premise ``A-WRITERS-CLOSED``, stated rather than hidden.
 
-
-def _card_key_limit(card) -> str | None:
-    """Why a card's producer key does not describe the table a reader sees, or None.
-
-    Asked only when some producer offers a key at all: a card with no key has nothing
-    to limit.
+    None when no producer offers a key at all -- there is nothing to carry or limit.
     """
     producers = list((card or {}).get("produced_by") or [])
-    offered = [
-        producer
-        for producer in producers
-        if producer.get("candidate_keys")
-        and str(producer.get("key_confidence")) in _CARD_KEY_CONFIDENCES
-    ]
-    if not offered:
+    offered = next(
+        (
+            producer
+            for level in _CARD_KEY_CONFIDENCES
+            for producer in producers
+            if producer.get("candidate_keys") and str(producer.get("key_confidence")) == level
+        ),
+        None,
+    )
+    if offered is None:
         return None
+    partition = _card_partition_columns(card)
+    keys = [str(key) for key in offered.get("candidate_keys") or []]
+    claim = claims.Claim(
+        kind="unique_by",
+        subject=claims.Subject(claims.SUBJECT_TABLE_STATE, (str((card or {}).get("table")),)),
+        content=tuple(_dedupe([*keys, *partition])),
+        status=(
+            claims.PROVEN
+            if str(offered.get("key_confidence")) == KEY_CONFIDENCE_PROVEN
+            else claims.HYPOTHESIS
+        ),
+        rule="R-PARTITION-STATE" if partition else "R-REPLACE-STATE",
+        evidence=(str(offered.get("task")),),
+        assumptions=("A-WRITERS-CLOSED",),
+    )
     appending = [
         producer
         for producer in producers
@@ -3702,14 +3706,25 @@ def _card_key_limit(card) -> str | None:
         names = "、".join(
             f"{item.get('task')}（{item.get('stmt_kind') or '写入方式未知'}）" for item in appending
         )
-        return (
+        claim = claim.defeated_by(
+            "appending_producer",
             f"生产任务 {names} 以追加或合并方式写入，键只在单批写入内唯一，"
-            "表里可能同时留着多批数据（表卡）"
+            "表里可能同时留着多批数据（表卡）",
         )
-    keys = {tuple(str(key) for key in item.get("candidate_keys") or []) for item in producers}
-    if len(keys) > 1:
-        return "多个生产任务写同一张表而给出的键不一致，读到哪一版取决于调度顺序（表卡）"
-    return None
+    written_keys = {
+        tuple(str(key) for key in item.get("candidate_keys") or []) for item in producers
+    }
+    if len(written_keys) > 1:
+        claim = claim.defeated_by(
+            "producer_key_conflict",
+            "多个生产任务写同一张表而给出的键不一致，读到哪一版取决于调度顺序（表卡）",
+        )
+    return claim
+
+
+def _card_claim_level(claim: claims.Claim) -> str:
+    """The card's ``key_confidence`` a claim came from: its status, in that vocabulary."""
+    return KEY_CONFIDENCE_PROVEN if claim.status == claims.PROVEN else KEY_CONFIDENCE_CANDIDATE
 
 
 def _right_table_pins(document: dict, block_id: str, right: str) -> list[str]:
@@ -3790,21 +3805,20 @@ def _grouped_uniqueness(
     ON clause reads on that same side. That is the one vocabulary both are written in.
     The pierced columns stay in the sentence as a note, never in the verdict.
     """
-    keys = _aggregation_logical_keys(document, scope_id)
-    if keys is None:
+    claim = _grouped_key_claim(document, scope_id)
+    if claim is None:
         return None
-    if not keys:
+    if claim.rule == "R-EMPTY-GROUPING":
         return "safe", "右侧为全表聚合，至多一行", []
-    # B9: a key the right side pins to one literal cannot make two rows out of one, so
-    # it leaves the set the join keys have to cover.
-    free, pinned = _unpinned_keys(document, scope_id, keys)
+    keys = _aggregation_logical_keys(document, scope_id) or []
+    pinned = list(claim.conditions)
     labels = _logical_key_names(keys)
     note = f"{_pin_note(pinned)}{_physical_key_note(keys)}"
-    if not free:
+    if not claim.content:
         return "safe", (
             f"右侧按 {'、'.join(labels)} GROUP BY，等值过滤后键集为空，右侧至多一行{note}"
         ), pinned
-    free_labels = _logical_key_names(free)
+    free_labels = list(claim.content)
     if _comparable(free_labels) <= _comparable(columns):
         return "safe", (
             f"右侧按 {'、'.join(free_labels)} GROUP BY，键集被连接键覆盖{note}"
@@ -3813,6 +3827,33 @@ def _grouped_uniqueness(
         f"右侧按 {'、'.join(free_labels)} GROUP BY，"
         f"连接键 {'、'.join(columns)} 未覆盖该键集{note}"
     ), pinned
+
+
+def _grouped_key_claim(document: dict, scope_id: str) -> claims.Claim | None:
+    """What a scope's GROUP BY proves about its own rows, or None when it does not group.
+
+    The keys are the scope's *logical* keys (WI-2.1d item 1). B9: a key the scope pins to
+    one literal cannot make two rows out of one, so it leaves the key set; the pins are
+    kept in ``conditions`` -- discharged by the scope itself, but what the claim rests on.
+    """
+    keys = _aggregation_logical_keys(document, scope_id)
+    if keys is None:
+        return None
+    subject = claims.Subject(claims.SUBJECT_QUERY_ROWS, (scope_id,))
+    if not keys:
+        return claims.Claim(
+            "unique_by", subject, (), claims.PROVEN, "R-EMPTY-GROUPING", (scope_id,)
+        )
+    free, pinned = _unpinned_keys(document, scope_id, keys)
+    return claims.Claim(
+        "unique_by",
+        subject,
+        tuple(_logical_key_names(free)),
+        claims.PROVEN,
+        "R-PIN-DROP" if pinned else "R-GROUPBY-KEY",
+        (scope_id,),
+        conditions=tuple(pinned),
+    )
 
 
 def _logical_key_names(keys: Sequence[dict]) -> list[str]:
@@ -3894,6 +3935,27 @@ def _ranking_uniqueness(
     on one derived column look like a partition on the four columns that column reads,
     which is a wider key set than the SQL wrote.
     """
+    claim = _ranking_key_claim(document, scope_id, join_block, join_columns, functions)
+    if claim is None:
+        return None
+    consumer, function = claim.evidence
+    return function, list(claim.content), consumer
+
+
+def _ranking_key_claim(
+    document: dict,
+    scope_id: str,
+    join_block: tuple[str, dict],
+    join_columns: Sequence[str],
+    functions: frozenset[str] = semantic_text.UNIQUE_RANKING_WINDOW_FUNCTIONS,
+) -> claims.Claim | None:
+    """A ranking window over the join keys that a consumer filters to ``= 1``, as a claim.
+
+    ``row_number`` proves at most one row per partition (``R-ROWNUM-FIRST``). When the
+    caller asks for the whole family, ``rank`` / ``dense_rank`` answer too, but only as
+    the author's intent (``R-RANK-FIRST``, a hypothesis): ties for first all survive.
+    ``evidence`` is ``(consumer block, window function)``.
+    """
     names = _output_name_index(document, scope_id)
     for owner, _, spec in _ranking_window_specifications(document, functions):
         if owner != scope_id:
@@ -3906,10 +3968,15 @@ def _ranking_uniqueness(
             continue
         consumer = _keeps_first_row_consumer(document, scope_id, spec, [join_block])
         if consumer:
-            return (
-                str(spec.get("window_function")),
-                _window_partition_labels(spec),
-                consumer,
+            function = str(spec.get("window_function"))
+            unique = function.lower() in semantic_text.UNIQUE_RANKING_WINDOW_FUNCTIONS
+            return claims.Claim(
+                "at_most_one_row" if unique else "dedup_intent",
+                claims.Subject(claims.SUBJECT_QUERY_ROWS, (scope_id,)),
+                tuple(_window_partition_labels(spec)),
+                claims.PROVEN if unique else claims.HYPOTHESIS,
+                "R-ROWNUM-FIRST" if unique else "R-RANK-FIRST",
+                (consumer, function),
             )
     return None
 
@@ -4017,6 +4084,10 @@ aggregation_keys = _aggregation_logical_keys
 #: The GROUP BY verdict for one JOIN's right side: ``(status, reason)`` or None.
 grouped_uniqueness = _grouped_uniqueness
 
+#: The claims those two verdicts rest on (WP1c).
+grouped_key_claim = _grouped_key_claim
+ranking_key_claim = _ranking_key_claim
+
 #: The ranking-window verdict for the same side: ``(function, partition, consumer)``.
 ranking_uniqueness = _ranking_uniqueness
 
@@ -4027,10 +4098,7 @@ join_side_columns = _join_side_columns
 card_lookup = _card_lookup
 
 #: ``(task, keys, confidence)`` from the strongest producer on one card, or None.
-card_key_proof = _card_key_proof
-
-#: Why a card's producer key does not describe the table a reader sees, or None (F2).
-card_key_limit = _card_key_limit
+card_key_claim = _card_key_claim
 
 #: Columns of a physical right side the JOIN's own scope pins to one value.
 right_table_pins = _right_table_pins
