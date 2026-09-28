@@ -185,3 +185,29 @@ def test_rows_for_the_session_scoped_relations_themselves_are_dropped():
 
     assert {item["table"] for item in folded["end_to_end_lineage"]} == {"mart.daily"}
     assert "tmp_v" not in folded["final_table_states"]
+
+
+def test_a_condition_read_through_a_temp_view_names_the_table_behind_it():
+    """``row_membership_sources`` names physical tables, whatever the query read.
+
+    The condition ``id > 1`` reads ``tv.id``, which is ``ods.real.id``; and ``tv`` itself
+    keeps only the rows with ``amt > 0``, so that condition decides the written rows too.
+    """
+    document = _document(
+        "create or replace temp view tv as select * from ods.real where amt > 0;\n"
+        "insert overwrite table mart.daily select id from tv where id > 1"
+    )
+    unfolded = next(
+        item
+        for item in document["end_to_end_lineage"]
+        if item.get("table") == "mart.daily" and item.get("column") == "id"
+    )
+    row = _folded(document, "mart.daily", "id")
+
+    assert [item.get("session_scoped") for item in unfolded["row_membership_sources"]] == [
+        True
+    ]
+    assert sorted(
+        (item["table"], item["column"]) for item in row["row_membership_sources"]
+    ) == [("ods.real", "amt"), ("ods.real", "id")]
+    assert row["value_sources_folded"] is True
