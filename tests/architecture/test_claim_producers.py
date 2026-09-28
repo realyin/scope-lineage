@@ -44,6 +44,10 @@ PRODUCERS: dict[str, tuple[str, ...]] = {
     "render/semantic_profile.py:_split_key_risks": ("R-JOIN-BEFORE-GROUPING",),
     "render/semantic_profile.py:_fan_out_verdict": ("R-JOIN-PRESERVE", "R-ROWNUM-FIRST"),
     "render/semantic_profile.py:_grouped_uniqueness": ("R-GROUPBY-KEY", "R-PIN-DROP"),
+    "render/semantic_profile.py:_grouped_key_claim": (
+        "R-GROUPBY-KEY", "R-PIN-DROP", "R-EMPTY-GROUPING",
+    ),
+    "render/semantic_profile.py:_ranking_key_claim": ("R-ROWNUM-FIRST", "R-RANK-FIRST"),
     "render/semantic_profile.py:_card_verdict": (
         "R-REPLACE-STATE", "R-PARTITION-STATE", "R-READ-PIN", "R-PRODUCERS-AGREE",
     ),
@@ -128,9 +132,19 @@ def strength_functions(root: Path = PACKAGE_ROOT) -> set[str]:
     return found
 
 
+# A claim's status, spelt through the claims module (`claims.PROVEN`).
+CLAIM_STATUS_NAMES = frozenset({"PROVEN", "CONFIRMED", "CONDITIONAL", "HYPOTHESIS"})
+
+
 def _is_strength(node: ast.AST) -> bool:
     if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
         return node.id in STRENGTH_NAMES
+    if (
+        isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "claims"
+    ):
+        return node.attr in CLAIM_STATUS_NAMES
     return isinstance(node, ast.Constant) and node.value in STRENGTH_LITERALS
 
 
@@ -165,8 +179,10 @@ def test_every_rule_a_producer_names_is_declared() -> None:
 
 def test_the_scan_sees_a_new_strength_function(tmp_path: Path) -> None:
     (tmp_path / "mod.py").write_text(
-        "def decide():\n    return 'proven'\n\ndef other():\n    return 1\n",
+        "def decide():\n    return 'proven'\n\n"
+        "def claim():\n    return claims.PROVEN\n\n"
+        "def other():\n    return 1\n",
         encoding="utf-8",
     )
 
-    assert strength_functions(tmp_path) == {"mod.py:decide"}
+    assert strength_functions(tmp_path) == {"mod.py:decide", "mod.py:claim"}

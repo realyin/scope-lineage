@@ -3805,21 +3805,20 @@ def _grouped_uniqueness(
     ON clause reads on that same side. That is the one vocabulary both are written in.
     The pierced columns stay in the sentence as a note, never in the verdict.
     """
-    keys = _aggregation_logical_keys(document, scope_id)
-    if keys is None:
+    claim = _grouped_key_claim(document, scope_id)
+    if claim is None:
         return None
-    if not keys:
+    if claim.rule == "R-EMPTY-GROUPING":
         return "safe", "右侧为全表聚合，至多一行", []
-    # B9: a key the right side pins to one literal cannot make two rows out of one, so
-    # it leaves the set the join keys have to cover.
-    free, pinned = _unpinned_keys(document, scope_id, keys)
+    keys = _aggregation_logical_keys(document, scope_id) or []
+    pinned = list(claim.conditions)
     labels = _logical_key_names(keys)
     note = f"{_pin_note(pinned)}{_physical_key_note(keys)}"
-    if not free:
+    if not claim.content:
         return "safe", (
             f"右侧按 {'、'.join(labels)} GROUP BY，等值过滤后键集为空，右侧至多一行{note}"
         ), pinned
-    free_labels = _logical_key_names(free)
+    free_labels = list(claim.content)
     if _comparable(free_labels) <= _comparable(columns):
         return "safe", (
             f"右侧按 {'、'.join(free_labels)} GROUP BY，键集被连接键覆盖{note}"
@@ -3828,6 +3827,33 @@ def _grouped_uniqueness(
         f"右侧按 {'、'.join(free_labels)} GROUP BY，"
         f"连接键 {'、'.join(columns)} 未覆盖该键集{note}"
     ), pinned
+
+
+def _grouped_key_claim(document: dict, scope_id: str) -> claims.Claim | None:
+    """What a scope's GROUP BY proves about its own rows, or None when it does not group.
+
+    The keys are the scope's *logical* keys (WI-2.1d item 1). B9: a key the scope pins to
+    one literal cannot make two rows out of one, so it leaves the key set; the pins are
+    kept in ``conditions`` -- discharged by the scope itself, but what the claim rests on.
+    """
+    keys = _aggregation_logical_keys(document, scope_id)
+    if keys is None:
+        return None
+    subject = claims.Subject(claims.SUBJECT_QUERY_ROWS, (scope_id,))
+    if not keys:
+        return claims.Claim(
+            "unique_by", subject, (), claims.PROVEN, "R-EMPTY-GROUPING", (scope_id,)
+        )
+    free, pinned = _unpinned_keys(document, scope_id, keys)
+    return claims.Claim(
+        "unique_by",
+        subject,
+        tuple(_logical_key_names(free)),
+        claims.PROVEN,
+        "R-PIN-DROP" if pinned else "R-GROUPBY-KEY",
+        (scope_id,),
+        conditions=tuple(pinned),
+    )
 
 
 def _logical_key_names(keys: Sequence[dict]) -> list[str]:
@@ -3909,6 +3935,27 @@ def _ranking_uniqueness(
     on one derived column look like a partition on the four columns that column reads,
     which is a wider key set than the SQL wrote.
     """
+    claim = _ranking_key_claim(document, scope_id, join_block, join_columns, functions)
+    if claim is None:
+        return None
+    consumer, function = claim.evidence
+    return function, list(claim.content), consumer
+
+
+def _ranking_key_claim(
+    document: dict,
+    scope_id: str,
+    join_block: tuple[str, dict],
+    join_columns: Sequence[str],
+    functions: frozenset[str] = semantic_text.UNIQUE_RANKING_WINDOW_FUNCTIONS,
+) -> claims.Claim | None:
+    """A ranking window over the join keys that a consumer filters to ``= 1``, as a claim.
+
+    ``row_number`` proves at most one row per partition (``R-ROWNUM-FIRST``). When the
+    caller asks for the whole family, ``rank`` / ``dense_rank`` answer too, but only as
+    the author's intent (``R-RANK-FIRST``, a hypothesis): ties for first all survive.
+    ``evidence`` is ``(consumer block, window function)``.
+    """
     names = _output_name_index(document, scope_id)
     for owner, _, spec in _ranking_window_specifications(document, functions):
         if owner != scope_id:
@@ -3921,10 +3968,15 @@ def _ranking_uniqueness(
             continue
         consumer = _keeps_first_row_consumer(document, scope_id, spec, [join_block])
         if consumer:
-            return (
-                str(spec.get("window_function")),
-                _window_partition_labels(spec),
-                consumer,
+            function = str(spec.get("window_function"))
+            unique = function.lower() in semantic_text.UNIQUE_RANKING_WINDOW_FUNCTIONS
+            return claims.Claim(
+                "at_most_one_row" if unique else "dedup_intent",
+                claims.Subject(claims.SUBJECT_QUERY_ROWS, (scope_id,)),
+                tuple(_window_partition_labels(spec)),
+                claims.PROVEN if unique else claims.HYPOTHESIS,
+                "R-ROWNUM-FIRST" if unique else "R-RANK-FIRST",
+                (consumer, function),
             )
     return None
 
@@ -4031,6 +4083,10 @@ aggregation_keys = _aggregation_logical_keys
 
 #: The GROUP BY verdict for one JOIN's right side: ``(status, reason)`` or None.
 grouped_uniqueness = _grouped_uniqueness
+
+#: The claims those two verdicts rest on (WP1c).
+grouped_key_claim = _grouped_key_claim
+ranking_key_claim = _ranking_key_claim
 
 #: The ranking-window verdict for the same side: ``(function, partition, consumer)``.
 ranking_uniqueness = _ranking_uniqueness
