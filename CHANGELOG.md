@@ -1,6 +1,14 @@
 # Changelog
 
 ## Unreleased
+- **One composition module; the fold expands row sets (assertion model WP5).** Source
+  identity, deduplication and transform composition now live once in `scope/composition.py`
+  and the statement trace, the task rows and `fold_session_scoped` all use it (differential
+  harness and the full example chain unchanged). The fold also expands a `rowset` source
+  read through a temp view -- `COUNT(*) FROM tv` -- into one entry per physical table the view
+  reads, and adds the view's own row conditions to the target row; when those tables cannot
+  be found the source stays and the row says `rowset_relation_unresolved`. The last
+  metamorphic rewrite marked as a known gap now passes.
 - **Premises are named, and a read across partitions is `conditional` (assertion model WP3).**
   `claims.ASSUMPTIONS` registers what SQL cannot prove -- all writers are in the corpus, the
   metadata is authoritative, the run succeeded, no concurrent write, default dialect

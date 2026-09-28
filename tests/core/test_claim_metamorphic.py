@@ -67,11 +67,9 @@ STATEMENTS = {
     ),
 }
 
-# What the fold cannot carry through a session relation yet (design 5.1, WP5): a row set
-# read through a temp view is left unfolded rather than resolved to the table behind it.
-KNOWN_GAPS = {
-    ("count", "temp view"): "WP5: fold does not expand a rowset read through a temp view",
-}
+# Rewrites the tool cannot yet treat as equivalent, with the work that owes them. Empty
+# since WP5 taught the fold to expand a row set read through a temp view.
+KNOWN_GAPS: dict[tuple[str, str], str] = {}
 
 
 def _answer(sql: str) -> dict:

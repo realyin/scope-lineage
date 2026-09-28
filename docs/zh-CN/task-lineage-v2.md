@@ -326,6 +326,10 @@ folded = fold_session_scoped(document)     # 输入不会被修改
 折叠按语句级端到端血缘的同一规则组合每一跳的 `transform`（取路径上更强的一种），所以
 `v * 2` 经过一层透传视图读到的仍是 `EXPRESSION`；两条来源只有内容完全相同才合并，
 同一视图列背后的不同常量、同一物理列的不同参与路径都各自保留。
+行条件与行集同样折叠：`row_membership_sources` 里读临时视图的条件（带 `session_scoped`）解析成视图列背后的
+物理字段，并加上视图自己的行条件；`COUNT(*)` 这类读临时视图的 `rowset` 来源展开成视图所读的物理表各一条，
+视图的行条件同时并入目标行的 `row_membership_sources`。这些组合规则（身份、合并、变换组合）与语句级、
+任务级共用 `scope/composition.py`。
 
 **折不动的地方不会被悄悄丢掉。** 该行保留原边，并给出：
 
@@ -334,7 +338,7 @@ folded = fold_session_scoped(document)     # 输入不会被修改
 | `value_sources_folded` | `true` = 这一行全部折叠成功；`false` = 有折不动的跳 |
 | `fold_incomplete_reasons` | 折不动的原因，仅在 `false` 时出现 |
 
-原因有四种，都对应一个真实存在的情况：
+原因有五种，都对应一个真实存在的情况：
 
 - `source_state_not_in_document` —— 读的是该关系被重定义**之前**的状态。
   `end_to_end_lineage` 是最终状态视图，那个状态没有行；用现存的定义替换会**指错出处**。
@@ -342,6 +346,7 @@ folded = fold_session_scoped(document)     # 输入不会被修改
   只有一行 `*`）。
 - `source_column_has_no_sources` —— 该列在文档里没有任何来源。
 - `fold_depth_exceeded` —— 关系间构成环。
+- `rowset_relation_unresolved` —— 读临时视图的行集，但找不到该视图语句读的物理表（或它读的仍是另一个会话关系）。
 
 **折叠后来源为空 ≠ 这列没有血缘**，所以这个实现从不返回空——折不动就保留原边并说明。
 自己写折叠最容易错的也正是这一点。
