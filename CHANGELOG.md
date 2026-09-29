@@ -15,12 +15,55 @@
   and the two review prompts say the same. `ontology.md` gains one quoted line under its
   title saying so and pointing to the catalog workflow. The command, every flag and
   `ontology.json` (`ontology-json/2`) are unchanged, byte for byte.
+### Added
+- **A catalog can say where a code set's values live and how a column is translated.** A
+  code set gains an optional `lookup` (`table`, `code_column`, `meaning_columns`
+  `[{column, lang?}]`, optional `key_column`, `filter` `{column: literal}` and a paired
+  `valid_from` / `valid_to`): the dictionary table holding its values and the constant
+  condition that picks its rows out of a table shared by several. A binding gains an
+  optional ordered `code_sets` (look the code up in the first, then the next -- SQL's
+  `coalesce(g1.desc, g2.desc)`), beside `code_map`. Validation checks that every entry is a
+  code set (`binding_code_set`), no longer reports `empty_code_set` for a code set with a
+  lookup, and warns when a binding's `code_sets` leaves out the bound attribute's own
+  code set (`binding_code_sets_miss_attribute`). `catalog build` carries both fields
+  (lookup table names lower-case; `doc_format` stays `ontology-json/3`, the fields are
+  optional, and a catalog without them builds byte-for-byte as before) and, with
+  `--tables`, reports lookup columns the table card does not declare
+  (`evidence.code_sets`, a `lookup_column_missing` warning). `catalog query table` answers
+  for a dictionary table (exit 0) with the code sets it holds, `query column` for its code,
+  meaning, key, filter and validity columns, and a bound column lists its code sets in
+  order with how each is looked up. `catalog digest --catalog` counts a dictionary table as
+  a code-set source (`code_set_sources`) instead of a table without a representation; a
+  code set with a lookup is not a missing-codes gap. `catalog render` writes a new
+  `code_sets.md` (values or lookup, the attributes coded, the columns consulting it in
+  order), links it from `index.md` with the dictionary tables, and shows the lookup and
+  「先查 A，查不到查 B」 on concept pages; a dictionary table's `semantic render --ontology`
+  page links to it. Expressions on the code side (`substr` before the lookup) and two-step
+  translation through a mapping table stay in `derivation`. The fragment schema, the
+  drafting prompt and the skill say to write a code table as `lookup`, not as a
+  representation.
 
 ### Fixed
 - **`catalog build --tables` marks `declared_only` whatever case a card spells its columns
   in.** A binding's column was compared with the card's column names as written, so a card
   listing `LOAN_STATUS` as unused left the binding `loan_status` unmarked. Both sides are
   now compared in lower case.
+- **The catalog docs and the skill show the render order that works, and no longer
+  assume YAML.** `catalog render --semantics <dir>` exits 2 when that directory does not
+  exist yet, and `semantic render --ontology` needs the built `ontology.json`, so the order
+  is `catalog build` → `semantic render --out <pages>/semantics --ontology` →
+  `catalog render --semantics <pages>/semantics`; the skill's table-semantics and drafting
+  sections, `ontology-catalog.md` 「页面」 and `table-semantics.md` now say so and why. The
+  `catalog-fragment/1` table, the mapping section and the fragment prompt name catalog
+  files by stem (`mapping/<group>.*`, the `code_sets` file) and say that an existing file
+  keeps its form and a new one takes the manifest's. The `ontology-catalog.md` 「关系」
+  section and the skill's drafting guidance state that `name` / `inverse_name` are bare verb
+  phrases (pages read "<name> <the other concept>"), with a right and a wrong example. The
+  skill's drafting section shows a code set with `lookup` and a binding with ordered
+  `code_sets`; its two table semantics → catalog headings now say which is the entry point
+  and which the drafting procedure; and it says `concept-impact` reads key-fold
+  `ontology-json/2` only (a catalog's `ontology-json/3` exits 2), pointing catalog concepts
+  to `catalog query carriers` / `related` and then `impact` / `trace`.
 - **`catalog merge` no longer needs PyYAML to merge into a JSON catalog.** A file the
   catalog did not have yet (`constraints`, `mapping/<group>`) was always created as `.yaml`,
   so merging into an all-JSON catalog without PyYAML crashed on `import yaml`. New files now

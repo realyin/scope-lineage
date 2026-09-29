@@ -53,10 +53,12 @@ fallback covers 0.2.0):
 | --- | --- |
 | parse, derivation chain, impact, cross-task trace, render | >= 0.2.0 |
 | describe, `tables`, `glossary`, `ontology` (key-fold candidates) | >= 0.3.0 |
-| concept-level impact (`concept-impact`), `catalog build` / `query` / `render` / `validate`, table semantics (`semantic *`), `catalog digest` / `merge`, acceptance (`questions *`) | >= 0.5.0 |
+| concept-level impact (`concept-impact`, key-fold `ontology-json/2` only), `catalog build` / `query` / `render` / `validate`, table semantics (`semantic *`), `catalog digest` / `merge`, acceptance (`questions *`) | >= 0.5.0 |
 | confirmed answers in material packets (`semantic packet --glossary` / `--metadata-patch`) | >= 0.6.0 |
+| code-set lookups in a catalog (a code set's `lookup`, a binding's `code_sets`) | the release after 0.6.0 (unreleased; 0.6.0 rejects both as schema errors) |
 
-When unsure which workflows the session will need, require >= 0.6.0.
+When unsure which workflows the session will need, require >= 0.6.0 (and, to write a
+`lookup` or `code_sets`, a build of this repository until the next release).
 Not installed → `pipx install scope-lineage` (or `pip install scope-lineage`). Too old
 → upgrade in place. This check is not optional: a stale install silently produces the
 removed pre-0.2.0 per-statement format, every downstream step here then misbehaves, and
@@ -266,14 +268,14 @@ item but no longer sits in the reader's document. Fill
 For a whole corpus, loop over the task directories yourself — there is no batch mode in the
 CLI.
 
-### "整理这批任务的实体关系 / 本体 / 这批表对应哪些业务概念" — table semantics → catalog
+### "整理这批任务的实体关系 / 本体 / 这批表对应哪些业务概念" — business ontology: where to start
 
 业务本体（有哪些概念、客户是哪几张表、概念之间什么关系、有哪些事件）一律走**表语义 → 本体目录**，
 不要用下一节的 `scope-lineage ontology` 回答：
 
 1. 目录已经有了（`catalog-yaml/1` 或它 build 出的 `ontology.json`）→ 直接问目录，见
    「"客户是什么 / 这张表装的是什么 / 这个字段指什么" — 用目录回答业务问题」。
-2. 还没有目录，这批表已经有表语义 → 按「"从表语义起草本体目录" — table semantics → catalog」
+2. 还没有目录，这批表已经有表语义 → 按「"从表语义起草本体目录" — drafting procedure (digest → fragments → merge)」
    跑 `catalog digest` → 起草 → 片段 → `catalog merge` / `build` / `render`，再用 `catalog query` 回答。
 3. 连表语义也没有 → 先按「"这张表是什么意思 / 给这批表写表语义" — table semantics」写表语义
    （`semantic *`），再走第 2 步。
@@ -289,10 +291,10 @@ which keys, which joins were proven or assumed, what the SQL contradicts — and
 cross-evidence while drafting a catalog. It is **not** the business ontology and is not the
 route for business questions: a rule cannot tell a code dictionary from an entity, can
 split one business thing across two stems, and never produces events. On real corpora the
-table semantics → catalog route (previous section) gets exactly those right. Use this
-section when the user asks for key-level structure (shared keys, join cardinality,
-governance findings) or explicitly for the key-fold output; word its "concepts" as
-key-fold candidates, never as the warehouse's business concepts.
+table semantics → catalog route (previous section, 「business ontology: where to start」)
+gets exactly those right. Use this section when the user asks for key-level structure
+(shared keys, join cardinality, governance findings) or explicitly for the key-fold output;
+word its "concepts" as key-fold candidates, never as the warehouse's business concepts.
 
 ```bash
 scope-lineage tables    --lineage <corpus> --out <dir>
@@ -395,9 +397,9 @@ unknown entity or column) and `overrides_applied.ignored_fields` (a misspelled s
 did not take effect). Both are where a typo in a reviewed file shows up.
 
 **When the user wants the key-fold concepts themselves reviewed** (not what the corpus is
-*about* — that is the table semantics → catalog route above), read `ontology.md`'s
-「本体总览」 and 「概念」 parts, open the concept files the table links to for the ones in
-question, and follow `references/concept-review-prompt.md`. It is the same corpus's
+*about* — that is the table semantics → catalog route,
+「business ontology: where to start」 above), read `ontology.md`'s 「本体总览」 and 「概念」
+parts, open the concept files the table links to for the ones in question, and follow `references/concept-review-prompt.md`. It is the same corpus's
 *second* review round and it answers different questions: the kind of
 each concept (entity / event / summary, with the votes in `kind_evidence[]`), its business
 name (never better than a hypothesis — `name_candidates[]` is ranked, and a concept whose
@@ -444,6 +446,11 @@ python3 scripts/query.py concept-impact <concept id | 概念名> \
 本体缺失或版本过旧、概念或属性不存在，都是一句话 + 退出码 2。回答时把 tier 带上：
 `hypothesis` 的关系是作者假设，不能说成事实（见上一节的分级规则）。这里的「概念」是键折叠候选，
 回答时照此称呼，不要说成业务本体的概念。
+
+**只认键折叠的 `ontology-json/2`。**`catalog build` 写的 `ontology-json/3`（业务目录）会被拒绝：一句话 + 退出码 2，
+提示里的「re-run `scope-lineage ontology`」说的是键折叠候选，不是让你把目录换掉。问的是业务目录里的概念时，
+先用 `catalog query <dir>/ontology.json carriers <概念>`（带这个概念标识符的表）和 `related <概念>`（它自己的表、
+一跳关系与事件及同表携带的表）列出表，再对这些表跑 `impact` / `trace` 看下游任务；见下一节。
 
 ### "客户是什么 / 这张表装的是什么 / 这个字段指什么" — 用目录回答业务问题
 
@@ -496,8 +503,11 @@ scope-lineage semantic digest <run>/docs/<db.table>.json
 #    references/table-semantics-fix-prompt.md, re-reads the whole page for contradictions,
 #    then validates again
 # 7. render (--next render lists what is left): one page per table plus index.md
-scope-lineage semantic render <run>/docs --out <run>/pages \
-  --validation <run>/validation.json [--ontology <dir>/ontology.json]
+scope-lineage semantic render <run>/docs --out <run>/pages --validation <run>/validation.json
+#    with a catalog, in this order: build, table pages under <pages>/semantics, concept pages
+scope-lineage catalog build <catalog-dir> --out <dir>
+scope-lineage semantic render <run>/docs --out <pages>/semantics \
+  --validation <run>/validation.json --ontology <dir>/ontology.json
 scope-lineage catalog render <dir>/ontology.json --out <pages> --semantics <pages>/semantics
 # 8. the owner answers each page's 待确认问题; file the answers as semantic-confirmations/1
 scope-lineage semantic confirm <run>/docs --confirmations <answers.json>
@@ -530,7 +540,9 @@ scope-lineage semantic confirm <run>/docs --confirmations <answers.json>
   问题、文档之后改过且重新通过校验，才算 `fixed`。不要把验收问题集交给写作、审读或修订的调用，那是考卷。
 - **渲染**：有本体目录时 `--out` 放在 `catalog render` 的输出目录下（`<pages>/semantics`），表语义页里的
   `../concepts/<slug>.md` 才能打开，此时 `status` 加 `--pages <pages>/semantics`（默认 `<run>/pages`）；
-  `catalog render --semantics` 反过来让概念页里列出的每张表链到它的表语义页。
+  `catalog render --semantics` 反过来让概念页里列出的每张表链到它的表语义页。顺序是 `catalog build` →
+  `semantic render --ontology` → `catalog render --semantics`：`semantic render` 要读构建好的 `ontology.json`，
+  `catalog render` 要求 `--semantics` 目录已经存在（不存在时退出 2）。
   页面上 ✓ 是已确认、⚠ 是矛盾或风险、✗n 是校验未通过（文末「校验」有说明），`值（含义待确认）` 是只有值
   没有含义的码值。
 - **确认**：把页面的「待确认问题」原样交给 owner；回答写成 `question:<id>`、`column:<c>.meaning`、
@@ -539,7 +551,7 @@ scope-lineage semantic confirm <run>/docs --confirmations <answers.json>
 
 格式、十三项检查、确认文件和 `semantic status` 的阶段与标记见 `docs/zh-CN/table-semantics.md`。
 
-### "从表语义起草本体目录" — table semantics → catalog
+### "从表语义起草本体目录" — drafting procedure (digest → fragments → merge)
 
 一批表已经有表语义（`table-semantics/1`）后，本体目录（`catalog-yaml/1`）从它们起草。不要写临时脚本，
 按下面的顺序用 CLI：
@@ -556,17 +568,48 @@ scope-lineage catalog validate <catalog-dir>
 #    references/catalog-fragment-prompt.md, self-checking with `catalog merge --out <scratch>`
 # 5. merge every fragment into a copy; conflicts and validation errors exit 1
 scope-lineage catalog merge <catalog-dir> <fragments>/*.json --out <merged>
-# 6. build and render, then the owner reviews
+# 6. build, render the table pages against the build, then the concept pages linking to
+#    them (catalog render --semantics exits 2 when that directory does not exist yet);
+#    the owner reviews
 scope-lineage catalog build <merged> --out <dir>
-scope-lineage catalog render <dir>/ontology.json --out <pages>
+scope-lineage semantic render <docs> --out <pages>/semantics --ontology <dir>/ontology.json
+scope-lineage catalog render <dir>/ontology.json --out <pages> --semantics <pages>/semantics
 ```
 
 - **起草材料**：`digest.md` 就是起草概念的全部输入；不要把整份表语义读进一次调用。`--catalog` 列出的
   「没有表现的表」「没有绑定的列」就是这一轮要补的。
 - **先建概念与标识符**：片段不能新增概念、不能改已有标识符，所以第 2 步要把各组会用到的新概念（事件连同它的
   时间属性——`occurred_at` 必须指向事件自己的属性）、新标识符、已有标识符的新拼写都写进目录并校验通过，再写片段。
+- **关系名只写动词短语**：页面把关系读成「<name> <另一端概念名>」（附录里是「<起点> <name> <终点>」），所以
+  `name` / `inverse_name` 不带宾语：客户→投诉工单写 `name: 申请`、`inverse_name: 申请人为`，读出「申请 投诉工单」
+  「申请人为 客户」；写成 `name: 申请投诉工单` 会读出「申请投诉工单 投诉工单」。
 - **分组**：按概念分组，每组的表不超过十来张；同一张表只分给一组。给每个子代理的分配写清：组名、本组概念、
   本组的表以及初拟的概念、表现类型、粒度、时间语义（只有一组时由写片段的人自己定，并在 `notes` 里说明）。
+- **码值表（字典表）**：只存码与含义的表不是概念，**不写表现**；给每个码值集写 `lookup`（表、码列、含义列、
+  区分码值集的 `filter` 常量条件、可选的代理键与有效期列），`digest --catalog` 就把它算作「码值来源」而不是缺口。
+  一列按顺序查几个码值集（SQL 里 `coalesce(g1.desc, g2.desc)` 的回退）时，在该列的绑定上写有序的 `code_sets`，
+  顺序与 SQL 一致；码侧表达式（`substr` 后再查）和经映射表的两步翻译写进 `derivation`。形状（与
+  `docs/zh-CN/ontology-catalog.md` 一致；片段里是同样的键，写成 JSON）：
+
+  ```yaml
+  code_sets:                                   # the code_sets file
+    - id: code:waiver_reason
+      name: 豁免原因
+      values: []
+      lookup:
+        table: demo_dim.dim_code_dict
+        code_column: code_val
+        meaning_columns: [{column: code_desc, lang: zh}, {column: code_desc_en, lang: en}]
+        key_column: dict_key                   # optional
+        filter: {code_type: WaiverReason}      # the SQL's `code_type = '...'` literal
+        valid_from: valid_begin                # optional, only as a pair
+        valid_to: valid_end
+  # a binding under a representation: look up waiver_reason first, then waiver_channel
+        - column: reason_cd
+          to: attribute
+          ref: attr:fee_waiver.reason
+          code_sets: [code:waiver_reason, code:waiver_channel]
+  ```
 - **片段**：子代理只写自己的 `<group>.json`，不改目录；每个条目的形状与目录文件相同。自检用
   `catalog merge <catalog-dir> <group>.json --out <scratch>`，退出码 0 才算写完。
 - **合并**：`merge` 按 id（术语按 `term` + `refers_to`，表现按表）去重；同 id 内容不同是**冲突**，后来的不应用，

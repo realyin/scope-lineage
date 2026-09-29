@@ -6,7 +6,8 @@ columns identify it or another object, which carry states, times and amounts, wh
 tables it is built from, and what is still open. The digest (``catalog-digest/1``) is
 those facts and nothing else, one entry per table in table order. Given a catalog it
 also says what the catalog does not cover yet: tables with no representation, and
-columns of represented tables with no binding.
+columns of represented tables with no binding. A table a code set's ``lookup`` names is
+a code-set source, not a gap: a dictionary table holds code values, not a concept.
 
 The documents are read as plain JSON (legal ``table-semantics/1`` documents, checked by
 the caller); this package imports nothing from the table-semantics package.
@@ -111,12 +112,19 @@ def _catalog_gaps(catalog: Catalog, tables: list[tuple[dict, list[str]]]) -> dic
     representations: dict[str, dict] = {}
     for _file, representation in catalog.records("mapping"):
         representations.setdefault(bare_table(representation.get("table")), representation)
-    missing, unbound = [], {}
+    lookups = _lookup_tables(catalog)
+    missing, unbound, sources = [], {}, {}
     for entry, columns in tables:
         representation = representations.get(entry["table"])
+        code_sets = lookups.get(entry["table"])
+        if code_sets:
+            sources[entry["table"]] = code_sets
         if representation is None:
-            missing.append(entry["table"])
             entry["catalog"] = {"represented": False}
+            if code_sets:
+                entry["catalog"]["code_sets"] = code_sets
+            else:
+                missing.append(entry["table"])
             continue
         bound = {
             str(binding.get("column")).lower()
@@ -130,13 +138,26 @@ def _catalog_gaps(catalog: Catalog, tables: list[tuple[dict, list[str]]]) -> dic
             "kind": representation.get("kind"),
             "unbound_columns": loose,
         }
+        if code_sets:
+            entry["catalog"]["code_sets"] = code_sets
         if loose:
             unbound[entry["table"]] = loose
     return {
         "name": catalog.name,
         "tables_without_representation": missing,
         "columns_without_binding": unbound,
+        "code_set_sources": sources,
     }
+
+
+def _lookup_tables(catalog: Catalog) -> dict[str, list[str]]:
+    """``db.table -> the ids of the code sets whose values it holds``, ids sorted."""
+    found: dict[str, list[str]] = {}
+    for _file, code_set in catalog.records("code_sets"):
+        lookup = code_set.get("lookup")
+        if isinstance(lookup, dict) and lookup.get("table"):
+            found.setdefault(bare_table(lookup["table"]), []).append(str(code_set.get("id")))
+    return {table: sorted(ids) for table, ids in found.items()}
 
 
 # ------------------------------------------------------------------ markdown
@@ -166,6 +187,10 @@ def _catalog_section(gaps: dict) -> list[str]:
     lines.append(f"- Represented tables with unbound columns ({len(unbound)}):"
                  + ("" if unbound else " none"))
     lines += [f"  - {table}: {', '.join(columns)}" for table, columns in unbound.items()]
+    sources = gaps["code_set_sources"]
+    if sources:
+        lines.append(f"- Code-set sources ({len(sources)}):")
+        lines += [f"  - {table}: {', '.join(ids)}" for table, ids in sources.items()]
     return lines + [""]
 
 
@@ -224,8 +249,11 @@ def _column_text(column: dict) -> str:
 
 
 def _coverage_text(coverage: dict) -> str:
+    codes = coverage.get("code_sets")
+    source = f"code-set source of {', '.join(codes)}" if codes else ""
     if not coverage["represented"]:
-        return "no representation"
+        return source or "no representation"
     text = f"{coverage['concept']} / {coverage['kind']}"
     loose = coverage["unbound_columns"]
-    return text + (f"; unbound: {', '.join(loose)}" if loose else "; every column bound")
+    text += f"; unbound: {', '.join(loose)}" if loose else "; every column bound"
+    return text + (f"; {source}" if source else "")

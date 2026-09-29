@@ -116,6 +116,8 @@ def run_digest(args: argparse.Namespace) -> int:
         print(
             f"  catalog {gaps['name']}: {len(gaps['tables_without_representation'])} table(s) "
             f"without a representation, {unbound} column(s) without a binding"
+            + (f", {len(gaps['code_set_sources'])} code-set source table(s)"
+               if gaps["code_set_sources"] else "")
         )
     return 1 if skipped else 0
 

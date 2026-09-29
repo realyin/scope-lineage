@@ -12,6 +12,9 @@ changed and a reader can always tell a claim from its evidence:
 - ``evidence.bindings["db.table.column"]``: the physical source columns and the final
   expression of a bound column -- only where the binding has no hand-written derivation
   -- and ``declared_only`` for a column the metadata declares and no task touches.
+- ``evidence.code_sets["code:..."]``: with ``--tables``, the lookup columns a code set
+  names that the card of its lookup table does not declare -- a lookup pointing at a
+  column the warehouse does not have. Present only when there is such a column.
 - ``evidence.relations["rel:..."]``: how many JOINs in the corpus connect the two
   concepts' tables on a key pair whose two columns are both bound to one identifier of
   either concept, with up to three samples. A relation from a
@@ -32,7 +35,7 @@ from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from typing import NamedTuple, Optional
 
-from .catalog_view import catalog_table_name
+from .catalog_view import catalog_table_name, lookup_columns
 from .ontology import join_key_pairs, write_statements
 from .semantic_profile import build_semantic_profile
 from .table_cards import refresh_from_task_meta
@@ -210,6 +213,11 @@ class _Catalog:
         self.self_referencing = {
             table: {b["column"] for b in rep["bindings"] if b.get("self_reference")}
             for table, rep in self.reps.items()
+        }
+        self.lookups = {
+            code_set["id"]: code_set["lookup"]
+            for code_set in ontology.get("code_sets") or []
+            if code_set.get("lookup")
         }
 
 
@@ -435,7 +443,7 @@ def _merge_tables(evidence: dict, catalog: _Catalog, tables: Mapping) -> None:
     cards: dict[str, Mapping] = {}
     for card in tables.get("tables") or []:
         for name in [card.get("table"), *(card.get("aliases") or [])]:
-            cards.setdefault(catalog_table_name(name), card)
+            cards.setdefault(catalog_table_name(name).lower(), card)
     matched = 0
     for table, rep in catalog.reps.items():
         card = cards.get(table)
@@ -456,6 +464,19 @@ def _merge_tables(evidence: dict, catalog: _Catalog, tables: Mapping) -> None:
         "cards": len(tables.get("tables") or []),
         "representations_matched": matched,
     }
+    for code_set_id, lookup in sorted(catalog.lookups.items()):
+        card = cards.get(lookup["table"])
+        if card is None:
+            continue
+        declared = {str(c.get("name")).lower() for c in card.get("columns") or []}
+        missing = list(dict.fromkeys(
+            column for column, _role in lookup_columns(lookup) if column.lower() not in declared
+        ))
+        if missing:
+            evidence.setdefault("code_sets", {})[code_set_id] = {
+                "table": lookup["table"],
+                "missing_columns": missing,
+            }
 
 
 def _card_counts(card: Mapping) -> dict:
@@ -474,7 +495,7 @@ def _ordered_evidence(evidence: dict) -> dict:
     def ordered(entry: Mapping, keys: tuple) -> dict:
         return {key: entry[key] for key in keys if key in entry}
 
-    return {
+    result = {
         "inputs": evidence["inputs"],
         "representations": {
             table: ordered(entry, REPRESENTATION_KEYS)
@@ -485,3 +506,6 @@ def _ordered_evidence(evidence: dict) -> dict:
         },
         "relations": dict(sorted(evidence["relations"].items())),
     }
+    if evidence.get("code_sets"):
+        result["code_sets"] = dict(sorted(evidence["code_sets"].items()))
+    return result

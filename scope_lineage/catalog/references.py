@@ -222,6 +222,8 @@ def _representation(checks: _Checks, file: str, representation: dict) -> None:
 def _binding(checks: _Checks, file: str, at: str, binding: dict, owners, by_column) -> None:
     to, ref = binding["to"], binding.get("ref")
     index = checks.index
+    for code_set in binding.get("code_sets") or []:
+        checks.expect("binding_code_set", file, at, code_set, ("code_set",), "a code set")
     own_ids = set().union(*(index.identifiers_of(owner) for owner in owners))
     if to == "attribute":
         allowed = set().union(*(index.attributes_of(owner) for owner in owners))

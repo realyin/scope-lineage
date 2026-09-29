@@ -40,6 +40,7 @@ def soft_checks(catalog: Catalog) -> list[Finding]:
         *_concepts_without_definition(catalog),
         *_relations_without_name(catalog),
         *_empty_code_sets(catalog),
+        *_code_sets_missing_the_attributes(catalog),
         *_unmapped_bindings(catalog),
     ]
 
@@ -77,11 +78,34 @@ def _relations_without_name(catalog: Catalog) -> list[Finding]:
 
 
 def _empty_code_sets(catalog: Catalog) -> list[Finding]:
+    """A code set that neither lists its values nor says where they live (``lookup``)."""
     return [
-        Finding("empty_code_set", file, code_set["id"], "lists no values")
+        Finding("empty_code_set", file, code_set["id"], "lists no values and has no lookup")
         for file, code_set in catalog.records("code_sets")
-        if not code_set["values"]
+        if not code_set["values"] and "lookup" not in code_set
     ]
+
+
+def _code_sets_missing_the_attributes(catalog: Catalog) -> list[Finding]:
+    """A binding lists the code sets that translate its column, and the bound attribute's
+    own code set is not among them: one of the two is probably wrong."""
+    code_set_of = {
+        attribute.get("id"): attribute.get("code_set")
+        for _file, concept in catalog.records("concepts")
+        for attribute in concept.get("attributes") or []
+        if "code_set" in attribute
+    }
+    findings = []
+    for file, representation in catalog.records("mapping"):
+        for binding in representation["bindings"]:
+            expected = code_set_of.get(binding.get("ref"))
+            if "code_sets" in binding and expected and expected not in binding["code_sets"]:
+                findings.append(Finding(
+                    "binding_code_sets_miss_attribute", file,
+                    f"{representation['table']}.{binding['column']}",
+                    f"code_sets does not include {expected!r}, the code set of {binding['ref']}",
+                ))
+    return findings
 
 
 def _unmapped_bindings(catalog: Catalog) -> list[Finding]:

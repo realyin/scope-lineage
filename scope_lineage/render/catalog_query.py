@@ -7,9 +7,11 @@ Eight kinds of question, each answered from the document alone:
 - ``table``      -- ``db.table`` (a catalog prefix is ignored): the concept it carries and
   what every bound column points at (another concept's attribute repeated here, with the
   column it is reached through; another instance of the same concept, with the relation),
-  with the evidence merged at build time;
-- ``column``     -- ``db.table.column``: the attribute or identifier it holds, or the
-  identifier it spells when the catalog only names it as a spelling;
+  with the evidence merged at build time; for a dictionary table a code set's ``lookup``
+  names, the code sets whose values it holds and how each is looked up;
+- ``column``     -- ``db.table.column``: the attribute or identifier it holds (with the
+  code sets that translate it, in order), the identifier it spells when the catalog only
+  names it as a spelling, or the code sets a dictionary column serves and in what role;
 - ``identifier`` -- by id, name or physical spelling: what it identifies, where it is bound;
 - ``attribute``  -- by id, name or term: its concept, code values and every table column;
 - ``related``    -- a concept's one-hop neighbourhood: relations, events, roles, tables,
@@ -37,6 +39,7 @@ from .catalog_view import (
     CatalogView,
     catalog_table_name,
     concept_filename,
+    lookup_columns,
     usage_hint,
 )
 
@@ -150,8 +153,11 @@ def _tables(view: CatalogView, concept_id: str) -> list[dict]:
 
 def _table_matches(view: CatalogView, term: str) -> list[dict]:
     rep = view.representation(term)
+    held = view.code_sets_in(term)
+    sources = [_code_set_source(code_set) for code_set in held]
     if rep is None:
-        return []
+        # A dictionary table: it holds code values, not a concept.
+        return [{"table": held[0]["lookup"]["table"], "code_sets": sources}] if held else []
     keys = (
         "kind",
         "grain",
@@ -173,7 +179,18 @@ def _table_matches(view: CatalogView, term: str) -> list[dict]:
     evidence = view.rep_evidence(rep["table"])
     if evidence:
         answer["evidence"] = evidence
+    if sources:
+        answer["code_sets"] = sources
     return [answer]
+
+
+def _code_set_source(code_set: dict, with_table: bool = False) -> dict:
+    """A code set and, when it has one, how its values are looked up (the lookup's keys;
+    ``table`` only where the answer is not already about that table)."""
+    lookup = dict(code_set.get("lookup") or {})
+    if not with_table:
+        lookup.pop("table", None)
+    return {"id": code_set["id"], "name": code_set["name"], **lookup}
 
 
 def _column(view: CatalogView, rep: dict, binding: dict) -> dict:
@@ -189,9 +206,14 @@ def _column(view: CatalogView, rep: dict, binding: dict) -> dict:
         answer["self_relations"] = [
             {"id": r["id"], "name": r["name"]} for r in view.self_relations_of(owner.get("id"))
         ]
-    for key in ("code_map", "derivation"):
-        if key in binding:
-            answer[key] = binding[key]
+    if "code_map" in binding:
+        answer["code_map"] = binding["code_map"]
+    if binding.get("code_sets"):
+        answer["code_sets"] = [
+            _code_set_source(code_set, with_table=True) for code_set in view.translating(binding)
+        ]
+    if "derivation" in binding:
+        answer["derivation"] = binding["derivation"]
     evidence = view.binding_evidence(rep["table"], binding["column"])
     if evidence:
         answer["evidence"] = evidence
@@ -214,6 +236,14 @@ def _column_matches(view: CatalogView, term: str) -> list[dict]:
     bound = [b for b in (rep or {}).get("bindings") or [] if _same(b["column"], column)]
     if bound:
         return [_bound_column(view, rep, binding) for binding in bound]
+    served = [
+        {**_code_set_source(code_set), "role": role}
+        for code_set in view.code_sets_in(table_part)
+        for name, role in lookup_columns(code_set["lookup"])
+        if _same(name, column)
+    ]
+    if served:
+        return [{"table": table, "column": column, "code_sets": served}]
     return [
         {"table": table, "column": column, "spelling_of": _ref(view, identifier["id"])}
         for identifier in view.identifiers.values()
@@ -304,6 +334,8 @@ def _attribute_answer(view: CatalogView, attribute: dict, matched_by: str) -> di
     code_set = view.code_sets.get(attribute.get("code_set"))
     if code_set:
         answer["code_set"] = {"id": code_set["id"], "values": code_set["values"]}
+        if code_set.get("lookup"):
+            answer["code_set"].update(_code_set_source(code_set, with_table=True))
     answer["columns"] = [
         {"table": rep["table"], **_column(view, rep, binding)}
         for rep, binding in view.bindings_of(attribute["id"])
