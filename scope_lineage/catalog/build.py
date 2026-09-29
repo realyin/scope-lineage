@@ -7,7 +7,7 @@ Normalised means a reader never has to know how the catalog was written:
 - keys come out in one fixed order per object type, whatever order the author used;
 - code and state values are text (``0`` and ``"0"`` are the same code);
   a cardinality end written as the number ``1`` is ``"1"``;
-- a text ``arises_when`` becomes ``{condition}``;
+- a text ``arises_when`` becomes ``{condition}``; a ``lookup`` filter is sorted by column, its literals text;
 - table names are lower-case (``DEMO_DWD.T`` and ``demo_dwd.t`` are one Hive table, and
   the lineage contract spells every table in lower case, so evidence and queries match);
 - lists are sorted by id (terms by term then target, representations by table), so
@@ -158,7 +158,19 @@ def _code_set(obj: dict) -> dict:
         }
         for v in obj["values"]
     ]
-    return {**_pick(obj, ("id", "name", "definition")), "values": values, **_common(obj)}
+    out = {**_pick(obj, ("id", "name", "definition")), "values": values}
+    if "lookup" in obj:
+        out["lookup"] = _lookup(obj["lookup"])
+    return {**out, **_common(obj)}
+
+
+def _lookup(obj: dict) -> dict:
+    out = {"table": _table(obj["table"]), "code_column": obj["code_column"]}
+    out["meaning_columns"] = [_pick(m, ("column", "lang")) for m in obj["meaning_columns"]]
+    out.update(_pick(obj, ("key_column",)))
+    if "filter" in obj:
+        out["filter"] = {column: str(obj["filter"][column]) for column in sorted(obj["filter"])}
+    return {**out, **_pick(obj, ("valid_from", "valid_to"))}
 
 
 def _unconfirmed(value: dict) -> bool:
@@ -273,4 +285,6 @@ def _binding(obj: dict, representation: dict, own_ids: set) -> dict:
     out.update(_pick(obj, ("derivation",)))
     if "code_map" in obj:
         out["code_map"] = {str(key): value for key, value in obj["code_map"].items()}
+    if "code_sets" in obj:
+        out["code_sets"] = list(obj["code_sets"])
     return {**out, **_common(obj, representation)}

@@ -2,15 +2,15 @@
 
 ``catalog render`` and ``catalog query`` both read the built document and nothing else --
 never the catalog directory -- so they share this one index over it: objects by id, the
-representations of each concept, the bindings of each attribute or identifier, and the
-evidence ``catalog build --lineage/--tables`` attached (empty when there is none). The
+representations of each concept, the bindings of each attribute or identifier, the code
+sets whose values each dictionary table holds (``lookup``), and the evidence ``catalog build --lineage/--tables`` attached (empty when there is none). The
 Chinese labels live here too, so a page and a query name a kind the same way.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Optional
+from typing import Callable, Optional
 
 ONTOLOGY_FORMAT = "ontology-json/3"
 
@@ -113,6 +113,46 @@ def code_value_text(value: Mapping) -> str:
     return f"{value['value']}（含义待确认{'：' + guess if guess else ''}）"
 
 
+def lookup_columns(lookup: Mapping) -> list[tuple[str, str]]:
+    """``(column, role)`` for every column a code set's ``lookup`` reads, the role being
+    the lookup key naming it (``code_column``, ``meaning_columns``, ``filter`` ...)."""
+    found = [(lookup["code_column"], "code_column")]
+    found += [(m["column"], "meaning_columns") for m in lookup["meaning_columns"]]
+    found += [(lookup["key_column"], "key_column")] if lookup.get("key_column") else []
+    found += [(column, "filter") for column in lookup.get("filter") or {}]
+    found += [(lookup[end], end) for end in ("valid_from", "valid_to") if lookup.get(end)]
+    return found
+
+
+def lookup_text(lookup: Mapping, code: Callable[[str], str] = str) -> str:
+    """``查 t，条件 c = 'X'：码 v，含义 d（zh），代理键 k，有效期 b ~ e``: where a code set's
+    values live and how its rows are picked out; ``code`` formats each name."""
+    head = f"查 {code(lookup['table'])}"
+    if lookup.get("filter"):
+        conditions = (
+            code(f"{column} = '{str(value).replace(chr(39), chr(39) * 2)}'")
+            for column, value in lookup["filter"].items()
+        )
+        head += f"，条件 {'、'.join(conditions)}"
+    meanings = "、".join(
+        code(m["column"]) + (f"（{m['lang']}）" if m.get("lang") else "")
+        for m in lookup["meaning_columns"]
+    )
+    parts = [f"码 {code(lookup['code_column'])}", f"含义 {meanings}"]
+    if lookup.get("key_column"):
+        parts.append(f"代理键 {code(lookup['key_column'])}")
+    if lookup.get("valid_from"):
+        parts.append(f"有效期 {code(lookup['valid_from'])} ~ {code(lookup['valid_to'])}")
+    return f"{head}：{'，'.join(parts)}"
+
+
+def fallback_text(names: list[str]) -> str:
+    """``先查 A，查不到查 B``: the order a column's code sets are consulted in."""
+    if len(names) == 1:
+        return f"查 {names[0]}"
+    return f"先查 {names[0]}" + "".join(f"，查不到查 {name}" for name in names[1:])
+
+
 def usage_hint(rep: Mapping) -> Optional[str]:
     """How to read the table given its time semantics, or None when there is nothing to say.
 
@@ -162,6 +202,14 @@ class CatalogView:
         }
         self.identifiers = {i["id"]: i for i in document.get("identifiers") or []}
         self.code_sets = {s["id"]: s for s in document.get("code_sets") or []}
+        # db.table (lower case) -> the code sets whose values it holds, by id
+        self._lookups: dict[str, list] = {}
+        for code_set_id in sorted(self.code_sets):
+            lookup = self.code_sets[code_set_id].get("lookup")
+            if lookup:
+                self._lookups.setdefault(lookup["table"].lower(), []).append(
+                    self.code_sets[code_set_id]
+                )
         self.domains = {d["id"]: d for d in document.get("domains") or []}
         self.relations = {r["id"]: r for r in document.get("relations") or []}
         self.constraints = list(document.get("constraints") or [])
@@ -308,6 +356,27 @@ class CatalogView:
             if values:
                 found.append((code_set, values))
         return found
+
+    def lookup_tables(self) -> list[str]:
+        """Every table a code set's ``lookup`` names, sorted."""
+        return sorted(self._lookups)
+
+    def code_sets_in(self, name) -> list[dict]:
+        """The code sets whose values live in a table however it is spelled, by id."""
+        return list(self._lookups.get(catalog_table_name(str(name or "").strip()).lower()) or [])
+
+    def translating(self, binding: Mapping) -> list[dict]:
+        """The code sets a binding's column is translated by, in the order it names them."""
+        return [self.code_sets[i] for i in binding.get("code_sets") or [] if i in self.code_sets]
+
+    def columns_translated_by(self, code_set_id: str) -> list[tuple[dict, dict]]:
+        """``(representation, binding)`` for every column whose ``code_sets`` names the set."""
+        return [
+            (self.representations[table], binding)
+            for table in sorted(self.representations)
+            for binding in self.representations[table]["bindings"]
+            if code_set_id in (binding.get("code_sets") or [])
+        ]
 
     def attributes_coded_by(self, code_set_id: str) -> list[dict]:
         return [a for a, _ in self.attributes.values() if a.get("code_set") == code_set_id]

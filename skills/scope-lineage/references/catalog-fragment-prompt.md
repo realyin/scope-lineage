@@ -37,7 +37,13 @@
   },
   "code_sets": [
     {"id": "code:<slug>", "name": "中文名", "values": [{"value": "...", "meaning": "..."}],
-     "status": "drafted", "source": "comment|sql", "evidence": ["库.表.列"]}
+     "status": "drafted", "source": "comment|sql", "evidence": ["库.表.列"]},
+    {"id": "code:<slug>", "name": "码值在码值表里的码值集", "values": [],
+     "lookup": {"table": "库.码值表", "code_column": "码列",
+                "meaning_columns": [{"column": "中文含义列", "lang": "zh"}],
+                "key_column": "可选，代理键列", "filter": {"类型列": "区分本码值集的字面量"},
+                "valid_from": "可选，与 valid_to 成对", "valid_to": "可选"},
+     "status": "drafted", "source": "sql", "evidence": ["任务名或 SQL 线索"]}
   ],
   "identifiers": [],
   "constraints": [],
@@ -50,7 +56,8 @@
      "scope": ["记录范围的业务说法"], "table_status": "active|deprecated",
      "bindings": [
        {"column": "列", "to": "attribute|identifier|foreign_identifier|foreign_attribute|technical|unmapped",
-        "ref": "attr:...|id:...", "derivation": "可选，本表特有口径", "code_map": {"值": "含义"}}
+        "ref": "attr:...|id:...", "derivation": "可选，本表特有口径", "code_map": {"值": "含义"},
+        "code_sets": ["可选，按查找顺序 code:a", "code:b"]}
      ],
      "status": "drafted", "source": "mixed", "evidence": ["任务名或 SQL 线索"]}
   ],
@@ -80,6 +87,11 @@
   并在 `notes` 里列为候选概念。
 - 状态类、代码类属性尽量挂 `code_set`。码值只来自注释、SQL 的 CASE 或表语义的 `code_values`，不要编；含义
   没确认的值写 `"unconfirmed": true`，或让 `meaning` 以「待确认」开头。
+- **码值表（字典表）不写表现。**只存码与含义、按类型列区分多套码的表不是概念：为 SQL 里每个
+  `JOIN 码值表 ON … AND 类型列 = '…'` 的类型写一个码值集，`values` 留空，写 `lookup`（`filter` 就是那个
+  `类型列 = '…'` 的字面量，不要编）。本组的列查码值表时，在 binding 上写 `code_sets`；
+  `coalesce(g1.含义, g2.含义)` 这样按顺序回退的，`code_sets` 的顺序与 SQL 一致；所绑属性的 `code_set` 要在其中。
+  先 `substr(...)` 再查、或经映射表两步翻译的，`lookup` 表达不了，写进 binding 的 `derivation`。
 - 表现的 `kind`、`grain`、`time` 以分配为起点，可以按表语义修正，修正要在 `notes` 里说明。
 - 表语义里的 `watch`（冲突、弃用）与未回答的问题，挑与目录有关的写进 `notes`。
 - 不写人名、邮箱；不把 SQL 原文整段抄进 `derivation`。

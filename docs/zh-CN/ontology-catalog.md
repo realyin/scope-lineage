@@ -129,6 +129,36 @@ code_sets:
       - {value: "0", meaning: "", unconfirmed: true}
 ```
 
+值存在一张码值表（字典表）里、目录不逐个列出时，写 `lookup` 指明去哪里查——一个码值集一个来源。
+这时 `values` 可以是 `[]`，不报 `empty_code_set`：
+
+| 字段 | 必填 | 含义 |
+| --- | --- | --- |
+| `table` | 是 | `库.表`；不分大小写，`build` 一律写成小写 |
+| `code_column` | 是 | 码所在的列：被翻译的列里存的就是它 |
+| `meaning_columns` | 是 | `[{column, lang?}]`：含义所在的列，可按语言列多个 |
+| `key_column` | 否 | 码值表的代理键列：事实表存的可能是它而不是码 |
+| `filter` | 否 | `{列: 字面量}`：一张码值表装着多个码值集时，挑出本码值集那些行的常量等值条件 |
+| `valid_from` / `valid_to` | 否，须成对 | 每行有效期的起止列 |
+
+```yaml
+code_sets:
+  - id: code:waiver_reason
+    name: 豁免原因
+    values: []
+    lookup:
+      table: demo_dim.dim_code_dict
+      code_column: code_val
+      meaning_columns: [{column: code_desc, lang: zh}, {column: code_desc_en, lang: en}]
+      key_column: dict_key
+      filter: {code_type: WaiverReason}
+      valid_from: valid_begin
+      valid_to: valid_end
+```
+
+`lookup` 只表达「按码等值去查一张表」。码侧表达式（先 `substr(...)` 再查）、经映射表的两步翻译（先把码换成
+另一张表的码，再查码值表）不在范围内：写进绑定的 `derivation` 文字。
+
 ### 概念：实体、事件、角色
 
 `id: concept:<slug>`、`kind`、`name`、`definition`、`domain`、`synonyms?`、`attributes`，
@@ -252,7 +282,7 @@ terms:
 | `refresh` | 否 | 更新频率 |
 | `table_status` | 是 | `active` / `deprecated` |
 | `replaced_by` | 否 | 废弃表的替代表 |
-| `bindings` | 是 | `[{column, to, ref?, via?, derivation?, code_map?}]` |
+| `bindings` | 是 | `[{column, to, ref?, via?, derivation?, code_map?, code_sets?}]` |
 
 绑定的 `to` 说明这一列是什么：
 
@@ -291,6 +321,18 @@ representations:
 ```
 
 `code_map` 写本表特有的码值含义；含义还没确认的值，含义以「待确认：」开头，页面原样显示这个前缀。
+
+`code_sets` 写这一列的码到哪些码值集去翻译、按什么顺序：先查第一个，查不到再查下一个——SQL 里
+`coalesce(g1.code_desc, g2.code_desc)` 这样的回退。按顺序回退是**列**的事实，不是任何一个码值集的事实，
+所以写在绑定上，不写进码值集。它与 `code_map` 并存：`code_map` 是写死在目录里、本表特有的码值含义。
+所绑属性有 `code_set` 时，它应出现在 `code_sets` 里，否则警告（`binding_code_sets_miss_attribute`）：
+
+```yaml
+      - column: reason_cd
+        to: attribute
+        ref: attr:fee_waiver.reason
+        code_sets: [code:waiver_reason, code:waiver_channel]
+```
 
 示例里的借据表有两种以前表达不了的列。`customer_gender_cd` 是客户的性别，冗余在借据行上、紧挨着客户号：
 它绑定为 `foreign_attribute`，`via: customer_id` 说明它说的是哪个客户。`orig_loan_no` 是续借借据所续的原借据号，
@@ -359,6 +401,7 @@ scope-lineage catalog validate examples/catalog-demo --json
 | `self_reference_without_relation` | 该标识符属于所表现概念自己，但目录里没有两端都是该概念的关系 |
 | `binding_foreign_attribute` | `ref` 不是属性，或属于所表现概念自己（角色视图：或其承担者）——那应绑定为 `attribute` |
 | `binding_foreign_attribute_via` | `via` 不是本表的列，该列不是 `foreign_identifier`，或它指向的标识符不属于该属性的概念 |
+| `binding_code_set` | 绑定的 `code_sets` 里有一项不是码值集 |
 
 "标识符属于某概念"指：概念在 `identifiers` 里列了它，或标识符的 `identifies` 指向该概念。
 因此子类型可以列出父类型的标识符（示例里分期借据列了 `id:loan_no`）。
@@ -370,7 +413,8 @@ scope-lineage catalog validate examples/catalog-demo --json
 | `drafted_ratio` | 还有多少对象是 `drafted`——未经确认的内容不应当作定论 |
 | `concept_without_definition` | 概念没有定义 |
 | `relation_without_name` | 关系没有动词 |
-| `empty_code_set` | 码值集没有任何取值 |
+| `empty_code_set` | 码值集没有任何取值，也没有 `lookup` |
+| `binding_code_sets_miss_attribute` | 绑定写了 `code_sets`，所绑属性的 `code_set` 却不在其中 |
 | `unmapped_binding` | 某列绑定为 `to: unmapped` |
 | `unknown_file` | 布局里没有的文件；已忽略 |
 
@@ -452,11 +496,14 @@ scope-lineage catalog build examples/catalog-demo --out out/
 - 每类对象的键按固定顺序输出；码值与状态值一律为文字，每个码值都带布尔 `unconfirmed`（标了
   `unconfirmed: true`，或含义为空、以「待确认」开头）；写成 `1` 的基数端输出为 `"1"`；
   文字形式的 `arises_when` 变成 `{condition}`；
-- 表名一律小写（表现的 `table` 与 `replaced_by`、标识符拼写的 `table`、`maps_to` 的 `via`）：Hive 表名
+- 表名一律小写（表现的 `table` 与 `replaced_by`、标识符拼写的 `table`、`maps_to` 的 `via`、码值集
+  `lookup` 的 `table`）：Hive 表名
   不分大小写，血缘契约里的表名都是小写，这样证据合并与查询才对得上；
 - 顶层列表排序——按 `id`，术语按词再按指向，表现按表名——所以把对象挪到别的文件不改变输出。
   对象内部的列表（属性、状态值、绑定）保持作者的顺序；
 - 绑定原样带出 `via`；指向本概念自己标识符的 `foreign_identifier` 带 `self_reference: true`；
+- 码值集的 `lookup` 按上表的键序带出（`filter` 按列名排序，字面量一律为文字），绑定的 `code_sets` 按作者的顺序带出。
+  这两个字段是可选的附加字段，`doc_format` 仍是 `ontology-json/3`；没写它们的目录，输出与以前逐字节相同；
 - 每个事件参与者变成一条 `participation` 关系 `rel:<事件 slug>.<role_name>`，从事件指向参与者，
   基数为 `{from: "0..*", to: "1"}`（`one`）或 `"1..*"`（`many`），带 `derived_from` 以及事件的
   status 与 source。这样的 id 不能再手写一次。
@@ -489,6 +536,7 @@ scope-lineage catalog build examples/catalog-demo --out out/ \
 | `representations["库.表"]` | `declared_columns` / `used_columns` | `--tables` | 元数据声明了几列、语料用到了几列 |
 | `bindings["库.表.列"]` | `sources` / `expression` | `--lineage` | 上游物理列与最终表达式（最多 200 个字符），仅当绑定没有手写 `derivation` 时补充 |
 | `bindings["库.表.列"]` | `declared_only` | `--tables` | 元数据里有这一列，语料里没有任何任务碰过它 |
+| `code_sets["code:..."]` | `table` / `missing_columns` | `--tables` | 码值集 `lookup` 所指的表有表卡、表卡却没声明其中某些列时：哪些列（只在有这样的列时出现；`build` 同时在 stderr 打一行 `lookup_column_missing` 警告） |
 | `relations["rel:..."]` | `joins` | `--lineage` | 连接两个概念表现表、且两侧连接列绑定到同一个它们的标识符的 JOIN：`count` 与至多三个 `samples` |
 
 ```json
@@ -553,13 +601,15 @@ scope-lineage catalog render out/ontology.json --out out/pages \
 `--semantics` 指向 `semantic render` 写出的表语义页目录（`<db.table>.md`）。给了它，概念页里列出的每张表
 （一页纸概览的「数据在哪 / 记录在」与附录 A2 数据清单）都链到这张表的表语义页，链接相对 `concepts/` 计算；
 目录里没有页面的表照旧不加链接。不给时页面逐字节不变。表语义页反过来用 `semantic render --ontology`
-链回概念页，见[表语义](table-semantics.md)。
+链回概念页，见[表语义](table-semantics.md)；码值集 `lookup` 所指的码值表，其表语义页开头写「本表是码值集…的码值来源」，
+链到 `code_sets.md`。
 
 | 文件 | 内容 |
 | --- | --- |
-| `index.md` | 按域列出概念（名称、种类、定义、表现表数、状态）、标识符、治理缺口汇总、记录范围汇总 |
+| `index.md` | 按域列出概念（名称、种类、定义、表现表数、状态）、标识符、码值集（及码值所在的表）、治理缺口汇总、记录范围汇总 |
 | `concepts/<slug>.md` | 每个概念一页（`concept:fee_waiver` → `fee_waiver.md`）：先是一页纸概览，再是附录七节 |
 | `identifiers.md` | 每个标识符的完整说明，及绑定到它的列 |
+| `code_sets.md` | 每个码值集：取值，或去哪张表、按什么条件查（`lookup`）；用它的属性；按 `code_sets` 查它的列及查找顺序 |
 | `governance.md` | 所有概念的全部缺口，每类缺口一个列表；含义待确认的码值；另按表列出冗余属性列（信息项，不算缺口） |
 | `scopes.md` | 每张表的记录范围按过滤类别归组；没写记录范围的表；引用了表的业务规则与值域约束 |
 
@@ -589,7 +639,7 @@ scope-lineage catalog render out/ontology.json --out out/pages \
 | A1 定义与身份 | 定义、种类、状态、同义词；标识符（产生条件、唯一范围、物理拼写、对照）；状态机（值、迁移事件）；事件的参与者，角色的承担者、语境与成立条件 |
 | A2 数据清单 | 按表现类型分组的表（核心、扩展、从属、事件明细、状态历史、标识映射、角色视图、汇总、中间）：说明（表卡的表注释、表现的 `notes`）、粒度（标识符、来源，以及血缘证明了什么）、时间语义及取数方式（快照「按单个 dt 分区取数」，拉链按有效期窗口）、更新频率、记录范围、生产任务、废弃及替代；每张表的血缘一跳 |
 | A3 带本概念标识的表 | 所有概念的表里，把本概念的某个标识符绑定为 `identifier` 或 `foreign_identifier` 的每一列：表、表的概念、列、标识符、方式（自关联单独标出）。没有自己表现表的概念也能看到它从哪些表关联进来；角色没有自己的标识符，指向承担者 |
-| A4 属性 | 按类别（描述、状态、度量、时间）：定义、类型与单位、码值（值=含义）、承载它的每个表列（含码值映射；别的表冗余存放的标为「冗余（经 via 列）」）、加工口径 |
+| A4 属性 | 按类别（描述、状态、度量、时间）：定义、类型与单位、码值（值=含义；码值在码值表里的写出查找方式）、承载它的每个表列（含码值映射；列按 `code_sets` 查码值集时写「先查 A，查不到查 B」；别的表冗余存放的标为「冗余（经 via 列）」）、加工口径 |
 | A5 关系 | 从本概念一侧读的关联、组成、泛化，带基数与 JOIN 次数（自关联的对端写「本概念」及承载它的列）；JOIN 次数为 0 或无法统计时，补上目录自己的依据：同表携带两端的表（表现某一端或绑定它的标识符；角色用承担者的标识符；自关联只看自关联列）与关系的 `evidence`；参与的事件（本概念的角色、事件的表现表数）；本概念承担的角色，或在角色页上反向链到承担者 |
 | A6 约束 | 作用于概念本身、其属性、标识符与关系的约束，按种类列出，带强度与状态 |
 | A7 治理缺口 | 草拟占比、未绑定列、没有落表的属性、缺码值的状态/码值类属性、有没有表现表；有证据时还有证据与目录矛盾、没人用的绑定列、没有 JOIN 支持的关系 |
@@ -619,10 +669,10 @@ scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_l
 | kind | term | 回答 |
 | --- | --- | --- |
 | `concept` | id、名称、同义词或术语 | 身份、标识符、属性、状态、表现表、该读的页面，以及概念页的一页纸概览（`overview`，字段与页面相同） |
-| `table` | `库.表`（忽略 catalog 前缀） | 它承载的概念、时间语义与取数方式（`usage`）、表注释与 `notes`、记录范围、引用它的业务规则与值域约束（`constraints`），以及每个绑定列指向什么，带证据；冗余列写 `→ 冗余属性 <属性> of <概念>（经 <via>）`，自关联列写出关系 |
-| `column` | `库.表.列` | 它承载的属性或标识符及其概念——或它是哪个标识符的物理拼写 |
+| `table` | `库.表`（忽略 catalog 前缀） | 它承载的概念、时间语义与取数方式（`usage`）、表注释与 `notes`、记录范围、引用它的业务规则与值域约束（`constraints`），以及每个绑定列指向什么，带证据；冗余列写 `→ 冗余属性 <属性> of <概念>（经 <via>）`，自关联列写出关系；码值表（码值集 `lookup` 所指的表）回答它装着哪些码值集及各自的查找方式（`code_sets`），表同时有表现时表现答案多一个 `code_sets`，退出码 `0` |
+| `column` | `库.表.列` | 它承载的属性或标识符及其概念（写了 `code_sets` 的列按顺序带出码值集及查找方式）——或它是码值表的哪种列（码、含义、代理键、筛选、有效期，`role`）、服务哪些码值集——或它是哪个标识符的物理拼写 |
 | `identifier` | id、名称或物理拼写 | 识别什么、唯一范围与拼写、绑定到它的列 |
-| `attribute` | id、名称或术语 | 所属概念、码值、口径、每个表列 |
+| `attribute` | id、名称或术语 | 所属概念、码值（码值集有 `lookup` 时 `code_set` 带上查找方式与表）、口径、每个表列 |
 | `related` | 概念的 id、名称、同义词或术语 | 一跳邻居：从本概念一侧读的关系、事件、参与者、角色、承担者、表、带本概念标识的表（`carriers`）；每条关系与事件带 `carried_together`（同表携带两端的表）与 `evidence`，没有 JOIN 时文本里写出 |
 | `carriers` | 概念的 id、名称、同义词或术语 | 所有概念的表里绑定了本概念标识符的列：表、表的概念、列、标识符、方式 |
 | `scope` | 过滤类别（`validity`/有效记录、`deletion`/删除、`dedup`/去重、`partition`/分区、`other`/其他，类别名或其一半都行）或关键词 | 记录范围或所引约束说到它的表，各带这些行（与其类别）、约束与取数方式 |
@@ -677,7 +727,7 @@ schema 的拷贝，有测试保证两者一致），所以合并只搬运条目�
 | `doc_format` | `catalog-fragment/1`（必需） | — |
 | `group` | 组名，小写字母、数字、`_`、`-`（必需） | 新表现写进 `mapping/<group>.yaml` |
 | `attributes` | `{"concept:<id>": [属性, ...]}`，形状同概念里的 `attributes` | 该概念所在的 `concepts/` 文件 |
-| `code_sets` | 码值集，形状同 `code_sets.yaml` | `code_sets.yaml` |
+| `code_sets` | 码值集，形状同 `code_sets.yaml`（码值在码值表里时写 `lookup`） | `code_sets.yaml` |
 | `identifiers` | 标识符，形状同 `identifiers.yaml`；只在确实缺时新增 | `identifiers.yaml` |
 | `constraints` | 约束，形状同 `constraints.yaml`；只写有证据的 | `constraints.yaml` |
 | `terms` | 术语，形状同 `terms.yaml` | `terms.yaml` |
@@ -737,7 +787,8 @@ stderr 说明），按表名排序写出 `digest.md` 与 `digest.json`（`catalo
 - 由哪些表加工而来（带角色）、被哪些表读取；要注意的点（`watch`）与未回答的问题。
 
 给 `--catalog` 时，开头多一段「目录覆盖」：没有表现的表，以及已有表现的表里没有绑定的列（表名忽略大小写与
-catalog 前缀）；每张表的段落末尾也标出它在目录里的情况。输出是确定的：同样的输入，逐字节相同。
+catalog 前缀）；某个码值集 `lookup` 所指的表算「码值来源」（`code_set_sources`：表 → 码值集 id），不算没有表现的表；
+每张表的段落末尾也标出它在目录里的情况。输出是确定的：同样的输入，逐字节相同。
 
 退出码：`0` 写出；`1` 没有合法文档、有文档被跳过（其余照常写出），或 `--only` 点名的表没有文档；`2` 目录或
 `--catalog` 读不了。

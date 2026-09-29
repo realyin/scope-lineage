@@ -51,6 +51,10 @@ Who the shop lends to and the accounts they sign in with.
 
 完整说明见 [identifiers.md](identifiers.md)。
 
+## 码值集
+
+4 个码值集；逐个说明见 [code_sets.md](code_sets.md)。
+
 ## 治理缺口
 
 | 缺口 | 数量 |

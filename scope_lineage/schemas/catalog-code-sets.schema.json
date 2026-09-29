@@ -95,6 +95,82 @@
             }
           }
         },
+        "lookup": {
+          "description": "Where the values live when they are not listed: a table, its code and meaning columns, and how this set's rows are picked out",
+          "type": "object",
+          "required": [
+            "table",
+            "code_column",
+            "meaning_columns"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "table": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_]+\\.[A-Za-z0-9_]+$"
+            },
+            "code_column": {
+              "description": "The column holding the code a translated column carries",
+              "type": "string",
+              "minLength": 1
+            },
+            "meaning_columns": {
+              "description": "The columns holding what a code means, each with its language when known",
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": [
+                  "column"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "column": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "lang": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            },
+            "key_column": {
+              "description": "The dictionary's surrogate key, when a fact table may carry it instead of the code",
+              "type": "string",
+              "minLength": 1
+            },
+            "filter": {
+              "description": "Constant equality conditions that pick this code set's rows out of a table shared by several: column -> literal",
+              "type": "object",
+              "minProperties": 1,
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "integer"
+                ]
+              }
+            },
+            "valid_from": {
+              "description": "With valid_to: the columns bounding each row's validity window",
+              "type": "string",
+              "minLength": 1
+            },
+            "valid_to": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "dependencies": {
+            "valid_from": [
+              "valid_to"
+            ],
+            "valid_to": [
+              "valid_from"
+            ]
+          }
+        },
         "status": {
           "$ref": "#/definitions/status"
         },

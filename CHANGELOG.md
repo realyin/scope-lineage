@@ -15,6 +15,33 @@
   and the two review prompts say the same. `ontology.md` gains one quoted line under its
   title saying so and pointing to the catalog workflow. The command, every flag and
   `ontology.json` (`ontology-json/2`) are unchanged, byte for byte.
+### Added
+- **A catalog can say where a code set's values live and how a column is translated.** A
+  code set gains an optional `lookup` (`table`, `code_column`, `meaning_columns`
+  `[{column, lang?}]`, optional `key_column`, `filter` `{column: literal}` and a paired
+  `valid_from` / `valid_to`): the dictionary table holding its values and the constant
+  condition that picks its rows out of a table shared by several. A binding gains an
+  optional ordered `code_sets` (look the code up in the first, then the next -- SQL's
+  `coalesce(g1.desc, g2.desc)`), beside `code_map`. Validation checks that every entry is a
+  code set (`binding_code_set`), no longer reports `empty_code_set` for a code set with a
+  lookup, and warns when a binding's `code_sets` leaves out the bound attribute's own
+  code set (`binding_code_sets_miss_attribute`). `catalog build` carries both fields
+  (lookup table names lower-case; `doc_format` stays `ontology-json/3`, the fields are
+  optional, and a catalog without them builds byte-for-byte as before) and, with
+  `--tables`, reports lookup columns the table card does not declare
+  (`evidence.code_sets`, a `lookup_column_missing` warning). `catalog query table` answers
+  for a dictionary table (exit 0) with the code sets it holds, `query column` for its code,
+  meaning, key, filter and validity columns, and a bound column lists its code sets in
+  order with how each is looked up. `catalog digest --catalog` counts a dictionary table as
+  a code-set source (`code_set_sources`) instead of a table without a representation; a
+  code set with a lookup is not a missing-codes gap. `catalog render` writes a new
+  `code_sets.md` (values or lookup, the attributes coded, the columns consulting it in
+  order), links it from `index.md` with the dictionary tables, and shows the lookup and
+  「先查 A，查不到查 B」 on concept pages; a dictionary table's `semantic render --ontology`
+  page links to it. Expressions on the code side (`substr` before the lookup) and two-step
+  translation through a mapping table stay in `derivation`. The fragment schema, the
+  drafting prompt and the skill say to write a code table as `lookup`, not as a
+  representation.
 
 ### Fixed
 - **`catalog merge` no longer needs PyYAML to merge into a JSON catalog.** A file the
