@@ -36,11 +36,11 @@ from .catalog_view import (
     CatalogView,
     code_value_text,
     concept_filename,
-    fallback_text,
     lookup_text,
     reads_both_ways,
     status_text,
     time_text,
+    translation_text,
     via_text,
 )
 from .catalog_view import CONSTRAINT_KINDS as _CONSTRAINT_KINDS
@@ -410,9 +410,8 @@ def columns_text(view: CatalogView, ref: str) -> str:
         if binding.get("code_map"):
             pairs = ", ".join(f"{cell(k)}→{cell(v)}" for k, v in binding["code_map"].items())
             text += f"（码值映射 {pairs}）"
-        if binding.get("code_sets"):
-            names = [cell(code_set["name"]) for code_set in view.translating(binding)]
-            text += f"（码值：{fallback_text(names)}）"
+        names = [code_set["name"] for code_set in view.translating(binding)]
+        text += translation_text(names, binding, escape=cell) or ""
         if view.binding_evidence(rep["table"], binding["column"]).get("declared_only"):
             text += "（元数据有、语料未用）"
         parts.append(text)

@@ -217,6 +217,7 @@ def _column(view: CatalogView, rep: dict, binding: dict) -> dict:
         answer["code_sets"] = [
             _code_set_source(code_set, with_table=True) for code_set in view.translating(binding)
         ]
+    answer.update({key: binding[key] for key in ("holds", "lang") if key in binding})
     if "derivation" in binding:
         answer["derivation"] = binding["derivation"]
     evidence = view.binding_evidence(rep["table"], binding["column"])

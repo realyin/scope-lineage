@@ -55,10 +55,10 @@ fallback covers 0.2.0):
 | describe, `tables`, `glossary`, `ontology` (key-fold candidates) | >= 0.3.0 |
 | concept-level impact (`concept-impact`, key-fold `ontology-json/2` only), `catalog build` / `query` / `render` / `validate`, table semantics (`semantic *`), `catalog digest` / `merge`, acceptance (`questions *`) | >= 0.5.0 |
 | confirmed answers in material packets (`semantic packet --glossary` / `--metadata-patch`) | >= 0.6.0 |
-| code-set lookups in a catalog (a code set's `lookup`, a binding's `code_sets`) | the release after 0.6.0 (unreleased; 0.6.0 rejects both as schema errors) |
+| code-set lookups in a catalog (a code set's `lookup`, a binding's `code_sets`, `holds`, `lang`) | the release after 0.6.0 (unreleased; 0.6.0 rejects them as schema errors) |
 
 When unsure which workflows the session will need, require >= 0.6.0 (and, to write a
-`lookup` or `code_sets`, a build of this repository until the next release).
+`lookup`, `code_sets` or `holds`, a build of this repository until the next release).
 Not installed → `pipx install scope-lineage` (or `pip install scope-lineage`). Too old
 → upgrade in place. This check is not optional: a stale install silently produces the
 removed pre-0.2.0 per-statement format, every downstream step here then misbehaves, and
@@ -581,8 +581,8 @@ scope-lineage catalog render <dir>/ontology.json --out <pages> --semantics <page
 - **先建概念与标识符**：片段不能新增概念、不能改已有标识符，所以第 2 步要把各组会用到的新概念（事件连同它的
   时间属性——`occurred_at` 必须指向事件自己的属性）、新标识符、已有标识符的新拼写都写进目录并校验通过，再写片段。
 - **关系名只写动词短语**：页面把关系读成「<name> <另一端概念名>」（附录里是「<起点> <name> <终点>」），所以
-  `name` / `inverse_name` 不带宾语：客户→投诉工单写 `name: 申请`、`inverse_name: 申请人为`，读出「申请 投诉工单」
-  「申请人为 客户」；写成 `name: 申请投诉工单` 会读出「申请投诉工单 投诉工单」。
+  `name` / `inverse_name` 不带宾语：借款人→借据写 `name: 持有`、`inverse_name: 持有人为`，读出「持有 借据」
+  「持有人为 借款人」；写成 `name: 持有借据` 会读出「持有借据 借据」。
 - **一个概念有多条自关联**（隔不同层数的同类实例）：每条各声明一个关系，每个自关联列在绑定上写 `relation: rel:<id>` 指明实现哪条，否则会被归给每一条（`self_reference_relation_unnamed`）。
 - **分组**：按概念分组，每组的表不超过十来张；同一张表只分给一组。给每个子代理的分配写清：组名、本组概念、
   本组的表以及初拟的概念、表现类型、粒度、时间语义（只有一组时由写片段的人自己定，并在 `notes` 里说明）。
@@ -591,7 +591,10 @@ scope-lineage catalog render <dir>/ontology.json --out <pages> --semantics <page
   `lookup` 只指物理码表（`库.表`）；SQL 里内联的字典（`VALUES` CTE、`CASE` 映射、字面量列表）写码值集的 `values`，
   `evidence` 写生产它的任务名，不写 `lookup`（否则 `catalog query table` 会为不存在的表作答）。
   一列按顺序查几个码值集（SQL 里 `coalesce(g1.desc, g2.desc)` 的回退）时，在该列的绑定上写有序的 `code_sets`，
-  顺序与 SQL 一致；码侧表达式（`substr` 后再查）和经映射表的两步翻译写进 `derivation`。形状（与
+  顺序与 SQL 一致；码侧表达式（`substr` 后再查）和经映射表的两步翻译写进 `derivation`。码值集的 `value`
+  永远是码（内联字典写成 `values` 时也是源码，标签写 `meaning`）；列里存的是含义或代理键（或查不到时回落原码、按 UNION 分支混写）时，在该列绑定上写有序的 `holds`
+  （`meaning` / `key` / `code`，翻译后的形式在前），存含义的再写 `lang`，并在这一列上写它自己的 `code_sets`。
+  分支、来源、ELSE、代理键警告、重编码等边界情况照 `references/catalog-fragment-prompt.md` 的码值规则写。形状（与
   `docs/zh-CN/ontology-catalog.md` 一致；片段里是同样的键，写成 JSON）：
 
   ```yaml
@@ -612,6 +615,13 @@ scope-lineage catalog render <dir>/ontology.json --out <pages> --semantics <page
           to: attribute
           ref: attr:fee_waiver.reason
           code_sets: [code:waiver_reason, code:waiver_channel]
+  # coalesce(d.code_desc, t.reason_cd): the zh meaning, else the raw code
+        - column: reason_desc
+          to: attribute
+          ref: attr:fee_waiver.reason
+          code_sets: [code:waiver_reason]
+          holds: [meaning, code]
+          lang: zh
   ```
 - **片段**：子代理只写自己的 `<group>.json`，不改目录；每个条目的形状与目录文件相同。自检用
   `catalog merge <catalog-dir> <group>.json --out <scratch>`，退出码 0 才算写完。

@@ -59,7 +59,8 @@
      "bindings": [
        {"column": "列", "to": "attribute|identifier|foreign_identifier|foreign_attribute|technical|unmapped",
         "ref": "attr:...|id:...", "derivation": "可选，本表特有口径", "code_map": {"值": "含义"},
-        "code_sets": ["可选，按查找顺序 code:a", "code:b"]}
+        "code_sets": ["可选，按查找顺序 code:a", "code:b"],
+        "holds": ["可选，列存的形式按优先顺序：meaning|key|code；不写即只存码"], "lang": "可选，存含义时的语言，如 zh"}
      ],
      "status": "drafted", "source": "mixed", "evidence": ["任务名或 SQL 线索"]}
   ],
@@ -98,6 +99,28 @@
   先 `substr(...)` 再查、或经映射表两步翻译的，`lookup` 表达不了，写进 binding 的 `derivation`。
   `lookup` 只指物理码表（`库.表`）：字典定义在任务内（`VALUES` CTE、`CASE` 映射、字面量列表）时，把码写成码值集的
   `values`，`evidence` 写生产它的任务名，不要给 CTE 起名当 `lookup.table`（会让 `catalog query table` 为不存在的表作答）。
+- **码值集的 `value` 永远是码**（码值表按它键的那个值；任务内字典按上一条写成 `values` 时，`value` 写源码、
+  `meaning` 写翻译后的标签），不要把翻译后的标签当 `value`。
+  列里存的不是码时，在该列的 binding 上写 `holds`，按 SQL 读的是码值表/字典的哪一列：读含义列 → `["meaning"]`
+  （再写 `"lang"`，取该含义列的语言），读代理键列 → `["key"]`；按 UNION 分支逐支看，`coalesce(含义, 原码)`
+  或一个分支写含义/代理键、另一分支写原码 → 翻译后的形式在前、原码在后，如 `["meaning", "code"]`；只存码的不写。
+  `holds` 说的是本列 `code_sets`（没写时是所绑属性的 `code_set`）的形式，所以含义列、代理键列按 SQL 查了几个码值集，
+  就在**这一列**上按同样顺序写 `code_sets`，不要只写在同组的码列上。CASE 把源码直接写成标签、各来源源码互相冲突时，
+  每个来源一个按源码键的码值集，各列 `code_sets` 写本来源那个，`holds: ["meaning", "code"]`。
+  - 一列由几个 UNION 分支写入、各分支用不同来源的码值集：`code_sets` 把它们都列上，顺序按分支顺序，并在 `derivation`
+    写哪个分支用哪个码值集。页面和查询把这个列表读成「先查 A，查不到查 B」，所以分支对应关系只能靠 `derivation` 说清。
+  - 所绑属性的 `code_set` 在按来源拆开后指向其中一个（主来源的）：其余来源的列会报 `binding_code_sets_miss_attribute`，
+    这是预期的，提醒属性只列了一个来源的码。不要为消警告把属性的 `code_set` 删掉：删了之后概念页「码值」格变空，
+    状态类属性还会被列为「缺码值」。
+  - CASE 的 ELSE（或某个分支）没有源码可言（如 `x = '0'` 写 A、其余写 B）：不要为它编一个码；这条规则写进 binding 的
+    `derivation`（需要时也写进码值集的 `definition`）。
+  - 内联字典（只列 `values` 的码值集）的代理键列照样写 `holds: ["key"]`；它一定会报 `binding_key_without_key_column`，
+    意思是「目录翻译不了这个代理键」，这是实话，不要为消警告改成 `code`。
+  - 查码值表只为把码翻成含义的列是**码列**：绑成 `attribute` 并挂 `code_set`，不要绑成 `foreign_identifier`（码值表不是概念）。
+    真正的外部标识符列若也被拿去查码值表，工具允许在它上面写 `code_sets`（再写 `holds` 必须有 `code_sets`），
+    只在查询答案和码值集页显示，标识符页不显示。
+  - 重编码（`Y/N` → `1/0`、一个码映射成另一套码、经映射表两步得到目标码）：列存的是**目标**码值集的码，`code_sets`
+    （或属性的 `code_set`）写目标码值集，不写 `holds`；映射规则写进 `derivation`。
 - 表现的 `kind`、`grain`、`time` 以分配为起点，可以按表语义修正，修正要在 `notes` 里说明。
 - 表语义里的 `watch`（冲突、弃用）与未回答的问题，挑与目录有关的写进 `notes`。
 - 不写人名、邮箱；不把 SQL 原文整段抄进 `derivation`。

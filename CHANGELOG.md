@@ -89,6 +89,24 @@
   repayment task joins its source to the loan table on the column that becomes the
   repayment's loan key) and only that cell of `concepts/loan.md` changes; `joins` stays 3
   of 7. `ontology-catalog.md` (evidence, A5, `related`, the build summary) says so.
+- **A binding can say what its coded column stores: the code, the meaning or the key
+  (`holds`, `lang`).** A column translated in SQL (`coalesce(d.meaning, t.code)`) or holding
+  a code table's surrogate key had nowhere to say so, and every page and answer read it as
+  storing codes (「查 A」 -- look the value up in A's code column, which finds nothing).
+  `holds` is an ordered list of `code` / `meaning` / `key` -- the forms a value can take, in
+  order of preference; absent means `[code]`, and `[code]` written out builds the same bytes.
+  The forms are of the binding's `code_sets`, or, when it names none, of the bound attribute's
+  `code_set`; `code_sets` now reads "the code sets this column's values relate to, in lookup
+  order". `lang` (only with `meaning`) names the stored meaning's language. New errors
+  `binding_holds_code_set` (a meaning or key of no code set) and `binding_lang`; new warnings
+  `binding_key_without_key_column` (no code set can translate the key) and
+  `binding_lang_unknown` (no meaning column in that language). `catalog query` (column,
+  table, attribute answers) carries `holds` / `lang` and says 「存含义（zh）或码」 after the code
+  sets, as 「（码值：查 A；存代理键）」; appendix A4 and `code_sets.md` say the same. Optional in
+  all three binding schemas (`doc_format` unchanged); a catalog without `holds` builds,
+  renders and answers byte for byte as before. The docs, the fragment prompt and the skill
+  add the drafting rule: a code set's `value` is always the code, and a column storing the
+  meaning or the key says so with `holds`.
 
 ### Fixed
 - **A column repeating another record's attribute of the same concept can be bound.** A
