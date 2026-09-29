@@ -17,6 +17,10 @@
   `ontology.json` (`ontology-json/2`) are unchanged, byte for byte.
 
 ### Fixed
+- **`catalog build --tables` marks `declared_only` whatever case a card spells its columns
+  in.** A binding's column was compared with the card's column names as written, so a card
+  listing `LOAN_STATUS` as unused left the binding `loan_status` unmarked. Both sides are
+  now compared in lower case.
 - **`catalog merge` no longer needs PyYAML to merge into a JSON catalog.** A file the
   catalog did not have yet (`constraints`, `mapping/<group>`) was always created as `.yaml`,
   so merging into an all-JSON catalog without PyYAML crashed on `import yaml`. New files now

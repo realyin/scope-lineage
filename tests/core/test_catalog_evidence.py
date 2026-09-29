@@ -203,6 +203,19 @@ def test_a_declared_column_nobody_uses_is_marked(built: dict) -> None:
     assert "declared_only" not in bindings["demo_dwd.dwd_lending_loan_df.principal_amt"]
 
 
+def test_a_card_column_spelled_in_upper_case_is_the_bound_column(tables_json: Path) -> None:
+    """Hive names ignore case: a card column ``LOAN_STATUS`` is the binding ``loan_status``."""
+    tables = json.loads(tables_json.read_text(encoding="utf-8"))
+    for card in tables["tables"]:
+        for column in card.get("columns") or []:
+            column["name"] = column["name"].upper()
+
+    built = attach_evidence(build_ontology(load_catalog(DEMO)), tables=tables)
+
+    bindings = built["evidence"]["bindings"]
+    assert bindings["demo_dwd.dwd_lending_loan_status_his.loan_status"] == {"declared_only": True}
+
+
 def test_a_long_expression_is_cut_to_the_limit() -> None:
     document = build_ontology(load_catalog(DEMO))
     long_sql = "concat(" + ", ".join(["`l`.`principal`"] * 40) + ")"
