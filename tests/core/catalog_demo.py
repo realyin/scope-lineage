@@ -86,3 +86,51 @@ def item(items: list, key: str, value: str | None = None) -> dict:
 
 def rules(findings) -> list[str]:
     return sorted({finding.rule for finding in findings})
+
+
+def bind_another_instances_attribute(root: Path) -> None:
+    """The demo's loan table also repeats the renewed loan's status next to
+    ``orig_loan_no``: an attribute of the table's own concept, of another instance."""
+
+    def change(data: dict) -> None:
+        loan = item(data["representations"], "table", "demo_dwd.dwd_lending_loan_df")
+        loan["bindings"].insert(-1, {
+            "column": "orig_loan_status",
+            "to": "foreign_attribute",
+            "ref": "attr:loan.loan_status",
+            "via": "orig_loan_no",
+        })
+
+    mutate(root, "mapping/lending.yaml", change)
+
+
+def add_a_players_self_reference(root: Path, ref: str) -> None:
+    """The demo's borrower role view gains ``referrer_customer_id`` -- another customer,
+    by the player's identifier, under a customer-to-customer relation -- and
+    ``referrer_attr``, bound to ``ref`` as ``foreign_attribute`` via that column."""
+
+    def relation(data: dict) -> None:
+        data["relations"].append({
+            "id": "rel:customer_refers_customer",
+            "kind": "association",
+            "from": "concept:customer",
+            "to": "concept:customer",
+            "name": "refers",
+            "inverse_name": "is referred by",
+            "cardinality": {"from": "0..*", "to": "0..1"},
+        })
+
+    def bindings(data: dict) -> None:
+        view = item(data["representations"], "table", "demo_dwd.dwd_lending_borrower_df")
+        view["bindings"][-1:-1] = [
+            {"column": "referrer_customer_id", "to": "foreign_identifier", "ref": "id:customer_id"},
+            {
+                "column": "referrer_attr",
+                "to": "foreign_attribute",
+                "ref": ref,
+                "via": "referrer_customer_id",
+            },
+        ]
+
+    mutate(root, "relations.yaml", relation)
+    mutate(root, "mapping/lending.yaml", bindings)

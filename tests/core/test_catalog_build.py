@@ -15,7 +15,15 @@ from scope_lineage.catalog import (
     validate_ontology_document,
 )
 
-from .catalog_demo import DEMO, copy_demo, item, mutate, read_file, write_file
+from .catalog_demo import (
+    DEMO,
+    bind_another_instances_attribute,
+    copy_demo,
+    item,
+    mutate,
+    read_file,
+    write_file,
+)
 
 LISTS = (
     "domains",
@@ -180,6 +188,26 @@ def test_a_foreign_attribute_carries_its_via(demo: dict) -> None:
 def test_a_foreign_identifier_of_the_tables_own_concept_is_a_self_reference(demo: dict) -> None:
     assert _loan_binding(demo, "orig_loan_no")["self_reference"] is True
     assert "self_reference" not in _loan_binding(demo, "customer_id")
+
+
+def test_another_instances_attribute_carries_its_via(tmp_path: Path) -> None:
+    """Only the via column is a self reference; the attribute column stays as written."""
+    root = copy_demo(tmp_path)
+    bind_another_instances_attribute(root)
+
+    document = build_ontology(load_catalog(root))
+
+    assert _loan_binding(document, "orig_loan_status") == {
+        "column": "orig_loan_status",
+        "to": "foreign_attribute",
+        "ref": "attr:loan.loan_status",
+        "via": "orig_loan_no",
+        "status": "confirmed",
+        "source": "sql",
+        "evidence": [],
+    }
+    assert _loan_binding(document, "orig_loan_no")["self_reference"] is True
+    assert ontology_findings(document) == []
 
 
 def test_the_schema_requires_via_on_a_foreign_attribute(demo: dict) -> None:

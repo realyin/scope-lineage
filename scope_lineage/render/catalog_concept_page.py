@@ -40,6 +40,7 @@ from .catalog_view import (
     lookup_text,
     status_text,
     time_text,
+    via_text,
 )
 from .catalog_view import CONSTRAINT_KINDS as _CONSTRAINT_KINDS
 from .catalog_view import RELATION_KIND_TEXT as _RELATION_KIND_TEXT
@@ -403,7 +404,8 @@ def columns_text(view: CatalogView, ref: str) -> str:
     for rep, binding in view.bindings_of(ref):
         text = expr_span(f"{rep['table']}.{binding['column']}")
         if binding["to"] == "foreign_attribute":
-            text += f" 冗余（经 {expr_span(binding['via'])}）"
+            other = view.other_instance_concept(rep, binding)
+            text += " 冗余" + via_text(expr_span(binding["via"]), other)
         if binding.get("code_map"):
             pairs = ", ".join(f"{cell(k)}→{cell(v)}" for k, v in binding["code_map"].items())
             text += f"（码值映射 {pairs}）"
