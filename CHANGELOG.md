@@ -3,6 +3,13 @@
 ## Unreleased
 
 ### Changed
+- **Docs and drafting prompt: an inline SQL dictionary is a code set's `values`, not a `lookup`.**
+  `lookup` names a physical code table (`db.table`); a dictionary defined in a task (a `VALUES` CTE,
+  a `CASE` mapping, a literal list) is written as `values` with the producing task in `evidence`,
+  and a two-step translation through a mapping table stays in the binding's `derivation`. A
+  lookup to a table that does not exist would make `catalog query table` answer for it.
+  `ontology-catalog.md` (both languages), `catalog-fragment-prompt.md` and the skill's drafting
+  section say so. No code change.
 - **`scope-lineage ontology` is now called what it is: key-fold candidates.** It folds tables
   into concepts by shared key-column stems, which makes it a quick structural scan and
   cross-evidence while drafting, not the business ontology: a rule of that kind can fold a
