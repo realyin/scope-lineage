@@ -52,7 +52,7 @@ fallback covers 0.2.0):
 | Workflow | Needs |
 | --- | --- |
 | parse, derivation chain, impact, cross-task trace, render | >= 0.2.0 |
-| describe, `tables`, `glossary`, `ontology` | >= 0.3.0 |
+| describe, `tables`, `glossary`, `ontology` (key-fold candidates) | >= 0.3.0 |
 | concept-level impact (`concept-impact`), `catalog build` / `query` / `render` / `validate`, table semantics (`semantic *`), `catalog digest` / `merge`, acceptance (`questions *`) | >= 0.5.0 |
 | confirmed answers in material packets (`semantic packet --glossary` / `--metadata-patch`) | >= 0.6.0 |
 
@@ -266,7 +266,33 @@ item but no longer sits in the reader's document. Fill
 For a whole corpus, loop over the task directories yourself — there is no batch mode in the
 CLI.
 
-### "整理这批任务的实体关系 / 本体" — ontology
+### "整理这批任务的实体关系 / 本体 / 这批表对应哪些业务概念" — table semantics → catalog
+
+业务本体（有哪些概念、客户是哪几张表、概念之间什么关系、有哪些事件）一律走**表语义 → 本体目录**，
+不要用下一节的 `scope-lineage ontology` 回答：
+
+1. 目录已经有了（`catalog-yaml/1` 或它 build 出的 `ontology.json`）→ 直接问目录，见
+   「"客户是什么 / 这张表装的是什么 / 这个字段指什么" — 用目录回答业务问题」。
+2. 还没有目录，这批表已经有表语义 → 按「"从表语义起草本体目录" — table semantics → catalog」
+   跑 `catalog digest` → 起草 → 片段 → `catalog merge` / `build` / `render`，再用 `catalog query` 回答。
+3. 连表语义也没有 → 先按「"这张表是什么意思 / 给这批表写表语义" — table semantics」写表语义
+   （`semantic *`），再走第 2 步。
+
+键折叠候选（下一节）可以在起草时作为交叉证据旁读，但它的概念不是业务本体，不能直接当答案。
+
+### 键折叠候选（旧 ontology）— key-fold candidates
+
+**What it is for, and what it is not.** `scope-lineage ontology` folds tables into
+"concepts" by a rule: tables that share a key-column stem become one concept, named from
+column comments. That makes it a quick structural scan of a corpus — which tables share
+which keys, which joins were proven or assumed, what the SQL contradicts — and a source of
+cross-evidence while drafting a catalog. It is **not** the business ontology and is not the
+route for business questions: a rule cannot tell a code dictionary from an entity, can
+split one business thing across two stems, and never produces events. On real corpora the
+table semantics → catalog route (previous section) gets exactly those right. Use this
+section when the user asks for key-level structure (shared keys, join cardinality,
+governance findings) or explicitly for the key-fold output; word its "concepts" as
+key-fold candidates, never as the warehouse's business concepts.
 
 ```bash
 scope-lineage tables    --lineage <corpus> --out <dir>
@@ -275,11 +301,10 @@ scope-lineage ontology  --lineage <corpus> --out <dir> \
   --tables <dir>/tables.json --glossary <dir>/glossary.json
 ```
 
-A corpus-level question `describe` can never answer: **what is this warehouse about, and
-how do those things relate**. The run writes `ontology.json` (machine, `ontology-json/2`),
+The run writes `ontology.json` (machine, `ontology-json/2`),
 `ontology.md` (the index), `concepts/<file>.md` (one per folded concept,
 `concept-md/1`), `appendix.md` (everything table-level, `ontology-appendix-md/1`) and
-`tables/<db.table>.md` (the table card with five ontology sections appended). The JSON is concept-first: `concepts[]` are the business concepts,
+`tables/<db.table>.md` (the table card with five ontology sections appended). The JSON is concept-first: `concepts[]` are the key-fold concepts,
 `relations[]` the relations **between concepts**, `tables[]` the warehouse tables that
 *represent* them and `table_relations[]` the JOINs that are the **evidence** (0.4.0 renamed
 the old `entities[]` and `relations[]`; `--legacy-keys` writes the old names for one
@@ -288,12 +313,13 @@ a recomputation — the bytes are identical without them. Add `--export linkml,s
 the user wants the candidate in an RDF toolchain: it writes `ontology.linkml.yaml` and
 `ontology.shacl.ttl` beside the JSON, each element still carrying its tier.
 
-**Read in this order.** `ontology.md` first, and it reads concept-first: 「本体总览」 says
-how many concepts of each kind the corpus proposes, how many are still 临时概念, and
-「待人工判定 N 条 / G 组（已确认 M 条）」; the concept `flowchart` is the whole business on one
+**Read in this order.** `ontology.md` first (its first line says it is key-fold candidates,
+not the business ontology), and it reads concept-first: 「本体总览」 says
+how many concepts of each kind the key fold proposes, how many are still 临时概念, and
+「待人工判定 N 条 / G 组（已确认 M 条）」; the concept `flowchart` is the key-fold structure on one
 screen. **To read one concept, open its own file**: every row of the 「概念」 table links to
 `concepts/<file>.md` (`concept:cust` → `concepts/cust.md`), and that file — not the table
-list — is what answers a business question: its 表现 (which tables represent it, in which
+list — is what describes one folded concept: its 表现 (which tables represent it, in which
 role, at which grain, each linked to its card), every attribute with the columns behind
 it, its constraints, its relations with the table-level JOINs each was read off as
 evidence, its open questions, what voted for its name and kind, and the exact
@@ -368,10 +394,11 @@ counter is how a second round sees what the first one bought. Check two lists ev
 unknown entity or column) and `overrides_applied.ignored_fields` (a misspelled slot that
 did not take effect). Both are where a typo in a reviewed file shows up.
 
-**When the user asks what the corpus is *about*** — 「这批表对应哪些业务概念」, 「客户是哪几
-张表」 — read `ontology.md`'s 「本体总览」 and 「概念」 parts, open the concept files the table
-links to for the ones in question, and follow `references/concept-review-prompt.md`. It
-is the same corpus's *second* review round and it answers different questions: the kind of
+**When the user wants the key-fold concepts themselves reviewed** (not what the corpus is
+*about* — that is the table semantics → catalog route above), read `ontology.md`'s
+「本体总览」 and 「概念」 parts, open the concept files the table links to for the ones in
+question, and follow `references/concept-review-prompt.md`. It is the same corpus's
+*second* review round and it answers different questions: the kind of
 each concept (entity / event / summary, with the votes in `kind_evidence[]`), its business
 name (never better than a hypothesis — `name_candidates[]` is ranked, and a concept whose
 `name_tier` is `stem_only` was named by nothing but the key stem, an English abbreviation
@@ -411,11 +438,12 @@ python3 scripts/query.py concept-impact <concept id | 概念名> \
 并只列出 JOIN 列包含该属性的概念关系。`--json` 输出同一份答案
 （`{concept, tables[], relations[], downstream[], attribute?}`）。
 
-先跑一次 `scope-lineage ontology`（见上一节）拿到 `ontology.json`，语料产物用同一个
+先跑一次 `scope-lineage ontology`（见上一节「键折叠候选」）拿到 `ontology.json`，语料产物用同一个
 `--lineage` 根目录，首次运行会复用/生成 `.scope-lineage-index.json`。概念可以按 id、
 按完整概念名、或按唯一前缀指定；前缀撞上多个概念时脚本列出候选并退出 2，**不猜**。
 本体缺失或版本过旧、概念或属性不存在，都是一句话 + 退出码 2。回答时把 tier 带上：
-`hypothesis` 的关系是作者假设，不能说成事实（见上一节的分级规则）。
+`hypothesis` 的关系是作者假设，不能说成事实（见上一节的分级规则）。这里的「概念」是键折叠候选，
+回答时照此称呼，不要说成业务本体的概念。
 
 ### "客户是什么 / 这张表装的是什么 / 这个字段指什么" — 用目录回答业务问题
 
@@ -623,17 +651,17 @@ documented uncertainty).
   with a mandatory `basis`, and how to turn the rest into at most 8 questions a business
   owner can answer — one of which may bind a whole code table by listing every key. Read when the user asks
   what a corpus's codes mean, or before filling in a generated template.
-- `references/ontology-review-prompt.md` — how to turn a corpus ontology's 待人工判定
+- `references/ontology-review-prompt.md` — how to turn the key-fold candidates' 待人工判定
   items into a question list a business owner can answer in five minutes, and how the
-  answers are filed back into `ontology.overrides.json`. Read when the user asks about
-  entity relationships, keys or an ontology over a batch of tasks.
+  answers are filed back into `ontology.overrides.json`. Read when the user asks about the
+  keys and join cardinalities of a batch of tasks (for the business ontology, see the
+  catalog references below).
 - `references/concept-review-prompt.md` — the concept layer's own review round: the fixed
   order (the provisional concepts first, then kind → name → merges → splits → roles), the
   six kinds of evidence that let an Agent answer one itself, the five kinds worth a
   business owner's time, and how the answers are filed back into
-  `concepts.overrides.json`. Read when the user asks which
-  business concepts a corpus is about, or what a group of tables *is*, rather than which
-  table joins which.
+  `concepts.overrides.json`. Read when the user wants the key-fold concepts reviewed; which
+  business concepts a corpus is about is answered by the catalog, not by this round.
 - `references/catalog-questions.md` — answering business questions from an ontology
   catalog: which `catalog query` kind answers which question, when to fall back to the
   rendered concept page, how to report status, evidence and conflicts, and what to say when
@@ -662,7 +690,7 @@ documented uncertainty).
   when running the grading step.
 - `../../docs/en/workflow.md` (`docs/zh-CN/workflow.md` for the Chinese version) — the
   end-to-end order of everything above: what `parse` / `tables` / `glossary` / `describe` /
-  `ontology` need from each other, a runnable five-minute pass over `examples/`, where each of
+  `ontology` (key-fold candidates) / `semantic` / `catalog` need from each other, a runnable five-minute pass over `examples/`, where each of
   the three review workflows fits, and how confirmed answers flow back through
   `glossary.overrides.json` / `ontology.overrides.json` / `metadata-patch.json`. Read when the
   user asks how the whole thing is used, or when you are unsure which command comes next.

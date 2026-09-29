@@ -21,7 +21,7 @@ The package has three layers, each with its own remit:
 1. **Fact engine** (`scope`, `metadata`, `contract`, `serialize`): SQL/task ingestion, scope
    parsing, column-level lineage, task state and diagnostics -- the versioned contract.
 2. **Derived views** (`render`): deterministic documents computed from that contract only --
-   mapping, task semantic skeletons, corpus table cards, glossary and ontology candidates.
+   mapping, task semantic skeletons, corpus table cards, glossary and key-fold candidates.
 3. **Knowledge-production support** (`catalog`, `semantics`, `questions`): the concept
    catalog, table-semantics packets and checks, confirmation write-back, and acceptance
    question sets -- structure and verification for the people and models who write business
@@ -448,16 +448,25 @@ that **literally contains or enumerates** the value, or a CASE that labels it �
 Core does not guess. `describe --glossary` wires the result into `fields[].value_domain`.
 See the [term and value dictionary guide](docs/en/glossary-doc.md).
 
-A corpus knows one more thing no single table does: how these tables relate. Aggregate the
-cards and the dictionary into one ontology candidate:
+A corpus knows one more thing no single table does: which tables share which keys. Fold the
+cards and the dictionary into key-fold candidates:
 
 ```bash
 scope-lineage ontology --lineage /tmp/scope-lineage-corpus --out /tmp/scope-lineage-onto \
   --tables /tmp/scope-lineage-tables/tables.json --glossary /tmp/scope-lineage-dict/glossary.json
 ```
 
-`ontology.json` (`ontology-json/2`) is read concept-first: `concepts[]` are the business
-concepts the corpus proposes (entity / event / summary) and `relations[]` the relations
+> **Key-fold candidates are not the business ontology.** `ontology` folds tables into concepts
+> by shared key-column stems: a quick structural scan and cross-evidence while drafting, not
+> the route for business questions. A rule of that kind can fold a code dictionary into an
+> entity, split one business thing across two stems, and finds no events. The business
+> ontology — which concepts, which tables carry them, how they relate — is written as
+> [table semantics](docs/en/table-semantics.md) (`semantic *`) and drafted from them into the
+> [ontology catalog](docs/en/ontology-catalog.md): `catalog digest` → draft → fragments →
+> `catalog merge` / `build` / `render` / `query`.
+
+`ontology.json` (`ontology-json/2`) is read concept-first: `concepts[]` are the concepts the
+key fold proposes (entity / event / summary) and `relations[]` the relations
 between them, while `tables[]` are the warehouse tables that **represent** those concepts
 and `table_relations[]` the JOINs that are the **evidence** each concept relation was read
 off. Constraints, contradictions and open questions hang off the same two layers — every
@@ -474,7 +483,7 @@ hierarchies are left to whoever knows the business. 0.4.0 renamed `entities[]` t
 spellings for one release. `--export linkml,shacl` additionally writes
 `ontology.linkml.yaml` and `ontology.shacl.ttl` beside the JSON, concept layer and tiers
 and all, for an RDF toolchain to load. See the
-[ontology candidate guide](docs/en/ontology-doc.md).
+[key-fold candidates guide](docs/en/ontology-doc.md).
 
 All four corpus commands (`describe`, `tables`, `glossary`, `ontology`) re-derive every
 task on every run. Add `--incremental` and a rerun only re-derives the tasks whose
@@ -597,8 +606,8 @@ Documentation:
 - [`semantic.json` / `semantic.md` task-semantic descriptions](docs/en/semantic-doc.md)
 - [`tables.json` / `tables.md` corpus-level table cards](docs/en/tables-doc.md)
 - [`glossary.json` / `glossary.md` term and value dictionary](docs/en/glossary-doc.md)
-- [`ontology.json` / `ontology.md` corpus-level ontology candidate](docs/en/ontology-doc.md)
-- [Ontology catalog (`catalog-yaml/1`): the concept-first source of truth, `catalog validate` / `catalog build` into `ontology-json/3`, drafted from table semantics with `catalog digest` / `catalog merge`](docs/en/ontology-catalog.md)
+- [`ontology.json` / `ontology.md` key-fold candidates (a structural scan, not the business ontology)](docs/en/ontology-doc.md)
+- [Ontology catalog (`catalog-yaml/1`): the business ontology, a concept-first source of truth, `catalog validate` / `catalog build` into `ontology-json/3`, drafted from table semantics with `catalog digest` / `catalog merge`](docs/en/ontology-catalog.md)
 - [Table semantics (`table-semantics/1`): `semantic packet` / `semantic validate` / `semantic confirm` / `semantic render`, resumable batches with `semantic status`](docs/en/table-semantics.md)
 - [Acceptance question sets (`question-set/1`): `questions validate` / `sheet` / `grading-sheet` / `score`](docs/en/questions.md)
 
@@ -660,7 +669,7 @@ statement = parse_scope_lineage(
 document = to_lineage_dict(statement)
 ```
 
-A corpus-level ontology candidate is built and exported through the same facade:
+Key-fold candidates are built and exported through the same facade:
 `build_ontology(...)` then `render_export(ontology, "linkml")` / `render_linkml` /
 `render_shacl`.
 

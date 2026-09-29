@@ -1,11 +1,21 @@
 English | [中文](../zh-CN/ontology-doc.md)
 
-# `ontology.json` / `ontology.md` corpus-level ontology candidate (`ontology-json/2`)
+# `ontology.json` / `ontology.md` key-fold candidates (`ontology-json/2`)
+
+> **Key-fold candidates, not the business ontology.** This command folds tables into
+> concepts by a rule — tables sharing a key-column stem become one concept, named from
+> column comments. Use it as a quick structural scan of a corpus and as cross-evidence
+> while drafting a catalog; do not use it to answer business questions. A rule of that kind
+> can fold a code dictionary into an entity, split one business thing across two stems, and
+> finds no events; on real corpora the route below gets exactly those right. The business
+> ontology is written as [table semantics](table-semantics.md) (`semantic *`) and drafted
+> from them into the [ontology catalog](ontology-catalog.md): `catalog digest` → draft →
+> fragments → `catalog merge` / `build` / `render` / `query`. The command, its flags and the
+> `ontology-json/2` contract below are unchanged.
 
 `scope-lineage ontology` walks every `lineage.json` under one corpus root and, on top of
-the [table cards](tables-doc.md) and the [value dictionary](glossary-doc.md), answers one
-question no single table can: **what is this warehouse about, and how do those things
-relate**. Concepts (entity / event / summary) and the relations between them; the tables
+the [table cards](tables-doc.md) and the [value dictionary](glossary-doc.md), folds the
+corpus by its keys: concepts (entity / event / summary) and the relations between them; the tables
 that represent those concepts, with their identity keys and their attributes (a column
 plus its comment, its observed roles and its synonyms); the table-to-table JOINs that are
 the evidence each concept relation was read off; constraints (not null, value set, unique
@@ -25,7 +35,7 @@ assertions and labels each with its confidence tier and its evidence.
 > `table_relations[]` `relations[]`; see
 > "[Migrating from ontology-json/1](#migrating-from-ontology-json1)" below.
 
-## Position: an ontology **candidate**, not a business ontology
+## Position: key-fold **candidates**, not a business ontology
 
 - Every assertion carries a `tier` and an `evidence` list and traces back to a concrete
   statement by task name, `statement_id` and `logic_block_id`; an assertion with no
@@ -657,7 +667,9 @@ concept id; `representation_links[]` is ordered by concept, then the two tables.
 ### How the markdown is rendered
 
 N2: three kinds of document, and which one a reader opens is the point.
-`ontology.md` is the **index** -- three parts in a fixed order, `## 本体总览`, `## 概念`,
+`ontology.md` is the **index**. Under its title, one quoted line says what it is — key-fold
+candidates, a structural scan and drafting evidence, not the business ontology — and points
+to table semantics → the catalog; `ontology.json` does not carry that line. Then three parts in a fixed order, `## 本体总览`, `## 概念`,
 `## 附录索引`. Each folded concept's own story is a file of its own under `concepts/`,
 and everything table-level is in `appendix.md` beside them, marked as what it is,
 evidence rather than model: printing the JOINs in the main line taught every reader to

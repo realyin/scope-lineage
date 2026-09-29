@@ -119,6 +119,15 @@ from .table_cards import (
 
 DOC_FORMAT = "ontology-json/2"
 INDEX_DOC_FORMAT = "ontology-index-md/2"
+# The index's first line of prose. This document is the key fold -- tables folded into
+# concepts by shared key-column stems -- and a rule of that kind cannot tell a code
+# dictionary from an entity or see an event, so the reader is told up front what it is
+# for and where the business ontology lives instead. Markdown only: ontology.json is
+# the contract and does not carry it.
+KEY_FOLD_BANNER = (
+    "> 键折叠候选（旧 ontology）：按键列词根把表折成概念的结构扫描，只作起草目录时的交叉证据，"
+    "不是业务本体；业务本体走表语义 → 本体目录（`scope-lineage semantic` → `scope-lineage catalog`）。"
+)
 # A table card the ontology appended its sections to is no longer a `tables-md/1`
 # document: it carries five more sections and a different contract. It says so.
 CARD_DOC_FORMAT = "ontology-md/2"
@@ -3518,6 +3527,8 @@ def _index_front_matter(ontology: Mapping) -> list[str]:
         "---",
         "",
         "# 语料本体候选索引",
+        "",
+        KEY_FOLD_BANNER,
     ]
 
 

@@ -3,7 +3,7 @@
 # 端到端工作流：从任务 JSON 到画像与本体
 
 每份文档各讲一种产物：`lineage.json` 讲已证明的事实，`semantic.md` 讲一个任务在做什么，
-`tables.md` 讲一张表是什么，`ontology.md` 讲表与表的关系。这一篇不重复它们，只回答另一个问题：
+`tables.md` 讲一张表是什么，`ontology.md` 讲哪些表共用哪些键。这一篇不重复它们，只回答另一个问题：
 **这些命令按什么顺序跑，每一步要上一步的什么，人和 Agent 从哪里插进来。**
 
 读完你应该能回答：手上有一批任务 JSON 和一份 Schema，接下来敲哪几条命令、每条的产物给谁看。
@@ -28,7 +28,7 @@ flowchart TD
     DICT --> DESCRIBE
     DESCRIBE --> SEMANTIC["每个任务一份<br/>semantic.json + semantic.md"]
 
-    FACTS --> ONTOLOGY["scope-lineage ontology<br/>--tables --glossary"]
+    FACTS --> ONTOLOGY["scope-lineage ontology<br/>键折叠候选"]
     CARDS --> ONTOLOGY
     DICT --> ONTOLOGY
     ONTOLOGY --> ONTO_OUT["ontology.json / ontology.md<br/>带本体小节的表卡"]
@@ -140,7 +140,13 @@ Described 5 task(s) (skipped_unknown_version=0, missing_diagnostics=0, skipped_u
 `scope-lineage describe --lineage "$OUT/artifacts" --tables … --glossary … --ontology
 "$OUT/corpus/ontology.json"`。不传时这些键一个都不出现，产物与概念层上线之前逐字节一致。
 
-### 4. `ontology`：表与表的关系
+### 4. `ontology`：键折叠候选
+
+> `ontology` 按键列词根把表折成概念：它是一份语料的快速结构扫描、起草目录时的交叉证据，
+> **不是业务本体**。这种规则会把码值字典折成实体、把同一个业务对象拆到两个词根下，也找不出事件。
+> 业务本体（有哪些概念、哪些表承载它们、概念之间什么关系）先写[表语义](table-semantics.md)
+> （`semantic *`），再从表语义起草[本体目录](ontology-catalog.md)
+> （`catalog digest` → 起草 → 片段 → `catalog merge` / `build` / `render` / `query`）。
 
 ```bash
 scope-lineage ontology \
@@ -239,7 +245,7 @@ Described 5 task(s) (skipped_unknown_version=0, missing_diagnostics=0, skipped_u
 | `tables` | 一棵 `lineage.json` 树、可选 `--samples`、`--merge` | `tables.json`、`tables.md`、`tables/<db.table>.md` | 分析师；同时喂给 `describe` / `ontology` | [语料级表卡](tables-doc.md) |
 | `glossary` | 一棵 `lineage.json` 树、可选 `--overrides`、`--ontology`、`--template` | `glossary.json`、`glossary.md`、可选待填模板 | 业务负责人填模板；机器读 JSON | [术语与值域字典](glossary-doc.md) |
 | `describe` | `lineage.json` + `--tables` + `--glossary` + 可选 `--ontology` / `--metadata-patch` | 每任务一份 `semantic.json`、`semantic.md` | Agent（写画像的原料）、分析师 | [任务语义描述](semantic-doc.md) |
-| `ontology` | `lineage.json` + `--tables` + `--glossary` + 可选 `--overrides`、`--concept-overrides`、`--export` | `ontology.json`、`ontology.md`、带本体小节的表卡 | Agent（整理待判定项）、分析师 | [语料级本体候选](ontology-doc.md) |
+| `ontology` | `lineage.json` + `--tables` + `--glossary` + 可选 `--overrides`、`--concept-overrides`、`--export` | `ontology.json`、`ontology.md`、带本体小节的表卡 | Agent（整理待判定项）、分析师 | [键折叠候选](ontology-doc.md) |
 | `catalog validate` / `catalog build` | 人维护的目录文件夹（`catalog.yaml`、概念、标识符、映射……） | 文本或 `--json` 报告；`ontology.json`（`ontology-json/3`） | 目录的 owner；构建结果给机器读 | [本体目录](ontology-catalog.md) |
 | `semantic packet` / `validate` / `confirm` / `render` / `status` | `lineage.json` 目录、任务 JSON 目录、`--schema`；之后是写好的 `table-semantics/1` 文档、`semantic-confirmations/1` 文件，以及可选的校验报告与构建好的 `ontology.json` | `<db.table>/packet.md` + `packet.json`；文本或 `--json` 校验报告；确认后的文档；每表一页 `<db.table>.md` 与 `index.md`；运行目录里每张表的阶段与下一步的分批 | 模型依据材料包为每张表写文档；owner 回答其中的问题 | [表语义](table-semantics.md) |
 | Agent 任务画像 | `semantic.md` + 技能里的提示词与模板 | `business_profile.md`、`business_profile.check.md` | 业务负责人（读画像、答待确认清单） | [AI agent 技能](agent-skill.md) |
@@ -270,7 +276,7 @@ Core 只产确定性事实，业务命名、含义与实体关系的判断留给
 两份不同的 overrides 文件里，一条命令可以同时带上它们；只跑一轮是把另一半问题留着不答。
 
 语料一宽，概念复核那一轮就一次做不完：临时概念动辄几十上百个，而问人的额度是 8 条。
-**这时候分批做**（N1，详见[语料级本体候选](ontology-doc.md)的「分批评审」一节）：
+**这时候分批做**（N1，详见[键折叠候选](ontology-doc.md)的「分批评审」一节）：
 
 ```bash
 # 1. 切批：把临时概念按表族切成 <review>/batches/batch-NN.{md,overrides.json} 加一份 index.md

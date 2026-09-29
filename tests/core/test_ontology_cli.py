@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from scope_lineage.cli import main
 from scope_lineage.scope.scope_builder import parse_scope_lineage
 
@@ -64,6 +66,36 @@ def test_ontology_writes_the_json_and_the_index(tmp_path: Path, capsys) -> None:
     assert [item["id"] for item in ontology["table_relations"]] == ["rel:001"]
     assert (out / "ontology.md").read_text(encoding="utf-8").startswith("---\n")
     assert "Modelled 3 concept(s), 1 relation(s), 3 table(s)" in capsys.readouterr().out
+
+
+def test_the_index_says_it_is_key_fold_candidates_and_the_json_does_not(
+    tmp_path: Path,
+) -> None:
+    """The key fold is demoted: its index says so up front, its contract is untouched."""
+    out = tmp_path / "out"
+    assert _run("--lineage", str(_corpus(tmp_path / "corpus")), "--out", str(out)) == 0
+
+    body = (out / "ontology.md").read_text(encoding="utf-8").split("\n---\n", 1)[1]
+    prose = [line for line in body.splitlines() if line and not line.startswith("#")]
+    assert prose[0].startswith("> 键折叠候选")
+    assert "不是业务本体" in prose[0]
+    assert "scope-lineage catalog" in prose[0]
+    raw = (out / "ontology.json").read_text(encoding="utf-8")
+    assert "键折叠" not in raw
+
+
+def test_the_help_calls_it_key_fold_candidates_and_points_to_the_catalog(capsys) -> None:
+    with pytest.raises(SystemExit):
+        main(["--help"])
+    top = " ".join(capsys.readouterr().out.split())
+    assert "Key-fold candidates" in top
+    assert "not the business ontology" in top
+
+    with pytest.raises(SystemExit):
+        main(["ontology", "--help"])
+    own = " ".join(capsys.readouterr().out.split())
+    assert "not the business ontology" in own
+    assert "scope-lineage catalog digest" in own
 
 
 def test_the_corpus_proof_reaches_the_relation(tmp_path: Path) -> None:
