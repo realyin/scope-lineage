@@ -378,12 +378,18 @@ def codes_text(view: CatalogView, code_set_id) -> str:
     code_set = view.code_sets.get(code_set_id)
     if not code_set:
         return NONE
+    values = [values_text(code_set)] if code_set["values"] else []
+    if code_set.get("lookup"):
+        values.append(lookup_text(code_set["lookup"], code_cell))
+    return "；".join(values) or NONE
+
+
+def values_text(code_set: dict) -> str:
+    """The values a code set lists, as a table cell: ``1=normal；9（停用）…``."""
     values = [
         cell(code_value_text(v)) + ("（停用）" if v["retired"] else "")
         for v in code_set["values"]
     ]
-    if code_set.get("lookup"):
-        values.append(lookup_text(code_set["lookup"], code_cell))
     return "；".join(values) or NONE
 
 

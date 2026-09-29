@@ -26,7 +26,7 @@ from typing import Optional
 from .catalog_concept_page import (
     arises_text,
     code_cell,
-    codes_text,
+    values_text,
     mappings_text,
     render_concept_page,
     scope_text,
@@ -249,7 +249,7 @@ def _code_set_block(view: CatalogView, code_set: dict) -> list[str]:
     )
     rows = [
         ("定义", cell(code_set.get("definition") or "—")),
-        ("取值", codes_text(view, code_set["id"]) if code_set["values"] else "—"),
+        ("取值", values_text(code_set)),
         ("查找方式", lookup_text(lookup, code_cell) if lookup else "—"),
         ("使用它的属性", attributes or "（无）"),
         ("按顺序查它的列", _translated_columns(view, code_set["id"])),

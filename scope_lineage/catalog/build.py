@@ -7,7 +7,7 @@ Normalised means a reader never has to know how the catalog was written:
 - keys come out in one fixed order per object type, whatever order the author used;
 - code and state values are text (``0`` and ``"0"`` are the same code);
   a cardinality end written as the number ``1`` is ``"1"``;
-- a text ``arises_when`` becomes ``{condition}``; a ``lookup`` filter literal is text too;
+- a text ``arises_when`` becomes ``{condition}``; a ``lookup`` filter is sorted by column, its literals text;
 - table names are lower-case (``DEMO_DWD.T`` and ``demo_dwd.t`` are one Hive table, and
   the lineage contract spells every table in lower case, so evidence and queries match);
 - lists are sorted by id (terms by term then target, representations by table), so
@@ -169,7 +169,7 @@ def _lookup(obj: dict) -> dict:
     out["meaning_columns"] = [_pick(m, ("column", "lang")) for m in obj["meaning_columns"]]
     out.update(_pick(obj, ("key_column",)))
     if "filter" in obj:
-        out["filter"] = {column: str(value) for column, value in obj["filter"].items()}
+        out["filter"] = {column: str(obj["filter"][column]) for column in sorted(obj["filter"])}
     return {**out, **_pick(obj, ("valid_from", "valid_to"))}
 
 

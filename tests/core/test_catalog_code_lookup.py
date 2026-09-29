@@ -319,6 +319,28 @@ def test_a_bound_column_answers_with_its_code_sets_in_order(document: dict) -> N
     assert "先查 豁免原因，查不到查 豁免渠道" in text
 
 
+def test_query_attribute_answers_with_the_lookup(document: dict) -> None:
+    result = query_catalog(document, "attribute", "attr:fee_waiver.reason")
+    (match,) = result["matches"]
+
+    assert match["code_set"]["id"] == "code:waiver_reason"
+    assert match["code_set"]["values"] == []
+    assert match["code_set"]["table"] == DICT_TABLE
+    assert match["code_set"]["filter"] == {"code_type": "WaiverReason"}
+    text = render_query_text(result)
+    assert "码值：查 demo_dim.dim_code_dict，条件 code_type = 'WaiverReason'" in text
+    assert "码值：\n" not in text
+
+
+def test_query_attribute_prints_no_empty_code_line(root: Path) -> None:
+    mutate(root, "code_sets.yaml", lambda d: item(d["code_sets"], "code:waiver_reason").pop("lookup"))
+    built = build_ontology(load_catalog(root))
+
+    text = render_query_text(query_catalog(built, "attribute", "attr:fee_waiver.reason"))
+
+    assert not [line for line in text.splitlines() if line.startswith("  码值：")]
+
+
 # ------------------------------------------------------------------- digest and gaps
 
 
@@ -362,6 +384,36 @@ def test_code_sets_page_shows_values_lookups_and_the_columns_using_them(document
     assert f"`{WAIVER_TABLE}.reason_cd`（先查 豁免原因，查不到查 豁免渠道）" in reason
     gender = page.split("## 性别")[1].split("\n## ")[0]
     assert "F=female" in gender
+
+
+def test_a_code_set_with_values_and_a_lookup_shows_the_lookup_once(root: Path) -> None:
+    mutate(
+        root, "code_sets.yaml",
+        lambda d: item(d["code_sets"], "code:waiver_reason").update(
+            values=[{"value": "A", "meaning": "hardship"}]
+        ),
+    )
+    page = render_catalog_pages(build_ontology(load_catalog(root)))["code_sets.md"]
+    reason = page.split("## 豁免原因")[1].split("\n## ")[0]
+
+    assert reason.count("查 `demo_dim.dim_code_dict`") == 1
+    assert "| 取值 | A=hardship |" in reason
+
+
+def test_filter_columns_come_out_sorted(root: Path) -> None:
+    mutate(
+        root, "code_sets.yaml",
+        lambda d: item(d["code_sets"], "code:waiver_reason")["lookup"].update(
+            filter={"z_kind": "X", "code_type": "WaiverReason"}
+        ),
+    )
+
+    built = build_ontology(load_catalog(root))
+
+    assert list(item(built["code_sets"], "code:waiver_reason")["lookup"]["filter"]) == [
+        "code_type",
+        "z_kind",
+    ]
 
 
 def test_index_links_the_code_sets_page_and_names_the_source_tables(document: dict) -> None:

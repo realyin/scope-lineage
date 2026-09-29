@@ -334,6 +334,8 @@ def _attribute_answer(view: CatalogView, attribute: dict, matched_by: str) -> di
     code_set = view.code_sets.get(attribute.get("code_set"))
     if code_set:
         answer["code_set"] = {"id": code_set["id"], "values": code_set["values"]}
+        if code_set.get("lookup"):
+            answer["code_set"].update(_code_set_source(code_set, with_table=True))
     answer["columns"] = [
         {"table": rep["table"], **_column(view, rep, binding)}
         for rep, binding in view.bindings_of(attribute["id"])

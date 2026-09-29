@@ -217,8 +217,11 @@ def _attribute(match: Mapping) -> list[str]:
         f"  {match.get('definition') or '（目录未写定义）'}",
     ]
     if match.get("code_set"):
-        values = "；".join(code_value_text(v) for v in match["code_set"]["values"])
-        lines.append(f"  码值：{values}")
+        parts = [code_value_text(v) for v in match["code_set"]["values"]]
+        if "code_column" in match["code_set"]:
+            parts.append(_lookup(match["code_set"]))
+        if parts:
+            lines.append(f"  码值：{'；'.join(parts)}")
     if match.get("derivation"):
         lines.append(f"  口径：{match['derivation']}")
     return lines + [f"  - {c['table']}.{_column_text(c)}" for c in match["columns"]]

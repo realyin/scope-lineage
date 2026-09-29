@@ -542,7 +542,7 @@ is a scope-lineage bug, not a fault in the catalog:
 - bindings carry `via` through as written; a `foreign_identifier` holding the concept's
   own identifier carries `self_reference: true`;
 - a code set's `lookup` comes out in the key order of the table above (its `filter`
-  literals as text), a binding's `code_sets` in the author's order. Both are optional
+  sorted by column, the literals as text), a binding's `code_sets` in the author's order. Both are optional
   additions and `doc_format` stays `ontology-json/3`; a catalog that writes neither builds
   byte-for-byte the same document as before;
 - each event participant becomes a `participation` relation `rel:<event slug>.<role_name>`
@@ -737,7 +737,7 @@ scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_l
 | `table` | `db.table` (a catalog prefix is ignored) | the concept it carries, its time semantics and how to read by them (`usage`), the table comment and `notes`, its record scope, the business rules and value domains citing it (`constraints`), and what every bound column points at, with evidence; a denormalised column reads `→ 冗余属性 <attribute> of <concept>（经 <via>）`, a self-referencing one names its relation; for a code table (one a code set's `lookup` names), the code sets it holds and how each is looked up (`code_sets`), and when the table is also represented, the representation's answer gains `code_sets`; exit code `0` |
 | `column` | `db.table.column` | the attribute or identifier it holds and its concept (a column with `code_sets` lists them in order, each with how it is looked up) — or, in a code table, what kind of column it is (code, meaning, surrogate key, filter, validity: `role`) and which code sets it serves — or the identifier it spells |
 | `identifier` | id, name or physical spelling | what it identifies, its scope and spellings, the columns bound to it |
-| `attribute` | id, name or term | its concept, code values, derivation and every table column |
+| `attribute` | id, name or term | its concept, code values (with a `lookup`, `code_set` also carries how and in which table to look them up), derivation and every table column |
 | `related` | a concept's id, name, synonym or term | one hop: relations read from its side, events, participants, roles, player, tables, and the tables carrying its identifiers (`carriers`); every relation and event carries `carried_together` (the tables holding both ends) and `evidence`, printed when no JOIN backs it |
 | `carriers` | a concept's id, name, synonym or term | every column, in the tables of any concept, binding one of its identifiers: table, the table's concept, column, identifier, and how |
 | `scope` | a kind of filter (`validity`/有效记录, `deletion`/删除, `dedup`/去重, `partition`/分区, `other`/其他; the label or either half of it works too) or a keyword | the tables whose scope lines or cited rules state it, each with those lines (and their kinds), the rules and how to read the table |
