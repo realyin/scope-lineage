@@ -3,15 +3,12 @@
 ## Unreleased
 
 ### Changed
-- **Examples in docs, prompts, code comments and tests no longer borrow one business domain's
-  wording.** The K2c name-rescue example 「2月时段队列欠款」→「队列」 is now 「2月时段合同欠款」→
-  「合同」 (stem `cntr` in the prose, `contract` in the test corpus); the classifying-CASE
-  example `THEN '自营' ELSE '委外'` (and its `外包` / `代理` siblings) is now
-  `THEN '线上' ELSE '线下'`; the self-describing-value example `委外`、`触达成功` is now
-  `线下`、`已放款`. `ontology-doc.md`, `glossary-doc.md` (both languages),
-  `glossary-review-prompt.md` and `concept-review-prompt.md` follow. Each test exercises the
-  same rule with the new strings; no behaviour changed. Generic accounting words in the rule
-  lists themselves (`欠款` among the measure suffixes) stay.
+- **Examples in docs, prompts, code comments and tests are domain-neutral.** Three
+  illustrative examples -- the K2c name rescue, the classifying CASE label and the
+  self-describing value -- now use generic lending-demo strings (「2月时段合同欠款」→「合同」,
+  `THEN '线上' ELSE '线下'`, `线下`、`已放款`). `ontology-doc.md`, `glossary-doc.md` (both
+  languages), `glossary-review-prompt.md` and `concept-review-prompt.md` follow. Each test
+  exercises the same rule with the new strings; no behaviour changed.
 - **Docs and drafting prompt: an inline SQL dictionary is a code set's `values`, not a `lookup`.**
   `lookup` names a physical code table (`db.table`); a dictionary defined in a task (a `VALUES` CTE,
   a `CASE` mapping, a literal list) is written as `values` with the producing task in `evidence`,
