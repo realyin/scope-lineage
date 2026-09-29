@@ -301,13 +301,14 @@ def _evidence_summary(document: dict) -> str:
     parts = []
     if "lineage" in inputs:
         lineage = inputs["lineage"]
-        joined = sum(
-            1 for entry in document["evidence"]["relations"].values() if entry["joins"]["count"]
-        )
+        relations = document["evidence"]["relations"].values()
+        joined = sum(1 for entry in relations if (entry.get("joins") or {}).get("count"))
+        sourced = sum(1 for entry in relations if "source_joins" in entry)
         parts.append(
             f"lineage {lineage['tasks']} task(s), {lineage['representations_matched']} of "
             f"{total} representation(s) matched, {joined} of "
-            f"{lineage['relations_checked']} relation(s) backed by a JOIN"
+            f"{lineage['relations_checked']} relation(s) backed by a JOIN between catalog "
+            f"tables, {sourced} relation(s) by a JOIN inside a producing task"
         )
     if "tables" in inputs:
         tables = inputs["tables"]

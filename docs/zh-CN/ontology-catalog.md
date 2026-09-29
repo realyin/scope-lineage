@@ -565,6 +565,7 @@ scope-lineage catalog build examples/catalog-demo --out out/ \
 | `bindings["库.表.列"]` | `declared_only` | `--tables` | 元数据里有这一列，语料里没有任何任务碰过它 |
 | `code_sets["code:..."]` | `table` / `missing_columns` | `--tables` | 码值集 `lookup` 所指的表有表卡、表卡却没声明其中某些列时：哪些列（只在有这样的列时出现；`build` 同时在 stderr 打一行 `lookup_column_missing` 警告） |
 | `relations["rel:..."]` | `joins` | `--lineage` | 连接两个概念表现表、且两侧连接列绑定到同一个它们的标识符的 JOIN：`count` 与至多三个 `samples` |
+| `relations["rel:..."]` | `source_joins` | `--lineage` | 生产任务内的 JOIN：写某一端表现表的语句里、为填这张表的外键列而做的 JOIN，`count` 与至多三个 `samples`（多一个 `column`：被填的外键列）；与 `joins` 分开计，只在有这样的 JOIN 时出现 |
 
 ```json
 {
@@ -592,6 +593,10 @@ scope-lineage catalog build examples/catalog-demo --out out/ \
   "relations": {
     "rel:borrower_owes_loan": {
       "joins": {"count": 1, "samples": [{"task": "ads_collection_overdue_borrower_daily", "statement_id": "stmt:001", "on": "demo_dwd.dwd_lending_borrower_df.customer_id = demo_dwd.dwd_lending_loan_df.customer_id"}]}
+    },
+    "rel:repayment.loan": {
+      "joins": {"count": 1, "samples": [{"task": "ads_collection_overdue_borrower_daily", "statement_id": "stmt:001", "on": "demo_dwd.dwd_lending_loan_df.loan_no = demo_dwd.dwd_lending_repayment_di.loan_no"}]},
+      "source_joins": {"count": 1, "samples": [{"task": "dwd_lending_repayment_daily", "statement_id": "stmt:001", "column": "demo_dwd.dwd_lending_repayment_di.loan_no", "on": "demo_ods.ods_repay_txn_di.loan_no = demo_dwd.dwd_lending_loan_df.loan_no"}]}
     }
   }
 }
@@ -603,13 +608,23 @@ scope-lineage catalog build examples/catalog-demo --out out/ \
   它落到表现 `demo_dwd.dwd_lending_loan_df` 上。语料没提到的表没有条目。
 - **粒度**：比较前两边都去掉分区列，所以目录粒度里写了 `stat_date`、而语句只写一个 `stat_date`
   分区时不算矛盾。声明粒度里某个标识符在本表没有绑定列时，不做比较。
-- **关系**只在两端概念都有表现表时统计；统计过但没有 JOIN 支持的是 `count: 0`，无法统计的没有条目。
+- **关系**只在两端概念都有表现表时统计；统计过但没有 JOIN 支持的是 `count: 0`，无法统计的没有 `joins`（没有 `source_joins` 时也就没有条目）。
   一次 JOIN 计数的条件是：两侧分别是两个概念的表现表，且同一对连接列的**两侧**都绑定（为
   `identifier` 或 `foreign_identifier`）到同一个标识符，而这个标识符标识关系的某一端：关系两端的概念自己，
   或角色的表现表所绑定的承担者标识符。客户号对上手机号，或两个客户号把一通电话连到一个联系人，都不是
   「电话—联系人」关系的样例。participation 关系同样统计。
   两端是同一概念的关系只数至少一侧连接列带 `self_reference` 且实现这条关系（`relation` 指向它，或没写 `relation`）的 JOIN
   （表自连接也算）：同一实例出现在两张表里不说明关系。
+- **生产任务内的 JOIN**（`source_joins`）是另一种证据，**不计入** `joins`：`joins` 回答「下游是否这样连两端的表」，
+  `source_joins` 回答「生产任务是否这样取外键」。一次计数的条件是：语句写入某一端的表现表；这张表有一列绑定为
+  `foreign_identifier`、指向另一端的标识符 K；JOIN 一侧的连接列是这一列的**血缘来源列**，另一侧的连接列持有 K
+  （绑定到 K，或是 K 的已登记拼写）。示例里还款任务用来源表的 `loan_no` 连借据表的 `loan_no`，
+  填的正是还款表指向借据的外键，所以 `rel:repayment.loan` 得到 1 次。只需被写的那一端有表现表，
+  所以一端没有表现表的关系也可能有这一项（此时条目里没有 `joins`，也不计入 `relations_checked`）。
+  `identifier` 绑定不作锚（表自己的键不指向另一端）；一张来源表带着几个概念的标识拼写，并不说明它表现哪个概念，
+  不据此判断。两端是同一概念时只认带 `self_reference` 的列；绑定写了 `relation` 时只算给它指向的那条关系。
+- `build` 的摘要行把两种分开写：`N of M relation(s) backed by a JOIN between catalog tables`（`joins`）
+  与 `K relation(s) by a JOIN inside a producing task`（`source_joins`）。
 - 语料用 `tables` 与 `ontology` 同一套读取器读；JOIN 的一侧是 CTE 时，顺着它追到提供行的物理表。
   连接列是 ON 子句比较的那个值所在的物理列：改名的列（`caller_phone AS dialed_no`）按物理列名报告，
   只由一列算出的键（`TRIM`、`CAST`、`COALESCE(x, '')`）报告为那一列。由多列算出的键
@@ -679,7 +694,7 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 | A2 数据清单 | 按表现类型分组的表（核心、扩展、从属、事件明细、状态历史、标识映射、角色视图、汇总、中间）：说明（表卡的表注释、表现的 `notes`）、粒度（标识符、来源，以及血缘证明了什么）、时间语义及取数方式（快照「按单个 dt 分区取数」，拉链按有效期窗口）、更新频率、记录范围、生产任务、废弃及替代；每张表的血缘一跳 |
 | A3 带本概念标识的表 | 所有概念的表里，把本概念的某个标识符绑定为 `identifier` 或 `foreign_identifier` 的每一列：表、表的概念、列、标识符、方式（自关联单独标出）。没有自己表现表的概念也能看到它从哪些表关联进来；角色没有自己的标识符，指向承担者 |
 | A4 属性 | 按类别（描述、状态、度量、时间）：定义、类型与单位、码值（值=含义；码值在码值表里的写出查找方式）、承载它的每个表列（含码值映射；列按 `code_sets` 查码值集时写「先查 A，查不到查 B」；别的表冗余存放的标为「冗余（经 via 列）」，同一概念另一条记录的标为「冗余（同一<概念>的另一条记录，经 via 列）」）、加工口径 |
-| A5 关系 | 从本概念一侧读的关联、组成、泛化，带基数与 JOIN 次数（自关联的对端写「本概念」及承载它的列——写了 `relation` 的列只列在它指向的那条下，没写的列在每条自关联下——有 `inverse_name` 时读法两个方向都写）；JOIN 次数为 0 或无法统计时，补上目录自己的依据：同表携带两端的表（表现某一端或绑定它的标识符；角色用承担者的标识符；自关联只看实现它的自关联列）与关系的 `evidence`；参与的事件（本概念的角色、事件的表现表数）；本概念承担的角色，或在角色页上反向链到承担者 |
+| A5 关系 | 从本概念一侧读的关联、组成、泛化，带基数与 JOIN 次数（自关联的对端写「本概念」及承载它的列——写了 `relation` 的列只列在它指向的那条下，没写的列在每条自关联下——有 `inverse_name` 时读法两个方向都写）；有生产任务内的 JOIN（`source_joins`）时，另写「生产任务内连接 N 次（如 …，填 <外键列>）」，与 JOIN 次数分开；JOIN 次数为 0 或无法统计时，补上目录自己的依据：同表携带两端的表（表现某一端或绑定它的标识符；角色用承担者的标识符；自关联只看实现它的自关联列）与关系的 `evidence`；参与的事件（本概念的角色、事件的表现表数）；本概念承担的角色，或在角色页上反向链到承担者 |
 | A6 约束 | 作用于概念本身、其属性、标识符与关系的约束，按种类列出，带强度与状态 |
 | A7 治理缺口 | 草拟占比、未绑定列、没有落表的属性、缺码值的状态/码值类属性、有没有表现表；有证据时还有证据与目录矛盾、没人用的绑定列、没有 JOIN 支持的关系 |
 
@@ -712,7 +727,7 @@ scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_l
 | `column` | `库.表.列` | 它承载的属性或标识符及其概念（冗余属性带 `via`，是同一概念另一条记录的属性时另带 `other_instance: true`；写了 `code_sets` 的列按顺序带出码值集及查找方式）——或它是码值表的哪种列（码、含义、代理键、筛选、有效期，`role`）、服务哪些码值集——或它是哪个标识符的物理拼写；自关联列带 `self_relations`（它实现的自关联：写了 `relation` 的只有那一条，没写的是全部） |
 | `identifier` | id、名称或物理拼写 | 识别什么、唯一范围与拼写、绑定到它的列 |
 | `attribute` | id、名称或术语 | 所属概念、码值（码值集有 `lookup` 时 `code_set` 带上查找方式与表）、口径、每个表列 |
-| `related` | 概念的 id、名称、同义词或术语 | 一跳邻居：从本概念一侧读的关系（有 `inverse_name` 的自关联两个方向都读）、事件、参与者、角色、承担者、表、带本概念标识的表（`carriers`）；每条关系与事件带 `carried_together`（同表携带两端的表）与 `evidence`，没有 JOIN 时文本里写出 |
+| `related` | 概念的 id、名称、同义词或术语 | 一跳邻居：从本概念一侧读的关系（有 `inverse_name` 的自关联两个方向都读）、事件、参与者、角色、承担者、表、带本概念标识的表（`carriers`）；每条关系与事件带 `carried_together`（同表携带两端的表）与 `evidence`，没有 JOIN 时文本里写出；有生产任务内的 JOIN 时另带 `source_joins`（次数），文本写「生产任务内连接 N 次」，与 `joins` 分开 |
 | `carriers` | 概念的 id、名称、同义词或术语 | 所有概念的表里绑定了本概念标识符的列：表、表的概念、列、标识符、方式 |
 | `scope` | 过滤类别（`validity`/有效记录、`deletion`/删除、`dedup`/去重、`partition`/分区、`other`/其他，类别名或其一半都行）或关键词 | 记录范围或所引约束说到它的表，各带这些行（与其类别）、约束与取数方式 |
 

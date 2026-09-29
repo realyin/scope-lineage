@@ -134,7 +134,7 @@ One amount lent to a borrower, repaid over one or more instalments.
 | --- | --- | --- | --- |
 | [放款](disbursement.md) | loan | 0 | —（一端无表现表） |
 | [豁免](fee_waiver.md) | loan | 1 | 0 次；同表携带两端：`demo_dwd.dwd_collection_fee_waiver_di` |
-| [还款](repayment.md) | loan | 1 | 1 次（如 `demo_dwd.dwd_lending_loan_df.loan_no = demo_dwd.dwd_lending_repayment_di.loan_no`） |
+| [还款](repayment.md) | loan | 1 | 1 次（如 `demo_dwd.dwd_lending_loan_df.loan_no = demo_dwd.dwd_lending_repayment_di.loan_no`）；生产任务内连接 1 次（如 `demo_ods.ods_repay_txn_di.loan_no = demo_dwd.dwd_lending_loan_df.loan_no`，填 `demo_dwd.dwd_lending_repayment_di.loan_no`） |
 
 #### 本概念的角色
 

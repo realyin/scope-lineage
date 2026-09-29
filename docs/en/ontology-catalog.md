@@ -618,6 +618,7 @@ byte for byte what it was.
 | `bindings["db.table.column"]` | `declared_only` | `--tables` | the metadata declares the column and no task in the corpus touches it |
 | `code_sets["code:..."]` | `table` / `missing_columns` | `--tables` | when the table a code set's `lookup` names has a card that does not declare some of the lookup's columns: which ones (present only then; `build` also prints a `lookup_column_missing` warning on stderr) |
 | `relations["rel:..."]` | `joins` | `--lineage` | `count` and up to three `samples` of JOINs linking the two concepts' tables on columns bound to one identifier of theirs |
+| `relations["rel:..."]` | `source_joins` | `--lineage` | JOINs inside a producing task: in a statement writing one end's table, the JOINs made to fill that table's foreign key column; `count` and up to three `samples` (with one more field, `column`: the foreign key filled); counted apart from `joins`, present only when there is such a JOIN |
 
 ```json
 {
@@ -645,6 +646,10 @@ byte for byte what it was.
   "relations": {
     "rel:borrower_owes_loan": {
       "joins": {"count": 1, "samples": [{"task": "ads_collection_overdue_borrower_daily", "statement_id": "stmt:001", "on": "demo_dwd.dwd_lending_borrower_df.customer_id = demo_dwd.dwd_lending_loan_df.customer_id"}]}
+    },
+    "rel:repayment.loan": {
+      "joins": {"count": 1, "samples": [{"task": "ads_collection_overdue_borrower_daily", "statement_id": "stmt:001", "on": "demo_dwd.dwd_lending_loan_df.loan_no = demo_dwd.dwd_lending_repayment_di.loan_no"}]},
+      "source_joins": {"count": 1, "samples": [{"task": "dwd_lending_repayment_daily", "statement_id": "stmt:001", "column": "demo_dwd.dwd_lending_repayment_di.loan_no", "on": "demo_ods.ods_repay_txn_di.loan_no = demo_dwd.dwd_lending_loan_df.loan_no"}]}
     }
   }
 }
@@ -660,7 +665,8 @@ byte for byte what it was.
   `stat_date` partition. A declared grain whose identifier has no bound column is not
   compared at all.
 - **Relations** are counted only when both ends have a representation; a relation checked
-  and backed by no JOIN has `count: 0`, one that could not be checked has no entry. A JOIN
+  and backed by no JOIN has `count: 0`, one that could not be checked has no `joins` (and no
+entry at all unless it has `source_joins`). A JOIN
   counts when one side is a table of each concept and **both** key columns of one key pair
   are bound (as `identifier` or `foreign_identifier`) to the same identifier, one that
   identifies either end: the relation's own concepts, or for a role the player its tables
@@ -670,6 +676,24 @@ byte for byte what it was.
   key column realising it (its `relation` names it, or it names none) on at least one side
   (a table joined to itself included): the same instance met in two tables says nothing about
   the relation.
+- **JOINs inside a producing task** (`source_joins`) are a second kind of evidence, **never
+  added into** `joins`: `joins` answers "is the relation joined this way downstream",
+  `source_joins` answers "is the foreign key looked up this way when the table is produced".
+  A JOIN counts when the statement writes a table of one end; that table binds a column as
+  `foreign_identifier` to an identifier K of the other end; one key column of the JOIN is a
+  **lineage source** of that column, and the other key column holds K (bound to K, or a
+  registered spelling of K). In the demo the repayment task joins its source's `loan_no` to
+  the loan table's `loan_no`, filling exactly the repayment table's foreign key to the loan,
+  so `rel:repayment.loan` gets 1. Only the written end needs a table, so a relation with an
+  end that has none can have this key too (its entry then has no `joins` and is not counted
+  in `relations_checked`). An `identifier` binding is never an anchor (a table's own key does
+  not point at the other end); a source table spelling several concepts' identifiers says
+  nothing about which concept it represents, and nothing is inferred from it. A relation
+  whose two ends are one concept takes only `self_reference` columns; a binding that names a
+  `relation` is attributed to that relation alone.
+- The `build` summary line names the two apart: `N of M relation(s) backed by a JOIN between
+  catalog tables` (`joins`) and `K relation(s) by a JOIN inside a producing task`
+  (`source_joins`).
 - The corpus is read with the same readers `tables` and `ontology` use; a JOIN side that is
   a CTE is followed down to the physical table its rows come from. A key column is the
   physical column whose value the ON clause compares: a renamed column (`caller_phone AS
@@ -749,7 +773,7 @@ has a 编号 row with the concept id):
 | A2 数据清单 | the tables, grouped by representation kind (核心, 扩展, 从属, 事件明细, 状态历史, 标识映射, 角色视图, 汇总, 中间): a note (the table card's comment, the representation's `notes`), grain (identifiers, source, and what lineage proves), time semantics and how to read by them (a snapshot 「按单个 dt 分区取数」, a zipper by its validity window), refresh, record scope, producing tasks, deprecation and replacement; one hop of lineage per table |
 | A3 带本概念标识的表 | every column, in the tables of any concept, binding one of this concept's identifiers as `identifier` or `foreign_identifier`: table, the table's concept, column, identifier, and how (a self reference is marked). A concept with no table of its own still shows where it can be joined in; a role has no identifier of its own and points to its player |
 | A4 属性 | by category (描述, 状态, 度量, 时间): definition, type and unit, code values (value=meaning; for values in a code table, how to look them up), every table column that holds it (with its code map; a column consulting code sets in order reads 「先查 A，查不到查 B」, look in A, then B; one another table repeats is marked 「冗余（经 via column）」, one repeated from another record of the same concept 「冗余（同一<concept>的另一条记录，经 via column）」), how it is derived |
-| A5 关系 | association, composition and generalization read from this concept's side, with cardinality and JOIN count (a self relation's far end reads 「本概念」 with the columns that carry it — a column naming a `relation` only under that one, a column naming none under every self relation — and one with an `inverse_name` reads both ways); when the count is 0 or could not be taken, what the catalog itself shows: the tables holding both ends (representing one or binding its identifier; a role through its player's identifiers; a self relation only through a self-referencing column realising it) and the relation's `evidence`; the events it takes part in (its role, how many tables the event has); the roles it plays, or — on a role's page — the player it belongs to |
+| A5 关系 | association, composition and generalization read from this concept's side, with cardinality and JOIN count (a self relation's far end reads 「本概念」 with the columns that carry it — a column naming a `relation` only under that one, a column naming none under every self relation — and one with an `inverse_name` reads both ways); JOINs inside a producing task (`source_joins`), when there are any, as 「生产任务内连接 N 次（如 …，填 <foreign key column>）」, apart from the JOIN count; when the count is 0 or could not be taken, what the catalog itself shows: the tables holding both ends (representing one or binding its identifier; a role through its player's identifiers; a self relation only through a self-referencing column realising it) and the relation's `evidence`; the events it takes part in (its role, how many tables the event has); the roles it plays, or — on a role's page — the player it belongs to |
 | A6 约束 | the constraints on the concept, its attributes, identifiers and relations, by kind, with strength and status |
 | A7 治理缺口 | drafted share, unmapped columns, attributes no table holds, state or coded attributes without values, whether the concept has any table; with evidence also the conflicts, bound columns nobody uses and relations no JOIN backs |
 
@@ -787,7 +811,7 @@ scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_l
 | `column` | `db.table.column` | the attribute or identifier it holds and its concept (a denormalised attribute with its `via`, plus `other_instance: true` when it is another record's of the same concept; a column with `code_sets` lists them in order, each with how it is looked up) — or, in a code table, what kind of column it is (code, meaning, surrogate key, filter, validity: `role`) and which code sets it serves — or the identifier it spells; a self-referencing column carries `self_relations` (the self relations it realises: the one its `relation` names, or all of them) |
 | `identifier` | id, name or physical spelling | what it identifies, its scope and spellings, the columns bound to it |
 | `attribute` | id, name or term | its concept, code values (with a `lookup`, `code_set` also carries how and in which table to look them up), derivation and every table column |
-| `related` | a concept's id, name, synonym or term | one hop: relations read from its side (a self relation with an `inverse_name` both ways), events, participants, roles, player, tables, and the tables carrying its identifiers (`carriers`); every relation and event carries `carried_together` (the tables holding both ends) and `evidence`, printed when no JOIN backs it |
+| `related` | a concept's id, name, synonym or term | one hop: relations read from its side (a self relation with an `inverse_name` both ways), events, participants, roles, player, tables, and the tables carrying its identifiers (`carriers`); every relation and event carries `carried_together` (the tables holding both ends) and `evidence`, printed when no JOIN backs it; with JOINs inside a producing task also `source_joins` (the count), printed as 「生产任务内连接 N 次」 apart from `joins` |
 | `carriers` | a concept's id, name, synonym or term | every column, in the tables of any concept, binding one of its identifiers: table, the table's concept, column, identifier, and how |
 | `scope` | a kind of filter (`validity`/有效记录, `deletion`/删除, `dedup`/去重, `partition`/分区, `other`/其他; the label or either half of it works too) or a keyword | the tables whose scope lines or cited rules state it, each with those lines (and their kinds), the rules and how to read the table |
 

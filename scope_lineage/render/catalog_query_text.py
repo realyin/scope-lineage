@@ -230,10 +230,13 @@ def _attribute(match: Mapping) -> list[str]:
 
 
 def _joins(item: Mapping) -> str:
-    """``（2 次连接）``; without a JOIN, the tables holding both ends and the citations."""
+    """``（2 次连接）``, then the JOINs inside producing tasks, counted apart; without a JOIN
+    between catalog tables, the tables holding both ends and the citations."""
+    source = [f"生产任务内连接 {item['source_joins']} 次"] if item.get("source_joins") else []
     if item["joins"]:
-        return f"（{item['joins']} 次连接）"
+        return "（" + "；".join([f"{item['joins']} 次连接", *source]) + "）"
     parts = ["0 次连接"] if item["joins"] == 0 else []
+    parts += source
     if item.get("carried_together"):
         parts.append("同表携带：" + "、".join(item["carried_together"]))
     if item.get("evidence"):

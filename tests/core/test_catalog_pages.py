@@ -447,6 +447,38 @@ def test_the_events_a_concept_takes_part_in(pages: dict) -> None:
     assert "| [放款](disbursement.md) | loan | 0 | —（一端无表现表） |" in page
 
 
+def test_a_join_inside_a_producing_task_is_shown_apart_from_the_joins(pages: dict) -> None:
+    """``joins`` and ``source_joins`` are two counts: the cell names each on its own."""
+    cell = (
+        "1 次（如 `demo_dwd.dwd_lending_loan_df.loan_no = demo_dwd.dwd_lending_repayment_di"
+        ".loan_no`）；生产任务内连接 1 次（如 `demo_ods.ods_repay_txn_di.loan_no = "
+        "demo_dwd.dwd_lending_loan_df.loan_no`，填 `demo_dwd.dwd_lending_repayment_di.loan_no`）"
+    )
+
+    assert f"| [还款](repayment.md) | loan | 1 | {cell} |" in pages["concepts/loan.md"]
+    assert "生产任务内连接" not in pages["concepts/customer.md"]
+
+
+def test_a_source_join_is_shown_when_no_join_between_catalog_tables_backs_it(
+    document: dict,
+) -> None:
+    moved = json.loads(json.dumps(document))
+    relation = moved["evidence"]["relations"]["rel:fee_waiver.loan"]
+    relation["source_joins"] = {
+        "count": 2,
+        "samples": [
+            {"task": "t", "statement_id": "stmt:001", "column": "a.b.c", "on": "x.y.c = a.l.c"}
+        ],
+    }
+
+    page = render_catalog_pages(moved)["concepts/loan.md"]
+
+    assert (
+        "| [豁免](fee_waiver.md) | loan | 1 | 0 次；生产任务内连接 2 次（如 `x.y.c = a.l.c`，填 "
+        "`a.b.c`）；同表携带两端："
+    ) in page
+
+
 def test_a_relation_no_join_backs_falls_back_to_the_catalogs_own_evidence(pages: dict) -> None:
     """The channel has no table, so no JOIN is counted; the catalog still shows where the
     relation lives: the account map carries both ends, and the relation cites its column."""

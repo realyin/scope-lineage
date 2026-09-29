@@ -67,6 +67,28 @@
   schemas accept it on `foreign_identifier` only. `ontology-catalog.md` (bindings, self
   relations, validation, build, evidence, A5, `column` / `related` queries), the skill and
   the fragment prompt say so.
+- **`catalog build --lineage` also counts the JOINs a producing task makes to fill a foreign
+  key (`evidence.relations[...].source_joins`).** `joins` counts only JOINs between two
+  catalog tables, so a corpus made of the tasks that produce those tables -- and no task
+  that reads them -- reports 0 for every relation, truthfully. The new key is a second,
+  separate count, never added into `joins`: a JOIN inside a statement that writes one end's
+  table, where one key column is a lineage source of a column that table binds as
+  `foreign_identifier` to an identifier K of the other end, and the other key column holds K
+  (bound to it, or a registered spelling of it). An `identifier` binding is never an
+  anchor, which table a source "represents" is never guessed from the identifiers it
+  spells, a self relation takes only `self_reference` columns, and a binding that names its
+  `relation` is attributed to that relation alone. Only the written end needs a table, so a
+  relation with an untabled end can carry `source_joins` without `joins` (and is not counted
+  in `relations_checked`). Each sample adds `column`, the foreign key filled. Appendix A5
+  and the participation table add 「生产任务内连接 N 次（如 …，填 …）」 to the evidence cell,
+  `catalog query related` adds `source_joins` (JSON, only when present) and
+  「生产任务内连接 N 次」 (text), and the build summary now reads `N of M relation(s) backed by
+  a JOIN between catalog tables, K relation(s) by a JOIN inside a producing task`.
+  Optional in `ontology-v3` (`doc_format` unchanged); without `--lineage` the document and
+  pages are byte for byte as before. In the demo only `rel:repayment.loan` gains one (the
+  repayment task joins its source to the loan table on the column that becomes the
+  repayment's loan key) and only that cell of `concepts/loan.md` changes; `joins` stays 3
+  of 7. `ontology-catalog.md` (evidence, A5, `related`, the build summary) says so.
 
 ### Fixed
 - **A column repeating another record's attribute of the same concept can be bound.** A

@@ -21,6 +21,15 @@ changed and a reader can always tell a claim from its evidence:
   concept to itself counts only JOINs on a column the build marked ``self_reference``
   (another instance of the concept) that realises it -- names it as its ``relation``, or
   names none -- never the same instance met in a second table.
+  ``source_joins`` beside it is a second, separate count: the JOINs *inside a statement
+  that writes one end's table* that fill a foreign key -- one key column is a lineage
+  source of a column the table binds as ``foreign_identifier`` to an identifier K of the
+  other end (for a self relation, a ``self_reference`` column realising it), the other
+  key column holds K (bound to it, or spelled as it). ``joins`` says the relation is
+  used downstream; ``source_joins`` says how the producing task looked the key up. It
+  needs a table at the written end only, and a column naming its ``relation`` is
+  attributed to that relation alone. Whether a table *represents* a concept is never
+  guessed from the identifiers it happens to spell.
 
 Nothing here parses a contract document: the statements and their profiles come from
 ``semantic_profile`` and ``ontology.write_statements``, the JOIN key pairs from
@@ -217,6 +226,17 @@ class _Catalog:
             table: {b["column"]: b for b in rep["bindings"] if b.get("self_reference")}
             for table, rep in self.reps.items()
         }
+        # identifier -> {(lower-cased table or None, lower-cased column)} it is spelled as
+        self.spelled: dict[str, set] = {
+            identifier["id"]: {
+                (
+                    catalog_table_name(s["table"]).lower() if s.get("table") else None,
+                    str(s["column"]).lower(),
+                )
+                for s in identifier.get("spellings") or []
+            }
+            for identifier in ontology.get("identifiers") or []
+        }
         self.lookups = {
             code_set["id"]: code_set["lookup"]
             for code_set in ontology.get("code_sets") or []
@@ -263,11 +283,14 @@ def _merge_lineage(evidence: dict, catalog: _Catalog, lineage: LineageFacts) -> 
         for key, found in _binding_lineage(rep, writers.get(table, [])):
             evidence["bindings"].setdefault(key, {}).update(found)
     evidence["relations"].update(_relation_joins(catalog, lineage.statements))
+    checked = len(evidence["relations"])
+    for relation_id, found in _source_joins(catalog, writers).items():
+        evidence["relations"].setdefault(relation_id, {})["source_joins"] = found
     evidence["inputs"]["lineage"] = {
         "tasks": lineage.tasks,
         "statements": len(lineage.statements),
         "representations_matched": matched,
-        "relations_checked": len(evidence["relations"]),
+        "relations_checked": checked,
     }
 
 
@@ -450,6 +473,88 @@ def _same_key(catalog: _Catalog, join: JoinFact, left: str, right: str, keys: se
     left_ref = catalog.identifying[join.left].get(left)
     right_ref = catalog.identifying[join.right].get(right)
     return left_ref is not None and left_ref == right_ref and left_ref in keys
+
+
+def _source_joins(catalog: _Catalog, writers: Mapping) -> dict:
+    """``{relation id: {count, samples}}`` for relations a producing task's JOIN backs."""
+    found = {}
+    for relation in catalog.relations:
+        ends = (relation["from"], relation["to"])
+        directions = [ends] if ends[0] == ends[1] else [ends, ends[::-1]]
+        hits: dict = {}
+        for near, far in directions:
+            for table in sorted(catalog.by_concept.get(near, ())):
+                for statement in writers.get(table, ()):
+                    anchors = _anchors(catalog, relation, table, far, statement)
+                    for index, join in enumerate(statement.joins):
+                        key = (statement.task, statement.statement_id, index)
+                        hit = key not in hits and _filling_join(catalog, anchors, join)
+                        if hit:
+                            hits[key] = {
+                                "task": statement.task,
+                                "statement_id": statement.statement_id,
+                                "column": f"{table}.{hit[0]}",
+                                "on": hit[1],
+                            }
+        if hits:
+            samples = [hits[key] for key in sorted(hits)][:JOIN_SAMPLE_LIMIT]
+            found[relation["id"]] = {"count": len(hits), "samples": samples}
+    return found
+
+
+def _anchors(catalog: _Catalog, relation: Mapping, table: str, far: str, statement) -> dict:
+    """``{lower-cased source column: [(identifier, bound column)]}``: the lineage sources of
+    the columns ``table`` binds as ``foreign_identifier`` to one of ``far``'s identifiers
+    and that may realise ``relation`` (a self relation: only ``self_reference`` columns).
+    One source can feed several such columns, each bound to its own identifier."""
+    self_relation = relation["from"] == relation["to"]
+    far_keys = catalog.keys.get(far, set())
+    bound = {
+        str(b["column"]).lower(): (b["ref"], b["column"])
+        for b in catalog.reps[table]["bindings"]
+        if b["to"] == "foreign_identifier"
+        and b.get("ref") in far_keys
+        and (b.get("self_reference") or not self_relation)
+        and realises(b, relation["id"])
+    }
+    anchors: dict = {}
+    for field in statement.fields:
+        target = bound.get(str(field["column"]).lower())
+        for source in field["sources"] if target else ():
+            anchors.setdefault(source.lower(), []).append(target)
+    return anchors
+
+
+def _filling_join(catalog: _Catalog, anchors: Mapping, join: JoinFact) -> Optional[tuple]:
+    """``(bound column, "a.t.c = b.t.c")`` when one key column of ``join`` is an anchor and
+    the other holds the identifier that anchor's column is bound to."""
+    for left, right in join.columns:
+        for (table, column), (other_table, other_column) in (
+            ((join.left, left), (join.right, right)),
+            ((join.right, right), (join.left, left)),
+        ):
+            targets = anchors.get(f"{table}.{column}".lower())
+            held = _held(catalog, other_table, other_column) if targets else set()
+            for identifier, bound in targets or ():
+                if identifier in held:
+                    return bound, f"{join.left}.{left} = {join.right}.{right}"
+    return None
+
+
+def _held(catalog: _Catalog, table: str, column: str) -> set:
+    """The identifiers a column holds: bound to them, or spelled as them."""
+    column = column.lower()
+    held = {
+        ref
+        for bound, ref in (catalog.identifying.get(table) or {}).items()
+        if str(bound).lower() == column
+    }
+    held |= {
+        identifier
+        for identifier, spellings in catalog.spelled.items()
+        if (table.lower(), column) in spellings or (None, column) in spellings
+    }
+    return held
 
 
 def _merge_tables(evidence: dict, catalog: _Catalog, tables: Mapping) -> None:
