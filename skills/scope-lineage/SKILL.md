@@ -55,8 +55,10 @@ fallback covers 0.2.0):
 | describe, `tables`, `glossary`, `ontology` (key-fold candidates) | >= 0.3.0 |
 | concept-level impact (`concept-impact`), `catalog build` / `query` / `render` / `validate`, table semantics (`semantic *`), `catalog digest` / `merge`, acceptance (`questions *`) | >= 0.5.0 |
 | confirmed answers in material packets (`semantic packet --glossary` / `--metadata-patch`) | >= 0.6.0 |
+| code-set lookups in a catalog (a code set's `lookup`, a binding's `code_sets`) | the release after 0.6.0 (unreleased; 0.6.0 rejects both as schema errors) |
 
-When unsure which workflows the session will need, require >= 0.6.0.
+When unsure which workflows the session will need, require >= 0.6.0 (and, to write a
+`lookup` or `code_sets`, a build of this repository until the next release).
 Not installed → `pipx install scope-lineage` (or `pip install scope-lineage`). Too old
 → upgrade in place. This check is not optional: a stale install silently produces the
 removed pre-0.2.0 per-statement format, every downstream step here then misbehaves, and
