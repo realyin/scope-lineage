@@ -2,8 +2,8 @@
 
 Section A7 of every concept page and the whole of ``governance.md`` read these. A gap is
 something a reviewer can act on: an object still ``drafted``, a column nobody bound, an
-attribute no table carries, a state or coded attribute without its values, a concept with
-no table at all -- and, once ``catalog build`` merged evidence, a grain the SQL does not
+attribute no table carries, a state or coded attribute without its values (listed, or
+looked up in a table), a concept with no table at all -- and, once ``catalog build`` merged evidence, a grain the SQL does not
 prove, a bound column nobody uses, a relation no JOIN in the corpus backs.
 """
 
@@ -75,11 +75,12 @@ def _drafted(view: CatalogView, concept_id: str) -> tuple[int, int]:
 
 
 def _lacks_codes(view: CatalogView, attribute: dict) -> bool:
-    """A state or coded attribute whose values the catalog does not list."""
+    """A state or coded attribute whose values the catalog neither lists nor says where
+    to look up (a code set with a ``lookup`` names the table holding them)."""
     if attribute.get("category") != "state" and "code_set" not in attribute:
         return False
     code_set = view.code_sets.get(attribute.get("code_set"))
-    return not (code_set and code_set.get("values"))
+    return not (code_set and (code_set.get("values") or code_set.get("lookup")))
 
 
 def share_text(drafted: int, total: int) -> str:

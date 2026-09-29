@@ -8,7 +8,8 @@ detail follows as 附录, sections A1-A7:
 2. 数据清单 -- which tables carry it, grouped by how they carry it;
 3. 带本概念标识的表 -- every table, of any concept, holding one of its identifiers: where
    a question about the concept can be joined in, even with no table of its own;
-4. 属性 -- its business attributes, each with the table columns that hold it;
+4. 属性 -- its business attributes, each with the table columns that hold it, its code
+   values or where they are looked up, and the order a column's code sets are consulted;
 5. 关系 -- relations, the events it takes part in, the roles it plays or is;
 6. 约束 -- the rules on it, by kind;
 7. 治理缺口 -- what the catalog still lacks and where the corpus disagrees.
@@ -35,6 +36,8 @@ from .catalog_view import (
     CatalogView,
     code_value_text,
     concept_filename,
+    fallback_text,
+    lookup_text,
     status_text,
     time_text,
 )
@@ -379,7 +382,14 @@ def codes_text(view: CatalogView, code_set_id) -> str:
         cell(code_value_text(v)) + ("（停用）" if v["retired"] else "")
         for v in code_set["values"]
     ]
+    if code_set.get("lookup"):
+        values.append(lookup_text(code_set["lookup"], code_cell))
     return "；".join(values) or NONE
+
+
+def code_cell(name: str) -> str:
+    """A name or condition as a code span that is safe in a table cell."""
+    return cell(expr_span(name))
 
 
 def columns_text(view: CatalogView, ref: str) -> str:
@@ -391,6 +401,9 @@ def columns_text(view: CatalogView, ref: str) -> str:
         if binding.get("code_map"):
             pairs = ", ".join(f"{cell(k)}→{cell(v)}" for k, v in binding["code_map"].items())
             text += f"（码值映射 {pairs}）"
+        if binding.get("code_sets"):
+            names = [cell(code_set["name"]) for code_set in view.translating(binding)]
+            text += f"（码值：{fallback_text(names)}）"
         if view.binding_evidence(rep["table"], binding["column"]).get("declared_only"):
             text += "（元数据有、语料未用）"
         parts.append(text)

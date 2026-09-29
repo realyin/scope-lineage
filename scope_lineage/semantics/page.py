@@ -128,6 +128,8 @@ def _header(document: dict, context: PageContext) -> list[str]:
     parts = [context.place.label]
     if context.place.concept is not None:
         parts.append(context.place.concept.phrase())
+    if context.place.code_source:
+        parts.append(context.place.code_source)
     parts.append(f"本页 {confirmed_count(document)} 项已确认，✓ 表示已确认")
     if context.validated:
         parts.append(_rate_phrase(context))

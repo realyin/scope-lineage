@@ -21,12 +21,22 @@ from .catalog_view import (
     TABLE_STATUS_TEXT,
     TIME_TEXT,
     code_value_text,
+    fallback_text,
+    lookup_text,
     status_text,
 )
 
 REP_KIND_TEXT = dict(REPRESENTATION_KINDS)
 CATEGORY_TEXT = dict(CATEGORIES)
 CONSTRAINT_TEXT = dict(CONSTRAINT_KINDS)
+LOOKUP_ROLE_TEXT = {
+    "code_column": "码列",
+    "meaning_columns": "含义列",
+    "key_column": "代理键列",
+    "filter": "筛选列",
+    "valid_from": "有效期起",
+    "valid_to": "有效期止",
+}
 
 
 def render_query_text(result: Mapping) -> str:
@@ -87,7 +97,25 @@ def _grain(match: Mapping) -> str:
     return text
 
 
+def _sources(match: Mapping) -> list[str]:
+    """The code sets whose values the table holds, each with how it is looked up."""
+    return [
+        f"  - {code_set['name']} {code_set['id']}：{_lookup(code_set, match['table'])}"
+        for code_set in match.get("code_sets") or []
+    ]
+
+
+def _lookup(code_set: Mapping, table: str | None = None) -> str:
+    """How a code set in an answer is looked up, or 目录列出取值 when it lists its values."""
+    if "code_column" not in code_set:
+        return "目录列出取值"
+    return lookup_text({**code_set, "table": table or code_set.get("table")})
+
+
 def _table(match: Mapping) -> list[str]:
+    if "concept" not in match:
+        count = len(match["code_sets"])
+        return [f"{match['table']} · 码值来源（{count} 个码值集）", *_sources(match)]
     lines = [
         f"{match['table']} · {match['concept']['name']} {match['concept']['id']} · "
         f"{REP_KIND_TEXT[match['kind']]} · {TABLE_STATUS_TEXT[match['table_status']]}",
@@ -117,7 +145,10 @@ def _table(match: Mapping) -> list[str]:
     ]
     if facts:
         lines.append("  " + "；".join(facts))
-    return lines + [f"  - {_column_text(column)}" for column in match["columns"]]
+    lines += [f"  - {_column_text(column)}" for column in match["columns"]]
+    if match.get("code_sets"):
+        lines += ["  本表也是码值来源：", *_sources(match)]
+    return lines
 
 
 def _column_text(column: Mapping) -> str:
@@ -133,6 +164,8 @@ def _column_text(column: Mapping) -> str:
         text += f"（自关联：{relations}）"
     if column.get("code_map"):
         text += "（码值 " + ", ".join(f"{k}→{v}" for k, v in column["code_map"].items()) + "）"
+    if column.get("code_sets"):
+        text += f"（码值：{fallback_text([c['name'] for c in column['code_sets']])}）"
     evidence = column.get("evidence") or {}
     if column.get("derivation"):
         text += f"；口径 {column['derivation']}"
@@ -145,12 +178,21 @@ def _column_text(column: Mapping) -> str:
 
 def _column(match: Mapping) -> list[str]:
     where = f"{match['table']}.{match['column']}"
+    if "to" not in match and "code_sets" in match:
+        roles = "；".join(
+            f"{c['name']} {c['id']} 的{LOOKUP_ROLE_TEXT[c['role']]}" for c in match["code_sets"]
+        )
+        return [f"{where} 是码值表的列：{roles}", *_sources(match)]
     if "spelling_of" in match:
         spelled = match["spelling_of"]
         return [f"{where} 是标识符 {spelled['name']} {spelled['id']} 的物理拼写（目录未绑定此列）"]
     head = f"{match['table']}.{_column_text(match)}"
     sources = (match.get("evidence") or {}).get("sources")
-    return [head] + ([f"  血缘来源：{'、'.join(sources)}"] if sources else [])
+    lines = [head] + ([f"  血缘来源：{'、'.join(sources)}"] if sources else [])
+    return lines + [
+        f"  - {code_set['name']} {code_set['id']}：{_lookup(code_set)}"
+        for code_set in match.get("code_sets") or []
+    ]
 
 
 def _identifier(match: Mapping) -> list[str]:

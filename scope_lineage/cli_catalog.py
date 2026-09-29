@@ -286,6 +286,12 @@ def _write_ontology(catalog, out: Path, lineage=None, tables=None) -> int:
     )
     if "evidence" in document:
         print(f"  evidence: {_evidence_summary(document)}")
+    for code_set_id, gap in (document.get("evidence") or {}).get("code_sets", {}).items():
+        print(
+            f"  warning [lookup_column_missing] {code_set_id}: the table card of {gap['table']} "
+            f"declares no {', '.join(gap['missing_columns'])}",
+            file=sys.stderr,
+        )
     return 0
 
 

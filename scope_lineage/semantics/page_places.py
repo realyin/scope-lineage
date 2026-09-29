@@ -6,6 +6,9 @@ domain -- the catalog wins over the document's own ``concept`` key, which is use
 a table the catalog does not list. The concept link is ``../concepts/<slug>.md``: the
 page ``catalog render`` writes, reached from a directory beside its ``concepts/``.
 
+A table a code set's ``lookup`` names is a dictionary table: its page says whose code
+values it holds, linked to ``../code_sets.md`` (also written by ``catalog render``).
+
 Without an ontology the document's ``concept`` is shown as its id, unlinked, and the
 table's database stands in for the domain. No company's table-name convention is read.
 """
@@ -24,6 +27,7 @@ from ..render.catalog_view import (
 from .names import bare_table
 
 CONCEPTS_HREF = "../concepts"
+CODE_SETS_HREF = "../code_sets.md"
 _KIND_TEXT = dict(REPRESENTATION_KINDS)
 
 
@@ -51,6 +55,7 @@ class Place:
     group: str
     label: str
     concept: Optional[ConceptRef]
+    code_source: Optional[str] = None  # 本表是码值集…的码值来源, for a dictionary table
 
 
 class Places:
@@ -66,12 +71,20 @@ class Places:
     def of(self, document: dict) -> Place:
         table = bare_table(document["table"])
         concept = self._concept(table, document)
+        source = self._code_source(table)
         if concept is not None and concept.href and self.view is not None:
             domain = self.view.concepts[concept.id]["domain"]
             name = self.view.name(domain)
-            return Place((0, domain), name, f"域：{name}", concept)
+            return Place((0, domain), name, f"域：{name}", concept, source)
         database = table.split(".", 1)[0]
-        return Place((1, database), f"库 {database}", f"库：{database}", concept)
+        return Place((1, database), f"库 {database}", f"库：{database}", concept, source)
+
+    def _code_source(self, table: str) -> Optional[str]:
+        code_sets = self.view.code_sets_in(table) if self.view is not None else []
+        if not code_sets:
+            return None
+        links = "、".join(f"[{code_set['name']}]({CODE_SETS_HREF})" for code_set in code_sets)
+        return f"本表是码值集{links}的码值来源"
 
     def _concept(self, table: str, document: dict) -> Optional[ConceptRef]:
         rep = self._reps.get(table)

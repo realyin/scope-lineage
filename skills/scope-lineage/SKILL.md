@@ -567,6 +567,10 @@ scope-lineage catalog render <dir>/ontology.json --out <pages>
   时间属性——`occurred_at` 必须指向事件自己的属性）、新标识符、已有标识符的新拼写都写进目录并校验通过，再写片段。
 - **分组**：按概念分组，每组的表不超过十来张；同一张表只分给一组。给每个子代理的分配写清：组名、本组概念、
   本组的表以及初拟的概念、表现类型、粒度、时间语义（只有一组时由写片段的人自己定，并在 `notes` 里说明）。
+- **码值表（字典表）**：只存码与含义的表不是概念，**不写表现**；给每个码值集写 `lookup`（表、码列、含义列、
+  区分码值集的 `filter` 常量条件、可选的代理键与有效期列），`digest --catalog` 就把它算作「码值来源」而不是缺口。
+  一列按顺序查几个码值集（SQL 里 `coalesce(g1.desc, g2.desc)` 的回退）时，在该列的绑定上写有序的 `code_sets`，
+  顺序与 SQL 一致；码侧表达式（`substr` 后再查）和经映射表的两步翻译写进 `derivation`。
 - **片段**：子代理只写自己的 `<group>.json`，不改目录；每个条目的形状与目录文件相同。自检用
   `catalog merge <catalog-dir> <group>.json --out <scratch>`，退出码 0 才算写完。
 - **合并**：`merge` 按 id（术语按 `term` + `refers_to`，表现按表）去重；同 id 内容不同是**冲突**，后来的不应用，

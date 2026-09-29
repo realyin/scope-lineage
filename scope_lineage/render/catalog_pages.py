@@ -1,10 +1,13 @@
 """``catalog render``: the built ``ontology-json/3`` document as a set of markdown pages.
 
 - ``index.md`` -- the concepts by domain (name, kind, definition, how many tables carry
-  it, status), the identifiers, and a summary of the governance gaps;
+  it, status), the identifiers, the code sets and the tables their values are looked up
+  in, and a summary of the governance gaps;
 - ``concepts/<slug>.md`` -- one page per concept (``catalog_concept_page``): a one-page
   overview in plain Chinese, then the seven detailed sections as its appendix;
 - ``identifiers.md`` -- every identifier in full, with the columns bound to it;
+- ``code_sets.md`` -- every code set: its values, or the table and condition its values
+  are looked up by, the attributes it codes and the columns that consult it, in order;
 - ``governance.md`` -- every gap of every concept, one table per kind of gap;
 - ``scopes.md`` -- every table's record scope grouped by the kind of filter it states,
   and the business rules and value domains that cite a table (``catalog_scopes``).
@@ -22,6 +25,8 @@ from typing import Optional
 
 from .catalog_concept_page import (
     arises_text,
+    code_cell,
+    codes_text,
     mappings_text,
     render_concept_page,
     scope_text,
@@ -37,6 +42,8 @@ from .catalog_view import (
     ONTOLOGY_FORMAT,
     CatalogView,
     concept_filename,
+    fallback_text,
+    lookup_text,
     status_text,
     unconfirmed_guess,
 )
@@ -45,6 +52,7 @@ from .markdown_text import cell, expr_span
 CONCEPTS_DIR = "concepts"
 INDEX_FILENAME = "index.md"
 IDENTIFIERS_FILENAME = "identifiers.md"
+CODE_SETS_FILENAME = "code_sets.md"
 GOVERNANCE_FILENAME = "governance.md"
 
 
@@ -64,6 +72,7 @@ def render_catalog_pages(
     pages = {
         INDEX_FILENAME: render_index(view),
         IDENTIFIERS_FILENAME: render_identifiers(view),
+        CODE_SETS_FILENAME: render_code_sets(view),
         GOVERNANCE_FILENAME: render_governance(view),
         SCOPES_FILENAME: render_scopes(view),
     }
@@ -90,6 +99,7 @@ def render_index(view: CatalogView) -> str:
     for domain_id in sorted(view.domains):
         lines += ["", *_domain_block(view, domain_id)]
     lines += ["", "## 标识符", "", *_identifier_summary(view)]
+    lines += ["", "## 码值集", "", _code_set_summary(view)]
     lines += ["", "## 治理缺口", "", *_gap_summary(view)]
     lines += ["", "## 记录范围与有效性", "", _scope_summary(view)]
     return "\n".join(lines) + "\n"
@@ -203,6 +213,61 @@ def _document_drafted(view: CatalogView) -> tuple[int, int]:
     ]
     flat = [obj for group in objects for obj in group]
     return sum(1 for obj in flat if obj.get("status") == "drafted"), len(flat)
+
+
+def _code_set_summary(view: CatalogView) -> str:
+    """How many code sets, and the tables holding the values of those that are looked up."""
+    tables = [
+        f"{expr_span(table)}（{'、'.join(s['name'] for s in view.code_sets_in(table))}）"
+        for table in view.lookup_tables()
+    ]
+    text = f"{len(view.code_sets)} 个码值集"
+    if tables:
+        text += f"，其中 {sum(len(view.code_sets_in(t)) for t in view.lookup_tables())} 个的取值"
+        text += f"存在码值表里：{'；'.join(tables)}"
+    return f"{text}；逐个说明见 [{CODE_SETS_FILENAME}]({CODE_SETS_FILENAME})。"
+
+
+# ---------------------------------------------------------------- code_sets.md
+
+
+def render_code_sets(view: CatalogView) -> str:
+    lines = ["# 码值集", "", "[返回目录](index.md)"]
+    for code_set_id in sorted(view.code_sets):
+        lines += ["", *_code_set_block(view, view.code_sets[code_set_id])]
+    return "\n".join(lines) + "\n"
+
+
+def _code_set_block(view: CatalogView, code_set: dict) -> list[str]:
+    lines = [f"## {code_set['name']} {expr_span(code_set['id'])}", ""]
+    lines += table_head("项", "内容")
+    lookup = code_set.get("lookup")
+    attributes = "；".join(
+        f"{attribute['name']} {expr_span(attribute['id'])}"
+        f"（{_concept_link(view, view.attributes[attribute['id']][1]['id'])}）"
+        for attribute in view.attributes_coded_by(code_set["id"])
+    )
+    rows = [
+        ("定义", cell(code_set.get("definition") or "—")),
+        ("取值", codes_text(view, code_set["id"]) if code_set["values"] else "—"),
+        ("查找方式", lookup_text(lookup, code_cell) if lookup else "—"),
+        ("使用它的属性", attributes or "（无）"),
+        ("按顺序查它的列", _translated_columns(view, code_set["id"])),
+        ("状态", status_text(code_set)),
+    ]
+    if code_set.get("notes"):
+        rows.append(("备注", cell(code_set["notes"])))
+    return lines + [table_row(name, text) for name, text in rows]
+
+
+def _translated_columns(view: CatalogView, code_set_id: str) -> str:
+    """Each column whose ``code_sets`` names the set, with the order it looks them up in."""
+    parts = [
+        f"{expr_span(rep['table'] + '.' + binding['column'])}"
+        f"（{fallback_text([cell(s['name']) for s in view.translating(binding)])}）"
+        for rep, binding in view.columns_translated_by(code_set_id)
+    ]
+    return "；".join(parts) or "（无）"
 
 
 # -------------------------------------------------------------- identifiers.md
