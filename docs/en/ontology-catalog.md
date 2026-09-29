@@ -176,6 +176,12 @@ code side (`substr(...)` before the lookup) and a two-step translation through a
 table (the code turned into another table's code first, then looked up) are out of its
 scope: write them in the binding's `derivation`.
 
+`lookup` names a **physical code table** (`db.table`) and nothing else. A dictionary defined
+inline in SQL (a `VALUES` CTE, a `CASE` mapping, a literal list) is not a table: write its
+codes as the code set's `values` and name the task that produces it in `evidence`; do not
+give the CTE a name and use it as `lookup.table`. A lookup to a table that does not exist
+would make `catalog query table` answer for a table that is not there.
+
 ### Concept: entity, event, role
 
 `id: concept:<slug>`, `kind`, `name`, `definition`, `domain`, `synonyms?`, `attributes`,
@@ -826,7 +832,7 @@ keeps its form (`.yaml` / `.yml` / `.json`), and a new one takes the form of the
 | `doc_format` | `catalog-fragment/1` (required) | — |
 | `group` | the group name: lower-case letters, digits, `_`, `-` (required) | new representations go to `mapping/<group>.*` |
 | `attributes` | `{"concept:<id>": [attribute, ...]}`, shaped like a concept's `attributes` | the `concepts/` file that declares the concept |
-| `code_sets` | code sets, shaped like the `code_sets` file's items (with `lookup` when the values live in a code table) | `code_sets.*` |
+| `code_sets` | code sets, shaped like the `code_sets` file's items (with `lookup` when the values live in a code table; a dictionary defined inline in a task's `VALUES` / `CASE` is written as `values`, with the task named in `evidence`, never as `lookup`) | `code_sets.*` |
 | `identifiers` | identifiers, shaped like the `identifiers` file's items; only ones that are really missing | `identifiers.*` |
 | `constraints` | constraints, shaped like the `constraints` file's items; only ones with evidence | `constraints.*` |
 | `terms` | terms, shaped like the `terms` file's items | `terms.*` |

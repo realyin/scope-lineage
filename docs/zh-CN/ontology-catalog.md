@@ -159,6 +159,10 @@ code_sets:
 `lookup` 只表达「按码等值去查一张表」。码侧表达式（先 `substr(...)` 再查）、经映射表的两步翻译（先把码换成
 另一张表的码，再查码值表）不在范围内：写进绑定的 `derivation` 文字。
 
+`lookup` 只指**物理码表**（`库.表`）。字典若定义在 SQL 里（`VALUES` CTE、`CASE` 映射、字面量列表），它不是一张表：
+把码写成码值集的 `values`，`evidence` 写生产它的任务名；不要给 CTE 起个名字当 `lookup.table`。
+指向不存在的表会让 `catalog query table` 为一张不存在的表给出答案。
+
 ### 概念：实体、事件、角色
 
 `id: concept:<slug>`、`kind`、`name`、`definition`、`domain`、`synonyms?`、`attributes`，
@@ -744,7 +748,7 @@ schema 的拷贝，有测试保证两者一致），所以合并只搬运条目�
 | `doc_format` | `catalog-fragment/1`（必需） | — |
 | `group` | 组名，小写字母、数字、`_`、`-`（必需） | 新表现写进 `mapping/<group>.*` |
 | `attributes` | `{"concept:<id>": [属性, ...]}`，形状同概念里的 `attributes` | 该概念所在的 `concepts/` 文件 |
-| `code_sets` | 码值集，形状同 `code_sets` 文件里的条目（码值在码值表里时写 `lookup`） | `code_sets.*` |
+| `code_sets` | 码值集，形状同 `code_sets` 文件里的条目（码值在码值表里时写 `lookup`；定义在任务内的 `VALUES` / `CASE` 字典写 `values`，`evidence` 写任务名，不写 `lookup`） | `code_sets.*` |
 | `identifiers` | 标识符，形状同 `identifiers` 文件里的条目；只在确实缺时新增 | `identifiers.*` |
 | `constraints` | 约束，形状同 `constraints` 文件里的条目；只写有证据的 | `constraints.*` |
 | `terms` | 术语，形状同 `terms` 文件里的条目 | `terms.*` |
