@@ -99,6 +99,38 @@ def test_a_source_column_only_in_input_metadata_warns(document: dict, packet: di
     assert "update_ts" in warning["message"]
 
 
+def _upper_case_inputs(packet: dict) -> dict:
+    """``packet`` with its input metadata spelt the way an upper-case schema export has it."""
+    shouted = copy.deepcopy(packet)
+    for item in shouted["inputs"]:
+        item["table"] = item["table"].upper()
+        for column in item["columns"]:
+            column["name"] = column["name"].upper()
+    return shouted
+
+
+def test_a_source_column_only_in_upper_case_input_metadata_warns(
+    document: dict, packet: dict
+) -> None:
+    _column(document, "customer_id")["source_columns"].append(
+        "demo_ods.ods_core_customer_df.update_ts"
+    )
+    report = validate_document(document, _upper_case_inputs(packet))
+    assert _problems(report, "source_columns") == []
+    (warning,) = _problems(report, "source_columns", "warn")
+    assert "update_ts" in warning["message"]
+
+
+def test_an_upper_case_lineage_source_matches_its_reference(document: dict, packet: dict) -> None:
+    shouted = copy.deepcopy(packet)
+    for entry in shouted["lineage"]["columns"]:
+        for producer in entry["producers"]:
+            producer["sources"] = [source.upper() for source in producer["sources"]]
+    report = validate_document(document, shouted)
+    assert _problems(report, "source_columns") == []
+    assert _problems(report, "source_columns", "warn") == []
+
+
 # 3 ------------------------------------------------------------------- code values
 
 

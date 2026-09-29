@@ -75,6 +75,10 @@ CHECK_TEXT = {
     "sources": "来源",
     "digest": "材料包摘要",
     "time": "时间语义",
+    "fan_out": "关联放大",
+    "derived_codes": "派生码值",
+    "documented_meaning": "注释已写明的含义",
+    "header_facts": "头注释事实",
 }
 _TERMINAL = "。！？!?.；;…"
 

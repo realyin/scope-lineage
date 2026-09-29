@@ -321,6 +321,44 @@ def test_a_qualifier_of_a_source_column_must_reach_that_column(
     assert _problems(validate_document(document, packet), "documented_meaning", "warn") == []
 
 
+def _shout_inputs(packet: dict) -> None:
+    """Spell the input metadata the way an upper-case schema export has it."""
+    for item in packet["inputs"]:
+        item["table"] = item["table"].upper()
+        for column in item["columns"]:
+            column["name"] = column["name"].upper()
+
+
+def test_an_upper_case_source_comment_still_explains_a_value(
+    document: dict, packet: dict
+) -> None:
+    _source_column(packet, "verify_flag")["comment"] = "实名标志 0-未实名 1-已实名"
+    _shout_inputs(packet)
+    code = _column(document, "verify_status")["code_values"][1]
+    code.update(meaning="待确认", unconfirmed=True)
+    (problem,) = _problems(validate_document(document, packet), "documented_meaning")
+    assert problem["at"] == "columns[4].code_values[1]"
+
+
+def test_a_qualifier_of_an_upper_case_source_column_must_reach_that_column(
+    document: dict, packet: dict
+) -> None:
+    _source_column(packet, "register_ts")["comment"] = "冲正后的注册时间戳"
+    _shout_inputs(packet)
+    (warning,) = _problems(validate_document(document, packet), "documented_meaning", "warn")
+    assert warning["at"] == "columns[3]"
+
+
+def test_a_value_confirmed_on_an_upper_case_source_column_needs_no_text(
+    document: dict, packet: dict
+) -> None:
+    _source_column(packet, "gender")["confirmed_values"] = [{"value": "X", "meaning": "Other"}]
+    _shout_inputs(packet)
+    _column(document, "gender_cd")["code_values"].append(
+        {"value": "X", "meaning": "Other", "sources": ["confirmed"]})
+    assert _problems(validate_document(document, packet), "code_values") == []
+
+
 def test_one_qualifier_over_several_columns_is_one_warning_naming_them(
     document: dict, packet: dict
 ) -> None:

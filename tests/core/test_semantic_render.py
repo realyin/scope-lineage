@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from scope_lineage.render.catalog_pages import render_catalog_pages
-from scope_lineage.semantics import render_semantic_pages
+from scope_lineage.semantics import CHECKS, render_semantic_pages
 
 from .table_semantics_demo import (
     CONFIRMATIONS,
@@ -276,6 +276,21 @@ def test_the_validation_section_lists_every_failure_and_warning(pages: dict) -> 
         "rule_refs 引用它 |"
     )
     assert len([line for line in section.splitlines() if line.startswith("| — | 警告 |")]) == 2
+
+
+def test_every_check_has_a_chinese_label_on_the_page(validation: dict) -> None:
+    report = copy.deepcopy(validation)
+    table = report["tables"][0]
+    table["failures"] = [
+        {"check": check, "status": "warn", "at": "summary", "message": "说明"} for check in CHECKS
+    ]
+    page = render_semantic_pages(_documents(), validation=report)[f"{WAIVER}.md"]
+    labels = re.findall(r"^\| — \| 警告 \| (.+?) \|", _section(page, "校验"), flags=re.MULTILINE)
+    assert labels == [
+        "1 字段覆盖", "2 来源列", "3 码值", "4 粒度", "5 规则", "6 上下游", "7 来源",
+        "8 材料包摘要", "9 时间语义", "10 关联放大", "11 派生码值", "12 注释已写明的含义",
+        "13 头注释事实",
+    ]
 
 
 def test_a_clean_table_says_so(pages: dict) -> None:
