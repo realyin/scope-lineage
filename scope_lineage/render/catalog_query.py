@@ -201,6 +201,8 @@ def _column(view: CatalogView, rep: dict, binding: dict) -> dict:
         answer.update(ref=binding["ref"], ref_name=view.name(binding["ref"]))
     if binding["to"] == "foreign_attribute":
         answer.update(via=binding["via"], concept=_owner(view, binding["ref"]))
+        if view.other_instance_concept(rep, binding):
+            answer["other_instance"] = True
     if binding.get("self_reference"):
         owner = _owner(view, binding["ref"]) or {}
         answer["self_reference"] = True

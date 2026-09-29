@@ -24,6 +24,7 @@ from .catalog_view import (
     fallback_text,
     lookup_text,
     status_text,
+    via_text,
 )
 
 REP_KIND_TEXT = dict(REPRESENTATION_KINDS)
@@ -156,7 +157,8 @@ def _column_text(column: Mapping) -> str:
     if column.get("ref"):
         text += f" {column['ref_name']} {column['ref']}"
     if column["to"] == "foreign_attribute":
-        text += f" of {column['concept']['name']}（经 {column['via']}）"
+        other = column["concept"] if column.get("other_instance") else None
+        text += f" of {column['concept']['name']}" + via_text(column["via"], other)
     elif column.get("concept"):
         text += f"（概念 {column['concept']['name']}）"
     if column.get("self_reference"):

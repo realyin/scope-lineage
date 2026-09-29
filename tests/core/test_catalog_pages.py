@@ -22,7 +22,9 @@ from .catalog_demo import (
     DEMO,
     LOAN_TABLE,
     SECOND_SELF_RELATION,
+    add_a_players_self_reference,
     add_second_self_relation,
+    bind_another_instances_attribute,
     copy_demo,
     demo_tables,
     parse_demo_corpus,
@@ -254,6 +256,57 @@ def test_a_denormalised_column_is_listed_on_the_owning_concepts_page(pages: dict
     row = _row(pages["concepts/customer.md"], "性别 `attr:customer.gender`")
 
     assert "`demo_dwd.dwd_lending_loan_df.customer_gender_cd` 冗余（经 `customer_id`）" in row
+
+
+@pytest.fixture(scope="module")
+def other_instance_pages(tmp_path_factory) -> dict:
+    """The demo plus two columns repeating another instance's attribute: the loan
+    table's ``orig_loan_status`` (via ``orig_loan_no``) and the borrower role view's
+    ``referrer_attr``, the player's gender via ``referrer_customer_id``."""
+    root = copy_demo(tmp_path_factory.mktemp("other_instance"))
+    bind_another_instances_attribute(root)
+    add_a_players_self_reference(root, "attr:customer.gender")
+    return render_catalog_pages(build_ontology(load_catalog(root)))
+
+
+def test_another_instances_attribute_is_marked_so_on_the_concepts_page(
+    other_instance_pages: dict,
+) -> None:
+    loan = other_instance_pages["concepts/loan.md"]
+    row = _row(loan, "借据状态 `attr:loan.loan_status`")
+
+    assert (
+        "`demo_dwd.dwd_lending_loan_df.orig_loan_status` 冗余（同一借据的另一条记录，"
+        "经 `orig_loan_no`）" in row
+    )
+    assert "`demo_dwd.dwd_lending_loan_df.loan_status`（码值映射" in row
+    # A self relation is carried by the identifier column, not by the repeated attribute.
+    assert "orig_loan_status" not in loan.split("### A5 ")[1]
+
+
+def test_a_players_attribute_of_another_player_is_marked_on_the_players_page(
+    other_instance_pages: dict,
+) -> None:
+    row = _row(other_instance_pages["concepts/customer.md"], "性别 `attr:customer.gender`")
+
+    assert (
+        "`demo_dwd.dwd_lending_borrower_df.referrer_attr` 冗余（同一客户的另一条记录，"
+        "经 `referrer_customer_id`）" in row
+    )
+    assert "`demo_dwd.dwd_lending_loan_df.customer_gender_cd` 冗余（经 `customer_id`）" in row
+
+
+def test_governance_marks_another_instances_attribute_in_the_denormalised_list(
+    other_instance_pages: dict,
+) -> None:
+    section = other_instance_pages["governance.md"].split("## 冗余属性列（按表）")[1]
+
+    assert (
+        "| `demo_dwd.dwd_lending_loan_df` | 2 | `customer_gender_cd`：客户.性别（经 `customer_id`）；"
+        "`orig_loan_status`：借据.借据状态（同一借据的另一条记录，经 `orig_loan_no`） |"
+        in section
+    )
+    assert "同一概念另一条记录的属性" in section.split("|")[0]
 
 
 def test_derivation_prefers_the_hand_written_one_and_labels_lineage(pages: dict) -> None:

@@ -16,7 +16,9 @@ from scope_lineage.catalog import load_catalog, validate_catalog
 from .catalog_demo import (
     DEMO,
     SECOND_SELF_RELATION,
+    add_a_players_self_reference,
     add_second_self_relation,
+    bind_another_instances_attribute,
     copy_demo,
     item,
     mutate,
@@ -347,6 +349,18 @@ REFERENCE_CASES = {
         "mapping/lending.yaml",
         lambda d: _binding(d, LOAN_DF, "customer_gender_cd").update(ref="attr:loan.principal"),
     ),
+    "binding_foreign_attribute: own concept's via this row's identifier": (
+        "mapping/lending.yaml",
+        lambda d: _binding(d, LOAN_DF, "customer_gender_cd").update(
+            ref="attr:loan.principal", via="loan_no"
+        ),
+    ),
+    "binding_foreign_attribute: own concept's via a column that is no identifier": (
+        "mapping/lending.yaml",
+        lambda d: _binding(d, LOAN_DF, "customer_gender_cd").update(
+            ref="attr:loan.principal", via="principal_amt"
+        ),
+    ),
     "binding_foreign_attribute: unknown": (
         "mapping/lending.yaml",
         lambda d: _binding(d, LOAN_DF, "customer_gender_cd").update(ref="attr:customer.ghost"),
@@ -506,6 +520,44 @@ def test_naming_every_self_referencing_column_silences_the_warning(tmp_path: Pat
 
     assert report.errors == []
     assert rules(report.warnings) == ["drafted_ratio", "unmapped_binding"]
+
+
+def test_an_own_attribute_of_another_instance_binds_via_the_self_reference(
+    tmp_path: Path,
+) -> None:
+    """``orig_loan_status`` repeats the renewed loan's status next to ``orig_loan_no``."""
+    root = copy_demo(tmp_path)
+    bind_another_instances_attribute(root)
+
+    report = _validate(root)
+
+    assert report.errors == [], [error.message for error in report.errors]
+
+
+def test_a_role_view_binds_another_players_attribute_via_the_players_self_reference(
+    tmp_path: Path,
+) -> None:
+    root = copy_demo(tmp_path)
+    add_a_players_self_reference(root, "attr:customer.gender")
+
+    report = _validate(root)
+
+    assert report.errors == [], [error.message for error in report.errors]
+
+
+def test_a_role_attribute_is_not_another_instances_through_the_players_identifier(
+    tmp_path: Path,
+) -> None:
+    """The other customer need not play the role: its credit limit is not on record."""
+    root = copy_demo(tmp_path)
+    add_a_players_self_reference(root, "attr:borrower.credit_limit")
+
+    report = _validate(root)
+
+    assert rules(report.errors) == ["binding_foreign_attribute"]
+    assert [error.at for error in report.errors] == [
+        "demo_dwd.dwd_lending_borrower_df.referrer_attr"
+    ]
 
 
 def test_a_subtype_may_list_its_supertypes_identifier() -> None:

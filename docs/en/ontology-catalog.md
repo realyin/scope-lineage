@@ -176,6 +176,12 @@ code side (`substr(...)` before the lookup) and a two-step translation through a
 table (the code turned into another table's code first, then looked up) are out of its
 scope: write them in the binding's `derivation`.
 
+`lookup` names a **physical code table** (`db.table`) and nothing else. A dictionary defined
+inline in SQL (a `VALUES` CTE, a `CASE` mapping, a literal list) is not a table: write its
+codes as the code set's `values` and name the task that produces it in `evidence`; do not
+give the CTE a name and use it as `lookup.table`. A lookup to a table that does not exist
+would make `catalog query table` answer for a table that is not there.
+
 ### Concept: entity, event, role
 
 `id: concept:<slug>`, `kind`, `name`, `definition`, `domain`, `synonyms?`, `attributes`,
@@ -324,7 +330,7 @@ A binding's `to` says what the column is:
 | `attribute` | required | an attribute of the represented concept (a role view may also bind its player's) |
 | `identifier` | required | an identifier of the represented concept (a role view may also bind its player's) |
 | `foreign_identifier` | required | another concept's identifier — a relation, physically; or the represented concept's own identifier (another instance of the same concept), provided the catalog has a relation whose two ends are that concept; an optional `relation: rel:<id>` names the relation this column realises |
-| `foreign_attribute` | required | an attribute of another concept X, repeated on this row (a wide table); `via` is required and names the column of this table bound as `foreign_identifier` to an identifier of X |
+| `foreign_attribute` | required | an attribute of another concept X, repeated on this row (a wide table); `via` is required and names the column of this table bound as `foreign_identifier` to an identifier of X. It may also be the represented concept's own attribute, but only another record's of the same concept: the `via` column must be bound as `foreign_identifier` to an identifier of the concept the attribute belongs to (the self-referencing column of the row above); in a role view, a column holding the player's identifier carries the player's attributes this way, never the role's |
 | `technical` | none | partition, load time, surrogate keys |
 | `unmapped` | none | not decided yet (warned about) |
 
@@ -458,7 +464,7 @@ directory, no manifest, YAML without PyYAML).
 | `binding_foreign_identifier` | `ref` is not an identifier at all (or does not exist) |
 | `self_reference_without_relation` | the identifier is the represented concept's own, and no relation has that concept at both ends |
 | `binding_relation` | a binding's `relation` is not a relation (or does not exist); its ends are not the table's concept and the concept `ref` identifies; or the column is self-referencing and the relation does not run from its concept to itself |
-| `binding_foreign_attribute` | `ref` is not an attribute, or is the represented concept's own (for a role view, or its player's) — bind that as `attribute` |
+| `binding_foreign_attribute` | `ref` is not an attribute; or it is the represented concept's own (for a role view, or its player's) while the `via` column is not a `foreign_identifier` naming another record of the attribute's concept — this row's own attribute is bound as `attribute` |
 | `binding_foreign_attribute_via` | `via` is not a column of this table, that column is not a `foreign_identifier`, or the identifier it holds does not identify the attribute's concept |
 | `binding_code_set` | an entry of a binding's `code_sets` is not a code set |
 
@@ -735,7 +741,7 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 | `concepts/<slug>.md` | one page per concept (`concept:fee_waiver` → `fee_waiver.md`): a one-page overview, then seven sections as its appendix |
 | `identifiers.md` | every identifier in full, with the columns bound to it |
 | `code_sets.md` | every code set: its values, or the table and condition to look them up by (`lookup`); the attributes it codes; the columns whose `code_sets` consult it, in their order |
-| `governance.md` | every gap of every concept, one list per kind of gap; the code values whose meaning is not confirmed; plus the denormalised columns per table (informational, not a gap) |
+| `governance.md` | every gap of every concept, one list per kind of gap; the code values whose meaning is not confirmed; plus the denormalised columns per table (informational, not a gap; those repeating another record of the same concept are marked so) |
 | `scopes.md` | every table's record scope grouped by the kind of filter it states; the tables declaring none; the business rules and value domains that cite a table |
 
 A concept page opens with one line naming the kind, the domain and the page's drafted share,
@@ -766,7 +772,7 @@ has a 编号 row with the concept id):
 | A1 定义与身份 | definition, kind, status, synonyms; identifiers (arising condition, uniqueness scope, physical spellings, mappings); the state machine (values, transition events); an event's participants, a role's player, context and condition |
 | A2 数据清单 | the tables, grouped by representation kind (核心, 扩展, 从属, 事件明细, 状态历史, 标识映射, 角色视图, 汇总, 中间): a note (the table card's comment, the representation's `notes`), grain (identifiers, source, and what lineage proves), time semantics and how to read by them (a snapshot 「按单个 dt 分区取数」, a zipper by its validity window), refresh, record scope, producing tasks, deprecation and replacement; one hop of lineage per table |
 | A3 带本概念标识的表 | every column, in the tables of any concept, binding one of this concept's identifiers as `identifier` or `foreign_identifier`: table, the table's concept, column, identifier, and how (a self reference is marked). A concept with no table of its own still shows where it can be joined in; a role has no identifier of its own and points to its player |
-| A4 属性 | by category (描述, 状态, 度量, 时间): definition, type and unit, code values (value=meaning; for values in a code table, how to look them up), every table column that holds it (with its code map; a column consulting code sets in order reads 「先查 A，查不到查 B」, look in A, then B; one another table repeats is marked 「冗余（经 via column）」), how it is derived |
+| A4 属性 | by category (描述, 状态, 度量, 时间): definition, type and unit, code values (value=meaning; for values in a code table, how to look them up), every table column that holds it (with its code map; a column consulting code sets in order reads 「先查 A，查不到查 B」, look in A, then B; one another table repeats is marked 「冗余（经 via column）」, one repeated from another record of the same concept 「冗余（同一<concept>的另一条记录，经 via column）」), how it is derived |
 | A5 关系 | association, composition and generalization read from this concept's side, with cardinality and JOIN count (a self relation's far end reads 「本概念」 with the columns that carry it — a column naming a `relation` only under that one, a column naming none under every self relation — and one with an `inverse_name` reads both ways); JOINs inside a producing task (`source_joins`), when there are any, as 「生产任务内连接 N 次（如 …，填 <foreign key column>）」, apart from the JOIN count; when the count is 0 or could not be taken, what the catalog itself shows: the tables holding both ends (representing one or binding its identifier; a role through its player's identifiers; a self relation only through a self-referencing column realising it) and the relation's `evidence`; the events it takes part in (its role, how many tables the event has); the roles it plays, or — on a role's page — the player it belongs to |
 | A6 约束 | the constraints on the concept, its attributes, identifiers and relations, by kind, with strength and status |
 | A7 治理缺口 | drafted share, unmapped columns, attributes no table holds, state or coded attributes without values, whether the concept has any table; with evidence also the conflicts, bound columns nobody uses and relations no JOIN backs |
@@ -802,7 +808,7 @@ scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_l
 | --- | --- | --- |
 | `concept` | id, name, synonym or term | identity, identifiers, attributes, states, tables, the page to read, and the concept page's one-page overview (`overview`, the same fields as the page) |
 | `table` | `db.table` (a catalog prefix is ignored) | the concept it carries, its time semantics and how to read by them (`usage`), the table comment and `notes`, its record scope, the business rules and value domains citing it (`constraints`), and what every bound column points at, with evidence; a denormalised column reads `→ 冗余属性 <attribute> of <concept>（经 <via>）`, a self-referencing one names its relation; for a code table (one a code set's `lookup` names), the code sets it holds and how each is looked up (`code_sets`), and when the table is also represented, the representation's answer gains `code_sets`; exit code `0` |
-| `column` | `db.table.column` | the attribute or identifier it holds and its concept (a column with `code_sets` lists them in order, each with how it is looked up) — or, in a code table, what kind of column it is (code, meaning, surrogate key, filter, validity: `role`) and which code sets it serves — or the identifier it spells; a self-referencing column carries `self_relations` (the self relations it realises: the one its `relation` names, or all of them) |
+| `column` | `db.table.column` | the attribute or identifier it holds and its concept (a denormalised attribute with its `via`, plus `other_instance: true` when it is another record's of the same concept; a column with `code_sets` lists them in order, each with how it is looked up) — or, in a code table, what kind of column it is (code, meaning, surrogate key, filter, validity: `role`) and which code sets it serves — or the identifier it spells; a self-referencing column carries `self_relations` (the self relations it realises: the one its `relation` names, or all of them) |
 | `identifier` | id, name or physical spelling | what it identifies, its scope and spellings, the columns bound to it |
 | `attribute` | id, name or term | its concept, code values (with a `lookup`, `code_set` also carries how and in which table to look them up), derivation and every table column |
 | `related` | a concept's id, name, synonym or term | one hop: relations read from its side (a self relation with an `inverse_name` both ways), events, participants, roles, player, tables, and the tables carrying its identifiers (`carriers`); every relation and event carries `carried_together` (the tables holding both ends) and `evidence`, printed when no JOIN backs it; with JOINs inside a producing task also `source_joins` (the count), printed as 「生产任务内连接 N 次」 apart from `joins` |
@@ -874,7 +880,7 @@ keeps its form (`.yaml` / `.yml` / `.json`), and a new one takes the form of the
 | `doc_format` | `catalog-fragment/1` (required) | — |
 | `group` | the group name: lower-case letters, digits, `_`, `-` (required) | new representations go to `mapping/<group>.*` |
 | `attributes` | `{"concept:<id>": [attribute, ...]}`, shaped like a concept's `attributes` | the `concepts/` file that declares the concept |
-| `code_sets` | code sets, shaped like the `code_sets` file's items (with `lookup` when the values live in a code table) | `code_sets.*` |
+| `code_sets` | code sets, shaped like the `code_sets` file's items (with `lookup` when the values live in a code table; a dictionary defined inline in a task's `VALUES` / `CASE` is written as `values`, with the task named in `evidence`, never as `lookup`) | `code_sets.*` |
 | `identifiers` | identifiers, shaped like the `identifiers` file's items; only ones that are really missing | `identifiers.*` |
 | `constraints` | constraints, shaped like the `constraints` file's items; only ones with evidence | `constraints.*` |
 | `terms` | terms, shaped like the `terms` file's items | `terms.*` |

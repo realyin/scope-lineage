@@ -19,6 +19,7 @@ from .catalog_demo import (
     DEMO,
     SECOND_SELF_RELATION,
     add_second_self_relation,
+    bind_another_instances_attribute,
     copy_demo,
     item,
     mutate,
@@ -223,6 +224,26 @@ def test_the_schema_allows_relation_only_on_a_foreign_identifier(demo: dict) -> 
 
     with pytest.raises(jsonschema.ValidationError):
         validate_ontology_document(broken)
+
+
+def test_another_instances_attribute_carries_its_via(tmp_path: Path) -> None:
+    """Only the via column is a self reference; the attribute column stays as written."""
+    root = copy_demo(tmp_path)
+    bind_another_instances_attribute(root)
+
+    document = build_ontology(load_catalog(root))
+
+    assert _loan_binding(document, "orig_loan_status") == {
+        "column": "orig_loan_status",
+        "to": "foreign_attribute",
+        "ref": "attr:loan.loan_status",
+        "via": "orig_loan_no",
+        "status": "confirmed",
+        "source": "sql",
+        "evidence": [],
+    }
+    assert _loan_binding(document, "orig_loan_no")["self_reference"] is True
+    assert ontology_findings(document) == []
 
 
 def test_the_schema_requires_via_on_a_foreign_attribute(demo: dict) -> None:
