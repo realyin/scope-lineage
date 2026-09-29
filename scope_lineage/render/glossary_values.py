@@ -416,8 +416,8 @@ def _qualify_labels(
 def _catch_all_else(rule: Mapping) -> bool:
     """Whether this CASE's ELSE is a class of its own rather than a default (Q1b).
 
-    ``ELSE '委外'`` gives every value with no branch of its own a name, which makes the
-    CASE a two-sided classification: ``THEN '自营'`` is one side of it, not the meaning
+    ``ELSE '线下'`` gives every value with no branch of its own a name, which makes the
+    CASE a two-sided classification: ``THEN '线上'`` is one side of it, not the meaning
     of the code the branch tested. ``ELSE NULL`` (no name at all) and ``ELSE gap`` (the
     row's own value) classify nothing and are left alone.
     """
@@ -1374,7 +1374,7 @@ def _sorting_systems(entries: Sequence[Mapping], observed: set) -> set[str]:
     Two shapes, one conclusion. A system with a branch several values wide is bucketing
     them (P5b). Q1b adds the one a reader cannot see in any single branch: a system whose
     ELSE is a label of its own has already named every value it gave no branch to, so
-    the whole CASE is a classification -- ``CASE WHEN col = 'X' THEN '自营' ELSE '委外'
+    the whole CASE is a classification -- ``CASE WHEN col = 'X' THEN '线上' ELSE '线下'
     END`` sorts the column into two classes and defines neither code.
 
     Unless it gave EVERY observed value of the column a branch of its own: then the ELSE
@@ -2138,8 +2138,8 @@ def askable_value(entry: Mapping) -> bool:
     - a switch the column's OWN comment enumerates is not trivial. ``Y``/``N`` answers
       "yes or no" only until somebody writes down which is which, and once they have,
       this is the cheapest row in the form -- it closes by reading;
-    - a value that is already Chinese prose answers itself. Nobody can define 委外
-      beyond writing 委外 again, so it is published in the dictionary (it IS a value the
+    - a value that is already Chinese prose answers itself. Nobody can define 线下
+      beyond writing 线下 again, so it is published in the dictionary (it IS a value the
       corpus compares against) and left out of the form.
 
     A bare number and a date literal are the other two nobody defines: ``rn = 1`` is a
@@ -2163,7 +2163,7 @@ def _enumerated_by_comment(entry: Mapping) -> bool:
 def _self_describing(value: str) -> bool:
     """A value that is its own meaning: CJK prose with no code-shaped part in it.
 
-    ``委外`` and ``触达成功`` are words, not codes. ``A1`` and ``SF_S1_1_1`` are codes
+    ``线下`` and ``已放款`` are words, not codes. ``A1`` and ``SF_S1_1_1`` are codes
     whatever else they are, and a single character (``男``) is too short to be prose --
     both stay askable, because a wrong exclusion here is a question nobody gets asked.
     """

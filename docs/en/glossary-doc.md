@@ -355,7 +355,7 @@ Other rules:
      those three codes share a bucket, not what any one of them means. It may also carry
      `conditional: true` with a `condition` (Q1b): **another branch of the same CASE tested
      this value beside a second predicate** (`WHEN col = 'v' AND report_dt >= '20260101'
-     THEN '自营'`, followed by a plain `WHEN col = 'v' THEN '外包'`). The compound branch
+     THEN '线上'`, followed by a plain `WHEN col = 'v' THEN '线下'`). The compound branch
      labels the combination and produces no observation, so the plain one used to print as
      a clean one-to-one translation -- it is the second half of a two-part rule. **Every**
      candidate that CASE gives the value is then marked `conditional: true`, `condition`
@@ -366,8 +366,8 @@ Other rules:
   A candidate also carries `single_branch: true` when `fan_out` is 1 but the labelling
   system it came from is **sorting** rather than translating -- either because it buckets
   the column's **other** values (Q1), or because its **ELSE is a label of its own** (Q1b).
-  `CASE WHEN col = 'X' THEN '自营' ELSE '委外' END` splits the column into two classes and
-  the ELSE covers every other value, so `自营` is one side of a classification rather than
+  `CASE WHEN col = 'X' THEN '线上' ELSE '线下' END` splits the column into two classes and
+  the ELSE covers every other value, so `线上` is one side of a classification rather than
   the meaning of `X`. Only the ELSE decides: a **scalar constant that is not `NULL`**
   classifies (`ELSE NULL` says the other values have no label at all, `ELSE gap` is the
   row's own value). The exception: when that system gives **every observed value of the
@@ -447,7 +447,7 @@ reason.
 | No switches | `Y` / `N` / `yes` / `no` / `true` / `false` (case-insensitively) answer "yes or no", which the reader already knows -- **unless the column's own comment enumerates the value** (P5b, it carries a `comment_enum` candidate): which is which has then been written down, and the row closes by reading |
 | No bare numbers | `rn = 1` and `flag = 0` are positions and switches -- **excluded even inside a proven closed set**, because `IN (0, 1, 2)` only pins a position to a set. The same exception applies: `0-未生效，1-生效` in the comment makes them askable |
 | No date-shaped literals | `'20260814'` is an instance date, not a code (see `instance_date` in the semantic doc) |
-| No self-describing values | `委外` and `触达成功` are already words, and defining one means writing it again (P5b): a value of **two or more CJK characters with no `[0-9A-Za-z_]` in it** is published in the dictionary but left out of the form, while mixed values like `SF_S1_1_1` and `A1` stay askable |
+| No self-describing values | `线下` and `已放款` are already words, and defining one means writing it again (P5b): a value of **two or more CJK characters with no `[0-9A-Za-z_]` in it** is published in the dictionary but left out of the form, while mixed values like `SF_S1_1_1` and `A1` stay askable |
 | No column left with fewer than two values | One value is not a code system, and the answer describes no set -- a statement about what earns a place in the form, not about what may be asked, so the uncapped form (`--template-top 0`) keeps them (WI-D) |
 | Nothing already confirmed | A value whose `meaning` already carries text is not asked twice |
 

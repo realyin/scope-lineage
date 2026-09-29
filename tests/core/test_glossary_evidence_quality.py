@@ -20,8 +20,8 @@ where the layer advertised evidence it did not have:
    'CC') THEN '进行中'`` says those three values fall in one bucket; it does not say what
    any one of them means, and publishing 进行中 as each value's candidate invites exactly
    that mistake;
-5. **a value that is already Chinese prose was asked about.** Nobody can define 委外
-   beyond writing 委外 again, so it is published in the dictionary and left out of the
+5. **a value that is already Chinese prose was asked about.** Nobody can define 线下
+   beyond writing 线下 again, so it is published in the dictionary and left out of the
    form.
 
 Each section below carries its negative: the shape that must NOT take the new route.
@@ -282,10 +282,10 @@ def test_a_label_several_values_share_is_published_as_a_bucket() -> None:
 
 
 def test_a_chinese_prose_value_is_published_but_never_asked_about() -> None:
-    glossary = _in_list_glossary(None, "委外", "触达成功", column="channel")
+    glossary = _in_list_glossary(None, "线下", "已放款", column="channel")
     template = build_overrides_template(glossary, top=0)
 
-    assert {item["value"] for item in glossary["values"]} == {"委外", "触达成功"}
+    assert {item["value"] for item in glossary["values"]} == {"线下", "已放款"}
     assert template["values"] == {}
     assert template["generated"]["excluded_values"] == 2
     assert "个开关/数字/日期/中文自述型取值" in render_overrides_template_markdown(

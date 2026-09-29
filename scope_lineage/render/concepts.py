@@ -376,7 +376,7 @@ NAME_FILTER_WORDS = (
 )
 #: K2c: the period a junk candidate opens with, as much of it as there is. What is left
 #: after it -- and after the filters and the measure -- is the phrase the comment was
-#: naming all along: 「2月时段队列欠款」 was never about 2月, it was about 队列.
+#: naming all along: 「2月时段合同欠款」 was never about 2月, it was about 合同.
 _PERIOD_HEAD_RE = re.compile(
     r"\A(?:\d+[年月日号周]?|本月|当月|上月|本年|当年|本期|当期|当日|昨日|今日|时段|期间)+"
 )
@@ -1387,8 +1387,8 @@ def _recovered_name(ranked: Sequence[dict]) -> dict | None:
     """The Chinese phrase hiding inside a junk candidate, when the stem would win (K2c).
 
     Only when every candidate but the stem was ranked junk, because otherwise a real
-    name already won. 「2月时段队列欠款」 was never about 2月 and never about the 欠款: take
-    the period, the filters and the measure off and 队列 is what the comment was naming.
+    name already won. 「2月时段合同欠款」 was never about 2月 and never about the 欠款: take
+    the period, the filters and the measure off and 合同 is what the comment was naming.
     The shortest one wins -- the least this layer can claim the comment said -- and the
     comment it came out of keeps its own place in the evidence, junk reason and all.
     """

@@ -563,13 +563,13 @@ one 「已到期…」 table comment no longer outvote the single key column com
 It is still published, because it is genuinely evidence about those members; it is only
 not the concept's name.
 
-**When the stem is all that is left, one more look** (K2c). A stem like `queue` or `key`
+**When the stem is all that is left, one more look** (K2c). A stem like `cntr` or `key`
 is the warehouse's spelling, not a business word. When the first candidate's source is
 `key_stem`, every junk candidate is read again with its period head, its filter words
 and its measure tail taken off; among the results that still hold **two or more Chinese
 characters and are no longer junk**, the **shortest** goes to the head of the candidates
 and becomes `name`, keeping the source and `name_evidence` of the candidate it came out
-of. 「2月时段队列欠款」 was never about 2月 and never about the 欠款: it was about 队列. The
+of. 「2月时段合同欠款」 was never about 2月 and never about the 欠款: it was about 合同. The
 comment it was recovered from stays in the list with its `junk_reason` -- it is evidence,
 not a mistake.
 
