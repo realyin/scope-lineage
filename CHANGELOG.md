@@ -69,6 +69,19 @@
   the fragment prompt say so.
 
 ### Fixed
+- **A column repeating another record's attribute of the same concept can be bound.** A
+  table holding another instance of its own concept (a `foreign_identifier` under a self
+  relation) often repeats that instance's attributes next to it; `validate` rejected
+  `foreign_attribute` of the represented concept's own attribute whatever `via` said
+  (`binding_foreign_attribute`), so drafters invented duplicate attributes. It is now
+  accepted exactly when the `via` column is bound as `foreign_identifier` to an identifier
+  of the concept the attribute belongs to; everything else is rejected as before --
+  including a role's attribute via a column holding the player's identifier (the other
+  player need not play the role) and a `via` naming this row's own `identifier`. Concept
+  pages (A4), `governance.md` and `catalog query` mark such a column 「冗余（同一<概念>的另一条
+  记录，经 <列>）」, and the column answer carries `other_instance: true`. `ontology.json` is
+  unchanged in form; a catalog without such a binding builds and renders byte for byte as
+  before.
 - **A self relation reads both ways on the pages and in `catalog query related`.** A
   relation whose `from` and `to` are the same concept always read with its `name`, so its
   `inverse_name` never appeared anywhere. With an `inverse_name`, the concept overview's

@@ -199,6 +199,48 @@ def test_the_table_text_shows_denormalised_and_self_referencing_columns(document
     assert "  - orig_loan_no → 外部标识符 借据号 id:loan_no（自关联：renews rel:loan_renews_loan）" in text
 
 
+@pytest.fixture(scope="module")
+def other_instance(tmp_path_factory) -> dict:
+    """The demo plus ``orig_loan_status``: the renewed loan's status, via ``orig_loan_no``."""
+    from scope_lineage.catalog import build_ontology, load_catalog
+
+    from .catalog_demo import bind_another_instances_attribute, copy_demo
+
+    root = copy_demo(tmp_path_factory.mktemp("other_instance"))
+    bind_another_instances_attribute(root)
+    return build_ontology(load_catalog(root))
+
+
+def test_another_instances_attribute_says_so_in_the_column_answer(other_instance: dict) -> None:
+    match = _one(other_instance, "column", "demo_dwd.dwd_lending_loan_df.orig_loan_status")
+
+    assert (match["to"], match["ref"], match["via"]) == (
+        "foreign_attribute",
+        "attr:loan.loan_status",
+        "orig_loan_no",
+    )
+    assert match["concept"] == {"id": "concept:loan", "name": "借据"}
+    assert match["other_instance"] is True
+    assert "other_instance" not in _one(
+        other_instance, "column", "demo_dwd.dwd_lending_loan_df.customer_gender_cd"
+    )
+
+
+def test_another_instances_attribute_in_the_table_and_attribute_text(
+    other_instance: dict,
+) -> None:
+    line = (
+        "orig_loan_status → 冗余属性 借据状态 attr:loan.loan_status of 借据"
+        "（同一借据的另一条记录，经 orig_loan_no）"
+    )
+    table = render_query_text(query_catalog(other_instance, "table", "demo_dwd.dwd_lending_loan_df"))
+    attribute = render_query_text(query_catalog(other_instance, "attribute", "attr:loan.loan_status"))
+
+    assert f"  - {line}" in table
+    assert f"  - demo_dwd.dwd_lending_loan_df.{line}" in attribute
+    assert "customer_gender_cd → 冗余属性 性别 attr:customer.gender of 客户（经 customer_id）" in table
+
+
 def test_a_self_referencing_column_names_its_relation(document: dict) -> None:
     match = _one(document, "column", "demo_dwd.dwd_lending_loan_df.orig_loan_no")
 
