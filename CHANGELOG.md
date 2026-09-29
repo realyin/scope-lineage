@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Fixed
+- **`catalog merge` no longer needs PyYAML to merge into a JSON catalog.** A file the
+  catalog did not have yet (`constraints`, `mapping/<group>`) was always created as `.yaml`,
+  so merging into an all-JSON catalog without PyYAML crashed on `import yaml`. New files now
+  take the manifest's form (`catalog.json` → `.json`).
 - **`semantic validate` check 2 compares source columns case-insensitively.** A
   `source_columns` reference was lower-cased, but the lineage sources and the input
   metadata it was compared with were taken as written, so with upper-case input metadata a

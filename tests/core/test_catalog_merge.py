@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 from scope_lineage.catalog import load_catalog, merge_fragments
@@ -327,6 +328,41 @@ def test_a_missing_top_level_file_is_created(tmp_path: Path) -> None:
 
     constraints = read_file(out / "constraints.yaml")["constraints"]
     assert [c["id"] for c in constraints] == ["cons:disbursed_amount_positive"]
+
+
+def _json_demo(tmp_path: Path) -> Path:
+    """The demo catalog with every file rewritten as JSON, the manifest included."""
+    base = copy_demo(tmp_path)
+    for path in sorted(base.rglob("*.yaml")):
+        path.with_suffix(".json").write_text(
+            json.dumps(read_file(path), ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        path.unlink()
+    return base
+
+
+def test_a_json_catalog_gets_json_files_and_never_needs_pyyaml(
+    tmp_path: Path, monkeypatch
+) -> None:
+    base = _json_demo(tmp_path)
+    (base / "constraints.json").unlink()
+    out = tmp_path / "merged"
+    monkeypatch.setitem(sys.modules, "yaml", None)
+
+    assert _merge(base, EXAMPLE, "--out", out) == 0
+
+    constraints = json.loads((out / "constraints.json").read_text(encoding="utf-8"))
+    assert [c["id"] for c in constraints["constraints"]] == ["cons:disbursed_amount_positive"]
+    mapping = json.loads((out / "mapping" / "disbursement.json").read_text(encoding="utf-8"))
+    assert [rep["table"] for rep in mapping["representations"]] == [TABLE]
+    assert not list(out.rglob("*.yaml"))
+
+
+def test_new_files_follow_the_manifest_not_the_mapping_files_beside_them(tmp_path: Path) -> None:
+    # the demo's manifest is YAML while one mapping file is JSON: the manifest decides
+    result = merge_fragments(load_catalog(DEMO), [("f.json", _example())])
+
+    assert "mapping/disbursement.yaml" in result.changed
 
 
 def test_merge_fragments_reports_without_writing(tmp_path: Path) -> None:

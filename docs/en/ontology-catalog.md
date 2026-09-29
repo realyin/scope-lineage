@@ -843,6 +843,8 @@ scope-lineage catalog merge <catalog-dir> <group>.json ... --in-place
 4. Only the files that changed are rewritten (YAML read with YAML 1.2 booleans and written
    back safely; JSON written back as JSON); every other file stays byte-identical. Comments
    in a rewritten YAML file are lost.
+   A file the catalog does not have yet (`constraints`, `mapping/<group>`) is created in the
+   manifest's form: an all-JSON catalog gets `.json` files and the merge never needs PyYAML.
 5. `catalog validate` runs in-process on the result and its errors and warnings are
    printed; last comes the coverage report: for each table in the fragments, whether it has
    a representation and how many columns bind to each target (`identifier`,
