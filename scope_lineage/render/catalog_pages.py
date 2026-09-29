@@ -46,6 +46,7 @@ from .catalog_view import (
     status_text,
     translation_text,
     unconfirmed_guess,
+    via_text,
 )
 from .markdown_text import cell, expr_span
 
@@ -366,18 +367,21 @@ def _foreign_attribute_tables(view: CatalogView) -> list[str]:
     found = view.foreign_attribute_bindings()
     if not found:
         return lines + ["（无）"]
+    if any(view.other_instance_concept(rep, b) for rep, bindings in found for b in bindings):
+        lines[-2] += "标「另一条记录」的列重复的是同一概念另一条记录的属性，经本行指向那条记录的列。"
     lines += table_head("表", "冗余属性列数", "列")
     for rep, bindings in found:
-        columns = "；".join(_foreign_attribute_text(view, b) for b in bindings)
+        columns = "；".join(_foreign_attribute_text(view, rep, b) for b in bindings)
         lines.append(table_row(expr_span(rep["table"]), str(len(bindings)), columns))
     return lines
 
 
-def _foreign_attribute_text(view: CatalogView, binding: dict) -> str:
+def _foreign_attribute_text(view: CatalogView, rep: dict, binding: dict) -> str:
     attribute, concept = view.attributes[binding["ref"]]
+    other = view.other_instance_concept(rep, binding)
     return (
         f"{expr_span(binding['column'])}：{concept['name']}.{attribute['name']}"
-        f"（经 {expr_span(binding['via'])}）"
+        + via_text(expr_span(binding["via"]), other)
     )
 
 

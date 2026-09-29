@@ -311,11 +311,13 @@ def _named_by(index: Index, ref: str) -> set[str]:
 
 
 def _foreign_attribute(checks: _Checks, file: str, at: str, binding: dict, owners, by_column) -> None:
-    """Another concept's attribute, repeated on this row next to that concept's identifier."""
+    """Another concept's attribute, repeated on this row next to that concept's identifier
+    -- or the table's own concept's, when ``via`` names another instance of it (a renewal
+    loan repeating the status of the loan it renews, next to that loan's number)."""
     index = checks.index
     ref, via = binding["ref"], binding["via"]
     owner = index.get(ref).owner if index.is_type(ref, "attribute") else None
-    if owner is None or owner in owners:
+    if owner is None or (owner in owners and not _names_another(index, by_column.get(via), owner)):
         reason = "belongs to this table's own concept" if owner else _describe(index, ref)
         message = f"{ref!r} {reason}; expected another concept's attribute"
         checks.fail("binding_foreign_attribute", file, at, message)
@@ -327,6 +329,17 @@ def _foreign_attribute(checks: _Checks, file: str, at: str, binding: dict, owner
             f"via {via!r} {reason}; expected a column of this table bound as "
             f"foreign_identifier to an identifier of {owner}",
         )
+
+
+def _names_another(index: Index, target, owner: str) -> bool:
+    """The ``via`` column holds another instance of ``owner`` itself: it is bound as
+    ``foreign_identifier`` to an identifier of ``owner`` -- not of a role's player, whose
+    other instance need not play the role."""
+    return (
+        target is not None
+        and target["to"] == "foreign_identifier"
+        and target["ref"] in index.identifiers_of(owner)
+    )
 
 
 def _via_problem(index: Index, target, owner: str):

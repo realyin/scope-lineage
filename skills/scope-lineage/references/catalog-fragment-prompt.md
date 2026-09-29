@@ -97,7 +97,10 @@
   `类型列 = '…'` 的字面量，不要编）。本组的列查码值表时，在 binding 上写 `code_sets`；
   `coalesce(g1.含义, g2.含义)` 这样按顺序回退的，`code_sets` 的顺序与 SQL 一致；所绑属性的 `code_set` 要在其中。
   先 `substr(...)` 再查、或经映射表两步翻译的，`lookup` 表达不了，写进 binding 的 `derivation`。
-- **码值集的 `value` 永远是码**（码值表或 SQL 内联字典按它键的那个值），不要把翻译后的标签当 `value`。
+  `lookup` 只指物理码表（`库.表`）：字典定义在任务内（`VALUES` CTE、`CASE` 映射、字面量列表）时，把码写成码值集的
+  `values`，`evidence` 写生产它的任务名，不要给 CTE 起名当 `lookup.table`（会让 `catalog query table` 为不存在的表作答）。
+- **码值集的 `value` 永远是码**（码值表按它键的那个值；任务内字典按上一条写成 `values` 时，`value` 写源码、
+  `meaning` 写翻译后的标签），不要把翻译后的标签当 `value`。
   列里存的不是码时，在该列的 binding 上写 `holds`，按 SQL 读的是码值表/字典的哪一列：读含义列 → `["meaning"]`
   （再写 `"lang"`，取该含义列的语言），读代理键列 → `["key"]`；按 UNION 分支逐支看，`coalesce(含义, 原码)`
   或一个分支写含义/代理键、另一分支写原码 → 翻译后的形式在前、原码在后，如 `["meaning", "code"]`；只存码的不写。

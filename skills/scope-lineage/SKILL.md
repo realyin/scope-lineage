@@ -588,9 +588,11 @@ scope-lineage catalog render <dir>/ontology.json --out <pages> --semantics <page
   本组的表以及初拟的概念、表现类型、粒度、时间语义（只有一组时由写片段的人自己定，并在 `notes` 里说明）。
 - **码值表（字典表）**：只存码与含义的表不是概念，**不写表现**；给每个码值集写 `lookup`（表、码列、含义列、
   区分码值集的 `filter` 常量条件、可选的代理键与有效期列），`digest --catalog` 就把它算作「码值来源」而不是缺口。
+  `lookup` 只指物理码表（`库.表`）；SQL 里内联的字典（`VALUES` CTE、`CASE` 映射、字面量列表）写码值集的 `values`，
+  `evidence` 写生产它的任务名，不写 `lookup`（否则 `catalog query table` 会为不存在的表作答）。
   一列按顺序查几个码值集（SQL 里 `coalesce(g1.desc, g2.desc)` 的回退）时，在该列的绑定上写有序的 `code_sets`，
   顺序与 SQL 一致；码侧表达式（`substr` 后再查）和经映射表的两步翻译写进 `derivation`。码值集的 `value`
-  永远是码；列里存的是含义或代理键（或查不到时回落原码、按 UNION 分支混写）时，在该列绑定上写有序的 `holds`
+  永远是码（内联字典写成 `values` 时也是源码，标签写 `meaning`）；列里存的是含义或代理键（或查不到时回落原码、按 UNION 分支混写）时，在该列绑定上写有序的 `holds`
   （`meaning` / `key` / `code`，翻译后的形式在前），存含义的再写 `lang`，并在这一列上写它自己的 `code_sets`。
   分支、来源、ELSE、代理键警告、重编码等边界情况照 `references/catalog-fragment-prompt.md` 的码值规则写。形状（与
   `docs/zh-CN/ontology-catalog.md` 一致；片段里是同样的键，写成 JSON）：
