@@ -464,6 +464,19 @@ def test_a_table_card_without_a_lookup_column_is_reported(document: dict) -> Non
     assert ontology_findings(built) == []
 
 
+def test_a_card_spelled_in_upper_case_still_matches(document: dict) -> None:
+    """Hive names ignore case: a card named ``CAT.DB.TABLE`` is the built ``db.table``."""
+    cards = [
+        {"table": "SPARK_CATALOG.DEMO_DIM.DIM_CODE_DICT", "columns": [{"name": "code_val"}]},
+        {"table": WAIVER_TABLE.upper(), "comment": "Waivers", "columns": []},
+    ]
+
+    built = attach_evidence(document, tables={"doc_format": TABLES_DOC_FORMAT, "tables": cards})
+
+    assert set(built["evidence"]["code_sets"]) == {"code:waiver_channel", "code:waiver_reason"}
+    assert built["evidence"]["representations"][WAIVER_TABLE]["table_comment"] == "Waivers"
+
+
 def test_build_warns_about_a_lookup_column_the_card_lacks(tmp_path: Path, root: Path, capsys) -> None:
     card = {"table": DICT_TABLE, "columns": [{"name": "code_val"}, {"name": "code_desc"}]}
     tables = tmp_path / "tables.json"

@@ -443,7 +443,7 @@ def _merge_tables(evidence: dict, catalog: _Catalog, tables: Mapping) -> None:
     cards: dict[str, Mapping] = {}
     for card in tables.get("tables") or []:
         for name in [card.get("table"), *(card.get("aliases") or [])]:
-            cards.setdefault(catalog_table_name(name), card)
+            cards.setdefault(catalog_table_name(name).lower(), card)
     matched = 0
     for table, rep in catalog.reps.items():
         card = cards.get(table)
