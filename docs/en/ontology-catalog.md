@@ -394,6 +394,24 @@ A code set's `value` is always the code -- the value its code table, or the SQL'
 dictionary, is keyed by -- even when the columns store the translated meaning or the key: write
 that on each such column with `holds`, and give each column its own `code_sets` in the order its
 SQL looks them up (a meaning column, a key column and the code column each carry their own).
+Edge cases:
+
+- One column written by several UNION branches, each using its own source's code set: list them
+  all in `code_sets`, in branch order, and say in `derivation` which branch uses which --
+  `code_sets` has one reading (lookup order), so pages and queries still print 「先查 A，查不到查 B」.
+- One attribute split into per-source code sets: point the attribute's `code_set` at one of them
+  (the main source); the other sources' columns then warn `binding_code_sets_miss_attribute`, as
+  expected. With no `code_set` on the attribute, the A4 「码值」 cell is empty, and a
+  `category: state` attribute is listed as lacking codes.
+- A CASE branch (such as ELSE) with no source code: invent no code; write the rule in `derivation`
+  (and, if useful, the code set's `definition`).
+- A code set listing only `values` has no key column, so a `holds: [key]` column on it always warns
+  `binding_key_without_key_column` (the catalog cannot translate that key); `[key]` is still right.
+- A column that looks a code table up only to translate a code is a code column: bind it as
+  `attribute`. `code_sets` is also accepted on a `foreign_identifier` (its `holds` then needs
+  `code_sets`); it shows in queries and `code_sets.md`, not on `identifiers.md`.
+- A recode (`Y/N` → `1/0`, a code mapped to another set's code, a two-step mapping to a target code):
+  the column stores the target set's code; no `holds`; write the mapping in `derivation`.
 
 The demo's loan table has two columns the format could not express before.
 `customer_gender_cd` is the customer's gender, repeated on the loan row next to the

@@ -591,7 +591,8 @@ scope-lineage catalog render <dir>/ontology.json --out <pages> --semantics <page
   一列按顺序查几个码值集（SQL 里 `coalesce(g1.desc, g2.desc)` 的回退）时，在该列的绑定上写有序的 `code_sets`，
   顺序与 SQL 一致；码侧表达式（`substr` 后再查）和经映射表的两步翻译写进 `derivation`。码值集的 `value`
   永远是码；列里存的是含义或代理键（或查不到时回落原码、按 UNION 分支混写）时，在该列绑定上写有序的 `holds`
-  （`meaning` / `key` / `code`，翻译后的形式在前），存含义的再写 `lang`，并在这一列上写它自己的 `code_sets`。形状（与
+  （`meaning` / `key` / `code`，翻译后的形式在前），存含义的再写 `lang`，并在这一列上写它自己的 `code_sets`。
+  分支、来源、ELSE、代理键警告、重编码等边界情况照 `references/catalog-fragment-prompt.md` 的码值规则写。形状（与
   `docs/zh-CN/ontology-catalog.md` 一致；片段里是同样的键，写成 JSON）：
 
   ```yaml

@@ -359,7 +359,18 @@ representations:
 
 码值集的 `value` 永远是码——码值表（或 SQL 里的内联字典）按它键的那个值——即使列里存的是翻译后的含义或代理键：
 那是列的事，在每个这样的列上写 `holds`；一列按序查多个码值集时，`code_sets` 写在**这一列**上，与 SQL 的查找顺序一致
-（含义列、代理键列与码列各写各的）。
+（含义列、代理键列与码列各写各的）。边界情况：
+
+- 一列由几个 UNION 分支写入、各分支用不同来源的码值集：`code_sets` 全列上、按分支顺序，哪个分支用哪个写在 `derivation`
+  ——`code_sets` 只有一种读法（查找顺序），页面与查询照样读成「先查 A，查不到查 B」。
+- 同一属性按来源拆成几个码值集时，属性的 `code_set` 指向其中一个（主来源）；其余来源的列会报
+  `binding_code_sets_miss_attribute`，这是预期的。属性不指码值集则 A4「码值」格为空，`category: state` 的属性还会被列为缺码值。
+- CASE 的某个分支（如 ELSE）没有源码：不编码，规则写进 `derivation`（需要时也写进码值集的 `definition`）。
+- 只列 `values` 的码值集没有代理键列，`holds: [key]` 的列必然报 `binding_key_without_key_column`（目录翻不了这个键）；
+  `[key]` 仍是对的写法。
+- 查码值表只为翻译的列是码列，绑成 `attribute`；`foreign_identifier` 上也允许写 `code_sets`（`holds` 此时必须配 `code_sets`），
+  只在查询与 `code_sets.md` 里显示，`identifiers.md` 不显示。
+- 重编码（`Y/N` → `1/0`、码映射成另一套码、经映射表两步得到目标码）：列存目标码值集的码，不写 `holds`，映射写进 `derivation`。
 
 示例里的借据表有两种以前表达不了的列。`customer_gender_cd` 是客户的性别，冗余在借据行上、紧挨着客户号：
 它绑定为 `foreign_attribute`，`via: customer_id` 说明它说的是哪个客户。`orig_loan_no` 是续借借据所续的原借据号，
