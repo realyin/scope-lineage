@@ -273,9 +273,9 @@ overview) and the appendix as "<from> <name> <to>"; read from the target's side,
 its concept at both ends, so with an `inverse_name` both directions are given: the overview
 reads "<name> / <inverse_name> <concept name>", the appendix and `catalog query related`
 read "<concept> <name> <concept> / <concept> <inverse_name> <concept>"; a self relation
-without an `inverse_name` reads one way, with `name`. Customer → complaint ticket takes
-`name: 申请` ("files") and `inverse_name: 申请人为` ("is filed by"), which read 「申请 投诉工单」 and 「申请人为 客户」;
-`name: 申请投诉工单` ("files a complaint ticket") reads 「申请投诉工单 投诉工单」.
+without an `inverse_name` reads one way, with `name`. Borrower → loan takes
+`name: 持有` ("holds") and `inverse_name: 持有人为` ("is held by"), which read 「持有 借据」 and 「持有人为 借款人」;
+`name: 持有借据` ("holds a loan") reads 「持有借据 借据」.
 
 ### Constraint
 

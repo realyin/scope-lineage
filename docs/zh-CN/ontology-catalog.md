@@ -250,8 +250,8 @@ concepts:
 自关联（`from` 与 `to` 是同一个概念）从本概念读既是起点也是终点：有 `inverse_name` 时两个方向都给出，概览读成
 「<name> / <inverse_name> <概念名>」，附录与 `catalog query related` 读成「<概念名> <name> <概念名> / <概念名> <inverse_name> <概念名>」；
 没有 `inverse_name` 的自关联只读 `name` 一个方向。
-客户→投诉工单写 `name: 申请`、`inverse_name: 申请人为`，读出「申请 投诉工单」「申请人为 客户」；写成
-`name: 申请投诉工单` 就会读出「申请投诉工单 投诉工单」。
+借款人→借据写 `name: 持有`、`inverse_name: 持有人为`，读出「持有 借据」「持有人为 借款人」；写成
+`name: 持有借据` 就会读出「持有借据 借据」。
 
 ### 约束
 
