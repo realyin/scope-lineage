@@ -382,6 +382,30 @@ def test_related_is_the_one_hop_neighbourhood(document: dict) -> None:
     ]
 
 
+def test_related_shows_joins_inside_producing_tasks_apart(document: dict) -> None:
+    match = _one(document, "related", "借据")
+    text = render_query_text(query_catalog(document, "related", "借据"))
+
+    repayment = [e for e in match["events"] if e["event"]["id"] == "concept:repayment"][0]
+    assert (repayment["joins"], repayment["source_joins"]) == (1, 1)
+    assert all("source_joins" not in r for r in match["relations"])
+    assert "还款（loan）（1 次连接；生产任务内连接 1 次）" in text
+
+
+def test_related_shows_a_source_join_without_a_join_between_catalog_tables(
+    document: dict,
+) -> None:
+    moved = json.loads(json.dumps(document))
+    moved["evidence"]["relations"]["rel:fee_waiver.loan"]["source_joins"] = {
+        "count": 2,
+        "samples": [{"task": "t", "statement_id": "s", "column": "a.b.c", "on": "x = y"}],
+    }
+
+    text = render_query_text(query_catalog(moved, "related", "借据"))
+
+    assert "豁免（loan）（0 次连接；生产任务内连接 2 次；同表携带：" in text
+
+
 def test_related_reads_a_self_relation_both_ways(document: dict) -> None:
     match = _one(document, "related", "借据")
     text = render_query_text(query_catalog(document, "related", "借据"))

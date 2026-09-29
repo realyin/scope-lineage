@@ -448,8 +448,11 @@ def _participation(view: CatalogView, relation: dict, other: str) -> dict:
 
 
 def _backing(view: CatalogView, relation: dict) -> dict:
-    """What the catalog itself says about where the relation lives, JOINs or not."""
+    """JOINs inside producing tasks (only when there are some), and what the catalog itself
+    says about where the relation lives, JOINs or not."""
+    source = view.relation_source_joins(relation["id"])
     return {
+        **({"source_joins": source["count"]} if source else {}),
         "carried_together": view.carried_together(relation),
         "evidence": list(relation.get("evidence") or []),
     }

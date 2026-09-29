@@ -2063,6 +2063,17 @@
               "on": "demo_dwd.dwd_lending_loan_df.loan_no = demo_dwd.dwd_lending_repayment_di.loan_no"
             }
           ]
+        },
+        "source_joins": {
+          "count": 1,
+          "samples": [
+            {
+              "task": "dwd_lending_repayment_daily",
+              "statement_id": "stmt:001",
+              "column": "demo_dwd.dwd_lending_repayment_di.loan_no",
+              "on": "demo_ods.ods_repay_txn_di.loan_no = demo_dwd.dwd_lending_loan_df.loan_no"
+            }
+          ]
         }
       },
       "rel:repayment.payer": {

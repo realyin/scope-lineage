@@ -483,15 +483,27 @@ def reading_text(view: CatalogView, concept_id: str, relation: dict) -> str:
 
 
 def joins_text(view: CatalogView, relation_id: str) -> str:
-    """The JOINs backing the relation; without any, what the catalog itself shows."""
+    """The JOINs between catalog tables backing the relation, then -- counted apart -- the
+    JOINs inside producing tasks that fill its foreign key; without the first, what the
+    catalog itself shows."""
     joins = view.relation_joins(relation_id)
+    source = view.relation_source_joins(relation_id)
+    source_text = []
+    if source:
+        sample = source["samples"][0]
+        source_text.append(
+            f"生产任务内连接 {source['count']} 次（如 {expr_span(sample['on'])}，"
+            f"填 {expr_span(sample['column'])}）"
+        )
     if joins and joins["count"]:
-        return f"{joins['count']} 次（如 {expr_span(joins['samples'][0]['on'])}）"
+        first = f"{joins['count']} 次（如 {expr_span(joins['samples'][0]['on'])}）"
+        return "；".join([first, *source_text])
     parts = []
     if joins is not None:
         parts.append("0 次")
     elif view.lineage_checked():
         parts.append("—（一端无表现表）")
+    parts += source_text
     parts += catalog_backing(view, view.relations[relation_id])
     return "；".join(parts) or NONE
 

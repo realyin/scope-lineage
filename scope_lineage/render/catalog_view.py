@@ -426,8 +426,14 @@ class CatalogView:
 
     def relation_joins(self, relation_id: str) -> Optional[dict]:
         """``{count, samples}`` when the build checked this relation, else None."""
-        entry = self._relation_evidence.get(relation_id)
-        return dict(entry["joins"]) if entry else None
+        joins = (self._relation_evidence.get(relation_id) or {}).get("joins")
+        return dict(joins) if joins else None
+
+    def relation_source_joins(self, relation_id: str) -> Optional[dict]:
+        """``{count, samples}`` of the JOINs inside producing tasks that fill the relation's
+        foreign key, when there are any; kept apart from ``relation_joins``."""
+        found = (self._relation_evidence.get(relation_id) or {}).get("source_joins")
+        return dict(found) if found else None
 
     def semantic_page(self, table: str) -> Optional[str]:
         """The link to the table's ``semantic render`` page, when ``--semantics`` gave one."""
