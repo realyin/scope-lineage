@@ -7,7 +7,8 @@ is a conflict, reported and not applied, so the first one stays and nothing is c
 silently. Attributes go into their concept wherever that concept is declared; a concept
 the catalog does not have is an error and its attributes are not applied. New
 representations go into ``mapping/<group>`` (an existing file of that name in whatever
-form it is written, else a new ``.yaml``); the other kinds into their top-level file.
+form it is written, else a new file in the manifest's form); the other kinds into their
+top-level file, created the same way when the catalog has none.
 
 The merge edits the loaded documents in memory and names the files it changed;
 ``write_documents`` writes those back. Nothing else is rewritten, so every file a merge
@@ -132,12 +133,19 @@ class _Merger:
             self._conflict(file, name, _label(kind, item), f"differs from the one in {existing[1]}")
 
     def _document(self, kind: str, stem: str) -> _Target:
-        """The file ``stem`` of ``kind`` in whatever form it exists, else a new ``.yaml``."""
+        """The file ``stem`` of ``kind`` in whatever form it exists, else a new one.
+
+        A new file takes the manifest's form: a catalog written in JSON stays JSON, and
+        merging into it never needs PyYAML. The manifest rather than the files beside the
+        new one, because every catalog has exactly one manifest -- a directory that mixes
+        forms would otherwise need a tie-break, and the answer would hang on file order.
+        """
         names = {f"{stem}{suffix}" for suffix in SUFFIXES}
         for document in self.catalog.documents:
             if document.kind == kind and document.file in names:
                 return _Target(document.file, document.data)  # a dict: the base passed its schema
-        document = Document(kind, f"{stem}.yaml", {FILE_KINDS[kind].list_key: []})
+        suffix = Path(self.catalog.manifest_file).suffix
+        document = Document(kind, f"{stem}{suffix}", {FILE_KINDS[kind].list_key: []})
         self.catalog.documents.append(document)
         return _Target(document.file, document.data)
 

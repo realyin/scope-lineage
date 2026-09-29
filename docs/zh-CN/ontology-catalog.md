@@ -756,6 +756,8 @@ scope-lineage catalog merge <catalog-dir> <group>.json ... --in-place
    `term` + `refers_to`，表现按 `table`。内容相同算「未变」；**同键内容不同是冲突**，列进报告，后来的那个不应用。
    属性挂到它的概念所在的文件；概念不存在是错误，其属性不应用；同一个属性 id 已挂在别的概念上也是冲突。
 4. 只重写有变化的文件（YAML 用 YAML 1.2 布尔规则读、按安全方式写回；JSON 写回 JSON），没动的文件逐字节不变。
+   目录里还没有、需要新建的文件（如 `constraints`、`mapping/<组>`）与 `catalog.*` 同一种格式：全 JSON 的目录新建 `.json`，
+   合并全程不需要 PyYAML。
    被重写的 YAML 文件里的注释会丢失。
 5. 在进程内对结果跑 `catalog validate`，打印错误与警告；最后打印覆盖报告：片段里的每张表有没有表现、
    列按绑定去向（`identifier`、`foreign_identifier`、`attribute`、`foreign_attribute`、`technical`、`unmapped`）
