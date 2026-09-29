@@ -316,7 +316,7 @@ the user wants the candidate in an RDF toolchain: it writes `ontology.linkml.yam
 **Read in this order.** `ontology.md` first (its first line says it is key-fold candidates,
 not the business ontology), and it reads concept-first: 「本体总览」 says
 how many concepts of each kind the key fold proposes, how many are still 临时概念, and
-「待人工判定 N 条 / G 组（已确认 M 条）」; the concept `flowchart` is the whole business on one
+「待人工判定 N 条 / G 组（已确认 M 条）」; the concept `flowchart` is the key-fold structure on one
 screen. **To read one concept, open its own file**: every row of the 「概念」 table links to
 `concepts/<file>.md` (`concept:cust` → `concepts/cust.md`), and that file — not the table
 list — is what describes one folded concept: its 表现 (which tables represent it, in which
