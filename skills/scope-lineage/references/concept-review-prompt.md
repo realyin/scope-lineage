@@ -2,7 +2,8 @@
 
 > 范围：这里的「概念」是 `scope-lineage ontology` 按键列词根折出来的**键折叠候选**，不是业务本体。
 > 问「这批表对应哪些业务概念 / 客户是哪几张表」时走表语义 → 本体目录（`semantic *` → `catalog *`，
-> 见 `SKILL.md`），不要用这一轮代替。
+> 见 `SKILL.md` 的「"整理这批任务的实体关系 / 本体 / 这批表对应哪些业务概念" — business ontology: where to start」
+> 一节），不要用这一轮代替。
 
 读 `ontology.md` 的「本体总览」与「概念」两部分之后用这份提示词。它和 `ontology-review-prompt.md` 是同一份
 语料的两轮：那一轮问的是**表**（这张表按这组列唯一吗、这条边是几对几），这一轮问的是

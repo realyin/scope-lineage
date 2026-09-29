@@ -552,7 +552,9 @@ scope-lineage semantic render <documents> --out <dir> \
 概念归属以本体目录为准：目录把这张表登记为某个概念的表现时，用目录里的概念和表现类型；目录没有登记这张表
 时才用文档自己的 `concept`。表语义页链到 `../concepts/<slug>.md`，也就是 `catalog render` 写的概念页，所以
 `--out` 要放在 `catalog render` 输出目录下的一个子目录里，例如 `<pages>/semantics`。反方向由
-`catalog render --semantics <pages>/semantics` 负责，见[本体目录](ontology-catalog.md)。两个选项都可不给；
+`catalog render --semantics <pages>/semantics` 负责，见[本体目录](ontology-catalog.md)。两边都链时先
+`catalog build`，再 `semantic render --ontology`，最后 `catalog render --semantics`：`semantic render` 要读构建好的
+`ontology.json`，`catalog render` 要求 `--semantics` 目录已经存在（不存在时退出 2）。两个选项都可不给；
 不给时两边的输出与没有这个功能时逐字节相同。
 
 ### 退出码

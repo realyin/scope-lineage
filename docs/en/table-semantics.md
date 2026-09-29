@@ -640,7 +640,10 @@ catalog does not list falls back to the document's own `concept`. A table page l
 `../concepts/<slug>.md`, the concept page `catalog render` writes, so `--out` belongs in a
 subdirectory of the `catalog render` output, such as `<pages>/semantics`. The other
 direction is `catalog render --semantics <pages>/semantics`; see the
-[ontology catalog](ontology-catalog.md). Both flags are optional; without them both
+[ontology catalog](ontology-catalog.md). Linking both ways, run `catalog build`, then
+`semantic render --ontology`, then `catalog render --semantics`: `semantic render` reads the built
+`ontology.json`, and `catalog render` needs the `--semantics` directory to exist already (exit 2
+when it does not). Both flags are optional; without them both
 outputs are byte-for-byte what they were before this feature.
 
 ### Exit codes

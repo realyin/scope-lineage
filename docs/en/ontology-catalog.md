@@ -260,6 +260,13 @@ Each end's cardinality is how many of that end relate to one of the other end: i
 `customer holds app_account {from: "1", to: "0..*"}`, one account has one customer and a
 customer has any number of accounts.
 
+`name` and `inverse_name` are bare verb phrases, without the other end's concept: the pages
+read a relation as "<name> <the other concept's name>" (拥有的 / 关联的 in a concept page's
+overview) and the appendix as "<from> <name> <to>"; read from the target's side, it is
+`inverse_name` and the source's name. Customer → complaint ticket takes `name: 申请` ("files")
+and `inverse_name: 申请人为` ("is filed by"), which read 「申请 投诉工单」 and 「申请人为 客户」;
+`name: 申请投诉工单` ("files a complaint ticket") reads 「申请投诉工单 投诉工单」.
+
 ### Constraint
 
 A condition that must hold. `id: cons:<slug>`, `kind` (`unique` / `cardinality` /
@@ -289,7 +296,7 @@ terms:
 
 ### Representation and binding
 
-The mapping layer, in `mapping/*.yaml`: which table carries which concept, in what role,
+The mapping layer, in the files under `mapping/` (`.yaml` or `.json`): which table carries which concept, in what role,
 and what each column is. A representation is keyed by its `table` (`db.table`; one
 representation per table).
 
@@ -662,6 +669,18 @@ pages with `semantic render --ontology`; see [table semantics](table-semantics.m
 a code table a code set's `lookup` names opens with 「本表是码值集…的码值来源」 ("this table
 holds the codes of ..."), linked to `code_sets.md`.
 
+Linking both ways takes a fixed order: the `--semantics` directory must already exist (exit 2
+when it does not), and `semantic render --ontology` reads the built `ontology.json` — so
+build, then render the table pages, then render the concept pages:
+
+```bash
+scope-lineage catalog build <catalog-dir> --out out/catalog
+scope-lineage semantic render <documents> --out out/pages/semantics \
+  --ontology out/catalog/ontology.json
+scope-lineage catalog render out/catalog/ontology.json --out out/pages \
+  --semantics out/pages/semantics
+```
+
 | File | What it holds |
 | --- | --- |
 | `index.md` | the concepts by domain (name, kind, definition, number of tables, status), the identifiers, the code sets (and the tables their values live in), a summary of the governance gaps and of the record scopes |
@@ -779,7 +798,7 @@ catalog can be drafted from them without an ad-hoc script each time:
 1. `catalog digest` condenses the table semantics into drafting material and, against an
    existing catalog, names the tables and columns it does not cover yet;
 2. a person or a model drafts the concepts and relations from it (`concepts/`,
-   `relations.yaml`, `identifiers.yaml`); a fragment cannot add a concept or change an
+   the `relations` and `identifiers` files); a fragment cannot add a concept or change an
    existing identifier, so every new concept the groups need (an event with its time
    attribute), every new identifier and every new spelling of an existing one is written
    here;
@@ -798,18 +817,20 @@ The agent skill's full workflow and the fragment prompt are in
 A fragment is what drafting one group of tables produces. Every item has **exactly** the
 shape of the catalog file it lands in (the schema's item definitions are copies of the
 catalog schemas', and a test keeps them equal), so a merge moves items and never
-translates them:
+translates them. The "merged into" column names files by their stem: a file the catalog has
+keeps its form (`.yaml` / `.yml` / `.json`), and a new one takes the form of the manifest
+`catalog.*` (step 4 of `catalog merge` below).
 
 | Key | Holds | Merged into |
 | --- | --- | --- |
 | `doc_format` | `catalog-fragment/1` (required) | — |
-| `group` | the group name: lower-case letters, digits, `_`, `-` (required) | new representations go to `mapping/<group>.yaml` |
+| `group` | the group name: lower-case letters, digits, `_`, `-` (required) | new representations go to `mapping/<group>.*` |
 | `attributes` | `{"concept:<id>": [attribute, ...]}`, shaped like a concept's `attributes` | the `concepts/` file that declares the concept |
-| `code_sets` | code sets, shaped like `code_sets.yaml` (with `lookup` when the values live in a code table) | `code_sets.yaml` |
-| `identifiers` | identifiers, shaped like `identifiers.yaml`; only ones that are really missing | `identifiers.yaml` |
-| `constraints` | constraints, shaped like `constraints.yaml`; only ones with evidence | `constraints.yaml` |
-| `terms` | terms, shaped like `terms.yaml` | `terms.yaml` |
-| `representations` | representations and bindings, shaped like `mapping/*.yaml` | `mapping/<group>.yaml` |
+| `code_sets` | code sets, shaped like the `code_sets` file's items (with `lookup` when the values live in a code table) | `code_sets.*` |
+| `identifiers` | identifiers, shaped like the `identifiers` file's items; only ones that are really missing | `identifiers.*` |
+| `constraints` | constraints, shaped like the `constraints` file's items; only ones with evidence | `constraints.*` |
+| `terms` | terms, shaped like the `terms` file's items | `terms.*` |
+| `representations` | representations and bindings, shaped like the `mapping/` files' items | `mapping/<group>.*` |
 | `notes` | questions or conflicts for the owner, as a list of text | printed in the merge report only |
 
 The example

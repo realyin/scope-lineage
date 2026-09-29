@@ -44,6 +44,22 @@
   representation.
 
 ### Fixed
+- **The catalog docs and the skill show the render order that works, and no longer
+  assume YAML.** `catalog render --semantics <dir>` exits 2 when that directory does not
+  exist yet, and `semantic render --ontology` needs the built `ontology.json`, so the order
+  is `catalog build` → `semantic render --out <pages>/semantics --ontology` →
+  `catalog render --semantics <pages>/semantics`; the skill's table-semantics and drafting
+  sections, `ontology-catalog.md` 「页面」 and `table-semantics.md` now say so and why. The
+  `catalog-fragment/1` table, the mapping section and the fragment prompt name catalog
+  files by stem (`mapping/<group>.*`, the `code_sets` file) and say that an existing file
+  keeps its form and a new one takes the manifest's. The `ontology-catalog.md` 「关系」
+  section and the skill's drafting guidance state that `name` / `inverse_name` are bare verb
+  phrases (pages read "<name> <the other concept>"), with a right and a wrong example. The
+  skill's drafting section shows a code set with `lookup` and a binding with ordered
+  `code_sets`; its two table semantics → catalog headings now say which is the entry point
+  and which the drafting procedure; and it says `concept-impact` reads key-fold
+  `ontology-json/2` only (a catalog's `ontology-json/3` exits 2), pointing catalog concepts
+  to `catalog query carriers` / `related` and then `impact` / `trace`.
 - **`catalog merge` no longer needs PyYAML to merge into a JSON catalog.** A file the
   catalog did not have yet (`constraints`, `mapping/<group>`) was always created as `.yaml`,
   so merging into an all-JSON catalog without PyYAML crashed on `import yaml`. New files now
