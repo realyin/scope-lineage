@@ -19,7 +19,8 @@ changed and a reader can always tell a claim from its evidence:
   concepts' tables on a key pair whose two columns are both bound to one identifier of
   either concept, with up to three samples. A relation from a
   concept to itself counts only JOINs on a column the build marked ``self_reference``
-  (another instance of the concept), never the same instance met in a second table.
+  (another instance of the concept) that realises it -- names it as its ``relation``, or
+  names none -- never the same instance met in a second table.
 
 Nothing here parses a contract document: the statements and their profiles come from
 ``semantic_profile`` and ``ontology.write_statements``, the JOIN key pairs from
@@ -33,9 +34,10 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
+from functools import partial
 from typing import NamedTuple, Optional
 
-from .catalog_view import catalog_table_name, lookup_columns
+from .catalog_view import catalog_table_name, lookup_columns, realises
 from .ontology import join_key_pairs, write_statements
 from .semantic_profile import build_semantic_profile
 from .table_cards import refresh_from_task_meta
@@ -210,8 +212,9 @@ class _Catalog:
             self.keys.setdefault(rep["concept"], set()).update(
                 b.get("ref") for b in rep["bindings"] if b["to"] == "identifier"
             )
+        # table -> its self-referencing columns, each with its binding
         self.self_referencing = {
-            table: {b["column"] for b in rep["bindings"] if b.get("self_reference")}
+            table: {b["column"]: b for b in rep["bindings"] if b.get("self_reference")}
             for table, rep in self.reps.items()
         }
         self.lookups = {
@@ -372,7 +375,10 @@ def _relation_joins(catalog: _Catalog, statements: Iterable[WriteStatement]) -> 
         ends = (catalog.by_concept.get(relation["from"]), catalog.by_concept.get(relation["to"]))
         if not ends[0] or not ends[1]:
             continue
-        match = _self_pair if relation["from"] == relation["to"] else _identifying_pair
+        if relation["from"] == relation["to"]:
+            match = partial(_self_pair, relation_id=relation["id"])
+        else:
+            match = _identifying_pair
         keys = catalog.keys.get(relation["from"], set()) | catalog.keys.get(relation["to"], set())
         found[relation["id"]] = {"joins": _count_joins(catalog, ends, keys, statements, match)}
     return found
@@ -409,21 +415,28 @@ def _identifying_pair(
     return None
 
 
-def _self_pair(catalog: _Catalog, join: JoinFact, ends: tuple, keys: set) -> Optional[str]:
+def _self_pair(
+    catalog: _Catalog, join: JoinFact, ends: tuple, keys: set, relation_id: str
+) -> Optional[str]:
     """``"a.t.c = b.t.c"`` when this JOIN links two instances of one concept: both sides
-    carry it and one side's key is a self-referencing column (a table joined to itself
-    counts too -- that is how a renewal meets the loan it renews)."""
+    carry it and one side's key is a self-referencing column realising ``relation_id``
+    (a table joined to itself counts too -- that is how a renewal meets the loan it
+    renews)."""
     tables = ends[0]
     if join.left not in tables or join.right not in tables:
         return None
-    left_refs = catalog.self_referencing[join.left]
-    right_refs = catalog.self_referencing[join.right]
+    left_refs = _realising(catalog.self_referencing[join.left], relation_id)
+    right_refs = _realising(catalog.self_referencing[join.right], relation_id)
     for left, right in join.columns:
         if (left in left_refs or right in right_refs) and _same_key(
             catalog, join, left, right, keys
         ):
             return f"{join.left}.{left} = {join.right}.{right}"
     return None
+
+
+def _realising(columns: Mapping, relation_id: str) -> set:
+    return {column for column, binding in columns.items() if realises(binding, relation_id)}
 
 
 def _same_key(catalog: _Catalog, join: JoinFact, left: str, right: str, keys: set) -> bool:

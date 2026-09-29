@@ -247,6 +247,26 @@ def test_a_self_referencing_column_names_its_relation(document: dict) -> None:
     assert match["self_relations"] == [{"id": "rel:loan_renews_loan", "name": "renews"}]
 
 
+def test_a_column_naming_its_self_relation_answers_with_that_one_only(tmp_path: Path) -> None:
+    from scope_lineage.catalog import build_ontology, load_catalog
+
+    from .catalog_demo import SECOND_SELF_RELATION, add_second_self_relation, copy_demo
+
+    root = copy_demo(tmp_path)
+    add_second_self_relation(root, root_loan_no=SECOND_SELF_RELATION)
+    built = build_ontology(load_catalog(root))
+
+    named = _one(built, "column", "demo_dwd.dwd_lending_loan_df.root_loan_no")
+    unnamed = _one(built, "column", "demo_dwd.dwd_lending_loan_df.orig_loan_no")
+
+    assert named["self_relations"] == [{"id": SECOND_SELF_RELATION, "name": "descends from"}]
+    # a column naming no relation goes under every self relation, as before
+    assert [r["id"] for r in unnamed["self_relations"]] == [
+        SECOND_SELF_RELATION,
+        "rel:loan_renews_loan",
+    ]
+
+
 def test_a_column_the_catalog_only_spells_is_answered_by_the_spelling(document: dict) -> None:
     match = _one(document, "column", "demo_ods.ods_core_customer_df.cust_no")
 

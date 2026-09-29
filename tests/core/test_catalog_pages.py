@@ -20,7 +20,10 @@ from scope_lineage.render.catalog_view import code_value_text, usage_hint
 
 from .catalog_demo import (
     DEMO,
+    LOAN_TABLE,
+    SECOND_SELF_RELATION,
     add_a_players_self_reference,
+    add_second_self_relation,
     bind_another_instances_attribute,
     copy_demo,
     demo_tables,
@@ -363,6 +366,61 @@ def test_a_self_relation_names_the_columns_that_carry_it(pages: dict) -> None:
 
     assert "| 借据 renews 借据 / 借据 is renewed by 借据 |" in row
     assert "| 本概念（自关联，经 `demo_dwd.dwd_lending_loan_df.orig_loan_no`） |" in row
+
+
+def _two_self_relations(tmp_path: Path, **named: str) -> str:
+    root = copy_demo(tmp_path)
+    add_second_self_relation(root, **named)
+    return render_catalog_pages(build_ontology(load_catalog(root)))["concepts/loan.md"]
+
+
+def _carried_by(page: str, relation: str) -> str:
+    return _row(page, relation).split(" | ")[3]
+
+
+def test_a_column_naming_its_relation_is_listed_under_that_relation_only(tmp_path: Path) -> None:
+    page = _two_self_relations(tmp_path, root_loan_no=SECOND_SELF_RELATION)
+    orig, root = (f"`{LOAN_TABLE}.{c}`" for c in ("orig_loan_no", "root_loan_no"))
+
+    assert _carried_by(page, "renews `rel:loan_renews_loan`") == f"本概念（自关联，经 {orig}）"
+    # orig_loan_no names no relation, so it still goes under every self relation
+    assert _carried_by(page, f"descends from `{SECOND_SELF_RELATION}`") == (
+        f"本概念（自关联，经 {orig}、{root}）"
+    )
+
+
+def test_each_self_relation_lists_only_the_columns_naming_it(tmp_path: Path) -> None:
+    page = _two_self_relations(
+        tmp_path, orig_loan_no="rel:loan_renews_loan", root_loan_no=SECOND_SELF_RELATION
+    )
+    orig, root = (f"`{LOAN_TABLE}.{c}`" for c in ("orig_loan_no", "root_loan_no"))
+
+    assert _carried_by(page, "renews `rel:loan_renews_loan`") == f"本概念（自关联，经 {orig}）"
+    assert _carried_by(page, f"descends from `{SECOND_SELF_RELATION}`") == (
+        f"本概念（自关联，经 {root}）"
+    )
+
+
+def test_only_tables_with_a_column_realising_a_self_relation_carry_it(tmp_path: Path) -> None:
+    from scope_lineage.render.catalog_view import CatalogView
+
+    from .catalog_demo import mutate
+
+    history = "demo_dwd.dwd_lending_loan_status_his"
+    root = copy_demo(tmp_path)
+    add_second_self_relation(
+        root, orig_loan_no="rel:loan_renews_loan", root_loan_no=SECOND_SELF_RELATION
+    )
+    mutate(root, "mapping/lending.yaml", lambda d: next(
+        r for r in d["representations"] if r["table"] == history
+    )["bindings"].append({
+        "column": "root_loan_no", "to": "foreign_identifier", "ref": "id:loan_no",
+        "relation": SECOND_SELF_RELATION,
+    }))
+    view = CatalogView(build_ontology(load_catalog(root)))
+
+    assert view.carried_together(view.relations["rel:loan_renews_loan"]) == [LOAN_TABLE]
+    assert view.carried_together(view.relations[SECOND_SELF_RELATION]) == [LOAN_TABLE, history]
 
 
 def test_a_self_relation_without_an_inverse_name_reads_one_way(document: dict) -> None:

@@ -284,6 +284,37 @@ def test_a_self_relation_counts_only_joins_on_its_self_referencing_column() -> N
     }
 
 
+def test_a_self_join_counts_only_for_the_relation_its_column_names(tmp_path: Path) -> None:
+    """``root_loan_no`` names the second self relation: its JOIN backs that one, not
+    renews; ``orig_loan_no`` names none, so its JOIN still backs both."""
+    from scope_lineage.render.catalog_evidence import JoinFact, LineageFacts, WriteStatement
+
+    from .catalog_demo import SECOND_SELF_RELATION, add_second_self_relation
+
+    loan = "demo_dwd.dwd_lending_loan_df"
+    root = copy_demo(tmp_path)
+    add_second_self_relation(root, root_loan_no=SECOND_SELF_RELATION)
+    statement = WriteStatement(
+        task="t",
+        statement_id="stmt:001",
+        target="demo_ads.ads_renewal_chain_df",
+        joins=(
+            JoinFact("b1", loan, loan, (("root_loan_no", "loan_no"),)),
+            JoinFact("b2", loan, loan, (("orig_loan_no", "loan_no"),)),
+        ),
+    )
+    document = build_ontology(load_catalog(root))
+
+    merged = attach_evidence(document, lineage=LineageFacts(statements=(statement,), tasks=1))
+
+    relations = merged["evidence"]["relations"]
+    renews = relations["rel:loan_renews_loan"]["joins"]
+    descends = relations[SECOND_SELF_RELATION]["joins"]
+    assert renews["count"] == 1
+    assert [s["on"] for s in renews["samples"]] == [f"{loan}.orig_loan_no = {loan}.loan_no"]
+    assert descends["count"] == 2
+
+
 # ------------------------------------------------ JOIN keys on the physical column
 #
 # A contact subquery ``b`` is joined to a call subquery ``a`` that renames the call's

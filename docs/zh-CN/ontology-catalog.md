@@ -294,7 +294,7 @@ terms:
 | `refresh` | 否 | 更新频率 |
 | `table_status` | 是 | `active` / `deprecated` |
 | `replaced_by` | 否 | 废弃表的替代表 |
-| `bindings` | 是 | `[{column, to, ref?, via?, derivation?, code_map?, code_sets?}]` |
+| `bindings` | 是 | `[{column, to, ref?, via?, relation?, derivation?, code_map?, code_sets?}]` |
 
 绑定的 `to` 说明这一列是什么：
 
@@ -302,7 +302,7 @@ terms:
 | --- | --- | --- |
 | `attribute` | 必填 | 所表现概念的一个属性（角色视图也可以绑定其承担者的） |
 | `identifier` | 必填 | 所表现概念的一个标识符（角色视图也可以绑定其承担者的） |
-| `foreign_identifier` | 必填 | 另一个概念的标识符——即物理上的关系；也可以是本概念自己的标识符（同一概念的另一个实例），前提是目录里有一条两端都是本概念的关系 |
+| `foreign_identifier` | 必填 | 另一个概念的标识符——即物理上的关系；也可以是本概念自己的标识符（同一概念的另一个实例），前提是目录里有一条两端都是本概念的关系；可选 `relation: rel:<id>` 写这一列实现哪条关系 |
 | `foreign_attribute` | 必填 | 另一个概念 X 的属性，在本行冗余存放（宽表）；`via` 必填，写本表中绑定为 `foreign_identifier`、指向 X 的标识符的那一列。也可以是所表现概念自己的属性，但只限同一概念另一条记录的：`via` 那一列须绑定为 `foreign_identifier`、指向标识该属性所属概念的标识符（即上一行的自关联列）；角色视图里经承担者标识符的列只能这样带出承担者的属性，不能带出角色的 |
 | `technical` | 不写 | 分区、加载时间、代理键 |
 | `unmapped` | 不写 | 尚未决定（会警告） |
@@ -361,6 +361,18 @@ relations:
     cardinality: {from: "0..1", to: "0..1"}
 ```
 
+一个概念可以有多条自关联（直接的一层、隔一层的两层……），各有自己的列。这时每个自关联列都要写
+`relation` 指明它实现哪一条，否则页面、查询与 JOIN 证据会把它归给该概念的每一条自关联（并警告
+`self_reference_relation_unnamed`）。只有一条自关联时可以不写，行为不变：
+
+```yaml
+      - {column: orig_loan_no, to: foreign_identifier, ref: id:loan_no, relation: rel:loan_renews_loan}
+```
+
+`relation` 也可以写在指向别的概念的 `foreign_identifier` 上（两个概念之间有多条关系时说清是哪一条），
+包括事件参与者派生的 `rel:<事件 slug>.<role_name>`；它只接受这样的关系：一端是本表的概念（角色视图含承担者），
+另一端是 `ref` 所标识的概念（或以它为承担者的角色）；自关联列只接受本概念到自己的关系。
+
 ## 校验
 
 ```bash
@@ -411,6 +423,7 @@ scope-lineage catalog validate examples/catalog-demo --json
 | `binding_identifier` | 该标识符不属于所表现的概念（角色视图：也不属于其承担者） |
 | `binding_foreign_identifier` | `ref` 根本不是标识符（或不存在） |
 | `self_reference_without_relation` | 该标识符属于所表现概念自己，但目录里没有两端都是该概念的关系 |
+| `binding_relation` | 绑定的 `relation` 不是关系（或不存在）；两端不是「本表的概念」与「`ref` 所标识的概念」；或该列是自关联列而关系不是本概念到自己的 |
 | `binding_foreign_attribute` | `ref` 不是属性；或属于所表现概念自己（角色视图：或其承担者），而 `via` 那一列不是指向该属性所属概念另一条记录的 `foreign_identifier`——本行自己的属性应绑定为 `attribute` |
 | `binding_foreign_attribute_via` | `via` 不是本表的列，该列不是 `foreign_identifier`，或它指向的标识符不属于该属性的概念 |
 | `binding_code_set` | 绑定的 `code_sets` 里有一项不是码值集 |
@@ -428,6 +441,7 @@ scope-lineage catalog validate examples/catalog-demo --json
 | `empty_code_set` | 码值集没有任何取值，也没有 `lookup` |
 | `binding_code_sets_miss_attribute` | 绑定写了 `code_sets`，所绑属性的 `code_set` 却不在其中 |
 | `unmapped_binding` | 某列绑定为 `to: unmapped` |
+| `self_reference_relation_unnamed` | 自关联列没写 `relation`，而该概念有两条或更多自关联——说不清它实现哪一条，会被归给每一条 |
 | `unknown_file` | 布局里没有的文件；已忽略 |
 
 ### 报告
@@ -513,7 +527,8 @@ scope-lineage catalog build examples/catalog-demo --out out/
   不分大小写，血缘契约里的表名都是小写，这样证据合并与查询才对得上；
 - 顶层列表排序——按 `id`，术语按词再按指向，表现按表名——所以把对象挪到别的文件不改变输出。
   对象内部的列表（属性、状态值、绑定）保持作者的顺序；
-- 绑定原样带出 `via`；指向本概念自己标识符的 `foreign_identifier` 带 `self_reference: true`；
+- 绑定原样带出 `via` 与 `relation`；指向本概念自己标识符的 `foreign_identifier` 带 `self_reference: true`；
+  `relation` 是可选的附加字段，没写它的目录输出不变；
 - 码值集的 `lookup` 按上表的键序带出（`filter` 按列名排序，字面量一律为文字），绑定的 `code_sets` 按作者的顺序带出。
   这两个字段是可选的附加字段，`doc_format` 仍是 `ontology-json/3`；没写它们的目录，输出与以前逐字节相同；
 - 每个事件参与者变成一条 `participation` 关系 `rel:<事件 slug>.<role_name>`，从事件指向参与者，
@@ -593,7 +608,8 @@ scope-lineage catalog build examples/catalog-demo --out out/ \
   `identifier` 或 `foreign_identifier`）到同一个标识符，而这个标识符标识关系的某一端：关系两端的概念自己，
   或角色的表现表所绑定的承担者标识符。客户号对上手机号，或两个客户号把一通电话连到一个联系人，都不是
   「电话—联系人」关系的样例。participation 关系同样统计。
-  两端是同一概念的关系只数至少一侧连接列带 `self_reference` 的 JOIN（表自连接也算）：同一实例出现在两张表里不说明关系。
+  两端是同一概念的关系只数至少一侧连接列带 `self_reference` 且实现这条关系（`relation` 指向它，或没写 `relation`）的 JOIN
+  （表自连接也算）：同一实例出现在两张表里不说明关系。
 - 语料用 `tables` 与 `ontology` 同一套读取器读；JOIN 的一侧是 CTE 时，顺着它追到提供行的物理表。
   连接列是 ON 子句比较的那个值所在的物理列：改名的列（`caller_phone AS dialed_no`）按物理列名报告，
   只由一列算出的键（`TRIM`、`CAST`、`COALESCE(x, '')`）报告为那一列。由多列算出的键
@@ -663,7 +679,7 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 | A2 数据清单 | 按表现类型分组的表（核心、扩展、从属、事件明细、状态历史、标识映射、角色视图、汇总、中间）：说明（表卡的表注释、表现的 `notes`）、粒度（标识符、来源，以及血缘证明了什么）、时间语义及取数方式（快照「按单个 dt 分区取数」，拉链按有效期窗口）、更新频率、记录范围、生产任务、废弃及替代；每张表的血缘一跳 |
 | A3 带本概念标识的表 | 所有概念的表里，把本概念的某个标识符绑定为 `identifier` 或 `foreign_identifier` 的每一列：表、表的概念、列、标识符、方式（自关联单独标出）。没有自己表现表的概念也能看到它从哪些表关联进来；角色没有自己的标识符，指向承担者 |
 | A4 属性 | 按类别（描述、状态、度量、时间）：定义、类型与单位、码值（值=含义；码值在码值表里的写出查找方式）、承载它的每个表列（含码值映射；列按 `code_sets` 查码值集时写「先查 A，查不到查 B」；别的表冗余存放的标为「冗余（经 via 列）」，同一概念另一条记录的标为「冗余（同一<概念>的另一条记录，经 via 列）」）、加工口径 |
-| A5 关系 | 从本概念一侧读的关联、组成、泛化，带基数与 JOIN 次数（自关联的对端写「本概念」及承载它的列，有 `inverse_name` 时读法两个方向都写）；JOIN 次数为 0 或无法统计时，补上目录自己的依据：同表携带两端的表（表现某一端或绑定它的标识符；角色用承担者的标识符；自关联只看自关联列）与关系的 `evidence`；参与的事件（本概念的角色、事件的表现表数）；本概念承担的角色，或在角色页上反向链到承担者 |
+| A5 关系 | 从本概念一侧读的关联、组成、泛化，带基数与 JOIN 次数（自关联的对端写「本概念」及承载它的列——写了 `relation` 的列只列在它指向的那条下，没写的列在每条自关联下——有 `inverse_name` 时读法两个方向都写）；JOIN 次数为 0 或无法统计时，补上目录自己的依据：同表携带两端的表（表现某一端或绑定它的标识符；角色用承担者的标识符；自关联只看实现它的自关联列）与关系的 `evidence`；参与的事件（本概念的角色、事件的表现表数）；本概念承担的角色，或在角色页上反向链到承担者 |
 | A6 约束 | 作用于概念本身、其属性、标识符与关系的约束，按种类列出，带强度与状态 |
 | A7 治理缺口 | 草拟占比、未绑定列、没有落表的属性、缺码值的状态/码值类属性、有没有表现表；有证据时还有证据与目录矛盾、没人用的绑定列、没有 JOIN 支持的关系 |
 
@@ -693,7 +709,7 @@ scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_l
 | --- | --- | --- |
 | `concept` | id、名称、同义词或术语 | 身份、标识符、属性、状态、表现表、该读的页面，以及概念页的一页纸概览（`overview`，字段与页面相同） |
 | `table` | `库.表`（忽略 catalog 前缀） | 它承载的概念、时间语义与取数方式（`usage`）、表注释与 `notes`、记录范围、引用它的业务规则与值域约束（`constraints`），以及每个绑定列指向什么，带证据；冗余列写 `→ 冗余属性 <属性> of <概念>（经 <via>）`，自关联列写出关系；码值表（码值集 `lookup` 所指的表）回答它装着哪些码值集及各自的查找方式（`code_sets`），表同时有表现时表现答案多一个 `code_sets`，退出码 `0` |
-| `column` | `库.表.列` | 它承载的属性或标识符及其概念（冗余属性带 `via`，是同一概念另一条记录的属性时另带 `other_instance: true`；写了 `code_sets` 的列按顺序带出码值集及查找方式）——或它是码值表的哪种列（码、含义、代理键、筛选、有效期，`role`）、服务哪些码值集——或它是哪个标识符的物理拼写 |
+| `column` | `库.表.列` | 它承载的属性或标识符及其概念（冗余属性带 `via`，是同一概念另一条记录的属性时另带 `other_instance: true`；写了 `code_sets` 的列按顺序带出码值集及查找方式）——或它是码值表的哪种列（码、含义、代理键、筛选、有效期，`role`）、服务哪些码值集——或它是哪个标识符的物理拼写；自关联列带 `self_relations`（它实现的自关联：写了 `relation` 的只有那一条，没写的是全部） |
 | `identifier` | id、名称或物理拼写 | 识别什么、唯一范围与拼写、绑定到它的列 |
 | `attribute` | id、名称或术语 | 所属概念、码值（码值集有 `lookup` 时 `code_set` 带上查找方式与表）、口径、每个表列 |
 | `related` | 概念的 id、名称、同义词或术语 | 一跳邻居：从本概念一侧读的关系（有 `inverse_name` 的自关联两个方向都读）、事件、参与者、角色、承担者、表、带本概念标识的表（`carriers`）；每条关系与事件带 `carried_together`（同表携带两端的表）与 `evidence`，没有 JOIN 时文本里写出 |

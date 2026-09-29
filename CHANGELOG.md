@@ -49,6 +49,24 @@
   translation through a mapping table stay in `derivation`. The fragment schema, the
   drafting prompt and the skill say to write a code table as `lookup`, not as a
   representation.
+- **A `foreign_identifier` column can name the relation it realises.** A concept with two
+  or more relations to itself (one level apart, two levels apart, ...) had no way to say
+  which self-referencing column carries which: appendix A5 listed every such column under
+  every self relation, `catalog query column` answered with all of them in
+  `self_relations`, and a self-JOIN counted as evidence for each. A binding gains an
+  optional `relation: rel:<id>`; validation checks it names a relation whose ends are the
+  table's concept (a role view: or its player) and the concept `ref` identifies -- for a
+  column naming another instance of its own concept, a relation from that concept to
+  itself -- or reports `binding_relation`, and warns `self_reference_relation_unnamed` on a
+  self-referencing column naming none while its concept has two or more self relations.
+  A column naming a relation is then listed, answered, counted and carried (A5,
+  `self_relations`, JOIN evidence, `carried_together`) under that relation only; a column
+  naming none goes under every self relation as before. `catalog build` carries the field
+  (`doc_format` stays `ontology-json/3`; a catalog without it builds byte for byte as
+  before), `catalog merge` compares it, and the catalog, fragment and `ontology-v3`
+  schemas accept it on `foreign_identifier` only. `ontology-catalog.md` (bindings, self
+  relations, validation, build, evidence, A5, `column` / `related` queries), the skill and
+  the fragment prompt say so.
 
 ### Fixed
 - **A column repeating another record's attribute of the same concept can be bound.** A

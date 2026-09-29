@@ -321,7 +321,7 @@ representation per table).
 | `refresh` | no | update frequency |
 | `table_status` | yes | `active` / `deprecated` |
 | `replaced_by` | no | the table that replaces a deprecated one |
-| `bindings` | yes | `[{column, to, ref?, via?, derivation?, code_map?, code_sets?}]` |
+| `bindings` | yes | `[{column, to, ref?, via?, relation?, derivation?, code_map?, code_sets?}]` |
 
 A binding's `to` says what the column is:
 
@@ -329,7 +329,7 @@ A binding's `to` says what the column is:
 | --- | --- | --- |
 | `attribute` | required | an attribute of the represented concept (a role view may also bind its player's) |
 | `identifier` | required | an identifier of the represented concept (a role view may also bind its player's) |
-| `foreign_identifier` | required | another concept's identifier — a relation, physically; or the represented concept's own identifier (another instance of the same concept), provided the catalog has a relation whose two ends are that concept |
+| `foreign_identifier` | required | another concept's identifier — a relation, physically; or the represented concept's own identifier (another instance of the same concept), provided the catalog has a relation whose two ends are that concept; an optional `relation: rel:<id>` names the relation this column realises |
 | `foreign_attribute` | required | an attribute of another concept X, repeated on this row (a wide table); `via` is required and names the column of this table bound as `foreign_identifier` to an identifier of X. It may also be the represented concept's own attribute, but only another record's of the same concept: the `via` column must be bound as `foreign_identifier` to an identifier of the concept the attribute belongs to (the self-referencing column of the row above); in a role view, a column holding the player's identifier carries the player's attributes this way, never the role's |
 | `technical` | none | partition, load time, surrogate keys |
 | `unmapped` | none | not decided yet (warned about) |
@@ -395,6 +395,22 @@ relations:
     cardinality: {from: "0..1", to: "0..1"}
 ```
 
+A concept may have several self relations (one level apart, two levels apart, …), each with
+columns of its own. Then every self-referencing column names the one it realises with
+`relation`; otherwise the pages, queries and JOIN evidence attribute it to every self relation
+of the concept (and `self_reference_relation_unnamed` warns). With one self relation it may be
+left out, and nothing changes:
+
+```yaml
+      - {column: orig_loan_no, to: foreign_identifier, ref: id:loan_no, relation: rel:loan_renews_loan}
+```
+
+`relation` may also go on a `foreign_identifier` holding another concept's identifier (to say
+which of several relations between two concepts it is), including an event participant's
+derived `rel:<event slug>.<role_name>`. It accepts only a relation with one end the table's
+concept (for a role view, or its player) and the other the concept `ref` identifies (or a role
+that concept plays); a self-referencing column accepts only a relation from its concept to itself.
+
 ## Validation
 
 ```bash
@@ -447,6 +463,7 @@ directory, no manifest, YAML without PyYAML).
 | `binding_identifier` | the identifier is not the represented concept's (or, for a role view, its player's) |
 | `binding_foreign_identifier` | `ref` is not an identifier at all (or does not exist) |
 | `self_reference_without_relation` | the identifier is the represented concept's own, and no relation has that concept at both ends |
+| `binding_relation` | a binding's `relation` is not a relation (or does not exist); its ends are not the table's concept and the concept `ref` identifies; or the column is self-referencing and the relation does not run from its concept to itself |
 | `binding_foreign_attribute` | `ref` is not an attribute; or it is the represented concept's own (for a role view, or its player's) while the `via` column is not a `foreign_identifier` naming another record of the attribute's concept — this row's own attribute is bound as `attribute` |
 | `binding_foreign_attribute_via` | `via` is not a column of this table, that column is not a `foreign_identifier`, or the identifier it holds does not identify the attribute's concept |
 | `binding_code_set` | an entry of a binding's `code_sets` is not a code set |
@@ -465,6 +482,7 @@ identifier (the demo's installment loan lists `id:loan_no`).
 | `empty_code_set` | a code set lists no values and has no `lookup` |
 | `binding_code_sets_miss_attribute` | a binding lists `code_sets`, and the bound attribute's `code_set` is not among them |
 | `unmapped_binding` | a column is bound `to: unmapped` |
+| `self_reference_relation_unnamed` | a self-referencing column names no `relation` while its concept has two or more self relations — which one it realises cannot be told, so it is attributed to each |
 | `unknown_file` | a file the layout does not name; it was ignored |
 
 ### Report
@@ -556,8 +574,9 @@ is a scope-lineage bug, not a fault in the catalog:
 - top-level lists are sorted — by `id`, terms by term then target, representations by
   table — so moving an object to another file changes nothing. Lists inside an object
   (attributes, state values, bindings) keep the author's order;
-- bindings carry `via` through as written; a `foreign_identifier` holding the concept's
-  own identifier carries `self_reference: true`;
+- bindings carry `via` and `relation` through as written; a `foreign_identifier` holding the concept's
+  own identifier carries `self_reference: true`; `relation` is an optional addition, and a
+  catalog without it builds as before;
 - a code set's `lookup` comes out in the key order of the table above (its `filter`
   sorted by column, the literals as text), a binding's `code_sets` in the author's order. Both are optional
   additions and `doc_format` stays `ontology-json/3`; a catalog that writes neither builds
@@ -648,8 +667,9 @@ byte for byte what it was.
   bind. A customer id met by a phone number, or two customer ids linking a call to a contact,
   is not a sample of a call–contact relation. Participation relations are counted the same
   way. A relation whose two ends are one concept counts only JOINs with a `self_reference`
-  key column on at least one side (a table joined to itself included): the same instance met
-  in two tables says nothing about the relation.
+  key column realising it (its `relation` names it, or it names none) on at least one side
+  (a table joined to itself included): the same instance met in two tables says nothing about
+  the relation.
 - The corpus is read with the same readers `tables` and `ontology` use; a JOIN side that is
   a CTE is followed down to the physical table its rows come from. A key column is the
   physical column whose value the ON clause compares: a renamed column (`caller_phone AS
@@ -729,7 +749,7 @@ has a 编号 row with the concept id):
 | A2 数据清单 | the tables, grouped by representation kind (核心, 扩展, 从属, 事件明细, 状态历史, 标识映射, 角色视图, 汇总, 中间): a note (the table card's comment, the representation's `notes`), grain (identifiers, source, and what lineage proves), time semantics and how to read by them (a snapshot 「按单个 dt 分区取数」, a zipper by its validity window), refresh, record scope, producing tasks, deprecation and replacement; one hop of lineage per table |
 | A3 带本概念标识的表 | every column, in the tables of any concept, binding one of this concept's identifiers as `identifier` or `foreign_identifier`: table, the table's concept, column, identifier, and how (a self reference is marked). A concept with no table of its own still shows where it can be joined in; a role has no identifier of its own and points to its player |
 | A4 属性 | by category (描述, 状态, 度量, 时间): definition, type and unit, code values (value=meaning; for values in a code table, how to look them up), every table column that holds it (with its code map; a column consulting code sets in order reads 「先查 A，查不到查 B」, look in A, then B; one another table repeats is marked 「冗余（经 via column）」, one repeated from another record of the same concept 「冗余（同一<concept>的另一条记录，经 via column）」), how it is derived |
-| A5 关系 | association, composition and generalization read from this concept's side, with cardinality and JOIN count (a self relation's far end reads 「本概念」 with the columns that carry it, and one with an `inverse_name` reads both ways); when the count is 0 or could not be taken, what the catalog itself shows: the tables holding both ends (representing one or binding its identifier; a role through its player's identifiers; a self relation only through a self-referencing column) and the relation's `evidence`; the events it takes part in (its role, how many tables the event has); the roles it plays, or — on a role's page — the player it belongs to |
+| A5 关系 | association, composition and generalization read from this concept's side, with cardinality and JOIN count (a self relation's far end reads 「本概念」 with the columns that carry it — a column naming a `relation` only under that one, a column naming none under every self relation — and one with an `inverse_name` reads both ways); when the count is 0 or could not be taken, what the catalog itself shows: the tables holding both ends (representing one or binding its identifier; a role through its player's identifiers; a self relation only through a self-referencing column realising it) and the relation's `evidence`; the events it takes part in (its role, how many tables the event has); the roles it plays, or — on a role's page — the player it belongs to |
 | A6 约束 | the constraints on the concept, its attributes, identifiers and relations, by kind, with strength and status |
 | A7 治理缺口 | drafted share, unmapped columns, attributes no table holds, state or coded attributes without values, whether the concept has any table; with evidence also the conflicts, bound columns nobody uses and relations no JOIN backs |
 
@@ -764,7 +784,7 @@ scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_l
 | --- | --- | --- |
 | `concept` | id, name, synonym or term | identity, identifiers, attributes, states, tables, the page to read, and the concept page's one-page overview (`overview`, the same fields as the page) |
 | `table` | `db.table` (a catalog prefix is ignored) | the concept it carries, its time semantics and how to read by them (`usage`), the table comment and `notes`, its record scope, the business rules and value domains citing it (`constraints`), and what every bound column points at, with evidence; a denormalised column reads `→ 冗余属性 <attribute> of <concept>（经 <via>）`, a self-referencing one names its relation; for a code table (one a code set's `lookup` names), the code sets it holds and how each is looked up (`code_sets`), and when the table is also represented, the representation's answer gains `code_sets`; exit code `0` |
-| `column` | `db.table.column` | the attribute or identifier it holds and its concept (a denormalised attribute with its `via`, plus `other_instance: true` when it is another record's of the same concept; a column with `code_sets` lists them in order, each with how it is looked up) — or, in a code table, what kind of column it is (code, meaning, surrogate key, filter, validity: `role`) and which code sets it serves — or the identifier it spells |
+| `column` | `db.table.column` | the attribute or identifier it holds and its concept (a denormalised attribute with its `via`, plus `other_instance: true` when it is another record's of the same concept; a column with `code_sets` lists them in order, each with how it is looked up) — or, in a code table, what kind of column it is (code, meaning, surrogate key, filter, validity: `role`) and which code sets it serves — or the identifier it spells; a self-referencing column carries `self_relations` (the self relations it realises: the one its `relation` names, or all of them) |
 | `identifier` | id, name or physical spelling | what it identifies, its scope and spellings, the columns bound to it |
 | `attribute` | id, name or term | its concept, code values (with a `lookup`, `code_set` also carries how and in which table to look them up), derivation and every table column |
 | `related` | a concept's id, name, synonym or term | one hop: relations read from its side (a self relation with an `inverse_name` both ways), events, participants, roles, player, tables, and the tables carrying its identifiers (`carriers`); every relation and event carries `carried_together` (the tables holding both ends) and `evidence`, printed when no JOIN backs it |

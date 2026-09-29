@@ -40,6 +40,7 @@ from .catalog_view import (
     catalog_table_name,
     concept_filename,
     lookup_columns,
+    realises,
     usage_hint,
 )
 
@@ -206,7 +207,9 @@ def _column(view: CatalogView, rep: dict, binding: dict) -> dict:
         owner = _owner(view, binding["ref"]) or {}
         answer["self_reference"] = True
         answer["self_relations"] = [
-            {"id": r["id"], "name": r["name"]} for r in view.self_relations_of(owner.get("id"))
+            {"id": r["id"], "name": r["name"]}
+            for r in view.self_relations_of(owner.get("id"))
+            if realises(binding, r["id"])
         ]
     if "code_map" in binding:
         answer["code_map"] = binding["code_map"]

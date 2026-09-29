@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from .index import Index, build_index
+from .index import Index, build_index, derived_relation_id
 from .model import Catalog, Finding
 
 
@@ -233,6 +233,8 @@ def _binding(checks: _Checks, file: str, at: str, binding: dict, owners, by_colu
         checks.fail("binding_identifier", file, at, f"{ref!r} {_not_own(index, ref, 'identifier')}")
     elif to == "foreign_identifier":
         _foreign_identifier(checks, file, at, ref, owners)
+        if "relation" in binding and index.is_type(ref, "identifier"):
+            _binding_relation(checks, file, at, ref, binding["relation"], owners)
     elif to == "foreign_attribute":
         _foreign_attribute(checks, file, at, binding, owners, by_column)
 
@@ -252,6 +254,46 @@ def _foreign_identifier(checks: _Checks, file: str, at: str, ref, owners) -> Non
             f"{ref!r} identifies this table's own concept, and no relation runs from "
             f"{selves[0]} to itself",
         )
+
+
+def _binding_relation(checks: _Checks, file: str, at: str, ref: str, relation_id, owners) -> None:
+    """The relation a ``foreign_identifier`` column says it realises: one end the table's
+    concept, the other the concept the column's identifier names -- and, for a column
+    naming another instance of the table's own concept, a relation from it to itself."""
+    index = checks.index
+    ends = index.relation_ends(relation_id)
+    if ends is None:
+        message = f"{relation_id!r} {_describe(index, relation_id)}; expected a relation"
+        checks.fail("binding_relation", file, at, message)
+        return
+    source, target = ends
+    selves = [owner for owner in owners if ref in index.identifiers_of(owner)]
+    if selves:
+        if source != target or source not in selves:
+            checks.fail(
+                "binding_relation", file, at,
+                f"{relation_id!r} runs from {source} to {target}; this column names another "
+                f"instance of {selves[0]}, so expected a relation from {selves[0]} to itself",
+            )
+        return
+    named = _named_by(index, ref)
+    if not ((source in owners and target in named) or (target in owners and source in named)):
+        checks.fail(
+            "binding_relation", file, at,
+            f"{relation_id!r} runs from {source} to {target}; expected a relation between "
+            f"{owners[0]} and {' or '.join(sorted(named))}",
+        )
+
+
+def _named_by(index: Index, ref: str) -> set[str]:
+    """The concepts an identifier names an instance of: those it identifies, and the roles
+    whose player it identifies (a borrower is named by its customer's id)."""
+    named = set()
+    for concept_id, _entry in index.of_type("concept"):
+        owners = index.binding_owners(concept_id) or (concept_id,)
+        if any(ref in index.identifiers_of(owner) for owner in owners):
+            named.add(concept_id)
+    return named
 
 
 def _foreign_attribute(checks: _Checks, file: str, at: str, binding: dict, owners, by_column) -> None:
@@ -315,7 +357,3 @@ def _derived_ids(checks: _Checks, catalog: Catalog) -> None:
                     "duplicate_id", entry.file, derived,
                     f"also the id of the participation relation derived from {event['id']}",
                 )
-
-
-def derived_relation_id(event_id: str, role_name: str) -> str:
-    return f"rel:{event_id.split(':', 1)[1]}.{role_name}"
