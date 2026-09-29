@@ -1,10 +1,16 @@
 [English](../en/ontology-doc.md) | 中文
 
-# ontology.json / ontology.md 语料级本体候选（ontology-json/2）
+# ontology.json / ontology.md 键折叠候选（ontology-json/2）
+
+> **键折叠候选，不是业务本体。** 这个命令按规则把表折成概念——共用一个键列词根的表折成一个概念，
+> 名字取自列注释。它适合做一份语料的快速结构扫描、起草目录时的交叉证据；不要拿它回答业务问题。
+> 这种规则会把码值字典折成实体、把同一个业务对象拆到两个词根下，也找不出事件；在真实语料上，
+> 下面这条路线恰好把这些做对了。业务本体先写成[表语义](table-semantics.md)（`semantic *`），
+> 再从表语义起草进[本体目录](ontology-catalog.md)：`catalog digest` → 起草 → 片段 →
+> `catalog merge` / `build` / `render` / `query`。命令、参数与下文的 `ontology-json/2` 契约都不变。
 
 `scope-lineage ontology` 扫描一棵语料目录下的所有 `lineage.json`，在
-[表卡](tables-doc.md) 与[值词典](glossary-doc.md)之上再回答一个单表回答不了的问题——
-**这个仓库讲的是什么、那些东西之间是什么关系**：概念（实体 / 事件 / 汇总）与概念之间的关系，
+[表卡](tables-doc.md) 与[值词典](glossary-doc.md)之上按键把语料折叠起来：概念（实体 / 事件 / 汇总）与概念之间的关系，
 表现这些概念的表与它们的身份键、属性（列 + 注释 + 观察到的角色 + 同义列）、表与表之间的
 JOIN（概念关系的证据）、约束（非空 / 枚举 / 每键唯一 / 分区）、以及跨任务的矛盾。
 
@@ -18,7 +24,7 @@ JOIN（概念关系的证据）、约束（非空 / 枚举 / 每键唯一 / 分�
 > `dwd.customer_df` 是它的一份表现。上一版把 `tables[]` 叫 `entities[]`、把 `table_relations[]`
 > 叫 `relations[]`，见下面「[从 ontology-json/1 迁移](#从-ontology-json1-迁移)」。
 
-## 定位：本体**候选**，不是业务本体
+## 定位：键折叠**候选**，不是业务本体
 
 - 每条断言都带 `tier` 与 `evidence`，可按任务名、`statement_id`、`logic_block_id` 回链到
   某个具体语句；没有证据的断言根本不会被发布。
@@ -589,7 +595,8 @@ JOIN 它**自己**是另一回事，仍然是 `self_reference`。
 
 ### markdown 怎么渲染
 
-N2：三类文档，读者该打开哪一份就是重点。`ontology.md` 是**索引**——三部分，顺序固定：
+N2：三类文档，读者该打开哪一份就是重点。`ontology.md` 是**索引**：标题下一行引用说明它是什么——键折叠候选、
+结构扫描与起草证据，不是业务本体——并指向表语义 → 本体目录；`ontology.json` 不带这一行。随后三部分，顺序固定：
 `## 本体总览`、`## 概念`、`## 附录索引`。每个折出的概念自己那一份在 `concepts/` 下，
 表一级的东西全部在旁边的 `appendix.md` 里，并且标明它是证据而不是模型：把 JOIN 印在
 正文里，等于教每个读者照着仓库的形状去建模。

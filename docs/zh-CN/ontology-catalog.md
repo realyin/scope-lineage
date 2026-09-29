@@ -12,8 +12,9 @@
 文档写成每个概念一页，`scope-lineage catalog query` 从中回答一个问题；`catalog digest` 与
 `catalog merge` 帮助从表语义起草目录（见[起草](#起草catalog-digest-与-catalog-merge)）。
 
-> **过渡期。**现有的 [`scope-lineage ontology`](ontology-doc.md) 命令从血缘语料自下而上推出
-> `ontology-json/2` 候选，它**再保留一个版本**，行为不变。目录不读它，它也不读目录。血缘与表卡证据
+> **过渡期。**从表语义起草的这份目录才是业务本体。现有的 [`scope-lineage ontology`](ontology-doc.md)
+> 命令从血缘语料自下而上按共用键词根折出 `ontology-json/2` **键折叠候选**，只是结构扫描与起草证据，
+> 不是业务本体；它**再保留一个版本**，行为不变。目录不读它，它也不读目录。血缘与表卡证据
 > 用 `catalog build --lineage/--tables` 挂到目录上；值词典暂不读取。
 
 一份完整的虚构目录——一家虚构的消费信贷公司——放在

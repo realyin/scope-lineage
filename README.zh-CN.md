@@ -19,7 +19,7 @@ Scope Lineage 是一个离线静态分析器，把 CTE、子查询、字段表�
 1. **事实引擎**（`scope`、`metadata`、`contract`、`serialize`）：SQL/任务输入、scope 解析、
    字段级血缘、任务状态与诊断——也就是版本化契约本身。
 2. **事实派生视图**（`render`）：只从契约确定性派生的文档——mapping、任务语义骨架、语料级表卡、
-   术语与值域、本体候选。
+   术语与值域、键折叠候选。
 3. **知识生产支持**（`catalog`、`semantics`、`questions`）：概念目录、表语义材料包与校验、
    确认回写、验收题单——为写业务含义的人和模型提供结构与核对，而不代写业务含义。
 
@@ -425,14 +425,20 @@ scope-lineage describe --lineage /tmp/scope-lineage-corpus \
 **枚举**该值的片段，或把该值标成某个标签的 CASE——Core 不猜。
 `describe --glossary` 把结果接到 `fields[].value_domain`。详见 [术语与值域字典](docs/zh-CN/glossary-doc.md)。
 
-整份语料还知道一件单张表说不清的事：这些表之间是什么关系。把表卡与字典再聚合成一份本体候选：
+整份语料还知道一件单张表说不清的事：哪些表共用哪些键。把表卡与字典再按键折叠成键折叠候选：
 
 ```bash
 scope-lineage ontology --lineage /tmp/scope-lineage-corpus --out /tmp/scope-lineage-onto \
   --tables /tmp/scope-lineage-tables/tables.json --glossary /tmp/scope-lineage-dict/glossary.json
 ```
 
-`ontology.json`（`ontology-json/2`）按概念读：`concepts[]` 是语料提出的业务概念（实体 /
+> **键折叠候选不是业务本体。** `ontology` 按键列词根把表折成概念：它是快速结构扫描、起草时的交叉证据，
+> 不是回答业务问题的路线。这种规则会把码值字典折成实体、把同一个业务对象拆到两个词根下，也找不出事件。
+> 业务本体（有哪些概念、哪些表承载它们、概念之间什么关系）先写成[表语义](docs/zh-CN/table-semantics.md)
+> （`semantic *`），再从表语义起草进[本体目录](docs/zh-CN/ontology-catalog.md)：`catalog digest` → 起草 →
+> 片段 → `catalog merge` / `build` / `render` / `query`。
+
+`ontology.json`（`ontology-json/2`）按概念读：`concepts[]` 是键折叠提出的概念（实体 /
 事件 / 汇总），`relations[]` 是**概念之间**的关系；`tables[]` 是**表现**这些概念的仓库表，
 `table_relations[]` 是表与表之间的 JOIN——概念关系正是从它们读出来的**证据**。约束、矛盾与
 待判定项都挂在这两层上，每条断言都标 `proven` / `implied` / `hypothesis` / `conflict` 并带
@@ -444,7 +450,7 @@ JOIN 折进了哪些概念关系、约束、属性同义、待人工判定。答
 `tables[]`、把原来的 `relations[]` 改名为 `table_relations[]`，`--legacy-keys` 可以再写一个
 发布周期的旧键名。加上 `--export linkml,shacl`
 还会在 JSON 旁写出 `ontology.linkml.yaml` 与 `ontology.shacl.ttl`（概念层与层级一并带出），
-供 RDF 工具链直接加载。详见 [语料级本体候选](docs/zh-CN/ontology-doc.md)。
+供 RDF 工具链直接加载。详见 [键折叠候选](docs/zh-CN/ontology-doc.md)。
 
 四个语料级命令（`describe`、`tables`、`glossary`、`ontology`）默认每次重跑都把每个任务重算
 一遍。加上 `--incremental`，重跑就只重算 `lineage.json` / `diagnostics.json` 变了的任务，
@@ -552,8 +558,8 @@ AI 下游必须同时读取诊断，不能把 `recovered`、歧义候选或缺�
 - [`semantic.json` / `semantic.md` 任务语义描述](docs/zh-CN/semantic-doc.md)
 - [`tables.json` / `tables.md` 语料级表卡](docs/zh-CN/tables-doc.md)
 - [`glossary.json` / `glossary.md` 术语与值域字典](docs/zh-CN/glossary-doc.md)
-- [`ontology.json` / `ontology.md` 语料级本体候选](docs/zh-CN/ontology-doc.md)
-- [本体目录（`catalog-yaml/1`）：概念先行的事实来源，`catalog validate` / `catalog build` 生成 `ontology-json/3`，用 `catalog digest` / `catalog merge` 从表语义起草](docs/zh-CN/ontology-catalog.md)
+- [`ontology.json` / `ontology.md` 键折叠候选（结构扫描，不是业务本体）](docs/zh-CN/ontology-doc.md)
+- [本体目录（`catalog-yaml/1`）：业务本体，概念先行的事实来源，`catalog validate` / `catalog build` 生成 `ontology-json/3`，用 `catalog digest` / `catalog merge` 从表语义起草](docs/zh-CN/ontology-catalog.md)
 - [表语义（`table-semantics/1`）：`semantic packet` / `semantic validate` / `semantic confirm` / `semantic render`，`semantic status` 分批续跑](docs/zh-CN/table-semantics.md)
 - [验收问题集（`question-set/1`）：`questions validate` / `sheet` / `grading-sheet` / `score`](docs/zh-CN/questions.md)
 
@@ -611,7 +617,7 @@ statement = parse_scope_lineage(
 document = to_lineage_dict(statement)
 ```
 
-语料级本体候选也走同一个门面：先 `build_ontology(...)`，再
+键折叠候选也走同一个门面：先 `build_ontology(...)`，再
 `render_export(ontology, "linkml")` / `render_linkml` / `render_shacl`。
 
 稳定公共面由 `scope_lineage.PUBLIC_CORE_API` 显式声明。下游应使用公共门面或读取 JSON 契约，

@@ -60,9 +60,19 @@ def add_ontology_parser(subcommands) -> None:
     ontology_cmd = subcommands.add_parser(
         "ontology",
         help=(
-            "Aggregate a corpus of Core artifacts into one ontology candidate: "
-            "concepts, the relations between them, the tables that represent them, "
-            "constraints and cross-task conflicts"
+            "Key-fold candidates: fold a corpus's tables into concepts by shared "
+            "key-column stems, with the joins, constraints and cross-task conflicts "
+            "behind them -- a structural scan and drafting evidence, not the business "
+            "ontology (for that, use `semantic` then `catalog`)"
+        ),
+        description=(
+            "Key-fold candidates (the former corpus ontology). Tables that share a "
+            "key-column stem are folded into one concept, named from column comments. "
+            "Use it as a quick structural scan of a corpus and as cross-evidence while "
+            "drafting a catalog. It is not the business ontology and not the route for "
+            "business questions: that is table semantics (`scope-lineage semantic ...`) "
+            "then the catalog (`scope-lineage catalog digest` -> draft -> fragments -> "
+            "`catalog merge` / `build` / `render` / `query`)."
         ),
     )
     ontology_cmd.add_argument(

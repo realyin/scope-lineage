@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Changed
+- **`scope-lineage ontology` is now called what it is: key-fold candidates.** It folds tables
+  into concepts by shared key-column stems, which makes it a quick structural scan and
+  cross-evidence while drafting, not the business ontology: a rule of that kind can fold a
+  code dictionary into an entity, split one business thing across two stems, and finds no
+  events. The skill now routes 「整理这批任务的实体关系 / 本体」 and every other business-
+  ontology question to table semantics → the catalog (`semantic *`, then `catalog digest` →
+  draft → fragments → `catalog merge` / `build` / `render` / `query`); the old section is
+  「键折叠候选（旧 ontology）」 and says what it is for and not for. The `ontology` CLI help,
+  both READMEs, `ontology-doc.md`, `workflow.md`, `agent-skill.md`, `ontology-catalog.md`
+  and the two review prompts say the same. `ontology.md` gains one quoted line under its
+  title saying so and pointing to the catalog workflow. The command, every flag and
+  `ontology.json` (`ontology-json/2`) are unchanged, byte for byte.
+
 ### Fixed
 - **`semantic validate` check 2 compares source columns case-insensitively.** A
   `source_columns` reference was lower-cased, but the lineage sources and the input

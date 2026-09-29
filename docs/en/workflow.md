@@ -4,7 +4,7 @@
 
 Every other document explains one artifact: `lineage.json` holds the proven facts,
 `semantic.md` says what one task does, `tables.md` says what one table is, `ontology.md`
-says how the tables relate. This page repeats none of them and answers a different
+says which tables share which keys. This page repeats none of them and answers a different
 question: **in what order the commands run, what each step needs from the one before it,
 and where a person or an agent enters.**
 
@@ -31,7 +31,7 @@ flowchart TD
     DICT --> DESCRIBE
     DESCRIBE --> SEMANTIC["one per task:<br/>semantic.json + semantic.md"]
 
-    FACTS --> ONTOLOGY["scope-lineage ontology<br/>--tables --glossary"]
+    FACTS --> ONTOLOGY["scope-lineage ontology<br/>key-fold candidates"]
     CARDS --> ONTOLOGY
     DICT --> ONTOLOGY
     ONTOLOGY --> ONTO_OUT["ontology.json / ontology.md<br/>cards with ontology sections"]
@@ -156,7 +156,15 @@ has finished**: `scope-lineage describe --lineage "$OUT/artifacts" --tables … 
 --ontology "$OUT/corpus/ontology.json"`. Without it none of those keys appears and the
 documents are byte-identical to what they were before the concept layer existed.
 
-### 4. `ontology`: how the tables relate
+### 4. `ontology`: key-fold candidates
+
+> `ontology` folds tables into concepts by shared key-column stems: a quick structural scan
+> of the corpus and cross-evidence while drafting a catalog, **not the business ontology**.
+> A rule of that kind can fold a code dictionary into an entity, split one business thing
+> across two stems, and finds no events. For the business ontology — which concepts, which
+> tables carry them, how they relate — write [table semantics](table-semantics.md)
+> (`semantic *`) and draft the [ontology catalog](ontology-catalog.md) from them
+> (`catalog digest` → draft → fragments → `catalog merge` / `build` / `render` / `query`).
 
 ```bash
 scope-lineage ontology \
@@ -269,7 +277,7 @@ the summary line as `unmatched=1`.
 | `tables` | a `lineage.json` tree, optional `--samples`, `--merge` | `tables.json`, `tables.md`, `tables/<db.table>.md` | analyst; also fed to `describe` / `ontology` | [Corpus-level table cards](tables-doc.md) |
 | `glossary` | a `lineage.json` tree, optional `--overrides`, `--ontology`, `--template` | `glossary.json`, `glossary.md`, optionally a fill-in form | business owner fills the form; machines read the JSON | [Term and value dictionary](glossary-doc.md) |
 | `describe` | `lineage.json` + `--tables` + `--glossary` + optional `--ontology` / `--metadata-patch` | one `semantic.json`, `semantic.md` per task | agent (raw material for a profile), analyst | [Task-semantic description](semantic-doc.md) |
-| `ontology` | `lineage.json` + `--tables` + `--glossary` + optional `--overrides`, `--concept-overrides`, `--export` | `ontology.json`, `ontology.md`, cards with ontology sections | agent (turns open items into questions), analyst | [Corpus-level ontology candidate](ontology-doc.md) |
+| `ontology` | `lineage.json` + `--tables` + `--glossary` + optional `--overrides`, `--concept-overrides`, `--export` | `ontology.json`, `ontology.md`, cards with ontology sections | agent (turns open items into questions), analyst | [Key-fold candidates](ontology-doc.md) |
 | `catalog validate` / `catalog build` | a catalog directory a person maintains (`catalog.yaml`, concepts, identifiers, mapping, ...) | a text or `--json` report; `ontology.json` (`ontology-json/3`) | the catalog's owner; machines read the build | [Ontology catalog](ontology-catalog.md) |
 | `semantic packet` / `validate` / `confirm` / `render` / `status` | a `lineage.json` tree, the task JSON directory, `--schema`; later the written `table-semantics/1` documents, a `semantic-confirmations/1` file, and optionally the validation report and a built `ontology.json` | `<db.table>/packet.md` + `packet.json`; a text or `--json` validation report; the confirmed documents; one `<db.table>.md` page per table and `index.md`; each table's stage in a run and the next step's batches | a model writes each table's document from its packet; the owner answers its questions | [Table semantics](table-semantics.md) |
 | agent task profile | `semantic.md` plus the skill's prompt and templates | `business_profile.md`, `business_profile.check.md` | business owner (reads the profile, answers the open list) | [AI agent skill](agent-skill.md) |
@@ -309,7 +317,7 @@ unasked.
 On a wide corpus the concept round cannot be finished in one sitting: the provisional
 concepts run to tens or hundreds while the budget for human questions is eight. **Work it
 in batches** (N1; the full rules are in the
-[corpus-level ontology candidate](ontology-doc.md) guide, section 「分批评审」):
+[key-fold candidates](ontology-doc.md) guide, section 「分批评审」):
 
 ```bash
 # 1. Cut: the provisional concepts by table family into <review>/batches/

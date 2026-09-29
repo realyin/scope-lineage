@@ -17,8 +17,10 @@ that document into one page per concept and `scope-lineage catalog query` answer
 question from it; `catalog digest` and `catalog merge` help draft a catalog from table
 semantics (see [Drafting](#drafting-catalog-digest-and-catalog-merge)).
 
-> **Transition.** The existing [`scope-lineage ontology`](ontology-doc.md) command, which
-> derives an `ontology-json/2` candidate bottom-up from a lineage corpus, stays for **one
+> **Transition.** This catalog, drafted from table semantics, is the business ontology. The
+> existing [`scope-lineage ontology`](ontology-doc.md) command, which folds a lineage corpus
+> bottom-up by shared key stems into `ontology-json/2` **key-fold candidates**, is a
+> structural scan and drafting evidence, not the business ontology; it stays for **one
 > more release** and keeps working unchanged. The catalog does not read it and it does not
 > read the catalog. Lineage and table-card evidence is attached with `catalog build
 > --lineage/--tables`; the value dictionary is not read yet.
