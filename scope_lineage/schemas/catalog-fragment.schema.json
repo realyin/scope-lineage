@@ -670,6 +670,11 @@
           "type": "string",
           "minLength": 1
         },
+        "relation": {
+          "description": "foreign_identifier only: the relation this column realises -- one end the table's concept, the other the concept its identifier names (for a column naming another instance of the table's own concept, a relation from that concept to itself)",
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
         "derivation": {
           "type": "string",
           "minLength": 1
@@ -751,6 +756,23 @@
           "else": {
             "properties": {
               "via": false
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "to": {
+                "const": "foreign_identifier"
+              }
+            },
+            "required": [
+              "to"
+            ]
+          },
+          "else": {
+            "properties": {
+              "relation": false
             }
           }
         }

@@ -82,10 +82,27 @@ class Index:
 
     def has_self_relation(self, concept_id: str) -> bool:
         """Some relation, of any kind, runs from ``concept_id`` to itself."""
-        return any(
-            entry.obj.get("from") == concept_id and entry.obj.get("to") == concept_id
-            for _key, entry in self.of_type("relation")
+        return bool(self.self_relations(concept_id))
+
+    def self_relations(self, concept_id: str) -> list[str]:
+        """The ids, sorted, of the relations running from ``concept_id`` to itself."""
+        return sorted(
+            key
+            for key, entry in self.of_type("relation")
+            if entry.obj.get("from") == concept_id and entry.obj.get("to") == concept_id
         )
+
+    def relation_ends(self, relation_id) -> Optional[tuple[str, str]]:
+        """``(from, to)`` of a declared relation, or of the participation relation an
+        event's participant becomes; ``None`` when ``relation_id`` names neither."""
+        if self.is_type(relation_id, "relation"):
+            relation = self.get(relation_id).obj
+            return relation.get("from"), relation.get("to")
+        for key, entry in self.of_type("concept"):
+            for participant in entry.obj.get("participants") or []:
+                if derived_relation_id(key, participant.get("role_name", "")) == relation_id:
+                    return key, participant.get("concept")
+        return None
 
     def add(self, object_type: str, obj: dict, file: str, owner: str | None = None) -> None:
         object_id = obj["id"]
@@ -97,6 +114,11 @@ class Index:
             )
             return
         self.entries[object_id] = Entry(object_type, obj, file, owner)
+
+
+def derived_relation_id(event_id: str, role_name: str) -> str:
+    """A participant becomes ``rel:<event>.<role_name>``."""
+    return f"rel:{event_id.split(':', 1)[1]}.{role_name}"
 
 
 def _group(entries: list[tuple[str, Entry]], key_of) -> dict[str, set[str]]:

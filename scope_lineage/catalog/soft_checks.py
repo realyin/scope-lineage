@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .index import build_index
 from .model import Catalog, Finding
 
 # Every object that carries a status of its own (attributes and bindings inherit theirs).
@@ -42,6 +43,7 @@ def soft_checks(catalog: Catalog) -> list[Finding]:
         *_empty_code_sets(catalog),
         *_code_sets_missing_the_attributes(catalog),
         *_unmapped_bindings(catalog),
+        *_self_references_without_relation_named(catalog),
     ]
 
 
@@ -104,6 +106,30 @@ def _code_sets_missing_the_attributes(catalog: Catalog) -> list[Finding]:
                     "binding_code_sets_miss_attribute", file,
                     f"{representation['table']}.{binding['column']}",
                     f"code_sets does not include {expected!r}, the code set of {binding['ref']}",
+                ))
+    return findings
+
+
+def _self_references_without_relation_named(catalog: Catalog) -> list[Finding]:
+    """A column naming another instance of its table's own concept, which has two or more
+    relations to itself, and no ``relation`` saying which one the column realises: every
+    page and query then attributes it to all of them."""
+    index = build_index(catalog)
+    findings = []
+    for file, representation in catalog.records("mapping"):
+        owners = index.binding_owners(representation["concept"]) or ()
+        for binding in representation["bindings"]:
+            if binding["to"] != "foreign_identifier" or "relation" in binding:
+                continue
+            selves = [owner for owner in owners if binding["ref"] in index.identifiers_of(owner)]
+            candidates = sorted({r for owner in selves for r in index.self_relations(owner)})
+            if len(candidates) >= 2:
+                findings.append(Finding(
+                    "self_reference_relation_unnamed", file,
+                    f"{representation['table']}.{binding['column']}",
+                    f"names another instance of {selves[0]}, which has {len(candidates)} "
+                    f"relations to itself ({', '.join(candidates)}); say which one this "
+                    "column realises with relation",
                 ))
     return findings
 

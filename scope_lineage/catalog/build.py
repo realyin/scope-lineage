@@ -16,14 +16,14 @@ Normalised means a reader never has to know how the catalog was written:
   something (column order, state order).
 Every event participant also becomes a ``participation`` relation, and a
 ``foreign_identifier`` naming another instance of the table's own concept is marked
-``self_reference`` (validation guarantees a relation from that concept to itself).
+``self_reference`` (validation guarantees a relation from that concept to itself); a
+``relation`` the author names on a ``foreign_identifier`` is carried as written.
 """
 
 from __future__ import annotations
 
-from .index import Index, build_index
+from .index import Index, build_index, derived_relation_id
 from .model import CATALOG_FORMAT, ONTOLOGY_FORMAT, ONTOLOGY_SCHEMA, Catalog, CatalogError, Finding
-from .references import derived_relation_id
 from .validate import validate_catalog
 
 UNCONFIRMED = "待确认"  # a code meaning that starts so is a guess, not a fact
@@ -282,7 +282,7 @@ def _binding(obj: dict, representation: dict, own_ids: set) -> dict:
     out = _pick(obj, ("column", "to", "ref", "via"))
     if obj["to"] == "foreign_identifier" and obj["ref"] in own_ids:
         out["self_reference"] = True
-    out.update(_pick(obj, ("derivation",)))
+    out.update(_pick(obj, ("relation", "derivation")))
     if "code_map" in obj:
         out["code_map"] = {str(key): value for key, value in obj["code_map"].items()}
     if "code_sets" in obj:

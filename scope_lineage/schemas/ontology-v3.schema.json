@@ -984,6 +984,11 @@
                 "description": "foreign_identifier only: the identifier belongs to the table's own concept, linked to itself by a relation",
                 "const": true
               },
+              "relation": {
+                "description": "foreign_identifier only: the relation this column realises, as the catalog names it",
+                "type": "string",
+                "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+              },
               "code_map": {
                 "type": "object",
                 "additionalProperties": {
@@ -1050,6 +1055,23 @@
                 "else": {
                   "properties": {
                     "via": false
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "to": {
+                      "const": "foreign_identifier"
+                    }
+                  },
+                  "required": [
+                    "to"
+                  ]
+                },
+                "else": {
+                  "properties": {
+                    "relation": false
                   }
                 }
               }

@@ -453,7 +453,7 @@ def _relation_row(view: CatalogView, concept_id: str, relation: dict) -> str:
         f"{cell(relation['name'])} {expr_span(relation['id'])}",
         _RELATION_KIND_TEXT[relation["kind"]],
         reading_text(view, concept_id, relation),
-        _self_text(view, concept_id) if other == concept_id else link(view, other),
+        _self_text(view, concept_id, relation["id"]) if other == concept_id else link(view, other),
         f"{view.name(relation['from'])} {relation['cardinality']['from']} : "
         f"{view.name(relation['to'])} {relation['cardinality']['to']}",
         joins_text(view, relation["id"]),
@@ -461,9 +461,11 @@ def _relation_row(view: CatalogView, concept_id: str, relation: dict) -> str:
     )
 
 
-def _self_text(view: CatalogView, concept_id: str) -> str:
+def _self_text(view: CatalogView, concept_id: str, relation_id: str) -> str:
     """The far end of a relation from the concept to itself, and the columns carrying it."""
-    columns = "、".join(expr_span(c) for c in view.self_reference_columns(concept_id))
+    columns = "、".join(
+        expr_span(c) for c in view.self_reference_columns(concept_id, relation_id)
+    )
     return f"本概念（自关联，经 {columns}）" if columns else "本概念（自关联）"
 
 

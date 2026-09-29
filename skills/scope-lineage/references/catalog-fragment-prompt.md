@@ -80,6 +80,7 @@
   - `attribute`：ref 必须是本表概念的属性（`role_view` 可以用承担者的属性和标识符）；
   - `identifier`：必须是本概念的标识符；
   - `foreign_identifier`：必须是别的概念已有的标识符（在目录的 `identifiers` 文件里找，确实缺才在片段里新增）；
+    本概念有多条自关联时，指向本概念自己标识符的列加 `"relation": "rel:..."` 写它实现哪一条；
   - `foreign_attribute`：冗余存放的别的概念的属性，`via` 写本表里作为外部标识符绑定的那一列；
   - `dt`、`etl_time`、来源库标记等是 `technical`；
   - 实在判断不了才 `unmapped`，并在 `notes` 里说为什么。

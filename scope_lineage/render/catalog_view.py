@@ -97,6 +97,13 @@ def reads_both_ways(relation: Mapping) -> bool:
     return relation["from"] == relation["to"] and bool(relation.get("inverse_name"))
 
 
+def realises(binding: Mapping, relation_id: str) -> bool:
+    """A ``foreign_identifier`` column realises the relation it names; one naming none is
+    attributed to every relation it could realise (validation warns when that is more
+    than one self relation)."""
+    return binding.get("relation", relation_id) == relation_id
+
+
 def is_unconfirmed(value: Mapping) -> bool:
     """A code value whose meaning is still a guess: flagged, empty, or starting 待确认."""
     meaning = str(value.get("meaning") or "").strip()
@@ -284,13 +291,14 @@ class CatalogView:
         """Relations from the concept to itself (a loan renews a loan)."""
         return [r for r in self.relations_of(concept_id) if r["from"] == r["to"]]
 
-    def self_reference_columns(self, concept_id: str) -> list[str]:
-        """``db.table.column`` of every column holding another instance of the concept."""
+    def self_reference_columns(self, concept_id: str, relation_id: str) -> list[str]:
+        """``db.table.column`` of every column holding another instance of the concept
+        that realises the self relation ``relation_id``."""
         return [
             f"{rep['table']}.{binding['column']}"
             for identifier in self.identifiers_of(concept_id)
             for rep, binding in self.bindings_of(identifier["id"])
-            if binding.get("self_reference")
+            if binding.get("self_reference") and realises(binding, relation_id)
         ]
 
     def foreign_attribute_bindings(self) -> list[tuple[dict, list[dict]]]:
@@ -325,7 +333,8 @@ class CatalogView:
 
         A table holds a concept when it represents it or binds one of its identifiers (a
         role's are its player's); for a relation from a concept to itself, only a table
-        with a column naming another instance (``self_reference``) holds both ends.
+        with a column naming another instance (``self_reference``) that realises this
+        relation holds both ends.
         """
         source, target = relation["from"], relation["to"]
         if source == target:
@@ -333,7 +342,10 @@ class CatalogView:
             return [
                 rep["table"]
                 for rep, bindings in self.carriers_of(source)
-                if any(b.get("self_reference") and b["ref"] in own for b in bindings)
+                if any(
+                    b.get("self_reference") and b["ref"] in own and realises(b, relation["id"])
+                    for b in bindings
+                )
             ]
         return [
             table

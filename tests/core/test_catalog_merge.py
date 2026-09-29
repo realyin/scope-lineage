@@ -133,6 +133,31 @@ def test_same_id_different_content_is_a_conflict_and_the_later_is_not_applied(
     assert [value["value"] for value in values] == ["BANK", "WALLET"]
 
 
+def _naming(relation: str) -> dict:
+    """The example fragment, its loan_no column naming the relation it realises."""
+    fragment = _example()
+    bindings = fragment["representations"][0]["bindings"]
+    item(bindings, "column", "loan_no")["relation"] = relation
+    return fragment
+
+
+def test_a_binding_relation_is_merged_and_compared(tmp_path: Path, capsys) -> None:
+    first = _write(tmp_path / "first.json", _naming("rel:disbursement.loan"))
+    same = _write(tmp_path / "same.json", _naming("rel:disbursement.loan"))
+    other = _naming("rel:disbursement.borrower")
+    other["group"] = "other"
+    other = _write(tmp_path / "other.json", other)
+
+    assert _merge(DEMO, first, same, "--out", tmp_path / "ok") == 0
+    rep = read_file(tmp_path / "ok" / "mapping" / "disbursement.yaml")["representations"][0]
+    assert item(rep["bindings"], "column", "loan_no")["relation"] == "rel:disbursement.loan"
+    capsys.readouterr()
+
+    assert _merge(DEMO, first, other, "--out", tmp_path / "conflict") == 1
+    printed = capsys.readouterr().out
+    assert any(TABLE in line and "conflict" in line for line in printed.splitlines())
+
+
 def test_a_conflict_with_the_base_catalog_is_reported(tmp_path: Path, capsys) -> None:
     fragment = _example()
     fragment["attributes"]["concept:disbursement"][0]["unit"] = "USD"

@@ -86,3 +86,37 @@ def item(items: list, key: str, value: str | None = None) -> dict:
 
 def rules(findings) -> list[str]:
     return sorted({finding.rule for finding in findings})
+
+
+LOAN_TABLE = "demo_dwd.dwd_lending_loan_df"
+SECOND_SELF_RELATION = "rel:loan_descends_from_root"
+
+
+def add_second_self_relation(root: Path, **named: str) -> None:
+    """A second relation from the loan to itself, carried by a new column ``root_loan_no``
+    beside ``orig_loan_no``; ``named`` maps a self-referencing column to the relation it
+    says it realises (``relation:``), and a column left out names none."""
+
+    def relations(data: dict) -> None:
+        data["relations"].append({
+            "id": SECOND_SELF_RELATION,
+            "kind": "association",
+            "from": "concept:loan",
+            "to": "concept:loan",
+            "name": "descends from",
+            "inverse_name": "is the root of",
+            "cardinality": {"from": "0..*", "to": "0..1"},
+            "definition": "The first loan of a renewal chain; root_loan_no names it.",
+        })
+
+    def mapping(data: dict) -> None:
+        bindings = item(data["representations"], "table", LOAN_TABLE)["bindings"]
+        at = bindings.index(item(bindings, "column", "orig_loan_no")) + 1
+        bindings.insert(
+            at, {"column": "root_loan_no", "to": "foreign_identifier", "ref": "id:loan_no"}
+        )
+        for column, relation in named.items():
+            item(bindings, "column", column)["relation"] = relation
+
+    mutate(root, "relations.yaml", relations)
+    mutate(root, "mapping/lending.yaml", mapping)

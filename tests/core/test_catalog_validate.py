@@ -13,7 +13,16 @@ import pytest
 
 from scope_lineage.catalog import load_catalog, validate_catalog
 
-from .catalog_demo import DEMO, copy_demo, item, mutate, read_file, rules
+from .catalog_demo import (
+    DEMO,
+    SECOND_SELF_RELATION,
+    add_second_self_relation,
+    copy_demo,
+    item,
+    mutate,
+    read_file,
+    rules,
+)
 
 
 def _validate(root: Path):
@@ -83,6 +92,10 @@ SCHEMA_CASES = {
     "via on an attribute binding": (
         "mapping/party.yaml",
         lambda d: _binding(d, CUSTOMER_INFO, "gender_cd").update(via="customer_id"),
+    ),
+    "relation on a binding that is not a foreign identifier": (
+        "mapping/party.yaml",
+        lambda d: _binding(d, CUSTOMER_INFO, "gender_cd").update(relation="rel:loan_renews_loan"),
     ),
     "attribute binding without ref": (
         "mapping/party.yaml",
@@ -350,6 +363,26 @@ REFERENCE_CASES = {
         "mapping/lending.yaml",
         lambda d: _binding(d, LOAN_DF, "customer_gender_cd").update(via="orig_loan_no"),
     ),
+    "binding_relation: no such relation": (
+        "mapping/lending.yaml",
+        lambda d: _binding(d, LOAN_DF, "orig_loan_no").update(relation="rel:ghost"),
+    ),
+    "binding_relation: not a relation": (
+        "mapping/lending.yaml",
+        lambda d: _binding(d, LOAN_DF, "orig_loan_no").update(relation="concept:loan"),
+    ),
+    "binding_relation: neither end is the table's concept": (
+        "mapping/lending.yaml",
+        lambda d: _binding(d, REPAYMENT_DI, "customer_id").update(relation="rel:loan_renews_loan"),
+    ),
+    "binding_relation: the far end is not the identified concept": (
+        "mapping/lending.yaml",
+        lambda d: _binding(d, LOAN_DF, "customer_id").update(relation="rel:loan_renews_loan"),
+    ),
+    "binding_relation: a self reference names a relation to another concept": (
+        "mapping/lending.yaml",
+        lambda d: _binding(d, LOAN_DF, "orig_loan_no").update(relation="rel:borrower_owes_loan"),
+    ),
 }
 
 
@@ -411,6 +444,68 @@ def test_a_denormalised_column_binds_another_concepts_attribute_via_its_identifi
         "via": "customer_id",
     }
     assert _validate(DEMO).errors == []
+
+
+@pytest.mark.parametrize(
+    "table, column, relation",
+    [
+        (LOAN_DF, "orig_loan_no", "rel:loan_renews_loan"),  # a self relation
+        (LOAN_DF, "customer_id", "rel:borrower_owes_loan"),  # a role, named by its player's id
+        (REPAYMENT_DI, "loan_no", "rel:repayment.loan"),  # a participation, derived
+    ],
+)
+def test_a_foreign_identifier_may_name_the_relation_it_realises(
+    tmp_path: Path, table: str, column: str, relation: str
+) -> None:
+    root = copy_demo(tmp_path)
+    mutate(root, "mapping/lending.yaml", lambda d: _binding(d, table, column).update(relation=relation))
+
+    report = _validate(root)
+
+    assert report.errors == []
+    assert rules(report.warnings) == ["drafted_ratio", "unmapped_binding"]
+
+
+def test_a_binding_relation_error_says_what_was_expected(tmp_path: Path) -> None:
+    root = copy_demo(tmp_path)
+    mutate(
+        root, "mapping/lending.yaml",
+        lambda d: _binding(d, LOAN_DF, "orig_loan_no").update(relation="rel:borrower_owes_loan"),
+    )
+
+    [error] = _validate(root).errors
+
+    assert (error.rule, error.at) == ("binding_relation", f"{LOAN_DF}.orig_loan_no")
+    assert "rel:borrower_owes_loan" in error.message
+    assert "from concept:loan to itself" in error.message
+
+
+def test_two_self_relations_and_an_unnamed_self_reference_warn(tmp_path: Path) -> None:
+    """With two relations from the loan to itself, a column naming another loan and no
+    relation cannot be told apart: which of the two does it realise?"""
+    root = copy_demo(tmp_path)
+    add_second_self_relation(root, root_loan_no=SECOND_SELF_RELATION)
+
+    report = _validate(root)
+
+    assert report.errors == []
+    [warning] = [w for w in report.warnings if w.rule == "self_reference_relation_unnamed"]
+    assert warning.at == f"{LOAN_DF}.orig_loan_no"
+    assert warning.file == "mapping/lending.yaml"
+    assert "rel:loan_descends_from_root" in warning.message
+    assert "rel:loan_renews_loan" in warning.message
+
+
+def test_naming_every_self_referencing_column_silences_the_warning(tmp_path: Path) -> None:
+    root = copy_demo(tmp_path)
+    add_second_self_relation(
+        root, orig_loan_no="rel:loan_renews_loan", root_loan_no=SECOND_SELF_RELATION
+    )
+
+    report = _validate(root)
+
+    assert report.errors == []
+    assert rules(report.warnings) == ["drafted_ratio", "unmapped_binding"]
 
 
 def test_a_subtype_may_list_its_supertypes_identifier() -> None:

@@ -15,7 +15,16 @@ from scope_lineage.catalog import (
     validate_ontology_document,
 )
 
-from .catalog_demo import DEMO, copy_demo, item, mutate, read_file, write_file
+from .catalog_demo import (
+    DEMO,
+    SECOND_SELF_RELATION,
+    add_second_self_relation,
+    copy_demo,
+    item,
+    mutate,
+    read_file,
+    write_file,
+)
 
 LISTS = (
     "domains",
@@ -180,6 +189,40 @@ def test_a_foreign_attribute_carries_its_via(demo: dict) -> None:
 def test_a_foreign_identifier_of_the_tables_own_concept_is_a_self_reference(demo: dict) -> None:
     assert _loan_binding(demo, "orig_loan_no")["self_reference"] is True
     assert "self_reference" not in _loan_binding(demo, "customer_id")
+
+
+def test_a_foreign_identifier_carries_the_relation_it_names(tmp_path: Path, demo: dict) -> None:
+    root = copy_demo(tmp_path)
+    add_second_self_relation(root, root_loan_no=SECOND_SELF_RELATION)
+
+    built = build_ontology(load_catalog(root))
+
+    assert _loan_binding(built, "root_loan_no") == {
+        "column": "root_loan_no",
+        "to": "foreign_identifier",
+        "ref": "id:loan_no",
+        "self_reference": True,
+        "relation": SECOND_SELF_RELATION,
+        "status": "confirmed",
+        "source": "sql",
+        "evidence": [],
+    }
+    assert "relation" not in _loan_binding(built, "orig_loan_no")
+    assert "relation" not in _loan_binding(demo, "orig_loan_no")
+    validate_ontology_document(built)
+
+
+def test_the_schema_allows_relation_only_on_a_foreign_identifier(demo: dict) -> None:
+    import copy
+
+    import jsonschema
+
+    broken = copy.deepcopy(demo)
+    loan = item(broken["representations"], "table", "demo_dwd.dwd_lending_loan_df")
+    item(loan["bindings"], "column", "principal_amt")["relation"] = "rel:loan_renews_loan"
+
+    with pytest.raises(jsonschema.ValidationError):
+        validate_ontology_document(broken)
 
 
 def test_the_schema_requires_via_on_a_foreign_attribute(demo: dict) -> None:
