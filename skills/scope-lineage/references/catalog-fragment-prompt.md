@@ -95,6 +95,8 @@
   `类型列 = '…'` 的字面量，不要编）。本组的列查码值表时，在 binding 上写 `code_sets`；
   `coalesce(g1.含义, g2.含义)` 这样按顺序回退的，`code_sets` 的顺序与 SQL 一致；所绑属性的 `code_set` 要在其中。
   先 `substr(...)` 再查、或经映射表两步翻译的，`lookup` 表达不了，写进 binding 的 `derivation`。
+  `lookup` 只指物理码表（`库.表`）：字典定义在任务内（`VALUES` CTE、`CASE` 映射、字面量列表）时，把码写成码值集的
+  `values`，`evidence` 写生产它的任务名，不要给 CTE 起名当 `lookup.table`（会让 `catalog query table` 为不存在的表作答）。
 - 表现的 `kind`、`grain`、`time` 以分配为起点，可以按表语义修正，修正要在 `notes` 里说明。
 - 表语义里的 `watch`（冲突、弃用）与未回答的问题，挑与目录有关的写进 `notes`。
 - 不写人名、邮箱；不把 SQL 原文整段抄进 `derivation`。

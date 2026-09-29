@@ -91,6 +91,12 @@ def concept_filename(concept_id: str) -> str:
     return f"{concept_slug(concept_id)}.md"
 
 
+def reads_both_ways(relation: Mapping) -> bool:
+    """A relation from a concept to itself that names both directions: read from its one
+    concept, it is both the source and the target, so both readings apply."""
+    return relation["from"] == relation["to"] and bool(relation.get("inverse_name"))
+
+
 def is_unconfirmed(value: Mapping) -> bool:
     """A code value whose meaning is still a guess: flagged, empty, or starting 待确认."""
     meaning = str(value.get("meaning") or "").strip()

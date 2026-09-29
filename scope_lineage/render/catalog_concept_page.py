@@ -38,6 +38,7 @@ from .catalog_view import (
     concept_filename,
     fallback_text,
     lookup_text,
+    reads_both_ways,
     status_text,
     time_text,
     via_text,
@@ -469,13 +470,14 @@ def _self_text(view: CatalogView, concept_id: str) -> str:
 
 
 def reading_text(view: CatalogView, concept_id: str, relation: dict) -> str:
-    """The relation read from this concept's side: its inverse name when it is the target."""
+    """The relation read from this concept's side: its inverse name when it is the target;
+    a self relation with an inverse name reads both ways."""
     source, target = view.name(relation["from"]), view.name(relation["to"])
-    if (
-        relation["to"] == concept_id
-        and relation["from"] != concept_id
-        and relation.get("inverse_name")
-    ):
+    if reads_both_ways(relation):
+        return cell(
+            f"{source} {relation['name']} {target} / {target} {relation['inverse_name']} {source}"
+        )
+    if relation["to"] == concept_id and relation.get("inverse_name"):
         return cell(f"{target} {relation['inverse_name']} {source}")
     return cell(f"{source} {relation['name']} {target}")
 

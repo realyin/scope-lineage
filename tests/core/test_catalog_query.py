@@ -404,6 +404,31 @@ def test_related_is_the_one_hop_neighbourhood(document: dict) -> None:
     ]
 
 
+def test_related_reads_a_self_relation_both_ways(document: dict) -> None:
+    match = _one(document, "related", "借据")
+    text = render_query_text(query_catalog(document, "related", "借据"))
+
+    relations = {r["id"]: r for r in match["relations"]}
+    both = "借据 renews 借据 / 借据 is renewed by 借据"
+    assert relations["rel:loan_renews_loan"]["reading"] == both
+    assert both + "（0 次连接；" in text
+
+
+def test_related_reads_a_self_relation_without_an_inverse_name_one_way(
+    document: dict,
+) -> None:
+    one_way = {
+        **document,
+        "relations": [
+            {k: v for k, v in r.items() if not (r["from"] == r["to"] and k == "inverse_name")}
+            for r in document["relations"]
+        ],
+    }
+    relations = {r["id"]: r for r in _one(one_way, "related", "借据")["relations"]}
+
+    assert relations["rel:loan_renews_loan"]["reading"] == "借据 renews 借据"
+
+
 def test_related_of_a_player_and_of_a_role(document: dict) -> None:
     customer = _one(document, "related", "客户")
     borrower = _one(document, "related", "借款人")

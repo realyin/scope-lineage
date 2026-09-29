@@ -150,9 +150,20 @@ def test_a_relation_is_read_from_this_concepts_side(view: CatalogView) -> None:
     assert [a["text"] for a in loan["associates"]] == [
         "is owed by 借款人",
         "分期借据 is a kind of 借据",
-        "renews 借据",
+        "renews / is renewed by 借据",
     ]
     assert [a["text"] for a in account["associates"]] == ["is opened in 渠道", "is held by 客户"]
+
+
+def test_a_self_relation_without_an_inverse_name_reads_one_way() -> None:
+    """Only a self relation that names both directions shows both."""
+    document = json.loads(ONTOLOGY.read_text(encoding="utf-8"))
+    for relation in document["relations"]:
+        if relation["from"] == relation["to"]:
+            relation.pop("inverse_name", None)
+    loan = concept_overview(CatalogView(document), "concept:loan")
+
+    assert [a["text"] for a in loan["associates"]][-1] == "renews 借据"
 
 
 def test_a_deprecated_table_names_its_replacement(view: CatalogView) -> None:
