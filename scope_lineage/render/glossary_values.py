@@ -1156,7 +1156,7 @@ _MEANING_TEXT = re.compile(r"[^\W\d_]", re.UNICODE)
 # comment that happens to contain a dash, not a code table.
 _MEANING_MAX_LENGTH = 20
 
-# A space-joined pair is the weakest shape there is -- `队列编码，99 表示无效` is one
+# A space-joined pair is the weakest shape there is -- `产品编码，99 表示无效` is one
 # sentence about one code, and reading it as a table would publish 「表示无效」 as what
 # `99` means. A code TABLE lists alternatives, so the space form is believed only from
 # the second pair on; an explicit joiner (`0-未生效`) carries its own evidence.
@@ -1513,7 +1513,7 @@ MEANING_STATUS_CANDIDATE = "candidate"
 VALUE_DOMAIN_KEY = "value_domain"
 
 # WI-2.12. The rule half of the same dictionary. A warehouse's business codes live mostly
-# in its WHERE and ON clauses -- `queue_code IN ('01','07')` decides which rows a task is
+# in its WHERE and ON clauses -- `product_code IN ('01','07')` decides which rows a task is
 # about -- and a `value_domain` hangs off an OUTPUT column, so a confirmed meaning could
 # not reach the one place it explains the most. This key carries it to the rule.
 RULE_VALUE_MEANINGS_KEY = "value_meanings"

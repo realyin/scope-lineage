@@ -516,7 +516,7 @@ def test_a_named_concept_is_still_a_hypothesis() -> None:
 # Two more the wide corpus found, each with its cause named. A fold: two members whose
 # comments differ only in their tail fold to the longest common prefix, and that prefix
 # was published as it fell out of the comparison -- dash, storage suffix and all. And a
-# kind: a concept keyed by 机构 whose members are daily outsourcing *reports* came out an
+# kind: a concept keyed by 机构 whose members are daily disbursement *reports* came out an
 # `event`, because the validity window in its key (`…_start_dt`) voted as an event time
 # while the three 「日报」 word hints, which describe each member's *shape*, were outvoted
 # as if they described the concept.
@@ -603,14 +603,14 @@ def test_a_time_that_names_what_happened_is_still_an_event_time(
 
 
 def _report_corpus() -> tuple[dict, dict]:
-    """Three daily outsourcing reports, keyed by the 机构 and its validity window."""
+    """Three daily disbursement reports, keyed by the 机构 and its validity window."""
     tables = ("dws.out_agent_rpt_df", "dws.out_agent_day_df", "dws.out_agent_sum_df")
     ontology = _ontology(
         *(
             _entity(
                 table,
                 keys=["agent_no", "out_agent_start_dt"],
-                comment="机构外包日报",
+                comment="机构放款日报",
                 attributes=[
                     _attribute("agent_no", comment="机构名称"),
                     _attribute("out_agent_start_dt", type_="date"),
@@ -623,7 +623,7 @@ def _report_corpus() -> tuple[dict, dict]:
         *(
             _card(
                 table,
-                comment="机构外包日报",
+                comment="机构放款日报",
                 columns=["agent_no", "out_agent_start_dt"],
             )
             for table in tables

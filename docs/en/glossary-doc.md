@@ -325,7 +325,7 @@ Other rules:
      comment is read (source or target table), in every observation context (`filter_eq` /
      `filter_in` / `case_condition` / `case_then` / `constant_projection` /
      `union_constant`). The space-only form needs **at least two pairs** to count as a
-     table -- `队列编码，99 表示无效` is one sentence, not a table. Brackets became
+     table -- `产品编码，99 表示无效` is one sentence, not a table. Brackets became
      separators in P5b: `余额类别(Int-利息，…，IntFee-息费)` is how a comment writes a code
      table when it also has to say what the column is, and reading the bracket as ordinary
      text glued `余额类别(Int` into one token (losing the first pair) and left a stray `)`
@@ -658,7 +658,7 @@ WI-2.4b adds two bounds to that line:
 ### The rule and term layers: `rules[].value_meanings` and `term_meaning` (WI-2.12)
 
 A warehouse keeps most of its business codes off the output columns: in
-`WHERE queue_code IN ('01','07')`, in a join's extra condition, in a CASE **condition**.
+`WHERE product_code IN ('01','07')`, in a join's extra condition, in a CASE **condition**.
 A `value_domain` hangs off an output column, so a corpus could confirm all seventeen codes
 and a task's document would still explain four fields — the answer never reached the line
 the code is written on. With `--glossary`:
@@ -672,7 +672,7 @@ the code is written on. With `--glossary`:
 | `confidence.confirmations.rule_values_confirmed` | How many codes the rule layer has answered, counted apart from the field layer's `values_confirmed` |
 
 Three matching changes in `semantic.md`: a restated filter / join in section 3 ends in
-「（取值：'01'＝人工队列）」 (only the answered ones, 「等 N 个，见规则表」 past three);
+「（取值：'01'＝消费贷）」 (only the answered ones, 「等 N 个，见规则表」 past three);
 section 4's rule table gains a 「取值含义」 column after 「条件」 (absent as a whole when
 nothing was answered); and a field subsection in section 5 gains a
 `- 术语：…（人工确认）` line after `- 目标注释：`, with a matching 「术语」 column in the

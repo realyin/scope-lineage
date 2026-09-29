@@ -1,7 +1,7 @@
 """WI-2.12: the dictionary reaching the rule and term layers, not only the fields.
 
 ``fields[].value_domain`` hangs off an OUTPUT column, and a warehouse keeps most of its
-business codes somewhere else entirely: in ``WHERE queue_code IN ('01','07')``, in a
+business codes somewhere else entirely: in ``WHERE product_code IN ('01','07')``, in a
 JOIN's extra condition, in a CASE's *condition*. A corpus can confirm all seventeen of
 them and a task's document still explain four, because nothing carried the answer to the
 place the code is written.
@@ -32,20 +32,20 @@ from scope_lineage.scope.scope_builder import parse_scope_lineage
 
 APP_SQL = (
     "INSERT INTO mart.orders SELECT o.order_id, o.pay_status, "
-    "CASE WHEN o.queue_code = '01' THEN 'MANUAL' ELSE 'AUTO' END AS queue_type "
+    "CASE WHEN o.product_code = '01' THEN 'CONSUMER' ELSE 'BUSINESS' END AS product_type "
     "FROM ods.app_order o LEFT JOIN dim.channel c "
     "ON o.channel_id = c.channel_id AND c.channel_kind = 'H5' "
-    "WHERE o.pay_status IN ('PAID', 'REFUND') AND o.queue_code <> '99' "
+    "WHERE o.pay_status IN ('PAID', 'REFUND') AND o.product_code <> '99' "
     "AND o.memo LIKE '%X%'"
 )
 
 # The same column NAME on a different table. Its confirmed meaning must not travel.
 WEB_SQL = (
-    "INSERT INTO mart.web_orders SELECT w.order_id, w.queue_code "
-    "FROM ods.web_order w WHERE w.queue_code = '01'"
+    "INSERT INTO mart.web_orders SELECT w.order_id, w.product_code "
+    "FROM ods.web_order w WHERE w.product_code = '01'"
 )
 
-_APP_COLUMNS = ("order_id", "pay_status", "queue_code", "channel_id", "memo")
+_APP_COLUMNS = ("order_id", "pay_status", "product_code", "channel_id", "memo")
 
 
 def _details(names, comments=None) -> list[dict]:
@@ -61,7 +61,7 @@ def _schema() -> SchemaMap:
         {
             "ods.app_order": list(_APP_COLUMNS),
             "dim.channel": ["channel_id", "channel_kind"],
-            "mart.orders": ["order_id", "pay_status", "queue_type"],
+            "mart.orders": ["order_id", "pay_status", "product_type"],
         },
         column_details={
             "ods.app_order": _details(_APP_COLUMNS),
@@ -69,7 +69,7 @@ def _schema() -> SchemaMap:
             # `order_id` is the field that already HAS a comment -- the one place a term
             # must stay out of.
             "mart.orders": _details(
-                ["order_id", "pay_status", "queue_type"], {"order_id": "订单号"}
+                ["order_id", "pay_status", "product_type"], {"order_id": "订单号"}
             ),
         },
     )
@@ -77,8 +77,8 @@ def _schema() -> SchemaMap:
 
 def _web_schema() -> SchemaMap:
     return SchemaMap(
-        {"ods.web_order": ["order_id", "queue_code"]},
-        column_details={"ods.web_order": _details(["order_id", "queue_code"])},
+        {"ods.web_order": ["order_id", "product_code"]},
+        column_details={"ods.web_order": _details(["order_id", "product_code"])},
     )
 
 
@@ -116,14 +116,14 @@ def _field(profile: dict, column: str) -> dict:
 
 
 def test_a_filter_rule_carries_the_confirmed_meaning_of_the_code_it_pins() -> None:
-    profile = _profile({"values": {"ods.app_order.queue_code='99'": "无效队列"}})
+    profile = _profile({"values": {"ods.app_order.product_code='99'": "无效产品"}})
 
     assert _rule(profile, "<> '99'")["value_meanings"] == [
         {
-            "column_ref": "ods.app_order.queue_code",
+            "column_ref": "ods.app_order.product_code",
             "value": "99",
             "sql_literal": "'99'",
-            "meaning": {"text": "无效队列", "status": "confirmed"},
+            "meaning": {"text": "无效产品", "status": "confirmed"},
         }
     ]
 
@@ -141,11 +141,11 @@ def test_an_in_list_publishes_every_code_and_leaves_the_unanswered_one_null() ->
 
 def test_a_case_condition_code_reaches_the_case_rule() -> None:
     """The branch LABELS stay a field's value domain; the condition is the rule's."""
-    profile = _profile({"values": {"ods.app_order.queue_code='01'": "人工队列"}})
+    profile = _profile({"values": {"ods.app_order.product_code='01'": "消费贷"}})
     items = _rule(profile, "CASE WHEN")["value_meanings"]
 
     assert [item["value"] for item in items] == ["01"]
-    assert items[0]["meaning"]["text"] == "人工队列"
+    assert items[0]["meaning"]["text"] == "消费贷"
 
 
 def test_a_joins_extra_condition_carries_a_meaning_and_its_key_pair_does_not() -> None:
@@ -178,7 +178,7 @@ def test_a_candidate_meaning_is_published_as_a_candidate() -> None:
                 },
                 column_details={
                     "ods.app_order": _details(
-                        _APP_COLUMNS, {"queue_code": "队列编码，99 表示无效"}
+                        _APP_COLUMNS, {"product_code": "产品编码，99 表示无效"}
                     ),
                     "dim.channel": _details(["channel_id", "channel_kind"]),
                 },
@@ -202,13 +202,13 @@ def test_a_candidate_meaning_is_published_as_a_candidate() -> None:
 def test_a_code_confirmed_on_a_same_named_column_of_another_table_stays_there() -> None:
     documents = [_document(), _document(WEB_SQL, "task_b")]
     profile = _profile(
-        {"values": {"ods.web_order.queue_code='01'": "网页队列"}}, documents
+        {"values": {"ods.web_order.product_code='01'": "网页产品"}}, documents
     )
 
-    # P5: this task's own CASE offers `MANUAL` as a candidate for `'01'`. What must not
+    # P5: this task's own CASE offers `CONSUMER` as a candidate for `'01'`. What must not
     # travel is the answer somebody confirmed about the OTHER table's column.
     meaning = _rule(profile, "CASE WHEN")["value_meanings"][0]["meaning"]
-    assert meaning == {"text": "MANUAL", "status": "candidate"}
+    assert meaning == {"text": "CONSUMER", "status": "candidate"}
 
 
 def test_a_scope_level_name_speaks_only_inside_the_task_that_observed_it() -> None:
@@ -260,7 +260,7 @@ def test_the_coverage_block_counts_the_two_halves_and_dedupes_the_union() -> Non
         {
             "values": {
                 "pay_status='PAID'": "已支付",
-                "ods.app_order.queue_code='01'": "人工队列",
+                "ods.app_order.product_code='01'": "消费贷",
             }
         }
     )
@@ -281,10 +281,10 @@ def test_the_coverage_block_counts_the_two_halves_and_dedupes_the_union() -> Non
 
 
 def test_a_confirmed_term_reaches_a_field_that_has_no_target_comment() -> None:
-    profile = _profile({"terms": {"queue_type": "队列类型", "order_id": "订单标识"}})
+    profile = _profile({"terms": {"product_type": "产品类型", "order_id": "订单标识"}})
 
-    assert _field(profile, "queue_type")["term_meaning"] == {
-        "text": "队列类型",
+    assert _field(profile, "product_type")["term_meaning"] == {
+        "text": "产品类型",
         "status": "confirmed",
     }
     # `order_id` HAS a comment: a term never overwrites or impersonates one.
@@ -293,13 +293,13 @@ def test_a_confirmed_term_reaches_a_field_that_has_no_target_comment() -> None:
 
 def test_a_terms_key_sits_behind_the_comment_it_stands_in_for() -> None:
     """Key order is part of ``semantic-json/1``; a reader diffs these files."""
-    profile = _profile({"terms": {"queue_type": "队列类型", "queue_code": "队列编码"}})
-    keys = list(_field(profile, "queue_type"))
+    profile = _profile({"terms": {"product_type": "产品类型", "product_code": "产品编码"}})
+    keys = list(_field(profile, "product_type"))
     column = next(
         item
         for entry in profile["inputs"]
         for item in entry["used_columns"]
-        if item["name"] == "queue_code"
+        if item["name"] == "product_code"
     )
 
     assert keys.index("target_comment") < keys.index("term_meaning")
@@ -308,14 +308,14 @@ def test_a_terms_key_sits_behind_the_comment_it_stands_in_for() -> None:
 
 
 def test_an_input_column_carries_its_term_beside_its_own_comment() -> None:
-    profile = _profile({"terms": {"queue_code": "队列编码"}})
+    profile = _profile({"terms": {"product_code": "产品编码"}})
     columns = {
         item["name"]: item
         for entry in profile["inputs"]
         for item in entry["used_columns"]
     }
 
-    assert columns["queue_code"]["term_meaning"]["text"] == "队列编码"
+    assert columns["product_code"]["term_meaning"]["text"] == "产品编码"
     assert "term_meaning" not in columns["pay_status"]
 
 
@@ -324,14 +324,14 @@ def test_an_input_column_carries_its_term_beside_its_own_comment() -> None:
 
 def test_the_rule_table_gains_a_value_column_only_when_the_dictionary_speaks() -> None:
     answered = render_semantic_markdown(
-        _profile({"values": {"ods.app_order.queue_code='99'": "无效队列"}})
+        _profile({"values": {"ods.app_order.product_code='99'": "无效产品"}})
     )
     # A corpus with no comment and no CASE label: the dictionary has nothing to say
     # about `'01'`, so the column is not there at all.
     silent = render_semantic_markdown(_profile(documents=[_document(WEB_SQL, "task_b")]))
 
     assert "| 规则 | 类型 | 阶段 | 条件 | 取值含义 |" in answered
-    assert "'99'＝无效队列" in answered
+    assert "'99'＝无效产品" in answered
     assert "取值含义" not in silent
 
 
@@ -357,13 +357,13 @@ def test_a_restated_filter_ends_with_the_codes_it_pins() -> None:
 
 def test_a_restatement_with_more_than_three_codes_points_at_the_rule_table() -> None:
     sql = (
-        "INSERT INTO mart.orders SELECT o.order_id, o.pay_status, o.queue_code "
-        "AS queue_type FROM ods.app_order o "
-        "WHERE o.queue_code IN ('01', '02', '03', '04')"
+        "INSERT INTO mart.orders SELECT o.order_id, o.pay_status, o.product_code "
+        "AS product_type FROM ods.app_order o "
+        "WHERE o.product_code IN ('01', '02', '03', '04')"
     )
     document = to_lineage_dict(parse_scope_lineage(sql, "task_a", schema=_schema()))
     overrides = {
-        "values": {f"ods.app_order.queue_code='{code}'": f"队列{code}"
+        "values": {f"ods.app_order.product_code='{code}'": f"产品{code}"
                    for code in ("01", "02", "03", "04")}
     }
     profile = apply_glossary(
@@ -373,16 +373,16 @@ def test_a_restatement_with_more_than_three_codes_points_at_the_rule_table() -> 
 
     rendered = render_semantic_markdown(profile)
 
-    assert "（取值：'01'＝队列01；'02'＝队列02；'03'＝队列03；等 4 个，见规则表）" in rendered
+    assert "（取值：'01'＝产品01；'02'＝产品02；'03'＝产品03；等 4 个，见规则表）" in rendered
 
 
 def test_the_field_section_states_a_term_on_its_own_line() -> None:
-    rendered = render_semantic_markdown(_profile({"terms": {"queue_type": "队列类型"}}))
+    rendered = render_semantic_markdown(_profile({"terms": {"product_type": "产品类型"}}))
 
-    assert "- 术语：队列类型（人工确认）（元数据事实）" in rendered
+    assert "- 术语：产品类型（人工确认）（元数据事实）" in rendered
     # The missing comment is still reported as missing: the term did not fill it.
     assert "- 目标注释：注释未知" in rendered
-    assert "| 队列类型 ✓ |" in rendered
+    assert "| 产品类型 ✓ |" in rendered
 
 
 def test_the_field_list_has_no_term_column_when_no_term_was_confirmed() -> None:
@@ -395,8 +395,8 @@ def test_the_field_list_has_no_term_column_when_no_term_was_confirmed() -> None:
 def test_the_profile_stays_json_serialisable_with_both_new_keys() -> None:
     profile = _profile(
         {
-            "values": {"ods.app_order.queue_code='01'": "人工队列"},
-            "terms": {"queue_type": "队列类型"},
+            "values": {"ods.app_order.product_code='01'": "消费贷"},
+            "terms": {"product_type": "产品类型"},
         }
     )
 

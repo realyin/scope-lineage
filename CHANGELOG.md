@@ -3,12 +3,15 @@
 ## Unreleased
 
 ### Changed
-- **Examples in docs, prompts, code comments and tests are domain-neutral.** Three
-  illustrative examples -- the K2c name rescue, the classifying CASE label and the
-  self-describing value -- now use generic lending-demo strings (「2月时段合同欠款」→「合同」,
-  `THEN '线上' ELSE '线下'`, `线下`、`已放款`). `ontology-doc.md`, `glossary-doc.md` (both
-  languages), `glossary-review-prompt.md` and `concept-review-prompt.md` follow. Each test
-  exercises the same rule with the new strings; no behaviour changed.
+- **Examples in docs, prompts, code comments, tests and this changelog are domain-neutral.**
+  The illustrative examples now use generic lending / order strings: the K2c name rescue
+  (「2月时段合同欠款」→「合同」), the classifying CASE label (`THEN '线上' ELSE '线下'`), the
+  self-describing value (`线下`、`已放款`), the K2d report-shaped table (「机构放款日报」) and the
+  business-code filter (`WHERE product_code IN ('01','07')`, `'01'＝消费贷`,
+  `产品编码，99 表示无效`). `ontology-doc.md`, `glossary-doc.md`, `semantic-doc.md` (both
+  languages), the glossary / concept / semantic-profile prompts and the older entries of
+  this changelog follow. Each test exercises the same rule with the new strings; no
+  behaviour changed.
 - **Docs and drafting prompt: an inline SQL dictionary is a code set's `values`, not a `lookup`.**
   `lookup` names a physical code table (`db.table`); a dictionary defined in a task (a `VALUES` CTE,
   a `CASE` mapping, a literal list) is written as `values` with the producing task in `evidence`,
@@ -1038,13 +1041,13 @@
   fewer than two Chinese characters -- two comments agreeing on a latin prefix and nothing
   else -- is discarded, so each comment becomes its own candidate again.
   Two kind fixes travel together, from a concept keyed by 机构 whose members are daily
-  outsourcing reports and which came out `event/hypothesis`. A **validity window** is no
+  disbursement reports and which came out `event/hypothesis`. A **validity window** is no
   longer an event time: a column whose segments say start / end / begin / eff / effective
   / valid / expire / expiry alongside dt / date / time says when a row *is true*, which is
   how a warehouse keeps a slowly-changing dimension, so `end_dt`, `eff_date`, `valid_from`
   and `…_start_dt` cast no `key_event_column` vote and no longer make their member a
   `detail`. And a **summary word** — 汇总 / 日报 / 统计 / `report` / `agg` — now decides the
-  member's `role`, not the concept's kind: 「机构外包日报」 says what that *table* is, never
+  member's `role`, not the concept's kind: 「机构放款日报」 says what that *table* is, never
   what it is a report of. A concept is a `summary` only when every keyed member is in the
   `summary` role **and** its own key carries a period column (`dt`, `date`, `month`, never
   a validity window), which is what a summary's grain actually means; otherwise it is an
@@ -1066,7 +1069,7 @@
   kind. And a stem published as if it were a name: when the first candidate's source is
   `key_stem`, every junk candidate is read again with its period head, filter words and
   measure tail off, and the shortest result still holding two Chinese characters goes to
-  the head of the candidates — 「2月时段队列欠款」 was about 队列 all along, and the comment
+  the head of the candidates — 「2月时段合同欠款」 was about 合同 all along, and the comment
   it came out of keeps its place with its `junk_reason`. When nothing can be recovered the
   stem stands, but `name_tier` is the new **`stem_only`** rather than `hypothesis`: "we
   guess it is called 客户" and "nothing ever named this" are different answers, and the
@@ -1460,7 +1463,7 @@
   comment's half agrees) now reads `⚠ 矛盾` at the head of its 候选来源 cell and is not
   confirmable -- the prompt's "contradicting evidence closes nothing" rule, decided by
   the form instead of by hand across two columns. (3) *An ELSE may be a class rather than
-  a default*: `CASE WHEN col = 'X' THEN '自营' ELSE '委外' END` sorts the column into two
+  a default*: `CASE WHEN col = 'X' THEN '线上' ELSE '线下' END` sorts the column into two
   classes, so a CASE whose ELSE is a scalar label (not `NULL`, not a column) makes its
   THEN labels `single_branch: true` -- unless it gives every observed value of the column
   its own THEN branch, which is an exhaustive mapping and stays confirmable. (4) *A
@@ -2010,7 +2013,7 @@
   only off the observed column's own comment, source or target. The candidate's `text` is
   the half that belongs to this value, its `source` is `column_comment`, and the template
   shows it in the 注释线索 column. A space-joined pair needs a second pair to count as a
-  table, so `队列编码，99 表示无效` stays one sentence. A candidate is still not a
+  table, so `产品编码，99 表示无效` stays one sentence. A candidate is still not a
   confirmation: `glossary --template` asks about the value exactly as before.
 - Three findings stop warning about the shop's own house style (B11). On a wide corpus
   `target_binding` warned on nearly every statement (positional INSERT being the norm),
@@ -2253,7 +2256,7 @@
   context, not shaped like a date, and -- when it is a bare number -- written as an `IN`
   member, a CASE label or a projected constant rather than only pinned by `=`.
 - A confirmed code now reaches the line it is written on. A warehouse keeps most of its
-  business codes in `WHERE queue_code IN ('01','07')`, in a join's extra condition and in
+  business codes in `WHERE product_code IN ('01','07')`, in a join's extra condition and in
   a CASE's condition, while `fields[].value_domain` hangs off an output column -- so a
   corpus could confirm seventeen codes and the task's document would explain four fields.
   `describe --glossary` now also fills `rules[].value_meanings[]`: every code a rule pins
@@ -2261,7 +2264,7 @@
   one rule field carries it, a scope-level reference otherwise, and a scope-level
   reference only against entries this very task observed), `meaning` null while nobody has
   answered. `semantic.md` gains a 取值含义 column in the rule table, and a restated filter
-  or join ends in `（取值：'01'＝人工队列）`. A human-confirmed term travels too:
+  or join ends in `（取值：'01'＝消费贷）`. A human-confirmed term travels too:
   `inputs[].used_columns[].term_meaning` beside the column's own comment, and
   `fields[].term_meaning` only where the field has no target comment -- with its own
   `- 术语：` line, because a term is not a comment and never fills that slot.

@@ -347,15 +347,15 @@ def test_a_concept_section_is_asked_before_the_family_sections() -> None:
         *[
             to_lineage_dict(
                 parse_scope_lineage(
-                    f"INSERT INTO mart.q_{index} SELECT t.queue_code FROM {table} t "
-                    "WHERE t.queue_code IN ('QA', 'QB')",
-                    f"queue_{index}",
+                    f"INSERT INTO mart.p_{index} SELECT t.product_code FROM {table} t "
+                    "WHERE t.product_code IN ('PA', 'PB')",
+                    f"product_{index}",
                     schema=SchemaMap(
-                        {table: ["queue_code"]},
+                        {table: ["product_code"]},
                         column_details={
                             table: [
-                                {"name": "queue_code", "type": "string",
-                                 "comment": "Queue code"}
+                                {"name": "product_code", "type": "string",
+                                 "comment": "Product code"}
                             ]
                         },
                     ),
@@ -369,7 +369,7 @@ def test_a_concept_section_is_asked_before_the_family_sections() -> None:
         build_overrides_template(glossary, top=0), glossary
     )
 
-    assert markdown.index("`concept:order.pay_status`") < markdown.index("`*.queue_code`")
+    assert markdown.index("`concept:order.pay_status`") < markdown.index("`*.product_code`")
 
 
 def test_a_concept_row_unions_the_evidence_of_the_attributes_columns() -> None:

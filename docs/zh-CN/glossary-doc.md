@@ -271,7 +271,7 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
      「注释线索」列照写。分隔符认 `，,;；|/、`、括号 `()（）[]【】` 与空格，码与含义之间认
      `-`、`:`、`=`、`：` 或一个空格；只读**该列自己的**注释（源表或目标表都算），与观察语境
      （`filter_eq` / `filter_in` / `case_condition` / `case_then` / `constant_projection` /
-     `union_constant`）无关。只靠空格分隔的写法要**至少两对**才算码表——`队列编码，99 表示无效`
+     `union_constant`）无关。只靠空格分隔的写法要**至少两对**才算码表——`产品编码，99 表示无效`
      是一句话，不是一张表。括号算分隔符是 P5b 补的：`余额类别(Int-利息，…，IntFee-息费)` 是注释
      既要说这列是什么、又要写码表时的常见写法，不拆括号会把 `余额类别(Int` 粘成一个词（丢掉第一
      对），并给最后一个含义留下一个 `)`。
@@ -560,7 +560,7 @@ scope-lineage describe --lineage corpus --glossary dict/glossary.json \
 
 ### 规则与术语层：`rules[].value_meanings` 与 `term_meaning`（WI-2.12）
 
-仓库的业务码多数不在输出字段上，而在 `WHERE queue_code IN ('01','07')`、连接的附加条件、
+仓库的业务码多数不在输出字段上，而在 `WHERE product_code IN ('01','07')`、连接的附加条件、
 CASE 的**条件**里。`value_domain` 只挂在输出列上，所以语料把十七个 code 全确认了，任务文档
 仍然只有四个字段受益——含义没有被送到写着这个 code 的那一行。传了 `--glossary` 之后：
 
@@ -572,7 +572,7 @@ CASE 的**条件**里。`value_domain` 只挂在输出列上，所以语料把�
 | `fields[].term_meaning` | 同样的 `{text, status}`，但只在该字段 `target_comment` **为空**时出现：术语不是注释，填进注释槽位等于发布一条元数据里没有的注释 |
 | `confidence.confirmations.rule_values_confirmed` | 规则层被确认的 code 数，与字段层的 `values_confirmed` 分开计 |
 
-`semantic.md` 里三处相应变化：第 3 节过滤 / 关联的复述末尾追加「（取值：'01'＝人工队列）」
+`semantic.md` 里三处相应变化：第 3 节过滤 / 关联的复述末尾追加「（取值：'01'＝消费贷）」
 （只列已答的，超过 3 个写「等 N 个，见规则表」）；第 4 节规则表在「条件」后多一列「取值含义」
 （一条都没答过时整列不出现）；第 5 节字段小节在 `- 目标注释：` 后多一行 `- 术语：…（人工确认）`，
 「完整字段清单」相应多一列「术语」。

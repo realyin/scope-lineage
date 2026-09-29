@@ -5,7 +5,7 @@ was not short of rows -- it was short of *usable* rows, and every shortfall was 
 where the layer advertised evidence it did not have:
 
 1. **an enumeration and a mention printed the same word.** ``0-未生效，1-生效`` defines
-   the value; ``队列编码，99 表示无效`` merely contains it. Both arrived as ``comment``,
+   the value; ``产品编码，99 表示无效`` merely contains it. Both arrived as ``comment``,
    so a reviewer had to re-read the comment to find out which one they were looking at.
    They are now ``comment_enum`` and ``comment_mention``, and a mention is trimmed to the
    clause around the value, because a hint is one phrase and not a paragraph;
