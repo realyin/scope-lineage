@@ -3,6 +3,13 @@
 ## Unreleased
 
 ### Changed
+- **Docs and drafting prompt: an inline SQL dictionary is a code set's `values`, not a `lookup`.**
+  `lookup` names a physical code table (`db.table`); a dictionary defined in a task (a `VALUES` CTE,
+  a `CASE` mapping, a literal list) is written as `values` with the producing task in `evidence`,
+  and a two-step translation through a mapping table stays in the binding's `derivation`. A
+  lookup to a table that does not exist would make `catalog query table` answer for it.
+  `ontology-catalog.md` (both languages), `catalog-fragment-prompt.md` and the skill's drafting
+  section say so. No code change.
 - **`scope-lineage ontology` is now called what it is: key-fold candidates.** It folds tables
   into concepts by shared key-column stems, which makes it a quick structural scan and
   cross-evidence while drafting, not the business ontology: a rule of that kind can fold a
@@ -48,6 +55,16 @@
   in.** A binding's column was compared with the card's column names as written, so a card
   listing `LOAN_STATUS` as unused left the binding `loan_status` unmarked. Both sides are
   now compared in lower case.
+- **A self relation reads both ways on the pages and in `catalog query related`.** A
+  relation whose `from` and `to` are the same concept always read with its `name`, so its
+  `inverse_name` never appeared anywhere. With an `inverse_name`, the concept overview's
+  关联的 now reads "<name> / <inverse_name> <concept>", and appendix A5 and
+  `catalog query related` (text and the JSON `reading`) read
+  "<concept> <name> <concept> / <concept> <inverse_name> <concept>", both words taken from
+  the catalog itself. A self relation without an `inverse_name`, and every relation between
+  two different concepts, reads exactly as before; in the demo only `concepts/loan.md`'s
+  two readings of `rel:loan_renews_loan` change. `ontology-catalog.md` 「关系」, 「一页纸概览」,
+  A5 and `related` say so.
 - **The catalog docs and the skill show the render order that works, and no longer
   assume YAML.** `catalog render --semantics <dir>` exits 2 when that directory does not
   exist yet, and `semantic render --ontology` needs the built `ontology.json`, so the order
