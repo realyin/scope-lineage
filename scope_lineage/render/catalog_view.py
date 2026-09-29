@@ -176,6 +176,14 @@ def usage_hint(rep: Mapping) -> Optional[str]:
     return None
 
 
+def via_text(via: str, other_instance: Optional[Mapping] = None) -> str:
+    """``（经 customer_id）``; for another instance of the table's own concept,
+    ``（同一借据的另一条记录，经 orig_loan_no）``. ``via`` comes formatted by the caller."""
+    if other_instance is None:
+        return f"（经 {via}）"
+    return f"（同一{other_instance['name']}的另一条记录，经 {via}）"
+
+
 def time_text(rep: Mapping) -> str:
     """``快照；按单个 dt 分区取数``: the time semantics and how to read the table by them."""
     hint = usage_hint(rep)
@@ -292,6 +300,16 @@ class CatalogView:
             for rep, binding in self.bindings_of(identifier["id"])
             if binding.get("self_reference")
         ]
+
+    def other_instance_concept(self, rep: Mapping, binding: Mapping) -> Optional[dict]:
+        """The concept a ``foreign_attribute`` column repeats *another instance* of: the
+        attribute belongs to the table's own concept (or a role view's player), so ``via``
+        names another record of it. None for any other binding."""
+        if binding["to"] != "foreign_attribute" or binding["ref"] not in self.attributes:
+            return None
+        owner = self.attributes[binding["ref"]][1]
+        own = self.concepts.get(rep["concept"]) or {}
+        return owner if owner["id"] in (own.get("id"), own.get("player")) else None
 
     def foreign_attribute_bindings(self) -> list[tuple[dict, list[dict]]]:
         """``(representation, its foreign_attribute bindings)`` for every table with any."""
