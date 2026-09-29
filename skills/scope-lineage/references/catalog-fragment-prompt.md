@@ -1,6 +1,7 @@
 # 目录片段提示词：为一组概念补属性、码值、表现与列绑定
 
-给「表语义 → 目录」流程里**每组一个**的子代理用（流程见 `SKILL.md` 的「表语义 → 本体目录」一节）。
+给「表语义 → 目录」流程里**每组一个**的子代理用（流程见 `SKILL.md` 的
+「"从表语义起草本体目录" — drafting procedure (digest → fragments → merge)」一节）。
 编排者把下面的 `<…>` 换成实际路径和组名后，连同分配一起交给子代理。
 
 你负责一个 group：`<group>`。只处理这个 group 的概念和分配给它的表。**自己完成，不许分派或等待其他代理。**
@@ -9,7 +10,8 @@
 
 - 目录格式：`docs/zh-CN/ontology-catalog.md`（「元素」「表现与绑定」「起草」三节），示例
   `examples/catalog-demo/`（`mapping/party.yaml`、`concepts/*.yaml`、`code_sets.yaml` 的形状照抄）与
-  `examples/catalog-fragments/disbursement.json`（片段的形状照抄）。
+  `examples/catalog-fragments/disbursement.json`（片段的形状照抄）。示例目录用 YAML 写；目录文件也可以是
+  `.json`（可以全是 JSON），条目形状不变，下文只写文件名主干（`identifiers`、`code_sets`、`mapping/<group>`）。
 - 当前目录（只读）：`<catalog-dir>`。概念、标识符、关系已经起草好；不要改它，只写片段。片段不能新增概念，
   也不能改已有标识符（包括给它加拼写）：缺概念、缺事件的时间属性、已有标识符缺拼写时，写进 `notes` 并告诉
   编排者，不要绕开。
@@ -66,8 +68,9 @@
 ```
 
 每个条目的形状与目录文件里的完全相同（字段、枚举、必填项都一样）；不认识的键会让片段不合 schema。
-`identifiers` 只在必须新增标识符时写，形状同 `identifiers.yaml`；`constraints` 只写有证据的属性级约束
-（值域、必填、派生、业务规则），形状同 `constraints.yaml`；不需要的列表可以省略。
+`identifiers` 只在必须新增标识符时写，形状同目录 `identifiers` 文件里的条目；`constraints` 只写有证据的
+属性级约束（值域、必填、派生、业务规则），形状同 `constraints` 文件里的条目；不需要的列表可以省略。合并时新表现
+进 `mapping/<group>`，其余条目进同名的顶层文件：已有的文件保持原格式，新建的文件与 `catalog.*` 同格式。
 
 ## 规则
 
@@ -76,7 +79,7 @@
 - **每张表的每一列都要有 binding。**
   - `attribute`：ref 必须是本表概念的属性（`role_view` 可以用承担者的属性和标识符）；
   - `identifier`：必须是本概念的标识符；
-  - `foreign_identifier`：必须是别的概念已有的标识符（在 `identifiers.yaml` 里找，确实缺才在片段里新增）；
+  - `foreign_identifier`：必须是别的概念已有的标识符（在目录的 `identifiers` 文件里找，确实缺才在片段里新增）；
   - `foreign_attribute`：冗余存放的别的概念的属性，`via` 写本表里作为外部标识符绑定的那一列；
   - `dt`、`etl_time`、来源库标记等是 `technical`；
   - 实在判断不了才 `unmapped`，并在 `notes` 里说为什么。

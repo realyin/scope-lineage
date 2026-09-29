@@ -241,6 +241,11 @@ concepts:
 每端的基数表示"对另一端的一个实例，这一端有多少个"：
 `customer holds app_account {from: "1", to: "0..*"}` 即一个账户属于一个客户，一个客户可有任意多个账户。
 
+`name` 与 `inverse_name` 只写动词短语，不带另一端的概念：页面把关系读成「<name> <另一端概念名>」（概念页概览的
+「拥有的 / 关联的」），附录里读成「<起点> <name> <终点>」；从终点一侧读时用 `inverse_name` 和起点的名称。
+客户→投诉工单写 `name: 申请`、`inverse_name: 申请人为`，读出「申请 投诉工单」「申请人为 客户」；写成
+`name: 申请投诉工单` 就会读出「申请投诉工单 投诉工单」。
+
 ### 约束
 
 必须成立的条件。`id: cons:<slug>`、`kind`（`unique` / `cardinality` / `mandatory` /
@@ -268,7 +273,7 @@ terms:
 
 ### 表现与绑定
 
-映射层，写在 `mapping/*.yaml`：哪张表以什么身份承载哪个概念，每一列是什么。表现以 `table`
+映射层，写在 `mapping/` 下的文件里（`.yaml` 或 `.json`）：哪张表以什么身份承载哪个概念，每一列是什么。表现以 `table`
 （`库.表`）为键，每张表只能有一个表现。
 
 | 字段 | 必填 | 含义 |
@@ -604,6 +609,17 @@ scope-lineage catalog render out/ontology.json --out out/pages \
 链回概念页，见[表语义](table-semantics.md)；码值集 `lookup` 所指的码值表，其表语义页开头写「本表是码值集…的码值来源」，
 链到 `code_sets.md`。
 
+两个方向都要链时顺序固定：`--semantics` 的目录必须已经存在（不存在时退出 2），而 `semantic render --ontology`
+要读构建好的 `ontology.json`，所以先构建、再渲染表语义页、最后渲染概念页：
+
+```bash
+scope-lineage catalog build <catalog-dir> --out out/catalog
+scope-lineage semantic render <documents> --out out/pages/semantics \
+  --ontology out/catalog/ontology.json
+scope-lineage catalog render out/catalog/ontology.json --out out/pages \
+  --semantics out/pages/semantics
+```
+
 | 文件 | 内容 |
 | --- | --- |
 | `index.md` | 按域列出概念（名称、种类、定义、表现表数、状态）、标识符、码值集（及码值所在的表）、治理缺口汇总、记录范围汇总 |
@@ -709,7 +725,7 @@ scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_l
 已经给一批表写好[表语义](table-semantics.md)（`table-semantics/1`）时，目录可以从它们起草，而不用每次写临时脚本：
 
 1. `catalog digest` 把表语义浓缩成起草材料，并对照现有目录标出还没覆盖的表和列；
-2. 人或模型据此起草概念与关系（`concepts/`、`relations.yaml`、`identifiers.yaml`）；片段不能新增概念、不能改已有
+2. 人或模型据此起草概念与关系（`concepts/`、`relations`、`identifiers` 文件）；片段不能新增概念、不能改已有
    标识符，所以各组要用的新概念（事件连同它的时间属性）、新标识符和已有标识符的新拼写都在这一步写好；
 3. 把表分组，每组写一个片段（`catalog-fragment/1`）：属性、码值集、约束、术语、每张表的表现与列绑定；
 4. `catalog merge` 把片段合并进目录的一份拷贝，报告冲突，自动校验，并给出覆盖报告；
@@ -720,18 +736,19 @@ Agent 技能里的完整流程与片段提示词见 `skills/scope-lineage/refere
 ### `catalog-fragment/1`
 
 一个片段是一组表的起草结果。每个条目的形状与它要落进的目录文件**完全相同**（schema 里的条目定义就是目录
-schema 的拷贝，有测试保证两者一致），所以合并只搬运条目，不做转换：
+schema 的拷贝，有测试保证两者一致），所以合并只搬运条目，不做转换。下表「合并到」一列只写文件名的主干：已有的文件
+保持它原来的格式（`.yaml` / `.yml` / `.json`），新建的文件与清单 `catalog.*` 同一种格式（见下文 `catalog merge` 第 4 步）。
 
 | 键 | 内容 | 合并到 |
 | --- | --- | --- |
 | `doc_format` | `catalog-fragment/1`（必需） | — |
-| `group` | 组名，小写字母、数字、`_`、`-`（必需） | 新表现写进 `mapping/<group>.yaml` |
+| `group` | 组名，小写字母、数字、`_`、`-`（必需） | 新表现写进 `mapping/<group>.*` |
 | `attributes` | `{"concept:<id>": [属性, ...]}`，形状同概念里的 `attributes` | 该概念所在的 `concepts/` 文件 |
-| `code_sets` | 码值集，形状同 `code_sets.yaml`（码值在码值表里时写 `lookup`） | `code_sets.yaml` |
-| `identifiers` | 标识符，形状同 `identifiers.yaml`；只在确实缺时新增 | `identifiers.yaml` |
-| `constraints` | 约束，形状同 `constraints.yaml`；只写有证据的 | `constraints.yaml` |
-| `terms` | 术语，形状同 `terms.yaml` | `terms.yaml` |
-| `representations` | 表现与绑定，形状同 `mapping/*.yaml` | `mapping/<group>.yaml` |
+| `code_sets` | 码值集，形状同 `code_sets` 文件里的条目（码值在码值表里时写 `lookup`） | `code_sets.*` |
+| `identifiers` | 标识符，形状同 `identifiers` 文件里的条目；只在确实缺时新增 | `identifiers.*` |
+| `constraints` | 约束，形状同 `constraints` 文件里的条目；只写有证据的 | `constraints.*` |
+| `terms` | 术语，形状同 `terms` 文件里的条目 | `terms.*` |
+| `representations` | 表现与绑定，形状同 `mapping/` 文件里的条目 | `mapping/<group>.*` |
 | `notes` | 给 owner 的问题或冲突，文字列表 | 只在合并报告里打印 |
 
 示例 [`examples/catalog-fragments/disbursement.json`](../../examples/catalog-fragments/disbursement.json)
