@@ -303,8 +303,24 @@ def test_a_relation_is_read_from_this_concepts_side(pages: dict) -> None:
 def test_a_self_relation_names_the_columns_that_carry_it(pages: dict) -> None:
     row = _row(pages["concepts/loan.md"], "renews `rel:loan_renews_loan`")
 
-    assert "| 借据 renews 借据 |" in row
+    assert "| 借据 renews 借据 / 借据 is renewed by 借据 |" in row
     assert "| 本概念（自关联，经 `demo_dwd.dwd_lending_loan_df.orig_loan_no`） |" in row
+
+
+def test_a_self_relation_without_an_inverse_name_reads_one_way(document: dict) -> None:
+    """Only a self relation that names both directions shows both."""
+    one_way = {
+        **document,
+        "relations": [
+            {k: v for k, v in r.items() if not (r["from"] == r["to"] and k == "inverse_name")}
+            for r in document["relations"]
+        ],
+    }
+    page = render_catalog_pages(one_way)["concepts/loan.md"]
+    row = _row(page, "renews `rel:loan_renews_loan`")
+
+    assert "| 借据 renews 借据 |" in row
+    assert "is renewed by" not in page
 
 
 def test_the_events_a_concept_takes_part_in(pages: dict) -> None:

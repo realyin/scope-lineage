@@ -44,6 +44,16 @@
   representation.
 
 ### Fixed
+- **A self relation reads both ways on the pages and in `catalog query related`.** A
+  relation whose `from` and `to` are the same concept always read with its `name`, so its
+  `inverse_name` never appeared anywhere. With an `inverse_name`, the concept overview's
+  关联的 now reads "<name> / <inverse_name> <concept>", and appendix A5 and
+  `catalog query related` (text and the JSON `reading`) read
+  "<concept> <name> <concept> / <concept> <inverse_name> <concept>", both words taken from
+  the catalog itself. A self relation without an `inverse_name`, and every relation between
+  two different concepts, reads exactly as before; in the demo only `concepts/loan.md`'s
+  two readings of `rel:loan_renews_loan` change. `ontology-catalog.md` 「关系」, 「一页纸概览」,
+  A5 and `related` say so.
 - **The catalog docs and the skill show the render order that works, and no longer
   assume YAML.** `catalog render --semantics <dir>` exits 2 when that directory does not
   exist yet, and `semantic render --ontology` needs the built `ontology.json`, so the order
