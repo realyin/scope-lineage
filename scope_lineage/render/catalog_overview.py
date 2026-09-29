@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from typing import Callable, Optional
 
 from .catalog_gaps import concept_gaps
-from .catalog_view import KIND_TEXT, CatalogView
+from .catalog_view import KIND_TEXT, CatalogView, reads_both_ways
 from .markdown_text import normalize_inline
 
 # The representation kinds that say where a concept's own data lives, by concept kind.
@@ -189,7 +189,11 @@ def _relations(view: CatalogView, concept_id: str) -> dict:
 
 def _reading(view: CatalogView, concept_id: str, relation: dict) -> str:
     """``<verb> <other>``: the name from the source, the inverse name from the target; a
-    target with no inverse name reads the whole relation."""
+    target with no inverse name reads the whole relation. A self relation with an inverse
+    name gives both verbs: ``<name> / <inverse_name> <concept>``."""
+    if reads_both_ways(relation):
+        verbs = f"{relation['name']} / {relation['inverse_name']}"
+        return normalize_inline(f"{verbs} {view.name(concept_id)}")
     if relation["from"] == concept_id:
         return normalize_inline(f"{relation['name']} {view.name(relation['to'])}")
     if relation.get("inverse_name"):

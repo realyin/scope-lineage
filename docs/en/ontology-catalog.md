@@ -269,8 +269,12 @@ customer has any number of accounts.
 `name` and `inverse_name` are bare verb phrases, without the other end's concept: the pages
 read a relation as "<name> <the other concept's name>" (拥有的 / 关联的 in a concept page's
 overview) and the appendix as "<from> <name> <to>"; read from the target's side, it is
-`inverse_name` and the source's name. Customer → complaint ticket takes `name: 申请` ("files")
-and `inverse_name: 申请人为` ("is filed by"), which read 「申请 投诉工单」 and 「申请人为 客户」;
+`inverse_name` and the source's name. A self relation (`from` and `to` the same concept) has
+its concept at both ends, so with an `inverse_name` both directions are given: the overview
+reads "<name> / <inverse_name> <concept name>", the appendix and `catalog query related`
+read "<concept> <name> <concept> / <concept> <inverse_name> <concept>"; a self relation
+without an `inverse_name` reads one way, with `name`. Customer → complaint ticket takes
+`name: 申请` ("files") and `inverse_name: 申请人为` ("is filed by"), which read 「申请 投诉工单」 and 「申请人为 客户」;
 `name: 申请投诉工单` ("files a complaint ticket") reads 「申请投诉工单 投诉工单」.
 
 ### Constraint
@@ -708,7 +712,7 @@ asks first. A line with nothing to say is left out; a confirmed item is marked �
 | 状态 | the state values in order joined by →, the events moving them written on the arrows (`未认证 —实名认证→ 已认证`); transitions between values that are not neighbours follow in brackets |
 | 数据在哪 | an entity's core and extension tables (a role's role-view tables), each with the table comment or the first line of its notes (≤30 characters); a deprecated table reads 「已废弃，改用 …」; then how many more tables carry the concept's identifiers and over how many domains (see appendix A3). For an event the line is 「记录在」 and lists its event-detail tables |
 | 拥有的 | the compositions whose whole this concept is: 「verb other-name」 |
-| 关联的 | the other associations, compositions and generalizations, read from this concept's side: `inverse_name` when the concept is the relation's `to` end, the whole sentence when there is none |
+| 关联的 | the other associations, compositions and generalizations, read from this concept's side: `inverse_name` when the concept is the relation's `to` end, the whole sentence when there is none; a self relation with an `inverse_name` both ways ("<name> / <inverse_name> <concept name>") |
 | 参与的事件 | the events the concept takes part in, grouped by the event's domain |
 | 扮演的角色 | the roles this concept plays, with their condition (≤30 characters) |
 | 参与者 / 发生时间 | events only: each participant as 「role name → concept name」; the name of the occurred-at attribute |
@@ -725,7 +729,7 @@ has a 编号 row with the concept id):
 | A2 数据清单 | the tables, grouped by representation kind (核心, 扩展, 从属, 事件明细, 状态历史, 标识映射, 角色视图, 汇总, 中间): a note (the table card's comment, the representation's `notes`), grain (identifiers, source, and what lineage proves), time semantics and how to read by them (a snapshot 「按单个 dt 分区取数」, a zipper by its validity window), refresh, record scope, producing tasks, deprecation and replacement; one hop of lineage per table |
 | A3 带本概念标识的表 | every column, in the tables of any concept, binding one of this concept's identifiers as `identifier` or `foreign_identifier`: table, the table's concept, column, identifier, and how (a self reference is marked). A concept with no table of its own still shows where it can be joined in; a role has no identifier of its own and points to its player |
 | A4 属性 | by category (描述, 状态, 度量, 时间): definition, type and unit, code values (value=meaning; for values in a code table, how to look them up), every table column that holds it (with its code map; a column consulting code sets in order reads 「先查 A，查不到查 B」, look in A, then B; one another table repeats is marked 「冗余（经 via column）」), how it is derived |
-| A5 关系 | association, composition and generalization read from this concept's side, with cardinality and JOIN count (a self relation's far end reads 「本概念」 with the columns that carry it); when the count is 0 or could not be taken, what the catalog itself shows: the tables holding both ends (representing one or binding its identifier; a role through its player's identifiers; a self relation only through a self-referencing column) and the relation's `evidence`; the events it takes part in (its role, how many tables the event has); the roles it plays, or — on a role's page — the player it belongs to |
+| A5 关系 | association, composition and generalization read from this concept's side, with cardinality and JOIN count (a self relation's far end reads 「本概念」 with the columns that carry it, and one with an `inverse_name` reads both ways); when the count is 0 or could not be taken, what the catalog itself shows: the tables holding both ends (representing one or binding its identifier; a role through its player's identifiers; a self relation only through a self-referencing column) and the relation's `evidence`; the events it takes part in (its role, how many tables the event has); the roles it plays, or — on a role's page — the player it belongs to |
 | A6 约束 | the constraints on the concept, its attributes, identifiers and relations, by kind, with strength and status |
 | A7 治理缺口 | drafted share, unmapped columns, attributes no table holds, state or coded attributes without values, whether the concept has any table; with evidence also the conflicts, bound columns nobody uses and relations no JOIN backs |
 
@@ -763,7 +767,7 @@ scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_l
 | `column` | `db.table.column` | the attribute or identifier it holds and its concept (a column with `code_sets` lists them in order, each with how it is looked up) — or, in a code table, what kind of column it is (code, meaning, surrogate key, filter, validity: `role`) and which code sets it serves — or the identifier it spells |
 | `identifier` | id, name or physical spelling | what it identifies, its scope and spellings, the columns bound to it |
 | `attribute` | id, name or term | its concept, code values (with a `lookup`, `code_set` also carries how and in which table to look them up), derivation and every table column |
-| `related` | a concept's id, name, synonym or term | one hop: relations read from its side, events, participants, roles, player, tables, and the tables carrying its identifiers (`carriers`); every relation and event carries `carried_together` (the tables holding both ends) and `evidence`, printed when no JOIN backs it |
+| `related` | a concept's id, name, synonym or term | one hop: relations read from its side (a self relation with an `inverse_name` both ways), events, participants, roles, player, tables, and the tables carrying its identifiers (`carriers`); every relation and event carries `carried_together` (the tables holding both ends) and `evidence`, printed when no JOIN backs it |
 | `carriers` | a concept's id, name, synonym or term | every column, in the tables of any concept, binding one of its identifiers: table, the table's concept, column, identifier, and how |
 | `scope` | a kind of filter (`validity`/有效记录, `deletion`/删除, `dedup`/去重, `partition`/分区, `other`/其他; the label or either half of it works too) or a keyword | the tables whose scope lines or cited rules state it, each with those lines (and their kinds), the rules and how to read the table |
 
