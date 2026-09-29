@@ -166,6 +166,32 @@ def fallback_text(names: list[str]) -> str:
     return f"先查 {names[0]}" + "".join(f"，查不到查 {name}" for name in names[1:])
 
 
+HOLDS_TEXT = {"code": "码", "meaning": "含义", "key": "代理键"}
+
+
+def holds_text(binding: Mapping, escape: Callable[[str], str] = str) -> Optional[str]:
+    """``存含义（zh）或码``: which forms of its code sets a column stores, in order of
+    preference; ``None`` when it stores the codes (``holds`` absent)."""
+    if not binding.get("holds"):
+        return None
+    lang = f"（{escape(binding['lang'])}）" if binding.get("lang") else ""
+    forms = [HOLDS_TEXT[form] + (lang if form == "meaning" else "") for form in binding["holds"]]
+    return "存" + "或".join(forms)
+
+
+def translation_text(
+    names: list[str], binding: Mapping, label: str = "码值：", escape: Callable[[str], str] = str
+) -> Optional[str]:
+    """``（码值：查 A；存代理键）``: the code sets a column is looked up in, then what it
+    stores of them; ``None`` when it names no code sets and stores codes. ``escape`` is
+    applied to the names and the language, as a table cell needs."""
+    names = [escape(name) for name in names]
+    held = holds_text(binding, escape)
+    if names:
+        return f"（{label}{fallback_text(names)}" + (f"；{held}" if held else "") + "）"
+    return f"（{held}）" if held else None
+
+
 def usage_hint(rep: Mapping) -> Optional[str]:
     """How to read the table given its time semantics, or None when there is nothing to say.
 

@@ -80,6 +80,16 @@ class Index:
         player = self.get(concept_id).obj["player"]
         return (concept_id, player) if self.concept_kind(player) == "entity" else None
 
+    def held_code_sets(self, binding: dict) -> list[str]:
+        """The code sets a column's values relate to (``holds`` says how): the binding's
+        ``code_sets``, else the bound attribute's ``code_set``."""
+        if binding.get("code_sets"):
+            return list(binding["code_sets"])
+        entry = self.get(binding.get("ref"))
+        if binding["to"] in ("attribute", "foreign_attribute") and entry and entry.type == "attribute":
+            return [entry.obj["code_set"]] if entry.obj.get("code_set") else []
+        return []
+
     def has_self_relation(self, concept_id: str) -> bool:
         """Some relation, of any kind, runs from ``concept_id`` to itself."""
         return bool(self.self_relations(concept_id))

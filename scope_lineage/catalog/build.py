@@ -287,4 +287,8 @@ def _binding(obj: dict, representation: dict, own_ids: set) -> dict:
         out["code_map"] = {str(key): value for key, value in obj["code_map"].items()}
     if "code_sets" in obj:
         out["code_sets"] = list(obj["code_sets"])
+    # [code] is what an absent holds means: one way to say it, so it is not written out.
+    if obj.get("holds", ["code"]) != ["code"]:
+        out["holds"] = list(obj["holds"])
+    out.update(_pick(obj, ("lang",)))
     return {**out, **_common(obj, representation)}

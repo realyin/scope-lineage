@@ -224,6 +224,7 @@ def _binding(checks: _Checks, file: str, at: str, binding: dict, owners, by_colu
     index = checks.index
     for code_set in binding.get("code_sets") or []:
         checks.expect("binding_code_set", file, at, code_set, ("code_set",), "a code set")
+    _binding_holds(checks, file, at, binding)
     own_ids = set().union(*(index.identifiers_of(owner) for owner in owners))
     if to == "attribute":
         allowed = set().union(*(index.attributes_of(owner) for owner in owners))
@@ -237,6 +238,19 @@ def _binding(checks: _Checks, file: str, at: str, binding: dict, owners, by_colu
             _binding_relation(checks, file, at, ref, binding["relation"], owners)
     elif to == "foreign_attribute":
         _foreign_attribute(checks, file, at, binding, owners, by_column)
+
+
+def _binding_holds(checks: _Checks, file: str, at: str, binding: dict) -> None:
+    """A column storing a meaning or a key stores it *of* some code set, and a language is
+    only said of a stored meaning."""
+    holds = binding.get("holds") or ["code"]
+    if {"meaning", "key"} & set(holds) and not checks.index.held_code_sets(binding):
+        checks.fail(
+            "binding_holds_code_set", file, at,
+            f"holds {holds} but names no code_sets, and {binding.get('ref')!r} has no code_set",
+        )
+    if "lang" in binding and "meaning" not in holds:
+        checks.fail("binding_lang", file, at, f"lang {binding['lang']!r} but holds {holds} has no meaning")
 
 
 def _foreign_identifier(checks: _Checks, file: str, at: str, ref, owners) -> None:

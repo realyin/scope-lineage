@@ -21,9 +21,9 @@ from .catalog_view import (
     TABLE_STATUS_TEXT,
     TIME_TEXT,
     code_value_text,
-    fallback_text,
     lookup_text,
     status_text,
+    translation_text,
 )
 
 REP_KIND_TEXT = dict(REPRESENTATION_KINDS)
@@ -164,8 +164,7 @@ def _column_text(column: Mapping) -> str:
         text += f"（自关联：{relations}）"
     if column.get("code_map"):
         text += "（码值 " + ", ".join(f"{k}→{v}" for k, v in column["code_map"].items()) + "）"
-    if column.get("code_sets"):
-        text += f"（码值：{fallback_text([c['name'] for c in column['code_sets']])}）"
+    text += translation_text([c["name"] for c in column.get("code_sets") or []], column) or ""
     evidence = column.get("evidence") or {}
     if column.get("derivation"):
         text += f"；口径 {column['derivation']}"

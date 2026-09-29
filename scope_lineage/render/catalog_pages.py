@@ -42,9 +42,9 @@ from .catalog_view import (
     ONTOLOGY_FORMAT,
     CatalogView,
     concept_filename,
-    fallback_text,
     lookup_text,
     status_text,
+    translation_text,
     unconfirmed_guess,
 )
 from .markdown_text import cell, expr_span
@@ -261,10 +261,11 @@ def _code_set_block(view: CatalogView, code_set: dict) -> list[str]:
 
 
 def _translated_columns(view: CatalogView, code_set_id: str) -> str:
-    """Each column whose ``code_sets`` names the set, with the order it looks them up in."""
+    """Each column whose ``code_sets`` names the set, with the order it looks them up in
+    and what it stores of them."""
     parts = [
-        f"{expr_span(rep['table'] + '.' + binding['column'])}"
-        f"（{fallback_text([cell(s['name']) for s in view.translating(binding)])}）"
+        expr_span(f"{rep['table']}.{binding['column']}")
+        + (translation_text([s["name"] for s in view.translating(binding)], binding, "", cell) or "")
         for rep, binding in view.columns_translated_by(code_set_id)
     ]
     return "；".join(parts) or "（无）"

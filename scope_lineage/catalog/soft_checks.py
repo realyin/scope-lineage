@@ -42,6 +42,7 @@ def soft_checks(catalog: Catalog) -> list[Finding]:
         *_relations_without_name(catalog),
         *_empty_code_sets(catalog),
         *_code_sets_missing_the_attributes(catalog),
+        *_held_forms_the_code_sets_lack(catalog),
         *_unmapped_bindings(catalog),
         *_self_references_without_relation_named(catalog),
     ]
@@ -106,6 +107,34 @@ def _code_sets_missing_the_attributes(catalog: Catalog) -> list[Finding]:
                     "binding_code_sets_miss_attribute", file,
                     f"{representation['table']}.{binding['column']}",
                     f"code_sets does not include {expected!r}, the code set of {binding['ref']}",
+                ))
+    return findings
+
+
+def _held_forms_the_code_sets_lack(catalog: Catalog) -> list[Finding]:
+    """A column said to hold keys, or meanings in one language, whose code sets have no
+    key column, or no meaning column in that language: the catalog cannot translate it."""
+    index = build_index(catalog)
+    findings = []
+    for file, representation in catalog.records("mapping"):
+        for binding in representation["bindings"]:
+            at = f"{representation['table']}.{binding['column']}"
+            lookups = [
+                index.get(code_set).obj["lookup"]
+                for code_set in index.held_code_sets(binding)
+                if index.is_type(code_set, "code_set") and "lookup" in index.get(code_set).obj
+            ]
+            if "key" in (binding.get("holds") or []) and not any("key_column" in x for x in lookups):
+                findings.append(Finding(
+                    "binding_key_without_key_column", file, at,
+                    "holds key, and none of its code sets has a lookup with a key_column",
+                ))
+            langs = sorted({column.get("lang") or "" for x in lookups for column in x["meaning_columns"]})
+            if "lang" in binding and lookups and binding["lang"] not in langs:
+                findings.append(Finding(
+                    "binding_lang_unknown", file, at,
+                    f"lang {binding['lang']!r}, and its code sets' lookups have meaning columns "
+                    f"only in {[lang for lang in langs if lang] or 'no language'}",
                 ))
     return findings
 

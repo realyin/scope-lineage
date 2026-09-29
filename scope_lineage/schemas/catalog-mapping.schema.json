@@ -208,7 +208,7 @@
           }
         },
         "code_sets": {
-          "description": "The code sets that translate this column, in order: look the code up in the first, then the next",
+          "description": "The code sets this column's values relate to, in lookup order: look up in the first, then the next; holds says how the values relate to them (absent: they are the codes)",
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
@@ -216,6 +216,24 @@
             "type": "string",
             "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
           }
+        },
+        "holds": {
+          "description": "What a value of this column is, in order of preference: the code, the meaning or the dictionary key of its code sets (code_sets, else the bound attribute's code_set); absent means [code]. More than one: a value is one of them, whether a lookup missed or a source wrote it that way",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "code",
+              "meaning",
+              "key"
+            ]
+          }
+        },
+        "lang": {
+          "description": "holds with meaning only: the language of the stored meaning, as a lookup's meaning_columns[].lang names it",
+          "type": "string",
+          "minLength": 1
         },
         "status": {
           "$ref": "#/definitions/status"
