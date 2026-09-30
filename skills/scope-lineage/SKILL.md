@@ -56,6 +56,7 @@ fallback covers 0.2.0):
 | concept-level impact (`concept-impact`, key-fold `ontology-json/2` only), `catalog build` / `query` / `render` / `validate`, table semantics (`semantic *`), `catalog digest` / `merge`, acceptance (`questions *`) | >= 0.5.0 |
 | confirmed answers in material packets (`semantic packet --glossary` / `--metadata-patch`) | >= 0.6.0 |
 | code-set lookups in a catalog (a code set's `lookup`, a binding's `code_sets`, `code_sets_by`, `holds`, `lang`) | the release after 0.6.0 (unreleased; 0.6.0 rejects them as schema errors) |
+| lookup facts in the drafting digest (`catalog digest --lineage` / `--schema`) | the release after 0.6.0 (unreleased; 0.6.0 rejects the flags) |
 
 When unsure which workflows the session will need, require >= 0.6.0 (and, to write a
 `lookup`, `code_sets` or `holds`, a build of this repository until the next release).
@@ -558,8 +559,11 @@ scope-lineage semantic confirm <run>/docs --confirmations <answers.json>
 
 ```bash
 # 1. drafting material: row, grain, time, identifier/state/time/measure columns, related
-#    tables, open questions per table; with --catalog, what the catalog does not cover yet
-scope-lineage catalog digest <docs> [--catalog <catalog-dir>] [--only <db.table> ...] --out <digest>
+#    tables, open questions per table; with --lineage, per column the joined inputs its value
+#    is read through (lookup tables, their constant conditions, fallback order, join keys);
+#    with --catalog, what the catalog does not cover yet
+scope-lineage catalog digest <docs> --lineage <lineage-dir> [--schema <schema>] \
+  [--catalog <catalog-dir>] [--only <db.table> ...] --out <digest>
 # 2. draft concepts, identifiers and relations from <digest>/digest.md (by hand, or one model
 #    call that reads only the digest and the catalog format), into <catalog-dir>
 scope-lineage catalog validate <catalog-dir>
@@ -577,7 +581,14 @@ scope-lineage catalog render <dir>/ontology.json --out <pages> --semantics <page
 ```
 
 - **起草材料**：`digest.md` 就是起草概念的全部输入；不要把整份表语义读进一次调用。`--catalog` 列出的
-  「没有表现的表」「没有绑定的列」就是这一轮要补的。
+  「没有表现的表」「没有绑定的列」就是这一轮要补的。第 1 步一定带 `--lineage`（与 `semantic packet` 用的是
+  同一份血缘；有元数据时再带 `--schema`，分区判定更准）：这时 digest 的列上带着查码值所需的事实，**不必为它们回头读 SQL**——
+  `lookups` 的 `table` / `where` 就是码值集 `lookup.table` / `filter`（`where` 的每个键值原样照抄，大小写不改），
+  `lookups` 的顺序（码列看 `key_of` 的顺序）就是绑定上 `code_sets` 的顺序，`reads` 是被读的列（含义列 → `holds`
+  写 `meaning`，代理键列 → `key`），有 `fallback` 时 `holds` 末尾加 `code`。`key_of_order: "unknown"` 表示几列回退顺序
+  互相矛盾，这一列的顺序要读 SQL 定。`where` 不一定是字典类型——按角色、语言、行版本挑行的关联也会列出；
+  带 `--catalog` 时只有与某码值集 `lookup` 相同的才标 `code_set`。没有列出的：不带字符串常量的关联、内联 `VALUES`
+  字典、`CASE` 映射，这些照旧按表语义与码值规则写。
 - **先建概念与标识符**：片段不能新增概念、不能改已有标识符，所以第 2 步要把各组会用到的新概念（事件连同它的
   时间属性——`occurred_at` 必须指向事件自己的属性）、新标识符、已有标识符的新拼写都写进目录并校验通过，再写片段。
 - **关系名只写动词短语**：页面把关系读成「<name> <另一端概念名>」（附录里是「<起点> <name> <终点>」），所以

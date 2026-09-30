@@ -17,7 +17,10 @@
   编排者，不要绕开。
 - 分配（编排者给出）：本组的概念 id 列表；分给本组的表，以及每张表初拟的概念、表现类型、粒度、时间语义。
   只有一组、分配没写这些时，由你来定，并在 `notes` 里说明。
-- 起草材料：`<digest-dir>/digest.md`（`catalog digest` 的输出）里本组的表。
+- 起草材料：`<digest-dir>/digest.md`（`catalog digest --lineage` 的输出）里本组的表。列下「Joined inputs read
+  (from the lineage)」一行（`digest.json` 里列的 `lookups` / `fallback` / `key_of`）给出查码值的事实：读哪张表、
+  按什么常量（`where` 原样就是 `lookup.filter`）、回退顺序（就是 `code_sets` 的顺序）、读的是哪一列（定 `holds`）。
+  有这一行的列不必为这些事实去读 SQL；标了 `order unknown` 的，或 digest 不是带 `--lineage` 生成的，才读 SQL。
 - 每张表的语义：`<docs-dir>/<db.table>.json`（`table-semantics/1`）。列的含义、码值、加工口径以它为准；
   只有它说不清时才看材料包 `<packets-dir>/<db.table>/packet.md`。
 

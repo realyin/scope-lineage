@@ -40,6 +40,30 @@
   title saying so and pointing to the catalog workflow. The command, every flag and
   `ontology.json` (`ontology-json/2`) are unchanged, byte for byte.
 ### Added
+- **`catalog digest --lineage [--schema]`: the lookup facts a drafter used to read the SQL for.**
+  With a lineage corpus, each listed column of a table some statement writes says which
+  joined inputs its value is read through: `lookups` (`{table, where, reads, rule}` in the
+  order the expression reads them, so a `COALESCE` fallback keeps its argument order),
+  `fallback` (the non-looked-up columns the value falls back to), and, for a column with no
+  lookups of its own, `key_of` (`{table, where, rule, read_by}`, the reads it is the join key
+  of, ordered the way the columns in `read_by` fall back through them; `key_of_order:
+  "unknown"` when two of them disagree). A condition is a single equality with a string
+  literal on the joined input -- in its `ON`, in the `WHERE` of a joined subquery / CTE, or in
+  `WHERE` on the joined alias; numbers, `${…}` parameters and partition comparisons are not
+  (partitions are judged by the packet's rule: `--schema`'s partition columns, else the
+  lineage's partitioned flag and the `dt`/`ds`/`pt`/`p_date` names). A JOIN with no such
+  condition, and a value read from an inline `VALUES` list, are not listed. The wording is
+  neutral ("reads rows of <table> where <column> = '<literal>'"); with `--catalog` a read
+  whose table and `where` equal a code set's `lookup` gains `code_set`, and `reads_as:
+  meaning | key` when it reads that set's meaning or key column. `digest.md` gives each such
+  column one line. A table no statement writes gets nothing and is counted on stdout.
+  The projection is `scope_lineage.render.value_lookups` (it reads `input_ref_id` and the
+  JOIN's `condition_filters`, never `right_alias` or `display_expression`); the packet's
+  partition rule is now public as `semantics.packet_facts.partition_column`. No
+  `catalog-digest/1` version change: without `--lineage` the digest is byte-identical, and
+  the lineage, packets, table semantics and `catalog build` are unchanged. The skill's
+  drafting procedure and `catalog-fragment-prompt.md` pass `--lineage` and read the lookup
+  facts from the digest; `ontology-catalog.md` (both languages) documents the keys.
 - **A binding says how its `code_sets` list is read: `code_sets_by: lookup | source`.**
   Absent (or `lookup`, which `build` does not write out), the list is a lookup order, as
   before. `source` says each source or branch writing the column -- a UNION branch, or one

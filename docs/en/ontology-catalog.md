@@ -1008,6 +1008,7 @@ The schema is `scope_lineage/schemas/catalog-fragment.schema.json`.
 
 ```bash
 scope-lineage catalog digest out/semantics [--catalog examples/catalog-demo] \
+  [--lineage out/lineage [--schema examples/metadata]] \
   [--only demo_dwd.dwd_party_customer_info_df ...] --out out/digest
 ```
 
@@ -1031,9 +1032,60 @@ catalog prefix); a table a code set's `lookup` names counts as a code-set source
 table's section also ends with its standing in the catalog. The
 output is deterministic: the same inputs give byte-identical files.
 
+With `--lineage` (one `lineage.json`, or a directory searched for them, as `catalog build
+--lineage` reads it) each listed column also says, from the statements that write its
+table, which joined inputs its value is read through and under which constant conditions
+-- the facts a code set's `lookup.filter`, the order of a binding's `code_sets` and a
+binding's `holds` are written from, so the drafter need not go back to the SQL for them:
+
+- `lookups`: the joined inputs the value is read through, in the order the expression
+  reads them (the argument order of a `COALESCE(d1.x, d2.x, a.c)` fallback). Each is
+  `{table, where, reads, rule}`: the rows of `table` where every `where` column equals its
+  string literal, the column `reads` of those rows, and the JOIN's logic block id in the
+  lineage;
+- `fallback`: the non-looked-up physical columns the same value falls back to (the raw
+  code at the end of a `COALESCE`), only beside `lookups`;
+- `key_of`: for a column with no `lookups` of its own, the reads it is the join key of,
+  `{table, where, rule, read_by}`, `read_by` naming the columns of the same table that read
+  through that JOIN. They are ordered the way those columns fall back through them, not in
+  JOIN order; when two columns fall back in opposite orders the JOIN order is kept and
+  `key_of_order: "unknown"` says so.
+
+What counts: only a value that enters through a JOIN (or passes through a joined
+subquery / CTE) has conditions; a condition is a single equality with a string literal, in
+the JOIN's `ON`, in the `WHERE` of a joined subquery / CTE, or in the same query's `WHERE`
+on the joined alias itself. Numbers (`rn = 1`), `${…}` parameters, `IN` lists and
+comparisons on partition columns are not conditions: partitions are judged as the packet
+judges them, by `--schema`'s partition columns when given, otherwise by the lineage's
+partitioned flag and the `dt`/`ds`/`pt`/`p_date` name rule. A JOIN with no such condition
+only supplements a field and is not listed; a value read from an inline `VALUES` list or
+another non-table source is not listed either. The wording is neutral -- "reads rows of
+<table> where <column> = '<literal>'" -- because the same shape picks a role, a language or
+a row version as often as a dictionary type. With `--catalog` as well, a read whose table and
+`where` equal a code set's `lookup.table` and `lookup.filter` gains `code_set: <id>`, and a
+`reads` that is that code set's meaning or key column gains `reads_as: "meaning"` / `"key"`.
+
+```json
+{
+  "column": "c_desc",
+  "meaning": "type description",
+  "lookups": [
+    {"table": "demo_dim.dim_code_dict", "where": {"code_type": "TypeA"}, "reads": "code_desc", "rule": "logic:ROOT:join:002", "code_set": "code:type_a", "reads_as": "meaning"},
+    {"table": "demo_dim.dim_code_dict", "where": {"code_type": "TypeB"}, "reads": "code_desc", "rule": "logic:ROOT:join:001"}
+  ],
+  "fallback": ["demo_ods.ods_order_df.c"]
+}
+```
+
+`digest.md` gives each such column one line under "Joined inputs read (from the lineage)".
+A table no statement in the lineage writes is digested as usual with nothing added, and the
+command prints how many there were. Without `--lineage` the output is byte-identical to
+what it was; the lineage, packets, table semantics and catalog build are not changed by it.
+
 Exit codes: `0` written; `1` no legal document, a document was skipped (the rest is still
-written), or a table named by `--only` has no document; `2` the directory or `--catalog`
-cannot be read.
+written), a table named by `--only` has no document, or a `--lineage` directory holds no
+`lineage.json`; `2` the directory, `--catalog`,
+`--lineage` or `--schema` cannot be read, or `--schema` is given without `--lineage`.
 
 ### `catalog merge`
 
