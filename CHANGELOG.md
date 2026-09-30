@@ -3,6 +3,23 @@
 ## Unreleased
 
 ### Changed
+- **An attribute with no `code_set` of its own takes the code sets its columns name.** One
+  rule (`scope_lineage.catalog.index.attribute_code_set_ids`, also `Index` and
+  `CatalogView` methods) answers which code sets an attribute's codes are in: its own
+  `code_set`; when it has none, the `code_sets` of every column bound to it (`attribute` /
+  `foreign_attribute`), each counted once, in the order first seen. Every reader of "this
+  attribute's codes" now uses it: the missing-codes gap (A7, `governance.md`, the index
+  count) -- which attributes count as coded is unchanged; the A4 「码值」 cell, which lists
+  several sets one after another, each after its name, and never says they are per source;
+  `catalog query attribute`, which answers `code_sets` (each shaped like `code_set`, plus
+  `name`) and one 码值 line per set when the codes come from the columns; and the
+  attributes `code_sets.md` and the unconfirmed-codes table list under a code set. An
+  attribute that writes a `code_set` keeps exactly that one, and
+  `binding_code_sets_miss_attribute` is unchanged. The drafting rule is reversed: an
+  attribute split into per-source code sets writes no `code_set`, and each column writes
+  its own source's set (`ontology-catalog.md` in both languages, `catalog-fragment-prompt.md`,
+  the skill). `render` now imports this one function from `catalog`. No `doc_format`
+  change; a catalog with no such attribute renders and answers byte for byte as before.
 - **Docs and drafting prompt: an inline SQL dictionary is a code set's `values`, not a `lookup`.**
   `lookup` names a physical code table (`db.table`); a dictionary defined in a task (a `VALUES` CTE,
   a `CASE` mapping, a literal list) is written as `values` with the producing task in `evidence`,

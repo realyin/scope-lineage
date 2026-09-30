@@ -76,11 +76,15 @@ def _drafted(view: CatalogView, concept_id: str) -> tuple[int, int]:
 
 def _lacks_codes(view: CatalogView, attribute: dict) -> bool:
     """A state or coded attribute whose values the catalog neither lists nor says where
-    to look up (a code set with a ``lookup`` names the table holding them)."""
+    to look up (a code set with a ``lookup`` names the table holding them). Which
+    attributes are coded does not change; their code sets are read by rule R1, so the
+    sets its columns name count when the attribute has none of its own."""
     if attribute.get("category") != "state" and "code_set" not in attribute:
         return False
-    code_set = view.code_sets.get(attribute.get("code_set"))
-    return not (code_set and (code_set.get("values") or code_set.get("lookup")))
+    return not any(
+        code_set.get("values") or code_set.get("lookup")
+        for code_set in view.attribute_code_sets(attribute)
+    )
 
 
 def share_text(drafted: int, total: int) -> str:

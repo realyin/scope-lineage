@@ -230,6 +230,13 @@ attr:<concept slug>.<slug>` (the concept slug must be the owning concept's), `na
 `definition`, `category` (`descriptive` / `state` / `measure` / `time`), `type`, `unit?`,
 `code_set?`, `derivation?` (how it is computed, in words).
 
+An attribute's code sets are its own `code_set`; when it has none, they are the `code_sets`
+of the columns bound to it (as `attribute` or `foreign_attribute`), each counted once, in
+the order first seen. Every reader of "this attribute's codes" uses this one rule: the A4
+「码值」 cell, `catalog query attribute`, the missing-codes gap and the attributes
+`code_sets.md` lists under a code set. An attribute that writes a `code_set` keeps exactly
+that one; its columns' other sets are not added to it.
+
 ### State
 
 The stages of an entity's life cycle, moved by events. Written as the entity's `states`:
@@ -406,10 +413,10 @@ Edge cases:
 - One column written by several UNION branches, each using its own source's code set: list them
   all in `code_sets`, in branch order, and say in `derivation` which branch uses which --
   `code_sets` has one reading (lookup order), so pages and queries still print 「先查 A，查不到查 B」.
-- One attribute split into per-source code sets: point the attribute's `code_set` at one of them
-  (the main source); the other sources' columns then warn `binding_code_sets_miss_attribute`, as
-  expected. With no `code_set` on the attribute, the A4 「码值」 cell is empty, and a
-  `category: state` attribute is listed as lacking codes.
+- One attribute split into per-source code sets: the attribute writes no `code_set`; each
+  column writes its own source's set in `code_sets`, and the attribute's codes are all of them
+  (the rule under Attribute). A column whose `holds` has `meaning` or `key` then needs its own
+  `code_sets`, or it fails `binding_holds_code_set`.
 - A CASE branch (such as ELSE) with no source code: invent no code; write the rule in `derivation`
   (and, if useful, the code set's `definition`).
 - A code set listing only `values` has no key column, so a `holds: [key]` column on it always warns
@@ -789,7 +796,7 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 | `index.md` | the concepts by domain (name, kind, definition, number of tables, status), the identifiers, the code sets (and the tables their values live in), a summary of the governance gaps and of the record scopes |
 | `concepts/<slug>.md` | one page per concept (`concept:fee_waiver` → `fee_waiver.md`): a one-page overview, then seven sections as its appendix |
 | `identifiers.md` | every identifier in full, with the columns bound to it |
-| `code_sets.md` | every code set: its values, or the table and condition to look them up by (`lookup`); the attributes it codes; the columns whose `code_sets` consult it, in their order, and what each stores (`holds`) |
+| `code_sets.md` | every code set: its values, or the table and condition to look them up by (`lookup`); the attributes it codes (by the rule under Attribute); the columns whose `code_sets` consult it, in their order, and what each stores (`holds`) |
 | `governance.md` | every gap of every concept, one list per kind of gap; the code values whose meaning is not confirmed; plus the denormalised columns per table (informational, not a gap; those repeating another record of the same concept are marked so) |
 | `scopes.md` | every table's record scope grouped by the kind of filter it states; the tables declaring none; the business rules and value domains that cite a table |
 
@@ -821,7 +828,7 @@ has a 编号 row with the concept id):
 | A1 定义与身份 | definition, kind, status, synonyms; identifiers (arising condition, uniqueness scope, physical spellings, mappings); the state machine (values, transition events); an event's participants, a role's player, context and condition |
 | A2 数据清单 | the tables, grouped by representation kind (核心, 扩展, 从属, 事件明细, 状态历史, 标识映射, 角色视图, 汇总, 中间): a note (the table card's comment, the representation's `notes`), grain (identifiers, source, and what lineage proves), time semantics and how to read by them (a snapshot 「按单个 dt 分区取数」, a zipper by its validity window), refresh, record scope, producing tasks, deprecation and replacement; one hop of lineage per table |
 | A3 带本概念标识的表 | every column, in the tables of any concept, binding one of this concept's identifiers as `identifier` or `foreign_identifier`: table, the table's concept, column, identifier, and how (a self reference is marked). A concept with no table of its own still shows where it can be joined in; a role has no identifier of its own and points to its player |
-| A4 属性 | by category (描述, 状态, 度量, 时间): definition, type and unit, code values (value=meaning; for values in a code table, how to look them up), every table column that holds it (with its code map; a column consulting code sets in order reads 「先查 A，查不到查 B」, look in A, then B; a column with `holds` adds what it stores, 「存含义（zh）或码」 (stores the meaning, in zh, or the code), after the code sets as 「（码值：查 A；存代理键）」; one another table repeats is marked 「冗余（经 via column）」, one repeated from another record of the same concept 「冗余（同一<concept>的另一条记录，经 via column）」), how it is derived |
+| A4 属性 | by category (描述, 状态, 度量, 时间): definition, type and unit, code values (value=meaning; for values in a code table, how to look them up; with several code sets, each after its name, 「A：1=…；B：0=…」), every table column that holds it (with its code map; a column consulting code sets in order reads 「先查 A，查不到查 B」, look in A, then B; a column with `holds` adds what it stores, 「存含义（zh）或码」 (stores the meaning, in zh, or the code), after the code sets as 「（码值：查 A；存代理键）」; one another table repeats is marked 「冗余（经 via column）」, one repeated from another record of the same concept 「冗余（同一<concept>的另一条记录，经 via column）」), how it is derived |
 | A5 关系 | association, composition and generalization read from this concept's side, with cardinality and JOIN count (a self relation's far end reads 「本概念」 with the columns that carry it — a column naming a `relation` only under that one, a column naming none under every self relation — and one with an `inverse_name` reads both ways); JOINs inside a producing task (`source_joins`), when there are any, as 「生产任务内连接 N 次（如 …，填 <foreign key column>）」, apart from the JOIN count; when the count is 0 or could not be taken, what the catalog itself shows: the tables holding both ends (representing one or binding its identifier; a role through its player's identifiers; a self relation only through a self-referencing column realising it) and the relation's `evidence`; the events it takes part in (its role, how many tables the event has); the roles it plays, or — on a role's page — the player it belongs to |
 | A6 约束 | the constraints on the concept, its attributes, identifiers and relations, by kind, with strength and status |
 | A7 治理缺口 | drafted share, unmapped columns, attributes no table holds, state or coded attributes without values, whether the concept has any table; with evidence also the conflicts, bound columns nobody uses and relations no JOIN backs |
@@ -859,7 +866,7 @@ scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_l
 | `table` | `db.table` (a catalog prefix is ignored) | the concept it carries, its time semantics and how to read by them (`usage`), the table comment and `notes`, its record scope, the business rules and value domains citing it (`constraints`), and what every bound column points at, with evidence; a denormalised column reads `→ 冗余属性 <attribute> of <concept>（经 <via>）`, a self-referencing one names its relation; for a code table (one a code set's `lookup` names), the code sets it holds and how each is looked up (`code_sets`), and when the table is also represented, the representation's answer gains `code_sets`; exit code `0` |
 | `column` | `db.table.column` | the attribute or identifier it holds and its concept (a denormalised attribute with its `via`, plus `other_instance: true` when it is another record's of the same concept; a column with `code_sets` lists them in order, each with how it is looked up; one with `holds` says what it stores, 「存含义（zh）或码」, and carries `holds` and `lang`) — or, in a code table, what kind of column it is (code, meaning, surrogate key, filter, validity: `role`) and which code sets it serves — or the identifier it spells; a self-referencing column carries `self_relations` (the self relations it realises: the one its `relation` names, or all of them) |
 | `identifier` | id, name or physical spelling | what it identifies, its scope and spellings, the columns bound to it |
-| `attribute` | id, name or term | its concept, code values (with a `lookup`, `code_set` also carries how and in which table to look them up), derivation and every table column |
+| `attribute` | id, name or term | its concept, code values (with a `lookup`, `code_set` also carries how and in which table to look them up; an attribute with no `code_set` of its own answers with `code_sets`, the sets its columns name, each shaped like `code_set` plus its `name`), derivation and every table column |
 | `related` | a concept's id, name, synonym or term | one hop: relations read from its side (a self relation with an `inverse_name` both ways), events, participants, roles, player, tables, and the tables carrying its identifiers (`carriers`); every relation and event carries `carried_together` (the tables holding both ends) and `evidence`, printed when no JOIN backs it; with JOINs inside a producing task also `source_joins` (the count), printed as 「生产任务内连接 N 次」 apart from `joins` |
 | `carriers` | a concept's id, name, synonym or term | every column, in the tables of any concept, binding one of its identifiers: table, the table's concept, column, identifier, and how |
 | `scope` | a kind of filter (`validity`/有效记录, `deletion`/删除, `dedup`/去重, `partition`/分区, `other`/其他; the label or either half of it works too) or a keyword | the tables whose scope lines or cited rules state it, each with those lines (and their kinds), the rules and how to read the table |

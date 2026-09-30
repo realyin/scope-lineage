@@ -369,17 +369,24 @@ def _attribute_row(view: CatalogView, attribute: dict) -> str:
         f"{attribute['name']} {expr_span(attribute['id'])}",
         cell(attribute.get("definition") or NONE),
         kind or NONE,
-        codes_text(view, attribute.get("code_set")),
+        codes_text(view, attribute),
         columns_text(view, attribute["id"]),
         derivation_text(view, attribute),
         status_text(attribute),
     )
 
 
-def codes_text(view: CatalogView, code_set_id) -> str:
-    code_set = view.code_sets.get(code_set_id)
-    if not code_set:
-        return NONE
+def codes_text(view: CatalogView, attribute: dict) -> str:
+    """The attribute's codes (rule R1). Several code sets are listed one after another,
+    each after its name: they may be split by source or be one column's lookup order,
+    and listing them side by side is true of both."""
+    code_sets = view.attribute_code_sets(attribute)
+    if len(code_sets) == 1:
+        return _set_codes_text(code_sets[0])
+    return "；".join(f"{cell(s['name'])}：{_set_codes_text(s)}" for s in code_sets) or NONE
+
+
+def _set_codes_text(code_set: dict) -> str:
     values = [values_text(code_set)] if code_set["values"] else []
     if code_set.get("lookup"):
         values.append(lookup_text(code_set["lookup"], code_cell))
