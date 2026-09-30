@@ -298,7 +298,7 @@ terms:
 | `refresh` | 否 | 更新频率 |
 | `table_status` | 是 | `active` / `deprecated` |
 | `replaced_by` | 否 | 废弃表的替代表 |
-| `bindings` | 是 | `[{column, to, ref?, via?, relation?, derivation?, code_map?, code_sets?, holds?, lang?}]` |
+| `bindings` | 是 | `[{column, to, ref?, via?, relation?, derivation?, code_map?, code_sets?, code_sets_by?, holds?, lang?}]` |
 
 绑定的 `to` 说明这一列是什么：
 
@@ -350,10 +350,26 @@ representations:
         code_sets: [code:waiver_reason, code:waiver_channel]
 ```
 
+`code_sets_by` 写这个列表怎么读。`lookup` 与不写相同，即上面的查找顺序。`source` 表示写入这一列的每个来源或分支
+（一个 UNION 分支，或写这张表的几条语句之一）各用其中一个码值集、用自己的：顺序没有含义，一个值不会再去第二个码值集里查。
+页面与查询这时写「按来源分别查 A、B」，不写「先查 A，查不到查 B」；哪个分支用哪个，需要时写在 `derivation`。
+`code_sets_by` 必须配 `code_sets`，`source` 至少要两个码值集（只有一个时两种读法相同），否则报 `binding_code_sets_by`。
+`build` 不输出 `lookup`。它不改别的：`binding_code_sets_miss_attribute` 与 `holds` 对两种读法一视同仁。
+
+```yaml
+      - column: reason_label           # branch 1: CASE over source A's codes; branch 2: over source B's
+        to: attribute
+        ref: attr:fee_waiver.reason
+        code_sets: [code:waiver_reason, code:waiver_channel]
+        code_sets_by: source
+        holds: [meaning, code]
+```
+
 `holds` 写这一列的值是那些码值集（绑定的 `code_sets`；没写时是所绑属性的 `code_set`）的哪种形式：
 `code`（码）、`meaning`（含义）或 `key`（码值表的 `key_column`，代理键），**按优先顺序**列出——约定翻译后的形式在前、
 原码在后。不写等于 `[code]`，上面所有列都是这样读的；写 `[code]` 构建出的文档与不写相同。多于一项时，本列的一个值是其中之一：
-可能因为查找落空，也可能因为表的不同来源写法不同；何时是哪一种不进结构，要说就写 `derivation`。
+可能因为查找落空，也可能因为表的不同来源写法不同（码值集本身是按顺序查还是按来源各查各的，由 `code_sets_by` 说）；
+哪个来源写哪种形式不进结构，要说就写 `derivation`。
 `lang` 写存下的含义是哪种语言（只能与 `meaning` 同用；码值集有 `lookup` 时应是其某个 `meaning_columns[].lang`）。
 `code_sets` 的顺序与 `holds` 的顺序互不相干：`code_sets: [A, B], holds: [key, code]` 即「A 的代理键，A 查不到用 B 的，都查不到存原码」。
 
@@ -370,8 +386,8 @@ representations:
 那是列的事，在每个这样的列上写 `holds`；一列按序查多个码值集时，`code_sets` 写在**这一列**上，与 SQL 的查找顺序一致
 （含义列、代理键列与码列各写各的）。边界情况：
 
-- 一列由几个 UNION 分支写入、各分支用不同来源的码值集：`code_sets` 全列上、按分支顺序，哪个分支用哪个写在 `derivation`
-  ——`code_sets` 只有一种读法（查找顺序），页面与查询照样读成「先查 A，查不到查 B」。
+- 一列由几个来源写入（几个 UNION 分支，或写这张表的几条语句）、各来源用自己的码值集：`code_sets` 全列上，
+  再写 `code_sets_by: source`；页面与查询读成「按来源分别查 A、B」。只有真回退（每一行都先查 A、查不到查 B）才不写这个键。
 - 同一属性按来源拆成几个码值集时，属性不写 `code_set`；各列在 `code_sets` 写本来源的码值集，属性的码就是它们的全部
   （见「属性」一节的规则）。这时 `holds` 含 `meaning` 或 `key` 的列必须写自己的 `code_sets`，否则报 `binding_holds_code_set`。
 - CASE 的某个分支（如 ELSE）没有源码：不编码，规则写进 `derivation`（需要时也写进码值集的 `definition`）。
@@ -462,6 +478,7 @@ scope-lineage catalog validate examples/catalog-demo --json
 | `binding_foreign_attribute` | `ref` 不是属性；或属于所表现概念自己（角色视图：或其承担者），而 `via` 那一列不是指向该属性所属概念另一条记录的 `foreign_identifier`——本行自己的属性应绑定为 `attribute` |
 | `binding_foreign_attribute_via` | `via` 不是本表的列，该列不是 `foreign_identifier`，或它指向的标识符不属于该属性的概念 |
 | `binding_code_set` | 绑定的 `code_sets` 里有一项不是码值集 |
+| `binding_code_sets_by` | 绑定写了 `code_sets_by` 却没写 `code_sets`，或 `code_sets_by: source` 而码值集少于两个 |
 | `binding_holds_code_set` | 绑定的 `holds` 含 `meaning` 或 `key`，而绑定没写 `code_sets`、所绑属性也没有 `code_set`——不属于任何码值集的含义或代理键 |
 | `binding_lang` | 绑定写了 `lang`，其 `holds` 却不含 `meaning` |
 
@@ -570,7 +587,8 @@ scope-lineage catalog build examples/catalog-demo --out out/
   `relation` 是可选的附加字段，没写它的目录输出不变；
 - 码值集的 `lookup` 按上表的键序带出（`filter` 按列名排序，字面量一律为文字），绑定的 `code_sets` 按作者的顺序带出。
   这两个字段是可选的附加字段，`doc_format` 仍是 `ontology-json/3`；没写它们的目录，输出与以前逐字节相同；
-- 绑定的 `holds`、`lang` 原样带出，跟在 `code_sets` 之后；`holds: [code]` 不输出（与不写同义），所以没写 `holds` 的目录输出与以前逐字节相同；
+- 绑定的 `code_sets_by`、`holds`、`lang` 原样带出，跟在 `code_sets` 之后；`code_sets_by: lookup` 与 `holds: [code]` 不输出（与不写同义），
+  所以没写它们的目录输出与以前逐字节相同；
 - 每个事件参与者变成一条 `participation` 关系 `rel:<事件 slug>.<role_name>`，从事件指向参与者，
   基数为 `{from: "0..*", to: "1"}`（`one`）或 `"1..*"`（`many`），带 `derived_from` 以及事件的
   status 与 source。这样的 id 不能再手写一次。
@@ -703,7 +721,7 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 | `index.md` | 按域列出概念（名称、种类、定义、表现表数、状态）、标识符、码值集（及码值所在的表）、治理缺口汇总、记录范围汇总 |
 | `concepts/<slug>.md` | 每个概念一页（`concept:fee_waiver` → `fee_waiver.md`）：先是一页纸概览，再是附录七节 |
 | `identifiers.md` | 每个标识符的完整说明，及绑定到它的列 |
-| `code_sets.md` | 每个码值集：取值，或去哪张表、按什么条件查（`lookup`）；用它的属性（按「属性」一节的规则）；按 `code_sets` 查它的列及查找顺序、各列存什么（`holds`） |
+| `code_sets.md` | 每个码值集：取值，或去哪张表、按什么条件查（`lookup`）；用它的属性（按「属性」一节的规则）；按 `code_sets` 查它的列（行名「查它的列」）、各列怎么查（按顺序，或按来源各查各的：`code_sets_by`）、各列存什么（`holds`） |
 | `governance.md` | 所有概念的全部缺口，每类缺口一个列表；含义待确认的码值；另按表列出冗余属性列（信息项，不算缺口；同一概念另一条记录的属性同样标出） |
 | `scopes.md` | 每张表的记录范围按过滤类别归组；没写记录范围的表；引用了表的业务规则与值域约束 |
 
@@ -733,7 +751,7 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 | A1 定义与身份 | 定义、种类、状态、同义词；标识符（产生条件、唯一范围、物理拼写、对照）；状态机（值、迁移事件）；事件的参与者，角色的承担者、语境与成立条件 |
 | A2 数据清单 | 按表现类型分组的表（核心、扩展、从属、事件明细、状态历史、标识映射、角色视图、汇总、中间）：说明（表卡的表注释、表现的 `notes`）、粒度（标识符、来源，以及血缘证明了什么）、时间语义及取数方式（快照「按单个 dt 分区取数」，拉链按有效期窗口）、更新频率、记录范围、生产任务、废弃及替代；每张表的血缘一跳 |
 | A3 带本概念标识的表 | 所有概念的表里，把本概念的某个标识符绑定为 `identifier` 或 `foreign_identifier` 的每一列：表、表的概念、列、标识符、方式（自关联单独标出）。没有自己表现表的概念也能看到它从哪些表关联进来；角色没有自己的标识符，指向承担者 |
-| A4 属性 | 按类别（描述、状态、度量、时间）：定义、类型与单位、码值（值=含义；码值在码值表里的写出查找方式；有几个码值集时逐个前缀集名，「A：1=…；B：0=…」）、承载它的每个表列（含码值映射；列按 `code_sets` 查码值集时写「先查 A，查不到查 B」；写了 `holds` 的列再写它存什么，如「存含义（zh）或码」，跟在码值集之后写成「（码值：查 A；存代理键）」；别的表冗余存放的标为「冗余（经 via 列）」，同一概念另一条记录的标为「冗余（同一<概念>的另一条记录，经 via 列）」）、加工口径 |
+| A4 属性 | 按类别（描述、状态、度量、时间）：定义、类型与单位、码值（值=含义；码值在码值表里的写出查找方式；有几个码值集时逐个前缀集名，「A：1=…；B：0=…」）、承载它的每个表列（含码值映射；列按 `code_sets` 查码值集时写「先查 A，查不到查 B」，`code_sets_by: source` 的列写「按来源分别查 A、B」；写了 `holds` 的列再写它存什么，如「存含义（zh）或码」，跟在码值集之后写成「（码值：查 A；存代理键）」；别的表冗余存放的标为「冗余（经 via 列）」，同一概念另一条记录的标为「冗余（同一<概念>的另一条记录，经 via 列）」）、加工口径 |
 | A5 关系 | 从本概念一侧读的关联、组成、泛化，带基数与 JOIN 次数（自关联的对端写「本概念」及承载它的列——写了 `relation` 的列只列在它指向的那条下，没写的列在每条自关联下——有 `inverse_name` 时读法两个方向都写）；有生产任务内的 JOIN（`source_joins`）时，另写「生产任务内连接 N 次（如 …，填 <外键列>）」，与 JOIN 次数分开；JOIN 次数为 0 或无法统计时，补上目录自己的依据：同表携带两端的表（表现某一端或绑定它的标识符；角色用承担者的标识符；自关联只看实现它的自关联列）与关系的 `evidence`；参与的事件（本概念的角色、事件的表现表数）；本概念承担的角色，或在角色页上反向链到承担者 |
 | A6 约束 | 作用于概念本身、其属性、标识符与关系的约束，按种类列出，带强度与状态 |
 | A7 治理缺口 | 草拟占比、未绑定列、没有落表的属性、缺码值的状态/码值类属性、有没有表现表；有证据时还有证据与目录矛盾、没人用的绑定列、没有 JOIN 支持的关系 |
@@ -764,7 +782,7 @@ scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_l
 | --- | --- | --- |
 | `concept` | id、名称、同义词或术语 | 身份、标识符、属性、状态、表现表、该读的页面，以及概念页的一页纸概览（`overview`，字段与页面相同） |
 | `table` | `库.表`（忽略 catalog 前缀） | 它承载的概念、时间语义与取数方式（`usage`）、表注释与 `notes`、记录范围、引用它的业务规则与值域约束（`constraints`），以及每个绑定列指向什么，带证据；冗余列写 `→ 冗余属性 <属性> of <概念>（经 <via>）`，自关联列写出关系；码值表（码值集 `lookup` 所指的表）回答它装着哪些码值集及各自的查找方式（`code_sets`），表同时有表现时表现答案多一个 `code_sets`，退出码 `0` |
-| `column` | `库.表.列` | 它承载的属性或标识符及其概念（冗余属性带 `via`，是同一概念另一条记录的属性时另带 `other_instance: true`；写了 `code_sets` 的列按顺序带出码值集及查找方式；写了 `holds` 的列说出它存什么，如「存含义（zh）或码」，并带 `holds`、`lang`）——或它是码值表的哪种列（码、含义、代理键、筛选、有效期，`role`）、服务哪些码值集——或它是哪个标识符的物理拼写；自关联列带 `self_relations`（它实现的自关联：写了 `relation` 的只有那一条，没写的是全部） |
+| `column` | `库.表.列` | 它承载的属性或标识符及其概念（冗余属性带 `via`，是同一概念另一条记录的属性时另带 `other_instance: true`；写了 `code_sets` 的列按顺序带出码值集及查找方式，`code_sets_by` 为 `source` 时带出这个键（文字读成「按来源分别查 A、B」）；写了 `holds` 的列说出它存什么，如「存含义（zh）或码」，并带 `holds`、`lang`）——或它是码值表的哪种列（码、含义、代理键、筛选、有效期，`role`）、服务哪些码值集——或它是哪个标识符的物理拼写；自关联列带 `self_relations`（它实现的自关联：写了 `relation` 的只有那一条，没写的是全部） |
 | `identifier` | id、名称或物理拼写 | 识别什么、唯一范围与拼写、绑定到它的列 |
 | `attribute` | id、名称或术语 | 所属概念、码值（码值集有 `lookup` 时 `code_set` 带上查找方式与表；属性自己没写 `code_set` 时答 `code_sets`，即各列写的码值集，每项同 `code_set` 的形状并带 `name`）、口径、每个表列 |
 | `related` | 概念的 id、名称、同义词或术语 | 一跳邻居：从本概念一侧读的关系（有 `inverse_name` 的自关联两个方向都读）、事件、参与者、角色、承担者、表、带本概念标识的表（`carriers`）；每条关系与事件带 `carried_together`（同表携带两端的表）与 `evidence`，没有 JOIN 时文本里写出；有生产任务内的 JOIN 时另带 `source_joins`（次数），文本写「生产任务内连接 N 次」，与 `joins` 分开 |

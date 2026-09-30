@@ -161,10 +161,14 @@ def lookup_text(lookup: Mapping, code: Callable[[str], str] = str) -> str:
     return f"{head}：{'，'.join(parts)}"
 
 
-def fallback_text(names: list[str]) -> str:
-    """``先查 A，查不到查 B``: the order a column's code sets are consulted in."""
+def fallback_text(names: list[str], by: str = "lookup") -> str:
+    """How a column's code sets are consulted: ``先查 A，查不到查 B`` in lookup order, or
+    ``按来源分别查 A、B`` when each source writing the column uses its own (``by`` is the
+    binding's ``code_sets_by``)."""
     if len(names) == 1:
         return f"查 {names[0]}"
+    if by == "source":
+        return "按来源分别查 " + "、".join(names)
     return f"先查 {names[0]}" + "".join(f"，查不到查 {name}" for name in names[1:])
 
 
@@ -184,13 +188,14 @@ def holds_text(binding: Mapping, escape: Callable[[str], str] = str) -> Optional
 def translation_text(
     names: list[str], binding: Mapping, label: str = "码值：", escape: Callable[[str], str] = str
 ) -> Optional[str]:
-    """``（码值：查 A；存代理键）``: the code sets a column is looked up in, then what it
-    stores of them; ``None`` when it names no code sets and stores codes. ``escape`` is
+    """``（码值：查 A；存代理键）``: the code sets a column is looked up in (read as its
+    ``code_sets_by`` says), then what it stores of them; ``None`` when it names no code sets and stores codes. ``escape`` is
     applied to the names and the language, as a table cell needs."""
     names = [escape(name) for name in names]
     held = holds_text(binding, escape)
     if names:
-        return f"（{label}{fallback_text(names)}" + (f"；{held}" if held else "") + "）"
+        by = binding.get("code_sets_by", "lookup")
+        return f"（{label}{fallback_text(names, by)}" + (f"；{held}" if held else "") + "）"
     return f"（{held}）" if held else None
 
 

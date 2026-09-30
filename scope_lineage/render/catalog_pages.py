@@ -253,7 +253,7 @@ def _code_set_block(view: CatalogView, code_set: dict) -> list[str]:
         ("取值", values_text(code_set)),
         ("查找方式", lookup_text(lookup, code_cell) if lookup else "—"),
         ("使用它的属性", attributes or "（无）"),
-        ("按顺序查它的列", _translated_columns(view, code_set["id"])),
+        ("查它的列", _translated_columns(view, code_set["id"])),
         ("状态", status_text(code_set)),
     ]
     if code_set.get("notes"):
@@ -262,8 +262,8 @@ def _code_set_block(view: CatalogView, code_set: dict) -> list[str]:
 
 
 def _translated_columns(view: CatalogView, code_set_id: str) -> str:
-    """Each column whose ``code_sets`` names the set, with the order it looks them up in
-    and what it stores of them."""
+    """Each column whose ``code_sets`` names the set, with how it looks them up (in order,
+    or each source in its own) and what it stores of them."""
     parts = [
         expr_span(f"{rep['table']}.{binding['column']}")
         + (translation_text([s["name"] for s in view.translating(binding)], binding, "", cell) or "")

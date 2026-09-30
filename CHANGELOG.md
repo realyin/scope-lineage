@@ -40,6 +40,21 @@
   title saying so and pointing to the catalog workflow. The command, every flag and
   `ontology.json` (`ontology-json/2`) are unchanged, byte for byte.
 ### Added
+- **A binding says how its `code_sets` list is read: `code_sets_by: lookup | source`.**
+  Absent (or `lookup`, which `build` does not write out), the list is a lookup order, as
+  before. `source` says each source or branch writing the column -- a UNION branch, or one
+  of several statements writing the table -- uses one of the sets, its own: `catalog query
+  column`, the A4 table column and `code_sets.md` print 「按来源分别查 A、B」 instead of
+  「先查 A，查不到查 B」, and the column JSON carries `code_sets_by` after `code_sets`. New
+  error `binding_code_sets_by`: `code_sets_by` without `code_sets`, or `source` with fewer
+  than two. `binding_code_sets_miss_attribute`, `holds` and the attribute's code sets read
+  the list the same either way. The `code_sets.md` row 「按顺序查它的列」 is now 「查它的列」
+  (it lists both kinds of column) -- the only change to pages of a catalog without the key;
+  its `ontology.json` and query answers are byte for byte as before. Schemas (mapping,
+  fragment, `ontology-json/3`) gain the key additively; no `doc_format` change. The drafting
+  rule for a column written by several sources, each with its own code set, is now
+  `code_sets_by: source` instead of explaining the branches in `derivation`
+  (`ontology-catalog.md` in both languages, `catalog-fragment-prompt.md`, the skill).
 - **A catalog can say where a code set's values live and how a column is translated.** A
   code set gains an optional `lookup` (`table`, `code_column`, `meaning_columns`
   `[{column, lang?}]`, optional `key_column`, `filter` `{column: literal}` and a paired

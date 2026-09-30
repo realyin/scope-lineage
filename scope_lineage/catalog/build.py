@@ -287,6 +287,9 @@ def _binding(obj: dict, representation: dict, own_ids: set) -> dict:
         out["code_map"] = {str(key): value for key, value in obj["code_map"].items()}
     if "code_sets" in obj:
         out["code_sets"] = list(obj["code_sets"])
+    # lookup is what an absent code_sets_by means: one way to say it, so it is not written out.
+    if obj.get("code_sets_by", "lookup") != "lookup":
+        out["code_sets_by"] = obj["code_sets_by"]
     # [code] is what an absent holds means: one way to say it, so it is not written out.
     if obj.get("holds", ["code"]) != ["code"]:
         out["holds"] = list(obj["holds"])
