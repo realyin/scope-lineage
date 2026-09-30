@@ -3,6 +3,17 @@
 ## Unreleased
 
 ### Changed
+- **The table-semantics review prompt says how to review a revised page
+  (`table-semantics-review@4`).** `SKILL.md` already asked for a second review after a fix
+  that looks only at page consistency, inference vs fact, confirmed facts and sibling
+  tables, but the prompt had no section for it, so reviewers improvised. A new
+  「修订后再审读」 section names the inputs (the packet, possibly rebuilt; the revised
+  document; the previous review, read before it is overwritten) and three checks: each
+  previous finding fixed, not fixed or half fixed; items 12–15 redone over the whole page;
+  and facts new or changed in a rebuilt packet checked against the document. Severity
+  rules are unchanged and the front matter is still required (`reviewed_doc_digest` from
+  `scope-lineage semantic digest` of the revised document). `SKILL.md` and
+  `table-semantics.md` (both languages) point to it.
 - **A packet's `case_outputs` now answers for a CASE whose ELSE is computed.** A CASE / IF
   whose branches return literals but whose ELSE computes its value (`CASE WHEN s = '1'
   THEN 'X' ELSE s END`) used to publish nothing at all. `case_outputs` now reads it the

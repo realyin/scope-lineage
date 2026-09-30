@@ -322,7 +322,7 @@ Validated 1 document(s): 0 clean, 1 with failures, 0 with warnings only, 0 with 
 1. **独立审读**（`skills/scope-lineage/references/table-semantics-review-prompt.md`）：另起一次调用，只读材料包、文档和已确认事实，按十五项清单找事实错误，按严重程度列出「文档原话 / 材料原文 / 应改成」。审读员可以读兄弟表的材料包，核实文档对其他表的说法。
 2. **修订**（`skills/scope-lineage/references/table-semantics-fix-prompt.md`）：逐条核实后修改，改完通读全页消除前后矛盾，推断与事实分开，再跑一次 `semantic validate`。
 
-两条经验：审读必须是独立的调用，写作者自查找不出自己的盲点；修订容易在一处改对、另一处留下旧说法，所以修订后通读全页那一步不能省。验收问题集不要交给写作、审读或修订的调用。
+两条经验：审读必须是独立的调用，写作者自查找不出自己的盲点；修订容易在一处改对、另一处留下旧说法，所以修订后通读全页那一步不能省。需要再审一轮时，按审读提示词的「修订后再审读」一节做：输入是材料包（可能已重建）、修订后的文档和上一轮审读，只查上一轮每条发现改没改、全页一致 / 推断与事实 / 已确认事实 / 兄弟表四项、以及重建材料包里新增或变了的事实；严重程度的标准不变，审读照样带 front matter（`reviewed_doc_digest` 取 `scope-lineage semantic digest` 打印的修订后文档摘要）。验收问题集不要交给写作、审读或修订的调用。
 
 ## `semantic status`：批量运行与断点续跑
 
