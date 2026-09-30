@@ -138,11 +138,18 @@ def check_derived_codes(document: dict, packet: dict) -> list[dict]:
 
 
 def _case_outputs(packet: dict) -> dict[str, dict[str, dict]]:
-    """``column -> value -> output``, one output per value over every producer."""
+    """``column -> value -> output``, one output per value over every producer.
+
+    A literal beside an ELSE that computes something other than the compared source
+    (``else: computed``, a stamp or a default) is published but is not a code the column
+    holds, so it is not asked for; a recode of the source (``else: source``) is.
+    """
     merged: dict[str, dict[str, dict]] = {}
     for entry in packet["lineage"]["columns"]:
         for producer in entry["producers"]:
             for output in producer.get("case_outputs") or []:
+                if output.get("else") == "computed":
+                    continue
                 values = merged.setdefault(entry["column"], {})
                 seen = values.setdefault(output["value"], {**output, "when": []})
                 seen["when"] += [w for w in output["when"] if w not in seen["when"]]

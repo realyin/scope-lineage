@@ -13,8 +13,10 @@
   with a computing branch still publishes nothing, and a CASE with no computed ELSE is
   published byte for byte as before (no `else` key). Packets of tables with such a
   column change (`packet_digest` too, so their table-semantics documents read as
-  stale), and `semantic validate` check 11 (`derived_codes`) now asks for those literal
-  branches in the column's `code_values`. `table-semantics.md` (both languages) and the
+  stale), and `semantic validate` check 11 (`derived_codes`) now asks for the literal
+  branches of an `else: source` CASE (a recode of the compared column) in the column's
+  `code_values`; an `else: computed` entry (a stamp or default beside another column's
+  value) is published as information and is not asked for. `table-semantics.md` (both languages) and the
   table-semantics prompt say so.
 - **An attribute with no `code_set` of its own takes the code sets its columns name.** One
   rule (`scope_lineage.catalog.index.attribute_code_set_ids`, also `Index` and
