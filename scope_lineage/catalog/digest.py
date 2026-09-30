@@ -7,7 +7,10 @@ tables it is built from, and what is still open. The digest (``catalog-digest/1`
 those facts and nothing else, one entry per table in table order. Given a catalog it
 also says what the catalog does not cover yet: tables with no representation, and
 columns of represented tables with no binding. A table a code set's ``lookup`` names is
-a code-set source, not a gap: a dictionary table holds code values, not a concept.
+a code-set source, not a gap: a dictionary table holds code values, not a concept. Given
+the lookup facts ``render.value_lookups`` read from a lineage corpus (``--lineage``), a
+column also says which joined inputs its value is read through; without them the digest
+is byte for byte what it was.
 
 The documents are read as plain JSON (legal ``table-semantics/1`` documents, checked by
 the caller); this package imports nothing from the table-semantics package.
@@ -38,11 +41,23 @@ def bare_table(name: object) -> str:
     return ".".join(parts[-2:]).lower()
 
 
-def digest_tables(documents: list[dict], catalog: Optional[Catalog] = None) -> dict:
-    """The digest of ``documents`` in table order; with ``catalog``, what it does not cover."""
+def digest_tables(
+    documents: list[dict], catalog: Optional[Catalog] = None, lookups: Optional[dict] = None
+) -> dict:
+    """The digest of ``documents`` in table order; with ``catalog``, what it does not cover.
+
+    ``lookups`` is what ``render.value_lookups.column_lookups`` read from a lineage corpus
+    (``{"tables": {db.table: {column: facts}}}``): each listed column of a table it names
+    gains those facts, tagged with the catalog's matching code set when a catalog is given.
+    Without it the digest is exactly what it was.
+    """
+    facts = (lookups or {}).get("tables") or {}
+    code_sets = _code_set_lookups(catalog) if catalog is not None and facts else []
     pairs = sorted(
-        ((_table(document), [column["column"] for column in document["columns"]])
-         for document in documents),
+        (
+            (_table(document, facts, code_sets), [column["column"] for column in document["columns"]])
+            for document in documents
+        ),
         key=lambda pair: pair[0]["table"],
     )
     digest: dict = {"doc_format": DIGEST_FORMAT, "tables": [entry for entry, _ in pairs]}
@@ -51,7 +66,7 @@ def digest_tables(documents: list[dict], catalog: Optional[Catalog] = None) -> d
     return digest
 
 
-def _table(document: dict) -> dict:
+def _table(document: dict, facts: dict, code_sets: list[dict]) -> dict:
     summary = document["summary"]
     row, refresh = summary["row"], summary["refresh"]
     concept = document.get("concept") or {}
@@ -74,8 +89,13 @@ def _table(document: dict) -> dict:
         "scope": [scope["text"] for scope in summary["scope"]],
     }
     columns = document["columns"]
+    read = {name.lower(): value for name, value in (facts.get(entry["table"]) or {}).items()}
     for category, key in _LISTED.items():
-        entry[key] = [_column(column) for column in columns if column["category"] == category]
+        entry[key] = [
+            _column(column, read.get(column["column"].lower()), code_sets)
+            for column in columns
+            if column["category"] == category
+        ]
     entry["technical_columns"] = [c["column"] for c in columns if c["category"] == "technical"]
     entry["columns"] = len(columns)
     entry["related"] = {
@@ -91,13 +111,66 @@ def _table(document: dict) -> dict:
     return entry
 
 
-def _column(column: dict) -> dict:
+def _column(column: dict, facts: Optional[dict] = None, code_sets: Optional[list] = None) -> dict:
     result = {"column": column["column"], "meaning": column["meaning"]}
     if column.get("unit"):
         result["unit"] = column["unit"]
     if column.get("code_values"):
         result["code_values"] = [_code_value(value) for value in column["code_values"]]
+    if facts:
+        result.update(_lookup_facts(facts, code_sets or []))
     return result
+
+
+def _lookup_facts(facts: dict, code_sets: list[dict]) -> dict:
+    """A column's lookup facts, each read tagged with the code set it matches, if any."""
+    result: dict = {}
+    for key in ("lookups", "fallback", "key_of", "key_of_order"):
+        if key not in facts:
+            continue
+        value = facts[key]
+        if key in ("lookups", "key_of"):
+            value = [_tagged(dict(read), code_sets) for read in value]
+        result[key] = value
+    return result
+
+
+def _tagged(read: dict, code_sets: list[dict]) -> dict:
+    """``code_set`` when a code set's lookup has this table and exactly this filter;
+    ``reads_as`` when the column read is that code set's meaning or key column."""
+    where = {str(column).lower(): str(value) for column, value in read["where"].items()}
+    for code_set in code_sets:
+        if code_set["table"] != read["table"] or code_set["filter"] != where:
+            continue
+        read["code_set"] = code_set["id"]
+        reads = str(read.get("reads") or "").lower()
+        if reads and reads in code_set["meaning"]:
+            read["reads_as"] = "meaning"
+        elif reads and reads == code_set["key"]:
+            read["reads_as"] = "key"
+        break
+    return read
+
+
+def _code_set_lookups(catalog: Catalog) -> list[dict]:
+    """Every code set with a filtered ``lookup``, in id order, in comparable form."""
+    found = []
+    for _file, code_set in catalog.records("code_sets"):
+        lookup = code_set.get("lookup")
+        if not isinstance(lookup, dict) or not lookup.get("table") or not lookup.get("filter"):
+            continue
+        found.append({
+            "id": str(code_set.get("id")),
+            "table": bare_table(lookup["table"]),
+            "filter": {str(k).lower(): str(v) for k, v in (lookup.get("filter") or {}).items()},
+            "meaning": {
+                str(column.get("column")).lower()
+                for column in lookup.get("meaning_columns") or []
+                if isinstance(column, dict)
+            },
+            "key": str(lookup.get("key_column") or "").lower() or None,
+        })
+    return sorted(found, key=lambda item: item["id"])
 
 
 def _code_value(value: dict) -> dict:
@@ -222,6 +295,7 @@ def _table_section(entry: dict) -> list[str]:
             lines.append(f"- {label}: " + "; ".join(_column_text(c) for c in entry[key]))
     if entry["technical_columns"]:
         lines.append(f"- Technical: {', '.join(entry['technical_columns'])}")
+    lines += _lookup_lines(entry)
     lines.append(f"- Columns: {entry['columns']}")
     upstream = [f"{up['table']} ({up['role']})" for up in entry["related"]["upstream"]]
     if upstream:
@@ -246,6 +320,48 @@ def _column_text(column: dict) -> str:
         )
         text += f" ({values})"
     return text
+
+
+def _lookup_lines(entry: dict) -> list[str]:
+    """One line per column the lineage says is read through, or keys, a joined input."""
+    lines = []
+    for key in _LISTED.values():
+        for column in entry[key]:
+            parts = []
+            if column.get("lookups"):
+                parts.append("reads " + ", then ".join(
+                    _read_text(read) + f" ({_read_note(read, read['reads'])})"
+                    for read in column["lookups"]
+                ))
+            if column.get("fallback"):
+                parts.append("falls back to " + ", ".join(column["fallback"]))
+            if column.get("key_of"):
+                order = "; order unknown" if column.get("key_of_order") else ""
+                parts.append("join key of " + ", ".join(
+                    _read_text(read) + f" ({_read_note(read, _readers_text(read))})"
+                    for read in column["key_of"]
+                ) + order)
+            if parts:
+                lines.append(f"  - {column['column']}: " + "; ".join(parts))
+    return ["- Joined inputs read (from the lineage):", *lines] if lines else []
+
+
+def _readers_text(read: dict) -> str:
+    return "read by " + (", ".join(read["read_by"]) or "no column")
+
+
+def _read_text(read: dict) -> str:
+    where = " and ".join(f"{column} = '{value}'" for column, value in read["where"].items())
+    return f"rows of {read['table']} where {where}"
+
+
+def _read_note(read: dict, first: str) -> str:
+    notes = [first]
+    if read.get("code_set"):
+        notes.append(f"code set {read['code_set']}" + (
+            f", {read['reads_as']}" if read.get("reads_as") else ""
+        ))
+    return "; ".join(notes)
 
 
 def _coverage_text(coverage: dict) -> str:

@@ -888,6 +888,7 @@ Schema 在 `scope_lineage/schemas/catalog-fragment.schema.json`。
 
 ```bash
 scope-lineage catalog digest out/semantics [--catalog examples/catalog-demo] \
+  [--lineage out/lineage [--schema examples/metadata]] \
   [--only demo_dwd.dwd_party_customer_info_df ...] --out out/digest
 ```
 
@@ -903,8 +904,45 @@ stderr 说明），按表名排序写出 `digest.md` 与 `digest.json`（`catalo
 catalog 前缀）；某个码值集 `lookup` 所指的表算「码值来源」（`code_set_sources`：表 → 码值集 id），不算没有表现的表；
 每张表的段落末尾也标出它在目录里的情况。输出是确定的：同样的输入，逐字节相同。
 
-退出码：`0` 写出；`1` 没有合法文档、有文档被跳过（其余照常写出），或 `--only` 点名的表没有文档；`2` 目录或
-`--catalog` 读不了。
+给 `--lineage`（一个 `lineage.json`，或在其下递归查找的目录，与 `catalog build --lineage` 相同）时，每个列出的列
+还会按写这张表的语句说明：它的值经过哪些被关联的输入读出、这些行按什么常量条件挑出——也就是写码值集
+`lookup.filter`、绑定 `code_sets` 的顺序与绑定 `holds` 所需的事实，起草时不必为此回头读 SQL：
+
+- `lookups`：值经过的被关联输入，按表达式读它们的顺序排列（`COALESCE(d1.x, d2.x, a.c)` 回退的参数顺序）。每项是
+  `{table, where, reads, rule}`：`table` 中 `where` 每一列都等于其字符串字面量的行、读这些行的 `reads` 列、
+  以及血缘里这个 JOIN 的逻辑块 id；
+- `fallback`：同一个值回退到的、不经查找的物理列（`COALESCE` 末尾的原码），只与 `lookups` 一起出现；
+- `key_of`：本身没有 `lookups` 的列，是哪些读取的关联键，`{table, where, rule, read_by}`，`read_by` 是同表里经这个
+  JOIN 读值的列。顺序取这些列回退的顺序，不取 JOIN 书写顺序；两列回退顺序相反时保留 JOIN 顺序，并用
+  `key_of_order: "unknown"` 标明。
+
+什么算：只有经 JOIN 进入（或途经被关联的子查询 / CTE）的值才有条件；条件是与字符串字面量的单个等值比较，
+写在 JOIN 的 `ON` 里、被关联子查询 / CTE 的 `WHERE` 里，或同一查询 `WHERE` 里限定被关联别名本身的位置。
+数值（`rn = 1`）、`${…}` 参数、`IN` 列表与分区列上的比较都不算：分区的判定与材料包相同，给了 `--schema` 按其
+分区列，否则按血缘的分区标记与 `dt`/`ds`/`pt`/`p_date` 名字规则。没有这种条件的 JOIN 只是补字段，不列出；
+值来自内联 `VALUES` 列表或其他非表来源的也不列出。措辞是中性的——「读 <表> 中 <列> = '<字面量>' 的行」——
+因为同样的形状挑出角色、语言或行版本的次数不比挑字典类型少。同时给 `--catalog` 时，表与 `where` 恰好等于某个
+码值集 `lookup.table` 与 `lookup.filter` 的读取加上 `code_set: <id>`，`reads` 是该码值集的含义列或代理键列时
+加上 `reads_as: "meaning"` / `"key"`。
+
+```json
+{
+  "column": "c_desc",
+  "meaning": "type description",
+  "lookups": [
+    {"table": "demo_dim.dim_code_dict", "where": {"code_type": "TypeA"}, "reads": "code_desc", "rule": "logic:ROOT:join:002", "code_set": "code:type_a", "reads_as": "meaning"},
+    {"table": "demo_dim.dim_code_dict", "where": {"code_type": "TypeB"}, "reads": "code_desc", "rule": "logic:ROOT:join:001"}
+  ],
+  "fallback": ["demo_ods.ods_order_df.c"]
+}
+```
+
+`digest.md` 在「Joined inputs read (from the lineage)」下给每个这样的列一行。血缘里没有任何语句写的表照常输出、
+不加任何键，命令打印这样的表有几张。不给 `--lineage` 时输出与原来逐字节相同；它也不改血缘、材料包、表语义与
+目录构建。
+
+退出码：`0` 写出；`1` 没有合法文档、有文档被跳过（其余照常写出），`--only` 点名的表没有文档，或 `--lineage` 目录下没有
+`lineage.json`；`2` 目录、`--catalog`、`--lineage` 或 `--schema` 读不了，或给了 `--schema` 却没给 `--lineage`。
 
 ### `catalog merge`
 
