@@ -81,27 +81,87 @@ def code_expression(field: dict):
 def case_outputs(expression) -> list[dict]:
     """``[{value, when, source_values, catch_all}]`` per literal a CASE / IF can return.
 
-    Only for an expression that is one CASE or IF whose every output is a string or number
-    literal (NULL and ``''`` aside, which say "no value"): a branch that computes its value
-    makes the column a measure or a pass-through, and a TRUE / FALSE flag is a boolean,
-    not a code. ``source_values`` are the literals the branch conditions compare the
-    source with (``x = 1``, ``x IN (1, 2)``, ``OR`` of those), ``None`` when a condition is
-    anything else; ``catch_all`` marks the value the ELSE returns.
+    Only for an expression that is one CASE or IF whose every branch returns a string or
+    number literal (NULL and ``''`` aside, which say "no value"): a branch that computes
+    its value makes the column a measure or a pass-through, and a TRUE / FALSE flag is a
+    boolean, not a code. ``source_values`` are the literals the branch conditions compare
+    the source with (``x = 1``, ``x IN (1, 2)``, ``OR`` of those), ``None`` when a
+    condition is anything else; ``catch_all`` marks the value the ELSE returns.
+
+    An ELSE that computes its value (``… ELSE x END``) is read the way the glossary reads
+    the same CASE (WI-C): the string branches are still values somebody chose and are
+    listed -- as an open set, the ELSE supplies the rest -- while a number branch is a
+    computation default (``WHEN g > 0 THEN 0 ELSE g``), not a code, and is dropped. Each
+    output then carries ``else``: ``source`` when the ELSE passes on a column the branches
+    compare (as is, CAST, or COALESCE with a literal), ``computed`` for anything else.
     """
     tree = _parse(expression)
     branches = _branches(tree) if tree is not None else []
-    if not branches or not all(_literal(value) is not None or isinstance(value, exp.Null)
-                               for _, value in branches):
+    if not branches or not all(_constant(value) for condition, value in branches
+                               if condition is not None):
         return []
+    otherwise = next((value for condition, value in branches if condition is None), None)
+    computed = otherwise is not None and not _constant(otherwise)
+    kind = _else_kind(otherwise, [c for c, _ in branches if c is not None]) if computed else None
     outputs: dict[str, dict] = {}
     for condition, value in branches:
         literal = _literal(value)
-        if not literal:
+        if not literal or (computed and _is_number(value)):
             continue
         entry = outputs.setdefault(
             literal, {"value": literal, "when": [], "source_values": [], "catch_all": False})
         _add_branch(entry, condition)
+        if kind:
+            entry["else"] = kind
     return list(outputs.values())
+
+
+def _constant(node) -> bool:
+    return _literal(node) is not None or isinstance(node, exp.Null)
+
+
+def _is_number(node) -> bool:
+    """A number literal, sign included; ``'0'`` is a string and is not."""
+    while isinstance(node, (exp.Paren, exp.Neg)):
+        node = node.this
+    return isinstance(node, exp.Literal) and not node.args.get("is_string")
+
+
+def _else_kind(otherwise, conditions: list) -> str:
+    """``source`` when a computed ELSE hands on a column the branch conditions compare."""
+    node = otherwise
+    while True:
+        if isinstance(node, (exp.Paren, exp.Cast)):  # TryCast is a Cast
+            node = node.this
+        elif isinstance(node, exp.Coalesce) and all(
+                _constant(item) for item in node.expressions):
+            node = node.this
+        else:
+            break
+    if not isinstance(node, exp.Column):
+        return "computed"
+    compared = [column for condition in conditions for column in _compared_columns(condition)]
+    return "source" if any(_same_column(node, column) for column in compared) else "computed"
+
+
+def _compared_columns(condition) -> list:
+    """The columns a branch condition compares with a literal (``=`` or ``IN``)."""
+    found = []
+    for node in condition.find_all(exp.EQ, exp.In):
+        if isinstance(node, exp.In):
+            sides = [node.this] if all(_literal(i) is not None for i in node.expressions) else []
+        else:
+            pair = (node.this, node.expression)
+            sides = [a for a, b in (pair, pair[::-1]) if _literal(b) is not None]
+        found += [side for side in sides if isinstance(side, exp.Column)]
+    return found
+
+
+def _same_column(left, right) -> bool:
+    if left.name.lower() != right.name.lower():
+        return False
+    tables = (left.table.lower(), right.table.lower())
+    return tables[0] == tables[1] or not all(tables)
 
 
 def _parse(expression):

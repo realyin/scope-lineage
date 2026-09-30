@@ -3,6 +3,19 @@
 ## Unreleased
 
 ### Changed
+- **A packet's `case_outputs` now answers for a CASE whose ELSE is computed.** A CASE / IF
+  whose branches return literals but whose ELSE computes its value (`CASE WHEN s = '1'
+  THEN 'X' ELSE s END`) used to publish nothing at all. `case_outputs` now reads it the
+  way `glossary_values` already reads such a CASE (WI-C): each string branch is listed
+  (an open set), a number branch is a computation default and is dropped, and every
+  entry carries `else` -- `source` when the ELSE is a column the branch conditions
+  compare (as is, `CAST`, or `COALESCE` with a literal), `computed` otherwise. A CASE
+  with a computing branch still publishes nothing, and a CASE with no computed ELSE is
+  published byte for byte as before (no `else` key). Packets of tables with such a
+  column change (`packet_digest` too, so their table-semantics documents read as
+  stale), and `semantic validate` check 11 (`derived_codes`) now asks for those literal
+  branches in the column's `code_values`. `table-semantics.md` (both languages) and the
+  table-semantics prompt say so.
 - **An attribute with no `code_set` of its own takes the code sets its columns name.** One
   rule (`scope_lineage.catalog.index.attribute_code_set_ids`, also `Index` and
   `CatalogView` methods) answers which code sets an attribute's codes are in: its own
