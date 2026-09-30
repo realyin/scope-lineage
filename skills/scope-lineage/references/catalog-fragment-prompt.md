@@ -109,9 +109,9 @@
   每个来源一个按源码键的码值集，各列 `code_sets` 写本来源那个，`holds: ["meaning", "code"]`。
   - 一列由几个 UNION 分支写入、各分支用不同来源的码值集：`code_sets` 把它们都列上，顺序按分支顺序，并在 `derivation`
     写哪个分支用哪个码值集。页面和查询把这个列表读成「先查 A，查不到查 B」，所以分支对应关系只能靠 `derivation` 说清。
-  - 所绑属性的 `code_set` 在按来源拆开后指向其中一个（主来源的）：其余来源的列会报 `binding_code_sets_miss_attribute`，
-    这是预期的，提醒属性只列了一个来源的码。不要为消警告把属性的 `code_set` 删掉：删了之后概念页「码值」格变空，
-    状态类属性还会被列为「缺码值」。
+  - 同一属性按来源拆成几个码值集时，属性**不写** `code_set`：各列在 `code_sets` 写本来源的码值集，工具把这些列的
+    码值集合起来当属性的码（概念页「码值」格逐个列出、不算缺码值）。属性写了 `code_set` 就只算那一个，
+    其余来源的列会报 `binding_code_sets_miss_attribute`——所以按来源拆开时不要给属性指一个「主来源」。
   - CASE 的 ELSE（或某个分支）没有源码可言（如 `x = '0'` 写 A、其余写 B）：不要为它编一个码；这条规则写进 binding 的
     `derivation`（需要时也写进码值集的 `definition`）。
   - 内联字典（只列 `values` 的码值集）的代理键列照样写 `holds: ["key"]`；它一定会报 `binding_key_without_key_column`，

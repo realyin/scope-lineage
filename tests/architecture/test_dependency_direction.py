@@ -31,7 +31,11 @@ ALLOWED_EDGES: dict[str, set[str]] = {
     "serialize": {"scope"},
     "scope": {"metadata"},
     "metadata": set(),
-    "render": set(),  # contract-derived: consumes the JSON documents only
+    # Contract-derived: consumes the JSON documents. The one edge is to `catalog`, for the
+    # rule that answers which code sets an attribute's codes are in (R1): validation and
+    # the pages must give one answer, so the pages call the catalog's pure function on the
+    # built document's dicts instead of keeping a second copy. `catalog` imports nothing.
+    "render": {"catalog"},
     "catalog": set(),  # the concept catalog: a person's files in, ontology-json/3 out
     # Table semantics sits one step above the derived views: its packet is built from the
     # semantic profile and the table cards (`render`), and nothing else. Lineage, task

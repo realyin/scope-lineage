@@ -185,6 +185,15 @@ def _table_matches(view: CatalogView, term: str) -> list[dict]:
     return [answer]
 
 
+def _attribute_code_set(code_set: dict) -> dict:
+    """One code set of an attribute: its values, and how to look them up when a table
+    holds them."""
+    answer = {"id": code_set["id"], "values": code_set["values"]}
+    if code_set.get("lookup"):
+        answer.update(_code_set_source(code_set, with_table=True))
+    return answer
+
+
 def _code_set_source(code_set: dict, with_table: bool = False) -> dict:
     """A code set and, when it has one, how its values are looked up (the lookup's keys;
     ``table`` only where the answer is not already about that table)."""
@@ -337,11 +346,16 @@ def _attribute_answer(view: CatalogView, attribute: dict, matched_by: str) -> di
         "concept": _ref(view, view.attributes[attribute["id"]][1]["id"]),
     }
     answer.update({key: attribute[key] for key in keys if key in attribute})
-    code_set = view.code_sets.get(attribute.get("code_set"))
-    if code_set:
-        answer["code_set"] = {"id": code_set["id"], "values": code_set["values"]}
-        if code_set.get("lookup"):
-            answer["code_set"].update(_code_set_source(code_set, with_table=True))
+    code_sets = view.attribute_code_sets(attribute)
+    if attribute.get("code_set"):
+        # Its own code set: ``code_set``, one object (none when the id names no set).
+        if code_sets:
+            answer["code_set"] = _attribute_code_set(code_sets[0])
+    elif code_sets:
+        # None of its own: the code sets its columns name (rule R1), each with its name.
+        answer["code_sets"] = [
+            {"id": s["id"], "name": s["name"], **_attribute_code_set(s)} for s in code_sets
+        ]
     answer["columns"] = [
         {"table": rep["table"], **_column(view, rep, binding)}
         for rep, binding in view.bindings_of(attribute["id"])

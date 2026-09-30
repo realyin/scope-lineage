@@ -12,6 +12,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Callable, Optional
 
+from ..catalog.index import attribute_code_set_ids
+
 ONTOLOGY_FORMAT = "ontology-json/3"
 
 KIND_TEXT = {"entity": "实体", "event": "事件", "role": "角色"}
@@ -440,8 +442,23 @@ class CatalogView:
             if code_set_id in (binding.get("code_sets") or [])
         ]
 
+    def attribute_code_set_ids(self, attribute: Mapping) -> list[str]:
+        """The attribute's code sets by rule R1: its own ``code_set``, else its columns'
+        ``code_sets`` (``catalog.index.attribute_code_set_ids``)."""
+        bindings = [binding for _, binding in self.bindings_of(attribute["id"])]
+        return attribute_code_set_ids(attribute, bindings)
+
+    def attribute_code_sets(self, attribute: Mapping) -> list[dict]:
+        """The code sets of ``attribute_code_set_ids`` that exist, in that order."""
+        return [
+            self.code_sets[i] for i in self.attribute_code_set_ids(attribute) if i in self.code_sets
+        ]
+
     def attributes_coded_by(self, code_set_id: str) -> list[dict]:
-        return [a for a, _ in self.attributes.values() if a.get("code_set") == code_set_id]
+        """Every attribute whose code sets (rule R1) include the set."""
+        return [
+            a for a, _ in self.attributes.values() if code_set_id in self.attribute_code_set_ids(a)
+        ]
 
     def roles_played_by(self, concept_id: str) -> list[dict]:
         return [c for c in self.concepts.values() if c.get("player") == concept_id]

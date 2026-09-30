@@ -218,14 +218,20 @@ def _attribute(match: Mapping) -> list[str]:
         f"  {match.get('definition') or '（目录未写定义）'}",
     ]
     if match.get("code_set"):
-        parts = [code_value_text(v) for v in match["code_set"]["values"]]
-        if "code_column" in match["code_set"]:
-            parts.append(_lookup(match["code_set"]))
-        if parts:
-            lines.append(f"  码值：{'；'.join(parts)}")
+        lines += _codes_line("码值", match["code_set"])
+    for code_set in match.get("code_sets") or []:
+        lines += _codes_line(f"码值（{code_set['name']} {code_set['id']}）", code_set)
     if match.get("derivation"):
         lines.append(f"  口径：{match['derivation']}")
     return lines + [f"  - {c['table']}.{_column_text(c)}" for c in match["columns"]]
+
+
+def _codes_line(label: str, code_set: Mapping) -> list[str]:
+    """``  码值：1=…；查 …`` -- no line when the set neither lists nor looks up a value."""
+    parts = [code_value_text(v) for v in code_set["values"]]
+    if "code_column" in code_set:
+        parts.append(_lookup(code_set))
+    return [f"  {label}：{'；'.join(parts)}"] if parts else []
 
 
 def _joins(item: Mapping) -> str:

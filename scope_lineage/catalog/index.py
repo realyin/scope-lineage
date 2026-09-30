@@ -7,6 +7,7 @@ and otherwise ignored, so one duplicate does not fan out into a page of referenc
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -35,6 +36,8 @@ class Entry:
 class Index:
     entries: dict[str, Entry] = field(default_factory=dict)
     findings: list[Finding] = field(default_factory=list)
+    # Every binding of every representation, in file order (read by R1 only).
+    bindings: list[dict] = field(default_factory=list, repr=False)
     _attributes: Optional[dict] = field(default=None, repr=False)
     _identified: Optional[dict] = field(default=None, repr=False)
 
@@ -90,6 +93,13 @@ class Index:
             return [entry.obj["code_set"]] if entry.obj.get("code_set") else []
         return []
 
+    def attribute_code_set_ids(self, attribute_id: str) -> list[str]:
+        """The attribute's code sets by rule R1 (see ``attribute_code_set_ids``)."""
+        entry = self.get(attribute_id)
+        if entry is None or entry.type != "attribute":
+            return []
+        return attribute_code_set_ids(entry.obj, self.bindings)
+
     def has_self_relation(self, concept_id: str) -> bool:
         """Some relation, of any kind, runs from ``concept_id`` to itself."""
         return bool(self.self_relations(concept_id))
@@ -126,6 +136,31 @@ class Index:
         self.entries[object_id] = Entry(object_type, obj, file, owner)
 
 
+ATTRIBUTE_BINDINGS = ("attribute", "foreign_attribute")
+
+
+def attribute_code_set_ids(attribute: Mapping, bindings: Iterable[Mapping]) -> list[str]:
+    """Rule R1 -- the code sets an attribute's codes are in: its own ``code_set``; when it
+    has none, the ``code_sets`` of every column bound to it (as ``attribute`` or
+    ``foreign_attribute``), each counted once, in the order first seen.
+
+    One answer for the whole package: validation reads it through ``Index``, pages and
+    queries through ``CatalogView``. ``bindings`` may hold any bindings; only those bound
+    to the attribute count. A column's own lookup order is a different question
+    (``Index.held_code_sets``).
+    """
+    if attribute.get("code_set"):
+        return [attribute["code_set"]]
+    found: list[str] = []
+    for binding in bindings:
+        if binding.get("to") not in ATTRIBUTE_BINDINGS or binding.get("ref") != attribute.get("id"):
+            continue
+        for code_set_id in binding.get("code_sets") or []:
+            if code_set_id not in found:
+                found.append(code_set_id)
+    return found
+
+
 def derived_relation_id(event_id: str, role_name: str) -> str:
     """A participant becomes ``rel:<event>.<role_name>``."""
     return f"rel:{event_id.split(':', 1)[1]}.{role_name}"
@@ -146,6 +181,10 @@ def build_index(catalog: Catalog) -> Index:
             if object_type == "concept":
                 for attribute in obj.get("attributes") or []:
                     index.add("attribute", attribute, file, owner=obj["id"])
+    for _file, representation in catalog.records("mapping"):
+        bindings = representation.get("bindings")
+        if isinstance(bindings, list):
+            index.bindings += [b for b in bindings if isinstance(b, dict)]
     return index
 
 
