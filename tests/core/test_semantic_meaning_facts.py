@@ -82,6 +82,46 @@ def test_a_case_with_a_computed_output_or_no_case_has_no_literal_outputs() -> No
     assert case_outputs(None) == []
 
 
+def test_a_case_whose_else_passes_the_source_on_lists_its_literal_branches() -> None:
+    outputs = case_outputs("CASE WHEN `s` = '1' THEN 'X' WHEN `s` = '2' THEN 'Y' ELSE `s` END")
+    assert outputs == [
+        {"value": "X", "when": ["`s` = '1'"], "source_values": ["1"], "catch_all": False,
+         "else": "source"},
+        {"value": "Y", "when": ["`s` = '2'"], "source_values": ["2"], "catch_all": False,
+         "else": "source"},
+    ]
+
+
+def test_a_cast_or_a_defaulted_source_in_the_else_is_still_the_source() -> None:
+    for otherwise in ("CAST(`a`.`s` AS STRING)", "COALESCE(`a`.`s`, '-')", "`A`.`S`"):
+        outputs = case_outputs(
+            f"CASE WHEN `a`.`s` IN ('1', '2') THEN 'X' ELSE {otherwise} END")
+        assert [(o["value"], o["else"]) for o in outputs] == [("X", "source")], otherwise
+    simple = case_outputs("CASE `s` WHEN '1' THEN 'X' ELSE CAST(`s` AS STRING) END")
+    assert [(o["value"], o["else"]) for o in simple] == [("X", "source")]
+    flag = case_outputs("IF(`s` = '1', 'X', `s`)")
+    assert [(o["value"], o["else"]) for o in flag] == [("X", "source")]
+
+
+def test_any_other_else_computation_is_marked_computed() -> None:
+    for otherwise in ("`other`", "CONCAT(`s`, '-')", "COALESCE(`other`, `s`)", "`b`.`s`"):
+        outputs = case_outputs(f"CASE WHEN `a`.`s` = '1' THEN 'X' ELSE {otherwise} END")
+        assert [(o["value"], o["else"]) for o in outputs] == [("X", "computed")], otherwise
+
+
+def test_with_a_computed_else_a_number_a_branch_returns_is_not_a_code() -> None:
+    # WI-C, as the glossary reads the same CASE: `THEN 0` beside a computed ELSE is a
+    # computation default, not a code; a string branch is still a label.
+    assert case_outputs("CASE WHEN `g` > 0 THEN 0 ELSE `g` END") == []
+    outputs = case_outputs("CASE WHEN `s` = '1' THEN 'X' WHEN `s` = '2' THEN 0 ELSE `s` END")
+    assert [(o["value"], o["else"]) for o in outputs] == [("X", "source")]
+
+
+def test_a_computed_then_still_publishes_nothing() -> None:
+    assert case_outputs("CASE WHEN `s` = '1' THEN UPPER(`s`) ELSE 'Z' END") == []
+    assert case_outputs("CASE WHEN `s` = '1' THEN UPPER(`s`) WHEN `s` = '2' THEN 'Y' ELSE `s` END") == []
+
+
 def test_the_case_is_read_where_it_was_computed_not_where_it_was_projected() -> None:
     field = {"expression": "`latest`.`st`", "derivation": [
         {"step_type": "case_when", "expression": "CASE WHEN `s` = 1 THEN 'A' ELSE 'B' END"},
