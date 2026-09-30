@@ -55,7 +55,7 @@ fallback covers 0.2.0):
 | describe, `tables`, `glossary`, `ontology` (key-fold candidates) | >= 0.3.0 |
 | concept-level impact (`concept-impact`, key-fold `ontology-json/2` only), `catalog build` / `query` / `render` / `validate`, table semantics (`semantic *`), `catalog digest` / `merge`, acceptance (`questions *`) | >= 0.5.0 |
 | confirmed answers in material packets (`semantic packet --glossary` / `--metadata-patch`) | >= 0.6.0 |
-| code-set lookups in a catalog (a code set's `lookup`, a binding's `code_sets`, `holds`, `lang`) | the release after 0.6.0 (unreleased; 0.6.0 rejects them as schema errors) |
+| code-set lookups in a catalog (a code set's `lookup`, a binding's `code_sets`, `code_sets_by`, `holds`, `lang`) | the release after 0.6.0 (unreleased; 0.6.0 rejects them as schema errors) |
 
 When unsure which workflows the session will need, require >= 0.6.0 (and, to write a
 `lookup`, `code_sets` or `holds`, a build of this repository until the next release).
@@ -595,6 +595,8 @@ scope-lineage catalog render <dir>/ontology.json --out <pages> --semantics <page
   永远是码（内联字典写成 `values` 时也是源码，标签写 `meaning`）；列里存的是含义或代理键（或查不到时回落原码、按 UNION 分支混写）时，在该列绑定上写有序的 `holds`
   （`meaning` / `key` / `code`，翻译后的形式在前），存含义的再写 `lang`，并在这一列上写它自己的 `code_sets`。
   同一属性按来源拆成几个码值集时，属性不写 `code_set`，各列写本来源的，工具把它们合起来当属性的码。
+  一列由几个来源（UNION 分支或几条写语句）写入、各用自己的码值集时，该列写全这些码值集并加 `code_sets_by: source`
+  （页面读成「按来源分别查 A、B」，不是回退）。
   分支、来源、ELSE、代理键警告、重编码等边界情况照 `references/catalog-fragment-prompt.md` 的码值规则写。形状（与
   `docs/zh-CN/ontology-catalog.md` 一致；片段里是同样的键，写成 JSON）：
 
