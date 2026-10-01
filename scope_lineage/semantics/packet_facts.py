@@ -161,7 +161,7 @@ def mark_partition_filters(rules: list[dict], metadata) -> None:
     for rule in rules:
         if rule["kind"] != "filter" or not rule.get("columns"):
             continue
-        decided = [_partition_column(ref, rule["expression"], metadata) for ref in rule["columns"]]
+        decided = [partition_column(ref, rule["expression"], metadata) for ref in rule["columns"]]
         if any(verdict is None for verdict, _ in decided):
             continue
         rule["partition_filter"] = all(verdict for verdict, _ in decided)
@@ -169,7 +169,7 @@ def mark_partition_filters(rules: list[dict], metadata) -> None:
         rule["partition_basis"] = "metadata" if bases == {"metadata"} else "partition_name"
 
 
-def _partition_column(reference: str, expression, metadata) -> tuple:
+def partition_column(reference: str, expression, metadata) -> tuple:
     """``(is a partition column, basis)``; ``(None, "lineage")`` when nothing says."""
     table, column = reference.rsplit(".", 1)
     meta = metadata(table) or {}

@@ -1,12 +1,15 @@
 """``scope-lineage catalog digest`` and ``catalog merge``: drafting a catalog from table semantics.
 
 ``digest`` condenses a directory of ``table-semantics/1`` documents into the material a
-drafter reads (``digest.md`` + ``digest.json``), and with ``--catalog`` names the tables
-and columns the catalog does not cover yet. ``merge`` copies a catalog and merges
-``catalog-fragment/1`` files into the copy, then validates it and reports coverage.
+drafter reads (``digest.md`` + ``digest.json``), with ``--catalog`` names the tables
+and columns the catalog does not cover yet, and with ``--lineage`` adds to each column
+the joined inputs its value is read through (``render.value_lookups``). ``merge`` copies
+a catalog and merges ``catalog-fragment/1`` files into the copy, then validates it and
+reports coverage.
 
-Exit codes. digest: 0 written; 1 no legal document, a document was skipped, or an
-``--only`` table has no document; 2 an input could not be read. merge: 0 merged and
+Exit codes. digest: 0 written; 1 no legal document, a document was skipped, an
+``--only`` table has no document, or ``--lineage`` holds no lineage.json; 2 an input
+could not be read, or ``--schema`` was given without ``--lineage``. merge: 0 merged and
 valid (warnings allowed); 1 a fragment fails its schema or the base catalog its schemas
 (nothing written), or the merge found conflicts or unknown concepts, or the merged
 catalog has validation errors (written, so the errors can be read in place); 2 an input
@@ -60,6 +63,23 @@ def add_draft_parsers(actions) -> None:
         "--only", nargs="+", action="extend", default=None, metavar="TABLE",
         help="Only these tables (db.table, a catalog prefix is ignored)",
     )
+    digest.add_argument(
+        "--lineage",
+        help=(
+            "One lineage.json, or a directory searched recursively for lineage.json: add to "
+            "each column the joined inputs its value is read through, their constant "
+            "conditions, the order a fallback reads them in, and the lookups a column is "
+            "the join key of"
+        ),
+    )
+    digest.add_argument(
+        "--schema",
+        help=(
+            "Schema metadata, as `parse --schema` reads it: with --lineage, which columns are "
+            "partition columns (without it, the lineage's partitioned flag and the dt/ds/pt "
+            "name rule decide)"
+        ),
+    )
     digest.add_argument("--out", required=True, help=f"Directory for {DIGEST_MD} and {DIGEST_JSON}")
     merge = actions.add_parser(
         "merge",
@@ -94,6 +114,12 @@ def run_digest(args: argparse.Namespace) -> int:
         except CatalogError as error:
             print(f"--catalog: {error}", file=sys.stderr)
             return 2
+    if args.schema and not args.lineage:
+        print("--schema is read only with --lineage", file=sys.stderr)
+        return 2
+    lookups = _value_lookups(args.lineage, args.schema) if args.lineage else None
+    if isinstance(lookups, int):
+        return lookups
     documents, skipped = _renderable_documents(directory)
     if not documents:
         print(f"no table-semantics/1 document under {directory}", file=sys.stderr)
@@ -102,7 +128,7 @@ def run_digest(args: argparse.Namespace) -> int:
         documents = _only(documents, args.only)
         if isinstance(documents, int):
             return documents
-    digest = digest_tables(documents, catalog)
+    digest = digest_tables(documents, catalog, lookups=lookups)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     (out / DIGEST_JSON).write_text(
@@ -110,6 +136,13 @@ def run_digest(args: argparse.Namespace) -> int:
     )
     (out / DIGEST_MD).write_text(render_digest_markdown(digest), encoding="utf-8")
     print(f"Digested {len(digest['tables'])} table(s) (skipped={skipped}) -> {out}")
+    if lookups is not None:
+        written = lookups["tables"]
+        unwritten = [entry["table"] for entry in digest["tables"] if entry["table"] not in written]
+        print(
+            f"  lineage: {len(unwritten)} table(s) with no writing statement in the lineage"
+            + (f" ({', '.join(unwritten)})" if unwritten else "")
+        )
     if "catalog" in digest:
         gaps = digest["catalog"]
         unbound = sum(len(columns) for columns in gaps["columns_without_binding"].values())
@@ -120,6 +153,53 @@ def run_digest(args: argparse.Namespace) -> int:
                if gaps["code_set_sources"] else "")
         )
     return 1 if skipped else 0
+
+
+def _value_lookups(lineage: str, schema_path: str | None):
+    """What ``--lineage`` adds to the digest's columns, or the exit code of a bad flag.
+
+    The corpus walk is the one every corpus command uses. Which constant comparisons pick
+    partitions is the packet's rule (``partition_column``): the schema's partition
+    columns first; failing that, a ``dt``/``ds``/``pt``/``p_date`` comparison on a table
+    the schema -- or, without ``--schema``, the lineage -- marks partitioned.
+    """
+    from .cli import _discover_lineage_documents, _load_contract_documents
+    from .metadata.schema_metadata import (
+        load_schema_sources,
+        partition_columns_for_table,
+        table_details_for_table,
+    )
+    from .render.value_lookups import column_lookups, partitioned_tables
+    from .semantics.packet_facts import partition_column
+
+    found = _discover_lineage_documents(lineage)
+    if isinstance(found, int):
+        return found
+    loaded = _load_contract_documents(*found, None, "catalog digest")
+    if isinstance(loaded, int):
+        return loaded
+    documents = [item.document for item in loaded.documents]
+    schema = None
+    if schema_path:
+        try:
+            schema = load_schema_sources([schema_path])
+        except (OSError, ValueError) as error:
+            print(f"--schema: {error}", file=sys.stderr)
+            return 2
+    flags = partitioned_tables(documents)
+
+    def metadata(table: str) -> dict:
+        if schema is not None:
+            columns = partition_columns_for_table(schema, table)
+            details = table_details_for_table(schema, table)
+            if columns or details:
+                return {"partition_columns": columns, "partitioned": details.get("is_partitioned")}
+        return {"partitioned": flags.get(table)}
+
+    def is_partition(reference: str, conjunct: str) -> bool:
+        return partition_column(reference, conjunct, metadata)[0] is True
+
+    return column_lookups(documents, is_partition=is_partition)
 
 
 def _only(documents: list[dict], only: list[str]):

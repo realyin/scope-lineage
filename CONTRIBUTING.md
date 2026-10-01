@@ -59,8 +59,10 @@ prose, and modeling recommendations belong in downstream projects rather than th
 ## Architecture rules (each enforced by a test)
 
 - **Package dependency direction is locked** -- `cli -> contract -> (serialize, scope) ->
-  metadata`; `render` consumes contract JSON dicts only; `cli` (with every `cli_*` command
-  module) routes to any package and nothing imports it back. Plain `import` statements
+  metadata`; `render` consumes contract JSON dicts only, and reaches `catalog` for the
+  one rule pages and validation must share (which code sets an attribute's codes are in);
+  `cli` (with every `cli_*` command module) routes to any package and nothing imports
+  it back. Plain `import` statements
   are governed as well as `from ... import`. A new cross-package edge is an
   architecture decision: extend the allowed set or whitelist in
   `tests/architecture/test_dependency_direction.py` with a written reason, or do not

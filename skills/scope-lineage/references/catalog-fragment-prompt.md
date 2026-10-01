@@ -17,7 +17,10 @@
   编排者，不要绕开。
 - 分配（编排者给出）：本组的概念 id 列表；分给本组的表，以及每张表初拟的概念、表现类型、粒度、时间语义。
   只有一组、分配没写这些时，由你来定，并在 `notes` 里说明。
-- 起草材料：`<digest-dir>/digest.md`（`catalog digest` 的输出）里本组的表。
+- 起草材料：`<digest-dir>/digest.md`（`catalog digest --lineage` 的输出）里本组的表。列下「Joined inputs read
+  (from the lineage)」一行（`digest.json` 里列的 `lookups` / `fallback` / `key_of`）给出查码值的事实：读哪张表、
+  按什么常量（`where` 原样就是 `lookup.filter`）、回退顺序（就是 `code_sets` 的顺序）、读的是哪一列（定 `holds`）。
+  有这一行的列不必为这些事实去读 SQL；标了 `order unknown` 的，或 digest 不是带 `--lineage` 生成的，才读 SQL。
 - 每张表的语义：`<docs-dir>/<db.table>.json`（`table-semantics/1`）。列的含义、码值、加工口径以它为准；
   只有它说不清时才看材料包 `<packets-dir>/<db.table>/packet.md`。
 
@@ -60,6 +63,7 @@
        {"column": "列", "to": "attribute|identifier|foreign_identifier|foreign_attribute|technical|unmapped",
         "ref": "attr:...|id:...", "derivation": "可选，本表特有口径", "code_map": {"值": "含义"},
         "code_sets": ["可选，按查找顺序 code:a", "code:b"],
+        "code_sets_by": "可选，只写 source：各来源/分支各用其中一个码值集；不写即按查找顺序",
         "holds": ["可选，列存的形式按优先顺序：meaning|key|code；不写即只存码"], "lang": "可选，存含义时的语言，如 zh"}
      ],
      "status": "drafted", "source": "mixed", "evidence": ["任务名或 SQL 线索"]}
@@ -107,11 +111,12 @@
   `holds` 说的是本列 `code_sets`（没写时是所绑属性的 `code_set`）的形式，所以含义列、代理键列按 SQL 查了几个码值集，
   就在**这一列**上按同样顺序写 `code_sets`，不要只写在同组的码列上。CASE 把源码直接写成标签、各来源源码互相冲突时，
   每个来源一个按源码键的码值集，各列 `code_sets` 写本来源那个，`holds: ["meaning", "code"]`。
-  - 一列由几个 UNION 分支写入、各分支用不同来源的码值集：`code_sets` 把它们都列上，顺序按分支顺序，并在 `derivation`
-    写哪个分支用哪个码值集。页面和查询把这个列表读成「先查 A，查不到查 B」，所以分支对应关系只能靠 `derivation` 说清。
-  - 所绑属性的 `code_set` 在按来源拆开后指向其中一个（主来源的）：其余来源的列会报 `binding_code_sets_miss_attribute`，
-    这是预期的，提醒属性只列了一个来源的码。不要为消警告把属性的 `code_set` 删掉：删了之后概念页「码值」格变空，
-    状态类属性还会被列为「缺码值」。
+  - 一列由几个来源写入（几个 UNION 分支，或写同一张表的几条语句）、各来源用自己的码值集：`code_sets` 把它们都列上，
+    再写 `"code_sets_by": "source"`，页面和查询读成「按来源分别查 A、B」；哪个分支用哪个码值集可以写在 `derivation`。
+    只有真回退（每一行都先查 A、查不到查 B，如 `coalesce`）才不写这个键。
+  - 同一属性按来源拆成几个码值集时，属性**不写** `code_set`：各列在 `code_sets` 写本来源的码值集，工具把这些列的
+    码值集合起来当属性的码（概念页「码值」格逐个列出、不算缺码值）。属性写了 `code_set` 就只算那一个，
+    其余来源的列会报 `binding_code_sets_miss_attribute`——所以按来源拆开时不要给属性指一个「主来源」。
   - CASE 的 ELSE（或某个分支）没有源码可言（如 `x = '0'` 写 A、其余写 B）：不要为它编一个码；这条规则写进 binding 的
     `derivation`（需要时也写进码值集的 `definition`）。
   - 内联字典（只列 `values` 的码值集）的代理键列照样写 `holds: ["key"]`；它一定会报 `binding_key_without_key_column`，

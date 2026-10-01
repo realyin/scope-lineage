@@ -996,7 +996,7 @@
                 }
               },
               "code_sets": {
-                "description": "The code sets this column's values relate to, in lookup order: look up in the first, then the next; holds says how the values relate to them (absent: they are the codes)",
+                "description": "The code sets this column's values relate to, read as code_sets_by says (absent: in lookup order, look up in the first, then the next); holds says how the values relate to them (absent: they are the codes)",
                 "type": "array",
                 "minItems": 1,
                 "uniqueItems": true,
@@ -1004,6 +1004,13 @@
                   "type": "string",
                   "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
                 }
+              },
+              "code_sets_by": {
+                "description": "How code_sets is read. lookup (the same as absent): a lookup order, look a value up in the first code set, then the next. source: each source or branch writing the column uses one of the code sets, its own; the order means nothing. Needs code_sets; source needs at least two",
+                "enum": [
+                  "lookup",
+                  "source"
+                ]
               },
               "holds": {
                 "description": "What a value of this column is, in order of preference: the code, the meaning or the dictionary key of its code sets (code_sets, else the bound attribute's code_set); absent means [code]. More than one: a value is one of them, whether a lookup missed or a source wrote it that way",

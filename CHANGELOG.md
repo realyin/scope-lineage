@@ -12,6 +12,38 @@
   languages), the glossary / concept / semantic-profile prompts and the older entries of
   this changelog follow. Each test exercises the same rule with the new strings; no
   behaviour changed.
+- **A packet's `case_outputs` now answers for a CASE whose ELSE is computed.** A CASE / IF
+  whose branches return literals but whose ELSE computes its value (`CASE WHEN s = '1'
+  THEN 'X' ELSE s END`) used to publish nothing at all. `case_outputs` now reads it the
+  way `glossary_values` already reads such a CASE (WI-C): each string branch is listed
+  (an open set), a number branch is a computation default and is dropped, and every
+  entry carries `else` -- `source` when the ELSE is a column the branch conditions
+  compare (as is, `CAST`, or `COALESCE` with a literal), `computed` otherwise. A CASE
+  with a computing branch still publishes nothing, and a CASE with no computed ELSE is
+  published byte for byte as before (no `else` key). Packets of tables with such a
+  column change (`packet_digest` too, so their table-semantics documents read as
+  stale), and `semantic validate` check 11 (`derived_codes`) now asks for the literal
+  branches of an `else: source` CASE (a recode of the compared column) in the column's
+  `code_values`; an `else: computed` entry (a stamp or default beside another column's
+  value) is published as information and is not asked for. `table-semantics.md` (both languages) and the
+  table-semantics prompt say so.
+- **An attribute with no `code_set` of its own takes the code sets its columns name.** One
+  rule (`scope_lineage.catalog.index.attribute_code_set_ids`, also `Index` and
+  `CatalogView` methods) answers which code sets an attribute's codes are in: its own
+  `code_set`; when it has none, the `code_sets` of every column bound to it (`attribute` /
+  `foreign_attribute`), each counted once, in the order first seen. Every reader of "this
+  attribute's codes" now uses it: the missing-codes gap (A7, `governance.md`, the index
+  count) -- which attributes count as coded is unchanged; the A4 「码值」 cell, which lists
+  several sets one after another, each after its name, and never says they are per source;
+  `catalog query attribute`, which answers `code_sets` (each shaped like `code_set`, plus
+  `name`) and one 码值 line per set when the codes come from the columns; and the
+  attributes `code_sets.md` and the unconfirmed-codes table list under a code set. An
+  attribute that writes a `code_set` keeps exactly that one, and
+  `binding_code_sets_miss_attribute` is unchanged. The drafting rule is reversed: an
+  attribute split into per-source code sets writes no `code_set`, and each column writes
+  its own source's set (`ontology-catalog.md` in both languages, `catalog-fragment-prompt.md`,
+  the skill). `render` now imports this one function from `catalog`. No `doc_format`
+  change; a catalog with no such attribute renders and answers byte for byte as before.
 - **Docs and drafting prompt: an inline SQL dictionary is a code set's `values`, not a `lookup`.**
   `lookup` names a physical code table (`db.table`); a dictionary defined in a task (a `VALUES` CTE,
   a `CASE` mapping, a literal list) is written as `values` with the producing task in `evidence`,
@@ -32,6 +64,45 @@
   title saying so and pointing to the catalog workflow. The command, every flag and
   `ontology.json` (`ontology-json/2`) are unchanged, byte for byte.
 ### Added
+- **`catalog digest --lineage [--schema]`: the lookup facts a drafter used to read the SQL for.**
+  With a lineage corpus, each listed column of a table some statement writes says which
+  joined inputs its value is read through: `lookups` (`{table, where, reads, rule}` in the
+  order the expression reads them, so a `COALESCE` fallback keeps its argument order),
+  `fallback` (the non-looked-up columns the value falls back to), and, for a column with no
+  lookups of its own, `key_of` (`{table, where, rule, read_by}`, the reads it is the join key
+  of, ordered the way the columns in `read_by` fall back through them; `key_of_order:
+  "unknown"` when two of them disagree). A condition is a single equality with a string
+  literal on the joined input -- in its `ON`, in the `WHERE` of a joined subquery / CTE, or in
+  `WHERE` on the joined alias; numbers, `${…}` parameters and partition comparisons are not
+  (partitions are judged by the packet's rule: `--schema`'s partition columns, else the
+  lineage's partitioned flag and the `dt`/`ds`/`pt`/`p_date` names). A JOIN with no such
+  condition, and a value read from an inline `VALUES` list, are not listed. The wording is
+  neutral ("reads rows of <table> where <column> = '<literal>'"); with `--catalog` a read
+  whose table and `where` equal a code set's `lookup` gains `code_set`, and `reads_as:
+  meaning | key` when it reads that set's meaning or key column. `digest.md` gives each such
+  column one line. A table no statement writes gets nothing and is counted on stdout.
+  The projection is `scope_lineage.render.value_lookups` (it reads `input_ref_id` and the
+  JOIN's `condition_filters`, never `right_alias` or `display_expression`); the packet's
+  partition rule is now public as `semantics.packet_facts.partition_column`. No
+  `catalog-digest/1` version change: without `--lineage` the digest is byte-identical, and
+  the lineage, packets, table semantics and `catalog build` are unchanged. The skill's
+  drafting procedure and `catalog-fragment-prompt.md` pass `--lineage` and read the lookup
+  facts from the digest; `ontology-catalog.md` (both languages) documents the keys.
+- **A binding says how its `code_sets` list is read: `code_sets_by: lookup | source`.**
+  Absent (or `lookup`, which `build` does not write out), the list is a lookup order, as
+  before. `source` says each source or branch writing the column -- a UNION branch, or one
+  of several statements writing the table -- uses one of the sets, its own: `catalog query
+  column`, the A4 table column and `code_sets.md` print 「按来源分别查 A、B」 instead of
+  「先查 A，查不到查 B」, and the column JSON carries `code_sets_by` after `code_sets`. New
+  error `binding_code_sets_by`: `code_sets_by` without `code_sets`, or `source` with fewer
+  than two. `binding_code_sets_miss_attribute`, `holds` and the attribute's code sets read
+  the list the same either way. The `code_sets.md` row 「按顺序查它的列」 is now 「查它的列」
+  (it lists both kinds of column) -- the only change to pages of a catalog without the key;
+  its `ontology.json` and query answers are byte for byte as before. Schemas (mapping,
+  fragment, `ontology-json/3`) gain the key additively; no `doc_format` change. The drafting
+  rule for a column written by several sources, each with its own code set, is now
+  `code_sets_by: source` instead of explaining the branches in `derivation`
+  (`ontology-catalog.md` in both languages, `catalog-fragment-prompt.md`, the skill).
 - **A catalog can say where a code set's values live and how a column is translated.** A
   code set gains an optional `lookup` (`table`, `code_column`, `meaning_columns`
   `[{column, lang?}]`, optional `key_column`, `filter` `{column: literal}` and a paired

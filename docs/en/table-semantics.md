@@ -138,7 +138,14 @@ for a join on no path the profile walked); `packet.md` shows it in the rules tab
 computing step is one CASE or IF with only string or number outputs (NULL and `''` aside), one entry per
 value with the branch conditions (`when`), the source values those conditions compare with
 (`source_values`, `null` when a condition is not an equality or `IN` list) and whether
-the ELSE returns it (`catch_all`). Each task carries `header_facts`, the lifecycle
+the ELSE returns it (`catch_all`). When the branches return literals but the ELSE
+computes its value (`CASE WHEN s = '1' THEN 'X' ELSE s END`), the CASE is read the way the
+glossary reads it: string branches are listed (an open set, the ELSE supplies the rest)
+and number branches, computation defaults rather than codes, are dropped; each entry then
+carries `else`, `source` when the ELSE is a column the branch conditions compare (as is,
+`CAST`, or `COALESCE` with a literal) and `computed` for anything else (a date stamped
+on new rows, say). A CASE with a
+computing branch still has no `case_outputs`. Each task carries `header_facts`, the lifecycle
 (`生命周期` / `保留` / `lifecycle` followed by a number of days or `永久`) and data volume
 (`数据规模` / `数据量` followed by a number) its header comment states, read from the
 published header and from the comment lines that open the script; `packet.md` prints them
@@ -291,7 +298,7 @@ document is checked against `<packet dir>/<table>/packet.json`:
 | 8 | `digest` | `packet_digest` differs from the packet's (stale), or there is no packet for the table | — |
 | 9 | `time` | `refresh.time` is `incremental` while every input is a full snapshot read by one partition and no filter touches a business date | `refresh.time` is `snapshot` while the write filters on a business date |
 | 10 | `fan_out` | the right side of a join whose `fan_out.status` is not `safe` is named — by table (`db.table` or bare) or alias — neither in `summary.row.note` nor in a `summary.watch` item of kind `risk` (one item per right side, however many times it is joined) | a sentence of the note or a watch calls such a LEFT join harmless to the row count (无影响, 不影响行数, 不会放大 …); one warning per place |
-| 11 | `derived_codes` | a literal a column's CASE / IF returns (`case_outputs`) is missing from its `code_values` (one failure per value; NULL, `''` and TRUE / FALSE are not codes) | a code value whose meaning is success-like (成功 / 正常 / 通过 / 有效) comes from a branch that gathers several source values or the ELSE, and neither the column's `watch` nor a `summary.watch` with `refs` `column:<name>` says so |
+| 11 | `derived_codes` | a literal a column's CASE / IF returns (`case_outputs`) is missing from its `code_values` (one failure per value; NULL, `''` and TRUE / FALSE are not codes; an entry with `else: computed` is information only and is not asked for) | a code value whose meaning is success-like (成功 / 正常 / 通过 / 有效) comes from a branch that gathers several source values or the ELSE, and neither the column's `watch` nor a `summary.watch` with `refs` `column:<name>` says so |
 | 12 | `documented_meaning` | a code value marked `unconfirmed` or meaning 待确认 is explained by the column's comment or a source column's comment (`0-申请 1-成功` pairs, or a `正常、锁定、删除` list whose label the SQL quotes), or the dictionary confirms it on the column or a source column (`confirmed_values`; the fix: write the dictionary's meaning, sourced `confirmed`); a state whose documented or confirmed meaning is itself 待确认 may say so | a qualifier (`增值税`, `税`, `手续费`, `罚息`, `冲正`, `测试`) in the main input's comment or a source column's comment, absent from the target's comments, is missing from `summary.what` (main input) or from every affected column's meaning / derivation (one warning per term) |
 | 13 | `header_facts` | — | the SQL header states a lifecycle (`header_facts.lifecycle`) or a data volume (`header_facts.volume`) that neither `summary.refresh.how_to_read` nor a watch mentions |
 

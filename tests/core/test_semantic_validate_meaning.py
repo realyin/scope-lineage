@@ -244,6 +244,29 @@ def test_a_value_two_producers_return_is_one_item_with_each_branch_once(
     assert problem["message"].count("其余值") == 1
 
 
+def test_a_literal_beside_a_computed_else_is_not_asked_for(document: dict, packet: dict) -> None:
+    # A stamp the CASE writes when a row is new, beside an ELSE that keeps another
+    # column's value: published as information, but not a code of the column.
+    _verify_status_case(packet, {
+        "value": "20000101", "when": ["`a`.`k` IS NULL"], "source_values": None,
+        "catch_all": False, "else": "computed",
+    })
+    report = validate_document(document, packet)
+    assert _problems(report, "derived_codes") == []
+    assert _passes(report, "derived_codes") == 0
+
+
+def test_a_literal_beside_an_else_passing_the_source_on_is_still_asked_for(
+    document: dict, packet: dict
+) -> None:
+    _verify_status_case(packet, {
+        "value": "U", "when": ["`verify_flag` = 9"], "source_values": ["9"],
+        "catch_all": False, "else": "source",
+    })
+    (problem,) = _problems(validate_document(document, packet), "derived_codes")
+    assert problem["at"] == "columns[4].code_values" and "'U'" in problem["message"]
+
+
 def test_a_success_like_value_from_one_source_value_needs_no_watch(
     document: dict, packet: dict
 ) -> None:

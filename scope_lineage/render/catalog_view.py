@@ -12,6 +12,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Callable, Optional
 
+from ..catalog.index import attribute_code_set_ids
+
 ONTOLOGY_FORMAT = "ontology-json/3"
 
 KIND_TEXT = {"entity": "实体", "event": "事件", "role": "角色"}
@@ -159,10 +161,14 @@ def lookup_text(lookup: Mapping, code: Callable[[str], str] = str) -> str:
     return f"{head}：{'，'.join(parts)}"
 
 
-def fallback_text(names: list[str]) -> str:
-    """``先查 A，查不到查 B``: the order a column's code sets are consulted in."""
+def fallback_text(names: list[str], by: str = "lookup") -> str:
+    """How a column's code sets are consulted: ``先查 A，查不到查 B`` in lookup order, or
+    ``按来源分别查 A、B`` when each source writing the column uses its own (``by`` is the
+    binding's ``code_sets_by``)."""
     if len(names) == 1:
         return f"查 {names[0]}"
+    if by == "source":
+        return "按来源分别查 " + "、".join(names)
     return f"先查 {names[0]}" + "".join(f"，查不到查 {name}" for name in names[1:])
 
 
@@ -182,13 +188,14 @@ def holds_text(binding: Mapping, escape: Callable[[str], str] = str) -> Optional
 def translation_text(
     names: list[str], binding: Mapping, label: str = "码值：", escape: Callable[[str], str] = str
 ) -> Optional[str]:
-    """``（码值：查 A；存代理键）``: the code sets a column is looked up in, then what it
-    stores of them; ``None`` when it names no code sets and stores codes. ``escape`` is
+    """``（码值：查 A；存代理键）``: the code sets a column is looked up in (read as its
+    ``code_sets_by`` says), then what it stores of them; ``None`` when it names no code sets and stores codes. ``escape`` is
     applied to the names and the language, as a table cell needs."""
     names = [escape(name) for name in names]
     held = holds_text(binding, escape)
     if names:
-        return f"（{label}{fallback_text(names)}" + (f"；{held}" if held else "") + "）"
+        by = binding.get("code_sets_by", "lookup")
+        return f"（{label}{fallback_text(names, by)}" + (f"；{held}" if held else "") + "）"
     return f"（{held}）" if held else None
 
 
@@ -440,8 +447,23 @@ class CatalogView:
             if code_set_id in (binding.get("code_sets") or [])
         ]
 
+    def attribute_code_set_ids(self, attribute: Mapping) -> list[str]:
+        """The attribute's code sets by rule R1: its own ``code_set``, else its columns'
+        ``code_sets`` (``catalog.index.attribute_code_set_ids``)."""
+        bindings = [binding for _, binding in self.bindings_of(attribute["id"])]
+        return attribute_code_set_ids(attribute, bindings)
+
+    def attribute_code_sets(self, attribute: Mapping) -> list[dict]:
+        """The code sets of ``attribute_code_set_ids`` that exist, in that order."""
+        return [
+            self.code_sets[i] for i in self.attribute_code_set_ids(attribute) if i in self.code_sets
+        ]
+
     def attributes_coded_by(self, code_set_id: str) -> list[dict]:
-        return [a for a, _ in self.attributes.values() if a.get("code_set") == code_set_id]
+        """Every attribute whose code sets (rule R1) include the set."""
+        return [
+            a for a, _ in self.attributes.values() if code_set_id in self.attribute_code_set_ids(a)
+        ]
 
     def roles_played_by(self, concept_id: str) -> list[dict]:
         return [c for c in self.concepts.values() if c.get("player") == concept_id]

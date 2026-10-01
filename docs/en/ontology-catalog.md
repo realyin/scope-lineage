@@ -230,6 +230,13 @@ attr:<concept slug>.<slug>` (the concept slug must be the owning concept's), `na
 `definition`, `category` (`descriptive` / `state` / `measure` / `time`), `type`, `unit?`,
 `code_set?`, `derivation?` (how it is computed, in words).
 
+An attribute's code sets are its own `code_set`; when it has none, they are the `code_sets`
+of the columns bound to it (as `attribute` or `foreign_attribute`), each counted once, in
+the order first seen. Every reader of "this attribute's codes" uses this one rule: the A4
+「码值」 cell, `catalog query attribute`, the missing-codes gap and the attributes
+`code_sets.md` lists under a code set. An attribute that writes a `code_set` keeps exactly
+that one; its columns' other sets are not added to it.
+
 ### State
 
 The stages of an entity's life cycle, moved by events. Written as the entity's `states`:
@@ -321,7 +328,7 @@ representation per table).
 | `refresh` | no | update frequency |
 | `table_status` | yes | `active` / `deprecated` |
 | `replaced_by` | no | the table that replaces a deprecated one |
-| `bindings` | yes | `[{column, to, ref?, via?, relation?, derivation?, code_map?, code_sets?, holds?, lang?}]` |
+| `bindings` | yes | `[{column, to, ref?, via?, relation?, derivation?, code_map?, code_sets?, code_sets_by?, holds?, lang?}]` |
 
 A binding's `to` says what the column is:
 
@@ -377,13 +384,33 @@ a warning says so (`binding_code_sets_miss_attribute`):
         code_sets: [code:waiver_reason, code:waiver_channel]
 ```
 
+`code_sets_by` says how that list is read. `lookup`, the same as leaving it out, is the lookup
+order above. `source` says each source or branch writing the column -- a UNION branch, or one
+of several statements writing the table -- uses one of the code sets, its own: the order means
+nothing, and a value is never looked up in a second set. Pages and queries then print
+「按来源分别查 A、B」 (each source looks up its own of A, B) instead of 「先查 A，查不到查 B」; which
+branch uses which set can be said in `derivation`. `code_sets_by` needs `code_sets`, and
+`source` needs at least two (over one set both readings are the same); otherwise
+`binding_code_sets_by` fails. `lookup` is not written out by `build`. It changes nothing else:
+`binding_code_sets_miss_attribute` and `holds` read the list the same either way.
+
+```yaml
+      - column: reason_label           # branch 1: CASE over source A's codes; branch 2: over source B's
+        to: attribute
+        ref: attr:fee_waiver.reason
+        code_sets: [code:waiver_reason, code:waiver_channel]
+        code_sets_by: source
+        holds: [meaning, code]
+```
+
 `holds` says what a value of the column is, of those code sets (its `code_sets`, or, when it
 names none, the bound attribute's `code_set`): `code`, `meaning` or `key` (the code table's
 `key_column`), listed in order of preference -- by convention the translated form first and the
 raw code last. Absent means `[code]`, which is how every column above reads; writing `[code]`
 builds the same document. With more than one form, a value is one of them, whether a lookup
-found nothing or one source of the table writes it one way and another source the other way;
-when each happens is not structured -- write it in `derivation`. `lang` says which language a
+found nothing or one source of the table writes it one way and another source the other way
+(whether the code sets themselves are looked up in order or one per source is `code_sets_by`);
+which form each source writes is not structured -- write it in `derivation`. `lang` says which language a
 stored meaning is in (only with `meaning`; for a code set with a `lookup`, one of its
 `meaning_columns[].lang`). The order of `code_sets` and the order of `holds` are independent:
 `code_sets: [A, B], holds: [key, code]` is "A's key, else B's, else the raw code".
@@ -403,13 +430,14 @@ that on each such column with `holds`, and give each column its own `code_sets` 
 SQL looks them up (a meaning column, a key column and the code column each carry their own).
 Edge cases:
 
-- One column written by several UNION branches, each using its own source's code set: list them
-  all in `code_sets`, in branch order, and say in `derivation` which branch uses which --
-  `code_sets` has one reading (lookup order), so pages and queries still print 「先查 A，查不到查 B」.
-- One attribute split into per-source code sets: point the attribute's `code_set` at one of them
-  (the main source); the other sources' columns then warn `binding_code_sets_miss_attribute`, as
-  expected. With no `code_set` on the attribute, the A4 「码值」 cell is empty, and a
-  `category: state` attribute is listed as lacking codes.
+- One column written by several sources -- UNION branches, or several statements writing the
+  table -- each using its own source's code set: list them all in `code_sets` and write
+  `code_sets_by: source`; pages and queries print 「按来源分别查 A、B」. Leave the key out only for a
+  real fallback (a lookup in A, then B, on every row).
+- One attribute split into per-source code sets: the attribute writes no `code_set`; each
+  column writes its own source's set in `code_sets`, and the attribute's codes are all of them
+  (the rule under Attribute). A column whose `holds` has `meaning` or `key` then needs its own
+  `code_sets`, or it fails `binding_holds_code_set`.
 - A CASE branch (such as ELSE) with no source code: invent no code; write the rule in `derivation`
   (and, if useful, the code set's `definition`).
 - A code set listing only `values` has no key column, so a `holds: [key]` column on it always warns
@@ -510,6 +538,7 @@ directory, no manifest, YAML without PyYAML).
 | `binding_foreign_attribute` | `ref` is not an attribute; or it is the represented concept's own (for a role view, or its player's) while the `via` column is not a `foreign_identifier` naming another record of the attribute's concept — this row's own attribute is bound as `attribute` |
 | `binding_foreign_attribute_via` | `via` is not a column of this table, that column is not a `foreign_identifier`, or the identifier it holds does not identify the attribute's concept |
 | `binding_code_set` | an entry of a binding's `code_sets` is not a code set |
+| `binding_code_sets_by` | a binding has `code_sets_by` and no `code_sets`, or `code_sets_by: source` with fewer than two |
 | `binding_holds_code_set` | a binding's `holds` has `meaning` or `key`, and it names no `code_sets` while the bound attribute has no `code_set` -- a meaning or a key of no code set |
 | `binding_lang` | a binding has `lang` and its `holds` has no `meaning` |
 
@@ -628,8 +657,9 @@ is a scope-lineage bug, not a fault in the catalog:
   sorted by column, the literals as text), a binding's `code_sets` in the author's order. Both are optional
   additions and `doc_format` stays `ontology-json/3`; a catalog that writes neither builds
   byte-for-byte the same document as before;
-- a binding's `holds` and `lang` follow its `code_sets`, as written; `holds: [code]` is not written
-  out (it is what an absent `holds` means), so a catalog without `holds` builds byte-for-byte as before;
+- a binding's `code_sets_by`, `holds` and `lang` follow its `code_sets`, as written;
+  `code_sets_by: lookup` and `holds: [code]` are not written out (they are what an absent key
+  means), so a catalog without them builds byte-for-byte as before;
 - each event participant becomes a `participation` relation `rel:<event slug>.<role_name>`
   from the event to the participant, cardinality `{from: "0..*", to: "1"}` for `one` or
   `"1..*"` for `many`, carrying `derived_from` and the event's status and source. Such an
@@ -789,7 +819,7 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 | `index.md` | the concepts by domain (name, kind, definition, number of tables, status), the identifiers, the code sets (and the tables their values live in), a summary of the governance gaps and of the record scopes |
 | `concepts/<slug>.md` | one page per concept (`concept:fee_waiver` → `fee_waiver.md`): a one-page overview, then seven sections as its appendix |
 | `identifiers.md` | every identifier in full, with the columns bound to it |
-| `code_sets.md` | every code set: its values, or the table and condition to look them up by (`lookup`); the attributes it codes; the columns whose `code_sets` consult it, in their order, and what each stores (`holds`) |
+| `code_sets.md` | every code set: its values, or the table and condition to look them up by (`lookup`); the attributes it codes (by the rule under Attribute); the columns whose `code_sets` consult it (row 「查它的列」), how each consults them (in order, or each source its own: `code_sets_by`) and what each stores (`holds`) |
 | `governance.md` | every gap of every concept, one list per kind of gap; the code values whose meaning is not confirmed; plus the denormalised columns per table (informational, not a gap; those repeating another record of the same concept are marked so) |
 | `scopes.md` | every table's record scope grouped by the kind of filter it states; the tables declaring none; the business rules and value domains that cite a table |
 
@@ -821,7 +851,7 @@ has a 编号 row with the concept id):
 | A1 定义与身份 | definition, kind, status, synonyms; identifiers (arising condition, uniqueness scope, physical spellings, mappings); the state machine (values, transition events); an event's participants, a role's player, context and condition |
 | A2 数据清单 | the tables, grouped by representation kind (核心, 扩展, 从属, 事件明细, 状态历史, 标识映射, 角色视图, 汇总, 中间): a note (the table card's comment, the representation's `notes`), grain (identifiers, source, and what lineage proves), time semantics and how to read by them (a snapshot 「按单个 dt 分区取数」, a zipper by its validity window), refresh, record scope, producing tasks, deprecation and replacement; one hop of lineage per table |
 | A3 带本概念标识的表 | every column, in the tables of any concept, binding one of this concept's identifiers as `identifier` or `foreign_identifier`: table, the table's concept, column, identifier, and how (a self reference is marked). A concept with no table of its own still shows where it can be joined in; a role has no identifier of its own and points to its player |
-| A4 属性 | by category (描述, 状态, 度量, 时间): definition, type and unit, code values (value=meaning; for values in a code table, how to look them up), every table column that holds it (with its code map; a column consulting code sets in order reads 「先查 A，查不到查 B」, look in A, then B; a column with `holds` adds what it stores, 「存含义（zh）或码」 (stores the meaning, in zh, or the code), after the code sets as 「（码值：查 A；存代理键）」; one another table repeats is marked 「冗余（经 via column）」, one repeated from another record of the same concept 「冗余（同一<concept>的另一条记录，经 via column）」), how it is derived |
+| A4 属性 | by category (描述, 状态, 度量, 时间): definition, type and unit, code values (value=meaning; for values in a code table, how to look them up; with several code sets, each after its name, 「A：1=…；B：0=…」), every table column that holds it (with its code map; a column consulting code sets in order reads 「先查 A，查不到查 B」, look in A, then B, and one with `code_sets_by: source` reads 「按来源分别查 A、B」, each source in its own; a column with `holds` adds what it stores, 「存含义（zh）或码」 (stores the meaning, in zh, or the code), after the code sets as 「（码值：查 A；存代理键）」; one another table repeats is marked 「冗余（经 via column）」, one repeated from another record of the same concept 「冗余（同一<concept>的另一条记录，经 via column）」), how it is derived |
 | A5 关系 | association, composition and generalization read from this concept's side, with cardinality and JOIN count (a self relation's far end reads 「本概念」 with the columns that carry it — a column naming a `relation` only under that one, a column naming none under every self relation — and one with an `inverse_name` reads both ways); JOINs inside a producing task (`source_joins`), when there are any, as 「生产任务内连接 N 次（如 …，填 <foreign key column>）」, apart from the JOIN count; when the count is 0 or could not be taken, what the catalog itself shows: the tables holding both ends (representing one or binding its identifier; a role through its player's identifiers; a self relation only through a self-referencing column realising it) and the relation's `evidence`; the events it takes part in (its role, how many tables the event has); the roles it plays, or — on a role's page — the player it belongs to |
 | A6 约束 | the constraints on the concept, its attributes, identifiers and relations, by kind, with strength and status |
 | A7 治理缺口 | drafted share, unmapped columns, attributes no table holds, state or coded attributes without values, whether the concept has any table; with evidence also the conflicts, bound columns nobody uses and relations no JOIN backs |
@@ -857,9 +887,9 @@ scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_l
 | --- | --- | --- |
 | `concept` | id, name, synonym or term | identity, identifiers, attributes, states, tables, the page to read, and the concept page's one-page overview (`overview`, the same fields as the page) |
 | `table` | `db.table` (a catalog prefix is ignored) | the concept it carries, its time semantics and how to read by them (`usage`), the table comment and `notes`, its record scope, the business rules and value domains citing it (`constraints`), and what every bound column points at, with evidence; a denormalised column reads `→ 冗余属性 <attribute> of <concept>（经 <via>）`, a self-referencing one names its relation; for a code table (one a code set's `lookup` names), the code sets it holds and how each is looked up (`code_sets`), and when the table is also represented, the representation's answer gains `code_sets`; exit code `0` |
-| `column` | `db.table.column` | the attribute or identifier it holds and its concept (a denormalised attribute with its `via`, plus `other_instance: true` when it is another record's of the same concept; a column with `code_sets` lists them in order, each with how it is looked up; one with `holds` says what it stores, 「存含义（zh）或码」, and carries `holds` and `lang`) — or, in a code table, what kind of column it is (code, meaning, surrogate key, filter, validity: `role`) and which code sets it serves — or the identifier it spells; a self-referencing column carries `self_relations` (the self relations it realises: the one its `relation` names, or all of them) |
+| `column` | `db.table.column` | the attribute or identifier it holds and its concept (a denormalised attribute with its `via`, plus `other_instance: true` when it is another record's of the same concept; a column with `code_sets` lists them in order, each with how it is looked up, and carries `code_sets_by` when it is `source` (the text reads 「按来源分别查 A、B」); one with `holds` says what it stores, 「存含义（zh）或码」, and carries `holds` and `lang`) — or, in a code table, what kind of column it is (code, meaning, surrogate key, filter, validity: `role`) and which code sets it serves — or the identifier it spells; a self-referencing column carries `self_relations` (the self relations it realises: the one its `relation` names, or all of them) |
 | `identifier` | id, name or physical spelling | what it identifies, its scope and spellings, the columns bound to it |
-| `attribute` | id, name or term | its concept, code values (with a `lookup`, `code_set` also carries how and in which table to look them up), derivation and every table column |
+| `attribute` | id, name or term | its concept, code values (with a `lookup`, `code_set` also carries how and in which table to look them up; an attribute with no `code_set` of its own answers with `code_sets`, the sets its columns name, each shaped like `code_set` plus its `name`), derivation and every table column |
 | `related` | a concept's id, name, synonym or term | one hop: relations read from its side (a self relation with an `inverse_name` both ways), events, participants, roles, player, tables, and the tables carrying its identifiers (`carriers`); every relation and event carries `carried_together` (the tables holding both ends) and `evidence`, printed when no JOIN backs it; with JOINs inside a producing task also `source_joins` (the count), printed as 「生产任务内连接 N 次」 apart from `joins` |
 | `carriers` | a concept's id, name, synonym or term | every column, in the tables of any concept, binding one of its identifiers: table, the table's concept, column, identifier, and how |
 | `scope` | a kind of filter (`validity`/有效记录, `deletion`/删除, `dedup`/去重, `partition`/分区, `other`/其他; the label or either half of it works too) or a keyword | the tables whose scope lines or cited rules state it, each with those lines (and their kinds), the rules and how to read the table |
@@ -978,6 +1008,7 @@ The schema is `scope_lineage/schemas/catalog-fragment.schema.json`.
 
 ```bash
 scope-lineage catalog digest out/semantics [--catalog examples/catalog-demo] \
+  [--lineage out/lineage [--schema examples/metadata]] \
   [--only demo_dwd.dwd_party_customer_info_df ...] --out out/digest
 ```
 
@@ -1001,9 +1032,60 @@ catalog prefix); a table a code set's `lookup` names counts as a code-set source
 table's section also ends with its standing in the catalog. The
 output is deterministic: the same inputs give byte-identical files.
 
+With `--lineage` (one `lineage.json`, or a directory searched for them, as `catalog build
+--lineage` reads it) each listed column also says, from the statements that write its
+table, which joined inputs its value is read through and under which constant conditions
+-- the facts a code set's `lookup.filter`, the order of a binding's `code_sets` and a
+binding's `holds` are written from, so the drafter need not go back to the SQL for them:
+
+- `lookups`: the joined inputs the value is read through, in the order the expression
+  reads them (the argument order of a `COALESCE(d1.x, d2.x, a.c)` fallback). Each is
+  `{table, where, reads, rule}`: the rows of `table` where every `where` column equals its
+  string literal, the column `reads` of those rows, and the JOIN's logic block id in the
+  lineage;
+- `fallback`: the non-looked-up physical columns the same value falls back to (the raw
+  code at the end of a `COALESCE`), only beside `lookups`;
+- `key_of`: for a column with no `lookups` of its own, the reads it is the join key of,
+  `{table, where, rule, read_by}`, `read_by` naming the columns of the same table that read
+  through that JOIN. They are ordered the way those columns fall back through them, not in
+  JOIN order; when two columns fall back in opposite orders the JOIN order is kept and
+  `key_of_order: "unknown"` says so.
+
+What counts: only a value that enters through a JOIN (or passes through a joined
+subquery / CTE) has conditions; a condition is a single equality with a string literal, in
+the JOIN's `ON`, in the `WHERE` of a joined subquery / CTE, or in the same query's `WHERE`
+on the joined alias itself. Numbers (`rn = 1`), `${…}` parameters, `IN` lists and
+comparisons on partition columns are not conditions: partitions are judged as the packet
+judges them, by `--schema`'s partition columns when given, otherwise by the lineage's
+partitioned flag and the `dt`/`ds`/`pt`/`p_date` name rule. A JOIN with no such condition
+only supplements a field and is not listed; a value read from an inline `VALUES` list or
+another non-table source is not listed either. The wording is neutral -- "reads rows of
+<table> where <column> = '<literal>'" -- because the same shape picks a role, a language or
+a row version as often as a dictionary type. With `--catalog` as well, a read whose table and
+`where` equal a code set's `lookup.table` and `lookup.filter` gains `code_set: <id>`, and a
+`reads` that is that code set's meaning or key column gains `reads_as: "meaning"` / `"key"`.
+
+```json
+{
+  "column": "c_desc",
+  "meaning": "type description",
+  "lookups": [
+    {"table": "demo_dim.dim_code_dict", "where": {"code_type": "TypeA"}, "reads": "code_desc", "rule": "logic:ROOT:join:002", "code_set": "code:type_a", "reads_as": "meaning"},
+    {"table": "demo_dim.dim_code_dict", "where": {"code_type": "TypeB"}, "reads": "code_desc", "rule": "logic:ROOT:join:001"}
+  ],
+  "fallback": ["demo_ods.ods_order_df.c"]
+}
+```
+
+`digest.md` gives each such column one line under "Joined inputs read (from the lineage)".
+A table no statement in the lineage writes is digested as usual with nothing added, and the
+command prints how many there were. Without `--lineage` the output is byte-identical to
+what it was; the lineage, packets, table semantics and catalog build are not changed by it.
+
 Exit codes: `0` written; `1` no legal document, a document was skipped (the rest is still
-written), or a table named by `--only` has no document; `2` the directory or `--catalog`
-cannot be read.
+written), a table named by `--only` has no document, or a `--lineage` directory holds no
+`lineage.json`; `2` the directory, `--catalog`,
+`--lineage` or `--schema` cannot be read, or `--schema` is given without `--lineage`.
 
 ### `catalog merge`
 

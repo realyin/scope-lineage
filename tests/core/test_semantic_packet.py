@@ -14,10 +14,13 @@ from pathlib import Path
 
 import pytest
 
+from scope_lineage.semantics import validate_document
+
 from .table_semantics_demo import (
     DEMO_TABLE,
     copy_corpus,
     demo_packets,
+    example,
     pack,
     packet_of,
     parse_corpus,
@@ -382,6 +385,43 @@ def test_a_case_column_publishes_its_literal_outputs(coded: dict) -> None:
     assert [(o["value"], o["source_values"], o["catch_all"]) for o in producer["case_outputs"]] == [
         ("1", ["1", "2"], False), ("0", [], True),
     ]
+
+
+@pytest.fixture(scope="module")
+def computed_else(tmp_path_factory) -> Path:
+    """The demo with a CASE that renames one code and passes every other value on."""
+    work = tmp_path_factory.mktemp("computed_else")
+    corpus = copy_corpus(work / "corpus")
+    task = corpus / "tasks" / "dwd_party_customer_info_daily.json"
+    data = read_json(task)
+    data["meta"]["sql"] = data["meta"]["sql"].replace(
+        "verify_flag AS verify_status,  -- 1 已实名, 0 未实名",
+        "CASE WHEN verify_flag = 9 THEN 'U' ELSE CAST(verify_flag AS STRING) END AS verify_status,",
+    )
+    write_json(task, data)
+    lineage = parse_corpus(corpus, work / "lineage")
+    assert pack(corpus, lineage, work / "packets", "--only", DEMO_TABLE) == 0
+    return work / "packets"
+
+
+def test_a_case_with_a_computed_else_publishes_its_literal_branches(computed_else: Path) -> None:
+    packet = packet_of(computed_else)
+    column = next(c for c in packet["lineage"]["columns"] if c["column"] == "verify_status")
+    (producer,) = column["producers"]
+    assert producer["case_outputs"] == [{
+        "value": "U", "when": ["`ods_core_customer_df`.`verify_flag` = 9"], "source_values": ["9"],
+        "catch_all": False, "else": "source",
+    }]
+
+
+def test_check_11_asks_for_the_literal_branches_of_a_computed_else_case(
+    computed_else: Path,
+) -> None:
+    packet = packet_of(computed_else)
+    report = validate_document(example(computed_else), packet)
+    problems = [f for f in report["failures"] if f["check"] == "derived_codes"]
+    assert [(f["status"], f["at"]) for f in problems] == [("fail", "columns[4].code_values")]
+    assert "'U'" in problems[0]["message"]
 
 
 def test_a_task_publishes_the_lifecycle_and_volume_its_header_states(coded: dict) -> None:

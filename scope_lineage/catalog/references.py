@@ -224,6 +224,7 @@ def _binding(checks: _Checks, file: str, at: str, binding: dict, owners, by_colu
     index = checks.index
     for code_set in binding.get("code_sets") or []:
         checks.expect("binding_code_set", file, at, code_set, ("code_set",), "a code set")
+    _binding_code_sets_by(checks, file, at, binding)
     _binding_holds(checks, file, at, binding)
     own_ids = set().union(*(index.identifiers_of(owner) for owner in owners))
     if to == "attribute":
@@ -238,6 +239,21 @@ def _binding(checks: _Checks, file: str, at: str, binding: dict, owners, by_colu
             _binding_relation(checks, file, at, ref, binding["relation"], owners)
     elif to == "foreign_attribute":
         _foreign_attribute(checks, file, at, binding, owners, by_column)
+
+
+def _binding_code_sets_by(checks: _Checks, file: str, at: str, binding: dict) -> None:
+    """How a list of code sets is read is said of a list: ``source`` of two sets or more
+    (over one set it reads the same as ``lookup``)."""
+    if "code_sets_by" not in binding:
+        return
+    by, count = binding["code_sets_by"], len(binding.get("code_sets") or [])
+    if count == 0:
+        checks.fail("binding_code_sets_by", file, at, f"code_sets_by {by!r} but names no code_sets")
+    elif by == "source" and count < 2:
+        checks.fail(
+            "binding_code_sets_by", file, at,
+            f"code_sets_by 'source' needs at least two code_sets, names {count}",
+        )
 
 
 def _binding_holds(checks: _Checks, file: str, at: str, binding: dict) -> None:
