@@ -641,7 +641,7 @@
             "join_condition_source": "on",
             "trace_status": "complete"
           },
-          "display_expression": "`parent_id` = `id` and `batch_id` = `batch_id`"
+          "display_expression": "`parent_id` = `id` AND `batch_id` = `batch_id`"
         }
       ],
       "outputs": [

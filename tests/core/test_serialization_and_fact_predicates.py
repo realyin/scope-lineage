@@ -34,16 +34,86 @@ def test_phase1_serializer_stamps_display_expression():
         "alias_source_bindings": [{"alias": "a", "physical_source_id": "ods.ods_x"}],
         "columns": [{"name": "amt", "transform": "AGGREGATE", "expression": "SUM(`a`.`trn_amt`)"},
                     {"name": "id", "transform": "DIRECT", "expression": "`a`.`id`"}],
-        "logic_blocks": [{"normalized_expression": "where `a`.`recd_stat` = 0"}],
+        "logic_blocks": [{"raw_expression": "WHERE `a`.`recd_stat` = 'Ab'",
+                          "normalized_expression": "where `a`.`recd_stat` = 'ab'"}],
     }
     _stamp_display_expressions(scope)
     assert scope["columns"][0]["display_expression"] == "SUM(`trn_amt`)"
     assert scope["columns"][0]["expression"] == "SUM(`a`.`trn_amt`)"   # fact untouched
-    assert scope["logic_blocks"][0]["display_expression"] == "where `recd_stat` = 0"
+    # a logic block displays its raw text, not the lower-cased comparison form
+    assert scope["logic_blocks"][0]["display_expression"] == "WHERE `recd_stat` = 'Ab'"
+    assert scope["logic_blocks"][0]["normalized_expression"] == "where `a`.`recd_stat` = 'ab'"
     # no bindings -> no stamping
     bare = {"columns": [{"name": "x", "expression": "`a`.`x`"}]}
     _stamp_display_expressions(bare)
     assert "display_expression" not in bare["columns"][0]
+
+
+def test_logic_block_display_keeps_the_raw_text_after_a_line_comment():
+    """The raw text keeps its line breaks, so a `--` comment ends at its line and an alias on
+    the next line is still resolved; the collapsed comparison form ran the comment to the end."""
+    from scope_lineage.contract.lineage import _stamp_display_expressions
+    raw = "WHERE `a`.`x` = 1 -- note\n  AND `b`.`y` = 'Q'"
+    scope = {
+        "alias_source_bindings": [{"alias": "a", "physical_source_id": "src.t_a"},
+                                  {"alias": "b", "physical_source_id": "src.t_b"}],
+        "logic_blocks": [{"raw_expression": raw,
+                          "normalized_expression": " ".join(raw.lower().split())}],
+    }
+    _stamp_display_expressions(scope)
+    assert scope["logic_blocks"][0]["display_expression"] == (
+        "WHERE `t_a`.`x` = 1 -- note\n  AND `t_b`.`y` = 'Q'"
+    )
+
+
+_DISPLAY_SCHEMA = {"src.t_a": ["id", "dt", "ts"], "src.t_b": ["id", "kind"], "dw.t_out": ["id", "k"]}
+
+
+def _root_logic_blocks(sql: str) -> dict:
+    from scope_lineage import parse_scope_lineage
+    from scope_lineage.contract.lineage import to_lineage_dict
+    document = to_lineage_dict(parse_scope_lineage(sql, "t", schema=_DISPLAY_SCHEMA))
+    return {block["logic_type"]: block for block in document["scopes"]["ROOT"]["logic_blocks"]}
+
+
+def test_parsed_logic_block_display_keeps_literal_case():
+    """End to end: join, filter and CASE blocks display their string literals as written. A
+    format string is case-sensitive (`MM` month vs `mm` minute), so lower-casing it changes
+    what the displayed expression means."""
+    blocks = _root_logic_blocks(
+        "INSERT OVERWRITE TABLE dw.t_out\n"
+        "SELECT a.id, CASE WHEN b.kind = 'Alpha' THEN 'X' ELSE 'y' END AS k\n"
+        "FROM src.t_a a LEFT JOIN src.t_b b ON a.id = b.id AND b.kind IN ('Alpha', 'BetaGamma')\n"
+        "WHERE a.dt = '20260101' AND DATE_FORMAT(a.ts, 'yyyyMMdd') = '20260101'"
+    )
+    assert blocks["join"]["display_expression"] == (
+        "`t_a`.`id` = `t_b`.`id` AND `t_b`.`kind` IN ('Alpha', 'BetaGamma')"
+    )
+    assert blocks["filter"]["display_expression"] == (
+        "WHERE `dt` = '20260101' AND DATE_FORMAT(`ts`, 'yyyyMMdd') = '20260101'"
+    )
+    assert blocks["case_when"]["display_expression"] == (
+        "CASE WHEN `kind` = 'Alpha' THEN 'X' ELSE 'y' END"
+    )
+    # the comparison form and the fingerprint stay lower-cased: they are dedup keys
+    assert blocks["filter"]["normalized_expression"] == (
+        "where `a`.`dt` = '20260101' and date_format(`a`.`ts`, 'yyyymmdd') = '20260101'"
+    )
+    assert blocks["filter"]["fingerprint"] == "filter:" + blocks["filter"]["normalized_expression"]
+
+
+def test_logic_block_with_no_bound_alias_carries_no_display():
+    """Nothing to resolve -> no display_expression, exactly as before. The raw text still differs
+    from its lower-cased comparison form, so reading the raw text must not turn the key into an
+    always-present copy of `raw_expression`."""
+    from scope_lineage.contract.lineage import _stamp_display_expressions
+    scope = {
+        "alias_source_bindings": [{"alias": "a", "physical_source_id": "src.t_a"}],
+        "logic_blocks": [{"raw_expression": "WHERE `tmp_x`.`kind` = 'Alpha'",
+                          "normalized_expression": "where `tmp_x`.`kind` = 'alpha'"}],
+    }
+    _stamp_display_expressions(scope)
+    assert "display_expression" not in scope["logic_blocks"][0]
 
 
 def test_partially_resolved_terminal_output_reports_incomplete_reasons():
@@ -81,3 +151,20 @@ def test_source_ref_dict_round_trip_preserves_candidates():
     assert restored.qualifier == "a"
     assert restored.binding_scope_id == "ROOT"
     assert restored.input_ref_id == "input:ROOT:001"
+
+
+def test_the_statement_schema_declares_display_expression_where_it_is_stamped():
+    """`_stamp_display_expressions` writes the key on outputs, columns and logic blocks; the
+    statement schema declares it on each, as a string, the way its optional siblings are."""
+    import json
+    from importlib import resources
+
+    schema = json.loads(
+        resources.files("scope_lineage.schemas")
+        .joinpath("lineage.schema.json")
+        .read_text(encoding="utf-8")
+    )
+    scope = schema["properties"]["scopes"]["additionalProperties"]["properties"]
+    for kind in ("outputs", "columns", "logic_blocks"):
+        declared = scope[kind]["items"]["properties"]["display_expression"]
+        assert declared["type"] == "string", kind

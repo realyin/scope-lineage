@@ -4,7 +4,7 @@ schema_version: "1.0"
 task_name: "golden_syntax_recovered"
 target_table: "mart.recovered"
 stmt_kind: "INSERT"
-lineage_digest: "218797d5ee71d0e6"
+lineage_digest: "56f52aab0c452a2a"
 ---
 
 # 任务语义描述 mart.recovered

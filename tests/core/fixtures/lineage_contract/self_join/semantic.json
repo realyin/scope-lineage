@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "schema_version": "1.0",
   "statement_id": "stmt:001",
-  "lineage_digest": "a6d1920bdb12ab1a",
+  "lineage_digest": "dec803959cc8797e",
   "task": {
     "task_name": "golden_self_join",
     "target_table": "mart.node_edges",

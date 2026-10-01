@@ -1132,7 +1132,7 @@
             "is_partition_filter": false,
             "has_partition_predicate": false
           },
-          "display_expression": "where `rn` = 1"
+          "display_expression": "WHERE `rn` = 1"
         }
       ],
       "outputs": [
@@ -2078,7 +2078,7 @@
             "has_constant_mapping": false,
             "has_partition_filter": false
           },
-          "display_expression": "sum(`amount`)"
+          "display_expression": "SUM(`amount`)"
         }
       ],
       "outputs": [
@@ -2559,7 +2559,7 @@
             ],
             "trace_status": "complete"
           },
-          "display_expression": "row_number() over (order by `total_amount` desc)"
+          "display_expression": "ROW_NUMBER() OVER (ORDER BY `total_amount` DESC)"
         }
       ],
       "outputs": [

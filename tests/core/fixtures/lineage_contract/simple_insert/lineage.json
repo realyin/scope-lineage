@@ -353,7 +353,7 @@
             "is_partition_filter": false,
             "has_partition_predicate": false
           },
-          "display_expression": "where `is_active` = 1"
+          "display_expression": "WHERE `is_active` = 1"
         }
       ],
       "outputs": [

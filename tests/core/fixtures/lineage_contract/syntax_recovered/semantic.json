@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "schema_version": "1.0",
   "statement_id": "stmt:001",
-  "lineage_digest": "218797d5ee71d0e6",
+  "lineage_digest": "56f52aab0c452a2a",
   "task": {
     "task_name": "golden_syntax_recovered",
     "target_table": "mart.recovered",

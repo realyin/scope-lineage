@@ -309,7 +309,8 @@ Every logic block has at least:
 | `logic_block_id` | string | A stably referenceable logic ID. |
 | `logic_type` | string | Such as `join`, `filter`, `aggregate`, `group_by`, `window`. |
 | `raw_expression` | string/null | The expression close to the original SQL. |
-| `normalized_expression` | string/null | A normalized expression for comparison and search. |
+| `normalized_expression` | string/null | A normalized expression for comparison and search: all lower case with whitespace collapsed, **string literals lower-cased too**. Use it to compare and deduplicate, never to display. |
+| `display_expression` | string | Optional; present only when alias resolution changes the text: `raw_expression` with this scope's local FROM aliases rewritten to the real table, for display. String literals, comments, case and whitespace stay as written. Read it to show a condition; compare and deduplicate with `normalized_expression` / `fingerprint`. |
 | `fingerprint` | string/null | A dedup fingerprint formed from the type plus the normalized expression. |
 | `fields[]` | array<object> | Fields the expression references directly; elements carry at least `scope` and `column`. |
 | `output_fields[]` | array<string> | The scope output fields this logic produces or affects. |
@@ -365,6 +366,7 @@ Main keys:
 | `output_ordinal` | Zero-based output position; with duplicate field names or several MERGE branches, name alone is not enough to tell them apart. |
 | `transform` | Coarse-grained transform: `DIRECT`, `EXPRESSION`, `AGGREGATE`, `WINDOW`, `CONDITIONAL`, `CONSTANT`, `UNION`, `EXPAND_ALL`. |
 | `expression` | The SQL expression in this scope. |
+| `display_expression` | Optional; present only when alias resolution changes the text: `expression` with this scope's local FROM aliases rewritten to the real table, for display -- the qualifier is dropped when every alias names one physical source (bare column), and each column is qualified with its real table across several. String literals, comments and case stay as written. A display form only: the `expression` / `expression_resolution` lineage facts are untouched; mapping.md prefers it when rendering a step's expression. |
 | `expanded_expression` | The expression expanded to physical-source qualified names as far as possible. |
 | `expansion_truncated` | Present (true) only when the expansion stopped at a guard: the text is cut and ends in `/* expansion truncated at <guard>=<limit> */`. Only the text is cut — the source facts, the chain and the end-to-end lineage stay complete. |
 | `expansion_limit` | Present alongside `expansion_truncated`: `{guard, limit}`, which guard stopped it and at which number. |
@@ -552,7 +554,8 @@ mapping chain or end-to-end lineage.
 
 `columns[]` is closer to the parser's raw column model and usually contains `name`, `transform`,
 `expression`, and `sources[]`, and may keep transform-specific extras such as `agg_function`,
-`case_branches`, `window`, or UNION branches.
+`case_branches`, `window`, or UNION branches. `display_expression` follows the same rule as the
+key of that name on `outputs[]`.
 
 New consumers should prefer `outputs[]`, which adds expression resolution, logic-block references,
 downstream fields, final targets, and consumer readiness. `columns[]` is mainly for:

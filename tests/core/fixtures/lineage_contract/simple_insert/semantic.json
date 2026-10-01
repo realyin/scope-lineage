@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "schema_version": "1.0",
   "statement_id": "stmt:001",
-  "lineage_digest": "1e33f30b4f377c8a",
+  "lineage_digest": "a23847b8454847b7",
   "task": {
     "task_name": "golden_simple_insert",
     "target_table": "mart.user_names",

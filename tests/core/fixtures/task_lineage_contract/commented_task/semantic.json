@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "artifact_kind": "task_semantic",
   "task_id": "golden_commented_task",
-  "lineage_digest": "5dab493663acc318",
+  "lineage_digest": "bb545cedd7b03c7c",
   "produced_tables": [
     "mart.channel_summary"
   ],
@@ -12,7 +12,7 @@
       "doc_format": "semantic-json/1",
       "schema_version": "1.0",
       "statement_id": "stmt:001",
-      "lineage_digest": "6ee5e5a1cc60e1bf",
+      "lineage_digest": "580c3c556e350e2a",
       "task": {
         "task_name": "golden_commented_task#0",
         "target_table": "mart.channel_summary",

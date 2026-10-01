@@ -4,11 +4,11 @@
     "artifact_root": "corpus",
     "task_count": 5,
     "lineage_digests": {
-      "golden_commented_insert": "2802dca5f469248e",
-      "golden_commented_task": "5dab493663acc318",
+      "golden_commented_insert": "2ba4852854ec6ce5",
+      "golden_commented_task": "bb545cedd7b03c7c",
       "golden_directory_target": "1ba502ab8f5efe17",
-      "golden_grouped_dedup_join": "0c34ee38cff93f20",
-      "golden_simple_insert": "1e33f30b4f377c8a"
+      "golden_grouped_dedup_join": "66a2fc769ee91f3c",
+      "golden_simple_insert": "a23847b8454847b7"
     }
   },
   "concepts": [

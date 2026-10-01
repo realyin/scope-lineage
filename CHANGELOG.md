@@ -204,6 +204,17 @@
   in.** A binding's column was compared with the card's column names as written, so a card
   listing `LOAN_STATUS` as unused left the binding `loan_status` unmarked. Both sides are
   now compared in lower case.
+- **A logic block's `display_expression` keeps the SQL as written.** `lineage.json` built it
+  from `normalized_expression`, the lower-cased comparison key, so a JOIN / WHERE / CASE block
+  displayed `IN ('Abc')` as `in ('abc')` and a format string `'yyyyMMdd'` as `'yyyymmdd'`
+  (in Spark, `MM` is the month and `mm` the minute). It is now built from `raw_expression`:
+  string literals, comments, case and whitespace stay as written, and only the local FROM
+  aliases are rewritten, exactly as on `outputs[]` / `columns[]`. Which blocks carry the key
+  is unchanged (present only when alias resolution changes the text). `normalized_expression`
+  and `fingerprint` are unchanged. No reader in this package consumed the field, so mapping.md
+  and every other derived artifact change only in their `lineage_digest` values. The
+  statement schema (`lineage.schema.json`) now declares `display_expression` on `outputs[]`,
+  `columns[]` and `logic_blocks[]`, and `lineage-json.md` (both languages) documents it.
 - **A column repeating another record's attribute of the same concept can be bound.** A
   table holding another instance of its own concept (a `foreign_identifier` under a self
   relation) often repeats that instance's attributes next to it; `validate` rejected

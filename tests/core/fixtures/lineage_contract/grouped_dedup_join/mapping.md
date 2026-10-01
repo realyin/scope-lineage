@@ -4,7 +4,7 @@ schema_version: "1.0"
 task_name: "golden_grouped_dedup_join"
 target_table: "mart.metric_by_segment"
 stmt_kind: "INSERT_OVERWRITE"
-lineage_digest: "0c34ee38cff93f20"
+lineage_digest: "66a2fc769ee91f3c"
 ---
 
 # 字段映射文档 mart.metric_by_segment

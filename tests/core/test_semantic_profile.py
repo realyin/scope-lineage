@@ -545,7 +545,7 @@ def test_case_rules_split_branches_from_the_raw_expression_not_the_display_form(
         {"when": "COALESCE(paid_amount_30d, 0) >= 1000", "then": "'MEDIUM'"},
     ]
     assert case_rule["else"] == "'STANDARD'"
-    # display_expression would have lower-cased the labels
+    # the labels keep their case as written
     assert "'high'" not in json.dumps(case_rule, ensure_ascii=False)
     # the CASE reads a CTE column, so there is no physical field to claim
     assert case_rule["fields"] == []

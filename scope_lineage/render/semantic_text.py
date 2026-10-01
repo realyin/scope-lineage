@@ -12,10 +12,10 @@ Two rules the templates never break:
   常量 / 合并 / 过滤 / 投影) and may echo an expression verbatim; it may never name a
   business concept. Anything the vocabulary cannot restate returns ``None`` and the
   caller keeps the raw expression instead of guessing.
-- **Literals come from the raw expression.** The contract's ``display_expression`` is a
-  reader-facing form that lower-cases string literals (``'HIGH'`` renders as ``'high'``),
-  so callers must pass ``raw_expression`` / ``expression_sql`` / the end-to-end
-  ``expression``, and the templates echo what they are given.
+- **Literals come from the raw expression.** Callers pass ``raw_expression`` /
+  ``expression_sql`` / the end-to-end ``expression`` -- the verbatim text, always present
+  -- rather than ``display_expression``, which appears only when alias resolution changed
+  the text; the templates echo what they are given, string literals keeping their case.
 
 Identifiers are re-rendered without their backticks and a bare column is printed by its
 column name alone; the qualified fact stays in the profile's ``sources[]``, so the
