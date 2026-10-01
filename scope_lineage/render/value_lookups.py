@@ -28,10 +28,9 @@ The wording is deliberately neutral: a read is "rows of <table> where <column> =
 version as often as a dictionary type. The catalog, when given, says which ones are code
 sets.
 
-Nothing here reads ``join_relation_detail.right_alias`` (one alias is shared by every JOIN
-of one source in a scope) or ``display_expression`` (it lower-cases literals): the input
-is identified by ``input_ref_id`` and the literal read from ``condition_filters[]
-.expression`` and the scope ``filters``.
+Nothing here reads ``join_relation_detail.right_alias`` or ``display_expression``: the
+input is identified by ``input_ref_id`` and the literal read verbatim from
+``condition_filters[].expression`` and the scope ``filters``.
 """
 
 from __future__ import annotations

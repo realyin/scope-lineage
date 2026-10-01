@@ -1769,6 +1769,28 @@
         "join_type": {
           "type": "string"
         },
+        "left_input": {
+          "type": "string",
+          "description": "The scope's first FROM source (a db.table or a scope id), not necessarily the side the ON condition references; each key's own left side is join_key_pairs[].left."
+        },
+        "right_input": {
+          "type": "string",
+          "description": "The source this JOIN adds (a db.table or a scope id)."
+        },
+        "left_alias": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The alias of left_input (in a chained self-join, the alias joined immediately before)."
+        },
+        "right_alias": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The alias this JOIN gives right_input; a source joined several times has one per JOIN."
+        },
         "join_key_pairs": {
           "type": "array",
           "items": {

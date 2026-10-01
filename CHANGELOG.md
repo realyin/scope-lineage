@@ -200,6 +200,16 @@
   meaning or the key says so with `holds`.
 
 ### Fixed
+- **Each JOIN of a source read under several aliases reports its own `right_alias`.**
+  `join_relation_detail.right_alias` came from a map keeping one alias per source, so a
+  source joined as `b`, `c` and `b1` reported `b1` on all three JOINs while their key pairs
+  named `b` and `c`; the JOIN's own alias was only a fallback. It now comes first, as the
+  self-join path already did. `target_self_reference`, which locates the target's alias and
+  partition predicate through that alias, is corrected with it: a statement reading its own
+  target twice (say as `p` and `q`) annotated the first JOIN with `q` and an unproven offset,
+  and now gives each JOIN its own alias and day offset. `left_input` / `left_alias` keep
+  naming the scope's first FROM source. The four keys are now declared in the statement
+  schema and documented in `lineage-json.md` (both languages). No golden output changes.
 - **`catalog build --tables` marks `declared_only` whatever case a card spells its columns
   in.** A binding's column was compared with the card's column names as written, so a card
   listing `LOAN_STATUS` as unused left the binding `loan_status` unmarked. Both sides are
