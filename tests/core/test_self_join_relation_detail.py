@@ -256,3 +256,62 @@ def test_the_statement_schema_declares_the_join_sides():
     declared = schema["definitions"]["join_relation_detail"]["properties"]
     for key in ("left_input", "right_input", "left_alias", "right_alias"):
         assert key in declared, key
+
+
+# -- a chain over a repeated source whose FROM base is another source ----------------
+# The chained-self-join rule (left side = the source's aliases joined before this hop)
+# applied only when the FROM base was that same source; with another FROM base the left
+# side was the FROM base alias alone, so `b.p = b1.v` was refused as a key.
+
+
+def _key_sides(detail):
+    return [(p["left"]["qualifier"], p["right"]["qualifier"]) for p in detail["join_key_pairs"]]
+
+
+def test_a_chained_join_of_a_repeated_source_keeps_its_key():
+    result = _repeat_result()
+    last = _join_details(result)[-1]
+    assert _key_sides(last) == [("b", "b1")]
+    assert [f["expression"] for f in last["condition_filters"]] == ["`b1`.`ty` = 'Z'"]
+    assert last["trace_status"] == "complete"
+    assert "missing_join_key_pairs" not in last["missing_reasons"]
+    assert not [w for w in result.diagnostics.warnings if w.type == "join_keys_not_split"]
+
+
+def test_a_later_hop_keys_on_every_earlier_alias_of_its_source():
+    # b2 keys on b (two hops back) and b1 (the hop before); taking only the previous
+    # hop, as the self-join branch's single left_alias does, would refuse `b.p = b2.v`
+    result = parse_scope_lineage(
+        "INSERT OVERWRITE TABLE dw.t_out SELECT a.id, b.nm AS n1, b1.nm AS n2, b2.nm AS n3 "
+        "FROM src.t_a a JOIN src.t_d b ON a.k1 = b.v "
+        "JOIN src.t_d b1 ON b.p = b1.v "
+        "JOIN src.t_d b2 ON b.p = b2.v AND b1.p = b2.p",
+        task_name="demo",
+        schema=REPEAT_SCHEMA,
+    )
+    assert [_key_sides(d) for d in _join_details(result)] == [
+        [("a", "b")],
+        [("b", "b1")],
+        [("b", "b2"), ("b1", "b2")],
+    ]
+
+
+def test_a_repeated_source_chain_leaves_the_first_hop_and_the_from_base_alone():
+    details = _join_details(_repeat_result())
+    assert _key_sides(details[0]) == [("a", "b")]
+    assert _key_sides(details[1]) == [("a", "c")]
+    assert {(d["left_input"], d["left_alias"]) for d in details} == {("src.t_a", "a")}
+
+
+def test_an_equality_between_two_earlier_aliases_of_a_repeated_source_stays_a_filter():
+    result = parse_scope_lineage(
+        "INSERT OVERWRITE TABLE dw.t_out SELECT a.id, b.nm AS n1, c.nm AS n2, b1.nm AS n3 "
+        "FROM src.t_a a JOIN src.t_d b ON a.k1 = b.v "
+        "JOIN src.t_d c ON a.k2 = c.v "
+        "JOIN src.t_d b1 ON b1.v = a.k1 AND b.p = c.p",
+        task_name="demo",
+        schema=REPEAT_SCHEMA,
+    )
+    last = _join_details(result)[-1]
+    assert _key_sides(last) == [("a", "b1")]
+    assert [f["expression"] for f in last["condition_filters"]] == ["`b`.`p` = `c`.`p`"]
