@@ -443,12 +443,12 @@ def test_a_latin_word_hint_matches_whole_words_only(text: str, expected: list) -
 
 def _junk_only_corpus(comment: str) -> tuple[dict, dict]:
     ontology = _ontology(
-        _entity("ods.queue_a", keys=["queue_no"], comment=comment),
-        _entity("ods.queue_b", keys=["queue_no"], comment=comment),
+        _entity("ods.contract_a", keys=["contract_no"], comment=comment),
+        _entity("ods.contract_b", keys=["contract_no"], comment=comment),
     )
     cards = _cards(
-        _card("ods.queue_a", comment=comment, columns=["queue_no"]),
-        _card("ods.queue_b", comment=comment, columns=["queue_no"]),
+        _card("ods.contract_a", comment=comment, columns=["contract_no"]),
+        _card("ods.contract_b", comment=comment, columns=["contract_no"]),
     )
     return ontology, cards
 
@@ -456,19 +456,19 @@ def _junk_only_corpus(comment: str) -> tuple[dict, dict]:
 @pytest.mark.parametrize(
     ("comment", "expected"),
     [
-        ("2月时段队列欠款", "队列"),
-        ("已到期队列欠款", "队列"),
-        ("未到期队列首期金额", "队列"),
-        ("2024年队列统计", "队列"),
+        ("2月时段合同欠款", "合同"),
+        ("已到期合同欠款", "合同"),
+        ("未到期合同首期金额", "合同"),
+        ("2024年合同统计", "合同"),
     ],
 )
 def test_a_clean_phrase_inside_a_junk_comment_beats_the_bare_stem(
     comment: str, expected: str
 ) -> None:
-    """`queue` is the warehouse's spelling; 队列 was in the comment all along."""
+    """`contract` is the warehouse's spelling; 合同 was in the comment all along."""
     ontology, cards = _junk_only_corpus(comment)
 
-    concept = _concepts(ontology, cards)["concept:queue"]
+    concept = _concepts(ontology, cards)["concept:contract"]
 
     assert concept["name"] == expected
     assert concept["name_tier"] == TIER_HYPOTHESIS
@@ -479,12 +479,12 @@ def test_a_clean_phrase_inside_a_junk_comment_beats_the_bare_stem(
 
 def test_a_concept_no_comment_named_says_its_name_is_only_the_stem() -> None:
     """The negative of the rescue: nothing to recover, so the tier says so."""
-    ontology = _ontology(_entity("ods.queue_a", keys=["queue_no"]))
-    cards = _cards(_card("ods.queue_a", columns=["queue_no"]))
+    ontology = _ontology(_entity("ods.contract_a", keys=["contract_no"]))
+    cards = _cards(_card("ods.contract_a", columns=["contract_no"]))
 
-    concept = _concepts(ontology, cards)["concept:queue"]
+    concept = _concepts(ontology, cards)["concept:contract"]
 
-    assert concept["name"] == "queue"
+    assert concept["name"] == "contract"
     assert concept["name_tier"] == TIER_STEM_ONLY
     assert [str(item["source"]) for item in concept["name_candidates"]] == [
         NAME_FROM_STEM
@@ -495,19 +495,19 @@ def test_a_junk_comment_with_no_chinese_left_keeps_the_stem_tier() -> None:
     """The negative again: 欠款 alone recovers nothing, so the stem stands and says so."""
     ontology, cards = _junk_only_corpus("2月欠款")
 
-    concept = _concepts(ontology, cards)["concept:queue"]
+    concept = _concepts(ontology, cards)["concept:contract"]
 
-    assert concept["name"] == "queue"
+    assert concept["name"] == "contract"
     assert concept["name_tier"] == TIER_STEM_ONLY
 
 
 def test_a_named_concept_is_still_a_hypothesis() -> None:
     """The negative for the tier: a comment named it, so nothing changed."""
-    ontology, cards = _junk_only_corpus("队列信息表")
+    ontology, cards = _junk_only_corpus("合同信息表")
 
-    concept = _concepts(ontology, cards)["concept:queue"]
+    concept = _concepts(ontology, cards)["concept:contract"]
 
-    assert concept["name"] == "队列"
+    assert concept["name"] == "合同"
     assert concept["name_tier"] == TIER_HYPOTHESIS
 
 
@@ -516,7 +516,7 @@ def test_a_named_concept_is_still_a_hypothesis() -> None:
 # Two more the wide corpus found, each with its cause named. A fold: two members whose
 # comments differ only in their tail fold to the longest common prefix, and that prefix
 # was published as it fell out of the comparison -- dash, storage suffix and all. And a
-# kind: a concept keyed by 机构 whose members are daily outsourcing *reports* came out an
+# kind: a concept keyed by 机构 whose members are daily disbursement *reports* came out an
 # `event`, because the validity window in its key (`…_start_dt`) voted as an event time
 # while the three 「日报」 word hints, which describe each member's *shape*, were outvoted
 # as if they described the concept.
@@ -603,14 +603,14 @@ def test_a_time_that_names_what_happened_is_still_an_event_time(
 
 
 def _report_corpus() -> tuple[dict, dict]:
-    """Three daily outsourcing reports, keyed by the 机构 and its validity window."""
+    """Three daily disbursement reports, keyed by the 机构 and its validity window."""
     tables = ("dws.out_agent_rpt_df", "dws.out_agent_day_df", "dws.out_agent_sum_df")
     ontology = _ontology(
         *(
             _entity(
                 table,
                 keys=["agent_no", "out_agent_start_dt"],
-                comment="机构外包日报",
+                comment="机构放款日报",
                 attributes=[
                     _attribute("agent_no", comment="机构名称"),
                     _attribute("out_agent_start_dt", type_="date"),
@@ -623,7 +623,7 @@ def _report_corpus() -> tuple[dict, dict]:
         *(
             _card(
                 table,
-                comment="机构外包日报",
+                comment="机构放款日报",
                 columns=["agent_no", "out_agent_start_dt"],
             )
             for table in tables

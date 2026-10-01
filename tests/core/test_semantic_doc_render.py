@@ -567,7 +567,7 @@ ANONYMOUS_SQL = """
 INSERT OVERWRITE TABLE mart.notify_payload
 SELECT o.contract_no AS contract_no,
        CONCAT('{"code":"', o.contract_no, '","cust":"', o.customer_no, '"}')
-FROM (SELECT a.contract_no, a.customer_no FROM ods.enqueue_list a) o
+FROM (SELECT a.contract_no, a.customer_no FROM ods.apply_list a) o
 """
 
 

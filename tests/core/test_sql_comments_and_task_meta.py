@@ -38,7 +38,7 @@ SELECT
   a.cust_id AS cust_id,  -- 客户号
   /* 金额（元） */
   SUM(b.amt) AS total_amt,
-  'SF' AS channel -- 自营暂固定为 SF
+  'SF' AS channel -- 线上暂固定为 SF
 FROM ods.customer a
 LEFT JOIN ods.payment b ON a.cust_id = b.cust_id  -- 按客户号关联
 WHERE a.status = '1' -- 仅活跃
@@ -108,7 +108,7 @@ def test_an_alias_comment_is_published_on_that_output_column() -> None:
     outputs = _outputs(_document())
     assert outputs["cust_id"]["comments"] == ["客户号"]
     assert outputs["total_amt"]["comments"] == ["金额（元）"]
-    assert outputs["channel"]["comments"] == ["自营暂固定为 SF"]
+    assert outputs["channel"]["comments"] == ["线上暂固定为 SF"]
 
 
 def test_an_output_without_a_comment_omits_the_key() -> None:

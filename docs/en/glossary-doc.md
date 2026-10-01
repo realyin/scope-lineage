@@ -325,7 +325,7 @@ Other rules:
      comment is read (source or target table), in every observation context (`filter_eq` /
      `filter_in` / `case_condition` / `case_then` / `constant_projection` /
      `union_constant`). The space-only form needs **at least two pairs** to count as a
-     table -- `队列编码，99 表示无效` is one sentence, not a table. Brackets became
+     table -- `产品编码，99 表示无效` is one sentence, not a table. Brackets became
      separators in P5b: `余额类别(Int-利息，…，IntFee-息费)` is how a comment writes a code
      table when it also has to say what the column is, and reading the bracket as ordinary
      text glued `余额类别(Int` into one token (losing the first pair) and left a stray `)`
@@ -355,7 +355,7 @@ Other rules:
      those three codes share a bucket, not what any one of them means. It may also carry
      `conditional: true` with a `condition` (Q1b): **another branch of the same CASE tested
      this value beside a second predicate** (`WHEN col = 'v' AND report_dt >= '20260101'
-     THEN '自营'`, followed by a plain `WHEN col = 'v' THEN '外包'`). The compound branch
+     THEN '线上'`, followed by a plain `WHEN col = 'v' THEN '线下'`). The compound branch
      labels the combination and produces no observation, so the plain one used to print as
      a clean one-to-one translation -- it is the second half of a two-part rule. **Every**
      candidate that CASE gives the value is then marked `conditional: true`, `condition`
@@ -366,8 +366,8 @@ Other rules:
   A candidate also carries `single_branch: true` when `fan_out` is 1 but the labelling
   system it came from is **sorting** rather than translating -- either because it buckets
   the column's **other** values (Q1), or because its **ELSE is a label of its own** (Q1b).
-  `CASE WHEN col = 'X' THEN '自营' ELSE '委外' END` splits the column into two classes and
-  the ELSE covers every other value, so `自营` is one side of a classification rather than
+  `CASE WHEN col = 'X' THEN '线上' ELSE '线下' END` splits the column into two classes and
+  the ELSE covers every other value, so `线上` is one side of a classification rather than
   the meaning of `X`. Only the ELSE decides: a **scalar constant that is not `NULL`**
   classifies (`ELSE NULL` says the other values have no label at all, `ELSE gap` is the
   row's own value). The exception: when that system gives **every observed value of the
@@ -447,7 +447,7 @@ reason.
 | No switches | `Y` / `N` / `yes` / `no` / `true` / `false` (case-insensitively) answer "yes or no", which the reader already knows -- **unless the column's own comment enumerates the value** (P5b, it carries a `comment_enum` candidate): which is which has then been written down, and the row closes by reading |
 | No bare numbers | `rn = 1` and `flag = 0` are positions and switches -- **excluded even inside a proven closed set**, because `IN (0, 1, 2)` only pins a position to a set. The same exception applies: `0-未生效，1-生效` in the comment makes them askable |
 | No date-shaped literals | `'20260814'` is an instance date, not a code (see `instance_date` in the semantic doc) |
-| No self-describing values | `委外` and `触达成功` are already words, and defining one means writing it again (P5b): a value of **two or more CJK characters with no `[0-9A-Za-z_]` in it** is published in the dictionary but left out of the form, while mixed values like `SF_S1_1_1` and `A1` stay askable |
+| No self-describing values | `线下` and `已放款` are already words, and defining one means writing it again (P5b): a value of **two or more CJK characters with no `[0-9A-Za-z_]` in it** is published in the dictionary but left out of the form, while mixed values like `SF_S1_1_1` and `A1` stay askable |
 | No column left with fewer than two values | One value is not a code system, and the answer describes no set -- a statement about what earns a place in the form, not about what may be asked, so the uncapped form (`--template-top 0`) keeps them (WI-D) |
 | Nothing already confirmed | A value whose `meaning` already carries text is not asked twice |
 
@@ -658,7 +658,7 @@ WI-2.4b adds two bounds to that line:
 ### The rule and term layers: `rules[].value_meanings` and `term_meaning` (WI-2.12)
 
 A warehouse keeps most of its business codes off the output columns: in
-`WHERE queue_code IN ('01','07')`, in a join's extra condition, in a CASE **condition**.
+`WHERE product_code IN ('01','07')`, in a join's extra condition, in a CASE **condition**.
 A `value_domain` hangs off an output column, so a corpus could confirm all seventeen codes
 and a task's document would still explain four fields — the answer never reached the line
 the code is written on. With `--glossary`:
@@ -672,7 +672,7 @@ the code is written on. With `--glossary`:
 | `confidence.confirmations.rule_values_confirmed` | How many codes the rule layer has answered, counted apart from the field layer's `values_confirmed` |
 
 Three matching changes in `semantic.md`: a restated filter / join in section 3 ends in
-「（取值：'01'＝人工队列）」 (only the answered ones, 「等 N 个，见规则表」 past three);
+「（取值：'01'＝消费贷）」 (only the answered ones, 「等 N 个，见规则表」 past three);
 section 4's rule table gains a 「取值含义」 column after 「条件」 (absent as a whole when
 nothing was answered); and a field subsection in section 5 gains a
 `- 术语：…（人工确认）` line after `- 目标注释：`, with a matching 「术语」 column in the

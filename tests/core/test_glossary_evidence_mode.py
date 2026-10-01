@@ -338,7 +338,7 @@ def test_a_comment_candidate_and_a_case_label_are_both_offered() -> None:
 # ------------------------------------------------------------- 3. the form's evidence
 
 
-_EVIDENCE_COLUMNS = ["id", "channel", "queue"]
+_EVIDENCE_COLUMNS = ["id", "channel", "product"]
 
 _EVIDENCE_SCHEMA = SchemaMap(
     {"ods.event": _EVIDENCE_COLUMNS},
@@ -346,16 +346,16 @@ _EVIDENCE_SCHEMA = SchemaMap(
         "ods.event": [
             {"name": "id", "type": "bigint", "comment": None},
             {"name": "channel", "type": "string", "comment": "AA-线上，BB-线下"},
-            {"name": "queue", "type": "string", "comment": None},
+            {"name": "product", "type": "string", "comment": None},
         ]
     },
 )
 
-# `queue` has three values to `channel`'s two, so the old ranking puts it first; only
+# `product` has three values to `channel`'s two, so the old ranking puts it first; only
 # `channel` carries evidence anybody could confirm from.
 _EVIDENCE_SQL = (
     "INSERT INTO mart.t SELECT e.id FROM ods.event e "
-    "WHERE e.channel IN ('AA', 'BB') AND e.queue IN ('Q1', 'Q2', 'Q3')"
+    "WHERE e.channel IN ('AA', 'BB') AND e.product IN ('P1', 'P2', 'P3')"
 )
 
 
@@ -367,7 +367,7 @@ def test_the_form_asks_the_columns_that_carry_evidence_first() -> None:
     entries = template_entries(_evidence_glossary())
 
     assert [item["column"] for item in entries][:2] == ["channel", "channel"]
-    assert {item["column"] for item in entries} == {"channel", "queue"}
+    assert {item["column"] for item in entries} == {"channel", "product"}
 
 
 def test_the_form_names_the_evidence_each_value_has() -> None:

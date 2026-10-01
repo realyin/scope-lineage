@@ -363,23 +363,23 @@ def test_join_relations_render_physical_key_pairs() -> None:
 
 
 CTE_PAIR_JOIN_SQL = """
-INSERT INTO mart.queue_stats
+INSERT INTO mart.product_stats
 WITH dim_base AS (
-  SELECT queuecode, operator FROM ods.tasks
+  SELECT productcode, operator FROM ods.tasks
 ),
 repay AS (
-  SELECT queuecode, COUNT(1) AS repay_cnt FROM ods.tasks GROUP BY queuecode
+  SELECT productcode, COUNT(1) AS repay_cnt FROM ods.tasks GROUP BY productcode
 ),
-call_agg AS (
-  SELECT queuecode, COUNT(1) AS call_cnt FROM ods.tasks GROUP BY queuecode
+visit_agg AS (
+  SELECT productcode, COUNT(1) AS visit_cnt FROM ods.tasks GROUP BY productcode
 )
-SELECT db.queuecode, db.operator, rp.repay_cnt, ca.call_cnt
+SELECT db.productcode, db.operator, rp.repay_cnt, ca.visit_cnt
 FROM dim_base db
-LEFT JOIN repay rp ON db.queuecode = rp.queuecode
-LEFT JOIN call_agg ca ON db.queuecode = ca.queuecode
+LEFT JOIN repay rp ON db.productcode = rp.productcode
+LEFT JOIN visit_agg ca ON db.productcode = ca.productcode
 """
 
-CTE_PAIR_SCHEMA = {"ods.tasks": ["queuecode", "operator"]}
+CTE_PAIR_SCHEMA = {"ods.tasks": ["productcode", "operator"]}
 
 
 def test_cte_only_joins_stay_out_of_the_table_level_overview() -> None:
@@ -391,10 +391,10 @@ def test_cte_only_joins_stay_out_of_the_table_level_overview() -> None:
     overview = rendered.split("## 3.")[1].split("## 4.")[0]
     assert "cte:repay" not in overview
     assert "中间结果" in overview
-    assert "ods.tasks.queuecode = ods.tasks.queuecode" not in rendered
+    assert "ods.tasks.productcode = ods.tasks.productcode" not in rendered
     # the CTE-level relations remain addressable in the logic section
     detail = rendered.split("## 6.")[1].split("## 7.")[0]
-    assert "cte:repay" in detail and "cte:call_agg" in detail
+    assert "cte:repay" in detail and "cte:visit_agg" in detail
 
 
 def test_overview_lists_physical_table_pairs_with_short_keys() -> None:

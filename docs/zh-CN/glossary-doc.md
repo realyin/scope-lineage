@@ -271,7 +271,7 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
      「注释线索」列照写。分隔符认 `，,;；|/、`、括号 `()（）[]【】` 与空格，码与含义之间认
      `-`、`:`、`=`、`：` 或一个空格；只读**该列自己的**注释（源表或目标表都算），与观察语境
      （`filter_eq` / `filter_in` / `case_condition` / `case_then` / `constant_projection` /
-     `union_constant`）无关。只靠空格分隔的写法要**至少两对**才算码表——`队列编码，99 表示无效`
+     `union_constant`）无关。只靠空格分隔的写法要**至少两对**才算码表——`产品编码，99 表示无效`
      是一句话，不是一张表。括号算分隔符是 P5b 补的：`余额类别(Int-利息，…，IntFee-息费)` 是注释
      既要说这列是什么、又要写码表时的常见写法，不拆括号会把 `余额类别(Int` 粘成一个词（丢掉第一
      对），并给最后一个含义留下一个 `)`。
@@ -291,8 +291,8 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
      **分桶**，`text` 写成 `分类桶：<标签>（同桶 N 个值）`——`WHEN s IN ('AA','BB','CC') THEN
      '进行中'` 说的是这三个码同属一桶，没说其中任何一个是什么意思。它还可能带
      `conditional: true` 与 `condition`（Q1b）：**同一条 CASE 里有别的分支把这个取值和另一个谓词
-     写在一起**（`WHEN col = 'v' AND report_dt >= '20260101' THEN '自营'`，随后又有一条光杆的
-     `WHEN col = 'v' THEN '外包'`）。复合条件标的是组合、本来就不产生观察，于是光杆那条曾被印成
+     写在一起**（`WHEN col = 'v' AND report_dt >= '20260101' THEN '线上'`，随后又有一条光杆的
+     `WHEN col = 'v' THEN '线下'`）。复合条件标的是组合、本来就不产生观察，于是光杆那条曾被印成
      一条干干净净的一对一翻译——它其实是两段规则的后一半。这时**这条 CASE 给这个取值的每条候选**
      都带上 `conditional: true`，`condition` 写那个多出来的谓词原文，`text` 前面加「有条件：」，
      它不是可自答的证据。
@@ -317,8 +317,8 @@ scope-lineage glossary --lineage /path/to/corpus --out /path/to/dict --increment
 - `meaning_candidates[].single_branch`：`fan_out` 是 1，但产出它的那套体系在**做分类**而不是在
   做翻译——独占一个分支的那个取值不因此就有了定义。它**不是**可自答的证据。两种分类都算：
   那套体系把同一列的**别的**取值分了桶（Q1），或者它的 **ELSE 本身就是一个标签**（Q1b）。
-  `CASE WHEN col = 'X' THEN '自营' ELSE '委外' END` 把这一列分成了两类，`ELSE` 罩住了这一列
-  其余**每一个**取值，`自营` 是分类的一边而不是 `X` 的含义。判定只看 ELSE：**标量常量且不是
+  `CASE WHEN col = 'X' THEN '线上' ELSE '线下' END` 把这一列分成了两类，`ELSE` 罩住了这一列
+  其余**每一个**取值，`线上` 是分类的一边而不是 `X` 的含义。判定只看 ELSE：**标量常量且不是
   `NULL`** 才算分类（`ELSE NULL` 说的是别的取值压根没有标签，`ELSE gap` 是这一行自己带的值，
   两者都不算）。**例外**：这套体系给该列**每一个已观察取值**都配了自己的 THEN 分支时，ELSE 是
   一条谁也走不到的兜底，这条 CASE 是一张穷尽的码表，它的标签照样可自答。
@@ -389,7 +389,7 @@ scope-lineage glossary --lineage corpus --out dict --overrides dict/glossary.ove
 | 排除开关 | `Y` / `N` / `yes` / `no` / `true` / `false`（不区分大小写）答的是「是或否」，读者本来就知道——**除非该列自己的注释把它枚举了出来**（P5b，该取值有 `comment_enum` 候选）：那时「哪个是哪个」已经写下来了，这一行读一读就能关掉 |
 | 排除裸数字 | `rn = 1`、`flag = 0` 是位置与开关；**即使落在已证明封闭的集合里也不问**（`IN (0, 1, 2)` 只是把位置钉在一个集合里）。同样适用上面那条例外：`0-未生效，1-生效` 写在注释里时照问 |
 | 排除日期形字面量 | `'20260814'` 是实例日期，不是编码（见 semantic 文档的 `instance_date`） |
-| 排除中文自述取值 | `委外`、`触达成功` 本身就是词，定义它只能把它再写一遍（P5b）：**两个以上汉字且不含 `[0-9A-Za-z_]`** 的取值照常发布进字典，但不进待填表；`SF_S1_1_1`、`A1` 这类混写的仍然要问 |
+| 排除中文自述取值 | `线下`、`已放款` 本身就是词，定义它只能把它再写一遍（P5b）：**两个以上汉字且不含 `[0-9A-Za-z_]`** 的取值照常发布进字典，但不进待填表；`SF_S1_1_1`、`A1` 这类混写的仍然要问 |
 | 排除只剩一个取值的整列 | 一个取值不成编码体系，答完也说不出一个集合——这是「值不值得排进表单」而不是「不许问」，所以 `--template-top 0` 的不限量表单会把它们收回来（WI-D） |
 | 排除已确认的取值 | `meaning` 已有文本的不再问第二遍 |
 
@@ -560,7 +560,7 @@ scope-lineage describe --lineage corpus --glossary dict/glossary.json \
 
 ### 规则与术语层：`rules[].value_meanings` 与 `term_meaning`（WI-2.12）
 
-仓库的业务码多数不在输出字段上，而在 `WHERE queue_code IN ('01','07')`、连接的附加条件、
+仓库的业务码多数不在输出字段上，而在 `WHERE product_code IN ('01','07')`、连接的附加条件、
 CASE 的**条件**里。`value_domain` 只挂在输出列上，所以语料把十七个 code 全确认了，任务文档
 仍然只有四个字段受益——含义没有被送到写着这个 code 的那一行。传了 `--glossary` 之后：
 
@@ -572,7 +572,7 @@ CASE 的**条件**里。`value_domain` 只挂在输出列上，所以语料把�
 | `fields[].term_meaning` | 同样的 `{text, status}`，但只在该字段 `target_comment` **为空**时出现：术语不是注释，填进注释槽位等于发布一条元数据里没有的注释 |
 | `confidence.confirmations.rule_values_confirmed` | 规则层被确认的 code 数，与字段层的 `values_confirmed` 分开计 |
 
-`semantic.md` 里三处相应变化：第 3 节过滤 / 关联的复述末尾追加「（取值：'01'＝人工队列）」
+`semantic.md` 里三处相应变化：第 3 节过滤 / 关联的复述末尾追加「（取值：'01'＝消费贷）」
 （只列已答的，超过 3 个写「等 N 个，见规则表」）；第 4 节规则表在「条件」后多一列「取值含义」
 （一条都没答过时整列不出现）；第 5 节字段小节在 `- 目标注释：` 后多一行 `- 术语：…（人工确认）`，
 「完整字段清单」相应多一列「术语」。

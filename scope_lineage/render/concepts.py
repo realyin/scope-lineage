@@ -376,7 +376,7 @@ NAME_FILTER_WORDS = (
 )
 #: K2c: the period a junk candidate opens with, as much of it as there is. What is left
 #: after it -- and after the filters and the measure -- is the phrase the comment was
-#: naming all along: 「2月时段队列欠款」 was never about 2月, it was about 队列.
+#: naming all along: 「2月时段合同欠款」 was never about 2月, it was about 合同.
 _PERIOD_HEAD_RE = re.compile(
     r"\A(?:\d+[年月日号周]?|本月|当月|上月|本年|当年|本期|当期|当日|昨日|今日|时段|期间)+"
 )
@@ -1102,7 +1102,7 @@ def _role(seed: _Seed, card: Mapping, grain: str | None, text: str = "") -> str:
     only then does the producing grain get to call the table a summary.
 
     K2d: a summary word -- 汇总 / 日报 / 统计 / `report` / `agg` -- answers here, and only
-    here. 「机构外包日报」 says this *table* is a report; it says nothing about what the
+    here. 「机构放款日报」 says this *table* is a report; it says nothing about what the
     table is a report **of**, which is the 机构 either way.
     """
     suffix = _name_suffix(seed.table)
@@ -1201,7 +1201,7 @@ def _period_identity(members: Sequence[_Seed]) -> bool:
     """Whether the concept's own key carries a period -- one row per thing *per day* (K2d).
 
     What makes a summary a summary is its grain: 客户日汇总 is keyed by the customer **and
-    the day**. Tables that merely look like reports are not: 「机构外包日报」 keyed by the
+    the day**. Tables that merely look like reports are not: 「机构放款日报」 keyed by the
     机构 and the window it was valid in is three copies of the 机构, and calling the concept
     a summary would tell everyone downstream to aggregate something that never aggregated.
     A validity window is not a period, for the same reason it is not an event time.
@@ -1387,8 +1387,8 @@ def _recovered_name(ranked: Sequence[dict]) -> dict | None:
     """The Chinese phrase hiding inside a junk candidate, when the stem would win (K2c).
 
     Only when every candidate but the stem was ranked junk, because otherwise a real
-    name already won. 「2月时段队列欠款」 was never about 2月 and never about the 欠款: take
-    the period, the filters and the measure off and 队列 is what the comment was naming.
+    name already won. 「2月时段合同欠款」 was never about 2月 and never about the 欠款: take
+    the period, the filters and the measure off and 合同 is what the comment was naming.
     The shortest one wins -- the least this layer can claim the comment said -- and the
     comment it came out of keeps its own place in the evidence, junk reason and all.
     """

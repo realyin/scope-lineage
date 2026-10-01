@@ -1160,10 +1160,10 @@ def _action_body(action: dict, values: Mapping = _NO_RULE_VALUES) -> str:
 
 
 def _action_value_suffix(action: Mapping, values: Mapping) -> str:
-    """``（取值：'01'＝人工队列）`` on the restatement of a condition that pins codes.
+    """``（取值：'01'＝消费贷）`` on the restatement of a condition that pins codes.
 
     WI-2.12. The restatement is where a reader learns what the stage does, and "只保留
-    queue_code 为 '01' 的行" is a sentence nobody can act on until somebody says what
+    product_code 为 '01' 的行" is a sentence nobody can act on until somebody says what
     '01' is. Only the answered codes are printed, and only for the actions that compare
     a column against one.
     """
@@ -1293,7 +1293,7 @@ def _rule_kind_summary(rules: Sequence[Mapping]) -> str:
 
 
 def _rule_value_cell(rules: Sequence[Mapping]) -> str:
-    """``'01'＝人工队列；'07'＝? 自动队列`` -- only the codes somebody has answered."""
+    """``'01'＝消费贷；'07'＝? 经营贷`` -- only the codes somebody has answered."""
     texts = _dedupe_text(
         _rule_value_text(item)
         for rule in rules

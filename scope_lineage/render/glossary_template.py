@@ -18,7 +18,7 @@ What it leaves out is the whole design:
   business meaning waiting to be written down -- *unless the column's own comment
   enumerates it* (P5b): ``Y``/``N`` answers "yes or no" only until somebody wrote down
   which is which, and then it is the cheapest row in the form;
-- **no self-describing values**: ``委外`` is Chinese prose, and the only definition
+- **no self-describing values**: ``线下`` is Chinese prose, and the only definition
   anybody can give it is itself (P5b);
 - **no column left with fewer than two values**: one value is not a code system, and the
   answer would teach a reader nothing about a set -- except under ``--template-top 0``,

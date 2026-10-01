@@ -545,7 +545,7 @@ def test_one_space_joined_pair_in_a_sentence_is_not_a_code_table() -> None:
     document = _document(
         "INSERT INTO mart.t SELECT o.order_id, o.eff_status FROM ods.app_order o "
         "WHERE o.eff_status = '99'",
-        schema=_enumerated_schema("队列编码，99 表示无效"),
+        schema=_enumerated_schema("产品编码，99 表示无效"),
     )
     texts = [
         item["text"]

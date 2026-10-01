@@ -177,7 +177,7 @@ scope-lineage ontology --lineage <corpus> --out <dir> \
 `name` 是 `name_candidates[]` 里排第一的那个，来源可能是 `key_column_comment`（键列的
 注释）、`table_comment`（表注释）或 `key_stem`（键词根本身）。语料自己给的名字最高只到
 `hypothesis`，而排第一的那条来源是 `key_stem` 时 `name_tier` 写的是 **`stem_only`**（K2c）：
-词根是仓库的写法，`queue` / `key` 这种英文缩写业务方看不懂，那不是一个猜测，是「没有任何
+词根是仓库的写法，`cntr` / `key` 这种英文缩写业务方看不懂，那不是一个猜测，是「没有任何
 东西给它起过名」。**`name_tier` 为 `stem_only` 的概念一定要问人**——这一条比数候选来源可靠，
 因为一条 junk 候选（周期 / 度量 / 筛选，见 `junk_reason`）也不是名字。给业务方看候选清单，
 让他挑一个或者自己写一个，并记下**凭什么**。

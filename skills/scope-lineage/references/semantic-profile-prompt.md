@@ -186,7 +186,7 @@ GROUP BY 项就是一个键，哪怕它穿透到好几个物理列），键用 `
 
 **口径里出现 code 时优先读 `rules[].value_meanings[]`**（WI-2.12，`describe --glossary`
 接入后就有）：它是这条规则把列钉住的每个取值与人工确认的含义，`{column_ref, value,
-sql_literal, meaning}`。「只保留人工队列（`queue_code = '01'`）」这类句子的出处就在这里——
+sql_literal, meaning}`。「只保留消费贷（`product_code = '01'`）」这类句子的出处就在这里——
 `meaning.status = "confirmed"` 时直接当事实写（标 `SQL事实`，含义部分的证据写 `rule:0NN`），
 `candidate` 写成「…（含义待确认）」，`meaning` 为 `null` 的 code **不要猜**：句子里保留原始取值，
 该取值进附录 B 的待填清单。规则解释（第一件的「口径要点」「使用注意」与第三件的问题正文）

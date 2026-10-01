@@ -102,7 +102,7 @@ def _case_document(label_sql: str, task_id: str, target: str = "mart.t") -> dict
 
 
 _OWNER_CASE = (
-    "CASE WHEN e.stage = 'S1' THEN '自营' WHEN e.stage = 'S2' THEN '外包' ELSE '其他' END"
+    "CASE WHEN e.stage = 'S1' THEN '线上' WHEN e.stage = 'S2' THEN '线下' ELSE '其他' END"
 )
 _STEP_CASE = (
     "CASE WHEN e.stage = 'S1' THEN '初审' WHEN e.stage = 'S2' THEN '复审' ELSE '其他' END"
@@ -150,14 +150,14 @@ def test_one_case_rule_written_twice_is_still_one_label_system() -> None:
     assert "label_systems" not in _value(glossary, "stage", "S1")
     assert "label_system" not in _candidates(glossary, "stage", "S1")[0]
     assert "套标签体系" not in _form(glossary)
-    assert "| 自营 | case_label |" in _form(glossary)
+    assert "| 线上 | case_label |" in _form(glossary)
 
 
 def test_a_lone_value_inside_a_bucketing_case_is_not_a_translation() -> None:
     glossary = _glossary(
         _case_document(
-            "CASE WHEN e.stage = 'S1' THEN '自营' "
-            "WHEN e.stage IN ('S2', 'S3') THEN '外包' ELSE '其他' END",
+            "CASE WHEN e.stage = 'S1' THEN '线上' "
+            "WHEN e.stage IN ('S2', 'S3') THEN '线下' ELSE '其他' END",
             "task_owner",
         )
     )
@@ -528,7 +528,7 @@ def _askable_glossary(comment: str | None, column: str, *values: str) -> dict:
     [
         (None, "vip", ("Y", "N"), False),
         ("Y-是，N-否", "vip", ("Y", "N"), True),
-        (None, "channel", ("委外", "触达成功"), False),
+        (None, "channel", ("线下", "已放款"), False),
         (None, "stage", ("AA", "BB"), True),
     ],
 )

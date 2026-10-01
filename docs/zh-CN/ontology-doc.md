@@ -467,7 +467,7 @@ K1/K2 就在表级本体之上折出这一层：**实体应该是「客户」，
 | `intermediate` | 表名尾段是 `_tmp` / `_mid<数字>` / `_step<数字>` / `_stage<数字>` / `_bak`，或者只被同一个任务写、又只被同一个任务读 |
 | `detail` | 键里除词根之外还带了时间列或事件列（且不是分区列）。K2d：**有效期窗口不算**——`start` / `end` / `begin` / `eff` / `effective` / `valid` / `expire` / `expiry` 加上 `dt` / `date` / `time` 的列（`end_dt`、`eff_date`、`valid_from`、`out_agent_start_dt`）说的是这一行**什么时候成立**，那是缓慢变化维的形状，不是发生了什么 |
 | `primary` | 全量快照（`_df` / `_hf` / `_mf` / `_wf` / `_all`）或没有周期后缀，且键除分区列外就是词根本身 |
-| `summary` | 生产语句的 `output_shape.grain.basis` 是 `group_by` 或 `single_row`；K2d 起**表名或注释里的汇总词**（汇总 / 日报 / 统计 / `report` / `agg`）也判到这里，而且只判到这里——「机构外包日报」说的是这张**表**是份日报，它没说这份日报是**关于什么**的 |
+| `summary` | 生产语句的 `output_shape.grain.basis` 是 `group_by` 或 `single_row`；K2d 起**表名或注释里的汇总词**（汇总 / 日报 / 统计 / `report` / `agg`）也判到这里，而且只判到这里——「机构放款日报」说的是这张**表**是份日报，它没说这份日报是**关于什么**的 |
 | `snapshot` | 周期增量（`_di` / `_hi` / `_mi` / `_wi`），键除分区列外就是词根本身，且没有事件时间 |
 | `reference` | 不按这个键唯一，只是带着它——成员是由一条 JOIN 而不是由自己的键放进来的 |
 
@@ -478,7 +478,7 @@ K1/K2 就在表级本体之上折出这一层：**实体应该是「客户」，
 | `key_event_column` | `event` | 成员的键里有时间戳或事件 id 列（且不是分区列） |
 | `driving_rows_over_log_source` | `event` | 生产粒度是「主表的一行」，而那张主表按名字或注释看像日志 |
 | `increment_with_event_time` | `event` | 成员是 `_di` / `_hi` 这类增量，并且带了非分区的时间列 |
-| `all_members_summary` | `summary` | 所有成员的角色都是 `summary`，**并且**概念自己的键里带着一个周期列（K2d）：`dt` / `date` / `month` 这类纯时间列，不含有效期窗口。汇总之所以是汇总，在于它的粒度——「客户日汇总」是按客户**按天**一行；只是看着像报表的不算，「机构外包日报」按机构加有效期窗口建的三张表就是机构的三份副本，把概念判成 `summary` 等于叫下游去聚合一件从没聚合过的东西 |
+| `all_members_summary` | `summary` | 所有成员的角色都是 `summary`，**并且**概念自己的键里带着一个周期列（K2d）：`dt` / `date` / `month` 这类纯时间列，不含有效期窗口。汇总之所以是汇总，在于它的粒度——「客户日汇总」是按客户**按天**一行；只是看着像报表的不算，「机构放款日报」按机构加有效期窗口建的三张表就是机构的三份副本，把概念判成 `summary` 等于叫下游去聚合一件从没聚合过的东西 |
 | `all_members_full_snapshot` | `entity` | K2b：所有非 `reference` 成员都是全量快照（没有 `_di` / `_hi` 这类周期增量后缀）、键里除分区列外没有时间列或事件列、谁的表名与注释都没有事件词，并且至少有一个成员自己说了「信息 / 档案 / 主数据 / 维 / dim / info」。这种形状下 `driving_rows_over_log_source` **不投票**：快照按变更日志一行一行重建，说的是它怎么建，不是它装了什么——一个 机构 形状的概念正是这样被判成 `event` 的。反过来，什么都没说的表没有声称自己是维度，那条日志证据仍然算数 |
 | `word_hint` | 三种之一 | 名字与注释里的词，中文按**子串**命中：发送/回款/交易/日志/记录/流水/事件 → `event`；信息/档案/主数据/维 → `entity`；汇总/日报/统计 → `summary`。K2c 起英文按**整词**命中（不分大小写，表名与注释一视同仁，`.` `_` 空格都算分词）：log/event/hist/history/record/txn/transaction/send/sent/recv/click/expo/exposure/resp/response → `event`；agent/org/organization/dept/department/staff/user/customer/product/channel/dim/dimension/info/master → `entity`；agg/report → **不投概念种类**（K2d：汇总 / 日报 / 统计 / `report` / `agg` 判的是那张表的 `role`，见上面的角色表；这张表是份日报，不等于它记的那件事是一次汇总）。整词是关键——`catalogue` 不是一条 `log`，照子串读会把一张维表读成事件；英文词也跟着扩了，因为注释全是英文的语料原先一个维度词都命不中，`all_members_full_snapshot` 那一半就永远不成立。这是**次级证据**，结构信号说过话时它不做主 |
 
@@ -515,11 +515,11 @@ K2b 的 `junk_reason`，最后才按 `count` 降序、按上表顺序。
 这样三张表共用一条「已到期…」的表注释也不会凭 `count` 压过那条唯一的键列注释。它仍然发布，
 因为它确实是那几张表的证据，只是不配当这个概念的名字。
 
-**排到最后只剩词根时还要再捞一次**（K2c）。`queue` / `key` 这种词根是仓库的写法，不是业务的
+**排到最后只剩词根时还要再捞一次**（K2c）。`cntr` / `key` 这种词根是仓库的写法，不是业务的
 词；排第一的候选是 `key_stem` 时，把每条 junk 候选的周期头、筛选词与度量尾都掐掉再看一眼，
 剩下 **两个以上汉字且自己不再是 junk** 的那些里取**最短**的一条，插到候选第一位当 `name`，
-来源与 `name_evidence` 沿用它出自的那条候选：「2月时段队列欠款」说的从来不是 2月、也不是欠款，
-是**队列**。原来那条注释仍然留在候选里，`junk_reason` 照写——它是证据，没被删掉。
+来源与 `name_evidence` 沿用它出自的那条候选：「2月时段合同欠款」说的从来不是 2月、也不是欠款，
+是**合同**。原来那条注释仍然留在候选里，`junk_reason` 照写——它是证据，没被删掉。
 
 捞不出来（一条中文都没有）就还用词根，但 `name_tier` 写成 **`stem_only`**，不是 `hypothesis`：
 「猜它叫客户」和「没有任何东西给它起过名」是两回事，评审那一轮正是照着这个层级挑该问名字的

@@ -12,9 +12,9 @@ shapes where that reading was wrong, all of them invisible in the form:
    ``AA-有效`` while a CASE labels ``AA`` 作废 carries two answers, and the prompt's
    "two contradicting pieces of evidence close nothing" rule was a sentence a reviewer
    had to apply by hand across two columns of the same row;
-3. **an ELSE may be a class rather than a default.** ``CASE WHEN col = 'X' THEN '自营'
-   ELSE '委外' END`` sorts the column into two classes; the ELSE covers every other
-   value, so 自营 is one side of a classification and not the meaning of ``X``;
+3. **an ELSE may be a class rather than a default.** ``CASE WHEN col = 'X' THEN '线上'
+   ELSE '线下' END`` sorts the column into two classes; the ELSE covers every other
+   value, so 线上 is one side of a classification and not the meaning of ``X``;
 4. **a family section threw its members' evidence away.** ``*.<column>`` asks one
    question for the whole family, and it used to answer it off whichever table sorted
    first -- so a code table written down on ONE of the five tables was invisible.
@@ -105,13 +105,13 @@ def _select(projection: str, task_id: str, schema: SchemaMap, tail: str = "") ->
 
 
 _CONDITIONAL_CASE = (
-    "CASE WHEN e.stage = 'S1' AND e.report_dt >= '20260101' THEN '自营' "
-    "WHEN e.stage = 'S1' THEN '外包' "
+    "CASE WHEN e.stage = 'S1' AND e.report_dt >= '20260101' THEN '线上' "
+    "WHEN e.stage = 'S1' THEN '线下' "
     "WHEN e.stage = 'S2' THEN '复审' ELSE '其他' END"
 )
 
 _PLAIN_CASE = (
-    "CASE WHEN e.stage = 'S1' THEN '外包' WHEN e.stage = 'S2' THEN '复审' ELSE '其他' END"
+    "CASE WHEN e.stage = 'S1' THEN '线下' WHEN e.stage = 'S2' THEN '复审' ELSE '其他' END"
 )
 
 
@@ -123,7 +123,7 @@ def test_a_label_from_a_case_with_a_compound_branch_is_marked_conditional() -> N
     candidate = _candidates(_conditional_glossary(), "stage", "S1")[0]
 
     assert candidate["conditional"] is True
-    assert candidate["text"] == "有条件：外包"
+    assert candidate["text"] == "有条件：线下"
 
 
 def test_the_condition_the_other_branch_added_is_published_on_the_candidate() -> None:
@@ -205,13 +205,13 @@ def test_a_label_the_comment_spells_out_at_greater_length_agrees() -> None:
 
 _OBSERVED_TAIL = "WHERE e.stage IN ('X1', 'X2', 'X3')"
 
-_CLASSIFYING_CASE = "CASE WHEN e.stage = 'X1' THEN '自营' ELSE '委外' END"
+_CLASSIFYING_CASE = "CASE WHEN e.stage = 'X1' THEN '线上' ELSE '线下' END"
 
 _EXHAUSTIVE_CASE = (
-    "CASE WHEN e.stage = 'X1' THEN '自营' WHEN e.stage = 'X2' THEN '代理' ELSE '其他' END"
+    "CASE WHEN e.stage = 'X1' THEN '线上' WHEN e.stage = 'X2' THEN '线下' ELSE '其他' END"
 )
 
-_NULL_ELSE_CASE = "CASE WHEN e.stage = 'X1' THEN '自营' ELSE NULL END"
+_NULL_ELSE_CASE = "CASE WHEN e.stage = 'X1' THEN '线上' ELSE NULL END"
 
 
 def _stage_glossary(case: str, tail: str = _OBSERVED_TAIL) -> dict:
