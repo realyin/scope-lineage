@@ -342,7 +342,7 @@ CTE 名按所在查询块的词法作用域绑定。例如，一个嵌套查询�
 | `name` | 当前 scope 的输出名。 |
 | `output_ordinal` | 从 0 开始的输出位置；重复字段名或 MERGE 多分支时不能只按 name 区分。 |
 | `transform` | 粗粒度变换：`DIRECT`、`EXPRESSION`、`AGGREGATE`、`WINDOW`、`CONDITIONAL`、`CONSTANT`、`UNION`、`EXPAND_ALL`。 |
-| `expression` | 当前 scope 中的 SQL 表达式。 |
+| `expression` | 当前 scope 中的 SQL 表达式。例外：多行 `VALUES`（如 `SELECT * FROM VALUES (...), (...) AS t(...)`、多行 `INSERT ... VALUES`）作用域的列，写成逐行取值的清单 `(<第1行>, <第2行>, …)`，每行一项、不去重——这是一列可能取的值，不是一个元组值；`sources[]` 是各行取值（去重），变换类型取各行一致的分类，不一致时为 `EXPRESSION`。单行 `VALUES` 仍是那一个值。 |
 | `display_expression` | 可选，仅当别名解析改变了文本时出现：把 `expression` 里本 scope 的本地 FROM 别名改写为真实表名后的展示用表达式——别名全部指向同一物理源时去掉限定符（裸列），跨多源时各列限定为真实表名。字符串常量、注释和大小写保持原文。只是展示形式，`expression` / `expression_resolution` 这两项血缘事实不受影响；mapping.md 渲染步骤表达式时优先读它。 |
 | `expanded_expression` | 尽可能展开到物理来源限定名后的表达式。 |
 | `expansion_truncated` | 仅为 true 时出现：该表达式在展开保护上限处被截断，文本以 `/* expansion truncated at <guard>=<limit> */` 结尾。被截断的只有文本——来源事实、链路和端到端血缘仍然完整。 |
