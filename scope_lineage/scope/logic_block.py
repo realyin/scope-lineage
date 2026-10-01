@@ -518,6 +518,19 @@ def _join_relation_detail(
             else:
                 left_aliases = [alias for alias in aliases if alias != right_alias]
             left_alias = left_aliases[-1] if left_aliases else aliases[0]
+    else:
+        # The same chain over a source joined several times from ANOTHER FROM base
+        # (a JOIN d b ... JOIN d b1 ON b.p = b1.v): an equality between two aliases of
+        # the right source is a key when one side is this hop and the other an alias of
+        # that source joined before it. Only key matching reads this list; left_input /
+        # left_alias keep naming the FROM base.
+        aliases = [
+            edge.alias
+            for edge in input_edges
+            if edge.source_id == join.right_scope and edge.alias
+        ]
+        if right_alias in aliases:
+            left_aliases = aliases[: aliases.index(right_alias)]
     detail: dict[str, object] = {
         "join_type": join.join_type,
         "left_input": join.left_scope,

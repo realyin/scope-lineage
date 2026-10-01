@@ -200,6 +200,17 @@
   meaning or the key says so with `holds`.
 
 ### Fixed
+- **A chained JOIN over a source joined several times keeps its key when the FROM base is
+  another source.** In `FROM t_a a JOIN t_d b ON ... JOIN t_d b1 ON b.p = b1.v`, the
+  equality `b.p = b1.v` was refused as a key -- both sides are `t_d`, and the left side
+  allowed for it was only the FROM base alias `a` -- so it became a condition filter, the
+  JOIN was `partial` with `missing_join_key_pairs`, and a `join_keys_not_split` warning was
+  raised. The chained-self-join rule (#115: the left side is every alias of the source joined
+  before this hop) now applies whatever the FROM base is, for key matching only;
+  `left_input` / `left_alias` still name the FROM base. An equality between two earlier
+  aliases stays a filter. Everything derived from the key follows (the semantic profile's
+  key pairs, packet `right_aliases`, table-card key counts, and glossary value observations
+  that now land on their physical column). No golden output changes.
 - **Each JOIN of a source read under several aliases reports its own `right_alias`.**
   `join_relation_detail.right_alias` came from a map keeping one alias per source, so a
   source joined as `b`, `c` and `b1` reported `b1` on all three JOINs while their key pairs
