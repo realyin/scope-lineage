@@ -10,7 +10,7 @@ schema_version: "1.0"
 task_name: "golden_drop_recreate#1"
 target_table: "mart.channel_daily"
 stmt_kind: "CTAS"
-lineage_digest: "76b4858a1429a05b"
+lineage_digest: "871cc6d52ed6715c"
 ---
 
 # 任务语义描述 mart.channel_daily

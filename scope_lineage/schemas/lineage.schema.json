@@ -866,6 +866,10 @@
                     "null"
                   ]
                 },
+                "display_expression": {
+                  "type": "string",
+                  "description": "可选，仅当别名解析改变了文本时出现：把 `raw_expression` 里本 scope 的本地 FROM 别名改写为真实表名后的展示用表达式（别名全部指向同一物理源时去掉限定符，跨多源时限定为真实表名）。字符串常量、注释、大小写与空白均保持原文，不取自 `normalized_expression`。不是血缘事实；比较、去重请用 `normalized_expression` / `fingerprint`。"
+                },
                 "normalized_expression": {
                   "type": [
                     "string",
@@ -1107,6 +1111,10 @@
                     "string",
                     "null"
                   ]
+                },
+                "display_expression": {
+                  "type": "string",
+                  "description": "可选，仅当别名解析改变了文本时出现：把 `expression` 里本 scope 的本地 FROM 别名改写为真实表名后的展示用表达式（别名全部指向同一物理源时去掉限定符，跨多源时限定为真实表名）。字符串常量、注释与大小写保持原文；`expression` / `expression_resolution` 血缘事实不受影响。"
                 },
                 "expansion_truncated": {
                   "type": "boolean",
@@ -1440,6 +1448,10 @@
                 "merge_when_index": {
                   "type": "integer",
                   "minimum": 0
+                },
+                "display_expression": {
+                  "type": "string",
+                  "description": "可选，仅当别名解析改变了文本时出现：把 `expression` 里本 scope 的本地 FROM 别名改写为真实表名后的展示用表达式（别名全部指向同一物理源时去掉限定符，跨多源时限定为真实表名）。字符串常量、注释与大小写保持原文；`expression` / `expression_resolution` 血缘事实不受影响。"
                 },
                 "transform": {
                   "type": "string",

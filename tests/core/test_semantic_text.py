@@ -3,8 +3,7 @@
 The templates are the only place where the semantic profile puts SQL into Chinese, so
 they carry the whole "structural words only" promise: a template may name an operation
 (聚合/去重/窗口/常量/合并) and echo an expression verbatim, and may never name a business
-concept. Literals are echoed from ``raw_expression``-shaped input, never from
-``display_expression`` (which lower-cases string literals).
+concept. Literals are echoed from ``raw_expression``-shaped input, with their case kept.
 """
 
 from __future__ import annotations
@@ -122,7 +121,7 @@ def test_an_unparseable_expression_is_not_restated() -> None:
 
 
 def test_string_literals_keep_their_case() -> None:
-    """``display_expression`` lower-cases literals; the templates must not."""
+    """The templates echo string literals with their case as written."""
     text = semantic_text.describe_case(
         "CASE WHEN a >= 10000 THEN 'HIGH' ELSE 'STANDARD' END"
     )

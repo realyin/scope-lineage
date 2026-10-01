@@ -635,7 +635,7 @@
               "final_target_columns": [
                 "mart.channel_daily.amount_sum"
               ],
-              "display_expression": "sum(`amount`)"
+              "display_expression": "SUM(`amount`)"
             }
           ],
           "outputs": [

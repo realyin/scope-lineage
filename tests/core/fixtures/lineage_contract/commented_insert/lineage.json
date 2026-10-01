@@ -820,7 +820,7 @@
           "comments": [
             "仅生效状态"
           ],
-          "display_expression": "where `status` = 'active' /* 仅生效状态 */"
+          "display_expression": "WHERE `status` = 'ACTIVE' /* 仅生效状态 */"
         },
         {
           "logic_block_id": "logic:ROOT:group_by:001",
@@ -1083,7 +1083,7 @@
           "final_target_columns": [
             "mart.channel_summary.channel_name"
           ],
-          "display_expression": "case when `channel_code` = 'a' then 'online' else 'offline' end"
+          "display_expression": "CASE WHEN `channel_code` = 'A' THEN 'ONLINE' ELSE 'OFFLINE' END"
         },
         {
           "logic_block_id": "logic:ROOT:aggregate:001",
@@ -1157,7 +1157,7 @@
           "final_target_columns": [
             "mart.channel_summary.total_amount"
           ],
-          "display_expression": "sum(`amount`)"
+          "display_expression": "SUM(`amount`)"
         }
       ],
       "outputs": [

@@ -473,7 +473,7 @@
               "comments": [
                 "仅营业中"
               ],
-              "display_expression": "where `status` = 'open' /* 仅营业中 */"
+              "display_expression": "WHERE `status` = 'OPEN' /* 仅营业中 */"
             },
             {
               "logic_block_id": "logic:ROOT:group_by:001",
@@ -666,7 +666,7 @@
               "final_target_columns": [
                 "mart.store_daily.total_amount"
               ],
-              "display_expression": "sum(`amount`)"
+              "display_expression": "SUM(`amount`)"
             }
           ],
           "outputs": [

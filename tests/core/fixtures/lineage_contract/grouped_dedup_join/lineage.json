@@ -2895,7 +2895,7 @@
             "filter_after_window": [],
             "trace_status": "complete"
           },
-          "display_expression": "row_number() over (partition by `segment` order by `updated_at` desc)"
+          "display_expression": "ROW_NUMBER() OVER (PARTITION BY `segment` ORDER BY `updated_at` DESC)"
         }
       ],
       "outputs": [
@@ -3716,7 +3716,7 @@
             "mart.metric_by_segment.band",
             "mart.metric_by_segment.band_total"
           ],
-          "display_expression": "case when `amount` >= 100 then 'high' else 'low' end"
+          "display_expression": "CASE WHEN `amount` >= 100 THEN 'HIGH' ELSE 'LOW' END"
         },
         {
           "logic_block_id": "logic:cte:agg:aggregate:001",
@@ -3774,7 +3774,7 @@
             "mart.metric_by_segment.total",
             "mart.metric_by_segment.band_total"
           ],
-          "display_expression": "sum(`amount`)"
+          "display_expression": "SUM(`amount`)"
         },
         {
           "logic_block_id": "logic:cte:agg:aggregate:002",
@@ -4836,7 +4836,7 @@
             "join_condition_source": "on",
             "trace_status": "complete"
           },
-          "display_expression": "`events_a`.`segment` = `segment_dim`.`segment` and `segment_dim`.`rn` = 1"
+          "display_expression": "`events_a`.`segment` = `segment_dim`.`segment` AND `segment_dim`.`rn` = 1"
         }
       ],
       "outputs": [
@@ -5755,7 +5755,7 @@
             "filter_after_window": [],
             "trace_status": "complete"
           },
-          "display_expression": "sum(`total`) over (partition by `band`)"
+          "display_expression": "SUM(`total`) OVER (PARTITION BY `band`)"
         }
       ],
       "outputs": [

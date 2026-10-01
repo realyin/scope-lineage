@@ -259,7 +259,7 @@
           "final_target_columns": [
             "mart.flags.flagged"
           ],
-          "display_expression": "case when `name` = 'x；y → z|w' then 'a\\nb' else `name` end"
+          "display_expression": "CASE WHEN `name` = 'x；y → z|w' THEN 'a\\nb' ELSE `name` END"
         }
       ],
       "outputs": [

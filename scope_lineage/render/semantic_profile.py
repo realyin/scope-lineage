@@ -1742,8 +1742,8 @@ def _scope_key_pair(pair: dict) -> dict | None:
 
 
 def _case_rule(document: dict, scope_id: str, block: dict) -> dict:
-    # raw_expression, never display_expression: the display form lower-cases string
-    # literals, so `'HIGH'` would be published as `'high'`.
+    # raw_expression, not display_expression: the raw text is always present, while the
+    # display form appears only when alias resolution changed the text.
     expression = block.get("raw_expression")
     split = semantic_text.split_case_branches(expression)
     branches, otherwise = split if split is not None else (None, None)

@@ -343,7 +343,7 @@
             "is_partition_filter": false,
             "has_partition_predicate": false
           },
-          "display_expression": "where `id` > 0"
+          "display_expression": "WHERE `id` > 0"
         }
       ],
       "outputs": [

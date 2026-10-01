@@ -294,8 +294,8 @@ def _stamp_display_expressions(scope_dict: dict[str, Any]) -> None:
     if not bindings:
         return
 
-    def stamp(item: dict[str, Any], *source_keys: str) -> None:
-        expr = next((item.get(key) for key in source_keys if item.get(key)), None)
+    def stamp(item: dict[str, Any], source_key: str) -> None:
+        expr = item.get(source_key)
         if not expr:
             return
         resolved = resolve_display_expression(expr, bindings)
@@ -306,8 +306,10 @@ def _stamp_display_expressions(scope_dict: dict[str, Any]) -> None:
         stamp(output, "expression")
     for column in scope_dict.get("columns") or []:
         stamp(column, "expression")
+    # the raw text, never `normalized_expression`: that is a lower-cased comparison key, and
+    # displaying it would change string literals ('yyyyMMdd' -> 'yyyymmdd' is a different format)
     for block in scope_dict.get("logic_blocks") or []:
-        stamp(block, "normalized_expression", "raw_expression")
+        stamp(block, "raw_expression")
 
 
 def _scope_column_to_dict(c: ScopeColumn) -> dict:

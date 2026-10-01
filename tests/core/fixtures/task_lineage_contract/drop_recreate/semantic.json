@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "artifact_kind": "task_semantic",
   "task_id": "golden_drop_recreate",
-  "lineage_digest": "2ebb7749d9dab312",
+  "lineage_digest": "7bf3b597c3cb048b",
   "produced_tables": [
     "mart.channel_daily"
   ],
@@ -12,7 +12,7 @@
       "doc_format": "semantic-json/1",
       "schema_version": "1.0",
       "statement_id": "stmt:002",
-      "lineage_digest": "76b4858a1429a05b",
+      "lineage_digest": "871cc6d52ed6715c",
       "task": {
         "task_name": "golden_drop_recreate#1",
         "target_table": "mart.channel_daily",
