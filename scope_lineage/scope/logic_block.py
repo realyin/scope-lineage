@@ -494,7 +494,9 @@ def _join_relation_detail(
         if edge.source_id and edge.alias
     }
     left_alias = alias_by_source.get(join.left_scope)
-    right_alias = alias_by_source.get(join.right_scope) or join.alias_in_parent
+    # The join's own alias first: the per-source map keeps one alias per source, so a
+    # source joined under several aliases would give every one of its JOINs the last.
+    right_alias = join.alias_in_parent or alias_by_source.get(join.right_scope)
     left_aliases: list[str] = []
     if join.left_scope == join.right_scope:
         # Self-join: one source_id, two sides — the dict above collapsed both onto the

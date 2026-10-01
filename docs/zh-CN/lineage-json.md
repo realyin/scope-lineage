@@ -303,7 +303,7 @@ CTE 名按所在查询块的词法作用域绑定。例如，一个嵌套查询�
 
 | Detail key | 内容 |
 | --- | --- |
-| `join_relation_detail` | `join_type`、`join_key_pairs[]`、`condition_filters[]`、`trace_status`、`missing_reasons[]`。区分真正的关联 key 与 ON 中附加过滤。当该 JOIN 读取本语句自己的目标表时，另带 `target_self_reference`——引用别名，且当目标分区与引用侧分区谓词都是字面日期时给出可证明的天数偏移（`partition_offset_days`、`offset_proven: true`）；无法证明时保持 `offset_proven: false` 而不猜测。负偏移即典型的"取昨日兜底"形态——工具只陈述偏移，语义命名留给消费方。 |
+| `join_relation_detail` | `join_type`、`left_input`、`right_input`、`left_alias`、`right_alias`、`join_key_pairs[]`、`condition_filters[]`、`trace_status`、`missing_reasons[]`。区分真正的关联 key 与 ON 中附加过滤。`right_input` / `right_alias` 是本次 JOIN 加入的来源及它在这次 JOIN 里的别名——同一来源被关联多次时，每次 JOIN 各是各的别名。`left_input` / `left_alias` 是本 scope 的第一个 FROM 来源及其别名，不一定是 ON 条件实际引用的那一侧（链式自关联时 `left_alias` 取紧挨着的上一跳）；每个关联 key 真正的左右两侧以 `join_key_pairs[].left` / `.right` 为准。当该 JOIN 读取本语句自己的目标表时，另带 `target_self_reference`——引用别名，且当目标分区与引用侧分区谓词都是字面日期时给出可证明的天数偏移（`partition_offset_days`、`offset_proven: true`）；无法证明时保持 `offset_proven: false` 而不猜测。负偏移即典型的"取昨日兜底"形态——工具只陈述偏移，语义命名留给消费方。 |
 | `filter_predicate_detail` | WHERE/HAVING 条件拆分后的 `conjuncts[]`、字段解析、子查询依赖和分区过滤判断。 |
 | `aggregation_detail` | `group_by_items[]`、`aggregate_items[]`、`having` 及每项的表达式来源。 |
 | `window_specification` | 窗口函数、`partition_by[]`、`order_by[]`、窗口后过滤和 trace 状态。 |
