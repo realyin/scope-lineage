@@ -200,6 +200,20 @@
   meaning or the key says so with `holds`.
 
 ### Fixed
+- **A multi-row `VALUES` keeps every row.** `_resolve_values_scope` read only the first row,
+  so an inline dictionary (`SELECT * FROM VALUES (...), (...) AS t(...)`, or a multi-row
+  `INSERT ... VALUES`) published each column as the first row's constant: a field reading it
+  traced to that one value, two fields reading different rows traced to the same constant,
+  and the profile restated it as `常量 '<first row>'`. A column of several rows now takes
+  every row's value as a source (deduplicated), the classification its rows share
+  (`EXPRESSION` when they differ, so row order cannot change it), and the expression
+  `(<row 1>, <row 2>, ...)` -- the values the column can take, listed row by row, not one
+  tuple value. The `VALUES` scope keeps its lookup role and gains no function, and a
+  single-row `VALUES` is unchanged. A field fed by such a column now publishes no
+  `value_domain`, and the glossary drops the false "column = first row" observations, rather
+  than publishing every row: a JOIN condition does not yet filter the rows of a constant row
+  set (a known gap, pinned by an `xfail` test). `lineage-json.md` (both languages) documents
+  the notation. No golden output changes.
 - **A chained JOIN over a source joined several times keeps its key when the FROM base is
   another source.** In `FROM t_a a JOIN t_d b ON ... JOIN t_d b1 ON b.p = b1.v`, the
   equality `b.p = b1.v` was refused as a key -- both sides are `t_d`, and the left side

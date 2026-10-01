@@ -234,6 +234,14 @@ def _resolve_values_scope(
         names = [f"_col_{i}" for i in range(len(first_row))]
 
     for i, name in enumerate(names):
+        cells = [
+            row.expressions[i]
+            for row in rows
+            if hasattr(row, "expressions") and i < len(row.expressions)
+        ]
+        if len(cells) > 1:
+            scope_data.columns.append(_values_column_over_rows(name, cells))
+            continue
         expr = first_row[i] if i < len(first_row) else None
         expression = expr.sql(dialect=DIALECT) if expr is not None else ""
         transform = _classify_extended(expr) if expr is not None else "CONSTANT"
@@ -243,6 +251,31 @@ def _resolve_values_scope(
             expression=expression,
             sources=_source_free_leaf_sources(expr, expression) if expr is not None else _constant_sources(expression),
         ))
+
+
+def _values_column_over_rows(name: str, cells: list[exp.Expression]) -> ScopeColumn:
+    """One column of a VALUES with several rows: every row, not the first.
+
+    The column takes each row's cell as a leaf source (deduplicated, first seen first),
+    the classification the rows share -- EXPRESSION when they differ, so row order cannot
+    change it -- and the expression ``(<row 1>, <row 2>, ...)``: a row-wise list of the
+    cells, one per row, not a single value.
+    """
+    texts = [cell.sql(dialect=DIALECT) for cell in cells]
+    sources: list[SourceRef] = []
+    seen: set[tuple[str, str]] = set()
+    for cell, text in zip(cells, texts):
+        for ref in _source_free_leaf_sources(cell, text):
+            if (ref.scope, ref.column) not in seen:
+                seen.add((ref.scope, ref.column))
+                sources.append(ref)
+    kinds = {_classify_extended(cell) for cell in cells}
+    return ScopeColumn(
+        name=name,
+        transform=kinds.pop() if len(kinds) == 1 else "EXPRESSION",
+        expression="(" + ", ".join(texts) + ")",
+        sources=sources,
+    )
 
 
 def _resolve_lateral_scope(
