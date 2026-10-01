@@ -191,6 +191,10 @@
   meaning or the key says so with `holds`.
 
 ### Fixed
+- **`catalog build --tables` marks `declared_only` whatever case a card spells its columns
+  in.** A binding's column was compared with the card's column names as written, so a card
+  listing `LOAN_STATUS` as unused left the binding `loan_status` unmarked. Both sides are
+  now compared in lower case.
 - **A column repeating another record's attribute of the same concept can be bound.** A
   table holding another instance of its own concept (a `foreign_identifier` under a self
   relation) often repeats that instance's attributes next to it; `validate` rejected

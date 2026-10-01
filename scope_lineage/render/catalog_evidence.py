@@ -569,9 +569,13 @@ def _merge_tables(evidence: dict, catalog: _Catalog, tables: Mapping) -> None:
             continue
         matched += 1
         evidence["representations"].setdefault(table, {}).update(_card_counts(card))
-        unused = {c.get("name") for c in card.get("columns") or [] if not c.get("used_in_corpus")}
+        unused = {
+            str(c.get("name")).lower()
+            for c in card.get("columns") or []
+            if not c.get("used_in_corpus")
+        }
         for binding in rep["bindings"]:
-            if binding["column"] in unused:
+            if str(binding["column"]).lower() in unused:
                 key = f"{table}.{binding['column']}"
                 evidence["bindings"].setdefault(key, {})["declared_only"] = True
     evidence["inputs"]["tables"] = {
