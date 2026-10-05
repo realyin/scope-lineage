@@ -13,6 +13,13 @@
   reader that wants the verbatim text reads the lineage contract, which is unchanged. No
   format version moves (`semantic-json/1`); `describe` output and table-semantics packets
   built from commented SQL change accordingly.
+- **A join on an inline dictionary keeps its physical key in `fields`.** A join rule's
+  `fields` (and the stage join action's) were collected only from the cross product of both
+  sides' physical columns, so when one side pierced to nothing -- an inline VALUES
+  dictionary, a `count(*)` or constant column -- the other side's key was dropped too and
+  the rule named no column (a packet showed 「涉及表 —」). That side's physical key is now
+  listed on its own; `physical_key_pairs` still pairs only physical columns on both sides.
+  Readers of `semantic.json` `fields` see more entries on such one-sided joins.
 - **Breaking — `semantic status` ties a fix to its review and its packet
   (`table-semantics-status/2`).** A document that changed after a review with high or medium
   findings used to count as `fixed`, whether the fix finished, was interrupted halfway, or
@@ -151,6 +158,12 @@
   title saying so and pointing to the catalog workflow. The command, every flag and
   `ontology.json` (`ontology-json/2`) are unchanged, byte for byte.
 ### Added
+- **`semantic.json`: `fields[].lookup_keys` names the key a dictionary lookup is read by.** A
+  value read off an inline VALUES dictionary (or a constant / `count(*)` column) has no
+  physical source, so nothing said which physical column picks its row. Such a field now
+  lists the physical join keys reached by walking left from the lookup through joins with
+  no physical column on either side (two hops such as `a.k = b.src`, `b.dst = c.code`
+  included), as `<table>.<column>`. Absent when there is none; `semantic-json/1` unchanged.
 - **Lineage contract: `merge_spec` on a MERGE statement.** A MERGE's ON condition and its
   WHEN clauses' conditions are not output columns, and the contract only kept them as one
   flattened column list (`effect.rowset_effect.membership_sources`): no pairing of a

@@ -1771,6 +1771,11 @@ def _join_key_pair(pair: dict) -> tuple[list[dict], list[dict], list[tuple[str, 
     Two scopes reading the same table pierce to the same physical field, so a pierced
     pair that degenerates to ``t.c = t.c`` is dropped exactly as the mapping document
     drops it.
+
+    A side that pierces to nothing (an inline VALUES dictionary, a ``count(*)`` or
+    constant column) leaves the cross product empty; the other side's physical key is
+    still the column the rows are matched on, so it is appended on its own. It is never
+    paired: ``physical_key_pairs`` keeps meaning "a physical column on both sides".
     """
     physical: list[dict] = []
     fields: list[tuple[str, str]] = []
@@ -1782,6 +1787,12 @@ def _join_key_pair(pair: dict) -> tuple[list[dict], list[dict], list[tuple[str, 
             fields.append((str(right.get("table")), str(right.get("field"))))
             if left_text != right_text:
                 physical.append({"left": left_text, "right": right_text})
+    for side, other in (("left_fields", "right_fields"), ("right_fields", "left_fields")):
+        if not pair.get(other):
+            fields.extend(
+                (str(item.get("table")), str(item.get("field")))
+                for item in pair.get(side) or []
+            )
     scoped = _scope_key_pair(pair)
     return ([scoped] if scoped else list(physical)), physical, fields
 
@@ -1874,6 +1885,9 @@ _FIELD_KEY_ORDER = (
     "metric_spec",
     "value_domain",
     "sources",
+    # #15: the physical join keys that pick the row a constant row set supplies. Present
+    # only for a field read through such a lookup -- see `_lookup_keys`.
+    "lookup_keys",
     "generated_sources",
     "derivation",
     "expression",
@@ -2066,6 +2080,9 @@ def _build_field(document: dict, entry: dict, chain: dict | None, context: dict)
         field["nullable_by_join"] = True
     if sql_comments:
         field["sql_comments"] = sql_comments
+    lookup_keys = _lookup_keys(document, chain)
+    if lookup_keys:
+        field["lookup_keys"] = lookup_keys
     spec = _build_metric_spec(document, entry, chain, field, context, nullable_argument)
     if spec is not None:
         field["metric_spec"] = spec
@@ -2087,6 +2104,61 @@ def _sql_alias(document: Mapping, entry: Mapping) -> str | None:
     if not alias or alias == str(entry.get("column")) or _name_is_generated(entry):
         return None
     return alias
+
+
+def _lookup_keys(document: dict, chain: dict | None) -> list[str]:
+    """The physical join keys that decide which row of a constant row set a field reads.
+
+    A value read off an inline dictionary (or a ``count(*)`` / constant column) has no
+    physical source: what the data decides is the row, and the row is chosen by the join
+    key on the other side. Every step of the field's chain that reads a scope joined in
+    with no physical column on its side starts a walk to the left: a key pair whose left
+    side pierces to physical columns yields them; one whose left side pierces to nothing
+    is itself a column of another such join in the same scope (``a.k = b.src`` then
+    ``b.dst = c.code``), so the walk continues there. Scope ids carry the walk -- text
+    matching on the rules could follow one hop only.
+    """
+    lookups = _memoised_index(document, "lookup_joins", lambda: _lookup_joins(document))
+    if not lookups:
+        return []
+    found: list[str] = []
+    for step in (chain or {}).get("ordered_steps") or []:
+        scope_id = str(step.get("scope_id"))
+        for ref in step.get("input_fields") or []:
+            source = str(ref).rsplit(".", 1)[0]
+            found.extend(_walk_lookup(lookups, scope_id, source, set()))
+    return _dedupe(found)
+
+
+def _lookup_joins(document: dict) -> dict[tuple[str, str], list[dict]]:
+    """``(joining scope, right scope) -> key pairs`` for joins whose right side is not physical."""
+    scopes = _scopes(document)
+    index: dict[tuple[str, str], list[dict]] = {}
+    for scope_id, block in _logic_blocks(document):
+        if block.get("logic_type") != "join":
+            continue
+        for pair in (block.get("join_relation_detail") or {}).get("join_key_pairs") or []:
+            right = str((pair.get("right") or {}).get("scope") or "")
+            if right in scopes and not pair.get("right_fields"):
+                index.setdefault((scope_id, right), []).append(pair)
+    return index
+
+
+def _walk_lookup(
+    lookups: Mapping, scope_id: str, source: str, seen: set
+) -> list[str]:
+    if (scope_id, source) in seen:
+        return []
+    seen.add((scope_id, source))
+    keys: list[str] = []
+    for pair in lookups.get((scope_id, source)) or []:
+        physical = pair.get("left_fields") or []
+        if physical:
+            keys.extend(f"{item.get('table')}.{item.get('field')}" for item in physical)
+            continue
+        left = str((pair.get("left") or {}).get("scope") or "")
+        keys.extend(_walk_lookup(lookups, scope_id, left, seen))
+    return keys
 
 
 def _chain_sql_comments(chain: dict | None, context: dict) -> list[str]:
