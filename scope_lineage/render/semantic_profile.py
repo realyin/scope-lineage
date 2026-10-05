@@ -2160,7 +2160,7 @@ def _sql_alias(document: Mapping, entry: Mapping) -> str | None:
     is not one.
     """
     binding = document.get("target_field_binding") or {}
-    if str(binding.get("method")) != _POSITIONAL_BINDING_METHOD:
+    if str(binding.get("method")) not in _POSITIONAL_BINDING_METHODS:
         return None
     alias = str(entry.get("parsed_column") or "")
     if not alias or alias == str(entry.get("column")) or _name_is_generated(entry):
@@ -6410,11 +6410,15 @@ FINDING_HARDCODED_DATE = "hardcoded_date_literal"
 FINDING_METADATA_CONFLICTS = "metadata_conflicts"
 FINDING_TARGET_BINDING = "target_binding"
 FINDING_TABLE_COMMENT_MISSING = "table_comment_missing"
+FINDING_DUPLICATE_ALIAS = "duplicate_alias"
+FINDING_EMPTY_STRING_ON_NON_STRING = "empty_string_on_non_string"
 
 # Rendered in this order, most actionable first. The order is fixed so two runs of the
 # same document cannot list the same findings differently.
 FINDING_KINDS = (
     FINDING_ALIAS_POSITION_MISMATCH,
+    FINDING_DUPLICATE_ALIAS,
+    FINDING_EMPTY_STRING_ON_NON_STRING,
     FINDING_PARTITION_MISMATCH,
     FINDING_NONDETERMINISTIC_FUNCTION,
     FINDING_HARDCODED_DATE,
@@ -6461,6 +6465,8 @@ FINDING_SEVERITIES = (SEVERITY_WARN, SEVERITY_INFO)
 #   audit column -- a constant projection whose expression is only the run-time call.
 FINDING_SEVERITY = {
     FINDING_ALIAS_POSITION_MISMATCH: SEVERITY_WARN,
+    FINDING_DUPLICATE_ALIAS: SEVERITY_WARN,
+    FINDING_EMPTY_STRING_ON_NON_STRING: SEVERITY_WARN,
     FINDING_PARTITION_MISMATCH: SEVERITY_INFO,
     FINDING_NONDETERMINISTIC_FUNCTION: SEVERITY_WARN,
     FINDING_HARDCODED_DATE: SEVERITY_INFO,
@@ -6482,11 +6488,12 @@ FINDING_OWN_LINE = FINDING_TARGET_BINDING
 # many there are and leaves the rest to the mapping chains it cites.
 ALIAS_MISMATCH_PREVIEW_COUNT = 3
 
-# The binding method the finding is about: the values were matched to target columns by
-# their *position* in the DDL, so a name mismatch means the write is positional and the
-# names disagree -- either the data went into the wrong column or the metadata's column
-# order is stale.
-_POSITIONAL_BINDING_METHOD = "ddl_position"
+# The binding methods the finding is about: the values were matched to target columns by
+# their *position* -- in the DDL, or in a schema file's column list when no DDL was
+# given (#25a) -- so a name mismatch means the write is positional and the names
+# disagree: either the data went into the wrong column or the metadata's column order is
+# stale. An explicit INSERT column list is not one: the names there decide, not the alias.
+_POSITIONAL_BINDING_METHODS = frozenset({"ddl_position", "schema_position"})
 
 # The names sqlglot's `qualify` invents for a projection the author did not alias. They
 # are the absence of an alias, not an alias that disagrees -- see `_name_is_generated`.
@@ -6494,6 +6501,7 @@ _GENERATED_NAME_SHAPE = re.compile(r"_col_\d+|_c\d+")
 
 _TARGET_BINDING_METHOD_NOTES = {
     "ddl_position": "按 DDL 位置绑定，目标表 DDL 变更会导致列错位",
+    "schema_position": "按元数据列序位置绑定，目标表列序变更会导致列错位",
     "projection_alias": "按投影别名绑定",
 }
 
@@ -6547,6 +6555,8 @@ def _build_findings(
     alias_mismatch = _alias_position_findings(document, fields)
     found = [
         *alias_mismatch,
+        *_duplicate_alias_findings(document),
+        *_empty_string_findings(document, rules),
         *_partition_mismatch_findings(comparisons, fields),
         *_nondeterministic_findings(rules, fields),
         *_hardcoded_date_findings(comparisons),
@@ -6571,7 +6581,7 @@ def _alias_position_findings(document: dict, fields: Sequence[dict]) -> list[dic
     the target metadata's column order is out of date. Neither is decided here.
     """
     binding = document.get("target_field_binding") or {}
-    if str(binding.get("method")) != _POSITIONAL_BINDING_METHOD:
+    if str(binding.get("method")) not in _POSITIONAL_BINDING_METHODS:
         return []
     entries = document.get("end_to_end_lineage") or []
     mismatched = [
@@ -6601,6 +6611,85 @@ def _alias_position_findings(document: dict, fields: Sequence[dict]) -> list[dic
             [chains.get(str(entry.get("column"))) for entry in mismatched],
         )
     ]
+
+
+def _duplicate_alias_findings(document: dict) -> list[dict]:
+    """One alias naming two different sources inside one SELECT (#25b).
+
+    The contract resolves such a column by "the only source with this output column" and
+    counts it in ``warning_counts.duplicate_alias``; the count said nothing about which
+    alias or which two sources. The same alias in two scopes or two statements is
+    ordinary and is not reported.
+    """
+    found = []
+    for scope_id, scope in _scopes(document).items():
+        sources: dict[str, list[str]] = {}
+        for binding in scope.get("alias_source_bindings") or []:
+            alias = str(binding.get("alias") or "")
+            if alias and binding.get("source_id"):
+                sources.setdefault(alias, []).append(str(binding.get("source_id")))
+        for alias, named in sources.items():
+            distinct = _dedupe(named)
+            if len(distinct) > 1:
+                found.append(
+                    _finding(
+                        FINDING_DUPLICATE_ALIAS,
+                        f"同一 SELECT（作用域 {scope_id}）里别名 {alias} 同时指 "
+                        f"{'、'.join(distinct)}；列按「只有一个来源有此列」消歧",
+                        [scope_id],
+                    )
+                )
+    return found
+
+
+_STRING_TYPE_PREFIXES = ("string", "varchar", "char")
+
+
+def _empty_string_findings(document: dict, rules: Sequence[dict]) -> list[dict]:
+    """``column = ''`` (or ``<>`` / ``!=``) on a column declared other than a string (D #29).
+
+    A cleaning step like ``if(k = '', null, k)`` on a ``bigint`` column compares a number
+    with an empty string; what that does is the engine's implicit coercion -- it may never
+    hold, or it may fail -- so the finding says the types disagree and asks whether the
+    cleaning works, nothing more. The column must be one physical column of the rule by
+    name, with a declared type; anything less is not reported.
+    """
+    found = []
+    for rule in rules:
+        if str(rule.get("kind")) not in ("filter", "join_condition", "case_branch"):
+            continue
+        for column in semantic_text.empty_string_comparisons(rule.get("expression")):
+            typed = _physical_column_type(document, rule, column)
+            if typed is None:
+                continue
+            table, declared = typed
+            if declared.lower().startswith(_STRING_TYPE_PREFIXES):
+                continue
+            found.append(
+                _finding(
+                    FINDING_EMPTY_STRING_ON_NON_STRING,
+                    f"类型不匹配：{table}.{column} 是 {declared}，却与 '' 比较；结果取决于"
+                    "引擎的隐式转换（可能恒不成立，也可能报错），需核实这条清洗是否生效",
+                    [rule.get("rule_id")],
+                )
+            )
+    return found
+
+
+def _physical_column_type(
+    document: dict, rule: Mapping, column: str
+) -> tuple[str, str] | None:
+    """``(table, declared type)`` of the one physical field of ``rule`` named ``column``."""
+    tables = _dedupe(
+        str(field.get("table"))
+        for field in rule.get("fields") or []
+        if str(field.get("column") or "").lower() == column.lower() and field.get("table")
+    )
+    if len(tables) != 1:
+        return None
+    detail = _column_detail(_input_metadata(document).get(tables[0]) or {}, column)
+    declared = detail.get("type")
+    return (tables[0], str(declared)) if declared else None
 
 
 def _name_is_generated(entry: Mapping) -> bool:

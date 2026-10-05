@@ -416,6 +416,28 @@ def has_unknown_function(expression: str | None) -> bool | None:
     return any(True for _ in node.find_all(exp.Anonymous))
 
 
+def empty_string_comparisons(expression: str | None) -> list[str]:
+    """Column names an expression compares with ``''`` by ``=``, ``<>`` or ``!=``."""
+    node = parse_expression(expression)
+    if node is None:
+        return []
+    found: list[str] = []
+    for comparison in node.find_all(exp.EQ, exp.NEQ):
+        for column, literal in (
+            (comparison.this, comparison.expression),
+            (comparison.expression, comparison.this),
+        ):
+            if (
+                isinstance(column, exp.Column)
+                and isinstance(literal, exp.Literal)
+                and literal.is_string
+                and literal.this == ""
+                and column.name not in found
+            ):
+                found.append(column.name)
+    return found
+
+
 def udf_calls(expression: str | None) -> set[str]:
     """Lower-case names of the functions an expression calls that no catalogue knows.
 

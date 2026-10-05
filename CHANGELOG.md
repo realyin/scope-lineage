@@ -178,6 +178,15 @@
   title saying so and pointing to the catalog workflow. The command, every flag and
   `ontology.json` (`ontology-json/2`) are unchanged, byte for byte.
 ### Added
+- **`semantic.json`: two new findings, `duplicate_alias` and `empty_string_on_non_string`.**
+  One alias naming two different sources inside one SELECT was only a number in
+  `warning_counts`; it is now a `warn` finding naming the alias, both sources and the scope.
+  A filter, join or CASE rule comparing a column with `''` when the metadata declares that
+  column other than a string is a `warn` finding too; its text says only that the types
+  disagree and that the result depends on the engine's implicit coercion.
+- **A positional write by schema metadata publishes `sql_alias` and `alias_position_mismatch`.**
+  Both knew only `target_field_binding.method = ddl_position`; `schema_position` (a schema
+  file's column order, no DDL) is a positional write as well.
 - **`semantic.json`: `output_shape.merge` restates a MERGE and compares its dedup with its merge
   key.** A MERGE's shape and grain are unknown, so its keys, its WHEN conditions and whether
   its USING side can offer one merge key two rows were nowhere. A MERGE statement's

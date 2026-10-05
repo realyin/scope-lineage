@@ -283,6 +283,8 @@ INFORMATION_LINE = "- 信息项：{count}（见 semantic.json findings）"
 # than being upgraded to a fact class it did not earn.
 _FINDING_TAGS = {
     "alias_position_mismatch": TAG_SQL_AND_METADATA,
+    "duplicate_alias": TAG_SQL,
+    "empty_string_on_non_string": TAG_SQL_AND_METADATA,
     "partition_literal_mismatch": TAG_SQL,
     "nondeterministic_function": TAG_SQL,
     "hardcoded_date_literal": TAG_SQL,
