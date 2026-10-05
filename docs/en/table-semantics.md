@@ -294,7 +294,7 @@ The thirteen cross checks:
 | --- | --- | --- | --- |
 | 1 | `coverage` | a target column is missing, a column is extra or repeated, or the order differs from the table's | — |
 | 2 | `source_columns` | a source column is neither in that column's lineage nor in any input table | it is only in an input table's metadata, not in the column's lineage |
-| 3 | `code_values` | a code value not marked `unconfirmed` appears neither in the related comments nor in the SQL, and the dictionary does not confirm it on the column or a source column it reads (`confirmed_values`) | — |
+| 3 | `code_values` | a code value not marked `unconfirmed` appears neither in the related comments nor in the SQL, and the dictionary does not confirm it on the column or a source column it reads (`confirmed_values`). The value must stand alone, not inside a longer word or number; only in a comment (the column's, a source column's, the SQL header's) may a value ending in a digit run straight into letters (the `2` of `1普通2VIP回访`) | — |
 | 4 | `grain` | a grain column is not a target column, or `grain_source: proven` has no proven key in the packet | the claimed grain columns differ from the proven key |
 | 5 | `rules` | a non-partition filter is not cited by any `rules[].sql`, a quoted `sql` is not found in the task SQL (normalized), or a `rule_refs` entry names no rule | the packet has no SQL to check a quote against |
 | 6 | `neighbours` | an upstream table is not a lineage input, or a downstream task (or the table it is said to write) is not known | the downstream task is known but the tables it writes are not |

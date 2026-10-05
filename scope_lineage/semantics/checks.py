@@ -113,29 +113,42 @@ def check_source_columns(document: dict, packet: dict) -> list[dict]:
 
 def check_code_values(document: dict, packet: dict) -> list[dict]:
     """A code value not marked ``unconfirmed`` is written in a comment or in the SQL, or
-    the glossary confirms it on the column or on a column it reads."""
-    shared = "\n".join(
-        [task["sql"] or "" for task in packet["tasks"]]
-        + [line for task in packet["tasks"] for line in task["header_comments"]]
-    )
+    the glossary confirms it on the column or on a column it reads.
+
+    In a comment a code ending in a digit may run straight into letters (「1普通2VIP回访」);
+    in the SQL it may not, where a hex string or a regex class would match any digit.
+    """
+    sql = "\n".join(task["sql"] or "" for task in packet["tasks"])
+    headers = [line for task in packet["tasks"] for line in task["header_comments"]]
     results = []
     for ci, column in enumerate(document["columns"]):
-        text = "\n".join([_column_comments(packet, column["column"]), shared])
+        comments = "\n".join([_column_comments(packet, column["column"]), *headers])
         confirmed = confirmed_values(packet, column["column"])
         for vi, code in enumerate(column.get("code_values") or []):
             if code.get("unconfirmed"):
                 continue
             at = f"columns[{ci}].code_values[{vi}]"
-            pattern = rf"(?<![A-Za-z0-9_]){re.escape(code['value'])}(?![A-Za-z0-9_])"
-            if str(code["value"]).strip() in confirmed:
+            value = code["value"]
+            if str(value).strip() in confirmed:
                 results.append(result("code_values", "pass", at))
-            elif code["value"] and re.search(pattern, text):
+            elif value and (
+                re.search(_code_pattern(value, in_comment=True), comments)
+                or re.search(_code_pattern(value, in_comment=False), sql)
+            ):
                 results.append(result("code_values", "pass", at))
             else:
                 results.append(result("code_values", "fail", at, (
                     f"码值 {code['value']!r} 在注释和 SQL 里都找不到；有依据就写明来源，"
                     "没有就标 unconfirmed: true 并在 questions 里提问")))
     return results
+
+
+def _code_pattern(value: str, in_comment: bool) -> str:
+    """``value`` standing alone: not inside a longer word or number. In a comment a value
+    ending in a digit may be followed by letters; a value ending in a letter may not, so
+    「A」 still does not match 「ABC」."""
+    right = r"(?![0-9_])" if in_comment and value[-1:].isdigit() else r"(?![A-Za-z0-9_])"
+    return rf"(?<![A-Za-z0-9_]){re.escape(value)}{right}"
 
 
 def _column_comments(packet: dict, name: str) -> str:

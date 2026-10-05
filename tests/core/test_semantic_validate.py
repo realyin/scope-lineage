@@ -149,6 +149,52 @@ def test_an_unconfirmed_code_value_is_not_held_to_the_text(document: dict, packe
     assert _problems(validate_document(document, packet), "code_values") == []
 
 
+def _code_value_case(packet: dict, comment: str, sql: str, header: str = "") -> dict:
+    """The packet with verify_flag's comment, every task's SQL and header replaced."""
+    packet = copy.deepcopy(packet)
+    for column in packet["inputs"][0]["columns"]:
+        if column["name"] == "verify_flag":
+            column["comment"] = comment
+    for task in packet["tasks"]:
+        task["sql"], task["header_comments"] = sql, [header] if header else []
+    return packet
+
+
+def _code_value_problems(document: dict, packet: dict, value: str) -> list[dict]:
+    index = next(i for i, c in enumerate(document["columns"]) if c["column"] == "verify_status")
+    codes = document["columns"][index]["code_values"]
+    codes.append({"value": value, "meaning": "回访", "sources": ["comment"]})
+    at = f"columns[{index}].code_values[{len(codes) - 1}]"
+    return [p for p in _problems(validate_document(document, packet), "code_values") if p["at"] == at]
+
+
+@pytest.mark.parametrize("comment, header", [
+    ("类型 1普通2VIP回访3退订", ""),
+    ("类型", "-- 类型 1普通2VIP回访3退订"),
+])
+def test_a_number_code_followed_by_letters_in_a_comment_is_found(
+    document: dict, packet: dict, comment: str, header: str
+) -> None:
+    case = _code_value_case(packet, comment, "SELECT verify_flag FROM t", header)
+    assert _code_value_problems(document, case, "2") == []
+
+
+@pytest.mark.parametrize("value, comment", [("2", "编号 12 与 2026"), ("A", "类型 ABC")])
+def test_a_code_inside_a_longer_number_or_word_is_still_not_found(
+    document: dict, packet: dict, value: str, comment: str
+) -> None:
+    case = _code_value_case(packet, comment, "SELECT verify_flag FROM t")
+    (problem,) = _code_value_problems(document, case, value)
+    assert repr(value) in problem["message"]
+
+
+def test_the_sql_keeps_the_strict_boundary_for_a_number_code(
+    document: dict, packet: dict
+) -> None:
+    case = _code_value_case(packet, "类型", "SELECT * FROM t WHERE k = '2fe0a1'")
+    assert len(_code_value_problems(document, case, "2")) == 1
+
+
 # 4 ------------------------------------------------------------------- grain
 
 

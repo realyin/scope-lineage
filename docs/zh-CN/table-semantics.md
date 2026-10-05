@@ -240,7 +240,7 @@ scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.t
 | --- | --- | --- | --- |
 | 1 | `coverage` | 缺目标表的列、多出或重复的列、顺序与表内不一致 | — |
 | 2 | `source_columns` | 来源列既不在该列的血缘里，也不在任何输入表里 | 只在输入表元数据里，不在该列的血缘里 |
-| 3 | `code_values` | 未标 `unconfirmed` 的码值在相关注释和 SQL 里都找不到，字典也没有在该列或它读取的来源列上确认它（`confirmed_values`） | — |
+| 3 | `code_values` | 未标 `unconfirmed` 的码值在相关注释和 SQL 里都找不到，字典也没有在该列或它读取的来源列上确认它（`confirmed_values`）。码值要单独出现，不能是更长的词或数字的一部分；只有在注释（列注释、来源列注释、SQL 头注释）里，以数字结尾的码值后面可以直接跟字母（`1普通2VIP回访` 里的 `2`） | — |
 | 4 | `grain` | 粒度列不是目标表的列，或写了 `grain_source: proven` 而材料包里没有证明的键 | 声称的粒度列与证明的键不同 |
 | 5 | `rules` | 非分区过滤没有被任何 `rules[].sql` 引用；引用的 `sql` 规范化后在任务 SQL 里找不到；`rule_refs` 指向不存在的规则 | 材料包里没有 SQL，无法核对原文 |
 | 6 | `neighbours` | 上游表不是血缘里的输入表；下游任务（或声称它写的表）不认识 | 下游任务认识，但不知道它写哪些表 |

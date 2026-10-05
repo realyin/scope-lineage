@@ -212,6 +212,15 @@
   meaning or the key says so with `holds`.
 
 ### Fixed
+- **`semantic validate` check 3 (`code_values`) finds a number code that runs into letters in
+  a comment.** A comment written 「1普通2VIP回访3退订」 explains code `2`, but the boundary
+  treated the following `V` as part of the same word, so the value failed as found nowhere
+  and writers dropped it from `code_values`. In the column's comment, its source columns'
+  comments and the SQL header, a value ending in a digit may now be followed directly by
+  letters; a value ending in a letter keeps the strict boundary (`A` still does not match
+  `ABC`), and so does a number inside a longer number. The task SQL keeps the strict
+  boundary everywhere -- there a hex string (`'2fe0…'`) or a regex class would match any
+  digit. `table-semantics.md` (both languages) says so.
 - **`semantic validate` check 12 (`documented_meaning`) no longer reads an aside as a
   pending meaning.** A code value counted as 待确认 whenever its meaning contained the word,
   so 「已实名（是否含历史补录待确认）」 -- a stated meaning with something else left open --
