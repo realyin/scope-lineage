@@ -40,6 +40,19 @@
   narrowed by equality pins on the way (WHERE, or top-level ON conjuncts on the right side),
   differ on the join key (claim rule `R-VALUES-DISTINCT`). The golden `complex_scope` gains
   the UNION-branch JOIN it used to omit.
+- **Packets read a JOIN's ON partition condition, and check 9 doubts a snapshot only over a
+  date window.** A partition equality written in a JOIN's ON (`LEFT JOIN t c ON a.k = c.k AND
+  c.dt = '…'`) was not seen: the input read as `partition_read: none` and never as a full
+  snapshot. It now counts for the right table (the join rule gains `partition_reads`), except
+  under a RIGHT or FULL OUTER join, whose ON removes no right row. Every `inputs[].date_filters`
+  entry now carries `statement_id` and `shape` (`as_of` for a `beg <= D AND end > D` pair,
+  `upper_bound`, `null_check`, `window`); `semantic validate` check 9 (`time`) warns about a
+  `snapshot` only over a `window`, and a filter without a shape (an older packet) still counts
+  as one. `packet.md` names each filter's shape and says why `全量快照` is not 是. These keys
+  are present on every date filter, so every packet with a date filter changes digest and its
+  table-semantics document reads as stale until re-stamped; the example document under
+  `examples/table-semantics/` has no date filter and keeps its digest. No format version moves
+  (`table-semantics-packet/1`).
 - **Breaking — `semantic status` ties a fix to its review and its packet
   (`table-semantics-status/2`).** A document that changed after a review with high or medium
   findings used to count as `fixed`, whether the fix finished, was interrupted halfway, or
@@ -178,6 +191,17 @@
   title saying so and pointing to the catalog workflow. The command, every flag and
   `ontology.json` (`ontology-json/2`) are unchanged, byte for byte.
 ### Added
+- **Packets: more facts for the writer, each only when it has content.** A task entry gains
+  `expect_date` (the task meta's), `date_literals` (each whole-date string literal of the SQL
+  outside comments, its count and its offset in days from `expect_date` -- no conclusion that
+  it is a parameter) and `upstream_unmatched` (registered upstream tasks whose name matches no
+  table the task reads). `header_facts` gains `about` when the header names another table the
+  same task writes, and check 13 then skips it. An input gains `producer_header`: the primary
+  key, storage, partitioning, lifecycle and volume its producing task's SQL header states, shown
+  as the author's claim. A dynamic partition the SELECT fills with constants gains
+  `select_values` (packet.md: `dynamic（SELECT 写常量：…）`). A join rule whose ON yields no key
+  pair now names the tables its conditions touch and its right side (a transitional fallback).
+  Packets of the affected tables change digest.
 - **`semantic.json`: two new findings, `duplicate_alias` and `empty_string_on_non_string`.**
   One alias naming two different sources inside one SELECT was only a number in
   `warning_counts`; it is now a `warn` finding naming the alias, both sources and the scope.

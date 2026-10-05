@@ -98,7 +98,17 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 每张输入表带上第 9 项检查要用的事实：`partition_read`（只取一个分区为 `equality`，否则 `range`，不过滤为
 `none`）及其依据 `partition_filters`；`date_filters`（落在日期、时间类列上的非分区过滤）；`name_convention`
 （`_df` / `_da` 一类表名为 `full`，`_di` / `_hi` 为 `incremental`，其余 `unknown`）——这是命名约定，公开出来
-让读者看到检查的前提。`full_snapshot` 即以 `equality` 方式读取的 `full` 表。
+让读者看到检查的前提。`full_snapshot` 即以 `equality` 方式读取的 `full` 表；它为假时，`packet.md` 写明原因：
+`不适用（非分区表）`、`未证明（未见分区条件）`、`否（读多个分区 / 范围）` 或 `未证明（表名约定 …）`。
+
+写在 JOIN 的 ON 里的分区条件（`LEFT JOIN t c ON a.k = c.k AND c.dt = '…'`）和 WHERE 一样算分区读取：条件把右表的
+别名列与常量比较、右侧是一张物理表、该列是分区列（判断方式同下表），且关联不保留右表全部行（RIGHT / FULL OUTER
+的 ON 不裁剪右表，不算）。这样的关联规则带 `partition_reads: [{table, expression, basis}]`（有才出现），
+`packet.md` 规则表的「分区过滤」一列写「是（右表 …）」。
+
+每条 `date_filters` 带所在语句 `statement_id` 与形状 `shape`：同一语句里同一常量的 `X <= C`（或 `<`）配
+`Y > C`（或 `>=`）是 `as_of`（拉链按某日取有效记录），单独的上界是 `upper_bound`，`IS [NOT] NULL` 是
+`null_check`，其余（`=`、`>=`、`>`、BETWEEN、认不出的形状）是 `window`。只有 `window` 算按业务日期筛选。
 
 过滤是否在取分区，逐个合取项判断，因为血缘自己的标记是对整个 `WHERE` 子句的列名规则（`dt = x AND status = 0`
 两半都不会被标记）。每条过滤规则带 `partition_filter` 与它依据的 `partition_basis`：
@@ -122,7 +132,22 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 每条另带 `else`——ELSE 是分支条件比较的来源列本身（原样、`CAST`、或与字面量 `COALESCE`）时为 `source`，
 其他计算为 `computed`（如新行写入的日期戳）。分支本身有计算的 CASE 仍不给 `case_outputs`。每个任务带 `header_facts`：头注释写明的生命周期（`生命周期` / `保留` / `lifecycle` 后跟天数
 或 `永久`）与数据规模（`数据规模` / `数据量` 后跟数字），从血缘发布的头注释和脚本开头的注释行里读取；
-`packet.md` 以「头注释」一行列出。
+`packet.md` 以「头注释」一行列出。一个任务写多张表时头注释只有一份：它的「库表名 / 表名」行点名的是同任务写的
+**另一张**表时，`header_facts` 加 `about: <那张表>`，第 13 项不再向本表要这些事实；点名的表不是本任务写的
+（例如旧表名）时仍归本表。
+
+其余事实只供写作者参考，没有检查读取，都是有内容才出现：
+
+| 位置 | 键 | 内容 |
+| --- | --- | --- |
+| `tasks[]` | `expect_date` | 任务元数据里的期望运行日期 |
+| `tasks[]` | `date_literals` | SQL 里（注释除外）每个整日期字符串字面量（`'YYYYMMDD'` / `'YYYY-MM-DD'`）：`{literal, count, days_from_expect_date}`。语料导出的若是运行实例 SQL，批次日参数会以字面量出现；这里只给偏移，不下「是参数」的结论 |
+| `tasks[]` | `upstream_unmatched` | 登记的上游任务里，按任务名对不上本任务（所有语句）读取的任何表的那些。任务名等于 `表`、`库_表` 或以 `_库_表` 结尾算对上；这是名称启发式，只说「对不上」，不说「没读」 |
+| `inputs[]` | `producer_header` | 语料里生产该输入的任务，其 SQL 头注释写的主键、存储设计、分区设计、生命周期、数据规模：`[{task, primary_key?, storage?, partition_design?, lifecycle?, volume?}]`。是作者说法，不是 SQL 事实；输入即目标表本身、或头注释点名的是该任务写的另一张表时不出现 |
+| `lineage.partition[]` | `select_values` | 动态分区列（`PARTITION (dt)`）由 SELECT 只写常量时（`'${bizdate}' AS dt`，每个 UNION 分支一条），这些常量：`{列: [字面量…]}` |
+
+关联规则的 `tables` 为空时（ON 里唯一的等式一侧引用多列，如 `IF(COALESCE(a.x, '') = '', a.y, a.x) = d.k`，
+血缘不把它当关联键），回退为 ON 条件涉及的表加右侧物理表。这是过渡做法：血缘把这类等式配成关联键之后不再触发。
 
 ### 已确认的事实
 
@@ -247,11 +272,11 @@ scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.t
 | 6 | `neighbours` | 上游表不是血缘里的输入表；下游任务（或声称它写的表）不认识 | 下游任务认识，但不知道它写哪些表 |
 | 7 | `sources` | 带来源的条目 `sources` 为空，或问题超过五个 | — |
 | 8 | `digest` | `packet_digest` 与材料包不一致（过期），或没有这张表的材料包 | — |
-| 9 | `time` | `refresh.time` 写 `incremental`，而所有输入都是按单一分区读取的全量快照、且没有按业务日期过滤 | `refresh.time` 写 `snapshot`，而写入按业务日期筛选 |
+| 9 | `time` | `refresh.time` 写 `incremental`，而所有输入都是按单一分区读取的全量快照、且没有按业务日期过滤 | `refresh.time` 写 `snapshot`，而写入按业务日期筛选（只算形状为 `window` 的日期过滤） |
 | 10 | `fan_out` | `fan_out.status` 不是 `safe` 的关联，其右侧既没有在 `summary.row.note` 里、也没有在任何 kind 为 `risk` 的 `summary.watch` 里被点名（表名 `库.表` 或不带库名，或别名；同一右侧不论关联几次只算一项） | 行说明或某条 watch 的某句话把这样的左关联写成不影响行数（无影响、不影响行数、不会放大……）；每处一条警告。紧跟在否定之后的说法不算（不保证不放大、不一定不放大、未必不影响行数）；句子没点名这样的关联、只说「左关联」时，视为说的是全部未证明的左关联，除非它点名的是已证明唯一（`safe`）的关联，且「不放大」所在的分句里没有都、均、全部、所有、一律、任何、皆 |
 | 11 | `derived_codes` | 列的 CASE / IF 返回的字面量（`case_outputs`）不在它的 `code_values` 里（每缺一个值一条失败；NULL、`''` 和 TRUE / FALSE 不算码值；`else: computed` 的条目只作参考、不要求） | 含义像「成功」的码值（成功 / 正常 / 通过 / 有效）来自归并多个来源值的分支或 ELSE，而该列的 `watch` 和 `refs` 含 `column:<列>` 的 `summary.watch` 都没有说明 |
 | 12 | `documented_meaning` | 标了 `unconfirmed`、或含义去掉括号旁注后以「待确认」开头的码值（`待确认（猜测：…）` 算，`已实名（是否含补录待确认）` 不算），其含义在该列注释或来源列注释里已写明（`0-申请 1-成功` 式的值-含义对，或 SQL 里引用了其标签的 `正常、锁定、删除` 式列表），或字典已在该列或来源列上确认（`confirmed_values`，改法：照写字典的含义，`sources` 写 `confirmed`）；注释或字典写明的含义本身就是「待确认」的状态可以照写 | 主输入表注释或来源列注释里有限定词（`增值税`、`税`、`手续费`、`罚息`、`冲正`、`测试`）而目标表注释里没有，`summary.what`（主输入表）或所有受影响列的 meaning / derivation 里也没写（每个词一条警告） |
-| 13 | `header_facts` | — | SQL 头注释写明了生命周期（`header_facts.lifecycle`）或数据规模（`header_facts.volume`），而 `summary.refresh.how_to_read` 和 watch 都没有提到 |
+| 13 | `header_facts` | — | SQL 头注释写明了生命周期（`header_facts.lifecycle`）或数据规模（`header_facts.volume`），而 `summary.refresh.how_to_read` 和 watch 都没有提到；头注释描述的是同任务另一张表（`header_facts.about`）时不检查 |
 
 第 9 项存在的原因：把每日全量快照写成增量，读者就会把多个分区相加，每一行按天数重复计数。
 
