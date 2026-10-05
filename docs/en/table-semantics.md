@@ -20,7 +20,8 @@ deterministic work and never calls a model:
 - `scope-lineage semantic render` renders the documents as one page per table and an
   index, linked both ways with the ontology catalog's concept pages;
 - `scope-lineage semantic status` reads a run directory back, reports each table's stage
-  and batches the tables the next step still needs.
+  and batches the tables the next step still needs; `scope-lineage semantic fixed` records
+  that a revision finished.
 
 Writing the document (the prompt, the rewrite loop) belongs to the agent skill: the prompt
 is `skills/scope-lineage/references/table-semantics-prompt.md`, and the skill's `SKILL.md`
@@ -389,10 +390,10 @@ Validated 1 document(s): 0 clean, 1 with failures, 0 with warnings only, 0 with 
 
 So two steps follow writing, both in the agent skill:
 
-1. **Independent review** (`skills/scope-lineage/references/table-semantics-review-prompt.md`): a separate model call reads only the packet, the document and the confirmed facts, works through a fifteen-item checklist and lists factual errors by severity as "document says / material shows / change to". The reviewer may read sibling tables' packets to check what the document says about them.
-2. **Revision** (`skills/scope-lineage/references/table-semantics-fix-prompt.md`): verify each finding, apply it, re-read the whole page to remove contradictions, keep inference apart from fact, and run `semantic validate` again.
+1. **Independent review** (`skills/scope-lineage/references/table-semantics-review-prompt.md`): a separate model call reads only the packet, the document and the confirmed facts, works through a sixteen-item checklist and lists factual errors by severity as "document says / material shows / change to". The reviewer may read sibling tables' packets to check what the document says about them. Item 16 treats the packet's row-multiplication, grain and "not on the output path" verdicts as the tool's judgement, not fact: where the SQL contradicts one, the SQL wins, and the review lists each such case in a closing section of its own. After a packet rebuild and a full rewrite, the first review is also given the old review, kept as `reviews/<db.table>.prior.md`, and judges each old finding: still applicable under the new packet or not, and avoided or made again by the new document (the prompt's 「材料包重建后的重写：带上旧审读」 section).
+2. **Revision** (`skills/scope-lineage/references/table-semantics-fix-prompt.md`): verify each finding, apply it, re-read the whole page to remove contradictions, keep inference apart from fact, run `semantic validate` again, and as the last step record that the revision finished with `semantic fixed` (below).
 
-Two lessons: the review must be a separate call — a writer re-checking its own page does not find its blind spots; and a revision easily fixes one sentence while leaving the old claim elsewhere on the page, so the whole-page re-read is not optional. When a second review is wanted, it follows the review prompt's 「修订后再审读」 section: its inputs are the packet (possibly rebuilt), the revised document and the previous review, and it checks only whether each previous finding was fixed, the four areas of page consistency / inference vs fact / confirmed facts / sibling tables, and any facts new or changed in a rebuilt packet; the severity rules do not change, and the review still opens with front matter (`reviewed_doc_digest` is the revised document's digest as `scope-lineage semantic digest` prints it). Never give the acceptance questions to the writing, review or revision calls.
+Two lessons: the review must be a separate call — a writer re-checking its own page does not find its blind spots; and a revision easily fixes one sentence while leaving the old claim elsewhere on the page, so the whole-page re-read is not optional. When a second review is wanted, it follows the review prompt's 「修订后再审读」 section: its inputs are the packet (possibly rebuilt), the revised document and the previous review, and it checks only whether each previous finding was fixed, the four areas of page consistency / inference vs fact / confirmed facts / sibling tables, and any facts new or changed in a rebuilt packet; the severity rules do not change, and the review still opens with front matter (`reviewed_doc_digest` is the revised document's digest as `scope-lineage semantic digest` prints it, `reviewed_packet_digest` the packet read this round). Never give the acceptance questions to the writing, review or revision calls.
 
 ## `semantic status`: batch runs that resume
 
@@ -408,6 +409,7 @@ the validator in-process; it never calls a model and never changes a file.
 <run>/packets/<db.table>/packet.json   semantic packet --out <run>/packets
 <run>/docs/<db.table>.json             the table-semantics/1 documents the model writes and fixes
 <run>/reviews/<db.table>.md            the independent review, opening with front matter
+<run>/reviews/<db.table>.prior.md      the old review kept across a rewrite; status does not read it
 <run>/pages/<db.table>.md              semantic render <run>/docs --out <run>/pages
 ```
 
@@ -428,8 +430,8 @@ Every table is at one of seven stages, each requiring the one before:
 | `packet` | a packet, no document |
 | `drafted` | a document flagged `invalid` or `packet_stale` |
 | `valid` | the document meets its schema and fails no cross check (warnings allowed), and no review applies to it |
-| `reviewed` | a review of this very document (`reviewed_doc_digest` is the document's digest) with high or medium findings; or a review without front matter |
-| `fixed` | a review of this very document with no high or medium finding; or a review with high or medium findings, after which the document changed and validates again |
+| `reviewed` | a review with high or medium findings the document still has to answer: a review of this very document (`reviewed_doc_digest` is the document's digest), or a revision without a fix record (`fix_unconfirmed`); or a review without front matter |
+| `fixed` | a review of this very document with no high or medium finding; or a fix record (`fixed_doc_digest`, written by `semantic fixed`) for this very document |
 | `rendered` | `fixed`, and the page is not older than the document (by modification time) |
 
 The document digest is the first sixteen hex digits of SHA-256 over the document's canonical
@@ -444,13 +446,53 @@ does each table's `doc_digest` in the status report.
 | --- | --- | --- |
 | `packet_stale` | the document's `packet_digest` is not the current packet's | stage `drafted`; rewrite from the new packet |
 | `invalid` | a schema error, an unreadable file, or a failed cross check other than check 8 (`digest`) | stage `drafted`; rewrite from the failure list |
-| `review_stale` | the review found no high or medium issue, yet the document changed after it: the review read another version | back to `valid`; review again |
+| `review_packet_stale` | the review names the packet it read (`reviewed_packet_digest`), and it is not the packet the document is written against | back to `valid`; review again |
+| `review_stale` | the document changed after the review and no fix record ties the change to it: the review asked for no high or medium change, or it names no packet (a review written before `table-semantics-review@5`) | back to `valid`; review again |
+| `fix_unconfirmed` | the review read the current packet and has high or medium findings; the document changed after it, but has no fix record for this version: the revision was interrupted, or the document changed again after the record | stage `reviewed`; `--next fix` dispatches it again |
 | `review_unparsed` | the review file has no complete front matter | stage `reviewed`, and no step dispatches it again; add the front matter or delete the review to review again |
 | `render_stale` | `fixed`, and the page is older than the document | stage `fixed`; render again |
 
-A document that changed after a review with high or medium findings counts as revised: the
-fix prompt runs validation after its edits, and status calls it `fixed` only once it
-validates again — otherwise it is back at `drafted`.
+### How a review is judged
+
+A valid document with a review is judged by these rules in order; the first that holds
+decides. `d` is the document's digest, `dp` its `packet_digest` (by now the packet's own —
+otherwise the table is `drafted packet_stale`):
+
+1. the review read `d` (`reviewed_doc_digest`): `reviewed` with high or medium findings,
+   else `fixed`;
+2. the review names a packet (`reviewed_packet_digest`) other than `dp`:
+   `valid review_packet_stale`;
+3. the fix record (`fixed_doc_digest`) is `d`: `fixed`, whatever the review found —
+   low findings a revision took up included;
+4. the review names no packet: `valid review_stale`. Without the key a revision and a
+   rewrite from another packet look the same, so such a review is never handed to a fix;
+5. high or medium findings: `reviewed fix_unconfirmed`;
+6. low findings only: `valid review_stale`.
+
+A revised document that fails validation is `drafted` before any of this. The fix record
+only says the reviser declared the revision done and the document was valid then; whether
+each finding was fixed correctly is the next review's call.
+
+### `semantic fixed`: the fix record
+
+```bash
+scope-lineage semantic fixed <run> --only <db.table> ... [--packets <dir>] [--docs <dir>] [--reviews <dir>]
+```
+
+The last step of a revision. For each table it judges the run as `status` does, and writes
+`fixed_doc_digest: <document digest>` into the review's front matter (replacing an earlier
+record; nothing else in the file changes) only when all of these hold: the table has a
+packet, a document that is neither `invalid` nor `packet_stale`, and a review with complete
+front matter; the review names the packet it read and that is the document's
+`packet_digest`; and the document is not the version the review read. Otherwise it writes
+nothing for that table and says why on standard error. A new review overwrites the file
+and drops the record with it. The model never writes the record by hand.
+
+| Exit code | Condition |
+| --- | --- |
+| 0 | every table's record was written |
+| 1 | at least one table was refused (the others were still written) |
+| 2 | the run directory does not exist, or no `--only` |
 
 ### The review's front matter
 
@@ -460,21 +502,27 @@ A review is markdown a model writes, and it must open with a block like this
 ```yaml
 ---
 reviewed_doc_digest: 2a9b25086e81590f
+reviewed_packet_digest: 04439862460b03d6
 high: 1
 medium: 2
 low: 0
 ---
 ```
 
-All four keys are required; the digest must not be empty and the three counts are
-non-negative whole numbers. Anything less is treated as no front matter (`review_unparsed`).
-The parser needs no YAML library: one `key: value` per line.
+`reviewed_doc_digest` and the three counts are required; the digest must not be empty and
+the counts are non-negative whole numbers. Anything less is treated as no front matter
+(`review_unparsed`). `reviewed_packet_digest` is the `packet_digest` of the packet the
+reviewer read, copied from `packet.md`; `table-semantics-review@5` always writes it, and a
+review without it still parses but is judged by rule 4 above. `fixed_doc_digest` is added
+by `semantic fixed` only; a value that is not sixteen lower-case hex digits counts as no
+record. The parser needs no YAML library: one `key: value` per line.
 
 ### Output
 
 ```bash
 scope-lineage semantic status <run> [--only <db.table> ...] [--json [<path>|-]]
 scope-lineage semantic status <run> --next {draft,review,fix,render} [--batch-size 5] [--out <path>]
+scope-lineage semantic fixed <run> --only <db.table> ...
 scope-lineage semantic digest <doc.json> ...
 ```
 
@@ -488,11 +536,11 @@ Status of 3 table(s): no_packet 0, packet 1, drafted 1, valid 1, reviewed 0, fix
   packet_stale: demo_dwd.dwd_lending_loan_df
 ```
 
-`--json` writes the `table-semantics-status/1` report (`-`, or no path, for standard output):
+`--json` writes the `table-semantics-status/2` report (`-`, or no path, for standard output):
 
 ```json
 {
-  "doc_format": "table-semantics-status/1",
+  "doc_format": "table-semantics-status/2",
   "directories": {"packets": "run/packets", "docs": "run/docs", "reviews": "run/reviews", "pages": "run/pages"},
   "tables": [
     {
@@ -510,13 +558,14 @@ Status of 3 table(s): no_packet 0, packet 1, drafted 1, valid 1, reviewed 0, fix
   "summary": {
     "tables": 1,
     "stages": {"no_packet": 0, "packet": 0, "drafted": 0, "valid": 1, "reviewed": 0, "fixed": 0, "rendered": 0},
-    "flags": {"packet_stale": [], "invalid": [], "review_stale": [], "review_unparsed": [], "render_stale": []}
+    "flags": {"packet_stale": [], "invalid": [], "review_packet_stale": [], "review_stale": [], "fix_unconfirmed": [], "review_unparsed": [], "render_stale": []}
   }
 }
 ```
 
-`review` is the parsed front matter (`reviewed_doc_digest`, `high`, `medium`, `low`), or
-`null` with no review or one that does not parse; `failures` counts the failed cross checks
+`review` is the parsed front matter (`reviewed_doc_digest`, `reviewed_packet_digest`,
+`fixed_doc_digest`, `high`, `medium`, `low`; the two optional keys are `null` when absent),
+or `null` with no review or one that does not parse; `failures` counts the failed cross checks
 other than check 8.
 
 ### `--next`: batches and resuming
@@ -531,8 +580,8 @@ batch, as `table-semantics-next/1` (on standard output without `--out`):
 | Step | Tables selected |
 | --- | --- |
 | `draft` | `packet` and `drafted`: no document yet, a stale one, or one that fails validation |
-| `review` | `valid`, including those flagged `review_stale` |
-| `fix` | `reviewed` with front matter: the review has high or medium findings and the document has not changed |
+| `review` | `valid`, including those flagged `review_packet_stale` or `review_stale` |
+| `fix` | `reviewed` with front matter: the review has high or medium findings and the document has not changed, or changed without a fix record (`fix_unconfirmed`) |
 | `render` | `fixed`, including those flagged `render_stale` |
 
 A table that is past a step never comes back for it, so after an interruption, running

@@ -3,6 +3,44 @@
 ## Unreleased
 
 ### Changed
+- **Breaking — `semantic status` ties a fix to its review and its packet
+  (`table-semantics-status/2`).** A document that changed after a review with high or medium
+  findings used to count as `fixed`, whether the fix finished, was interrupted halfway, or
+  the document had been rewritten from a rebuilt packet -- in which case it was never
+  reviewed again; and a fix that took up a review's low findings sent the table back to
+  review. The review front matter now names the packet it read
+  (`reviewed_packet_digest`, which `table-semantics-review@5` copies from `packet.md`) and
+  carries a fix record (`fixed_doc_digest`) that only the new **`scope-lineage semantic
+  fixed <run> --only <db.table> ...`** writes: for a valid document, revised after a review
+  of the very packet the document is written against (exit 1 and the review untouched
+  otherwise). A valid document with a review is judged in order: the review read this
+  document (as before); it read another packet (new flag `review_packet_stale`, back to
+  review); the fix record is this document (`fixed`, low findings included); the review
+  names no packet (`review_stale`: such a review is never handed to a fix); high or medium
+  findings (`reviewed` with the new flag `fix_unconfirmed`, dispatched by `--next fix`
+  again); low only (`review_stale`). The status report is now `table-semantics-status/2`:
+  `summary.flags` has the two new keys, `review` carries `reviewed_packet_digest` and
+  `fixed_doc_digest` (null when absent), and `fixed` / `review_stale` mean what is above.
+  A `reviews/<db.table>.prior.md` -- the old review kept across a rewrite -- is no longer
+  read as a table. **Migration:** there is no conversion. In a run directory reviewed
+  before this release, a table whose document changed after its review goes back to
+  `valid review_stale`: review it again with `table-semantics-review@5` (or rewrite it, if
+  its packet changed), then fix and finish with `semantic fixed`. A table whose review read
+  its current document keeps its stage. Readers of the status report check
+  `doc_format` for `/2`.
+- **Review and fix prompts follow the fix record (`table-semantics-review@5`,
+  `table-semantics-fix@3`).** The review front matter must name `reviewed_packet_digest`.
+  A new section, 「材料包重建后的重写：带上旧审读」, gives the first review after a full
+  rewrite the old review (`reviews/<db.table>.prior.md`): each old finding is judged
+  applicable or not under the new packet and, if applicable, avoided or made again by the
+  new document, which then counts as a finding of this round. A new item 16 treats the
+  packet's row-multiplication, grain and "not on the output path" verdicts as the tool's
+  judgement: where the SQL contradicts one the SQL wins, and the review lists each case in
+  a closing 「工具判定被 SQL 推翻」 section. The fix prompt's step 5 is now its last step:
+  `semantic fixed <run> --only <db.table>`, then `status --only` should read `fixed`.
+  `SKILL.md` renames the old review to `.prior.md` before a `packet_stale` rewrite and
+  names the new flags; `table-semantics.md` (both languages) documents the judging order,
+  the front matter and `semantic fixed`.
 - **Catalog drafting wording: code sets only for read rows, shared attributes first, `[key, code]`
   by branch.** `SKILL.md`, the fragment prompt and `ontology-catalog.md` (both languages) now say:
   build a code set only for a `where` combination some column reads (a `key_of` read with an
