@@ -13,6 +13,7 @@ from __future__ import annotations
 from ..redaction import redact
 from . import packet_facts as facts
 from .names import bare_table
+from .packet_context import date_literals, upstream_unmatched
 from .packet_meaning import header_facts, producer_header
 
 
@@ -92,6 +93,9 @@ def _task_entry(table: str, task: str, group: list[dict], corpus) -> dict:
     info = group[0].get("task") or {}
     meta = info.get("meta") or {}
     record = corpus.tasks.find([task, meta.get("task_name")], meta.get("source_file")) or {}
+    reads = corpus.task_reads(task)
+    unmatched = upstream_unmatched(meta.get("upstream_tasks"), reads) if reads is not None else []
+    dates = date_literals(record.get("sql"), meta.get("expect_date"))
     return {
         "name": task,
         "task_id": meta.get("task_id"),
@@ -100,7 +104,10 @@ def _task_entry(table: str, task: str, group: list[dict], corpus) -> dict:
         "schedule_cycle": meta.get("schedule_cycle"),
         "project": meta.get("project"),
         "upstream_tasks": list(meta.get("upstream_tasks") or []),
+        **({"upstream_unmatched": unmatched} if unmatched else {}),
         "downstream_tasks": list(meta.get("downstream_tasks") or []),
+        **({"expect_date": meta["expect_date"]} if meta.get("expect_date") else {}),
+        **({"date_literals": dates} if dates else {}),
         "header_comments": list(info.get("header_comments") or []),
         "header_facts": header_facts(info.get("header_comments"), record.get("sql"),
                                      table, corpus.tables_written_by(task)),

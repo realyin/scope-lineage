@@ -66,7 +66,8 @@ def build_packets(
     profiles, cards = _profiles(producers, documents, cards)
     produced = _produced_statements(profiles)
     corpus = _Corpus(
-        cards, _TaskIndex(tasks), metadata or (lambda _table: None), Confirmed(glossary, patched)
+        cards, _TaskIndex(tasks), metadata or (lambda _table: None), Confirmed(glossary, patched),
+        _task_reads(documents),
     )
     return [_packet(table, produced[table], corpus) for table in _selected(produced, only)]
 
@@ -84,6 +85,17 @@ def document_reads(document: dict) -> set[str]:
     return {
         bare_table(name) for statement in statements for name in statement.get("source_tables") or []
     }
+
+
+def _task_reads(documents: list) -> dict[str, set[str]]:
+    """``task -> db.table`` names the task reads from outside itself, over all statements."""
+    reads: dict[str, set[str]] = {}
+    for document, _ in documents:
+        task = document.get("task_id") or (document.get("task_meta") or {}).get("task_name")
+        if task:
+            reads.setdefault(str(task), set()).update(
+                document_reads(document) - document_writes(document))
+    return reads
 
 
 def packet_digest(packet: Mapping) -> str:
@@ -155,9 +167,11 @@ class _Corpus:
     """What every packet reads besides its own statements, indexed once."""
 
     def __init__(
-        self, cards: dict, tasks: _TaskIndex, metadata: MetadataLookup, confirmed: Confirmed
+        self, cards: dict, tasks: _TaskIndex, metadata: MetadataLookup, confirmed: Confirmed,
+        reads: dict[str, set[str]] | None = None,
     ):
         self.tasks = tasks
+        self._reads = reads or {}
         self.confirmed = confirmed
         self._metadata = metadata
         self._looked_up: dict[str, Optional[dict]] = {}
@@ -180,6 +194,10 @@ class _Corpus:
 
     def tables_written_by(self, task: str) -> list[str]:
         return sorted(self._written.get(task, set()))
+
+    def task_reads(self, task: str) -> set[str] | None:
+        """What ``task`` reads over all its statements; ``None`` for a task not parsed."""
+        return self._reads.get(task)
 
 
 def _packet(table: str, statements: list[tuple[str, dict]], corpus: _Corpus) -> dict:

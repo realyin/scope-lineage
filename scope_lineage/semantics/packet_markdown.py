@@ -111,8 +111,9 @@ def _tasks(tasks: list[dict]) -> list[str]:
             f"- 任务编号：{_text(task['task_id'])}；调度：{_text(task['schedule'])}；"
             f"周期：{_text(task['schedule_cycle'])}；项目：{_text(task['project'])}",
             f"- 任务描述：{_text(task['description'])}",
-            f"- 登记的上游任务：{_names(task['upstream_tasks'])}；"
+            f"- 登记的上游任务：{_names(task['upstream_tasks'])}{_unmatched(task)}；"
             f"登记的下游任务：{_names(task['downstream_tasks'])}",
+            *_run_dates(task),
             f"- 写入语句：{_names(task['statements'])}；来源文件：{_text(task['source_file'])}",
             *_header_facts(task.get("header_facts") or {}),
             "",
@@ -121,6 +122,34 @@ def _tasks(tasks: list[dict]) -> list[str]:
         lines += [""] if task["header_comments"] else []
         lines += _sql(task["sql"])
     return lines
+
+
+def _unmatched(task: dict) -> str:
+    names = task.get("upstream_unmatched") or []
+    return f"（其中 {_names(names)} 按任务名对不上本任务 SQL 读取的任何表）" if names else ""
+
+
+def _run_dates(task: dict) -> list[str]:
+    """The expected run date and how far each date literal sits from it; no conclusion."""
+    if not task.get("expect_date"):
+        return []
+    parts = [f"- 期望日期：{_text(task['expect_date'])}"]
+    if "${" not in str(task.get("sql") or ""):
+        parts.append("SQL 里没有 `${…}` 参数")
+    literals = task.get("date_literals") or []
+    if literals:
+        parts.append("日期字面量：" + "、".join(
+            f"{_code(item['literal'])} ×{item['count']}（{_offset(item['days_from_expect_date'])}）"
+            for item in literals))
+    return ["；".join(parts)]
+
+
+def _offset(days: int) -> str:
+    if days == 0:
+        return "期望日期当天"
+    if abs(days) > 31:
+        return "不在期望日期前后一个月内"
+    return f"期望日期 {'−' if days < 0 else '+'}{abs(days)} 天"
 
 
 _HEADER_LABELS = (

@@ -339,3 +339,59 @@ def test_the_demo_producer_header_is_read_from_the_producing_tasks_sql(tmp_path:
     assert _input(packet, "demo_dwd.dwd_lending_loan_df")["producer_header"] == [
         {"task": "dwd_lending_loan_daily", "primary_key": "loan_no", "storage": "每日全量"},
     ]
+
+
+# ------------------------------------------------------------------ #28 upstream
+
+
+def test_a_registered_upstream_no_read_table_matches_is_listed(packets: Path) -> None:
+    (task,) = packet_of(packets, "demo_dwd.dwd_ticket_df")["tasks"]
+    assert task["upstream_unmatched"] == ["ods_never_read_df"]
+    assert ("（其中 `ods_never_read_df` 按任务名对不上本任务 SQL 读取的任何表）"
+            in _markdown(packets, "demo_dwd.dwd_ticket_df"))
+
+
+def test_an_upstream_read_by_another_statement_of_the_task_is_matched(packets: Path) -> None:
+    for table in ("demo_tmp.tmp_x", "demo_dim.dim_x"):
+        (task,) = packet_of(packets, table)["tasks"]
+        assert "upstream_unmatched" not in task
+
+
+# ------------------------------------------------------------------ #17 dates
+
+
+def test_a_task_carries_its_expected_date_and_each_date_literals_offset(packets: Path) -> None:
+    (task,) = packet_of(packets, "demo_dwd.dwd_ticket_snap_df")["tasks"]
+    assert task["expect_date"] == "2025-01-16"
+    assert task["date_literals"] == [
+        {"literal": "'20250115'", "count": 2, "days_from_expect_date": -1},
+        {"literal": "'99991231'", "count": 1, "days_from_expect_date": 2912792},
+    ]
+    assert ("- 期望日期：2025-01-16；SQL 里没有 `${…}` 参数；日期字面量：`'20250115'` ×2"
+            "（期望日期 −1 天）、`'99991231'` ×1（不在期望日期前后一个月内）"
+            ) in _markdown(packets, "demo_dwd.dwd_ticket_snap_df")
+
+
+def test_a_task_without_an_expected_date_carries_neither_key(packets: Path) -> None:
+    (task,) = packet_of(packets, "demo_dwd.dwd_ticket_df")["tasks"]
+    assert "expect_date" not in task and "date_literals" not in task
+
+
+def test_only_whole_valid_dates_are_date_literals_and_a_time_is_ignored() -> None:
+    from scope_lineage.semantics.packet_context import date_literals
+
+    sql = "SELECT '20251399', '2025-01-16x', '2025-01-17', 20250115 FROM t -- '20250115'"
+    assert date_literals(sql, "2025-01-16 00:00:00") == [
+        {"literal": "'2025-01-17'", "count": 1, "days_from_expect_date": 1},
+    ]
+    assert date_literals(sql, None) == []
+
+
+def test_upstream_names_match_a_table_bare_db_qualified_or_prefixed() -> None:
+    from scope_lineage.semantics.packet_context import upstream_unmatched
+
+    reads = {"demo_ods.ods_rate_df"}
+    assert upstream_unmatched(
+        ["ods_rate_df", "demo_ods_ods_rate_df", "sync_demo_ods_ods_rate_df", "rate_df",
+         "x_ods_rate_df"], reads,
+    ) == ["rate_df", "x_ods_rate_df"]
