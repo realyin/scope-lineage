@@ -327,6 +327,94 @@
         }
       }
     },
+    "merge_spec": {
+      "type": "object",
+      "description": "仅 MERGE 语句出现:ON 条件与各 WHEN 子句的条件,取自语句本身。`on` 是整个 ON 条件的原文;`key_pairs` 只收 ON 顶层 AND 合取里「一个目标列 = 一个源列」的等值项,一律按目标在前、源在后给出,不论作者先写哪一侧;其余合取项(字面量钉值、对键做函数、未写限定名分不出哪一侧的列)原文留在 `other_on_conditions`。`whens` 按书写顺序列出每个 WHEN 子句,`index` 与输出列的 `merge_when_index` 对应。SQL 文本与其他表达式键一样带作者注释,受 --strip-comments 与注释遮蔽约束。新增键,不改 schema_version。",
+      "required": [
+        "on",
+        "key_pairs",
+        "other_on_conditions",
+        "whens"
+      ],
+      "properties": {
+        "on": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "key_pairs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "target",
+              "source"
+            ],
+            "properties": {
+              "target": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "other_on_conditions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "whens": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "index",
+              "clause",
+              "condition",
+              "action",
+              "star"
+            ],
+            "properties": {
+              "index": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "clause": {
+                "enum": [
+                  "matched",
+                  "not_matched",
+                  "not_matched_by_source"
+                ]
+              },
+              "condition": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "该 WHEN 子句自己的附加条件(`WHEN MATCHED AND ...` 的 `...`)原文;没有时为 null。matched 但不满足这一条件的行既不更新也不插入。"
+              },
+              "action": {
+                "enum": [
+                  "update",
+                  "insert",
+                  "delete",
+                  null
+                ],
+                "description": "THEN 的动作;null 只在动作不是 Spark 语法里的三种之一时出现。"
+              },
+              "star": {
+                "type": "boolean",
+                "description": "`UPDATE SET *` 或 `INSERT *` 时为 true。"
+              }
+            }
+          }
+        }
+      }
+    },
     "task_dependencies": {
       "type": "object",
       "required": [

@@ -104,6 +104,7 @@ GROUP BY c.customer_id;
 | `target_partition_mode` | enum string | 是 | `none`、`static`、`dynamic` 或 `mixed`，描述的是 **`PARTITION(...)` 子句的写法**：给了值是 `static`、没给值是 `dynamic`、没有该子句是 `none`。**它与会话配置 `spark.sql.sources.partitionOverwriteMode` 无关**，也不表示这次覆写会删掉多少数据——两者名字相近但含义不同。覆写的实际影响范围由 v2 的 `effect.rowset_effect` 表达，见 task-lineage-v2.md。 |
 | `target_field_binding` | object | 条件输出 | 提供目标表 DDL/Schema 时输出，说明目标字段是否按权威顺序绑定；此外，只要这条语句本来就没有绑定可做，不论调用方传了什么元数据都会输出（`status: "not_applicable"`，带自己的 `reason`）。见 §11。 |
 | `target_binding_absent_reason` | enum string | 条件输出 | **仅在没有 `target_field_binding` 时出现**，现在只剩两种元数据缺口：`metadata_not_provided`（调用方未传 `--target-ddl-metadata`）与 **`target_table_not_found`（传了目录但缺这张表——这一种有风险**：Spark 的 `INSERT ... SELECT` 按位置写入，未绑定的投影可能落到错的列）。本来就没有绑定可做的三种情形——CTAS、MERGE、写文件路径——不再走这个键，改为输出 `target_field_binding.status: "not_applicable"`；原先匹配 `statement_defines_its_own_columns` / `binding_not_applicable_for_statement` / `target_is_not_a_table` 的消费者请改读 `target_field_binding.reason`（§11.1）。<br>两处**不会出现**该键：解析失败的语句（`parse_status: "failed"`），以及少数在解析早期返回、未走到绑定环节的语句——消费者不能假定该集合对产物封闭。<br>MERGE 的注意点：传了目标 DDL 时 `*` 分支的列名取自该 DDL、按目标顺序；未传时回落到源列名。两者都归为 `merge_target`，产物中不区分。 |
+| `merge_spec` | object | 条件输出 | **仅 MERGE 语句出现**：ON 条件与各 WHEN 子句的条件。`on` 是整个 ON 的原文；`key_pairs[]` 是 ON 顶层 AND 合取里「一个目标列 = 一个源列」的等值配对（`{target, source}`，按目标在前给出，不论作者先写哪一侧）；其余合取项原文留在 `other_on_conditions[]`；`whens[]` 逐个 WHEN 子句给出 `index`（与输出列的 `merge_when_index` 对应）、`clause`（`matched` / `not_matched` / `not_matched_by_source`）、`condition`（该子句自己的附加条件原文，没有时为 `null`）、`action`（`update` / `insert` / `delete`）和 `star`（`UPDATE SET *` / `INSERT *`）。新增键，`schema_version` 不变。见 §6.1。 |
 | `task_dependencies` | object | 是 | 从任务 JSON 保留的上游、下游任务声明，以及依赖来源摘要。 |
 | `source_tables` | array<string> | 是 | 解析得到的全部物理输入表去重列表。适合表级检索和初步影响分析。 |
 | `related_metadata` | object | 是 | 输入表、输出表的字段类型、注释及元数据完整性观察结果。 |
@@ -238,6 +239,20 @@ Core 记 `dangling_column_ref_dropped` 而不产出来源边。如果写入值�
 输出，再由 scope 链展开到物理字段；不会把子查询内部字段误绑定到 `USING` scope。
 标量子查询中引用 MERGE 目标行的相关字段会作为目标表的物理自引用保留，并出现在
 `source_tables` 中。
+
+MERGE 的 ON 条件和各 WHEN 子句的条件不是输出列，放在顶层 `merge_spec`。它说明合并按哪些列配对、每个 WHEN 子句在什么条件下做什么，消费者不必回到 SQL 原文去找。`key_pairs` 只收「一个目标列 = 一个源列」的等值项；字面量钉值、对键做函数、没有限定名分不出哪一侧的列，一律原文留在 `other_on_conditions`，不做猜测。`whens[].condition` 是 `WHEN MATCHED AND ...` 里 `AND` 之后的部分：matched 但不满足这一条件的行既不更新也不插入。SQL 文本与其他表达式键一样带作者注释，受 `--strip-comments` 与注释遮蔽约束（§18）。
+
+```json
+"merge_spec": {
+  "on": "`target`.`order_id` = `source`.`order_id` AND `source`.`dt` = '20260101'",
+  "key_pairs": [{"target": "order_id", "source": "order_id"}],
+  "other_on_conditions": ["`source`.`dt` = '20260101'"],
+  "whens": [
+    {"index": 0, "clause": "matched", "condition": "`target`.`dt` = '20260101'", "action": "update", "star": false},
+    {"index": 1, "clause": "not_matched", "condition": null, "action": "insert", "star": true}
+  ]
+}
+```
 
 CTE 名按所在查询块的词法作用域绑定。例如，一个嵌套查询声明 `WITH staging AS (...)`
 不会隐藏兄弟查询块中名为 `staging` 的无库名前缀物理表；后者仍会进入 `source_tables`。

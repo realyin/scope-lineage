@@ -4,7 +4,7 @@ schema_version: "1.0"
 task_name: "merge_contract"
 target_table: "mart.customer_profile"
 stmt_kind: "MERGE"
-lineage_digest: "c524dac5bed07ab7"
+lineage_digest: "2467f32c459c3d23"
 ---
 
 # 任务语义描述 mart.customer_profile

@@ -141,6 +141,17 @@
   title saying so and pointing to the catalog workflow. The command, every flag and
   `ontology.json` (`ontology-json/2`) are unchanged, byte for byte.
 ### Added
+- **Lineage contract: `merge_spec` on a MERGE statement.** A MERGE's ON condition and its
+  WHEN clauses' conditions are not output columns, and the contract only kept them as one
+  flattened column list (`effect.rowset_effect.membership_sources`): no pairing of a
+  target column with a source column, no telling ON from WHEN, no literals. A MERGE
+  statement document (and its `statement_lineage` entry in the task document) now carries
+  `merge_spec`: `on` (the ON condition as written), `key_pairs` (each top-level ON equality
+  of one target column with one source column, as `{target, source}`), `other_on_conditions`
+  (every other ON conjunct, verbatim) and `whens` (`index`, `clause` --
+  `matched` / `not_matched` / `not_matched_by_source` --, the clause's own `condition` or
+  null, `action` and `star`). Additive: no other statement kind has the key, and
+  `schema_version` stays `1.0`; `lineage.schema.json` and `lineage-json.md` describe it.
 - **`semantic validate --only TABLE [TABLE ...]`; `semantic status --json` without a path.**
   Writers checking their own tables in parallel had to copy their documents into a
   directory of their own, because `validate` always checked the whole directory. `--only`

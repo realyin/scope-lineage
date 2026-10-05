@@ -318,6 +318,10 @@ class ScopeLineageResult:
     is_cached_relation: bool = False
     is_session_scoped_relation: bool = False
     merge_target_alias: str = ""
+    # A MERGE's ON and WHEN conditions ({on, key_pairs, other_on_conditions, whens}, see
+    # `scope.merge_spec`), None for every other statement kind. Serialized as the
+    # statement contract's optional `merge_spec` key (D #22).
+    merge_spec: Optional[dict] = None
     # "ok" | "failed". A statement whose scope build raised is still returned (so the failure
     # stays diagnosable and one bad statement cannot abort a batch), but it carries EMPTY
     # scopes — structurally indistinguishable from a successful parse unless it says so. Callers

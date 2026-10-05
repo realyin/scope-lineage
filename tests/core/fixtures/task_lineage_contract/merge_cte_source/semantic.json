@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "artifact_kind": "task_semantic",
   "task_id": "golden_merge_cte_source",
-  "lineage_digest": "c8198db4be71794d",
+  "lineage_digest": "f27ea4b6262f696c",
   "produced_tables": [
     "mart.event_target"
   ],
@@ -12,7 +12,7 @@
       "doc_format": "semantic-json/1",
       "schema_version": "1.0",
       "statement_id": "stmt:001",
-      "lineage_digest": "30165136b9b0a8f3",
+      "lineage_digest": "600911913756e92a",
       "task": {
         "task_name": "golden_merge_cte_source#0",
         "target_table": "mart.event_target",

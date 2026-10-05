@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "schema_version": "1.0",
   "statement_id": "stmt:001",
-  "lineage_digest": "c524dac5bed07ab7",
+  "lineage_digest": "2467f32c459c3d23",
   "task": {
     "task_name": "merge_contract",
     "target_table": "mart.customer_profile",

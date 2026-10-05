@@ -192,6 +192,10 @@ def _result_to_dict(r: ScopeLineageResult) -> dict:
             if not r.target_field_binding and r.target_binding_absence
             else {}
         ),
+        # MERGE only: the ON key pairs and each WHEN clause's kind, condition and action
+        # (D #22). Additive -- a statement of any other kind has no such key, and the
+        # contract version is unchanged.
+        **({"merge_spec": r.merge_spec} if r.merge_spec is not None else {}),
         "task_dependencies": _task_dependencies_to_dict(r.task_dependencies),
         "source_tables": r.source_tables,
         "related_metadata": r.related_metadata,

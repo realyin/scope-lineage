@@ -16,7 +16,13 @@ Every fixture is synthetic.
 
 from __future__ import annotations
 
+import jsonschema
+import pytest
+
+from scope_lineage import parse_task_lineage
 from scope_lineage.contract import to_lineage_dict
+from scope_lineage.contract.task_lineage import to_task_lineage_dict
+from scope_lineage.contract.validation import validate_lineage_document
 from scope_lineage.scope.scope_builder import parse_scope_lineage
 
 SCHEMA = {
@@ -78,3 +84,81 @@ def test_an_assignment_without_a_comment_still_omits_the_key() -> None:
 def test_stripping_removes_the_assignment_comments_too() -> None:
     document = _document(COMMENTED_MERGE, strip_comments=True)
     assert all("comments" not in item for item in document["scopes"]["ROOT"]["outputs"])
+
+
+# --- 2. merge_spec --------------------------------------------------------------------
+
+
+def test_merge_spec_pairs_each_on_equality_target_with_source() -> None:
+    spec = _document(CONDITIONED_MERGE)["merge_spec"]
+    assert spec["key_pairs"] == [{"target": "k", "source": "k"}]
+
+
+def test_a_pair_written_source_first_is_still_read_target_then_source() -> None:
+    sql = CONDITIONED_MERGE.replace("ON target.k = source.k", "ON source.k = target.k")
+    spec = _document(sql)["merge_spec"]
+    assert spec["key_pairs"] == [{"target": "k", "source": "k"}]
+
+
+def test_a_renamed_pair_keeps_both_names() -> None:
+    sql = (
+        "MERGE INTO dw.ev_tgt t USING ods.ev_src s ON t.k = s.v "
+        "WHEN MATCHED THEN UPDATE SET t.w = s.w"
+    )
+    spec = _document(sql)["merge_spec"]
+    assert spec["key_pairs"] == [{"target": "k", "source": "v"}]
+
+
+def test_an_on_conjunct_that_is_not_a_column_pair_is_kept_as_written() -> None:
+    spec = _document(CONDITIONED_MERGE)["merge_spec"]
+    assert len(spec["other_on_conditions"]) == 1
+    assert "'20260101'" in spec["other_on_conditions"][0]
+    assert "dt" in spec["other_on_conditions"][0]
+
+
+def test_the_whole_on_condition_is_published_verbatim() -> None:
+    spec = _document(CONDITIONED_MERGE)["merge_spec"]
+    assert "k" in spec["on"] and "'20260101'" in spec["on"]
+
+
+def test_each_when_clause_keeps_its_kind_condition_and_action() -> None:
+    whens = _document(CONDITIONED_MERGE)["merge_spec"]["whens"]
+    assert [(w["index"], w["clause"], w["action"], w["star"]) for w in whens] == [
+        (0, "matched", "update", False),
+        (1, "not_matched", "insert", True),
+        (2, "not_matched_by_source", "delete", False),
+    ]
+    assert "'20260101'" in whens[0]["condition"]
+    assert whens[1]["condition"] is None
+    assert whens[2]["condition"] is None
+
+
+def test_update_set_star_is_marked_as_star() -> None:
+    sql = (
+        "MERGE INTO dw.ev_tgt t USING ods.ev_src s ON t.k = s.k "
+        "WHEN MATCHED THEN UPDATE SET *"
+    )
+    whens = _document(sql)["merge_spec"]["whens"]
+    assert [(w["action"], w["star"]) for w in whens] == [("update", True)]
+
+
+def test_a_statement_that_is_not_a_merge_has_no_merge_spec() -> None:
+    document = _document("INSERT OVERWRITE TABLE dw.ev_tgt SELECT k, v, w, dt FROM ods.ev_src")
+    assert "merge_spec" not in document
+
+
+def test_a_document_with_merge_spec_validates() -> None:
+    validate_lineage_document(_document(CONDITIONED_MERGE))
+
+
+def test_the_schema_describes_merge_spec_rather_than_merely_tolerating_it() -> None:
+    document = _document(CONDITIONED_MERGE)
+    document["merge_spec"]["whens"][0]["clause"] = "sometimes"
+    with pytest.raises(jsonschema.ValidationError):
+        validate_lineage_document(document)
+
+
+def test_the_task_document_carries_merge_spec_on_the_statement() -> None:
+    task = to_task_lineage_dict(parse_task_lineage(CONDITIONED_MERGE, "merge_facts", schema=SCHEMA))
+    statements = list(task["statement_lineage"].values())
+    assert statements[0]["merge_spec"]["key_pairs"] == [{"target": "k", "source": "k"}]

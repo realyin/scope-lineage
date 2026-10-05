@@ -16,6 +16,32 @@
     "status": "not_applicable",
     "reason": "merge_target"
   },
+  "merge_spec": {
+    "on": "`target`.`customer_id` = `source`.`customer_id`",
+    "key_pairs": [
+      {
+        "target": "customer_id",
+        "source": "customer_id"
+      }
+    ],
+    "other_on_conditions": [],
+    "whens": [
+      {
+        "index": 0,
+        "clause": "matched",
+        "condition": null,
+        "action": "update",
+        "star": false
+      },
+      {
+        "index": 1,
+        "clause": "not_matched",
+        "condition": null,
+        "action": "insert",
+        "star": false
+      }
+    ]
+  },
   "task_dependencies": {
     "upstream_tasks": [],
     "downstream_tasks": [],
