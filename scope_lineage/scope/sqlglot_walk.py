@@ -8,7 +8,7 @@ from sqlglot.errors import OptimizeError
 from sqlglot.optimizer.scope import Scope
 
 from ._constants import DIALECT, _SCOPE_ID_ATTR
-from .function_catalog import _KNOWN_UDAFS
+from ..function_catalog import _KNOWN_UDAFS
 from .parser import _qualified_table
 from .scope_types import ScopeLineageResult, SourceRef
 from .source_refs import _constant_sources, _system_sources

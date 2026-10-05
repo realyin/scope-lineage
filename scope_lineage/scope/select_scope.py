@@ -24,7 +24,7 @@ from .scope_types import (
     DiagnosticWarning,
 )
 from ._constants import DIALECT, _SCOPE_ID_ATTR
-from .function_catalog import _KNOWN_UDAFS
+from ..function_catalog import _KNOWN_UDAFS
 from .sequences import _unique_ordered
 from .source_refs import _constant_sources, _source_ref_binding_key
 from .sqlglot_walk import _classify_extended, _inside_nested_set_op, _pivot_of_source_node, _pivot_output_names, _projection_star, _selected_sources, _source_free_leaf_sources, _source_item_from_ast_node

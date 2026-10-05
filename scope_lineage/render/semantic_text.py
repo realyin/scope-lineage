@@ -33,6 +33,7 @@ from typing import Iterable, Mapping, Sequence
 import sqlglot
 from sqlglot import exp
 
+from .. import function_catalog
 from .markdown_text import normalize_inline as _normalize_inline
 
 
@@ -400,7 +401,7 @@ def has_unknown_function(expression: str | None) -> bool | None:
     """Whether the expression calls a function this renderer cannot name at all.
 
     WI-1g item E3. The contract's ``expression_features.has_udf`` is computed against
-    ``scope/function_catalog.py``'s scalar list, which stops at 40-odd names: ``HOUR``,
+    ``function_catalog.py``'s scalar list, which stops at 40-odd names: ``HOUR``,
     ``RANK`` and ``LAG`` are all reported as UDFs there, and a step restated as "UDF 黑盒"
     tells the reader a builtin is opaque. sqlglot already knows the Spark builtins -- it
     parses each of them into its own ``Func`` subclass and only falls back to
@@ -413,6 +414,25 @@ def has_unknown_function(expression: str | None) -> bool | None:
     if node is None:
         return None
     return any(True for _ in node.find_all(exp.Anonymous))
+
+
+def udf_calls(expression: str | None) -> set[str]:
+    """Lower-case names of the functions an expression calls that no catalogue knows.
+
+    sqlglot parses every builtin it knows into its own node and leaves the rest as
+    ``exp.Anonymous``; a name it does not know may still be a Spark builtin the function
+    catalogue lists (``hash``), so both have to disown it. The same catalogue decides the
+    contract's ``has_udf``.
+    """
+    node = parse_expression(expression)
+    if node is None:
+        return set()
+    known = function_catalog.KNOWN_FUNCTION_NAMES
+    return {
+        str(call.name).lower()
+        for call in node.find_all(exp.Anonymous)
+        if str(call.name).lower() not in known
+    }
 
 
 def aggregate_functions(expression: str | None) -> set[str]:
@@ -1316,8 +1336,29 @@ def describe_window(expression: str | None) -> str | None:
 # --------------------------------------------------------------------- simple shapes
 
 
+#: How many literals of an inline VALUES column a step restates before summarising.
+VALUES_PREVIEW_COUNT = 3
+
+
 def describe_constant(expression: str | None) -> str:
-    return f"常量 {str(expression or '').strip()}"
+    """``常量 <literal>``; a VALUES column of more than three literals is summarised.
+
+    The contract gives an inline VALUES column one constant step whose expression is the
+    tuple of every row's cell, and a 22-row dictionary restated as 22 hashes buries the
+    step it is in. The rows are not lost: the SQL keeps them, and so does the column's
+    own expression.
+    """
+    text = str(expression or "").strip()
+    node = parse_expression(text) if text.startswith("(") else None
+    if isinstance(node, exp.Tuple) and len(node.expressions) > VALUES_PREVIEW_COUNT:
+        preview = "、".join(
+            item.sql(dialect=DIALECT) for item in node.expressions[:VALUES_PREVIEW_COUNT]
+        )
+        return (
+            f"内联 VALUES 的一列（{len(node.expressions)} 个字面量，"
+            f"前 {VALUES_PREVIEW_COUNT} 个：{preview}）"
+        )
+    return f"常量 {text}"
 
 
 # WI-1g item E4. ``generated_sources[]`` entries are ``{source_type, value, transform}``

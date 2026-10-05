@@ -642,10 +642,20 @@ def test_derivation_restates_every_ordered_step() -> None:
 
 
 def test_a_step_outside_the_glossary_keeps_the_expression_and_nulls_the_text() -> None:
-    sql = "INSERT INTO mart.t SELECT MY_UDF(a.name) AS v FROM ods.users a"
+    sql = "INSERT INTO mart.t SELECT SPLIT(a.name, ',')[0] AS v FROM ods.users a"
     profile = build_semantic_profile(_document(sql, schema={"ods.users": ["name"]}))
     step = _field(profile, "v")["derivation"][0]
     assert step["text"] is None
+    assert step["expression"].startswith("SPLIT(")
+
+
+def test_a_udf_projection_keeps_the_expression_and_is_marked_a_black_box() -> None:
+    # E #20: a projection has no logic block, so the UDF mark used to be lost and the
+    # step restated as nothing at all.
+    sql = "INSERT INTO mart.t SELECT MY_UDF(a.name) AS v FROM ods.users a"
+    profile = build_semantic_profile(_document(sql, schema={"ods.users": ["name"]}))
+    step = _field(profile, "v")["derivation"][0]
+    assert "UDF 黑盒" in step["text"]
     assert step["expression"] == "MY_UDF(`a`.`name`)"
 
 

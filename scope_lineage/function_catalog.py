@@ -96,3 +96,8 @@ _KNOWN_UDAFS = frozenset({
     "COLLECT_SET", "COLLECT_LIST", "CONCAT_WS", "PERCENTILE",
     "PERCENTILE_APPROX", "HISTOGRAM_NUMERIC", "NVL",
 })
+
+#: Every lower-case function name the catalogue knows; anything else is a UDF.
+KNOWN_FUNCTION_NAMES = frozenset(
+    {*_KNOWN_SCALAR_FUNCTIONS, *(name.lower() for name in _KNOWN_UDAFS)}
+)

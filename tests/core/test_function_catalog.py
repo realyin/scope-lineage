@@ -25,7 +25,7 @@ from scope_lineage.scope.expression_text import (
     _SQL_KEYWORDS_BEFORE_PAREN,
     _function_names,
 )
-from scope_lineage.scope.function_catalog import _KNOWN_SCALAR_FUNCTIONS
+from scope_lineage.function_catalog import _KNOWN_SCALAR_FUNCTIONS
 from scope_lineage.scope.scope_builder import parse_scope_lineage
 
 

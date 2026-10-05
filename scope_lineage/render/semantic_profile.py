@@ -2040,6 +2040,23 @@ def _group_by_keys_by_scope(document: dict) -> dict[str, list[str]]:
     }
 
 
+def _step_calls_udf(step: dict, context: dict) -> bool:
+    """Whether one chain step's expression calls a UDF.
+
+    A step that runs in a logic block keeps that block's verdict (overruled by the parser
+    for a builtin, WI-1g E3). A plain projection -- ``mobile_enc(x) AS y`` -- has no logic
+    block, so it never got a verdict at all (E #20): its expression is asked directly,
+    against the same function catalogue the contract's ``has_udf`` comes from.
+    """
+    expression = step.get("expression_sql")
+    logic_ids = set(step.get("logic_ids") or [])
+    if logic_ids:
+        return bool(logic_ids & context["udf_blocks"]) and (
+            semantic_text.has_unknown_function(expression) is not False
+        )
+    return bool(semantic_text.udf_calls(expression))
+
+
 def _udf_logic_block_ids(document: dict) -> set:
     return {
         str(block.get("logic_block_id"))
@@ -2522,9 +2539,7 @@ def _derivation(chain: dict | None, context: dict) -> list[dict]:
     for step in (chain or {}).get("ordered_steps") or []:
         scope_id = str(step.get("scope_id"))
         expression = step.get("expression_sql")
-        has_udf = bool(
-            set(step.get("logic_ids") or []) & context["udf_blocks"]
-        ) and semantic_text.has_unknown_function(expression) is not False
+        has_udf = _step_calls_udf(step, context)
         branch = context["union_branches"].get(scope_id)
         steps.append(
             {
