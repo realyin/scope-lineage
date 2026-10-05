@@ -15,10 +15,10 @@
   built from commented SQL change accordingly.
 - **A UDF in a SELECT list is marked a UDF black box; a long VALUES column is summarised.**
   The 「UDF 黑盒」 mark came only from a logic block's `has_udf`, and a plain projection has no
-  logic block, so `mobile_enc(x) AS y` restated as nothing (a packet printed `None`). A
+  logic block, so `mask_text(x) AS y` restated as nothing (a packet printed `None`). A
   projection step now asks its own expression against the function catalogue the contract's
   `has_udf` uses (`hash`, `md5`, `split` stay builtins). The constant step of an inline VALUES
-  column listed every literal (a 22-row dictionary as 22 hashes); past three it now reads
+  column listed every literal of the dictionary; past three it now reads
   「内联 VALUES 的一列（N 个字面量，前 3 个：…）」, with `expression` unchanged. The catalogue
   module moved from `scope/function_catalog.py` to `function_catalog.py` so the renderer may
   read it.

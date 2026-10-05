@@ -1,7 +1,7 @@
 """Derivation steps that say what a projection does, and statement findings (E #20, #25, D #29).
 
 1. **A UDF called in a SELECT list is marked a UDF black box.** The mark came only from a
-   logic block's ``has_udf``, and a projection has no logic block, so ``mobile_enc(x)`` in
+   logic block's ``has_udf``, and a projection has no logic block, so ``mask_text(x)`` in
    a SELECT list restated as nothing; the output column's own ``has_udf`` (the function
    catalogue's verdict) now decides, still overruled by the parser for a builtin.
 2. **A long inline VALUES column is summarised.** ``常量 ('k1', 'k2', ...)`` listed every

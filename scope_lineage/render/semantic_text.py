@@ -1366,7 +1366,7 @@ def describe_constant(expression: str | None) -> str:
     """``常量 <literal>``; a VALUES column of more than three literals is summarised.
 
     The contract gives an inline VALUES column one constant step whose expression is the
-    tuple of every row's cell, and a 22-row dictionary restated as 22 hashes buries the
+    tuple of every row's cell, and a long dictionary restated literal by literal buries the
     step it is in. The rows are not lost: the SQL keeps them, and so does the column's
     own expression.
     """

@@ -2044,7 +2044,7 @@ def _step_calls_udf(step: dict, context: dict) -> bool:
     """Whether one chain step's expression calls a UDF.
 
     A step that runs in a logic block keeps that block's verdict (overruled by the parser
-    for a builtin, WI-1g E3). A plain projection -- ``mobile_enc(x) AS y`` -- has no logic
+    for a builtin, WI-1g E3). A plain projection -- ``mask_text(x) AS y`` -- has no logic
     block, so it never got a verdict at all (E #20): its expression is asked directly,
     against the same function catalogue the contract's ``has_udf`` comes from.
     """
