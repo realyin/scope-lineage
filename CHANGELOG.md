@@ -169,6 +169,11 @@
   title saying so and pointing to the catalog workflow. The command, every flag and
   `ontology.json` (`ontology-json/2`) are unchanged, byte for byte.
 ### Added
+- **`semantic.json`: `rules[].consumed: false` marks a CASE / IF nobody reads.** An IF an
+  inner query computes while the outer query reads the raw column under the same name
+  restated a rule the output never sees. The rule now carries `consumed: false` when that is
+  provable (no downstream field, no target, no scope reads the column -- a join key counts --
+  and no `*` reader); otherwise the key is absent.
 - **`semantic.json`: `fields[].lookup_keys` names the key a dictionary lookup is read by.** A
   value read off an inline VALUES dictionary (or a constant / `count(*)` column) has no
   physical source, so nothing said which physical column picks its row. Such a field now

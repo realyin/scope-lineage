@@ -1575,6 +1575,8 @@ _RULE_KEY_ORDER = (
     "extra_condition_fields",
     "branches",
     "else",
+    # #21-e: only `false`, only on a CASE / IF rule whose output provably nobody reads.
+    "consumed",
     # WI-2.12: filled in by `apply_glossary`, so it sits beside the fields whose codes it
     # explains rather than at the end of the rule.
     "value_meanings",
@@ -1829,12 +1831,55 @@ def _case_rule(document: dict, scope_id: str, block: dict) -> dict:
         "expression": expression,
         "branches": branches,
         "else": otherwise,
+        **({"consumed": False} if _case_unconsumed(document, scope_id, block) else {}),
         "fields": _rule_fields(document, pairs),
         "scope_fields": _scope_fields(document, block.get("fields")),
         **_rule_comments(block),
         "evidence": str(block.get("logic_block_id")),
         "tag": TAG_SQL_FACT,
     }
+
+
+def _case_unconsumed(document: dict, scope_id: str, block: dict) -> bool:
+    """True when nothing downstream reads any column this CASE / IF produces (#21-e).
+
+    Every test must agree, because each one alone misses a kind of read: the output
+    column has no downstream field, no target and no final target; no scope's
+    ``field_usage`` of this scope lists the column (an ON clause is a read the downstream
+    list does not record); and every scope reading this one says which columns it reads,
+    none of them ``*``. Anything unsure is "consumed", i.e. no mark.
+    """
+    names = [str(item) for item in block.get("output_fields") or []]
+    outputs = {
+        str(output.get("name")): output
+        for output in (_scopes(document).get(scope_id) or {}).get("outputs") or []
+    }
+    if not names or any(name not in outputs for name in names):
+        return False
+    for name in names:
+        output = outputs[name]
+        if (
+            output.get("downstream_fields")
+            or output.get("target_columns")
+            or output.get("final_target_columns")
+        ):
+            return False
+    wanted = {name.lower() for name in names}
+    for reader_id, reader in _scopes(document).items():
+        if scope_id not in (reader.get("depends_on") or []):
+            continue
+        usages = [
+            usage
+            for usage in reader.get("field_usage") or []
+            if str(usage.get("source_id")) == scope_id
+        ]
+        if not usages:
+            return False
+        for usage in usages:
+            used = {str(item).lower() for item in usage.get("used_fields") or []}
+            if "*" in used or used & wanted:
+                return False
+    return True
 
 
 def _rule_fields(document: dict, pairs: Sequence[tuple[str, str]]) -> list[dict]:
