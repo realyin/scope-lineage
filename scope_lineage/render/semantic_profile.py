@@ -47,7 +47,7 @@ from collections import Counter, OrderedDict
 from dataclasses import replace
 from typing import Iterable, Mapping, Sequence
 
-from . import claims, glossary_values, semantic_text
+from . import claims, glossary_values, semantic_text, values_rows
 from .diagnostics_view import all_warnings, fact_gaps_for, warnings_for
 from .mapping_markdown import lineage_document_digest
 from .sequences import unique_ordered
@@ -2865,12 +2865,76 @@ def _decide_grain(
     root_visited = [_ROOT] if _ROOT in _scopes(document) else []
     if shape == SHAPE_UNKNOWN:
         visited = _resolve_grain(document)[1] if root_visited else root_visited
-        return _grain([], BASIS_UNKNOWN, shape_evidence), visited
+        return _grain([], BASIS_UNKNOWN, shape_evidence), _path_below_blockers(
+            document, visited
+        )
     if shape == SHAPE_DEDUPLICATED:
         keys = _root_dedup_logical_keys(document)
         if keys:
             return _grain(keys, BASIS_WINDOW_PARTITION, shape_evidence), root_visited
-    return _resolve_grain(document)
+    grain, visited = _resolve_grain(document)
+    return grain, _path_below_blockers(document, visited)
+
+
+def _path_below_blockers(document: dict, visited: Sequence[str]) -> list[str]:
+    """The grain walk's path, continued through the scopes a blocker stopped it at.
+
+    #21-a. A UNION, a LATERAL VIEW or an ambiguous bare column makes one scope's row count
+    undecidable, so the *grain* is unknown there -- but every input of that scope still
+    feeds the output row for row (a UNION's branches add up, a LATERAL VIEW repeats each
+    row), so a JOIN below it duplicates output rows as surely as one above it. Withholding
+    the grain must not withhold the path: the walk resumes from each of the blocked
+    scope's inputs, recursively, the way a MERGE's USING source is walked. The grain
+    itself is not touched. A walk that ends at an aggregation ended because it found the
+    grain, so nothing resumes there: a JOIN under a GROUP BY changes an aggregate's value,
+    not the output's rows.
+    """
+    path = list(visited)
+    seen = set(path)
+    pending = [(path[-1], 0)] if path else []
+    while pending:
+        scope_id, depth = pending.pop(0)
+        if depth >= GRAIN_DEPTH_LIMIT or not _walk_blocker(document, scope_id):
+            continue
+        for start in _blocked_scope_inputs(document, scope_id):
+            if start in seen:
+                continue
+            walked = _resolve_grain(document, start)[1]
+            path.extend(item for item in walked if item not in seen)
+            seen.update(walked)
+            if walked:
+                pending.append((walked[-1], depth + 1))
+    return path
+
+
+def _walk_blocker(document: dict, scope_id: str) -> str | None:
+    """The blocker `_scope_grain` stopped at in this scope, or None when it stopped otherwise."""
+    if _blocks_of_type(document, scope_id, "group_by") or _blocks_of_type(
+        document, scope_id, "aggregate"
+    ):
+        return None
+    types = {str(block.get("logic_type")) for block in _scope_blocks(document, scope_id)}
+    if "distinct" in types:
+        return None
+    return _grain_blocker(document, scope_id, types)
+
+
+def _blocked_scope_inputs(document: dict, scope_id: str) -> list[str]:
+    """A blocked scope's inputs the output rows come from: its scopes, not a JOIN's right side.
+
+    What a JOIN brings in from its right side is judged by that JOIN's verdict; the joins
+    inside the right side do not duplicate output rows themselves.
+    """
+    scopes = _scopes(document)
+    right = {
+        str((block.get("join_relation_detail") or {}).get("right_input"))
+        for block in _blocks_of_type(document, scope_id, "join")
+    }
+    return [
+        item
+        for item in _scope_inputs(document, scope_id)
+        if item in scopes and item not in right
+    ]
 
 
 def _resolve_grain(document: dict, start: str = _ROOT) -> tuple[dict, list[str]]:
@@ -3780,6 +3844,9 @@ def _fan_out_verdict(
         function, partition, consumer = proven
         scope = "无分区" if not partition else f"按 {'、'.join(partition)} 分区"
         return "safe", f"右侧 {function} {scope}并以 = 1 过滤（{consumer}）", None, None, []
+    listed = _values_key_claim(document, right, detail, columns)
+    if listed is not None:
+        return "safe", _values_reason(listed), None, None, []
     fallback = grouped or ("risk", "右侧未被证明按连接键唯一", [])
     return fallback[0], fallback[1], None, None, fallback[2]
 
@@ -3808,7 +3875,10 @@ def _fan_out_claim(
     if grouped is not None:
         return grouped
     columns = _join_side_columns(detail, "right")
-    return _ranking_key_claim(document, right, (block_id, detail), columns) if columns else None
+    if not columns:
+        return None
+    ranked = _ranking_key_claim(document, right, (block_id, detail), columns)
+    return ranked or _values_key_claim(document, right, detail, columns)
 
 
 def _keyless_join_verdict(detail: dict) -> tuple[str, str]:
@@ -4221,15 +4291,238 @@ def _ranking_key_claim(
         if consumer:
             function = str(spec.get("window_function"))
             unique = function.lower() in semantic_text.UNIQUE_RANKING_WINDOW_FUNCTIONS
-            return claims.Claim(
-                "at_most_one_row" if unique else "dedup_intent",
-                claims.Subject(claims.SUBJECT_QUERY_ROWS, (scope_id,)),
-                tuple(_window_partition_labels(spec)),
-                claims.PROVEN if unique else claims.HYPOTHESIS,
-                "R-ROWNUM-FIRST" if unique else "R-RANK-FIRST",
-                (consumer, function),
-            )
+            return _ranking_claim(scope_id, spec, consumer)
+    return _lower_ranking_claim(document, scope_id, join_columns, functions)
+
+
+def _ranking_claim(scope_id: str, spec: dict, consumer: str) -> claims.Claim:
+    function = str(spec.get("window_function"))
+    unique = function.lower() in semantic_text.UNIQUE_RANKING_WINDOW_FUNCTIONS
+    return claims.Claim(
+        "at_most_one_row" if unique else "dedup_intent",
+        claims.Subject(claims.SUBJECT_QUERY_ROWS, (scope_id,)),
+        tuple(_window_partition_labels(spec)),
+        claims.PROVEN if unique else claims.HYPOTHESIS,
+        "R-ROWNUM-FIRST" if unique else "R-RANK-FIRST",
+        (consumer, function),
+    )
+
+
+#: What ends a single-input chain: anything that can make one row many, or many one.
+_CHAIN_STOP_TYPES = frozenset(
+    {"join", "group_by", "aggregate", "distinct", "union", "lateral_view"}
+)
+
+
+def _single_input_chain(document: dict, scope_id: str) -> list[str]:
+    """``scope_id`` and the scopes below it, each the only input of the one above.
+
+    A scope is descended only when it reads exactly one scope and carries no join,
+    grouping, DISTINCT, UNION or LATERAL VIEW: then every row it publishes is one row of
+    its input, filtered or renamed, and a uniqueness proven below holds above it. The
+    last scope is whatever the descent reached; it is not itself checked.
+    """
+    scopes = _scopes(document)
+    chain = [scope_id]
+    current = scope_id
+    for _ in range(GRAIN_DEPTH_LIMIT):
+        types = {str(block.get("logic_type")) for block in _scope_blocks(document, current)}
+        if types & _CHAIN_STOP_TYPES or _grain_blocker(document, current, types):
+            break
+        inputs = _scope_inputs(document, current)
+        if len(inputs) != 1 or inputs[0] not in scopes or inputs[0] in chain:
+            break
+        current = inputs[0]
+        chain.append(current)
+    return chain
+
+
+def _lift_name(document: dict, parent: str, name: str | None) -> str | None:
+    """The column ``parent`` publishes a bare reference to its input's ``name`` as.
+
+    Renames are followed (``SELECT k AS kk``); anything computed from the column is not
+    the column and yields None. A scope with no output list (an unexpanded ``SELECT *``)
+    publishes its input's columns as they are.
+    """
+    if name is None:
+        return None
+    outputs = (_scopes(document).get(parent) or {}).get("outputs") or []
+    if not outputs:
+        return name
+    wanted = name.lower()
+    for output in outputs:
+        if _bare_column_name(output.get("expression") or output.get("name")) == wanted:
+            return str(output.get("name"))
     return None
+
+
+def _lifted_names(document: dict, chain: Sequence[str], level: int, name: str | None) -> list:
+    """``name`` at ``chain[level]`` as each scope above it publishes it (index = level)."""
+    names: list = [None] * (level + 1)
+    names[level] = name
+    for index in range(level - 1, -1, -1):
+        names[index] = _lift_name(document, chain[index], names[index + 1])
+    return names
+
+
+def _lower_ranking_claim(
+    document: dict,
+    scope_id: str,
+    join_columns: Sequence[str],
+    functions: frozenset[str],
+) -> claims.Claim | None:
+    """#21-b: the ranking window sits below the right side, the ``= 1`` filter above it.
+
+    ``(select k, v from (select k, v, row_number() over (partition by k ...) rn from t)
+    x where rn = 1) d`` -- the commonest way to write "latest row per key" -- puts the
+    window and the filter in different scopes, and the right side is neither. It is still
+    unique by ``k`` when every scope from the right side down to the window is a
+    single-input chain, the partition keys reach the right side as bare columns (renames
+    followed) within the join keys, and a scope on the chain above the window keeps
+    ``rn = 1``.
+    """
+    chain = _single_input_chain(document, scope_id)
+    for owner, _, spec in _ranking_window_specifications(document, functions):
+        if owner not in chain[1:]:
+            continue
+        level = chain.index(owner)
+        names = _output_name_index(document, owner)
+        keys = [_partition_item_key(owner, names, item) for item in spec.get("partition_by") or []]
+        lifted = [_lifted_names(document, chain, level, key.get("name"))[0] for key in keys]
+        if any(name is None for name in lifted):
+            continue
+        if not _comparable(lifted) <= _comparable(join_columns):
+            continue
+        consumer = _chain_first_row_filter(document, chain, level, spec)
+        if consumer:
+            return _ranking_claim(scope_id, spec, consumer)
+    return None
+
+
+def _chain_first_row_filter(
+    document: dict, chain: Sequence[str], level: int, spec: dict
+) -> str | None:
+    """The block on the chain above the window that keeps ``rn = 1``, by ``rn``'s name there."""
+    names = _lifted_names(document, chain, level, str(spec.get("output_field") or "") or None)
+    above = set(chain[:level])
+    for entry in spec.get("filter_after_window") or []:
+        scope = str(entry.get("scope_id"))
+        if scope in above:
+            output = names[chain.index(scope) + 1]
+            if output and _entry_keeps_first_row(entry, output):
+                return str(entry.get("logic_block_id"))
+    for index in range(level - 1, -1, -1):
+        output = names[index + 1]
+        if not output:
+            continue
+        for block in _scope_blocks(document, chain[index]):
+            if str(block.get("logic_type")) in _PREDICATE_LOGIC_TYPES and (
+                _predicate_block_keeps_first_row(block, output)
+            ):
+                return str(block.get("logic_block_id"))
+    return None
+
+
+def _values_key_claim(
+    document: dict, scope_id: str, detail: dict, join_columns: Sequence[str]
+) -> claims.Claim | None:
+    """#21-c: the right side is an inline VALUES list whose rows differ on the join keys.
+
+    The rows are literals the SQL states, so their distinctness is a fact. The right side
+    is followed down a single-input chain to a scope whose text is the VALUES list itself;
+    every ``column = literal`` pin on the way -- a conjunct of a WHERE on the chain, or a
+    top-level ON conjunct reading only the right side -- narrows the rows first. A pin in
+    an OR, on the left side or by any other operator is ignored: ignoring a filter only
+    keeps more rows, so the proof stays sound. The key cells must be literals, and integer
+    strings compare by number (``'1'`` meets ``'01'``).
+
+    ``content`` is ``(row count, key columns, pins)`` for the reason sentence.
+    """
+    chain = _single_input_chain(document, scope_id)
+    bottom = chain[-1]
+    scope = _scopes(document).get(bottom) or {}
+    if scope.get("depends_on"):
+        return None
+    columns = [str(output.get("name")) for output in scope.get("outputs") or []]
+    rows = values_rows.literal_rows(scope.get("raw_sql"), len(columns))
+    if not rows or not columns:
+        return None
+    level = len(chain) - 1
+    # name at each chain level -> the VALUES column it carries
+    at_level: list[dict[str, int]] = [{} for _ in chain]
+    for position, column in enumerate(columns):
+        for index, name in enumerate(_lifted_names(document, chain, level, column)):
+            if name is not None:
+                at_level[index].setdefault(name.lower(), position)
+    key_positions = _dedupe(
+        at_level[0][name.lower()] for name in join_columns if name.lower() in at_level[0]
+    )
+    if not key_positions:
+        return None
+    pins = _values_pins(document, chain, at_level, detail, scope_id)
+    kept = [row for row in rows if _row_meets_pins(row, pins)]
+    seen = set()
+    for row in kept:
+        cells = tuple(row[position] for position in key_positions)
+        if any(cell is values_rows.NOT_LITERAL for cell in cells):
+            return None
+        key = tuple(values_rows.comparable(cell) for cell in cells)
+        if key in seen:
+            return None
+        seen.add(key)
+    pin_text = tuple(f"{columns[position]} = '{value}'" for position, value in pins)
+    return claims.Claim(
+        "at_most_one_row",
+        claims.Subject(claims.SUBJECT_QUERY_ROWS, (scope_id,)),
+        (len(kept), tuple(columns[position] for position in key_positions), pin_text),
+        claims.PROVEN,
+        "R-VALUES-DISTINCT",
+        (bottom,),
+    )
+
+
+def _values_pins(
+    document: dict,
+    chain: Sequence[str],
+    at_level: Sequence[Mapping[str, int]],
+    detail: dict,
+    scope_id: str,
+) -> list[tuple[int, str]]:
+    """``(VALUES column position, literal)`` for every equality pin on the right side's way."""
+    pins: list[tuple[int, str]] = []
+    for index, current in enumerate(chain[:-1]):
+        for block in _blocks_of_type(document, current, "filter"):
+            for conjunct in (block.get("filter_predicate_detail") or {}).get("conjuncts") or []:
+                pins.extend(_pin(conjunct, at_level[index + 1]))
+    for condition in detail.get("condition_filters") or []:
+        fields = condition.get("fields") or []
+        if fields and all(str(field.get("scope")) == scope_id for field in fields):
+            pins.extend(_pin(condition, at_level[0]))
+    return _dedupe(pins)
+
+
+def _pin(condition: Mapping, names: Mapping[str, int]) -> list[tuple[int, str]]:
+    found = values_rows.pin_literal(condition.get("expression"))
+    if found is None or found[0] not in names:
+        return []
+    return [(names[found[0]], found[1])]
+
+
+def _row_meets_pins(row: tuple, pins: Sequence[tuple[int, str]]) -> bool:
+    """False only when a literal cell provably fails a pin; anything unsure keeps the row."""
+    for position, value in pins:
+        cell = row[position]
+        if cell is values_rows.NOT_LITERAL:
+            continue
+        if cell != value and values_rows.comparable(cell) != values_rows.comparable(value):
+            return False
+    return True
+
+
+def _values_reason(claim: claims.Claim) -> str:
+    count, keys, pins = claim.content
+    text = f"右侧为内联 VALUES 列表，{count} 行在 {'、'.join(keys)} 上互不相同"
+    return f"{text}（按 {'、'.join(pins)} 过滤后）" if pins else text
 
 
 def _keeps_first_row_consumer(

@@ -193,7 +193,17 @@
     "key_evidence": [],
     "key_confidence": "none",
     "partition_columns": [],
-    "fan_out_risks": [],
+    "fan_out_risks": [
+      {
+        "logic_block_id": "logic:union:main:b01:join:001",
+        "scope_id": "union:main:b01",
+        "join_type": "INNER",
+        "right": "ods.users",
+        "status": "unknown",
+        "reason": "物理表无主键事实",
+        "path": "grain"
+      }
+    ],
     "tag": "结构推断",
     "key_claim": null
   },
@@ -597,6 +607,7 @@
       "output_shape.candidate_keys": 1,
       "output_shape.unexposed_keys": 1,
       "output_shape.key_confidence": 1,
+      "output_shape.fan_out_risks[]": 1,
       "stages[].actions[].intent": 1
     }
   }

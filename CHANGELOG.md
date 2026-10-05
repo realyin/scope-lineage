@@ -20,6 +20,17 @@
   the rule named no column (a packet showed 「涉及表 —」). That side's physical key is now
   listed on its own; `physical_key_pairs` still pairs only physical columns on both sides.
   Readers of `semantic.json` `fields` see more entries on such one-sided joins.
+- **Fan-out verdicts reach UNION branches, and two more right sides are proven unique.** A
+  UNION, a LATERAL VIEW or an ambiguous bare column stopped the grain walk, so every JOIN
+  below it -- a UNION branch's LEFT JOIN, the subquery a LATERAL VIEW expands, a MERGE's
+  USING union -- got no `fan_out_risks` entry at all (a packet rendered it 「不在输出路径上」).
+  The walk now continues into the blocked scope's inputs; the grain stays `unknown` and an
+  aggregation still ends the walk. A right side whose `row_number() = 1` sits one or more
+  layers down (window inside, filter outside) is now `safe` when its partition keys reach
+  the join keys as bare columns; so is an inline VALUES dictionary whose literal rows,
+  narrowed by equality pins on the way (WHERE, or top-level ON conjuncts on the right side),
+  differ on the join key (claim rule `R-VALUES-DISTINCT`). The golden `complex_scope` gains
+  the UNION-branch JOIN it used to omit.
 - **Breaking — `semantic status` ties a fix to its review and its packet
   (`table-semantics-status/2`).** A document that changed after a review with high or medium
   findings used to count as `fixed`, whether the fix finished, was interrupted halfway, or

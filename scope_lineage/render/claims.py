@@ -38,6 +38,7 @@ RULES: dict[str, Rule] = {
     "R-ROWNUM-FIRST": Rule(SOUND, "row_number() = 1 使每个分区至多一行"),
     "R-RANK-FIRST": Rule(HEURISTIC, "rank()/dense_rank() = 1 表达去重意图，保留并列，不证明唯一"),
     "R-EMPTY-GROUPING": Rule(SOUND, "没有 GROUP BY 的聚合输出一行"),
+    "R-VALUES-DISTINCT": Rule(SOUND, "内联 VALUES 的字面量行在连接键上互不相同（等值钉住过滤后）"),
     "R-PIN-DROP": Rule(SOUND, "AND 顶层的等值钉住使该列在 scope 内为常量，离开键集"),
     "R-JOIN-PRESERVE": Rule(SOUND, "右侧按连接键唯一时 JOIN 不放大左侧行"),
     "R-JOIN-BEFORE-GROUPING": Rule(SOUND, "分组之前的 JOIN 放大被聚合的行，不增加输出行"),
