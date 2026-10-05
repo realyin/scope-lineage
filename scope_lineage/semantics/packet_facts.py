@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import re
 
-from .names import bare_column, bare_table, normalize_sql
+from ..render.semantic_text import NULLABLE_LEFT_JOIN_TYPES
+from .names import bare_column, bare_table, normalize_sql, strip_leading_keyword
 from .packet_meaning import case_outputs, code_expression, join_facts
 
 _RULE_KINDS = {"filter": "filter", "having": "filter", "join_condition": "join",
@@ -78,6 +79,18 @@ def _profile_rule(task: str, statement: dict, rule: dict) -> dict:
         entry["join_type"] = rule["join_type"]
     if entry["kind"] == "join":
         entry.update(join_facts(statement, rule))
+        # The ON's other conjuncts, read by `mark_partition_filters` and dropped before
+        # the packet is written: they are the profile's to publish, not the packet's.
+        entry[EXTRA_CONDITIONS] = [str(text) for text in rule.get("extra_conditions") or []]
+        if not entry["tables"]:
+            # A transitional fallback: an ON whose only equality has more than one column
+            # on a side (`IF(COALESCE(a.x, '') = '', a.y, a.x) = d.k`) has no key pair in
+            # the lineage, so the rule's `fields` are empty. Name the tables its
+            # conditions touch and the right side; once the lineage pairs such an
+            # equality, `fields` answers and this never runs.
+            entry["tables"] = sorted(
+                set(_tables_of(rule.get("extra_condition_fields"))) | set(entry["right_tables"])
+            )
     return entry
 
 
@@ -129,13 +142,38 @@ def statement_keys(task: str, statement: dict) -> dict:
 
 def statement_partition(task: str, statement: dict) -> dict:
     partition = (statement.get("task") or {}).get("partition") or {}
-    return {
+    spec = partition.get("spec") or {}
+    entry = {
         "task": task,
         "statement_id": statement.get("statement_id"),
         "columns": list(partition.get("columns") or []),
         "mode": partition.get("mode"),
-        "spec": partition.get("spec") or {},
+        "spec": spec,
     }
+    values = _select_values(statement, [name for name, value in spec.items() if value is None])
+    if values:
+        entry["select_values"] = values
+    return entry
+
+
+def _select_values(statement: dict, dynamic: list[str]) -> dict[str, list[str]]:
+    """The constants a SELECT writes into each dynamic partition column, when only constants.
+
+    ``PARTITION (dt)`` is dynamic whatever the SELECT feeds it, so the spec has no value;
+    when the field the SELECT writes to that column reads no source column and is built
+    from constants alone (``'${bizdate}' AS dt``, one per UNION branch), those constants
+    are the partition values. A column fed from a source keeps no entry.
+    """
+    fields = {str(field.get("column")): field for field in statement.get("fields") or []}
+    values: dict[str, list[str]] = {}
+    for name in dynamic:
+        field = fields.get(str(name)) or {}
+        generated = field.get("generated_sources") or []
+        if field.get("sources") or not generated or any(
+                str(item.get("source_type")) != "CONSTANT" for item in generated):
+            continue
+        values[str(name)] = list(dict.fromkeys(str(item.get("value")) for item in generated))
+    return values
 
 
 # ------------------------------------------------------------------ partition filters
@@ -148,6 +186,10 @@ _COMPARISON = re.compile(rf"^[a-z0-9_]+(=|<=|>=|<|>){_CONSTANT}$")
 _BETWEEN = re.compile(rf"^[a-z0-9_]+between{_CONSTANT}and{_CONSTANT}$")
 
 
+EXTRA_CONDITIONS = "_extra_conditions"
+_QUALIFIED = re.compile(r"^([a-z_][a-z0-9_]*)\.([a-z0-9_]+)((?:=|<=|>=|<|>|between).*)$")
+
+
 def mark_partition_filters(rules: list[dict], metadata) -> None:
     """Decide per filter conjunct whether it selects partitions, metadata first.
 
@@ -157,8 +199,16 @@ def mark_partition_filters(rules: list[dict], metadata) -> None:
     ``PARTITIONED BY``) is a partition filter; failing that, a comparison with a constant
     on a ``dt``/``ds``/``pt``/``p_date`` column of a table the metadata marks partitioned
     is one; with neither, the lineage's flag stands. ``partition_basis`` says which.
+
+    A JOIN's ON reads partitions too (:func:`_join_partition_reads`); what it reads is
+    published on the rule as ``partition_reads``, only when there is some.
     """
     for rule in rules:
+        if rule["kind"] == "join":
+            reads = _join_partition_reads(rule, metadata)
+            if reads:
+                rule["partition_reads"] = reads
+            continue
         if rule["kind"] != "filter" or not rule.get("columns"):
             continue
         decided = [partition_column(ref, rule["expression"], metadata) for ref in rule["columns"]]
@@ -167,6 +217,43 @@ def mark_partition_filters(rules: list[dict], metadata) -> None:
         rule["partition_filter"] = all(verdict for verdict, _ in decided)
         bases = {basis for _, basis in decided}
         rule["partition_basis"] = "metadata" if bases == {"metadata"} else "partition_name"
+
+
+def _join_partition_reads(rule: dict, metadata) -> list[dict]:
+    """The ON conditions that pick partitions of the JOIN's right table.
+
+    ``LEFT JOIN t c ON a.k = c.k AND c.dt = '…'`` reads one partition of ``t`` as surely
+    as a WHERE would: the right rows outside it never match. A condition counts when it
+    compares a column of the right side, qualified by the name the ON calls it, with a
+    constant; the right side is one physical table; the column is a partition column
+    (:func:`partition_column`); and the join does not keep every right row -- a RIGHT or
+    FULL OUTER join's ON never removes a right row, so it reads them all.
+    """
+    if rule.get("join_type") in NULLABLE_LEFT_JOIN_TYPES:
+        return []
+    table = rule.get("right")
+    aliases = {str(name).lower() for name in rule.get("right_aliases") or []}
+    if not table or rule.get("right_tables") != [table]:
+        return []
+    reads = []
+    for expression in rule.get(EXTRA_CONDITIONS) or []:
+        text = re.sub(r"\s+", "", strip_leading_keyword(expression).lower().replace("`", ""))
+        match = _QUALIFIED.match(text)
+        if not match or match.group(1) not in aliases:
+            continue
+        text = f"{match.group(2)}{match.group(3)}"
+        if not (_COMPARISON.match(text) or _BETWEEN.match(text)):
+            continue
+        verdict, basis = partition_column(f"{table}.{match.group(2)}", expression, metadata)
+        if verdict:
+            reads.append({"table": table, "expression": expression, "basis": basis})
+    return reads
+
+
+def drop_private(rules: list[dict]) -> None:
+    """Take out what the rules carried for this module only."""
+    for rule in rules:
+        rule.pop(EXTRA_CONDITIONS, None)
 
 
 def partition_column(reference: str, expression, metadata) -> tuple:
@@ -188,14 +275,21 @@ def partition_column(reference: str, expression, metadata) -> tuple:
 def input_time_facts(table: str, rules: list[dict], columns: list[dict]) -> dict:
     """How one input's partitions are read, and its non-partition business-date filters."""
     partition = [r["expression"] for r in rules if r["partition_filter"] and table in r["tables"]]
+    partition += [
+        read["expression"]
+        for rule in rules
+        for read in rule.get("partition_reads") or []
+        if read["table"] == table
+    ]
     by_name = {column["name"]: column for column in columns}
     dated = [
-        {"column": name, "expression": rule["expression"]}
+        {"column": name, "expression": rule["expression"], "statement_id": rule["statement_id"]}
         for rule in rules
         if rule["kind"] == "filter" and not rule["partition_filter"] and table in rule["tables"]
         for name in _filter_columns(rule, table)
         if _is_date_column(by_name.get(name) or {"name": name})
     ]
+    _mark_date_shapes(dated)
     read = _partition_read(partition)
     convention = _name_convention(table)
     return {
@@ -205,6 +299,61 @@ def input_time_facts(table: str, rules: list[dict], columns: list[dict]) -> dict
         "name_convention": convention,
         "full_snapshot": read == "equality" and convention == "full",
     }
+
+
+# The shapes a business-date filter takes. Only a window -- an equality, a lower bound, a
+# BETWEEN, or anything not recognised -- selects rows by date; an as-of pair keeps the rows
+# valid on one day, an upper bound alone keeps all history up to a day, a NULL check
+# looks at no date at all.
+DATE_WINDOW = "window"
+_FLIP = {"<": ">", "<=": ">=", ">": "<", ">=": "<=", "=": "=", "<>": "<>"}
+_SIDE = r"(?P<side>.+?)"
+_OPERATOR = r"(?P<op><=|>=|<>|=|<|>)"
+_BOUND = re.compile(rf"^{_SIDE}{_OPERATOR}(?P<constant>{_CONSTANT})$")
+_BOUND_FLIPPED = re.compile(rf"^(?P<constant>{_CONSTANT}){_OPERATOR}{_SIDE}$")
+_NULL_CHECK = re.compile(r"is(not)?null$")
+_UPPER, _LOWER = ("<", "<="), (">", ">=")
+
+
+def _mark_date_shapes(dated: list[dict]) -> None:
+    """Give each date filter its ``shape``: ``as_of``, ``upper_bound``, ``null_check``, ``window``.
+
+    ``X <= C`` (or ``<``) with ``Y > C`` (or ``>=``) on another column, in the same
+    statement, with the same constant, is an as-of pair: both are ``as_of``. An upper bound
+    left alone is ``upper_bound``; ``IS [NOT] NULL`` is ``null_check``; anything else --
+    ``=``, ``>=``, ``>``, BETWEEN, a shape not recognised -- is a ``window``.
+    """
+    bounds = [_bound(item["expression"]) for item in dated]
+    for item, bound in zip(dated, bounds):
+        if bound is None:
+            null = _NULL_CHECK.search(normalize_sql(item["expression"]))
+            item["shape"] = "null_check" if null else DATE_WINDOW
+            continue
+        side, operator, constant = bound
+        upper = operator in _UPPER
+        if upper or operator in _LOWER:
+            wanted = _LOWER if upper else _UPPER
+            paired = any(
+                other is not None and other[1] in wanted and other[2] == constant
+                and other[0] != side and peer["statement_id"] == item["statement_id"]
+                for peer, other in zip(dated, bounds)
+            )
+            if paired:
+                item["shape"] = "as_of"
+                continue
+        item["shape"] = "upper_bound" if upper else DATE_WINDOW
+
+
+def _bound(expression) -> tuple | None:
+    """``(side, operator, constant)`` of ``side <op> constant``, constant-first flipped."""
+    text = normalize_sql(expression)
+    match = _BOUND.match(text)
+    if match:
+        return match["side"], match["op"], match["constant"]
+    match = _BOUND_FLIPPED.match(text)
+    if match:
+        return match["side"], _FLIP[match["op"]], match["constant"]
+    return None
 
 
 def _filter_columns(rule: dict, table: str) -> list[str]:

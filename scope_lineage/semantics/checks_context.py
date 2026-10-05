@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from .checks import MAX_QUESTIONS, _plain, result
 from .names import bare_table
+from .packet_facts import DATE_WINDOW
 from .sql_forms import fragment_forms, overlaps, task_sql
 
 # 5 ------------------------------------------------------------------ rules
@@ -157,11 +158,17 @@ def missing_packet(document: dict) -> dict:
 
 
 def check_time(document: dict, packet: dict) -> list[dict]:
-    """``incremental`` over full snapshots fails; ``snapshot`` over a date window warns."""
+    """``incremental`` over full snapshots fails; ``snapshot`` over a date window warns.
+
+    Only a date filter shaped as a window selects rows by business date: an as-of pair
+    (``beg <= D AND end > D``), an upper bound alone and a NULL check do not. A filter
+    from a packet built before shapes were published counts as a window.
+    """
     at, time = "summary.refresh.time", document["summary"]["refresh"]["time"]
     inputs = packet["inputs"]
     dated = [f"{item['table']}.{f['column']}：{_plain(f['expression'])}"
-             for item in inputs for f in item["date_filters"]]
+             for item in inputs for f in item["date_filters"]
+             if f.get("shape", DATE_WINDOW) == DATE_WINDOW]
     if time == "incremental" and inputs and not dated and all(i["full_snapshot"] for i in inputs):
         tables = "、".join(item["table"] for item in inputs)
         return [result("time", "fail", at, (

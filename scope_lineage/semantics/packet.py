@@ -187,6 +187,7 @@ def _packet(table: str, statements: list[tuple[str, dict]], corpus: _Corpus) -> 
     for index, rule in enumerate(rules, start=1):
         rule["id"] = f"p{index}"
     facts.mark_partition_filters(rules, corpus.metadata)
+    facts.drop_private(rules)
     target = target_section(table, statements, corpus)
     packet = scrub({
         "doc_format": PACKET_FORMAT,

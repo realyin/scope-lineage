@@ -150,9 +150,10 @@ def _inputs(inputs: list[dict]) -> list[str]:
             f"层：{_text(entry['layer'])}；生产任务：{_names(entry['producers'])}",
             f"- 分区列（元数据）：{_names(entry['partition_columns'])}；"
             f"分区读取：{entry['partition_read']}（{_names(entry['partition_filters'])}）；"
-            f"表名约定：{entry['name_convention']}；全量快照：{'是' if entry['full_snapshot'] else '否'}",
-            "- 业务日期过滤：" + (
+            f"表名约定：{entry['name_convention']}；全量快照：{full_snapshot_text(entry)}",
+            "- 日期列上的过滤（只有「窗口」按业务日期筛行）：" + (
                 "；".join(f"{_code(item['column'])}：{_code(item['expression'])}"
+                         f"（{_DATE_SHAPES.get(item.get('shape'), _DATE_SHAPES['window'])}）"
                          for item in entry["date_filters"]) or "无"
             ),
             "",
@@ -165,6 +166,32 @@ def _inputs(inputs: list[dict]) -> list[str]:
         lines += _column_table(["列", "类型", "注释", "本表用到"], rows, entry["columns"])
         lines.append("")
     return lines
+
+
+_DATE_SHAPES = {
+    "window": "窗口",
+    "as_of": "有效期取数（拉链）",
+    "upper_bound": "只有上界",
+    "null_check": "非空判断",
+}
+
+
+def full_snapshot_text(entry: dict) -> str:
+    """``full_snapshot`` with the reason it is not proven, when it is not.
+
+    The JSON keeps the boolean check 9 reads; a bare 否 could mean "not partitioned",
+    "no partition condition seen", "several partitions read" or "the name says it is not
+    a full table", and a reader needs to know which.
+    """
+    if entry["full_snapshot"]:
+        return "是"
+    if not (entry.get("partitioned") or entry.get("partition_columns")):
+        return "不适用（非分区表）"
+    if entry["partition_read"] == "none":
+        return "未证明（未见分区条件）"
+    if entry["partition_read"] != "equality":
+        return "否（读多个分区 / 范围）"
+    return f"未证明（表名约定 {entry['name_convention']}）"
 
 
 def _lineage(lineage: dict) -> list[str]:
@@ -204,13 +231,19 @@ def _rules(rules: list[dict]) -> list[str]:
     ]
     lines += [
         f"| {rule['id']} | {rule['kind']}{('（' + rule['join_type'] + '）') if rule.get('join_type') else ''} | "
-        f"{_code(rule['expression'])} | {'是' if rule['partition_filter'] else ''} | "
+        f"{_code(rule['expression'])} | {_partition_cell(rule)} | "
         f"{_names(rule['tables'])} | {_fan_out(rule)} | {_text(rule.get('text'))} |"
         for rule in rules
     ]
     if not rules:
         lines.append("| — | — | — | — | — | — | — |")
     return [*lines, ""]
+
+
+def _partition_cell(rule: dict) -> str:
+    if rule.get("partition_reads"):
+        return f"是（右表 {'、'.join(_code(read['expression']) for read in rule['partition_reads'])}）"
+    return "是" if rule["partition_filter"] else ""
 
 
 def _fan_out(rule: dict) -> str:
@@ -239,11 +272,25 @@ def _keys(keys: list[dict], partitions: list[dict]) -> list[str]:
     lines.append("")
     lines += [
         f"- 分区写入（{_text(item['task'])} / {_text(item['statement_id'])}）：{_names(item['columns'])}，"
-        f"{_text(item['mode'])}，"
-        + ("、".join(f"{name} = {_code(value)}" for name, value in item["spec"].items()) or "无分区值")
+        + _partition_values(item)
         for item in partitions
     ]
     return [*lines, ""]
+
+
+def _partition_values(item: dict) -> str:
+    """The write mode and each partition's value: the spec's, or the constants a SELECT writes."""
+    chosen = item.get("select_values") or {}
+    spec = "、".join(f"{name} = {_code(value)}" for name, value in item["spec"].items()
+                     if name not in chosen)
+    if not chosen:
+        return f"{_text(item['mode'])}，{spec or '无分区值'}"
+    constants = "；".join(
+        f"{name} = {_code(values[0])}" if len(values) == 1
+        else f"{name} ∈ {'、'.join(_code(value) for value in values)}"
+        for name, values in chosen.items()
+    )
+    return f"{_text(item['mode'])}（SELECT 写常量：{constants}）" + (f"，{spec}" if spec else "")
 
 
 def _neighbours(lineage: dict) -> list[str]:
