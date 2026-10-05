@@ -2691,6 +2691,7 @@ def _build_output_shape(
     )
     risks = [risk for risk, _level in decided]
     keys, unexposed, key_evidence, confidence = _key_block(document, grain, decided)
+    merge = _merge_shape(document)
     return {
         "shape": shape,
         "shape_evidence": evidence,
@@ -2706,6 +2707,8 @@ def _build_output_shape(
         "key_confidence": confidence,
         "partition_columns": list(document.get("target_partition_columns") or []),
         "fan_out_risks": risks,
+        # #22: only on a MERGE -- see `_merge_shape`.
+        **({"merge": merge} if merge else {}),
         "tag": TAG_STRUCTURAL_INFERENCE,
         # WP6: the claim behind `key_confidence` -- which rule, about which write, under
         # which open condition. Null exactly when no key is claimed.
@@ -2713,6 +2716,123 @@ def _build_output_shape(
             _output_key_claim(document, grain, keys, unexposed, confidence)
         ),
     }
+
+
+MERGE_COVERED = "covered"
+MERGE_DEDUP_WIDER = "dedup_wider"
+MERGE_NO_DEDUP = "no_dedup"
+MERGE_COVERAGE_UNKNOWN = "unknown"
+
+_DEDUP_BASES = (BASIS_GROUP_BY, BASIS_DISTINCT, BASIS_WINDOW_PARTITION)
+
+
+def _merge_shape(document: dict) -> dict | None:
+    """#22: on which keys a MERGE merges, under which WHEN conditions, and whether its
+    USING side can offer one merge key two rows.
+
+    The shape and the grain stay unknown (a MERGE's written rows are not its source's
+    rows); this block says what can be said instead. ``on``, ``merge_keys`` (the
+    contract's ``key_pairs``), ``other_on_conditions`` and ``whens`` restate ``merge_spec``.
+    ``using_grain`` is the grain walk started at the USING source. When that walk finds
+    a deduplication, its keys are lifted from the scope that defines them to the USING
+    output (renames followed; a single-source expression is kept as ``derived``) and
+    compared with the merge key's source columns: ``covered`` when they all are merge
+    keys, ``dedup_wider`` when some are not (one merge key can still meet several USING
+    rows: a matched update meets several, an unmatched key is inserted more than once),
+    ``no_dedup`` when the USING side has only its driving table's rows, ``unknown``
+    otherwise.
+    """
+    spec = document.get("merge_spec")
+    if not isinstance(spec, Mapping):
+        return None
+    using, _ = _scope_from_item(document, _ROOT)
+    if using in _scopes(document):
+        grain, visited = _resolve_grain(document, using)
+    elif using:
+        grain, visited = _grain([], BASIS_DRIVING_TABLE_ROWS, [using]), []
+    else:
+        grain, visited = _unknown_grain("MERGE 无可判定的 USING 来源", []), []
+    basis = str(grain.get("basis"))
+    shape: dict = {
+        "on": spec.get("on"),
+        "merge_keys": list(spec.get("key_pairs") or []),
+        "other_on_conditions": list(spec.get("other_on_conditions") or []),
+        "whens": list(spec.get("whens") or []),
+        "using_scope": using,
+        "using_grain": {"basis": basis, "evidence": list(grain.get("evidence") or [])},
+    }
+    if basis in _DEDUP_BASES:
+        lifted = [
+            _lift_key_to(document, visited, key) for key in grain.get("keys") or []
+        ]
+        if lifted and all(item is not None for item in lifted):
+            shape["dedup_keys"] = [
+                {"column": name, "derived": derived} for name, derived in lifted
+            ]
+            merged = _comparable(str(pair.get("source")) for pair in shape["merge_keys"])
+            extra = [name for name, _ in lifted if name.lower() not in merged]
+            unsafe = _joins_after_dedup(document, grain, visited)
+            if extra:
+                shape["coverage"] = MERGE_DEDUP_WIDER
+                shape["extra_keys"] = extra
+            else:
+                shape["coverage"] = MERGE_COVERAGE_UNKNOWN if unsafe else MERGE_COVERED
+            if unsafe:
+                shape["joins_after_dedup"] = unsafe
+            return shape
+        shape["coverage"] = MERGE_COVERAGE_UNKNOWN
+    elif basis == BASIS_SINGLE_ROW:
+        shape["coverage"] = MERGE_COVERED
+    elif basis == BASIS_DRIVING_TABLE_ROWS:
+        shape["coverage"] = MERGE_NO_DEDUP
+    else:
+        shape["coverage"] = MERGE_COVERAGE_UNKNOWN
+    return shape
+
+
+def _joins_after_dedup(document: dict, grain: dict, visited: Sequence[str]) -> list[str]:
+    """The JOINs between the USING output and its dedup that are not proven safe.
+
+    A dedup makes the USING side one row per key only until a JOIN after it duplicates
+    those rows again, so ``covered`` needs every JOIN from the USING scope down to the
+    deduplicating scope (that scope's own JOINs included, as they run after a window it
+    filters) to be ``safe``.
+    """
+    scope = _grain_scope(grain)
+    after = list(visited[: visited.index(scope)]) if scope in visited else list(visited)
+    found = []
+    for scope_id in after:
+        for block in _blocks_of_type(document, scope_id, "join"):
+            detail = block.get("join_relation_detail") or {}
+            block_id = str(block.get("logic_block_id"))
+            if _fan_out_verdict(document, block_id, detail)[0] != "safe":
+                found.append(block_id)
+    return found
+
+
+def _lift_key_to(
+    document: dict, path: Sequence[str], key: Mapping
+) -> tuple[str, bool] | None:
+    """A logical key lifted from its own scope to ``path[0]``: ``(column, derived)``.
+
+    The key's scope may sit one layer below the walk's last scope (H3 keys belong to the
+    window's scope, the walk stops at the filter's), so the climb starts from the key's
+    own ``scope_id``, never from the scope that decided the grain.
+    """
+    scope_id = str(key.get("scope_id"))
+    chain = list(path)
+    if scope_id not in chain:
+        chain.append(scope_id)
+    level = chain.index(scope_id)
+    name, derived = key.get("name"), False
+    if not name:
+        return None
+    for index in range(level - 1, -1, -1):
+        lifted = _lifted_output(document, chain[index], chain[index + 1], name)
+        if lifted is None:
+            return None
+        name, derived = lifted[0], derived or lifted[1]
+    return str(name), derived
 
 
 #: The rule behind each grain basis's key set.
@@ -3008,7 +3128,12 @@ def _resolve_grain(document: dict, start: str = _ROOT) -> tuple[dict, list[str]]
         visited.append(item)
         basis, keys, evidence, following = _scope_grain(document, item)
         if following is None:
-            return _grain(keys, str(basis), evidence, visited[1:-1]), visited
+            # H3's keys belong to the window's scope, one below the scope that filters
+            # them, so the filtering scope was pierced too: a JOIN there follows the
+            # dedup and must count as downstream of it (`_scopes_below_grain`).
+            below = any(str(key.get("scope_id")) != item for key in keys)
+            via = visited[1:] if below else visited[1:-1]
+            return _grain(keys, str(basis), evidence, via), visited
         item = following
     return (
         _unknown_grain(f"穿透层数超过上限 {GRAIN_DEPTH_LIMIT}", visited[1:]),
@@ -3050,6 +3175,9 @@ def _scope_grain(
     blocker = _grain_blocker(document, scope_id, types)
     if blocker:
         return BASIS_UNKNOWN, [], [blocker], None
+    first_row = _scope_first_row_grain(document, scope_id, types)
+    if first_row is not None:
+        return BASIS_WINDOW_PARTITION, first_row[0], first_row[1], None
     # Whatever is left keeps its input's rows one for one -- a filter drops whole rows
     # and a projection or window rewrites columns -- so the question moves to the FROM
     # item. A scope with no JOIN has exactly one candidate when it reads one input, and
@@ -3058,6 +3186,55 @@ def _scope_grain(
     if item is None:
         return BASIS_UNKNOWN, [], [str(reason)], None
     return None, [], [], item
+
+
+def _scope_first_row_grain(
+    document: dict, scope_id: str, types: set
+) -> tuple[list[dict], list[str]] | None:
+    """H3: this scope keeps ``rn = 1`` of a row_number window on its FROM item.
+
+    ``select ... from (select ..., row_number() over (partition by k ...) rn from t) a
+    where rn = 1`` is one row per ``k`` -- the deduplication ROOT is recognised for
+    (``_root_dedup_evidence``), written one layer down. A JOIN in this scope is treated
+    as everywhere else on the walk: the FROM item sets the grain and the JOIN becomes a
+    fan-out risk on it, which is what decides the key confidence. ROOT keeps its own
+    rule. ``(partition keys of the window scope, evidence)``.
+    """
+    if scope_id == _ROOT:
+        return None
+    item, _ = _scope_from_item(document, scope_id)
+    if item is None:
+        return None
+    for owner, block_id, spec in _ranking_window_specifications(
+        document, semantic_text.UNIQUE_RANKING_WINDOW_FUNCTIONS
+    ):
+        if owner != item:
+            continue
+        output = str(spec.get("output_field") or "")
+        consumer = next(
+            (
+                str(entry.get("logic_block_id"))
+                for entry in spec.get("filter_after_window") or []
+                if entry.get("scope_id") == scope_id and _entry_keeps_first_row(entry, output)
+            ),
+            None,
+        ) or next(
+            (
+                str(block.get("logic_block_id"))
+                for block in _scope_blocks(document, scope_id)
+                if str(block.get("logic_type")) in _PREDICATE_LOGIC_TYPES
+                and _predicate_block_keeps_first_row(block, output)
+            ),
+            None,
+        )
+        if output and consumer:
+            names = _output_name_index(document, owner)
+            keys = [
+                _partition_item_key(owner, names, entry)
+                for entry in spec.get("partition_by") or []
+            ]
+            return keys, [block_id, consumer]
+    return None
 
 
 def _grain_blocker(document: dict, scope_id: str, types: set) -> str | None:
@@ -4334,8 +4511,6 @@ def _ranking_key_claim(
             continue
         consumer = _keeps_first_row_consumer(document, scope_id, spec, [join_block])
         if consumer:
-            function = str(spec.get("window_function"))
-            unique = function.lower() in semantic_text.UNIQUE_RANKING_WINDOW_FUNCTIONS
             return _ranking_claim(scope_id, spec, consumer)
     return _lower_ranking_claim(document, scope_id, join_columns, functions)
 
@@ -4382,23 +4557,54 @@ def _single_input_chain(document: dict, scope_id: str) -> list[str]:
     return chain
 
 
-def _lift_name(document: dict, parent: str, name: str | None) -> str | None:
-    """The column ``parent`` publishes a bare reference to its input's ``name`` as.
+def _lifted_output(
+    document: dict, parent: str, child: str, name: str | None
+) -> tuple[str, bool] | None:
+    """``(column, derived)``: what ``parent`` publishes ``child``'s column ``name`` as.
 
-    Renames are followed (``SELECT k AS kk``); anything computed from the column is not
-    the column and yields None. A scope with no output list (an unexpanded ``SELECT *``)
-    publishes its input's columns as they are.
+    The key-lifting helper D's three proofs share (#21-b, #21-c, #22). The contract's own
+    single-source pointer (``expression_resolution.source_scope_id`` /
+    ``source_output_field``) decides, so a JOIN scope with two same-named inputs cannot
+    mislead it. A bare reference -- renamed or not (``SELECT k AS kk``) -- is the column
+    itself; a single-source expression over it (``concat('p_', env) AS env``) is
+    ``derived``. A scope with no output list (an unexpanded ``SELECT *``) publishes its
+    input's columns as they are; one that publishes no pointer at all is matched by bare
+    name only when it reads that one input.
     """
     if name is None:
         return None
-    outputs = (_scopes(document).get(parent) or {}).get("outputs") or []
+    scope = _scopes(document).get(parent) or {}
+    outputs = scope.get("outputs") or []
     if not outputs:
-        return name
+        return name, False
     wanted = name.lower()
+    derived = None
     for output in outputs:
+        resolution = output.get("expression_resolution") or {}
+        if str(resolution.get("source_scope_id")) != child or (
+            str(resolution.get("source_output_field") or "").lower() != wanted
+        ):
+            continue
+        if _bare_column_name(output.get("expression") or output.get("name")) is not None:
+            return str(output.get("name")), False
+        derived = derived or (str(output.get("name")), True)
+    if derived is not None:
+        return derived
+    if _scope_inputs(document, parent) != [child]:
+        return None
+    for output in outputs:
+        resolution = output.get("expression_resolution") or {}
+        if resolution.get("source_scope_id"):
+            continue
         if _bare_column_name(output.get("expression") or output.get("name")) == wanted:
-            return str(output.get("name"))
+            return str(output.get("name")), False
     return None
+
+
+def _lift_name(document: dict, parent: str, child: str, name: str | None) -> str | None:
+    """The column ``parent`` publishes ``child``'s ``name`` as, bare references only."""
+    lifted = _lifted_output(document, parent, child, name)
+    return lifted[0] if lifted and not lifted[1] else None
 
 
 def _lifted_names(document: dict, chain: Sequence[str], level: int, name: str | None) -> list:
@@ -4406,7 +4612,7 @@ def _lifted_names(document: dict, chain: Sequence[str], level: int, name: str | 
     names: list = [None] * (level + 1)
     names[level] = name
     for index in range(level - 1, -1, -1):
-        names[index] = _lift_name(document, chain[index], names[index + 1])
+        names[index] = _lift_name(document, chain[index], chain[index + 1], names[index + 1])
     return names
 
 

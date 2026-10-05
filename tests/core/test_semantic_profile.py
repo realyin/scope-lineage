@@ -1014,6 +1014,16 @@ def _target_columns(document: dict) -> set[str]:
     }
 
 
+def _assert_merge_keys_exist(profile: dict, columns) -> None:
+    """#22: a MERGE's keys are the contract's merge_spec pairs, bare column names."""
+    for path, key, value in _walk(profile):
+        if key != "merge_keys" or not isinstance(value, list):
+            continue
+        for pair in value:
+            for side in ("target", "source"):
+                assert pair[side] in columns, f"{path}: column {pair[side]!r} is not in the source"
+
+
 def _assert_no_fabricated_identifiers(profile: dict, document: dict) -> None:
     tables = _known_tables(document)
     columns = _known_columns(document)
@@ -1054,6 +1064,7 @@ def _assert_no_fabricated_identifiers(profile: dict, document: dict) -> None:
             for side in ("left", "right"):
                 name = str(pair.get(side) or "").rpartition(".")[2]
                 assert name in columns, f"{path}: column {name!r} is not in the source"
+    _assert_merge_keys_exist(profile, columns)
     # WI-2.1c. The three signals added there publish four new keys, and none of them
     # may ever carry a free-form string: `path` is a two-word vocabulary, and the two
     # flags exist only in their true state -- a `false` would read as "checked and

@@ -117,6 +117,40 @@
     "key_confidence": "none",
     "partition_columns": [],
     "fan_out_risks": [],
+    "merge": {
+      "on": "`target`.`customer_id` = `source`.`customer_id`",
+      "merge_keys": [
+        {
+          "target": "customer_id",
+          "source": "customer_id"
+        }
+      ],
+      "other_on_conditions": [],
+      "whens": [
+        {
+          "index": 0,
+          "clause": "matched",
+          "condition": null,
+          "action": "update",
+          "star": false
+        },
+        {
+          "index": 1,
+          "clause": "not_matched",
+          "condition": null,
+          "action": "insert",
+          "star": false
+        }
+      ],
+      "using_scope": "subq:source",
+      "using_grain": {
+        "basis": "driving_table_rows",
+        "evidence": [
+          "ods.customer_delta"
+        ]
+      },
+      "coverage": "no_dedup"
+    },
     "tag": "结构推断",
     "key_claim": null
   },

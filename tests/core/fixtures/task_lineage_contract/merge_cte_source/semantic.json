@@ -209,6 +209,41 @@
             "path": "grain"
           }
         ],
+        "merge": {
+          "on": "`target`.`id` = `source`.`id`",
+          "merge_keys": [
+            {
+              "target": "id",
+              "source": "id"
+            }
+          ],
+          "other_on_conditions": [],
+          "whens": [
+            {
+              "index": 0,
+              "clause": "matched",
+              "condition": null,
+              "action": "update",
+              "star": false
+            },
+            {
+              "index": 1,
+              "clause": "not_matched",
+              "condition": null,
+              "action": "insert",
+              "star": true
+            }
+          ],
+          "using_scope": "subq:source",
+          "using_grain": {
+            "basis": "driving_table_rows",
+            "evidence": [
+              "cte:staged",
+              "ods.events"
+            ]
+          },
+          "coverage": "no_dedup"
+        },
         "tag": "结构推断",
         "key_claim": null
       },

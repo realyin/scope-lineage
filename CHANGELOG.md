@@ -169,6 +169,18 @@
   title saying so and pointing to the catalog workflow. The command, every flag and
   `ontology.json` (`ontology-json/2`) are unchanged, byte for byte.
 ### Added
+- **`semantic.json`: `output_shape.merge` restates a MERGE and compares its dedup with its merge
+  key.** A MERGE's shape and grain are unknown, so its keys, its WHEN conditions and whether
+  its USING side can offer one merge key two rows were nowhere. A MERGE statement's
+  `output_shape` now carries `merge`: `on`, `merge_keys`, `other_on_conditions` and `whens`
+  from the contract's `merge_spec`; `using_grain` from the grain walk started at the USING
+  source; and, when that walk finds a dedup, `dedup_keys` lifted from the scope that defines
+  them to the USING output (renames followed, single-source expressions marked `derived`)
+  and `coverage` -- `covered`, `dedup_wider` (with `extra_keys`), `no_dedup` or `unknown`
+  (with `joins_after_dedup` when an unproven JOIN follows the dedup). The grain walk also
+  recognises `row_number() = 1` below ROOT (a scope keeping `rn = 1` of a window on its FROM
+  item now has grain `window_partition`), so a deduplicating subquery no longer reads as its
+  driving table's rows. Goldens `merge` and `merge_cte_source` gain the block.
 - **`semantic.json`: `rules[].consumed: false` marks a CASE / IF nobody reads.** An IF an
   inner query computes while the outer query reads the raw column under the same name
   restated a rule the output never sees. The rule now carries `consumed: false` when that is
