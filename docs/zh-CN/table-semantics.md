@@ -124,7 +124,10 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 另有三类事实供含义检查（第 10–13 项）使用。每条关联规则带 `right`（右侧：`库.表`，或画像的 scope 编号，
 如 `subq:p`）、`right_aliases`（ON 子句与 scope 给它的别名）、`right_tables`（它背后的物理表）和
 `fan_out`——画像对右侧是否按关联键唯一的判定（`{status, reason, path}`，`status` 为 `safe` / `risk` /
-`unknown`；画像没有走到的关联为 `null`）；`packet.md` 在规则表的「行数放大」一列里给出。每个列的生产语句带
+`unknown`；画像没有走到的关联为 `null`）；`packet.md` 在规则表的「行数放大」一列里给出。`fan_out` 为 `null`
+的关联不写成「不在输出路径上」：它位于有判定的关联的右侧之内时（右侧 scope 及它读取的全部 scope 里），带
+`inside: [p…]` 列出所有这样的关联（「在 pN 右侧内部；行数影响已计入这些关联的判定」）；否则位于某个聚合 scope 的
+输入之下时带 `below_aggregate: <scope>`（「不复制输出行，可能放大聚合值；工具未判定」）；都不是时写「工具未判定」。每个列的生产语句带
 `case_outputs`：该列最后一步计算是一个输出全为字符串或数字字面量（NULL 与 `''` 除外）的 CASE 或 IF 时，每个值一条，写明分支条件
 （`when`）、这些条件比较的来源值（`source_values`；条件不是等值或 `IN` 列表时为 `null`）以及是否由 ELSE 返回
 （`catch_all`）。分支都返回字面量、ELSE 却是计算得出的值（`CASE WHEN s = '1' THEN 'X' ELSE s END`）时，
@@ -148,6 +151,25 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 
 关联规则的 `tables` 为空时（ON 里唯一的等式一侧引用多列，如 `IF(COALESCE(a.x, '') = '', a.y, a.x) = d.k`，
 血缘不把它当关联键），回退为 ON 条件涉及的表加右侧物理表。这是过渡做法：血缘把这类等式配成关联键之后不再触发。
+
+语义画像已有的下列事实也照抄进材料包，同样有内容才出现：
+
+| 位置 | 键 | 内容 |
+| --- | --- | --- |
+| `lineage.columns[].producers[]` | `branches` | 同一条 MERGE 语句的几个分支写同一列、内容相同（表达式只差引号、空白、大小写）时合成一个生产者，这里列出被合并分支在画像里的名字；`packet.md` 写「（2 支：merge:matched 分支 0、…）」。写的值不同的分支仍各占一行 |
+| `lineage.columns[].producers[]` | `computed_by` | 末层加工为 `DIRECT` 的列，链上直传以外的计算类型，按顺序去重（聚合附函数名，如 `aggregate(SUM)`）；`packet.md` 的「加工」写「DIRECT（末层）；链上：…」 |
+| `lineage.columns[].producers[]` | `sql_alias` | 按位置写入（DDL 或元数据列序）且 SQL 别名与目标列名不同时，SQL 写的别名；`packet.md` 写「`列`（SQL 别名 `x`，按位置写入）」 |
+| `lineage.columns[].producers[]` | `lookup_keys` | 值取自常量行集（内联 VALUES、常量列等）的列，决定读哪一行的物理关联键；不是取值来源 |
+| `lineage.columns[].producers[]`、`lineage.rules[]` | `sql_comments` | 作者写在表达式上的 SQL 注释（表达式本身已去掉注释） |
+| `lineage.columns[].producers[]` | `steps` | 画像无法用词表描述的步骤（UDF、`MD5(…)` 等）写成「表达式 …」，不再出现 `None` |
+| `lineage.rules[]` | `consumed` | 只有 `false`：CASE / IF 的输出可证明没有任何下游读取；`packet.md` 的「说明」写「未被消费」 |
+| `lineage.keys[]` | `merge` | MERGE 语句的画像 `output_shape.merge`：合并键 `merge_keys`、其他 ON 条件、各 WHEN 子句、USING 侧粒度、去重键与合并键的比较 `coverage`（`covered` / `dedup_wider` / `no_dedup` / `unknown`，`dedup_wider` 时 `extra_keys`）；`joins_after_dedup` 写成规则编号。`packet.md` 在 4.3 下写三行：合并键、WHEN（条件不满足的行既不更新也不插入）、去重键与合并键的比较 |
+| `lineage` | `findings` | 画像的三类治理线索：`alias_position_mismatch`、`duplicate_alias`、`empty_string_on_non_string`，每条 `{kind, severity, task, statement_id, text, rules?}`，`rules` 是线索所指的规则编号；`packet.md` 在 4.3 之后列出，有规则编号的也写进该规则的「说明」 |
+| `target.columns[]`、`inputs[].columns[]` | `comment_markers` | 注释里的全角标记（`【键:值】`，键以 ASCII 字母开头）原样拆成 `[{key, value?}]`。含义属于数据负责人，工具不解释；注释原文不变 |
+| 顶层 | `comment_marker_keys` | 各标记键的出现次数与一个示例列；`packet.md` 开头一行列出，并提示含义未登记前不得当业务事实 |
+| `target.columns[]`、`inputs[].columns[]` | `comment_refs` | 注释里的 `[库.表.列]` / `[库.表]` / `[表.列]` 引用：`{ref, status, near?}`，`status` 为 `in_run`（语料里有任务读写这张表，按表卡判断）、`metadata_only`（只有元数据）或 `unknown`；`unknown` 时 `near` 列出去掉第一个分层前缀后名字互为前缀的本运行表，只是线索、未证实同一张表 |
+
+给了 `--only` 时 `--schema` 目录只读材料包涉及的表；注释引用的其他表按需再读，所以引用的判定与全量运行一致。
 
 ### 已确认的事实
 
@@ -187,7 +209,7 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 {
   "doc_format": "table-semantics/1",
   "table": "demo_dwd.dwd_party_customer_info_df",
-  "packet_digest": "04439862460b03d6",
+  "packet_digest": "5ab3ea72c51631a6",
   "generator": {"prompt": "table-semantics-prompt@0", "model": "hand-written example"},
   "summary": {"what": "...", "row": {}, "refresh": {}, "scope": [], "upstream": [],
               "downstream": [], "good_for": [], "not_for": [], "watch": [], "questions": []},
@@ -448,7 +470,7 @@ scope-lineage semantic fixed <run> --only <db.table> ... [--packets <dir>] [--do
 ```yaml
 ---
 reviewed_doc_digest: 2a9b25086e81590f
-reviewed_packet_digest: 04439862460b03d6
+reviewed_packet_digest: 5ab3ea72c51631a6
 high: 1
 medium: 2
 low: 0
@@ -490,9 +512,9 @@ Status of 3 table(s): no_packet 0, packet 1, drafted 1, valid 1, reviewed 0, fix
       "table": "demo_dwd.dwd_party_customer_info_df",
       "stage": "valid",
       "flags": [],
-      "packet_digest": "04439862460b03d6",
+      "packet_digest": "5ab3ea72c51631a6",
       "doc_digest": "2a9b25086e81590f",
-      "doc_packet_digest": "04439862460b03d6",
+      "doc_packet_digest": "5ab3ea72c51631a6",
       "schema_errors": 0,
       "failures": 0,
       "review": null

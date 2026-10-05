@@ -152,7 +152,11 @@ right side: a `db.table`, or the profile's scope id such as `subq:p`), `right_al
 behind it) and `fan_out`, the profile's verdict on whether the right side is unique on the
 join keys (`{status, reason, path}`, `status` one of `safe` / `risk` / `unknown`; `null`
 for a join on no path the profile walked); `packet.md` shows it in the rules table's
-行数放大 column. Each column producer carries `case_outputs`: for a column whose last
+行数放大 column. A join whose `fan_out` is `null` is never written as off the output path:
+when it sits inside the right side of joins that have a verdict (in the right scope or any
+scope it reads), `inside: [p…]` lists every such join (「在 pN 右侧内部；行数影响已计入这些关联的判定」);
+failing that, when it sits below an aggregating scope, `below_aggregate: <scope>` names it
+(「不复制输出行，可能放大聚合值；工具未判定」); otherwise it reads 「工具未判定」. Each column producer carries `case_outputs`: for a column whose last
 computing step is one CASE or IF with only string or number outputs (NULL and `''` aside), one entry per
 value with the branch conditions (`when`), the source values those conditions compare with
 (`source_values`, `null` when a condition is not an equality or `IN` list) and whether
@@ -187,6 +191,27 @@ A join rule whose `tables` would be empty (the ON's only equality has several co
 side, `IF(COALESCE(a.x, '') = '', a.y, a.x) = d.k`, which the lineage does not pair as a
 key) falls back to the tables its ON conditions touch plus the right side. A transitional
 fallback: once the lineage pairs such an equality, it no longer fires.
+
+The packet also copies these facts of the semantic profile, each likewise only when it has
+content:
+
+| Where | Key | Content |
+| --- | --- | --- |
+| `lineage.columns[].producers[]` | `branches` | MERGE branches of one statement writing one column with the same content (the expressions differing only in quotes, whitespace or case) are one producer; this lists the profile's names of the branches folded, and `packet.md` writes 「（2 支：merge:matched 分支 0、…）」. Branches writing different values stay one row each |
+| `lineage.columns[].producers[]` | `computed_by` | for a column whose last step is `DIRECT`, the kinds of computation its chain makes besides passing values on, in order and without repeats (an aggregate names its functions, `aggregate(SUM)`); `packet.md`'s 加工 reads 「DIRECT（末层）；链上：…」 |
+| `lineage.columns[].producers[]` | `sql_alias` | in a positional write (by DDL or metadata column order) whose SQL alias differs from the target column, the alias the SQL wrote; `packet.md` writes 「`col`（SQL 别名 `x`，按位置写入）」 |
+| `lineage.columns[].producers[]` | `lookup_keys` | for a value read off a constant row set (an inline VALUES list, a constant column …), the physical join keys that choose its row; not a source of the value |
+| `lineage.columns[].producers[]`, `lineage.rules[]` | `sql_comments` | the SQL comments the author wrote on the expression (the expression itself carries none) |
+| `lineage.columns[].producers[]` | `steps` | a step the profile's vocabulary cannot word (a UDF, `MD5(…)`) reads 「表达式 …」 instead of `None` |
+| `lineage.rules[]` | `consumed` | only `false`: a CASE / IF whose output provably nobody reads; `packet.md`'s 说明 says 「未被消费」 |
+| `lineage.keys[]` | `merge` | a MERGE statement's profile `output_shape.merge`: the merge key `merge_keys`, other ON conditions, each WHEN clause, the USING side's grain, and how its dedup compares with the merge key, `coverage` (`covered` / `dedup_wider` / `no_dedup` / `unknown`, with `extra_keys` for `dedup_wider`); `joins_after_dedup` as rule ids. `packet.md` adds three lines under 4.3: the merge key, the WHEN clauses (a row failing a clause's condition is neither updated nor inserted), the dedup against the merge key |
+| `lineage` | `findings` | three kinds of the profile's governance findings, `alias_position_mismatch`, `duplicate_alias` and `empty_string_on_non_string`, each `{kind, severity, task, statement_id, text, rules?}`, `rules` naming the rules it is about; `packet.md` lists them after 4.3, and in the 说明 of each rule named |
+| `target.columns[]`, `inputs[].columns[]` | `comment_markers` | the full-width markers of the comment (`【key:value】`, the key starting with an ASCII letter), split out as `[{key, value?}]`. Their meaning is the data owner's and the tool gives none; the comment is unchanged |
+| top level | `comment_marker_keys` | how often each marker key occurs, with one example column; `packet.md` lists them in its opening lines, saying a marker is no business fact until its meaning is recorded |
+| `target.columns[]`, `inputs[].columns[]` | `comment_refs` | the comment's `[db.table.col]` / `[db.table]` / `[table.col]` references as `{ref, status, near?}`, `status` being `in_run` (a corpus task reads or writes the table, by the table cards), `metadata_only` (only the metadata knows it) or `unknown`; an `unknown` one may list in `near` the run's tables whose names, past their first layer prefix, extend one another -- a lead, not proven the same table |
+
+With `--only`, a `--schema` directory is read for the packet's tables only; another table a
+comment references is read on demand, so the references read as they do in a full run.
 
 ### Confirmed facts
 
@@ -245,7 +270,7 @@ One JSON document per target table. The schema is shipped as
 {
   "doc_format": "table-semantics/1",
   "table": "demo_dwd.dwd_party_customer_info_df",
-  "packet_digest": "04439862460b03d6",
+  "packet_digest": "5ab3ea72c51631a6",
   "generator": {"prompt": "table-semantics-prompt@0", "model": "hand-written example"},
   "summary": {"what": "...", "row": {}, "refresh": {}, "scope": [], "upstream": [],
               "downstream": [], "good_for": [], "not_for": [], "watch": [], "questions": []},
@@ -538,7 +563,7 @@ A review is markdown a model writes, and it must open with a block like this
 ```yaml
 ---
 reviewed_doc_digest: 2a9b25086e81590f
-reviewed_packet_digest: 04439862460b03d6
+reviewed_packet_digest: 5ab3ea72c51631a6
 high: 1
 medium: 2
 low: 0
@@ -583,9 +608,9 @@ Status of 3 table(s): no_packet 0, packet 1, drafted 1, valid 1, reviewed 0, fix
       "table": "demo_dwd.dwd_party_customer_info_df",
       "stage": "valid",
       "flags": [],
-      "packet_digest": "04439862460b03d6",
+      "packet_digest": "5ab3ea72c51631a6",
       "doc_digest": "2a9b25086e81590f",
-      "doc_packet_digest": "04439862460b03d6",
+      "doc_packet_digest": "5ab3ea72c51631a6",
       "schema_errors": 0,
       "failures": 0,
       "review": null

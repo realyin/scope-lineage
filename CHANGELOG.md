@@ -53,6 +53,20 @@
   table-semantics document reads as stale until re-stamped; the example document under
   `examples/table-semantics/` has no date filter and keeps its digest. No format version moves
   (`table-semantics-packet/1`).
+- **Packets stop repeating MERGE branches, never print `None` or 「不在输出路径上」, and say
+  what a DIRECT column's chain computes.** Two branches of one MERGE writing a column with
+  the same content (the expressions differing only in quotes, whitespace or case) were two
+  4.1 rows; they are now one producer with `branches` (the profile's names of the branches),
+  and `packet.md` writes 「（2 支：…）」. A derivation step the profile cannot word (a UDF,
+  `MD5(…)`) printed `None`; it now reads 「表达式 …」. A JOIN without a fan-out verdict read
+  「不在输出路径上」 although its rows do reach the output: inside the right side of joins with
+  a verdict it carries `inside: [p…]` (「在 pN 右侧内部」), below an aggregate
+  `below_aggregate: <scope>`, otherwise it reads 「工具未判定」; `fan_out` stays `null` and
+  check 10 is unchanged. A column whose last step is DIRECT but whose chain computes gains
+  `computed_by` (`aggregate(SUM)`, `expression` …), and 加工 reads 「DIRECT（末层）；链上：…」.
+  Every packet with one of these shapes changes digest; the example document under
+  `examples/table-semantics/` has a commented projection and a DIRECT column over a function,
+  so its `packet_digest` is updated. No format version moves (`table-semantics-packet/1`).
 - **Breaking — `semantic status` ties a fix to its review and its packet
   (`table-semantics-status/2`).** A document that changed after a review with high or medium
   findings used to count as `fixed`, whether the fix finished, was interrupted halfway, or
@@ -191,6 +205,21 @@
   title saying so and pointing to the catalog workflow. The command, every flag and
   `ontology.json` (`ontology-json/2`) are unchanged, byte for byte.
 ### Added
+- **Packets carry more of the semantic profile, each key only when it has content.** A column
+  producer gains `sql_alias` (the alias a positional write filed under another column;
+  packet.md 「（SQL 别名 x，按位置写入）」), `lookup_keys` (the physical keys choosing the row of
+  a constant row set the value is read off), and `sql_comments`; a rule gains `sql_comments`
+  and, for a CASE nobody reads, `consumed: false` (「未被消费」). `lineage.findings` lists the
+  profile's `alias_position_mismatch`, `duplicate_alias` and `empty_string_on_non_string`
+  findings with their task, statement and rule ids; packet.md prints them after 4.3 and in the
+  说明 of the rules they name. A MERGE's `lineage.keys[]` entry gains `merge` (the profile's
+  `output_shape.merge`), and 4.3 prints its merge key, its WHEN clauses and how the USING
+  side's dedup compares with the merge key. Column comments gain `comment_markers` (the
+  `【key:value】` markers, listed without meaning; the packet gains `comment_marker_keys`)
+  and `comment_refs` (each `[db.table.col]` reference as `in_run`, `metadata_only` or
+  `unknown`, an unknown one with tables of near name marked unproven). With `--only`, a
+  referenced table outside the packet's tables is read from a `--schema` directory on demand,
+  so the references read as in a full run.
 - **Packets: more facts for the writer, each only when it has content.** A task entry gains
   `expect_date` (the task meta's), `date_literals` (each whole-date string literal of the SQL
   outside comments, its count and its offset in days from `expect_date` -- no conclusion that
