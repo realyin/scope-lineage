@@ -351,9 +351,27 @@ def _metadata_lookup(
         print(f"--schema: {error}", file=sys.stderr)
         return 2
 
+    # A table outside `tables` (a comment's `[db.table.col]` reference) is read on demand,
+    # so an `--only` packet says what a full run says about it.
+    narrowed = tables is not None and any(Path(path).is_dir() for path in paths)
+    more: dict[str, object] = {}
+
+    def source(table: str):
+        if not narrowed or table in tables:
+            return schema
+        if table not in more:
+            try:
+                more[table] = load_schema_sources(paths, only_tables={table})
+            except (OSError, ValueError):
+                more[table] = None
+        return more[table]
+
     def lookup(table: str) -> dict | None:
-        columns = column_details_for_table(schema, table)
-        details = table_details_for_table(schema, table)
+        found = source(table)
+        if found is None:
+            return None
+        columns = column_details_for_table(found, table)
+        details = table_details_for_table(found, table)
         if not columns and not details:
             return None
         if patch:
@@ -365,7 +383,7 @@ def _metadata_lookup(
             "layer": details.get("table_label_layer"),
             "domain": details.get("domain"),
             "partitioned": details.get("is_partitioned"),
-            "partition_columns": partition_columns_for_table(schema, table),
+            "partition_columns": partition_columns_for_table(found, table),
             "columns": columns,
         }
 

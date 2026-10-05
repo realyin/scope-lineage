@@ -13,8 +13,10 @@ from __future__ import annotations
 from ..redaction import redact
 from . import packet_facts as facts
 from .names import bare_table
+from .packet_comments import comment_markers
 from .packet_context import date_literals, upstream_unmatched
 from .packet_meaning import header_facts, producer_header
+from .packet_notes import merge_block, statement_findings
 
 
 def _comment(text) -> str | None:
@@ -53,10 +55,17 @@ def target_section(table: str, statements: list, corpus) -> dict:
 
 
 def _column(table: str, head: dict, rest: dict, corpus) -> dict:
-    """One column entry: ``comment_source`` right behind the comment, confirmed values last."""
+    """One column entry: ``comment_source`` right behind the comment, confirmed values last.
+
+    The comment's markers and table references follow it, each only when there is some.
+    """
+    markers = comment_markers(head["comment"])
+    refs = corpus.references.refs(head["comment"])
     return {
         **head,
         **corpus.confirmed.column_source(table, head["name"], head["comment"]),
+        **({"comment_markers": markers} if markers else {}),
+        **({"comment_refs": refs} if refs else {}),
         **rest,
         **corpus.confirmed.values(table, head["name"]),
     }
@@ -193,27 +202,35 @@ def lineage_section(table: str, statements: list, rules: list[dict], target: dic
         for _, statement in statements
         for item in statement.get("inputs") or []
     })
+    findings = statement_findings(rules, statements)
     return {
         "columns": _column_lineage(target, statements),
         "rules": rules,
-        "keys": [facts.statement_keys(task, statement) for task, statement in statements],
+        "keys": [_keys(task, statement, rules) for task, statement in statements],
         "partition": [facts.statement_partition(task, statement) for task, statement in statements],
         "upstream_tables": inputs,
         "upstream_tasks": _upstream_tasks(inputs, statements, producers, corpus),
         "downstream": _downstream(table, statements, producers, corpus),
+        **({"findings": findings} if findings else {}),
     }
+
+
+def _keys(task: str, statement: dict, rules: list[dict]) -> dict:
+    keys = facts.statement_keys(task, statement)
+    merge = merge_block(task, statement, rules)
+    return {**keys, "merge": merge} if merge else keys
 
 
 def _column_lineage(target: dict, statements: list) -> list[dict]:
     return [
         {
             "column": column["name"],
-            "producers": [
+            "producers": facts.fold_branches([
                 facts.column_producer(task, statement, field)
                 for task, statement in statements
                 for field in statement.get("fields") or []
                 if str(field.get("column")) == column["name"]
-            ],
+            ]),
         }
         for column in target["columns"]
     ]

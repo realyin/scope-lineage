@@ -18,7 +18,9 @@ from typing import Callable, Iterable, Mapping, Optional
 from . import packet_facts as facts
 from .digests import canonical_digest
 from .names import bare_table, scrub
+from .packet_comments import References, marker_keys
 from .packet_confirmed import Confirmed
+from .packet_notes import mark_undecided_joins
 from .packet_sections import inputs_section, lineage_section, target_section, tasks_section
 
 PACKET_FORMAT = "table-semantics-packet/1"
@@ -177,12 +179,18 @@ class _Corpus:
         self._looked_up: dict[str, Optional[dict]] = {}
         self._cards: dict[str, dict] = {}
         self._written: dict[str, set] = {}
+        tables: set[str] = set()
         for card in (cards or {}).get("tables") or []:
             name = bare_table(card.get("table"))
+            tables.add(name)
             for spelling in [card.get("table"), *card.get("aliases", [])]:
                 self._cards.setdefault(bare_table(spelling), card)
             for producer in card.get("produced_by") or []:
                 self._written.setdefault(str(producer.get("task")), set()).add(name)
+
+        # A comment's `[db.table.col]` is in the run when the table has a card: some task
+        # of the corpus reads or writes it.
+        self.references = References(tables, self.metadata)
 
     def metadata(self, table: str) -> Optional[dict]:
         if table not in self._looked_up:
@@ -205,16 +213,24 @@ def _packet(table: str, statements: list[tuple[str, dict]], corpus: _Corpus) -> 
     for index, rule in enumerate(rules, start=1):
         rule["id"] = f"p{index}"
     facts.mark_partition_filters(rules, corpus.metadata)
-    facts.drop_private(rules)
+    mark_undecided_joins(rules, statements)
     target = target_section(table, statements, corpus)
+    inputs = inputs_section(table, statements, rules, corpus)
+    lineage = lineage_section(table, statements, rules, target, corpus)
+    facts.drop_private(rules)
+    markers = marker_keys(
+        [(table, column) for column in target["columns"]]
+        + [(entry["table"], column) for entry in inputs for column in entry["columns"]]
+    )
     packet = scrub({
         "doc_format": PACKET_FORMAT,
         "table": table,
         "packet_digest": "",
+        **({"comment_marker_keys": markers} if markers else {}),
         "target": target,
         "tasks": tasks_section(table, statements, corpus),
-        "inputs": inputs_section(table, statements, rules, corpus),
-        "lineage": lineage_section(table, statements, rules, target, corpus),
+        "inputs": inputs,
+        "lineage": lineage,
     })
     packet["packet_digest"] = packet_digest(packet)
     return packet

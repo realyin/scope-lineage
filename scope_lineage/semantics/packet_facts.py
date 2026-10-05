@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import re
 
-from ..render.semantic_text import NULLABLE_LEFT_JOIN_TYPES
+from ..render.semantic_text import NULLABLE_LEFT_JOIN_TYPES, aggregate_functions
 from .names import bare_column, bare_table, normalize_sql, strip_leading_keyword
-from .packet_meaning import case_outputs, code_expression, join_facts
+from .packet_meaning import PASS_THROUGH_STEPS, case_outputs, code_expression, join_facts
 
 _RULE_KINDS = {"filter": "filter", "having": "filter", "join_condition": "join",
                "case_branch": "case"}
@@ -32,22 +32,111 @@ _DATE_COMMENT = re.compile(r"(date|time|日期|时间)", re.IGNORECASE)
 
 
 def column_producer(task: str, statement: dict, field: dict) -> dict:
-    """How one statement writes one target column."""
+    """How one statement writes one target column.
+
+    Besides the profile's own facts it carries, each only when there is some: the name the
+    SQL gave a value a positional write filed under another column (``sql_alias``), the
+    physical keys that choose the row of a constant row set it reads (``lookup_keys``),
+    the author's comments on the value (``sql_comments``), and for a column whose last
+    step is DIRECT, what its chain computes on the way (``computed_by``).
+    """
     sources = []
     for source in field.get("sources") or []:
         reference = bare_column(f"{source.get('table')}.{source.get('column')}")
         if reference not in sources:
             sources.append(reference)
-    return {
+    producer = {
         "task": task,
         "statement_id": statement.get("statement_id"),
         "transform": field.get("transform"),
         "role": field.get("structural_role"),
         "expression": field.get("expression"),
         "sources": sources,
-        "steps": [str(step.get("text")) for step in field.get("derivation") or []],
+        "steps": [text for text in map(step_text, field.get("derivation") or []) if text],
         "case_outputs": case_outputs(code_expression(field)),
     }
+    computed = computed_by(field) if str(field.get("transform")) == "DIRECT" else []
+    extra = {
+        "computed_by": computed,
+        "sql_alias": field.get("sql_alias"),
+        "lookup_keys": list(dict.fromkeys(bare_column(key) for key in field.get("lookup_keys") or [])),
+        "sql_comments": [str(text) for text in field.get("sql_comments") or []],
+        _LABEL: field.get("column_label"),
+    }
+    producer.update({key: value for key, value in extra.items() if value})
+    return producer
+
+
+# The profile's name for a field, kept only while MERGE branches are folded.
+_LABEL = "_label"
+
+
+def step_text(step: dict) -> str | None:
+    """A derivation step as words; its expression when no words fit; ``None`` when neither.
+
+    The profile leaves ``text`` empty for an expression its vocabulary cannot word (a
+    UDF, ``MD5(...)``); the expression itself is then the fact, as ``describe`` shows it.
+    """
+    if step.get("text"):
+        return str(step["text"])
+    return f"表达式 {step['expression']}" if step.get("expression") else None
+
+
+def computed_by(field: dict) -> list[str]:
+    """The kinds of computation a field's chain makes, in order, pass-throughs left out.
+
+    The contract's ``transform`` is the last step's: a column that is a SUM two scopes
+    down and then projected is DIRECT. An aggregate names its functions.
+    """
+    kinds: list[str] = []
+    for step in field.get("derivation") or []:
+        kind = str(step.get("step_type") or "")
+        if not kind or kind in PASS_THROUGH_STEPS:
+            continue
+        if kind == "aggregate":
+            names = sorted(aggregate_functions(step.get("expression")))
+            kind = f"aggregate({','.join(names)})" if names else kind
+        if kind not in kinds:
+            kinds.append(kind)
+    return kinds
+
+
+def fold_branches(producers: list[dict]) -> list[dict]:
+    """One producer for MERGE branches of one statement that write the same thing.
+
+    A MERGE's UPDATE SET and INSERT branches each write the column; when everything but
+    the spelling of the expression (identifier quotes, whitespace, case) is the same,
+    they are one fact, and ``branches`` lists the profile's names of the branches folded.
+    Branches writing different values (``coalesce(target.c, source.c)`` against
+    ``source.c``) stay two producers.
+    """
+    folded: list[dict] = []
+    for producer in producers:
+        same = next((kept for kept in folded if _same_content(kept, producer)), None)
+        if same is None:
+            folded.append(producer)
+            continue
+        same.setdefault("_folded", [same.get(_LABEL)]).append(producer.get(_LABEL))
+    for producer in folded:
+        labels = [str(label) for label in producer.pop("_folded", []) if label]
+        producer.pop(_LABEL, None)
+        if len(labels) > 1:
+            producer["branches"] = labels
+    return folded
+
+
+def _same_content(left: dict, right: dict) -> bool:
+    ignored = {"expression", _LABEL, "_folded"}
+    return (
+        {key: value for key, value in left.items() if key not in ignored}
+        == {key: value for key, value in right.items() if key not in ignored}
+        and _spelling(left.get("expression")) == _spelling(right.get("expression"))
+    )
+
+
+def _spelling(expression) -> str:
+    """Quotes and whitespace out, lower case: qualifiers stay, so ``t.c`` is not ``s.c``."""
+    return re.sub(r"\s+", "", str(expression or "").replace("`", "")).lower()
 
 
 def statement_rules(task: str, statement: dict) -> list[dict]:
@@ -77,6 +166,14 @@ def _profile_rule(task: str, statement: dict, rule: dict) -> dict:
     }
     if rule.get("join_type"):
         entry["join_type"] = rule["join_type"]
+    if rule.get("consumed") is False:
+        entry["consumed"] = False
+    if rule.get("sql_comments"):
+        entry["sql_comments"] = [str(text) for text in rule["sql_comments"]]
+    # Read by the findings and the MERGE block, which name a profile rule or logic block;
+    # dropped before the packet is written.
+    entry[PROFILE_RULE] = rule.get("rule_id")
+    entry[LOGIC_BLOCK] = rule.get("evidence")
     if entry["kind"] == "join":
         entry.update(join_facts(statement, rule))
         # The ON's other conjuncts, read by `mark_partition_filters` and dropped before
@@ -187,6 +284,8 @@ _BETWEEN = re.compile(rf"^[a-z0-9_]+between{_CONSTANT}and{_CONSTANT}$")
 
 
 EXTRA_CONDITIONS = "_extra_conditions"
+PROFILE_RULE = "_profile_rule"
+LOGIC_BLOCK = "_logic_block"
 _QUALIFIED = re.compile(r"^([a-z_][a-z0-9_]*)\.([a-z0-9_]+)((?:=|<=|>=|<|>|between).*)$")
 
 
@@ -251,9 +350,10 @@ def _join_partition_reads(rule: dict, metadata) -> list[dict]:
 
 
 def drop_private(rules: list[dict]) -> None:
-    """Take out what the rules carried for this module only."""
+    """Take out what the rules carried for this package only."""
     for rule in rules:
-        rule.pop(EXTRA_CONDITIONS, None)
+        for key in (EXTRA_CONDITIONS, PROFILE_RULE, LOGIC_BLOCK):
+            rule.pop(key, None)
 
 
 def partition_column(reference: str, expression, metadata) -> tuple:

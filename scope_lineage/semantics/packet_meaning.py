@@ -66,7 +66,7 @@ def _scope_tables(statement: dict, scope: str) -> list[str]:
 
 # ------------------------------------------------------------------ CASE outputs
 
-_PASS_THROUGH = frozenset({"direct_projection", "union"})
+PASS_THROUGH_STEPS = frozenset({"direct_projection", "union"})
 
 
 def code_expression(field: dict):
@@ -76,7 +76,7 @@ def code_expression(field: dict):
     own expression is that projection, its derivation's last computing step is the CASE.
     """
     for step in reversed(field.get("derivation") or []):
-        if str(step.get("step_type")) not in _PASS_THROUGH:
+        if str(step.get("step_type")) not in PASS_THROUGH_STEPS:
             return step.get("expression")
     return field.get("expression")
 

@@ -13,6 +13,8 @@ without either renders exactly as it did before.
 
 from __future__ import annotations
 
+import re
+
 from ..render.markdown_text import cell, expr_span
 
 
@@ -24,6 +26,7 @@ def render_packet_markdown(packet: dict) -> str:
         f"- packet_digest：`{packet['packet_digest']}`（原样写进 table-semantics/1 的 "
         "`packet_digest`；材料变了它就变，校验据此判断文档是否过期）",
         *_confirmed_note(packet),
+        *_marker_note(packet),
         "",
     ]
     lines += _target(packet["target"])
@@ -61,10 +64,38 @@ def _confirmed_note(packet: dict) -> list[str]:
     ]
 
 
+def _marker_note(packet: dict) -> list[str]:
+    """The comment markers of the packet's columns, counted, with what not to do with them."""
+    keys = packet.get("comment_marker_keys") or {}
+    if not keys:
+        return []
+    counted = "、".join(f"{key}×{entry['count']}" for key, entry in keys.items())
+    return [
+        f"- 注释标记（工具不解释含义）：{counted}；含义未登记前，文档不得把标记当业务事实，"
+        "需要时写进待确认问题"
+    ]
+
+
+_REF_STATUS = {
+    "in_run": "本运行有任务读写这张表",
+    "metadata_only": "只有元数据，本运行没有任务读写",
+    "unknown": "本运行无此表",
+}
+
+
 def _comment(entry: dict) -> str:
-    """A table's or a column's comment, marked when the metadata patch gave it."""
+    """A table's or a column's comment, marked when the metadata patch gave it.
+
+    A column's ``[db.table.col]`` references follow, each with what the run knows of it.
+    """
     text = _text(entry["comment"])
-    return text + PATCHED if entry.get("comment_source") == "patch" else text
+    text = text + PATCHED if entry.get("comment_source") == "patch" else text
+    refs = [
+        f"引用 {_code(ref['ref'])}：{_REF_STATUS.get(ref['status'], ref['status'])}"
+        + (f"；名字相近：{_names(ref['near'])}（未证实同一张表）" if ref.get("near") else "")
+        for ref in entry.get("comment_refs") or []
+    ]
+    return text + "".join(f"（{cell(item)}）" for item in refs)
 
 
 def _confirmed_values(column: dict) -> str:
@@ -244,8 +275,9 @@ def full_snapshot_text(entry: dict) -> str:
 def _lineage(lineage: dict) -> list[str]:
     lines = ["## 4. 血缘事实", ""]
     lines += _column_sources(lineage["columns"])
-    lines += _rules(lineage["rules"])
+    lines += _rules(lineage["rules"], lineage.get("findings") or [])
     lines += _keys(lineage["keys"], lineage["partition"])
+    lines += _findings(lineage.get("findings") or [])
     lines += _neighbours(lineage)
     return lines
 
@@ -262,14 +294,54 @@ def _column_sources(columns: list[dict]) -> list[str]:
             lines.append(f"| {_code(entry['column'])} | — | 未由 SELECT 写出（分区列或未写） | — | — | — |")
         for producer in entry["producers"]:
             lines.append(
-                f"| {_code(entry['column'])} | {_text(producer['task'])} / {_text(producer['statement_id'])} | "
-                f"{_text(producer['transform'])} | {_names(producer['sources'])} | "
-                f"{_code(producer['expression'])} | {_text('；'.join(producer['steps']))} |"
+                f"| {_produced_column(entry['column'], producer)} | {_written_by(producer)} | "
+                f"{_transform(producer)} | {_producer_sources(producer)} | "
+                f"{_code(producer['expression'])} | {_steps(producer)} |"
             )
     return [*lines, ""]
 
 
-def _rules(rules: list[dict]) -> list[str]:
+def _produced_column(column: str, producer: dict) -> str:
+    alias = producer.get("sql_alias")
+    return f"{_code(column)}（SQL 别名 {_code(alias)}，按位置写入）" if alias else _code(column)
+
+
+_BRANCH = re.compile(r"（([^（）]*)）$")
+
+
+def _written_by(producer: dict) -> str:
+    """Task / statement, and the MERGE branches a folded producer stands for."""
+    said = f"{_text(producer['task'])} / {_text(producer['statement_id'])}"
+    branches = producer.get("branches") or []
+    if not branches:
+        return said
+    names = [(_BRANCH.search(label) or [None, label])[1] for label in branches]
+    return f"{said}（{len(branches)} 支：{cell('、'.join(names))}）"
+
+
+def _transform(producer: dict) -> str:
+    computed = producer.get("computed_by") or []
+    if not computed:
+        return _text(producer["transform"])
+    return f"{_text(producer['transform'])}（末层）；链上：{cell(' → '.join(computed))}"
+
+
+def _producer_sources(producer: dict) -> str:
+    keys = producer.get("lookup_keys") or []
+    if not keys:
+        return _names(producer["sources"])
+    return f"{_names(producer['sources'])}；查码键（决定读哪一行，不是取值来源）：{_names(keys)}"
+
+
+def _steps(producer: dict) -> str:
+    comments = producer.get("sql_comments") or []
+    steps = "；".join(producer["steps"])
+    if comments:
+        steps = f"注释：{'；'.join(comments)}" + (f"；{steps}" if steps else "")
+    return _text(steps)
+
+
+def _rules(rules: list[dict], findings: list[dict]) -> list[str]:
     lines = [
         "### 4.2 规则（过滤 / 关联 / 去重 / 合并 / 分支）",
         "",
@@ -279,12 +351,23 @@ def _rules(rules: list[dict]) -> list[str]:
     lines += [
         f"| {rule['id']} | {rule['kind']}{('（' + rule['join_type'] + '）') if rule.get('join_type') else ''} | "
         f"{_code(rule['expression'])} | {_partition_cell(rule)} | "
-        f"{_names(rule['tables'])} | {_fan_out(rule)} | {_text(rule.get('text'))} |"
+        f"{_names(rule['tables'])} | {_fan_out(rule)} | {_rule_note(rule, findings)} |"
         for rule in rules
     ]
     if not rules:
         lines.append("| — | — | — | — | — | — | — |")
     return [*lines, ""]
+
+
+def _rule_note(rule: dict, findings: list[dict]) -> str:
+    """The rule's own text, its SQL comments, whether anybody reads it, its findings."""
+    parts = [str(rule["text"])] if rule.get("text") else []
+    if rule.get("sql_comments"):
+        parts.append(f"注释：{'；'.join(rule['sql_comments'])}")
+    if rule.get("consumed") is False:
+        parts.append("未被消费：这条分支的输出没有被任何下游读取")
+    parts += [str(item["text"]) for item in findings if rule["id"] in (item.get("rules") or [])]
+    return _text("；".join(parts))
 
 
 def _partition_cell(rule: dict) -> str:
@@ -298,9 +381,14 @@ def _fan_out(rule: dict) -> str:
     if rule["kind"] != "join":
         return ""
     verdict = rule.get("fan_out")
-    if not verdict:
-        return "不在输出路径上"
-    return _text(f"{verdict['status']}：{verdict['reason']}")
+    if verdict:
+        return _text(f"{verdict['status']}：{verdict['reason']}")
+    if rule.get("inside"):
+        return f"在 {'、'.join(rule['inside'])} 右侧内部；行数影响已计入这些关联的判定"
+    if rule.get("below_aggregate"):
+        return (f"位于聚合 {_code(rule['below_aggregate'])} 之下：不复制输出行，可能放大聚合值；"
+                "工具未判定")
+    return f"工具未判定（{_code(rule.get('scope'))}）"
 
 
 def _keys(keys: list[dict], partitions: list[dict]) -> list[str]:
@@ -317,10 +405,94 @@ def _keys(keys: list[dict], partitions: list[dict]) -> list[str]:
         for key in keys
     ]
     lines.append("")
+    for key in keys:
+        lines += _merge_lines(key)
     lines += [
         f"- 分区写入（{_text(item['task'])} / {_text(item['statement_id'])}）：{_names(item['columns'])}，"
         + _partition_values(item)
         for item in partitions
+    ]
+    return [*lines, ""]
+
+
+_CLAUSES = {"matched": "matched", "not_matched": "not matched",
+            "not_matched_by_source": "not matched by source"}
+_LEFT_ALONE = {
+    "matched": "matched 但条件不满足的行既不更新也不插入",
+    "not_matched": "not matched 但条件不满足的源行不插入",
+    "not_matched_by_source": "not matched by source 但条件不满足的目标行不动",
+}
+
+
+def _merge_lines(key: dict) -> list[str]:
+    """A MERGE's merge key, its WHEN clauses, and its USING dedup against the merge key."""
+    merge = key.get("merge")
+    if not merge:
+        return []
+    at = f"（{_text(key['task'])} / {_text(key['statement_id'])}）"
+    pairs = [f"target.{pair['target']} = source.{pair['source']}"
+             for pair in merge.get("merge_keys") or []]
+    on = cell("、".join(pairs)) if pairs else "—"
+    if merge.get("other_on_conditions"):
+        on += "；其他 ON 条件：" + "、".join(_code(text) for text in merge["other_on_conditions"])
+    return [
+        f"- MERGE 合并键{at}：{on}",
+        f"- MERGE WHEN{at}：{_whens(merge.get('whens') or [])}",
+        f"- MERGE 去重与合并键{at}：{_coverage(merge)}",
+    ]
+
+
+def _whens(whens: list[dict]) -> str:
+    parts = []
+    for when in whens:
+        clause = _CLAUSES.get(str(when.get("clause")), str(when.get("clause")))
+        condition = f" AND {_code(when['condition'])}" if when.get("condition") else ""
+        action = str(when.get("action") or "?").upper()
+        star = (" SET *" if action == "UPDATE" else " *") if when.get("star") else ""
+        parts.append(f"{clause}{condition} → {action}{star}")
+    for clause, said in _LEFT_ALONE.items():
+        mine = [when for when in whens if when.get("clause") == clause]
+        if mine and all(when.get("condition") for when in mine):
+            parts.append(said)
+    return "；".join(parts) or "—"
+
+
+_COVERAGE = {
+    "covered": "covered（去重键都在合并键里，USING 侧每个合并键至多一行）",
+    "no_dedup": "no_dedup（USING 侧没有去重，同一合并键可能有多行）",
+    "unknown": "unknown（工具无法比较）",
+}
+
+
+def _coverage(merge: dict) -> str:
+    basis = (merge.get("using_grain") or {}).get("basis")
+    keys = merge.get("dedup_keys") or []
+    head = (
+        "USING 去重键 " + "、".join(
+            _code(item["column"]) + ("（派生）" if item.get("derived") else "") for item in keys)
+        if keys else f"USING 无去重（{_text(basis)}）"
+    )
+    coverage = merge.get("coverage")
+    if coverage == "dedup_wider":
+        said = (f"dedup_wider（去重键多出 {_names(merge.get('extra_keys') or [])}：同一合并键在 USING "
+                "侧可能多行，matched 更新会遇到多行匹配，not matched 会重复插入）")
+    else:
+        said = _COVERAGE.get(str(coverage), _text(coverage))
+    joins = merge.get("joins_after_dedup") or []
+    after = f"；去重之后还有未证明唯一的关联 {'、'.join(joins)}" if joins else ""
+    return f"{head}；与合并键比较：{said}{after}"
+
+
+def _findings(findings: list[dict]) -> list[str]:
+    """The governance findings a writer must see, after the keys they are often about."""
+    if not findings:
+        return []
+    lines = ["#### 治理线索（工具发现，需核实）", ""]
+    lines += [
+        f"- {item['kind']}（{_text(item['task'])} / {_text(item['statement_id'])}"
+        + (f"，规则 {'、'.join(item['rules'])}" if item.get("rules") else "")
+        + f"）：{_text(item['text'])}"
+        for item in findings
     ]
     return [*lines, ""]
 
