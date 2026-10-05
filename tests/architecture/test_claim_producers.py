@@ -122,6 +122,7 @@ READERS: frozenset[str] = frozenset({
     "render/semantic_profile.py:_card_claim_level",
     "semantics/checks.py:check_grain",
     "semantics/checks_meaning.py:check_fan_out",
+    "semantics/checks_meaning.py:_safe_names",
     "semantics/packet_facts.py:statement_keys",
     "semantics/packet_markdown.py:_keys",
 })

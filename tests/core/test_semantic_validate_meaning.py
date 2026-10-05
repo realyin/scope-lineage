@@ -117,6 +117,82 @@ def test_a_left_join_called_harmless_to_the_row_count_warns(
     assert "LEFT JOIN" in warning["message"]
 
 
+def _harmless_warnings(document: dict, packet: dict, sentence: str) -> list[dict]:
+    document["summary"]["row"]["note"] = "关联 dwd_lending_loan_df 会放大行数，再按客户号汇总。"
+    document["summary"]["watch"].append({"text": sentence, "kind": "risk"})
+    return _problems(validate_document(document, packet), "fan_out", "warn")
+
+
+@pytest.mark.parametrize("sentence", [
+    "左关联额度表 cr 不保证不放大，cr 同客户多条时会重复",
+    "左关联额度表 cr 并不保证不会放大行数",
+    "左关联额度表 cr 不一定不放大",
+    "左关联额度表 cr 未必不影响行数",
+])
+def test_a_negated_no_effect_phrase_is_not_a_claim_of_no_effect(
+    document: dict, borrower: dict, sentence: str
+) -> None:
+    assert _harmless_warnings(document, borrower, sentence) == []
+
+
+@pytest.mark.parametrize("sentence", [
+    "左关联额度表 cr 保证不放大",
+    "额度表 cr 左关联不影响行数",
+    "左关联额度表 cr 不保证不放大，但行数不变",
+])
+def test_a_no_effect_phrase_without_a_negation_before_it_still_warns(
+    document: dict, borrower: dict, sentence: str
+) -> None:
+    (warning,) = _harmless_warnings(document, borrower, sentence)
+    assert warning["at"] == "summary.watch[1]"
+
+
+def _with_safe_joins(borrower: dict, *aliases: str) -> dict:
+    """The borrower packet plus a LEFT JOIN per alias, each proven unique (safe)."""
+    packet = copy.deepcopy(borrower)
+    limit = next(r for r in packet["lineage"]["rules"] if r.get("right_aliases") == ["cr"])
+    for index, alias in enumerate(aliases):
+        table = f"demo_ods.ods_branch_{index}_df"
+        packet["lineage"]["rules"].append(
+            {**limit, "id": f"p9{index}", "right": table, "right_tables": [table],
+             "right_aliases": [alias], "fan_out": {"status": "safe", "reason": "去重后唯一"}}
+        )
+    return packet
+
+
+@pytest.mark.parametrize("sentence", [
+    "左关联网点表 br 已去重，不放大",
+    "LEFT JOIN 网点表 ods_branch_0_df 不会导致行数放大",
+    "左关联的网点表 br 与机构表 og 两路都已去重，不放大",
+])
+def test_a_sentence_naming_only_safe_joins_does_not_warn(
+    document: dict, borrower: dict, sentence: str
+) -> None:
+    packet = _with_safe_joins(borrower, "br", "og")
+    assert _harmless_warnings(document, packet, sentence) == []
+
+
+@pytest.mark.parametrize("sentence", [
+    "左关联网点表 br 与额度表 cr 不放大",
+    "网点表 br 已去重，左关联都不放大",
+    "网点表 br 已去重，所有左关联均不放大",
+])
+def test_a_safe_join_named_beside_an_unproven_one_or_a_universal_claim_still_warns(
+    document: dict, borrower: dict, sentence: str
+) -> None:
+    packet = _with_safe_joins(borrower, "br")
+    (warning,) = _harmless_warnings(document, packet, sentence)
+    assert "ods_credit_limit_df" in warning["message"]
+
+
+def test_a_safe_alias_shared_with_an_unproven_join_still_warns(
+    document: dict, borrower: dict
+) -> None:
+    packet = _with_safe_joins(borrower, "l")
+    (warning,) = _harmless_warnings(document, packet, "左关联网点表 l 已去重，不放大")
+    assert "ods_credit_limit_df" in warning["message"]
+
+
 def test_joins_onto_one_table_are_asked_about_once(document: dict, borrower: dict) -> None:
     again = copy.deepcopy(borrower)
     limit = next(r for r in again["lineage"]["rules"] if r.get("right_aliases") == ["cr"])

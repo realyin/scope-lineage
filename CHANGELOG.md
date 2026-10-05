@@ -212,6 +212,18 @@
   meaning or the key says so with `holds`.
 
 ### Fixed
+- **`semantic validate` check 10 (`fan_out`) no longer warns on a negated no-effect phrase or
+  on a sentence about safe joins only.** The warning for "a LEFT join called harmless to the
+  row count" matched 不放大 anywhere in a sentence, so 「左关联 X 不保证不放大」 -- the very
+  risk the check asks for -- warned, and writers reworded it to get past the check. A phrase
+  right after a negation (不保证, 并不保证, 不一定, 未必, 并非 …) is no longer a claim; any other
+  phrase in the same sentence still is. A sentence that names no unproven LEFT join but says
+  左关联 used to be read as meaning all of them even when it named a join proven unique
+  (`fan_out.status: safe`); it now passes when it names such a join -- by a name no unproven
+  join shares -- and the clause holding the phrase makes no claim about every join (都, 均,
+  全部, 所有, 一律, 任何, 皆), so 「X 已去重，左关联都不放大」 still warns. Naming an unproven
+  LEFT join still warns as before, and the FAIL for an unnamed join is unchanged.
+  `table-semantics.md` (both languages) says so.
 - **`semantic validate` check 3 (`code_values`) finds a number code that runs into letters in
   a comment.** A comment written 「1普通2VIP回访3退订」 explains code `2`, but the boundary
   treated the following `V` as part of the same word, so the value failed as found nowhere
