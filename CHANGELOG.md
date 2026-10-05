@@ -278,6 +278,13 @@
   meaning or the key says so with `holds`.
 
 ### Fixed
+- **A comment on a MERGE assignment reaches `outputs[].comments`.** A SELECT projection's
+  comment is published on the output it produces, but a comment written on a MERGE
+  `UPDATE SET` item or an `INSERT ... VALUES` value was not: it survived only inside the
+  rendered expression text, so everything that reads comments from `outputs[].comments`
+  (the semantic profile's `sql_comments` among them) never saw it. Such an output now
+  carries the assignment's comments -- the whole `column = value` for `UPDATE SET`, the
+  value for `INSERT ... VALUES`. The key already existed; no schema change.
 - **`semantic validate` check 10 (`fan_out`) no longer warns on a negated no-effect phrase or
   on a sentence about safe joins only.** The warning for "a LEFT join called harmless to the
   row count" matched 不放大 anywhere in a sentence, so 「左关联 X 不保证不放大」 -- the very

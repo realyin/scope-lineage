@@ -881,7 +881,7 @@ scope-lineage validate --lineage /path/to/corpus
 | --- | --- | --- |
 | `statement_comments[]` | 语句顶层节点上的注释，即头部注释块；外加并入的脚本头部注释块 | 恒存在，空时为 `[]` |
 | `script_comments[]`（仅契约 2.0 任务文档顶层） | 第一条写入语句**之前**那些未建模语句（`SET`、`USE`、`ADD JAR`、`CREATE TEMPORARY FUNCTION`、`DROP/CREATE TABLE IF NOT EXISTS` 等）上的注释 | 恒存在，空时为 `[]` |
-| `scopes.<id>.outputs[].comments[]` | 该投影表达式子树内的注释，别名节点自身优先 | 无注释时不发该键 |
+| `scopes.<id>.outputs[].comments[]` | 该投影表达式子树内的注释，别名节点自身优先；MERGE 的输出取该赋值的注释（`UPDATE SET` 取整个 `目标列 = 值`，`INSERT ... VALUES` 取对应的值） | 无注释时不发该键 |
 | `scopes.<id>.logic_blocks[].comments[]` | 该逻辑块自身表达式内的注释 | 无注释时不发该键 |
 
 脚本头部注释块是最常被问到的那段话——「这个任务到底干什么」——而它通常写在 `SET` 之上。`SET` 不被建模，于是这段话本来谁也收不到。它被采集一次，发在两处：任务文档顶层的 `script_comments[]`（一个任务只说一遍，多条写入不会被读成每条都有这段说明），以及第一条写入语句的 `statement_comments[]`（单独读一条语句的消费者也能看到）。写在两条写入语句**之间**的注释不适用本规则：它已经挂在它上方的那条写入语句上，搬走就会张冠李戴。

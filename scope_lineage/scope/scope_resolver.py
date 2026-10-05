@@ -32,6 +32,7 @@ from .sqlglot_walk import _classify_extended, _inside_nested_set_op, _source_fre
 from .column_ref_resolver import _ambiguous_ref, _materialized_star_column_state, _resolve_column_refs_in_expr  # noqa: F401
 from .sqlglot_walk import _REGEX_COLUMN_METACHARACTERS, _compiled_column_pattern
 from .select_scope import _resolve_select_scope, _star_modifiers  # noqa: F401
+from .sql_comments import subtree_comments
 from .target_field_binding import apply_target_field_binding
 
 
@@ -1205,6 +1206,12 @@ def _resolve_merge_columns(
         branch_qualifier = "not_matched_by_source" if by_source else None
         policy = "target" if by_source else ("both" if matched else "source")
         then = when.args.get("then")
+        assignment_context = {
+            "using_scope": using_scope, "all_scopes": all_scopes,
+            "target_qualifiers": target_qualifiers, "result": result, "policy": policy,
+            "schema": schema, "branch_label": branch_label,
+            "branch_qualifier": branch_qualifier,
+        }
         if by_source and isinstance(then, exp.Update):
             # Say why the label is absent. Without this a consumer sees only that
             # merge_branch is gone and cannot tell "contract 1.0 has no name for this
@@ -1237,35 +1244,19 @@ def _resolve_merge_columns(
                 if not isinstance(eq, exp.EQ):
                     continue
                 dst_col = eq.this
-                src_expr = eq.expression
                 dst_name = dst_col.name if isinstance(dst_col, exp.Column) else None
                 if dst_name is None:
                     continue
-                transform = _classify_extended(src_expr)
-                expression = src_expr.sql(dialect=DIALECT)
-                sources = _resolve_merge_value_sources(
-                    src_expr,
-                    expression,
-                    using_scope,
-                    all_scopes,
-                    target_qualifiers,
-                    result,
-                    policy=policy,
-                    schema=schema,
+                column = _merge_assignment_column(
+                    dst_name, eq.expression, eq, **assignment_context,
+                    when_index=when_index,
                 )
-
-                if any(source.scope == result.target_table for source in sources):
+                if any(source.scope == result.target_table for source in column.sources):
                     result.source_tables = sorted({
                         *result.source_tables,
                         result.target_table,
                     })
-
-                result.scopes["ROOT"].columns.append(ScopeColumn(
-                    name=dst_name, transform=transform, expression=expression,
-                    sources=sources, merge_branch=branch_label,
-                    merge_branch_qualifier=branch_qualifier,
-                    merge_when_index=when_index,
-                ))
+                result.scopes["ROOT"].columns.append(column)
 
         elif isinstance(then, exp.Insert):
             # WHEN NOT MATCHED THEN INSERT (cols) VALUES (exprs)
@@ -1279,24 +1270,9 @@ def _resolve_merge_columns(
             elif isinstance(ins_cols, exp.Tuple) and isinstance(values, exp.Tuple):
                 for dst_col_node, val_expr in zip(ins_cols.expressions, values.expressions):
                     dst_name = dst_col_node.name if hasattr(dst_col_node, "name") else str(dst_col_node)
-                    transform = _classify_extended(val_expr)
-                    expression = val_expr.sql(dialect=DIALECT)
-                    sources = _resolve_merge_value_sources(
-                        val_expr,
-                        expression,
-                        using_scope,
-                        all_scopes,
-                        target_qualifiers,
-                        result,
-                        policy=policy,
-                        schema=schema,
-                        )
-
-                    result.scopes["ROOT"].columns.append(ScopeColumn(
-                        name=dst_name, transform=transform, expression=expression,
-                        sources=sources, merge_branch=branch_label,
-                        merge_branch_qualifier=branch_qualifier,
-                        merge_when_index=when_index,
+                    result.scopes["ROOT"].columns.append(_merge_assignment_column(
+                        dst_name, val_expr, val_expr, **assignment_context,
+                        when_index=when_index,
                     ))
         elif _is_merge_delete_then(then):
             result.diagnostics.warnings.append(DiagnosticWarning(
@@ -1311,6 +1287,50 @@ def _resolve_merge_columns(
                     "output columns."
                 ),
             ))
+
+
+def _merge_assignment_column(
+    dst_name: str,
+    value_expr: exp.Expression,
+    comment_node: exp.Expression,
+    *,
+    using_scope: Scope | None,
+    all_scopes: list[Scope],
+    target_qualifiers: set[str],
+    result: ScopeLineageResult,
+    policy: str,
+    schema: dict | None,
+    branch_label: str | None,
+    branch_qualifier: str | None,
+    when_index: int,
+) -> ScopeColumn:
+    """One MERGE assignment (``UPDATE SET`` item or ``INSERT ... VALUES`` value) as a column.
+
+    ``comment_node`` is what the author's note can hang on: the whole ``target.c = value``
+    for an UPDATE SET item -- sqlglot attaches a note after the value to the value's last
+    token, and one after the column name to the column -- and the value alone for INSERT
+    VALUES, whose column list is a separate tuple. It is the MERGE counterpart of the
+    SELECT path's ``_stamp_projection_comments``; without it an assignment's note survived
+    only inside the rendered expression text and never reached ``outputs[].comments``.
+    """
+    expression = value_expr.sql(dialect=DIALECT)
+    sources = _resolve_merge_value_sources(
+        value_expr,
+        expression,
+        using_scope,
+        all_scopes,
+        target_qualifiers,
+        result,
+        policy=policy,
+        schema=schema,
+    )
+    return ScopeColumn(
+        name=dst_name, transform=_classify_extended(value_expr), expression=expression,
+        sources=sources, merge_branch=branch_label,
+        merge_branch_qualifier=branch_qualifier,
+        merge_when_index=when_index,
+        comments=subtree_comments(comment_node),
+    )
 
 
 def _merge_using_column_passes_through(
