@@ -311,7 +311,8 @@ def _plain(node: exp.Expression) -> exp.Expression:
     SQL comments are dropped for the same reason: ``/* 2026 rewrite */`` is a note to
     the next engineer, not part of what the expression computes, and sqlglot would
     otherwise re-emit it into the middle of the sentence. The comment survives in the
-    profile's ``expression`` key, which is the verbatim SQL.
+    profile's ``sql_comments`` key; the profile's ``expression`` is the SQL as written
+    minus its comments, and the contract keeps the verbatim text.
     """
     clone = copy.deepcopy(node)
     for item in clone.walk():

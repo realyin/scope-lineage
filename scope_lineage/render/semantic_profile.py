@@ -1608,7 +1608,7 @@ def _filter_rules(document: dict, scope_id: str, block: dict) -> list[dict]:
             {
                 "kind": kind,
                 "scope_id": scope_id,
-                "expression": conjunct.get("expression"),
+                "expression": _without_comments(conjunct.get("expression")),
                 "is_partition_filter": partition,
                 "fields": _rule_fields(document, pairs),
                 "scope_fields": _scope_fields(document, conjunct.get("fields")),
@@ -1642,7 +1642,7 @@ def _join_rule(document: dict, scope_id: str, block: dict) -> dict:
     return {
         "kind": "join_condition",
         "scope_id": scope_id,
-        "expression": detail.get("condition_expression"),
+        "expression": _without_comments(detail.get("condition_expression")),
         "join_type": detail.get("join_type"),
         # WI-1f: what this join does to the rows it cannot match. It is a fact of the
         # join type, so it is published beside `join_type` rather than folded into a
@@ -1652,9 +1652,7 @@ def _join_rule(document: dict, scope_id: str, block: dict) -> dict:
         "right_input": detail.get("right_input"),
         "key_pairs": _dedupe(pairs),
         "physical_key_pairs": _dedupe(physical_pairs),
-        "extra_conditions": [
-            condition.get("expression") for condition in detail.get("condition_filters") or []
-        ],
+        "extra_conditions": _extra_conditions(detail),
         "extra_condition_fields": _extra_condition_fields(document, detail),
         "fields": _rule_fields(document, physical),
         "scope_fields": _scope_fields(document, detail.get("condition_fields")),
@@ -1668,6 +1666,67 @@ def _rule_comments(block: dict) -> dict:
     """``{"sql_comments": [...]}`` when the block carries comments, ``{}`` otherwise."""
     comments = [str(item) for item in block.get("comments") or []]
     return {"sql_comments": comments} if comments else {}
+
+
+_QUOTES = ("'", '"', "`")
+
+
+def _without_comments(text):
+    """The SQL text with every ``/* ... */`` comment taken out, the rest verbatim.
+
+    The contract keeps an expression as the author wrote it, comments included, and lists
+    the comments separately. The profile publishes the comments under ``sql_comments`` and
+    the expression without them: a note is not part of what the expression computes, and
+    left inline it was published twice and read as SQL (``dt = 'x' /* and s <> 'y' */``
+    judged a range). Not a re-render: quoting and layout stay as written; only the comment
+    and the blank space it leaves go, and a marker inside a quoted literal is not one.
+    """
+    if not isinstance(text, str) or "/*" not in text:
+        return text
+    out: list[str] = []
+    index, size = 0, len(text)
+    while index < size:
+        char = text[index]
+        if char in _QUOTES:
+            end = _closing_quote(text, index)
+            out.append(text[index : end + 1])
+            index = end + 1
+            continue
+        if text.startswith("/*", index):
+            close = text.find("*/", index + 2)
+            index = size if close < 0 else close + 2
+            while out and out[-1].endswith((" ", "\t", "\n")):
+                out[-1] = out[-1].rstrip()
+                if not out[-1]:
+                    out.pop()
+            while index < size and text[index] in " \t\n":
+                index += 1
+            if out and index < size and not out[-1].endswith("(") and text[index] != ")":
+                out.append(" ")
+            continue
+        out.append(char)
+        index += 1
+    return "".join(out).strip()
+
+
+def _closing_quote(text: str, start: int) -> int:
+    """Where the literal opened at ``start`` closes; a backslash escapes in Spark strings."""
+    quote, index = text[start], start + 1
+    while index < len(text):
+        if text[index] == "\\" and quote != "`":
+            index += 2
+            continue
+        if text[index] == quote:
+            return index
+        index += 1
+    return len(text) - 1
+
+
+def _extra_conditions(detail: dict) -> list:
+    return [
+        _without_comments(condition.get("expression"))
+        for condition in detail.get("condition_filters") or []
+    ]
 
 
 def _extra_condition_fields(document: dict, detail: dict) -> list[dict]:
@@ -1744,7 +1803,7 @@ def _scope_key_pair(pair: dict) -> dict | None:
 def _case_rule(document: dict, scope_id: str, block: dict) -> dict:
     # raw_expression, not display_expression: the raw text is always present, while the
     # display form appears only when alias resolution changed the text.
-    expression = block.get("raw_expression")
+    expression = _without_comments(block.get("raw_expression"))
     split = semantic_text.split_case_branches(expression)
     branches, otherwise = split if split is not None else (None, None)
     pairs = [
@@ -1984,7 +2043,7 @@ def _build_field(document: dict, entry: dict, chain: dict | None, context: dict)
         "sources": _field_sources(document, entry),
         "generated_sources": list(entry.get("generated_sources") or []),
         "derivation": derivation,
-        "expression": entry.get("expression"),
+        "expression": _without_comments(entry.get("expression")),
         "trace_complete": entry.get("trace_complete"),
         "trace_incomplete_reasons": entry.get("trace_incomplete_reasons"),
         "ambiguous": _is_ambiguous(entry),
@@ -2119,7 +2178,7 @@ def _field_summary(
         step_texts=steps,
         direct_notes=notes,
         source_notes=notes,
-        expression=entry.get("expression"),
+        expression=_without_comments(entry.get("expression")),
         nullable_by_join=nullable,
         branch_steps=branch_steps,
     )
@@ -2369,7 +2428,7 @@ def _derivation(chain: dict | None, context: dict) -> list[dict]:
                     has_udf=has_udf,
                     column_types=context["column_types"],
                 ),
-                "expression": expression,
+                "expression": _without_comments(expression),
             }
         )
     return steps
@@ -4459,6 +4518,9 @@ def _ordered_action(action: dict) -> dict:
 
 def _action(action_type: str, text: str | None, **extra) -> dict:
     comments = [str(item) for item in extra.pop("sql_comments", None) or []]
+    # The stage's restated SQL follows the rules': comments live in sql_comments only.
+    if "expression" in extra:
+        extra["expression"] = _without_comments(extra["expression"])
     return {
         "type": action_type,
         "text": text,
@@ -4513,13 +4575,13 @@ def _join_action(document: dict, block: dict) -> dict:
     pairs: list[dict] = []
     for pair in detail.get("join_key_pairs") or []:
         pairs.extend(_join_key_pair(pair)[0])
-    extras = [
-        condition.get("expression") for condition in detail.get("condition_filters") or []
-    ]
     return _action(
         "join",
         semantic_text.describe_join(
-            detail.get("join_type"), detail.get("right_input"), _dedupe(pairs), extras
+            detail.get("join_type"),
+            detail.get("right_input"),
+            _dedupe(pairs),
+            _extra_conditions(detail),
         ),
         expression=detail.get("condition_expression"),
         fields=_join_condition_physical_fields(document, detail),
@@ -4568,7 +4630,7 @@ def _aggregate_action(
 
 
 def _case_action(document: dict, block: dict) -> dict:
-    expression = block.get("raw_expression")
+    expression = _without_comments(block.get("raw_expression"))
     branches = semantic_text.describe_case(expression)
     outputs = [str(name) for name in block.get("output_fields") or []]
     text = branches

@@ -297,7 +297,7 @@
             {
               "type": "join",
               "text": "LEFT_OUTER 关联 dim.channel，键 channel_code，右侧无匹配时保留左行，右侧字段为空",
-              "expression": "`s`.`channel_code` = `d`.`channel_code` /* 按渠道编码补充维度 */",
+              "expression": "`s`.`channel_code` = `d`.`channel_code`",
               "fields": [
                 {
                   "table": "ods.channel_event",
@@ -319,7 +319,7 @@
             {
               "type": "filter",
               "text": "只保留 status = 'ACTIVE' 的记录",
-              "expression": "`s`.`status` = 'ACTIVE' /* 仅生效状态 */",
+              "expression": "`s`.`status` = 'ACTIVE'",
               "fields": [
                 {
                   "table": "ods.channel_event",
@@ -408,7 +408,7 @@
           "rule_id": "rule:002",
           "kind": "filter",
           "scope_id": "ROOT",
-          "expression": "`s`.`status` = 'ACTIVE' /* 仅生效状态 */",
+          "expression": "`s`.`status` = 'ACTIVE'",
           "is_partition_filter": false,
           "fields": [
             {
@@ -428,7 +428,7 @@
           "rule_id": "rule:003",
           "kind": "join_condition",
           "scope_id": "ROOT",
-          "expression": "`s`.`channel_code` = `d`.`channel_code` /* 按渠道编码补充维度 */",
+          "expression": "`s`.`channel_code` = `d`.`channel_code`",
           "join_type": "LEFT_OUTER",
           "null_semantics": "右侧无匹配时保留左行，右侧字段为空",
           "left_input": "ods.channel_event",

@@ -3,6 +3,16 @@
 ## Unreleased
 
 ### Changed
+- **`semantic.json`: an `expression` is the SQL minus its comments.** The profile lifted every
+  `/* … */` note into `sql_comments` and also left it inside `expression`, so the note was
+  published twice and read as SQL: `dt = '…' /* and s <> 'x' */` made a packet judge an
+  equality partition read a range. `rules[].expression`, a join rule's `extra_conditions[]`,
+  `fields[].expression`, `derivation[].expression`, `stages[].actions[].expression` and the
+  stage's join sentence (`附加条件 …`) now carry the SQL as written with the comments taken
+  out (not re-rendered: quoting and layout are kept); the notes stay in `sql_comments`. A
+  reader that wants the verbatim text reads the lineage contract, which is unchanged. No
+  format version moves (`semantic-json/1`); `describe` output and table-semantics packets
+  built from commented SQL change accordingly.
 - **Breaking — `semantic status` ties a fix to its review and its packet
   (`table-semantics-status/2`).** A document that changed after a review with high or medium
   findings used to count as `fixed`, whether the fix finished, was interrupted halfway, or

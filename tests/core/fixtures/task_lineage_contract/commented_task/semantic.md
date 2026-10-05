@@ -67,8 +67,8 @@ SQL 头部注释（原文，作者说法，非 SQL 事实）（SQL注释）：
 | 规则 | 类型 | 阶段 | 条件 | 涉及字段（注释） | SQL注释 | 分区过滤 | 证据 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | rule:001 | CASE 分支（case_branch） | `ROOT` | `channel_code = 'A' → 'ONLINE'；否则 'OFFLINE'` | `ods.channel_event.channel_code`（注释未知） | — | — | `logic:ROOT:case_when:001` |
-| rule:002 | 过滤（filter） | `ROOT` | `` `s`.`status` = 'ACTIVE' /* 仅生效状态 */ `` | `ods.channel_event.status`（注释未知） | 仅生效状态 | 否 | `logic:ROOT:filter:001` |
-| rule:003 | 连接条件（join_condition） | `ROOT` | `` `s`.`channel_code` = `d`.`channel_code` /* 按渠道编码补充维度 */ `` | `ods.channel_event.channel_code`（注释未知）、`dim.channel.channel_code`（注释未知） | 按渠道编码补充维度 | — | `logic:ROOT:join:001` |
+| rule:002 | 过滤（filter） | `ROOT` | `` `s`.`status` = 'ACTIVE' `` | `ods.channel_event.status`（注释未知） | 仅生效状态 | 否 | `logic:ROOT:filter:001` |
+| rule:003 | 连接条件（join_condition） | `ROOT` | `` `s`.`channel_code` = `d`.`channel_code` `` | `ods.channel_event.channel_code`（注释未知）、`dim.channel.channel_code`（注释未知） | 按渠道编码补充维度 | — | `logic:ROOT:join:001` |
 
 ## 5. 字段语义
 
