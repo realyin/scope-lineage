@@ -25,7 +25,15 @@ _NO_EFFECT = re.compile(
     r"无影响|不影响(?:行数|粒度|记录数)?|不会(?:导致|造成|使)?(?:行数|记录)?(?:放大|膨胀|重复|增加|变多)"
     r"|不放大|行数不变"
 )
+# What just before a no-effect phrase turns it into its opposite: 不保证不放大, 未必不影响行数.
+_NEGATED = re.compile(
+    r"(?:(?:不能|无法|不|未|没有?|并不|并未|难以)(?:保证|确保|一定|见得|代表|意味着)"
+    r"|未必|不一定|并非|不是|并不是)\s*$"
+)
 _LEFT_WORDS = re.compile(r"left\s*(?:outer\s*)?join|左关联|左连接|左联", re.IGNORECASE)
+# A clause of a sentence, and the words that make a claim in it cover every join.
+_CLAUSE_MARKS = "，,、：:（("
+_UNIVERSAL = re.compile(r"都|均|全部|所有|一律|任何|皆")
 _SENTENCES = re.compile(r"[。；;\n]")
 
 
@@ -51,7 +59,18 @@ def check_fan_out(document: dict, packet: dict) -> list[dict]:
             groups.setdefault(key, []).append(rule)
     results = [_named(rules, said) for rules in groups.values()]
     left = [r for rules in groups.values() for r in rules if "LEFT" in str(r.get("join_type")).upper()]
-    return results + _harmless_left(left, everywhere)
+    return results + _harmless_left(left, everywhere, _safe_names(packet, groups))
+
+
+def _safe_names(packet: dict, groups: dict[tuple, list[dict]]) -> list[str]:
+    """What a writer may call a join proven unique, less any name an unproven join shares."""
+    unproven = {name.lower() for rules in groups.values() for r in rules for name in join_names(r)}
+    return list(dict.fromkeys(
+        name
+        for rule in packet["lineage"]["rules"]
+        if rule["kind"] == "join" and (rule.get("fan_out") or {}).get("status") == "safe"
+        for name in join_names(rule) if name.lower() not in unproven
+    ))
 
 
 def _sentences(at: str, text) -> list[tuple[str, str]]:
@@ -78,16 +97,25 @@ def _named(rules: list[dict], said: list) -> dict:
         f"（{'、'.join(names)} 任一），写明会不会放大行数、为什么"))
 
 
-def _harmless_left(left: list[dict], everywhere: list) -> list[dict]:
-    """One warning per place that calls an unproven LEFT join harmless to the row count."""
+def _harmless_left(left: list[dict], everywhere: list, safe_names: list[str]) -> list[dict]:
+    """One warning per place that calls an unproven LEFT join harmless to the row count.
+
+    A sentence naming no unproven join but saying 左关联 is taken to mean them all, unless
+    it names a join proven unique and makes no claim about every join (都, 所有 ...) in the
+    clause that says 不放大.
+    """
     if not left:
         return []
     results, warned = [], set()
     for where, text in everywhere:
         named = [rule for rule in left if _mentions(text, join_names(rule))]
-        if where in warned or not _NO_EFFECT.search(text):
+        claims = _no_effect_claims(text)
+        if where in warned or not claims:
             continue
-        if named or _LEFT_WORDS.search(text):
+        about_safe = _mentions(text, safe_names) and not any(
+            _UNIVERSAL.search(_clause(text, claim)) for claim in claims
+        )
+        if named or (_LEFT_WORDS.search(text) and not about_safe):
             warned.add(where)
             label = "、".join(dict.fromkeys(_label([rule]) for rule in named or left))
             results.append(result("fan_out", "warn", where, (
@@ -95,6 +123,18 @@ def _harmless_left(left: list[dict], everywhere: list) -> list[dict]:
                 "LEFT JOIN 只保证左侧记录不丢，右侧一对多时照样放大行数；改写这句话，"
                 "写明右侧什么情况下会有多条")))
     return results
+
+
+def _no_effect_claims(text: str) -> list[re.Match]:
+    """The no-effect phrases of ``text`` not negated by what stands just before them."""
+    return [m for m in _NO_EFFECT.finditer(text) if not _NEGATED.search(text[: m.start()])]
+
+
+def _clause(text: str, claim: re.Match) -> str:
+    """The clause of ``text`` holding ``claim``: up to the nearest mark on either side."""
+    start = max(text.rfind(mark, 0, claim.start()) for mark in _CLAUSE_MARKS) + 1
+    ends = [i for i in (text.find(mark, claim.end()) for mark in _CLAUSE_MARKS) if i >= 0]
+    return text[start: min(ends, default=len(text))]
 
 
 def join_names(rule: dict) -> list[str]:
@@ -119,11 +159,12 @@ def _mentions(text: str, names: list[str]) -> bool:
 
 # A meaning that names a single good state; "没有成功…" and an aside "（有效期外）" do not.
 _SUCCESS_LIKE = re.compile(r"(?<!没有)(?<![不未非无没])(?:成功|正常|通过|有效)")
-_ASIDE = re.compile(r"（[^）]*）|\([^)]*\)")
+# A parenthetical aside, full-width or ASCII; check 12 drops it too.
+ASIDE = re.compile(r"（[^）]*）|\([^)]*\)")
 
 
 def success_like(meaning: str) -> bool:
-    return bool(_SUCCESS_LIKE.search(_ASIDE.sub("", meaning)))
+    return bool(_SUCCESS_LIKE.search(ASIDE.sub("", meaning)))
 
 
 def check_derived_codes(document: dict, packet: dict) -> list[dict]:

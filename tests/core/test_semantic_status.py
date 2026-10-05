@@ -282,6 +282,29 @@ def test_json_dash_prints_the_report(valid_run: Path, capsys) -> None:
     assert report["doc_format"] == "table-semantics-status/1"
 
 
+def test_json_without_a_path_prints_the_report(valid_run: Path, capsys) -> None:
+    capsys.readouterr()
+    assert run("semantic", "status", valid_run, "--json") == 0
+
+    report = json.loads(capsys.readouterr().out)
+    assert report["doc_format"] == "table-semantics-status/1"
+
+
+def test_json_without_a_path_and_next_without_out_is_a_usage_error(valid_run: Path) -> None:
+    assert run("semantic", "status", valid_run, "--json", "--next", "draft") == 2
+
+
+def test_json_with_a_path_still_writes_the_file_and_prints_the_summary(
+    valid_run: Path, capsys
+) -> None:
+    out = valid_run.parent / "status.json"
+    capsys.readouterr()
+    assert run("semantic", "status", valid_run, "--json", out) == 0
+
+    assert read_json(out)["doc_format"] == "table-semantics-status/1"
+    assert DEMO_TABLE in capsys.readouterr().out
+
+
 def test_one_table_checked_in_an_isolated_docs_directory(valid_run: Path, capsys) -> None:
     """The fix prompt's step 5: ``--docs <dir> --only <table> --json -`` answers for that table."""
     document = _doc(valid_run)

@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 
 from .checks import confirmed_values, result, source_comments
+from .checks_meaning import ASIDE
 from .comment_values import listed_labels, value_labels
 from .names import bare_table
 
@@ -35,12 +36,24 @@ def check_documented_meaning(
         comments = _comments(packet, column["column"])
         confirmed = confirmed_values(packet, column["column"])
         for vi, code in enumerate(column.get("code_values") or []):
-            if code.get("unconfirmed") or PENDING in code["meaning"]:
+            if code.get("unconfirmed") or _says_pending(code["meaning"]):
                 at = f"columns[{ci}].code_values[{vi}]"
                 results.append(
                     _confirmed(at, code, confirmed) or _documented(at, code, comments, sql)
                 )
     return results + _qualifiers(document, packet, terms)
+
+
+def _says_pending(meaning: str) -> bool:
+    """The meaning itself is 待确认: it starts so once asides and punctuation are dropped.
+
+    「已实名（是否含历史补录待确认）」 or 「已实名，补录是否计入待确认」 states a meaning and
+    leaves something else open; 「待确认」 and 「待确认（猜测：已实名）」 leave the meaning open.
+    """
+    return _LEADING_MARKS.sub("", ASIDE.sub("", meaning)).startswith(PENDING)
+
+
+_LEADING_MARKS = re.compile(r"^[\W_]+")
 
 
 def _comments(packet: dict, name: str) -> list[str]:

@@ -103,6 +103,18 @@
   title saying so and pointing to the catalog workflow. The command, every flag and
   `ontology.json` (`ontology-json/2`) are unchanged, byte for byte.
 ### Added
+- **`semantic validate --only TABLE [TABLE ...]`; `semantic status --json` without a path.**
+  Writers checking their own tables in parallel had to copy their documents into a
+  directory of their own, because `validate` always checked the whole directory. `--only`
+  takes the same form as `semantic packet`'s and `semantic status`'s: the report and its
+  summary count the chosen tables only, a file that is not readable JSON or names no
+  `table` is passed over rather than reported, and a named table with no document prints
+  `--only: no document for …` and exits 1. Without `--only` the output is unchanged. Do not
+  redirect an `--only` run into `validation.json` -- it would overwrite the full report.
+  `semantic status --json` with no path now prints the report on standard output, as
+  `--json -` does; `--json PATH` and `--json -` are unchanged, and `--json` with `--next`
+  and no `--out` is still refused (both want standard output). `table-semantics.md` (both
+  languages) and `SKILL.md` say so.
 - **`catalog digest --lineage [--schema]`: the lookup facts a drafter used to read the SQL for.**
   With a lineage corpus, each listed column of a table some statement writes says which
   joined inputs its value is read through: `lookups` (`{table, where, reads, rule}` in the
@@ -228,6 +240,36 @@
   meaning or the key says so with `holds`.
 
 ### Fixed
+- **`semantic validate` check 10 (`fan_out`) no longer warns on a negated no-effect phrase or
+  on a sentence about safe joins only.** The warning for "a LEFT join called harmless to the
+  row count" matched 不放大 anywhere in a sentence, so 「左关联 X 不保证不放大」 -- the very
+  risk the check asks for -- warned, and writers reworded it to get past the check. A phrase
+  right after a negation (不保证, 并不保证, 不一定, 未必, 并非 …) is no longer a claim; any other
+  phrase in the same sentence still is. A sentence that names no unproven LEFT join but says
+  左关联 used to be read as meaning all of them even when it named a join proven unique
+  (`fan_out.status: safe`); it now passes when it names such a join -- by a name no unproven
+  join shares -- and the clause holding the phrase makes no claim about every join (都, 均,
+  全部, 所有, 一律, 任何, 皆), so 「X 已去重，左关联都不放大」 still warns. Naming an unproven
+  LEFT join still warns as before, and the FAIL for an unnamed join is unchanged.
+  `table-semantics.md` (both languages) says so.
+- **`semantic validate` check 3 (`code_values`) finds a number code that runs into letters in
+  a comment.** A comment written 「1普通2VIP回访3退订」 explains code `2`, but the boundary
+  treated the following `V` as part of the same word, so the value failed as found nowhere
+  and writers dropped it from `code_values`. In the column's comment, its source columns'
+  comments and the SQL header, a value ending in a digit may now be followed directly by
+  letters; a value ending in a letter keeps the strict boundary (`A` still does not match
+  `ABC`), and so does a number inside a longer number. The task SQL keeps the strict
+  boundary everywhere -- there a hex string (`'2fe0…'`) or a regex class would match any
+  digit. `table-semantics.md` (both languages) says so.
+- **`semantic validate` check 12 (`documented_meaning`) no longer reads an aside as a
+  pending meaning.** A code value counted as 待确认 whenever its meaning contained the word,
+  so 「已实名（是否含历史补录待确认）」 -- a stated meaning with something else left open --
+  failed as "marked pending, but the comment explains it", and writers moved the aside out
+  of the meaning to pass. A value is now pending when it is marked `unconfirmed`, or when its
+  meaning, with parenthetical asides and leading punctuation dropped, starts with 待确认 (the
+  form both writing prompts ask for). 「待确认」 and 「待确认（猜测：…）」 without the flag still
+  fail when a comment explains the value; a state literally named 待确认 may still say so.
+  `table-semantics.md` (both languages) says so.
 - **A multi-row `VALUES` keeps every row.** `_resolve_values_scope` read only the first row,
   so an inline dictionary (`SELECT * FROM VALUES (...), (...) AS t(...)`, or a multi-row
   `INSERT ... VALUES`) published each column as the first row's constant: a field reading it

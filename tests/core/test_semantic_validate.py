@@ -149,6 +149,52 @@ def test_an_unconfirmed_code_value_is_not_held_to_the_text(document: dict, packe
     assert _problems(validate_document(document, packet), "code_values") == []
 
 
+def _code_value_case(packet: dict, comment: str, sql: str, header: str = "") -> dict:
+    """The packet with verify_flag's comment, every task's SQL and header replaced."""
+    packet = copy.deepcopy(packet)
+    for column in packet["inputs"][0]["columns"]:
+        if column["name"] == "verify_flag":
+            column["comment"] = comment
+    for task in packet["tasks"]:
+        task["sql"], task["header_comments"] = sql, [header] if header else []
+    return packet
+
+
+def _code_value_problems(document: dict, packet: dict, value: str) -> list[dict]:
+    index = next(i for i, c in enumerate(document["columns"]) if c["column"] == "verify_status")
+    codes = document["columns"][index]["code_values"]
+    codes.append({"value": value, "meaning": "回访", "sources": ["comment"]})
+    at = f"columns[{index}].code_values[{len(codes) - 1}]"
+    return [p for p in _problems(validate_document(document, packet), "code_values") if p["at"] == at]
+
+
+@pytest.mark.parametrize("comment, header", [
+    ("类型 1普通2VIP回访3退订", ""),
+    ("类型", "-- 类型 1普通2VIP回访3退订"),
+])
+def test_a_number_code_followed_by_letters_in_a_comment_is_found(
+    document: dict, packet: dict, comment: str, header: str
+) -> None:
+    case = _code_value_case(packet, comment, "SELECT verify_flag FROM t", header)
+    assert _code_value_problems(document, case, "2") == []
+
+
+@pytest.mark.parametrize("value, comment", [("2", "编号 12 与 2026"), ("A", "类型 ABC")])
+def test_a_code_inside_a_longer_number_or_word_is_still_not_found(
+    document: dict, packet: dict, value: str, comment: str
+) -> None:
+    case = _code_value_case(packet, comment, "SELECT verify_flag FROM t")
+    (problem,) = _code_value_problems(document, case, value)
+    assert repr(value) in problem["message"]
+
+
+def test_the_sql_keeps_the_strict_boundary_for_a_number_code(
+    document: dict, packet: dict
+) -> None:
+    case = _code_value_case(packet, "类型", "SELECT * FROM t WHERE k = '2fe0a1'")
+    assert len(_code_value_problems(document, case, "2")) == 1
+
+
 # 4 ------------------------------------------------------------------- grain
 
 
@@ -364,3 +410,55 @@ def test_the_text_report_lists_failures_as_a_rewrite_prompt(
     run("semantic", "validate", directory, "--packets", packets)
     out = capsys.readouterr().out
     assert "[9 time] summary.refresh.time" in out
+
+
+# --only ---------------------------------------------------------------------------
+
+
+OTHER_TABLE = "demo_dwd.dwd_lending_borrower_df"
+
+
+def _two_documents(tmp_path: Path, document: dict) -> Path:
+    directory = _write_example(tmp_path, document)
+    write_json(directory / f"{OTHER_TABLE}.json", {**document, "table": OTHER_TABLE})
+    return directory
+
+
+def test_only_checks_the_named_tables_and_counts_only_them(
+    tmp_path: Path, packets: Path, document: dict, capsys
+) -> None:
+    directory = _two_documents(tmp_path, document)
+    assert run("semantic", "validate", directory, "--packets", packets, "--json",
+               "--only", f"spark_catalog.{DEMO_TABLE}") == 0
+    report = json.loads(capsys.readouterr().out)
+    assert [table["table"] for table in report["tables"]] == [DEMO_TABLE]
+    assert report["summary"]["tables_with_failures"] == 0
+
+    assert run("semantic", "validate", directory, "--packets", packets, "--json") == 0
+    full = json.loads(capsys.readouterr().out)
+    assert len(full["tables"]) == 2
+    (same,) = [table for table in full["tables"] if table["table"] == DEMO_TABLE]
+    assert report["tables"] == [same]
+
+
+def test_only_a_table_with_no_document_is_reported_and_fails(
+    tmp_path: Path, packets: Path, document: dict, capsys
+) -> None:
+    directory = _write_example(tmp_path, document)
+    assert run("semantic", "validate", directory, "--packets", packets,
+               "--only", DEMO_TABLE, "demo_dwd.dwd_no_such_table") == 1
+    err = capsys.readouterr().err
+    assert "--only: no document for demo_dwd.dwd_no_such_table" in err
+
+
+def test_only_passes_over_files_it_cannot_read_or_place(
+    tmp_path: Path, packets: Path, document: dict, capsys
+) -> None:
+    directory = _write_example(tmp_path, document)
+    (directory / "half.json").write_text("{", encoding="utf-8")
+    write_json(directory / "tableless.json", {"doc_format": "table-semantics/1"})
+    assert run("semantic", "validate", directory, "--packets", packets, "--json",
+               "--only", DEMO_TABLE) == 0
+    (table,) = json.loads(capsys.readouterr().out)["tables"]
+    assert table["file"] == f"{DEMO_TABLE}.json"
+    assert table["schema_errors"] == []

@@ -74,7 +74,14 @@ def add_semantic_parser(subcommands) -> None:
         "--json", action="store_true",
         help="Print the table-semantics-validation/1 report instead of the text summary",
     )
-    confirm = actions.add_parser(
+    validate.add_argument(
+        "--only", nargs="+", action="extend", default=None, metavar="TABLE",
+        help=(
+            "Only the documents of these tables (db.table, a catalog prefix is ignored); "
+            "files that are unreadable or name no table are passed over"
+        ),
+    )
+    confirm =actions.add_parser(
         "confirm", help="Apply a semantic-confirmations/1 file to table-semantics documents"
     )
     confirm.add_argument("directory", help="Directory of table-semantics/1 JSON documents")
@@ -414,7 +421,11 @@ def _run_validate(args: argparse.Namespace) -> int:
     if not files:
         print(f"no JSON document under {directory}", file=sys.stderr)
         return 1
-    checked = [_check_path(path, directory, packets) for path in files]
+    if args.only:
+        files = _only_files(files, args.only)
+        if files is None:
+            return 1
+    checked =[_check_path(path, directory, packets) for path in files]
     entries = [entry for entry in checked if entry is not None]
     report = validation_report(entries)
     if args.json:
@@ -422,6 +433,31 @@ def _run_validate(args: argparse.Namespace) -> int:
     else:
         print(render_validation_text(report), end="")
     return 1 if any(entry["schema_errors"] for entry in entries) else 0
+
+
+def _only_files(files: list[Path], only: list[str]) -> list[Path] | None:
+    """The files whose document names one of ``only``; None (reported) when one has none.
+
+    A file that is not readable JSON or names no table is passed over, not reported:
+    writers checking their own tables in parallel must not fail on each other's
+    half-written files.
+    """
+    wanted = {bare_table(name) for name in only}
+    chosen, found = [], set()
+    for path in files:
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        table = document.get("table") if isinstance(document, dict) else None
+        if isinstance(table, str) and table and bare_table(table) in wanted:
+            chosen.append(path)
+            found.add(bare_table(table))
+    missing = sorted(wanted - found)
+    if missing:
+        print(f"--only: no document for {', '.join(missing)}", file=sys.stderr)
+        return None
+    return chosen
 
 
 def _check_path(path: Path, directory: Path, packets: Path) -> dict | None:

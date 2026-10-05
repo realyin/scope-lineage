@@ -278,28 +278,32 @@ check 7 so they land in the rewrite list instead of failing the whole document: 
 ## `semantic validate`
 
 ```bash
-scope-lineage semantic validate <documents> --packets <packet dir> [--json]
+scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.table> ...] [--json]
 ```
 
 Every `*.json` under `<documents>` is read; the toolchain's own other documents
 (`semantic-confirmations/1`, packets, reports) are skipped, anything else is checked. A
 document that fails the schema is reported with its errors and not cross-checked. A valid
-document is checked against `<packet dir>/<table>/packet.json`:
+document is checked against `<packet dir>/<table>/packet.json`.
+
+`--only` checks only the documents of these tables (`db.table`, a catalog prefix is ignored), spelt as `semantic packet`'s and `semantic status`'s `--only`; the report and its summary line count the chosen tables only. A file that is not readable JSON or names no `table` is passed over without an error, so writers working in parallel each check their own tables without tripping over another's half-written file. A named table with no document prints `--only: no document for …` on standard error and exits 1. Do not redirect an `--only` run into `validation.json`: it would overwrite the full report.
+
+The thirteen cross checks:
 
 | # | Check | Fails when | Warns when |
 | --- | --- | --- | --- |
 | 1 | `coverage` | a target column is missing, a column is extra or repeated, or the order differs from the table's | — |
 | 2 | `source_columns` | a source column is neither in that column's lineage nor in any input table | it is only in an input table's metadata, not in the column's lineage |
-| 3 | `code_values` | a code value not marked `unconfirmed` appears neither in the related comments nor in the SQL, and the dictionary does not confirm it on the column or a source column it reads (`confirmed_values`) | — |
+| 3 | `code_values` | a code value not marked `unconfirmed` appears neither in the related comments nor in the SQL, and the dictionary does not confirm it on the column or a source column it reads (`confirmed_values`). The value must stand alone, not inside a longer word or number; only in a comment (the column's, a source column's, the SQL header's) may a value ending in a digit run straight into letters (the `2` of `1普通2VIP回访`) | — |
 | 4 | `grain` | a grain column is not a target column, or `grain_source: proven` has no proven key in the packet | the claimed grain columns differ from the proven key |
 | 5 | `rules` | a non-partition filter is not cited by any `rules[].sql`, a quoted `sql` is not found in the task SQL (normalized), or a `rule_refs` entry names no rule | the packet has no SQL to check a quote against |
 | 6 | `neighbours` | an upstream table is not a lineage input, or a downstream task (or the table it is said to write) is not known | the downstream task is known but the tables it writes are not |
 | 7 | `sources` | a sourced item has an empty `sources`, or there are more than five questions | — |
 | 8 | `digest` | `packet_digest` differs from the packet's (stale), or there is no packet for the table | — |
 | 9 | `time` | `refresh.time` is `incremental` while every input is a full snapshot read by one partition and no filter touches a business date | `refresh.time` is `snapshot` while the write filters on a business date |
-| 10 | `fan_out` | the right side of a join whose `fan_out.status` is not `safe` is named — by table (`db.table` or bare) or alias — neither in `summary.row.note` nor in a `summary.watch` item of kind `risk` (one item per right side, however many times it is joined) | a sentence of the note or a watch calls such a LEFT join harmless to the row count (无影响, 不影响行数, 不会放大 …); one warning per place |
+| 10 | `fan_out` | the right side of a join whose `fan_out.status` is not `safe` is named — by table (`db.table` or bare) or alias — neither in `summary.row.note` nor in a `summary.watch` item of kind `risk` (one item per right side, however many times it is joined) | a sentence of the note or a watch calls such a LEFT join harmless to the row count (无影响, 不影响行数, 不会放大 …); one warning per place. A phrase right after a negation is no such claim (不保证不放大, 不一定不放大, 未必不影响行数); a sentence that names no such join but says 左关联 is read as meaning every unproven LEFT join, unless it names a join proven unique (`safe`) and the clause holding the phrase has none of 都, 均, 全部, 所有, 一律, 任何, 皆 |
 | 11 | `derived_codes` | a literal a column's CASE / IF returns (`case_outputs`) is missing from its `code_values` (one failure per value; NULL, `''` and TRUE / FALSE are not codes; an entry with `else: computed` is information only and is not asked for) | a code value whose meaning is success-like (成功 / 正常 / 通过 / 有效) comes from a branch that gathers several source values or the ELSE, and neither the column's `watch` nor a `summary.watch` with `refs` `column:<name>` says so |
-| 12 | `documented_meaning` | a code value marked `unconfirmed` or meaning 待确认 is explained by the column's comment or a source column's comment (`0-申请 1-成功` pairs, or a `正常、锁定、删除` list whose label the SQL quotes), or the dictionary confirms it on the column or a source column (`confirmed_values`; the fix: write the dictionary's meaning, sourced `confirmed`); a state whose documented or confirmed meaning is itself 待确认 may say so | a qualifier (`增值税`, `税`, `手续费`, `罚息`, `冲正`, `测试`) in the main input's comment or a source column's comment, absent from the target's comments, is missing from `summary.what` (main input) or from every affected column's meaning / derivation (one warning per term) |
+| 12 | `documented_meaning` | a code value marked `unconfirmed`, or whose meaning starts with 待确认 once parenthetical asides are dropped (`待确认（猜测：…）` does, `已实名（是否含补录待确认）` does not), is explained by the column's comment or a source column's comment (`0-申请 1-成功` pairs, or a `正常、锁定、删除` list whose label the SQL quotes), or the dictionary confirms it on the column or a source column (`confirmed_values`; the fix: write the dictionary's meaning, sourced `confirmed`); a state whose documented or confirmed meaning is itself 待确认 may say so | a qualifier (`增值税`, `税`, `手续费`, `罚息`, `冲正`, `测试`) in the main input's comment or a source column's comment, absent from the target's comments, is missing from `summary.what` (main input) or from every affected column's meaning / derivation (one warning per term) |
 | 13 | `header_facts` | — | the SQL header states a lifecycle (`header_facts.lifecycle`) or a data volume (`header_facts.volume`) that neither `summary.refresh.how_to_read` nor a watch mentions |
 
 Check 9 exists because a daily full snapshot described as incremental leads a reader to
@@ -469,7 +473,7 @@ The parser needs no YAML library: one `key: value` per line.
 ### Output
 
 ```bash
-scope-lineage semantic status <run> [--only <db.table> ...] [--json <path>|-]
+scope-lineage semantic status <run> [--only <db.table> ...] [--json [<path>|-]]
 scope-lineage semantic status <run> --next {draft,review,fix,render} [--batch-size 5] [--out <path>]
 scope-lineage semantic digest <doc.json> ...
 ```
@@ -484,7 +488,7 @@ Status of 3 table(s): no_packet 0, packet 1, drafted 1, valid 1, reviewed 0, fix
   packet_stale: demo_dwd.dwd_lending_loan_df
 ```
 
-`--json` writes the `table-semantics-status/1` report (`-` for standard output):
+`--json` writes the `table-semantics-status/1` report (`-`, or no path, for standard output):
 
 ```json
 {
