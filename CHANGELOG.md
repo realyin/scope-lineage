@@ -3,6 +3,15 @@
 ## Unreleased
 
 ### Changed
+- **Catalog drafting wording: code sets only for read rows, shared attributes first, `[key, code]`
+  by branch.** `SKILL.md`, the fragment prompt and `ontology-catalog.md` (both languages) now say:
+  build a code set only for a `where` combination some column reads (a `key_of` read with an
+  empty `read_by` is a dead join or a row filter -- it goes in `notes`); pre-create, in step 2, the
+  attributes one group's tables will reference on another group's concept, and when one is
+  missing, bind the column to its own concept, say so in `notes` and turn it into a
+  `foreign_attribute` after the merge; and a column whose branches store the key in one and the
+  raw code in another writes `holds: [key, code]`, where the order is the convention, not a
+  fallback order (with an example). No tool behaviour changed.
 - **The fix prompt says how to check one table's status.** Step 5 of
   `table-semantics-fix@2` named the digests `semantic status` compares but gave no command, so
   a fix sub-agent could not check its own table. It now gives `semantic status <run> --only

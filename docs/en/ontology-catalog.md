@@ -405,8 +405,7 @@ branch uses which set can be said in `derivation`. `code_sets_by` needs `code_se
 
 `holds` says what a value of the column is, of those code sets (its `code_sets`, or, when it
 names none, the bound attribute's `code_set`): `code`, `meaning` or `key` (the code table's
-`key_column`), listed in order of preference -- by convention the translated form first and the
-raw code last. Absent means `[code]`, which is how every column above reads; writing `[code]`
+`key_column`), listed by convention with the translated form first and the raw code last. Absent means `[code]`, which is how every column above reads; writing `[code]`
 builds the same document. With more than one form, a value is one of them, whether a lookup
 found nothing or one source of the table writes it one way and another source the other way
 (whether the code sets themselves are looked up in order or one per source is `code_sets_by`);
@@ -414,6 +413,17 @@ which form each source writes is not structured -- write it in `derivation`. `la
 stored meaning is in (only with `meaning`; for a code set with a `lookup`, one of its
 `meaning_columns[].lang`). The order of `code_sets` and the order of `holds` are independent:
 `code_sets: [A, B], holds: [key, code]` is "A's key, else B's, else the raw code".
+A column written by several sources that store different forms (one branch the key, another the
+raw code) writes `[key, code]` too; there the order of `holds` is only the convention, not an
+order of precedence or a fallback, and which branch writes which form goes in `derivation`:
+
+```yaml
+      - column: reason_key             # branch 1: the dictionary's dict_key; branch 2: the raw code
+        to: attribute
+        ref: attr:fee_waiver.reason
+        code_sets: [code:waiver_reason]
+        holds: [key, code]
+```
 
 ```yaml
       - column: reason_desc            # coalesce(d.code_desc, t.reason_cd)
@@ -934,7 +944,11 @@ catalog can be drafted from them without an ad-hoc script each time:
    the `relations` and `identifiers` files); a fragment cannot add a concept or change an
    existing identifier, so every new concept the groups need (an event with its time
    attribute), every new identifier and every new spelling of an existing one is written
-   here;
+   here, and so is every attribute of one group's concept that another group's tables will
+   reference (a name column beside a foreign identifier column, say). A fragment adds
+   attributes only to its own group's concepts: an attribute of another group's concept that
+   the catalog lacks goes in the fragment's `notes`, the column is bound to an attribute of its
+   own concept for now, and after the merge it becomes a `foreign_attribute`;
 3. the tables are split into groups and each group gets one fragment (`catalog-fragment/1`):
    attributes, code sets, constraints, terms, and each table's representation with its
    column bindings;
@@ -1049,7 +1063,9 @@ binding's `holds` are written from, so the drafter need not go back to the SQL f
   `{table, where, rule, read_by}`, `read_by` naming the columns of the same table that read
   through that JOIN. They are ordered the way those columns fall back through them, not in
   JOIN order; when two columns fall back in opposite orders the JOIN order is kept and
-  `key_of_order: "unknown"` says so.
+  `key_of_order: "unknown"` says so. A read with an empty `read_by` (`read by no column`) is a
+  dead join or a row filter, not evidence for a code set, and drafting builds none for it --
+  code sets are built only for the `where` combinations some column reads.
 
 What counts: only a value that enters through a JOIN (or passes through a joined
 subquery / CTE) has conditions; a condition is a single equality with a string literal, in

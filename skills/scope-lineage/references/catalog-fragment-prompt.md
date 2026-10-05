@@ -21,6 +21,8 @@
   (from the lineage)」一行（`digest.json` 里列的 `lookups` / `fallback` / `key_of`）给出查码值的事实：读哪张表、
   按什么常量（`where` 原样就是 `lookup.filter`）、回退顺序（就是 `code_sets` 的顺序）、读的是哪一列（定 `holds`）。
   有这一行的列不必为这些事实去读 SQL；标了 `order unknown` 的，或 digest 不是带 `--lineage` 生成的，才读 SQL。
+  `key_of` 里写着 `read by no column`（`read_by` 为空）的读取没有任何列读它的值：是死关联或只用来过滤行，
+  不是码值集的证据。
 - 每张表的语义：`<docs-dir>/<db.table>.json`（`table-semantics/1`）。列的含义、码值、加工口径以它为准；
   只有它说不清时才看材料包 `<packets-dir>/<db.table>/packet.md`。
 
@@ -64,7 +66,7 @@
         "ref": "attr:...|id:...", "derivation": "可选，本表特有口径", "code_map": {"值": "含义"},
         "code_sets": ["可选，按查找顺序 code:a", "code:b"],
         "code_sets_by": "可选，只写 source：各来源/分支各用其中一个码值集；不写即按查找顺序",
-        "holds": ["可选，列存的形式按优先顺序：meaning|key|code；不写即只存码"], "lang": "可选，存含义时的语言，如 zh"}
+        "holds": ["可选，列存的形式，翻译后在前、原码在后：meaning|key|code；不写即只存码"], "lang": "可选，存含义时的语言，如 zh"}
      ],
      "status": "drafted", "source": "mixed", "evidence": ["任务名或 SQL 线索"]}
   ],
@@ -92,13 +94,17 @@
 - 本表特有的加工口径写在 binding 的 `derivation`；码值写成可复用的 `code_set`，或本表特有的 `code_map`。
   `code_map` 里含义没确认的值，含义以「待确认：」开头（页面原样显示这个前缀）。
 - 一个码和它的描述列是**同一个属性**（描述是码的展示），两列都绑到它；同一角色的 id、登录名、姓名是三个属性。
+- **只给本组概念新增属性。**列是别组概念的属性（如外部标识列旁边紧跟的那个对象的名称），目录里已有该属性时绑成
+  `foreign_attribute`；目录里没有时不要在片段里给别组概念建，先绑成本概念的属性，并在 `notes` 写明列、想引用的
+  概念与属性名，合并后由编排者改成 `foreign_attribute`。
 - 员工、经办人、客户经理这类「某角色的人」的列，目录里没有人员概念时，按目录已有先例绑成本概念的属性，
   并在 `notes` 里列为候选概念。
 - 状态类、代码类属性尽量挂 `code_set`。码值只来自注释、SQL 的 CASE 或表语义的 `code_values`，不要编；含义
   没确认的值写 `"unconfirmed": true`，或让 `meaning` 以「待确认」开头。
 - **码值表（字典表）不写表现。**只存码与含义、按类型列区分多套码的表不是概念：为 SQL 里每个
   `JOIN 码值表 ON … AND 类型列 = '…'` 的类型写一个码值集，`values` 留空，写 `lookup`（`filter` 就是那个
-  `类型列 = '…'` 的字面量，不要编）。本组的列查码值表时，在 binding 上写 `code_sets`；
+  `类型列 = '…'` 的字面量，不要编）。只为**有列读取**的组合建：digest 的 `lookups` 里的，或 `key_of` 中
+  `read_by` 非空的；`read_by` 为空的（死关联或只用来过滤行）写进 `notes`，不建码值集。本组的列查码值表时，在 binding 上写 `code_sets`；
   `coalesce(g1.含义, g2.含义)` 这样按顺序回退的，`code_sets` 的顺序与 SQL 一致；所绑属性的 `code_set` 要在其中。
   先 `substr(...)` 再查、或经映射表两步翻译的，`lookup` 表达不了，写进 binding 的 `derivation`。
   `lookup` 只指物理码表（`库.表`）：字典定义在任务内（`VALUES` CTE、`CASE` 映射、字面量列表）时，把码写成码值集的
@@ -108,6 +114,10 @@
   列里存的不是码时，在该列的 binding 上写 `holds`，按 SQL 读的是码值表/字典的哪一列：读含义列 → `["meaning"]`
   （再写 `"lang"`，取该含义列的语言），读代理键列 → `["key"]`；按 UNION 分支逐支看，`coalesce(含义, 原码)`
   或一个分支写含义/代理键、另一分支写原码 → 翻译后的形式在前、原码在后，如 `["meaning", "code"]`；只存码的不写。
+  一个分支存代理键、另一个分支存原码的列写 `["key", "code"]`：这时的顺序只是约定，不表示先查哪个、也不是回退顺序，
+  哪个分支写哪种形式写进 `derivation`，例如
+  `{"column": "reason_key", "to": "attribute", "ref": "attr:fee_waiver.reason", "code_sets": ["code:waiver_reason"],
+  "holds": ["key", "code"], "derivation": "分支 1 存字典的代理键，分支 2 存源系统原码"}`。
   `holds` 说的是本列 `code_sets`（没写时是所绑属性的 `code_set`）的形式，所以含义列、代理键列按 SQL 查了几个码值集，
   就在**这一列**上按同样顺序写 `code_sets`，不要只写在同组的码列上。CASE 把源码直接写成标签、各来源源码互相冲突时，
   每个来源一个按源码键的码值集，各列 `code_sets` 写本来源那个，`holds: ["meaning", "code"]`。
