@@ -3,6 +3,13 @@
 ## Unreleased
 
 ### Changed
+- **The fix prompt says how to check one table's status.** Step 5 of
+  `table-semantics-fix@2` named the digests `semantic status` compares but gave no command, so
+  a fix sub-agent could not check its own table. It now gives `semantic status <run> --only
+  <db.table>` (the row should read `fixed`), `--json -` for the two digests
+  (`tables[0].doc_digest`, `tables[0].review.reviewed_doc_digest`), and `--docs <dir>` for an
+  isolated check, always with `--only` (otherwise every other table reads `packet`). The
+  prompt's rules are unchanged, so its version stays `@2`; a test pins the documented call.
 - **`SKILL.md` says a batch is the orchestration unit, not the call unit.** It used to hand a
   whole `status --next` batch to one sub-agent and ask that sub-agent to keep writing, review and
   revision as separate calls, which a sub-agent that cannot dispatch sub-agents cannot do. Now
