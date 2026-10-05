@@ -23,12 +23,15 @@ from pathlib import Path
 import pytest
 
 from scope_lineage.semantics.checks_context import check_time
+from scope_lineage.semantics.checks_documented import check_header_facts
 
 from .table_semantics_demo import (
+    copy_corpus,
     demo_packets,
     pack,
     packet_of,
     parse_corpus,
+    read_json,
     write_json,
 )
 
@@ -281,3 +284,58 @@ def test_a_join_with_no_key_pair_names_the_tables_its_on_touches(packets: Path) 
     packet = packet_of(packets, "demo_dwd.dwd_ticket_code_df")
     (join,) = _joins(packet, "demo_dim.dim_code_dc")
     assert join["tables"] == ["demo_dim.dim_code_dc", "demo_ods.ods_ticket_df"]
+
+
+# ------------------------------------------------------------------ #23 / #24 headers
+
+
+def test_a_header_about_another_table_of_the_task_is_marked(packets: Path) -> None:
+    (tmp,) = packet_of(packets, "demo_tmp.tmp_x")["tasks"]
+    assert tmp["header_facts"] == {"lifecycle": None, "volume": "100", "about": "demo_dim.dim_x"}
+    (dim,) = packet_of(packets, "demo_dim.dim_x")["tasks"]
+    assert dim["header_facts"] == {"lifecycle": None, "volume": "100"}
+    text = _markdown(packets, "demo_tmp.tmp_x")
+    assert "- 头注释（描述的是同任务写的 `demo_dim.dim_x`，不是本表）：数据规模 100" in text
+
+
+def test_a_header_naming_a_table_the_task_does_not_write_stays_with_the_table(
+    packets: Path,
+) -> None:
+    (task,) = packet_of(packets, "demo_dwd.dwd_ticket_df")["tasks"]
+    assert task["header_facts"] == {"lifecycle": "30天", "volume": None}
+
+
+def test_check_13_skips_a_header_about_another_table(packets: Path) -> None:
+    assert check_header_facts(_snapshot_doc(), packet_of(packets, "demo_tmp.tmp_x")) == []
+    (result,) = check_header_facts(_snapshot_doc(), packet_of(packets, "demo_dim.dim_x"))
+    assert result["status"] == "warn"
+
+
+def test_an_input_carries_its_producers_header_as_the_authors_claim(packets: Path) -> None:
+    packet = packet_of(packets, "demo_dwd.dwd_x_use_df")
+    assert _input(packet, "demo_dim.dim_x")["producer_header"] == [{
+        "task": "dim_x_dc", "primary_key": "x_key", "storage": "拉链表", "volume": "100",
+    }]
+    assert "producer_header" not in _input(packet, "demo_tmp.tmp_x")
+    assert ("- 生产任务头注释（作者说法，非 SQL 事实）：`dim_x_dc`：主键 x_key；存储设计 拉链表；"
+            "数据规模 100") in _markdown(packets, "demo_dwd.dwd_x_use_df")
+
+
+def test_an_input_the_target_writes_itself_carries_no_producer_header(packets: Path) -> None:
+    packet = packet_of(packets, "demo_dim.dim_x")
+    assert all("producer_header" not in item for item in packet["inputs"])
+
+
+def test_the_demo_producer_header_is_read_from_the_producing_tasks_sql(tmp_path: Path) -> None:
+    corpus = copy_corpus(tmp_path / "corpus")
+    task = corpus / "tasks" / "dwd_lending_loan_daily.json"
+    data = read_json(task)
+    data["meta"]["sql"] = "-- 主键 loan_no\n-- 存储设计 每日全量\n" + data["meta"]["sql"]
+    write_json(task, data)
+    lineage = parse_corpus(corpus, tmp_path / "lineage")
+    assert pack(corpus, lineage, tmp_path / "packets",
+                "--only", "demo_dwd.dwd_lending_borrower_df") == 0
+    packet = packet_of(tmp_path / "packets", "demo_dwd.dwd_lending_borrower_df")
+    assert _input(packet, "demo_dwd.dwd_lending_loan_df")["producer_header"] == [
+        {"task": "dwd_lending_loan_daily", "primary_key": "loan_no", "storage": "每日全量"},
+    ]

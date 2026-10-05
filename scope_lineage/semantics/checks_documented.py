@@ -172,13 +172,18 @@ _VOLUME_SAID = re.compile(r"数据规模|数据量|量级")
 
 
 def check_header_facts(document: dict, packet: dict) -> list[dict]:
-    """A lifecycle or volume the SQL header states is in how_to_read or a watch."""
+    """A lifecycle or volume the SQL header states is in how_to_read or a watch.
+
+    Not asked for when the header describes another table the task writes (``about``).
+    """
     refresh, summary = document["summary"]["refresh"], document["summary"]
     texts = [refresh["how_to_read"], refresh.get("watch") or ""] + [w["text"] for w in summary["watch"]]
     said = re.sub(r"\s+", "", "\n".join(texts)).lower()
     stated: dict[tuple[str, str], str] = {}
     for task in packet["tasks"]:
         facts = task.get("header_facts") or {}
+        if facts.get("about"):
+            continue  # the header describes another table the task writes
         for key in ("lifecycle", "volume"):
             if facts.get(key):
                 stated.setdefault((key, facts[key]), task["name"])

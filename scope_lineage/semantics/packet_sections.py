@@ -13,7 +13,7 @@ from __future__ import annotations
 from ..redaction import redact
 from . import packet_facts as facts
 from .names import bare_table
-from .packet_meaning import header_facts
+from .packet_meaning import header_facts, producer_header
 
 
 def _comment(text) -> str | None:
@@ -81,14 +81,14 @@ def _target_columns(meta: dict, first: dict, statements: list) -> tuple[list[dic
 # ------------------------------------------------------------------ tasks
 
 
-def tasks_section(statements: list, corpus) -> list[dict]:
+def tasks_section(table: str, statements: list, corpus) -> list[dict]:
     grouped: dict[str, list[dict]] = {}
     for task, statement in statements:
         grouped.setdefault(task, []).append(statement)
-    return [_task_entry(task, group, corpus) for task, group in grouped.items()]
+    return [_task_entry(table, task, group, corpus) for task, group in grouped.items()]
 
 
-def _task_entry(task: str, group: list[dict], corpus) -> dict:
+def _task_entry(table: str, task: str, group: list[dict], corpus) -> dict:
     info = group[0].get("task") or {}
     meta = info.get("meta") or {}
     record = corpus.tasks.find([task, meta.get("task_name")], meta.get("source_file")) or {}
@@ -102,7 +102,8 @@ def _task_entry(task: str, group: list[dict], corpus) -> dict:
         "upstream_tasks": list(meta.get("upstream_tasks") or []),
         "downstream_tasks": list(meta.get("downstream_tasks") or []),
         "header_comments": list(info.get("header_comments") or []),
-        "header_facts": header_facts(info.get("header_comments"), record.get("sql")),
+        "header_facts": header_facts(info.get("header_comments"), record.get("sql"),
+                                     table, corpus.tables_written_by(task)),
         "statements": [statement.get("statement_id") for statement in group],
         "source_file": meta.get("source_file") or record.get("source_file"),
         "sql": record.get("sql"),
@@ -112,12 +113,12 @@ def _task_entry(task: str, group: list[dict], corpus) -> dict:
 # ------------------------------------------------------------------ inputs
 
 
-def inputs_section(statements: list, rules: list[dict], corpus) -> list[dict]:
+def inputs_section(target: str, statements: list, rules: list[dict], corpus) -> list[dict]:
     merged: dict[str, dict] = {}
     for _, statement in statements:
         for item in statement.get("inputs") or []:
             table = bare_table(item.get("table"))
-            entry = merged.setdefault(table, _new_input(table, item, corpus))
+            entry = merged.setdefault(table, _new_input(target, table, item, corpus))
             entry["roles"].extend(r for r in item.get("roles") or [] if r not in entry["roles"])
             entry["driving"] = entry["driving"] or bool(item.get("driving"))
             for column in item.get("used_columns") or []:
@@ -126,10 +127,11 @@ def inputs_section(statements: list, rules: list[dict], corpus) -> list[dict]:
     return [_finish_input(merged[table], rules, corpus) for table in sorted(merged)]
 
 
-def _new_input(table: str, item: dict, corpus) -> dict:
+def _new_input(target: str, table: str, item: dict, corpus) -> dict:
     meta = corpus.metadata(table) or {}
     producers = [p.get("task") for p in corpus.card(table).get("produced_by") or []]
     comment = _comment(meta.get("comment") or item.get("comment"))
+    headers = [] if table == target else _producer_headers(table, producers, corpus)
     return {
         "table": table,
         "comment": comment,
@@ -140,9 +142,21 @@ def _new_input(table: str, item: dict, corpus) -> dict:
         "roles": [],
         "driving": False,
         "producers": sorted({str(task) for task in producers if task}),
+        **({"producer_header": headers} if headers else {}),
         "_declared": list(meta.get("columns") or item.get("declared_columns") or []),
         "_used": {},
     }
+
+
+def _producer_headers(table: str, producers: list, corpus) -> list[dict]:
+    """What each corpus task producing ``table`` says of it in its SQL header."""
+    headers = []
+    for task in sorted({str(task) for task in producers if task}):
+        record = corpus.tasks.find([task], None) or {}
+        header = producer_header(task, record.get("sql"), table, corpus.tables_written_by(task))
+        if header:
+            headers.append(header)
+    return headers
 
 
 def _finish_input(entry: dict, rules: list[dict], corpus) -> dict:

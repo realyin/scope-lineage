@@ -194,8 +194,8 @@ def _packet(table: str, statements: list[tuple[str, dict]], corpus: _Corpus) -> 
         "table": table,
         "packet_digest": "",
         "target": target,
-        "tasks": tasks_section(statements, corpus),
-        "inputs": inputs_section(statements, rules, corpus),
+        "tasks": tasks_section(table, statements, corpus),
+        "inputs": inputs_section(table, statements, rules, corpus),
         "lineage": lineage_section(table, statements, rules, target, corpus),
     })
     packet["packet_digest"] = packet_digest(packet)

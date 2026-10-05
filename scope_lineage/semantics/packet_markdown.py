@@ -123,12 +123,29 @@ def _tasks(tasks: list[dict]) -> list[str]:
     return lines
 
 
+_HEADER_LABELS = (
+    ("primary_key", "主键"), ("storage", "存储设计"), ("partition_design", "分区设计"),
+    ("lifecycle", "生命周期"), ("volume", "数据规模"),
+)
+
+
+def _stated(facts: dict) -> str:
+    return "；".join(f"{label} {facts[key]}" for key, label in _HEADER_LABELS if facts.get(key))
+
+
 def _header_facts(facts: dict) -> list[str]:
-    stated = [
-        f"{label} {facts[key]}"
-        for key, label in (("lifecycle", "生命周期"), ("volume", "数据规模")) if facts.get(key)
-    ]
-    return [f"- 头注释：{'；'.join(stated)}"] if stated else []
+    stated = _stated(facts)
+    if facts.get("about"):
+        return [f"- 头注释（描述的是同任务写的 {_code(facts['about'])}，不是本表）：{stated or '—'}"]
+    return [f"- 头注释：{stated}"] if stated else []
+
+
+def _producer_header(entry: dict) -> list[str]:
+    headers = entry.get("producer_header") or []
+    if not headers:
+        return []
+    said = " / ".join(f"{_code(header['task'])}：{_stated(header)}" for header in headers)
+    return [f"- 生产任务头注释（作者说法，非 SQL 事实）：{said}"]
 
 
 def _sql(sql) -> list[str]:
@@ -156,6 +173,7 @@ def _inputs(inputs: list[dict]) -> list[str]:
                          f"（{_DATE_SHAPES.get(item.get('shape'), _DATE_SHAPES['window'])}）"
                          for item in entry["date_filters"]) or "无"
             ),
+            *_producer_header(entry),
             "",
         ]
         rows = [
