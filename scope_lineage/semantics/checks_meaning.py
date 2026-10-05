@@ -119,11 +119,12 @@ def _mentions(text: str, names: list[str]) -> bool:
 
 # A meaning that names a single good state; "没有成功…" and an aside "（有效期外）" do not.
 _SUCCESS_LIKE = re.compile(r"(?<!没有)(?<![不未非无没])(?:成功|正常|通过|有效)")
-_ASIDE = re.compile(r"（[^）]*）|\([^)]*\)")
+# A parenthetical aside, full-width or ASCII; check 12 drops it too.
+ASIDE = re.compile(r"（[^）]*）|\([^)]*\)")
 
 
 def success_like(meaning: str) -> bool:
-    return bool(_SUCCESS_LIKE.search(_ASIDE.sub("", meaning)))
+    return bool(_SUCCESS_LIKE.search(ASIDE.sub("", meaning)))
 
 
 def check_derived_codes(document: dict, packet: dict) -> list[dict]:

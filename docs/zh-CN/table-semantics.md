@@ -249,7 +249,7 @@ scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.t
 | 9 | `time` | `refresh.time` 写 `incremental`，而所有输入都是按单一分区读取的全量快照、且没有按业务日期过滤 | `refresh.time` 写 `snapshot`，而写入按业务日期筛选 |
 | 10 | `fan_out` | `fan_out.status` 不是 `safe` 的关联，其右侧既没有在 `summary.row.note` 里、也没有在任何 kind 为 `risk` 的 `summary.watch` 里被点名（表名 `库.表` 或不带库名，或别名；同一右侧不论关联几次只算一项） | 行说明或某条 watch 的某句话把这样的左关联写成不影响行数（无影响、不影响行数、不会放大……）；每处一条警告 |
 | 11 | `derived_codes` | 列的 CASE / IF 返回的字面量（`case_outputs`）不在它的 `code_values` 里（每缺一个值一条失败；NULL、`''` 和 TRUE / FALSE 不算码值；`else: computed` 的条目只作参考、不要求） | 含义像「成功」的码值（成功 / 正常 / 通过 / 有效）来自归并多个来源值的分支或 ELSE，而该列的 `watch` 和 `refs` 含 `column:<列>` 的 `summary.watch` 都没有说明 |
-| 12 | `documented_meaning` | 标了 `unconfirmed` 或含义写「待确认」的码值，其含义在该列注释或来源列注释里已写明（`0-申请 1-成功` 式的值-含义对，或 SQL 里引用了其标签的 `正常、锁定、删除` 式列表），或字典已在该列或来源列上确认（`confirmed_values`，改法：照写字典的含义，`sources` 写 `confirmed`）；注释或字典写明的含义本身就是「待确认」的状态可以照写 | 主输入表注释或来源列注释里有限定词（`增值税`、`税`、`手续费`、`罚息`、`冲正`、`测试`）而目标表注释里没有，`summary.what`（主输入表）或所有受影响列的 meaning / derivation 里也没写（每个词一条警告） |
+| 12 | `documented_meaning` | 标了 `unconfirmed`、或含义去掉括号旁注后以「待确认」开头的码值（`待确认（猜测：…）` 算，`已实名（是否含补录待确认）` 不算），其含义在该列注释或来源列注释里已写明（`0-申请 1-成功` 式的值-含义对，或 SQL 里引用了其标签的 `正常、锁定、删除` 式列表），或字典已在该列或来源列上确认（`confirmed_values`，改法：照写字典的含义，`sources` 写 `confirmed`）；注释或字典写明的含义本身就是「待确认」的状态可以照写 | 主输入表注释或来源列注释里有限定词（`增值税`、`税`、`手续费`、`罚息`、`冲正`、`测试`）而目标表注释里没有，`summary.what`（主输入表）或所有受影响列的 meaning / derivation 里也没写（每个词一条警告） |
 | 13 | `header_facts` | — | SQL 头注释写明了生命周期（`header_facts.lifecycle`）或数据规模（`header_facts.volume`），而 `summary.refresh.how_to_read` 和 watch 都没有提到 |
 
 第 9 项存在的原因：把每日全量快照写成增量，读者就会把多个分区相加，每一行按天数重复计数。

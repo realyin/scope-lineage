@@ -212,6 +212,15 @@
   meaning or the key says so with `holds`.
 
 ### Fixed
+- **`semantic validate` check 12 (`documented_meaning`) no longer reads an aside as a
+  pending meaning.** A code value counted as 待确认 whenever its meaning contained the word,
+  so 「已实名（是否含历史补录待确认）」 -- a stated meaning with something else left open --
+  failed as "marked pending, but the comment explains it", and writers moved the aside out
+  of the meaning to pass. A value is now pending when it is marked `unconfirmed`, or when its
+  meaning, with parenthetical asides and leading punctuation dropped, starts with 待确认 (the
+  form both writing prompts ask for). 「待确认」 and 「待确认（猜测：…）」 without the flag still
+  fail when a comment explains the value; a state literally named 待确认 may still say so.
+  `table-semantics.md` (both languages) says so.
 - **A multi-row `VALUES` keeps every row.** `_resolve_values_scope` read only the first row,
   so an inline dictionary (`SELECT * FROM VALUES (...), (...) AS t(...)`, or a multi-row
   `INSERT ... VALUES`) published each column as the first row's constant: a field reading it

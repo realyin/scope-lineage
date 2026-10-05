@@ -311,6 +311,29 @@ def test_a_value_whose_documented_meaning_is_pending_may_say_so(
     assert _problems(validate_document(document, packet), "documented_meaning") == []
 
 
+@pytest.mark.parametrize("meaning", [
+    "已实名（是否含历史补录待确认）",
+    "已实名，历史补录是否计入待确认",
+])
+def test_a_meaning_that_only_mentions_something_else_pending_is_not_pending(
+    document: dict, packet: dict, meaning: str
+) -> None:
+    _source_column(packet, "verify_flag")["comment"] = "实名标志 0-未实名 1-已实名"
+    _column(document, "verify_status")["code_values"][0]["meaning"] = meaning
+    assert _problems(validate_document(document, packet), "documented_meaning") == []
+
+
+@pytest.mark.parametrize("meaning", ["待确认", "待确认（猜测：已实名）", "「待确认」"])
+def test_a_meaning_that_starts_pending_is_pending_without_the_flag(
+    document: dict, packet: dict, meaning: str
+) -> None:
+    _source_column(packet, "verify_flag")["comment"] = "实名标志 0-未实名 1-已实名"
+    _column(document, "verify_status")["code_values"][0]["meaning"] = meaning
+    (problem,) = _problems(validate_document(document, packet), "documented_meaning")
+    assert problem["at"] == "columns[4].code_values[0]"
+    assert "（1 = 已实名）" in problem["message"]
+
+
 def test_a_listed_label_the_sql_compares_with_is_its_own_meaning(
     document: dict, packet: dict
 ) -> None:
