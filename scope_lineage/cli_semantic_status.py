@@ -1,4 +1,4 @@
-"""``scope-lineage semantic status`` and ``semantic digest``: the run directory, read back.
+"""``semantic status``, ``semantic fixed`` and ``semantic digest``: the run directory, read back.
 
 A run keeps one directory per step, each overridable::
 
@@ -10,8 +10,11 @@ A run keeps one directory per step, each overridable::
 ``status`` reads what is there, validates each document in-process against its packet
 and reports each table's stage (:mod:`scope_lineage.semantics.status`); ``--next`` lists
 the tables a step still needs, in batches, so a rerun after an interruption picks up
-where the last one stopped. ``digest`` prints a document's digest for a review's front
-matter.
+where the last one stopped. ``fixed`` is a fix's last step: it writes the fix record
+(``fixed_doc_digest``) into the review's front matter, only for a valid document revised
+after a review of its own packet. ``digest`` prints a document's digest for a review's
+front matter. A ``reviews/<db.table>.prior.md`` -- the old review kept for a rewrite's
+first review -- is neither a table nor its review.
 """
 
 from __future__ import annotations
@@ -23,7 +26,9 @@ from pathlib import Path
 
 from .semantics.digests import document_digest
 from .semantics.names import bare_table
+from .semantics.review_notes import with_fix_record
 from .semantics.status import (
+    STATUS_FORMAT,
     STEPS,
     TableFiles,
     next_batches,
@@ -49,7 +54,7 @@ def add_status_parsers(actions) -> None:
     )
     status.add_argument(
         "--json", nargs="?", const="-", metavar="PATH",
-        help="Write the table-semantics-status/1 report to PATH (- or no PATH: stdout)",
+        help=f"Write the {STATUS_FORMAT} report to PATH (- or no PATH: stdout)",
     )
     status.add_argument(
         "--next", choices=STEPS,
@@ -59,10 +64,28 @@ def add_status_parsers(actions) -> None:
         "--batch-size", type=_positive, default=5, help="Tables per batch with --next (5)"
     )
     status.add_argument("--out", help="Write the --next batches here instead of stdout")
+    _add_fixed_parser(actions)
     digest = actions.add_parser(
         "digest", help="Print the digest of table-semantics documents, for a review's front matter"
     )
     digest.add_argument("files", nargs="+", help="table-semantics/1 JSON documents")
+
+
+def _add_fixed_parser(actions) -> None:
+    fixed = actions.add_parser(
+        "fixed",
+        help=(
+            "Record that a fix finished: write fixed_doc_digest into each table's review, "
+            "only for a valid document revised after a review of its own packet"
+        ),
+    )
+    fixed.add_argument("run", help="Run directory: packets/ docs/ reviews/")
+    for name in _DIRECTORIES[:3]:
+        fixed.add_argument(f"--{name}", help=f"Directory instead of <run>/{name}")
+    fixed.add_argument(
+        "--only", nargs="+", action="extend", required=True, metavar="TABLE",
+        help="The tables whose fix finished (db.table)",
+    )
 
 
 def _positive(text: str) -> int:
@@ -93,6 +116,55 @@ def run_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_fixed(args: argparse.Namespace) -> int:
+    """Write the fix record of each ``--only`` table; 1 when any was refused."""
+    run = Path(args.run)
+    if not run.is_dir():
+        print(f"run directory does not exist: {run}", file=sys.stderr)
+        return 2
+    directories = {name: Path(getattr(args, name, None) or run / name) for name in _DIRECTORIES}
+    reviews = _reviews(directories["reviews"])
+    code = 0
+    for files in _table_files(directories, args.only, reviews):
+        entry = table_status(files)
+        refusal = _fix_refusal(entry, files)
+        if refusal:
+            print(f"{files.table}: no fix record written: {refusal}", file=sys.stderr)
+            code = 1
+            continue
+        path, text = reviews[files.table]
+        path.write_bytes(with_fix_record(text, entry["doc_digest"]).encode("utf-8"))
+        print(f"{files.table}  fixed_doc_digest {entry['doc_digest']}  {path}")
+    return code
+
+
+def _fix_refusal(entry: dict, files: TableFiles) -> str | None:
+    """Why the fix record of this table cannot be written, or None."""
+    review = entry["review"]
+    if entry["packet_digest"] is None:
+        return "no packet"
+    if not files.has_document:
+        return "no document"
+    broken = [flag for flag in entry["flags"] if flag in ("packet_stale", "invalid")]
+    if broken:
+        return (f"the document is {' and '.join(broken)}: "
+                "fix it until `semantic validate` passes")
+    if files.review is None:
+        return "no review"
+    if review is None:
+        return "the review has no complete front matter"
+    packet = review["reviewed_packet_digest"]
+    if packet is None:
+        return ("the review names no reviewed_packet_digest (written before "
+                "table-semantics-review@5): review the document again")
+    if packet != entry["doc_packet_digest"]:
+        return (f"the review read packet {packet}, the document is written against "
+                f"{entry['doc_packet_digest']}: review the document again")
+    if review["reviewed_doc_digest"] == entry["doc_digest"]:
+        return "the document is the version the review read: nothing was revised"
+    return None
+
+
 def run_digest(args: argparse.Namespace) -> int:
     code = 0
     for file in args.files:
@@ -116,17 +188,18 @@ def _emit(document: dict, target: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def _table_files(directories: dict[str, Path], only) -> list[TableFiles]:
+def _table_files(directories: dict[str, Path], only, reviews=None) -> list[TableFiles]:
     packets = _packets(directories["packets"])
     documents = _documents(directories["docs"])
-    reviews = _reviews(directories["reviews"])
+    if reviews is None:
+        reviews = _reviews(directories["reviews"])
     if only:
         tables = {bare_table(name) for name in only}
     else:
         tables = set(packets) | set(documents) | set(reviews)
     return [
-        _files(table, packets.get(table), documents.get(table), reviews.get(table),
-               directories)
+        _files(table, packets.get(table), documents.get(table),
+               reviews[table][1] if table in reviews else None, directories)
         for table in sorted(tables)
     ]
 
@@ -179,13 +252,17 @@ def _documents(directory: Path) -> dict[str, dict]:
     return found
 
 
-def _reviews(directory: Path) -> dict[str, str]:
+def _reviews(directory: Path) -> dict[str, tuple[Path, str]]:
+    """``table -> (path, text)``; an old review kept as ``<db.table>.prior.md`` is skipped."""
     if not directory.is_dir():
         return {}
     reviews = {}
     for path in sorted(directory.glob("*.md")):
+        if path.name.endswith(".prior.md"):
+            continue
         try:
-            reviews[bare_table(path.stem)] = path.read_text(encoding="utf-8")
+            # Bytes, so that `fixed` writes the line ends back as they were.
+            reviews[bare_table(path.stem)] = (path, path.read_bytes().decode("utf-8"))
         except OSError:
             continue
     return reviews
