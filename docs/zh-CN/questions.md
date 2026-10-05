@@ -17,7 +17,9 @@
 ## 格式
 
 问题集和判分文件都可以写成 YAML（`.yaml` / `.yml`，需要 PyYAML，按 YAML 1.2 只把 `true` / `false`
-读成布尔）或 JSON。
+读成布尔）或 JSON。PyYAML 随 `catalog` extra 安装：`pipx install 'scope-lineage[catalog]'`（或
+`pip install 'scope-lineage[catalog]'`；在仓库里 `uv run --extra catalog scope-lineage questions …`）。没装时读 YAML 以退出码 2
+报错并给出这条命令；全用 JSON 就不需要它。
 
 ### `question-set/1`
 

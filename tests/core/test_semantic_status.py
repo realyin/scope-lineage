@@ -282,6 +282,24 @@ def test_json_dash_prints_the_report(valid_run: Path, capsys) -> None:
     assert report["doc_format"] == "table-semantics-status/1"
 
 
+def test_one_table_checked_in_an_isolated_docs_directory(valid_run: Path, capsys) -> None:
+    """The fix prompt's step 5: ``--docs <dir> --only <table> --json -`` answers for that table."""
+    document = _doc(valid_run)
+    _review(valid_run, document_digest(document), medium=1)
+    _revise(valid_run)
+    isolated = valid_run.parent / "val-demo"
+    isolated.mkdir()
+    shutil.copy(valid_run / "docs" / f"{DEMO_TABLE}.json", isolated / f"{DEMO_TABLE}.json")
+    capsys.readouterr()
+    assert run("semantic", "status", valid_run, "--docs", isolated, "--only", DEMO_TABLE,
+               "--json", "-") == 0
+
+    (entry,) = json.loads(capsys.readouterr().out)["tables"]
+    assert (entry["table"], entry["stage"]) == (DEMO_TABLE, "fixed")
+    assert entry["doc_digest"] == document_digest(_doc(valid_run))
+    assert entry["review"]["reviewed_doc_digest"] == document_digest(document)
+
+
 def test_a_missing_run_directory_is_a_usage_error(tmp_path: Path) -> None:
     assert run("semantic", "status", tmp_path / "absent") == 2
 

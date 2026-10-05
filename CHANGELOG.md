@@ -3,6 +3,34 @@
 ## Unreleased
 
 ### Changed
+- **Catalog drafting wording: code sets only for read rows, shared attributes first, `[key, code]`
+  by branch.** `SKILL.md`, the fragment prompt and `ontology-catalog.md` (both languages) now say:
+  build a code set only for a `where` combination some column reads (a `key_of` read with an
+  empty `read_by` is a dead join or a row filter -- it goes in `notes`); pre-create, in step 2, the
+  attributes one group's tables will reference on another group's concept, and when one is
+  missing, bind the column to its own concept, say so in `notes` and turn it into a
+  `foreign_attribute` after the merge; and a column whose branches store the key in one and the
+  raw code in another writes `holds: [key, code]`, where the order is the convention, not a
+  fallback order (with an example). No tool behaviour changed.
+- **The fix prompt says how to check one table's status.** Step 5 of
+  `table-semantics-fix@2` named the digests `semantic status` compares but gave no command, so
+  a fix sub-agent could not check its own table. It now gives `semantic status <run> --only
+  <db.table>` (the row should read `fixed`), `--json -` for the two digests
+  (`tables[0].doc_digest`, `tables[0].review.reviewed_doc_digest`), and `--docs <dir>` for an
+  isolated check, always with `--only` (otherwise every other table reads `packet`). The
+  prompt's rules are unchanged, so its version stays `@2`; a test pins the documented call.
+- **`SKILL.md` says a batch is the orchestration unit, not the call unit.** It used to hand a
+  whole `status --next` batch to one sub-agent and ask that sub-agent to keep writing, review and
+  revision as separate calls, which a sub-agent that cannot dispatch sub-agents cannot do. Now
+  the orchestrator dispatches one sub-agent per table per step, `--batch-size` is how many run at
+  once, and `table-semantics.md` (both languages) says each table and step is its own model call.
+- **The install text says reading YAML question sets needs the `catalog` extra.** `SKILL.md`
+  told the agent to install plain `scope-lineage`, but its acceptance commands read
+  `questions.yaml` / `grades.yaml`, which needs PyYAML; on a clean install they exited 2. The
+  install line now reads `pipx install 'scope-lineage[catalog]'` (plain `scope-lineage` is
+  enough when every file is JSON), the acceptance section repeats it, `questions.md` (both
+  languages) gives the command, and the `pyproject.toml` comment names `questions`. PyYAML
+  stays optional.
 - **Examples in docs, prompts, code comments, tests and this changelog are domain-neutral.**
   The illustrative examples now use generic lending / order strings: the K2c name rescue
   (「2月时段合同欠款」→「合同」), the classifying CASE label (`THEN '线上' ELSE '线下'`), the

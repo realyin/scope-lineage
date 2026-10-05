@@ -17,7 +17,9 @@ The prompts are `skills/scope-lineage/references/answer-prompt.md` and `grade-pr
 ## Formats
 
 Question sets and grades files may be YAML (`.yaml` / `.yml`, needs PyYAML; YAML 1.2 booleans, so only `true` / `false`
-are booleans) or JSON.
+are booleans) or JSON. PyYAML comes with the `catalog` extra: `pipx install 'scope-lineage[catalog]'` (or
+`pip install 'scope-lineage[catalog]'`; in the repository, `uv run --extra catalog scope-lineage questions …`). Without it, reading YAML
+exits 2 with that command in the message; a JSON-only run does not need it.
 
 ### `question-set/1`
 
