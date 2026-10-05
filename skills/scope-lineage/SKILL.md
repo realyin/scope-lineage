@@ -60,8 +60,10 @@ fallback covers 0.2.0):
 
 When unsure which workflows the session will need, require >= 0.6.0 (and, to write a
 `lookup`, `code_sets` or `holds`, a build of this repository until the next release).
-Not installed → `pipx install scope-lineage` (or `pip install scope-lineage`). Too old
-→ upgrade in place. This check is not optional: a stale install silently produces the
+Not installed → `pipx install 'scope-lineage[catalog]'` (or `pip install 'scope-lineage[catalog]'`):
+the `catalog` extra brings PyYAML, which `catalog` and the acceptance commands (`questions`) need to
+read `.yaml` / `.yml` files; when every catalog, question set and grades file is JSON, plain
+`scope-lineage` is enough. Too old → upgrade in place. This check is not optional: a stale install silently produces the
 removed pre-0.2.0 per-statement format, every downstream step here then misbehaves, and
 the artifacts look superficially fine. (`scripts/query.py` detects such artifacts and
 says so, but by then the parse has already been wasted.)
@@ -516,8 +518,10 @@ scope-lineage semantic confirm <run>/docs --confirmations <answers.json>
 ```
 
 - **分批与续跑**：一批表不要靠记忆或手工清点。每一轮先跑 `semantic status <run>`（每张表一行：阶段与标记），再用
-  `--next <draft|review|fix|render>` 取这一步的分批；**一批交给一个子代理**，子代理只处理批里的表、
-  自己不再派子代理（一张表一次调用的要求在子代理内部照旧：写、审、改各自独立）。一轮做完、被中断或额度用完，
+  `--next <draft|review|fix|render>` 取这一步的分批。**批是编排单位，不是调用单位**：由你（编排者）给批里
+  每张表的这一步各派一个独立子代理。写作、审读、修订各是一次调用，彼此不共享上下文，审读不能和写作是同一次调用；
+  每个子代理只处理分给它的一张表、一个步骤，不再派子代理。`--batch-size` 就是同时在跑的子代理数，按额度定
+  （额度紧时 ≤5）。一轮做完、被中断或额度用完，
   都只需重新跑 `status --next`：已经走过这一步的表自动跳过，从断点继续。`status` 列出的标记要看：
   `packet_stale`（材料包变了，整份重写）、`invalid`（按失败清单重写）、`review_stale`（审读之后文档又改过，
   重新审读）、`review_unparsed`（审读没有 front matter，不会再被派发——补上或删掉重审）、`render_stale`。
@@ -593,8 +597,14 @@ scope-lineage catalog render <dir>/ontology.json --out <pages> --semantics <page
   互相矛盾，这一列的顺序要读 SQL 定。`where` 不一定是字典类型——按角色、语言、行版本挑行的关联也会列出；
   带 `--catalog` 时只有与某码值集 `lookup` 相同的才标 `code_set`。没有列出的：不带字符串常量的关联、内联 `VALUES`
   字典、`CASE` 映射，这些照旧按表语义与码值规则写。
+  码值集只为**有列读取**的 `where` 组合建：`lookups` 里的，或 `key_of` 中 `read_by` 非空的。`read_by` 为空
+  （`read by no column`）的是死关联或只用来过滤行，不是码值集的证据——写进 `notes`，不建码值集。
 - **先建概念与标识符**：片段不能新增概念、不能改已有标识符，所以第 2 步要把各组会用到的新概念（事件连同它的
   时间属性——`occurred_at` 必须指向事件自己的属性）、新标识符、已有标识符的新拼写都写进目录并校验通过，再写片段。
+- **跨组属性也先建**：一组的表里有指向别组概念的外部标识列、旁边紧跟这个对象的名称或属性列时（如 `xx_id` +
+  `xx_name`），第 2 步就把该概念的这个属性建进目录，并在分组方案里写明「属性 id → 引用它的组」。片段只能新增本组
+  概念的属性；别组概念需要而目录里没有的属性，片段写进 `notes`（列、想引用的概念与属性名），先绑成本概念的属性，
+  合并后由你（编排者）改成 `foreign_attribute`。
 - **关系名只写动词短语**：页面把关系读成「<name> <另一端概念名>」（附录里是「<起点> <name> <终点>」），所以
   `name` / `inverse_name` 不带宾语：借款人→借据写 `name: 持有`、`inverse_name: 持有人为`，读出「持有 借据」
   「持有人为 借款人」；写成 `name: 持有借据` 会读出「持有借据 借据」。
@@ -609,6 +619,8 @@ scope-lineage catalog render <dir>/ontology.json --out <pages> --semantics <page
   顺序与 SQL 一致；码侧表达式（`substr` 后再查）和经映射表的两步翻译写进 `derivation`。码值集的 `value`
   永远是码（内联字典写成 `values` 时也是源码，标签写 `meaning`）；列里存的是含义或代理键（或查不到时回落原码、按 UNION 分支混写）时，在该列绑定上写有序的 `holds`
   （`meaning` / `key` / `code`，翻译后的形式在前），存含义的再写 `lang`，并在这一列上写它自己的 `code_sets`。
+  一个分支存代理键、另一个分支存原码的列同样写 `holds: [key, code]`；这时的顺序只是约定，不表示先查哪个、
+  也不是回退顺序，哪个分支写哪种形式写进 `derivation`。
   同一属性按来源拆成几个码值集时，属性不写 `code_set`，各列写本来源的，工具把它们合起来当属性的码。
   一列由几个来源（UNION 分支或几条写语句）写入、各用自己的码值集时，该列写全这些码值集并加 `code_sets_by: source`
   （页面读成「按来源分别查 A、B」，不是回退）。
@@ -656,6 +668,9 @@ scope-lineage catalog render <dir>/ontology.json --out <pages> --semantics <page
 表语义页和概念页写好后，用一套问题集（`question-set/1`：题目、参考答案、证据、`owner_check`）考页面：
 作答者只读页面答题，判分者对照参考答案和材料判 2/1/0，CLI 汇总。确定性的部分都由
 `scope-lineage questions` 做，你只派两次模型调用：
+
+下面的问题集与判分文件写成 `.yaml` 时，安装要带 `catalog` extra（`pipx install 'scope-lineage[catalog]'`，
+在仓库里是 `uv run --extra catalog scope-lineage …`）；不带时读 YAML 会以退出码 2 报缺 PyYAML。全用 JSON 就不需要。
 
 ```bash
 # 0. the set holds to its schema: unique ids, a reference answer for every question

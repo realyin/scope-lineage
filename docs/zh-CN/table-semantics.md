@@ -330,7 +330,8 @@ Validated 1 document(s): 0 clean, 1 with failures, 0 with warnings only, 0 with 
 
 ## `semantic status`：批量运行与断点续跑
 
-一批几十张表时，写作、审读、修订都要分批交给模型，中途还可能被打断。`semantic status` 读回一个运行目录，
+一批几十张表时，写作、审读、修订都要分批交给模型（每张表的每一步各是一次独立的模型调用，一批是同时在跑的调用数），
+中途还可能被打断。`semantic status` 读回一个运行目录，
 说出每张表走到了哪一步、下一步该处理哪些表；它只读文件、在进程内调用校验，不调用模型，也不改任何文件。
 
 ### 运行目录

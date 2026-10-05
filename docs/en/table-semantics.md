@@ -396,7 +396,8 @@ Two lessons: the review must be a separate call — a writer re-checking its own
 
 ## `semantic status`: batch runs that resume
 
-With a few dozen tables, writing, review and revision are handed to the model in batches, and
+With a few dozen tables, writing, review and revision are handed to the model in batches (each
+table and step is its own model call; a batch is how many run at once), and
 a run can be interrupted halfway. `semantic status` reads a run directory back and says where
 each table stands and which tables the next step still needs. It only reads files and calls
 the validator in-process; it never calls a model and never changes a file.

@@ -366,12 +366,22 @@ representations:
 ```
 
 `holds` 写这一列的值是那些码值集（绑定的 `code_sets`；没写时是所绑属性的 `code_set`）的哪种形式：
-`code`（码）、`meaning`（含义）或 `key`（码值表的 `key_column`，代理键），**按优先顺序**列出——约定翻译后的形式在前、
+`code`（码）、`meaning`（含义）或 `key`（码值表的 `key_column`，代理键），按约定翻译后的形式在前、
 原码在后。不写等于 `[code]`，上面所有列都是这样读的；写 `[code]` 构建出的文档与不写相同。多于一项时，本列的一个值是其中之一：
 可能因为查找落空，也可能因为表的不同来源写法不同（码值集本身是按顺序查还是按来源各查各的，由 `code_sets_by` 说）；
 哪个来源写哪种形式不进结构，要说就写 `derivation`。
 `lang` 写存下的含义是哪种语言（只能与 `meaning` 同用；码值集有 `lookup` 时应是其某个 `meaning_columns[].lang`）。
 `code_sets` 的顺序与 `holds` 的顺序互不相干：`code_sets: [A, B], holds: [key, code]` 即「A 的代理键，A 查不到用 B 的，都查不到存原码」。
+列由几个来源写入、各来源写不同形式时（如一个分支存代理键、另一个分支存原码）同样写 `[key, code]`；这时 `holds` 的顺序
+只是约定，不表示先后，也不是回退顺序，哪个分支写哪种形式写进 `derivation`：
+
+```yaml
+      - column: reason_key             # branch 1: the dictionary's dict_key; branch 2: the raw code
+        to: attribute
+        ref: attr:fee_waiver.reason
+        code_sets: [code:waiver_reason]
+        holds: [key, code]
+```
 
 ```yaml
       - column: reason_desc            # coalesce(d.code_desc, t.reason_cd)
@@ -823,6 +833,8 @@ scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_l
 1. `catalog digest` 把表语义浓缩成起草材料，并对照现有目录标出还没覆盖的表和列；
 2. 人或模型据此起草概念与关系（`concepts/`、`relations`、`identifiers` 文件）；片段不能新增概念、不能改已有
    标识符，所以各组要用的新概念（事件连同它的时间属性）、新标识符和已有标识符的新拼写都在这一步写好；
+   一组的表会引用的别组概念的属性（如外部标识列旁边的名称列）也在这一步建好。片段只给本组概念新增属性：
+   目录里缺的别组属性写进片段的 `notes`，先绑成本概念的属性，合并后再改成 `foreign_attribute`；
 3. 把表分组，每组写一个片段（`catalog-fragment/1`）：属性、码值集、约束、术语、每张表的表现与列绑定；
 4. `catalog merge` 把片段合并进目录的一份拷贝，报告冲突，自动校验，并给出覆盖报告；
 5. `catalog build` / `catalog render` 后交 owner 审读。
@@ -913,7 +925,8 @@ catalog 前缀）；某个码值集 `lookup` 所指的表算「码值来源」�
   以及血缘里这个 JOIN 的逻辑块 id；
 - `fallback`：同一个值回退到的、不经查找的物理列（`COALESCE` 末尾的原码），只与 `lookups` 一起出现；
 - `key_of`：本身没有 `lookups` 的列，是哪些读取的关联键，`{table, where, rule, read_by}`，`read_by` 是同表里经这个
-  JOIN 读值的列。顺序取这些列回退的顺序，不取 JOIN 书写顺序；两列回退顺序相反时保留 JOIN 顺序，并用
+  JOIN 读值的列；`read_by` 为空（`read by no column`）的是死关联或只用来过滤行，不是码值集的证据，起草时
+  不为它建码值集——码值集只为有列读取的 `where` 组合建。顺序取这些列回退的顺序，不取 JOIN 书写顺序；两列回退顺序相反时保留 JOIN 顺序，并用
   `key_of_order: "unknown"` 标明。
 
 什么算：只有经 JOIN 进入（或途经被关联的子查询 / CTE）的值才有条件；条件是与字符串字面量的单个等值比较，

@@ -7,3 +7,4 @@
 3. `generator.prompt` 在原值后加 `+review`；其余格式不变（`table-semantics/1`）。
 4. 跑 `scope-lineage semantic validate`，只修失败项，最多 2 轮；仍失败的在 `summary.watch` 说明。
 5. 不要改审读文件：`semantic status` 看到文档摘要与审读的 `reviewed_doc_digest` 不同、且文档重新通过校验，就算修订完成。
+   查这一张表：文档放回 `<run>/docs/<db.table>.json` 后运行 `scope-lineage semantic status <run> --only <db.table>`，这一行应当是 `fixed`。要看两个摘要时加 `--json -`（`-` 表示把 JSON 打到标准输出），读 `tables[0].doc_digest` 与 `tables[0].review.reviewed_doc_digest`。在隔离目录里自查时加 `--docs <隔离目录>`，并且一定要带 `--only`，否则其余表在那个目录里没有文档，会显示成 `packet`。

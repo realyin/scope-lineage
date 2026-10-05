@@ -27,8 +27,8 @@ classifiers = [
 scope-lineage = "scope_lineage.cli:main"
 
 [project.optional-dependencies]
-# PyYAML reads a YAML ontology catalog (`scope-lineage catalog`); a catalog written as
-# JSON needs nothing extra. The dev extra carries it so the catalog tests run in CI.
+# PyYAML reads a YAML ontology catalog (`scope-lineage catalog`) and YAML question sets and
+# grades files (`scope-lineage questions`); files written as JSON need nothing extra. The dev extra carries it so the catalog tests run in CI.
 catalog = ["PyYAML>=6"]
 dev = ["pytest>=7", "build>=1", "ruff>=0.6", "PyYAML>=6"]
 
