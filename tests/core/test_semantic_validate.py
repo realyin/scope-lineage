@@ -364,3 +364,55 @@ def test_the_text_report_lists_failures_as_a_rewrite_prompt(
     run("semantic", "validate", directory, "--packets", packets)
     out = capsys.readouterr().out
     assert "[9 time] summary.refresh.time" in out
+
+
+# --only ---------------------------------------------------------------------------
+
+
+OTHER_TABLE = "demo_dwd.dwd_lending_borrower_df"
+
+
+def _two_documents(tmp_path: Path, document: dict) -> Path:
+    directory = _write_example(tmp_path, document)
+    write_json(directory / f"{OTHER_TABLE}.json", {**document, "table": OTHER_TABLE})
+    return directory
+
+
+def test_only_checks_the_named_tables_and_counts_only_them(
+    tmp_path: Path, packets: Path, document: dict, capsys
+) -> None:
+    directory = _two_documents(tmp_path, document)
+    assert run("semantic", "validate", directory, "--packets", packets, "--json",
+               "--only", f"spark_catalog.{DEMO_TABLE}") == 0
+    report = json.loads(capsys.readouterr().out)
+    assert [table["table"] for table in report["tables"]] == [DEMO_TABLE]
+    assert report["summary"]["tables_with_failures"] == 0
+
+    assert run("semantic", "validate", directory, "--packets", packets, "--json") == 0
+    full = json.loads(capsys.readouterr().out)
+    assert len(full["tables"]) == 2
+    (same,) = [table for table in full["tables"] if table["table"] == DEMO_TABLE]
+    assert report["tables"] == [same]
+
+
+def test_only_a_table_with_no_document_is_reported_and_fails(
+    tmp_path: Path, packets: Path, document: dict, capsys
+) -> None:
+    directory = _write_example(tmp_path, document)
+    assert run("semantic", "validate", directory, "--packets", packets,
+               "--only", DEMO_TABLE, "demo_dwd.dwd_no_such_table") == 1
+    err = capsys.readouterr().err
+    assert "--only: no document for demo_dwd.dwd_no_such_table" in err
+
+
+def test_only_passes_over_files_it_cannot_read_or_place(
+    tmp_path: Path, packets: Path, document: dict, capsys
+) -> None:
+    directory = _write_example(tmp_path, document)
+    (directory / "half.json").write_text("{", encoding="utf-8")
+    write_json(directory / "tableless.json", {"doc_format": "table-semantics/1"})
+    assert run("semantic", "validate", directory, "--packets", packets, "--json",
+               "--only", DEMO_TABLE) == 0
+    (table,) = json.loads(capsys.readouterr().out)["tables"]
+    assert table["file"] == f"{DEMO_TABLE}.json"
+    assert table["schema_errors"] == []

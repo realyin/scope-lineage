@@ -225,12 +225,16 @@ Schema 只查结构。模型常出错的两个数量故意留给第 7 项检查�
 ## `semantic validate`
 
 ```bash
-scope-lineage semantic validate <documents> --packets <packet dir> [--json]
+scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.table> ...] [--json]
 ```
 
 读取 `<documents>` 下每个 `*.json`；工具链自己的其他文档（`semantic-confirmations/1`、材料包、报告）跳过，
 其他一律检查。Schema 不通过的文档报出错误、不做交叉检查。合法的文档与 `<packet dir>/<table>/packet.json`
-对照：
+对照。
+
+`--only` 只检查这些表的文档（`库.表`，目录前缀忽略），写法与 `semantic packet`、`semantic status` 的 `--only` 相同；报告与汇总行只统计选中的表。读不了的 JSON 和没写 `table` 的文件直接跳过、不报错，这样并行写作的子代理各自校验自己的表，不会被别人写到一半的文件拖累。某张指定的表找不到文档时，标准错误打印 `--only: no document for …`，退出码为 1。带 `--only` 的输出不要重定向到 `validation.json`，否则会覆盖全量报告。
+
+交叉检查共十三项：
 
 | # | 检查 | 失败条件 | 警告条件 |
 | --- | --- | --- | --- |
@@ -393,7 +397,7 @@ low: 0
 ### 输出
 
 ```bash
-scope-lineage semantic status <run> [--only <db.table> ...] [--json <path>|-]
+scope-lineage semantic status <run> [--only <db.table> ...] [--json [<path>|-]]
 scope-lineage semantic status <run> --next {draft,review,fix,render} [--batch-size 5] [--out <path>]
 scope-lineage semantic digest <doc.json> ...
 ```
@@ -408,7 +412,7 @@ Status of 3 table(s): no_packet 0, packet 1, drafted 1, valid 1, reviewed 0, fix
   packet_stale: demo_dwd.dwd_lending_loan_df
 ```
 
-`--json` 写出 `table-semantics-status/1` 报告（`-` 表示标准输出）：
+`--json` 写出 `table-semantics-status/1` 报告（`-` 或不写路径表示标准输出）：
 
 ```json
 {

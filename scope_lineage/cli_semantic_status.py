@@ -48,8 +48,8 @@ def add_status_parsers(actions) -> None:
         help="Only these tables (db.table); a table with nothing in the run is no_packet",
     )
     status.add_argument(
-        "--json", metavar="PATH",
-        help="Write the table-semantics-status/1 report to PATH (- for stdout)",
+        "--json", nargs="?", const="-", metavar="PATH",
+        help="Write the table-semantics-status/1 report to PATH (- or no PATH: stdout)",
     )
     status.add_argument(
         "--next", choices=STEPS,

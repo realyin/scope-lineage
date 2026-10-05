@@ -278,13 +278,17 @@ check 7 so they land in the rewrite list instead of failing the whole document: 
 ## `semantic validate`
 
 ```bash
-scope-lineage semantic validate <documents> --packets <packet dir> [--json]
+scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.table> ...] [--json]
 ```
 
 Every `*.json` under `<documents>` is read; the toolchain's own other documents
 (`semantic-confirmations/1`, packets, reports) are skipped, anything else is checked. A
 document that fails the schema is reported with its errors and not cross-checked. A valid
-document is checked against `<packet dir>/<table>/packet.json`:
+document is checked against `<packet dir>/<table>/packet.json`.
+
+`--only` checks only the documents of these tables (`db.table`, a catalog prefix is ignored), spelt as `semantic packet`'s and `semantic status`'s `--only`; the report and its summary line count the chosen tables only. A file that is not readable JSON or names no `table` is passed over without an error, so writers working in parallel each check their own tables without tripping over another's half-written file. A named table with no document prints `--only: no document for …` on standard error and exits 1. Do not redirect an `--only` run into `validation.json`: it would overwrite the full report.
+
+The thirteen cross checks:
 
 | # | Check | Fails when | Warns when |
 | --- | --- | --- | --- |
@@ -468,7 +472,7 @@ The parser needs no YAML library: one `key: value` per line.
 ### Output
 
 ```bash
-scope-lineage semantic status <run> [--only <db.table> ...] [--json <path>|-]
+scope-lineage semantic status <run> [--only <db.table> ...] [--json [<path>|-]]
 scope-lineage semantic status <run> --next {draft,review,fix,render} [--batch-size 5] [--out <path>]
 scope-lineage semantic digest <doc.json> ...
 ```
@@ -483,7 +487,7 @@ Status of 3 table(s): no_packet 0, packet 1, drafted 1, valid 1, reviewed 0, fix
   packet_stale: demo_dwd.dwd_lending_loan_df
 ```
 
-`--json` writes the `table-semantics-status/1` report (`-` for standard output):
+`--json` writes the `table-semantics-status/1` report (`-`, or no path, for standard output):
 
 ```json
 {

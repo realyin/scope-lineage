@@ -75,6 +75,18 @@
   title saying so and pointing to the catalog workflow. The command, every flag and
   `ontology.json` (`ontology-json/2`) are unchanged, byte for byte.
 ### Added
+- **`semantic validate --only TABLE [TABLE ...]`; `semantic status --json` without a path.**
+  Writers checking their own tables in parallel had to copy their documents into a
+  directory of their own, because `validate` always checked the whole directory. `--only`
+  takes the same form as `semantic packet`'s and `semantic status`'s: the report and its
+  summary count the chosen tables only, a file that is not readable JSON or names no
+  `table` is passed over rather than reported, and a named table with no document prints
+  `--only: no document for …` and exits 1. Without `--only` the output is unchanged. Do not
+  redirect an `--only` run into `validation.json` -- it would overwrite the full report.
+  `semantic status --json` with no path now prints the report on standard output, as
+  `--json -` does; `--json PATH` and `--json -` are unchanged, and `--json` with `--next`
+  and no `--out` is still refused (both want standard output). `table-semantics.md` (both
+  languages) and `SKILL.md` say so.
 - **`catalog digest --lineage [--schema]`: the lookup facts a drafter used to read the SQL for.**
   With a lineage corpus, each listed column of a table some statement writes says which
   joined inputs its value is read through: `lookups` (`{table, where, reads, rule}` in the
