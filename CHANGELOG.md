@@ -3,6 +3,13 @@
 ## Unreleased
 
 ### Changed
+- **The install text says reading YAML question sets needs the `catalog` extra.** `SKILL.md`
+  told the agent to install plain `scope-lineage`, but its acceptance commands read
+  `questions.yaml` / `grades.yaml`, which needs PyYAML; on a clean install they exited 2. The
+  install line now reads `pipx install 'scope-lineage[catalog]'` (plain `scope-lineage` is
+  enough when every file is JSON), the acceptance section repeats it, `questions.md` (both
+  languages) gives the command, and the `pyproject.toml` comment names `questions`. PyYAML
+  stays optional.
 - **Examples in docs, prompts, code comments, tests and this changelog are domain-neutral.**
   The illustrative examples now use generic lending / order strings: the K2c name rescue
   (「2月时段合同欠款」→「合同」), the classifying CASE label (`THEN '线上' ELSE '线下'`), the

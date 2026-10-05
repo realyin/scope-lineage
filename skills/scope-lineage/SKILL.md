@@ -60,8 +60,10 @@ fallback covers 0.2.0):
 
 When unsure which workflows the session will need, require >= 0.6.0 (and, to write a
 `lookup`, `code_sets` or `holds`, a build of this repository until the next release).
-Not installed → `pipx install scope-lineage` (or `pip install scope-lineage`). Too old
-→ upgrade in place. This check is not optional: a stale install silently produces the
+Not installed → `pipx install 'scope-lineage[catalog]'` (or `pip install 'scope-lineage[catalog]'`):
+the `catalog` extra brings PyYAML, which `catalog` and the acceptance commands (`questions`) need to
+read `.yaml` / `.yml` files; when every catalog, question set and grades file is JSON, plain
+`scope-lineage` is enough. Too old → upgrade in place. This check is not optional: a stale install silently produces the
 removed pre-0.2.0 per-statement format, every downstream step here then misbehaves, and
 the artifacts look superficially fine. (`scripts/query.py` detects such artifacts and
 says so, but by then the parse has already been wasted.)
@@ -653,6 +655,9 @@ scope-lineage catalog render <dir>/ontology.json --out <pages> --semantics <page
 表语义页和概念页写好后，用一套问题集（`question-set/1`：题目、参考答案、证据、`owner_check`）考页面：
 作答者只读页面答题，判分者对照参考答案和材料判 2/1/0，CLI 汇总。确定性的部分都由
 `scope-lineage questions` 做，你只派两次模型调用：
+
+下面的问题集与判分文件写成 `.yaml` 时，安装要带 `catalog` extra（`pipx install 'scope-lineage[catalog]'`，
+在仓库里是 `uv run --extra catalog scope-lineage …`）；不带时读 YAML 会以退出码 2 报缺 PyYAML。全用 JSON 就不需要。
 
 ```bash
 # 0. the set holds to its schema: unique ids, a reference answer for every question
