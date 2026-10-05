@@ -518,8 +518,10 @@ scope-lineage semantic confirm <run>/docs --confirmations <answers.json>
 ```
 
 - **分批与续跑**：一批表不要靠记忆或手工清点。每一轮先跑 `semantic status <run>`（每张表一行：阶段与标记），再用
-  `--next <draft|review|fix|render>` 取这一步的分批；**一批交给一个子代理**，子代理只处理批里的表、
-  自己不再派子代理（一张表一次调用的要求在子代理内部照旧：写、审、改各自独立）。一轮做完、被中断或额度用完，
+  `--next <draft|review|fix|render>` 取这一步的分批。**批是编排单位，不是调用单位**：由你（编排者）给批里
+  每张表的这一步各派一个独立子代理。写作、审读、修订各是一次调用，彼此不共享上下文，审读不能和写作是同一次调用；
+  每个子代理只处理分给它的一张表、一个步骤，不再派子代理。`--batch-size` 就是同时在跑的子代理数，按额度定
+  （额度紧时 ≤5）。一轮做完、被中断或额度用完，
   都只需重新跑 `status --next`：已经走过这一步的表自动跳过，从断点继续。`status` 列出的标记要看：
   `packet_stale`（材料包变了，整份重写）、`invalid`（按失败清单重写）、`review_stale`（审读之后文档又改过，
   重新审读）、`review_unparsed`（审读没有 front matter，不会再被派发——补上或删掉重审）、`render_stale`。

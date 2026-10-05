@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Changed
+- **`SKILL.md` says a batch is the orchestration unit, not the call unit.** It used to hand a
+  whole `status --next` batch to one sub-agent and ask that sub-agent to keep writing, review and
+  revision as separate calls, which a sub-agent that cannot dispatch sub-agents cannot do. Now
+  the orchestrator dispatches one sub-agent per table per step, `--batch-size` is how many run at
+  once, and `table-semantics.md` (both languages) says each table and step is its own model call.
 - **The install text says reading YAML question sets needs the `catalog` extra.** `SKILL.md`
   told the agent to install plain `scope-lineage`, but its acceptance commands read
   `questions.yaml` / `grades.yaml`, which needs PyYAML; on a clean install they exited 2. The
