@@ -13,7 +13,8 @@
   `table-semantics/1` 文档，逐条列出要重写的地方；
 - `scope-lineage semantic confirm` 把人的回答写回文档；
 - `scope-lineage semantic render` 把文档渲染成每表一页和一页索引，并与本体目录的概念页互相链接；
-- `scope-lineage semantic status` 读回一个运行目录，报告每张表走到哪一步，并把下一步要处理的表分好批。
+- `scope-lineage semantic status` 读回一个运行目录，报告每张表走到哪一步，并把下一步要处理的表分好批；
+  `scope-lineage semantic fixed` 记录一次修订已经做完。
 
 写文档（提示词、重写循环）属于 Agent 技能：提示词在 `skills/scope-lineage/references/table-semantics-prompt.md`，
 编排步骤见技能的 `SKILL.md`。
@@ -323,10 +324,10 @@ Validated 1 document(s): 0 clean, 1 with failures, 0 with warnings only, 0 with 
 
 所以写作之后加两步，都在 Agent 技能里：
 
-1. **独立审读**（`skills/scope-lineage/references/table-semantics-review-prompt.md`）：另起一次调用，只读材料包、文档和已确认事实，按十五项清单找事实错误，按严重程度列出「文档原话 / 材料原文 / 应改成」。审读员可以读兄弟表的材料包，核实文档对其他表的说法。
-2. **修订**（`skills/scope-lineage/references/table-semantics-fix-prompt.md`）：逐条核实后修改，改完通读全页消除前后矛盾，推断与事实分开，再跑一次 `semantic validate`。
+1. **独立审读**（`skills/scope-lineage/references/table-semantics-review-prompt.md`）：另起一次调用，只读材料包、文档和已确认事实，按十六项清单找事实错误，按严重程度列出「文档原话 / 材料原文 / 应改成」。审读员可以读兄弟表的材料包，核实文档对其他表的说法。第 16 项把材料包里的「行数放大」「粒度 / 键」「不在输出路径上」当作工具的判定而不是事实：与 SQL 原文矛盾时以 SQL 为准，审读在文末单列一节逐处列出。材料包重建、文档整份重写之后的第一次审读，还会拿到保留为 `reviews/<db.table>.prior.md` 的旧审读，逐条判旧发现在新材料包下是否适用、新文档是已避免还是又犯了（审读提示词的「材料包重建后的重写：带上旧审读」一节）。
+2. **修订**（`skills/scope-lineage/references/table-semantics-fix-prompt.md`）：逐条核实后修改，改完通读全页消除前后矛盾，推断与事实分开，再跑一次 `semantic validate`，最后一步用 `semantic fixed` 记录修订做完（见下文）。
 
-两条经验：审读必须是独立的调用，写作者自查找不出自己的盲点；修订容易在一处改对、另一处留下旧说法，所以修订后通读全页那一步不能省。需要再审一轮时，按审读提示词的「修订后再审读」一节做：输入是材料包（可能已重建）、修订后的文档和上一轮审读，只查上一轮每条发现改没改、全页一致 / 推断与事实 / 已确认事实 / 兄弟表四项、以及重建材料包里新增或变了的事实；严重程度的标准不变，审读照样带 front matter（`reviewed_doc_digest` 取 `scope-lineage semantic digest` 打印的修订后文档摘要）。验收问题集不要交给写作、审读或修订的调用。
+两条经验：审读必须是独立的调用，写作者自查找不出自己的盲点；修订容易在一处改对、另一处留下旧说法，所以修订后通读全页那一步不能省。需要再审一轮时，按审读提示词的「修订后再审读」一节做：输入是材料包（可能已重建）、修订后的文档和上一轮审读，只查上一轮每条发现改没改、全页一致 / 推断与事实 / 已确认事实 / 兄弟表四项、以及重建材料包里新增或变了的事实；严重程度的标准不变，审读照样带 front matter（`reviewed_doc_digest` 取 `scope-lineage semantic digest` 打印的修订后文档摘要，`reviewed_packet_digest` 取这一轮读的材料包）。验收问题集不要交给写作、审读或修订的调用。
 
 ## `semantic status`：批量运行与断点续跑
 
@@ -340,6 +341,7 @@ Validated 1 document(s): 0 clean, 1 with failures, 0 with warnings only, 0 with 
 <run>/packets/<db.table>/packet.json   semantic packet --out <run>/packets
 <run>/docs/<db.table>.json             模型写作、修订的 table-semantics/1 文档
 <run>/reviews/<db.table>.md            独立审读意见，开头是 front matter
+<run>/reviews/<db.table>.prior.md      重写时保留的旧审读；status 不读它
 <run>/pages/<db.table>.md              semantic render <run>/docs --out <run>/pages
 ```
 
@@ -358,8 +360,8 @@ status 报告、分批文件）跳过，与 `validate` 相同。
 | `packet` | 有材料包，没有文档 |
 | `drafted` | 有文档，但带 `invalid` 或 `packet_stale` 标记 |
 | `valid` | 文档合 Schema、交叉检查没有失败（警告不算），且没有适用于它的审读 |
-| `reviewed` | 审读的正是当前文档（`reviewed_doc_digest` 等于文档摘要）且有高 / 中问题；或审读没有 front matter |
-| `fixed` | 审读的正是当前文档且没有高 / 中问题；或审读有高 / 中问题、文档之后改过且重新通过校验 |
+| `reviewed` | 审读有高 / 中问题、文档还要回应：审读的正是当前文档（`reviewed_doc_digest` 等于文档摘要），或文档改过却没有修订回执（`fix_unconfirmed`）；或审读没有 front matter |
+| `fixed` | 审读的正是当前文档且没有高 / 中问题；或修订回执（`fixed_doc_digest`，由 `semantic fixed` 写入）就是当前文档 |
 | `rendered` | 已 `fixed`，且页面不比文档旧（按修改时间） |
 
 文档摘要是整份文档规范化 JSON（键排序、无空白、UTF-8）的 SHA-256 前十六位十六进制——与 `packet_digest`
@@ -372,12 +374,47 @@ status 报告、分批文件）跳过，与 `validate` 相同。
 | --- | --- | --- |
 | `packet_stale` | 文档的 `packet_digest` 与当前材料包不同 | 阶段为 `drafted`，要按新材料包重写 |
 | `invalid` | Schema 错误、文件读不了，或除第 8 项（`digest`）以外的交叉检查有失败 | 阶段为 `drafted`，按失败清单重写 |
-| `review_stale` | 审读没有高 / 中问题，文档却在审读之后改过：审读读的是另一个版本 | 阶段退回 `valid`，重新审读 |
+| `review_packet_stale` | 审读写明了它读的材料包（`reviewed_packet_digest`），却不是文档所依据的材料包 | 阶段退回 `valid`，重新审读 |
+| `review_stale` | 文档在审读之后改过，又没有修订回执把改动和这份审读对上：审读没有要求改高 / 中问题，或审读没有写材料包（`table-semantics-review@5` 之前写的审读） | 阶段退回 `valid`，重新审读 |
+| `fix_unconfirmed` | 审读读的是当前材料包、有高 / 中问题；文档之后改过，但没有这一版的修订回执：修订被打断，或写回执之后又改过 | 阶段为 `reviewed`，`--next fix` 重新派发 |
 | `review_unparsed` | 审读文件没有完整的 front matter | 阶段为 `reviewed`，任何一步都不再派发它；补上 front matter 或删掉审读文件重审 |
 | `render_stale` | 已 `fixed`，页面比文档旧 | 阶段为 `fixed`，重新渲染 |
 
-有高 / 中问题的审读之后文档改过，就认为是修订过了：修订提示词要求改完再跑校验，status 也只在文档重新通过校验
-时算 `fixed`，否则回到 `drafted`。
+### 审读怎么判
+
+文档有效且有审读时，按下面的顺序判断，第一条成立的就是结果。`d` 是文档摘要，`dp` 是文档的 `packet_digest`
+（到这一步它已经等于材料包自己的摘要，否则这张表早已是 `drafted packet_stale`）：
+
+1. 审读读的就是 `d`（`reviewed_doc_digest`）：有高 / 中问题为 `reviewed`，否则 `fixed`；
+2. 审读写明的材料包（`reviewed_packet_digest`）不是 `dp`：
+   `valid review_packet_stale`；
+3. 修订回执（`fixed_doc_digest`）就是 `d`：`fixed`，不论审读发现了什么——
+   修订顺手改了低级问题的也算；
+4. 审读没有写材料包：`valid review_stale`。没有这个键，修订和按另一版材料包的重写看起来一样，
+   所以这样的审读永远不会被派去修订；
+5. 有高 / 中问题：`reviewed fix_unconfirmed`；
+6. 只有低级问题：`valid review_stale`。
+
+修订后校验不通过的文档在这之前就是 `drafted`。修订回执只说明修订者声明做完了、且当时文档有效；
+每条发现改得对不对，由下一次审读判断。
+
+### `semantic fixed`：修订回执
+
+```bash
+scope-lineage semantic fixed <run> --only <db.table> ... [--packets <dir>] [--docs <dir>] [--reviews <dir>]
+```
+
+修订的最后一步。对每张表，它按 `status` 的同一套规则判断运行目录，只有下面几条都成立时，才把
+`fixed_doc_digest: <文档摘要>` 写进审读的 front matter（已有就替换；文件其他内容一字不动）：这张表有材料包、
+有既不 `invalid` 也不 `packet_stale` 的文档、有 front matter 完整的审读；审读写明了它读的材料包，且就是文档的
+`packet_digest`；文档不是审读读的那一版。否则这张表什么都不写，原因打到标准错误。新的审读会覆盖审读文件，
+回执随之消失。回执不由模型手写。
+
+| 退出码 | 条件 |
+| --- | --- |
+| 0 | 每张表的回执都写入了 |
+| 1 | 至少一张表被拒绝（其余的照常写入） |
+| 2 | 运行目录不存在，或没有 `--only` |
 
 ### 审读的 front matter
 
@@ -386,20 +423,24 @@ status 报告、分批文件）跳过，与 `validate` 相同。
 ```yaml
 ---
 reviewed_doc_digest: 2a9b25086e81590f
+reviewed_packet_digest: 04439862460b03d6
 high: 1
 medium: 2
 low: 0
 ---
 ```
 
-四个键都要有；摘要不能为空，三个计数是非负整数。缺任何一项都当作没有 front matter（`review_unparsed`）。
-解析不依赖 YAML 库，只认 `键: 值` 一行一个。
+`reviewed_doc_digest` 和三个计数必须有；摘要不能为空，计数是非负整数。缺任何一项都当作没有 front matter
+（`review_unparsed`）。`reviewed_packet_digest` 是审读员读的那份材料包的 `packet_digest`，从 `packet.md` 照抄；
+`table-semantics-review@5` 一定会写它，没有它的审读照样能解析，但按上面第 4 条判断。`fixed_doc_digest` 只由
+`semantic fixed` 添加；不是十六位小写十六进制的值当作没有回执。解析不依赖 YAML 库，只认 `键: 值` 一行一个。
 
 ### 输出
 
 ```bash
 scope-lineage semantic status <run> [--only <db.table> ...] [--json [<path>|-]]
 scope-lineage semantic status <run> --next {draft,review,fix,render} [--batch-size 5] [--out <path>]
+scope-lineage semantic fixed <run> --only <db.table> ...
 scope-lineage semantic digest <doc.json> ...
 ```
 
@@ -413,11 +454,11 @@ Status of 3 table(s): no_packet 0, packet 1, drafted 1, valid 1, reviewed 0, fix
   packet_stale: demo_dwd.dwd_lending_loan_df
 ```
 
-`--json` 写出 `table-semantics-status/1` 报告（`-` 或不写路径表示标准输出）：
+`--json` 写出 `table-semantics-status/2` 报告（`-` 或不写路径表示标准输出）：
 
 ```json
 {
-  "doc_format": "table-semantics-status/1",
+  "doc_format": "table-semantics-status/2",
   "directories": {"packets": "run/packets", "docs": "run/docs", "reviews": "run/reviews", "pages": "run/pages"},
   "tables": [
     {
@@ -435,13 +476,13 @@ Status of 3 table(s): no_packet 0, packet 1, drafted 1, valid 1, reviewed 0, fix
   "summary": {
     "tables": 1,
     "stages": {"no_packet": 0, "packet": 0, "drafted": 0, "valid": 1, "reviewed": 0, "fixed": 0, "rendered": 0},
-    "flags": {"packet_stale": [], "invalid": [], "review_stale": [], "review_unparsed": [], "render_stale": []}
+    "flags": {"packet_stale": [], "invalid": [], "review_packet_stale": [], "review_stale": [], "fix_unconfirmed": [], "review_unparsed": [], "render_stale": []}
   }
 }
 ```
 
-`review` 是解析出的 front matter（`reviewed_doc_digest`、`high`、`medium`、`low`），没有审读或解析不了时为
-`null`；`failures` 是除第 8 项以外失败的交叉检查条数。
+`review` 是解析出的 front matter（`reviewed_doc_digest`、`reviewed_packet_digest`、`fixed_doc_digest`、`high`、
+`medium`、`low`；两个可选键没有时为 `null`），没有审读或解析不了时为 `null`；`failures` 是除第 8 项以外失败的交叉检查条数。
 
 ### `--next`：分批与续跑
 
@@ -455,8 +496,8 @@ Status of 3 table(s): no_packet 0, packet 1, drafted 1, valid 1, reviewed 0, fix
 | 步骤 | 选中的表 |
 | --- | --- |
 | `draft` | `packet` 与 `drafted`：还没有文档、文档过期或校验不通过 |
-| `review` | `valid`：包括 `review_stale` 的表 |
-| `fix` | `reviewed` 且有 front matter：审读有高 / 中问题、文档还没改 |
+| `review` | `valid`：包括 `review_packet_stale` 与 `review_stale` 的表 |
+| `fix` | `reviewed` 且有 front matter：审读有高 / 中问题、文档还没改，或改过却没有修订回执（`fix_unconfirmed`） |
 | `render` | `fixed`：包括 `render_stale` 的表 |
 
 已经走过这一步的表不会再出现，所以中断之后重跑 `status --next` 就从断点继续。`no_packet` 的表不进任何一批，

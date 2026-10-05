@@ -9,20 +9,35 @@ A table moves through seven stages, each requiring the one before::
 - ``drafted``: a document that is ``invalid`` or ``packet_stale`` (flags below);
 - ``valid``: the document meets its schema and fails no cross check (warnings allowed),
   and no review applies to it;
-- ``reviewed``: a review of this very document (its ``reviewed_doc_digest`` is the
-  document's digest) with high or medium findings; or a review without front matter;
-- ``fixed``: a review with no high or medium finding of this very document, or a review
-  with high or medium findings of an earlier version -- the document changed since and
-  is valid again;
+- ``reviewed``: a review with high or medium findings that the document still has to
+  answer -- a review of this very document (its ``reviewed_doc_digest`` is the
+  document's digest), or one whose fix changed the document without recording that it
+  finished (``fix_unconfirmed``); or a review without front matter;
+- ``fixed``: a review with no high or medium finding of this very document, or a fix
+  record (``fixed_doc_digest``, written by ``semantic fixed``) for this very document;
 - ``rendered``: fixed, and its page is not older than the document.
+
+A valid document with a review is judged in this order, the first rule that holds wins
+(``d`` the document's digest, ``dp`` its ``packet_digest``, which by now is the packet's):
+
+0. the review read ``d``: ``reviewed`` with high or medium findings, else ``fixed``;
+1. the review names its packet and it is not ``dp``: ``valid`` + ``review_packet_stale``;
+2. the fix record is ``d``: ``fixed``, whatever the review found;
+3. the review names no packet (written before the key existed): ``valid`` +
+   ``review_stale`` -- a rewrite and a revision look the same without it, so it is
+   reviewed again and never handed to a fix;
+4. high or medium findings: ``reviewed`` + ``fix_unconfirmed``;
+5. low findings only: ``valid`` + ``review_stale``.
 
 Flags say what is wrong on the way: ``packet_stale`` (the document's ``packet_digest``
 is not the packet's), ``invalid`` (a schema error, an unreadable file, or a failed cross
-check other than the digest one), ``review_stale`` (the document changed after a review
-that asked for no change, so that review read another version: back to ``valid``, to be
-reviewed again), ``review_unparsed`` (a review without complete front matter: it counts
-as ``reviewed`` but no step takes it further) and ``render_stale`` (fixed, and its page
-is older than the document).
+check other than the digest one), ``review_packet_stale`` (the review read another
+packet: review the document again), ``review_stale`` (the document changed after the
+review and nothing ties the change to it: review again), ``fix_unconfirmed`` (the
+document changed after a review that asked for changes, with no fix record for this
+version: fix again), ``review_unparsed`` (a review without complete front matter: it
+counts as ``reviewed`` but no step takes it further) and ``render_stale`` (fixed, and its
+page is older than the document).
 
 The command line reads the files; this module is plain data in, plain data out.
 """
@@ -36,10 +51,13 @@ from .digests import document_digest
 from .review_notes import parse_review
 from .validate import check_file
 
-STATUS_FORMAT = "table-semantics-status/1"
+STATUS_FORMAT = "table-semantics-status/2"
 NEXT_FORMAT = "table-semantics-next/1"
 STAGES = ("no_packet", "packet", "drafted", "valid", "reviewed", "fixed", "rendered")
-FLAGS = ("packet_stale", "invalid", "review_stale", "review_unparsed", "render_stale")
+FLAGS = (
+    "packet_stale", "invalid", "review_packet_stale", "review_stale", "fix_unconfirmed",
+    "review_unparsed", "render_stale",
+)
 STEPS = ("draft", "review", "fix", "render")
 
 _MISSING = object()
@@ -109,19 +127,30 @@ def _reviewed(entry: dict, files: TableFiles) -> dict:
         return {**entry, "stage": "valid"}
     if review is None:
         return {**entry, "stage": "reviewed", "flags": ["review_unparsed"]}
-    serious = review["high"] + review["medium"]
-    if review["reviewed_doc_digest"] == entry["doc_digest"]:
-        stage = "reviewed" if serious else "fixed"
-    elif not serious:
-        return {**entry, "stage": "valid", "flags": ["review_stale"]}
-    else:
-        stage = "fixed"
+    stage, flag = review_verdict(review, entry["doc_digest"], entry["doc_packet_digest"])
+    if flag:
+        entry["flags"].append(flag)
     if stage == "fixed" and files.page_fresh is not None:
         if files.page_fresh:
             stage = "rendered"
         else:
             entry["flags"].append("render_stale")
     return {**entry, "stage": stage}
+
+
+def review_verdict(review: dict, doc_digest, doc_packet_digest) -> tuple[str, str | None]:
+    """The stage and flag a parsed review gives a valid document (rules 0-5 above)."""
+    serious = review["high"] + review["medium"]
+    packet = review["reviewed_packet_digest"]
+    if review["reviewed_doc_digest"] == doc_digest:
+        return ("reviewed" if serious else "fixed"), None
+    if packet is not None and packet != doc_packet_digest:
+        return "valid", "review_packet_stale"
+    if review["fixed_doc_digest"] == doc_digest:
+        return "fixed", None
+    if packet is None or not serious:
+        return "valid", "review_stale"
+    return "reviewed", "fix_unconfirmed"
 
 
 def status_report(entries: list[dict], directories: dict) -> dict:

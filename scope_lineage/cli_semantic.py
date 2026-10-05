@@ -1,5 +1,5 @@
 """The ``scope-lineage semantic`` subcommands: ``packet``, ``validate``, ``confirm``, ``render``,
-and ``status`` / ``digest`` (in :mod:`scope_lineage.cli_semantic_status`).
+and ``status`` / ``fixed`` / ``digest`` (in :mod:`scope_lineage.cli_semantic_status`).
 
 Kept out of ``cli.py`` like ``tables`` and ``catalog``. This module is where the inputs
 are loaded -- the lineage walk ``describe`` uses, the task JSON reader ``parse`` uses,
@@ -16,7 +16,7 @@ import json
 import sys
 from pathlib import Path
 
-from .cli_semantic_status import add_status_parsers, run_digest, run_status
+from .cli_semantic_status import add_status_parsers, run_digest, run_fixed, run_status
 from .metadata.metadata_patch import (
     MetadataPatch,
     MetadataPatchError,
@@ -48,10 +48,12 @@ from .semantics.packet import PACKET_FORMAT
 from .semantics.status import NEXT_FORMAT, STATUS_FORMAT
 from .semantics.validate import REPORT_FORMAT, check_file
 
-# The toolchain's own documents that may sit beside the ones `validate` checks.
-_OTHER_FORMATS = frozenset(
-    {CONFIRMATIONS_FORMAT, PACKET_FORMAT, REPORT_FORMAT, STATUS_FORMAT, NEXT_FORMAT}
-)
+# The toolchain's own documents that may sit beside the ones `validate` checks; a status
+# report of the previous format is still one of them.
+_OTHER_FORMATS = frozenset({
+    CONFIRMATIONS_FORMAT, PACKET_FORMAT, REPORT_FORMAT, STATUS_FORMAT,
+    "table-semantics-status/1", NEXT_FORMAT,
+})
 
 
 def add_semantic_parser(subcommands) -> None:
@@ -164,6 +166,8 @@ def run_semantic(args: argparse.Namespace) -> int:
         return _run_render(args)
     if args.semantic_command == "status":
         return run_status(args)
+    if args.semantic_command == "fixed":
+        return run_fixed(args)
     if args.semantic_command == "digest":
         return run_digest(args)
     return _run_confirm(args)
