@@ -500,11 +500,13 @@ scope-lineage semantic validate <run>/docs --packets <run>/packets --json > <run
 #    table's failures from the report), validating again; stop when nothing fails
 # 5. review (--next review): a separate model call reads the packet and the document with
 #    references/table-semantics-review-prompt.md and writes <run>/reviews/<db.table>.md,
-#    opening with front matter; its reviewed_doc_digest comes from
+#    opening with front matter; its reviewed_packet_digest is copied from packet.md and its
+#    reviewed_doc_digest comes from
 scope-lineage semantic digest <run>/docs/<db.table>.json
 # 6. fix (--next fix): a model call applies the findings with
 #    references/table-semantics-fix-prompt.md, re-reads the whole page for contradictions,
-#    then validates again
+#    validates again, and as its last step records that it finished
+scope-lineage semantic fixed <run> --only <db.table>
 # 7. render (--next render lists what is left): one page per table plus index.md
 scope-lineage semantic render <run>/docs --out <run>/pages --validation <run>/validation.json
 #    with a catalog, in this order: build, table pages under <pages>/semantics, concept pages
@@ -523,8 +525,12 @@ scope-lineage semantic confirm <run>/docs --confirmations <answers.json>
   每个子代理只处理分给它的一张表、一个步骤，不再派子代理。`--batch-size` 就是同时在跑的子代理数，按额度定
   （额度紧时 ≤5）。一轮做完、被中断或额度用完，
   都只需重新跑 `status --next`：已经走过这一步的表自动跳过，从断点继续。`status` 列出的标记要看：
-  `packet_stale`（材料包变了，整份重写）、`invalid`（按失败清单重写）、`review_stale`（审读之后文档又改过，
-  重新审读）、`review_unparsed`（审读没有 front matter，不会再被派发——补上或删掉重审）、`render_stale`。
+  `packet_stale`（材料包变了，整份重写；重写前先把 `reviews/<db.table>.md` 改名为 `reviews/<db.table>.prior.md`，
+  见下文「重写」）、`invalid`（按失败清单重写）、`review_packet_stale`（审读读的是另一版材料包，重新审读）、
+  `review_stale`（审读之后文档又改过，又没有修订回执把改动和这份审读对上，重新审读；没有 `reviewed_packet_digest`
+  的旧审读一律走这里，不会被派去修订）、`fix_unconfirmed`（审读有高 / 中问题，文档改过却没有修订回执：修订被打断，
+  或回执之后又改过；`--next fix` 会重新派发）、`review_unparsed`（审读没有 front matter，不会再被派发——补上或
+  删掉重审）、`render_stale`。
   一张表连续两轮 `draft` 仍在 `drafted`，把它从本轮拿掉并告诉用户，不要一直派发。
 - **挑表**：只挑用户问到的表，或一个层、一个概念的表；`--only` 让材料包只解析相关的血缘文档。
 - **已确认的答案要带上**：这一轮有 `glossary.json`（跑过 `glossary --overrides`）或审过的
@@ -536,7 +542,10 @@ scope-lineage semantic confirm <run>/docs --confirmations <answers.json>
   有本体目录时，把 `catalog query <ontology.json> table <db.table> --json` 答出的概念与表现类型告诉模型，
   让它写 `concept`；有已确认的业务事实（例如某个标识的含义）时，作为「已确认事实」一并给它。
 - **重写**：只把失败清单里这张表的条目交回模型，已通过的条目不许动；同一处连续两轮还失败，就把它留给
-  owner（写成 `questions` 或 `watch`），不要硬凑到通过。第 8 项（`digest`）失败表示材料包变了，要整份重写。
+  owner（写成 `questions` 或 `watch`），不要硬凑到通过。第 8 项（`digest`）失败表示材料包变了，要整份重写：
+  重写前把这张表的旧审读 `reviews/<db.table>.md` 改名为 `reviews/<db.table>.prior.md`（`status` 不读它），重写仍只给
+  写作者新材料包；重写后的首次审读把 `.prior.md` 交给审读员，按审读提示词「材料包重建后的重写：带上旧审读」一节
+  逐条判旧发现适用与否、新文档是否又犯了。
   子代理只校验自己批里的表：`semantic validate <run>/docs --packets <run>/packets --only <db.table> ...`，
   不用把文档拷到别的目录（别人写到一半的文件会被跳过）；这份输出只给本批看，不要写进 `<run>/validation.json`
   ——那是全量报告，渲染前由主流程不带 `--only` 跑一次。
@@ -545,8 +554,11 @@ scope-lineage semantic confirm <run>/docs --confirmations <answers.json>
   通读全页消除前后矛盾，并把推断与事实分开。一轮就够；修订后再审读一轮只针对「全页一致、推断与事实、
   已确认事实、兄弟表」四项，外加上一轮每条发现改没改、重建材料包里新增或变了的事实（按审读提示词的
   「修订后再审读」一节做，把上一轮审读文件一并交给审读员；这一轮的审读照样带 front matter，覆盖原审读文件）。审读文件开头的
-  front matter（`reviewed_doc_digest` 与高 / 中 / 低条数）是 `status` 判断「已修订」的唯一依据：审读有高 / 中
-  问题、文档之后改过且重新通过校验，才算 `fixed`。不要把验收问题集交给写作、审读或修订的调用，那是考卷。
+  front matter（`reviewed_doc_digest`、`reviewed_packet_digest` 与高 / 中 / 低条数）加上修订回执
+  `fixed_doc_digest` 是 `status` 判断「已修订」的依据：修订的最后一步跑 `semantic fixed <run> --only <db.table>`，
+  它只在文档通过校验、且审读读的正是文档所依据的材料包时写回执；有回执且就是当前文档才算 `fixed`（只有低级问题、
+  修订顺手改了的也一样）。回执只证明修订者做完并且当时文档有效，不证明每条都改对了，改得对不对由复审判断。
+  回执只由命令写，不要让模型手改审读文件。不要把验收问题集交给写作、审读或修订的调用，那是考卷。
 - **渲染**：有本体目录时 `--out` 放在 `catalog render` 的输出目录下（`<pages>/semantics`），表语义页里的
   `../concepts/<slug>.md` 才能打开，此时 `status` 加 `--pages <pages>/semantics`（默认 `<run>/pages`）；
   `catalog render --semantics` 反过来让概念页里列出的每张表链到它的表语义页。顺序是 `catalog build` →
@@ -759,12 +771,13 @@ documented uncertainty).
   draft a `catalog-fragment/1` file from table semantics: what to read, the fragment shape,
   one attribute per business meaning, a binding for every column, and the `catalog merge`
   self-check. Read when drafting a catalog from table semantics.
-- `references/table-semantics-review-prompt.md` — the independent review checklist (15 items, from
-  grain and derived-code NULLs to page consistency and sibling tables) that finds factual errors
-  validation cannot, and the front matter (`reviewed_doc_digest`, high / medium / low counts) every
-  review opens with. Read when running the review step.
-- `references/table-semantics-fix-prompt.md` — how to apply review findings and re-read the page for
-  contradictions. Read when running the fix step.
+- `references/table-semantics-review-prompt.md` — the independent review checklist (16 items, from
+  grain and derived-code NULLs to page consistency, sibling tables and tool verdicts the SQL
+  overrules) that finds factual errors validation cannot, the first review after a rewrite with the
+  old review at hand, and the front matter (`reviewed_doc_digest`, `reviewed_packet_digest`,
+  high / medium / low counts) every review opens with. Read when running the review step.
+- `references/table-semantics-fix-prompt.md` — how to apply review findings, re-read the page for
+  contradictions, and record the finished fix with `semantic fixed`. Read when running the fix step.
 - `references/table-semantics-prompt.md` — the prompt a model writes one
   `table-semantics/1` document from, given one table's `packet.md`: the one-page summary
   first, then every column in table order, the steps, the rules with their SQL quoted and

@@ -1,4 +1,4 @@
-# 按审读意见修订提示词（table-semantics-fix@2）
+# 按审读意见修订提示词（table-semantics-fix@3）
 
 输入：一张表的审读意见、现有 `table-semantics/1` 文档、材料包 `packet.md`。
 
@@ -6,5 +6,6 @@
 2. 改完把整份文档从头读一遍：新改的地方不能与页面其他地方（取数说明、适用/不适用、一行是什么、相关列、要注意）矛盾，有就一并改齐；推断的结论标「推断」或待确认；不得与已确认事实矛盾。
 3. `generator.prompt` 在原值后加 `+review`；其余格式不变（`table-semantics/1`）。
 4. 跑 `scope-lineage semantic validate`，只修失败项，最多 2 轮；仍失败的在 `summary.watch` 说明。
-5. 不要改审读文件：`semantic status` 看到文档摘要与审读的 `reviewed_doc_digest` 不同、且文档重新通过校验，就算修订完成。
-   查这一张表：文档放回 `<run>/docs/<db.table>.json` 后运行 `scope-lineage semantic status <run> --only <db.table>`，这一行应当是 `fixed`。要看两个摘要时加 `--json -`（`-` 表示把 JSON 打到标准输出），读 `tables[0].doc_digest` 与 `tables[0].review.reviewed_doc_digest`。在隔离目录里自查时加 `--docs <隔离目录>`，并且一定要带 `--only`，否则其余表在那个目录里没有文档，会显示成 `packet`。
+5. 收尾（必须是最后一步；前面任何一步没做完都不要做这一步）：把文档放回 `<run>/docs/<db.table>.json`，然后运行 `scope-lineage semantic fixed <run> --only <db.table>`。它先校验文档，再在审读文件的 front matter 里写入修订回执 `fixed_doc_digest`；退出码非 0 时什么都没写，按它给的原因处理：文档校验不通过就回到第 4 步；审读没有 `reviewed_packet_digest`、或审读读的是另一版材料包，就停下，告诉调用方这张表要重新审读，不要自己补键。
+   之后运行 `scope-lineage semantic status <run> --only <db.table>`，这一行应当是 `fixed`。要看摘要时加 `--json -`（`-` 表示把 JSON 打到标准输出），读 `tables[0].doc_digest`、`tables[0].review.reviewed_doc_digest` 与 `tables[0].review.fixed_doc_digest`。在隔离目录里自查时加 `--docs <隔离目录>`，并且一定要带 `--only`，否则其余表在那个目录里没有文档，会显示成 `packet`。
+   不要手改审读文件：回执只由 `semantic fixed` 写。修订被打断、没走到这一步时，`status` 会把这张表标成 `fix_unconfirmed`，`--next fix` 会重新派发它。
