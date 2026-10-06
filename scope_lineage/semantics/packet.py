@@ -18,7 +18,9 @@ from typing import Callable, Iterable, Mapping, Optional
 from . import packet_facts as facts
 from .digests import canonical_digest
 from .names import bare_table, scrub
+from .packet_comments import References, marker_keys
 from .packet_confirmed import Confirmed
+from .packet_notes import mark_undecided_joins
 from .packet_sections import inputs_section, lineage_section, target_section, tasks_section
 
 PACKET_FORMAT = "table-semantics-packet/1"
@@ -66,7 +68,8 @@ def build_packets(
     profiles, cards = _profiles(producers, documents, cards)
     produced = _produced_statements(profiles)
     corpus = _Corpus(
-        cards, _TaskIndex(tasks), metadata or (lambda _table: None), Confirmed(glossary, patched)
+        cards, _TaskIndex(tasks), metadata or (lambda _table: None), Confirmed(glossary, patched),
+        _task_reads(documents),
     )
     return [_packet(table, produced[table], corpus) for table in _selected(produced, only)]
 
@@ -84,6 +87,17 @@ def document_reads(document: dict) -> set[str]:
     return {
         bare_table(name) for statement in statements for name in statement.get("source_tables") or []
     }
+
+
+def _task_reads(documents: list) -> dict[str, set[str]]:
+    """``task -> db.table`` names the task reads from outside itself, over all statements."""
+    reads: dict[str, set[str]] = {}
+    for document, _ in documents:
+        task = document.get("task_id") or (document.get("task_meta") or {}).get("task_name")
+        if task:
+            reads.setdefault(str(task), set()).update(
+                document_reads(document) - document_writes(document))
+    return reads
 
 
 def packet_digest(packet: Mapping) -> str:
@@ -155,20 +169,28 @@ class _Corpus:
     """What every packet reads besides its own statements, indexed once."""
 
     def __init__(
-        self, cards: dict, tasks: _TaskIndex, metadata: MetadataLookup, confirmed: Confirmed
+        self, cards: dict, tasks: _TaskIndex, metadata: MetadataLookup, confirmed: Confirmed,
+        reads: dict[str, set[str]] | None = None,
     ):
         self.tasks = tasks
+        self._reads = reads or {}
         self.confirmed = confirmed
         self._metadata = metadata
         self._looked_up: dict[str, Optional[dict]] = {}
         self._cards: dict[str, dict] = {}
         self._written: dict[str, set] = {}
+        tables: set[str] = set()
         for card in (cards or {}).get("tables") or []:
             name = bare_table(card.get("table"))
+            tables.add(name)
             for spelling in [card.get("table"), *card.get("aliases", [])]:
                 self._cards.setdefault(bare_table(spelling), card)
             for producer in card.get("produced_by") or []:
                 self._written.setdefault(str(producer.get("task")), set()).add(name)
+
+        # A comment's `[db.table.col]` is in the run when the table has a card: some task
+        # of the corpus reads or writes it.
+        self.references = References(tables, self.metadata)
 
     def metadata(self, table: str) -> Optional[dict]:
         if table not in self._looked_up:
@@ -181,21 +203,34 @@ class _Corpus:
     def tables_written_by(self, task: str) -> list[str]:
         return sorted(self._written.get(task, set()))
 
+    def task_reads(self, task: str) -> set[str] | None:
+        """What ``task`` reads over all its statements; ``None`` for a task not parsed."""
+        return self._reads.get(task)
+
 
 def _packet(table: str, statements: list[tuple[str, dict]], corpus: _Corpus) -> dict:
     rules = [rule for task, statement in statements for rule in facts.statement_rules(task, statement)]
     for index, rule in enumerate(rules, start=1):
         rule["id"] = f"p{index}"
     facts.mark_partition_filters(rules, corpus.metadata)
+    mark_undecided_joins(rules, statements)
     target = target_section(table, statements, corpus)
+    inputs = inputs_section(table, statements, rules, corpus)
+    lineage = lineage_section(table, statements, rules, target, corpus)
+    facts.drop_private(rules)
+    markers = marker_keys(
+        [(table, column) for column in target["columns"]]
+        + [(entry["table"], column) for entry in inputs for column in entry["columns"]]
+    )
     packet = scrub({
         "doc_format": PACKET_FORMAT,
         "table": table,
         "packet_digest": "",
+        **({"comment_marker_keys": markers} if markers else {}),
         "target": target,
-        "tasks": tasks_section(statements, corpus),
-        "inputs": inputs_section(statements, rules, corpus),
-        "lineage": lineage_section(table, statements, rules, target, corpus),
+        "tasks": tasks_section(table, statements, corpus),
+        "inputs": inputs,
+        "lineage": lineage,
     })
     packet["packet_digest"] = packet_digest(packet)
     return packet

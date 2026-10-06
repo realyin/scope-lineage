@@ -6,7 +6,10 @@
   reach the output;
 - :func:`case_outputs` -- the literal values a CASE / IF column can take, and which source
   values each one gathers;
-- :func:`header_facts` -- the lifecycle and data volume a script's header comment states.
+- :func:`header_facts` -- the lifecycle and data volume a script's header comment states,
+  and which table of the task the header describes when it is another one;
+- :func:`producer_header` -- what an input's producing task says of the table in its
+  header: primary key, storage, partitioning, lifecycle, volume (the author's claim).
 
 Nothing here judges a document; the checks do.
 """
@@ -63,7 +66,7 @@ def _scope_tables(statement: dict, scope: str) -> list[str]:
 
 # ------------------------------------------------------------------ CASE outputs
 
-_PASS_THROUGH = frozenset({"direct_projection", "union"})
+PASS_THROUGH_STEPS = frozenset({"direct_projection", "union"})
 
 
 def code_expression(field: dict):
@@ -73,7 +76,7 @@ def code_expression(field: dict):
     own expression is that projection, its derivation's last computing step is the CASE.
     """
     for step in reversed(field.get("derivation") or []):
-        if str(step.get("step_type")) not in _PASS_THROUGH:
+        if str(step.get("step_type")) not in PASS_THROUGH_STEPS:
             return step.get("expression")
     return field.get("expression")
 
@@ -245,15 +248,61 @@ _VOLUME = re.compile(
 _WRITE = re.compile(r"^\s*(?!set\b)[a-z(]", re.IGNORECASE)
 
 
-def header_facts(header_comments, sql) -> dict:
+def header_facts(header_comments, sql, table: str = "", written=()) -> dict:
     """``{lifecycle, volume}`` a script's header comment states, each ``None`` when silent.
 
     Read from the header the lineage published and from the comment lines that open the
     script, up to its first statement other than ``SET``: a header block written above a
     ``WITH`` is attached to the write itself and never reaches ``header_comments``.
+
+    A task writing several tables has one header; when it names (``库表名 x``) another
+    table the task writes (``written``), the facts are about that table and ``about``
+    names it. A header naming a table the task does not write (an old name) is kept as
+    this table's.
     """
     lines = [str(line) for line in header_comments or []] + _leading_comments(sql)
-    return {"lifecycle": _first(_LIFECYCLE, lines), "volume": _first(_VOLUME, lines)}
+    facts = {"lifecycle": _first(_LIFECYCLE, lines), "volume": _first(_VOLUME, lines)}
+    about = header_about(lines, table, written)
+    if about:
+        facts["about"] = about
+    return facts
+
+
+_NAMED = re.compile(r"^[\s\-/*]*(?:库表名|表名)\s*[:：=]?\s*([A-Za-z0-9_.`]+)")
+_PRODUCER_FACTS = (
+    ("primary_key", re.compile(r"^[\s\-/*]*主键\s*[:：=]?\s*(.+?)\s*(?:\*/)?\s*$")),
+    ("storage", re.compile(r"^[\s\-/*]*存储设计\s*[:：=]?\s*(.+?)\s*(?:\*/)?\s*$")),
+    ("partition_design", re.compile(r"^[\s\-/*]*分区设计\s*[:：=]?\s*(.+?)\s*(?:\*/)?\s*$")),
+)
+
+
+def header_about(lines: list[str], table: str, written) -> str | None:
+    """The other table of the task a header names, or ``None`` when it is about ``table``."""
+    named = next((m.group(1) for m in map(_NAMED.match, lines) if m), None)
+    if not named or not table:
+        return None
+    named = bare_table(named)
+    for other in written:
+        same = other == named or ("." not in named and other.rsplit(".", 1)[-1] == named)
+        if same:
+            return None if other == table else other
+    return None
+
+
+def producer_header(task: str, sql, table: str, written) -> dict | None:
+    """``{task, primary_key?, storage?, partition_design?, lifecycle?, volume?}`` or None.
+
+    What the producing task's own header says -- the author's claim, not a SQL fact.
+    Nothing when the header describes another table the task writes, or says none of it.
+    """
+    lines = _leading_comments(sql)
+    if header_about(lines, table, written):
+        return None
+    stated = {key: next((m.group(1) for m in map(pattern.match, lines) if m), None)
+              for key, pattern in _PRODUCER_FACTS}
+    stated["lifecycle"], stated["volume"] = _first(_LIFECYCLE, lines), _first(_VOLUME, lines)
+    stated = {key: value for key, value in stated.items() if value}
+    return {"task": task, **stated} if stated else None
 
 
 def _leading_comments(sql) -> list[str]:
