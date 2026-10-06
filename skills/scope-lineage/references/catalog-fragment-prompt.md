@@ -127,6 +127,9 @@
   - 同一属性按来源拆成几个码值集时，属性**不写** `code_set`：各列在 `code_sets` 写本来源的码值集，工具把这些列的
     码值集合起来当属性的码（概念页「码值」格逐个列出、不算缺码值）。属性写了 `code_set` 就只算那一个，
     其余来源的列会报 `binding_code_sets_miss_attribute`——所以按来源拆开时不要给属性指一个「主来源」。
+  - 属性没有任何码值集（字典没被关联、码值未知，属性不写 `code_set`、绑到它的列都不写 `code_sets`）时，源系统随记录
+    存的名称列也写 `holds: ["meaning"]`（加 `lang`），不要为此建空码值集。只要有一列给这个属性带了码值集，这一列
+    就要写自己的 `code_sets`；`["key"]` 总要有码值集。
   - CASE 的 ELSE（或某个分支）没有源码可言（如 `x = '0'` 写 A、其余写 B）：不要为它编一个码；这条规则写进 binding 的
     `derivation`（需要时也写进码值集的 `definition`）。
   - 内联字典（只列 `values` 的码值集）的代理键列照样写 `holds: ["key"]`；它一定会报 `binding_key_without_key_column`，

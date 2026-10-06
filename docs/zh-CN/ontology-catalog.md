@@ -400,6 +400,9 @@ representations:
   再写 `code_sets_by: source`；页面与查询读成「按来源分别查 A、B」。只有真回退（每一行都先查 A、查不到查 B）才不写这个键。
 - 同一属性按来源拆成几个码值集时，属性不写 `code_set`；各列在 `code_sets` 写本来源的码值集，属性的码就是它们的全部
   （见「属性」一节的规则）。这时 `holds` 含 `meaning` 或 `key` 的列必须写自己的 `code_sets`，否则报 `binding_holds_code_set`。
+- 属性没有任何码值集（自身不写 `code_set`，绑到它的列也都不写 `code_sets`；字典没被关联、码值未知）时，随记录存名称的列
+  也写 `holds: [meaning]`（加 `lang`），与码列区分开。只要有一列给这个属性带了码值集，这一列就必须写自己的 `code_sets`；
+  `key` 总要有码值集。
 - CASE 的某个分支（如 ELSE）没有源码：不编码，规则写进 `derivation`（需要时也写进码值集的 `definition`）。
 - 只列 `values` 的码值集没有代理键列，`holds: [key]` 的列必然报 `binding_key_without_key_column`（目录翻不了这个键）；
   `[key]` 仍是对的写法。
@@ -489,7 +492,7 @@ scope-lineage catalog validate examples/catalog-demo --json
 | `binding_foreign_attribute_via` | `via` 不是本表的列，该列不是 `foreign_identifier`，或它指向的标识符不属于该属性的概念 |
 | `binding_code_set` | 绑定的 `code_sets` 里有一项不是码值集 |
 | `binding_code_sets_by` | 绑定写了 `code_sets_by` 却没写 `code_sets`，或 `code_sets_by: source` 而码值集少于两个 |
-| `binding_holds_code_set` | 绑定的 `holds` 含 `meaning` 或 `key`，而绑定没写 `code_sets`、所绑属性也没有 `code_set`——不属于任何码值集的含义或代理键 |
+| `binding_holds_code_set` | 绑定的 `holds` 含 `meaning` 或 `key`，而绑定没写 `code_sets`、所绑属性也没有 `code_set`——不属于任何码值集的含义或代理键。例外：只含 `meaning`、且所绑属性按「属性」一节的规则没有任何码值集时不报 |
 | `binding_lang` | 绑定写了 `lang`，其 `holds` 却不含 `meaning` |
 
 "标识符属于某概念"指：概念在 `identifiers` 里列了它，或标识符的 `identifies` 指向该概念。

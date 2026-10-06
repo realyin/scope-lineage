@@ -448,6 +448,10 @@ Edge cases:
   column writes its own source's set in `code_sets`, and the attribute's codes are all of them
   (the rule under Attribute). A column whose `holds` has `meaning` or `key` then needs its own
   `code_sets`, or it fails `binding_holds_code_set`.
+- An attribute with no code set at all (no `code_set` of its own, no `code_sets` on any column bound
+  to it; no dictionary is joined and the codes are unknown): a column storing the name with the record
+  still writes `holds: [meaning]` (with `lang`), so it reads apart from the code column. Once any column
+  gives the attribute a code set, this column must name its own `code_sets`; `key` always needs a code set.
 - A CASE branch (such as ELSE) with no source code: invent no code; write the rule in `derivation`
   (and, if useful, the code set's `definition`).
 - A code set listing only `values` has no key column, so a `holds: [key]` column on it always warns
@@ -549,7 +553,7 @@ directory, no manifest, YAML without PyYAML).
 | `binding_foreign_attribute_via` | `via` is not a column of this table, that column is not a `foreign_identifier`, or the identifier it holds does not identify the attribute's concept |
 | `binding_code_set` | an entry of a binding's `code_sets` is not a code set |
 | `binding_code_sets_by` | a binding has `code_sets_by` and no `code_sets`, or `code_sets_by: source` with fewer than two |
-| `binding_holds_code_set` | a binding's `holds` has `meaning` or `key`, and it names no `code_sets` while the bound attribute has no `code_set` -- a meaning or a key of no code set |
+| `binding_holds_code_set` | a binding's `holds` has `meaning` or `key`, and it names no `code_sets` while the bound attribute has no `code_set` -- a meaning or a key of no code set. Not raised when `holds` has only `meaning` and the bound attribute has no code set at all by the rule under Attribute |
 | `binding_lang` | a binding has `lang` and its `holds` has no `meaning` |
 
 An identifier "is the concept's" when the concept lists it in `identifiers` or the

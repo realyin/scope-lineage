@@ -3,6 +3,14 @@
 ## Unreleased
 
 ### Changed
+- **Catalog: a stored name of an attribute with no code set may say `holds: [meaning]`.**
+  `binding_holds_code_set` rejected every `holds` with `meaning` or `key` that reached no code
+  set, which also blocked a source system's name column stored beside its code when the
+  attribute has no code set at all (no dictionary is joined; the codes are unknown): the code
+  and name columns then read the same. `holds: [meaning]` (with `lang`) is now accepted when
+  the binding names no `code_sets` and the attribute has no code set by rule R1 -- neither its
+  own nor any bound column's. Once any column gives the attribute a code set the error stands,
+  and `key` always needs one. Catalogs that validated before are unchanged.
 - **`semantic.json`: an `expression` is the SQL minus its comments.** The profile lifted every
   `/* … */` note into `sql_comments` and also left it inside `expression`, so the note was
   published twice and read as SQL: `dt = '…' /* and s <> 'x' */` made a packet judge an
