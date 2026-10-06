@@ -924,10 +924,19 @@ catalog 前缀）；某个码值集 `lookup` 所指的表算「码值来源」�
 `lookup.filter`、绑定 `code_sets` 的顺序与绑定 `holds` 所需的事实，起草时不必为此回头读 SQL：
 
 - `lookups`：值经过的被关联输入，按表达式读它们的顺序排列（`COALESCE(d1.x, d2.x, a.c)` 回退的参数顺序）。每项是
-  `{table, where, reads, rule}`：`table` 中 `where` 每一列都等于其字符串字面量的行、读这些行的 `reads` 列、
+  `{table, where, reads, key, rule}`：`table` 中 `where` 每一列都等于其字符串字面量的行、读这些行的 `reads` 列、
+  被关联输入一侧的物理关联列 `key`（一对键一项，按键对顺序；JOIN 比较的是表达式、说不出列时不写，不猜），
   以及血缘里这个 JOIN 的逻辑块 id；
-- `fallback`：同一个值回退到的、不经查找的物理列（`COALESCE` 末尾的原码），只与 `lookups` 一起出现；
-- `key_of`：本身没有 `lookups` 的列，是哪些读取的关联键，`{table, where, rule, read_by}`，`read_by` 是同表里经这个
+- `fallback`：同一个值回退到的、不经查找的物理列（`COALESCE` 末尾的原码），只与 `lookups` 一起出现，且只列与某个
+  查找同来源的；
+- `lookups_by: "source"`：这一列由几个来源写入（几个 UNION 分支，或写这张表的几条语句），各来源分别读：每项
+  `lookups` 带 `source`（一条语句写全部来源时是 UNION 分支的作用域 id，否则是 `<任务>/<语句>`，分支再拆时加
+  `/<分支>`），只有同一来源内部的查找才有回退顺序。只有 UNION 上方没有把几个输入合成一个值的表达式时才按分支拆：
+  主输入是 UNION CTE 的 `COALESCE` 仍是一次回退；被关联输入里的 UNION 就是那一个输入，不算来源。键名与目录的
+  `code_sets_by: source` 对应；
+- `other_sources`：与 `lookups_by` 一起出现，`{来源: [库.表.列]}`，是没有查找的来源直接存的物理列——不是回退。
+  只把目标表自己的列原样带下来的来源，带的是别的来源写的值，不列出；
+- `key_of`：本身没有 `lookups` 的列，是哪些读取的关联键，`{table, where, key, rule, read_by}`，`read_by` 是同表里经这个
   JOIN 读值的列；`read_by` 为空（`read by no column`）的是死关联或只用来过滤行，不是码值集的证据，起草时
   不为它建码值集——码值集只为有列读取的 `where` 组合建。顺序取这些列回退的顺序，不取 JOIN 书写顺序；两列回退顺序相反时保留 JOIN 顺序，并用
   `key_of_order: "unknown"` 标明。
@@ -939,17 +948,40 @@ catalog 前缀）；某个码值集 `lookup` 所指的表算「码值来源」�
 值来自内联 `VALUES` 列表或其他非表来源的也不列出。措辞是中性的——「读 <表> 中 <列> = '<字面量>' 的行」——
 因为同样的形状挑出角色、语言或行版本的次数不比挑字典类型少。同时给 `--catalog` 时，表与 `where` 恰好等于某个
 码值集 `lookup.table` 与 `lookup.filter` 的读取加上 `code_set: <id>`，`reads` 是该码值集的含义列或代理键列时
-加上 `reads_as: "meaning"` / `"key"`。
+加上 `reads_as: "meaning"` / `"key"`。读取给出了 `key`、而 `key` 不含该码值集的 `lookup.code_column` 时——按存下的含义
+反查回码——它不是这个码值集的翻译：不写 `code_set`，改写 `code_set_mismatch: {code_set, code_column}`（md 写
+`code set <id> looks up by <列> (reverse lookup?)`）。没有 `key` 的读取照旧按表与 filter 打标签。
+
+粒度列或 `identifier` 类别的列上的 `key_of` 项加上 `keyed_by: "row_identifier"`，读它的各列里同一次读取（规则与表
+相同）的 `lookups` 项也加上：这个关联挑的是描述同一条记录的行——这个实体的属性行、这次通话的参与方——不是码值
+翻译。读出的列是属性，不是码值集的证据。键是外部标识列的读取不带这个标记，仍可能是别的实体的属性行。
+
+`key`、`lookups_by`、`source`、`other_sources`、`code_set_mismatch` 与 `keyed_by` 不改 `catalog-digest/1`；
+两处含义收窄：`fallback` 只是同来源内的真回退，已知关联列时 `code_set` 要求关联列匹配。
 
 ```json
 {
   "column": "c_desc",
   "meaning": "type description",
   "lookups": [
-    {"table": "demo_dim.dim_code_dict", "where": {"code_type": "TypeA"}, "reads": "code_desc", "rule": "logic:ROOT:join:002", "code_set": "code:type_a", "reads_as": "meaning"},
-    {"table": "demo_dim.dim_code_dict", "where": {"code_type": "TypeB"}, "reads": "code_desc", "rule": "logic:ROOT:join:001"}
+    {"table": "demo_dim.dim_code_dict", "where": {"code_type": "TypeA"}, "reads": "code_desc", "key": ["code_val"], "rule": "logic:ROOT:join:002", "code_set": "code:type_a", "reads_as": "meaning"},
+    {"table": "demo_dim.dim_code_dict", "where": {"code_type": "TypeB"}, "reads": "code_desc", "key": ["code_val"], "rule": "logic:ROOT:join:001"}
   ],
   "fallback": ["demo_ods.ods_order_df.c"]
+}
+```
+
+一个 UNION 分支查字典代理键、另一个分支存原码的列：
+
+```json
+{
+  "column": "st_id",
+  "meaning": "status key",
+  "lookups_by": "source",
+  "lookups": [
+    {"table": "demo_dim.dim_code_dict", "where": {"code_type": "TypeOut"}, "reads": "dict_key", "key": ["code_val"], "rule": "logic:union:main:b01:join:001", "source": "union:main:b01"}
+  ],
+  "other_sources": {"union:main:b02": ["demo_ods.ods_order_b_df.st"]}
 }
 ```
 

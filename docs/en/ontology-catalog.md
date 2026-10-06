@@ -1058,13 +1058,26 @@ binding's `holds` are written from, so the drafter need not go back to the SQL f
 
 - `lookups`: the joined inputs the value is read through, in the order the expression
   reads them (the argument order of a `COALESCE(d1.x, d2.x, a.c)` fallback). Each is
-  `{table, where, reads, rule}`: the rows of `table` where every `where` column equals its
-  string literal, the column `reads` of those rows, and the JOIN's logic block id in the
-  lineage;
+  `{table, where, reads, key, rule}`: the rows of `table` where every `where` column equals its
+  string literal, the column `reads` of those rows, the joined input's physical join columns
+  `key` (one per key pair, in pair order; absent when the JOIN compares an expression, so no
+  column can be named -- never guessed), and the JOIN's logic block id in the lineage;
 - `fallback`: the non-looked-up physical columns the same value falls back to (the raw
-  code at the end of a `COALESCE`), only beside `lookups`;
+  code at the end of a `COALESCE`), only beside `lookups`, and only those reaching the value
+  through the same source as some lookup;
+- `lookups_by: "source"`: the column is written by several sources -- UNION branches, or
+  several statements writing the table -- and they read separately: each lookup gains
+  `source` (the UNION branch scope id when one statement writes them all, otherwise
+  `<task>/<statement>`, with `/<branch>` when it splits too), and only lookups of one source
+  are in fallback order. A UNION splits only when no expression above it combines several
+  inputs: a `COALESCE` whose main input is a UNION CTE is still one fallback. A UNION inside a
+  joined input is that one input, not a source. The key's name matches the catalog's
+  `code_sets_by: source`;
+- `other_sources`: with `lookups_by`, `{source: [db.table.column]}` for the physical columns a
+  source with no lookup stores directly -- not a fallback. A source that only copies the
+  target's own column forward carries what another source wrote and is not listed;
 - `key_of`: for a column with no `lookups` of its own, the reads it is the join key of,
-  `{table, where, rule, read_by}`, `read_by` naming the columns of the same table that read
+  `{table, where, key, rule, read_by}`, `read_by` naming the columns of the same table that read
   through that JOIN. They are ordered the way those columns fall back through them, not in
   JOIN order; when two columns fall back in opposite orders the JOIN order is kept and
   `key_of_order: "unknown"` says so. A read with an empty `read_by` (`read by no column`) is a
@@ -1084,16 +1097,46 @@ another non-table source is not listed either. The wording is neutral -- "reads 
 a row version as often as a dictionary type. With `--catalog` as well, a read whose table and
 `where` equal a code set's `lookup.table` and `lookup.filter` gains `code_set: <id>`, and a
 `reads` that is that code set's meaning or key column gains `reads_as: "meaning"` / `"key"`.
+When the read names its `key` and the key does not include the code set's `lookup.code_column`
+-- a stored meaning looked up back to its code -- it is not that code set's translation: it gains
+`code_set_mismatch: {code_set, code_column}` instead of `code_set` (the md says
+`code set <id> looks up by <column> (reverse lookup?)`). A read with no `key` is tagged by table
+and filter as before.
+
+A `key_of` entry on a column that is one of the table's grain columns or an `identifier`
+column gains `keyed_by: "row_identifier"`, and so does the same read (rule and table) in each
+column reading it: the join picks rows describing the same record -- an attribute row of
+this entity, a participant of this call -- not a code's translation. The column it reads is
+an attribute, not evidence for a code set. A read keyed by a foreign identifier carries no
+mark and may still be another entity's attribute row.
+
+`catalog-digest/1` does not move with `key`, `lookups_by`, `source`, `other_sources`,
+`code_set_mismatch` and `keyed_by`; two meanings narrow: `fallback` is a true fallback of the
+same source only, and `code_set` needs a matching join column when the key is known.
 
 ```json
 {
   "column": "c_desc",
   "meaning": "type description",
   "lookups": [
-    {"table": "demo_dim.dim_code_dict", "where": {"code_type": "TypeA"}, "reads": "code_desc", "rule": "logic:ROOT:join:002", "code_set": "code:type_a", "reads_as": "meaning"},
-    {"table": "demo_dim.dim_code_dict", "where": {"code_type": "TypeB"}, "reads": "code_desc", "rule": "logic:ROOT:join:001"}
+    {"table": "demo_dim.dim_code_dict", "where": {"code_type": "TypeA"}, "reads": "code_desc", "key": ["code_val"], "rule": "logic:ROOT:join:002", "code_set": "code:type_a", "reads_as": "meaning"},
+    {"table": "demo_dim.dim_code_dict", "where": {"code_type": "TypeB"}, "reads": "code_desc", "key": ["code_val"], "rule": "logic:ROOT:join:001"}
   ],
   "fallback": ["demo_ods.ods_order_df.c"]
+}
+```
+
+A column one UNION branch reads off a dictionary key while the other stores its code:
+
+```json
+{
+  "column": "st_id",
+  "meaning": "status key",
+  "lookups_by": "source",
+  "lookups": [
+    {"table": "demo_dim.dim_code_dict", "where": {"code_type": "TypeOut"}, "reads": "dict_key", "key": ["code_val"], "rule": "logic:union:main:b01:join:001", "source": "union:main:b01"}
+  ],
+  "other_sources": {"union:main:b02": ["demo_ods.ods_order_b_df.st"]}
 }
 ```
 

@@ -3,6 +3,30 @@
 ## Unreleased
 
 ### Changed
+- **`catalog digest --lineage`: reads by source, the join column, reverse lookups and rows keyed
+  by the record.** Four facts the digest flattened or dropped are now said per read
+  (`catalog-digest/1` keeps its version; every new key appears only with content):
+  - A column written by several sources -- UNION branches, or several statements writing the
+    table -- that read separately gains `lookups_by: "source"`, each lookup its `source`, and
+    `other_sources` lists the physical columns a source with no lookup stores directly. Before,
+    such reads were chained as `A, then B` and another branch's stored code was reported as a
+    `fallback`. A UNION splits only when no expression above it combines several inputs, so a
+    `COALESCE` over a UNION CTE stays a fallback. **Narrowed meaning:** `fallback` now means a
+    true fallback within one source only. The md reads `by source: <s1> reads A; <s2> stores
+    t.c directly`, or `every source reads A` when every source reads the same rows.
+  - Every read (`lookups` and `key_of`) gains `key`: the code table's physical join columns, in
+    key-pair order; absent when the join compares an expression. The md adds `keyed on <col>`.
+  - With `--catalog`, a read whose `key` does not include the matching code set's
+    `lookup.code_column` -- a stored meaning looked up back to its code -- gets
+    `code_set_mismatch: {code_set, code_column}` instead of `code_set` (md:
+    `reverse lookup?`). **Narrowed meaning:** `code_set` now also needs the join column to match
+    when the key is known.
+  - A `key_of` read whose join key is one of the table's grain columns or an `identifier`
+    column, and the same read in each column reading it, gains `keyed_by: "row_identifier"`:
+    an attribute row of the same record, not a code translation.
+
+  Without `--lineage` the digest is byte for byte unchanged. `SKILL.md` and the catalog
+  fragment prompt now tell a drafter how each key changes the bindings it writes.
 - **Catalog: a stored name of an attribute with no code set may say `holds: [meaning]`.**
   `binding_holds_code_set` rejected every `holds` with `meaning` or `key` that reached no code
   set, which also blocked a source system's name column stored beside its code when the

@@ -18,8 +18,15 @@
 - 分配（编排者给出）：本组的概念 id 列表；分给本组的表，以及每张表初拟的概念、表现类型、粒度、时间语义。
   只有一组、分配没写这些时，由你来定，并在 `notes` 里说明。
 - 起草材料：`<digest-dir>/digest.md`（`catalog digest --lineage` 的输出）里本组的表。列下「Joined inputs read
-  (from the lineage)」一行（`digest.json` 里列的 `lookups` / `fallback` / `key_of`）给出查码值的事实：读哪张表、
-  按什么常量（`where` 原样就是 `lookup.filter`）、回退顺序（就是 `code_sets` 的顺序）、读的是哪一列（定 `holds`）。
+  (from the lineage)」一行（`digest.json` 里列的 `lookups` / `fallback` / `other_sources` / `key_of`）给出查码值的事实：
+  读哪张表、按什么常量（`where` 原样就是 `lookup.filter`）、按码表哪一列关联（`key`，即 `lookup.code_column`）、
+  读的是哪一列（定 `holds`）。列上没有 `lookups_by` 时 `lookups` 是真回退，顺序就是 `code_sets` 的顺序；
+  有 `lookups_by: "source"`（md 写 `by source: …`）时各来源各查各的，`code_sets` 列上各来源的码值集并写
+  `"code_sets_by": "source"`，md 写 `every source reads …` 的各来源是同一个码值集，只写一个、不写这个键。
+  `other_sources`（md 写 `<来源> stores … directly`）是别的来源直接存的原码，不是回退，`holds` 末尾加 `"code"`。
+  带 `code_set_mismatch`（md 写 `reverse lookup?`）的是按含义反查回码，写进 `derivation`，不当作码值集的翻译。
+  带 `keyed_by: "row_identifier"`（md 写 `keyed by this table's row identifier`）的读取读的是同一条记录的属性行：
+  读出的列绑成属性，不建码值集。
   有这一行的列不必为这些事实去读 SQL；标了 `order unknown` 的，或 digest 不是带 `--lineage` 生成的，才读 SQL。
   `key_of` 里写着 `read by no column`（`read_by` 为空）的读取没有任何列读它的值：是死关联或只用来过滤行，
   不是码值集的证据。
