@@ -27,6 +27,7 @@ from .table_semantics_demo import CONFIRMATIONS, EXAMPLE, read_json, write_json
 ORDERS = "demo_ods.ods_order_df"
 DICT = "demo_dim.dim_code_dict"
 PARTY = "demo_ods.ods_party_df"
+ORDERS_B = "demo_ods.ods_order_b_df"
 
 T_FALLBACK = "demo_dwd.dwd_order_fallback_df"
 T_FILTERED = "demo_dwd.dwd_order_filtered_df"
@@ -36,6 +37,10 @@ T_CONFLICT = "demo_dwd.dwd_order_conflict_df"
 T_PLAIN = "demo_dwd.dwd_order_plain_df"
 T_CYCLE = "demo_dwd.dwd_order_cycle_df"
 T_KEYED = "demo_dwd.dwd_order_keyed_df"
+T_UNION = "demo_dwd.dwd_order_union_df"
+T_UNION_COALESCE = "demo_dwd.dwd_order_union_coalesce_df"
+T_MULTI = "demo_dwd.dwd_order_multi_df"
+T_MULTI_RAW = "demo_dwd.dwd_order_multi_raw_df"
 
 # The code dictionary: `dt` and `snap_day` are its partition columns. The schema says so
 # for both; the lineage only says the table is partitioned, so without `--schema` only
@@ -47,6 +52,7 @@ SCHEMA_TABLES = {
         ("kind", 0), ("lang", 0), ("dt", 1), ("snap_day", 1),
     ],
     PARTY: [("party_id", 0), ("role_type", 0), ("party_name", 0), ("dt", 1)],
+    ORDERS_B: [("order_id", 0), ("st", 0), ("dt", 1)],
     T_FALLBACK: [("order_id", 0), ("c_cd", 0), ("c_desc", 0), ("c_key", 0), ("owner_name", 0)],
     T_FILTERED: [("order_id", 0), ("s_desc", 0), ("p_name", 0), ("latest_name", 0)],
     T_SHARED: [("order_id", 0), ("x_desc", 0), ("y_desc", 0), ("z_desc", 0)],
@@ -55,6 +61,10 @@ SCHEMA_TABLES = {
     T_PLAIN: [("order_id", 0), ("p_name", 0)],
     T_CYCLE: [("order_id", 0), ("c_cd", 0), ("ab_desc", 0), ("bc_desc", 0), ("ca_desc", 0)],
     T_KEYED: [("order_id", 0), ("r_cd", 0), ("e_desc", 0), ("k_desc", 0)],
+    T_UNION: [("order_id", 0), ("st_desc", 0), ("same_desc", 0), ("st_id", 0)],
+    T_UNION_COALESCE: [("order_id", 0), ("u_cd", 0), ("u_desc", 0)],
+    T_MULTI: [("order_id", 0), ("m_desc", 0)],
+    T_MULTI_RAW: [("order_id", 0), ("w_desc", 0)],
 }
 
 TASKS = {
@@ -146,6 +156,62 @@ FROM {ORDERS} a
 LEFT JOIN {DICT} r ON a.label = r.code_desc AND r.code_type = 'TypeA'
 LEFT JOIN {DICT} e ON IF(a.c = '', a.c2, a.c) = e.code_val AND e.code_type = 'TypeA'
 LEFT JOIN {DICT} k ON a.c = k.code_val AND a.s = k.kind AND k.code_type = 'TypeB'
+""",
+    # #30: two UNION branches, each reading its own rows (st_desc), the same rows
+    # (same_desc), or one reading a dictionary key while the other stores its code (st_id).
+    "order_union": f"""
+INSERT OVERWRITE TABLE {T_UNION}
+SELECT a.order_id, d.code_desc AS st_desc, d2.code_desc AS same_desc, d.dict_key AS st_id
+FROM {ORDERS} a
+LEFT JOIN {DICT} d ON a.s = d.code_val AND d.code_type = 'TypeOut'
+LEFT JOIN {DICT} d2 ON a.s = d2.code_val AND d2.code_type = 'TypeShared'
+UNION ALL
+SELECT b.order_id, e.code_desc AS st_desc, e2.code_desc AS same_desc, b.st AS st_id
+FROM {ORDERS_B} b
+LEFT JOIN {DICT} e ON b.st = e.code_val AND e.code_type = 'TypeIn'
+LEFT JOIN {DICT} e2 ON b.st = e2.code_val AND e2.code_type = 'TypeShared'
+""",
+    # #30 guard: a real fallback whose main input is a UNION CTE stays a fallback.
+    "order_union_coalesce": f"""
+WITH u AS (
+  SELECT order_id, s AS uc FROM {ORDERS}
+  UNION ALL
+  SELECT order_id, st AS uc FROM {ORDERS_B}
+)
+INSERT OVERWRITE TABLE {T_UNION_COALESCE}
+SELECT u.order_id, u.uc AS u_cd, COALESCE(d1.code_desc, d2.code_desc, u.uc) AS u_desc
+FROM u
+LEFT JOIN {DICT} d1 ON u.uc = d1.code_val AND d1.code_type = 'TypeA'
+LEFT JOIN {DICT} d2 ON u.uc = d2.code_val AND d2.code_type = 'TypeB'
+""",
+    # #30: two statements write one table, each reading its own type.
+    "order_multi_out": f"""
+INSERT INTO TABLE {T_MULTI}
+SELECT a.order_id, d.code_desc AS m_desc
+FROM {ORDERS} a
+LEFT JOIN {DICT} d ON a.s = d.code_val AND d.code_type = 'TypeOut'
+""",
+    "order_multi_in": f"""
+INSERT INTO TABLE {T_MULTI}
+SELECT b.order_id, d.code_desc AS m_desc
+FROM {ORDERS_B} b
+LEFT JOIN {DICT} d ON b.st = d.code_val AND d.code_type = 'TypeIn'
+""",
+    # #30: a third statement only copies the table's own column forward: not a source.
+    "order_multi_self": f"""
+INSERT OVERWRITE TABLE {T_MULTI}
+SELECT t.order_id, t.m_desc FROM {T_MULTI} t
+""",
+    # #30: one statement reads the dictionary, another stores another table's column.
+    "order_multi_raw_lookup": f"""
+INSERT INTO TABLE {T_MULTI_RAW}
+SELECT a.order_id, d.code_desc AS w_desc
+FROM {ORDERS} a
+LEFT JOIN {DICT} d ON a.s = d.code_val AND d.code_type = 'TypeOut'
+""",
+    "order_multi_raw_store": f"""
+INSERT INTO TABLE {T_MULTI_RAW}
+SELECT b.order_id, b.st AS w_desc FROM {ORDERS_B} b
 """,
     # Test 8: a join with no constant condition only supplements a field.
     "order_plain": f"""
@@ -441,6 +507,88 @@ def test_31_the_markdown_names_the_join_column(with_catalog) -> None:
     assert "keyed on code_val, kind" in item_line(lines, "k_desc")
     fallback = text.split(f"## {T_FALLBACK}")[1].split("\n## ")[0]
     assert "(code_desc; keyed on code_val; code set code:type_a, meaning)" in fallback
+
+
+# ------------------------------------------------------------------ #30 per source vs fallback
+
+
+def _section(digest: dict, table: str) -> list[str]:
+    from scope_lineage.catalog import render_digest_markdown
+
+    text = render_digest_markdown(digest)
+    section = text.split(f"## {table}\n")[1].split("\n## ")[0]
+    return [line for line in section.splitlines() if line.startswith("  - ")]
+
+
+def test_30_union_branches_each_reading_their_own_rows_are_read_by_source(digest) -> None:
+    column = _columns(digest, T_UNION)["st_desc"]
+
+    assert column["lookups_by"] == "source"
+    assert _where(column["lookups"]) == [{"code_type": "TypeOut"}, {"code_type": "TypeIn"}]
+    sources = [entry["source"] for entry in column["lookups"]]
+    assert len(set(sources)) == 2 and all(sources)
+    assert "fallback" not in column and "other_sources" not in column
+    line = item_line(_section(digest, T_UNION), "st_desc")
+    assert ", then" not in line
+    assert line.startswith("  - st_desc: by source: ")
+    assert f"{sources[0]} reads rows of {DICT} where code_type = 'TypeOut'" in line
+    assert f"{sources[1]} reads rows of {DICT} where code_type = 'TypeIn'" in line
+
+
+def test_30_union_branches_reading_the_same_rows_say_so_once(digest) -> None:
+    column = _columns(digest, T_UNION)["same_desc"]
+
+    assert column["lookups_by"] == "source"
+    assert _where(column["lookups"]) == [{"code_type": "TypeShared"}] * 2
+    line = item_line(_section(digest, T_UNION), "same_desc")
+    assert f"every source reads rows of {DICT} where code_type = 'TypeShared'" in line
+    assert ", then" not in line and line.count("TypeShared") == 1
+
+
+def test_30_a_branch_storing_its_code_directly_is_not_a_fallback(digest) -> None:
+    column = _columns(digest, T_UNION)["st_id"]
+
+    [read] = column["lookups"]
+    assert (read["reads"], read["where"]) == ("dict_key", {"code_type": "TypeOut"})
+    assert column["lookups_by"] == "source"
+    assert "fallback" not in column
+    [(source, stored)] = column["other_sources"].items()
+    assert stored == [f"{ORDERS_B}.st"] and source != read["source"]
+    line = item_line(_section(digest, T_UNION), "st_id")
+    assert "falls back" not in line
+    assert f"{source} stores {ORDERS_B}.st directly" in line
+
+
+def test_30_a_coalesce_over_a_union_input_is_still_a_fallback(digest) -> None:
+    column = _columns(digest, T_UNION_COALESCE)["u_desc"]
+
+    assert "lookups_by" not in column
+    assert all("source" not in entry for entry in column["lookups"])
+    assert _where(column["lookups"]) == [{"code_type": "TypeA"}, {"code_type": "TypeB"}]
+    assert column["fallback"] == [f"{ORDERS}.s", f"{ORDERS_B}.st"]
+    assert "other_sources" not in column
+    assert ", then" in item_line(_section(digest, T_UNION_COALESCE), "u_desc")
+
+
+def test_30_two_statements_writing_one_table_are_two_sources(digest) -> None:
+    column = _columns(digest, T_MULTI)["m_desc"]
+
+    assert column["lookups_by"] == "source"
+    assert sorted(entry["where"]["code_type"] for entry in column["lookups"]) == ["TypeIn", "TypeOut"]
+    assert column["lookups"][0]["rule"] == column["lookups"][1]["rule"]  # rule ids cannot tell
+    sources = [entry["source"] for entry in column["lookups"]]
+    assert len(set(sources)) == 2
+    assert ", then" not in item_line(_section(digest, T_MULTI), "m_desc")
+    assert "other_sources" not in column  # the statement copying the table's own column
+
+
+def test_30_another_statement_storing_a_column_directly_is_another_source(digest) -> None:
+    column = _columns(digest, T_MULTI_RAW)["w_desc"]
+
+    assert column["lookups_by"] == "source"
+    assert [entry["source"] for entry in column["lookups"]] == ["order_multi_raw_lookup/stmt:001"]
+    assert column["other_sources"] == {"order_multi_raw_store/stmt:001": [f"{ORDERS_B}.st"]}
+    assert "fallback" not in column
 
 
 # ------------------------------------------------------------------ 8 unchanged output

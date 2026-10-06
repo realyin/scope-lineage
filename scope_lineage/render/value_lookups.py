@@ -137,6 +137,7 @@ class _Leaf:
     conditions: list = field(default_factory=list)
     rule: Optional[str] = None
     key: Optional[list] = None  # the joined input's physical join columns, set with ``rule``
+    source: Optional[str] = None  # the UNION branch the value comes through, when it splits
 
 
 @dataclass
@@ -149,6 +150,7 @@ class _Read:
     where: dict
     reads: Optional[str] = None
     key: Optional[list] = None
+    source: tuple = ()  # (statement, UNION branch or None): which source of the rows reads it
 
     def identity(self) -> tuple:
         return (self.statement, self.rule, self.table, tuple(self.where.items()))
@@ -158,23 +160,49 @@ class _Read:
 class _Column:
     name: str
     lookups: list = field(default_factory=list)
-    fallback: list = field(default_factory=list)
+    direct: list = field(default_factory=list)  # (source, db.table.column) stored as read
     key_of: list = field(default_factory=list)
 
     def published(self, siblings: Mapping[str, "_Column"]) -> dict:
         if self.lookups:
-            facts: dict = {
-                "lookups": [
-                    {"table": read.table, "where": dict(read.where), "reads": read.reads,
-                     **_key(read), "rule": read.rule}
-                    for read in self.lookups
-                ]
-            }
-            if self.fallback:
-                facts["fallback"] = list(self.fallback)
-            return facts
+            return self._published_lookups()
         if not self.key_of:
             return {}
+        return self._published_key_of(siblings)
+
+    def _published_lookups(self) -> dict:
+        """``lookups`` with ``fallback``; split by source when the rows come from several.
+
+        A physical column stored without a lookup is a ``fallback`` only when it comes
+        through the same source (statement and UNION branch) as some lookup; one another
+        source stores directly goes to ``other_sources`` under that source's name.
+        """
+        reading = list(dict.fromkeys(read.source for read in self.lookups))
+        sources = list(dict.fromkeys(reading + [source for source, _ in self.direct]))
+        names = _source_names(sources)
+        split = len(sources) > 1
+        facts: dict = {
+            "lookups": [
+                {"table": read.table, "where": dict(read.where), "reads": read.reads,
+                 **_key(read), "rule": read.rule,
+                 **({"source": names[read.source]} if split else {})}
+                for read in self.lookups
+            ]
+        }
+        if split:
+            facts = {"lookups_by": "source", **facts}
+        fallback = list(dict.fromkeys(ref for source, ref in self.direct if source in reading))
+        if fallback:
+            facts["fallback"] = fallback
+        others: dict[str, list[str]] = {}
+        for source, ref in self.direct:
+            if source not in reading and ref not in others.setdefault(names[source], []):
+                others[names[source]].append(ref)
+        if others:
+            facts["other_sources"] = others
+        return facts
+
+    def _published_key_of(self, siblings: Mapping[str, "_Column"]) -> dict:
         ordered, known = _key_order(self.key_of, siblings)
         facts = {
             "key_of": [
@@ -215,11 +243,18 @@ class _StatementReader:
                 if read.identity() not in known:
                     column.lookups.append(read)
                     known.add(read.identity())
+            reading = {read.source for read in lookups}
+            for leaf, read in zip(leaves, reads):
+                source = (self.key, leaf.source)
+                direct = source, f"{bare_table(leaf.table)}.{leaf.column}"
+                if read is not None or not leaf.physical or direct in column.direct:
+                    continue
+                # A source that only copies the target's own column forward carries values
+                # another source wrote; it is not a source of its own.
+                if bare_table(leaf.table) == target and source not in reading:
+                    continue
+                column.direct.append(direct)
             if lookups:
-                for leaf, read in zip(leaves, reads):
-                    reference = f"{bare_table(leaf.table)}.{leaf.column}"
-                    if read is None and leaf.physical and reference not in column.fallback:
-                        column.fallback.append(reference)
                 continue
             known_keys = {read.identity() for read in column.key_of}
             for read in self._key_of(visited):
@@ -245,22 +280,37 @@ class _StatementReader:
 
     def _trace_output(self, scope_id: str, output: Mapping):
         visited: set[tuple[str, str]] = set()
-        leaves = self._sources(scope_id, output, False, frozenset(), visited)
+        leaves = self._sources(scope_id, output, False, frozenset(), visited, False)
         return leaves, visited
 
-    def _trace(self, scope_id: str, name: str, joined: bool, seen: frozenset, visited: set):
+    def _trace(
+        self, scope_id: str, name: str, joined: bool, seen: frozenset, visited: set,
+        combined: bool = True,
+    ):
         key = (scope_id, str(name).lower())
         if key in seen or len(seen) > _MAX_DEPTH:
             return []
         scope = self.scopes.get(scope_id) or {}
         for output in scope.get("outputs") or []:
             if str(output.get("name")).lower() == key[1]:
-                return self._sources(scope_id, output, joined, seen | {key}, visited)
+                return self._sources(scope_id, output, joined, seen | {key}, visited, combined)
         return []
 
-    def _sources(self, scope_id, output, joined, seen, visited) -> list[_Leaf]:
+    def _sources(self, scope_id, output, joined, seen, visited, combined=True) -> list[_Leaf]:
+        """The leaves ``output``'s value is read from.
+
+        ``combined`` says an expression above already merges several inputs into one value
+        (a COALESCE, a CASE, arithmetic). While it is false, a UNION on the path splits the
+        value by source: each leaf below a branch records that branch as its ``source``
+        (the outermost UNION wins), so a per-branch read is not mistaken for a fallback. A
+        UNION below a JOIN is one joined input (a dictionary built from two tables), not a
+        source of the written rows, and does not split.
+        """
+        sources = output.get("sources") or []
+        union = (self.scopes.get(scope_id) or {}).get("kind") == "union"
+        below_combined = combined or (len(sources) > 1 and not union)
         leaves: list[_Leaf] = []
-        for source in output.get("sources") or []:
+        for source in sources:
             ref_id = str(source.get("input_ref_id") or "")
             column = str(source.get("column") or "")
             if ref_id:
@@ -280,10 +330,12 @@ class _StatementReader:
             inner = source.get("scope")
             if inner in self.scopes:
                 below = self._scope_filters(inner) if via else []
-                for leaf in self._trace(inner, column, via, seen, visited):
+                for leaf in self._trace(inner, column, via, seen, visited, below_combined):
                     leaf.conditions = conditions + below + leaf.conditions
                     if leaf.rule is None:
                         leaf.rule, leaf.key = rule, keys
+                    if union and not (combined or joined):
+                        leaf.source = str(inner)
                     leaves.append(leaf)
             else:
                 leaves.append(_Leaf(
@@ -300,7 +352,10 @@ class _StatementReader:
         where = self._where(leaf.conditions, bare_table(leaf.table))
         if not where:
             return None
-        return _Read(self.key, leaf.rule, bare_table(leaf.table), where, leaf.column, leaf.key)
+        return _Read(
+            self.key, leaf.rule, bare_table(leaf.table), where, leaf.column, leaf.key,
+            (self.key, leaf.source),
+        )
 
     def _where(self, conditions: list[_Condition], table: str) -> dict:
         where: dict[str, str] = {}
@@ -447,6 +502,20 @@ class _StatementReader:
         return None
 
 
+def _source_names(sources: list[tuple]) -> dict[tuple, str]:
+    """A name per source: its UNION branch id when one statement writes them all, else
+    ``<task>/<statement>`` (with ``/<branch>`` when it splits too)."""
+    one_statement = len({statement for statement, _branch in sources}) == 1
+    names = {}
+    for source in sources:
+        (task, statement), branch = source
+        if one_statement:
+            names[source] = branch or statement
+        else:
+            names[source] = f"{task}/{statement}" + (f"/{branch}" if branch else "")
+    return names
+
+
 def _key(read: _Read) -> dict:
     return {"key": list(read.key)} if read.key else {}
 
@@ -503,16 +572,18 @@ def _key_order(reads: list[_Read], siblings: Mapping[str, _Column]) -> tuple[lis
     """
     before: set[tuple[int, int]] = set()
     for column in siblings.values():
-        sequence = [
-            index for other in column.lookups
-            for index, read in enumerate(reads) if _same_read(read, other)
-        ]
-        sequence = list(dict.fromkeys(sequence))
-        before.update(
-            (first, second)
-            for position, first in enumerate(sequence)
-            for second in sequence[position + 1:]
-        )
+        # Only reads of one source follow each other; separate sources have no order.
+        for source in dict.fromkeys(other.source for other in column.lookups):
+            sequence = [
+                index for other in column.lookups if other.source == source
+                for index, read in enumerate(reads) if _same_read(read, other)
+            ]
+            sequence = list(dict.fromkeys(sequence))
+            before.update(
+                (first, second)
+                for position, first in enumerate(sequence)
+                for second in sequence[position + 1:]
+            )
     if any((second, first) in before for first, second in before):
         return list(reads), False
     placed: list[int] = []

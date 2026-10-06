@@ -125,7 +125,7 @@ def _column(column: dict, facts: Optional[dict] = None, code_sets: Optional[list
 def _lookup_facts(facts: dict, code_sets: list[dict]) -> dict:
     """A column's lookup facts, each read tagged with the code set it matches, if any."""
     result: dict = {}
-    for key in ("lookups", "fallback", "key_of", "key_of_order"):
+    for key in ("lookups_by", "lookups", "fallback", "other_sources", "key_of", "key_of_order"):
         if key not in facts:
             continue
         value = facts[key]
@@ -340,11 +340,10 @@ def _lookup_lines(entry: dict) -> list[str]:
     for key in _LISTED.values():
         for column in entry[key]:
             parts = []
-            if column.get("lookups"):
-                parts.append("reads " + ", then ".join(
-                    _read_text(read) + f" ({_read_note(read, read['reads'])})"
-                    for read in column["lookups"]
-                ))
+            if column.get("lookups_by") == "source":
+                parts.append(_by_source_text(column))
+            elif column.get("lookups"):
+                parts.append("reads " + _reads_text(column["lookups"]))
             if column.get("fallback"):
                 parts.append("falls back to " + ", ".join(column["fallback"]))
             if column.get("key_of"):
@@ -356,6 +355,31 @@ def _lookup_lines(entry: dict) -> list[str]:
             if parts:
                 lines.append(f"  - {column['column']}: " + "; ".join(parts))
     return ["- Joined inputs read (from the lineage):", *lines] if lines else []
+
+
+def _reads_text(reads: list[dict]) -> str:
+    """Reads in the order one value falls back through them: ``A, then B``."""
+    return ", then ".join(
+        _read_text(read) + f" ({_read_note(read, read['reads'])})" for read in reads
+    )
+
+
+def _by_source_text(column: dict) -> str:
+    """``by source: <s1> reads A; <s2> stores t.c directly`` -- or ``every source reads A``
+    when every source reads the same rows the same way and none stores a column directly."""
+    by_source: dict[str, list[dict]] = {}
+    for read in column["lookups"]:
+        by_source.setdefault(read["source"], []).append(read)
+    others = column.get("other_sources") or {}
+    shapes = {
+        tuple((read["table"], tuple(read["where"].items()), read["reads"]) for read in reads)
+        for reads in by_source.values()
+    }
+    if len(by_source) > 1 and len(shapes) == 1 and not others:
+        return "every source reads " + _reads_text(next(iter(by_source.values())))
+    parts = [f"{source} reads {_reads_text(reads)}" for source, reads in by_source.items()]
+    parts += [f"{source} stores {', '.join(stored)} directly" for source, stored in others.items()]
+    return "by source: " + "; ".join(parts)
 
 
 def _readers_text(read: dict) -> str:
