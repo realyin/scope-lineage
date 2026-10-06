@@ -50,7 +50,7 @@
     ]
   },
   "code_sets": [
-    {"id": "code:<slug>", "name": "中文名", "values": [{"value": "...", "meaning": "..."}],
+    {"id": "code:<slug>", "name": "中文名", "values": [{"value": "...", "meaning": "...", "key": "可选，内联字典里与它配对的代理键"}],
      "status": "drafted", "source": "comment|sql", "evidence": ["库.表.列"]},
     {"id": "code:<slug>", "name": "码值在码值表里的码值集", "values": [],
      "lookup": {"table": "库.码值表", "code_column": "码列",
@@ -139,8 +139,10 @@
     就要写自己的 `code_sets`；`["key"]` 总要有码值集。
   - CASE 的 ELSE（或某个分支）没有源码可言（如 `x = '0'` 写 A、其余写 B）：不要为它编一个码；这条规则写进 binding 的
     `derivation`（需要时也写进码值集的 `definition`）。
-  - 内联字典（只列 `values` 的码值集）的代理键列照样写 `holds: ["key"]`；它一定会报 `binding_key_without_key_column`，
-    意思是「目录翻译不了这个代理键」，这是实话，不要为消警告改成 `code`。
+  - 内联字典（只列 `values` 的码值集）带代理键列时，在码值集的每个值上写 `"key"`（字典里与这个码配对的代理键，
+    如 `{"value": "1", "meaning": "接通", "key": "<字典里的代理键>"}`），代理键列写 `holds: ["key"]`；不要把代理键写进
+    绑定的 `code_map`。值上没写 `key` 时这一列会报 `binding_key_without_key_column`（目录翻译不了这个代理键），
+    这是实话，不要为消警告改成 `code`。
   - 查码值表只为把码翻成含义的列是**码列**：绑成 `attribute` 并挂 `code_set`，不要绑成 `foreign_identifier`（码值表不是概念）。
     真正的外部标识符列若也被拿去查码值表，工具允许在它上面写 `code_sets`（再写 `holds` 必须有 `code_sets`），
     只在查询答案和码值集页显示，标识符页不显示。

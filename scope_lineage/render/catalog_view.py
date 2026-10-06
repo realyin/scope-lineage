@@ -121,11 +121,24 @@ def unconfirmed_guess(value: Mapping) -> str:
 
 
 def code_value_text(value: Mapping) -> str:
-    """``1=normal``, or ``9（含义待确认：guess）`` when the meaning is not confirmed."""
+    """``1=normal``, or ``9（含义待确认：guess）`` when the meaning is not confirmed; a
+    value carrying its dictionary's surrogate key adds ``（代理键 k）``."""
+    key = f"（代理键 {value['key']}）" if value.get("key") not in (None, "") else ""
     if not is_unconfirmed(value):
-        return f"{value['value']}={value['meaning']}"
+        return f"{value['value']}={value['meaning']}{key}"
     guess = unconfirmed_guess(value)
-    return f"{value['value']}（含义待确认{'：' + guess if guess else ''}）"
+    return f"{value['value']}（含义待确认{'：' + guess if guess else ''}）{key}"
+
+
+def scope_by_text(scope) -> str:
+    """The columns an identifier's ``scope.by`` names, ``table.column`` when qualified;
+    empty when the scope has none."""
+    if not isinstance(scope, Mapping):
+        return ""
+    return "、".join(
+        f"{item['table']}.{item['column']}" if item.get("table") else str(item["column"])
+        for item in scope.get("by") or []
+    )
 
 
 def lookup_columns(lookup: Mapping) -> list[tuple[str, str]]:

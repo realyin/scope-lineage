@@ -136,7 +136,8 @@ def _domain(obj: dict) -> dict:
 
 
 def _identifier(obj: dict) -> dict:
-    out = _pick(obj, ("id", "name", "identifies", "scope"))
+    out = _pick(obj, ("id", "name", "identifies"))
+    out["scope"] = _identifier_scope(obj["scope"])
     arises = obj.get("arises_when")
     if arises is not None:
         out["arises_when"] = {"condition": arises} if isinstance(arises, str) else dict(arises)
@@ -148,11 +149,22 @@ def _identifier(obj: dict) -> dict:
     return {**out, **_pick(obj, ("format",)), **_common(obj)}
 
 
+def _identifier_scope(scope):
+    """``global``, or ``{per?, by?}`` with each ``by`` column's table lower-cased."""
+    if not isinstance(scope, dict):
+        return scope
+    out = dict(scope)
+    if "by" in scope:
+        out["by"] = [_spelling(column) for column in scope["by"]]
+    return out
+
+
 def _code_set(obj: dict) -> dict:
     values = [
         {
             "value": str(v["value"]),
             "meaning": v["meaning"],
+            **({"key": str(v["key"])} if "key" in v else {}),
             "retired": bool(v.get("retired", False)),
             "unconfirmed": _unconfirmed(v),
         }

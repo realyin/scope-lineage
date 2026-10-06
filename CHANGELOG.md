@@ -237,6 +237,19 @@
   title saying so and pointing to the catalog workflow. The command, every flag and
   `ontology.json` (`ontology-json/2`) are unchanged, byte for byte.
 ### Added
+- **Catalog: an identifier unique per value of a column, and a code's surrogate key.** Two
+  optional fields, in the catalog, fragment and `ontology-v3` schemas alike (no format
+  version moves; catalogs without them build the same bytes):
+  - An identifier's `scope` object takes `by: [{column, table?}]` (the shape of `spellings`):
+    unique within each value of these physical columns -- a source system, an environment,
+    a discriminator that is no business concept. `per` becomes optional; the object needs at
+    least one of the two, and `per` still names concepts. `build` carries it (tables
+    lower-cased); pages and `catalog query identifier` read 「按 <列> 的每个取值唯一」.
+  - A code set value takes `key` (text or integer): the surrogate key an inline dictionary
+    pairs with the code. `holds: [key]` on a code set whose values carry keys no longer warns
+    `binding_key_without_key_column`; `build` carries `key` as text; pages and queries print
+    「值=含义（代理键 k）」, and `catalog query column` on a key column lists each key with its
+    code and meaning. A tool older than this release rejects either field as a schema error.
 - **Packets carry more of the semantic profile, each key only when it has content.** A column
   producer gains `sql_alias` (the alias a positional write filed under another column;
   packet.md 「（SQL 别名 x，按位置写入）」), `lookup_keys` (the physical keys choosing the row of

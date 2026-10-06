@@ -85,6 +85,13 @@
                 "description": "Empty, or starting 待确认, while the meaning is not confirmed",
                 "type": "string"
               },
+              "key": {
+                "description": "The surrogate key an inline dictionary pairs with this code, when it has one",
+                "type": [
+                  "string",
+                  "integer"
+                ]
+              },
               "retired": {
                 "type": "boolean"
               },

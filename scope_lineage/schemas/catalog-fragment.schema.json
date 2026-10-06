@@ -197,6 +197,13 @@
                 "description": "Empty, or starting 待确认, while the meaning is not confirmed",
                 "type": "string"
               },
+              "key": {
+                "description": "The surrogate key an inline dictionary pairs with this code, when it has one",
+                "type": [
+                  "string",
+                  "integer"
+                ]
+              },
               "retired": {
                 "type": "boolean"
               },
@@ -325,9 +332,7 @@
             },
             {
               "type": "object",
-              "required": [
-                "per"
-              ],
+              "minProperties": 1,
               "additionalProperties": false,
               "properties": {
                 "per": {
@@ -335,6 +340,28 @@
                   "items": {
                     "type": "string",
                     "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+                  },
+                  "minItems": 1
+                },
+                "by": {
+                  "description": "Unique within each value of these physical columns (a source system, an environment); the shape of spellings",
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "column"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "column": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "table": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_]+\\.[A-Za-z0-9_]+$"
+                      }
+                    }
                   },
                   "minItems": 1
                 }

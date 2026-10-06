@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from typing import Callable, Optional
 
 from .catalog_gaps import concept_gaps
-from .catalog_view import KIND_TEXT, CatalogView, reads_both_ways
+from .catalog_view import KIND_TEXT, CatalogView, reads_both_ways, scope_by_text
 from .markdown_text import normalize_inline
 
 # The representation kinds that say where a concept's own data lives, by concept kind.
@@ -31,10 +31,14 @@ def clip(text, limit: int) -> str:
 
 
 def scope_words(view: CatalogView, scope) -> str:
-    """``global`` -> 全局唯一; ``{per: [客户, App]}`` -> 每个客户×App 一个."""
+    """``global`` -> 全局唯一; ``{per: [客户, App]}`` -> 每个客户×App 一个;
+    ``{by: [src]}`` -> 按 src 的每个取值一个; both -> 每个客户内按 src 的每个取值一个."""
     if scope == "global":
         return "全局唯一"
-    names = "×".join(view.name(item) for item in scope["per"])
+    names = "×".join(view.name(item) for item in scope.get("per") or [])
+    by = scope_by_text(scope)
+    if by:
+        return (f"每个{names}内" if names else "") + f"按 {by} 的每个取值一个"
     return f"每个{names}{' ' if names[-1:].isascii() else ''}一个"
 
 

@@ -35,6 +35,7 @@ from .catalog_view import (
     TABLE_STATUS_TEXT,
     CatalogView,
     code_value_text,
+    scope_by_text,
     concept_filename,
     lookup_text,
     reads_both_ways,
@@ -181,7 +182,11 @@ def scope_text(view: CatalogView, identifier: dict) -> str:
     scope = identifier["scope"]
     if scope == "global":
         return "全局"
-    return "每个" + "、".join(view.name(item) for item in scope["per"]) + "内唯一"
+    per = "、".join(view.name(item) for item in scope.get("per") or [])
+    by = scope_by_text(scope)
+    if not by:
+        return "每个" + per + "内唯一"
+    return (f"每个{per}内、" if per else "") + f"按 {by} 的每个取值唯一"
 
 
 def spellings_text(identifier: dict) -> str:

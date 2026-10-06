@@ -86,7 +86,7 @@ domains:
 | `id` | 是 | `id:<slug>` |
 | `name` | 是 | 业务名称 |
 | `identifies` | 是 | 它识别的实体或事件 |
-| `scope` | 是 | `global`，或 `{per: [<概念 id>, ...]}`：只在这些概念的每个组合内唯一 |
+| `scope` | 是 | `global`，或 `{per?: [<概念 id>, ...], by?: [{column, table?}]}`（至少写一个）：`per` 是只在这些概念的每个组合内唯一；`by` 是只在这些物理列（来源系统、环境这类不是业务概念的判别列，形状同 `spellings`）的每个取值内唯一 |
 | `arises_when` | 否 | 标识符在什么条件下产生：文字，或 `{condition, state: <概念 id>#<状态值>}` |
 | `spellings` | 否 | 物理拼写：`[{column, table?}]`；不写 `table` 表示"这个列名，出现在哪里都算" |
 | `maps_to` | 否 | 与其他标识符的对应：`[{identifier, cardinality, via?: [表]}]`，基数为 `one_to_one` / `one_to_many` / `many_to_one` / `many_to_many` |
@@ -113,8 +113,9 @@ identifiers:
 ### 码值集
 
 有限取值及其业务含义，可被多个属性共用。`id: code:<slug>`、`name`、
-`values: [{value, meaning, retired?, unconfirmed?}]`、`definition?`。取值是文字或整数；`0` 与 `"0"`
-是同一个码。数据里见到、含义还没人确认的值写 `unconfirmed: true`，或让 `meaning` 留空、以「待确认」
+`values: [{value, meaning, key?, retired?, unconfirmed?}]`、`definition?`。取值是文字或整数；`0` 与 `"0"`
+是同一个码。`key`（文字或整数）是内联字典给这个码配的代理键：列存代理键（`holds: [key]`）时，目录靠它翻译，
+不再报 `binding_key_without_key_column`；页面与查询写成「值=含义（代理键 k）」。数据里见到、含义还没人确认的值写 `unconfirmed: true`，或让 `meaning` 留空、以「待确认」
 开头（其后是目录的猜测）；页面与查询把它写成「值（含义待确认：猜测）」，`governance.md` 列出含这类值的码值集。
 
 ```yaml
@@ -404,8 +405,8 @@ representations:
   也写 `holds: [meaning]`（加 `lang`），与码列区分开。只要有一列给这个属性带了码值集，这一列就必须写自己的 `code_sets`；
   `key` 总要有码值集。
 - CASE 的某个分支（如 ELSE）没有源码：不编码，规则写进 `derivation`（需要时也写进码值集的 `definition`）。
-- 只列 `values` 的码值集没有代理键列，`holds: [key]` 的列必然报 `binding_key_without_key_column`（目录翻不了这个键）；
-  `[key]` 仍是对的写法。
+- 只列 `values` 的码值集没有代理键列：给每个值写上 `key`（内联字典里与这个码配对的代理键），`holds: [key]` 的列
+  就能翻译；没写 `key` 时这一列报 `binding_key_without_key_column`（目录翻不了这个键），`[key]` 仍是对的写法。
 - 查码值表只为翻译的列是码列，绑成 `attribute`；`foreign_identifier` 上也允许写 `code_sets`（`holds` 此时必须配 `code_sets`），
   只在查询与 `code_sets.md` 里显示，`identifiers.md` 不显示。
 - 重编码（`Y/N` → `1/0`、码映射成另一套码、经映射表两步得到目标码）：列存目标码值集的码，不写 `holds`，映射写进 `derivation`。
@@ -507,7 +508,7 @@ scope-lineage catalog validate examples/catalog-demo --json
 | `relation_without_name` | 关系没有动词 |
 | `empty_code_set` | 码值集没有任何取值，也没有 `lookup` |
 | `binding_code_sets_miss_attribute` | 绑定写了 `code_sets`，所绑属性的 `code_set` 却不在其中 |
-| `binding_key_without_key_column` | 绑定的 `holds` 含 `key`，其码值集却没有一个带 `key_column` 的 `lookup`——目录翻不了这个代理键 |
+| `binding_key_without_key_column` | 绑定的 `holds` 含 `key`，其码值集却没有一个带 `key_column` 的 `lookup`，也没有带 `key` 的 `values`——目录翻不了这个代理键 |
 | `binding_lang_unknown` | 绑定的 `lang` 不是其码值集 `lookup` 里任何含义列的语言（只列取值的码值集不查） |
 | `unmapped_binding` | 某列绑定为 `to: unmapped` |
 | `self_reference_relation_unnamed` | 自关联列没写 `relation`，而该概念有两条或更多自关联——说不清它实现哪一条，会被归给每一条 |
@@ -588,7 +589,7 @@ scope-lineage catalog build examples/catalog-demo --out out/
 （列表有删节。）"规范化"指：
 
 - 每个对象都有 `status`、`source`（未知为 `null`）与 `evidence`；属性与绑定继承所属概念 / 表现的；
-- 每类对象的键按固定顺序输出；码值与状态值一律为文字，每个码值都带布尔 `unconfirmed`（标了
+- 每类对象的键按固定顺序输出；码值与状态值一律为文字（码值的 `key` 也是），每个码值都带布尔 `unconfirmed`（标了
   `unconfirmed: true`，或含义为空、以「待确认」开头）；写成 `1` 的基数端输出为 `"1"`；
   文字形式的 `arises_when` 变成 `{condition}`；
 - 表名一律小写（表现的 `table` 与 `replaced_by`、标识符拼写的 `table`、`maps_to` 的 `via`、码值集

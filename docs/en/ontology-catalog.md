@@ -98,7 +98,7 @@ A business number that uniquely identifies one entity or event **within a scope*
 | `id` | yes | `id:<slug>` |
 | `name` | yes | business name |
 | `identifies` | yes | the entity or event it identifies |
-| `scope` | yes | `global`, or `{per: [<concept id>, ...]}`: unique only within each combination of those concepts |
+| `scope` | yes | `global`, or `{per?: [<concept id>, ...], by?: [{column, table?}]}` (at least one): `per`, unique only within each combination of those concepts; `by`, unique only within each value of these physical columns (a discriminator that is no business concept, such as a source system or an environment; the shape of `spellings`) |
 | `arises_when` | no | the condition under which the identifier exists: text, or `{condition, state: <concept id>#<state value>}` |
 | `spellings` | no | physical spellings: `[{column, table?}]`; no `table` means "this column name, wherever it appears" |
 | `maps_to` | no | correspondences: `[{identifier, cardinality, via?: [table]}]`, cardinality `one_to_one` / `one_to_many` / `many_to_one` / `many_to_many` |
@@ -125,8 +125,11 @@ identifiers:
 ### Code set
 
 A finite set of values and their business meanings, shareable by several attributes.
-`id: code:<slug>`, `name`, `values: [{value, meaning, retired?, unconfirmed?}]`,
-`definition?`. A value is text or an integer; `0` and `"0"` are the same code. A value seen
+`id: code:<slug>`, `name`, `values: [{value, meaning, key?, retired?, unconfirmed?}]`,
+`definition?`. A value is text or an integer; `0` and `"0"` are the same code. `key` (text or an
+integer) is the surrogate key an inline dictionary pairs with the code: a column storing keys
+(`holds: [key]`) is translated through it and no longer warns `binding_key_without_key_column`;
+pages and queries print 「值=含义（代理键 k）」. A value seen
 in the data whose meaning nobody has confirmed carries `unconfirmed: true`, or leaves
 `meaning` empty or starting 「待确认」 (followed by the catalog's guess); pages and queries
 print it as 「值（含义待确认：guess）」 and `governance.md` lists the code sets holding one.
@@ -454,8 +457,10 @@ Edge cases:
   gives the attribute a code set, this column must name its own `code_sets`; `key` always needs a code set.
 - A CASE branch (such as ELSE) with no source code: invent no code; write the rule in `derivation`
   (and, if useful, the code set's `definition`).
-- A code set listing only `values` has no key column, so a `holds: [key]` column on it always warns
-  `binding_key_without_key_column` (the catalog cannot translate that key); `[key]` is still right.
+- A code set listing only `values` has no key column: give each value its `key` (the surrogate key
+  the inline dictionary pairs with that code) and a `holds: [key]` column is translated; without
+  `key` the column warns `binding_key_without_key_column` (the catalog cannot translate that key),
+  and `[key]` is still right.
 - A column that looks a code table up only to translate a code is a code column: bind it as
   `attribute`. `code_sets` is also accepted on a `foreign_identifier` (its `holds` then needs
   `code_sets`); it shows in queries and `code_sets.md`, not on `identifiers.md`.
@@ -569,7 +574,7 @@ identifier (the demo's installment loan lists `id:loan_no`).
 | `relation_without_name` | a relation has no verb |
 | `empty_code_set` | a code set lists no values and has no `lookup` |
 | `binding_code_sets_miss_attribute` | a binding lists `code_sets`, and the bound attribute's `code_set` is not among them |
-| `binding_key_without_key_column` | a binding's `holds` has `key`, and none of its code sets has a `lookup` with a `key_column` -- the catalog cannot translate that key |
+| `binding_key_without_key_column` | a binding's `holds` has `key`, and none of its code sets has a `lookup` with a `key_column` or `values` carrying a `key` -- the catalog cannot translate that key |
 | `binding_lang_unknown` | a binding's `lang` is not the language of any meaning column of its code sets' `lookup`s (code sets listing their values are not checked) |
 | `unmapped_binding` | a column is bound `to: unmapped` |
 | `self_reference_relation_unnamed` | a self-referencing column names no `relation` while its concept has two or more self relations — which one it realises cannot be told, so it is attributed to each |
@@ -654,8 +659,8 @@ is a scope-lineage bug, not a fault in the catalog:
 
 - every object has `status`, `source` (`null` when unknown) and `evidence`; attributes and
   bindings inherit from their concept / representation;
-- keys come out in one fixed order per object type; code and state values are text, and
-  every code value carries a boolean `unconfirmed` (flagged `unconfirmed: true`, or a meaning
+- keys come out in one fixed order per object type; code and state values are text (so is a
+  code value's `key`), and every code value carries a boolean `unconfirmed` (flagged `unconfirmed: true`, or a meaning
   that is empty or starts 「待确认」); a cardinality end written `1` is `"1"`; a text
   `arises_when` becomes `{condition}`;
 - table names are lower-case (a representation's `table` and `replaced_by`, a spelling's
