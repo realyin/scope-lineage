@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "artifact_kind": "task_semantic",
   "task_id": "golden_merge_cte_source",
-  "lineage_digest": "c8198db4be71794d",
+  "lineage_digest": "f27ea4b6262f696c",
   "produced_tables": [
     "mart.event_target"
   ],
@@ -12,7 +12,7 @@
       "doc_format": "semantic-json/1",
       "schema_version": "1.0",
       "statement_id": "stmt:001",
-      "lineage_digest": "30165136b9b0a8f3",
+      "lineage_digest": "600911913756e92a",
       "task": {
         "task_name": "golden_merge_cte_source#0",
         "target_table": "mart.event_target",
@@ -209,6 +209,41 @@
             "path": "grain"
           }
         ],
+        "merge": {
+          "on": "`target`.`id` = `source`.`id`",
+          "merge_keys": [
+            {
+              "target": "id",
+              "source": "id"
+            }
+          ],
+          "other_on_conditions": [],
+          "whens": [
+            {
+              "index": 0,
+              "clause": "matched",
+              "condition": null,
+              "action": "update",
+              "star": false
+            },
+            {
+              "index": 1,
+              "clause": "not_matched",
+              "condition": null,
+              "action": "insert",
+              "star": true
+            }
+          ],
+          "using_scope": "subq:source",
+          "using_grain": {
+            "basis": "driving_table_rows",
+            "evidence": [
+              "cte:staged",
+              "ods.events"
+            ]
+          },
+          "coverage": "no_dedup"
+        },
         "tag": "结构推断",
         "key_claim": null
       },

@@ -3,6 +3,43 @@
 ## Unreleased
 
 ### Changed
+- **`semantic.json`: an `expression` is the SQL minus its comments.** The profile lifted every
+  `/* … */` note into `sql_comments` and also left it inside `expression`, so the note was
+  published twice and read as SQL: `dt = '…' /* and s <> 'x' */` made a packet judge an
+  equality partition read a range. `rules[].expression`, a join rule's `extra_conditions[]`,
+  `fields[].expression`, `derivation[].expression`, `stages[].actions[].expression` and the
+  stage's join sentence (`附加条件 …`) now carry the SQL as written with the comments taken
+  out (not re-rendered: quoting and layout are kept); the notes stay in `sql_comments`. A
+  reader that wants the verbatim text reads the lineage contract, which is unchanged. No
+  format version moves (`semantic-json/1`); `describe` output and table-semantics packets
+  built from commented SQL change accordingly.
+- **A UDF in a SELECT list is marked a UDF black box; a long VALUES column is summarised.**
+  The 「UDF 黑盒」 mark came only from a logic block's `has_udf`, and a plain projection has no
+  logic block, so `mask_text(x) AS y` restated as nothing (a packet printed `None`). A
+  projection step now asks its own expression against the function catalogue the contract's
+  `has_udf` uses (`hash`, `md5`, `split` stay builtins). The constant step of an inline VALUES
+  column listed every literal of the dictionary; past three it now reads
+  「内联 VALUES 的一列（N 个字面量，前 3 个：…）」, with `expression` unchanged. The catalogue
+  module moved from `scope/function_catalog.py` to `function_catalog.py` so the renderer may
+  read it.
+- **A join on an inline dictionary keeps its physical key in `fields`.** A join rule's
+  `fields` (and the stage join action's) were collected only from the cross product of both
+  sides' physical columns, so when one side pierced to nothing -- an inline VALUES
+  dictionary, a `count(*)` or constant column -- the other side's key was dropped too and
+  the rule named no column (a packet showed 「涉及表 —」). That side's physical key is now
+  listed on its own; `physical_key_pairs` still pairs only physical columns on both sides.
+  Readers of `semantic.json` `fields` see more entries on such one-sided joins.
+- **Fan-out verdicts reach UNION branches, and two more right sides are proven unique.** A
+  UNION, a LATERAL VIEW or an ambiguous bare column stopped the grain walk, so every JOIN
+  below it -- a UNION branch's LEFT JOIN, the subquery a LATERAL VIEW expands, a MERGE's
+  USING union -- got no `fan_out_risks` entry at all (a packet rendered it 「不在输出路径上」).
+  The walk now continues into the blocked scope's inputs; the grain stays `unknown` and an
+  aggregation still ends the walk. A right side whose `row_number() = 1` sits one or more
+  layers down (window inside, filter outside) is now `safe` when its partition keys reach
+  the join keys as bare columns; so is an inline VALUES dictionary whose literal rows,
+  narrowed by equality pins on the way (WHERE, or top-level ON conjuncts on the right side),
+  differ on the join key (claim rule `R-VALUES-DISTINCT`). The golden `complex_scope` gains
+  the UNION-branch JOIN it used to omit.
 - **Breaking — `semantic status` ties a fix to its review and its packet
   (`table-semantics-status/2`).** A document that changed after a review with high or medium
   findings used to count as `fixed`, whether the fix finished, was interrupted halfway, or
@@ -141,6 +178,49 @@
   title saying so and pointing to the catalog workflow. The command, every flag and
   `ontology.json` (`ontology-json/2`) are unchanged, byte for byte.
 ### Added
+- **`semantic.json`: two new findings, `duplicate_alias` and `empty_string_on_non_string`.**
+  One alias naming two different sources inside one SELECT was only a number in
+  `warning_counts`; it is now a `warn` finding naming the alias, both sources and the scope.
+  A filter, join or CASE rule comparing a column with `''` when the metadata declares that
+  column other than a string is a `warn` finding too; its text says only that the types
+  disagree and that the result depends on the engine's implicit coercion.
+- **A positional write by schema metadata publishes `sql_alias` and `alias_position_mismatch`.**
+  Both knew only `target_field_binding.method = ddl_position`; `schema_position` (a schema
+  file's column order, no DDL) is a positional write as well.
+- **`semantic.json`: `output_shape.merge` restates a MERGE and compares its dedup with its merge
+  key.** A MERGE's shape and grain are unknown, so its keys, its WHEN conditions and whether
+  its USING side can offer one merge key two rows were nowhere. A MERGE statement's
+  `output_shape` now carries `merge`: `on`, `merge_keys`, `other_on_conditions` and `whens`
+  from the contract's `merge_spec`; `using_grain` from the grain walk started at the USING
+  source; and, when that walk finds a dedup, `dedup_keys` lifted from the scope that defines
+  them to the USING output (renames followed, single-source expressions marked `derived`)
+  and `coverage` -- `covered`, `dedup_wider` (with `extra_keys`), `no_dedup` or `unknown`
+  (with `joins_after_dedup` when an unproven JOIN follows the dedup). The grain walk also
+  recognises `row_number() = 1` below ROOT (a scope keeping `rn = 1` of a window on its FROM
+  item now has grain `window_partition`), so a deduplicating subquery no longer reads as its
+  driving table's rows. Goldens `merge` and `merge_cte_source` gain the block.
+- **`semantic.json`: `rules[].consumed: false` marks a CASE / IF nobody reads.** An IF an
+  inner query computes while the outer query reads the raw column under the same name
+  restated a rule the output never sees. The rule now carries `consumed: false` when that is
+  provable (no downstream field, no target, no scope reads the column -- a join key counts --
+  and no `*` reader); otherwise the key is absent.
+- **`semantic.json`: `fields[].lookup_keys` names the key a dictionary lookup is read by.** A
+  value read off an inline VALUES dictionary (or a constant / `count(*)` column) has no
+  physical source, so nothing said which physical column picks its row. Such a field now
+  lists the physical join keys reached by walking left from the lookup through joins with
+  no physical column on either side (two hops such as `a.k = b.src`, `b.dst = c.code`
+  included), as `<table>.<column>`. Absent when there is none; `semantic-json/1` unchanged.
+- **Lineage contract: `merge_spec` on a MERGE statement.** A MERGE's ON condition and its
+  WHEN clauses' conditions are not output columns, and the contract only kept them as one
+  flattened column list (`effect.rowset_effect.membership_sources`): no pairing of a
+  target column with a source column, no telling ON from WHEN, no literals. A MERGE
+  statement document (and its `statement_lineage` entry in the task document) now carries
+  `merge_spec`: `on` (the ON condition as written), `key_pairs` (each top-level ON equality
+  of one target column with one source column, as `{target, source}`), `other_on_conditions`
+  (every other ON conjunct, verbatim) and `whens` (`index`, `clause` --
+  `matched` / `not_matched` / `not_matched_by_source` --, the clause's own `condition` or
+  null, `action` and `star`). Additive: no other statement kind has the key, and
+  `schema_version` stays `1.0`; `lineage.schema.json` and `lineage-json.md` describe it.
 - **`semantic validate --only TABLE [TABLE ...]`; `semantic status --json` without a path.**
   Writers checking their own tables in parallel had to copy their documents into a
   directory of their own, because `validate` always checked the whole directory. `--only`
@@ -278,6 +358,13 @@
   meaning or the key says so with `holds`.
 
 ### Fixed
+- **A comment on a MERGE assignment reaches `outputs[].comments`.** A SELECT projection's
+  comment is published on the output it produces, but a comment written on a MERGE
+  `UPDATE SET` item or an `INSERT ... VALUES` value was not: it survived only inside the
+  rendered expression text, so everything that reads comments from `outputs[].comments`
+  (the semantic profile's `sql_comments` among them) never saw it. Such an output now
+  carries the assignment's comments -- the whole `column = value` for `UPDATE SET`, the
+  value for `INSERT ... VALUES`. The key already existed; no schema change.
 - **`semantic validate` check 10 (`fan_out`) no longer warns on a negated no-effect phrase or
   on a sentence about safe joins only.** The warning for "a LEFT join called harmless to the
   row count" matched 不放大 anywhere in a sentence, so 「左关联 X 不保证不放大」 -- the very

@@ -642,10 +642,20 @@ def test_derivation_restates_every_ordered_step() -> None:
 
 
 def test_a_step_outside_the_glossary_keeps_the_expression_and_nulls_the_text() -> None:
-    sql = "INSERT INTO mart.t SELECT MY_UDF(a.name) AS v FROM ods.users a"
+    sql = "INSERT INTO mart.t SELECT SPLIT(a.name, ',')[0] AS v FROM ods.users a"
     profile = build_semantic_profile(_document(sql, schema={"ods.users": ["name"]}))
     step = _field(profile, "v")["derivation"][0]
     assert step["text"] is None
+    assert step["expression"].startswith("SPLIT(")
+
+
+def test_a_udf_projection_keeps_the_expression_and_is_marked_a_black_box() -> None:
+    # E #20: a projection has no logic block, so the UDF mark used to be lost and the
+    # step restated as nothing at all.
+    sql = "INSERT INTO mart.t SELECT MY_UDF(a.name) AS v FROM ods.users a"
+    profile = build_semantic_profile(_document(sql, schema={"ods.users": ["name"]}))
+    step = _field(profile, "v")["derivation"][0]
+    assert "UDF 黑盒" in step["text"]
     assert step["expression"] == "MY_UDF(`a`.`name`)"
 
 
@@ -1014,6 +1024,16 @@ def _target_columns(document: dict) -> set[str]:
     }
 
 
+def _assert_merge_keys_exist(profile: dict, columns) -> None:
+    """#22: a MERGE's keys are the contract's merge_spec pairs, bare column names."""
+    for path, key, value in _walk(profile):
+        if key != "merge_keys" or not isinstance(value, list):
+            continue
+        for pair in value:
+            for side in ("target", "source"):
+                assert pair[side] in columns, f"{path}: column {pair[side]!r} is not in the source"
+
+
 def _assert_no_fabricated_identifiers(profile: dict, document: dict) -> None:
     tables = _known_tables(document)
     columns = _known_columns(document)
@@ -1054,6 +1074,7 @@ def _assert_no_fabricated_identifiers(profile: dict, document: dict) -> None:
             for side in ("left", "right"):
                 name = str(pair.get(side) or "").rpartition(".")[2]
                 assert name in columns, f"{path}: column {name!r} is not in the source"
+    _assert_merge_keys_exist(profile, columns)
     # WI-2.1c. The three signals added there publish four new keys, and none of them
     # may ever carry a free-form string: `path` is a two-word vocabulary, and the two
     # flags exist only in their true state -- a `false` would read as "checked and

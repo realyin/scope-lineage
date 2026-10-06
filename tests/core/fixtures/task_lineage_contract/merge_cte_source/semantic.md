@@ -10,7 +10,7 @@ schema_version: "1.0"
 task_name: "golden_merge_cte_source#0"
 target_table: "mart.event_target"
 stmt_kind: "MERGE"
-lineage_digest: "30165136b9b0a8f3"
+lineage_digest: "600911913756e92a"
 ---
 
 # 任务语义描述 mart.event_target

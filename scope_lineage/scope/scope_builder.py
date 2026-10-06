@@ -36,6 +36,7 @@ from .scope_types import (
     DiagnosticWarning,
 )
 from .scope_resolver import resolve_all
+from .merge_spec import build_merge_spec
 from .select_scope import _star_modifiers
 from .scope_warnings import detect_warnings
 from .scope_role_inferrer import infer_roles
@@ -1377,14 +1378,7 @@ def _build_result_from_scope(  # noqa: C901 - legacy exemption (WI-11): shrink w
     if merge_using_scope is not None:
         result.merge_using_scope_id = getattr(merge_using_scope, _SCOPE_ID_ATTR, "") or ""
     if merge_node is not None:
-        merge_target_relation = _unwrap_target(merge_node.this)
-        if isinstance(merge_target_relation, exp.Table):
-            result.merge_target_alias = (
-                merge_target_relation.alias_or_name or merge_target_relation.name
-            )
-        merge_using_relation = merge_node.args.get("using")
-        if isinstance(merge_using_relation, exp.Expression):
-            result.merge_using_alias = merge_using_relation.alias_or_name or "source"
+        _record_merge_relation_facts(result, merge_node)
 
     # Step 5: Resolve columns for all scopes
     resolve_all(
@@ -1409,6 +1403,29 @@ def _build_result_from_scope(  # noqa: C901 - legacy exemption (WI-11): shrink w
             else lookup_target_table_metadata(target_metadata, target_table)
         ),
         redact_comments=redact_comments,
+    )
+
+
+def _record_merge_relation_facts(result: ScopeLineageResult, merge_node: exp.Merge) -> None:
+    """The MERGE's two relation aliases and its ON / WHEN conditions (``merge_spec``).
+
+    Recorded here because the aliases are what tell a target column from a source column
+    in the conditions, and both are only in hand while the statement tree is.
+    """
+    merge_target_relation = _unwrap_target(merge_node.this)
+    target_qualifiers: list[str] = []
+    if isinstance(merge_target_relation, exp.Table):
+        result.merge_target_alias = (
+            merge_target_relation.alias_or_name or merge_target_relation.name
+        )
+        target_qualifiers = [result.merge_target_alias, merge_target_relation.name]
+    merge_using_relation = merge_node.args.get("using")
+    if isinstance(merge_using_relation, exp.Expression):
+        result.merge_using_alias = merge_using_relation.alias_or_name or "source"
+    result.merge_spec = build_merge_spec(
+        merge_node,
+        target_qualifiers=target_qualifiers,
+        using_alias=result.merge_using_alias,
     )
 
 

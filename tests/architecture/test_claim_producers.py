@@ -42,12 +42,15 @@ PRODUCERS: dict[str, tuple[str, ...]] = {
         "R-JOIN-PRESERVE",
     ),
     "render/semantic_profile.py:_split_key_risks": ("R-JOIN-BEFORE-GROUPING",),
-    "render/semantic_profile.py:_fan_out_verdict": ("R-JOIN-PRESERVE", "R-ROWNUM-FIRST"),
+    "render/semantic_profile.py:_fan_out_verdict": (
+        "R-JOIN-PRESERVE", "R-ROWNUM-FIRST", "R-VALUES-DISTINCT",
+    ),
     "render/semantic_profile.py:_grouped_uniqueness": ("R-GROUPBY-KEY", "R-PIN-DROP"),
     "render/semantic_profile.py:_grouped_key_claim": (
         "R-GROUPBY-KEY", "R-PIN-DROP", "R-EMPTY-GROUPING",
     ),
-    "render/semantic_profile.py:_ranking_key_claim": ("R-ROWNUM-FIRST", "R-RANK-FIRST"),
+    "render/semantic_profile.py:_ranking_claim": ("R-ROWNUM-FIRST", "R-RANK-FIRST"),
+    "render/semantic_profile.py:_values_key_claim": ("R-VALUES-DISTINCT",),
     "render/semantic_profile.py:_card_verdict": (
         "R-REPLACE-STATE", "R-PARTITION-STATE", "R-READ-PIN", "R-PRODUCERS-AGREE",
     ),
@@ -120,6 +123,7 @@ READERS: frozenset[str] = frozenset({
     "render/semantic_profile.py:_driving_key_columns",
     "render/semantic_profile.py:_card_reason",
     "render/semantic_profile.py:_card_claim_level",
+    "render/semantic_profile.py:_joins_after_dedup",
     "semantics/checks.py:check_grain",
     "semantics/checks_meaning.py:check_fan_out",
     "semantics/checks_meaning.py:_safe_names",

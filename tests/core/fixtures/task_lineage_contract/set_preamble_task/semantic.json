@@ -193,7 +193,7 @@
             {
               "type": "filter",
               "text": "只保留 status = 'OPEN' 的记录",
-              "expression": "`s`.`status` = 'OPEN' /* 仅营业中 */",
+              "expression": "`s`.`status` = 'OPEN'",
               "fields": [
                 {
                   "table": "ods.store_event",
@@ -239,7 +239,7 @@
           "rule_id": "rule:001",
           "kind": "filter",
           "scope_id": "ROOT",
-          "expression": "`s`.`status` = 'OPEN' /* 仅营业中 */",
+          "expression": "`s`.`status` = 'OPEN'",
           "is_partition_filter": false,
           "fields": [
             {

@@ -60,7 +60,7 @@ SQL 头部注释（原文，作者说法，非 SQL 事实）（SQL注释）：
 
 | 规则 | 类型 | 阶段 | 条件 | 涉及字段（注释） | SQL注释 | 分区过滤 | 证据 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| rule:001 | 过滤（filter） | `ROOT` | `` `s`.`status` = 'OPEN' /* 仅营业中 */ `` | `ods.store_event.status`（注释未知） | 仅营业中 | 否 | `logic:ROOT:filter:001` |
+| rule:001 | 过滤（filter） | `ROOT` | `` `s`.`status` = 'OPEN' `` | `ods.store_event.status`（注释未知） | 仅营业中 | 否 | `logic:ROOT:filter:001` |
 
 ## 5. 字段语义
 

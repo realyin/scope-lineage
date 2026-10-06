@@ -47,7 +47,7 @@ from collections import Counter, OrderedDict
 from dataclasses import replace
 from typing import Iterable, Mapping, Sequence
 
-from . import claims, glossary_values, semantic_text
+from . import claims, glossary_values, semantic_text, values_rows
 from .diagnostics_view import all_warnings, fact_gaps_for, warnings_for
 from .mapping_markdown import lineage_document_digest
 from .sequences import unique_ordered
@@ -1575,6 +1575,8 @@ _RULE_KEY_ORDER = (
     "extra_condition_fields",
     "branches",
     "else",
+    # #21-e: only `false`, only on a CASE / IF rule whose output provably nobody reads.
+    "consumed",
     # WI-2.12: filled in by `apply_glossary`, so it sits beside the fields whose codes it
     # explains rather than at the end of the rule.
     "value_meanings",
@@ -1608,7 +1610,7 @@ def _filter_rules(document: dict, scope_id: str, block: dict) -> list[dict]:
             {
                 "kind": kind,
                 "scope_id": scope_id,
-                "expression": conjunct.get("expression"),
+                "expression": _without_comments(conjunct.get("expression")),
                 "is_partition_filter": partition,
                 "fields": _rule_fields(document, pairs),
                 "scope_fields": _scope_fields(document, conjunct.get("fields")),
@@ -1642,7 +1644,7 @@ def _join_rule(document: dict, scope_id: str, block: dict) -> dict:
     return {
         "kind": "join_condition",
         "scope_id": scope_id,
-        "expression": detail.get("condition_expression"),
+        "expression": _without_comments(detail.get("condition_expression")),
         "join_type": detail.get("join_type"),
         # WI-1f: what this join does to the rows it cannot match. It is a fact of the
         # join type, so it is published beside `join_type` rather than folded into a
@@ -1652,9 +1654,7 @@ def _join_rule(document: dict, scope_id: str, block: dict) -> dict:
         "right_input": detail.get("right_input"),
         "key_pairs": _dedupe(pairs),
         "physical_key_pairs": _dedupe(physical_pairs),
-        "extra_conditions": [
-            condition.get("expression") for condition in detail.get("condition_filters") or []
-        ],
+        "extra_conditions": _extra_conditions(detail),
         "extra_condition_fields": _extra_condition_fields(document, detail),
         "fields": _rule_fields(document, physical),
         "scope_fields": _scope_fields(document, detail.get("condition_fields")),
@@ -1668,6 +1668,67 @@ def _rule_comments(block: dict) -> dict:
     """``{"sql_comments": [...]}`` when the block carries comments, ``{}`` otherwise."""
     comments = [str(item) for item in block.get("comments") or []]
     return {"sql_comments": comments} if comments else {}
+
+
+_QUOTES = ("'", '"', "`")
+
+
+def _without_comments(text):
+    """The SQL text with every ``/* ... */`` comment taken out, the rest verbatim.
+
+    The contract keeps an expression as the author wrote it, comments included, and lists
+    the comments separately. The profile publishes the comments under ``sql_comments`` and
+    the expression without them: a note is not part of what the expression computes, and
+    left inline it was published twice and read as SQL (``dt = 'x' /* and s <> 'y' */``
+    judged a range). Not a re-render: quoting and layout stay as written; only the comment
+    and the blank space it leaves go, and a marker inside a quoted literal is not one.
+    """
+    if not isinstance(text, str) or "/*" not in text:
+        return text
+    out: list[str] = []
+    index, size = 0, len(text)
+    while index < size:
+        char = text[index]
+        if char in _QUOTES:
+            end = _closing_quote(text, index)
+            out.append(text[index : end + 1])
+            index = end + 1
+            continue
+        if text.startswith("/*", index):
+            close = text.find("*/", index + 2)
+            index = size if close < 0 else close + 2
+            while out and out[-1].endswith((" ", "\t", "\n")):
+                out[-1] = out[-1].rstrip()
+                if not out[-1]:
+                    out.pop()
+            while index < size and text[index] in " \t\n":
+                index += 1
+            if out and index < size and not out[-1].endswith("(") and text[index] != ")":
+                out.append(" ")
+            continue
+        out.append(char)
+        index += 1
+    return "".join(out).strip()
+
+
+def _closing_quote(text: str, start: int) -> int:
+    """Where the literal opened at ``start`` closes; a backslash escapes in Spark strings."""
+    quote, index = text[start], start + 1
+    while index < len(text):
+        if text[index] == "\\" and quote != "`":
+            index += 2
+            continue
+        if text[index] == quote:
+            return index
+        index += 1
+    return len(text) - 1
+
+
+def _extra_conditions(detail: dict) -> list:
+    return [
+        _without_comments(condition.get("expression"))
+        for condition in detail.get("condition_filters") or []
+    ]
 
 
 def _extra_condition_fields(document: dict, detail: dict) -> list[dict]:
@@ -1712,6 +1773,11 @@ def _join_key_pair(pair: dict) -> tuple[list[dict], list[dict], list[tuple[str, 
     Two scopes reading the same table pierce to the same physical field, so a pierced
     pair that degenerates to ``t.c = t.c`` is dropped exactly as the mapping document
     drops it.
+
+    A side that pierces to nothing (an inline VALUES dictionary, a ``count(*)`` or
+    constant column) leaves the cross product empty; the other side's physical key is
+    still the column the rows are matched on, so it is appended on its own. It is never
+    paired: ``physical_key_pairs`` keeps meaning "a physical column on both sides".
     """
     physical: list[dict] = []
     fields: list[tuple[str, str]] = []
@@ -1723,6 +1789,12 @@ def _join_key_pair(pair: dict) -> tuple[list[dict], list[dict], list[tuple[str, 
             fields.append((str(right.get("table")), str(right.get("field"))))
             if left_text != right_text:
                 physical.append({"left": left_text, "right": right_text})
+    for side, other in (("left_fields", "right_fields"), ("right_fields", "left_fields")):
+        if not pair.get(other):
+            fields.extend(
+                (str(item.get("table")), str(item.get("field")))
+                for item in pair.get(side) or []
+            )
     scoped = _scope_key_pair(pair)
     return ([scoped] if scoped else list(physical)), physical, fields
 
@@ -1744,7 +1816,7 @@ def _scope_key_pair(pair: dict) -> dict | None:
 def _case_rule(document: dict, scope_id: str, block: dict) -> dict:
     # raw_expression, not display_expression: the raw text is always present, while the
     # display form appears only when alias resolution changed the text.
-    expression = block.get("raw_expression")
+    expression = _without_comments(block.get("raw_expression"))
     split = semantic_text.split_case_branches(expression)
     branches, otherwise = split if split is not None else (None, None)
     pairs = [
@@ -1759,12 +1831,55 @@ def _case_rule(document: dict, scope_id: str, block: dict) -> dict:
         "expression": expression,
         "branches": branches,
         "else": otherwise,
+        **({"consumed": False} if _case_unconsumed(document, scope_id, block) else {}),
         "fields": _rule_fields(document, pairs),
         "scope_fields": _scope_fields(document, block.get("fields")),
         **_rule_comments(block),
         "evidence": str(block.get("logic_block_id")),
         "tag": TAG_SQL_FACT,
     }
+
+
+def _case_unconsumed(document: dict, scope_id: str, block: dict) -> bool:
+    """True when nothing downstream reads any column this CASE / IF produces (#21-e).
+
+    Every test must agree, because each one alone misses a kind of read: the output
+    column has no downstream field, no target and no final target; no scope's
+    ``field_usage`` of this scope lists the column (an ON clause is a read the downstream
+    list does not record); and every scope reading this one says which columns it reads,
+    none of them ``*``. Anything unsure is "consumed", i.e. no mark.
+    """
+    names = [str(item) for item in block.get("output_fields") or []]
+    outputs = {
+        str(output.get("name")): output
+        for output in (_scopes(document).get(scope_id) or {}).get("outputs") or []
+    }
+    if not names or any(name not in outputs for name in names):
+        return False
+    for name in names:
+        output = outputs[name]
+        if (
+            output.get("downstream_fields")
+            or output.get("target_columns")
+            or output.get("final_target_columns")
+        ):
+            return False
+    wanted = {name.lower() for name in names}
+    for reader_id, reader in _scopes(document).items():
+        if scope_id not in (reader.get("depends_on") or []):
+            continue
+        usages = [
+            usage
+            for usage in reader.get("field_usage") or []
+            if str(usage.get("source_id")) == scope_id
+        ]
+        if not usages:
+            return False
+        for usage in usages:
+            used = {str(item).lower() for item in usage.get("used_fields") or []}
+            if "*" in used or used & wanted:
+                return False
+    return True
 
 
 def _rule_fields(document: dict, pairs: Sequence[tuple[str, str]]) -> list[dict]:
@@ -1815,6 +1930,9 @@ _FIELD_KEY_ORDER = (
     "metric_spec",
     "value_domain",
     "sources",
+    # #15: the physical join keys that pick the row a constant row set supplies. Present
+    # only for a field read through such a lookup -- see `_lookup_keys`.
+    "lookup_keys",
     "generated_sources",
     "derivation",
     "expression",
@@ -1922,6 +2040,23 @@ def _group_by_keys_by_scope(document: dict) -> dict[str, list[str]]:
     }
 
 
+def _step_calls_udf(step: dict, context: dict) -> bool:
+    """Whether one chain step's expression calls a UDF.
+
+    A step that runs in a logic block keeps that block's verdict (overruled by the parser
+    for a builtin, WI-1g E3). A plain projection -- ``mask_text(x) AS y`` -- has no logic
+    block, so it never got a verdict at all (E #20): its expression is asked directly,
+    against the same function catalogue the contract's ``has_udf`` comes from.
+    """
+    expression = step.get("expression_sql")
+    logic_ids = set(step.get("logic_ids") or [])
+    if logic_ids:
+        return bool(logic_ids & context["udf_blocks"]) and (
+            semantic_text.has_unknown_function(expression) is not False
+        )
+    return bool(semantic_text.udf_calls(expression))
+
+
 def _udf_logic_block_ids(document: dict) -> set:
     return {
         str(block.get("logic_block_id"))
@@ -1984,7 +2119,7 @@ def _build_field(document: dict, entry: dict, chain: dict | None, context: dict)
         "sources": _field_sources(document, entry),
         "generated_sources": list(entry.get("generated_sources") or []),
         "derivation": derivation,
-        "expression": entry.get("expression"),
+        "expression": _without_comments(entry.get("expression")),
         "trace_complete": entry.get("trace_complete"),
         "trace_incomplete_reasons": entry.get("trace_incomplete_reasons"),
         "ambiguous": _is_ambiguous(entry),
@@ -2007,6 +2142,9 @@ def _build_field(document: dict, entry: dict, chain: dict | None, context: dict)
         field["nullable_by_join"] = True
     if sql_comments:
         field["sql_comments"] = sql_comments
+    lookup_keys = _lookup_keys(document, chain)
+    if lookup_keys:
+        field["lookup_keys"] = lookup_keys
     spec = _build_metric_spec(document, entry, chain, field, context, nullable_argument)
     if spec is not None:
         field["metric_spec"] = spec
@@ -2022,12 +2160,67 @@ def _sql_alias(document: Mapping, entry: Mapping) -> str | None:
     is not one.
     """
     binding = document.get("target_field_binding") or {}
-    if str(binding.get("method")) != _POSITIONAL_BINDING_METHOD:
+    if str(binding.get("method")) not in _POSITIONAL_BINDING_METHODS:
         return None
     alias = str(entry.get("parsed_column") or "")
     if not alias or alias == str(entry.get("column")) or _name_is_generated(entry):
         return None
     return alias
+
+
+def _lookup_keys(document: dict, chain: dict | None) -> list[str]:
+    """The physical join keys that decide which row of a constant row set a field reads.
+
+    A value read off an inline dictionary (or a ``count(*)`` / constant column) has no
+    physical source: what the data decides is the row, and the row is chosen by the join
+    key on the other side. Every step of the field's chain that reads a scope joined in
+    with no physical column on its side starts a walk to the left: a key pair whose left
+    side pierces to physical columns yields them; one whose left side pierces to nothing
+    is itself a column of another such join in the same scope (``a.k = b.src`` then
+    ``b.dst = c.code``), so the walk continues there. Scope ids carry the walk -- text
+    matching on the rules could follow one hop only.
+    """
+    lookups = _memoised_index(document, "lookup_joins", lambda: _lookup_joins(document))
+    if not lookups:
+        return []
+    found: list[str] = []
+    for step in (chain or {}).get("ordered_steps") or []:
+        scope_id = str(step.get("scope_id"))
+        for ref in step.get("input_fields") or []:
+            source = str(ref).rsplit(".", 1)[0]
+            found.extend(_walk_lookup(lookups, scope_id, source, set()))
+    return _dedupe(found)
+
+
+def _lookup_joins(document: dict) -> dict[tuple[str, str], list[dict]]:
+    """``(joining scope, right scope) -> key pairs`` for joins whose right side is not physical."""
+    scopes = _scopes(document)
+    index: dict[tuple[str, str], list[dict]] = {}
+    for scope_id, block in _logic_blocks(document):
+        if block.get("logic_type") != "join":
+            continue
+        for pair in (block.get("join_relation_detail") or {}).get("join_key_pairs") or []:
+            right = str((pair.get("right") or {}).get("scope") or "")
+            if right in scopes and not pair.get("right_fields"):
+                index.setdefault((scope_id, right), []).append(pair)
+    return index
+
+
+def _walk_lookup(
+    lookups: Mapping, scope_id: str, source: str, seen: set
+) -> list[str]:
+    if (scope_id, source) in seen:
+        return []
+    seen.add((scope_id, source))
+    keys: list[str] = []
+    for pair in lookups.get((scope_id, source)) or []:
+        physical = pair.get("left_fields") or []
+        if physical:
+            keys.extend(f"{item.get('table')}.{item.get('field')}" for item in physical)
+            continue
+        left = str((pair.get("left") or {}).get("scope") or "")
+        keys.extend(_walk_lookup(lookups, scope_id, left, seen))
+    return keys
 
 
 def _chain_sql_comments(chain: dict | None, context: dict) -> list[str]:
@@ -2119,7 +2312,7 @@ def _field_summary(
         step_texts=steps,
         direct_notes=notes,
         source_notes=notes,
-        expression=entry.get("expression"),
+        expression=_without_comments(entry.get("expression")),
         nullable_by_join=nullable,
         branch_steps=branch_steps,
     )
@@ -2346,9 +2539,7 @@ def _derivation(chain: dict | None, context: dict) -> list[dict]:
     for step in (chain or {}).get("ordered_steps") or []:
         scope_id = str(step.get("scope_id"))
         expression = step.get("expression_sql")
-        has_udf = bool(
-            set(step.get("logic_ids") or []) & context["udf_blocks"]
-        ) and semantic_text.has_unknown_function(expression) is not False
+        has_udf = _step_calls_udf(step, context)
         branch = context["union_branches"].get(scope_id)
         steps.append(
             {
@@ -2369,7 +2560,7 @@ def _derivation(chain: dict | None, context: dict) -> list[dict]:
                     has_udf=has_udf,
                     column_types=context["column_types"],
                 ),
-                "expression": expression,
+                "expression": _without_comments(expression),
             }
         )
     return steps
@@ -2515,6 +2706,7 @@ def _build_output_shape(
     )
     risks = [risk for risk, _level in decided]
     keys, unexposed, key_evidence, confidence = _key_block(document, grain, decided)
+    merge = _merge_shape(document)
     return {
         "shape": shape,
         "shape_evidence": evidence,
@@ -2530,6 +2722,8 @@ def _build_output_shape(
         "key_confidence": confidence,
         "partition_columns": list(document.get("target_partition_columns") or []),
         "fan_out_risks": risks,
+        # #22: only on a MERGE -- see `_merge_shape`.
+        **({"merge": merge} if merge else {}),
         "tag": TAG_STRUCTURAL_INFERENCE,
         # WP6: the claim behind `key_confidence` -- which rule, about which write, under
         # which open condition. Null exactly when no key is claimed.
@@ -2537,6 +2731,123 @@ def _build_output_shape(
             _output_key_claim(document, grain, keys, unexposed, confidence)
         ),
     }
+
+
+MERGE_COVERED = "covered"
+MERGE_DEDUP_WIDER = "dedup_wider"
+MERGE_NO_DEDUP = "no_dedup"
+MERGE_COVERAGE_UNKNOWN = "unknown"
+
+_DEDUP_BASES = (BASIS_GROUP_BY, BASIS_DISTINCT, BASIS_WINDOW_PARTITION)
+
+
+def _merge_shape(document: dict) -> dict | None:
+    """#22: on which keys a MERGE merges, under which WHEN conditions, and whether its
+    USING side can offer one merge key two rows.
+
+    The shape and the grain stay unknown (a MERGE's written rows are not its source's
+    rows); this block says what can be said instead. ``on``, ``merge_keys`` (the
+    contract's ``key_pairs``), ``other_on_conditions`` and ``whens`` restate ``merge_spec``.
+    ``using_grain`` is the grain walk started at the USING source. When that walk finds
+    a deduplication, its keys are lifted from the scope that defines them to the USING
+    output (renames followed; a single-source expression is kept as ``derived``) and
+    compared with the merge key's source columns: ``covered`` when they all are merge
+    keys, ``dedup_wider`` when some are not (one merge key can still meet several USING
+    rows: a matched update meets several, an unmatched key is inserted more than once),
+    ``no_dedup`` when the USING side has only its driving table's rows, ``unknown``
+    otherwise.
+    """
+    spec = document.get("merge_spec")
+    if not isinstance(spec, Mapping):
+        return None
+    using, _ = _scope_from_item(document, _ROOT)
+    if using in _scopes(document):
+        grain, visited = _resolve_grain(document, using)
+    elif using:
+        grain, visited = _grain([], BASIS_DRIVING_TABLE_ROWS, [using]), []
+    else:
+        grain, visited = _unknown_grain("MERGE 无可判定的 USING 来源", []), []
+    basis = str(grain.get("basis"))
+    shape: dict = {
+        "on": spec.get("on"),
+        "merge_keys": list(spec.get("key_pairs") or []),
+        "other_on_conditions": list(spec.get("other_on_conditions") or []),
+        "whens": list(spec.get("whens") or []),
+        "using_scope": using,
+        "using_grain": {"basis": basis, "evidence": list(grain.get("evidence") or [])},
+    }
+    if basis in _DEDUP_BASES:
+        lifted = [
+            _lift_key_to(document, visited, key) for key in grain.get("keys") or []
+        ]
+        if lifted and all(item is not None for item in lifted):
+            shape["dedup_keys"] = [
+                {"column": name, "derived": derived} for name, derived in lifted
+            ]
+            merged = _comparable(str(pair.get("source")) for pair in shape["merge_keys"])
+            extra = [name for name, _ in lifted if name.lower() not in merged]
+            unsafe = _joins_after_dedup(document, grain, visited)
+            if extra:
+                shape["coverage"] = MERGE_DEDUP_WIDER
+                shape["extra_keys"] = extra
+            else:
+                shape["coverage"] = MERGE_COVERAGE_UNKNOWN if unsafe else MERGE_COVERED
+            if unsafe:
+                shape["joins_after_dedup"] = unsafe
+            return shape
+        shape["coverage"] = MERGE_COVERAGE_UNKNOWN
+    elif basis == BASIS_SINGLE_ROW:
+        shape["coverage"] = MERGE_COVERED
+    elif basis == BASIS_DRIVING_TABLE_ROWS:
+        shape["coverage"] = MERGE_NO_DEDUP
+    else:
+        shape["coverage"] = MERGE_COVERAGE_UNKNOWN
+    return shape
+
+
+def _joins_after_dedup(document: dict, grain: dict, visited: Sequence[str]) -> list[str]:
+    """The JOINs between the USING output and its dedup that are not proven safe.
+
+    A dedup makes the USING side one row per key only until a JOIN after it duplicates
+    those rows again, so ``covered`` needs every JOIN from the USING scope down to the
+    deduplicating scope (that scope's own JOINs included, as they run after a window it
+    filters) to be ``safe``.
+    """
+    scope = _grain_scope(grain)
+    after = list(visited[: visited.index(scope)]) if scope in visited else list(visited)
+    found = []
+    for scope_id in after:
+        for block in _blocks_of_type(document, scope_id, "join"):
+            detail = block.get("join_relation_detail") or {}
+            block_id = str(block.get("logic_block_id"))
+            if _fan_out_verdict(document, block_id, detail)[0] != "safe":
+                found.append(block_id)
+    return found
+
+
+def _lift_key_to(
+    document: dict, path: Sequence[str], key: Mapping
+) -> tuple[str, bool] | None:
+    """A logical key lifted from its own scope to ``path[0]``: ``(column, derived)``.
+
+    The key's scope may sit one layer below the walk's last scope (H3 keys belong to the
+    window's scope, the walk stops at the filter's), so the climb starts from the key's
+    own ``scope_id``, never from the scope that decided the grain.
+    """
+    scope_id = str(key.get("scope_id"))
+    chain = list(path)
+    if scope_id not in chain:
+        chain.append(scope_id)
+    level = chain.index(scope_id)
+    name, derived = key.get("name"), False
+    if not name:
+        return None
+    for index in range(level - 1, -1, -1):
+        lifted = _lifted_output(document, chain[index], chain[index + 1], name)
+        if lifted is None:
+            return None
+        name, derived = lifted[0], derived or lifted[1]
+    return str(name), derived
 
 
 #: The rule behind each grain basis's key set.
@@ -2734,12 +3045,76 @@ def _decide_grain(
     root_visited = [_ROOT] if _ROOT in _scopes(document) else []
     if shape == SHAPE_UNKNOWN:
         visited = _resolve_grain(document)[1] if root_visited else root_visited
-        return _grain([], BASIS_UNKNOWN, shape_evidence), visited
+        return _grain([], BASIS_UNKNOWN, shape_evidence), _path_below_blockers(
+            document, visited
+        )
     if shape == SHAPE_DEDUPLICATED:
         keys = _root_dedup_logical_keys(document)
         if keys:
             return _grain(keys, BASIS_WINDOW_PARTITION, shape_evidence), root_visited
-    return _resolve_grain(document)
+    grain, visited = _resolve_grain(document)
+    return grain, _path_below_blockers(document, visited)
+
+
+def _path_below_blockers(document: dict, visited: Sequence[str]) -> list[str]:
+    """The grain walk's path, continued through the scopes a blocker stopped it at.
+
+    #21-a. A UNION, a LATERAL VIEW or an ambiguous bare column makes one scope's row count
+    undecidable, so the *grain* is unknown there -- but every input of that scope still
+    feeds the output row for row (a UNION's branches add up, a LATERAL VIEW repeats each
+    row), so a JOIN below it duplicates output rows as surely as one above it. Withholding
+    the grain must not withhold the path: the walk resumes from each of the blocked
+    scope's inputs, recursively, the way a MERGE's USING source is walked. The grain
+    itself is not touched. A walk that ends at an aggregation ended because it found the
+    grain, so nothing resumes there: a JOIN under a GROUP BY changes an aggregate's value,
+    not the output's rows.
+    """
+    path = list(visited)
+    seen = set(path)
+    pending = [(path[-1], 0)] if path else []
+    while pending:
+        scope_id, depth = pending.pop(0)
+        if depth >= GRAIN_DEPTH_LIMIT or not _walk_blocker(document, scope_id):
+            continue
+        for start in _blocked_scope_inputs(document, scope_id):
+            if start in seen:
+                continue
+            walked = _resolve_grain(document, start)[1]
+            path.extend(item for item in walked if item not in seen)
+            seen.update(walked)
+            if walked:
+                pending.append((walked[-1], depth + 1))
+    return path
+
+
+def _walk_blocker(document: dict, scope_id: str) -> str | None:
+    """The blocker `_scope_grain` stopped at in this scope, or None when it stopped otherwise."""
+    if _blocks_of_type(document, scope_id, "group_by") or _blocks_of_type(
+        document, scope_id, "aggregate"
+    ):
+        return None
+    types = {str(block.get("logic_type")) for block in _scope_blocks(document, scope_id)}
+    if "distinct" in types:
+        return None
+    return _grain_blocker(document, scope_id, types)
+
+
+def _blocked_scope_inputs(document: dict, scope_id: str) -> list[str]:
+    """A blocked scope's inputs the output rows come from: its scopes, not a JOIN's right side.
+
+    What a JOIN brings in from its right side is judged by that JOIN's verdict; the joins
+    inside the right side do not duplicate output rows themselves.
+    """
+    scopes = _scopes(document)
+    right = {
+        str((block.get("join_relation_detail") or {}).get("right_input"))
+        for block in _blocks_of_type(document, scope_id, "join")
+    }
+    return [
+        item
+        for item in _scope_inputs(document, scope_id)
+        if item in scopes and item not in right
+    ]
 
 
 def _resolve_grain(document: dict, start: str = _ROOT) -> tuple[dict, list[str]]:
@@ -2768,7 +3143,12 @@ def _resolve_grain(document: dict, start: str = _ROOT) -> tuple[dict, list[str]]
         visited.append(item)
         basis, keys, evidence, following = _scope_grain(document, item)
         if following is None:
-            return _grain(keys, str(basis), evidence, visited[1:-1]), visited
+            # H3's keys belong to the window's scope, one below the scope that filters
+            # them, so the filtering scope was pierced too: a JOIN there follows the
+            # dedup and must count as downstream of it (`_scopes_below_grain`).
+            below = any(str(key.get("scope_id")) != item for key in keys)
+            via = visited[1:] if below else visited[1:-1]
+            return _grain(keys, str(basis), evidence, via), visited
         item = following
     return (
         _unknown_grain(f"穿透层数超过上限 {GRAIN_DEPTH_LIMIT}", visited[1:]),
@@ -2810,6 +3190,9 @@ def _scope_grain(
     blocker = _grain_blocker(document, scope_id, types)
     if blocker:
         return BASIS_UNKNOWN, [], [blocker], None
+    first_row = _scope_first_row_grain(document, scope_id, types)
+    if first_row is not None:
+        return BASIS_WINDOW_PARTITION, first_row[0], first_row[1], None
     # Whatever is left keeps its input's rows one for one -- a filter drops whole rows
     # and a projection or window rewrites columns -- so the question moves to the FROM
     # item. A scope with no JOIN has exactly one candidate when it reads one input, and
@@ -2818,6 +3201,55 @@ def _scope_grain(
     if item is None:
         return BASIS_UNKNOWN, [], [str(reason)], None
     return None, [], [], item
+
+
+def _scope_first_row_grain(
+    document: dict, scope_id: str, types: set
+) -> tuple[list[dict], list[str]] | None:
+    """H3: this scope keeps ``rn = 1`` of a row_number window on its FROM item.
+
+    ``select ... from (select ..., row_number() over (partition by k ...) rn from t) a
+    where rn = 1`` is one row per ``k`` -- the deduplication ROOT is recognised for
+    (``_root_dedup_evidence``), written one layer down. A JOIN in this scope is treated
+    as everywhere else on the walk: the FROM item sets the grain and the JOIN becomes a
+    fan-out risk on it, which is what decides the key confidence. ROOT keeps its own
+    rule. ``(partition keys of the window scope, evidence)``.
+    """
+    if scope_id == _ROOT:
+        return None
+    item, _ = _scope_from_item(document, scope_id)
+    if item is None:
+        return None
+    for owner, block_id, spec in _ranking_window_specifications(
+        document, semantic_text.UNIQUE_RANKING_WINDOW_FUNCTIONS
+    ):
+        if owner != item:
+            continue
+        output = str(spec.get("output_field") or "")
+        consumer = next(
+            (
+                str(entry.get("logic_block_id"))
+                for entry in spec.get("filter_after_window") or []
+                if entry.get("scope_id") == scope_id and _entry_keeps_first_row(entry, output)
+            ),
+            None,
+        ) or next(
+            (
+                str(block.get("logic_block_id"))
+                for block in _scope_blocks(document, scope_id)
+                if str(block.get("logic_type")) in _PREDICATE_LOGIC_TYPES
+                and _predicate_block_keeps_first_row(block, output)
+            ),
+            None,
+        )
+        if output and consumer:
+            names = _output_name_index(document, owner)
+            keys = [
+                _partition_item_key(owner, names, entry)
+                for entry in spec.get("partition_by") or []
+            ]
+            return keys, [block_id, consumer]
+    return None
 
 
 def _grain_blocker(document: dict, scope_id: str, types: set) -> str | None:
@@ -3649,6 +4081,9 @@ def _fan_out_verdict(
         function, partition, consumer = proven
         scope = "无分区" if not partition else f"按 {'、'.join(partition)} 分区"
         return "safe", f"右侧 {function} {scope}并以 = 1 过滤（{consumer}）", None, None, []
+    listed = _values_key_claim(document, right, detail, columns)
+    if listed is not None:
+        return "safe", _values_reason(listed), None, None, []
     fallback = grouped or ("risk", "右侧未被证明按连接键唯一", [])
     return fallback[0], fallback[1], None, None, fallback[2]
 
@@ -3677,7 +4112,10 @@ def _fan_out_claim(
     if grouped is not None:
         return grouped
     columns = _join_side_columns(detail, "right")
-    return _ranking_key_claim(document, right, (block_id, detail), columns) if columns else None
+    if not columns:
+        return None
+    ranked = _ranking_key_claim(document, right, (block_id, detail), columns)
+    return ranked or _values_key_claim(document, right, detail, columns)
 
 
 def _keyless_join_verdict(detail: dict) -> tuple[str, str]:
@@ -4088,17 +4526,269 @@ def _ranking_key_claim(
             continue
         consumer = _keeps_first_row_consumer(document, scope_id, spec, [join_block])
         if consumer:
-            function = str(spec.get("window_function"))
-            unique = function.lower() in semantic_text.UNIQUE_RANKING_WINDOW_FUNCTIONS
-            return claims.Claim(
-                "at_most_one_row" if unique else "dedup_intent",
-                claims.Subject(claims.SUBJECT_QUERY_ROWS, (scope_id,)),
-                tuple(_window_partition_labels(spec)),
-                claims.PROVEN if unique else claims.HYPOTHESIS,
-                "R-ROWNUM-FIRST" if unique else "R-RANK-FIRST",
-                (consumer, function),
-            )
+            return _ranking_claim(scope_id, spec, consumer)
+    return _lower_ranking_claim(document, scope_id, join_columns, functions)
+
+
+def _ranking_claim(scope_id: str, spec: dict, consumer: str) -> claims.Claim:
+    function = str(spec.get("window_function"))
+    unique = function.lower() in semantic_text.UNIQUE_RANKING_WINDOW_FUNCTIONS
+    return claims.Claim(
+        "at_most_one_row" if unique else "dedup_intent",
+        claims.Subject(claims.SUBJECT_QUERY_ROWS, (scope_id,)),
+        tuple(_window_partition_labels(spec)),
+        claims.PROVEN if unique else claims.HYPOTHESIS,
+        "R-ROWNUM-FIRST" if unique else "R-RANK-FIRST",
+        (consumer, function),
+    )
+
+
+#: What ends a single-input chain: anything that can make one row many, or many one.
+_CHAIN_STOP_TYPES = frozenset(
+    {"join", "group_by", "aggregate", "distinct", "union", "lateral_view"}
+)
+
+
+def _single_input_chain(document: dict, scope_id: str) -> list[str]:
+    """``scope_id`` and the scopes below it, each the only input of the one above.
+
+    A scope is descended only when it reads exactly one scope and carries no join,
+    grouping, DISTINCT, UNION or LATERAL VIEW: then every row it publishes is one row of
+    its input, filtered or renamed, and a uniqueness proven below holds above it. The
+    last scope is whatever the descent reached; it is not itself checked.
+    """
+    scopes = _scopes(document)
+    chain = [scope_id]
+    current = scope_id
+    for _ in range(GRAIN_DEPTH_LIMIT):
+        types = {str(block.get("logic_type")) for block in _scope_blocks(document, current)}
+        if types & _CHAIN_STOP_TYPES or _grain_blocker(document, current, types):
+            break
+        inputs = _scope_inputs(document, current)
+        if len(inputs) != 1 or inputs[0] not in scopes or inputs[0] in chain:
+            break
+        current = inputs[0]
+        chain.append(current)
+    return chain
+
+
+def _lifted_output(
+    document: dict, parent: str, child: str, name: str | None
+) -> tuple[str, bool] | None:
+    """``(column, derived)``: what ``parent`` publishes ``child``'s column ``name`` as.
+
+    The key-lifting helper D's three proofs share (#21-b, #21-c, #22). The contract's own
+    single-source pointer (``expression_resolution.source_scope_id`` /
+    ``source_output_field``) decides, so a JOIN scope with two same-named inputs cannot
+    mislead it. A bare reference -- renamed or not (``SELECT k AS kk``) -- is the column
+    itself; a single-source expression over it (``concat('p_', env) AS env``) is
+    ``derived``. A scope with no output list (an unexpanded ``SELECT *``) publishes its
+    input's columns as they are; one that publishes no pointer at all is matched by bare
+    name only when it reads that one input.
+    """
+    if name is None:
+        return None
+    scope = _scopes(document).get(parent) or {}
+    outputs = scope.get("outputs") or []
+    if not outputs:
+        return name, False
+    wanted = name.lower()
+    derived = None
+    for output in outputs:
+        resolution = output.get("expression_resolution") or {}
+        if str(resolution.get("source_scope_id")) != child or (
+            str(resolution.get("source_output_field") or "").lower() != wanted
+        ):
+            continue
+        if _bare_column_name(output.get("expression") or output.get("name")) is not None:
+            return str(output.get("name")), False
+        derived = derived or (str(output.get("name")), True)
+    if derived is not None:
+        return derived
+    if _scope_inputs(document, parent) != [child]:
+        return None
+    for output in outputs:
+        resolution = output.get("expression_resolution") or {}
+        if resolution.get("source_scope_id"):
+            continue
+        if _bare_column_name(output.get("expression") or output.get("name")) == wanted:
+            return str(output.get("name")), False
     return None
+
+
+def _lift_name(document: dict, parent: str, child: str, name: str | None) -> str | None:
+    """The column ``parent`` publishes ``child``'s ``name`` as, bare references only."""
+    lifted = _lifted_output(document, parent, child, name)
+    return lifted[0] if lifted and not lifted[1] else None
+
+
+def _lifted_names(document: dict, chain: Sequence[str], level: int, name: str | None) -> list:
+    """``name`` at ``chain[level]`` as each scope above it publishes it (index = level)."""
+    names: list = [None] * (level + 1)
+    names[level] = name
+    for index in range(level - 1, -1, -1):
+        names[index] = _lift_name(document, chain[index], chain[index + 1], names[index + 1])
+    return names
+
+
+def _lower_ranking_claim(
+    document: dict,
+    scope_id: str,
+    join_columns: Sequence[str],
+    functions: frozenset[str],
+) -> claims.Claim | None:
+    """#21-b: the ranking window sits below the right side, the ``= 1`` filter above it.
+
+    ``(select k, v from (select k, v, row_number() over (partition by k ...) rn from t)
+    x where rn = 1) d`` -- the commonest way to write "latest row per key" -- puts the
+    window and the filter in different scopes, and the right side is neither. It is still
+    unique by ``k`` when every scope from the right side down to the window is a
+    single-input chain, the partition keys reach the right side as bare columns (renames
+    followed) within the join keys, and a scope on the chain above the window keeps
+    ``rn = 1``.
+    """
+    chain = _single_input_chain(document, scope_id)
+    for owner, _, spec in _ranking_window_specifications(document, functions):
+        if owner not in chain[1:]:
+            continue
+        level = chain.index(owner)
+        names = _output_name_index(document, owner)
+        keys = [_partition_item_key(owner, names, item) for item in spec.get("partition_by") or []]
+        lifted = [_lifted_names(document, chain, level, key.get("name"))[0] for key in keys]
+        if any(name is None for name in lifted):
+            continue
+        if not _comparable(lifted) <= _comparable(join_columns):
+            continue
+        consumer = _chain_first_row_filter(document, chain, level, spec)
+        if consumer:
+            return _ranking_claim(scope_id, spec, consumer)
+    return None
+
+
+def _chain_first_row_filter(
+    document: dict, chain: Sequence[str], level: int, spec: dict
+) -> str | None:
+    """The block on the chain above the window that keeps ``rn = 1``, by ``rn``'s name there."""
+    names = _lifted_names(document, chain, level, str(spec.get("output_field") or "") or None)
+    above = set(chain[:level])
+    for entry in spec.get("filter_after_window") or []:
+        scope = str(entry.get("scope_id"))
+        if scope in above:
+            output = names[chain.index(scope) + 1]
+            if output and _entry_keeps_first_row(entry, output):
+                return str(entry.get("logic_block_id"))
+    for index in range(level - 1, -1, -1):
+        output = names[index + 1]
+        if not output:
+            continue
+        for block in _scope_blocks(document, chain[index]):
+            if str(block.get("logic_type")) in _PREDICATE_LOGIC_TYPES and (
+                _predicate_block_keeps_first_row(block, output)
+            ):
+                return str(block.get("logic_block_id"))
+    return None
+
+
+def _values_key_claim(
+    document: dict, scope_id: str, detail: dict, join_columns: Sequence[str]
+) -> claims.Claim | None:
+    """#21-c: the right side is an inline VALUES list whose rows differ on the join keys.
+
+    The rows are literals the SQL states, so their distinctness is a fact. The right side
+    is followed down a single-input chain to a scope whose text is the VALUES list itself;
+    every ``column = literal`` pin on the way -- a conjunct of a WHERE on the chain, or a
+    top-level ON conjunct reading only the right side -- narrows the rows first. A pin in
+    an OR, on the left side or by any other operator is ignored: ignoring a filter only
+    keeps more rows, so the proof stays sound. The key cells must be literals, and integer
+    strings compare by number (``'1'`` meets ``'01'``).
+
+    ``content`` is ``(row count, key columns, pins)`` for the reason sentence.
+    """
+    chain = _single_input_chain(document, scope_id)
+    bottom = chain[-1]
+    scope = _scopes(document).get(bottom) or {}
+    if scope.get("depends_on"):
+        return None
+    columns = [str(output.get("name")) for output in scope.get("outputs") or []]
+    rows = values_rows.literal_rows(scope.get("raw_sql"), len(columns))
+    if not rows or not columns:
+        return None
+    level = len(chain) - 1
+    # name at each chain level -> the VALUES column it carries
+    at_level: list[dict[str, int]] = [{} for _ in chain]
+    for position, column in enumerate(columns):
+        for index, name in enumerate(_lifted_names(document, chain, level, column)):
+            if name is not None:
+                at_level[index].setdefault(name.lower(), position)
+    key_positions = _dedupe(
+        at_level[0][name.lower()] for name in join_columns if name.lower() in at_level[0]
+    )
+    if not key_positions:
+        return None
+    pins = _values_pins(document, chain, at_level, detail, scope_id)
+    kept = [row for row in rows if _row_meets_pins(row, pins)]
+    seen = set()
+    for row in kept:
+        cells = tuple(row[position] for position in key_positions)
+        if any(cell is values_rows.NOT_LITERAL for cell in cells):
+            return None
+        key = tuple(values_rows.comparable(cell) for cell in cells)
+        if key in seen:
+            return None
+        seen.add(key)
+    pin_text = tuple(f"{columns[position]} = '{value}'" for position, value in pins)
+    return claims.Claim(
+        "at_most_one_row",
+        claims.Subject(claims.SUBJECT_QUERY_ROWS, (scope_id,)),
+        (len(kept), tuple(columns[position] for position in key_positions), pin_text),
+        claims.PROVEN,
+        "R-VALUES-DISTINCT",
+        (bottom,),
+    )
+
+
+def _values_pins(
+    document: dict,
+    chain: Sequence[str],
+    at_level: Sequence[Mapping[str, int]],
+    detail: dict,
+    scope_id: str,
+) -> list[tuple[int, str]]:
+    """``(VALUES column position, literal)`` for every equality pin on the right side's way."""
+    pins: list[tuple[int, str]] = []
+    for index, current in enumerate(chain[:-1]):
+        for block in _blocks_of_type(document, current, "filter"):
+            for conjunct in (block.get("filter_predicate_detail") or {}).get("conjuncts") or []:
+                pins.extend(_pin(conjunct, at_level[index + 1]))
+    for condition in detail.get("condition_filters") or []:
+        fields = condition.get("fields") or []
+        if fields and all(str(field.get("scope")) == scope_id for field in fields):
+            pins.extend(_pin(condition, at_level[0]))
+    return _dedupe(pins)
+
+
+def _pin(condition: Mapping, names: Mapping[str, int]) -> list[tuple[int, str]]:
+    found = values_rows.pin_literal(condition.get("expression"))
+    if found is None or found[0] not in names:
+        return []
+    return [(names[found[0]], found[1])]
+
+
+def _row_meets_pins(row: tuple, pins: Sequence[tuple[int, str]]) -> bool:
+    """False only when a literal cell provably fails a pin; anything unsure keeps the row."""
+    for position, value in pins:
+        cell = row[position]
+        if cell is values_rows.NOT_LITERAL:
+            continue
+        if cell != value and values_rows.comparable(cell) != values_rows.comparable(value):
+            return False
+    return True
+
+
+def _values_reason(claim: claims.Claim) -> str:
+    count, keys, pins = claim.content
+    text = f"右侧为内联 VALUES 列表，{count} 行在 {'、'.join(keys)} 上互不相同"
+    return f"{text}（按 {'、'.join(pins)} 过滤后）" if pins else text
 
 
 def _keeps_first_row_consumer(
@@ -4459,6 +5149,9 @@ def _ordered_action(action: dict) -> dict:
 
 def _action(action_type: str, text: str | None, **extra) -> dict:
     comments = [str(item) for item in extra.pop("sql_comments", None) or []]
+    # The stage's restated SQL follows the rules': comments live in sql_comments only.
+    if "expression" in extra:
+        extra["expression"] = _without_comments(extra["expression"])
     return {
         "type": action_type,
         "text": text,
@@ -4513,13 +5206,13 @@ def _join_action(document: dict, block: dict) -> dict:
     pairs: list[dict] = []
     for pair in detail.get("join_key_pairs") or []:
         pairs.extend(_join_key_pair(pair)[0])
-    extras = [
-        condition.get("expression") for condition in detail.get("condition_filters") or []
-    ]
     return _action(
         "join",
         semantic_text.describe_join(
-            detail.get("join_type"), detail.get("right_input"), _dedupe(pairs), extras
+            detail.get("join_type"),
+            detail.get("right_input"),
+            _dedupe(pairs),
+            _extra_conditions(detail),
         ),
         expression=detail.get("condition_expression"),
         fields=_join_condition_physical_fields(document, detail),
@@ -4568,7 +5261,7 @@ def _aggregate_action(
 
 
 def _case_action(document: dict, block: dict) -> dict:
-    expression = block.get("raw_expression")
+    expression = _without_comments(block.get("raw_expression"))
     branches = semantic_text.describe_case(expression)
     outputs = [str(name) for name in block.get("output_fields") or []]
     text = branches
@@ -5717,11 +6410,15 @@ FINDING_HARDCODED_DATE = "hardcoded_date_literal"
 FINDING_METADATA_CONFLICTS = "metadata_conflicts"
 FINDING_TARGET_BINDING = "target_binding"
 FINDING_TABLE_COMMENT_MISSING = "table_comment_missing"
+FINDING_DUPLICATE_ALIAS = "duplicate_alias"
+FINDING_EMPTY_STRING_ON_NON_STRING = "empty_string_on_non_string"
 
 # Rendered in this order, most actionable first. The order is fixed so two runs of the
 # same document cannot list the same findings differently.
 FINDING_KINDS = (
     FINDING_ALIAS_POSITION_MISMATCH,
+    FINDING_DUPLICATE_ALIAS,
+    FINDING_EMPTY_STRING_ON_NON_STRING,
     FINDING_PARTITION_MISMATCH,
     FINDING_NONDETERMINISTIC_FUNCTION,
     FINDING_HARDCODED_DATE,
@@ -5768,6 +6465,8 @@ FINDING_SEVERITIES = (SEVERITY_WARN, SEVERITY_INFO)
 #   audit column -- a constant projection whose expression is only the run-time call.
 FINDING_SEVERITY = {
     FINDING_ALIAS_POSITION_MISMATCH: SEVERITY_WARN,
+    FINDING_DUPLICATE_ALIAS: SEVERITY_WARN,
+    FINDING_EMPTY_STRING_ON_NON_STRING: SEVERITY_WARN,
     FINDING_PARTITION_MISMATCH: SEVERITY_INFO,
     FINDING_NONDETERMINISTIC_FUNCTION: SEVERITY_WARN,
     FINDING_HARDCODED_DATE: SEVERITY_INFO,
@@ -5789,11 +6488,12 @@ FINDING_OWN_LINE = FINDING_TARGET_BINDING
 # many there are and leaves the rest to the mapping chains it cites.
 ALIAS_MISMATCH_PREVIEW_COUNT = 3
 
-# The binding method the finding is about: the values were matched to target columns by
-# their *position* in the DDL, so a name mismatch means the write is positional and the
-# names disagree -- either the data went into the wrong column or the metadata's column
-# order is stale.
-_POSITIONAL_BINDING_METHOD = "ddl_position"
+# The binding methods the finding is about: the values were matched to target columns by
+# their *position* -- in the DDL, or in a schema file's column list when no DDL was
+# given (#25a) -- so a name mismatch means the write is positional and the names
+# disagree: either the data went into the wrong column or the metadata's column order is
+# stale. An explicit INSERT column list is not one: the names there decide, not the alias.
+_POSITIONAL_BINDING_METHODS = frozenset({"ddl_position", "schema_position"})
 
 # The names sqlglot's `qualify` invents for a projection the author did not alias. They
 # are the absence of an alias, not an alias that disagrees -- see `_name_is_generated`.
@@ -5801,6 +6501,7 @@ _GENERATED_NAME_SHAPE = re.compile(r"_col_\d+|_c\d+")
 
 _TARGET_BINDING_METHOD_NOTES = {
     "ddl_position": "按 DDL 位置绑定，目标表 DDL 变更会导致列错位",
+    "schema_position": "按元数据列序位置绑定，目标表列序变更会导致列错位",
     "projection_alias": "按投影别名绑定",
 }
 
@@ -5854,6 +6555,8 @@ def _build_findings(
     alias_mismatch = _alias_position_findings(document, fields)
     found = [
         *alias_mismatch,
+        *_duplicate_alias_findings(document),
+        *_empty_string_findings(document, rules),
         *_partition_mismatch_findings(comparisons, fields),
         *_nondeterministic_findings(rules, fields),
         *_hardcoded_date_findings(comparisons),
@@ -5878,7 +6581,7 @@ def _alias_position_findings(document: dict, fields: Sequence[dict]) -> list[dic
     the target metadata's column order is out of date. Neither is decided here.
     """
     binding = document.get("target_field_binding") or {}
-    if str(binding.get("method")) != _POSITIONAL_BINDING_METHOD:
+    if str(binding.get("method")) not in _POSITIONAL_BINDING_METHODS:
         return []
     entries = document.get("end_to_end_lineage") or []
     mismatched = [
@@ -5908,6 +6611,85 @@ def _alias_position_findings(document: dict, fields: Sequence[dict]) -> list[dic
             [chains.get(str(entry.get("column"))) for entry in mismatched],
         )
     ]
+
+
+def _duplicate_alias_findings(document: dict) -> list[dict]:
+    """One alias naming two different sources inside one SELECT (#25b).
+
+    The contract resolves such a column by "the only source with this output column" and
+    counts it in ``warning_counts.duplicate_alias``; the count said nothing about which
+    alias or which two sources. The same alias in two scopes or two statements is
+    ordinary and is not reported.
+    """
+    found = []
+    for scope_id, scope in _scopes(document).items():
+        sources: dict[str, list[str]] = {}
+        for binding in scope.get("alias_source_bindings") or []:
+            alias = str(binding.get("alias") or "")
+            if alias and binding.get("source_id"):
+                sources.setdefault(alias, []).append(str(binding.get("source_id")))
+        for alias, named in sources.items():
+            distinct = _dedupe(named)
+            if len(distinct) > 1:
+                found.append(
+                    _finding(
+                        FINDING_DUPLICATE_ALIAS,
+                        f"同一 SELECT（作用域 {scope_id}）里别名 {alias} 同时指 "
+                        f"{'、'.join(distinct)}；列按「只有一个来源有此列」消歧",
+                        [scope_id],
+                    )
+                )
+    return found
+
+
+_STRING_TYPE_PREFIXES = ("string", "varchar", "char")
+
+
+def _empty_string_findings(document: dict, rules: Sequence[dict]) -> list[dict]:
+    """``column = ''`` (or ``<>`` / ``!=``) on a column declared other than a string (D #29).
+
+    A cleaning step like ``if(k = '', null, k)`` on a ``bigint`` column compares a number
+    with an empty string; what that does is the engine's implicit coercion -- it may never
+    hold, or it may fail -- so the finding says the types disagree and asks whether the
+    cleaning works, nothing more. The column must be one physical column of the rule by
+    name, with a declared type; anything less is not reported.
+    """
+    found = []
+    for rule in rules:
+        if str(rule.get("kind")) not in ("filter", "join_condition", "case_branch"):
+            continue
+        for column in semantic_text.empty_string_comparisons(rule.get("expression")):
+            typed = _physical_column_type(document, rule, column)
+            if typed is None:
+                continue
+            table, declared = typed
+            if declared.lower().startswith(_STRING_TYPE_PREFIXES):
+                continue
+            found.append(
+                _finding(
+                    FINDING_EMPTY_STRING_ON_NON_STRING,
+                    f"类型不匹配：{table}.{column} 是 {declared}，却与 '' 比较；结果取决于"
+                    "引擎的隐式转换（可能恒不成立，也可能报错），需核实这条清洗是否生效",
+                    [rule.get("rule_id")],
+                )
+            )
+    return found
+
+
+def _physical_column_type(
+    document: dict, rule: Mapping, column: str
+) -> tuple[str, str] | None:
+    """``(table, declared type)`` of the one physical field of ``rule`` named ``column``."""
+    tables = _dedupe(
+        str(field.get("table"))
+        for field in rule.get("fields") or []
+        if str(field.get("column") or "").lower() == column.lower() and field.get("table")
+    )
+    if len(tables) != 1:
+        return None
+    detail = _column_detail(_input_metadata(document).get(tables[0]) or {}, column)
+    declared = detail.get("type")
+    return (tables[0], str(declared)) if declared else None
 
 
 def _name_is_generated(entry: Mapping) -> bool:

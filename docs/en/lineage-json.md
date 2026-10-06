@@ -113,6 +113,7 @@ diagnostics summary.
 | `target_partition_mode` | enum string | Yes | `none`, `static`, `dynamic`, or `mixed`, describing **how the `PARTITION(...)` clause is written**: a value given is `static`, no value is `dynamic`, no clause at all is `none`. **It is unrelated to the session setting `spark.sql.sources.partitionOverwriteMode`** and does not state how much data this overwrite deletes — the two have similar names and different meanings. The actual blast radius of an overwrite is expressed by v2's `effect.rowset_effect`; see task-lineage-v2.md. |
 | `target_field_binding` | object | Conditional | Emitted when target-table DDL/Schema is provided, stating whether target fields were bound in authoritative order — and, regardless of what metadata was supplied, whenever this statement had no binding to make at all (`status: "not_applicable"`, with its own `reason`). See §11. |
 | `target_binding_absent_reason` | enum string | Conditional | **Present only when there is no `target_field_binding`**, and now only for the two metadata gaps: `metadata_not_provided` (the caller passed no `--target-ddl-metadata`) and **`target_table_not_found` (a directory was passed but this table is missing — this one carries risk**: Spark's `INSERT ... SELECT` writes by position, so an unbound projection may land in the wrong column). The three cases that never had a binding to make — a CTAS, a MERGE, a write to a file path — no longer reach this key: they publish `target_field_binding.status: "not_applicable"` instead, and consumers that matched on `statement_defines_its_own_columns` / `binding_not_applicable_for_statement` / `target_is_not_a_table` should read `target_field_binding.reason` (§11.1).<br>Two places where the key does **not** appear: statements that failed to parse (`parse_status: "failed"`), and the few statements that return early in parsing and never reach the binding stage — consumers must not assume this set is closed over the artifact.<br>A MERGE caveat: when target DDL is provided, a `*` branch takes its column names from that DDL, in target order; without it, the source column names are used. Both are classified as `merge_target`, and the artifact does not distinguish them. |
+| `merge_spec` | object | Conditional | **Present only on a MERGE statement**: the ON condition and each WHEN clause's condition. `on` is the whole ON condition as written; `key_pairs[]` are the top-level AND conjuncts of ON that equate one target column with one source column (`{target, source}`, target first whichever side the author wrote first); every other conjunct stays verbatim in `other_on_conditions[]`; `whens[]` gives, per WHEN clause, `index` (matching the output columns' `merge_when_index`), `clause` (`matched` / `not_matched` / `not_matched_by_source`), `condition` (the clause's own extra condition as written, `null` when there is none), `action` (`update` / `insert` / `delete`) and `star` (`UPDATE SET *` / `INSERT *`). An additive key; `schema_version` is unchanged. See §6.1. |
 | `task_dependencies` | object | Yes | Upstream and downstream task declarations preserved from the task JSON, plus a dependency-source summary. |
 | `source_tables` | array<string> | Yes | The deduplicated list of every physical input table resolved. Suited to table-level search and first-pass impact analysis. |
 | `related_metadata` | object | Yes | Field types and comments for input and output tables, plus observations about metadata completeness. |
@@ -257,6 +258,20 @@ subquery's stable scope output, and the scope chain then expands to the physical
 inside the subquery are never mis-bound to the `USING` scope.
 A correlated field inside a scalar subquery that references the MERGE target row is preserved as a
 physical self-reference to the target table and appears in `source_tables`.
+
+A MERGE's ON condition and its WHEN clauses' conditions are not output columns; they are published in the top-level `merge_spec`. It states which columns the merge pairs on and what each WHEN clause does under which condition, so a consumer need not go back to the SQL text. `key_pairs` holds only "one target column = one source column" equalities; a literal pin, a function of a key, or an unqualified column whose side the SQL does not state stays verbatim in `other_on_conditions`, with no guessing. `whens[].condition` is the part after `AND` in `WHEN MATCHED AND ...`: a matched row that fails it is neither updated nor inserted. The SQL texts carry the author's comments like every other expression key, under `--strip-comments` and comment redaction (§18).
+
+```json
+"merge_spec": {
+  "on": "`target`.`order_id` = `source`.`order_id` AND `source`.`dt` = '20260101'",
+  "key_pairs": [{"target": "order_id", "source": "order_id"}],
+  "other_on_conditions": ["`source`.`dt` = '20260101'"],
+  "whens": [
+    {"index": 0, "clause": "matched", "condition": "`target`.`dt` = '20260101'", "action": "update", "star": false},
+    {"index": 1, "clause": "not_matched", "condition": null, "action": "insert", "star": true}
+  ]
+}
+```
 
 CTE names bind by the lexical scope of the query block they are in. For example, a nested query
 declaring `WITH staging AS (...)` does not hide a physical table named `staging` without a database
@@ -949,7 +964,7 @@ A comment is **text the author wrote for a person**, not a SQL fact. The contrac
 | --- | --- | --- |
 | `statement_comments[]` | Comments on the statement's top-level node, i.e. the header block, plus the script header block merged into it | Always present; `[]` when empty |
 | `script_comments[]` (top level of the 2.0 task document only) | Comments on the unmodeled statements that run **before** the first write (`SET`, `USE`, `ADD JAR`, `CREATE TEMPORARY FUNCTION`, a `DROP/CREATE TABLE IF NOT EXISTS` preamble, …) | Always present; `[]` when empty |
-| `scopes.<id>.outputs[].comments[]` | Comments inside that projection's expression subtree, the alias node's own first | Key absent when there are none |
+| `scopes.<id>.outputs[].comments[]` | Comments inside that projection's expression subtree, the alias node's own first; a MERGE output takes its assignment's comments (the whole `column = value` for `UPDATE SET`, the value for `INSERT ... VALUES`) | Key absent when there are none |
 | `scopes.<id>.logic_blocks[].comments[]` | Comments inside that logic block's own expression | Key absent when there are none |
 
 The script header block is the passage most readers are after — "what does this job actually do" — and it is usually written above a `SET`. Nothing models a `SET`, so that passage used to reach nobody. It is collected once and published in two places: `script_comments[]` at the top of the task document (said once per task, so a multi-write script is not read as if the block described each write), and the first write statement's `statement_comments[]` (so a consumer reading one statement in isolation still sees it). A comment written **between** two write statements is outside this rule: it is already attached to the write it was written above, and moving it would file one statement's note under another.
