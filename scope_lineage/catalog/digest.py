@@ -136,12 +136,23 @@ def _lookup_facts(facts: dict, code_sets: list[dict]) -> dict:
 
 
 def _tagged(read: dict, code_sets: list[dict]) -> dict:
-    """``code_set`` when a code set's lookup has this table and exactly this filter;
-    ``reads_as`` when the column read is that code set's meaning or key column."""
+    """``code_set`` when a code set's lookup has this table and exactly this filter, and the
+    read's join columns (``key``, when the lineage names them) include its code column;
+    ``reads_as`` when the column read is that code set's meaning or key column.
+
+    A read that matches the table and filter but joins on other columns -- a stored
+    meaning looked up back to its code -- is not that code set's translation: it gets
+    ``code_set_mismatch`` (the code set and the code column it looks up by) instead."""
     where = {str(column).lower(): str(value) for column, value in read["where"].items()}
     for code_set in code_sets:
         if code_set["table"] != read["table"] or code_set["filter"] != where:
             continue
+        keys = {str(column).lower() for column in read.get("key") or []}
+        if keys and code_set["code_column"] and code_set["code_column"] not in keys:
+            read["code_set_mismatch"] = {
+                "code_set": code_set["id"], "code_column": code_set["code_column"],
+            }
+            break
         read["code_set"] = code_set["id"]
         reads = str(read.get("reads") or "").lower()
         if reads and reads in code_set["meaning"]:
@@ -169,6 +180,7 @@ def _code_set_lookups(catalog: Catalog) -> list[dict]:
                 if isinstance(column, dict)
             },
             "key": str(lookup.get("key_column") or "").lower() or None,
+            "code_column": str(lookup.get("code_column") or "").lower() or None,
         })
     return sorted(found, key=lambda item: item["id"])
 
@@ -357,6 +369,12 @@ def _read_text(read: dict) -> str:
 
 def _read_note(read: dict, first: str) -> str:
     notes = [first]
+    if read.get("key"):
+        notes.append(f"keyed on {', '.join(read['key'])}")
+    mismatch = read.get("code_set_mismatch")
+    if mismatch:
+        notes.append(f"code set {mismatch['code_set']} looks up by {mismatch['code_column']} "
+                     "(reverse lookup?)")
     if read.get("code_set"):
         notes.append(f"code set {read['code_set']}" + (
             f", {read['reads_as']}" if read.get("reads_as") else ""

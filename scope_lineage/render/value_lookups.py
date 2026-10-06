@@ -136,6 +136,7 @@ class _Leaf:
     joined: bool
     conditions: list = field(default_factory=list)
     rule: Optional[str] = None
+    key: Optional[list] = None  # the joined input's physical join columns, set with ``rule``
 
 
 @dataclass
@@ -147,6 +148,7 @@ class _Read:
     table: str
     where: dict
     reads: Optional[str] = None
+    key: Optional[list] = None
 
     def identity(self) -> tuple:
         return (self.statement, self.rule, self.table, tuple(self.where.items()))
@@ -164,7 +166,7 @@ class _Column:
             facts: dict = {
                 "lookups": [
                     {"table": read.table, "where": dict(read.where), "reads": read.reads,
-                     "rule": read.rule}
+                     **_key(read), "rule": read.rule}
                     for read in self.lookups
                 ]
             }
@@ -176,8 +178,8 @@ class _Column:
         ordered, known = _key_order(self.key_of, siblings)
         facts = {
             "key_of": [
-                {"table": read.table, "where": dict(read.where), "rule": read.rule,
-                 "read_by": _readers(read, siblings)}
+                {"table": read.table, "where": dict(read.where), **_key(read),
+                 "rule": read.rule, "read_by": _readers(read, siblings)}
                 for read in ordered
             ]
         }
@@ -267,10 +269,11 @@ class _StatementReader:
             entered = ref.get("position") == "join"
             via = joined or entered
             conditions: list[_Condition] = []
-            rule = None
+            rule, keys = None, None
             if entered:
                 block = self._join_block(scope_id, ref_id)
                 rule = str(block.get("logic_block_id")) if block else None
+                keys = self._join_keys(scope_id, block, ref_id) if block else None
                 conditions = self._join_conditions(block, ref_id) + self._where_on(
                     scope_id, ref_id, str(ref.get("alias") or "")
                 )
@@ -279,13 +282,14 @@ class _StatementReader:
                 below = self._scope_filters(inner) if via else []
                 for leaf in self._trace(inner, column, via, seen, visited):
                     leaf.conditions = conditions + below + leaf.conditions
-                    leaf.rule = leaf.rule or rule
+                    if leaf.rule is None:
+                        leaf.rule, leaf.key = rule, keys
                     leaves.append(leaf)
             else:
                 leaves.append(_Leaf(
                     table=str(inner or ""), column=column,
                     physical=ref.get("source_type") == "physical_table",
-                    joined=via, conditions=conditions, rule=rule,
+                    joined=via, conditions=conditions, rule=rule, key=keys,
                 ))
         return leaves
 
@@ -296,7 +300,7 @@ class _StatementReader:
         where = self._where(leaf.conditions, bare_table(leaf.table))
         if not where:
             return None
-        return _Read(self.key, leaf.rule, bare_table(leaf.table), where, leaf.column)
+        return _Read(self.key, leaf.rule, bare_table(leaf.table), where, leaf.column, leaf.key)
 
     def _where(self, conditions: list[_Condition], table: str) -> dict:
         where: dict[str, str] = {}
@@ -343,13 +347,40 @@ class _StatementReader:
         else:
             leaves = [_Leaf(inner, column, ref.get("source_type") == "physical_table", True,
                             conditions)]
+        keys = self._join_keys(scope_id, block, ref_id)
         for leaf in leaves:
-            leaf.rule = str(block.get("logic_block_id"))
+            leaf.rule, leaf.key = str(block.get("logic_block_id")), keys
             read = self._read(leaf)
             if read is not None:
                 read.reads = None
                 return read
         return None
+
+    def _join_keys(self, scope_id: str, block: Mapping, ref_id: str) -> Optional[list[str]]:
+        """The joined input's physical columns the JOIN's key pairs compare, in pair order.
+
+        Each right-side column is traced to the physical column it reads (through a joined
+        subquery or CTE). A pair whose right side reaches no physical column adds nothing;
+        a JOIN on an expression has no column pair at all, and then there is no key -- the
+        column is not guessed.
+        """
+        ref = self.refs.get(scope_id, {}).get(ref_id, {})
+        keys: list[str] = []
+        for pair in (block.get("join_relation_detail") or {}).get("join_key_pairs") or []:
+            right = pair.get("right") or {}
+            if str(right.get("input_ref_id")) != ref_id:
+                continue
+            column = str(right.get("column") or "")
+            inner = str(ref.get("source_id") or right.get("scope") or "")
+            if inner in self.scopes:
+                found = [
+                    leaf.column for leaf in self._trace(inner, column, True, frozenset(), set())
+                    if leaf.physical
+                ]
+            else:
+                found = [column] if ref.get("source_type") == "physical_table" else []
+            keys.extend(name for name in found if name and name not in keys)
+        return keys or None
 
     # -------------------------------------------------------------- conditions
 
@@ -414,6 +445,10 @@ class _StatementReader:
             if str(column.get("column")).lower() == name.lower() and scope not in self.scopes:
                 return scope
         return None
+
+
+def _key(read: _Read) -> dict:
+    return {"key": list(read.key)} if read.key else {}
 
 
 def _only_ref(fields, ref_id: str) -> bool:

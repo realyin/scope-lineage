@@ -35,12 +35,13 @@ T_VALUES = "demo_dwd.dwd_order_values_df"
 T_CONFLICT = "demo_dwd.dwd_order_conflict_df"
 T_PLAIN = "demo_dwd.dwd_order_plain_df"
 T_CYCLE = "demo_dwd.dwd_order_cycle_df"
+T_KEYED = "demo_dwd.dwd_order_keyed_df"
 
 # The code dictionary: `dt` and `snap_day` are its partition columns. The schema says so
 # for both; the lineage only says the table is partitioned, so without `--schema` only
 # the `dt` name rule can recognise one of them.
 SCHEMA_TABLES = {
-    ORDERS: [("order_id", 0), ("c", 0), ("c2", 0), ("s", 0), ("dt", 1)],
+    ORDERS: [("order_id", 0), ("c", 0), ("c2", 0), ("s", 0), ("label", 0), ("dt", 1)],
     DICT: [
         ("code_val", 0), ("code_type", 0), ("code_desc", 0), ("dict_key", 0),
         ("kind", 0), ("lang", 0), ("dt", 1), ("snap_day", 1),
@@ -53,6 +54,7 @@ SCHEMA_TABLES = {
     T_CONFLICT: [("order_id", 0), ("c_cd", 0), ("f_desc", 0), ("g_desc", 0)],
     T_PLAIN: [("order_id", 0), ("p_name", 0)],
     T_CYCLE: [("order_id", 0), ("c_cd", 0), ("ab_desc", 0), ("bc_desc", 0), ("ca_desc", 0)],
+    T_KEYED: [("order_id", 0), ("r_cd", 0), ("e_desc", 0), ("k_desc", 0)],
 }
 
 TASKS = {
@@ -134,6 +136,16 @@ FROM {ORDERS} a
 LEFT JOIN {DICT} d1 ON a.c = d1.code_val AND d1.code_type = 'TypeA'
 LEFT JOIN {DICT} d2 ON a.c = d2.code_val AND d2.code_type = 'TypeB'
 LEFT JOIN {DICT} d3 ON a.c = d3.code_val AND d3.code_type = 'TypeC'
+""",
+    # #31: the code table's join column of each read -- a reverse lookup (a stored label
+    # looked up to its code), a join on an expression (no column to name) and two keys.
+    "order_keyed": f"""
+INSERT OVERWRITE TABLE {T_KEYED}
+SELECT a.order_id, r.code_val AS r_cd, e.code_desc AS e_desc, k.code_desc AS k_desc
+FROM {ORDERS} a
+LEFT JOIN {DICT} r ON a.label = r.code_desc AND r.code_type = 'TypeA'
+LEFT JOIN {DICT} e ON IF(a.c = '', a.c2, a.c) = e.code_val AND e.code_type = 'TypeA'
+LEFT JOIN {DICT} k ON a.c = k.code_val AND a.s = k.kind AND k.code_type = 'TypeB'
 """,
     # Test 8: a join with no constant condition only supplements a field.
     "order_plain": f"""
@@ -267,9 +279,9 @@ def test_1_a_coalesce_reads_its_lookups_in_argument_order_then_falls_back(digest
 
     assert column["lookups"] == [
         {"table": DICT, "where": {"code_type": "TypeA"}, "reads": "code_desc",
-         "rule": column["lookups"][0]["rule"]},
+         "key": ["code_val"], "rule": column["lookups"][0]["rule"]},
         {"table": DICT, "where": {"code_type": "TypeB"}, "reads": "code_desc",
-         "rule": column["lookups"][1]["rule"]},
+         "key": ["code_val"], "rule": column["lookups"][1]["rule"]},
     ]
     assert column["lookups"][0]["rule"] != column["lookups"][1]["rule"]
     assert all(entry["rule"].startswith("logic:") for entry in column["lookups"])
@@ -374,6 +386,61 @@ def test_7d_orders_that_form_a_cycle_leave_the_key_order_unknown(digest) -> None
     assert _where(column["key_of"]) == [
         {"code_type": "TypeA"}, {"code_type": "TypeB"}, {"code_type": "TypeC"},
     ]
+
+
+# ------------------------------------------------------------------ #31 the join column
+
+
+def test_31_a_read_names_the_code_tables_join_column(digest) -> None:
+    columns = _columns(digest, T_FALLBACK)
+
+    assert [entry["key"] for entry in columns["c_desc"]["lookups"]] == [["code_val"], ["code_val"]]
+    assert [entry["key"] for entry in columns["c_cd"]["key_of"]] == [["code_val"], ["code_val"]]
+    # Through a joined subquery the key is traced to the dictionary's own column.
+    assert _columns(digest, T_FILTERED)["s_desc"]["lookups"][0]["key"] == ["code_val"]
+
+
+def test_31_a_join_on_an_expression_names_no_key(digest) -> None:
+    [read] = _columns(digest, T_KEYED)["e_desc"]["lookups"]
+
+    assert read["where"] == {"code_type": "TypeA"}
+    assert "key" not in read
+
+
+def test_31_every_key_of_a_two_key_join_is_listed(digest) -> None:
+    [read] = _columns(digest, T_KEYED)["k_desc"]["lookups"]
+
+    assert read["key"] == ["code_val", "kind"]
+
+
+def test_31_a_reverse_lookup_is_not_tagged_with_the_code_set(with_catalog) -> None:
+    """A stored label looked up to its code matches the code set's table and filter, but
+    joins on the meaning column: it is reported, not tagged."""
+    columns = _columns(with_catalog, T_KEYED)
+    [reverse] = columns["r_cd"]["lookups"]
+
+    assert reverse["key"] == ["code_desc"]
+    assert "code_set" not in reverse and "reads_as" not in reverse
+    assert reverse["code_set_mismatch"] == {"code_set": "code:type_a", "code_column": "code_val"}
+    # No key to compare: the table and filter still tag it.
+    assert columns["e_desc"]["lookups"][0]["code_set"] == "code:type_a"
+    # A two-key join whose keys include the code column is a match.
+    assert columns["k_desc"]["lookups"][0]["code_set"] == "code:type_b"
+
+
+def test_31_the_markdown_names_the_join_column(with_catalog) -> None:
+    from scope_lineage.catalog import render_digest_markdown
+
+    text = render_digest_markdown(with_catalog)
+    section = text.split(f"## {T_KEYED}")[1].split("\n## ")[0]
+    lines = [line for line in section.splitlines() if line.startswith("  - ")]
+
+    assert "keyed on code_desc; code set code:type_a looks up by code_val (reverse lookup?)" in (
+        item_line(lines, "r_cd")
+    )
+    assert "keyed on code_val, kind" in item_line(lines, "k_desc")
+    fallback = text.split(f"## {T_FALLBACK}")[1].split("\n## ")[0]
+    assert "(code_desc; keyed on code_val; code set code:type_a, meaning)" in fallback
 
 
 # ------------------------------------------------------------------ 8 unchanged output
