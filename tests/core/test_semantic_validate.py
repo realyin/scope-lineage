@@ -99,6 +99,37 @@ def test_a_source_column_only_in_input_metadata_warns(document: dict, packet: di
     assert "update_ts" in warning["message"]
 
 
+def _with_lookup_key(packet: dict, column: str, key: str) -> dict:
+    """``packet`` with ``key`` among the lookup keys of ``column``'s producers: the physical
+    join key choosing which row of a constant row set (an inline dictionary) is read."""
+    keyed = copy.deepcopy(packet)
+    for entry in keyed["lineage"]["columns"]:
+        if entry["column"] == column:
+            for producer in entry["producers"]:
+                producer["lookup_keys"] = [key]
+    return keyed
+
+
+def test_a_source_column_that_is_the_columns_lookup_key_passes(document: dict, packet: dict) -> None:
+    """A value read off an inline dictionary has no physical source; the key deciding which
+    row is read is the physical column a writer can name, and it is in the lineage."""
+    key = "demo_ods.ods_core_customer_df.update_ts"
+    _column(document, "customer_id")["source_columns"].append(key.upper())
+    report = validate_document(document, _with_lookup_key(packet, "customer_id", key))
+
+    assert _problems(report, "source_columns") == []
+    assert _problems(report, "source_columns", "warn") == []
+
+
+def test_another_columns_lookup_key_still_warns(document: dict, packet: dict) -> None:
+    key = "demo_ods.ods_core_customer_df.update_ts"
+    _column(document, "customer_id")["source_columns"].append(key)
+    report = validate_document(document, _with_lookup_key(packet, "verified_customer_no", key))
+
+    (warning,) = _problems(report, "source_columns", "warn")
+    assert "update_ts" in warning["message"]
+
+
 def _upper_case_inputs(packet: dict) -> dict:
     """``packet`` with its input metadata spelt the way an upper-case schema export has it."""
     shouted = copy.deepcopy(packet)

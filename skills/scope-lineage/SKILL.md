@@ -604,15 +604,27 @@ scope-lineage catalog render <dir>/ontology.json --out <pages> --semantics <page
   「没有表现的表」「没有绑定的列」就是这一轮要补的。第 1 步一定带 `--lineage`（与 `semantic packet` 用的是
   同一份血缘；有元数据时再带 `--schema`，分区判定更准）：这时 digest 的列上带着查码值所需的事实，**不必为它们回头读 SQL**——
   `lookups` 的 `table` / `where` 就是码值集 `lookup.table` / `filter`（`where` 的每个键值原样照抄，大小写不改），
-  `lookups` 的顺序（码列看 `key_of` 的顺序）就是绑定上 `code_sets` 的顺序，`reads` 是被读的列（含义列 → `holds`
-  写 `meaning`，代理键列 → `key`），有 `fallback` 时 `holds` 末尾加 `code`。`key_of_order: "unknown"` 表示几列回退顺序
+  列上没有 `lookups_by` 时，`lookups` 的顺序（码列看 `key_of` 的顺序）就是绑定上 `code_sets` 的顺序（真回退），
+  `reads` 是被读的列（含义列 → `holds` 写 `meaning`，代理键列 → `key`），有 `fallback` 时 `holds` 末尾加 `code`。
+  列上有 `lookups_by: "source"` 时，这一列由几个来源（UNION 分支，或写这张表的几条语句）分别写入，每项 `lookups`
+  带 `source`：各来源的码值集都列进 `code_sets` 并写 `code_sets_by: source`；各来源读的是同一组行（md 写
+  `every source reads …`）时只写一个码值集、不写 `code_sets_by`。`other_sources` 是别的来源**直接存**的物理列
+  （不是回退）：这一列在那些来源存原码，`holds` 末尾加 `code`，哪个来源存哪种写进 `derivation`。
+  `key` 是码表一侧的关联列，就是码值集的 `lookup.code_column`；带 `code_set_mismatch` 的读取（md 写
+  `reverse lookup?`）按含义反查回码，不是该码值集的翻译，写进 `derivation`，不要据此给码列写 `code_sets`。
+  带 `keyed_by: "row_identifier"` 的读取以本表自己的行标识为键，读的是同一条记录的属性行，不是码值翻译：
+  读出的列绑成属性（或 `foreign_attribute`），不建码值集；不带这个标记、键是外部标识列的读取仍可能是别的实体的
+  属性行，按表语义判断。`key_of_order: "unknown"` 表示几列回退顺序
   互相矛盾，这一列的顺序要读 SQL 定。`where` 不一定是字典类型——按角色、语言、行版本挑行的关联也会列出；
-  带 `--catalog` 时只有与某码值集 `lookup` 相同的才标 `code_set`。没有列出的：不带字符串常量的关联、内联 `VALUES`
-  字典、`CASE` 映射，这些照旧按表语义与码值规则写。
+  带 `--catalog` 时只有与某码值集 `lookup` 的表与 `filter` 相同、且关联列含其 `code_column` 的才标 `code_set`。
+  没有列出的：不带字符串常量的关联、内联 `VALUES` 字典、`CASE` 映射，这些照旧按表语义与码值规则写。
   码值集只为**有列读取**的 `where` 组合建：`lookups` 里的，或 `key_of` 中 `read_by` 非空的。`read_by` 为空
   （`read by no column`）的是死关联或只用来过滤行，不是码值集的证据——写进 `notes`，不建码值集。
 - **先建概念与标识符**：片段不能新增概念、不能改已有标识符，所以第 2 步要把各组会用到的新概念（事件连同它的
   时间属性——`occurred_at` 必须指向事件自己的属性）、新标识符、已有标识符的新拼写都写进目录并校验通过，再写片段。
+  标识符只在某个判别列（来源系统、环境这类不是业务概念的列）的每个取值内唯一、且这是已知事实时，`scope` 写
+  `{by: [{column: <列>}]}`（可与 `per` 同用），不要写 `global` 再在 `notes` 里说明；「是否跨来源唯一未证明」不是范围，
+  照旧写进 `notes`。
 - **跨组属性也先建**：一组的表里有指向别组概念的外部标识列、旁边紧跟这个对象的名称或属性列时（如 `xx_id` +
   `xx_name`），第 2 步就把该概念的这个属性建进目录，并在分组方案里写明「属性 id → 引用它的组」。片段只能新增本组
   概念的属性；别组概念需要而目录里没有的属性，片段写进 `notes`（列、想引用的概念与属性名），先绑成本概念的属性，

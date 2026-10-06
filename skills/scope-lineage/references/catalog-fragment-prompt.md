@@ -18,8 +18,15 @@
 - 分配（编排者给出）：本组的概念 id 列表；分给本组的表，以及每张表初拟的概念、表现类型、粒度、时间语义。
   只有一组、分配没写这些时，由你来定，并在 `notes` 里说明。
 - 起草材料：`<digest-dir>/digest.md`（`catalog digest --lineage` 的输出）里本组的表。列下「Joined inputs read
-  (from the lineage)」一行（`digest.json` 里列的 `lookups` / `fallback` / `key_of`）给出查码值的事实：读哪张表、
-  按什么常量（`where` 原样就是 `lookup.filter`）、回退顺序（就是 `code_sets` 的顺序）、读的是哪一列（定 `holds`）。
+  (from the lineage)」一行（`digest.json` 里列的 `lookups` / `fallback` / `other_sources` / `key_of`）给出查码值的事实：
+  读哪张表、按什么常量（`where` 原样就是 `lookup.filter`）、按码表哪一列关联（`key`，即 `lookup.code_column`）、
+  读的是哪一列（定 `holds`）。列上没有 `lookups_by` 时 `lookups` 是真回退，顺序就是 `code_sets` 的顺序；
+  有 `lookups_by: "source"`（md 写 `by source: …`）时各来源各查各的，`code_sets` 列上各来源的码值集并写
+  `"code_sets_by": "source"`，md 写 `every source reads …` 的各来源是同一个码值集，只写一个、不写这个键。
+  `other_sources`（md 写 `<来源> stores … directly`）是别的来源直接存的原码，不是回退，`holds` 末尾加 `"code"`。
+  带 `code_set_mismatch`（md 写 `reverse lookup?`）的是按含义反查回码，写进 `derivation`，不当作码值集的翻译。
+  带 `keyed_by: "row_identifier"`（md 写 `keyed by this table's row identifier`）的读取读的是同一条记录的属性行：
+  读出的列绑成属性，不建码值集。
   有这一行的列不必为这些事实去读 SQL；标了 `order unknown` 的，或 digest 不是带 `--lineage` 生成的，才读 SQL。
   `key_of` 里写着 `read by no column`（`read_by` 为空）的读取没有任何列读它的值：是死关联或只用来过滤行，
   不是码值集的证据。
@@ -43,7 +50,7 @@
     ]
   },
   "code_sets": [
-    {"id": "code:<slug>", "name": "中文名", "values": [{"value": "...", "meaning": "..."}],
+    {"id": "code:<slug>", "name": "中文名", "values": [{"value": "...", "meaning": "...", "key": "可选，内联字典里与它配对的代理键"}],
      "status": "drafted", "source": "comment|sql", "evidence": ["库.表.列"]},
     {"id": "code:<slug>", "name": "码值在码值表里的码值集", "values": [],
      "lookup": {"table": "库.码值表", "code_column": "码列",
@@ -127,10 +134,15 @@
   - 同一属性按来源拆成几个码值集时，属性**不写** `code_set`：各列在 `code_sets` 写本来源的码值集，工具把这些列的
     码值集合起来当属性的码（概念页「码值」格逐个列出、不算缺码值）。属性写了 `code_set` 就只算那一个，
     其余来源的列会报 `binding_code_sets_miss_attribute`——所以按来源拆开时不要给属性指一个「主来源」。
+  - 属性没有任何码值集（字典没被关联、码值未知，属性不写 `code_set`、绑到它的列都不写 `code_sets`）时，源系统随记录
+    存的名称列也写 `holds: ["meaning"]`（加 `lang`），不要为此建空码值集。只要有一列给这个属性带了码值集，这一列
+    就要写自己的 `code_sets`；`["key"]` 总要有码值集。
   - CASE 的 ELSE（或某个分支）没有源码可言（如 `x = '0'` 写 A、其余写 B）：不要为它编一个码；这条规则写进 binding 的
     `derivation`（需要时也写进码值集的 `definition`）。
-  - 内联字典（只列 `values` 的码值集）的代理键列照样写 `holds: ["key"]`；它一定会报 `binding_key_without_key_column`，
-    意思是「目录翻译不了这个代理键」，这是实话，不要为消警告改成 `code`。
+  - 内联字典（只列 `values` 的码值集）带代理键列时，在码值集的每个值上写 `"key"`（字典里与这个码配对的代理键，
+    如 `{"value": "1", "meaning": "接通", "key": "<字典里的代理键>"}`），代理键列写 `holds: ["key"]`；不要把代理键写进
+    绑定的 `code_map`。值上没写 `key` 时这一列会报 `binding_key_without_key_column`（目录翻译不了这个代理键），
+    这是实话，不要为消警告改成 `code`。
   - 查码值表只为把码翻成含义的列是**码列**：绑成 `attribute` 并挂 `code_set`，不要绑成 `foreign_identifier`（码值表不是概念）。
     真正的外部标识符列若也被拿去查码值表，工具允许在它上面写 `code_sets`（再写 `holds` 必须有 `code_sets`），
     只在查询答案和码值集页显示，标识符页不显示。

@@ -3,6 +3,45 @@
 ## Unreleased
 
 ### Changed
+- **`semantic validate` check 2 accepts a column's lookup key as its source.** A value read off
+  an inline dictionary (a constant row set) has no physical source, so the only physical column
+  a writer can name is the join key deciding which row is read -- and check 2 warned on it
+  (「只在输入表元数据中」). A `source_columns` entry now passes when it is in one of the column's own
+  producers' `lookup_keys` (which packets carry since the packet facts change above); another
+  column's lookup key still warns. Documents validated before keep their results except those
+  warnings.
+- **`catalog digest --lineage`: reads by source, the join column, reverse lookups and rows keyed
+  by the record.** Four facts the digest flattened or dropped are now said per read
+  (`catalog-digest/1` keeps its version; every new key appears only with content):
+  - A column written by several sources -- UNION branches, or several statements writing the
+    table -- that read separately gains `lookups_by: "source"`, each lookup its `source`, and
+    `other_sources` lists the physical columns a source with no lookup stores directly. Before,
+    such reads were chained as `A, then B` and another branch's stored code was reported as a
+    `fallback`. A UNION splits only when no expression above it combines several inputs, so a
+    `COALESCE` over a UNION CTE stays a fallback. **Narrowed meaning:** `fallback` now means a
+    true fallback within one source only. The md reads `by source: <s1> reads A; <s2> stores
+    t.c directly`, or `every source reads A` when every source reads the same rows.
+  - Every read (`lookups` and `key_of`) gains `key`: the code table's physical join columns, in
+    key-pair order; absent when the join compares an expression. The md adds `keyed on <col>`.
+  - With `--catalog`, a read whose `key` does not include the matching code set's
+    `lookup.code_column` -- a stored meaning looked up back to its code -- gets
+    `code_set_mismatch: {code_set, code_column}` instead of `code_set` (md:
+    `reverse lookup?`). **Narrowed meaning:** `code_set` now also needs the join column to match
+    when the key is known.
+  - A `key_of` read whose join key is one of the table's grain columns or an `identifier`
+    column, and the same read in each column reading it, gains `keyed_by: "row_identifier"`:
+    an attribute row of the same record, not a code translation.
+
+  Without `--lineage` the digest is byte for byte unchanged. `SKILL.md` and the catalog
+  fragment prompt now tell a drafter how each key changes the bindings it writes.
+- **Catalog: a stored name of an attribute with no code set may say `holds: [meaning]`.**
+  `binding_holds_code_set` rejected every `holds` with `meaning` or `key` that reached no code
+  set, which also blocked a source system's name column stored beside its code when the
+  attribute has no code set at all (no dictionary is joined; the codes are unknown): the code
+  and name columns then read the same. `holds: [meaning]` (with `lang`) is now accepted when
+  the binding names no `code_sets` and the attribute has no code set by rule R1 -- neither its
+  own nor any bound column's. Once any column gives the attribute a code set the error stands,
+  and `key` always needs one. Catalogs that validated before are unchanged.
 - **Writing, review and fix prompts stop turning clues into facts and let the SQL overrule
   a packet verdict (`table-semantics-prompt@6`, `table-semantics-review@6`,
   `table-semantics-fix@4`).** Reviews kept finding the same three claims written as fact:
@@ -232,6 +271,19 @@
   title saying so and pointing to the catalog workflow. The command, every flag and
   `ontology.json` (`ontology-json/2`) are unchanged, byte for byte.
 ### Added
+- **Catalog: an identifier unique per value of a column, and a code's surrogate key.** Two
+  optional fields, in the catalog, fragment and `ontology-v3` schemas alike (no format
+  version moves; catalogs without them build the same bytes):
+  - An identifier's `scope` object takes `by: [{column, table?}]` (the shape of `spellings`):
+    unique within each value of these physical columns -- a source system, an environment,
+    a discriminator that is no business concept. `per` becomes optional; the object needs at
+    least one of the two, and `per` still names concepts. `build` carries it (tables
+    lower-cased); pages and `catalog query identifier` read 「按 <列> 的每个取值唯一」.
+  - A code set value takes `key` (text or integer): the surrogate key an inline dictionary
+    pairs with the code. `holds: [key]` on a code set whose values carry keys no longer warns
+    `binding_key_without_key_column`; `build` carries `key` as text; pages and queries print
+    「值=含义（代理键 k）」, and `catalog query column` on a key column lists each key with its
+    code and meaning. A tool older than this release rejects either field as a schema error.
 - **Packets carry more of the semantic profile, each key only when it has content.** A column
   producer gains `sql_alias` (the alias a positional write filed under another column;
   packet.md 「（SQL 别名 x，按位置写入）」), `lookup_keys` (the physical keys choosing the row of

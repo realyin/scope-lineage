@@ -24,6 +24,9 @@ from .model import Catalog
 
 DIGEST_FORMAT = "catalog-digest/1"
 
+# ``keyed_by`` of a read whose join key is the table's own row identifier.
+ROW_IDENTIFIER = "row_identifier"
+
 # Column categories the digest lists with their meanings; ``technical`` by name only.
 _LISTED = {
     "identifier": "identifier_columns",
@@ -96,6 +99,8 @@ def _table(document: dict, facts: dict, code_sets: list[dict]) -> dict:
             for column in columns
             if column["category"] == category
         ]
+    if read:
+        _mark_row_reads(entry)
     entry["technical_columns"] = [c["column"] for c in columns if c["category"] == "technical"]
     entry["columns"] = len(columns)
     entry["related"] = {
@@ -109,6 +114,28 @@ def _table(document: dict, facts: dict, code_sets: list[dict]) -> dict:
         if question["status"] == "open"
     ]
     return entry
+
+
+def _mark_row_reads(entry: dict) -> None:
+    """``keyed_by: "row_identifier"`` on a read keyed by this table's own row identifier.
+
+    A join key that is one of the table's grain columns, or a column the document calls an
+    identifier, picks rows describing the same record (an attribute row of this entity, a
+    participant of this call), not a code's translation. The mark goes on the ``key_of``
+    entry of that column and on the same read (rule and table) in each column reading it.
+    """
+    identifiers = {str(name).lower() for name in entry["grain"]["columns"]}
+    identifiers |= {column["column"].lower() for column in entry["identifier_columns"]}
+    columns = {column["column"].lower(): column for key in _LISTED.values() for column in entry[key]}
+    for name, column in columns.items():
+        if name not in identifiers:
+            continue
+        for read in column.get("key_of") or []:
+            read["keyed_by"] = ROW_IDENTIFIER
+            for reader in read["read_by"]:
+                for other in (columns.get(str(reader).lower()) or {}).get("lookups") or []:
+                    if (other["rule"], other["table"]) == (read["rule"], read["table"]):
+                        other["keyed_by"] = ROW_IDENTIFIER
 
 
 def _column(column: dict, facts: Optional[dict] = None, code_sets: Optional[list] = None) -> dict:
@@ -125,7 +152,7 @@ def _column(column: dict, facts: Optional[dict] = None, code_sets: Optional[list
 def _lookup_facts(facts: dict, code_sets: list[dict]) -> dict:
     """A column's lookup facts, each read tagged with the code set it matches, if any."""
     result: dict = {}
-    for key in ("lookups", "fallback", "key_of", "key_of_order"):
+    for key in ("lookups_by", "lookups", "fallback", "other_sources", "key_of", "key_of_order"):
         if key not in facts:
             continue
         value = facts[key]
@@ -136,12 +163,23 @@ def _lookup_facts(facts: dict, code_sets: list[dict]) -> dict:
 
 
 def _tagged(read: dict, code_sets: list[dict]) -> dict:
-    """``code_set`` when a code set's lookup has this table and exactly this filter;
-    ``reads_as`` when the column read is that code set's meaning or key column."""
+    """``code_set`` when a code set's lookup has this table and exactly this filter, and the
+    read's join columns (``key``, when the lineage names them) include its code column;
+    ``reads_as`` when the column read is that code set's meaning or key column.
+
+    A read that matches the table and filter but joins on other columns -- a stored
+    meaning looked up back to its code -- is not that code set's translation: it gets
+    ``code_set_mismatch`` (the code set and the code column it looks up by) instead."""
     where = {str(column).lower(): str(value) for column, value in read["where"].items()}
     for code_set in code_sets:
         if code_set["table"] != read["table"] or code_set["filter"] != where:
             continue
+        keys = {str(column).lower() for column in read.get("key") or []}
+        if keys and code_set["code_column"] and code_set["code_column"] not in keys:
+            read["code_set_mismatch"] = {
+                "code_set": code_set["id"], "code_column": code_set["code_column"],
+            }
+            break
         read["code_set"] = code_set["id"]
         reads = str(read.get("reads") or "").lower()
         if reads and reads in code_set["meaning"]:
@@ -169,6 +207,7 @@ def _code_set_lookups(catalog: Catalog) -> list[dict]:
                 if isinstance(column, dict)
             },
             "key": str(lookup.get("key_column") or "").lower() or None,
+            "code_column": str(lookup.get("code_column") or "").lower() or None,
         })
     return sorted(found, key=lambda item: item["id"])
 
@@ -325,25 +364,54 @@ def _column_text(column: dict) -> str:
 def _lookup_lines(entry: dict) -> list[str]:
     """One line per column the lineage says is read through, or keys, a joined input."""
     lines = []
+    rows = {
+        (read["rule"], read["table"]): column["column"]
+        for key in _LISTED.values() for column in entry[key]
+        for read in column.get("key_of") or [] if read.get("keyed_by")
+    }
     for key in _LISTED.values():
         for column in entry[key]:
             parts = []
-            if column.get("lookups"):
-                parts.append("reads " + ", then ".join(
-                    _read_text(read) + f" ({_read_note(read, read['reads'])})"
-                    for read in column["lookups"]
-                ))
+            if column.get("lookups_by") == "source":
+                parts.append(_by_source_text(column, rows))
+            elif column.get("lookups"):
+                parts.append("reads " + _reads_text(column["lookups"], rows))
             if column.get("fallback"):
                 parts.append("falls back to " + ", ".join(column["fallback"]))
             if column.get("key_of"):
                 order = "; order unknown" if column.get("key_of_order") else ""
                 parts.append("join key of " + ", ".join(
-                    _read_text(read) + f" ({_read_note(read, _readers_text(read))})"
+                    _read_text(read) + f" ({_read_note(read, _readers_text(read), rows)})"
                     for read in column["key_of"]
                 ) + order)
             if parts:
                 lines.append(f"  - {column['column']}: " + "; ".join(parts))
     return ["- Joined inputs read (from the lineage):", *lines] if lines else []
+
+
+def _reads_text(reads: list[dict], rows: dict) -> str:
+    """Reads in the order one value falls back through them: ``A, then B``."""
+    return ", then ".join(
+        _read_text(read) + f" ({_read_note(read, read['reads'], rows)})" for read in reads
+    )
+
+
+def _by_source_text(column: dict, rows: dict) -> str:
+    """``by source: <s1> reads A; <s2> stores t.c directly`` -- or ``every source reads A``
+    when every source reads the same rows the same way and none stores a column directly."""
+    by_source: dict[str, list[dict]] = {}
+    for read in column["lookups"]:
+        by_source.setdefault(read["source"], []).append(read)
+    others = column.get("other_sources") or {}
+    shapes = {
+        tuple((read["table"], tuple(read["where"].items()), read["reads"]) for read in reads)
+        for reads in by_source.values()
+    }
+    if len(by_source) > 1 and len(shapes) == 1 and not others:
+        return "every source reads " + _reads_text(next(iter(by_source.values())), rows)
+    parts = [f"{source} reads {_reads_text(reads, rows)}" for source, reads in by_source.items()]
+    parts += [f"{source} stores {', '.join(stored)} directly" for source, stored in others.items()]
+    return "by source: " + "; ".join(parts)
 
 
 def _readers_text(read: dict) -> str:
@@ -355,8 +423,20 @@ def _read_text(read: dict) -> str:
     return f"rows of {read['table']} where {where}"
 
 
-def _read_note(read: dict, first: str) -> str:
+def _read_note(read: dict, first: str, rows: dict) -> str:
     notes = [first]
+    if read.get("key"):
+        notes.append(f"keyed on {', '.join(read['key'])}")
+    if read.get("keyed_by") == ROW_IDENTIFIER:
+        identifier = rows.get((read["rule"], read["table"]))
+        notes.append(
+            "keyed by this table's row identifier" + (f" {identifier}" if identifier else "")
+            + ": reads rows describing the same record, not a code translation"
+        )
+    mismatch = read.get("code_set_mismatch")
+    if mismatch:
+        notes.append(f"code set {mismatch['code_set']} looks up by {mismatch['code_column']} "
+                     "(reverse lookup?)")
     if read.get("code_set"):
         notes.append(f"code set {read['code_set']}" + (
             f", {read['reads_as']}" if read.get("reads_as") else ""

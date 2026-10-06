@@ -98,7 +98,7 @@ A business number that uniquely identifies one entity or event **within a scope*
 | `id` | yes | `id:<slug>` |
 | `name` | yes | business name |
 | `identifies` | yes | the entity or event it identifies |
-| `scope` | yes | `global`, or `{per: [<concept id>, ...]}`: unique only within each combination of those concepts |
+| `scope` | yes | `global`, or `{per?: [<concept id>, ...], by?: [{column, table?}]}` (at least one): `per`, unique only within each combination of those concepts; `by`, unique only within each value of these physical columns (a discriminator that is no business concept, such as a source system or an environment; the shape of `spellings`) |
 | `arises_when` | no | the condition under which the identifier exists: text, or `{condition, state: <concept id>#<state value>}` |
 | `spellings` | no | physical spellings: `[{column, table?}]`; no `table` means "this column name, wherever it appears" |
 | `maps_to` | no | correspondences: `[{identifier, cardinality, via?: [table]}]`, cardinality `one_to_one` / `one_to_many` / `many_to_one` / `many_to_many` |
@@ -125,8 +125,11 @@ identifiers:
 ### Code set
 
 A finite set of values and their business meanings, shareable by several attributes.
-`id: code:<slug>`, `name`, `values: [{value, meaning, retired?, unconfirmed?}]`,
-`definition?`. A value is text or an integer; `0` and `"0"` are the same code. A value seen
+`id: code:<slug>`, `name`, `values: [{value, meaning, key?, retired?, unconfirmed?}]`,
+`definition?`. A value is text or an integer; `0` and `"0"` are the same code. `key` (text or an
+integer) is the surrogate key an inline dictionary pairs with the code: a column storing keys
+(`holds: [key]`) is translated through it and no longer warns `binding_key_without_key_column`;
+pages and queries print 「值=含义（代理键 k）」. A value seen
 in the data whose meaning nobody has confirmed carries `unconfirmed: true`, or leaves
 `meaning` empty or starting 「待确认」 (followed by the catalog's guess); pages and queries
 print it as 「值（含义待确认：guess）」 and `governance.md` lists the code sets holding one.
@@ -448,10 +451,16 @@ Edge cases:
   column writes its own source's set in `code_sets`, and the attribute's codes are all of them
   (the rule under Attribute). A column whose `holds` has `meaning` or `key` then needs its own
   `code_sets`, or it fails `binding_holds_code_set`.
+- An attribute with no code set at all (no `code_set` of its own, no `code_sets` on any column bound
+  to it; no dictionary is joined and the codes are unknown): a column storing the name with the record
+  still writes `holds: [meaning]` (with `lang`), so it reads apart from the code column. Once any column
+  gives the attribute a code set, this column must name its own `code_sets`; `key` always needs a code set.
 - A CASE branch (such as ELSE) with no source code: invent no code; write the rule in `derivation`
   (and, if useful, the code set's `definition`).
-- A code set listing only `values` has no key column, so a `holds: [key]` column on it always warns
-  `binding_key_without_key_column` (the catalog cannot translate that key); `[key]` is still right.
+- A code set listing only `values` has no key column: give each value its `key` (the surrogate key
+  the inline dictionary pairs with that code) and a `holds: [key]` column is translated; without
+  `key` the column warns `binding_key_without_key_column` (the catalog cannot translate that key),
+  and `[key]` is still right.
 - A column that looks a code table up only to translate a code is a code column: bind it as
   `attribute`. `code_sets` is also accepted on a `foreign_identifier` (its `holds` then needs
   `code_sets`); it shows in queries and `code_sets.md`, not on `identifiers.md`.
@@ -549,7 +558,7 @@ directory, no manifest, YAML without PyYAML).
 | `binding_foreign_attribute_via` | `via` is not a column of this table, that column is not a `foreign_identifier`, or the identifier it holds does not identify the attribute's concept |
 | `binding_code_set` | an entry of a binding's `code_sets` is not a code set |
 | `binding_code_sets_by` | a binding has `code_sets_by` and no `code_sets`, or `code_sets_by: source` with fewer than two |
-| `binding_holds_code_set` | a binding's `holds` has `meaning` or `key`, and it names no `code_sets` while the bound attribute has no `code_set` -- a meaning or a key of no code set |
+| `binding_holds_code_set` | a binding's `holds` has `meaning` or `key`, and it names no `code_sets` while the bound attribute has no `code_set` -- a meaning or a key of no code set. Not raised when `holds` has only `meaning` and the bound attribute has no code set at all by the rule under Attribute |
 | `binding_lang` | a binding has `lang` and its `holds` has no `meaning` |
 
 An identifier "is the concept's" when the concept lists it in `identifiers` or the
@@ -565,7 +574,7 @@ identifier (the demo's installment loan lists `id:loan_no`).
 | `relation_without_name` | a relation has no verb |
 | `empty_code_set` | a code set lists no values and has no `lookup` |
 | `binding_code_sets_miss_attribute` | a binding lists `code_sets`, and the bound attribute's `code_set` is not among them |
-| `binding_key_without_key_column` | a binding's `holds` has `key`, and none of its code sets has a `lookup` with a `key_column` -- the catalog cannot translate that key |
+| `binding_key_without_key_column` | a binding's `holds` has `key`, and none of its code sets has a `lookup` with a `key_column` or `values` carrying a `key` -- the catalog cannot translate that key |
 | `binding_lang_unknown` | a binding's `lang` is not the language of any meaning column of its code sets' `lookup`s (code sets listing their values are not checked) |
 | `unmapped_binding` | a column is bound `to: unmapped` |
 | `self_reference_relation_unnamed` | a self-referencing column names no `relation` while its concept has two or more self relations — which one it realises cannot be told, so it is attributed to each |
@@ -650,8 +659,8 @@ is a scope-lineage bug, not a fault in the catalog:
 
 - every object has `status`, `source` (`null` when unknown) and `evidence`; attributes and
   bindings inherit from their concept / representation;
-- keys come out in one fixed order per object type; code and state values are text, and
-  every code value carries a boolean `unconfirmed` (flagged `unconfirmed: true`, or a meaning
+- keys come out in one fixed order per object type; code and state values are text (so is a
+  code value's `key`), and every code value carries a boolean `unconfirmed` (flagged `unconfirmed: true`, or a meaning
   that is empty or starts 「待确认」); a cardinality end written `1` is `"1"`; a text
   `arises_when` becomes `{condition}`;
 - table names are lower-case (a representation's `table` and `replaced_by`, a spelling's
@@ -1054,13 +1063,26 @@ binding's `holds` are written from, so the drafter need not go back to the SQL f
 
 - `lookups`: the joined inputs the value is read through, in the order the expression
   reads them (the argument order of a `COALESCE(d1.x, d2.x, a.c)` fallback). Each is
-  `{table, where, reads, rule}`: the rows of `table` where every `where` column equals its
-  string literal, the column `reads` of those rows, and the JOIN's logic block id in the
-  lineage;
+  `{table, where, reads, key, rule}`: the rows of `table` where every `where` column equals its
+  string literal, the column `reads` of those rows, the joined input's physical join columns
+  `key` (one per key pair, in pair order; absent when the JOIN compares an expression, so no
+  column can be named -- never guessed), and the JOIN's logic block id in the lineage;
 - `fallback`: the non-looked-up physical columns the same value falls back to (the raw
-  code at the end of a `COALESCE`), only beside `lookups`;
+  code at the end of a `COALESCE`), only beside `lookups`, and only those reaching the value
+  through the same source as some lookup;
+- `lookups_by: "source"`: the column is written by several sources -- UNION branches, or
+  several statements writing the table -- and they read separately: each lookup gains
+  `source` (the UNION branch scope id when one statement writes them all, otherwise
+  `<task>/<statement>`, with `/<branch>` when it splits too), and only lookups of one source
+  are in fallback order. A UNION splits only when no expression above it combines several
+  inputs: a `COALESCE` whose main input is a UNION CTE is still one fallback. A UNION inside a
+  joined input is that one input, not a source. The key's name matches the catalog's
+  `code_sets_by: source`;
+- `other_sources`: with `lookups_by`, `{source: [db.table.column]}` for the physical columns a
+  source with no lookup stores directly -- not a fallback. A source that only copies the
+  target's own column forward carries what another source wrote and is not listed;
 - `key_of`: for a column with no `lookups` of its own, the reads it is the join key of,
-  `{table, where, rule, read_by}`, `read_by` naming the columns of the same table that read
+  `{table, where, key, rule, read_by}`, `read_by` naming the columns of the same table that read
   through that JOIN. They are ordered the way those columns fall back through them, not in
   JOIN order; when two columns fall back in opposite orders the JOIN order is kept and
   `key_of_order: "unknown"` says so. A read with an empty `read_by` (`read by no column`) is a
@@ -1080,16 +1102,46 @@ another non-table source is not listed either. The wording is neutral -- "reads 
 a row version as often as a dictionary type. With `--catalog` as well, a read whose table and
 `where` equal a code set's `lookup.table` and `lookup.filter` gains `code_set: <id>`, and a
 `reads` that is that code set's meaning or key column gains `reads_as: "meaning"` / `"key"`.
+When the read names its `key` and the key does not include the code set's `lookup.code_column`
+-- a stored meaning looked up back to its code -- it is not that code set's translation: it gains
+`code_set_mismatch: {code_set, code_column}` instead of `code_set` (the md says
+`code set <id> looks up by <column> (reverse lookup?)`). A read with no `key` is tagged by table
+and filter as before.
+
+A `key_of` entry on a column that is one of the table's grain columns or an `identifier`
+column gains `keyed_by: "row_identifier"`, and so does the same read (rule and table) in each
+column reading it: the join picks rows describing the same record -- an attribute row of
+this entity, a participant of this call -- not a code's translation. The column it reads is
+an attribute, not evidence for a code set. A read keyed by a foreign identifier carries no
+mark and may still be another entity's attribute row.
+
+`catalog-digest/1` does not move with `key`, `lookups_by`, `source`, `other_sources`,
+`code_set_mismatch` and `keyed_by`; two meanings narrow: `fallback` is a true fallback of the
+same source only, and `code_set` needs a matching join column when the key is known.
 
 ```json
 {
   "column": "c_desc",
   "meaning": "type description",
   "lookups": [
-    {"table": "demo_dim.dim_code_dict", "where": {"code_type": "TypeA"}, "reads": "code_desc", "rule": "logic:ROOT:join:002", "code_set": "code:type_a", "reads_as": "meaning"},
-    {"table": "demo_dim.dim_code_dict", "where": {"code_type": "TypeB"}, "reads": "code_desc", "rule": "logic:ROOT:join:001"}
+    {"table": "demo_dim.dim_code_dict", "where": {"code_type": "TypeA"}, "reads": "code_desc", "key": ["code_val"], "rule": "logic:ROOT:join:002", "code_set": "code:type_a", "reads_as": "meaning"},
+    {"table": "demo_dim.dim_code_dict", "where": {"code_type": "TypeB"}, "reads": "code_desc", "key": ["code_val"], "rule": "logic:ROOT:join:001"}
   ],
   "fallback": ["demo_ods.ods_order_df.c"]
+}
+```
+
+A column one UNION branch reads off a dictionary key while the other stores its code:
+
+```json
+{
+  "column": "st_id",
+  "meaning": "status key",
+  "lookups_by": "source",
+  "lookups": [
+    {"table": "demo_dim.dim_code_dict", "where": {"code_type": "TypeOut"}, "reads": "dict_key", "key": ["code_val"], "rule": "logic:union:main:b01:join:001", "source": "union:main:b01"}
+  ],
+  "other_sources": {"union:main:b02": ["demo_ods.ods_order_b_df.st"]}
 }
 ```
 

@@ -129,6 +129,48 @@ def test_holds_meaning_needs_a_code_set_on_the_binding_or_the_attribute(root: Pa
     assert [(e.rule, e.at) for e in errors] == [("binding_holds_code_set", f"{WAIVER_TABLE}.reason_desc")]
 
 
+def _without_code_sets(root: Path) -> Path:
+    """The attribute has no code set by rule R1: neither its own nor any bound column's.
+    Only reason_cd (the code, as stored) and reason_desc (its name, stored with the
+    record) stay bound to it."""
+    mutate(
+        root, "concepts/collection.yaml",
+        lambda d: item(item(d["concepts"], "concept:fee_waiver")["attributes"], ATTRIBUTE).pop("code_set"),
+    )
+
+    def strip(mapping: dict) -> None:
+        bindings = _waiver(mapping)["bindings"]
+        bindings[:] = [b for b in bindings if b["column"] not in ("reason_key", "reason_label")]
+        _binding(mapping, "reason_cd").pop("code_sets")
+
+    mutate(root, "mapping/collection.json", strip)
+    return root
+
+
+def test_a_stored_name_of_an_attribute_with_no_code_set_holds_its_meaning(root: Path) -> None:
+    """The source system stores the name beside the code, and no dictionary is known:
+    the column still says it holds the meaning, so it reads apart from the code column."""
+    _without_code_sets(root)
+
+    report = validate_catalog(load_catalog(root))
+    assert report.errors == []
+
+    desc, desc_text = _column(build_ontology(load_catalog(root)), "reason_desc")
+    assert (desc["holds"], desc["lang"]) == (["meaning"], "zh")
+    assert "（存含义（zh））" in desc_text
+    _code, code_text = _column(build_ontology(load_catalog(root)), "reason_cd")
+    assert "存含义" not in code_text
+
+
+def test_a_key_still_needs_a_code_set_when_the_attribute_has_none(root: Path) -> None:
+    _without_code_sets(root)
+    _set(root, "reason_desc", holds=["key"], lang=None)
+
+    errors = validate_catalog(load_catalog(root)).errors
+
+    assert [(e.rule, e.at) for e in errors] == [("binding_holds_code_set", f"{WAIVER_TABLE}.reason_desc")]
+
+
 def test_the_attributes_code_set_is_enough_for_holds(root: Path) -> None:
     """reason_desc names no code_sets: the attribute's code set is the one it holds."""
     binding = item(_waiver(json.loads((root / "mapping/collection.json").read_text()))["bindings"], "column", "reason_desc")

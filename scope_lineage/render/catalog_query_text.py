@@ -21,6 +21,7 @@ from .catalog_view import (
     TABLE_STATUS_TEXT,
     TIME_TEXT,
     code_value_text,
+    scope_by_text,
     lookup_text,
     status_text,
     translation_text,
@@ -109,7 +110,8 @@ def _sources(match: Mapping) -> list[str]:
 def _lookup(code_set: Mapping, table: str | None = None) -> str:
     """How a code set in an answer is looked up, or 目录列出取值 when it lists its values."""
     if "code_column" not in code_set:
-        return "目录列出取值"
+        keys = "、".join(f"{k['key']}→{k['value']}={k['meaning']}" for k in code_set.get("keys") or [])
+        return "目录列出取值" + (f"；代理键 {keys}" if keys else "")
     return lookup_text({**code_set, "table": table or code_set.get("table")})
 
 
@@ -198,7 +200,7 @@ def _column(match: Mapping) -> list[str]:
 
 def _identifier(match: Mapping) -> list[str]:
     scope = match["scope"]
-    scope_text = "全局" if scope == "global" else f"每个 {'、'.join(scope['per'])} 内唯一"
+    scope_text = "全局" if scope == "global" else _scope_text(scope)
     spellings = "、".join(
         f"{s['table']}.{s['column']}" if s.get("table") else s["column"] for s in match["spellings"]
     )
@@ -208,6 +210,13 @@ def _identifier(match: Mapping) -> list[str]:
         f"  物理拼写：{spellings or '（无）'}",
         f"  绑定列：{bound or '（无）'}",
     ]
+
+
+def _scope_text(scope: Mapping) -> str:
+    per, by = "、".join(scope.get("per") or []), scope_by_text(scope)
+    if not by:
+        return f"每个 {per} 内唯一"
+    return (f"每个 {per} 内、" if per else "") + f"按 {by} 的每个取值唯一"
 
 
 def _attribute(match: Mapping) -> list[str]:

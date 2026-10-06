@@ -203,6 +203,19 @@ def _code_set_source(code_set: dict, with_table: bool = False) -> dict:
     return {"id": code_set["id"], "name": code_set["name"], **lookup}
 
 
+def _value_keys(code_set: dict, binding: dict) -> dict:
+    """For a column storing keys: ``keys``, each listed value's key with its code and
+    meaning, so the answer translates what the column stores."""
+    if "key" not in (binding.get("holds") or []):
+        return {}
+    keys = [
+        {"key": value["key"], "value": value["value"], "meaning": value["meaning"]}
+        for value in code_set.get("values") or []
+        if value.get("key") not in (None, "")
+    ]
+    return {"keys": keys} if keys else {}
+
+
 def _column(view: CatalogView, rep: dict, binding: dict) -> dict:
     """One bound column: what it binds to, its code map, derivation and evidence."""
     answer = {"column": binding["column"], "to": binding["to"]}
@@ -224,7 +237,8 @@ def _column(view: CatalogView, rep: dict, binding: dict) -> dict:
         answer["code_map"] = binding["code_map"]
     if binding.get("code_sets"):
         answer["code_sets"] = [
-            _code_set_source(code_set, with_table=True) for code_set in view.translating(binding)
+            {**_code_set_source(code_set, with_table=True), **_value_keys(code_set, binding)}
+            for code_set in view.translating(binding)
         ]
     answer.update({key: binding[key] for key in ("code_sets_by", "holds", "lang") if key in binding})
     if "derivation" in binding:

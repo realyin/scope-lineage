@@ -86,7 +86,7 @@ domains:
 | `id` | 是 | `id:<slug>` |
 | `name` | 是 | 业务名称 |
 | `identifies` | 是 | 它识别的实体或事件 |
-| `scope` | 是 | `global`，或 `{per: [<概念 id>, ...]}`：只在这些概念的每个组合内唯一 |
+| `scope` | 是 | `global`，或 `{per?: [<概念 id>, ...], by?: [{column, table?}]}`（至少写一个）：`per` 是只在这些概念的每个组合内唯一；`by` 是只在这些物理列（来源系统、环境这类不是业务概念的判别列，形状同 `spellings`）的每个取值内唯一 |
 | `arises_when` | 否 | 标识符在什么条件下产生：文字，或 `{condition, state: <概念 id>#<状态值>}` |
 | `spellings` | 否 | 物理拼写：`[{column, table?}]`；不写 `table` 表示"这个列名，出现在哪里都算" |
 | `maps_to` | 否 | 与其他标识符的对应：`[{identifier, cardinality, via?: [表]}]`，基数为 `one_to_one` / `one_to_many` / `many_to_one` / `many_to_many` |
@@ -113,8 +113,9 @@ identifiers:
 ### 码值集
 
 有限取值及其业务含义，可被多个属性共用。`id: code:<slug>`、`name`、
-`values: [{value, meaning, retired?, unconfirmed?}]`、`definition?`。取值是文字或整数；`0` 与 `"0"`
-是同一个码。数据里见到、含义还没人确认的值写 `unconfirmed: true`，或让 `meaning` 留空、以「待确认」
+`values: [{value, meaning, key?, retired?, unconfirmed?}]`、`definition?`。取值是文字或整数；`0` 与 `"0"`
+是同一个码。`key`（文字或整数）是内联字典给这个码配的代理键：列存代理键（`holds: [key]`）时，目录靠它翻译，
+不再报 `binding_key_without_key_column`；页面与查询写成「值=含义（代理键 k）」。数据里见到、含义还没人确认的值写 `unconfirmed: true`，或让 `meaning` 留空、以「待确认」
 开头（其后是目录的猜测）；页面与查询把它写成「值（含义待确认：猜测）」，`governance.md` 列出含这类值的码值集。
 
 ```yaml
@@ -400,9 +401,12 @@ representations:
   再写 `code_sets_by: source`；页面与查询读成「按来源分别查 A、B」。只有真回退（每一行都先查 A、查不到查 B）才不写这个键。
 - 同一属性按来源拆成几个码值集时，属性不写 `code_set`；各列在 `code_sets` 写本来源的码值集，属性的码就是它们的全部
   （见「属性」一节的规则）。这时 `holds` 含 `meaning` 或 `key` 的列必须写自己的 `code_sets`，否则报 `binding_holds_code_set`。
+- 属性没有任何码值集（自身不写 `code_set`，绑到它的列也都不写 `code_sets`；字典没被关联、码值未知）时，随记录存名称的列
+  也写 `holds: [meaning]`（加 `lang`），与码列区分开。只要有一列给这个属性带了码值集，这一列就必须写自己的 `code_sets`；
+  `key` 总要有码值集。
 - CASE 的某个分支（如 ELSE）没有源码：不编码，规则写进 `derivation`（需要时也写进码值集的 `definition`）。
-- 只列 `values` 的码值集没有代理键列，`holds: [key]` 的列必然报 `binding_key_without_key_column`（目录翻不了这个键）；
-  `[key]` 仍是对的写法。
+- 只列 `values` 的码值集没有代理键列：给每个值写上 `key`（内联字典里与这个码配对的代理键），`holds: [key]` 的列
+  就能翻译；没写 `key` 时这一列报 `binding_key_without_key_column`（目录翻不了这个键），`[key]` 仍是对的写法。
 - 查码值表只为翻译的列是码列，绑成 `attribute`；`foreign_identifier` 上也允许写 `code_sets`（`holds` 此时必须配 `code_sets`），
   只在查询与 `code_sets.md` 里显示，`identifiers.md` 不显示。
 - 重编码（`Y/N` → `1/0`、码映射成另一套码、经映射表两步得到目标码）：列存目标码值集的码，不写 `holds`，映射写进 `derivation`。
@@ -489,7 +493,7 @@ scope-lineage catalog validate examples/catalog-demo --json
 | `binding_foreign_attribute_via` | `via` 不是本表的列，该列不是 `foreign_identifier`，或它指向的标识符不属于该属性的概念 |
 | `binding_code_set` | 绑定的 `code_sets` 里有一项不是码值集 |
 | `binding_code_sets_by` | 绑定写了 `code_sets_by` 却没写 `code_sets`，或 `code_sets_by: source` 而码值集少于两个 |
-| `binding_holds_code_set` | 绑定的 `holds` 含 `meaning` 或 `key`，而绑定没写 `code_sets`、所绑属性也没有 `code_set`——不属于任何码值集的含义或代理键 |
+| `binding_holds_code_set` | 绑定的 `holds` 含 `meaning` 或 `key`，而绑定没写 `code_sets`、所绑属性也没有 `code_set`——不属于任何码值集的含义或代理键。例外：只含 `meaning`、且所绑属性按「属性」一节的规则没有任何码值集时不报 |
 | `binding_lang` | 绑定写了 `lang`，其 `holds` 却不含 `meaning` |
 
 "标识符属于某概念"指：概念在 `identifiers` 里列了它，或标识符的 `identifies` 指向该概念。
@@ -504,7 +508,7 @@ scope-lineage catalog validate examples/catalog-demo --json
 | `relation_without_name` | 关系没有动词 |
 | `empty_code_set` | 码值集没有任何取值，也没有 `lookup` |
 | `binding_code_sets_miss_attribute` | 绑定写了 `code_sets`，所绑属性的 `code_set` 却不在其中 |
-| `binding_key_without_key_column` | 绑定的 `holds` 含 `key`，其码值集却没有一个带 `key_column` 的 `lookup`——目录翻不了这个代理键 |
+| `binding_key_without_key_column` | 绑定的 `holds` 含 `key`，其码值集却没有一个带 `key_column` 的 `lookup`，也没有带 `key` 的 `values`——目录翻不了这个代理键 |
 | `binding_lang_unknown` | 绑定的 `lang` 不是其码值集 `lookup` 里任何含义列的语言（只列取值的码值集不查） |
 | `unmapped_binding` | 某列绑定为 `to: unmapped` |
 | `self_reference_relation_unnamed` | 自关联列没写 `relation`，而该概念有两条或更多自关联——说不清它实现哪一条，会被归给每一条 |
@@ -585,7 +589,7 @@ scope-lineage catalog build examples/catalog-demo --out out/
 （列表有删节。）"规范化"指：
 
 - 每个对象都有 `status`、`source`（未知为 `null`）与 `evidence`；属性与绑定继承所属概念 / 表现的；
-- 每类对象的键按固定顺序输出；码值与状态值一律为文字，每个码值都带布尔 `unconfirmed`（标了
+- 每类对象的键按固定顺序输出；码值与状态值一律为文字（码值的 `key` 也是），每个码值都带布尔 `unconfirmed`（标了
   `unconfirmed: true`，或含义为空、以「待确认」开头）；写成 `1` 的基数端输出为 `"1"`；
   文字形式的 `arises_when` 变成 `{condition}`；
 - 表名一律小写（表现的 `table` 与 `replaced_by`、标识符拼写的 `table`、`maps_to` 的 `via`、码值集
@@ -921,10 +925,19 @@ catalog 前缀）；某个码值集 `lookup` 所指的表算「码值来源」�
 `lookup.filter`、绑定 `code_sets` 的顺序与绑定 `holds` 所需的事实，起草时不必为此回头读 SQL：
 
 - `lookups`：值经过的被关联输入，按表达式读它们的顺序排列（`COALESCE(d1.x, d2.x, a.c)` 回退的参数顺序）。每项是
-  `{table, where, reads, rule}`：`table` 中 `where` 每一列都等于其字符串字面量的行、读这些行的 `reads` 列、
+  `{table, where, reads, key, rule}`：`table` 中 `where` 每一列都等于其字符串字面量的行、读这些行的 `reads` 列、
+  被关联输入一侧的物理关联列 `key`（一对键一项，按键对顺序；JOIN 比较的是表达式、说不出列时不写，不猜），
   以及血缘里这个 JOIN 的逻辑块 id；
-- `fallback`：同一个值回退到的、不经查找的物理列（`COALESCE` 末尾的原码），只与 `lookups` 一起出现；
-- `key_of`：本身没有 `lookups` 的列，是哪些读取的关联键，`{table, where, rule, read_by}`，`read_by` 是同表里经这个
+- `fallback`：同一个值回退到的、不经查找的物理列（`COALESCE` 末尾的原码），只与 `lookups` 一起出现，且只列与某个
+  查找同来源的；
+- `lookups_by: "source"`：这一列由几个来源写入（几个 UNION 分支，或写这张表的几条语句），各来源分别读：每项
+  `lookups` 带 `source`（一条语句写全部来源时是 UNION 分支的作用域 id，否则是 `<任务>/<语句>`，分支再拆时加
+  `/<分支>`），只有同一来源内部的查找才有回退顺序。只有 UNION 上方没有把几个输入合成一个值的表达式时才按分支拆：
+  主输入是 UNION CTE 的 `COALESCE` 仍是一次回退；被关联输入里的 UNION 就是那一个输入，不算来源。键名与目录的
+  `code_sets_by: source` 对应；
+- `other_sources`：与 `lookups_by` 一起出现，`{来源: [库.表.列]}`，是没有查找的来源直接存的物理列——不是回退。
+  只把目标表自己的列原样带下来的来源，带的是别的来源写的值，不列出；
+- `key_of`：本身没有 `lookups` 的列，是哪些读取的关联键，`{table, where, key, rule, read_by}`，`read_by` 是同表里经这个
   JOIN 读值的列；`read_by` 为空（`read by no column`）的是死关联或只用来过滤行，不是码值集的证据，起草时
   不为它建码值集——码值集只为有列读取的 `where` 组合建。顺序取这些列回退的顺序，不取 JOIN 书写顺序；两列回退顺序相反时保留 JOIN 顺序，并用
   `key_of_order: "unknown"` 标明。
@@ -936,17 +949,40 @@ catalog 前缀）；某个码值集 `lookup` 所指的表算「码值来源」�
 值来自内联 `VALUES` 列表或其他非表来源的也不列出。措辞是中性的——「读 <表> 中 <列> = '<字面量>' 的行」——
 因为同样的形状挑出角色、语言或行版本的次数不比挑字典类型少。同时给 `--catalog` 时，表与 `where` 恰好等于某个
 码值集 `lookup.table` 与 `lookup.filter` 的读取加上 `code_set: <id>`，`reads` 是该码值集的含义列或代理键列时
-加上 `reads_as: "meaning"` / `"key"`。
+加上 `reads_as: "meaning"` / `"key"`。读取给出了 `key`、而 `key` 不含该码值集的 `lookup.code_column` 时——按存下的含义
+反查回码——它不是这个码值集的翻译：不写 `code_set`，改写 `code_set_mismatch: {code_set, code_column}`（md 写
+`code set <id> looks up by <列> (reverse lookup?)`）。没有 `key` 的读取照旧按表与 filter 打标签。
+
+粒度列或 `identifier` 类别的列上的 `key_of` 项加上 `keyed_by: "row_identifier"`，读它的各列里同一次读取（规则与表
+相同）的 `lookups` 项也加上：这个关联挑的是描述同一条记录的行——这个实体的属性行、这次通话的参与方——不是码值
+翻译。读出的列是属性，不是码值集的证据。键是外部标识列的读取不带这个标记，仍可能是别的实体的属性行。
+
+`key`、`lookups_by`、`source`、`other_sources`、`code_set_mismatch` 与 `keyed_by` 不改 `catalog-digest/1`；
+两处含义收窄：`fallback` 只是同来源内的真回退，已知关联列时 `code_set` 要求关联列匹配。
 
 ```json
 {
   "column": "c_desc",
   "meaning": "type description",
   "lookups": [
-    {"table": "demo_dim.dim_code_dict", "where": {"code_type": "TypeA"}, "reads": "code_desc", "rule": "logic:ROOT:join:002", "code_set": "code:type_a", "reads_as": "meaning"},
-    {"table": "demo_dim.dim_code_dict", "where": {"code_type": "TypeB"}, "reads": "code_desc", "rule": "logic:ROOT:join:001"}
+    {"table": "demo_dim.dim_code_dict", "where": {"code_type": "TypeA"}, "reads": "code_desc", "key": ["code_val"], "rule": "logic:ROOT:join:002", "code_set": "code:type_a", "reads_as": "meaning"},
+    {"table": "demo_dim.dim_code_dict", "where": {"code_type": "TypeB"}, "reads": "code_desc", "key": ["code_val"], "rule": "logic:ROOT:join:001"}
   ],
   "fallback": ["demo_ods.ods_order_df.c"]
+}
+```
+
+一个 UNION 分支查字典代理键、另一个分支存原码的列：
+
+```json
+{
+  "column": "st_id",
+  "meaning": "status key",
+  "lookups_by": "source",
+  "lookups": [
+    {"table": "demo_dim.dim_code_dict", "where": {"code_type": "TypeOut"}, "reads": "dict_key", "key": ["code_val"], "rule": "logic:union:main:b01:join:001", "source": "union:main:b01"}
+  ],
+  "other_sources": {"union:main:b02": ["demo_ods.ods_order_b_df.st"]}
 }
 ```
 

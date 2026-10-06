@@ -119,15 +119,20 @@ def _held_forms_the_code_sets_lack(catalog: Catalog) -> list[Finding]:
     for file, representation in catalog.records("mapping"):
         for binding in representation["bindings"]:
             at = f"{representation['table']}.{binding['column']}"
-            lookups = [
-                index.get(code_set).obj["lookup"]
+            held = [
+                index.get(code_set).obj
                 for code_set in index.held_code_sets(binding)
-                if index.is_type(code_set, "code_set") and "lookup" in index.get(code_set).obj
+                if index.is_type(code_set, "code_set")
             ]
-            if "key" in (binding.get("holds") or []) and not any("key_column" in x for x in lookups):
+            lookups = [code_set["lookup"] for code_set in held if "lookup" in code_set]
+            keyed = any("key_column" in x for x in lookups) or any(
+                "key" in value for code_set in held for value in code_set.get("values") or []
+            )
+            if "key" in (binding.get("holds") or []) and not keyed:
                 findings.append(Finding(
                     "binding_key_without_key_column", file, at,
-                    "holds key, and none of its code sets has a lookup with a key_column",
+                    "holds key, and none of its code sets has a lookup with a key_column "
+                    "or values carrying a key",
                 ))
             langs = sorted({column.get("lang") or "" for x in lookups for column in x["meaning_columns"]})
             if "lang" in binding and lookups and binding["lang"] not in langs:

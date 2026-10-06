@@ -78,12 +78,19 @@ def check_coverage(document: dict, packet: dict) -> list[dict]:
 def check_source_columns(document: dict, packet: dict) -> list[dict]:
     """Each ``source_columns`` entry is in that column's lineage (input metadata: warn).
 
+    A column's lineage is its producers' ``sources`` and ``lookup_keys``: a value read off
+    a constant row set (an inline dictionary) has no physical source, and the physical key
+    deciding which row is read is the column a writer can name. Only the column's own
+    producers count -- another column's lookup key still warns.
+
     The reference, the lineage sources and the input metadata are all compared as
     ``bare_column`` spells them, whatever case the schema export or the script used.
     """
     lineage = {
         entry["column"]: {
-            bare_column(source) for producer in entry["producers"] for source in producer["sources"]
+            bare_column(source)
+            for producer in entry["producers"]
+            for source in [*producer["sources"], *(producer.get("lookup_keys") or [])]
         }
         for entry in packet["lineage"]["columns"]
     }

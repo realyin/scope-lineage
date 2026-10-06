@@ -258,9 +258,17 @@ def _binding_code_sets_by(checks: _Checks, file: str, at: str, binding: dict) ->
 
 def _binding_holds(checks: _Checks, file: str, at: str, binding: dict) -> None:
     """A column storing a meaning or a key stores it *of* some code set, and a language is
-    only said of a stored meaning."""
+    only said of a stored meaning.
+
+    One exception: a meaning stored with the record (a name beside the code) of an
+    attribute that has no code set at all by rule R1 -- no dictionary is known, and no
+    other column names one. Once any column gives the attribute a code set, this one must
+    name its own; a key always needs a code set to be a key of."""
     holds = binding.get("holds") or ["code"]
-    if {"meaning", "key"} & set(holds) and not checks.index.held_code_sets(binding):
+    if {"meaning", "key"} & set(holds) and not checks.index.held_code_sets(binding) and (
+        "key" in holds or checks.index.attribute_code_set_ids(binding.get("ref"))
+        or binding.get("to") not in ("attribute", "foreign_attribute")
+    ):
         checks.fail(
             "binding_holds_code_set", file, at,
             f"holds {holds} but names no code_sets, and {binding.get('ref')!r} has no code_set",
