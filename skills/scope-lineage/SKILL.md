@@ -793,7 +793,10 @@ documented uncertainty).
 - `references/table-semantics-prompt.md` — the prompt a model writes one
   `table-semantics/1` document from, given one table's `packet.md`: the one-page summary
   first, then every column in table order, the steps, the rules with their SQL quoted and
-  the producing task, every item with its sources; and the rewrite section to hand back
+  the producing task, every item with its sources; how to write when the SQL overrules a
+  packet verdict; which packet facts are clues rather than facts (a producer's header comment,
+  a governance finding, an update-time column, a downstream known only by task name, a
+  partition day derived from a create or update time); and the rewrite section to hand back
   with `semantic validate`'s failures. Read when the user asks what a table means, or
   wants a batch of tables documented.
 - `references/answer-prompt.md` — the acceptance answerer: read only the pages, cite page and

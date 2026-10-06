@@ -42,6 +42,33 @@
   the binding names no `code_sets` and the attribute has no code set by rule R1 -- neither its
   own nor any bound column's. Once any column gives the attribute a code set the error stands,
   and `key` always needs one. Catalogs that validated before are unchanged.
+- **Writing, review and fix prompts stop turning clues into facts and let the SQL overrule
+  a packet verdict (`table-semantics-prompt@6`, `table-semantics-review@6`,
+  `table-semantics-fix@4`).** Reviews kept finding the same three claims written as fact:
+  that a source record is updated in place (the writing prompt itself stated it as a
+  premise; a packet rarely proves it -- an update-time column or an unexplained comment
+  marker is a clue), what a downstream known only by its task registration does with the
+  table, and that a partition column is the business day when the SQL derives it from a
+  create, insert or update time. The writing prompt now words the first as a conditional
+  inference, lists task-registration-only downstreams by name without turning the name into
+  a purpose, `good_for` or `derivation`, and asks where `dt` comes from before reading a
+  partition as an event day (the event-time column filters an event day). Whether the old
+  wording caused the partition-day mistake is not established; the rule closes a gap the
+  prompt had either way. It also uses the facts packets now carry: a date literal at a
+  fixed offset from the expected run date is the batch-date parameter (inferred); a
+  producer's header comment, a governance finding and a comment marker are clues to check;
+  a 「查码键」 is the key a lookup reads by, not a value source. When the SQL overrules a
+  4.2 / 4.3 verdict (a right side deduplicated by `rn = 1` or `GROUP BY` on the join key,
+  inline `VALUES` literals distinct on it) the writer and the fixer write per the SQL,
+  naming the packet's verdict and quoting the SQL, and keep a check-10 warning that sentence
+  draws instead of wording around it. A join marked 「在 pN 右侧内部」 is described through
+  pN; one marked 「工具未判定」 is judged from the SQL. The review prompt's item 16 drops
+  「不在输出路径上」, which packets no longer print, for that same vocabulary (an older
+  packet's 「不在输出路径上」 is read as no verdict); item 13 names the three claims above;
+  item 5 asks whether an `= ''` clean-up on a numeric or date column takes effect. The
+  review prompt moves to `@6` because these are new checks, not rewording (the convention
+  this changelog follows: a version moves when the prompt's rules change). No tool
+  behaviour or format changes; the review front matter is unchanged.
 - **`semantic.json`: an `expression` is the SQL minus its comments.** The profile lifted every
   `/* … */` note into `sql_comments` and also left it inside `expression`, so the note was
   published twice and read as SQL: `dt = '…' /* and s <> 'x' */` made a packet judge an
@@ -127,7 +154,7 @@
   A `reviews/<db.table>.prior.md` -- the old review kept across a rewrite -- is no longer
   read as a table. **Migration:** there is no conversion. In a run directory reviewed
   before this release, a table whose document changed after its review goes back to
-  `valid review_stale`: review it again with `table-semantics-review@5` (or rewrite it, if
+  `valid review_stale`: review it again with `table-semantics-review@5` or later (or rewrite it, if
   its packet changed), then fix and finish with `semantic fixed`. A table whose review read
   its current document keeps its stage. Readers of the status report check
   `doc_format` for `/2`.
