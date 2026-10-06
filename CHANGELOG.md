@@ -3,6 +3,13 @@
 ## Unreleased
 
 ### Changed
+- **`semantic validate` check 2 accepts a column's lookup key as its source.** A value read off
+  an inline dictionary (a constant row set) has no physical source, so the only physical column
+  a writer can name is the join key deciding which row is read -- and check 2 warned on it
+  (「只在输入表元数据中」). A `source_columns` entry now passes when it is in one of the column's own
+  producers' `lookup_keys` (which packets carry since the packet facts change above); another
+  column's lookup key still warns. Documents validated before keep their results except those
+  warnings.
 - **`catalog digest --lineage`: reads by source, the join column, reverse lookups and rows keyed
   by the record.** Four facts the digest flattened or dropped are now said per read
   (`catalog-digest/1` keeps its version; every new key appears only with content):
