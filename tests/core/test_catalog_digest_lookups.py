@@ -28,6 +28,7 @@ ORDERS = "demo_ods.ods_order_df"
 DICT = "demo_dim.dim_code_dict"
 PARTY = "demo_ods.ods_party_df"
 ORDERS_B = "demo_ods.ods_order_b_df"
+FIELDS = "demo_ods.ods_entity_field_df"
 
 T_FALLBACK = "demo_dwd.dwd_order_fallback_df"
 T_FILTERED = "demo_dwd.dwd_order_filtered_df"
@@ -41,6 +42,7 @@ T_UNION = "demo_dwd.dwd_order_union_df"
 T_UNION_COALESCE = "demo_dwd.dwd_order_union_coalesce_df"
 T_MULTI = "demo_dwd.dwd_order_multi_df"
 T_MULTI_RAW = "demo_dwd.dwd_order_multi_raw_df"
+T_ENTITY = "demo_dwd.dwd_order_entity_df"
 
 # The code dictionary: `dt` and `snap_day` are its partition columns. The schema says so
 # for both; the lineage only says the table is partitioned, so without `--schema` only
@@ -53,6 +55,7 @@ SCHEMA_TABLES = {
     ],
     PARTY: [("party_id", 0), ("role_type", 0), ("party_name", 0), ("dt", 1)],
     ORDERS_B: [("order_id", 0), ("st", 0), ("dt", 1)],
+    FIELDS: [("entity_code", 0), ("field_code", 0), ("field_value", 0), ("dt", 1)],
     T_FALLBACK: [("order_id", 0), ("c_cd", 0), ("c_desc", 0), ("c_key", 0), ("owner_name", 0)],
     T_FILTERED: [("order_id", 0), ("s_desc", 0), ("p_name", 0), ("latest_name", 0)],
     T_SHARED: [("order_id", 0), ("x_desc", 0), ("y_desc", 0), ("z_desc", 0)],
@@ -65,6 +68,7 @@ SCHEMA_TABLES = {
     T_UNION_COALESCE: [("order_id", 0), ("u_cd", 0), ("u_desc", 0)],
     T_MULTI: [("order_id", 0), ("m_desc", 0)],
     T_MULTI_RAW: [("order_id", 0), ("w_desc", 0)],
+    T_ENTITY: [("order_id", 0), ("c_cd", 0), ("c_desc", 0), ("flag_a", 0)],
 }
 
 TASKS = {
@@ -212,6 +216,15 @@ LEFT JOIN {DICT} d ON a.s = d.code_val AND d.code_type = 'TypeOut'
     "order_multi_raw_store": f"""
 INSERT INTO TABLE {T_MULTI_RAW}
 SELECT b.order_id, b.st AS w_desc FROM {ORDERS_B} b
+""",
+    # #32: a field-value table read by the row's own identifier (an attribute of the same
+    # record), beside a code column translated through the dictionary.
+    "order_entity": f"""
+INSERT OVERWRITE TABLE {T_ENTITY}
+SELECT a.order_id, a.c AS c_cd, d.code_desc AS c_desc, f.field_value AS flag_a
+FROM {ORDERS} a
+LEFT JOIN {FIELDS} f ON a.order_id = f.entity_code AND f.field_code = 'FlagA'
+LEFT JOIN {DICT} d ON a.c = d.code_val AND d.code_type = 'TypeA'
 """,
     # Test 8: a join with no constant condition only supplements a field.
     "order_plain": f"""
@@ -589,6 +602,29 @@ def test_30_another_statement_storing_a_column_directly_is_another_source(digest
     assert [entry["source"] for entry in column["lookups"]] == ["order_multi_raw_lookup/stmt:001"]
     assert column["other_sources"] == {"order_multi_raw_store/stmt:001": [f"{ORDERS_B}.st"]}
     assert "fallback" not in column
+
+
+# ------------------------------------------------------------------ #32 keyed by the row
+
+
+def test_32_a_read_keyed_by_the_rows_own_identifier_is_marked(digest) -> None:
+    columns = _columns(digest, T_ENTITY)
+
+    [key] = columns["order_id"]["key_of"]
+    assert key["where"] == {"field_code": "FlagA"} and key["read_by"] == ["flag_a"]
+    assert key["keyed_by"] == "row_identifier"
+    [read] = columns["flag_a"]["lookups"]
+    assert read["keyed_by"] == "row_identifier"
+    line = item_line(_section(digest, T_ENTITY), "flag_a")
+    assert "keyed by this table's row identifier order_id: reads rows describing the same " \
+        "record, not a code translation" in line
+
+
+def test_32_a_code_column_translated_through_a_dictionary_is_not_marked(digest) -> None:
+    columns = _columns(digest, T_ENTITY)
+
+    assert "keyed_by" not in columns["c_cd"]["key_of"][0]
+    assert "keyed_by" not in columns["c_desc"]["lookups"][0]
 
 
 # ------------------------------------------------------------------ 8 unchanged output
