@@ -21,7 +21,11 @@ from pathlib import Path
 
 import pytest
 
+from scope_lineage.contract.lineage import to_lineage_dict
+from scope_lineage.scope.scope_builder import parse_scope_lineage
 from scope_lineage.semantics import CHECKS, validate_document
+from scope_lineage.semantics.checks_meaning import check_fan_out
+from scope_lineage.semantics.packet import build_packets
 
 from .table_semantics_demo import demo_packets, example, packet_of
 
@@ -233,6 +237,90 @@ def test_a_packet_without_fan_out_facts_is_not_held_to_them(
     for rule in older["lineage"]["rules"]:
         rule.pop("fan_out", None)
     assert "fan_out" not in validate_document(document, older)["checks"]
+
+
+# A JOIN inside a SUM's argument, below the outer aggregate (``fan_out.path`` argument):
+# it can count an amount twice but copies no output row. The second statement adds the
+# same right table on the grain path.
+UNDER_AGGREGATE = """INSERT OVERWRITE TABLE dw.t_g PARTITION (dt = '20260101')
+SELECT o.id, coalesce(s.amt, 0) AS amt
+FROM (SELECT id FROM ods.orders WHERE dt = '20260101') o
+LEFT JOIN (
+  SELECT a.id, sum(amt) AS amt
+  FROM (SELECT id FROM ods.orders WHERE dt = '20260101') a
+  LEFT JOIN (
+    SELECT p.id, sum(CASE WHEN e.kind = 'X' THEN p.amt ELSE 0 END) AS amt
+    FROM ods.pay p LEFT JOIN ods.pay_ext e ON p.id = e.id AND p.seq = e.seq
+    GROUP BY p.id
+  ) b ON a.id = b.id
+  GROUP BY a.id
+) s ON o.id = s.id"""
+ON_THE_GRAIN = UNDER_AGGREGATE.replace(
+    ") s ON o.id = s.id", ") s ON o.id = s.id LEFT JOIN ods.pay_ext g ON o.id = g.id")
+# A LEFT JOIN on the grain path whose right side is not proven unique.
+GRAIN_RISK = """INSERT OVERWRITE TABLE dw.t_m PARTITION (dt = '20260101')
+SELECT o.id, 0 AS amt, r.v
+FROM (SELECT id FROM ods.orders WHERE dt = '20260101') o
+LEFT JOIN ods.ref r ON o.id = r.k"""
+PATH_SCHEMA = {
+    "ods.orders": ["id", "b_val", "dt"],
+    "ods.pay": ["id", "seq", "amt"],
+    "ods.pay_ext": ["id", "seq", "kind"],
+    "ods.ref": ["k", "v", "t"],
+    "dw.t_m": ["id", "amt", "v", "dt"],
+    "dw.t_g": ["id", "amt", "dt"],
+}
+
+
+def _path_packet(sql: str) -> dict:
+    lineage = to_lineage_dict(parse_scope_lineage(sql, "t0", schema=PATH_SCHEMA))
+    (built,) = build_packets([(lineage, None)])
+    return built
+
+
+def _fan_out(packet: dict, note: str = "每个 id 一行。", *risks: str) -> list[tuple[str, str]]:
+    document = {"summary": {"row": {"note": note},
+                            "watch": [{"kind": "risk", "text": text} for text in risks]}}
+    return [(item["status"], item["at"]) for item in check_fan_out(document, packet)
+            if item["status"] != "pass"]
+
+
+def _paths(packet: dict) -> list:
+    return [(rule.get("right_tables"), rule["fan_out"].get("path")) for rule in packet["lineage"]["rules"]
+            if rule["kind"] == "join" and rule.get("fan_out")
+            and rule["fan_out"].get("status") != "safe"]
+
+
+def test_a_join_under_an_aggregate_need_not_be_named() -> None:
+    packet = _path_packet(UNDER_AGGREGATE)
+    assert _paths(packet) == [(["ods.pay_ext"], "argument")]
+    assert _fan_out(packet) == []
+
+
+def test_a_join_under_an_aggregate_may_be_called_harmless_to_the_row_count() -> None:
+    assert _fan_out(_path_packet(UNDER_AGGREGATE), "每个 id 一行。", "左关联 pay_ext 不放大。") == []
+
+
+def test_a_grain_path_join_must_still_be_named_and_not_called_harmless() -> None:
+    packet = _path_packet(GRAIN_RISK)
+    assert _paths(packet) == [(["ods.ref"], "grain")]
+    assert _fan_out(packet) == [("fail", "summary.row.note")]
+    assert _fan_out(packet, "每个 id 一行。", "左关联 ref 不放大。") == [("warn", "summary.watch[0]")]
+
+
+def test_a_packet_without_paths_holds_every_join_as_before() -> None:
+    packet = _path_packet(UNDER_AGGREGATE)
+    for rule in packet["lineage"]["rules"]:
+        (rule.get("fan_out") or {}).pop("path", None)
+    assert _fan_out(packet) == [("fail", "summary.row.note")]
+    assert _fan_out(packet, "每个 id 一行。", "左关联 pay_ext 不放大。") == [("warn", "summary.watch[0]")]
+
+
+def test_a_table_joined_on_both_paths_is_still_held_on_the_grain_path() -> None:
+    packet = _path_packet(ON_THE_GRAIN)
+    assert sorted(path for _, path in _paths(packet)) == ["argument", "grain"]
+    assert _fan_out(packet) == [("fail", "summary.row.note")]
+    assert _fan_out(packet, "每个 id 一行。", "左关联 pay_ext 不放大。") == [("warn", "summary.watch[0]")]
 
 
 # 11 ------------------------------------------------------------------ derived codes

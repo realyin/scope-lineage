@@ -18,6 +18,7 @@ from __future__ import annotations
 import re
 
 from .checks import _plain, result
+from .packet_notes import GRAIN_PATH
 
 # 10 ------------------------------------------------------------------ fan out
 
@@ -43,6 +44,12 @@ def check_fan_out(document: dict, packet: dict) -> list[dict]:
     Joins onto one right side (the same table joined under several aliases) are one item:
     naming the table once tells the reader. A sentence calling such a LEFT join harmless to
     the row count warns once, wherever it stands.
+
+    Only a verdict on the grain path is about the row count: a JOIN below an aggregate
+    (``fan_out.path`` ``argument`` and the like) can count a value twice but copies no
+    output row, so it is neither asked to be named nor warned about when called harmless.
+    A verdict without a path (a packet written before paths) is on the grain path. Every
+    unproven join, on any path, still keeps its names from passing for a proven one's.
     """
     summary = document["summary"]
     said = _sentences("summary.row.note", summary["row"].get("note"))
@@ -57,8 +64,10 @@ def check_fan_out(document: dict, packet: dict) -> list[dict]:
         if verdict and verdict.get("status") != "safe":
             key = tuple(rule.get("right_tables") or [rule.get("right")])
             groups.setdefault(key, []).append(rule)
-    results = [_named(rules, said) for rules in groups.values()]
-    left = [r for rules in groups.values() for r in rules if "LEFT" in str(r.get("join_type")).upper()]
+    held = {key: grain for key, rules in groups.items()
+            if (grain := [r for r in rules if r["fan_out"].get("path") in (None, GRAIN_PATH)])}
+    results = [_named(rules, said) for rules in held.values()]
+    left = [r for rules in held.values() for r in rules if "LEFT" in str(r.get("join_type")).upper()]
     return results + _harmless_left(left, everywhere, _safe_names(packet, groups))
 
 
