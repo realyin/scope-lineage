@@ -17,7 +17,7 @@ before the private keys the rules carried are dropped.
 
 from __future__ import annotations
 
-from .packet_facts import LOGIC_BLOCK, PROFILE_RULE
+from .packet_facts import INTENT, LOGIC_BLOCK, PROFILE_RULE, WINDOW
 
 # The findings a packet carries; the others are the semantic document's (``describe``).
 PACKET_FINDINGS = (
@@ -44,8 +44,7 @@ def mark_undecided_joins(rules: list[dict], statements: list[tuple[str, dict]]) 
     output rows but may inflate the aggregate: ``below_aggregate`` names that scope. A
     join with neither gets no key and reads as undecided.
     """
-    stages = {(task, statement.get("statement_id")): statement.get("stages") or []
-              for task, statement in statements}
+    stages = _stages(statements)
     for rule in rules:
         if rule["kind"] != "join" or rule.get("fan_out") is not None:
             continue
@@ -61,13 +60,66 @@ def mark_undecided_joins(rules: list[dict], statements: list[tuple[str, dict]]) 
         if inside:
             rule["inside"] = inside
             continue
-        below = next(
-            (stage["scope_id"] for stage in stages.get(key) or []
-             if _aggregates(stage) and scope in _closure(reads, stage["scope_id"])),
-            None,
-        )
+        below = _aggregate_above(stages.get(key) or [], scope)
         if below:
             rule["below_aggregate"] = below
+
+
+def mark_verdict_paths(rules: list[dict], statements: list[tuple[str, dict]]) -> None:
+    """C-P3: name the aggregate a JOIN with a verdict off the grain path sits under.
+
+    The profile judges JOINs on three paths (``fan_out.path``): one on the grain path
+    copies output rows, one under an aggregate (``argument``, ``anchor``) does not -- it
+    may count a value twice inside the aggregate. ``verdict_aggregate`` is the aggregating
+    scope that reads the JOIN's scope, at any depth, when there is one. Unlike
+    ``below_aggregate`` it is said of a JOIN that has a verdict.
+    """
+    stages = _stages(statements)
+    for rule in rules:
+        path = (rule.get("fan_out") or {}).get("path") if rule["kind"] == "join" else None
+        if path in (None, GRAIN_PATH):
+            continue
+        found = _aggregate_above(stages.get(_statement_key(rule)) or [], rule.get("scope"))
+        if found:
+            rule["verdict_aggregate"] = found
+
+
+def mark_unfiltered_rankings(rules: list[dict], statements: list[tuple[str, dict]]) -> None:
+    """C-P4: a JOIN not proven safe whose right side ranks rows and keeps them all.
+
+    ``unfiltered_ranking`` lists the ``window`` rows (a ranking the profile found no
+    ``= 1`` filter for) in the right side of a JOIN whose verdict is ``risk`` or
+    ``unknown``: the rows were numbered, not deduplicated. A safe verdict says nothing
+    is copied whatever the right side does, so it gets no note.
+    """
+    stages = _stages(statements)
+    for rule in rules:
+        status = (rule.get("fan_out") or {}).get("status") if rule["kind"] == "join" else None
+        if status in (None, "safe"):
+            continue
+        key = _statement_key(rule)
+        right = _closure(_reads(stages.get(key) or []), rule.get("right"))
+        found = [other["id"] for other in rules
+                 if other["kind"] == WINDOW and other.get(INTENT) == RANK_WITHIN_GROUP
+                 and _statement_key(other) == key and other.get("scope") in right]
+        if found:
+            rule["unfiltered_ranking"] = found
+
+
+GRAIN_PATH = "grain"
+RANK_WITHIN_GROUP = "rank_within_group"
+
+
+def _stages(statements: list[tuple[str, dict]]) -> dict[tuple, list[dict]]:
+    return {(task, statement.get("statement_id")): statement.get("stages") or []
+            for task, statement in statements}
+
+
+def _aggregate_above(stages: list[dict], scope) -> str | None:
+    reads = _reads(stages)
+    return next((stage["scope_id"] for stage in stages
+                 if _aggregates(stage) and str(scope or "") in _closure(reads, stage["scope_id"])),
+                None)
 
 
 def _reads(stages: list[dict]) -> dict[str, list[str]]:
@@ -97,7 +149,13 @@ def statement_findings(rules: list[dict], statements: list[tuple[str, dict]]) ->
     ``rules`` lists the packet rules a finding's evidence names (an empty-string test
     names its rule); the text is the profile's, word for word.
     """
-    numbered = {(_statement_key(rule), rule.get(PROFILE_RULE)): rule["id"] for rule in rules}
+    numbered = {(_statement_key(rule), rule.get(PROFILE_RULE)): rule["id"] for rule in rules
+                if rule.get(PROFILE_RULE)}
+    # A finding about a stage action (A-M4: a window) names its logic block; a rule's own
+    # number wins, the first rule of a block is the one named (README 裁决 2).
+    for rule in rules:
+        if rule.get(LOGIC_BLOCK):
+            numbered.setdefault((_statement_key(rule), rule[LOGIC_BLOCK]), rule["id"])
     found = []
     for task, statement in statements:
         key = (task, statement.get("statement_id"))

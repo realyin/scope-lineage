@@ -20,7 +20,7 @@ from .digests import canonical_digest
 from .names import bare_table, scrub
 from .packet_comments import References, marker_keys
 from .packet_confirmed import Confirmed
-from .packet_notes import mark_undecided_joins
+from .packet_notes import mark_undecided_joins, mark_unfiltered_rankings, mark_verdict_paths
 from .packet_sections import inputs_section, lineage_section, target_section, tasks_section
 
 PACKET_FORMAT = "table-semantics-packet/1"
@@ -209,11 +209,15 @@ class _Corpus:
 
 
 def _packet(table: str, statements: list[tuple[str, dict]], corpus: _Corpus) -> dict:
+    # Every rule row first, numbered once, then every note that names a rule by its number;
+    # a note never adds or drops a rule (README 裁决 12).
     rules = [rule for task, statement in statements for rule in facts.statement_rules(task, statement)]
     for index, rule in enumerate(rules, start=1):
         rule["id"] = f"p{index}"
     facts.mark_partition_filters(rules, corpus.metadata)
     mark_undecided_joins(rules, statements)
+    mark_verdict_paths(rules, statements)
+    mark_unfiltered_rankings(rules, statements)
     target = target_section(table, statements, corpus)
     inputs = inputs_section(table, statements, rules, corpus)
     lineage = lineage_section(table, statements, rules, target, corpus)

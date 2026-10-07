@@ -140,13 +140,19 @@ def _spelling(expression) -> str:
 
 
 def statement_rules(task: str, statement: dict) -> list[dict]:
-    """The statement's filters, joins and CASE branches, then its dedup and union steps."""
+    """The statement's filters, joins and CASE branches, then its dedup, window and union steps.
+
+    Every rule row a packet has is made here, before the rules are numbered (README 裁决
+    12): the notes that name a rule by its number come after. A window in a stage that
+    does not dedup -- a ranking nobody filters to ``= 1``, a LEAD -- is a ``window`` row
+    (C-P4): the profile's text says what it computes and that nothing keeps one row.
+    """
     rules = [_profile_rule(task, statement, rule) for rule in statement.get("rules") or []]
     for stage in statement.get("stages") or []:
         for action in stage.get("actions") or []:
             kind = _STAGE_RULE_ACTIONS.get(str(action.get("type")))
             if kind == "dedup" and action.get("type") == "window" and stage.get("role") != "dedup":
-                continue
+                kind = WINDOW
             if kind:
                 rules.append(_stage_rule(task, statement, stage, action, kind))
     return rules
@@ -207,6 +213,10 @@ def _stage_rule(task: str, statement: dict, stage: dict, action: dict, kind: str
             bare_table(table) for table in stage.get("upstream_physical_tables") or []
         ),
         "text": action.get("text"),
+        # The action's logic block, which a finding's evidence may name (A-M4), and its
+        # intent, which tells a ranking nobody filters; both dropped before writing.
+        LOGIC_BLOCK: action.get("evidence"),
+        INTENT: action.get("intent"),
     }
 
 
@@ -289,6 +299,8 @@ _BETWEEN = re.compile(rf"^[a-z0-9_]+between{_CONSTANT}and{_CONSTANT}$")
 EXTRA_CONDITIONS = "_extra_conditions"
 PROFILE_RULE = "_profile_rule"
 LOGIC_BLOCK = "_logic_block"
+INTENT = "_intent"
+WINDOW = "window"
 _QUALIFIED = re.compile(r"^([a-z_][a-z0-9_]*)\.([a-z0-9_]+)((?:=|<=|>=|<|>|between).*)$")
 
 
@@ -355,7 +367,7 @@ def _join_partition_reads(rule: dict, metadata) -> list[dict]:
 def drop_private(rules: list[dict]) -> None:
     """Take out what the rules carried for this package only."""
     for rule in rules:
-        for key in (EXTRA_CONDITIONS, PROFILE_RULE, LOGIC_BLOCK):
+        for key in (EXTRA_CONDITIONS, PROFILE_RULE, LOGIC_BLOCK, INTENT):
             rule.pop(key, None)
 
 
@@ -465,14 +477,42 @@ def _filter_columns(rule: dict, table: str) -> list[str]:
 
 
 def _partition_read(expressions: list[str]) -> str:
+    """``none``, ``equality``, ``multi_equality`` (C-P7) or ``range``.
+
+    Every filter an equality: ``equality``, as before. Every filter an equality or an IN
+    list of literals, the literals together more than one value: ``multi_equality`` --
+    several fixed partitions, not a range (``dt IN ('20250101', '20260101')``). An IN
+    list of one value is an equality; anything else (a bound, BETWEEN, a subquery) is
+    ``range``.
+    """
     if not expressions:
         return "none"
-    return "equality" if all(_is_equality(text) for text in expressions) else "range"
+    if all(_is_equality(text) for text in expressions):
+        return "equality"
+    values = [partition_values(text) for text in expressions]
+    if any(found is None for found in values):
+        return "range"
+    return "multi_equality" if len({v for found in values for v in found}) > 1 else "equality"
 
 
 def _is_equality(expression: str) -> bool:
     text = normalize_sql(expression)
     return text.count("=") == 1 and not any(op in text for op in ("<", ">", "in(", "between"))
+
+
+_LITERAL = r"'[^']*'|\d+"
+_IN_LIST = re.compile(rf"^[^=<>()]+in\(((?:{_LITERAL})(?:,(?:{_LITERAL}))*)\)$")
+_EQUALS = re.compile(rf"^[^=<>()]+=({_LITERAL})$")
+
+
+def partition_values(expression: str) -> list[str] | None:
+    """The literals an equality or a literal IN list fixes its column to; ``None`` otherwise."""
+    if not (_IN_LIST.match(normalize_sql(expression)) or _EQUALS.match(normalize_sql(expression))):
+        return None
+    # The literals as written: the normalised text is lower-cased.
+    written = re.split(r"=|\bin\s*\(", strip_leading_keyword(expression), maxsplit=1,
+                       flags=re.IGNORECASE)[-1]
+    return re.findall(_LITERAL, written)
 
 
 def _name_convention(table: str) -> str:

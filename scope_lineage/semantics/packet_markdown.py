@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 
 from ..render.markdown_text import cell, expr_span
+from .packet_facts import partition_values
 
 
 def render_packet_markdown(packet: dict) -> str:
@@ -267,9 +268,21 @@ def full_snapshot_text(entry: dict) -> str:
         return "不适用（非分区表）"
     if entry["partition_read"] == "none":
         return "未证明（未见分区条件）"
+    if entry["partition_read"] == "multi_equality":
+        return f"否（{_fixed_partitions(entry)}）"
     if entry["partition_read"] != "equality":
         return "否（读多个分区 / 范围）"
     return f"未证明（表名约定 {entry['name_convention']}）"
+
+
+def _fixed_partitions(entry: dict) -> str:
+    """C-P7: which fixed partitions are read, and that a full table holds a copy in each."""
+    values = list(dict.fromkeys(
+        value for text in entry["partition_filters"] for value in partition_values(text) or []))
+    said = f"读 {len(values)} 个固定分区 {'、'.join(values)}"
+    if entry["name_convention"] == "full":
+        said += "；表名约定 full：每个分区是一份快照，同一记录在每份里各一行"
+    return said
 
 
 def _lineage(lineage: dict) -> list[str]:
@@ -417,13 +430,27 @@ def _fan_out(rule: dict) -> str:
         return ""
     verdict = rule.get("fan_out")
     if verdict:
-        return _text(f"{verdict['status']}：{verdict['reason']}")
+        return _text(_verdict(rule, verdict) + _unfiltered(rule))
     if rule.get("inside"):
         return f"在 {'、'.join(rule['inside'])} 右侧内部；行数影响已计入这些关联的判定"
     if rule.get("below_aggregate"):
         return (f"位于聚合 {_code(rule['below_aggregate'])} 之下：不复制输出行，可能放大聚合值；"
                 "工具未判定")
     return f"工具未判定（{_code(rule.get('scope'))}）"
+
+
+def _verdict(rule: dict, verdict: dict) -> str:
+    """``status：reason``; a JOIN off the grain path first says where it sits (C-P3)."""
+    if verdict.get("path") in (None, "grain"):
+        return f"{verdict['status']}：{verdict['reason']}"
+    where = (f"位于聚合 {_code(rule['verdict_aggregate'])} 之下" if rule.get("verdict_aggregate")
+             else "在聚合参数路径上")
+    return f"{verdict['status']}（{where}：不复制输出行，可能让聚合值重复计入）：{verdict['reason']}"
+
+
+def _unfiltered(rule: dict) -> str:
+    ranked = rule.get("unfiltered_ranking") or []
+    return f"；右侧的 {'、'.join(ranked)} 算了排名但没有 = 1 过滤，未去重" if ranked else ""
 
 
 def _keys(keys: list[dict], partitions: list[dict]) -> list[str]:
