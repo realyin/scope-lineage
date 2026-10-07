@@ -271,6 +271,14 @@
   title saying so and pointing to the catalog workflow. The command, every flag and
   `ontology.json` (`ontology-json/2`) are unchanged, byte for byte.
 ### Added
+- **`semantic status` flags a misfiled document (`doc_misfiled`).** Status files each document
+  under the `table` it names, so a document written into another table's file left that table
+  looking unwritten (`packet`) and two files of one table kept the first silently. A table now
+  carries `doc_misfiled` when a document file is named for another table than the one it holds
+  (both tables are flagged; a catalog prefix in the file name is ignored) or when two files hold
+  it; the summary lists the flagged tables. It is a warning: no stage or `--next` batch changes.
+  `table-semantics-status/2` keeps its version and gains the flag, so `summary.flags` has one
+  more key; a run whose files all match their tables reads as before.
 - **Catalog: an identifier unique per value of a column, and a code's surrogate key.** Two
   optional fields, in the catalog, fragment and `ontology-v3` schemas alike (no format
   version moves; catalogs without them build the same bytes):

@@ -512,7 +512,7 @@ def test_a_malformed_fix_record_is_no_fix_record(value: str) -> None:
 def test_the_report_names_every_flag(valid_run: Path) -> None:
     assert list(_status(valid_run)["summary"]["flags"]) == [
         "packet_stale", "invalid", "review_packet_stale", "review_stale", "fix_unconfirmed",
-        "review_unparsed", "render_stale",
+        "review_unparsed", "render_stale", "doc_misfiled",
     ]
 
 
@@ -768,3 +768,35 @@ def test_only_swallowing_a_word_that_is_no_run_is_an_error(
     err = capsys.readouterr().err
     assert "--only takes every word after it" in err
     assert "put run before --only" in err
+
+
+# ------------------------------------------------------------------- doc_misfiled
+
+OTHER_TABLE = "demo_dwd.dwd_lending_borrower_df"
+
+
+def test_a_document_in_another_tables_file_flags_both_tables(valid_run: Path, capsys) -> None:
+    """``docs/<b>.json`` holding table ``a`` beside ``docs/<a>.json``: ``b`` looks unwritten."""
+    write_json(valid_run / "docs" / f"{OTHER_TABLE}.json", _doc(valid_run))
+    report = _status(valid_run)
+    other, demo = _entry(report, OTHER_TABLE), _entry(report, DEMO_TABLE)
+    assert (other["stage"], other["flags"]) == ("packet", ["doc_misfiled"])
+    assert demo["flags"] == ["doc_misfiled"]
+    assert report["summary"]["flags"]["doc_misfiled"] == [OTHER_TABLE, DEMO_TABLE]
+    assert run("semantic", "status", valid_run) == 0
+    assert f"  doc_misfiled: {OTHER_TABLE}, {DEMO_TABLE}\n" in capsys.readouterr().out
+
+
+def test_a_document_under_a_name_no_table_has_flags_its_table(valid_run: Path) -> None:
+    (valid_run / "docs" / f"{DEMO_TABLE}.json").rename(valid_run / "docs" / "doc.json")
+    entry = _entry(_status(valid_run))
+    assert (entry["stage"], entry["flags"]) == ("valid", ["doc_misfiled"])
+    assert all(e["table"] != "doc" for e in _status(valid_run)["tables"])
+
+
+def test_a_document_whose_file_carries_a_catalog_prefix_is_not_misfiled(valid_run: Path) -> None:
+    docs = valid_run / "docs"
+    (docs / f"{DEMO_TABLE}.json").rename(docs / f"spark_catalog.{DEMO_TABLE}.json")
+    report = _status(valid_run)
+    assert _entry(report)["flags"] == []
+    assert report["summary"]["flags"]["doc_misfiled"] == []

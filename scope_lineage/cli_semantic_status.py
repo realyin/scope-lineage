@@ -187,7 +187,7 @@ def _emit(document: dict, target: str) -> None:
 
 def _table_files(directories: dict[str, Path], only, reviews=None) -> list[TableFiles]:
     packets = _packets(directories["packets"])
-    documents = _documents(directories["docs"])
+    documents, misfiled = _documents(directories["docs"])
     if reviews is None:
         reviews = _reviews(directories["reviews"])
     if only:
@@ -196,12 +196,13 @@ def _table_files(directories: dict[str, Path], only, reviews=None) -> list[Table
         tables = set(packets) | set(documents) | set(reviews)
     return [
         _files(table, packets.get(table), documents.get(table),
-               reviews[table][1] if table in reviews else None, directories)
+               reviews[table][1] if table in reviews else None, directories,
+               table in misfiled)
         for table in sorted(tables)
     ]
 
 
-def _files(table: str, packet, document, review, directories) -> TableFiles:
+def _files(table: str, packet, document, review, directories, misfiled: bool) -> TableFiles:
     page = directories["pages"] / f"{table}.md"
     fresh = None
     if document is not None and page.is_file():
@@ -209,7 +210,8 @@ def _files(table: str, packet, document, review, directories) -> TableFiles:
     fields = {} if document is None else {
         key: document[key] for key in ("document", "file", "unreadable") if key in document
     }
-    return TableFiles(table=table, packet=packet, review=review, page_fresh=fresh, **fields)
+    return TableFiles(table=table, packet=packet, review=review, page_fresh=fresh,
+                      misfiled=misfiled, **fields)
 
 
 def _packets(directory: Path) -> dict[str, dict | None]:
@@ -222,16 +224,20 @@ def _packets(directory: Path) -> dict[str, dict | None]:
     return {table: packet for table, packet in found.items() if packet is not None}
 
 
-def _documents(directory: Path) -> dict[str, dict]:
-    """``table -> {path, file, document | unreadable}``; the first file per table wins.
+def _documents(directory: Path) -> tuple[dict[str, dict], set[str]]:
+    """``table -> {path, file, document | unreadable}``, and the misfiled tables.
 
-    The toolchain's other documents kept beside them are skipped, as ``validate`` does.
+    The first file per table wins. A table is misfiled when a file's name (its stem, a
+    catalog prefix ignored) is not the table its document names -- both tables are -- or
+    when two files name it. The toolchain's other documents kept beside them are skipped,
+    as ``validate`` does.
     """
     from .cli_semantic import _OTHER_FORMATS
 
     found: dict[str, dict] = {}
+    misfiled: set[str] = set()
     if not directory.is_dir():
-        return found
+        return found, misfiled
     for path in sorted(directory.rglob("*.json")):
         item: dict = {"path": path, "file": path.relative_to(directory).as_posix()}
         try:
@@ -245,8 +251,12 @@ def _documents(directory: Path) -> dict[str, dict]:
             continue
         named = document.get("table") if isinstance(document, dict) else None
         table = bare_table(named if isinstance(named, str) and named else path.stem)
+        if table != bare_table(path.stem):
+            misfiled |= {table, bare_table(path.stem)}
+        if table in found:
+            misfiled.add(table)
         found.setdefault(table, item)
-    return found
+    return found, misfiled
 
 
 def _reviews(directory: Path) -> dict[str, tuple[Path, str]]:

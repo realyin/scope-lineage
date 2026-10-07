@@ -431,6 +431,7 @@ status 报告、分批文件）跳过，与 `validate` 相同。
 | `fix_unconfirmed` | 审读读的是当前材料包、有高 / 中问题；文档之后改过，但没有这一版的修订回执：修订被打断，或写回执之后又改过 | 阶段为 `reviewed`，`--next fix` 重新派发 |
 | `review_unparsed` | 审读文件没有完整的 front matter | 阶段为 `reviewed`，任何一步都不再派发它；补上 front matter 或删掉审读文件重审 |
 | `render_stale` | 已 `fixed`，页面比文档旧 | 阶段为 `fixed`，重新渲染 |
+| `doc_misfiled` | 某个文档文件的文件名是另一张表，与它里面写的 `table` 不符（两张表都标），或者两个文件写的是这同一张表 | 不改阶段，只是警告。文件名那张表会看起来没写过文档（`packet`），两个文件时按路径排第一个的生效；把每份文档放回 `docs/<db.table>.json`，并让文件里的 `table` 就是它 |
 
 ### 审读怎么判
 
@@ -528,7 +529,7 @@ Status of 3 table(s): no_packet 0, packet 1, drafted 1, valid 1, reviewed 0, fix
   "summary": {
     "tables": 1,
     "stages": {"no_packet": 0, "packet": 0, "drafted": 0, "valid": 1, "reviewed": 0, "fixed": 0, "rendered": 0},
-    "flags": {"packet_stale": [], "invalid": [], "review_packet_stale": [], "review_stale": [], "fix_unconfirmed": [], "review_unparsed": [], "render_stale": []}
+    "flags": {"packet_stale": [], "invalid": [], "review_packet_stale": [], "review_stale": [], "fix_unconfirmed": [], "review_unparsed": [], "render_stale": [], "doc_misfiled": []}
   }
 }
 ```

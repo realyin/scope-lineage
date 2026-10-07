@@ -519,6 +519,7 @@ does each table's `doc_digest` in the status report.
 | `fix_unconfirmed` | the review read the current packet and has high or medium findings; the document changed after it, but has no fix record for this version: the revision was interrupted, or the document changed again after the record | stage `reviewed`; `--next fix` dispatches it again |
 | `review_unparsed` | the review file has no complete front matter | stage `reviewed`, and no step dispatches it again; add the front matter or delete the review to review again |
 | `render_stale` | `fixed`, and the page is older than the document | stage `fixed`; render again |
+| `doc_misfiled` | a document file is named for another table than the `table` it holds (both tables are flagged), or two files hold this table | none -- a warning at any stage. The table the file is named for looks unwritten (`packet`), and of two files the first by path is read; put each document back as `docs/<db.table>.json` with that `table` |
 
 ### How a review is judged
 
@@ -626,7 +627,7 @@ Status of 3 table(s): no_packet 0, packet 1, drafted 1, valid 1, reviewed 0, fix
   "summary": {
     "tables": 1,
     "stages": {"no_packet": 0, "packet": 0, "drafted": 0, "valid": 1, "reviewed": 0, "fixed": 0, "rendered": 0},
-    "flags": {"packet_stale": [], "invalid": [], "review_packet_stale": [], "review_stale": [], "fix_unconfirmed": [], "review_unparsed": [], "render_stale": []}
+    "flags": {"packet_stale": [], "invalid": [], "review_packet_stale": [], "review_stale": [], "fix_unconfirmed": [], "review_unparsed": [], "render_stale": [], "doc_misfiled": []}
   }
 }
 ```
