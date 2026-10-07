@@ -333,7 +333,7 @@ _VOLUME = re.compile(
 _WRITE = re.compile(r"^\s*(?!set\b)[a-z(]", re.IGNORECASE)
 
 
-def header_facts(header_comments, sql, table: str = "", written=()) -> dict:
+def header_facts(header_comments, sql, table: str = "", written=(), columns=()) -> dict:
     """``{lifecycle, volume}`` a script's header comment states, each ``None`` when silent.
 
     Read from the header the lineage published and from the comment lines that open the
@@ -344,13 +344,102 @@ def header_facts(header_comments, sql, table: str = "", written=()) -> dict:
     table the task writes (``written``), the facts are about that table and ``about``
     names it. A header naming a table the task does not write (an old name) is kept as
     this table's.
+
+    ``added_columns`` (D-G4) records each ``alter table … add columns (…)`` of the header
+    that is this table's (:func:`_added_columns`), for the target ``columns`` it names.
     """
     lines = [str(line) for line in header_comments or []] + _leading_comments(sql)
     facts = {"lifecycle": _first(_LIFECYCLE, lines), "volume": _first(_VOLUME, lines)}
     about = header_about(lines, table, written)
     if about:
         facts["about"] = about
+    added = _added_columns(lines, table, None if about else _named(lines), columns)
+    if added:
+        facts["added_columns"] = added
     return facts
+
+
+_ALTER_ADD = re.compile(r"alter\s+table\s+([A-Za-z0-9_.`]+)\s+add\s+columns\s*\(", re.IGNORECASE)
+_STAMP = re.compile(r"(?<!\d)(\d{4}-\d{2}-\d{2}|\d{8})(?!\d)")
+
+
+def _added_columns(lines: list[str], table: str, named: str | None, columns) -> list[dict]:
+    """``[{date?, table, columns}]``: the header's ``alter table … add columns (…)`` records.
+
+    An ALTER counts when the table it names is this table, or the one the header's own
+    库表名 line names (an old name of it). Each column definition (``<name> <type>
+    [comment '…']``) gives its first word; empty items and ``cascade`` are tolerated, and
+    only the target's columns are kept, in its spelling. ``date`` is the date stamp
+    before the ALTER on its line, or on the line above.
+    """
+    wanted = {str(name).lower(): str(name) for name in columns}
+    found = []
+    for index, line in enumerate(lines):
+        match = _ALTER_ADD.search(line)
+        if not match:
+            continue
+        named_table = bare_table(match.group(1).replace("`", ""))
+        if not (_same_table(named_table, table) or (named and _same_table(named_table, named))):
+            continue
+        body = _parenthesised(" ".join(lines[index:])[match.end():])
+        names = [item.split()[0].strip("`").lower() for item in _items(body) if item.split()]
+        kept = list(dict.fromkeys(wanted[name] for name in names if name in wanted))
+        if not kept:
+            continue
+        stamp = _STAMP.search(line[:match.start()]) or (
+            _STAMP.search(lines[index - 1]) if index else None)
+        found.append({**({"date": stamp.group(1)} if stamp else {}),
+                      "table": named_table, "columns": kept})
+    return found
+
+
+def _named(lines: list[str]) -> str | None:
+    named = next((m.group(1) for m in map(_NAMED.match, lines) if m), None)
+    return bare_table(named.replace("`", "")) if named else None
+
+
+def _same_table(left: str, right: str) -> bool:
+    if "." in left and "." in right:
+        return left == right
+    return left.rsplit(".", 1)[-1] == right.rsplit(".", 1)[-1]
+
+
+def _parenthesised(text: str) -> str:
+    """The text up to the ``)`` closing an already opened ``(``, quotes respected."""
+    depth, quote = 1, None
+    for index, char in enumerate(text):
+        if quote:
+            quote = None if char == quote else quote
+        elif char in "'\"":
+            quote = char
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return text[:index]
+    return text
+
+
+def _items(body: str) -> list[str]:
+    """``body`` split at its top-level commas, quotes and parentheses respected."""
+    items, current, depth, quote = [], [], 0, None
+    for char in body:
+        if quote:
+            quote = None if char == quote else quote
+        elif char in "'\"":
+            quote = char
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        elif char == "," and depth == 0:
+            items.append("".join(current))
+            current = []
+            continue
+        current.append(char)
+    items.append("".join(current))
+    return [item.strip() for item in items if item.strip()]
 
 
 _NAMED = re.compile(r"^[\s\-/*]*(?:库表名|表名)\s*[:：=]?\s*([A-Za-z0-9_.`]+)")

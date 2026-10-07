@@ -31,9 +31,9 @@ def render_packet_markdown(packet: dict) -> str:
         "",
     ]
     lines += _target(packet["target"])
-    lines += _tasks(packet["tasks"])
+    lines += _tasks(packet["tasks"], packet["table"])
     lines += _inputs(packet["inputs"])
-    lines += _lineage(packet["lineage"])
+    lines += _lineage(packet["lineage"], packet["tasks"])
     lines += _column_order(packet["target"])
     return "\n".join(lines).rstrip("\n") + "\n"
 
@@ -134,7 +134,7 @@ def _target(target: dict) -> list[str]:
     return [*lines, ""]
 
 
-def _tasks(tasks: list[dict]) -> list[str]:
+def _tasks(tasks: list[dict], table: str = "") -> list[str]:
     lines = ["## 2. 生产任务", ""]
     for index, task in enumerate(tasks, start=1):
         lines += [
@@ -148,6 +148,7 @@ def _tasks(tasks: list[dict]) -> list[str]:
             *_run_dates(task),
             f"- 写入语句：{_names(task['statements'])}；来源文件：{_text(task['source_file'])}",
             *_header_facts(task.get("header_facts") or {}),
+            *_added_columns(task.get("header_facts") or {}, table),
             "",
         ]
         lines += [f"> {comment}" for comment in task["header_comments"]]
@@ -201,6 +202,26 @@ def _header_facts(facts: dict) -> list[str]:
     return [f"- 头注释：{stated}"] if stated else []
 
 
+def _added_columns(facts: dict, table: str) -> list[str]:
+    """D-G4: the header's ``alter table … add columns`` records, the table named if another."""
+    said = [
+        f"{item.get('date') or '日期不明'} 加 {_names(item['columns'])}"
+        + (f"（alter 写的是 {_code(item['table'])}）" if item["table"] != table else "")
+        for item in facts.get("added_columns") or []
+    ]
+    return [f"- 头注释加列记录：{'；'.join(said)}"] if said else []
+
+
+def _added_dates(tasks: list[dict]) -> dict[tuple, str]:
+    """``(task, column) -> date`` of every column a task's header says was added later."""
+    return {
+        (task["name"], column): item.get("date") or "日期不明"
+        for task in tasks
+        for item in (task.get("header_facts") or {}).get("added_columns") or []
+        for column in item["columns"]
+    }
+
+
 def _producer_header(entry: dict) -> list[str]:
     headers = entry.get("producer_header") or []
     if not headers:
@@ -235,6 +256,7 @@ def _inputs(inputs: list[dict]) -> list[str]:
                          for item in entry["date_filters"]) or "无"
             ),
             *_producer_header(entry),
+            *_producer_columns(entry),
             "",
         ]
         rows = [
@@ -245,6 +267,16 @@ def _inputs(inputs: list[dict]) -> list[str]:
         lines += _column_table(["列", "类型", "注释", "本表用到"], rows, entry["columns"])
         lines.append("")
     return lines
+
+
+def _producer_columns(entry: dict) -> list[str]:
+    """D-G5a-1: the producer's own summary of the columns this table reads by key."""
+    written = entry.get("producer_columns") or []
+    if not written:
+        return []
+    said = "；".join(f"{_code(item['task'])} / {_text(item['statement_id'])} "
+                    f"{_code(item['column'])}：{cell(item['summary'])}" for item in written)
+    return [f"- 生产任务怎么写这些列（表卡摘要，非本任务 SQL）：{said}"]
 
 
 _DATE_SHAPES = {
@@ -285,9 +317,9 @@ def _fixed_partitions(entry: dict) -> str:
     return said
 
 
-def _lineage(lineage: dict) -> list[str]:
+def _lineage(lineage: dict, tasks: list[dict] = ()) -> list[str]:
     lines = ["## 4. 血缘事实", ""]
-    lines += _column_sources(lineage["columns"])
+    lines += _column_sources(lineage["columns"], _added_dates(list(tasks)))
     lines += _rules(lineage["rules"], lineage.get("findings") or [])
     lines += _keys(lineage["keys"], lineage["partition"])
     lines += _findings(lineage.get("findings") or [])
@@ -295,7 +327,9 @@ def _lineage(lineage: dict) -> list[str]:
     return lines
 
 
-def _column_sources(columns: list[dict]) -> list[str]:
+def _column_sources(columns: list[dict], added: dict | None = None) -> list[str]:
+    """4.1; a column a producing task's header says was added later says so first (D-G4)."""
+    added = added or {}
     lines = [
         "### 4.1 字段来源",
         "",
@@ -306,10 +340,12 @@ def _column_sources(columns: list[dict]) -> list[str]:
         if not entry["producers"]:
             lines.append(f"| {_code(entry['column'])} | — | 未由 SELECT 写出（分区列或未写） | — | — | — |")
         for producer in entry["producers"]:
+            date = added.get((producer["task"], entry["column"]))
+            later = f"头注释：{date} 才加入，此前写入的行该列可能为空" if date else ""
             lines.append(
                 f"| {_produced_column(entry['column'], producer)} | {_written_by(producer)} | "
                 f"{_transform(producer)} | {_producer_sources(producer)} | "
-                f"{_code(producer['expression'])} | {_steps(producer)} |"
+                f"{_code(producer['expression'])} | {_steps(producer, later)} |"
             )
     return [*lines, ""]
 
@@ -346,12 +382,11 @@ def _producer_sources(producer: dict) -> str:
     return f"{_names(producer['sources'])}；查码键（决定读哪一行，不是取值来源）：{_names(keys)}"
 
 
-def _steps(producer: dict) -> str:
+def _steps(producer: dict, later: str = "") -> str:
     comments = producer.get("sql_comments") or []
-    steps = "；".join(producer["steps"])
-    if comments:
-        steps = f"注释：{'；'.join(comments)}" + (f"；{steps}" if steps else "")
-    return _text(steps)
+    parts = [later] if later else []
+    parts += [f"注释：{'；'.join(comments)}"] if comments else []
+    return _text("；".join([*parts, *producer["steps"]]))
 
 
 def _rules(rules: list[dict], findings: list[dict]) -> list[str]:
@@ -640,17 +675,27 @@ def _neighbours(lineage: dict) -> list[str]:
         f"- 上游表：{_names(lineage['upstream_tables'])}",
         f"- 上游任务：{_names(lineage['upstream_tasks'])}",
         "",
-        "| 下游任务 | 写入的表 | 依据 | 读法 |",
-        "| --- | --- | --- | --- |",
+        "| 下游任务 | 写入的表 | 依据 | 读法 | 按哪些列读（关联 / 过滤） |",
+        "| --- | --- | --- | --- | --- |",
     ]
     lines += [
         f"| {_code(entry['task'])} | {_names(entry['tables'])} | "
-        f"{'血缘' if entry['source'] == 'lineage' else '任务登记'} | {_names(entry['roles'])} |"
+        f"{'血缘' if entry['source'] == 'lineage' else '任务登记'} | {_names(entry['roles'])} | "
+        f"{_read_by(entry.get('columns') or {})} |"
         for entry in lineage["downstream"]
     ]
     if not lineage["downstream"]:
-        lines.append("| — | — | — | — |")
+        lines.append("| — | — | — | — | — |")
     return [*lines, ""]
+
+
+_READ_BY = {"join_key": "关联", "filter": "过滤"}
+
+
+def _read_by(columns: dict) -> str:
+    """D-G5b: this table's columns a consumer joins and filters on (its table card)."""
+    said = [f"{_names(names)}（{_READ_BY.get(usage, usage)}）" for usage, names in columns.items()]
+    return "；".join(said) or "—"
 
 
 def _column_order(target: dict) -> list[str]:

@@ -251,7 +251,7 @@ def _packet(table: str, statements: list[tuple[str, dict]], corpus: _Corpus) -> 
     mark_right_side_filters(rules, statements, corpus.right_sides)
     target = target_section(table, statements, corpus)
     inputs = inputs_section(table, statements, rules, corpus)
-    lineage = lineage_section(table, statements, rules, target, corpus)
+    lineage = lineage_section(table, statements, rules, target, corpus, inputs)
     facts.drop_private(rules)
     markers = marker_keys(
         [(table, column) for column in target["columns"]]
@@ -263,7 +263,8 @@ def _packet(table: str, statements: list[tuple[str, dict]], corpus: _Corpus) -> 
         "packet_digest": "",
         **({"comment_marker_keys": markers} if markers else {}),
         "target": target,
-        "tasks": tasks_section(table, statements, corpus),
+        "tasks": tasks_section(table, statements, corpus,
+                               [column["name"] for column in target["columns"]]),
         "inputs": inputs,
         "lineage": lineage,
     })
