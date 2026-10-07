@@ -530,7 +530,8 @@ scope-lineage semantic confirm <run>/docs --confirmations <answers.json>
   `review_stale`（审读之后文档又改过，又没有修订回执把改动和这份审读对上，重新审读；没有 `reviewed_packet_digest`
   的旧审读一律走这里，不会被派去修订）、`fix_unconfirmed`（审读有高 / 中问题，文档改过却没有修订回执：修订被打断，
   或回执之后又改过；`--next fix` 会重新派发）、`review_unparsed`（审读没有 front matter，不会再被派发——补上或
-  删掉重审）、`render_stale`。
+  删掉重审）、`render_stale`、`doc_misfiled`（文件名与文档里的 `table` 不符，或同一张表有两个文件：只警告、不改阶段；
+  把文档放回 `docs/<db.table>.json` 并让 `table` 与文件名一致）。
   材料包整体重建后（工具升级、换了 `--glossary` / `--metadata-patch`），所有文档都会变成 `drafted packet_stale`，
   `--next draft` 会列出全部表。只想先跑其中几张（小样验证、额度有限）时：
   - `status` 和此后每一步都带同一组 `--only <db.table> ...`（写成
@@ -548,7 +549,7 @@ scope-lineage semantic confirm <run>/docs --confirmations <answers.json>
 - **临时文件**：并行的子代理各用自己的临时目录 `<scratch>/<db.table>/`（目录名含表名），不用 `doc.json` 这类
   通用文件名。把文件放回 `<run>/docs/<db.table>.json` 之前，先确认文件里的 `table` 就是 `<db.table>`。派子代理时
   把这一条写进给它的说明：几个子代理共用一个 scratchpad 时，通用文件名会互相覆盖。同一张表被覆盖时 `status` 报
-  `fix_unconfirmed`；写进了别的表的文件时，那张表会静默退回 `packet`。
+  `fix_unconfirmed`；写进了别的表的文件时，那张表退回 `packet`，`status` 报 `doc_misfiled`。
 - **挑表**：只挑用户问到的表，或一个层、一个概念的表；`--only` 让材料包只解析相关的血缘文档。
 - **已确认的答案要带上**：这一轮有 `glossary.json`（跑过 `glossary --overrides`）或审过的
   `metadata-patch.json` 时，建材料包就传 `--glossary` / `--metadata-patch`（补丁可重复）。材料包于是带上
