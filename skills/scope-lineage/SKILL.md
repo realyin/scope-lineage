@@ -530,7 +530,8 @@ scope-lineage semantic confirm <run>/docs --confirmations <answers.json>
   `review_stale`（审读之后文档又改过，又没有修订回执把改动和这份审读对上，重新审读；没有 `reviewed_packet_digest`
   的旧审读一律走这里，不会被派去修订）、`fix_unconfirmed`（审读有高 / 中问题，文档改过却没有修订回执：修订被打断，
   或回执之后又改过；`--next fix` 会重新派发）、`review_unparsed`（审读没有 front matter，不会再被派发——补上或
-  删掉重审）、`render_stale`。
+  删掉重审）、`render_stale`、`doc_misfiled`（文件名与文档里的 `table` 不符，或同一张表有两个文件：只警告、不改阶段；
+  把文档放回 `docs/<db.table>.json` 并让 `table` 与文件名一致）。
   一张表连续两轮 `draft` 仍在 `drafted`，把它从本轮拿掉并告诉用户，不要一直派发。
 - **挑表**：只挑用户问到的表，或一个层、一个概念的表；`--only` 让材料包只解析相关的血缘文档。
 - **已确认的答案要带上**：这一轮有 `glossary.json`（跑过 `glossary --overrides`）或审过的

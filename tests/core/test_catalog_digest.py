@@ -6,6 +6,8 @@ import copy
 import json
 from pathlib import Path
 
+import pytest
+
 from scope_lineage.catalog import digest_tables, load_catalog
 from scope_lineage.cli import main
 
@@ -142,6 +144,25 @@ def test_only_an_unknown_table_exits_one(tmp_path: Path, capsys) -> None:
 
     assert "demo_dwd.nothing" in capsys.readouterr().err
     assert not out.exists()
+
+
+def test_only_before_the_directory_reads_as_the_directory_first(tmp_path: Path) -> None:
+    docs = _docs(tmp_path, _renamed(NEW_TABLE))
+    first, last = tmp_path / "first", tmp_path / "last"
+
+    assert _digest(docs, "--only", NEW_TABLE, "--out", first) == 0
+    assert _digest("--out", last, "--only", NEW_TABLE, docs) == 0
+
+    for name in ("digest.json", "digest.md"):
+        assert (last / name).read_bytes() == (first / name).read_bytes()
+
+
+def test_only_swallowing_a_word_that_is_no_directory_is_an_error(tmp_path: Path, capsys) -> None:
+    with pytest.raises(SystemExit) as raised:
+        _digest("--out", tmp_path / "out", "--only", NEW_TABLE, "docs_typo")
+
+    assert raised.value.code == 2
+    assert "--only takes every word after it" in capsys.readouterr().err
 
 
 def test_tables_are_ordered_and_the_output_is_deterministic(tmp_path: Path) -> None:

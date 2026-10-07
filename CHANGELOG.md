@@ -271,6 +271,14 @@
   title saying so and pointing to the catalog workflow. The command, every flag and
   `ontology.json` (`ontology-json/2`) are unchanged, byte for byte.
 ### Added
+- **`semantic status` flags a misfiled document (`doc_misfiled`).** Status files each document
+  under the `table` it names, so a document written into another table's file left that table
+  looking unwritten (`packet`) and two files of one table kept the first silently. A table now
+  carries `doc_misfiled` when a document file is named for another table than the one it holds
+  (both tables are flagged; a catalog prefix in the file name is ignored) or when two files hold
+  it; the summary lists the flagged tables. It is a warning: no stage or `--next` batch changes.
+  `table-semantics-status/2` keeps its version and gains the flag, so `summary.flags` has one
+  more key; a run whose files all match their tables reads as before.
 - **Catalog: an identifier unique per value of a column, and a code's surrogate key.** Two
   optional fields, in the catalog, fragment and `ontology-v3` schemas alike (no format
   version moves; catalogs without them build the same bytes):
@@ -490,6 +498,25 @@
   meaning or the key says so with `holds`.
 
 ### Fixed
+- **`--only` no longer swallows the directory written after it.** `--only` takes one or more
+  tables, so `semantic validate --packets P --only A <documents>` (and the same spelling of
+  `semantic status`, `semantic fixed` and `catalog digest`) took the directory for a table and
+  stopped with `the following arguments are required`. The four commands now share one rule:
+  when the directory is missing and the last word after `--only` holds a `/` or names an
+  existing directory, with at least one table before it, that word is the directory; any other
+  word there is a usage error (exit 2) saying to put the directory before `--only` or end the
+  tables with `--`. A table name never holds `/`, so no table is read as the directory.
+  Calls with the directory first, or with `--`, are unchanged. `--help` now shows the
+  directory in brackets.
+- **`semantic validate` check 10 (`fan_out`) no longer warns on a no-effect phrase made under a
+  condition with its failing case said.** The warning asks the writer to say when the right side
+  has several rows, yet 「若 m 按键唯一，左关联 m 不放大；否则会关联出多行」 -- which does just
+  that -- was warned on. A phrase is no claim when a condition word stands before it in the
+  sentence and the rows multiplying (会 / 可能 + 放大 …, or 关联出多行) follow it; when the next
+  sentence opens with the condition failing (若 … 不成立 / 不唯一 / 不满足) and says the rows
+  multiply; or when a condition stands before it and the next sentence opens with 否则 / 不然 /
+  反之 and says so. A failing case that names another join, a condition without a failing case,
+  an 否则 with no condition before the phrase, and a trailing reservation alone all still warn.
 - **A comment on a MERGE assignment reaches `outputs[].comments`.** A SELECT projection's
   comment is published on the output it produces, but a comment written on a MERGE
   `UPDATE SET` item or an `INSERT ... VALUES` value was not: it survived only inside the
