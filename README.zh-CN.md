@@ -310,6 +310,49 @@ scope-lineage parse \
 不确定场景该用哪份契约，见[按业务场景选契约](docs/zh-CN/contract-selection.md)：
 字段血缘、加工步骤分析用默认 1.0；审计、事故排查、最终表状态用 2.0。
 
+### 迁移到 0.7.0
+
+除状态报告外，格式版本都不变；变的是若干字段的含义。完整清单见 [CHANGELOG.md](CHANGELOG.md)
+0.7.0 下的 **Breaking** 条目。
+
+**用 0.6.0 写的表语义运行目录**（`packets/`、`docs/`、`reviews/`）：
+
+1. 先用 0.7.0 重新解析任务（`parse`；传 `--tables` 的话 `tables` 也重跑）——材料包要读契约的新键——
+   再用 `semantic packet` 重建材料包（参数照旧）。多数材料包的 `packet_digest` 会变，
+   `semantic status <run>` 因而把它们的文档显示为 `drafted packet_stale`，全量 `semantic validate`
+   对它们报第 8 项 FAIL。
+2. 分批重写：`semantic status <run> --next draft --only <db.table> ... --out <run>/next.json`，
+   此后每一步都带同一组 `--only`（校验用
+   `semantic validate <run>/docs --packets <run>/packets --only <db.table> ...`）。一张表重写前，
+   先把它的审读改名为 `reviews/<db.table>.prior.md`；旧文档和旧审读里的规则编号 `pN` 现在可能指向
+   别的规则。用随包提示词（`table-semantics-prompt@8`、`table-semantics-review@8`、
+   `table-semantics-fix@5`）。
+3. 每次修订以 `semantic fixed <run> --only <db.table>` 收尾；不跑它，修订过的文档不算 `fixed`。
+   本版之前审读过、审读后文档又改过的表显示 `valid review_stale`：重新审读。
+4. 在全部表重写完之前，不要用整个 `docs` 目录建本体目录（`catalog digest`）或页面
+   （`semantic render`）：过期文档照样能渲染，依据的是旧材料包。只用已重写的表来建，或在结果里注明
+   混用了两版材料包。
+5. 要保留的文档重新跑一遍 `semantic validate`：第 3、5、11 项会让一些在 0.6.0 下通过的文档失败。
+
+**下游代码**：
+
+- 状态报告：检查 `doc_format == "table-semantics-status/2"`；`summary.flags` 多了
+  `review_packet_stale`、`fix_unconfirmed` 和 `doc_misfiled`；`review` 多了
+  `reviewed_packet_digest` 和 `fixed_doc_digest`。
+- MERGE 的键：MERGE 语句的 `output_shape.grain`、`candidate_keys`、`key_confidence`、
+  `key_claim`（以及表卡的 `produced_by[].grain` / `candidate_keys` / `key_confidence`）现在描述的是
+  它写入的这一批，不是整张表。原来把「不是 `unknown`」当作「目标表有键」的代码，要改读表卡的
+  `key_claim` 或 `output_shape.merge.table_key`（假设）。材料包里 MERGE 行的
+  `lineage.keys[].proven` 恒为 `false`。
+- 注释：`semantic.json` 的表达式不再含注释；规则的 `sql_comments` 只含它自己那个谓词的注释；
+  注释掉的 SQL 在 `rules[].commented_out_sql`。要 SQL 原文，读血缘契约。
+- 材料包取值：`partition_read` 可能是 `multi_equality`，`partition[].mode` 可能是
+  `merge_row_values`，规则可能是 `kind: window`；`packet.md` 4.2 多一列。
+- 血缘契约：新增可选键 `merge_spec`（MERGE 语句 ON 的键对、ON 的其他条件和各 WHEN 子句）和
+  `filter_predicate_detail.conjuncts[].comments`。`display_expression` 保留 SQL 的大小写和字面量
+  （比较请用 `normalized_expression`），`right_alias` 是每个 JOIN 自己的别名，多行 `VALUES` 的列
+  列出每一行的值。
+
 ### 迁移到 0.4.0
 
 只有 `ontology.json`（及其 markdown / 导出）变了形状。本体现在是概念与概念间的关系；表是概念的表现，
