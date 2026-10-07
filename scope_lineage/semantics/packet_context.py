@@ -4,7 +4,8 @@
   aside, each with how many days it sits from the task's expected run date. A corpus
   exported from run instances carries ``'20250115'`` where the script had a batch-date
   parameter; the offset is the fact a writer reads that from, and the packet draws no
-  conclusion from it (``'99991231'`` is a literal too).
+  conclusion from it (``'99991231'`` is a literal too). :func:`string_literals` is the
+  tokenizing step, which ``packet.md`` reuses on a rule's expression.
 - :func:`upstream_unmatched` -- the registered upstream tasks no table the task reads
   answers to by name. A heuristic over names: it says "does not match", not "not read".
 """
@@ -45,23 +46,32 @@ def date_literals(sql, expect_date) -> list[dict]:
     expected = parse_date(expect_date)
     if expected is None or not sql:
         return []
-    try:
-        tokens = Dialect.get_or_raise(DIALECT).tokenize(str(sql))
-    except (SqlglotError, ValueError):
-        return []
     found: dict[str, dict] = {}
-    for token in tokens:
-        if token.token_type != TokenType.STRING or not _DATE_TEXT.match(token.text):
-            continue
-        day = parse_date(token.text)
+    for literal in string_literals(sql):
+        text = literal[1:-1]
+        day = parse_date(text) if _DATE_TEXT.match(text) else None
         if day is None:
             continue
-        literal = f"'{token.text}'"
         entry = found.setdefault(literal, {
             "literal": literal, "count": 0, "days_from_expect_date": (day - expected).days,
         })
         entry["count"] += 1
     return list(found.values())
+
+
+def string_literals(sql) -> list[str]:
+    """Every string literal of ``sql`` as ``'text'``, comments aside; none if it does not tokenize.
+
+    The form ``date_literals`` keys its entries by, so a rule's expression can be matched
+    against its task's literals (D-G6).
+    """
+    if not sql:
+        return []
+    try:
+        tokens = Dialect.get_or_raise(DIALECT).tokenize(str(sql))
+    except (SqlglotError, ValueError):
+        return []
+    return [f"'{token.text}'" for token in tokens if token.token_type == TokenType.STRING]
 
 
 def upstream_unmatched(registered, reads) -> list[str]:

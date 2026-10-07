@@ -113,7 +113,7 @@ def test_a_ranking_never_filtered_to_one_is_a_window_row_its_join_names() -> Non
     (join,) = _rules(packet, "join")
     assert join["fan_out"]["status"] != "safe"
     assert join["unfiltered_ranking"] == [window["id"]]
-    assert _row(packet, join["id"])[5].endswith(
+    assert _row(packet, join["id"])[6].endswith(
         f"右侧的 {window['id']} 算了排名但没有 = 1 过滤，未去重")
 
 
@@ -132,7 +132,7 @@ def test_a_lead_window_is_a_row_no_join_names_and_the_narrower_lead_hangs_on_it(
     (finding,) = [item for item in packet["lineage"]["findings"]
                   if item["kind"] == "window_partition_narrower"]
     assert finding["rules"] == [window["id"]]
-    assert finding["text"] in _row(packet, window["id"])[6]
+    assert finding["text"] in _row(packet, window["id"])[7]
 
 
 # ------------------------------------------------------------------ C-P3 verdict paths
@@ -144,7 +144,7 @@ def test_a_verdict_under_an_aggregate_says_where_it_sits() -> None:
                 if (rule.get("fan_out") or {}).get("path") not in (None, "grain")]
     assert inner["verdict_aggregate"] == "subq:b"
     assert "below_aggregate" not in inner
-    cell = _row(packet, inner["id"])[5]
+    cell = _row(packet, inner["id"])[6]
     status = inner["fan_out"]["status"]
     assert cell.startswith(f"{status}（位于聚合 `subq:b` 之下：不复制输出行，可能让聚合值重复计入）：")
 
@@ -154,7 +154,7 @@ def test_a_grain_path_verdict_reads_as_before() -> None:
     (join,) = _rules(packet, "join")
     assert join["fan_out"]["path"] == "grain" and "verdict_aggregate" not in join
     verdict = join["fan_out"]
-    assert _row(packet, join["id"])[5].startswith(f"{verdict['status']}：{verdict['reason']}")
+    assert _row(packet, join["id"])[6].startswith(f"{verdict['status']}：{verdict['reason']}")
 
 
 def test_a_verdict_off_the_grain_path_without_an_aggregate_scope_says_the_path() -> None:
