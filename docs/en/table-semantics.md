@@ -350,6 +350,13 @@ document is checked against `<packet dir>/<table>/packet.json`.
 
 `--only` checks only the documents of these tables (`db.table`, a catalog prefix is ignored), spelt as `semantic packet`'s and `semantic status`'s `--only`; the report and its summary line count the chosen tables only. A file that is not readable JSON or names no `table` is passed over without an error, so writers working in parallel each check their own tables without tripping over another's half-written file. A named table with no document prints `--only: no document for …` on standard error and exits 1. Do not redirect an `--only` run into `validation.json`: it would overwrite the full report.
 
+`--only` takes every word after it. Write the directory before it, or end the tables with `--`
+(`--only <db.table> ... -- <documents>`). When the directory comes last anyway, the last word
+after `--only` is taken back as the directory if it holds a `/` or names an existing directory
+and at least one table stays before it; any other last word is a usage error (exit 2) that
+says where to put the directory. `semantic status`, `semantic fixed` and `catalog digest`
+read `--only` and their directory the same way.
+
 The thirteen cross checks:
 
 | # | Check | Fails when | Warns when |

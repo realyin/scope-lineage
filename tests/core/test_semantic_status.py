@@ -736,3 +736,35 @@ def test_semantic_fixed_needs_a_run_directory_and_a_table(tmp_path: Path) -> Non
     assert run("semantic", "fixed", tmp_path / "absent", "--only", DEMO_TABLE) == 2
     with pytest.raises(SystemExit):
         run("semantic", "fixed", tmp_path)
+
+
+# ------------------------------------------------------------------- --only before <run>
+
+
+def test_status_only_before_the_run_reads_as_the_run_first(valid_run: Path, capsys) -> None:
+    assert run("semantic", "status", valid_run, "--only", DEMO_TABLE) == 0
+    expected = capsys.readouterr().out
+    assert run("semantic", "status", "--only", DEMO_TABLE, valid_run) == 0
+    assert capsys.readouterr().out == expected
+    assert run("semantic", "status", "--only", DEMO_TABLE, "--", valid_run) == 0
+    assert capsys.readouterr().out == expected
+    assert f"{DEMO_TABLE}  valid" in expected
+
+
+def test_fixed_only_before_the_run_writes_the_record(valid_run: Path) -> None:
+    _keyed_review(valid_run, high=1)
+    _revise(valid_run)
+    assert run("semantic", "fixed", "--only", DEMO_TABLE, valid_run) == 0
+    assert _entry(_status(valid_run))["stage"] == "fixed"
+
+
+@pytest.mark.parametrize("command", ["status", "fixed"])
+def test_only_swallowing_a_word_that_is_no_run_is_an_error(
+    valid_run: Path, capsys, command: str
+) -> None:
+    with pytest.raises(SystemExit) as raised:
+        run("semantic", command, "--only", DEMO_TABLE, "run_typo")
+    assert raised.value.code == 2
+    err = capsys.readouterr().err
+    assert "--only takes every word after it" in err
+    assert "put run before --only" in err

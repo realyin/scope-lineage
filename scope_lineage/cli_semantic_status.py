@@ -24,6 +24,7 @@ import json
 import sys
 from pathlib import Path
 
+from .cli_only import add_directory, add_only, take_back_directory
 from .semantics.digests import document_digest
 from .semantics.names import bare_table
 from .semantics.review_notes import with_fix_record
@@ -45,13 +46,10 @@ def add_status_parsers(actions) -> None:
         "status",
         help="Report each table's stage in a run directory; --next lists what a step needs",
     )
-    status.add_argument("run", help="Run directory: packets/ docs/ reviews/ pages/")
+    add_directory(status, "run", "Run directory: packets/ docs/ reviews/ pages/")
     for name in _DIRECTORIES:
         status.add_argument(f"--{name}", help=f"Directory instead of <run>/{name}")
-    status.add_argument(
-        "--only", nargs="+", action="extend", default=None, metavar="TABLE",
-        help="Only these tables (db.table); a table with nothing in the run is no_packet",
-    )
+    add_only(status, "Only these tables (db.table); a table with nothing in the run is no_packet")
     status.add_argument(
         "--json", nargs="?", const="-", metavar="PATH",
         help=f"Write the {STATUS_FORMAT} report to PATH (- or no PATH: stdout)",
@@ -79,13 +77,10 @@ def _add_fixed_parser(actions) -> None:
             "only for a valid document revised after a review of its own packet"
         ),
     )
-    fixed.add_argument("run", help="Run directory: packets/ docs/ reviews/")
+    add_directory(fixed, "run", "Run directory: packets/ docs/ reviews/")
     for name in _DIRECTORIES[:3]:
         fixed.add_argument(f"--{name}", help=f"Directory instead of <run>/{name}")
-    fixed.add_argument(
-        "--only", nargs="+", action="extend", required=True, metavar="TABLE",
-        help="The tables whose fix finished (db.table)",
-    )
+    add_only(fixed, "The tables whose fix finished (db.table)", required=True)
 
 
 def _positive(text: str) -> int:
@@ -96,6 +91,7 @@ def _positive(text: str) -> int:
 
 
 def run_status(args: argparse.Namespace) -> int:
+    take_back_directory(args)
     run = Path(args.run)
     if args.json == "-" and args.next and not args.out:
         print("--json - and --next without --out both want stdout", file=sys.stderr)
@@ -118,6 +114,7 @@ def run_status(args: argparse.Namespace) -> int:
 
 def run_fixed(args: argparse.Namespace) -> int:
     """Write the fix record of each ``--only`` table; 1 when any was refused."""
+    take_back_directory(args)
     run = Path(args.run)
     if not run.is_dir():
         print(f"run directory does not exist: {run}", file=sys.stderr)

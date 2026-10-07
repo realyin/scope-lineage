@@ -282,6 +282,11 @@ scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.t
 
 `--only` 只检查这些表的文档（`库.表`，目录前缀忽略），写法与 `semantic packet`、`semantic status` 的 `--only` 相同；报告与汇总行只统计选中的表。读不了的 JSON 和没写 `table` 的文件直接跳过、不报错，这样并行写作的子代理各自校验自己的表，不会被别人写到一半的文件拖累。某张指定的表找不到文档时，标准错误打印 `--only: no document for …`，退出码为 1。带 `--only` 的输出不要重定向到 `validation.json`，否则会覆盖全量报告。
 
+`--only` 会收下它后面的所有词。把目录写在它前面，或者用 `--` 结束表名
+（`--only <db.table> ... -- <documents>`）。目录仍写在最后时：`--only` 后面最后一个词含 `/` 或是已存在的目录、
+并且它前面至少还有一张表，就把它当作目录收回；最后一个词是别的，按用法错误退出（退出码 2），报错说明目录该放哪里。
+`semantic status`、`semantic fixed` 和 `catalog digest` 对 `--only` 与目录的读法相同。
+
 交叉检查共十三项：
 
 | # | 检查 | 失败条件 | 警告条件 |

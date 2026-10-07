@@ -490,6 +490,16 @@
   meaning or the key says so with `holds`.
 
 ### Fixed
+- **`--only` no longer swallows the directory written after it.** `--only` takes one or more
+  tables, so `semantic validate --packets P --only A <documents>` (and the same spelling of
+  `semantic status`, `semantic fixed` and `catalog digest`) took the directory for a table and
+  stopped with `the following arguments are required`. The four commands now share one rule:
+  when the directory is missing and the last word after `--only` holds a `/` or names an
+  existing directory, with at least one table before it, that word is the directory; any other
+  word there is a usage error (exit 2) saying to put the directory before `--only` or end the
+  tables with `--`. A table name never holds `/`, so no table is read as the directory.
+  Calls with the directory first, or with `--`, are unchanged. `--help` now shows the
+  directory in brackets.
 - **A comment on a MERGE assignment reaches `outputs[].comments`.** A SELECT projection's
   comment is published on the output it produces, but a comment written on a MERGE
   `UPDATE SET` item or an `INSERT ... VALUES` value was not: it survived only inside the
