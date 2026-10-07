@@ -193,6 +193,46 @@ def test_a_safe_alias_shared_with_an_unproven_join_still_warns(
     assert "ods_credit_limit_df" in warning["message"]
 
 
+def _mapping_and_catalog(borrower: dict) -> dict:
+    """The unproven LEFT JOIN called 映射表 m, and a join proven unique called 目录表 n."""
+    packet = _with_safe_joins(borrower, "n")
+    limit = next(r for r in packet["lineage"]["rules"] if r.get("right_aliases") == ["cr"])
+    limit["right_aliases"] = ["m"]
+    return packet
+
+
+@pytest.mark.parametrize("sentence", [
+    "若映射表 m 按键唯一，左关联 m 不放大；否则同一订单会关联出多行",
+    "只有映射表 m 按键唯一时，左关联 m 才不放大，不成立时会放大行数",
+    "若映射表 m 按键唯一，左关联 m 不放大。若这个前提不成立，左关联会放大行数",
+    "映射表 m 左关联不放大（注释推出，SQL 未证明）。若注释不成立，左关联会放大行数",
+])
+def test_a_no_effect_claim_under_a_condition_with_its_opposite_case_does_not_warn(
+    document: dict, borrower: dict, sentence: str
+) -> None:
+    """The warning asks when the right side has several rows; these sentences say it."""
+    packet = _mapping_and_catalog(borrower)
+    assert _harmless_warnings(document, packet, sentence) == []
+
+
+@pytest.mark.parametrize("sentence", [
+    "若映射表 m 按键唯一，左关联 m 不放大。",
+    "映射表 m 左关联不放大。",
+    "映射表 m 左关联不放大；否则会放大。",
+    "映射表 m 左关联不放大；目录表 n 重复时会放大",
+    "若映射表 m 按键唯一，左关联 m 不放大，目录表 n 重复时会放大",
+    "目录表 n 已去重，左关联都不放大",
+    "映射表 m 左关联保证不放大",
+    "映射表 m 左关联不放大（注释推出，SQL 未证明）。",
+])
+def test_a_condition_or_an_opposite_case_alone_or_about_another_join_still_warns(
+    document: dict, borrower: dict, sentence: str
+) -> None:
+    packet = _mapping_and_catalog(borrower)
+    (warning,) = _harmless_warnings(document, packet, sentence)
+    assert "ods_credit_limit_df" in warning["message"]
+
+
 def test_joins_onto_one_table_are_asked_about_once(document: dict, borrower: dict) -> None:
     again = copy.deepcopy(borrower)
     limit = next(r for r in again["lineage"]["rules"] if r.get("right_aliases") == ["cr"])

@@ -37,7 +37,10 @@ review and nothing ties the change to it: review again), ``fix_unconfirmed`` (th
 document changed after a review that asked for changes, with no fix record for this
 version: fix again), ``review_unparsed`` (a review without complete front matter: it
 counts as ``reviewed`` but no step takes it further) and ``render_stale`` (fixed, and its
-page is older than the document).
+page is older than the document). ``doc_misfiled`` only warns, at any stage: a document
+file is named for another table than the one it holds (both tables are flagged: the one
+named by the file looks unwritten), or two files hold the table (the first by path is
+read).
 
 The command line reads the files; this module is plain data in, plain data out.
 """
@@ -56,7 +59,7 @@ NEXT_FORMAT = "table-semantics-next/1"
 STAGES = ("no_packet", "packet", "drafted", "valid", "reviewed", "fixed", "rendered")
 FLAGS = (
     "packet_stale", "invalid", "review_packet_stale", "review_stale", "fix_unconfirmed",
-    "review_unparsed", "render_stale",
+    "review_unparsed", "render_stale", "doc_misfiled",
 )
 STEPS = ("draft", "review", "fix", "render")
 
@@ -70,6 +73,8 @@ class TableFiles:
     ``document`` is the parsed JSON, or ``_MISSING`` with no file; ``unreadable`` says
     why a file that exists could not be parsed. ``review`` is the review's text;
     ``page_fresh`` is None without a page, else whether it is not older than the document.
+    ``misfiled``: a document file of the run is named for another table than the one it
+    holds, and this table is one of the two; or two files hold this table.
     """
 
     table: str
@@ -79,6 +84,7 @@ class TableFiles:
     unreadable: Optional[str] = None
     review: Optional[str] = None
     page_fresh: Optional[bool] = None
+    misfiled: bool = False
 
     @property
     def has_document(self) -> bool:
@@ -86,7 +92,14 @@ class TableFiles:
 
 
 def table_status(files: TableFiles) -> dict:
-    """The status entry of one table."""
+    """The status entry of one table; ``doc_misfiled`` warns whatever the stage."""
+    entry = _staged(files)
+    if files.misfiled:
+        entry["flags"].append("doc_misfiled")
+    return entry
+
+
+def _staged(files: TableFiles) -> dict:
     packet, document = files.packet, files.document
     readable = files.document is not _MISSING and files.unreadable is None
     entry: dict = {
