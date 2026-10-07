@@ -592,6 +592,13 @@ A revised document that fails validation is `drafted` before any of this. The fi
 only says the reviser declared the revision done and the document was valid then; whether
 each finding was fixed correctly is the next review's call.
 
+Boundary: when a re-review leaves only low findings — a low finding it calls half-fixed included —
+rule 1 makes the table `fixed` and `--next` never hands it out again, which is the "low findings
+are not fixed" convention. To close them anyway, dispatch one more revision and finish it with
+`semantic fixed` as usual (the re-review carries `reviewed_packet_digest`, so the record is
+written) and the table stays `fixed`; editing the document without the record sends it back to
+`valid review_stale` under rule 6, and it is reviewed again.
+
 ### `semantic fixed`: the fix record
 
 ```bash
