@@ -400,6 +400,13 @@ document is checked against `<packet dir>/<table>/packet.json`.
 
 `--only` checks only the documents of these tables (`db.table`, a catalog prefix is ignored), spelt as `semantic packet`'s and `semantic status`'s `--only`; the report and its summary line count the chosen tables only. A file that is not readable JSON or names no `table` is passed over without an error, so writers working in parallel each check their own tables without tripping over another's half-written file. A named table with no document prints `--only: no document for …` on standard error and exits 1. Do not redirect an `--only` run into `validation.json`: it would overwrite the full report.
 
+`--only` takes every word after it. Write the directory before it, or end the tables with `--`
+(`--only <db.table> ... -- <documents>`). When the directory comes last anyway, the last word
+after `--only` is taken back as the directory if it holds a `/` or names an existing directory
+and at least one table stays before it; any other last word is a usage error (exit 2) that
+says where to put the directory. `semantic status`, `semantic fixed` and `catalog digest`
+read `--only` and their directory the same way.
+
 The thirteen cross checks:
 
 | # | Check | Fails when | Warns when |
@@ -413,7 +420,7 @@ The thirteen cross checks:
 | 7 | `sources` | a sourced item has an empty `sources`, or there are more than five questions | — |
 | 8 | `digest` | `packet_digest` differs from the packet's (stale), or there is no packet for the table | — |
 | 9 | `time` | `refresh.time` is `incremental` while every input is a full snapshot read by one partition and no filter touches a business date | `refresh.time` is `snapshot` while the write filters on a business date (only date filters shaped `window` count) |
-| 10 | `fan_out` | the right side of a join whose `fan_out.status` is not `safe` and whose `fan_out.path` is `grain` (or absent) is named — by table (`db.table` or bare) or alias — neither in `summary.row.note` nor in a `summary.watch` item of kind `risk` (one item per right side, however many times it is joined) | a sentence of the note or a watch calls such a LEFT join harmless to the row count (无影响, 不影响行数, 不会放大 …); one warning per place. A phrase right after a negation is no such claim (不保证不放大, 不一定不放大, 未必不影响行数); a sentence that names no such join but says 左关联 is read as meaning every unproven LEFT join, unless it names a join proven unique (`safe`) and the clause holding the phrase has none of 都, 均, 全部, 所有, 一律, 任何, 皆. A join off the grain path (below an aggregate) is held to neither |
+| 10 | `fan_out` | the right side of a join whose `fan_out.status` is not `safe` and whose `fan_out.path` is `grain` (or absent) is named — by table (`db.table` or bare) or alias — neither in `summary.row.note` nor in a `summary.watch` item of kind `risk` (one item per right side, however many times it is joined) | a sentence of the note or a watch calls such a LEFT join harmless to the row count (无影响, 不影响行数, 不会放大 …); one warning per place. A phrase right after a negation is no such claim (不保证不放大, 不一定不放大, 未必不影响行数); a sentence that names no such join but says 左关联 is read as meaning every unproven LEFT join, unless it names a join proven unique (`safe`) and the clause holding the phrase has none of 都, 均, 全部, 所有, 一律, 任何, 皆. Nor is a phrase made under a condition with its failing case said: a condition word before the phrase in the sentence (若, 如果, 假如, 倘若, 假设, 只要, 只有, 一旦, 除非, 当 / 在 … 时) and the rows multiplying after it (会 / 可能 + 放大, 膨胀, 重复, or 关联出多行 / 多条); or a next sentence opening with 若 / 如果 / 一旦 … 不成立 / 不唯一 / 不满足 that says the rows multiply; or a condition word before the phrase and a next sentence opening with 否则, 不然 or 反之 that says so. A failing case naming a join the sentence has not named up to the phrase still warns, and a trailing reservation alone (「注释推出，SQL 未证明」) is no failing case. A join off the grain path (below an aggregate) is held to neither |
 | 11 | `derived_codes` | a literal a column's CASE / IF returns (`case_outputs`) is missing from its `code_values` (one failure per value; NULL, `''` and TRUE / FALSE are not codes; an entry with `else: computed` is information only and is not asked for) | a code value whose meaning is success-like (成功 / 正常 / 通过 / 有效) comes from a branch that gathers several source values or the ELSE, and neither the column's `watch` nor a `summary.watch` with `refs` `column:<name>` says so |
 | 12 | `documented_meaning` | a code value marked `unconfirmed`, or whose meaning starts with 待确认 once parenthetical asides are dropped (`待确认（猜测：…）` does, `已实名（是否含补录待确认）` does not), is explained by the column's comment or a source column's comment (`0-申请 1-成功` pairs, or a `正常、锁定、删除` list whose label the SQL quotes), or the dictionary confirms it on the column or a source column (`confirmed_values`; the fix: write the dictionary's meaning, sourced `confirmed`); a state whose documented or confirmed meaning is itself 待确认 may say so | a qualifier (`增值税`, `税`, `手续费`, `罚息`, `冲正`, `测试`) in the main input's comment or a source column's comment, absent from the target's comments, is missing from `summary.what` (main input) or from every affected column's meaning / derivation (one warning per term) |
 | 13 | `header_facts` | — | the SQL header states a lifecycle (`header_facts.lifecycle`) or a data volume (`header_facts.volume`) that neither `summary.refresh.how_to_read` nor a watch mentions; not checked when the header describes another table of the task (`header_facts.about`) |
@@ -562,6 +569,7 @@ does each table's `doc_digest` in the status report.
 | `fix_unconfirmed` | the review read the current packet and has high or medium findings; the document changed after it, but has no fix record for this version: the revision was interrupted, or the document changed again after the record | stage `reviewed`; `--next fix` dispatches it again |
 | `review_unparsed` | the review file has no complete front matter | stage `reviewed`, and no step dispatches it again; add the front matter or delete the review to review again |
 | `render_stale` | `fixed`, and the page is older than the document | stage `fixed`; render again |
+| `doc_misfiled` | a document file is named for another table than the `table` it holds (both tables are flagged), or two files hold this table | none -- a warning at any stage. The table the file is named for looks unwritten (`packet`), and of two files the first by path is read; put each document back as `docs/<db.table>.json` with that `table` |
 
 ### How a review is judged
 
@@ -669,7 +677,7 @@ Status of 3 table(s): no_packet 0, packet 1, drafted 1, valid 1, reviewed 0, fix
   "summary": {
     "tables": 1,
     "stages": {"no_packet": 0, "packet": 0, "drafted": 0, "valid": 1, "reviewed": 0, "fixed": 0, "rendered": 0},
-    "flags": {"packet_stale": [], "invalid": [], "review_packet_stale": [], "review_stale": [], "fix_unconfirmed": [], "review_unparsed": [], "render_stale": []}
+    "flags": {"packet_stale": [], "invalid": [], "review_packet_stale": [], "review_stale": [], "fix_unconfirmed": [], "review_unparsed": [], "render_stale": [], "doc_misfiled": []}
   }
 }
 ```

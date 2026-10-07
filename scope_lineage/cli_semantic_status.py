@@ -24,6 +24,7 @@ import json
 import sys
 from pathlib import Path
 
+from .cli_only import add_directory, add_only, take_back_directory
 from .semantics.digests import document_digest
 from .semantics.names import bare_table
 from .semantics.review_notes import with_fix_record
@@ -45,13 +46,10 @@ def add_status_parsers(actions) -> None:
         "status",
         help="Report each table's stage in a run directory; --next lists what a step needs",
     )
-    status.add_argument("run", help="Run directory: packets/ docs/ reviews/ pages/")
+    add_directory(status, "run", "Run directory: packets/ docs/ reviews/ pages/")
     for name in _DIRECTORIES:
         status.add_argument(f"--{name}", help=f"Directory instead of <run>/{name}")
-    status.add_argument(
-        "--only", nargs="+", action="extend", default=None, metavar="TABLE",
-        help="Only these tables (db.table); a table with nothing in the run is no_packet",
-    )
+    add_only(status, "Only these tables (db.table); a table with nothing in the run is no_packet")
     status.add_argument(
         "--json", nargs="?", const="-", metavar="PATH",
         help=f"Write the {STATUS_FORMAT} report to PATH (- or no PATH: stdout)",
@@ -79,13 +77,10 @@ def _add_fixed_parser(actions) -> None:
             "only for a valid document revised after a review of its own packet"
         ),
     )
-    fixed.add_argument("run", help="Run directory: packets/ docs/ reviews/")
+    add_directory(fixed, "run", "Run directory: packets/ docs/ reviews/")
     for name in _DIRECTORIES[:3]:
         fixed.add_argument(f"--{name}", help=f"Directory instead of <run>/{name}")
-    fixed.add_argument(
-        "--only", nargs="+", action="extend", required=True, metavar="TABLE",
-        help="The tables whose fix finished (db.table)",
-    )
+    add_only(fixed, "The tables whose fix finished (db.table)", required=True)
 
 
 def _positive(text: str) -> int:
@@ -96,6 +91,7 @@ def _positive(text: str) -> int:
 
 
 def run_status(args: argparse.Namespace) -> int:
+    take_back_directory(args)
     run = Path(args.run)
     if args.json == "-" and args.next and not args.out:
         print("--json - and --next without --out both want stdout", file=sys.stderr)
@@ -118,6 +114,7 @@ def run_status(args: argparse.Namespace) -> int:
 
 def run_fixed(args: argparse.Namespace) -> int:
     """Write the fix record of each ``--only`` table; 1 when any was refused."""
+    take_back_directory(args)
     run = Path(args.run)
     if not run.is_dir():
         print(f"run directory does not exist: {run}", file=sys.stderr)
@@ -190,7 +187,7 @@ def _emit(document: dict, target: str) -> None:
 
 def _table_files(directories: dict[str, Path], only, reviews=None) -> list[TableFiles]:
     packets = _packets(directories["packets"])
-    documents = _documents(directories["docs"])
+    documents, misfiled = _documents(directories["docs"])
     if reviews is None:
         reviews = _reviews(directories["reviews"])
     if only:
@@ -199,12 +196,13 @@ def _table_files(directories: dict[str, Path], only, reviews=None) -> list[Table
         tables = set(packets) | set(documents) | set(reviews)
     return [
         _files(table, packets.get(table), documents.get(table),
-               reviews[table][1] if table in reviews else None, directories)
+               reviews[table][1] if table in reviews else None, directories,
+               table in misfiled)
         for table in sorted(tables)
     ]
 
 
-def _files(table: str, packet, document, review, directories) -> TableFiles:
+def _files(table: str, packet, document, review, directories, misfiled: bool) -> TableFiles:
     page = directories["pages"] / f"{table}.md"
     fresh = None
     if document is not None and page.is_file():
@@ -212,7 +210,8 @@ def _files(table: str, packet, document, review, directories) -> TableFiles:
     fields = {} if document is None else {
         key: document[key] for key in ("document", "file", "unreadable") if key in document
     }
-    return TableFiles(table=table, packet=packet, review=review, page_fresh=fresh, **fields)
+    return TableFiles(table=table, packet=packet, review=review, page_fresh=fresh,
+                      misfiled=misfiled, **fields)
 
 
 def _packets(directory: Path) -> dict[str, dict | None]:
@@ -225,16 +224,20 @@ def _packets(directory: Path) -> dict[str, dict | None]:
     return {table: packet for table, packet in found.items() if packet is not None}
 
 
-def _documents(directory: Path) -> dict[str, dict]:
-    """``table -> {path, file, document | unreadable}``; the first file per table wins.
+def _documents(directory: Path) -> tuple[dict[str, dict], set[str]]:
+    """``table -> {path, file, document | unreadable}``, and the misfiled tables.
 
-    The toolchain's other documents kept beside them are skipped, as ``validate`` does.
+    The first file per table wins. A table is misfiled when a file's name (its stem, a
+    catalog prefix ignored) is not the table its document names -- both tables are -- or
+    when two files name it. The toolchain's other documents kept beside them are skipped,
+    as ``validate`` does.
     """
     from .cli_semantic import _OTHER_FORMATS
 
     found: dict[str, dict] = {}
+    misfiled: set[str] = set()
     if not directory.is_dir():
-        return found
+        return found, misfiled
     for path in sorted(directory.rglob("*.json")):
         item: dict = {"path": path, "file": path.relative_to(directory).as_posix()}
         try:
@@ -248,8 +251,12 @@ def _documents(directory: Path) -> dict[str, dict]:
             continue
         named = document.get("table") if isinstance(document, dict) else None
         table = bare_table(named if isinstance(named, str) and named else path.stem)
+        if table != bare_table(path.stem):
+            misfiled |= {table, bare_table(path.stem)}
+        if table in found:
+            misfiled.add(table)
         found.setdefault(table, item)
-    return found
+    return found, misfiled
 
 
 def _reviews(directory: Path) -> dict[str, tuple[Path, str]]:
