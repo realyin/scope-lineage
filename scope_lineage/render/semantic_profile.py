@@ -426,9 +426,11 @@ def build_semantic_profile(
         )
     # A bare statement document has no task metadata to read: `task_meta` is a 2.0
     # top-level fact, and the statement it wraps cannot supply one.
-    return _build_statement_profile(
+    profile = _build_statement_profile(
         lineage_document, diagnostics_document, table_cards=table_cards
     )
+    _add_window_findings(lineage_document, profile, [], table_cards)
+    return profile
 
 
 # --------------------------------------------------------------------- task document
@@ -478,7 +480,181 @@ def _build_task_profile(
             for sid in ordered_ids
         ],
     }
+    # M4 needs every statement's written keys, so it runs once all of them are built.
+    pairs = list(zip((statement_lineage[sid] for sid in ordered_ids), profile["statements"]))
+    for document, statement in pairs:
+        _add_window_findings(document, statement, pairs, table_cards)
     return {key: profile[key] for key in TASK_PROFILE_KEYS}
+
+
+# ------------------------------------------------- window narrower than its rows (M4)
+
+
+def batch_write_keys(output_shape: Mapping) -> list[str]:
+    """The target columns one statement's written batch is unique by, as its writer says.
+
+    A MERGE's are its USING side's dedup keys lifted to the USING output (``INSERT *``
+    writes them under those names); any other statement's are its ``candidate_keys``.
+    Partition columns are left out: a window reading across partitions usually means to.
+    They are the *batch's* keys, deduplicated or grouped on in one run, never a proof of
+    the table's key -- the same reading as a MERGE's ``key_claim``.
+    """
+    merge = output_shape.get("merge") or {}
+    keys = [str(item.get("column")) for item in merge.get("dedup_keys") or []]
+    if not keys:
+        keys = [str(key) for key in output_shape.get("candidate_keys") or []]
+    partitions = _comparable(str(item) for item in output_shape.get("partition_columns") or [])
+    return [key for key in _dedupe(keys) if not _comparable([key]) & partitions]
+
+
+def _add_window_findings(
+    document: dict,
+    profile: dict,
+    siblings: Sequence[tuple[dict, dict]],
+    table_cards: Mapping | None,
+) -> None:
+    """Append M4's findings to one statement profile, keeping ``FINDING_KINDS`` order."""
+    writers = _writer_lookup(document, siblings, table_cards)
+    found = _window_narrower_findings(document, writers)
+    if not found:
+        return
+    confidence = profile["confidence"]
+    order = {kind: index for index, kind in enumerate(FINDING_KINDS)}
+    merged = [*(confidence.get("findings") or []), *found]
+    merged.sort(key=lambda item: order.get(item["kind"], len(FINDING_KINDS)))
+    confidence["findings"] = [{key: item[key] for key in _FINDING_KEY_ORDER} for item in merged]
+
+
+def _writer_lookup(
+    document: dict, siblings: Sequence[tuple[dict, dict]], table_cards: Mapping | None
+):
+    """``table -> [(who writes it, batch keys, partition columns)]``, never this statement.
+
+    Two sources, in order: the other statements of this task (their profiles are built),
+    then a table card's producers from other tasks. The window's own statement is never
+    its writer: a statement that reads the table it writes would compare its window with
+    its own key. For a bare statement document the card is the only source, and only
+    its own entry is left out.
+    """
+    task = str(document.get("task_id") or "")
+    own = document.get("statement_id")
+    in_task = bool(siblings)
+    cards = _card_lookup(table_cards)
+
+    def lookup(table: str) -> list[tuple[str, list[str], list[str]]]:
+        found = []
+        for sibling, profile in siblings:
+            if profile.get("statement_id") == own or not glossary_values.same_table(
+                str(sibling.get("target_table") or ""), table
+            ):
+                continue
+            keys = batch_write_keys(profile.get("output_shape") or {})
+            if keys:
+                found.append((f"写 {table} 的 {profile.get('statement_id')} 本批写入键", keys, []))
+        card = cards(table) if cards else None
+        partitions = _card_partition_columns(card)
+        for producer in (card or {}).get("produced_by") or []:
+            same_task = str(producer.get("task") or "") == task
+            if same_task and (in_task or producer.get("statement_id") == own):
+                continue
+            keys = [str(key) for key in producer.get("batch_write_keys") or []]
+            if keys:
+                label = f"写 {table} 的 {producer.get('task')} / {producer.get('statement_id')} 本批写入键"
+                found.append((label, keys, partitions))
+        return found
+
+    return lookup
+
+
+def _window_narrower_findings(document: dict, writers) -> list[dict]:
+    """M4: a window grouped on fewer columns than what tells its input rows apart.
+
+    For a window that is not a dedup (a ranking window kept to ``= 1`` narrows on
+    purpose; :func:`_keeps_first_row_consumer` decides that, as for R6), in a scope with
+    no JOIN, whose every PARTITION BY and ORDER BY item is a bare column: the input
+    rows' key is taken from the window input's own dedup in this statement, else from
+    whoever writes the physical table the input is (``writers``). A key column the
+    window neither groups nor orders by lets two rows that differ only there share one
+    window group -- a LEAD takes its neighbour across them, a running total adds them
+    up. Whether that is meant is not decided; the finding says the structure.
+    """
+    found = []
+    for scope_id, block in _logic_blocks(document):
+        spec = block.get("window_specification")
+        if not isinstance(spec, Mapping):
+            continue
+        function = str(spec.get("window_function") or "")
+        if function.lower() in semantic_text.RANKING_WINDOW_FUNCTIONS and (
+            _keeps_first_row_consumer(document, scope_id, spec)
+        ):
+            continue
+        if _blocks_of_type(document, scope_id, "join"):
+            continue
+        partition = list(spec.get("partition_by") or [])
+        order = list(spec.get("order_by") or [])
+        names = [_bare_column_name(item.get("expression_sql")) for item in [*partition, *order]]
+        if not all(names):
+            continue
+        for label, keys, used in _window_input_keys(document, scope_id, partition, order, writers):
+            extra = [key for key in keys if not _comparable([key]) & used]
+            if not extra:
+                continue
+            found.append(
+                _finding(
+                    FINDING_WINDOW_PARTITION_NARROWER,
+                    f"窗口 {function.upper()}（{scope_id}）"
+                    f"{_window_clause(names[: len(partition)], '分组', '不分组')}、"
+                    f"{_window_clause(names[len(partition):], '排序', '不排序')}；"
+                    f"{label}是 {'、'.join(keys)}（推断为输入行的区分键），"
+                    f"其中 {'、'.join(extra)} 不在窗口分组与排序里",
+                    [block.get("logic_block_id")],
+                )
+            )
+    return found
+
+
+def _window_clause(names: Sequence[str | None], verb: str, none: str) -> str:
+    return f"按 {'、'.join(str(name) for name in names)} {verb}" if names else none
+
+
+def _window_input_keys(
+    document: dict, scope_id: str, partition: Sequence[dict], order: Sequence[dict], writers
+) -> list[tuple[str, list[str], set[str]]]:
+    """``[(where the key comes from, key columns, the window's columns in its terms)]``."""
+    item, _ = _scope_from_item(document, scope_id)
+    if item is None:
+        return []
+    table = item if item in set(document.get("source_tables") or []) else None
+    if table is None and item in _scopes(document):
+        grain, visited = _resolve_grain(document, item)
+        if any(_blocks_of_type(document, scope, "join") for scope in visited):
+            return []
+        basis = str(grain.get("basis"))
+        if basis in _DEDUP_BASES:
+            lifted = [_lift_key_to(document, visited, key) for key in grain.get("keys") or []]
+            if not lifted or any(entry is None for entry in lifted):
+                return []
+            used = _comparable(
+                str(_bare_column_name(entry.get("expression_sql"))) for entry in [*partition, *order]
+            )
+            verb = "分组键" if basis == BASIS_GROUP_BY else "去重键"
+            return [(f"窗口输入 {item} 的{verb}", [name for name, _ in lifted], used)]
+        if basis != BASIS_DRIVING_TABLE_ROWS:
+            return []
+        table = str((grain.get("evidence") or [""])[-1])
+    if not table:
+        return []
+    columns = []
+    for entry in [*partition, *order]:
+        fields = _physical_fields(entry.get("expression_resolution"))
+        if len(fields) != 1 or not glossary_values.same_table(fields[0][0], table):
+            return []
+        columns.append(fields[0][1])
+    used = _comparable(columns)
+    return [
+        (label, [key for key in keys if not _comparable([key]) & _comparable(partitions)], used)
+        for label, keys, partitions in writers(table)
+    ]
 
 
 def _produced_tables(task_document: dict) -> list[str]:
