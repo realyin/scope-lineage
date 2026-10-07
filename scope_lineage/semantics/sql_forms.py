@@ -14,12 +14,15 @@ cannot relate the two, so check 5 compares *forms*:
   every column a derived table or CTE computes replaced by the expression behind it.
 
 A rule's SQL is found in the task SQL when any of its forms occurs in the script (loose or
-rendered) or equals a unit; a lineage filter is cited when one of its forms meets a form
-of a quoted rule -- the rule's own, or those of the units it equals.
+rendered) or equals a unit; a lineage filter is cited when one of its forms *equals* a
+form of a quoted rule (:func:`quote_forms`) -- the rule's own, one of its conjuncts', or
+those of the units either equals. Containment is not citing: the same predicate text in a
+CASE branch or a MERGE condition cites no WHERE filter.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -53,8 +56,47 @@ class TaskSql:
         return forms.union(*(unit for unit in self.units if forms & unit))
 
 
-def overlaps(left: frozenset, right: frozenset) -> bool:
-    return any(a == b or a in b or b in a for a in left for b in right)
+@lru_cache(maxsize=4096)
+def quote_forms(quote: str) -> frozenset:
+    """The forms a quoted rule cites a filter by: its own and each of its conjuncts'.
+
+    A quote is parsed without its comments and split at every top-level AND; a quote
+    SQLGlot cannot parse whole is cut at each top-level `` and `` and each piece tried on
+    its own. A filter is cited only by a form *equal* to one of its own: a CASE branch
+    or a MERGE condition that merely contains the filter's text cites nothing.
+    """
+    forms = set(fragment_forms(quote))
+    for part in _quote_conjuncts(quote):
+        forms |= fragment_forms(part)
+    return frozenset(forms)
+
+
+def _quote_conjuncts(quote: str) -> list[str]:
+    body = strip_leading_keyword(quote)
+    if not body.strip():
+        return []
+    try:
+        tree = sqlglot.parse_one(body, read=DIALECT)
+    except _PARSE_ERRORS:
+        tree = None
+    if tree is None:
+        try:
+            joins = sqlglot.parse_one(_JOIN_HOST + body, read=DIALECT).args.get("joins") or []
+        except _PARSE_ERRORS:
+            joins = []
+        conditions = [join.args["on"] for join in joins if join.args.get("on")]
+        if not conditions:
+            pieces = _TOP_LEVEL_AND.split(body)
+            return [] if len(pieces) < 2 else [
+                part for piece in pieces for part in _quote_conjuncts(piece)] + pieces
+    else:
+        conditions = [tree]
+    return [node.sql(dialect=DIALECT, comments=False)
+            for condition in conditions for node in [condition, *_conjuncts(condition)]]
+
+
+# `` and `` outside parentheses (no quotes are tracked: a fallback for unparsed quotes).
+_TOP_LEVEL_AND = re.compile(r"\s+and\s+(?![^()]*\))", re.IGNORECASE)
 
 
 @lru_cache(maxsize=4096)
