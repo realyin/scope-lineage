@@ -149,3 +149,158 @@ def test_a_join_after_the_dedup_withholds_covered():
     merge = _shape(_merge(using))["merge"]
     assert merge["coverage"] == "unknown"
     assert merge["joins_after_dedup"]
+
+
+# ---------------------------------------------- M1: the batch a MERGE writes has a grain
+#
+# Every USING row updates or inserts at most one target row -- a matched target row meeting
+# two source rows is a cardinality error -- and a WHEN that does not hold writes nothing,
+# so the written rows are a subset of the USING rows, one for one. A key the USING side
+# proves unique is unique in the written batch too: the grain, the candidate keys and the
+# key claim of a MERGE are those of its USING side (the subject stays the write batch).
+
+MERGE_SCHEMA = {
+    "dw.m": ["k", "env", "v", "note", "dt"],
+    "ods.s": ["k", "sk", "env", "v", "ts", "dt"],
+    "ods.lk": ["k", "note"],
+}
+
+
+def _merge_profile(sql: str) -> dict:
+    document = to_lineage_dict(parse_scope_lineage(sql, "t", schema=MERGE_SCHEMA))
+    return build_semantic_profile(document)
+
+
+def test_a_merge_reports_the_grain_of_the_batch_it_writes():
+    shape = _merge_profile(
+        "MERGE INTO dw.m tgt USING (SELECT k, env, v, note, dt FROM (SELECT k, env, v,"
+        " '' AS note, dt, row_number() OVER (PARTITION BY k ORDER BY ts DESC) rn FROM ods.s) a"
+        " WHERE a.rn = 1) src ON tgt.k = src.k"
+        " WHEN MATCHED THEN UPDATE SET tgt.v = src.v WHEN NOT MATCHED THEN INSERT *"
+    )["output_shape"]
+    assert shape["shape"] == "unknown"
+    assert shape["grain"]["basis"] == "window_partition"
+    assert shape["candidate_keys"] == ["k"]
+    assert shape["key_confidence"] == "proven"
+    assert shape["key_claim"]["subject"]["kind"] == "write_batch"
+    assert shape["merge"]["table_key"] == {"keys": ["k"], "status": "hypothesis"}
+
+
+def test_the_table_key_adds_the_dedup_keys_the_merge_key_lacks():
+    shape = _merge_profile(
+        "MERGE INTO dw.m tgt USING (SELECT k, env, v, note, dt FROM (SELECT k, env, v,"
+        " '' AS note, dt, row_number() OVER (PARTITION BY k, env ORDER BY ts DESC) rn"
+        " FROM ods.s) a WHERE a.rn = 1) src ON tgt.k = src.k WHEN NOT MATCHED THEN INSERT *"
+    )["output_shape"]
+    assert shape["merge"]["coverage"] == "dedup_wider"
+    assert shape["merge"]["table_key"] == {"keys": ["k", "env"], "status": "hypothesis"}
+
+
+def test_an_update_only_merge_does_not_decide_the_table_key():
+    shape = _merge_profile(
+        "MERGE INTO dw.m tgt USING (SELECT k, v FROM ods.s) src ON tgt.k = src.k"
+        " WHEN MATCHED THEN UPDATE SET tgt.v = src.v"
+    )["output_shape"]
+    assert shape["grain"]["basis"] == "driving_table_rows"
+    assert shape["merge"]["table_key"] == {"keys": [], "status": "update_only"}
+
+
+def test_a_matched_merge_writes_its_on_key_through_the_target_column_it_equals():
+    """M1 fix 2: ``tgt.k = src.sk`` holds on every matched row, so a dedup by ``sk``
+    identifies the updated rows by ``k`` although ``sk`` is never written."""
+    shape = _merge_profile(
+        "MERGE INTO dw.m tgt USING (SELECT sk, v FROM (SELECT sk, v, row_number() OVER"
+        " (PARTITION BY sk ORDER BY ts DESC) rn FROM ods.s) a WHERE a.rn = 1) src"
+        " ON tgt.k = src.sk WHEN MATCHED THEN UPDATE SET tgt.v = src.v"
+    )["output_shape"]
+    assert shape["candidate_keys"] == ["k"]
+    assert shape["key_confidence"] == "proven"
+    assert shape["unexposed_keys"] == []
+
+
+def test_without_a_matched_branch_the_on_key_exposes_nothing():
+    """Guard: an unmatched row meets no target row, so ``ON tgt.k = src.kk`` says nothing
+    about the value an INSERT writes into ``k``."""
+    shape = _merge_profile(
+        "MERGE INTO dw.m tgt USING (SELECT sk AS kk, env, v, '' note, dt FROM (SELECT sk, env,"
+        " v, dt, row_number() OVER (PARTITION BY sk ORDER BY ts DESC) rn FROM ods.s) a"
+        " WHERE a.rn = 1) src ON tgt.k = src.kk WHEN NOT MATCHED THEN"
+        " INSERT (k, env, v, note, dt) VALUES (src.env, src.env, src.v, src.note, src.dt)"
+    )["output_shape"]
+    assert shape["candidate_keys"] == []
+    assert shape["key_confidence"] == "proven_unexposed"
+    assert [key["name"] for key in shape["unexposed_keys"]] == ["sk"]
+
+
+# ------------------------------------- M2: what a matched UPDATE leaves or may blank out
+
+M2_SQL = (
+    "MERGE INTO dw.m tgt USING (SELECT s.k, s.env, s.v, l.note, s.dt FROM ods.s s"
+    " LEFT JOIN ods.lk l ON s.k = l.k) src ON tgt.k = src.k"
+    " WHEN MATCHED THEN UPDATE SET tgt.v = src.v, tgt.note = src.note,"
+    " tgt.env = coalesce(src.env, tgt.env)"
+    " WHEN NOT MATCHED THEN INSERT *"
+)
+
+
+def test_columns_only_the_insert_writes_are_listed_without_the_merge_key():
+    merge = _merge_profile(M2_SQL)["output_shape"]["merge"]
+    # `k` is not updated either, but ON makes tgt.k = src.k on every matched row.
+    assert merge["insert_only_columns"] == ["dt"]
+    assert "update_columns" not in merge
+
+
+def test_an_update_from_a_left_join_may_overwrite_with_null():
+    merge = _merge_profile(M2_SQL)["output_shape"]["merge"]
+    # `env` reads the target's own value as the fallback, so a miss keeps the old value.
+    assert merge["update_nullable_by_join"] == ["note"]
+
+
+def test_a_constant_null_is_not_an_overwrite_by_join():
+    merge = _merge_profile(
+        "MERGE INTO dw.m tgt USING (SELECT s.k, s.env, s.v, CAST(NULL AS STRING) AS note, s.dt"
+        " FROM ods.s s) src ON tgt.k = src.k"
+        " WHEN MATCHED THEN UPDATE SET tgt.v = src.v, tgt.note = src.note"
+        " WHEN NOT MATCHED THEN INSERT *"
+    )["output_shape"]["merge"]
+    assert "update_nullable_by_join" not in merge
+
+
+def test_an_update_only_merge_lists_the_columns_it_changes():
+    merge = _merge_profile(
+        "MERGE INTO dw.m tgt USING (SELECT k, v, env FROM ods.s) src ON tgt.k = src.k"
+        " WHEN MATCHED THEN UPDATE SET tgt.v = src.v, tgt.env = src.env"
+    )["output_shape"]["merge"]
+    assert merge["update_columns"] == ["v", "env"]
+    assert "insert_only_columns" not in merge
+
+
+# -------------------------------------------- M3: a UNION USING side, branch by branch
+
+
+def test_each_union_branch_reports_its_own_dedup_and_coverage_stays_unknown():
+    merge = _merge_profile(
+        "MERGE INTO dw.m tgt USING (SELECT k, env, v, note, dt FROM (SELECT k, env, v, '' note,"
+        " dt, row_number() OVER (PARTITION BY k ORDER BY ts DESC) rn FROM ods.s) a WHERE a.rn = 1"
+        " UNION ALL SELECT sk AS k, env, v, note, dt FROM (SELECT sk, env, v, '' note, dt,"
+        " row_number() OVER (PARTITION BY sk ORDER BY ts DESC) rn FROM ods.s) b WHERE b.rn = 1"
+        " UNION ALL SELECT k, env, v, '' note, dt FROM ods.s) src"
+        " ON tgt.k = src.k WHEN NOT MATCHED THEN INSERT *"
+    )["output_shape"]["merge"]
+    # Each branch unique by k does not make the union unique by k: one key may come from
+    # two branches.
+    assert merge["coverage"] == "unknown"
+    branches = [
+        (
+            item["branch"],
+            item["basis"],
+            [key["column"] for key in item.get("dedup_keys") or []],
+            item.get("coverage"),
+        )
+        for item in merge["union_branches"]
+    ]
+    assert branches == [
+        (1, "window_partition", ["k"], "covered"),
+        (2, "window_partition", ["k"], "covered"),
+        (3, "driving_table_rows", [], None),
+    ]

@@ -516,6 +516,7 @@ def _build_statement_profile(
         context["metric_argument_scopes"],
         table_cards,
         context["metric_anchor_scopes"],
+        fields,
     )
     stages = _build_stages(document)
     # R5's last two roles need R3's result, so they are applied once the shape is known
@@ -2806,6 +2807,7 @@ def _build_output_shape(
     metric_argument_scopes: Sequence[str] = (),
     table_cards: Mapping | None = None,
     metric_anchor_scopes: Sequence[str] = (),
+    fields: Sequence[dict] = (),
 ) -> dict:
     shape, evidence = _classify_shape(document)
     grain, visited = _build_grain(document, shape, evidence)
@@ -2818,7 +2820,7 @@ def _build_output_shape(
     )
     risks = [risk for risk, _level in decided]
     keys, unexposed, key_evidence, confidence = _key_block(document, grain, decided)
-    merge = _merge_shape(document)
+    merge = _merge_shape(document, fields)
     return {
         "shape": shape,
         "shape_evidence": evidence,
@@ -2853,21 +2855,33 @@ MERGE_COVERAGE_UNKNOWN = "unknown"
 _DEDUP_BASES = (BASIS_GROUP_BY, BASIS_DISTINCT, BASIS_WINDOW_PARTITION)
 
 
-def _merge_shape(document: dict) -> dict | None:
+MERGE_TABLE_KEY_HYPOTHESIS = "hypothesis"
+MERGE_TABLE_KEY_UPDATE_ONLY = "update_only"
+
+
+def _merge_shape(document: dict, fields: Sequence[dict] = ()) -> dict | None:
     """#22: on which keys a MERGE merges, under which WHEN conditions, and whether its
     USING side can offer one merge key two rows.
 
-    The shape and the grain stay unknown (a MERGE's written rows are not its source's
-    rows); this block says what can be said instead. ``on``, ``merge_keys`` (the
-    contract's ``key_pairs``), ``other_on_conditions`` and ``whens`` restate ``merge_spec``.
-    ``using_grain`` is the grain walk started at the USING source. When that walk finds
-    a deduplication, its keys are lifted from the scope that defines them to the USING
-    output (renames followed; a single-source expression is kept as ``derived``) and
-    compared with the merge key's source columns: ``covered`` when they all are merge
-    keys, ``dedup_wider`` when some are not (one merge key can still meet several USING
-    rows: a matched update meets several, an unmatched key is inserted more than once),
-    ``no_dedup`` when the USING side has only its driving table's rows, ``unknown``
-    otherwise.
+    The shape stays unknown (the target's rows are the merge semantics); the grain is the
+    written batch's (M1, see :func:`_decide_grain`). This block says what the table row
+    shape cannot. ``on``, ``merge_keys`` (the contract's ``key_pairs``),
+    ``other_on_conditions`` and ``whens`` restate ``merge_spec``. ``using_grain`` is the
+    grain walk started at the USING source. When that walk finds a deduplication, its
+    keys are lifted from the scope that defines them to the USING output (renames
+    followed; a single-source expression is kept as ``derived``) and compared with the
+    merge key's source columns: ``covered`` when they all are merge keys, ``dedup_wider``
+    when some are not (one merge key can still meet several USING rows: a matched update
+    meets several, an unmatched key is inserted more than once), ``no_dedup`` when the
+    USING side has only its driving table's rows, ``unknown`` otherwise. A USING side
+    that is a UNION stays ``unknown`` -- each branch unique by a key does not stop two
+    branches from carrying the same key -- and ``union_branches`` says what each branch
+    does (M3).
+
+    ``table_key`` is the key the merge suggests for the *table* (M1): the merge key's
+    target columns plus the dedup keys the merge key lacks, a hypothesis, never a proof.
+    ``insert_only_columns`` / ``update_columns`` / ``update_nullable_by_join`` say what a
+    matched UPDATE leaves alone or may blank out (M2).
     """
     spec = document.get("merge_spec")
     if not isinstance(spec, Mapping):
@@ -2888,33 +2902,241 @@ def _merge_shape(document: dict) -> dict | None:
         "using_scope": using,
         "using_grain": {"basis": basis, "evidence": list(grain.get("evidence") or [])},
     }
+    merged = _comparable(str(pair.get("source")) for pair in shape["merge_keys"])
     if basis in _DEDUP_BASES:
-        lifted = [
-            _lift_key_to(document, visited, key) for key in grain.get("keys") or []
-        ]
-        if lifted and all(item is not None for item in lifted):
-            shape["dedup_keys"] = [
-                {"column": name, "derived": derived} for name, derived in lifted
-            ]
-            merged = _comparable(str(pair.get("source")) for pair in shape["merge_keys"])
-            extra = [name for name, _ in lifted if name.lower() not in merged]
-            unsafe = _joins_after_dedup(document, grain, visited)
-            if extra:
-                shape["coverage"] = MERGE_DEDUP_WIDER
-                shape["extra_keys"] = extra
-            else:
-                shape["coverage"] = MERGE_COVERAGE_UNKNOWN if unsafe else MERGE_COVERED
-            if unsafe:
-                shape["joins_after_dedup"] = unsafe
-            return shape
-        shape["coverage"] = MERGE_COVERAGE_UNKNOWN
+        shape.update(_dedup_coverage(document, grain, visited, merged))
     elif basis == BASIS_SINGLE_ROW:
         shape["coverage"] = MERGE_COVERED
     elif basis == BASIS_DRIVING_TABLE_ROWS:
         shape["coverage"] = MERGE_NO_DEDUP
     else:
         shape["coverage"] = MERGE_COVERAGE_UNKNOWN
+        branches = _union_branches(document, visited, merged)
+        if branches:
+            shape["union_branches"] = branches
+    table_key = _merge_table_key(shape)
+    if table_key is not None:
+        shape["table_key"] = table_key
+    shape.update(_merge_update_facts(document, shape, fields))
     return shape
+
+
+def _dedup_coverage(
+    document: dict, grain: dict, visited: Sequence[str], merged: set[str]
+) -> dict:
+    """``dedup_keys`` / ``coverage`` / ``extra_keys`` / ``joins_after_dedup`` of one dedup.
+
+    ``visited`` runs from the scope the keys are lifted to down to the deduplicating one.
+    """
+    lifted = [_lift_key_to(document, visited, key) for key in grain.get("keys") or []]
+    if not lifted or any(item is None for item in lifted):
+        return {"coverage": MERGE_COVERAGE_UNKNOWN}
+    found: dict = {"dedup_keys": [{"column": name, "derived": derived} for name, derived in lifted]}
+    extra = [name for name, _ in lifted if name.lower() not in merged]
+    unsafe = _joins_after_dedup(document, grain, visited)
+    if extra:
+        found["coverage"] = MERGE_DEDUP_WIDER
+        found["extra_keys"] = extra
+    else:
+        found["coverage"] = MERGE_COVERAGE_UNKNOWN if unsafe else MERGE_COVERED
+    if unsafe:
+        found["joins_after_dedup"] = unsafe
+    return found
+
+
+def _union_branches(document: dict, visited: Sequence[str], merged: set[str]) -> list[dict]:
+    """M3: each branch of the UNION the USING walk stopped at, walked on its own.
+
+    The walk stops at a UNION because the union's rows are the sum of its branches, and
+    nothing about one branch says another does not carry the same key. Each branch's own
+    dedup is still a fact the writer needs, so every branch is walked from itself; its
+    keys are lifted to the branch output, mapped to the union output by position
+    (``outputs[].sources``), and lifted on to the USING output. A branch whose keys do
+    not reach the USING output as columns keeps its basis and no keys.
+    """
+    union = _stopped_at_union(document, visited)
+    if union is None:
+        return []
+    path = list(visited[: visited.index(union)]) if union in visited else list(visited)
+    found = []
+    for index, branch in enumerate(_scope_inputs(document, union), 1):
+        grain, walked = _resolve_grain(document, branch)
+        basis = str(grain.get("basis"))
+        entry: dict = {"branch": index, "scope": branch, "basis": basis}
+        if basis in _DEDUP_BASES:
+            keys = [
+                _union_branch_key(document, path, union, branch, walked, key)
+                for key in grain.get("keys") or []
+            ]
+            if keys and all(item is not None for item in keys):
+                entry["dedup_keys"] = [{"column": name, "derived": derived} for name, derived in keys]
+                unsafe = _joins_after_dedup(document, grain, walked) or _unsafe_joins(document, path)
+                entry["coverage"] = (
+                    MERGE_DEDUP_WIDER
+                    if any(name.lower() not in merged for name, _ in keys)
+                    else MERGE_COVERAGE_UNKNOWN if unsafe else MERGE_COVERED
+                )
+        found.append(entry)
+    return found
+
+
+def _stopped_at_union(document: dict, visited: Sequence[str]) -> str | None:
+    """The UNION scope a grain walk ended at: its last scope, or that scope's one input."""
+    if not visited:
+        return None
+    scopes = _scopes(document)
+    last = visited[-1]
+    if str((scopes.get(last) or {}).get("kind")) == "union":
+        return last
+    inputs = [item for item in _scope_inputs(document, last) if item in scopes]
+    if len(inputs) == 1 and str((scopes.get(inputs[0]) or {}).get("kind")) == "union":
+        return inputs[0]
+    return None
+
+
+def _union_branch_key(
+    document: dict,
+    path: Sequence[str],
+    union: str,
+    branch: str,
+    walked: Sequence[str],
+    key: Mapping,
+) -> tuple[str, bool] | None:
+    """A branch's logical key as the USING output column it reaches, or None."""
+    at_branch = _lift_key_to(document, walked, key)
+    if at_branch is None:
+        return None
+    name, derived = at_branch
+    union_name = next(
+        (
+            str(output.get("name"))
+            for output in (_scopes(document).get(union) or {}).get("outputs") or []
+            for source in output.get("sources") or []
+            if str(source.get("scope")) == branch
+            and str(source.get("column") or "").lower() == name.lower()
+        ),
+        None,
+    )
+    if union_name is None:
+        return None
+    lifted = _lift_key_to(document, path, {"scope_id": union, "name": union_name})
+    if lifted is None:
+        return None
+    return lifted[0], derived or lifted[1]
+
+
+def _unsafe_joins(document: dict, scopes: Iterable[str]) -> list[str]:
+    """The JOINs in ``scopes`` whose fan-out verdict is not ``safe``."""
+    found = []
+    for scope_id in scopes:
+        for block in _blocks_of_type(document, scope_id, "join"):
+            detail = block.get("join_relation_detail") or {}
+            block_id = str(block.get("logic_block_id"))
+            if _fan_out_verdict(document, block_id, detail)[0] != "safe":
+                found.append(block_id)
+    return found
+
+
+def _merge_table_key(shape: Mapping) -> dict | None:
+    """M1: the key a MERGE suggests for its target *table*, never a proven one.
+
+    A MERGE that inserts adds rows keyed by its merge key, and a USING side deduplicated
+    on more columns than it merges on inserts one row per those columns too (``INSERT *``
+    maps them by name), so the suggestion is the merge key's target columns plus the
+    ``extra_keys``. It stays a hypothesis: with no dedup an unmatched key is inserted
+    once per USING row. A MERGE that only updates adds no row and decides nothing.
+    """
+    actions = {str(item.get("action")) for item in shape.get("whens") or []}
+    if "insert" in actions:
+        keys = [str(pair.get("target")) for pair in shape.get("merge_keys") or []]
+        keys += [
+            name
+            for name in shape.get("extra_keys") or []
+            if name.lower() not in _comparable(keys)
+        ]
+        return {"keys": _dedupe(keys), "status": MERGE_TABLE_KEY_HYPOTHESIS}
+    if "update" in actions:
+        return {"keys": [], "status": MERGE_TABLE_KEY_UPDATE_ONLY}
+    return None
+
+
+def _merge_update_facts(document: dict, shape: Mapping, fields: Sequence[dict]) -> dict:
+    """M2: what a matched UPDATE leaves alone, and what it may overwrite with NULL.
+
+    - ``insert_only_columns`` (a MERGE that updates and inserts): written by an INSERT,
+      never by an UPDATE, so set on the first insert and never changed after. A merge
+      key's target column is left out: ON makes it equal on every matched row.
+    - ``update_columns`` (a MERGE that only updates): the columns it changes; the rest
+      keep their values.
+    - ``update_nullable_by_join``: columns a matched UPDATE sets from a value a LEFT JOIN
+      may not have found (the field's ``nullable_by_join``), unless the expression reads
+      the target's own column (``coalesce(src.c, tgt.c)`` keeps the old value). A
+      constant NULL is not one: it was NULL when inserted too.
+
+    Each key is present only when it lists something.
+    """
+    whens = shape.get("whens") or []
+    updates = {item.get("index") for item in whens if str(item.get("action")) == "update"}
+    inserts = {item.get("index") for item in whens if str(item.get("action")) == "insert"}
+    entries = document.get("end_to_end_lineage") or []
+
+    def written(indexes: set) -> list[str]:
+        return _dedupe(
+            str(entry.get("column"))
+            for entry in entries
+            if entry.get("column") and entry.get("merge_when_index") in indexes
+        )
+
+    found: dict = {}
+    if updates and inserts:
+        keys = _comparable(str(pair.get("target")) for pair in shape.get("merge_keys") or [])
+        updated = _comparable(written(updates))
+        only = [
+            column
+            for column in written(inserts)
+            if column.lower() not in updated and column.lower() not in keys
+        ]
+        if only:
+            found["insert_only_columns"] = only
+    elif updates:
+        found["update_columns"] = written(updates)
+    nullable = _update_nullable_by_join(document, updates, fields)
+    if nullable:
+        found["update_nullable_by_join"] = nullable
+    return found
+
+
+def _update_nullable_by_join(
+    document: dict, updates: set, fields: Sequence[dict]
+) -> list[str]:
+    """The matched-UPDATE columns whose value a LEFT JOIN may not have found."""
+    if not updates:
+        return []
+    branch = {
+        entry.get("output_ordinal"): entry.get("merge_when_index")
+        for entry in document.get("end_to_end_lineage") or []
+    }
+    chains = {
+        str(chain.get("mapping_chain_id")): chain
+        for chain in document.get("field_mapping_chains") or []
+    }
+    target = str(document.get("target_table") or "")
+    found = []
+    for field in fields:
+        if not field.get("nullable_by_join"):
+            continue
+        chain = chains.get(str(field.get("mapping_chain_id"))) or {}
+        if branch.get(chain.get("target_position")) not in updates:
+            continue
+        steps = chain.get("ordered_steps") or []
+        last = steps[-1] if steps else {}
+        if target and any(
+            str(item).lower().startswith(f"{target.lower()}.")
+            for item in last.get("input_fields") or []
+        ):
+            continue
+        found.append(str(field.get("column")))
+    return _dedupe(found)
 
 
 def _joins_after_dedup(document: dict, grain: dict, visited: Sequence[str]) -> list[str]:
@@ -2927,14 +3149,7 @@ def _joins_after_dedup(document: dict, grain: dict, visited: Sequence[str]) -> l
     """
     scope = _grain_scope(grain)
     after = list(visited[: visited.index(scope)]) if scope in visited else list(visited)
-    found = []
-    for scope_id in after:
-        for block in _blocks_of_type(document, scope_id, "join"):
-            detail = block.get("join_relation_detail") or {}
-            block_id = str(block.get("logic_block_id"))
-            if _fan_out_verdict(document, block_id, detail)[0] != "safe":
-                found.append(block_id)
-    return found
+    return _unsafe_joins(document, after)
 
 
 def _lift_key_to(
@@ -3029,11 +3244,15 @@ def _key_block(
     return keys, unexposed, evidence, confidence
 
 
+def _is_merge(document: dict) -> bool:
+    return str(document.get("stmt_kind")) == "MERGE"
+
+
 def _classify_shape(document: dict) -> tuple[str, list[str]]:
     """R2, by priority. Anything the structure does not prove stays ``unknown``."""
     if _ROOT not in _scopes(document):
         return SHAPE_UNKNOWN, []
-    if str(document.get("stmt_kind")) == "MERGE":
+    if _is_merge(document):
         # A MERGE writes through its WHEN branches, not through a ROOT projection; the
         # row shape of the target is the merge semantics, which this view does not model.
         return SHAPE_UNKNOWN, [_ROOT]
@@ -3143,19 +3362,22 @@ def _decide_grain(
     """R3, as ``(grain, the scopes the walk visited)``.
 
     Two shapes R2 already decided are answered from R2 instead of being re-walked: a
-    MERGE (and any document without a ROOT) writes through branch semantics this view
-    does not model, and a ROOT that filters a ranking window to ``= 1`` is unique by
-    that window's partition keys -- a *stronger* statement than the driving table's rows,
-    which is what the walk would otherwise report after crossing the row-preserving
-    filter. Everything else is the recursive walk.
+    document R2 could not classify, and a ROOT that filters a ranking window to ``= 1``
+    is unique by that window's partition keys -- a *stronger* statement than the driving
+    table's rows, which is what the walk would otherwise report after crossing the
+    row-preserving filter. Everything else is the recursive walk.
 
-    A MERGE withholds only the grain, not the path. Its USING source is read row for
-    row, so a JOIN that duplicates a source row duplicates what the MERGE inserts (or
-    makes its matched update ambiguous) exactly as it would an INSERT's rows; the walk
-    still runs so its scopes reach the fan-out verdicts, and its grain is dropped.
+    A MERGE is walked like an INSERT (M1, replacing #22's unknown grain). Its shape stays
+    unknown -- the target's rows are the merge semantics -- but the grain asked here is
+    the grain of the *batch it writes*: every USING row updates or inserts at most one
+    target row (a matched target row meeting two source rows is a cardinality error) and
+    a WHEN that does not hold writes nothing, so the written rows are a subset of the
+    USING rows, one for one, and a key unique there is unique in the batch. That is what
+    ``key_claim`` says (subject ``write_batch``); it says nothing about the table, which
+    keeps every row the MERGE does not touch.
     """
     root_visited = [_ROOT] if _ROOT in _scopes(document) else []
-    if shape == SHAPE_UNKNOWN:
+    if shape == SHAPE_UNKNOWN and not (root_visited and _is_merge(document)):
         visited = _resolve_grain(document)[1] if root_visited else root_visited
         return _grain([], BASIS_UNKNOWN, shape_evidence), _path_below_blockers(
             document, visited
@@ -3866,6 +4088,11 @@ def _target_key_columns(
             if target:
                 columns.append(target)
                 continue
+            target = _merge_on_target(document, grain, key)
+            if target:
+                columns.append(target)
+                notes.append(f"键 {_key_label(key)} 经 ON 等值对应目标列 {target}")
+                continue
             unexposed.append(key)
             notes.append(f"键 {_key_label(key)} 未直投到目标表列")
     elif basis == BASIS_DRIVING_TABLE_ROWS:
@@ -3874,6 +4101,35 @@ def _target_key_columns(
         return [], [], []
     kept, dropped = _without_partition_columns(document, _dedupe(columns))
     return kept, unexposed, _dedupe([*notes, *dropped])
+
+
+def _merge_on_target(document: dict, grain: dict, key: dict) -> str | None:
+    """The target column a MERGE's ON equality ties a key the write leaves out to (M1).
+
+    ``ON tgt.k = src.sk`` holds on every row a matched branch writes, so a key ``sk``
+    the USING side proves unique identifies those rows by ``k`` without ever being
+    written. Only a bare ``sk`` counts (lifted to the USING output, renames followed),
+    and only when some branch is a matched one: an unmatched row meets no target row,
+    and the ON equality says nothing about what its INSERT writes into ``k``.
+    """
+    spec = document.get("merge_spec")
+    if not isinstance(spec, Mapping) or not any(
+        str(item.get("clause")) == "matched" for item in spec.get("whens") or []
+    ):
+        return None
+    using, _ = _scope_from_item(document, _ROOT)
+    path = list(grain.get("via_scopes") or [])
+    if not using or (path and path[0] != using):
+        return None
+    lifted = _lift_key_to(document, path or [using], key)
+    if lifted is None or lifted[1]:
+        return None
+    pairs = {
+        str(pair.get("source")).lower(): str(pair.get("target"))
+        for pair in spec.get("key_pairs") or []
+        if pair.get("source") and pair.get("target")
+    }
+    return pairs.get(lifted[0].lower())
 
 
 def _driving_key_columns(

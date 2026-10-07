@@ -104,11 +104,14 @@
     ],
     "grain": {
       "keys": [],
-      "basis": "unknown",
-      "via_scopes": [],
+      "basis": "driving_table_rows",
+      "via_scopes": [
+        "subq:source"
+      ],
       "confidence": "structural",
       "evidence": [
-        "ROOT"
+        "subq:source",
+        "ods.customer_delta"
       ]
     },
     "candidate_keys": [],
@@ -149,7 +152,13 @@
           "ods.customer_delta"
         ]
       },
-      "coverage": "no_dedup"
+      "coverage": "no_dedup",
+      "table_key": {
+        "keys": [
+          "customer_id"
+        ],
+        "status": "hypothesis"
+      }
     },
     "tag": "结构推断",
     "key_claim": null
