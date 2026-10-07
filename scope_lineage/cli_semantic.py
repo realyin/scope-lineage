@@ -16,6 +16,7 @@ import json
 import sys
 from pathlib import Path
 
+from .cli_only import add_directory, add_only, take_back_directory
 from .cli_semantic_status import add_status_parsers, run_digest, run_fixed, run_status
 from .metadata.metadata_patch import (
     MetadataPatch,
@@ -70,18 +71,16 @@ def add_semantic_parser(subcommands) -> None:
         "validate",
         help="Check table-semantics/1 documents against their schema and their packets",
     )
-    validate.add_argument("directory", help="Directory of table-semantics/1 JSON documents")
+    add_directory(validate, "directory", "Directory of table-semantics/1 JSON documents")
     validate.add_argument("--packets", required=True, help="The --out of `semantic packet`")
     validate.add_argument(
         "--json", action="store_true",
         help="Print the table-semantics-validation/1 report instead of the text summary",
     )
-    validate.add_argument(
-        "--only", nargs="+", action="extend", default=None, metavar="TABLE",
-        help=(
-            "Only the documents of these tables (db.table, a catalog prefix is ignored); "
-            "files that are unreadable or name no table are passed over"
-        ),
+    add_only(
+        validate,
+        "Only the documents of these tables (db.table, a catalog prefix is ignored); "
+        "files that are unreadable or name no table are passed over",
     )
     confirm =actions.add_parser(
         "confirm", help="Apply a semantic-confirmations/1 file to table-semantics documents"
@@ -434,6 +433,7 @@ def _patched_comments(patch: MetadataPatch) -> dict | None:
 
 
 def _run_validate(args: argparse.Namespace) -> int:
+    take_back_directory(args)
     directory, packets = Path(args.directory), Path(args.packets)
     for path, flag in ((directory, "directory"), (packets, "--packets")):
         if not path.is_dir():
