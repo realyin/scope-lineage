@@ -170,6 +170,9 @@ def _profile_rule(task: str, statement: dict, rule: dict) -> dict:
         entry["consumed"] = False
     if rule.get("sql_comments"):
         entry["sql_comments"] = [str(text) for text in rule["sql_comments"]]
+    if rule.get("commented_out_sql"):
+        # C-P2: SQL switched off beside the condition -- kept, and said to have no effect.
+        entry["commented_out_sql"] = [str(text) for text in rule["commented_out_sql"]]
     # Read by the findings and the MERGE block, which name a profile rule or logic block;
     # dropped before the packet is written.
     entry[PROFILE_RULE] = rule.get("rule_id")

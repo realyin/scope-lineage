@@ -360,14 +360,49 @@ def _rules(rules: list[dict], findings: list[dict]) -> list[str]:
 
 
 def _rule_note(rule: dict, findings: list[dict]) -> str:
-    """The rule's own text, its SQL comments, whether anybody reads it, its findings."""
-    parts = [str(rule["text"])] if rule.get("text") else []
-    if rule.get("sql_comments"):
-        parts.append(f"注释：{'；'.join(rule['sql_comments'])}")
-    if rule.get("consumed") is False:
-        parts.append("未被消费：这条分支的输出没有被任何下游读取")
-    parts += [str(item["text"]) for item in findings if rule["id"] in (item.get("rules") or [])]
-    return _text("；".join(parts))
+    """Everything the 说明 column says of a rule, joined in :data:`_NOTE_PARTS` order."""
+    return _text("；".join(text for part in _NOTE_PARTS for text in part(rule, findings)))
+
+
+def _note_text(rule: dict, _findings: list[dict]) -> list[str]:
+    return [str(rule["text"])] if rule.get("text") else []
+
+
+def _note_position(rule: dict, _findings: list[dict]) -> list[str]:
+    """A filter inside a LEFT JOIN's right side decides which right rows match, no more."""
+    joins = rule.get("right_of") or []
+    return [f"在 {'、'.join(joins)} 右侧：不丢目标行，决定右侧哪些行参与匹配"] if joins else []
+
+
+def _note_comments(rule: dict, _findings: list[dict]) -> list[str]:
+    return [f"注释：{'；'.join(rule['sql_comments'])}"] if rule.get("sql_comments") else []
+
+
+def _note_switched_off(rule: dict, _findings: list[dict]) -> list[str]:
+    sql = rule.get("commented_out_sql") or []
+    return [f"相邻的注释掉的 SQL（不生效）：{'；'.join(sql)}"] if sql else []
+
+
+def _note_unconsumed(rule: dict, _findings: list[dict]) -> list[str]:
+    return ["未被消费：这条分支的输出没有被任何下游读取"] if rule.get("consumed") is False else []
+
+
+def _note_findings(rule: dict, findings: list[dict]) -> list[str]:
+    return [str(item["text"]) for item in findings if rule["id"] in (item.get("rules") or [])]
+
+
+# The 说明 column's parts, in the one order every packet change fills (README 裁决 11):
+# the rule's text; the date offsets of its literals (C-G6, right after the text); where
+# the rule sits (`right_of`); the author's notes; the SQL switched off beside it; whether
+# anybody reads it; the findings about it. A part with nothing to say says nothing.
+_NOTE_PARTS = (
+    _note_text,
+    _note_position,
+    _note_comments,
+    _note_switched_off,
+    _note_unconsumed,
+    _note_findings,
+)
 
 
 def _partition_cell(rule: dict) -> str:
