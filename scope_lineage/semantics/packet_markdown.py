@@ -2,8 +2,10 @@
 
 Same facts as ``packet.json``, in the order a writer needs them: the table, the tasks
 and their SQL, the inputs, the lineage facts, and last the column order the document
-must follow. Nothing here is added or dropped relative to the JSON; the validator reads
-the JSON.
+must follow. Nothing here is added relative to the JSON, and only one thing is left to
+it: a 4.1 step chain longer than :data:`STEPS_CELL_LIMIT` shows its last step and its
+length. The validator reads the JSON, and ``packet_digest`` is computed over the JSON
+alone, so a layout change here never makes a written document stale.
 
 What the owner already confirmed is shown where it applies and only when there is some:
 a patched comment carries 「（已确认，元数据补丁）」, and a column table gains an
@@ -16,7 +18,8 @@ from __future__ import annotations
 import re
 
 from ..render.markdown_text import cell, expr_span
-from .packet_facts import partition_values
+from .packet_context import string_literals
+from .packet_facts import partition_filter_rules, partition_values
 
 
 def render_packet_markdown(packet: dict) -> str:
@@ -32,7 +35,7 @@ def render_packet_markdown(packet: dict) -> str:
     ]
     lines += _target(packet["target"])
     lines += _tasks(packet["tasks"], packet["table"])
-    lines += _inputs(packet["inputs"])
+    lines += _inputs(packet["inputs"], packet["lineage"]["rules"])
     lines += _lineage(packet["lineage"], packet["tasks"])
     lines += _column_order(packet["target"])
     return "\n".join(lines).rstrip("\n") + "\n"
@@ -237,7 +240,12 @@ def _sql(sql) -> list[str]:
     return [f"{fence}sql", sql.rstrip("\n"), fence, ""]
 
 
-def _inputs(inputs: list[dict]) -> list[str]:
+# An input column the task reads in (most often through ``select *``) but no output,
+# condition or key uses: ``used`` with no ``usages`` (C-P8). Not "used by this table".
+READ_UNUSED = "读入未用（select * 等）"
+
+
+def _inputs(inputs: list[dict], rules: list[dict] = ()) -> list[str]:
     lines = ["## 3. 输入表", ""]
     if not inputs:
         return [*lines, "（没有输入表）", ""]
@@ -248,25 +256,61 @@ def _inputs(inputs: list[dict]) -> list[str]:
             f"- 在本表的作用：{_names(entry['roles'])}；主表：{'是' if entry['driving'] else '否'}；"
             f"层：{_text(entry['layer'])}；生产任务：{_names(entry['producers'])}",
             f"- 分区列（元数据）：{_names(entry['partition_columns'])}；"
-            f"分区读取：{entry['partition_read']}（{_names(entry['partition_filters'])}）；"
+            f"分区读取：{entry['partition_read']}（{_partition_filters(entry, rules)}）；"
             f"表名约定：{entry['name_convention']}；全量快照：{full_snapshot_text(entry)}",
-            "- 日期列上的过滤（只有「窗口」按业务日期筛行）：" + (
-                "；".join(f"{_code(item['column'])}：{_code(item['expression'])}"
-                         f"（{_DATE_SHAPES.get(item.get('shape'), _DATE_SHAPES['window'])}）"
-                         for item in entry["date_filters"]) or "无"
-            ),
+            "- 日期列上的过滤（只有「窗口」按业务日期筛行）：" + (_date_filters(entry, rules) or "无"),
             *_producer_header(entry),
             *_producer_columns(entry),
             "",
         ]
         rows = [
             [_code(c["name"]), _text(c["type"]), _comment(c),
-             "、".join(c["usages"]) or ("是" if c["used"] else "")]
+             "、".join(c["usages"]) or (READ_UNUSED if c["used"] else "")]
             for c in entry["columns"]
         ]
         lines += _column_table(["列", "类型", "注释", "本表用到"], rows, entry["columns"])
         lines.append("")
     return lines
+
+
+def _ids(rules) -> str:
+    return "、".join(dict.fromkeys(str(rule["id"]) for rule in rules if rule.get("id")))
+
+
+def _partition_filters(entry: dict, rules: list[dict]) -> str:
+    """Each partition condition once, with the rules it is written in (C-P5)."""
+    expressions = list(dict.fromkeys(entry["partition_filters"]))
+    if not expressions:
+        return "—"
+    found = partition_filter_rules(entry["table"], list(rules))
+    said = []
+    for expression in expressions:
+        ids = _ids(rule for text, rule in found if text == expression)
+        said.append(_code(expression) + (f"（{ids}）" if ids else ""))
+    return "、".join(said)
+
+
+def _date_filters(entry: dict, rules: list[dict]) -> str:
+    """Each business-date filter once per column, expression and shape, with its rules (C-P5).
+
+    A filter's rules are the non-partition filters on this input with the same expression
+    in the same statement -- the rules its ``date_filters`` entries were read from.
+    """
+    grouped: dict[tuple, list[dict]] = {}
+    for item in entry["date_filters"]:
+        shape = _DATE_SHAPES.get(item.get("shape"), _DATE_SHAPES["window"])
+        grouped.setdefault((item["column"], item["expression"], shape), []).append(item)
+    said = []
+    for (column, expression, shape), items in grouped.items():
+        statements = {item.get("statement_id") for item in items}
+        ids = _ids(
+            rule for rule in rules
+            if rule["kind"] == "filter" and not rule["partition_filter"]
+            and entry["table"] in rule["tables"] and rule["expression"] == expression
+            and rule.get("statement_id") in statements
+        )
+        said.append(f"{_code(column)}：{_code(expression)}（{shape}{'；' + ids if ids else ''}）")
+    return "；".join(said)
 
 
 def _producer_columns(entry: dict) -> list[str]:
@@ -320,7 +364,7 @@ def _fixed_partitions(entry: dict) -> str:
 def _lineage(lineage: dict, tasks: list[dict] = ()) -> list[str]:
     lines = ["## 4. 血缘事实", ""]
     lines += _column_sources(lineage["columns"], _added_dates(list(tasks)))
-    lines += _rules(lineage["rules"], lineage.get("findings") or [])
+    lines += _rules(lineage["rules"], lineage.get("findings") or [], list(tasks))
     lines += _keys(lineage["keys"], lineage["partition"])
     lines += _findings(lineage.get("findings") or [])
     lines += _neighbours(lineage)
@@ -382,69 +426,111 @@ def _producer_sources(producer: dict) -> str:
     return f"{_names(producer['sources'])}；查码键（决定读哪一行，不是取值来源）：{_names(keys)}"
 
 
+# A 4.1 step cell holds the whole chain up to this many characters. A longer chain -- a
+# UNION's branches one after another, a deep CTE chain -- says its last step and how many
+# steps there are, and leaves the chain to ``packet.json`` (C-P8, option b): each producer
+# stays one bounded table row, which a reader's file tool takes in one piece.
+STEPS_CELL_LIMIT = 300
+
+
 def _steps(producer: dict, later: str = "") -> str:
     comments = producer.get("sql_comments") or []
     parts = [later] if later else []
     parts += [f"注释：{'；'.join(comments)}"] if comments else []
-    return _text("；".join([*parts, *producer["steps"]]))
+    steps = [str(step) for step in producer["steps"]]
+    if len("；".join(steps)) > STEPS_CELL_LIMIT:
+        last = steps[-1]
+        last = last if len(last) <= STEPS_CELL_LIMIT else last[:STEPS_CELL_LIMIT] + "…"
+        steps = [f"末层：{last}（共 {len(steps)} 步；完整步骤见同目录 packet.json "
+                 "该列 producers[].steps）"]
+    return _text("；".join([*parts, *steps]))
 
 
-def _rules(rules: list[dict], findings: list[dict]) -> list[str]:
+def _rules(rules: list[dict], findings: list[dict], tasks: list[dict] = ()) -> list[str]:
     lines = [
         "### 4.2 规则（过滤 / 关联 / 去重 / 合并 / 分支）",
         "",
-        "| 编号 | 类型 | 表达式 | 分区过滤 | 涉及表 | 行数放大 | 说明 |",
-        "| --- | --- | --- | --- | --- | --- | --- |",
+        "| 编号 | 类型 | 位置 | 表达式 | 分区过滤 | 涉及表 | 行数放大 | 说明 |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
+    several = len({rule.get("task") for rule in rules}) > 1
     lines += [
         f"| {rule['id']} | {rule['kind']}{('（' + rule['join_type'] + '）') if rule.get('join_type') else ''} | "
-        f"{_code(rule['expression'])} | {_partition_cell(rule)} | "
-        f"{_names(rule['tables'])} | {_fan_out(rule)} | {_rule_note(rule, findings)} |"
+        f"{_position(rule, several)} | {_code(rule['expression'])} | {_partition_cell(rule)} | "
+        f"{_names(rule['tables'])} | {_fan_out(rule)} | {_rule_note(rule, findings, tasks)} |"
         for rule in rules
     ]
     if not rules:
-        lines.append("| — | — | — | — | — | — | — |")
+        lines.append("| — | — | — | — | — | — | — | — |")
     return [*lines, ""]
 
 
-def _rule_note(rule: dict, findings: list[dict]) -> str:
+def _position(rule: dict, several_tasks: bool) -> str:
+    """``stmt:00N / <scope>``, the task first when the packet has several (C-P5).
+
+    Two rules with one expression in two subqueries read apart by it.
+    """
+    parts = [rule.get("task")] if several_tasks else []
+    parts += [rule.get("statement_id"), rule.get("scope")]
+    return cell(" / ".join(str(part) for part in parts if part)) or "—"
+
+
+def _rule_note(rule: dict, findings: list[dict], tasks: list[dict] = ()) -> str:
     """Everything the 说明 column says of a rule, joined in :data:`_NOTE_PARTS` order."""
-    return _text("；".join(text for part in _NOTE_PARTS for text in part(rule, findings)))
+    context = {"findings": findings, "tasks": tasks}
+    return _text("；".join(text for part in _NOTE_PARTS for text in part(rule, context)))
 
 
-def _note_text(rule: dict, _findings: list[dict]) -> list[str]:
+def _note_text(rule: dict, _context: dict) -> list[str]:
     return [str(rule["text"])] if rule.get("text") else []
 
 
-def _note_position(rule: dict, _findings: list[dict]) -> list[str]:
+def _note_dates(rule: dict, context: dict) -> list[str]:
+    """D-G6: how far each date literal of the rule sits from its task's expected run date.
+
+    The offsets 2.x gives for the task's ``date_literals``, matched by string literal; an
+    offset only -- which literal is the batch date is the writer's call (E1).
+    """
+    literals = next((task.get("date_literals") or [] for task in context["tasks"]
+                     if task.get("name") == rule.get("task")), [])
+    offsets = {item["literal"]: item["days_from_expect_date"] for item in literals}
+    said = [f"{literal}（{_offset(offsets[literal])}）"
+            for literal in dict.fromkeys(string_literals(rule.get("expression")))
+            if literal in offsets]
+    return [f"日期字面量 {'、'.join(said)}"] if said else []
+
+
+def _note_position(rule: dict, _context: dict) -> list[str]:
     """A filter inside a LEFT JOIN's right side decides which right rows match, no more."""
     joins = rule.get("right_of") or []
     return [f"在 {'、'.join(joins)} 右侧：不丢目标行，决定右侧哪些行参与匹配"] if joins else []
 
 
-def _note_comments(rule: dict, _findings: list[dict]) -> list[str]:
+def _note_comments(rule: dict, _context: dict) -> list[str]:
     return [f"注释：{'；'.join(rule['sql_comments'])}"] if rule.get("sql_comments") else []
 
 
-def _note_switched_off(rule: dict, _findings: list[dict]) -> list[str]:
+def _note_switched_off(rule: dict, _context: dict) -> list[str]:
     sql = rule.get("commented_out_sql") or []
     return [f"相邻的注释掉的 SQL（不生效）：{'；'.join(sql)}"] if sql else []
 
 
-def _note_unconsumed(rule: dict, _findings: list[dict]) -> list[str]:
+def _note_unconsumed(rule: dict, _context: dict) -> list[str]:
     return ["未被消费：这条分支的输出没有被任何下游读取"] if rule.get("consumed") is False else []
 
 
-def _note_findings(rule: dict, findings: list[dict]) -> list[str]:
-    return [str(item["text"]) for item in findings if rule["id"] in (item.get("rules") or [])]
+def _note_findings(rule: dict, context: dict) -> list[str]:
+    return [str(item["text"]) for item in context["findings"]
+            if rule["id"] in (item.get("rules") or [])]
 
 
 # The 说明 column's parts, in the one order every packet change fills (README 裁决 11):
-# the rule's text; the date offsets of its literals (C-G6, right after the text); where
+# the rule's text; the date offsets of its literals (D-G6, right after the text); where
 # the rule sits (`right_of`); the author's notes; the SQL switched off beside it; whether
 # anybody reads it; the findings about it. A part with nothing to say says nothing.
 _NOTE_PARTS = (
     _note_text,
+    _note_dates,
     _note_position,
     _note_comments,
     _note_switched_off,

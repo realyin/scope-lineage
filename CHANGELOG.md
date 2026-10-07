@@ -36,6 +36,18 @@
   offsets, position, notes, switched-off SQL, unconsumed, findings). `packet.md` 4.3 says
   「USING 粒度未判定」 for an undecided USING grain instead of 「USING 无去重」, and 4.4 gains
   a column.
+- **`packet.md` layout: rule positions, merged input conditions, bounded 4.1 rows, date
+  offsets in 4.2.** Markdown only: `packet.json` and `packet_digest` do not change, so no
+  written document goes stale over it. The 4.2 rules table gains a 位置 column after 类型
+  (`stmt:00N / <scope>`, the task first when a packet has several), so rules with one
+  expression in two subqueries read apart; section 3 lists each partition filter and date
+  filter once with the rules it comes from (`（p2、p5）`) instead of once per rule; an input
+  column read in but used by nothing says 「读入未用（select * 等）」 instead of 「是」; a 4.1
+  step cell whose chain is longer than 300 characters says its last step and how many steps
+  there are and points at `packet.json`, so no row grows without bound; and 4.2's 说明 gives,
+  right after the rule's text, the expected-run-date offset of each of its task's date
+  literals the rule holds (「日期字面量 '…'（期望日期 −1 天）」, as 2.x does). **Tools that read
+  `packet.md` tables by column position see one more column in 4.2.**
 - **A dedup ordered by a column its input pins to one value keeps an arbitrary row.**
   `row_number() OVER (PARTITION BY k ORDER BY dt DESC)` over `WHERE dt = '…'` was described
   as keeping the latest row. When every ORDER BY item is a bare column pinned by an equality

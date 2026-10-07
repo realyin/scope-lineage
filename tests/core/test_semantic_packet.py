@@ -431,7 +431,7 @@ def test_a_task_publishes_the_lifecycle_and_volume_its_header_states(coded: dict
 
 def test_the_markdown_packet_shows_each_joins_fan_out_verdict(packets: Path) -> None:
     text = (packets / "demo_dwd.dwd_lending_loan_df" / "packet.md").read_text(encoding="utf-8")
-    assert "| 编号 | 类型 | 表达式 | 分区过滤 | 涉及表 | 行数放大 | 说明 |" in text
+    assert "| 编号 | 类型 | 位置 | 表达式 | 分区过滤 | 涉及表 | 行数放大 | 说明 |" in text
     assert "| safe：右侧按 loan_no GROUP BY" in text
 
 

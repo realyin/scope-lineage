@@ -324,7 +324,7 @@ def _join_cells(packet: dict) -> dict[str, str]:
     rows = {}
     for rule in _rules(packet, "join"):
         line = next(line for line in text.splitlines() if line.startswith(f"| {rule['id']} |"))
-        rows[rule["id"]] = line.split(" | ")[5]
+        rows[rule["id"]] = line.split(" | ")[6]
     return rows
 
 

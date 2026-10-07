@@ -421,15 +421,27 @@ def partition_column(reference: str, expression, metadata) -> tuple:
 # ------------------------------------------------------------------ input time facts
 
 
-def input_time_facts(table: str, rules: list[dict], columns: list[dict]) -> dict:
-    """How one input's partitions are read, and its non-partition business-date filters."""
-    partition = [r["expression"] for r in rules if r["partition_filter"] and table in r["tables"]]
-    partition += [
-        read["expression"]
+def partition_filter_rules(table: str, rules: list[dict]) -> list[tuple[str, dict]]:
+    """``(expression, rule)`` of every condition reading ``table``'s partitions, in rule order.
+
+    A partition filter of its own, then the partition conditions a JOIN's ON puts on its
+    right table. ``partition_filters`` is the expressions; ``packet.md`` also names the
+    rules, so one condition written in several subqueries is listed once (C-P5).
+    """
+    found = [(rule["expression"], rule) for rule in rules
+             if rule["partition_filter"] and table in rule["tables"]]
+    found += [
+        (read["expression"], rule)
         for rule in rules
         for read in rule.get("partition_reads") or []
         if read["table"] == table
     ]
+    return found
+
+
+def input_time_facts(table: str, rules: list[dict], columns: list[dict]) -> dict:
+    """How one input's partitions are read, and its non-partition business-date filters."""
+    partition = [expression for expression, _rule in partition_filter_rules(table, rules)]
     by_name = {column["name"]: column for column in columns}
     dated = [
         {"column": name, "expression": rule["expression"], "statement_id": rule["statement_id"]}
