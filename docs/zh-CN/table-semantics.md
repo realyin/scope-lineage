@@ -303,6 +303,11 @@ scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.t
 
 `--only` 只检查这些表的文档（`库.表`，目录前缀忽略），写法与 `semantic packet`、`semantic status` 的 `--only` 相同；报告与汇总行只统计选中的表。读不了的 JSON 和没写 `table` 的文件直接跳过、不报错，这样并行写作的子代理各自校验自己的表，不会被别人写到一半的文件拖累。某张指定的表找不到文档时，标准错误打印 `--only: no document for …`，退出码为 1。带 `--only` 的输出不要重定向到 `validation.json`，否则会覆盖全量报告。
 
+`--only` 会收下它后面的所有词。把目录写在它前面，或者用 `--` 结束表名
+（`--only <db.table> ... -- <documents>`）。目录仍写在最后时：`--only` 后面最后一个词含 `/` 或是已存在的目录、
+并且它前面至少还有一张表，就把它当作目录收回；最后一个词是别的，按用法错误退出（退出码 2），报错说明目录该放哪里。
+`semantic status`、`semantic fixed` 和 `catalog digest` 对 `--only` 与目录的读法相同。
+
 交叉检查共十三项：
 
 | # | 检查 | 失败条件 | 警告条件 |
@@ -316,7 +321,7 @@ scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.t
 | 7 | `sources` | 带来源的条目 `sources` 为空，或问题超过五个 | — |
 | 8 | `digest` | `packet_digest` 与材料包不一致（过期），或没有这张表的材料包 | — |
 | 9 | `time` | `refresh.time` 写 `incremental`，而所有输入都是按单一分区读取的全量快照、且没有按业务日期过滤 | `refresh.time` 写 `snapshot`，而写入按业务日期筛选（只算形状为 `window` 的日期过滤） |
-| 10 | `fan_out` | `fan_out.status` 不是 `safe`、且 `fan_out.path` 为 `grain`（或没有）的关联，其右侧既没有在 `summary.row.note` 里、也没有在任何 kind 为 `risk` 的 `summary.watch` 里被点名（表名 `库.表` 或不带库名，或别名；同一右侧不论关联几次只算一项） | 行说明或某条 watch 的某句话把这样的左关联写成不影响行数（无影响、不影响行数、不会放大……）；每处一条警告。紧跟在否定之后的说法不算（不保证不放大、不一定不放大、未必不影响行数）；句子没点名这样的关联、只说「左关联」时，视为说的是全部未证明的左关联，除非它点名的是已证明唯一（`safe`）的关联，且「不放大」所在的分句里没有都、均、全部、所有、一律、任何、皆。不在粒度路径上（位于聚合之下）的关联两项都不查 |
+| 10 | `fan_out` | `fan_out.status` 不是 `safe`、且 `fan_out.path` 为 `grain`（或没有）的关联，其右侧既没有在 `summary.row.note` 里、也没有在任何 kind 为 `risk` 的 `summary.watch` 里被点名（表名 `库.表` 或不带库名，或别名；同一右侧不论关联几次只算一项） | 行说明或某条 watch 的某句话把这样的左关联写成不影响行数（无影响、不影响行数、不会放大……）；每处一条警告。紧跟在否定之后的说法不算（不保证不放大、不一定不放大、未必不影响行数）；句子没点名这样的关联、只说「左关联」时，视为说的是全部未证明的左关联，除非它点名的是已证明唯一（`safe`）的关联，且「不放大」所在的分句里没有都、均、全部、所有、一律、任何、皆。附带条件并写出反面情形的说法也不算：这句话里说法之前有条件词（若、如果、假如、倘若、假设、只要、只有、一旦、除非、当 / 在…时），并且说法之后写了会放大（会 / 可能 + 放大、膨胀、重复，或关联出多行 / 多条）；或者下一句以「若 / 如果 / 一旦 … 不成立 / 不唯一 / 不满足」开头并写了会放大；或者说法之前有条件词、下一句以否则、不然、反之开头并写了会放大。反面情形里点名了这句话到说法为止没提过的关联时仍然警告；只有后置保留语（「注释推出，SQL 未证明」）不算写了反面情形。不在粒度路径上（位于聚合之下）的关联两项都不查 |
 | 11 | `derived_codes` | 列的 CASE / IF 返回的字面量（`case_outputs`）不在它的 `code_values` 里（每缺一个值一条失败；NULL、`''` 和 TRUE / FALSE 不算码值；`else: computed` 的条目只作参考、不要求） | 含义像「成功」的码值（成功 / 正常 / 通过 / 有效）来自归并多个来源值的分支或 ELSE，而该列的 `watch` 和 `refs` 含 `column:<列>` 的 `summary.watch` 都没有说明 |
 | 12 | `documented_meaning` | 标了 `unconfirmed`、或含义去掉括号旁注后以「待确认」开头的码值（`待确认（猜测：…）` 算，`已实名（是否含补录待确认）` 不算），其含义在该列注释或来源列注释里已写明（`0-申请 1-成功` 式的值-含义对，或 SQL 里引用了其标签的 `正常、锁定、删除` 式列表），或字典已在该列或来源列上确认（`confirmed_values`，改法：照写字典的含义，`sources` 写 `confirmed`）；注释或字典写明的含义本身就是「待确认」的状态可以照写 | 主输入表注释或来源列注释里有限定词（`增值税`、`税`、`手续费`、`罚息`、`冲正`、`测试`）而目标表注释里没有，`summary.what`（主输入表）或所有受影响列的 meaning / derivation 里也没写（每个词一条警告） |
 | 13 | `header_facts` | — | SQL 头注释写明了生命周期（`header_facts.lifecycle`）或数据规模（`header_facts.volume`），而 `summary.refresh.how_to_read` 和 watch 都没有提到；头注释描述的是同任务另一张表（`header_facts.about`）时不检查 |
@@ -447,6 +452,7 @@ status 报告、分批文件）跳过，与 `validate` 相同。
 | `fix_unconfirmed` | 审读读的是当前材料包、有高 / 中问题；文档之后改过，但没有这一版的修订回执：修订被打断，或写回执之后又改过 | 阶段为 `reviewed`，`--next fix` 重新派发 |
 | `review_unparsed` | 审读文件没有完整的 front matter | 阶段为 `reviewed`，任何一步都不再派发它；补上 front matter 或删掉审读文件重审 |
 | `render_stale` | 已 `fixed`，页面比文档旧 | 阶段为 `fixed`，重新渲染 |
+| `doc_misfiled` | 某个文档文件的文件名是另一张表，与它里面写的 `table` 不符（两张表都标），或者两个文件写的是这同一张表 | 不改阶段，只是警告。文件名那张表会看起来没写过文档（`packet`），两个文件时按路径排第一个的生效；把每份文档放回 `docs/<db.table>.json`，并让文件里的 `table` 就是它 |
 
 ### 审读怎么判
 
@@ -544,7 +550,7 @@ Status of 3 table(s): no_packet 0, packet 1, drafted 1, valid 1, reviewed 0, fix
   "summary": {
     "tables": 1,
     "stages": {"no_packet": 0, "packet": 0, "drafted": 0, "valid": 1, "reviewed": 0, "fixed": 0, "rendered": 0},
-    "flags": {"packet_stale": [], "invalid": [], "review_packet_stale": [], "review_stale": [], "fix_unconfirmed": [], "review_unparsed": [], "render_stale": []}
+    "flags": {"packet_stale": [], "invalid": [], "review_packet_stale": [], "review_stale": [], "fix_unconfirmed": [], "review_unparsed": [], "render_stale": [], "doc_misfiled": []}
   }
 }
 ```

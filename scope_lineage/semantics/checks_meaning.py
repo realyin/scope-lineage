@@ -36,6 +36,14 @@ _LEFT_WORDS = re.compile(r"left\s*(?:outer\s*)?join|左关联|左连接|左联",
 _CLAUSE_MARKS = "，,、：:（("
 _UNIVERSAL = re.compile(r"都|均|全部|所有|一律|任何|皆")
 _SENTENCES = re.compile(r"[。；;\n]")
+# A no-effect claim made under a condition, with the case where the condition fails said: the
+# condition before the claim, the rows multiplying after it or in the next sentence.
+_CONDITION = re.compile(r"若|如果|假如|倘若|假设|只要|只有|一旦|除非|[当在][^，,。；;]*时")
+_MULTIPLIES = re.compile(
+    r"(?<![不没未])(?:会|可能)[^，,。；;]{0,8}?(?:放大|膨胀|重复)|关联出多[行条]"
+)
+_FAILS_FIRST = re.compile(r"\s*(?:若|如果|一旦)[^，,。；;]*?(?:不成立|不唯一|不满足)")
+_OTHERWISE_FIRST = re.compile(r"\s*(?:否则|不然|反之)")
 
 
 def check_fan_out(document: dict, packet: dict) -> list[dict]:
@@ -68,7 +76,11 @@ def check_fan_out(document: dict, packet: dict) -> list[dict]:
             if (grain := [r for r in rules if r["fan_out"].get("path") in (None, GRAIN_PATH)])}
     results = [_named(rules, said) for rules in held.values()]
     left = [r for rules in held.values() for r in rules if "LEFT" in str(r.get("join_type")).upper()]
-    return results + _harmless_left(left, everywhere, _safe_names(packet, groups))
+    every_name = [
+        name for rule in packet["lineage"]["rules"] if rule["kind"] == "join"
+        for name in join_names(rule)
+    ]
+    return results + _harmless_left(left, everywhere, _safe_names(packet, groups), every_name)
 
 
 def _safe_names(packet: dict, groups: dict[tuple, list[dict]]) -> list[str]:
@@ -106,19 +118,27 @@ def _named(rules: list[dict], said: list) -> dict:
         f"（{'、'.join(names)} 任一），写明会不会放大行数、为什么"))
 
 
-def _harmless_left(left: list[dict], everywhere: list, safe_names: list[str]) -> list[dict]:
+def _harmless_left(
+    left: list[dict], everywhere: list, safe_names: list[str], every_name: list[str]
+) -> list[dict]:
     """One warning per place that calls an unproven LEFT join harmless to the row count.
 
     A sentence naming no unproven join but saying 左关联 is taken to mean them all, unless
     it names a join proven unique and makes no claim about every join (都, 所有 ...) in the
-    clause that says 不放大.
+    clause that says 不放大. A claim made under a condition whose failing case is said
+    (:func:`_conditional`) is no claim.
     """
     if not left:
         return []
     results, warned = [], set()
-    for where, text in everywhere:
+    for index, (where, text) in enumerate(everywhere):
         named = [rule for rule in left if _mentions(text, join_names(rule))]
-        claims = _no_effect_claims(text)
+        following = everywhere[index + 1] if index + 1 < len(everywhere) else None
+        after = following[1] if following and following[0] == where else ""
+        claims = [
+            claim for claim in _no_effect_claims(text)
+            if not _conditional(text, claim, after, every_name)
+        ]
         if where in warned or not claims:
             continue
         about_safe = _mentions(text, safe_names) and not any(
@@ -137,6 +157,28 @@ def _harmless_left(left: list[dict], everywhere: list, safe_names: list[str]) ->
 def _no_effect_claims(text: str) -> list[re.Match]:
     """The no-effect phrases of ``text`` not negated by what stands just before them."""
     return [m for m in _NO_EFFECT.finditer(text) if not _NEGATED.search(text[: m.start()])]
+
+
+def _conditional(text: str, claim: re.Match, after: str, every_name: list[str]) -> bool:
+    """Whether a no-effect claim is made under a condition with its failing case said.
+
+    One of: a condition before the claim and the rows multiplying after it in the sentence;
+    a next sentence opening with the condition failing (若 … 不成立 / 不唯一 / 不满足) that
+    says the rows multiply; a condition before the claim and a next sentence opening with
+    否则 / 不然 / 反之 that says so. The failing case must name no join the sentence has not
+    named up to the claim: a case about another join says nothing about this one.
+    """
+    before, rest = text[: claim.end()], text[claim.end():]
+    conditioned = bool(_CONDITION.search(text[: claim.start()]))
+    if conditioned and _MULTIPLIES.search(rest):
+        case = rest
+    elif after and _MULTIPLIES.search(after) and (
+        _FAILS_FIRST.match(after) or (conditioned and _OTHERWISE_FIRST.match(after))
+    ):
+        case = after
+    else:
+        return False
+    return not _mentions(case, [name for name in every_name if not _mentions(before, [name])])
 
 
 def _clause(text: str, claim: re.Match) -> str:

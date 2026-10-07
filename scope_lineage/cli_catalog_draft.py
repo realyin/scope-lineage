@@ -40,6 +40,7 @@ from .catalog import (
     write_documents,
 )
 from .catalog.merge import KINDS
+from .cli_only import add_directory, add_only, take_back_directory
 from .semantics.names import bare_table
 
 DIGEST_JSON = "digest.json"
@@ -54,15 +55,12 @@ def add_draft_parsers(actions) -> None:
             f"({DIGEST_MD} + {DIGEST_JSON}); with --catalog, name what it does not cover"
         ),
     )
-    digest.add_argument("directory", help="Directory of table-semantics/1 JSON documents")
+    add_directory(digest, "directory", "Directory of table-semantics/1 JSON documents")
     digest.add_argument(
         "--catalog",
         help="A catalog directory: list tables with no representation and columns with no binding",
     )
-    digest.add_argument(
-        "--only", nargs="+", action="extend", default=None, metavar="TABLE",
-        help="Only these tables (db.table, a catalog prefix is ignored)",
-    )
+    add_only(digest, "Only these tables (db.table, a catalog prefix is ignored)")
     digest.add_argument(
         "--lineage",
         help=(
@@ -103,6 +101,7 @@ def add_draft_parsers(actions) -> None:
 def run_digest(args: argparse.Namespace) -> int:
     from .cli_semantic import _renderable_documents
 
+    take_back_directory(args)
     directory = Path(args.directory)
     if not directory.is_dir():
         print(f"directory does not exist: {directory}", file=sys.stderr)
