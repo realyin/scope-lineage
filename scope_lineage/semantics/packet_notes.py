@@ -5,8 +5,9 @@
   (``below_aggregate``), or neither;
 - :func:`statement_findings` -- the governance findings a writer must see (a positional
   write whose aliases disagree with the target's columns, one alias naming two sources,
-  an empty-string test on a column that is no string), each with its task, statement and
-  the packet rules it is about;
+  an empty-string test on a column that is no string, a numeric test on a string column,
+  a window grouped on fewer columns than the batch key of the rows it reads), each with
+  its task, statement and the packet rules it is about;
 - :func:`merge_block` -- a MERGE's merge key, WHEN clauses and the comparison of its
   USING side's dedup with the merge key, the profile's ``output_shape.merge``.
 
@@ -19,7 +20,13 @@ from __future__ import annotations
 from .packet_facts import LOGIC_BLOCK, PROFILE_RULE
 
 # The findings a packet carries; the others are the semantic document's (``describe``).
-PACKET_FINDINGS = ("alias_position_mismatch", "duplicate_alias", "empty_string_on_non_string")
+PACKET_FINDINGS = (
+    "alias_position_mismatch",
+    "duplicate_alias",
+    "empty_string_on_non_string",
+    "numeric_compare_on_string",
+    "window_partition_narrower",
+)
 
 
 def _statement_key(item: dict) -> tuple:

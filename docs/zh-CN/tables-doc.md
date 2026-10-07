@@ -202,6 +202,13 @@ merged = merge_table_cards(first_tables_json, second_tables_json)
 - `produced_by[]` 每条来自该任务 semantic profile 的 `task` / `output_shape` / `fields` 块，
   `refresh` 来自任务 JSON 的 `meta`（`schedule_cycle` / `schedule`），没有就是 `null`——
   绝不从分区列或表名猜调度周期。
+- MERGE 生产语句的 `grain`、`candidate_keys`、`key_confidence` 是它写入批次的值（M1；以前恒为
+  `unknown` / `[]` / `none`）。它们仍不说明整张表：合并写入算追加写入，表卡的 `key_claim`
+  照旧被反证。
+- `produced_by[].batch_write_keys`（M4），只在非空时出现：该生产语句这一批按哪些目标列去重或
+  分组——MERGE 取 USING 的去重键，其他取 `candidate_keys`，分区列除外。这是批次键，不是表键；
+  另一个任务里读这张表的窗口拿它来比较
+  （见 [semantic-doc.md](semantic-doc.md) 的 `window_partition_narrower`）。
 - `consumed_by[].columns` 只列**确实被逻辑块读到**的列；`columns[]` 则是元数据声明的全部
   字段（`related_metadata.*.declared_columns[]`，按 DDL 顺序）与生产侧字段、消费侧列的并集，
   因此一张只被读的表也有完整字段清单，一张八十列的表不会因为本语料只读了四列就只剩四列。
@@ -347,6 +354,7 @@ scope-lineage describe --lineage /path/to/corpus/one_task/lineage.json \
 | 同上但表卡的 `key_confidence` 是 `candidate` | 同样改判 `safe`，但 `reason` 注明「表卡候选键，未证唯一」，且整条语句的 `key_confidence` 上限压到 `candidate` |
 | 表卡 `key_confidence` 是 `proven_unexposed` 或 `none`，或连接键没盖住候选键 | 不改判，仍是原来的结论 |
 | 有生产任务以追加（`INSERT INTO`）或合并（`MERGE`）方式写这张表，或多个生产任务给出的候选键不一致 | 改判 `unknown`，`reason` 说明原因：键只在单批写入内唯一 / 读到哪一版取决于调度顺序（F2） |
+| JOIN 右侧不是物理表本身，而是只装着一张表的行的子查询或 CTE——到那张表为止的每一层都只读一个输入、只做过滤，连接列原样透传到表（G5a-2） | 按上面各行去问那张表的表卡，沿途 WHERE 的等值条件算作钉住；表卡没有答复时保持原判定 |
 | 生产任务按分区写入，而连接既没有在 ON 中对齐分区列、也没有在 WHERE 里把右表的分区列钉成常量 | 改判 `unknown`，`reason` 说明键只在每个分区内唯一；分区列被对齐或钉住时照常判 `safe`（F2） |
 
 `candidate_keys`、`unexposed_keys`、`key_evidence`、`key_confidence` 都由最终的风险集合算出——

@@ -25,7 +25,7 @@ lineage_digest: "2467f32c459c3d23"
 ## 2. 输出表形态与粒度
 
 - ⚠ 形态：未能判定（unknown）（结构推断；证据 ROOT）
-- ⚠ 粒度：未能判定（basis=unknown）（结构推断；证据 ROOT）
+- 粒度：一行对应 `ods.customer_delta` 的一行（依据主表行，basis=driving_table_rows，经 `subq:source` 穿透）（结构推断；证据 subq:source, ods.customer_delta）
 - 候选键：无（结构未证明任一键唯一）（结构推断）
 - 分区列：无；分区列不计入候选键（元数据事实）
 - 行数放大风险：粒度链路上无 JOIN，不存在连接放大。（结构推断）

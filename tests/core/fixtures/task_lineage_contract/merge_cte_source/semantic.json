@@ -186,11 +186,16 @@
         ],
         "grain": {
           "keys": [],
-          "basis": "unknown",
-          "via_scopes": [],
+          "basis": "driving_table_rows",
+          "via_scopes": [
+            "subq:source",
+            "cte:staged"
+          ],
           "confidence": "structural",
           "evidence": [
-            "ROOT"
+            "subq:source",
+            "cte:staged",
+            "ods.events"
           ]
         },
         "candidate_keys": [],
@@ -242,7 +247,16 @@
               "ods.events"
             ]
           },
-          "coverage": "no_dedup"
+          "coverage": "no_dedup",
+          "table_key": {
+            "keys": [
+              "id"
+            ],
+            "status": "hypothesis"
+          },
+          "update_nullable_by_join": [
+            "account_key"
+          ]
         },
         "tag": "结构推断",
         "key_claim": null

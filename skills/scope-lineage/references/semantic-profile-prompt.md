@@ -124,7 +124,7 @@ v1 每句挂 `SQL事实` / `LLM推断` 让语义说明读起来像审计日志�
 | `aggregated` / `deduplicated` / `union_merge` | 按某几个维度汇总 / 同一对象只留一条 / 几路来源拼成一张表 |
 | `driving` / `filter_partner` / `enrich` / `dedup_source` / `aggregate_source` / `union_branch` / `merge_source` / `rowset_only` | 决定输出哪些行的主表 / 既补列又会把连不上的主表行丢掉 / 补充信息用 / 去重后取一条的来源 / 被汇总的明细来源 / 拼接的其中一路 / 更新时的来源 / 只借它的行集 |
 | `candidate_key` / `key_confidence=proven` / `proven_unexposed` / `candidate` / `none` | 能唯一标识一行的列 / 确实唯一 / **唯一性依赖的列没写进表，现有列不能唯一标识一行** / 只是候选，是否唯一未证明 / 没有能唯一标识一行的列 |
-| `keep_latest_per_group` / `keep_first_per_group` / `rank_within_group` | 每个对象只留最新一条 / 只留最早一条 / 组内排名（不筛第一名） |
+| `keep_latest_per_group` / `keep_first_per_group` / `keep_arbitrary_per_group` / `rank_within_group` | 每个对象只留最新一条 / 只留最早一条 / 排序不起作用、每个对象留任意一条 / 组内排名（不筛第一名） |
 | `pick_first_in_group` / `pick_last_in_group` / `adjacent_row_offset` / `running_aggregate` | 取组内第一条的值 / 最后一条的值 / 相邻一行的值 / 累计值 |
 | `fan_out_risks[].status=risk` / `nullable_by_join` | 这次关联可能让一行变成多行 / 关联不上时这列为空 |
 | `measure` / `event_time` / `conditional_label` / `attribute` / `constant` / `derived` / `partition` | 指标 / 时间 / 按条件打的标签 / 属性 / 固定值 / 算出来的 / 分区列 |
