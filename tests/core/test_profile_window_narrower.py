@@ -141,6 +141,32 @@ def test_a_writer_in_another_task_is_read_off_its_table_card():
     assert found[1]["text"].endswith("其中 env 不在窗口分组与排序里")
 
 
+def test_a_sibling_writer_is_not_counted_again_off_its_own_task_s_card():
+    script = WRITER + _chain("k")
+    cards = build_table_cards([_task(script)])
+    assert len(_findings(_task(script, table_cards=cards))) == 1
+
+
+def test_the_cards_the_cli_builds_from_projected_profiles_carry_the_batch_keys():
+    """``scope-lineage tables`` hands the builder profiles cut to what it reads (P2)."""
+    from scope_lineage.corpus_cache import project_profile
+    from scope_lineage.render.table_cards import PROFILE_FIELDS_READ
+
+    # `env` is derived on the way out, so the batch is unique by it without the write
+    # proving a target key: only the MERGE block knows the batch key.
+    writer = _task(
+        "MERGE INTO dw.ver tgt USING (SELECT k, concat('e_', env) AS env, d, NULL AS e FROM"
+        " (SELECT k, env, d, row_number() OVER (PARTITION BY k, env, d ORDER BY ts DESC) rn"
+        " FROM ods.v) a WHERE a.rn = 1) src ON tgt.k = src.k AND tgt.d = src.d"
+        " WHEN NOT MATCHED THEN INSERT *;\n",
+        task="w",
+    )
+    assert writer["statements"][0]["output_shape"]["candidate_keys"] == ["k", "d"]
+    cards = build_table_cards([project_profile(writer, PROFILE_FIELDS_READ)])
+    (card,) = [item for item in cards["tables"] if item["table"] == "dw.ver"]
+    assert card["produced_by"][0]["batch_write_keys"] == ["k", "env", "d"]
+
+
 def test_a_bare_statement_reads_the_card_too():
     cards = build_table_cards([_task(WRITER, task="w")])
     document = to_lineage_dict(parse_scope_lineage(_chain("k").rstrip(";\n"), "r", schema=SCHEMA))

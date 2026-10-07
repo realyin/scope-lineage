@@ -304,3 +304,17 @@ def test_each_union_branch_reports_its_own_dedup_and_coverage_stays_unknown():
         (2, "window_partition", ["k"], "covered"),
         (3, "driving_table_rows", [], None),
     ]
+
+
+def test_a_branch_joining_after_its_dedup_is_not_covered():
+    merge = _merge_profile(
+        "MERGE INTO dw.m tgt USING (SELECT a.k, a.env, a.v, l.note, a.dt FROM (SELECT k, env,"
+        " v, dt, row_number() OVER (PARTITION BY k ORDER BY ts DESC) rn FROM ods.s) a"
+        " LEFT JOIN ods.lk l ON a.k = l.k WHERE a.rn = 1"
+        " UNION ALL SELECT k, env, v, '' note, dt FROM ods.s) src"
+        " ON tgt.k = src.k WHEN NOT MATCHED THEN INSERT *"
+    )["output_shape"]["merge"]
+    first = merge["union_branches"][0]
+    assert first["basis"] == "window_partition"
+    assert first["coverage"] == "unknown"
+    assert first["joins_after_dedup"]

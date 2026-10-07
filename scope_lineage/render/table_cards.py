@@ -101,7 +101,14 @@ PROFILE_FIELDS_READ = {
             "declared_columns",
             "read_by_scopes",
         ),
-        "output_shape": ("grain", "candidate_keys", "key_confidence"),
+        # `merge` and `partition_columns` are what `batch_write_keys` reads (M4).
+        "output_shape": (
+            "grain",
+            "candidate_keys",
+            "key_confidence",
+            "partition_columns",
+            "merge",
+        ),
         "fields": ("column", "target_comment", "summary", "structural_role"),
     },
 }

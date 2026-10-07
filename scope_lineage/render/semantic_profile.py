@@ -429,7 +429,9 @@ def build_semantic_profile(
     profile = _build_statement_profile(
         lineage_document, diagnostics_document, table_cards=table_cards
     )
-    _add_window_findings(lineage_document, profile, [], table_cards)
+    _add_window_findings(
+        lineage_document, profile, [], table_cards, str(lineage_document.get("task_id") or "")
+    )
     return profile
 
 
@@ -482,8 +484,9 @@ def _build_task_profile(
     }
     # M4 needs every statement's written keys, so it runs once all of them are built.
     pairs = list(zip((statement_lineage[sid] for sid in ordered_ids), profile["statements"]))
+    task = str(task_document.get("task_id") or "")
     for document, statement in pairs:
-        _add_window_findings(document, statement, pairs, table_cards)
+        _add_window_findings(document, statement, pairs, table_cards, task)
     return {key: profile[key] for key in TASK_PROFILE_KEYS}
 
 
@@ -512,9 +515,10 @@ def _add_window_findings(
     profile: dict,
     siblings: Sequence[tuple[dict, dict]],
     table_cards: Mapping | None,
+    task: str,
 ) -> None:
     """Append M4's findings to one statement profile, keeping ``FINDING_KINDS`` order."""
-    writers = _writer_lookup(document, siblings, table_cards)
+    writers = _writer_lookup(document, siblings, table_cards, task)
     found = _window_narrower_findings(document, writers)
     if not found:
         return
@@ -526,7 +530,10 @@ def _add_window_findings(
 
 
 def _writer_lookup(
-    document: dict, siblings: Sequence[tuple[dict, dict]], table_cards: Mapping | None
+    document: dict,
+    siblings: Sequence[tuple[dict, dict]],
+    table_cards: Mapping | None,
+    task: str,
 ):
     """``table -> [(who writes it, batch keys, partition columns)]``, never this statement.
 
@@ -534,9 +541,9 @@ def _writer_lookup(
     then a table card's producers from other tasks. The window's own statement is never
     its writer: a statement that reads the table it writes would compare its window with
     its own key. For a bare statement document the card is the only source, and only
-    its own entry is left out.
+    its own entry is left out. ``task`` is the task's id as a card names it (a task
+    document's statements carry their own ``task_id``, suffixed per statement).
     """
-    task = str(document.get("task_id") or "")
     own = document.get("statement_id")
     in_task = bool(siblings)
     cards = _card_lookup(table_cards)
@@ -3152,6 +3159,8 @@ def _union_branches(document: dict, visited: Sequence[str], merged: set[str]) ->
                     if any(name.lower() not in merged for name, _ in keys)
                     else MERGE_COVERAGE_UNKNOWN if unsafe else MERGE_COVERED
                 )
+                if unsafe:
+                    entry["joins_after_dedup"] = unsafe
         found.append(entry)
     return found
 
