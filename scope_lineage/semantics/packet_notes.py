@@ -178,14 +178,22 @@ def statement_findings(rules: list[dict], statements: list[tuple[str, dict]]) ->
 
 
 def merge_block(task: str, statement: dict, rules: list[dict]) -> dict | None:
-    """The profile's ``output_shape.merge``, its JOINs after the dedup as packet rule ids."""
+    """The profile's ``output_shape.merge``, its JOINs after a dedup as packet rule ids.
+
+    Those of the USING side and those of each UNION branch (``union_branches``) alike.
+    """
     merge = (statement.get("output_shape") or {}).get("merge")
     if not merge:
         return None
-    block = dict(merge)
-    if block.get("joins_after_dedup"):
-        key = (task, statement.get("statement_id"))
-        ids = {rule.get(LOGIC_BLOCK): rule["id"] for rule in rules
-               if rule["kind"] == "join" and _statement_key(rule) == key}
-        block["joins_after_dedup"] = [ids.get(item, item) for item in block["joins_after_dedup"]]
+    key = (task, statement.get("statement_id"))
+    ids = {rule.get(LOGIC_BLOCK): rule["id"] for rule in rules
+           if rule["kind"] == "join" and _statement_key(rule) == key}
+
+    def numbered(item: dict) -> dict:
+        joins = item.get("joins_after_dedup")
+        return {**item, "joins_after_dedup": [ids.get(j, j) for j in joins]} if joins else dict(item)
+
+    block = numbered(merge)
+    if block.get("union_branches"):
+        block["union_branches"] = [numbered(branch) for branch in block["union_branches"]]
     return block

@@ -203,11 +203,13 @@ def lineage_section(table: str, statements: list, rules: list[dict], target: dic
         for item in statement.get("inputs") or []
     })
     findings = statement_findings(rules, statements)
+    partitions = [column["name"] for column in target["columns"] if column.get("partition")]
     return {
         "columns": _column_lineage(target, statements),
         "rules": rules,
         "keys": [_keys(task, statement, rules) for task, statement in statements],
-        "partition": [facts.statement_partition(task, statement) for task, statement in statements],
+        "partition": [facts.statement_partition(task, statement, partitions)
+                      for task, statement in statements],
         "upstream_tables": inputs,
         "upstream_tasks": _upstream_tasks(inputs, statements, producers, corpus),
         "downstream": _downstream(table, statements, producers, corpus),

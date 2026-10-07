@@ -234,7 +234,11 @@ def _columns_of(fields) -> list[str]:
 
 
 def statement_keys(task: str, statement: dict) -> dict:
-    """The statement's grain and keys, and whether the profile proves them."""
+    """The statement's grain and keys, and whether the profile proves them.
+
+    ``proven`` is false on a MERGE whatever its confidence: the profile proves the batch
+    the MERGE writes, while a reader of this row asks about the table (A-M1).
+    """
     shape = statement.get("output_shape") or {}
     grain = shape.get("grain") or {}
     confidence = shape.get("key_confidence")
@@ -246,11 +250,21 @@ def statement_keys(task: str, statement: dict) -> dict:
         "grain_keys": [str(key.get("name")) for key in grain.get("keys") or []],
         "candidate_keys": list(shape.get("candidate_keys") or []),
         "key_confidence": confidence,
-        "proven": confidence == "proven",
+        "proven": confidence == "proven" and not shape.get("merge"),
     }
 
 
-def statement_partition(task: str, statement: dict) -> dict:
+MERGE_ROW_VALUES = "merge_row_values"
+
+
+def statement_partition(task: str, statement: dict, table_partitions=()) -> dict:
+    """How the statement writes partitions: its PARTITION clause, or a MERGE's rows (A-M6).
+
+    A MERGE has no PARTITION clause, so the lineage names no partition column for it; each
+    written row lands in the partition its own values name. ``table_partitions`` are the
+    target table's partition columns the metadata states; a MERGE then writes them as
+    ``merge_row_values``, with the constants its INSERT writes into them.
+    """
     partition = (statement.get("task") or {}).get("partition") or {}
     spec = partition.get("spec") or {}
     entry = {
@@ -260,13 +274,24 @@ def statement_partition(task: str, statement: dict) -> dict:
         "mode": partition.get("mode"),
         "spec": spec,
     }
-    values = _select_values(statement, [name for name, value in spec.items() if value is None])
+    dynamic = [name for name, value in spec.items() if value is None]
+    fields = statement.get("fields") or []
+    merging = (statement.get("output_shape") or {}).get("merge")
+    if merging and not entry["columns"] and not entry["mode"] and table_partitions:
+        entry["columns"], entry["mode"], dynamic = list(table_partitions), MERGE_ROW_VALUES, list(
+            table_partitions)
+        # The value an inserted row lands with is the INSERT's; an UPDATE keeps the row.
+        fields = [field for field in fields if _NOT_MATCHED.search(str(field.get("column_label")))]
+    values = _select_values(fields, dynamic)
     if values:
         entry["select_values"] = values
     return entry
 
 
-def _select_values(statement: dict, dynamic: list[str]) -> dict[str, list[str]]:
+_NOT_MATCHED = re.compile(r"merge:not_matched\s")
+
+
+def _select_values(fields: list[dict], dynamic: list[str]) -> dict[str, list[str]]:
     """The constants a SELECT writes into each dynamic partition column, when only constants.
 
     ``PARTITION (dt)`` is dynamic whatever the SELECT feeds it, so the spec has no value;
@@ -274,7 +299,7 @@ def _select_values(statement: dict, dynamic: list[str]) -> dict[str, list[str]]:
     from constants alone (``'${bizdate}' AS dt``, one per UNION branch), those constants
     are the partition values. A column fed from a source keeps no entry.
     """
-    fields = {str(field.get("column")): field for field in statement.get("fields") or []}
+    fields = {str(field.get("column")): field for field in fields}
     values: dict[str, list[str]] = {}
     for name in dynamic:
         field = fields.get(str(name)) or {}

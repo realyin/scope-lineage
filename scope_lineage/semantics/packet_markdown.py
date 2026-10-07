@@ -501,7 +501,34 @@ def _merge_lines(key: dict) -> list[str]:
         f"- MERGE 合并键{at}：{on}",
         f"- MERGE WHEN{at}：{_whens(merge.get('whens') or [])}",
         f"- MERGE 去重与合并键{at}：{_coverage(merge)}",
+        *_table_key(merge, at),
+        *_update_facts(merge, at),
     ]
+
+
+def _table_key(merge: dict, at: str) -> list[str]:
+    """A-M1: the key the MERGE suggests for the table -- inferred, never proven."""
+    table_key = merge.get("table_key")
+    if not table_key:
+        return []
+    if table_key.get("status") == "update_only":
+        return [f"- MERGE 后目标表的键{at}：只更新已有行、不新增行，本语句不决定目标表的行粒度"]
+    return [f"- MERGE 后目标表的候选键{at}：{_names(table_key.get('keys') or [])}"
+            "（按 ON 合并键与 USING 去重键推断，未证明）"]
+
+
+def _update_facts(merge: dict, at: str) -> list[str]:
+    """A-M2: what a matched UPDATE leaves alone, changes, or may overwrite with NULL."""
+    lines = []
+    if merge.get("insert_only_columns"):
+        lines.append(f"- MERGE matched UPDATE 不改的列{at}：{_names(merge['insert_only_columns'])}"
+                     "（只在首次 INSERT 时写入，之后不随更新变化）")
+    if merge.get("update_columns"):
+        lines.append(f"- MERGE matched UPDATE 只改{at}：{_names(merge['update_columns'])}，其余列保持原值")
+    if merge.get("update_nullable_by_join"):
+        lines.append(f"- MERGE matched UPDATE 可能写入空值{at}：{_names(merge['update_nullable_by_join'])}"
+                     " 来自 LEFT JOIN，本次关联未命中时会把已有值覆盖成 NULL")
+    return lines
 
 
 def _whens(whens: list[dict]) -> str:
@@ -527,13 +554,21 @@ _COVERAGE = {
 
 
 def _coverage(merge: dict) -> str:
+    """The USING side's dedup, branch by branch for a UNION, against the merge key.
+
+    A grain the tool did not decide is said to be undecided, never "no dedup" (A-M3).
+    """
     basis = (merge.get("using_grain") or {}).get("basis")
     keys = merge.get("dedup_keys") or []
-    head = (
-        "USING 去重键 " + "、".join(
-            _code(item["column"]) + ("（派生）" if item.get("derived") else "") for item in keys)
-        if keys else f"USING 无去重（{_text(basis)}）"
-    )
+    if merge.get("union_branches"):
+        head = ("USING 是 UNION，逐分支：" + "；".join(map(_branch, merge["union_branches"]))
+                + "；分支之间没有去重：同一合并键可能在不同分支各出一行")
+    elif keys:
+        head = "USING 去重键 " + _dedup_keys(keys)
+    elif basis == "unknown":
+        head = "USING 粒度未判定（unknown）"
+    else:
+        head = f"USING 无去重（{_text(basis)}）"
     coverage = merge.get("coverage")
     if coverage == "dedup_wider":
         said = (f"dedup_wider（去重键多出 {_names(merge.get('extra_keys') or [])}：同一合并键在 USING "
@@ -543,6 +578,27 @@ def _coverage(merge: dict) -> str:
     joins = merge.get("joins_after_dedup") or []
     after = f"；去重之后还有未证明唯一的关联 {'、'.join(joins)}" if joins else ""
     return f"{head}；与合并键比较：{said}{after}"
+
+
+_DEDUP_BASES = ("group_by", "distinct", "window_partition")
+
+
+def _dedup_keys(keys: list[dict]) -> str:
+    return "、".join(_code(item["column"]) + ("（派生）" if item.get("derived") else "")
+                    for item in keys)
+
+
+def _branch(branch: dict) -> str:
+    """One UNION branch of a USING side: its dedup and how it compares, or its grain."""
+    basis = branch.get("basis")
+    if not branch.get("dedup_keys"):
+        said = ("粒度未判定" if basis == "unknown"
+                else "去重键没有抬到 USING 输出" if basis in _DEDUP_BASES else "无去重")
+        return f"分支 {branch['branch']} {said}（{_text(basis)}）"
+    joins = branch.get("joins_after_dedup") or []
+    after = f"；去重之后还有未证明唯一的关联 {'、'.join(joins)}" if joins else ""
+    return (f"分支 {branch['branch']} 按 {_dedup_keys(branch['dedup_keys'])} 去重"
+            f"（{_text(branch.get('coverage'))}{after}）")
 
 
 def _findings(findings: list[dict]) -> list[str]:
@@ -564,13 +620,16 @@ def _partition_values(item: dict) -> str:
     chosen = item.get("select_values") or {}
     spec = "、".join(f"{name} = {_code(value)}" for name, value in item["spec"].items()
                      if name not in chosen)
-    if not chosen:
-        return f"{_text(item['mode'])}，{spec or '无分区值'}"
     constants = "；".join(
         f"{name} = {_code(values[0])}" if len(values) == 1
         else f"{name} ∈ {'、'.join(_code(value) for value in values)}"
         for name, values in chosen.items()
     )
+    if item["mode"] == "merge_row_values":
+        return ("MERGE 无 PARTITION 子句：按写入行的分区列值落分区（INSERT 时取 USING 该列的值；"
+                "UPDATE 不改该列时行留在原分区）" + (f"（INSERT 写常量：{constants}）" if chosen else ""))
+    if not chosen:
+        return f"{_text(item['mode'])}，{spec or '无分区值'}"
     return f"{_text(item['mode'])}（SELECT 写常量：{constants}）" + (f"，{spec}" if spec else "")
 
 
