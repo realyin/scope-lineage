@@ -2149,7 +2149,7 @@ def _chain_matcher(document: dict):
 def _build_field(document: dict, entry: dict, chain: dict | None, context: dict) -> dict:
     detail = _column_detail(_output_metadata(document), entry.get("column"))
     comment = detail.get("comment")
-    derivation = _derivation(chain, context)
+    derivation = _derivation(document, chain, context)
     # WI-2.1 fix: the chain rule below only proves a *pass-through* value nullable, so an
     # aggregate over a joined-in column came back false. The argument rule proves the
     # other half, and the field flag follows whichever of the two fires.
@@ -2590,10 +2590,11 @@ def _is_ambiguous(entry: dict) -> bool:
     )
 
 
-def _derivation(chain: dict | None, context: dict) -> list[dict]:
+def _derivation(document: dict, chain: dict | None, context: dict) -> list[dict]:
     """R4: one restated line per ordered step, with the verbatim expression beside it."""
     steps = []
-    for step in (chain or {}).get("ordered_steps") or []:
+    ordered = (chain or {}).get("ordered_steps") or []
+    for position, step in enumerate(ordered):
         scope_id = str(step.get("scope_id"))
         expression = step.get("expression_sql")
         has_udf = _step_calls_udf(step, context)
@@ -2616,11 +2617,65 @@ def _derivation(chain: dict | None, context: dict) -> list[dict]:
                     input_fields=step.get("input_fields") or [],
                     has_udf=has_udf,
                     column_types=context["column_types"],
+                    values_filter=(
+                        _values_filter(document, ordered, position)
+                        if step.get("step_type") == "constant"
+                        else None
+                    ),
                 ),
                 "expression": _without_comments(expression),
             }
         )
     return steps
+
+
+def _values_filter(
+    document: dict, steps: Sequence[dict], position: int
+) -> tuple[list[int], list[str], int] | None:
+    """C-P6: the rows of an inline VALUES list this field can still read, or None.
+
+    A constant step over a VALUES column carries every row of the list, while the field
+    may read it through ``SELECT * FROM codes WHERE code_type = 'B'``. The later steps of
+    the chain whose single-input chain (#21-c) reaches down to the VALUES scope are the
+    layers that can filter it; the topmost ones are read, with #21-c's own pins (equality
+    conjuncts only, so a filter in an OR is ignored and the preview only stays wider).
+    UNION branches that read the list through different filters are not one set of rows:
+    then nothing is narrowed. Returns ``(kept row indexes, pin texts, row count)`` only
+    when the filters drop at least one row.
+    """
+    bottom = str(steps[position].get("scope_id"))
+    scope = _scopes(document).get(bottom) or {}
+    if scope.get("depends_on"):
+        return None
+    columns = [str(output.get("name")) for output in scope.get("outputs") or []]
+    rows = values_rows.literal_rows(scope.get("raw_sql"), len(columns))
+    if not rows:
+        return None
+    chains: dict[str, list[str]] = {}
+    for step in steps[position + 1 :]:
+        scope_id = str(step.get("scope_id"))
+        if scope_id not in chains:
+            chain = _single_input_chain(document, scope_id)
+            if len(chain) > 1 and chain[-1] == bottom:
+                chains[scope_id] = chain
+    tops = [
+        chain
+        for scope_id, chain in chains.items()
+        if not any(scope_id in other[1:] for other in chains.values())
+    ]
+    readings = {
+        tuple(sorted(_values_pins(
+            document, chain, _values_column_names(document, chain, columns), {}, chain[0]
+        )))
+        for chain in tops
+    }
+    if len(readings) != 1:
+        return None
+    pins = readings.pop()
+    kept = [index for index, row in enumerate(rows) if _row_meets_pins(row, pins)]
+    if not pins or len(kept) == len(rows):
+        return None
+    return kept, [f"{columns[column]} = '{value}'" for column, value in pins], len(rows)
 
 
 def _group_by_keys(document: dict, scope_id: str) -> list[str]:
@@ -4770,13 +4825,7 @@ def _values_key_claim(
     rows = values_rows.literal_rows(scope.get("raw_sql"), len(columns))
     if not rows or not columns:
         return None
-    level = len(chain) - 1
-    # name at each chain level -> the VALUES column it carries
-    at_level: list[dict[str, int]] = [{} for _ in chain]
-    for position, column in enumerate(columns):
-        for index, name in enumerate(_lifted_names(document, chain, level, column)):
-            if name is not None:
-                at_level[index].setdefault(name.lower(), position)
+    at_level = _values_column_names(document, chain, columns)
     key_positions = _dedupe(
         at_level[0][name.lower()] for name in join_columns if name.lower() in at_level[0]
     )
@@ -4802,6 +4851,19 @@ def _values_key_claim(
         "R-VALUES-DISTINCT",
         (bottom,),
     )
+
+
+def _values_column_names(
+    document: dict, chain: Sequence[str], columns: Sequence[str]
+) -> list[dict[str, int]]:
+    """Per chain level, each lower-cased name there -> the VALUES column it carries."""
+    level = len(chain) - 1
+    at_level: list[dict[str, int]] = [{} for _ in chain]
+    for position, column in enumerate(columns):
+        for index, name in enumerate(_lifted_names(document, chain, level, column)):
+            if name is not None:
+                at_level[index].setdefault(name.lower(), position)
+    return at_level
 
 
 def _values_pins(

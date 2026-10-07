@@ -24,6 +24,14 @@
   name is not ASCII (`示例类别(…)`), which used to be called code. Fields keep dropping code
   comments from `sql_comments`; rules now classify too (see Added). **Content change for
   consumers of `sql_comments`** on fields and rules.
+- **An inline VALUES preview shows the rows the field can read.** A derivation step over a
+  VALUES column previewed the list's first three literals even when the field reads it
+  through `SELECT * FROM codes WHERE code_type = 'B'`, so the preview could show values the
+  column never holds. When the field's chain filters the list by equality conjuncts (the
+  #21-c pins: an equality inside an OR is ignored, so the preview only stays wider) the step
+  reads 「内联 VALUES 的一列（按 code_type = 'B' 过滤后 N 个字面量（全表 M 个），前 k 个：…）」.
+  UNION branches that filter the list differently narrow nothing. Changes `derivation[].text`
+  and the field `summary` of such fields.
 - **`semantic validate` check 2 accepts a column's lookup key as its source.** A value read off
   an inline dictionary (a constant row set) has no physical source, so the only physical column
   a writer can name is the join key deciding which row is read -- and check 2 warned on it
@@ -297,8 +305,8 @@
   written on its own line above the `AND` that joins it on (or right after that `AND`).
   sqlglot attaches such a comment to the `AND` node, which splitting on AND used to drop, so
   it reached no conjunct. Absent when there are none; `schema_version` is unchanged and the
-  schema gains the optional property. The contract goldens are re-recorded for the new key alone.
-  **Downstream consumers of the contract should expect the new key.**
+  schema gains the optional property. The contract goldens are re-recorded for the new key
+  alone. **Downstream consumers of the contract should expect the new key.**
 - **Semantic profile: `rules[].commented_out_sql`.** A rule's comment that is switched-off
   SQL is published here rather than under `sql_comments`, and kept: beside a condition it
   records a condition somebody removed. Absent when empty; `semantic-json/1` unchanged.

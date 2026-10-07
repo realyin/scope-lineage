@@ -1417,16 +1417,30 @@ def describe_window(expression: str | None) -> str | None:
 VALUES_PREVIEW_COUNT = 3
 
 
-def describe_constant(expression: str | None) -> str:
+def describe_constant(
+    expression: str | None, values_filter: tuple | None = None
+) -> str:
     """``常量 <literal>``; a VALUES column of more than three literals is summarised.
 
     The contract gives an inline VALUES column one constant step whose expression is the
     tuple of every row's cell, and a long dictionary restated literal by literal buries the
     step it is in. The rows are not lost: the SQL keeps them, and so does the column's
     own expression.
+
+    C-P6: ``values_filter`` is ``(kept row indexes, pin texts, row count)`` when the
+    field reads the list through equality filters that drop rows; the preview then counts
+    and shows only the rows those filters keep, and names the filters and the list's full
+    size. A tuple that does not have that many cells is not that list and is summarised
+    as before.
     """
     text = str(expression or "").strip()
     node = parse_expression(text) if text.startswith("(") else None
+    if (
+        isinstance(node, exp.Tuple)
+        and values_filter is not None
+        and len(node.expressions) == values_filter[2]
+    ):
+        return _describe_filtered_values(node.expressions, values_filter[0], values_filter[1])
     if isinstance(node, exp.Tuple) and len(node.expressions) > VALUES_PREVIEW_COUNT:
         preview = "、".join(
             item.sql(dialect=DIALECT) for item in node.expressions[:VALUES_PREVIEW_COUNT]
@@ -1436,6 +1450,19 @@ def describe_constant(expression: str | None) -> str:
             f"前 {VALUES_PREVIEW_COUNT} 个：{preview}）"
         )
     return f"常量 {text}"
+
+
+def _describe_filtered_values(
+    cells: Sequence[exp.Expression], kept: Sequence[int], pins: Sequence[str]
+) -> str:
+    head = (
+        f"内联 VALUES 的一列（按 {'、'.join(pins)} 过滤后 {len(kept)} 个字面量"
+        f"（全表 {len(cells)} 个）"
+    )
+    shown = [cells[index].sql(dialect=DIALECT) for index in kept[:VALUES_PREVIEW_COUNT]]
+    if not shown:
+        return f"{head}）"
+    return f"{head}，前 {len(shown)} 个：{'、'.join(shown)}）"
 
 
 # WI-1g item E4. ``generated_sources[]`` entries are ``{source_type, value, transform}``
@@ -1781,6 +1808,7 @@ def describe_step(
     input_fields: Iterable[str] = (),
     has_udf: bool = False,
     column_types: Mapping[str, str] | None = None,
+    values_filter: tuple | None = None,
 ) -> str | None:
     """Restate one ``field_mapping_chains[].ordered_steps[]`` entry.
 
@@ -1794,7 +1822,7 @@ def describe_step(
         "aggregate": lambda: describe_aggregate(expression, keys, column_types),
         "case_when": lambda: describe_case(expression),
         "window": lambda: describe_window(expression),
-        "constant": lambda: describe_constant(expression),
+        "constant": lambda: describe_constant(expression, values_filter),
         "union": lambda: describe_union(inputs),
         "direct_projection": lambda: describe_direct_projection(inputs),
         "expression": lambda: describe_function_expression(expression),
