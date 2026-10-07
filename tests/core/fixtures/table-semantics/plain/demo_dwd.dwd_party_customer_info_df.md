@@ -81,4 +81,4 @@
 
 每条内容的来源：注释（表或字段注释）、SQL（加工逻辑）、SQL 注释（作者在 SQL 里写的说明）、元数据（表结构登记）、任务（任务登记信息）、推断（模型根据以上材料推断）、确认（owner 确认，标 ✓）；来源后的「中置信」「低置信」是写作者没有把握的条目。⚠ 表示材料之间有矛盾或存在风险；码值写「含义待确认」的，是材料只给了值、没给含义。
 
-写作：提示词 table-semantics-prompt@0（hand-written example）；依据材料包 `5ab3ea72c51631a6`。
+写作：提示词 table-semantics-prompt@0（hand-written example）；依据材料包 `ec811d2e60ec6088`。

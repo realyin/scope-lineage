@@ -89,17 +89,19 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 | 1. 目标表 | `target` | 表注释、层、域、元数据来源（`schema` / `lineage` / `fields`），按表内顺序的每一列及其类型、注释、是否分区列 |
 | 2. 生产任务 | `tasks[]` | 每个生产任务：编号、调度、周期、描述、登记的上下游任务、脚本头注释、写本表的语句，以及 SQL |
 | 3. 输入表 | `inputs[]` | 每张输入表：注释、层、在本表语句里的角色、生产它的任务、每一列及用法，以及下面的时间事实 |
-| 4. 血缘事实 | `lineage` | `columns[]`（每个目标列：每条生产语句的加工方式、物理来源列、表达式与推导步骤）、`rules[]`（过滤、关联、去重、合并与 CASE 分支，编号 `p1…`）、`keys[]`（形态、粒度依据、候选键、`key_confidence`、`proven`）、`partition[]`、`upstream_tables`、`upstream_tasks`、`downstream[]`（下游任务、它写的表、依据是血缘还是任务登记） |
+| 4. 血缘事实 | `lineage` | `columns[]`（每个目标列：每条生产语句的加工方式、物理来源列、表达式与推导步骤）、`rules[]`（过滤、关联、去重、窗口、合并与 CASE 分支，编号 `p1…`）、`keys[]`（形态、粒度依据、候选键、`key_confidence`、`proven`）、`partition[]`、`upstream_tables`、`upstream_tasks`、`downstream[]`（下游任务、它写的表、依据是血缘还是任务登记） |
 | 5. 目标列顺序 | — | 文档必须遵守的列顺序 |
 
 血缘事实来自语义画像（`describe` 的构建器），并带上表卡一起读，因此知道下游消费者、也知道别的任务证明唯一
 的关联。画像在这里是输入，不再是交付物。
 
-每张输入表带上第 9 项检查要用的事实：`partition_read`（只取一个分区为 `equality`，否则 `range`，不过滤为
+每张输入表带上第 9 项检查要用的事实：`partition_read`（只取一个分区为 `equality`；每个分区过滤都是等值或全由
+字面量组成的 `IN`、合起来不止一个值时为 `multi_equality`，即读几个固定分区；其余为 `range`；不过滤为
 `none`）及其依据 `partition_filters`；`date_filters`（落在日期、时间类列上的非分区过滤）；`name_convention`
 （`_df` / `_da` 一类表名为 `full`，`_di` / `_hi` 为 `incremental`，其余 `unknown`）——这是命名约定，公开出来
 让读者看到检查的前提。`full_snapshot` 即以 `equality` 方式读取的 `full` 表；它为假时，`packet.md` 写明原因：
-`不适用（非分区表）`、`未证明（未见分区条件）`、`否（读多个分区 / 范围）` 或 `未证明（表名约定 …）`。
+`不适用（非分区表）`、`未证明（未见分区条件）`、`否（读 N 个固定分区 …）`（`full` 表另加「每个分区是一份快照，
+同一记录在每份里各一行」）、`否（读多个分区 / 范围）` 或 `未证明（表名约定 …）`。
 
 写在 JOIN 的 ON 里的分区条件（`LEFT JOIN t c ON a.k = c.k AND c.dt = '…'`）和 WHERE 一样算分区读取：条件把右表的
 别名列与常量比较、右侧是一张物理表、该列是分区列（判断方式同下表），且关联不保留右表全部行（RIGHT / FULL OUTER
@@ -121,10 +123,23 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 
 目标表和输入表各列的 `partition` 也按同样的事实标注。
 
+规则先全部出行、只编号一次，之后才做所有引用 `pN` 的标注，标注不增删规则。不去重的窗口（没有 `= 1` 过滤的
+排名、LEAD 等）也出一行，`kind` 为 `window`，「说明」是画像的原话（如「仅组内排名，未见 = 1 过滤」）。位于某个
+LEFT JOIN 右侧之内（右侧 scope 及它读取的全部 scope）的非分区过滤带 `right_of: [p…]`，列出这些关联：它不丢
+目标行，只决定右侧哪些行参与匹配。同时喂给驱动行的 scope（一个 CTE 既作 `FROM c a` 又作 `LEFT JOIN c a1`）
+不算；关联所在 scope 自己的 WHERE 又过滤右侧（反连接的 `WHERE r.k IS NULL`）时，右侧决定哪些目标行留下，
+它右侧的过滤也不算。`right_side_kind` 标出两类结构：`rank_first`（过滤是排名窗口的 `= 1`，判法即画像的
+R6）与 `values`（过滤所在 scope 沿单输入链读到内联 VALUES 列表）；不看规则的 `tables` 是否为空。「说明」一列
+的拼接顺序固定：规则文字 → 日期偏移 → 位置（`right_of`，「在 pN 右侧：不丢目标行，决定右侧哪些行参与匹配」）
+→ 注释 → 相邻的注释掉的 SQL（不生效）→ 未被消费 → 治理线索。
+
 另有三类事实供含义检查（第 10–13 项）使用。每条关联规则带 `right`（右侧：`库.表`，或画像的 scope 编号，
 如 `subq:p`）、`right_aliases`（ON 子句与 scope 给它的别名）、`right_tables`（它背后的物理表）和
 `fan_out`——画像对右侧是否按关联键唯一的判定（`{status, reason, path}`，`status` 为 `safe` / `risk` /
-`unknown`；画像没有走到的关联为 `null`）；`packet.md` 在规则表的「行数放大」一列里给出。`fan_out` 为 `null`
+`unknown`；画像没有走到的关联为 `null`）；`packet.md` 在规则表的「行数放大」一列里给出。判定不在 grain 路径上
+（`path` 为 `argument` / `anchor`）时，`verdict_aggregate` 写出它所在的聚合 scope，格子写「status（位于聚合 X
+之下：不复制输出行，可能让聚合值重复计入）：reason」；判定为 `risk` / `unknown` 且右侧有未过滤的排名窗口时，
+`unfiltered_ranking: [p…]` 列出这些 `window` 行（「右侧的 pN 算了排名但没有 = 1 过滤，未去重」）。`fan_out` 为 `null`
 的关联不写成「不在输出路径上」：它位于有判定的关联的右侧之内时（右侧 scope 及它读取的全部 scope 里），带
 `inside: [p…]` 列出所有这样的关联（「在 pN 右侧内部；行数影响已计入这些关联的判定」）；否则位于某个聚合 scope 的
 输入之下时带 `below_aggregate: <scope>`（「不复制输出行，可能放大聚合值；工具未判定」）；都不是时写「工具未判定」。每个列的生产语句带
@@ -137,7 +152,9 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 或 `永久`）与数据规模（`数据规模` / `数据量` 后跟数字），从血缘发布的头注释和脚本开头的注释行里读取；
 `packet.md` 以「头注释」一行列出。一个任务写多张表时头注释只有一份：它的「库表名 / 表名」行点名的是同任务写的
 **另一张**表时，`header_facts` 加 `about: <那张表>`，第 13 项不再向本表要这些事实；点名的表不是本任务写的
-（例如旧表名）时仍归本表。
+（例如旧表名）时仍归本表。头注释里的 `alter table … add columns (…)` 点名本表或头注释「库表名」那张表时，记为
+`header_facts.added_columns: [{date?, table, columns}]`（只收目标表确有的列；`date` 取同一行 ALTER 之前或上一行的
+日期）；`packet.md` 在 2.x 写「头注释加列记录」，4.1 在这些列的步骤前写「头注释：… 才加入，此前写入的行该列可能为空」。
 
 其余事实只供写作者参考，没有检查读取，都是有内容才出现：
 
@@ -147,7 +164,10 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 | `tasks[]` | `date_literals` | SQL 里（注释除外）每个整日期字符串字面量（`'YYYYMMDD'` / `'YYYY-MM-DD'`）：`{literal, count, days_from_expect_date}`。语料导出的若是运行实例 SQL，批次日参数会以字面量出现；这里只给偏移，不下「是参数」的结论 |
 | `tasks[]` | `upstream_unmatched` | 登记的上游任务里，按任务名对不上本任务（所有语句）读取的任何表的那些。任务名等于 `表`、`库_表` 或以 `_库_表` 结尾算对上；这是名称启发式，只说「对不上」，不说「没读」 |
 | `inputs[]` | `producer_header` | 语料里生产该输入的任务，其 SQL 头注释写的主键、存储设计、分区设计、生命周期、数据规模：`[{task, primary_key?, storage?, partition_design?, lifecycle?, volume?}]`。是作者说法，不是 SQL 事实；输入即目标表本身、或头注释点名的是该任务写的另一张表时不出现 |
-| `lineage.partition[]` | `select_values` | 动态分区列（`PARTITION (dt)`）由 SELECT 只写常量时（`'${bizdate}' AS dt`，每个 UNION 分支一条），这些常量：`{列: [字面量…]}` |
+| `lineage.partition[]` | `select_values` | 动态分区列（`PARTITION (dt)`）由 SELECT 只写常量时（`'${bizdate}' AS dt`，每个 UNION 分支一条），这些常量：`{列: [字面量…]}`。MERGE 没有 PARTITION 子句：`columns` 取目标表元数据的分区列，`mode` 为 `merge_row_values`（按写入行的分区列值落分区），常量只取 not matched（INSERT）分支 |
+| `inputs[]` | `producer_columns` | 语料里生产该输入的任务怎么写本表关联、过滤、开窗所用的那些列：表卡 `produced_by[].fields` 的摘要，`[{task, statement_id, column, summary}]`；是别的任务的 SQL 摘要，不是本任务的。输入即目标表本身时不出现 |
+| `lineage.downstream[]` | `columns` | 语料里该下游任务按本表哪些列关联、过滤（表卡 `consumed_by[].columns`）：`{join_key: [...], filter: [...]}`；`packet.md` 4.4 多一列「按哪些列读（关联 / 过滤）」 |
+| `lineage.columns[].producers[]` | `literal_outputs` | 本列 SQL 字面写出的值（SQL 写法：`''`、`'web'`、`0`、`NULL`）：链上最后一步计算之后只有直传时，取常量、COALESCE / NVL 的末参数、CASE / IF 各分支的字面量；UNION 每个分支各按自己的最后一步计算。只出现在条件里的字面量不算，LEFT JOIN 未命中带来的 NULL 归 `nullable_by_join`。`constant_only: true` 表示每个分支最后都是常量，列只取这些值 |
 
 关联规则的 `tables` 为空时（ON 里唯一的等式一侧引用多列，如 `IF(COALESCE(a.x, '') = '', a.y, a.x) = d.k`，
 血缘不把它当关联键），回退为 ON 条件涉及的表加右侧物理表。这是过渡做法：血缘把这类等式配成关联键之后不再触发。
@@ -161,10 +181,11 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 | `lineage.columns[].producers[]` | `sql_alias` | 按位置写入（DDL 或元数据列序）且 SQL 别名与目标列名不同时，SQL 写的别名；`packet.md` 写「`列`（SQL 别名 `x`，按位置写入）」 |
 | `lineage.columns[].producers[]` | `lookup_keys` | 值取自常量行集（内联 VALUES、常量列等）的列，决定读哪一行的物理关联键；不是取值来源 |
 | `lineage.columns[].producers[]`、`lineage.rules[]` | `sql_comments` | 作者写在表达式上的 SQL 注释（表达式本身已去掉注释） |
+| `lineage.rules[]` | `commented_out_sql` | 条件旁边被注释掉的 SQL（如删掉的一条过滤），与说明分开；`packet.md` 的「说明」写「相邻的注释掉的 SQL（不生效）：…」 |
 | `lineage.columns[].producers[]` | `steps` | 画像无法用词表描述的步骤（UDF、`MD5(…)` 等）写成「表达式 …」，不再出现 `None` |
 | `lineage.rules[]` | `consumed` | 只有 `false`：CASE / IF 的输出可证明没有任何下游读取；`packet.md` 的「说明」写「未被消费」 |
-| `lineage.keys[]` | `merge` | MERGE 语句的画像 `output_shape.merge`：合并键 `merge_keys`、其他 ON 条件、各 WHEN 子句、USING 侧粒度、去重键与合并键的比较 `coverage`（`covered` / `dedup_wider` / `no_dedup` / `unknown`，`dedup_wider` 时 `extra_keys`）；`joins_after_dedup` 写成规则编号。`packet.md` 在 4.3 下写三行：合并键、WHEN（条件不满足的行既不更新也不插入）、去重键与合并键的比较 |
-| `lineage` | `findings` | 画像的三类治理线索：`alias_position_mismatch`、`duplicate_alias`、`empty_string_on_non_string`，每条 `{kind, severity, task, statement_id, text, rules?}`，`rules` 是线索所指的规则编号；`packet.md` 在 4.3 之后列出，有规则编号的也写进该规则的「说明」 |
+| `lineage.keys[]` | `merge` | MERGE 语句的画像 `output_shape.merge`：合并键 `merge_keys`、其他 ON 条件、各 WHEN 子句、USING 侧粒度、去重键与合并键的比较 `coverage`（`covered` / `dedup_wider` / `no_dedup` / `unknown`，`dedup_wider` 时 `extra_keys`）；`joins_after_dedup` 写成规则编号（`union_branches[]` 各分支的也一样）；另有 `table_key`、`insert_only_columns`、`update_columns`、`update_nullable_by_join`、`union_branches`（见 [semantic-doc.md](semantic-doc.md)）。`packet.md` 在 4.3 下写：合并键、WHEN（条件不满足的行既不更新也不插入）、去重键与合并键的比较（USING 是 UNION 时逐分支写；粒度未判定时写「USING 粒度未判定」，不写「无去重」）、推断的目标表候选键（未证明；只更新时写「本语句不决定目标表的行粒度」）、UPDATE 不改 / 只改 / 可能写入空值的列。MERGE 行的 `proven` 恒为 `false`：画像证明的是本批写入，不是目标表 |
+| `lineage` | `findings` | 画像的治理线索 `alias_position_mismatch`、`duplicate_alias`、`empty_string_on_non_string`、`numeric_compare_on_string`、`window_partition_narrower`（按窗口的逻辑块挂到它的 `window` 行），之后是材料包自己比对出的两类：`marker_column_unused`（输入表有逻辑删除标记列——只认 `is_deleted` 一类通用命名——本任务没有任何条件或输出读它）、`declared_key_not_used`（输入列注释以 `$` 模板声明由本表几列组成的唯一键，本任务在该表上按其中一部分去重或合并；该语句的 MERGE 已报 `dedup_wider` 时不出）。每条 `{kind, severity, task, statement_id, text, rules?}`，`rules` 是线索所指的规则编号；`packet.md` 在 4.3 之后列出，有规则编号的也写进该规则的「说明」 |
 | `target.columns[]`、`inputs[].columns[]` | `comment_markers` | 注释里的全角标记（`【键:值】`，键以 ASCII 字母开头）原样拆成 `[{key, value?}]`。含义属于数据负责人，工具不解释；注释原文不变 |
 | 顶层 | `comment_marker_keys` | 各标记键的出现次数与一个示例列；`packet.md` 开头一行列出，并提示含义未登记前不得当业务事实 |
 | `target.columns[]`、`inputs[].columns[]` | `comment_refs` | 注释里的 `[库.表.列]` / `[库.表]` / `[表.列]` 引用：`{ref, status, near?}`，`status` 为 `in_run`（语料里有任务读写这张表，按表卡判断）、`metadata_only`（只有元数据）或 `unknown`；`unknown` 时 `near` 列出去掉第一个分层前缀后名字互为前缀的本运行表，只是线索、未证实同一张表 |
@@ -209,7 +230,7 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 {
   "doc_format": "table-semantics/1",
   "table": "demo_dwd.dwd_party_customer_info_df",
-  "packet_digest": "5ab3ea72c51631a6",
+  "packet_digest": "ec811d2e60ec6088",
   "generator": {"prompt": "table-semantics-prompt@0", "model": "hand-written example"},
   "summary": {"what": "...", "row": {}, "refresh": {}, "scope": [], "upstream": [],
               "downstream": [], "good_for": [], "not_for": [], "watch": [], "questions": []},
@@ -470,7 +491,7 @@ scope-lineage semantic fixed <run> --only <db.table> ... [--packets <dir>] [--do
 ```yaml
 ---
 reviewed_doc_digest: 2a9b25086e81590f
-reviewed_packet_digest: 5ab3ea72c51631a6
+reviewed_packet_digest: ec811d2e60ec6088
 high: 1
 medium: 2
 low: 0
@@ -512,9 +533,9 @@ Status of 3 table(s): no_packet 0, packet 1, drafted 1, valid 1, reviewed 0, fix
       "table": "demo_dwd.dwd_party_customer_info_df",
       "stage": "valid",
       "flags": [],
-      "packet_digest": "5ab3ea72c51631a6",
+      "packet_digest": "ec811d2e60ec6088",
       "doc_digest": "2a9b25086e81590f",
-      "doc_packet_digest": "5ab3ea72c51631a6",
+      "doc_packet_digest": "ec811d2e60ec6088",
       "schema_errors": 0,
       "failures": 0,
       "review": null

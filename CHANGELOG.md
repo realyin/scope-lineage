@@ -17,6 +17,25 @@
   the card's `key_claim`, so a reader never takes them for the table's key). **Downstream
   code that reads these fields to decide whether a MERGE target has a key changes
   behaviour.** Packets of MERGE targets change their `packet_digest`.
+- **Packets: a MERGE row is never `proven`, and MERGE partitions are named.**
+  `lineage.keys[].proven` is now `false` on every MERGE row whatever its `key_confidence`:
+  the profile proves the batch the MERGE writes, while the row is read as the table. A
+  MERGE has no PARTITION clause, so `lineage.partition[]` named no column for it; it now
+  takes the target's partition columns from the metadata with the new `mode`
+  `merge_row_values`, and `select_values` the constants the INSERT branch writes into them.
+  **Readers of `proven` on MERGE rows change behaviour.**
+- **Packets: two fixed partitions are no range.** `inputs[].partition_read` gains
+  `multi_equality`: every partition filter an equality or a literal `IN` list, more than one
+  value in all (`dt IN ('…', '…')`), which used to read `range`. `full_snapshot` stays
+  `false`, and `packet.md` names the partitions (and, for a `full` name, that each is a
+  snapshot). **Code branching on `partition_read` values should expect the new one.**
+- **Packets: rule rows for windows that keep every row, and notes in a fixed order.** A
+  window in a stage that does not dedup (a ranking nobody filters to `= 1`, a LEAD) was
+  dropped; it is now a `lineage.rules[]` row of `kind` `window`, which renumbers the rules
+  after it in its packet. `packet.md`'s 4.2 说明 joins its parts in one order (text, date
+  offsets, position, notes, switched-off SQL, unconsumed, findings). `packet.md` 4.3 says
+  「USING 粒度未判定」 for an undecided USING grain instead of 「USING 无去重」, and 4.4 gains
+  a column.
 - **A dedup ordered by a column its input pins to one value keeps an arbitrary row.**
   `row_number() OVER (PARTITION BY k ORDER BY dt DESC)` over `WHERE dt = '…'` was described
   as keeping the latest row. When every ORDER BY item is a bare column pinned by an equality
@@ -365,6 +384,26 @@
 - **Semantic profile: `rules[].commented_out_sql`.** A rule's comment that is switched-off
   SQL is published here rather than under `sql_comments`, and kept: beside a condition it
   records a condition somebody removed. Absent when empty; `semantic-json/1` unchanged.
+- **Packets: the facts the next checks and the writer need, each only when it has content**
+  (`table-semantics-packet/1` unchanged):
+  - `lineage.rules[]`: `commented_out_sql` (copied from the profile; 说明 「相邻的注释掉的
+    SQL（不生效）」); on a filter inside a LEFT JOIN's right side, `right_of` (those joins)
+    and `right_side_kind` (`rank_first` or `values`); on a JOIN, `verdict_aggregate` (the
+    aggregate a verdict off the grain path sits under) and `unfiltered_ranking` (`window`
+    rows on its right side that rank without filtering);
+  - `lineage.columns[].producers[]`: `literal_outputs` (the literals the column's SQL
+    writes, `''` and literal `NULL` included) and `constant_only`;
+  - `lineage.keys[].merge.union_branches[].joins_after_dedup` as rule ids; 4.3 renders the
+    merge block's `table_key`, UPDATE facts and UNION branches;
+  - `lineage.findings[]`: the `window_partition_narrower` lead names its window row, and two
+    packet-side leads (`warn`): `marker_column_unused` (an input's `is_deleted`-style column
+    the task never reads) and `declared_key_not_used` (an input comment's `$` template key
+    the task deduplicates or merges by in part);
+  - `tasks[].header_facts.added_columns` (a header's `alter table … add columns`),
+    `inputs[].producer_columns` (the producer's card summary of the columns read by key),
+    `lineage.downstream[].columns` (the columns a consumer joins and filters on).
+
+  Packets of most tables change their `packet_digest`; the demo example is re-stamped.
 - **Catalog: an identifier unique per value of a column, and a code's surrogate key.** Two
   optional fields, in the catalog, fragment and `ontology-v3` schemas alike (no format
   version moves; catalogs without them build the same bytes):

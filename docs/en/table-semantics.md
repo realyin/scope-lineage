@@ -103,7 +103,7 @@ validator reads the JSON, a model reads the markdown.
 | 1. 目标表 | `target` | table comment, layer, domain, where the metadata came from (`schema` / `lineage` / `fields`), every column in table order with type, comment and whether it is a partition column |
 | 2. 生产任务 | `tasks[]` | per producing task: id, schedule, cycle, description, declared upstream and downstream tasks, the script's header comments, the statements that write this table, and the SQL |
 | 3. 输入表 | `inputs[]` | per input table: comment, layer, roles in this table's statements, the tasks that produce it, every column with how it is used, and the time facts below |
-| 4. 血缘事实 | `lineage` | `columns[]` (per target column: each producing statement's transform, physical source columns, expression and derivation steps), `rules[]` (filters, joins, dedups, unions and CASE branches, numbered `p1…`), `keys[]` (shape, grain basis, candidate keys, `key_confidence`, `proven`), `partition[]`, `upstream_tables`, `upstream_tasks`, `downstream[]` (consumer task, the tables it writes, whether lineage or task registration says so) |
+| 4. 血缘事实 | `lineage` | `columns[]` (per target column: each producing statement's transform, physical source columns, expression and derivation steps), `rules[]` (filters, joins, dedups, windows, unions and CASE branches, numbered `p1…`), `keys[]` (shape, grain basis, candidate keys, `key_confidence`, `proven`), `partition[]`, `upstream_tables`, `upstream_tasks`, `downstream[]` (consumer task, the tables it writes, whether lineage or task registration says so) |
 | 5. 目标列顺序 | — | the column order the document must follow |
 
 The lineage facts are the semantic profile's (`describe`'s builder), read with the table
@@ -111,14 +111,17 @@ cards so downstream consumers and joins another task proved unique are known. Th
 is an input here, not a deliverable.
 
 Each input carries the facts check 9 needs: `partition_read` (`equality` for a single
-partition, `range` otherwise, `none` when unfiltered) with the `partition_filters` behind
+partition; `multi_equality` when every partition filter is an equality or an `IN` list of
+literals and they come to more than one value, i.e. several fixed partitions; `range`
+otherwise; `none` when unfiltered) with the `partition_filters` behind
 it, `date_filters` (non-partition filters on a date- or time-like column), and
 `name_convention` (`full` for a `_df` / `_da` style name, `incremental` for `_di` / `_hi`,
 `unknown` otherwise) — a naming convention, published so a reader sees what the check
 assumed. `full_snapshot` is `equality` read of a `full` name; when it is false, `packet.md`
 says why: `不适用（非分区表）` (not partitioned), `未证明（未见分区条件）` (no partition
-condition seen), `否（读多个分区 / 范围）` (several partitions or a range) or
-`未证明（表名约定 …）` (the name convention is not `full`).
+condition seen), `否（读 N 个固定分区 …）` (several fixed partitions; for a `full` name it adds
+that each partition is a snapshot holding one row per record), `否（读多个分区 / 范围）`
+(several partitions or a range) or `未证明（表名约定 …）` (the name convention is not `full`).
 
 A partition condition written in a JOIN's ON (`LEFT JOIN t c ON a.k = c.k AND c.dt = '…'`)
 reads partitions as a WHERE does when it compares a column of the right side, qualified by
@@ -146,13 +149,32 @@ Each filter rule carries `partition_filter` and the `partition_basis` it rests o
 
 The same facts mark `partition` on the target's and the inputs' columns.
 
+Every rule row is made first and numbered once; every note naming a `pN` comes after, and
+no note adds or drops a rule. A window that does not dedup (a ranking never filtered to
+`= 1`, a LEAD) is a row too, `kind` `window`, its 说明 the profile's own words (「仅组内排名，
+未见 = 1 过滤」). A non-partition filter inside a LEFT JOIN's right side (the right scope and
+every scope it reads) carries `right_of: [p…]`, those joins: it drops no target row, it
+decides which right rows take part in the match. A scope that also feeds the driving rows (a
+CTE read as `FROM c a` and as `LEFT JOIN c a1`) does not count; nor does the right side of a
+join whose own scope's WHERE filters on it (an anti-join's `WHERE r.k IS NULL`), where the
+right side decides which target rows survive. `right_side_kind` names two structural kinds:
+`rank_first` (the filter keeps a ranking's `= 1`, decided by the profile's R6) and `values`
+(the filter's scope reads an inline VALUES list down a single-input chain); whether the
+rule's `tables` are empty is not asked. The 说明 column joins its parts in one order: the
+rule's text → date offsets → where it sits (`right_of`, 「在 pN 右侧：不丢目标行，决定右侧哪些行
+参与匹配」) → notes → 相邻的注释掉的 SQL（不生效） → 未被消费 → findings.
+
 Three more facts serve the meaning checks (10–13). Each join rule carries `right` (the
 right side: a `db.table`, or the profile's scope id such as `subq:p`), `right_aliases`
 (the aliases the ON clause and the scope give it), `right_tables` (the physical tables
 behind it) and `fan_out`, the profile's verdict on whether the right side is unique on the
 join keys (`{status, reason, path}`, `status` one of `safe` / `risk` / `unknown`; `null`
 for a join on no path the profile walked); `packet.md` shows it in the rules table's
-行数放大 column. A join whose `fan_out` is `null` is never written as off the output path:
+行数放大 column. A verdict off the grain path (`path` `argument` / `anchor`) carries
+`verdict_aggregate`, the aggregating scope it sits under, and the cell reads 「status（位于聚合 X
+之下：不复制输出行，可能让聚合值重复计入）：reason」; a `risk` / `unknown` verdict whose right side
+holds a ranking nobody filters lists those `window` rows in `unfiltered_ranking: [p…]`
+(「右侧的 pN 算了排名但没有 = 1 过滤，未去重」). A join whose `fan_out` is `null` is never written as off the output path:
 when it sits inside the right side of joins that have a verdict (in the right scope or any
 scope it reads), `inside: [p…]` lists every such join (「在 pN 右侧内部；行数影响已计入这些关联的判定」);
 failing that, when it sits below an aggregating scope, `below_aggregate: <scope>` names it
@@ -174,7 +196,12 @@ published header and from the comment lines that open the script; `packet.md` pr
 as 头注释. A task writing several tables has one header: when its 库表名 / 表名 line names
 **another** table the same task writes, `header_facts` gains `about: <that table>` and
 check 13 no longer asks this table's document for those facts; a header naming a table
-the task does not write (an old name, say) stays with this table.
+the task does not write (an old name, say) stays with this table. An
+`alter table … add columns (…)` in the header naming this table, or the table of the
+header's 库表名 line, is recorded as `header_facts.added_columns: [{date?, table, columns}]`
+(only columns the target has; `date` the date stamp before the ALTER on its line or on the
+line above); `packet.md` prints 头注释加列记录 under 2.x, and 4.1 says on each such column
+「头注释：… 才加入，此前写入的行该列可能为空」.
 
 The remaining facts are for the writer only; no check reads them, and each appears only
 when it has content:
@@ -185,7 +212,10 @@ when it has content:
 | `tasks[]` | `date_literals` | every whole-date string literal (`'YYYYMMDD'` / `'YYYY-MM-DD'`) in the SQL outside comments: `{literal, count, days_from_expect_date}`. A corpus exported from run instances carries the batch-date parameter as a literal; the offset is given, no conclusion that it is a parameter is drawn |
 | `tasks[]` | `upstream_unmatched` | the registered upstream tasks whose name matches no table the task reads over all its statements; a task named `tbl`, `db_tbl` or ending in `_db_tbl` matches. A name heuristic: it says "does not match", not "not read" |
 | `inputs[]` | `producer_header` | what the SQL header of each corpus task producing the input states: primary key, storage design, partition design, lifecycle, volume, as `[{task, primary_key?, storage?, partition_design?, lifecycle?, volume?}]`. The author's claim, not a SQL fact; absent for an input the target writes itself and when the header describes another table of that task |
-| `lineage.partition[]` | `select_values` | for a dynamic partition column (`PARTITION (dt)`) the SELECT fills with constants only (`'${bizdate}' AS dt`, one per UNION branch), those constants as `{column: [literal…]}` |
+| `lineage.partition[]` | `select_values` | for a dynamic partition column (`PARTITION (dt)`) the SELECT fills with constants only (`'${bizdate}' AS dt`, one per UNION branch), those constants as `{column: [literal…]}`. A MERGE has no PARTITION clause: `columns` are the target table's partition columns from the metadata, `mode` is `merge_row_values` (each written row lands in the partition its values name), and the constants are read from the not matched (INSERT) branch only |
+| `inputs[]` | `producer_columns` | how each corpus task producing the input writes the columns this table joins, filters or windows on: its table card's `produced_by[].fields` summaries, `[{task, statement_id, column, summary}]`; another task's SQL, summarised, never this task's. Absent for an input the target writes itself |
+| `lineage.downstream[]` | `columns` | the columns of this table the downstream task joins and filters on (its table card's `consumed_by[].columns`): `{join_key: [...], filter: [...]}`; `packet.md`'s 4.4 gains a column 按哪些列读（关联 / 过滤） |
+| `lineage.columns[].producers[]` | `literal_outputs` | the values the column's SQL writes as literals (SQL spelling: `''`, `'web'`, `0`, `NULL`): when only pass-throughs follow the last computing step of the chain, a constant, the last argument of a COALESCE / NVL, the literal outputs of a CASE / IF; each UNION branch by its own last computing step. A literal only in a condition is none, and a NULL a missed LEFT JOIN brings is `nullable_by_join`'s. `constant_only: true` says every branch ends in a constant, so these are all the column holds |
 
 A join rule whose `tables` would be empty (the ON's only equality has several columns on a
 side, `IF(COALESCE(a.x, '') = '', a.y, a.x) = d.k`, which the lineage does not pair as a
@@ -202,10 +232,11 @@ content:
 | `lineage.columns[].producers[]` | `sql_alias` | in a positional write (by DDL or metadata column order) whose SQL alias differs from the target column, the alias the SQL wrote; `packet.md` writes 「`col`（SQL 别名 `x`，按位置写入）」 |
 | `lineage.columns[].producers[]` | `lookup_keys` | for a value read off a constant row set (an inline VALUES list, a constant column …), the physical join keys that choose its row; not a source of the value |
 | `lineage.columns[].producers[]`, `lineage.rules[]` | `sql_comments` | the SQL comments the author wrote on the expression (the expression itself carries none) |
+| `lineage.rules[]` | `commented_out_sql` | SQL switched off beside the condition (a filter somebody removed, say), kept apart from the notes; `packet.md`'s 说明 says 「相邻的注释掉的 SQL（不生效）：…」 |
 | `lineage.columns[].producers[]` | `steps` | a step the profile's vocabulary cannot word (a UDF, `MD5(…)`) reads 「表达式 …」 instead of `None` |
 | `lineage.rules[]` | `consumed` | only `false`: a CASE / IF whose output provably nobody reads; `packet.md`'s 说明 says 「未被消费」 |
-| `lineage.keys[]` | `merge` | a MERGE statement's profile `output_shape.merge`: the merge key `merge_keys`, other ON conditions, each WHEN clause, the USING side's grain, and how its dedup compares with the merge key, `coverage` (`covered` / `dedup_wider` / `no_dedup` / `unknown`, with `extra_keys` for `dedup_wider`); `joins_after_dedup` as rule ids. `packet.md` adds three lines under 4.3: the merge key, the WHEN clauses (a row failing a clause's condition is neither updated nor inserted), the dedup against the merge key |
-| `lineage` | `findings` | three kinds of the profile's governance findings, `alias_position_mismatch`, `duplicate_alias` and `empty_string_on_non_string`, each `{kind, severity, task, statement_id, text, rules?}`, `rules` naming the rules it is about; `packet.md` lists them after 4.3, and in the 说明 of each rule named |
+| `lineage.keys[]` | `merge` | a MERGE statement's profile `output_shape.merge`: the merge key `merge_keys`, other ON conditions, each WHEN clause, the USING side's grain, and how its dedup compares with the merge key, `coverage` (`covered` / `dedup_wider` / `no_dedup` / `unknown`, with `extra_keys` for `dedup_wider`); `joins_after_dedup` as rule ids (each of `union_branches[]` too); besides, `table_key`, `insert_only_columns`, `update_columns`, `update_nullable_by_join` and `union_branches` (see [semantic-doc.md](semantic-doc.md)). `packet.md` adds under 4.3: the merge key, the WHEN clauses (a row failing a clause's condition is neither updated nor inserted), the dedup against the merge key (branch by branch for a UNION USING side; an undecided grain reads 「USING 粒度未判定」, never "no dedup"), the inferred table key (not proven; an UPDATE-only MERGE 「本语句不决定目标表的行粒度」), and the columns a matched UPDATE leaves alone, changes or may overwrite with NULL. `proven` is always `false` on a MERGE row: the profile proves the written batch, not the table |
+| `lineage` | `findings` | the profile's governance findings `alias_position_mismatch`, `duplicate_alias`, `empty_string_on_non_string`, `numeric_compare_on_string` and `window_partition_narrower` (hung on its window's `window` row by logic block), then two the packet finds itself: `marker_column_unused` (an input has a logical-delete column -- the generic `is_deleted` style names only -- that no condition and no output of the task reads) and `declared_key_not_used` (an input column's comment declares a unique key as a `$` template of the table's columns, and the task deduplicates or merges that table by part of it; not said again for a statement whose MERGE already reports `dedup_wider`). Each `{kind, severity, task, statement_id, text, rules?}`, `rules` naming the rules it is about; `packet.md` lists them after 4.3, and in the 说明 of each rule named |
 | `target.columns[]`, `inputs[].columns[]` | `comment_markers` | the full-width markers of the comment (`【key:value】`, the key starting with an ASCII letter), split out as `[{key, value?}]`. Their meaning is the data owner's and the tool gives none; the comment is unchanged |
 | top level | `comment_marker_keys` | how often each marker key occurs, with one example column; `packet.md` lists them in its opening lines, saying a marker is no business fact until its meaning is recorded |
 | `target.columns[]`, `inputs[].columns[]` | `comment_refs` | the comment's `[db.table.col]` / `[db.table]` / `[table.col]` references as `{ref, status, near?}`, `status` being `in_run` (a corpus task reads or writes the table, by the table cards), `metadata_only` (only the metadata knows it) or `unknown`; an `unknown` one may list in `near` the run's tables whose names, past their first layer prefix, extend one another -- a lead, not proven the same table |
@@ -270,7 +301,7 @@ One JSON document per target table. The schema is shipped as
 {
   "doc_format": "table-semantics/1",
   "table": "demo_dwd.dwd_party_customer_info_df",
-  "packet_digest": "5ab3ea72c51631a6",
+  "packet_digest": "ec811d2e60ec6088",
   "generator": {"prompt": "table-semantics-prompt@0", "model": "hand-written example"},
   "summary": {"what": "...", "row": {}, "refresh": {}, "scope": [], "upstream": [],
               "downstream": [], "good_for": [], "not_for": [], "watch": [], "questions": []},
@@ -563,7 +594,7 @@ A review is markdown a model writes, and it must open with a block like this
 ```yaml
 ---
 reviewed_doc_digest: 2a9b25086e81590f
-reviewed_packet_digest: 5ab3ea72c51631a6
+reviewed_packet_digest: ec811d2e60ec6088
 high: 1
 medium: 2
 low: 0
@@ -608,9 +639,9 @@ Status of 3 table(s): no_packet 0, packet 1, drafted 1, valid 1, reviewed 0, fix
       "table": "demo_dwd.dwd_party_customer_info_df",
       "stage": "valid",
       "flags": [],
-      "packet_digest": "5ab3ea72c51631a6",
+      "packet_digest": "ec811d2e60ec6088",
       "doc_digest": "2a9b25086e81590f",
-      "doc_packet_digest": "5ab3ea72c51631a6",
+      "doc_packet_digest": "ec811d2e60ec6088",
       "schema_errors": 0,
       "failures": 0,
       "review": null
