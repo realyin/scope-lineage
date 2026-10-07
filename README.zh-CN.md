@@ -325,8 +325,8 @@ scope-lineage parse \
    此后每一步都带同一组 `--only`（校验用
    `semantic validate <run>/docs --packets <run>/packets --only <db.table> ...`）。一张表重写前，
    先把它的审读改名为 `reviews/<db.table>.prior.md`；旧文档和旧审读里的规则编号 `pN` 现在可能指向
-   别的规则。用随包提示词（`table-semantics-prompt@9`、`table-semantics-review@9`、
-   `table-semantics-fix@6`）。
+   别的规则。用随包提示词（`table-semantics-prompt@8`、`table-semantics-review@8`、
+   `table-semantics-fix@5`）。
 3. 每次修订以 `semantic fixed <run> --only <db.table>` 收尾；不跑它，修订过的文档不算 `fixed`。
    本版之前审读过、审读后文档又改过的表显示 `valid review_stale`：重新审读。
 4. 在全部表重写完之前，不要用整个 `docs` 目录建本体目录（`catalog digest`）或页面
