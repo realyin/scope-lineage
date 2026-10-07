@@ -170,6 +170,36 @@
   review prompt moves to `@6` because these are new checks, not rewording (the convention
   this changelog follows: a version moves when the prompt's rules change). No tool
   behaviour or format changes; the review front matter is unchanged.
+- **Writing, review and fix prompts settle what the batch date is and close four gaps a
+  sample run reported (`table-semantics-prompt@7`, `table-semantics-review@7`,
+  `table-semantics-fix@5`).** `@6` paired the expected-date offsets with names in one
+  parenthesis (「期望日期当天」「期望日期 −1 天」 → 「批次日」「批次日前一天」), so most writers
+  called the literal the SQL reads with `dt = '…'` the day *before* the batch date, while the
+  same prompt, the review prompt and `semantic.md`'s instance date call that literal the
+  batch date itself: two pages of one catalog were a day apart. The writing prompt now
+  defines the batch date as the fixed-offset literal the SQL reads by equality (the latest
+  one when there are several or none is read by equality), names the other literals by
+  their distance from it, says the expected run date is never the batch date, and has a page
+  without `${…}` parameters say once in `how_to_read` that the script is a run instance
+  (inferred) instead of asking about it. Also in the writing prompt: a MERGE (or keyed
+  overwrite) target that is not a zipper is `incremental`, and `how_to_read` says which keys
+  partition X holds, that later runs rewrite old partitions, and what the run's source
+  window can miss; a column's `category` is what the column is, not its role in a composite
+  key; `scope` holds the filters that drop target rows -- a filter the packet marks as on a
+  join's right side goes in `rules` only; an SQL quote that overrules a packet verdict comes
+  from this table's own task SQL, and evidence found only in a sibling's packet is an
+  inference. The review prompt says a review's rN and the packet's pN are unrelated, counts
+  every finding a prior review names (one marked fixed in a re-review included) and how to
+  treat a prior review without `reviewed_packet_digest`, makes the 「工具判定被 SQL 推翻」
+  section a list of the tool's errors written even when the document already corrected
+  them (or 「无」), and stops asking a composite-key member to become an `identifier`. The
+  fix prompt keeps each table's scratch files in its own directory and checks a document's
+  `table` before putting it back. `SKILL.md` gains the scratch-file rule, how to run a few
+  tables with `--only` after every packet was rebuilt, and that a re-review with only low
+  findings is `fixed` and never dispatched again; `table-semantics.md` (both languages)
+  states that boundary under "How a review is judged". Documents written with `@6` are not
+  flagged stale -- nothing reads `generator.prompt` -- but name their literals the old way
+  until rewritten. No tool behaviour, packet, digest or format changes.
 - **`semantic.json`: an `expression` is the SQL minus its comments.** The profile lifted every
   `/* … */` note into `sql_comments` and also left it inside `expression`, so the note was
   published twice and read as SQL: `dt = '…' /* and s <> 'x' */` made a packet judge an
