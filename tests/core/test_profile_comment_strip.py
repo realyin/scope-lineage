@@ -55,7 +55,9 @@ def test_a_filter_rule_publishes_the_condition_and_keeps_its_comment_apart():
     )
     rule = next(item for item in profile["rules"] if item["kind"] == "filter")
     assert "/*" not in rule["expression"]
-    assert rule["sql_comments"] == ["and t.x <> 'y'"]
+    # C-P2: the comment is a condition switched off, so it is kept apart from the notes.
+    assert rule["commented_out_sql"] == ["and t.x <> 'y'"]
+    assert "sql_comments" not in rule
 
 
 def test_a_join_rule_and_its_sentence_carry_no_comment_text():
@@ -67,7 +69,7 @@ def test_a_join_rule_and_its_sentence_carry_no_comment_text():
     assert "/*" not in rule["expression"]
     assert rule["extra_conditions"]
     assert all("/*" not in item for item in rule["extra_conditions"])
-    assert rule["sql_comments"]
+    assert rule["commented_out_sql"] == ["and b.s <> 'x'"]
     join = next(
         action
         for stage in profile["stages"]

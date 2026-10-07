@@ -76,6 +76,66 @@ def test_a_long_values_column_is_summarised():
     assert "'L1'" in text and "'L4'" not in text and "'L5'" not in text
 
 
+_CODES = (
+    "('k1', 'A', 'a1'), ('k2', 'A', 'a2'), ('k3', 'A', 'a3'), ('k4', 'A', 'a4'), "
+    "('k5', 'B', 'b1'), ('k6', 'B', 'b2')"
+)
+_CODES_CTE = f"WITH codes AS (SELECT * FROM VALUES {_CODES} AS tab(code_key, code_type, code_val)) "
+_CODES_SCHEMA = {"ods.src": ["k", "v"], "dw.t_out": ["k", "v"]}
+
+
+def _codes_read_by(where: str) -> str:
+    return (
+        _CODES_CTE + "INSERT OVERWRITE TABLE dw.t_out "
+        "SELECT o.k AS k, coalesce(c.code_key, '') AS v FROM ods.src o "
+        f"LEFT JOIN (SELECT * FROM codes {where}) c ON o.v = c.code_val"
+    )
+
+
+def test_a_values_preview_shows_only_the_rows_the_field_s_chain_keeps():
+    """C-P6: the field reads the dictionary through ``code_type = 'B'``; 'k1' is not its value."""
+    text = _texts(_profile(_codes_read_by("WHERE code_type = 'B'"), _CODES_SCHEMA), "v")
+    assert "按 code_type = 'B' 过滤后 2 个字面量（全表 6 个），前 2 个：'k5'、'k6'" in text
+    assert "'k1'" not in text
+
+
+def test_a_values_preview_with_no_filter_on_the_chain_is_unchanged():
+    text = _texts(_profile(_codes_read_by(""), _CODES_SCHEMA), "v")
+    assert "内联 VALUES 的一列（6 个字面量，前 3 个：'k1'、'k2'、'k3'）" in text
+
+
+def test_a_filter_inside_an_or_does_not_narrow_the_preview():
+    where = "WHERE code_type = 'B' OR code_val = 'a1'"
+    text = _texts(_profile(_codes_read_by(where), _CODES_SCHEMA), "v")
+    assert "内联 VALUES 的一列（6 个字面量" in text and "过滤后" not in text
+
+
+def test_union_branches_filtering_the_values_differently_do_not_narrow_the_preview():
+    sql = (
+        _CODES_CTE + "INSERT OVERWRITE TABLE dw.t_out "
+        "SELECT o.k AS k, c.code_key AS v FROM ods.src o "
+        "JOIN (SELECT * FROM codes WHERE code_type = 'B') c ON o.v = c.code_val "
+        "UNION ALL "
+        "SELECT o.k AS k, c.code_key AS v FROM ods.src o "
+        "JOIN (SELECT * FROM codes WHERE code_type = 'A') c ON o.v = c.code_val"
+    )
+    text = _texts(_profile(sql, _CODES_SCHEMA), "v")
+    assert "内联 VALUES 的一列（6 个字面量" in text and "过滤后" not in text
+
+
+def test_union_branches_filtering_the_values_alike_narrow_the_preview():
+    sql = (
+        _CODES_CTE + "INSERT OVERWRITE TABLE dw.t_out "
+        "SELECT o.k AS k, c.code_key AS v FROM ods.src o "
+        "JOIN (SELECT * FROM codes WHERE code_type = 'B') c ON o.v = c.code_val "
+        "UNION ALL "
+        "SELECT o.v AS k, c.code_key AS v FROM ods.src o "
+        "JOIN (SELECT * FROM codes WHERE code_type = 'B') c ON o.k = c.code_val"
+    )
+    text = _texts(_profile(sql, _CODES_SCHEMA), "v")
+    assert "按 code_type = 'B' 过滤后 2 个字面量（全表 6 个）" in text
+
+
 def test_a_short_values_column_stays_verbatim():
     text = _texts(_profile(_values(3)), "v")
     assert "('L1', 'L2', 'L3')" in text

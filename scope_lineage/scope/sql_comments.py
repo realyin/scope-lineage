@@ -8,12 +8,20 @@ and a logic block's ``comments`` cannot normalize differently from each other.
 
 Two collection routes, for two different shapes of evidence:
 
-- :func:`subtree_comments` walks an AST node -- used for a statement header and for a
-  projection, whose comment sits on a node the contract does not serialize;
+- :func:`subtree_comments` walks an AST node -- used for a statement header, for a
+  projection, whose comment sits on a node the contract does not serialize, and for one
+  conjunct of a WHERE / HAVING;
 - :func:`comments_in_sql` scans rendered SQL text -- used for a logic block, whose
   ``raw_expression`` is already that block's subtree printed *with* its comments. It is
   the same set of comments the walk would find, read where the block's own expression
-  is, so a WHERE split into conjuncts cannot be handed its siblings' comments.
+  is.
+
+A logic block's list is therefore the whole condition's: a WHERE of three conjuncts has
+one list for all three. What belongs to each conjunct is published on the conjunct
+(``filter_predicate_detail.conjuncts[].comments``): its own subtree's comments, led by a
+comment sqlglot attached to the ``And`` that joins it on -- a comment written on its own
+line above ``and b = 2`` lands on that ``And``, in no conjunct's text. A reader wanting
+one predicate's note reads the conjunct, not the block.
 
 A comment is free text written by a person. Nothing here parses it, matches it against
 identifiers, or treats it as a fact about the data -- it is carried as a quotation and

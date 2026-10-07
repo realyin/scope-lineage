@@ -277,23 +277,78 @@ _SQL_WORDS = frozenset(
 _ASCII_WORD_RE = re.compile(r"[a-z_][a-z0-9_]*")
 
 
+_NON_ASCII_RE = re.compile(r"[^\x00-\x7f]")
+_LEADING_JOINER_RE = re.compile(r"^(?:,|(?:and|or)\b)\s*", re.IGNORECASE)
+_TRAILING_JOINER_RE = re.compile(r"\s*(?:,|\b(?:and|or))$", re.IGNORECASE)
+_DATE_STAMP_RE = re.compile(r"\s+\d{6,8}$")
+
+#: A condition is code only when it names a column: ``1 = 1`` alone proves nothing.
+_PREDICATE_SHAPES = (
+    exp.EQ, exp.NEQ, exp.GT, exp.GTE, exp.LT, exp.LTE,
+    exp.In, exp.Is, exp.Like, exp.And, exp.Or, exp.Not,
+)
+
+
 def comment_kind(text: str | None) -> str:
-    """``note`` unless the comment body IS SQL somebody commented out (WI-2.8 D9)."""
+    """``note`` unless the comment body IS SQL somebody commented out (WI-2.8 D9).
+
+    C-P2: a switched-off line is rarely a whole expression. It is one line of a list --
+    ``,b.x as y -- old note``, ``and s <> 'D' 20260101 删掉``, ``dt = 'x' and`` -- and the
+    parser is asked about its code head (:func:`_code_head`), not the whole body.
+    """
     body = str(text or "").strip().rstrip(";").strip()
-    if not body or not _SQL_WORDS & set(_ASCII_WORD_RE.findall(body.lower())):
+    head = _code_head(body)
+    if head is None:
         return COMMENT_KIND_NOTE
-    node = parse_expression(body)
-    if node is None or not _is_sql_shaped(node):
+    code, joined = head
+    node = parse_expression(code)
+    if node is None or not _is_sql_shaped(node, joined):
         return COMMENT_KIND_NOTE
     return COMMENT_KIND_COMMENTED_OUT_SQL
 
 
-def _is_sql_shaped(node: exp.Expression) -> bool:
-    """A query, or a computed projection. A bare name with a word beside it is prose."""
+def _code_head(body: str) -> tuple[str, bool] | None:
+    """``(code, joined)``: the SQL a comment body starts with, or None for prose.
+
+    The head ends at an inner ``--`` (the switched-off line's own note) and at the first
+    non-ASCII character (a sentence written after the code). A leading comma or AND / OR
+    and a trailing one are list syntax, not part of the expression, and are taken off;
+    ``joined`` says a leading one was there. So is a date stamp before the sentence.
+
+    A body cut short by a sentence counts as code only when list syntax says it is a line
+    of a list: ``status = 1 表示有效`` quotes a predicate in prose, while
+    ``and status = 1 删掉`` is a WHERE line with a remark after it.
+    """
+    head = body.split("--", 1)[0]
+    prose = _NON_ASCII_RE.search(head)
+    if prose:
+        head = head[: prose.start()]
+    head = head.strip().rstrip(";").strip()
+    if not _SQL_WORDS & set(_ASCII_WORD_RE.findall(head.lower())):
+        return None
+    joined = bool(_LEADING_JOINER_RE.match(head))
+    trailing = bool(_TRAILING_JOINER_RE.search(head))
+    if prose and not (joined or trailing):
+        return None
+    head = _TRAILING_JOINER_RE.sub("", _LEADING_JOINER_RE.sub("", head, count=1)).strip()
+    head = _DATE_STAMP_RE.sub("", head) if prose else head
+    return (head, joined) if head else None
+
+
+def _is_sql_shaped(node: exp.Expression, joined: bool = False) -> bool:
+    """A query, a computed projection, a condition on a column, or a call.
+
+    A bare name with a word beside it is prose (``x as y``) unless a leading comma makes
+    it a projection line; a call whose name is not ASCII is prose holding parentheses.
+    """
     if isinstance(node, (exp.Select, exp.Union, exp.Insert, exp.Subquery, exp.Case)):
         return True
     if isinstance(node, exp.Alias):
-        return not isinstance(node.this, (exp.Column, exp.Identifier, exp.Literal))
+        return joined or not isinstance(node.this, (exp.Column, exp.Identifier, exp.Literal))
+    if isinstance(node, _PREDICATE_SHAPES):
+        return node.find(exp.Column) is not None
+    if isinstance(node, exp.Anonymous) and _NON_ASCII_RE.search(str(node.this)):
+        return False
     return isinstance(node, exp.Func)
 
 
@@ -1362,16 +1417,30 @@ def describe_window(expression: str | None) -> str | None:
 VALUES_PREVIEW_COUNT = 3
 
 
-def describe_constant(expression: str | None) -> str:
+def describe_constant(
+    expression: str | None, values_filter: tuple | None = None
+) -> str:
     """``常量 <literal>``; a VALUES column of more than three literals is summarised.
 
     The contract gives an inline VALUES column one constant step whose expression is the
     tuple of every row's cell, and a long dictionary restated literal by literal buries the
     step it is in. The rows are not lost: the SQL keeps them, and so does the column's
     own expression.
+
+    C-P6: ``values_filter`` is ``(kept row indexes, pin texts, row count)`` when the
+    field reads the list through equality filters that drop rows; the preview then counts
+    and shows only the rows those filters keep, and names the filters and the list's full
+    size. A tuple that does not have that many cells is not that list and is summarised
+    as before.
     """
     text = str(expression or "").strip()
     node = parse_expression(text) if text.startswith("(") else None
+    if (
+        isinstance(node, exp.Tuple)
+        and values_filter is not None
+        and len(node.expressions) == values_filter[2]
+    ):
+        return _describe_filtered_values(node.expressions, values_filter[0], values_filter[1])
     if isinstance(node, exp.Tuple) and len(node.expressions) > VALUES_PREVIEW_COUNT:
         preview = "、".join(
             item.sql(dialect=DIALECT) for item in node.expressions[:VALUES_PREVIEW_COUNT]
@@ -1381,6 +1450,19 @@ def describe_constant(expression: str | None) -> str:
             f"前 {VALUES_PREVIEW_COUNT} 个：{preview}）"
         )
     return f"常量 {text}"
+
+
+def _describe_filtered_values(
+    cells: Sequence[exp.Expression], kept: Sequence[int], pins: Sequence[str]
+) -> str:
+    head = (
+        f"内联 VALUES 的一列（按 {'、'.join(pins)} 过滤后 {len(kept)} 个字面量"
+        f"（全表 {len(cells)} 个）"
+    )
+    shown = [cells[index].sql(dialect=DIALECT) for index in kept[:VALUES_PREVIEW_COUNT]]
+    if not shown:
+        return f"{head}）"
+    return f"{head}，前 {len(shown)} 个：{'、'.join(shown)}）"
 
 
 # WI-1g item E4. ``generated_sources[]`` entries are ``{source_type, value, transform}``
@@ -1726,6 +1808,7 @@ def describe_step(
     input_fields: Iterable[str] = (),
     has_udf: bool = False,
     column_types: Mapping[str, str] | None = None,
+    values_filter: tuple | None = None,
 ) -> str | None:
     """Restate one ``field_mapping_chains[].ordered_steps[]`` entry.
 
@@ -1739,7 +1822,7 @@ def describe_step(
         "aggregate": lambda: describe_aggregate(expression, keys, column_types),
         "case_when": lambda: describe_case(expression),
         "window": lambda: describe_window(expression),
-        "constant": lambda: describe_constant(expression),
+        "constant": lambda: describe_constant(expression, values_filter),
         "union": lambda: describe_union(inputs),
         "direct_projection": lambda: describe_direct_projection(inputs),
         "expression": lambda: describe_function_expression(expression),

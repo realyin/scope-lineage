@@ -1583,6 +1583,10 @@ _RULE_KEY_ORDER = (
     "fields",
     "scope_fields",
     "sql_comments",
+    # C-P2: SQL the author switched off beside this condition. Kept apart from the notes
+    # rather than dropped: a line such as `and s <> 'D'` dated and commented out records a
+    # filter somebody removed.
+    "commented_out_sql",
     "evidence",
     "tag",
 )
@@ -1603,8 +1607,13 @@ def _filter_rules(document: dict, scope_id: str, block: dict) -> list[dict]:
             "expression_resolution": detail.get("expression_resolution"),
         }
     ]
+    own = [_conjunct_comments(conjunct) for conjunct in conjuncts]
+    claimed = {comment for comments in own for comment in comments}
+    # C-P1: what the block carries beyond every conjunct's own was written on the WHERE /
+    # HAVING itself (`WHERE -- note ⏎ a = 1 AND b = 2`) and is said of the whole condition.
+    whole = [str(item) for item in block.get("comments") or [] if str(item) not in claimed]
     rules = []
-    for conjunct in conjuncts:
+    for conjunct, comments in zip(conjuncts, own):
         pairs = _physical_fields(conjunct.get("expression_resolution"))
         rules.append(
             {
@@ -1614,10 +1623,10 @@ def _filter_rules(document: dict, scope_id: str, block: dict) -> list[dict]:
                 "is_partition_filter": partition,
                 "fields": _rule_fields(document, pairs),
                 "scope_fields": _scope_fields(document, conjunct.get("fields")),
-                # WI-2.2. A WHERE split into conjuncts has one comment list for the whole
-                # block, so every conjunct carries it: the author wrote the note about the
-                # predicate, and the split is this view's doing, not theirs.
-                **_rule_comments(block),
+                # C-P1: a conjunct's own comments, then the whole condition's. Handing
+                # every conjunct the block's list (WI-2.2) published a note written beside
+                # one predicate as the explanation of its siblings.
+                **_rule_comments(_dedupe([*comments, *whole])),
                 "evidence": evidence,
                 "tag": TAG_SQL_FACT,
             }
@@ -1658,16 +1667,42 @@ def _join_rule(document: dict, scope_id: str, block: dict) -> dict:
         "extra_condition_fields": _extra_condition_fields(document, detail),
         "fields": _rule_fields(document, physical),
         "scope_fields": _scope_fields(document, detail.get("condition_fields")),
-        **_rule_comments(block),
+        **_rule_comments(block.get("comments")),
         "evidence": str(block.get("logic_block_id")),
         "tag": TAG_SQL_FACT,
     }
 
 
-def _rule_comments(block: dict) -> dict:
-    """``{"sql_comments": [...]}`` when the block carries comments, ``{}`` otherwise."""
-    comments = [str(item) for item in block.get("comments") or []]
-    return {"sql_comments": comments} if comments else {}
+def _rule_comments(comments) -> dict:
+    """A rule's comments split into notes (``sql_comments``) and switched-off SQL.
+
+    C-P2: the same reading WI-2.8 D9 gives a field's comments. A field drops the
+    switched-off SQL; a rule keeps it under ``commented_out_sql``, because beside a
+    condition it is the record of a condition somebody removed. Each key is absent when
+    it would be empty.
+    """
+    notes: list[str] = []
+    code: list[str] = []
+    for item in comments or []:
+        text = str(item)
+        (notes if semantic_text.is_note(text) else code).append(text)
+    return {
+        **({"sql_comments": notes} if notes else {}),
+        **({"commented_out_sql": code} if code else {}),
+    }
+
+
+def _conjunct_comments(conjunct: dict) -> list[str]:
+    """The comments a contract conjunct publishes as its own (C-P1).
+
+    A contract older than the ``comments`` key leaves only the conjunct's text: the
+    comments inside it are still its own. A comment that contract attached to nothing
+    (one written above an ``and``) then stays in the block's list and reaches every rule,
+    as it did before.
+    """
+    if "comments" in conjunct:
+        return [str(item) for item in conjunct.get("comments") or []]
+    return _inline_comments(conjunct.get("expression"))
 
 
 _QUOTES = ("'", '"', "`")
@@ -1686,29 +1721,51 @@ def _without_comments(text):
     if not isinstance(text, str) or "/*" not in text:
         return text
     out: list[str] = []
+    cursor, size = 0, len(text)
+    for start, end in _comment_spans(text):
+        if start > cursor:
+            out.append(text[cursor:start])
+        while out and out[-1].endswith((" ", "\t", "\n")):
+            out[-1] = out[-1].rstrip()
+            if not out[-1]:
+                out.pop()
+        index = end
+        while index < size and text[index] in " \t\n":
+            index += 1
+        if out and index < size and not out[-1].endswith("(") and text[index] != ")":
+            out.append(" ")
+        cursor = index
+    out.append(text[cursor:])
+    return "".join(out).strip()
+
+
+def _inline_comments(text) -> list[str]:
+    """The bodies of the ``/* ... */`` comments in ``text``, trimmed, in order."""
+    if not isinstance(text, str) or "/*" not in text:
+        return []
+    bodies: list[str] = []
+    for start, end in _comment_spans(text):
+        stop = end - 2 if text.startswith("*/", end - 2) and end - 2 >= start + 2 else end
+        body = text[start + 2 : stop].strip()
+        if body and (not bodies or bodies[-1] != body):
+            bodies.append(body)
+    return bodies
+
+
+def _comment_spans(text: str):
+    """``(start, end)`` of every ``/* ... */`` comment, markers included, outside quotes."""
     index, size = 0, len(text)
     while index < size:
-        char = text[index]
-        if char in _QUOTES:
-            end = _closing_quote(text, index)
-            out.append(text[index : end + 1])
-            index = end + 1
+        if text[index] in _QUOTES:
+            index = _closing_quote(text, index) + 1
             continue
         if text.startswith("/*", index):
             close = text.find("*/", index + 2)
-            index = size if close < 0 else close + 2
-            while out and out[-1].endswith((" ", "\t", "\n")):
-                out[-1] = out[-1].rstrip()
-                if not out[-1]:
-                    out.pop()
-            while index < size and text[index] in " \t\n":
-                index += 1
-            if out and index < size and not out[-1].endswith("(") and text[index] != ")":
-                out.append(" ")
+            end = size if close < 0 else close + 2
+            yield index, end
+            index = end
             continue
-        out.append(char)
         index += 1
-    return "".join(out).strip()
 
 
 def _closing_quote(text: str, start: int) -> int:
@@ -1834,7 +1891,7 @@ def _case_rule(document: dict, scope_id: str, block: dict) -> dict:
         **({"consumed": False} if _case_unconsumed(document, scope_id, block) else {}),
         "fields": _rule_fields(document, pairs),
         "scope_fields": _scope_fields(document, block.get("fields")),
-        **_rule_comments(block),
+        **_rule_comments(block.get("comments")),
         "evidence": str(block.get("logic_block_id")),
         "tag": TAG_SQL_FACT,
     }
@@ -2092,7 +2149,7 @@ def _chain_matcher(document: dict):
 def _build_field(document: dict, entry: dict, chain: dict | None, context: dict) -> dict:
     detail = _column_detail(_output_metadata(document), entry.get("column"))
     comment = detail.get("comment")
-    derivation = _derivation(chain, context)
+    derivation = _derivation(document, chain, context)
     # WI-2.1 fix: the chain rule below only proves a *pass-through* value nullable, so an
     # aggregate over a joined-in column came back false. The argument rule proves the
     # other half, and the field flag follows whichever of the two fires.
@@ -2533,10 +2590,11 @@ def _is_ambiguous(entry: dict) -> bool:
     )
 
 
-def _derivation(chain: dict | None, context: dict) -> list[dict]:
+def _derivation(document: dict, chain: dict | None, context: dict) -> list[dict]:
     """R4: one restated line per ordered step, with the verbatim expression beside it."""
     steps = []
-    for step in (chain or {}).get("ordered_steps") or []:
+    ordered = (chain or {}).get("ordered_steps") or []
+    for position, step in enumerate(ordered):
         scope_id = str(step.get("scope_id"))
         expression = step.get("expression_sql")
         has_udf = _step_calls_udf(step, context)
@@ -2559,11 +2617,65 @@ def _derivation(chain: dict | None, context: dict) -> list[dict]:
                     input_fields=step.get("input_fields") or [],
                     has_udf=has_udf,
                     column_types=context["column_types"],
+                    values_filter=(
+                        _values_filter(document, ordered, position)
+                        if step.get("step_type") == "constant"
+                        else None
+                    ),
                 ),
                 "expression": _without_comments(expression),
             }
         )
     return steps
+
+
+def _values_filter(
+    document: dict, steps: Sequence[dict], position: int
+) -> tuple[list[int], list[str], int] | None:
+    """C-P6: the rows of an inline VALUES list this field can still read, or None.
+
+    A constant step over a VALUES column carries every row of the list, while the field
+    may read it through ``SELECT * FROM codes WHERE code_type = 'B'``. The later steps of
+    the chain whose single-input chain (#21-c) reaches down to the VALUES scope are the
+    layers that can filter it; the topmost ones are read, with #21-c's own pins (equality
+    conjuncts only, so a filter in an OR is ignored and the preview only stays wider).
+    UNION branches that read the list through different filters are not one set of rows:
+    then nothing is narrowed. Returns ``(kept row indexes, pin texts, row count)`` only
+    when the filters drop at least one row.
+    """
+    bottom = str(steps[position].get("scope_id"))
+    scope = _scopes(document).get(bottom) or {}
+    if scope.get("depends_on"):
+        return None
+    columns = [str(output.get("name")) for output in scope.get("outputs") or []]
+    rows = values_rows.literal_rows(scope.get("raw_sql"), len(columns))
+    if not rows:
+        return None
+    chains: dict[str, list[str]] = {}
+    for step in steps[position + 1 :]:
+        scope_id = str(step.get("scope_id"))
+        if scope_id not in chains:
+            chain = _single_input_chain(document, scope_id)
+            if len(chain) > 1 and chain[-1] == bottom:
+                chains[scope_id] = chain
+    tops = [
+        chain
+        for scope_id, chain in chains.items()
+        if not any(scope_id in other[1:] for other in chains.values())
+    ]
+    readings = {
+        tuple(sorted(_values_pins(
+            document, chain, _values_column_names(document, chain, columns), {}, chain[0]
+        )))
+        for chain in tops
+    }
+    if len(readings) != 1:
+        return None
+    pins = readings.pop()
+    kept = [index for index, row in enumerate(rows) if _row_meets_pins(row, pins)]
+    if not pins or len(kept) == len(rows):
+        return None
+    return kept, [f"{columns[column]} = '{value}'" for column, value in pins], len(rows)
 
 
 def _group_by_keys(document: dict, scope_id: str) -> list[str]:
@@ -4713,13 +4825,7 @@ def _values_key_claim(
     rows = values_rows.literal_rows(scope.get("raw_sql"), len(columns))
     if not rows or not columns:
         return None
-    level = len(chain) - 1
-    # name at each chain level -> the VALUES column it carries
-    at_level: list[dict[str, int]] = [{} for _ in chain]
-    for position, column in enumerate(columns):
-        for index, name in enumerate(_lifted_names(document, chain, level, column)):
-            if name is not None:
-                at_level[index].setdefault(name.lower(), position)
+    at_level = _values_column_names(document, chain, columns)
     key_positions = _dedupe(
         at_level[0][name.lower()] for name in join_columns if name.lower() in at_level[0]
     )
@@ -4745,6 +4851,19 @@ def _values_key_claim(
         "R-VALUES-DISTINCT",
         (bottom,),
     )
+
+
+def _values_column_names(
+    document: dict, chain: Sequence[str], columns: Sequence[str]
+) -> list[dict[str, int]]:
+    """Per chain level, each lower-cased name there -> the VALUES column it carries."""
+    level = len(chain) - 1
+    at_level: list[dict[str, int]] = [{} for _ in chain]
+    for position, column in enumerate(columns):
+        for index, name in enumerate(_lifted_names(document, chain, level, column)):
+            if name is not None:
+                at_level[index].setdefault(name.lower(), position)
+    return at_level
 
 
 def _values_pins(

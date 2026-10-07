@@ -2,7 +2,7 @@
   "doc_format": "semantic-json/1",
   "artifact_kind": "task_semantic",
   "task_id": "golden_set_preamble_task",
-  "lineage_digest": "06ed0ba214589bc7",
+  "lineage_digest": "167da784b7281822",
   "produced_tables": [
     "mart.store_daily"
   ],
@@ -12,7 +12,7 @@
       "doc_format": "semantic-json/1",
       "schema_version": "1.0",
       "statement_id": "stmt:003",
-      "lineage_digest": "2f1dd60c3f8e1f46",
+      "lineage_digest": "5ee70fd57347cdd4",
       "task": {
         "task_name": "golden_set_preamble_task#2",
         "target_table": "mart.store_daily",

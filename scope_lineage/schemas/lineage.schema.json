@@ -1987,6 +1987,13 @@
           "items": {
             "type": "object",
             "properties": {
+              "comments": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "该合取项自己的 SQL 注释原文：表达式内的注释，前面加上挂在连接它的 AND 节点上的注释（独占一行写在 and 上方或紧跟 and 之后的注释）。写在 WHERE / HAVING 本身上的注释不在此。无注释时不发本键。"
+              },
               "subquery_dependencies": {
                 "type": "array",
                 "items": {
