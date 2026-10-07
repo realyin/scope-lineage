@@ -1,6 +1,6 @@
 """The front matter a review opens with: what it read, how much it found, whether it was fixed.
 
-A review is markdown a model writes (``table-semantics-review@6``). Its first lines are a
+A review is markdown a model writes (``table-semantics-review@8``). Its first lines are a
 minimal YAML block that ``semantic status`` reads without a YAML library::
 
     ---
