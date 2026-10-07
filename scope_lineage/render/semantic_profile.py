@@ -1583,6 +1583,10 @@ _RULE_KEY_ORDER = (
     "fields",
     "scope_fields",
     "sql_comments",
+    # C-P2: SQL the author switched off beside this condition. Kept apart from the notes
+    # rather than dropped: a line such as `and s <> 'D'` dated and commented out records a
+    # filter somebody removed.
+    "commented_out_sql",
     "evidence",
     "tag",
 )
@@ -1670,9 +1674,22 @@ def _join_rule(document: dict, scope_id: str, block: dict) -> dict:
 
 
 def _rule_comments(comments) -> dict:
-    """``{"sql_comments": [...]}`` when there are comments, ``{}`` otherwise."""
-    texts = [str(item) for item in comments or []]
-    return {"sql_comments": texts} if texts else {}
+    """A rule's comments split into notes (``sql_comments``) and switched-off SQL.
+
+    C-P2: the same reading WI-2.8 D9 gives a field's comments. A field drops the
+    switched-off SQL; a rule keeps it under ``commented_out_sql``, because beside a
+    condition it is the record of a condition somebody removed. Each key is absent when
+    it would be empty.
+    """
+    notes: list[str] = []
+    code: list[str] = []
+    for item in comments or []:
+        text = str(item)
+        (notes if semantic_text.is_note(text) else code).append(text)
+    return {
+        **({"sql_comments": notes} if notes else {}),
+        **({"commented_out_sql": code} if code else {}),
+    }
 
 
 def _conjunct_comments(conjunct: dict) -> list[str]:

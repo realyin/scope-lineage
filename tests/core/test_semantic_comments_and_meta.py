@@ -408,3 +408,73 @@ def test_a_body_that_parses_into_sql_is_called_commented_out_code(text: str) -> 
 def test_anything_the_parser_cannot_prove_is_sql_stays_a_note(text: str) -> None:
     """The conservative side: a misread note loses an explanation, so it must not happen."""
     assert comment_kind(text) == COMMENT_KIND_NOTE
+
+
+# ------------------- C-P2: a switched-off SQL line is a fragment, rarely a whole expression
+#
+# A line of SQL commented out mid-statement is a piece of a projection list or a WHERE --
+# a leading comma, a dangling `and`, a dated stamp and a sentence after it -- and none of
+# that parses whole. The classifier reads the code head of the body (cut at an inner `--`
+# and at the first non-ASCII character, with the leading / trailing comma or AND / OR
+# taken off) before asking the parser.
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        ",b.x as y --note",
+        "and s <> 'D' 20260101修改",
+        "dt = '20260101' and",
+        ",row_number() over(partition by k order by t desc) as rn",
+        ",a.old_v as v -- old v note",
+    ],
+)
+def test_a_switched_off_fragment_is_commented_out_code(text: str) -> None:
+    assert comment_kind(text) == COMMENT_KIND_COMMENTED_OUT_SQL
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # A call whose name is not ASCII is prose that happens to hold parentheses.
+        "示例类别(属性x='y' and f='z')",
+        # A predicate quoted inside a sentence, with no comma or AND / OR to say it is a
+        # line of a list -- the closest shapes to the rule, which must stay notes.
+        "status = 1 表示有效",
+        "type in (1,2) 时有效",
+        "1=成功,2=失败",
+    ],
+)
+def test_prose_quoting_a_predicate_stays_a_note(text: str) -> None:
+    assert comment_kind(text) == COMMENT_KIND_NOTE
+
+
+SWITCHED_OFF_PROJECTION = """INSERT OVERWRITE TABLE mart.metric_target
+SELECT
+    s.customer_id AS customer_id,
+    'x' AS env -- env note
+    --,s.old_amount AS total_amount -- old amount note
+    ,s.amount AS total_amount -- amount note
+FROM ods.channel_event s
+"""
+
+
+def test_a_switched_off_projection_line_is_not_the_previous_column_s_note() -> None:
+    """sqlglot attaches the switched-off line to the column above it; it is not its note."""
+    schema = {"ods.channel_event": ["customer_id", "amount", "old_amount"]}
+    field = _field(_statement_profile(SWITCHED_OFF_PROJECTION, schema), "env")
+    assert field["sql_comments"] == ["env note"]
+    assert "old_amount" not in field["summary"]
+
+
+def test_a_rule_keeps_its_switched_off_sql_apart_from_its_notes() -> None:
+    sql = (
+        "INSERT OVERWRITE TABLE mart.metric_target\n"
+        "SELECT s.customer_id AS customer_id, SUM(s.amount) AS total_amount\n"
+        "FROM ods.channel_event s\n"
+        "WHERE s.status = 'x' /* and s.status <> 'y' */\n"
+        "GROUP BY s.customer_id"
+    )
+    rule = next(item for item in _statement_profile(sql)["rules"] if item["kind"] == "filter")
+    assert rule["commented_out_sql"] == ["and s.status <> 'y'"]
+    assert "sql_comments" not in rule

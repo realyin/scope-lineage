@@ -15,6 +15,15 @@
   **Content change for consumers of `sql_comments`** (`semantic.json` rules and the packet
   facts copied from them): the lists get shorter, no comment is lost. Packets rebuilt from
   such tasks change their `packet_digest`.
+- **Switched-off SQL in a comment is recognised when it is a fragment.** The note / code
+  classifier (WI-2.8 D9) only called a comment code when its whole body parsed, and a line
+  commented out mid-statement rarely does (`,b.x as y -- note`, `and s <> 'D' 20260101 删`,
+  `dt = 'x' and`). It now reads the body's code head: cut at an inner `--` and at the first
+  non-ASCII character, the leading / trailing comma or AND / OR and a date stamp taken off.
+  Prose quoting a predicate (`status = 1 表示有效`) stays a note, and so does a call whose
+  name is not ASCII (`示例类别(…)`), which used to be called code. Fields keep dropping code
+  comments from `sql_comments`; rules now classify too (see Added). **Content change for
+  consumers of `sql_comments`** on fields and rules.
 - **`semantic validate` check 2 accepts a column's lookup key as its source.** A value read off
   an inline dictionary (a constant row set) has no physical source, so the only physical column
   a writer can name is the join key deciding which row is read -- and check 2 warned on it
@@ -290,6 +299,9 @@
   it reached no conjunct. Absent when there are none; `schema_version` is unchanged and the
   schema gains the optional property. The contract goldens are re-recorded for the new key alone.
   **Downstream consumers of the contract should expect the new key.**
+- **Semantic profile: `rules[].commented_out_sql`.** A rule's comment that is switched-off
+  SQL is published here rather than under `sql_comments`, and kept: beside a condition it
+  records a condition somebody removed. Absent when empty; `semantic-json/1` unchanged.
 - **Catalog: an identifier unique per value of a column, and a code's surrogate key.** Two
   optional fields, in the catalog, fragment and `ontology-v3` schemas alike (no format
   version moves; catalogs without them build the same bytes):
