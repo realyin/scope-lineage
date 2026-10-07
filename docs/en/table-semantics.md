@@ -110,6 +110,25 @@ The lineage facts are the semantic profile's (`describe`'s builder), read with t
 cards so downstream consumers and joins another task proved unique are known. The profile
 is an input here, not a deliverable.
 
+The layout of `packet.md` changes the markdown only, never `packet.json`, so `packet_digest`
+does not move and no written document goes stale over it:
+
+- The 4.2 rules table has a 位置 column after 类型: `stmt:00N / <scope>` (the task name first
+  when the packet has several tasks). Rows with the same expression are told apart by it --
+  which statement, which subquery.
+- Section 3's 分区读取 and 日期列上的过滤 list each condition once, followed by the rules it
+  comes from, e.g. `（p2、p5）`.
+- Section 3's 本表用到 cell of an input column read in (most often through `select *`) but
+  used by no output, condition or key says 「读入未用（select * 等）」.
+- A 4.1 步骤 cell whose step chain is longer than 300 characters says only 「末层：<last
+  step>（共 N 步；完整步骤见同目录 packet.json 该列 producers[].steps）」, cutting a last step
+  that is itself too long, so every row is bounded; the author's comments and the
+  「头注释：… 才加入」 note stay.
+- 4.2's 说明 gives, right after the rule's text, how far each date literal of the task in the
+  rule's expression sits from the expected run date, e.g. 「日期字面量 '20250115'（期望日期
+  −1 天）」 -- the same reading as 2.x's `date_literals`: an offset, never which literal is the
+  batch date.
+
 Each input carries the facts check 9 needs: `partition_read` (`equality` for a single
 partition; `multi_equality` when every partition filter is an equality or an `IN` list of
 literals and they come to more than one value, i.e. several fixed partitions; `range`
