@@ -2465,7 +2465,7 @@ def _walk_lookup(
 
 
 def _chain_sql_comments(chain: dict | None, context: dict) -> list[str]:
-    """Every comment the author wrote on this field's derivation, upstream first.
+    """Every comment the author wrote on this field's value, upstream first.
 
     Collected along the mapping chain rather than off the final projection alone: a value
     renamed three times carries its explanation at the step where it was computed, and a
@@ -2473,16 +2473,52 @@ def _chain_sql_comments(chain: dict | None, context: dict) -> list[str]:
     one's. Order is the chain's, duplicates are dropped -- the same note restated at two
     steps is one thing the author said.
 
+    G3: only the steps that carry *this* value. The walk starts at the chain's last step
+    and climbs ``input_fields`` only through a pass-through or a cleaning IF / CASE /
+    COALESCE (:func:`semantic_text.cleans_its_input`). Any other step computed the value:
+    its own comment is kept, its inputs' are not -- they describe another quantity (a
+    date the step turned into a flag).
+
     WI-2.8 D9: a body that IS SQL the author switched off is not a note about the column
     and does not travel here. It stays in the contract's own ``comments``, where a reader
     asking what the code used to look like can still find it.
     """
     index = context["output_comments"]
+    steps = (chain or {}).get("ordered_steps") or []
     collected: list[str] = []
-    for step in (chain or {}).get("ordered_steps") or []:
+    for position in sorted(_value_steps(steps)):
+        step = steps[position]
         key = (str(step.get("scope_id")), str(step.get("output_field") or ""))
         collected.extend(index.get(key) or [])
     return _dedupe(item for item in collected if semantic_text.is_note(item))
+
+
+def _value_steps(steps: Sequence[dict]) -> set[int]:
+    """The positions of the steps that carry the chain's final value (G3)."""
+    if not steps:
+        return set()
+    producers: dict[str, list[int]] = {}
+    for position, step in enumerate(steps):
+        producers.setdefault(str(step.get("output_field") or ""), []).append(position)
+    kept: set[int] = set()
+    frontier = [len(steps) - 1]
+    while frontier:
+        position = frontier.pop()
+        if position in kept:
+            continue
+        kept.add(position)
+        step = steps[position]
+        inputs = [str(item) for item in step.get("input_fields") or []]
+        kind = str(step.get("step_type"))
+        if kind not in semantic_text.PASS_THROUGH_STEP_TYPES and not (
+            kind in semantic_text.CLEANING_STEP_TYPES
+            and semantic_text.cleans_its_input(step.get("expression_sql"), inputs)
+        ):
+            continue
+        frontier.extend(
+            earlier for item in inputs for earlier in producers.get(item, []) if earlier < position
+        )
+    return kept
 
 
 def _alias_comments(chain: dict | None, entry: dict, context: dict) -> list[str]:

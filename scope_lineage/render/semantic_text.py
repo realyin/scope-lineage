@@ -1656,6 +1656,60 @@ SUMMARY_COMMENT_LIMIT = 2
 # instead of listing eight "直接投影自 …" hops nobody reads.
 PASS_THROUGH_STEP_TYPES = ("direct_projection", "union")
 
+# G3. The two computing step types that may still only *clean* a value: an IF / CASE /
+# COALESCE that hands back its one input column or a literal in every value position.
+CLEANING_STEP_TYPES = ("case_when", "expression")
+
+
+def cleans_its_input(expression: str | None, inputs: Sequence[str]) -> bool:
+    """Whether one step only fills in or blanks out the one value it reads (G3).
+
+    ``if(c = '', null, c)``, ``coalesce(c, '')`` and ``case when c is null then 'x' else
+    c end`` keep ``c``'s meaning: every value position (IF / CASE branches, ELSE, every
+    COALESCE argument, nested through parentheses) is the step's single input column or a
+    literal / NULL / boolean. A step reading two columns, a CAST, a TRIM or any other
+    function computes something else, and answers False -- a comment would rather be
+    missing than travel to a value it does not describe.
+    """
+    names = {str(item).rsplit(".", 1)[-1].lower() for item in inputs}
+    if len(names) != 1:
+        return False
+    node = _unwrap(parse_expression(expression))
+    if not isinstance(node, (exp.If, exp.Case, exp.Coalesce)):
+        return False
+    values = _value_positions(node)
+    columns = {value.name.lower() for value in values if isinstance(value, exp.Column)}
+    return columns == names and all(
+        isinstance(value, exp.Column) or _is_scalar_constant(value) for value in values
+    )
+
+
+def _value_positions(node: exp.Expression | None) -> list:
+    """The sub-expressions an IF / CASE / COALESCE can hand back, flattened."""
+    while isinstance(node, exp.Paren):
+        node = node.this
+    if isinstance(node, exp.If):
+        otherwise = node.args.get("false")
+        return [
+            *_value_positions(node.args.get("true")),
+            *(_value_positions(otherwise) if otherwise is not None else [exp.Null()]),
+        ]
+    if isinstance(node, exp.Case):
+        found = [
+            value
+            for branch in node.args.get("ifs") or []
+            for value in _value_positions(branch.args.get("true"))
+        ]
+        default = node.args.get("default")
+        return found + (_value_positions(default) if default is not None else [exp.Null()])
+    if isinstance(node, exp.Coalesce):
+        return [
+            value
+            for item in [node.this, *node.expressions]
+            for value in _value_positions(item)
+        ]
+    return [node]
+
 # How many steps and how many sources one sentence lists before it defers to the keys
 # that hold them all. A summary is a sentence, not a second copy of ``derivation[]``:
 # past these counts it stops mid-list, says how many there are, and names the key to
