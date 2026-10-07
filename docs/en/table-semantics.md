@@ -460,11 +460,14 @@ loose text match.
 ### Report
 
 A table's pass rate is the share of checked items that did not fail; a warning is listed
-but does not count against it. The text summary prints each table's line and then its
-failures, one per line, in the form a rewrite prompt can take as it stands:
+but does not count against it. The text summary prints each table's line; when some checks
+ran and found nothing to check, the next line (无可查条目) lists them by number; then come the
+failures, one per line, `[N name]` being the check's number and name in the table of checks,
+in the form a rewrite prompt can take as it stands:
 
 ```text
 demo_dwd.dwd_party_customer_info_df: 46/51 checks passed (90.2%), 5 fail, 1 warn
+  无可查条目：10 fan_out、11 derived_codes、13 header_facts
   FAIL [1 coverage] columns: 缺少目标表的列 verified_customer_no（表内第 2 列）；补上这一列
   WARN [2 source_columns] columns[0].source_columns[1]: ...
   FAIL [9 time] summary.refresh.time: 写了 incremental，但上游 demo_ods.ods_core_customer_df 都按单一分区取全量快照，...
@@ -484,8 +487,13 @@ Validated 1 document(s): 0 clean, 1 with failures, 0 with warnings only, 0 with 
       "counts": {"pass": 45, "warn": 1, "fail": 5},
       "pass_rate": 0.902,
       "checks": {"coverage": {"pass": 5, "warn": 0, "fail": 1}},
+      "not_reported": [
+        {"number": 10, "check": "fan_out"},
+        {"number": 11, "check": "derived_codes"},
+        {"number": 13, "check": "header_facts"}
+      ],
       "failures": [
-        {"check": "coverage", "status": "fail", "at": "columns", "message": "..."}
+        {"check": "coverage", "status": "fail", "at": "columns", "message": "...", "number": 1}
       ]
     }
   ],
@@ -493,6 +501,15 @@ Validated 1 document(s): 0 clean, 1 with failures, 0 with warnings only, 0 with 
               "tables_with_warnings_only": 0, "tables_with_schema_errors": 0, "pass_rate": 0.902}
 }
 ```
+
+- `checks` holds only the checks that produced items this time, keyed by name; a check
+  that is absent had nothing to check (no unproven join, no CASE / IF output column, for
+  instance), or the packet is too old to carry the facts it reads. The report does not
+  tell the two apart.
+- `not_reported` lists those checks by number (`number` is the # of the table of checks).
+  It is empty when the cross checks did not run: a schema error, or no packet for the table.
+- `failures[].number` is the number of the check an item belongs to, the same as the
+  `[N name]` of the text summary, so counting by number needs no lookup of names.
 
 ### Exit codes
 

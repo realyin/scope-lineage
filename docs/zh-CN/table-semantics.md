@@ -361,11 +361,13 @@ scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.t
 
 ### 报告
 
-一张表的通过率是检查项中未失败的比例；警告会列出，但不计入失败。文字摘要先打印每张表一行，再逐行列出失败项，
+一张表的通过率是检查项中未失败的比例；警告会列出，但不计入失败。文字摘要先打印每张表一行；有检查项运行了
+但没有可查的条目时，下一行「无可查条目」按编号列出它们；再逐行列出失败项，`[N name]` 是检查项表的编号和名称，
 格式可直接作为重写提示：
 
 ```text
 demo_dwd.dwd_party_customer_info_df: 46/51 checks passed (90.2%), 5 fail, 1 warn
+  无可查条目：10 fan_out、11 derived_codes、13 header_facts
   FAIL [1 coverage] columns: 缺少目标表的列 verified_customer_no（表内第 2 列）；补上这一列
   WARN [2 source_columns] columns[0].source_columns[1]: ...
   FAIL [9 time] summary.refresh.time: 写了 incremental，但上游 demo_ods.ods_core_customer_df 都按单一分区取全量快照，...
@@ -385,8 +387,13 @@ Validated 1 document(s): 0 clean, 1 with failures, 0 with warnings only, 0 with 
       "counts": {"pass": 45, "warn": 1, "fail": 5},
       "pass_rate": 0.902,
       "checks": {"coverage": {"pass": 5, "warn": 0, "fail": 1}},
+      "not_reported": [
+        {"number": 10, "check": "fan_out"},
+        {"number": 11, "check": "derived_codes"},
+        {"number": 13, "check": "header_facts"}
+      ],
       "failures": [
-        {"check": "coverage", "status": "fail", "at": "columns", "message": "..."}
+        {"check": "coverage", "status": "fail", "at": "columns", "message": "...", "number": 1}
       ]
     }
   ],
@@ -394,6 +401,12 @@ Validated 1 document(s): 0 clean, 1 with failures, 0 with warnings only, 0 with 
               "tables_with_warnings_only": 0, "tables_with_schema_errors": 0, "pass_rate": 0.902}
 }
 ```
+
+- `checks` 只收这次产出了条目的检查项，按名称作键；某项不出现，就是没有可查的条目（例如没有未证明的关联、
+  没有 CASE / IF 输出列），或材料包太旧、没有它读的那类事实。两种情形报告不区分。
+- `not_reported` 按编号列出这些检查项（`number` 是检查项表的 #）。Schema 不通过、或没有这张表的材料包时，
+  交叉检查没有运行，它为空。
+- `failures[].number` 是该条所属检查项的编号，与文字摘要里的 `[N name]` 相同，按编号统计不必再对照名称。
 
 ### 退出码
 

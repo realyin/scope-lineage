@@ -97,6 +97,17 @@ def test_the_golden_pages_with_ontology_and_validation(pages: dict) -> None:
     _golden(FIXTURES / "pages", pages)
 
 
+def test_a_report_with_check_numbers_renders_the_same_pages(
+    ontology: dict, validation: dict, pages: dict
+) -> None:
+    numbered = copy.deepcopy(validation)
+    for entry in numbered["tables"]:
+        entry["not_reported"] = [{"number": 13, "check": "header_facts"}]
+        for item in entry["failures"]:
+            item["number"] = CHECKS.index(item["check"]) + 1
+    assert render_semantic_pages(_documents(), validation=numbered, ontology=ontology) == pages
+
+
 def test_the_golden_pages_without_optional_inputs(plain: dict) -> None:
     _golden(FIXTURES / "plain", plain)
 
