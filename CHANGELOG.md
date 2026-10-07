@@ -3,6 +3,30 @@
 ## Unreleased
 
 ### Changed
+- **Writing and review prompts read the packet's new facts (`table-semantics-prompt@8`,
+  `table-semantics-review@8`).** The packets of this release carry facts `@7` never mentions,
+  so writers either missed them or read them as something else. The writing prompt now says:
+  a MERGE row in 4.3 is the written batch's grain and 「已证明」 is always 「否」 there, the
+  table's key is the inferred 「MERGE 后目标表的候选键」 line (`grain_source: inferred`), an
+  UPDATE-only statement does not decide the grain, and UNION branches deduplicated one by
+  one are not unique together; a JOIN whose 行数放大 cell names an unfiltered ranking (a
+  `window` row) may fan out, and one 「位于聚合 X 之下」 / 「在聚合参数路径上」 copies no
+  output row but can count an aggregated value twice; 4.3's 「UPDATE 不改的列」 / 「只改」 /
+  「可能写入空值」 lines go into `derivation` / `null_meaning`, and a MERGE partition stays
+  where the row was first written; `multi_equality` reads several fixed partitions, not a
+  range; 4.4's 按哪些列读 column is this packet's own fact; 位置 tells rules with one
+  expression apart, and a filter 「在 pN 右侧」 may be quoted alone; 读入未用 columns do not
+  affect the table; a 4.1 cell that says only its 末层 sends the writer to `packet.json`
+  for the whole chain (the one other file a writer may read); and the producer's 表卡摘要,
+  the header's 加列记录 and switched-off SQL are clues, never this task's SQL. Each of the
+  four new leads (`window_partition_narrower`, `numeric_compare_on_string`,
+  `marker_column_unused`, `declared_key_not_used`) gets a place in the document. The review
+  prompt's item 5 now requires every governance lead to land in the document or be refuted
+  by this table's SQL, rating a missing landing medium, and high for
+  `window_partition_narrower` when it affects how rows are read; a list after item 16 ties
+  the same facts to items 1, 2, 6, 13, 15 and 16 (4.4's columns are no sibling material). The
+  fix prompt is unchanged (`table-semantics-fix@5`). No tool behaviour, packet, digest or
+  format changes; documents written with `@7` are not flagged stale.
 - **Meaning change: a MERGE reports the grain of the batch it writes** (reverses #22).
   `output_shape.grain`, `candidate_keys`, `unexposed_keys`, `key_evidence`,
   `key_confidence` and `key_claim` of a MERGE statement used to be fixed at `unknown` /
