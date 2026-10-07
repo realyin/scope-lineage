@@ -328,7 +328,7 @@ scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.t
 | 2 | `source_columns` | 来源列既不在该列的血缘里，也不在任何输入表里（该列的血缘是它各 producer 的来源列加查码关联键 `lookup_keys`：从内联字典这类常量行集读值时，决定读哪一行的物理键） | 只在输入表元数据里，不在该列的血缘里 |
 | 3 | `code_values` | 未标 `unconfirmed` 的码值在相关注释和 SQL 里都找不到，字典也没有在该列或它读取的来源列上确认它（`confirmed_values`）。码值要单独出现，不能是更长的词或数字的一部分；只有在注释（列注释、来源列注释、SQL 头注释）里，以数字结尾的码值后面可以直接跟字母（`1普通2VIP回访` 里的 `2`）。空值（`""` 或只有空白）不按文字找：只有该列某个 producer 会写出 `''`（`literal_outputs`：COALESCE / NVL 的回填、常量、CASE / IF 的分支）才通过，`''` 只出现在条件里不算。每个 producer 都是 `constant_only` 的列只会有这些常量：它的每个码值（含 `unconfirmed` 的）都必须是其中之一，只写 NULL 的列没有码值。没有 `literal_outputs` 的材料包没有这样的列 | — |
 | 4 | `grain` | 粒度列不是目标表的列，或写了 `grain_source: proven` 而材料包里没有证明的键 | 声称的粒度列与证明的键不同 |
-| 5 | `rules` | 非分区过滤没有被任何 `rules[].sql` 引用；引用的 `sql` 规范化后在任务 SQL 里找不到；`rule_refs` 指向不存在的规则。原文本身或它的某个 AND 合取项（去掉注释）以某种形式与过滤相等，才算引用；只是包含过滤文字的更长原文（CASE 分支、MERGE 条件）不算。带 `right_of` 且 `right_side_kind` 为 `rank_first` 或 `values` 的过滤不要求引用；只带 `right_of` 的仍要用规则引用，提示里写明不要写进 `summary.scope`。修法是照抄这一个条件，不必抄整段 WHERE | 材料包里没有 SQL，无法核对原文 |
+| 5 | `rules` | 非分区过滤没有被任何 `rules[].sql` 引用；引用的 `sql` 规范化后在任务 SQL 里找不到；`rule_refs` 指向不存在的规则。原文本身或它的某个 AND 合取项（去掉注释）以某种形式与过滤相等，才算引用；原文是整句（SELECT、INSERT … SELECT 等）时，它里面每个 WHERE / HAVING / ON（含嵌套子查询的）的合取项也算；只是包含过滤文字的更长原文（CASE 分支、MERGE 条件）不算。带 `right_of` 且 `right_side_kind` 为 `rank_first` 或 `values` 的过滤不要求引用；只带 `right_of` 的仍要用规则引用，提示里写明不要写进 `summary.scope`。修法是照抄这一个条件，不必抄整段 WHERE | 材料包里没有 SQL，无法核对原文 |
 | 6 | `neighbours` | 上游表不是血缘里的输入表；下游任务（或声称它写的表）不认识 | 下游任务认识，但不知道它写哪些表 |
 | 7 | `sources` | 带来源的条目 `sources` 为空，或问题超过五个 | — |
 | 8 | `digest` | `packet_digest` 与材料包不一致（过期），或没有这张表的材料包 | — |
