@@ -17,6 +17,11 @@ before the private keys the rules carried are dropped.
 
 from __future__ import annotations
 
+from typing import Mapping, NamedTuple
+
+from sqlglot import exp
+
+from ..render.semantic_text import equals_one_predicate, parse_expression
 from .packet_facts import INTENT, LOGIC_BLOCK, PROFILE_RULE, WINDOW
 
 # The findings a packet carries; the others are the semantic document's (``describe``).
@@ -104,6 +109,110 @@ def mark_unfiltered_rankings(rules: list[dict], statements: list[tuple[str, dict
                  and _statement_key(other) == key and other.get("scope") in right]
         if found:
             rule["unfiltered_ranking"] = found
+
+
+class RightSides(NamedTuple):
+    """A statement's structural right-side shapes: ``(logic block, window output)`` pairs
+    that keep a ranking's first row, and the scopes reading an inline VALUES list."""
+
+    first_row_filters: list[tuple[str, str]]
+    values_scopes: set[str]
+
+
+RANK_FIRST = "rank_first"
+VALUES = "values"
+_PRESERVING_LEFT = ("LEFT", "LEFT_OUTER")
+
+
+def mark_right_side_filters(
+    rules: list[dict], statements: list[tuple[str, dict]], shapes: Mapping[tuple, RightSides]
+) -> None:
+    """B-V2: a filter inside a LEFT JOIN's right side, and the structural kind it has.
+
+    ``right_of`` lists the LEFT JOINs whose right side (with everything it reads) holds
+    the filter's scope. It is a non-partition filter's only, and only when nothing of the
+    statement's driving rows reads that scope: the driving rows are what every root stage
+    reads, at any depth, except through a LEFT JOIN's right input -- so a CTE read both
+    as ``FROM c a`` and as ``LEFT JOIN c a1`` drives. A LEFT JOIN whose own scope also
+    filters on its right side (``WHERE r.k IS NULL``) lets the right side decide which
+    target rows survive, and holds no ``right_of`` filter.
+
+    ``right_side_kind`` says what such a filter structurally is, when it is one of two
+    things: ``rank_first`` (it keeps a ranking's first row, :class:`RightSides`) or
+    ``values`` (its scope reads an inline VALUES list down a single-input chain).
+    """
+    profile_rules = {(task, statement.get("statement_id")): statement.get("rules") or []
+                     for task, statement in statements}
+    stages = _stages(statements)
+    for key, statement_rules in profile_rules.items():
+        reads = _reads(stages.get(key) or [])
+        driving = _driving_scopes(reads, statement_rules)
+        joins = [rule for rule in rules if rule["kind"] == "join" and _statement_key(rule) == key
+                 and rule.get("join_type") in _PRESERVING_LEFT
+                 and not _filters_its_right_side(rule, rules)]
+        shape = shapes.get(key) or RightSides([], set())
+        for rule in rules:
+            if (rule["kind"] != "filter" or rule["partition_filter"]
+                    or _statement_key(rule) != key or str(rule.get("scope")) in driving):
+                continue
+            right_of = [join["id"] for join in joins
+                        if str(rule.get("scope")) in _closure(reads, join.get("right"))]
+            if not right_of:
+                continue
+            rule["right_of"] = right_of
+            kind = _right_side_kind(rule, shape)
+            if kind:
+                rule["right_side_kind"] = kind
+
+
+def _driving_scopes(reads: dict[str, list[str]], profile_rules: list[dict]) -> set[str]:
+    """Every scope the statement's root stages read without crossing a LEFT JOIN's right."""
+    cut: dict[str, set[str]] = {}
+    left: dict[str, set[str]] = {}
+    for rule in profile_rules:
+        if rule.get("kind") != "join_condition":
+            continue
+        scope = str(rule.get("scope_id"))
+        left.setdefault(scope, set()).add(str(rule.get("left_input")))
+        if str(rule.get("join_type")) in _PRESERVING_LEFT:
+            cut.setdefault(scope, set()).add(str(rule.get("right_input")))
+    read = {item for items in reads.values() for item in items}
+    pending = [scope for scope in reads if scope not in read]
+    found: set[str] = set()
+    while pending:
+        scope = pending.pop()
+        if scope in found:
+            continue
+        found.add(scope)
+        skipped = cut.get(scope, set()) - left.get(scope, set())
+        pending.extend(item for item in reads.get(scope, []) if item in reads and item not in skipped)
+    return found
+
+
+def _filters_its_right_side(join: dict, rules: list[dict]) -> bool:
+    """A filter of the JOIN's own scope reads its right side (an anti-join's IS NULL)."""
+    aliases = {str(name).lower() for name in join.get("right_aliases") or []}
+    return any(
+        other["kind"] == "filter" and _statement_key(other) == _statement_key(join)
+        and other.get("scope") == join.get("scope")
+        and aliases & _qualifiers(other.get("expression"))
+        for other in rules
+    )
+
+
+def _qualifiers(expression) -> set[str]:
+    node = parse_expression(str(expression or ""))
+    return {column.table.lower() for column in node.find_all(exp.Column)} if node else set()
+
+
+def _right_side_kind(rule: dict, shape: RightSides) -> str | None:
+    block = rule.get(LOGIC_BLOCK)
+    if any(block == consumer and equals_one_predicate(rule.get("expression"), output)
+           for consumer, output in shape.first_row_filters):
+        return RANK_FIRST
+    if str(rule.get("scope")) in shape.values_scopes:
+        return VALUES
+    return None
 
 
 GRAIN_PATH = "grain"

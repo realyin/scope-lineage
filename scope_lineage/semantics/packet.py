@@ -20,7 +20,13 @@ from .digests import canonical_digest
 from .names import bare_table, scrub
 from .packet_comments import References, marker_keys
 from .packet_confirmed import Confirmed
-from .packet_notes import mark_undecided_joins, mark_unfiltered_rankings, mark_verdict_paths
+from .packet_notes import (
+    RightSides,
+    mark_right_side_filters,
+    mark_undecided_joins,
+    mark_unfiltered_rankings,
+    mark_verdict_paths,
+)
 from .packet_sections import inputs_section, lineage_section, target_section, tasks_section
 
 PACKET_FORMAT = "table-semantics-packet/1"
@@ -69,7 +75,7 @@ def build_packets(
     produced = _produced_statements(profiles)
     corpus = _Corpus(
         cards, _TaskIndex(tasks), metadata or (lambda _table: None), Confirmed(glossary, patched),
-        _task_reads(documents),
+        _task_reads(documents), _right_side_shapes(producers),
     )
     return [_packet(table, produced[table], corpus) for table in _selected(produced, only)]
 
@@ -93,11 +99,33 @@ def _task_reads(documents: list) -> dict[str, set[str]]:
     """``task -> db.table`` names the task reads from outside itself, over all statements."""
     reads: dict[str, set[str]] = {}
     for document, _ in documents:
-        task = document.get("task_id") or (document.get("task_meta") or {}).get("task_name")
+        task = _task_of(document)
         if task:
             reads.setdefault(str(task), set()).update(
                 document_reads(document) - document_writes(document))
     return reads
+
+
+def _task_of(document: dict):
+    return document.get("task_id") or (document.get("task_meta") or {}).get("task_name")
+
+
+def _right_side_shapes(documents: list) -> dict[tuple, RightSides]:
+    """Per ``(task, statement_id)``: the structural shapes a right-side filter can have (B-V2).
+
+    Asked of the statement's lineage, with the profile's own rules: the predicates that
+    keep a ranking's first row, and the scopes that read an inline VALUES list. Keyed by
+    task *and* statement, as two tasks name their scopes and blocks alike.
+    """
+    from ..render.semantic_profile import first_row_filters, inline_values_scopes
+
+    shapes: dict[tuple, RightSides] = {}
+    for document, _ in documents:
+        task = str(_task_of(document) or "")
+        for statement in list((document.get("statement_lineage") or {}).values()) or [document]:
+            shapes[(task, statement.get("statement_id"))] = RightSides(
+                first_row_filters(statement), set(inline_values_scopes(statement)))
+    return shapes
 
 
 def packet_digest(packet: Mapping) -> str:
@@ -171,9 +199,11 @@ class _Corpus:
     def __init__(
         self, cards: dict, tasks: _TaskIndex, metadata: MetadataLookup, confirmed: Confirmed,
         reads: dict[str, set[str]] | None = None,
+        right_sides: dict[tuple, RightSides] | None = None,
     ):
         self.tasks = tasks
         self._reads = reads or {}
+        self.right_sides = right_sides or {}
         self.confirmed = confirmed
         self._metadata = metadata
         self._looked_up: dict[str, Optional[dict]] = {}
@@ -218,6 +248,7 @@ def _packet(table: str, statements: list[tuple[str, dict]], corpus: _Corpus) -> 
     mark_undecided_joins(rules, statements)
     mark_verdict_paths(rules, statements)
     mark_unfiltered_rankings(rules, statements)
+    mark_right_side_filters(rules, statements, corpus.right_sides)
     target = target_section(table, statements, corpus)
     inputs = inputs_section(table, statements, rules, corpus)
     lineage = lineage_section(table, statements, rules, target, corpus)

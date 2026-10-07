@@ -14,7 +14,13 @@ import re
 
 from ..render.semantic_text import NULLABLE_LEFT_JOIN_TYPES, aggregate_functions
 from .names import bare_column, bare_table, normalize_sql, strip_leading_keyword
-from .packet_meaning import PASS_THROUGH_STEPS, case_outputs, code_expression, join_facts
+from .packet_meaning import (
+    PASS_THROUGH_STEPS,
+    case_outputs,
+    code_expression,
+    join_facts,
+    literal_outputs,
+)
 
 _RULE_KINDS = {"filter": "filter", "having": "filter", "join_condition": "join",
                "case_branch": "case"}
@@ -56,11 +62,14 @@ def column_producer(task: str, statement: dict, field: dict) -> dict:
         "case_outputs": case_outputs(code_expression(field)),
     }
     computed = computed_by(field) if str(field.get("transform")) == "DIRECT" else []
+    literals, constant_only = literal_outputs(field)
     extra = {
         "computed_by": computed,
         "sql_alias": field.get("sql_alias"),
         "lookup_keys": list(dict.fromkeys(bare_column(key) for key in field.get("lookup_keys") or [])),
         "sql_comments": [str(text) for text in field.get("sql_comments") or []],
+        "literal_outputs": literals,
+        "constant_only": constant_only,
         _LABEL: field.get("column_label"),
     }
     producer.update({key: value for key, value in extra.items() if value})

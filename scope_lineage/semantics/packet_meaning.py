@@ -6,6 +6,8 @@
   reach the output;
 - :func:`case_outputs` -- the literal values a CASE / IF column can take, and which source
   values each one gathers;
+- :func:`literal_outputs` -- the literals a column's SQL writes out (``''``, a constant,
+  a literal NULL), and whether it writes nothing else;
 - :func:`header_facts` -- the lifecycle and data volume a script's header comment states,
   and which table of the task the header describes when it is another one;
 - :func:`producer_header` -- what an input's producing task says of the table in its
@@ -230,6 +232,89 @@ def _literal(node) -> str | None:
         return None if inner is None else f"-{inner}"
     if isinstance(node, exp.Literal):
         return str(node.this)
+    return None
+
+
+# ------------------------------------------------------------------ literal outputs
+
+# A scope the contract names for one branch of a UNION (`union:main:b01`): the last step of
+# that branch's part of a field's derivation.
+_BRANCH_SCOPE = re.compile(r"^union:.+:b\d+$")
+
+
+def literal_outputs(field: dict) -> tuple[list[str], bool]:
+    """``(literals, constant_only)``: what a field's SQL writes as literals (B-V1 / V5).
+
+    A field's derivation lists each UNION branch's steps in turn, a branch's ending at
+    its ``union:…:bNN`` scope, then the steps above the union. The step that decides
+    what a branch writes is its last computing one; when a step above the union computes,
+    that step decides for all. Its literals are written out when only pass-throughs
+    follow (:data:`PASS_THROUGH_STEPS`): a constant (``''``, ``'web'``, ``NULL``), the
+    fallback a COALESCE / NVL ends in, the literal outputs of a CASE / IF. Literals in a
+    condition are no output, and a NULL a LEFT JOIN brings is ``nullable_by_join``'s.
+
+    ``constant_only`` is true when every branch's deciding step is a constant: the
+    literals are then all the column holds. An inline VALUES column (one constant step
+    standing for a list) is no single literal.
+    """
+    segments, current = [], []
+    for step in field.get("derivation") or []:
+        current.append(step)
+        if _BRANCH_SCOPE.match(str(step.get("scope_id") or "")):
+            segments.append(current)
+            current = []
+    above = _deciding_step(current)
+    deciding = [above] if above is not None or not segments else [
+        _deciding_step(segment) for segment in segments]
+    literals: list[str] = []
+    constant_only = bool(deciding)
+    for step in deciding:
+        found, constant = _step_literals(step) if step is not None else ([], False)
+        literals += [value for value in found if value not in literals]
+        constant_only = constant_only and constant
+    return literals, constant_only and bool(literals)
+
+
+def _deciding_step(steps: list[dict]) -> dict | None:
+    return next((step for step in reversed(steps)
+                 if str(step.get("step_type")) not in PASS_THROUGH_STEPS), None)
+
+
+def _step_literals(step: dict) -> tuple[list[str], bool]:
+    """``(literals the step writes, whether it writes nothing else)``."""
+    text = str(step.get("expression") or "").strip()
+    if not text or (str(step.get("step_type")) == "constant" and text.startswith("(")):
+        return [], False
+    try:
+        node = sqlglot.parse_one(text, read=DIALECT)
+    except _PARSE_ERRORS:
+        return [], False
+    node = _bare(node)
+    single = _literal_sql(node)
+    if single is not None:
+        return [single], True
+    if isinstance(node, exp.Coalesce):
+        last = _literal_sql(_bare(([node.this] + list(node.expressions))[-1]))
+        return ([last] if last is not None else []), False
+    outputs = [_literal_sql(_bare(value)) for _condition, value in _branches(node)]
+    return [value for value in outputs if value is not None], False
+
+
+def _bare(node):
+    while isinstance(node, (exp.Paren, exp.Alias)) or (
+            isinstance(node, exp.Cast) and _literal_sql(node.this) is not None):
+        node = node.this
+    return node
+
+
+def _literal_sql(node) -> str | None:
+    """A literal in SQL spelling (``'x'``, ``''``, ``0``, ``-1``, ``NULL``), else None."""
+    if isinstance(node, exp.Null):
+        return "NULL"
+    if isinstance(node, exp.Neg) and isinstance(node.this, exp.Literal) and not node.this.is_string:
+        return node.sql(dialect=DIALECT)
+    if isinstance(node, exp.Literal):
+        return node.sql(dialect=DIALECT)
     return None
 
 
