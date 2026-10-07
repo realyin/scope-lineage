@@ -25,7 +25,7 @@ from .expression_text import _function_names
 from .sequences import _extend_unique, _unique_ordered
 from .source_refs import _is_cross_join_type, _is_internal_scope_id, _normalize_expression_resolution, _physical_source_fields_for_refs, _physical_source_fields_from_refs, _physical_source_ids_for_input, _source_ref_binding_key, _source_ref_to_dict, _source_refs_from_detail_fields, _source_type_from_id
 from .column_expression_resolution import _expression_resolution_for_scope_column
-from .sql_comments import comments_in_sql
+from .sql_comments import comments_in_sql, node_comments, normalize, subtree_comments
 
 
 def _populate_logic_blocks(
@@ -662,7 +662,7 @@ def _filter_predicate_detail(
     seen_refs: set[tuple[str, str, str, str, str]] = set()
     all_subquery_dependencies: list[dict[str, object]] = []
     seen_subquery_dependencies: set[tuple[str, str]] = set()
-    for conjunct in _split_conjuncts(root_expr) if root_expr is not None else []:
+    for conjunct, joined_by in _split_conjuncts_with_comments(root_expr) if root_expr is not None else []:
         refs = _resolve_column_refs_in_expr(conjunct, sg_scope, result, schema)
         for ref in refs:
             ref_key = _source_ref_binding_key(ref)
@@ -678,10 +678,12 @@ def _filter_predicate_detail(
             if dep_key not in seen_subquery_dependencies:
                 seen_subquery_dependencies.add(dep_key)
                 all_subquery_dependencies.append(dependency)
+        comments = normalize([*joined_by, *subtree_comments(conjunct)])
         conjuncts.append(
             {
                 "expression": conjunct.sql(dialect=DIALECT),
                 "fields": [_source_ref_to_dict(ref) for ref in refs],
+                **({"comments": comments} if comments else {}),
                 **({"subquery_dependencies": subquery_dependencies} if subquery_dependencies else {}),
                 "expression_resolution": _normalize_expression_resolution(
                     _expression_resolution_for_refs(
@@ -771,9 +773,27 @@ def _source_refs_from_logic_blocks(blocks: list[ScopeLogicBlock]) -> list[Source
 
 
 def _split_conjuncts(expr: exp.Expression) -> list[exp.Expression]:
+    return [conjunct for conjunct, _ in _split_conjuncts_with_comments(expr)]
+
+
+def _split_conjuncts_with_comments(
+    expr: exp.Expression, joined_by: list[str] | None = None
+) -> list[tuple[exp.Expression, list[str]]]:
+    """The AND conjuncts of ``expr``, each with the comments the ``And`` above it carried.
+
+    sqlglot attaches a comment written on its own line above ``and b = 2`` -- or right
+    after the ``and`` -- to the ``And`` node, not to ``b = 2``: rendered, it reads
+    ``a = 1 AND /* note */ b = 2``. Splitting on AND drops that node, and with it the
+    comment, from every conjunct's text. It is handed to the right operand instead, the
+    predicate it was written above; a right operand that is itself an AND passes it on to
+    its first conjunct.
+    """
+    inherited = list(joined_by or [])
     if isinstance(expr, exp.And):
-        return _split_conjuncts(expr.left) + _split_conjuncts(expr.right)
-    return [expr]
+        return _split_conjuncts_with_comments(expr.left, inherited) + _split_conjuncts_with_comments(
+            expr.right, node_comments(expr)
+        )
+    return [(expr, inherited)]
 
 
 def _join_key_pair_from_expr(

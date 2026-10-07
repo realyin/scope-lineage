@@ -3,6 +3,18 @@
 ## Unreleased
 
 ### Changed
+- **A WHERE / HAVING rule's comments are its own predicate's, not the whole condition's.**
+  The semantic profile split a WHERE into one rule per conjunct but handed every rule the
+  block's whole comment list, so a note written beside one predicate was published as the
+  explanation of its siblings too (and, since the packets copy `sql_comments`, in packet
+  section 4.2). A filter / having rule now takes its conjunct's own comments (the new
+  contract key below) plus only what was written on the WHERE / HAVING itself
+  (`WHERE -- note` above the first predicate), which still goes to every rule. A comment at
+  the end of a line belongs to the last predicate on that line (sqlglot's attachment). An
+  older contract without the key falls back to the comments inside each conjunct's text.
+  **Content change for consumers of `sql_comments`** (`semantic.json` rules and the packet
+  facts copied from them): the lists get shorter, no comment is lost. Packets rebuilt from
+  such tasks change their `packet_digest`.
 - **`semantic validate` check 2 accepts a column's lookup key as its source.** A value read off
   an inline dictionary (a constant row set) has no physical source, so the only physical column
   a writer can name is the join key deciding which row is read -- and check 2 warned on it
@@ -271,6 +283,13 @@
   title saying so and pointing to the catalog workflow. The command, every flag and
   `ontology.json` (`ontology-json/2`) are unchanged, byte for byte.
 ### Added
+- **Lineage contract: `filter_predicate_detail.conjuncts[].comments`.** The comments that
+  belong to one WHERE / HAVING conjunct: those inside its own expression, led by a comment
+  written on its own line above the `AND` that joins it on (or right after that `AND`).
+  sqlglot attaches such a comment to the `AND` node, which splitting on AND used to drop, so
+  it reached no conjunct. Absent when there are none; `schema_version` is unchanged and the
+  schema gains the optional property. The contract goldens are re-recorded for the new key alone.
+  **Downstream consumers of the contract should expect the new key.**
 - **Catalog: an identifier unique per value of a column, and a code's surrogate key.** Two
   optional fields, in the catalog, fragment and `ontology-v3` schemas alike (no format
   version moves; catalogs without them build the same bytes):

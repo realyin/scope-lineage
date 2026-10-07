@@ -319,7 +319,7 @@ CTE 名按所在查询块的词法作用域绑定。例如，一个嵌套查询�
 | Detail key | 内容 |
 | --- | --- |
 | `join_relation_detail` | `join_type`、`left_input`、`right_input`、`left_alias`、`right_alias`、`join_key_pairs[]`、`condition_filters[]`、`trace_status`、`missing_reasons[]`。区分真正的关联 key 与 ON 中附加过滤。`right_input` / `right_alias` 是本次 JOIN 加入的来源及它在这次 JOIN 里的别名——同一来源被关联多次时，每次 JOIN 各是各的别名。`left_input` / `left_alias` 是本 scope 的第一个 FROM 来源及其别名，不一定是 ON 条件实际引用的那一侧（链式自关联时 `left_alias` 取紧挨着的上一跳）；每个关联 key 真正的左右两侧以 `join_key_pairs[].left` / `.right` 为准。当该 JOIN 读取本语句自己的目标表时，另带 `target_self_reference`——引用别名，且当目标分区与引用侧分区谓词都是字面日期时给出可证明的天数偏移（`partition_offset_days`、`offset_proven: true`）；无法证明时保持 `offset_proven: false` 而不猜测。负偏移即典型的"取昨日兜底"形态——工具只陈述偏移，语义命名留给消费方。 |
-| `filter_predicate_detail` | WHERE/HAVING 条件拆分后的 `conjuncts[]`、字段解析、子查询依赖和分区过滤判断。 |
+| `filter_predicate_detail` | WHERE/HAVING 条件拆分后的 `conjuncts[]`、字段解析、子查询依赖和分区过滤判断。每个合取项带 `comments[]`，只收属于这一条的注释：它自己 `expression` 里的注释，前面再加上独占一行写在连接它的 `AND` 上方（或紧跟在这个 `AND` 后面）的注释——sqlglot 把这种注释挂在 `AND` 节点上，任何合取项的原文里都没有它，因此交给它下面那一条。行尾注释挂在该行最后一条谓词上。写在 `WHERE` / `HAVING` 本身上的注释（第一条谓词上方的 `WHERE -- 说明`）不属于任何合取项，只留在块的 `comments[]` 里。没有注释时不发该键；新增键，`schema_version` 不变。 |
 | `aggregation_detail` | `group_by_items[]`、`aggregate_items[]`、`having` 及每项的表达式来源。 |
 | `window_specification` | 窗口函数、`partition_by[]`、`order_by[]`、窗口后过滤和 trace 状态。 |
 
@@ -898,6 +898,7 @@ scope-lineage validate --lineage /path/to/corpus
 | `script_comments[]`（仅契约 2.0 任务文档顶层） | 第一条写入语句**之前**那些未建模语句（`SET`、`USE`、`ADD JAR`、`CREATE TEMPORARY FUNCTION`、`DROP/CREATE TABLE IF NOT EXISTS` 等）上的注释 | 恒存在，空时为 `[]` |
 | `scopes.<id>.outputs[].comments[]` | 该投影表达式子树内的注释，别名节点自身优先；MERGE 的输出取该赋值的注释（`UPDATE SET` 取整个 `目标列 = 值`，`INSERT ... VALUES` 取对应的值） | 无注释时不发该键 |
 | `scopes.<id>.logic_blocks[].comments[]` | 该逻辑块自身表达式内的注释 | 无注释时不发该键 |
+| `scopes.<id>.logic_blocks[].filter_predicate_detail.conjuncts[].comments[]` | WHERE / HAVING 一个合取项的注释：它表达式里的，加上写在连接它的 `AND` 上方的 | 无注释时不发该键 |
 
 脚本头部注释块是最常被问到的那段话——「这个任务到底干什么」——而它通常写在 `SET` 之上。`SET` 不被建模，于是这段话本来谁也收不到。它被采集一次，发在两处：任务文档顶层的 `script_comments[]`（一个任务只说一遍，多条写入不会被读成每条都有这段说明），以及第一条写入语句的 `statement_comments[]`（单独读一条语句的消费者也能看到）。写在两条写入语句**之间**的注释不适用本规则：它已经挂在它上方的那条写入语句上，搬走就会张冠李戴。
 

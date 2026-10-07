@@ -4,7 +4,7 @@ schema_version: "1.0"
 task_name: "golden_commented_insert"
 target_table: "mart.channel_summary"
 stmt_kind: "INSERT_OVERWRITE"
-lineage_digest: "2ba4852854ec6ce5"
+lineage_digest: "ff70e54f4ad02643"
 ---
 
 # 任务语义描述 mart.channel_summary

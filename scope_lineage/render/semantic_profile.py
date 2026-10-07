@@ -1603,8 +1603,13 @@ def _filter_rules(document: dict, scope_id: str, block: dict) -> list[dict]:
             "expression_resolution": detail.get("expression_resolution"),
         }
     ]
+    own = [_conjunct_comments(conjunct) for conjunct in conjuncts]
+    claimed = {comment for comments in own for comment in comments}
+    # C-P1: what the block carries beyond every conjunct's own was written on the WHERE /
+    # HAVING itself (`WHERE -- note ⏎ a = 1 AND b = 2`) and is said of the whole condition.
+    whole = [str(item) for item in block.get("comments") or [] if str(item) not in claimed]
     rules = []
-    for conjunct in conjuncts:
+    for conjunct, comments in zip(conjuncts, own):
         pairs = _physical_fields(conjunct.get("expression_resolution"))
         rules.append(
             {
@@ -1614,10 +1619,10 @@ def _filter_rules(document: dict, scope_id: str, block: dict) -> list[dict]:
                 "is_partition_filter": partition,
                 "fields": _rule_fields(document, pairs),
                 "scope_fields": _scope_fields(document, conjunct.get("fields")),
-                # WI-2.2. A WHERE split into conjuncts has one comment list for the whole
-                # block, so every conjunct carries it: the author wrote the note about the
-                # predicate, and the split is this view's doing, not theirs.
-                **_rule_comments(block),
+                # C-P1: a conjunct's own comments, then the whole condition's. Handing
+                # every conjunct the block's list (WI-2.2) published a note written beside
+                # one predicate as the explanation of its siblings.
+                **_rule_comments(_dedupe([*comments, *whole])),
                 "evidence": evidence,
                 "tag": TAG_SQL_FACT,
             }
@@ -1658,16 +1663,29 @@ def _join_rule(document: dict, scope_id: str, block: dict) -> dict:
         "extra_condition_fields": _extra_condition_fields(document, detail),
         "fields": _rule_fields(document, physical),
         "scope_fields": _scope_fields(document, detail.get("condition_fields")),
-        **_rule_comments(block),
+        **_rule_comments(block.get("comments")),
         "evidence": str(block.get("logic_block_id")),
         "tag": TAG_SQL_FACT,
     }
 
 
-def _rule_comments(block: dict) -> dict:
-    """``{"sql_comments": [...]}`` when the block carries comments, ``{}`` otherwise."""
-    comments = [str(item) for item in block.get("comments") or []]
-    return {"sql_comments": comments} if comments else {}
+def _rule_comments(comments) -> dict:
+    """``{"sql_comments": [...]}`` when there are comments, ``{}`` otherwise."""
+    texts = [str(item) for item in comments or []]
+    return {"sql_comments": texts} if texts else {}
+
+
+def _conjunct_comments(conjunct: dict) -> list[str]:
+    """The comments a contract conjunct publishes as its own (C-P1).
+
+    A contract older than the ``comments`` key leaves only the conjunct's text: the
+    comments inside it are still its own. A comment that contract attached to nothing
+    (one written above an ``and``) then stays in the block's list and reaches every rule,
+    as it did before.
+    """
+    if "comments" in conjunct:
+        return [str(item) for item in conjunct.get("comments") or []]
+    return _inline_comments(conjunct.get("expression"))
 
 
 _QUOTES = ("'", '"', "`")
@@ -1686,29 +1704,51 @@ def _without_comments(text):
     if not isinstance(text, str) or "/*" not in text:
         return text
     out: list[str] = []
+    cursor, size = 0, len(text)
+    for start, end in _comment_spans(text):
+        if start > cursor:
+            out.append(text[cursor:start])
+        while out and out[-1].endswith((" ", "\t", "\n")):
+            out[-1] = out[-1].rstrip()
+            if not out[-1]:
+                out.pop()
+        index = end
+        while index < size and text[index] in " \t\n":
+            index += 1
+        if out and index < size and not out[-1].endswith("(") and text[index] != ")":
+            out.append(" ")
+        cursor = index
+    out.append(text[cursor:])
+    return "".join(out).strip()
+
+
+def _inline_comments(text) -> list[str]:
+    """The bodies of the ``/* ... */`` comments in ``text``, trimmed, in order."""
+    if not isinstance(text, str) or "/*" not in text:
+        return []
+    bodies: list[str] = []
+    for start, end in _comment_spans(text):
+        stop = end - 2 if text.startswith("*/", end - 2) and end - 2 >= start + 2 else end
+        body = text[start + 2 : stop].strip()
+        if body and (not bodies or bodies[-1] != body):
+            bodies.append(body)
+    return bodies
+
+
+def _comment_spans(text: str):
+    """``(start, end)`` of every ``/* ... */`` comment, markers included, outside quotes."""
     index, size = 0, len(text)
     while index < size:
-        char = text[index]
-        if char in _QUOTES:
-            end = _closing_quote(text, index)
-            out.append(text[index : end + 1])
-            index = end + 1
+        if text[index] in _QUOTES:
+            index = _closing_quote(text, index) + 1
             continue
         if text.startswith("/*", index):
             close = text.find("*/", index + 2)
-            index = size if close < 0 else close + 2
-            while out and out[-1].endswith((" ", "\t", "\n")):
-                out[-1] = out[-1].rstrip()
-                if not out[-1]:
-                    out.pop()
-            while index < size and text[index] in " \t\n":
-                index += 1
-            if out and index < size and not out[-1].endswith("(") and text[index] != ")":
-                out.append(" ")
+            end = size if close < 0 else close + 2
+            yield index, end
+            index = end
             continue
-        out.append(char)
         index += 1
-    return "".join(out).strip()
 
 
 def _closing_quote(text: str, start: int) -> int:
@@ -1834,7 +1874,7 @@ def _case_rule(document: dict, scope_id: str, block: dict) -> dict:
         **({"consumed": False} if _case_unconsumed(document, scope_id, block) else {}),
         "fields": _rule_fields(document, pairs),
         "scope_fields": _scope_fields(document, block.get("fields")),
-        **_rule_comments(block),
+        **_rule_comments(block.get("comments")),
         "evidence": str(block.get("logic_block_id")),
         "tag": TAG_SQL_FACT,
     }

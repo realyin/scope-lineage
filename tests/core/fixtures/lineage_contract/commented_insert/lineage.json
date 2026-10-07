@@ -783,6 +783,9 @@
                     "input_ref_id": "input:ROOT:001"
                   }
                 ],
+                "comments": [
+                  "仅生效状态"
+                ],
                 "expression_resolution": {
                   "status": "resolved",
                   "resolution_type": "qualified_expression",
