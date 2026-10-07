@@ -58,8 +58,9 @@ fallback covers 0.2.0):
 | code-set lookups in a catalog (a code set's `lookup`, a binding's `code_sets`, `code_sets_by`, `holds`, `lang`) | >= 0.7.0 (0.6.0 rejects them as schema errors) |
 | lookup facts in the drafting digest (`catalog digest --lineage` / `--schema`) | >= 0.7.0 (0.6.0 rejects the flags) |
 | the table-semantics loop this skill describes (`semantic fixed`, `semantic validate --only`, `table-semantics-status/2`, prompts `@8` / `@8` / `@5`) | >= 0.7.0 |
+| prompts `@9` / `@9` / `@6` (they read the 0.8.0 packet's new facts) | >= 0.8.0 |
 
-When unsure which workflows the session will need, require >= 0.7.0. A table-semantics
+When unsure which workflows the session will need, require >= 0.8.0. A table-semantics
 run directory made with an older release: rebuild its packets and follow the README's
 "Migrating to 0.7.0" (「迁移到 0.7.0」) before reusing its documents.
 Not installed → `pipx install 'scope-lineage[catalog]'` (or `pip install 'scope-lineage[catalog]'`):

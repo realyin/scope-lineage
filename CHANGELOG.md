@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+- **Table-semantics prompts `table-semantics-prompt@9`, `table-semantics-review@9` and
+  `table-semantics-fix@6`.** No format, packet or digest changes; existing documents do not
+  go stale (`semantic status` never reads `generator.prompt`).
+  - Evidence found only in a sibling table's material (its production SQL, table card or
+    header comment) never overturns a packet verdict. Writer, reviewer and fixer now agree:
+    the join stays named, the document writes "packet says <verdict>; inferred from
+    <sibling>'s material: <fact> (unproven)" with what happens if the inference is wrong,
+    and asks a question. The reviewer no longer asks for "does not multiply rows" on that
+    basis, and its closing "verdicts overturned by SQL" section marks such rows as sibling
+    evidence.
+  - Joins that are not `safe` are named by table or rule id `pN`; an alias alone does not
+    count. Validator checks are cited as number and name (check 10 (`fan_out`)).
+  - The reviewer gets the batch-day definition and the three cases that are findings; the
+    writer states in `how_to_read` which literal is the batch day and how many days it lies
+    before the expected date.
+  - A MERGE's `how_to_read` follows each statement's `when matched` clause (unconditional,
+    pinned to the batch partition, or rewriting the partition column) instead of always
+    saying old partitions are rewritten.
+  - The reviewer numbers its own findings H/M/L and old ones `oN`, gives a second reason
+    for "not applicable" (the current prompt changed the rule, quoted), learns that zero
+    high and medium findings means `fixed` (no severity adjustment for that), and defers to
+    the writing prompt on writing conventions.
+  - **Workflow:** before a rewrite, copy the current document to
+    `reviews/<db.table>.prior.json` next to `reviews/<db.table>.prior.md`. `status` does not
+    read it; the reviewer uses it, when its digest matches the old review's
+    `fixed_doc_digest`, to tell "fixed, then lost in the rewrite" from "never fixed".
+
 ## 0.7.0
 - **Table semantics that survive a review loop, MERGE targets read as the batch they
   write, and a catalog that says where its codes live.** One report format moves:

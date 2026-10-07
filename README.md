@@ -329,7 +329,7 @@ say. Full list: the **Breaking** entries under 0.7.0 in [CHANGELOG.md](CHANGELOG
    `semantic validate <run>/docs --packets <run>/packets --only <db.table> ...`). Before a
    table is rewritten, rename its review to `reviews/<db.table>.prior.md`; rule ids `pN`
    in old documents and reviews may point at other rules now. Use the packaged prompts
-   (`table-semantics-prompt@8`, `table-semantics-review@8`, `table-semantics-fix@5`).
+   (`table-semantics-prompt@9`, `table-semantics-review@9`, `table-semantics-fix@6`).
 3. End every fix with `semantic fixed <run> --only <db.table>`; without it a revised
    document is not `fixed`. A table reviewed before this release whose document changed
    after the review reads `valid review_stale`: review it again.
