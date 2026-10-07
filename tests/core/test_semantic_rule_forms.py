@@ -121,6 +121,59 @@ def test_a_script_sqlglot_cannot_parse_keeps_the_text_match() -> None:
     assert _failures(_document("nvl(a.order_status, 0) = 1"), packet) == []
 
 
+# ------------------------------------------------------------------ citing is equality (B-V3)
+
+# The same predicate text in a CASE branch, a MERGE condition and a WHERE: a quote of one
+# place cites only a filter equal to the quote or to one of its conjuncts, never a filter
+# that merely occurs inside the longer quote.
+ELSEWHERE = """INSERT OVERWRITE TABLE demo_dwd.dwd_probe_order_df PARTITION (dt = '${bizdate}')
+SELECT a.order_id, case when a.order_status = 9 then 1 end AS closed
+FROM demo_ods.ods_probe_order_di a
+WHERE a.order_status = 9;
+MERGE INTO demo_dwd.dwd_probe_flag_df t
+USING (SELECT order_id, flag FROM demo_ods.ods_probe_flag_di x WHERE x.flag = 'Y') s
+ON t.order_id = s.order_id
+WHEN MATCHED AND t.flag = 'Y' THEN UPDATE SET t.flag = s.flag
+"""
+
+
+def _elsewhere(*filters: str) -> dict:
+    packet = _packet(*filters)
+    packet["tasks"][0]["sql"] = ELSEWHERE
+    return packet
+
+
+def test_a_case_branch_quote_does_not_cite_the_where_filter_it_contains() -> None:
+    packet = _elsewhere("`a`.`order_status` = 9")
+    (problem,) = _failures(_document("case when a.order_status = 9 then 1 end"), packet)
+    assert problem["at"] == "rules"
+    assert _failures(_document("WHERE a.order_status = 9"), packet) == []
+
+
+def test_a_merge_condition_quote_does_not_cite_the_where_filter_it_contains() -> None:
+    packet = _elsewhere("`x`.`flag` = 'Y'")
+    (problem,) = _failures(_document("when matched and t.flag = 'Y' then update set"), packet)
+    assert problem["at"] == "rules"
+
+
+def test_a_quote_of_two_conjuncts_cites_each_of_them() -> None:
+    packet = _packet("NOT `a`.`amount` IS NULL", "DATE_FORMAT(`time_inst`, 'yyyyMMdd') = '${bizdate}'")
+    document = _document("where a.amount is not null and a.dt = '${bizdate}'")
+    assert _failures(document, packet) == []
+
+
+def test_a_conjunct_s_trailing_comment_does_not_stop_it_citing() -> None:
+    packet = _packet("NOT `a`.`amount` IS NULL")
+    document = _document("a.amount is not null -- 金额非空\n and a.dt = '${bizdate}'")
+    assert not [p for p in _failures(document, packet) if p["at"] == "rules"]
+
+
+def test_a_quote_sqlglot_cannot_parse_whole_cites_by_its_top_level_conjuncts() -> None:
+    packet = _packet("NOT `a`.`amount` IS NULL")
+    document = _document("a.amount is not null AND a.dt = ((")
+    assert not [p for p in _failures(document, packet) if p["at"] == "rules"]
+
+
 # ------------------------------------------------------------------ end to end
 
 

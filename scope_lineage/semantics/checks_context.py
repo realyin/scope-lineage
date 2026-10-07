@@ -11,32 +11,57 @@ from __future__ import annotations
 from .checks import MAX_QUESTIONS, _plain, result
 from .names import bare_table
 from .packet_facts import DATE_WINDOW
-from .sql_forms import fragment_forms, overlaps, task_sql
+from .packet_notes import RANK_FIRST, VALUES
+from .sql_forms import fragment_forms, quote_forms, task_sql
 
 # 5 ------------------------------------------------------------------ rules
 
 
 def check_rules(document: dict, packet: dict) -> list[dict]:
-    """Every non-partition filter is cited; every quoted rule is in the SQL; refs resolve.
+    """Every filter that must be cited is; every quoted rule is in the SQL; refs resolve.
+
+    A non-partition filter must be cited, except one inside a LEFT JOIN's right side
+    (``right_of``) that keeps a ranking's first row or reads an inline VALUES list
+    (``right_side_kind``): it drops no target row and its join's verdict already says
+    why. Any other right-side filter is cited by a rule, but belongs in no
+    ``summary.scope``: it decides which right rows take part, not which rows the table
+    keeps. A packet without these keys asks for every filter, as before.
 
     Quotes, filters and the task SQL are compared as :mod:`.sql_forms` describes: the
     script as written and as SQLGlot renders it, so a quote spelt the way the author wrote
-    it cites the filter the lineage spells its own way.
+    it cites the filter the lineage spells its own way -- and only a quote, or one of its
+    conjuncts, equal to the filter cites it.
     """
     scripts = _scripts(packet)
     sql = task_sql(scripts)
-    quoted = [sql.expand(fragment_forms(rule["sql"])) for rule in document["rules"] if rule.get("sql")]
+    quoted = frozenset().union(*(
+        sql.expand(quote_forms(rule["sql"])) for rule in document["rules"] if rule.get("sql")))
     results = []
     for rule in packet["lineage"]["rules"]:
         if rule["kind"] != "filter" or rule["partition_filter"]:
             continue
-        forms = fragment_forms(str(rule["expression"] or ""))
-        cited = any(overlaps(forms, text) for text in quoted)
-        results.append(result("rules", "pass", "rules") if cited else result(
-            "rules", "fail", "rules",
-            f"过滤 {_plain(rule['expression'])}（{rule['task']}）没有被任何 rules[].sql 引用；"
-            "补一条 filter 规则（照抄 SQL 原文），并在 summary.scope 里用 rule_refs 引用它"))
+        if rule.get("right_of") and rule.get("right_side_kind") in EXEMPT_RIGHT_SIDE:
+            continue
+        cited = fragment_forms(str(rule["expression"] or "")) & quoted
+        results.append(result("rules", "pass", "rules") if cited else _uncited(rule))
     return results + _quoted_sql(document, scripts, sql) + _rule_refs(document)
+
+
+# The right-side filters a document need not cite (packet_notes.mark_right_side_filters).
+EXEMPT_RIGHT_SIDE = (RANK_FIRST, VALUES)
+_QUOTE_IT = "sql 照抄这条过滤的原文，可以只抄这一个条件，不必抄整段 WHERE"
+
+
+def _uncited(rule: dict) -> dict:
+    said = f"过滤 {_plain(rule['expression'])}（{rule['task']}）"
+    if rule.get("right_of"):
+        joins = "、".join(rule["right_of"])
+        return result("rules", "fail", "rules", (
+            f"{said}在左关联 {joins} 的右侧，不丢目标行，但决定右侧哪些行参与匹配，"
+            f"没有被任何 rules[].sql 引用；补一条规则说明它，{_QUOTE_IT}；不要写进 summary.scope"))
+    return result("rules", "fail", "rules", (
+        f"{said}没有被任何 rules[].sql 引用；补一条 filter 规则，{_QUOTE_IT}，"
+        "并在 summary.scope 里用 rule_refs 引用它"))
 
 
 def _scripts(packet: dict) -> tuple:

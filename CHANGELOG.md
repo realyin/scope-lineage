@@ -81,6 +81,29 @@
   reads 「内联 VALUES 的一列（按 code_type = 'B' 过滤后 N 个字面量（全表 M 个），前 k 个：…）」.
   UNION branches that filter the list differently narrow nothing. Changes `derivation[].text`
   and the field `summary` of such fields.
+- **`semantic validate` reads the packet's new facts (checks 3, 5 and 10).**
+  - Check 3: an empty code value (`""`, or blanks) failed whatever the SQL wrote, and a
+    value of blanks passed by matching any blank of the script. Both now pass only when a
+    producer of the column writes `''` (`literal_outputs`); `''` only compared in a
+    condition still fails. A column whose producers are all `constant_only` holds its
+    constants and nothing else: a code value outside them fails, `unconfirmed` or not (a
+    value in a switched-off branch used to pass on the script's text).
+  - Check 5: a filter inside a LEFT JOIN's right side that keeps a ranking's first row or
+    reads an inline VALUES list (`right_side_kind` `rank_first` / `values`) need not be
+    cited any more; any other `right_of` filter must still be, by a rule, and the message
+    now says to keep it out of `summary.scope`. Both messages ask for that one condition,
+    not the whole WHERE.
+  - Check 5: a quote cites a filter only when it, or one of its AND conjuncts (comments
+    dropped), equals the filter in some form. A longer quote that merely contained the
+    filter's text -- a CASE branch, a MERGE condition -- used to cite it, so a filter no rule
+    explains could pass; such a document now fails check 5.
+  - Check 10: a join off the grain path (`fan_out.path` other than `grain`, below an
+    aggregate) is neither asked to be named nor warned about when called harmless to the
+    row count; a verdict with no path is on the grain path, as before.
+
+  A packet without `literal_outputs`, `right_of` or `fan_out.path` is checked as before,
+  except for blank code values. **Documents that passed may fail checks 3 or 5** where they
+  relied on the looser matching.
 - **`semantic validate` check 2 accepts a column's lookup key as its source.** A value read off
   an inline dictionary (a constant row set) has no physical source, so the only physical column
   a writer can name is the join key deciding which row is read -- and check 2 warned on it

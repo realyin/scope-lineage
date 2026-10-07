@@ -124,21 +124,41 @@ def check_code_values(document: dict, packet: dict) -> list[dict]:
 
     In a comment a code ending in a digit may run straight into letters (「1普通2VIP回访」);
     in the SQL it may not, where a hex string or a regex class would match any digit.
+
+    Two kinds of value are held to what the column itself writes (its producers'
+    ``literal_outputs``), not to the text:
+
+    - an empty value (``''``, or blanks) is no text to find: it is a code when a producer
+      writes ``''`` -- a COALESCE / NVL fallback, a constant, a CASE / IF branch -- and
+      not when ``''`` is only compared in a condition;
+    - a column every producer of which writes a constant (``constant_only``) holds those
+      constants and nothing else, so each of its codes, ``unconfirmed`` or not, must be
+      one of them; a column that only writes NULL has no code.
+
+    A packet built before ``literal_outputs`` has no constant column and no producer
+    writing ``''``.
     """
     sql = "\n".join(task["sql"] or "" for task in packet["tasks"])
     headers = [line for task in packet["tasks"] for line in task["header_comments"]]
     results = []
     for ci, column in enumerate(document["columns"]):
-        comments = "\n".join([_column_comments(packet, column["column"]), *headers])
-        confirmed = confirmed_values(packet, column["column"])
+        name = column["column"]
+        comments = "\n".join([_column_comments(packet, name), *headers])
+        confirmed = confirmed_values(packet, name)
+        literals, constant = column_literals(packet, name)
         for vi, code in enumerate(column.get("code_values") or []):
-            if code.get("unconfirmed"):
-                continue
             at = f"columns[{ci}].code_values[{vi}]"
-            value = code["value"]
-            if str(value).strip() in confirmed:
-                results.append(result("code_values", "pass", at))
-            elif value and (
+            value = str(code["value"])
+            if constant:
+                results.append(_constant_code(at, name, value, literals))
+            elif code.get("unconfirmed"):
+                continue
+            elif not value.strip():
+                results.append(result("code_values", "pass", at) if "" in literals else result(
+                    "code_values", "fail", at, (
+                        f"空串不是列 {name} 会产出的值：材料包 4.1 的步骤里没有回填或产出 ''；"
+                        "删掉这个码值，或改成 SQL 真正写出的值")))
+            elif value.strip() in confirmed or (
                 re.search(_code_pattern(value, in_comment=True), comments)
                 or re.search(_code_pattern(value, in_comment=False), sql)
             ):
@@ -148,6 +168,33 @@ def check_code_values(document: dict, packet: dict) -> list[dict]:
                     f"码值 {code['value']!r} 在注释和 SQL 里都找不到；有依据就写明来源，"
                     "没有就标 unconfirmed: true 并在 questions 里提问")))
     return results
+
+
+def column_literals(packet: dict, name: str) -> tuple[set[str], bool]:
+    """``(values, constant)``: the literals a target column's producers write, as values
+    (``''`` the empty string, NULL left out), and whether every producer writes nothing
+    but constants (``constant_only``)."""
+    producers = [producer for entry in packet["lineage"]["columns"] if entry["column"] == name
+                 for producer in entry["producers"]]
+    values = {_unquoted(literal) for producer in producers
+              for literal in producer.get("literal_outputs") or [] if literal.upper() != "NULL"}
+    constant = bool(producers) and all(producer.get("constant_only") for producer in producers)
+    return values, constant
+
+
+def _unquoted(literal: str) -> str:
+    """A literal in SQL spelling as the value it writes: ``'it''s'`` -> ``it's``; ``0`` stays."""
+    if len(literal) >= 2 and literal[0] == literal[-1] and literal[0] in "'\"":
+        return literal[1:-1].replace(literal[0] * 2, literal[0])
+    return literal
+
+
+def _constant_code(at: str, name: str, value: str, literals: set[str]) -> dict:
+    if value.strip() in {literal.strip() for literal in literals}:
+        return result("code_values", "pass", at)
+    written = "、".join(repr(literal) for literal in sorted(literals)) or "NULL"
+    return result("code_values", "fail", at, (
+        f"列 {name} 恒为常量 {written}，码值 {value!r} 不会出现；删掉它，或改成 SQL 写出的常量"))
 
 
 def _code_pattern(value: str, in_comment: bool) -> str:
