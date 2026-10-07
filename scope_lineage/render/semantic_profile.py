@@ -4628,8 +4628,40 @@ def _fan_out_verdict(
     listed = _values_key_claim(document, right, detail, columns)
     if listed is not None:
         return "safe", _values_reason(listed), None, None, []
+    subset = _row_subset_of_table(document, right, columns)
+    if subset is not None:
+        carded = _card_verdict(subset[0], detail, card_lookup, subset[1])
+        if carded:
+            return (*carded, [])
     fallback = grouped or ("risk", "右侧未被证明按连接键唯一", [])
     return fallback[0], fallback[1], None, None, fallback[2]
+
+
+def _row_subset_of_table(
+    document: dict, right: str, columns: Sequence[str]
+) -> tuple[str, list[str]] | None:
+    """``(table, its pinned columns)`` when ``right`` is one physical table's rows (G5a-2).
+
+    ``(SELECT * FROM t WHERE …)`` holds a subset of ``t``'s rows, and dropping rows never
+    makes a unique key repeat, so a card's answer about ``t`` holds for it. That needs
+    every scope down to the table to read one input and only filter (no JOIN, grouping,
+    window, UNION or derived column on the way), and every join column to reach the
+    table as that very column. The WHERE equalities on the way pin columns as on a
+    physical right side.
+    """
+    chain = _single_input_chain(document, right)
+    if any(
+        {str(block.get("logic_type")) for block in _scope_blocks(document, scope_id)}
+        - {"filter"}
+        for scope_id in chain
+    ):
+        return None
+    inputs = _scope_inputs(document, chain[-1])
+    if len(inputs) != 1 or inputs[0] not in set(document.get("source_tables") or []):
+        return None
+    if not all(_carried_through(document, chain, str(column).lower()) for column in columns):
+        return None
+    return inputs[0], list(_pinned_columns(document, right))
 
 
 def _fan_out_claim(
@@ -4659,7 +4691,17 @@ def _fan_out_claim(
     if not columns:
         return None
     ranked = _ranking_key_claim(document, right, (block_id, detail), columns)
-    return ranked or _values_key_claim(document, right, detail, columns)
+    listed = ranked or _values_key_claim(document, right, detail, columns)
+    if listed is not None or card_lookup is None:
+        return listed
+    subset = _row_subset_of_table(document, right, columns)
+    if subset is None:
+        return None
+    card = card_lookup(subset[0])
+    claim = _card_key_claim(card)
+    if claim is None or claim.defeaters:
+        return claim
+    return _read_claim(claim, detail, subset[1], _card_partition_columns(card))
 
 
 def _keyless_join_verdict(detail: dict) -> tuple[str, str]:
