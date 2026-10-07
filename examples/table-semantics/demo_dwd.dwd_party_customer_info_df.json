@@ -1,7 +1,7 @@
 {
   "doc_format": "table-semantics/1",
   "table": "demo_dwd.dwd_party_customer_info_df",
-  "packet_digest": "5ab3ea72c51631a6",
+  "packet_digest": "ec811d2e60ec6088",
   "generator": {
     "prompt": "table-semantics-prompt@0",
     "model": "hand-written example"

@@ -14,7 +14,13 @@ import re
 
 from ..render.semantic_text import NULLABLE_LEFT_JOIN_TYPES, aggregate_functions
 from .names import bare_column, bare_table, normalize_sql, strip_leading_keyword
-from .packet_meaning import PASS_THROUGH_STEPS, case_outputs, code_expression, join_facts
+from .packet_meaning import (
+    PASS_THROUGH_STEPS,
+    case_outputs,
+    code_expression,
+    join_facts,
+    literal_outputs,
+)
 
 _RULE_KINDS = {"filter": "filter", "having": "filter", "join_condition": "join",
                "case_branch": "case"}
@@ -56,11 +62,14 @@ def column_producer(task: str, statement: dict, field: dict) -> dict:
         "case_outputs": case_outputs(code_expression(field)),
     }
     computed = computed_by(field) if str(field.get("transform")) == "DIRECT" else []
+    literals, constant_only = literal_outputs(field)
     extra = {
         "computed_by": computed,
         "sql_alias": field.get("sql_alias"),
         "lookup_keys": list(dict.fromkeys(bare_column(key) for key in field.get("lookup_keys") or [])),
         "sql_comments": [str(text) for text in field.get("sql_comments") or []],
+        "literal_outputs": literals,
+        "constant_only": constant_only,
         _LABEL: field.get("column_label"),
     }
     producer.update({key: value for key, value in extra.items() if value})
@@ -140,13 +149,19 @@ def _spelling(expression) -> str:
 
 
 def statement_rules(task: str, statement: dict) -> list[dict]:
-    """The statement's filters, joins and CASE branches, then its dedup and union steps."""
+    """The statement's filters, joins and CASE branches, then its dedup, window and union steps.
+
+    Every rule row a packet has is made here, before the rules are numbered (README 裁决
+    12): the notes that name a rule by its number come after. A window in a stage that
+    does not dedup -- a ranking nobody filters to ``= 1``, a LEAD -- is a ``window`` row
+    (C-P4): the profile's text says what it computes and that nothing keeps one row.
+    """
     rules = [_profile_rule(task, statement, rule) for rule in statement.get("rules") or []]
     for stage in statement.get("stages") or []:
         for action in stage.get("actions") or []:
             kind = _STAGE_RULE_ACTIONS.get(str(action.get("type")))
             if kind == "dedup" and action.get("type") == "window" and stage.get("role") != "dedup":
-                continue
+                kind = WINDOW
             if kind:
                 rules.append(_stage_rule(task, statement, stage, action, kind))
     return rules
@@ -170,6 +185,9 @@ def _profile_rule(task: str, statement: dict, rule: dict) -> dict:
         entry["consumed"] = False
     if rule.get("sql_comments"):
         entry["sql_comments"] = [str(text) for text in rule["sql_comments"]]
+    if rule.get("commented_out_sql"):
+        # C-P2: SQL switched off beside the condition -- kept, and said to have no effect.
+        entry["commented_out_sql"] = [str(text) for text in rule["commented_out_sql"]]
     # Read by the findings and the MERGE block, which name a profile rule or logic block;
     # dropped before the packet is written.
     entry[PROFILE_RULE] = rule.get("rule_id")
@@ -204,6 +222,10 @@ def _stage_rule(task: str, statement: dict, stage: dict, action: dict, kind: str
             bare_table(table) for table in stage.get("upstream_physical_tables") or []
         ),
         "text": action.get("text"),
+        # The action's logic block, which a finding's evidence may name (A-M4), and its
+        # intent, which tells a ranking nobody filters; both dropped before writing.
+        LOGIC_BLOCK: action.get("evidence"),
+        INTENT: action.get("intent"),
     }
 
 
@@ -221,7 +243,11 @@ def _columns_of(fields) -> list[str]:
 
 
 def statement_keys(task: str, statement: dict) -> dict:
-    """The statement's grain and keys, and whether the profile proves them."""
+    """The statement's grain and keys, and whether the profile proves them.
+
+    ``proven`` is false on a MERGE whatever its confidence: the profile proves the batch
+    the MERGE writes, while a reader of this row asks about the table (A-M1).
+    """
     shape = statement.get("output_shape") or {}
     grain = shape.get("grain") or {}
     confidence = shape.get("key_confidence")
@@ -233,11 +259,21 @@ def statement_keys(task: str, statement: dict) -> dict:
         "grain_keys": [str(key.get("name")) for key in grain.get("keys") or []],
         "candidate_keys": list(shape.get("candidate_keys") or []),
         "key_confidence": confidence,
-        "proven": confidence == "proven",
+        "proven": confidence == "proven" and not shape.get("merge"),
     }
 
 
-def statement_partition(task: str, statement: dict) -> dict:
+MERGE_ROW_VALUES = "merge_row_values"
+
+
+def statement_partition(task: str, statement: dict, table_partitions=()) -> dict:
+    """How the statement writes partitions: its PARTITION clause, or a MERGE's rows (A-M6).
+
+    A MERGE has no PARTITION clause, so the lineage names no partition column for it; each
+    written row lands in the partition its own values name. ``table_partitions`` are the
+    target table's partition columns the metadata states; a MERGE then writes them as
+    ``merge_row_values``, with the constants its INSERT writes into them.
+    """
     partition = (statement.get("task") or {}).get("partition") or {}
     spec = partition.get("spec") or {}
     entry = {
@@ -247,13 +283,24 @@ def statement_partition(task: str, statement: dict) -> dict:
         "mode": partition.get("mode"),
         "spec": spec,
     }
-    values = _select_values(statement, [name for name, value in spec.items() if value is None])
+    dynamic = [name for name, value in spec.items() if value is None]
+    fields = statement.get("fields") or []
+    merging = (statement.get("output_shape") or {}).get("merge")
+    if merging and not entry["columns"] and not entry["mode"] and table_partitions:
+        entry["columns"], entry["mode"], dynamic = list(table_partitions), MERGE_ROW_VALUES, list(
+            table_partitions)
+        # The value an inserted row lands with is the INSERT's; an UPDATE keeps the row.
+        fields = [field for field in fields if _NOT_MATCHED.search(str(field.get("column_label")))]
+    values = _select_values(fields, dynamic)
     if values:
         entry["select_values"] = values
     return entry
 
 
-def _select_values(statement: dict, dynamic: list[str]) -> dict[str, list[str]]:
+_NOT_MATCHED = re.compile(r"merge:not_matched\s")
+
+
+def _select_values(fields: list[dict], dynamic: list[str]) -> dict[str, list[str]]:
     """The constants a SELECT writes into each dynamic partition column, when only constants.
 
     ``PARTITION (dt)`` is dynamic whatever the SELECT feeds it, so the spec has no value;
@@ -261,7 +308,7 @@ def _select_values(statement: dict, dynamic: list[str]) -> dict[str, list[str]]:
     from constants alone (``'${bizdate}' AS dt``, one per UNION branch), those constants
     are the partition values. A column fed from a source keeps no entry.
     """
-    fields = {str(field.get("column")): field for field in statement.get("fields") or []}
+    fields = {str(field.get("column")): field for field in fields}
     values: dict[str, list[str]] = {}
     for name in dynamic:
         field = fields.get(str(name)) or {}
@@ -286,6 +333,8 @@ _BETWEEN = re.compile(rf"^[a-z0-9_]+between{_CONSTANT}and{_CONSTANT}$")
 EXTRA_CONDITIONS = "_extra_conditions"
 PROFILE_RULE = "_profile_rule"
 LOGIC_BLOCK = "_logic_block"
+INTENT = "_intent"
+WINDOW = "window"
 _QUALIFIED = re.compile(r"^([a-z_][a-z0-9_]*)\.([a-z0-9_]+)((?:=|<=|>=|<|>|between).*)$")
 
 
@@ -352,7 +401,7 @@ def _join_partition_reads(rule: dict, metadata) -> list[dict]:
 def drop_private(rules: list[dict]) -> None:
     """Take out what the rules carried for this package only."""
     for rule in rules:
-        for key in (EXTRA_CONDITIONS, PROFILE_RULE, LOGIC_BLOCK):
+        for key in (EXTRA_CONDITIONS, PROFILE_RULE, LOGIC_BLOCK, INTENT):
             rule.pop(key, None)
 
 
@@ -462,14 +511,42 @@ def _filter_columns(rule: dict, table: str) -> list[str]:
 
 
 def _partition_read(expressions: list[str]) -> str:
+    """``none``, ``equality``, ``multi_equality`` (C-P7) or ``range``.
+
+    Every filter an equality: ``equality``, as before. Every filter an equality or an IN
+    list of literals, the literals together more than one value: ``multi_equality`` --
+    several fixed partitions, not a range (``dt IN ('20250101', '20260101')``). An IN
+    list of one value is an equality; anything else (a bound, BETWEEN, a subquery) is
+    ``range``.
+    """
     if not expressions:
         return "none"
-    return "equality" if all(_is_equality(text) for text in expressions) else "range"
+    if all(_is_equality(text) for text in expressions):
+        return "equality"
+    values = [partition_values(text) for text in expressions]
+    if any(found is None for found in values):
+        return "range"
+    return "multi_equality" if len({v for found in values for v in found}) > 1 else "equality"
 
 
 def _is_equality(expression: str) -> bool:
     text = normalize_sql(expression)
     return text.count("=") == 1 and not any(op in text for op in ("<", ">", "in(", "between"))
+
+
+_LITERAL = r"'[^']*'|\d+"
+_IN_LIST = re.compile(rf"^[^=<>()]+in\(((?:{_LITERAL})(?:,(?:{_LITERAL}))*)\)$")
+_EQUALS = re.compile(rf"^[^=<>()]+=({_LITERAL})$")
+
+
+def partition_values(expression: str) -> list[str] | None:
+    """The literals an equality or a literal IN list fixes its column to; ``None`` otherwise."""
+    if not (_IN_LIST.match(normalize_sql(expression)) or _EQUALS.match(normalize_sql(expression))):
+        return None
+    # The literals as written: the normalised text is lower-cased.
+    written = re.split(r"=|\bin\s*\(", strip_leading_keyword(expression), maxsplit=1,
+                       flags=re.IGNORECASE)[-1]
+    return re.findall(_LITERAL, written)
 
 
 def _name_convention(table: str) -> str:

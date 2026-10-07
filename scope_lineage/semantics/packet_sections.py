@@ -15,6 +15,7 @@ from . import packet_facts as facts
 from .names import bare_table
 from .packet_comments import comment_markers
 from .packet_context import date_literals, upstream_unmatched
+from .packet_leads import declared_key_leads, marker_leads
 from .packet_meaning import header_facts, producer_header
 from .packet_notes import merge_block, statement_findings
 
@@ -91,14 +92,15 @@ def _target_columns(meta: dict, first: dict, statements: list) -> tuple[list[dic
 # ------------------------------------------------------------------ tasks
 
 
-def tasks_section(table: str, statements: list, corpus) -> list[dict]:
+def tasks_section(table: str, statements: list, corpus, columns=()) -> list[dict]:
+    """One entry per producing task; ``columns`` are the target's, for the header's ALTERs."""
     grouped: dict[str, list[dict]] = {}
     for task, statement in statements:
         grouped.setdefault(task, []).append(statement)
-    return [_task_entry(table, task, group, corpus) for task, group in grouped.items()]
+    return [_task_entry(table, task, group, corpus, columns) for task, group in grouped.items()]
 
 
-def _task_entry(table: str, task: str, group: list[dict], corpus) -> dict:
+def _task_entry(table: str, task: str, group: list[dict], corpus, columns=()) -> dict:
     info = group[0].get("task") or {}
     meta = info.get("meta") or {}
     record = corpus.tasks.find([task, meta.get("task_name")], meta.get("source_file")) or {}
@@ -119,7 +121,7 @@ def _task_entry(table: str, task: str, group: list[dict], corpus) -> dict:
         **({"date_literals": dates} if dates else {}),
         "header_comments": list(info.get("header_comments") or []),
         "header_facts": header_facts(info.get("header_comments"), record.get("sql"),
-                                     table, corpus.tables_written_by(task)),
+                                     table, corpus.tables_written_by(task), columns),
         "statements": [statement.get("statement_id") for statement in group],
         "source_file": meta.get("source_file") or record.get("source_file"),
         "sql": record.get("sql"),
@@ -161,6 +163,7 @@ def _new_input(target: str, table: str, item: dict, corpus) -> dict:
         **({"producer_header": headers} if headers else {}),
         "_declared": list(meta.get("columns") or item.get("declared_columns") or []),
         "_used": {},
+        "_produced": [] if table == target else list(corpus.card(table).get("produced_by") or []),
     }
 
 
@@ -176,7 +179,7 @@ def _producer_headers(table: str, producers: list, corpus) -> list[dict]:
 
 
 def _finish_input(entry: dict, rules: list[dict], corpus) -> dict:
-    declared, used = entry.pop("_declared"), entry.pop("_used")
+    declared, used, produced = entry.pop("_declared"), entry.pop("_used"), entry.pop("_produced")
     names = [str(column.get("name")) for column in declared]
     declared = declared + [{"name": name} for name in used if name not in names]
     columns = [
@@ -189,30 +192,69 @@ def _finish_input(entry: dict, rules: list[dict], corpus) -> dict:
                 corpus)
         for column in declared
     ]
-    return {**entry, **facts.input_time_facts(entry["table"], rules, columns), "columns": columns}
+    written = _producer_columns(produced, used)
+    return {
+        **entry,
+        **({"producer_columns": written} if written else {}),
+        **facts.input_time_facts(entry["table"], rules, columns),
+        "columns": columns,
+    }
+
+
+# The ways of reading a column that decide which rows match or group: a writer reading a
+# join or a filter on an input needs to know how its producer computes that column.
+_KEYED_USAGES = frozenset({"join_key", "filter", "window_partition", "window_order"})
+
+
+def _producer_columns(produced: list[dict], used: dict[str, list]) -> list[dict]:
+    """D-G5a-1: how each corpus task producing the input writes the columns read by key.
+
+    ``[{task, statement_id, column, summary}]`` from the table card's
+    ``produced_by[].fields``, for every column this table joins, filters or windows on:
+    another task's SQL, summarised, never this task's.
+    """
+    keyed = {name for name, usages in used.items() if _KEYED_USAGES & set(usages)}
+    return [
+        {"task": producer.get("task"), "statement_id": producer.get("statement_id"),
+         "column": field.get("column"), "summary": field.get("summary")}
+        for producer in produced
+        for field in producer.get("fields") or []
+        if field.get("column") in keyed and field.get("summary")
+    ]
 
 
 # ------------------------------------------------------------------ lineage
 
 
-def lineage_section(table: str, statements: list, rules: list[dict], target: dict, corpus) -> dict:
+def lineage_section(
+    table: str, statements: list, rules: list[dict], target: dict, corpus, inputs=(),
+) -> dict:
+    """Column lineage, rules, keys, partitions, neighbours and findings.
+
+    ``findings`` are the profile's (:func:`statement_findings`), then the leads only the
+    packet sees, comparing ``inputs`` (the inputs section) with what each task reads.
+    """
     producers = {task for task, _ in statements}
-    inputs = sorted({
+    upstream = sorted({
         bare_table(item.get("table"))
         for _, statement in statements
         for item in statement.get("inputs") or []
     })
-    findings = statement_findings(rules, statements)
-    return {
+    partitions = [column["name"] for column in target["columns"] if column.get("partition")]
+    lineage = {
         "columns": _column_lineage(target, statements),
         "rules": rules,
         "keys": [_keys(task, statement, rules) for task, statement in statements],
-        "partition": [facts.statement_partition(task, statement) for task, statement in statements],
-        "upstream_tables": inputs,
-        "upstream_tasks": _upstream_tasks(inputs, statements, producers, corpus),
+        "partition": [facts.statement_partition(task, statement, partitions)
+                      for task, statement in statements],
+        "upstream_tables": upstream,
+        "upstream_tasks": _upstream_tasks(upstream, statements, producers, corpus),
         "downstream": _downstream(table, statements, producers, corpus),
-        **({"findings": findings} if findings else {}),
     }
+    findings = (statement_findings(rules, statements)
+                + marker_leads(table, statements, rules, list(inputs))
+                + declared_key_leads(table, statements, rules, list(inputs), lineage))
+    return {**lineage, **({"findings": findings} if findings else {})}
 
 
 def _keys(task: str, statement: dict, rules: list[dict]) -> dict:
@@ -258,6 +300,7 @@ def _downstream(table: str, statements: list, producers: set, corpus) -> list[di
         role = consumer.get("role_in_task")
         if role and role not in entry["roles"]:
             entry["roles"].append(role)
+        _read_by(entry, consumer)
     for _, statement in statements:
         for task in ((statement.get("task") or {}).get("meta") or {}).get("downstream_tasks") or []:
             if task not in entries and task not in producers:
@@ -267,3 +310,24 @@ def _downstream(table: str, statements: list, producers: set, corpus) -> list[di
 
 def _downstream_entry(task: str, source: str, corpus) -> dict:
     return {"task": task, "tables": corpus.tables_written_by(task), "source": source, "roles": []}
+
+
+# The reads a consumer's columns carry that say how it picks this table's rows (D-G5b).
+_READ_BY = ("join_key", "filter")
+
+
+def _read_by(entry: dict, consumer: dict) -> None:
+    """``columns``: this table's columns the consumer joins and filters on, from its card.
+
+    A fact of this packet: the table card records how each corpus task reads the table,
+    so a document can say it without quoting the consumer's own packet.
+    """
+    for column in consumer.get("columns") or []:
+        for usage in column.get("usages") or []:
+            if usage in _READ_BY:
+                names = entry.setdefault("columns", {}).setdefault(usage, [])
+                if column.get("name") not in names:
+                    names.append(column.get("name"))
+    if "columns" in entry:
+        entry["columns"] = {usage: entry["columns"][usage] for usage in _READ_BY
+                            if usage in entry["columns"]}

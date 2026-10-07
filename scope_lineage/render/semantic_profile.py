@@ -5438,6 +5438,48 @@ def _keeps_first_row_consumer(
 # up in both layers at the same time.
 
 
+def first_row_filters(document: dict) -> list[tuple[str, str]]:
+    """``(logic_block_id, window output column)`` of each predicate keeping a ranking's first row.
+
+    R6's own test, asked of every ranking window: the consumer
+    :func:`_keeps_first_row_consumer` finds, and every ``filter_after_window`` entry that
+    tests ``<output> = 1``. The packet (B-V2) marks the filter rule of such a block and
+    column as one that keeps the first row of a ranking.
+    """
+    found: list[tuple[str, str]] = []
+    for scope_id, _block, spec in _ranking_window_specifications(
+        document, semantic_text.RANKING_WINDOW_FUNCTIONS
+    ):
+        output = str(spec.get("output_field") or "")
+        consumer = _keeps_first_row_consumer(document, scope_id, spec)
+        blocks = [consumer] if consumer else []
+        blocks += [
+            str(entry.get("logic_block_id"))
+            for entry in spec.get("filter_after_window") or []
+            if _entry_keeps_first_row(entry, output)
+        ]
+        found += [(block, output) for block in _dedupe(blocks) if (block, output) not in found]
+    return found
+
+
+def inline_values_scopes(document: dict) -> list[str]:
+    """The scopes whose single-input chain (#21-c) ends at an inline VALUES list.
+
+    The chain and the test of its bottom scope are :func:`_values_key_claim`'s: a scope
+    with no dependency whose text is a list of literal rows.
+    """
+    found = []
+    for scope_id in _scopes(document):
+        bottom = _single_input_chain(document, scope_id)[-1]
+        scope = _scopes(document).get(bottom) or {}
+        columns = scope.get("outputs") or []
+        if not scope.get("depends_on") and columns and values_rows.literal_rows(
+            scope.get("raw_sql"), len(columns)
+        ):
+            found.append(scope_id)
+    return found
+
+
 def join_blocks(document: dict) -> list[tuple[str, str, dict]]:
     """``(scope_id, logic_block_id, join_relation_detail)`` for every JOIN, in scope order."""
     return [

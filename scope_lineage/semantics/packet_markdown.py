@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 
 from ..render.markdown_text import cell, expr_span
+from .packet_facts import partition_values
 
 
 def render_packet_markdown(packet: dict) -> str:
@@ -30,9 +31,9 @@ def render_packet_markdown(packet: dict) -> str:
         "",
     ]
     lines += _target(packet["target"])
-    lines += _tasks(packet["tasks"])
+    lines += _tasks(packet["tasks"], packet["table"])
     lines += _inputs(packet["inputs"])
-    lines += _lineage(packet["lineage"])
+    lines += _lineage(packet["lineage"], packet["tasks"])
     lines += _column_order(packet["target"])
     return "\n".join(lines).rstrip("\n") + "\n"
 
@@ -133,7 +134,7 @@ def _target(target: dict) -> list[str]:
     return [*lines, ""]
 
 
-def _tasks(tasks: list[dict]) -> list[str]:
+def _tasks(tasks: list[dict], table: str = "") -> list[str]:
     lines = ["## 2. 生产任务", ""]
     for index, task in enumerate(tasks, start=1):
         lines += [
@@ -147,6 +148,7 @@ def _tasks(tasks: list[dict]) -> list[str]:
             *_run_dates(task),
             f"- 写入语句：{_names(task['statements'])}；来源文件：{_text(task['source_file'])}",
             *_header_facts(task.get("header_facts") or {}),
+            *_added_columns(task.get("header_facts") or {}, table),
             "",
         ]
         lines += [f"> {comment}" for comment in task["header_comments"]]
@@ -200,6 +202,26 @@ def _header_facts(facts: dict) -> list[str]:
     return [f"- 头注释：{stated}"] if stated else []
 
 
+def _added_columns(facts: dict, table: str) -> list[str]:
+    """D-G4: the header's ``alter table … add columns`` records, the table named if another."""
+    said = [
+        f"{item.get('date') or '日期不明'} 加 {_names(item['columns'])}"
+        + (f"（alter 写的是 {_code(item['table'])}）" if item["table"] != table else "")
+        for item in facts.get("added_columns") or []
+    ]
+    return [f"- 头注释加列记录：{'；'.join(said)}"] if said else []
+
+
+def _added_dates(tasks: list[dict]) -> dict[tuple, str]:
+    """``(task, column) -> date`` of every column a task's header says was added later."""
+    return {
+        (task["name"], column): item.get("date") or "日期不明"
+        for task in tasks
+        for item in (task.get("header_facts") or {}).get("added_columns") or []
+        for column in item["columns"]
+    }
+
+
 def _producer_header(entry: dict) -> list[str]:
     headers = entry.get("producer_header") or []
     if not headers:
@@ -234,6 +256,7 @@ def _inputs(inputs: list[dict]) -> list[str]:
                          for item in entry["date_filters"]) or "无"
             ),
             *_producer_header(entry),
+            *_producer_columns(entry),
             "",
         ]
         rows = [
@@ -244,6 +267,16 @@ def _inputs(inputs: list[dict]) -> list[str]:
         lines += _column_table(["列", "类型", "注释", "本表用到"], rows, entry["columns"])
         lines.append("")
     return lines
+
+
+def _producer_columns(entry: dict) -> list[str]:
+    """D-G5a-1: the producer's own summary of the columns this table reads by key."""
+    written = entry.get("producer_columns") or []
+    if not written:
+        return []
+    said = "；".join(f"{_code(item['task'])} / {_text(item['statement_id'])} "
+                    f"{_code(item['column'])}：{cell(item['summary'])}" for item in written)
+    return [f"- 生产任务怎么写这些列（表卡摘要，非本任务 SQL）：{said}"]
 
 
 _DATE_SHAPES = {
@@ -267,14 +300,26 @@ def full_snapshot_text(entry: dict) -> str:
         return "不适用（非分区表）"
     if entry["partition_read"] == "none":
         return "未证明（未见分区条件）"
+    if entry["partition_read"] == "multi_equality":
+        return f"否（{_fixed_partitions(entry)}）"
     if entry["partition_read"] != "equality":
         return "否（读多个分区 / 范围）"
     return f"未证明（表名约定 {entry['name_convention']}）"
 
 
-def _lineage(lineage: dict) -> list[str]:
+def _fixed_partitions(entry: dict) -> str:
+    """C-P7: which fixed partitions are read, and that a full table holds a copy in each."""
+    values = list(dict.fromkeys(
+        value for text in entry["partition_filters"] for value in partition_values(text) or []))
+    said = f"读 {len(values)} 个固定分区 {'、'.join(values)}"
+    if entry["name_convention"] == "full":
+        said += "；表名约定 full：每个分区是一份快照，同一记录在每份里各一行"
+    return said
+
+
+def _lineage(lineage: dict, tasks: list[dict] = ()) -> list[str]:
     lines = ["## 4. 血缘事实", ""]
-    lines += _column_sources(lineage["columns"])
+    lines += _column_sources(lineage["columns"], _added_dates(list(tasks)))
     lines += _rules(lineage["rules"], lineage.get("findings") or [])
     lines += _keys(lineage["keys"], lineage["partition"])
     lines += _findings(lineage.get("findings") or [])
@@ -282,7 +327,9 @@ def _lineage(lineage: dict) -> list[str]:
     return lines
 
 
-def _column_sources(columns: list[dict]) -> list[str]:
+def _column_sources(columns: list[dict], added: dict | None = None) -> list[str]:
+    """4.1; a column a producing task's header says was added later says so first (D-G4)."""
+    added = added or {}
     lines = [
         "### 4.1 字段来源",
         "",
@@ -293,10 +340,12 @@ def _column_sources(columns: list[dict]) -> list[str]:
         if not entry["producers"]:
             lines.append(f"| {_code(entry['column'])} | — | 未由 SELECT 写出（分区列或未写） | — | — | — |")
         for producer in entry["producers"]:
+            date = added.get((producer["task"], entry["column"]))
+            later = f"头注释：{date} 才加入，此前写入的行该列可能为空" if date else ""
             lines.append(
                 f"| {_produced_column(entry['column'], producer)} | {_written_by(producer)} | "
                 f"{_transform(producer)} | {_producer_sources(producer)} | "
-                f"{_code(producer['expression'])} | {_steps(producer)} |"
+                f"{_code(producer['expression'])} | {_steps(producer, later)} |"
             )
     return [*lines, ""]
 
@@ -333,12 +382,11 @@ def _producer_sources(producer: dict) -> str:
     return f"{_names(producer['sources'])}；查码键（决定读哪一行，不是取值来源）：{_names(keys)}"
 
 
-def _steps(producer: dict) -> str:
+def _steps(producer: dict, later: str = "") -> str:
     comments = producer.get("sql_comments") or []
-    steps = "；".join(producer["steps"])
-    if comments:
-        steps = f"注释：{'；'.join(comments)}" + (f"；{steps}" if steps else "")
-    return _text(steps)
+    parts = [later] if later else []
+    parts += [f"注释：{'；'.join(comments)}"] if comments else []
+    return _text("；".join([*parts, *producer["steps"]]))
 
 
 def _rules(rules: list[dict], findings: list[dict]) -> list[str]:
@@ -360,14 +408,49 @@ def _rules(rules: list[dict], findings: list[dict]) -> list[str]:
 
 
 def _rule_note(rule: dict, findings: list[dict]) -> str:
-    """The rule's own text, its SQL comments, whether anybody reads it, its findings."""
-    parts = [str(rule["text"])] if rule.get("text") else []
-    if rule.get("sql_comments"):
-        parts.append(f"注释：{'；'.join(rule['sql_comments'])}")
-    if rule.get("consumed") is False:
-        parts.append("未被消费：这条分支的输出没有被任何下游读取")
-    parts += [str(item["text"]) for item in findings if rule["id"] in (item.get("rules") or [])]
-    return _text("；".join(parts))
+    """Everything the 说明 column says of a rule, joined in :data:`_NOTE_PARTS` order."""
+    return _text("；".join(text for part in _NOTE_PARTS for text in part(rule, findings)))
+
+
+def _note_text(rule: dict, _findings: list[dict]) -> list[str]:
+    return [str(rule["text"])] if rule.get("text") else []
+
+
+def _note_position(rule: dict, _findings: list[dict]) -> list[str]:
+    """A filter inside a LEFT JOIN's right side decides which right rows match, no more."""
+    joins = rule.get("right_of") or []
+    return [f"在 {'、'.join(joins)} 右侧：不丢目标行，决定右侧哪些行参与匹配"] if joins else []
+
+
+def _note_comments(rule: dict, _findings: list[dict]) -> list[str]:
+    return [f"注释：{'；'.join(rule['sql_comments'])}"] if rule.get("sql_comments") else []
+
+
+def _note_switched_off(rule: dict, _findings: list[dict]) -> list[str]:
+    sql = rule.get("commented_out_sql") or []
+    return [f"相邻的注释掉的 SQL（不生效）：{'；'.join(sql)}"] if sql else []
+
+
+def _note_unconsumed(rule: dict, _findings: list[dict]) -> list[str]:
+    return ["未被消费：这条分支的输出没有被任何下游读取"] if rule.get("consumed") is False else []
+
+
+def _note_findings(rule: dict, findings: list[dict]) -> list[str]:
+    return [str(item["text"]) for item in findings if rule["id"] in (item.get("rules") or [])]
+
+
+# The 说明 column's parts, in the one order every packet change fills (README 裁决 11):
+# the rule's text; the date offsets of its literals (C-G6, right after the text); where
+# the rule sits (`right_of`); the author's notes; the SQL switched off beside it; whether
+# anybody reads it; the findings about it. A part with nothing to say says nothing.
+_NOTE_PARTS = (
+    _note_text,
+    _note_position,
+    _note_comments,
+    _note_switched_off,
+    _note_unconsumed,
+    _note_findings,
+)
 
 
 def _partition_cell(rule: dict) -> str:
@@ -382,13 +465,27 @@ def _fan_out(rule: dict) -> str:
         return ""
     verdict = rule.get("fan_out")
     if verdict:
-        return _text(f"{verdict['status']}：{verdict['reason']}")
+        return _text(_verdict(rule, verdict) + _unfiltered(rule))
     if rule.get("inside"):
         return f"在 {'、'.join(rule['inside'])} 右侧内部；行数影响已计入这些关联的判定"
     if rule.get("below_aggregate"):
         return (f"位于聚合 {_code(rule['below_aggregate'])} 之下：不复制输出行，可能放大聚合值；"
                 "工具未判定")
     return f"工具未判定（{_code(rule.get('scope'))}）"
+
+
+def _verdict(rule: dict, verdict: dict) -> str:
+    """``status：reason``; a JOIN off the grain path first says where it sits (C-P3)."""
+    if verdict.get("path") in (None, "grain"):
+        return f"{verdict['status']}：{verdict['reason']}"
+    where = (f"位于聚合 {_code(rule['verdict_aggregate'])} 之下" if rule.get("verdict_aggregate")
+             else "在聚合参数路径上")
+    return f"{verdict['status']}（{where}：不复制输出行，可能让聚合值重复计入）：{verdict['reason']}"
+
+
+def _unfiltered(rule: dict) -> str:
+    ranked = rule.get("unfiltered_ranking") or []
+    return f"；右侧的 {'、'.join(ranked)} 算了排名但没有 = 1 过滤，未去重" if ranked else ""
 
 
 def _keys(keys: list[dict], partitions: list[dict]) -> list[str]:
@@ -439,7 +536,34 @@ def _merge_lines(key: dict) -> list[str]:
         f"- MERGE 合并键{at}：{on}",
         f"- MERGE WHEN{at}：{_whens(merge.get('whens') or [])}",
         f"- MERGE 去重与合并键{at}：{_coverage(merge)}",
+        *_table_key(merge, at),
+        *_update_facts(merge, at),
     ]
+
+
+def _table_key(merge: dict, at: str) -> list[str]:
+    """A-M1: the key the MERGE suggests for the table -- inferred, never proven."""
+    table_key = merge.get("table_key")
+    if not table_key:
+        return []
+    if table_key.get("status") == "update_only":
+        return [f"- MERGE 后目标表的键{at}：只更新已有行、不新增行，本语句不决定目标表的行粒度"]
+    return [f"- MERGE 后目标表的候选键{at}：{_names(table_key.get('keys') or [])}"
+            "（按 ON 合并键与 USING 去重键推断，未证明）"]
+
+
+def _update_facts(merge: dict, at: str) -> list[str]:
+    """A-M2: what a matched UPDATE leaves alone, changes, or may overwrite with NULL."""
+    lines = []
+    if merge.get("insert_only_columns"):
+        lines.append(f"- MERGE matched UPDATE 不改的列{at}：{_names(merge['insert_only_columns'])}"
+                     "（只在首次 INSERT 时写入，之后不随更新变化）")
+    if merge.get("update_columns"):
+        lines.append(f"- MERGE matched UPDATE 只改{at}：{_names(merge['update_columns'])}，其余列保持原值")
+    if merge.get("update_nullable_by_join"):
+        lines.append(f"- MERGE matched UPDATE 可能写入空值{at}：{_names(merge['update_nullable_by_join'])}"
+                     " 来自 LEFT JOIN，本次关联未命中时会把已有值覆盖成 NULL")
+    return lines
 
 
 def _whens(whens: list[dict]) -> str:
@@ -465,13 +589,21 @@ _COVERAGE = {
 
 
 def _coverage(merge: dict) -> str:
+    """The USING side's dedup, branch by branch for a UNION, against the merge key.
+
+    A grain the tool did not decide is said to be undecided, never "no dedup" (A-M3).
+    """
     basis = (merge.get("using_grain") or {}).get("basis")
     keys = merge.get("dedup_keys") or []
-    head = (
-        "USING 去重键 " + "、".join(
-            _code(item["column"]) + ("（派生）" if item.get("derived") else "") for item in keys)
-        if keys else f"USING 无去重（{_text(basis)}）"
-    )
+    if merge.get("union_branches"):
+        head = ("USING 是 UNION，逐分支：" + "；".join(map(_branch, merge["union_branches"]))
+                + "；分支之间没有去重：同一合并键可能在不同分支各出一行")
+    elif keys:
+        head = "USING 去重键 " + _dedup_keys(keys)
+    elif basis == "unknown":
+        head = "USING 粒度未判定（unknown）"
+    else:
+        head = f"USING 无去重（{_text(basis)}）"
     coverage = merge.get("coverage")
     if coverage == "dedup_wider":
         said = (f"dedup_wider（去重键多出 {_names(merge.get('extra_keys') or [])}：同一合并键在 USING "
@@ -481,6 +613,27 @@ def _coverage(merge: dict) -> str:
     joins = merge.get("joins_after_dedup") or []
     after = f"；去重之后还有未证明唯一的关联 {'、'.join(joins)}" if joins else ""
     return f"{head}；与合并键比较：{said}{after}"
+
+
+_DEDUP_BASES = ("group_by", "distinct", "window_partition")
+
+
+def _dedup_keys(keys: list[dict]) -> str:
+    return "、".join(_code(item["column"]) + ("（派生）" if item.get("derived") else "")
+                    for item in keys)
+
+
+def _branch(branch: dict) -> str:
+    """One UNION branch of a USING side: its dedup and how it compares, or its grain."""
+    basis = branch.get("basis")
+    if not branch.get("dedup_keys"):
+        said = ("粒度未判定" if basis == "unknown"
+                else "去重键没有抬到 USING 输出" if basis in _DEDUP_BASES else "无去重")
+        return f"分支 {branch['branch']} {said}（{_text(basis)}）"
+    joins = branch.get("joins_after_dedup") or []
+    after = f"；去重之后还有未证明唯一的关联 {'、'.join(joins)}" if joins else ""
+    return (f"分支 {branch['branch']} 按 {_dedup_keys(branch['dedup_keys'])} 去重"
+            f"（{_text(branch.get('coverage'))}{after}）")
 
 
 def _findings(findings: list[dict]) -> list[str]:
@@ -502,13 +655,16 @@ def _partition_values(item: dict) -> str:
     chosen = item.get("select_values") or {}
     spec = "、".join(f"{name} = {_code(value)}" for name, value in item["spec"].items()
                      if name not in chosen)
-    if not chosen:
-        return f"{_text(item['mode'])}，{spec or '无分区值'}"
     constants = "；".join(
         f"{name} = {_code(values[0])}" if len(values) == 1
         else f"{name} ∈ {'、'.join(_code(value) for value in values)}"
         for name, values in chosen.items()
     )
+    if item["mode"] == "merge_row_values":
+        return ("MERGE 无 PARTITION 子句：按写入行的分区列值落分区（INSERT 时取 USING 该列的值；"
+                "UPDATE 不改该列时行留在原分区）" + (f"（INSERT 写常量：{constants}）" if chosen else ""))
+    if not chosen:
+        return f"{_text(item['mode'])}，{spec or '无分区值'}"
     return f"{_text(item['mode'])}（SELECT 写常量：{constants}）" + (f"，{spec}" if spec else "")
 
 
@@ -519,17 +675,27 @@ def _neighbours(lineage: dict) -> list[str]:
         f"- 上游表：{_names(lineage['upstream_tables'])}",
         f"- 上游任务：{_names(lineage['upstream_tasks'])}",
         "",
-        "| 下游任务 | 写入的表 | 依据 | 读法 |",
-        "| --- | --- | --- | --- |",
+        "| 下游任务 | 写入的表 | 依据 | 读法 | 按哪些列读（关联 / 过滤） |",
+        "| --- | --- | --- | --- | --- |",
     ]
     lines += [
         f"| {_code(entry['task'])} | {_names(entry['tables'])} | "
-        f"{'血缘' if entry['source'] == 'lineage' else '任务登记'} | {_names(entry['roles'])} |"
+        f"{'血缘' if entry['source'] == 'lineage' else '任务登记'} | {_names(entry['roles'])} | "
+        f"{_read_by(entry.get('columns') or {})} |"
         for entry in lineage["downstream"]
     ]
     if not lineage["downstream"]:
-        lines.append("| — | — | — | — |")
+        lines.append("| — | — | — | — | — |")
     return [*lines, ""]
+
+
+_READ_BY = {"join_key": "关联", "filter": "过滤"}
+
+
+def _read_by(columns: dict) -> str:
+    """D-G5b: this table's columns a consumer joins and filters on (its table card)."""
+    said = [f"{_names(names)}（{_READ_BY.get(usage, usage)}）" for usage, names in columns.items()]
+    return "；".join(said) or "—"
 
 
 def _column_order(target: dict) -> list[str]:
