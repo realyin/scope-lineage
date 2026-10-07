@@ -500,6 +500,15 @@
   tables with `--`. A table name never holds `/`, so no table is read as the directory.
   Calls with the directory first, or with `--`, are unchanged. `--help` now shows the
   directory in brackets.
+- **`semantic validate` check 10 (`fan_out`) no longer warns on a no-effect phrase made under a
+  condition with its failing case said.** The warning asks the writer to say when the right side
+  has several rows, yet 「若 m 按键唯一，左关联 m 不放大；否则会关联出多行」 -- which does just
+  that -- was warned on. A phrase is no claim when a condition word stands before it in the
+  sentence and the rows multiplying (会 / 可能 + 放大 …, or 关联出多行) follow it; when the next
+  sentence opens with the condition failing (若 … 不成立 / 不唯一 / 不满足) and says the rows
+  multiply; or when a condition stands before it and the next sentence opens with 否则 / 不然 /
+  反之 and says so. A failing case that names another join, a condition without a failing case,
+  an 否则 with no condition before the phrase, and a trailing reservation alone all still warn.
 - **A comment on a MERGE assignment reaches `outputs[].comments`.** A SELECT projection's
   comment is published on the output it produces, but a comment written on a MERGE
   `UPDATE SET` item or an `INSERT ... VALUES` value was not: it survived only inside the
