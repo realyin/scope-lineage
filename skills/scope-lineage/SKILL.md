@@ -55,11 +55,13 @@ fallback covers 0.2.0):
 | describe, `tables`, `glossary`, `ontology` (key-fold candidates) | >= 0.3.0 |
 | concept-level impact (`concept-impact`, key-fold `ontology-json/2` only), `catalog build` / `query` / `render` / `validate`, table semantics (`semantic *`), `catalog digest` / `merge`, acceptance (`questions *`) | >= 0.5.0 |
 | confirmed answers in material packets (`semantic packet --glossary` / `--metadata-patch`) | >= 0.6.0 |
-| code-set lookups in a catalog (a code set's `lookup`, a binding's `code_sets`, `code_sets_by`, `holds`, `lang`) | the release after 0.6.0 (unreleased; 0.6.0 rejects them as schema errors) |
-| lookup facts in the drafting digest (`catalog digest --lineage` / `--schema`) | the release after 0.6.0 (unreleased; 0.6.0 rejects the flags) |
+| code-set lookups in a catalog (a code set's `lookup`, a binding's `code_sets`, `code_sets_by`, `holds`, `lang`) | >= 0.7.0 (0.6.0 rejects them as schema errors) |
+| lookup facts in the drafting digest (`catalog digest --lineage` / `--schema`) | >= 0.7.0 (0.6.0 rejects the flags) |
+| the table-semantics loop this skill describes (`semantic fixed`, `semantic validate --only`, `table-semantics-status/2`, prompts `@8` / `@8` / `@5`) | >= 0.7.0 |
 
-When unsure which workflows the session will need, require >= 0.6.0 (and, to write a
-`lookup`, `code_sets` or `holds`, a build of this repository until the next release).
+When unsure which workflows the session will need, require >= 0.7.0. A table-semantics
+run directory made with an older release: rebuild its packets and follow the README's
+"Migrating to 0.7.0" (「迁移到 0.7.0」) before reusing its documents.
 Not installed → `pipx install 'scope-lineage[catalog]'` (or `pip install 'scope-lineage[catalog]'`):
 the `catalog` extra brings PyYAML, which `catalog` and the acceptance commands (`questions`) need to
 read `.yaml` / `.yml` files; when every catalog, question set and grades file is JSON, plain

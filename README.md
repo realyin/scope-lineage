@@ -312,6 +312,56 @@ transformation-step analysis read the per-statement documents embedded in
 `statement_lineage`; audits, incident forensics, and final table state read the
 task-level facts.
 
+### Migrating to 0.7.0
+
+Format versions stay put except the status report; what changes is what several fields
+say. Full list: the **Breaking** entries under 0.7.0 in [CHANGELOG.md](CHANGELOG.md).
+
+**A table-semantics run directory written with 0.6.0** (`packets/`, `docs/`, `reviews/`):
+
+1. Re-parse the tasks with 0.7.0 (`parse`; `tables` too if you pass `--tables`) -- the
+   packets read the new contract keys -- then rebuild the packets with `semantic packet`
+   (same flags as before). Most packets get a new `packet_digest`, so `semantic status
+   <run>` shows their documents as `drafted packet_stale`, and a full `semantic validate`
+   fails check 8 for them.
+2. Rewrite in batches: `semantic status <run> --next draft --only <db.table> ... --out
+   <run>/next.json`, with the same `--only` on every later step (validate with
+   `semantic validate <run>/docs --packets <run>/packets --only <db.table> ...`). Before a
+   table is rewritten, rename its review to `reviews/<db.table>.prior.md`; rule ids `pN`
+   in old documents and reviews may point at other rules now. Use the packaged prompts
+   (`table-semantics-prompt@8`, `table-semantics-review@8`, `table-semantics-fix@5`).
+3. End every fix with `semantic fixed <run> --only <db.table>`; without it a revised
+   document is not `fixed`. A table reviewed before this release whose document changed
+   after the review reads `valid review_stale`: review it again.
+4. Until every table is rewritten, do not build a catalog (`catalog digest`) or pages
+   (`semantic render`) from the whole `docs` directory: the stale documents still render,
+   from the old packets. Build from the rewritten tables only, or say that the result
+   mixes two packet versions.
+5. Re-run `semantic validate` on documents you keep: checks 3, 5 and 11 fail some that
+   passed under 0.6.0.
+
+**Downstream code**:
+
+- Status report: check `doc_format == "table-semantics-status/2"`; `summary.flags` has
+  `review_packet_stale`, `fix_unconfirmed` and `doc_misfiled`; `review` has
+  `reviewed_packet_digest` and `fixed_doc_digest`.
+- MERGE keys: a MERGE statement's `output_shape.grain`, `candidate_keys`,
+  `key_confidence` and `key_claim` (and a card's `produced_by[].grain` /
+  `candidate_keys` / `key_confidence`) now describe the batch it writes, not the table.
+  Code that took "not `unknown`" to mean "the target has a key" must read the card's
+  `key_claim` or `output_shape.merge.table_key` (a hypothesis) instead. In packets,
+  `lineage.keys[].proven` is always `false` on a MERGE row.
+- Comments: `semantic.json` expressions no longer contain comments; a rule's
+  `sql_comments` holds only its own predicate's notes; switched-off SQL is in
+  `rules[].commented_out_sql`. For the SQL as written, read the lineage contract.
+- Packet values: `partition_read` may be `multi_equality`, `partition[].mode` may be
+  `merge_row_values`, a rule may be `kind: window`; `packet.md` 4.2 has one more column.
+- Lineage contract: new optional keys `merge_spec` (a MERGE statement's ON key pairs,
+  other ON conditions and WHEN clauses) and `filter_predicate_detail.conjuncts[].comments`.
+  `display_expression` keeps the SQL's case and literals (compare `normalized_expression`
+  instead), `right_alias` is each JOIN's own, and a multi-row `VALUES` column lists every
+  row's value.
+
 ### Migrating to 0.4.0
 
 Only `ontology.json` (and its markdown / exports) changed shape. The ontology is now the

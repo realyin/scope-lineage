@@ -1,6 +1,118 @@
 # Changelog
 
-## Unreleased
+## 0.7.0
+- **Table semantics that survive a review loop, MERGE targets read as the batch they
+  write, and a catalog that says where its codes live.** One report format moves:
+  `semantic status` writes `table-semantics-status/2`. Every other format keeps its
+  version -- task contract 2.0, `lineage.json` `schema_version` 1.0, `semantic-json/1`,
+  `table-semantics-packet/1`, `tables-json/1`, `catalog-digest/1`, `ontology-json/3` --
+  and every new key is optional and appears only with content. But several fields now say
+  something different, so this is a minor release with breaking changes (listed under
+  **Breaking** below, each with who is affected and what to do; the READMEs' "Migrating to
+  0.7.0" gives the steps). **What a consumer will see change:** almost every
+  table-semantics packet gets a new `packet_digest`, so the documents of an existing run
+  directory read `drafted packet_stale` until rewritten; `semantic.json` expressions carry
+  no comments, `sql_comments` belong to one predicate and switched-off SQL moves to
+  `rules[].commented_out_sql`; a MERGE statement reports the grain and keys of the batch it
+  writes instead of `unknown`, while packet rows for a MERGE are never `proven`;
+  `semantic validate` fails some documents it used to pass (checks 3, 5 and 11) and reports
+  less on others (checks 2, 9, 10 and 12); the status report ties a fix to its review and its
+  packet (`semantic fixed`, new flags); the prompts are `table-semantics-prompt@8`,
+  `table-semantics-review@8` and `table-semantics-fix@5`; and the lineage contract gains
+  `merge_spec` and per-conjunct comments, keeps `display_expression` as written, reports
+  each JOIN's own `right_alias` and keeps every row of a multi-row `VALUES`. Also in this
+  release: code-set lookups in a catalog (`lookup`, `code_sets`, `code_sets_by`, `holds`,
+  `lang`), lookup facts in `catalog digest --lineage`, `semantic validate --only`,
+  `semantic status --json` to standard output, and `catalog merge` without PyYAML for a
+  JSON catalog.
+
+### Breaking
+- **Breaking — the status report is `table-semantics-status/2`, and a fix needs
+  `semantic fixed`.** Affected: scripts and orchestrators that read `semantic status
+  --json` or act on its stages. `summary.flags` gains `review_packet_stale`,
+  `fix_unconfirmed` and `doc_misfiled`; each table's `review` gains
+  `reviewed_packet_digest` and `fixed_doc_digest` (null when absent); `fixed` now means a
+  fix record written by `semantic fixed <run> --only <db.table>` names the current
+  document, and `review_stale` covers a review that names no packet. What to do: check
+  `doc_format` for `table-semantics-status/2`; end every fix with `semantic fixed`; in a
+  run reviewed before this release, review again (with `table-semantics-review@5` or
+  later) every table that went back to `valid review_stale`. There is no conversion.
+- **Breaking — table-semantics packets change digest, so written documents go stale.**
+  Affected: every run directory written with 0.6.0. New packet facts (date-filter
+  `statement_id` / `shape`, MERGE `merge` blocks and partitions, `window` rule rows that
+  renumber the rules after them, per-predicate `sql_comments`, expressions without
+  comments, `literal_outputs`, `right_of`, leads and cross-table facts) change
+  `packet_digest` for most tables; their documents read `drafted packet_stale` and a full
+  `semantic validate` fails check 8 (`digest`) for them. Rule ids `pN` in an old document
+  or review may point at another rule. What to do: re-parse the tasks and rebuild the
+  packets, rename each old review to `reviews/<db.table>.prior.md`, and rewrite in
+  batches with
+  `semantic status <run> --next draft --only <db.table> ...`; until every table is
+  rewritten, do not rebuild a catalog or the pages from the whole `docs` directory.
+- **Breaking — `semantic.json` expressions carry no comments, and `sql_comments` belong
+  to one predicate.** Affected: readers of `semantic.json` (and the packet facts copied
+  from it). `rules[].expression`, `extra_conditions[]`, `fields[].expression`,
+  `derivation[].expression` and `stages[].actions[].expression` are the SQL with its
+  comments taken out; a WHERE / HAVING rule's `sql_comments` holds its own conjunct's
+  comments plus those written on the WHERE / HAVING itself, not the whole block's; a
+  comment that is switched-off SQL (fragments included) leaves `sql_comments` and, on a
+  rule, goes to `rules[].commented_out_sql`. What to do: read the verbatim text from the
+  lineage contract; read `commented_out_sql` for removed conditions; expect shorter
+  comment lists (no comment is lost).
+- **Breaking — a MERGE reports the grain of the batch it writes.** Affected: code that
+  reads a MERGE statement's `output_shape.grain`, `candidate_keys`, `unexposed_keys`,
+  `key_evidence`, `key_confidence` or `key_claim`, fields' `structural_role`, or a table
+  card's `produced_by[].grain` / `candidate_keys` / `key_confidence` to decide whether a
+  MERGE target has a key. These used to be fixed at `unknown` / `[]` / `none` / `null`;
+  they now describe the written batch (`key_claim.subject` stays `write_batch`). What to
+  do: never read them as the table's key -- read the card's `key_claim` (a merging
+  producer still defeats it) or `output_shape.merge.table_key` (a `hypothesis`). An
+  `--incremental` cache of `scope-lineage tables` recomputes once.
+- **Breaking — packet rows and values readers branch on.** Affected: readers of
+  `packet.json` / `packet.md`. `lineage.keys[].proven` is `false` on every MERGE row;
+  `lineage.partition[]` may carry `mode: merge_row_values`; `inputs[].partition_read` may
+  be `multi_equality` (it used to read `range`); `lineage.rules[]` may have `kind: window`;
+  `packet.md` 4.2 gains a position column after the type column and 4.4 gains a column.
+  What to do: accept the new values; read `packet.md` tables by header, not position.
+- **Breaking — fan-out verdicts and restated wording change.** Affected: readers of
+  `fan_out_risks`, `stages[].actions[]` intents and text. JOINs below a UNION, a LATERAL
+  VIEW or a MERGE's USING side now get verdicts; a `row_number() = 1` a layer down, an
+  inline `VALUES` dictionary distinct on the join key, and a filtered subquery of one
+  carded table can now be `safe`; a dedup ordered by a pinned column has the new intent
+  `keep_arbitrary_per_group`; keep-latest text on a string column gains a sort-as-text
+  note; a filtered `VALUES` preview counts only the rows the field reads. What to do:
+  accept the new intent; do not match on the old text.
+- **Breaking — `semantic validate` fails documents it used to pass.** Affected: documents
+  validated with 0.6.0. Check 3: an empty or blank code value passes only when a producer
+  writes `''`, and a column whose producers write only constants may hold no other code
+  value. Check 5: a quote cites a filter only when it, or one of its AND conjuncts, equals
+  the filter (a longer quote containing it no longer counts); right-side filters of a
+  ranking's first row or an inline `VALUES` list need no citation. Check 11: the literal
+  branches of a CASE whose ELSE returns the compared column must be in `code_values`. Fewer
+  findings elsewhere: checks 2, 3 (a number code followed by letters in a comment), 9, 10
+  and 12. What to do: run `semantic validate` again and fix each
+  FAIL as its message says.
+- **Breaking — prompt versions.** The writing prompt is `table-semantics-prompt@8`, the
+  review prompt `table-semantics-review@8` (its front matter must name
+  `reviewed_packet_digest`), the fix prompt `table-semantics-fix@5` (its last step is
+  `semantic fixed`). Affected: orchestrators that pin or ship their own copies. Documents
+  written with an older prompt are not flagged stale for it, but they name the batch date
+  the old way until rewritten. What to do: use the packaged prompts for the rewrite above.
+- **Breaking — lineage contract values.** Affected: consumers of `lineage.json` and the
+  task document's `statement_lineage`. `display_expression` keeps the SQL as written
+  (literal case, comments, whitespace) instead of the lower-cased comparison key;
+  `join_relation_detail.right_alias` names each JOIN's own alias when a source is joined
+  several times; a chained JOIN over a repeated source keeps its key pair (no longer
+  `partial` with `join_keys_not_split`); a multi-row `VALUES` column takes every row's
+  value as a source, is `EXPRESSION` when rows differ, reads `(<row 1>, <row 2>, ...)`,
+  and its readers publish no `value_domain`. New optional keys: `merge_spec` on a MERGE
+  statement and `filter_predicate_detail.conjuncts[].comments`; a MERGE assignment's
+  comment reaches `outputs[].comments`. What to do: compare `normalized_expression`, not
+  `display_expression`; expect the new keys.
+- **Breaking — catalog readings of a self relation.** Affected: readers of catalog pages
+  and of `catalog query related` (`reading`) for a self relation with an `inverse_name`:
+  it now reads both ways. `catalog build --tables` marks `declared_only` whatever the
+  card's column case. Catalogs without these shapes build, render and answer as before.
 
 ### Changed
 - **Writing and review prompts read the packet's new facts (`table-semantics-prompt@8`,
