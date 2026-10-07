@@ -532,7 +532,24 @@ scope-lineage semantic confirm <run>/docs --confirmations <answers.json>
   或回执之后又改过；`--next fix` 会重新派发）、`review_unparsed`（审读没有 front matter，不会再被派发——补上或
   删掉重审）、`render_stale`、`doc_misfiled`（文件名与文档里的 `table` 不符，或同一张表有两个文件：只警告、不改阶段；
   把文档放回 `docs/<db.table>.json` 并让 `table` 与文件名一致）。
+  材料包整体重建后（工具升级、换了 `--glossary` / `--metadata-patch`），所有文档都会变成 `drafted packet_stale`，
+  `--next draft` 会列出全部表。只想先跑其中几张（小样验证、额度有限）时：
+  - `status` 和此后每一步都带同一组 `--only <db.table> ...`（写成
+    `semantic status <run> --next draft --only <db.table> ... --out <run>/next.json`，位置参数 `<run>` 放在
+    `--only` 之前）；
+  - 只给这几张表的旧审读改名为 `.prior.md`；
+  - 校验用 `semantic validate <run>/docs --packets <run>/packets --only <db.table> ...`；
+  - 渲染只渲染这几张：把它们的文档放进单独目录再 `semantic render`，或在结果里注明。
+
+  没选中的表保持 `drafted packet_stale`，它们的文档依据的还是旧材料包：全量 `semantic validate` 会对它们报
+  第 8 项 `digest` FAIL；`semantic render` 照样渲染它们（render 不看状态），页面内容是旧的；`catalog digest`
+  读 `<run>/docs` 也不看状态。在它们重写之前，不要用这个运行目录的全部文档重建本体目录或整体页面；必须重建时，
+  在结果里注明目录依据的是新旧两版材料包。
   一张表连续两轮 `draft` 仍在 `drafted`，把它从本轮拿掉并告诉用户，不要一直派发。
+- **临时文件**：并行的子代理各用自己的临时目录 `<scratch>/<db.table>/`（目录名含表名），不用 `doc.json` 这类
+  通用文件名。把文件放回 `<run>/docs/<db.table>.json` 之前，先确认文件里的 `table` 就是 `<db.table>`。派子代理时
+  把这一条写进给它的说明：几个子代理共用一个 scratchpad 时，通用文件名会互相覆盖。同一张表被覆盖时 `status` 报
+  `fix_unconfirmed`；写进了别的表的文件时，那张表退回 `packet`，`status` 报 `doc_misfiled`。
 - **挑表**：只挑用户问到的表，或一个层、一个概念的表；`--only` 让材料包只解析相关的血缘文档。
 - **已确认的答案要带上**：这一轮有 `glossary.json`（跑过 `glossary --overrides`）或审过的
   `metadata-patch.json` 时，建材料包就传 `--glossary` / `--metadata-patch`（补丁可重复）。材料包于是带上
@@ -558,7 +575,8 @@ scope-lineage semantic confirm <run>/docs --confirmations <answers.json>
   front matter（`reviewed_doc_digest`、`reviewed_packet_digest` 与高 / 中 / 低条数）加上修订回执
   `fixed_doc_digest` 是 `status` 判断「已修订」的依据：修订的最后一步跑 `semantic fixed <run> --only <db.table>`，
   它只在文档通过校验、且审读读的正是文档所依据的材料包时写回执；有回执且就是当前文档才算 `fixed`（只有低级问题、
-  修订顺手改了的也一样）。回执只证明修订者做完并且当时文档有效，不证明每条都改对了，改得对不对由复审判断。
+  修订顺手改了的也一样）。复审只剩低级问题（含「改了一半」）时直接是 `fixed`，不会再被派发；要收口就另派修订并跑
+  `semantic fixed`，只改文档不写回执会退回 `review_stale`。回执只证明修订者做完并且当时文档有效，不证明每条都改对了，改得对不对由复审判断。
   回执只由命令写，不要让模型手改审读文件。不要把验收问题集交给写作、审读或修订的调用，那是考卷。
 - **渲染**：有本体目录时 `--out` 放在 `catalog render` 的输出目录下（`<pages>/semantics`），表语义页里的
   `../concepts/<slug>.md` 才能打开，此时 `status` 加 `--pages <pages>/semantics`（默认 `<run>/pages`）；
