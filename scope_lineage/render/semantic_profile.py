@@ -5772,6 +5772,7 @@ def _window_action(document: dict, scope_id: str, block: dict) -> dict:
             order_labels=order,
             intent=intent,
             consumer_scope=_scope_of_logic_block(consumer) if consumer else None,
+            string_order_column=_string_order_column(document, intent, spec),
         ),
         expression=spec.get("expression_sql"),
         fields=_rule_fields(document, pairs),
@@ -5792,8 +5793,44 @@ def _window_intent(document: dict, scope_id: str, spec: dict) -> tuple[str, str 
     if consumer is None:
         return "rank_within_group", None
     order = spec.get("order_by") or []
+    if _order_is_pinned(document, scope_id, order):
+        return "keep_arbitrary_per_group", consumer
     descending = order and str(order[0].get("direction") or "ASC").upper() == "DESC"
     return ("keep_latest_per_group" if descending else "keep_first_per_group"), consumer
+
+
+def _order_is_pinned(document: dict, scope_id: str, order: Sequence[dict]) -> bool:
+    """M5: every ORDER BY item is a bare column the window's input pins to one value.
+
+    ``ORDER BY dt DESC`` over ``WHERE dt = '…'`` orders nothing, so ``= 1`` keeps an
+    arbitrary row of each group. Only the window's own scope and the scopes below it
+    count (B9's :func:`_pinned_columns`): a WHERE above the window runs after it. A
+    range is no pin, and one unpinned item still orders the rows.
+    """
+    names = [_bare_column_name(item.get("expression_sql")) for item in order]
+    if not names or not all(names):
+        return False
+    pinned = _pinned_columns(document, scope_id)
+    return all(name in pinned for name in names)
+
+
+def _string_order_column(document: dict, intent: str, spec: dict) -> str | None:
+    """G1c: the first ORDER BY column of a keep-latest / keep-first dedup, when it is a
+    bare column of one physical string column -- its order is lexicographic."""
+    if intent not in ("keep_latest_per_group", "keep_first_per_group"):
+        return None
+    order = spec.get("order_by") or []
+    if not order:
+        return None
+    name = _bare_column_name(order[0].get("expression_sql"))
+    fields = _physical_fields(order[0].get("expression_resolution"))
+    if name is None or len(fields) != 1:
+        return None
+    table, column = fields[0]
+    declared = _column_detail(_input_metadata(document).get(table) or {}, column).get("type")
+    if not declared or not str(declared).lower().startswith(_STRING_TYPE_PREFIXES):
+        return None
+    return name
 
 
 def _item_label(item: dict) -> str:
@@ -6787,6 +6824,8 @@ FINDING_TARGET_BINDING = "target_binding"
 FINDING_TABLE_COMMENT_MISSING = "table_comment_missing"
 FINDING_DUPLICATE_ALIAS = "duplicate_alias"
 FINDING_EMPTY_STRING_ON_NON_STRING = "empty_string_on_non_string"
+FINDING_NUMERIC_COMPARE_ON_STRING = "numeric_compare_on_string"
+FINDING_WINDOW_PARTITION_NARROWER = "window_partition_narrower"
 
 # Rendered in this order, most actionable first. The order is fixed so two runs of the
 # same document cannot list the same findings differently.
@@ -6794,6 +6833,8 @@ FINDING_KINDS = (
     FINDING_ALIAS_POSITION_MISMATCH,
     FINDING_DUPLICATE_ALIAS,
     FINDING_EMPTY_STRING_ON_NON_STRING,
+    FINDING_NUMERIC_COMPARE_ON_STRING,
+    FINDING_WINDOW_PARTITION_NARROWER,
     FINDING_PARTITION_MISMATCH,
     FINDING_NONDETERMINISTIC_FUNCTION,
     FINDING_HARDCODED_DATE,
@@ -6842,6 +6883,8 @@ FINDING_SEVERITY = {
     FINDING_ALIAS_POSITION_MISMATCH: SEVERITY_WARN,
     FINDING_DUPLICATE_ALIAS: SEVERITY_WARN,
     FINDING_EMPTY_STRING_ON_NON_STRING: SEVERITY_WARN,
+    FINDING_NUMERIC_COMPARE_ON_STRING: SEVERITY_WARN,
+    FINDING_WINDOW_PARTITION_NARROWER: SEVERITY_WARN,
     FINDING_PARTITION_MISMATCH: SEVERITY_INFO,
     FINDING_NONDETERMINISTIC_FUNCTION: SEVERITY_WARN,
     FINDING_HARDCODED_DATE: SEVERITY_INFO,
@@ -6932,6 +6975,7 @@ def _build_findings(
         *alias_mismatch,
         *_duplicate_alias_findings(document),
         *_empty_string_findings(document, rules),
+        *_numeric_compare_findings(document, rules),
         *_partition_mismatch_findings(comparisons, fields),
         *_nondeterministic_findings(rules, fields),
         *_hardcoded_date_findings(comparisons),
@@ -7049,6 +7093,43 @@ def _empty_string_findings(document: dict, rules: Sequence[dict]) -> list[dict]:
                 )
             )
     return found
+
+
+def _numeric_compare_findings(document: dict, rules: Sequence[dict]) -> list[dict]:
+    """A string column compared with a number (G1a), one finding per input table.
+
+    ``if(ts > 0, …)`` on a ``string`` column leaves the engine to cast one side; a value
+    that is no number, or one out of the cast type's range, may turn the comparison
+    NULL. Whether it does is not decided here (no engine ran), so the text says the
+    types disagree and asks whether the test works as meant. A partition filter is left
+    out: an unquoted date against a string partition column decides which partitions
+    are read, not what a value means. The column must be one physical column of the
+    rule by name, with a declared type, as for ``empty_string_on_non_string``.
+    """
+    by_table: dict[str, dict] = {}
+    for rule in rules:
+        if str(rule.get("kind")) not in ("filter", "join_condition", "case_branch"):
+            continue
+        if rule.get("is_partition_filter"):
+            continue
+        for column, literal in semantic_text.numeric_literal_comparisons(rule.get("expression")):
+            typed = _physical_column_type(document, rule, column)
+            if typed is None or not typed[1].lower().startswith(_STRING_TYPE_PREFIXES):
+                continue
+            entry = by_table.setdefault(typed[0], {"columns": [], "literals": [], "rules": []})
+            entry["columns"].append(column)
+            entry["literals"].append(literal)
+            entry["rules"].append(rule.get("rule_id"))
+    return [
+        _finding(
+            FINDING_NUMERIC_COMPARE_ON_STRING,
+            f"类型不匹配：{table} 的 string 列 {'、'.join(_dedupe(entry['columns']))} "
+            f"与数值 {'、'.join(_dedupe(entry['literals']))} 比较；结果取决于引擎把哪一边"
+            "转成什么类型（非数字或超出范围时可能为 NULL），需核实这些判断是否按预期生效",
+            _dedupe(entry["rules"]),
+        )
+        for table, entry in by_table.items()
+    ]
 
 
 def _physical_column_type(
