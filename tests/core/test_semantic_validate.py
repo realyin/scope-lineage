@@ -493,3 +493,59 @@ def test_only_passes_over_files_it_cannot_read_or_place(
     (table,) = json.loads(capsys.readouterr().out)["tables"]
     assert table["file"] == f"{DEMO_TABLE}.json"
     assert table["schema_errors"] == []
+
+
+# --only before the directory ------------------------------------------------------
+
+
+def _validate_output(capsys, *argv) -> tuple[int, str]:
+    code = run("semantic", "validate", *argv)
+    return code, capsys.readouterr().out
+
+
+@pytest.mark.parametrize("tail", [
+    pytest.param(lambda d: ["--only", DEMO_TABLE, d], id="one-table"),
+    pytest.param(lambda d: ["--only", DEMO_TABLE, OTHER_TABLE, d], id="two-tables"),
+    pytest.param(lambda d: ["--only", DEMO_TABLE, "--", d], id="double-dash"),
+])
+def test_only_before_the_directory_reads_as_the_directory_first(
+    tmp_path: Path, packets: Path, document: dict, capsys, tail
+) -> None:
+    """``--only`` takes every word after it; the directory it swallowed is taken back."""
+    directory = _two_documents(tmp_path, document)
+    tables = [arg for arg in tail(directory) if arg not in (directory, "--", "--only")]
+    expected = _validate_output(capsys, directory, "--packets", packets, "--json",
+                                "--only", *tables)
+    got = _validate_output(capsys, "--packets", packets, "--json", *tail(directory))
+    assert got == expected
+    assert expected[0] == 0
+
+
+def test_only_swallowing_a_word_that_is_no_directory_is_an_error(
+    tmp_path: Path, packets: Path, document: dict, capsys
+) -> None:
+    _write_example(tmp_path, document)
+    with pytest.raises(SystemExit) as raised:
+        run("semantic", "validate", "--packets", packets, "--only", DEMO_TABLE, "semantics_typo")
+    assert raised.value.code == 2
+    err = capsys.readouterr().err
+    assert "--only takes every word after it" in err
+    assert "put directory before --only" in err
+
+
+def test_only_with_nothing_but_the_directory_is_an_error(
+    tmp_path: Path, packets: Path, document: dict, capsys
+) -> None:
+    """``--only <dir>`` names no table: it is not read as every table."""
+    directory = _write_example(tmp_path, document)
+    with pytest.raises(SystemExit) as raised:
+        run("semantic", "validate", "--packets", packets, "--only", directory)
+    assert raised.value.code == 2
+    assert "--only takes every word after it" in capsys.readouterr().err
+
+
+def test_no_directory_and_no_only_is_the_usual_error(packets: Path, capsys) -> None:
+    with pytest.raises(SystemExit) as raised:
+        run("semantic", "validate", "--packets", packets)
+    assert raised.value.code == 2
+    assert "the following arguments are required: directory" in capsys.readouterr().err
