@@ -277,7 +277,7 @@ SEVERITY_INFO = "info"
 
 INFORMATION_LINE = "- 信息项：{count}（见 semantic.json findings）"
 
-# Which evidence class each governance lead restates. None of them is an inference: two
+# Which evidence class each governance lead restates. All but one restate a fact: two
 # tables filtered to different literals is what the SQL says, and a table without a
 # comment is what the metadata says. An unknown kind falls back to the SQL label rather
 # than being upgraded to a fact class it did not earn.
@@ -285,6 +285,9 @@ _FINDING_TAGS = {
     "alias_position_mismatch": TAG_SQL_AND_METADATA,
     "duplicate_alias": TAG_SQL,
     "empty_string_on_non_string": TAG_SQL_AND_METADATA,
+    "numeric_compare_on_string": TAG_SQL_AND_METADATA,
+    # The one inference among them: a writer's batch key read as the rows' identity.
+    "window_partition_narrower": TAG_STRUCTURAL,
     "partition_literal_mismatch": TAG_SQL,
     "nondeterministic_function": TAG_SQL,
     "hardcoded_date_literal": TAG_SQL,

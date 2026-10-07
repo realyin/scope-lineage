@@ -241,6 +241,14 @@ merged = merge_table_cards(first_tables_json, second_tables_json)
   `output_shape`, `fields`); `refresh` comes from the task JSON's `meta`
   (`schedule_cycle` / `schedule`) and stays `null` when none was supplied — a cadence is
   never guessed from a partition column or a table name.
+- A MERGE producer's `grain`, `candidate_keys` and `key_confidence` are its written batch's
+  (M1; they used to be `unknown` / `[]` / `none`). They still say nothing about the table:
+  a merging producer is an appending one, so the card's `key_claim` is defeated.
+- `produced_by[].batch_write_keys` (M4), present only when non-empty: the target columns
+  that producer's batch is deduplicated or grouped on -- a MERGE's USING dedup keys, else its
+  `candidate_keys`, partition columns left out. A batch key, not the table's key; a
+  window reading the table in another task is compared with it
+  (`window_partition_narrower` in [semantic-doc.md](semantic-doc.md)).
 - `consumed_by[].columns` lists only the columns a logic block **actually reads**;
   `columns[]` is the union of every field the metadata declares
   (`related_metadata.*.declared_columns[]`, in DDL order) with the produced fields and the
@@ -409,6 +417,7 @@ simply its fourth source of evidence. Everything derived from `output_shape` —
 | The same, but the card's `key_confidence` is `candidate` | still `safe`, but the `reason` says 「表卡候选键，未证唯一」 and the statement's whole `key_confidence` is capped at `candidate` |
 | The card's `key_confidence` is `proven_unexposed` or `none`, or the join keys do not cover the candidate keys | nothing is re-decided; the original verdict stands |
 | Some producer appends (`INSERT INTO`) or merges (`MERGE`) into the table, or the producers disagree on the candidate keys | re-decided `unknown`, the `reason` saying why: the key is unique within one batch only / which version is read depends on the schedule (F2) |
+| The JOIN's right side is not the physical table but a subquery or CTE holding one table's rows -- every scope down to the table reads one input and only filters, and the join columns reach the table unchanged (G5a-2) | the card of that table is asked as above, with the WHERE equalities on the way as pins; a card with no answer leaves the original verdict |
 | A producer writes by partition, and the JOIN neither matches the partition columns in ON nor pins the right table's partition columns to a constant in WHERE | re-decided `unknown`, the `reason` saying the key is unique within each partition only; matched or pinned, the verdict is `safe` as before (F2) |
 
 `candidate_keys`, `unexposed_keys`, `key_evidence` and `key_confidence` are all derived from

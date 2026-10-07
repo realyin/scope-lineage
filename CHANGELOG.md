@@ -3,6 +3,36 @@
 ## Unreleased
 
 ### Changed
+- **Meaning change: a MERGE reports the grain of the batch it writes** (reverses #22).
+  `output_shape.grain`, `candidate_keys`, `unexposed_keys`, `key_evidence`,
+  `key_confidence` and `key_claim` of a MERGE statement used to be fixed at `unknown` /
+  `[]` / `none` / `null`. Every USING row updates or inserts at most one target row, so the
+  written batch is a one-for-one subset of the USING rows and the walk from ROOT through the
+  USING side now reports its grain like an INSERT's. `key_claim`'s subject stays
+  `write_batch`: the keys are the batch's, never the table's. A key the write leaves out but
+  a matched branch's ON equality ties to a target column (`ON tgt.k = src.sk`, dedup by `sk`)
+  is written through that column. `shape` stays `unknown`. Fields may now carry
+  `structural_role: candidate_key` on a MERGE, and table cards' `produced_by[].grain`,
+  `candidate_keys` and `key_confidence` change with them (a merging producer still defeats
+  the card's `key_claim`, so a reader never takes them for the table's key). **Downstream
+  code that reads these fields to decide whether a MERGE target has a key changes
+  behaviour.** Packets of MERGE targets change their `packet_digest`.
+- **A dedup ordered by a column its input pins to one value keeps an arbitrary row.**
+  `row_number() OVER (PARTITION BY k ORDER BY dt DESC)` over `WHERE dt = '…'` was described
+  as keeping the latest row. When every ORDER BY item is a bare column pinned by an equality
+  in the window's scope or below, the intent is the new `keep_arbitrary_per_group`
+  (「排序列已被过滤固定为单值，排序不起作用：每组保留任意一条」). A range, or a second ORDER BY
+  item, still orders.
+- **A dedup ordered by a string column says it sorts as text.** Keep-latest / keep-first
+  rule text gains 「（排序列 X 为 string，按字典序；与时间先后一致取决于格式统一）」 when the first
+  ORDER BY item is a bare column of one physical string column. **Content change** of
+  `stages[].actions[].text` and the packet rules copied from it.
+- **A JOIN onto a filtered subquery of one table reads that table's card.** With
+  `describe --tables` (and in packets), a right side that is one physical table's rows --
+  every scope down to it reads one input and only filters, the join columns unchanged --
+  is decided from that table's card like the table itself, the WHERE equalities on the way
+  counting as pins. A card with no answer leaves the old verdict; a MERGE producer's key
+  still gives `unknown`, never `safe`. Verdicts can change where a card has a key.
 - **A WHERE / HAVING rule's comments are its own predicate's, not the whole condition's.**
   The semantic profile split a WHERE into one rule per conjunct but handed every rule the
   block's whole comment list, so a note written beside one predicate was published as the
@@ -330,6 +360,31 @@
   title saying so and pointing to the catalog workflow. The command, every flag and
   `ontology.json` (`ontology-json/2`) are unchanged, byte for byte.
 ### Added
+- **Semantic profile: what a MERGE writes, in `output_shape.merge`** (`semantic-json/1`
+  unchanged; each key present only on a MERGE and only when it has content):
+  - `table_key` `{keys, status}`: the key the MERGE suggests for the target *table* -- the
+    merge key's target columns plus the dedup keys the merge key lacks (`hypothesis`), or
+    `update_only` with no keys when it only updates;
+  - `insert_only_columns` / `update_columns`: what a matched UPDATE never changes, or the
+    only columns it changes;
+  - `update_nullable_by_join`: matched-UPDATE columns whose value comes through a LEFT JOIN
+    that may not match, so a miss overwrites the old value with NULL (constant NULLs and
+    expressions reading the target's own column are not listed);
+  - `union_branches`: a UNION USING side walked branch by branch (`{branch, scope, basis,
+    dedup_keys?, coverage?, joins_after_dedup?}`); `coverage` itself stays `unknown`.
+- **Semantic profile: two governance findings, both `warn`, both carried into packets.**
+  - `numeric_compare_on_string`: a string column compared with an unquoted number in a
+    filter, join or CASE rule, one finding per input table; partition filters are left out.
+    The text says only that the types disagree.
+  - `window_partition_narrower`: a window that is not a dedup groups and orders by fewer
+    columns than the key telling its input rows apart -- the input's own dedup in the
+    statement, another statement of the task writing the table, or a table card's
+    producer. The text states the structure only; `evidence` is the window's logic block.
+- **Table cards: `produced_by[].batch_write_keys`.** The target columns a producer's batch
+  is deduplicated or grouped on (a MERGE's USING dedup keys, else its candidate keys,
+  partition columns left out); present only when non-empty. `tables-json/1` unchanged.
+  `scope-lineage tables` now keeps `output_shape.merge` and `partition_columns` in its
+  per-task projection, so an `--incremental` cache from before recomputes once.
 - **Lineage contract: `filter_predicate_detail.conjuncts[].comments`.** The comments that
   belong to one WHERE / HAVING conjunct: those inside its own expression, led by a comment
   written on its own line above the `AND` that joins it on (or right after that `AND`).

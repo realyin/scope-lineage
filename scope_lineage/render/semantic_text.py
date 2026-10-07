@@ -493,6 +493,38 @@ def empty_string_comparisons(expression: str | None) -> list[str]:
     return found
 
 
+def numeric_literal_comparisons(expression: str | None) -> list[tuple[str, str]]:
+    """``(column name, literal)`` for every comparison of a column with a number (G1a).
+
+    ``=`` / ``<>`` / ``!=`` / ``<`` / ``<=`` / ``>`` / ``>=``, either side; a negative
+    literal counts (``x > -1``). A quoted literal is a string, not a number.
+    """
+    node = parse_expression(expression)
+    if node is None:
+        return []
+    found: list[tuple[str, str]] = []
+    for comparison in node.find_all(exp.EQ, exp.NEQ, exp.LT, exp.LTE, exp.GT, exp.GTE):
+        for column, literal in (
+            (comparison.this, comparison.expression),
+            (comparison.expression, comparison.this),
+        ):
+            number = _numeric_literal(literal)
+            if isinstance(column, exp.Column) and number is not None:
+                if (column.name, number) not in found:
+                    found.append((column.name, number))
+    return found
+
+
+def _numeric_literal(node) -> str | None:
+    """The text of an unquoted number literal (sign included), else None."""
+    if isinstance(node, exp.Neg):
+        inner = _numeric_literal(node.this)
+        return f"-{inner}" if inner is not None else None
+    if isinstance(node, exp.Literal) and not node.is_string:
+        return str(node.this)
+    return None
+
+
 def udf_calls(expression: str | None) -> set[str]:
     """Lower-case names of the functions an expression calls that no catalogue knows.
 
@@ -1747,6 +1779,8 @@ def _bounded(items: Sequence[str], limit: int, overflow: str, separator: str = "
 WINDOW_INTENT_TEXT = {
     "keep_latest_per_group": "每组保留最新一条",
     "keep_first_per_group": "每组保留第一条",
+    # M5: ORDER BY a column the input pins to one value orders nothing.
+    "keep_arbitrary_per_group": "排序列已被过滤固定为单值，排序不起作用：每组保留任意一条",
     "rank_within_group": "仅组内排名，未见 = 1 过滤",
     "pick_first_in_group": "取组内首值",
     "pick_last_in_group": "取组内末值",
@@ -1773,8 +1807,14 @@ def describe_window_action(
     order_labels: Sequence[tuple[str, str | None]],
     intent: str,
     consumer_scope: str | None = None,
+    string_order_column: str | None = None,
 ) -> str:
-    """``按 <partition> 分组，按 <order> 降序编号（rn）；<scope> 以 rn = 1 消费，即…``."""
+    """``按 <partition> 分组，按 <order> 降序编号（rn）；<scope> 以 rn = 1 消费，即…``.
+
+    ``string_order_column`` (G1c) names a string ORDER BY column: 「最新」 / 「第一条」 is
+    then the text order of its values, which matches time order only when every value
+    is written in one format, and the sentence says so.
+    """
     ranking = window_function.lower() in RANKING_WINDOW_FUNCTIONS
     parts = [
         f"按 {'、'.join(str(item) for item in partition_labels)} 分组"
@@ -1792,6 +1832,11 @@ def describe_window_action(
         parts[-1] = f"{parts[-1]}（{output_field}）"
     head = "，".join(parts)
     meaning = WINDOW_INTENT_TEXT.get(intent, WINDOW_INTENT_TEXT["other"])
+    if string_order_column:
+        meaning = (
+            f"{meaning}（排序列 {string_order_column} 为 string，按字典序；"
+            "与时间先后一致取决于格式统一）"
+        )
     if consumer_scope and output_field:
         return f"{head}；{consumer_scope} 以 {output_field} = 1 消费，即{meaning}"
     return f"{head}；{meaning}"

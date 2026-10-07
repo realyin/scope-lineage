@@ -349,7 +349,10 @@ def test_the_pierced_table_takes_the_driving_role_and_keeps_its_other_roles() ->
     )
 
 
-def test_a_merge_statement_reports_an_unknown_shape_rather_than_guessing() -> None:
+def test_a_merge_statement_reports_an_unknown_shape_and_the_grain_of_its_batch() -> None:
+    """M1 (replacing #22): the row shape of the target is the merge semantics and stays
+    unknown, but the batch a MERGE writes is a one-for-one subset of its USING rows, so
+    the grain is the USING side's -- here its driving table's rows, which prove no key."""
     lineage = json.loads(
         (FIXTURES / "lineage_contract" / "merge" / "lineage.json").read_text(
             encoding="utf-8"
@@ -357,9 +360,10 @@ def test_a_merge_statement_reports_an_unknown_shape_rather_than_guessing() -> No
     )
     shape = build_semantic_profile(lineage)["output_shape"]
     assert shape["shape"] == "unknown"
-    assert shape["grain"]["basis"] == "unknown"
+    assert shape["grain"]["basis"] == "driving_table_rows"
     assert shape["grain"]["keys"] == []
     assert shape["candidate_keys"] == []
+    assert shape["key_confidence"] == "none"
 
 
 def test_a_merge_publishes_the_fan_out_of_joins_on_its_using_source_path() -> None:
@@ -368,8 +372,8 @@ def test_a_merge_publishes_the_fan_out_of_joins_on_its_using_source_path() -> No
     A MERGE writes whatever its USING source hands it, so a JOIN that duplicates a source
     row -- here an undeduplicated lookup two CTEs below the source -- duplicates what the
     MERGE inserts or makes its matched update ambiguous. The walk from ROOT through the
-    source down to the driving table is the same walk an INSERT gets; only the grain it
-    would report is withheld, because a MERGE's written rows are not its source's rows.
+    source down to the driving table is the same walk an INSERT gets, and so is the grain
+    it reports (M1): the driving table's rows, with no key, because of that very JOIN.
     """
     shape = _shape(
         "WITH enriched AS ("
@@ -388,7 +392,7 @@ def test_a_merge_publishes_the_fan_out_of_joins_on_its_using_source_path() -> No
         "VALUES (source.id, source.pid, source.ts, source.label)"
     )
     assert shape["shape"] == "unknown"
-    assert shape["grain"]["basis"] == "unknown"
+    assert shape["grain"]["basis"] == "driving_table_rows"
     assert shape["candidate_keys"] == []
     risks = {risk["right"]: risk for risk in shape["fan_out_risks"]}
     assert set(risks) == {"subq:p", "subq:l"}

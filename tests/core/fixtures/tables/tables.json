@@ -245,6 +245,10 @@
             "channel_name"
           ],
           "key_confidence": "proven",
+          "batch_write_keys": [
+            "customer_id",
+            "channel_name"
+          ],
           "fields": [
             {
               "column": "customer_id",
@@ -298,6 +302,10 @@
             "channel_name"
           ],
           "key_confidence": "proven",
+          "batch_write_keys": [
+            "customer_id",
+            "channel_name"
+          ],
           "fields": [
             {
               "column": "customer_id",
@@ -456,6 +464,10 @@
             "band"
           ],
           "key_confidence": "proven",
+          "batch_write_keys": [
+            "segment",
+            "band"
+          ],
           "fields": [
             {
               "column": "segment",

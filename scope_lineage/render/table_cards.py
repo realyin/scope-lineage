@@ -42,6 +42,7 @@ from .semantic_profile import (
     REFRESH_SOURCE_TASK_META,
     TASK_PROFILE_ARTIFACT_KIND,
     USAGE_ORDER,
+    batch_write_keys,
     card_key_claim,
 )
 
@@ -100,7 +101,14 @@ PROFILE_FIELDS_READ = {
             "declared_columns",
             "read_by_scopes",
         ),
-        "output_shape": ("grain", "candidate_keys", "key_confidence"),
+        # `merge` and `partition_columns` are what `batch_write_keys` reads (M4).
+        "output_shape": (
+            "grain",
+            "candidate_keys",
+            "key_confidence",
+            "partition_columns",
+            "merge",
+        ),
         "fields": ("column", "target_comment", "summary", "structural_role"),
     },
 }
@@ -144,6 +152,7 @@ PRODUCER_KEY_ORDER = (
     "grain",
     "candidate_keys",
     "key_confidence",
+    "batch_write_keys",
     "fields",
     "refresh",
     "header_comments",
@@ -540,12 +549,19 @@ def _producer_entry(record: _Statement) -> dict:
         },
         "candidate_keys": [str(key) for key in shape.get("candidate_keys") or []],
         "key_confidence": shape.get("key_confidence"),
+        # M4: the batch's key under target column names, for a window reading the table
+        # in another task; present only when there is one.
+        "batch_write_keys": batch_write_keys(shape),
         "fields": [_producer_field(field) for field in statement.get("fields") or []],
         "refresh": refresh_from_task_meta(task_block.get("meta")),
         "header_comments": [str(item) for item in task_block.get("header_comments") or []],
         "lineage_digest": record.digest,
     }
-    return {key: entry[key] for key in PRODUCER_KEY_ORDER}
+    return {
+        key: entry[key]
+        for key in PRODUCER_KEY_ORDER
+        if key != "batch_write_keys" or entry[key]
+    }
 
 
 def _producer_field(field: dict) -> dict:
