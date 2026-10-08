@@ -1,8 +1,148 @@
 # Changelog
 
-## Unreleased
+## 0.8.0
+- **Table semantics judged per UNION branch and per validity window, MERGE lines per
+  partition column, and a run that stops on what it used to let through.** Every format keeps
+  its version -- task contract 2.0, `lineage.json` `schema_version` 1.0, `semantic-json/1`,
+  `table-semantics-packet/1`, `table-semantics-status/2`, `table-semantics-validation/1`,
+  `tables-json/1`, `catalog-digest/1`, `ontology-json/3` -- and every new key is optional and
+  appears only with content. But several fields now say something different and several
+  commands exit or warn differently, so this is a minor release with breaking changes (listed
+  under **Breaking** below, each with who is affected and what to do; the READMEs' "Migrating
+  to 0.8.0" gives the steps). **What a consumer will see change:** the packets of tables the
+  new facts touch get a new `packet_digest`, so their documents read `drafted packet_stale`
+  until rewritten whole; `semantic validate` exits 1 when a check fails, and check 8 no
+  longer offers to update the digest; `semantic confirm` keeps an accepted table `fixed`
+  (new `--reviews`); `semantic render` and `catalog digest` take `--packets` and name
+  stale, invalid and packet-less documents on stderr, and `questions sheet --pages` names
+  questions without a page; `fields[].nullable_by_join` means "at least one UNION branch",
+  with the branches in `nullable_by_join_branches`; `sql_comments` no longer carries a
+  computing step's inputs' comments; `right_of` marks partition filters too; a JOIN onto a
+  point-in-time read of a LEAD-written table is decided from its `validity_window`; check 5
+  reads a quoted whole statement and check 10 warns on a shared alias; and the prompts are
+  `table-semantics-prompt@9`, `table-semantics-review@9` and `table-semantics-fix@6`. Also
+  in this release: failure numbers and `not_reported` in `semantic validate --json`, MERGE
+  pins and writer keys, grain-key target columns, the `literal_outside_comment_codes`
+  finding, and a step-by-step runbook for the agent skill
+  (`skills/scope-lineage/references/runbook.md`).
 
-### Semantic profile (`semantic-json/1`, format unchanged)
+### Breaking
+- **Breaking — `semantic validate` exits 1 when a check fails.** Affected: scripts and
+  orchestrators that run `semantic validate` under `set -e`, or take a non-zero exit as a
+  broken run. A failed cross check -- a stale `packet_digest` and a document without a
+  packet included -- now exits 1, not only a schema error; warnings alone still exit 0, and
+  the report (text or `--json`) is printed all the same. What to do: read exit 1 as "the
+  report lists failures" and decide from the report (`summary`, or `--json`'s
+  `failures[]`), not from the exit code alone.
+- **Breaking — check 8 (`digest`) says rewrite, not update.** Affected: orchestrators and
+  prompts that followed its old text "or check and update". The failure now says the packet
+  changed and the document is rewritten whole, the old review kept as
+  `reviews/<db.table>.prior.md` and the old document as `reviews/<db.table>.prior.json`.
+  What to do: never copy a new `packet_digest` into an old document (that made a stale
+  document pass); rewrite it, keeping both prior files.
+- **Breaking — `semantic confirm` keeps a fixed table fixed, and reads the reviews.**
+  Affected: orchestrators that confirm owner answers in place and then act on `semantic
+  status`. A changed table whose review accepted the document as it was now has its fix
+  record (`fixed_doc_digest`) moved to the confirmed document and stands at `fixed
+  render_stale`, instead of falling back to `reviewed fix_unconfirmed` (or `valid
+  review_stale`) and being sent to a fixer by `--next fix`. Reviews are read from the new
+  `--reviews`, or `reviews/` beside the documents when it exists; `--reviews` with `--out`
+  exits 2. A table the review did not accept is left alone. What to do: re-render the
+  confirmed tables instead of fixing them; pass `--reviews` when the reviews are not beside
+  the documents; never combine it with `--out`.
+- **Breaking — `semantic render` and `catalog digest` read packets and warn on stderr.**
+  Affected: scripts that treat any stderr output as a failure, and runs that keep their
+  packets somewhere other than `packets/` beside the documents. Both commands take a new
+  `--packets` (default: `packets/` beside the documents, when it exists) and print one
+  `warning:` line per flag naming the tables whose document is `packet_stale`, `invalid` or
+  without a packet; without packets `render` reads the flags from its `--validation` report,
+  and with neither a line says nothing was checked. They still render or digest those
+  tables, and the exit code does not change. What to do: read the `warning:` lines (a
+  named table is not fit to publish yet); pass `--packets` when the packets live elsewhere.
+- **Breaking — `questions sheet --pages` warns about missing pages.** Affected: the same
+  stderr-sensitive scripts. Each question whose table has no `<db.table>.md` under the pages
+  is named on stderr (a catalog prefix and case ignored; concept questions not checked),
+  and a pages directory that does not exist is warned about. Exit code unchanged. What to
+  do: render the missing pages, or accept that those questions will be answered without
+  one.
+- **Breaking — `fields[].nullable_by_join` means "at least one UNION branch is proven
+  nullable".** Affected: readers of `semantic.json` `fields[].nullable_by_join`,
+  `metric_spec.null_handling`, the field summary and the metric card. The chain is split at
+  its UNION and each branch is judged alone, so a column one branch clears is no longer
+  flagged whole, and a column nullable in one branch only is no longer missed. New
+  `fields[].nullable_by_join_branches` (and
+  `metric_spec.null_handling.nullable_by_join_branches`) lists the nullable branches,
+  numbered as `output_shape.merge.union_branches[].branch`, when they are not all of them;
+  no key means the whole column. The field summary reads 「（UNION 分支 N 关联未命中时为空）」. A
+  chain without a UNION is judged as before. What to do: read `nullable_by_join_branches`
+  before taking `nullable_by_join` as "the whole column may be NULL".
+- **Breaking — `fields[].sql_comments` holds only the comments of the steps that carry the
+  field's own value.** Affected: readers of `sql_comments` in `semantic.json` and in packets.
+  The walk climbs from the chain's last step through pass-throughs, UNIONs and cleaning
+  IF / CASE / COALESCE steps only; a computing step keeps its own comment, but its input
+  columns' comments no longer travel (CAST and TRIM are not cleaning). What to do: expect
+  shorter lists on computed fields; for an input's comment, read that input's own field or
+  the lineage contract.
+- **Breaking — `right_of` covers partition filters.** Affected: readers of packet rules'
+  `right_of` and of the rule's 说明 in `packet.md`. A partition filter inside a LEFT JOIN's
+  right side is now marked with the joins it sits in, and its 说明 reads 「在 pN 右侧：不丢目标行，
+  决定右侧读哪些分区」. It never gets a `right_side_kind`, and validation is unchanged but
+  for the digest. What to do: do not read `right_of` as "a row filter"; check the rule's
+  `partition_filter`.
+- **Breaking — LEAD validity windows on table cards, and the point-in-time JOIN verdicts
+  they change.** Affected: readers of `fan_out_risks[]` reasons and statuses, and of
+  table cards' `produced_by[]`. A statement that writes the target's end column as `LEAD`
+  of its start over every row gets `output_shape.validity_window`, copied to the card as
+  `produced_by[].validity_window`. A JOIN onto a `start <= X AND end > X` read of such a
+  table, on columns covering the partition, used to end at 「右侧未被证明按连接键唯一」
+  (`risk`); it is now `safe` for a whole-table overwrite writer and `unknown` for a MERGE
+  writer (rule `R-VALIDITY-WINDOW`, conditional on `validity_rows_unique` for a MERGE),
+  with a reason naming the window and its conditions. What to do: accept the new verdicts
+  and rule; do not match on the old reason text; the `tables --incremental` cache
+  recomputes on its own.
+- **Breaking — check 5 cites from a quoted whole statement, check 10 warns on a shared
+  alias.** Affected: documents validated with 0.7.0 and orchestrators that count warnings.
+  Check 5 (`rules`) reads each conjunct of every WHERE / HAVING / ON in a `rules[].sql` that
+  quotes a whole statement, so filters it used to call uncited are now cited (only gains: no
+  document that passed fails). Check 10 (`fan_out`) names a join for sure only by its table,
+  an alias no other right side carries, or its rule id `pN`; a join named only by a shared
+  alias gets a `warn`. No stage moves (a warning changes no stage). What to do: re-run
+  `semantic validate`; name each such join by table or `pN`.
+- **Breaking — packets change digest, so written documents go stale; `packet.md` reads
+  differently.** Affected: every run directory written with 0.7.0, and readers of
+  `packet.md`. The new facts (`nullable_by_join_branches`, narrower `sql_comments`,
+  `right_of` on partition filters, `lineage.keys[].grain_columns`, MERGE
+  `matched_target_pins` / `using_writer_keys` / `update_nullable_by_join_branches` /
+  `update_filled_on_miss` and `lineage.partition[].merge_columns`, the
+  `literal_outside_comment_codes` finding in `lineage.findings`, cancel and change-type
+  columns in `marker_column_unused`, validity-window verdicts) change `packet_digest` for
+  the tables they touch; their documents read `drafted packet_stale` and a full `semantic
+  validate` fails check 8 for them. In `packet.md`, the 4.3 header reads 「粒度键（目标列）」,
+  a long 4.1 cell may start 「计算步骤：」, 4.3 has new MERGE lines, and section 3 names an
+  unfixed partition column (`packet.json` unchanged by the layout). What to do: rebuild
+  the packets, then rewrite every stale document whole, in batches with `--only`; until
+  every table is rewritten, do not build a catalog or pages from the whole `docs`
+  directory. Read `packet.md` tables by header.
+- **Breaking — prompt versions.** The writing prompt is `table-semantics-prompt@9`, the
+  review prompt `table-semantics-review@9`, the fix prompt `table-semantics-fix@6`.
+  Affected: orchestrators that pin or ship their own copies. The prompts weigh sibling-table
+  evidence below a packet verdict, name non-`safe` joins by table or `pN`, state the batch
+  day, follow a MERGE's `when matched` clause, read this release's packet facts, and, before
+  a rewrite, keep the old document as `reviews/<db.table>.prior.json` beside
+  `reviews/<db.table>.prior.md`; the fix prompt stops after two failed validation rounds
+  (the table is blocked and goes to the owner). Documents written with an older prompt are
+  not flagged stale for it (`semantic status` never reads `generator.prompt`). What to do:
+  use the packaged prompts for the rewrite above.
+- **Breaking — the skill's table-semantics, catalog-drafting and acceptance sections point
+  to a runbook.** Affected: agents and owners that followed those sections of `SKILL.md`
+  step by step. They are now entry points with three non-negotiable rules each; the steps
+  (S0–S13, commands, self-checks, known failures, the status-to-next-step table, cost rules)
+  live in the new `skills/scope-lineage/references/runbook.md`, with sub-agent prompt
+  templates in `references/runbook-templates.md`. What to do: drive a run from the runbook.
+
+### Changed
+
+#### Semantic profile (`semantic-json/1`, format unchanged)
 - **Meaning change -- `fields[].nullable_by_join` is decided per UNION branch and means "at
   least one branch is proven nullable".** A chain through a UNION used to be walked as one
   straight line: a COALESCE in one branch did not clear another branch's nullable step, so
@@ -33,61 +173,30 @@
 - New library function `grain_key_columns(document, grain)`: the target column each logical
   grain key lands on (`exposed`, `merge_on`, `derived` or `unexposed`).
 - Packets of affected tables get a new `packet_digest`.
-- **Table-semantics prompts `table-semantics-prompt@9`, `table-semantics-review@9` and
-  `table-semantics-fix@6`.** No format, packet or digest changes; existing documents do not
-  go stale (`semantic status` never reads `generator.prompt`).
-  - Evidence found only in a sibling table's material (its production SQL, table card or
-    header comment) never overturns a packet verdict. Writer, reviewer and fixer now agree:
-    the join stays named, the document writes "packet says <verdict>; inferred from
-    <sibling>'s material: <fact> (unproven)" with what happens if the inference is wrong,
-    and asks a question. The reviewer no longer asks for "does not multiply rows" on that
-    basis, and its closing "verdicts overturned by SQL" section marks such rows as sibling
-    evidence.
-  - Joins that are not `safe` are named by table or rule id `pN`; an alias alone does not
-    count. Validator checks are cited as number and name (check 10 (`fan_out`)).
-  - The reviewer gets the batch-day definition and the three cases that are findings; the
-    writer states in `how_to_read` which literal is the batch day and how many days it lies
-    before the expected date.
-  - A MERGE's `how_to_read` follows each statement's `when matched` clause (unconditional,
-    pinned to the batch partition, or rewriting the partition column) instead of always
-    saying old partitions are rewritten.
-  - The reviewer numbers its own findings H/M/L and old ones `oN`, gives a second reason
-    for "not applicable" (the current prompt changed the rule, quoted), learns that zero
-    high and medium findings means `fixed` (no severity adjustment for that), and defers to
-    the writing prompt on writing conventions.
-  - **Workflow:** before a rewrite, copy the current document to
-    `reviews/<db.table>.prior.json` next to `reviews/<db.table>.prior.md`. `status` does not
-    read it; the reviewer uses it, when its digest matches the old review's
-    `fixed_doc_digest`, to tell "fixed, then lost in the rewrite" from "never fixed".
 
-### Added
-- **`semantic validate --json` numbers each failure and lists the checks with nothing to
-  check.** Every `failures[]` item carries `number` (1–13, the `[N name]` of the text
-  summary), and every table carries `not_reported`: the checks that ran and produced no
-  item, by number and name (empty when the cross checks did not run -- a schema error, or
-  no packet). The text summary prints them on a `无可查条目` line under the table's line.
-  `checks` is unchanged and the format stays `table-semantics-validation/1`; a reader that
-  ignores unknown keys sees no difference.
+#### Validity windows written by LEAD (`semantic-json/1`, `tables-json/1`, formats unchanged)
+- New `output_shape.validity_window` (`{start, end, partition, default?, condition?}`): a
+  statement writes the target's end column as `LEAD(start, 1[, default]) OVER (PARTITION BY
+  partition ORDER BY start ASC)` over every row of the target itself, by a whole-table
+  `INSERT OVERWRITE` or by a MERGE on exactly the partition columns and `start` with only
+  unconditional matched UPDATEs. A MERGE carries `condition: "validity_rows_unique"`. A later
+  statement of the same task writing `start` or `end` withdraws it. A writer that closes old
+  versions by a hash comparison gets no such key.
+- Table cards copy it as `produced_by[].validity_window`, present only with content.
+- **Meaning change -- a JOIN onto a point-in-time read of such a table is decided from the
+  window.** A right side that is one table's rows filtered by `start <= X AND end > X` (one
+  literal or `${…}`), joined on columns covering the partition, used to end at 「右侧未被证明
+  按连接键唯一」 (`risk`). It is now `safe` for a whole-table overwrite writer and `unknown`
+  for a MERGE writer, with a reason that states the window, the condition, the write-key
+  columns the window does not partition by, and the ON columns that may find no valid row.
+  The claim's rule is the new `R-VALIDITY-WINDOW` (`conditional` on `validity_rows_unique`
+  for a MERGE, on the premise `A-WRITERS-CLOSED`). It does not apply when another task's
+  producer writes `start` or `end`, when the bounds name two points or a closed upper bound,
+  or when start and end are declared different types. **Downstream code that compares
+  `fan_out_risks[]` reasons or statuses will see these joins change.** Packets reading such
+  a table get a new `packet_digest`.
 
-### Changed
-- **Check 10 (`fan_out`) warns when a join is named only by an alias another right side
-  shares.** An alias is unique within one SELECT, not within a packet, so a sentence about
-  one `c` used to count as naming every other join aliased `c`. A right side is now named
-  for sure by its table, an alias only it carries, or its join rule's number (`pN`);
-  named only by a shared alias it gets a `warn` asking for the table or the `pN`. Nothing
-  that passed now fails, and `semantic status` stages do not move (a warning changes no
-  stage). The harmless-LEFT-join warning likewise reads a sentence by those names first,
-  so a claim about one join no longer labels another that shares its alias.
-
-### Fixed
-- **Check 5 (`rules`) reads the WHERE of a quoted whole statement.** A `rules[].sql` that
-  copies a whole `select … where a and b` (or a FROM-led query, or an INSERT … SELECT)
-  was one form equal to no filter, so every filter in its WHERE read as uncited. Each
-  conjunct of every WHERE / HAVING / ON in the quote, nested subqueries included, now
-  cites the filter it equals; a CASE branch or a MERGE `WHEN` condition still cites
-  nothing. Citing only gains: no document that passed fails.
-
-### Table-semantics packet (`table-semantics-packet/1`, format unchanged)
+#### Table-semantics packet (`table-semantics-packet/1`, format unchanged)
 - **`right_of` covers partition filters too.** A partition filter inside a LEFT JOIN's right
   side is marked with the joins it sits in, under the same rules as any filter (not on the
   driving rows, not in an anti-join's right side); its 说明 reads 「在 pN 右侧：不丢目标行，
@@ -133,29 +242,71 @@
   - Section 3's 分区读取 names a partition column no condition fixes, with its comment, when
     another partition column is fixed.
 
-### Validity windows written by LEAD (`semantic-json/1`, `tables-json/1`, formats unchanged)
-- New `output_shape.validity_window` (`{start, end, partition, default?, condition?}`): a
-  statement writes the target's end column as `LEAD(start, 1[, default]) OVER (PARTITION BY
-  partition ORDER BY start ASC)` over every row of the target itself, by a whole-table
-  `INSERT OVERWRITE` or by a MERGE on exactly the partition columns and `start` with only
-  unconditional matched UPDATEs. A MERGE carries `condition: "validity_rows_unique"`. A later
-  statement of the same task writing `start` or `end` withdraws it. A writer that closes old
-  versions by a hash comparison gets no such key.
-- Table cards copy it as `produced_by[].validity_window`, present only with content.
-- **Meaning change -- a JOIN onto a point-in-time read of such a table is decided from the
-  window.** A right side that is one table's rows filtered by `start <= X AND end > X` (one
-  literal or `${…}`), joined on columns covering the partition, used to end at 「右侧未被证明
-  按连接键唯一」 (`risk`). It is now `safe` for a whole-table overwrite writer and `unknown`
-  for a MERGE writer, with a reason that states the window, the condition, the write-key
-  columns the window does not partition by, and the ON columns that may find no valid row.
-  The claim's rule is the new `R-VALIDITY-WINDOW` (`conditional` on `validity_rows_unique`
-  for a MERGE, on the premise `A-WRITERS-CLOSED`). It does not apply when another task's
-  producer writes `start` or `end`, when the bounds name two points or a closed upper bound,
-  or when start and end are declared different types. **Downstream code that compares
-  `fan_out_risks[]` reasons or statuses will see these joins change.** Packets reading such
-  a table get a new `packet_digest`.
+#### Validation (`semantic validate`)
+- **Check 10 (`fan_out`) warns when a join is named only by an alias another right side
+  shares.** An alias is unique within one SELECT, not within a packet, so a sentence about
+  one `c` used to count as naming every other join aliased `c`. A right side is now named
+  for sure by its table, an alias only it carries, or its join rule's number (`pN`);
+  named only by a shared alias it gets a `warn` asking for the table or the `pN`. Nothing
+  that passed now fails, and `semantic status` stages do not move (a warning changes no
+  stage). The harmless-LEFT-join warning likewise reads a sentence by those names first,
+  so a claim about one join no longer labels another that shares its alias.
 
-### Table-semantics prompts, part 2 (versions stay `@9` / `@9` / `@6`)
+#### Run guards: an exit code for a failed check, warnings for unfit material (CLI behaviour)
+- **Behaviour change -- `semantic validate` exits 1 when any cross check fails**, not only
+  on a schema error. A stale `packet_digest` and a document without a packet are failures
+  too; warnings alone still exit 0, and the report (text or `--json`) is printed all the
+  same. **A script that runs `validate` under `set -e`, or treats a non-zero exit as a
+  broken run, must now read exit 1 as "the report lists failures".**
+- **Check 8 (`digest`) no longer offers "or check and update".** Its failure says the
+  packet changed and the document is rewritten whole, the old review kept as
+  `reviews/<db.table>.prior.md` and the old document as `reviews/<db.table>.prior.json`,
+  and not to copy the new digest in. Copying the digest in made a stale document pass.
+- **Behaviour change -- `semantic confirm` keeps a fixed table fixed.** Confirming in place
+  used to drop an accepted table back to `reviewed fix_unconfirmed` (or `valid
+  review_stale`), so `--next fix` sent the owner's answers to a fixer. A changed table
+  whose review accepted the document as it was now gets its fix record (`fixed_doc_digest`)
+  moved to the confirmed document, and stands at `fixed render_stale`. Reviews are read from
+  new `--reviews`, or `reviews/` beside the documents when it exists; never with `--out`
+  (`--reviews` with `--out` exits 2). A table the review did not accept is left alone.
+- `semantic render` and `catalog digest` name on stderr the tables whose document is
+  `packet_stale`, `invalid` or without a packet, one `warning:` line per flag; they still
+  render or digest them, and the exit code does not change. New `--packets` (default:
+  `packets/` beside the documents, when it exists); without packets, `render` reads the
+  flags from its `--validation` report, and with neither a line says nothing was checked.
+- `questions sheet --pages` names on stderr each question whose table has no
+  `<db.table>.md` under the pages (a catalog prefix and case ignored; concept questions
+  are not checked), and warns when the pages directory does not exist. Exit code unchanged.
+
+#### Table-semantics prompts, part 1 (`@9` / `@9` / `@6`)
+- **Table-semantics prompts `table-semantics-prompt@9`, `table-semantics-review@9` and
+  `table-semantics-fix@6`.** No format, packet or digest changes; existing documents do not
+  go stale (`semantic status` never reads `generator.prompt`).
+  - Evidence found only in a sibling table's material (its production SQL, table card or
+    header comment) never overturns a packet verdict. Writer, reviewer and fixer now agree:
+    the join stays named, the document writes "packet says <verdict>; inferred from
+    <sibling>'s material: <fact> (unproven)" with what happens if the inference is wrong,
+    and asks a question. The reviewer no longer asks for "does not multiply rows" on that
+    basis, and its closing "verdicts overturned by SQL" section marks such rows as sibling
+    evidence.
+  - Joins that are not `safe` are named by table or rule id `pN`; an alias alone does not
+    count. Validator checks are cited as number and name (check 10 (`fan_out`)).
+  - The reviewer gets the batch-day definition and the three cases that are findings; the
+    writer states in `how_to_read` which literal is the batch day and how many days it lies
+    before the expected date.
+  - A MERGE's `how_to_read` follows each statement's `when matched` clause (unconditional,
+    pinned to the batch partition, or rewriting the partition column) instead of always
+    saying old partitions are rewritten.
+  - The reviewer numbers its own findings H/M/L and old ones `oN`, gives a second reason
+    for "not applicable" (the current prompt changed the rule, quoted), learns that zero
+    high and medium findings means `fixed` (no severity adjustment for that), and defers to
+    the writing prompt on writing conventions.
+  - **Workflow:** before a rewrite, copy the current document to
+    `reviews/<db.table>.prior.json` next to `reviews/<db.table>.prior.md`. `status` does not
+    read it; the reviewer uses it, when its digest matches the old review's
+    `fixed_doc_digest`, to tell "fixed, then lost in the rewrite" from "never fixed".
+
+#### Table-semantics prompts, part 2 (versions stay `@9` / `@9` / `@6`)
 - The writing and review prompts read the facts above, with no second version bump (the
   part-1 prompt change already moved them to `@9` / `@9` / `@6`, and no release lies in
   between). Text only: no format, packet or digest change of its own.
@@ -181,32 +332,7 @@
   - The rewrite section and the SKILL's batch template read `validate --json`'s
     `failures[].number` and `not_reported` (checks that ran with nothing to check).
 
-### Run guards: an exit code for a failed check, warnings for unfit material (CLI behaviour)
-- **Behaviour change -- `semantic validate` exits 1 when any cross check fails**, not only
-  on a schema error. A stale `packet_digest` and a document without a packet are failures
-  too; warnings alone still exit 0, and the report (text or `--json`) is printed all the
-  same. **A script that runs `validate` under `set -e`, or treats a non-zero exit as a
-  broken run, must now read exit 1 as "the report lists failures".**
-- **Check 8 (`digest`) no longer offers "or check and update".** Its failure says the
-  packet changed and the document is rewritten whole, the old review kept as
-  `reviews/<db.table>.prior.md` and the old document as `reviews/<db.table>.prior.json`,
-  and not to copy the new digest in. Copying the digest in made a stale document pass.
-- **Behaviour change -- `semantic confirm` keeps a fixed table fixed.** Confirming in place
-  used to drop an accepted table back to `reviewed fix_unconfirmed` (or `valid
-  review_stale`), so `--next fix` sent the owner's answers to a fixer. A changed table
-  whose review accepted the document as it was now gets its fix record (`fixed_doc_digest`)
-  moved to the confirmed document, and stands at `fixed render_stale`. Reviews are read from
-  new `--reviews`, or `reviews/` beside the documents when it exists; never with `--out`
-  (`--reviews` with `--out` exits 2). A table the review did not accept is left alone.
-- `semantic render` and `catalog digest` name on stderr the tables whose document is
-  `packet_stale`, `invalid` or without a packet, one `warning:` line per flag; they still
-  render or digest them, and the exit code does not change. New `--packets` (default:
-  `packets/` beside the documents, when it exists); without packets, `render` reads the
-  flags from its `--validation` report, and with neither a line says nothing was checked.
-- `questions sheet --pages` names on stderr each question whose table has no
-  `<db.table>.md` under the pages (a catalog prefix and case ignored; concept questions
-  are not checked), and warns when the pages directory does not exist. Exit code unchanged.
-### Agent skill: a step-by-step runbook (documentation only)
+#### Agent skill: a step-by-step runbook (documentation only)
 - New `skills/scope-lineage/references/runbook.md` (Chinese): one variable block and calling
   convention (a shell function, never a command held in a string; `--extra catalog`; success read
   from exit codes and named summary lines only), then steps S0–S13 from parsing to delivery, each
@@ -247,6 +373,23 @@
   run directory goes to the owner. The writing prompt (still @9) separates "the state on day X"
   by refresh mode: a daily full-snapshot partition, a MERGE table that keeps only the latest
   state (no history), a zipper table (validity window).
+
+### Added
+- **`semantic validate --json` numbers each failure and lists the checks with nothing to
+  check.** Every `failures[]` item carries `number` (1–13, the `[N name]` of the text
+  summary), and every table carries `not_reported`: the checks that ran and produced no
+  item, by number and name (empty when the cross checks did not run -- a schema error, or
+  no packet). The text summary prints them on a `无可查条目` line under the table's line.
+  `checks` is unchanged and the format stays `table-semantics-validation/1`; a reader that
+  ignores unknown keys sees no difference.
+
+### Fixed
+- **Check 5 (`rules`) reads the WHERE of a quoted whole statement.** A `rules[].sql` that
+  copies a whole `select … where a and b` (or a FROM-led query, or an INSERT … SELECT)
+  was one form equal to no filter, so every filter in its WHERE read as uncited. Each
+  conjunct of every WHERE / HAVING / ON in the quote, nested subqueries included, now
+  cites the filter it equals; a CASE branch or a MERGE `WHEN` condition still cites
+  nothing. Citing only gains: no document that passed fails.
 
 ## 0.7.0
 - **Table semantics that survive a review loop, MERGE targets read as the batch they
