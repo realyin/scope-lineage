@@ -493,6 +493,38 @@ def empty_string_comparisons(expression: str | None) -> list[str]:
     return found
 
 
+def string_literal_comparisons(expression: str | None) -> list[tuple[str, str]]:
+    """``(column name, literal)`` for a column compared with a non-empty string (G7a).
+
+    ``=``, ``<>`` / ``!=`` on either side, and every string item of an ``IN`` list
+    (``NOT IN`` included). The literal is returned unquoted; an empty string is
+    ``empty_string_comparisons``'s question, not this one.
+    """
+    node = parse_expression(expression)
+    if node is None:
+        return []
+    found: list[tuple[str, str]] = []
+
+    def add(column, literal) -> None:
+        if (
+            isinstance(column, exp.Column)
+            and isinstance(literal, exp.Literal)
+            and literal.is_string
+            and literal.this != ""
+            and (column.name, literal.this) not in found
+        ):
+            found.append((column.name, literal.this))
+
+    for comparison in node.find_all(exp.EQ, exp.NEQ, exp.In):
+        if isinstance(comparison, exp.In):
+            for item in comparison.expressions:
+                add(comparison.this, item)
+            continue
+        add(comparison.this, comparison.expression)
+        add(comparison.expression, comparison.this)
+    return found
+
+
 def numeric_literal_comparisons(expression: str | None) -> list[tuple[str, str]]:
     """``(column name, literal)`` for every comparison of a column with a number (G1a).
 

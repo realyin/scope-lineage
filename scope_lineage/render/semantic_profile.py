@@ -7130,6 +7130,7 @@ FINDING_TABLE_COMMENT_MISSING = "table_comment_missing"
 FINDING_DUPLICATE_ALIAS = "duplicate_alias"
 FINDING_EMPTY_STRING_ON_NON_STRING = "empty_string_on_non_string"
 FINDING_NUMERIC_COMPARE_ON_STRING = "numeric_compare_on_string"
+FINDING_LITERAL_OUTSIDE_COMMENT_CODES = "literal_outside_comment_codes"
 FINDING_WINDOW_PARTITION_NARROWER = "window_partition_narrower"
 
 # Rendered in this order, most actionable first. The order is fixed so two runs of the
@@ -7139,6 +7140,7 @@ FINDING_KINDS = (
     FINDING_DUPLICATE_ALIAS,
     FINDING_EMPTY_STRING_ON_NON_STRING,
     FINDING_NUMERIC_COMPARE_ON_STRING,
+    FINDING_LITERAL_OUTSIDE_COMMENT_CODES,
     FINDING_WINDOW_PARTITION_NARROWER,
     FINDING_PARTITION_MISMATCH,
     FINDING_NONDETERMINISTIC_FUNCTION,
@@ -7189,6 +7191,7 @@ FINDING_SEVERITY = {
     FINDING_DUPLICATE_ALIAS: SEVERITY_WARN,
     FINDING_EMPTY_STRING_ON_NON_STRING: SEVERITY_WARN,
     FINDING_NUMERIC_COMPARE_ON_STRING: SEVERITY_WARN,
+    FINDING_LITERAL_OUTSIDE_COMMENT_CODES: SEVERITY_WARN,
     FINDING_WINDOW_PARTITION_NARROWER: SEVERITY_WARN,
     FINDING_PARTITION_MISMATCH: SEVERITY_INFO,
     FINDING_NONDETERMINISTIC_FUNCTION: SEVERITY_WARN,
@@ -7281,6 +7284,7 @@ def _build_findings(
         *_duplicate_alias_findings(document),
         *_empty_string_findings(document, rules),
         *_numeric_compare_findings(document, rules),
+        *_comment_code_findings(document, rules),
         *_partition_mismatch_findings(comparisons, fields),
         *_nondeterministic_findings(rules, fields),
         *_hardcoded_date_findings(comparisons),
@@ -7435,6 +7439,81 @@ def _numeric_compare_findings(document: dict, rules: Sequence[dict]) -> list[dic
         )
         for table, entry in by_table.items()
     ]
+
+
+# G7a. Every 【…】 block of a column comment is an annotation -- 【updt:n】, a format note
+# such as 【yyyy-MM-dd HH:mm:ss】 -- and is removed before the comment is read for codes:
+# read as it stands, the shape reading takes ``updt`` or ``yyyy`` for a code.
+_COMMENT_ANNOTATION = re.compile(r"【[^】]*】")
+
+# How many codes a comment must list before a literal outside them says anything.
+_COMMENT_CODE_MINIMUM = 2
+
+
+def _comment_code_findings(document: dict, rules: Sequence[dict]) -> list[dict]:
+    """A string literal a comment's code list does not contain (G7a), one per rule.
+
+    ``role = 'z9'`` where the column comment reads 「a1-甲,b2-乙,c3-丙」: either the comment
+    is stale or the comparison may never hold (or always hold, for ``<>``). The column
+    must be one physical column of the rule by name, as for ``empty_string_on_non_string``;
+    the comment, with its 【…】 blocks removed, must list at least two codes by
+    :func:`glossary_values.enumerated_meanings`; and the literal must be neither one of
+    them nor a substring of the comment -- the shape reading misses a code glued to its
+    meaning, and a code the comment does mention is not reported.
+    """
+    found = []
+    for rule in rules:
+        if str(rule.get("kind")) not in ("filter", "join_condition", "case_branch"):
+            continue
+        outside: dict[tuple[str, str], dict] = {}
+        for column, literal in semantic_text.string_literal_comparisons(rule.get("expression")):
+            commented = _physical_column_comment(document, rule, column)
+            if commented is None:
+                continue
+            table, comment = commented
+            text = _COMMENT_ANNOTATION.sub(" ", comment)
+            codes = glossary_values.enumerated_meanings(text)
+            if len(codes) < _COMMENT_CODE_MINIMUM or literal.lower() in codes:
+                continue
+            if literal.lower() in text.lower():
+                continue
+            entry = outside.setdefault(
+                (table, column), {"codes": codes, "text": text, "literals": []}
+            )
+            entry["literals"].append(literal)
+        for (table, column), entry in outside.items():
+            literals = "、".join(f"'{item}'" for item in _dedupe(entry["literals"]))
+            found.append(
+                _finding(
+                    FINDING_LITERAL_OUTSIDE_COMMENT_CODES,
+                    f"{table}.{column} 与 {literals} 比较，但列注释列出的取值是 "
+                    f"{'、'.join(_as_written(code, entry['text']) for code in entry['codes'])}，不含 {literals}：注释过时，或这条比较"
+                    "可能永不成立（<> / NOT IN 时可能恒成立），需核实",
+                    [rule.get("rule_id")],
+                )
+            )
+    return found
+
+
+def _as_written(code: str, text: str) -> str:
+    """A code as the comment spells it (the shape reading lower-cases its keys)."""
+    match = re.search(re.escape(code), text, re.IGNORECASE)
+    return match.group(0) if match else code
+
+
+def _physical_column_comment(
+    document: dict, rule: Mapping, column: str
+) -> tuple[str, str] | None:
+    """``(table, comment)`` of the one physical field of ``rule`` named ``column``."""
+    tables = _dedupe(
+        str(field.get("table"))
+        for field in rule.get("fields") or []
+        if str(field.get("column") or "").lower() == column.lower() and field.get("table")
+    )
+    if len(tables) != 1:
+        return None
+    comment = _column_detail(_input_metadata(document).get(tables[0]) or {}, column).get("comment")
+    return (tables[0], str(comment)) if comment else None
 
 
 def _physical_column_type(

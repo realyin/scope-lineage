@@ -30,6 +30,7 @@ PACKET_FINDINGS = (
     "duplicate_alias",
     "empty_string_on_non_string",
     "numeric_compare_on_string",
+    "literal_outside_comment_codes",
     "window_partition_narrower",
 )
 

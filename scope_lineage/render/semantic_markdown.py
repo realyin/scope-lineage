@@ -286,6 +286,7 @@ _FINDING_TAGS = {
     "duplicate_alias": TAG_SQL,
     "empty_string_on_non_string": TAG_SQL_AND_METADATA,
     "numeric_compare_on_string": TAG_SQL_AND_METADATA,
+    "literal_outside_comment_codes": TAG_SQL_AND_METADATA,
     # The one inference among them: a writer's batch key read as the rows' identity.
     "window_partition_narrower": TAG_STRUCTURAL,
     "partition_literal_mismatch": TAG_SQL,
