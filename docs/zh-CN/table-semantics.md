@@ -155,7 +155,9 @@ R6）与 `values`（过滤所在 scope 沿单输入链读到内联 VALUES 列表
 另有三类事实供含义检查（第 10–13 项）使用。每条关联规则带 `right`（右侧：`库.表`，或画像的 scope 编号，
 如 `subq:p`）、`right_aliases`（ON 子句与 scope 给它的别名）、`right_tables`（它背后的物理表）和
 `fan_out`——画像对右侧是否按关联键唯一的判定（`{status, reason, path}`，`status` 为 `safe` / `risk` /
-`unknown`；画像没有走到的关联为 `null`）；`packet.md` 在规则表的「行数放大」一列里给出。判定不在 grain 路径上
+`unknown`；画像没有走到的关联为 `null`）；`packet.md` 在规则表的「行数放大」一列里给出。按某一时点读一张有效期由
+`LEAD(开始)` 写成的表时（第三轮 G6，见 [tables-doc.md](tables-doc.md)「表卡参与 fan_out 判定」），`reason` 写出有效期窗口、
+「每个分区至多一行有效」成立的条件及其不成立时的后果；写入方是 MERGE 时 `status` 仍为 `unknown`。判定不在 grain 路径上
 （`path` 为 `argument` / `anchor`）时，`verdict_aggregate` 写出它所在的聚合 scope，格子写「status（位于聚合 X
 之下：不复制输出行，可能让聚合值重复计入）：reason」；判定为 `risk` / `unknown` 且右侧有未过滤的排名窗口时，
 `unfiltered_ranking: [p…]` 列出这些 `window` 行（「右侧的 pN 算了排名但没有 = 1 过滤，未去重」）。`fan_out` 为 `null`

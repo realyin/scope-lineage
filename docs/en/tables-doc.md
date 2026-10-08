@@ -249,6 +249,12 @@ merged = merge_table_cards(first_tables_json, second_tables_json)
   `candidate_keys`, partition columns left out. A batch key, not the table's key; a
   window reading the table in another task is compared with it
   (`window_partition_narrower` in [semantic-doc.md](semantic-doc.md)).
+- `produced_by[].validity_window` (round-3 G6), present only when that producer writes a
+  validity window: the profile's `output_shape.validity_window` copied as is
+  (`{start, end, partition, default?, condition?}`, see [semantic-doc.md](semantic-doc.md)) --
+  the end column is `LEAD(start) OVER (PARTITION BY partition ORDER BY start)`. Another
+  task reading the table at a point in time decides its fan-out with it (see "Cards decide
+  a fan-out" below).
 - `consumed_by[].columns` lists only the columns a logic block **actually reads**;
   `columns[]` is the union of every field the metadata declares
   (`related_metadata.*.declared_columns[]`, in DDL order) with the produced fields and the
@@ -418,6 +424,7 @@ simply its fourth source of evidence. Everything derived from `output_shape` —
 | The card's `key_confidence` is `proven_unexposed` or `none`, or the join keys do not cover the candidate keys | nothing is re-decided; the original verdict stands |
 | Some producer appends (`INSERT INTO`) or merges (`MERGE`) into the table, or the producers disagree on the candidate keys | re-decided `unknown`, the `reason` saying why: the key is unique within one batch only / which version is read depends on the schedule (F2) |
 | The JOIN's right side is not the physical table but a subquery or CTE holding one table's rows -- every scope down to the table reads one input and only filters, and the join columns reach the table unchanged (G5a-2) | the card of that table is asked as above, with the WHERE equalities on the way as pins; a card with no answer leaves the original verdict |
+| Such a row subset reads the table at one point: the top-level WHERE conjuncts on the way hold `start <= X` and `end > X` (also written `X >= start`, `X < end`) for one literal or `${…}` X; one producer on the card carries `validity_window`, the ON clause's right-hand columns cover its `partition`, this statement's metadata declares start and end of one type, and no producer of another task writes either column (round-3 G6) | decided before the rows above. A whole-table overwrite writing the window gives `safe`; a MERGE gives `unknown`, because it matches on (partition, start) and nothing proves that pair unique in the table. The `reason` reads 「表卡：<task>/<statement> 以 LEAD(start) OVER (PARTITION BY partition ORDER BY start) 写 end，有效期首尾相接；本侧按 start <= X < end 读」, then the conclusion and its condition (「若表中 (partition, start) 不重复，每个 partition 至多一行有效、不放大；… 重复时该 MERGE 多行匹配，结果取决于引擎」); when the card's producers' `batch_write_keys` hold columns the window does not partition by, it adds 「写入键比窗口分区多出 <columns>」 and the consequence, and when ON holds such columns, 「ON 另按 <columns> 关联……则关联不到」. `basis` is `table_card`; the `claim`'s rule is `R-VALIDITY-WINDOW` (`conditional` for a MERGE, with `conditions` `[["validity_rows_unique", [partition…, start]]]`, on the premise `A-WRITERS-CLOSED`). A validity table whose old versions are closed by a hash comparison is not covered: one SQL statement cannot prove its intervals do not overlap |
 | A producer writes by partition, and the JOIN neither matches the partition columns in ON nor pins the right table's partition columns to a constant in WHERE | re-decided `unknown`, the `reason` saying the key is unique within each partition only; matched or pinned, the verdict is `safe` as before (F2) |
 
 `candidate_keys`, `unexposed_keys`, `key_evidence` and `key_confidence` are all derived from
