@@ -102,6 +102,32 @@
   `fan_out_risks[]` reasons or statuses will see these joins change.** Packets reading such
   a table get a new `packet_digest`.
 
+### Table-semantics prompts, part 2 (versions stay `@9` / `@9` / `@6`)
+- The writing and review prompts read the facts above, with no second version bump (the
+  part-1 prompt change already moved them to `@9` / `@9` / `@6`, and no release lies in
+  between). Text only: no format, packet or digest change of its own.
+  - A filter marked 「在 pN 右侧」 stays out of `scope`, a partition filter too; a partition
+    filter there needs no rule of its own, since section 3 lists it (owner decision).
+  - `grain_columns` copies the target column of the 4.3 「粒度键（目标列）」 cell; a key not
+    written to the target is left out.
+  - MERGE: `null_meaning` is written per UNION branch from 「可能写入空值」, and a
+    fill-on-miss column says its literal overwrites the old value; the per-column
+    「分区写入」 sentence decides whether old partitions are rewritten (the SQL's
+    `when matched` clause only for an older packet with the general sentence); the
+    multi-row consequence and the writer-key line go to `summary.row.note` as inferences.
+  - 「计算步骤」 cells hold every computing step but not their branch; the default time
+    format note makes a one-argument `FROM_UNIXTIME` / `UNIX_TIMESTAMP` the same expression
+    as the SQL text's written default; an unfixed partition column is quoted with its
+    comment, never called a certain multiplier.
+  - `literal_outside_comment_codes` gets a landing place (a `conflict` watch) and is graded
+    in review item 5 with the other leads; `marker_column_unused` covers cancel flags and
+    change-type columns.
+  - A LEAD validity-window `unknown` is a conditional verdict from the packet itself: the
+    join stays named with the condition and what follows when it fails; it is not sibling
+    evidence.
+  - The rewrite section and the SKILL's batch template read `validate --json`'s
+    `failures[].number` and `not_reported` (checks that ran with nothing to check).
+
 ## 0.7.0
 - **Table semantics that survive a review loop, MERGE targets read as the batch they
   write, and a catalog that says where its codes live.** One report format moves:
