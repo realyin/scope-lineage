@@ -117,6 +117,28 @@ def validation_report(entries: list[dict]) -> dict:
     }
 
 
+def report_flags(report: dict) -> dict[str, list[str]]:
+    """``table -> flags`` for each table the report holds that is not fit to publish.
+
+    The flags of ``semantic status``, read from the report instead of the packets: a
+    digest failure is ``no_packet`` when the report found no packet, else
+    ``packet_stale``; any other failure, or a schema error, is ``invalid``.
+    """
+    found: dict[str, list[str]] = {}
+    for entry in report.get("tables") or []:
+        failures = [item for item in entry.get("failures") or [] if item.get("status") == "fail"]
+        flags = []
+        for item in failures:
+            if item.get("check") == "digest":
+                no_packet = str(item.get("message", "")).startswith("no packet")
+                flags.append("no_packet" if no_packet else "packet_stale")
+        if entry.get("schema_errors") or any(item.get("check") != "digest" for item in failures):
+            flags.append("invalid")
+        if flags and entry.get("table"):
+            found[entry["table"]] = flags
+    return found
+
+
 def render_validation_text(report: dict) -> str:
     """The human summary: one line per table, then its failures, then the totals."""
     lines: list[str] = []

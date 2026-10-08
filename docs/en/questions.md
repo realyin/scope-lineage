@@ -151,6 +151,11 @@ scope-lineage questions sheet questions.yaml --pages pages --out run/sheet.md
 The sheet's header tells the answerer to read only the pages (the `--pages` directory is named there), to cite page and section for every claim, to mark
 owner-to-confirm only what the pages truly cannot decide, and to split the answers file by `## <id>`; then one section per question: id, table or concept, text.
 Reference answers, evidence, `owner_check` and the question type stay out of the sheet.
+With `--pages`, a question whose table has no `<db.table>.md` anywhere under the pages (a
+catalog prefix and case ignored) is named on stderr -- `warning: no page under <pages> for
+the table of <ids> (<table>)` -- since the answerer can only answer it "not found"; a
+question about a concept is not checked, and pages that do not exist are warned too. The
+sheet and the exit code do not change.
 
 ### `questions grading-sheet`
 

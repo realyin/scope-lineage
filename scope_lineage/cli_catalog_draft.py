@@ -41,6 +41,7 @@ from .catalog import (
 )
 from .catalog.merge import KINDS
 from .cli_only import add_directory, add_only, take_back_directory
+from .cli_semantic import add_packets_option
 from .semantics.names import bare_table
 
 DIGEST_JSON = "digest.json"
@@ -79,6 +80,7 @@ def add_draft_parsers(actions) -> None:
         ),
     )
     digest.add_argument("--out", required=True, help=f"Directory for {DIGEST_MD} and {DIGEST_JSON}")
+    add_packets_option(digest)
     merge = actions.add_parser(
         "merge",
         help=(
@@ -99,7 +101,7 @@ def add_draft_parsers(actions) -> None:
 
 
 def run_digest(args: argparse.Namespace) -> int:
-    from .cli_semantic import _renderable_documents
+    from .cli_semantic import _renderable_documents, packets_directory, warn_unfit
 
     take_back_directory(args)
     directory = Path(args.directory)
@@ -116,6 +118,9 @@ def run_digest(args: argparse.Namespace) -> int:
     if args.schema and not args.lineage:
         print("--schema is read only with --lineage", file=sys.stderr)
         return 2
+    packets = packets_directory(args)
+    if isinstance(packets, int):
+        return packets
     lookups = _value_lookups(args.lineage, args.schema) if args.lineage else None
     if isinstance(lookups, int):
         return lookups
@@ -135,6 +140,7 @@ def run_digest(args: argparse.Namespace) -> int:
     )
     (out / DIGEST_MD).write_text(render_digest_markdown(digest), encoding="utf-8")
     print(f"Digested {len(digest['tables'])} table(s) (skipped={skipped}) -> {out}")
+    warn_unfit(documents, packets)
     if lookups is not None:
         written = lookups["tables"]
         unwritten = [entry["table"] for entry in digest["tables"] if entry["table"] not in written]

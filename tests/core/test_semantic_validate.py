@@ -321,6 +321,15 @@ def test_a_document_written_against_another_packet_is_stale(document: dict, pack
     assert "stale" in problem["message"]
 
 
+def test_a_stale_document_is_told_to_be_rewritten_whole(document: dict, packet: dict) -> None:
+    """Copying the new digest in is no fix: the message offers a rewrite and nothing else."""
+    document["packet_digest"] = "0000000000000000"
+    (problem,) = _problems(validate_document(document, packet), "digest")
+    assert "整份重写" in problem["message"]
+    assert ".prior.md" in problem["message"] and ".prior.json" in problem["message"]
+    assert "核对后更新" not in problem["message"]
+
+
 # 9 ------------------------------------------------------------------- time
 
 
@@ -372,12 +381,12 @@ def test_the_command_passes_the_example_and_prints_a_summary(
     assert "100.0%" in out
 
 
-def test_content_failures_are_reported_but_do_not_fail_the_command(
+def test_content_failures_are_reported_and_fail_the_command(
     tmp_path: Path, packets: Path, document: dict, capsys
 ) -> None:
     del document["columns"][1]
     directory = _write_example(tmp_path, document)
-    assert run("semantic", "validate", directory, "--packets", packets, "--json") == 0
+    assert run("semantic", "validate", directory, "--packets", packets, "--json") == 1
     report = json.loads(capsys.readouterr().out)
     assert report["doc_format"] == "table-semantics-validation/1"
     (table,) = report["tables"]
@@ -386,6 +395,27 @@ def test_content_failures_are_reported_but_do_not_fail_the_command(
     assert 0 < table["pass_rate"] < 1
     assert [f["check"] for f in table["failures"]] == ["coverage"]
     assert report["summary"]["tables_with_failures"] == 1
+
+
+def test_a_failure_in_the_text_report_fails_the_command_too(
+    tmp_path: Path, packets: Path, document: dict, capsys
+) -> None:
+    document["summary"]["refresh"]["time"] = "incremental"
+    directory = _write_example(tmp_path, document)
+    assert run("semantic", "validate", directory, "--packets", packets) == 1
+    assert "1 with failures" in capsys.readouterr().out
+
+
+def test_warnings_alone_do_not_fail_the_command(
+    tmp_path: Path, packets: Path, document: dict, capsys
+) -> None:
+    _column(document, "customer_id")["source_columns"].append(
+        "demo_ods.ods_core_customer_df.update_ts"
+    )
+    directory = _write_example(tmp_path, document)
+    assert run("semantic", "validate", directory, "--packets", packets, "--json") == 0
+    summary = json.loads(capsys.readouterr().out)["summary"]
+    assert (summary["tables_with_failures"], summary["tables_with_warnings_only"]) == (0, 1)
 
 
 def test_a_schema_error_fails_the_command(
@@ -420,7 +450,7 @@ def test_a_document_without_a_packet_is_reported(
 ) -> None:
     document["table"] = "demo_dwd.dwd_no_such_table"
     directory = _write_example(tmp_path, document)
-    assert run("semantic", "validate", directory, "--packets", packets, "--json") == 0
+    assert run("semantic", "validate", directory, "--packets", packets, "--json") == 1
     (table,) = json.loads(capsys.readouterr().out)["tables"]
     assert [f["check"] for f in table["failures"]] == ["digest"]
     assert "no packet" in table["failures"][0]["message"]
@@ -515,7 +545,8 @@ def test_only_checks_the_named_tables_and_counts_only_them(
     assert [table["table"] for table in report["tables"]] == [DEMO_TABLE]
     assert report["summary"]["tables_with_failures"] == 0
 
-    assert run("semantic", "validate", directory, "--packets", packets, "--json") == 0
+    # The copy is written against the demo table's packet: it fails its own.
+    assert run("semantic", "validate", directory, "--packets", packets, "--json") == 1
     full = json.loads(capsys.readouterr().out)
     assert len(full["tables"]) == 2
     (same,) = [table for table in full["tables"] if table["table"] == DEMO_TABLE]
@@ -568,7 +599,7 @@ def test_only_before_the_directory_reads_as_the_directory_first(
                                 "--only", *tables)
     got = _validate_output(capsys, "--packets", packets, "--json", *tail(directory))
     assert got == expected
-    assert expected[0] == 0
+    assert expected[0] == (1 if OTHER_TABLE in tables else 0)  # the copy fails
 
 
 def test_only_swallowing_a_word_that_is_no_directory_is_an_error(

@@ -148,7 +148,9 @@ scope-lineage questions sheet questions.yaml --pages pages --out run/sheet.md
 
 题单开头告诉作答者只读页面（`--pages` 给出的目录写进开头）、每个结论注明页面和小节、只有页面确实定不了的才写
 待 owner 确认、作答文件按 `## <id>` 分题；然后每题一节：题号、表或概念、题目。参考答案、证据、`owner_check`
-和题型都不写进题单。
+和题型都不写进题单。给了 `--pages` 时，题目所问的表在页面目录下（任意层级，忽略 catalog 前缀与大小写）没有
+`<db.table>.md` 的，在 stderr 点名——`warning: no page under <pages> for the table of <题号> (<表>)`——因为作答者
+只能答「没找到」；问概念的题不查，页面目录不存在也会警告。题单和退出码不变。
 
 ### `questions grading-sheet`
 

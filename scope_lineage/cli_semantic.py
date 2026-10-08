@@ -44,10 +44,12 @@ from .semantics import (
     schema_errors,
     validation_report,
 )
+from .semantics.digests import document_digest
 from .semantics.names import bare_table
 from .semantics.packet import PACKET_FORMAT
-from .semantics.status import NEXT_FORMAT, STATUS_FORMAT
-from .semantics.validate import REPORT_FORMAT, check_file
+from .semantics.review_notes import parse_review, with_fix_record
+from .semantics.status import NEXT_FORMAT, STATUS_FORMAT, document_flags, review_verdict
+from .semantics.validate import REPORT_FORMAT, check_file, report_flags
 
 # The toolchain's own documents that may sit beside the ones `validate` checks; a status
 # report of the previous format is still one of them.
@@ -90,6 +92,14 @@ def add_semantic_parser(subcommands) -> None:
     confirm.add_argument(
         "--out", help="Write the confirmed documents here instead of rewriting them in place"
     )
+    confirm.add_argument(
+        "--reviews",
+        help=(
+            "The run's reviews (default: reviews/ beside the directory, when it exists): a "
+            "table whose review accepted the document keeps that acceptance -- its fix "
+            "record (fixed_doc_digest) moves to the confirmed document. Not with --out"
+        ),
+    )
     _add_render_parser(actions)
     add_status_parsers(actions)
 
@@ -111,6 +121,7 @@ def _add_render_parser(actions) -> None:
             "../concepts/<slug>.md (put --out beside the `catalog render` pages)"
         ),
     )
+    add_packets_option(render)
 
 
 def _add_packet_parser(actions) -> None:
@@ -454,7 +465,10 @@ def _run_validate(args: argparse.Namespace) -> int:
         print(json.dumps(report, ensure_ascii=False, indent=2))
     else:
         print(render_validation_text(report), end="")
-    return 1 if any(entry["schema_errors"] for entry in entries) else 0
+    # A failed check is a failed validation: a caller reading only the exit code must not
+    # take a FAIL for a pass. Warnings alone still exit 0.
+    summary = report["summary"]
+    return 1 if summary["tables_with_schema_errors"] or summary["tables_with_failures"] else 0
 
 
 def _only_files(files: list[Path], only: list[str]) -> list[Path] | None:
@@ -518,10 +532,15 @@ def _run_confirm(args: argparse.Namespace) -> int:
     if not directory.is_dir():
         print(f"directory does not exist: {directory}", file=sys.stderr)
         return 2
+    if args.out and args.reviews:
+        print("--reviews is read only when the documents are confirmed in place, not with --out",
+              file=sys.stderr)
+        return 2
     confirmations = _read_confirmations(Path(args.confirmations))
     if confirmations is None:
         return 2
     documents, files = _semantic_documents(directory)
+    before = {table: document_digest(document) for table, document in documents.items()}
     result = apply_confirmations(documents, confirmations)
     out = Path(args.out) if args.out else directory
     for table in sorted(result.documents if args.out else result.changed):
@@ -537,7 +556,39 @@ def _run_confirm(args: argparse.Namespace) -> int:
     )
     for item in result.unmatched:
         print(f"  unmatched: {item['table']} {item['target']}: {item['reason']}")
+    if not args.out:
+        reviews = Path(args.reviews) if args.reviews else directory.parent / "reviews"
+        _carry_fix_records(reviews, result, before)
     return 0
+
+
+def _carry_fix_records(reviews: Path, result, before: dict[str, str]) -> None:
+    """Move each accepted table's fix record to its confirmed document.
+
+    The owner's answers are not a revision a fixer has to look at: a table whose review
+    accepted the document as it was before the confirmations (``review_verdict`` says
+    ``fixed``) stays accepted, its ``fixed_doc_digest`` now the confirmed document's. A
+    table the review did not accept keeps its review untouched -- its fix still has to be
+    made. Without the record ``semantic status`` would hand the confirmed table back to a
+    fixer (``reviewed fix_unconfirmed``) or to a reviewer (``review_stale``).
+    """
+    from .cli_semantic_status import _reviews
+
+    found = _reviews(reviews)
+    for table in sorted(result.changed):
+        if table not in found:
+            continue
+        path, text = found[table]
+        review = parse_review(text)
+        document = result.documents[table]
+        accepted = review is not None and review_verdict(
+            review, before[table], document.get("packet_digest")
+        )[0] == "fixed"
+        if not accepted:
+            continue
+        digest = document_digest(document)
+        path.write_bytes(with_fix_record(text, digest).encode("utf-8"))
+        print(f"  {table}  fixed_doc_digest {digest}  {path}")
 
 
 def _read_confirmations(path: Path) -> list | None:
@@ -584,7 +635,8 @@ def _run_render(args: argparse.Namespace) -> int:
         return 2
     validation = _load_corpus_document(args.validation, "--validation", REPORT_FORMAT)
     ontology = _load_corpus_document(args.ontology, "--ontology", ONTOLOGY_FORMAT)
-    for value in (validation, ontology):
+    packets = packets_directory(args)
+    for value in (validation, ontology, packets):
         if isinstance(value, int):
             return value
     documents, skipped = _renderable_documents(directory)
@@ -597,7 +649,70 @@ def _run_render(args: argparse.Namespace) -> int:
     for name, body in pages.items():
         (out / name).write_text(body, encoding="utf-8")
     print(f"Rendered {len(documents)} table page(s) and index.md (skipped={skipped}) -> {out}")
+    warn_unfit(documents, packets, validation)
     return 1 if skipped else 0
+
+
+_UNFIT = {
+    "packet_stale": "written against another packet: rewrite it whole",
+    "invalid": "fails a check of `semantic validate`",
+    "no_packet": "no packet for the table",
+}
+
+
+def add_packets_option(parser) -> None:
+    """``--packets`` of ``semantic render`` and ``catalog digest``: what the warning reads."""
+    parser.add_argument(
+        "--packets",
+        help=(
+            "The --out of `semantic packet` (default: packets/ beside the directory, when it "
+            "exists): name on stderr the documents that are packet_stale or invalid; the "
+            "output and the exit code do not change"
+        ),
+    )
+
+
+def packets_directory(args: argparse.Namespace) -> Path | None | int:
+    """The packets the warning reads: ``--packets``, else ``packets/`` beside the
+    documents when it exists, else None; 2 (reported) when ``--packets`` is no directory."""
+    if args.packets:
+        path = Path(args.packets)
+        if not path.is_dir():
+            print(f"--packets does not exist: {path}", file=sys.stderr)
+            return 2
+        return path
+    beside = Path(args.directory).parent / "packets"
+    return beside if beside.is_dir() else None
+
+
+def warn_unfit(documents: list[dict], packets: Path | None, validation: dict | None = None) -> None:
+    """Name on stderr the tables whose document is not fit to publish.
+
+    Judged against the packets when there are any (``status``'s rules), else read from a
+    validation report; with neither, say that nothing was checked. One line per flag.
+    """
+    tables = sorted(bare_table(document["table"]) for document in documents)
+    if packets is not None:
+        flags = {
+            bare_table(document["table"]): document_flags(
+                document, _read_packet(packets, document["table"])
+            )
+            for document in documents
+        }
+    elif validation is not None:
+        reported = {bare_table(table): found for table, found in report_flags(validation).items()}
+        flags = {table: reported.get(table, []) for table in tables}
+    else:
+        print(
+            "warning: not checked against packets (no --packets, no packets/ beside the "
+            "documents): a packet_stale or invalid document is not named",
+            file=sys.stderr,
+        )
+        return
+    for flag, meaning in _UNFIT.items():
+        named = [table for table in tables if flag in flags.get(table, [])]
+        if named:
+            print(f"warning: {flag} ({meaning}): {', '.join(named)}", file=sys.stderr)
 
 
 def _renderable_documents(directory: Path) -> tuple[list[dict], int]:
