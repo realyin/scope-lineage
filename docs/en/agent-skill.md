@@ -63,6 +63,8 @@ instead of open questions, so the list gets shorter every round.
 
 For "what is this batch of tasks about, and how do those things relate" — the business ontology — the route is table semantics then the catalog: write each table's `table-semantics/1` document (`scope-lineage semantic packet` / `validate` / `render`), draft the catalog from them (`scope-lineage catalog digest` → draft → fragments → `catalog merge` / `build` / `render`), and answer with `scope-lineage catalog query`; see [Table semantics](table-semantics.md) and [Ontology catalog](ontology-catalog.md). `scope-lineage ontology` is **key-fold candidates**, not that ontology: it folds tables by shared key-column stems, which makes it a quick structural scan and cross-evidence while drafting, never the answer to a business question. When the user wants that key-level structure: run `scope-lineage ontology --lineage <corpus> --out <dir>`, read 「本体总览」 in `<dir>/ontology.md`, follow the concept table's link to `<dir>/concepts/<file>.md` to find which tables represent it, then read the five ontology sections of `<dir>/tables/<table>.md` (the table-level ER and tables are in `<dir>/appendix.md`, where they are evidence rather than the model); a `hypothesis` or a `conflict` must be presented verbatim and marked `[待确认]`, and answered items are written back into `ontology.overrides.json` per `references/ontology-review-prompt.md` so the next run publishes them as `confirmed`.
 
+For documenting a batch of tables, drafting the ontology catalog and running an acceptance round, the skill carries a step-by-step runbook meant to be followed literally, `references/runbook.md` (S0–S13, each step with its preconditions, copy-ready commands, self-checks, done criterion and the known errors), and fill-in sub-agent prompts in `references/runbook-templates.md` (draft, review, re-review, fix, catalog drafting, fragment, answer and grade, plus the run ledger and the delivery report). The orchestrating agent reads the runbook; each sub-agent gets exactly one filled template. Both are written in Chinese.
+
 ## Installation
 
 **Claude Code**:
@@ -129,7 +131,9 @@ rather than parsing bare (a bare parse degrades silently — see
 
 ## Version requirement
 
-scope-lineage ≥ 0.2.0 is required. The skill's self-check uses `scope-lineage --version` (available
+The minimum version depends on the workflow: parsing, derivation chains, impact analysis and mapping
+documents need ≥ 0.2.0; table semantics, the ontology catalog and acceptance, run through the skill's
+runbook, need ≥ 0.8.0 (the per-workflow table is in `SKILL.md`, "Setup check"). The skill's self-check uses `scope-lineage --version` (available
 from 0.2.1; on 0.2.0 it falls back to
 `python3 -c "import importlib.metadata as m; print(m.version('scope-lineage'))"`). Older versions
 silently produce the removed per-statement format — `query.py` says so explicitly when it meets such
