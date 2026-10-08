@@ -312,6 +312,65 @@ transformation-step analysis read the per-statement documents embedded in
 `statement_lineage`; audits, incident forensics, and final table state read the
 task-level facts.
 
+### Migrating to 0.8.0
+
+No format version moves; what changes is what some fields say and how some commands exit
+or warn. Full list: the **Breaking** entries under 0.8.0 in [CHANGELOG.md](CHANGELOG.md).
+The step-by-step procedure for a table-semantics run, rewrites included, is
+[`skills/scope-lineage/references/runbook.md`](skills/scope-lineage/references/runbook.md).
+
+**A table-semantics run directory written with 0.7.0** (`packets/`, `docs/`, `reviews/`):
+
+1. Re-parse the tasks with 0.8.0 (`parse`; `tables` too if you pass `--tables`), then
+   rebuild the packets with `semantic packet` (same flags as before). The packets of the
+   tables the new facts touch get a new `packet_digest`; `semantic status <run>` shows their
+   documents as `drafted packet_stale`, and a full `semantic validate` fails check 8 for
+   them.
+2. Rewrite each stale document whole -- never copy the new digest into it. Before a table is
+   rewritten, keep its review as `reviews/<db.table>.prior.md` and its document as
+   `reviews/<db.table>.prior.json`. Work in batches as the runbook describes (S3, S4):
+   `semantic status <run> --next draft --only <db.table> ... --out <run>/next.json`, with the
+   same `--only` on every later step, using the packaged prompts
+   (`table-semantics-prompt@9`, `table-semantics-review@9`, `table-semantics-fix@6`).
+3. Until every table is rewritten, do not build a catalog (`catalog digest`) or pages
+   (`semantic render`) from the whole `docs` directory. Both commands now name the
+   `packet_stale`, `invalid` and packet-less tables on stderr (`warning:` lines, packets read
+   from `--packets` or `packets/` beside the documents) but still include them.
+4. Re-run `semantic validate` on documents you keep: check 5 now cites the filters of a
+   quoted whole statement, and check 10 warns on a join named only by an alias another join
+   shares -- name it by table or `pN`.
+
+**Scripts and orchestrators**:
+
+- `semantic validate` exits 1 when any check fails (a stale digest and a missing packet
+  included), not only on a schema error; warnings alone exit 0. Under `set -e`, or where a
+  non-zero exit meant "broken run", read exit 1 as "the report lists failures" and decide
+  from the report.
+- `semantic confirm` keeps a table the review accepted at `fixed render_stale`: re-render
+  it, do not send it to a fixer. It reads reviews from `--reviews` or `reviews/` beside the
+  documents; `--reviews` with `--out` exits 2.
+- `semantic render`, `catalog digest` and `questions sheet --pages` write `warning:` lines
+  to stderr; exit codes are unchanged. Do not treat stderr output as a failure.
+
+**Downstream code**:
+
+- `nullable_by_join`: `fields[].nullable_by_join` now means at least one UNION branch is
+  proven nullable. Read `fields[].nullable_by_join_branches` (and
+  `metric_spec.null_handling.nullable_by_join_branches`): present, it lists the nullable
+  branches (numbered as `output_shape.merge.union_branches[].branch`); absent, the whole
+  column.
+- `sql_comments`: a field's list holds only the comments of the steps that carry its own
+  value; a computing step's input columns' comments are no longer included. For those,
+  read the input's own field or the lineage contract.
+- Table cards: `produced_by[].validity_window` appears for a producer that writes a LEAD
+  validity window, and JOINs onto a point-in-time read of such a table change verdict in
+  `fan_out_risks[]` (`safe` for a whole-table overwrite, `unknown` for a MERGE, rule
+  `R-VALIDITY-WINDOW`). Do not match on the old reason text.
+- Packets: `right_of` may mark a partition filter (check the rule's `partition_filter`);
+  `lineage.keys[].grain_columns`, `lineage.partition[].merge_columns` and new MERGE keys
+  may appear; in `packet.md` the 4.3 header reads 「粒度键（目标列）」 -- read its tables by
+  header.
+
 ### Migrating to 0.7.0
 
 Format versions stay put except the status report; what changes is what several fields

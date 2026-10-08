@@ -310,6 +310,52 @@ scope-lineage parse \
 不确定场景该用哪份契约，见[按业务场景选契约](docs/zh-CN/contract-selection.md)：
 字段血缘、加工步骤分析用默认 1.0；审计、事故排查、最终表状态用 2.0。
 
+### 迁移到 0.8.0
+
+格式版本都不变；变的是若干字段的含义，以及若干命令的退出码和警告。完整清单见 [CHANGELOG.md](CHANGELOG.md)
+0.8.0 下的 **Breaking** 条目。表语义运行（含重写）的分步做法见
+[`skills/scope-lineage/references/runbook.md`](skills/scope-lineage/references/runbook.md)。
+
+**用 0.7.0 写的表语义运行目录**（`packets/`、`docs/`、`reviews/`）：
+
+1. 先用 0.8.0 重新解析任务（`parse`；传 `--tables` 的话 `tables` 也重跑），再用 `semantic packet`
+   重建材料包（参数照旧）。新事实涉及的表，材料包的 `packet_digest` 会变；`semantic status <run>`
+   把它们的文档显示为 `drafted packet_stale`，全量 `semantic validate` 对它们报第 8 项 FAIL。
+2. 过期文档整份重写——不要把新 digest 抄进旧文档。一张表重写前，先把它的审读留作
+   `reviews/<db.table>.prior.md`、文档留作 `reviews/<db.table>.prior.json`。按手册（S3、S4）分批：
+   `semantic status <run> --next draft --only <db.table> ... --out <run>/next.json`，此后每一步都带
+   同一组 `--only`，用随包提示词（`table-semantics-prompt@9`、`table-semantics-review@9`、
+   `table-semantics-fix@6`）。
+3. 在全部表重写完之前，不要用整个 `docs` 目录建本体目录（`catalog digest`）或页面
+   （`semantic render`）。这两个命令现在会在 stderr 点名 `packet_stale`、`invalid` 和没有材料包的表
+   （`warning:` 行，材料包取自 `--packets` 或文档旁的 `packets/`），但照样把它们算进去。
+4. 要保留的文档重新跑一遍 `semantic validate`：第 5 项现在能从整句引文里认出过滤条件，第 10 项对
+   只用与别的关联共用的别名点名的关联报 WARN——改用表名或 `pN` 点名。
+
+**脚本与编排**：
+
+- 只要有一项检查失败（含 digest 过期、没有材料包），`semantic validate` 就退出 1，不再只在 schema
+  错误时退出 1；只有警告仍退出 0。在 `set -e` 下，或原来把非 0 退出当作「运行坏了」的地方，要把
+  退出 1 读作「报告里列了失败」，按报告判断。
+- `semantic confirm` 让审读已接受的表停在 `fixed render_stale`：重新渲染，不要派去修订。审读从
+  `--reviews` 或文档旁的 `reviews/` 读；`--reviews` 与 `--out` 同用退出 2。
+- `semantic render`、`catalog digest` 和 `questions sheet --pages` 会往 stderr 写 `warning:` 行；
+  退出码不变。不要把 stderr 有输出当作失败。
+
+**下游代码**：
+
+- `nullable_by_join`：`fields[].nullable_by_join` 现在的意思是「至少一个 UNION 分支被证明可空」。
+  读 `fields[].nullable_by_join_branches`（以及 `metric_spec.null_handling.nullable_by_join_branches`）：
+  有这个键，它列出可空的分支（编号同 `output_shape.merge.union_branches[].branch`）；没有，就是整列。
+- `sql_comments`：字段的注释只来自承载它自己取值的那些步骤；计算步骤的输入列注释不再带上。要看
+  这些注释，读输入列自己的字段或血缘契约。
+- 表卡：写 LEAD 有效期窗口的生产者会带 `produced_by[].validity_window`；对这种表按时点读取的
+  JOIN，在 `fan_out_risks[]` 里的判定会变（整表覆盖写为 `safe`，MERGE 写为 `unknown`，规则
+  `R-VALIDITY-WINDOW`）。不要按旧的理由文本匹配。
+- 材料包：`right_of` 可能标在分区过滤上（看规则的 `partition_filter`）；可能出现
+  `lineage.keys[].grain_columns`、`lineage.partition[].merge_columns` 和新的 MERGE 键；`packet.md`
+  4.3 的表头是 「粒度键（目标列）」——按表头读表。
+
 ### 迁移到 0.7.0
 
 除状态报告外，格式版本都不变；变的是若干字段的含义。完整清单见 [CHANGELOG.md](CHANGELOG.md)
