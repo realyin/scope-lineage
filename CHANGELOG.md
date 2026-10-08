@@ -67,6 +67,18 @@
   names at least two data-manipulation verbs, a delete among them, join the task's one
   lead, a sentence per kind. The kind is unchanged and no new lead is made where none was;
   a lead that only names delete flags reads as before.
+- **`packet.md` layout (`packet.json` and `packet_digest` unchanged).**
+  - A 4.1 step chain longer than 300 characters first says 「计算步骤：…」: the chain
+    without its direct projections and merges, each step text once, with how many steps
+    were left out. Only when that is still too long, or empty, does it fall back to
+    「末层：…」. A pass-through is told by the prefix its words begin with, exported from
+    `semantic_text` as `PASS_THROUGH_TEXT_PREFIXES` beside `PASS_THROUGH_STEP_TYPES`.
+  - 4.1 and 4.2 say once, under the heading, that a one-argument `FROM_UNIXTIME` /
+    `UNIX_TIMESTAMP` carries the default format `'yyyy-MM-dd HH:mm:ss'`: SQLGlot leaves out
+    a format argument equal to the default, so the SQL text and the lineage differ there
+    while the meaning does not.
+  - Section 3's 分区读取 names a partition column no condition fixes, with its comment, when
+    another partition column is fixed.
 
 ## 0.7.0
 - **Table semantics that survive a review loop, MERGE targets read as the batch they

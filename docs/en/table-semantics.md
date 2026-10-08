@@ -118,12 +118,23 @@ does not move and no written document goes stale over it:
   which statement, which subquery.
 - Section 3's 分区读取 and 日期列上的过滤 list each condition once, followed by the rules it
   comes from, e.g. `（p2、p5）`.
+- Section 3's 分区读取, when a condition fixes some partition column and not another, goes on
+  with 「；未限定的分区列：`src`（注释：…）」, quoting the comment as written and drawing no
+  conclusion -- whether reading every value multiplies rows depends on the data. A read with
+  no partition condition at all says nothing more; 全量快照 already covers it.
 - Section 3's 本表用到 cell of an input column read in (most often through `select *`) but
   used by no output, condition or key says 「读入未用（select * 等）」.
-- A 4.1 步骤 cell whose step chain is longer than 300 characters says only 「末层：<last
-  step>（共 N 步；完整步骤见同目录 packet.json 该列 producers[].steps）」, cutting a last step
-  that is itself too long, so every row is bounded; the author's comments and the
+- A 4.1 步骤 cell whose step chain is longer than 300 characters first says 「计算步骤：…（略去
+  N 个直接投影 / 合并步骤；完整步骤见同目录 packet.json 该列 producers[].steps）」: the chain
+  without its two pass-through kinds, direct projections and merges, each step text once
+  (with 「M 个重复步骤」 noted). Only when those computing steps are still longer than 300
+  characters, or there are none, does it say 「末层：<last step>（共 N 步；…）」, cutting a last
+  step that is itself too long. So every row is bounded; the author's comments and the
   「头注释：… 才加入」 note stay.
+- When 4.1 or 4.2 holds a one-argument `FROM_UNIXTIME` / `UNIX_TIMESTAMP`, a line under the
+  section heading says its format is the default `'yyyy-MM-dd HH:mm:ss'`. SQLGlot leaves out a
+  format argument equal to the default, so a call whose SQL wrote that format keeps one
+  argument in the lineage; the meaning is the same.
 - 4.2's 说明 gives, right after the rule's text, how far each date literal of the task in the
   rule's expression sits from the expected run date, e.g. 「日期字面量 '20250115'（期望日期
   −1 天）」 -- the same reading as 2.x's `date_literals`: an offset, never which literal is the
