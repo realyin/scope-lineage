@@ -37,6 +37,37 @@ def test_the_sheet_header_says_to_read_only_the_pages(tmp_path: Path) -> None:
     assert "演示客户切片" in header
 
 
+def _pages(tmp_path: Path, *tables: str) -> Path:
+    """A pages directory laid out like `catalog render` + `semantic render` write it."""
+    pages = tmp_path / "pages"
+    (pages / "concepts").mkdir(parents=True)
+    (pages / "index.md").write_text("# index\n", encoding="utf-8")
+    for table in tables:
+        write(pages / "semantics" / f"{table}.md", f"# {table}\n")
+    return pages
+
+
+def test_a_question_about_a_table_without_a_page_is_warned(tmp_path: Path, capsys) -> None:
+    pages = _pages(tmp_path, CUSTOMER)
+    _sheet(tmp_path, "--pages", str(pages))
+    err = capsys.readouterr().err
+    assert f"warning: no page under {pages} for the table of Q03 ({CONTRACT})" in err
+    assert "Q01" not in err and "Q04" not in err  # a page, and a concept question
+
+
+def test_a_table_page_is_matched_case_insensitively_and_without_a_catalog_prefix(
+    tmp_path: Path, capsys
+) -> None:
+    pages = _pages(tmp_path, CUSTOMER.upper(), f"spark_catalog.{CONTRACT}")
+    _sheet(tmp_path, "--pages", str(pages))
+    assert "warning:" not in capsys.readouterr().err
+
+
+def test_pages_that_do_not_exist_are_warned(tmp_path: Path, capsys) -> None:
+    _sheet(tmp_path, "--pages", str(tmp_path / "nowhere"))
+    assert "warning: --pages does not exist" in capsys.readouterr().err
+
+
 def test_the_sheet_takes_a_subset_by_table_or_id(tmp_path: Path) -> None:
     by_table = _sheet(tmp_path, "--only-table", CONTRACT)
     assert "## Q03" in by_table and "## Q01" not in by_table

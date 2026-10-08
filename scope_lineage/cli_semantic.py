@@ -48,8 +48,8 @@ from .semantics.digests import document_digest
 from .semantics.names import bare_table
 from .semantics.packet import PACKET_FORMAT
 from .semantics.review_notes import parse_review, with_fix_record
-from .semantics.status import NEXT_FORMAT, STATUS_FORMAT, review_verdict
-from .semantics.validate import REPORT_FORMAT, check_file
+from .semantics.status import NEXT_FORMAT, STATUS_FORMAT, document_flags, review_verdict
+from .semantics.validate import REPORT_FORMAT, check_file, report_flags
 
 # The toolchain's own documents that may sit beside the ones `validate` checks; a status
 # report of the previous format is still one of them.
@@ -121,6 +121,7 @@ def _add_render_parser(actions) -> None:
             "../concepts/<slug>.md (put --out beside the `catalog render` pages)"
         ),
     )
+    add_packets_option(render)
 
 
 def _add_packet_parser(actions) -> None:
@@ -634,7 +635,8 @@ def _run_render(args: argparse.Namespace) -> int:
         return 2
     validation = _load_corpus_document(args.validation, "--validation", REPORT_FORMAT)
     ontology = _load_corpus_document(args.ontology, "--ontology", ONTOLOGY_FORMAT)
-    for value in (validation, ontology):
+    packets = packets_directory(args)
+    for value in (validation, ontology, packets):
         if isinstance(value, int):
             return value
     documents, skipped = _renderable_documents(directory)
@@ -647,7 +649,70 @@ def _run_render(args: argparse.Namespace) -> int:
     for name, body in pages.items():
         (out / name).write_text(body, encoding="utf-8")
     print(f"Rendered {len(documents)} table page(s) and index.md (skipped={skipped}) -> {out}")
+    warn_unfit(documents, packets, validation)
     return 1 if skipped else 0
+
+
+_UNFIT = {
+    "packet_stale": "written against another packet: rewrite it whole",
+    "invalid": "fails a check of `semantic validate`",
+    "no_packet": "no packet for the table",
+}
+
+
+def add_packets_option(parser) -> None:
+    """``--packets`` of ``semantic render`` and ``catalog digest``: what the warning reads."""
+    parser.add_argument(
+        "--packets",
+        help=(
+            "The --out of `semantic packet` (default: packets/ beside the directory, when it "
+            "exists): name on stderr the documents that are packet_stale or invalid; the "
+            "output and the exit code do not change"
+        ),
+    )
+
+
+def packets_directory(args: argparse.Namespace) -> Path | None | int:
+    """The packets the warning reads: ``--packets``, else ``packets/`` beside the
+    documents when it exists, else None; 2 (reported) when ``--packets`` is no directory."""
+    if args.packets:
+        path = Path(args.packets)
+        if not path.is_dir():
+            print(f"--packets does not exist: {path}", file=sys.stderr)
+            return 2
+        return path
+    beside = Path(args.directory).parent / "packets"
+    return beside if beside.is_dir() else None
+
+
+def warn_unfit(documents: list[dict], packets: Path | None, validation: dict | None = None) -> None:
+    """Name on stderr the tables whose document is not fit to publish.
+
+    Judged against the packets when there are any (``status``'s rules), else read from a
+    validation report; with neither, say that nothing was checked. One line per flag.
+    """
+    tables = sorted(bare_table(document["table"]) for document in documents)
+    if packets is not None:
+        flags = {
+            bare_table(document["table"]): document_flags(
+                document, _read_packet(packets, document["table"])
+            )
+            for document in documents
+        }
+    elif validation is not None:
+        reported = {bare_table(table): found for table, found in report_flags(validation).items()}
+        flags = {table: reported.get(table, []) for table in tables}
+    else:
+        print(
+            "warning: not checked against packets (no --packets, no packets/ beside the "
+            "documents): a packet_stale or invalid document is not named",
+            file=sys.stderr,
+        )
+        return
+    for flag, meaning in _UNFIT.items():
+        named = [table for table in tables if flag in flags.get(table, [])]
+        if named:
+            print(f"warning: {flag} ({meaning}): {', '.join(named)}", file=sys.stderr)
 
 
 def _renderable_documents(directory: Path) -> tuple[list[dict], int]:
