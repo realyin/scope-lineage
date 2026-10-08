@@ -651,9 +651,29 @@ def _merge_lines(key: dict) -> list[str]:
         f"- MERGE 合并键{at}：{on}",
         f"- MERGE WHEN{at}：{_whens(merge.get('whens') or [])}",
         f"- MERGE 去重与合并键{at}：{_coverage(merge)}",
+        *_writer_keys(merge, at),
         *_table_key(merge, at),
         *_update_facts(merge, at),
     ]
+
+
+def _writer_keys(merge: dict, at: str) -> list[str]:
+    """Round 3 M4b: a USING side read from a table whose writer keys its batch on more columns.
+
+    The writer's batch key is an inference about what tells the table's rows apart, so
+    the line says so; the consequence follows the statement's WHEN clauses (M4a).
+    """
+    found = merge.get("using_writer_keys") or []
+    if not found:
+        return []
+    table = ((merge.get("using_grain") or {}).get("evidence") or [""])[-1]
+    then = _multi_row_consequence(merge.get("whens") or [])
+    said = "；".join(
+        f"{_text(item.get('label'))}是 {_names(item.get('keys') or [])}（推断为行的区分键），"
+        f"比合并键多出 {_names(item.get('extra') or [])}"
+        for item in found)
+    return [f"- MERGE USING 与写入方的键{at}：USING 读 {_code(table)} 的行；{said}：同一合并键在 USING 侧"
+            f"可能多行{'，' + then if then else ''}"]
 
 
 def _table_key(merge: dict, at: str) -> list[str]:
@@ -668,17 +688,51 @@ def _table_key(merge: dict, at: str) -> list[str]:
 
 
 def _update_facts(merge: dict, at: str) -> list[str]:
-    """A-M2: what a matched UPDATE leaves alone, changes, or may overwrite with NULL."""
+    """A-M2: what a matched UPDATE leaves alone, changes, or may overwrite with NULL.
+
+    Round 3 M2: a column only some UNION branches may blank out is said with those
+    branches, and a column a branch fills with a literal on a miss (M2b) on a line of its
+    own -- an old value overwritten by ``''`` is lost as surely as by NULL.
+    """
     lines = []
     if merge.get("insert_only_columns"):
         lines.append(f"- MERGE matched UPDATE 不改的列{at}：{_names(merge['insert_only_columns'])}"
                      "（只在首次 INSERT 时写入，之后不随更新变化）")
     if merge.get("update_columns"):
         lines.append(f"- MERGE matched UPDATE 只改{at}：{_names(merge['update_columns'])}，其余列保持原值")
-    if merge.get("update_nullable_by_join"):
-        lines.append(f"- MERGE matched UPDATE 可能写入空值{at}：{_names(merge['update_nullable_by_join'])}"
-                     " 来自 LEFT JOIN，本次关联未命中时会把已有值覆盖成 NULL")
+    blanks = _blanked(merge)
+    if blanks:
+        lines.append(f"- MERGE matched UPDATE 可能写入空值{at}：{'；'.join(blanks)}")
+    filled = _filled(merge.get("update_filled_on_miss") or [])
+    if filled:
+        lines.append(f"- MERGE matched UPDATE 关联未命中时写回填值{at}：{filled}："
+                     "本次关联未命中时会把已有值覆盖成该值")
     return lines
+
+
+def _blanked(merge: dict) -> list[str]:
+    """The columns every branch may blank, then those some branches may, grouped by branches."""
+    said = []
+    if merge.get("update_nullable_by_join"):
+        said.append(f"{_names(merge['update_nullable_by_join'])} 来自 LEFT JOIN，"
+                    "本次关联未命中时会把已有值覆盖成 NULL")
+    groups: dict[tuple, list[str]] = {}
+    for column, branches in (merge.get("update_nullable_by_join_branches") or {}).items():
+        groups.setdefault(tuple(branches), []).append(column)
+    said += [f"{_names(columns)} 只在 USING 的 UNION 分支 {'、'.join(map(str, branches))} 来自 LEFT JOIN："
+             "这些分支的行本次关联未命中时，会把已有值覆盖成 NULL"
+             for branches, columns in groups.items()]
+    return said
+
+
+def _filled(entries: list[dict]) -> str:
+    """M2b: each column with the literal it gets on a miss, per UNION branch when there are any."""
+    values: dict[str, list[str]] = {}
+    for entry in entries:
+        branches = entry.get("branches")
+        where = f"分支 {'、'.join(map(str, branches))} " if branches else ""
+        values.setdefault(str(entry.get("column")), []).append(f"{where}写 {_code(entry.get('value'))}")
+    return "、".join(f"{_code(column)}（{'；'.join(said)}）" for column, said in values.items())
 
 
 def _whens(whens: list[dict]) -> str:
@@ -703,16 +757,36 @@ _COVERAGE = {
 }
 
 
+def _multi_row_consequence(whens: list[dict]) -> str:
+    """Round 3 M4a: what the statement's own WHEN clauses do with two USING rows of one key.
+
+    A matched UPDATE / DELETE meets several source rows for one target row; a not matched
+    INSERT inserts a missing key once per USING row. Nothing is said of a clause the
+    statement does not have, nor of which engine fails how.
+    """
+    said = []
+    if any(when.get("clause") == "matched" and str(when.get("action")) in ("update", "delete")
+           for when in whens):
+        said.append("matched 分支会遇到多个 USING 行匹配同一目标行（通常报错终止，引擎行为，推断）")
+    if any(when.get("clause") == "not_matched" and str(when.get("action")) == "insert"
+           for when in whens):
+        said.append("目标里没有的合并键会按 USING 行数重复插入")
+    return "，".join(said)
+
+
 def _coverage(merge: dict) -> str:
     """The USING side's dedup, branch by branch for a UNION, against the merge key.
 
     A grain the tool did not decide is said to be undecided, never "no dedup" (A-M3).
+    Where one merge key may have two USING rows -- no dedup, a dedup wider than the merge
+    key, UNION branches -- the statement's WHEN clauses say what follows (round 3 M4a).
     """
     basis = (merge.get("using_grain") or {}).get("basis")
     keys = merge.get("dedup_keys") or []
+    then = _multi_row_consequence(merge.get("whens") or [])
     if merge.get("union_branches"):
         head = ("USING 是 UNION，逐分支：" + "；".join(map(_branch, merge["union_branches"]))
-                + "；分支之间没有去重：同一合并键可能在不同分支各出一行")
+                + "；分支之间没有去重：同一合并键可能在不同分支各出一行" + (f"，{then}" if then else ""))
     elif keys:
         head = "USING 去重键 " + _dedup_keys(keys)
     elif basis == "unknown":
@@ -722,7 +796,9 @@ def _coverage(merge: dict) -> str:
     coverage = merge.get("coverage")
     if coverage == "dedup_wider":
         said = (f"dedup_wider（去重键多出 {_names(merge.get('extra_keys') or [])}：同一合并键在 USING "
-                "侧可能多行，matched 更新会遇到多行匹配，not matched 会重复插入）")
+                f"侧可能多行{'，' + then if then else ''}）")
+    elif coverage == "no_dedup" and then:
+        said = f"no_dedup（USING 侧没有去重，同一合并键可能有多行：{then}）"
     else:
         said = _COVERAGE.get(str(coverage), _text(coverage))
     joins = merge.get("joins_after_dedup") or []
@@ -776,11 +852,41 @@ def _partition_values(item: dict) -> str:
         for name, values in chosen.items()
     )
     if item["mode"] == "merge_row_values":
+        states = item.get("merge_columns")
+        rows = ("；".join(_merge_partition(name, state) for name, state in states.items()) if states
+                else "UPDATE 不改该列时行留在原分区")
         return ("MERGE 无 PARTITION 子句：按写入行的分区列值落分区（INSERT 时取 USING 该列的值；"
-                "UPDATE 不改该列时行留在原分区）" + (f"（INSERT 写常量：{constants}）" if chosen else ""))
+                f"{rows}）" + (f"（INSERT 写常量：{constants}）" if chosen else ""))
     if not chosen:
         return f"{_text(item['mode'])}，{spec or '无分区值'}"
     return f"{_text(item['mode'])}（SELECT 写常量：{constants}）" + (f"，{spec}" if spec else "")
+
+
+def _merge_partition(name: str, state: dict) -> str:
+    """Round 3 M3: whether a MERGE's UPDATE leaves, moves or cannot reach a partition's rows.
+
+    A matched condition pinning the column (``pinned``) confines the update to that one
+    partition: a same-key row elsewhere is neither updated nor inserted again, so no old
+    partition is rewritten.
+    """
+    column = _code(name)
+    pinned = state.get("pinned")
+    where = (f"matched 条件限定 target.{name} = {_code(pinned)}：只有 {name} = {_code(pinned)} 的已有行会被更新"
+             if pinned else "")
+    elsewhere = "既不更新、也不会再插入（本次 USING 行被丢弃），旧分区不被本语句改写"
+    if state.get("update") == "none":
+        return f"{column}：只插入新行，已有行不动"
+    if state.get("key"):
+        return f"{column}：合并键列，matched 行上 ON 保证 {name} 不变，行留在原分区"
+    if state.get("update") == "writes":
+        if pinned:
+            return (f"{column}：matched UPDATE 也写 {name}，但 {where}，其中 USING 的 {name} 不同的行换到新值的"
+                    f"分区；其他分区的同键行{elsewhere}")
+        return f"{column}：matched UPDATE 也写 {name}：已有行的 {name} 与本次写入值不同时，行换到新值对应的分区"
+    if pinned:
+        return (f"{column}：matched UPDATE 不改 {name}：被更新的已有行留在原分区；{where}，"
+                f"同一合并键落在其他分区的已有行{elsewhere}")
+    return f"{column}：matched UPDATE 不改 {name}：被更新的已有行留在原分区，本语句会改写旧分区里的行"
 
 
 def _neighbours(lineage: dict) -> list[str]:

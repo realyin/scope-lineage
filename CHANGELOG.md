@@ -47,6 +47,20 @@
   of the profile) gives each key's target column, present only when some key does not
   land on a column of its own name. The header reads 「粒度键（目标列）」, and the cell marks
   a derived key, a key tied by a MERGE's ON equality, and a key not written to the target.
+- **A MERGE's 4.3 lines read the profile's new merge facts.**
+  - 「可能写入空值」 names the UNION branches for a column only some branches may blank out
+    (`update_nullable_by_join_branches`), and a new line 「关联未命中时写回填值」 lists the
+    columns a branch fills with a literal on a miss (`update_filled_on_miss`).
+  - New `lineage.partition[].merge_columns` (`merge_row_values` only): per partition
+    column, `update` (`none` / `keeps` / `writes`), `key`, and `pinned` (the value every
+    matched WHEN pins it to). 「分区写入」 says per column whether an updated row stays or
+    moves, and for a pinned column that no old partition is rewritten, instead of one
+    general sentence.
+  - Where one merge key may have several USING rows, the consequence follows the
+    statement's own WHEN clauses: an INSERT-only MERGE no longer reads 「matched 更新会遇到
+    多行匹配」, and `no_dedup` and the UNION line now say what follows. No engine is named.
+  - A new line names a USING side read from a table whose writer keys its batch on more
+    columns than the merge key (`using_writer_keys`).
 
 ## 0.7.0
 - **Table semantics that survive a review loop, MERGE targets read as the batch they
