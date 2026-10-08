@@ -1674,6 +1674,17 @@ UNKNOWN_COMMENT_TEXT = "（注释未知）"
 
 NULLABLE_BY_JOIN_TEXT = "（关联未命中时为空）"
 
+
+def nullable_by_join_text(branches: Sequence[int] = ()) -> str:
+    """「关联未命中时为空」, narrowed to the UNION branches that may be NULL (M2).
+
+    No branch numbers means every branch (or no UNION at all): the whole column's
+    sentence, as before.
+    """
+    if not branches:
+        return NULLABLE_BY_JOIN_TEXT[1:-1]
+    return f"UNION 分支 {'、'.join(str(item) for item in branches)} 关联未命中时为空"
+
 # WI-2.2. How an author's comment joins the summary sentence: as a labelled quotation at
 # the end, never woven into the restatement. The label matters -- everything before it is
 # derived from the contract, everything after it is what a person wrote, and a reader
@@ -1782,6 +1793,7 @@ def describe_field_summary(
     expression: str | None,
     nullable_by_join: bool = False,
     branch_steps: Sequence[Mapping] = (),
+    nullable_branches: Sequence[int] = (),
 ) -> str:
     """One unlabelled sentence for one target field (WI-1f item 2, WI-1g item D1).
 
@@ -1811,7 +1823,9 @@ def describe_field_summary(
     else:
         body = str(expression or "").strip() or "契约未给出加工链"
     sentence = f"{head}：{_normalize_inline(body)}{tail}"
-    return f"{sentence}{NULLABLE_BY_JOIN_TEXT}" if nullable_by_join else sentence
+    if not nullable_by_join:
+        return sentence
+    return f"{sentence}（{nullable_by_join_text(nullable_branches)}）"
 
 
 def append_sql_comment(sentence: str, comments: Sequence[str]) -> str:

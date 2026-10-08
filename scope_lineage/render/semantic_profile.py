@@ -2168,6 +2168,8 @@ _FIELD_KEY_ORDER = (
     "transform",
     "structural_role",
     "nullable_by_join",
+    # M2: the UNION branches that may be NULL, only when they are not all of them.
+    "nullable_by_join_branches",
     "metric_spec",
     "value_domain",
     "sources",
@@ -2338,8 +2340,12 @@ def _build_field(document: dict, entry: dict, chain: dict | None, context: dict)
     # aggregate over a joined-in column came back false. The argument rule proves the
     # other half, and the field flag follows whichever of the two fires.
     nullable_argument = _nullable_argument(document, entry, chain, context)
-    nullable = bool(nullable_argument) or _nullable_by_join(
-        entry, chain, context["nullable_inputs"]
+    # M2: the chain rule is decided per UNION branch; ``branches`` names the branches
+    # that may be NULL when they are not all of them.
+    nullable, branches = (
+        (True, [])
+        if nullable_argument
+        else _nullable_by_join_branches(document, entry, chain, context["nullable_inputs"])
     )
     # WI-2.2. Two different questions, so two different reads of the same key: the
     # chain-wide list is everything the author wrote anywhere along the derivation, while
@@ -2351,7 +2357,7 @@ def _build_field(document: dict, entry: dict, chain: dict | None, context: dict)
         "column": entry.get("column"),
         "column_label": _field_label(document, entry, chain),
         "summary": _field_summary(
-            document, entry, derivation, comment, nullable, alias_comments
+            document, entry, derivation, comment, nullable, alias_comments, branches
         ),
         "target_comment": comment,
         "type": detail.get("type"),
@@ -2381,6 +2387,8 @@ def _build_field(document: dict, entry: dict, chain: dict | None, context: dict)
         field["sql_alias"] = alias
     if nullable:
         field["nullable_by_join"] = True
+    if branches:
+        field["nullable_by_join_branches"] = branches
     if sql_comments:
         field["sql_comments"] = sql_comments
     lookup_keys = _lookup_keys(document, chain)
@@ -2562,6 +2570,7 @@ def _field_summary(
     comment: str | None,
     nullable: bool,
     alias_comments: Sequence[str] = (),
+    nullable_branches: Sequence[int] = (),
 ) -> str:
     """WI-1f item 2: one unlabelled sentence a reader can act on without the subsection.
 
@@ -2592,6 +2601,7 @@ def _field_summary(
         expression=_without_comments(entry.get("expression")),
         nullable_by_join=nullable,
         branch_steps=branch_steps,
+        nullable_branches=nullable_branches,
     )
     # WI-2.2: appended, never merged in. The sentence above restates the contract; the
     # comment is the author quoted, and it is marked as a quotation so the two cannot be
@@ -2666,16 +2676,133 @@ def _nullable_join_inputs(document: dict) -> dict[str, list[str]]:
     return nullable
 
 
-def _nullable_by_join(
-    entry: dict, chain: dict | None, nullable_inputs: dict[str, list[str]]
+def _nullable_by_join_branches(
+    document: dict, entry: dict, chain: dict | None, nullable_inputs: dict[str, list[str]]
+) -> tuple[bool, list[int]]:
+    """``(nullable_by_join, the UNION branches that may be NULL)`` of one field (M2).
+
+    A chain through a UNION lists every branch's steps in one ``ordered_steps``; walked
+    as one straight line, a COALESCE in one branch hid nothing from another branch's
+    nullable step, and the physical-table form asked every branch's tables to be on a
+    nullable side. So the chain is split at its UNION (:func:`_union_branch_steps`) and
+    each branch is judged alone. The flag is true when **at least one** branch is proven
+    nullable; the branch numbers are published only when they are not all of them -- an
+    empty list is the whole column. A chain with no UNION, or one the split cannot
+    partition cleanly, is judged as before.
+    """
+    steps = (chain or {}).get("ordered_steps") or []
+    if not steps or not nullable_inputs:
+        return False, []
+    split = _union_branch_steps(document, steps)
+    if split is None:
+        tables = _dedupe(
+            str(source.get("table"))
+            for source in entry.get("physical_sources") or []
+            if source.get("table")
+        )
+        return _nullable_by_join(tables, steps, nullable_inputs), []
+    found = [
+        number
+        for number, branch in split
+        if _branch_nullable_by_join(document, branch, nullable_inputs)
+    ]
+    return bool(found), (found if len(found) < len(split) else [])
+
+
+def _branch_nullable_by_join(
+    document: dict, steps: Sequence[dict], nullable_inputs: dict[str, list[str]]
 ) -> bool:
-    """True only when every value this field can hold arrives through a nullable side.
+    """One branch's verdict; a UNION nested inside it is split in turn."""
+    split = _union_branch_steps(document, steps)
+    if split is not None:
+        return any(
+            _branch_nullable_by_join(document, branch, nullable_inputs) for _, branch in split
+        )
+    produced = {str(step.get("output_field")) for step in steps}
+    scopes = _scopes(document)
+    tables = _dedupe(
+        str(item).rsplit(".", 1)[0]
+        for step in steps
+        for item in step.get("input_fields") or []
+        if str(item) not in produced
+        and "." in str(item)
+        and str(item).rsplit(".", 1)[0] not in scopes
+    )
+    return _nullable_by_join(tables, steps, nullable_inputs)
+
+
+def _union_branch_steps(
+    document: dict, steps: Sequence[dict]
+) -> list[tuple[int, list[dict]]] | None:
+    """``[(branch number, that branch's steps)]`` of the chain's last multi-input UNION.
+
+    A branch's steps are those its input reaches upstream through ``input_fields``, then
+    the UNION step itself narrowed to that one input, then every step after it. Branch
+    numbers are the UNION scope's inputs in order, as ``merge.union_branches[].branch``
+    numbers them. None -- judge the chain whole -- when there is no such UNION, or when
+    the chain does not split cleanly: a step before the UNION no branch reaches, or a
+    step after it reading anything but the steps after the UNION.
+    """
+    position = next(
+        (
+            index
+            for index in range(len(steps) - 1, -1, -1)
+            if str(steps[index].get("step_type")) == "union"
+            and len(steps[index].get("input_fields") or []) > 1
+        ),
+        None,
+    )
+    if position is None:
+        return None
+    union = steps[position]
+    tail = list(steps[position + 1 :])
+    produced_after = {str(step.get("output_field")) for step in [union, *tail]}
+    if any(
+        str(item) not in produced_after
+        for step in tail
+        for item in step.get("input_fields") or []
+    ):
+        return None
+    producers = {str(step.get("output_field")): index for index, step in enumerate(steps[:position])}
+    numbers = {scope: index for index, scope in enumerate(_scope_inputs(document, str(union.get("scope_id"))), 1)}
+    split: list[tuple[int, list[dict]]] = []
+    reached: set[int] = set()
+    for item in union.get("input_fields") or []:
+        number = numbers.get(str(item).rsplit(".", 1)[0])
+        if number is None or number in (taken for taken, _ in split):
+            return None
+        own = _upstream_positions(steps, producers, str(item))
+        reached |= own
+        narrowed = {**union, "input_fields": [item]}
+        split.append((number, [*(steps[index] for index in sorted(own)), narrowed, *tail]))
+    if reached != set(range(position)):
+        return None
+    return sorted(split, key=lambda pair: pair[0])
+
+
+def _upstream_positions(steps: Sequence[dict], producers: Mapping[str, int], field: str) -> set[int]:
+    """The positions of the steps ``field`` is computed from, through ``input_fields``."""
+    found: set[int] = set()
+    frontier = [field]
+    while frontier:
+        position = producers.get(frontier.pop())
+        if position is None or position in found:
+            continue
+        found.add(position)
+        frontier.extend(str(item) for item in steps[position].get("input_fields") or [])
+    return found
+
+
+def _nullable_by_join(
+    tables: Sequence[str], steps: Sequence[dict], nullable_inputs: dict[str, list[str]]
+) -> bool:
+    """True when the value of this straight chain arrives through a nullable side.
 
     Two provable shapes, and nothing else is flagged (WI-1f: 做不到严格判断的场景不标).
     In both, every step after the join must carry the value unchanged -- a COALESCE or
     a CASE downstream can fill the null in, and then the claim would be false.
+    ``tables`` are the physical tables the chain reads, for the second shape.
     """
-    steps = (chain or {}).get("ordered_steps") or []
     if not steps or not nullable_inputs:
         return False
     for index, step in enumerate(steps):
@@ -2685,7 +2812,7 @@ def _nullable_by_join(
             continue
         if any(str(later.get("scope_id")) in scopes for later in rest):
             return True
-    return _reads_only_nullable_tables(entry, steps, nullable_inputs)
+    return _reads_only_nullable_tables(tables, steps, nullable_inputs)
 
 
 def _nullable_argument(
@@ -2765,14 +2892,9 @@ def _all_pass_through(steps: Sequence[dict]) -> bool:
 
 
 def _reads_only_nullable_tables(
-    entry: dict, steps: Sequence[dict], nullable_inputs: dict[str, list[str]]
+    tables: Sequence[str], steps: Sequence[dict], nullable_inputs: dict[str, list[str]]
 ) -> bool:
     """The physical-table form: the joined relation *is* the table, so no step names it."""
-    tables = _dedupe(
-        str(source.get("table"))
-        for source in entry.get("physical_sources") or []
-        if source.get("table")
-    )
     if not tables or not _all_pass_through(steps):
         return False
     joining = [nullable_inputs.get(table) or [] for table in tables]
@@ -3290,9 +3412,16 @@ def _merge_update_facts(document: dict, shape: Mapping, fields: Sequence[dict]) 
     - ``update_columns`` (a MERGE that only updates): the columns it changes; the rest
       keep their values.
     - ``update_nullable_by_join``: columns a matched UPDATE sets from a value a LEFT JOIN
-      may not have found (the field's ``nullable_by_join``), unless the expression reads
-      the target's own column (``coalesce(src.c, tgt.c)`` keeps the old value). A
-      constant NULL is not one: it was NULL when inserted too.
+      may not have found in every UNION branch (the field's ``nullable_by_join`` without
+      branch numbers), unless the expression reads the target's own column
+      (``coalesce(src.c, tgt.c)`` keeps the old value). A constant NULL is not one: it was
+      NULL when inserted too.
+    - ``update_nullable_by_join_branches`` (M2): ``{column: [branch]}`` for the columns
+      only some UNION branches may blank out.
+    - ``update_filled_on_miss`` (M2b): ``[{column, value, branches?}]``, a matched-UPDATE
+      column some branch fills with a literal right after the LEFT JOIN that may miss
+      (``coalesce(j.x, '')``): an unmatched key overwrites the old value with that
+      literal, the same risk as a NULL. ``branches`` only when the value crosses a UNION.
 
     Each key is present only when it lists something.
     """
@@ -3321,16 +3450,87 @@ def _merge_update_facts(document: dict, shape: Mapping, fields: Sequence[dict]) 
             found["insert_only_columns"] = only
     elif updates:
         found["update_columns"] = written(updates)
-    nullable = _update_nullable_by_join(document, updates, fields)
+    nullable, partly = _update_nullable_by_join(document, updates, fields)
     if nullable:
         found["update_nullable_by_join"] = nullable
+    if partly:
+        found["update_nullable_by_join_branches"] = partly
+    filled = _update_filled_on_miss(document, updates, fields)
+    if filled:
+        found["update_filled_on_miss"] = filled
     return found
 
 
 def _update_nullable_by_join(
     document: dict, updates: set, fields: Sequence[dict]
-) -> list[str]:
-    """The matched-UPDATE columns whose value a LEFT JOIN may not have found."""
+) -> tuple[list[str], dict[str, list[int]]]:
+    """``(columns every branch may blank, {column: branches} for the rest)`` (M2)."""
+    whole: list[str] = []
+    partly: dict[str, list[int]] = {}
+    for field, _steps in _matched_update_chains(document, updates, fields):
+        if not field.get("nullable_by_join"):
+            continue
+        column = str(field.get("column"))
+        branches = list(field.get("nullable_by_join_branches") or [])
+        if branches:
+            partly.setdefault(column, branches)
+        elif column not in whole:
+            whole.append(column)
+    return whole, partly
+
+
+def _update_filled_on_miss(
+    document: dict, updates: set, fields: Sequence[dict]
+) -> list[dict]:
+    """M2b: ``[{column, value, branches?}]`` -- see :func:`_merge_update_facts`."""
+    nullable_inputs = _nullable_join_inputs(document)
+    if not nullable_inputs:
+        return []
+    found: list[dict] = []
+    for field, steps in _matched_update_chains(document, updates, fields):
+        split = _union_branch_steps(document, steps)
+        values: dict[str, list[int]] = {}
+        for number, branch in split or [(0, list(steps))]:
+            value = _filled_after_join(branch, nullable_inputs)
+            if value is not None:
+                values.setdefault(value, []).append(number)
+        for value, numbers in values.items():
+            entry: dict = {"column": str(field.get("column")), "value": value}
+            if split is not None:
+                entry["branches"] = numbers
+            found.append(entry)
+    return found
+
+
+def _filled_after_join(steps: Sequence[dict], nullable_inputs: dict[str, list[str]]) -> str | None:
+    """The literal a COALESCE puts where the LEFT JOIN just before it found nothing.
+
+    The COALESCE (or NVL) reads one column of the join's nullable side -- a scope or a
+    physical table -- in the scope that joins it, and only pass-through steps follow.
+    """
+    for index, step in enumerate(steps):
+        if str(step.get("step_type")) not in semantic_text.CLEANING_STEP_TYPES:
+            continue
+        inputs = [str(item) for item in step.get("input_fields") or []]
+        if len(inputs) != 1 or not _all_pass_through(steps[index + 1 :]):
+            continue
+        value, how = semantic_text.null_fill_default(step.get("expression_sql"))
+        if how != "COALESCE" or value is None:
+            continue
+        owner = inputs[0].rsplit(".", 1)[0]
+        if str(step.get("scope_id")) in (nullable_inputs.get(owner) or []):
+            return value
+    return None
+
+
+def _matched_update_chains(
+    document: dict, updates: set, fields: Sequence[dict]
+) -> list[tuple[dict, list[dict]]]:
+    """``(field, its chain's steps)`` for each column a matched UPDATE sets from USING.
+
+    A column whose last step reads the target's own column is left out:
+    ``coalesce(src.c, tgt.c)`` keeps the old value.
+    """
     if not updates:
         return []
     branch = {
@@ -3344,20 +3544,18 @@ def _update_nullable_by_join(
     target = str(document.get("target_table") or "")
     found = []
     for field in fields:
-        if not field.get("nullable_by_join"):
-            continue
         chain = chains.get(str(field.get("mapping_chain_id"))) or {}
         if branch.get(chain.get("target_position")) not in updates:
             continue
-        steps = chain.get("ordered_steps") or []
+        steps = list(chain.get("ordered_steps") or [])
         last = steps[-1] if steps else {}
         if target and any(
             str(item).lower().startswith(f"{target.lower()}.")
             for item in last.get("input_fields") or []
         ):
             continue
-        found.append(str(field.get("column")))
-    return _dedupe(found)
+        found.append((field, steps))
+    return found
 
 
 def _joins_after_dedup(document: dict, grain: dict, visited: Sequence[str]) -> list[str]:
@@ -7022,7 +7220,9 @@ def _metric_null_handling(
     the reader is told why an unmatched key leaves this number empty.
     """
     default, source = _proven_default(field, step, _steps_after(steps, step))
-    handling = {"nullable_by_join": bool(field.get("nullable_by_join"))}
+    handling: dict = {"nullable_by_join": bool(field.get("nullable_by_join"))}
+    if field.get("nullable_by_join_branches"):
+        handling["nullable_by_join_branches"] = list(field["nullable_by_join_branches"])
     if nullable_argument:
         handling["nullable_argument"] = nullable_argument
     handling["default"] = default
