@@ -5,9 +5,9 @@ packet also holds every input table's metadata. Two leads compare the two, per p
 task, and join the profile's in ``lineage.findings`` (``warn``, worded as structure, to be
 checked by the writer):
 
-- :func:`marker_leads` -- ``marker_column_unused`` (D-G2): an input has a logical-delete
-  column (the generic naming of one, :data:`DELETE_MARKER`) that no condition and no
-  output of the task reads;
+- :func:`marker_leads` -- ``marker_column_unused`` (D-G2, round 3 G1): an input has a
+  logical-delete, cancel or change-type column (the generic naming of one,
+  :func:`_marker_kind`) that no condition and no output of the task reads;
 - :func:`declared_key_leads` -- ``declared_key_not_used`` (D-G3): an input column's
   comment declares a composite unique key as a ``$`` template of the table's columns
   (``唯一键 ($env_$id)``), and the task deduplicates or merges that table by part of it
@@ -29,32 +29,79 @@ from ..render.ontology import KEY_HINT_PHRASES
 from .names import bare_table
 from .sql_forms import DIALECT
 
-# Pattern a of D-G2: the common names of a logical-delete flag (is_deleted, is_del,
-# del_flag, delete_flag, deleted, deleted_mark …). Cancel and change-type names are not
-# leads in this round.
+# The generic names of a column that marks rows a reader may have to leave out, by kind
+# (D-G2, round 3 G1): a = a logical-delete flag (is_deleted, is_del, del_flag, deleted_mark
+# …); b = a cancel / void flag (is_cancel, is_void, is_invalid …); c = a change-type
+# column (record_type, op_type, change_type …), which counts only when its comment names
+# at least two data-manipulation verbs, one of them a delete (CHANGE_TYPE_VERBS): a
+# change-type name alone is as often a business "operation type".
 DELETE_MARKER = re.compile(
     r"^(is_?)?(del|deleted|delete)(_?flag)?$|^(is_?)?deleted?_?(flag|mark|status)$", re.IGNORECASE)
+CANCEL_MARKER = re.compile(r"^is_?(cancel|cancell?ed|void|voided|invalid)$", re.IGNORECASE)
+CHANGE_TYPE_MARKER = re.compile(
+    r"^(record_?type|op_?type|_?op|operation_?type|change_?type)$", re.IGNORECASE)
+CHANGE_TYPE_VERBS = re.compile(
+    r"\b(INSERT|UPSERT|UPDATE|DELETE)\b|(新增|插入|更新|修改|删除)", re.IGNORECASE)
+_DELETE_VERBS = frozenset({"DELETE", "删除"})
+
+
+def _marker_kind(column: dict) -> str | None:
+    """``delete`` / ``cancel`` / ``change_type`` for a marker column, by its generic shape."""
+    name = str(column.get("name"))
+    if DELETE_MARKER.match(name):
+        return "delete"
+    if CANCEL_MARKER.match(name):
+        return "cancel"
+    if CHANGE_TYPE_MARKER.match(name):
+        verbs = {(english or chinese).upper()
+                 for english, chinese in CHANGE_TYPE_VERBS.findall(str(column.get("comment") or ""))}
+        if len(verbs) >= 2 and verbs & _DELETE_VERBS:
+            return "change_type"
+    return None
+
+
+# Per kind, in the order the lead says them: what the column is, what reaches the table.
+_MARKER_SAID = {
+    "delete": ("删除标记列", "已删除的记录会照常进入"),
+    "cancel": ("作废标记列", "已作废的记录会照常进入"),
+    "change_type": ("疑似变更类型列", "删除类记录会照常进入"),
+}
+_CHANGE_TYPE_NOTE = "（注释列出 INSERT / UPDATE / DELETE 类取值）"
 
 
 def marker_leads(target: str, statements: list, rules: list[dict], inputs: list[dict]) -> list[dict]:
-    """``marker_column_unused`` per producing task: the delete markers it never reads."""
+    """``marker_column_unused`` per producing task: the marker columns it never reads.
+
+    One lead per task, a sentence per kind of marker (:func:`_marker_kind`).
+    """
     leads = []
     for task, group in _by_task(statements).items():
         cited = {ref.lower() for rule in rules if rule["task"] == task for ref in rule.get("columns") or []}
-        hits, first = [], None
+        hits: dict[str, list[str]] = {}
+        first = None
         for table, used, statement_id in _reads(group, target):
             entry = _input(inputs, table)
             for column in entry.get("columns") or []:
                 name = str(column["name"])
-                if (DELETE_MARKER.match(name) and name.lower() not in used
+                kind = _marker_kind(column)
+                if (kind and name.lower() not in used
                         and f"{table}.{name}".lower() not in cited):
-                    hits.append(f"`{table}.{name}`")
+                    hits.setdefault(kind, []).append(f"`{table}.{name}`")
                     first = first or statement_id
         if hits:
-            leads.append(_lead("marker_column_unused", task, first, (
-                f"源表有删除标记列 {'、'.join(dict.fromkeys(hits))}，本任务没有任何条件或输出引用它："
-                "已删除的记录会照常进入，需核实是否应过滤")))
+            leads.append(_lead("marker_column_unused", task, first, _marker_text(hits)))
     return leads
+
+
+def _marker_text(hits: dict[str, list[str]]) -> str:
+    said = []
+    for kind, (what, then) in _MARKER_SAID.items():
+        if kind not in hits:
+            continue
+        columns = "、".join(dict.fromkeys(hits[kind])) + (_CHANGE_TYPE_NOTE if kind == "change_type" else "")
+        unread = "本任务没有任何条件或输出引用它" if not said else "同样没有被引用"
+        said.append(f"源表有{what} {columns}，{unread}：{then}")
+    return "；".join(said) + "，需核实是否应过滤"
 
 
 def declared_key_leads(

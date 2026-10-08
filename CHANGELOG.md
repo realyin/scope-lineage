@@ -61,6 +61,12 @@
     多行匹配」, and `no_dedup` and the UNION line now say what follows. No engine is named.
   - A new line names a USING side read from a table whose writer keys its batch on more
     columns than the merge key (`using_writer_keys`).
+- **`marker_column_unused` names cancel and change-type columns too.** Besides the
+  logical-delete flags, an unread cancel flag (`is_cancel`, `is_void`, `is_invalid` …) and
+  an unread change-type column (`record_type`, `op_type`, `change_type` …) whose comment
+  names at least two data-manipulation verbs, a delete among them, join the task's one
+  lead, a sentence per kind. The kind is unchanged and no new lead is made where none was;
+  a lead that only names delete flags reads as before.
 
 ## 0.7.0
 - **Table semantics that survive a review loop, MERGE targets read as the batch they

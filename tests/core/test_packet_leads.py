@@ -2,7 +2,9 @@
 
 - G2 ``marker_column_unused``: an input table the task reads has a logical-delete column
   (``is_deleted`` and the like, the generic naming only) that no condition and no output
-  of the task reads;
+  of the task reads; round 3 G1 adds a cancel flag (``is_cancel`` and the like) and a
+  change-type column (``recordtype`` and the like) whose comment names at least two
+  data-manipulation verbs, one a delete, in the same lead, a sentence per kind;
 - G3 ``declared_key_not_used``: an input column's comment declares a composite unique
   key (``unique key ($env_$ev_id)``), and the task deduplicates or merges that table by
   part of it only -- not repeated when the MERGE already reports ``dedup_wider``;
@@ -32,6 +34,7 @@ SCHEMA = {
     "src.v": ["k", "beg_d", "name"],
     "dw.fact": ["id", "k", "name"],
     "src.fact": ["id", "k", "d"],
+    "src.ch": ["ch_id", "is_cancel", "recordtype", "op_type", "v"],
 }
 
 COMMENTS = {"env_ev_id": "unique key ($env_$ev_id)", "is_deleted": "是否删除"}
@@ -78,6 +81,73 @@ def test_a_delete_marker_a_condition_reads_is_no_lead() -> None:
 def test_a_delete_marker_an_output_reads_is_no_lead() -> None:
     sql = PLAIN.replace("'' AS flag", "CASE WHEN e.is_deleted = 1 THEN 'Y' ELSE 'N' END AS flag")
     assert _leads(_pack(sql), "marker_column_unused") == []
+
+
+# ------------------------------------------------------------------ round 3 G1: cancel, change type
+
+CH_COLUMNS = ["ch_id", "is_cancel", "recordtype", "op_type", "v"]
+CH_SQL = "INSERT OVERWRITE TABLE dw.ch_out SELECT c.ch_id, c.v FROM src.ch c"
+DML = "数据类型 新增(INSERT)、更新(UPSERT)，删除（DELETE）"
+
+
+def _ch(sql: str = CH_SQL, **comments: str) -> dict:
+    """A packet over ``src.ch`` whose column comments are ``comments`` (else the name)."""
+    def metadata(table: str):
+        names = {"src.ch": CH_COLUMNS, "dw.ch_out": ["ch_id", "v"]}.get(table)
+        if names is None:
+            return None
+        return {"columns": [{"name": name, "type": "string", "comment": comments.get(name, name)}
+                            for name in names], "partitioned": False, "partition_columns": []}
+
+    schema = {"src.ch": CH_COLUMNS, "dw.ch_out": ["ch_id", "v"]}
+    document = to_lineage_dict(parse_scope_lineage(sql, "t0", schema=schema))
+    (packet,) = build_packets([(document, None)], metadata=metadata)
+    return packet
+
+
+def test_a_cancel_marker_nobody_reads_is_a_lead() -> None:
+    (lead,) = _leads(_ch(is_cancel="是否作废 0：未作废 1：已作废"), "marker_column_unused")
+    assert "作废标记列 `src.ch.is_cancel`" in lead["text"]
+    assert "已作废的记录会照常进入" in lead["text"]
+    assert lead["text"].endswith("需核实是否应过滤")
+
+
+def test_a_change_type_column_listing_a_delete_is_a_lead() -> None:
+    (lead,) = _leads(_ch(is_cancel="", recordtype=DML), "marker_column_unused")
+    assert "疑似变更类型列 `src.ch.recordtype`" in lead["text"]
+    assert "删除类记录会照常进入" in lead["text"]
+    assert "is_cancel" in lead["text"]
+
+
+def test_english_verbs_name_a_change_type_column_too() -> None:
+    (lead,) = _leads(_ch(recordtype="I/U/D: INSERT, UPDATE, DELETE"), "marker_column_unused")
+    assert "`src.ch.recordtype`" in lead["text"]
+
+
+def test_a_change_type_name_without_dml_verbs_is_no_lead() -> None:
+    sql = CH_SQL.replace("FROM src.ch c", "FROM src.ch c WHERE c.is_cancel = '0'")
+    assert _leads(_ch(sql=sql, op_type="操作类型", recordtype=""), "marker_column_unused") == []
+
+
+def test_one_dml_verb_or_none_that_deletes_is_no_change_type() -> None:
+    sql = CH_SQL.replace("FROM src.ch c", "FROM src.ch c WHERE c.is_cancel = '0'")
+    assert _leads(_ch(sql=sql, recordtype="删除时间"), "marker_column_unused") == []
+    assert _leads(_ch(sql=sql, recordtype="Insert Timestamp, Update Time"),
+                  "marker_column_unused") == []
+
+
+def test_a_read_cancel_marker_is_no_lead() -> None:
+    sql = CH_SQL.replace("FROM src.ch c", "FROM src.ch c WHERE c.is_cancel = '0'")
+    assert _leads(_ch(sql=sql, recordtype=DML.replace("删除（DELETE）", "")),
+                  "marker_column_unused") == []
+
+
+def test_every_kind_of_marker_shares_one_lead_per_task() -> None:
+    packet = _pack(PLAIN.replace("src.ev e", "src.ev e JOIN src.ch c ON e.ev_id = c.ch_id"))
+    (lead,) = _leads(packet, "marker_column_unused")
+    assert lead["text"].startswith("源表有删除标记列 `src.ev.is_deleted`，本任务没有任何条件或输出引用它："
+                                   "已删除的记录会照常进入；")
+    assert "作废标记列 `src.ch.is_cancel`" in lead["text"]
 
 
 # ------------------------------------------------------------------ G3
