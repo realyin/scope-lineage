@@ -44,9 +44,11 @@ from .semantics import (
     schema_errors,
     validation_report,
 )
+from .semantics.digests import document_digest
 from .semantics.names import bare_table
 from .semantics.packet import PACKET_FORMAT
-from .semantics.status import NEXT_FORMAT, STATUS_FORMAT
+from .semantics.review_notes import parse_review, with_fix_record
+from .semantics.status import NEXT_FORMAT, STATUS_FORMAT, review_verdict
 from .semantics.validate import REPORT_FORMAT, check_file
 
 # The toolchain's own documents that may sit beside the ones `validate` checks; a status
@@ -89,6 +91,14 @@ def add_semantic_parser(subcommands) -> None:
     confirm.add_argument("--confirmations", required=True, help="A semantic-confirmations/1 file")
     confirm.add_argument(
         "--out", help="Write the confirmed documents here instead of rewriting them in place"
+    )
+    confirm.add_argument(
+        "--reviews",
+        help=(
+            "The run's reviews (default: reviews/ beside the directory, when it exists): a "
+            "table whose review accepted the document keeps that acceptance -- its fix "
+            "record (fixed_doc_digest) moves to the confirmed document. Not with --out"
+        ),
     )
     _add_render_parser(actions)
     add_status_parsers(actions)
@@ -454,7 +464,10 @@ def _run_validate(args: argparse.Namespace) -> int:
         print(json.dumps(report, ensure_ascii=False, indent=2))
     else:
         print(render_validation_text(report), end="")
-    return 1 if any(entry["schema_errors"] for entry in entries) else 0
+    # A failed check is a failed validation: a caller reading only the exit code must not
+    # take a FAIL for a pass. Warnings alone still exit 0.
+    summary = report["summary"]
+    return 1 if summary["tables_with_schema_errors"] or summary["tables_with_failures"] else 0
 
 
 def _only_files(files: list[Path], only: list[str]) -> list[Path] | None:
@@ -518,10 +531,15 @@ def _run_confirm(args: argparse.Namespace) -> int:
     if not directory.is_dir():
         print(f"directory does not exist: {directory}", file=sys.stderr)
         return 2
+    if args.out and args.reviews:
+        print("--reviews is read only when the documents are confirmed in place, not with --out",
+              file=sys.stderr)
+        return 2
     confirmations = _read_confirmations(Path(args.confirmations))
     if confirmations is None:
         return 2
     documents, files = _semantic_documents(directory)
+    before = {table: document_digest(document) for table, document in documents.items()}
     result = apply_confirmations(documents, confirmations)
     out = Path(args.out) if args.out else directory
     for table in sorted(result.documents if args.out else result.changed):
@@ -537,7 +555,39 @@ def _run_confirm(args: argparse.Namespace) -> int:
     )
     for item in result.unmatched:
         print(f"  unmatched: {item['table']} {item['target']}: {item['reason']}")
+    if not args.out:
+        reviews = Path(args.reviews) if args.reviews else directory.parent / "reviews"
+        _carry_fix_records(reviews, result, before)
     return 0
+
+
+def _carry_fix_records(reviews: Path, result, before: dict[str, str]) -> None:
+    """Move each accepted table's fix record to its confirmed document.
+
+    The owner's answers are not a revision a fixer has to look at: a table whose review
+    accepted the document as it was before the confirmations (``review_verdict`` says
+    ``fixed``) stays accepted, its ``fixed_doc_digest`` now the confirmed document's. A
+    table the review did not accept keeps its review untouched -- its fix still has to be
+    made. Without the record ``semantic status`` would hand the confirmed table back to a
+    fixer (``reviewed fix_unconfirmed``) or to a reviewer (``review_stale``).
+    """
+    from .cli_semantic_status import _reviews
+
+    found = _reviews(reviews)
+    for table in sorted(result.changed):
+        if table not in found:
+            continue
+        path, text = found[table]
+        review = parse_review(text)
+        document = result.documents[table]
+        accepted = review is not None and review_verdict(
+            review, before[table], document.get("packet_digest")
+        )[0] == "fixed"
+        if not accepted:
+            continue
+        digest = document_digest(document)
+        path.write_bytes(with_fix_record(text, digest).encode("utf-8"))
+        print(f"  {table}  fixed_doc_digest {digest}  {path}")
 
 
 def _read_confirmations(path: Path) -> list | None:
