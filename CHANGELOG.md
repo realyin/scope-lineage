@@ -33,6 +33,59 @@
 - New library function `grain_key_columns(document, grain)`: the target column each logical
   grain key lands on (`exposed`, `merge_on`, `derived` or `unexposed`).
 - Packets of affected tables get a new `packet_digest`.
+- **Table-semantics prompts `table-semantics-prompt@9`, `table-semantics-review@9` and
+  `table-semantics-fix@6`.** No format, packet or digest changes; existing documents do not
+  go stale (`semantic status` never reads `generator.prompt`).
+  - Evidence found only in a sibling table's material (its production SQL, table card or
+    header comment) never overturns a packet verdict. Writer, reviewer and fixer now agree:
+    the join stays named, the document writes "packet says <verdict>; inferred from
+    <sibling>'s material: <fact> (unproven)" with what happens if the inference is wrong,
+    and asks a question. The reviewer no longer asks for "does not multiply rows" on that
+    basis, and its closing "verdicts overturned by SQL" section marks such rows as sibling
+    evidence.
+  - Joins that are not `safe` are named by table or rule id `pN`; an alias alone does not
+    count. Validator checks are cited as number and name (check 10 (`fan_out`)).
+  - The reviewer gets the batch-day definition and the three cases that are findings; the
+    writer states in `how_to_read` which literal is the batch day and how many days it lies
+    before the expected date.
+  - A MERGE's `how_to_read` follows each statement's `when matched` clause (unconditional,
+    pinned to the batch partition, or rewriting the partition column) instead of always
+    saying old partitions are rewritten.
+  - The reviewer numbers its own findings H/M/L and old ones `oN`, gives a second reason
+    for "not applicable" (the current prompt changed the rule, quoted), learns that zero
+    high and medium findings means `fixed` (no severity adjustment for that), and defers to
+    the writing prompt on writing conventions.
+  - **Workflow:** before a rewrite, copy the current document to
+    `reviews/<db.table>.prior.json` next to `reviews/<db.table>.prior.md`. `status` does not
+    read it; the reviewer uses it, when its digest matches the old review's
+    `fixed_doc_digest`, to tell "fixed, then lost in the rewrite" from "never fixed".
+
+### Added
+- **`semantic validate --json` numbers each failure and lists the checks with nothing to
+  check.** Every `failures[]` item carries `number` (1–13, the `[N name]` of the text
+  summary), and every table carries `not_reported`: the checks that ran and produced no
+  item, by number and name (empty when the cross checks did not run -- a schema error, or
+  no packet). The text summary prints them on a `无可查条目` line under the table's line.
+  `checks` is unchanged and the format stays `table-semantics-validation/1`; a reader that
+  ignores unknown keys sees no difference.
+
+### Changed
+- **Check 10 (`fan_out`) warns when a join is named only by an alias another right side
+  shares.** An alias is unique within one SELECT, not within a packet, so a sentence about
+  one `c` used to count as naming every other join aliased `c`. A right side is now named
+  for sure by its table, an alias only it carries, or its join rule's number (`pN`);
+  named only by a shared alias it gets a `warn` asking for the table or the `pN`. Nothing
+  that passed now fails, and `semantic status` stages do not move (a warning changes no
+  stage). The harmless-LEFT-join warning likewise reads a sentence by those names first,
+  so a claim about one join no longer labels another that shares its alias.
+
+### Fixed
+- **Check 5 (`rules`) reads the WHERE of a quoted whole statement.** A `rules[].sql` that
+  copies a whole `select … where a and b` (or a FROM-led query, or an INSERT … SELECT)
+  was one form equal to no filter, so every filter in its WHERE read as uncited. Each
+  conjunct of every WHERE / HAVING / ON in the quote, nested subqueries included, now
+  cites the filter it equals; a CASE branch or a MERGE `WHEN` condition still cites
+  nothing. Citing only gains: no document that passed fails.
 
 ## 0.7.0
 - **Table semantics that survive a review loop, MERGE targets read as the batch they
