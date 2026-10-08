@@ -3199,6 +3199,36 @@ _DEDUP_BASES = (BASIS_GROUP_BY, BASIS_DISTINCT, BASIS_WINDOW_PARTITION)
 MERGE_TABLE_KEY_HYPOTHESIS = "hypothesis"
 MERGE_TABLE_KEY_UPDATE_ONLY = "update_only"
 
+# The order of ``output_shape.merge``'s keys. Some are added after the block is built
+# (``using_writer_keys`` needs every sibling statement), so the block is reordered by
+# this list rather than left in insertion order. Every key is present only with content.
+_MERGE_KEY_ORDER = (
+    "on",
+    "merge_keys",
+    "other_on_conditions",
+    "whens",
+    "matched_target_pins",
+    "using_scope",
+    "using_grain",
+    "dedup_keys",
+    "coverage",
+    "extra_keys",
+    "joins_after_dedup",
+    "union_branches",
+    "using_writer_keys",
+    "table_key",
+    "insert_only_columns",
+    "update_columns",
+    "update_nullable_by_join",
+    "update_nullable_by_join_branches",
+    "update_filled_on_miss",
+)
+
+
+def _ordered_merge(shape: Mapping) -> dict:
+    order = {key: index for index, key in enumerate(_MERGE_KEY_ORDER)}
+    return dict(sorted(shape.items(), key=lambda item: order.get(item[0], len(order))))
+
 
 def _merge_shape(document: dict, fields: Sequence[dict] = ()) -> dict | None:
     """#22: on which keys a MERGE merges, under which WHEN conditions, and whether its
@@ -3223,6 +3253,10 @@ def _merge_shape(document: dict, fields: Sequence[dict] = ()) -> dict | None:
     target columns plus the dedup keys the merge key lacks, a hypothesis, never a proof.
     ``insert_only_columns`` / ``update_columns`` / ``update_nullable_by_join`` say what a
     matched UPDATE leaves alone or may blank out (M2).
+
+    ``matched_target_pins`` (round-3 M3): ``{column: value}`` every matched WHEN pins on
+    the target (:func:`_matched_target_pins`). ``using_writer_keys`` (round-3 M4b) is
+    added once the sibling statements are built -- see :func:`_add_using_writer_keys`.
     """
     spec = document.get("merge_spec")
     if not isinstance(spec, Mapping):
@@ -3240,6 +3274,7 @@ def _merge_shape(document: dict, fields: Sequence[dict] = ()) -> dict | None:
         "merge_keys": list(spec.get("key_pairs") or []),
         "other_on_conditions": list(spec.get("other_on_conditions") or []),
         "whens": list(spec.get("whens") or []),
+        **_present("matched_target_pins", _matched_target_pins(document, spec)),
         "using_scope": using,
         "using_grain": {"basis": basis, "evidence": list(grain.get("evidence") or [])},
     }
@@ -3259,7 +3294,41 @@ def _merge_shape(document: dict, fields: Sequence[dict] = ()) -> dict | None:
     if table_key is not None:
         shape["table_key"] = table_key
     shape.update(_merge_update_facts(document, shape, fields))
-    return shape
+    return _ordered_merge(shape)
+
+
+def _present(key: str, value) -> dict:
+    return {key: value} if value else {}
+
+
+def _matched_target_pins(document: dict, spec: Mapping) -> dict[str, str]:
+    """``{column: value}`` every matched WHEN's condition pins on the target (M3).
+
+    ``WHEN MATCHED AND tgt.dt = '20260101'`` updates only the target rows of that value;
+    a same-key row elsewhere is neither updated nor inserted again. The condition is
+    parsed (:func:`semantic_text.pinned_by_conjuncts`) with the target named by its alias
+    on ROOT's physical-table input edge, its full name or its short name. A column is
+    published only when every matched WHEN pins it to the same value: a matched branch
+    without the pin can still change any row.
+    """
+    matched = [item for item in spec.get("whens") or [] if str(item.get("clause")) == "matched"]
+    if not matched:
+        return {}
+    target = str(document.get("target_table") or "")
+    qualifiers = {target, target.rsplit(".", 1)[-1]}
+    for edge in (_scopes(document).get(_ROOT) or {}).get("input_edges") or []:
+        if (
+            str(edge.get("source_type")) == "physical_table"
+            and glossary_values.same_table(str(edge.get("source_id") or ""), target)
+            and edge.get("alias")
+        ):
+            qualifiers.add(str(edge["alias"]))
+    pins = [semantic_text.pinned_by_conjuncts(item.get("condition"), qualifiers) for item in matched]
+    return {
+        column: value
+        for column, value in pins[0].items()
+        if all(other.get(column) == value for other in pins[1:])
+    }
 
 
 def _dedup_coverage(

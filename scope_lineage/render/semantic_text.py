@@ -685,6 +685,40 @@ def equality_conjunct(expression: str | None) -> tuple[str, str, str] | None:
     return node.this.name, expression_text(right), kind
 
 
+def pinned_by_conjuncts(expression: str | None, qualifiers: Iterable[str]) -> dict[str, str]:
+    """``{column: value}`` a condition pins on the relation ``qualifiers`` name (M3).
+
+    Only a top-level AND conjunct ``<qualifier>.<column> = <literal or ${…}>`` (either
+    side) pins: a range, an OR, a comparison with another column or a column of
+    another relation decides no single value. Column names are lower-cased; the value
+    is rendered as written (``'20260101'``).
+    """
+    node = _unwrap(parse_expression(expression))
+    if node is None:
+        return {}
+    names = {str(item).lower() for item in qualifiers if item}
+    found: dict[str, str] = {}
+    for conjunct in _and_conjuncts(node):
+        if not isinstance(conjunct, exp.EQ):
+            continue
+        for column, value in ((conjunct.this, conjunct.expression), (conjunct.expression, conjunct.this)):
+            if (
+                isinstance(column, exp.Column)
+                and column.table.lower() in names
+                and isinstance(value, (exp.Literal, exp.Parameter))
+            ):
+                found.setdefault(column.name.lower(), expression_text(value))
+    return found
+
+
+def _and_conjuncts(node: exp.Expression) -> list[exp.Expression]:
+    while isinstance(node, exp.Paren):
+        node = node.this
+    if isinstance(node, exp.And):
+        return [*_and_conjuncts(node.this), *_and_conjuncts(node.expression)]
+    return [node]
+
+
 # ------------------------------------------------- metric definition slots (WI-2.1)
 
 # A conjunct that bounds a value rather than pinning it. It is its own kind because a
