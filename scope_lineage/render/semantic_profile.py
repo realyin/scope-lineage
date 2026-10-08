@@ -5672,6 +5672,63 @@ def _keeps_first_row_consumer(
 # up in both layers at the same time.
 
 
+GRAIN_KEY_EXPOSED = "exposed"
+GRAIN_KEY_MERGE_ON = "merge_on"
+GRAIN_KEY_DERIVED = "derived"
+GRAIN_KEY_UNEXPOSED = "unexposed"
+
+
+def grain_key_columns(document: dict, grain: Mapping) -> list[dict]:
+    """``[{logical, column?, via, pinned?}]``: the target column each grain key lands on (M1).
+
+    ``grain.keys[]`` are logical keys, columns of the scope that decides the grain; the
+    reader of a write asks which *target* columns they are. Per key, in order, the first
+    that answers wins, so no key maps to two columns:
+
+    - ``exposed``: carried to a target column by pass-through steps alone;
+    - ``merge_on``: a MERGE's ON equality ties the bare key to a target column, under a
+      matched branch (:func:`_merge_on_target`);
+    - ``derived``: lifted to the ROOT output through a single-source expression
+      (:func:`_lift_key_to`), then exposed;
+    - ``unexposed``: none of these -- the key is not written to the target.
+
+    ``logical`` is the key as :func:`_key_label` names it (``<scope>.<column>``); ``pinned``
+    is copied when the key is pinned to one value (B9). Unlike ``candidate_keys`` it
+    answers whatever ``key_confidence`` is: it says where each key goes, not that the
+    keys are unique.
+    """
+    exposed = _exposed_target_columns(document)
+    path = [_ROOT, *(str(scope) for scope in grain.get("via_scopes") or [] if scope != _ROOT)]
+    found = []
+    for key in grain.get("keys") or []:
+        entry: dict = {"logical": _key_label(key)}
+        if key.get("pinned"):
+            entry["pinned"] = True
+        column, via = _grain_key_column(document, grain, key, exposed, path)
+        if column:
+            entry["column"] = column
+        entry["via"] = via
+        found.append(entry)
+    return found
+
+
+def _grain_key_column(
+    document: dict, grain: Mapping, key: dict, exposed: Mapping[str, str], path: Sequence[str]
+) -> tuple[str | None, str]:
+    column = exposed.get(_key_reference(key))
+    if column:
+        return column, GRAIN_KEY_EXPOSED
+    column = _merge_on_target(document, dict(grain), key)
+    if column:
+        return column, GRAIN_KEY_MERGE_ON
+    lifted = _lift_key_to(document, path, key)
+    if lifted is not None:
+        column = exposed.get(f"{_ROOT}.{lifted[0]}")
+        if column:
+            return column, GRAIN_KEY_DERIVED if lifted[1] else GRAIN_KEY_EXPOSED
+    return None, GRAIN_KEY_UNEXPOSED
+
+
 def first_row_filters(document: dict) -> list[tuple[str, str]]:
     """``(logic_block_id, window output column)`` of each predicate keeping a ranking's first row.
 
