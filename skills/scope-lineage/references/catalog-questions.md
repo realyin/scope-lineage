@@ -74,6 +74,6 @@ scope-lineage catalog render <dir>/ontology.json --out <pages-dir>
 ## 验收：用问题集给页面打分
 
 上面是回答真实用户的做法。验收时考的是页面本身：作答者只读 `catalog render` / `semantic render` 出的页面
-（不跑 `query`），按 `answer-prompt.md` 作答，上面七条照样适用；判分者按 `grade-prompt.md` 对照参考答案和材料
-判 2/1/0 并标出失分落在页面还是作答。题单、判分材料和汇总由 `scope-lineage questions` 生成，流程见
-`SKILL.md`「验收」一节。
+（不跑 `query`），按 `answer-prompt.md` 作答：答概念页上的问题时上面七条照样适用，表语义页上的问题不套这七条；判分者按 `grade-prompt.md` 对照参考答案和材料
+判 2/1/0 并标出失分落在页面还是作答。题单、判分材料和汇总由 `scope-lineage questions` 生成，分步做法见
+`runbook.md` 的 S11。

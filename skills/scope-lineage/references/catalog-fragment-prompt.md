@@ -1,8 +1,8 @@
 # 目录片段提示词：为一组概念补属性、码值、表现与列绑定
 
 给「表语义 → 目录」流程里**每组一个**的子代理用（流程见 `SKILL.md` 的
-「"从表语义起草本体目录" — drafting procedure (digest → fragments → merge)」一节）。
-编排者把下面的 `<…>` 换成实际路径和组名后，连同分配一起交给子代理。
+「"从表语义起草本体目录" — drafting procedure (digest → fragments → merge)」一节，分步做法见 `runbook.md` 的 S10d）。
+编排者用 `runbook-templates.md` 的 T6 把下面的 `<…>` 换成实际路径和组名，连同分配一起交给子代理。
 
 你负责一个 group：`<group>`。只处理这个 group 的概念和分配给它的表。**自己完成，不许分派或等待其他代理。**
 

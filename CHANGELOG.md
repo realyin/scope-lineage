@@ -206,6 +206,47 @@
 - `questions sheet --pages` names on stderr each question whose table has no
   `<db.table>.md` under the pages (a catalog prefix and case ignored; concept questions
   are not checked), and warns when the pages directory does not exist. Exit code unchanged.
+### Agent skill: a step-by-step runbook (documentation only)
+- New `skills/scope-lineage/references/runbook.md` (Chinese): one variable block and calling
+  convention (a shell function, never a command held in a string; `--extra catalog`; success read
+  from exit codes and named summary lines only), then steps S0–S13 from parsing to delivery, each
+  with purpose, preconditions, copy-ready commands, self-checks, known failures with their original
+  messages, a done criterion and the next step; appendices give the `semantic status` → next-step
+  table (blocked tables, the one re-review, confirmations), the run directory layout (`.prior.md`,
+  `.prior.json`, `reviews_prev/`, one scratch directory per table), an error and exit-code index,
+  and the cost rules (at most five sub-agents at a time, model tiers, low findings not fixed, a
+  small sample first).
+- New `references/runbook-templates.md`: the orchestrator's checklist, fill-in sub-agent prompts
+  T1–T8 (draft, review, re-review, fix, catalog drafting step 2 with the grouping plan -- a step
+  that had no prompt --, fragment, answer, grade), the run ledger and the delivery report.
+- `SKILL.md`'s table-semantics, catalog-drafting and acceptance sections become entry points to the
+  runbook with their three non-negotiable rules each; a release candidate printing the previous
+  version number is recognised; paths in `SKILL.md` resolve against its own directory.
+- Wording fixes that removed contradictions: the fix prompt stops after two failed validation
+  rounds instead of looping back (the table is blocked and goes to the owner; the version stays
+  `@6`, no release in between); `catalog-questions.md` no longer applies the seven catalog rules
+  to answers about table-semantics pages; `docs/*/agent-skill.md` states the per-workflow minimum
+  version instead of 0.2.0.
+- After two literal-minded trial runs: `env.sh` gains `fill` (fills a template, expands the
+  paths, refuses unfilled placeholders), `note` (one ledger line per finished step) and a
+  `load_tables` that fails on zero tables; a recovery section for an interrupted orchestrator
+  with progress checks through S10 and S11; the orchestrator copies a file a sub-agent could
+  not write; explicit metadata beats `defaults.json`; S10a starts from an empty catalog unless
+  told otherwise; T5 writes the narrowest proven identifier scope, prefers existing concepts for
+  event participants and gives each new concept a reason; owner notes read 「待 owner 确认：」.
+- Prompt text, versions unchanged (no release in between): the writing prompt says a
+  `window_partition_narrower` value is stored at write time, so filtering at read time cannot
+  repair it, and that a column read through an inline dictionary lists the values it stores;
+  the fix prompt leaves low findings alone.
+- After a second trial run: T5 states the per-kind required and forbidden keys the catalog
+  schema enforces (an event needs at least one participant; with no concept to reference, a
+  minimal entity for the event's subject, else the table is drafted as an entity); a filled
+  prompt may be handed over as a file to read; rework may go to a fresh sub-agent; the latest
+  check output wins; S10f leaves a `foreign_attribute` whose target does not exist; the merge
+  report's `added` counts versus the catalog totals are explained; a hook asking for another
+  run directory goes to the owner. The writing prompt (still @9) separates "the state on day X"
+  by refresh mode: a daily full-snapshot partition, a MERGE table that keeps only the latest
+  state (no history), a zipper table (validity window).
 
 ## 0.7.0
 - **Table semantics that survive a review loop, MERGE targets read as the batch they

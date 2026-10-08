@@ -55,6 +55,8 @@ python3 skills/scope-lineage/scripts/confirmations.py apply <画像文件> --by 
 
 问"这批任务讲的是什么、它们之间是什么关系"——也就是业务本体——时走表语义 → 本体目录：给每张表写 `table-semantics/1`（`scope-lineage semantic packet` / `validate` / `render`），从表语义起草目录（`scope-lineage catalog digest` → 起草 → 片段 → `catalog merge` / `build` / `render`），再用 `scope-lineage catalog query` 回答；见[表语义](table-semantics.md)与[本体目录](ontology-catalog.md)。`scope-lineage ontology` 是**键折叠候选**，不是这份本体：它按键列词根把表折起来，适合做快速结构扫描、起草时的交叉证据，不能拿来回答业务问题。用户要的正是这种键一级的结构时：跑 `scope-lineage ontology --lineage <语料> --out <目录>`，先读 `<目录>/ontology.md` 的「本体总览」，再顺着概念表里的链接读 `<目录>/concepts/<文件>.md` 看它由哪些表表现，然后读 `<目录>/tables/<表>.md` 的本体五节（表级 ER 与表清单在 `<目录>/appendix.md` 里——那是证据，不是模型）；`hypothesis` 与 `conflict` 必须原样标 `[待确认]` 呈现，答完的项按 `references/ontology-review-prompt.md` 回写 `ontology.overrides.json`，下一轮升为 `confirmed`。
 
+给一批表写表语义、起草本体目录、做回归验收这三件事，技能带一份照字面执行的分步手册 `references/runbook.md`（S0–S13，每步写明前提检查、可直接复制的命令、自检与完成判据、常见报错的处理）和一份子代理填空模板 `references/runbook-templates.md`（写作、审读、复审、修订、目录起草、片段、作答、判分八份，以及运行账本和交付报告）。编排的 agent 读手册，每个子代理只拿一份填好的模板。
+
 ## 安装
 
 **Claude Code**：
@@ -115,7 +117,8 @@ ln -s ~/tools/scope-lineage/skills/scope-lineage ~/.codex/skills/scope-lineage
 
 ## 版本要求
 
-需要 scope-lineage ≥ 0.2.0。技能自检用 `scope-lineage --version`（0.2.1 起提供；
+最低版本按工作流不同：解析、加工链、影响分析、mapping 文档要 ≥ 0.2.0；表语义、本体目录与验收照技能里的
+分步手册跑，要 ≥ 0.8.0（各工作流的版本表见 `SKILL.md`「Setup check」一节）。技能自检用 `scope-lineage --version`（0.2.1 起提供；
 0.2.0 用 `python3 -c "import importlib.metadata as m; print(m.version('scope-lineage'))"`
 兜底）。旧版本会静默产出已移除的逐语句格式——`query.py` 遇到这类产物会明确提示，
 但解析本身已经浪费了。

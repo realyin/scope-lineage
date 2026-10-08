@@ -60,9 +60,12 @@ fallback covers 0.2.0):
 | the table-semantics loop this skill describes (`semantic fixed`, `semantic validate --only`, `table-semantics-status/2`, prompts `@8` / `@8` / `@5`) | >= 0.7.0 |
 | prompts `@9` / `@9` / `@6` (they read the 0.8.0 packet's new facts) | >= 0.8.0 |
 
-When unsure which workflows the session will need, require >= 0.8.0. A table-semantics
-run directory made with an older release: rebuild its packets and follow the README's
-"Migrating to 0.7.0" (「迁移到 0.7.0」) before reusing its documents.
+When unsure which workflows the session will need, require >= 0.8.0. A release candidate run
+from a checkout may still print the previous number (`scope-lineage 0.7.x (…, source <commit>)`):
+it counts as 0.8.0 when `CHANGELOG.md` opens with `## Unreleased` and
+`references/table-semantics-prompt.md` names `@9` (`references/runbook.md` S0). A table-semantics
+run directory made with an older release: rebuild its packets; every document whose packet changed
+is then `packet_stale` and is rewritten whole (runbook S3 and S4).
 Not installed → `pipx install 'scope-lineage[catalog]'` (or `pip install 'scope-lineage[catalog]'`):
 the `catalog` extra brings PyYAML, which `catalog` and the acceptance commands (`questions`) need to
 read `.yaml` / `.yml` files; when every catalog, question set and grades file is JSON, plain
@@ -221,7 +224,7 @@ scope-lineage glossary --lineage <corpus> --out <dir> \
 # the owner writes the meanings into the .md and the same-named .json
 
 # 2-4. the answered five-item list, routed back into the same two files
-python3 skills/scope-lineage/scripts/confirmations.py apply <task-dir>/business_profile.md \
+python3 scripts/confirmations.py apply <task-dir>/business_profile.md \
   --by <name> [--overrides <dir>/glossary.overrides.json] [--patch <dir>/metadata-patch.json]
 scope-lineage glossary --lineage <corpus> --out <dir> --overrides <dir>/glossary.overrides.json
 scope-lineage describe --lineage <corpus> --glossary <dir>/glossary.json \
@@ -483,276 +486,46 @@ scope-lineage catalog render <dir>/ontology.json --out <pages-dir>   # the fallb
 
 ### "这张表是什么意思 / 给这批表写表语义" — table semantics
 
-一张表对业务读者意味着什么（一行是什么、怎么取数、收哪些记录、每个字段什么意思、要注意什么），由你用
-提示词写、由 CLI 对照材料校验。所有产物放在一个运行目录 `<run>` 里（`packets/`、`docs/`、`reviews/`、
-`pages/`），顺序固定，每一步的产物是下一步的输入：
+一张表对业务读者意味着什么（一行是什么、怎么取数、收哪些记录、每个字段什么意思、要注意什么），由模型按提示词写、
+CLI 对照材料包校验、独立审读、修订，再渲染成页面（`semantic packet` / `status` / `validate` / `digest` / `fixed` /
+`render` / `confirm`）。**要给一批表写表语义时，照 `references/runbook.md` 的 S0–S9 一步一步做**，派子代理用
+`references/runbook-templates.md` 的 T1（写作）、T2 / T3（审读、复审）、T4（修订）；状态与下一步查 runbook 附录 A。
+不可违反的三条：
 
-```bash
-# 1. choose the tables: the ones the user asked about, or a layer / a concept's tables
-# 2. one material packet per table
-scope-lineage semantic packet --lineage <artifacts-root> --tasks <task-json-dir> \
-  --schema <schema> [--schema-fallback <path>] [--only <db.table> ...] \
-  [--glossary <dir>/glossary.json] [--metadata-patch <dir>/metadata-patch.json] --out <run>/packets
-# 3. every round starts here: where each table stands, then the batches of the next step
-scope-lineage semantic status <run>
-scope-lineage semantic status <run> --next draft --batch-size 5 --out <run>/next.json
-# 4. draft (--next draft): per table, the model reads <run>/packets/<db.table>/packet.md with
-#    references/table-semantics-prompt.md and writes <run>/docs/<db.table>.json; then
-scope-lineage semantic validate <run>/docs --packets <run>/packets --json > <run>/validation.json
-#    (exit 1 while any check fails -- the report is written all the same -- 0 when none does)
-#    and rewrites only the failed items (the prompt's 「校验不通过时（重写）」 section, fed the
-#    table's failures from the report), validating again; stop when nothing fails
-# 5. review (--next review): a separate model call reads the packet and the document with
-#    references/table-semantics-review-prompt.md and writes <run>/reviews/<db.table>.md,
-#    opening with front matter; its reviewed_packet_digest is copied from packet.md and its
-#    reviewed_doc_digest comes from
-scope-lineage semantic digest <run>/docs/<db.table>.json
-# 6. fix (--next fix): a model call applies the findings with
-#    references/table-semantics-fix-prompt.md, re-reads the whole page for contradictions,
-#    validates again, and as its last step records that it finished
-scope-lineage semantic fixed <run> --only <db.table>
-# 7. render (--next render lists what is left): one page per table plus index.md
-scope-lineage semantic render <run>/docs --out <run>/pages --validation <run>/validation.json
-#    with a catalog, in this order: build, table pages under <pages>/semantics, concept pages
-scope-lineage catalog build <catalog-dir> --out <dir>
-scope-lineage semantic render <run>/docs --out <pages>/semantics \
-  --validation <run>/validation.json --ontology <dir>/ontology.json
-scope-lineage catalog render <dir>/ontology.json --out <pages> --semantics <pages>/semantics
-# 8. the owner answers each page's 待确认问题; file the answers as semantic-confirmations/1
-scope-lineage semantic confirm <run>/docs --confirmations <answers.json>
-# then render again
-```
+1. **每张表的每一步各是一个独立子代理**：写作、审读、修订互不共享上下文，审读不能是写作者自己（审读用最强模型）。
+2. **验收题集不给写作、审读、修订**：那是考卷。
+3. **低级问题不修；材料包变了就整份重写**（不许只改 `packet_digest`）；写作或修订两轮后仍有校验 FAIL 的表标为
+   blocked，不渲染、不进目录，交 owner。
 
-- **分批与续跑**：一批表不要靠记忆或手工清点。每一轮先跑 `semantic status <run>`（每张表一行：阶段与标记），再用
-  `--next <draft|review|fix|render>` 取这一步的分批。**批是编排单位，不是调用单位**：由你（编排者）给批里
-  每张表的这一步各派一个独立子代理。写作、审读、修订各是一次调用，彼此不共享上下文，审读不能和写作是同一次调用；
-  每个子代理只处理分给它的一张表、一个步骤，不再派子代理。`--batch-size` 就是同时在跑的子代理数，按额度定
-  （额度紧时 ≤5）。一轮做完、被中断或额度用完，
-  都只需重新跑 `status --next`：已经走过这一步的表自动跳过，从断点继续。`status` 列出的标记要看：
-  `packet_stale`（材料包变了，整份重写；重写前先把 `reviews/<db.table>.md` 改名为 `reviews/<db.table>.prior.md`，
-  并把现有文档复制为 `reviews/<db.table>.prior.json`，见下文「重写」）、`invalid`（按失败清单重写）、`review_packet_stale`（审读读的是另一版材料包，重新审读）、
-  `review_stale`（审读之后文档又改过，又没有修订回执把改动和这份审读对上，重新审读；没有 `reviewed_packet_digest`
-  的旧审读一律走这里，不会被派去修订）、`fix_unconfirmed`（审读有高 / 中问题，文档改过却没有修订回执：修订被打断，
-  或回执之后又改过；`--next fix` 会重新派发）、`review_unparsed`（审读没有 front matter，不会再被派发——补上或
-  删掉重审）、`render_stale`、`doc_misfiled`（文件名与文档里的 `table` 不符，或同一张表有两个文件：只警告、不改阶段；
-  把文档放回 `docs/<db.table>.json` 并让 `table` 与文件名一致）。
-  材料包整体重建后（工具升级、换了 `--glossary` / `--metadata-patch`），所有文档都会变成 `drafted packet_stale`，
-  `--next draft` 会列出全部表。只想先跑其中几张（小样验证、额度有限）时：
-  - `status` 和此后每一步都带同一组 `--only <db.table> ...`（写成
-    `semantic status <run> --next draft --only <db.table> ... --out <run>/next.json`，位置参数 `<run>` 放在
-    `--only` 之前）；
-  - 只给这几张表的旧审读改名为 `.prior.md`，并复制旧文档为 `.prior.json`；
-  - 校验用 `semantic validate <run>/docs --packets <run>/packets --only <db.table> ...`；
-  - 渲染只渲染这几张：把它们的文档放进单独目录再 `semantic render`，或在结果里注明。
-
-  没选中的表保持 `drafted packet_stale`，它们的文档依据的还是旧材料包：全量 `semantic validate` 会对它们报
-  第 8 项（`digest`）FAIL（`--json` 里按编号数：读 `failures[].number`，这里是 8；`not_reported` 列出已运行、
-  没有可查条目的检查项）；`semantic render` 照样渲染它们（render 不看状态），页面内容是旧的；`catalog digest`
-  读 `<run>/docs` 也不看状态。在它们重写之前，不要用这个运行目录的全部文档重建本体目录或整体页面；必须重建时，
-  在结果里注明目录依据的是新旧两版材料包。
-  一张表连续两轮 `draft` 仍在 `drafted`，把它从本轮拿掉并告诉用户，不要一直派发。
-- **临时文件**：并行的子代理各用自己的临时目录 `<scratch>/<db.table>/`（目录名含表名），不用 `doc.json` 这类
-  通用文件名。把文件放回 `<run>/docs/<db.table>.json` 之前，先确认文件里的 `table` 就是 `<db.table>`。派子代理时
-  把这一条写进给它的说明：几个子代理共用一个 scratchpad 时，通用文件名会互相覆盖。同一张表被覆盖时 `status` 报
-  `fix_unconfirmed`；写进了别的表的文件时，那张表退回 `packet`，`status` 报 `doc_misfiled`。
-- **挑表**：只挑用户问到的表，或一个层、一个概念的表；`--only` 让材料包只解析相关的血缘文档。
-- **已确认的答案要带上**：这一轮有 `glossary.json`（跑过 `glossary --overrides`）或审过的
-  `metadata-patch.json` 时，建材料包就传 `--glossary` / `--metadata-patch`（补丁可重复）。材料包于是带上
-  「已确认码值」（`confirmed_values`）和标「已确认，元数据补丁」的注释（`comment_source: patch`），模型照写、
-  来源写 `confirmed`、不再提问；不传，负责人答过的问题会被原样再问一遍。摘要行的 `patch_unmatched` 要看：
-  非 0 说明补丁里有键没答到任何表或列（多半是拼写错了）。
-- **写作**：每张表单独一次调用，只给这张表的 `packet.md` 和提示词，不要把别的表、整份血缘或本体读进去。
-  有本体目录时，把 `catalog query <ontology.json> table <db.table> --json` 答出的概念与表现类型告诉模型，
-  让它写 `concept`；有已确认的业务事实（例如某个标识的含义）时，作为「已确认事实」一并给它。
-- **重写**：只把失败清单里这张表的条目交回模型，已通过的条目不许动；同一处连续两轮还失败，就把它留给
-  owner（写成 `questions` 或 `watch`），不要硬凑到通过。第 8 项（`digest`）失败表示材料包变了，要整份重写：
-  重写前把这张表的旧审读 `reviews/<db.table>.md` 改名为 `reviews/<db.table>.prior.md`（`status` 不读它），并把现有文档复制为
-  `reviews/<db.table>.prior.json`（同样不进 `status`；只交给审读员，不交给写作者），重写仍只给
-  写作者新材料包；重写后的首次审读把 `.prior.md` 和 `.prior.json` 交给审读员，按审读提示词「材料包重建后的重写：带上旧审读」一节
-  逐条判旧发现适用与否、新文档是否又犯了。
-  子代理只校验自己批里的表：`semantic validate <run>/docs --packets <run>/packets --only <db.table> ...`，
-  不用把文档拷到别的目录（别人写到一半的文件会被跳过）；这份输出只给本批看，不要写进 `<run>/validation.json`
-  ——那是全量报告，渲染前由主流程不带 `--only` 跑一次。回报各检查项的 FAIL / WARN 计数时读 `--json` 的
-  `failures[].number`；`not_reported` 里的检查项写「无可查条目」（跑过了，没有可查的条目，不是漏跑）。
-- **审读与修订**：校验只能保证形式（覆盖、出处、原文、分区），保证不了含义。每张表写完、校验通过后，
-  另起一次调用做**独立审读**（不是写作者自己复查），只给材料包、文档和已确认事实；再按审读意见修订，修订后
-  通读全页消除前后矛盾，并把推断与事实分开。一轮就够；修订后再审读一轮只针对「全页一致、推断与事实、
-  已确认事实、兄弟表」四项，外加上一轮每条发现改没改、重建材料包里新增或变了的事实（按审读提示词的
-  「修订后再审读」一节做，把上一轮审读文件一并交给审读员；这一轮的审读照样带 front matter，覆盖原审读文件）。审读文件开头的
-  front matter（`reviewed_doc_digest`、`reviewed_packet_digest` 与高 / 中 / 低条数）加上修订回执
-  `fixed_doc_digest` 是 `status` 判断「已修订」的依据：修订的最后一步跑 `semantic fixed <run> --only <db.table>`，
-  它只在文档通过校验、且审读读的正是文档所依据的材料包时写回执；有回执且就是当前文档才算 `fixed`（只有低级问题、
-  修订顺手改了的也一样）。复审只剩低级问题（含「改了一半」）时直接是 `fixed`，不会再被派发；要收口就另派修订并跑
-  `semantic fixed`，只改文档不写回执会退回 `review_stale`。回执只证明修订者做完并且当时文档有效，不证明每条都改对了，改得对不对由复审判断。
-  回执只由命令写，不要让模型手改审读文件。不要把验收问题集交给写作、审读或修订的调用，那是考卷。
-- **渲染**：有本体目录时 `--out` 放在 `catalog render` 的输出目录下（`<pages>/semantics`），表语义页里的
-  `../concepts/<slug>.md` 才能打开，此时 `status` 加 `--pages <pages>/semantics`（默认 `<run>/pages`）；
-  `catalog render --semantics` 反过来让概念页里列出的每张表链到它的表语义页。顺序是 `catalog build` →
-  `semantic render --ontology` → `catalog render --semantics`：`semantic render` 要读构建好的 `ontology.json`，
-  `catalog render` 要求 `--semantics` 目录已经存在（不存在时退出 2）。
-  页面上 ✓ 是已确认、⚠ 是矛盾或风险、✗n 是校验未通过（文末「校验」有说明），`值（含义待确认）` 是只有值
-  没有含义的码值。
-- **确认**：把页面的「待确认问题」原样交给 owner；回答写成 `question:<id>`、`column:<c>.meaning`、
-  `column:<c>.code_values` 或 `summary.row` 四种目标之一。`confirm` 列出的 `unmatched` 要逐条告诉用户，
-  不要默默丢掉。
-
-格式、十三项检查、确认文件和 `semantic status` 的阶段与标记见 `docs/zh-CN/table-semantics.md`。
+只读已经渲染好的页面时：✓ 是已确认，⚠ 是矛盾或风险，✗n 是校验未通过（文末「校验」一节），`值（含义待确认）`
+是只有值没有含义的码值。格式、十三项检查、确认文件和 `semantic status` 的阶段与标记见
+`../../docs/zh-CN/table-semantics.md`。
 
 ### "从表语义起草本体目录" — drafting procedure (digest → fragments → merge)
 
-一批表已经有表语义（`table-semantics/1`）后，本体目录（`catalog-yaml/1`）从它们起草。不要写临时脚本，
-按下面的顺序用 CLI：
+一批表已经有表语义（`table-semantics/1`）后，本体目录（`catalog-yaml/1`）从它们起草，不写临时脚本：
+`catalog digest` → 起草概念、标识符、关系与共用码值集并分组 → 每组一个片段（`catalog-fragment/1`）→ `catalog merge` →
+`catalog build` → `semantic render --ontology` → `catalog render --semantics`。**照 `references/runbook.md` 的 S10a–S10g 做**；
+起草（第 2 步）用 runbook-templates 的 T5，片段用 T6（它包着 `references/catalog-fragment-prompt.md`，码值集、`holds`、
+`code_sets` 的规则都在那份提示词里）。不可违反的三条：
 
-```bash
-# 1. drafting material: row, grain, time, identifier/state/time/measure columns, related
-#    tables, open questions per table; with --lineage, per column the joined inputs its value
-#    is read through (lookup tables, their constant conditions, fallback order, join keys);
-#    with --catalog, what the catalog does not cover yet
-scope-lineage catalog digest <docs> --lineage <lineage-dir> [--schema <schema>] \
-  [--catalog <catalog-dir>] [--only <db.table> ...] --out <digest>
-# 2. draft concepts, identifiers and relations from <digest>/digest.md (by hand, or one model
-#    call that reads only the digest and the catalog format), into <catalog-dir>
-scope-lineage catalog validate <catalog-dir>
-# 3. split the tables into groups (one group = a few related concepts and their tables)
-# 4. one sub-agent per group writes <fragments>/<group>.json (catalog-fragment/1) with
-#    references/catalog-fragment-prompt.md, self-checking with `catalog merge --out <scratch>`
-# 5. merge every fragment into a copy; conflicts and validation errors exit 1
-scope-lineage catalog merge <catalog-dir> <fragments>/*.json --out <merged>
-# 6. build, render the table pages against the build, then the concept pages linking to
-#    them (catalog render --semantics exits 2 when that directory does not exist yet);
-#    the owner reviews
-scope-lineage catalog build <merged> --out <dir>
-scope-lineage semantic render <docs> --out <pages>/semantics --ontology <dir>/ontology.json
-scope-lineage catalog render <dir>/ontology.json --out <pages> --semantics <pages>/semantics
-```
+1. **digest 是起草的全部输入**，不要把整份表语义读进一次调用；digest 固定带 `--lineage`（有元数据再带 `--schema`）。
+2. **片段不能新增概念、不能改已有标识符**：新概念（事件连同它的时间属性）、新标识符、新拼写、跨组属性在起草这一步写好。
+3. **合并冲突逐条交回对应的组**，不要手工挑一个；合并后的手工修正只改 `merged/` 并留记录。
 
-- **起草材料**：`digest.md` 就是起草概念的全部输入；不要把整份表语义读进一次调用。`--catalog` 列出的
-  「没有表现的表」「没有绑定的列」就是这一轮要补的。第 1 步一定带 `--lineage`（与 `semantic packet` 用的是
-  同一份血缘；有元数据时再带 `--schema`，分区判定更准）：这时 digest 的列上带着查码值所需的事实，**不必为它们回头读 SQL**——
-  `lookups` 的 `table` / `where` 就是码值集 `lookup.table` / `filter`（`where` 的每个键值原样照抄，大小写不改），
-  列上没有 `lookups_by` 时，`lookups` 的顺序（码列看 `key_of` 的顺序）就是绑定上 `code_sets` 的顺序（真回退），
-  `reads` 是被读的列（含义列 → `holds` 写 `meaning`，代理键列 → `key`），有 `fallback` 时 `holds` 末尾加 `code`。
-  列上有 `lookups_by: "source"` 时，这一列由几个来源（UNION 分支，或写这张表的几条语句）分别写入，每项 `lookups`
-  带 `source`：各来源的码值集都列进 `code_sets` 并写 `code_sets_by: source`；各来源读的是同一组行（md 写
-  `every source reads …`）时只写一个码值集、不写 `code_sets_by`。`other_sources` 是别的来源**直接存**的物理列
-  （不是回退）：这一列在那些来源存原码，`holds` 末尾加 `code`，哪个来源存哪种写进 `derivation`。
-  `key` 是码表一侧的关联列，就是码值集的 `lookup.code_column`；带 `code_set_mismatch` 的读取（md 写
-  `reverse lookup?`）按含义反查回码，不是该码值集的翻译，写进 `derivation`，不要据此给码列写 `code_sets`。
-  带 `keyed_by: "row_identifier"` 的读取以本表自己的行标识为键，读的是同一条记录的属性行，不是码值翻译：
-  读出的列绑成属性（或 `foreign_attribute`），不建码值集；不带这个标记、键是外部标识列的读取仍可能是别的实体的
-  属性行，按表语义判断。`key_of_order: "unknown"` 表示几列回退顺序
-  互相矛盾，这一列的顺序要读 SQL 定。`where` 不一定是字典类型——按角色、语言、行版本挑行的关联也会列出；
-  带 `--catalog` 时只有与某码值集 `lookup` 的表与 `filter` 相同、且关联列含其 `code_column` 的才标 `code_set`。
-  没有列出的：不带字符串常量的关联、内联 `VALUES` 字典、`CASE` 映射，这些照旧按表语义与码值规则写。
-  码值集只为**有列读取**的 `where` 组合建：`lookups` 里的，或 `key_of` 中 `read_by` 非空的。`read_by` 为空
-  （`read by no column`）的是死关联或只用来过滤行，不是码值集的证据——写进 `notes`，不建码值集。
-- **先建概念与标识符**：片段不能新增概念、不能改已有标识符，所以第 2 步要把各组会用到的新概念（事件连同它的
-  时间属性——`occurred_at` 必须指向事件自己的属性）、新标识符、已有标识符的新拼写都写进目录并校验通过，再写片段。
-  标识符只在某个判别列（来源系统、环境这类不是业务概念的列）的每个取值内唯一、且这是已知事实时，`scope` 写
-  `{by: [{column: <列>}]}`（可与 `per` 同用），不要写 `global` 再在 `notes` 里说明；「是否跨来源唯一未证明」不是范围，
-  照旧写进 `notes`。
-- **跨组属性也先建**：一组的表里有指向别组概念的外部标识列、旁边紧跟这个对象的名称或属性列时（如 `xx_id` +
-  `xx_name`），第 2 步就把该概念的这个属性建进目录，并在分组方案里写明「属性 id → 引用它的组」。片段只能新增本组
-  概念的属性；别组概念需要而目录里没有的属性，片段写进 `notes`（列、想引用的概念与属性名），先绑成本概念的属性，
-  合并后由你（编排者）改成 `foreign_attribute`。
-- **关系名只写动词短语**：页面把关系读成「<name> <另一端概念名>」（附录里是「<起点> <name> <终点>」），所以
-  `name` / `inverse_name` 不带宾语：借款人→借据写 `name: 持有`、`inverse_name: 持有人为`，读出「持有 借据」
-  「持有人为 借款人」；写成 `name: 持有借据` 会读出「持有借据 借据」。
-- **一个概念有多条自关联**（隔不同层数的同类实例）：每条各声明一个关系，每个自关联列在绑定上写 `relation: rel:<id>` 指明实现哪条，否则会被归给每一条（`self_reference_relation_unnamed`）。
-- **分组**：按概念分组，每组的表不超过十来张；同一张表只分给一组。给每个子代理的分配写清：组名、本组概念、
-  本组的表以及初拟的概念、表现类型、粒度、时间语义（只有一组时由写片段的人自己定，并在 `notes` 里说明）。
-- **码值表（字典表）**：只存码与含义的表不是概念，**不写表现**；给每个码值集写 `lookup`（表、码列、含义列、
-  区分码值集的 `filter` 常量条件、可选的代理键与有效期列），`digest --catalog` 就把它算作「码值来源」而不是缺口。
-  `lookup` 只指物理码表（`库.表`）；SQL 里内联的字典（`VALUES` CTE、`CASE` 映射、字面量列表）写码值集的 `values`，
-  `evidence` 写生产它的任务名，不写 `lookup`（否则 `catalog query table` 会为不存在的表作答）。
-  一列按顺序查几个码值集（SQL 里 `coalesce(g1.desc, g2.desc)` 的回退）时，在该列的绑定上写有序的 `code_sets`，
-  顺序与 SQL 一致；码侧表达式（`substr` 后再查）和经映射表的两步翻译写进 `derivation`。码值集的 `value`
-  永远是码（内联字典写成 `values` 时也是源码，标签写 `meaning`）；列里存的是含义或代理键（或查不到时回落原码、按 UNION 分支混写）时，在该列绑定上写有序的 `holds`
-  （`meaning` / `key` / `code`，翻译后的形式在前），存含义的再写 `lang`，并在这一列上写它自己的 `code_sets`。
-  一个分支存代理键、另一个分支存原码的列同样写 `holds: [key, code]`；这时的顺序只是约定，不表示先查哪个、
-  也不是回退顺序，哪个分支写哪种形式写进 `derivation`。
-  同一属性按来源拆成几个码值集时，属性不写 `code_set`，各列写本来源的，工具把它们合起来当属性的码。
-  一列由几个来源（UNION 分支或几条写语句）写入、各用自己的码值集时，该列写全这些码值集并加 `code_sets_by: source`
-  （页面读成「按来源分别查 A、B」，不是回退）。
-  分支、来源、ELSE、代理键警告、重编码等边界情况照 `references/catalog-fragment-prompt.md` 的码值规则写。形状（与
-  `docs/zh-CN/ontology-catalog.md` 一致；片段里是同样的键，写成 JSON）：
-
-  ```yaml
-  code_sets:                                   # the code_sets file
-    - id: code:waiver_reason
-      name: 豁免原因
-      values: []
-      lookup:
-        table: demo_dim.dim_code_dict
-        code_column: code_val
-        meaning_columns: [{column: code_desc, lang: zh}, {column: code_desc_en, lang: en}]
-        key_column: dict_key                   # optional
-        filter: {code_type: WaiverReason}      # the SQL's `code_type = '...'` literal
-        valid_from: valid_begin                # optional, only as a pair
-        valid_to: valid_end
-  # a binding under a representation: look up waiver_reason first, then waiver_channel
-        - column: reason_cd
-          to: attribute
-          ref: attr:fee_waiver.reason
-          code_sets: [code:waiver_reason, code:waiver_channel]
-  # coalesce(d.code_desc, t.reason_cd): the zh meaning, else the raw code
-        - column: reason_desc
-          to: attribute
-          ref: attr:fee_waiver.reason
-          code_sets: [code:waiver_reason]
-          holds: [meaning, code]
-          lang: zh
-  ```
-- **片段**：子代理只写自己的 `<group>.json`，不改目录；每个条目的形状与目录文件相同。自检用
-  `catalog merge <catalog-dir> <group>.json --out <scratch>`，退出码 0 才算写完。
-- **合并**：`merge` 按 id（术语按 `term` + `refers_to`，表现按表）去重；同 id 内容不同是**冲突**，后来的不应用，
-  逐条交回对应的组去改，不要手工挑一个。概念不存在是错误。退出码 1 时先解决冲突和校验错误再往下走。
-  `--out` 要是新目录；`--in-place` 才写回原目录。
-- **覆盖报告**：合并最后打印每张表有没有表现、列按绑定去向各多少；`unmapped` 与片段的 `notes` 交给 owner。
-- **审读**：渲染后把概念页和 notes 给 owner；确认的内容把 `status` 改成 `confirmed`、`source` 改成 `owner`。
-
-片段格式、合并规则和退出码见 `docs/zh-CN/ontology-catalog.md` 的「起草」一节。
+片段格式、合并规则和退出码见 `../../docs/zh-CN/ontology-catalog.md` 的「起草」一节。
 
 ### "这些页面能不能用 / 给页面打分" — 验收
 
-表语义页和概念页写好后，用一套问题集（`question-set/1`：题目、参考答案、证据、`owner_check`）考页面：
-作答者只读页面答题，判分者对照参考答案和材料判 2/1/0，CLI 汇总。确定性的部分都由
-`scope-lineage questions` 做，你只派两次模型调用：
+表语义页和概念页写好后，用 owner 给的问题集（`question-set/1`）考页面：作答者只读页面答题，判分者对照参考答案和材料
+判 2/1/0，`scope-lineage questions validate` / `sheet` / `grading-sheet` / `score` 做确定性的部分。**照
+`references/runbook.md` 的 S11 做**，作答用 runbook-templates 的 T7（便宜模型即可），判分用 T8（最强模型）。不可违反的三条：
 
-下面的问题集与判分文件写成 `.yaml` 时，安装要带 `catalog` extra（`pipx install 'scope-lineage[catalog]'`，
-在仓库里是 `uv run --extra catalog scope-lineage …`）；不带时读 YAML 会以退出码 2 报缺 PyYAML。全用 JSON 就不需要。
+1. **作答与判分是两个独立子代理**：作答者只拿题单和页面目录，看不到题集、参考答案、材料包或 SQL。
+2. **`sheet`、`grading-sheet`、`score` 带同一组 `--ids` / `--only-table`**，否则会混进没答、没判的题（只给警告、退出 0）。
+3. **不自己出题自己考**；留出集只在收尾时跑一次。
 
-```bash
-# 0. the set holds to its schema: unique ids, a reference answer for every question
-scope-lineage questions validate <questions.yaml>
-# 1. the answerer's sheet: ids, tables and question text only -- no keys, no evidence
-scope-lineage questions sheet <questions.yaml> --pages <pages> \
-  [--only-table <db.table> ...] [--ids <id> ...] --out <run>/sheet.md
-# 2. answerer sub-agent: references/answer-prompt.md + sheet.md + read access to <pages> only;
-#    writes <run>/answers.md with one `## <id>` section per question
-# 3. the grader's material: question, type, reference answer, evidence, owner_check, answer
-scope-lineage questions grading-sheet <questions.yaml> --answers <run>/answers.md \
-  [same --only-table / --ids] --out <run>/grading.md
-# 4. grader sub-agent: references/grade-prompt.md + grading.md (+ the packets / SQL the
-#    evidence names); writes <run>/grades.yaml (question-grades/1), then
-scope-lineage questions validate <run>/grades.yaml
-# 5. the round's score, earlier rounds as comparison columns
-scope-lineage questions score <run>/grades.yaml --set <questions.yaml> \
-  [--previous <earlier-grades.yaml> ...] [same subset] --out <run>/score
-```
-
-- **两个调用分开**：作答者和判分者各是一个独立的子代理。作答者不能看到问题集、参考答案、材料包或 SQL，
-  只给题单和页面目录，便宜一点的模型就够；判分者要核实参考答案、识别过度保留，用强模型。
-- **先抽小样**：`--only-table` / `--ids` 在 sheet、grading-sheet、score 里含义一致，调提示词时每轮只跑几张表、十来道题，
-  省 token；确认改进后再跑全集。
-- **留出集**：另备一套题，覆盖调提示词时没用过的表，只在收尾时跑一次，看改进是不是只对考过的题有效。
-  问题集同样不要交给写作、审读或修订的调用。
-- **读分数**：`score.md` 的「按缺口」说失分落在哪里——`page_missing` / `page_wrong` /
-  `page_contradiction` 回去改页面（或它的提示词），`answerer` 改作答提示词，`key_wrong` 改参考答案
-  （列在「参考答案待修正」），`owner_only` 交给 owner。未判分的题单独列出、不计入总分；判分文件里有
-  问题集没有的题号时 `score` 拒绝汇总（退出 1）。
-
-格式与命令见 `docs/zh-CN/questions.md`。
+读 YAML 题集要 `catalog` extra（PyYAML）。格式与命令见 `../../docs/zh-CN/questions.md`。
 
 ### "这个结果可信吗 / 为什么断了" — diagnostics
 
@@ -825,13 +598,22 @@ documented uncertainty).
   partition day derived from a create or update time); and the rewrite section to hand back
   with `semantic validate`'s failures. Read when the user asks what a table means, or
   wants a batch of tables documented.
+- `references/runbook.md` — the step-by-step operating manual (Chinese) for producing table
+  semantics, the ontology catalog and the pages, and for the acceptance round: one shared variable
+  block and calling convention, steps S0–S13 each with purpose, preconditions, copy-ready commands,
+  self-checks, known failures and a done criterion, plus the status → next-step table, the run
+  directory layout, an error / exit-code index and the cost rules. Read it before running any of
+  those three workflows; it overrides looser wording elsewhere in this file.
+- `references/runbook-templates.md` — the orchestrator's checklist, the fill-in sub-agent prompts
+  T1–T8 (draft, review, re-review, fix, catalog drafting step 2 with the grouping plan, fragment,
+  answer, grade), the run ledger and the delivery report. Hand a sub-agent exactly one filled template.
 - `references/answer-prompt.md` — the acceptance answerer: read only the pages, cite page and
   section, mark only what the pages truly cannot decide as owner-to-confirm, no over-hedging, one
   `## <id>` section per answer. Read when running the answer step of an acceptance round.
 - `references/grade-prompt.md` — the acceptance grader: 2/1/0, the owner-only, over-hedging and
   wrong-reference-answer rules, the seven gaps, and the `question-grades/1` YAML it outputs. Read
   when running the grading step.
-- `../../docs/en/workflow.md` (`docs/zh-CN/workflow.md` for the Chinese version) — the
+- `../../docs/en/workflow.md` (`../../docs/zh-CN/workflow.md` for the Chinese version) — the
   end-to-end order of everything above: what `parse` / `tables` / `glossary` / `describe` /
   `ontology` (key-fold candidates) / `semantic` / `catalog` need from each other, a runnable five-minute pass over `examples/`, where each of
   the three review workflows fits, and how confirmed answers flow back through
