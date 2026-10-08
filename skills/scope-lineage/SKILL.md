@@ -571,7 +571,8 @@ scope-lineage semantic confirm <run>/docs --confirmations <answers.json>
   逐条判旧发现适用与否、新文档是否又犯了。
   子代理只校验自己批里的表：`semantic validate <run>/docs --packets <run>/packets --only <db.table> ...`，
   不用把文档拷到别的目录（别人写到一半的文件会被跳过）；这份输出只给本批看，不要写进 `<run>/validation.json`
-  ——那是全量报告，渲染前由主流程不带 `--only` 跑一次。
+  ——那是全量报告，渲染前由主流程不带 `--only` 跑一次。回报各检查项的 FAIL / WARN 计数时读 `--json` 的
+  `failures[].number`；`not_reported` 里的检查项写「无可查条目」（跑过了，没有可查的条目，不是漏跑）。
 - **审读与修订**：校验只能保证形式（覆盖、出处、原文、分区），保证不了含义。每张表写完、校验通过后，
   另起一次调用做**独立审读**（不是写作者自己复查），只给材料包、文档和已确认事实；再按审读意见修订，修订后
   通读全页消除前后矛盾，并把推断与事实分开。一轮就够；修订后再审读一轮只针对「全页一致、推断与事实、
