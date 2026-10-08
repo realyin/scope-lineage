@@ -14,7 +14,7 @@ fill T1 "$SCRATCH/prompts/T1-<表>-r2.md" TABLE=<库.表> MODE=补失败 FACTS=�
 - `fill` 自动把 `{ENV}`、`{RUN}`、`{TOOL}`、`{SCRATCH}`、`{TASKS}`、`{PAGES}`、`{SEMPAGES}` 换成 `env.sh` 里的绝对路径，
   其余占位按命令行的 `KEY=值` 换；值写成 `@文件` 时取那个文件的内容（贴多行报错用）。
 - 还有没填的占位时它照样写出文件，但退出 1 并打印「未填的占位：…」。**`exit=0` 才能发。**
-- 发出去的就是输出文件的全部内容；在账本「派发记录」记一行，再 `note`。
+- 派发时两种做法等价：把输出文件的全部内容原样粘贴给子代理；或者只告诉它「用 Read 工具完整读 `<输出文件绝对路径>`，照里面的要求做，读不完就分段读」。不要改写、删减。然后在账本「派发记录」记一行，再 `note`。
 
 各占位的含义（路径一律绝对路径）：
    - `{TABLE}`：`库.表`；`{GROUP}`：组名；`{ROUND}`：本轮验收目录（例如 `<RUN>/round1`）；
@@ -332,7 +332,7 @@ status：…
 
 ## T5 目录起草第 2 步：概念、标识符、关系、共用码值集与分组方案（S10c）
 
-模型：次一档强模型。整个运行只派一个；返工时把 `catalog validate` 的 error 行贴进末尾再派同一份。
+模型：次一档强模型。正常只派一个；返工时用 `fill T5 … REWORK=@<报错文件>` 重新填一份（原提示词 + 这次报错原文），续用原子代理或新派一个都行。
 
 ----8<----
 你负责本体目录起草的第 2 步：在目录里补齐**概念、标识符、已有标识符的新拼写、关系、跨组属性和跨组共用的码值集**，
@@ -382,11 +382,26 @@ status：…
    - 只存「码 + 含义」、按类型列区分多套码的字典表**不是概念**，不建；它在分组方案里列为「码值来源表」。
    - `kind` 只有三种：`entity`（有稳定身份、能被反复引用）；`event`（在某个时点发生、有参与者、发生后不改）；
      `role`（实体在某个业务上下文里的身份，写 `player`、`context`、`condition`）。
-   - `entity`：写 `identifiers`、`primary_identifier`。`event`：写 `identifiers`（有的话）、`participants`
-     （`role_name` 是小写英文 slug，同一事件里不重复）、`occurred_at`——**必须指向事件自己的时间属性**，所以同时在
-     `attributes` 里建这个属性（`category: time`）。
-   - 事件的参与者**优先引用目录里已有的概念**。只凭一个外键列、本轮又没有任何表的一行是它的对象（例如只出现过一个「操作人 id」），
-     不要为它新建概念：先不列进 `participants`，在事件的 `notes` 里写「待 owner 确认：<列> 指向的 <对象> 是否建概念」。
+   - 各类型必填 / 禁写的键（目录 schema 强制，写错 `catalog validate` 报 `schema`）：
+
+     | kind | 必须写 | 不能写 |
+     | --- | --- | --- |
+     | `entity` | `identifiers`、`primary_identifier` | `occurred_at`、`participants`、`player`、`context`、`condition` |
+     | `event` | `occurred_at`、`participants`（**至少一个**） | `primary_identifier`、`states`、`player`、`context`、`condition` |
+     | `role` | `player`、`context`、`condition` | `identifiers`、`primary_identifier`、`states`、`occurred_at`、`participants` |
+
+     所有概念都必须有 `id`、`kind`、`name`、`domain`；每个属性必须有 `id`、`name`、`definition`、`category`、`type`。
+   - `event` 的 `occurred_at` **必须指向事件自己的时间属性**，所以同时在 `attributes` 里建这个属性（`category: time`）。
+     `participants` 每项是 `{"role_name": <小写英文 slug，同一事件里不重复>, "concept": <entity 或 role>, "cardinality": "one" 或 "many"}`。
+   - 事件的参与者按这个顺序定，第一条成立就停：
+     1. 目录里已有、或本步因别的表新建的 entity / role 能当参与者：引用它。
+     2. 都没有：只为**事件发生在谁身上**的那一个对象（例如被联系的客户、被处理的账户；表里要有指向它的标识列）新建一个最小的
+        entity（`identifiers` 与 `primary_identifier` 用那一列建的标识符，`notes` 写理由并加「待 owner 确认：是否另建概念」），
+        引用它当唯一的参与者。其余只凭外键列出现的对象（操作人、机器人、任务之类）不建概念，在事件的 `notes` 里写
+        「待 owner 确认：<列> 指向的 <对象> 是否建概念」。
+     3. 连这样的对象也找不到：这张表的概念按 `entity` 建（不是 `event`），时间列建成普通 `time` 属性，`notes` 写
+        「待 owner 确认：本是事件，缺可引用的参与者，暂按 entity 建」，并在回复「没把握」里列出。
+     **不要**写空的 `participants: []`，也不要省略它——`event` 至少要有一个参与者，否则 `catalog validate` 报错。
    - 每个概念写 `name`（中文）、`definition`（一句话）、`status: drafted`、`source`（`comment` / `sql` / `mixed` / `llm`）、
      `evidence`（表名或 `库.表.列`）。
    - 形状：
@@ -488,6 +503,9 @@ status：…
 组名用小写英文、数字、`_`、`-`。
 
 **返工**：{REWORK}
+
+（返工时以上面贴的这次报错为准；改完重跑 `catalog validate`，以**最新一次**输出为准——文件改过之后，同一个问题的报错文字
+可能变，例如「'participants' is a required property」改完一半后会变成「[] should be non-empty」。）
 
 **回复**（中文，只写这些行）
 

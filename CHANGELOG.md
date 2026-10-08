@@ -186,6 +186,15 @@
   `window_partition_narrower` value is stored at write time, so filtering at read time cannot
   repair it, and that a column read through an inline dictionary lists the values it stores;
   the fix prompt leaves low findings alone.
+- After a second trial run: T5 states the per-kind required and forbidden keys the catalog
+  schema enforces (an event needs at least one participant; with no concept to reference, a
+  minimal entity for the event's subject, else the table is drafted as an entity); a filled
+  prompt may be handed over as a file to read; rework may go to a fresh sub-agent; the latest
+  check output wins; S10f leaves a `foreign_attribute` whose target does not exist; the merge
+  report's `added` counts versus the catalog totals are explained; a hook asking for another
+  run directory goes to the owner. The writing prompt (still @9) separates "the state on day X"
+  by refresh mode: a daily full-snapshot partition, a MERGE table that keeps only the latest
+  state (no history), a zipper table (validity window).
 
 ### Added
 - **`semantic validate --json` numbers each failure and lists the checks with nothing to

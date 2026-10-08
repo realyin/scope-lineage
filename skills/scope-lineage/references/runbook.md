@@ -133,6 +133,8 @@ set -o pipefail
 
   4. 正在跑的子代理没有回报就算中断：不计轮次，按 `$SCRATCH/prompts/` 里的存档重派同一份提示词。
 
+- 任何检查命令重跑之后，都**以最新一次的输出为准**：文件改过，报错条数和文字都可能变，不要拿旧的报错去处理。
+
 ### 0.5 主流程总览
 
 | 步 | 做什么 | 谁做 | 主要产出 | 模板 |
@@ -201,6 +203,7 @@ git -C "$TOOL" log -1 --format='commit %h %cd' >> "$RUN/TOOL_VERSION"
 | 版本低于 0.8.0 且不是候选 | — | 停下告诉 owner。不要自己 `pipx install` 覆盖，候选会被换掉 |
 | PyYAML 检查报 `PyYAML` / `pip install 'scope-lineage[catalog]'` | 2 | `sl` 少了 `--extra catalog`，或安装时没带 `[catalog]` |
 | `touch` 失败，或 Write 工具写 `$RUN` 被钩子拦截 | 非 0 | 先写 `$SCRATCH` 下同名文件，再用 `cp` 拷进 `$RUN`。这一条要写进每个子代理的说明（模板里已有） |
+| 钩子提示「改用另一个路径」（例如 worktree 里的路径） | — | 运行目录的位置由 owner 指定。按上一行的 SCRATCH + `cp` 做；钩子连 `cp` 也拦、坚持要换路径时，停下问 owner，不要擅自把 `$RUN` 换到别处 |
 
 **完成判据**：版本判断通过；两个检查 `exit=0`；`env.sh`、`TOOL_VERSION`、`ledger.md` 都在。
 
@@ -390,7 +393,8 @@ T=demo_dwd.dwd_party_customer_info_df   # 换成这张表
 fill T1 "$SCRATCH/prompts/T1-$T-r1.md" TABLE="$T" MODE=新写 FACTS=无 CONCEPT="不写 concept" FAILURES=无; echo "exit=$?"
 ```
 
-`exit=0` 才能发（非 0 时它会列出没填的占位）。把这个文件的内容原样作为子代理的任务。在账本里给这张表记一行：
+`exit=0` 才能发（非 0 时它会列出没填的占位）。派发时两种做法等价，任选一种：把这个文件的内容原样粘贴作为子代理的任务；
+或者任务只写一句「用 Read 工具完整读 `<这个文件的绝对路径>`，照里面的要求做，读不完就分段读」。不要改写、删减文件内容。在账本里给这张表记一行：
 步骤「写作」、轮次、派发时间，然后 `note "S4 派 T1 $T 第1轮"`。
 
 **写入被拦截**：子代理回报「文件在 `$SCRATCH/<表>/…`，cp 没做 / 被拒绝」时，由编排者代为拷贝，再做下面的自检：
@@ -800,8 +804,10 @@ for t in "${TABLES[@]}"; do printf '%s\t%s\n' "$(grep -c -F "| $t |" "$RUN/catal
 - 目录 `exit=0`，`0 error(s)`。
 - 每张表那一行的计数是 `1`（只进一组）；码值字典表是 `0`，并且列在分组方案的「码值来源表」一节。
 
-**常见失败与处理**：validate 有 error → 把 error 行原样交回同一个子代理（T5 末尾的返工说明），最多 2 次，仍不过交 owner。
-某张表计数是 0 或 2 → 同样交回。
+**常见失败与处理**：validate 有 error → 返工，最多 2 次，仍不过交 owner。返工可以续用原来的子代理，也可以派一个新的：
+用 `fill T5 … REWORK=@<报错文件>` 重新填一份（原提示词 + 这次的报错原文），新子代理照它改。某张表计数是 0 或 2 → 同样返工。
+每次改完都重跑 `catalog validate`，**以最新一次输出为准**：文件改过之后同一个问题的报错文字可能变，不要拿旧报错去对。
+`schema` 类 error 最常见的是概念类型写错了键（T5 里的必填 / 禁写表），例如事件没有 `participants`。
 
 **完成判据**：目录 `0 error(s)`；分组方案覆盖每张表恰好一次。
 
@@ -834,7 +840,7 @@ grep -E '^Coverage:|^  [a-z0-9_]+\.' "$SCRATCH/check-$G.txt"
 | 现象（原文） | 退出码 | 处理 |
 | --- | --- | --- |
 | `--out … is not empty; choose a new or empty directory` | 2 | 先 `rm -rf` 自检目录再跑 |
-| `conflict` / `unknown_concept` / `error` 行 | 1 | 用 T6（返工模式）把这些行原样交回该组，最多 2 次 |
+| `conflict` / `unknown_concept` / `error` 行 | 1 | T6 返工模式（`fill T6 … MODE=返工 REWORK=@<报错文件>`），续用原子代理或新派一个都行，最多 2 次；以最新一次自检输出为准 |
 | 某张表没有表现 | 0 | 同上交回（码值字典表除外） |
 
 **完成判据**：每组自检 `exit=0`。
@@ -856,6 +862,10 @@ grep -E '^note|^Coverage:|^  [a-z0-9_]+\.' "$RUN/merge_report.txt"
 ```
 
 **产出与自检**：`exit=0`；两个 `grep -c` 都打印 `1`；`Coverage:` 里两个表数相等（每张表都有表现，码值字典表本来就不在片段里）。
+
+计数口径（不必对账，想核对时这样算）：`Merged … added attribute=A, …; U unchanged` 只数**片段新加**的条目；下面
+`Catalog …` 的计数行（`attributes=N` 等）数的是**合并后整个目录**，包括 S10c 已经写进 `catalog/` 的条目（例如事件的时间属性）。
+所以 `N = S10c 那次 catalog validate 的 attributes + A`，两者不相等是正常的。
 `note` 行（片段的 `notes`，都以「待 owner 确认：」开头）和 `unmapped` 列抄进账本「给 owner 的待确认」。这些都**不是** owner 已确认的内容。
 
 **常见失败与处理**：退出码 1 → 冲突或校验错误，结果已写出便于查看。不要手工挑一个：按冲突行里的组名，用 T6（返工模式）交回对应的组，
@@ -874,6 +884,9 @@ grep -E '^note|^Coverage:|^  [a-z0-9_]+\.' "$RUN/merge_report.txt"
 - 只改 `$RUN/merged/` 里的文件，不改 `$RUN/catalog/`。每一处改动在 `$RUN/catalog_changes.md` 记一行（文件、对象、改前、改后、依据）。
   这份记录**不要**放进 `merged/`（目录里不认识的文件会报 `unknown_file`）。
 - 改成 `foreign_attribute`：把绑定的 `to` 改成 `foreign_attribute`，`ref` 改成别组概念的属性 id，加 `via: <本表里绑成 foreign_identifier 的那一列>`。
+  **先查目标在不在**：`grep -rn 'attr:<概念 slug>.<属性 slug>' "$RUN/merged/concepts"` 要能找到它的定义，并确认 `via` 那一列已绑成指向该概念标识符的
+  `foreign_identifier`。目标概念或属性不存在、或没有这样的 `via` 列时**不改**（改了会引用不存在的对象），在账本「给 owner 的待确认」记
+  「待 owner 确认：<表>.<列> 是否是 <对象> 的属性（目录里还没有这个概念 / 属性）」。
 - owner 确认的条目：`status` 改成 `confirmed`，`source` 改成 `owner`。只认 owner 在对话里或确认文件里给出的回答；
   片段 `notes` 里写的「待 owner 确认」不是确认。
 - 下一轮（扩表、再起草）的起点目录是这一份 `merged/`：S10a 用 A，旧目录写 `$RUN/merged`，新一轮在新的运行目录里做。
