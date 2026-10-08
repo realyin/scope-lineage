@@ -60,8 +60,10 @@ class TaskSql:
 def quote_forms(quote: str) -> frozenset:
     """The forms a quoted rule cites a filter by: its own and each of its conjuncts'.
 
-    A quote is parsed without its comments and split at every top-level AND; a quote
-    SQLGlot cannot parse whole is cut at each top-level `` and `` and each piece tried on
+    A quote is parsed without its comments and split at every top-level AND; a quote that
+    copies a whole statement (SELECT, INSERT … SELECT) also gives the conjuncts of every
+    WHERE, HAVING and ON inside it, nested subqueries included; a quote SQLGlot cannot
+    parse whole is cut at each top-level `` and `` and each piece tried on
     its own. A filter is cited only by a form *equal* to one of its own: a CASE branch
     or a MERGE condition that merely contains the filter's text cites nothing.
     """
@@ -90,9 +92,22 @@ def _quote_conjuncts(quote: str) -> list[str]:
             return [] if len(pieces) < 2 else [
                 part for piece in pieces for part in _quote_conjuncts(piece)] + pieces
     else:
-        conditions = [tree]
+        # A quote that copies a whole statement holds its WHERE / HAVING / ON predicates
+        # (nested ones too) as written; a bare predicate holds none, and a CASE branch in
+        # a select list or a MERGE ``WHEN`` condition is no WHERE, so neither adds a form.
+        conditions = [tree, *(condition for _node, condition in _conditions(tree))]
     return [node.sql(dialect=DIALECT, comments=False)
             for condition in conditions for node in [condition, *_conjuncts(condition)]]
+
+
+def _conditions(tree) -> list[tuple]:
+    """Each WHERE, HAVING and JOIN node in a tree with the condition it holds."""
+    found = []
+    for node in tree.find_all(exp.Where, exp.Having, exp.Join):
+        condition = node.args.get("on") if isinstance(node, exp.Join) else node.this
+        if condition is not None:
+            found.append((node, condition))
+    return found
 
 
 # `` and `` outside parentheses (no quotes are tracked: a fallback for unparsed quotes).
@@ -156,10 +171,7 @@ def _statements(script: str) -> list:
 def _units(tree) -> list[frozenset]:
     ctes = {cte.alias_or_name.lower(): cte.this for cte in tree.find_all(exp.CTE)}
     units = []
-    for node in tree.find_all(exp.Where, exp.Having, exp.Join):
-        condition = node.args.get("on") if isinstance(node, exp.Join) else node.this
-        if condition is None:
-            continue
+    for node, condition in _conditions(tree):
         select = node.find_ancestor(exp.Select)
         parts = [condition, *_conjuncts(condition)] if isinstance(condition, exp.And) else [
             condition

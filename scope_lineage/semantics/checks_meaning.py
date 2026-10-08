@@ -58,6 +58,11 @@ def check_fan_out(document: dict, packet: dict) -> list[dict]:
     output row, so it is neither asked to be named nor warned about when called harmless.
     A verdict without a path (a packet written before paths) is on the grain path. Every
     unproven join, on any path, still keeps its names from passing for a proven one's.
+
+    An alias is unique within one SELECT, not within a packet: a right side is named for
+    sure by its table, an alias no other right side carries, or its rule number (pN). A
+    sentence naming it only by an alias another right side shares may be about that one,
+    and warns.
     """
     summary = document["summary"]
     said = _sentences("summary.row.note", summary["row"].get("note"))
@@ -70,17 +75,49 @@ def check_fan_out(document: dict, packet: dict) -> list[dict]:
     for rule in packet["lineage"]["rules"]:
         verdict = rule.get("fan_out") if rule["kind"] == "join" else None
         if verdict and verdict.get("status") != "safe":
-            key = tuple(rule.get("right_tables") or [rule.get("right")])
-            groups.setdefault(key, []).append(rule)
+            groups.setdefault(_right_side(rule), []).append(rule)
     held = {key: grain for key, rules in groups.items()
             if (grain := [r for r in rules if r["fan_out"].get("path") in (None, GRAIN_PATH)])}
-    results = [_named(rules, said) for rules in held.values()]
+    owners = _alias_owners(packet)
+    results = [_named(rules, said, owners) for rules in held.values()]
     left = [r for rules in held.values() for r in rules if "LEFT" in str(r.get("join_type")).upper()]
     every_name = [
         name for rule in packet["lineage"]["rules"] if rule["kind"] == "join"
         for name in join_names(rule)
     ]
-    return results + _harmless_left(left, everywhere, _safe_names(packet, groups), every_name)
+    return results + _harmless_left(
+        left, everywhere, _safe_names(packet, groups), every_name, owners)
+
+
+def _right_side(rule: dict) -> tuple:
+    """One right side: the tables a join reads (the same table under several aliases is one)."""
+    return tuple(rule.get("right_tables") or [rule.get("right")])
+
+
+def _alias_owners(packet: dict) -> dict[str, dict[tuple, list[str]]]:
+    """Each right-side alias (lower case): the right sides carrying it, with their rule ids."""
+    owners: dict[str, dict[tuple, list[str]]] = {}
+    for rule in packet["lineage"]["rules"]:
+        if rule["kind"] != "join":
+            continue
+        for alias in rule.get("right_aliases") or []:
+            owners.setdefault(alias.lower(), {}).setdefault(_right_side(rule), []).append(rule["id"])
+    return owners
+
+
+def _shared_aliases(rules: list[dict], owners: dict) -> list[str]:
+    """The aliases of these joins that another right side carries as well."""
+    return list(dict.fromkeys(
+        alias for rule in rules for alias in rule.get("right_aliases") or []
+        if len(owners.get(alias.lower(), {})) > 1
+    ))
+
+
+def _sure_names(rules: list[dict], owners: dict) -> list[str]:
+    """Names that point at these joins and no other: tables, unshared aliases, rule ids."""
+    shared = {alias.lower() for alias in _shared_aliases(rules, owners)}
+    names = [name for rule in rules for name in join_names(rule) if name.lower() not in shared]
+    return list(dict.fromkeys(names + [rule["id"] for rule in rules]))
 
 
 def _safe_names(packet: dict, groups: dict[tuple, list[dict]]) -> list[str]:
@@ -102,11 +139,17 @@ def _label(rules: list[dict]) -> str:
     return "、".join(rules[0].get("right_tables") or [rules[0].get("right") or "?"])
 
 
-def _named(rules: list[dict], said: list) -> dict:
-    names = list(dict.fromkeys(name for rule in rules for name in join_names(rule)))
+def _named(rules: list[dict], said: list, owners: dict) -> dict:
     at = "summary.row.note"
-    if any(_mentions(text, names) for _, text in said):
+    if any(_mentions(text, _sure_names(rules, owners)) for _, text in said):
         return result("fan_out", "pass", at)
+    shared = _shared_aliases(rules, owners)
+    for where, text in said:
+        aliases = [alias for alias in shared if _mentions(text, [alias])]
+        if aliases:
+            return _alias_only(rules, aliases, owners, where)
+    names = [name for name in dict.fromkeys(n for rule in rules for n in join_names(rule))
+             if name not in shared]
     first = rules[0]
     joins = "、".join(dict.fromkeys(str(rule.get("join_type") or "JOIN") for rule in rules))
     where = (f"ON {_plain(first['expression'])}，{first['task']}，材料包 {first['id']}"
@@ -118,21 +161,39 @@ def _named(rules: list[dict], said: list) -> dict:
         f"（{'、'.join(names)} 任一），写明会不会放大行数、为什么"))
 
 
+def _alias_only(rules: list[dict], aliases: list[str], owners: dict, where: str) -> dict:
+    """The warning for joins a sentence names only by an alias other right sides share."""
+    key, label = _right_side(rules[0]), _label(rules)
+    ids = "、".join(rule["id"] for rule in rules)
+    others = "、".join(dict.fromkeys(
+        rule_id for alias in aliases for side, rule_ids in owners[alias.lower()].items()
+        if side != key for rule_id in rule_ids
+    ))
+    said = "、".join(aliases)
+    return result("fan_out", "warn", where, (
+        f"关联 {label}（{ids}）只被别名 {said} 点到，而 {said} 也是 {others} 的右侧；"
+        f"这句可能在说 {others}，{label} 可能没写——用表名或 pN 点名 {label}，"
+        "写明会不会放大行数"))
+
+
 def _harmless_left(
-    left: list[dict], everywhere: list, safe_names: list[str], every_name: list[str]
+    left: list[dict], everywhere: list, safe_names: list[str], every_name: list[str],
+    owners: dict,
 ) -> list[dict]:
     """One warning per place that calls an unproven LEFT join harmless to the row count.
 
     A sentence naming no unproven join but saying 左关联 is taken to mean them all, unless
     it names a join proven unique and makes no claim about every join (都, 所有 ...) in the
     clause that says 不放大. A claim made under a condition whose failing case is said
-    (:func:`_conditional`) is no claim.
+    (:func:`_conditional`) is no claim. A sentence naming some joins for sure (table,
+    unshared alias, pN) is about those; only one naming none that way is read by alias.
     """
     if not left:
         return []
     results, warned = [], set()
     for index, (where, text) in enumerate(everywhere):
-        named = [rule for rule in left if _mentions(text, join_names(rule))]
+        named = [rule for rule in left if _mentions(text, _sure_names([rule], owners))] or [
+            rule for rule in left if _mentions(text, join_names(rule))]
         following = everywhere[index + 1] if index + 1 < len(everywhere) else None
         after = following[1] if following and following[0] == where else ""
         claims = [
