@@ -49,6 +49,9 @@ RULES: dict[str, Rule] = {
     "R-READ-PIN": Rule(SOUND, "读侧把分区列钉成常量时，分区内的键成为这次读取的键"),
     "R-PRODUCERS-AGREE": Rule(SOUND, "多个生产者都整表覆盖且键一致时结论成立，否则撤销"),
     "R-PARTITION-METADATA": Rule(SOUND, "分区列是写入的元数据事实"),
+    "R-VALIDITY-WINDOW": Rule(
+        SOUND, "结束列由 LEAD(开始) 按分区、按开始升序写成时，按 开始 <= X < 结束 读，每个分区至多一行"
+    ),
     # -- values
     "R-IN-FILTER": Rule(SOUND, "WHERE c IN (...) 限定本语句读到的行的 c，不限定物理列"),
     "R-CASE-OUTPUT": Rule(SOUND, "穷尽 CASE 的输出列只取分支常量"),

@@ -133,6 +133,28 @@
   - Section 3's 分区读取 names a partition column no condition fixes, with its comment, when
     another partition column is fixed.
 
+### Validity windows written by LEAD (`semantic-json/1`, `tables-json/1`, formats unchanged)
+- New `output_shape.validity_window` (`{start, end, partition, default?, condition?}`): a
+  statement writes the target's end column as `LEAD(start, 1[, default]) OVER (PARTITION BY
+  partition ORDER BY start ASC)` over every row of the target itself, by a whole-table
+  `INSERT OVERWRITE` or by a MERGE on exactly the partition columns and `start` with only
+  unconditional matched UPDATEs. A MERGE carries `condition: "validity_rows_unique"`. A later
+  statement of the same task writing `start` or `end` withdraws it. A writer that closes old
+  versions by a hash comparison gets no such key.
+- Table cards copy it as `produced_by[].validity_window`, present only with content.
+- **Meaning change -- a JOIN onto a point-in-time read of such a table is decided from the
+  window.** A right side that is one table's rows filtered by `start <= X AND end > X` (one
+  literal or `${…}`), joined on columns covering the partition, used to end at 「右侧未被证明
+  按连接键唯一」 (`risk`). It is now `safe` for a whole-table overwrite writer and `unknown`
+  for a MERGE writer, with a reason that states the window, the condition, the write-key
+  columns the window does not partition by, and the ON columns that may find no valid row.
+  The claim's rule is the new `R-VALIDITY-WINDOW` (`conditional` on `validity_rows_unique`
+  for a MERGE, on the premise `A-WRITERS-CLOSED`). It does not apply when another task's
+  producer writes `start` or `end`, when the bounds name two points or a closed upper bound,
+  or when start and end are declared different types. **Downstream code that compares
+  `fan_out_risks[]` reasons or statuses will see these joins change.** Packets reading such
+  a table get a new `packet_digest`.
+
 ## 0.7.0
 - **Table semantics that survive a review loop, MERGE targets read as the batch they
   write, and a catalog that says where its codes live.** One report format moves:

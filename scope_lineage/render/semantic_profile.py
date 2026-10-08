@@ -487,6 +487,7 @@ def _build_task_profile(
     task = str(task_document.get("task_id") or "")
     for document, statement in pairs:
         _add_writer_facts(document, statement, pairs, table_cards, task)
+    _drop_overwritten_windows(pairs)
     return {key: profile[key] for key in TASK_PROFILE_KEYS}
 
 
@@ -750,6 +751,230 @@ def _produced_tables(task_document: dict) -> list[str]:
         if table not in session_scoped
         and not str(table).startswith(_DIRECTORY_TARGET_PREFIX)
     ]
+
+
+# ------------------------------------------------- validity window written by LEAD (G6)
+
+#: The condition a MERGE-written validity window rests on: it matches on (partition,
+#: start), so two rows sharing that pair make the update meet several USING rows.
+VALIDITY_CONDITION_ROWS_UNIQUE = "validity_rows_unique"
+
+_VALIDITY_WINDOW_KEY_ORDER = ("start", "end", "partition", "default", "condition")
+
+
+def _validity_window(document: dict) -> dict | None:
+    """``output_shape.validity_window``: the target's end column is the next row's start.
+
+    Round-3 G6. Published when one statement writes a target column ``end`` from
+    ``LEAD(start, 1[, default]) OVER (PARTITION BY p… ORDER BY start ASC)`` and all of
+    this holds:
+
+    - ``start`` and every ``p`` are bare columns of the target table itself, and the
+      LEAD reads the very column it orders by;
+    - the window reads every row of the target: each scope down to the table reads one
+      input and carries no logic block, and the window's own scope only windows;
+    - the value reaches ``end`` unchanged (a ``COALESCE(…, literal)`` on the way is the
+      default) through scopes that carry no logic block either;
+    - the write is an ``INSERT OVERWRITE`` of the whole table that writes ``start`` and
+      every ``p`` back as themselves, or a MERGE whose ON is exactly the same-name
+      equalities on ``p`` and ``start`` and whose every WHEN is an unconditional matched
+      UPDATE. A MERGE carries ``condition``: it matches on (p, start), which nothing
+      proves unique in the table.
+
+    Within one ``p``, ordered by ``start``, row i's ``end`` is row i+1's ``start``, so a
+    read ``start <= X AND end > X`` keeps at most one row per ``p``. A later statement
+    of the same task writing ``start`` or ``end`` withdraws the fact
+    (:func:`_drop_overwritten_windows`); another task's writer is checked by the reader,
+    on the table card.
+    """
+    target = str(document.get("target_table") or "")
+    kind = str(document.get("stmt_kind") or "")
+    if not target or kind not in ("MERGE", "INSERT_OVERWRITE"):
+        return None
+    if kind == "INSERT_OVERWRITE" and document.get("target_partition_columns"):
+        return None
+    for output in (_scopes(document).get(_ROOT) or {}).get("outputs") or []:
+        found = _window_feeding(document, output)
+        if found is None:
+            continue
+        scope_id, spec, default = found
+        window = _lead_window(document, target, scope_id, spec, default)
+        if window is None:
+            continue
+        window["end"] = _written_column(output)
+        if kind == "MERGE":
+            if not _merges_on_window(document, window):
+                continue
+            window["condition"] = VALIDITY_CONDITION_ROWS_UNIQUE
+        elif not all(
+            _writes_back_itself(document, target, column)
+            for column in [*window["partition"], window["start"]]
+        ):
+            continue
+        return {key: window[key] for key in _VALIDITY_WINDOW_KEY_ORDER if window.get(key)}
+    return None
+
+
+def _written_column(output: dict) -> str:
+    """The target column a ROOT output writes."""
+    targets = [str(item) for item in output.get("final_target_columns") or []]
+    return targets[0].rsplit(".", 1)[-1] if targets else str(output.get("name") or "")
+
+
+def _window_feeding(document: dict, output: dict) -> tuple[str, dict, str | None] | None:
+    """``(window scope, window specification, COALESCE default)`` behind a ROOT output.
+
+    The walk goes down through bare references (or one ``COALESCE(x, literal)``) in
+    scopes with no logic block, and stops at the scope whose window block publishes the
+    output's name. ROOT itself may carry the window (an ``INSERT OVERWRITE`` projecting
+    it directly).
+    """
+    scope_id, current, default = _ROOT, output, None
+    for _ in range(GRAIN_DEPTH_LIMIT):
+        name = str(current.get("name") or "")
+        windows = [
+            block.get("window_specification")
+            for block in _scope_blocks(document, scope_id)
+            if isinstance(block.get("window_specification"), Mapping)
+            and str(block["window_specification"].get("output_field") or "") == name
+        ]
+        if windows:
+            if {str(b.get("logic_type")) for b in _scope_blocks(document, scope_id)} != {"window"}:
+                return None
+            return scope_id, windows[0], default
+        if _scope_blocks(document, scope_id):
+            return None
+        expression = current.get("expression")
+        wrapped = semantic_text.coalesced_column(expression)
+        if wrapped is not None:
+            if default is not None:
+                return None
+            expression, default = wrapped
+        sources = current.get("sources") or []
+        if _bare_column_name(expression) is None or len(sources) != 1:
+            return None
+        below = str(sources[0].get("scope") or "")
+        column = str(sources[0].get("column") or "").lower()
+        current = next(
+            (
+                item
+                for item in (_scopes(document).get(below) or {}).get("outputs") or []
+                if str(item.get("name") or "").lower() == column
+            ),
+            None,
+        )
+        if current is None:
+            return None
+        scope_id = below
+    return None
+
+
+def _lead_window(
+    document: dict, target: str, scope_id: str, spec: Mapping, default: str | None
+) -> dict | None:
+    """``{start, partition, default}`` when ``spec`` is a LEAD over every row of ``target``."""
+    if str(spec.get("window_function") or "").lower() != "lead":
+        return None
+    call = semantic_text.lead_call(spec.get("expression_sql"))
+    order = list(spec.get("order_by") or [])
+    if call is None or len(order) != 1:
+        return None
+    if str(order[0].get("direction") or "ASC").upper() != "ASC":
+        return None
+    argument, lead_default = call
+    if _bare_column_name(argument) != _bare_column_name(order[0].get("expression_sql")):
+        return None
+    columns = []
+    for item in [*(spec.get("partition_by") or []), order[0]]:
+        fields = _physical_fields(item.get("expression_resolution"))
+        if (
+            _bare_column_name(item.get("expression_sql")) is None
+            or len(fields) != 1
+            or not glossary_values.same_table(fields[0][0], target)
+        ):
+            return None
+        columns.append(fields[0][1])
+    if len(columns) < 2 or not _reads_every_row_of(document, scope_id, target):
+        return None
+    return {
+        "start": columns[-1],
+        "partition": columns[:-1],
+        "default": default if default is not None else lead_default,
+    }
+
+
+def _reads_every_row_of(document: dict, scope_id: str, table: str) -> bool:
+    """Each scope below ``scope_id`` reads one input and carries no block, down to ``table``."""
+    current = scope_id
+    for _ in range(GRAIN_DEPTH_LIMIT):
+        inputs = _scope_inputs(document, current)
+        if len(inputs) != 1:
+            return False
+        below = inputs[0]
+        if below not in _scopes(document):
+            return glossary_values.same_table(below, table)
+        if _scope_blocks(document, below):
+            return False
+        current = below
+    return False
+
+
+def _merges_on_window(document: dict, window: Mapping) -> bool:
+    """A MERGE on exactly ``partition`` + ``start``, every WHEN an unconditional UPDATE."""
+    spec = document.get("merge_spec") or {}
+    whens = list(spec.get("whens") or [])
+    if spec.get("other_on_conditions") or not whens:
+        return False
+    if any(
+        str(when.get("clause")) != "matched"
+        or str(when.get("action")) != "update"
+        or when.get("condition")
+        for when in whens
+    ):
+        return False
+    pairs = list(spec.get("key_pairs") or [])
+    if any(
+        _comparable([str(pair.get("target"))]) != _comparable([str(pair.get("source"))])
+        for pair in pairs
+    ):
+        return False
+    keys = [str(pair.get("target")) for pair in pairs]
+    wanted = [*window["partition"], window["start"]]
+    return len(keys) == len(wanted) and _comparable(keys) == _comparable(wanted)
+
+
+def _writes_back_itself(document: dict, target: str, column: str) -> bool:
+    """ROOT writes ``column`` as the bare same-name column of ``target`` itself."""
+    for output in (_scopes(document).get(_ROOT) or {}).get("outputs") or []:
+        if _written_column(output).lower() != column.lower():
+            continue
+        fields = _physical_fields(output.get("expression_resolution"))
+        return (
+            _bare_column_name(output.get("expression")) is not None
+            and len(fields) == 1
+            and glossary_values.same_table(fields[0][0], target)
+            and fields[0][1].lower() == column.lower()
+        )
+    return False
+
+
+def _drop_overwritten_windows(pairs: Sequence[tuple[dict, dict]]) -> None:
+    """A later statement of the task writing the window's start or end withdraws it (G6)."""
+    for index, (document, profile) in enumerate(pairs):
+        shape = profile.get("output_shape") or {}
+        window = shape.get("validity_window")
+        if not window:
+            continue
+        columns = _comparable([window["start"], window["end"]])
+        for later, later_profile in pairs[index + 1:]:
+            if not glossary_values.same_table(
+                str(later.get("target_table") or ""), str(document.get("target_table") or "")
+            ):
+                continue
+            written = _comparable(str(field.get("column")) for field in later_profile.get("fields") or [])
+            if written & columns:
+                del shape["validity_window"]
+                break
 
 
 # ---------------------------------------------------------------- statement document
@@ -3235,6 +3460,7 @@ def _build_output_shape(
     risks = [risk for risk, _level in decided]
     keys, unexposed, key_evidence, confidence = _key_block(document, grain, decided)
     merge = _merge_shape(document, fields)
+    validity = _validity_window(document)
     return {
         "shape": shape,
         "shape_evidence": evidence,
@@ -3252,6 +3478,8 @@ def _build_output_shape(
         "fan_out_risks": risks,
         # #22: only on a MERGE -- see `_merge_shape`.
         **({"merge": merge} if merge else {}),
+        # Round-3 G6: only when the target's end column is LEAD of its start.
+        **({"validity_window": validity} if validity else {}),
         "tag": TAG_STRUCTURAL_INFERENCE,
         # WP6: the claim behind `key_confidence` -- which rule, about which write, under
         # which open condition. Null exactly when no key is claimed.
@@ -5015,6 +5243,11 @@ def _fan_out_verdict(
         return "safe", _values_reason(listed), None, None, []
     subset = _row_subset_of_table(document, right, columns)
     if subset is not None:
+        # G6 first: a validity window answers a MERGE-written table, whose key claim the
+        # card can only defeat.
+        window = _validity_read(document, detail, right, subset[0], card_lookup)
+        if window is not None:
+            return (*_validity_verdict(window), [])
         carded = _card_verdict(subset[0], detail, card_lookup, subset[1])
         if carded:
             return (*carded, [])
@@ -5082,11 +5315,162 @@ def _fan_out_claim(
     subset = _row_subset_of_table(document, right, columns)
     if subset is None:
         return None
+    window = _validity_read(document, detail, right, subset[0], card_lookup)
+    if window is not None:
+        return _validity_claim(window)
     card = card_lookup(subset[0])
     claim = _card_key_claim(card)
     if claim is None or claim.defeaters:
         return claim
     return _read_claim(claim, detail, subset[1], _card_partition_columns(card))
+
+
+def _validity_read(
+    document: dict, detail: dict, right: str, table: str, card_lookup
+) -> dict | None:
+    """What a JOIN onto a point-in-time read of a LEAD-written table may rely on (G6).
+
+    ``right`` is a row subset of ``table`` (:func:`_row_subset_of_table`). Its card must
+    carry one writer's ``validity_window``, and:
+
+    - no producer of another task writes the window's start or end (the writer's own
+      task was checked when its profile was built); the corpus holding every writer is
+      the premise ``A-WRITERS-CLOSED``;
+    - the subset's filters hold ``start <= X`` and ``end > X`` for one literal or
+      parameter ``X`` (either side of the comparison);
+    - the ON clause's right-hand columns cover the window's partition;
+    - start and end are declared the same type here (both unknown counts as the same).
+
+    Returns the facts the verdict and the claim are written from, or None.
+    """
+    if card_lookup is None:
+        return None
+    card = card_lookup(table)
+    producers = list((card or {}).get("produced_by") or [])
+    writers = [producer for producer in producers if producer.get("validity_window")]
+    if not writers or any(
+        producer["validity_window"] != writers[0]["validity_window"] for producer in writers
+    ):
+        return None
+    writer = writers[0]
+    window = writer["validity_window"]
+    start, end, partition = str(window["start"]), str(window["end"]), list(window["partition"])
+    own = _comparable([start, end])
+    for producer in producers:
+        if str(producer.get("task")) == str(writer.get("task")):
+            continue
+        if _comparable(str(field.get("column")) for field in producer.get("fields") or []) & own:
+            return None
+    columns = _join_side_columns(detail, "right")
+    if not partition or not _comparable(partition) <= _comparable(columns):
+        return None
+    point = _validity_point(document, right, start, end)
+    if point is None:
+        return None
+    metadata = _input_metadata(document).get(table) or {}
+    if len({str(_column_detail(metadata, name).get("type") or "").lower() for name in (start, end)}) != 1:
+        return None
+    named = _comparable([*partition, start, end, *_card_partition_columns(card)])
+    write_keys = _dedupe(
+        str(key) for producer in producers for key in producer.get("batch_write_keys") or []
+    )
+    statement = writer.get("statement_id")
+    return {
+        "right": str(detail.get("right_input") or right),
+        "task": str(writer.get("task")),
+        "label": f"{writer.get('task')}/{statement}" if statement else str(writer.get("task")),
+        "window": window,
+        "point": point,
+        "on_extra": [column for column in columns if not _comparable([column]) & _comparable(partition)],
+        "write_extra": [key for key in write_keys if not _comparable([key]) & named],
+    }
+
+
+def _validity_point(document: dict, right: str, start: str, end: str) -> str | None:
+    """The one ``X`` the subset's filters read ``start <= X AND end > X`` at, or None."""
+    chain = _single_input_chain(document, right)
+    if not all(_carried_through(document, chain, name.lower()) for name in (start, end)):
+        return None
+    lower: set[str] = set()
+    upper: set[str] = set()
+    for scope_id in chain:
+        for block in _blocks_of_type(document, scope_id, "filter"):
+            for conjunct in (block.get("filter_predicate_detail") or {}).get("conjuncts") or []:
+                bound = semantic_text.bound_conjunct(conjunct.get("expression"))
+                if bound is None or bound[3] not in _PINNING_VALUE_KINDS:
+                    continue
+                column, operator, value, _kind = bound
+                if column.lower() == start.lower() and operator == "<=":
+                    lower.add(value)
+                elif column.lower() == end.lower() and operator == ">":
+                    upper.add(value)
+    both = sorted(lower & upper)
+    return both[0] if both else None
+
+
+def _validity_verdict(read: Mapping) -> tuple[str, str, str, None]:
+    """``(status, reason, basis, level)`` for a point-in-time read of a LEAD-written table.
+
+    Only ``safe`` when the writer overwrites the whole table; a MERGE writer leaves the
+    condition that (partition, start) is not repeated, so the answer is ``unknown`` with
+    that condition and its consequence written out (R-VALIDITY-WINDOW).
+    """
+    window = read["window"]
+    start, end, partition = window["start"], window["end"], list(window["partition"])
+    names = "、".join(partition)
+    pair = f"({', '.join([*partition, start])})"
+    reason = (
+        f"表卡：{read['label']} 以 LEAD({start}) OVER (PARTITION BY {', '.join(partition)}"
+        f" ORDER BY {start}) 写 {end}，有效期首尾相接；本侧按 {start} <= {read['point']} < {end} 读"
+    )
+    condition = window.get("condition")
+    if condition:
+        reason += (
+            f"：若表中 {pair} 不重复，每个 {names} 至多一行有效、不放大；"
+            f"{pair} 重复时该 MERGE 多行匹配，结果取决于引擎"
+        )
+    else:
+        reason += f"：每个 {names} 至多一行有效、不放大"
+    if read["write_extra"]:
+        extra = "、".join(read["write_extra"])
+        reason += (
+            f"；写入键比窗口分区多出 {extra}：{extra} 不同的版本共用一条时间线，"
+            f"会被另一个 {extra} 的下一个 {start} 关掉"
+        )
+        if condition:
+            reason += f"，{extra} 不同而 {start} 相同时 {pair} 重复"
+        if not read["on_extra"]:
+            reason += f"；ON 不按 {extra} 关联，关联到的有效行可能是另一个 {extra} 的版本"
+    if read["on_extra"]:
+        extra = "、".join(read["on_extra"])
+        reason += f"；ON 另按 {extra} 关联：{names} 唯一的那一行有效记录若 {extra} 不同，则关联不到"
+    status = "unknown" if condition else "safe"
+    return status, reason, FAN_OUT_BASIS_TABLE_CARD, None
+
+
+def _validity_claim(read: Mapping) -> claims.Claim:
+    """The read view is unique by the window's partition (R-VALIDITY-WINDOW).
+
+    Proven for a whole-table overwrite; ``conditional`` on ``validity_rows_unique`` for a
+    MERGE writer. Either way it rests on the corpus holding every writer of the table.
+    """
+    window = read["window"]
+    partition = tuple(str(column) for column in window["partition"])
+    claim = claims.Claim(
+        kind="unique_by",
+        subject=claims.Subject(claims.SUBJECT_READ_VIEW, (read["right"],)),
+        content=partition,
+        status=claims.PROVEN,
+        rule="R-VALIDITY-WINDOW",
+        evidence=(read["task"],),
+        assumptions=("A-WRITERS-CLOSED",),
+    )
+    condition = window.get("condition")
+    if not condition:
+        return claim
+    return replace(
+        claim, conditions=((str(condition), (*partition, str(window["start"]))),)
+    ).weakened_to(claims.CONDITIONAL)
 
 
 def _keyless_join_verdict(detail: dict) -> tuple[str, str]:

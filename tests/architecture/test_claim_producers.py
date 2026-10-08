@@ -54,6 +54,8 @@ PRODUCERS: dict[str, tuple[str, ...]] = {
     "render/semantic_profile.py:_card_verdict": (
         "R-REPLACE-STATE", "R-PARTITION-STATE", "R-READ-PIN", "R-PRODUCERS-AGREE",
     ),
+    "render/semantic_profile.py:_validity_verdict": ("R-VALIDITY-WINDOW",),
+    "render/semantic_profile.py:_validity_claim": ("R-VALIDITY-WINDOW",),
     "render/semantic_profile.py:_capped_confidence": ("R-CANDIDATE-CAP",),
     "render/semantic_profile.py:_read_claim": ("R-READ-PIN",),
     "render/semantic_profile.py:_output_key_claim": (

@@ -101,13 +101,15 @@ PROFILE_FIELDS_READ = {
             "declared_columns",
             "read_by_scopes",
         ),
-        # `merge` and `partition_columns` are what `batch_write_keys` reads (M4).
+        # `merge` and `partition_columns` are what `batch_write_keys` reads (M4);
+        # `validity_window` is copied onto the producer entry (round-3 G6).
         "output_shape": (
             "grain",
             "candidate_keys",
             "key_confidence",
             "partition_columns",
             "merge",
+            "validity_window",
         ),
         "fields": ("column", "target_comment", "summary", "structural_role"),
     },
@@ -153,6 +155,7 @@ PRODUCER_KEY_ORDER = (
     "candidate_keys",
     "key_confidence",
     "batch_write_keys",
+    "validity_window",
     "fields",
     "refresh",
     "header_comments",
@@ -552,6 +555,9 @@ def _producer_entry(record: _Statement) -> dict:
         # M4: the batch's key under target column names, for a window reading the table
         # in another task; present only when there is one.
         "batch_write_keys": batch_write_keys(shape),
+        # Round-3 G6: the end column is LEAD of the start; a reader of a point in time
+        # reads it (`semantic_profile._validity_read`). Present only when there is one.
+        "validity_window": shape.get("validity_window"),
         "fields": [_producer_field(field) for field in statement.get("fields") or []],
         "refresh": refresh_from_task_meta(task_block.get("meta")),
         "header_comments": [str(item) for item in task_block.get("header_comments") or []],
@@ -560,7 +566,7 @@ def _producer_entry(record: _Statement) -> dict:
     return {
         key: entry[key]
         for key in PRODUCER_KEY_ORDER
-        if key != "batch_write_keys" or entry[key]
+        if key not in ("batch_write_keys", "validity_window") or entry[key]
     }
 
 

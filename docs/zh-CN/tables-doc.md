@@ -209,6 +209,10 @@ merged = merge_table_cards(first_tables_json, second_tables_json)
   分组——MERGE 取 USING 的去重键，其他取 `candidate_keys`，分区列除外。这是批次键，不是表键；
   另一个任务里读这张表的窗口拿它来比较
   （见 [semantic-doc.md](semantic-doc.md) 的 `window_partition_narrower`）。
+- `produced_by[].validity_window`（第三轮 G6），只在该生产语句写出有效期窗口时出现：
+  原样复制语义画像的 `output_shape.validity_window`（`{start, end, partition, default?, condition?}`，
+  见 [semantic-doc.md](semantic-doc.md)）——结束列是 `LEAD(开始) OVER (PARTITION BY 分区 ORDER BY 开始)`。
+  另一个任务按时点读这张表时拿它判 fan_out（见下文「表卡参与 fan_out 判定」）。
 - `consumed_by[].columns` 只列**确实被逻辑块读到**的列；`columns[]` 则是元数据声明的全部
   字段（`related_metadata.*.declared_columns[]`，按 DDL 顺序）与生产侧字段、消费侧列的并集，
   因此一张只被读的表也有完整字段清单，一张八十列的表不会因为本语料只读了四列就只剩四列。
@@ -355,6 +359,7 @@ scope-lineage describe --lineage /path/to/corpus/one_task/lineage.json \
 | 表卡 `key_confidence` 是 `proven_unexposed` 或 `none`，或连接键没盖住候选键 | 不改判，仍是原来的结论 |
 | 有生产任务以追加（`INSERT INTO`）或合并（`MERGE`）方式写这张表，或多个生产任务给出的候选键不一致 | 改判 `unknown`，`reason` 说明原因：键只在单批写入内唯一 / 读到哪一版取决于调度顺序（F2） |
 | JOIN 右侧不是物理表本身，而是只装着一张表的行的子查询或 CTE——到那张表为止的每一层都只读一个输入、只做过滤，连接列原样透传到表（G5a-2） | 按上面各行去问那张表的表卡，沿途 WHERE 的等值条件算作钉住；表卡没有答复时保持原判定 |
+| 同上的行子集按某一时点读表：沿途 WHERE 的顶层合取项里有 `开始 <= X` 与 `结束 > X`（反写 `X >= 开始`、`X < 结束` 也认），X 是同一个字面量或 `${…}`；表卡上有一个生产语句带 `validity_window`，ON 的右侧列覆盖它的 `partition`，本语句元数据里开始、结束两列声明类型相同，且别的任务的生产语句都不写这两列（第三轮 G6） | 先于上面各行判定。窗口写入是整表覆盖时判 `safe`；是 MERGE 时判 `unknown`，因为 MERGE 按（分区, 开始）匹配，而表里没有任何事实证明这一对不重复。`reason` 写「表卡：<任务>/<语句> 以 LEAD(开始) OVER (PARTITION BY 分区 ORDER BY 开始) 写 结束，有效期首尾相接；本侧按 开始 <= X < 结束 读」，再写结论与条件（「若表中 (分区, 开始) 不重复，每个分区至多一行有效、不放大；重复时该 MERGE 多行匹配，结果取决于引擎」）；表卡上各生产语句的 `batch_write_keys` 比窗口分区多出列时写「写入键比窗口分区多出 <列>」及其后果，ON 比窗口分区多出列时写「ON 另按 <列> 关联……则关联不到」。`basis` 为 `table_card`，`claim` 的规则是 `R-VALIDITY-WINDOW`（MERGE 时 `conditional`，`conditions` 为 `[["validity_rows_unique", [分区…, 开始]]]`，前提 `A-WRITERS-CLOSED`）。以 hash 比对等方式关闭旧版本的拉链表不在此列：单条 SQL 证明不了它的区间不重叠 |
 | 生产任务按分区写入，而连接既没有在 ON 中对齐分区列、也没有在 WHERE 里把右表的分区列钉成常量 | 改判 `unknown`，`reason` 说明键只在每个分区内唯一；分区列被对齐或钉住时照常判 `safe`（F2） |
 
 `candidate_keys`、`unexposed_keys`、`key_evidence`、`key_confidence` 都由最终的风险集合算出——

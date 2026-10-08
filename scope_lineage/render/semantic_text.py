@@ -719,6 +719,66 @@ def _and_conjuncts(node: exp.Expression) -> list[exp.Expression]:
     return [node]
 
 
+# ``value <op> column`` read as ``column <flipped op> value``.
+_BOUND_OPERATORS = {exp.LT: "<", exp.LTE: "<=", exp.GT: ">", exp.GTE: ">="}
+_FLIPPED = {"<": ">", "<=": ">=", ">": "<", ">=": "<="}
+
+
+def bound_conjunct(expression: str | None) -> tuple[str, str, str, str] | None:
+    """``(column name, operator, rendered value, value kind)`` for a one-sided bound (G6).
+
+    ``beg <= '20250101'`` and ``'20250101' >= beg`` both read as ``('beg', '<=',
+    "'20250101'", 'literal')``: the column is put on the left and the operator turned
+    with it. The value must be a literal or a parameter; a bound by another column or
+    an expression is None, and so is anything that is not ``<`` / ``<=`` / ``>`` / ``>=``.
+    """
+    node = _unwrap(parse_expression(expression))
+    operator = next(
+        (text for kind, text in _BOUND_OPERATORS.items() if type(node) is kind), None
+    )
+    if operator is None:
+        return None
+    left, right = node.this, node.expression
+    if isinstance(right, exp.Column) and not isinstance(left, exp.Column):
+        left, right, operator = right, left, _FLIPPED[operator]
+    if not isinstance(left, exp.Column) or not isinstance(right, (exp.Literal, exp.Parameter)):
+        return None
+    return left.name, operator, expression_text(right), _value_kind(right)
+
+
+def lead_call(expression: str | None) -> tuple[str, str | None] | None:
+    """``(rendered argument, rendered default or None)`` for ``LEAD(x[, 1[, default]]) OVER …``.
+
+    The offset must be absent or the literal ``1``: only the very next row's start makes
+    back-to-back intervals (G6). Anything else -- LAG, another offset, a non-window call
+    -- is None.
+    """
+    node = _unwrap(parse_expression(expression))
+    if not isinstance(node, exp.Window):
+        return None
+    call = node.this
+    if type(call).__name__ != "Lead" or call.this is None:
+        return None
+    offset = call.args.get("offset")
+    if offset is not None and not (
+        isinstance(offset, exp.Literal) and not offset.is_string and str(offset.this) == "1"
+    ):
+        return None
+    default = call.args.get("default")
+    return expression_text(call.this), expression_text(default) if default is not None else None
+
+
+def coalesced_column(expression: str | None) -> tuple[str, str] | None:
+    """``(rendered first argument, rendered literal)`` for a whole ``COALESCE(x, <literal>)``."""
+    node = _unwrap(parse_expression(expression))
+    if not isinstance(node, exp.Coalesce):
+        return None
+    rest = list(node.expressions or [])
+    if node.this is None or len(rest) != 1 or not isinstance(rest[0], exp.Literal):
+        return None
+    return expression_text(node.this), expression_text(rest[0])
+
+
 # ------------------------------------------------- metric definition slots (WI-2.1)
 
 # A conjunct that bounds a value rather than pinning it. It is its own kind because a

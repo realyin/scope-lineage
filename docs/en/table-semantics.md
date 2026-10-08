@@ -202,7 +202,10 @@ right side: a `db.table`, or the profile's scope id such as `subq:p`), `right_al
 behind it) and `fan_out`, the profile's verdict on whether the right side is unique on the
 join keys (`{status, reason, path}`, `status` one of `safe` / `risk` / `unknown`; `null`
 for a join on no path the profile walked); `packet.md` shows it in the rules table's
-行数放大 column. A verdict off the grain path (`path` `argument` / `anchor`) carries
+行数放大 column. When a join reads, at one point in time, a table whose end date is written
+by `LEAD(start)` (round-3 G6, see "Cards decide a fan-out" in [tables-doc.md](tables-doc.md)),
+the `reason` states the validity window, the condition under which each partition has at most
+one valid row, and what follows when it fails; with a MERGE writer the `status` stays `unknown`. A verdict off the grain path (`path` `argument` / `anchor`) carries
 `verdict_aggregate`, the aggregating scope it sits under, and the cell reads 「status（位于聚合 X
 之下：不复制输出行，可能让聚合值重复计入）：reason」; a `risk` / `unknown` verdict whose right side
 holds a ranking nobody filters lists those `window` rows in `unfiltered_ranking: [p…]`
