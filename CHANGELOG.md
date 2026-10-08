@@ -1,5 +1,39 @@
 # Changelog
 
+## Unreleased
+
+### Semantic profile (`semantic-json/1`, format unchanged)
+- **Meaning change -- `fields[].nullable_by_join` is decided per UNION branch and means "at
+  least one branch is proven nullable".** A chain through a UNION used to be walked as one
+  straight line: a COALESCE in one branch did not clear another branch's nullable step, so
+  a whole column was flagged, and a column nullable in one branch only was missed when
+  the branches read different tables. The chain is now split at its UNION and each branch
+  is judged alone. New `fields[].nullable_by_join_branches` lists the nullable branches
+  (numbered as `output_shape.merge.union_branches[].branch`) when they are not all of them;
+  no key means the whole column. The field summary reads 「（UNION 分支 N 关联未命中时为空）」,
+  and `metric_spec.null_handling.nullable_by_join_branches` and the metric card follow.
+  **Downstream code that reads `nullable_by_join` as "the whole column may be NULL" must
+  also read `nullable_by_join_branches`.** A chain without a UNION is judged as before.
+- **Meaning change -- `fields[].sql_comments` holds only the comments of the steps that carry
+  the field's own value.** The walk climbs from the chain's last step through pass-throughs,
+  UNIONs and cleaning IF / CASE / COALESCE steps only; a computing step keeps its own
+  comment, but its inputs' comments (another quantity) no longer travel. CAST and TRIM are
+  not cleaning.
+- MERGE (`output_shape.merge`), every new key present only with content, in a fixed key
+  order: `matched_target_pins` (the value every matched WHEN pins a target column to),
+  `using_writer_keys` (a USING side of one table's rows, whose writer keys its batch on
+  columns the merge key lacks), `update_nullable_by_join_branches` (matched-UPDATE columns
+  only some UNION branches may blank out; `update_nullable_by_join` keeps the columns every
+  branch may blank) and `update_filled_on_miss` (a matched-UPDATE column a branch fills with
+  a literal right after a LEFT JOIN that may miss).
+- New governance finding `literal_outside_comment_codes` (`warn`): a column compared with a
+  string literal its comment's code list does not contain, `【…】` annotation blocks removed
+  before the codes are read and a literal found in the comment as a substring not reported.
+  The table-semantics packet carries it in `lineage.findings`.
+- New library function `grain_key_columns(document, grain)`: the target column each logical
+  grain key lands on (`exposed`, `merge_on`, `derived` or `unexposed`).
+- Packets of affected tables get a new `packet_digest`.
+
 ## 0.7.0
 - **Table semantics that survive a review loop, MERGE targets read as the batch they
   write, and a catalog that says where its codes live.** One report format moves:

@@ -65,7 +65,7 @@ v1 的 L1–L9 不再作正文。风险边界表留在读者文档的附录 C；
 `post_aggregation`（聚合后加工：排名、环比、封顶等）。它只出现在指标类字段上，槽位证不出来时
 为 `null`——**照写「未知」，不要补一个合理的值**。骨架版本较旧、`fields[]` 里没有 `metric_spec`
 键时降级：自己从 `rules[]`（纳入条件、时间过滤）、`fields[].derivation[]`（聚合函数与粒度）、
-`fields[].type` / `target_comment`（单位）、`nullable_by_join` 与 COALESCE（空值）、任务元信息
+`fields[].type` / `target_comment`（单位）、`nullable_by_join`（带 `nullable_by_join_branches` 时只对这些 UNION 分支成立）与 COALESCE（空值）、任务元信息
 （更新频率）拼出同样 7 行，并把整张卡标 `[推断]`。
 
 **SQL 注释与任务元信息现在在骨架里**，按路径取：
@@ -126,7 +126,7 @@ v1 每句挂 `SQL事实` / `LLM推断` 让语义说明读起来像审计日志�
 | `candidate_key` / `key_confidence=proven` / `proven_unexposed` / `candidate` / `none` | 能唯一标识一行的列 / 确实唯一 / **唯一性依赖的列没写进表，现有列不能唯一标识一行** / 只是候选，是否唯一未证明 / 没有能唯一标识一行的列 |
 | `keep_latest_per_group` / `keep_first_per_group` / `keep_arbitrary_per_group` / `rank_within_group` | 每个对象只留最新一条 / 只留最早一条 / 排序不起作用、每个对象留任意一条 / 组内排名（不筛第一名） |
 | `pick_first_in_group` / `pick_last_in_group` / `adjacent_row_offset` / `running_aggregate` | 取组内第一条的值 / 最后一条的值 / 相邻一行的值 / 累计值 |
-| `fan_out_risks[].status=risk` / `nullable_by_join` | 这次关联可能让一行变成多行 / 关联不上时这列为空 |
+| `fan_out_risks[].status=risk` / `nullable_by_join` | 这次关联可能让一行变成多行 / 关联不上时这列为空（带 `nullable_by_join_branches` 时只说这些 UNION 分支的行） |
 | `measure` / `event_time` / `conditional_label` / `attribute` / `constant` / `derived` / `partition` | 指标 / 时间 / 按条件打的标签 / 属性 / 固定值 / 算出来的 / 分区列 |
 
 ### 硬性要求（一条都不放宽）
