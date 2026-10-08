@@ -443,6 +443,56 @@ def test_the_text_report_lists_failures_as_a_rewrite_prompt(
     assert "[9 time] summary.refresh.time" in out
 
 
+# numbers and checks with nothing to check ----------------------------------------------
+
+
+def test_every_failure_carries_its_check_number(document: dict, packet: dict) -> None:
+    del document["columns"][1]
+    document["summary"]["refresh"]["time"] = "incremental"
+    failures = validate_document(document, packet)["failures"]
+    assert {item["check"] for item in failures} == {"coverage", "time"}
+    assert all(item["number"] == CHECKS.index(item["check"]) + 1 for item in failures)
+    assert {item["number"] for item in failures} == {1, 9}
+
+
+def test_checks_with_nothing_to_check_are_listed_by_number(document: dict, packet: dict) -> None:
+    report = validate_document(document, packet)
+    reported = set(report["checks"])
+    assert report["not_reported"] == [
+        {"number": number, "check": name}
+        for number, name in enumerate(CHECKS, 1) if name not in reported
+    ]
+    # The demo table has no join, no CASE output and no header lifecycle.
+    assert {"fan_out", "derived_codes", "header_facts"} <= {
+        item["check"] for item in report["not_reported"]
+    }
+
+
+def test_a_report_lists_no_check_as_unreported_when_none_ran(
+    tmp_path: Path, packets: Path, document: dict, capsys
+) -> None:
+    document["table"] = "demo_dwd.dwd_no_such_table"
+    directory = _write_example(tmp_path, document)
+    write_json(directory / "demo_dwd.other.json", {"doc_format": "something-else/1"})
+    run("semantic", "validate", directory, "--packets", packets, "--json")
+    tables = json.loads(capsys.readouterr().out)["tables"]
+    assert [table["not_reported"] for table in tables] == [[], []]
+    assert tables[1]["failures"] == [] and tables[1]["schema_errors"]
+
+
+def test_the_text_report_names_the_checks_with_nothing_to_check(
+    tmp_path: Path, packets: Path, document: dict, capsys
+) -> None:
+    directory = _write_example(tmp_path, document)
+    run("semantic", "validate", directory, "--packets", packets, "--json")
+    (table,) = json.loads(capsys.readouterr().out)["tables"]
+    run("semantic", "validate", directory, "--packets", packets)
+    lines = capsys.readouterr().out.splitlines()
+    names = "、".join(f"{item['number']} {item['check']}" for item in table["not_reported"])
+    assert lines[1] == f"  无可查条目：{names}"
+    assert lines[0].startswith(f"{DEMO_TABLE}: ")
+
+
 # --only ---------------------------------------------------------------------------
 
 
