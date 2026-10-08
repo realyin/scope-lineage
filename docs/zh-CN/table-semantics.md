@@ -423,8 +423,8 @@ Validated 1 document(s): 0 clean, 1 with failures, 0 with warnings only, 0 with 
 
 | 退出码 | 条件 |
 | --- | --- |
-| 0 | 所有文档都通过 Schema（交叉检查的失败只报告，不致命） |
-| 1 | 至少一份文档有 Schema 错误，或目录里没有 JSON |
+| 0 | 所有文档都通过 Schema，且没有交叉检查失败（允许有警告） |
+| 1 | 至少一份文档有 Schema 错误或交叉检查失败（`packet_digest` 过期、没有材料包都算；报告照常打印），或目录里没有 JSON |
 | 2 | 文档目录或 `--packets` 不存在 |
 
 ## 独立审读与修订
@@ -523,7 +523,8 @@ scope-lineage semantic fixed <run> --only <db.table> ... [--packets <dir>] [--do
 `fixed_doc_digest: <文档摘要>` 写进审读的 front matter（已有就替换；文件其他内容一字不动）：这张表有材料包、
 有既不 `invalid` 也不 `packet_stale` 的文档、有 front matter 完整的审读；审读写明了它读的材料包，且就是文档的
 `packet_digest`；文档不是审读读的那一版。否则这张表什么都不写，原因打到标准错误。新的审读会覆盖审读文件，
-回执随之消失。回执不由模型手写。
+回执随之消失。回执不由模型手写；除了这条命令，只有 `semantic confirm` 会把已有的认可移到确认后的文档上
+（见 `semantic confirm`）。
 
 | 退出码 | 条件 |
 | --- | --- |
@@ -630,7 +631,7 @@ Status of 3 table(s): no_packet 0, packet 1, drafted 1, valid 1, reviewed 0, fix
 ## `semantic confirm`
 
 ```bash
-scope-lineage semantic confirm <documents> --confirmations <file> [--out <dir>]
+scope-lineage semantic confirm <documents> --confirmations <file> [--out <dir> | --reviews <dir>]
 ```
 
 确认文件是 `semantic-confirmations/1` 文档（Schema：`scope_lineage/schemas/semantic-confirmations.schema.json`）。
@@ -660,13 +661,20 @@ scope-lineage semantic confirm <documents> --confirmations <file> [--out <dir>]
 
 每条已套用的确认记入 `confirmed[]`，同一文件套用两次，第二次不改变任何东西。表、问题或列不存在、值的形状不对、
 或套用后文档会违反 Schema 的确认，**不套用、也不丢弃**：摘要行计入 `unmatched`，并逐条列出原因。不给 `--out`
-时就地改写有变化的文档；给了 `--out` 时所有文档写到那里，原文件不动。确认文件本身格式不对时退出码 2。
+时就地改写有变化的文档；给了 `--out` 时所有文档写到那里，原文件不动。确认文件本身格式不对时退出码 2，
+`--reviews` 与 `--out` 同时给也是 2。
+
+owner 的回答不是要修订者再看一遍的修改。就地确认时，工具读这一轮的审读（`--reviews`，不给时用 `<documents>`
+旁边的 `reviews/`，存在才读）：有变化的表，如果它的审读已经认可确认前的文档（`semantic status` 原本会判为 `fixed`
+或 `rendered`），就把修订回执移到确认后的文档上——`fixed_doc_digest` 改成新摘要，并打印一行
+`<db.table>  fixed_doc_digest <摘要>  <审读路径>`。这张表随后是 `fixed render_stale`：`--next render` 会列出它，
+`--next fix` 不会。审读没有认可的表，审读文件不动（修订还没做完）；给了 `--out` 时不动任何审读。
 
 ## `semantic render`
 
 ```bash
 scope-lineage semantic render <documents> --out <dir> \
-  [--validation <report.json>] [--ontology <ontology.json>]
+  [--validation <report.json>] [--ontology <ontology.json>] [--packets <packet dir>]
 ```
 
 把 `<documents>` 下每份合法的 `table-semantics/1` 文档渲染成一页 `<dir>/<db.table>.md`，再写一页
@@ -679,6 +687,12 @@ scope-lineage semantic render <documents> --out <dir> \
 | `--out` | 是 | 输出目录 |
 | `--validation` | 否 | `semantic validate --json` 写出的 `table-semantics-validation/1` 报告：页面标出未通过的条目，文末加「校验」一节，索引写通过率 |
 | `--ontology` | 否 | `catalog build` 写出的 `ontology.json`：每张表的域与概念取自目录，概念链到 `../concepts/<slug>.md` |
+| `--packets` | 否 | `semantic packet` 的 `--out`（不给时用 `<documents>` 旁边的 `packets/`，存在才读）；只用于下面的警告 |
+
+`packet_stale`（按另一版材料包写成）、`invalid`（`semantic validate` 有检查失败）或没有材料包的文档照常渲染，
+但在 stderr 按标记各打一行点名：`warning: packet_stale (written against another packet: rewrite it whole): <db.table>, ...`。
+标记沿用 `semantic status` 的规则，对照材料包判定；没有材料包时从 `--validation` 报告读，两样都没有时打印一行说明没有检查。
+页面和退出码不变。
 
 ### 表语义页
 
@@ -725,7 +739,7 @@ scope-lineage semantic render <documents> --out <dir> \
 
 | 退出码 | 条件 |
 | --- | --- |
-| 0 | 所有文档都已渲染 |
+| 0 | 所有文档都已渲染（`packet_stale`、`invalid` 的文档也渲染，在 stderr 点名） |
 | 1 | 有文档不合 Schema（其余照常渲染），目录里没有可渲染的文档，或 `--validation` / `--ontology` 的 `doc_format` 不对 |
 | 2 | 文档目录、`--validation` 或 `--ontology` 不存在或读不了 |
 

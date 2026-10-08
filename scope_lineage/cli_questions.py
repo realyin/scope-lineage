@@ -52,7 +52,11 @@ def add_questions_parser(subcommands) -> None:
     )
     sheet.add_argument("set", help=f"A {SET_FORMAT} file")
     sheet.add_argument(
-        "--pages", help="The pages directory the answerer may read (named in the sheet's header)"
+        "--pages",
+        help=(
+            "The pages directory the answerer may read (named in the sheet's header); a "
+            "question whose table has no page there is warned on stderr"
+        ),
     )
     _add_subset_arguments(sheet)
     sheet.add_argument("--out", required=True, help="The sheet (.md)")
@@ -138,7 +142,32 @@ def _run_sheet(args: argparse.Namespace) -> int:
     document, questions = loaded
     _write(Path(args.out), render_answer_sheet(document, questions, pages=args.pages))
     print(f"Wrote {len(questions)} question(s) to {args.out}")
+    if args.pages:
+        _warn_pageless(Path(args.pages), questions)
     return 0
+
+
+def _warn_pageless(pages: Path, questions: list[dict]) -> None:
+    """Name each table a question asks about that has no ``<db.table>.md`` under ``pages``.
+
+    The answerer reads only the pages; a question about a table without one can only be
+    answered "not found". Pages are matched by file name anywhere under ``pages``, a
+    catalog prefix and case ignored; a question about a concept is not checked.
+    """
+    from .semantics.names import bare_table
+
+    if not pages.is_dir():
+        print(f"warning: --pages does not exist: {pages}", file=sys.stderr)
+        return
+    have = {bare_table(path.stem) for path in pages.rglob("*.md")}
+    missing: dict[str, list[str]] = {}
+    for question in questions:
+        table = question.get("table")
+        if table and bare_table(table) not in have:
+            missing.setdefault(table, []).append(question["id"])
+    for table, ids in missing.items():
+        print(f"warning: no page under {pages} for the table of {', '.join(ids)} ({table})",
+              file=sys.stderr)
 
 
 def _run_grading_sheet(args: argparse.Namespace) -> int:
