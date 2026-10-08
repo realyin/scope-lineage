@@ -363,6 +363,76 @@ def test_a_table_joined_on_both_paths_is_still_held_on_the_grain_path() -> None:
     assert _fan_out(packet, "每个 id 一行。", "左关联 pay_ext 不放大。") == [("warn", "summary.watch[0]")]
 
 
+# An alias is unique within one SELECT, not within a packet: every UNION branch and
+# subquery may call its right side ``c``. A sentence naming ``c`` may be about any join
+# that alias stands for, so only a table name, an alias no other right side uses, or the
+# join's rule number (pN) names a join for sure; a shared alias alone warns.
+
+
+def _join(rule_id: str, table: str, alias: str, status: str = "risk") -> dict:
+    return {"id": rule_id, "kind": "join", "join_type": "LEFT_OUTER",
+            "expression": f"a.k = {alias}.k", "task": "t0", "right": f"subq:{alias}",
+            "right_tables": [table], "right_aliases": [alias],
+            "fan_out": {"status": status, "reason": "未证明唯一", "path": "grain"}}
+
+
+def _joins(*rules: dict) -> dict:
+    return {"lineage": {"rules": list(rules)}}
+
+
+AGENT, GROUP, NOTE = "demo_ods.ods_probe_agent_df", "demo_dim.dim_probe_group_dc", "demo_ods.ods_probe_note_df"
+SHARED_C = _joins(_join("p1", AGENT, "c"), _join("p2", GROUP, "c"), _join("p3", NOTE, "d"))
+
+
+def _verdicts(packet: dict, note: str, *risks: str) -> list[dict]:
+    document = {"summary": {"row": {"note": note},
+                            "watch": [{"kind": "risk", "text": text} for text in risks]}}
+    return [item for item in check_fan_out(document, packet) if item["status"] != "pass"]
+
+
+def test_a_join_named_only_by_an_alias_another_join_shares_warns() -> None:
+    (warning,) = _verdicts(SHARED_C, "每个 id 一行。", "坐席分支 c（坐席子查询，p1）与 d 都未证明唯一，会放大行数。")
+    assert (warning["status"], warning["at"]) == ("warn", "summary.watch[0]")
+    assert warning["message"].startswith(
+        f"关联 {GROUP}（p2）只被别名 c 点到，而 c 也是 p1 的右侧；这句可能在说 p1，"
+        f"{GROUP} 可能没写——用表名或 pN 点名 {GROUP}")
+
+
+@pytest.mark.parametrize("name", ["dim_probe_group_dc", GROUP, "p2"])
+def test_a_table_name_or_the_rule_number_names_a_join_for_sure(name: str) -> None:
+    assert _verdicts(SHARED_C, f"c（p1）、{name} 与 d 都未证明唯一，会放大行数。") == []
+
+
+def test_a_rule_number_names_no_join_whose_number_it_merely_starts() -> None:
+    packet = _joins(_join("p2", GROUP, "c"), _join("p23", AGENT, "c"))
+    (warning,) = _verdicts(packet, "c（p23）未证明唯一，会放大行数。")
+    assert warning["status"] == "warn" and f"{GROUP}（p2）" in warning["message"]
+
+
+def test_one_table_joined_twice_under_one_alias_shares_it_with_no_other_join() -> None:
+    packet = _joins(_join("p1", AGENT, "c"), _join("p4", AGENT, "c"), _join("p3", NOTE, "d"))
+    assert _verdicts(packet, "c 与 d 都未证明唯一，会放大行数。") == []
+
+
+def test_a_join_named_nowhere_still_fails_with_the_same_message() -> None:
+    (problem,) = _verdicts(_joins(_join("p3", NOTE, "d")), "每个 id 一行。")
+    assert problem == {
+        "check": "fan_out", "status": "fail", "at": "summary.row.note",
+        "message": f"关联 {NOTE}（LEFT_OUTER，ON a.k = d.k，t0，材料包 p3）的右侧没有被证明按关联键唯一"
+                   "（未证明唯一），一条记录可能匹配多条、让行数放大；在 summary.row.note 或一条 kind 为 "
+                   f"risk 的 summary.watch 里点名它（{NOTE}、ods_probe_note_df、d 任一），写明会不会放大行数、为什么",
+    }
+
+
+def test_a_harmless_claim_about_one_join_does_not_label_the_join_sharing_its_alias() -> None:
+    named = f"c（p1）、{GROUP}、d 都未证明唯一，会放大行数。"
+    (warning,) = _verdicts(SHARED_C, named, "c（p1）不放大。")
+    assert warning["at"] == "summary.watch[0]"
+    assert AGENT in warning["message"] and GROUP not in warning["message"]
+    (warning,) = _verdicts(SHARED_C, named, "c 不放大。")
+    assert AGENT in warning["message"] and GROUP in warning["message"]
+
+
 # 11 ------------------------------------------------------------------ derived codes
 
 
