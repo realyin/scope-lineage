@@ -339,12 +339,12 @@ scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.t
 | 2 | `source_columns` | 来源列既不在该列的血缘里，也不在任何输入表里（该列的血缘是它各 producer 的来源列加查码关联键 `lookup_keys`：从内联字典这类常量行集读值时，决定读哪一行的物理键） | 只在输入表元数据里，不在该列的血缘里 |
 | 3 | `code_values` | 未标 `unconfirmed` 的码值在相关注释和 SQL 里都找不到，字典也没有在该列或它读取的来源列上确认它（`confirmed_values`）。码值要单独出现，不能是更长的词或数字的一部分；只有在注释（列注释、来源列注释、SQL 头注释）里，以数字结尾的码值后面可以直接跟字母（`1普通2VIP回访` 里的 `2`）。空值（`""` 或只有空白）不按文字找：只有该列某个 producer 会写出 `''`（`literal_outputs`：COALESCE / NVL 的回填、常量、CASE / IF 的分支）才通过，`''` 只出现在条件里不算。每个 producer 都是 `constant_only` 的列只会有这些常量：它的每个码值（含 `unconfirmed` 的）都必须是其中之一，只写 NULL 的列没有码值。没有 `literal_outputs` 的材料包没有这样的列 | — |
 | 4 | `grain` | 粒度列不是目标表的列，或写了 `grain_source: proven` 而材料包里没有证明的键 | 声称的粒度列与证明的键不同 |
-| 5 | `rules` | 非分区过滤没有被任何 `rules[].sql` 引用；引用的 `sql` 规范化后在任务 SQL 里找不到；`rule_refs` 指向不存在的规则。原文本身或它的某个 AND 合取项（去掉注释）以某种形式与过滤相等，才算引用；只是包含过滤文字的更长原文（CASE 分支、MERGE 条件）不算。带 `right_of` 且 `right_side_kind` 为 `rank_first` 或 `values` 的过滤不要求引用；只带 `right_of` 的仍要用规则引用，提示里写明不要写进 `summary.scope`。修法是照抄这一个条件，不必抄整段 WHERE | 材料包里没有 SQL，无法核对原文 |
+| 5 | `rules` | 非分区过滤没有被任何 `rules[].sql` 引用；引用的 `sql` 规范化后在任务 SQL 里找不到；`rule_refs` 指向不存在的规则。原文本身或它的某个 AND 合取项（去掉注释）以某种形式与过滤相等，才算引用；原文是整句（SELECT、INSERT … SELECT 等）时，它里面每个 WHERE / HAVING / ON（含嵌套子查询的）的合取项也算；只是包含过滤文字的更长原文（CASE 分支、MERGE 条件）不算。带 `right_of` 且 `right_side_kind` 为 `rank_first` 或 `values` 的过滤不要求引用；只带 `right_of` 的仍要用规则引用，提示里写明不要写进 `summary.scope`。修法是照抄这一个条件，不必抄整段 WHERE | 材料包里没有 SQL，无法核对原文 |
 | 6 | `neighbours` | 上游表不是血缘里的输入表；下游任务（或声称它写的表）不认识 | 下游任务认识，但不知道它写哪些表 |
 | 7 | `sources` | 带来源的条目 `sources` 为空，或问题超过五个 | — |
 | 8 | `digest` | `packet_digest` 与材料包不一致（过期），或没有这张表的材料包 | — |
 | 9 | `time` | `refresh.time` 写 `incremental`，而所有输入都是按单一分区读取的全量快照、且没有按业务日期过滤 | `refresh.time` 写 `snapshot`，而写入按业务日期筛选（只算形状为 `window` 的日期过滤） |
-| 10 | `fan_out` | `fan_out.status` 不是 `safe`、且 `fan_out.path` 为 `grain`（或没有）的关联，其右侧既没有在 `summary.row.note` 里、也没有在任何 kind 为 `risk` 的 `summary.watch` 里被点名（表名 `库.表` 或不带库名，或别名；同一右侧不论关联几次只算一项） | 行说明或某条 watch 的某句话把这样的左关联写成不影响行数（无影响、不影响行数、不会放大……）；每处一条警告。紧跟在否定之后的说法不算（不保证不放大、不一定不放大、未必不影响行数）；句子没点名这样的关联、只说「左关联」时，视为说的是全部未证明的左关联，除非它点名的是已证明唯一（`safe`）的关联，且「不放大」所在的分句里没有都、均、全部、所有、一律、任何、皆。附带条件并写出反面情形的说法也不算：这句话里说法之前有条件词（若、如果、假如、倘若、假设、只要、只有、一旦、除非、当 / 在…时），并且说法之后写了会放大（会 / 可能 + 放大、膨胀、重复，或关联出多行 / 多条）；或者下一句以「若 / 如果 / 一旦 … 不成立 / 不唯一 / 不满足」开头并写了会放大；或者说法之前有条件词、下一句以否则、不然、反之开头并写了会放大。反面情形里点名了这句话到说法为止没提过的关联时仍然警告；只有后置保留语（「注释推出，SQL 未证明」）不算写了反面情形。不在粒度路径上（位于聚合之下）的关联两项都不查 |
+| 10 | `fan_out` | `fan_out.status` 不是 `safe`、且 `fan_out.path` 为 `grain`（或没有）的关联，其右侧既没有在 `summary.row.note` 里、也没有在任何 kind 为 `risk` 的 `summary.watch` 里被点名（表名 `库.表` 或不带库名、材料包里只有这一右侧用的别名，或它的关联规则编号 pN；同一右侧不论关联几次只算一项） | 只靠别的右侧也在用的别名点到它（别名只在一个 SELECT 里唯一，各 UNION 分支、子查询常重复用 `b`、`c`）：这句话可能说的是另一处关联，每个右侧一条警告，改用表名或 pN 点名；行说明或某条 watch 的某句话把这样的左关联写成不影响行数（无影响、不影响行数、不会放大……）；每处一条警告。紧跟在否定之后的说法不算（不保证不放大、不一定不放大、未必不影响行数）；句子没点名这样的关联、只说「左关联」时，视为说的是全部未证明的左关联，除非它点名的是已证明唯一（`safe`）的关联，且「不放大」所在的分句里没有都、均、全部、所有、一律、任何、皆。附带条件并写出反面情形的说法也不算：这句话里说法之前有条件词（若、如果、假如、倘若、假设、只要、只有、一旦、除非、当 / 在…时），并且说法之后写了会放大（会 / 可能 + 放大、膨胀、重复，或关联出多行 / 多条）；或者下一句以「若 / 如果 / 一旦 … 不成立 / 不唯一 / 不满足」开头并写了会放大；或者说法之前有条件词、下一句以否则、不然、反之开头并写了会放大。反面情形里点名了这句话到说法为止没提过的关联时仍然警告；只有后置保留语（「注释推出，SQL 未证明」）不算写了反面情形。不在粒度路径上（位于聚合之下）的关联两项都不查 |
 | 11 | `derived_codes` | 列的 CASE / IF 返回的字面量（`case_outputs`）不在它的 `code_values` 里（每缺一个值一条失败；NULL、`''` 和 TRUE / FALSE 不算码值；`else: computed` 的条目只作参考、不要求） | 含义像「成功」的码值（成功 / 正常 / 通过 / 有效）来自归并多个来源值的分支或 ELSE，而该列的 `watch` 和 `refs` 含 `column:<列>` 的 `summary.watch` 都没有说明 |
 | 12 | `documented_meaning` | 标了 `unconfirmed`、或含义去掉括号旁注后以「待确认」开头的码值（`待确认（猜测：…）` 算，`已实名（是否含补录待确认）` 不算），其含义在该列注释或来源列注释里已写明（`0-申请 1-成功` 式的值-含义对，或 SQL 里引用了其标签的 `正常、锁定、删除` 式列表），或字典已在该列或来源列上确认（`confirmed_values`，改法：照写字典的含义，`sources` 写 `confirmed`）；注释或字典写明的含义本身就是「待确认」的状态可以照写 | 主输入表注释或来源列注释里有限定词（`增值税`、`税`、`手续费`、`罚息`、`冲正`、`测试`）而目标表注释里没有，`summary.what`（主输入表）或所有受影响列的 meaning / derivation 里也没写（每个词一条警告） |
 | 13 | `header_facts` | — | SQL 头注释写明了生命周期（`header_facts.lifecycle`）或数据规模（`header_facts.volume`），而 `summary.refresh.how_to_read` 和 watch 都没有提到；头注释描述的是同任务另一张表（`header_facts.about`）时不检查 |
@@ -372,11 +372,13 @@ scope-lineage semantic validate <documents> --packets <packet dir> [--only <db.t
 
 ### 报告
 
-一张表的通过率是检查项中未失败的比例；警告会列出，但不计入失败。文字摘要先打印每张表一行，再逐行列出失败项，
+一张表的通过率是检查项中未失败的比例；警告会列出，但不计入失败。文字摘要先打印每张表一行；有检查项运行了
+但没有可查的条目时，下一行「无可查条目」按编号列出它们；再逐行列出失败项，`[N name]` 是检查项表的编号和名称，
 格式可直接作为重写提示：
 
 ```text
 demo_dwd.dwd_party_customer_info_df: 46/51 checks passed (90.2%), 5 fail, 1 warn
+  无可查条目：10 fan_out、11 derived_codes、13 header_facts
   FAIL [1 coverage] columns: 缺少目标表的列 verified_customer_no（表内第 2 列）；补上这一列
   WARN [2 source_columns] columns[0].source_columns[1]: ...
   FAIL [9 time] summary.refresh.time: 写了 incremental，但上游 demo_ods.ods_core_customer_df 都按单一分区取全量快照，...
@@ -396,8 +398,13 @@ Validated 1 document(s): 0 clean, 1 with failures, 0 with warnings only, 0 with 
       "counts": {"pass": 45, "warn": 1, "fail": 5},
       "pass_rate": 0.902,
       "checks": {"coverage": {"pass": 5, "warn": 0, "fail": 1}},
+      "not_reported": [
+        {"number": 10, "check": "fan_out"},
+        {"number": 11, "check": "derived_codes"},
+        {"number": 13, "check": "header_facts"}
+      ],
       "failures": [
-        {"check": "coverage", "status": "fail", "at": "columns", "message": "..."}
+        {"check": "coverage", "status": "fail", "at": "columns", "message": "...", "number": 1}
       ]
     }
   ],
@@ -405,6 +412,12 @@ Validated 1 document(s): 0 clean, 1 with failures, 0 with warnings only, 0 with 
               "tables_with_warnings_only": 0, "tables_with_schema_errors": 0, "pass_rate": 0.902}
 }
 ```
+
+- `checks` 只收这次产出了条目的检查项，按名称作键；某项不出现，就是没有可查的条目（例如没有未证明的关联、
+  没有 CASE / IF 输出列），或材料包太旧、没有它读的那类事实。两种情形报告不区分。
+- `not_reported` 按编号列出这些检查项（`number` 是检查项表的 #）。Schema 不通过、或没有这张表的材料包时，
+  交叉检查没有运行，它为空。
+- `failures[].number` 是该条所属检查项的编号，与文字摘要里的 `[N name]` 相同，按编号统计不必再对照名称。
 
 ### 退出码
 

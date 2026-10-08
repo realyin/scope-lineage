@@ -433,12 +433,12 @@ The thirteen cross checks:
 | 2 | `source_columns` | a source column is neither in that column's lineage nor in any input table (the column's lineage is its producers' sources plus their `lookup_keys`: for a value read off a constant row set such as an inline dictionary, the physical keys deciding which row is read) | it is only in an input table's metadata, not in the column's lineage |
 | 3 | `code_values` | a code value not marked `unconfirmed` appears neither in the related comments nor in the SQL, and the dictionary does not confirm it on the column or a source column it reads (`confirmed_values`). The value must stand alone, not inside a longer word or number; only in a comment (the column's, a source column's, the SQL header's) may a value ending in a digit run straight into letters (the `2` of `1普通2VIP回访`). An empty value (`""`, or blanks) is no text to find: it passes only when a producer of the column writes `''` (`literal_outputs`: a COALESCE / NVL fallback, a constant, a CASE / IF branch), not when `''` is only compared in a condition. A column every producer of which is `constant_only` holds its constants and nothing else: each of its code values, `unconfirmed` too, must be one of them, and a column that only writes NULL has none. A packet without `literal_outputs` has no such column | — |
 | 4 | `grain` | a grain column is not a target column, or `grain_source: proven` has no proven key in the packet | the claimed grain columns differ from the proven key |
-| 5 | `rules` | a non-partition filter is not cited by any `rules[].sql`, a quoted `sql` is not found in the task SQL (normalized), or a `rule_refs` entry names no rule. A quote cites a filter when it, or one of its AND conjuncts (comments dropped), equals the filter in some form; a longer quote that merely contains the filter's text (a CASE branch, a MERGE condition) cites nothing. A filter with `right_of` and a `right_side_kind` of `rank_first` or `values` need not be cited; one with `right_of` alone must be, by a rule, and the message says to keep it out of `summary.scope`. The fix quotes that one condition, not the whole WHERE | the packet has no SQL to check a quote against |
+| 5 | `rules` | a non-partition filter is not cited by any `rules[].sql`, a quoted `sql` is not found in the task SQL (normalized), or a `rule_refs` entry names no rule. A quote cites a filter when it, or one of its AND conjuncts (comments dropped), equals the filter in some form; when the quote is a whole statement (a SELECT, an INSERT … SELECT), so does each conjunct of every WHERE / HAVING / ON in it, nested subqueries included; a longer quote that merely contains the filter's text (a CASE branch, a MERGE condition) cites nothing. A filter with `right_of` and a `right_side_kind` of `rank_first` or `values` need not be cited; one with `right_of` alone must be, by a rule, and the message says to keep it out of `summary.scope`. The fix quotes that one condition, not the whole WHERE | the packet has no SQL to check a quote against |
 | 6 | `neighbours` | an upstream table is not a lineage input, or a downstream task (or the table it is said to write) is not known | the downstream task is known but the tables it writes are not |
 | 7 | `sources` | a sourced item has an empty `sources`, or there are more than five questions | — |
 | 8 | `digest` | `packet_digest` differs from the packet's (stale), or there is no packet for the table | — |
 | 9 | `time` | `refresh.time` is `incremental` while every input is a full snapshot read by one partition and no filter touches a business date | `refresh.time` is `snapshot` while the write filters on a business date (only date filters shaped `window` count) |
-| 10 | `fan_out` | the right side of a join whose `fan_out.status` is not `safe` and whose `fan_out.path` is `grain` (or absent) is named — by table (`db.table` or bare) or alias — neither in `summary.row.note` nor in a `summary.watch` item of kind `risk` (one item per right side, however many times it is joined) | a sentence of the note or a watch calls such a LEFT join harmless to the row count (无影响, 不影响行数, 不会放大 …); one warning per place. A phrase right after a negation is no such claim (不保证不放大, 不一定不放大, 未必不影响行数); a sentence that names no such join but says 左关联 is read as meaning every unproven LEFT join, unless it names a join proven unique (`safe`) and the clause holding the phrase has none of 都, 均, 全部, 所有, 一律, 任何, 皆. Nor is a phrase made under a condition with its failing case said: a condition word before the phrase in the sentence (若, 如果, 假如, 倘若, 假设, 只要, 只有, 一旦, 除非, 当 / 在 … 时) and the rows multiplying after it (会 / 可能 + 放大, 膨胀, 重复, or 关联出多行 / 多条); or a next sentence opening with 若 / 如果 / 一旦 … 不成立 / 不唯一 / 不满足 that says the rows multiply; or a condition word before the phrase and a next sentence opening with 否则, 不然 or 反之 that says so. A failing case naming a join the sentence has not named up to the phrase still warns, and a trailing reservation alone (「注释推出，SQL 未证明」) is no failing case. A join off the grain path (below an aggregate) is held to neither |
+| 10 | `fan_out` | the right side of a join whose `fan_out.status` is not `safe` and whose `fan_out.path` is `grain` (or absent) is named — by table (`db.table` or bare), by an alias no other right side in the packet carries, or by its join rule's number (pN) — neither in `summary.row.note` nor in a `summary.watch` item of kind `risk` (one item per right side, however many times it is joined) | it is named only by an alias another right side carries too (an alias is unique within one SELECT only; UNION branches and subqueries reuse `b`, `c`): the sentence may be about the other join, so one warning per right side, asking for the table or the pN; a sentence of the note or a watch calls such a LEFT join harmless to the row count (无影响, 不影响行数, 不会放大 …); one warning per place. A phrase right after a negation is no such claim (不保证不放大, 不一定不放大, 未必不影响行数); a sentence that names no such join but says 左关联 is read as meaning every unproven LEFT join, unless it names a join proven unique (`safe`) and the clause holding the phrase has none of 都, 均, 全部, 所有, 一律, 任何, 皆. Nor is a phrase made under a condition with its failing case said: a condition word before the phrase in the sentence (若, 如果, 假如, 倘若, 假设, 只要, 只有, 一旦, 除非, 当 / 在 … 时) and the rows multiplying after it (会 / 可能 + 放大, 膨胀, 重复, or 关联出多行 / 多条); or a next sentence opening with 若 / 如果 / 一旦 … 不成立 / 不唯一 / 不满足 that says the rows multiply; or a condition word before the phrase and a next sentence opening with 否则, 不然 or 反之 that says so. A failing case naming a join the sentence has not named up to the phrase still warns, and a trailing reservation alone (「注释推出，SQL 未证明」) is no failing case. A join off the grain path (below an aggregate) is held to neither |
 | 11 | `derived_codes` | a literal a column's CASE / IF returns (`case_outputs`) is missing from its `code_values` (one failure per value; NULL, `''` and TRUE / FALSE are not codes; an entry with `else: computed` is information only and is not asked for) | a code value whose meaning is success-like (成功 / 正常 / 通过 / 有效) comes from a branch that gathers several source values or the ELSE, and neither the column's `watch` nor a `summary.watch` with `refs` `column:<name>` says so |
 | 12 | `documented_meaning` | a code value marked `unconfirmed`, or whose meaning starts with 待确认 once parenthetical asides are dropped (`待确认（猜测：…）` does, `已实名（是否含补录待确认）` does not), is explained by the column's comment or a source column's comment (`0-申请 1-成功` pairs, or a `正常、锁定、删除` list whose label the SQL quotes), or the dictionary confirms it on the column or a source column (`confirmed_values`; the fix: write the dictionary's meaning, sourced `confirmed`); a state whose documented or confirmed meaning is itself 待确认 may say so | a qualifier (`增值税`, `税`, `手续费`, `罚息`, `冲正`, `测试`) in the main input's comment or a source column's comment, absent from the target's comments, is missing from `summary.what` (main input) or from every affected column's meaning / derivation (one warning per term) |
 | 13 | `header_facts` | — | the SQL header states a lifecycle (`header_facts.lifecycle`) or a data volume (`header_facts.volume`) that neither `summary.refresh.how_to_read` nor a watch mentions; not checked when the header describes another table of the task (`header_facts.about`) |
@@ -478,11 +478,14 @@ loose text match.
 ### Report
 
 A table's pass rate is the share of checked items that did not fail; a warning is listed
-but does not count against it. The text summary prints each table's line and then its
-failures, one per line, in the form a rewrite prompt can take as it stands:
+but does not count against it. The text summary prints each table's line; when some checks
+ran and found nothing to check, the next line (无可查条目) lists them by number; then come the
+failures, one per line, `[N name]` being the check's number and name in the table of checks,
+in the form a rewrite prompt can take as it stands:
 
 ```text
 demo_dwd.dwd_party_customer_info_df: 46/51 checks passed (90.2%), 5 fail, 1 warn
+  无可查条目：10 fan_out、11 derived_codes、13 header_facts
   FAIL [1 coverage] columns: 缺少目标表的列 verified_customer_no（表内第 2 列）；补上这一列
   WARN [2 source_columns] columns[0].source_columns[1]: ...
   FAIL [9 time] summary.refresh.time: 写了 incremental，但上游 demo_ods.ods_core_customer_df 都按单一分区取全量快照，...
@@ -502,8 +505,13 @@ Validated 1 document(s): 0 clean, 1 with failures, 0 with warnings only, 0 with 
       "counts": {"pass": 45, "warn": 1, "fail": 5},
       "pass_rate": 0.902,
       "checks": {"coverage": {"pass": 5, "warn": 0, "fail": 1}},
+      "not_reported": [
+        {"number": 10, "check": "fan_out"},
+        {"number": 11, "check": "derived_codes"},
+        {"number": 13, "check": "header_facts"}
+      ],
       "failures": [
-        {"check": "coverage", "status": "fail", "at": "columns", "message": "..."}
+        {"check": "coverage", "status": "fail", "at": "columns", "message": "...", "number": 1}
       ]
     }
   ],
@@ -511,6 +519,15 @@ Validated 1 document(s): 0 clean, 1 with failures, 0 with warnings only, 0 with 
               "tables_with_warnings_only": 0, "tables_with_schema_errors": 0, "pass_rate": 0.902}
 }
 ```
+
+- `checks` holds only the checks that produced items this time, keyed by name; a check
+  that is absent had nothing to check (no unproven join, no CASE / IF output column, for
+  instance), or the packet is too old to carry the facts it reads. The report does not
+  tell the two apart.
+- `not_reported` lists those checks by number (`number` is the # of the table of checks).
+  It is empty when the cross checks did not run: a schema error, or no packet for the table.
+- `failures[].number` is the number of the check an item belongs to, the same as the
+  `[N name]` of the text summary, so counting by number needs no lookup of names.
 
 ### Exit codes
 

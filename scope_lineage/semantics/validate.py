@@ -50,7 +50,12 @@ _STATUSES = ("pass", "warn", "fail")
 
 
 def validate_document(document: dict, packet: dict | None) -> dict:
-    """The cross-check report of one schema-valid document against its packet (or None)."""
+    """The cross-check report of one schema-valid document against its packet (or None).
+
+    Every failure carries its check's ``number`` (1-13, as the text summary prints it);
+    ``not_reported`` lists the checks that ran and found nothing to check -- they have no
+    key in ``checks``. Without a packet no check runs but the digest one, so none is listed.
+    """
     if packet is None:
         results = [missing_packet(document)]
     else:
@@ -65,7 +70,14 @@ def validate_document(document: dict, packet: dict | None) -> dict:
         "counts": {status: counts.get(status, 0) for status in _STATUSES},
         "pass_rate": round((total - counts.get("fail", 0)) / total, 4) if total else 1.0,
         "checks": {name: checks[name] for name in CHECKS if name in checks},
-        "failures": [item for item in results if item["status"] != "pass"],
+        "not_reported": [] if packet is None else [
+            {"number": number, "check": name}
+            for number, name in enumerate(CHECKS, 1) if name not in checks
+        ],
+        "failures": [
+            {**item, "number": CHECKS.index(item["check"]) + 1}
+            for item in results if item["status"] != "pass"
+        ],
     }
 
 
@@ -78,7 +90,7 @@ def check_file(
     if errors:
         return {"table": table, "file": file, "schema_errors": errors,
                 "counts": dict.fromkeys(_STATUSES, 0), "pass_rate": None, "checks": {},
-                "failures": []}
+                "not_reported": [], "failures": []}
     report = validate_document(document, packet)
     return {"table": table, "file": file, "schema_errors": [],
             **{key: value for key, value in report.items() if key != "table"}}
@@ -133,8 +145,11 @@ def _entry_lines(entry: dict) -> list[str]:
         f"{name}: {total - counts['fail']}/{total} checks passed "
         f"({entry['pass_rate'] * 100:.1f}%), {counts['fail']} fail, {counts['warn']} warn"
     ]
+    if entry.get("not_reported"):
+        lines.append("  无可查条目：" + "、".join(
+            f"{item['number']} {item['check']}" for item in entry["not_reported"]))
     return lines + [
-        f"  {item['status'].upper()} [{CHECKS.index(item['check']) + 1} {item['check']}] "
+        f"  {item['status'].upper()} [{item['number']} {item['check']}] "
         f"{item['at']}: {item['message']}"
         for item in entry["failures"]
     ]
