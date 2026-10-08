@@ -174,6 +174,67 @@ def test_a_quote_sqlglot_cannot_parse_whole_cites_by_its_top_level_conjuncts() -
     assert not [p for p in _failures(document, packet) if p["at"] == "rules"]
 
 
+# ------------------------------------------------------------------ whole-statement quotes
+
+# A quote may copy a whole statement -- ``select … where a and b``, a FROM-led query, an
+# INSERT … SELECT. The predicates in its own WHERE / HAVING / ON, nested subqueries
+# included, are in the quote as written, so each conjunct cites the filter it equals; a
+# CASE branch in its select list is still no WHERE and cites nothing.
+STATEMENTS = """INSERT OVERWRITE TABLE demo_dwd.dwd_probe_order_df PARTITION (dt = '${bizdate}')
+SELECT a.order_id FROM (
+    SELECT * FROM demo_tmp.tmp_probe_step WHERE dt = '${bizdate}' AND src_kind = 'K1'
+) a
+LEFT JOIN (
+    SELECT * FROM (SELECT * FROM demo_ods.ods_probe_role_df WHERE role_kind = 'R2') x
+    WHERE x.lvl = 3
+) b ON a.order_id = b.order_id
+"""
+
+
+def _statements(*filters: str) -> dict:
+    packet = _packet(*filters)
+    packet["tasks"][0]["sql"] = STATEMENTS
+    return packet
+
+
+def _rule_failures(quote: str, packet: dict) -> list[dict]:
+    return [p for p in _failures(_document(quote), packet) if p["at"] == "rules"]
+
+
+@pytest.mark.parametrize(
+    ("lineage", "quoted"),
+    [
+        ("`tmp_probe_step`.`src_kind` = 'K1'",
+         "select * from demo_tmp.tmp_probe_step where dt = '${bizdate}' and src_kind = 'K1'"),
+        ("`tmp_probe_step`.`src_kind` = 'K1'",
+         "FROM demo_tmp.tmp_probe_step WHERE src_kind = 'K1'"),
+        ("`ods_probe_role_df`.`role_kind` = 'R2'",
+         "SELECT * FROM (SELECT * FROM demo_ods.ods_probe_role_df WHERE role_kind = 'R2') x"
+         " WHERE x.lvl = 3"),
+        ("`tmp_probe_step`.`src_kind` = 'K1'",
+         "insert overwrite table demo_dwd.dwd_probe_order_df"
+         " select * from demo_tmp.tmp_probe_step where src_kind = 'K1'"),
+    ],
+    ids=["whole-select", "from-led", "nested-where", "insert-select"],
+)
+def test_a_whole_statement_quote_cites_the_conjuncts_of_its_own_where(lineage, quoted) -> None:
+    assert _rule_failures(quoted, _statements(lineage)) == []
+
+
+def test_a_whole_statement_quote_cites_its_join_condition() -> None:
+    packet = _statements("`x`.`lvl` = 3")
+    quote = ("select * from demo_tmp.tmp_probe_step a left join demo_ods.ods_probe_role_df x"
+             " on a.order_id = x.order_id and x.lvl = 3")
+    assert _rule_failures(quote, packet) == []
+
+
+def test_a_case_branch_in_a_quoted_select_list_cites_nothing() -> None:
+    packet = _statements("`tmp_probe_step`.`src_kind` = 'K1'")
+    quote = "select case when src_kind = 'K1' then 1 end from demo_tmp.tmp_probe_step"
+    (problem,) = _rule_failures(quote, packet)
+    assert "src_kind" in problem["message"]
+
+
 # ------------------------------------------------------------------ end to end
 
 
