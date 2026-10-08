@@ -1032,7 +1032,7 @@ The schema is `scope_lineage/schemas/catalog-fragment.schema.json`.
 ```bash
 scope-lineage catalog digest out/semantics [--catalog examples/catalog-demo] \
   [--lineage out/lineage [--schema examples/metadata]] \
-  [--only demo_dwd.dwd_party_customer_info_df ...] --out out/digest
+  [--only demo_dwd.dwd_party_customer_info_df ...] [--packets out/packets] --out out/digest
 ```
 
 Reads every legal `table-semantics/1` document in the directory (the toolchain's own
@@ -1054,6 +1054,12 @@ catalog prefix); a table a code set's `lookup` names counts as a code-set source
 (`code_set_sources`: table → code set ids), not as a table with no representation; each
 table's section also ends with its standing in the catalog. The
 output is deterministic: the same inputs give byte-identical files.
+
+A document that is `packet_stale` (written against another packet), `invalid` (fails a
+check of `semantic validate`) or has no packet is still digested, but its table is named on
+stderr, one line per flag, as `semantic render` does: the documents are judged against
+`--packets` (default: `packets/` beside the documents directory, when it exists); without
+packets a line says that nothing was checked. The output and the exit code do not change.
 
 With `--lineage` (one `lineage.json`, or a directory searched for them, as `catalog build
 --lineage` reads it) each listed column also says, from the statements that write its

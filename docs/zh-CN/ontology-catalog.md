@@ -905,7 +905,7 @@ Schema 在 `scope_lineage/schemas/catalog-fragment.schema.json`。
 ```bash
 scope-lineage catalog digest out/semantics [--catalog examples/catalog-demo] \
   [--lineage out/lineage [--schema examples/metadata]] \
-  [--only demo_dwd.dwd_party_customer_info_df ...] --out out/digest
+  [--only demo_dwd.dwd_party_customer_info_df ...] [--packets out/packets] --out out/digest
 ```
 
 读目录下每份合法的 `table-semantics/1` 文档（确认文件等工具自己的文档跳过；不合 schema 的文档跳过并在
@@ -919,6 +919,10 @@ stderr 说明），按表名排序写出 `digest.md` 与 `digest.json`（`catalo
 给 `--catalog` 时，开头多一段「目录覆盖」：没有表现的表，以及已有表现的表里没有绑定的列（表名忽略大小写与
 catalog 前缀）；某个码值集 `lookup` 所指的表算「码值来源」（`code_set_sources`：表 → 码值集 id），不算没有表现的表；
 每张表的段落末尾也标出它在目录里的情况。输出是确定的：同样的输入，逐字节相同。
+
+`packet_stale`（按另一版材料包写成）、`invalid`（`semantic validate` 有检查失败）或没有材料包的文档照常进摘要，
+但与 `semantic render` 一样在 stderr 按标记各打一行点名：对照 `--packets`（不给时用文档目录旁边的 `packets/`，
+存在才读）判定；没有材料包时打印一行说明没有检查。产出和退出码不变。
 
 给 `--lineage`（一个 `lineage.json`，或在其下递归查找的目录，与 `catalog build --lineage` 相同）时，每个列出的列
 还会按写这张表的语句说明：它的值经过哪些被关联的输入读出、这些行按什么常量条件挑出——也就是写码值集

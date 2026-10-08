@@ -811,3 +811,75 @@ def test_a_document_whose_file_carries_a_catalog_prefix_is_not_misfiled(valid_ru
     report = _status(valid_run)
     assert _entry(report)["flags"] == []
     assert report["summary"]["flags"]["doc_misfiled"] == []
+
+
+# ------------------------------------------------------------------- semantic confirm
+
+
+def _confirm(run_dir: Path, *extra: str) -> int:
+    from .table_semantics_demo import CONFIRMATIONS
+
+    return run("semantic", "confirm", run_dir / "docs", "--confirmations", CONFIRMATIONS, *extra)
+
+
+def _rendered(run_dir: Path) -> None:
+    page = run_dir / "pages" / f"{DEMO_TABLE}.md"
+    page.parent.mkdir(exist_ok=True)
+    page.write_text("# page\n", encoding="utf-8")
+    os.utime(run_dir / "docs" / f"{DEMO_TABLE}.json", (500_000, 500_000))
+    assert _entry(_status(run_dir))["stage"] == "rendered"
+    os.utime(page, (1_000_000, 1_000_000))
+
+
+def test_confirming_a_rendered_table_keeps_it_fixed_and_asks_for_a_render(
+    valid_run: Path, capsys
+) -> None:
+    """The owner's answers are not a revision for a fixer: the review's acceptance carries."""
+    _keyed_review(valid_run)
+    _rendered(valid_run)
+    assert _confirm(valid_run) == 0
+    digest = document_digest(_doc(valid_run))
+    entry = _entry(_status(valid_run))
+    assert (entry["stage"], entry["flags"]) == ("fixed", ["render_stale"])
+    assert entry["review"]["fixed_doc_digest"] == digest
+    assert DEMO_TABLE not in _batches(valid_run, "fix")
+    assert _batches(valid_run, "render") == [DEMO_TABLE]
+    assert f"fixed_doc_digest {digest}" in capsys.readouterr().out
+
+
+def test_confirming_after_a_fix_record_moves_the_record(valid_run: Path) -> None:
+    _keyed_review(valid_run, high=1)
+    _revise(valid_run)
+    assert _fixed(valid_run) == 0
+    assert _confirm(valid_run) == 0
+    entry = _entry(_status(valid_run))
+    assert (entry["stage"], entry["flags"]) == ("fixed", [])
+    assert entry["review"]["fixed_doc_digest"] == document_digest(_doc(valid_run))
+
+
+def test_confirming_a_table_the_review_did_not_accept_leaves_the_review_alone(
+    valid_run: Path,
+) -> None:
+    _keyed_review(valid_run, high=1)
+    before = _review_bytes(valid_run)
+    assert _confirm(valid_run) == 0
+    assert _review_bytes(valid_run) == before
+    entry = _entry(_status(valid_run))
+    assert (entry["stage"], entry["flags"]) == ("reviewed", ["fix_unconfirmed"])
+
+
+def test_confirming_into_out_leaves_the_review_alone(valid_run: Path) -> None:
+    _keyed_review(valid_run)
+    before = _review_bytes(valid_run)
+    assert _confirm(valid_run, "--out", valid_run.parent / "confirmed") == 0
+    assert _review_bytes(valid_run) == before
+    assert _entry(_status(valid_run))["stage"] == "fixed"
+
+
+def test_confirm_reads_the_reviews_from_a_moved_directory(valid_run: Path) -> None:
+    _keyed_review(valid_run)
+    moved = valid_run.parent / "elsewhere"
+    (valid_run / "reviews").rename(moved)
+    assert _confirm(valid_run, "--reviews", moved) == 0
+    entry = _entry(_status(valid_run, "--reviews", moved))
+    assert (entry["stage"], entry["flags"]) == ("fixed", [])

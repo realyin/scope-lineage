@@ -181,6 +181,32 @@
   - The rewrite section and the SKILL's batch template read `validate --json`'s
     `failures[].number` and `not_reported` (checks that ran with nothing to check).
 
+### Run guards: an exit code for a failed check, warnings for unfit material (CLI behaviour)
+- **Behaviour change -- `semantic validate` exits 1 when any cross check fails**, not only
+  on a schema error. A stale `packet_digest` and a document without a packet are failures
+  too; warnings alone still exit 0, and the report (text or `--json`) is printed all the
+  same. **A script that runs `validate` under `set -e`, or treats a non-zero exit as a
+  broken run, must now read exit 1 as "the report lists failures".**
+- **Check 8 (`digest`) no longer offers "or check and update".** Its failure says the
+  packet changed and the document is rewritten whole, the old review kept as
+  `reviews/<db.table>.prior.md` and the old document as `reviews/<db.table>.prior.json`,
+  and not to copy the new digest in. Copying the digest in made a stale document pass.
+- **Behaviour change -- `semantic confirm` keeps a fixed table fixed.** Confirming in place
+  used to drop an accepted table back to `reviewed fix_unconfirmed` (or `valid
+  review_stale`), so `--next fix` sent the owner's answers to a fixer. A changed table
+  whose review accepted the document as it was now gets its fix record (`fixed_doc_digest`)
+  moved to the confirmed document, and stands at `fixed render_stale`. Reviews are read from
+  new `--reviews`, or `reviews/` beside the documents when it exists; never with `--out`
+  (`--reviews` with `--out` exits 2). A table the review did not accept is left alone.
+- `semantic render` and `catalog digest` name on stderr the tables whose document is
+  `packet_stale`, `invalid` or without a packet, one `warning:` line per flag; they still
+  render or digest them, and the exit code does not change. New `--packets` (default:
+  `packets/` beside the documents, when it exists); without packets, `render` reads the
+  flags from its `--validation` report, and with neither a line says nothing was checked.
+- `questions sheet --pages` names on stderr each question whose table has no
+  `<db.table>.md` under the pages (a catalog prefix and case ignored; concept questions
+  are not checked), and warns when the pages directory does not exist. Exit code unchanged.
+
 ## 0.7.0
 - **Table semantics that survive a review loop, MERGE targets read as the batch they
   write, and a catalog that says where its codes live.** One report format moves:

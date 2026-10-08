@@ -133,6 +133,26 @@ def _staged(files: TableFiles) -> dict:
     return _reviewed(entry, files)
 
 
+def document_flags(document: dict, packet: dict | None) -> list[str]:
+    """What keeps a schema-valid document from being published, by ``status``'s rules.
+
+    ``no_packet`` without a packet; else ``packet_stale`` (the document's
+    ``packet_digest`` is not the packet's) and ``invalid`` (a failed cross check other than
+    the digest one), in that order. An empty list: the document is fit.
+    """
+    if packet is None:
+        return ["no_packet"]
+    report = check_file(document, packet, "")
+    flags = []
+    if document.get("packet_digest") != packet.get("packet_digest"):
+        flags.append("packet_stale")
+    if report["schema_errors"] or any(
+        item["status"] == "fail" and item["check"] != "digest" for item in report["failures"]
+    ):
+        flags.append("invalid")
+    return flags
+
+
 def _reviewed(entry: dict, files: TableFiles) -> dict:
     """The stage of a valid document: its review, then its page."""
     review = entry["review"]

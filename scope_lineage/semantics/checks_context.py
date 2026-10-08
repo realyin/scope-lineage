@@ -171,7 +171,9 @@ def check_digest(document: dict, packet: dict) -> list[dict]:
         return [result("digest", "pass", "packet_digest")]
     return [result("digest", "fail", "packet_digest", (
         f"stale: 文档按材料包 {document['packet_digest']} 写成，当前材料包是 "
-        f"{packet['packet_digest']}；按新材料包重写或核对后更新"))]
+        f"{packet['packet_digest']}；材料包变了，按新材料包整份重写（旧审读改名为 "
+        f"reviews/<db.table>.prior.md，旧文档复制为 reviews/<db.table>.prior.json），"
+        f"不要只改 packet_digest"))]
 
 
 def missing_packet(document: dict) -> dict:
