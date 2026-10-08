@@ -58,8 +58,9 @@ fallback covers 0.2.0):
 | code-set lookups in a catalog (a code set's `lookup`, a binding's `code_sets`, `code_sets_by`, `holds`, `lang`) | >= 0.7.0 (0.6.0 rejects them as schema errors) |
 | lookup facts in the drafting digest (`catalog digest --lineage` / `--schema`) | >= 0.7.0 (0.6.0 rejects the flags) |
 | the table-semantics loop this skill describes (`semantic fixed`, `semantic validate --only`, `table-semantics-status/2`, prompts `@8` / `@8` / `@5`) | >= 0.7.0 |
+| prompts `@9` / `@9` / `@6` (they read the 0.8.0 packet's new facts) | >= 0.8.0 |
 
-When unsure which workflows the session will need, require >= 0.7.0. A table-semantics
+When unsure which workflows the session will need, require >= 0.8.0. A table-semantics
 run directory made with an older release: rebuild its packets and follow the README's
 "Migrating to 0.7.0" (「迁移到 0.7.0」) before reusing its documents.
 Not installed → `pipx install 'scope-lineage[catalog]'` (or `pip install 'scope-lineage[catalog]'`):
@@ -528,7 +529,7 @@ scope-lineage semantic confirm <run>/docs --confirmations <answers.json>
   （额度紧时 ≤5）。一轮做完、被中断或额度用完，
   都只需重新跑 `status --next`：已经走过这一步的表自动跳过，从断点继续。`status` 列出的标记要看：
   `packet_stale`（材料包变了，整份重写；重写前先把 `reviews/<db.table>.md` 改名为 `reviews/<db.table>.prior.md`，
-  见下文「重写」）、`invalid`（按失败清单重写）、`review_packet_stale`（审读读的是另一版材料包，重新审读）、
+  并把现有文档复制为 `reviews/<db.table>.prior.json`，见下文「重写」）、`invalid`（按失败清单重写）、`review_packet_stale`（审读读的是另一版材料包，重新审读）、
   `review_stale`（审读之后文档又改过，又没有修订回执把改动和这份审读对上，重新审读；没有 `reviewed_packet_digest`
   的旧审读一律走这里，不会被派去修订）、`fix_unconfirmed`（审读有高 / 中问题，文档改过却没有修订回执：修订被打断，
   或回执之后又改过；`--next fix` 会重新派发）、`review_unparsed`（审读没有 front matter，不会再被派发——补上或
@@ -539,7 +540,7 @@ scope-lineage semantic confirm <run>/docs --confirmations <answers.json>
   - `status` 和此后每一步都带同一组 `--only <db.table> ...`（写成
     `semantic status <run> --next draft --only <db.table> ... --out <run>/next.json`，位置参数 `<run>` 放在
     `--only` 之前）；
-  - 只给这几张表的旧审读改名为 `.prior.md`；
+  - 只给这几张表的旧审读改名为 `.prior.md`，并复制旧文档为 `.prior.json`；
   - 校验用 `semantic validate <run>/docs --packets <run>/packets --only <db.table> ...`；
   - 渲染只渲染这几张：把它们的文档放进单独目录再 `semantic render`，或在结果里注明。
 
@@ -564,8 +565,9 @@ scope-lineage semantic confirm <run>/docs --confirmations <answers.json>
   让它写 `concept`；有已确认的业务事实（例如某个标识的含义）时，作为「已确认事实」一并给它。
 - **重写**：只把失败清单里这张表的条目交回模型，已通过的条目不许动；同一处连续两轮还失败，就把它留给
   owner（写成 `questions` 或 `watch`），不要硬凑到通过。第 8 项（`digest`）失败表示材料包变了，要整份重写：
-  重写前把这张表的旧审读 `reviews/<db.table>.md` 改名为 `reviews/<db.table>.prior.md`（`status` 不读它），重写仍只给
-  写作者新材料包；重写后的首次审读把 `.prior.md` 交给审读员，按审读提示词「材料包重建后的重写：带上旧审读」一节
+  重写前把这张表的旧审读 `reviews/<db.table>.md` 改名为 `reviews/<db.table>.prior.md`（`status` 不读它），并把现有文档复制为
+  `reviews/<db.table>.prior.json`（同样不进 `status`；只交给审读员，不交给写作者），重写仍只给
+  写作者新材料包；重写后的首次审读把 `.prior.md` 和 `.prior.json` 交给审读员，按审读提示词「材料包重建后的重写：带上旧审读」一节
   逐条判旧发现适用与否、新文档是否又犯了。
   子代理只校验自己批里的表：`semantic validate <run>/docs --packets <run>/packets --only <db.table> ...`，
   不用把文档拷到别的目录（别人写到一半的文件会被跳过）；这份输出只给本批看，不要写进 `<run>/validation.json`

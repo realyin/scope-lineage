@@ -422,7 +422,7 @@ Validated 1 document(s): 0 clean, 1 with failures, 0 with warnings only, 0 with 
 
 所以写作之后加两步，都在 Agent 技能里：
 
-1. **独立审读**（`skills/scope-lineage/references/table-semantics-review-prompt.md`）：另起一次调用，只读材料包、文档和已确认事实，按十六项清单找事实错误，按严重程度列出「文档原话 / 材料原文 / 应改成」。审读员可以读兄弟表的材料包，核实文档对其他表的说法。第 16 项把材料包里的「行数放大」「粒度 / 键」当作工具的判定而不是事实：与 SQL 原文矛盾时以 SQL 为准，审读在文末单列一节逐处列出；标「在 pN 右侧内部」的关联通过 pN 的判定核对，文档说「工具未判定」的关联不放大，要有 SQL 原文支持。第 13、5 项点名最常被写成事实的几类：源记录是否原地更新、只知道任务名的下游怎么用本表、分区日是不是业务日期、对数值 / 日期列做 `= ''` 的清洗是否生效。材料包重建、文档整份重写之后的第一次审读，还会拿到保留为 `reviews/<db.table>.prior.md` 的旧审读，逐条判旧发现在新材料包下是否适用、新文档是已避免还是又犯了（审读提示词的「材料包重建后的重写：带上旧审读」一节）。
+1. **独立审读**（`skills/scope-lineage/references/table-semantics-review-prompt.md`）：另起一次调用，只读材料包、文档和已确认事实，按十六项清单找事实错误，按严重程度列出「文档原话 / 材料原文 / 应改成」。审读员可以读兄弟表的材料包，核实文档对其他表的说法。第 16 项把材料包里的「行数放大」「粒度 / 键」当作工具的判定而不是事实：与 SQL 原文矛盾时以 SQL 为准，审读在文末单列一节逐处列出；标「在 pN 右侧内部」的关联通过 pN 的判定核对，文档说「工具未判定」的关联不放大，要有 SQL 原文支持。第 13、5 项点名最常被写成事实的几类：源记录是否原地更新、只知道任务名的下游怎么用本表、分区日是不是业务日期、对数值 / 日期列做 `= ''` 的清洗是否生效。材料包重建、文档整份重写之后的第一次审读，还会拿到保留为 `reviews/<db.table>.prior.md` 的旧审读和复制为 `reviews/<db.table>.prior.json` 的旧文档，逐条判旧发现在新材料包下是否适用、新文档是已避免还是又犯了（旧审读带修订回执、旧文档的摘要与回执一致时，「又犯了」再分「修订已改，重写回退」与「修订未改」）（审读提示词的「材料包重建后的重写：带上旧审读」一节）。
 2. **修订**（`skills/scope-lineage/references/table-semantics-fix-prompt.md`）：逐条核实后修改（审读判定被 SQL 推翻的工具判定，按 SQL 改写并注明材料包的判定和 SQL 原文；校验第 10 项因此报的 WARN 保留，不绕措辞），改完通读全页消除前后矛盾，推断与事实分开，再跑一次 `semantic validate`，最后一步用 `semantic fixed` 记录修订做完（见下文）。
 
 两条经验：审读必须是独立的调用，写作者自查找不出自己的盲点；修订容易在一处改对、另一处留下旧说法，所以修订后通读全页那一步不能省。需要再审一轮时，按审读提示词的「修订后再审读」一节做：输入是材料包（可能已重建）、修订后的文档和上一轮审读，只查上一轮每条发现改没改、全页一致 / 推断与事实 / 已确认事实 / 兄弟表四项、以及重建材料包里新增或变了的事实；严重程度的标准不变，审读照样带 front matter（`reviewed_doc_digest` 取 `scope-lineage semantic digest` 打印的修订后文档摘要，`reviewed_packet_digest` 取这一轮读的材料包）。验收问题集不要交给写作、审读或修订的调用。
@@ -440,6 +440,7 @@ Validated 1 document(s): 0 clean, 1 with failures, 0 with warnings only, 0 with 
 <run>/docs/<db.table>.json             模型写作、修订的 table-semantics/1 文档
 <run>/reviews/<db.table>.md            独立审读意见，开头是 front matter
 <run>/reviews/<db.table>.prior.md      重写时保留的旧审读；status 不读它
+<run>/reviews/<db.table>.prior.json    重写前的旧文档，只交给审读员；status 不读它
 <run>/pages/<db.table>.md              semantic render <run>/docs --out <run>/pages
 ```
 
