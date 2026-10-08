@@ -21,7 +21,8 @@ before it existed still parse; ``semantic status`` treats such a review as one i
 tie to a packet.
 
 ``fixed_doc_digest`` is the fix record: the digest of the document a fix finished with.
-Only ``semantic fixed`` writes it (:func:`with_fix_record`), so anything but sixteen
+Only ``semantic fixed`` writes it, and ``semantic confirm`` moves it to a confirmed
+document the review had accepted (both with :func:`with_fix_record`), so anything but sixteen
 lower-case hex digits counts as no record. A new review overwrites the file and so drops
 the record with it.
 """

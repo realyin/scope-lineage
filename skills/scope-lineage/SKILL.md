@@ -499,6 +499,7 @@ scope-lineage semantic status <run> --next draft --batch-size 5 --out <run>/next
 # 4. draft (--next draft): per table, the model reads <run>/packets/<db.table>/packet.md with
 #    references/table-semantics-prompt.md and writes <run>/docs/<db.table>.json; then
 scope-lineage semantic validate <run>/docs --packets <run>/packets --json > <run>/validation.json
+#    (exit 1 while any check fails -- the report is written all the same -- 0 when none does)
 #    and rewrites only the failed items (the prompt's 「校验不通过时（重写）」 section, fed the
 #    table's failures from the report), validating again; stop when nothing fails
 # 5. review (--next review): a separate model call reads the packet and the document with

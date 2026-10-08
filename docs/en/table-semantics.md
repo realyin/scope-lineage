@@ -533,8 +533,8 @@ Validated 1 document(s): 0 clean, 1 with failures, 0 with warnings only, 0 with 
 
 | Code | When |
 | --- | --- |
-| 0 | every document is schema-valid (cross-check failures are reported, not fatal) |
-| 1 | at least one document has a schema error, or the directory holds no JSON |
+| 0 | every document is schema-valid and fails no cross check (warnings allowed) |
+| 1 | at least one document has a schema error or a failed cross check (a stale `packet_digest` and a missing packet included; the report is printed all the same), or the directory holds no JSON |
 | 2 | the documents directory or `--packets` does not exist |
 
 ## Independent review and revision
@@ -647,7 +647,9 @@ packet, a document that is neither `invalid` nor `packet_stale`, and a review wi
 front matter; the review names the packet it read and that is the document's
 `packet_digest`; and the document is not the version the review read. Otherwise it writes
 nothing for that table and says why on standard error. A new review overwrites the file
-and drops the record with it. The model never writes the record by hand.
+and drops the record with it. The model never writes the record by hand; besides this
+command, only `semantic confirm` moves an existing acceptance to the confirmed document (see
+`semantic confirm`).
 
 | Exit code | Condition |
 | --- | --- |
@@ -763,7 +765,7 @@ out of the round and tell the user rather than dispatch it forever.
 ## `semantic confirm`
 
 ```bash
-scope-lineage semantic confirm <documents> --confirmations <file> [--out <dir>]
+scope-lineage semantic confirm <documents> --confirmations <file> [--out <dir> | --reviews <dir>]
 ```
 
 The confirmations file is a `semantic-confirmations/1` document (schema:
@@ -798,13 +800,23 @@ exist, whose value has the wrong shape, or whose value would make the document f
 schema is **not applied and not dropped**: the summary line counts it as `unmatched` and
 names it with the reason. Without `--out` the changed documents are rewritten in place;
 with `--out` every document is written there and the originals are left alone. A malformed
-confirmations file exits 2.
+confirmations file exits 2, and so does `--reviews` with `--out`.
+
+The owner's answers are not a revision a fixer has to look at. When documents are confirmed
+in place, the run's reviews are read -- `--reviews`, or `reviews/` beside `<documents>` when
+it exists -- and a changed table whose review accepted the document as it was (`semantic
+status` would have called it `fixed` or `rendered`) gets its fix record moved to the
+confirmed document: `fixed_doc_digest` becomes the new digest, and a line
+`<db.table>  fixed_doc_digest <digest>  <review>` is printed. The table then stands at
+`fixed render_stale`, so `--next render` picks it up and `--next fix` does not. A table its
+review did not accept keeps its review untouched (its fix is still to be made); with `--out`
+no review is touched.
 
 ## `semantic render`
 
 ```bash
 scope-lineage semantic render <documents> --out <dir> \
-  [--validation <report.json>] [--ontology <ontology.json>]
+  [--validation <report.json>] [--ontology <ontology.json>] [--packets <packet dir>]
 ```
 
 Renders every legal `table-semantics/1` document under `<documents>` as one page,
@@ -818,6 +830,14 @@ is reported on stderr and not rendered, and the exit code is 1.
 | `--out` | yes | The output directory |
 | `--validation` | no | A `table-semantics-validation/1` report written by `semantic validate --json`: the page marks the failed items and ends with a 校验 section, the index shows the pass rate |
 | `--ontology` | no | An `ontology.json` written by `catalog build`: each table's domain and concept come from the catalog, the concept linked to `../concepts/<slug>.md` |
+| `--packets` | no | The `--out` of `semantic packet` (default: `packets/` beside `<documents>`, when it exists); only for the warning below |
+
+A document that is `packet_stale` (written against another packet), `invalid` (fails a
+check of `semantic validate`) or has no packet is still rendered, but its table is named on
+stderr, one line per flag: `warning: packet_stale (written against another packet: rewrite
+it whole): <db.table>, ...`. The flags follow `semantic status`'s rules, judged against the
+packets; without packets they are read from the `--validation` report, and with neither a
+line says that nothing was checked. The pages and the exit code do not change.
 
 ### The table page
 
@@ -872,7 +892,7 @@ outputs are byte-for-byte what they were before this feature.
 
 | Code | When |
 | --- | --- |
-| 0 | Every document was rendered |
+| 0 | Every document was rendered (a packet_stale or invalid one included: it is named on stderr) |
 | 1 | A document does not fit the schema (the rest are still rendered), no document could be rendered, or `--validation` / `--ontology` declares the wrong `doc_format` |
 | 2 | The document directory, `--validation` or `--ontology` does not exist or cannot be read |
 
