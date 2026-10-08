@@ -175,6 +175,17 @@
   `@6`, no release in between); `catalog-questions.md` no longer applies the seven catalog rules
   to answers about table-semantics pages; `docs/*/agent-skill.md` states the per-workflow minimum
   version instead of 0.2.0.
+- After two literal-minded trial runs: `env.sh` gains `fill` (fills a template, expands the
+  paths, refuses unfilled placeholders), `note` (one ledger line per finished step) and a
+  `load_tables` that fails on zero tables; a recovery section for an interrupted orchestrator
+  with progress checks through S10 and S11; the orchestrator copies a file a sub-agent could
+  not write; explicit metadata beats `defaults.json`; S10a starts from an empty catalog unless
+  told otherwise; T5 writes the narrowest proven identifier scope, prefers existing concepts for
+  event participants and gives each new concept a reason; owner notes read 「待 owner 确认：」.
+- Prompt text, versions unchanged (no release in between): the writing prompt says a
+  `window_partition_narrower` value is stored at write time, so filtering at read time cannot
+  repair it, and that a column read through an inline dictionary lists the values it stores;
+  the fix prompt leaves low findings alone.
 
 ### Added
 - **`semantic validate --json` numbers each failure and lists the checks with nothing to

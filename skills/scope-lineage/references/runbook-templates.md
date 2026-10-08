@@ -4,19 +4,30 @@
 
 ## 怎么填模板
 
-1. 把模板（两条 `----8<----` 之间的文字）复制出来，把每个 `{…}` 换成实际值。路径一律绝对路径：
+用 `env.sh` 里的函数 `fill`（runbook 0.1）填，不要手工复制替换：
+
+```bash
+fill T1 "$SCRATCH/prompts/T1-<表>-r1.md" TABLE=<库.表> MODE=新写 FACTS=无 CONCEPT="不写 concept" FAILURES=无; echo "exit=$?"
+fill T1 "$SCRATCH/prompts/T1-<表>-r2.md" TABLE=<库.表> MODE=补失败 FACTS=无 CONCEPT="不写 concept" FAILURES=@"$SCRATCH/<表>.failures.txt"
+```
+
+- `fill` 自动把 `{ENV}`、`{RUN}`、`{TOOL}`、`{SCRATCH}`、`{TASKS}`、`{PAGES}`、`{SEMPAGES}` 换成 `env.sh` 里的绝对路径，
+  其余占位按命令行的 `KEY=值` 换；值写成 `@文件` 时取那个文件的内容（贴多行报错用）。
+- 还有没填的占位时它照样写出文件，但退出 1 并打印「未填的占位：…」。**`exit=0` 才能发。**
+- 发出去的就是输出文件的全部内容；在账本「派发记录」记一行，再 `note`。
+
+各占位的含义（路径一律绝对路径）：
    - `{TABLE}`：`库.表`；`{GROUP}`：组名；`{ROUND}`：本轮验收目录（例如 `<RUN>/round1`）；
-   - `{ENV}`：`<RUN>/env.sh`；`{RUN}`、`{TOOL}`、`{SCRATCH}`：与 `env.sh` 里的值相同；
+   - `{ENV}`、`{RUN}`、`{TOOL}`、`{SCRATCH}`、`{TASKS}`、`{PAGES}`：`fill` 自动填；
    - `{MODE}`：模板开头列出的模式之一（例如「新写」「补失败」）；只属于别的模式的段落可以删掉。
    - `{FACTS}`：调用方附带的已确认事实（owner 确认过的业务事实，每条一行）；没有写「无」。
    - `{CONCEPT}`（T1）：有本体目录时写「concept 写 <concept id> / <表现类型>」（用 `sl catalog query <onto>/ontology.json table <表> --json` 查），否则写「不写 concept」。
    - `{FAILURES}`（T1）：补失败模式贴 S5 打印的 FAIL / WARN 行原文；新写写「无」。
-   - `{SIZE}`（T5）：「小样：只分 1 组」或「扩表：按概念分组」。
+   - `{SIZE}`（T5）：「小样：只分 1 组，组名 main」或「扩表：按概念分组」。
    - `{REWORK}`（T5、T6）：返工时贴要改的报错原文；第一次派发写「无」。
-   - `{PAGES}`、`{TASKS}`、`{ROUND_LABEL}`（T7、T8）：页面根目录、任务目录、轮次标签（例如 `r1`）。
-2. 存档：`mkdir -p "$SCRATCH/prompts"`，把填好的文字存成 `$SCRATCH/prompts/<步骤>-<表或组>-<轮次>.md`。
-3. 检查没有漏填：`grep -n '{[A-Z_]*}' "$SCRATCH/prompts/<文件>"` 什么都不打印。
-4. 把文件内容原样作为子代理的任务发出；在账本「派发记录」记一行。
+   - `{ROUND_LABEL}`（T8）：轮次标签（例如 `r1`）。
+
+输出文件就是存档：放在 `$SCRATCH/prompts/<模板>-<表或组>-<轮次>.md`，中断后照它重派。
 
 ---
 
@@ -27,7 +38,7 @@
 - [ ] `env.sh` 写好，每个 Bash 调用都先 `. <RUN>/env.sh`。
 - [ ] `sl --version` 通过版本判断（runbook S0），`TOOL_VERSION` 已写。
 - [ ] 写入检查、PyYAML 检查都 `exit=0`；Write 被拦时的「先写 SCRATCH 再 cp」已知晓。
-- [ ] `ledger.md` 按下面的账本模板建好。
+- [ ] `ledger.md` 按下面的账本模板建好；之后每一步最后一条命令是 `note "…"`（runbook 0.4）。
 - [ ] `tables.txt` 只有本轮的表：小样 ≤5 张，没有中间表、临时表，不带 catalog 前缀。
 - [ ] 材料包 `Packed N table(s)` 的 N 等于 `tables.txt` 行数。
 - [ ] 题集来自 owner；没有题集就不做 S11。
@@ -38,7 +49,8 @@
 - [ ] 先跑这一步的 `status --next`（或 runbook 指定的前提检查），只派它列出的表。
 - [ ] 同时在跑的子代理 ≤5。
 - [ ] 每个子代理只做一张表的一步（片段是一组）；审读和写作不是同一个子代理。
-- [ ] 模板填好、存档、`grep '{[A-Z_]*}'` 为空。
+- [ ] 用 `fill` 填模板且 `exit=0`；输出文件就是存档。
+- [ ] 子代理回报「文件在 SCRATCH、未拷贝」时，编排者代为 `cp` 到目标路径再自检。
 - [ ] 子代理回报后，跑 runbook 该步的「产出与自检」，**不只看回报**。
 - [ ] 账本更新：轮次（中断的不计）、首审 H/M/L、保留的 WARN、blocked、问题清单。
 
@@ -63,8 +75,10 @@
 **已知**
 
 - 表：`{TABLE}`
-- 模式：{MODE}
+- 模式：{MODE}（新写：这张表现在没有文档，从材料包写起，材料包重建后的整份重写也是新写；补失败：文档已有，只改失败清单里的条目）
 - 每条 Bash 命令都以 `. {ENV} && ` 开头（它定义了 `sl` 函数和 `$RUN`、`$SCRATCH` 等变量）。
+- 读长文件：任何文件（包括提示词）一次读不完、或 Bash 输出被截断时，先 `grep -n '^#' <文件>` 列出小节，再按行号分段读完（Read 的 offset / limit，或 `sed -n '起,止p'`），不要跳过任何小节。
+- 写入被拦截：Write 工具写 `{RUN}` 下的文件被钩子拦截时，先写到本模板写明的 `{SCRATCH}` 路径，再用 Bash 的 `cp` 拷到目标路径——这一步已获调用方授权。`cp` 也被拒绝就不要再试，在回复里写「文件在 <SCRATCH 路径>，未拷贝」，调用方会代为拷贝。
 - 调用方附带的已确认事实：{FACTS}
 - 概念：{CONCEPT}
 
@@ -74,7 +88,8 @@
 2. 材料包 `{RUN}/packets/{TABLE}/packet.md`；要结构化细节时读同目录的 `packet.json`。packet.md 一次读不完时，
    先 `grep -n '^#' {RUN}/packets/{TABLE}/packet.md` 列出小节，再按行号分段读完，不要跳过小节。
 3. 只在提示词说不清某个字段的格式时，查 `{TOOL}/scope_lineage/schemas/table-semantics.schema.json`。
-4. 补失败模式：现有文档 `{RUN}/docs/{TABLE}.json`，以及上一轮的失败清单（照提示词末尾「校验不通过时（重写）」一节改）：
+4. **只在补失败模式读这一条**（新写模式跳过：那时 `docs/` 里没有这张表的文档）：现有文档 `{RUN}/docs/{TABLE}.json`，
+   以及上一轮的失败清单（照提示词末尾「校验不通过时（重写）」一节改）：
 
 ```text
 {FAILURES}
@@ -133,19 +148,22 @@
 **已知**
 
 - 表：`{TABLE}`
-- 模式：{MODE}
+- 模式：{MODE}（首审：`{RUN}/reviews/{TABLE}.prior.md` 不存在；重写后首审：它存在，表是材料包重建后整份重写的）
 - 每条 Bash 命令都以 `. {ENV} && ` 开头。
+- 读长文件：任何文件（包括提示词）一次读不完、或 Bash 输出被截断时，先 `grep -n '^#' <文件>` 列出小节，再按行号分段读完（Read 的 offset / limit，或 `sed -n '起,止p'`），不要跳过任何小节。
+- 写入被拦截：Write 工具写 `{RUN}` 下的文件被钩子拦截时，先写到本模板写明的 `{SCRATCH}` 路径，再用 Bash 的 `cp` 拷到目标路径——这一步已获调用方授权。`cp` 也被拒绝就不要再试，在回复里写「文件在 <SCRATCH 路径>，未拷贝」，调用方会代为拷贝。
 - 调用方附带的已确认事实：{FACTS}
 
 **只读这些**
 
 1. 审读提示词 `{TOOL}/skills/scope-lineage/references/table-semantics-review-prompt.md`：照做「逐项核对」十六项、
-   「逐项核对的补充」和「输出」。重写后首审模式还要照做「材料包重建后的重写：带上旧审读」一节。拿不准某种写法算不算发现时，
+   「逐项核对的补充」和「输出」。只有重写后首审模式才做「材料包重建后的重写：带上旧审读」一节；首审模式跳过那一节。拿不准某种写法算不算发现时，
    查同目录 `table-semantics-prompt.md` 的对应条目。
 2. 材料包 `{RUN}/packets/{TABLE}/packet.md`（一次读不完就先 `grep -n '^#'` 再分段读）；需要时同目录 `packet.json`。
 3. 文档 `{RUN}/docs/{TABLE}.json`。
 4. 材料包里点名的兄弟表：只读 `{RUN}/packets/<兄弟表>/packet.md`；那里没有材料包的，如实说「本运行没有它的材料包」。
-5. 重写后首审模式：旧审读 `{RUN}/reviews/{TABLE}.prior.md`，旧文档 `{RUN}/reviews/{TABLE}.prior.json`。
+5. **只在重写后首审模式读这一条**（首审模式跳过：这两个文件不存在，回复里「旧审读处理」一行写「不适用」）：
+   旧审读 `{RUN}/reviews/{TABLE}.prior.md`，旧文档 `{RUN}/reviews/{TABLE}.prior.json`。
 
 **不许读**：别的表的文档；`{RUN}/reviews_prev/`、`{RUN}/prev/`、`{RUN}/blocked/`；任何题集或判分文件；任何别的运行目录。
 不许改 `{RUN}/docs/` 下任何文件。
@@ -210,6 +228,8 @@ low: <整数>
 
 - 表：`{TABLE}`
 - 每条 Bash 命令都以 `. {ENV} && ` 开头。
+- 读长文件：任何文件（包括提示词）一次读不完、或 Bash 输出被截断时，先 `grep -n '^#' <文件>` 列出小节，再按行号分段读完（Read 的 offset / limit，或 `sed -n '起,止p'`），不要跳过任何小节。
+- 写入被拦截：Write 工具写 `{RUN}` 下的文件被钩子拦截时，先写到本模板写明的 `{SCRATCH}` 路径，再用 Bash 的 `cp` 拷到目标路径——这一步已获调用方授权。`cp` 也被拒绝就不要再试，在回复里写「文件在 <SCRATCH 路径>，未拷贝」，调用方会代为拷贝。
 - 调用方附带的已确认事实：{FACTS}
 
 **只读这些**
@@ -250,13 +270,16 @@ low: <整数>
 **已知**
 
 - 表：`{TABLE}`
-- 模式：{MODE}
+- 模式：{MODE}（普通：第一次修订；核对：上一次修订被打断）
 - 每条 Bash 命令都以 `. {ENV} && ` 开头。
+- 读长文件：任何文件（包括提示词）一次读不完、或 Bash 输出被截断时，先 `grep -n '^#' <文件>` 列出小节，再按行号分段读完（Read 的 offset / limit，或 `sed -n '起,止p'`），不要跳过任何小节。
+- 写入被拦截：Write 工具写 `{RUN}` 下的文件被钩子拦截时，先写到本模板写明的 `{SCRATCH}` 路径，再用 Bash 的 `cp` 拷到目标路径——这一步已获调用方授权。`cp` 也被拒绝就不要再试，在回复里写「文件在 <SCRATCH 路径>，未拷贝」，调用方会代为拷贝。
 - 调用方附带的已确认事实：{FACTS}
 
 **只读这些**
 
-1. 修订提示词 `{TOOL}/skills/scope-lineage/references/table-semantics-fix-prompt.md`：第 1–5 步照做。写法以同目录
+1. 修订提示词 `{TOOL}/skills/scope-lineage/references/table-semantics-fix-prompt.md`：第 1–5 步照做。**只改审读里的高、中级发现；
+   低级发现一条都不改**（低级问题不修），在回复里列出来。第 2 步通读时发现与高、中改动矛盾的地方要一并改齐，这不算改低级。写法以同目录
    `table-semantics-prompt.md` 为准，只查要用的条目。
 2. 审读 `{RUN}/reviews/{TABLE}.md`（不许改它；回执由命令写）。
 3. 文档 `{RUN}/docs/{TABLE}.json`（就地改）。
@@ -296,6 +319,7 @@ low: <整数>
 表：{TABLE}
 模式：
 逐条处理：H1 已改 / 不成立（理由）…（审读里每条高、中各一行）
+未改的低级发现：L1 …（没有写「无」）
 偏离审读的地方：…（没有写「无」）
 最终校验：FAIL <n> / WARN <n>；保留的 WARN 及理由：…
 semantic fixed：exit=<n>；输出原文：…
@@ -320,6 +344,9 @@ status：…
 - 运行目录：`{RUN}`；每条 Bash 命令都以 `. {ENV} && ` 开头。
 - 本轮的表：`{RUN}/tables.txt`（一行一张）。
 - 小样还是扩表：{SIZE}
+- 读长文件：任何文件一次读不完、或 Bash 输出被截断时，先 `grep -n '^#' <文件>` 列出小节，再按行号分段读完。
+- 写入被拦截：Write 写 `{RUN}` 下的文件被钩子拦截时，先写 `{SCRATCH}/catalog-draft/` 下同名文件，再用 Bash `cp` 拷过去（已获调用方授权）；
+  `cp` 也被拒绝就在回复里写明文件在哪，调用方会代拷。
 
 **只读这些**
 
@@ -336,15 +363,30 @@ status：…
 文件名只能是 `catalog`、`domains`、`identifiers`、`code_sets`、`concepts/<域>`、`relations`、`constraints`、`terms`，别的文件会报 `unknown_file`；
 `mapping/` 不归你写）
 
+每个文件是一个对象，唯一的顶层键与文件名主干相同，值是条目列表（`catalog.json` 是清单，不改）：
+
+```json
+{"domains": [ … ]}            // domains.json
+{"identifiers": [ … ]}        // identifiers.json
+{"code_sets": [ … ]}          // code_sets.json
+{"concepts": [ … ]}           // concepts/<域>.json，例如 concepts/lending.json
+{"relations": [ … ]}          // relations.json
+```
+
+（上面的 `//` 只是说明，文件里不能写注释。）
+
 1. **业务域**：每个概念要有 `domain`。没有合适的域就建一个：`{"id": "domain:<slug>", "name": "中文名", "description": "一句话"}`。
 2. **概念**：读 digest 每张表一段的 What / Row / Grain，判断这张表的一行是哪个业务对象。
    - 目录里已有概念能承载的，不新建。一个业务含义一个概念；同一对象的不同表（宽表、历史表、映射表）是同一个概念的不同表现，不是几个概念。
+   - **每个新建的概念都在 `notes` 里写理由**：哪张表的一行就是它，或哪张表的哪一列指向它、为什么已有概念承载不了。
    - 只存「码 + 含义」、按类型列区分多套码的字典表**不是概念**，不建；它在分组方案里列为「码值来源表」。
    - `kind` 只有三种：`entity`（有稳定身份、能被反复引用）；`event`（在某个时点发生、有参与者、发生后不改）；
      `role`（实体在某个业务上下文里的身份，写 `player`、`context`、`condition`）。
    - `entity`：写 `identifiers`、`primary_identifier`。`event`：写 `identifiers`（有的话）、`participants`
      （`role_name` 是小写英文 slug，同一事件里不重复）、`occurred_at`——**必须指向事件自己的时间属性**，所以同时在
      `attributes` 里建这个属性（`category: time`）。
+   - 事件的参与者**优先引用目录里已有的概念**。只凭一个外键列、本轮又没有任何表的一行是它的对象（例如只出现过一个「操作人 id」），
+     不要为它新建概念：先不列进 `participants`，在事件的 `notes` 里写「待 owner 确认：<列> 指向的 <对象> 是否建概念」。
    - 每个概念写 `name`（中文）、`definition`（一句话）、`status: drafted`、`source`（`comment` / `sql` / `mixed` / `llm`）、
      `evidence`（表名或 `库.表.列`）。
    - 形状：
@@ -362,9 +404,12 @@ status：…
 
 3. **标识符**：新概念的标识符；已有标识符在新表里的新拼写（在 `spellings` 里加 `{"column": "<列>", "table": "<库.表>"}`；
    列名到处都一样的写 `{"column": "<列>"}` 即可）。
-   - `scope`：全局唯一写 `"global"`；只在另一个概念的每个实例内唯一写 `{"per": ["concept:<id>"]}`；只在某个判别列
-     （来源系统、环境这类不是业务概念的列）的每个取值内唯一、**且这是已知事实**时写 `{"by": [{"column": "<列>"}]}`。
-     「是否跨来源唯一没有证明」不是范围：照写 `global`，在 `notes` 里写明未证明。
+   - `scope` 写**表语义能证明的最窄范围**，不要比表语义页说得更强：
+     - 表语义（digest 的 Grain / Watch）说它全局唯一，才写 `"global"`；
+     - 只在另一个概念的每个实例内唯一：写 `{"per": ["concept:<id>"]}`；
+     - 只证明了在某个判别列（来源系统、环境这类不是业务概念的列）的每个取值内唯一，跨这一列是否唯一没有证明：写
+       `{"by": [{"column": "<列>"}]}`，并在 `notes` 写「待 owner 确认：跨 <列> 是否唯一」。**不要写 `global`**，否则目录页会写成「全局唯一」，与表语义页的「未证明」矛盾；
+     - 什么范围都证明不了：写 `"global"`，`notes` 写「待 owner 确认：唯一性未证明（见表语义 <表>）」，并在回复「没把握」里列出。
    - 两套编号没有证据证明是同一套（例如两个系统各自的人员编号），不写 `maps_to`，也不建它们之间的关系，在 `notes` 里写明。
    - 形状：`{"id": "id:loan_no", "name": "借据号", "identifies": "concept:loan", "scope": "global", "spellings": [{"column": "loan_no"}], "status": "drafted", "source": "sql"}`
 4. **关系**：新概念与已有概念之间的业务联系（参与关系由事件的 `participants` 自动派生，不手写）。
@@ -388,6 +433,7 @@ status：…
    - SQL 内联的字典（`VALUES`、`CASE` 映射）不在这一行里，留给片段写 `values`。
    - 形状：`{"id": "code:waiver_reason", "name": "豁免原因", "values": [], "lookup": {"table": "demo_dim.dim_code_dict", "code_column": "code_val", "meaning_columns": [{"column": "code_desc", "lang": "zh"}], "filter": {"code_type": "WaiverReason"}}, "status": "drafted", "source": "sql", "evidence": ["<任务名>"]}`
 7. 不写表现和绑定（`mapping/`），不写人名、邮箱。
+8. 所有写给 owner 的 `notes` 都以「待 owner 确认：」开头；不要写「owner 确认：…」——本轮没有 owner 确认过任何东西。
 
 **自检**（改到 0 error 为止）
 
@@ -468,6 +514,8 @@ catalog validate：exit=<n>；<计数行原样>
 
 - 模式：{MODE}
 - 每条 Bash 命令都以 `. {ENV} && ` 开头。
+- 读长文件：任何文件（包括提示词）一次读不完、或 Bash 输出被截断时，先 `grep -n '^#' <文件>` 列出小节，再按行号分段读完（Read 的 offset / limit，或 `sed -n '起,止p'`），不要跳过任何小节。
+- 写入被拦截：Write 工具写 `{RUN}` 下的文件被钩子拦截时，先写到本模板写明的 `{SCRATCH}` 路径，再用 Bash 的 `cp` 拷到目标路径——这一步已获调用方授权。`cp` 也被拒绝就不要再试，在回复里写「文件在 <SCRATCH 路径>，未拷贝」，调用方会代为拷贝。
 
 **只读这些**
 
@@ -477,6 +525,7 @@ catalog validate：exit=<n>；<计数行原样>
    它点名的格式文档只读那三节，示例只看形状。
 2. 分配：`{RUN}/catalog_plan.md` 的「通用约定」「码值来源表」「组 {GROUP}」「跨组属性」「已建在目录里的共用码值集」五节。
 3. 目录里已有的码值集、属性直接引用，不要用同一个 id 写不同的内容。
+4. 片段的 `notes` 每条都以「待 owner 确认：」开头（例如「待 owner 确认：remark 是否有业务属性」）；不要写「owner 确认」，本轮没有 owner 确认过任何东西。
 
 **不许读**：任何题集或判分文件；任何别的运行目录；别的组的片段。不改 `{RUN}/catalog/`。
 
@@ -528,8 +577,11 @@ notes 原文：…（没有写「无」）
 **不许读**：页面目录以外的任何文件——材料包、SQL、血缘、`ontology.json`、表语义 JSON、题集、参考答案、判分文件、别的运行目录。
 不跑 `scope-lineage` 的任何命令。不上网，不凭常识补事实。
 
+- 读长文件：页面或提示词一次读不完时，先 `grep -n '^#' <文件>` 列出小节，再按行号分段读完。
+
 **写到哪里**：`{ROUND}/answers.md`，每题一节，以 `## <题号>` 开头，题号与题单完全一致，一题都不能少；答不出也留一节写「页面里没找到」
-并写查了哪些页哪些节。Write 被拦截时先写 `{SCRATCH}/answers.md` 再 `cp`。
+并写查了哪些页哪些节。Write 被拦截时先写 `{SCRATCH}/answers.md`，再用 Bash `cp` 拷到 `{ROUND}/answers.md`（已获调用方授权）；
+`cp` 也被拒绝就在回复里写「文件在 {SCRATCH}/answers.md，未拷贝」，调用方会代拷。
 
 **回复**（中文，只写这些行）
 
@@ -562,7 +614,8 @@ notes 原文：…（没有写「无」）
 - `set:` 照抄 `grading.md` 里 YAML 模板的 `set:` 那一行的值（原样，通常是绝对路径）。
 - `round:` 写 `{ROUND_LABEL}`。
 - 判分材料里的每一题都要有一条，`id` 一字不差，不加题。
-Write 被拦截时先写 `{SCRATCH}/grades.yaml` 再 `cp`。
+Write 被拦截时先写 `{SCRATCH}/grades.yaml`，再用 Bash `cp` 拷到 `{ROUND}/grades.yaml`（已获调用方授权）；`cp` 也被拒绝就在回复里写明，
+调用方会代拷。读长文件同 T7：先 `grep -n '^#'` 再分段读。
 
 **自检**
 
@@ -622,6 +675,14 @@ key_wrong 的题与正确答案：…（没有写「无」）
 
 | # | 现象 | 表 | 怎么处理的 |
 | --- | --- | --- | --- |
+
+## 验收未覆盖的表
+
+| 表 | 原因（没有题问到 / NO_PAGE） |
+| --- | --- |
+
+## 流水（`note` 追加在这里，必须是文件最后一节）
+
 ```
 
 ---
@@ -643,7 +704,7 @@ key_wrong 的题与正确答案：…（没有写「无」）
 - 目录（做了 S10 时）：概念 <n>、标识符 <n>、关系 <n>、码值集 <n>、表现 <n>、绑定 <n>、unmapped <n>。
 - 验收（做了 S11 时）：<得分>/<满分>；基线 <得分>/<满分>；是否达标；按缺口的失分。
 
-## 三、没做完或拿掉的表
+## 三、没做完、拿掉或验收未覆盖的表
 
 | 表 | 原因 | FAIL 原文 / 说明 |
 | --- | --- | --- |

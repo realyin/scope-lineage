@@ -16,7 +16,8 @@
 
 ### 0.1 变量块（写成 `$RUN/env.sh`）
 
-把下面整块复制，只改等号右边，用 Write 工具（或编辑器）保存为 `<运行目录>/env.sh`。
+把下面整块复制，只改等号右边，用 Write 工具（或编辑器）保存为 `<运行目录>/env.sh`。不要用 Bash 的
+`cat <<EOF` 写它：不带引号的 `EOF` 会把 `$RUN`、`$@` 当场展开，写出来的文件就错了（非要用 heredoc 就写 `<<'EOF'`）。
 
 ```bash
 # ===== scope-lineage 运行环境：只改等号右边，全部写绝对路径 =====
@@ -33,7 +34,38 @@ export PAGES="$RUN/site"                      # 页面根目录（概念页、in
 export SEMPAGES="$RUN/site/semantics"         # 表语义页目录
 sl() { uv run --project "$TOOL" --extra catalog scope-lineage "$@"; }
 # 已经 pip 安装了 scope-lineage[catalog] 的机器，把上一行换成：sl() { scope-lineage "$@"; }
-load_tables() { TABLES=(); while IFS= read -r t; do [ -n "$t" ] && TABLES+=("$t"); done < "$RUN/tables.txt"; }
+load_tables() {   # 把 tables.txt 读进数组 TABLES；读到 0 张表就报错
+  TABLES=(); while IFS= read -r t; do [ -n "$t" ] && TABLES+=("$t"); done < "$RUN/tables.txt"
+  echo "tables=${#TABLES[@]}"; [ "${#TABLES[@]}" -gt 0 ]
+}
+note() {         # 账本流水：每一步做完的最后一条命令，例：note "S4 派 T1 demo_dwd.x 第1轮"
+  printf -- '- %s %s\n' "$(date '+%F %T')" "$*" >> "$RUN/ledger.md"
+}
+fill() {         # 填模板：fill T1 <输出文件> TABLE=库.表 MODE=新写 FACTS=无 …；值写 @文件 表示取文件内容
+  python3 - "$@" <<'PY'
+import os, re, sys
+tid, out, pairs = sys.argv[1], sys.argv[2], sys.argv[3:]
+src = open(os.path.join(os.environ["TOOL"], "skills/scope-lineage/references/runbook-templates.md"), encoding="utf-8").read()
+m = re.search(r"^## " + re.escape(tid) + r" .*?^----8<----\n(.*?)^----8<----$", src, re.S | re.M)
+if not m:
+    sys.exit("没有模板 " + tid)
+text = m.group(1)
+vals = {k: os.environ.get(k, "") for k in ("RUN", "TOOL", "SCRATCH", "TASKS", "PAGES", "SEMPAGES")}
+vals["ENV"] = os.path.join(os.environ["RUN"], "env.sh")
+for pair in pairs:
+    key, _, value = pair.partition("=")
+    vals[key] = open(value[1:], encoding="utf-8").read().strip() if value.startswith("@") else value
+for key, value in vals.items():
+    if value:
+        text = text.replace("{" + key + "}", value)
+os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+open(out, "w", encoding="utf-8").write(text)
+left = sorted(set(re.findall(r"\{[A-Z_]+\}", text)))
+print(out)
+if left:
+    sys.exit("未填的占位：" + " ".join(left))
+PY
+}
 set -o pipefail
 ```
 
@@ -43,7 +75,8 @@ set -o pipefail
 . /abs/path/to/runs/run-20260101/env.sh
 ```
 
-下文的命令都假定已经执行过这一行。
+下文的命令都假定已经执行过这一行。忘了这一行的症状：`sl: command not found` / `command not found: sl`，
+或路径变成以 `/packets`、`/docs` 开头（变量是空的）。处理：补上这一行重跑，不要改路径。
 
 ### 0.2 七条调用规则
 
@@ -55,6 +88,9 @@ set -o pipefail
 4. **要判断退出码的命令不接管道。**`sl … | tail -3` 之后的 `$?` 是 `tail` 的。要看长输出就重定向到文件
    （`> "$SCRATCH/x.txt" 2>&1`），再读文件。
 5. **表名列表一律用数组**：先 `load_tables`，命令里写 `"${TABLES[@]}"`。`--only` 一律放在命令**最后**（它会吞掉后面所有的词）。
+   `TABLES` 和变量一样不跨 Bash 调用：**每个用到 `"${TABLES[@]}"` 的命令块都要先跑 `load_tables`**，它打印
+   `tables=N`，N 是 0 时返回非 0。漏了的症状：`status` 打出一行空表名的 `no_packet`；`--only: no document for `
+   或 `no table written by the corpus is named ` 后面什么都没有（退出 1）。处理：补 `load_tables` 重跑。
 6. **路径一律绝对路径**，表名一律 `库.表`（不带 catalog 前缀，例如写 `demo_dwd.dwd_lending_loan_df`，
    不写 `spark_catalog.demo_dwd.dwd_lending_loan_df`）。
 7. **遇到手册里没有的情况就停**：把命令、退出码、报错原文写进账本「问题清单」，交 owner；不要自己改工具、
@@ -66,7 +102,38 @@ set -o pipefail
 - 小样从 S0 走到 S11 全部达标后，才按 owner 的指示扩到更多表；扩表时从 S3 开始，同一个运行目录继续。
 - 全量由 owner 指定的人或 agent 跑。没有 owner 明说「跑全量」，就只跑小样。
 
-### 0.4 主流程总览
+### 0.4 账本与恢复
+
+- **每一步做完，最后一条命令是 `note "<步骤> <做了什么> <结果>"`**（往 `ledger.md` 末尾的「流水」追加一行）；
+  派发、回收子代理时同时更新账本的表格。不更新账本，编排者自己被打断后就只能靠猜。
+- **编排者自己被打断后**（会话中断、额度用完、重开会话），按这个顺序恢复，不要从头跑：
+  1. `. <RUN>/env.sh`，读 `$RUN/ledger.md` 末尾的流水，看最后做完的是哪一步。
+  2. 跑下面的进度检查，以它为准（账本和它不一致时以它为准，并记进问题清单）：
+
+     ```bash
+     load_tables
+     sl semantic status "$RUN" --pages "$SEMPAGES" --only "${TABLES[@]}"
+     ls "$RUN/catalog_plan.md" "$RUN/fragments" "$RUN/merge_report.txt" "$RUN/onto/ontology.json" "$PAGES/index.md" 2>&1
+     ls "$RUN"/round*/ 2>&1
+     ls "$SCRATCH/prompts" 2>&1
+     ```
+
+  3. 对照下表找到当前步，从那一步的「前提检查」重新开始（`status --next` 会跳过已完成的表）：
+
+     | 看到的情况 | 当前步 |
+     | --- | --- |
+     | 有表不是 `fixed` / `rendered` | 按附录 A |
+     | 全部 `rendered`，没有 `catalog_plan.md`（要做目录时） | S10a / S10b |
+     | 有 `catalog_plan.md`，`fragments/` 缺组（对照分组方案的组名） | S10d |
+     | 片段齐，没有 `merge_report.txt` 或 `merged/` | S10e |
+     | 有 `merged/`，没有 `onto/ontology.json` 或 `$PAGES/index.md` | S10g |
+     | `round1/` 只有 `sheet.md` | S11 第 1 步（作答） |
+     | 有 `answers.md`，没有 `grading.md` 或 `grades.yaml` | S11 第 2、3 步 |
+     | 有 `grades.yaml`，没有 `score/score.json` | S11 第 4 步 |
+
+  4. 正在跑的子代理没有回报就算中断：不计轮次，按 `$SCRATCH/prompts/` 里的存档重派同一份提示词。
+
+### 0.5 主流程总览
 
 | 步 | 做什么 | 谁做 | 主要产出 | 模板 |
 | --- | --- | --- | --- | --- |
@@ -108,7 +175,8 @@ head -1 "$TOOL/skills/scope-lineage/references/table-semantics-prompt.md"
 touch "$RUN/.write-test" && rm "$RUN/.write-test"; echo "exit=$?"
 sl catalog validate "$TOOL/examples/catalog-demo" > "$SCRATCH/pyyaml-check.txt" 2>&1; echo "exit=$?"
 mkdir -p "$RUN"/{artifacts,corpus,packets,docs,reviews,reviews_prev,prev/docs,blocked/docs,digest,catalog,fragments,confirmations}
-sl --version > "$RUN/TOOL_VERSION"
+mkdir -p "$SCRATCH/prompts"
+sl --version > "$RUN/TOOL_VERSION"     # 第二次运行只为写进文件
 git -C "$TOOL" log -1 --format='commit %h %cd' >> "$RUN/TOOL_VERSION"
 ```
 
@@ -147,9 +215,11 @@ git -C "$TOOL" log -1 --format='commit %h %cd' >> "$RUN/TOOL_VERSION"
 **前提检查**
 
 - 元数据怎么接，按顺序判断，第一条成立就用：
-  1. 有 `~/.scope-lineage/defaults.json`：`SCHEMA`、`DDL` 用它的 `schema`、`target_ddl_metadata`；
-  2. 任务旁边自带表元数据目录：`SCHEMA` 和 `DDL` 都写这个目录；
-  3. 都没有：停下，问 owner 元数据在哪。不要不带 `--schema` 裸跑（`SELECT *` 会展不开，列会绑错）。
+  1. owner（或任务说明）明确给了元数据目录：用它，**优先于** `defaults.json`；只给了一个目录时，`SCHEMA` 和 `DDL` 都写它；
+  2. 有 `~/.scope-lineage/defaults.json`：`SCHEMA`、`DDL` 用它的 `schema`、`target_ddl_metadata`；
+  3. 任务旁边自带表元数据目录：`SCHEMA` 和 `DDL` 都写这个目录；
+  4. 都没有：停下，问 owner 元数据在哪。不要不带 `--schema` 裸跑（`SELECT *` 会展不开，列会绑错）。
+  用了 1 而 `defaults.json` 也存在时，在账本记一笔「元数据用 owner 指定的目录」。
 - `ls "$TASKS"` 能看到任务 JSON。
 
 **命令**（`DDL` 非空用 A，留空用 B）
@@ -165,6 +235,8 @@ ls "$RUN/artifacts"
 **产出与自检**
 
 - 摘要行：`Parsed N statement(s) from M input(s) into … (tasks=…, modeled=…, failed=…, input_failed=…, partial_tasks=…, unsupported_mutations=…, root_gap_results=…, …)`。
+  只看 `failed`、`input_failed`、`partial_tasks`、`root_gap_results` 四项；其余字段（`binding_fallbacks`、`recovered_syntax`、
+  `binding_not_applicable` 等）不为 0 也不用处理。
 - `$RUN/artifacts/<任务名>/lineage.json`，一个任务一个目录。目录名是**任务名**，不是表名。
 - 看一个任务：`python3 "$TOOL/skills/scope-lineage/scripts/query.py" summary "$RUN/artifacts/<任务名>"`，
   输出里 `final tables:` 是这个任务写的表。
@@ -200,7 +272,7 @@ sl glossary --lineage "$RUN/artifacts" --out "$RUN/corpus" --overrides "$OVERRID
 
 **产出与自检**
 
-- `$RUN/corpus/tables.json`、`tables.md`、`glossary.json`、`glossary.md`。
+- `$RUN/corpus/tables.json`、`tables.md`、`tables/`（每表一张卡）、`glossary.json`、`glossary.md`。
 - 摘要行 `Carded N table(s) from M task(s) (…)`、`Collected … (overrides terms=…, values=…, blank=…, unmatched=…, rejected=…, ignored_fields=…, …)`。
 
 **常见失败与处理**
@@ -234,6 +306,8 @@ sl semantic packet --lineage "$RUN/artifacts" --tasks "$TASKS" --schema "$SCHEMA
   --tables "$RUN/corpus/tables.json" --glossary "$RUN/corpus/glossary.json" \
   --out "$RUN/packets" --only "${TABLES[@]}"; echo "exit=$?"
 sl semantic status "$RUN" --pages "$SEMPAGES" --only "${TABLES[@]}"; echo "exit=$?"
+# 4. 每张表一个子代理私有临时目录
+for t in "${TABLES[@]}"; do mkdir -p "$SCRATCH/$t"; done
 ```
 
 选表规则（按顺序）：
@@ -309,8 +383,23 @@ sl semantic status "$RUN" --pages "$SEMPAGES" --only "$T"
 
 做完这张表显示 `packet`。旧审读（`.prior.md`）和旧文档（`.prior.json`）只在 S6 交给审读员，**不交给写作者**。
 
-**命令**：每批同时派的子代理不超过 5 个。每张表用 T1 填空后派一个子代理，模型用次一档强模型（附录 D）。
-在账本里给这张表记一行：步骤「写作」、轮次、派发时间。
+**命令**：每批同时派的子代理不超过 5 个。每张表用 T1 填空后派一个子代理，模型用次一档强模型（附录 D）：
+
+```bash
+T=demo_dwd.dwd_party_customer_info_df   # 换成这张表
+fill T1 "$SCRATCH/prompts/T1-$T-r1.md" TABLE="$T" MODE=新写 FACTS=无 CONCEPT="不写 concept" FAILURES=无; echo "exit=$?"
+```
+
+`exit=0` 才能发（非 0 时它会列出没填的占位）。把这个文件的内容原样作为子代理的任务。在账本里给这张表记一行：
+步骤「写作」、轮次、派发时间，然后 `note "S4 派 T1 $T 第1轮"`。
+
+**写入被拦截**：子代理回报「文件在 `$SCRATCH/<表>/…`，cp 没做 / 被拒绝」时，由编排者代为拷贝，再做下面的自检：
+
+```bash
+cp "$SCRATCH/$T/$T.json" "$RUN/docs/$T.json"
+```
+
+审读文件（`reviews/`）、片段（`fragments/`）、作答和判分文件照同样的办法由编排者代拷。
 
 **产出与自检**（子代理回报后，编排者对每张表做）
 
@@ -424,7 +513,7 @@ cat "$RUN/next.json"
 
 | 情况 | 派发前要做 | 模板 |
 | --- | --- | --- |
-| `valid`，`reviews/<表>.prior.md` 不存在 | 无 | T2（首审） |
+| `valid`，`reviews/<表>.prior.md` 不存在（`ls "$RUN/reviews/$T.prior.md"` 报不存在） | 无 | T2（首审） |
 | `valid`，`reviews/<表>.prior.md` 存在（重写后的首审） | 无 | T2（重写后首审：带 `.prior.md` 和 `.prior.json`） |
 | `valid review_packet_stale` | 把旧审读移到 `reviews_prev/`（下面的命令） | T2（首审） |
 | `valid review_stale` | 先查附录 A：是确认回写引起的就不审读，补跑 `semantic fixed`；否则同上 | T2（首审） |
@@ -435,6 +524,10 @@ mv "$RUN/reviews/$T.md" "$RUN/reviews_prev/$T.$(date +%Y%m%d%H%M).md"
 ```
 
 **命令**：每张表用 T2 填空派一个子代理，**最强模型**，不能和写作是同一个子代理。每批不超过 5 个。账本记一行「审读」。
+
+```bash
+fill T2 "$SCRATCH/prompts/T2-$T.md" TABLE="$T" MODE=首审 FACTS=无; echo "exit=$?"     # 重写后首审写 MODE=重写后首审
+```
 
 **产出与自检**（子代理回报后）
 
@@ -488,7 +581,8 @@ cat "$RUN/next.json"
 | `reviewed fix_unconfirmed`，账本里这张表刚做过确认回写（S12） | 不派修订：`sl semantic fixed "$RUN" --only "$T"` |
 | `reviewed fix_unconfirmed`，其他原因 | T4（核对模式），记进问题清单 |
 
-**命令**：每张表用 T4 填空派一个子代理，次一档强模型。修订者自己会在最后一步跑
+**命令**：每张表用 T4 填空（`fill T4 "$SCRATCH/prompts/T4-$T-1.md" TABLE="$T" MODE=普通 FACTS=无`）派一个子代理，次一档强模型。
+只修高、中级发现，低级的不改（模板里已写明）。修订者自己会在最后一步跑
 `sl semantic fixed "$RUN" --only <表>`。账本记一行「修订」。
 
 **产出与自检**
@@ -499,7 +593,8 @@ sl semantic status "$RUN" --pages "$SEMPAGES" --only "$T"
 grep -n 'fixed_doc_digest' "$RUN/reviews/$T.md"
 ```
 
-`status` 显示 `fixed`；审读文件 front matter 里有 `fixed_doc_digest`。
+`status` 显示 `fixed`；审读文件 front matter 里有 `fixed_doc_digest`。（S8 复审覆盖审读文件后，`fixed_doc_digest` 就没有了，
+这是正常的：复审高 + 中 = 0 时 `status` 直接是 `fixed`。）
 
 **常见失败与处理**（修订者回报的 `semantic fixed` 结果，或编排者重跑的结果；原因写在标准错误
 `<表>: no fix record written: <原因>`）
@@ -545,7 +640,7 @@ python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["summary"][
    cp "$RUN/reviews/$T.md" "$RUN/reviews_prev/$T.round1.md"
    ```
 
-3. 用 T3 派复审（最强模型）。复审员覆盖 `reviews/<表>.md`。回收检查同 S6。
+3. 用 T3 派复审（最强模型）：`fill T3 "$SCRATCH/prompts/T3-$T.md" TABLE="$T" FACTS=无`。复审员覆盖 `reviews/<表>.md`。回收检查同 S6。
 4. 复审结果：高 + 中 = 0 → 表直接是 `fixed`，结束。高 + 中 > 0 → 表是 `reviewed` → 回 S7 用 T4 再修订一次 → `fixed` 后结束，
    **不再复审**；复审里仍成立的发现原文抄进账本「问题清单」。
 5. 一张表最多：写作 2 轮、首审 1 次、修订 2 次、复审 1 次。
@@ -623,7 +718,7 @@ sl semantic status "$RUN" --pages "$SEMPAGES" --only "${TABLES[@]}"
 
 **目的**：准备 `$RUN/catalog/`，确认它里面到底有什么。
 
-**前提检查**：S9 完成。owner 说明了起点：「从空目录开始」或「从某个旧目录开始」。
+**前提检查**：S9 完成。owner 说明了起点：「从某个旧目录开始」就用 A；**没说明就用 B（空目录）**，并在账本记一笔。
 
 **命令**（二选一）
 
@@ -688,7 +783,11 @@ cat "$SCRATCH/digest.stderr"
 
 **前提检查**：S10b 完成。
 
-**命令**：用 T5 填空派**一个**子代理（次一档强模型），只给 `digest.md`、当前目录和模板。小样时分组方案只写 1 组。
+**命令**：用 T5 填空派**一个**子代理（次一档强模型），只给 `digest.md`、当前目录和模板。小样时分组方案只写 1 组，组名用 `main`：
+
+```bash
+fill T5 "$SCRATCH/prompts/T5.md" SIZE="小样：只分 1 组，组名 main" REWORK=无; echo "exit=$?"
+```
 
 **产出与自检**
 
@@ -714,16 +813,21 @@ for t in "${TABLES[@]}"; do printf '%s\t%s\n' "$(grep -c -F "| $t |" "$RUN/catal
 
 **前提检查**：S10c 完成；组名取自 `catalog_plan.md`。
 
-**命令**：每组用 T6 填空派一个子代理（次一档强模型），每批不超过 5 个。回报后编排者重跑一次自检：
+**命令**：每组用 T6 填空（`fill T6 "$SCRATCH/prompts/T6-$G.md" GROUP="$G" MODE=首写 REWORK=无`）派一个子代理（次一档强模型），
+每批不超过 5 个。回报后编排者重跑一次自检：
 
 ```bash
-G=customer   # 换成组名
+G=main   # 换成组名
 rm -rf "$SCRATCH/check-$G"
 sl catalog merge "$RUN/catalog" "$RUN/fragments/$G.json" --out "$SCRATCH/check-$G" > "$SCRATCH/check-$G.txt" 2>&1; echo "exit=$?"
-grep -n -E 'conflict|unknown|^error|Coverage|unmapped' "$SCRATCH/check-$G.txt"
+grep -c -E '^Merged .* 0 conflict\(s\), 0 unknown concept\(s\)' "$SCRATCH/check-$G.txt"
+grep -c -E '^Catalog .*: 0 error\(s\)' "$SCRATCH/check-$G.txt"
+grep -E '^Coverage:|^  [a-z0-9_]+\.' "$SCRATCH/check-$G.txt"
 ```
 
-**产出与自检**：`exit=0`；`Merged 1 fragment(s) … 0 conflict(s), 0 unknown concept(s)`；`Coverage:` 下每张分给本组的表都有一行表现。
+**产出与自检**：`exit=0`；两个 `grep -c` 都打印 `1`；`Coverage: K table(s) in the fragments, K with a representation, U unmapped column(s)`
+里两个 `K` 相等（每张分给本组的表都有表现），下面每张表一行。`U` 不为 0 时，那几列和原因抄进账本「给 owner 的待确认」，
+不算失败。只 grep `unmapped` 这个词没有用：`0 unmapped column(s)` 也会被匹配。
 
 **常见失败与处理**
 
@@ -746,11 +850,13 @@ grep -n -E 'conflict|unknown|^error|Coverage|unmapped' "$SCRATCH/check-$G.txt"
 ```bash
 rm -rf "$RUN/merged"
 sl catalog merge "$RUN/catalog" "$RUN"/fragments/*.json --out "$RUN/merged" > "$RUN/merge_report.txt" 2>&1; echo "exit=$?"
-grep -n -E 'conflict|unknown|^error|^note|Coverage|unmapped' "$RUN/merge_report.txt"
+grep -c -E '^Merged .* 0 conflict\(s\), 0 unknown concept\(s\)' "$RUN/merge_report.txt"
+grep -c -E '^Catalog .*: 0 error\(s\)' "$RUN/merge_report.txt"
+grep -E '^note|^Coverage:|^  [a-z0-9_]+\.' "$RUN/merge_report.txt"
 ```
 
-**产出与自检**：`exit=0`；`0 conflict(s), 0 unknown concept(s)`；`Coverage:` 里每张表（码值字典表除外）有表现。
-`note` 行（片段的 `notes`）和 `unmapped` 列抄进账本「给 owner 的待确认」。
+**产出与自检**：`exit=0`；两个 `grep -c` 都打印 `1`；`Coverage:` 里两个表数相等（每张表都有表现，码值字典表本来就不在片段里）。
+`note` 行（片段的 `notes`，都以「待 owner 确认：」开头）和 `unmapped` 列抄进账本「给 owner 的待确认」。这些都**不是** owner 已确认的内容。
 
 **常见失败与处理**：退出码 1 → 冲突或校验错误，结果已写出便于查看。不要手工挑一个：按冲突行里的组名，用 T6（返工模式）交回对应的组，
 改完从 S10d 的自检重来。退出码 2 → `--out` 非空，先 `rm -rf "$RUN/merged"`。
@@ -768,7 +874,8 @@ grep -n -E 'conflict|unknown|^error|^note|Coverage|unmapped' "$RUN/merge_report.
 - 只改 `$RUN/merged/` 里的文件，不改 `$RUN/catalog/`。每一处改动在 `$RUN/catalog_changes.md` 记一行（文件、对象、改前、改后、依据）。
   这份记录**不要**放进 `merged/`（目录里不认识的文件会报 `unknown_file`）。
 - 改成 `foreign_attribute`：把绑定的 `to` 改成 `foreign_attribute`，`ref` 改成别组概念的属性 id，加 `via: <本表里绑成 foreign_identifier 的那一列>`。
-- owner 确认的条目：`status` 改成 `confirmed`，`source` 改成 `owner`。
+- owner 确认的条目：`status` 改成 `confirmed`，`source` 改成 `owner`。只认 owner 在对话里或确认文件里给出的回答；
+  片段 `notes` 里写的「待 owner 确认」不是确认。
 - 下一轮（扩表、再起草）的起点目录是这一份 `merged/`：S10a 用 A，旧目录写 `$RUN/merged`，新一轮在新的运行目录里做。
 
 **命令**（改完）
@@ -798,7 +905,7 @@ sl semantic status "$RUN" --pages "$SEMPAGES" --only "${TABLES[@]}"
 
 顺序：`build` → `semantic render --ontology` → `catalog render --semantics`。`build` 固定带 `--lineage` 和 `--tables`（页面上的证据靠它们）。
 
-**产出与自检**：`Built ontology-json/3 from catalog …`；`Rendered N table page(s) and index.md (skipped=0)`；
+**产出与自检**：`Built ontology-json/3 from catalog …`（下一行 `evidence:` 的「N of M relation(s) backed by a JOIN」只是证据统计，小样里是 0 也不用处理）；`Rendered N table page(s) and index.md (skipped=0)`；
 `Rendered N page(s) (C concept page(s)) -> …`；`$PAGES/concepts/`、`$PAGES/index.md`、`$SEMPAGES/<表>.md` 都在；`status` 全部 `rendered`。
 
 **常见失败与处理**
@@ -849,6 +956,8 @@ sl semantic status "$RUN" --pages "$SEMPAGES" --only "${TABLES[@]}"
   ```
 
   `sheet.stderr` 里的 `warning: no page under … for the table of <题号> (<表>)` 与 `NO_PAGE` 是同一件事。
+  反过来，有页面但这一轮**没有一道题问到**的表，在账本「给 owner 的待确认」和 `RESULT.md` 里记为「验收未覆盖」；
+  不要自己出题补上。
   有 `NO_PAGE` 的：把问这张表的题从 `SUB` 里去掉（blocked 的表就属于这种），记进账本，重跑上面的 `sheet`。
   题单里有「概念」题时，`$PAGES/concepts/` 不能是空的。
 
@@ -856,15 +965,19 @@ sl semantic status "$RUN" --pages "$SEMPAGES" --only "${TABLES[@]}"
 
 ```bash
 # 1. 作答：用 T7 派一个子代理（便宜模型），只给 $ROUND/sheet.md 和 $PAGES，写 $ROUND/answers.md
+fill T7 "$SCRATCH/prompts/T7-round1.md" ROUND="$ROUND"; echo "exit=$?"
 # 2. 判分材料
 sl questions grading-sheet "$Q" --answers "$ROUND/answers.md" --out "$ROUND/grading.md" "${SUB[@]}" 2> "$ROUND/grading.stderr"; echo "exit=$?"
 cat "$ROUND/grading.stderr"
 # 3. 判分：用 T8 派一个子代理（最强模型），写 $ROUND/grades.yaml
+fill T8 "$SCRATCH/prompts/T8-round1.md" ROUND="$ROUND" ROUND_LABEL=r1; echo "exit=$?"
 sl questions validate "$ROUND/grades.yaml"; echo "exit=$?"
 # 4. 汇总（有上一轮的 grades 时加 --previous <旧 grades.yaml>）
 sl questions score "$ROUND/grades.yaml" --set "$Q" --out "$ROUND/score" "${SUB[@]}" 2> "$ROUND/score.stderr"; echo "exit=$?"
 cat "$ROUND/score.stderr"
 python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["total"]); print("ungraded", d["ungraded"]); [print(r["round"], r["total"]) for r in d["rounds"]]' "$ROUND/score/score.json"
+# 5. 达标判断（带了 --previous 时；rounds 最后一项是本轮，前一项是基线）
+python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))["rounds"]; cur=r[-1]["total"]["points"]; base=r[-2]["total"]["points"] if len(r) > 1 else None; print("NO_BASELINE" if base is None else ("PASS" if cur >= base - 1 else "FAIL"), cur, base)' "$ROUND/score/score.json"
 ```
 
 **产出与自检**
@@ -872,8 +985,8 @@ python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["total"]); 
 - `grading.stderr` 里没有 `no answer for`；`score.stderr` 里没有 `not graded`；`ungraded` 是 `[]`。
 - `score.md` 的「按缺口」说失分在哪：`page_missing` / `page_wrong` / `page_contradiction` 是页面的问题，`answerer` 是作答，
   `key_wrong` 是参考答案（列在「参考答案待修正」），`owner_only` 交 owner。逐题抄进账本问题清单。
-- 达标线：有基线（上一轮同一套题、同一子集的 `grades.yaml`，用 `--previous` 带上）时，本轮得分**不低于基线减 1 分**；
-  没有基线时只报分数，由 owner 判断。
+- 达标线：有基线（上一轮同一套题的 `grades.yaml`，用 `--previous` 带上；工具按同一个 `SUB` 对齐）时，本轮得分**不低于基线减 1 分**，
+  上面第 5 步打印 `PASS`；没有基线（`NO_BASELINE`）时只报分数，由 owner 判断。不论是否达标，每道失分题都逐题记进账本。
 
 **常见失败与处理**
 
@@ -1076,6 +1189,9 @@ $SCRATCH/<组名>/、check-<组名>/  片段子代理的临时目录与自检目
 | `semantic validate --only` | `--only: no document for …` | 1 | 附录 A |
 | `semantic validate` | 目录或 `--packets` 不存在 | 2 | 路径写错 |
 | `semantic status` | 有表过期或无效 | 0 | 正常；看阶段和标记 |
+| `status` / `validate` / `catalog digest` / `semantic packet` | 一行空表名的 `no_packet`；`--only: no document for ` 或 `no table written by the corpus is named ` 后面是空的 | 0 / 1 | 漏了 `load_tables`（0.2 第 5 条） |
+| 任意 | `sl: command not found`，或路径以 `/docs`、`/packets` 开头 | 127 / 2 | 漏了 `. <RUN>/env.sh`（0.1） |
+| `fill` | `未填的占位：{…}` | 1 | 补上那几个 `KEY=值` 再跑 |
 | `semantic status` | `--json - and --next without --out both want stdout` | 2 | `--next` 加 `--out "$RUN/next.json"` |
 | `semantic fixed` | `the following arguments are required: --only` | 2 | 加 `--only <表>` |
 | `semantic fixed` | `no fix record written: …` | 1 | S7 的原因表 |
@@ -1095,8 +1211,8 @@ $SCRATCH/<组名>/、check-<组名>/  片段子代理的临时目录与自检目
 | `questions grading-sheet` | `warning: no answer for: …` | 0 | S11 |
 | `questions score` | `warning: not graded …` | 0 | S11 |
 | `questions score` | 判分文件有题集没有的题号 | 1 | T8 返工 |
-| Read 工具 | `packet.md` 一次读不完（超过单次读取上限） | — | 先 `grep -n '^#' packet.md` 列小节，再按行号分段读（模板里已有） |
-| Write 工具 | 写 `$RUN` 被钩子拦截 | — | 先写 `$SCRATCH` 再 `cp` |
+| Read 工具 / Bash 输出 | 文件一次读不完或输出被截断（`packet.md`、提示词都可能） | — | 先 `grep -n '^#' <文件>` 列小节，再按行号分段读完（模板里已有） |
+| Write 工具 | 写 `$RUN` 被钩子拦截 | — | 先写 `$SCRATCH` 再 `cp`；子代理 cp 也被拒时由编排者代拷（S4） |
 | 子代理 | 429 / 额度用完 / 没回报 | — | 不计轮次；额度恢复后重跑 `status --next`，已完成的表自动跳过 |
 
 ## 附录 D 成本与并发
