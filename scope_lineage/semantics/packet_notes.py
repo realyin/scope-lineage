@@ -131,15 +131,17 @@ def mark_right_side_filters(
     """B-V2: a filter inside a LEFT JOIN's right side, and the structural kind it has.
 
     ``right_of`` lists the LEFT JOINs whose right side (with everything it reads) holds
-    the filter's scope. It is a non-partition filter's only, and only when nothing of the
-    statement's driving rows reads that scope: the driving rows are what every root stage
+    the filter's scope -- a partition filter's too (round 3 V2: it decides which
+    partitions the right side reads, and a reader of 4.2 asks where it sits) -- only
+    when nothing of the statement's driving rows reads that scope: the driving rows are what every root stage
     reads, at any depth, except through a LEFT JOIN's right input -- so a CTE read both
     as ``FROM c a`` and as ``LEFT JOIN c a1`` drives. A LEFT JOIN whose own scope also
     filters on its right side (``WHERE r.k IS NULL``) lets the right side decide which
     target rows survive, and holds no ``right_of`` filter.
 
-    ``right_side_kind`` says what such a filter structurally is, when it is one of two
-    things: ``rank_first`` (it keeps a ranking's first row, :class:`RightSides`) or
+    ``right_side_kind`` says what such a non-partition filter structurally is, when it is
+    one of two things (a partition filter never has one: the kind only exempts a filter
+    from check 5, which never asks for a partition filter): ``rank_first`` (it keeps a ranking's first row, :class:`RightSides`) or
     ``values`` (its scope reads an inline VALUES list down a single-input chain).
     """
     profile_rules = {(task, statement.get("statement_id")): statement.get("rules") or []
@@ -153,15 +155,15 @@ def mark_right_side_filters(
                  and not _filters_its_right_side(rule, rules)]
         shape = shapes.get(key) or RightSides([], set())
         for rule in rules:
-            if (rule["kind"] != "filter" or rule["partition_filter"]
-                    or _statement_key(rule) != key or str(rule.get("scope")) in driving):
+            if (rule["kind"] != "filter" or _statement_key(rule) != key
+                    or str(rule.get("scope")) in driving):
                 continue
             right_of = [join["id"] for join in joins
                         if str(rule.get("scope")) in _closure(reads, join.get("right"))]
             if not right_of:
                 continue
             rule["right_of"] = right_of
-            kind = _right_side_kind(rule, shape)
+            kind = None if rule["partition_filter"] else _right_side_kind(rule, shape)
             if kind:
                 rule["right_side_kind"] = kind
 

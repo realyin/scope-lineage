@@ -242,21 +242,32 @@ def _columns_of(fields) -> list[str]:
     return columns
 
 
-def statement_keys(task: str, statement: dict) -> dict:
+def statement_keys(task: str, statement: dict, grain_columns=()) -> dict:
     """The statement's grain and keys, and whether the profile proves them.
 
     ``proven`` is false on a MERGE whatever its confidence: the profile proves the batch
     the MERGE writes, while a reader of this row asks about the table (A-M1).
+
+    ``grain_keys`` are the logical keys' names, columns of the scope that decides the
+    grain. ``grain_columns`` (round 3 M1) is the profile's ``grain_key_columns``, the
+    target column each key lands on (``[{logical, column?, via, pinned?}]``); it is kept
+    only when some key does not land on a column of its own name, so a missing key means
+    every grain key is its target column.
     """
     shape = statement.get("output_shape") or {}
     grain = shape.get("grain") or {}
     confidence = shape.get("key_confidence")
+    names = [str(key.get("name")) for key in grain.get("keys") or []]
+    columns = [dict(item) for item in grain_columns]
+    differs = len(columns) == len(names) and any(
+        item.get("column") != name for item, name in zip(columns, names))
     return {
         "task": task,
         "statement_id": statement.get("statement_id"),
         "shape": shape.get("shape"),
         "grain_basis": grain.get("basis"),
-        "grain_keys": [str(key.get("name")) for key in grain.get("keys") or []],
+        "grain_keys": names,
+        **({"grain_columns": columns} if differs else {}),
         "candidate_keys": list(shape.get("candidate_keys") or []),
         "key_confidence": confidence,
         "proven": confidence == "proven" and not shape.get("merge"),
@@ -294,10 +305,52 @@ def statement_partition(task: str, statement: dict, table_partitions=()) -> dict
     values = _select_values(fields, dynamic)
     if values:
         entry["select_values"] = values
+    if entry["mode"] == MERGE_ROW_VALUES:
+        entry["merge_columns"] = merge_columns(merging, entry["columns"])
     return entry
 
 
 _NOT_MATCHED = re.compile(r"merge:not_matched\s")
+MERGE_UPDATE_NONE = "none"
+MERGE_UPDATE_KEEPS = "keeps"
+MERGE_UPDATE_WRITES = "writes"
+
+
+def merge_columns(merge: dict, columns: list[str]) -> dict[str, dict]:
+    """What a MERGE's UPDATE does to each partition column (round 3 M3).
+
+    ``{column: {update, key, pinned?}}``, read off the profile's merge block:
+
+    - ``update`` -- ``none`` when no WHEN clause updates, ``keeps`` when the column is
+      among ``insert_only_columns`` or, for a MERGE that only updates, missing from
+      ``update_columns`` (an updated row stays in its partition), ``writes`` otherwise
+      (an updated row moves when its value changes);
+    - ``key`` -- the column is a merge key's target column: ON keeps it equal on every
+      matched row;
+    - ``pinned`` -- the value every matched WHEN pins the column to
+      (``matched_target_pins``): only rows of that partition are updated.
+    """
+    whens = merge.get("whens") or []
+    updates = any(str(when.get("action")) == "update" for when in whens)
+    keys = {str(pair.get("target")).lower() for pair in merge.get("merge_keys") or []}
+    kept = {str(name).lower() for name in merge.get("insert_only_columns") or []}
+    only_updated = merge.get("update_columns")
+    written = {str(name).lower() for name in only_updated or []}
+    pins = {str(name).lower(): value for name, value in (merge.get("matched_target_pins") or {}).items()}
+    found: dict[str, dict] = {}
+    for column in columns:
+        name = str(column).lower()
+        if not updates:
+            update = MERGE_UPDATE_NONE
+        elif name in kept or (only_updated is not None and name not in written):
+            update = MERGE_UPDATE_KEEPS
+        else:
+            update = MERGE_UPDATE_WRITES
+        state: dict = {"update": update, "key": name in keys}
+        if name in pins:
+            state["pinned"] = pins[name]
+        found[str(column)] = state
+    return found
 
 
 def _select_values(fields: list[dict], dynamic: list[str]) -> dict[str, list[str]]:

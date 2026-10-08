@@ -137,13 +137,13 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 
 规则先全部出行、只编号一次，之后才做所有引用 `pN` 的标注，标注不增删规则。不去重的窗口（没有 `= 1` 过滤的
 排名、LEAD 等）也出一行，`kind` 为 `window`，「说明」是画像的原话（如「仅组内排名，未见 = 1 过滤」）。位于某个
-LEFT JOIN 右侧之内（右侧 scope 及它读取的全部 scope）的非分区过滤带 `right_of: [p…]`，列出这些关联：它不丢
-目标行，只决定右侧哪些行参与匹配。同时喂给驱动行的 scope（一个 CTE 既作 `FROM c a` 又作 `LEFT JOIN c a1`）
+LEFT JOIN 右侧之内（右侧 scope 及它读取的全部 scope）的过滤（含分区过滤）带 `right_of: [p…]`，列出这些关联：
+它不丢目标行，只决定右侧哪些行参与匹配；分区过滤则决定右侧读哪些分区。同时喂给驱动行的 scope（一个 CTE 既作 `FROM c a` 又作 `LEFT JOIN c a1`）
 不算；关联所在 scope 自己的 WHERE 又过滤右侧（反连接的 `WHERE r.k IS NULL`）时，右侧决定哪些目标行留下，
-它右侧的过滤也不算。`right_side_kind` 标出两类结构：`rank_first`（过滤是排名窗口的 `= 1`，判法即画像的
+它右侧的过滤也不算。`right_side_kind` 只标非分区过滤，标出两类结构：`rank_first`（过滤是排名窗口的 `= 1`，判法即画像的
 R6）与 `values`（过滤所在 scope 沿单输入链读到内联 VALUES 列表）；不看规则的 `tables` 是否为空。「说明」一列
-的拼接顺序固定：规则文字 → 日期偏移 → 位置（`right_of`，「在 pN 右侧：不丢目标行，决定右侧哪些行参与匹配」）
-→ 注释 → 相邻的注释掉的 SQL（不生效）→ 未被消费 → 治理线索。
+的拼接顺序固定：规则文字 → 日期偏移 → 位置（`right_of`，「在 pN 右侧：不丢目标行，决定右侧哪些行参与匹配」，
+分区过滤为「……决定右侧读哪些分区」）→ 注释 → 相邻的注释掉的 SQL（不生效）→ 未被消费 → 治理线索。
 
 另有三类事实供含义检查（第 10–13 项）使用。每条关联规则带 `right`（右侧：`库.表`，或画像的 scope 编号，
 如 `subq:p`）、`right_aliases`（ON 子句与 scope 给它的别名）、`right_tables`（它背后的物理表）和
@@ -177,6 +177,7 @@ R6）与 `values`（过滤所在 scope 沿单输入链读到内联 VALUES 列表
 | `tasks[]` | `upstream_unmatched` | 登记的上游任务里，按任务名对不上本任务（所有语句）读取的任何表的那些。任务名等于 `表`、`库_表` 或以 `_库_表` 结尾算对上；这是名称启发式，只说「对不上」，不说「没读」 |
 | `inputs[]` | `producer_header` | 语料里生产该输入的任务，其 SQL 头注释写的主键、存储设计、分区设计、生命周期、数据规模：`[{task, primary_key?, storage?, partition_design?, lifecycle?, volume?}]`。是作者说法，不是 SQL 事实；输入即目标表本身、或头注释点名的是该任务写的另一张表时不出现 |
 | `lineage.partition[]` | `select_values` | 动态分区列（`PARTITION (dt)`）由 SELECT 只写常量时（`'${bizdate}' AS dt`，每个 UNION 分支一条），这些常量：`{列: [字面量…]}`。MERGE 没有 PARTITION 子句：`columns` 取目标表元数据的分区列，`mode` 为 `merge_row_values`（按写入行的分区列值落分区），常量只取 not matched（INSERT）分支 |
+| `lineage.partition[]` | `merge_columns` | 只在 `merge_row_values` 时出现：`{分区列: {update, key, pinned?}}`。`update` 为 `none`（没有 UPDATE 子句）、`keeps`（列在 `insert_only_columns` 里，或只更新的 MERGE 的 `update_columns` 没有它：被更新的行留在原分区）或 `writes`（UPDATE 也写它：值变了行就换分区）；`key` 表示它是合并键的目标列（ON 保证 matched 行上值不变）；`pinned` 是每个 matched WHEN 条件都把它钉成的值（画像的 `matched_target_pins`），此时只有该分区的已有行会被更新，其他分区的同键行既不更新也不再插入。`packet.md` 4.3 的「分区写入」按列写这些后果，带 `pinned` 的写明旧分区不被本语句改写 |
 | `inputs[]` | `producer_columns` | 语料里生产该输入的任务怎么写本表关联、过滤、开窗所用的那些列：表卡 `produced_by[].fields` 的摘要，`[{task, statement_id, column, summary}]`；是别的任务的 SQL 摘要，不是本任务的。输入即目标表本身时不出现 |
 | `lineage.downstream[]` | `columns` | 语料里该下游任务按本表哪些列关联、过滤（表卡 `consumed_by[].columns`）：`{join_key: [...], filter: [...]}`；`packet.md` 4.4 多一列「按哪些列读（关联 / 过滤）」 |
 | `lineage.columns[].producers[]` | `literal_outputs` | 本列 SQL 字面写出的值（SQL 写法：`''`、`'web'`、`0`、`NULL`）：链上最后一步计算之后只有直传时，取常量、COALESCE / NVL 的末参数、CASE / IF 各分支的字面量；UNION 每个分支各按自己的最后一步计算。只出现在条件里的字面量不算，LEFT JOIN 未命中带来的 NULL 归 `nullable_by_join`。`constant_only: true` 表示每个分支最后都是常量，列只取这些值 |
@@ -196,8 +197,9 @@ R6）与 `values`（过滤所在 scope 沿单输入链读到内联 VALUES 列表
 | `lineage.rules[]` | `commented_out_sql` | 条件旁边被注释掉的 SQL（如删掉的一条过滤），与说明分开；`packet.md` 的「说明」写「相邻的注释掉的 SQL（不生效）：…」 |
 | `lineage.columns[].producers[]` | `steps` | 画像无法用词表描述的步骤（UDF、`MD5(…)` 等）写成「表达式 …」，不再出现 `None` |
 | `lineage.rules[]` | `consumed` | 只有 `false`：CASE / IF 的输出可证明没有任何下游读取；`packet.md` 的「说明」写「未被消费」 |
-| `lineage.keys[]` | `merge` | MERGE 语句的画像 `output_shape.merge`：合并键 `merge_keys`、其他 ON 条件、各 WHEN 子句、USING 侧粒度、去重键与合并键的比较 `coverage`（`covered` / `dedup_wider` / `no_dedup` / `unknown`，`dedup_wider` 时 `extra_keys`）；`joins_after_dedup` 写成规则编号（`union_branches[]` 各分支的也一样）；另有 `table_key`、`insert_only_columns`、`update_columns`、`update_nullable_by_join`、`union_branches`（见 [semantic-doc.md](semantic-doc.md)）。`packet.md` 在 4.3 下写：合并键、WHEN（条件不满足的行既不更新也不插入）、去重键与合并键的比较（USING 是 UNION 时逐分支写；粒度未判定时写「USING 粒度未判定」，不写「无去重」）、推断的目标表候选键（未证明；只更新时写「本语句不决定目标表的行粒度」）、UPDATE 不改 / 只改 / 可能写入空值的列。MERGE 行的 `proven` 恒为 `false`：画像证明的是本批写入，不是目标表 |
-| `lineage` | `findings` | 画像的治理线索 `alias_position_mismatch`、`duplicate_alias`、`empty_string_on_non_string`、`numeric_compare_on_string`、`literal_outside_comment_codes`、`window_partition_narrower`（按窗口的逻辑块挂到它的 `window` 行），之后是材料包自己比对出的两类：`marker_column_unused`（输入表有逻辑删除标记列——只认 `is_deleted` 一类通用命名——本任务没有任何条件或输出读它）、`declared_key_not_used`（输入列注释以 `$` 模板声明由本表几列组成的唯一键，本任务在该表上按其中一部分去重或合并；该语句的 MERGE 已报 `dedup_wider` 时不出）。每条 `{kind, severity, task, statement_id, text, rules?}`，`rules` 是线索所指的规则编号；`packet.md` 在 4.3 之后列出，有规则编号的也写进该规则的「说明」 |
+| `lineage.keys[]` | `grain_columns` | 每个粒度键落到的目标列，即画像 `grain_key_columns` 的结果：`[{logical, column?, via, pinned?}]`，`via` 为 `exposed`（透传到目标列）、`derived`（经单源表达式）、`merge_on`（经 MERGE 的 ON 等值）或 `unexposed`（未写入目标表）。`grain_keys` 是决定粒度的 scope 里的逻辑键名，只在有键不落在同名目标列上时才出这个键；缺键表示每个粒度键都与目标列同名。`packet.md` 4.3 的「粒度键（目标列）」一格据此写目标列，派生、经 ON 对应与未写入的各自注明 |
+| `lineage.keys[]` | `merge` | MERGE 语句的画像 `output_shape.merge`：合并键 `merge_keys`、其他 ON 条件、各 WHEN 子句、USING 侧粒度、去重键与合并键的比较 `coverage`（`covered` / `dedup_wider` / `no_dedup` / `unknown`，`dedup_wider` 时 `extra_keys`）；`joins_after_dedup` 写成规则编号（`union_branches[]` 各分支的也一样）；另有 `matched_target_pins`、`using_writer_keys`、`table_key`、`insert_only_columns`、`update_columns`、`update_nullable_by_join`、`update_nullable_by_join_branches`、`update_filled_on_miss`、`union_branches`（见 [semantic-doc.md](semantic-doc.md)）。`packet.md` 在 4.3 下写：合并键、WHEN（条件不满足的行既不更新也不插入）、去重键与合并键的比较（USING 是 UNION 时逐分支写；粒度未判定时写「USING 粒度未判定」，不写「无去重」；同一合并键可能有多行时——`no_dedup`、`dedup_wider`、UNION 分支之间——按本语句有的 WHEN 子句写后果：有 matched UPDATE / DELETE 时会遇到多个 USING 行匹配同一目标行，有 not matched INSERT 时目标里没有的合并键会重复插入；不点名具体引擎）、USING 读写入方自己的表而写入方的本批写入键比合并键多出列时（`using_writer_keys`）的那一行、推断的目标表候选键（未证明；只更新时写「本语句不决定目标表的行粒度」）、UPDATE 不改 / 只改 / 可能写入空值的列（只有部分 UNION 分支可能写空时写出分支号）、关联未命中时写回填值的列（`update_filled_on_miss`，带分支号与回填值）。MERGE 行的 `proven` 恒为 `false`：画像证明的是本批写入，不是目标表 |
+| `lineage` | `findings` | 画像的治理线索 `alias_position_mismatch`、`duplicate_alias`、`empty_string_on_non_string`、`numeric_compare_on_string`、`literal_outside_comment_codes`、`window_partition_narrower`（按窗口的逻辑块挂到它的 `window` 行），之后是材料包自己比对出的两类：`marker_column_unused`（输入表有标记列，本任务没有任何条件或输出读它。只认通用命名：逻辑删除标记 `is_deleted` 一类、作废标记 `is_cancel` / `is_void` / `is_invalid` 一类，以及变更类型列 `record_type` / `op_type` / `change_type` 一类——后者还要求列注释里出现至少两种数据操作动词（INSERT、UPSERT、UPDATE、DELETE、新增、插入、更新、修改、删除）且其中有删除，挡住业务上的「操作类型」；同一任务合成一条，按类别分句）、`declared_key_not_used`（输入列注释以 `$` 模板声明由本表几列组成的唯一键，本任务在该表上按其中一部分去重或合并；该语句的 MERGE 已报 `dedup_wider` 时不出）。每条 `{kind, severity, task, statement_id, text, rules?}`，`rules` 是线索所指的规则编号；`packet.md` 在 4.3 之后列出，有规则编号的也写进该规则的「说明」 |
 | `target.columns[]`、`inputs[].columns[]` | `comment_markers` | 注释里的全角标记（`【键:值】`，键以 ASCII 字母开头）原样拆成 `[{key, value?}]`。含义属于数据负责人，工具不解释；注释原文不变 |
 | 顶层 | `comment_marker_keys` | 各标记键的出现次数与一个示例列；`packet.md` 开头一行列出，并提示含义未登记前不得当业务事实 |
 | `target.columns[]`、`inputs[].columns[]` | `comment_refs` | 注释里的 `[库.表.列]` / `[库.表]` / `[表.列]` 引用：`{ref, status, near?}`，`status` 为 `in_run`（语料里有任务读写这张表，按表卡判断）、`metadata_only`（只有元数据）或 `unknown`；`unknown` 时 `near` 列出去掉第一个分层前缀后名字互为前缀的本运行表，只是线索、未证实同一张表 |

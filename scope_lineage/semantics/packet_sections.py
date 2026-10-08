@@ -244,7 +244,7 @@ def lineage_section(
     lineage = {
         "columns": _column_lineage(target, statements),
         "rules": rules,
-        "keys": [_keys(task, statement, rules) for task, statement in statements],
+        "keys": [_keys(task, statement, rules, corpus) for task, statement in statements],
         "partition": [facts.statement_partition(task, statement, partitions)
                       for task, statement in statements],
         "upstream_tables": upstream,
@@ -257,8 +257,8 @@ def lineage_section(
     return {**lineage, **({"findings": findings} if findings else {})}
 
 
-def _keys(task: str, statement: dict, rules: list[dict]) -> dict:
-    keys = facts.statement_keys(task, statement)
+def _keys(task: str, statement: dict, rules: list[dict], corpus) -> dict:
+    keys = facts.statement_keys(task, statement, corpus.grain_columns(task, statement))
     merge = merge_block(task, statement, rules)
     return {**keys, "merge": merge} if merge else keys
 

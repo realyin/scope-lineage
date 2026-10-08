@@ -87,6 +87,40 @@
   cites the filter it equals; a CASE branch or a MERGE `WHEN` condition still cites
   nothing. Citing only gains: no document that passed fails.
 
+### Table-semantics packet (`table-semantics-packet/1`, format unchanged)
+- **`right_of` covers partition filters too.** A partition filter inside a LEFT JOIN's right
+  side is marked with the joins it sits in, under the same rules as any filter (not on the
+  driving rows, not in an anti-join's right side); its 说明 reads 「在 pN 右侧：不丢目标行，
+  决定右侧读哪些分区」. It never gets a `right_side_kind`, which only exempts a filter from
+  check 5, and check 5 asks for no partition filter: validation is unchanged but for the
+  digest. Packets with such a filter get a new `packet_digest`.
+- **The 4.3 grain cell names target columns.** `grain_keys` are logical keys of the scope
+  that decides the grain, and were shown beside `candidate_keys` (target columns) as if
+  they were columns of the table. New `lineage.keys[].grain_columns` (`grain_key_columns`
+  of the profile) gives each key's target column, present only when some key does not
+  land on a column of its own name. The header reads 「粒度键（目标列）」, and the cell marks
+  a derived key, a key tied by a MERGE's ON equality, and a key not written to the target.
+- **A MERGE's 4.3 lines read the profile's new merge facts.**
+  - 「可能写入空值」 names the UNION branches for a column only some branches may blank out
+    (`update_nullable_by_join_branches`), and a new line 「关联未命中时写回填值」 lists the
+    columns a branch fills with a literal on a miss (`update_filled_on_miss`).
+  - New `lineage.partition[].merge_columns` (`merge_row_values` only): per partition
+    column, `update` (`none` / `keeps` / `writes`), `key`, and `pinned` (the value every
+    matched WHEN pins it to). 「分区写入」 says per column whether an updated row stays or
+    moves, and for a pinned column that no old partition is rewritten, instead of one
+    general sentence.
+  - Where one merge key may have several USING rows, the consequence follows the
+    statement's own WHEN clauses: an INSERT-only MERGE no longer reads 「matched 更新会遇到
+    多行匹配」, and `no_dedup` and the UNION line now say what follows. No engine is named.
+  - A new line names a USING side read from a table whose writer keys its batch on more
+    columns than the merge key (`using_writer_keys`).
+- **`marker_column_unused` names cancel and change-type columns too.** Besides the
+  logical-delete flags, an unread cancel flag (`is_cancel`, `is_void`, `is_invalid` …) and
+  an unread change-type column (`record_type`, `op_type`, `change_type` …) whose comment
+  names at least two data-manipulation verbs, a delete among them, join the task's one
+  lead, a sentence per kind. The kind is unchanged and no new lead is made where none was;
+  a lead that only names delete flags reads as before.
+
 ## 0.7.0
 - **Table semantics that survive a review loop, MERGE targets read as the batch they
   write, and a catalog that says where its codes live.** One report format moves:

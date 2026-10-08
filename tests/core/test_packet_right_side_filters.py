@@ -13,19 +13,25 @@ A scope that also feeds the driving rows (a CTE read both as ``FROM person a`` a
 ``LEFT JOIN person a1``) is never ``right_of``; nor is a right side whose rows the join's
 own WHERE tests (an anti-join, ``WHERE c.k IS NULL``), where the right side does decide
 which target rows survive. A filter on a CTE over a physical table is ``right_of`` but of
-no structural kind, although its own ``tables`` are empty. The checks that read these
-facts are not here. Every name is synthetic.
+no structural kind, although its own ``tables`` are empty.
+
+A partition filter is placed the same way (round 3 V2): it is ``right_of`` the LEFT JOINs
+whose right side holds it, and its note says it decides which partitions the right side
+reads. It never has a ``right_side_kind`` -- that exempts a filter from check 5, which
+never asks for a partition filter. The checks that read these facts are not here, but
+for check 5's partition filters. Every name is synthetic.
 """
 
 from __future__ import annotations
 
 from scope_lineage.contract.lineage import to_lineage_dict
 from scope_lineage.scope.scope_builder import parse_scope_lineage
+from scope_lineage.semantics.checks_context import check_rules
 from scope_lineage.semantics.packet import build_packets
 from scope_lineage.semantics.packet_markdown import render_packet_markdown
 
 SCHEMA = {
-    "demo_ods.order_src": ["order_id", "status_cd", "person_id", "env", "order_type"],
+    "demo_ods.order_src": ["order_id", "status_cd", "person_id", "env", "order_type", "dt"],
     "demo_ods.order_step_src": ["order_id", "step_name", "step_time", "step_role", "step_state",
                                 "dt"],
     "demo_ods.person_src": ["id", "parent_id", "env", "upd"],
@@ -150,10 +156,72 @@ def test_an_anti_join_s_right_side_filters_are_not_right_of() -> None:
     assert "right_of" in filters["step_state = 'S9'"]
 
 
-def test_partition_filters_are_never_marked() -> None:
-    steps = {"demo_ods.order_step_src": {"partitioned": True, "partition_columns": ["dt"],
-                                         "columns": []}}
-    packet = _pack(ORDER_DET.replace("where step_role = 'R7'",
-                                     "where step_role = 'R7' and dt = '20260101'"), steps.get)
-    (partition,) = [rule for rule in packet["lineage"]["rules"] if rule["partition_filter"]]
-    assert "right_of" not in partition and "right_side_kind" not in partition
+_STEPS_PARTITIONED = {
+    "demo_ods.order_step_src": {"partitioned": True, "partition_columns": ["dt"], "columns": []},
+    "demo_ods.order_src": {"partitioned": True, "partition_columns": ["dt"], "columns": []},
+}.get
+
+
+def _partition_rules(packet: dict) -> list[dict]:
+    return [rule for rule in packet["lineage"]["rules"] if rule["partition_filter"]]
+
+
+RIGHT_PARTITION = ORDER_DET.replace("where step_role = 'R7'",
+                                    "where step_role = 'R7' and dt = '20260101'")
+
+
+def test_a_right_side_partition_filter_is_right_of_but_no_kind() -> None:
+    """Round 3 V2: where a partition filter sits is a fact the reader of 4.2 needs too."""
+    packet = _pack(RIGHT_PARTITION, _STEPS_PARTITIONED)
+    (partition,) = _partition_rules(packet)
+    assert partition["right_of"] == [_join_id(packet, "s")]
+    assert "right_side_kind" not in partition
+
+
+def test_a_driving_partition_filter_is_not_right_of() -> None:
+    packet = _pack(RIGHT_PARTITION.replace("where order_type = 'X'",
+                                           "where order_type = 'X' and dt = '20260101'"),
+                   _STEPS_PARTITIONED)
+    driving, right = _partition_rules(packet)
+    assert "order_src" in " ".join(driving["tables"])
+    assert "right_of" not in driving and "right_side_kind" not in driving
+    assert right["right_of"] == [_join_id(packet, "s")]
+
+
+def test_an_anti_join_s_right_side_partition_filter_is_not_right_of() -> None:
+    sql = ORDER_FLAT.replace("from demo_ods.order_step_src",
+                             "from demo_ods.order_step_src where dt = '20260101'")
+    anti = sql.replace("on o.status_cd = c.code_val",
+                        "on o.status_cd = c.code_val where s.step_name is null")
+    (partition,) = _partition_rules(_pack(anti, _STEPS_PARTITIONED))
+    assert "right_of" not in partition
+    (partition,) = _partition_rules(_pack(sql, _STEPS_PARTITIONED))
+    assert partition["right_of"]
+
+
+def test_a_partition_filter_beside_a_kept_first_row_has_no_kind() -> None:
+    packet = _pack(RIGHT_PARTITION, _STEPS_PARTITIONED)
+    ranked = [rule for rule in packet["lineage"]["rules"] if rule.get("right_side_kind")]
+    assert ranked and all(not rule["partition_filter"] for rule in ranked)
+
+
+def test_the_note_of_a_right_side_partition_filter_says_it_picks_partitions() -> None:
+    packet = _pack(RIGHT_PARTITION, _STEPS_PARTITIONED)
+    (partition,) = _partition_rules(packet)
+    markdown = render_packet_markdown(packet).splitlines()
+    row = next(line for line in markdown if line.startswith(f"| {partition['id']} |"))
+    assert f"在 {partition['right_of'][0]} 右侧：不丢目标行，决定右侧读哪些分区" in row
+    assert "决定右侧哪些行参与匹配" not in row
+    other = _filters(packet)["step_role = 'R7'"]
+    row = next(line for line in markdown if line.startswith(f"| {other['id']} |"))
+    assert "决定右侧哪些行参与匹配" in row
+
+
+def test_check_5_still_asks_for_no_partition_filter() -> None:
+    packet = _pack(RIGHT_PARTITION, _STEPS_PARTITIONED)
+    for task in packet["tasks"]:
+        task["sql"] = RIGHT_PARTITION
+    document = {"rules": [], "summary": {"scope": []}}
+    asked = [item["message"] for item in check_rules(document, packet)
+             if item["status"] == "fail" and item["at"] == "rules"]
+    assert asked and not any("dt" in message for message in asked)
