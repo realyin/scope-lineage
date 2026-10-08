@@ -544,7 +544,8 @@ scope-lineage semantic confirm <run>/docs --confirmations <answers.json>
   - 渲染只渲染这几张：把它们的文档放进单独目录再 `semantic render`，或在结果里注明。
 
   没选中的表保持 `drafted packet_stale`，它们的文档依据的还是旧材料包：全量 `semantic validate` 会对它们报
-  第 8 项 `digest` FAIL；`semantic render` 照样渲染它们（render 不看状态），页面内容是旧的；`catalog digest`
+  第 8 项（`digest`）FAIL（`--json` 里按编号数：读 `failures[].number`，这里是 8；`not_reported` 列出已运行、
+  没有可查条目的检查项）；`semantic render` 照样渲染它们（render 不看状态），页面内容是旧的；`catalog digest`
   读 `<run>/docs` 也不看状态。在它们重写之前，不要用这个运行目录的全部文档重建本体目录或整体页面；必须重建时，
   在结果里注明目录依据的是新旧两版材料包。
   一张表连续两轮 `draft` 仍在 `drafted`，把它从本轮拿掉并告诉用户，不要一直派发。

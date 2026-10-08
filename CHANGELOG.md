@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **`semantic validate --json` numbers each failure and lists the checks with nothing to
+  check.** Every `failures[]` item carries `number` (1–13, the `[N name]` of the text
+  summary), and every table carries `not_reported`: the checks that ran and produced no
+  item, by number and name (empty when the cross checks did not run -- a schema error, or
+  no packet). The text summary prints them on a `无可查条目` line under the table's line.
+  `checks` is unchanged and the format stays `table-semantics-validation/1`; a reader that
+  ignores unknown keys sees no difference.
+
+### Changed
+- **Check 10 (`fan_out`) warns when a join is named only by an alias another right side
+  shares.** An alias is unique within one SELECT, not within a packet, so a sentence about
+  one `c` used to count as naming every other join aliased `c`. A right side is now named
+  for sure by its table, an alias only it carries, or its join rule's number (`pN`);
+  named only by a shared alias it gets a `warn` asking for the table or the `pN`. Nothing
+  that passed now fails, and `semantic status` stages do not move (a warning changes no
+  stage). The harmless-LEFT-join warning likewise reads a sentence by those names first,
+  so a claim about one join no longer labels another that shares its alias.
+
+### Fixed
+- **Check 5 (`rules`) reads the WHERE of a quoted whole statement.** A `rules[].sql` that
+  copies a whole `select … where a and b` (or a FROM-led query, or an INSERT … SELECT)
+  was one form equal to no filter, so every filter in its WHERE read as uncited. Each
+  conjunct of every WHERE / HAVING / ON in the quote, nested subqueries included, now
+  cites the filter it equals; a CASE branch or a MERGE `WHEN` condition still cites
+  nothing. Citing only gains: no document that passed fails.
+
 ## 0.7.0
 - **Table semantics that survive a review loop, MERGE targets read as the batch they
   write, and a catalog that says where its codes live.** One report format moves:
