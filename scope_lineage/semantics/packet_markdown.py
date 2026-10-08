@@ -501,9 +501,15 @@ def _note_dates(rule: dict, context: dict) -> list[str]:
 
 
 def _note_position(rule: dict, _context: dict) -> list[str]:
-    """A filter inside a LEFT JOIN's right side decides which right rows match, no more."""
+    """A filter inside a LEFT JOIN's right side decides which right rows match, no more.
+
+    A partition filter there decides which partitions the right side reads (round 3 V2).
+    """
     joins = rule.get("right_of") or []
-    return [f"在 {'、'.join(joins)} 右侧：不丢目标行，决定右侧哪些行参与匹配"] if joins else []
+    if not joins:
+        return []
+    decides = "读哪些分区" if rule.get("partition_filter") else "哪些行参与匹配"
+    return [f"在 {'、'.join(joins)} 右侧：不丢目标行，决定右侧{decides}"]
 
 
 def _note_comments(rule: dict, _context: dict) -> list[str]:

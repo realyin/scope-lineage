@@ -171,17 +171,19 @@ The same facts mark `partition` on the target's and the inputs' columns.
 Every rule row is made first and numbered once; every note naming a `pN` comes after, and
 no note adds or drops a rule. A window that does not dedup (a ranking never filtered to
 `= 1`, a LEAD) is a row too, `kind` `window`, its 说明 the profile's own words (「仅组内排名，
-未见 = 1 过滤」). A non-partition filter inside a LEFT JOIN's right side (the right scope and
-every scope it reads) carries `right_of: [p…]`, those joins: it drops no target row, it
-decides which right rows take part in the match. A scope that also feeds the driving rows (a
+未见 = 1 过滤」). A filter inside a LEFT JOIN's right side (the right scope and every scope
+it reads), a partition filter included, carries `right_of: [p…]`, those joins: it drops no
+target row, it decides which right rows take part in the match -- a partition filter, which
+partitions the right side reads. A scope that also feeds the driving rows (a
 CTE read as `FROM c a` and as `LEFT JOIN c a1`) does not count; nor does the right side of a
 join whose own scope's WHERE filters on it (an anti-join's `WHERE r.k IS NULL`), where the
-right side decides which target rows survive. `right_side_kind` names two structural kinds:
+right side decides which target rows survive. `right_side_kind`, on a non-partition filter
+only, names two structural kinds:
 `rank_first` (the filter keeps a ranking's `= 1`, decided by the profile's R6) and `values`
 (the filter's scope reads an inline VALUES list down a single-input chain); whether the
 rule's `tables` are empty is not asked. The 说明 column joins its parts in one order: the
 rule's text → date offsets → where it sits (`right_of`, 「在 pN 右侧：不丢目标行，决定右侧哪些行
-参与匹配」) → notes → 相邻的注释掉的 SQL（不生效） → 未被消费 → findings.
+参与匹配」, for a partition filter 「……决定右侧读哪些分区」) → notes → 相邻的注释掉的 SQL（不生效） → 未被消费 → findings.
 
 Three more facts serve the meaning checks (10–13). Each join rule carries `right` (the
 right side: a `db.table`, or the profile's scope id such as `subq:p`), `right_aliases`

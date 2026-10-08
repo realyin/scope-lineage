@@ -34,6 +34,14 @@
   grain key lands on (`exposed`, `merge_on`, `derived` or `unexposed`).
 - Packets of affected tables get a new `packet_digest`.
 
+### Table-semantics packet (`table-semantics-packet/1`, format unchanged)
+- **`right_of` covers partition filters too.** A partition filter inside a LEFT JOIN's right
+  side is marked with the joins it sits in, under the same rules as any filter (not on the
+  driving rows, not in an anti-join's right side); its 说明 reads 「在 pN 右侧：不丢目标行，
+  决定右侧读哪些分区」. It never gets a `right_side_kind`, which only exempts a filter from
+  check 5, and check 5 asks for no partition filter: validation is unchanged but for the
+  digest. Packets with such a filter get a new `packet_digest`.
+
 ## 0.7.0
 - **Table semantics that survive a review loop, MERGE targets read as the batch they
   write, and a catalog that says where its codes live.** One report format moves:

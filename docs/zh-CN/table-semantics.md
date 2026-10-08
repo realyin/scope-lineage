@@ -137,13 +137,13 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 
 规则先全部出行、只编号一次，之后才做所有引用 `pN` 的标注，标注不增删规则。不去重的窗口（没有 `= 1` 过滤的
 排名、LEAD 等）也出一行，`kind` 为 `window`，「说明」是画像的原话（如「仅组内排名，未见 = 1 过滤」）。位于某个
-LEFT JOIN 右侧之内（右侧 scope 及它读取的全部 scope）的非分区过滤带 `right_of: [p…]`，列出这些关联：它不丢
-目标行，只决定右侧哪些行参与匹配。同时喂给驱动行的 scope（一个 CTE 既作 `FROM c a` 又作 `LEFT JOIN c a1`）
+LEFT JOIN 右侧之内（右侧 scope 及它读取的全部 scope）的过滤（含分区过滤）带 `right_of: [p…]`，列出这些关联：
+它不丢目标行，只决定右侧哪些行参与匹配；分区过滤则决定右侧读哪些分区。同时喂给驱动行的 scope（一个 CTE 既作 `FROM c a` 又作 `LEFT JOIN c a1`）
 不算；关联所在 scope 自己的 WHERE 又过滤右侧（反连接的 `WHERE r.k IS NULL`）时，右侧决定哪些目标行留下，
-它右侧的过滤也不算。`right_side_kind` 标出两类结构：`rank_first`（过滤是排名窗口的 `= 1`，判法即画像的
+它右侧的过滤也不算。`right_side_kind` 只标非分区过滤，标出两类结构：`rank_first`（过滤是排名窗口的 `= 1`，判法即画像的
 R6）与 `values`（过滤所在 scope 沿单输入链读到内联 VALUES 列表）；不看规则的 `tables` 是否为空。「说明」一列
-的拼接顺序固定：规则文字 → 日期偏移 → 位置（`right_of`，「在 pN 右侧：不丢目标行，决定右侧哪些行参与匹配」）
-→ 注释 → 相邻的注释掉的 SQL（不生效）→ 未被消费 → 治理线索。
+的拼接顺序固定：规则文字 → 日期偏移 → 位置（`right_of`，「在 pN 右侧：不丢目标行，决定右侧哪些行参与匹配」，
+分区过滤为「……决定右侧读哪些分区」）→ 注释 → 相邻的注释掉的 SQL（不生效）→ 未被消费 → 治理线索。
 
 另有三类事实供含义检查（第 10–13 项）使用。每条关联规则带 `right`（右侧：`库.表`，或画像的 scope 编号，
 如 `subq:p`）、`right_aliases`（ON 子句与 scope 给它的别名）、`right_tables`（它背后的物理表）和
