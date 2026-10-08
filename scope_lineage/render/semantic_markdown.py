@@ -46,6 +46,7 @@ from .semantic_text import equality_conjunct
 from .semantic_text import predicate_literal_day_offset
 from .semantic_text import generated_source_text as _generated_source_text
 from .semantic_text import is_upstream_fan_out_note
+from .semantic_text import nullable_by_join_text as _nullable_by_join_text
 
 
 DOC_FORMAT = "semantic-md/1"
@@ -286,6 +287,7 @@ _FINDING_TAGS = {
     "duplicate_alias": TAG_SQL,
     "empty_string_on_non_string": TAG_SQL_AND_METADATA,
     "numeric_compare_on_string": TAG_SQL_AND_METADATA,
+    "literal_outside_comment_codes": TAG_SQL_AND_METADATA,
     # The one inference among them: a writer's batch key read as the rows' identity.
     "window_partition_narrower": TAG_STRUCTURAL,
     "partition_literal_mismatch": TAG_SQL,
@@ -2023,7 +2025,9 @@ def _metric_null_text(spec: dict) -> str:
     if argument:
         head = argument
     elif null_handling.get("nullable_by_join"):
-        head = "关联未命中时为空"
+        head = _nullable_by_join_text(
+            null_handling.get("nullable_by_join_branches") or ()
+        )
     else:
         head = METRIC_NOT_NULLABLE
     parts = [head]

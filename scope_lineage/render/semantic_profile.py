@@ -429,7 +429,7 @@ def build_semantic_profile(
     profile = _build_statement_profile(
         lineage_document, diagnostics_document, table_cards=table_cards
     )
-    _add_window_findings(
+    _add_writer_facts(
         lineage_document, profile, [], table_cards, str(lineage_document.get("task_id") or "")
     )
     return profile
@@ -486,7 +486,7 @@ def _build_task_profile(
     pairs = list(zip((statement_lineage[sid] for sid in ordered_ids), profile["statements"]))
     task = str(task_document.get("task_id") or "")
     for document, statement in pairs:
-        _add_window_findings(document, statement, pairs, table_cards, task)
+        _add_writer_facts(document, statement, pairs, table_cards, task)
     return {key: profile[key] for key in TASK_PROFILE_KEYS}
 
 
@@ -510,15 +510,88 @@ def batch_write_keys(output_shape: Mapping) -> list[str]:
     return [key for key in _dedupe(keys) if not _comparable([key]) & partitions]
 
 
-def _add_window_findings(
+def _add_writer_facts(
     document: dict,
     profile: dict,
     siblings: Sequence[tuple[dict, dict]],
     table_cards: Mapping | None,
     task: str,
 ) -> None:
-    """Append M4's findings to one statement profile, keeping ``FINDING_KINDS`` order."""
+    """The facts that need another writer's batch keys, added once every statement is built.
+
+    M4's window findings, and round-3 M4b's ``merge.using_writer_keys``.
+    """
     writers = _writer_lookup(document, siblings, table_cards, task)
+    _add_window_findings(document, profile, writers)
+    _add_using_writer_keys(document, profile, writers)
+
+
+def _add_using_writer_keys(document: dict, profile: dict, writers) -> None:
+    """M4b: a USING side of one table's rows, whose writer keys its batch on more columns.
+
+    ``no_dedup`` says the USING side has its driving table's rows; whether one merge key
+    can meet two of them depends on what tells that table's rows apart, which only its
+    writer knows (:func:`_writer_lookup`: a sibling statement or a table card's batch
+    keys). The comparison is made only where it is exact: no JOIN between the USING
+    output and the table, no ON condition beyond the column-to-column ``merge_keys``,
+    and every merge key's source a bare column of that table. The table's partition
+    columns are left out, as for the window comparison. Published as
+    ``[{label, keys, extra}]`` for each writer whose keys hold columns the merge key
+    lacks; it is the writer's batch key, an inference, never the table's proven key.
+    """
+    shape = profile.get("output_shape") or {}
+    merge = shape.get("merge")
+    if not merge or merge.get("other_on_conditions"):
+        return
+    grain = merge.get("using_grain") or {}
+    if str(grain.get("basis")) != BASIS_DRIVING_TABLE_ROWS:
+        return
+    table = str((grain.get("evidence") or [""])[-1])
+    merged = _using_key_columns(document, str(merge.get("using_scope") or ""), table, merge)
+    if not table or merged is None:
+        return
+    found = []
+    for label, keys, partitions in writers(table):
+        kept = [key for key in keys if not _comparable([key]) & _comparable(partitions)]
+        extra = [key for key in kept if key.lower() not in merged]
+        if extra:
+            found.append({"label": label, "keys": kept, "extra": extra})
+    if found:
+        shape["merge"] = _ordered_merge({**merge, "using_writer_keys": found})
+
+
+def _using_key_columns(
+    document: dict, using: str, table: str, merge: Mapping
+) -> set[str] | None:
+    """The columns of ``table`` the merge keys' sources are, lower-cased; None if not exact."""
+    sources = [str(pair.get("source") or "") for pair in merge.get("merge_keys") or []]
+    if not sources or not all(sources):
+        return None
+    if using not in _scopes(document):
+        return {source.lower() for source in sources} if glossary_values.same_table(using, table) else None
+    _grain, visited = _resolve_grain(document, using)
+    if any(_blocks_of_type(document, scope, "join") for scope in [using, *visited]):
+        return None
+    outputs = {
+        str(output.get("name") or "").lower(): output
+        for output in (_scopes(document).get(using) or {}).get("outputs") or []
+    }
+    columns = set()
+    for source in sources:
+        output = outputs.get(source.lower()) or {}
+        fields = _physical_fields(output.get("expression_resolution"))
+        if (
+            len(fields) != 1
+            or not glossary_values.same_table(fields[0][0], table)
+            or _bare_column_name(output.get("expression")) is None
+        ):
+            return None
+        columns.add(fields[0][1].lower())
+    return columns
+
+
+def _add_window_findings(document: dict, profile: dict, writers) -> None:
+    """Append M4's findings to one statement profile, keeping ``FINDING_KINDS`` order."""
     found = _window_narrower_findings(document, writers)
     if not found:
         return
@@ -2168,6 +2241,8 @@ _FIELD_KEY_ORDER = (
     "transform",
     "structural_role",
     "nullable_by_join",
+    # M2: the UNION branches that may be NULL, only when they are not all of them.
+    "nullable_by_join_branches",
     "metric_spec",
     "value_domain",
     "sources",
@@ -2338,8 +2413,12 @@ def _build_field(document: dict, entry: dict, chain: dict | None, context: dict)
     # aggregate over a joined-in column came back false. The argument rule proves the
     # other half, and the field flag follows whichever of the two fires.
     nullable_argument = _nullable_argument(document, entry, chain, context)
-    nullable = bool(nullable_argument) or _nullable_by_join(
-        entry, chain, context["nullable_inputs"]
+    # M2: the chain rule is decided per UNION branch; ``branches`` names the branches
+    # that may be NULL when they are not all of them.
+    nullable, branches = (
+        (True, [])
+        if nullable_argument
+        else _nullable_by_join_branches(document, entry, chain, context["nullable_inputs"])
     )
     # WI-2.2. Two different questions, so two different reads of the same key: the
     # chain-wide list is everything the author wrote anywhere along the derivation, while
@@ -2351,7 +2430,7 @@ def _build_field(document: dict, entry: dict, chain: dict | None, context: dict)
         "column": entry.get("column"),
         "column_label": _field_label(document, entry, chain),
         "summary": _field_summary(
-            document, entry, derivation, comment, nullable, alias_comments
+            document, entry, derivation, comment, nullable, alias_comments, branches
         ),
         "target_comment": comment,
         "type": detail.get("type"),
@@ -2381,6 +2460,8 @@ def _build_field(document: dict, entry: dict, chain: dict | None, context: dict)
         field["sql_alias"] = alias
     if nullable:
         field["nullable_by_join"] = True
+    if branches:
+        field["nullable_by_join_branches"] = branches
     if sql_comments:
         field["sql_comments"] = sql_comments
     lookup_keys = _lookup_keys(document, chain)
@@ -2465,7 +2546,7 @@ def _walk_lookup(
 
 
 def _chain_sql_comments(chain: dict | None, context: dict) -> list[str]:
-    """Every comment the author wrote on this field's derivation, upstream first.
+    """Every comment the author wrote on this field's value, upstream first.
 
     Collected along the mapping chain rather than off the final projection alone: a value
     renamed three times carries its explanation at the step where it was computed, and a
@@ -2473,16 +2554,52 @@ def _chain_sql_comments(chain: dict | None, context: dict) -> list[str]:
     one's. Order is the chain's, duplicates are dropped -- the same note restated at two
     steps is one thing the author said.
 
+    G3: only the steps that carry *this* value. The walk starts at the chain's last step
+    and climbs ``input_fields`` only through a pass-through or a cleaning IF / CASE /
+    COALESCE (:func:`semantic_text.cleans_its_input`). Any other step computed the value:
+    its own comment is kept, its inputs' are not -- they describe another quantity (a
+    date the step turned into a flag).
+
     WI-2.8 D9: a body that IS SQL the author switched off is not a note about the column
     and does not travel here. It stays in the contract's own ``comments``, where a reader
     asking what the code used to look like can still find it.
     """
     index = context["output_comments"]
+    steps = (chain or {}).get("ordered_steps") or []
     collected: list[str] = []
-    for step in (chain or {}).get("ordered_steps") or []:
+    for position in sorted(_value_steps(steps)):
+        step = steps[position]
         key = (str(step.get("scope_id")), str(step.get("output_field") or ""))
         collected.extend(index.get(key) or [])
     return _dedupe(item for item in collected if semantic_text.is_note(item))
+
+
+def _value_steps(steps: Sequence[dict]) -> set[int]:
+    """The positions of the steps that carry the chain's final value (G3)."""
+    if not steps:
+        return set()
+    producers: dict[str, list[int]] = {}
+    for position, step in enumerate(steps):
+        producers.setdefault(str(step.get("output_field") or ""), []).append(position)
+    kept: set[int] = set()
+    frontier = [len(steps) - 1]
+    while frontier:
+        position = frontier.pop()
+        if position in kept:
+            continue
+        kept.add(position)
+        step = steps[position]
+        inputs = [str(item) for item in step.get("input_fields") or []]
+        kind = str(step.get("step_type"))
+        if kind not in semantic_text.PASS_THROUGH_STEP_TYPES and not (
+            kind in semantic_text.CLEANING_STEP_TYPES
+            and semantic_text.cleans_its_input(step.get("expression_sql"), inputs)
+        ):
+            continue
+        frontier.extend(
+            earlier for item in inputs for earlier in producers.get(item, []) if earlier < position
+        )
+    return kept
 
 
 def _alias_comments(chain: dict | None, entry: dict, context: dict) -> list[str]:
@@ -2526,6 +2643,7 @@ def _field_summary(
     comment: str | None,
     nullable: bool,
     alias_comments: Sequence[str] = (),
+    nullable_branches: Sequence[int] = (),
 ) -> str:
     """WI-1f item 2: one unlabelled sentence a reader can act on without the subsection.
 
@@ -2556,6 +2674,7 @@ def _field_summary(
         expression=_without_comments(entry.get("expression")),
         nullable_by_join=nullable,
         branch_steps=branch_steps,
+        nullable_branches=nullable_branches,
     )
     # WI-2.2: appended, never merged in. The sentence above restates the contract; the
     # comment is the author quoted, and it is marked as a quotation so the two cannot be
@@ -2630,16 +2749,133 @@ def _nullable_join_inputs(document: dict) -> dict[str, list[str]]:
     return nullable
 
 
-def _nullable_by_join(
-    entry: dict, chain: dict | None, nullable_inputs: dict[str, list[str]]
+def _nullable_by_join_branches(
+    document: dict, entry: dict, chain: dict | None, nullable_inputs: dict[str, list[str]]
+) -> tuple[bool, list[int]]:
+    """``(nullable_by_join, the UNION branches that may be NULL)`` of one field (M2).
+
+    A chain through a UNION lists every branch's steps in one ``ordered_steps``; walked
+    as one straight line, a COALESCE in one branch hid nothing from another branch's
+    nullable step, and the physical-table form asked every branch's tables to be on a
+    nullable side. So the chain is split at its UNION (:func:`_union_branch_steps`) and
+    each branch is judged alone. The flag is true when **at least one** branch is proven
+    nullable; the branch numbers are published only when they are not all of them -- an
+    empty list is the whole column. A chain with no UNION, or one the split cannot
+    partition cleanly, is judged as before.
+    """
+    steps = (chain or {}).get("ordered_steps") or []
+    if not steps or not nullable_inputs:
+        return False, []
+    split = _union_branch_steps(document, steps)
+    if split is None:
+        tables = _dedupe(
+            str(source.get("table"))
+            for source in entry.get("physical_sources") or []
+            if source.get("table")
+        )
+        return _nullable_by_join(tables, steps, nullable_inputs), []
+    found = [
+        number
+        for number, branch in split
+        if _branch_nullable_by_join(document, branch, nullable_inputs)
+    ]
+    return bool(found), (found if len(found) < len(split) else [])
+
+
+def _branch_nullable_by_join(
+    document: dict, steps: Sequence[dict], nullable_inputs: dict[str, list[str]]
 ) -> bool:
-    """True only when every value this field can hold arrives through a nullable side.
+    """One branch's verdict; a UNION nested inside it is split in turn."""
+    split = _union_branch_steps(document, steps)
+    if split is not None:
+        return any(
+            _branch_nullable_by_join(document, branch, nullable_inputs) for _, branch in split
+        )
+    produced = {str(step.get("output_field")) for step in steps}
+    scopes = _scopes(document)
+    tables = _dedupe(
+        str(item).rsplit(".", 1)[0]
+        for step in steps
+        for item in step.get("input_fields") or []
+        if str(item) not in produced
+        and "." in str(item)
+        and str(item).rsplit(".", 1)[0] not in scopes
+    )
+    return _nullable_by_join(tables, steps, nullable_inputs)
+
+
+def _union_branch_steps(
+    document: dict, steps: Sequence[dict]
+) -> list[tuple[int, list[dict]]] | None:
+    """``[(branch number, that branch's steps)]`` of the chain's last multi-input UNION.
+
+    A branch's steps are those its input reaches upstream through ``input_fields``, then
+    the UNION step itself narrowed to that one input, then every step after it. Branch
+    numbers are the UNION scope's inputs in order, as ``merge.union_branches[].branch``
+    numbers them. None -- judge the chain whole -- when there is no such UNION, or when
+    the chain does not split cleanly: a step before the UNION no branch reaches, or a
+    step after it reading anything but the steps after the UNION.
+    """
+    position = next(
+        (
+            index
+            for index in range(len(steps) - 1, -1, -1)
+            if str(steps[index].get("step_type")) == "union"
+            and len(steps[index].get("input_fields") or []) > 1
+        ),
+        None,
+    )
+    if position is None:
+        return None
+    union = steps[position]
+    tail = list(steps[position + 1 :])
+    produced_after = {str(step.get("output_field")) for step in [union, *tail]}
+    if any(
+        str(item) not in produced_after
+        for step in tail
+        for item in step.get("input_fields") or []
+    ):
+        return None
+    producers = {str(step.get("output_field")): index for index, step in enumerate(steps[:position])}
+    numbers = {scope: index for index, scope in enumerate(_scope_inputs(document, str(union.get("scope_id"))), 1)}
+    split: list[tuple[int, list[dict]]] = []
+    reached: set[int] = set()
+    for item in union.get("input_fields") or []:
+        number = numbers.get(str(item).rsplit(".", 1)[0])
+        if number is None or number in (taken for taken, _ in split):
+            return None
+        own = _upstream_positions(steps, producers, str(item))
+        reached |= own
+        narrowed = {**union, "input_fields": [item]}
+        split.append((number, [*(steps[index] for index in sorted(own)), narrowed, *tail]))
+    if reached != set(range(position)):
+        return None
+    return sorted(split, key=lambda pair: pair[0])
+
+
+def _upstream_positions(steps: Sequence[dict], producers: Mapping[str, int], field: str) -> set[int]:
+    """The positions of the steps ``field`` is computed from, through ``input_fields``."""
+    found: set[int] = set()
+    frontier = [field]
+    while frontier:
+        position = producers.get(frontier.pop())
+        if position is None or position in found:
+            continue
+        found.add(position)
+        frontier.extend(str(item) for item in steps[position].get("input_fields") or [])
+    return found
+
+
+def _nullable_by_join(
+    tables: Sequence[str], steps: Sequence[dict], nullable_inputs: dict[str, list[str]]
+) -> bool:
+    """True when the value of this straight chain arrives through a nullable side.
 
     Two provable shapes, and nothing else is flagged (WI-1f: 做不到严格判断的场景不标).
     In both, every step after the join must carry the value unchanged -- a COALESCE or
     a CASE downstream can fill the null in, and then the claim would be false.
+    ``tables`` are the physical tables the chain reads, for the second shape.
     """
-    steps = (chain or {}).get("ordered_steps") or []
     if not steps or not nullable_inputs:
         return False
     for index, step in enumerate(steps):
@@ -2649,7 +2885,7 @@ def _nullable_by_join(
             continue
         if any(str(later.get("scope_id")) in scopes for later in rest):
             return True
-    return _reads_only_nullable_tables(entry, steps, nullable_inputs)
+    return _reads_only_nullable_tables(tables, steps, nullable_inputs)
 
 
 def _nullable_argument(
@@ -2729,14 +2965,9 @@ def _all_pass_through(steps: Sequence[dict]) -> bool:
 
 
 def _reads_only_nullable_tables(
-    entry: dict, steps: Sequence[dict], nullable_inputs: dict[str, list[str]]
+    tables: Sequence[str], steps: Sequence[dict], nullable_inputs: dict[str, list[str]]
 ) -> bool:
     """The physical-table form: the joined relation *is* the table, so no step names it."""
-    tables = _dedupe(
-        str(source.get("table"))
-        for source in entry.get("physical_sources") or []
-        if source.get("table")
-    )
     if not tables or not _all_pass_through(steps):
         return False
     joining = [nullable_inputs.get(table) or [] for table in tables]
@@ -3041,6 +3272,36 @@ _DEDUP_BASES = (BASIS_GROUP_BY, BASIS_DISTINCT, BASIS_WINDOW_PARTITION)
 MERGE_TABLE_KEY_HYPOTHESIS = "hypothesis"
 MERGE_TABLE_KEY_UPDATE_ONLY = "update_only"
 
+# The order of ``output_shape.merge``'s keys. Some are added after the block is built
+# (``using_writer_keys`` needs every sibling statement), so the block is reordered by
+# this list rather than left in insertion order. Every key is present only with content.
+_MERGE_KEY_ORDER = (
+    "on",
+    "merge_keys",
+    "other_on_conditions",
+    "whens",
+    "matched_target_pins",
+    "using_scope",
+    "using_grain",
+    "dedup_keys",
+    "coverage",
+    "extra_keys",
+    "joins_after_dedup",
+    "union_branches",
+    "using_writer_keys",
+    "table_key",
+    "insert_only_columns",
+    "update_columns",
+    "update_nullable_by_join",
+    "update_nullable_by_join_branches",
+    "update_filled_on_miss",
+)
+
+
+def _ordered_merge(shape: Mapping) -> dict:
+    order = {key: index for index, key in enumerate(_MERGE_KEY_ORDER)}
+    return dict(sorted(shape.items(), key=lambda item: order.get(item[0], len(order))))
+
 
 def _merge_shape(document: dict, fields: Sequence[dict] = ()) -> dict | None:
     """#22: on which keys a MERGE merges, under which WHEN conditions, and whether its
@@ -3065,6 +3326,10 @@ def _merge_shape(document: dict, fields: Sequence[dict] = ()) -> dict | None:
     target columns plus the dedup keys the merge key lacks, a hypothesis, never a proof.
     ``insert_only_columns`` / ``update_columns`` / ``update_nullable_by_join`` say what a
     matched UPDATE leaves alone or may blank out (M2).
+
+    ``matched_target_pins`` (round-3 M3): ``{column: value}`` every matched WHEN pins on
+    the target (:func:`_matched_target_pins`). ``using_writer_keys`` (round-3 M4b) is
+    added once the sibling statements are built -- see :func:`_add_using_writer_keys`.
     """
     spec = document.get("merge_spec")
     if not isinstance(spec, Mapping):
@@ -3082,6 +3347,7 @@ def _merge_shape(document: dict, fields: Sequence[dict] = ()) -> dict | None:
         "merge_keys": list(spec.get("key_pairs") or []),
         "other_on_conditions": list(spec.get("other_on_conditions") or []),
         "whens": list(spec.get("whens") or []),
+        **_present("matched_target_pins", _matched_target_pins(document, spec)),
         "using_scope": using,
         "using_grain": {"basis": basis, "evidence": list(grain.get("evidence") or [])},
     }
@@ -3101,7 +3367,41 @@ def _merge_shape(document: dict, fields: Sequence[dict] = ()) -> dict | None:
     if table_key is not None:
         shape["table_key"] = table_key
     shape.update(_merge_update_facts(document, shape, fields))
-    return shape
+    return _ordered_merge(shape)
+
+
+def _present(key: str, value) -> dict:
+    return {key: value} if value else {}
+
+
+def _matched_target_pins(document: dict, spec: Mapping) -> dict[str, str]:
+    """``{column: value}`` every matched WHEN's condition pins on the target (M3).
+
+    ``WHEN MATCHED AND tgt.dt = '20260101'`` updates only the target rows of that value;
+    a same-key row elsewhere is neither updated nor inserted again. The condition is
+    parsed (:func:`semantic_text.pinned_by_conjuncts`) with the target named by its alias
+    on ROOT's physical-table input edge, its full name or its short name. A column is
+    published only when every matched WHEN pins it to the same value: a matched branch
+    without the pin can still change any row.
+    """
+    matched = [item for item in spec.get("whens") or [] if str(item.get("clause")) == "matched"]
+    if not matched:
+        return {}
+    target = str(document.get("target_table") or "")
+    qualifiers = {target, target.rsplit(".", 1)[-1]}
+    for edge in (_scopes(document).get(_ROOT) or {}).get("input_edges") or []:
+        if (
+            str(edge.get("source_type")) == "physical_table"
+            and glossary_values.same_table(str(edge.get("source_id") or ""), target)
+            and edge.get("alias")
+        ):
+            qualifiers.add(str(edge["alias"]))
+    pins = [semantic_text.pinned_by_conjuncts(item.get("condition"), qualifiers) for item in matched]
+    return {
+        column: value
+        for column, value in pins[0].items()
+        if all(other.get(column) == value for other in pins[1:])
+    }
 
 
 def _dedup_coverage(
@@ -3254,9 +3554,16 @@ def _merge_update_facts(document: dict, shape: Mapping, fields: Sequence[dict]) 
     - ``update_columns`` (a MERGE that only updates): the columns it changes; the rest
       keep their values.
     - ``update_nullable_by_join``: columns a matched UPDATE sets from a value a LEFT JOIN
-      may not have found (the field's ``nullable_by_join``), unless the expression reads
-      the target's own column (``coalesce(src.c, tgt.c)`` keeps the old value). A
-      constant NULL is not one: it was NULL when inserted too.
+      may not have found in every UNION branch (the field's ``nullable_by_join`` without
+      branch numbers), unless the expression reads the target's own column
+      (``coalesce(src.c, tgt.c)`` keeps the old value). A constant NULL is not one: it was
+      NULL when inserted too.
+    - ``update_nullable_by_join_branches`` (M2): ``{column: [branch]}`` for the columns
+      only some UNION branches may blank out.
+    - ``update_filled_on_miss`` (M2b): ``[{column, value, branches?}]``, a matched-UPDATE
+      column some branch fills with a literal right after the LEFT JOIN that may miss
+      (``coalesce(j.x, '')``): an unmatched key overwrites the old value with that
+      literal, the same risk as a NULL. ``branches`` only when the value crosses a UNION.
 
     Each key is present only when it lists something.
     """
@@ -3285,16 +3592,87 @@ def _merge_update_facts(document: dict, shape: Mapping, fields: Sequence[dict]) 
             found["insert_only_columns"] = only
     elif updates:
         found["update_columns"] = written(updates)
-    nullable = _update_nullable_by_join(document, updates, fields)
+    nullable, partly = _update_nullable_by_join(document, updates, fields)
     if nullable:
         found["update_nullable_by_join"] = nullable
+    if partly:
+        found["update_nullable_by_join_branches"] = partly
+    filled = _update_filled_on_miss(document, updates, fields)
+    if filled:
+        found["update_filled_on_miss"] = filled
     return found
 
 
 def _update_nullable_by_join(
     document: dict, updates: set, fields: Sequence[dict]
-) -> list[str]:
-    """The matched-UPDATE columns whose value a LEFT JOIN may not have found."""
+) -> tuple[list[str], dict[str, list[int]]]:
+    """``(columns every branch may blank, {column: branches} for the rest)`` (M2)."""
+    whole: list[str] = []
+    partly: dict[str, list[int]] = {}
+    for field, _steps in _matched_update_chains(document, updates, fields):
+        if not field.get("nullable_by_join"):
+            continue
+        column = str(field.get("column"))
+        branches = list(field.get("nullable_by_join_branches") or [])
+        if branches:
+            partly.setdefault(column, branches)
+        elif column not in whole:
+            whole.append(column)
+    return whole, partly
+
+
+def _update_filled_on_miss(
+    document: dict, updates: set, fields: Sequence[dict]
+) -> list[dict]:
+    """M2b: ``[{column, value, branches?}]`` -- see :func:`_merge_update_facts`."""
+    nullable_inputs = _nullable_join_inputs(document)
+    if not nullable_inputs:
+        return []
+    found: list[dict] = []
+    for field, steps in _matched_update_chains(document, updates, fields):
+        split = _union_branch_steps(document, steps)
+        values: dict[str, list[int]] = {}
+        for number, branch in split or [(0, list(steps))]:
+            value = _filled_after_join(branch, nullable_inputs)
+            if value is not None:
+                values.setdefault(value, []).append(number)
+        for value, numbers in values.items():
+            entry: dict = {"column": str(field.get("column")), "value": value}
+            if split is not None:
+                entry["branches"] = numbers
+            found.append(entry)
+    return found
+
+
+def _filled_after_join(steps: Sequence[dict], nullable_inputs: dict[str, list[str]]) -> str | None:
+    """The literal a COALESCE puts where the LEFT JOIN just before it found nothing.
+
+    The COALESCE (or NVL) reads one column of the join's nullable side -- a scope or a
+    physical table -- in the scope that joins it, and only pass-through steps follow.
+    """
+    for index, step in enumerate(steps):
+        if str(step.get("step_type")) not in semantic_text.CLEANING_STEP_TYPES:
+            continue
+        inputs = [str(item) for item in step.get("input_fields") or []]
+        if len(inputs) != 1 or not _all_pass_through(steps[index + 1 :]):
+            continue
+        value, how = semantic_text.null_fill_default(step.get("expression_sql"))
+        if how != "COALESCE" or value is None:
+            continue
+        owner = inputs[0].rsplit(".", 1)[0]
+        if str(step.get("scope_id")) in (nullable_inputs.get(owner) or []):
+            return value
+    return None
+
+
+def _matched_update_chains(
+    document: dict, updates: set, fields: Sequence[dict]
+) -> list[tuple[dict, list[dict]]]:
+    """``(field, its chain's steps)`` for each column a matched UPDATE sets from USING.
+
+    A column whose last step reads the target's own column is left out:
+    ``coalesce(src.c, tgt.c)`` keeps the old value.
+    """
     if not updates:
         return []
     branch = {
@@ -3308,20 +3686,18 @@ def _update_nullable_by_join(
     target = str(document.get("target_table") or "")
     found = []
     for field in fields:
-        if not field.get("nullable_by_join"):
-            continue
         chain = chains.get(str(field.get("mapping_chain_id"))) or {}
         if branch.get(chain.get("target_position")) not in updates:
             continue
-        steps = chain.get("ordered_steps") or []
+        steps = list(chain.get("ordered_steps") or [])
         last = steps[-1] if steps else {}
         if target and any(
             str(item).lower().startswith(f"{target.lower()}.")
             for item in last.get("input_fields") or []
         ):
             continue
-        found.append(str(field.get("column")))
-    return _dedupe(found)
+        found.append((field, steps))
+    return found
 
 
 def _joins_after_dedup(document: dict, grain: dict, visited: Sequence[str]) -> list[str]:
@@ -5438,6 +5814,63 @@ def _keeps_first_row_consumer(
 # up in both layers at the same time.
 
 
+GRAIN_KEY_EXPOSED = "exposed"
+GRAIN_KEY_MERGE_ON = "merge_on"
+GRAIN_KEY_DERIVED = "derived"
+GRAIN_KEY_UNEXPOSED = "unexposed"
+
+
+def grain_key_columns(document: dict, grain: Mapping) -> list[dict]:
+    """``[{logical, column?, via, pinned?}]``: the target column each grain key lands on (M1).
+
+    ``grain.keys[]`` are logical keys, columns of the scope that decides the grain; the
+    reader of a write asks which *target* columns they are. Per key, in order, the first
+    that answers wins, so no key maps to two columns:
+
+    - ``exposed``: carried to a target column by pass-through steps alone;
+    - ``merge_on``: a MERGE's ON equality ties the bare key to a target column, under a
+      matched branch (:func:`_merge_on_target`);
+    - ``derived``: lifted to the ROOT output through a single-source expression
+      (:func:`_lift_key_to`), then exposed;
+    - ``unexposed``: none of these -- the key is not written to the target.
+
+    ``logical`` is the key as :func:`_key_label` names it (``<scope>.<column>``); ``pinned``
+    is copied when the key is pinned to one value (B9). Unlike ``candidate_keys`` it
+    answers whatever ``key_confidence`` is: it says where each key goes, not that the
+    keys are unique.
+    """
+    exposed = _exposed_target_columns(document)
+    path = [_ROOT, *(str(scope) for scope in grain.get("via_scopes") or [] if scope != _ROOT)]
+    found = []
+    for key in grain.get("keys") or []:
+        entry: dict = {"logical": _key_label(key)}
+        if key.get("pinned"):
+            entry["pinned"] = True
+        column, via = _grain_key_column(document, grain, key, exposed, path)
+        if column:
+            entry["column"] = column
+        entry["via"] = via
+        found.append(entry)
+    return found
+
+
+def _grain_key_column(
+    document: dict, grain: Mapping, key: dict, exposed: Mapping[str, str], path: Sequence[str]
+) -> tuple[str | None, str]:
+    column = exposed.get(_key_reference(key))
+    if column:
+        return column, GRAIN_KEY_EXPOSED
+    column = _merge_on_target(document, dict(grain), key)
+    if column:
+        return column, GRAIN_KEY_MERGE_ON
+    lifted = _lift_key_to(document, path, key)
+    if lifted is not None:
+        column = exposed.get(f"{_ROOT}.{lifted[0]}")
+        if column:
+            return column, GRAIN_KEY_DERIVED if lifted[1] else GRAIN_KEY_EXPOSED
+    return None, GRAIN_KEY_UNEXPOSED
+
+
 def first_row_filters(document: dict) -> list[tuple[str, str]]:
     """``(logic_block_id, window output column)`` of each predicate keeping a ranking's first row.
 
@@ -6986,7 +7419,9 @@ def _metric_null_handling(
     the reader is told why an unmatched key leaves this number empty.
     """
     default, source = _proven_default(field, step, _steps_after(steps, step))
-    handling = {"nullable_by_join": bool(field.get("nullable_by_join"))}
+    handling: dict = {"nullable_by_join": bool(field.get("nullable_by_join"))}
+    if field.get("nullable_by_join_branches"):
+        handling["nullable_by_join_branches"] = list(field["nullable_by_join_branches"])
     if nullable_argument:
         handling["nullable_argument"] = nullable_argument
     handling["default"] = default
@@ -7094,6 +7529,7 @@ FINDING_TABLE_COMMENT_MISSING = "table_comment_missing"
 FINDING_DUPLICATE_ALIAS = "duplicate_alias"
 FINDING_EMPTY_STRING_ON_NON_STRING = "empty_string_on_non_string"
 FINDING_NUMERIC_COMPARE_ON_STRING = "numeric_compare_on_string"
+FINDING_LITERAL_OUTSIDE_COMMENT_CODES = "literal_outside_comment_codes"
 FINDING_WINDOW_PARTITION_NARROWER = "window_partition_narrower"
 
 # Rendered in this order, most actionable first. The order is fixed so two runs of the
@@ -7103,6 +7539,7 @@ FINDING_KINDS = (
     FINDING_DUPLICATE_ALIAS,
     FINDING_EMPTY_STRING_ON_NON_STRING,
     FINDING_NUMERIC_COMPARE_ON_STRING,
+    FINDING_LITERAL_OUTSIDE_COMMENT_CODES,
     FINDING_WINDOW_PARTITION_NARROWER,
     FINDING_PARTITION_MISMATCH,
     FINDING_NONDETERMINISTIC_FUNCTION,
@@ -7153,6 +7590,7 @@ FINDING_SEVERITY = {
     FINDING_DUPLICATE_ALIAS: SEVERITY_WARN,
     FINDING_EMPTY_STRING_ON_NON_STRING: SEVERITY_WARN,
     FINDING_NUMERIC_COMPARE_ON_STRING: SEVERITY_WARN,
+    FINDING_LITERAL_OUTSIDE_COMMENT_CODES: SEVERITY_WARN,
     FINDING_WINDOW_PARTITION_NARROWER: SEVERITY_WARN,
     FINDING_PARTITION_MISMATCH: SEVERITY_INFO,
     FINDING_NONDETERMINISTIC_FUNCTION: SEVERITY_WARN,
@@ -7245,6 +7683,7 @@ def _build_findings(
         *_duplicate_alias_findings(document),
         *_empty_string_findings(document, rules),
         *_numeric_compare_findings(document, rules),
+        *_comment_code_findings(document, rules),
         *_partition_mismatch_findings(comparisons, fields),
         *_nondeterministic_findings(rules, fields),
         *_hardcoded_date_findings(comparisons),
@@ -7399,6 +7838,81 @@ def _numeric_compare_findings(document: dict, rules: Sequence[dict]) -> list[dic
         )
         for table, entry in by_table.items()
     ]
+
+
+# G7a. Every 【…】 block of a column comment is an annotation -- 【updt:n】, a format note
+# such as 【yyyy-MM-dd HH:mm:ss】 -- and is removed before the comment is read for codes:
+# read as it stands, the shape reading takes ``updt`` or ``yyyy`` for a code.
+_COMMENT_ANNOTATION = re.compile(r"【[^】]*】")
+
+# How many codes a comment must list before a literal outside them says anything.
+_COMMENT_CODE_MINIMUM = 2
+
+
+def _comment_code_findings(document: dict, rules: Sequence[dict]) -> list[dict]:
+    """A string literal a comment's code list does not contain (G7a), one per rule.
+
+    ``role = 'z9'`` where the column comment reads 「a1-甲,b2-乙,c3-丙」: either the comment
+    is stale or the comparison may never hold (or always hold, for ``<>``). The column
+    must be one physical column of the rule by name, as for ``empty_string_on_non_string``;
+    the comment, with its 【…】 blocks removed, must list at least two codes by
+    :func:`glossary_values.enumerated_meanings`; and the literal must be neither one of
+    them nor a substring of the comment -- the shape reading misses a code glued to its
+    meaning, and a code the comment does mention is not reported.
+    """
+    found = []
+    for rule in rules:
+        if str(rule.get("kind")) not in ("filter", "join_condition", "case_branch"):
+            continue
+        outside: dict[tuple[str, str], dict] = {}
+        for column, literal in semantic_text.string_literal_comparisons(rule.get("expression")):
+            commented = _physical_column_comment(document, rule, column)
+            if commented is None:
+                continue
+            table, comment = commented
+            text = _COMMENT_ANNOTATION.sub(" ", comment)
+            codes = glossary_values.enumerated_meanings(text)
+            if len(codes) < _COMMENT_CODE_MINIMUM or literal.lower() in codes:
+                continue
+            if literal.lower() in text.lower():
+                continue
+            entry = outside.setdefault(
+                (table, column), {"codes": codes, "text": text, "literals": []}
+            )
+            entry["literals"].append(literal)
+        for (table, column), entry in outside.items():
+            literals = "、".join(f"'{item}'" for item in _dedupe(entry["literals"]))
+            found.append(
+                _finding(
+                    FINDING_LITERAL_OUTSIDE_COMMENT_CODES,
+                    f"{table}.{column} 与 {literals} 比较，但列注释列出的取值是 "
+                    f"{'、'.join(_as_written(code, entry['text']) for code in entry['codes'])}，不含 {literals}：注释过时，或这条比较"
+                    "可能永不成立（<> / NOT IN 时可能恒成立），需核实",
+                    [rule.get("rule_id")],
+                )
+            )
+    return found
+
+
+def _as_written(code: str, text: str) -> str:
+    """A code as the comment spells it (the shape reading lower-cases its keys)."""
+    match = re.search(re.escape(code), text, re.IGNORECASE)
+    return match.group(0) if match else code
+
+
+def _physical_column_comment(
+    document: dict, rule: Mapping, column: str
+) -> tuple[str, str] | None:
+    """``(table, comment)`` of the one physical field of ``rule`` named ``column``."""
+    tables = _dedupe(
+        str(field.get("table"))
+        for field in rule.get("fields") or []
+        if str(field.get("column") or "").lower() == column.lower() and field.get("table")
+    )
+    if len(tables) != 1:
+        return None
+    comment = _column_detail(_input_metadata(document).get(tables[0]) or {}, column).get("comment")
+    return (tables[0], str(comment)) if comment else None
 
 
 def _physical_column_type(

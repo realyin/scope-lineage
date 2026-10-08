@@ -493,6 +493,38 @@ def empty_string_comparisons(expression: str | None) -> list[str]:
     return found
 
 
+def string_literal_comparisons(expression: str | None) -> list[tuple[str, str]]:
+    """``(column name, literal)`` for a column compared with a non-empty string (G7a).
+
+    ``=``, ``<>`` / ``!=`` on either side, and every string item of an ``IN`` list
+    (``NOT IN`` included). The literal is returned unquoted; an empty string is
+    ``empty_string_comparisons``'s question, not this one.
+    """
+    node = parse_expression(expression)
+    if node is None:
+        return []
+    found: list[tuple[str, str]] = []
+
+    def add(column, literal) -> None:
+        if (
+            isinstance(column, exp.Column)
+            and isinstance(literal, exp.Literal)
+            and literal.is_string
+            and literal.this != ""
+            and (column.name, literal.this) not in found
+        ):
+            found.append((column.name, literal.this))
+
+    for comparison in node.find_all(exp.EQ, exp.NEQ, exp.In):
+        if isinstance(comparison, exp.In):
+            for item in comparison.expressions:
+                add(comparison.this, item)
+            continue
+        add(comparison.this, comparison.expression)
+        add(comparison.expression, comparison.this)
+    return found
+
+
 def numeric_literal_comparisons(expression: str | None) -> list[tuple[str, str]]:
     """``(column name, literal)`` for every comparison of a column with a number (G1a).
 
@@ -651,6 +683,40 @@ def equality_conjunct(expression: str | None) -> tuple[str, str, str] | None:
     else:
         kind = VALUE_KIND_EXPRESSION
     return node.this.name, expression_text(right), kind
+
+
+def pinned_by_conjuncts(expression: str | None, qualifiers: Iterable[str]) -> dict[str, str]:
+    """``{column: value}`` a condition pins on the relation ``qualifiers`` name (M3).
+
+    Only a top-level AND conjunct ``<qualifier>.<column> = <literal or ${…}>`` (either
+    side) pins: a range, an OR, a comparison with another column or a column of
+    another relation decides no single value. Column names are lower-cased; the value
+    is rendered as written (``'20260101'``).
+    """
+    node = _unwrap(parse_expression(expression))
+    if node is None:
+        return {}
+    names = {str(item).lower() for item in qualifiers if item}
+    found: dict[str, str] = {}
+    for conjunct in _and_conjuncts(node):
+        if not isinstance(conjunct, exp.EQ):
+            continue
+        for column, value in ((conjunct.this, conjunct.expression), (conjunct.expression, conjunct.this)):
+            if (
+                isinstance(column, exp.Column)
+                and column.table.lower() in names
+                and isinstance(value, (exp.Literal, exp.Parameter))
+            ):
+                found.setdefault(column.name.lower(), expression_text(value))
+    return found
+
+
+def _and_conjuncts(node: exp.Expression) -> list[exp.Expression]:
+    while isinstance(node, exp.Paren):
+        node = node.this
+    if isinstance(node, exp.And):
+        return [*_and_conjuncts(node.this), *_and_conjuncts(node.expression)]
+    return [node]
 
 
 # ------------------------------------------------- metric definition slots (WI-2.1)
@@ -1642,6 +1708,17 @@ UNKNOWN_COMMENT_TEXT = "（注释未知）"
 
 NULLABLE_BY_JOIN_TEXT = "（关联未命中时为空）"
 
+
+def nullable_by_join_text(branches: Sequence[int] = ()) -> str:
+    """「关联未命中时为空」, narrowed to the UNION branches that may be NULL (M2).
+
+    No branch numbers means every branch (or no UNION at all): the whole column's
+    sentence, as before.
+    """
+    if not branches:
+        return NULLABLE_BY_JOIN_TEXT[1:-1]
+    return f"UNION 分支 {'、'.join(str(item) for item in branches)} 关联未命中时为空"
+
 # WI-2.2. How an author's comment joins the summary sentence: as a labelled quotation at
 # the end, never woven into the restatement. The label matters -- everything before it is
 # derived from the contract, everything after it is what a person wrote, and a reader
@@ -1655,6 +1732,60 @@ SUMMARY_COMMENT_LIMIT = 2
 # direct read however many scopes it crosses, so the summary says "直接取自 <table>.<col>"
 # instead of listing eight "直接投影自 …" hops nobody reads.
 PASS_THROUGH_STEP_TYPES = ("direct_projection", "union")
+
+# G3. The two computing step types that may still only *clean* a value: an IF / CASE /
+# COALESCE that hands back its one input column or a literal in every value position.
+CLEANING_STEP_TYPES = ("case_when", "expression")
+
+
+def cleans_its_input(expression: str | None, inputs: Sequence[str]) -> bool:
+    """Whether one step only fills in or blanks out the one value it reads (G3).
+
+    ``if(c = '', null, c)``, ``coalesce(c, '')`` and ``case when c is null then 'x' else
+    c end`` keep ``c``'s meaning: every value position (IF / CASE branches, ELSE, every
+    COALESCE argument, nested through parentheses) is the step's single input column or a
+    literal / NULL / boolean. A step reading two columns, a CAST, a TRIM or any other
+    function computes something else, and answers False -- a comment would rather be
+    missing than travel to a value it does not describe.
+    """
+    names = {str(item).rsplit(".", 1)[-1].lower() for item in inputs}
+    if len(names) != 1:
+        return False
+    node = _unwrap(parse_expression(expression))
+    if not isinstance(node, (exp.If, exp.Case, exp.Coalesce)):
+        return False
+    values = _value_positions(node)
+    columns = {value.name.lower() for value in values if isinstance(value, exp.Column)}
+    return columns == names and all(
+        isinstance(value, exp.Column) or _is_scalar_constant(value) for value in values
+    )
+
+
+def _value_positions(node: exp.Expression | None) -> list:
+    """The sub-expressions an IF / CASE / COALESCE can hand back, flattened."""
+    while isinstance(node, exp.Paren):
+        node = node.this
+    if isinstance(node, exp.If):
+        otherwise = node.args.get("false")
+        return [
+            *_value_positions(node.args.get("true")),
+            *(_value_positions(otherwise) if otherwise is not None else [exp.Null()]),
+        ]
+    if isinstance(node, exp.Case):
+        found = [
+            value
+            for branch in node.args.get("ifs") or []
+            for value in _value_positions(branch.args.get("true"))
+        ]
+        default = node.args.get("default")
+        return found + (_value_positions(default) if default is not None else [exp.Null()])
+    if isinstance(node, exp.Coalesce):
+        return [
+            value
+            for item in [node.this, *node.expressions]
+            for value in _value_positions(item)
+        ]
+    return [node]
 
 # How many steps and how many sources one sentence lists before it defers to the keys
 # that hold them all. A summary is a sentence, not a second copy of ``derivation[]``:
@@ -1696,6 +1827,7 @@ def describe_field_summary(
     expression: str | None,
     nullable_by_join: bool = False,
     branch_steps: Sequence[Mapping] = (),
+    nullable_branches: Sequence[int] = (),
 ) -> str:
     """One unlabelled sentence for one target field (WI-1f item 2, WI-1g item D1).
 
@@ -1725,7 +1857,9 @@ def describe_field_summary(
     else:
         body = str(expression or "").strip() or "契约未给出加工链"
     sentence = f"{head}：{_normalize_inline(body)}{tail}"
-    return f"{sentence}{NULLABLE_BY_JOIN_TEXT}" if nullable_by_join else sentence
+    if not nullable_by_join:
+        return sentence
+    return f"{sentence}（{nullable_by_join_text(nullable_branches)}）"
 
 
 def append_sql_comment(sentence: str, comments: Sequence[str]) -> str:
