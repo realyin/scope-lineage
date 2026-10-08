@@ -429,7 +429,7 @@ def build_semantic_profile(
     profile = _build_statement_profile(
         lineage_document, diagnostics_document, table_cards=table_cards
     )
-    _add_window_findings(
+    _add_writer_facts(
         lineage_document, profile, [], table_cards, str(lineage_document.get("task_id") or "")
     )
     return profile
@@ -486,7 +486,7 @@ def _build_task_profile(
     pairs = list(zip((statement_lineage[sid] for sid in ordered_ids), profile["statements"]))
     task = str(task_document.get("task_id") or "")
     for document, statement in pairs:
-        _add_window_findings(document, statement, pairs, table_cards, task)
+        _add_writer_facts(document, statement, pairs, table_cards, task)
     return {key: profile[key] for key in TASK_PROFILE_KEYS}
 
 
@@ -510,15 +510,88 @@ def batch_write_keys(output_shape: Mapping) -> list[str]:
     return [key for key in _dedupe(keys) if not _comparable([key]) & partitions]
 
 
-def _add_window_findings(
+def _add_writer_facts(
     document: dict,
     profile: dict,
     siblings: Sequence[tuple[dict, dict]],
     table_cards: Mapping | None,
     task: str,
 ) -> None:
-    """Append M4's findings to one statement profile, keeping ``FINDING_KINDS`` order."""
+    """The facts that need another writer's batch keys, added once every statement is built.
+
+    M4's window findings, and round-3 M4b's ``merge.using_writer_keys``.
+    """
     writers = _writer_lookup(document, siblings, table_cards, task)
+    _add_window_findings(document, profile, writers)
+    _add_using_writer_keys(document, profile, writers)
+
+
+def _add_using_writer_keys(document: dict, profile: dict, writers) -> None:
+    """M4b: a USING side of one table's rows, whose writer keys its batch on more columns.
+
+    ``no_dedup`` says the USING side has its driving table's rows; whether one merge key
+    can meet two of them depends on what tells that table's rows apart, which only its
+    writer knows (:func:`_writer_lookup`: a sibling statement or a table card's batch
+    keys). The comparison is made only where it is exact: no JOIN between the USING
+    output and the table, no ON condition beyond the column-to-column ``merge_keys``,
+    and every merge key's source a bare column of that table. The table's partition
+    columns are left out, as for the window comparison. Published as
+    ``[{label, keys, extra}]`` for each writer whose keys hold columns the merge key
+    lacks; it is the writer's batch key, an inference, never the table's proven key.
+    """
+    shape = profile.get("output_shape") or {}
+    merge = shape.get("merge")
+    if not merge or merge.get("other_on_conditions"):
+        return
+    grain = merge.get("using_grain") or {}
+    if str(grain.get("basis")) != BASIS_DRIVING_TABLE_ROWS:
+        return
+    table = str((grain.get("evidence") or [""])[-1])
+    merged = _using_key_columns(document, str(merge.get("using_scope") or ""), table, merge)
+    if not table or merged is None:
+        return
+    found = []
+    for label, keys, partitions in writers(table):
+        kept = [key for key in keys if not _comparable([key]) & _comparable(partitions)]
+        extra = [key for key in kept if key.lower() not in merged]
+        if extra:
+            found.append({"label": label, "keys": kept, "extra": extra})
+    if found:
+        shape["merge"] = _ordered_merge({**merge, "using_writer_keys": found})
+
+
+def _using_key_columns(
+    document: dict, using: str, table: str, merge: Mapping
+) -> set[str] | None:
+    """The columns of ``table`` the merge keys' sources are, lower-cased; None if not exact."""
+    sources = [str(pair.get("source") or "") for pair in merge.get("merge_keys") or []]
+    if not sources or not all(sources):
+        return None
+    if using not in _scopes(document):
+        return {source.lower() for source in sources} if glossary_values.same_table(using, table) else None
+    _grain, visited = _resolve_grain(document, using)
+    if any(_blocks_of_type(document, scope, "join") for scope in [using, *visited]):
+        return None
+    outputs = {
+        str(output.get("name") or "").lower(): output
+        for output in (_scopes(document).get(using) or {}).get("outputs") or []
+    }
+    columns = set()
+    for source in sources:
+        output = outputs.get(source.lower()) or {}
+        fields = _physical_fields(output.get("expression_resolution"))
+        if (
+            len(fields) != 1
+            or not glossary_values.same_table(fields[0][0], table)
+            or _bare_column_name(output.get("expression")) is None
+        ):
+            return None
+        columns.add(fields[0][1].lower())
+    return columns
+
+
+def _add_window_findings(document: dict, profile: dict, writers) -> None:
+    """Append M4's findings to one statement profile, keeping ``FINDING_KINDS`` order."""
     found = _window_narrower_findings(document, writers)
     if not found:
         return

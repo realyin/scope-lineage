@@ -18,8 +18,9 @@ Every fixture is synthetic.
 
 from __future__ import annotations
 
-from scope_lineage import build_semantic_profile
+from scope_lineage import build_semantic_profile, parse_task_lineage
 from scope_lineage.contract.lineage import to_lineage_dict
+from scope_lineage.contract.task_lineage import to_task_lineage_dict
 from scope_lineage.scope.scope_builder import parse_scope_lineage
 
 SCHEMA = {
@@ -88,3 +89,53 @@ def test_a_second_matched_branch_without_the_pin_drops_it():
 def test_the_pins_sit_right_after_the_whens():
     keys = list(_merge("WHEN MATCHED AND tgt.dt = '20260101' THEN UPDATE SET tgt.v = src.v"))
     assert keys.index("matched_target_pins") == keys.index("whens") + 1
+
+
+# --- M4b ------------------------------------------------------------------------------
+
+TASK_SCHEMA = {
+    "ods.feed": ["k", "env", "d", "v", "ts"],
+    "dw.ver": ["k", "env", "d", "v"],
+    "ods.side": ["k", "w"],
+}
+
+
+def _task(writer_keys: str, using: str = "SELECT * FROM dw.ver", on: str = "t.k = s.k AND t.d = s.d") -> dict:
+    sql = (
+        "INSERT INTO dw.ver SELECT k, env, d, v FROM (SELECT k, env, d, v, row_number() OVER ("
+        f"PARTITION BY {writer_keys} ORDER BY ts DESC) rn FROM ods.feed) a WHERE a.rn = 1;\n"
+        f"MERGE INTO dw.ver t USING ({using}) s ON {on} "
+        "WHEN MATCHED THEN UPDATE SET t.v = s.v"
+    )
+    task = parse_task_lineage(sql, "task", schema=TASK_SCHEMA)
+    profile = build_semantic_profile(to_task_lineage_dict(task))
+    return profile["statements"][-1]["output_shape"]["merge"]
+
+
+def test_a_using_side_read_from_a_table_its_writer_keys_wider_names_the_extra_columns():
+    merge = _task("k, env, d")
+    assert merge["coverage"] == "no_dedup"
+    (entry,) = merge["using_writer_keys"]
+    assert entry["keys"] == ["k", "env", "d"]
+    assert entry["extra"] == ["env"]
+    assert "stmt:001" in entry["label"]
+
+
+def test_the_writer_keys_follow_union_branches_and_precede_table_key():
+    keys = list(_task("k, env, d"))
+    assert keys.index("using_writer_keys") > keys.index("coverage")
+    assert keys.index("using_writer_keys") < keys.index("table_key")
+
+
+def test_a_writer_keyed_on_the_merge_key_says_nothing():
+    assert "using_writer_keys" not in _task("k, d")
+
+
+def test_a_join_on_the_using_side_says_nothing():
+    merge = _task("k, env, d", using="SELECT a.k, a.env, a.d, b.w AS v FROM dw.ver a JOIN ods.side b ON a.k = b.k")
+    assert "using_writer_keys" not in merge
+
+
+def test_a_merge_key_from_an_expression_says_nothing():
+    merge = _task("k, env, d", on="t.k = upper(s.k) AND t.d = s.d")
+    assert "using_writer_keys" not in merge
