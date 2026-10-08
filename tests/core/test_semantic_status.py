@@ -648,6 +648,17 @@ def test_a_prior_review_beside_the_reviews_is_not_a_table_nor_the_review(
     assert (entry["stage"], entry["review"]) == ("valid", None)
 
 
+def test_a_prior_document_beside_the_reviews_changes_nothing(valid_run: Path) -> None:
+    """``reviews/<t>.prior.json`` is the old document kept for the reviewer across a rewrite."""
+    _keyed_review(valid_run, high=1)
+    _revise(valid_run)
+    assert _fixed(valid_run) == 0
+    before = (_status(valid_run), _status(valid_run, "--only", DEMO_TABLE))
+    assert _entry(before[0])["stage"] == "fixed"
+    write_json(valid_run / "reviews" / f"{DEMO_TABLE}.prior.json", _doc(valid_run))
+    assert (_status(valid_run), _status(valid_run, "--only", DEMO_TABLE)) == before
+
+
 # ------------------------------------------------------------------- semantic fixed
 
 
