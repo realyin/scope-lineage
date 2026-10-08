@@ -584,12 +584,12 @@ def _keys(keys: list[dict], partitions: list[dict]) -> list[str]:
     lines = [
         "### 4.3 粒度、键与分区",
         "",
-        "| 任务 / 语句 | 形态 | 粒度依据 | 粒度键 | 候选键 | 键置信 | 已证明 |",
+        "| 任务 / 语句 | 形态 | 粒度依据 | 粒度键（目标列） | 候选键 | 键置信 | 已证明 |",
         "| --- | --- | --- | --- | --- | --- | --- |",
     ]
     lines += [
         f"| {_text(key['task'])} / {_text(key['statement_id'])} | {_text(key['shape'])} | "
-        f"{_text(key['grain_basis'])} | {_names(key['grain_keys'])} | {_names(key['candidate_keys'])} | "
+        f"{_text(key['grain_basis'])} | {_grain_cell(key)} | {_names(key['candidate_keys'])} | "
         f"{_text(key['key_confidence'])} | {'是' if key['proven'] else '否'} |"
         for key in keys
     ]
@@ -611,6 +611,29 @@ _LEFT_ALONE = {
     "not_matched": "not matched 但条件不满足的源行不插入",
     "not_matched_by_source": "not matched by source 但条件不满足的目标行不动",
 }
+
+
+def _grain_cell(key: dict) -> str:
+    """The target column of each grain key; without ``grain_columns`` the keys are those columns.
+
+    Round 3 M1: a key reaching the target through an expression or a MERGE's ON equality
+    says so, and a key the write leaves out is named as the scope's column it is.
+    """
+    columns = key.get("grain_columns")
+    if not columns:
+        return _names(key["grain_keys"])
+    said = []
+    for item in columns:
+        logical = _text(item.get("logical"))
+        if item.get("via") == "unexposed" or not item.get("column"):
+            said.append(f"{logical}（未写入目标表）")
+        elif item.get("via") == "derived":
+            said.append(f"{_code(item['column'])}（派生自 {logical}）")
+        elif item.get("via") == "merge_on":
+            said.append(f"{_code(item['column'])}（经 ON 等值，USING 侧 {logical}）")
+        else:
+            said.append(_code(item["column"]))
+    return "、".join(said)
 
 
 def _merge_lines(key: dict) -> list[str]:

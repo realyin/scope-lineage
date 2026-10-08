@@ -73,9 +73,10 @@ def build_packets(
     ]
     profiles, cards = _profiles(producers, documents, cards)
     produced = _produced_statements(profiles)
+    statements = _lineage_statements(producers)
     corpus = _Corpus(
         cards, _TaskIndex(tasks), metadata or (lambda _table: None), Confirmed(glossary, patched),
-        _task_reads(documents), _right_side_shapes(producers),
+        _task_reads(documents), _right_side_shapes(statements), statements,
     )
     return [_packet(table, produced[table], corpus) for table in _selected(produced, only)]
 
@@ -110,22 +111,27 @@ def _task_of(document: dict):
     return document.get("task_id") or (document.get("task_meta") or {}).get("task_name")
 
 
-def _right_side_shapes(documents: list) -> dict[tuple, RightSides]:
-    """Per ``(task, statement_id)``: the structural shapes a right-side filter can have (B-V2).
-
-    Asked of the statement's lineage, with the profile's own rules: the predicates that
-    keep a ranking's first row, and the scopes that read an inline VALUES list. Keyed by
-    task *and* statement, as two tasks name their scopes and blocks alike.
-    """
-    from ..render.semantic_profile import first_row_filters, inline_values_scopes
-
-    shapes: dict[tuple, RightSides] = {}
+def _lineage_statements(documents: list) -> dict[tuple, dict]:
+    """Per ``(task, statement_id)``: the statement's lineage, keyed by task *and* statement,
+    as two tasks name their scopes and blocks alike."""
+    found: dict[tuple, dict] = {}
     for document, _ in documents:
         task = str(_task_of(document) or "")
         for statement in list((document.get("statement_lineage") or {}).values()) or [document]:
-            shapes[(task, statement.get("statement_id"))] = RightSides(
-                first_row_filters(statement), set(inline_values_scopes(statement)))
-    return shapes
+            found[(task, statement.get("statement_id"))] = statement
+    return found
+
+
+def _right_side_shapes(statements: Mapping[tuple, dict]) -> dict[tuple, RightSides]:
+    """Per ``(task, statement_id)``: the structural shapes a right-side filter can have (B-V2).
+
+    Asked of the statement's lineage, with the profile's own rules: the predicates that
+    keep a ranking's first row, and the scopes that read an inline VALUES list.
+    """
+    from ..render.semantic_profile import first_row_filters, inline_values_scopes
+
+    return {key: RightSides(first_row_filters(statement), set(inline_values_scopes(statement)))
+            for key, statement in statements.items()}
 
 
 def packet_digest(packet: Mapping) -> str:
@@ -200,10 +206,12 @@ class _Corpus:
         self, cards: dict, tasks: _TaskIndex, metadata: MetadataLookup, confirmed: Confirmed,
         reads: dict[str, set[str]] | None = None,
         right_sides: dict[tuple, RightSides] | None = None,
+        statements: dict[tuple, dict] | None = None,
     ):
         self.tasks = tasks
         self._reads = reads or {}
         self.right_sides = right_sides or {}
+        self._statements = statements or {}
         self.confirmed = confirmed
         self._metadata = metadata
         self._looked_up: dict[str, Optional[dict]] = {}
@@ -232,6 +240,14 @@ class _Corpus:
 
     def tables_written_by(self, task: str) -> list[str]:
         return sorted(self._written.get(task, set()))
+
+    def grain_columns(self, task: str, statement: dict) -> list[dict]:
+        """The target column each logical grain key of a statement lands on (round 3 M1)."""
+        from ..render.semantic_profile import grain_key_columns
+
+        lineage = self._statements.get((task, statement.get("statement_id")))
+        grain = (statement.get("output_shape") or {}).get("grain") or {}
+        return grain_key_columns(lineage, grain) if lineage and grain.get("keys") else []
 
     def task_reads(self, task: str) -> set[str] | None:
         """What ``task`` reads over all its statements; ``None`` for a task not parsed."""

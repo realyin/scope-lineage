@@ -41,6 +41,12 @@
   决定右侧读哪些分区」. It never gets a `right_side_kind`, which only exempts a filter from
   check 5, and check 5 asks for no partition filter: validation is unchanged but for the
   digest. Packets with such a filter get a new `packet_digest`.
+- **The 4.3 grain cell names target columns.** `grain_keys` are logical keys of the scope
+  that decides the grain, and were shown beside `candidate_keys` (target columns) as if
+  they were columns of the table. New `lineage.keys[].grain_columns` (`grain_key_columns`
+  of the profile) gives each key's target column, present only when some key does not
+  land on a column of its own name. The header reads 「粒度键（目标列）」, and the cell marks
+  a derived key, a key tied by a MERGE's ON equality, and a key not written to the target.
 
 ## 0.7.0
 - **Table semantics that survive a review loop, MERGE targets read as the batch they

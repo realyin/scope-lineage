@@ -242,21 +242,32 @@ def _columns_of(fields) -> list[str]:
     return columns
 
 
-def statement_keys(task: str, statement: dict) -> dict:
+def statement_keys(task: str, statement: dict, grain_columns=()) -> dict:
     """The statement's grain and keys, and whether the profile proves them.
 
     ``proven`` is false on a MERGE whatever its confidence: the profile proves the batch
     the MERGE writes, while a reader of this row asks about the table (A-M1).
+
+    ``grain_keys`` are the logical keys' names, columns of the scope that decides the
+    grain. ``grain_columns`` (round 3 M1) is the profile's ``grain_key_columns``, the
+    target column each key lands on (``[{logical, column?, via, pinned?}]``); it is kept
+    only when some key does not land on a column of its own name, so a missing key means
+    every grain key is its target column.
     """
     shape = statement.get("output_shape") or {}
     grain = shape.get("grain") or {}
     confidence = shape.get("key_confidence")
+    names = [str(key.get("name")) for key in grain.get("keys") or []]
+    columns = [dict(item) for item in grain_columns]
+    differs = len(columns) == len(names) and any(
+        item.get("column") != name for item, name in zip(columns, names))
     return {
         "task": task,
         "statement_id": statement.get("statement_id"),
         "shape": shape.get("shape"),
         "grain_basis": grain.get("basis"),
-        "grain_keys": [str(key.get("name")) for key in grain.get("keys") or []],
+        "grain_keys": names,
+        **({"grain_columns": columns} if differs else {}),
         "candidate_keys": list(shape.get("candidate_keys") or []),
         "key_confidence": confidence,
         "proven": confidence == "proven" and not shape.get("merge"),
