@@ -1580,18 +1580,25 @@ def generated_source_text(item) -> str:
     return f"{label} {value}" if value else label
 
 
+# How the two pass-through steps' words begin. ``packet.json`` keeps a step as its words
+# alone, so ``packet.md`` tells a pass-through by these prefixes (D-G5); a test pins them
+# to :data:`PASS_THROUGH_STEP_TYPES`, so the types and the words cannot drift apart.
+UNION_TEXT_PREFIX = "合并"
+DIRECT_PROJECTION_TEXT_PREFIX = "直接投影"
+
+
 def describe_union(input_fields: Sequence[str]) -> str:
     fields = [str(item) for item in input_fields]
     if not fields:
-        return "合并上游分支"
-    return f"合并 {len(fields)} 个分支（来自 {'、'.join(fields)}）"
+        return f"{UNION_TEXT_PREFIX}上游分支"
+    return f"{UNION_TEXT_PREFIX} {len(fields)} 个分支（来自 {'、'.join(fields)}）"
 
 
 def describe_direct_projection(input_fields: Sequence[str]) -> str:
     fields = [str(item) for item in input_fields]
     if not fields:
-        return "直接投影"
-    return f"直接投影自 {'、'.join(fields)}"
+        return DIRECT_PROJECTION_TEXT_PREFIX
+    return f"{DIRECT_PROJECTION_TEXT_PREFIX}自 {'、'.join(fields)}"
 
 
 def describe_distinct() -> str:
@@ -1732,6 +1739,12 @@ SUMMARY_COMMENT_LIMIT = 2
 # direct read however many scopes it crosses, so the summary says "直接取自 <table>.<col>"
 # instead of listing eight "直接投影自 …" hops nobody reads.
 PASS_THROUGH_STEP_TYPES = ("direct_projection", "union")
+
+# Each pass-through step type with the prefix its words begin with (D-G5).
+PASS_THROUGH_TEXT_PREFIXES = {
+    "direct_projection": DIRECT_PROJECTION_TEXT_PREFIX,
+    "union": UNION_TEXT_PREFIX,
+}
 
 # G3. The two computing step types that may still only *clean* a value: an IF / CASE /
 # COALESCE that hands back its one input column or a literal in every value position.

@@ -2,10 +2,12 @@
 
 Same facts as ``packet.json``, in the order a writer needs them: the table, the tasks
 and their SQL, the inputs, the lineage facts, and last the column order the document
-must follow. Nothing here is added relative to the JSON, and only one thing is left to
-it: a 4.1 step chain longer than :data:`STEPS_CELL_LIMIT` shows its last step and its
-length. The validator reads the JSON, and ``packet_digest`` is computed over the JSON
-alone, so a layout change here never makes a written document stale.
+must follow. No fact here is missing from the JSON (one fixed sentence explains how
+SQLGlot writes a default time format), and only one thing is left to it: a 4.1 step
+chain longer than :data:`STEPS_CELL_LIMIT` shows its computing steps, or failing that
+its last step, and its length. The validator reads the JSON, and ``packet_digest`` is
+computed over the JSON alone, so a layout change here never makes a written document
+stale.
 
 What the owner already confirmed is shown where it applies and only when there is some:
 a patched comment carries 「（已确认，元数据补丁）」, and a column table gains an
@@ -17,9 +19,13 @@ from __future__ import annotations
 
 import re
 
+from sqlglot import exp
+
 from ..render.markdown_text import cell, expr_span
+from ..render.semantic_text import PASS_THROUGH_TEXT_PREFIXES, parse_expression
 from .packet_context import string_literals
 from .packet_facts import partition_filter_rules, partition_values
+from .sql_forms import DIALECT
 
 
 def render_packet_markdown(packet: dict) -> str:
@@ -256,7 +262,8 @@ def _inputs(inputs: list[dict], rules: list[dict] = ()) -> list[str]:
             f"- 在本表的作用：{_names(entry['roles'])}；主表：{'是' if entry['driving'] else '否'}；"
             f"层：{_text(entry['layer'])}；生产任务：{_names(entry['producers'])}",
             f"- 分区列（元数据）：{_names(entry['partition_columns'])}；"
-            f"分区读取：{entry['partition_read']}（{_partition_filters(entry, rules)}）；"
+            f"分区读取：{entry['partition_read']}（{_partition_filters(entry, rules)}）"
+            f"{_unfixed_partitions(entry)}；"
             f"表名约定：{entry['name_convention']}；全量快照：{full_snapshot_text(entry)}",
             "- 日期列上的过滤（只有「窗口」按业务日期筛行）：" + (_date_filters(entry, rules) or "无"),
             *_producer_header(entry),
@@ -288,6 +295,30 @@ def _partition_filters(entry: dict, rules: list[dict]) -> str:
         ids = _ids(rule for text, rule in found if text == expression)
         said.append(_code(expression) + (f"（{ids}）" if ids else ""))
     return "、".join(said)
+
+
+def _unfixed_partitions(entry: dict) -> str:
+    """D-G7b: the partition columns no condition fixes, when some other one is fixed.
+
+    Each with its comment as written, no verdict: whether reading every value of the
+    column multiplies rows depends on the data, which the comment may speak to. A read
+    with no partition condition at all is said by 全量快照 already.
+    """
+    fixed: set[str] = set()
+    for text in entry["partition_filters"]:
+        node = parse_expression(text)
+        fixed |= {column.name.lower() for column in node.find_all(exp.Column)} if node else set()
+    partitions = [str(name) for name in entry["partition_columns"]]
+    unfixed = [name for name in partitions if name.lower() not in fixed]
+    if not fixed & {name.lower() for name in partitions} or not unfixed:
+        return ""
+    columns = {str(column["name"]).lower(): column for column in entry["columns"]}
+    said = []
+    for name in unfixed:
+        column = columns.get(name.lower()) or {}
+        said.append(_code(name) + (f"（注释：{_comment(column)}）" if column.get("comment")
+                                   else "（无注释）"))
+    return f"；未限定的分区列：{'、'.join(said)}"
 
 
 def _date_filters(entry: dict, rules: list[dict]) -> str:
@@ -377,6 +408,9 @@ def _column_sources(columns: list[dict], added: dict | None = None) -> list[str]
     lines = [
         "### 4.1 字段来源",
         "",
+        *_default_time_format_note(
+            text for entry in columns for producer in entry["producers"]
+            for text in [producer["expression"], *producer["steps"]]),
         "| 列 | 任务 / 语句 | 加工 | 来源列 | 表达式 | 步骤 |",
         "| --- | --- | --- | --- | --- | --- |",
     ]
@@ -427,10 +461,14 @@ def _producer_sources(producer: dict) -> str:
 
 
 # A 4.1 step cell holds the whole chain up to this many characters. A longer chain -- a
-# UNION's branches one after another, a deep CTE chain -- says its last step and how many
-# steps there are, and leaves the chain to ``packet.json`` (C-P8, option b): each producer
-# stays one bounded table row, which a reader's file tool takes in one piece.
+# UNION's branches one after another, a deep CTE chain -- says its computing steps, the
+# direct projections and merges left out (D-G5); when those still do not fit, or there
+# are none, it says its last step and how many steps there are. Either way the chain is
+# left to ``packet.json`` (C-P8, option b): each producer stays one bounded table row,
+# which a reader's file tool takes in one piece.
 STEPS_CELL_LIMIT = 300
+
+_FULL_CHAIN = "完整步骤见同目录 packet.json 该列 producers[].steps"
 
 
 def _steps(producer: dict, later: str = "") -> str:
@@ -439,17 +477,85 @@ def _steps(producer: dict, later: str = "") -> str:
     parts += [f"注释：{'；'.join(comments)}"] if comments else []
     steps = [str(step) for step in producer["steps"]]
     if len("；".join(steps)) > STEPS_CELL_LIMIT:
-        last = steps[-1]
-        last = last if len(last) <= STEPS_CELL_LIMIT else last[:STEPS_CELL_LIMIT] + "…"
-        steps = [f"末层：{last}（共 {len(steps)} 步；完整步骤见同目录 packet.json "
-                 "该列 producers[].steps）"]
+        steps = [_computing_steps(steps) or _last_step(steps)]
     return _text("；".join([*parts, *steps]))
+
+
+def _computing_steps(steps: list[str]) -> str:
+    """``计算步骤：…`` -- the chain without its pass-throughs, each text once; "" if too long.
+
+    ``packet.json`` keeps a step as words only, so a pass-through is told by the prefix
+    ``semantic_text`` words it with (:data:`PASS_THROUGH_TEXT_PREFIXES`).
+    """
+    prefixes = tuple(PASS_THROUGH_TEXT_PREFIXES.values())
+    computing = [step for step in steps if not step.startswith(prefixes)]
+    unique = list(dict.fromkeys(computing))
+    if not unique or len("；".join(unique)) > STEPS_CELL_LIMIT:
+        return ""
+    left_out = f"略去 {len(steps) - len(computing)} 个直接投影 / 合并步骤"
+    if len(computing) > len(unique):
+        left_out += f"、{len(computing) - len(unique)} 个重复步骤"
+    return f"计算步骤：{'；'.join(unique)}（{left_out}；{_FULL_CHAIN}）"
+
+
+def _last_step(steps: list[str]) -> str:
+    last = steps[-1]
+    last = last if len(last) <= STEPS_CELL_LIMIT else last[:STEPS_CELL_LIMIT] + "…"
+    return f"末层：{last}（共 {len(steps)} 步；{_FULL_CHAIN}）"
+
+
+# D-G4. SQLGlot writes FROM_UNIXTIME / UNIX_TIMESTAMP without a format argument equal to
+# the dialect's default, so ``from_unixtime(x, 'yyyy-MM-dd HH:mm:ss')`` comes back as
+# ``FROM_UNIXTIME(x)`` -- in the contract already, not here. The meaning is the same (the
+# default is that format); what the SQL text wrote is not, and a reader comparing the two
+# needs telling once per section, not once per row.
+DEFAULT_TIME_FORMAT_NOTE = (
+    "注：FROM_UNIXTIME / UNIX_TIMESTAMP 只有一个参数的，格式是默认的 'yyyy-MM-dd HH:mm:ss'；"
+    "SQL 原文写了这个格式时，解析后会省略"
+)
+
+_UNIX_TIME_CALL = re.compile(r"\b(FROM_UNIXTIME|UNIX_TIMESTAMP)\s*\(", re.IGNORECASE)
+
+
+def _default_time_format_note(texts) -> list[str]:
+    """The note and a blank line, when one of ``texts`` holds a one-argument call."""
+    return [DEFAULT_TIME_FORMAT_NOTE, ""] if any(map(_has_default_time_format, texts)) else []
+
+
+def _has_default_time_format(text) -> bool:
+    text = str(text or "")
+    for match in _UNIX_TIME_CALL.finditer(text):
+        node = parse_expression(_call_text(text, match.start(), match.end() - 1))
+        if isinstance(node, (exp.UnixToStr, exp.StrToUnix)) and node.this is not None:
+            name = match.group(1).upper()
+            if node.sql(dialect=DIALECT) == f"{name}({node.this.sql(dialect=DIALECT)})":
+                return True
+    return False
+
+
+def _call_text(text: str, start: int, opening: int) -> str:
+    """``text[start:]`` up to the parenthesis closing the one at ``opening``."""
+    depth, quote = 0, ""
+    for index in range(opening, len(text)):
+        char = text[index]
+        if quote:
+            quote = "" if char == quote else quote
+        elif char in "'\"`":
+            quote = char
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return text[start:index + 1]
+    return text[start:]
 
 
 def _rules(rules: list[dict], findings: list[dict], tasks: list[dict] = ()) -> list[str]:
     lines = [
         "### 4.2 规则（过滤 / 关联 / 去重 / 合并 / 分支）",
         "",
+        *_default_time_format_note(rule["expression"] for rule in rules),
         "| 编号 | 类型 | 位置 | 表达式 | 分区过滤 | 涉及表 | 行数放大 | 说明 |",
         "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
