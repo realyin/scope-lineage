@@ -310,6 +310,48 @@ scope-lineage parse \
 不确定场景该用哪份契约，见[按业务场景选契约](docs/zh-CN/contract-selection.md)：
 字段血缘、加工步骤分析用默认 1.0；审计、事故排查、最终表状态用 2.0。
 
+### 迁移到 0.9.0
+
+格式版本都不变，也没有增删键；变的是校验器、提示词和下游读者依赖的措辞，以及分步手册的文件和命令。
+完整清单见 [CHANGELOG.md](CHANGELOG.md) 0.9.0 下的 **Breaking** 条目。分步做法见
+[`skills/scope-lineage/references/runbook.md`](skills/scope-lineage/references/runbook.md)。
+
+**用 0.8.0 写的表语义运行目录**（`packets/`、`docs/`、`reviews/`）：
+
+1. 用 0.9.0 重建材料包（`semantic packet`，参数照旧）。两类表的 `packet_digest` 会变，`semantic status <run>`
+   显示 `drafted packet_stale`：列注释里的码值表含大写常量风格长码的表（现在会被认成码值），以及按时点
+   JOIN 到 MERGE 写的有效期窗口的表（理由原文变了）。其他材料包 digest 不变；`packet.md` 4.1 的写法可能
+   变，但不改 digest。
+2. 重写过期表之前，照手册 S4「重写准备」把上一轮留下的文件归档：审读改名为 `reviews/<db.table>.prior.md`，
+   修订记录改名为 `reviews/<db.table>.prior.fixlog.txt`，首审备份改名为
+   `reviews_prev/<db.table>.prior.round1.md`，更早一次重写留下的 `.prior.*` 移到
+   `reviews_prev/<db.table>.prior-<时间>.*`。旧运行留下的 `reviews/<db.table>.prior.<时间>.md` 要移到
+   `reviews_prev/`——`semantic status` 会把它当成多出来的一张表。
+3. 用 `skills/scope-lineage/scripts/make_corrections.py` 生成这张表的修正点清单（手册 S4），以
+   `fill write … CORRECTIONS=@<清单文件>` 交给写作者（第一次写传 `CORRECTIONS=无`）。0.9.0 之前修订过的
+   表没有修订记录：脚本会警告，并把高、中级发现放进「先核对」那一段；照常派发。
+4. 此后每次修订的回复都存进 `reviews/<db.table>.fixlog.txt`（手册 S7）；下一次重写的修正点清单靠它。
+5. `@10` 写的文档用 0.9.0 校验：第 10 项认可写作提示词要求的条件句「X 成立时不放大；不成立时 … 会放大」，
+   0.8.0 对它仍报 WARN。
+
+**脚本与编排**：
+
+- 手册里的 `fill` 遇到模板没有的参数、模板没列的 `MODE`、前提不成立时退出 1。从手册复制新的 `fill`，
+  每次调用照那一步的命令写：T1 要 `CORRECTIONS`，T5 要 `MODE`（新建 / 增量）和 `TOUCHED`，T4 的
+  `MODE=普通` 改为 `MODE=首修`，T7 / T8 的兜底文件放在 `$SCRATCH/<题组目录名>/` 下。
+- 提示词版本钉为 `table-semantics-prompt@10`、`table-semantics-review@10`、`table-semantics-fix@7`。
+  解析审读回复的代码按固定的 `#### H1.` 标题和小节标题读；解析修订回复的代码按每条一行、编号在前读。
+- 发布到 PyPI 要等维护者批准工作流的 `pypi` 任务。
+
+**下游代码**：
+
+- `glossary.json`：列注释的码值表可能读出更多码值，`comment_enum` 候选会变多（其中有原来的
+  `comment_mention`），`literal_outside_comment_codes` 发现列出的码值也可能变长。
+- `fan_out_risks[]`（语义画像和材料包）：MERGE 写入方的 `R-VALIDITY-WINDOW` 理由现在以本表的放大情形
+  结尾；按状态和规则匹配，不按理由原文匹配。
+- `packet.md` 4.1：全是直接投影的链写成 「全部 N 步都是直接投影 / 合并，没有计算步骤…」，只由
+  not_matched INSERT 写入的列带 「（仅 not_matched INSERT 写入；…）」；事实从 `packet.json` 读。
+
 ### 迁移到 0.8.0
 
 格式版本都不变；变的是若干字段的含义，以及若干命令的退出码和警告。完整清单见 [CHANGELOG.md](CHANGELOG.md)
