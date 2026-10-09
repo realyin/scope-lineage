@@ -128,9 +128,15 @@ does not move and no written document goes stale over it:
   N 个直接投影 / 合并步骤；完整步骤见同目录 packet.json 该列 producers[].steps）」: the chain
   without its two pass-through kinds, direct projections and merges, each step text once
   (with 「M 个重复步骤」 noted). Only when those computing steps are still longer than 300
-  characters, or there are none, does it say 「末层：<last step>（共 N 步；…）」, cutting a last
-  step that is itself too long. So every row is bounded; the author's comments and the
-  「头注释：… 才加入」 note stay.
+  characters does it say 「末层：<last step>（共 N 步；…）」, cutting a last step that is itself
+  too long. A chain of nothing but direct projections and merges, longer than 300 characters,
+  says 「全部 N 步都是直接投影 / 合并，没有计算步骤（来源见「来源列」；完整步骤见同目录 packet.json
+  该列 producers[].steps）」 instead of 「末层」. So every row is bounded; the author's comments
+  and the 「头注释：… 才加入」 note stay.
+- A 4.1 任务 / 语句 cell notes 「（N 支：merge:matched 分支 0、…）」 when several MERGE branches
+  write the same value; in a MERGE with both a matched and a not matched branch, a column only
+  the not_matched INSERT writes notes 「（仅 not_matched INSERT 写入；matched UPDATE 不改，见
+  4.3）」.
 - When 4.1 or 4.2 holds a one-argument `FROM_UNIXTIME` / `UNIX_TIMESTAMP`, a line under the
   section heading says its format is the default `'yyyy-MM-dd HH:mm:ss'`. SQLGlot leaves out a
   format argument equal to the default, so a call whose SQL wrote that format keeps one

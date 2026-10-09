@@ -106,8 +106,13 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
   「读入未用（select * 等）」。
 - 4.1 的「步骤」格：整条步骤链超过 300 个字符时，先写「计算步骤：…（略去 N 个直接投影 / 合并步骤；完整步骤见
   同目录 packet.json 该列 producers[].steps）」——去掉直接投影与合并这两类直传步骤，同文步骤只列一次（另注
-  「M 个重复步骤」）；计算步骤仍超过 300 个字符或一个都没有时，才只写「末层：最后一步（共 N 步；…）」，最后一步
-  本身也过长时截断。所以每行有界；作者注释与「头注释：… 才加入」照写。
+  「M 个重复步骤」）；计算步骤仍超过 300 个字符时，才只写「末层：最后一步（共 N 步；…）」，最后一步
+  本身也过长时截断。整条链全是直接投影 / 合并、又超过 300 个字符时，写「全部 N 步都是直接投影 / 合并，没有计算
+  步骤（来源见「来源列」；完整步骤见同目录 packet.json 该列 producers[].steps）」，不再写「末层」。所以每行有界；
+  作者注释与「头注释：… 才加入」照写。
+- 4.1 的「任务 / 语句」格：MERGE 几个分支写同一个值时注「（N 支：merge:matched 分支 0、…）」；有 matched 与
+  not matched 两个分支的 MERGE 里只由 not_matched INSERT 写入的列，注「（仅 not_matched INSERT 写入；matched UPDATE
+  不改，见 4.3）」。
 - 4.1、4.2 里有只带一个参数的 `FROM_UNIXTIME` / `UNIX_TIMESTAMP` 时，节标题下有一行说明：格式是默认的
   `'yyyy-MM-dd HH:mm:ss'`。SQLGlot 生成 SQL 时省略等于默认值的格式参数，所以 SQL 原文写了这个格式的调用在
   血缘里只剩一个参数；含义不变。

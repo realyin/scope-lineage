@@ -4,8 +4,8 @@ Same facts as ``packet.json``, in the order a writer needs them: the table, the 
 and their SQL, the inputs, the lineage facts, and last the column order the document
 must follow. No fact here is missing from the JSON (one fixed sentence explains how
 SQLGlot writes a default time format), and only one thing is left to it: a 4.1 step
-chain longer than :data:`STEPS_CELL_LIMIT` shows its computing steps, or failing that
-its last step, and its length. The validator reads the JSON, and ``packet_digest`` is
+chain longer than :data:`STEPS_CELL_LIMIT` shows its computing steps (or says there are
+none), or failing that its last step, and its length. The validator reads the JSON, and ``packet_digest`` is
 computed over the JSON alone, so a layout change here never makes a written document
 stale.
 
@@ -394,7 +394,8 @@ def _fixed_partitions(entry: dict) -> str:
 
 def _lineage(lineage: dict, tasks: list[dict] = ()) -> list[str]:
     lines = ["## 4. 血缘事实", ""]
-    lines += _column_sources(lineage["columns"], _added_dates(list(tasks)))
+    lines += _column_sources(lineage["columns"], _added_dates(list(tasks)),
+                             _insert_only(lineage["keys"]))
     lines += _rules(lineage["rules"], lineage.get("findings") or [], list(tasks))
     lines += _keys(lineage["keys"], lineage["partition"])
     lines += _findings(lineage.get("findings") or [])
@@ -402,9 +403,16 @@ def _lineage(lineage: dict, tasks: list[dict] = ()) -> list[str]:
     return lines
 
 
-def _column_sources(columns: list[dict], added: dict | None = None) -> list[str]:
-    """4.1; a column a producing task's header says was added later says so first (D-G4)."""
+def _column_sources(
+    columns: list[dict], added: dict | None = None, insert_only: set | None = None
+) -> list[str]:
+    """4.1; a column a producing task's header says was added later says so first (D-G4).
+
+    ``insert_only`` holds (task, statement, column) a MERGE writes in its not-matched
+    INSERT alone (B-T3b): such a producer has no ``branches``, so its row says it here.
+    """
     added = added or {}
+    insert_only = insert_only or set()
     lines = [
         "### 4.1 字段来源",
         "",
@@ -420,8 +428,9 @@ def _column_sources(columns: list[dict], added: dict | None = None) -> list[str]
         for producer in entry["producers"]:
             date = added.get((producer["task"], entry["column"]))
             later = f"头注释：{date} 才加入，此前写入的行该列可能为空" if date else ""
+            only = (producer["task"], producer["statement_id"], entry["column"].lower()) in insert_only
             lines.append(
-                f"| {_produced_column(entry['column'], producer)} | {_written_by(producer)} | "
+                f"| {_produced_column(entry['column'], producer)} | {_written_by(producer, only)} | "
                 f"{_transform(producer)} | {_producer_sources(producer)} | "
                 f"{_code(producer['expression'])} | {_steps(producer, later)} |"
             )
@@ -436,12 +445,25 @@ def _produced_column(column: str, producer: dict) -> str:
 _BRANCH = re.compile(r"（([^（）]*)）$")
 
 
-def _written_by(producer: dict) -> str:
-    """Task / statement, and the MERGE branches a folded producer stands for."""
+def _insert_only(keys: list[dict]) -> set[tuple[str, str, str]]:
+    """(task, statement, column) of each column a MERGE's matched UPDATE leaves alone."""
+    return {
+        (key["task"], key["statement_id"], str(column).lower())
+        for key in keys
+        for column in (key.get("merge") or {}).get("insert_only_columns") or []
+    }
+
+
+def _written_by(producer: dict, insert_only: bool = False) -> str:
+    """Task / statement, and the MERGE branches a folded producer stands for.
+
+    A producer of one branch carries no ``branches``; one only the not-matched INSERT
+    writes says so, as 4.3 does (B-T3b) -- a reader of 4.1 does not look there.
+    """
     said = f"{_text(producer['task'])} / {_text(producer['statement_id'])}"
     branches = producer.get("branches") or []
     if not branches:
-        return said
+        return f"{said}（仅 not_matched INSERT 写入；matched UPDATE 不改，见 4.3）" if insert_only else said
     names = [(_BRANCH.search(label) or [None, label])[1] for label in branches]
     return f"{said}（{len(branches)} 支：{cell('、'.join(names))}）"
 
@@ -462,8 +484,10 @@ def _producer_sources(producer: dict) -> str:
 
 # A 4.1 step cell holds the whole chain up to this many characters. A longer chain -- a
 # UNION's branches one after another, a deep CTE chain -- says its computing steps, the
-# direct projections and merges left out (D-G5); when those still do not fit, or there
-# are none, it says its last step and how many steps there are. Either way the chain is
+# direct projections and merges left out (D-G5); a chain of nothing but those says it
+# computes nothing (B-T3a: its last step, 「直接投影自 …」, would hide exactly that); when
+# the computing steps still do not fit, it says its last step and how many steps there
+# are. Either way the chain is
 # left to ``packet.json`` (C-P8, option b): each producer stays one bounded table row,
 # which a reader's file tool takes in one piece.
 STEPS_CELL_LIMIT = 300
@@ -477,7 +501,7 @@ def _steps(producer: dict, later: str = "") -> str:
     parts += [f"注释：{'；'.join(comments)}"] if comments else []
     steps = [str(step) for step in producer["steps"]]
     if len("；".join(steps)) > STEPS_CELL_LIMIT:
-        steps = [_computing_steps(steps) or _last_step(steps)]
+        steps = [_pass_throughs_only(steps) or _computing_steps(steps) or _last_step(steps)]
     return _text("；".join([*parts, *steps]))
 
 
@@ -496,6 +520,13 @@ def _computing_steps(steps: list[str]) -> str:
     if len(computing) > len(unique):
         left_out += f"、{len(computing) - len(unique)} 个重复步骤"
     return f"计算步骤：{'；'.join(unique)}（{left_out}；{_FULL_CHAIN}）"
+
+
+def _pass_throughs_only(steps: list[str]) -> str:
+    """``全部 N 步都是直接投影 / 合并…`` when no step computes anything; "" otherwise."""
+    if not all(step.startswith(tuple(PASS_THROUGH_TEXT_PREFIXES.values())) for step in steps):
+        return ""
+    return f"全部 {len(steps)} 步都是直接投影 / 合并，没有计算步骤（来源见「来源列」；{_FULL_CHAIN}）"
 
 
 def _last_step(steps: list[str]) -> str:

@@ -108,11 +108,20 @@ def test_computing_steps_that_still_do_not_fit_fall_back_to_the_last_step() -> N
     assert "计算步骤" not in said
 
 
-def test_a_chain_of_pass_throughs_only_falls_back_to_the_last_step() -> None:
+def test_a_long_chain_of_pass_throughs_only_says_it_computes_nothing() -> None:
+    """B-T3a: 「末层」 of a chain that only passes its value on hides that nothing computes it."""
     steps = [f"直接投影自 subq:s{index}.k" for index in range(40)] + ["合并上游分支"]
     said = _steps({"steps": steps})
-    assert said.startswith("末层：合并上游分支（共 41 步")
-    assert "计算步骤" not in said
+    assert said == ("全部 41 步都是直接投影 / 合并，没有计算步骤（来源见「来源列」；"
+                    "完整步骤见同目录 packet.json 该列 producers[].steps）")
+    assert "末层" not in said and "计算步骤：" not in said
+
+
+def test_a_pass_through_chain_keeps_its_comments_before_saying_it_computes_nothing() -> None:
+    steps = [f"直接投影自 subq:s{index}.kkkkkkkkkk" for index in range(12)]
+    assert len("；".join(steps)) > STEPS_CELL_LIMIT
+    said = _steps({"steps": steps, "sql_comments": ["作者说明"]}, "头注释：2025-01-01 才加入")
+    assert said.startswith("头注释：2025-01-01 才加入；注释：作者说明；全部 12 步都是直接投影 / 合并")
 
 
 def test_a_short_chain_is_untouched() -> None:
