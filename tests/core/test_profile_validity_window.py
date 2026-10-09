@@ -198,6 +198,8 @@ def test_a_point_read_of_a_lead_merge_table_is_unknown_with_its_condition():
     assert "至多一行有效" in risk["reason"]
     assert "LEAD(beg) OVER (PARTITION BY k ORDER BY beg)" in risk["reason"]
     assert "(k, beg) 重复" in risk["reason"]
+    # The consequence is said of this table's rows, so a writer who copies it passes check 10.
+    assert "不成立时（(k, beg) 重复）右侧同一 k 可能多行有效、会放大" in risk["reason"]
     claim = risk["claim"]
     assert claim["rule"] == "R-VALIDITY-WINDOW"
     assert claim["status"] == "conditional"

@@ -5427,7 +5427,8 @@ def _validity_verdict(read: Mapping) -> tuple[str, str, str, None]:
     if condition:
         reason += (
             f"：若表中 {pair} 不重复，每个 {names} 至多一行有效、不放大；"
-            f"{pair} 重复时该 MERGE 多行匹配，结果取决于引擎"
+            f"不成立时（{pair} 重复）右侧同一 {names} 可能多行有效、会放大"
+            f"（写入方 MERGE 此时多行匹配，结果取决于引擎）"
         )
     else:
         reason += f"：每个 {names} 至多一行有效、不放大"
