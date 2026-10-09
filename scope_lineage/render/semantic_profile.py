@@ -8241,8 +8241,8 @@ def _comment_code_findings(document: dict, rules: Sequence[dict]) -> list[dict]:
     must be one physical column of the rule by name, as for ``empty_string_on_non_string``;
     the comment, with its 【…】 blocks removed, must list at least two codes by
     :func:`glossary_values.enumerated_meanings`; and the literal must be neither one of
-    them nor a substring of the comment -- the shape reading misses a code glued to its
-    meaning, and a code the comment does mention is not reported.
+    them nor a substring of the comment -- the shape reading misses a short code glued to
+    its meaning, and a code the comment does mention is not reported.
     """
     found = []
     for rule in rules:

@@ -329,7 +329,13 @@ Other rules:
      separators in P5b: `余额类别(Int-利息，…，IntFee-息费)` is how a comment writes a code
      table when it also has to say what the column is, and reading the bracket as ordinary
      text glued `余额类别(Int` into one token (losing the first pair) and left a stray `)`
-     on the last meaning.
+     on the last meaning. A code is up to 8 letters, digits and underscores; a longer one is
+     believed only in upper-case constant style (upper-case letters, digits, underscores, at
+     most 32 characters, such as `LONG_CODE_X`), so a condition such as `flag_type=on时` is
+     not a code. Such a long code right after a pair with a joiner and glued to its meaning
+     (`…,b2-乙,LONG_CODE_X外部`, a common way to write a table's last item) is split too, and
+     the meaning may hold no ASCII letter or digit; a short code glued to a word (`id关联`) is
+     not split.
   2. **`comment_mention` -- the comment literally contains the value**: the value with its
      quotes stripped must
      occur in the comment text (case-insensitively). **A value shorter than 2 characters
