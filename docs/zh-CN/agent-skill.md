@@ -118,7 +118,7 @@ ln -s ~/tools/scope-lineage/skills/scope-lineage ~/.codex/skills/scope-lineage
 ## 版本要求
 
 最低版本按工作流不同：解析、加工链、影响分析、mapping 文档要 ≥ 0.2.0；表语义、本体目录与验收照技能里的
-分步手册跑，要 ≥ 0.8.0（各工作流的版本表见 `SKILL.md`「Setup check」一节）。技能自检用 `scope-lineage --version`（0.2.1 起提供；
+分步手册跑，要 ≥ 0.9.0（各工作流的版本表见 `SKILL.md`「Setup check」一节）。技能自检用 `scope-lineage --version`（0.2.1 起提供；
 0.2.0 用 `python3 -c "import importlib.metadata as m; print(m.version('scope-lineage'))"`
 兜底）。旧版本会静默产出已移除的逐语句格式——`query.py` 遇到这类产物会明确提示，
 但解析本身已经浪费了。

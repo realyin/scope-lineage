@@ -1,8 +1,68 @@
 # Changelog
 
-## Unreleased
+## 0.9.0
+- **A rewrite that keeps what the last fix corrected, a `fill` that refuses a wrong
+  template, and prompts `@10` / `@10` / `@7`.** Every format keeps its version -- task
+  contract 2.0, `lineage.json` `schema_version` 1.0, `semantic-json/1`,
+  `table-semantics-packet/1`, `table-semantics-status/2`, `table-semantics-validation/1`,
+  `tables-json/1`, `glossary-json/1`, `catalog-digest/1`, `ontology-json/3` -- and no key is
+  added or removed. What moves is wording that validators, prompts and downstream readers
+  rely on, and the runbook's file layout and commands, so this is a minor release with
+  breaking changes (listed under **Breaking** below, each with who is affected and what to
+  do; the READMEs' "Migrating to 0.9.0" gives the steps). **What a consumer will see
+  change:** check 10 (`fan_out`) accepts a conditional "X 成立时不放大；不成立时 … 会放大"
+  sentence; `packet.md` 4.1 says when a long chain only passes a column through and when
+  only a MERGE's not-matched INSERT writes it; a column comment's code table may yield
+  more codes (`comment_enum` glossary candidates, `literal_outside_comment_codes` listings),
+  and the packets of tables whose comments hold such a code get a new `packet_digest`; the
+  MERGE validity-window reason ends on this table's fan-out, and packets carrying it get a
+  new `packet_digest` too; the prompts are `table-semantics-prompt@10`,
+  `table-semantics-review@10` (fixed output format) and `table-semantics-fix@7` (one finding
+  per line, kept as a fix log); and the runbook gives a rewrite a corrections list
+  (`skills/scope-lineage/scripts/make_corrections.py`), keeps fix replies in
+  `reviews/<db.table>.fixlog.txt`, renames what a rewrite sets aside, and checks every
+  `fill`. Also in this release: a partial rewrite's catalog path (T5's incremental mode),
+  and question sets that run side by side.
 
 ### Breaking
+- **Breaking — check 10 (`fan_out`) accepts a conditional no-fan-out sentence.** Affected:
+  orchestrators and dashboards that count the warnings of check 10, and documents or private
+  prompts written to avoid the conditional form. A sentence calling an unproven LEFT join
+  harmless to the row count now passes when it states its condition (「X 成立时 / 满足时 /
+  唯一时 / 不重复时」) and says the rows multiply when the condition fails (same sentence or
+  the next one, opening 「不成立时 / 不满足时 / 不唯一时 / 重复时」). The check only warns
+  less: nothing that passed fails, no `packet_digest` changes, no stage moves; 0.8.0 still
+  warns on the same sentence. What to do: validate `@10` documents with 0.9.0 (not 0.8.0);
+  re-run `semantic validate` on kept documents and expect fewer warnings; keep naming the
+  failing case as a fan-out, since copying the MERGE writer's 「多行匹配，结果取决于引擎」
+  still warns.
+- **Breaking — `packet.md` 4.1 has two new wordings.** Affected: readers and scripts that
+  parse the 4.1 table of `packet.md`. A step cell over the length limit whose steps are all
+  direct projections or merges reads 「全部 N 步都是直接投影 / 合并，没有计算步骤（来源见「来源列」；…）」
+  instead of 「末层：<last step>」; a column only a MERGE's not-matched INSERT writes carries
+  「（仅 not_matched INSERT 写入；matched UPDATE 不改，见 4.3）」 beside its task / statement.
+  Markdown only: `packet.json` and `packet_digest` are unchanged. What to do: match these
+  forms if you parse 4.1 cells; for the facts, read `packet.json` (the steps, and
+  `keys[].merge.insert_only_columns`).
+- **Breaking — a column comment's code table yields more codes.** Affected: downstream code
+  that compares `glossary.json` candidates or the `literal_outside_comment_codes` finding's
+  text, and run directories whose packets read such comments. A long upper-case constant
+  code (letters, digits, underscores, at most 32 characters) with a joiner, or glued to its
+  meaning after a pair with a joiner, is now read as a code. `glossary.json` may carry more
+  `comment_enum` candidates (a value once only a `comment_mention` can become a
+  `comment_enum`), the finding's listed codes may grow, and the packets of tables whose
+  comments hold such a code get a new `packet_digest`, so their documents read `drafted
+  packet_stale`. What to do: rebuild glossary and packets with 0.9.0, expect these
+  additions in comparisons, and rewrite the stale documents whole (README "Migrating to
+  0.9.0").
+- **Breaking — the MERGE validity-window reason text changes.** Affected: downstream code
+  that matches `fan_out_risks[]` reasons of `R-VALIDITY-WINDOW` joins, and run directories
+  whose packets carry them. The `unknown` reason for a point-in-time JOIN onto a
+  MERGE-written validity window now ends 「不成立时（(分区, 开始) 重复）右侧同一 分区 可能多行有效、
+  会放大（写入方 MERGE 此时多行匹配，结果取决于引擎）」 instead of on what the MERGE does. The
+  verdict, rule and claim are unchanged; packets carrying the reason get a new
+  `packet_digest`. What to do: match on the status and rule, not the reason text; rewrite
+  the stale documents whole.
 - **Breaking — the table-semantics prompts are `table-semantics-prompt@10`,
   `table-semantics-review@10` and `table-semantics-fix@7`, and they need the 0.9.0
   validator.** Affected: orchestrators and private prompts that pin the prompt versions or
@@ -19,59 +79,40 @@
   finding per line, number first, because that reply becomes the fix log. What to do: run
   these prompts with 0.9.0 (or a 0.9.0 candidate, `references/runbook.md` S0); generators
   read `table-semantics-prompt@10`.
-
-### Runbook and skill
-- **A rewrite keeps what the last fix corrected.** `skills/scope-lineage/scripts/make_corrections.py`
-  (standard library only) reads the old review, the first review behind a re-review, the fix
-  log and the rebuilt packet, and writes the corrections list template T1 now takes as
-  `{CORRECTIONS}`: fixed high and medium findings the writer must follow once they check
-  out, and the rest to check first. It drops findings judged not applicable or not holding
-  and those whose quoted packet text is gone, marks those it found nothing to check against
-  ("未核"), and prints any finding it cannot read instead of skipping it. The orchestrator
-  keeps every fix reply as `reviews/<db.table>.fixlog.txt`, one section per review opened by
-  its `reviewed_doc_digest`.
-- **Rewrite preparation names.** A rewrite renames the review, fix log and first-review
-  backup to `.prior.*` (the backup as `reviews_prev/<db.table>.prior.round1.md`, outside
-  `reviews/`, where `semantic status` would read it as a table) and moves the previous
-  rewrite's `.prior.*` files to `reviews_prev/<db.table>.prior-<time>.*`; the old
-  `reviews/<db.table>.prior.<time>.md` showed up in `semantic status` as an extra table.
-- **`fill` refuses a wrong template.** Templates can be named (`write`, `review`,
-  `rereview`, `fix`, `catalog`, `fragment`, `answer`, `grade`, or the Chinese names); each
-  template's rules sit in a `<!-- fill: … -->` line under its heading, and `fill` exits 1
-  on a parameter the template does not have, a mode it does not list, or a premise that
-  does not hold (a re-review without its backed-up first review, a rewrite without its
-  corrections list, a first review where an old review exists). T4's mode 普通 is now 首修.
-  T7 and T8 put their fallback files under `{SCRATCH}/{ROUND_NAME}/`, so two question sets
-  can run side by side.
-- **Partial rewrites and the catalog.** A sample that rewrote some tables builds pages and
-  catalog from those tables alone; when the owner asks to put them back into an existing
-  catalog, the runbook strips their old representations, lists the old entries that name
-  them, and T5's new incremental mode checks those identifiers and concepts.
-- CONTRIBUTING: the PyPI publish job waits for a maintainer's approval; an agent cannot
-  give it.
-- **A column comment's code table may now list more codes.** The shape reading behind
-  `comment_enum` glossary candidates and the `literal_outside_comment_codes` finding read a
-  code of at most 8 characters and never split a code glued to its meaning, so a table such
-  as 「角色；a1-甲,b2-乙,LONG_CODE_X外部」 lost its last item. It now also reads a long
-  code in upper-case constant style (letters, digits, underscores, at most 32 characters)
-  with a joiner, and glued to its meaning when it follows a pair with a joiner and the
-  meaning holds no ASCII letter or digit. Lower-case or short glued words (`id关联`), a
-  condition such as `flag_type=on时`, and `Y是N否` are still not read as codes. What a
-  consumer will see: `glossary.json` may carry more `comment_enum` candidates (a value the
-  SQL compares, once only a `comment_mention`, can now be a `comment_enum`), the finding's
-  listed codes may grow, and packets whose comments hold such a code get a new
-  `packet_digest` (their documents read `drafted packet_stale` until rewritten). Downstream
-  projects that compare glossary candidates or finding text should expect these additions.
-- **The validity-window reason says what happens to this table's rows.** A point-in-time
-  JOIN onto a MERGE-written validity window (`R-VALIDITY-WINDOW`, `unknown`) now reads
-  「…不放大；不成立时（(分区, 开始) 重复）右侧同一 分区 可能多行有效、会放大（写入方 MERGE
-  此时多行匹配，结果取决于引擎）」 instead of ending on what the writer's MERGE does, so a
-  document can copy the consequence as written: it names this table's fan-out, which is
-  what check 10 asks a conditional "不放大" to state. The verdict and its claim are
-  unchanged; packets carrying this reason get a new `packet_digest`, and a downstream
-  project matching the reason text should update.
+- **Breaking — the runbook's rewrite and fix flow writes new files and expects them.**
+  Affected: agents and orchestrators that drive a table-semantics run by the runbook, or
+  ship their own copy of its steps, and run directories made before it. A rewrite now
+  builds a corrections list with `skills/scope-lineage/scripts/make_corrections.py` (old
+  review, first review, fix log, rebuilt packet) and passes it to T1 as `CORRECTIONS`;
+  every fix reply is appended to `reviews/<db.table>.fixlog.txt`, one section per review
+  opened by its `reviewed_doc_digest`; rewrite preparation renames the review, fix log and
+  first-review backup to `.prior.*` (the backup as
+  `reviews_prev/<db.table>.prior.round1.md`, outside `reviews/`) and moves an earlier
+  rewrite's `.prior.*` files to `reviews_prev/<db.table>.prior-<time>.*` (the old
+  `reviews/<db.table>.prior.<time>.md` showed up in `semantic status` as an extra table).
+  What to do: follow the runbook's S4 and S7 as written; move any
+  `reviews/<db.table>.prior.<time>.md` left by an older run to `reviews_prev/`; for tables
+  fixed before 0.9.0 there is no fix log, so the corrections list puts those findings in
+  its check-first part (it warns and carries on).
+- **Breaking — the runbook's `fill` checks its arguments.** Affected: scripts and agents
+  that call the runbook's `fill` function. `fill` exits 1 on a parameter the template does
+  not have, a `MODE` the template does not list, or a missing premise (a re-review without
+  its backed-up first review, a rewrite without its corrections list, a first review where
+  an old review exists). T1 takes `CORRECTIONS` (`无` on a first write, `@<file>` on a
+  rewrite), T5 takes `MODE` (新建 / 增量) and `TOUCHED`, T4's mode 普通 is now 首修, and T7 and
+  T8 keep their fallback files under `{SCRATCH}/{ROUND_NAME}/` with prompts archived per
+  question set. What to do: copy the new `fill` from the runbook and write each call as the
+  runbook's command for that step; templates may be named (`write`, `review`, `rereview`,
+  `fix`, `catalog`, `fragment`, `answer`, `grade`, or the Chinese names).
+- **Breaking — publishing to PyPI waits for a maintainer.** Affected: maintainers and agents
+  that run the `Publish to PyPI` workflow. Its publish job runs in the protected `pypi`
+  environment and waits for a maintainer's approval; an agent cannot give it. What to do:
+  ask a maintainer to approve the waiting run, follow it to the end, and confirm the release
+  is no longer a draft (CONTRIBUTING, "Merge and release").
 
 ### Changed
+
+#### Table semantics (`table-semantics-validation/1`, `table-semantics-packet/1`, `semantic-json/1`, formats unchanged)
 - **Check 10 (`fan_out`) reads "X 成立时 … ；不成立时 …" as a conditional no-effect
   claim.** A sentence calling an unproven LEFT join harmless to the row count passes when it
   is made under a condition and says the rows multiply when the condition fails. The
@@ -92,6 +133,61 @@
   UPDATE leaves alone (`keys[].merge.insert_only_columns`) notes 「（仅 not_matched INSERT
   写入；matched UPDATE 不改，见 4.3）」 beside its task / statement, as the branch-folded rows
   note their branches. Markdown only, from a fact the packet already carries.
+- **The validity-window reason says what happens to this table's rows.** A point-in-time
+  JOIN onto a MERGE-written validity window (`R-VALIDITY-WINDOW`, `unknown`) now reads
+  「…不放大；不成立时（(分区, 开始) 重复）右侧同一 分区 可能多行有效、会放大（写入方 MERGE
+  此时多行匹配，结果取决于引擎）」 instead of ending on what the writer's MERGE does, so a
+  document can copy the consequence as written: it names this table's fan-out, which is
+  what check 10 asks a conditional "不放大" to state. The verdict and its claim are
+  unchanged; packets carrying this reason get a new `packet_digest`, and a downstream
+  project matching the reason text should update.
+
+#### Runbook and skill
+- **Rewrite preparation names.** A rewrite renames the review, fix log and first-review
+  backup to `.prior.*` (the backup as `reviews_prev/<db.table>.prior.round1.md`, outside
+  `reviews/`, where `semantic status` would read it as a table) and moves the previous
+  rewrite's `.prior.*` files to `reviews_prev/<db.table>.prior-<time>.*`; the old
+  `reviews/<db.table>.prior.<time>.md` showed up in `semantic status` as an extra table.
+- **`fill` refuses a wrong template.** Templates can be named (`write`, `review`,
+  `rereview`, `fix`, `catalog`, `fragment`, `answer`, `grade`, or the Chinese names); each
+  template's rules sit in a `<!-- fill: … -->` line under its heading, and `fill` exits 1
+  on a parameter the template does not have, a mode it does not list, or a premise that
+  does not hold (a re-review without its backed-up first review, a rewrite without its
+  corrections list, a first review where an old review exists). T4's mode 普通 is now 首修.
+  T7 and T8 put their fallback files under `{SCRATCH}/{ROUND_NAME}/`, so two question sets
+  can run side by side.
+- CONTRIBUTING: the PyPI publish job waits for a maintainer's approval; an agent cannot
+  give it.
+
+### Added
+- **A rewrite keeps what the last fix corrected.** `skills/scope-lineage/scripts/make_corrections.py`
+  (standard library only) reads the old review, the first review behind a re-review, the fix
+  log and the rebuilt packet, and writes the corrections list template T1 now takes as
+  `{CORRECTIONS}`: fixed high and medium findings the writer must follow once they check
+  out, and the rest to check first. It drops findings judged not applicable or not holding
+  and those whose quoted packet text is gone, marks those it found nothing to check against
+  ("未核"), and prints any finding it cannot read instead of skipping it. The orchestrator
+  keeps every fix reply as `reviews/<db.table>.fixlog.txt`, one section per review opened by
+  its `reviewed_doc_digest`.
+- **Partial rewrites and the catalog.** A sample that rewrote some tables builds pages and
+  catalog from those tables alone; when the owner asks to put them back into an existing
+  catalog, the runbook strips their old representations, lists the old entries that name
+  them, and T5's new incremental mode checks those identifiers and concepts.
+
+### Fixed
+- **A column comment's code table may now list more codes.** The shape reading behind
+  `comment_enum` glossary candidates and the `literal_outside_comment_codes` finding read a
+  code of at most 8 characters and never split a code glued to its meaning, so a table such
+  as 「角色；a1-甲,b2-乙,LONG_CODE_X外部」 lost its last item. It now also reads a long
+  code in upper-case constant style (letters, digits, underscores, at most 32 characters)
+  with a joiner, and glued to its meaning when it follows a pair with a joiner and the
+  meaning holds no ASCII letter or digit. Lower-case or short glued words (`id关联`), a
+  condition such as `flag_type=on时`, and `Y是N否` are still not read as codes. What a
+  consumer will see: `glossary.json` may carry more `comment_enum` candidates (a value the
+  SQL compares, once only a `comment_mention`, can now be a `comment_enum`), the finding's
+  listed codes may grow, and packets whose comments hold such a code get a new
+  `packet_digest` (their documents read `drafted packet_stale` until rewritten). Downstream
+  projects that compare glossary candidates or finding text should expect these additions.
 
 ## 0.8.0
 - **Table semantics judged per UNION branch and per validity window, MERGE lines per

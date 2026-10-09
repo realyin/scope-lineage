@@ -312,6 +312,62 @@ transformation-step analysis read the per-statement documents embedded in
 `statement_lineage`; audits, incident forensics, and final table state read the
 task-level facts.
 
+### Migrating to 0.9.0
+
+No format version moves and no key is added or removed; what changes is wording that the
+validator, the prompts and downstream readers rely on, and the runbook's files and commands.
+Full list: the **Breaking** entries under 0.9.0 in [CHANGELOG.md](CHANGELOG.md). The
+step-by-step procedure is
+[`skills/scope-lineage/references/runbook.md`](skills/scope-lineage/references/runbook.md).
+
+**A table-semantics run directory written with 0.8.0** (`packets/`, `docs/`, `reviews/`):
+
+1. Rebuild the packets with 0.9.0 (`semantic packet`, same flags as before). Two kinds of
+   table get a new `packet_digest` and read `drafted packet_stale` in `semantic status
+   <run>`: tables whose column comments list a long upper-case constant code (now read as a
+   code), and tables with a point-in-time JOIN onto a MERGE-written validity window (its
+   reason text changed). Other packets keep their digest; `packet.md` 4.1 may read
+   differently without any digest change.
+2. Before rewriting a stale table, archive what the last round left as the runbook's S4
+   "rewrite preparation" does: the review becomes `reviews/<db.table>.prior.md`, the fix log
+   `reviews/<db.table>.prior.fixlog.txt`, the first-review backup
+   `reviews_prev/<db.table>.prior.round1.md`, and an earlier rewrite's `.prior.*` files move
+   to `reviews_prev/<db.table>.prior-<time>.*`. Move any `reviews/<db.table>.prior.<time>.md`
+   left by an older run to `reviews_prev/` -- `semantic status` reads it as an extra table.
+3. Build the table's corrections list with
+   `skills/scope-lineage/scripts/make_corrections.py` (runbook S4) and pass it to the writer
+   as `fill write … CORRECTIONS=@<list file>` (a first write passes `CORRECTIONS=无`).
+   Tables fixed before 0.9.0 have no fix log: the script warns and puts their high and
+   medium findings in the check-first part; dispatch as usual.
+4. From now on keep every fix reply in `reviews/<db.table>.fixlog.txt` (runbook S7); the
+   next rewrite's corrections list reads it.
+5. Validate `@10` documents with 0.9.0: check 10 accepts the conditional "X 成立时不放大；
+   不成立时 … 会放大" sentence the writing prompt asks for, which 0.8.0 still warns on.
+
+**Scripts and orchestrators**:
+
+- The runbook's `fill` now exits 1 on a parameter the template does not have, a `MODE` it
+  does not list, or a missing premise. Copy the new `fill` from the runbook and write each
+  call as that step's command: T1 takes `CORRECTIONS`, T5 takes `MODE` (新建 / 增量) and
+  `TOUCHED`, T4's `MODE=普通` is now `MODE=首修`, and T7 / T8 keep fallback files under
+  `$SCRATCH/<question-set directory>/`.
+- Pin the prompts as `table-semantics-prompt@10`, `table-semantics-review@10` and
+  `table-semantics-fix@7`. A parser of review replies reads the fixed `#### H1.` headings
+  and section titles; a parser of fix replies reads one finding per line, number first.
+- Publishing to PyPI waits for a maintainer's approval of the workflow's `pypi` job.
+
+**Downstream code**:
+
+- `glossary.json`: a column comment's code table may yield more codes, so expect more
+  `comment_enum` candidates (some former `comment_mention` values among them) and longer
+  code lists in the `literal_outside_comment_codes` finding.
+- `fan_out_risks[]` (semantic profiles and packets): the `R-VALIDITY-WINDOW` reason for a
+  MERGE writer now ends on this table's fan-out; match on status and rule, not on the
+  reason text.
+- `packet.md` 4.1: an all-pass-through chain reads 「全部 N 步都是直接投影 / 合并，没有计算步骤…」
+  and a not-matched-INSERT-only column carries 「（仅 not_matched INSERT 写入；…）」; read the
+  facts from `packet.json`.
+
 ### Migrating to 0.8.0
 
 No format version moves; what changes is what some fields say and how some commands exit

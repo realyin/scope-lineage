@@ -133,7 +133,7 @@ rather than parsing bare (a bare parse degrades silently — see
 
 The minimum version depends on the workflow: parsing, derivation chains, impact analysis and mapping
 documents need ≥ 0.2.0; table semantics, the ontology catalog and acceptance, run through the skill's
-runbook, need ≥ 0.8.0 (the per-workflow table is in `SKILL.md`, "Setup check"). The skill's self-check uses `scope-lineage --version` (available
+runbook, need ≥ 0.9.0 (the per-workflow table is in `SKILL.md`, "Setup check"). The skill's self-check uses `scope-lineage --version` (available
 from 0.2.1; on 0.2.0 it falls back to
 `python3 -c "import importlib.metadata as m; print(m.version('scope-lineage'))"`). Older versions
 silently produce the removed per-statement format — `query.py` says so explicitly when it meets such
