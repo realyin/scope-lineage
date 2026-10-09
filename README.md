@@ -331,7 +331,7 @@ The step-by-step procedure for a table-semantics run, rewrites included, is
    `reviews/<db.table>.prior.json`. Work in batches as the runbook describes (S3, S4):
    `semantic status <run> --next draft --only <db.table> ... --out <run>/next.json`, with the
    same `--only` on every later step, using the packaged prompts
-   (`table-semantics-prompt@9`, `table-semantics-review@9`, `table-semantics-fix@6`).
+   (`table-semantics-prompt@10`, `table-semantics-review@10`, `table-semantics-fix@7`).
 3. Until every table is rewritten, do not build a catalog (`catalog digest`) or pages
    (`semantic render`) from the whole `docs` directory. Both commands now name the
    `packet_stale`, `invalid` and packet-less tables on stderr (`warning:` lines, packets read

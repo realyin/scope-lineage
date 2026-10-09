@@ -41,27 +41,81 @@ load_tables() {   # 把 tables.txt 读进数组 TABLES；读到 0 张表就报�
 note() {         # 账本流水：每一步做完的最后一条命令，例：note "S4 派 T1 demo_dwd.x 第1轮"
   printf -- '- %s %s\n' "$(date '+%F %T')" "$*" >> "$RUN/ledger.md"
 }
-fill() {         # 填模板：fill T1 <输出文件> TABLE=库.表 MODE=新写 FACTS=无 …；值写 @文件 表示取文件内容
+fill() {         # 填模板：fill <模板> <输出文件> KEY=值 …；<模板> 写编号或名字（T4 / 修订 / fix），值写 @文件 表示取文件内容
   python3 - "$@" <<'PY'
 import os, re, sys
-tid, out, pairs = sys.argv[1], sys.argv[2], sys.argv[3:]
+if len(sys.argv) < 3:
+    sys.exit("用法：fill <模板编号或名字> <输出文件> KEY=值 …")
+name, out, pairs = sys.argv[1], sys.argv[2], sys.argv[3:]
 src = open(os.path.join(os.environ["TOOL"], "skills/scope-lineage/references/runbook-templates.md"), encoding="utf-8").read()
-m = re.search(r"^## " + re.escape(tid) + r" .*?^----8<----\n(.*?)^----8<----$", src, re.S | re.M)
-if not m:
-    sys.exit("没有模板 " + tid)
-text = m.group(1)
+meta = {}   # 模板编号 -> {"names": [...], "MODE": [...], "rules": [(规则, 只在哪个 MODE 生效, 值)]}
+for m in re.finditer(r"^<!-- fill: (.*?) -->$", src, re.M):
+    entry = {"rules": []}
+    for part in m.group(1).split(";"):
+        rule = re.fullmatch(r"\s*([A-Za-z]+)(?:\[MODE=([^\]]+)\])?=(.*?)\s*", part)
+        if not rule:
+            sys.exit("runbook-templates.md 的 fill 注释写坏了：" + part.strip() + "。交 owner，不要自己改")
+        if rule.group(1) in ("names", "MODE"):
+            entry[rule.group(1)] = [x.strip() for x in rule.group(3).split(",") if x.strip()]
+        else:
+            entry["rules"].append((rule.group(1), rule.group(2), rule.group(3)))
+    if not entry.get("names"):
+        sys.exit("runbook-templates.md 有一行 fill 注释没写 names=。交 owner，不要自己改")
+    meta[entry["names"][0]] = entry
+tid = next((t for t, e in meta.items() if name.lower() in [n.lower() for n in e["names"]]), None)
+if tid is None:
+    sys.exit("没有模板 " + name + "；可用：" + "；".join(" / ".join(e["names"]) for e in meta.values()))
+m = re.search(r"^## " + re.escape(tid) + r" (.*?)$.*?^----8<----\n(.*?)^----8<----$", src, re.S | re.M)
+title, text = m.group(1), m.group(2)
+label = tid + "（" + title + "）"
+wanted = set(re.findall(r"\{([A-Z_]+)\}", text))
+AUTO = {"RUN", "TOOL", "SCRATCH", "TASKS", "PAGES", "SEMPAGES", "ENV", "ROUND_NAME"}
 vals = {k: os.environ.get(k, "") for k in ("RUN", "TOOL", "SCRATCH", "TASKS", "PAGES", "SEMPAGES")}
 vals["ENV"] = os.path.join(os.environ["RUN"], "env.sh")
+raw = {}
 for pair in pairs:
-    key, _, value = pair.partition("=")
+    key, eq, value = pair.partition("=")
+    if not eq or not re.fullmatch(r"[A-Z_]+", key):
+        sys.exit("参数要写成 KEY=值：" + pair)
+    if key not in wanted:
+        sys.exit(label + "没有占位 {" + key + "}：模板选错了，或这个参数不属于它。它要的是：" + " ".join(sorted(wanted - AUTO)))
+    if value.startswith("@") and not os.path.isfile(value[1:]):
+        sys.exit(key + " 的取值文件不存在：" + value[1:])
+    raw[key] = value
     vals[key] = open(value[1:], encoding="utf-8").read().strip() if value.startswith("@") else value
+modes = meta[tid].get("MODE", [])
+if "MODE" in wanted and vals.get("MODE") not in modes:
+    sys.exit(tid + " 的 MODE 只能是：" + " / ".join(modes) + "（收到：" + vals.get("MODE", "") + "）")
+if vals.get("ROUND"):
+    vals["ROUND_NAME"] = os.path.basename(vals["ROUND"].rstrip("/"))
+def expand(path):
+    for key, value in vals.items():
+        path = path.replace("{" + key + "}", value)
+    left = sorted(set(re.findall(r"\{([A-Z_]+)\}", path)))
+    if left:
+        sys.exit(label + "缺参数：" + " ".join(k + "=…" for k in left) + "。先补上再填")
+    return path
+for rule, mode, value in meta[tid]["rules"]:
+    if mode is not None and vals.get("MODE") != mode:
+        continue
+    when = "（MODE=" + mode + "）" if mode else ""
+    if rule == "NEEDS" and not os.path.exists(expand(value)):
+        sys.exit(label + when + "的前提文件不存在：" + expand(value) + "。模板或模式选错了，或前一步还没做完")
+    if rule == "ABSENT" and os.path.exists(expand(value)):
+        sys.exit(label + when + "要求这个文件不存在，它却存在：" + expand(value) + "。模板或模式选错了")
+    if rule == "ATFILE":
+        key, _, path = value.partition(":")
+        if os.path.exists(expand(path)) and not raw.get(key, "").startswith("@"):
+            sys.exit(label + when + "：" + expand(path) + " 存在，" + key + " 要写成 @文件")
+        if not os.path.exists(expand(path)) and raw.get(key) != "无":
+            sys.exit(label + when + "：" + expand(path) + " 不存在，" + key + " 要写「无」")
 for key, value in vals.items():
     if value:
         text = text.replace("{" + key + "}", value)
 os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
 open(out, "w", encoding="utf-8").write(text)
 left = sorted(set(re.findall(r"\{[A-Z_]+\}", text)))
-print(out)
+print(tid + " " + title + " -> " + out)
 if left:
     sys.exit("未填的占位：" + " ".join(left))
 PY
@@ -101,6 +155,9 @@ set -o pipefail
 - 第一次跑（或换了工具版本、换了提示词）先跑**小样**：≤5 张表、目录只分 1 组、回归只用约 15 道题。
 - 小样从 S0 走到 S11 全部达标后，才按 owner 的指示扩到更多表；扩表时从 S3 开始，同一个运行目录继续。
 - 全量由 owner 指定的人或 agent 跑。没有 owner 明说「跑全量」，就只跑小样。
+- 只重写了一部分表（例如材料包重建后重写了 5 张）时：`docs/` 里只放这几张表的文档，页面和目录也只从它们来
+  （S10a 走 B）。不要把上一个运行目录的文档、`merged/` 或 `site/` 拿来一起渲染：旧目录里关于这几张表的说法
+  （标识符范围、概念定义）不会跟着新文档变，页面会自相矛盾。owner 指定要把它们接回已有的完整目录时，S10a 走 C。
 
 ### 0.4 账本与恢复
 
@@ -187,10 +244,10 @@ git -C "$TOOL" log -1 --format='commit %h %cd' >> "$RUN/TOOL_VERSION"
 **产出与自检**
 
 - `sl --version` 打印 `scope-lineage X.Y.Z (sqlglot …, source …)`。版本判断：
-  - `X.Y.Z` ≥ `0.8.0`：通过。
-  - `X.Y.Z` 是 `0.7.x`，同时 `CHANGELOG.md` 第 3 行是 `## Unreleased`、提示词第 1 行含 `table-semantics-prompt@9`：
-    这是仓库里的 0.8.0 候选，通过；在 `TOOL_VERSION` 末尾加一行 `candidate 0.8.0`。
-  - 其他：不通过。
+  - `X.Y.Z` ≥ `0.9.0`：通过。
+  - `X.Y.Z` 是 `0.8.x`，同时 `CHANGELOG.md` 第 3 行是 `## Unreleased`、提示词第 1 行含 `table-semantics-prompt@10`：
+    这是仓库里的 0.9.0 候选，通过；在 `TOOL_VERSION` 末尾加一行 `candidate 0.9.0`。
+  - 其他：不通过（提示词 `@10` 的句式要 0.9.0 的校验器才认）。
 - 写入检查和 PyYAML 检查两个 `exit=0`。
 - `$RUN/TOOL_VERSION`、`$RUN/ledger.md` 存在。
 
@@ -200,7 +257,7 @@ git -C "$TOOL" log -1 --format='commit %h %cd' >> "$RUN/TOOL_VERSION"
 | --- | --- | --- |
 | `no such file or directory: uv run …` | 127 | 用了字符串变量调用。改用 0.1 的函数 `sl` |
 | `command not found: uv` | 127 | 装 uv，或 `pipx install 'scope-lineage[catalog]'` 后把 `sl` 换成 0.1 注释里的写法 |
-| 版本低于 0.8.0 且不是候选 | — | 停下告诉 owner。不要自己 `pipx install` 覆盖，候选会被换掉 |
+| 版本低于 0.9.0 且不是候选 | — | 停下告诉 owner。不要自己 `pipx install` 覆盖，候选会被换掉 |
 | PyYAML 检查报 `PyYAML` / `pip install 'scope-lineage[catalog]'` | 2 | `sl` 少了 `--extra catalog`，或安装时没带 `[catalog]` |
 | `touch` 失败，或 Write 工具写 `$RUN` 被钩子拦截 | 非 0 | 先写 `$SCRATCH` 下同名文件，再用 `cp` 拷进 `$RUN`。这一条要写进每个子代理的说明（模板里已有） |
 | 钩子提示「改用另一个路径」（例如 worktree 里的路径） | — | 运行目录的位置由 owner 指定。按上一行的 SCRATCH + `cp` 做；钩子连 `cp` 也拦、坚持要换路径时，停下问 owner，不要擅自把 `$RUN` 换到别处 |
@@ -370,30 +427,67 @@ cat "$RUN/next.json"
 | `status` 显示 | 类别 | 派发前要做 | 模板 |
 | --- | --- | --- | --- |
 | `packet` | 新写 | 无 | T1（新写） |
-| `drafted packet_stale` | 重写 | 下面的「重写准备」三步 | T1（新写） |
+| `drafted packet_stale` | 重写 | 下面的「重写准备」和「修正点清单」 | T1（新写，带修正点清单） |
 | `drafted invalid` | 补失败 | 见 S5 | T1（补失败） |
 
-**重写准备**（只对 `drafted packet_stale` 的表，每张表做一遍）：
+**重写准备**（只对 `drafted packet_stale` 的表，每张表做一遍）：上一次重写留下的旧文件先移到 `reviews_prev/`，
+再把当前的审读、修订记录、首审备份改名为 `.prior.*`，旧文档复制成 `.prior.json`。
 
 ```bash
+# 重写准备
 T=demo_dwd.dwd_party_customer_info_df   # 换成这张表
-[ -f "$RUN/reviews/$T.prior.md" ] && mv "$RUN/reviews/$T.prior.md" "$RUN/reviews/$T.prior.$(date +%Y%m%d%H%M).md"
-[ -f "$RUN/reviews/$T.md" ] && mv "$RUN/reviews/$T.md" "$RUN/reviews/$T.prior.md"
+TS=$(date +%Y%m%dT%H%M%S)
+mkdir -p "$RUN/reviews_prev" "$RUN/prev/docs"
+# 1. 上一次重写留下的 .prior.* 全部移到 reviews_prev/，同一个时间
+for x in md json fixlog.txt; do
+  if [ -f "$RUN/reviews/$T.prior.$x" ]; then mv "$RUN/reviews/$T.prior.$x" "$RUN/reviews_prev/$T.prior-$TS.$x"; fi
+done
+if [ -f "$RUN/reviews_prev/$T.prior.round1.md" ]; then mv "$RUN/reviews_prev/$T.prior.round1.md" "$RUN/reviews_prev/$T.prior-$TS.round1.md"; fi
+# 2. 当前的审读、修订记录、首审备份改名为 .prior.*；旧文档复制成 .prior.json，再移出 docs/
+if [ -f "$RUN/reviews/$T.md" ]; then mv "$RUN/reviews/$T.md" "$RUN/reviews/$T.prior.md"; fi
+if [ -f "$RUN/reviews/$T.fixlog.txt" ]; then mv "$RUN/reviews/$T.fixlog.txt" "$RUN/reviews/$T.prior.fixlog.txt"; fi
+if [ -f "$RUN/reviews_prev/$T.round1.md" ]; then mv "$RUN/reviews_prev/$T.round1.md" "$RUN/reviews_prev/$T.prior.round1.md"; fi
 cp "$RUN/docs/$T.json" "$RUN/reviews/$T.prior.json"
 mv "$RUN/docs/$T.json" "$RUN/prev/docs/$T.json"
 sl semantic status "$RUN" --pages "$SEMPAGES" --only "$T"
 ```
 
-做完这张表显示 `packet`。旧审读（`.prior.md`）和旧文档（`.prior.json`）只在 S6 交给审读员，**不交给写作者**。
+做完这张表显示 `packet`。首审备份 `.prior.round1.md` 留在 `reviews_prev/`：`status` 把 `reviews/` 下不以 `.prior.md`
+结尾的 `.md` 都当成一张表的审读，放进 `reviews/` 会多出一张假表。
 
-**命令**：每批同时派的子代理不超过 5 个。每张表用 T1 填空后派一个子代理，模型用次一档强模型（附录 D）：
+**修正点清单**（只对做了重写准备、`reviews/$T.prior.md` 存在的表）：写作者不读旧审读和旧文档，只拿到脚本从旧审读和
+修订记录里抽出的修正点，写进 T1 的 `CORRECTIONS`。
 
 ```bash
 T=demo_dwd.dwd_party_customer_info_df   # 换成这张表
-fill T1 "$SCRATCH/prompts/T1-$T-r1.md" TABLE="$T" MODE=新写 FACTS=无 CONCEPT="不写 concept" FAILURES=无; echo "exit=$?"
+set -- "$RUN/reviews/$T.prior.md" "$RUN/packets/$T"
+if [ -f "$RUN/reviews/$T.prior.fixlog.txt" ]; then set -- "$@" --fixlog "$RUN/reviews/$T.prior.fixlog.txt"; fi
+if [ -f "$RUN/reviews_prev/$T.prior.round1.md" ]; then set -- "$@" --round1 "$RUN/reviews_prev/$T.prior.round1.md"; fi
+python3 "$TOOL/skills/scope-lineage/scripts/make_corrections.py" "$@" \
+  --writer-prompt "$TOOL/skills/scope-lineage/references/table-semantics-prompt.md" \
+  --out "$SCRATCH/prompts/$T.corrections.txt" --report "$SCRATCH/prompts/$T.corrections.json" 2> "$SCRATCH/$T.corrections.stderr"; echo "exit=$?"
+cat "$SCRATCH/$T.corrections.stderr"
 ```
 
-`exit=0` 才能发（非 0 时它会列出没填的占位）。派发时两种做法等价，任选一种：把这个文件的内容原样粘贴作为子代理的任务；
+- 最后一行是计数：`A n、B n（未核 n）、丢弃 n、跳过 n、未解析 n`，抄进账本。
+- `未解析：<编号>`：脚本读不出这一条（缺「材料包事实」或「应改成」，或表格不在固定的小节标题下）。打开 `.prior.md`
+  的那一节，把原文复制进清单文件的「B 段」末尾（只复制，不改写），在账本记一笔。
+- `警告：fixlog 里没有 …`：没有修订记录（没派过修订，或 S12 确认回写后直接 `semantic fixed`），这份审读的高、中级都进了
+  B 段。照常派发，在账本记一笔。
+- 「未核」的条目脚本在材料包里找不到可核对的原文，由写作者自己找依据（T1 里已写明）。
+
+**命令**：每批同时派的子代理不超过 5 个。每张表用 T1 填空后派一个子代理，模型用次一档强模型（附录 D）。
+第一次写和重写的命令只差 `CORRECTIONS`：
+
+```bash
+T=demo_dwd.dwd_party_customer_info_df   # 换成这张表
+# 第一次写（没有 reviews/$T.prior.md）
+fill write "$SCRATCH/prompts/T1-write-$T-r1.md" TABLE="$T" MODE=新写 FACTS=无 CORRECTIONS=无 CONCEPT="不写 concept" FAILURES=无; echo "exit=$?"
+# 重写（做过重写准备，reviews/$T.prior.md 存在）
+fill write "$SCRATCH/prompts/T1-write-$T-r1.md" TABLE="$T" MODE=新写 FACTS=无 CORRECTIONS=@"$SCRATCH/prompts/$T.corrections.txt" CONCEPT="不写 concept" FAILURES=无; echo "exit=$?"
+```
+
+`exit=0` 才能发（非 0 时它会说哪里不对：没填的占位、模式不对，或该带修正点清单却写了「无」、反过来也一样）。派发时两种做法等价，任选一种：把这个文件的内容原样粘贴作为子代理的任务；
 或者任务只写一句「用 Read 工具完整读 `<这个文件的绝对路径>`，照里面的要求做，读不完就分段读」。不要改写、删减文件内容。在账本里给这张表记一行：
 步骤「写作」、轮次、派发时间，然后 `note "S4 派 T1 $T 第1轮"`。
 
@@ -458,10 +552,16 @@ python3 -c 'import json,sys; t=json.load(open(sys.argv[1]))["tables"][0]; [print
 
 | 情况 | 处理 |
 | --- | --- |
-| 写作第 1 轮后有 FAIL | 用 T1（补失败模式）重派，把上面 python 打印的 FAIL 行原样贴进模板 |
+| 写作第 1 轮后有 FAIL | 用 T1（补失败模式）重派：把上面 python 打印的 FAIL 行原样存成 `$SCRATCH/$T.failures.txt`，再填下面的补失败命令 |
 | 写作第 2 轮后仍有 FAIL | 标 blocked（下面的命令） |
 | 修订者回报「两轮后仍有 FAIL」，或 `semantic fixed` 报 `the document is invalid` | 标 blocked |
 | 只有 WARN | 看 WARN 白名单。白名单里的可保留，记进账本；其余用 T1（补失败模式）交回，**WARN 不计轮次、不触发 blocked** |
+
+补失败命令（补失败只改失败的条目，不带修正点清单，`CORRECTIONS` 一律写「无」）：
+
+```bash
+fill write "$SCRATCH/prompts/T1-write-$T-r2.md" TABLE="$T" MODE=补失败 FACTS=无 CORRECTIONS=无 CONCEPT="不写 concept" FAILURES=@"$SCRATCH/$T.failures.txt"; echo "exit=$?"
+```
 
 第 8 项 `[8 digest]` 的 FAIL 表示材料包变了：不走补失败，回 S4 做「重写准备」后整份重写。
 
@@ -530,7 +630,7 @@ mv "$RUN/reviews/$T.md" "$RUN/reviews_prev/$T.$(date +%Y%m%d%H%M).md"
 **命令**：每张表用 T2 填空派一个子代理，**最强模型**，不能和写作是同一个子代理。每批不超过 5 个。账本记一行「审读」。
 
 ```bash
-fill T2 "$SCRATCH/prompts/T2-$T.md" TABLE="$T" MODE=首审 FACTS=无; echo "exit=$?"     # 重写后首审写 MODE=重写后首审
+fill review "$SCRATCH/prompts/T2-review-$T.md" TABLE="$T" MODE=首审 FACTS=无; echo "exit=$?"     # 重写后首审写 MODE=重写后首审
 ```
 
 **产出与自检**（子代理回报后）
@@ -580,14 +680,34 @@ cat "$RUN/next.json"
 
 | 情况 | 模板 |
 | --- | --- |
-| `reviewed`（审读有高 / 中，文档还没改） | T4（普通） |
+| `reviewed`（审读有高 / 中，文档还没改） | T4（首修） |
 | `reviewed fix_unconfirmed`，账本里这张表有一次被中断的修订 | T4（核对模式） |
 | `reviewed fix_unconfirmed`，账本里这张表刚做过确认回写（S12） | 不派修订：`sl semantic fixed "$RUN" --only "$T"` |
 | `reviewed fix_unconfirmed`，其他原因 | T4（核对模式），记进问题清单 |
 
-**命令**：每张表用 T4 填空（`fill T4 "$SCRATCH/prompts/T4-$T-1.md" TABLE="$T" MODE=普通 FACTS=无`）派一个子代理，次一档强模型。
+**命令**：每张表用 T4 填空派一个子代理，次一档强模型（核对模式写 `MODE=核对`，第二次修订把存档名的 `-1` 换成 `-2`）：
+
+```bash
+T=demo_dwd.dwd_party_customer_info_df   # 换成这张表
+fill fix "$SCRATCH/prompts/T4-fix-$T-1.md" TABLE="$T" MODE=首修 FACTS=无; echo "exit=$?"
+```
+
 只修高、中级发现，低级的不改（模板里已写明）。修订者自己会在最后一步跑
 `sl semantic fixed "$RUN" --only <表>`。账本记一行「修订」。
+
+**存修订记录**（每次 T4 回报后都做，不论 `semantic fixed` 成没成功）：下次材料包变了要重写时，修正点清单靠它知道哪些发现改过。
+先用 Write 工具把回复里「逐条处理」「未改的低级发现」两段**原样**存成 `$SCRATCH/$T/fix-reply.txt`（不改写、不删行），再追加：
+
+```bash
+T=demo_dwd.dwd_party_customer_info_df   # 换成这张表
+D=$(sed -n 's/^reviewed_doc_digest: *//p' "$RUN/reviews/$T.md" | head -1); echo "digest=$D"
+{ printf '来源：reviews/%s.md reviewed_doc_digest=%s\n' "$T" "$D"; cat "$SCRATCH/$T/fix-reply.txt"; } >> "$RUN/reviews/$T.fixlog.txt"; echo "exit=$?"
+grep -c -E '^[HM][0-9]+ (已改|不成立)' "$SCRATCH/$T/fix-reply.txt"
+```
+
+`digest=` 后面是 16 位十六进制；`grep -c` 的数等于审读 front matter 的 `high + medium`。少了的，多半是修订者把几条写在了
+同一行或没以编号开头：照回复原意每条拆成一行（以编号开头，例如 `M1 已改：…`），只改换行、不改内容，再追加。
+`fixlog.txt` 只追加不覆盖：S8 复审后再修订时追加新的一段，来源行的摘要不同，脚本按摘要分段读。
 
 **产出与自检**
 
@@ -595,9 +715,10 @@ cat "$RUN/next.json"
 T=demo_dwd.dwd_party_customer_info_df   # 换成这张表
 sl semantic status "$RUN" --pages "$SEMPAGES" --only "$T"
 grep -n 'fixed_doc_digest' "$RUN/reviews/$T.md"
+tail -3 "$RUN/reviews/$T.fixlog.txt"
 ```
 
-`status` 显示 `fixed`；审读文件 front matter 里有 `fixed_doc_digest`。（S8 复审覆盖审读文件后，`fixed_doc_digest` 就没有了，
+`status` 显示 `fixed`；审读文件 front matter 里有 `fixed_doc_digest`；`fixlog.txt` 末尾是这次的回复。（S8 复审覆盖审读文件后，`fixed_doc_digest` 就没有了，
 这是正常的：复审高 + 中 = 0 时 `status` 直接是 `fixed`。）
 
 **常见失败与处理**（修订者回报的 `semantic fixed` 结果，或编排者重跑的结果；原因写在标准错误
@@ -644,7 +765,8 @@ python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["summary"][
    cp "$RUN/reviews/$T.md" "$RUN/reviews_prev/$T.round1.md"
    ```
 
-3. 用 T3 派复审（最强模型）：`fill T3 "$SCRATCH/prompts/T3-$T.md" TABLE="$T" FACTS=无`。复审员覆盖 `reviews/<表>.md`。回收检查同 S6。
+3. 用 T3 派复审（最强模型）：`fill rereview "$SCRATCH/prompts/T3-rereview-$T.md" TABLE="$T" FACTS=无`。复审员覆盖 `reviews/<表>.md`。回收检查同 S6。
+   `fill` 在 `reviews_prev/<表>.round1.md` 不存在时退出 1：先做第 2 步。
 4. 复审结果：高 + 中 = 0 → 表直接是 `fixed`，结束。高 + 中 > 0 → 表是 `reviewed` → 回 S7 用 T4 再修订一次 → `fixed` 后结束，
    **不再复审**；复审里仍成立的发现原文抄进账本「问题清单」。
 5. 一张表最多：写作 2 轮、首审 1 次、修订 2 次、复审 1 次。
@@ -722,24 +844,86 @@ sl semantic status "$RUN" --pages "$SEMPAGES" --only "${TABLES[@]}"
 
 **目的**：准备 `$RUN/catalog/`，确认它里面到底有什么。
 
-**前提检查**：S9 完成。owner 说明了起点：「从某个旧目录开始」就用 A；**没说明就用 B（空目录）**，并在账本记一笔。
+**前提检查**：S9 完成。owner 说明了起点：「从某个旧目录开始」用 A；「本轮重写的表要接回某个旧目录」用 C；
+**没说明就用 B（空目录）**，并在账本记一笔。只重写了一部分表的小样，默认也是 B（0.3）。
 
-**命令**（二选一）
+**命令**（三选一）
 
 ```bash
 # A：从旧目录开始
 cp -R /abs/path/to/old-catalog/. "$RUN/catalog/"
 # B：从空目录开始（全 JSON 目录，不需要 PyYAML）
 printf '{"doc_format": "catalog-yaml/1", "name": "run-20260101", "description": "drafted from table semantics"}\n' > "$RUN/catalog/catalog.json"
-# 两种都跑
+# A、B 做完就跑这一条；C 在下面那一段的末尾跑
+sl catalog validate "$RUN/catalog"; echo "exit=$?"
+```
+
+**C：部分重写的表接回旧目录**（只在 owner 指定时做）。`catalog merge` 只能追加：旧目录里已有本轮表的表现时，新片段合并会冲突；
+旧目录里关于这些表的标识符范围、概念定义也不会自己变。所以先去掉本轮表的旧表现，再列出旧目录里提到本轮表的条目，交给
+S10c 的 T5 增量模式核对。旧目录必须是全 JSON 的（例如上一轮的 `merged/`）：
+
+```bash
+# 接回旧目录
+cp -R /abs/path/to/old-run/merged/. "$RUN/catalog/"
+python3 - "$RUN/catalog" "$RUN/tables.txt" <<'PY'; echo "exit=$?"    # 去掉本轮表在旧目录里的表现
+import json, pathlib, sys
+cat = pathlib.Path(sys.argv[1])
+tables = {l.strip().lower() for l in open(sys.argv[2], encoding="utf-8") if l.strip()}
+if any(cat.rglob("*.yaml")) or any(cat.rglob("*.yml")):
+    sys.exit("目录里有 YAML 文件：这一步只处理全 JSON 目录，交 owner")
+found = set()
+for f in sorted((cat / "mapping").glob("*.json")):
+    d = json.loads(f.read_text(encoding="utf-8"))
+    if not isinstance(d, dict) or set(d) != {"representations"} or not isinstance(d["representations"], list):
+        sys.exit(f"{f.relative_to(cat)}：顶层应当只有一个键 representations，值是列表。先跑 sl catalog validate，0 error 再来")
+    keep = [r for r in d["representations"] if str(r.get("table")).lower() not in tables]
+    gone = [r["table"] for r in d["representations"] if r not in keep]
+    if gone:
+        d["representations"] = keep
+        f.write_text(json.dumps(d, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        found.update(t.lower() for t in gone)
+        print(f"{f.relative_to(cat)}: 去掉 {' '.join(gone)}")
+for t in sorted(tables - found):
+    print(f"{t}: 旧目录里没有它的表现（新表）")
+print(f"STRIPPED {len(found)} / {len(tables)}")
+PY
+python3 - "$RUN/catalog" "$RUN/tables.txt" > "$RUN/catalog_touched.txt" <<'PY'; echo "exit=$?"   # 列出旧目录里提到本轮表的条目
+import json, pathlib, re, sys
+cat = pathlib.Path(sys.argv[1])
+tables = [l.strip() for l in open(sys.argv[2], encoding="utf-8") if l.strip()]
+pat = re.compile("|".join(re.escape(t) for t in tables), re.I)
+def hits(obj):
+    return sorted({m.group(0) for m in pat.finditer(json.dumps(obj, ensure_ascii=False))})
+for f in sorted(cat.rglob("*.json")):
+    rel = f.relative_to(cat).as_posix()
+    if rel == "catalog.json" or rel.startswith("mapping/"):
+        continue
+    key = rel.split("/")[0] if "/" in rel else f.stem      # concepts/<域>.json 的列表键是 concepts，其余是文件名主干
+    data = json.loads(f.read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or set(data) != {key} or not isinstance(data[key], list):
+        sys.exit(f"{rel}：顶层应当只有一个键 {key}，值是列表。先跑 sl catalog validate，0 error 再来")
+    for item in data[key]:
+        if not isinstance(item, dict):
+            continue
+        own = {k: v for k, v in item.items() if k != "attributes"}
+        if hits(own):
+            print(f"{rel}\t{item.get('id') or item.get('term')}\t{' '.join(hits(own))}")
+        for attribute in item.get("attributes") or []:
+            if isinstance(attribute, dict) and hits(attribute):
+                print(f"{rel}\t{attribute.get('id')}\t{' '.join(hits(attribute))}")
+PY
+wc -l < "$RUN/catalog_touched.txt"
 sl catalog validate "$RUN/catalog"; echo "exit=$?"
 ```
 
 **产出与自检**：`Catalog <name> (catalog-yaml/1): 0 error(s), W warning(s)`；下一行的计数
 `domains=… identifiers=… code_sets=… concepts=… attributes=… relations=… … representations=… bindings=…` 原样抄进账本。
 别人说「旧目录里有绑定」而 `representations=0 bindings=0` 时，以计数为准，记进问题清单。
+走 C 时：两段 python 都 `exit=0`；`STRIPPED k / N`（k 是旧目录里本来就有表现的表数，其余的表打印「新表」）；
+`catalog validate` 计数里的 `representations=` 比旧目录少 k；`catalog_touched.txt` 的行数抄进账本。
 
 **常见失败与处理**：退出码 1（有 error）→ 旧目录本身不合格，交 owner；退出码 2 → 目录里没有 `catalog.yaml` / `catalog.json`，或是 YAML 而缺 PyYAML（见 S0）。
+走 C 时：`目录里有 YAML 文件` 退出 1 → 交 owner；`顶层应当只有一个键 …` 退出 1 → 旧目录不合格，先跑 `sl catalog validate`，有 error 就交 owner。
 
 **完成判据**：`exit=0`，`0 error(s)`。
 
@@ -765,7 +949,7 @@ cat "$SCRATCH/digest.stderr"
 
 - `Digested N table(s) (skipped=0) -> …`，`N` 等于 `tables.txt` 行数。
 - `catalog <name>: X table(s) without a representation, Y column(s) without a binding`。注意：`Y` 只数**已有表现**的表里没绑定的列，
-  没有表现的表的列不计入，所以 `Y=0` 不代表列都绑好了。
+  没有表现的表的列不计入，所以 `Y=0` 不代表列都绑好了。走 C 时，`X` 应当等于 `tables.txt` 行数。
 - `$RUN/digest/digest.md`、`digest.json`。
 
 **常见失败与处理**
@@ -787,10 +971,14 @@ cat "$SCRATCH/digest.stderr"
 
 **前提检查**：S10b 完成。
 
-**命令**：用 T5 填空派**一个**子代理（次一档强模型），只给 `digest.md`、当前目录和模板。小样时分组方案只写 1 组，组名用 `main`：
+**命令**：用 T5 填空派**一个**子代理（次一档强模型），只给 `digest.md`、当前目录和模板。小样时分组方案只写 1 组，组名用 `main`。
+S10a 走 A 或 B 用新建模式；走 C 用增量模式，把 `catalog_touched.txt` 交给它：
 
 ```bash
-fill T5 "$SCRATCH/prompts/T5.md" SIZE="小样：只分 1 组，组名 main" REWORK=无; echo "exit=$?"
+# 新建（S10a 走 A 或 B）
+fill catalog "$SCRATCH/prompts/T5-catalog.md" MODE=新建 SIZE="小样：只分 1 组，组名 main" TOUCHED=无 REWORK=无; echo "exit=$?"
+# 增量（S10a 走 C）
+fill catalog "$SCRATCH/prompts/T5-catalog.md" MODE=增量 SIZE="小样：只分 1 组，组名 main" TOUCHED=@"$RUN/catalog_touched.txt" REWORK=无; echo "exit=$?"
 ```
 
 **产出与自检**
@@ -803,9 +991,10 @@ for t in "${TABLES[@]}"; do printf '%s\t%s\n' "$(grep -c -F "| $t |" "$RUN/catal
 
 - 目录 `exit=0`，`0 error(s)`。
 - 每张表那一行的计数是 `1`（只进一组）；码值字典表是 `0`，并且列在分组方案的「码值来源表」一节。
+- 增量模式：`$RUN/catalog_changes.md` 存在（没改就写「无改动」），改动处数抄进账本。
 
 **常见失败与处理**：validate 有 error → 返工，最多 2 次，仍不过交 owner。返工可以续用原来的子代理，也可以派一个新的：
-用 `fill T5 … REWORK=@<报错文件>` 重新填一份（原提示词 + 这次的报错原文），新子代理照它改。某张表计数是 0 或 2 → 同样返工。
+用 `fill catalog … REWORK=@<报错文件>` 重新填一份（原提示词 + 这次的报错原文），新子代理照它改。某张表计数是 0 或 2 → 同样返工。
 每次改完都重跑 `catalog validate`，**以最新一次输出为准**：文件改过之后同一个问题的报错文字可能变，不要拿旧报错去对。
 `schema` 类 error 最常见的是概念类型写错了键（T5 里的必填 / 禁写表），例如事件没有 `participants`。
 
@@ -819,7 +1008,7 @@ for t in "${TABLES[@]}"; do printf '%s\t%s\n' "$(grep -c -F "| $t |" "$RUN/catal
 
 **前提检查**：S10c 完成；组名取自 `catalog_plan.md`。
 
-**命令**：每组用 T6 填空（`fill T6 "$SCRATCH/prompts/T6-$G.md" GROUP="$G" MODE=首写 REWORK=无`）派一个子代理（次一档强模型），
+**命令**：每组用 T6 填空（`fill fragment "$SCRATCH/prompts/T6-fragment-$G.md" GROUP="$G" MODE=首写 REWORK=无`）派一个子代理（次一档强模型），
 每批不超过 5 个。回报后编排者重跑一次自检：
 
 ```bash
@@ -840,7 +1029,7 @@ grep -E '^Coverage:|^  [a-z0-9_]+\.' "$SCRATCH/check-$G.txt"
 | 现象（原文） | 退出码 | 处理 |
 | --- | --- | --- |
 | `--out … is not empty; choose a new or empty directory` | 2 | 先 `rm -rf` 自检目录再跑 |
-| `conflict` / `unknown_concept` / `error` 行 | 1 | T6 返工模式（`fill T6 … MODE=返工 REWORK=@<报错文件>`），续用原子代理或新派一个都行，最多 2 次；以最新一次自检输出为准 |
+| `conflict` / `unknown_concept` / `error` 行 | 1 | T6 返工模式（`fill fragment … MODE=返工 REWORK=@<报错文件>`），续用原子代理或新派一个都行，最多 2 次；以最新一次自检输出为准 |
 | 某张表没有表现 | 0 | 同上交回（码值字典表除外） |
 
 **完成判据**：每组自检 `exit=0`。
@@ -956,6 +1145,9 @@ sl semantic status "$RUN" --pages "$SEMPAGES" --only "${TABLES[@]}"
   SUB=(--ids Q01 Q02 Q03)                 # 或按表：SUB=(--only-table demo_dwd.dwd_party_customer_info_df)
   ```
 
+- owner 给了几套题，就每套一个 ROUND 目录（`$RUN/round1`、`$RUN/round2` …），每套各走一遍下面的检查和命令 1–5，
+  `Q`、`SUB` 换成那一套的。几套可以同时作答、判分：兜底临时文件（`$SCRATCH/<ROUND 目录名>/`）和提示词存档都按
+  ROUND 目录名分开，`fill` 自动从 `ROUND` 取目录名。
 - 题目问到的表都要有页面：
 
   ```bash
@@ -978,12 +1170,12 @@ sl semantic status "$RUN" --pages "$SEMPAGES" --only "${TABLES[@]}"
 
 ```bash
 # 1. 作答：用 T7 派一个子代理（便宜模型），只给 $ROUND/sheet.md 和 $PAGES，写 $ROUND/answers.md
-fill T7 "$SCRATCH/prompts/T7-round1.md" ROUND="$ROUND"; echo "exit=$?"
+fill answer "$SCRATCH/prompts/T7-answer-$(basename "$ROUND").md" ROUND="$ROUND"; echo "exit=$?"
 # 2. 判分材料
 sl questions grading-sheet "$Q" --answers "$ROUND/answers.md" --out "$ROUND/grading.md" "${SUB[@]}" 2> "$ROUND/grading.stderr"; echo "exit=$?"
 cat "$ROUND/grading.stderr"
 # 3. 判分：用 T8 派一个子代理（最强模型），写 $ROUND/grades.yaml
-fill T8 "$SCRATCH/prompts/T8-round1.md" ROUND="$ROUND" ROUND_LABEL=r1; echo "exit=$?"
+fill grade "$SCRATCH/prompts/T8-grade-$(basename "$ROUND").md" ROUND="$ROUND" ROUND_LABEL=r1; echo "exit=$?"
 sl questions validate "$ROUND/grades.yaml"; echo "exit=$?"
 # 4. 汇总（有上一轮的 grades 时加 --previous <旧 grades.yaml>）
 sl questions score "$ROUND/grades.yaml" --set "$Q" --out "$ROUND/score" "${SUB[@]}" 2> "$ROUND/score.stderr"; echo "exit=$?"
@@ -1058,7 +1250,7 @@ sl semantic status "$RUN" --pages "$SEMPAGES" --only "${TABLES[@]}"
 
 **产出与自检**：`Applied N confirmation(s) to M table(s) (unmatched=0)`，之后每张被改的表一行 `<表>  fixed_doc_digest …`（回执移到了确认后的文档上）；
 被确认的表显示 `fixed render_stale`。不要加 `--out`（`--out` 与 `--reviews` 同给退出 2，且就地确认才会移回执）。
-在账本给这些表记一笔「确认回写」。
+在账本给这些表记一笔「确认回写」。确认回写不派修订，所以这一步不往 `fixlog.txt` 里追加；以后重写时修正点清单按「没有修订记录」处理（S4）。
 
 **常见失败与处理**
 
@@ -1115,7 +1307,7 @@ ls "$RUN"
 | --- | --- | --- | --- |
 | `no_packet` | — | S3：核对 `tables.txt` 拼写（不带 catalog 前缀）后建材料包 | 编排者 |
 | `packet` | 没写过，或写作被中断 | S4 新写 | T1 |
-| `drafted packet_stale` | — | S4 重写准备 → T1 新写；之后首审带旧审读 | T1 → T2 |
+| `drafted packet_stale` | — | S4 重写准备 → 修正点清单 → T1 新写（带清单）；之后首审带旧审读 | T1 → T2 |
 | `drafted invalid` | 写作第 1 轮 | S5 补失败 | T1（补失败） |
 | `drafted invalid` | 写作第 2 轮，或修订两轮后 | S5 标 blocked | 编排者 |
 | `valid` | 没有 `.prior.md` | S6 首审 | T2 |
@@ -1123,7 +1315,7 @@ ls "$RUN"
 | `valid review_packet_stale` | — | 旧审读移到 `reviews_prev/` → S6 首审 | T2 |
 | `valid review_stale` | 刚做过确认回写 | `sl semantic fixed "$RUN" --only <表>` | 编排者 |
 | `valid review_stale` | 其他 | 旧审读移到 `reviews_prev/` → S6 首审，记进问题清单 | T2 |
-| `reviewed` | — | S7 修订 | T4 |
+| `reviewed` | — | S7 修订（存修订记录） | T4（首修） |
 | `reviewed fix_unconfirmed` | 刚做过确认回写 | `sl semantic fixed "$RUN" --only <表>` | 编排者 |
 | `reviewed fix_unconfirmed` | 修订被中断，或其他 | S7 核对模式 | T4（核对） |
 | `reviewed review_unparsed` | — | 审读移到 `reviews_prev/<表>.unparsed.md` → S6 首审 | T2 |
@@ -1139,7 +1331,8 @@ ls "$RUN"
 - 复审只在首审有高级时做一次；复审前备份到 `reviews_prev/<表>.round1.md`。
 - 低级问题不修：高 + 中 = 0 的表就是 `fixed`，不派修订。
 - 被中断的调用不计轮次；完成的写作 2 轮、修订 2 次仍有 FAIL 就 blocked。
-- 「材料包变了」一律整份重写（重写准备三步），不允许只改 `packet_digest`。
+- 「材料包变了」一律整份重写（重写准备 + 修正点清单），不允许只改 `packet_digest`。
+- 每次 T4 回报后都把回复存进 `reviews/<表>.fixlog.txt`（S7）：下次重写的修正点清单靠它。
 
 ## 附录 B 目录与文件约定
 
@@ -1156,9 +1349,13 @@ $RUN/
   packets/<表>/              packet.md、packet.json（S3；只由 semantic packet 写）
   docs/<表>.json             表语义（写作写、修订改、confirm 改；编排者不手改）
   reviews/<表>.md            当前审读（审读员写；fixed_doc_digest 只由 semantic fixed 写）
-  reviews/<表>.prior.md      重写前的旧审读（S4 重写准备；只给重写后的首审）
+  reviews/<表>.fixlog.txt    修订记录：T4 回复里的逐条处理，每段前一行来源（S7 编排者追加；.txt，status 不读）
+  reviews/<表>.prior.md      重写前的旧审读（S4 重写准备；给重写后的首审和修正点清单脚本）
   reviews/<表>.prior.json    重写前的旧文档（S4 重写准备；只给审读员，不给写作者）
+  reviews/<表>.prior.fixlog.txt   重写前的修订记录（S4 重写准备；只给修正点清单脚本）
   reviews_prev/<表>.round1.md   复审前备份的首轮审读（S8）
+  reviews_prev/<表>.prior.round1.md   重写前的首轮审读备份（S4 重写准备；只给修正点清单脚本）
+  reviews_prev/<表>.prior-<时间>.{md,json,fixlog.txt,round1.md}   再上一次重写的旧文件（S4 重写准备；同一个时间）
   reviews_prev/<表>.<时间>.md   其他被替换下来的审读（S6）
   prev/docs/<表>.json        重写前的旧文档（写作者看不到的位置）
   blocked/docs/<表>.json     blocked 的文档；blocked/<表>.validate.txt 是它的 FAIL 原文
@@ -1174,7 +1371,8 @@ $RUN/
   onto/ontology.json         构建结果（S10g）
   site/                      概念页、index.md（catalog render）
   site/semantics/            表语义页（semantic render）
-  round1/                    sheet.md、answers.md、grading.md、grades.yaml、score/（S11）
+  round1/                    sheet.md、answers.md、grading.md、grades.yaml、score/（S11；几套题就 round1、round2 …）
+  catalog_touched.txt        旧目录里提到本轮表的条目（S10a 走 C 时）
   confirmations/<日期>.json   owner 的回答（S12）
   RESULT.md                  交付报告（S13）
 $SCRATCH/<表>/               该表子代理的私有临时目录（目录名含表名）
@@ -1187,7 +1385,8 @@ $SCRATCH/<组名>/、check-<组名>/  片段子代理的临时目录与自检目
   几个子代理共用一个 scratchpad，通用名会互相覆盖。
 - 文件放回 `docs/<表>.json` 之前，先确认文件里的 `table` 就是 `<表>`。
 - Write 工具写 `$RUN` 被钩子拦截时：先写 `$SCRATCH/<表>/` 下同名文件，再 `cp` 过去。
-- `.prior.md`、`.prior.json`、`reviews_prev/`、`prev/` 里的文件 `status` 都不读；不要删，交付时留着。
+- `.prior.md`、`.prior.json`、`.fixlog.txt`、`reviews_prev/`、`prev/` 里的文件 `status` 都不读；不要删，交付时留着。
+  `reviews/` 下别放其他 `.md`：`status` 把不以 `.prior.md` 结尾的 `.md` 都当成一张表的审读。
 
 ## 附录 C 报错与退出码速查
 
@@ -1204,7 +1403,9 @@ $SCRATCH/<组名>/、check-<组名>/  片段子代理的临时目录与自检目
 | `semantic status` | 有表过期或无效 | 0 | 正常；看阶段和标记 |
 | `status` / `validate` / `catalog digest` / `semantic packet` | 一行空表名的 `no_packet`；`--only: no document for ` 或 `no table written by the corpus is named ` 后面是空的 | 0 / 1 | 漏了 `load_tables`（0.2 第 5 条） |
 | 任意 | `sl: command not found`，或路径以 `/docs`、`/packets` 开头 | 127 / 2 | 漏了 `. <RUN>/env.sh`（0.1） |
-| `fill` | `未填的占位：{…}` | 1 | 补上那几个 `KEY=值` 再跑 |
+| `fill` | `未填的占位：{…}`；`缺参数：…` | 1 | 补上那几个 `KEY=值` 再跑 |
+| `fill` | `没有占位 {…}：模板选错了…`；`的 MODE 只能是：…` | 1 | 模板或模式选错了：按报错和本手册那一步的命令改，不要删参数硬过 |
+| `fill` | `的前提文件不存在：…`；`要求这个文件不存在，它却存在：…`；`… 要写成 @文件` / `要写「无」` | 1 | 前一步没做完，或模板、模式选错了（例如该派修订却填了复审、重写漏了修正点清单）。回到对应的步骤 |
 | `semantic status` | `--json - and --next without --out both want stdout` | 2 | `--next` 加 `--out "$RUN/next.json"` |
 | `semantic fixed` | `the following arguments are required: --only` | 2 | 加 `--only <表>` |
 | `semantic fixed` | `no fix record written: …` | 1 | S7 的原因表 |

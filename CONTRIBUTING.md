@@ -100,8 +100,13 @@ prose, and modeling recommendations belong in downstream projects rather than th
   squash-merge with subject `<type>: <summary> (#PR)`.
 - Release order: bump `pyproject.toml` + retitle CHANGELOG -> PR -> CI green -> merge ->
   create a **draft** GitHub release and tag from `main` -> run the `Publish to PyPI` workflow
-  with that tag. The workflow scans the draft notes, new commit messages, public tree, and
-  distributions before trusted publishing, then publishes the verified draft. Breaking changes
+  with that tag (`gh workflow run release.yml -f release_tag=<tag>`). The workflow scans the
+  draft notes, new commit messages, public tree, and distributions before trusted publishing.
+  Its publish job runs in the protected `pypi` environment and **waits for a maintainer's
+  approval** (the run shows "Waiting" / "Review deployments"); an agent cannot approve it --
+  ask a maintainer to approve, then follow the run to the end (`gh run watch <run-id>`). Only
+  after publish succeeds does the workflow turn the draft into the published release; confirm
+  with `gh release view <tag>` (no longer a draft) and the version on PyPI. Breaking changes
   ship only in minor bumps, each with a **Breaking** CHANGELOG entry and a migration
   section in both READMEs.
 - Before pushing, opening a PR, or writing release notes, scan every text that will

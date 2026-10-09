@@ -7,27 +7,38 @@
 用 `env.sh` 里的函数 `fill`（runbook 0.1）填，不要手工复制替换：
 
 ```bash
-fill T1 "$SCRATCH/prompts/T1-<表>-r1.md" TABLE=<库.表> MODE=新写 FACTS=无 CONCEPT="不写 concept" FAILURES=无; echo "exit=$?"
-fill T1 "$SCRATCH/prompts/T1-<表>-r2.md" TABLE=<库.表> MODE=补失败 FACTS=无 CONCEPT="不写 concept" FAILURES=@"$SCRATCH/<表>.failures.txt"
+fill write "$SCRATCH/prompts/T1-write-<表>-r1.md" TABLE=<库.表> MODE=新写 FACTS=无 CORRECTIONS=无 CONCEPT="不写 concept" FAILURES=无; echo "exit=$?"
+fill write "$SCRATCH/prompts/T1-write-<表>-r2.md" TABLE=<库.表> MODE=补失败 FACTS=无 CORRECTIONS=无 CONCEPT="不写 concept" FAILURES=@"$SCRATCH/<表>.failures.txt"; echo "exit=$?"
 ```
 
 - `fill` 自动把 `{ENV}`、`{RUN}`、`{TOOL}`、`{SCRATCH}`、`{TASKS}`、`{PAGES}`、`{SEMPAGES}` 换成 `env.sh` 里的绝对路径，
+  给了 `ROUND=<目录>` 时 `{ROUND_NAME}` 换成这个目录的最后一段（例如 `round2`）；
   其余占位按命令行的 `KEY=值` 换；值写成 `@文件` 时取那个文件的内容（贴多行报错用）。
+- 模板可以写编号，也可以写名字：T1 写作 / write、T2 审读 / review、T3 复审 / rereview、T4 修订 / fix、
+  T5 目录起草 / catalog、T6 片段 / fragment、T7 作答 / answer、T8 判分 / grade。手册里的命令都写名字。
+- 下面几种情况 `fill` 都退出 1、不能发：参数不属于这个模板（多半是模板选错了）；`MODE` 不是这个模板的取值；
+  模板或模式的前提不成立（复审要有 `reviews_prev/<表>.round1.md`；修订要有 `reviews/<表>.md`；有 `reviews/<表>.prior.md`
+  时审读只能用「重写后首审」，没有时只能用「首审」；写作新写时，有 `reviews/<表>.prior.md` 就要写 `CORRECTIONS=@<修正点清单>`，
+  没有就写 `CORRECTIONS=无`）。照报错改命令，不要删参数硬过。前提规则写在每个模板标题下那行 `<!-- fill: … -->` 注释里，
+  这行不会进子代理的提示词。
 - 还有没填的占位时它照样写出文件，但退出 1 并打印「未填的占位：…」。**`exit=0` 才能发。**
 - 派发时两种做法等价：把输出文件的全部内容原样粘贴给子代理；或者只告诉它「用 Read 工具完整读 `<输出文件绝对路径>`，照里面的要求做，读不完就分段读」。不要改写、删减。然后在账本「派发记录」记一行，再 `note`。
 
 各占位的含义（路径一律绝对路径）：
    - `{TABLE}`：`库.表`；`{GROUP}`：组名；`{ROUND}`：本轮验收目录（例如 `<RUN>/round1`）；
-   - `{ENV}`、`{RUN}`、`{TOOL}`、`{SCRATCH}`、`{TASKS}`、`{PAGES}`：`fill` 自动填；
-   - `{MODE}`：模板开头列出的模式之一（例如「新写」「补失败」）；只属于别的模式的段落可以删掉。
+   - `{ENV}`、`{RUN}`、`{TOOL}`、`{SCRATCH}`、`{TASKS}`、`{PAGES}`、`{ROUND_NAME}`：`fill` 自动填；
+   - `{MODE}`：只能填模板标题下那行 `fill:` 注释里列出的值（例如 T4 是「首修 / 核对」），填别的 `fill` 会拒绝；
+     只属于别的模式的段落可以删掉。
    - `{FACTS}`：调用方附带的已确认事实（owner 确认过的业务事实，每条一行）；没有写「无」。
+   - `{CORRECTIONS}`（T1）：重写时写 `@<修正点清单文件>`（runbook S4 用脚本生成）；第一次写和补失败写「无」。
    - `{CONCEPT}`（T1）：有本体目录时写「concept 写 <concept id> / <表现类型>」（用 `sl catalog query <onto>/ontology.json table <表> --json` 查），否则写「不写 concept」。
    - `{FAILURES}`（T1）：补失败模式贴 S5 打印的 FAIL / WARN 行原文；新写写「无」。
    - `{SIZE}`（T5）：「小样：只分 1 组，组名 main」或「扩表：按概念分组」。
+   - `{TOUCHED}`（T5）：增量模式写 `@<RUN>/catalog_touched.txt`（runbook S10a 的 C 生成）；新建模式写「无」。
    - `{REWORK}`（T5、T6）：返工时贴要改的报错原文；第一次派发写「无」。
    - `{ROUND_LABEL}`（T8）：轮次标签（例如 `r1`）。
 
-输出文件就是存档：放在 `$SCRATCH/prompts/<模板>-<表或组>-<轮次>.md`，中断后照它重派。
+输出文件就是存档：放在 `$SCRATCH/prompts/<编号>-<名字>-<表、组或 ROUND 目录名>[-<轮次>].md`（例如 `T4-fix-<表>-1.md`），中断后照它重派。
 
 ---
 
@@ -66,6 +77,7 @@ fill T1 "$SCRATCH/prompts/T1-<表>-r2.md" TABLE=<库.表> MODE=补失败 FACTS=�
 ---
 
 ## T1 写作（S4、S5）
+<!-- fill: names=T1,写作,write; MODE=新写,补失败; ABSENT[MODE=新写]={RUN}/docs/{TABLE}.json; NEEDS[MODE=补失败]={RUN}/docs/{TABLE}.json; ATFILE[MODE=新写]=CORRECTIONS:{RUN}/reviews/{TABLE}.prior.md -->
 
 模型：次一档强模型。模式：新写（`packet`、重写后的 `packet`）/ 补失败（`drafted invalid`）。
 
@@ -81,6 +93,11 @@ fill T1 "$SCRATCH/prompts/T1-<表>-r2.md" TABLE=<库.表> MODE=补失败 FACTS=�
 - 写入被拦截：Write 工具写 `{RUN}` 下的文件被钩子拦截时，先写到本模板写明的 `{SCRATCH}` 路径，再用 Bash 的 `cp` 拷到目标路径——这一步已获调用方授权。`cp` 也被拒绝就不要再试，在回复里写「文件在 <SCRATCH 路径>，未拷贝」，调用方会代为拷贝。
 - 调用方附带的已确认事实：{FACTS}
 - 概念：{CONCEPT}
+- 修正点（只有材料包重建后的整份重写才有，其余写「无」；用法见下面「修正点」一节）：
+
+```text
+{CORRECTIONS}
+```
 
 **只读这些**
 
@@ -97,6 +114,17 @@ fill T1 "$SCRATCH/prompts/T1-<表>-r2.md" TABLE=<库.表> MODE=补失败 FACTS=�
 
 **不许读**：别的表的材料包或文档；`{RUN}/docs/` 下别的文件；`{RUN}/reviews/`、`{RUN}/reviews_prev/`、`{RUN}/prev/`、
 `{RUN}/blocked/`；任何题集或判分文件；任何别的运行目录；`{TOOL}/docs/`、`{TOOL}/examples/`。不要上网。
+旧审读和旧文档也不读：上一轮审读确认过的修正，只通过上面的「修正点」交给你。
+
+**修正点**（上面写「无」就跳过这一节）：清单是编排者用脚本从上一轮的审读和修订记录里抽出来的，按写作提示词「修正点」一节用：
+
+- 它不是 owner 确认的业务事实：`sources` 照材料包实际来源写，不写 `confirmed`；原来是推断的仍标推断。
+- 每条先按本材料包核对。下面三种情况一律丢弃，在回复里列出编号和理由：条目引用的材料包位置在新材料包里找不到；
+  说法已变（例如判定从 risk 变成 unknown）；与写作提示词的现行规则冲突（例如列的 category、「不放大」的写法、要求注明据兄弟表）。
+- 标「未核」的条目，脚本在材料包里找不到可核对的原文：你自己在材料包里找到依据才采纳，找不到就不采纳（算「不成立」）。
+- 条目里凡写「不放大 / 不影响行数」的，按写作提示词的条件句式重写，不照抄。
+- 一条涉及多个字段时，全页相关字段都要一致。
+- A 段核对通过就必须照做；B 段核对成立才采纳。
 
 **写到哪里**
 
@@ -132,6 +160,7 @@ fill T1 "$SCRATCH/prompts/T1-<表>-r2.md" TABLE=<库.表> MODE=补失败 FACTS=�
 最终校验：FAIL <n> / WARN <n>（按编号：…）
 保留的 WARN 及理由：…（没有写「无」）
 仍未通过的 FAIL 原文：…（没有写「无」）
+修正点处理：丢弃 <编号：理由>…；A 段采纳 <n> 条；B 段采纳 <n> 条、不成立 <n> 条（修正点写「无」时整行写「无」）
 工具 / 提示词 / 材料包问题：每条一句「现象 + 你怎么处理的」（没有写「无」）
 ```
 ----8<----
@@ -139,6 +168,7 @@ fill T1 "$SCRATCH/prompts/T1-<表>-r2.md" TABLE=<库.表> MODE=补失败 FACTS=�
 ---
 
 ## T2 审读：首审 / 重写后首审（S6）
+<!-- fill: names=T2,审读,review; MODE=首审,重写后首审; NEEDS={RUN}/docs/{TABLE}.json; ABSENT[MODE=首审]={RUN}/reviews/{TABLE}.prior.md; NEEDS[MODE=重写后首审]={RUN}/reviews/{TABLE}.prior.md; NEEDS[MODE=重写后首审]={RUN}/reviews/{TABLE}.prior.json -->
 
 模型：最强模型；不能是写这张表的那个子代理。模式：首审 / 重写后首审（`reviews/<表>.prior.md` 存在时）。
 
@@ -190,7 +220,8 @@ low: <整数>
 ```
 
 不写 `fixed_doc_digest`。Write 被拦截时先写 `{SCRATCH}/{TABLE}/review-{TABLE}.md` 再 `cp`。临时文件只放 `{SCRATCH}/{TABLE}/`。
-不要动 `.prior.md` / `.prior.json`。
+不要动 `.prior.md` / `.prior.json` / `.fixlog.txt`。正文的格式（发现的标题、四个小标题、处理结果表格的小节标题）照审读提示词
+「输出」一节的硬格式写：下一次重写时，脚本按这个格式从你的审读里抽修正点。
 
 **自检**
 
@@ -217,6 +248,7 @@ low: <整数>
 ---
 
 ## T3 复审（S8）
+<!-- fill: names=T3,复审,rereview; NEEDS={RUN}/reviews_prev/{TABLE}.round1.md -->
 
 模型：最强模型。只用于「首审有高级、修订后已 `fixed`」的表，每张表最多一次。派发前编排者已把首轮审读备份到
 `reviews_prev/<表>.round1.md`。
@@ -261,8 +293,9 @@ low: <整数>
 ---
 
 ## T4 修订（S7、S8）
+<!-- fill: names=T4,修订,fix; MODE=首修,核对; NEEDS={RUN}/reviews/{TABLE}.md -->
 
-模型：次一档强模型。模式：普通 / 核对（上一次修订被打断，`status` 是 `reviewed fix_unconfirmed`）。
+模型：次一档强模型。模式：首修（这份审读的第一次修订）/ 核对（上一次修订被打断，`status` 是 `reviewed fix_unconfirmed`）。
 
 ----8<----
 你是表语义修订者。按审读意见改一张表的文档。独立完成，不许派子代理。
@@ -270,7 +303,7 @@ low: <整数>
 **已知**
 
 - 表：`{TABLE}`
-- 模式：{MODE}（普通：第一次修订；核对：上一次修订被打断）
+- 模式：{MODE}（首修：这份审读的第一次修订；核对：上一次修订被打断）
 - 每条 Bash 命令都以 `. {ENV} && ` 开头。
 - 读长文件：任何文件（包括提示词）一次读不完、或 Bash 输出被截断时，先 `grep -n '^#' <文件>` 列出小节，再按行号分段读完（Read 的 offset / limit，或 `sed -n '起,止p'`），不要跳过任何小节。
 - 写入被拦截：Write 工具写 `{RUN}` 下的文件被钩子拦截时，先写到本模板写明的 `{SCRATCH}` 路径，再用 Bash 的 `cp` 拷到目标路径——这一步已获调用方授权。`cp` 也被拒绝就不要再试，在回复里写「文件在 <SCRATCH 路径>，未拷贝」，调用方会代为拷贝。
@@ -313,13 +346,20 @@ low: <整数>
 `exit=0` 且显示 `fixed` 才算完成。退出 1 时标准错误有 `no fix record written: <原因>`：原因含 `review the document again` 就停下，
 在回复里写「需要重新审读」；其余原因原样写进回复。不要手改审读文件。
 
-**回复**（中文，只写这些行）
+**回复**（中文，只写这些行）。「逐条处理」「未改的低级发现」两段会被调用方原样存进这张表的修订记录，下一次重写时脚本按行读：
+标题单独一行；下面每条单独一行，以审读里的编号开头（编号照审读原样，例如 `H1`、`M2`），后面紧跟「已改」「不成立」或「未改」，
+再写冒号和一句话。一行只写一条，不要把几条写在同一行。
 
 ```text
 表：{TABLE}
 模式：
-逐条处理：H1 已改 / 不成立（理由）…（审读里每条高、中各一行）
-未改的低级发现：L1 …（没有写「无」）
+逐条处理：
+H1 已改：<改了哪些字段>
+M1 不成立：<理由>
+（审读里每条高、中各一行）
+未改的低级发现：
+L1 未改：<一句话>
+（没有低级发现写「无」）
 偏离审读的地方：…（没有写「无」）
 最终校验：FAIL <n> / WARN <n>；保留的 WARN 及理由：…
 semantic fixed：exit=<n>；输出原文：…
@@ -331,8 +371,10 @@ status：…
 ---
 
 ## T5 目录起草第 2 步：概念、标识符、关系、共用码值集与分组方案（S10c）
+<!-- fill: names=T5,目录起草,catalog; MODE=新建,增量; NEEDS={RUN}/digest/digest.md; NEEDS[MODE=增量]={RUN}/catalog_touched.txt -->
 
-模型：次一档强模型。正常只派一个；返工时用 `fill T5 … REWORK=@<报错文件>` 重新填一份（原提示词 + 这次报错原文），续用原子代理或新派一个都行。
+模型：次一档强模型。正常只派一个；返工时用 `fill catalog … REWORK=@<报错文件>` 重新填一份（原提示词 + 这次报错原文），续用原子代理或新派一个都行。
+模式：新建（目录里没有本轮的表）/ 增量（本轮的表是重写后接回已有目录的，runbook S10a 的 C）。
 
 ----8<----
 你负责本体目录起草的第 2 步：在目录里补齐**概念、标识符、已有标识符的新拼写、关系、跨组属性和跨组共用的码值集**，
@@ -344,6 +386,7 @@ status：…
 - 运行目录：`{RUN}`；每条 Bash 命令都以 `. {ENV} && ` 开头。
 - 本轮的表：`{RUN}/tables.txt`（一行一张）。
 - 小样还是扩表：{SIZE}
+- 模式：{MODE}（新建：目录里没有本轮的表；增量：本轮的表是重写后接回已有目录的，旧目录里这些表的表现已经去掉）
 - 读长文件：任何文件一次读不完、或 Bash 输出被截断时，先 `grep -n '^#' <文件>` 列出小节，再按行号分段读完。
 - 写入被拦截：Write 写 `{RUN}` 下的文件被钩子拦截时，先写 `{SCRATCH}/catalog-draft/` 下同名文件，再用 Bash `cp` 拷过去（已获调用方授权）；
   `cp` 也被拒绝就在回复里写明文件在哪，调用方会代拷。
@@ -356,6 +399,18 @@ status：…
 3. 形状参考（只看形状，不抄内容）：`{TOOL}/examples/catalog-demo/` 里的 `identifiers.yaml`、`relations.yaml`、
    `code_sets.yaml`、`concepts/lending.yaml`。
 4. 规则说不清时才查 `{TOOL}/docs/zh-CN/ontology-catalog.md` 的「元素」一节，不读别的节。
+
+**增量模式**（新建模式跳过这一节，下面的清单写「无」）：下面是旧目录里提到本轮表的条目（文件、id、提到的表）：
+
+```text
+{TOUCHED}
+```
+
+只核对其中的**标识符和概念**：标识符的 `scope`（照下面第 3 条「最窄范围」重写）、`name`；概念的 `definition`、`kind`。
+digest 的说法与它矛盾的，就地改这一条，`status` 保持 `drafted`；每一处改动在 `{RUN}/catalog_changes.md` 记一行（文件、id、改前、改后、
+依据：digest 哪张表哪一段），没有改动就写一行「无改动」。属性只在 digest 明说矛盾时才改（同样记一行）。不删任何条目（别的表可能还在
+用它）；不改清单以外的条目；没有矛盾就不动。片段会复用这些属性，所以属性要在这一步就改对，片段里不能用同一个 id 写别的内容。
+之后照常做下面「写什么」的各条，补齐本轮表新带来的概念、标识符和拼写。
 
 **不许读**：任何题集或判分文件；任何别的运行目录；`{RUN}/reviews/`。不要上网。不改 `{RUN}/docs/` 和 `{RUN}/packets/`。
 
@@ -515,6 +570,7 @@ catalog validate：exit=<n>；<计数行原样>
 分组：组名 → 表数（逐组一行）
 码值来源表：…（没有写「无」）
 没把握、需要 owner 判断的：…（没有写「无」）
+增量模式改动：<n> 处（标识符 <n> / 概念 <n> / 属性 <n>）；新建模式写「不适用」
 工具 / 文档问题：每条一句（没有写「无」）
 ```
 ----8<----
@@ -522,6 +578,7 @@ catalog validate：exit=<n>；<计数行原样>
 ---
 
 ## T6 目录片段（S10d、S10e）
+<!-- fill: names=T6,片段,fragment; MODE=首写,返工; NEEDS={RUN}/catalog_plan.md -->
 
 模型：次一档强模型。每组一个。模式：首写 / 返工（合并或自检报了冲突、未知概念、校验错误或缺表现）。
 
@@ -580,6 +637,7 @@ notes 原文：…（没有写「无」）
 ---
 
 ## T7 作答（S11）
+<!-- fill: names=T7,作答,answer; NEEDS={ROUND}/sheet.md -->
 
 模型：便宜模型即可。
 
@@ -598,8 +656,8 @@ notes 原文：…（没有写「无」）
 - 读长文件：页面或提示词一次读不完时，先 `grep -n '^#' <文件>` 列出小节，再按行号分段读完。
 
 **写到哪里**：`{ROUND}/answers.md`，每题一节，以 `## <题号>` 开头，题号与题单完全一致，一题都不能少；答不出也留一节写「页面里没找到」
-并写查了哪些页哪些节。Write 被拦截时先写 `{SCRATCH}/answers.md`，再用 Bash `cp` 拷到 `{ROUND}/answers.md`（已获调用方授权）；
-`cp` 也被拒绝就在回复里写「文件在 {SCRATCH}/answers.md，未拷贝」，调用方会代拷。
+并写查了哪些页哪些节。Write 被拦截时先写 `{SCRATCH}/{ROUND_NAME}/answers.md`，再用 Bash `cp` 拷到 `{ROUND}/answers.md`（已获调用方授权）；
+`cp` 也被拒绝就在回复里写「文件在 `{SCRATCH}/{ROUND_NAME}/answers.md`，未拷贝」，调用方会代拷。
 
 **回复**（中文，只写这些行）
 
@@ -614,6 +672,7 @@ notes 原文：…（没有写「无」）
 ---
 
 ## T8 判分（S11）
+<!-- fill: names=T8,判分,grade; NEEDS={ROUND}/grading.md -->
 
 模型：最强模型。
 
@@ -632,7 +691,7 @@ notes 原文：…（没有写「无」）
 - `set:` 照抄 `grading.md` 里 YAML 模板的 `set:` 那一行的值（原样，通常是绝对路径）。
 - `round:` 写 `{ROUND_LABEL}`。
 - 判分材料里的每一题都要有一条，`id` 一字不差，不加题。
-Write 被拦截时先写 `{SCRATCH}/grades.yaml`，再用 Bash `cp` 拷到 `{ROUND}/grades.yaml`（已获调用方授权）；`cp` 也被拒绝就在回复里写明，
+Write 被拦截时先写 `{SCRATCH}/{ROUND_NAME}/grades.yaml`，再用 Bash `cp` 拷到 `{ROUND}/grades.yaml`（已获调用方授权）；`cp` 也被拒绝就在回复里写明，
 调用方会代拷。读长文件同 T7：先 `grep -n '^#'` 再分段读。
 
 **自检**
@@ -720,6 +779,8 @@ key_wrong 的题与正确答案：…（没有写「无」）
 - 校验：全量 FAIL <n>、WARN <n>（保留的 WARN <n> 条，见账本）。
 - 审读：首审 高 <n> / 中 <n> / 低 <n>；修订后复审 高 <n> / 中 <n> / 低 <n>；未修的高、中 <n> 条。
 - 目录（做了 S10 时）：概念 <n>、标识符 <n>、关系 <n>、码值集 <n>、表现 <n>、绑定 <n>、unmapped <n>。
+- 目录起点：空目录 / 旧目录 <路径> / 部分接回 <路径>（去掉 k 张表的表现，增量改动 n 处）。
+- 重写（有表整份重写时）：每张表修正点清单的 A / B / 未核 / 丢弃 / 未解析条数；写作者回复里「修正点处理」一行。
 - 验收（做了 S11 时）：<得分>/<满分>；基线 <得分>/<满分>；是否达标；按缺口的失分。
 
 ## 三、没做完、拿掉或验收未覆盖的表
@@ -743,6 +804,6 @@ key_wrong 的题与正确答案：…（没有写「无」）
 | 表语义、审读、校验 | `docs/`、`reviews/`、`validation.json` |
 | 目录 | `catalog/`、`fragments/`、`merged/`、`onto/` |
 | 页面 | `site/`（表语义页在 `site/semantics/`） |
-| 验收 | `round1/` |
+| 验收 | `round1/`（几套题就几个 ROUND 目录） |
 | 账本与提示词存档 | `ledger.md`、`<SCRATCH>/prompts/` |
 ```

@@ -324,8 +324,8 @@ scope-lineage parse \
 2. 过期文档整份重写——不要把新 digest 抄进旧文档。一张表重写前，先把它的审读留作
    `reviews/<db.table>.prior.md`、文档留作 `reviews/<db.table>.prior.json`。按手册（S3、S4）分批：
    `semantic status <run> --next draft --only <db.table> ... --out <run>/next.json`，此后每一步都带
-   同一组 `--only`，用随包提示词（`table-semantics-prompt@9`、`table-semantics-review@9`、
-   `table-semantics-fix@6`）。
+   同一组 `--only`，用随包提示词（`table-semantics-prompt@10`、`table-semantics-review@10`、
+   `table-semantics-fix@7`）。
 3. 在全部表重写完之前，不要用整个 `docs` 目录建本体目录（`catalog digest`）或页面
    （`semantic render`）。这两个命令现在会在 stderr 点名 `packet_stale`、`invalid` 和没有材料包的表
    （`warning:` 行，材料包取自 `--packets` 或文档旁的 `packets/`），但照样把它们算进去。

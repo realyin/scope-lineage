@@ -1,4 +1,4 @@
-# 按审读意见修订提示词（table-semantics-fix@6）
+# 按审读意见修订提示词（table-semantics-fix@7）
 
 输入：一张表的审读意见、现有 `table-semantics/1` 文档、材料包 `packet.md`。
 
@@ -9,3 +9,4 @@
 5. 收尾（必须是最后一步；前面任何一步没做完都不要做这一步）：把文档放回 `<run>/docs/<db.table>.json`（放回前确认文件里的 `table` 等于 `<db.table>`），然后运行 `scope-lineage semantic fixed <run> --only <db.table>`。它先校验文档，再在审读文件的 front matter 里写入修订回执 `fixed_doc_digest`；退出码非 0 时什么都没写，按它给的原因处理：文档校验不通过，说明第 4 步没有收住，同样停下告诉调用方，不再回到第 4 步；审读没有 `reviewed_packet_digest`、或审读读的是另一版材料包，就停下，告诉调用方这张表要重新审读，不要自己补键。
    之后运行 `scope-lineage semantic status <run> --only <db.table>`，这一行应当是 `fixed`。要看摘要时加 `--json -`（`-` 表示把 JSON 打到标准输出），读 `tables[0].doc_digest`、`tables[0].review.reviewed_doc_digest` 与 `tables[0].review.fixed_doc_digest`。在隔离目录里自查时加 `--docs <隔离目录>`（隔离目录用带表名的子目录，例如 `<scratch>/<db.table>/`，不要几张表共用一个目录或一个文件名），并且一定要带 `--only`，否则其余表在那个目录里没有文档，会显示成 `packet`。
    不要手改审读文件：回执只由 `semantic fixed` 写。修订被打断、没走到这一步时，`status` 会把这张表标成 `fix_unconfirmed`，`--next fix` 会重新派发它。
+6. 回复调用方时，逐条处理写成一条一行：标题「逐条处理：」单独一行，下面每条高、中发现单独一行，以审读里的编号开头（照审读原样，例如 `H1`、`M2`），紧跟「已改」或「不成立」，再写冒号和一句话（`H1 已改：<改了哪些字段>`、`M2 不成立：<理由>`）；「未改的低级发现：」同样单独一行，下面每条一行（`L1 未改：<一句话>`）。不要把几条写在同一行，也不要把第一条接在标题后面。调用方会把这两段原样存进这张表的修订记录（`reviews/<db.table>.fixlog.txt`）；材料包变了、这张表整份重写时，脚本按行首编号读它，把「已改」的高、中级发现交给写作者，写成别的样子的条目会被当成没改过。
