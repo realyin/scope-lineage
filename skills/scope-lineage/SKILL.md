@@ -59,11 +59,12 @@ fallback covers 0.2.0):
 | lookup facts in the drafting digest (`catalog digest --lineage` / `--schema`) | >= 0.7.0 (0.6.0 rejects the flags) |
 | the table-semantics loop this skill describes (`semantic fixed`, `semantic validate --only`, `table-semantics-status/2`, prompts `@8` / `@8` / `@5`) | >= 0.7.0 |
 | prompts `@9` / `@9` / `@6` (they read the 0.8.0 packet's new facts) | >= 0.8.0 |
+| prompts `@10` / `@10` / `@7` (a rewrite's corrections list, the validity-window sentence the 0.9.0 validator accepts, a fix log the next rewrite reads) | >= 0.9.0 |
 
-When unsure which workflows the session will need, require >= 0.8.0. A release candidate run
-from a checkout may still print the previous number (`scope-lineage 0.7.x (…, source <commit>)`):
-it counts as 0.8.0 when `CHANGELOG.md` opens with `## Unreleased` and
-`references/table-semantics-prompt.md` names `@9` (`references/runbook.md` S0). A table-semantics
+When unsure which workflows the session will need, require >= 0.9.0. A release candidate run
+from a checkout may still print the previous number (`scope-lineage 0.8.x (…, source <commit>)`):
+it counts as 0.9.0 when `CHANGELOG.md` opens with `## Unreleased` and
+`references/table-semantics-prompt.md` names `@10` (`references/runbook.md` S0). A table-semantics
 run directory made with an older release: rebuild its packets; every document whose packet changed
 is then `packet_stale` and is rewritten whole (runbook S3 and S4).
 Not installed → `pipx install 'scope-lineage[catalog]'` (or `pip install 'scope-lineage[catalog]'`):
@@ -619,6 +620,10 @@ documented uncertainty).
   the three review workflows fits, and how confirmed answers flow back through
   `glossary.overrides.json` / `ontology.overrides.json` / `metadata-patch.json`. Read when the
   user asks how the whole thing is used, or when you are unsure which command comes next.
+- `scripts/make_corrections.py` — the corrections list a whole rewrite hands its writer: reads
+  the old review, the first review behind a re-review, the fix log and the rebuilt packet, and
+  sorts every old finding into fixed (follow it), worth a look (check it first) or out, saying
+  which ones it could not read or check. Run it as `references/runbook.md` S4 says.
 - `scripts/confirmations.py` — the write-back half: reads the answered 待确认清单 out of a
   `business_profile.md` and merges it into `glossary.overrides.json` /
   `metadata-patch.json`. Run it after the business owner answers, then re-run `glossary`

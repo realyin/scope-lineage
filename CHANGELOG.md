@@ -1,5 +1,55 @@
 # Changelog
 
+## Unreleased
+
+### Breaking
+- **Breaking — the table-semantics prompts are `table-semantics-prompt@10`,
+  `table-semantics-review@10` and `table-semantics-fix@7`, and they need the 0.9.0
+  validator.** Affected: orchestrators and private prompts that pin the prompt versions or
+  parse the review and fix replies. The writer prompt now teaches the conditional
+  validity-window sentence ("<condition> holds: no fan-out; otherwise ... fans out the rows")
+  that check 10 accepts from 0.9.0 on (0.8.0 still warns on it), reads the 4.1 "all N steps
+  are pass-throughs" and "only the not-matched INSERT writes it" notes, takes a rewrite's
+  corrections list (below), and adds two general rules: a black-box function or a column
+  suffix does not prove what was done to a value, and a measure the sources never define
+  gets candidate columns, not a chosen condition. The review prompt fixes its output format
+  (`#### H1.` headings, one line each for 位置 / 文档原话 / 材料包事实 / 应改成, fixed
+  section titles for the old-review and previous-round tables) and replaces "the writer
+  stays independent" with what the writer now gets. The fix prompt makes the reply one
+  finding per line, number first, because that reply becomes the fix log. What to do: run
+  these prompts with 0.9.0 (or a 0.9.0 candidate, `references/runbook.md` S0); generators
+  read `table-semantics-prompt@10`.
+
+### Runbook and skill
+- **A rewrite keeps what the last fix corrected.** `skills/scope-lineage/scripts/make_corrections.py`
+  (standard library only) reads the old review, the first review behind a re-review, the fix
+  log and the rebuilt packet, and writes the corrections list template T1 now takes as
+  `{CORRECTIONS}`: fixed high and medium findings the writer must follow once they check
+  out, and the rest to check first. It drops findings judged not applicable or not holding
+  and those whose quoted packet text is gone, marks those it found nothing to check against
+  ("未核"), and prints any finding it cannot read instead of skipping it. The orchestrator
+  keeps every fix reply as `reviews/<db.table>.fixlog.txt`, one section per review opened by
+  its `reviewed_doc_digest`.
+- **Rewrite preparation names.** A rewrite renames the review, fix log and first-review
+  backup to `.prior.*` (the backup as `reviews_prev/<db.table>.prior.round1.md`, outside
+  `reviews/`, where `semantic status` would read it as a table) and moves the previous
+  rewrite's `.prior.*` files to `reviews_prev/<db.table>.prior-<time>.*`; the old
+  `reviews/<db.table>.prior.<time>.md` showed up in `semantic status` as an extra table.
+- **`fill` refuses a wrong template.** Templates can be named (`write`, `review`,
+  `rereview`, `fix`, `catalog`, `fragment`, `answer`, `grade`, or the Chinese names); each
+  template's rules sit in a `<!-- fill: … -->` line under its heading, and `fill` exits 1
+  on a parameter the template does not have, a mode it does not list, or a premise that
+  does not hold (a re-review without its backed-up first review, a rewrite without its
+  corrections list, a first review where an old review exists). T4's mode 普通 is now 首修.
+  T7 and T8 put their fallback files under `{SCRATCH}/{ROUND_NAME}/`, so two question sets
+  can run side by side.
+- **Partial rewrites and the catalog.** A sample that rewrote some tables builds pages and
+  catalog from those tables alone; when the owner asks to put them back into an existing
+  catalog, the runbook strips their old representations, lists the old entries that name
+  them, and T5's new incremental mode checks those identifiers and concepts.
+- CONTRIBUTING: the PyPI publish job waits for a maintainer's approval; an agent cannot
+  give it.
+
 ## 0.8.0
 - **Table semantics judged per UNION branch and per validity window, MERGE lines per
   partition column, and a run that stops on what it used to let through.** Every format keeps
