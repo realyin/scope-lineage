@@ -158,7 +158,9 @@ def test_a_short_chain_keeps_every_step_in_its_cell() -> None:
 
 
 def test_a_long_chain_says_its_last_step_and_how_many_steps_there_are() -> None:
-    steps = [f"直接投影自 subq:s{index}.k" for index in range(40)] + ["合并 3 个分支（来自 b1、b2、b3）"]
+    # One computing step too long for 「计算步骤」 keeps this chain on the 「末层」 path.
+    steps = (["表达式 " + "y" * STEPS_CELL_LIMIT]
+             + [f"直接投影自 subq:s{index}.k" for index in range(40)] + ["合并 3 个分支（来自 b1、b2、b3）"])
     producer = {"steps": steps, "sql_comments": ["作者说明"]}
     said = _steps(producer, "头注释：2025-01-01 才加入")
     assert said.startswith("头注释：2025-01-01 才加入；注释：作者说明；")

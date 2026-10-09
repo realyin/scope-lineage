@@ -37,12 +37,20 @@ _CLAUSE_MARKS = "，,、：:（("
 _UNIVERSAL = re.compile(r"都|均|全部|所有|一律|任何|皆")
 _SENTENCES = re.compile(r"[。；;\n]")
 # A no-effect claim made under a condition, with the case where the condition fails said: the
-# condition before the claim, the rows multiplying after it or in the next sentence.
-_CONDITION = re.compile(r"若|如果|假如|倘若|假设|只要|只有|一旦|除非|[当在][^，,。；;]*时")
+# condition before the claim, the rows multiplying after it or in the next sentence. "X 成立时 /
+# 唯一时 / 不重复时" is a condition too; "不成立时 / 不唯一时" is its failing case, not one.
+_CONDITION = re.compile(
+    r"若|如果|假如|倘若|假设|只要|只有|一旦|除非|[当在][^，,。；;]*时"
+    r"|(?<![不未])(?:成立|满足|唯一|不重复)时"
+)
 _MULTIPLIES = re.compile(
     r"(?<![不没未])(?:会|可能)[^，,。；;]{0,8}?(?:放大|膨胀|重复)|关联出多[行条]"
 )
-_FAILS_FIRST = re.compile(r"\s*(?:若|如果|一旦)[^，,。；;]*?(?:不成立|不唯一|不满足)")
+# A next sentence opening with the condition failing. "重复时" counts only at its very start, so
+# a sentence opening "不重复时 …" is not taken for the failing case.
+_FAILS_FIRST = re.compile(
+    r"\s*(?:(?:若|如果|一旦)[^，,。；;]*?(?:不成立|不唯一|不满足)|(?:不成立|不满足|不唯一|重复)时)"
+)
 _OTHERWISE_FIRST = re.compile(r"\s*(?:否则|不然|反之)")
 
 
@@ -224,8 +232,8 @@ def _conditional(text: str, claim: re.Match, after: str, every_name: list[str]) 
     """Whether a no-effect claim is made under a condition with its failing case said.
 
     One of: a condition before the claim and the rows multiplying after it in the sentence;
-    a next sentence opening with the condition failing (若 … 不成立 / 不唯一 / 不满足) that
-    says the rows multiply; a condition before the claim and a next sentence opening with
+    a next sentence opening with the condition failing (若 … 不成立 / 不唯一 / 不满足, or
+    不成立时 / 不满足时 / 不唯一时 / 重复时) that says the rows multiply; a condition before the claim and a next sentence opening with
     否则 / 不然 / 反之 that says so. The failing case must name no join the sentence has not
     named up to the claim: a case about another join says nothing about this one.
     """
