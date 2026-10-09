@@ -95,6 +95,27 @@ def test_a_producer_written_once_carries_no_branches() -> None:
     assert "branches" not in producer
 
 
+def _lineage_row(text: str, column: str) -> list[str]:
+    """The column's rows in 4.1 (other sections have rows starting with a column name too)."""
+    section = text.split("### 4.1 ", 1)[1].split("\n### ", 1)[0]
+    return [line for line in section.splitlines() if line.startswith(f"| `{column}` |")]
+
+
+def test_a_column_only_the_not_matched_insert_writes_says_so_in_4_1() -> None:
+    """B-T3b: a single-branch producer of a two-branch MERGE says which branch writes it."""
+    text = render_packet_markdown(_pack(MERGE))
+    (row,) = _lineage_row(text, "env")
+    assert "t0 / stmt:001（仅 not_matched INSERT 写入；matched UPDATE 不改，见 4.3）" in row
+
+
+def test_a_column_both_merge_branches_write_keeps_its_branches_and_no_insert_only_note() -> None:
+    text = render_packet_markdown(_pack(MERGE))
+    for column in ("order_id", "amount"):
+        (row,) = _lineage_row(text, column)
+        assert "（2 支：merge:matched 分支 0、merge:not_matched 分支 1）" in row
+        assert "仅 not_matched" not in row
+
+
 # ------------------------------------------------------------------ #22 MERGE in 4.3
 
 

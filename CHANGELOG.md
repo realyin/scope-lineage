@@ -49,6 +49,49 @@
   them, and T5's new incremental mode checks those identifiers and concepts.
 - CONTRIBUTING: the PyPI publish job waits for a maintainer's approval; an agent cannot
   give it.
+- **A column comment's code table may now list more codes.** The shape reading behind
+  `comment_enum` glossary candidates and the `literal_outside_comment_codes` finding read a
+  code of at most 8 characters and never split a code glued to its meaning, so a table such
+  as 「角色；a1-甲,b2-乙,LONG_CODE_X外部」 lost its last item. It now also reads a long
+  code in upper-case constant style (letters, digits, underscores, at most 32 characters)
+  with a joiner, and glued to its meaning when it follows a pair with a joiner and the
+  meaning holds no ASCII letter or digit. Lower-case or short glued words (`id关联`), a
+  condition such as `flag_type=on时`, and `Y是N否` are still not read as codes. What a
+  consumer will see: `glossary.json` may carry more `comment_enum` candidates (a value the
+  SQL compares, once only a `comment_mention`, can now be a `comment_enum`), the finding's
+  listed codes may grow, and packets whose comments hold such a code get a new
+  `packet_digest` (their documents read `drafted packet_stale` until rewritten). Downstream
+  projects that compare glossary candidates or finding text should expect these additions.
+- **The validity-window reason says what happens to this table's rows.** A point-in-time
+  JOIN onto a MERGE-written validity window (`R-VALIDITY-WINDOW`, `unknown`) now reads
+  「…不放大；不成立时（(分区, 开始) 重复）右侧同一 分区 可能多行有效、会放大（写入方 MERGE
+  此时多行匹配，结果取决于引擎）」 instead of ending on what the writer's MERGE does, so a
+  document can copy the consequence as written: it names this table's fan-out, which is
+  what check 10 asks a conditional "不放大" to state. The verdict and its claim are
+  unchanged; packets carrying this reason get a new `packet_digest`, and a downstream
+  project matching the reason text should update.
+
+### Changed
+- **Check 10 (`fan_out`) reads "X 成立时 … ；不成立时 …" as a conditional no-effect
+  claim.** A sentence calling an unproven LEFT join harmless to the row count passes when it
+  is made under a condition and says the rows multiply when the condition fails. The
+  condition words now include 「X 成立时 / 满足时 / 唯一时 / 不重复时」 (not after 不 / 未),
+  and the failing case may be a next sentence opening with 「不成立时 / 不满足时 / 不唯一时 /
+  重复时」 -- the form the writing prompt asks for a validity window. The failing case must
+  still say the rows multiply (会 / 可能 + 放大 / 膨胀 / 重复, or 关联出多行 / 多条) and name
+  no other join, so a consequence copied from the MERGE writer's reason (多行匹配，结果取决于
+  引擎) still warns. The check only warns less; it fails nothing it did not, and every
+  packet keeps its `packet_digest`.
+- **`packet.md` 4.1: a long chain of pass-throughs says it computes nothing.** A step
+  cell over the length limit whose steps are all direct projections or merges used to fall
+  back to 「末层：<last step>」, which hid that nothing computes the column. It now says
+  「全部 N 步都是直接投影 / 合并，没有计算步骤（来源见「来源列」；…）」. A chain with computing
+  steps is cut as before. Markdown only: `packet.json` and `packet_digest` are unchanged.
+- **`packet.md` 4.1: a column only a MERGE's not-matched INSERT writes says so.** In a
+  MERGE with both a matched and a not-matched branch, the row of a column the matched
+  UPDATE leaves alone (`keys[].merge.insert_only_columns`) notes 「（仅 not_matched INSERT
+  写入；matched UPDATE 不改，见 4.3）」 beside its task / statement, as the branch-folded rows
+  note their branches. Markdown only, from a fact the packet already carries.
 
 ## 0.8.0
 - **Table semantics judged per UNION branch and per validity window, MERGE lines per
