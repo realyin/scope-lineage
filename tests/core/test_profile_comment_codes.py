@@ -6,8 +6,9 @@ may never hold. The profile now says so as ``literal_outside_comment_codes`` (wa
 the packet carries it. Four guards keep it quiet where the comment cannot decide:
 
 - the literal is one of the codes;
-- the literal appears in the comment as a substring (a code glued to its meaning,
-  ``XY_LONG外部``, is not read as a code by the shape reading);
+- the literal appears in the comment as a substring (a short code glued to its meaning,
+  ``EXT外部``, is not read as a code by the shape reading; a long constant one such as
+  ``XY_LONG外部`` is, and is listed);
 - every ``【…】`` block is removed before the codes are read, so an annotation such as
   ``【updt:n】`` or a format note is never a code;
 - a comment that is prose lists no codes at all.
@@ -80,6 +81,15 @@ def test_a_listed_code_is_not_a_finding(tmp_path):
 
 def test_a_code_glued_to_its_meaning_is_found_as_a_substring(tmp_path):
     assert _findings("角色；a1-甲,b2-乙,XY_LONG外部", "p.role = 'XY_LONG'", tmp_path) == []
+
+
+def test_a_short_code_glued_to_its_meaning_is_found_as_a_substring(tmp_path):
+    assert _findings("角色；a1-甲,b2-乙,EXT外部", "p.role = 'EXT'", tmp_path) == []
+
+
+def test_a_long_code_glued_to_its_meaning_is_listed(tmp_path):
+    (finding,) = _findings("角色；a1-甲,b2-乙,XY_LONG_CODE外部", "p.role = 'z9'", tmp_path)
+    assert "a1、b2、XY_LONG_CODE" in finding["text"]
 
 
 def test_annotation_blocks_are_not_read_as_codes(tmp_path):

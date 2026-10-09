@@ -1148,6 +1148,17 @@ _PAIR_JOINERS = "-:=："
 # only a rule that refuses to pair two code-shaped tokens leaves it alone.
 _CODE_TOKEN = re.compile(r"^[0-9A-Za-z_]{1,8}$")
 
+# A longer code is believed only in constant style -- upper case, digits, underscores --
+# because that is how a long code is written, and how a condition (`flag_type=on时`) or a
+# lower-case word is not. The length bound is checked on its own (_LONG_CODE_MAX_LENGTH).
+_LONG_CODE = re.compile(r"^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$|^[A-Z][A-Z0-9]{8,}$")
+_LONG_CODE_MAX_LENGTH = 32
+
+# A long code glued to its meaning (`LONG_CODE_X外部`): the meaning starts at the first
+# non-ASCII character and carries no ASCII letter or digit, so `Y是N否` is not read as
+# `y -> 是N否`. Tried only right after a joined pair (see enumerated_meanings).
+_GLUED_PAIR = re.compile(r"^([A-Za-z][A-Za-z0-9_]*?)([^\x00-\x7f][^A-Za-z0-9]*)$")
+
 # A meaning has to contain a letter somebody could read. `2026-09-20` splits into
 # `2026` and `09-20`; the second half is the rest of a date, not what 2026 means.
 _MEANING_TEXT = re.compile(r"[^\W\d_]", re.UNICODE)
@@ -1170,6 +1181,10 @@ def enumerated_meanings(comment: str) -> dict[str, str]:
     ``0:未生效;1:生效``, ``0=未生效,1=生效``, ``Y 是 N 否``, ``1 生效 0 未生效`` -- and
     returns ``{}`` for a comment that is prose. It is a *shape* reading and therefore a
     candidate producer only: nothing here becomes a confirmed meaning.
+
+    A long constant code (``LONG_CODE_X``, at most 32 characters) is read with a joiner,
+    and also glued to its meaning (``LONG_CODE_X外部``) when it follows a joined pair --
+    the last item of a code table is often written that way.
     """
     tokens = str(comment or "").replace("\u3000", " ").translate(
         {ord(char): " " for char in _PAIR_SEPARATORS}
@@ -1177,10 +1192,16 @@ def enumerated_meanings(comment: str) -> dict[str, str]:
     joined: dict[str, str] = {}
     adjacent: dict[str, str] = {}
     index = 0
+    after_joined = False
     while index < len(tokens):
         code, meaning, step = _pair_at(tokens, index)
         if code and meaning:
             (joined if step == 1 else adjacent).setdefault(code.lower(), meaning)
+        elif after_joined:
+            glued = _split_glued(tokens[index])
+            if glued:
+                joined.setdefault(glued[0].lower(), glued[1])
+        after_joined = bool(code and meaning) and step == 1
         index += step
     if not joined and len(adjacent) < _MINIMUM_ADJACENT_PAIRS:
         return {}
@@ -1211,10 +1232,26 @@ def _split_joined(token: str) -> tuple[str, str] | None:
         if char not in _PAIR_JOINERS:
             continue
         code, meaning = token[:position], token[position + 1:]
-        if _CODE_TOKEN.match(code) and _is_meaning(meaning):
+        if (_CODE_TOKEN.match(code) or _is_long_code(code)) and _is_meaning(meaning):
             return code, meaning
         return None
     return None
+
+
+def _split_glued(token: str) -> tuple[str, str] | None:
+    """``LONG_CODE_X外部`` as ``("LONG_CODE_X", "外部")``; None for anything else.
+
+    Only a long constant code is split: a short code glued to a word (``id关联``,
+    ``remark备注``) is a word, and reading it would add a code the comment never listed.
+    """
+    match = _GLUED_PAIR.match(token)
+    if match and _is_long_code(match.group(1)) and _is_meaning(match.group(2)):
+        return match.group(1), match.group(2)
+    return None
+
+
+def _is_long_code(code: str) -> bool:
+    return len(code) <= _LONG_CODE_MAX_LENGTH and bool(_LONG_CODE.match(code))
 
 
 def _is_meaning(text: str) -> bool:

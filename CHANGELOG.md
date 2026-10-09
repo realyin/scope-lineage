@@ -1,6 +1,27 @@
 # Changelog
 
 ## Unreleased
+- **A column comment's code table may now list more codes.** The shape reading behind
+  `comment_enum` glossary candidates and the `literal_outside_comment_codes` finding read a
+  code of at most 8 characters and never split a code glued to its meaning, so a table such
+  as 「角色；a1-甲,b2-乙,LONG_CODE_X外部」 lost its last item. It now also reads a long
+  code in upper-case constant style (letters, digits, underscores, at most 32 characters)
+  with a joiner, and glued to its meaning when it follows a pair with a joiner and the
+  meaning holds no ASCII letter or digit. Lower-case or short glued words (`id关联`), a
+  condition such as `flag_type=on时`, and `Y是N否` are still not read as codes. What a
+  consumer will see: `glossary.json` may carry more `comment_enum` candidates (a value the
+  SQL compares, once only a `comment_mention`, can now be a `comment_enum`), the finding's
+  listed codes may grow, and packets whose comments hold such a code get a new
+  `packet_digest` (their documents read `drafted packet_stale` until rewritten). Downstream
+  projects that compare glossary candidates or finding text should expect these additions.
+- **The validity-window reason says what happens to this table's rows.** A point-in-time
+  JOIN onto a MERGE-written validity window (`R-VALIDITY-WINDOW`, `unknown`) now reads
+  「…不放大；不成立时（(分区, 开始) 重复）右侧同一 分区 可能多行有效、会放大（写入方 MERGE
+  此时多行匹配，结果取决于引擎）」 instead of ending on what the writer's MERGE does, so a
+  document can copy the consequence as written: it names this table's fan-out, which is
+  what check 10 asks a conditional "不放大" to state. The verdict and its claim are
+  unchanged; packets carrying this reason get a new `packet_digest`, and a downstream
+  project matching the reason text should update.
 
 ### Changed
 - **Check 10 (`fan_out`) reads "X 成立时 … ；不成立时 …" as a conditional no-effect

@@ -5427,7 +5427,8 @@ def _validity_verdict(read: Mapping) -> tuple[str, str, str, None]:
     if condition:
         reason += (
             f"：若表中 {pair} 不重复，每个 {names} 至多一行有效、不放大；"
-            f"{pair} 重复时该 MERGE 多行匹配，结果取决于引擎"
+            f"不成立时（{pair} 重复）右侧同一 {names} 可能多行有效、会放大"
+            f"（写入方 MERGE 此时多行匹配，结果取决于引擎）"
         )
     else:
         reason += f"：每个 {names} 至多一行有效、不放大"
@@ -8241,8 +8242,8 @@ def _comment_code_findings(document: dict, rules: Sequence[dict]) -> list[dict]:
     must be one physical column of the rule by name, as for ``empty_string_on_non_string``;
     the comment, with its 【…】 blocks removed, must list at least two codes by
     :func:`glossary_values.enumerated_meanings`; and the literal must be neither one of
-    them nor a substring of the comment -- the shape reading misses a code glued to its
-    meaning, and a code the comment does mention is not reported.
+    them nor a substring of the comment -- the shape reading misses a short code glued to
+    its meaning, and a code the comment does mention is not reported.
     """
     found = []
     for rule in rules:
