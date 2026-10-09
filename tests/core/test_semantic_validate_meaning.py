@@ -210,6 +210,12 @@ def _mapping_and_catalog(borrower: dict) -> dict:
     "只有映射表 m 按键唯一时，左关联 m 才不放大，不成立时会放大行数",
     "若映射表 m 按键唯一，左关联 m 不放大。若这个前提不成立，左关联会放大行数",
     "映射表 m 左关联不放大（注释推出，SQL 未证明）。若注释不成立，左关联会放大行数",
+    "映射表 m 按键唯一成立时，左关联 m 不放大；不成立时右侧同一键可能有多条，会放大行数",
+    "若映射表 m 按键唯一成立时不放大；不成立时会放大行数",
+    "映射表 m 按键唯一成立时不放大，不成立时会放大行数",
+    "映射表 m 按键唯一时，左关联 m 不放大；不唯一时会放大行数",
+    "映射表 m 按键不重复时，左关联 m 不放大；重复时会放大行数",
+    "映射表 m 按键不重复时不放大，重复时会放大行数",
 ])
 def test_a_no_effect_claim_under_a_condition_with_its_opposite_case_does_not_warn(
     document: dict, borrower: dict, sentence: str
@@ -228,6 +234,15 @@ def test_a_no_effect_claim_under_a_condition_with_its_opposite_case_does_not_war
     "目录表 n 已去重，左关联都不放大",
     "映射表 m 左关联保证不放大",
     "映射表 m 左关联不放大（注释推出，SQL 未证明）。",
+    "映射表 m 按键唯一成立时，左关联 m 不放大；不成立时写入方的合并多行匹配，结果取决于引擎",
+    "映射表 m 按键唯一成立时，左关联 m 不放大；不成立时也不会放大",
+    "映射表 m 按键唯一成立时，左关联 m 不放大",
+    "映射表 m 左关联不放大；不成立时目录表 n 会放大行数",
+    "映射表 m 左关联不放大；不成立时不放大",
+    "映射表 m 按键不重复时，左关联 m 不放大；重复时也不会放大",
+    "映射表 m 按键唯一时，左关联 m 不放大",
+    "映射表 m 左关联不放大；重复时目录表 n 会放大行数",
+    "映射表 m 按键不唯一时左关联 m 不放大；唯一时会放大行数",
 ])
 def test_a_condition_or_an_opposite_case_alone_or_about_another_join_still_warns(
     document: dict, borrower: dict, sentence: str
