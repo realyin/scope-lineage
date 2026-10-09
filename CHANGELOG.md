@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- **Check 10 (`fan_out`) reads "X 成立时 … ；不成立时 …" as a conditional no-effect
+  claim.** A sentence calling an unproven LEFT join harmless to the row count passes when it
+  is made under a condition and says the rows multiply when the condition fails. The
+  condition words now include 「X 成立时 / 满足时 / 唯一时 / 不重复时」 (not after 不 / 未),
+  and the failing case may be a next sentence opening with 「不成立时 / 不满足时 / 不唯一时 /
+  重复时」 -- the form the writing prompt asks for a validity window. The failing case must
+  still say the rows multiply (会 / 可能 + 放大 / 膨胀 / 重复, or 关联出多行 / 多条) and name
+  no other join, so a consequence copied from the MERGE writer's reason (多行匹配，结果取决于
+  引擎) still warns. The check only warns less; it fails nothing it did not, and every
+  packet keeps its `packet_digest`.
+- **`packet.md` 4.1: a long chain of pass-throughs says it computes nothing.** A step
+  cell over the length limit whose steps are all direct projections or merges used to fall
+  back to 「末层：<last step>」, which hid that nothing computes the column. It now says
+  「全部 N 步都是直接投影 / 合并，没有计算步骤（来源见「来源列」；…）」. A chain with computing
+  steps is cut as before. Markdown only: `packet.json` and `packet_digest` are unchanged.
+- **`packet.md` 4.1: a column only a MERGE's not-matched INSERT writes says so.** In a
+  MERGE with both a matched and a not-matched branch, the row of a column the matched
+  UPDATE leaves alone (`keys[].merge.insert_only_columns`) notes 「（仅 not_matched INSERT
+  写入；matched UPDATE 不改，见 4.3）」 beside its task / statement, as the branch-folded rows
+  note their branches. Markdown only, from a fact the packet already carries.
+
 ## 0.8.0
 - **Table semantics judged per UNION branch and per validity window, MERGE lines per
   partition column, and a run that stops on what it used to let through.** Every format keeps
