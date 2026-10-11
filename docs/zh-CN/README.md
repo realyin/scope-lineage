@@ -7,6 +7,9 @@ Scope Lineage 把 Spark/Hive SQL 转换成两类机器可消费的事实：
 - `lineage.json`：SQL 已经证明的结构、逻辑和字段来源；
 - `diagnostics.json`：解析过程中发现的不确定性、降级和事实缺口。
 
+**要从任务和表 Schema 得到任务语义、表语义和业务本体？先读[操作入口](task-to-ontology.md)。**
+下面第 2 项的五分钟路径止于 `ontology`，那只是键折叠候选，不是业务本体。
+
 如果你第一次接触项目，建议按下面顺序阅读：
 
 1. [项目 README](../../README.zh-CN.md)：先了解工具解决什么问题、产物有什么价值；

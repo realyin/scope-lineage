@@ -63,6 +63,12 @@ instead of open questions, so the list gets shorter every round.
 
 For "what is this batch of tasks about, and how do those things relate" — the business ontology — the route is table semantics then the catalog: write each table's `table-semantics/1` document (`scope-lineage semantic packet` / `validate` / `render`), draft the catalog from them (`scope-lineage catalog digest` → draft → fragments → `catalog merge` / `build` / `render`), and answer with `scope-lineage catalog query`; see [Table semantics](table-semantics.md) and [Ontology catalog](ontology-catalog.md). `scope-lineage ontology` is **key-fold candidates**, not that ontology: it folds tables by shared key-column stems, which makes it a quick structural scan and cross-evidence while drafting, never the answer to a business question. When the user wants that key-level structure: run `scope-lineage ontology --lineage <corpus> --out <dir>`, read 「本体总览」 in `<dir>/ontology.md`, follow the concept table's link to `<dir>/concepts/<file>.md` to find which tables represent it, then read the five ontology sections of `<dir>/tables/<table>.md` (the table-level ER and tables are in `<dir>/appendix.md`, where they are evidence rather than the model); a `hypothesis` or a `conflict` must be presented verbatim and marked `[待确认]`, and answered items are written back into `ontology.overrides.json` per `references/ontology-review-prompt.md` so the next run publishes them as `confirmed`.
 
+The repository holds two skills: `skills/scope-lineage/` answers lineage questions;
+`skills/scope-lineage-ontology/` does one thing only -- take a batch of task JSON and table schema
+and produce table semantics and a business ontology catalog by the runbook. The second is the
+first one's runbook "driver": a loop driven by the progress script `next_step.py`, plus the rules
+that cannot be skipped and the division of roles; see [where to start](task-to-ontology.md).
+
 For documenting a batch of tables, drafting the ontology catalog and running an acceptance round, the skill carries a step-by-step runbook meant to be followed literally, `references/runbook.md` (S0–S13, each step with its preconditions, copy-ready commands, self-checks, done criterion and the known errors), and fill-in sub-agent prompts in `references/runbook-templates.md` (draft, review, re-review, fix, catalog drafting, fragment, answer and grade, plus the run ledger and the delivery report). The orchestrating agent reads the runbook; each sub-agent gets exactly one filled template. Both are written in Chinese.
 
 ## Installation
@@ -75,7 +81,8 @@ For documenting a batch of tables, drafting the ontology catalog and running an 
 
 Then install the `scope-lineage` plugin. From then on, conversations mentioning lineage, field
 provenance, transformation steps, impact analysis, or mapping documents trigger the skill
-automatically.
+automatically. The plugin also brings `scope-lineage-ontology`, which triggers when you ask for
+table semantics or a business ontology from task JSON and table schema.
 
 **Codex (native skill installation, recommended)**: Codex has its own Agent Skills mechanism, and
 its skill directory format is identical to this repository's — it works as-is. Git is the
@@ -85,8 +92,11 @@ excluded from the PyPI distribution):
 ```bash
 git clone https://github.com/realyin/scope-lineage ~/tools/scope-lineage
 ln -s ~/tools/scope-lineage/skills/scope-lineage ~/.codex/skills/scope-lineage
+ln -s ~/tools/scope-lineage/skills/scope-lineage-ontology ~/.codex/skills/scope-lineage-ontology
 ```
 
+- **Link both skills**: `scope-lineage-ontology` reaches the runbook and scripts of
+  `scope-lineage` through the repository root, so keep both directories in the same clone.
 - **User level** `~/.codex/skills/`: shared by all projects, recommended; **project level**
   `.codex/skills/`: effective only in the current project. Once it is in the skills directory,
   Codex triggers it automatically from the SKILL.md description, the same experience as Claude
@@ -101,6 +111,8 @@ file (project-level `AGENTS.md` or the global equivalent):
 
 > For questions about SQL lineage, field transformation, impact analysis, or mapping documents,
 > first read `~/tools/scope-lineage/skills/scope-lineage/SKILL.md` and follow it.
+> To produce table semantics or a business ontology from task JSON and table schema, first read
+> `~/tools/scope-lineage/skills/scope-lineage-ontology/SKILL.md` and follow it.
 
 Relative paths inside the skill (`scripts/query.py`, `references/...`) resolve against SKILL.md's
 own directory, so **the project being analyzed does not need to contain these files** — you can ask

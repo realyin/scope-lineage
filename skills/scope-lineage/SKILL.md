@@ -24,6 +24,15 @@ file's own directory — if you are reading it from a clone at some other locati
 them with that directory; the working project you are answering questions about does not
 need to contain these files.
 
+## Start here: task JSON + table schema → business semantics and ontology
+
+If you are handed a directory of task JSON and a table-schema directory and asked for task
+semantics, table semantics or a business ontology, do not improvise from the workflows below:
+**use the `scope-lineage-ontology` skill** (`../scope-lineage-ontology/SKILL.md` in this
+repository). It runs `references/runbook.md` S0–S13 as a loop driven by
+`scripts/next_step.py`, with independent write / review / fix sub-agents and the S10g omission
+check. `scope-lineage ontology` alone gives key-fold candidates, never the business ontology.
+
 ## Three rules that make answers trustworthy
 
 1. **Never load a whole lineage.json into context.** Lineage artifacts can be large.
@@ -620,6 +629,16 @@ documented uncertainty).
   the three review workflows fits, and how confirmed answers flow back through
   `glossary.overrides.json` / `ontology.overrides.json` / `metadata-patch.json`. Read when the
   user asks how the whole thing is used, or when you are unsure which command comes next.
+- `scripts/next_step.py` — where a runbook run stands: reads only the run directory's files and
+  prints the S0–S13 checklist, the current step and why, and each table's next action from
+  appendix A while table semantics is in progress. It reads `status.json` rather than
+  recomputing stages, and asks for a fresh one when it is missing or stale. Run it after every
+  step, as `references/runbook.md` 0.6 says.
+- `scripts/catalog_check.py` — what a built catalog left undone, which `catalog validate` cannot
+  see: concepts with no attribute, an event table's foreign identifier whose concept is not a
+  participant, and a name / description column bound to the table's own concept beside a code
+  column that points at another concept. Run it on `onto/ontology.json` as
+  `references/runbook.md` S10g says; exit 1 when it has findings.
 - `scripts/make_corrections.py` — the corrections list a whole rewrite hands its writer: reads
   the old review, the first review behind a re-review, the fix log and the rebuilt packet, and
   sorts every old finding into fixed (follow it), worth a look (check it first) or out, saying

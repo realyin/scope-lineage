@@ -7,6 +7,9 @@ Scope Lineage turns Spark/Hive SQL into two kinds of machine-consumable facts:
 - `lineage.json`: the structure, logic, and field provenance the SQL has already proven;
 - `diagnostics.json`: the uncertainty, degradations, and fact gaps found while parsing.
 
+**Want task semantics, table semantics and a business ontology from task JSON and table schema? Read [where to start](task-to-ontology.md) first.**
+The five-minute path in item 2 below stops at `ontology`, which is only key-fold candidates, not a business ontology.
+
 If this is your first contact with the project, read in this order:
 
 1. [Project README](../../README.md): what problem the tool solves and what the artifacts are worth;

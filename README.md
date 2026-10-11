@@ -254,6 +254,10 @@ The PyPI distribution and CLI are named `scope-lineage`; the Python import names
 
 ## Quick start
 
+> To get task semantics, table semantics and a business ontology from task JSON and table schema, read
+> [where to start](docs/en/task-to-ontology.md) first; the `parse` → … → `ontology` path below
+> only gives key-fold candidates, not a business ontology.
+
 > For the whole pipeline in one place — `parse` → `glossary` / `tables` → `describe` → `ontology`,
 > and where a person or an agent enters — read
 > [End-to-end workflow: from task JSON to profiles and ontology](docs/en/workflow.md).

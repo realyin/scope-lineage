@@ -449,7 +449,8 @@ digest 的说法与它矛盾的，就地改这一条，`status` 保持 `drafted`
    - `event` 的 `occurred_at` **必须指向事件自己的时间属性**，所以同时在 `attributes` 里建这个属性（`category: time`）。
      `participants` 每项是 `{"role_name": <小写英文 slug，同一事件里不重复>, "concept": <entity 或 role>, "cardinality": "one" 或 "many"}`。
    - 事件的参与者按这个顺序定，第一条成立就停：
-     1. 目录里已有、或本步因别的表新建的 entity / role 能当参与者：引用它。
+     1. 目录里已有、或本步因别的表新建的 entity / role 能当参与者：引用它。**事件表里每一个指向这类概念的外部标识列，
+        都把那个概念列为参与者**（一列一个 `role_name`）；确实不该列的，在事件的 `notes` 写明哪一列、为什么不列。
      2. 都没有：只为**事件发生在谁身上**的那一个对象（例如被联系的客户、被处理的账户；表里要有指向它的标识列）新建一个最小的
         entity（`identifiers` 与 `primary_identifier` 用那一列建的标识符，`notes` 写理由并加「待 owner 确认：是否另建概念」），
         引用它当唯一的参与者。其余只凭外键列出现的对象（操作人、机器人、任务之类）不建概念，在事件的 `notes` 里写
@@ -489,8 +490,9 @@ digest 的说法与它矛盾的，就地改这一条，`status` 保持 `drafted`
    - 一个概念有几条自关联（隔不同层数的同类实例，例如上级、上上级）：每条单独一个关系；同一张表按分区日自关联时，
      在关系的 `notes` 写清按哪一天对齐。
    - 形状：`{"id": "rel:loan_renews_loan", "kind": "association", "from": "concept:loan", "to": "concept:loan", "name": "续借", "inverse_name": "被续借为", "cardinality": {"from": "0..1", "to": "0..1"}, "status": "drafted", "source": "sql", "evidence": ["demo_dwd.dwd_lending_loan_df.orig_loan_no"]}`
-5. **跨组属性**：一组的表里有指向别组概念的外部标识列，旁边紧跟这个对象的名称或属性列（如 `xx_id` + `xx_name`）时，
-   现在就在**那个别组概念**的 `attributes` 里建这个属性，并在分组方案「跨组属性」表里登记「属性 id → 引用它的组」。
+5. **跨组属性**（也管同组）：表里有指向**另一个概念**的外部标识列，旁边有这个对象的名称、描述或属性列（如 `xx_id` + `xx_name`、
+   `xx_cd` + `xx_desc`）时，不论那个概念和这张表同组还是别组，现在就在**那个概念**的 `attributes` 里建这个属性，片段才能把那一列绑成
+   `foreign_attribute`。那个概念在别组时，再在分组方案「跨组属性」表里登记「属性 id → 引用它的组」。只有一组的小样也照做。
 6. **跨组共用的码值集**：只看 digest 列下「Joined inputs read (from the lineage)」那一行。
    - 为每个**有列读取**的「码表 + 常量条件」组合建一个码值集：`lookups` 里出现的，或 `key_of` 里 `read_by` 不为空的。
      写 `read by no column`（`read_by` 为空）的是死关联或只用来过滤行，不建码值集，记进分组方案的说明。
@@ -503,7 +505,9 @@ digest 的说法与它矛盾的，就地改这一条，`status` 保持 `drafted`
    - SQL 内联的字典（`VALUES`、`CASE` 映射）不在这一行里，留给片段写 `values`。
    - 形状：`{"id": "code:waiver_reason", "name": "豁免原因", "values": [], "lookup": {"table": "demo_dim.dim_code_dict", "code_column": "code_val", "meaning_columns": [{"column": "code_desc", "lang": "zh"}], "filter": {"code_type": "WaiverReason"}}, "status": "drafted", "source": "sql", "evidence": ["<任务名>"]}`
 7. 不写表现和绑定（`mapping/`），不写人名、邮箱。
-8. 所有写给 owner 的 `notes` 都以「待 owner 确认：」开头；不要写「owner 确认：…」——本轮没有 owner 确认过任何东西。
+8. 所有写给 owner 的 `notes` 都以「待 owner 确认：」开头。只有调用方在本提示词里写明的 owner 决定，才能写 `status: confirmed`、
+   `source: owner`，`notes` 写「依据 owner 决定：…」，并把这条决定推到底（例如「某列就是某编号」，那张表的事件就要把它指向的概念列为参与者）。
+   其余一律 `drafted`；不要自己写「owner 确认：…」。
 
 **自检**（改到 0 error 为止）
 
@@ -600,7 +604,8 @@ catalog validate：exit=<n>；<计数行原样>
    它点名的格式文档只读那三节，示例只看形状。
 2. 分配：`{RUN}/catalog_plan.md` 的「通用约定」「码值来源表」「组 {GROUP}」「跨组属性」「已建在目录里的共用码值集」五节。
 3. 目录里已有的码值集、属性直接引用，不要用同一个 id 写不同的内容。
-4. 片段的 `notes` 每条都以「待 owner 确认：」开头（例如「待 owner 确认：remark 是否有业务属性」）；不要写「owner 确认」，本轮没有 owner 确认过任何东西。
+4. 片段的 `notes` 每条都以「待 owner 确认：」开头（例如「待 owner 确认：remark 是否有业务属性」）；不要自己写「owner 确认」。
+   目录里已标 `source: owner` 的条目是 owner 的决定，照它绑定，不要再提问。
 
 **不许读**：任何题集或判分文件；任何别的运行目录；别的组的片段。不改 `{RUN}/catalog/`。
 
