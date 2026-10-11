@@ -55,6 +55,10 @@ python3 skills/scope-lineage/scripts/confirmations.py apply <画像文件> --by 
 
 问"这批任务讲的是什么、它们之间是什么关系"——也就是业务本体——时走表语义 → 本体目录：给每张表写 `table-semantics/1`（`scope-lineage semantic packet` / `validate` / `render`），从表语义起草目录（`scope-lineage catalog digest` → 起草 → 片段 → `catalog merge` / `build` / `render`），再用 `scope-lineage catalog query` 回答；见[表语义](table-semantics.md)与[本体目录](ontology-catalog.md)。`scope-lineage ontology` 是**键折叠候选**，不是这份本体：它按键列词根把表折起来，适合做快速结构扫描、起草时的交叉证据，不能拿来回答业务问题。用户要的正是这种键一级的结构时：跑 `scope-lineage ontology --lineage <语料> --out <目录>`，先读 `<目录>/ontology.md` 的「本体总览」，再顺着概念表里的链接读 `<目录>/concepts/<文件>.md` 看它由哪些表表现，然后读 `<目录>/tables/<表>.md` 的本体五节（表级 ER 与表清单在 `<目录>/appendix.md` 里——那是证据，不是模型）；`hypothesis` 与 `conflict` 必须原样标 `[待确认]` 呈现，答完的项按 `references/ontology-review-prompt.md` 回写 `ontology.overrides.json`，下一轮升为 `confirmed`。
 
+仓库里有两个技能：`skills/scope-lineage/` 管血缘问答；`skills/scope-lineage-ontology/` 只管一件事——
+拿到一批任务 JSON 和表 Schema，按分步手册生成表语义和业务本体目录。后者是前者手册的「驾驶员」：一个由进度脚本
+`next_step.py` 驱动的循环，加上不能省的规则和角色分工，见[操作入口](task-to-ontology.md)。
+
 给一批表写表语义、起草本体目录、做回归验收这三件事，技能带一份照字面执行的分步手册 `references/runbook.md`（S0–S13，每步写明前提检查、可直接复制的命令、自检与完成判据、常见报错的处理）和一份子代理填空模板 `references/runbook-templates.md`（写作、审读、复审、修订、目录起草、片段、作答、判分八份，以及运行账本和交付报告）。编排的 agent 读手册，每个子代理只拿一份填好的模板。
 
 ## 安装
@@ -66,7 +70,8 @@ python3 skills/scope-lineage/scripts/confirmations.py apply <画像文件> --by 
 ```
 
 然后安装 `scope-lineage` 插件。之后提到血缘、字段来源、加工步骤、影响分析、mapping
-文档的对话会自动触发技能。
+文档的对话会自动触发技能。插件同时带上 `scope-lineage-ontology`：要从任务和表 Schema 生成表语义、
+业务本体时它会被触发。
 
 **Codex（原生 Skill 安装，推荐）**：Codex 有自己的 Agent Skills 机制，技能目录格式
 与本仓库的完全一致，即插即用。git 是分发渠道（`pip install` 有意**不**携带技能文件
@@ -75,8 +80,11 @@ python3 skills/scope-lineage/scripts/confirmations.py apply <画像文件> --by 
 ```bash
 git clone https://github.com/realyin/scope-lineage ~/tools/scope-lineage
 ln -s ~/tools/scope-lineage/skills/scope-lineage ~/.codex/skills/scope-lineage
+ln -s ~/tools/scope-lineage/skills/scope-lineage-ontology ~/.codex/skills/scope-lineage-ontology
 ```
 
+- **两个技能都要链接**：`scope-lineage-ontology` 通过仓库根目录引用 `scope-lineage` 的手册和脚本，
+  两个目录都留在同一个 clone 里。
 - **用户级** `~/.codex/skills/`：所有项目通用，推荐；**项目级** `.codex/skills/`：只对
   当前项目生效。装进技能目录后，Codex 按 SKILL.md 的 description 自动触发，和 Claude
   Code 的体验一致。
@@ -90,6 +98,8 @@ ln -s ~/tools/scope-lineage/skills/scope-lineage ~/.codex/skills/scope-lineage
 
 > SQL 血缘、字段加工、影响分析、mapping 文档相关问题，先读
 > `~/tools/scope-lineage/skills/scope-lineage/SKILL.md` 并遵循它。
+> 要从任务和表 Schema 生成表语义、业务本体时，先读
+> `~/tools/scope-lineage/skills/scope-lineage-ontology/SKILL.md` 并遵循它。
 
 技能内部的相对路径（`scripts/query.py`、`references/...`）以 SKILL.md 自身所在目录为
 基准解析，所以**被分析的项目里不需要有这些文件**——你在任何数仓项目里提问都能用。

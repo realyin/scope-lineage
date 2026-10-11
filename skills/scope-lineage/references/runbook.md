@@ -165,25 +165,18 @@ set -o pipefail
   派发、回收子代理时同时更新账本的表格。不更新账本，编排者自己被打断后就只能靠猜。
 - **编排者自己被打断后**（会话中断、额度用完、重开会话），按这个顺序恢复，不要从头跑：
   1. `. <RUN>/env.sh`，读 `$RUN/ledger.md` 末尾的流水，看最后做完的是哪一步。
-  2. 跑下面的进度检查，以它为准（账本和它不一致时以它为准，并记进问题清单）：
+  2. 跑进度脚本（0.6），以它为准（账本和它不一致时以它为准，并记进问题清单）：
 
      ```bash
-     load_tables
-     sl semantic status "$RUN" --pages "$SEMPAGES" --only "${TABLES[@]}"
-     ls "$RUN/catalog_plan.md" "$RUN/fragments" "$RUN/merge_report.txt" "$RUN/onto/ontology.json" "$PAGES/index.md" 2>&1
-     ls "$RUN"/round*/ 2>&1
+     python3 "$TOOL/skills/scope-lineage/scripts/next_step.py" "$RUN"
      ls "$SCRATCH/prompts" 2>&1
      ```
 
-  3. 对照下表找到当前步，从那一步的「前提检查」重新开始（`status --next` 会跳过已完成的表）：
+  3. 从它打印的「当前」那一步的「前提检查」重新开始（`status --next` 会跳过已完成的表）。当前步是 S11 时，
+     再看 `round1/` 里有什么，按下表找到 S11 的第几步：
 
      | 看到的情况 | 当前步 |
      | --- | --- |
-     | 有表不是 `fixed` / `rendered` | 按附录 A |
-     | 全部 `rendered`，没有 `catalog_plan.md`（要做目录时） | S10a / S10b |
-     | 有 `catalog_plan.md`，`fragments/` 缺组（对照分组方案的组名） | S10d |
-     | 片段齐，没有 `merge_report.txt` 或 `merged/` | S10e |
-     | 有 `merged/`，没有 `onto/ontology.json` 或 `$PAGES/index.md` | S10g |
      | `round1/` 只有 `sheet.md` | S11 第 1 步（作答） |
      | 有 `answers.md`，没有 `grading.md` 或 `grades.yaml` | S11 第 2、3 步 |
      | 有 `grades.yaml`，没有 `score/score.json` | S11 第 4 步 |
@@ -211,6 +204,27 @@ set -o pipefail
 | S12 | 确认回写（可选） | 编排者 | 带确认的文档 | — |
 | S13 | 交付 | 编排者 | `RESULT.md` | 交付报告模板 |
 
+### 0.6 每一步做完：跑进度脚本
+
+**每一步做完（`note` 之后），跑一次进度脚本，按它打印的「当前」那一步往下做。** 它只读 `$RUN` 里的文件，不改任何东西：
+
+```bash
+python3 "$TOOL/skills/scope-lineage/scripts/next_step.py" "$RUN"
+```
+
+它打印三样东西：
+
+- S0–S13 的进度清单：`[x]` 做完，`[ ]` 没做，`[-]` 跳过（`Q` 为空时的 S11、可选的 S12），`[?]` 不知道；
+- 当前步、为什么是它、去读本手册哪一节；
+- 表语义进行中（S4–S9）时，每张表的下一步和模板（附录 A）。
+
+几条读法：
+
+- 它说「当前：刷新状态」，是 `status.json` 不存在或比 `docs/`、`reviews/`、`packets/`、表语义页旧，
+  它不知道每张表到了哪一步。照它打印的命令刷新 `status.json`，再跑一次。
+- 「做完」只表示这一步该写的文件已经在了，**不表示内容对**。每一步的完成判据仍然要照本手册跑。
+- 它和账本、和你的记忆不一致时，以它为准，把不一致记进问题清单。
+
 ---
 
 ## S0 环境、版本与运行目录
@@ -237,6 +251,7 @@ mkdir -p "$RUN"/{artifacts,corpus,packets,docs,reviews,reviews_prev,prev/docs,bl
 mkdir -p "$SCRATCH/prompts"
 sl --version > "$RUN/TOOL_VERSION"     # 第二次运行只为写进文件
 git -C "$TOOL" log -1 --format='commit %h %cd' >> "$RUN/TOOL_VERSION"
+git -C "$TOOL" status --porcelain | wc -l | sed 's/^ */uncommitted files: /' >> "$RUN/TOOL_VERSION"   # 不是 0：工具目录有未提交改动，复现时要用同一个工作区
 ```
 
 然后按 `runbook-templates.md` 的「运行账本模板」建 `$RUN/ledger.md`。
@@ -365,7 +380,7 @@ load_tables; echo "n=${#TABLES[@]}"
 sl semantic packet --lineage "$RUN/artifacts" --tasks "$TASKS" --schema "$SCHEMA" \
   --tables "$RUN/corpus/tables.json" --glossary "$RUN/corpus/glossary.json" \
   --out "$RUN/packets" --only "${TABLES[@]}"; echo "exit=$?"
-sl semantic status "$RUN" --pages "$SEMPAGES" --only "${TABLES[@]}"; echo "exit=$?"
+sl semantic status "$RUN" --pages "$SEMPAGES" --json "$RUN/status.json" --only "${TABLES[@]}"; echo "exit=$?"   # 也写 status.json，进度脚本读它
 # 4. 每张表一个子代理私有临时目录
 for t in "${TABLES[@]}"; do mkdir -p "$SCRATCH/$t"; done
 ```
@@ -1086,7 +1101,7 @@ grep -E '^note|^Coverage:|^  [a-z0-9_]+\.' "$RUN/merge_report.txt"
 sl catalog validate "$RUN/merged"; echo "exit=$?"
 ```
 
-**完成判据**：`exit=0`，`0 error(s)`；没有要改的就直接通过。
+**完成判据**：`exit=0`，`0 error(s)`；`$RUN/catalog_changes.md` 存在。没有要改的，就在里面写一行「无改动」（进度脚本靠这个文件判断 S10f 做完了）。
 
 **下一步**：S10g。
 
@@ -1103,9 +1118,22 @@ sl semantic render "$RUN/docs" --out "$SEMPAGES" --validation "$RUN/validation.j
 sl catalog render "$RUN/onto/ontology.json" --out "$PAGES" --semantics "$SEMPAGES"; echo "exit=$?"
 load_tables
 sl semantic status "$RUN" --pages "$SEMPAGES" --only "${TABLES[@]}"
+python3 "$TOOL/skills/scope-lineage/scripts/catalog_check.py" "$RUN/onto/ontology.json" > "$RUN/catalog_check.txt"; echo "exit=$?"
+cat "$RUN/catalog_check.txt"
 ```
 
 顺序：`build` → `semantic render --ontology` → `catalog render --semantics`。`build` 固定带 `--lineage` 和 `--tables`（页面上的证据靠它们）。
+
+最后一条是**漏做检查**。`catalog validate` 和合并的覆盖率只查「写错」，查不出「漏做」；目录起草者能力弱一些时，漏做最常见。
+`catalog_check.py` 读构建出的 `ontology.json`，列出三类：
+
+| 发现 | 意思 | 谁来补 |
+| --- | --- | --- |
+| `empty_concept` | 概念一个属性都没有 | T5 返工：给概念建属性 |
+| `missing_participant` | 事件表里有外键列指向某个概念，它却不在事件的参与者里 | T5 返工：补参与者 |
+| `attribute_beside_foreign_identifier` | 名称 / 描述列（`*_desc`、`*_name`、`*_nm`）绑成了本表概念的属性，同表同词根的编码列却指向另一个概念 | T5 返工在那个概念上建属性，再 T6 返工改绑成 `foreign_attribute` |
+
+每条发现是「要看一眼」，不等于一定错。
 
 **产出与自检**：`Built ontology-json/3 from catalog …`（下一行 `evidence:` 的「N of M relation(s) backed by a JOIN」只是证据统计，小样里是 0 也不用处理）；`Rendered N table page(s) and index.md (skipped=0)`；
 `Rendered N page(s) (C concept page(s)) -> …`；`$PAGES/concepts/`、`$PAGES/index.md`、`$SEMPAGES/<表>.md` 都在；`status` 全部 `rendered`。
@@ -1117,8 +1145,9 @@ sl semantic status "$RUN" --pages "$SEMPAGES" --only "${TABLES[@]}"
 | `--semantics directory does not exist: …` | 2 | 顺序错了：先跑 `semantic render` 再跑 `catalog render` |
 | `build` 有 error、什么也没写 | 1 | 回 S10f 修 `merged/`，或交 owner |
 | render 打印 `warning: packet_stale …` / `invalid …` / `no_packet …` | 0 | 回 S8 |
+| `catalog_check.txt` 末行不是 `0 finding(s)` | 1 | 逐条决定：要补的，用 `fill catalog … REWORK=@"$RUN/catalog_check.txt"` 让 T5 返工（只补概念属性和参与者），T5 改完再 `fill fragment … MODE=返工 REWORK=@"$RUN/catalog_check.txt"` 让 T6 改绑；从 S10d 的自检重来，到 S10g 再查。返工最多 2 次。不补的，在 `catalog_changes.md` 每条写一行理由 |
 
-**完成判据**：三条命令都 `exit=0`；`status` 全部 `rendered`。
+**完成判据**：三条命令都 `exit=0`；`status` 全部 `rendered`；`catalog_check.txt` 末行是 `0 finding(s)`，或剩下的每条在 `catalog_changes.md` 里写了不补的理由。
 
 **已知限制**（遇到时照做，不要去修工具）：
 

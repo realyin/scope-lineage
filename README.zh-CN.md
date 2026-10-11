@@ -235,6 +235,9 @@ PyPI distribution 和 CLI 名均为 `scope-lineage`，Python import namespace �
 
 ## 快速开始
 
+> 要从任务和表 Schema 得到任务语义、表语义和业务本体，先读[操作入口](docs/zh-CN/task-to-ontology.md)；
+> 下面这条 `parse` → … → `ontology` 的路径只给出键折叠候选，不是业务本体。
+
 > 想先看清全流程（`parse` → `glossary` / `tables` → `describe` → `ontology`，以及人和 Agent 在哪里介入），
 > 读[端到端工作流：从任务 JSON 到画像与本体](docs/zh-CN/workflow.md)。
 

@@ -11,6 +11,10 @@ and where a person or an agent enters.**
 When you have finished it you should be able to say: given a batch of task JSON and a
 schema export, which commands do I type, and who reads what each one writes.
 
+> **Want task semantics, table semantics or a business ontology? Do not follow the five-minute path on this page.** It stops
+> at `ontology` and gives key-fold candidates, not a business ontology. Read [where to start](task-to-ontology.md) instead.
+> This page suits a quick structural scan and understanding how the artifacts depend on each other.
+
 ## One picture
 
 ```mermaid
