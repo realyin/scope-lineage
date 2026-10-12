@@ -313,6 +313,32 @@ scope-lineage parse \
 不确定场景该用哪份契约，见[按业务场景选契约](docs/zh-CN/contract-selection.md)：
 字段血缘、加工步骤分析用默认 1.0；审计、事故排查、最终表状态用 2.0。
 
+### 迁移到 0.10.0
+
+命令行工具、校验器和所有格式都和 0.9.0 一样：不用重建，也不用重写文档。变的是 agent 从任务 JSON 和表 Schema
+生成表语义、本体目录时照着走的材料。完整清单见 [CHANGELOG.md](CHANGELOG.md) 0.10.0 下的 **Breaking** 条目；
+路线见[操作入口](docs/zh-CN/task-to-ontology.md)。
+
+**装上第二个技能。** Claude Code 插件更新后两个技能都在。Codex 要把新目录也链接进去：
+`ln -s ~/tools/scope-lineage/skills/scope-lineage-ontology ~/.codex/skills/scope-lineage-ontology`
+（它通过仓库根目录引用手册，两个目录留在同一个 clone 里）。
+
+**进行中的运行目录：**
+
+1. 每一步做完跑 `python3 "$TOOL/skills/scope-lineage/scripts/next_step.py" "$RUN"`（手册 0.6），
+   按它打印的当前步继续。它说「刷新状态」时，照它打印的命令写出 `status.json`，再跑一次。
+2. S10f：`catalog_changes.md` 必须存在；没有要手工改的，写一行「无改动」。
+3. S10g：构建、渲染之后跑
+   `python3 "$TOOL/skills/scope-lineage/scripts/catalog_check.py" "$RUN/onto/ontology.json"`。
+   末行是 `0 finding(s)`，或剩下的每条在 `catalog_changes.md` 里写了理由，才算做完；否则按手册 S10g
+   把发现交回 T5 / T6 返工。
+4. 0.10.0 之前起草的目录仍然有效。想要更完整的草稿（事件表每个外部标识列都成为参与者、这些列旁的名称属性
+   挂到它们指向的概念上、owner 的决定推到底），把 `catalog/`、`catalog_plan.md`、`fragments/`、`merged/`、
+   `onto/` 归档后重做 S10c–S10g；digest 可以保留。
+
+**提示词：** 版本钉为 `table-semantics-prompt@11`、`table-semantics-review@10`、`table-semantics-fix@8`。
+用 `@10` / `@7` 写的文档仍然有效。
+
 ### 迁移到 0.9.0
 
 格式版本都不变，也没有增删键；变的是校验器、提示词和下游读者依赖的措辞，以及分步手册的文件和命令。
