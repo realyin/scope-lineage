@@ -69,6 +69,7 @@ fallback covers 0.2.0):
 | the table-semantics loop this skill describes (`semantic fixed`, `semantic validate --only`, `table-semantics-status/2`, prompts `@8` / `@8` / `@5`) | >= 0.7.0 |
 | prompts `@9` / `@9` / `@6` (they read the 0.8.0 packet's new facts) | >= 0.8.0 |
 | prompts `@10` / `@10` / `@7` (a rewrite's corrections list, the validity-window sentence the 0.9.0 validator accepts, a fix log the next rewrite reads) | >= 0.9.0 |
+| prompts `@11` / `@10` / `@8` (a snapshot partition read conditionally when the material says the source deletes old rows; a fix keeps `sources` / `confidence` in step with reworded items) | >= 0.9.0 |
 
 When unsure which workflows the session will need, require >= 0.9.0. A release candidate run
 from a checkout may still print the previous number (`scope-lineage 0.8.x (…, source <commit>)`):
