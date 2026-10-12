@@ -1,5 +1,112 @@
 # Changelog
 
+## 0.10.0
+- **A skill that drives the runbook, a progress script, an omission check on the built
+  catalog, and prompts `@11` / `@10` / `@8`.** The Python package does not change: the
+  `scope-lineage` CLI, every validator and every format -- task contract 2.0, `lineage.json`
+  `schema_version` 1.0, `semantic-json/1`, `table-semantics-packet/1`,
+  `table-semantics-status/2`, `table-semantics-validation/1`, `tables-json/1`,
+  `glossary-json/1`, `catalog-digest/1`, `ontology-json/3` -- behave as in 0.9.0, and nothing
+  needs rebuilding. What moves is the material an agent follows: a second skill,
+  `skills/scope-lineage-ontology/`, for turning task JSON and table schema into table
+  semantics and a business ontology; two standard-library scripts the runbook now runs
+  (`next_step.py`, `catalog_check.py`); three drafting rules in templates T5 / T6; the
+  writer and fix prompts; and an entry page that routes such requests away from the
+  key-fold `ontology`. The runbook's completion tests for S10f and S10g change, so this is a
+  minor release with breaking changes for orchestrators (listed under **Breaking** below,
+  each with who is affected and what to do; the READMEs' "Migrating to 0.10.0" gives the
+  steps). **Why:** agents handed a task directory, a schema directory and `docs/` followed
+  the five-minute path in `workflow.md`, stopped at `ontology` and delivered stem-named
+  provisional concepts; and a weaker drafter that did follow the runbook left new concepts
+  without attributes and events short of participants, with no check noticing. In a
+  side-by-side run on a private sample, the same weaker drafter left no omission finding
+  once the T5 rules were clear.
+
+### Breaking
+- **Breaking — S10g's completion test includes the omission check.** Affected:
+  orchestrators that drive the ontology catalog by the runbook, or ship their own copy of
+  S10. After build and render, `skills/scope-lineage/scripts/catalog_check.py` reads
+  `onto/ontology.json` into `$RUN/catalog_check.txt`; the step is done when its last line
+  is `0 finding(s)`, or when every remaining finding has a line in `catalog_changes.md`
+  saying why it stays. Findings go back to T5 (attributes, participants) and T6 (bindings)
+  through their `REWORK` mode, at most twice. What to do: add the command to your S10g and
+  read its output before calling the catalog done.
+- **Breaking — S10f's completion test needs `catalog_changes.md`.** Affected: the same
+  orchestrators. The file was optional when there was nothing to fix by hand; it now has to
+  exist, with one line 「无改动」 when nothing changed, because the progress script reads it
+  as the end of S10f. What to do: write the line.
+- **Breaking — T5 drafts participants, attributes and owner decisions differently.**
+  Affected: orchestrators that compare catalogs across releases, and private copies of the
+  T5 / T6 templates. Every foreign identifier of an event table that points at an existing
+  concept now makes that concept a participant, unless the event's `notes` say which column
+  is left out and why. The name, description or attribute column beside a foreign
+  identifier is built on the concept it points at in the same group too (the cross-group
+  rule never fired in a one-group sample, so such columns stayed on the table's own
+  concept). An owner decision the caller writes into the prompt may be drafted as
+  `status: confirmed`, `source: owner`, and is carried through (a column that "is" another
+  concept's number makes that concept a participant); the old line "no owner has confirmed
+  anything this round" is gone. T6 binds to owner-sourced entries without asking again.
+  What to do: a catalog drafted before 0.10.0 stays valid; redraft S10c–S10g to get the
+  fuller one, and expect more participants, more derived relations and fewer
+  「待 owner 确认」 notes.
+- **Breaking — the writer and fix prompts are `table-semantics-prompt@11` and
+  `table-semantics-fix@8`; the review prompt stays `table-semantics-review@10`.** Affected:
+  orchestrators and private prompts that pin prompt versions. The writer's rule for a daily
+  full-snapshot source now reads partition X as "every record in the source when X was
+  extracted", which equals "every record up to X" only while the source keeps old records;
+  when the material (task header comment, table or column comment, storage design) says the
+  source deletes or cleans old records or keeps only recent days, both readings are written
+  as conditionals marked inferred, in `how_to_read`, `scope`, `not_for` and `watch` alike.
+  @10 stated the cumulative reading as a rule, and a writer that followed it literally drew
+  a high finding. The fix prompt makes a reworded item move its `sources` and `confidence`
+  with it (`inferred` for an inference, `sql_comment` for a header quote, no `high` on a
+  conditional). Both still run on the 0.9.0 validator. What to do: pin the new versions;
+  documents written with `@10` / `@7` stay valid and need no rewrite.
+
+### Changed
+#### Runbook and skill
+- **Runbook 0.6: run the progress script after every step.** 0.4's recovery after an
+  interruption now runs it instead of listing files by hand, keeping only the small table
+  for the sub-steps of S11.
+- **S3 writes `status.json`** (`semantic status … --json "$RUN/status.json"`), so the
+  progress script knows each table's stage from the start of S4.
+- **S0 records the number of uncommitted files** in `TOOL_VERSION` beside the commit, since
+  a run from a working tree with local changes cannot be reproduced from the commit alone.
+- **The `scope-lineage` skill points business-semantics requests at the new skill** in a
+  "Start here" section, and lists the two new scripts.
+
+#### Documentation
+- **An entry page, `docs/{zh-CN,en}/task-to-ontology.md`:** which route gives what, the
+  S0–S13 outline, the rules that cannot be skipped, roles and model tiers (including a setup
+  with a single model), how to start an agent, and how to tell a run went off course. Both
+  READMEs, both docs maps and both `workflow.md` pages send semantics and ontology requests
+  there before the five-minute path.
+- **`agent-skill.md` describes the two skills:** the Claude Code plugin carries both; a Codex
+  install links the second directory too; the `AGENTS.md` fallback gets a second line.
+
+### Added
+- **`skills/scope-lineage-ontology/SKILL.md`.** A narrow skill for one request: task JSON
+  and table schema in, table semantics and a business ontology out. Its core is a loop --
+  run the progress script, read only the runbook section for the current step, paste that
+  step's completion test, `note`, repeat -- plus the rules that cannot be skipped, roles and
+  model tiers, how to hand work to sub-agents, and what to do after they report. It reaches
+  the runbook and scripts through `$TOOL`, the repository root, so the two skills install
+  independently.
+- **`skills/scope-lineage/scripts/next_step.py`** (standard library only, read-only). Prints
+  the S0–S13 checklist (`[x]` done, `[ ]` not yet, `[-]` skipped, `[?]` unknown), the current
+  step and why, the runbook section to follow, and -- while table semantics is in progress --
+  each table's next action and template from appendix A. It reads `status.json` rather than
+  recomputing stages, and says 「刷新状态」 with the refresh command when that file is missing
+  or older than `docs/`, `reviews/`, `reviews_prev/`, `packets/` or the table pages. "Done"
+  means the step's files exist, not that their content is right.
+- **`skills/scope-lineage/scripts/catalog_check.py`** (standard library only, read-only).
+  Lists what a built `ontology.json` left undone, which `catalog validate` cannot see:
+  `empty_concept` (no attribute), `missing_participant` (an event table's foreign identifier
+  whose concept is not a participant) and `attribute_beside_foreign_identifier` (a
+  `*_desc` / `*_name` / `*_nm` column bound to the table's own concept while the code column
+  with the same stem points at another concept). Exit 1 with findings; each is something
+  to look at, not proof of an error.
+
 ## 0.9.0
 - **A rewrite that keeps what the last fix corrected, a `fill` that refuses a wrong
   template, and prompts `@10` / `@10` / `@7`.** Every format keeps its version -- task

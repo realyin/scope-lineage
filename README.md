@@ -316,6 +316,38 @@ transformation-step analysis read the per-statement documents embedded in
 `statement_lineage`; audits, incident forensics, and final table state read the
 task-level facts.
 
+### Migrating to 0.10.0
+
+The CLI, the validators and every format are as in 0.9.0: nothing to rebuild, no document
+to rewrite. What changes is the material an agent follows when it turns task JSON and table
+schema into table semantics and an ontology catalog. Full list: the **Breaking** entries
+under 0.10.0 in [CHANGELOG.md](CHANGELOG.md); the route is
+[`docs/en/task-to-ontology.md`](docs/en/task-to-ontology.md).
+
+**Install the second skill.** The Claude Code plugin carries both skills once updated. For
+Codex, link the new directory beside the old one:
+`ln -s ~/tools/scope-lineage/skills/scope-lineage-ontology ~/.codex/skills/scope-lineage-ontology`
+(it reaches the runbook through the repository root, so keep both in the same clone).
+
+**A run directory in progress:**
+
+1. Run `python3 "$TOOL/skills/scope-lineage/scripts/next_step.py" "$RUN"` after every step
+   (runbook 0.6) and continue from the step it prints. If it says 「刷新状态」, write
+   `status.json` with the command it prints, then run it again.
+2. S10f: `catalog_changes.md` has to exist; with nothing to fix by hand, write one line
+   「无改动」.
+3. S10g: after build and render, run
+   `python3 "$TOOL/skills/scope-lineage/scripts/catalog_check.py" "$RUN/onto/ontology.json"`.
+   The step is done at `0 finding(s)`, or when each remaining finding has a reason in
+   `catalog_changes.md`; otherwise send the findings back to T5 / T6 (runbook S10g).
+4. A catalog drafted before 0.10.0 stays valid. To get the fuller draft (participants for
+   every foreign identifier of an event table, attributes on the concepts those columns
+   point at, owner decisions carried through), archive `catalog/`, `catalog_plan.md`,
+   `fragments/`, `merged/`, `onto/` and redraft S10c–S10g; the digest can stay.
+
+**Prompts:** pin `table-semantics-prompt@11`, `table-semantics-review@10` and
+`table-semantics-fix@8`. Documents written with `@10` / `@7` stay valid.
+
 ### Migrating to 0.9.0
 
 No format version moves and no key is added or removed; what changes is wording that the
