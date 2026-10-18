@@ -123,7 +123,7 @@ does not move and no written document goes stale over it:
   conclusion -- whether reading every value multiplies rows depends on the data. A read with
   no partition condition at all says nothing more; 全量快照 already covers it.
 - Section 3's 本表用到 cell of an input column read in (most often through `select *`) but
-  used by no output, condition or key says 「读入未用（select * 等）」.
+  used by no output, condition or key says 「读入未用（select * 等）」; a column the task does not read at all says 「未读」, never blank. A one-line legend at the top of section 3 explains the three.
 - A 4.1 步骤 cell whose step chain is longer than 300 characters first says 「计算步骤：…（略去
   N 个直接投影 / 合并步骤；完整步骤见同目录 packet.json 该列 producers[].steps）」: the chain
   without its two pass-through kinds, direct projections and merges, each step text once

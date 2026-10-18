@@ -284,10 +284,16 @@ def _numbered(sql: str, writes) -> str:
 # An input column the task reads in (most often through ``select *``) but no output,
 # condition or key uses: ``used`` with no ``usages`` (C-P8). Not "used by this table".
 READ_UNUSED = "读入未用（select * 等）"
+# W9: a column the task does not read at all says so; an empty cell read as either.
+UNREAD = "未读"
+INPUTS_LEGEND = (
+    "- 「本表用到」一栏：列出用法（filter、join_key、join_condition、output 等）的，是本任务按该用法读这一列；"
+    f"「{READ_UNUSED}」是读进来了，但没有任何输出、条件或键用到；「{UNREAD}」是本任务根本没读这一列"
+)
 
 
 def _inputs(inputs: list[dict], rules: list[dict] = ()) -> list[str]:
-    lines = ["## 3. 输入表", ""]
+    lines = ["## 3. 输入表", "", INPUTS_LEGEND, ""]
     if not inputs:
         return [*lines, "（没有输入表）", ""]
     for entry in inputs:
@@ -307,7 +313,7 @@ def _inputs(inputs: list[dict], rules: list[dict] = ()) -> list[str]:
         ]
         rows = [
             [_code(c["name"]), _text(c["type"]), _comment(c),
-             "、".join(c["usages"]) or (READ_UNUSED if c["used"] else "")]
+             "、".join(c["usages"]) or (READ_UNUSED if c["used"] else UNREAD)]
             for c in entry["columns"]
         ]
         lines += _column_table(["列", "类型", "注释", "本表用到"], rows, entry["columns"])

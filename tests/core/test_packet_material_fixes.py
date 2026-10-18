@@ -246,3 +246,19 @@ def test_w8_two_merges_into_the_table_on_one_key_are_an_info_lead() -> None:
 
 def test_w8_one_merge_says_nothing() -> None:
     assert _findings(_lead_pack(W8_MERGE), "merge_same_key") == []
+
+
+# ------------------------------------------------------------------ W9 section 3 legend
+
+
+def test_w9_section_3_has_a_legend_and_no_empty_usage_cell() -> None:
+    meta = {"ods.src": {"columns": [{"name": name, "type": "string", "comment": name}
+                                    for name in ("k", "v", "unread")]}}
+    text = render_packet_markdown(_pack(
+        "INSERT OVERWRITE TABLE dw.out SELECT s.k, s.v FROM ods.src s", W1_SCHEMA, meta))
+    section = _section(text, "## 3. 输入表", "## 4.")
+    legend = section.splitlines()[2]
+    assert legend.startswith("- 「本表用到」") and "未读" in legend and "读入未用" in legend
+    rows = [line for line in section.splitlines() if line.startswith("| `")]
+    assert rows and all(not line.rstrip().endswith("|  |") for line in rows)
+    assert any(line.endswith("| 未读 |") for line in rows)
