@@ -478,13 +478,17 @@ T=demo_dwd.dwd_party_customer_info_df   # 换成这张表
 set -- "$RUN/reviews/$T.prior.md" "$RUN/packets/$T"
 if [ -f "$RUN/reviews/$T.prior.fixlog.txt" ]; then set -- "$@" --fixlog "$RUN/reviews/$T.prior.fixlog.txt"; fi
 if [ -f "$RUN/reviews_prev/$T.prior.round1.md" ]; then set -- "$@" --round1 "$RUN/reviews_prev/$T.prior.round1.md"; fi
+if [ -f "$RUN/reviews/$T.prior.json" ]; then set -- "$@" --prior-doc "$RUN/reviews/$T.prior.json"; fi
 python3 "$TOOL/skills/scope-lineage/scripts/make_corrections.py" "$@" \
   --writer-prompt "$TOOL/skills/scope-lineage/references/table-semantics-prompt.md" \
   --out "$SCRATCH/prompts/$T.corrections.txt" --report "$SCRATCH/prompts/$T.corrections.json" 2> "$SCRATCH/$T.corrections.stderr"; echo "exit=$?"
 cat "$SCRATCH/$T.corrections.stderr"
 ```
 
-- 最后一行是计数：`A n、B n（未核 n）、丢弃 n、跳过 n、未解析 n`，抄进账本。
+- 最后一行是计数：`A n、B n（未核 n）、丢弃 n、跳过 n、未解析 n；上一版写法 x/y、C n`，抄进账本。
+  `上一版写法 x/y`：y 条 B 段未核条目里，x 条在旧文档 `.prior.json` 里找到了它点名的位置，清单里附上一版原句；
+  其余条目没有点名文档位置，或位置在旧文档里不存在。`C n`：旧文档 watch / questions 里引用的材料原文都还在新材料包里的条目数，
+  列在清单的「C 段」，写作者核对后保留。
 - `未解析：<编号>`：脚本读不出这一条（缺「材料包事实」或「应改成」，或表格不在固定的小节标题下）。打开 `.prior.md`
   的那一节，把原文复制进清单文件的「B 段」末尾（只复制，不改写），在账本记一笔。
 - `警告：fixlog 里没有 …`：没有修订记录（没派过修订，或 S12 确认回写后直接 `semantic fixed`），这份审读的高、中级都进了
