@@ -193,7 +193,7 @@ fill write "$SCRATCH/prompts/T1-write-<表>-r2.md" TABLE=<库.表> MODE=补失�
 **只读这些**
 
 1. 审读提示词 `{TOOL}/skills/scope-lineage/references/table-semantics-review-prompt.md`：照做「逐项核对」十六项、
-   「逐项核对的补充」和「输出」。只有重写后首审模式才做「材料包重建后的重写：带上旧审读」一节；首审模式跳过那一节。拿不准某种写法算不算发现时，
+   「逐项核对的补充」和「输出」（定级照「输出」一节的定级锚点）。只有重写后首审模式才做「材料包重建后的重写：带上旧审读」一节；首审模式跳过那一节。拿不准某种写法算不算发现时，
    查同目录 `table-semantics-prompt.md` 的对应条目。
 2. 材料包 `{RUN}/packets/{TABLE}/packet.md`（一次读不完就先 `grep -n '^#'` 再分段读）；需要时同目录 `packet.json`。
 3. 文档 `{RUN}/docs/{TABLE}.json`。
@@ -272,7 +272,7 @@ low: <整数>
 
 **只读这些**
 
-1. 审读提示词 `{TOOL}/skills/scope-lineage/references/table-semantics-review-prompt.md` 的「修订后再审读」一节（三件事）和「输出」一节。
+1. 审读提示词 `{TOOL}/skills/scope-lineage/references/table-semantics-review-prompt.md` 的「修订后再审读」一节（三件事）和「输出」一节（定级照其中的定级锚点）。
 2. 上一轮审读 `{RUN}/reviews_prev/{TABLE}.round1.md`。
 3. 材料包 `{RUN}/packets/{TABLE}/packet.md`（读法同首审）、修订后的文档 `{RUN}/docs/{TABLE}.json`、提到的兄弟表材料包。
 
