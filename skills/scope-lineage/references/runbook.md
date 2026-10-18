@@ -259,10 +259,10 @@ git -C "$TOOL" status --porcelain | wc -l | sed 's/^ */uncommitted files: /' >> 
 **产出与自检**
 
 - `sl --version` 打印 `scope-lineage X.Y.Z (sqlglot …, source …)`。版本判断：
-  - `X.Y.Z` ≥ `0.9.0`：通过。
-  - `X.Y.Z` 是 `0.8.x`，同时 `CHANGELOG.md` 第 3 行是 `## Unreleased`、提示词第 1 行含 `table-semantics-prompt@10`：
-    这是仓库里的 0.9.0 候选，通过；在 `TOOL_VERSION` 末尾加一行 `candidate 0.9.0`。
-  - 其他：不通过（提示词 `@10` 的句式要 0.9.0 的校验器才认）。
+  - `X.Y.Z` ≥ `0.11.0`：通过。
+  - `X.Y.Z` 是 `0.10.x`，同时 `CHANGELOG.md` 第 3 行是 `## Unreleased`、提示词第 1 行含 `table-semantics-prompt@12`：
+    这是仓库里的 0.11.0 候选，通过；在 `TOOL_VERSION` 末尾加一行 `candidate 0.11.0`。
+  - 其他：不通过（提示词 `@12` 读的材料包标签、治理线索和目录字段要 0.11.0 才有）。
 - 写入检查和 PyYAML 检查两个 `exit=0`。
 - `$RUN/TOOL_VERSION`、`$RUN/ledger.md` 存在。
 
