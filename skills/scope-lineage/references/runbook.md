@@ -1021,7 +1021,7 @@ for t in "${TABLES[@]}"; do printf '%s\t%s\n' "$(grep -c -F "| $t |" "$RUN/catal
   Markdown 表格，每行写成 `| <库.表> | … |`。计数全是 `0` 多半是 T5 没照这个格式写，按返工交回。
 - 增量模式：`$RUN/catalog_changes.md` 存在（没改就写「无改动」），改动处数抄进账本。
 - 子代理回复的「义务清单」一行抄进账本：状态属性与 states、规则（filter / dedup / derive）= 约束承接 + skip、度量的 unit /
-  additivity 与指标、关系 definition、拉链表。规则一项两边对不上（承接 + skip 少于规则数），或 validate 的 warning 里有
+  additivity 与指标（有 measure / dimensions / constraints 的条数）、关系 definition、拉链表。规则一项两边对不上（承接 + skip 少于规则数），或 validate 的 warning 里有
   `state_attribute_without_states`、`measure_without_unit`、`relation_without_definition`，按下面的返工办法交回，不必等到 S10g。
   例外：`state_attribute_without_states` 的概念在 `catalog_changes.md` 里已有 `<概念 id> states skip: <理由>` 一行（T5 判断它的状态列
   都不是生命周期状态）就不返工；validate 不读这个文件，会照样报这条 warning，以 S10g 的 `catalog_check` 为准。
@@ -1154,12 +1154,13 @@ cat "$RUN/catalog_check.txt"
 
 | 发现 | 意思 | 谁来补 |
 | --- | --- | --- |
-| `empty_concept` | 概念一个属性都没有 | T5 返工：给概念建属性 |
+| `empty_concept` | 概念一个属性都没有 | T5 返工：给概念建属性。本批没有它自己的表、也没有它的名称 / 描述列时，在 `catalog_changes.md` 写 `<概念 id> empty skip: <理由>`（有自己的表的概念，这一行不算数） |
 | `missing_participant` | 事件表里有外键列指向某个概念，它却不在事件的参与者里 | T5 返工：补参与者 |
 | `attribute_beside_foreign_identifier` | 名称 / 描述列（`*_desc`、`*_name`、`*_nm`）绑成了本表概念的属性，同表同词根的编码列却指向另一个概念 | T5 返工在那个概念上建属性，再 T6 返工改绑成 `foreign_attribute` |
 | `unabsorbed_rule` | digest 里某张表 `filter` / `dedup` / `derive` 规则 `<库.表>#rN` 没有约束在 `rules` 里引用，`catalog_changes.md` 也没写 skip | T5 返工：写约束（`rules` 指回它），或在 `catalog_changes.md` 写 `<库.表>#rN skip: <理由>` |
 | `state_without_states` | 状态属性有码值集，概念却没有它的 `states` | T5 返工：在概念上写 `states`（取值照 digest） |
 | `measure_without_unit` | 度量属性没有 `unit` | 属性是 T5 建的 T5 返工，片段建的 T6 返工：补 `unit` 和 `additivity` |
+| `metric_incomplete` | 指标缺 `unit` 或 `additivity`，或 `sum` / `avg` / `min` / `max` 缺 `measure` | T5 返工：补齐；缺 `measure` 的，在 `on` 概念上建度量属性再指向它 |
 | `code_attribute_without_relation` | 名字像编码 / 键的列（`*_cd`、`*_id`、`*_no`、`*_code`）绑成了普通属性、属性又没有码值集 | 指向另一个概念的：T5 返工建关系（和需要的标识符），T6 返工改绑 `foreign_identifier`；只是本概念自己的编号：在 `catalog_changes.md` 写理由 |
 
 每条发现是「要看一眼」，不等于一定错。

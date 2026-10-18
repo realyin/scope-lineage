@@ -323,10 +323,12 @@ A number the business reads off a concept. `id: metric:<slug>`, `name`, `on` (th
 counted or added up), `aggregation` (`sum` / `count` / `count_distinct` / `avg` / `min` /
 `max` / `ratio` / `other`). Optional: `definition`, `measure` (the attribute aggregated),
 `filter` (which instances count, in words), `constraints` (the `cons:` ids that scope it),
-`time_window` (in words), `dimensions` (attributes it may be broken down by), `additivity`
-(as on an attribute), `unit`, and the common fields. `on` must be a concept, `measure` and
-each dimension an attribute, each constraint a constraint (`metric_on`, `metric_measure`,
-`metric_dimension`, `metric_constraint`).
+`time_window` (in words), `dimensions` (what it may be broken down by: attributes of `on`,
+or concepts linked to `on` -- an event's participants, the other end of a relation),
+`additivity` (as on an attribute), `unit`, and the common fields. `on` must be a concept,
+`measure` an attribute, each dimension an attribute or a concept linked to `on`, each
+constraint a constraint (`metric_on`, `metric_measure`, `metric_dimension`,
+`metric_constraint`).
 
 ```yaml
 metrics:
@@ -336,7 +338,7 @@ metrics:
     measure: attr:loan.principal
     aggregation: sum
     filter: loans not settled
-    dimensions: [attr:loan.loan_status]
+    dimensions: [attr:loan.loan_status, concept:borrower]
     additivity: semi_additive
     unit: CNY
 ```
@@ -586,7 +588,7 @@ directory, no manifest, YAML without PyYAML).
 | `duplicate_code_value` | a code set lists the same value twice |
 | `relation_endpoint` | a relation's `from` / `to` is not a concept |
 | `constraint_on` | `on` is not a concept, attribute, relation or identifier |
-| `metric_on` / `metric_measure` / `metric_dimension` / `metric_constraint` | a metric's `on` is not a concept, its `measure` or a dimension not an attribute, a `constraints` entry not a constraint |
+| `metric_on` / `metric_measure` / `metric_dimension` / `metric_constraint` | a metric's `on` is not a concept, its `measure` not an attribute, a dimension neither an attribute nor a concept linked to `on`, a `constraints` entry not a constraint |
 | `term_refers_to` | `refers_to` does not exist |
 | `representation_concept` | the representation's `concept` is not a concept |
 | `representation_grain` | a grain identifier is not an identifier |

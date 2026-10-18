@@ -6,7 +6,9 @@ catalog that left work undone, and a weaker drafter leaves exactly that behind. 
 script reads a built ``ontology.json`` (``ontology-json/3``, runbook S10g) and reports
 these kinds of omission:
 
-  empty_concept                      a concept with no attribute at all;
+  empty_concept                      a concept with no attribute at all, unless it has no
+                                     table of its own in the batch and ``catalog_changes.md``
+                                     has ``<concept id> empty skip: …``;
   missing_participant                an event whose table points at another concept
                                      through a foreign identifier, while that concept is not
                                      among the event's participants;
@@ -21,6 +23,8 @@ these kinds of omission:
                                      object; events and roles carry none), unless
                                      ``catalog_changes.md`` has ``<concept id> states skip: …``;
   measure_without_unit               a measure attribute with no ``unit``;
+  metric_incomplete                  a metric with no ``unit`` or ``additivity``, or a sum,
+                                     avg, min or max with no ``measure``;
   code_attribute_without_relation    a column named like a code or a key (``*_cd``, ``*_id``,
                                      ``*_no``, ``*_code``) bound as a plain attribute, not as an
                                      identifier or a foreign identifier, whose attribute has no
@@ -55,6 +59,7 @@ from pathlib import Path
 CODE_SUFFIXES = ("_cd", "_code", "_id", "_no", "_key")
 POINTER_SUFFIXES = ("_cd", "_id", "_no", "_code")
 RULE_KINDS = ("filter", "dedup", "derive")
+MEASURED_AGGREGATIONS = ("sum", "avg", "min", "max")
 TEXT_SUFFIXES = ("_desc", "_name", "_nm")
 
 
@@ -72,17 +77,54 @@ def check(
     ``look`` (listed for a person, not counted)."""
     concepts = {c["id"]: c for c in ontology.get("concepts") or []}
     look = look if look is not None else []
-    findings = [
-        f"empty_concept  {concept_id}：没有任何属性"
-        for concept_id, concept in concepts.items()
-        if not concept.get("attributes")
-    ]
+    findings = _empty_concept_findings(ontology, concepts, changes)
     for representation in ontology.get("representations") or []:
         findings += _representation_findings(ontology, concepts, representation)
     findings += _state_and_measure_findings(ontology, concepts, changes)
     findings += _code_column_findings(ontology, concepts, look)
+    findings += _metric_findings(ontology)
     if digest is not None:
         findings += _rule_findings(ontology, digest, changes)
+    return findings
+
+
+def _empty_concept_findings(ontology: dict, concepts: dict, changes: str) -> list[str]:
+    """``empty_concept``. A concept with a table of its own takes its attributes from that
+    table's columns; one with none (only ever the target of a foreign identifier in this
+    batch) may be cleared by ``<concept id> empty skip: <reason>``."""
+    tables = {}
+    for representation in ontology.get("representations") or []:
+        tables.setdefault(representation.get("concept"), []).append(representation["table"])
+    skipped = {m.lower() for m in re.findall(r"([\w:.]+)`?\s+empty\s+skip", changes)}
+    findings = []
+    for concept_id, concept in concepts.items():
+        if concept.get("attributes"):
+            continue
+        if concept_id in tables:
+            findings.append(
+                f"empty_concept  {concept_id}：没有任何属性（它有自己的表 {'、'.join(tables[concept_id])}，"
+                f"从这些表的列建属性）"
+            )
+        elif concept_id.lower() not in skipped:
+            findings.append(
+                f"empty_concept  {concept_id}：没有任何属性（本批没有它自己的表；属性确实只在本批以外的表里时，"
+                f"在 catalog_changes.md 写一行 `{concept_id} empty skip: <理由>`）"
+            )
+    return findings
+
+
+def _metric_findings(ontology: dict) -> list[str]:
+    """``metric_incomplete``: a metric with no ``unit`` or ``additivity``, or one that adds
+    up, averages or picks an extreme with no ``measure`` to do it over."""
+    findings = []
+    for metric in ontology.get("metrics") or []:
+        missing = [
+            key for key in ("measure", "unit", "additivity")
+            if not metric.get(key)
+            and (key != "measure" or metric.get("aggregation") in MEASURED_AGGREGATIONS)
+        ]
+        if missing:
+            findings.append(f"metric_incomplete  {metric['id']}：缺 {'、'.join(missing)}")
     return findings
 
 
