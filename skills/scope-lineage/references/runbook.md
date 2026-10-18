@@ -1174,9 +1174,10 @@ cat "$RUN/catalog_check.txt"
 | `--semantics directory does not exist: …` | 2 | 顺序错了：先跑 `semantic render` 再跑 `catalog render` |
 | `build` 有 error、什么也没写 | 1 | 回 S10f 修 `merged/`，或交 owner |
 | render 打印 `warning: packet_stale …` / `invalid …` / `no_packet …` | 0 | 回 S8 |
-| `catalog_check.txt` 末行不是 `0 finding(s)` | 1 | 逐条决定：要补的，用 `fill catalog … REWORK=@"$RUN/catalog_check.txt"` 让 T5 返工（只补概念属性、参与者、states、约束、关系和 skip 行），T5 改完再 `fill fragment … MODE=返工 REWORK=@"$RUN/catalog_check.txt"` 让 T6 改绑；从 S10d 的自检重来，到 S10g 再查。返工最多 2 次。不补的，在 `catalog_changes.md` 每条写一行理由 |
+| `catalog_check.txt` 末行不是 `0 finding(s)` | 1 | 逐条决定：要补的，用 `fill catalog … MODE=<S10c 用的同一个模式> REWORK=@"$RUN/catalog_check.txt"` 让 T5 返工（只补概念属性、参与者、states、约束、关系和 skip 行），T5 改了绑定相关的概念或属性时再 `fill fragment … MODE=返工 REWORK=@"$RUN/catalog_check.txt"` 让 T6 改绑（T5 只加了 skip 行就不用）；然后依次重做 S10d 的自检、S10e 合并（先 `rm -rf "$RUN/merged"`）、S10f、S10g。返工最多 2 次。不补的，在 `catalog_changes.md` 每条写一行理由 |
 
 **完成判据**：三条命令都 `exit=0`；`status` 全部 `rendered`；`catalog_check.txt` 末行是 `0 finding(s)`，或剩下的每条在 `catalog_changes.md` 里写了不补的理由。
+`catalog validate` 仍报 `state_attribute_without_states` 而 `catalog_changes.md` 里有那个概念的 `states skip` 行时，是正常的：validate 不读这个文件，以 `catalog_check` 为准，不算返工失败。
 
 **已知限制**（遇到时照做，不要去修工具）：
 
