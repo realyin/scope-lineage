@@ -262,3 +262,42 @@ def test_w9_section_3_has_a_legend_and_no_empty_usage_cell() -> None:
     rows = [line for line in section.splitlines() if line.startswith("| `")]
     assert rows and all(not line.rstrip().endswith("|  |") for line in rows)
     assert any(line.endswith("| 未读 |") for line in rows)
+
+
+# ------------------------------------------------------------------ G1 inputs via a feeder
+
+G1_SCHEMA = {"ods.src": ["k", "v", "dt"], "ods.side": ["k", "w"], "tmp.mid": ["k", "v"],
+             "tmp.mid2": ["k", "v"], "dw.out": ["k", "v"]}
+G1_SQL = (
+    "INSERT OVERWRITE TABLE tmp.mid SELECT s.k, s.v FROM ods.src s WHERE s.dt = '20250101';\n"
+    "INSERT OVERWRITE TABLE tmp.mid2 SELECT m.k, m.v FROM tmp.mid m;\n"
+    "INSERT OVERWRITE TABLE dw.out SELECT m.k, m.v FROM tmp.mid2 m JOIN ods.side d ON m.k = d.k;\n"
+)
+G1_META = {
+    "ods.src": {"columns": [{"name": n, "type": "string", "comment": n} for n in ("k", "v", "dt")],
+                "partitioned": True, "partition_columns": ["dt"]},
+}
+
+
+def _g1_packet() -> dict:
+    document = to_task_lineage_dict(parse_task_lineage(G1_SQL, task_name="t0", schema=G1_SCHEMA))
+    (packet,) = build_packets([(document, None)], tasks=[{"name": "t0", "sql": G1_SQL}],
+                              metadata=G1_META.get, only=["dw.out"])
+    return packet
+
+
+def test_g1_inputs_cover_tables_read_by_same_task_statements_feeding_the_target() -> None:
+    inputs = {entry["table"]: entry for entry in _g1_packet()["inputs"]}
+    assert set(inputs) == {"ods.side", "ods.src", "tmp.mid", "tmp.mid2"}
+    assert "via" not in inputs["tmp.mid2"] and "via" not in inputs["ods.side"]
+    assert inputs["ods.src"]["via"] == [{"task": "t0", "statement_id": "stmt:001", "writes": "tmp.mid"}]
+    assert inputs["tmp.mid"]["via"] == [{"task": "t0", "statement_id": "stmt:002", "writes": "tmp.mid2"}]
+    assert inputs["ods.src"]["partition_filters"] == ["`s`.`dt` = '20250101'"]
+    assert inputs["ods.src"]["partition_read"] == "equality"
+
+
+def test_g1_packet_md_says_how_a_feeder_input_is_read() -> None:
+    text = render_packet_markdown(_g1_packet())
+    section = _section(text, "### `ods.src`", "## 4.")
+    assert "经同任务中间语句读入：`stmt:001` 写 `tmp.mid`" in section
+    assert "`` `s`.`dt` = '20250101' ``" in section

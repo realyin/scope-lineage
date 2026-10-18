@@ -139,7 +139,13 @@ def _task_entry(table: str, task: str, group: list[dict], corpus, columns=()) ->
 # ------------------------------------------------------------------ inputs
 
 
-def inputs_section(target: str, statements: list, rules: list[dict], corpus) -> list[dict]:
+def inputs_section(
+    target: str, statements: list, rules: list[dict], corpus, feeders=(), feeder_rules=(),
+) -> list[dict]:
+    """Every table the target's statements read, then (G1) what the same task's earlier
+    writes feeding them read: an intermediate table's sources, with ``via`` naming the
+    statement and the table it writes. A feeder's roles are its own table's, not this
+    one's, so they are not merged; its columns and partition reads are."""
     merged: dict[str, dict] = {}
     for _, statement in statements:
         for item in statement.get("inputs") or []:
@@ -147,10 +153,23 @@ def inputs_section(target: str, statements: list, rules: list[dict], corpus) -> 
             entry = merged.setdefault(table, _new_input(target, table, item, corpus))
             entry["roles"].extend(r for r in item.get("roles") or [] if r not in entry["roles"])
             entry["driving"] = entry["driving"] or bool(item.get("driving"))
-            for column in item.get("used_columns") or []:
-                usages = entry["_used"].setdefault(str(column.get("name")), [])
-                usages.extend(u for u in column.get("usages") or [] if u not in usages)
-    return [_finish_input(merged[table], rules, corpus) for table in sorted(merged)]
+            _merge_used(entry, item)
+    for task, statement, writes in feeders:
+        for item in statement.get("inputs") or []:
+            table = bare_table(item.get("table"))
+            entry = merged.setdefault(table, _new_input(target, table, item, corpus))
+            via = {"task": task, "statement_id": statement.get("statement_id"), "writes": writes}
+            if via not in entry.setdefault("via", []):
+                entry["via"].append(via)
+            _merge_used(entry, item)
+    every = list(rules) + list(feeder_rules)
+    return [_finish_input(merged[table], every, corpus) for table in sorted(merged)]
+
+
+def _merge_used(entry: dict, item: dict) -> None:
+    for column in item.get("used_columns") or []:
+        usages = entry["_used"].setdefault(str(column.get("name")), [])
+        usages.extend(u for u in column.get("usages") or [] if u not in usages)
 
 
 def _new_input(target: str, table: str, item: dict, corpus) -> dict:

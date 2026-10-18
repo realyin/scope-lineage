@@ -301,7 +301,7 @@ def _inputs(inputs: list[dict], rules: list[dict] = ()) -> list[str]:
             f"### {_code(entry['table'])}（{_comment(entry)}）",
             "",
             f"- 在本表的作用：{_names(entry['roles'])}；主表：{'是' if entry['driving'] else '否'}；"
-            f"层：{_text(entry['layer'])}；生产任务：{_names(entry['producers'])}",
+            f"层：{_text(entry['layer'])}；生产任务：{_names(entry['producers'])}{_via(entry)}",
             f"- 分区列（元数据）：{_names(entry['partition_columns'])}；"
             f"分区读取：{entry['partition_read']}（{_partition_filters(entry, rules)}）"
             f"{_unfixed_partitions(entry)}；"
@@ -319,6 +319,13 @@ def _inputs(inputs: list[dict], rules: list[dict] = ()) -> list[str]:
         lines += _column_table(["列", "类型", "注释", "本表用到"], rows, entry["columns"])
         lines.append("")
     return lines
+
+
+def _via(entry: dict) -> str:
+    """G1: the same task's earlier writes that read this table into an intermediate one."""
+    said = "、".join(f"{_code(item['statement_id'])} 写 {_code(item['writes'])}"
+                     for item in entry.get("via") or [])
+    return f"；经同任务中间语句读入：{said}" if said else ""
 
 
 def _ids(rules) -> str:
