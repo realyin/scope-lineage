@@ -1192,13 +1192,19 @@ def listed_labels(comment) -> list[str]:
 def label_list(comment) -> list[str]:
     """W5: :func:`listed_labels` when the list is all there is -- a suspected value list.
 
-    Every item must be a label and there must be two: ``甲、乙 (见 2.1)`` is prose with a
-    list in it, not a list of the values the column takes.
+    The comment must have the list shape ``名称：甲、乙、丙``: a name, a colon, then nothing
+    but labels, three or more. ``甲、乙 (见 2.1)`` is prose with a list in it, and a plain
+    comma phrase (``账户状态，必填``, ``first name, last name``) is no list of values.
     """
-    text = re.split(r"[:：]", str(comment or ""), maxsplit=1)[-1]
-    items = [item for item in _LABEL_SPLIT.split(text) if item]
+    parts = re.split(r"[:：]", str(comment or ""), maxsplit=1)
+    if len(parts) < 2 or not parts[0].strip():
+        return []
+    items = [item for item in _LABEL_SPLIT.split(parts[1]) if item]
     labels = listed_labels(comment)
-    return labels if len(labels) >= 2 and all(map(_LABEL.match, items)) else []
+    return labels if len(labels) >= _LABEL_LIST_MINIMUM and all(map(_LABEL.match, items)) else []
+
+
+_LABEL_LIST_MINIMUM = 3
 
 
 def enumerated_meanings(comment: str) -> dict[str, str]:
@@ -1235,12 +1241,13 @@ def enumerated_meanings(comment: str) -> dict[str, str]:
     return {**adjacent, **joined}
 
 
-# G2. ``1是 0否`` / ``1是0否`` / ``Y是 N否``: short codes straight against their labels. A
+# G2. ``1是 0否`` / ``1是0否`` / ``Y是 N否``: short codes (at most two digits, all of one
+# width) straight against their labels. A
 # digit code may follow the previous label directly (a digit cannot be part of a label);
 # a letter code needs a token of its own, as ``id关联`` is a word. A label holds no ASCII
 # letter or digit, and one running into a conjunction (``3天或7天``) lists amounts, not
 # codes.
-_GLUED_DIGIT_PAIR = re.compile(r"(\d{1,4})([^\x00-\x7f]+)")
+_GLUED_DIGIT_PAIR = re.compile(r"(\d{1,2})([^\x00-\x7f]+)")
 _GLUED_LETTER_PAIR = re.compile(r"^([A-Z][A-Z0-9]{0,2})([^\x00-\x7f]+)$")
 _GLUED_CONJUNCTIONS = ("或", "和", "与", "及", "至", "到")
 
@@ -1258,7 +1265,9 @@ def _glued_meanings(tokens: Sequence[str]) -> dict[str, str]:
             pairs += found
     codes = [code.lower() for code, _label in pairs]
     labels = [label for _code, label in pairs]
+    # Codes of one table share a width: ``2023年12月`` is a date, not codes 2023 and 12.
     if (len(pairs) < _MINIMUM_ADJACENT_PAIRS or len(set(codes)) < len(codes)
+            or len({len(code) for code in codes}) > 1
             or len(set(labels)) < len(labels)
             or any(label.endswith(_GLUED_CONJUNCTIONS) for label in labels)):
         return {}

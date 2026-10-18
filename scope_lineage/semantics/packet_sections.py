@@ -256,6 +256,7 @@ def _producer_columns(produced: list[dict], used: dict[str, list]) -> list[dict]
 
 def lineage_section(
     table: str, statements: list, rules: list[dict], target: dict, corpus, inputs=(),
+    feeders=(), feeder_rules=(),
 ) -> dict:
     """Column lineage, rules, keys, partitions, neighbours and findings.
 
@@ -284,7 +285,7 @@ def lineage_section(
                 + declared_key_leads(table, statements, rules, list(inputs), lineage)
                 + partition_format_leads(rules, list(inputs))
                 + merge_key_leads(lineage)
-                + state_leads(table, statements, rules, list(inputs)))
+                + state_leads(table, statements, rules, list(inputs), feeders, feeder_rules))
     return {**lineage, **({"findings": findings} if findings else {})}
 
 
