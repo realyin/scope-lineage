@@ -293,11 +293,22 @@ def _step_literals(step: dict) -> tuple[list[str], bool]:
     single = _literal_sql(node)
     if single is not None:
         return [single], True
+    return list(dict.fromkeys(_value_literals(node))), False
+
+
+def _value_literals(node) -> list[str]:
+    """The literals one value writes: itself, a COALESCE's fallback, a CASE / IF's outputs.
+
+    W4: read as deep as the value goes, so ``ELSE COALESCE(x, '')`` writes ``''`` and a
+    CASE nested in a branch writes its own outputs.
+    """
+    node = _bare(node)
+    single = _literal_sql(node)
+    if single is not None:
+        return [single]
     if isinstance(node, exp.Coalesce):
-        last = _literal_sql(_bare(([node.this] + list(node.expressions))[-1]))
-        return ([last] if last is not None else []), False
-    outputs = [_literal_sql(_bare(value)) for _condition, value in _branches(node)]
-    return [value for value in outputs if value is not None], False
+        return _value_literals(([node.this] + list(node.expressions))[-1])
+    return [found for _condition, value in _branches(node) for found in _value_literals(value)]
 
 
 def _bare(node):

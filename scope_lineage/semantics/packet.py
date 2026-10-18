@@ -249,6 +249,17 @@ class _Corpus:
         grain = (statement.get("output_shape") or {}).get("grain") or {}
         return grain_key_columns(lineage, grain) if lineage and grain.get("keys") else []
 
+    def task_writes(self, task: str) -> list[dict]:
+        """W6: ``[{statement_id, statement_index, table}]`` of every write ``task`` makes."""
+        writes = [
+            {"statement_id": statement_id, "statement_index": lineage.get("statement_index"),
+             "table": bare_table(lineage.get("target_table"))}
+            for (owner, statement_id), lineage in self._statements.items()
+            if owner == task and lineage.get("target_table")
+            and isinstance(lineage.get("statement_index"), int)
+        ]
+        return sorted(writes, key=lambda item: item["statement_index"])
+
     def task_reads(self, task: str) -> set[str] | None:
         """What ``task`` reads over all its statements; ``None`` for a task not parsed."""
         return self._reads.get(task)

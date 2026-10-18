@@ -220,7 +220,7 @@ merged = merge_table_cards(first_tables_json, second_tables_json)
   `consumer_usage_counts` 为空、`produced_summary` 为 `null`，它是「元数据声明了、语料没碰过」，
   不是「无人使用」。`coverage.columns_used` / `coverage.columns_declared` 是同一件事的两个计数，
   没有任何文档声明过这张表时 `columns_declared` 为 `null`（不是 0）。
-- `consumer_usage_counts` 的取值来自 `filter`、`partition_filter`、`join_key`、`group_by`、
+- `consumer_usage_counts` 的取值来自 `filter`、`partition_filter`、`join_key`、`join_condition`（JOIN 的附加 ON 条件按原名读到的物理列；派生列的输入不算）、`group_by`、
   `window_partition`、`window_order`、`output`，按这个顺序输出，计数为 0 的键不出现。
 
 ### 表名归一

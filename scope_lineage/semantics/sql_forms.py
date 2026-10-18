@@ -254,3 +254,27 @@ def _computes(projection, name: str) -> bool:
 
 def _first_select(query):
     return query if isinstance(query, exp.Select) else query.find(exp.Select)
+
+
+def statement_starts(sql: str | None) -> list[int | None]:
+    """W6: the offset each statement of a script starts at, by its ``statement_index``.
+
+    Counted as SQLGlot splits a script -- the lineage's statement numbers come from that
+    split: a statement ends at each ``;``, a ``;`` carrying a comment is a statement of its
+    own, and an empty statement (``;;``) keeps its place with no offset. A script the
+    tokenizer cannot read gives ``[]``.
+    """
+    try:
+        tokens = sqlglot.Dialect.get_or_raise(DIALECT).tokenize(str(sql or ""))
+    except _PARSE_ERRORS:
+        return []
+    chunks: list[list] = [[]]
+    for index, token in enumerate(tokens):
+        if token.token_type == sqlglot.TokenType.SEMICOLON:
+            if token.comments:
+                chunks.append([token])
+            if index < len(tokens) - 1:
+                chunks.append([])
+        else:
+            chunks[-1].append(token)
+    return [chunk[0].start if chunk else None for chunk in chunks]

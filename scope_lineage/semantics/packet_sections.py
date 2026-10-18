@@ -15,7 +15,13 @@ from . import packet_facts as facts
 from .names import bare_table
 from .packet_comments import comment_markers
 from .packet_context import date_literals, upstream_unmatched
-from .packet_leads import declared_key_leads, marker_leads
+from .packet_leads import (
+    declared_key_leads,
+    marker_leads,
+    merge_key_leads,
+    partition_format_leads,
+    state_leads,
+)
 from .packet_meaning import header_facts, producer_header
 from .packet_notes import merge_block, statement_findings
 
@@ -123,6 +129,8 @@ def _task_entry(table: str, task: str, group: list[dict], corpus, columns=()) ->
         "header_facts": header_facts(info.get("header_comments"), record.get("sql"),
                                      table, corpus.tables_written_by(task), columns),
         "statements": [statement.get("statement_id") for statement in group],
+        # W6: a script of one write needs no numbers (and its packet keeps its digest).
+        **({"writes": writes} if len(writes := corpus.task_writes(task)) > 1 else {}),
         "source_file": meta.get("source_file") or record.get("source_file"),
         "sql": record.get("sql"),
     }
@@ -203,7 +211,8 @@ def _finish_input(entry: dict, rules: list[dict], corpus) -> dict:
 
 # The ways of reading a column that decide which rows match or group: a writer reading a
 # join or a filter on an input needs to know how its producer computes that column.
-_KEYED_USAGES = frozenset({"join_key", "filter", "window_partition", "window_order"})
+_KEYED_USAGES = frozenset({"join_key", "join_condition", "filter", "window_partition",
+                           "window_order"})
 
 
 def _producer_columns(produced: list[dict], used: dict[str, list]) -> list[dict]:
@@ -253,7 +262,10 @@ def lineage_section(
     }
     findings = (statement_findings(rules, statements)
                 + marker_leads(table, statements, rules, list(inputs))
-                + declared_key_leads(table, statements, rules, list(inputs), lineage))
+                + declared_key_leads(table, statements, rules, list(inputs), lineage)
+                + partition_format_leads(rules, list(inputs))
+                + merge_key_leads(lineage)
+                + state_leads(table, statements, rules, list(inputs)))
     return {**lineage, **({"findings": findings} if findings else {})}
 
 
