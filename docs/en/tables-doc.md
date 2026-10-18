@@ -265,7 +265,7 @@ merged = merge_table_cards(first_tables_json, second_tables_json)
   it is "declared by the metadata, never touched by this corpus", not "used by nobody".
   `coverage.columns_used` / `coverage.columns_declared` are the same fact as two counts;
   `columns_declared` is `null` (not 0) when no document declared the table.
-- `consumer_usage_counts` uses `filter`, `partition_filter`, `join_key`, `group_by`,
+- `consumer_usage_counts` uses `filter`, `partition_filter`, `join_key`, `join_condition` (a physical column a JOIN's extra ON condition reads under its own name; a derived column's inputs do not count), `group_by`,
   `window_partition`, `window_order` and `output`, published in that order; a key whose
   count is zero is not published.
 

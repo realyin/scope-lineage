@@ -243,6 +243,7 @@ USAGE_ORDER = (
     "filter",
     "partition_filter",
     "join_key",
+    "join_condition",
     "group_by",
     "window_partition",
     "window_order",
@@ -1634,6 +1635,18 @@ def _record_join_usages(block: dict, record) -> None:
     # physical inputs as `physical_fields` -- the window's partition and order columns.
     # Calling those a filter usage would state that a column is filtered when it is not;
     # the condition itself is published verbatim as `rules[].extra_conditions`.
+    # W2: a column the condition reads under its own name (`b.status = '1'`) is read,
+    # though: it is recorded as `join_condition`, so a reader is not told it goes unused.
+    for condition in detail.get("condition_filters") or []:
+        named = {str(field.get("column")).lower() for field in condition.get("fields") or []}
+        record(
+            (
+                (str(field.get("table")), str(field.get("field")))
+                for field in condition.get("physical_fields") or []
+                if field.get("table") and str(field.get("field") or "").lower() in named
+            ),
+            "join_condition",
+        )
 
 
 def _record_group_by_usages(block: dict, record) -> None:

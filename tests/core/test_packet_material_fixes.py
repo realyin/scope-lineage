@@ -40,3 +40,36 @@ def test_w1_packet_md_holds_no_c0_control_character_but_tab_and_newline() -> Non
     text = render_packet_markdown(packet)
     assert not re.search(r"[\x00-\x08\x0b-\x1f\x7f]", text)
     assert "| 键 |" in text and "值\t说明" in text
+
+
+# ------------------------------------------------------------------ W2 extra ON conditions
+
+W2_SCHEMA = {"ods.a": ["k", "flag"], "ods.b": ["k", "v", "st", "ts"], "dw.out": ["k", "v"]}
+W2_SQL = (
+    "INSERT OVERWRITE TABLE dw.out SELECT a.k, b.v FROM ods.a a LEFT JOIN ("
+    "SELECT k, v, st, row_number() OVER (PARTITION BY k ORDER BY ts DESC) rn FROM ods.b) b "
+    "ON a.k = b.k AND b.rn = 1 AND b.st = '1' AND a.flag <> 'x'"
+)
+
+
+def _usages(packet: dict, table: str) -> dict[str, list[str]]:
+    entry = next(item for item in packet["inputs"] if item["table"] == table)
+    return {column["name"]: column["usages"] for column in entry["columns"]}
+
+
+def test_w2_a_physical_column_in_an_extra_on_condition_is_a_join_condition_usage() -> None:
+    packet = _pack(W2_SQL, W2_SCHEMA)
+    assert "join_condition" in _usages(packet, "ods.b")["st"]
+    assert "join_condition" in _usages(packet, "ods.a")["flag"]
+
+
+def test_w2_a_derived_column_in_an_extra_on_condition_lends_no_usage_to_its_inputs() -> None:
+    packet = _pack(W2_SQL, W2_SCHEMA)
+    assert "join_condition" not in _usages(packet, "ods.b")["ts"]
+    assert "join_condition" not in _usages(packet, "ods.b")["k"]
+
+
+def test_w2_packet_md_no_longer_calls_an_on_condition_column_read_unused() -> None:
+    text = render_packet_markdown(_pack(W2_SQL, W2_SCHEMA))
+    row = next(line for line in text.splitlines() if line.startswith("| `st` |"))
+    assert "join_condition" in row and "读入未用" not in row

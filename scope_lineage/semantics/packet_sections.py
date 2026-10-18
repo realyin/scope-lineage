@@ -203,7 +203,8 @@ def _finish_input(entry: dict, rules: list[dict], corpus) -> dict:
 
 # The ways of reading a column that decide which rows match or group: a writer reading a
 # join or a filter on an input needs to know how its producer computes that column.
-_KEYED_USAGES = frozenset({"join_key", "filter", "window_partition", "window_order"})
+_KEYED_USAGES = frozenset({"join_key", "join_condition", "filter", "window_partition",
+                           "window_order"})
 
 
 def _producer_columns(produced: list[dict], used: dict[str, list]) -> list[dict]:
