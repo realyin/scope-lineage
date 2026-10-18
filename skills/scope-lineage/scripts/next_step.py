@@ -182,10 +182,16 @@ def _assess(run: Path) -> tuple[str, str, list[str], set[str]]:
         return "S10d", "这些组还没有片段：" + ("、".join(no_fragment) or "catalog_plan.md 里没有「## 组 …」"), [], skipped
     if not (run / "merged").is_dir() or not (run / "merge_report.txt").is_file():
         return "S10e", "缺 merged/ 或 merge_report.txt", [], skipped
-    if not (run / "catalog_changes.md").is_file():
+    changes = run / "catalog_changes.md"
+    if not changes.is_file():
         return "S10f", "缺 catalog_changes.md（没有要改的也写一行「无改动」）", [], skipped
+    if changes.stat().st_mtime < (run / "merge_report.txt").stat().st_mtime:
+        # S10c may have opened it (skip lines, incremental changes); S10f writes it after the merge.
+        return "S10f", "catalog_changes.md 还是合并前写的：S10f 做完要在末尾记改动（没有就加一行「无改动」）", [], skipped
     if not (run / "onto" / "ontology.json").is_file() or not (run / "site" / "concepts").is_dir():
         return "S10g", "缺 onto/ontology.json 或 site/concepts/", [], skipped
+    if not (run / "catalog_check.txt").is_file():
+        return "S10g", "缺 catalog_check.txt（S10g 最后一条：漏做检查）", [], skipped
     if "S11" not in skipped and not any((run / "round1" / "score").glob("*")):
         return "S11", "env.sh 里 Q 不为空，round1/score/ 还是空的", [], skipped
     if not (run / "RESULT.md").is_file():

@@ -78,8 +78,9 @@ python3 -c 'import os,sys; print(os.path.dirname(os.path.dirname(os.path.dirname
 1. **写作和审读是两次独立调用。** 审读员只读材料包和文档，不看写作者的推理。不要自己写完自己审。
 2. **低级问题不修。** 审读的高 + 中 = 0 的表就是 `fixed`；只有首审有高级问题的表复审一次。
 3. **通过与否看命令输出，不看感觉。** 进度脚本说「做完」只表示文件在了，内容对不对由每步的完成判据决定。
-4. **S10g 必须跑漏做检查** `catalog_check.py`。末行不是 `0 finding(s)` 就按手册 S10g 返工，或在 `catalog_changes.md`
-   逐条写不补的理由。
+4. **S10g 必须跑漏做检查** `catalog_check.py`（带 `--digest` 和 `--changes`）。末行不是 `0 finding(s)` 就按手册 S10g 返工，
+   或在 `catalog_changes.md` 逐条写不补的理由；digest 的每条 filter / dedup / derive 规则要么有约束承接，要么有一行
+   `<库.表>#rN skip: <理由>`。
 5. **人的决定要推到底。** 「某列就是某编号」意味着那张事件表要把它指向的概念列为参与者；「某对象建成概念」意味着
    旁边的名称、描述列要挂到那个概念上。
 6. **不改 `docs/` 里的表语义文档**：只有写作和修订子代理改它们。编排者不手改，也不只改 `packet_digest` 让校验通过。
@@ -115,7 +116,7 @@ python3 -c 'import os,sys; print(os.path.dirname(os.path.dirname(os.path.dirname
 | 概念名是 `cust`、`acct` 这类英文词根，或 `nan` | 同上 | 回到 S0 |
 | 有 `docs/` 没有 `reviews/` | 漏了独立审读 | 回到 S6 |
 | 进度脚本的当前步和你以为的不一样 | 以脚本为准 | 从脚本说的那一步的前提检查开始 |
-| `catalog_check.txt` 有 `empty_concept`、`missing_participant` | 目录漏做 | 手册 S10g 的返工 |
+| `catalog_check.txt` 有 `empty_concept`、`missing_participant`、`unabsorbed_rule`、`state_without_states` 等 | 目录漏做 | 手册 S10g 的返工 |
 
 ## 8. 交付
 

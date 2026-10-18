@@ -637,13 +637,18 @@ documented uncertainty).
   step, as `references/runbook.md` 0.6 says.
 - `scripts/catalog_check.py` — what a built catalog left undone, which `catalog validate` cannot
   see: concepts with no attribute, an event table's foreign identifier whose concept is not a
-  participant, and a name / description column bound to the table's own concept beside a code
-  column that points at another concept. Run it on `onto/ontology.json` as
-  `references/runbook.md` S10g says; exit 1 when it has findings.
+  participant, a name / description column bound to the table's own concept beside a code
+  column that points at another concept, a state attribute with codes and no `states`, a
+  measure with no unit, a code-like column bound as a plain attribute, and (with `--digest`
+  and `--changes`) a filter / dedup / derive rule of the digest that no constraint carries and
+  no `skip` line names. Run it on `onto/ontology.json` as `references/runbook.md` S10g says;
+  exit 1 when it has findings.
 - `scripts/make_corrections.py` — the corrections list a whole rewrite hands its writer: reads
   the old review, the first review behind a re-review, the fix log and the rebuilt packet, and
   sorts every old finding into fixed (follow it), worth a look (check it first) or out, saying
-  which ones it could not read or check. Run it as `references/runbook.md` S4 says.
+  which ones it could not read or check; with the old document (`--prior-doc`) it adds the old
+  wording beside each unchecked item and the old watch / question points whose cited material
+  is still in the new packet. Run it as `references/runbook.md` S4 says.
 - `scripts/confirmations.py` — the write-back half: reads the answered 待确认清单 out of a
   `business_profile.md` and merges it into `glossary.overrides.json` /
   `metadata-patch.json`. Run it after the business owner answers, then re-run `glossary`

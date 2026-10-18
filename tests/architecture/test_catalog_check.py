@@ -179,3 +179,110 @@ def test_both_name_and_description_suffixes_are_matched(tmp_path, suffix):
     result = _check(_save(tmp_path, ontology))
     assert result.returncode == 1
     assert f"demo_dwd.task_det.queue{suffix}" in result.stdout
+
+
+# ---- semantic omissions: states, units, code columns, and rules the digest carries ----
+
+def _check_with(path: Path, *extra: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, str(SCRIPT), str(path), *extra], capture_output=True, text=True, encoding="utf-8"
+    )
+
+
+def _lines(result: subprocess.CompletedProcess, kind: str) -> list[str]:
+    return [line for line in result.stdout.splitlines() if line.startswith(kind + " ")]
+
+
+DIGEST = {
+    "doc_format": "catalog-digest/1",
+    "tables": [
+        {"table": "demo_dwd.task_det", "rules": [
+            {"id": "r1", "kind": "filter", "text": "只读当日分区"},
+            {"id": "r2", "kind": "dedup", "text": "每个 task_id 留最新一条"},
+            {"id": "r3", "kind": "join", "text": "按 queue_cd 关联队列"},
+            {"id": "r12", "kind": "derive", "text": "金额为空时写 0"},
+        ]},
+        {"table": "demo_dwd.record_det", "rules": []},
+        {"table": "demo_dwd.no_rules_det"},
+    ],
+}
+
+
+def _save_digest(tmp_path: Path, digest: dict = DIGEST) -> Path:
+    path = tmp_path / "digest.json"
+    path.write_text(json.dumps(digest, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
+def test_a_state_attribute_with_codes_but_no_states_is_reported(tmp_path):
+    ontology = _complete()
+    task = _concept(ontology, "concept:task")
+    task["attributes"].append({"id": "attr:task.status", "name": "状态", "category": "state", "code_set": "code:task_status"})
+    task["attributes"].append({"id": "attr:task.phase", "name": "阶段", "category": "state"})   # no codes: nothing to draft
+    result = _check(_save(tmp_path, ontology))
+    assert result.returncode == 1
+    lines = _lines(result, "state_without_states")
+    assert len(lines) == 1 and "concept:task" in lines[0] and "attr:task.status" in lines[0]
+    task["states"] = [{"attribute": "attr:task.status", "values": [{"value": "1", "name": "进行中"}]}]
+    assert _check(_save(tmp_path, ontology)).returncode == 0
+
+
+def test_a_measure_without_a_unit_is_reported(tmp_path):
+    ontology = _complete()
+    amount = _concept(ontology, "concept:task")["attributes"][0]
+    amount["category"] = "measure"
+    result = _check(_save(tmp_path, ontology))
+    assert result.returncode == 1
+    assert any("attr:task.amount" in line for line in _lines(result, "measure_without_unit"))
+    amount["unit"] = "元"
+    assert _check(_save(tmp_path, ontology)).returncode == 0
+
+
+def test_a_code_column_bound_as_a_plain_attribute_is_listed(tmp_path):
+    ontology = _complete()
+    _bindings(ontology, "demo_dwd.task_det").append({"column": "owner_no", "to": "attribute", "ref": "attr:task.owner"})
+    _bindings(ontology, "demo_dwd.task_det").append({"column": "remark", "to": "attribute", "ref": "attr:task.remark"})
+    # a coded value with its code set is not a pointer
+    _concept(ontology, "concept:task")["attributes"].append({"id": "attr:task.kind", "name": "类型", "code_set": "code:kind"})
+    _bindings(ontology, "demo_dwd.task_det").append({"column": "kind_cd", "to": "attribute", "ref": "attr:task.kind"})
+    result = _check(_save(tmp_path, ontology))
+    assert result.returncode == 1
+    lines = _lines(result, "code_attribute_without_relation")
+    assert len(lines) == 1 and "demo_dwd.task_det.owner_no" in lines[0] and "attr:task.owner" in lines[0]
+
+
+def test_without_a_digest_no_rule_is_checked(tmp_path):
+    assert _check(_save(tmp_path, _complete())).returncode == 0
+
+
+def test_a_filter_dedup_or_derive_rule_no_constraint_carries_is_reported(tmp_path):
+    result = _check_with(_save(tmp_path, _complete()), "--digest", str(_save_digest(tmp_path)))
+    assert result.returncode == 1
+    found = sorted(line.split()[1] for line in _lines(result, "unabsorbed_rule"))
+    assert found == ["demo_dwd.task_det#r1", "demo_dwd.task_det#r12", "demo_dwd.task_det#r2"]   # join: not asked
+    assert result.stdout.splitlines()[-1] == "3 finding(s)"
+
+
+def test_a_rule_is_absorbed_by_a_constraint_or_a_skip_line(tmp_path):
+    ontology = _complete()
+    ontology["constraints"] = [{"id": "con:task_latest", "kind": "unique", "on": "concept:task",
+                                "rules": ["demo_dwd.task_det#r2"]}]
+    changes = tmp_path / "catalog_changes.md"
+    changes.write_text("# changes\n\n- demo_dwd.task_det#r1 skip: 只是分区读取，不是业务约束\n", encoding="utf-8")
+    result = _check_with(_save(tmp_path, ontology), "--digest", str(_save_digest(tmp_path)), "--changes", str(changes))
+    found = [line.split()[1] for line in _lines(result, "unabsorbed_rule")]
+    assert found == ["demo_dwd.task_det#r12"]                  # r1 in changes does not cover r12
+    changes.write_text("- demo_dwd.task_det#r12 skip: 回填值已写在属性定义里\n" + changes.read_text(encoding="utf-8"),
+                       encoding="utf-8")
+    result = _check_with(_save(tmp_path, ontology), "--digest", str(_save_digest(tmp_path)), "--changes", str(changes))
+    assert result.returncode == 0, result.stdout
+
+
+def test_a_missing_or_wrong_digest_or_changes_file_exits_2(tmp_path):
+    ontology = _save(tmp_path, _complete())
+    assert _check_with(ontology, "--digest", str(tmp_path / "none.json")).returncode == 2
+    wrong = tmp_path / "wrong.json"
+    wrong.write_text(json.dumps({"doc_format": "ontology-json/3"}), encoding="utf-8")
+    result = _check_with(ontology, "--digest", str(wrong))
+    assert result.returncode == 2 and "catalog-digest" in result.stderr
+    assert _check_with(ontology, "--digest", str(_save_digest(tmp_path)), "--changes", str(tmp_path / "none.md")).returncode == 2
