@@ -314,3 +314,88 @@ def test_an_old_file_named_into_reviews_would_be_read_as_a_table(tmp_path):
     (run / "packets").mkdir(parents=True)
     _write(run / "reviews" / f"{TABLE}.prior.round1.md", FRONT.format(doc="1111111111111111", h=0, m=0, l=0, extra=""))
     assert _status_tables(run) == ["prior.round1"]
+
+
+# ---- the old document: its wording beside unchecked items, its points still true -------
+
+PRIOR_DOC = {
+    "table": TABLE,
+    "summary": {
+        "what": "每个分组一行。",
+        "row": {"text": "一行是一个分组的一个版本。", "note": "同名同环境只留一条。"},
+        "refresh": {"how_to_read": "按 beg_dt 与结束日取某日有效的版本。"},
+        "scope": ["只读当日分区。", "同一 grp_name、env 只留 upd 最新的一条。"],
+        "not_for": ["不适合看删除记录。"],
+        "watch": [
+            {"kind": "risk", "text": "末版本写 '99991231'，按 grp_name 排序取下一版本的 beg_dt。"},
+            {"kind": "risk", "text": "缺 retired_flag 过滤，已停用的分组也会进入。"},
+            {"kind": "other", "text": "下游怎么读本表材料没有给出。"},
+        ],
+        "questions": [
+            {"id": "q1", "text": "site_id 在 c 表里是否唯一？", "about": ["column:site_id"], "status": "open"},
+        ],
+    },
+    "columns": [
+        {"column": "end_dt", "meaning": "版本结束日。",
+         "branches": [{"branch": "b1", "text": "取下一版本的 beg_dt。"}, {"branch": "b2", "text": "末版本写 '99991231'。"}]},
+    ],
+    "rules": [{"id": "r7", "kind": "join", "text": "按 site_id 左关联 c。"}],
+}
+
+# L1 and o1 lose their quotes: nothing to check them by, so they are 未核.
+UNCHECKED = (PRIOR
+             .replace("- 材料包事实：p3 `ROW_NUMBER() OVER (PARTITION BY grp_name, env ORDER BY upd DESC)`\n- 应改成：补",
+                      "- 材料包事实：p3 的去重只按名称和环境分组\n- 应改成：补", 1)
+             .replace("取数缺前置条件 `PARTITION BY grp_name, env` | 适用 | 已避免：how_to_read 写了",
+                      "取数缺前置条件 | 适用 | 已避免（`how_to_read`「按 beg_dt」、`columns[end_dt].branches[b2]`、"
+                      "`questions[q1]`、`summary.watch[9]`）"))
+
+
+def _run_doc(tmp_path: Path, prior: str, doc: dict):
+    args = [sys.executable, str(SCRIPT), str(_write(tmp_path / "prior.md", prior)), str(_packet(tmp_path)),
+            "--fixlog", str(_write(tmp_path / "fixlog.txt", FIXLOG)),
+            "--prior-doc", str(_write(tmp_path / "prior.json", json.dumps(doc, ensure_ascii=False))),
+            "--out", str(tmp_path / "corrections.txt"), "--report", str(tmp_path / "report.json")]
+    done = subprocess.run(args, capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    report = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
+    return {item["id"]: item for item in report}, (tmp_path / "corrections.txt").read_text(encoding="utf-8"), done.stderr
+
+
+def _entry_of(section: str, label: str) -> str:
+    return section.split(f"[{label}", 1)[1].split("\n[", 1)[0]
+
+
+def test_an_unchecked_item_carries_the_old_documents_wording_at_its_location(tmp_path):
+    items, text, stderr = _run_doc(tmp_path, UNCHECKED, PRIOR_DOC)
+    b = _section(text, "B")
+    finding = _entry_of(b, "L1")
+    assert "上一版写法：`summary.scope[1]`「同一 grp_name、env 只留 upd 最新的一条。」" in finding
+    row = _entry_of(b, "o1 第 1 轮 H1")
+    # short paths resolve under summary and summary.refresh; [key] matches a branch or an id
+    assert "`how_to_read`「按 beg_dt 与结束日取某日有效的版本。」" in row
+    assert "`columns[end_dt].branches[b2]`「末版本写 '99991231'。」" in row
+    assert "`questions[q1]`「site_id 在 c 表里是否唯一？」" in row
+    assert "summary.watch[9]" not in row.split("上一版写法：", 1)[1]   # out of range: not invented
+    assert items["o1 第 1 轮 H1"]["prior_wording"] == 3
+    assert items["o1 第 1 轮 H1"]["unresolved"] == ["summary.watch[9]"]
+    assert "上一版写法" not in _entry_of(_section(text, "A"), "M1")   # checked items need none
+    assert "上一版写法 2/2" in stderr
+
+
+def test_without_the_old_document_nothing_is_added(tmp_path):
+    _, text, _ = _run(tmp_path, UNCHECKED, FIXLOG)
+    assert "上一版写法：" not in text
+    assert _section(text, "C").split("\n", 1)[1].strip() == "无"
+
+
+def test_old_points_whose_evidence_is_still_in_the_packet_come_back_as_c(tmp_path):
+    items, text, _ = _run_doc(tmp_path, UNCHECKED, PRIOR_DOC)
+    c = _section(text, "C")
+    assert "末版本写 '99991231'" in c                           # 'literal' and grp_name both in the packet
+    assert "site_id 在 c 表里是否唯一？" in c                   # a question counts like a watch item
+    assert "retired_flag" not in c                              # its column is gone from the packet
+    assert "下游怎么读本表" not in c                            # nothing to check it by
+    assert "核对后保留" in text.split("## A 段")[0]              # the usage says what C is for
+    dropped = [item for item in items.values() if item.get("from") == "prior_doc" and item["dest"] == "dropped"]
+    assert [item["missing"] for item in dropped] == [["retired_flag"]]

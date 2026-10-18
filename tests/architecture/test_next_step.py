@@ -240,6 +240,30 @@ def test_catalog_steps_follow_their_files(run):
     assert _current(_drive(run).stdout) == "S10f"
     _write(run / "catalog_changes.md")
     assert _current(_drive(run).stdout) == "S10g"
+    _write(run / "onto" / "ontology.json", "{}")
+    _write(run / "site" / "concepts" / "c.md")
+    out = _drive(run).stdout
+    assert _current(out) == "S10g" and "catalog_check.txt" in out      # the omission check is part of S10g
+    _write(run / "catalog_check.txt", "0 finding(s)\n")
+    assert _current(_drive(run).stdout) == "S13"
+
+
+def test_skip_lines_the_drafter_wrote_before_the_merge_do_not_finish_s10f(run):
+    """T5 may open catalog_changes.md at S10c (rule skip lines, incremental changes); S10f is
+    done only once the file was written after the merge."""
+    _through_s9(run)
+    _write(run / "catalog" / "catalog.json", "{}")
+    _write(run / "digest" / "digest.md")
+    _write(run / "catalog_plan.md", "## 组 main\n")
+    _write(run / "fragments" / "main.json", "{}")
+    changes = _write(run / "catalog_changes.md", "- demo_dwd.t1#r1 skip: 只限定分区\n")
+    _write(run / "merged" / "catalog.json", "{}")
+    report = _write(run / "merge_report.txt")
+    past = report.stat().st_mtime - 60
+    os.utime(changes, (past, past))
+    assert _current(_drive(run).stdout) == "S10f"
+    _write(changes, changes.read_text(encoding="utf-8") + "无改动\n")
+    assert _current(_drive(run).stdout) == "S10g"
 
 
 def _through_s10(run: Path) -> None:
@@ -253,6 +277,7 @@ def _through_s10(run: Path) -> None:
     _write(run / "catalog_changes.md")
     _write(run / "onto" / "ontology.json", "{}")
     _write(run / "site" / "concepts" / "c.md")
+    _write(run / "catalog_check.txt", "0 finding(s)\n")
 
 
 def test_without_a_question_set_s11_is_skipped(run):

@@ -13,6 +13,15 @@ template T1 ``{CORRECTIONS}``):
         fix-log line, and older items the old review's table marks "已避免" -- the
         writer adopts them only when the packet supports them.
 
+With the old document (``--prior-doc``, ``reviews/<db.table>.prior.json``) two more things
+are added. Every B 段 item marked 未核 gets a 上一版写法 line: the old document's text at each
+document path the item names (its 位置 line, or the paths quoted in a table row), so the
+writer sees what the last version wrote there. And a C 段 lists the old document's
+``summary.watch`` and ``summary.questions`` items whose quoted evidence -- backquoted
+text, quoted literals, names with ``_`` or ``.`` -- is all still in the new packet: points
+the last version got right, to keep once they check out. An item with no such evidence, or
+with a piece the new packet no longer has, is left out.
+
 Dropped: table rows the old review judged "不适用", findings the fix log judged
 "不成立", and findings whose quoted packet text is not in the new packet. Skipped:
 table rows "又犯了" (the finding section of the same review covers them). A finding the
@@ -30,7 +39,7 @@ opened by ``来源：reviews/<db.table>.md reviewed_doc_digest=<digest>``; under
 finding sits on its own line, number first (``H1 已改：…``, ``M2 不成立：…``).
 
   make_corrections.py PRIOR_MD NEW_PACKET_DIR [--round1 FILE] [--fixlog FILE]
-                      [--writer-prompt FILE] [--out FILE] [--report FILE]
+                      [--prior-doc FILE] [--writer-prompt FILE] [--out FILE] [--report FILE]
 
 Exit 0 with the list written (stdout without ``--out``) and a one-line count on stderr;
 exit 1 when an input file is missing. Standard library only.
@@ -76,6 +85,10 @@ USAGE = [
     "- 条目里凡写「不放大 / 不影响行数」的，按写作提示词的条件句式重写，不照抄。",
     "- 一条涉及多个字段时，全页相关字段都要一致。",
     "- A 段（修订已改的高、中级）：核对通过就必须照做。B 段（没经修订核实的审读意见、更早轮次上一版已写对的要点）：核对成立才采纳。",
+    "- B 段「上一版写法」是上一版文档在该位置的原句：更早轮次已写对的条目，按材料包核对成立就照它的意思写；"
+    "审读发现的条目，它可能正是被指出的错写法，对照「应改成」用，不照抄。",
+    "- C 段（上一版要点，核对后保留）：上一版 watch / questions 里引用的材料原文都还在新材料包里的条目。"
+    "逐条按新材料包核对，成立就在新文档的 watch / questions（或对应字段）里保留这个要点；不成立的丢弃并在回复里列出。",
 ]
 
 
@@ -122,6 +135,139 @@ def snippets(text: str) -> list[str]:
 def check(text: str, packet: str) -> tuple[list[str], list[str]]:
     quoted = snippets(text)
     return quoted, [piece for piece in quoted if _norm(piece) not in packet]
+
+
+# A document path a review quotes: `columns[x].derivation`, `summary.watch[2]`, `questions[q1]`.
+PATH = re.compile(r"^[a-z_]+(?:\[[^\]\s]+\])*(?:\.[a-z0-9_]+(?:\[[^\]\s]+\])*)*$")
+PATH_PART = re.compile(r"([a-z0-9_]+)((?:\[[^\]]+\])*)")
+LIST_KEYS = ("column", "id", "branch", "name")
+WORDING_CAP = 400
+LITERAL = re.compile(r"(?<![\w'])'([^'\s][^'\n]{0,58}[^'\s]|[^'\s])'(?![\w'])")
+IDENT = re.compile(r"(?<![\w.])[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*(?![\w])")
+
+
+def doc_paths(text: str) -> list[str]:
+    """The document paths quoted (backquoted) in ``text``, in order, once each."""
+    found = []
+    for quoted in re.findall(r"`([^`]+)`", text):
+        quoted = quoted.strip()
+        if PATH.match(quoted) and DOC_PATH.search(quoted) and quoted not in found:
+            found.append(quoted)
+    return found
+
+
+def _step(node, key: str):
+    """One ``[key]`` step: a list index, or the list item whose column / id / branch /
+    name is ``key``."""
+    if not isinstance(node, list):
+        return None
+    if key.isdigit():
+        return node[int(key)] if int(key) < len(node) else None
+    for item in node:
+        if isinstance(item, dict) and any(item.get(name) == key for name in LIST_KEYS):
+            return item
+    return None
+
+
+def resolve(doc: dict, path: str):
+    """The value at a review's document path, or None. A path whose first part is not a
+    top-level key is tried under ``summary`` and ``summary.refresh`` (`how_to_read`,
+    `not_for[1]`); ``.q1`` after a list picks the item with that id."""
+    parts = PATH_PART.findall(path)
+    summary = doc.get("summary") if isinstance(doc.get("summary"), dict) else {}
+    roots = [doc, summary, summary.get("refresh") if isinstance(summary.get("refresh"), dict) else {}]
+    for root in roots:
+        if parts and parts[0][0] not in root:
+            continue
+        node = root
+        for name, keys in parts:
+            node = node.get(name) if isinstance(node, dict) else _step(node, name)
+            for key in re.findall(r"\[([^\]]+)\]", keys):
+                node = _step(node, key)
+            if node is None:
+                break
+        if node is not None:
+            return node
+    return None
+
+
+def render(value) -> str:
+    """A resolved value as one line: a string as it is, an item by its text, a list or
+    an object by its string fields."""
+    if isinstance(value, str):
+        text = value
+    elif isinstance(value, dict):
+        text = value["text"] if isinstance(value.get("text"), str) else "；".join(
+            f"{key}：{item}" for key, item in value.items() if isinstance(item, str))
+    elif isinstance(value, list):
+        text = "；".join(render(item) for item in value)
+    else:
+        text = json.dumps(value, ensure_ascii=False)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text if len(text) <= WORDING_CAP else text[:WORDING_CAP] + "…"
+
+
+def prior_wording(text: str, doc: dict | None) -> tuple[str, int, list[str]]:
+    """The 上一版写法 line for the paths quoted in ``text``, how many resolved, and the
+    paths that did not."""
+    if doc is None:
+        return "", 0, []
+    shown, unresolved = [], []
+    for path in doc_paths(text):
+        value = resolve(doc, path)
+        if value is None or not render(value):
+            unresolved.append(path)
+        else:
+            shown.append(f"`{path}`「{render(value)}」")
+    line = f"\n  上一版写法：{'；'.join(shown)}" if shown else ""
+    return line, len(shown), unresolved
+
+
+def evidence(text: str) -> list[str]:
+    """What a watch or question item cites from the material: backquoted text, quoted
+    literals, and names with ``_`` or ``.`` (pN numbers are the packet's own and left out)."""
+    found = [piece.strip() for piece in re.findall(r"`([^`]+)`", text)]
+    found += [f"'{literal}'" for literal in LITERAL.findall(text)]
+    found += [name for name in IDENT.findall(text) if "_" in name or "." in name.strip(".")]
+    unique = []
+    for piece in found:
+        if piece and piece not in unique and not re.fullmatch(r"[pr]\d+", piece):
+            unique.append(piece)
+    return unique
+
+
+def _in_packet(piece: str, packet: str) -> bool:
+    if _norm(piece) in packet:
+        return True
+    return bool(NAME.match(piece)) and "." in piece and _norm(piece.rsplit(".", 1)[-1]) in packet
+
+
+def old_points(doc: dict | None, packet: str, report: list) -> list[str]:
+    """C 段: the old document's watch and question items whose evidence is all still in
+    the new packet."""
+    if doc is None:
+        return []
+    summary = doc.get("summary") if isinstance(doc.get("summary"), dict) else {}
+    entries = []
+    labelled = [(f"watch[{n}]", item) for n, item in enumerate(summary.get("watch") or [])]
+    labelled += [(f"questions[{item.get('id', n) if isinstance(item, dict) else n}]", item)
+                 for n, item in enumerate(summary.get("questions") or [])]
+    for label, item in labelled:
+        text = item.get("text", "") if isinstance(item, dict) else str(item)
+        pieces = evidence(text)
+        if not pieces:
+            report.append({"id": label, "from": "prior_doc", "dest": "skipped", "reason": "没有可核对的引文"})
+            continue
+        missing = [piece for piece in pieces if not _in_packet(piece, packet)]
+        if missing:
+            report.append({"id": label, "from": "prior_doc", "dest": "dropped",
+                           "reason": "引用的材料原文在新材料包里找不到", "missing": missing})
+            continue
+        kind = item.get("kind") if isinstance(item, dict) else None
+        entries.append(f"[c{len(entries) + 1}（上一版 `summary.{label}`{'，' + kind if kind else ''}）] "
+                       f"{re.sub(chr(10), ' ', text)}\n  引文都在新材料包里：{'、'.join(f'`{p}`' for p in pieces)}")
+        report.append({"id": label, "from": "prior_doc", "dest": "C", "checked": len(pieces)})
+    return entries
 
 
 def findings(text: str) -> list[dict]:
@@ -228,7 +374,7 @@ def fix_log(path: str | None, digest: str, warnings: list[str]) -> dict | None:
     return verdicts
 
 
-def _entry(label: str, item: dict, checked: int) -> str:
+def _entry(label: str, item: dict, checked: int, wording: str = "") -> str:
     fields = item["fields"]
     marks = item["severity"] + ("，未核" if not checked else "")
     tag = SENTENCE_TAG if NO_FAN_OUT.search(fields["应改成"]) else ""
@@ -236,12 +382,13 @@ def _entry(label: str, item: dict, checked: int) -> str:
         f"[{label}（{marks}）] {item['title']}\n"
         f"  位置：{fields.get('位置', '—')}\n"
         f"  材料包事实：{fields['材料包事实']}\n"
-        f"  应改成：{fields['应改成']}{tag}"
+        f"  应改成：{fields['应改成']}{tag}{wording}"
     )
 
 
 def collect(review: str, origin: str, prefix: str, verdicts: dict | None, packet: str,
-            sections: dict, report: list, unparsed: list, only_fixed: bool = False) -> None:
+            sections: dict, report: list, unparsed: list, only_fixed: bool = False,
+            doc: dict | None = None) -> None:
     """Route the findings of one review into A 段 / B 段 / dropped.
 
     ``only_fixed`` (the first review behind a re-review): only its high and medium
@@ -270,9 +417,12 @@ def collect(review: str, origin: str, prefix: str, verdicts: dict | None, packet
                            "reason": "引用的材料包原文在新材料包里找不到", "missing": missing})
             continue
         dest = "A" if serious and verdict == "已改" else "B"
-        sections[dest].append(_entry(label, item, len(quoted)))
-        report.append({"id": label, "from": origin, "severity": item["severity"], "dest": dest,
-                       "checked": len(quoted)})
+        entry = {"id": label, "from": origin, "severity": item["severity"], "dest": dest, "checked": len(quoted)}
+        wording = ""
+        if dest == "B" and not quoted and doc is not None:
+            wording, entry["prior_wording"], entry["unresolved"] = prior_wording(fields.get("位置", ""), doc)
+        sections[dest].append(_entry(label, item, len(quoted), wording))
+        report.append(entry)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -281,13 +431,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("packet_dir", help="the rebuilt packet directory, packets/<db.table>")
     parser.add_argument("--round1", help="the first review behind a re-review, when there was one")
     parser.add_argument("--fixlog", help="the fix log kept beside the old review")
+    parser.add_argument("--prior-doc", help="the old document, reviews/<db.table>.prior.json")
     parser.add_argument("--writer-prompt", help="table-semantics-prompt.md, for its version")
     parser.add_argument("--out", help="write the list here (default: stdout)")
     parser.add_argument("--report", help="write each item's destination here as JSON")
     args = parser.parse_args(argv)
 
     for path in (args.prior, args.round1, args.fixlog, Path(args.packet_dir) / "packet.md",
-                 Path(args.packet_dir) / "packet.json", args.writer_prompt):
+                 Path(args.packet_dir) / "packet.json", args.prior_doc, args.writer_prompt):
         if path and not Path(path).is_file():
             print(f"找不到文件：{path}", file=sys.stderr)
             return 1
@@ -301,15 +452,19 @@ def main(argv: list[str] | None = None) -> int:
         version = re.search(r"table-semantics-prompt@(\d+)", Path(args.writer_prompt).read_text(encoding="utf-8"))
         writer = f"table-semantics-prompt@{version.group(1)}" if version else "未写"
 
+    doc = json.loads(Path(args.prior_doc).read_text(encoding="utf-8")) if args.prior_doc else None
+    if doc is not None and not isinstance(doc, dict):
+        print(f"{args.prior_doc} 不是一份文档（JSON 对象）", file=sys.stderr)
+        return 1
     warnings, unparsed, report = [], [], []
     sections: dict[str, list[str]] = {"A": [], "B": []}
     if args.round1:
         first = Path(args.round1).read_text(encoding="utf-8")
         first_digest = front_matter(first).get("reviewed_doc_digest", "")
         collect(first, "round1", "首审 ", fix_log(args.fixlog, first_digest, warnings), packet,
-                sections, report, unparsed, only_fixed=True)
+                sections, report, unparsed, only_fixed=True, doc=doc)
     collect(prior, "prior", "", fix_log(args.fixlog, keys.get("reviewed_doc_digest", ""), warnings),
-            packet, sections, report, unparsed)
+            packet, sections, report, unparsed, doc=doc)
 
     rows, stray = table_rows(prior)
     if stray:
@@ -333,9 +488,12 @@ def main(argv: list[str] | None = None) -> int:
             continue
         marks = row["severity"] + "，更早轮次，上一版已写对" + ("" if quoted else "，未核")
         tag = SENTENCE_TAG if NO_FAN_OUT.search(joined) else ""
-        sections["B"].append(f"[{row['id']}（{marks}）] {joined}{tag}")
-        report.append({"id": row["id"], "from": "table", "severity": row["severity"], "dest": "B",
-                       "checked": len(quoted)})
+        entry = {"id": row["id"], "from": "table", "severity": row["severity"], "dest": "B", "checked": len(quoted)}
+        wording = ""
+        if not quoted and doc is not None:
+            wording, entry["prior_wording"], entry["unresolved"] = prior_wording(joined, doc)
+        sections["B"].append(f"[{row['id']}（{marks}）] {joined}{tag}{wording}")
+        report.append(entry)
 
     lines = [
         "# 修正点清单",
@@ -352,6 +510,9 @@ def main(argv: list[str] | None = None) -> int:
         "",
         "## B 段",
         *(sections["B"] or ["无"]),
+        "",
+        "## C 段（上一版要点，核对后保留）",
+        *(old_points(doc, packet, report) or ["无"]),
     ]
     text = "\n".join(lines) + "\n"
     if args.out:
@@ -367,8 +528,11 @@ def main(argv: list[str] | None = None) -> int:
     for item in report:
         counts[item["dest"]] = counts.get(item["dest"], 0) + 1
     unchecked = sum(1 for item in report if item["dest"] in ("A", "B") and not item.get("checked"))
+    unchecked_b = [item for item in report if item["dest"] == "B" and not item.get("checked")]
+    worded = sum(1 for item in unchecked_b if item.get("prior_wording"))
     print(f"{Path(args.prior).name}: A {counts.get('A', 0)}、B {counts.get('B', 0)}（未核 {unchecked}）、"
-          f"丢弃 {counts.get('dropped', 0)}、跳过 {counts.get('skipped', 0)}、未解析 {counts.get('unparsed', 0)}",
+          f"丢弃 {counts.get('dropped', 0)}、跳过 {counts.get('skipped', 0)}、未解析 {counts.get('unparsed', 0)}"
+          + (f"；上一版写法 {worded}/{len(unchecked_b)}、C {counts.get('C', 0)}" if doc is not None else ""),
           file=sys.stderr)
     return 0
 

@@ -35,6 +35,7 @@ fill write "$SCRATCH/prompts/T1-write-<表>-r2.md" TABLE=<库.表> MODE=补失�
    - `{FAILURES}`（T1）：补失败模式贴 S5 打印的 FAIL / WARN 行原文；新写写「无」。
    - `{SIZE}`（T5）：「小样：只分 1 组，组名 main」或「扩表：按概念分组」。
    - `{TOUCHED}`（T5）：增量模式写 `@<RUN>/catalog_touched.txt`（runbook S10a 的 C 生成）；新建模式写「无」。
+   - `{DECISIONS}`（T5）：`<RUN>/owner_decisions.md` 存在时写 `@<RUN>/owner_decisions.md`，不存在时写「无」（`fill` 会核对）。
    - `{REWORK}`（T5、T6）：返工时贴要改的报错原文；第一次派发写「无」。
    - `{ROUND_LABEL}`（T8）：轮次标签（例如 `r1`）。
 
@@ -125,6 +126,11 @@ fill write "$SCRATCH/prompts/T1-write-<表>-r2.md" TABLE=<库.表> MODE=补失�
 - 条目里凡写「不放大 / 不影响行数」的，按写作提示词的条件句式重写，不照抄。
 - 一条涉及多个字段时，全页相关字段都要一致。
 - A 段核对通过就必须照做；B 段核对成立才采纳。
+- B 段条目下的「上一版写法」是上一版文档在条目所指位置的原句（只有「未核」条目才附）。标「更早轮次，上一版已写对」的条目，
+  按材料包核对成立就照这句的意思写进同一字段；审读发现的条目，这句可能正是被指出的错写法，对照「应改成」用。都不照抄措辞。
+- C 段「上一版要点，核对后保留」：上一版 `summary.watch` / `summary.questions` 里引用的材料原文（列名、表名、字面量）
+  在新材料包里都还在的条目。逐条按新材料包核对：成立就把这个要点保留在新文档的 `watch` / `questions` 或对应字段里；
+  不成立（引文还在但说法不对了）就丢弃，在回复里列出编号和理由。
 
 **写到哪里**
 
@@ -160,7 +166,7 @@ fill write "$SCRATCH/prompts/T1-write-<表>-r2.md" TABLE=<库.表> MODE=补失�
 最终校验：FAIL <n> / WARN <n>（按编号：…）
 保留的 WARN 及理由：…（没有写「无」）
 仍未通过的 FAIL 原文：…（没有写「无」）
-修正点处理：丢弃 <编号：理由>…；A 段采纳 <n> 条；B 段采纳 <n> 条、不成立 <n> 条（修正点写「无」时整行写「无」）
+修正点处理：丢弃 <编号：理由>…；A 段采纳 <n> 条；B 段采纳 <n> 条、不成立 <n> 条；C 段保留 <n> 条、丢弃 <编号：理由>…（修正点写「无」时整行写「无」）
 工具 / 提示词 / 材料包问题：每条一句「现象 + 你怎么处理的」（没有写「无」）
 ```
 ----8<----
@@ -187,7 +193,7 @@ fill write "$SCRATCH/prompts/T1-write-<表>-r2.md" TABLE=<库.表> MODE=补失�
 **只读这些**
 
 1. 审读提示词 `{TOOL}/skills/scope-lineage/references/table-semantics-review-prompt.md`：照做「逐项核对」十六项、
-   「逐项核对的补充」和「输出」。只有重写后首审模式才做「材料包重建后的重写：带上旧审读」一节；首审模式跳过那一节。拿不准某种写法算不算发现时，
+   「逐项核对的补充」和「输出」（定级照「输出」一节的定级锚点）。只有重写后首审模式才做「材料包重建后的重写：带上旧审读」一节；首审模式跳过那一节。拿不准某种写法算不算发现时，
    查同目录 `table-semantics-prompt.md` 的对应条目。
 2. 材料包 `{RUN}/packets/{TABLE}/packet.md`（一次读不完就先 `grep -n '^#'` 再分段读）；需要时同目录 `packet.json`。
 3. 文档 `{RUN}/docs/{TABLE}.json`。
@@ -266,7 +272,7 @@ low: <整数>
 
 **只读这些**
 
-1. 审读提示词 `{TOOL}/skills/scope-lineage/references/table-semantics-review-prompt.md` 的「修订后再审读」一节（三件事）和「输出」一节。
+1. 审读提示词 `{TOOL}/skills/scope-lineage/references/table-semantics-review-prompt.md` 的「修订后再审读」一节（三件事）和「输出」一节（定级照其中的定级锚点）。
 2. 上一轮审读 `{RUN}/reviews_prev/{TABLE}.round1.md`。
 3. 材料包 `{RUN}/packets/{TABLE}/packet.md`（读法同首审）、修订后的文档 `{RUN}/docs/{TABLE}.json`、提到的兄弟表材料包。
 
@@ -371,7 +377,7 @@ status：…
 ---
 
 ## T5 目录起草第 2 步：概念、标识符、关系、共用码值集与分组方案（S10c）
-<!-- fill: names=T5,目录起草,catalog; MODE=新建,增量; NEEDS={RUN}/digest/digest.md; NEEDS[MODE=增量]={RUN}/catalog_touched.txt -->
+<!-- fill: names=T5,目录起草,catalog; MODE=新建,增量; NEEDS={RUN}/digest/digest.md; NEEDS[MODE=增量]={RUN}/catalog_touched.txt; ATFILE=DECISIONS:{RUN}/owner_decisions.md -->
 
 模型：次一档强模型。正常只派一个；返工时用 `fill catalog … REWORK=@<报错文件>` 重新填一份（原提示词 + 这次报错原文），续用原子代理或新派一个都行。
 模式：新建（目录里没有本轮的表）/ 增量（本轮的表是重写后接回已有目录的，runbook S10a 的 C）。
@@ -387,14 +393,22 @@ status：…
 - 本轮的表：`{RUN}/tables.txt`（一行一张）。
 - 小样还是扩表：{SIZE}
 - 模式：{MODE}（新建：目录里没有本轮的表；增量：本轮的表是重写后接回已有目录的，旧目录里这些表的表现已经去掉）
+- owner 已拍板的决定（编排者从 `{RUN}/owner_decisions.md` 原样贴来；写「无」就是没有。用法见下面「写什么」第 8 条）：
+
+```text
+{DECISIONS}
+```
+
 - 读长文件：任何文件一次读不完、或 Bash 输出被截断时，先 `grep -n '^#' <文件>` 列出小节，再按行号分段读完。
 - 写入被拦截：Write 写 `{RUN}` 下的文件被钩子拦截时，先写 `{SCRATCH}/catalog-draft/` 下同名文件，再用 Bash `cp` 拷过去（已获调用方授权）；
   `cp` 也被拒绝就在回复里写明文件在哪，调用方会代拷。
 
 **只读这些**
 
-1. 起草材料 `{RUN}/digest/digest.md`：这是起草概念的**全部输入**。只有某张表一行是什么、或某一列指什么在 digest 里说不清时，
-   才读那张表文档 `{RUN}/docs/<表>.json` 的 `summary` 或那一列；不要通读整份表语义。
+1. 起草材料 `{RUN}/digest/digest.md`（结构化的同一份是 `digest.json`）：这是起草概念的**全部输入**。只在你要用的某个
+   digest 字段**缺失**时（例如某列没有 meaning、某张表没有 Rules、某列没有码值而你要写 `states`），才读那张表文档
+   `{RUN}/docs/<表>.json` 里对应的那个字段；读了就在用到它的条目 `notes` 里写明「digest 缺 <表>.<字段>，取自表语义」。
+   digest 里有、只是你觉得写得不够细的，不算缺失，不读文档；不要通读整份表语义。
 2. 当前目录（起点）`{RUN}/catalog/`：全部文件都读，先弄清已有的概念、标识符、关系和码值集。
 3. 形状参考（只看形状，不抄内容）：`{TOOL}/examples/catalog-demo/` 里的 `identifiers.yaml`、`relations.yaml`、
    `code_sets.yaml`、`concepts/lending.yaml`。
@@ -415,7 +429,7 @@ digest 的说法与它矛盾的，就地改这一条，`status` 保持 `drafted`
 **不许读**：任何题集或判分文件；任何别的运行目录；`{RUN}/reviews/`。不要上网。不改 `{RUN}/docs/` 和 `{RUN}/packets/`。
 
 **写什么**（直接改 `{RUN}/catalog/` 里的文件；目录是 JSON 的就写 JSON，是 YAML 的就写 YAML，新建的文件与 `catalog.*` 同格式。
-文件名只能是 `catalog`、`domains`、`identifiers`、`code_sets`、`concepts/<域>`、`relations`、`constraints`、`terms`，别的文件会报 `unknown_file`；
+文件名只能是 `catalog`、`domains`、`identifiers`、`code_sets`、`concepts/<域>`、`relations`、`constraints`、`metrics`、`terms`，别的文件会报 `unknown_file`；
 `mapping/` 不归你写）
 
 每个文件是一个对象，唯一的顶层键与文件名主干相同，值是条目列表（`catalog.json` 是清单，不改）：
@@ -426,6 +440,8 @@ digest 的说法与它矛盾的，就地改这一条，`status` 保持 `drafted`
 {"code_sets": [ … ]}          // code_sets.json
 {"concepts": [ … ]}           // concepts/<域>.json，例如 concepts/lending.json
 {"relations": [ … ]}          // relations.json
+{"constraints": [ … ]}        // constraints.json（下面「义务清单」b）
+{"metrics": [ … ]}            // metrics.json（下面「义务清单」c）
 ```
 
 （上面的 `//` 只是说明，文件里不能写注释。）
@@ -484,12 +500,13 @@ digest 的说法与它矛盾的，就地改这一条，`status` 保持 `drafted`
    - 两套编号没有证据证明是同一套（例如两个系统各自的人员编号），不写 `maps_to`，也不建它们之间的关系，在 `notes` 里写明。
    - 形状：`{"id": "id:loan_no", "name": "借据号", "identifies": "concept:loan", "scope": "global", "spellings": [{"column": "loan_no"}], "status": "drafted", "source": "sql"}`
 4. **关系**：新概念与已有概念之间的业务联系（参与关系由事件的 `participants` 自动派生，不手写）。
+   - 每条关系都写 `definition`：一句话说两端在业务上是什么联系、凭哪张表哪一列连上（例如「一份借据属于一个客户：借据表的客户号指向客户」）。
    - `name` / `inverse_name` **只写动词短语**，不带另一端的概念：页面读成「<name> <另一端概念名>」。写 `"name": "持有"`、
      `"inverse_name": "持有人为"`，不写 `"name": "持有借据"`。
    - `cardinality` 两端各取 `"1"`、`"0..1"`、`"0..*"`、`"1..*"`，按 digest 的粒度与关联判断，拿不准写宽的一侧并在 `notes` 说明。
    - 一个概念有几条自关联（隔不同层数的同类实例，例如上级、上上级）：每条单独一个关系；同一张表按分区日自关联时，
      在关系的 `notes` 写清按哪一天对齐。
-   - 形状：`{"id": "rel:loan_renews_loan", "kind": "association", "from": "concept:loan", "to": "concept:loan", "name": "续借", "inverse_name": "被续借为", "cardinality": {"from": "0..1", "to": "0..1"}, "status": "drafted", "source": "sql", "evidence": ["demo_dwd.dwd_lending_loan_df.orig_loan_no"]}`
+   - 形状：`{"id": "rel:loan_renews_loan", "kind": "association", "from": "concept:loan", "to": "concept:loan", "name": "续借", "inverse_name": "被续借为", "cardinality": {"from": "0..1", "to": "0..1"}, "definition": "一笔借据可以续借出另一笔借据：借据表的原借据号指向被续借的借据。", "status": "drafted", "source": "sql", "evidence": ["demo_dwd.dwd_lending_loan_df.orig_loan_no"]}`
 5. **跨组属性**（也管同组）：表里有指向**另一个概念**的外部标识列，旁边有这个对象的名称、描述或属性列（如 `xx_id` + `xx_name`、
    `xx_cd` + `xx_desc`）时，不论那个概念和这张表同组还是别组，现在就在**那个概念**的 `attributes` 里建这个属性，片段才能把那一列绑成
    `foreign_attribute`。那个概念在别组时，再在分组方案「跨组属性」表里登记「属性 id → 引用它的组」。只有一组的小样也照做。
@@ -505,9 +522,41 @@ digest 的说法与它矛盾的，就地改这一条，`status` 保持 `drafted`
    - SQL 内联的字典（`VALUES`、`CASE` 映射）不在这一行里，留给片段写 `values`。
    - 形状：`{"id": "code:waiver_reason", "name": "豁免原因", "values": [], "lookup": {"table": "demo_dim.dim_code_dict", "code_column": "code_val", "meaning_columns": [{"column": "code_desc", "lang": "zh"}], "filter": {"code_type": "WaiverReason"}}, "status": "drafted", "source": "sql", "evidence": ["<任务名>"]}`
 7. 不写表现和绑定（`mapping/`），不写人名、邮箱。
-8. 所有写给 owner 的 `notes` 都以「待 owner 确认：」开头。只有调用方在本提示词里写明的 owner 决定，才能写 `status: confirmed`、
+8. 所有写给 owner 的 `notes` 都以「待 owner 确认：」开头。只有上面「owner 已拍板的决定」里写明的决定，才能写 `status: confirmed`、
    `source: owner`，`notes` 写「依据 owner 决定：…」，并把这条决定推到底（例如「某列就是某编号」，那张表的事件就要把它指向的概念列为参与者）。
    其余一律 `drafted`；不要自己写「owner 确认：…」。
+
+**义务清单**（从 digest 逐条派生，每一条都要有落点，不能因为「拿不准」跳过；拿不准就照写并在 `notes` 写「待 owner 确认：…」。
+做完在回复里逐项报数）
+
+a. **状态**：digest 里 `category` 是 `state`、列下列出了码值的每一列：在它描述的 entity 概念上建这个状态属性（`category: state`，
+   有共用码值集就写 `code_set`；片段会复用它），并在概念的 `states` 里写一条
+   `{"attribute": "<属性 id>", "values": [{"value": "<码>", "name": "<含义>"}, …]}`，取值照 digest 原样抄，不补 digest 没有的码。
+   digest 写明了某个事件把状态从一个值改成另一个值时，才写 `transitions`（`{"event": "<事件概念 id>", "from": …, "to": …}`）。
+   `event`、`role` 概念不能写 `states`：状态列在事件表上时，写在事件发生在其身上的那个 entity 上；找不到这样的 entity，
+   在回复「没把握」里列出这一列。
+b. **规则 → 约束**：digest 每张表 Rules 里 `kind` 是 `filter`、`dedup`、`derive` 的每一条（记作 `<库.表>#rN`），二选一：
+   - 在 `constraints` 文件写一条约束：`id` 用 `cons:<slug>`；`kind` 按含义选（去重 → `unique`，过滤 → `business_rule` 或
+     `value_domain`，派生 → `derivation`）；`on` 写它约束的概念、属性或标识符；`expression` 用一句业务话写清规则；
+     `strength` 写 `soft`（材料证明强制时才写 `hard`）；`rules: ["<库.表>#rN"]` 指回规则（同一条业务规则在几张表里出现，
+     一条约束列出全部编号）；规则能写成单列比较时加 `predicate: {"column": "<列>", "op": "<= / = / in …>", "value": …}`。
+     形状：`{"id": "cons:loan_latest_version", "kind": "unique", "on": "concept:loan", "expression": "同一借据号只保留最新一版。",
+     "strength": "soft", "rules": ["demo_dwd.dwd_lending_loan_df#r2"], "status": "drafted", "source": "sql",
+     "evidence": ["demo_dwd.dwd_lending_loan_df"]}`
+   - 或在 `{RUN}/catalog_changes.md` 写一行 `<库.表>#rN skip: <理由>`（例如「只限定读哪个分区，不是业务约束」「技术性去重，
+     不改变业务含义」）。
+   漏一条，S10g 的漏做检查就报 `unabsorbed_rule`。
+c. **度量**：你建的每个 `category: measure` 属性都写 `unit`（金额写币种单位、计数写「个 / 次」等，digest 没写单位就写
+   `notes`「待 owner 确认：单位」并按列注释暂填）和 `additivity`（`additive` 可跨任意维度相加；`semi_additive` 不能跨时间相加，
+   例如余额、快照计数；`non_additive` 不能相加，例如比率、单价）。digest 里表现类型像汇总表（Row 是「每 X 每天一行的汇总」、
+   Rules 有聚合）或列的派生是 sum / count / avg 时，为每个这样的度量在 `metrics` 文件写一条指标：
+   `{"id": "metric:<slug>", "name": "中文名", "on": "concept:<id>", "aggregation": "sum / count / count_distinct / avg / min / max / ratio / other",
+   "measure": "attr:<id>", "definition": "一句话口径", "filter": "<口径里的过滤，没有就省略>", "time_window": "<按日 / 累计等>",
+   "dimensions": ["attr:<id>", …], "additivity": "…", "unit": "…", "status": "drafted", "source": "sql", "evidence": ["<库.表>.<列>"]}`；
+   `measure`、`dimensions` 引用的属性要已在目录里（片段才建的属性先不写这两个键，在 `notes` 写「待片段建属性后补」）。
+d. **关系**：每条关系都有 `definition`（见上面第 4 条）。
+e. **拉链表**：时间语义是 `zipper` 的表，在分组方案的「说明」里写出它的有效期开始列和结束列，片段会把它们绑成
+   `time_role: valid_from` / `valid_to`。
 
 **自检**（改到 0 error 为止）
 
@@ -515,7 +564,8 @@ digest 的说法与它矛盾的，就地改这一条，`status` 保持 `drafted`
 . {ENV} && sl catalog validate "$RUN/catalog"; echo "exit=$?"
 ```
 
-通过 = `exit=0` 且 `0 error(s)`。`drafted_ratio` 警告是正常的。
+通过 = `exit=0` 且 `0 error(s)`。`drafted_ratio` 警告是正常的。`catalog validate` 的 warning 里有 `state_attribute_without_states`、
+`measure_without_unit`、`relation_without_definition` 的，回到上面义务清单 a / c / d 补上。
 
 **分组方案**：写 `{RUN}/catalog_plan.md`，照下面的格式。每张表只进一组；表格的每一行都写成 `| <库.表> | … |`（表名两边各一个空格），
 编排者用它核对覆盖。小样只写一组；扩表时按概念分组，每组的表不超过十张左右。
@@ -575,6 +625,7 @@ catalog validate：exit=<n>；<计数行原样>
 码值来源表：…（没有写「无」）
 没把握、需要 owner 判断的：…（没有写「无」）
 增量模式改动：<n> 处（标识符 <n> / 概念 <n> / 属性 <n>）；新建模式写「不适用」
+义务清单：a 状态属性 <n>、写了 states <n>；b 规则（filter / dedup / derive）共 <n> 条 = 约束承接 <n> + skip <n>；c 度量 <n>（有 unit <n>、有 additivity <n>）、指标 <n>；d 关系 <n>（有 definition <n>）；e 拉链表 <n>
 工具 / 文档问题：每条一句（没有写「无」）
 ```
 ----8<----
@@ -604,6 +655,15 @@ catalog validate：exit=<n>；<计数行原样>
    它点名的格式文档只读那三节，示例只看形状。
 2. 分配：`{RUN}/catalog_plan.md` 的「通用约定」「码值来源表」「组 {GROUP}」「跨组属性」「已建在目录里的共用码值集」五节。
 3. 目录里已有的码值集、属性直接引用，不要用同一个 id 写不同的内容。
+   **义务清单**（逐条做，回复里报数）：
+   - 你新建的每个 `category: measure` 属性都写 `unit` 和 `additivity`（`additive` / `semi_additive` / `non_additive`，含义同 T5）；
+     单位材料没写的，按列注释暂填并在 `notes` 写「待 owner 确认：单位」。
+   - 状态列（`category: state`）有码值的：目录里该概念已有这个属性和 `states` 就直接绑定；没有的，属性照常建，并在 `notes` 写
+     「待 owner 确认：<概念> 缺 <属性> 的 states（码值见 <库.表>.<列>）」——片段不能改概念，`states` 由 T5 返工补。
+   - 分给本组的拉链表（分组方案时间语义写 `zipper`）：有效期开始列、结束列的绑定加 `time_role: valid_from` / `valid_to`；
+     任何表的分区列绑定加 `time_role: partition`；事件表里事件发生时间列的绑定加 `time_role: event_time`。
+   - 列名以 `_cd`、`_id`、`_no`、`_code` 结尾、指向另一个概念（有那个概念的标识符）的列绑成 `foreign_identifier`，不要绑成普通属性；
+     只是本表自己的编码值的，属性带上 `code_set`。
 4. 片段的 `notes` 每条都以「待 owner 确认：」开头（例如「待 owner 确认：remark 是否有业务属性」）；不要自己写「owner 确认」。
    目录里已标 `source: owner` 的条目是 owner 的决定，照它绑定，不要再提问。
 
@@ -632,6 +692,7 @@ catalog validate：exit=<n>；<计数行原样>
 组：{GROUP}
 自检：exit=<n>；Merged 行原样
 属性 <n>、码值集 <n>、表现 <n>、绑定 <n>（identifier <n> / foreign_identifier <n> / attribute <n> / foreign_attribute <n> / technical <n> / unmapped <n>）
+义务清单：度量属性 <n>（有 unit <n>、有 additivity <n>）；带 time_role 的绑定 <n>（valid_from <n> / valid_to <n> / partition <n> / event_time <n>）；缺 states 记进 notes 的状态属性 <n>
 unmapped 列及原因：…（没有写「无」）
 notes 原文：…（没有写「无」）
 需要编排者合并后改成 foreign_attribute 的列：…（没有写「无」）
