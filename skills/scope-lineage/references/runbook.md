@@ -571,6 +571,7 @@ python3 -c 'import json,sys; t=json.load(open(sys.argv[1]))["tables"][0]; [print
 
 | 情况 | 处理 |
 | --- | --- |
+| 0 FAIL、0 WARN | 不用补，这张表进 S6 审读 |
 | 写作第 1 轮后有 FAIL | 用 T1（补失败模式）重派：把上面 python 打印的 FAIL 行原样存成 `$SCRATCH/$T.failures.txt`，再填下面的补失败命令 |
 | 写作第 2 轮后仍有 FAIL | 标 blocked（下面的命令） |
 | 修订者回报「两轮后仍有 FAIL」，或 `semantic fixed` 报 `the document is invalid` | 标 blocked |
@@ -715,7 +716,8 @@ fill fix "$SCRATCH/prompts/T4-fix-$T-1.md" TABLE="$T" MODE=首修 FACTS=无; ech
 `sl semantic fixed "$RUN" --only <表>`。账本记一行「修订」。
 
 **存修订记录**（每次 T4 回报后都做，不论 `semantic fixed` 成没成功）：下次材料包变了要重写时，修正点清单靠它知道哪些发现改过。
-先用 Write 工具把回复里「逐条处理」「未改的低级发现」两段**原样**存成 `$SCRATCH/$T/fix-reply.txt`（不改写、不删行），再追加：
+先用 Write 工具把回复里「逐条处理」「未改的低级发现」两段**原样**存成 `$SCRATCH/$T/fix-reply.txt`（不改写、不删行；回复只是消息文字时，
+就把那两段文字逐字复制进 Write 的内容里——这就是「原样」），再追加：
 
 ```bash
 T=demo_dwd.dwd_party_customer_info_df   # 换成这张表
