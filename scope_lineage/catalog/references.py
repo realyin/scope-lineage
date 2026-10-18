@@ -187,13 +187,23 @@ def _relation(checks: _Checks, file: str, relation: dict) -> None:
 
 def _metric(checks: _Checks, file: str, metric: dict) -> None:
     """A metric counts or adds up instances of a concept, over one of its attributes,
-    broken down by attributes, scoped by constraints."""
+    broken down by attributes or by the concepts linked to it, scoped by constraints."""
     at = metric["id"]
-    checks.expect("metric_on", file, at, metric["on"], ("concept",), "a concept")
+    on = metric["on"]
+    checks.expect("metric_on", file, at, on, ("concept",), "a concept")
     if "measure" in metric:
         checks.expect("metric_measure", file, at, metric["measure"], ("attribute",), "an attribute")
     for dimension in metric.get("dimensions") or []:
-        checks.expect("metric_dimension", file, at, dimension, ("attribute",), "an attribute")
+        if not checks.expect(
+            "metric_dimension", file, at, dimension, ("attribute", "concept"),
+            "an attribute, or a concept linked to what the metric is on",
+        ):
+            continue
+        if checks.index.is_type(dimension, "concept") and dimension not in checks.index.linked_concepts(on):
+            checks.fail(
+                "metric_dimension", file, at,
+                f"{dimension!r} is neither a participant of {on} nor linked to it by a relation",
+            )
     for constraint in metric.get("constraints") or []:
         checks.expect("metric_constraint", file, at, constraint, ("constraint",), "a constraint")
 

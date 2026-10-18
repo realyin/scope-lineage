@@ -191,6 +191,32 @@ def test_a_metric_reference_of_the_wrong_kind_is_an_error(
 
 
 @pytest.mark.parametrize(
+    ("on", "dimension"),
+    [
+        ("concept:disbursement", "concept:borrower"),  # a participant of the event
+        ("concept:loan", "concept:borrower"),  # the other end of a relation
+        ("concept:loan", "concept:loan"),  # a relation from the concept to itself
+    ],
+)
+def test_a_metric_may_be_broken_down_by_a_concept_linked_to_what_it_is_on(
+    tmp_path: Path, on: str, dimension: str
+) -> None:
+    root = _with_metrics(tmp_path, _metric(on=on, aggregation="count", dimensions=[dimension]))
+
+    assert _validate(root).errors == []
+
+
+def test_a_metric_dimension_concept_not_linked_to_what_it_is_on_is_an_error(
+    tmp_path: Path,
+) -> None:
+    root = _with_metrics(tmp_path, _metric(dimensions=["concept:channel"]))
+
+    errors = _validate(root).errors
+    assert rules(errors) == ["metric_dimension"]
+    assert "neither a participant of concept:loan nor linked to it by a relation" in errors[0].message
+
+
+@pytest.mark.parametrize(
     "change",
     [{"aggregation": "median"}, {"additivity": "partly"}, {"formula": "x"}, {"on": None}],
 )

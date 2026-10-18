@@ -290,8 +290,9 @@ constraints:
 业务从某个概念上读出的一个数。`id: metric:<slug>`、`name`、`on`（被计数或汇总的概念）、`aggregation`
 （`sum` / `count` / `count_distinct` / `avg` / `min` / `max` / `ratio` / `other`）。可选：`definition`、
 `measure`（被汇总的属性）、`filter`（哪些实例计入，文字）、`constraints`（限定口径的 `cons:` id）、
-`time_window`（文字）、`dimensions`（可下钻的属性）、`additivity`（同属性）、`unit` 与通用字段。
-`on` 必须是概念，`measure` 与每个维度必须是属性，每个约束必须存在（`metric_on`、`metric_measure`、
+`time_window`（文字）、`dimensions`（可下钻的维度：`on` 的属性，或与 `on` 相连的概念——事件的参与者、
+关系的另一端）、`additivity`（同属性）、`unit` 与通用字段。
+`on` 必须是概念，`measure` 必须是属性，每个维度必须是属性或与 `on` 相连的概念，每个约束必须存在（`metric_on`、`metric_measure`、
 `metric_dimension`、`metric_constraint`）。
 
 ```yaml
@@ -302,7 +303,7 @@ metrics:
     measure: attr:loan.principal
     aggregation: sum
     filter: loans not settled
-    dimensions: [attr:loan.loan_status]
+    dimensions: [attr:loan.loan_status, concept:borrower]
     additivity: semi_additive
     unit: CNY
 ```
@@ -516,7 +517,7 @@ scope-lineage catalog validate examples/catalog-demo --json
 | `duplicate_code_value` | 码值集里同一个值出现两次 |
 | `relation_endpoint` | 关系的 `from` / `to` 不是概念 |
 | `constraint_on` | `on` 不是概念、属性、关系或标识符 |
-| `metric_on` / `metric_measure` / `metric_dimension` / `metric_constraint` | 指标的 `on` 不是概念，`measure` 或某个维度不是属性，`constraints` 里某项不是约束 |
+| `metric_on` / `metric_measure` / `metric_dimension` / `metric_constraint` | 指标的 `on` 不是概念，`measure` 不是属性，某个维度既不是属性、也不是与 `on` 相连的概念，`constraints` 里某项不是约束 |
 | `term_refers_to` | `refers_to` 不存在 |
 | `representation_concept` | 表现的 `concept` 不是概念 |
 | `representation_grain` | 粒度里有一项不是标识符 |

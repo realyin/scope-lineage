@@ -48,6 +48,17 @@
   - `catalog_check.py` (S10g) also reports `unabsorbed_rule` (with `--digest` / `--changes`),
     `state_without_states`, `measure_without_unit` and `code_attribute_without_relation`; code
     columns naming no concept are listed after the findings and not counted.
+  - Metrics, after the first trial that drafted one: a metric's `dimensions` may name a concept
+    linked to its `on` (an event's participant, or the other end of a relation), so a number
+    on an event can be broken down by who took part; `catalog validate` still reports
+    `metric_dimension` for a concept that is not linked. Concept pages show each metric's
+    dimensions, time window and scope (filter and constraints). T5 says how to fill each
+    metric key (cross-row aggregation, the measure attribute built in T5 itself, the
+    constraints that scope it), and `catalog_check.py` reports `metric_incomplete` (no `unit`
+    or `additivity`, or a sum / avg / min / max with no `measure`).
+  - `catalog_check.py` takes `<concept id> empty skip: <reason>` in `catalog_changes.md` for a
+    concept with no attribute that has no table of its own in the batch (only ever a
+    participant or a relation end); a concept with its own table is still reported.
   - `make_corrections.py --prior-doc` attaches the previous wording to each correction it could
     not check, and adds section C: points of the previous document whose evidence is still in
     the new packet.

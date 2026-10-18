@@ -113,6 +113,22 @@ class Index:
             if entry.obj.get("from") == concept_id and entry.obj.get("to") == concept_id
         )
 
+    def linked_concepts(self, concept_id: str) -> set[str]:
+        """The concepts ``concept_id`` reaches in one step: its participants when it is an
+        event, and the other end of every declared relation that has it at one end."""
+        entry = self.get(concept_id)
+        linked = {
+            participant.get("concept")
+            for participant in (entry.obj.get("participants") or [] if entry else [])
+        }
+        for _, relation in self.of_type("relation"):
+            ends = relation.obj.get("from"), relation.obj.get("to")
+            if concept_id in ends:
+                linked.update(ends)
+        if not self.has_self_relation(concept_id):
+            linked.discard(concept_id)
+        return linked
+
     def relation_ends(self, relation_id) -> Optional[tuple[str, str]]:
         """``(from, to)`` of a declared relation, or of the participation relation an
         event's participant becomes; ``None`` when ``relation_id`` names neither."""

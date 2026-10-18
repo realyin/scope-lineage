@@ -476,6 +476,9 @@ digest 的说法与它矛盾的，就地改这一条，`status` 保持 `drafted`
      **不要**写空的 `participants: []`，也不要省略它——`event` 至少要有一个参与者，否则 `catalog validate` 报错。
    - 每个概念写 `name`（中文）、`definition`（一句话）、`status: drafted`、`source`（`comment` / `sql` / `mixed` / `llm`）、
      `evidence`（表名或 `库.表.列`）。
+   - 本轮没有自己的表的概念（只因别的表有指向它的外部标识列、或 owner 决定要建而建的），本轮也没有属于它的名称、描述列时，
+     它会没有任何属性：在 `{RUN}/catalog_changes.md` 写一行 `<概念 id> empty skip: <理由>`（例如「本批没有它的表，只作参与者 /
+     关系一端」），S10g 的漏做检查读它。有名称、描述列的，按第 5 条在它上面建属性，不写这一行。
    - 形状：
 
      ```json
@@ -560,9 +563,21 @@ c. **度量**：你建的每个 `category: measure` 属性都写 `unit`（金额
    例如余额、快照计数；`non_additive` 不能相加，例如比率、单价）。digest 里表现类型像汇总表（Row 是「每 X 每天一行的汇总」、
    Rules 有聚合）或列的派生是 sum / count / avg 时，为每个这样的度量在 `metrics` 文件写一条指标：
    `{"id": "metric:<slug>", "name": "中文名", "on": "concept:<id>", "aggregation": "sum / count / count_distinct / avg / min / max / ratio / other",
-   "measure": "attr:<id>", "definition": "一句话口径", "filter": "<口径里的过滤，没有就省略>", "time_window": "<按日 / 累计等>",
-   "dimensions": ["attr:<id>", …], "additivity": "…", "unit": "…", "status": "drafted", "source": "sql", "evidence": ["<库.表>.<列>"]}`；
-   `measure`、`dimensions` 引用的属性要已在目录里（片段才建的属性先不写这两个键，在 `notes` 写「待片段建属性后补」）。
+   "measure": "attr:<id>", "definition": "一句话口径", "filter": "<口径里的过滤，没有就省略>", "constraints": ["cons:<id>", …],
+   "time_window": "<按日 / 累计等>", "dimensions": ["attr:<id>" 或 "concept:<id>", …], "additivity": "…", "unit": "…",
+   "status": "drafted", "source": "sql", "evidence": ["<库.表>.<列>"]}`。逐键这样定：
+   - `on` 是表的一行所对应的概念；`aggregation` 是**跨行**怎么汇总（加总、计数……）。列的派生里的 sum / count 是这张表在写入时
+     已经做过的行内汇总（例如把一行之下的多条明细加成一个数），它说明这一列是度量，不决定 `aggregation`；可加的度量跨行一般是 `sum`。
+     `additivity` 也按跨行判断。
+   - `measure`：`sum`、`avg`、`min`、`max` 必须写，指向 `on` 概念上的度量属性。这个属性**由你在这一步建好**（带 `unit`、`additivity`），
+     片段再把列绑上去；不要留空等片段补。只数实例个数的 `count` / `count_distinct` 不写 `measure`。
+   - `dimensions`：业务会按什么拆开看这个数。`on` 自己的属性写 `attr:` id（例如发生时间、状态）；按另一个对象拆（例如按事件的
+     参与者、按关系另一端的概念）写那个概念的 `concept:` id——它必须是 `on` 事件的参与者，或与 `on` 之间有一条关系，否则
+     `catalog validate` 报 `metric_dimension`。不要为了能拆而把外部标识列建成 `on` 的属性。
+   - `constraints`：本步写的约束里，限定「哪些实例计入」的（这张表的过滤、去重规则承接成的约束）列在这里；`filter` 用一句话
+     重复口径。只限定这次运行读哪个分区、哪个批次日的规则说的是装载窗口，不是口径，不列（时间范围写进 `time_window`）。
+     表由几条语句从不同来源写入、各自的过滤不同时，`filter` 按来源分开写（「来源 A：…；来源 B：…」）。没有就写 `[]`。
+   - `unit`、`additivity` 与 `measure` 指向的属性一致；`count` 的单位写「个 / 次」一类。
 d. **关系**：每条关系都有 `definition`（见上面第 4 条）。
 e. **拉链表**：时间语义是 `zipper` 的表，在分组方案的「说明」里写出它的有效期开始列和结束列，片段会把它们绑成
    `time_role: valid_from` / `valid_to`。
@@ -634,7 +649,7 @@ catalog validate：exit=<n>；<计数行原样>
 码值来源表：…（没有写「无」）
 没把握、需要 owner 判断的：…（没有写「无」）
 增量模式改动：<n> 处（标识符 <n> / 概念 <n> / 属性 <n>）；新建模式写「不适用」
-义务清单：a 状态属性 <n>、写了 states <n>；b 规则（filter / dedup / derive）共 <n> 条 = 约束承接 <n> + skip <n>；c 度量 <n>（有 unit <n>、有 additivity <n>）、指标 <n>；d 关系 <n>（有 definition <n>）；e 拉链表 <n>
+义务清单：a 状态属性 <n>、写了 states <n>；b 规则（filter / dedup / derive）共 <n> 条 = 约束承接 <n> + skip <n>；c 度量 <n>（有 unit <n>、有 additivity <n>）、指标 <n>（有 measure <n>、有 dimensions <n>、有 constraints <n>）；d 关系 <n>（有 definition <n>）；e 拉链表 <n>
 工具 / 文档问题：每条一句（没有写「无」）
 ```
 ----8<----

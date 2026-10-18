@@ -625,7 +625,7 @@ def _metrics(view: CatalogView, concept: dict) -> list[str]:
     if not metrics:
         return []
     lines = ["", "#### 指标", ""]
-    lines += table_head("指标", "名称", "聚合", "度量", "单位", "可加性", "过滤", "状态")
+    lines += table_head("指标", "名称", "聚合", "度量", "单位", "可加性", "维度", "时间窗", "口径", "状态")
     for metric in metrics:
         measure = metric.get("measure")
         lines.append(
@@ -636,11 +636,21 @@ def _metrics(view: CatalogView, concept: dict) -> list[str]:
                 f"{view.name(measure)} {expr_span(measure)}" if measure else "—",
                 cell(metric.get("unit") or "—"),
                 ADDITIVITY_TEXT.get(metric.get("additivity"), "—"),
-                cell(metric.get("filter") or "—"),
+                "、".join(f"{view.name(ref)} {expr_span(ref)}" for ref in metric.get("dimensions") or []) or "—",
+                cell(metric.get("time_window") or "—"),
+                _scope_text(metric),
                 status_text(metric),
             )
         )
     return lines
+
+
+def _scope_text(metric: dict) -> str:
+    """Which instances count: the metric's filter, then the constraints that scope it."""
+    parts = [cell(metric["filter"])] if metric.get("filter") else []
+    if metric.get("constraints"):
+        parts.append("约束 " + "、".join(expr_span(ref) for ref in metric["constraints"]))
+    return "；".join(parts) or "—"
 
 
 # --------------------------------------------------------------- 7. 治理缺口

@@ -646,7 +646,10 @@ def _with_metric_and_rule(tmp_path: Path) -> dict:
         "    aggregation: sum\n"
         "    additivity: additive\n"
         "    unit: CNY\n"
-        "    filter: settled loans excluded\n",
+        "    filter: settled loans excluded\n"
+        "    constraints: [cons:principal_positive]\n"
+        "    time_window: month end\n"
+        "    dimensions: [attr:loan.loan_status, concept:borrower]\n",
         encoding="utf-8",
     )
     constraints = catalog / "constraints.yaml"
@@ -668,7 +671,8 @@ def test_a_concept_page_lists_its_metrics_and_the_rules_a_constraint_carries(tmp
     assert "#### 指标" in section
     assert _row(section, "`metric:loan.total_principal`") == (
         "| `metric:loan.total_principal` | total principal | 求和 | 本金 `attr:loan.principal` "
-        "| CNY | 可加 | settled loans excluded | 草拟 |"
+        "| CNY | 可加 | 借据状态 `attr:loan.loan_status`、借款人 `concept:borrower` | month end "
+        "| settled loans excluded；约束 `cons:principal_positive` | 草拟 |"
     )
     assert "承接规则：`demo_dwd.dwd_lending_loan_df#r1`" in _row(section, "`cons:principal_positive`")
 

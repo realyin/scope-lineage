@@ -343,3 +343,57 @@ def test_only_a_skip_line_clears_a_rule_and_a_quoted_concept_id_still_skips_stat
     result = _check_with(path, "--digest", str(_save_digest(tmp_path)), "--changes", str(changes))
     assert [line.split()[1] for line in _lines(result, "unabsorbed_rule")] == ["demo_dwd.task_det#r1"]
     assert _lines(result, "state_without_states") == []
+
+
+def test_an_empty_concept_with_no_table_of_its_own_is_cleared_by_an_empty_skip_line(tmp_path):
+    ontology = _complete()
+    _concept(ontology, "concept:queue")["attributes"] = []   # only ever a foreign identifier's target
+    _bindings(ontology, "demo_dwd.task_det").remove(
+        {"column": "queue_desc", "to": "foreign_attribute", "ref": "attr:queue.desc"}
+    )
+    path = _save(tmp_path, ontology)
+    result = _check(path)
+    line = _lines(result, "empty_concept")[0]
+    assert "concept:queue empty skip:" in line                  # the hint names the skip line
+    changes = tmp_path / "catalog_changes.md"
+    changes.write_text("- `concept:queue` empty skip: 本批没有它的表，属性在别的表里\n", encoding="utf-8")
+    assert _check_with(path, "--changes", str(changes)).returncode == 0
+
+
+def test_an_empty_skip_line_does_not_clear_a_concept_that_has_its_own_table(tmp_path):
+    ontology = _complete()
+    _concept(ontology, "concept:task")["attributes"] = []
+    path = _save(tmp_path, ontology)
+    changes = tmp_path / "catalog_changes.md"
+    changes.write_text("- concept:task empty skip: 不想建\n", encoding="utf-8")
+    result = _check_with(path, "--changes", str(changes))
+    line = _lines(result, "empty_concept")[0]
+    assert "concept:task" in line and "demo_dwd.task_det" in line   # its table's columns are where attributes come from
+    assert "empty skip" not in line
+
+
+@pytest.mark.parametrize(
+    ("metric", "missing"),
+    [
+        ({"aggregation": "sum", "unit": "元", "additivity": "additive"}, "measure"),
+        ({"aggregation": "sum", "measure": "attr:task.amount", "additivity": "additive"}, "unit"),
+        ({"aggregation": "avg", "measure": "attr:task.amount", "unit": "元"}, "additivity"),
+    ],
+)
+def test_a_metric_missing_its_measure_unit_or_additivity_is_reported(tmp_path, metric, missing):
+    ontology = _complete()
+    ontology["metrics"] = [{"id": "metric:task_amount", "on": "concept:task", **metric}]
+    result = _check(_save(tmp_path, ontology))
+    assert result.returncode == 1
+    line = _lines(result, "metric_incomplete")[0]
+    assert "metric:task_amount" in line and missing in line
+
+
+def test_a_count_metric_needs_no_measure(tmp_path):
+    ontology = _complete()
+    ontology["metrics"] = [
+        {"id": "metric:task_count", "on": "concept:task", "aggregation": "count", "unit": "个", "additivity": "additive"},
+        {"id": "metric:task_amount", "on": "concept:task", "aggregation": "sum", "measure": "attr:task.amount",
+         "unit": "元", "additivity": "additive"},
+    ]
+    assert _check(_save(tmp_path, ontology)).returncode == 0
