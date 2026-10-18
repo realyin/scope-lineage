@@ -582,20 +582,62 @@ def _roles(view: CatalogView, concept: dict) -> list[str]:
 # ----------------------------------------------------------------- 6. 约束
 
 
+AGGREGATION_TEXT = {
+    "sum": "求和",
+    "count": "计数",
+    "count_distinct": "去重计数",
+    "avg": "平均",
+    "min": "最小",
+    "max": "最大",
+    "ratio": "比率",
+    "other": "其他",
+}
+ADDITIVITY_TEXT = {"additive": "可加", "semi_additive": "半可加", "non_additive": "不可加"}
+
+
 def _constraints(view: CatalogView, concept: dict) -> list[str]:
     constraints = view.constraints_on(concept["id"])
-    if not constraints:
-        return ["（无）"]
-    lines = table_head("约束", "种类", "作用对象", "表达式", "强度", "状态")
+    lines = table_head("约束", "种类", "作用对象", "表达式", "强度", "状态") if constraints else ["（无）"]
     for constraint in constraints:
         lines.append(
             table_row(
                 expr_span(constraint["id"]),
                 CONSTRAINT_TEXT[constraint["kind"]],
                 f"{view.name(constraint['on'])} {expr_span(constraint['on'])}",
-                cell(constraint["expression"]),
+                cell(_expression_text(constraint)),
                 STRENGTH_TEXT[constraint["strength"]],
                 status_text(constraint),
+            )
+        )
+    return lines + _metrics(view, concept)
+
+
+def _expression_text(constraint: dict) -> str:
+    """The expression, and the table-semantics rules the constraint carries when it names them."""
+    rules = constraint.get("rules") or []
+    if not rules:
+        return constraint["expression"]
+    return f"{constraint['expression']}；承接规则：" + "、".join(f"`{rule}`" for rule in rules)
+
+
+def _metrics(view: CatalogView, concept: dict) -> list[str]:
+    metrics = view.metrics_on(concept["id"])
+    if not metrics:
+        return []
+    lines = ["", "#### 指标", ""]
+    lines += table_head("指标", "名称", "聚合", "度量", "单位", "可加性", "过滤", "状态")
+    for metric in metrics:
+        measure = metric.get("measure")
+        lines.append(
+            table_row(
+                expr_span(metric["id"]),
+                cell(metric["name"]),
+                AGGREGATION_TEXT.get(metric["aggregation"], metric["aggregation"]),
+                f"{view.name(measure)} {expr_span(measure)}" if measure else "—",
+                cell(metric.get("unit") or "—"),
+                ADDITIVITY_TEXT.get(metric.get("additivity"), "—"),
+                cell(metric.get("filter") or "—"),
+                status_text(metric),
             )
         )
     return lines

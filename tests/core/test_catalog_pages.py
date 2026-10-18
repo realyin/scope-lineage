@@ -632,3 +632,46 @@ def test_render_refuses_another_format(tmp_path: Path, capsys) -> None:
 def test_render_of_a_missing_file_exits_two(tmp_path: Path, capsys) -> None:
     assert main(["catalog", "render", str(tmp_path / "nope.json"), "--out", str(tmp_path)]) == 2
     assert "does not exist" in capsys.readouterr().err
+
+
+def _with_metric_and_rule(tmp_path: Path) -> dict:
+    """The demo with one metric on the loan and a constraint carrying a table rule."""
+    catalog = copy_demo(tmp_path)
+    (catalog / "metrics.yaml").write_text(
+        "metrics:\n"
+        "  - id: metric:loan.total_principal\n"
+        "    name: total principal\n"
+        "    on: concept:loan\n"
+        "    measure: attr:loan.principal\n"
+        "    aggregation: sum\n"
+        "    additivity: additive\n"
+        "    unit: CNY\n"
+        "    filter: settled loans excluded\n",
+        encoding="utf-8",
+    )
+    constraints = catalog / "constraints.yaml"
+    text = constraints.read_text(encoding="utf-8")
+    constraints.write_text(
+        text.replace(
+            "    expression: principal > 0\n",
+            "    expression: principal > 0\n    rules: [demo_dwd.dwd_lending_loan_df#r1]\n",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    return render_catalog_pages(build_ontology(load_catalog(catalog)))
+
+
+def test_a_concept_page_lists_its_metrics_and_the_rules_a_constraint_carries(tmp_path: Path) -> None:
+    section = _with_metric_and_rule(tmp_path)["concepts/loan.md"].split("### A6 约束")[1].split("### A7 ")[0]
+
+    assert "#### 指标" in section
+    assert _row(section, "`metric:loan.total_principal`") == (
+        "| `metric:loan.total_principal` | total principal | 求和 | 本金 `attr:loan.principal` "
+        "| CNY | 可加 | settled loans excluded | 草拟 |"
+    )
+    assert "承接规则：`demo_dwd.dwd_lending_loan_df#r1`" in _row(section, "`cons:principal_positive`")
+
+
+def test_a_concept_page_without_metrics_has_no_metric_table(pages: dict) -> None:
+    assert "#### 指标" not in pages["concepts/loan.md"]
