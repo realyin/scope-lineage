@@ -115,8 +115,7 @@ def _marker_text(hits: dict[str, list[str]]) -> str:
 # valid) or its comment (状态 / 是否有效). A date or time column (``status_time``,
 # 「状态更新时间」) records when, not which state, and is left out; so are the markers
 # above, which have a lead of their own.
-_STATE_NAME = re.compile(r"status|effective|state$|(^|_)state(_|$)|valid$|(^|_)valid(_|$)",
-                         re.IGNORECASE)
+_STATE_NAME = re.compile(r"status|effective|(^|_)(state|valid)(_|$)", re.IGNORECASE)
 _STATE_COMMENT = re.compile(r"状态|是否有效")
 _WHEN_NAME = re.compile(r"date|time|(^|_)(dt|ts|tm)$", re.IGNORECASE)
 _WHEN_COMMENT = re.compile(r"时间|日期")
@@ -128,15 +127,21 @@ def _is_state(column: dict) -> bool:
                 or (_STATE_COMMENT.search(comment) and not _WHEN_COMMENT.search(comment)))
 
 
-def state_leads(target: str, statements: list, rules: list[dict], inputs: list[dict]) -> list[dict]:
+def state_leads(
+    target: str, statements: list, rules: list[dict], inputs: list[dict],
+    feeders=(), feeder_rules=(),
+) -> list[dict]:
     """``state_column_unfiltered`` (W7, ``info``) per task: state columns the task never reads.
 
     Weaker than :func:`marker_leads`: a state column may well be meant to let every state
     through, so the lead only asks. A column the task filters, joins, groups or writes out
     is read -- an output state column still tells the reader each row's state -- and is
-    left out, as a marker column is.
+    left out, as a marker column is. What the same task's earlier writes feeding the target
+    read (G1 ``feeders``) counts as the task's reading too.
     """
     leads = []
+    statements = list(statements) + [(task, statement) for task, statement, _table in feeders]
+    rules = list(rules) + list(feeder_rules)
     for task, group in _by_task(statements).items():
         cited = {ref.lower() for rule in rules if rule["task"] == task for ref in rule.get("columns") or []}
         found, first = [], None
@@ -315,6 +320,8 @@ def _declared_single(comment, names: list[str], own: str) -> str | None:
     if not any(phrase in text.lower() for phrase in KEY_HINT_PHRASES):
         return None
     template = _TEMPLATE.search(text)
+    if not template or template.group(0).count("$") > 1 or _declared_members(text, names):
+        return None
     spelled = template.group(0).replace("$", "").strip("_").lower() if template else ""
     known = {name.lower() for name in names}
     return spelled if spelled in known and spelled != own.lower() else None

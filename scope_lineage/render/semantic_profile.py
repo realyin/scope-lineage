@@ -8242,8 +8242,15 @@ def _numeric_compare_findings(document: dict, rules: Sequence[dict]) -> list[dic
     ]
 
 
-_NUMERIC_TYPE_PREFIXES = ("tinyint", "smallint", "int", "bigint", "long", "decimal", "numeric",
-                          "double", "float", "real")
+# A declared numeric type, by its whole leading word: ``int`` but never ``interval``.
+_NUMERIC_TYPE = re.compile(
+    r"^(tinyint|smallint|int|integer|bigint|long|decimal|numeric|double|float|real)\b", re.IGNORECASE)
+# A quoted number: ``n > '0'`` casts as meant, so only another literal is a lead.
+_QUOTED_NUMBER = re.compile(r"^'[+-]?\d+(\.\d+)?'$")
+
+
+def _is_numeric_type(declared: str) -> bool:
+    return bool(_NUMERIC_TYPE.match(str(declared or "").strip()))
 
 
 def _string_compare_findings(document: dict, rules: Sequence[dict]) -> list[dict]:
@@ -8251,8 +8258,9 @@ def _string_compare_findings(document: dict, rules: Sequence[dict]) -> list[dict
 
     The reverse of :func:`_numeric_compare_findings`: ``n = 'x1'`` on a ``bigint`` column
     leaves the engine to cast one side, and a literal that is no number may turn the
-    comparison NULL. An empty string is ``empty_string_on_non_string``'s; a partition
-    filter is left out, as there.
+    comparison NULL. A quoted number (``'0'``, ``'-2.5'``) casts as meant and is left out;
+    an empty string is ``empty_string_on_non_string``'s; a partition filter is left out,
+    as there.
     """
     by_table: dict[str, dict] = {}
     for rule in rules:
@@ -8262,7 +8270,7 @@ def _string_compare_findings(document: dict, rules: Sequence[dict]) -> list[dict
             continue
         for column, literal in semantic_text.quoted_literal_comparisons(rule.get("expression")):
             typed = _physical_column_type(document, rule, column)
-            if typed is None or not typed[1].lower().startswith(_NUMERIC_TYPE_PREFIXES):
+            if typed is None or not _is_numeric_type(typed[1]) or _QUOTED_NUMBER.match(literal):
                 continue
             entry = by_table.setdefault(typed[0], {"columns": [], "literals": [], "rules": []})
             entry["columns"].append(f"{column}（{typed[1]}）")

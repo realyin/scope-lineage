@@ -318,8 +318,8 @@ def _packet(table: str, statements: list[tuple[str, dict]], corpus: _Corpus) -> 
                     for rule in facts.statement_rules(task, statement)]
     facts.mark_partition_filters(feeder_rules, corpus.metadata)
     inputs = inputs_section(table, statements, rules, corpus, feeders, feeder_rules)
+    lineage = lineage_section(table, statements, rules, target, corpus, inputs, feeders, feeder_rules)
     facts.drop_private(feeder_rules)
-    lineage = lineage_section(table, statements, rules, target, corpus, inputs)
     facts.drop_private(rules)
     markers = marker_keys(
         [(table, column) for column in target["columns"]]

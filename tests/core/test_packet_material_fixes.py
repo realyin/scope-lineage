@@ -145,7 +145,7 @@ def test_w6_a_script_of_one_write_gets_no_numbers() -> None:
 
 LEAD_SCHEMA = {
     "ods.s": ["k", "v", "rec_status", "taskstate", "st", "valid_flag", "status_time",
-              "is_deleted", "dt"],
+              "is_deleted", "real_estate", "invalid", "dt"],
     "ods.e": ["env_id", "id", "k", "v"],
     "ods.p": ["k", "v", "dt"],
     "dw.out": ["k", "v"],
@@ -181,7 +181,8 @@ def test_w7_a_state_column_no_condition_reads_is_an_info_lead() -> None:
     for name in ("st", "valid_flag"):
         assert f"`ods.s.{name}`" in lead["text"]
     # Filtered, written out, a time, a marker: none is an unread state column.
-    for name in ("taskstate", "rec_status", "status_time", "is_deleted", "`ods.s.k`"):
+    for name in ("taskstate", "rec_status", "status_time", "is_deleted", "real_estate",
+                 "`ods.s.invalid`", "`ods.s.k`"):
         assert name not in lead["text"]
     assert "state_column_unfiltered（t0 / stmt:001）" in render_packet_markdown(packet)
 
@@ -301,3 +302,47 @@ def test_g1_packet_md_says_how_a_feeder_input_is_read() -> None:
     section = _section(text, "### `ods.src`", "## 4.")
     assert "经同任务中间语句读入：`stmt:001` 写 `tmp.mid`" in section
     assert "`` `s`.`dt` = '20250101' ``" in section
+
+
+# ------------------------------------------------------------------ review false positives
+
+
+def test_review_a_plain_comma_phrase_is_no_label_list() -> None:
+    from scope_lineage.render.glossary_values import label_list
+
+    assert label_list("账户状态，必填") == []
+    assert label_list("first name, last name") == []
+    assert label_list("类别：甲类、乙类") == []
+    assert label_list("类别：甲类、乙类、丙类") == ["甲类", "乙类", "丙类"]
+
+
+def test_review_a_year_and_month_are_no_glued_codes() -> None:
+    from scope_lineage.render.glossary_values import enumerated_meanings
+
+    assert enumerated_meanings("统计口径 2023年12月起") == {}
+    assert enumerated_meanings("1是 12否") == {}
+    assert enumerated_meanings("0存量1抢案2强制分配") == {"0": "存量", "1": "抢案", "2": "强制分配"}
+
+
+def test_review_a_template_read_as_two_columns_is_not_also_one() -> None:
+    meta = {"uk": "唯一键 ($ev_id)"}
+    schema = {"ods.q": ["uk", "ev", "id", "ev_id", "v"], "dw.out": ["k", "v"]}
+    sql = ("INSERT OVERWRITE TABLE dw.out SELECT a.ev AS k, a.v FROM (SELECT ev, v, row_number() "
+           "OVER (PARTITION BY ev ORDER BY v DESC) rn FROM ods.q) a WHERE a.rn = 1")
+    metadata = {"ods.q": {"columns": [{"name": n, "type": "string", "comment": meta.get(n, n)}
+                                      for n in schema["ods.q"]]}}
+    document = to_lineage_dict(parse_scope_lineage(sql, "t0", schema=schema))
+    (packet,) = build_packets([(document, None)], metadata=metadata.get)
+    (lead,) = _findings(packet, "declared_key_not_used")
+    assert "(ev、id) 唯一" in lead["text"]
+
+
+def test_review_a_state_column_a_feeder_filters_is_read() -> None:
+    schema = {"ods.s": LEAD_SCHEMA["ods.s"], "tmp.mid": ["k", "v"], "dw.out": ["k", "v"]}
+    sql = ("INSERT OVERWRITE TABLE tmp.mid SELECT s.k, s.v FROM ods.s s WHERE s.rec_status = '1';\n"
+           "INSERT OVERWRITE TABLE dw.out SELECT m.k, m.v FROM tmp.mid m;\n")
+    document = to_task_lineage_dict(parse_task_lineage(sql, task_name="t0", schema=schema))
+    (packet,) = build_packets([(document, None)], tasks=[{"name": "t0", "sql": sql}],
+                              metadata=_lead_meta().get, only=["dw.out"])
+    (lead,) = _findings(packet, "state_column_unfiltered")
+    assert "`ods.s.st`" in lead["text"] and "rec_status" not in lead["text"]
