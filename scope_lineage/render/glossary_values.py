@@ -1231,8 +1231,38 @@ def enumerated_meanings(comment: str) -> dict[str, str]:
         after_joined = bool(code and meaning) and step == 1
         index += step
     if not joined and len(adjacent) < _MINIMUM_ADJACENT_PAIRS:
-        return {}
+        return _glued_meanings(tokens)
     return {**adjacent, **joined}
+
+
+# G2. ``1是 0否`` / ``1是0否`` / ``Y是 N否``: short codes straight against their labels. A
+# digit code may follow the previous label directly (a digit cannot be part of a label);
+# a letter code needs a token of its own, as ``id关联`` is a word. A label holds no ASCII
+# letter or digit, and one running into a conjunction (``3天或7天``) lists amounts, not
+# codes.
+_GLUED_DIGIT_PAIR = re.compile(r"(\d{1,4})([^\x00-\x7f]+)")
+_GLUED_LETTER_PAIR = re.compile(r"^([A-Z][A-Z0-9]{0,2})([^\x00-\x7f]+)$")
+_GLUED_CONJUNCTIONS = ("或", "和", "与", "及", "至", "到")
+
+
+def _glued_meanings(tokens: Sequence[str]) -> dict[str, str]:
+    """``{code: label}`` when two or more distinct codes are each glued to a distinct label."""
+    pairs: list[tuple[str, str]] = []
+    for token in (part for token in tokens for part in re.split(r"[:：]", token) if part):
+        letter = _GLUED_LETTER_PAIR.match(token)
+        if letter:
+            pairs.append((letter.group(1), letter.group(2)))
+            continue
+        found = _GLUED_DIGIT_PAIR.findall(token)
+        if found and "".join(code + label for code, label in found) == token:
+            pairs += found
+    codes = [code.lower() for code, _label in pairs]
+    labels = [label for _code, label in pairs]
+    if (len(pairs) < _MINIMUM_ADJACENT_PAIRS or len(set(codes)) < len(codes)
+            or len(set(labels)) < len(labels)
+            or any(label.endswith(_GLUED_CONJUNCTIONS) for label in labels)):
+        return {}
+    return dict(zip(codes, labels))
 
 
 def _pair_at(tokens: Sequence[str], index: int) -> tuple[str, str, int]:

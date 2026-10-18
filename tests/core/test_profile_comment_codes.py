@@ -105,6 +105,13 @@ def test_a_prose_comment_lists_no_codes(tmp_path):
     assert _findings("参与者的角色名称", "p.role = 'z9'", tmp_path) == []
 
 
+# G2: codes glued to their labels (``1是 0否``) are a code table too.
+def test_a_literal_outside_glued_codes_is_a_finding(tmp_path):
+    (finding,) = _findings("是否有效 1是 0否", "p.role = 'Y'", tmp_path)
+    assert "'Y'" in finding["text"] and "1、0" in finding["text"]
+    assert _findings("是否有效 1是 0否", "p.role = '1'", tmp_path) == []
+
+
 # W5: a comment that is nothing but a separated list of labels names no codes, but the
 # labels may be the values; a literal outside them is a lead worded as a suspicion.
 LABELS = "类别：甲类、乙类、丙类"
