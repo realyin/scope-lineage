@@ -8270,12 +8270,13 @@ def _comment_code_findings(document: dict, rules: Sequence[dict]) -> list[dict]:
             table, comment = commented
             text = _COMMENT_ANNOTATION.sub(" ", comment)
             codes = glossary_values.enumerated_meanings(text)
-            if len(codes) < _COMMENT_CODE_MINIMUM or literal.lower() in codes:
+            labels = [] if codes else glossary_values.label_list(text)
+            if len(codes) < _COMMENT_CODE_MINIMUM and not labels:
                 continue
-            if literal.lower() in text.lower():
+            if literal.lower() in codes or literal.lower() in text.lower():
                 continue
             entry = outside.setdefault(
-                (table, column), {"codes": codes, "text": text, "literals": []}
+                (table, column), {"codes": codes, "labels": labels, "text": text, "literals": []}
             )
             entry["literals"].append(literal)
         for (table, column), entry in outside.items():
@@ -8283,13 +8284,26 @@ def _comment_code_findings(document: dict, rules: Sequence[dict]) -> list[dict]:
             found.append(
                 _finding(
                     FINDING_LITERAL_OUTSIDE_COMMENT_CODES,
-                    f"{table}.{column} 与 {literals} 比较，但列注释列出的取值是 "
-                    f"{'、'.join(_as_written(code, entry['text']) for code in entry['codes'])}，不含 {literals}：注释过时，或这条比较"
-                    "可能永不成立（<> / NOT IN 时可能恒成立），需核实",
+                    _outside_codes_text(table, column, literals, entry),
                     [rule.get("rule_id")],
                 )
             )
     return found
+
+
+def _outside_codes_text(table: str, column: str, literals: str, entry: dict) -> str:
+    """The finding's sentence: a code table's codes, or a label list read as values (W5).
+
+    A comment of labels alone (``甲、乙、丙``) may list the values or only describe them,
+    so the sentence says the list is suspected to be the values, no more.
+    """
+    then = "可能永不成立（<> / NOT IN 时可能恒成立），需核实"
+    if entry["labels"]:
+        return (f"{table}.{column} 与 {literals} 比较，列注释是一串标签 "
+                f"{'、'.join(entry['labels'])}（疑似取值列表），不含 {literals}：若这些标签就是"
+                f"取值，则注释过时，或这条比较{then}")
+    listed = "、".join(_as_written(code, entry["text"]) for code in entry["codes"])
+    return f"{table}.{column} 与 {literals} 比较，但列注释列出的取值是 {listed}，不含 {literals}：注释过时，或这条比较{then}"
 
 
 def _as_written(code: str, text: str) -> str:

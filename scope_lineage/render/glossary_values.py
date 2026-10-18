@@ -1173,6 +1173,33 @@ _MEANING_MAX_LENGTH = 20
 # the second pair on; an explicit joiner (`0-未生效`) carries its own evidence.
 _MINIMUM_ADJACENT_PAIRS = 2
 
+# A comment written as a list of labels -- ``名称：甲、乙、丙`` -- gives no codes, only the
+# labels themselves. A label is a short run of letters (any script); the separators are
+# punctuation, never a count of characters.
+_LABEL_SEPARATOR = re.compile(r"[、，,/|]")
+_LABEL_SPLIT = re.compile(r"[、，,/|；;\s]+")
+_LABEL = re.compile(r"^[^\W\d_]{1,8}$", re.UNICODE)
+
+
+def listed_labels(comment) -> list[str]:
+    """The labels of a separated list after the comment's ``名称：`` prefix, in order."""
+    text = re.split(r"[:：]", str(comment or ""), maxsplit=1)[-1]
+    if not _LABEL_SEPARATOR.search(text):
+        return []
+    return list(dict.fromkeys(item for item in _LABEL_SPLIT.split(text) if _LABEL.match(item)))
+
+
+def label_list(comment) -> list[str]:
+    """W5: :func:`listed_labels` when the list is all there is -- a suspected value list.
+
+    Every item must be a label and there must be two: ``甲、乙 (见 2.1)`` is prose with a
+    list in it, not a list of the values the column takes.
+    """
+    text = re.split(r"[:：]", str(comment or ""), maxsplit=1)[-1]
+    items = [item for item in _LABEL_SPLIT.split(text) if item]
+    labels = listed_labels(comment)
+    return labels if len(labels) >= 2 and all(map(_LABEL.match, items)) else []
+
 
 def enumerated_meanings(comment: str) -> dict[str, str]:
     """``{code: meaning}`` for a comment written as a code table, lower-cased keys.

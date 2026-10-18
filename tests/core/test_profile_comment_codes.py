@@ -105,6 +105,27 @@ def test_a_prose_comment_lists_no_codes(tmp_path):
     assert _findings("参与者的角色名称", "p.role = 'z9'", tmp_path) == []
 
 
+# W5: a comment that is nothing but a separated list of labels names no codes, but the
+# labels may be the values; a literal outside them is a lead worded as a suspicion.
+LABELS = "类别：甲类、乙类、丙类"
+
+
+def test_a_literal_outside_a_label_list_comment_is_a_suspected_mismatch(tmp_path):
+    (finding,) = _findings(LABELS, "p.role = 'x9'", tmp_path)
+    assert finding["severity"] == "warn"
+    assert "疑似" in finding["text"] and "甲类、乙类、丙类" in finding["text"]
+    assert "'x9'" in finding["text"]
+
+
+def test_a_literal_in_the_label_list_says_nothing(tmp_path):
+    assert _findings(LABELS, "p.role = '乙类'", tmp_path) == []
+
+
+def test_a_comment_with_more_than_labels_is_no_label_list(tmp_path):
+    assert _findings("类别：甲类、乙类 (见 2.1 节)", "p.role = 'x9'", tmp_path) == []
+    assert _findings("类别：甲类", "p.role = 'x9'", tmp_path) == []
+
+
 def test_the_kind_is_registered_and_carried_by_the_packet():
     assert KIND in FINDING_KINDS
     assert FINDING_SEVERITY[KIND] == "warn"
