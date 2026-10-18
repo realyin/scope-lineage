@@ -534,6 +534,33 @@ def string_literal_comparisons(expression: str | None) -> list[tuple[str, str]]:
     return found
 
 
+def quoted_literal_comparisons(expression: str | None) -> list[tuple[str, str]]:
+    """``(column name, literal)`` for every comparison of a column with a non-empty string.
+
+    W8: :func:`string_literal_comparisons` plus the order comparisons (``<`` … ``>=``),
+    the reverse of :func:`numeric_literal_comparisons`. The literal is returned quoted.
+    """
+    node = parse_expression(expression)
+    if node is None:
+        return []
+    found: list[tuple[str, str]] = []
+
+    def add(column, literal) -> None:
+        if (isinstance(column, exp.Column) and isinstance(literal, exp.Literal)
+                and literal.is_string and literal.this != ""
+                and (column.name, f"'{literal.this}'") not in found):
+            found.append((column.name, f"'{literal.this}'"))
+
+    for comparison in node.find_all(exp.EQ, exp.NEQ, exp.LT, exp.LTE, exp.GT, exp.GTE, exp.In):
+        if isinstance(comparison, exp.In):
+            for item in comparison.expressions:
+                add(comparison.this, item)
+            continue
+        add(comparison.this, comparison.expression)
+        add(comparison.expression, comparison.this)
+    return found
+
+
 def numeric_literal_comparisons(expression: str | None) -> list[tuple[str, str]]:
     """``(column name, literal)`` for every comparison of a column with a number (G1a).
 

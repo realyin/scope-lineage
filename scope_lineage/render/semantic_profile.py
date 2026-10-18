@@ -7927,6 +7927,7 @@ FINDING_TABLE_COMMENT_MISSING = "table_comment_missing"
 FINDING_DUPLICATE_ALIAS = "duplicate_alias"
 FINDING_EMPTY_STRING_ON_NON_STRING = "empty_string_on_non_string"
 FINDING_NUMERIC_COMPARE_ON_STRING = "numeric_compare_on_string"
+FINDING_STRING_COMPARE_ON_NUMERIC = "string_compare_on_numeric"
 FINDING_LITERAL_OUTSIDE_COMMENT_CODES = "literal_outside_comment_codes"
 FINDING_WINDOW_PARTITION_NARROWER = "window_partition_narrower"
 
@@ -7937,6 +7938,7 @@ FINDING_KINDS = (
     FINDING_DUPLICATE_ALIAS,
     FINDING_EMPTY_STRING_ON_NON_STRING,
     FINDING_NUMERIC_COMPARE_ON_STRING,
+    FINDING_STRING_COMPARE_ON_NUMERIC,
     FINDING_LITERAL_OUTSIDE_COMMENT_CODES,
     FINDING_WINDOW_PARTITION_NARROWER,
     FINDING_PARTITION_MISMATCH,
@@ -7988,6 +7990,7 @@ FINDING_SEVERITY = {
     FINDING_DUPLICATE_ALIAS: SEVERITY_WARN,
     FINDING_EMPTY_STRING_ON_NON_STRING: SEVERITY_WARN,
     FINDING_NUMERIC_COMPARE_ON_STRING: SEVERITY_WARN,
+    FINDING_STRING_COMPARE_ON_NUMERIC: SEVERITY_WARN,
     FINDING_LITERAL_OUTSIDE_COMMENT_CODES: SEVERITY_WARN,
     FINDING_WINDOW_PARTITION_NARROWER: SEVERITY_WARN,
     FINDING_PARTITION_MISMATCH: SEVERITY_INFO,
@@ -8081,6 +8084,7 @@ def _build_findings(
         *_duplicate_alias_findings(document),
         *_empty_string_findings(document, rules),
         *_numeric_compare_findings(document, rules),
+        *_string_compare_findings(document, rules),
         *_comment_code_findings(document, rules),
         *_partition_mismatch_findings(comparisons, fields),
         *_nondeterministic_findings(rules, fields),
@@ -8232,6 +8236,44 @@ def _numeric_compare_findings(document: dict, rules: Sequence[dict]) -> list[dic
             f"类型不匹配：{table} 的 string 列 {'、'.join(_dedupe(entry['columns']))} "
             f"与数值 {'、'.join(_dedupe(entry['literals']))} 比较；结果取决于引擎把哪一边"
             "转成什么类型（非数字或超出范围时可能为 NULL），需核实这些判断是否按预期生效",
+            _dedupe(entry["rules"]),
+        )
+        for table, entry in by_table.items()
+    ]
+
+
+_NUMERIC_TYPE_PREFIXES = ("tinyint", "smallint", "int", "bigint", "long", "decimal", "numeric",
+                          "double", "float", "real")
+
+
+def _string_compare_findings(document: dict, rules: Sequence[dict]) -> list[dict]:
+    """A numeric column compared with a string literal (W8), one finding per input table.
+
+    The reverse of :func:`_numeric_compare_findings`: ``n = 'x1'`` on a ``bigint`` column
+    leaves the engine to cast one side, and a literal that is no number may turn the
+    comparison NULL. An empty string is ``empty_string_on_non_string``'s; a partition
+    filter is left out, as there.
+    """
+    by_table: dict[str, dict] = {}
+    for rule in rules:
+        if str(rule.get("kind")) not in ("filter", "join_condition", "case_branch"):
+            continue
+        if rule.get("is_partition_filter"):
+            continue
+        for column, literal in semantic_text.quoted_literal_comparisons(rule.get("expression")):
+            typed = _physical_column_type(document, rule, column)
+            if typed is None or not typed[1].lower().startswith(_NUMERIC_TYPE_PREFIXES):
+                continue
+            entry = by_table.setdefault(typed[0], {"columns": [], "literals": [], "rules": []})
+            entry["columns"].append(f"{column}（{typed[1]}）")
+            entry["literals"].append(literal)
+            entry["rules"].append(rule.get("rule_id"))
+    return [
+        _finding(
+            FINDING_STRING_COMPARE_ON_NUMERIC,
+            f"类型不匹配：{table} 的数值列 {'、'.join(_dedupe(entry['columns']))} "
+            f"与字符串 {'、'.join(_dedupe(entry['literals']))} 比较；结果取决于引擎把哪一边"
+            "转成什么类型（不是数字的字符串可能转成 NULL，范围比较可能按文本比），需核实这些判断是否按预期生效",
             _dedupe(entry["rules"]),
         )
         for table, entry in by_table.items()

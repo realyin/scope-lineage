@@ -139,3 +139,110 @@ def test_w6_a_script_of_one_write_gets_no_numbers() -> None:
     packet = _task_packet(sql, W6_SCHEMA, "dw.out")
     assert "writes" not in packet["tasks"][0]
     assert "-- [stmt:" not in render_packet_markdown(packet)
+
+
+# ------------------------------------------------------------------ W7 / W8 packet leads
+
+LEAD_SCHEMA = {
+    "ods.s": ["k", "v", "rec_status", "taskstate", "st", "valid_flag", "status_time",
+              "is_deleted", "dt"],
+    "ods.e": ["env_id", "id", "k", "v"],
+    "ods.p": ["k", "v", "dt"],
+    "dw.out": ["k", "v"],
+}
+LEAD_COMMENTS = {"st": "处理状态", "env_id": "唯一键 ($id)", "status_time": "状态更新时间"}
+
+
+def _lead_meta(comments: dict | None = None) -> dict:
+    said = {**LEAD_COMMENTS, **(comments or {})}
+    return {
+        table: {"columns": [{"name": name, "type": "string", "comment": said.get(name, name)}
+                            for name in names],
+                "partitioned": "dt" in names, "partition_columns": ["dt"] if "dt" in names else []}
+        for table, names in LEAD_SCHEMA.items()
+    }
+
+
+def _lead_pack(*sqls: str, comments: dict | None = None) -> dict:
+    documents = [(to_lineage_dict(parse_scope_lineage(sql, f"t{index}", schema=LEAD_SCHEMA)), None)
+                 for index, sql in enumerate(sqls)]
+    return build_packets(documents, metadata=_lead_meta(comments).get, only=["dw.out"])[0]
+
+
+def _findings(packet: dict, kind: str) -> list[dict]:
+    return [item for item in packet["lineage"].get("findings") or [] if item["kind"] == kind]
+
+
+def test_w7_a_state_column_no_condition_reads_is_an_info_lead() -> None:
+    packet = _lead_pack("INSERT OVERWRITE TABLE dw.out SELECT s.k, s.rec_status AS v FROM ods.s s "
+                        "WHERE s.taskstate = '1' AND s.dt = 'x'")
+    (lead,) = _findings(packet, "state_column_unfiltered")
+    assert lead["severity"] == "info" and lead["task"] == "t0"
+    for name in ("st", "valid_flag"):
+        assert f"`ods.s.{name}`" in lead["text"]
+    # Filtered, written out, a time, a marker: none is an unread state column.
+    for name in ("taskstate", "rec_status", "status_time", "is_deleted", "`ods.s.k`"):
+        assert name not in lead["text"]
+    assert "state_column_unfiltered（t0 / stmt:001）" in render_packet_markdown(packet)
+
+
+def test_w7_no_state_column_left_says_nothing() -> None:
+    packet = _lead_pack("INSERT OVERWRITE TABLE dw.out SELECT p.k, p.v FROM ods.p p WHERE p.dt = 'x'")
+    assert _findings(packet, "state_column_unfiltered") == []
+
+
+W8_DEDUP = ("INSERT OVERWRITE TABLE dw.out SELECT a.k, a.v FROM (SELECT k, v, row_number() OVER "
+            "(PARTITION BY {by} ORDER BY v DESC) rn FROM ods.e) a WHERE a.rn = 1")
+
+
+def test_w8_a_one_column_declared_key_left_out_of_a_dedup_is_a_lead() -> None:
+    (lead,) = _findings(_lead_pack(W8_DEDUP.format(by="k")), "declared_key_not_used")
+    assert "(id) 唯一" in lead["text"] and "按 (k) 去重" in lead["text"] and "不含 id" in lead["text"]
+
+
+def test_w8_a_dedup_by_the_one_declared_column_is_no_lead() -> None:
+    assert _findings(_lead_pack(W8_DEDUP.format(by="id")), "declared_key_not_used") == []
+    assert _findings(_lead_pack(W8_DEDUP.format(by="k, env_id")), "declared_key_not_used") == []
+
+
+def test_w8_a_single_dollar_template_still_splits_into_two_columns() -> None:
+    packet = _lead_pack(W8_DEDUP.format(by="k"), comments={"env_id": "唯一键 ($k_id)"})
+    (lead,) = _findings(packet, "declared_key_not_used")
+    assert "(id、k) 唯一" in lead["text"] and "少了 id" in lead["text"]
+
+
+W8_PART = "INSERT OVERWRITE TABLE dw.out SELECT p.k, p.v FROM ods.p p WHERE p.dt = '{value}'"
+
+
+def test_w8_a_partition_literal_in_another_format_than_the_comment_is_a_lead() -> None:
+    packet = _lead_pack(W8_PART.format(value="20250115"), comments={"dt": "分区日期 YYYY-mm-dd"})
+    (lead,) = _findings(packet, "partition_format_mismatch")
+    assert lead["severity"] == "warn" and lead.get("rules")
+    assert "'20250115'" in lead["text"] and "YYYY-mm-dd" in lead["text"] and "ods.p.dt" in lead["text"]
+    packet = _lead_pack(W8_PART.format(value="2025-01-15"), comments={"dt": "日期，如 20250101"})
+    (lead,) = _findings(packet, "partition_format_mismatch")
+    assert "'2025-01-15'" in lead["text"] and "20250101" in lead["text"]
+
+
+def test_w8_a_partition_literal_in_the_comments_format_is_no_lead() -> None:
+    for value, comment in (("2025-01-15", "YYYY-MM-DD"), ("20250115", "yyyymmdd"),
+                           ("20250115", "分区日期")):
+        packet = _lead_pack(W8_PART.format(value=value), comments={"dt": comment})
+        assert _findings(packet, "partition_format_mismatch") == []
+
+
+W8_MERGE = ("MERGE INTO dw.out t USING (SELECT k, v FROM ods.p WHERE dt = 'x') s ON t.k = s.k "
+            "WHEN MATCHED THEN UPDATE SET t.v = s.v "
+            "WHEN NOT MATCHED THEN INSERT (k, v) VALUES (s.k, s.v)")
+
+
+def test_w8_two_merges_into_the_table_on_one_key_are_an_info_lead() -> None:
+    packet = _lead_pack(W8_MERGE, W8_MERGE.replace("dt = 'x'", "dt = 'y'"))
+    (lead,) = _findings(packet, "merge_same_key")
+    assert lead["severity"] == "info"
+    assert "t0 / stmt:001" in lead["text"] and "t1 / stmt:001" in lead["text"]
+    assert "(k)" in lead["text"]
+
+
+def test_w8_one_merge_says_nothing() -> None:
+    assert _findings(_lead_pack(W8_MERGE), "merge_same_key") == []
