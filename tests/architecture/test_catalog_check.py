@@ -310,3 +310,17 @@ def test_a_missing_or_wrong_digest_or_changes_file_exits_2(tmp_path):
     result = _check_with(ontology, "--digest", str(wrong))
     assert result.returncode == 2 and "catalog-digest" in result.stderr
     assert _check_with(ontology, "--digest", str(_save_digest(tmp_path)), "--changes", str(tmp_path / "none.md")).returncode == 2
+
+
+def test_a_state_attribute_coded_through_its_binding_counts_and_a_skip_line_clears_it(tmp_path):
+    ontology = _complete()
+    _concept(ontology, "concept:task")["attributes"].append({"id": "attr:task.result", "name": "结果", "category": "state"})
+    _bindings(ontology, "demo_dwd.task_det").append(
+        {"column": "result_cd", "to": "attribute", "ref": "attr:task.result", "code_sets": ["code:result"]}
+    )
+    path = _save(tmp_path, ontology)
+    result = _check(path)
+    assert any("concept:task" in line for line in _lines(result, "state_without_states")), result.stdout
+    changes = tmp_path / "catalog_changes.md"
+    changes.write_text("- concept:task states skip: 结果列不是生命周期状态\n", encoding="utf-8")
+    assert _check_with(path, "--changes", str(changes)).returncode == 0

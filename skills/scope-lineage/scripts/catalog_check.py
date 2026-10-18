@@ -16,9 +16,10 @@ these kinds of omission:
                                      concept, while a code column with the same stem in the
                                      same table is a foreign identifier of another concept --
                                      it is probably that concept's attribute;
-  state_without_states               an entity with a state attribute that has a code set and
-                                     no ``states`` (one state machine, an object; events and
-                                     roles carry none);
+  state_without_states               an entity with a state attribute that has a code set (its
+                                     own or a binding's) and no ``states`` (one state machine, an
+                                     object; events and roles carry none), unless
+                                     ``catalog_changes.md`` has ``<concept id> states skip: …``;
   measure_without_unit               a measure attribute with no ``unit``;
   code_attribute_without_relation    a column named like a code or a key (``*_cd``, ``*_id``,
                                      ``*_no``, ``*_code``) bound as a plain attribute, not as an
@@ -113,16 +114,27 @@ def check(
                     f"但同表 {code_column} 指向 {target}：可能是 {target} 的属性"
                 )
 
+    # An attribute is coded when it has a code set of its own or a binding of it lists one
+    # (the rule ``catalog validate`` applies).
+    bound_codes = {
+        b.get("ref") for r in ontology.get("representations") or [] for b in r.get("bindings") or []
+        if b.get("code_sets")
+    }
+    skipped = {m.lower() for m in re.findall(r"([\w:.]+)\s+states\s+skip", changes)}
     for concept_id, concept in concepts.items():
         # ``states`` is one state machine (an object) and only an entity carries it.
         coded = [
             a["id"] for a in concept.get("attributes") or []
-            if a.get("category") == "state" and a.get("code_set")
+            if a.get("category") == "state" and (a.get("code_set") or a["id"] in bound_codes)
         ]
-        if concept.get("kind") == "entity" and coded and not concept.get("states"):
+        if (
+            concept.get("kind") == "entity" and coded and not concept.get("states")
+            and concept_id.lower() not in skipped
+        ):
             findings.append(
                 f"state_without_states  {concept_id}：状态属性 {'、'.join(coded)} 有码值集，概念没有 states"
-                f"（挑描述生命周期的那一个写 states；其余结果、标志类列不用写）"
+                f"（挑描述生命周期的那一个写 states；都不是生命周期状态时，在 catalog_changes.md 写一行 "
+                f"`{concept_id} states skip: <理由>`）"
             )
         for attribute in concept.get("attributes") or []:
             if attribute.get("category") == "measure" and not attribute.get("unit"):

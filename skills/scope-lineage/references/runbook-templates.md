@@ -498,6 +498,10 @@ digest 的说法与它矛盾的，就地改这一条，`status` 保持 `drafted`
        `{"by": [{"column": "<列>"}]}`，并在 `notes` 写「待 owner 确认：跨 <列> 是否唯一」。**不要写 `global`**，否则目录页会写成「全局唯一」，与表语义页的「未证明」矛盾；
      - 什么范围都证明不了：写 `"global"`，`notes` 写「待 owner 确认：唯一性未证明（见表语义 <表>）」，并在回复「没把握」里列出。
    - 两套编号没有证据证明是同一套（例如两个系统各自的人员编号），不写 `maps_to`，也不建它们之间的关系，在 `notes` 里写明。
+   - 一个概念可以有几个标识符：同一张表里有两列都标识同一个对象（例如注册即有的编号和后来才有的编号），各建一个标识符，都列进
+     这个概念的 `identifiers`，`primary_identifier` 选表语义 Grain 用的那一列，两者之间的对应写进 `maps_to`（有证据时）或 `notes`。
+     digest 把一个编码列（`_cd`、`_id`）列在 Descriptive 下、而它旁边有同对象的名称列时，照编码列处理（标识符或外部标识符），
+     不按描述列处理。
    - 形状：`{"id": "id:loan_no", "name": "借据号", "identifies": "concept:loan", "scope": "global", "spellings": [{"column": "loan_no"}], "status": "drafted", "source": "sql"}`
 4. **关系**：新概念与已有概念之间的业务联系（参与关系由事件的 `participants` 自动派生，不手写）。
    - 每条关系都写 `definition`：一句话说两端在业务上是什么联系、凭哪张表哪一列连上（例如「一份借据属于一个客户：借据表的客户号指向客户」）。
@@ -534,7 +538,8 @@ a. **状态**：digest 里 `category` 是 `state`、列下列出了码值的每�
    有共用码值集就写 `code_set`；片段会复用它）。`states` 是**一个对象，不是列表**，每个 entity 至多一个：从这些状态属性里挑描述
    这个对象生命周期的那一个（「状态」「阶段」一类），写
    `"states": {"attribute": "<属性 id>", "values": [{"value": "<码>", "name": "<含义>"}, …], "transitions": []}`，取值照 digest
-   原样抄，不补 digest 没有的码。结果、标志、类型一类的状态列只建属性和码值集，不写 `states`；在回复里列出你挑了哪一列、
+   原样抄，不补 digest 没有的码。结果、标志、类型一类的状态列只建属性和码值集，不写 `states`；一个 entity 的状态列都不是生命周期
+   状态时，在 `{RUN}/catalog_changes.md` 写一行 `<概念 id> states skip: <理由>`（S10g 的漏做检查读它）。在回复里列出你挑了哪一列、
    哪些列没写及理由。
    digest 写明了某个事件把状态从一个值改成另一个值时，才写 `transitions`（`{"event": "<事件概念 id>", "from": …, "to": …}`）。
    `event`、`role` 概念不能写 `states`：状态列在事件表上时，写在事件发生在其身上的那个 entity 上；找不到这样的 entity，
@@ -662,9 +667,13 @@ catalog validate：exit=<n>；<计数行原样>
    **义务清单**（逐条做，回复里报数）：
    - 你新建的每个 `category: measure` 属性都写 `unit` 和 `additivity`（`additive` / `semi_additive` / `non_additive`，含义同 T5）；
      单位材料没写的，按列注释暂填并在 `notes` 写「待 owner 确认：单位」。
-   - 状态列（`category: state`）有码值的：目录里该概念已有这个属性和 `states` 就直接绑定；没有的，属性照常建，并在 `notes` 写
-     「待 owner 确认：<概念> 缺 <属性> 的 states（码值见 <库.表>.<列>）」——片段不能改概念，`states` 由 T5 返工补。
-   - 分给本组的拉链表（分组方案时间语义写 `zipper`）：有效期开始列、结束列的绑定加 `time_role: valid_from` / `valid_to`；
+   - 状态列（`category: state`）有码值的：目录里该概念已有这个属性和 `states` 就直接绑定；没有的，属性照常建，在回复的
+     「需要编排者处理」里列出「<概念> 缺 <属性> 的 states」（不写进 `notes`，`notes` 只留给 owner 的问题）——片段不能改概念，
+     `states` 由 T5 返工补。
+   - 本表概念**自己的**标识列（分组方案或目录里它是本概念的标识符）绑 `identifier`，哪怕分组方案写错成 `foreign_identifier`；
+     在回复「需要编排者处理」里写明你改了哪一列。
+   - 分给本组的拉链表（分组方案时间语义写 `zipper`）：有效期开始列、结束列的绑定加 `time_role: valid_from` / `valid_to`，列名取自
+     分组方案的说明或 digest 的 Time 一节；两处都没写就读那张表的文档，不要按常见列名猜；
      任何表的分区列绑定加 `time_role: partition`；事件表里事件发生时间列的绑定加 `time_role: event_time`。
    - 分组方案或 owner 决定与本清单不一致时，以 owner 决定为准；`foreign_attribute` 的 `via` 必须是本表已绑 `foreign_identifier` 的列，
      找不到这样的列，就把编码列绑 `foreign_identifier`、名称列按普通属性绑，并在回复「需要编排者处理」里写明。

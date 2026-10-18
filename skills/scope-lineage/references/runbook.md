@@ -1023,6 +1023,8 @@ for t in "${TABLES[@]}"; do printf '%s\t%s\n' "$(grep -c -F "| $t |" "$RUN/catal
 - 子代理回复的「义务清单」一行抄进账本：状态属性与 states、规则（filter / dedup / derive）= 约束承接 + skip、度量的 unit /
   additivity 与指标、关系 definition、拉链表。规则一项两边对不上（承接 + skip 少于规则数），或 validate 的 warning 里有
   `state_attribute_without_states`、`measure_without_unit`、`relation_without_definition`，按下面的返工办法交回，不必等到 S10g。
+  例外：`state_attribute_without_states` 的概念在 `catalog_changes.md` 里已有 `<概念 id> states skip: <理由>` 一行（T5 判断它的状态列
+  都不是生命周期状态）就不返工；validate 不读这个文件，会照样报这条 warning，以 S10g 的 `catalog_check` 为准。
   T5 写的 skip 行在 `catalog_changes.md` 里（新建模式也可能已经有这个文件），S10f 在它末尾追加，不覆盖。
 
 **常见失败与处理**：validate 有 error → 返工，最多 2 次，仍不过交 owner。返工可以续用原来的子代理，也可以派一个新的：
