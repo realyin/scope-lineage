@@ -766,6 +766,7 @@
         "from": "0..*",
         "to": "1"
       },
+      "definition": "Every account is opened through exactly one channel, which never changes.",
       "status": "confirmed",
       "source": "sql",
       "evidence": [
@@ -783,6 +784,7 @@
         "from": "1",
         "to": "1..*"
       },
+      "definition": "Each loan is owed by one borrower; a borrower owes every loan lent to it.",
       "status": "confirmed",
       "source": "owner",
       "evidence": []
@@ -903,6 +905,7 @@
         "from": "0..1",
         "to": "1"
       },
+      "definition": "An instalment loan is a loan with a fixed number of monthly instalments.",
       "status": "drafted",
       "source": "llm",
       "evidence": []
@@ -1353,6 +1356,7 @@
         {
           "column": "start_date",
           "to": "technical",
+          "time_role": "valid_from",
           "status": "confirmed",
           "source": "owner",
           "evidence": []
@@ -1360,6 +1364,7 @@
         {
           "column": "end_date",
           "to": "technical",
+          "time_role": "valid_to",
           "status": "confirmed",
           "source": "owner",
           "evidence": []
