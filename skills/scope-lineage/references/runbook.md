@@ -960,7 +960,7 @@ sl catalog validate "$RUN/catalog"; echo "exit=$?"
 load_tables
 rm -rf "$RUN/digest"
 sl catalog digest "$RUN/docs" --lineage "$RUN/artifacts" --schema "$SCHEMA" --catalog "$RUN/catalog" \
-  --packets "$RUN/packets" --out "$RUN/digest" --only "${TABLES[@]}" 2> "$SCRATCH/digest.stderr"; echo "exit=$?"
+  --packets "$RUN/packets" --tables "$RUN/corpus/tables.json" --out "$RUN/digest" --only "${TABLES[@]}" 2> "$SCRATCH/digest.stderr"; echo "exit=$?"
 cat "$SCRATCH/digest.stderr"
 ```
 
@@ -969,7 +969,8 @@ cat "$SCRATCH/digest.stderr"
 - `Digested N table(s) (skipped=0) -> …`，`N` 等于 `tables.txt` 行数。
 - `catalog <name>: X table(s) without a representation, Y column(s) without a binding`。注意：`Y` 只数**已有表现**的表里没绑定的列，
   没有表现的表的列不计入，所以 `Y=0` 不代表列都绑好了。走 C 时，`X` 应当等于 `tables.txt` 行数。
-- `$RUN/digest/digest.md`、`digest.json`。
+- `$RUN/digest/digest.md`、`digest.json`。每张表带 Rules（表语义的规则编号 rN、kind、一句话），列带物理类型（来自
+  `--tables`）、派生、空值含义和要注意：T5 的义务清单逐条从这里派生，S10g 的漏做检查也读 `digest.json`。
 
 **常见失败与处理**
 
@@ -1016,6 +1017,10 @@ for t in "${TABLES[@]}"; do printf '%s\t%s\n' "$(grep -c -F "| $t |" "$RUN/catal
 - 目录 `exit=0`，`0 error(s)`。
 - 每张表那一行的计数是 `1`（只进一组）；码值字典表是 `0`，并且列在分组方案的「码值来源表」一节。
 - 增量模式：`$RUN/catalog_changes.md` 存在（没改就写「无改动」），改动处数抄进账本。
+- 子代理回复的「义务清单」一行抄进账本：状态属性与 states、规则（filter / dedup / derive）= 约束承接 + skip、度量的 unit /
+  additivity 与指标、关系 definition、拉链表。规则一项两边对不上（承接 + skip 少于规则数），或 validate 的 warning 里有
+  `state_attribute_without_states`、`measure_without_unit`、`relation_without_definition`，按下面的返工办法交回，不必等到 S10g。
+  T5 写的 skip 行在 `catalog_changes.md` 里（新建模式也可能已经有这个文件），S10f 在它末尾追加，不覆盖。
 
 **常见失败与处理**：validate 有 error → 返工，最多 2 次，仍不过交 owner。返工可以续用原来的子代理，也可以派一个新的：
 用 `fill catalog … REWORK=@<报错文件>` 重新填一份（原提示词 + 这次的报错原文），新子代理照它改。某张表计数是 0 或 2 → 同样返工。
@@ -1047,6 +1052,9 @@ grep -E '^Coverage:|^  [a-z0-9_]+\.' "$SCRATCH/check-$G.txt"
 **产出与自检**：`exit=0`；两个 `grep -c` 都打印 `1`；`Coverage: K table(s) in the fragments, K with a representation, U unmapped column(s)`
 里两个 `K` 相等（每张分给本组的表都有表现），下面每张表一行。`U` 不为 0 时，那几列和原因抄进账本「给 owner 的待确认」，
 不算失败。只 grep `unmapped` 这个词没有用：`0 unmapped column(s)` 也会被匹配。
+子代理回复的「义务清单」一行抄进账本（度量的 unit / additivity、带 `time_role` 的绑定、记进 notes 的缺 states）。拉链表没有
+`valid_from` / `valid_to` 绑定、度量属性缺 unit 的，按下表 T6 返工交回；`catalog validate` 的 `zipper_without_validity`、
+`measure_without_unit` warning 指的就是这两种。
 
 **常见失败与处理**
 
@@ -1095,6 +1103,7 @@ grep -E '^note|^Coverage:|^  [a-z0-9_]+\.' "$RUN/merge_report.txt"
 **规则**
 
 - 只改 `$RUN/merged/` 里的文件，不改 `$RUN/catalog/`。每一处改动在 `$RUN/catalog_changes.md` 记一行（文件、对象、改前、改后、依据）。
+  文件里已有 S10c 写的内容（规则的 skip 行、增量模式的改动）时在末尾追加，不删它们：S10g 的漏做检查要读 skip 行。
   这份记录**不要**放进 `merged/`（目录里不认识的文件会报 `unknown_file`）。
 - 改成 `foreign_attribute`：把绑定的 `to` 改成 `foreign_attribute`，`ref` 改成别组概念的属性 id，加 `via: <本表里绑成 foreign_identifier 的那一列>`。
   **先查目标在不在**：`grep -rn 'attr:<概念 slug>.<属性 slug>' "$RUN/merged/concepts"` 要能找到它的定义，并确认 `via` 那一列已绑成指向该概念标识符的
@@ -1110,7 +1119,8 @@ grep -E '^note|^Coverage:|^  [a-z0-9_]+\.' "$RUN/merge_report.txt"
 sl catalog validate "$RUN/merged"; echo "exit=$?"
 ```
 
-**完成判据**：`exit=0`，`0 error(s)`；`$RUN/catalog_changes.md` 存在。没有要改的，就在里面写一行「无改动」（进度脚本靠这个文件判断 S10f 做完了）。
+**完成判据**：`exit=0`，`0 error(s)`；`$RUN/catalog_changes.md` 存在，并且在 S10e 合并之后写过。没有要改的，就在末尾加一行「无改动」
+（进度脚本靠这个文件比 `merge_report.txt` 新来判断 S10f 做完了）。
 
 **下一步**：S10g。
 
@@ -1127,20 +1137,25 @@ sl semantic render "$RUN/docs" --out "$SEMPAGES" --validation "$RUN/validation.j
 sl catalog render "$RUN/onto/ontology.json" --out "$PAGES" --semantics "$SEMPAGES"; echo "exit=$?"
 load_tables
 sl semantic status "$RUN" --pages "$SEMPAGES" --only "${TABLES[@]}"
-python3 "$TOOL/skills/scope-lineage/scripts/catalog_check.py" "$RUN/onto/ontology.json" > "$RUN/catalog_check.txt"; echo "exit=$?"
+python3 "$TOOL/skills/scope-lineage/scripts/catalog_check.py" "$RUN/onto/ontology.json" \
+  --digest "$RUN/digest/digest.json" --changes "$RUN/catalog_changes.md" > "$RUN/catalog_check.txt"; echo "exit=$?"
 cat "$RUN/catalog_check.txt"
 ```
 
 顺序：`build` → `semantic render --ontology` → `catalog render --semantics`。`build` 固定带 `--lineage` 和 `--tables`（页面上的证据靠它们）。
 
 最后一条是**漏做检查**。`catalog validate` 和合并的覆盖率只查「写错」，查不出「漏做」；目录起草者能力弱一些时，漏做最常见。
-`catalog_check.py` 读构建出的 `ontology.json`，列出三类：
+`catalog_check.py` 读构建出的 `ontology.json`（带 `--digest` 时也读 `digest.json` 的规则，带 `--changes` 时读 `catalog_changes.md` 的 skip 行），列出这几类：
 
 | 发现 | 意思 | 谁来补 |
 | --- | --- | --- |
 | `empty_concept` | 概念一个属性都没有 | T5 返工：给概念建属性 |
 | `missing_participant` | 事件表里有外键列指向某个概念，它却不在事件的参与者里 | T5 返工：补参与者 |
 | `attribute_beside_foreign_identifier` | 名称 / 描述列（`*_desc`、`*_name`、`*_nm`）绑成了本表概念的属性，同表同词根的编码列却指向另一个概念 | T5 返工在那个概念上建属性，再 T6 返工改绑成 `foreign_attribute` |
+| `unabsorbed_rule` | digest 里某张表 `filter` / `dedup` / `derive` 规则 `<库.表>#rN` 没有约束在 `rules` 里引用，`catalog_changes.md` 也没写 skip | T5 返工：写约束（`rules` 指回它），或在 `catalog_changes.md` 写 `<库.表>#rN skip: <理由>` |
+| `state_without_states` | 状态属性有码值集，概念却没有它的 `states` | T5 返工：在概念上写 `states`（取值照 digest） |
+| `measure_without_unit` | 度量属性没有 `unit` | 属性是 T5 建的 T5 返工，片段建的 T6 返工：补 `unit` 和 `additivity` |
+| `code_attribute_without_relation` | 名字像编码 / 键的列（`*_cd`、`*_id`、`*_no`、`*_code`）绑成了普通属性、属性又没有码值集 | 指向另一个概念的：T5 返工建关系（和需要的标识符），T6 返工改绑 `foreign_identifier`；只是本概念自己的编号：在 `catalog_changes.md` 写理由 |
 
 每条发现是「要看一眼」，不等于一定错。
 
@@ -1154,7 +1169,7 @@ cat "$RUN/catalog_check.txt"
 | `--semantics directory does not exist: …` | 2 | 顺序错了：先跑 `semantic render` 再跑 `catalog render` |
 | `build` 有 error、什么也没写 | 1 | 回 S10f 修 `merged/`，或交 owner |
 | render 打印 `warning: packet_stale …` / `invalid …` / `no_packet …` | 0 | 回 S8 |
-| `catalog_check.txt` 末行不是 `0 finding(s)` | 1 | 逐条决定：要补的，用 `fill catalog … REWORK=@"$RUN/catalog_check.txt"` 让 T5 返工（只补概念属性和参与者），T5 改完再 `fill fragment … MODE=返工 REWORK=@"$RUN/catalog_check.txt"` 让 T6 改绑；从 S10d 的自检重来，到 S10g 再查。返工最多 2 次。不补的，在 `catalog_changes.md` 每条写一行理由 |
+| `catalog_check.txt` 末行不是 `0 finding(s)` | 1 | 逐条决定：要补的，用 `fill catalog … REWORK=@"$RUN/catalog_check.txt"` 让 T5 返工（只补概念属性、参与者、states、约束、关系和 skip 行），T5 改完再 `fill fragment … MODE=返工 REWORK=@"$RUN/catalog_check.txt"` 让 T6 改绑；从 S10d 的自检重来，到 S10g 再查。返工最多 2 次。不补的，在 `catalog_changes.md` 每条写一行理由 |
 
 **完成判据**：三条命令都 `exit=0`；`status` 全部 `rendered`；`catalog_check.txt` 末行是 `0 finding(s)`，或剩下的每条在 `catalog_changes.md` 里写了不补的理由。
 
