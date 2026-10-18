@@ -70,11 +70,12 @@ fallback covers 0.2.0):
 | prompts `@9` / `@9` / `@6` (they read the 0.8.0 packet's new facts) | >= 0.8.0 |
 | prompts `@10` / `@10` / `@7` (a rewrite's corrections list, the validity-window sentence the 0.9.0 validator accepts, a fix log the next rewrite reads) | >= 0.9.0 |
 | prompts `@11` / `@10` / `@8` (a snapshot partition read conditionally when the material says the source deletes old rows; a fix keeps `sources` / `confidence` in step with reworded items) | >= 0.9.0 |
+| prompts `@12` / `@11` / `@8` (the packet's `join_condition` / 未读 labels and five new governance leads; review severity anchors), a catalog with `metrics`, constraint `rules` / `predicate`, attribute `additivity`, binding `time_role` | >= 0.11.0 |
 
-When unsure which workflows the session will need, require >= 0.9.0. A release candidate run
-from a checkout may still print the previous number (`scope-lineage 0.8.x (…, source <commit>)`):
-it counts as 0.9.0 when `CHANGELOG.md` opens with `## Unreleased` and
-`references/table-semantics-prompt.md` names `@10` (`references/runbook.md` S0). A table-semantics
+When unsure which workflows the session will need, require >= 0.11.0. A release candidate run
+from a checkout may still print the previous number (`scope-lineage 0.10.x (…, source <commit>)`):
+it counts as 0.11.0 when `CHANGELOG.md` opens with `## Unreleased` and
+`references/table-semantics-prompt.md` names `@12` (`references/runbook.md` S0). A table-semantics
 run directory made with an older release: rebuild its packets; every document whose packet changed
 is then `packet_stale` and is rewritten whole (runbook S3 and S4).
 Not installed → `pipx install 'scope-lineage[catalog]'` (or `pip install 'scope-lineage[catalog]'`):
@@ -637,13 +638,18 @@ documented uncertainty).
   step, as `references/runbook.md` 0.6 says.
 - `scripts/catalog_check.py` — what a built catalog left undone, which `catalog validate` cannot
   see: concepts with no attribute, an event table's foreign identifier whose concept is not a
-  participant, and a name / description column bound to the table's own concept beside a code
-  column that points at another concept. Run it on `onto/ontology.json` as
-  `references/runbook.md` S10g says; exit 1 when it has findings.
+  participant, a name / description column bound to the table's own concept beside a code
+  column that points at another concept, a state attribute with codes and no `states`, a
+  measure with no unit, a code-like column bound as a plain attribute, and (with `--digest`
+  and `--changes`) a filter / dedup / derive rule of the digest that no constraint carries and
+  no `skip` line names. Run it on `onto/ontology.json` as `references/runbook.md` S10g says;
+  exit 1 when it has findings.
 - `scripts/make_corrections.py` — the corrections list a whole rewrite hands its writer: reads
   the old review, the first review behind a re-review, the fix log and the rebuilt packet, and
   sorts every old finding into fixed (follow it), worth a look (check it first) or out, saying
-  which ones it could not read or check. Run it as `references/runbook.md` S4 says.
+  which ones it could not read or check; with the old document (`--prior-doc`) it adds the old
+  wording beside each unchecked item and the old watch / question points whose cited material
+  is still in the new packet. Run it as `references/runbook.md` S4 says.
 - `scripts/confirmations.py` — the write-back half: reads the answered 待确认清单 out of a
   `business_profile.md` and merges it into `glossary.overrides.json` /
   `metadata-patch.json`. Run it after the business owner answers, then re-run `glossary`

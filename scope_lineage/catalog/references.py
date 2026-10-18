@@ -56,6 +56,8 @@ def check_references(catalog: Catalog) -> list[Finding]:
             ("concept", "attribute", "relation", "identifier"),
             "a concept, attribute, relation or identifier",
         )
+    for file, metric in catalog.records("metrics"):
+        _metric(checks, file, metric)
     for file, term in catalog.records("terms"):
         if index.get(term["refers_to"]) is None:
             checks.fail("term_refers_to", file, term["term"], f"{term['refers_to']!r} does not exist")
@@ -178,6 +180,22 @@ def _relation(checks: _Checks, file: str, relation: dict) -> None:
         checks.expect(
             "relation_endpoint", file, relation["id"], relation[end], ("concept",), "a concept"
         )
+
+
+# --- metrics ---------------------------------------------------------------------------
+
+
+def _metric(checks: _Checks, file: str, metric: dict) -> None:
+    """A metric counts or adds up instances of a concept, over one of its attributes,
+    broken down by attributes, scoped by constraints."""
+    at = metric["id"]
+    checks.expect("metric_on", file, at, metric["on"], ("concept",), "a concept")
+    if "measure" in metric:
+        checks.expect("metric_measure", file, at, metric["measure"], ("attribute",), "an attribute")
+    for dimension in metric.get("dimensions") or []:
+        checks.expect("metric_dimension", file, at, dimension, ("attribute",), "an attribute")
+    for constraint in metric.get("constraints") or []:
+        checks.expect("metric_constraint", file, at, constraint, ("constraint",), "a constraint")
 
 
 # --- mapping ---------------------------------------------------------------------------

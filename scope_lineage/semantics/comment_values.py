@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import re
 
+from ..render import glossary_values
+
 _STOP = r"\s,，;；、:：=()（）/|"
 _PAIR = re.compile(
     rf"(?<![A-Za-z0-9_])([A-Za-z0-9_]{{1,10}})\s*(?:->|→|[-:：=])\s*([^{_STOP}]{{1,20}})"
@@ -18,8 +20,6 @@ _PAIR = re.compile(
 _GLUED = re.compile(
     rf"(?<![A-Za-z0-9_])(\d{{1,4}}|[A-Z]{{1,3}})([一-鿿][^{_STOP}0-9A-Za-z]{{0,19}})"
 )
-_LIST_SPLIT = re.compile(r"[、，,/|；;\s]+")
-_LABEL = re.compile(r"^[一-鿿A-Za-z]{1,8}$")
 # ``A或B或C`` lists values; the word between two of them is not a meaning.
 _CONJUNCTIONS = frozenset({"或", "或者", "和", "与", "及", "至", "到"})
 
@@ -37,7 +37,4 @@ def value_labels(comment) -> dict[str, str]:
 
 def listed_labels(comment) -> set[str]:
     """The labels of a ``、``-separated list after the comment's ``名称：`` prefix."""
-    text = re.split(r"[:：]", str(comment or ""), maxsplit=1)[-1]
-    if not re.search(r"[、，,/|]", text):
-        return set()
-    return {item for item in _LIST_SPLIT.split(text) if _LABEL.match(item)}
+    return set(glossary_values.listed_labels(comment))

@@ -3,12 +3,14 @@
 ``digest`` condenses a directory of ``table-semantics/1`` documents into the material a
 drafter reads (``digest.md`` + ``digest.json``), with ``--catalog`` names the tables
 and columns the catalog does not cover yet, and with ``--lineage`` adds to each column
-the joined inputs its value is read through (``render.value_lookups``). ``merge`` copies
+the joined inputs its value is read through (``render.value_lookups``), and with
+``--tables`` each column's physical type from the table cards. ``merge`` copies
 a catalog and merges ``catalog-fragment/1`` files into the copy, then validates it and
 reports coverage.
 
 Exit codes. digest: 0 written; 1 no legal document, a document was skipped, an
-``--only`` table has no document, or ``--lineage`` holds no lineage.json; 2 an input
+``--only`` table has no document, ``--lineage`` holds no lineage.json, or ``--tables``
+declares another format; 2 an input
 could not be read, or ``--schema`` was given without ``--lineage``. merge: 0 merged and
 valid (warnings allowed); 1 a fragment fails its schema or the base catalog its schemas
 (nothing written), or the merge found conflicts or unknown concepts, or the merged
@@ -39,6 +41,7 @@ from .catalog import (
     validate_catalog,
     write_documents,
 )
+from .catalog.digest import column_types_of
 from .catalog.merge import KINDS
 from .cli_only import add_directory, add_only, take_back_directory
 from .cli_semantic import add_packets_option
@@ -77,6 +80,13 @@ def add_draft_parsers(actions) -> None:
             "Schema metadata, as `parse --schema` reads it: with --lineage, which columns are "
             "partition columns (without it, the lineage's partitioned flag and the dt/ds/pt "
             "name rule decide)"
+        ),
+    )
+    digest.add_argument(
+        "--tables",
+        help=(
+            "A tables.json written by `scope-lineage tables`: add to each column the physical "
+            "type its table card declares (columns of unknown type are left as they are)"
         ),
     )
     digest.add_argument("--out", required=True, help=f"Directory for {DIGEST_MD} and {DIGEST_JSON}")
@@ -124,6 +134,9 @@ def run_digest(args: argparse.Namespace) -> int:
     lookups = _value_lookups(args.lineage, args.schema) if args.lineage else None
     if isinstance(lookups, int):
         return lookups
+    column_types = _column_types(args.tables)
+    if isinstance(column_types, int):
+        return column_types
     documents, skipped = _renderable_documents(directory)
     if not documents:
         print(f"no table-semantics/1 document under {directory}", file=sys.stderr)
@@ -132,7 +145,7 @@ def run_digest(args: argparse.Namespace) -> int:
         documents = _only(documents, args.only)
         if isinstance(documents, int):
             return documents
-    digest = digest_tables(documents, catalog, lookups=lookups)
+    digest = digest_tables(documents, catalog, lookups=lookups, column_types=column_types)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     (out / DIGEST_JSON).write_text(
@@ -158,6 +171,17 @@ def run_digest(args: argparse.Namespace) -> int:
                if gaps["code_set_sources"] else "")
         )
     return 1 if skipped else 0
+
+
+def _column_types(path: str | None):
+    """``--tables`` read into ``{db.table: {column: type}}``, None without it, or the exit code."""
+    from .cli import _load_corpus_document
+    from .render.table_cards import DOC_FORMAT as TABLES_DOC_FORMAT
+
+    tables = _load_corpus_document(path, "--tables", TABLES_DOC_FORMAT)
+    if tables is None or isinstance(tables, int):
+        return tables
+    return column_types_of(tables)
 
 
 def _value_lookups(lineage: str, schema_path: str | None):

@@ -21,6 +21,7 @@ TOP_LEVEL = (
     ("code_sets", "code_set"),
     ("identifiers", "identifier"),
     ("constraints", "constraint"),
+    ("metrics", "metric"),
     ("terms", "term"),
 )
 

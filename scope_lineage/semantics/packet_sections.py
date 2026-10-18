@@ -15,7 +15,13 @@ from . import packet_facts as facts
 from .names import bare_table
 from .packet_comments import comment_markers
 from .packet_context import date_literals, upstream_unmatched
-from .packet_leads import declared_key_leads, marker_leads
+from .packet_leads import (
+    declared_key_leads,
+    marker_leads,
+    merge_key_leads,
+    partition_format_leads,
+    state_leads,
+)
 from .packet_meaning import header_facts, producer_header
 from .packet_notes import merge_block, statement_findings
 
@@ -123,6 +129,8 @@ def _task_entry(table: str, task: str, group: list[dict], corpus, columns=()) ->
         "header_facts": header_facts(info.get("header_comments"), record.get("sql"),
                                      table, corpus.tables_written_by(task), columns),
         "statements": [statement.get("statement_id") for statement in group],
+        # W6: a script of one write needs no numbers (and its packet keeps its digest).
+        **({"writes": writes} if len(writes := corpus.task_writes(task)) > 1 else {}),
         "source_file": meta.get("source_file") or record.get("source_file"),
         "sql": record.get("sql"),
     }
@@ -131,7 +139,13 @@ def _task_entry(table: str, task: str, group: list[dict], corpus, columns=()) ->
 # ------------------------------------------------------------------ inputs
 
 
-def inputs_section(target: str, statements: list, rules: list[dict], corpus) -> list[dict]:
+def inputs_section(
+    target: str, statements: list, rules: list[dict], corpus, feeders=(), feeder_rules=(),
+) -> list[dict]:
+    """Every table the target's statements read, then (G1) what the same task's earlier
+    writes feeding them read: an intermediate table's sources, with ``via`` naming the
+    statement and the table it writes. A feeder's roles are its own table's, not this
+    one's, so they are not merged; its columns and partition reads are."""
     merged: dict[str, dict] = {}
     for _, statement in statements:
         for item in statement.get("inputs") or []:
@@ -139,10 +153,23 @@ def inputs_section(target: str, statements: list, rules: list[dict], corpus) -> 
             entry = merged.setdefault(table, _new_input(target, table, item, corpus))
             entry["roles"].extend(r for r in item.get("roles") or [] if r not in entry["roles"])
             entry["driving"] = entry["driving"] or bool(item.get("driving"))
-            for column in item.get("used_columns") or []:
-                usages = entry["_used"].setdefault(str(column.get("name")), [])
-                usages.extend(u for u in column.get("usages") or [] if u not in usages)
-    return [_finish_input(merged[table], rules, corpus) for table in sorted(merged)]
+            _merge_used(entry, item)
+    for task, statement, writes in feeders:
+        for item in statement.get("inputs") or []:
+            table = bare_table(item.get("table"))
+            entry = merged.setdefault(table, _new_input(target, table, item, corpus))
+            via = {"task": task, "statement_id": statement.get("statement_id"), "writes": writes}
+            if via not in entry.setdefault("via", []):
+                entry["via"].append(via)
+            _merge_used(entry, item)
+    every = list(rules) + list(feeder_rules)
+    return [_finish_input(merged[table], every, corpus) for table in sorted(merged)]
+
+
+def _merge_used(entry: dict, item: dict) -> None:
+    for column in item.get("used_columns") or []:
+        usages = entry["_used"].setdefault(str(column.get("name")), [])
+        usages.extend(u for u in column.get("usages") or [] if u not in usages)
 
 
 def _new_input(target: str, table: str, item: dict, corpus) -> dict:
@@ -203,7 +230,8 @@ def _finish_input(entry: dict, rules: list[dict], corpus) -> dict:
 
 # The ways of reading a column that decide which rows match or group: a writer reading a
 # join or a filter on an input needs to know how its producer computes that column.
-_KEYED_USAGES = frozenset({"join_key", "filter", "window_partition", "window_order"})
+_KEYED_USAGES = frozenset({"join_key", "join_condition", "filter", "window_partition",
+                           "window_order"})
 
 
 def _producer_columns(produced: list[dict], used: dict[str, list]) -> list[dict]:
@@ -228,6 +256,7 @@ def _producer_columns(produced: list[dict], used: dict[str, list]) -> list[dict]
 
 def lineage_section(
     table: str, statements: list, rules: list[dict], target: dict, corpus, inputs=(),
+    feeders=(), feeder_rules=(),
 ) -> dict:
     """Column lineage, rules, keys, partitions, neighbours and findings.
 
@@ -253,7 +282,10 @@ def lineage_section(
     }
     findings = (statement_findings(rules, statements)
                 + marker_leads(table, statements, rules, list(inputs))
-                + declared_key_leads(table, statements, rules, list(inputs), lineage))
+                + declared_key_leads(table, statements, rules, list(inputs), lineage)
+                + partition_format_leads(rules, list(inputs))
+                + merge_key_leads(lineage)
+                + state_leads(table, statements, rules, list(inputs), feeders, feeder_rules))
     return {**lineage, **({"findings": findings} if findings else {})}
 
 

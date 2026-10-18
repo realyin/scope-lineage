@@ -1,0 +1,147 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "catalog-yaml/1 metrics",
+  "type": "object",
+  "required": [
+    "metrics"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "metrics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/item"
+      }
+    }
+  },
+  "definitions": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+    },
+    "status": {
+      "enum": [
+        "drafted",
+        "confirmed",
+        "deprecated"
+      ]
+    },
+    "source": {
+      "enum": [
+        "owner",
+        "comment",
+        "task",
+        "sql",
+        "llm",
+        "mixed"
+      ]
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "notes": {
+      "type": "string"
+    },
+    "item": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "on",
+        "aggregation"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "definition": {
+          "type": "string",
+          "minLength": 1
+        },
+        "on": {
+          "description": "The concept whose instances the metric counts or adds up",
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "measure": {
+          "description": "The attribute aggregated (absent for a count of instances)",
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "aggregation": {
+          "enum": [
+            "sum",
+            "count",
+            "count_distinct",
+            "avg",
+            "min",
+            "max",
+            "ratio",
+            "other"
+          ]
+        },
+        "filter": {
+          "description": "Which instances count, in words",
+          "type": "string",
+          "minLength": 1
+        },
+        "constraints": {
+          "description": "The constraints (cons:) that define its scope",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+          }
+        },
+        "time_window": {
+          "description": "Over what period, in words",
+          "type": "string",
+          "minLength": 1
+        },
+        "dimensions": {
+          "description": "The attributes it may be broken down by",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+          }
+        },
+        "additivity": {
+          "description": "How values add up: additive (over every dimension), semi_additive (over some, not over time -- a balance), non_additive (never -- a ratio, a rate)",
+          "enum": [
+            "additive",
+            "semi_additive",
+            "non_additive"
+          ]
+        },
+        "unit": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "$ref": "#/definitions/status"
+        },
+        "source": {
+          "$ref": "#/definitions/source"
+        },
+        "evidence": {
+          "$ref": "#/definitions/evidence"
+        },
+        "notes": {
+          "$ref": "#/definitions/notes"
+        }
+      }
+    }
+  }
+}

@@ -338,7 +338,7 @@ scope-lineage ontology --lineage /path/to/corpus --out /path/to/ontology --incre
 | `tables[].identity.partition_columns` | 列名列表 | 生产任务写入时的分区列（元数据事实） |
 | `tables[].attributes[].type`、`comment` | 元数据 | 表卡里的列类型与列注释，原样透传 |
 | `tables[].attributes[]` | 每个元数据声明的列一条 | 属性覆盖整张表，不只是语料读写过的那几列；表卡的 `columns[]` 是什么顺序，属性就是什么顺序 |
-| `tables[].attributes[].observed_roles` | `filter`、`partition_filter`、`join_key`、`group_by`、`window_partition`、`window_order`、`output` | 表卡记录的消费用法，没人读过的列是空列表 |
+| `tables[].attributes[].observed_roles` | `filter`、`partition_filter`、`join_key`、`join_condition`（JOIN 的附加 ON 条件按原名读到的物理列；派生列的输入不算）、`group_by`、`window_partition`、`window_order`、`output` | 表卡记录的消费用法，没人读过的列是空列表 |
 | `tables[].attributes[].used_in_corpus` | `true` / `false` | 本语料有没有写过或读过这一列；`false` 配空 `observed_roles`，读作「元数据声明了、语料没碰过」 |
 | `tables[].attributes[].not_null_observed` | `true` / `false` | 语料里有任务用 `NOT x IS NULL` 过滤过这一列 |
 | `tables[].attributes[].synonyms[].via` | `direct_rename` / `union_alignment` | O5：同一个值的两个列名 |

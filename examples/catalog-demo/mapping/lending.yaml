@@ -43,8 +43,8 @@ representations:
     bindings:
       - {column: loan_no, to: identifier, ref: id:loan_no}
       - {column: loan_status, to: attribute, ref: attr:loan.loan_status}
-      - {column: start_date, to: technical}
-      - {column: end_date, to: technical}
+      - {column: start_date, to: technical, time_role: valid_from}
+      - {column: end_date, to: technical, time_role: valid_to}
     status: confirmed
     source: owner
 

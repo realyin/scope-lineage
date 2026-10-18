@@ -30,7 +30,7 @@ from .model import FILE_KINDS, Catalog, Document, Finding
 from .structure import check_structure
 
 # The order kinds are counted in, in reports.
-KINDS = ("attribute", "code_set", "identifier", "constraint", "term", "representation")
+KINDS = ("attribute", "code_set", "identifier", "constraint", "metric", "term", "representation")
 
 
 @dataclass

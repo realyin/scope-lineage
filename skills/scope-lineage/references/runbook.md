@@ -259,10 +259,10 @@ git -C "$TOOL" status --porcelain | wc -l | sed 's/^ */uncommitted files: /' >> 
 **产出与自检**
 
 - `sl --version` 打印 `scope-lineage X.Y.Z (sqlglot …, source …)`。版本判断：
-  - `X.Y.Z` ≥ `0.9.0`：通过。
-  - `X.Y.Z` 是 `0.8.x`，同时 `CHANGELOG.md` 第 3 行是 `## Unreleased`、提示词第 1 行含 `table-semantics-prompt@10`：
-    这是仓库里的 0.9.0 候选，通过；在 `TOOL_VERSION` 末尾加一行 `candidate 0.9.0`。
-  - 其他：不通过（提示词 `@10` 的句式要 0.9.0 的校验器才认）。
+  - `X.Y.Z` ≥ `0.11.0`：通过。
+  - `X.Y.Z` 是 `0.10.x`，同时 `CHANGELOG.md` 第 3 行是 `## Unreleased`、提示词第 1 行含 `table-semantics-prompt@12`：
+    这是仓库里的 0.11.0 候选，通过；在 `TOOL_VERSION` 末尾加一行 `candidate 0.11.0`。
+  - 其他：不通过（提示词 `@12` 读的材料包标签、治理线索和目录字段要 0.11.0 才有）。
 - 写入检查和 PyYAML 检查两个 `exit=0`。
 - `$RUN/TOOL_VERSION`、`$RUN/ledger.md` 存在。
 
@@ -478,13 +478,17 @@ T=demo_dwd.dwd_party_customer_info_df   # 换成这张表
 set -- "$RUN/reviews/$T.prior.md" "$RUN/packets/$T"
 if [ -f "$RUN/reviews/$T.prior.fixlog.txt" ]; then set -- "$@" --fixlog "$RUN/reviews/$T.prior.fixlog.txt"; fi
 if [ -f "$RUN/reviews_prev/$T.prior.round1.md" ]; then set -- "$@" --round1 "$RUN/reviews_prev/$T.prior.round1.md"; fi
+if [ -f "$RUN/reviews/$T.prior.json" ]; then set -- "$@" --prior-doc "$RUN/reviews/$T.prior.json"; fi
 python3 "$TOOL/skills/scope-lineage/scripts/make_corrections.py" "$@" \
   --writer-prompt "$TOOL/skills/scope-lineage/references/table-semantics-prompt.md" \
   --out "$SCRATCH/prompts/$T.corrections.txt" --report "$SCRATCH/prompts/$T.corrections.json" 2> "$SCRATCH/$T.corrections.stderr"; echo "exit=$?"
 cat "$SCRATCH/$T.corrections.stderr"
 ```
 
-- 最后一行是计数：`A n、B n（未核 n）、丢弃 n、跳过 n、未解析 n`，抄进账本。
+- 最后一行是计数：`A n、B n（未核 n）、丢弃 n、跳过 n、未解析 n；上一版写法 x/y、C n`，抄进账本。
+  `上一版写法 x/y`：y 条 B 段未核条目里，x 条在旧文档 `.prior.json` 里找到了它点名的位置，清单里附上一版原句；
+  其余条目没有点名文档位置，或位置在旧文档里不存在。`C n`：旧文档 watch / questions 里引用的材料原文都还在新材料包里的条目数，
+  列在清单的「C 段」，写作者核对后保留。
 - `未解析：<编号>`：脚本读不出这一条（缺「材料包事实」或「应改成」，或表格不在固定的小节标题下）。打开 `.prior.md`
   的那一节，把原文复制进清单文件的「B 段」末尾（只复制，不改写），在账本记一笔。
 - `警告：fixlog 里没有 …`：没有修订记录（没派过修订，或 S12 确认回写后直接 `semantic fixed`），这份审读的高、中级都进了
@@ -567,6 +571,7 @@ python3 -c 'import json,sys; t=json.load(open(sys.argv[1]))["tables"][0]; [print
 
 | 情况 | 处理 |
 | --- | --- |
+| 0 FAIL、0 WARN | 不用补，这张表进 S6 审读 |
 | 写作第 1 轮后有 FAIL | 用 T1（补失败模式）重派：把上面 python 打印的 FAIL 行原样存成 `$SCRATCH/$T.failures.txt`，再填下面的补失败命令 |
 | 写作第 2 轮后仍有 FAIL | 标 blocked（下面的命令） |
 | 修订者回报「两轮后仍有 FAIL」，或 `semantic fixed` 报 `the document is invalid` | 标 blocked |
@@ -711,7 +716,8 @@ fill fix "$SCRATCH/prompts/T4-fix-$T-1.md" TABLE="$T" MODE=首修 FACTS=无; ech
 `sl semantic fixed "$RUN" --only <表>`。账本记一行「修订」。
 
 **存修订记录**（每次 T4 回报后都做，不论 `semantic fixed` 成没成功）：下次材料包变了要重写时，修正点清单靠它知道哪些发现改过。
-先用 Write 工具把回复里「逐条处理」「未改的低级发现」两段**原样**存成 `$SCRATCH/$T/fix-reply.txt`（不改写、不删行），再追加：
+先用 Write 工具把回复里「逐条处理」「未改的低级发现」两段**原样**存成 `$SCRATCH/$T/fix-reply.txt`（不改写、不删行；回复只是消息文字时，
+就把那两段文字逐字复制进 Write 的内容里——这就是「原样」），再追加：
 
 ```bash
 T=demo_dwd.dwd_party_customer_info_df   # 换成这张表
@@ -956,7 +962,7 @@ sl catalog validate "$RUN/catalog"; echo "exit=$?"
 load_tables
 rm -rf "$RUN/digest"
 sl catalog digest "$RUN/docs" --lineage "$RUN/artifacts" --schema "$SCHEMA" --catalog "$RUN/catalog" \
-  --packets "$RUN/packets" --out "$RUN/digest" --only "${TABLES[@]}" 2> "$SCRATCH/digest.stderr"; echo "exit=$?"
+  --packets "$RUN/packets" --tables "$RUN/corpus/tables.json" --out "$RUN/digest" --only "${TABLES[@]}" 2> "$SCRATCH/digest.stderr"; echo "exit=$?"
 cat "$SCRATCH/digest.stderr"
 ```
 
@@ -965,7 +971,8 @@ cat "$SCRATCH/digest.stderr"
 - `Digested N table(s) (skipped=0) -> …`，`N` 等于 `tables.txt` 行数。
 - `catalog <name>: X table(s) without a representation, Y column(s) without a binding`。注意：`Y` 只数**已有表现**的表里没绑定的列，
   没有表现的表的列不计入，所以 `Y=0` 不代表列都绑好了。走 C 时，`X` 应当等于 `tables.txt` 行数。
-- `$RUN/digest/digest.md`、`digest.json`。
+- `$RUN/digest/digest.md`、`digest.json`。每张表带 Rules（表语义的规则编号 rN、kind、一句话），列带物理类型（来自
+  `--tables`）、派生、空值含义和要注意：T5 的义务清单逐条从这里派生，S10g 的漏做检查也读 `digest.json`。
 
 **常见失败与处理**
 
@@ -990,11 +997,16 @@ cat "$SCRATCH/digest.stderr"
 S10a 走 A 或 B 用新建模式；走 C 用增量模式，把 `catalog_touched.txt` 交给它：
 
 ```bash
+# owner 已拍板的决定：有 owner_decisions.md 就原样交给起草者，没有写「无」
+D=无; if [ -f "$RUN/owner_decisions.md" ]; then D=@"$RUN/owner_decisions.md"; fi
 # 新建（S10a 走 A 或 B）
-fill catalog "$SCRATCH/prompts/T5-catalog.md" MODE=新建 SIZE="小样：只分 1 组，组名 main" TOUCHED=无 REWORK=无; echo "exit=$?"
+fill catalog "$SCRATCH/prompts/T5-catalog.md" MODE=新建 SIZE="小样：只分 1 组，组名 main" TOUCHED=无 REWORK=无 DECISIONS="$D"; echo "exit=$?"
 # 增量（S10a 走 C）
-fill catalog "$SCRATCH/prompts/T5-catalog.md" MODE=增量 SIZE="小样：只分 1 组，组名 main" TOUCHED=@"$RUN/catalog_touched.txt" REWORK=无; echo "exit=$?"
+fill catalog "$SCRATCH/prompts/T5-catalog.md" MODE=增量 SIZE="小样：只分 1 组，组名 main" TOUCHED=@"$RUN/catalog_touched.txt" REWORK=无 DECISIONS="$D"; echo "exit=$?"
 ```
+
+owner 的决定只写在 `owner_decisions.md` 里（一行一条），不要手改填好的提示词；`fill` 在文件存在却写了「无」、
+或文件不存在却写了 `@文件` 时退出 1。返工重填（`fill catalog … REWORK=@…`）时 `DECISIONS` 照上面同样写。
 
 **产出与自检**
 
@@ -1005,8 +1017,15 @@ for t in "${TABLES[@]}"; do printf '%s\t%s\n' "$(grep -c -F "| $t |" "$RUN/catal
 ```
 
 - 目录 `exit=0`，`0 error(s)`。
-- 每张表那一行的计数是 `1`（只进一组）；码值字典表是 `0`，并且列在分组方案的「码值来源表」一节。
+- 每张表那一行的计数是 `1`（只进一组）；码值字典表是 `0`，并且列在分组方案的「码值来源表」一节。分组方案的格式由 T5 模板规定：
+  Markdown 表格，每行写成 `| <库.表> | … |`。计数全是 `0` 多半是 T5 没照这个格式写，按返工交回。
 - 增量模式：`$RUN/catalog_changes.md` 存在（没改就写「无改动」），改动处数抄进账本。
+- 子代理回复的「义务清单」一行抄进账本：状态属性与 states、规则（filter / dedup / derive）= 约束承接 + skip、度量的 unit /
+  additivity 与指标、关系 definition、拉链表。规则一项两边对不上（承接 + skip 少于规则数），或 validate 的 warning 里有
+  `state_attribute_without_states`、`measure_without_unit`、`relation_without_definition`，按下面的返工办法交回，不必等到 S10g。
+  例外：`state_attribute_without_states` 的概念在 `catalog_changes.md` 里已有 `<概念 id> states skip: <理由>` 一行（T5 判断它的状态列
+  都不是生命周期状态）就不返工；validate 不读这个文件，会照样报这条 warning，以 S10g 的 `catalog_check` 为准。
+  T5 写的 skip 行在 `catalog_changes.md` 里（新建模式也可能已经有这个文件），S10f 在它末尾追加，不覆盖。
 
 **常见失败与处理**：validate 有 error → 返工，最多 2 次，仍不过交 owner。返工可以续用原来的子代理，也可以派一个新的：
 用 `fill catalog … REWORK=@<报错文件>` 重新填一份（原提示词 + 这次的报错原文），新子代理照它改。某张表计数是 0 或 2 → 同样返工。
@@ -1038,6 +1057,9 @@ grep -E '^Coverage:|^  [a-z0-9_]+\.' "$SCRATCH/check-$G.txt"
 **产出与自检**：`exit=0`；两个 `grep -c` 都打印 `1`；`Coverage: K table(s) in the fragments, K with a representation, U unmapped column(s)`
 里两个 `K` 相等（每张分给本组的表都有表现），下面每张表一行。`U` 不为 0 时，那几列和原因抄进账本「给 owner 的待确认」，
 不算失败。只 grep `unmapped` 这个词没有用：`0 unmapped column(s)` 也会被匹配。
+子代理回复的「义务清单」一行抄进账本（度量的 unit / additivity、带 `time_role` 的绑定、记进 notes 的缺 states）。拉链表没有
+`valid_from` / `valid_to` 绑定、度量属性缺 unit 的，按下表 T6 返工交回；`catalog validate` 的 `zipper_without_validity`、
+`measure_without_unit` warning 指的就是这两种。
 
 **常见失败与处理**
 
@@ -1086,6 +1108,7 @@ grep -E '^note|^Coverage:|^  [a-z0-9_]+\.' "$RUN/merge_report.txt"
 **规则**
 
 - 只改 `$RUN/merged/` 里的文件，不改 `$RUN/catalog/`。每一处改动在 `$RUN/catalog_changes.md` 记一行（文件、对象、改前、改后、依据）。
+  文件里已有 S10c 写的内容（规则的 skip 行、增量模式的改动）时在末尾追加，不删它们：S10g 的漏做检查要读 skip 行。
   这份记录**不要**放进 `merged/`（目录里不认识的文件会报 `unknown_file`）。
 - 改成 `foreign_attribute`：把绑定的 `to` 改成 `foreign_attribute`，`ref` 改成别组概念的属性 id，加 `via: <本表里绑成 foreign_identifier 的那一列>`。
   **先查目标在不在**：`grep -rn 'attr:<概念 slug>.<属性 slug>' "$RUN/merged/concepts"` 要能找到它的定义，并确认 `via` 那一列已绑成指向该概念标识符的
@@ -1101,7 +1124,8 @@ grep -E '^note|^Coverage:|^  [a-z0-9_]+\.' "$RUN/merge_report.txt"
 sl catalog validate "$RUN/merged"; echo "exit=$?"
 ```
 
-**完成判据**：`exit=0`，`0 error(s)`；`$RUN/catalog_changes.md` 存在。没有要改的，就在里面写一行「无改动」（进度脚本靠这个文件判断 S10f 做完了）。
+**完成判据**：`exit=0`，`0 error(s)`；`$RUN/catalog_changes.md` 存在，并且在 S10e 合并之后写过。没有要改的，就在末尾加一行「无改动」
+（进度脚本靠这个文件比 `merge_report.txt` 新来判断 S10f 做完了）。
 
 **下一步**：S10g。
 
@@ -1118,20 +1142,25 @@ sl semantic render "$RUN/docs" --out "$SEMPAGES" --validation "$RUN/validation.j
 sl catalog render "$RUN/onto/ontology.json" --out "$PAGES" --semantics "$SEMPAGES"; echo "exit=$?"
 load_tables
 sl semantic status "$RUN" --pages "$SEMPAGES" --only "${TABLES[@]}"
-python3 "$TOOL/skills/scope-lineage/scripts/catalog_check.py" "$RUN/onto/ontology.json" > "$RUN/catalog_check.txt"; echo "exit=$?"
+python3 "$TOOL/skills/scope-lineage/scripts/catalog_check.py" "$RUN/onto/ontology.json" \
+  --digest "$RUN/digest/digest.json" --changes "$RUN/catalog_changes.md" > "$RUN/catalog_check.txt"; echo "exit=$?"
 cat "$RUN/catalog_check.txt"
 ```
 
 顺序：`build` → `semantic render --ontology` → `catalog render --semantics`。`build` 固定带 `--lineage` 和 `--tables`（页面上的证据靠它们）。
 
 最后一条是**漏做检查**。`catalog validate` 和合并的覆盖率只查「写错」，查不出「漏做」；目录起草者能力弱一些时，漏做最常见。
-`catalog_check.py` 读构建出的 `ontology.json`，列出三类：
+`catalog_check.py` 读构建出的 `ontology.json`（带 `--digest` 时也读 `digest.json` 的规则，带 `--changes` 时读 `catalog_changes.md` 的 skip 行），列出这几类：
 
 | 发现 | 意思 | 谁来补 |
 | --- | --- | --- |
 | `empty_concept` | 概念一个属性都没有 | T5 返工：给概念建属性 |
 | `missing_participant` | 事件表里有外键列指向某个概念，它却不在事件的参与者里 | T5 返工：补参与者 |
 | `attribute_beside_foreign_identifier` | 名称 / 描述列（`*_desc`、`*_name`、`*_nm`）绑成了本表概念的属性，同表同词根的编码列却指向另一个概念 | T5 返工在那个概念上建属性，再 T6 返工改绑成 `foreign_attribute` |
+| `unabsorbed_rule` | digest 里某张表 `filter` / `dedup` / `derive` 规则 `<库.表>#rN` 没有约束在 `rules` 里引用，`catalog_changes.md` 也没写 skip | T5 返工：写约束（`rules` 指回它），或在 `catalog_changes.md` 写 `<库.表>#rN skip: <理由>` |
+| `state_without_states` | 状态属性有码值集，概念却没有它的 `states` | T5 返工：在概念上写 `states`（取值照 digest） |
+| `measure_without_unit` | 度量属性没有 `unit` | 属性是 T5 建的 T5 返工，片段建的 T6 返工：补 `unit` 和 `additivity` |
+| `code_attribute_without_relation` | 名字像编码 / 键的列（`*_cd`、`*_id`、`*_no`、`*_code`）绑成了普通属性、属性又没有码值集 | 指向另一个概念的：T5 返工建关系（和需要的标识符），T6 返工改绑 `foreign_identifier`；只是本概念自己的编号：在 `catalog_changes.md` 写理由 |
 
 每条发现是「要看一眼」，不等于一定错。
 
@@ -1145,9 +1174,10 @@ cat "$RUN/catalog_check.txt"
 | `--semantics directory does not exist: …` | 2 | 顺序错了：先跑 `semantic render` 再跑 `catalog render` |
 | `build` 有 error、什么也没写 | 1 | 回 S10f 修 `merged/`，或交 owner |
 | render 打印 `warning: packet_stale …` / `invalid …` / `no_packet …` | 0 | 回 S8 |
-| `catalog_check.txt` 末行不是 `0 finding(s)` | 1 | 逐条决定：要补的，用 `fill catalog … REWORK=@"$RUN/catalog_check.txt"` 让 T5 返工（只补概念属性和参与者），T5 改完再 `fill fragment … MODE=返工 REWORK=@"$RUN/catalog_check.txt"` 让 T6 改绑；从 S10d 的自检重来，到 S10g 再查。返工最多 2 次。不补的，在 `catalog_changes.md` 每条写一行理由 |
+| `catalog_check.txt` 末行不是 `0 finding(s)` | 1 | 逐条决定：要补的，用 `fill catalog … REWORK=@"$RUN/catalog_check.txt"` 让 T5 返工（`MODE` 与 S10c 那次相同：新建或增量）（只补概念属性、参与者、states、约束、关系和 skip 行），T5 改了绑定相关的概念或属性时再 `fill fragment … MODE=返工 REWORK=@"$RUN/catalog_check.txt"` 让 T6 改绑（T5 只加了 skip 行就不用）；然后依次重做 S10d 的自检、S10e 合并（先 `rm -rf "$RUN/merged"`）、S10f、S10g。返工最多 2 次。不补的，在 `catalog_changes.md` 每条写一行理由 |
 
 **完成判据**：三条命令都 `exit=0`；`status` 全部 `rendered`；`catalog_check.txt` 末行是 `0 finding(s)`，或剩下的每条在 `catalog_changes.md` 里写了不补的理由。
+`catalog validate` 仍报 `state_attribute_without_states` 而 `catalog_changes.md` 里有那个概念的 `states skip` 行时，是正常的：validate 不读这个文件，以 `catalog_check` 为准，不算返工失败。
 
 **已知限制**（遇到时照做，不要去修工具）：
 

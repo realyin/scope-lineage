@@ -78,6 +78,7 @@ def build_packets(
         cards, _TaskIndex(tasks), metadata or (lambda _table: None), Confirmed(glossary, patched),
         _task_reads(documents), _right_side_shapes(statements), statements,
     )
+    corpus.script = _task_statements(profiles)
     return [_packet(table, produced[table], corpus) for table in _selected(produced, only)]
 
 
@@ -172,6 +173,39 @@ def _produced_statements(profiles: list[dict]) -> dict[str, list[tuple[str, dict
     return produced
 
 
+def _task_statements(profiles: list[dict]) -> dict[str, list[dict]]:
+    """``task -> [statement profile]`` in script order, every write of the task (G1)."""
+    found: dict[str, list[dict]] = {}
+    for profile in profiles:
+        task = str(profile.get("task_id") or (profile.get("task") or {}).get("task_name") or "")
+        found.setdefault(task, []).extend(profile.get("statements") or [profile])
+    return found
+
+
+def feeding_statements(statements: list[tuple[str, dict]], script: dict) -> list[tuple[str, dict, str]]:
+    """G1: ``(task, statement, table it writes)`` of each earlier write of the same task that
+    feeds a target-writing statement, transitively -- an intermediate table read later.
+
+    Only a write before the reading statement counts, and never one of ``statements``.
+    """
+    own = {id(statement) for _task, statement in statements}
+    found: list[tuple[str, dict, str]] = []
+    queue = list(statements)
+    while queue:
+        task, reader = queue.pop(0)
+        writes = script.get(task) or []
+        position = next((i for i, item in enumerate(writes) if item is reader), len(writes))
+        reads = {bare_table(item.get("table")) for item in reader.get("inputs") or []}
+        for statement in writes[:position]:
+            table = bare_table((statement.get("task") or {}).get("target_table"))
+            if (table in reads and id(statement) not in own
+                    and all(statement is not item for _t, item, _w in found)):
+                found.append((task, statement, table))
+                queue.append((task, statement))
+    order = {id(item): i for items in script.values() for i, item in enumerate(items)}
+    return sorted(found, key=lambda entry: order.get(id(entry[1]), 0))
+
+
 def _selected(produced: dict, only: Iterable[str] | None) -> list[str]:
     if not only:
         return sorted(produced)
@@ -212,6 +246,8 @@ class _Corpus:
         self._reads = reads or {}
         self.right_sides = right_sides or {}
         self._statements = statements or {}
+        # G1: `task -> [statement profile]` in script order, set by `build_packets`.
+        self.script: dict[str, list[dict]] = {}
         self.confirmed = confirmed
         self._metadata = metadata
         self._looked_up: dict[str, Optional[dict]] = {}
@@ -249,6 +285,17 @@ class _Corpus:
         grain = (statement.get("output_shape") or {}).get("grain") or {}
         return grain_key_columns(lineage, grain) if lineage and grain.get("keys") else []
 
+    def task_writes(self, task: str) -> list[dict]:
+        """W6: ``[{statement_id, statement_index, table}]`` of every write ``task`` makes."""
+        writes = [
+            {"statement_id": statement_id, "statement_index": lineage.get("statement_index"),
+             "table": bare_table(lineage.get("target_table"))}
+            for (owner, statement_id), lineage in self._statements.items()
+            if owner == task and lineage.get("target_table")
+            and isinstance(lineage.get("statement_index"), int)
+        ]
+        return sorted(writes, key=lambda item: item["statement_index"])
+
     def task_reads(self, task: str) -> set[str] | None:
         """What ``task`` reads over all its statements; ``None`` for a task not parsed."""
         return self._reads.get(task)
@@ -266,8 +313,13 @@ def _packet(table: str, statements: list[tuple[str, dict]], corpus: _Corpus) -> 
     mark_unfiltered_rankings(rules, statements)
     mark_right_side_filters(rules, statements, corpus.right_sides)
     target = target_section(table, statements, corpus)
-    inputs = inputs_section(table, statements, rules, corpus)
-    lineage = lineage_section(table, statements, rules, target, corpus, inputs)
+    feeders = feeding_statements(statements, corpus.script)
+    feeder_rules = [rule for task, statement, _table in feeders
+                    for rule in facts.statement_rules(task, statement)]
+    facts.mark_partition_filters(feeder_rules, corpus.metadata)
+    inputs = inputs_section(table, statements, rules, corpus, feeders, feeder_rules)
+    lineage = lineage_section(table, statements, rules, target, corpus, inputs, feeders, feeder_rules)
+    facts.drop_private(feeder_rules)
     facts.drop_private(rules)
     markers = marker_keys(
         [(table, column) for column in target["columns"]]

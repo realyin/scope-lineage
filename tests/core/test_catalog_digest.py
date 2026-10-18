@@ -209,3 +209,84 @@ def test_digest_json_is_plain_json(tmp_path: Path) -> None:
     assert _digest(_docs(tmp_path), "--out", out) == 0
 
     assert json.loads((out / "digest.json").read_text(encoding="utf-8"))["tables"]
+
+
+# --- the hand-over facts a drafter needs for constraints and derivations -------------
+
+
+def test_each_table_carries_its_rules(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    assert _digest(_docs(tmp_path), "--out", out) == 0
+
+    [table] = read_json(out / "digest.json")["tables"]
+    assert table["rules"] == [
+        {"id": "r1", "kind": "filter", "text": "只取注册表当天分区"},
+        {"id": "r2", "kind": "dedup", "text": "每个客户号按更新时间倒序编号"},
+        {"id": "r3", "kind": "filter", "text": "只保留编号为 1 的最新一条"},
+    ]
+    text = (out / "digest.md").read_text(encoding="utf-8")
+    assert "- Rule r2 (dedup): 每个客户号按更新时间倒序编号" in text
+
+
+def test_a_document_without_rules_gives_an_empty_list() -> None:
+    document = copy.deepcopy(read_json(EXAMPLE))
+    document.pop("rules", None)
+
+    [table] = digest_tables([document])["tables"]
+
+    assert table["rules"] == []
+
+
+def test_columns_carry_derivation_null_meaning_and_watch_when_the_document_has_them() -> None:
+    document = copy.deepcopy(read_json(EXAMPLE))
+    document["columns"][2]["watch"] = "a watch note"
+
+    [table] = digest_tables([document])["tables"]
+
+    identifiers = {c["column"]: c for c in table["identifier_columns"]}
+    assert identifiers["customer_id"]["derivation"] == "直接取注册表的客户号；每个客户号只留一行。"
+    assert "null_meaning" not in identifiers["customer_id"]
+    assert identifiers["verified_customer_no"]["null_meaning"] == "客户尚未实名"
+    [gender] = table["descriptive_columns"]
+    assert gender["watch"] == "a watch note"
+    assert "watch" not in identifiers["customer_id"]
+    assert "type" not in gender, "no table cards, no physical type"
+
+
+def _tables_document(path: Path) -> Path:
+    return write_json(path, {
+        "doc_format": "tables-json/1",
+        "corpus": {},
+        "tables": [{
+            "table": DEMO_TABLE,
+            "columns": [
+                {"name": "customer_id", "type": "string"},
+                {"name": "GENDER_CD", "type": "char(1)"},
+                {"name": "register_time", "type": None},
+            ],
+        }],
+    })
+
+
+def test_tables_adds_the_physical_type_of_each_column_the_cards_know(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    tables = _tables_document(tmp_path / "tables.json")
+
+    assert _digest(_docs(tmp_path), "--tables", tables, "--out", out) == 0
+
+    [table] = read_json(out / "digest.json")["tables"]
+    identifiers = {c["column"]: c for c in table["identifier_columns"]}
+    assert identifiers["customer_id"]["type"] == "string"
+    assert "type" not in identifiers["verified_customer_no"]
+    assert table["descriptive_columns"][0]["type"] == "char(1)"
+    times = {c["column"]: c for c in table["time_columns"]}
+    assert "type" not in times["register_time"], "an unknown type is left out"
+    assert "gender_cd <char(1)>" in (out / "digest.md").read_text(encoding="utf-8")
+
+
+def test_tables_of_another_format_or_missing_is_an_error(tmp_path: Path) -> None:
+    wrong = write_json(tmp_path / "tables.json", {"doc_format": "lineage/1"})
+
+    assert _digest(_docs(tmp_path), "--tables", wrong, "--out", tmp_path / "out") == 1
+    assert _digest(_docs(tmp_path), "--tables", tmp_path / "nope.json", "--out", tmp_path / "o") == 2
+    assert not (tmp_path / "out").exists()

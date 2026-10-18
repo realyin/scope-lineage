@@ -197,6 +197,7 @@ USAGE_TEXT = {
     "filter": "过滤",
     "partition_filter": "分区过滤",
     "join_key": "连接键",
+    "join_condition": "关联附加条件",
     "group_by": "分组键",
     "window_partition": "窗口分组",
     "window_order": "窗口排序",

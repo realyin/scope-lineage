@@ -243,6 +243,7 @@ USAGE_ORDER = (
     "filter",
     "partition_filter",
     "join_key",
+    "join_condition",
     "group_by",
     "window_partition",
     "window_order",
@@ -1634,6 +1635,18 @@ def _record_join_usages(block: dict, record) -> None:
     # physical inputs as `physical_fields` -- the window's partition and order columns.
     # Calling those a filter usage would state that a column is filtered when it is not;
     # the condition itself is published verbatim as `rules[].extra_conditions`.
+    # W2: a column the condition reads under its own name (`b.status = '1'`) is read,
+    # though: it is recorded as `join_condition`, so a reader is not told it goes unused.
+    for condition in detail.get("condition_filters") or []:
+        named = {str(field.get("column")).lower() for field in condition.get("fields") or []}
+        record(
+            (
+                (str(field.get("table")), str(field.get("field")))
+                for field in condition.get("physical_fields") or []
+                if field.get("table") and str(field.get("field") or "").lower() in named
+            ),
+            "join_condition",
+        )
 
 
 def _record_group_by_usages(block: dict, record) -> None:
@@ -7914,6 +7927,7 @@ FINDING_TABLE_COMMENT_MISSING = "table_comment_missing"
 FINDING_DUPLICATE_ALIAS = "duplicate_alias"
 FINDING_EMPTY_STRING_ON_NON_STRING = "empty_string_on_non_string"
 FINDING_NUMERIC_COMPARE_ON_STRING = "numeric_compare_on_string"
+FINDING_STRING_COMPARE_ON_NUMERIC = "string_compare_on_numeric"
 FINDING_LITERAL_OUTSIDE_COMMENT_CODES = "literal_outside_comment_codes"
 FINDING_WINDOW_PARTITION_NARROWER = "window_partition_narrower"
 
@@ -7924,6 +7938,7 @@ FINDING_KINDS = (
     FINDING_DUPLICATE_ALIAS,
     FINDING_EMPTY_STRING_ON_NON_STRING,
     FINDING_NUMERIC_COMPARE_ON_STRING,
+    FINDING_STRING_COMPARE_ON_NUMERIC,
     FINDING_LITERAL_OUTSIDE_COMMENT_CODES,
     FINDING_WINDOW_PARTITION_NARROWER,
     FINDING_PARTITION_MISMATCH,
@@ -7975,6 +7990,7 @@ FINDING_SEVERITY = {
     FINDING_DUPLICATE_ALIAS: SEVERITY_WARN,
     FINDING_EMPTY_STRING_ON_NON_STRING: SEVERITY_WARN,
     FINDING_NUMERIC_COMPARE_ON_STRING: SEVERITY_WARN,
+    FINDING_STRING_COMPARE_ON_NUMERIC: SEVERITY_WARN,
     FINDING_LITERAL_OUTSIDE_COMMENT_CODES: SEVERITY_WARN,
     FINDING_WINDOW_PARTITION_NARROWER: SEVERITY_WARN,
     FINDING_PARTITION_MISMATCH: SEVERITY_INFO,
@@ -8068,6 +8084,7 @@ def _build_findings(
         *_duplicate_alias_findings(document),
         *_empty_string_findings(document, rules),
         *_numeric_compare_findings(document, rules),
+        *_string_compare_findings(document, rules),
         *_comment_code_findings(document, rules),
         *_partition_mismatch_findings(comparisons, fields),
         *_nondeterministic_findings(rules, fields),
@@ -8225,6 +8242,52 @@ def _numeric_compare_findings(document: dict, rules: Sequence[dict]) -> list[dic
     ]
 
 
+# A declared numeric type, by its whole leading word: ``int`` but never ``interval``.
+_NUMERIC_TYPE = re.compile(
+    r"^(tinyint|smallint|int|integer|bigint|long|decimal|numeric|double|float|real)\b", re.IGNORECASE)
+# A quoted number: ``n > '0'`` casts as meant, so only another literal is a lead.
+_QUOTED_NUMBER = re.compile(r"^'[+-]?\d+(\.\d+)?'$")
+
+
+def _is_numeric_type(declared: str) -> bool:
+    return bool(_NUMERIC_TYPE.match(str(declared or "").strip()))
+
+
+def _string_compare_findings(document: dict, rules: Sequence[dict]) -> list[dict]:
+    """A numeric column compared with a string literal (W8), one finding per input table.
+
+    The reverse of :func:`_numeric_compare_findings`: ``n = 'x1'`` on a ``bigint`` column
+    leaves the engine to cast one side, and a literal that is no number may turn the
+    comparison NULL. A quoted number (``'0'``, ``'-2.5'``) casts as meant and is left out;
+    an empty string is ``empty_string_on_non_string``'s; a partition filter is left out,
+    as there.
+    """
+    by_table: dict[str, dict] = {}
+    for rule in rules:
+        if str(rule.get("kind")) not in ("filter", "join_condition", "case_branch"):
+            continue
+        if rule.get("is_partition_filter"):
+            continue
+        for column, literal in semantic_text.quoted_literal_comparisons(rule.get("expression")):
+            typed = _physical_column_type(document, rule, column)
+            if typed is None or not _is_numeric_type(typed[1]) or _QUOTED_NUMBER.match(literal):
+                continue
+            entry = by_table.setdefault(typed[0], {"columns": [], "literals": [], "rules": []})
+            entry["columns"].append(f"{column}（{typed[1]}）")
+            entry["literals"].append(literal)
+            entry["rules"].append(rule.get("rule_id"))
+    return [
+        _finding(
+            FINDING_STRING_COMPARE_ON_NUMERIC,
+            f"类型不匹配：{table} 的数值列 {'、'.join(_dedupe(entry['columns']))} "
+            f"与字符串 {'、'.join(_dedupe(entry['literals']))} 比较；结果取决于引擎把哪一边"
+            "转成什么类型（不是数字的字符串可能转成 NULL，范围比较可能按文本比），需核实这些判断是否按预期生效",
+            _dedupe(entry["rules"]),
+        )
+        for table, entry in by_table.items()
+    ]
+
+
 # G7a. Every 【…】 block of a column comment is an annotation -- 【updt:n】, a format note
 # such as 【yyyy-MM-dd HH:mm:ss】 -- and is removed before the comment is read for codes:
 # read as it stands, the shape reading takes ``updt`` or ``yyyy`` for a code.
@@ -8257,12 +8320,13 @@ def _comment_code_findings(document: dict, rules: Sequence[dict]) -> list[dict]:
             table, comment = commented
             text = _COMMENT_ANNOTATION.sub(" ", comment)
             codes = glossary_values.enumerated_meanings(text)
-            if len(codes) < _COMMENT_CODE_MINIMUM or literal.lower() in codes:
+            labels = [] if codes else glossary_values.label_list(text)
+            if len(codes) < _COMMENT_CODE_MINIMUM and not labels:
                 continue
-            if literal.lower() in text.lower():
+            if literal.lower() in codes or literal.lower() in text.lower():
                 continue
             entry = outside.setdefault(
-                (table, column), {"codes": codes, "text": text, "literals": []}
+                (table, column), {"codes": codes, "labels": labels, "text": text, "literals": []}
             )
             entry["literals"].append(literal)
         for (table, column), entry in outside.items():
@@ -8270,13 +8334,26 @@ def _comment_code_findings(document: dict, rules: Sequence[dict]) -> list[dict]:
             found.append(
                 _finding(
                     FINDING_LITERAL_OUTSIDE_COMMENT_CODES,
-                    f"{table}.{column} 与 {literals} 比较，但列注释列出的取值是 "
-                    f"{'、'.join(_as_written(code, entry['text']) for code in entry['codes'])}，不含 {literals}：注释过时，或这条比较"
-                    "可能永不成立（<> / NOT IN 时可能恒成立），需核实",
+                    _outside_codes_text(table, column, literals, entry),
                     [rule.get("rule_id")],
                 )
             )
     return found
+
+
+def _outside_codes_text(table: str, column: str, literals: str, entry: dict) -> str:
+    """The finding's sentence: a code table's codes, or a label list read as values (W5).
+
+    A comment of labels alone (``甲、乙、丙``) may list the values or only describe them,
+    so the sentence says the list is suspected to be the values, no more.
+    """
+    then = "可能永不成立（<> / NOT IN 时可能恒成立），需核实"
+    if entry["labels"]:
+        return (f"{table}.{column} 与 {literals} 比较，列注释是一串标签 "
+                f"{'、'.join(entry['labels'])}（疑似取值列表），不含 {literals}：若这些标签就是"
+                f"取值，则注释过时，或这条比较{then}")
+    listed = "、".join(_as_written(code, entry["text"]) for code in entry["codes"])
+    return f"{table}.{column} 与 {literals} 比较，但列注释列出的取值是 {listed}，不含 {literals}：注释过时，或这条比较{then}"
 
 
 def _as_written(code: str, text: str) -> str:

@@ -1,4 +1,4 @@
-# 表语义提示词（table-semantics-prompt@11）
+# 表语义提示词（table-semantics-prompt@12）
 
 用法：Agent 为每张目标表把这份提示词连同它的材料包 `<packets>/<db.table>/packet.md` 交给模型，
 模型输出一份 `table-semantics/1` JSON（格式见 `docs/zh-CN/table-semantics.md`，Schema 见
@@ -21,7 +21,10 @@
 `packet.md` 有几处写法要先知道：
 
 - 第 3 节输入列「本表用到」标「读入未用（select * 等）」的，是读进来（多半经 `select *`）却没有任何输出、
-  条件或键用到的列：不要据它说该列影响本表。第 3 节的分区条件、日期列上的过滤每条只列一次，括号里是写着
+  条件或键用到的列：不要据它说该列影响本表。标「未读」的是本任务根本没读的列。标 `join_condition` 的列出现在
+  关联的 ON 条件里（例如限定码表的类型、分区、状态）：它决定关联到哪些行，写规则和口径时要算进去。
+  输入表标「经同任务中间语句读入：`stmt:NNN` 写 <中间表>」的，是同一任务先写进中间表、再由中间表喂给本表的源表：
+  它的分区读取和全量快照判断同样适用于本表，写 `upstream` 和取数口径时引用它，不要只写中间表。第 3 节的分区条件、日期列上的过滤每条只列一次，括号里是写着
   它的规则编号（例如「（p2、p5）」）。第 3 节「分区读取」末尾写「；未限定的分区列：`<列>`（注释：…）」时，
   本任务只限定了别的分区列，这些分区列的每个取值都会读进来。会不会因此读到同一记录的几份，取决于该列实际
   有几个值，材料证明不了：注释说明了取值的（例如只有一个来源），引用注释，写成推断；不要写成一定放大，
@@ -227,7 +230,7 @@ SQL 显示取的是员工 id）时，按实际写，加一条 `conflict` 的 `wa
    依据）、`cycle`、
    `outputs`、`upstream_tasks`、`downstream_tasks`。多个任务写同一张表时改用 `tasks` 列表。
 6. **其余键**：`doc_format` 写 `table-semantics/1`；`table` 写 `库.表`；`packet_digest` 从材料包照抄；
-   `generator` 写 `{"prompt": "table-semantics-prompt@11"}`。调用方给了本体目录里这张表对应的概念与
+   `generator` 写 `{"prompt": "table-semantics-prompt@12"}`。调用方给了本体目录里这张表对应的概念与
    表现类型时，写 `concept`（`{"concept": "concept:<id>", "representation_kind": "<kind>"}`）。
 
 ## 容易写错的地方（来自验收）
@@ -268,6 +271,15 @@ SQL 显示取的是员工 id）时，按实际写，加一条 `conflict` 的 `wa
       （作废标记写「已作废的」，变更类型列写「删除类的」）；列没有注释说明含义的，写待确认。
     - `declared_key_not_used`（输入表列注释声明的复合唯一键比本任务的去重 / 合并键多出几列）：在
       `summary.row.note` 写明本表的键比声明的少了哪几列、会不会因此把不同记录合成一条，写成推断。
+    - `string_compare_on_numeric`（数值列与带引号的字符串比较）：同 `numeric_compare_on_string`，写「取决于引擎的
+      隐式转换，需核实」。
+    - `state_column_unfiltered`（输入表的状态、有效标记一类列，本任务既不过滤也不输出）：在 `summary.scope` 或
+      `watch`（`coverage`）写「未按 <列> 过滤，各状态的记录都会进入本表」，列含义没注释说明的写待确认；不要断言
+      应该过滤。
+    - `partition_format_mismatch`（分区条件的字面量格式与该列注释写的格式不同）：在相关规则或 `summary.refresh`
+      的 `watch`（`conflict`）里写出两种格式，说明以 SQL 实际写法为准、注释可能过时。
+    - `merge_same_key`（同一目标表有几条 MERGE 按同一组键写入）：在 `summary.row.note` 或 `watch` 写明后一条
+      可能改写前一条写入的行（包括改到另一个分区），写成推断。
     - `literal_outside_comment_codes`（SQL 拿列与字符串字面量比较，字面量不在该列注释列出的取值里）：在
       相关规则或列的 `watch` 里记一条 `conflict`，写「注释过时，或这个条件永远不成立（`<>` / `NOT IN` 时是
       永远成立），需核实」，并写出因此可能恒为空、或取值恒定的列；不要写成一定生效。需要时提问。

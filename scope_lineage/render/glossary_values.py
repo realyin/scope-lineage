@@ -1173,6 +1173,39 @@ _MEANING_MAX_LENGTH = 20
 # the second pair on; an explicit joiner (`0-未生效`) carries its own evidence.
 _MINIMUM_ADJACENT_PAIRS = 2
 
+# A comment written as a list of labels -- ``名称：甲、乙、丙`` -- gives no codes, only the
+# labels themselves. A label is a short run of letters (any script); the separators are
+# punctuation, never a count of characters.
+_LABEL_SEPARATOR = re.compile(r"[、，,/|]")
+_LABEL_SPLIT = re.compile(r"[、，,/|；;\s]+")
+_LABEL = re.compile(r"^[^\W\d_]{1,8}$", re.UNICODE)
+
+
+def listed_labels(comment) -> list[str]:
+    """The labels of a separated list after the comment's ``名称：`` prefix, in order."""
+    text = re.split(r"[:：]", str(comment or ""), maxsplit=1)[-1]
+    if not _LABEL_SEPARATOR.search(text):
+        return []
+    return list(dict.fromkeys(item for item in _LABEL_SPLIT.split(text) if _LABEL.match(item)))
+
+
+def label_list(comment) -> list[str]:
+    """W5: :func:`listed_labels` when the list is all there is -- a suspected value list.
+
+    The comment must have the list shape ``名称：甲、乙、丙``: a name, a colon, then nothing
+    but labels, three or more. ``甲、乙 (见 2.1)`` is prose with a list in it, and a plain
+    comma phrase (``账户状态，必填``, ``first name, last name``) is no list of values.
+    """
+    parts = re.split(r"[:：]", str(comment or ""), maxsplit=1)
+    if len(parts) < 2 or not parts[0].strip():
+        return []
+    items = [item for item in _LABEL_SPLIT.split(parts[1]) if item]
+    labels = listed_labels(comment)
+    return labels if len(labels) >= _LABEL_LIST_MINIMUM and all(map(_LABEL.match, items)) else []
+
+
+_LABEL_LIST_MINIMUM = 3
+
 
 def enumerated_meanings(comment: str) -> dict[str, str]:
     """``{code: meaning}`` for a comment written as a code table, lower-cased keys.
@@ -1204,8 +1237,41 @@ def enumerated_meanings(comment: str) -> dict[str, str]:
         after_joined = bool(code and meaning) and step == 1
         index += step
     if not joined and len(adjacent) < _MINIMUM_ADJACENT_PAIRS:
-        return {}
+        return _glued_meanings(tokens)
     return {**adjacent, **joined}
+
+
+# G2. ``1是 0否`` / ``1是0否`` / ``Y是 N否``: short codes (at most two digits, all of one
+# width) straight against their labels. A
+# digit code may follow the previous label directly (a digit cannot be part of a label);
+# a letter code needs a token of its own, as ``id关联`` is a word. A label holds no ASCII
+# letter or digit, and one running into a conjunction (``3天或7天``) lists amounts, not
+# codes.
+_GLUED_DIGIT_PAIR = re.compile(r"(\d{1,2})([^\x00-\x7f]+)")
+_GLUED_LETTER_PAIR = re.compile(r"^([A-Z][A-Z0-9]{0,2})([^\x00-\x7f]+)$")
+_GLUED_CONJUNCTIONS = ("或", "和", "与", "及", "至", "到")
+
+
+def _glued_meanings(tokens: Sequence[str]) -> dict[str, str]:
+    """``{code: label}`` when two or more distinct codes are each glued to a distinct label."""
+    pairs: list[tuple[str, str]] = []
+    for token in (part for token in tokens for part in re.split(r"[:：]", token) if part):
+        letter = _GLUED_LETTER_PAIR.match(token)
+        if letter:
+            pairs.append((letter.group(1), letter.group(2)))
+            continue
+        found = _GLUED_DIGIT_PAIR.findall(token)
+        if found and "".join(code + label for code, label in found) == token:
+            pairs += found
+    codes = [code.lower() for code, _label in pairs]
+    labels = [label for _code, label in pairs]
+    # Codes of one table share a width: ``2023年12月`` is a date, not codes 2023 and 12.
+    if (len(pairs) < _MINIMUM_ADJACENT_PAIRS or len(set(codes)) < len(codes)
+            or len({len(code) for code in codes}) > 1
+            or len(set(labels)) < len(labels)
+            or any(label.endswith(_GLUED_CONJUNCTIONS) for label in labels)):
+        return {}
+    return dict(zip(codes, labels))
 
 
 def _pair_at(tokens: Sequence[str], index: int) -> tuple[str, str, int]:

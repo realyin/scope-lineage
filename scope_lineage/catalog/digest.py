@@ -12,6 +12,12 @@ the lookup facts ``render.value_lookups`` read from a lineage corpus (``--lineag
 column also says which joined inputs its value is read through; without them the digest
 is byte for byte what it was.
 
+What a drafter needs to write constraints and derivations rides along from the document
+itself: each table's ``rules`` (``{id, kind, text}``), and each listed column's
+``derivation``, ``null_meaning`` and ``watch`` when the document has them. A constraint
+names the rule it carries as ``<db.table>#<rule id>``. Given the physical column types of
+the corpus's table cards (``--tables``), a column also says its ``type``.
+
 The documents are read as plain JSON (legal ``table-semantics/1`` documents, checked by
 the caller); this package imports nothing from the table-semantics package.
 """
@@ -45,7 +51,10 @@ def bare_table(name: object) -> str:
 
 
 def digest_tables(
-    documents: list[dict], catalog: Optional[Catalog] = None, lookups: Optional[dict] = None
+    documents: list[dict],
+    catalog: Optional[Catalog] = None,
+    lookups: Optional[dict] = None,
+    column_types: Optional[dict] = None,
 ) -> dict:
     """The digest of ``documents`` in table order; with ``catalog``, what it does not cover.
 
@@ -53,12 +62,19 @@ def digest_tables(
     (``{"tables": {db.table: {column: facts}}}``): each listed column of a table it names
     gains those facts, tagged with the catalog's matching code set when a catalog is given.
     Without it the digest is exactly what it was.
+
+    ``column_types`` is ``{db.table: {column: physical type}}`` (both keys lower case), as
+    ``column_types_of`` reads it from table cards: each listed column it names gains ``type``.
     """
     facts = (lookups or {}).get("tables") or {}
+    types = column_types or {}
     code_sets = _code_set_lookups(catalog) if catalog is not None and facts else []
     pairs = sorted(
         (
-            (_table(document, facts, code_sets), [column["column"] for column in document["columns"]])
+            (
+                _table(document, facts, code_sets, types),
+                [column["column"] for column in document["columns"]],
+            )
             for document in documents
         ),
         key=lambda pair: pair[0]["table"],
@@ -69,7 +85,23 @@ def digest_tables(
     return digest
 
 
-def _table(document: dict, facts: dict, code_sets: list[dict]) -> dict:
+def column_types_of(tables: dict) -> dict:
+    """``{db.table: {column: type}}`` from a ``tables-json/1`` document; unknown types left out."""
+    found: dict = {}
+    for card in tables.get("tables") or []:
+        if not isinstance(card, dict):
+            continue
+        known = {
+            str(column.get("name")).lower(): column["type"]
+            for column in card.get("columns") or []
+            if isinstance(column, dict) and column.get("name") and column.get("type")
+        }
+        if known:
+            found.setdefault(bare_table(card.get("table")), {}).update(known)
+    return found
+
+
+def _table(document: dict, facts: dict, code_sets: list[dict], types: dict) -> dict:
     summary = document["summary"]
     row, refresh = summary["row"], summary["refresh"]
     concept = document.get("concept") or {}
@@ -93,9 +125,13 @@ def _table(document: dict, facts: dict, code_sets: list[dict]) -> dict:
     }
     columns = document["columns"]
     read = {name.lower(): value for name, value in (facts.get(entry["table"]) or {}).items()}
+    typed = types.get(entry["table"]) or {}
     for category, key in _LISTED.items():
         entry[key] = [
-            _column(column, read.get(column["column"].lower()), code_sets)
+            _column(
+                column, read.get(column["column"].lower()), code_sets,
+                typed.get(column["column"].lower()),
+            )
             for column in columns
             if column["category"] == category
         ]
@@ -107,6 +143,10 @@ def _table(document: dict, facts: dict, code_sets: list[dict]) -> dict:
         "upstream": [{"table": up["table"], "role": up["role"]} for up in summary["upstream"]],
         "downstream": sorted({down["table"] for down in summary["downstream"] if down.get("table")}),
     }
+    entry["rules"] = [
+        {"id": rule["id"], "kind": rule["kind"], "text": rule["text"]}
+        for rule in document.get("rules") or []
+    ]
     entry["watch"] = [{"kind": watch["kind"], "text": watch["text"]} for watch in summary["watch"]]
     entry["open_questions"] = [
         {"id": question["id"], "text": question["text"]}
@@ -138,12 +178,22 @@ def _mark_row_reads(entry: dict) -> None:
                         other["keyed_by"] = ROW_IDENTIFIER
 
 
-def _column(column: dict, facts: Optional[dict] = None, code_sets: Optional[list] = None) -> dict:
+def _column(
+    column: dict,
+    facts: Optional[dict] = None,
+    code_sets: Optional[list] = None,
+    physical_type: Optional[str] = None,
+) -> dict:
     result = {"column": column["column"], "meaning": column["meaning"]}
+    if physical_type:
+        result["type"] = physical_type
     if column.get("unit"):
         result["unit"] = column["unit"]
     if column.get("code_values"):
         result["code_values"] = [_code_value(value) for value in column["code_values"]]
+    for key in ("derivation", "null_meaning", "watch"):
+        if str(column.get(key) or "").strip():
+            result[key] = column[key]
     if facts:
         result.update(_lookup_facts(facts, code_sets or []))
     return result
@@ -341,6 +391,7 @@ def _table_section(entry: dict) -> list[str]:
         lines.append(f"- Built from: {', '.join(upstream)}")
     if entry["related"]["downstream"]:
         lines.append(f"- Read by: {', '.join(entry['related']['downstream'])}")
+    lines += [f"- Rule {rule['id']} ({rule['kind']}): {rule['text']}" for rule in entry["rules"]]
     lines += [f"- Watch ({watch['kind']}): {watch['text']}" for watch in entry["watch"]]
     lines += [f"- Open {q['id']}: {q['text']}" for q in entry["open_questions"]]
     if "catalog" in entry:
@@ -349,7 +400,8 @@ def _table_section(entry: dict) -> list[str]:
 
 
 def _column_text(column: dict) -> str:
-    text = f"{column['column']} {column['meaning']}"
+    typed = f" <{column['type']}>" if column.get("type") else ""
+    text = f"{column['column']}{typed} {column['meaning']}"
     if column.get("unit"):
         text += f" [{column['unit']}]"
     if column.get("code_values"):

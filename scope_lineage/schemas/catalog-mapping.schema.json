@@ -200,6 +200,17 @@
           "type": "string",
           "minLength": 1
         },
+        "time_role": {
+          "description": "What time this column carries: valid_from / valid_to (the validity window of a zipper row), partition (the load partition), event_time (when the event happened), record_time (when the row was written), business_date (the business day it counts for)",
+          "enum": [
+            "valid_from",
+            "valid_to",
+            "partition",
+            "event_time",
+            "record_time",
+            "business_date"
+          ]
+        },
         "code_map": {
           "type": "object",
           "additionalProperties": {

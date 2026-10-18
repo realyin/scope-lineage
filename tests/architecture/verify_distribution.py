@@ -18,6 +18,7 @@ REQUIRED_CORE_PATHS = {
     "scope_lineage/schemas/catalog-identifiers.schema.json",
     "scope_lineage/schemas/catalog-manifest.schema.json",
     "scope_lineage/schemas/catalog-mapping.schema.json",
+    "scope_lineage/schemas/catalog-metrics.schema.json",
     "scope_lineage/schemas/catalog-relations.schema.json",
     "scope_lineage/schemas/catalog-terms.schema.json",
     "scope_lineage/schemas/diagnostics-v2.schema.json",

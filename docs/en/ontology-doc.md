@@ -371,7 +371,7 @@ Slot by slot (every slot `ontology-json/2` publishes):
 | `tables[].identity.partition_columns` | a list of column names | the partition columns a producing task writes (a metadata fact) |
 | `tables[].attributes[].type`, `comment` | metadata | the column type and comment from the table card, carried over verbatim |
 | `tables[].attributes[]` | one per column the metadata declares | attributes cover the whole table, not only the columns the corpus read or wrote, and follow the order of the table card's `columns[]` |
-| `tables[].attributes[].observed_roles` | `filter`, `partition_filter`, `join_key`, `group_by`, `window_partition`, `window_order`, `output` | the consumer usages the table card recorded; a column nobody read carries an empty list |
+| `tables[].attributes[].observed_roles` | `filter`, `partition_filter`, `join_key`, `join_condition` (a physical column a JOIN's extra ON condition reads under its own name; a derived column's inputs do not count), `group_by`, `window_partition`, `window_order`, `output` | the consumer usages the table card recorded; a column nobody read carries an empty list |
 | `tables[].attributes[].used_in_corpus` | `true` / `false` | whether any task in this corpus wrote or read the column; `false` alongside an empty `observed_roles` reads as "the metadata declares it and this corpus never went near it" |
 | `tables[].attributes[].not_null_observed` | `true` / `false` | some task in the corpus filtered this column with `NOT x IS NULL` |
 | `tables[].attributes[].synonyms[].via` | `direct_rename` / `union_alignment` | O5: two column names for one value |

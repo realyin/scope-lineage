@@ -280,6 +280,7 @@ class CatalogView:
         self.domains = {d["id"]: d for d in document.get("domains") or []}
         self.relations = {r["id"]: r for r in document.get("relations") or []}
         self.constraints = list(document.get("constraints") or [])
+        self.metrics = list(document.get("metrics") or [])
         self.terms = list(document.get("terms") or [])
         self.representations = {r["table"]: r for r in document.get("representations") or []}
         # Table names ignore case: `build` writes them lower-case, a reader may not.
@@ -494,6 +495,10 @@ class CatalogView:
         order = [kind for kind, _ in CONSTRAINT_KINDS]
         found = [c for c in self.constraints if c["on"] in targets]
         return sorted(found, key=lambda c: (order.index(c["kind"]), c["id"]))
+
+    def metrics_on(self, concept_id: str) -> list[dict]:
+        """Metrics computed over the concept, in id order."""
+        return sorted((m for m in self.metrics if m.get("on") == concept_id), key=lambda m: m["id"])
 
     # -------------------------------------------------------------- evidence
 

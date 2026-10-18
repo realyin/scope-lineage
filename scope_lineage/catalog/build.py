@@ -89,6 +89,7 @@ def _lists(catalog: Catalog) -> dict:
         "concepts": _by_id(concepts),
         "relations": _by_id(relations),
         "constraints": _by_id(normalised("constraints", _constraint)),
+        "metrics": _by_id(normalised("metrics", _metric)),
         "terms": sorted(normalised("terms", _term), key=lambda t: (t["term"], t["refers_to"])),
         "representations": sorted(
             normalised("mapping", lambda rep: _representation(rep, index)),
@@ -218,7 +219,10 @@ def _states(states: dict) -> dict:
 
 
 def _attribute(obj: dict, concept: dict) -> dict:
-    keys = ("id", "name", "definition", "category", "type", "unit", "code_set", "derivation")
+    keys = (
+        "id", "name", "definition", "category", "type", "unit", "code_set", "derivation",
+        "additivity",
+    )
     return {**_pick(obj, keys), **_common(obj, concept)}
 
 
@@ -253,7 +257,16 @@ def _participations(concepts: list[dict]) -> list[dict]:
 
 
 def _constraint(obj: dict) -> dict:
-    return {**_pick(obj, ("id", "kind", "on", "expression", "strength")), **_common(obj)}
+    keys = ("id", "kind", "on", "expression", "strength", "rules", "predicate")
+    return {**_pick(obj, keys), **_common(obj)}
+
+
+def _metric(obj: dict) -> dict:
+    out = _pick(obj, ("id", "name", "definition", "on", "measure", "aggregation", "filter"))
+    out["constraints"] = list(obj.get("constraints") or [])
+    out.update(_pick(obj, ("time_window",)))
+    out["dimensions"] = list(obj.get("dimensions") or [])
+    return {**out, **_pick(obj, ("additivity", "unit")), **_common(obj)}
 
 
 def _term(obj: dict) -> dict:
@@ -305,5 +318,5 @@ def _binding(obj: dict, representation: dict, own_ids: set) -> dict:
     # [code] is what an absent holds means: one way to say it, so it is not written out.
     if obj.get("holds", ["code"]) != ["code"]:
         out["holds"] = list(obj["holds"])
-    out.update(_pick(obj, ("lang",)))
+    out.update(_pick(obj, ("lang", "time_role")))
     return {**out, **_common(obj, representation)}

@@ -25,7 +25,7 @@ from ..render.markdown_text import cell, expr_span
 from ..render.semantic_text import PASS_THROUGH_TEXT_PREFIXES, parse_expression
 from .packet_context import string_literals
 from .packet_facts import partition_filter_rules, partition_values
-from .sql_forms import DIALECT
+from .sql_forms import DIALECT, statement_starts
 
 
 def render_packet_markdown(packet: dict) -> str:
@@ -44,7 +44,13 @@ def render_packet_markdown(packet: dict) -> str:
     lines += _inputs(packet["inputs"], packet["lineage"]["rules"])
     lines += _lineage(packet["lineage"], packet["tasks"])
     lines += _column_order(packet["target"])
-    return "\n".join(lines).rstrip("\n") + "\n"
+    return _CONTROL.sub("", "\n".join(lines).rstrip("\n") + "\n")
+
+
+# W1: a C0 control character (a NUL in a column comment, most often) makes ``grep`` take
+# the file for binary and print nothing. The page keeps tab and newline; the JSON keeps
+# the metadata exactly as read.
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
 
 def _code(value) -> str:
@@ -162,7 +168,7 @@ def _tasks(tasks: list[dict], table: str = "") -> list[str]:
         ]
         lines += [f"> {comment}" for comment in task["header_comments"]]
         lines += [""] if task["header_comments"] else []
-        lines += _sql(task["sql"])
+        lines += _sql(task["sql"], task.get("writes") or [])
     return lines
 
 
@@ -239,20 +245,55 @@ def _producer_header(entry: dict) -> list[str]:
     return [f"- 生产任务头注释（作者说法，非 SQL 事实）：{said}"]
 
 
-def _sql(sql) -> list[str]:
+def _sql(sql, writes=()) -> list[str]:
     if not sql:
         return ["（`--tasks` 里没有这个任务的 JSON：SQL 缺失，规则原文无法核对）", ""]
+    sql = _numbered(sql, writes)
     fence = "````" if "```" in sql else "```"
     return [f"{fence}sql", sql.rstrip("\n"), fence, ""]
+
+
+def _numbered(sql: str, writes) -> str:
+    """W6: ``-- [stmt:NNN] 写 <table>`` on a line of its own above each write statement.
+
+    4.x cites rules by statement number; with the number in the script, a writer finds
+    the statement -- one writing an intermediate table too -- without counting. A
+    statement whose text does not name the table it writes (the script and the lineage
+    disagree) gets no line rather than a wrong one.
+    """
+    starts = statement_starts(sql)
+    marks = []
+    for item in writes:
+        index = item.get("statement_index")
+        if not isinstance(index, int) or index >= len(starts) or starts[index] is None:
+            continue
+        start = starts[index]
+        end = next((offset for offset in starts[index + 1:] if offset is not None), len(sql))
+        name = str(item.get("table") or "").rsplit(".", 1)[-1]
+        if name and re.search(rf"\b{re.escape(name)}\b", sql[start:end], re.IGNORECASE):
+            marks.append((start, f"-- [{item['statement_id']}] 写 {item['table']}"))
+    for start, mark in sorted(marks, reverse=True):
+        line = sql.rfind("\n", 0, start) + 1
+        if sql[line:start].strip():
+            sql = sql[:start].rstrip(" \t") + "\n" + mark + "\n" + sql[start:]
+        else:
+            sql = sql[:line] + mark + "\n" + sql[line:]
+    return sql
 
 
 # An input column the task reads in (most often through ``select *``) but no output,
 # condition or key uses: ``used`` with no ``usages`` (C-P8). Not "used by this table".
 READ_UNUSED = "读入未用（select * 等）"
+# W9: a column the task does not read at all says so; an empty cell read as either.
+UNREAD = "未读"
+INPUTS_LEGEND = (
+    "- 「本表用到」一栏：列出用法（filter、join_key、join_condition、output 等）的，是本任务按该用法读这一列；"
+    f"「{READ_UNUSED}」是读进来了，但没有任何输出、条件或键用到；「{UNREAD}」是本任务根本没读这一列"
+)
 
 
 def _inputs(inputs: list[dict], rules: list[dict] = ()) -> list[str]:
-    lines = ["## 3. 输入表", ""]
+    lines = ["## 3. 输入表", "", INPUTS_LEGEND, ""]
     if not inputs:
         return [*lines, "（没有输入表）", ""]
     for entry in inputs:
@@ -260,7 +301,7 @@ def _inputs(inputs: list[dict], rules: list[dict] = ()) -> list[str]:
             f"### {_code(entry['table'])}（{_comment(entry)}）",
             "",
             f"- 在本表的作用：{_names(entry['roles'])}；主表：{'是' if entry['driving'] else '否'}；"
-            f"层：{_text(entry['layer'])}；生产任务：{_names(entry['producers'])}",
+            f"层：{_text(entry['layer'])}；生产任务：{_names(entry['producers'])}{_via(entry)}",
             f"- 分区列（元数据）：{_names(entry['partition_columns'])}；"
             f"分区读取：{entry['partition_read']}（{_partition_filters(entry, rules)}）"
             f"{_unfixed_partitions(entry)}；"
@@ -272,12 +313,19 @@ def _inputs(inputs: list[dict], rules: list[dict] = ()) -> list[str]:
         ]
         rows = [
             [_code(c["name"]), _text(c["type"]), _comment(c),
-             "、".join(c["usages"]) or (READ_UNUSED if c["used"] else "")]
+             "、".join(c["usages"]) or (READ_UNUSED if c["used"] else UNREAD)]
             for c in entry["columns"]
         ]
         lines += _column_table(["列", "类型", "注释", "本表用到"], rows, entry["columns"])
         lines.append("")
     return lines
+
+
+def _via(entry: dict) -> str:
+    """G1: the same task's earlier writes that read this table into an intermediate one."""
+    said = "、".join(f"{_code(item['statement_id'])} 写 {_code(item['writes'])}"
+                     for item in entry.get("via") or [])
+    return f"；经同任务中间语句读入：{said}" if said else ""
 
 
 def _ids(rules) -> str:

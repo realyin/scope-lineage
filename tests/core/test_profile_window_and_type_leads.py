@@ -169,3 +169,61 @@ def test_columns_of_one_table_compared_with_numbers_are_one_finding(tmp_path):
     (finding,) = _numeric_findings(profile)
     for column in ("ts_ms", "upd", "k"):
         assert column in finding["text"]
+
+
+# --- W8 (1): the reverse, a numeric column compared with a string literal -------------
+
+
+def _string_findings(profile: dict) -> list[dict]:
+    return [
+        item
+        for item in profile["confidence"]["findings"]
+        if item["kind"] == "string_compare_on_numeric"
+    ]
+
+
+def test_a_bigint_column_compared_with_a_string_literal_is_a_finding(tmp_path):
+    profile = _profile(
+        "INSERT OVERWRITE TABLE dw.out SELECT e.k, e.upd AS v FROM ods.ev e"
+        " WHERE e.n = 'x1' AND e.n >= '10'",
+        tmp_path,
+    )
+    (finding,) = _string_findings(profile)
+    assert finding["severity"] == "warn"
+    assert "ods.ev" in finding["text"] and "bigint" in finding["text"]
+    # A quoted number casts as meant; only the literal that is no number is named.
+    assert "'x1'" in finding["text"] and "'10'" not in finding["text"]
+    assert finding["evidence"]
+
+
+def test_a_quoted_number_on_a_bigint_column_is_no_finding(tmp_path):
+    profile = _profile(
+        "INSERT OVERWRITE TABLE dw.out SELECT e.k, e.upd AS v FROM ods.ev e"
+        " WHERE e.n > '0' AND e.n = '1' AND e.n <> '-2.5'",
+        tmp_path,
+    )
+    assert _string_findings(profile) == []
+
+
+def test_an_interval_type_is_not_numeric():
+    from scope_lineage.render.semantic_profile import _is_numeric_type
+
+    assert _is_numeric_type("bigint") and _is_numeric_type("decimal(10,2)")
+    assert _is_numeric_type("INT") and not _is_numeric_type("interval day")
+    assert not _is_numeric_type("string")
+
+
+def test_a_string_column_compared_with_a_string_literal_is_no_reverse_finding(tmp_path):
+    profile = _profile(
+        "INSERT OVERWRITE TABLE dw.out SELECT e.k, e.upd AS v FROM ods.ev e WHERE e.upd = 'x1'",
+        tmp_path,
+    )
+    assert _string_findings(profile) == []
+
+
+def test_an_empty_string_on_a_bigint_column_is_left_to_its_own_finding(tmp_path):
+    profile = _profile(
+        "INSERT OVERWRITE TABLE dw.out SELECT e.k, e.upd AS v FROM ods.ev e WHERE e.n <> ''",
+        tmp_path,
+    )
+    assert _string_findings(profile) == []

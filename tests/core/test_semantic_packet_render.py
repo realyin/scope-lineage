@@ -468,8 +468,10 @@ def test_bracketed_table_references_are_checked_against_the_run(commented: dict)
 
 # The demo corpus has no shape for these; `sql_comments` and `computed_by` it does have
 # (a commented projection, a DIRECT column over a function), so they are left out here.
+# `findings` too since W7: four demo tasks never read a source's status column, which is
+# a `state_column_unfiltered` lead.
 NEW_KEYS = ("branches", "sql_alias", "lookup_keys",
-            "comment_markers", "comment_marker_keys", "comment_refs", "findings",
+            "comment_markers", "comment_marker_keys", "comment_refs",
             "inside", "below_aggregate", "consumed", "merge")
 
 
