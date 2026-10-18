@@ -120,7 +120,7 @@ def check(
         b.get("ref") for r in ontology.get("representations") or [] for b in r.get("bindings") or []
         if b.get("code_sets")
     }
-    skipped = {m.lower() for m in re.findall(r"([\w:.]+)\s+states\s+skip", changes)}
+    skipped = {m.lower() for m in re.findall(r"([\w:.]+)`?\s+states\s+skip", changes)}
     for concept_id, concept in concepts.items():
         # ``states`` is one state machine (an object) and only an entity carries it.
         coded = [
@@ -163,7 +163,7 @@ def check(
 
     if digest is not None:
         carried = {ref.lower() for c in ontology.get("constraints") or [] for ref in c.get("rules") or []}
-        named = {m.lower() for m in re.findall(r"[\w.]+#r\d+(?!\d)", changes)}
+        named = {m.lower() for m in re.findall(r"([\w.]+#r\d+)`?\s+skip", changes)}
         for table in digest.get("tables") or []:
             for rule in table.get("rules") or []:
                 if rule.get("kind") not in RULE_KINDS:

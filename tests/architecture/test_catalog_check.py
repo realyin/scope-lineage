@@ -324,3 +324,22 @@ def test_a_state_attribute_coded_through_its_binding_counts_and_a_skip_line_clea
     changes = tmp_path / "catalog_changes.md"
     changes.write_text("- concept:task states skip: 结果列不是生命周期状态\n", encoding="utf-8")
     assert _check_with(path, "--changes", str(changes)).returncode == 0
+
+
+def test_only_a_skip_line_clears_a_rule_and_a_quoted_concept_id_still_skips_states(tmp_path):
+    ontology = _complete()
+    _concept(ontology, "concept:task")["attributes"].append(
+        {"id": "attr:task.status", "name": "状态", "category": "state", "code_set": "code:task_status"}
+    )
+    path = _save(tmp_path, ontology)
+    changes = tmp_path / "catalog_changes.md"
+    changes.write_text(
+        "- 讨论过 demo_dwd.task_det#r1，还没定\n"
+        "- `demo_dwd.task_det#r2` skip: 去重是表的写法\n"
+        "- `demo_dwd.task_det#r12` skip: 回填已写进属性定义\n"
+        "- `concept:task` states skip: 状态列只是标志\n",
+        encoding="utf-8",
+    )
+    result = _check_with(path, "--digest", str(_save_digest(tmp_path)), "--changes", str(changes))
+    assert [line.split()[1] for line in _lines(result, "unabsorbed_rule")] == ["demo_dwd.task_det#r1"]
+    assert _lines(result, "state_without_states") == []
