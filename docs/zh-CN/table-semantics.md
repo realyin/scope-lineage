@@ -189,6 +189,7 @@ R6）与 `values`（过滤所在 scope 沿单输入链读到内联 VALUES 列表
 | `tasks[]` | `expect_date` | 任务元数据里的期望运行日期 |
 | `tasks[]` | `date_literals` | SQL 里（注释除外）每个整日期字符串字面量（`'YYYYMMDD'` / `'YYYY-MM-DD'`）：`{literal, count, days_from_expect_date}`。语料导出的若是运行实例 SQL，批次日参数会以字面量出现；这里只给偏移，不下「是参数」的结论 |
 | `tasks[]` | `upstream_unmatched` | 登记的上游任务里，按任务名对不上本任务（所有语句）读取的任何表的那些。任务名等于 `表`、`库_表` 或以 `_库_表` 结尾算对上；这是名称启发式，只说「对不上」，不说「没读」 |
+| `tasks[]` | `writes` | 脚本写入不止一条时出现：任务每条写入语句的 `{statement_id, statement_index, table}`，按脚本顺序（含写中间表的语句）。`packet.md` 据此在 SQL 块里每条写入语句前加一行 `-- [stmt:NNN] 写 <表>`；语句原文里找不到该表名时不加 |
 | `inputs[]` | `producer_header` | 语料里生产该输入的任务，其 SQL 头注释写的主键、存储设计、分区设计、生命周期、数据规模：`[{task, primary_key?, storage?, partition_design?, lifecycle?, volume?}]`。是作者说法，不是 SQL 事实；输入即目标表本身、或头注释点名的是该任务写的另一张表时不出现 |
 | `lineage.partition[]` | `select_values` | 动态分区列（`PARTITION (dt)`）由 SELECT 只写常量时（`'${bizdate}' AS dt`，每个 UNION 分支一条），这些常量：`{列: [字面量…]}`。MERGE 没有 PARTITION 子句：`columns` 取目标表元数据的分区列，`mode` 为 `merge_row_values`（按写入行的分区列值落分区），常量只取 not matched（INSERT）分支 |
 | `lineage.partition[]` | `merge_columns` | 只在 `merge_row_values` 时出现：`{分区列: {update, key, pinned?}}`。`update` 为 `none`（没有 UPDATE 子句）、`keeps`（列在 `insert_only_columns` 里，或只更新的 MERGE 的 `update_columns` 没有它：被更新的行留在原分区）或 `writes`（UPDATE 也写它：值变了行就换分区）；`key` 表示它是合并键的目标列（ON 保证 matched 行上值不变）；`pinned` 是每个 matched WHEN 条件都把它钉成的值（画像的 `matched_target_pins`），此时只有该分区的已有行会被更新，其他分区的同键行既不更新也不再插入。`packet.md` 4.3 的「分区写入」按列写这些后果，带 `pinned` 的写明旧分区不被本语句改写 |

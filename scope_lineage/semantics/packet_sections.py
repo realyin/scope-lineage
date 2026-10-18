@@ -123,6 +123,8 @@ def _task_entry(table: str, task: str, group: list[dict], corpus, columns=()) ->
         "header_facts": header_facts(info.get("header_comments"), record.get("sql"),
                                      table, corpus.tables_written_by(task), columns),
         "statements": [statement.get("statement_id") for statement in group],
+        # W6: a script of one write needs no numbers (and its packet keeps its digest).
+        **({"writes": writes} if len(writes := corpus.task_writes(task)) > 1 else {}),
         "source_file": meta.get("source_file") or record.get("source_file"),
         "sql": record.get("sql"),
     }

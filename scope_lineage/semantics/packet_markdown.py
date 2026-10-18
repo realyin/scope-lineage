@@ -25,7 +25,7 @@ from ..render.markdown_text import cell, expr_span
 from ..render.semantic_text import PASS_THROUGH_TEXT_PREFIXES, parse_expression
 from .packet_context import string_literals
 from .packet_facts import partition_filter_rules, partition_values
-from .sql_forms import DIALECT
+from .sql_forms import DIALECT, statement_starts
 
 
 def render_packet_markdown(packet: dict) -> str:
@@ -168,7 +168,7 @@ def _tasks(tasks: list[dict], table: str = "") -> list[str]:
         ]
         lines += [f"> {comment}" for comment in task["header_comments"]]
         lines += [""] if task["header_comments"] else []
-        lines += _sql(task["sql"])
+        lines += _sql(task["sql"], task.get("writes") or [])
     return lines
 
 
@@ -245,11 +245,40 @@ def _producer_header(entry: dict) -> list[str]:
     return [f"- 生产任务头注释（作者说法，非 SQL 事实）：{said}"]
 
 
-def _sql(sql) -> list[str]:
+def _sql(sql, writes=()) -> list[str]:
     if not sql:
         return ["（`--tasks` 里没有这个任务的 JSON：SQL 缺失，规则原文无法核对）", ""]
+    sql = _numbered(sql, writes)
     fence = "````" if "```" in sql else "```"
     return [f"{fence}sql", sql.rstrip("\n"), fence, ""]
+
+
+def _numbered(sql: str, writes) -> str:
+    """W6: ``-- [stmt:NNN] 写 <table>`` on a line of its own above each write statement.
+
+    4.x cites rules by statement number; with the number in the script, a writer finds
+    the statement -- one writing an intermediate table too -- without counting. A
+    statement whose text does not name the table it writes (the script and the lineage
+    disagree) gets no line rather than a wrong one.
+    """
+    starts = statement_starts(sql)
+    marks = []
+    for item in writes:
+        index = item.get("statement_index")
+        if not isinstance(index, int) or index >= len(starts) or starts[index] is None:
+            continue
+        start = starts[index]
+        end = next((offset for offset in starts[index + 1:] if offset is not None), len(sql))
+        name = str(item.get("table") or "").rsplit(".", 1)[-1]
+        if name and re.search(rf"\b{re.escape(name)}\b", sql[start:end], re.IGNORECASE):
+            marks.append((start, f"-- [{item['statement_id']}] 写 {item['table']}"))
+    for start, mark in sorted(marks, reverse=True):
+        line = sql.rfind("\n", 0, start) + 1
+        if sql[line:start].strip():
+            sql = sql[:start].rstrip(" \t") + "\n" + mark + "\n" + sql[start:]
+        else:
+            sql = sql[:line] + mark + "\n" + sql[line:]
+    return sql
 
 
 # An input column the task reads in (most often through ``select *``) but no output,
