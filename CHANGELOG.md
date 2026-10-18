@@ -30,6 +30,10 @@
     comments are dropped.
   - Literal outputs follow `CASE … ELSE COALESCE(x, '')` into the fallback literal; a comment
     that lists bare labels counts as a suspected value list for `literal_outside_comment_codes`.
+  - A task that writes intermediate tables before the target lists the tables those earlier
+    statements read as inputs too (`inputs[].via`: 「经同任务中间语句读入」), with their partition
+    reads. Comments that write codes and labels side by side (`1是 0否`, `0否1是`) are read as
+    value lists.
   - New governance leads: `state_column_unfiltered`, `string_compare_on_numeric`,
     `partition_format_mismatch`, `merge_same_key`, and a declared key written as one
     placeholder column.
