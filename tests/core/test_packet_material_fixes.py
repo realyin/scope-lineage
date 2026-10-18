@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 
 from scope_lineage.contract.lineage import to_lineage_dict
+from scope_lineage.render import semantic_text
 from scope_lineage.scope.scope_builder import parse_scope_lineage
 from scope_lineage.semantics.packet import build_packets
 from scope_lineage.semantics.packet_markdown import render_packet_markdown
@@ -73,3 +74,19 @@ def test_w2_packet_md_no_longer_calls_an_on_condition_column_read_unused() -> No
     text = render_packet_markdown(_pack(W2_SQL, W2_SCHEMA))
     row = next(line for line in text.splitlines() if line.startswith("| `st` |"))
     assert "join_condition" in row and "读入未用" not in row
+
+
+# ------------------------------------------------------------------ W3 qualifiers kept
+
+
+def test_w3_a_name_under_two_qualifiers_keeps_its_qualifiers() -> None:
+    node = semantic_text.parse_expression(
+        "NOT a.id IS NULL AND NOT b.id IS NULL AND a.h <> b.h AND a.only_a = 1")
+    text = semantic_text.expression_text(node)
+    assert "a.id" in text and "b.id" in text and "a.h <> b.h" in text
+    assert "only_a = 1" in text and "a.only_a" not in text
+
+
+def test_w3_names_under_one_qualifier_still_read_plain() -> None:
+    node = semantic_text.parse_expression("COALESCE(a.x, b.y) + a.x")
+    assert semantic_text.expression_text(node) == "COALESCE(x, y) + x"

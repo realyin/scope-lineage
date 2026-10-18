@@ -369,13 +369,22 @@ def _plain(node: exp.Expression) -> exp.Expression:
     otherwise re-emit it into the middle of the sentence. The comment survives in the
     profile's ``sql_comments`` key; the profile's ``expression`` is the SQL as written
     minus its comments, and the contract keeps the verbatim text.
+
+    W3: a name read under two or more qualifiers in one expression keeps its table
+    qualifier -- ``a.h <> b.h`` stripped would read as ``h <> h``, a self-comparison
+    the SQL never wrote.
     """
     clone = copy.deepcopy(node)
     for item in clone.walk():
         item.comments = None
+    qualifiers: dict[str, set[str]] = {}
     for column in clone.find_all(exp.Column):
+        qualifiers.setdefault(column.name.lower(), set()).add(column.table.lower())
+    ambiguous = {name for name, found in qualifiers.items() if len(found) > 1}
+    for column in clone.find_all(exp.Column):
+        keep = ("table",) if column.name.lower() in ambiguous else ()
         for part in ("table", "db", "catalog"):
-            if column.args.get(part) is not None:
+            if part not in keep and column.args.get(part) is not None:
                 column.set(part, None)
     for identifier in clone.find_all(exp.Identifier):
         identifier.set("quoted", False)
