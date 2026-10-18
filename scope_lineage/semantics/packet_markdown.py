@@ -44,7 +44,13 @@ def render_packet_markdown(packet: dict) -> str:
     lines += _inputs(packet["inputs"], packet["lineage"]["rules"])
     lines += _lineage(packet["lineage"], packet["tasks"])
     lines += _column_order(packet["target"])
-    return "\n".join(lines).rstrip("\n") + "\n"
+    return _CONTROL.sub("", "\n".join(lines).rstrip("\n") + "\n")
+
+
+# W1: a C0 control character (a NUL in a column comment, most often) makes ``grep`` take
+# the file for binary and print nothing. The page keeps tab and newline; the JSON keeps
+# the metadata exactly as read.
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
 
 def _code(value) -> str:
