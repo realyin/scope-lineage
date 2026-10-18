@@ -13,6 +13,7 @@ STATUS_KINDS = (
     "concepts",
     "relations",
     "constraints",
+    "metrics",
     "terms",
     "mapping",
 )

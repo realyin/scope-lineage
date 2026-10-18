@@ -12,6 +12,7 @@
     "concepts": 10,
     "relations": 12,
     "constraints": 7,
+    "metrics": 0,
     "terms": 7,
     "representations": 9,
     "attributes": 18,
@@ -1037,6 +1038,7 @@
       "evidence": []
     }
   ],
+  "metrics": [],
   "terms": [
     {
       "term": "借据",

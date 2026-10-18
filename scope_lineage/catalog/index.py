@@ -21,6 +21,7 @@ _TYPE_OF_KIND = {
     "concepts": "concept",
     "relations": "relation",
     "constraints": "constraint",
+    "metrics": "metric",
 }
 
 

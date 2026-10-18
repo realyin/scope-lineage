@@ -265,6 +265,14 @@
           "type": "string",
           "minLength": 1
         },
+        "additivity": {
+          "description": "How values add up: additive (over every dimension), semi_additive (over some, not over time -- a balance), non_additive (never -- a ratio, a rate)",
+          "enum": [
+            "additive",
+            "semi_additive",
+            "non_additive"
+          ]
+        },
         "status": {
           "$ref": "#/definitions/status"
         },

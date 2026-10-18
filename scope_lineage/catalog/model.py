@@ -33,6 +33,7 @@ FILE_KINDS: dict[str, FileKind] = {
         FileKind("concepts", "concepts", "catalog-concepts", True),
         FileKind("relations", "relations", "catalog-relations", False),
         FileKind("constraints", "constraints", "catalog-constraints", False),
+        FileKind("metrics", "metrics", "catalog-metrics", False),
         FileKind("terms", "terms", "catalog-terms", False),
         FileKind("mapping", "representations", "catalog-mapping", True),
     )
@@ -47,6 +48,7 @@ ID_PREFIX = {
     "attribute": "attr",
     "relation": "rel",
     "constraint": "cons",
+    "metric": "metric",
 }
 
 

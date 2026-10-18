@@ -44,6 +44,7 @@ def count_objects(catalog: Catalog) -> dict:
         "attributes": sum(_length(concept.get("attributes")) for concept in concepts),
         "relations": _count(catalog, "relations"),
         "constraints": _count(catalog, "constraints"),
+        "metrics": _count(catalog, "metrics"),
         "terms": _count(catalog, "terms"),
         "representations": len(representations),
         "bindings": sum(_length(rep.get("bindings")) for rep in representations),
