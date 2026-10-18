@@ -47,6 +47,12 @@ def _producer(expression: str, sql: str = CODES) -> dict:
     ("CASE WHEN o.status = '1' THEN 'A' WHEN o.status = '2' THEN NULL ELSE '' END",
      ["'A'", "NULL", "''"], False),
     ("if(o.x IS NULL, 'Y', o.x)", ["'Y'"], False),
+    # W4: a branch value is read as deep as it writes literals -- a COALESCE's fallback,
+    # a nested CASE's outputs.
+    ("CASE WHEN o.status = '1' THEN 'A' ELSE COALESCE(o.x, '') END", ["'A'", "''"], False),
+    ("CASE WHEN o.status = '1' THEN CASE WHEN o.x = '' THEN 'B' ELSE 'C' END ELSE o.x END",
+     ["'B'", "'C'"], False),
+    ("coalesce(o.x, CASE WHEN o.status = '1' THEN 'D' ELSE '-' END)", ["'D'", "'-'"], False),
 ])
 def test_the_literals_a_column_writes_are_listed(expression, outputs, constant_only) -> None:
     producer = _producer(expression)
