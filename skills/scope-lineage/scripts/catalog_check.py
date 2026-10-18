@@ -16,14 +16,17 @@ these kinds of omission:
                                      concept, while a code column with the same stem in the
                                      same table is a foreign identifier of another concept --
                                      it is probably that concept's attribute;
-  state_without_states               a state attribute with a code set whose concept has no
-                                     ``states`` entry for it;
+  state_without_states               an entity with a state attribute that has a code set and
+                                     no ``states`` (one state machine, an object; events and
+                                     roles carry none);
   measure_without_unit               a measure attribute with no ``unit``;
   code_attribute_without_relation    a column named like a code or a key (``*_cd``, ``*_id``,
                                      ``*_no``, ``*_code``) bound as a plain attribute, not as an
-                                     identifier or a foreign identifier, and whose attribute has
-                                     no code set -- listed for review: it may point at another
-                                     concept and want a relation;
+                                     identifier or a foreign identifier, whose attribute has no
+                                     code set, and whose stem names another concept (a concept
+                                     id's last word or an identifier column's stem) -- it wants a
+                                     relation. Such columns naming no concept are listed after
+                                     the findings for a look and do not count;
   unabsorbed_rule                    (with ``--digest``) a filter, dedup or derive rule of a
                                      table in ``digest.json`` that no constraint names in its
                                      ``rules`` (``db.table#rN``) and that ``catalog_changes.md``
@@ -61,10 +64,15 @@ def _stem(column: str, suffixes: tuple[str, ...]) -> str | None:
     return None
 
 
-def check(ontology: dict, digest: dict | None = None, changes: str = "") -> list[str]:
+def check(
+    ontology: dict, digest: dict | None = None, changes: str = "", look: list[str] | None = None
+) -> list[str]:
+    """The findings; code columns bound as plain attributes that name no concept go to
+    ``look`` (listed for a person, not counted)."""
     identifies = {i["id"]: i.get("identifies") for i in ontology.get("identifiers") or []}
     concepts = {c["id"]: c for c in ontology.get("concepts") or []}
     findings = []
+    look = look if look is not None else []
 
     for concept_id, concept in concepts.items():
         if not concept.get("attributes"):
@@ -106,29 +114,40 @@ def check(ontology: dict, digest: dict | None = None, changes: str = "") -> list
                 )
 
     for concept_id, concept in concepts.items():
-        with_states = {s.get("attribute") for s in concept.get("states") or []}
+        # ``states`` is one state machine (an object) and only an entity carries it.
+        coded = [
+            a["id"] for a in concept.get("attributes") or []
+            if a.get("category") == "state" and a.get("code_set")
+        ]
+        if concept.get("kind") == "entity" and coded and not concept.get("states"):
+            findings.append(
+                f"state_without_states  {concept_id}：状态属性 {'、'.join(coded)} 有码值集，概念没有 states"
+                f"（挑描述生命周期的那一个写 states；其余结果、标志类列不用写）"
+            )
         for attribute in concept.get("attributes") or []:
-            if attribute.get("category") == "state" and attribute.get("code_set") and attribute["id"] not in with_states:
-                findings.append(
-                    f"state_without_states  {concept_id}：{attribute['id']} 是状态属性、有码值集 "
-                    f"{attribute['code_set']}，概念没有它的 states"
-                )
             if attribute.get("category") == "measure" and not attribute.get("unit"):
                 findings.append(f"measure_without_unit  {attribute['id']}：度量属性没有 unit")
 
+    names = _concept_stems(concepts, ontology.get("identifiers") or [])
     attributes = {a["id"]: a for c in concepts.values() for a in c.get("attributes") or []}
     for representation in ontology.get("representations") or []:
+        own = representation.get("concept")
         for binding in representation.get("bindings") or []:
             column = binding.get("column", "")
             if binding.get("to") != "attribute" or not column.endswith(POINTER_SUFFIXES):
                 continue
             if (attributes.get(binding.get("ref")) or {}).get("code_set"):
                 continue  # a coded value with its code set, not a pointer
-            findings.append(
-                f"code_attribute_without_relation  {representation['table']}.{column} 绑成属性 "
-                f"{binding.get('ref')}（无码值集），不是标识符或外部标识符：若指向另一个概念，应建关系并绑成 "
-                f"foreign_identifier；只是本概念自己的编号就在 catalog_changes.md 写理由"
-            )
+            at = f"{representation['table']}.{column}"
+            target = names.get(_stem(column, POINTER_SUFFIXES) or "")
+            if target and target != own:
+                findings.append(
+                    f"code_attribute_without_relation  {at} 绑成属性 {binding.get('ref')}（无码值集），"
+                    f"列名词干指向 {target}：应建关系并绑成 foreign_identifier；确实只是本概念自己的编号就在 "
+                    f"catalog_changes.md 写理由"
+                )
+            else:
+                look.append(f"{at}（{binding.get('ref')}）")
 
     if digest is not None:
         carried = {ref.lower() for c in ontology.get("constraints") or [] for ref in c.get("rules") or []}
@@ -144,6 +163,21 @@ def check(ontology: dict, digest: dict | None = None, changes: str = "") -> list
                         f"catalog_changes.md 也没写 skip 理由"
                     )
     return findings
+
+
+def _concept_stems(concepts: dict, identifiers: list[dict]) -> dict:
+    """``stem -> concept`` a code column's name may point at: the last word of each concept id
+    (``concept:queue`` -> ``queue``) and the stem of each identifier spelling's column
+    (``cust_id`` -> ``cust``)."""
+    stems = {concept_id.rsplit(".", 1)[-1].split(":")[-1]: concept_id for concept_id in concepts}
+    for identifier in identifiers:
+        columns = [str(s.get("column") or "") for s in identifier.get("spellings") or []]
+        columns.append(str(identifier.get("id") or "").split(":", 1)[-1])
+        for column in columns:
+            stem = _stem(column, POINTER_SUFFIXES)
+            if stem and identifier.get("identifies"):
+                stems.setdefault(stem, identifier["identifies"])
+    return stems
 
 
 def _load(path: Path, prefix: str) -> dict | None:
@@ -179,9 +213,15 @@ def main(argv: list[str]) -> int:
             print(f"文件不存在：{args.changes}", file=sys.stderr)
             return 2
         changes = Path(args.changes).read_text(encoding="utf-8")
-    findings = check(ontology, digest, changes)
+    look: list[str] = []
+    findings = check(ontology, digest, changes, look)
     for finding in findings:
         print(finding)
+    if look:
+        print(f"供人看（不计入）：{len(look)} 个编码列绑成属性、无码值集、列名不指向已有概念——"
+              "若其实指向一个还没建的对象，按 S10g 返工建概念；否则不用处理")
+        for item in look:
+            print(f"  {item}")
     print(f"{len(findings)} finding(s)")
     return 1 if findings else 0
 

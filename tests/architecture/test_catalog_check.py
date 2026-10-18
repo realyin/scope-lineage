@@ -223,8 +223,23 @@ def test_a_state_attribute_with_codes_but_no_states_is_reported(tmp_path):
     assert result.returncode == 1
     lines = _lines(result, "state_without_states")
     assert len(lines) == 1 and "concept:task" in lines[0] and "attr:task.status" in lines[0]
-    task["states"] = [{"attribute": "attr:task.status", "values": [{"value": "1", "name": "进行中"}]}]
-    assert _check(_save(tmp_path, ontology)).returncode == 0
+    # ``states`` is one state machine (an object), as ``catalog build`` writes it
+    task["states"] = {"attribute": "attr:task.status", "values": [{"value": "1", "name": "进行中"}], "transitions": []}
+    assert _check(_save(tmp_path, ontology)).returncode == 0, _check(_save(tmp_path, ontology)).stdout
+
+
+def test_one_state_machine_covers_the_concept_and_events_carry_none(tmp_path):
+    ontology = _complete()
+    task = _concept(ontology, "concept:task")
+    task["attributes"] += [
+        {"id": "attr:task.status", "name": "状态", "category": "state", "code_set": "code:task_status"},
+        {"id": "attr:task.result", "name": "结果", "category": "state", "code_set": "code:task_result"},
+    ]
+    task["states"] = {"attribute": "attr:task.status", "values": [], "transitions": []}
+    record = _concept(ontology, "concept:record")   # an event: the schema gives it no states
+    record["attributes"].append({"id": "attr:record.outcome", "name": "结果", "category": "state", "code_set": "code:outcome"})
+    result = _check(_save(tmp_path, ontology))
+    assert result.returncode == 0, result.stdout
 
 
 def test_a_measure_without_a_unit_is_reported(tmp_path):
@@ -238,17 +253,26 @@ def test_a_measure_without_a_unit_is_reported(tmp_path):
     assert _check(_save(tmp_path, ontology)).returncode == 0
 
 
-def test_a_code_column_bound_as_a_plain_attribute_is_listed(tmp_path):
+def test_a_code_column_naming_another_concept_bound_as_a_plain_attribute_is_reported(tmp_path):
     ontology = _complete()
-    _bindings(ontology, "demo_dwd.task_det").append({"column": "owner_no", "to": "attribute", "ref": "attr:task.owner"})
-    _bindings(ontology, "demo_dwd.task_det").append({"column": "remark", "to": "attribute", "ref": "attr:task.remark"})
+    bindings = _bindings(ontology, "demo_dwd.task_det")
+    bindings.append({"column": "cust_no", "to": "attribute", "ref": "attr:task.cust"})      # stem of id:cust_id's column
+    bindings.append({"column": "queue_code", "to": "attribute", "ref": "attr:task.queue"})  # concept:queue's name
+    bindings.append({"column": "batch_no", "to": "attribute", "ref": "attr:task.batch"})    # names no concept
+    bindings.append({"column": "remark", "to": "attribute", "ref": "attr:task.remark"})
     # a coded value with its code set is not a pointer
     _concept(ontology, "concept:task")["attributes"].append({"id": "attr:task.kind", "name": "类型", "code_set": "code:kind"})
-    _bindings(ontology, "demo_dwd.task_det").append({"column": "kind_cd", "to": "attribute", "ref": "attr:task.kind"})
+    bindings.append({"column": "kind_cd", "to": "attribute", "ref": "attr:task.kind"})
     result = _check(_save(tmp_path, ontology))
     assert result.returncode == 1
     lines = _lines(result, "code_attribute_without_relation")
-    assert len(lines) == 1 and "demo_dwd.task_det.owner_no" in lines[0] and "attr:task.owner" in lines[0]
+    assert len(lines) == 2
+    assert "demo_dwd.task_det.cust_no" in lines[0] and "concept:customer" in lines[0]
+    assert "demo_dwd.task_det.queue_code" in lines[1] and "concept:queue" in lines[1]
+    assert result.stdout.splitlines()[-1] == "2 finding(s)"
+    # a code column that names no concept is listed for a look, and does not count
+    assert "demo_dwd.task_det.batch_no" in result.stdout
+    assert "demo_dwd.task_det.kind_cd" not in result.stdout
 
 
 def test_without_a_digest_no_rule_is_checked(tmp_path):

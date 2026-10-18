@@ -66,12 +66,14 @@ def semantic_checks(catalog: Catalog) -> list[Finding]:
 
 
 def _state_attributes_without_states(catalog: Catalog) -> list[Finding]:
-    """A concept with a state attribute whose codes are known (a code set, by rule R1) and
-    no ``states``: the life cycle the codes describe is never written down."""
+    """An entity with a state attribute whose codes are known (a code set, by rule R1) and
+    no ``states``: the life cycle the codes describe is never written down. Only an entity
+    carries ``states`` (one state machine); an event's or a role's coded column has nowhere
+    to put one."""
     index = build_index(catalog)
     findings = []
     for file, concept in catalog.records("concepts"):
-        if "states" in concept:
+        if concept.get("kind") != "entity" or "states" in concept:
             continue
         coded = [
             attribute["id"]

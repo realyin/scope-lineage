@@ -1015,7 +1015,8 @@ for t in "${TABLES[@]}"; do printf '%s\t%s\n' "$(grep -c -F "| $t |" "$RUN/catal
 ```
 
 - 目录 `exit=0`，`0 error(s)`。
-- 每张表那一行的计数是 `1`（只进一组）；码值字典表是 `0`，并且列在分组方案的「码值来源表」一节。
+- 每张表那一行的计数是 `1`（只进一组）；码值字典表是 `0`，并且列在分组方案的「码值来源表」一节。分组方案的格式由 T5 模板规定：
+  Markdown 表格，每行写成 `| <库.表> | … |`。计数全是 `0` 多半是 T5 没照这个格式写，按返工交回。
 - 增量模式：`$RUN/catalog_changes.md` 存在（没改就写「无改动」），改动处数抄进账本。
 - 子代理回复的「义务清单」一行抄进账本：状态属性与 states、规则（filter / dedup / derive）= 约束承接 + skip、度量的 unit /
   additivity 与指标、关系 definition、拉链表。规则一项两边对不上（承接 + skip 少于规则数），或 validate 的 warning 里有

@@ -69,6 +69,22 @@ def test_a_state_attribute_with_a_code_set_and_no_states(tmp_path: Path) -> None
     assert warning.file == "concepts/lending.yaml"
 
 
+def test_an_event_with_a_coded_state_attribute_is_not_flagged(tmp_path: Path) -> None:
+    """Only an entity carries ``states``: an event's coded outcome has nowhere to go."""
+    root = copy_demo(tmp_path)
+
+    def change(data: dict) -> None:
+        event = item(data["concepts"], "concept:disbursement")
+        event["attributes"].append({
+            "id": "attr:disbursement.outcome", "name": "outcome", "definition": "how it ended",
+            "category": "state", "type": "string", "code_set": "code:loan_status",
+        })
+
+    mutate(root, "concepts/lending.yaml", change)
+
+    assert _warnings(root, "state_attribute_without_states") == []
+
+
 def test_a_state_attribute_without_a_code_set_is_not_flagged(tmp_path: Path) -> None:
     root = copy_demo(tmp_path)
 

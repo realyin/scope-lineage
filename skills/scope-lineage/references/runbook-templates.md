@@ -509,7 +509,8 @@ digest 的说法与它矛盾的，就地改这一条，`status` 保持 `drafted`
    - 形状：`{"id": "rel:loan_renews_loan", "kind": "association", "from": "concept:loan", "to": "concept:loan", "name": "续借", "inverse_name": "被续借为", "cardinality": {"from": "0..1", "to": "0..1"}, "definition": "一笔借据可以续借出另一笔借据：借据表的原借据号指向被续借的借据。", "status": "drafted", "source": "sql", "evidence": ["demo_dwd.dwd_lending_loan_df.orig_loan_no"]}`
 5. **跨组属性**（也管同组）：表里有指向**另一个概念**的外部标识列，旁边有这个对象的名称、描述或属性列（如 `xx_id` + `xx_name`、
    `xx_cd` + `xx_desc`）时，不论那个概念和这张表同组还是别组，现在就在**那个概念**的 `attributes` 里建这个属性，片段才能把那一列绑成
-   `foreign_attribute`。那个概念在别组时，再在分组方案「跨组属性」表里登记「属性 id → 引用它的组」。只有一组的小样也照做。
+   `foreign_attribute`。分工别写反：**编码列**（`xx_id`、`xx_cd`）绑 `foreign_identifier`；**名称、描述列**才绑 `foreign_attribute`，
+   它的 `via` 必须是同表里那个已绑 `foreign_identifier` 的编码列。表里只有编码列、没有名称列时，分组方案只写 `foreign_identifier`。那个概念在别组时，再在分组方案「跨组属性」表里登记「属性 id → 引用它的组」。只有一组的小样也照做。
 6. **跨组共用的码值集**：只看 digest 列下「Joined inputs read (from the lineage)」那一行。
    - 为每个**有列读取**的「码表 + 常量条件」组合建一个码值集：`lookups` 里出现的，或 `key_of` 里 `read_by` 不为空的。
      写 `read by no column`（`read_by` 为空）的是死关联或只用来过滤行，不建码值集，记进分组方案的说明。
@@ -530,8 +531,11 @@ digest 的说法与它矛盾的，就地改这一条，`status` 保持 `drafted`
 做完在回复里逐项报数）
 
 a. **状态**：digest 里 `category` 是 `state`、列下列出了码值的每一列：在它描述的 entity 概念上建这个状态属性（`category: state`，
-   有共用码值集就写 `code_set`；片段会复用它），并在概念的 `states` 里写一条
-   `{"attribute": "<属性 id>", "values": [{"value": "<码>", "name": "<含义>"}, …]}`，取值照 digest 原样抄，不补 digest 没有的码。
+   有共用码值集就写 `code_set`；片段会复用它）。`states` 是**一个对象，不是列表**，每个 entity 至多一个：从这些状态属性里挑描述
+   这个对象生命周期的那一个（「状态」「阶段」一类），写
+   `"states": {"attribute": "<属性 id>", "values": [{"value": "<码>", "name": "<含义>"}, …], "transitions": []}`，取值照 digest
+   原样抄，不补 digest 没有的码。结果、标志、类型一类的状态列只建属性和码值集，不写 `states`；在回复里列出你挑了哪一列、
+   哪些列没写及理由。
    digest 写明了某个事件把状态从一个值改成另一个值时，才写 `transitions`（`{"event": "<事件概念 id>", "from": …, "to": …}`）。
    `event`、`role` 概念不能写 `states`：状态列在事件表上时，写在事件发生在其身上的那个 entity 上；找不到这样的 entity，
    在回复「没把握」里列出这一列。
@@ -662,6 +666,8 @@ catalog validate：exit=<n>；<计数行原样>
      「待 owner 确认：<概念> 缺 <属性> 的 states（码值见 <库.表>.<列>）」——片段不能改概念，`states` 由 T5 返工补。
    - 分给本组的拉链表（分组方案时间语义写 `zipper`）：有效期开始列、结束列的绑定加 `time_role: valid_from` / `valid_to`；
      任何表的分区列绑定加 `time_role: partition`；事件表里事件发生时间列的绑定加 `time_role: event_time`。
+   - 分组方案或 owner 决定与本清单不一致时，以 owner 决定为准；`foreign_attribute` 的 `via` 必须是本表已绑 `foreign_identifier` 的列，
+     找不到这样的列，就把编码列绑 `foreign_identifier`、名称列按普通属性绑，并在回复「需要编排者处理」里写明。
    - 列名以 `_cd`、`_id`、`_no`、`_code` 结尾、指向另一个概念（有那个概念的标识符）的列绑成 `foreign_identifier`，不要绑成普通属性；
      只是本表自己的编码值的，属性带上 `code_set`。
 4. 片段的 `notes` 每条都以「待 owner 确认：」开头（例如「待 owner 确认：remark 是否有业务属性」）；不要自己写「owner 确认」。
