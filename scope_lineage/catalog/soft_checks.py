@@ -13,6 +13,7 @@ STATUS_KINDS = (
     "concepts",
     "relations",
     "constraints",
+    "metrics",
     "terms",
     "mapping",
 )
@@ -45,6 +46,126 @@ def soft_checks(catalog: Catalog) -> list[Finding]:
         *_held_forms_the_code_sets_lack(catalog),
         *_unmapped_bindings(catalog),
         *_self_references_without_relation_named(catalog),
+        *semantic_checks(catalog),
+    ]
+
+
+# --- semantic completeness: what the catalog leaves unsaid ------------------------------
+
+
+def semantic_checks(catalog: Catalog) -> list[Finding]:
+    """Places where the catalog's meaning is thinner than its own shape asks for."""
+    return [
+        *_state_attributes_without_states(catalog),
+        *_measures_without_unit(catalog),
+        *_zippers_without_validity(catalog),
+        *_participations_without_event(catalog),
+        *_generalization_cycles(catalog),
+        *_relations_without_definition(catalog),
+    ]
+
+
+def _state_attributes_without_states(catalog: Catalog) -> list[Finding]:
+    """A concept with a state attribute whose codes are known (a code set, by rule R1) and
+    no ``states``: the life cycle the codes describe is never written down."""
+    index = build_index(catalog)
+    findings = []
+    for file, concept in catalog.records("concepts"):
+        if "states" in concept:
+            continue
+        coded = [
+            attribute["id"]
+            for attribute in concept.get("attributes") or []
+            if attribute.get("category") == "state" and index.attribute_code_set_ids(attribute["id"])
+        ]
+        if coded:
+            findings.append(Finding(
+                "state_attribute_without_states", file, concept["id"],
+                f"state attribute(s) {', '.join(coded)} have a code set, and the concept "
+                "has no states (values, transitions)",
+            ))
+    return findings
+
+
+def _measures_without_unit(catalog: Catalog) -> list[Finding]:
+    return [
+        Finding("measure_without_unit", file, attribute["id"], "a measure with no unit")
+        for file, concept in catalog.records("concepts")
+        for attribute in concept.get("attributes") or []
+        if attribute.get("category") == "measure" and not str(attribute.get("unit") or "").strip()
+    ]
+
+
+def _zippers_without_validity(catalog: Catalog) -> list[Finding]:
+    """A zipper table whose rows hold a validity window, and no column is said to open
+    (``time_role: valid_from``) or close (``valid_to``) it."""
+    findings = []
+    for file, representation in catalog.records("mapping"):
+        if representation.get("time") != "zipper":
+            continue
+        roles = {binding.get("time_role") for binding in representation["bindings"]}
+        missing = [role for role in ("valid_from", "valid_to") if role not in roles]
+        if missing:
+            findings.append(Finding(
+                "zipper_without_validity", file, representation["table"],
+                f"a zipper table with no binding of time_role {' or '.join(missing)}",
+            ))
+    return findings
+
+
+def _participations_without_event(catalog: Catalog) -> list[Finding]:
+    index = build_index(catalog)
+    return [
+        Finding(
+            "participation_without_event", file, relation["id"],
+            f"a participation between {relation['from']} and {relation['to']}, neither an event",
+        )
+        for file, relation in catalog.records("relations")
+        if relation["kind"] == "participation"
+        and "event" not in (index.concept_kind(relation["from"]), index.concept_kind(relation["to"]))
+    ]
+
+
+def _generalization_cycles(catalog: Catalog) -> list[Finding]:
+    """Each cycle of ``generalization`` relations once, named from its smallest concept."""
+    parents: dict[str, set[str]] = {}
+    files: dict[str, str] = {}
+    for file, relation in catalog.records("relations"):
+        if relation["kind"] == "generalization":
+            parents.setdefault(relation["from"], set()).add(relation["to"])
+            files.setdefault(relation["from"], file)
+    findings, seen = [], set()
+    for start in sorted(parents):
+        path = _cycle_from(start, parents)
+        if path is None or frozenset(path) in seen:
+            continue
+        seen.add(frozenset(path))
+        findings.append(Finding(
+            "generalization_cycle", files[start], start,
+            "generalization runs in a circle: " + " -> ".join([*path, start]),
+        ))
+    return findings
+
+
+def _cycle_from(start: str, parents: dict[str, set[str]]):
+    """The shortest path ``start -> ... `` back to ``start``, or None; ties by id order."""
+    queue, came = [[start]], set()
+    while queue:
+        path = queue.pop(0)
+        for parent in sorted(parents.get(path[-1], ())):
+            if parent == start:
+                return path
+            if parent not in came:
+                came.add(parent)
+                queue.append([*path, parent])
+    return None
+
+
+def _relations_without_definition(catalog: Catalog) -> list[Finding]:
+    return [
+        Finding("relation_without_definition", file, relation["id"], "has no definition")
+        for file, relation in catalog.records("relations")
+        if not str(relation.get("definition") or "").strip()
     ]
 
 

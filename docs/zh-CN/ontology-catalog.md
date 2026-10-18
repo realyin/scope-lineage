@@ -31,6 +31,7 @@ catalog/
   concepts/*.yaml       # concepts: [...]   实体、事件、角色；通常每个域一个文件
   relations.yaml        # relations: [...]
   constraints.yaml      # constraints: [...]
+  metrics.yaml          # metrics: [...]
   terms.yaml            # terms: [...]
   mapping/*.yaml        # representations: [...]   通常每个域一个文件
 ```
@@ -209,7 +210,8 @@ concepts:
 
 概念的一项业务特征，写在概念内部。`id: attr:<概念 slug>.<slug>`（概念 slug 必须是所属概念的）、
 `name`、`definition`、`category`（`descriptive` / `state` / `measure` / `time`）、`type`、`unit?`、
-`code_set?`、`derivation?`（文字口径）。
+`code_set?`、`derivation?`（文字口径）、`additivity?`（`additive` 任何维度都可相加 /
+`semi_additive` 部分维度可加、跨时间不可加，如余额 / `non_additive` 不可加，如比率）。
 
 属性的码值集是它自己的 `code_set`；没有时，是绑定它的各列（`attribute` / `foreign_attribute`）的 `code_sets`，
 按出现顺序去重。所有「这个属性的码」的读者都用这一条规则：A4「码值」格、`catalog query attribute`、缺码值缺口、
@@ -263,6 +265,9 @@ concepts:
 必须成立的条件。`id: cons:<slug>`、`kind`（`unique` / `cardinality` / `mandatory` /
 `value_domain` / `referential` / `temporal` / `state_transition` / `derivation` /
 `business_rule`）、`on`（概念、属性、关系或标识符）、`expression`（文字）、`strength`（`hard` / `soft`）。
+可选：`rules`——这条约束承接的表语义规则，每条写 `<库.表>#<规则 id>`（如 `demo_dwd.t#r2`；digest 列出每张表的规则）；
+`predicate`——把条件写成单列判断 `{column, op, value}`，`op` 取 `=` `!=` `<` `<=` `>` `>=` `in` `not_in`
+`is_null` `not_null` `like`（`in` / `not_in` 的 `value` 是列表，`is_null` / `not_null` 不写 `value`）。
 
 ```yaml
 constraints:
@@ -271,6 +276,35 @@ constraints:
     on: id:loan_no
     expression: no two loans share a loan_no, whatever the channel
     strength: hard
+  - id: cons:principal_positive
+    kind: value_domain
+    on: attr:loan.principal
+    expression: principal > 0
+    strength: hard
+    rules: [demo_dwd.dwd_lending_loan_df#r1]
+    predicate: {column: principal_amt, op: ">", value: 0}
+```
+
+### 指标
+
+业务从某个概念上读出的一个数。`id: metric:<slug>`、`name`、`on`（被计数或汇总的概念）、`aggregation`
+（`sum` / `count` / `count_distinct` / `avg` / `min` / `max` / `ratio` / `other`）。可选：`definition`、
+`measure`（被汇总的属性）、`filter`（哪些实例计入，文字）、`constraints`（限定口径的 `cons:` id）、
+`time_window`（文字）、`dimensions`（可下钻的属性）、`additivity`（同属性）、`unit` 与通用字段。
+`on` 必须是概念，`measure` 与每个维度必须是属性，每个约束必须存在（`metric_on`、`metric_measure`、
+`metric_dimension`、`metric_constraint`）。
+
+```yaml
+metrics:
+  - id: metric:principal_outstanding
+    name: 在贷本金
+    on: concept:loan
+    measure: attr:loan.principal
+    aggregation: sum
+    filter: loans not settled
+    dimensions: [attr:loan.loan_status]
+    additivity: semi_additive
+    unit: CNY
 ```
 
 ### 术语
@@ -299,7 +333,10 @@ terms:
 | `refresh` | 否 | 更新频率 |
 | `table_status` | 是 | `active` / `deprecated` |
 | `replaced_by` | 否 | 废弃表的替代表 |
-| `bindings` | 是 | `[{column, to, ref?, via?, relation?, derivation?, code_map?, code_sets?, code_sets_by?, holds?, lang?}]` |
+| `bindings` | 是 | `[{column, to, ref?, via?, relation?, derivation?, time_role?, code_map?, code_sets?, code_sets_by?, holds?, lang?}]` |
+
+绑定可选的 `time_role` 说明这一列承载哪种时间：`valid_from` / `valid_to`（拉链行的有效期起止）、
+`partition`（分区）、`event_time`（事件发生时间）、`record_time`（行写入时间）、`business_date`（所属业务日）。
 
 绑定的 `to` 说明这一列是什么：
 
@@ -479,6 +516,7 @@ scope-lineage catalog validate examples/catalog-demo --json
 | `duplicate_code_value` | 码值集里同一个值出现两次 |
 | `relation_endpoint` | 关系的 `from` / `to` 不是概念 |
 | `constraint_on` | `on` 不是概念、属性、关系或标识符 |
+| `metric_on` / `metric_measure` / `metric_dimension` / `metric_constraint` | 指标的 `on` 不是概念，`measure` 或某个维度不是属性，`constraints` 里某项不是约束 |
 | `term_refers_to` | `refers_to` 不存在 |
 | `representation_concept` | 表现的 `concept` 不是概念 |
 | `representation_grain` | 粒度里有一项不是标识符 |
@@ -514,6 +552,17 @@ scope-lineage catalog validate examples/catalog-demo --json
 | `self_reference_relation_unnamed` | 自关联列没写 `relation`，而该概念有两条或更多自关联——说不清它实现哪一条，会被归给每一条 |
 | `unknown_file` | 布局里没有的文件；已忽略 |
 
+语义完整性——目录说得比它自己的结构要求的少：
+
+| 规则 | 含义 |
+| --- | --- |
+| `state_attribute_without_states` | 概念有 `state` 类属性且有码值集（按「属性」一节的规则），却没有 `states` |
+| `measure_without_unit` | `measure` 类属性没有 `unit` |
+| `zipper_without_validity` | `zipper` 表现没有 `time_role: valid_from` 的绑定，或没有 `valid_to` 的绑定 |
+| `participation_without_event` | 手写的 `participation` 关系两端都不是事件 |
+| `generalization_cycle` | `generalization` 关系绕成环（每个环报一次，从环里 id 最小的概念报） |
+| `relation_without_definition` | 手写的关系没有 `definition` |
+
 ### 报告
 
 文本形式每条发现一行：`error` / `warning`、规则、文件、对象与说明。`--json` 输出同样的内容，
@@ -544,7 +593,13 @@ scope-lineage catalog validate examples/catalog-demo --json
 }
 ```
 
-（这里的 `counts` 有删节；它还统计标识符、码值集、属性、关系、约束、术语与绑定。）
+（这里的 `counts` 有删节；它还统计标识符、码值集、属性、关系、约束、指标、术语与绑定。）
+
+`counts.density` 衡量目录承载了多少语义。覆盖率都写成 `{count, total, ratio}`（`ratio` 保留两位小数，
+`total` 为 0 时为 `null`）：`attribute_unit`（有 `unit` 的度量 / 全部度量）、`attribute_derivation`
+（有 `derivation` 的属性 / 全部属性）、`code_set_values`（列出取值的码值集）、`relation_definition`
+（有 `definition` 的手写关系）。计数：`states`（带 `states` 的概念数）、`roles`、`metrics`、`constraints`、
+`constraints_with_rules`。文本输出把它们印在一行 `density:` 上。
 
 ## 构建：`ontology-json/3`
 
@@ -601,6 +656,8 @@ scope-lineage catalog build examples/catalog-demo --out out/
   `relation` 是可选的附加字段，没写它的目录输出不变；
 - 码值集的 `lookup` 按上表的键序带出（`filter` 按列名排序，字面量一律为文字），绑定的 `code_sets` 按作者的顺序带出。
   这两个字段是可选的附加字段，`doc_format` 仍是 `ontology-json/3`；没写它们的目录，输出与以前逐字节相同；
+- 顶层 `metrics` 列表（按 id 排序；`constraints`、`dimensions` 总是列表）与 `counts.metrics` 放在约束旁边；
+  约束的 `rules`、`predicate`，属性的 `additivity`，绑定的 `time_role` 原样带出。都是新增，`doc_format` 仍是 `ontology-json/3`；
 - 绑定的 `code_sets_by`、`holds`、`lang` 原样带出，跟在 `code_sets` 之后；`code_sets_by: lookup` 与 `holds: [code]` 不输出（与不写同义），
   所以没写它们的目录输出与以前逐字节相同；
 - 每个事件参与者变成一条 `participation` 关系 `rel:<事件 slug>.<role_name>`，从事件指向参与者，
@@ -859,6 +916,7 @@ schema 的拷贝，有测试保证两者一致），所以合并只搬运条目�
 | `code_sets` | 码值集，形状同 `code_sets` 文件里的条目（码值在码值表里时写 `lookup`；定义在任务内的 `VALUES` / `CASE` 字典写 `values`，`evidence` 写任务名，不写 `lookup`） | `code_sets.*` |
 | `identifiers` | 标识符，形状同 `identifiers` 文件里的条目；只在确实缺时新增 | `identifiers.*` |
 | `constraints` | 约束，形状同 `constraints` 文件里的条目；只写有证据的 | `constraints.*` |
+| `metrics` | 指标，形状同 `metrics` 文件里的条目 | `metrics.*` |
 | `terms` | 术语，形状同 `terms` 文件里的条目 | `terms.*` |
 | `representations` | 表现与绑定，形状同 `mapping/` 文件里的条目 | `mapping/<group>.*` |
 | `notes` | 给 owner 的问题或冲突，文字列表 | 只在合并报告里打印 |
@@ -904,7 +962,7 @@ Schema 在 `scope_lineage/schemas/catalog-fragment.schema.json`。
 
 ```bash
 scope-lineage catalog digest out/semantics [--catalog examples/catalog-demo] \
-  [--lineage out/lineage [--schema examples/metadata]] \
+  [--lineage out/lineage [--schema examples/metadata]] [--tables out/tables/tables.json] \
   [--only demo_dwd.dwd_party_customer_info_df ...] [--packets out/packets] --out out/digest
 ```
 
@@ -913,7 +971,9 @@ stderr 说明），按表名排序写出 `digest.md` 与 `digest.json`（`catalo
 
 - 一句话说明、文档写的概念与表现类型；
 - 行含义、粒度列（及来源、是否唯一）、时间语义（`snapshot` / `incremental` / `zipper`）与取数方式、记录范围；
-- 标识列、外部标识列、状态列、时间列、度量列、描述列（各带含义，有码值时带码值），技术列只列名；
+- 标识列、外部标识列、状态列、时间列、度量列、描述列（各带含义，有码值时带码值；`digest.json` 里文档有时还带
+  `derivation`、`null_meaning`、`watch`，给 `--tables`（`scope-lineage tables` 写的 `tables.json`）时带物理类型 `type`），技术列只列名；
+- 表的 `rules`（`[{id, kind, text}]`，`digest.md` 里是 `- Rule r1 (filter): ...`）；承接某条规则的约束在 `rules` 里写 `<库.表>#<id>`；
 - 由哪些表加工而来（带角色）、被哪些表读取；要注意的点（`watch`）与未回答的问题。
 
 给 `--catalog` 时，开头多一段「目录覆盖」：没有表现的表，以及已有表现的表里没有绑定的列（表名忽略大小写与
@@ -994,8 +1054,8 @@ catalog 前缀）；某个码值集 `lookup` 所指的表算「码值来源」�
 不加任何键，命令打印这样的表有几张。不给 `--lineage` 时输出与原来逐字节相同；它也不改血缘、材料包、表语义与
 目录构建。
 
-退出码：`0` 写出；`1` 没有合法文档、有文档被跳过（其余照常写出），`--only` 点名的表没有文档，或 `--lineage` 目录下没有
-`lineage.json`；`2` 目录、`--catalog`、`--lineage` 或 `--schema` 读不了，或给了 `--schema` 却没给 `--lineage`。
+退出码：`0` 写出；`1` 没有合法文档、有文档被跳过（其余照常写出），`--only` 点名的表没有文档，`--lineage` 目录下没有
+`lineage.json`，或 `--tables` 声明的是别的格式；`2` 目录、`--catalog`、`--lineage`、`--tables` 或 `--schema` 读不了，或给了 `--schema` 却没给 `--lineage`。
 
 ### `catalog merge`
 

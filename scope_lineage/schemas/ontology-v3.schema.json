@@ -86,6 +86,10 @@
           "type": "integer",
           "minimum": 0
         },
+        "metrics": {
+          "type": "integer",
+          "minimum": 0
+        },
         "terms": {
           "type": "integer",
           "minimum": 0
@@ -134,6 +138,12 @@
       "type": "array",
       "items": {
         "$ref": "#/definitions/constraint"
+      }
+    },
+    "metrics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/metric"
       }
     },
     "terms": {
@@ -559,6 +569,14 @@
         },
         "notes": {
           "type": "string"
+        },
+        "additivity": {
+          "description": "How values add up: additive (over every dimension), semi_additive (over some, not over time -- a balance), non_additive (never -- a ratio, a rate)",
+          "enum": [
+            "additive",
+            "semi_additive",
+            "non_additive"
+          ]
         }
       }
     },
@@ -834,6 +852,128 @@
             "soft"
           ]
         },
+        "rules": {
+          "description": "The table-semantics rules this constraint carries, each <db.table>#<rule id>",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_]+\\.[A-Za-z0-9_]+#r[0-9]+$"
+          }
+        },
+        "predicate": {
+          "description": "The constraint as one column condition: column op value (in / not_in take a list, is_null / not_null no value)",
+          "type": "object",
+          "required": [
+            "column",
+            "op"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "column": {
+              "type": "string",
+              "minLength": 1
+            },
+            "op": {
+              "enum": [
+                "=",
+                "!=",
+                "<",
+                "<=",
+                ">",
+                ">=",
+                "in",
+                "not_in",
+                "is_null",
+                "not_null",
+                "like"
+              ]
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean"
+                  ]
+                },
+                {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": [
+                      "string",
+                      "number",
+                      "boolean"
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "op": {
+                    "enum": [
+                      "is_null",
+                      "not_null"
+                    ]
+                  }
+                },
+                "required": [
+                  "op"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": false
+                }
+              },
+              "else": {
+                "required": [
+                  "value"
+                ]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "op": {
+                    "enum": [
+                      "in",
+                      "not_in"
+                    ]
+                  }
+                },
+                "required": [
+                  "op"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "type": "array"
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "value": {
+                    "type": [
+                      "string",
+                      "number",
+                      "boolean"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        },
         "status": {
           "enum": [
             "drafted",
@@ -1050,6 +1190,17 @@
                 "description": "holds with meaning only: the language of the stored meaning, as a lookup's meaning_columns[].lang names it",
                 "type": "string",
                 "minLength": 1
+              },
+              "time_role": {
+                "description": "What time this column carries: valid_from / valid_to (the validity window of a zipper row), partition (the load partition), event_time (when the event happened), record_time (when the row was written), business_date (the business day it counts for)",
+                "enum": [
+                  "valid_from",
+                  "valid_to",
+                  "partition",
+                  "event_time",
+                  "record_time",
+                  "business_date"
+                ]
               },
               "status": {
                 "enum": [
@@ -1409,6 +1560,96 @@
         },
         "declared_only": {
           "const": true
+        }
+      }
+    },
+    "metric": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "on",
+        "aggregation",
+        "constraints",
+        "dimensions",
+        "status",
+        "source",
+        "evidence"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "on": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "measure": {
+          "type": "string",
+          "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+        },
+        "aggregation": {
+          "enum": [
+            "sum",
+            "count",
+            "count_distinct",
+            "avg",
+            "min",
+            "max",
+            "ratio",
+            "other"
+          ]
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+          }
+        },
+        "dimensions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z_]*:[a-z0-9_.]+$"
+          }
+        },
+        "additivity": {
+          "description": "How values add up: additive (over every dimension), semi_additive (over some, not over time -- a balance), non_additive (never -- a ratio, a rate)",
+          "enum": [
+            "additive",
+            "semi_additive",
+            "non_additive"
+          ]
+        },
+        "status": {
+          "enum": [
+            "drafted",
+            "confirmed",
+            "deprecated"
+          ]
+        },
+        "source": {
+          "enum": [
+            "owner",
+            "comment",
+            "task",
+            "sql",
+            "llm",
+            "mixed",
+            null
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "notes": {
+          "type": "string"
         }
       }
     }

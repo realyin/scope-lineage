@@ -40,6 +40,7 @@ catalog/
   concepts/*.yaml       # concepts: [...]   entities, events, roles; one file per domain is usual
   relations.yaml        # relations: [...]
   constraints.yaml      # constraints: [...]
+  metrics.yaml          # metrics: [...]
   terms.yaml            # terms: [...]
   mapping/*.yaml        # representations: [...]   one file per domain is usual
 ```
@@ -231,7 +232,9 @@ concepts:
 One business property of a concept, written inside the concept. `id:
 attr:<concept slug>.<slug>` (the concept slug must be the owning concept's), `name`,
 `definition`, `category` (`descriptive` / `state` / `measure` / `time`), `type`, `unit?`,
-`code_set?`, `derivation?` (how it is computed, in words).
+`code_set?`, `derivation?` (how it is computed, in words), `additivity?` (`additive` — adds
+up over every dimension / `semi_additive` — over some, not over time, like a balance /
+`non_additive` — never, like a ratio or a rate).
 
 An attribute's code sets are its own `code_set`; when it has none, they are the `code_sets`
 of the columns bound to it (as `attribute` or `foreign_attribute`), each counted once, in
@@ -292,7 +295,11 @@ without an `inverse_name` reads one way, with `name`. Borrower → loan takes
 A condition that must hold. `id: cons:<slug>`, `kind` (`unique` / `cardinality` /
 `mandatory` / `value_domain` / `referential` / `temporal` / `state_transition` /
 `derivation` / `business_rule`), `on` (a concept, attribute, relation or identifier),
-`expression` (text), `strength` (`hard` / `soft`).
+`expression` (text), `strength` (`hard` / `soft`). Optional: `rules` — the table-semantics
+rules the constraint carries, each `<db.table>#<rule id>` (`demo_dwd.t#r2`; the digest lists
+every table's rules), and `predicate` — the condition as one column test `{column, op,
+value}`, `op` one of `=` `!=` `<` `<=` `>` `>=` `in` `not_in` `is_null` `not_null` `like`
+(`in` / `not_in` take a list, `is_null` / `not_null` no value).
 
 ```yaml
 constraints:
@@ -301,6 +308,37 @@ constraints:
     on: id:loan_no
     expression: no two loans share a loan_no, whatever the channel
     strength: hard
+  - id: cons:principal_positive
+    kind: value_domain
+    on: attr:loan.principal
+    expression: principal > 0
+    strength: hard
+    rules: [demo_dwd.dwd_lending_loan_df#r1]
+    predicate: {column: principal_amt, op: ">", value: 0}
+```
+
+### Metric
+
+A number the business reads off a concept. `id: metric:<slug>`, `name`, `on` (the concept
+counted or added up), `aggregation` (`sum` / `count` / `count_distinct` / `avg` / `min` /
+`max` / `ratio` / `other`). Optional: `definition`, `measure` (the attribute aggregated),
+`filter` (which instances count, in words), `constraints` (the `cons:` ids that scope it),
+`time_window` (in words), `dimensions` (attributes it may be broken down by), `additivity`
+(as on an attribute), `unit`, and the common fields. `on` must be a concept, `measure` and
+each dimension an attribute, each constraint a constraint (`metric_on`, `metric_measure`,
+`metric_dimension`, `metric_constraint`).
+
+```yaml
+metrics:
+  - id: metric:principal_outstanding
+    name: 在贷本金
+    on: concept:loan
+    measure: attr:loan.principal
+    aggregation: sum
+    filter: loans not settled
+    dimensions: [attr:loan.loan_status]
+    additivity: semi_additive
+    unit: CNY
 ```
 
 ### Term
@@ -331,7 +369,11 @@ representation per table).
 | `refresh` | no | update frequency |
 | `table_status` | yes | `active` / `deprecated` |
 | `replaced_by` | no | the table that replaces a deprecated one |
-| `bindings` | yes | `[{column, to, ref?, via?, relation?, derivation?, code_map?, code_sets?, code_sets_by?, holds?, lang?}]` |
+| `bindings` | yes | `[{column, to, ref?, via?, relation?, derivation?, time_role?, code_map?, code_sets?, code_sets_by?, holds?, lang?}]` |
+
+A binding's optional `time_role` says what time the column carries: `valid_from` /
+`valid_to` (the validity window of a zipper row), `partition`, `event_time`, `record_time`
+(when the row was written) or `business_date` (the business day it counts for).
 
 A binding's `to` says what the column is:
 
@@ -544,6 +586,7 @@ directory, no manifest, YAML without PyYAML).
 | `duplicate_code_value` | a code set lists the same value twice |
 | `relation_endpoint` | a relation's `from` / `to` is not a concept |
 | `constraint_on` | `on` is not a concept, attribute, relation or identifier |
+| `metric_on` / `metric_measure` / `metric_dimension` / `metric_constraint` | a metric's `on` is not a concept, its `measure` or a dimension not an attribute, a `constraints` entry not a constraint |
 | `term_refers_to` | `refers_to` does not exist |
 | `representation_concept` | the representation's `concept` is not a concept |
 | `representation_grain` | a grain identifier is not an identifier |
@@ -580,6 +623,17 @@ identifier (the demo's installment loan lists `id:loan_no`).
 | `self_reference_relation_unnamed` | a self-referencing column names no `relation` while its concept has two or more self relations — which one it realises cannot be told, so it is attributed to each |
 | `unknown_file` | a file the layout does not name; it was ignored |
 
+Semantic completeness — places where the catalog says less than its own shape asks for:
+
+| Rule | Meaning |
+| --- | --- |
+| `state_attribute_without_states` | a concept has a `state` attribute with a code set (by the rule under Attribute) and no `states` |
+| `measure_without_unit` | a `measure` attribute has no `unit` |
+| `zipper_without_validity` | a `zipper` representation has no binding with `time_role: valid_from`, or none with `valid_to` |
+| `participation_without_event` | a declared `participation` relation has no event at either end |
+| `generalization_cycle` | `generalization` relations run in a circle (named once, from its smallest concept) |
+| `relation_without_definition` | a declared relation has no `definition` |
+
 ### Report
 
 The text form prints one line per finding: `error` / `warning`, the rule, the file, the
@@ -611,7 +665,15 @@ object and the message. `--json` prints the same as `catalog-report/1`:
 ```
 
 (`counts` is abridged here; it also counts identifiers, code sets, attributes, relations,
-constraints, terms and bindings.)
+constraints, metrics, terms and bindings.)
+
+`counts.density` measures how much meaning the catalog carries. Each coverage is
+`{count, total, ratio}` (`ratio` rounded to two places, `null` when `total` is 0):
+`attribute_unit` (measures with a `unit`, over measures), `attribute_derivation` (attributes
+with a `derivation`, over all attributes), `code_set_values` (code sets listing values),
+`relation_definition` (declared relations with a `definition`). Plain counts: `states`
+(concepts with `states`), `roles`, `metrics`, `constraints`, `constraints_with_rules`. The
+text form prints them on one `density:` line.
 
 ## Build: `ontology-json/3`
 
@@ -676,6 +738,10 @@ is a scope-lineage bug, not a fault in the catalog:
   sorted by column, the literals as text), a binding's `code_sets` in the author's order. Both are optional
   additions and `doc_format` stays `ontology-json/3`; a catalog that writes neither builds
   byte-for-byte the same document as before;
+- a top-level `metrics` list (sorted by id; `constraints` and `dimensions` always lists) and
+  `counts.metrics` sit beside the constraints; a constraint's `rules` and `predicate`, an
+  attribute's `additivity` and a binding's `time_role` are carried as written. All are
+  additions: `doc_format` stays `ontology-json/3`;
 - a binding's `code_sets_by`, `holds` and `lang` follow its `code_sets`, as written;
   `code_sets_by: lookup` and `holds: [code]` are not written out (they are what an absent key
   means), so a catalog without them builds byte-for-byte as before;
@@ -985,6 +1051,7 @@ keeps its form (`.yaml` / `.yml` / `.json`), and a new one takes the form of the
 | `code_sets` | code sets, shaped like the `code_sets` file's items (with `lookup` when the values live in a code table; a dictionary defined inline in a task's `VALUES` / `CASE` is written as `values`, with the task named in `evidence`, never as `lookup`) | `code_sets.*` |
 | `identifiers` | identifiers, shaped like the `identifiers` file's items; only ones that are really missing | `identifiers.*` |
 | `constraints` | constraints, shaped like the `constraints` file's items; only ones with evidence | `constraints.*` |
+| `metrics` | metrics, shaped like the `metrics` file's items | `metrics.*` |
 | `terms` | terms, shaped like the `terms` file's items | `terms.*` |
 | `representations` | representations and bindings, shaped like the `mapping/` files' items | `mapping/<group>.*` |
 | `notes` | questions or conflicts for the owner, as a list of text | printed in the merge report only |
@@ -1031,7 +1098,7 @@ The schema is `scope_lineage/schemas/catalog-fragment.schema.json`.
 
 ```bash
 scope-lineage catalog digest out/semantics [--catalog examples/catalog-demo] \
-  [--lineage out/lineage [--schema examples/metadata]] \
+  [--lineage out/lineage [--schema examples/metadata]] [--tables out/tables/tables.json] \
   [--only demo_dwd.dwd_party_customer_info_df ...] [--packets out/packets] --out out/digest
 ```
 
@@ -1044,7 +1111,12 @@ is skipped with a line on stderr) and writes `digest.md` and `digest.json`
 - what a row is, the grain columns (with their source and whether they are unique), the
   time semantics (`snapshot` / `incremental` / `zipper`) and how to read it, the scope;
 - identifier, foreign-identifier, state, time, measure and descriptive columns (each with
-  its meaning, and its codes when it has them); technical columns by name only;
+  its meaning, and its codes when it has them; in `digest.json` also its `derivation`,
+  `null_meaning` and `watch` when the document has them, and with `--tables` — a
+  `tables.json` from `scope-lineage tables` — its physical `type`); technical columns by
+  name only;
+- the table's `rules` (`[{id, kind, text}]`, `- Rule r1 (filter): ...` in `digest.md`); a
+  constraint that carries one names it `<db.table>#<id>` in its `rules`;
 - the tables it is built from (with their role) and the tables that read it; what to watch
   and the open questions.
 
@@ -1157,9 +1229,9 @@ command prints how many there were. Without `--lineage` the output is byte-ident
 what it was; the lineage, packets, table semantics and catalog build are not changed by it.
 
 Exit codes: `0` written; `1` no legal document, a document was skipped (the rest is still
-written), a table named by `--only` has no document, or a `--lineage` directory holds no
-`lineage.json`; `2` the directory, `--catalog`,
-`--lineage` or `--schema` cannot be read, or `--schema` is given without `--lineage`.
+written), a table named by `--only` has no document, a `--lineage` directory holds no
+`lineage.json`, or `--tables` declares another format; `2` the directory, `--catalog`,
+`--lineage`, `--tables` or `--schema` cannot be read, or `--schema` is given without `--lineage`.
 
 ### `catalog merge`
 
