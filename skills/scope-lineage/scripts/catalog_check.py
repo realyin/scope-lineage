@@ -70,50 +70,64 @@ def check(
 ) -> list[str]:
     """The findings; code columns bound as plain attributes that name no concept go to
     ``look`` (listed for a person, not counted)."""
-    identifies = {i["id"]: i.get("identifies") for i in ontology.get("identifiers") or []}
     concepts = {c["id"]: c for c in ontology.get("concepts") or []}
-    findings = []
     look = look if look is not None else []
-
-    for concept_id, concept in concepts.items():
-        if not concept.get("attributes"):
-            findings.append(f"empty_concept  {concept_id}：没有任何属性")
-
+    findings = [
+        f"empty_concept  {concept_id}：没有任何属性"
+        for concept_id, concept in concepts.items()
+        if not concept.get("attributes")
+    ]
     for representation in ontology.get("representations") or []:
-        table, own = representation["table"], representation.get("concept")
-        bindings = representation.get("bindings") or []
-        pointers = {}  # column -> concept it points at
-        for binding in bindings:
-            if binding.get("to") == "foreign_identifier":
-                target = identifies.get(binding.get("ref"))
-                if target and target != own:
-                    pointers[binding["column"]] = target
+        findings += _representation_findings(ontology, concepts, representation)
+    findings += _state_and_measure_findings(ontology, concepts, changes)
+    findings += _code_column_findings(ontology, concepts, look)
+    if digest is not None:
+        findings += _rule_findings(ontology, digest, changes)
+    return findings
 
-        event = concepts.get(own) or {}
-        if event.get("kind") == "event":
-            participants = {p.get("concept") for p in event.get("participants") or []}
-            for column, target in pointers.items():
-                if target not in participants:
-                    findings.append(
-                        f"missing_participant  {own}：{table}.{column} 指向 {target}，它不在参与者里"
-                    )
 
-        code_stems = {}
+def _representation_findings(ontology: dict, concepts: dict, representation: dict) -> list[str]:
+    """``missing_participant`` and ``attribute_beside_foreign_identifier`` of one table."""
+    identifies = {i["id"]: i.get("identifies") for i in ontology.get("identifiers") or []}
+    table, own = representation["table"], representation.get("concept")
+    bindings = representation.get("bindings") or []
+    findings = []
+    pointers = {}  # column -> concept it points at
+    for binding in bindings:
+        if binding.get("to") == "foreign_identifier":
+            target = identifies.get(binding.get("ref"))
+            if target and target != own:
+                pointers[binding["column"]] = target
+
+    event = concepts.get(own) or {}
+    if event.get("kind") == "event":
+        participants = {p.get("concept") for p in event.get("participants") or []}
         for column, target in pointers.items():
-            stem = _stem(column, CODE_SUFFIXES)
-            if stem:
-                code_stems[stem] = (column, target)
-        for binding in bindings:
-            if binding.get("to") != "attribute":
-                continue
-            stem = _stem(binding["column"], TEXT_SUFFIXES)
-            if stem in code_stems:
-                code_column, target = code_stems[stem]
+            if target not in participants:
                 findings.append(
-                    f"attribute_beside_foreign_identifier  {table}.{binding['column']} 绑成 {binding.get('ref')}，"
-                    f"但同表 {code_column} 指向 {target}：可能是 {target} 的属性"
+                    f"missing_participant  {own}：{table}.{column} 指向 {target}，它不在参与者里"
                 )
 
+    code_stems = {}
+    for column, target in pointers.items():
+        stem = _stem(column, CODE_SUFFIXES)
+        if stem:
+            code_stems[stem] = (column, target)
+    for binding in bindings:
+        if binding.get("to") != "attribute":
+            continue
+        stem = _stem(binding["column"], TEXT_SUFFIXES)
+        if stem in code_stems:
+            code_column, target = code_stems[stem]
+            findings.append(
+                f"attribute_beside_foreign_identifier  {table}.{binding['column']} 绑成 {binding.get('ref')}，"
+                f"但同表 {code_column} 指向 {target}：可能是 {target} 的属性"
+            )
+    return findings
+
+
+def _state_and_measure_findings(ontology: dict, concepts: dict, changes: str) -> list[str]:
+    """``state_without_states`` and ``measure_without_unit``."""
     # An attribute is coded when it has a code set of its own or a binding of it lists one
     # (the rule ``catalog validate`` applies).
     bound_codes = {
@@ -121,6 +135,7 @@ def check(
         if b.get("code_sets")
     }
     skipped = {m.lower() for m in re.findall(r"([\w:.]+)`?\s+states\s+skip", changes)}
+    findings = []
     for concept_id, concept in concepts.items():
         # ``states`` is one state machine (an object) and only an entity carries it.
         coded = [
@@ -139,9 +154,14 @@ def check(
         for attribute in concept.get("attributes") or []:
             if attribute.get("category") == "measure" and not attribute.get("unit"):
                 findings.append(f"measure_without_unit  {attribute['id']}：度量属性没有 unit")
+    return findings
 
+
+def _code_column_findings(ontology: dict, concepts: dict, look: list[str]) -> list[str]:
+    """``code_attribute_without_relation``; the code columns naming no concept go to ``look``."""
     names = _concept_stems(concepts, ontology.get("identifiers") or [])
     attributes = {a["id"]: a for c in concepts.values() for a in c.get("attributes") or []}
+    findings = []
     for representation in ontology.get("representations") or []:
         own = representation.get("concept")
         for binding in representation.get("bindings") or []:
@@ -160,20 +180,24 @@ def check(
                 )
             else:
                 look.append(f"{at}（{binding.get('ref')}）")
+    return findings
 
-    if digest is not None:
-        carried = {ref.lower() for c in ontology.get("constraints") or [] for ref in c.get("rules") or []}
-        named = {m.lower() for m in re.findall(r"([\w.]+#r\d+)`?\s+skip", changes)}
-        for table in digest.get("tables") or []:
-            for rule in table.get("rules") or []:
-                if rule.get("kind") not in RULE_KINDS:
-                    continue
-                ref = f"{table['table']}#{rule['id']}"
-                if ref.lower() not in carried and ref.lower() not in named:
-                    findings.append(
-                        f"unabsorbed_rule  {ref} {rule['kind']}：{rule.get('text', '')} —— 没有约束的 rules 引用它，"
-                        f"catalog_changes.md 也没写 skip 理由"
-                    )
+
+def _rule_findings(ontology: dict, digest: dict, changes: str) -> list[str]:
+    """``unabsorbed_rule``: a digest rule no constraint carries and no skip line names."""
+    carried = {ref.lower() for c in ontology.get("constraints") or [] for ref in c.get("rules") or []}
+    named = {m.lower() for m in re.findall(r"([\w.]+#r\d+)`?\s+skip", changes)}
+    findings = []
+    for table in digest.get("tables") or []:
+        for rule in table.get("rules") or []:
+            if rule.get("kind") not in RULE_KINDS:
+                continue
+            ref = f"{table['table']}#{rule['id']}"
+            if ref.lower() not in carried and ref.lower() not in named:
+                findings.append(
+                    f"unabsorbed_rule  {ref} {rule['kind']}：{rule.get('text', '')} —— 没有约束的 rules 引用它，"
+                    f"catalog_changes.md 也没写 skip 理由"
+                )
     return findings
 
 
