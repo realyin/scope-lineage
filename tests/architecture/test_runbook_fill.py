@@ -120,6 +120,24 @@ def test_a_rewrite_must_carry_its_corrections(shell, run):
 
 
 @pytest.mark.parametrize("shell", SHELLS)
+def test_the_drafter_gets_the_owner_decisions_file_or_none(shell, run):
+    """T5 carries the owner's decisions verbatim: ``@owner_decisions.md`` when it exists,
+    「无」 when it does not -- never a hand-edited prompt."""
+    _touch(run / "digest" / "digest.md")
+    out = run.parent / "t5.md"
+    base = ("MODE=新建", "SIZE=小样", "TOUCHED=无", "REWORK=无")
+    done = _fill(shell, run, "catalog", str(out), *base, "DECISIONS=无")
+    assert done.returncode == 0, done.stderr
+    assert "{DECISIONS}" not in out.read_text(encoding="utf-8")
+    decisions = _touch(run / "owner_decisions.md", "- 列 x_no 就是编号 id:x")
+    refused = _fill(shell, run, "catalog", str(out), *base, "DECISIONS=无")
+    assert refused.returncode == 1 and "owner_decisions.md" in refused.stderr
+    done = _fill(shell, run, "catalog", str(out), *base, f"DECISIONS=@{decisions}")
+    assert done.returncode == 0, done.stderr
+    assert "- 列 x_no 就是编号 id:x" in out.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("shell", SHELLS)
 @pytest.mark.parametrize("name", ["T7", "T8"])
 def test_two_rounds_get_two_scratch_paths(shell, name, run):
     paths = []

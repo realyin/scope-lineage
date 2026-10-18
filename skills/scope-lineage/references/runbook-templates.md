@@ -35,6 +35,7 @@ fill write "$SCRATCH/prompts/T1-write-<表>-r2.md" TABLE=<库.表> MODE=补失�
    - `{FAILURES}`（T1）：补失败模式贴 S5 打印的 FAIL / WARN 行原文；新写写「无」。
    - `{SIZE}`（T5）：「小样：只分 1 组，组名 main」或「扩表：按概念分组」。
    - `{TOUCHED}`（T5）：增量模式写 `@<RUN>/catalog_touched.txt`（runbook S10a 的 C 生成）；新建模式写「无」。
+   - `{DECISIONS}`（T5）：`<RUN>/owner_decisions.md` 存在时写 `@<RUN>/owner_decisions.md`，不存在时写「无」（`fill` 会核对）。
    - `{REWORK}`（T5、T6）：返工时贴要改的报错原文；第一次派发写「无」。
    - `{ROUND_LABEL}`（T8）：轮次标签（例如 `r1`）。
 
@@ -376,7 +377,7 @@ status：…
 ---
 
 ## T5 目录起草第 2 步：概念、标识符、关系、共用码值集与分组方案（S10c）
-<!-- fill: names=T5,目录起草,catalog; MODE=新建,增量; NEEDS={RUN}/digest/digest.md; NEEDS[MODE=增量]={RUN}/catalog_touched.txt -->
+<!-- fill: names=T5,目录起草,catalog; MODE=新建,增量; NEEDS={RUN}/digest/digest.md; NEEDS[MODE=增量]={RUN}/catalog_touched.txt; ATFILE=DECISIONS:{RUN}/owner_decisions.md -->
 
 模型：次一档强模型。正常只派一个；返工时用 `fill catalog … REWORK=@<报错文件>` 重新填一份（原提示词 + 这次报错原文），续用原子代理或新派一个都行。
 模式：新建（目录里没有本轮的表）/ 增量（本轮的表是重写后接回已有目录的，runbook S10a 的 C）。
@@ -392,6 +393,12 @@ status：…
 - 本轮的表：`{RUN}/tables.txt`（一行一张）。
 - 小样还是扩表：{SIZE}
 - 模式：{MODE}（新建：目录里没有本轮的表；增量：本轮的表是重写后接回已有目录的，旧目录里这些表的表现已经去掉）
+- owner 已拍板的决定（编排者从 `{RUN}/owner_decisions.md` 原样贴来；写「无」就是没有。用法见下面「写什么」第 8 条）：
+
+```text
+{DECISIONS}
+```
+
 - 读长文件：任何文件一次读不完、或 Bash 输出被截断时，先 `grep -n '^#' <文件>` 列出小节，再按行号分段读完。
 - 写入被拦截：Write 写 `{RUN}` 下的文件被钩子拦截时，先写 `{SCRATCH}/catalog-draft/` 下同名文件，再用 Bash `cp` 拷过去（已获调用方授权）；
   `cp` 也被拒绝就在回复里写明文件在哪，调用方会代拷。
@@ -510,7 +517,7 @@ digest 的说法与它矛盾的，就地改这一条，`status` 保持 `drafted`
    - SQL 内联的字典（`VALUES`、`CASE` 映射）不在这一行里，留给片段写 `values`。
    - 形状：`{"id": "code:waiver_reason", "name": "豁免原因", "values": [], "lookup": {"table": "demo_dim.dim_code_dict", "code_column": "code_val", "meaning_columns": [{"column": "code_desc", "lang": "zh"}], "filter": {"code_type": "WaiverReason"}}, "status": "drafted", "source": "sql", "evidence": ["<任务名>"]}`
 7. 不写表现和绑定（`mapping/`），不写人名、邮箱。
-8. 所有写给 owner 的 `notes` 都以「待 owner 确认：」开头。只有调用方在本提示词里写明的 owner 决定，才能写 `status: confirmed`、
+8. 所有写给 owner 的 `notes` 都以「待 owner 确认：」开头。只有上面「owner 已拍板的决定」里写明的决定，才能写 `status: confirmed`、
    `source: owner`，`notes` 写「依据 owner 决定：…」，并把这条决定推到底（例如「某列就是某编号」，那张表的事件就要把它指向的概念列为参与者）。
    其余一律 `drafted`；不要自己写「owner 确认：…」。
 

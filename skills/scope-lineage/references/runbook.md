@@ -994,11 +994,16 @@ cat "$SCRATCH/digest.stderr"
 S10a 走 A 或 B 用新建模式；走 C 用增量模式，把 `catalog_touched.txt` 交给它：
 
 ```bash
+# owner 已拍板的决定：有 owner_decisions.md 就原样交给起草者，没有写「无」
+D=无; if [ -f "$RUN/owner_decisions.md" ]; then D=@"$RUN/owner_decisions.md"; fi
 # 新建（S10a 走 A 或 B）
-fill catalog "$SCRATCH/prompts/T5-catalog.md" MODE=新建 SIZE="小样：只分 1 组，组名 main" TOUCHED=无 REWORK=无; echo "exit=$?"
+fill catalog "$SCRATCH/prompts/T5-catalog.md" MODE=新建 SIZE="小样：只分 1 组，组名 main" TOUCHED=无 REWORK=无 DECISIONS="$D"; echo "exit=$?"
 # 增量（S10a 走 C）
-fill catalog "$SCRATCH/prompts/T5-catalog.md" MODE=增量 SIZE="小样：只分 1 组，组名 main" TOUCHED=@"$RUN/catalog_touched.txt" REWORK=无; echo "exit=$?"
+fill catalog "$SCRATCH/prompts/T5-catalog.md" MODE=增量 SIZE="小样：只分 1 组，组名 main" TOUCHED=@"$RUN/catalog_touched.txt" REWORK=无 DECISIONS="$D"; echo "exit=$?"
 ```
+
+owner 的决定只写在 `owner_decisions.md` 里（一行一条），不要手改填好的提示词；`fill` 在文件存在却写了「无」、
+或文件不存在却写了 `@文件` 时退出 1。返工重填（`fill catalog … REWORK=@…`）时 `DECISIONS` 照上面同样写。
 
 **产出与自检**
 
