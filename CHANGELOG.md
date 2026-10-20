@@ -1,67 +1,115 @@
 # Changelog
 
-## Unreleased
-- **The ontology catalog can say more, and the drafting digest hands it the facts to say it
-  with.** All additive -- `catalog-yaml/1`, `catalog-fragment/1`, `catalog-digest/1` and
-  `ontology-json/3` keep their format numbers, and a catalog written for 0.10.0 still validates.
-  - A new catalog file kind, `metrics` (ids `metric:…`): a measure over a concept with its
-    aggregation, filter, constraints, time window, dimensions, additivity and unit. `catalog
-    build` writes them to `ontology.json` (`metrics`); concept pages list them under A6.
-  - Constraints may name the table-semantics rules they carry (`rules: ["db.table#rN"]`) and a
-    structured `predicate` (`column` / `op` / `value`). Attributes may carry `additivity`;
-    bindings may carry a `time_role` (`valid_from`, `valid_to`, `partition`, `event_time`,
-    `record_time`, `business_date`).
-  - `catalog digest` now hands over each table's rules and, per column, the derivation, null
-    meaning and watch notes of its table-semantics document; with `--tables` (the output of
-    `scope-lineage tables`), the column's physical type too.
-  - `catalog validate` warns about an entity whose coded state attribute has no `states`, a
-    measure with no unit, a zipper table with no `valid_from` / `valid_to` binding, a
-    participation with no event at either end, a generalization cycle and a relation with no
-    definition; its counts gain a `density` block (unit, derivation, code-value and relation-
-    definition coverage; states, roles, metrics, constraints, constraints carrying rules).
-- **Material packets are corrected where they misled a writer.** Packets change, so their
-  `packet_digest` changes and existing table-semantics documents become `packet_stale`: rewrite
-  them whole (runbook S3/S4).
-  - A column read only in a join's extra `ON` condition is labelled `join_condition`, no longer
-    「读入未用」; a column the task never reads is labelled 「未读」 (section 3 has a legend).
-  - Step cells keep the table qualifiers when one expression names the same column through two
-    aliases (no more `x <> x`); the SQL block numbers each write statement
-    (`-- [stmt:NNN] 写 <table>`) when a task writes more than once; C0 control characters in
-    comments are dropped.
-  - Literal outputs follow `CASE … ELSE COALESCE(x, '')` into the fallback literal; a comment
-    that lists bare labels counts as a suspected value list for `literal_outside_comment_codes`.
-  - A task that writes intermediate tables before the target lists the tables those earlier
-    statements read as inputs too (`inputs[].via`: 「经同任务中间语句读入」), with their partition
-    reads. Comments that write codes and labels side by side (`1是 0否`, `0否1是`) are read as
-    value lists.
-  - New governance leads: `state_column_unfiltered`, `string_compare_on_numeric`,
-    `partition_format_mismatch`, `merge_same_key`, and a declared key written as one
-    placeholder column.
-- **The runbook asks a weaker drafter for less judgement and checks more of its work.**
-  - Prompts `@12` / `@11` / `@8`: the writing prompt reads the new labels and leads; the review
-    prompt anchors high / medium / low with examples.
-  - T5 takes the owner's decisions through `{DECISIONS}` (no hand-edited prompt), reads the
-    documents only for a digest field that is missing, and works an obligation list: a state
-    machine for each entity's life-cycle state, each filter / dedup / derive rule carried by a
-    constraint or skipped with a reason, unit and additivity for measures, a definition for
-    every relation, validity bindings for zipper tables. T6 follows the same list.
-  - `catalog_check.py` (S10g) also reports `unabsorbed_rule` (with `--digest` / `--changes`),
-    `state_without_states`, `measure_without_unit` and `code_attribute_without_relation`; code
-    columns naming no concept are listed after the findings and not counted.
-  - Metrics, after the first trial that drafted one: a metric's `dimensions` may name a concept
-    linked to its `on` (an event's participant, or the other end of a relation), so a number
-    on an event can be broken down by who took part; `catalog validate` still reports
-    `metric_dimension` for a concept that is not linked. Concept pages show each metric's
-    dimensions, time window and scope (filter and constraints). T5 says how to fill each
-    metric key (cross-row aggregation, the measure attribute built in T5 itself, the
-    constraints that scope it), and `catalog_check.py` reports `metric_incomplete` (no `unit`
-    or `additivity`, or a sum / avg / min / max with no `measure`).
-  - `catalog_check.py` takes `<concept id> empty skip: <reason>` in `catalog_changes.md` for a
-    concept with no attribute that has no table of its own in the batch (only ever a
-    participant or a relation end); a concept with its own table is still reported.
-  - `make_corrections.py --prior-doc` attaches the previous wording to each correction it could
-    not check, and adds section C: points of the previous document whose evidence is still in
-    the new packet.
+## 0.11.0
+- **A richer ontology model, corrected material packets, and a runbook a weaker model can
+  follow, with prompts `@12` / `@11` / `@8`.** Every format keeps its number -- task contract
+  2.0, `lineage.json` `schema_version` 1.0, `table-semantics/1`, `table-semantics-packet/1`,
+  `table-semantics-status/2`, `catalog-yaml/1`, `catalog-fragment/1`, `catalog-digest/1`,
+  `ontology-json/3` -- and every catalog change is additive: a catalog written for 0.10.0
+  still validates and builds. Three things move under a run in progress: material packets
+  change, so every table-semantics document becomes `packet_stale` and is rewritten whole;
+  the writer and review prompts move to `@12` / `@11`; and the catalog's S10g completion test
+  checks more. So this is a minor release with breaking changes for orchestrators (listed
+  under **Breaking** below, each with who is affected and what to do; the READMEs'
+  "Migrating to 0.11.0" gives the steps). **Why:** on a small private sample, a weaker
+  drafter dropped every filter and derive rule of the table semantics on the way into the
+  catalog, wrote no relation definition and no unit, and nothing noticed; packets misled
+  writers in four recurring ways (a column read only in a join's `ON` labelled 「读入未用」,
+  `x <> x` from two aliases, a fallback literal not followed, inputs of intermediate
+  statements missing). With this release the same drafter carried most of those rules in
+  constraints and gave a reason for each of the rest, defined every relation and gave every
+  measure a unit; a later small trial drafted the first metrics end to end and fed the fixes
+  under **Changed**.
+
+### Breaking
+- **Breaking — material packets change, so table-semantics documents are `packet_stale`.**
+  Affected: every run directory with table-semantics documents written before 0.11.0, and
+  readers of `packet.md` / `packet.json` text. A column read only in a join's extra `ON`
+  condition is labelled `join_condition` (no longer 「读入未用」), a column the task never reads
+  is labelled 「未读」, the SQL block numbers each write statement (`-- [stmt:NNN] 写 <table>`),
+  step cells keep table qualifiers, a task's intermediate statements contribute their inputs
+  (`inputs[].via`), and five governance leads are new. The packet text changes, so its
+  `packet_digest` changes. What to do: rebuild the packets (runbook S3), then rewrite each
+  `drafted packet_stale` document whole with its corrections list (S4); never edit only the
+  digest.
+- **Breaking — the writer and review prompts are `table-semantics-prompt@12` and
+  `table-semantics-review@11`; the fix prompt stays `table-semantics-fix@8`.** Affected:
+  orchestrators and private prompts that pin prompt versions. `@12` reads the new labels and
+  leads (a `state_column_unfiltered` lead goes to `watch`; a `join_condition` column is not
+  "read but unused"); `@11` anchors high / medium / low with examples. What to do: pin the new
+  versions for the rewrite above.
+- **Breaking — runbook S0 passes only `scope-lineage` >= 0.11.0.** Affected: orchestrators
+  running the runbook or the `scope-lineage-ontology` skill with an older install. Prompt
+  `@12` reads packet labels and leads, and T5 / T6 write catalog keys, that 0.10.0 does not
+  have. What to do: upgrade (`pipx install --force 'scope-lineage[catalog]'`) before S0.
+- **Breaking — S10g's omission check takes `--digest` and `--changes`, and reports more.**
+  Affected: orchestrators that drive the catalog by the runbook or ship their own copy of S10.
+  The command is now `catalog_check.py "$RUN/onto/ontology.json" --digest
+  "$RUN/digest/digest.json" --changes "$RUN/catalog_changes.md"`, and besides the three 0.10.0
+  findings it reports `unabsorbed_rule`, `state_without_states`, `measure_without_unit`,
+  `code_attribute_without_relation` and `metric_incomplete`. A catalog that passed in 0.10.0
+  will usually show findings. `catalog_changes.md` lines `db.table#rN skip: <reason>`,
+  `<concept id> states skip: <reason>` and `<concept id> empty skip: <reason>` clear the
+  matching finding. What to do: redo S10b (the 0.10.0 digest has no rules) and S10c–S10g with
+  the new templates, or work the findings through T5 / T6 `REWORK` as runbook S10g says.
+- **Breaking — `fill catalog` (T5) needs `DECISIONS=`.** Affected: orchestrators and scripts
+  that fill T5 themselves. The owner's decisions reach the drafter through `{DECISIONS}`
+  instead of a hand-edited prompt; `fill` exits 1 when `$RUN/owner_decisions.md` exists and
+  the value is not `@` that file, or when it does not exist and the value is not 「无」. What to
+  do: pass `DECISIONS=@"$RUN/owner_decisions.md"` or `DECISIONS=无` (runbook S10c).
+
+### Changed
+#### Ontology catalog
+- **A new catalog file kind, `metrics`** (ids `metric:…`): a number read off a concept, with
+  its aggregation, measure, filter, constraints, time window, dimensions, additivity and
+  unit. A dimension is an attribute, or a concept linked to the metric's `on` (an event's
+  participant, or the other end of a relation); `metric_on`, `metric_measure`,
+  `metric_dimension` and `metric_constraint` report a wrong reference. Fragments may carry
+  metrics. `catalog build` writes them to `ontology.json` (`metrics`, `counts.metrics`);
+  concept pages list them under A6 with measure, unit, additivity, dimensions, time window
+  and scope (filter and constraints).
+- **Constraints may name the table-semantics rules they carry** (`rules: ["db.table#rN"]`)
+  and a structured `predicate` (`column` / `op` / `value`); concept pages show the rules a
+  constraint carries. Attributes may carry `additivity`; bindings may carry a `time_role`
+  (`valid_from`, `valid_to`, `partition`, `event_time`, `record_time`, `business_date`).
+- **`catalog digest` hands over each table's rules** and, per column, the derivation, null
+  meaning and watch notes of its table-semantics document; with `--tables` (the output of
+  `scope-lineage tables`), the column's physical type too.
+- **`catalog validate` warns about what a draft left thin:** an entity whose coded state
+  attribute has no `states`, a measure with no unit, a zipper table with no `valid_from` /
+  `valid_to` binding, a participation with no event at either end, a generalization cycle and
+  a relation with no definition. Its counts gain a `density` block (unit, derivation,
+  code-value and relation-definition coverage; states, roles, metrics, constraints,
+  constraints carrying rules).
+
+#### Material packets
+- Literal outputs follow `CASE … ELSE COALESCE(x, '')` into the fallback literal; a comment
+  that lists bare labels counts as a suspected value list for `literal_outside_comment_codes`;
+  comments that write codes and labels side by side (`1是 0否`, `0否1是`) are read as value
+  lists; C0 control characters in comments are dropped.
+- New governance leads: `state_column_unfiltered`, `string_compare_on_numeric`,
+  `partition_format_mismatch`, `merge_same_key`, and a declared key written as one
+  placeholder column.
+
+#### Runbook, templates and scripts
+- **T5 works an obligation list and reports it as counts:** a state machine for each
+  entity's life-cycle state; each filter / dedup / derive rule carried by a constraint or
+  skipped with a reason; unit and additivity for measures, and a metric for each measure of a
+  summary (aggregation across rows, the measure attribute built by T5 itself, the
+  constraints that scope it, load-window rules left out); a definition for every relation;
+  validity columns for zipper tables; an `empty skip` line for a concept with no table of its
+  own. T5 reads a table-semantics document only for a digest field that is missing. T6
+  follows the same list for what it binds (`time_role`, units, own identifiers).
+- **`make_corrections.py --prior-doc`** attaches the previous wording to each correction it
+  could not check, and adds section C: points of the previous document whose evidence is
+  still in the new packet.
+
+### Added
+- **`catalog-metrics` schema** and the matching fragment and `ontology-json/3` entries.
+- **`catalog_check.py` findings** `unabsorbed_rule`, `state_without_states`,
+  `measure_without_unit`, `code_attribute_without_relation` and `metric_incomplete`, and the
+  `--digest` / `--changes` options; code columns naming no concept are listed after the
+  findings and not counted.
 
 ## 0.10.0
 - **A skill that drives the runbook, a progress script, an omission check on the built

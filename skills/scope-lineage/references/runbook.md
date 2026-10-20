@@ -260,8 +260,6 @@ git -C "$TOOL" status --porcelain | wc -l | sed 's/^ */uncommitted files: /' >> 
 
 - `sl --version` 打印 `scope-lineage X.Y.Z (sqlglot …, source …)`。版本判断：
   - `X.Y.Z` ≥ `0.11.0`：通过。
-  - `X.Y.Z` 是 `0.10.x`，同时 `CHANGELOG.md` 第 3 行是 `## Unreleased`、提示词第 1 行含 `table-semantics-prompt@12`：
-    这是仓库里的 0.11.0 候选，通过；在 `TOOL_VERSION` 末尾加一行 `candidate 0.11.0`。
   - 其他：不通过（提示词 `@12` 读的材料包标签、治理线索和目录字段要 0.11.0 才有）。
 - 写入检查和 PyYAML 检查两个 `exit=0`。
 - `$RUN/TOOL_VERSION`、`$RUN/ledger.md` 存在。
@@ -272,7 +270,7 @@ git -C "$TOOL" status --porcelain | wc -l | sed 's/^ */uncommitted files: /' >> 
 | --- | --- | --- |
 | `no such file or directory: uv run …` | 127 | 用了字符串变量调用。改用 0.1 的函数 `sl` |
 | `command not found: uv` | 127 | 装 uv，或 `pipx install 'scope-lineage[catalog]'` 后把 `sl` 换成 0.1 注释里的写法 |
-| 版本低于 0.9.0 且不是候选 | — | 停下告诉 owner。不要自己 `pipx install` 覆盖，候选会被换掉 |
+| 版本低于 0.11.0 | — | 停下告诉 owner。不要自己 `pipx install` 覆盖：`TOOL` 可能是 owner 指定的工作区 |
 | PyYAML 检查报 `PyYAML` / `pip install 'scope-lineage[catalog]'` | 2 | `sl` 少了 `--extra catalog`，或安装时没带 `[catalog]` |
 | `touch` 失败，或 Write 工具写 `$RUN` 被钩子拦截 | 非 0 | 先写 `$SCRATCH` 下同名文件，再用 `cp` 拷进 `$RUN`。这一条要写进每个子代理的说明（模板里已有） |
 | 钩子提示「改用另一个路径」（例如 worktree 里的路径） | — | 运行目录的位置由 owner 指定。按上一行的 SCRATCH + `cp` 做；钩子连 `cp` 也拦、坚持要换路径时，停下问 owner，不要擅自把 `$RUN` 换到别处 |

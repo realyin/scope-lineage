@@ -313,6 +313,32 @@ scope-lineage parse \
 不确定场景该用哪份契约，见[按业务场景选契约](docs/zh-CN/contract-selection.md)：
 字段血缘、加工步骤分析用默认 1.0；审计、事故排查、最终表状态用 2.0。
 
+### 迁移到 0.11.0
+
+格式版本都不变，目录的改动全是增量：0.10.0 写的目录照样能校验、能构建。进行中的运行要跟着变的是材料包、
+写作和审读提示词，以及目录 S10g 的检查。完整清单见 [CHANGELOG.md](CHANGELOG.md) 0.11.0 下的 **Breaking** 条目。
+
+**先升级。** 手册 S0 只认 `scope-lineage` >= 0.11.0：`pipx install --force 'scope-lineage[catalog]'`，
+再跑 `scope-lineage --version` 确认。
+
+**0.10.0 及更早做的表语义运行目录：**
+
+1. 用同一条 `semantic packet` 命令重建材料包（手册 S3「重建材料包」）。材料包变了的文档都会显示 `drafted packet_stale`。
+2. 每份用提示词 `@12` 带修正点清单整份重写（手册 S4「重写准备」「修正点清单」），再照常用 `@11` 审读、`@8` 修订（S5–S9）。
+   不要只改 `packet_digest` 让校验通过。
+
+**0.10.0 起草的本体目录：**
+
+1. 重做 S10b：0.10.0 的 digest 没有表语义规则，新的检查要读它。
+2. 把 `catalog/`、`catalog_plan.md`、`fragments/`、`merged/`、`onto/` 归档，用新模板重做 S10c–S10g。
+   `fill catalog` 现在要带 `DECISIONS=@"$RUN/owner_decisions.md"`（没有这个文件就写 `DECISIONS=无`）。
+3. S10g 跑
+   `catalog_check.py "$RUN/onto/ontology.json" --digest "$RUN/digest/digest.json" --changes "$RUN/catalog_changes.md"`。
+   末行是 `0 finding(s)`，或剩下的每条在 `catalog_changes.md` 里写了理由（`库.表#rN skip:`、`<概念 id> states skip:`、
+   `<概念 id> empty skip:`），才算做完。
+
+**提示词：** 版本钉为 `table-semantics-prompt@12`、`table-semantics-review@11`、`table-semantics-fix@8`。
+
 ### 迁移到 0.10.0
 
 命令行工具、校验器和所有格式都和 0.9.0 一样：不用重建，也不用重写文档。变的是 agent 从任务 JSON 和表 Schema
