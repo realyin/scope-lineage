@@ -316,6 +316,39 @@ transformation-step analysis read the per-statement documents embedded in
 `statement_lineage`; audits, incident forensics, and final table state read the
 task-level facts.
 
+### Migrating to 0.11.0
+
+Every format keeps its number and every catalog change is additive: a catalog written for
+0.10.0 still validates and builds. What moves under a run in progress is the material
+packet, the writer and review prompts, and the catalog's S10g check. Full list: the
+**Breaking** entries under 0.11.0 in [CHANGELOG.md](CHANGELOG.md).
+
+**Upgrade first.** Runbook S0 passes only `scope-lineage` >= 0.11.0:
+`pipx install --force 'scope-lineage[catalog]'`, then `scope-lineage --version`.
+
+**A table-semantics run directory made with 0.10.0 or older:**
+
+1. Rebuild the packets with the same `semantic packet` command (runbook S3, "重建材料包").
+   Every document whose packet changed is then `drafted packet_stale`.
+2. Rewrite each one whole with prompt `@12` and its corrections list (runbook S4,
+   "重写准备" and "修正点清单"), then review with `@11` and fix with `@8` as usual
+   (S5–S9). Never change only `packet_digest` to make the check pass.
+
+**An ontology catalog drafted with 0.10.0:**
+
+1. Redo S10b: the 0.10.0 digest has no table rules, which the new check reads.
+2. Archive `catalog/`, `catalog_plan.md`, `fragments/`, `merged/`, `onto/` and redraft
+   S10c–S10g with the new templates. `fill catalog` now needs
+   `DECISIONS=@"$RUN/owner_decisions.md"` (or `DECISIONS=无` when there is no such file).
+3. S10g runs
+   `catalog_check.py "$RUN/onto/ontology.json" --digest "$RUN/digest/digest.json" --changes "$RUN/catalog_changes.md"`.
+   The step is done at `0 finding(s)`, or when each remaining finding has a reason in
+   `catalog_changes.md` (`db.table#rN skip:`, `<concept id> states skip:`,
+   `<concept id> empty skip:`).
+
+**Prompts:** pin `table-semantics-prompt@12`, `table-semantics-review@11` and
+`table-semantics-fix@8`.
+
 ### Migrating to 0.10.0
 
 The CLI, the validators and every format are as in 0.9.0: nothing to rebuild, no document
