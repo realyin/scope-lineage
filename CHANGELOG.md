@@ -11,14 +11,15 @@
   the writer and review prompts move to `@12` / `@11`; and the catalog's S10g completion test
   checks more. So this is a minor release with breaking changes for orchestrators (listed
   under **Breaking** below, each with who is affected and what to do; the READMEs'
-  "Migrating to 0.11.0" gives the steps). **Why:** on a 5-table sample, a weaker drafter
-  dropped all 44 filter and derive rules of the table semantics on the way into the catalog,
-  wrote no relation definition and no unit, and nothing noticed; packets misled writers in
-  four recurring ways (a column read only in a join's `ON` labelled 「读入未用」, `x <> x` from
-  two aliases, a fallback literal not followed, inputs of intermediate statements missing).
-  With this release the same drafter carried 28 of those rules in constraints and gave a
-  reason for the other 16, defined every relation and gave every measure a unit; a 3-table
-  trial then drafted the first metrics end to end and fed the fixes under **Changed**.
+  "Migrating to 0.11.0" gives the steps). **Why:** on a small private sample, a weaker
+  drafter dropped every filter and derive rule of the table semantics on the way into the
+  catalog, wrote no relation definition and no unit, and nothing noticed; packets misled
+  writers in four recurring ways (a column read only in a join's `ON` labelled 「读入未用」,
+  `x <> x` from two aliases, a fallback literal not followed, inputs of intermediate
+  statements missing). With this release the same drafter carried most of those rules in
+  constraints and gave a reason for each of the rest, defined every relation and gave every
+  measure a unit; a later small trial drafted the first metrics end to end and fed the fixes
+  under **Changed**.
 
 ### Breaking
 - **Breaking — material packets change, so table-semantics documents are `packet_stale`.**
