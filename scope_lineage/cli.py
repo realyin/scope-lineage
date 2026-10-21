@@ -1064,6 +1064,7 @@ def _parse_task_inputs_v2(
     referenced_tables: set[str] = set()
     covered_tables: set[str] = set()
     missing_referencers: dict[str, set[str]] = {}
+    unbound_referencers: dict[str, set[str]] = {}
 
     for source_path, input_root in source_files:
         try:
@@ -1098,6 +1099,8 @@ def _parse_task_inputs_v2(
             referenced_tables |= task_covered | task_missing
             for table in task_missing:
                 missing_referencers.setdefault(table, set()).add(result.task_id)
+            for table in coverage.get("unbound_parameter_tables") or []:
+                unbound_referencers.setdefault(str(table), set()).add(result.task_id)
             if preflight_only:
                 task_count += 1
                 continue
@@ -1171,6 +1174,7 @@ def _parse_task_inputs_v2(
             referenced_tables=referenced_tables,
             covered_tables=covered_tables,
             missing_referencers=missing_referencers,
+            unbound_referencers=unbound_referencers,
             input_count=len(source_files),
             input_failed_count=input_failed_count,
         )
@@ -1185,7 +1189,8 @@ def _parse_task_inputs_v2(
             names = "、".join(sorted(tasks)[:5])
             more = f" +{len(tasks) - 5}" if len(tasks) > 5 else ""
             print(f"  - {table} (referenced by: {names}{more})")
-        return 1 if missing_referencers or input_failed_count else 0
+        _print_unbound_parameters(unbound_referencers)
+        return 1 if missing_referencers or unbound_referencers or input_failed_count else 0
 
     if missing_referencers:
         # The batch manifest lands next to the artifacts; a single-file parse keeps
@@ -1207,6 +1212,7 @@ def _parse_task_inputs_v2(
             f"schema metadata; {detail} "
             "(run with --metadata-preflight to review before parsing)"
         )
+    _print_unbound_parameters(unbound_referencers)
     if metadata_patch:
         unmatched = metadata_patch.unmatched()
         detail = f"; unmatched: {'、'.join(unmatched)}" if unmatched else ""
@@ -1331,6 +1337,17 @@ def _partial_reasons_report(counts: Counter) -> str:
     return f", partial_reasons={breakdown}"
 
 
+def _print_unbound_parameters(unbound_referencers: dict[str, set[str]]) -> None:
+    if not unbound_referencers:
+        return
+    tables = "、".join(sorted(unbound_referencers))
+    print(
+        f"Input incomplete: {len(unbound_referencers)} table name(s) hold an unbound "
+        f"parameter; {tables} (supply the SQL with the parameters replaced -- this is not "
+        "missing metadata)"
+    )
+
+
 def _write_metadata_gap_manifest(
     path: Path,
     *,
@@ -1339,6 +1356,7 @@ def _write_metadata_gap_manifest(
     missing_referencers: dict[str, set[str]],
     input_count: int,
     input_failed_count: int,
+    unbound_referencers: dict[str, set[str]] | None = None,
 ) -> None:
     """Write the batch metadata-gap report (deterministic, no timestamps)."""
     manifest = {
@@ -1356,6 +1374,18 @@ def _write_metadata_gap_manifest(
             }
             for table, tasks in sorted(
                 missing_referencers.items(),
+                key=lambda item: (-len(item[1]), item[0]),
+            )
+        ],
+        # Not missing metadata: incomplete input, a name the scheduler has yet to bind.
+        "unbound_parameter_tables": [
+            {
+                "table": table,
+                "referenced_by_task_count": len(tasks),
+                "referenced_by": sorted(tasks),
+            }
+            for table, tasks in sorted(
+                (unbound_referencers or {}).items(),
                 key=lambda item: (-len(item[1]), item[0]),
             )
         ],

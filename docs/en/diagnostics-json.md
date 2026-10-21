@@ -168,6 +168,21 @@ tool capability gaps**; supply the metadata and rerun first.
 > source-side reference failing to resolve — counting it would pin a metadata label on gaps that
 > have nothing to do with metadata.
 
+A table name that still holds a scheduler parameter (`INSERT OVERWRITE TABLE cat.${db_name}.t`) is
+**incomplete input**, not missing metadata: the SQL names no real table until the parameter is
+bound. The table id keeps the parameter (`cat.${db_name}.t`), and the artifact says so in four places:
+
+- `input_incomplete` heads `analysis_status.blocking_reasons`;
+- `lineage_fact_gaps[]` carries a `table_name_parameter_unbound` gap per statement and table, with
+  `table`, `parameters` and `root_impact: true`;
+- `warnings[]` carries one entry of `type: "input_incomplete"`;
+- `metadata_coverage.unbound_parameter_tables` lists the table (present only when non-empty), and it
+  is not among `missing_tables`. The batch `metadata_gaps.json` lists it under
+  `unbound_parameter_tables`, and `parse` prints an `Input incomplete:` line.
+
+Supply the SQL with the parameters replaced and rerun. A parameter in a value (`dt = '${dt}'`) is not
+a table name and changes nothing.
+
 Without this distinction, a run missing all source metadata can produce many field-level gaps while
 `blocking_reasons` says only `lineage_fact_gap`; downstream reports then misread missing input as
 insufficient parser capability. With the metadata supplied, those gaps disappear.
