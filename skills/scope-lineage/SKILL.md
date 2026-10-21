@@ -71,8 +71,9 @@ fallback covers 0.2.0):
 | prompts `@10` / `@10` / `@7` (a rewrite's corrections list, the validity-window sentence the 0.9.0 validator accepts, a fix log the next rewrite reads) | >= 0.9.0 |
 | prompts `@11` / `@10` / `@8` (a snapshot partition read conditionally when the material says the source deletes old rows; a fix keeps `sources` / `confidence` in step with reworded items) | >= 0.9.0 |
 | prompts `@12` / `@11` / `@8` (the packet's `join_condition` / 未读 labels and five new governance leads; review severity anchors), a catalog with `metrics`, constraint `rules` / `predicate`, attribute `additivity`, binding `time_role` | >= 0.11.0 |
+| filters that bind a bare `WHERE` column to its source when a SELECT alias shares its name (0.11.0 and older rewrote it into the alias expression) | >= 0.11.1 |
 
-When unsure which workflows the session will need, require >= 0.11.0 (`references/runbook.md`
+When unsure which workflows the session will need, require >= 0.11.1 (`references/runbook.md`
 S0). A table-semantics run directory made with an older release: rebuild its packets; every document whose packet changed
 is then `packet_stale` and is rewritten whole (runbook S3 and S4).
 Not installed → `pipx install 'scope-lineage[catalog]'` (or `pip install 'scope-lineage[catalog]'`):

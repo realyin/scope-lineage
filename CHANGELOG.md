@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.11.1
+- **A `WHERE` column binds to its source, not to a SELECT alias of the same name
+  (QUALIFY-002).** No format changes number. Spark evaluates `WHERE` before the projection,
+  but sqlglot's `qualify`, called without a schema, expanded alias references into `WHERE`
+  too: `SELECT 'ALL' AS biz ... WHERE biz IN ('A')` became `WHERE 'ALL' IN ('A')`, a constant
+  predicate in place of the real filter, and `SELECT crm_biz AS biz ... WHERE biz = 'X'`
+  filtered on `crm_biz`. The rewritten predicate reached `logic_blocks[].raw_expression`,
+  `filter_predicate_detail`, the filter's fields and everything built on them -- profiles and
+  material packets included. The parser now hides such columns from the expansion for the
+  duration of `qualify`; a column left bare under a SELECT with a single source (a derived
+  table) is qualified to it. GROUP BY, HAVING and lateral projection aliases are still
+  expanded. Passing the schema to `qualify` was measured and rejected: a join or a column
+  the metadata does not list still left the name to the expansion, and a schema changes
+  lateral and GROUP BY alias resolution.
+- **Who is affected and what to do.** Only statements whose `WHERE` names a bare column that
+  is also a SELECT alias in the same block, with an alias expression other than that column.
+  Re-parse affected tasks. In a table-semantics run, rebuild packets: a document whose packet
+  changed becomes `packet_stale` and is rewritten whole (runbook S3 and S4); the others keep
+  their status. Runbook S0 and the skill now require >= 0.11.1.
+
 ## 0.11.0
 - **A richer ontology model, corrected material packets, and a runbook a weaker model can
   follow, with prompts `@12` / `@11` / `@8`.** Every format keeps its number -- task contract
