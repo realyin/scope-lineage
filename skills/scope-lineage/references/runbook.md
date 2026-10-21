@@ -270,8 +270,8 @@ fi
 **产出与自检**
 
 - `sl --version` 打印 `scope-lineage X.Y.Z (sqlglot …, source …)`。版本判断：
-  - `X.Y.Z` ≥ `0.11.1`：通过。
-  - 其他：不通过（提示词 `@12` 读的材料包标签、治理线索和目录字段要 0.11.0 才有；0.11.0 会把与 SELECT 别名同名的 `WHERE` 列改写成别名表达式，0.11.1 修正）。
+  - `X.Y.Z` ≥ `0.11.2`：通过。
+  - 其他：不通过（提示词 `@12` 读的材料包标签、治理线索和目录字段要 0.11.0 才有；0.11.0 会把与 SELECT 别名同名的 `WHERE` 列改写成别名表达式，0.11.1 修正；0.11.1 会把只追到常量的行条件记成缺口、把 GROUP BY 的名字错绑成别名、让检查 9 对整表重算的表误报，0.11.2 修正）。
 - schema 检查、写入检查和 PyYAML 检查三个 `exit=0`。
 - `$RUN/TOOL_VERSION`、`$RUN/ledger.md` 存在。
 
@@ -281,7 +281,7 @@ fi
 | --- | --- | --- |
 | `no such file or directory: uv run …` | 127 | 用了字符串变量调用。改用 0.1 的函数 `sl` |
 | `command not found: uv` | 127 | 装 uv，或 `pipx install 'scope-lineage[catalog]'` 后把 `sl` 换成 0.1 注释里的写法 |
-| 版本低于 0.11.1 | — | 停下告诉 owner。不要自己 `pipx install` 覆盖：`TOOL` 可能是 owner 指定的工作区 |
+| 版本低于 0.11.2 | — | 停下告诉 owner。不要自己 `pipx install` 覆盖：`TOOL` 可能是 owner 指定的工作区 |
 | PyYAML 检查报 `PyYAML` / `pip install 'scope-lineage[catalog]'` | 2 | `sl` 少了 `--extra catalog`，或安装时没带 `[catalog]` |
 | `ls` 报 `table-semantics.schema.json` 不存在，或 `$SCHEMAS` 为空 | 非 0 | `TOOL` 留空时 `python3` 找不到已安装的 `scope_lineage`：换成装了它的那个 Python，或把 `SCHEMAS` 写成 `site-packages/scope_lineage/schemas` 的绝对路径 |
 | `python3` 退出码 49 或「Python was not found」（Windows） | 49 | 取消 0.1 里 `python3() { python "$@"; }` 那行的注释，重新 `. env.sh` |

@@ -1,5 +1,64 @@
 # Changelog
 
+## 0.11.2
+- **Fewer false gaps, and the ones left say where they are.** No format changes number. On a
+  private trial corpus almost every task that was `partial` becomes `complete`; the one left
+  is reported as incomplete input, which it is. Details below; each item names its PR.
+- **A row condition on a constant column is closed, not a gap (#286, #287).** A WHERE / JOIN
+  field computed only from literals or system values -- `(SELECT '2026' AS y ...) s JOIN d ON
+  s.y = d.y` -- traced to no physical source, one CONSTANT source and nothing incomplete, but
+  was published as `row_condition_source_unresolved` (and, in a MERGE condition, as
+  `merge_condition_source_unresolved`), which made the task `partial`. It now names nothing
+  and is no gap. A gap that remains says which condition read the field:
+  `condition_scope_id`, `logic_block_id`, `logic_type`, `expression` (its `scope_id` is the
+  relation read, not the scope holding the condition).
+- **An unexpanded star is not a constant (#287).** `SELECT * FROM db.unknown` kept a `*`
+  output resolved as a CONSTANT whose value is `*`, and that claim stood in for every column
+  read through the star the scope did not list. The star output now resolves to its source
+  (`` `db.unknown`.`*` ``, physical) and such a column keeps `star_not_expanded`.
+- **A GROUP BY name binds to a source column before a SELECT alias (#287).** Spark resolves a
+  grouping key against the input's columns and uses an alias only for a name no input column
+  has; `SELECT UPPER(a) AS k ... GROUP BY k` over a source with its own `k` grouped by
+  `UPPER(a)`. A source whose columns are unknown keeps the alias, as before.
+- **Correlated scalar subqueries keep their outer references (#287).** The outer `t.k` of
+  `(SELECT MAX(d.name) FROM db.dim d WHERE d.id = t.k)` was never expanded, and the projection
+  was marked `partially_resolved`; two SELECTs down, sqlglot read it as the struct field
+  `d.t.k`, dropping the real source and inventing a column.
+- **An unbound run parameter in a table name is incomplete input (#287).** `cat.${db_name}.t`
+  became `cat.db_name.t`, a table that does not exist, and the metadata preflight asked for
+  its schema. The id keeps `${db_name}`; `input_incomplete` heads the blocking reasons, a
+  `table_name_parameter_unbound` gap names the statement, table and parameters, and
+  `metadata_coverage.unbound_parameter_tables` (only when non-empty), `metadata_gaps.json`
+  and an `Input incomplete:` line list such tables apart from missing metadata.
+- **Check 5 cites `IN (subquery)` filters and merges repeated ones (#286).** The lineage
+  renders a subquery after `qualify` added `col AS col` / `tbl AS tbl` inside it, so neither
+  quoting the script nor quoting the packet could cite the filter. Those echo aliases no longer
+  count. A filter the script repeats in several scopes is one failure listing each packet id
+  and scope; a single uncited filter names its id and scope too.
+- **Check 9 doubts `snapshot` only over a day-level pull bounded by the batch (#288).** A
+  table rebuilt whole each batch may filter its input by a business date -- history from a
+  fixed year on, this year against last, the batch's month, one upstream snapshot picked by a
+  weekday rule -- and each was a `window`, so writers flipped a correct `snapshot` to
+  `incremental`. Date filters now take the shapes `period`, `snapshot_pick` and `cutoff` too,
+  an upper bound on a computed day is `upper_bound`, a condition on the input's partition
+  column is no date filter, and only a `window` warns. On the trial corpus about two in five
+  tables warned under `snapshot`; none does now. The demo's true positive still warns.
+- **The runbook runs from a pip install and a nested task tree (#289).** `env.sh` gains `SKILL`
+  and `SCHEMAS`, `TOOL` may be empty, and the skill bundles the catalog demo, the fragment
+  example and the catalog document's 元素 / 起草 sections; `next_step.py` finds `lineage.json`
+  under `artifacts/<sub-directory>/<task>/`; T6 says the same thing about missing `states` in
+  its body and its reply; `env.sh` covers forward slashes and a Windows `python3` shim.
+- **Who is affected and what to do.** Re-parse every task: lineage changes where a row
+  condition, a MERGE condition or a grouping key is affected, and where a star or a
+  correlated subquery was. In a table-semantics run, rebuild packets: a document whose packet
+  changed becomes `packet_stale` and is rewritten whole (runbook S3 and S4); the others keep
+  their status. A reader that switches on these values meets new ones: the blocking reason
+  `input_incomplete`, the gap type `table_name_parameter_unbound`, and the date-filter shapes
+  `period`, `snapshot_pick` and `cutoff` (each additive; no existing value is renamed). An
+  existing `env.sh` keeps working (`SKILL` falls back to
+  `$TOOL/skills/scope-lineage`); a run from a pip install sets `SKILL` and leaves `TOOL`
+  empty. Runbook S0 and the skill now require >= 0.11.2.
+
 ## 0.11.1
 - **A `WHERE` column binds to its source, not to a SELECT alias of the same name
   (QUALIFY-002).** No format changes number. Spark evaluates `WHERE` before the projection,
