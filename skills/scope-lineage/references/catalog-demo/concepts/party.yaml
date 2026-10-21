@@ -1,0 +1,85 @@
+concepts:
+  - id: concept:customer
+    kind: entity
+    name: 客户
+    definition: A person the shop has registered, whether or not they ever borrow.
+    domain: domain:party
+    synonyms: [用户]
+    identifiers: [id:customer_id, id:verified_customer_no]
+    primary_identifier: id:customer_id
+    states:
+      attribute: attr:customer.verification_status
+      values:
+        - {value: unverified, name: 未认证}
+        - {value: verified, name: 已认证}
+      transitions:
+        - {event: concept:identity_verification, from: unverified, to: verified}
+    attributes:
+      - id: attr:customer.gender
+        name: 性别
+        definition: The gender the customer declared at registration.
+        category: descriptive
+        type: string
+        code_set: code:gender
+      - id: attr:customer.registered_at
+        name: 注册时间
+        definition: When the customer first registered.
+        category: time
+        type: timestamp
+      - id: attr:customer.verification_status
+        name: 认证状态
+        definition: Whether the customer has passed identity verification.
+        category: state
+        type: integer
+        code_set: code:verification_status
+    status: confirmed
+    source: owner
+
+  - id: concept:app_account
+    kind: entity
+    name: 应用账户
+    definition: The sign-in account a customer holds in one channel.
+    domain: domain:party
+    identifiers: [id:app_account_id]
+    primary_identifier: id:app_account_id
+    attributes:
+      - id: attr:app_account.opened_at
+        name: 开户时间
+        definition: When the account was opened in its channel.
+        category: time
+        type: timestamp
+    status: confirmed
+    source: sql
+
+  - id: concept:channel
+    kind: entity
+    name: 渠道
+    definition: An app or partner through which customers reach the shop.
+    domain: domain:party
+    identifiers: [id:channel_code]
+    primary_identifier: id:channel_code
+    attributes:
+      - id: attr:channel.channel_name
+        name: 渠道名称
+        definition: The display name of the channel.
+        category: descriptive
+        type: string
+    status: confirmed
+    source: owner
+
+  - id: concept:identity_verification
+    kind: event
+    name: 实名认证
+    definition: The customer proves who they are; afterwards they may borrow.
+    domain: domain:party
+    occurred_at: attr:identity_verification.verified_at
+    participants:
+      - {role_name: customer, concept: concept:customer, cardinality: one}
+    attributes:
+      - id: attr:identity_verification.verified_at
+        name: 认证时间
+        definition: When the verification succeeded.
+        category: time
+        type: timestamp
+    status: drafted
+    source: comment

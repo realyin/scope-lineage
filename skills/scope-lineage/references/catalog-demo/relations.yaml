@@ -1,0 +1,56 @@
+relations:
+  - id: rel:customer_holds_app_account
+    kind: composition
+    from: concept:customer
+    to: concept:app_account
+    name: holds
+    inverse_name: is held by
+    cardinality: {from: "1", to: "0..*"}
+    definition: An account exists only for the customer who opened it.
+    status: confirmed
+    source: owner
+
+  - id: rel:app_account_opened_in_channel
+    kind: association
+    from: concept:app_account
+    to: concept:channel
+    name: is opened in
+    inverse_name: hosts
+    cardinality: {from: "0..*", to: "1"}
+    definition: Every account is opened through exactly one channel, which never changes.
+    status: confirmed
+    source: sql
+    evidence: [demo_dwd.dwd_party_account_map_df.channel_code]
+
+  - id: rel:borrower_owes_loan
+    kind: association
+    from: concept:borrower
+    to: concept:loan
+    name: owes
+    inverse_name: is owed by
+    cardinality: {from: "1", to: "1..*"}
+    definition: Each loan is owed by one borrower; a borrower owes every loan lent to it.
+    status: confirmed
+    source: owner
+
+  - id: rel:installment_loan_is_a_loan
+    kind: generalization
+    from: concept:installment_loan
+    to: concept:loan
+    name: is a kind of
+    cardinality: {from: "0..1", to: "1"}
+    definition: An instalment loan is a loan with a fixed number of monthly instalments.
+    status: drafted
+    source: llm
+
+  - id: rel:loan_renews_loan
+    kind: association
+    from: concept:loan
+    to: concept:loan
+    name: renews
+    inverse_name: is renewed by
+    cardinality: {from: "0..1", to: "0..1"}
+    definition: A renewal loan pays off the loan it extends; orig_loan_no names that loan.
+    status: drafted
+    source: sql
+    evidence: [demo_dwd.dwd_lending_loan_df.orig_loan_no]

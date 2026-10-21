@@ -31,7 +31,7 @@ SHELLS = [
 ]
 T = "demo_x.t"
 WRITE = ("FACTS=无", "CONCEPT=不写 concept", "FAILURES=无")
-AUTO = {"RUN", "TOOL", "SCRATCH", "TASKS", "PAGES", "SEMPAGES", "ENV", "ROUND_NAME"}
+AUTO = {"RUN", "TOOL", "SKILL", "SCHEMAS", "SCRATCH", "TASKS", "PAGES", "SEMPAGES", "ENV", "ROUND_NAME"}
 
 
 def _fill_source() -> str:
@@ -49,12 +49,40 @@ def run(tmp_path):
     return directory
 
 
-def _fill(shell, run, *args):
+def _fill(shell, run, *args, **overrides):
     script = run.parent / "f.sh"
     script.write_text(_fill_source() + '\nfill "$@"\n', encoding="utf-8")
     env = dict(os.environ, TOOL=str(ROOT), RUN=str(run), SCRATCH=str(run.parent / "scratch"),
                TASKS="/x", PAGES=str(run / "site"), SEMPAGES=str(run / "site/semantics"))
+    env.pop("SKILL", None)
+    env.pop("SCHEMAS", None)
+    env.update(overrides)
     return subprocess.run([shell, str(script), *args], env=env, capture_output=True, text=True)
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_a_pip_install_fills_from_the_skill_directory(shell, run, tmp_path):
+    """No checkout: ``TOOL`` empty, the skill and the package's schemas found apart."""
+    skill = tmp_path / "skills" / "scope-lineage"
+    shutil.copytree(REFS.parent / "references", skill / "references")
+    out = run.parent / "t1.md"
+    done = _fill(shell, run, "T1", str(out), f"TABLE={T}", "MODE=新写", "CORRECTIONS=无", *WRITE,
+                 TOOL="", SKILL=str(skill), SCHEMAS="/site-packages/scope_lineage/schemas")
+    assert done.returncode == 0, done.stderr
+    text = out.read_text(encoding="utf-8")
+    assert f"{skill}/references/table-semantics-prompt.md" in text
+    assert "/site-packages/scope_lineage/schemas/table-semantics.schema.json" in text
+    assert "{TOOL}" not in text and "skills/scope-lineage" not in text.replace(str(skill), "")
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_a_checkout_needs_no_skill_or_schemas_variable(shell, run):
+    out = run.parent / "t1.md"
+    done = _fill(shell, run, "T1", str(out), f"TABLE={T}", "MODE=新写", "CORRECTIONS=无", *WRITE)
+    assert done.returncode == 0, done.stderr
+    text = out.read_text(encoding="utf-8")
+    assert f"{ROOT}/skills/scope-lineage/references/table-semantics-prompt.md" in text
+    assert f"{ROOT}/scope_lineage/schemas/table-semantics.schema.json" in text
 
 
 def _touch(path: Path, text: str = "") -> Path:

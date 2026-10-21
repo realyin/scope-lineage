@@ -1,0 +1,8 @@
+terms:
+  - {term: 客户, refers_to: concept:customer, preferred: true}
+  - {term: 用户, refers_to: concept:customer, preferred: false}
+  - {term: 借据, refers_to: concept:loan, preferred: true}
+  - {term: 对客借据, refers_to: concept:loan, preferred: false}
+  - {term: 借据号, refers_to: id:loan_no, preferred: true}
+  - {term: 豁免, refers_to: concept:fee_waiver, preferred: true}
+  - {term: 罚息, refers_to: attr:loan.overdue_penalty, preferred: false, source: comment}

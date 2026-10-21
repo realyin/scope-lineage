@@ -8,9 +8,9 @@
 
 ## 读什么
 
-- 目录格式：`docs/zh-CN/ontology-catalog.md`（「元素」「表现与绑定」「起草」三节），示例
-  `examples/catalog-demo/`（`mapping/party.yaml`、`concepts/*.yaml`、`code_sets.yaml` 的形状照抄）与
-  `examples/catalog-fragments/disbursement.json`（片段的形状照抄）。示例目录用 YAML 写；目录文件也可以是
+- 目录格式：本 skill 的 `references/catalog-elements.md`（本体目录文档的「元素」「起草」两节，「表现与绑定」在「元素」里），
+  示例 `references/catalog-demo/`（`mapping/party.yaml`、`concepts/*.yaml`、`code_sets.yaml` 的形状照抄）与
+  `references/catalog-fragments/disbursement.json`（片段的形状照抄）。示例目录用 YAML 写；目录文件也可以是
   `.json`（可以全是 JSON），条目形状不变，下文只写文件名主干（`identifiers`、`code_sets`、`mapping/<group>`）。
 - 当前目录（只读）：`<catalog-dir>`。概念、标识符、关系已经起草好；不要改它，只写片段。片段不能新增概念，
   也不能改已有标识符（包括给它加拼写）：缺概念、缺事件的时间属性、已有标识符缺拼写时，写进 `notes` 并告诉
