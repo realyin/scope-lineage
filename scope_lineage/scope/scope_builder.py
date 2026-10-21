@@ -18,7 +18,7 @@ from .session_settings import (
 )
 from .keyword_identifiers import repair_keyword_identifiers
 from sqlglot.optimizer.qualify import qualify as sg_qualify
-from sqlglot.optimizer.scope import traverse_scope, Scope
+from sqlglot.optimizer.scope import traverse_scope, walk_in_scope, Scope
 
 from .parser import (
     _ORIGINALLY_ANONYMOUS_PROJECTION_META,
@@ -860,16 +860,73 @@ def _qualify_ast(ast: exp.Expression) -> tuple[exp.Expression, bool]:
     for column in ast.find_all(exp.Column):
         if not column.table:
             column.meta[_ORIGINALLY_UNQUALIFIED_META] = True
+    shielded = _shield_where_alias_collisions(ast)
     try:
-        return sg_qualify(
+        qualified = sg_qualify(
             ast,
             dialect=DIALECT,
             validate_qualify_columns=False,
             infer_schema=True,
             expand_stars=False,
-        ), True
+        )
     except Exception:  # noqa: BLE001 - qualify is an enhancement; the unqualified AST is a valid answer
+        _restore_where_alias_collisions(shielded, qualify_sole_source=False)
         return ast, False
+    _restore_where_alias_collisions(shielded, qualify_sole_source=True)
+    return qualified, True
+
+
+_WHERE_SHIELD_PREFIX = "__lineage_where_column__"
+
+
+def _shield_where_alias_collisions(ast: exp.Expression) -> list[tuple[exp.Select, exp.Identifier, str]]:
+    """Hide WHERE columns that share a name with a SELECT alias from sqlglot's alias expansion.
+
+    Spark evaluates WHERE before the projection, so a bare WHERE column is always a source
+    column. ``qualify`` expands alias references into WHERE as well, which turned
+    ``SELECT 'ALL' AS biz ... WHERE biz IN ('A')`` into ``WHERE 'ALL' IN ('A')``; a schema
+    does not prevent it once a join or an unlisted column leaves the name unresolved
+    (QUALIFY-002). Renaming the column for the duration of ``qualify`` leaves GROUP BY,
+    HAVING and lateral projection aliases, which Spark does resolve, to sqlglot.
+    """
+    shielded = []
+    for select in ast.find_all(exp.Select):
+        where = select.args.get("where")
+        aliases = {projection.alias for projection in select.expressions if isinstance(projection, exp.Alias)}
+        if not where or not aliases:
+            continue
+        for column in walk_in_scope(where):
+            if isinstance(column, exp.Column) and not column.table and column.name in aliases:
+                identifier = column.this
+                shielded.append((select, identifier, identifier.this))
+                identifier.set("this", _WHERE_SHIELD_PREFIX + identifier.this)
+    return shielded
+
+
+def _restore_where_alias_collisions(
+    shielded: list[tuple[exp.Select, exp.Identifier, str]], *, qualify_sole_source: bool,
+) -> None:
+    """Undo the shield and, after a successful qualify, qualify a still-bare column when its
+    SELECT reads one source.
+
+    sqlglot leaves the shielded name bare when the sole source is a derived table, because
+    the placeholder is not among that table's columns; the original name is, and a SELECT
+    with one source has nowhere else to bind it.
+    """
+    for select, identifier, name in shielded:
+        identifier.set("this", name)
+        column = identifier.parent
+        if qualify_sole_source and isinstance(column, exp.Column) and not column.table:
+            source = _sole_source_name(select)
+            if source:
+                column.set("table", exp.to_identifier(source, quoted=True))
+
+
+def _sole_source_name(select: exp.Select) -> str | None:
+    from_ = select.args.get("from_")
+    if not from_ or select.args.get("joins") or select.args.get("laterals"):
+        return None
+    return from_.this.alias_or_name or None
 
 
 def _build_insert_scope(
