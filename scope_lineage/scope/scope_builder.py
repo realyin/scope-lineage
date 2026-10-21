@@ -861,6 +861,7 @@ def _qualify_ast(ast: exp.Expression, schema: dict | None = None) -> tuple[exp.E
         if not column.table:
             column.meta[_ORIGINALLY_UNQUALIFIED_META] = True
     shielded = _shield_where_alias_collisions(ast) + _shield_group_by_source_columns(ast, schema)
+    outer_refs = _protect_deep_outer_refs(ast, schema)
     try:
         qualified = sg_qualify(
             ast,
@@ -871,9 +872,81 @@ def _qualify_ast(ast: exp.Expression, schema: dict | None = None) -> tuple[exp.E
         )
     except Exception:  # noqa: BLE001 - qualify is an enhancement; the unqualified AST is a valid answer
         _restore_where_alias_collisions(shielded, qualify_sole_source=False)
+        _restore_sentinels(ast, outer_refs, strict=False)
         return ast, False
     _restore_where_alias_collisions(shielded, qualify_sole_source=True)
+    _restore_sentinels(qualified, outer_refs)
     return qualified, True
+
+
+_OUTER_REF_SENTINEL = "__scope_lineage_outer_ref_{}__"
+
+
+def _protect_deep_outer_refs(ast: exp.Expression, schema: dict | None) -> dict[str, exp.Column]:
+    """Swap references to a query two or more SELECTs out for inert sentinel literals.
+
+    sqlglot looks for a correlated qualifier only in the immediate parent scope, so in
+    ``(SELECT SUM(x.v) FROM (SELECT ... FROM db.dim d WHERE d.id = t.k) x)`` the outer
+    ``t.k`` became ``d.t.k`` -- the struct field ``k`` of a column ``t`` of ``db.dim`` that
+    does not exist -- and the projection lost its real source. A source of the inner SELECT
+    known to have a column named like the qualifier keeps the struct reading: Spark
+    resolves the innermost name first.
+    """
+    existing = {literal.this for literal in ast.find_all(exp.Literal) if literal.is_string}
+    protected: dict[str, exp.Column] = {}
+    for column in list(ast.find_all(exp.Column)):
+        if len(column.parts or []) != 2 or not column.table:
+            continue
+        own = column.find_ancestor(exp.Select)
+        if own is None or column.table.lower() in _select_source_names(own):
+            continue
+        parent = own.parent.find_ancestor(exp.Select) if own.parent else None
+        if parent is None or column.table.lower() in _select_source_names(parent):
+            continue  # Undefined here, or the immediate parent: sqlglot handles both.
+        definer = parent.parent.find_ancestor(exp.Select) if parent.parent else None
+        while definer is not None and column.table.lower() not in _select_source_names(definer):
+            definer = definer.parent.find_ancestor(exp.Select) if definer.parent else None
+        if definer is None or _a_source_has_column(own, column.table, schema, {}):
+            continue
+        token = _OUTER_REF_SENTINEL.format(len(protected))
+        if token in existing:
+            return {}
+        protected[token] = column.copy()
+        column.replace(exp.Literal.string(token))
+    return protected
+
+
+def _select_source_names(select: exp.Select) -> set[str]:
+    from_ = select.args.get("from_")
+    items = ([from_.this] if from_ else []) + [join.this for join in select.args.get("joins") or []]
+    return {str(item.alias_or_name).lower() for item in items if item is not None and item.alias_or_name}
+
+
+def _restore_sentinels(
+    tree: exp.Expression, protected: dict[str, exp.Column], *, strict: bool = True,
+) -> None:
+    """Put each protected reference back, or fail rather than publish a guess (as MERGE does).
+
+    After a failed qualify the tree is the fallback answer; it gets back what can be found.
+    """
+    if not protected:
+        return
+    found: dict[str, list[exp.Literal]] = {}
+    for literal in tree.find_all(exp.Literal):
+        if literal.is_string and literal.this in protected:
+            found.setdefault(literal.this, []).append(literal)
+    for token, column in protected.items():
+        hits = found.get(token, [])
+        if len(hits) != 1 and not strict:
+            for hit in hits:
+                hit.replace(column.copy())
+            continue
+        if len(hits) != 1:
+            raise ValueError(
+                "outer query reference could not be restored after qualify: "
+                f"sentinel found {len(hits)} times, expected exactly 1"
+            )
+        hits[0].replace(column.copy())
 
 
 _WHERE_SHIELD_PREFIX = "__lineage_where_column__"

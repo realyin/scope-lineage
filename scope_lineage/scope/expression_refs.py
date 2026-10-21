@@ -102,8 +102,9 @@ def _qualified_field_ref_keys_from_ast(
     except Exception:  # noqa: BLE001 - AST confirmation is best-effort; None falls back to the text scan
         return None
     refs: set[tuple[str, str]] = set()
+    inner_aliases = _source_aliases_within(parsed)
     for column in parsed.find_all(exp.Column):
-        if _inside_nested_subquery(parsed, column):
+        if _inside_nested_subquery(parsed, column) and not _is_outer_reference(column, inner_aliases):
             continue
         parts = [str(part.name or "") for part in column.parts if getattr(part, "name", None)]
         if len(parts) >= 3 and parts[0] and parts[1] and parts[0] not in lambda_qualifiers:
@@ -114,6 +115,29 @@ def _qualified_field_ref_keys_from_ast(
             continue
         refs.add((qualifier, field))
     return refs
+
+def _source_aliases_within(root: exp.Expression) -> set[str]:
+    """Every FROM / JOIN source name a SELECT inside ``root`` defines."""
+    aliases = set()
+    for select in root.find_all(exp.Select):
+        from_ = select.args.get("from_")
+        for item in ([from_.this] if from_ else []) + [join.this for join in select.args.get("joins") or []]:
+            if item is not None and item.alias_or_name:
+                aliases.add(str(item.alias_or_name).lower())
+    return aliases
+
+
+def _is_outer_reference(column: exp.Column, inner_aliases: set[str]) -> bool:
+    """A ``qualifier.field`` inside a nested SELECT whose qualifier no nested SELECT defines.
+
+    In a correlated subquery -- ``(SELECT MAX(d.name) FROM db.dim d WHERE d.id = t.k)`` --
+    ``t.k`` reads the enclosing query, so it is a reference of the expression as a whole.
+    A qualifier any nested SELECT defines is left to that SELECT, even where it would not
+    shadow: the expansion that follows rewrites references by text.
+    """
+    qualifier = str(column.table or "")
+    return bool(qualifier) and len(column.parts) == 2 and qualifier.lower() not in inner_aliases
+
 
 def _inside_nested_subquery(root: exp.Expression, column: exp.Column) -> bool:
     """Return True when ``column`` sits inside a nested SELECT or subquery of ``root``.
