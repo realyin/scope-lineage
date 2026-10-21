@@ -659,7 +659,8 @@ When a MERGE condition field cannot be traced to a physical root field,
 merge_condition_source_unresolved is recorded, with the fields statement_id, source_alias, column,
 root_impact=true, and needed_fact. Triggering cases include a condition referencing a column the
 USING relation does not output, and a condition using a qualifier that is neither the target alias
-nor the USING alias. This gap has root_impact=true, so it sets analysis_status=partial and makes the
+nor the USING alias. A USING column computed only from literals or system values names nothing
+and is no gap. This gap has root_impact=true, so it sets analysis_status=partial and makes the
 strict gate return non-zero.
 
 diagnostics.json.metadata_coverage records referenced tables, covered tables, missing tables, the

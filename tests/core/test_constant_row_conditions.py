@@ -97,3 +97,33 @@ def test_an_untraceable_condition_is_still_a_gap_and_says_which_condition():
     assert gap["logic_block_id"] == block["logic_block_id"]
     assert gap["logic_type"] == "join"
     assert gap["expression"] == block["raw_expression"]
+
+
+def test_a_merge_condition_on_a_constant_using_column_is_not_a_gap():
+    result = parse_task_lineage(
+        "MERGE INTO db.tgt t USING (SELECT '2026' AS y, o FROM db.src) s "
+        "ON t.o = s.o AND s.y = '2026' WHEN MATCHED THEN UPDATE SET t.v = s.o",
+        task_name="t",
+        schema=SCHEMA,
+    )
+
+    assert [
+        gap for gap in result.diagnostics["lineage_fact_gaps"]
+        if gap["gap_type"] == "merge_condition_source_unresolved"
+    ] == []
+    assert to_task_lineage_dict(result)["analysis_status"]["status"] == "complete"
+
+
+def test_a_merge_condition_on_an_untraceable_using_column_is_still_a_gap():
+    result = parse_task_lineage(
+        "MERGE INTO db.tgt t USING (SELECT * FROM db.unknown) s "
+        "ON t.o = s.o AND s.y = '2026' WHEN MATCHED THEN UPDATE SET t.v = s.o",
+        task_name="t",
+        schema=SCHEMA,
+    )
+
+    assert ("s", "y") in {
+        (gap["source_alias"], gap["column"])
+        for gap in result.diagnostics["lineage_fact_gaps"]
+        if gap["gap_type"] == "merge_condition_source_unresolved"
+    }

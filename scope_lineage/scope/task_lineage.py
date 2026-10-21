@@ -13,7 +13,7 @@ from ._constants import DIALECT, PARSE_OPTS
 from .expansion_budget import expansion_limit as scoped_expansion_limit
 from .sqlglot_walk import render_sql_or_none
 from .composition import dedupe_sources
-from .end_to_end import _physical_fields_for_scope_column, _scope_column_roots
+from .end_to_end import _scope_column_roots
 from .scope_types import CONSTANT_SCOPE_ID, SYSTEM_SCOPE_ID, ScopeLineageResult
 from .ctas_missing_as import repair_ctas_missing_as
 from .keyword_identifiers import repair_keyword_identifiers
@@ -2014,9 +2014,12 @@ def _merge_condition_sources(
                     _merge_condition_gap(statement_id, column.table, column.name)
                 )
                 continue
-            physical_fields, incomplete_reasons = _merge_condition_physical_fields(
+            physical_fields, generated, incomplete_reasons = _merge_condition_physical_fields(
                 result, column.name
             )
+            if not physical_fields and not incomplete_reasons and _only_literal_or_system(generated):
+                # A USING column that is a literal or a system value decides nothing.
+                continue
             if incomplete_reasons or not physical_fields:
                 gaps.append(
                     _merge_condition_gap(statement_id, column.table, column.name)
@@ -2029,14 +2032,15 @@ def _merge_condition_sources(
 def _merge_condition_physical_fields(
     result: ScopeLineageResult,
     column_name: str,
-) -> tuple[list[dict], list[str]]:
+) -> tuple[list[dict], list[dict], list[str]]:
     if not result.merge_using_scope_id:
-        return [], ["merge_using_scope_missing"]
-    fields, incomplete_reasons = _physical_fields_for_scope_column(
+        return [], [], ["merge_using_scope_missing"]
+    fields, generated, incomplete_reasons = _scope_column_roots(
         result, result.merge_using_scope_id, column_name
     )
     return (
         [{"table": field["table"], "column": field["column"]} for field in fields],
+        generated,
         incomplete_reasons,
     )
 
