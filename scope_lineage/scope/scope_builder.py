@@ -27,7 +27,7 @@ from .parser import (
     _unwrap_target,
 )
 from .related_metadata import build_related_metadata
-from ..metadata.schema_metadata import SchemaMap, normalize_schema_map
+from ..metadata.schema_metadata import SchemaMap, lookup_columns, normalize_schema_map
 from ..metadata.target_table_metadata import lookup_target_table_metadata
 from .scope_types import (
     ScopeData,
@@ -819,7 +819,7 @@ def _build_ctas_scope(
         return result
 
     src_expr = definition.expression.copy()
-    qualified, qualify_ok = _qualify_ast(src_expr)
+    qualified, qualify_ok = _qualify_ast(src_expr, schema)
 
     if not qualify_ok:
         result.diagnostics.fallback_used = True
@@ -836,7 +836,7 @@ def _build_ctas_scope(
     return result
 
 
-def _qualify_ast(ast: exp.Expression) -> tuple[exp.Expression, bool]:
+def _qualify_ast(ast: exp.Expression, schema: dict | None = None) -> tuple[exp.Expression, bool]:
     """Run sqlglot qualify with graceful degradation, and say whether it worked.
 
     Success cannot be read from the returned object: ``qualify`` mutates the tree it is
@@ -860,7 +860,7 @@ def _qualify_ast(ast: exp.Expression) -> tuple[exp.Expression, bool]:
     for column in ast.find_all(exp.Column):
         if not column.table:
             column.meta[_ORIGINALLY_UNQUALIFIED_META] = True
-    shielded = _shield_where_alias_collisions(ast)
+    shielded = _shield_where_alias_collisions(ast) + _shield_group_by_source_columns(ast, schema)
     try:
         qualified = sg_qualify(
             ast,
@@ -901,6 +901,50 @@ def _shield_where_alias_collisions(ast: exp.Expression) -> list[tuple[exp.Select
                 shielded.append((select, identifier, identifier.this))
                 identifier.set("this", _WHERE_SHIELD_PREFIX + identifier.this)
     return shielded
+
+
+def _shield_group_by_source_columns(
+    ast: exp.Expression, schema: dict | None,
+) -> list[tuple[exp.Select, exp.Identifier, str]]:
+    """Hide a GROUP BY name from alias expansion when a source of its SELECT has that column.
+
+    Spark resolves a grouping key against the input's columns and falls back to a SELECT
+    alias only for a name no input has. ``qualify`` without a schema expanded every
+    matching name, so ``SELECT UPPER(a) AS k ... GROUP BY k`` grouped by ``UPPER(a)`` even
+    when the source has its own ``k``. A source whose columns are unknown leaves the name
+    to the alias, as before.
+    """
+    ctes = {cte.alias_or_name.lower(): cte.this for cte in ast.find_all(exp.CTE)}
+    shielded = []
+    for select in ast.find_all(exp.Select):
+        group = select.args.get("group")
+        aliases = {projection.alias for projection in select.expressions if isinstance(projection, exp.Alias)}
+        if not group or not aliases:
+            continue
+        for column in walk_in_scope(group):
+            if (isinstance(column, exp.Column) and not column.table and column.name in aliases
+                    and _a_source_has_column(select, column.name, schema, ctes)):
+                identifier = column.this
+                shielded.append((select, identifier, identifier.this))
+                identifier.set("this", _WHERE_SHIELD_PREFIX + identifier.this)
+    return shielded
+
+
+def _a_source_has_column(select: exp.Select, name: str, schema: dict | None, ctes: dict) -> bool:
+    from_ = select.args.get("from_")
+    items = ([from_.this] if from_ else []) + [join.this for join in select.args.get("joins") or []]
+    for item in items:
+        if isinstance(item, exp.Table) and item.name.lower() in ctes and not item.db:
+            columns = ctes[item.name.lower()].named_selects
+        elif isinstance(item, exp.Table):
+            columns = lookup_columns(schema or {}, _qualified_table(item)) or []
+        elif isinstance(item, exp.Subquery) and isinstance(item.this, exp.Query):
+            columns = item.this.named_selects
+        else:
+            columns = []
+        if name.lower() in {str(column).lower() for column in columns}:
+            return True
+    return False
 
 
 def _restore_where_alias_collisions(
@@ -960,7 +1004,7 @@ def _build_insert_scope(
         return result
 
     src_expr = _build_source_expression(insert, target_metadata=target_metadata)
-    qualified, qualify_ok = _qualify_ast(src_expr)
+    qualified, qualify_ok = _qualify_ast(src_expr, schema)
 
     if not qualify_ok:
         result.diagnostics.fallback_used = True
@@ -1078,7 +1122,7 @@ def _build_merge_scope(
     merge = _merge_with_subquery_source(merge)
 
     protected = _protect_merge_correlated_target_refs(merge)
-    qualified, _qualify_ok = _qualify_ast(merge)
+    qualified, _qualify_ok = _qualify_ast(merge, schema)
     _restore_merge_correlated_target_refs(qualified, protected)
     # Only the column list, and only for the `*` branches. Deliberately not routed
     # through apply_target_field_binding: that pass runs before MERGE's ROOT columns
