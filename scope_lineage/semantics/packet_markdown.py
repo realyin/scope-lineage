@@ -407,6 +407,9 @@ _DATE_SHAPES = {
     "as_of": "有效期取数（拉链）",
     "upper_bound": "只有上界",
     "null_check": "非空判断",
+    "cutoff": "固定起止（截取历史）",
+    "period": "批次所在年/季/月",
+    "snapshot_pick": "按规则取某一天的快照",
 }
 
 

@@ -206,9 +206,11 @@ def missing_packet(document: dict) -> dict:
 def check_time(document: dict, packet: dict) -> list[dict]:
     """``incremental`` over full snapshots fails; ``snapshot`` over a date window warns.
 
-    Only a date filter shaped as a window selects rows by business date: an as-of pair
-    (``beg <= D AND end > D``), an upper bound alone and a NULL check do not. A filter
-    from a packet built before shapes were published counts as a window.
+    Only a date filter shaped as a window -- a day-level comparison with the batch -- selects
+    a batch's rows by business date: an as-of pair (``beg <= D AND end > D``), an upper
+    bound alone, a NULL check, a cutoff on a fixed literal and a period of the batch (its
+    year, quarter or month) do not. A filter from a packet built before shapes were
+    published counts as a window.
     """
     at, time = "summary.refresh.time", document["summary"]["refresh"]["time"]
     inputs = packet["inputs"]
@@ -223,5 +225,7 @@ def check_time(document: dict, packet: dict) -> list[dict]:
             "并在 how_to_read 里写明只取一个分区"))]
     if time == "snapshot" and dated:
         return [result("time", "warn", at, (
-            f"写了 snapshot，但写入按业务日期筛选（{'；'.join(dated)}）；确认这张表是不是按日增量"))]
+            f"写了 snapshot，但写入按批次日逐日筛选业务日期（{'；'.join(dated)}）；确认这张表是不是按日增量。"
+            "整表按批次重算、只是用日期截取历史或取本期的，仍是 snapshot，"
+            "不要只为消除这条提示改成 incremental"))]
     return [result("time", "pass", at)]

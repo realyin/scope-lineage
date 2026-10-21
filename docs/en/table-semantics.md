@@ -170,8 +170,15 @@ is one), and `packet.md`'s rules table shows 是（右表 …） in its 分区�
 Each `date_filters` entry carries the `statement_id` it sits in and its `shape`: `X <= C`
 (or `<`) paired with `Y > C` (or `>=`) on another column, same statement, same constant,
 is `as_of` (a zipper table read as of one day); an upper bound alone is `upper_bound`;
-`IS [NOT] NULL` is `null_check`; anything else (`=`, `>=`, `>`, BETWEEN, a shape not
-recognised) is `window`. Only a `window` selects rows by business date.
+`IS [NOT] NULL` is `null_check`. Anything else (`=`, `>=`, `>`, BETWEEN, a shape not
+recognised) is split by what it compares with: a day-level comparison with the batch (the
+input's partition value, a run parameter `${…}`, the current date) is `window`; the batch's
+year, quarter or month is `period`; an equality with a day a rule computes (a CASE over the
+batch, the latest value a subquery finds) is `snapshot_pick` (one day's snapshot of the
+input); a fixed literal only is `cutoff` (history from a point on). A condition on the
+input's partition column reads partitions and is no business-date filter, even inside an
+IN subquery or an OR. Only a `window` selects a batch's rows by date, and only a `window` makes check 9
+doubt `snapshot`.
 
 Whether a filter reads partitions is decided per conjunct, because the lineage's own flag
 is a name rule over a whole `WHERE` clause (`dt = x AND status = 0` marks neither half).

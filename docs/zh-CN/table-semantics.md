@@ -134,7 +134,10 @@ scope-lineage catalog render out/catalog/ontology.json --out out/pages \
 
 每条 `date_filters` 带所在语句 `statement_id` 与形状 `shape`：同一语句里同一常量的 `X <= C`（或 `<`）配
 `Y > C`（或 `>=`）是 `as_of`（拉链按某日取有效记录），单独的上界是 `upper_bound`，`IS [NOT] NULL` 是
-`null_check`，其余（`=`、`>=`、`>`、BETWEEN、认不出的形状）是 `window`。只有 `window` 算按业务日期筛选。
+`null_check`。其余（`=`、`>=`、`>`、BETWEEN、认不出的形状）再按它比的是什么分：和批次（这个输入的分区值、
+运行参数 `${…}`、当前日期）按天比较的是 `window`；取批次所在年、季、月的是 `period`；等于一个按规则算出的
+日期（批次上的 CASE、子查询取的最新值）的是 `snapshot_pick`（取输入某一天的快照）；只和固定字面量比的是
+`cutoff`（截取历史）。输入分区列上的条件是读分区，不算业务日期过滤，即使它在 IN 子查询或 OR 里。只有 `window` 算按批次日逐日筛选，检查 9 只对它怀疑 `snapshot`。
 
 过滤是否在取分区，逐个合取项判断，因为血缘自己的标记是对整个 `WHERE` 子句的列名规则（`dt = x AND status = 0`
 两半都不会被标记）。每条过滤规则带 `partition_filter` 与它依据的 `partition_basis`：
