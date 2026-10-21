@@ -36,14 +36,21 @@ def check_rules(document: dict, packet: dict) -> list[dict]:
     sql = task_sql(scripts)
     quoted = frozenset().union(*(
         sql.expand(quote_forms(rule["sql"])) for rule in document["rules"] if rule.get("sql")))
-    results = []
+    results, uncited = [], {}
     for rule in packet["lineage"]["rules"]:
         if rule["kind"] != "filter" or rule["partition_filter"]:
             continue
         if rule.get("right_of") and rule.get("right_side_kind") in EXEMPT_RIGHT_SIDE:
             continue
-        cited = fragment_forms(str(rule["expression"] or "")) & quoted
-        results.append(result("rules", "pass", "rules") if cited else _uncited(rule))
+        if fragment_forms(str(rule["expression"] or "")) & quoted:
+            results.append(result("rules", "pass", "rules"))
+        else:
+            # One quote cites a predicate in every scope that repeats it, so the scopes
+            # share one failure instead of each printing the same one. Only the same text,
+            # qualifiers included: ``a.rn = 1`` and ``b.rn = 1`` are two filters.
+            key = (rule["task"], str(rule["expression"] or ""), tuple(rule.get("right_of") or ()))
+            uncited.setdefault(key, []).append(rule)
+    results += [_uncited(rules) for rules in uncited.values()]
     return results + _quoted_sql(document, scripts, sql) + _rule_refs(document)
 
 
@@ -52,8 +59,9 @@ EXEMPT_RIGHT_SIDE = (RANK_FIRST, VALUES)
 _QUOTE_IT = "sql 照抄这条过滤的原文，可以只抄这一个条件，不必抄整段 WHERE"
 
 
-def _uncited(rule: dict) -> dict:
-    said = f"过滤 {_plain(rule['expression'])}（{rule['task']}）"
+def _uncited(rules: list[dict]) -> dict:
+    rule = rules[0]
+    said = f"过滤 {_plain(rule['expression'])}（{rule['task']}{_occurrences(rules)}）"
     if rule.get("right_of"):
         joins = "、".join(rule["right_of"])
         return result("rules", "fail", "rules", (
@@ -62,6 +70,17 @@ def _uncited(rule: dict) -> dict:
     return result("rules", "fail", "rules", (
         f"{said}没有被任何 rules[].sql 引用；补一条 filter 规则，{_QUOTE_IT}，"
         "并在 summary.scope 里用 rule_refs 引用它"))
+
+
+def _occurrences(rules: list[dict]) -> str:
+    """Where an uncited filter occurs: ``p7（cte:x）``; a packet without ids says nothing."""
+    places = [f"{rule['id']}（{rule['scope']}）" if rule.get("scope") else str(rule["id"])
+              for rule in rules if rule.get("id")]
+    if not places:
+        return ""
+    if len(rules) == 1:
+        return f"，材料包 {places[0]}"
+    return f"，出现 {len(rules)} 处：{'、'.join(places)}；一条规则即可全部引用"
 
 
 def _scripts(packet: dict) -> tuple:

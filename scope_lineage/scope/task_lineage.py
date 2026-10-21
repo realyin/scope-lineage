@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Iterable, Mapping
+from typing import Any, Iterable, Mapping
 
 import sqlglot
 from sqlglot import exp
@@ -13,8 +13,8 @@ from ._constants import DIALECT, PARSE_OPTS
 from .expansion_budget import expansion_limit as scoped_expansion_limit
 from .sqlglot_walk import render_sql_or_none
 from .composition import dedupe_sources
-from .end_to_end import _physical_fields_for_scope_column
-from .scope_types import ScopeLineageResult
+from .end_to_end import _physical_fields_for_scope_column, _scope_column_roots
+from .scope_types import CONSTANT_SCOPE_ID, SYSTEM_SCOPE_ID, ScopeLineageResult
 from .ctas_missing_as import repair_ctas_missing_as
 from .keyword_identifiers import repair_keyword_identifiers
 from .scope_builder import (
@@ -1739,7 +1739,8 @@ def _query_row_conditions(
     UNION branch, CTE), so a scalar subquery in the SELECT list -- which decides a value,
     not which rows exist -- stays out, while a subquery in a WHERE is already among its
     parent's filter fields. A field whose scope cannot be traced to a physical column is a
-    fact gap, never a guessed name.
+    fact gap, never a guessed name; one traced only to literals or system values is
+    closed and names nothing.
     """
     sources: list[dict] = []
     visited: set[str] = set()
@@ -1757,7 +1758,8 @@ def _query_row_conditions(
             for ref in block.fields or []:
                 sources.extend(
                     _row_condition_fields(
-                        result, ref.scope, ref.column, statement_id, gaps, states
+                        result, ref.scope, ref.column, statement_id, gaps, states,
+                        condition=(scope_id, block),
                     )
                 )
     return _dedupe_dicts(sources)
@@ -1770,7 +1772,14 @@ def _row_condition_fields(
     statement_id: str,
     gaps: list[dict],
     states: _StateBuilder | None = None,
+    condition: tuple[str, Any] | None = None,
 ) -> list[dict]:
+    """The physical fields behind one condition field, or a gap naming the condition.
+
+    ``relation`` and ``column`` are the field read; ``condition`` is the scope and logic
+    block that read it -- the gap's ``scope_id`` is the relation, so without these a
+    reader cannot tell which WHERE / JOIN to look at.
+    """
     if not relation or not column or column == "*":
         return []
     if relation not in result.scopes:
@@ -1778,18 +1787,45 @@ def _row_condition_fields(
         # was read, and whether it lives only in the session -- so the fold can resolve a
         # temp view's column to the table behind it instead of naming the view.
         return [{"table": relation, "column": column, **_source_state(states, relation)}]
-    fields, incomplete_reasons = _physical_fields_for_scope_column(result, relation, column)
+    fields, generated, incomplete_reasons = _scope_column_roots(result, relation, column)
+    if not fields and not incomplete_reasons and _only_literal_or_system(generated):
+        # A literal or a system value decides nothing about which source rows exist.
+        return []
     if incomplete_reasons or not fields:
-        gaps.append({
+        gap = {
             "gap_type": "row_condition_source_unresolved",
             "statement_id": statement_id,
             "scope_id": relation,
             "column": column,
             "root_impact": True,
             "needed_fact": "physical field behind a query condition",
-        })
+        }
+        if condition is not None:
+            condition_scope_id, block = condition
+            gap.update({
+                "condition_scope_id": condition_scope_id,
+                "logic_block_id": block.logic_block_id,
+                "logic_type": block.logic_type,
+                "expression": block.raw_expression,
+            })
+        gaps.append(gap)
         return []
     return [{"table": field["table"], "column": field["column"]} for field in fields]
+
+
+def _only_literal_or_system(generated: list[dict]) -> bool:
+    """Whether every generated source is a literal or a system value.
+
+    A star the parser could not expand also arrives as a CONSTANT-typed generated source
+    (``value: "*"``, ``transform: EXPAND_ALL``) with no incomplete reason; it stands for
+    unknown columns, not a literal, so it keeps the gap.
+    """
+    return bool(generated) and all(
+        source.get("source_type") in {CONSTANT_SCOPE_ID, SYSTEM_SCOPE_ID}
+        and source.get("transform") != "EXPAND_ALL"
+        and source.get("value") != "*"
+        for source in generated
+    )
 
 
 def _merge_column_missing_reasons(

@@ -201,9 +201,25 @@ def _physical_fields_for_scope_column(
     able to tell "no physical source" from "traced to none", and publish a fact gap
     rather than a plausible table name.
     """
+    fields, _generated, reasons = _scope_column_roots(result, scope_id, column_name)
+    return fields, reasons
+
+
+def _scope_column_roots(
+    result: ScopeLineageResult,
+    scope_id: str,
+    column_name: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
+    """``_physical_fields_for_scope_column`` plus the generated sources the trace reached.
+
+    A column computed only from literals or system values has no physical field and an
+    incomplete-free trace: "traced to a constant", which a caller must not read as
+    "traced to none".
+    """
     lineage = _lineage_for_column(result, scope_id, column_name, "DIRECT")
     return (
         list(lineage.get("physical_sources") or []),
+        list(lineage.get("generated_sources") or []),
         list(lineage.get("trace_incomplete_reasons") or []),
     )
 

@@ -124,7 +124,10 @@ HAVING、QUALIFY 读到的物理字段进入 row_membership_sources。"查询路
 scope（FROM、JOIN、UNION 分支、CTE），所以 CTE 里的过滤、每个 UNION 分支各自的过滤都算；SELECT 列表里
 标量子查询的 WHERE 只决定一个值，不算；WHERE 里的 `IN (子查询)` 的列已经是父查询过滤的字段。GROUP BY
 的键不算——它们是输出的值。追加（INSERT INTO）时，新写入这批行的条件与前一状态已有的条件并列。
-追踪不到物理字段的条件字段不补位名字，记为 row_condition_source_unresolved fact gap。
+只由常量或系统值算出的条件字段（`'2026' AS y`、`CURRENT_DATE() AS d`）不对应任何名字，也不是缺口：没有
+哪一行源数据决定它。追踪不到物理字段的条件字段不补位名字，记为 row_condition_source_unresolved fact gap；
+缺口的 `scope_id` / `column` 是被读的字段，`condition_scope_id`、`logic_block_id`、`logic_type`、
+`expression` 指出是哪一个 WHERE / JOIN / HAVING / QUALIFY 读了它。
 
 聚合列要把这两类放在一起读：`COUNT(*)` 的值来自它计数的行集（见下一节的 `rowset`），而行集由
 row_membership_sources 里的条件决定——这些条件改变的是计数的**值**，不只是哪一行存在。
