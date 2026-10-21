@@ -1,0 +1,23 @@
+{
+  "representations": [
+    {
+      "table": "demo_dwd.dwd_collection_fee_waiver_di",
+      "concept": "concept:fee_waiver",
+      "kind": "event_detail",
+      "grain": {"identifiers": [], "extra": ["waiver_seq"], "source": "inferred"},
+      "time": "incremental",
+      "table_status": "active",
+      "bindings": [
+        {"column": "waiver_seq", "to": "technical"},
+        {"column": "loan_no", "to": "foreign_identifier", "ref": "id:loan_no"},
+        {"column": "waiver_type", "to": "attribute", "ref": "attr:fee_waiver.waiver_type", "code_map": {"PEN": "penalty waived", "INT": "interest waived"}},
+        {"column": "waive_amt", "to": "attribute", "ref": "attr:fee_waiver.amount"},
+        {"column": "waive_time", "to": "attribute", "ref": "attr:fee_waiver.waived_at"},
+        {"column": "dt", "to": "technical"}
+      ],
+      "status": "drafted",
+      "source": "llm",
+      "notes": "Kept as JSON on purpose: any catalog file may be YAML or JSON."
+    }
+  ]
+}

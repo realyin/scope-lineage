@@ -20,8 +20,9 @@
 `cat <<EOF` 写它：不带引号的 `EOF` 会把 `$RUN`、`$@` 当场展开，写出来的文件就错了（非要用 heredoc 就写 `<<'EOF'`）。
 
 ```bash
-# ===== scope-lineage 运行环境：只改等号右边，全部写绝对路径 =====
-export TOOL=/abs/path/to/scope-lineage        # 工具仓库根目录（里面有 skills/ docs/ examples/ pyproject.toml）
+# ===== scope-lineage 运行环境：只改等号右边，全部写绝对路径，一律用正斜杠（Git Bash 会吞掉反斜杠） =====
+export TOOL=/abs/path/to/scope-lineage        # 工具仓库根目录（里面有 skills/ docs/ examples/ pyproject.toml）；pip 安装、没有仓库就留空
+export SKILL="${TOOL:+$TOOL/skills/scope-lineage}"   # skill 目录（有 SKILL.md、references/、scripts/）；TOOL 留空时写它的绝对路径
 export TASKS=/abs/path/to/tasks               # 任务 JSON 目录（parse --input-dir）
 export SCHEMA=/abs/path/to/schema             # 表元数据：rich-JSON 目录或文件（parse --schema）
 export DDL=                                   # 目标表 DDL 元数据；和 SCHEMA 是同一目录就写同一个值；没有就留空
@@ -32,8 +33,11 @@ export SCRATCH=/abs/path/to/scratchpad/run-20260101   # 临时目录，不放在
 export Q=                                     # 回归题集（question-set/1）；没有就留空
 export PAGES="$RUN/site"                      # 页面根目录（概念页、index.md）
 export SEMPAGES="$RUN/site/semantics"         # 表语义页目录
-sl() { uv run --project "$TOOL" --extra catalog scope-lineage "$@"; }
-# 已经 pip 安装了 scope-lineage[catalog] 的机器，把上一行换成：sl() { scope-lineage "$@"; }
+sl() { if [ -n "$TOOL" ]; then uv run --project "$TOOL" --extra catalog scope-lineage "$@"; else scope-lineage "$@"; fi; }
+# Windows 上 python3 指向应用商店占位程序（退出码 49、「Python was not found」）时，取消下一行注释：
+# python3() { python "$@"; }
+export SCHEMAS="${TOOL:+$TOOL/scope_lineage/schemas}"   # 工具自带的 JSON Schema；TOOL 留空时由下一行从已安装的包里找
+[ -n "$SCHEMAS" ] || SCHEMAS="$(python3 -c 'import importlib.util as u, os; print(os.path.join(u.find_spec("scope_lineage").submodule_search_locations[0], "schemas"))' 2>/dev/null)"
 load_tables() {   # 把 tables.txt 读进数组 TABLES；读到 0 张表就报错
   TABLES=(); while IFS= read -r t; do [ -n "$t" ] && TABLES+=("$t"); done < "$RUN/tables.txt"
   echo "tables=${#TABLES[@]}"; [ "${#TABLES[@]}" -gt 0 ]
@@ -47,7 +51,8 @@ import os, re, sys
 if len(sys.argv) < 3:
     sys.exit("用法：fill <模板编号或名字> <输出文件> KEY=值 …")
 name, out, pairs = sys.argv[1], sys.argv[2], sys.argv[3:]
-src = open(os.path.join(os.environ["TOOL"], "skills/scope-lineage/references/runbook-templates.md"), encoding="utf-8").read()
+skill = os.environ.get("SKILL") or os.path.join(os.environ.get("TOOL", ""), "skills/scope-lineage")
+src = open(os.path.join(skill, "references/runbook-templates.md"), encoding="utf-8").read()
 meta = {}   # 模板编号 -> {"names": [...], "MODE": [...], "rules": [(规则, 只在哪个 MODE 生效, 值)]}
 for m in re.finditer(r"^<!-- fill: (.*?) -->$", src, re.M):
     entry = {"rules": []}
@@ -69,8 +74,10 @@ m = re.search(r"^## " + re.escape(tid) + r" (.*?)$.*?^----8<----\n(.*?)^----8<--
 title, text = m.group(1), m.group(2)
 label = tid + "（" + title + "）"
 wanted = set(re.findall(r"\{([A-Z_]+)\}", text))
-AUTO = {"RUN", "TOOL", "SCRATCH", "TASKS", "PAGES", "SEMPAGES", "ENV", "ROUND_NAME"}
+AUTO = {"RUN", "TOOL", "SKILL", "SCHEMAS", "SCRATCH", "TASKS", "PAGES", "SEMPAGES", "ENV", "ROUND_NAME"}
 vals = {k: os.environ.get(k, "") for k in ("RUN", "TOOL", "SCRATCH", "TASKS", "PAGES", "SEMPAGES")}
+vals["SKILL"] = skill
+vals["SCHEMAS"] = os.environ.get("SCHEMAS") or (os.path.join(os.environ["TOOL"], "scope_lineage/schemas") if os.environ.get("TOOL") else "")
 vals["ENV"] = os.path.join(os.environ["RUN"], "env.sh")
 raw = {}
 for pair in pairs:
@@ -168,7 +175,7 @@ set -o pipefail
   2. 跑进度脚本（0.6），以它为准（账本和它不一致时以它为准，并记进问题清单）：
 
      ```bash
-     python3 "$TOOL/skills/scope-lineage/scripts/next_step.py" "$RUN"
+     python3 "$SKILL/scripts/next_step.py" "$RUN"
      ls "$SCRATCH/prompts" 2>&1
      ```
 
@@ -209,7 +216,7 @@ set -o pipefail
 **每一步做完（`note` 之后），跑一次进度脚本，按它打印的「当前」那一步往下做。** 它只读 `$RUN` 里的文件，不改任何东西：
 
 ```bash
-python3 "$TOOL/skills/scope-lineage/scripts/next_step.py" "$RUN"
+python3 "$SKILL/scripts/next_step.py" "$RUN"
 ```
 
 它打印三样东西：
@@ -233,7 +240,7 @@ python3 "$TOOL/skills/scope-lineage/scripts/next_step.py" "$RUN"
 
 **前提检查**
 
-- `$TOOL/skills/scope-lineage/SKILL.md` 存在；`uv --version` 能运行（或机器上已装 `scope-lineage[catalog]`）。
+- `$SKILL/SKILL.md` 存在；`TOOL` 非空时 `uv --version` 能运行，留空时机器上已装 `scope-lineage[catalog]`（`sl` 据此二选一）。
 - 运行目录 `$RUN` 不存在，或是空目录。不要在旧运行目录里开新一轮。
 
 **命令**
@@ -243,15 +250,19 @@ mkdir -p /abs/path/to/runs/run-20260101 /abs/path/to/scratchpad/run-20260101
 # 用 Write 工具把 0.1 的变量块写成 /abs/path/to/runs/run-20260101/env.sh，然后：
 . /abs/path/to/runs/run-20260101/env.sh
 sl --version; echo "exit=$?"
-head -3 "$TOOL/CHANGELOG.md"
-head -1 "$TOOL/skills/scope-lineage/references/table-semantics-prompt.md"
+head -1 "$SKILL/references/table-semantics-prompt.md"
+ls "$SCHEMAS/table-semantics.schema.json"; echo "exit=$?"
 touch "$RUN/.write-test" && rm "$RUN/.write-test"; echo "exit=$?"
-sl catalog validate "$TOOL/examples/catalog-demo" > "$SCRATCH/pyyaml-check.txt" 2>&1; echo "exit=$?"
+sl catalog validate "$SKILL/references/catalog-demo" > "$SCRATCH/pyyaml-check.txt" 2>&1; echo "exit=$?"
 mkdir -p "$RUN"/{artifacts,corpus,packets,docs,reviews,reviews_prev,prev/docs,blocked/docs,digest,catalog,fragments,confirmations}
 mkdir -p "$SCRATCH/prompts"
-sl --version > "$RUN/TOOL_VERSION"     # 第二次运行只为写进文件
-git -C "$TOOL" log -1 --format='commit %h %cd' >> "$RUN/TOOL_VERSION"
-git -C "$TOOL" status --porcelain | wc -l | sed 's/^ */uncommitted files: /' >> "$RUN/TOOL_VERSION"   # 不是 0：工具目录有未提交改动，复现时要用同一个工作区
+sl --version > "$RUN/TOOL_VERSION"     # 第二次运行只为写进文件；source 一项已是代码的提交号或包指纹
+if [ -n "$TOOL" ] && git -C "$TOOL" rev-parse 2>/dev/null; then
+  git -C "$TOOL" log -1 --format='commit %h %cd' >> "$RUN/TOOL_VERSION"
+  git -C "$TOOL" status --porcelain | wc -l | sed 's/^ */uncommitted files: /' >> "$RUN/TOOL_VERSION"   # 不是 0：工具目录有未提交改动，复现时要用同一个工作区
+else
+  python3 -m pip show scope-lineage 2>/dev/null | sed -n '1,2p;/^Location/p' >> "$RUN/TOOL_VERSION"   # pip 安装：记版本与安装位置
+fi
 ```
 
 然后按 `runbook-templates.md` 的「运行账本模板」建 `$RUN/ledger.md`。
@@ -261,7 +272,7 @@ git -C "$TOOL" status --porcelain | wc -l | sed 's/^ */uncommitted files: /' >> 
 - `sl --version` 打印 `scope-lineage X.Y.Z (sqlglot …, source …)`。版本判断：
   - `X.Y.Z` ≥ `0.11.1`：通过。
   - 其他：不通过（提示词 `@12` 读的材料包标签、治理线索和目录字段要 0.11.0 才有；0.11.0 会把与 SELECT 别名同名的 `WHERE` 列改写成别名表达式，0.11.1 修正）。
-- 写入检查和 PyYAML 检查两个 `exit=0`。
+- schema 检查、写入检查和 PyYAML 检查三个 `exit=0`。
 - `$RUN/TOOL_VERSION`、`$RUN/ledger.md` 存在。
 
 **常见失败与处理**
@@ -272,10 +283,13 @@ git -C "$TOOL" status --porcelain | wc -l | sed 's/^ */uncommitted files: /' >> 
 | `command not found: uv` | 127 | 装 uv，或 `pipx install 'scope-lineage[catalog]'` 后把 `sl` 换成 0.1 注释里的写法 |
 | 版本低于 0.11.1 | — | 停下告诉 owner。不要自己 `pipx install` 覆盖：`TOOL` 可能是 owner 指定的工作区 |
 | PyYAML 检查报 `PyYAML` / `pip install 'scope-lineage[catalog]'` | 2 | `sl` 少了 `--extra catalog`，或安装时没带 `[catalog]` |
+| `ls` 报 `table-semantics.schema.json` 不存在，或 `$SCHEMAS` 为空 | 非 0 | `TOOL` 留空时 `python3` 找不到已安装的 `scope_lineage`：换成装了它的那个 Python，或把 `SCHEMAS` 写成 `site-packages/scope_lineage/schemas` 的绝对路径 |
+| `python3` 退出码 49 或「Python was not found」（Windows） | 49 | 取消 0.1 里 `python3() { python "$@"; }` 那行的注释，重新 `. env.sh` |
+| `$SKILL/SKILL.md` 不存在 | — | `TOOL` 留空时 `SKILL` 要写 skill 目录的绝对路径（skill 和工具分开装的机器，两个路径不同） |
 | `touch` 失败，或 Write 工具写 `$RUN` 被钩子拦截 | 非 0 | 先写 `$SCRATCH` 下同名文件，再用 `cp` 拷进 `$RUN`。这一条要写进每个子代理的说明（模板里已有） |
 | 钩子提示「改用另一个路径」（例如 worktree 里的路径） | — | 运行目录的位置由 owner 指定。按上一行的 SCRATCH + `cp` 做；钩子连 `cp` 也拦、坚持要换路径时，停下问 owner，不要擅自把 `$RUN` 换到别处 |
 
-**完成判据**：版本判断通过；两个检查 `exit=0`；`env.sh`、`TOOL_VERSION`、`ledger.md` 都在。
+**完成判据**：版本判断通过；三个检查 `exit=0`；`env.sh`、`TOOL_VERSION`、`ledger.md` 都在。
 
 **下一步**：S1。
 
@@ -310,8 +324,10 @@ ls "$RUN/artifacts"
 - 摘要行：`Parsed N statement(s) from M input(s) into … (tasks=…, modeled=…, failed=…, input_failed=…, partial_tasks=…, unsupported_mutations=…, root_gap_results=…, …)`。
   只看 `failed`、`input_failed`、`partial_tasks`、`root_gap_results` 四项；其余字段（`binding_fallbacks`、`recovered_syntax`、
   `binding_not_applicable` 等）不为 0 也不用处理。
-- `$RUN/artifacts/<任务名>/lineage.json`，一个任务一个目录。目录名是**任务名**，不是表名。
-- 看一个任务：`python3 "$TOOL/skills/scope-lineage/scripts/query.py" summary "$RUN/artifacts/<任务名>"`，
+- 每个任务一个目录，目录名是**任务名**，不是表名。`$TASKS` 下有子目录（如按层分的 `ads/`、`dws/`）时，输出照搬那层子目录：
+  `$RUN/artifacts/<子目录>/<任务名>/lineage.json`；`$TASKS` 是平的就是 `$RUN/artifacts/<任务名>/lineage.json`。后面的命令都递归找
+  `lineage.json`，两种布局都能用，**不要手工铺平**。找某个任务的目录：`find "$RUN/artifacts" -type d -name '<任务名>'`。
+- 看一个任务：`python3 "$SKILL/scripts/query.py" summary "$(find "$RUN/artifacts" -type d -name '<任务名>')"`，
   输出里 `final tables:` 是这个任务写的表。
 
 **常见失败与处理**
@@ -477,8 +493,8 @@ set -- "$RUN/reviews/$T.prior.md" "$RUN/packets/$T"
 if [ -f "$RUN/reviews/$T.prior.fixlog.txt" ]; then set -- "$@" --fixlog "$RUN/reviews/$T.prior.fixlog.txt"; fi
 if [ -f "$RUN/reviews_prev/$T.prior.round1.md" ]; then set -- "$@" --round1 "$RUN/reviews_prev/$T.prior.round1.md"; fi
 if [ -f "$RUN/reviews/$T.prior.json" ]; then set -- "$@" --prior-doc "$RUN/reviews/$T.prior.json"; fi
-python3 "$TOOL/skills/scope-lineage/scripts/make_corrections.py" "$@" \
-  --writer-prompt "$TOOL/skills/scope-lineage/references/table-semantics-prompt.md" \
+python3 "$SKILL/scripts/make_corrections.py" "$@" \
+  --writer-prompt "$SKILL/references/table-semantics-prompt.md" \
   --out "$SCRATCH/prompts/$T.corrections.txt" --report "$SCRATCH/prompts/$T.corrections.json" 2> "$SCRATCH/$T.corrections.stderr"; echo "exit=$?"
 cat "$SCRATCH/$T.corrections.stderr"
 ```
@@ -1055,7 +1071,7 @@ grep -E '^Coverage:|^  [a-z0-9_]+\.' "$SCRATCH/check-$G.txt"
 **产出与自检**：`exit=0`；两个 `grep -c` 都打印 `1`；`Coverage: K table(s) in the fragments, K with a representation, U unmapped column(s)`
 里两个 `K` 相等（每张分给本组的表都有表现），下面每张表一行。`U` 不为 0 时，那几列和原因抄进账本「给 owner 的待确认」，
 不算失败。只 grep `unmapped` 这个词没有用：`0 unmapped column(s)` 也会被匹配。
-子代理回复的「义务清单」一行抄进账本（度量的 unit / additivity、带 `time_role` 的绑定、记进 notes 的缺 states）。拉链表没有
+子代理回复的「义务清单」一行抄进账本（度量的 unit / additivity、带 `time_role` 的绑定、列进「需要编排者处理」的缺 states）。拉链表没有
 `valid_from` / `valid_to` 绑定、度量属性缺 unit 的，按下表 T6 返工交回；`catalog validate` 的 `zipper_without_validity`、
 `measure_without_unit` warning 指的就是这两种。
 
@@ -1140,7 +1156,7 @@ sl semantic render "$RUN/docs" --out "$SEMPAGES" --validation "$RUN/validation.j
 sl catalog render "$RUN/onto/ontology.json" --out "$PAGES" --semantics "$SEMPAGES"; echo "exit=$?"
 load_tables
 sl semantic status "$RUN" --pages "$SEMPAGES" --only "${TABLES[@]}"
-python3 "$TOOL/skills/scope-lineage/scripts/catalog_check.py" "$RUN/onto/ontology.json" \
+python3 "$SKILL/scripts/catalog_check.py" "$RUN/onto/ontology.json" \
   --digest "$RUN/digest/digest.json" --changes "$RUN/catalog_changes.md" > "$RUN/catalog_check.txt"; echo "exit=$?"
 cat "$RUN/catalog_check.txt"
 ```
@@ -1402,7 +1418,7 @@ $RUN/
   candidates.tsv             有生产任务的表（S3）
   tables.txt                 本轮范围内的表，一行一个 库.表（S3 写；blocked 时删行）
   blocked.txt                blocked 的表（S5）
-  artifacts/<任务名>/         血缘 lineage.json（S1）
+  artifacts/[<子目录>/]<任务名>/  血缘 lineage.json（S1；子目录照搬 $TASKS 的）
   corpus/                    tables.json、glossary.json（S2）
   packets/<表>/              packet.md、packet.json（S3；只由 semantic packet 写）
   docs/<表>.json             表语义（写作写、修订改、confirm 改；编排者不手改）

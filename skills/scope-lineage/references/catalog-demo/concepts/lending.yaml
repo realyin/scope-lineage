@@ -1,0 +1,125 @@
+concepts:
+  - id: concept:loan
+    kind: entity
+    name: 借据
+    definition: One amount lent to a borrower, repaid over one or more instalments.
+    domain: domain:lending
+    synonyms: [对客借据]
+    identifiers: [id:loan_no]
+    primary_identifier: id:loan_no
+    states:
+      attribute: attr:loan.loan_status
+      values:
+        - {value: normal, name: 正常}
+        - {value: overdue, name: 逾期}
+        - {value: settled, name: 结清}
+      transitions:
+        - {event: concept:repayment, from: overdue, to: normal}
+        - {event: concept:repayment, from: normal, to: settled}
+        - {event: concept:fee_waiver, from: overdue, to: settled}
+    attributes:
+      - id: attr:loan.principal
+        name: 本金
+        definition: The amount lent.
+        category: measure
+        type: decimal(18,2)
+        unit: CNY
+      - id: attr:loan.loan_status
+        name: 借据状态
+        definition: Where the loan is in its life cycle.
+        category: state
+        type: string
+        code_set: code:loan_status
+      - id: attr:loan.overdue_penalty
+        name: 逾期罚息
+        definition: Penalty interest accrued while the loan is overdue.
+        category: measure
+        type: decimal(18,2)
+        unit: CNY
+        derivation: overdue principal x daily penalty rate x days overdue
+    status: confirmed
+    source: owner
+
+  - id: concept:installment_loan
+    kind: entity
+    name: 分期借据
+    definition: A loan repaid in fixed monthly instalments.
+    domain: domain:lending
+    identifiers: [id:loan_no]
+    primary_identifier: id:loan_no
+    attributes:
+      - id: attr:installment_loan.term_count
+        name: 期数
+        definition: How many instalments the loan is split into.
+        category: descriptive
+        type: integer
+    status: drafted
+    source: llm
+
+  - id: concept:disbursement
+    kind: event
+    name: 放款
+    definition: The shop pays the principal of a loan out to the borrower.
+    domain: domain:lending
+    identifiers: [id:disbursement_txn_no]
+    occurred_at: attr:disbursement.disbursed_at
+    participants:
+      - {role_name: borrower, concept: concept:borrower, cardinality: one}
+      - {role_name: loan, concept: concept:loan, cardinality: one}
+    attributes:
+      - id: attr:disbursement.disbursed_at
+        name: 放款时间
+        definition: When the money left the shop.
+        category: time
+        type: timestamp
+      - id: attr:disbursement.amount
+        name: 放款金额
+        definition: The amount paid out.
+        category: measure
+        type: decimal(18,2)
+        unit: CNY
+    status: confirmed
+    source: task
+
+  - id: concept:repayment
+    kind: event
+    name: 还款
+    definition: A customer pays money back against one or more loans.
+    domain: domain:lending
+    identifiers: [id:repayment_txn_no]
+    occurred_at: attr:repayment.repaid_at
+    participants:
+      - {role_name: payer, concept: concept:customer, cardinality: one}
+      - {role_name: loan, concept: concept:loan, cardinality: many}
+    attributes:
+      - id: attr:repayment.repaid_at
+        name: 还款时间
+        definition: When the payment was received.
+        category: time
+        type: timestamp
+      - id: attr:repayment.amount
+        name: 还款金额
+        definition: The amount received.
+        category: measure
+        type: decimal(18,2)
+        unit: CNY
+    status: confirmed
+    source: sql
+
+  - id: concept:borrower
+    kind: role
+    name: 借款人
+    definition: A customer while they hold at least one loan that is not settled.
+    domain: domain:lending
+    player: concept:customer
+    context: domain:lending
+    condition: holds at least one loan whose status is not settled
+    attributes:
+      - id: attr:borrower.credit_limit
+        name: 授信额度
+        definition: The most the borrower may owe at once.
+        category: measure
+        type: decimal(18,2)
+        unit: CNY
+    status: confirmed
+    source: owner

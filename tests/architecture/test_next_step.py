@@ -117,6 +117,12 @@ def test_s1_is_not_done_until_a_lineage_json_exists(run):
     assert _current(_drive(run).stdout) == "S1"
 
 
+def test_s1_is_done_when_parse_mirrored_a_nested_task_directory(run):
+    """``parse --input-dir`` keeps each task's sub-directory: ``artifacts/<layer>/<task>/``."""
+    _write(run / "artifacts" / "dws" / "task_a" / "lineage.json", "{}")
+    assert _current(_drive(run).stdout) == "S2"
+
+
 def test_s3_is_not_done_while_a_table_in_tables_txt_has_no_packet(run):
     _through_s3(run)
     (run / "packets" / T2 / "packet.json").unlink()

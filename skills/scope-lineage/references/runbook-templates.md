@@ -11,7 +11,7 @@ fill write "$SCRATCH/prompts/T1-write-<表>-r1.md" TABLE=<库.表> MODE=新写 F
 fill write "$SCRATCH/prompts/T1-write-<表>-r2.md" TABLE=<库.表> MODE=补失败 FACTS=无 CORRECTIONS=无 CONCEPT="不写 concept" FAILURES=@"$SCRATCH/<表>.failures.txt"; echo "exit=$?"
 ```
 
-- `fill` 自动把 `{ENV}`、`{RUN}`、`{TOOL}`、`{SCRATCH}`、`{TASKS}`、`{PAGES}`、`{SEMPAGES}` 换成 `env.sh` 里的绝对路径，
+- `fill` 自动把 `{ENV}`、`{RUN}`、`{TOOL}`、`{SKILL}`、`{SCHEMAS}`、`{SCRATCH}`、`{TASKS}`、`{PAGES}`、`{SEMPAGES}` 换成 `env.sh` 里的绝对路径，
   给了 `ROUND=<目录>` 时 `{ROUND_NAME}` 换成这个目录的最后一段（例如 `round2`）；
   其余占位按命令行的 `KEY=值` 换；值写成 `@文件` 时取那个文件的内容（贴多行报错用）。
 - 模板可以写编号，也可以写名字：T1 写作 / write、T2 审读 / review、T3 复审 / rereview、T4 修订 / fix、
@@ -26,7 +26,7 @@ fill write "$SCRATCH/prompts/T1-write-<表>-r2.md" TABLE=<库.表> MODE=补失�
 
 各占位的含义（路径一律绝对路径）：
    - `{TABLE}`：`库.表`；`{GROUP}`：组名；`{ROUND}`：本轮验收目录（例如 `<RUN>/round1`）；
-   - `{ENV}`、`{RUN}`、`{TOOL}`、`{SCRATCH}`、`{TASKS}`、`{PAGES}`、`{ROUND_NAME}`：`fill` 自动填；
+   - `{ENV}`、`{RUN}`、`{TOOL}`、`{SKILL}`、`{SCHEMAS}`、`{SCRATCH}`、`{TASKS}`、`{PAGES}`、`{ROUND_NAME}`：`fill` 自动填；
    - `{MODE}`：只能填模板标题下那行 `fill:` 注释里列出的值（例如 T4 是「首修 / 核对」），填别的 `fill` 会拒绝；
      只属于别的模式的段落可以删掉。
    - `{FACTS}`：调用方附带的已确认事实（owner 确认过的业务事实，每条一行）；没有写「无」。
@@ -73,7 +73,7 @@ fill write "$SCRATCH/prompts/T1-write-<表>-r2.md" TABLE=<库.表> MODE=补失�
 - [ ] 有目录时：`merge` 退出 0；`catalog validate merged` 0 error；三条渲染命令按顺序、都退出 0。
 - [ ] 做了验收时：`ungraded` 为空，`grading.stderr` / `score.stderr` 没有漏答漏判的警告。
 - [ ] `RESULT.md` 按交付报告模板写完，问题清单每条有「现象 / 表 / 怎么处理」。
-- [ ] 工具仓库没被改动（`git -C "$TOOL" status --short` 为空），真实表名只在运行目录里。
+- [ ] 工具仓库没被改动（`TOOL` 非空时 `git -C "$TOOL" status --short` 为空），真实表名只在运行目录里。
 
 ---
 
@@ -102,10 +102,10 @@ fill write "$SCRATCH/prompts/T1-write-<表>-r2.md" TABLE=<库.表> MODE=补失�
 
 **只读这些**
 
-1. 写作提示词 `{TOOL}/skills/scope-lineage/references/table-semantics-prompt.md`：完整照做，包括「容易写错的地方」逐条自查。
+1. 写作提示词 `{SKILL}/references/table-semantics-prompt.md`：完整照做，包括「容易写错的地方」逐条自查。
 2. 材料包 `{RUN}/packets/{TABLE}/packet.md`；要结构化细节时读同目录的 `packet.json`。packet.md 一次读不完时，
    先 `grep -n '^#' {RUN}/packets/{TABLE}/packet.md` 列出小节，再按行号分段读完，不要跳过小节。
-3. 只在提示词说不清某个字段的格式时，查 `{TOOL}/scope_lineage/schemas/table-semantics.schema.json`。
+3. 只在提示词说不清某个字段的格式时，查 `{SCHEMAS}/table-semantics.schema.json`。
 4. **只在补失败模式读这一条**（新写模式跳过：那时 `docs/` 里没有这张表的文档）：现有文档 `{RUN}/docs/{TABLE}.json`，
    以及上一轮的失败清单（照提示词末尾「校验不通过时（重写）」一节改）：
 
@@ -114,7 +114,7 @@ fill write "$SCRATCH/prompts/T1-write-<表>-r2.md" TABLE=<库.表> MODE=补失�
 ```
 
 **不许读**：别的表的材料包或文档；`{RUN}/docs/` 下别的文件；`{RUN}/reviews/`、`{RUN}/reviews_prev/`、`{RUN}/prev/`、
-`{RUN}/blocked/`；任何题集或判分文件；任何别的运行目录；`{TOOL}/docs/`、`{TOOL}/examples/`。不要上网。
+`{RUN}/blocked/`；任何题集或判分文件；任何别的运行目录；工具仓库的 `docs/`、`examples/`。不要上网。
 旧审读和旧文档也不读：上一轮审读确认过的修正，只通过上面的「修正点」交给你。
 
 **修正点**（上面写「无」就跳过这一节）：清单是编排者用脚本从上一轮的审读和修订记录里抽出来的，按写作提示词「修正点」一节用：
@@ -192,7 +192,7 @@ fill write "$SCRATCH/prompts/T1-write-<表>-r2.md" TABLE=<库.表> MODE=补失�
 
 **只读这些**
 
-1. 审读提示词 `{TOOL}/skills/scope-lineage/references/table-semantics-review-prompt.md`：照做「逐项核对」十六项、
+1. 审读提示词 `{SKILL}/references/table-semantics-review-prompt.md`：照做「逐项核对」十六项、
    「逐项核对的补充」和「输出」（定级照「输出」一节的定级锚点）。只有重写后首审模式才做「材料包重建后的重写：带上旧审读」一节；首审模式跳过那一节。拿不准某种写法算不算发现时，
    查同目录 `table-semantics-prompt.md` 的对应条目。
 2. 材料包 `{RUN}/packets/{TABLE}/packet.md`（一次读不完就先 `grep -n '^#'` 再分段读）；需要时同目录 `packet.json`。
@@ -272,7 +272,7 @@ low: <整数>
 
 **只读这些**
 
-1. 审读提示词 `{TOOL}/skills/scope-lineage/references/table-semantics-review-prompt.md` 的「修订后再审读」一节（三件事）和「输出」一节（定级照其中的定级锚点）。
+1. 审读提示词 `{SKILL}/references/table-semantics-review-prompt.md` 的「修订后再审读」一节（三件事）和「输出」一节（定级照其中的定级锚点）。
 2. 上一轮审读 `{RUN}/reviews_prev/{TABLE}.round1.md`。
 3. 材料包 `{RUN}/packets/{TABLE}/packet.md`（读法同首审）、修订后的文档 `{RUN}/docs/{TABLE}.json`、提到的兄弟表材料包。
 
@@ -317,7 +317,7 @@ low: <整数>
 
 **只读这些**
 
-1. 修订提示词 `{TOOL}/skills/scope-lineage/references/table-semantics-fix-prompt.md`：第 1–5 步照做。**只改审读里的高、中级发现；
+1. 修订提示词 `{SKILL}/references/table-semantics-fix-prompt.md`：第 1–5 步照做。**只改审读里的高、中级发现；
    低级发现一条都不改**（低级问题不修），在回复里列出来。第 2 步通读时发现与高、中改动矛盾的地方要一并改齐，这不算改低级。写法以同目录
    `table-semantics-prompt.md` 为准，只查要用的条目。
 2. 审读 `{RUN}/reviews/{TABLE}.md`（不许改它；回执由命令写）。
@@ -410,9 +410,9 @@ status：…
    `{RUN}/docs/<表>.json` 里对应的那个字段；读了就在用到它的条目 `notes` 里写明「digest 缺 <表>.<字段>，取自表语义」。
    digest 里有、只是你觉得写得不够细的，不算缺失，不读文档；不要通读整份表语义。
 2. 当前目录（起点）`{RUN}/catalog/`：全部文件都读，先弄清已有的概念、标识符、关系和码值集。
-3. 形状参考（只看形状，不抄内容）：`{TOOL}/examples/catalog-demo/` 里的 `identifiers.yaml`、`relations.yaml`、
+3. 形状参考（只看形状，不抄内容）：`{SKILL}/references/catalog-demo/` 里的 `identifiers.yaml`、`relations.yaml`、
    `code_sets.yaml`、`concepts/lending.yaml`。
-4. 规则说不清时才查 `{TOOL}/docs/zh-CN/ontology-catalog.md` 的「元素」一节，不读别的节。
+4. 规则说不清时才查 `{SKILL}/references/catalog-elements.md`（本体目录文档的「元素」一节）。
 
 **增量模式**（新建模式跳过这一节，下面的清单写「无」）：下面是旧目录里提到本轮表的条目（文件、id、提到的表）：
 
@@ -673,7 +673,7 @@ catalog validate：exit=<n>；<计数行原样>
 
 **只读这些**
 
-1. 片段提示词 `{TOOL}/skills/scope-lineage/references/catalog-fragment-prompt.md`：完整照做。里面的占位这样换：
+1. 片段提示词 `{SKILL}/references/catalog-fragment-prompt.md`：完整照做。里面的占位这样换：
    `<group>` = `{GROUP}`，`<catalog-dir>` = `{RUN}/catalog`，`<digest-dir>` = `{RUN}/digest`，`<docs-dir>` = `{RUN}/docs`，
    `<packets-dir>` = `{RUN}/packets`，`<fragments-dir>` = `{RUN}/fragments`，`<scratch-dir>` = `{SCRATCH}`。
    它点名的格式文档只读那三节，示例只看形状。
@@ -722,7 +722,7 @@ catalog validate：exit=<n>；<计数行原样>
 组：{GROUP}
 自检：exit=<n>；Merged 行原样
 属性 <n>、码值集 <n>、表现 <n>、绑定 <n>（identifier <n> / foreign_identifier <n> / attribute <n> / foreign_attribute <n> / technical <n> / unmapped <n>）
-义务清单：度量属性 <n>（有 unit <n>、有 additivity <n>）；带 time_role 的绑定 <n>（valid_from <n> / valid_to <n> / partition <n> / event_time <n>）；缺 states 记进 notes 的状态属性 <n>
+义务清单：度量属性 <n>（有 unit <n>、有 additivity <n>）；带 time_role 的绑定 <n>（valid_from <n> / valid_to <n> / partition <n> / event_time <n>）；缺 states、列进「需要编排者处理」的状态属性 <n>
 unmapped 列及原因：…（没有写「无」）
 notes 原文：…（没有写「无」）
 需要编排者合并后改成 foreign_attribute 的列：…（没有写「无」）
@@ -742,7 +742,7 @@ notes 原文：…（没有写「无」）
 
 **只读这些**
 
-1. 作答提示词 `{TOOL}/skills/scope-lineage/references/answer-prompt.md`：完整照做。
+1. 作答提示词 `{SKILL}/references/answer-prompt.md`：完整照做。
 2. 题单 `{ROUND}/sheet.md`。
 3. 页面目录 `{PAGES}` 下的页面（`index.md`、`concepts/`、`semantics/` 等），页面之间的链接可以跟过去读，但不离开这个目录。
 
@@ -777,7 +777,7 @@ notes 原文：…（没有写「无」）
 
 **只读这些**
 
-1. 判分提示词 `{TOOL}/skills/scope-lineage/references/grade-prompt.md`：完整照做。
+1. 判分提示词 `{SKILL}/references/grade-prompt.md`：完整照做。
 2. 判分材料 `{ROUND}/grading.md`。
 3. 核实参考答案和作答时可以读：材料包 `{RUN}/packets/`、任务 SQL `{TASKS}`、目录 `{RUN}/merged/`、作答者读的页面 `{PAGES}`。
 

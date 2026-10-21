@@ -1,0 +1,80 @@
+identifiers:
+  - id: id:customer_id
+    name: 客户号
+    identifies: concept:customer
+    scope: global
+    spellings:
+      - column: customer_id
+      - column: cust_no
+        table: demo_ods.ods_core_customer_df
+    maps_to:
+      - identifier: id:app_account_id
+        cardinality: one_to_many
+        via: [demo_dwd.dwd_party_account_map_df]
+    format: C followed by ten digits
+    status: confirmed
+    source: owner
+    evidence: [demo_dwd.dwd_party_customer_info_df.customer_id]
+
+  - id: id:verified_customer_no
+    name: 认证客户号
+    identifies: concept:customer
+    scope: global
+    arises_when:
+      condition: assigned when the customer passes identity verification
+      state: concept:customer#verified
+    spellings:
+      - column: verified_customer_no
+    maps_to:
+      - identifier: id:customer_id
+        cardinality: one_to_one
+    status: drafted
+    source: comment
+
+  - id: id:app_account_id
+    name: 应用账户号
+    identifies: concept:app_account
+    scope:
+      per: [concept:channel]
+    spellings:
+      - column: account_id
+        table: demo_dwd.dwd_party_account_map_df
+    status: confirmed
+    source: sql
+    notes: The same number can appear under two channels, so it is unique only per channel.
+
+  - id: id:channel_code
+    name: 渠道编码
+    identifies: concept:channel
+    scope: global
+    spellings:
+      - column: channel_code
+    status: confirmed
+    source: owner
+
+  - id: id:loan_no
+    name: 借据号
+    identifies: concept:loan
+    scope: global
+    spellings:
+      - column: loan_no
+    status: confirmed
+    source: owner
+
+  - id: id:disbursement_txn_no
+    name: 放款流水号
+    identifies: concept:disbursement
+    scope: global
+    spellings:
+      - column: disburse_txn_no
+    status: drafted
+    source: sql
+
+  - id: id:repayment_txn_no
+    name: 还款流水号
+    identifies: concept:repayment
+    scope: global
+    spellings:
+      - column: repay_txn_no
+    status: confirmed
+    source: mixed

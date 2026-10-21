@@ -1,0 +1,16 @@
+domains:
+  - id: domain:party
+    name: 客户与账户
+    description: Who the shop lends to and the accounts they sign in with.
+    status: confirmed
+    source: owner
+  - id: domain:lending
+    name: 贷款
+    description: Loans from disbursement to settlement.
+    status: confirmed
+    source: owner
+  - id: domain:collection
+    name: 催收
+    description: Work on overdue loans, including the waivers granted to settle them.
+    status: drafted
+    source: llm

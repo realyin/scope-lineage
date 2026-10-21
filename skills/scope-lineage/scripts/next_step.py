@@ -138,7 +138,7 @@ def _assess(run: Path) -> tuple[str, str, list[str], set[str]]:
     missing = [name for name in ("env.sh", "TOOL_VERSION", "ledger.md") if not (run / name).is_file()]
     if missing:
         return "S0", "缺 " + "、".join(missing), [], skipped
-    if not list((run / "artifacts").glob("*/lineage.json")):
+    if not any((run / "artifacts").rglob("lineage.json")):
         return "S1", "artifacts/ 里还没有 lineage.json", [], skipped
     missing = [f"corpus/{name}" for name in ("tables.json", "glossary.json") if not (run / "corpus" / name).is_file()]
     if missing:
