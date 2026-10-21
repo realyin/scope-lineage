@@ -14,7 +14,7 @@
       "golden_self_join": "dec803959cc8797e",
       "golden_simple_insert": "a23847b8454847b7",
       "golden_special_literals": "11e5920a968e9438",
-      "golden_star_without_schema": "da69f10247007a28",
+      "golden_star_without_schema": "effef59d43282b0f",
       "golden_syntax_recovered": "56f52aab0c452a2a",
       "golden_target_ddl_binding": "1737591dc224e318",
       "merge_contract": "2467f32c459c3d23"

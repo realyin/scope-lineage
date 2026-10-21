@@ -189,21 +189,38 @@
             "mart.raw_copy.*"
           ],
           "expression": "*",
-          "expanded_expression": "*",
+          "expanded_expression": "`ods.raw_events`.`*`",
           "expression_resolution": {
             "status": "resolved",
-            "resolution_type": "generated_expression",
-            "physical_source_fields": [],
-            "generated_sources": [
+            "resolution_type": "single_source_expression",
+            "physical_source_fields": [
               {
-                "source_type": "CONSTANT",
-                "value": "*",
-                "transform": "EXPAND_ALL"
+                "table": "ods.raw_events",
+                "field": "*"
               }
             ],
-            "source_kind": "generated",
+            "generated_sources": [],
+            "source_kind": "physical",
             "missing_reasons": [],
-            "expanded_expression": "*"
+            "expanded_expression": "`ods.raw_events`.`*`",
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "ROOT",
+                "from_field": "*",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "*",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.raw_events",
+                    "field": "*"
+                  }
+                ]
+              }
+            ]
           },
           "consumer_readiness": {
             "status": "ready",
@@ -271,7 +288,7 @@
       "target_field": "*",
       "target_position": 0,
       "chain_status": "partially_resolved",
-      "source_kind": "generated",
+      "source_kind": "physical",
       "root_source_fields": [
         "ods.raw_events.*"
       ],
@@ -288,20 +305,37 @@
           ],
           "output_field": "mart.raw_copy.*",
           "expression_sql": "*",
-          "expanded_expression": "*",
+          "expanded_expression": "`ods.raw_events`.`*`",
           "expression_resolution": {
             "status": "resolved",
-            "resolution_type": "generated_expression",
-            "physical_source_fields": [],
-            "generated_sources": [
+            "resolution_type": "single_source_expression",
+            "physical_source_fields": [
               {
-                "source_type": "CONSTANT",
-                "value": "*",
-                "transform": "EXPAND_ALL"
+                "table": "ods.raw_events",
+                "field": "*"
               }
             ],
-            "source_kind": "generated",
+            "generated_sources": [],
+            "source_kind": "physical",
             "missing_reasons": [],
+            "scope_output_trace": [
+              {
+                "step": 1,
+                "from_scope_id": "ROOT",
+                "from_field": "*",
+                "to_scope_id": null,
+                "to_field": null,
+                "relation": "physical_expression",
+                "expression_sql": "*",
+                "resolution_status": "resolved",
+                "physical_source_fields": [
+                  {
+                    "table": "ods.raw_events",
+                    "field": "*"
+                  }
+                ]
+              }
+            ],
             "expanded_expression_same_as_parent": true
           },
           "logic_ids": [],
@@ -313,7 +347,7 @@
           "target_position": 0
         }
       ],
-      "expanded_expression": "*",
+      "expanded_expression": "`ods.raw_events`.`*`",
       "missing_reasons": [
         "projection_wildcard_unexpanded"
       ],

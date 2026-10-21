@@ -1814,16 +1814,9 @@ def _row_condition_fields(
 
 
 def _only_literal_or_system(generated: list[dict]) -> bool:
-    """Whether every generated source is a literal or a system value.
-
-    A star the parser could not expand also arrives as a CONSTANT-typed generated source
-    (``value: "*"``, ``transform: EXPAND_ALL``) with no incomplete reason; it stands for
-    unknown columns, not a literal, so it keeps the gap.
-    """
+    """Whether every generated source is a literal or a system value."""
     return bool(generated) and all(
         source.get("source_type") in {CONSTANT_SCOPE_ID, SYSTEM_SCOPE_ID}
-        and source.get("transform") != "EXPAND_ALL"
-        and source.get("value") != "*"
         for source in generated
     )
 

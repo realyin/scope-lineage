@@ -181,7 +181,13 @@ def _lineage_for_column(
     output = output_override or (
         _find_output(scope.outputs, column_name) if scope else None
     )
-    if transform != "EXPAND_ALL" and not _is_star_column_name(column_name):
+    # ``_find_output`` falls back to a ``*`` output for a name the scope does not list; that
+    # output resolves the star, not this column, so it must not replace the trace's reasons.
+    if (
+        transform != "EXPAND_ALL"
+        and not _is_star_column_name(column_name)
+        and (output is None or not _is_star_column_name(output.name))
+    ):
         expression_lineage = _lineage_from_output_expression_resolution(output, transform)
         if expression_lineage is not None:
             return expression_lineage

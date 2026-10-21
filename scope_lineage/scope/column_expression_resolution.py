@@ -103,6 +103,10 @@ def _generated_sources_from_column_expression(column: ScopeColumn) -> list[dict[
     has_column_refs = _has_any_column_refs(expression)
     if has_column_refs is not False:
         return []
+    if column.transform == 'EXPAND_ALL':
+        # An unexpanded ``*`` holds no column node, but it stands for every column of its
+        # sources, not for a literal.
+        return []
     source_type = SYSTEM_SCOPE_ID if _expression_is_system_generated(expression) else CONSTANT_SCOPE_ID
     return [{'source_type': source_type, 'value': expression, 'transform': column.transform or source_type}]
 
