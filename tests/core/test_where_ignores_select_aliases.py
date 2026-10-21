@@ -103,5 +103,7 @@ def test_group_by_and_having_aliases_are_still_expanded():
     [having] = _blocks(sql, schema, "having")
 
     assert where.raw_expression == "WHERE `o`.`biz` = 'X'"
-    assert _fields(group_by) == {("s.o", "a")}
+    # ``k`` is only an alias, so it expands; ``biz`` is also a column of ``s.o``, which a
+    # Spark grouping key prefers (test_group_by_prefers_source_columns).
+    assert _fields(group_by) == {("s.o", "a"), ("s.o", "biz")}
     assert having.raw_expression == "HAVING COUNT(*) > 1"

@@ -573,7 +573,8 @@ projection_wildcard_unexpanded，并将对应最终字段的 trace_complete 设�
 
 MERGE 条件字段无法追踪到物理根字段时记录 merge_condition_source_unresolved，字段为
 statement_id、source_alias、column、root_impact=true 和 needed_fact。触发场景包括条件引用了
-USING 关系并未输出的列，以及条件使用了既非目标别名也非 USING 别名的限定符。该缺口
+USING 关系并未输出的列，以及条件使用了既非目标别名也非 USING 别名的限定符。只由常量或系统值算出的
+USING 列不对应任何名字，也不是缺口。该缺口
 root_impact=true，因此会令 analysis_status=partial 并使 strict 门禁返回非零。
 
 diagnostics.json.metadata_coverage 记录引用表、已覆盖表、缺失表、schema 来源数以及元数据冲突。

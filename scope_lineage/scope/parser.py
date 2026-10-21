@@ -42,15 +42,34 @@ def _unwrap_target(node):
     return node
 
 
+def _name_part(part: exp.Expression) -> str:
+    """A table-name part; an unbound run parameter stays ``${name}``.
+
+    ``Parameter.name`` is the bare variable name, so ``cat.${db}.t`` read as a real
+    database ``db`` and a table that does not exist.
+    """
+    if isinstance(part, exp.Parameter):
+        return "${" + part.name + "}"
+    return part.name
+
+
+UNBOUND_PARAMETER = re.compile(r"\$\{(\w+)\}")
+
+
+def unbound_table_parameters(table: str) -> list[str]:
+    """The run parameters a table id still holds, in order."""
+    return list(dict.fromkeys(UNBOUND_PARAMETER.findall(table or "")))
+
+
 def _qualified_table(t: exp.Table) -> str:
     parts = []
     cat = t.args.get("catalog")
     db = t.args.get("db")
     if cat is not None:
-        parts.append(cat.name)
+        parts.append(_name_part(cat))
     if db is not None:
-        parts.append(db.name)
-    parts.append(t.name)
+        parts.append(_name_part(db))
+    parts.append(_name_part(t.this) if isinstance(t.this, exp.Parameter) else t.name)
     # Drop a leading known-catalog segment so a physical table has ONE identity
     # in lineage.json whether the SQL wrote catalog.db.table or db.table. Without
     # this the same table appears under two forms (duplicate source_tables, split

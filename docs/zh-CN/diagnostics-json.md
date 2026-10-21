@@ -156,6 +156,18 @@ warning 不是固定封闭枚举；机器处理应对已知类型设策略，对
 > 只统计源表。目标表没有 schema 条目是常态（目标 DDL 由 `--target-ddl-metadata` 单独传入），
 > 而且它不可能是源侧引用解析失败的原因——把它算进来会给本来与元数据无关的缺口扣上元数据的帽子。
 
+表名里还留着调度参数（`INSERT OVERWRITE TABLE cat.${db_name}.t`）属于**输入信息不全**，不是缺元数据：参数绑定
+之前，这条 SQL 指的不是任何一张真实的表。表 id 保留参数原样（`cat.${db_name}.t`），产物在四处直说：
+
+- `analysis_status.blocking_reasons` 以 `input_incomplete` 开头；
+- `lineage_fact_gaps[]` 里每条语句、每张这样的表各有一条 `table_name_parameter_unbound` 缺口，带 `table`、
+  `parameters`，`root_impact: true`；
+- `warnings[]` 里有一条 `type: "input_incomplete"`；
+- `metadata_coverage.unbound_parameter_tables` 列出这张表（只在非空时出现），它不在 `missing_tables` 里。
+  批量的 `metadata_gaps.json` 把它列在 `unbound_parameter_tables` 下，`parse` 会打印一行 `Input incomplete:`。
+
+处理办法是提供参数已替换好的 SQL 重跑。值里的参数（`dt = '${dt}'`）不是表名，不受影响。
+
 如果不做这层区分，一次缺失全部源表元数据的运行可能产生大量字段级缺口，而 `blocking_reasons`
 只写 `lineage_fact_gap`；下游报告就会把输入缺失误读为解析能力不足。补齐元数据后这些缺口会消失。
 

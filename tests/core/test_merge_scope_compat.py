@@ -449,8 +449,8 @@ def test_an_unrestorable_target_ref_fails_instead_of_publishing_a_guess(
 ) -> None:
     original = scope_builder._qualify_ast
 
-    def broken_qualify(ast):
-        qualified, qualify_ok = original(ast)
+    def broken_qualify(ast, schema=None):
+        qualified, qualify_ok = original(ast, schema)
         for literal in list(qualified.find_all(exp.Literal)):
             if not literal.is_string or "__scope_lineage_merge_target_ref" not in str(
                 literal.this

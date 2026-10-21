@@ -13,7 +13,8 @@ from ._constants import DIALECT, PARSE_OPTS
 from .expansion_budget import expansion_limit as scoped_expansion_limit
 from .sqlglot_walk import render_sql_or_none
 from .composition import dedupe_sources
-from .end_to_end import _physical_fields_for_scope_column, _scope_column_roots
+from .end_to_end import _scope_column_roots
+from .parser import unbound_table_parameters
 from .scope_types import CONSTANT_SCOPE_ID, SYSTEM_SCOPE_ID, ScopeLineageResult
 from .ctas_missing_as import repair_ctas_missing_as
 from .keyword_identifiers import repair_keyword_identifiers
@@ -628,6 +629,19 @@ def _parse_task_lineage(
     # is supplied separately — and it cannot be why a source-side reference failed to
     # resolve, so counting it would put a metadata explanation on gaps that have none.
     missing_sources = _missing_source_tables(metadata_coverage, statement_lineage)
+    unbound_gaps = _unbound_table_parameter_gaps(statement_lineage)
+    gaps.extend(unbound_gaps)
+    if unbound_gaps:
+        warnings.append({
+            "type": "input_incomplete",
+            "scope": "TASK",
+            "msg": (
+                "table name(s) hold unbound run parameters ("
+                + ", ".join(gap["table"] for gap in unbound_gaps[:5])
+                + "): the SQL names no real table until the scheduler binds them; supply "
+                "the SQL with the parameters replaced"
+            ),
+        })
     if missing_sources:
         warnings.append({
             "type": "metadata_incomplete",
@@ -656,6 +670,7 @@ def _parse_task_lineage(
             gaps,
             statements,
             missing_sources,
+            input_incomplete=bool(unbound_gaps),
         ),
     }
     # Said once for the whole script, after every statement is known. The per-statement flag
@@ -1814,16 +1829,9 @@ def _row_condition_fields(
 
 
 def _only_literal_or_system(generated: list[dict]) -> bool:
-    """Whether every generated source is a literal or a system value.
-
-    A star the parser could not expand also arrives as a CONSTANT-typed generated source
-    (``value: "*"``, ``transform: EXPAND_ALL``) with no incomplete reason; it stands for
-    unknown columns, not a literal, so it keeps the gap.
-    """
+    """Whether every generated source is a literal or a system value."""
     return bool(generated) and all(
         source.get("source_type") in {CONSTANT_SCOPE_ID, SYSTEM_SCOPE_ID}
-        and source.get("transform") != "EXPAND_ALL"
-        and source.get("value") != "*"
         for source in generated
     )
 
@@ -2021,9 +2029,12 @@ def _merge_condition_sources(
                     _merge_condition_gap(statement_id, column.table, column.name)
                 )
                 continue
-            physical_fields, incomplete_reasons = _merge_condition_physical_fields(
+            physical_fields, generated, incomplete_reasons = _merge_condition_physical_fields(
                 result, column.name
             )
+            if not physical_fields and not incomplete_reasons and _only_literal_or_system(generated):
+                # A USING column that is a literal or a system value decides nothing.
+                continue
             if incomplete_reasons or not physical_fields:
                 gaps.append(
                     _merge_condition_gap(statement_id, column.table, column.name)
@@ -2036,14 +2047,15 @@ def _merge_condition_sources(
 def _merge_condition_physical_fields(
     result: ScopeLineageResult,
     column_name: str,
-) -> tuple[list[dict], list[str]]:
+) -> tuple[list[dict], list[dict], list[str]]:
     if not result.merge_using_scope_id:
-        return [], ["merge_using_scope_missing"]
-    fields, incomplete_reasons = _physical_fields_for_scope_column(
+        return [], [], ["merge_using_scope_missing"]
+    fields, generated, incomplete_reasons = _scope_column_roots(
         result, result.merge_using_scope_id, column_name
     )
     return (
         [{"table": field["table"], "column": field["column"]} for field in fields],
+        generated,
         incomplete_reasons,
     )
 
@@ -2113,6 +2125,8 @@ def _analysis_blocking_reasons(
     gaps: list[dict],
     statements: list[dict],
     missing_source_tables: list[str] | None = None,
+    *,
+    input_incomplete: bool = False,
 ) -> list[str]:
     """Name the causes, and put a cause ahead of the symptom it explains.
 
@@ -2128,6 +2142,9 @@ def _analysis_blocking_reasons(
         reasons.append("unsupported_data_change")
     if unsupported_statements:
         reasons.append("unsupported_statement")
+    if input_incomplete:
+        # The cause of its own gap, so it heads the list like metadata_incomplete.
+        reasons.append("input_incomplete")
     if gaps:
         # Only alongside gaps: incomplete metadata with nothing unresolved blocks nothing,
         # and the warning already records it.
@@ -2137,6 +2154,27 @@ def _analysis_blocking_reasons(
     if any(item["model_status"] == "failed" for item in statements):
         reasons.append("statement_failed")
     return reasons
+
+
+def _unbound_table_parameter_gaps(statement_lineage: Mapping[str, object]) -> list[dict]:
+    """One gap per statement and table whose name holds an unbound run parameter."""
+    gaps = []
+    for statement_id, lineage in statement_lineage.items():
+        if not isinstance(lineage, Mapping):
+            continue
+        tables = [lineage.get("target_table") or "", *(lineage.get("source_tables") or [])]
+        for table in dict.fromkeys(tables):
+            parameters = unbound_table_parameters(str(table))
+            if parameters:
+                gaps.append({
+                    "gap_type": "table_name_parameter_unbound",
+                    "statement_id": statement_id,
+                    "table": table,
+                    "parameters": parameters,
+                    "root_impact": True,
+                    "needed_fact": "value of each run parameter in the table name",
+                })
+    return gaps
 
 
 def _statement_fact_gaps(
@@ -2203,13 +2241,18 @@ def _metadata_coverage(
         if states.schema_provider.get_columns(table) is not None
         or table in script_local
     )
-    missing = sorted(set(referenced) - set(covered))
+    # A name with an unbound run parameter is no table yet: asking for its schema would
+    # send the operator after a database named like the parameter.
+    unbound = sorted(table for table in set(referenced) - set(covered) if unbound_table_parameters(table))
+    missing = sorted(set(referenced) - set(covered) - set(unbound))
     return {
         "referenced_table_count": len(referenced),
         "covered_table_count": len(covered),
         "missing_table_count": len(missing),
         "covered_tables": covered,
         "missing_tables": missing,
+        # Only when present, so a task without one keeps its bytes.
+        **({"unbound_parameter_tables": unbound} if unbound else {}),
         "schema_source_count": getattr(schema, "metadata_source_count", 0)
         if schema is not None
         else 0,
