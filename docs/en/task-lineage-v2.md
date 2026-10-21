@@ -143,8 +143,11 @@ JOIN, UNION branch, CTE), so a CTE's filter and each UNION branch's own filter c
 scalar subquery in the SELECT list decides one value and does not; the columns of an `IN (subquery)`
 in a WHERE are already fields of the parent's filter. GROUP BY keys do not count -- they are the
 output's values. On an append (INSERT INTO) the new batch's conditions stand beside those already on
-the previous state. A condition field that cannot be traced to a physical field gets no name; it is
-recorded as a row_condition_source_unresolved fact gap.
+the previous state. A condition field computed only from literals or system values (`'2026' AS y`,
+`CURRENT_DATE() AS d`) names nothing and is no gap: no source row decides it. A condition field that
+cannot be traced to a physical field gets no name; it is recorded as a row_condition_source_unresolved
+fact gap. Its `scope_id` / `column` are the field read; `condition_scope_id`, `logic_block_id`,
+`logic_type` and `expression` name the WHERE / JOIN / HAVING / QUALIFY that read it.
 
 Read the two together for an aggregate column: a `COUNT(*)`'s value comes from the row set it counts
 (`rowset`, next section), and that row set is decided by the conditions in row_membership_sources --

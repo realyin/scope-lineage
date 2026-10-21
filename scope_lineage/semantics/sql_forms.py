@@ -8,7 +8,10 @@ derived table computes can come back as the expression behind it
 cannot relate the two, so check 5 compares *forms*:
 
 - a fragment's forms are its loose text (:func:`normalize_sql`) and, when SQLGlot parses
-  it, the text SQLGlot renders for it in the lineage's dialect;
+  it, the text SQLGlot renders for it in the lineage's dialect -- once as is and once
+  without the echo aliases ``qualify`` adds inside a subquery (``follow_no AS follow_no``,
+  ``sales AS sales``), so the script's ``x IN (SELECT follow_no FROM sales)`` and the
+  lineage's qualified rendering of it meet;
 - the task SQL's forms are its loose text, its rendered text, and one *unit* per WHERE,
   HAVING and ON predicate and per conjunct of each: the unit rendered as written and with
   every column a derived table or CTE computes replaced by the expression behind it.
@@ -127,7 +130,9 @@ def _rendered(fragment: str) -> list[str]:
         return []
     try:
         tree = sqlglot.parse_one(body, read=DIALECT)
-        return [tree.sql(dialect=DIALECT)] if tree is not None else []
+        if tree is None:
+            return []
+        return [tree.sql(dialect=DIALECT), _without_echo_aliases(tree).sql(dialect=DIALECT)]
     except _PARSE_ERRORS:
         pass
     try:
@@ -138,6 +143,25 @@ def _rendered(fragment: str) -> list[str]:
     return rendered + [
         join.args["on"].sql(dialect=DIALECT) for join in joins if join.args.get("on")
     ]
+
+
+def _without_echo_aliases(tree):
+    """A copy without aliases that only repeat a name: ``col AS col``, ``tbl AS tbl``.
+
+    ``qualify`` writes them on every projection and table of a subquery; they change no
+    meaning, and a script never needs to spell them. An alias that renames stays.
+    """
+    def drop(node):
+        if (isinstance(node, exp.Alias) and isinstance(node.this, exp.Column)
+                and node.this.name.lower() == node.alias.lower()):
+            return node.this
+        if (isinstance(node, exp.TableAlias) and not node.columns
+                and isinstance(node.parent, exp.Table)
+                and node.parent.name.lower() == node.name.lower()):
+            return None
+        return node
+
+    return tree.copy().transform(drop)
 
 
 @lru_cache(maxsize=64)
