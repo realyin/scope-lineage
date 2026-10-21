@@ -12,6 +12,10 @@ from __future__ import annotations
 
 import re
 
+import sqlglot
+from sqlglot import exp
+from sqlglot.errors import SqlglotError
+
 from ..render.semantic_text import NULLABLE_LEFT_JOIN_TYPES, aggregate_functions
 from .names import bare_column, bare_table, normalize_sql, strip_leading_keyword
 from .packet_meaning import (
@@ -502,8 +506,11 @@ def input_time_facts(table: str, rules: list[dict], columns: list[dict]) -> dict
         if rule["kind"] == "filter" and not rule["partition_filter"] and table in rule["tables"]
         for name in _filter_columns(rule, table)
         if _is_date_column(by_name.get(name) or {"name": name})
+        # A condition on a partition column reads partitions -- inside an IN subquery or an
+        # OR the partition rule cannot split it off, but it is no business-date filter.
+        and not (by_name.get(name) or {}).get("partition")
     ]
-    _mark_date_shapes(dated)
+    _mark_date_shapes(dated, _batch_values(partition))
     read = _partition_read(partition)
     convention = _name_convention(table)
     return {
@@ -515,11 +522,16 @@ def input_time_facts(table: str, rules: list[dict], columns: list[dict]) -> dict
     }
 
 
-# The shapes a business-date filter takes. Only a window -- an equality, a lower bound, a
-# BETWEEN, or anything not recognised -- selects rows by date; an as-of pair keeps the rows
-# valid on one day, an upper bound alone keeps all history up to a day, a NULL check
-# looks at no date at all.
+# The shapes a business-date filter takes. Only a window -- a day-level comparison with the
+# batch: the input's partition value, a run parameter, the current date -- selects a
+# batch's rows by date; an as-of pair keeps the rows valid on one day, an upper bound alone
+# keeps all history up to a day, a NULL check looks at no date at all, a cutoff bounds by
+# a fixed literal (history from a year on), a period takes the batch's year, quarter or
+# month (this year against last).
 DATE_WINDOW = "window"
+DATE_CUTOFF = "cutoff"
+DATE_PERIOD = "period"
+DATE_SNAPSHOT_PICK = "snapshot_pick"
 _FLIP = {"<": ">", "<=": ">=", ">": "<", ">=": "<=", "=": "=", "<>": "<>"}
 _SIDE = r"(?P<side>.+?)"
 _OPERATOR = r"(?P<op><=|>=|<>|=|<|>)"
@@ -529,19 +541,22 @@ _NULL_CHECK = re.compile(r"is(not)?null$")
 _UPPER, _LOWER = ("<", "<="), (">", ">=")
 
 
-def _mark_date_shapes(dated: list[dict]) -> None:
-    """Give each date filter its ``shape``: ``as_of``, ``upper_bound``, ``null_check``, ``window``.
+def _mark_date_shapes(dated: list[dict], batch: frozenset = frozenset()) -> None:
+    """Give each date filter its ``shape``.
 
     ``X <= C`` (or ``<``) with ``Y > C`` (or ``>=``) on another column, in the same
     statement, with the same constant, is an as-of pair: both are ``as_of``. An upper bound
-    left alone is ``upper_bound``; ``IS [NOT] NULL`` is ``null_check``; anything else --
-    ``=``, ``>=``, ``>``, BETWEEN, a shape not recognised -- is a ``window``.
+    left alone is ``upper_bound``; ``IS [NOT] NULL`` is ``null_check``. Anything else --
+    ``=``, ``>=``, ``>``, BETWEEN, a shape not recognised -- is a ``window`` when it compares
+    with the batch (``batch``: the input's partition values) at day level, a ``period``
+    when it takes the batch's year, quarter or month, and a ``cutoff`` when it names no
+    batch at all.
     """
     bounds = [_bound(item["expression"]) for item in dated]
     for item, bound in zip(dated, bounds):
         if bound is None:
             null = _NULL_CHECK.search(normalize_sql(item["expression"]))
-            item["shape"] = "null_check" if null else DATE_WINDOW
+            item["shape"] = "null_check" if null else _selecting_shape(item["expression"], batch)
             continue
         side, operator, constant = bound
         upper = operator in _UPPER
@@ -555,7 +570,52 @@ def _mark_date_shapes(dated: list[dict]) -> None:
             if paired:
                 item["shape"] = "as_of"
                 continue
-        item["shape"] = "upper_bound" if upper else DATE_WINDOW
+        item["shape"] = "upper_bound" if upper else _selecting_shape(item["expression"], batch)
+
+
+_RUN_DATE = re.compile(r"\$\{|current_date|current_timestamp|\bnow\(|sysdate|unix_timestamp\(")
+_PERIOD = re.compile(
+    r"(substr(ing)?\(.*?,\d+,[1-7]\))|\b(year|quarter|month|weekofyear)\(|"
+    r"trunc\(.*,'(mm|mon|month|yy|yyyy|year|q|quarter)'\)|"
+    r"date_format\(.*,'(yyyy|yyyymm|yyyy-mm|mm|q)'\)|date_trunc\('(month|year|quarter)'"
+)
+_LITERALS = re.compile(r"'([^']*)'")
+
+
+def _batch_values(partition: list[str]) -> frozenset:
+    """The batch values an input's partition equalities fix, as digits (``20261018``)."""
+    values = {re.sub(r"\D", "", value.strip("'")) for text in partition
+              for value in partition_values(text) or []}
+    return frozenset(value for value in values if len(value) >= 8)
+
+
+def _selecting_shape(expression: str, batch: frozenset) -> str:
+    """``window``, ``period``, ``snapshot_pick`` or ``cutoff`` of a filter that selects by date."""
+    if _picks_a_computed_day(expression):
+        return DATE_SNAPSHOT_PICK
+    text = normalize_sql(expression)
+    digits = [re.sub(r"\D", "", literal) for literal in _LITERALS.findall(text)]
+    names_day = bool(_RUN_DATE.search(text)) or any(value in batch for value in digits)
+    names_period = any(
+        len(value) in (4, 6) and any(day.startswith(value) for day in batch) for value in digits
+    )
+    if names_day:
+        return DATE_PERIOD if _PERIOD.search(text) else DATE_WINDOW
+    return DATE_PERIOD if names_period else DATE_CUTOFF
+
+
+def _picks_a_computed_day(expression: str) -> bool:
+    """``col = <CASE ...>`` or ``col = (SELECT ...)``: one day a rule chooses, not the batch's."""
+    try:
+        tree = sqlglot.parse_one(strip_leading_keyword(expression), read="spark")
+    except (SqlglotError, ValueError, RecursionError):
+        return False
+    if not isinstance(tree, exp.EQ):
+        return False
+    for side, other in ((tree.this, tree.expression), (tree.expression, tree.this)):
+        if isinstance(side.unnest(), exp.Column) and other.find(exp.Case, exp.Select):
+            return True
+    return False
 
 
 def _bound(expression) -> tuple | None:
@@ -567,6 +627,26 @@ def _bound(expression) -> tuple | None:
     match = _BOUND_FLIPPED.match(text)
     if match:
         return match["side"], _FLIP[match["op"]], match["constant"]
+    return _computed_bound(expression)
+
+
+_COMPARISONS = {exp.LT: "<", exp.LTE: "<=", exp.GT: ">", exp.GTE: ">=", exp.EQ: "=", exp.NEQ: "<>"}
+
+
+def _computed_bound(expression) -> tuple | None:
+    """``side <op> X`` where ``X`` reads no column -- ``< DATE_ADD('2026-10-18', 1)``, a CASE."""
+    try:
+        tree = sqlglot.parse_one(strip_leading_keyword(str(expression or "")), read="spark")
+    except (SqlglotError, ValueError, RecursionError):
+        return None
+    operator = _COMPARISONS.get(type(tree))
+    if operator is None:
+        return None
+    left, right = tree.this, tree.expression
+    if left.find(exp.Column) and not right.find(exp.Column):
+        return normalize_sql(left.sql("spark")), operator, normalize_sql(right.sql("spark"))
+    if right.find(exp.Column) and not left.find(exp.Column):
+        return normalize_sql(right.sql("spark")), _FLIP[operator], normalize_sql(left.sql("spark"))
     return None
 
 
