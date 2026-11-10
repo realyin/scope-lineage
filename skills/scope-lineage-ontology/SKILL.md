@@ -3,7 +3,7 @@ name: scope-lineage-ontology
 description: >-
   Run the scope-lineage procedure that turns a batch of Spark/Hive task JSON plus table
   schema into table semantics, task semantics and a business ontology catalog: an
-  orchestrator loop over references/runbook.md S0–S13 with independent write / review / fix
+  orchestrator loop over one file per step (S0–S13) with independent write / review / fix
   sub-agents, a progress script that says which step is current, and an omission check on
   the built catalog. Use this skill whenever someone hands over a task directory and a
   schema directory and asks for 任务语义 / 表语义 / 业务本体 / 本体目录 / 概念 / 实体关系 /
@@ -27,22 +27,30 @@ description: >-
 **只跑 `parse` → `tables` / `glossary` → `describe` → `ontology` 就交差，是这里最常见的错误。**
 那样得到的概念名取自键列词根（`cust`、`acct` 这类英文缩写，甚至元数据残值 `nan`），大多数表只是临时概念，不是业务本体。
 
-## 1. 找到工具目录 `TOOL`
+## 1. 找到 skill 目录 `SKILL`
 
-`TOOL` 是这个 Skill 所在的 scope-lineage 仓库根目录（里面有 `skills/`、`docs/`、`pyproject.toml`）。
-本文件是 `<TOOL>/skills/scope-lineage-ontology/SKILL.md`；装成软链接时，先取真实路径：
+本目录只有这一个文件。流程的步骤文件、模板和脚本都在**另一个** skill `scope-lineage` 的目录里，下文记作 `$SKILL`
+（里面有 `SKILL.md`、`references/`、`scripts/`）。别人已经给了这个目录或工具仓库的路径时直接用，不用再找。
 
-```bash
-python3 -c 'import os,sys; print(os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(sys.argv[1])))))' <本 SKILL.md 的路径>
-```
+- 本文件在一个 scope-lineage 仓库里（`<仓库>/skills/scope-lineage-ontology/SKILL.md`，装成软链接也算）：`$SKILL` 就是同一个
+  `skills/` 下的 `scope-lineage` 目录。软链接先取真实路径：
 
-下文的路径都以 `$TOOL` 开头。要读的只有三份：
+  ```bash
+  python3 -c 'import os,sys; print(os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(sys.argv[1]))), "scope-lineage"))' <本 SKILL.md 的路径>
+  ```
+
+- 两个 skill 是分开拷贝安装的、工具是 `pip install` 的：`$SKILL` 是 `scope-lineage` 那个 skill 目录的绝对路径，
+  和本目录并排放着。找不到就问人，不要猜。
+
+要读的东西，一个功能一个文件：
 
 | 文件 | 什么时候读 |
 | --- | --- |
-| `$TOOL/skills/scope-lineage/references/runbook.md` | 开始前读第 0 节；之后每一步只读那一步的小节 |
-| `$TOOL/skills/scope-lineage/references/runbook-templates.md` | 不用读：派子代理时用 `fill` 从它生成提示词 |
-| `$TOOL/docs/zh-CN/task-to-ontology.md` | 想看全流程一览表时 |
+| `$SKILL/references/runbook.md` | 开始前读一遍：它是目录，有全流程总览表和「哪一步在哪个文件」 |
+| `$SKILL/references/steps/00-before.md` | 开始前读一遍：`env.sh`、七条调用规则、小样原则、账本与恢复 |
+| `$SKILL/references/steps/<步骤>.md` | 做到哪一步读哪一个（进度脚本会打印它的路径）；不用提前读后面的 |
+| `$SKILL/references/steps/appendix-A.md` … `appendix-D.md` | 步骤文件说「见附录 X」时再读 |
+| `$SKILL/references/templates/` | 不用读：派子代理时用 `fill` 从里面生成提示词 |
 
 ## 2. 开始前问清楚四件事
 
@@ -56,17 +64,18 @@ python3 -c 'import os,sys; print(os.path.dirname(os.path.dirname(os.path.dirname
 
 ## 3. 主循环
 
-照手册第 0 节写好 `$RUN/env.sh`、做完 S0 之后，**每一轮都是这四步，直到进度脚本说「完成」**：
+先用 `python3 "$SKILL/scripts/init_run.py" --run … --scratch … --tasks … --schema …` 生成 `$RUN/env.sh`（参数见 `steps/00-before.md` 0.1，不要手写这个文件），
+做完 S0 之后，**每一轮都是这四步，直到进度脚本说「完成」**：
 
 1. **看当前步**：
 
    ```bash
-   . "$RUN/env.sh" && python3 "$TOOL/skills/scope-lineage/scripts/next_step.py" "$RUN"
+   . "$RUN/env.sh" && python3 "$SKILL/scripts/next_step.py" "$RUN"
    ```
 
-   它只读文件，打印 S0–S13 的进度清单、当前步和原因；表语义阶段还按手册附录 A 列出每张表的下一步和模板。
+   它只读文件，打印 S0–S13 的进度清单、当前步、原因和**要读的那个步骤文件的路径**；表语义阶段还按附录 A 列出每张表的下一步和模板。
    它说「刷新状态」时，照它打印的命令刷新 `status.json`，再跑一次。
-2. **读手册那一步的小节**：只读当前步，照「前提检查 → 命令 → 产出与自检 → 完成判据」做。前提不满足就停在这一步。
+2. **读脚本打印的那个步骤文件**：只读当前步的文件，照「前提检查 → 命令 → 产出与自检 → 完成判据」做。前提不满足就停在这一步。
 3. **贴出完成判据的输出**：把这一步完成判据要求的命令输出原样贴出来。判据不成立，不要往下走；照「常见失败与处理」做。
 4. **记账**：`note "<步骤> <做了什么> <结果>"`，然后回到第 1 步。
 

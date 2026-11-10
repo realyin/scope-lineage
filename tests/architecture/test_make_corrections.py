@@ -28,7 +28,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 SCRIPT = REPO / "skills" / "scope-lineage" / "scripts" / "make_corrections.py"
-RUNBOOK = REPO / "skills" / "scope-lineage" / "references" / "runbook.md"
+RUNBOOK = REPO / "skills" / "scope-lineage" / "references" / "steps" / "S4.md"
 TABLE = "demo_dim.dim_party_group_dc"
 
 PACKET = """# 材料包 demo_dim.dim_party_group_dc

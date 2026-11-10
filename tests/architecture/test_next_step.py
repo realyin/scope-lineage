@@ -309,7 +309,7 @@ def test_a_delivered_run_is_done(run):
     assert _current(out) == "完成"
 
 
-def test_the_current_step_names_the_runbook_section_to_read(run):
+def test_the_current_step_names_the_step_file_to_read(run):
     out = _drive(run).stdout
-    assert "runbook.md" in out
+    assert str(SCRIPT.parent.parent / "references" / "steps" / "S1.md") in out
     assert "S1 血缘解析" in out

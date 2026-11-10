@@ -16,9 +16,10 @@
 
 ## 全流程一览
 
-操作手册是 [`runbook.md`](../../skills/scope-lineage/references/runbook.md)，下表是它的目录。
-每一步在手册里都有七栏：目的、前提检查、命令、产出与自检、常见失败、完成判据、下一步。
-不知道现在走到哪一步时，跑进度脚本 `next_step.py`（手册 0.6）：它只读运行目录，打印下表的进度清单和当前步。
+操作手册的目录页是 [`runbook.md`](../../skills/scope-lineage/references/runbook.md)，每一步是
+[`steps/`](../../skills/scope-lineage/references/steps/) 下的一个文件（`S0.md` … `S13.md`）；下表是它的目录。
+每一步都有七栏：目的、前提检查、命令、产出与自检、常见失败、完成判据、下一步。
+不知道现在走到哪一步时，跑进度脚本 `next_step.py`（手册 0.6）：它只读运行目录，打印下表的进度清单、当前步和要读的那个步骤文件。
 
 | 步 | 做什么 | 谁做 | 主要产出 |
 | --- | --- | --- | --- |
@@ -81,7 +82,7 @@
 
 ## 下一步
 
-- [`runbook.md`](../../skills/scope-lineage/references/runbook.md)：逐步操作手册。
+- [`runbook.md`](../../skills/scope-lineage/references/runbook.md)：逐步操作手册的目录，每一步一个文件。
 - [表语义](table-semantics.md)：`semantic *` 的文档格式、校验和状态。
 - [本体目录](ontology-catalog.md)：`catalog-yaml/1` 与 `ontology-json/3`。
 - [端到端工作流](workflow.md)：键折叠路线和各产物的先后关系。

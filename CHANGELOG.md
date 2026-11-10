@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+- **The skill is one file per step, per template and per workflow, with index pages.** Nothing a
+  subagent is told changes: every template and mode fills to the same prompt as 0.11.2 (pinned by
+  14 golden prompts), and each new file is a verbatim slice of the page it came from.
+  - `references/runbook.md` (1,523 lines) is now the index: the overview of S0-S13 and which file
+    holds each step. The steps are `references/steps/S0.md` ... `S13.md` (`S10a.md` ... `S10g.md`),
+    `00-before.md` (0.1-0.4) and `appendix-A.md` ... `appendix-D.md`. `next_step.py` prints the
+    path of the current step's file.
+  - `references/runbook-templates.md` (905 lines) is now the index of `references/templates/`:
+    `T1.md` ... `T8.md`, `checklist.md`, `ledger.md`, `result.md`.
+  - `skills/scope-lineage/SKILL.md` (655 lines, 47 KB) is a router (229 lines, 19 KB); each
+    workflow is a file under `workflows/`.
+  - `env.sh` is written by `scripts/init_run.py` (paths quoted, never overwritten) instead of
+    being copied out of the runbook; `sl`, `fill`, `note` and `load_tables` live in
+    `scripts/runlib.sh` and `scripts/fill.py`, which the last line of `env.sh` sources.
+  - `scope-lineage-ontology/SKILL.md` finds the skill directory instead of the repository root, so
+    it also covers a pip-installed tool with the two skills copied side by side.
+  - **A run directory started with 0.11.2 or older:** its `env.sh` carries its own `fill`, which
+    reads the old one-file templates and now exits 1 with `没有模板 …`. Add one line at the end
+    of that `env.sh`: `. "$SKILL/scripts/runlib.sh"`. Prompts already archived under
+    `$SCRATCH/prompts/` still point at files that have not moved.
+
 ## 0.11.2
 - **Fewer false gaps, and the ones left say where they are.** No format changes number. On a
   private trial corpus almost every task that was `partial` becomes `complete`; the one left

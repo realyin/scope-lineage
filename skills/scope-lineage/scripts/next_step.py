@@ -8,7 +8,8 @@ head. One that loses track skips a step, redoes a finished one, or stops at the 
 holds and prints:
 
   - the S0–S13 checklist, each step ``[x]`` done, ``[ ]`` not yet, or ``[-]`` skipped;
-  - the current step, why it is current, and the runbook section to follow;
+  - the current step, why it is current, and the file of that step to follow
+    (``references/steps/<step>.md``);
   - while table semantics is in progress (S4–S9), each table's next action and template,
     taken from appendix A.
 
@@ -54,6 +55,7 @@ STEPS = [
     ("S12", "确认回写（可选）"),
     ("S13", "交付"),
 ]
+STEP_FILES = Path(__file__).resolve().parent.parent / "references" / "steps"   # one file per step
 ORDER = {step: index for index, (step, _) in enumerate(STEPS)}
 TITLE = dict(STEPS)
 STATUS_COMMAND = (
@@ -232,8 +234,7 @@ def main(argv: list[str]) -> int:
     else:
         out.append(f"当前：{current} {TITLE[current]}")
         out.append(f"原因：{reason}")
-        section = "S10" if current.startswith("S10") else current
-        out.append(f"做法：读 references/runbook.md 的「{section}」一节，照前提检查、命令、完成判据做；做完再跑一次本脚本。")
+        out.append(f"做法：读 {STEP_FILES}/{current}.md（手册 references/runbook.md 的「{current}」一步），照前提检查、命令、完成判据做；做完再跑一次本脚本。")
     if lines:
         out.append("每张表的下一步（附录 A）：")
         out.extend(lines)

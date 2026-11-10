@@ -16,9 +16,10 @@
 
 ## The whole procedure at a glance
 
-The operating manual is [`runbook.md`](../../skills/scope-lineage/references/runbook.md); the table below is its outline.
-Every step in the manual has seven fields: purpose, precondition check, commands, outputs and self-check, common failures, completion test, next step.
-When you do not know which step a run has reached, run the progress script `next_step.py` (manual 0.6): it reads only the run directory and prints the checklist below and the current step.
+The operating manual's index is [`runbook.md`](../../skills/scope-lineage/references/runbook.md), and each step is one file under
+[`steps/`](../../skills/scope-lineage/references/steps/) (`S0.md` … `S13.md`); the table below is its outline.
+Every step has seven fields: purpose, precondition check, commands, outputs and self-check, common failures, completion test, next step.
+When you do not know which step a run has reached, run the progress script `next_step.py` (manual 0.6): it reads only the run directory and prints the checklist below, the current step and the step file to read.
 
 | Step | What | Who | Main output |
 | --- | --- | --- | --- |
@@ -81,7 +82,7 @@ Start with a small sample: at most 5 tables.
 
 ## Next
 
-- [`runbook.md`](../../skills/scope-lineage/references/runbook.md): the step-by-step manual.
+- [`runbook.md`](../../skills/scope-lineage/references/runbook.md): the index of the step-by-step manual, one file per step.
 - [Table semantics](table-semantics.md): document format, validation and status of `semantic *`.
 - [Ontology catalog](ontology-catalog.md): `catalog-yaml/1` and `ontology-json/3`.
 - [End-to-end workflow](workflow.md): the key-fold route and how the artifacts depend on each other.
