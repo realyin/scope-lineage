@@ -25,7 +25,7 @@ python3 <SKILL>/scripts/init_run.py \
 | `--questions` | `Q` | 回归题集（`question-set/1`）；没有就不写 |
 | `--tool` | `TOOL` | 工具仓库根目录（里面有 `skills/` `docs/` `examples/` `pyproject.toml`）。不写时脚本自己判断：skill 在仓库里就是那个仓库；pip 安装、没有仓库就是空的 |
 
-脚本另外写好四样，不用给参数：
+脚本还会建好账本 `<运行目录>/ledger.md`（已经有就不动它）。`env.sh` 里另外写好四样，不用给参数：
 
 - `SKILL`：脚本自己所在的 skill 目录。
 - `PAGES="$RUN/site"`（页面根目录：概念页、`index.md`）、`SEMPAGES="$RUN/site/semantics"`（表语义页目录）。
@@ -89,7 +89,7 @@ python3 <SKILL>/scripts/init_run.py \
      ```
 
   3. 从它打印的「当前」那一步的「前提检查」重新开始（`status --next` 会跳过已完成的表）。当前步是 S11 时，
-     再看 `round1/` 里有什么，按下表找到 S11 的第几步：
+     再看它点名的那个验收目录（`round1/`、`round2/` …，每套题一个）里有什么，按下表找到 S11 的第几步：
 
      | 看到的情况 | 当前步 |
      | --- | --- |

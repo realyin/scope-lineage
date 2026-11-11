@@ -134,8 +134,9 @@ def _table_action(run: Path, row: dict) -> tuple[str, str]:
 def _assess(run: Path) -> tuple[str, str, list[str], set[str]]:
     """(current step, reason, per-table lines, skipped steps)."""
     skipped = {"S12"}
-    if not _question_set(run):
-        skipped.add("S11")
+    rounds = sorted(path for path in run.glob("round*") if path.is_dir())
+    if not _question_set(run) and not rounds:
+        skipped.add("S11")   # no question set named and no round started: nothing to accept
 
     missing = [name for name in ("env.sh", "TOOL_VERSION", "ledger.md") if not (run / name).is_file()]
     if missing:
@@ -194,8 +195,11 @@ def _assess(run: Path) -> tuple[str, str, list[str], set[str]]:
         return "S10g", "缺 onto/ontology.json 或 site/concepts/", [], skipped
     if not (run / "catalog_check.txt").is_file():
         return "S10g", "缺 catalog_check.txt（S10g 最后一条：漏做检查）", [], skipped
-    if "S11" not in skipped and not any((run / "round1" / "score").glob("*")):
+    unscored = [path.name for path in rounds if not any((path / "score").glob("*"))]
+    if "S11" not in skipped and not rounds:
         return "S11", "env.sh 里 Q 不为空，round1/score/ 还是空的", [], skipped
+    if unscored:
+        return "S11", "这些验收目录还没有 score/ 产出：" + "、".join(unscored) + "（每套题一个 round 目录）", [], skipped
     if not (run / "RESULT.md").is_file():
         return "S13", "缺 RESULT.md", [], skipped
     return "完成", "S13 的 RESULT.md 已写", [], skipped

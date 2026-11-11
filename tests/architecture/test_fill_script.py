@@ -38,7 +38,7 @@ def _runner(shell: str, script: Path):
 
 
 @pytest.mark.parametrize("shell", SHELLS)
-def test_fill_tells_each_subagent_what_0_11_2_told_it(shell, tmp_path):
+def test_fill_tells_each_subagent_what_the_golden_prompt_says(shell, tmp_path):
     script = tmp_path / "f.sh"
     script.write_text(f'. "{SKILL}/scripts/runlib.sh"\nfill "$@"\n', encoding="utf-8")
     rendered = render_all(_runner(shell, script), tmp_path, SKILL)

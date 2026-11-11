@@ -5,7 +5,7 @@
 - [ ] `env.sh` 写好，每个 Bash 调用都先 `. <RUN>/env.sh`。
 - [ ] `sl --version` 通过版本判断（runbook S0），`TOOL_VERSION` 已写。
 - [ ] 写入检查、PyYAML 检查都 `exit=0`；Write 被拦时的「先写 SCRATCH 再 cp」已知晓。
-- [ ] `ledger.md` 按下面的账本模板建好；之后每一步最后一条命令是 `note "…"`（runbook 0.4）。
+- [ ] `ledger.md` 已由 `init_run.py` 建好，「工具版本」「范围」两行已填；之后每一步最后一条命令是 `note "…"`（runbook 0.4）。
 - [ ] `tables.txt` 只有本轮的表：小样 ≤5 张，没有中间表、临时表，不带 catalog 前缀。
 - [ ] 材料包 `Packed N table(s)` 的 N 等于 `tables.txt` 行数。
 - [ ] 题集来自 owner；没有题集就不做 S11。

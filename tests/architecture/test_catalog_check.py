@@ -397,3 +397,47 @@ def test_a_count_metric_needs_no_measure(tmp_path):
          "unit": "元", "additivity": "additive"},
     ]
     assert _check(_save(tmp_path, ontology)).returncode == 0
+
+
+# ---- code_attribute_without_relation: a reason the script can read, and who does what ----
+
+def _two_code_columns() -> dict:
+    """The same column name bound as a plain attribute on an entity's table and on an event's."""
+    ontology = _complete()
+    _bindings(ontology, "demo_dwd.task_det").append({"column": "queue_code", "to": "attribute", "ref": "attr:task.queue"})
+    _bindings(ontology, "demo_dwd.record_det").append({"column": "queue_code", "to": "attribute", "ref": "attr:record.queue"})
+    return ontology
+
+
+def test_a_code_skip_line_clears_that_column_and_not_its_namesake_on_another_table(tmp_path):
+    ontology = _two_code_columns()
+    changes = tmp_path / "catalog_changes.md"
+    changes.write_text("- demo_dwd.task_det.queue_code 不补：只是本任务自己的队列编码\n", encoding="utf-8")   # a reason, not a skip line
+    result = _check_with(_save(tmp_path, ontology), "--changes", str(changes))
+    assert len(_lines(result, "code_attribute_without_relation")) == 2
+    changes.write_text("- `demo_dwd.task_det.queue_code` code skip: 只是本任务自己的队列编码\n", encoding="utf-8")
+    result = _check_with(_save(tmp_path, ontology), "--changes", str(changes))
+    lines = _lines(result, "code_attribute_without_relation")
+    assert len(lines) == 1 and "demo_dwd.record_det.queue_code" in lines[0]
+    assert result.stdout.splitlines()[-1] == "1 finding(s)"
+
+
+def test_the_other_skip_lines_do_not_clear_a_code_column(tmp_path):
+    ontology = _two_code_columns()
+    changes = tmp_path / "catalog_changes.md"
+    changes.write_text("- concept:task empty skip: x\n- concept:task states skip: x\n- demo_dwd.task_det#r1 skip: x\n"
+                       "- demo_dwd.task_det.queue_code skip: 没写 code\n", encoding="utf-8")
+    result = _check_with(_save(tmp_path, ontology), "--changes", str(changes))
+    assert len(_lines(result, "code_attribute_without_relation")) == 2
+
+
+def test_the_finding_says_what_to_build_for_an_event_table_and_for_an_entity_table(tmp_path):
+    result = _check(_save(tmp_path, _two_code_columns()))
+    on_entity, on_event = _lines(result, "code_attribute_without_relation")
+    assert "demo_dwd.task_det.queue_code" in on_entity and "demo_dwd.record_det.queue_code" in on_event
+    # an entity's table: a relation in the catalog, then the column rebound
+    assert "relations" in on_entity and "foreign_identifier" in on_entity and "participants" not in on_entity
+    # an event's table: the concept becomes a participant -- participation relations are derived, never handwritten
+    assert "participants" in on_event and "foreign_identifier" in on_event and "relations" not in on_event
+    for line in (on_entity, on_event):
+        assert "code skip:" in line

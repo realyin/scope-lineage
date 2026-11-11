@@ -6,6 +6,9 @@
 The skill directory is the one this script lives in; the tool checkout is its repository
 when there is one, otherwise empty (the installed ``scope-lineage`` is used). An existing
 ``env.sh`` is never overwritten: edit its right-hand sides, or pass ``--force``.
+
+It also starts the run's ledger, ``ledger.md``, from ``references/templates/ledger.md`` (the
+block inside its fence, without the example row); an existing ledger is left as it is.
 """
 
 from __future__ import annotations
@@ -22,6 +25,15 @@ def _tool() -> str:
     root = os.path.dirname(os.path.dirname(SKILL))
     inside = os.path.basename(os.path.dirname(SKILL)) == "skills" and os.path.isfile(os.path.join(root, "pyproject.toml"))
     return root if inside else ""
+
+
+def _ledger(run: str) -> str:
+    """The ledger skeleton: the template's fenced block, its example row dropped, the run named."""
+    with open(os.path.join(SKILL, "references", "templates", "ledger.md"), encoding="utf-8") as handle:
+        text = handle.read()
+    block = text.split("```markdown\n", 1)[1].rsplit("```", 1)[0]
+    lines = [line for line in block.splitlines() if not line.startswith("| demo_")]
+    return "\n".join(lines).rstrip("\n").replace("<RUN 目录名>", os.path.basename(run)) + "\n\n"
 
 
 def main() -> int:
@@ -75,6 +87,11 @@ def main() -> int:
     os.makedirs(scratch, exist_ok=True)
     with open(target, "w", encoding="utf-8") as handle:
         handle.write("\n".join(lines) + "\n")
+    ledger = os.path.join(run, "ledger.md")
+    if not os.path.exists(ledger):
+        with open(ledger, "w", encoding="utf-8") as handle:
+            handle.write(_ledger(run))
+        print(f"建好了账本 {ledger}：S0 做完后填上「工具版本」和「范围」两行")
     print(f"写好了 {target}。每次 Bash 调用的第一条命令：. {shlex.quote(target)}")
     print("\n".join(lines))
     return 0

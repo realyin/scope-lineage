@@ -301,6 +301,25 @@ def test_with_a_question_set_s11_waits_for_a_score(run):
     assert _current(_drive(run).stdout) == "S13"
 
 
+def test_rounds_that_were_scored_count_even_when_env_names_no_question_set(run):
+    """Two question sets cannot both sit in ``Q``; a run that scored its rounds did S11."""
+    _through_s10(run)
+    _write(run / "round1" / "score" / "score.json", "{}")
+    _write(run / "round2" / "score" / "score.json", "{}")
+    out = _drive(run).stdout
+    assert "[x] S11" in out and "[-] S11" not in out
+    assert _current(out) == "S13"
+
+
+def test_a_round_without_a_score_keeps_s11_current_and_is_named(run):
+    _through_s10(run)
+    _write(run / "round1" / "score" / "score.json", "{}")
+    _write(run / "round2" / "sheet.md")
+    out = _drive(run).stdout
+    assert _current(out) == "S11"
+    assert "round2" in out
+
+
 def test_a_delivered_run_is_done(run):
     _through_s10(run)
     _write(run / "RESULT.md")

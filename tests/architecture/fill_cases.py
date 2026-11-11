@@ -2,9 +2,11 @@
 
 ``render_all(fill)`` runs one ``fill`` call per case in its own run directory and returns
 ``{case: prompt text}`` with the machine's paths replaced by ``/RUN``, ``/SCRATCH`` and
-``/SKILL``. The golden copies under ``fixtures/fill_golden/`` were written by the ``fill``
-function that used to live inside ``env.sh`` (0.11.2), so a change to where ``fill`` or the
-templates live cannot change what a subagent is told without a test saying so.
+``/SKILL``. The golden copies under ``fixtures/fill_golden/`` were first written by the
+``fill`` function that used to live inside ``env.sh`` (0.11.2), so a change to where ``fill``
+or the templates live cannot change what a subagent is told without a test saying so. A
+template is changed on purpose by rewriting its golden in the same commit; the diff of the
+golden is then the whole change to the prompt.
 """
 
 from __future__ import annotations

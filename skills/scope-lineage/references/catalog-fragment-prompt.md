@@ -8,7 +8,8 @@
 
 ## 读什么
 
-- 目录格式：本 skill 的 `references/catalog-elements.md`（本体目录文档的「元素」「起草」两节，「表现与绑定」在「元素」里），
+- 目录格式：都在**本文件所在的目录**里（本文件是 `<skill 目录>/references/catalog-fragment-prompt.md`，下面三个路径接在
+  `<skill 目录>/` 后面）：`references/catalog-elements.md`（本体目录文档的「元素」「起草」两节，「表现与绑定」在「元素」里），
   示例 `references/catalog-demo/`（`mapping/party.yaml`、`concepts/*.yaml`、`code_sets.yaml` 的形状照抄）与
   `references/catalog-fragments/disbursement.json`（片段的形状照抄）。示例目录用 YAML 写；目录文件也可以是
   `.json`（可以全是 JSON），条目形状不变，下文只写文件名主干（`identifiers`、`code_sets`、`mapping/<group>`）。

@@ -210,7 +210,7 @@ A workflow that names another by its quoted heading means the file with that hea
   `glossary.overrides.json` / `ontology.overrides.json` / `metadata-patch.json`. Read when the
   user asks how the whole thing is used, or when you are unsure which command comes next.
 - `scripts/init_run.py` — writes a run's `env.sh` from `--run`, `--scratch`, `--tasks`, `--schema`
-  (and the optional paths), quoted so nothing is expanded; never overwrites one. Run it first, as
+  (and the optional paths), quoted so nothing is expanded, and starts the run's `ledger.md` from the ledger template; never overwrites either. Run it first, as
   `references/steps/00-before.md` 0.1 says; nobody writes `env.sh` by hand.
 - `scripts/runlib.sh` — the run's shell functions `sl`, `fill`, `note`, `load_tables`; sourced by
   the last line of `env.sh`, never run on its own.

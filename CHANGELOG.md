@@ -22,6 +22,27 @@
     of that `env.sh`: `. "$SKILL/scripts/runlib.sh"`. Prompts already archived under
     `$SCRATCH/prompts/` still point at files that have not moved.
 
+- **Fixes from four end-to-end sample runs (two models, the old and the new layout).**
+  - `catalog_check.py`: a `code_attribute_without_relation` finding can now be closed. The S10g
+    completion test let a finding stay "with a reason in `catalog_changes.md`", but the script read
+    no reason for this kind, so its last line never reached `0 finding(s)`. It now reads
+    `<db.table.column> code skip: <reason>`, like the three kinds that already had a skip line.
+  - The same finding now says what to build. It used to say "build a relation" for every table;
+    on an event's table the other concept becomes a participant (participation relations are
+    derived, never handwritten), and only otherwise is a relation written. The line is handed to
+    the drafters as their rework notice, so it names who does which half.
+  - `next_step.py`: S11 no longer shows as skipped once rounds were scored. With two question
+    sets `Q` in `env.sh` can name one at most; the script now looks at the `round*/` directories:
+    skipped only when `Q` is empty and there is none, done when every one has its `score/`, and
+    otherwise current, naming the round that has none.
+  - `init_run.py` also starts `ledger.md` from the ledger template (its example row left out); an
+    existing ledger is kept. S0 no longer has the orchestrator cut it out of a fenced block.
+  - T5 says an object's `notes` is one string, not a list (its plural wording suggested a list).
+  - `catalog-fragment-prompt.md` says its example paths are relative to the skill directory; a
+    fragment writer handed the prompt by absolute path could not tell where `references/` was.
+  - S5 says a subagent's own fixes within one dispatch are not rounds; S10g says why `build`
+    counts more relations than `catalog validate` (derived participations).
+
 ## 0.11.2
 - **Fewer false gaps, and the ones left say where they are.** No format changes number. On a
   private trial corpus almost every task that was `partial` becomes `complete`; the one left

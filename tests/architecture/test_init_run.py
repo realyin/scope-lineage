@@ -87,3 +87,35 @@ def test_a_skill_installed_apart_from_the_tool_leaves_tool_empty(tmp_path):
                            str(tmp_path / "s"), "--tasks", "/t", "--schema", "/s"], capture_output=True, text=True)
     assert done.returncode == 0, done.stderr
     assert _show("bash", run / "env.sh", "TOOL", "SKILL") == ["", str(skill)]
+
+
+def _args(tmp_path, run):
+    return ("--run", str(run), "--scratch", str(tmp_path / "s"), "--tasks", "/t", "--schema", "/s")
+
+
+def test_the_ledger_is_written_with_the_run_and_ends_with_the_running_log(tmp_path):
+    run = tmp_path / "run-20260101"
+    assert _init(*_args(tmp_path, run)).returncode == 0
+    ledger = (run / "ledger.md").read_text(encoding="utf-8")
+    assert ledger.startswith("# 运行账本：run-20260101\n")
+    assert "```" not in ledger and "demo_dwd" not in ledger            # the template's fence and its example row stay out
+    assert ledger.rstrip().splitlines()[-1].startswith("## 流水")
+    for section in ("## 表进度", "## 派发记录", "## blocked", "## 给 owner 的待确认", "## 问题清单"):
+        assert section in ledger
+    done = subprocess.run(["bash", "-c", f'. {shlex.quote(str(run / "env.sh"))} && note "S0 建好运行目录"'], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    assert (run / "ledger.md").read_text(encoding="utf-8").rstrip().endswith("S0 建好运行目录")
+
+
+def test_an_existing_ledger_is_kept(tmp_path):
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "ledger.md").write_text("# 已有的账本\n", encoding="utf-8")
+    assert _init(*_args(tmp_path, run)).returncode == 0
+    assert (run / "ledger.md").read_text(encoding="utf-8") == "# 已有的账本\n"
+
+
+def test_a_refused_run_writes_no_ledger(tmp_path):
+    run = tmp_path / "run"
+    done = _init("--run", str(run), "--scratch", str(run / "scratch"), "--tasks", "/t", "--schema", "/s")
+    assert done.returncode == 1 and not (run / "ledger.md").exists()
