@@ -10,7 +10,7 @@
     "scope_lineage/scope/function_catalog.py",
     "scope_lineage/scope/expansion_budget.py"
   ],
-  "pythonVersion": "3.9",
+  "pythonVersion": "3.10",
   "typeCheckingMode": "basic",
   "reportMissingImports": false,
   "reportPrivateImportUsage": false

@@ -9,7 +9,7 @@ metadata and outputs:
 - `diagnostics.json`: parse warnings, statistics, and fact gaps that could not be proven.
 
 It needs no Spark cluster, no database connection, and no LLM. The runtime requires Python
-3.9–3.12.
+3.10–3.12.
 
 ## 1. Installation
 

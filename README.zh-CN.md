@@ -1,7 +1,7 @@
 # Scope Lineage
 
 [![Core CI](https://github.com/realyin/scope-lineage/actions/workflows/ci.yml/badge.svg)](https://github.com/realyin/scope-lineage/actions/workflows/ci.yml)
-[![Python 3.9–3.12](https://img.shields.io/badge/python-3.9%E2%80%933.12-blue)](pyproject.toml)
+[![Python 3.10–3.12](https://img.shields.io/badge/python-3.10%E2%80%933.12-blue)](pyproject.toml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 中文 | [English](README.md)

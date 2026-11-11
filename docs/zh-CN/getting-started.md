@@ -7,7 +7,7 @@ Scope Lineage 是一个离线的 Spark/Hive SQL 静态分析工具。它读取 S
 - `lineage.json`：表、scope、表达式、字段映射链和端到端字段血缘；
 - `diagnostics.json`：解析 warning、统计数据和无法证明的事实缺口。
 
-它不需要 Spark 集群、数据库连接或 LLM。运行环境需要 Python 3.9～3.12。
+它不需要 Spark 集群、数据库连接或 LLM。运行环境需要 Python 3.10～3.12。
 
 ## 1. 安装
 

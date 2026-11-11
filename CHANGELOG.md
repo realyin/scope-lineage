@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- **Breaking: Python 3.9 is no longer supported; the minimum is 3.10.** The CI runner image
+  stopped providing 3.9, so it can no longer be verified. `requires-python` is `>=3.10` and the
+  test matrix is 3.10-3.12. On 3.9, `pip` keeps resolving to 0.11.2. The skill's standalone
+  scripts are unchanged and still standard-library only.
 - **The skill is one file per step, per template and per workflow, with index pages.** Nothing a
   subagent is told changes: every template and mode fills to the same prompt as 0.11.2 (pinned by
   14 golden prompts), and each new file is a verbatim slice of the page it came from.

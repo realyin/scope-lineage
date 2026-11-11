@@ -3,7 +3,7 @@ name = "scope-lineage"
 version = "0.11.2"
 description = "Spark/Hive SQL parsing foundation for AI-ready task knowledge bases"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "Apache-2.0"
 keywords = ["sql", "lineage", "spark", "hive", "ai", "knowledge-base", "metadata"]
 # Scope Lineage consumes SQLGlot optimizer scopes, whose shape may change in a minor release.
@@ -15,7 +15,6 @@ classifiers = [
     "Intended Audience :: Developers",
     "Intended Audience :: Information Technology",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -54,7 +53,7 @@ testpaths = ["tests"]
 # Lint safety net for the ongoing core-module refactor. Intentionally narrow:
 # catch the mechanical mistakes a function-extraction refactor is most likely to
 # introduce (unused/undefined names), not style. No formatting is enforced.
-target-version = "py39"
+target-version = "py310"
 
 [tool.ruff.lint]
 # Pyflakes (F) as the safety net for mechanical refactor mistakes; BLE001 so every
