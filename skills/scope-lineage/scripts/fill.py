@@ -14,7 +14,7 @@ name, out, pairs = sys.argv[1], sys.argv[2], sys.argv[3:]
 skill = os.environ.get("SKILL") or os.path.join(os.environ.get("TOOL", ""), "skills/scope-lineage")
 folder = os.path.join(skill, "references/templates")
 if not os.path.isdir(folder):
-    sys.exit("找不到模板目录：" + folder + "。SKILL 没指向 skill 目录，或 skill 是 0.11.2 之前的版本")
+    sys.exit("找不到模板目录：" + folder + "。SKILL 没指向 skill 目录，或 skill 是 0.12.0 之前的版本")
 src = "\n".join(open(os.path.join(folder, name), encoding="utf-8").read()
                 for name in sorted(os.listdir(folder)) if re.fullmatch(r"T\d+\.md", name))
 meta = {}   # 模板编号 -> {"names": [...], "MODE": [...], "rules": [(规则, 只在哪个 MODE 生效, 值)]}
