@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.12.0
 - **Breaking: Python 3.9 is no longer supported; the minimum is 3.10.** The CI runner image
   stopped providing 3.9, so it can no longer be verified. `requires-python` is `>=3.10` and the
   test matrix is 3.10-3.12. On 3.9, `pip` keeps resolving to 0.11.2. The skill's standalone
