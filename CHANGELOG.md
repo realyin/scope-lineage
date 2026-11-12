@@ -1,5 +1,69 @@
 # Changelog
 
+## Unreleased
+- **Breaking: Python 3.9 is no longer supported; the minimum is 3.10.** The CI runner image
+  stopped providing 3.9, so it can no longer be verified. `requires-python` is `>=3.10` and the
+  test matrix is 3.10-3.12. On 3.9, `pip` keeps resolving to 0.11.2. The skill's standalone
+  scripts are unchanged and still standard-library only.
+- **The skill is one file per step, per template and per workflow, with index pages.** Nothing a
+  subagent is told changes: every template and mode fills to the same prompt as 0.11.2 (pinned by
+  14 golden prompts), and each new file is a verbatim slice of the page it came from.
+  - `references/runbook.md` (1,523 lines) is now the index: the overview of S0-S13 and which file
+    holds each step. The steps are `references/steps/S0.md` ... `S13.md` (`S10a.md` ... `S10g.md`),
+    `00-before.md` (0.1-0.4) and `appendix-A.md` ... `appendix-D.md`. `next_step.py` prints the
+    path of the current step's file.
+  - `references/runbook-templates.md` (905 lines) is now the index of `references/templates/`:
+    `T1.md` ... `T9.md`, `checklist.md`, `ledger.md`, `result.md`.
+  - `skills/scope-lineage/SKILL.md` (655 lines, 47 KB) is a router (229 lines, 19 KB); each
+    workflow is a file under `workflows/`.
+  - `env.sh` is written by `scripts/init_run.py` (paths quoted, never overwritten) instead of
+    being copied out of the runbook; `sl`, `fill`, `note` and `load_tables` live in
+    `scripts/runlib.sh` and `scripts/fill.py`, which the last line of `env.sh` sources.
+  - `scope-lineage-ontology/SKILL.md` finds the skill directory instead of the repository root, so
+    it also covers a pip-installed tool with the two skills copied side by side.
+  - **A run directory started with 0.11.2 or older:** its `env.sh` carries its own `fill`, which
+    reads the old one-file templates and now exits 1 with `没有模板 …`. Add one line at the end
+    of that `env.sh`: `. "$SKILL/scripts/runlib.sh"`. Prompts already archived under
+    `$SCRATCH/prompts/` still point at files that have not moved.
+
+- **Reviewing twice with a single model is now a step, not a sentence.** The driver skill said
+  "run the review twice and take the union" and nothing said how; all four sample runs reviewed
+  once. `init_run.py --review-passes 2` writes `REVIEW_PASSES=2` into `env.sh` (default 1; an
+  `env.sh` without the line means 1). With 2, S6 sends a second, fresh reviewer after every first
+  review (new template `T9`, `fill second-review`): it reviews the table on its own before reading
+  the first review, then writes the union back to `reviews/<table>.md` under a
+  `## 两遍审读合并` section; the first pass is kept as `reviews_prev/<table>.pass1.md`.
+  `next_step.py` lists the second review as the table's next action until that section exists.
+  The re-review (S8) is still done once.
+
+- **A status column on an event table belongs to the event.** `T5` used to send it to the entity
+  the event happens to, which turned "this occurrence ended in X" into "the object is in state X";
+  two of four sample runs ignored the rule. `T5` now drafts the state attribute on the concept of
+  the table the column is in, and `T6` binds it there and reports a missing `states` only for an
+  entity. Nothing in the tool changes: `states` was already entity-only, and `catalog_check.py`
+  already asked nothing of an event's state attribute.
+
+- **Fixes from four end-to-end sample runs (two models, the old and the new layout).**
+  - `catalog_check.py`: a `code_attribute_without_relation` finding can now be closed. The S10g
+    completion test let a finding stay "with a reason in `catalog_changes.md`", but the script read
+    no reason for this kind, so its last line never reached `0 finding(s)`. It now reads
+    `<db.table.column> code skip: <reason>`, like the three kinds that already had a skip line.
+  - The same finding now says what to build. It used to say "build a relation" for every table;
+    on an event's table the other concept becomes a participant (participation relations are
+    derived, never handwritten), and only otherwise is a relation written. The line is handed to
+    the drafters as their rework notice, so it names who does which half.
+  - `next_step.py`: S11 no longer shows as skipped once rounds were scored. With two question
+    sets `Q` in `env.sh` can name one at most; the script now looks at the `round*/` directories:
+    skipped only when `Q` is empty and there is none, done when every one has its `score/`, and
+    otherwise current, naming the round that has none.
+  - `init_run.py` also starts `ledger.md` from the ledger template (its example row left out); an
+    existing ledger is kept. S0 no longer has the orchestrator cut it out of a fenced block.
+  - T5 says an object's `notes` is one string, not a list (its plural wording suggested a list).
+  - `catalog-fragment-prompt.md` says its example paths are relative to the skill directory; a
+    fragment writer handed the prompt by absolute path could not tell where `references/` was.
+  - S5 says a subagent's own fixes within one dispatch are not rounds; S10g says why `build`
+    counts more relations than `catalog validate` (derived participations).
+
 ## 0.11.2
 - **Fewer false gaps, and the ones left say where they are.** No format changes number. On a
   private trial corpus almost every task that was `partial` becomes `complete`; the one left

@@ -25,7 +25,8 @@ these kinds of omission:
   measure_without_unit               a measure attribute with no ``unit``;
   metric_incomplete                  a metric with no ``unit`` or ``additivity``, or a sum,
                                      avg, min or max with no ``measure``;
-  code_attribute_without_relation    a column named like a code or a key (``*_cd``, ``*_id``,
+  code_attribute_without_relation    (cleared by ``<db.table.column> code skip: …`` in
+                                     ``catalog_changes.md``) a column named like a code or a key (``*_cd``, ``*_id``,
                                      ``*_no``, ``*_code``) bound as a plain attribute, not as an
                                      identifier or a foreign identifier, whose attribute has no
                                      code set, and whose stem names another concept (a concept
@@ -81,7 +82,7 @@ def check(
     for representation in ontology.get("representations") or []:
         findings += _representation_findings(ontology, concepts, representation)
     findings += _state_and_measure_findings(ontology, concepts, changes)
-    findings += _code_column_findings(ontology, concepts, look)
+    findings += _code_column_findings(ontology, concepts, changes, look)
     findings += _metric_findings(ontology)
     if digest is not None:
         findings += _rule_findings(ontology, digest, changes)
@@ -199,8 +200,12 @@ def _state_and_measure_findings(ontology: dict, concepts: dict, changes: str) ->
     return findings
 
 
-def _code_column_findings(ontology: dict, concepts: dict, look: list[str]) -> list[str]:
-    """``code_attribute_without_relation``; the code columns naming no concept go to ``look``."""
+def _code_column_findings(ontology: dict, concepts: dict, changes: str, look: list[str]) -> list[str]:
+    """``code_attribute_without_relation``; the code columns naming no concept go to ``look``.
+    A column may be cleared by ``<db.table.column> code skip: <reason>``. What the finding asks
+    for depends on the table's own concept: an event lists the other concept as a participant
+    (participation relations are derived, never handwritten); anything else gets a relation."""
+    skipped = {m.lower() for m in re.findall(r"([\w.]+)`?\s+code\s+skip", changes)}
     names = _concept_stems(concepts, ontology.get("identifiers") or [])
     attributes = {a["id"]: a for c in concepts.values() for a in c.get("attributes") or []}
     findings = []
@@ -215,10 +220,18 @@ def _code_column_findings(ontology: dict, concepts: dict, look: list[str]) -> li
             at = f"{representation['table']}.{column}"
             target = names.get(_stem(column, POINTER_SUFFIXES) or "")
             if target and target != own:
+                if at.lower() in skipped:
+                    continue
+                if (concepts.get(own) or {}).get("kind") == "event":
+                    action = (f"{own} 是事件：目录起草者把 {target} 列进它的 participants（没有标识符就先建），"
+                              f"片段作者把这一列改绑 foreign_identifier（参与关系自动派生，不手写）")
+                else:
+                    action = (f"目录起草者在 relations 里建 {own} 与 {target} 的关系（没有标识符就先建），"
+                              f"片段作者把这一列改绑 foreign_identifier")
                 findings.append(
                     f"code_attribute_without_relation  {at} 绑成属性 {binding.get('ref')}（无码值集），"
-                    f"列名词干指向 {target}：应建关系并绑成 foreign_identifier；确实只是本概念自己的编号就在 "
-                    f"catalog_changes.md 写理由"
+                    f"列名词干指向 {target}。{action}；确实只是本概念自己的编号、或材料证明不了它指向 {target}，"
+                    f"就在 catalog_changes.md 写一行 `{at} code skip: <理由>`"
                 )
             else:
                 look.append(f"{at}（{binding.get('ref')}）")

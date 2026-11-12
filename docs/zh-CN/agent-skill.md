@@ -59,7 +59,7 @@ python3 skills/scope-lineage/scripts/confirmations.py apply <画像文件> --by 
 拿到一批任务 JSON 和表 Schema，按分步手册生成表语义和业务本体目录。后者是前者手册的「驾驶员」：一个由进度脚本
 `next_step.py` 驱动的循环，加上不能省的规则和角色分工，见[操作入口](task-to-ontology.md)。
 
-给一批表写表语义、起草本体目录、做回归验收这三件事，技能带一份照字面执行的分步手册 `references/runbook.md`（S0–S13，每步写明前提检查、可直接复制的命令、自检与完成判据、常见报错的处理）和一份子代理填空模板 `references/runbook-templates.md`（写作、审读、复审、修订、目录起草、片段、作答、判分八份，以及运行账本和交付报告）。编排的 agent 读手册，每个子代理只拿一份填好的模板。
+给一批表写表语义、起草本体目录、做回归验收这三件事，技能带一份照字面执行的分步手册：`references/runbook.md` 是目录（全流程总览、哪一步在哪个文件），每一步是 `references/steps/` 下的一个文件（S0–S13，写明前提检查、可直接复制的命令、自检与完成判据、常见报错的处理）；子代理填空模板一份一个文件，放在 `references/templates/`（写作、审读、复审、修订、目录起草、片段、作答、判分、补审九份，以及检查清单、运行账本和交付报告），`references/runbook-templates.md` 是它们的目录和填法。运行环境 `env.sh` 由 `scripts/init_run.py` 生成，不用手写。编排的 agent 做到哪一步读哪一个步骤文件，每个子代理只拿一份填好的模板。
 
 ## 安装
 

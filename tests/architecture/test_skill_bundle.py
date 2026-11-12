@@ -45,7 +45,9 @@ def test_the_bundled_catalog_elements_are_the_docs_sections() -> None:
 
 
 def test_no_template_points_into_the_tool_repository() -> None:
-    text = (REFS / "runbook-templates.md").read_text(encoding="utf-8")
-    body = text.split("----8<----", 1)[1]
+    templates = sorted((REFS / "templates").glob("T*.md"))
+    assert len(templates) == 9
 
-    assert "{TOOL}/" not in body
+    for template in templates:
+        body = template.read_text(encoding="utf-8").split("----8<----", 2)[1]
+        assert "{TOOL}/" not in body, template.name

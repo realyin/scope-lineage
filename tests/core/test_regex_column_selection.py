@@ -69,7 +69,7 @@ def test_a_regex_projection_without_schema_keeps_its_gap() -> None:
 
 
 def test_the_exclusion_pattern_behaves_the_same_on_every_supported_python() -> None:
-    """Possessive quantifiers are 3.11+ syntax; this project supports 3.9.
+    """Possessive quantifiers are 3.11+ syntax; this project supports 3.10.
 
     Compiling the pattern must not be what decides whether a column is excluded, or the
     same SQL would yield different lineage depending on the interpreter.

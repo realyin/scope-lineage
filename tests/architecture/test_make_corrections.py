@@ -28,7 +28,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 SCRIPT = REPO / "skills" / "scope-lineage" / "scripts" / "make_corrections.py"
-RUNBOOK = REPO / "skills" / "scope-lineage" / "references" / "runbook.md"
+RUNBOOK = REPO / "skills" / "scope-lineage" / "references" / "steps" / "S4.md"
 TABLE = "demo_dim.dim_party_group_dc"
 
 PACKET = """# 材料包 demo_dim.dim_party_group_dc
@@ -399,3 +399,18 @@ def test_old_points_whose_evidence_is_still_in_the_packet_come_back_as_c(tmp_pat
     assert "核对后保留" in text.split("## A 段")[0]              # the usage says what C is for
     dropped = [item for item in items.values() if item.get("from") == "prior_doc" and item["dest"] == "dropped"]
     assert [item["missing"] for item in dropped] == [["retired_flag"]]
+
+
+def test_a_merged_second_review_reads_like_any_other_review(tmp_path):
+    """T9 puts a ``两遍审读合并`` table before the findings and may add a ``第二遍异议`` line:
+    neither is a finding, neither is an old-review row, and no finding is lost."""
+    front, body = PRIOR.split("\n---\n", 1)
+    merge = ("\n## 两遍审读合并\n\n第一遍 5 条，第二遍 1 条，合并后 5 条。\n\n"
+             "| 合并后编号 | 第一遍编号 | 第二遍编号 | 说明 |\n| --- | --- | --- | --- |\n"
+             "| M1 | M1 | M1 | 两遍都发现 |\n| L1 | L1 | — | 只有第一遍；第二遍有异议 |\n")
+    merged = front + "\n---\n" + merge + body.replace(
+        "- 应改成：补「同名不同 id 只留一条」", "- 应改成：补「同名不同 id 只留一条」\n- 第二遍异议：p3 `PARTITION BY grp_name`")
+    plain, _, _ = _run(tmp_path / "plain", PRIOR, FIXLOG)
+    items, _, stderr = _run(tmp_path / "merged", merged, FIXLOG)
+    assert {key: item["dest"] for key, item in items.items()} == {key: item["dest"] for key, item in plain.items()}
+    assert "合并后编号" not in stderr

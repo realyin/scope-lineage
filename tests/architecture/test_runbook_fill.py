@@ -1,12 +1,12 @@
-"""``fill`` (runbook 0.1) under bash and zsh, and every ``fill`` command the runbook prints.
+"""``fill`` (``scripts/runlib.sh``) under bash and zsh, and every ``fill`` command the runbook prints.
 
-The orchestrator fills the subagent templates T1–T8 with ``fill``; a filled template is
+The orchestrator fills the subagent templates T1–T9 with ``fill``; a filled template is
 what a subagent is told. A wrong template, a mode from another template or a missing
 premise (a re-review with no backed-up first review, a rewrite without its corrections
 list) used to fill without a word. ``fill`` now reads each template's rules from the
 ``<!-- fill: … -->`` line under its heading and refuses those with exit 1. The function is
-taken from the runbook itself and run in a fresh shell, as an orchestrator's Bash call
-runs it; zsh is skipped where it is not installed.
+sourced from ``runlib.sh`` in a fresh shell, as an orchestrator's Bash call gets it through
+``env.sh``; zsh is skipped where it is not installed.
 
 The last test reads every ``fill`` command in the runbook and its templates and checks it
 against the template it names, so a template change cannot leave a command behind.
@@ -34,13 +34,6 @@ WRITE = ("FACTS=无", "CONCEPT=不写 concept", "FAILURES=无")
 AUTO = {"RUN", "TOOL", "SKILL", "SCHEMAS", "SCRATCH", "TASKS", "PAGES", "SEMPAGES", "ENV", "ROUND_NAME"}
 
 
-def _fill_source() -> str:
-    text = (REFS / "runbook.md").read_text(encoding="utf-8")
-    found = re.search(r"^fill\(\) \{.*?^PY\n\}$", text, re.S | re.M)
-    assert found, "runbook 0.1 has no fill function"
-    return found.group(0)
-
-
 @pytest.fixture
 def run(tmp_path):
     directory = tmp_path / "run"
@@ -51,7 +44,8 @@ def run(tmp_path):
 
 def _fill(shell, run, *args, **overrides):
     script = run.parent / "f.sh"
-    script.write_text(_fill_source() + '\nfill "$@"\n', encoding="utf-8")
+    skill = overrides.get("SKILL") or str(REFS.parent)
+    script.write_text(f'. "{skill}/scripts/runlib.sh"\nfill "$@"\n', encoding="utf-8")
     env = dict(os.environ, TOOL=str(ROOT), RUN=str(run), SCRATCH=str(run.parent / "scratch"),
                TASKS="/x", PAGES=str(run / "site"), SEMPAGES=str(run / "site/semantics"))
     env.pop("SKILL", None)
@@ -64,7 +58,7 @@ def _fill(shell, run, *args, **overrides):
 def test_a_pip_install_fills_from_the_skill_directory(shell, run, tmp_path):
     """No checkout: ``TOOL`` empty, the skill and the package's schemas found apart."""
     skill = tmp_path / "skills" / "scope-lineage"
-    shutil.copytree(REFS.parent / "references", skill / "references")
+    shutil.copytree(REFS.parent, skill)
     out = run.parent / "t1.md"
     done = _fill(shell, run, "T1", str(out), f"TABLE={T}", "MODE=新写", "CORRECTIONS=无", *WRITE,
                  TOOL="", SKILL=str(skill), SCHEMAS="/site-packages/scope_lineage/schemas")
@@ -190,7 +184,7 @@ def test_a_missing_table_is_named_before_any_premise(shell, run):
 # ---- every fill command the runbook prints --------------------------------------------
 
 def _templates() -> dict[str, dict]:
-    text = (REFS / "runbook-templates.md").read_text(encoding="utf-8")
+    text = "\n".join(path.read_text(encoding="utf-8") for path in sorted((REFS / "templates").glob("T*.md")))
     templates = {}
     for heading in re.finditer(r"^## (T\d) .*?\n(?:\n)?<!-- fill: (.*?) -->$", text, re.M):
         rules = dict(part.strip().split("=", 1) for part in heading.group(2).split(";") if "[" not in part)
@@ -205,7 +199,9 @@ def _templates() -> dict[str, dict]:
 
 def _commands() -> list[tuple[str, str]]:
     found = []
-    for name in ("runbook.md", "runbook-templates.md"):
+    pages = [REFS / "runbook.md", REFS / "runbook-templates.md", *sorted((REFS / "steps").glob("*.md")),
+             *sorted((REFS / "templates").glob("*.md"))]
+    for name in (str(page.relative_to(REFS)) for page in pages):
         for line in (REFS / name).read_text(encoding="utf-8").splitlines():
             for command in re.findall(r"(?:^|`)(fill [^`]+?)(?:`|;|$)", line.strip()):
                 if not command.startswith("fill()"):
@@ -215,7 +211,7 @@ def _commands() -> list[tuple[str, str]]:
 
 def test_every_fill_command_in_the_runbook_fits_its_template():
     templates = _templates()
-    assert len(templates) == 8, sorted(templates)
+    assert len(templates) == 9, sorted(templates)
     commands = _commands()
     assert len(commands) >= 12, commands
     problems = []
@@ -256,7 +252,7 @@ CATALOG = {
 
 def _route_c(tmp_path: Path, catalog: dict[str, dict]):
     """The runbook's route C block (without its copy and validate lines) over ``catalog``."""
-    text = (REFS / "runbook.md").read_text(encoding="utf-8")
+    text = (REFS / "steps" / "S10a.md").read_text(encoding="utf-8")
     found = re.search(r"```bash\n(# 接回旧目录\n.*?)```", text, re.S)
     assert found, "runbook S10a has no block starting with '# 接回旧目录'"
     block = "\n".join(line for line in found.group(1).splitlines() if not line.startswith(("cp -R ", "sl ")))
@@ -289,3 +285,16 @@ def test_route_c_stops_on_a_file_that_is_not_one_keyed_list(tmp_path, broken):
     catalog = {**CATALOG, broken: {**CATALOG[broken], "extra": []}}
     _, done = _route_c(tmp_path, catalog)
     assert "exit=1" in done.stdout and "顶层应当只有一个键" in done.stderr
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_the_second_review_needs_the_first_pass_kept_aside(shell, run):
+    out = run.parent / "t9.md"
+    _touch(run / "docs" / f"{T}.json")
+    _touch(run / "reviews" / f"{T}.md")
+    refused = _fill(shell, run, "second-review", str(out), f"TABLE={T}", "FACTS=无")
+    assert refused.returncode == 1 and "pass1.md" in refused.stderr
+    _touch(run / "reviews_prev" / f"{T}.pass1.md")
+    done = _fill(shell, run, "补审", str(out), f"TABLE={T}", "FACTS=无")
+    assert done.returncode == 0, done.stderr
+    assert "## 两遍审读合并" in out.read_text(encoding="utf-8")
