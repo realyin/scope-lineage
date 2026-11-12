@@ -119,3 +119,18 @@ def test_a_refused_run_writes_no_ledger(tmp_path):
     run = tmp_path / "run"
     done = _init("--run", str(run), "--scratch", str(run / "scratch"), "--tasks", "/t", "--schema", "/s")
     assert done.returncode == 1 and not (run / "ledger.md").exists()
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_the_number_of_review_passes_is_one_unless_asked(shell, tmp_path):
+    base = ("--scratch", str(tmp_path / "s"), "--tasks", "/t", "--schema", "/s")
+    assert _init("--run", str(tmp_path / "a"), *base).returncode == 0
+    assert _init("--run", str(tmp_path / "b"), *base, "--review-passes", "2").returncode == 0
+    assert _show(shell, tmp_path / "a" / "env.sh", "REVIEW_PASSES") == ["1"]
+    assert _show(shell, tmp_path / "b" / "env.sh", "REVIEW_PASSES") == ["2"]
+
+
+def test_three_review_passes_are_refused(tmp_path):
+    done = _init("--run", str(tmp_path / "a"), "--scratch", str(tmp_path / "s"), "--tasks", "/t", "--schema", "/s",
+                 "--review-passes", "3")
+    assert done.returncode != 0 and not (tmp_path / "a" / "env.sh").exists()

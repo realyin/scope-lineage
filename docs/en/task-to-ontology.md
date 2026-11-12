@@ -51,7 +51,7 @@ The roles in the manual are prompt files, not specific models. Tiers are relativ
 | Role | Steps | Tier | With only one model |
 | --- | --- | --- | --- |
 | Write, fix | S4, S7 | Second-strongest | The same model works, but open a new session each time and give it only the prompt and the packet |
-| Review, re-review | S6, S8 | Strongest | New session, reads only the packet and the document; run it twice and take the union of the two reviews |
+| Review, re-review | S6, S8 | Strongest | New session, reads only the packet and the document; pass `--review-passes 2` to `init_run.py`: after each first review a second, fresh reviewer reviews the table independently and then merges the two reviews into their union |
 | Catalog draft, fragments | S10 | Second-strongest | Do not go weaker; after drafting, have a stronger model check that the concepts are complete |
 | Answer | S11 | Cheap | Any |
 | Grade | S11 | Strongest | New session, never sees the answerer's reasoning |

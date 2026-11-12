@@ -48,8 +48,8 @@ def test_the_runbook_is_an_index_that_links_every_step_file():
 
 def test_every_template_is_one_file_and_the_templates_index_links_it():
     names = sorted(path.name for path in TEMPLATES.glob("*.md"))
-    assert names == sorted([f"T{n}.md" for n in range(1, 9)] + ["checklist.md", "ledger.md", "result.md"])
-    for n in range(1, 9):
+    assert names == sorted([f"T{n}.md" for n in range(1, 10)] + ["checklist.md", "ledger.md", "result.md"])
+    for n in range(1, 10):
         text = (TEMPLATES / f"T{n}.md").read_text(encoding="utf-8")
         assert text.startswith(f"## T{n} ") and text.count("<!-- fill: ") == 1 and text.count("\n----8<----\n") == 2
     index = (REFS / "runbook-templates.md").read_text(encoding="utf-8")

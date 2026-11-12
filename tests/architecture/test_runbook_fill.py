@@ -1,6 +1,6 @@
 """``fill`` (``scripts/runlib.sh``) under bash and zsh, and every ``fill`` command the runbook prints.
 
-The orchestrator fills the subagent templates T1–T8 with ``fill``; a filled template is
+The orchestrator fills the subagent templates T1–T9 with ``fill``; a filled template is
 what a subagent is told. A wrong template, a mode from another template or a missing
 premise (a re-review with no backed-up first review, a rewrite without its corrections
 list) used to fill without a word. ``fill`` now reads each template's rules from the
@@ -211,7 +211,7 @@ def _commands() -> list[tuple[str, str]]:
 
 def test_every_fill_command_in_the_runbook_fits_its_template():
     templates = _templates()
-    assert len(templates) == 8, sorted(templates)
+    assert len(templates) == 9, sorted(templates)
     commands = _commands()
     assert len(commands) >= 12, commands
     problems = []
@@ -285,3 +285,16 @@ def test_route_c_stops_on_a_file_that_is_not_one_keyed_list(tmp_path, broken):
     catalog = {**CATALOG, broken: {**CATALOG[broken], "extra": []}}
     _, done = _route_c(tmp_path, catalog)
     assert "exit=1" in done.stdout and "顶层应当只有一个键" in done.stderr
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_the_second_review_needs_the_first_pass_kept_aside(shell, run):
+    out = run.parent / "t9.md"
+    _touch(run / "docs" / f"{T}.json")
+    _touch(run / "reviews" / f"{T}.md")
+    refused = _fill(shell, run, "second-review", str(out), f"TABLE={T}", "FACTS=无")
+    assert refused.returncode == 1 and "pass1.md" in refused.stderr
+    _touch(run / "reviews_prev" / f"{T}.pass1.md")
+    done = _fill(shell, run, "补审", str(out), f"TABLE={T}", "FACTS=无")
+    assert done.returncode == 0, done.stderr
+    assert "## 两遍审读合并" in out.read_text(encoding="utf-8")

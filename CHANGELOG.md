@@ -13,7 +13,7 @@
     `00-before.md` (0.1-0.4) and `appendix-A.md` ... `appendix-D.md`. `next_step.py` prints the
     path of the current step's file.
   - `references/runbook-templates.md` (905 lines) is now the index of `references/templates/`:
-    `T1.md` ... `T8.md`, `checklist.md`, `ledger.md`, `result.md`.
+    `T1.md` ... `T9.md`, `checklist.md`, `ledger.md`, `result.md`.
   - `skills/scope-lineage/SKILL.md` (655 lines, 47 KB) is a router (229 lines, 19 KB); each
     workflow is a file under `workflows/`.
   - `env.sh` is written by `scripts/init_run.py` (paths quoted, never overwritten) instead of
@@ -25,6 +25,23 @@
     reads the old one-file templates and now exits 1 with `没有模板 …`. Add one line at the end
     of that `env.sh`: `. "$SKILL/scripts/runlib.sh"`. Prompts already archived under
     `$SCRATCH/prompts/` still point at files that have not moved.
+
+- **Reviewing twice with a single model is now a step, not a sentence.** The driver skill said
+  "run the review twice and take the union" and nothing said how; all four sample runs reviewed
+  once. `init_run.py --review-passes 2` writes `REVIEW_PASSES=2` into `env.sh` (default 1; an
+  `env.sh` without the line means 1). With 2, S6 sends a second, fresh reviewer after every first
+  review (new template `T9`, `fill second-review`): it reviews the table on its own before reading
+  the first review, then writes the union back to `reviews/<table>.md` under a
+  `## 两遍审读合并` section; the first pass is kept as `reviews_prev/<table>.pass1.md`.
+  `next_step.py` lists the second review as the table's next action until that section exists.
+  The re-review (S8) is still done once.
+
+- **A status column on an event table belongs to the event.** `T5` used to send it to the entity
+  the event happens to, which turned "this occurrence ended in X" into "the object is in state X";
+  two of four sample runs ignored the rule. `T5` now drafts the state attribute on the concept of
+  the table the column is in, and `T6` binds it there and reports a missing `states` only for an
+  entity. Nothing in the tool changes: `states` was already entity-only, and `catalog_check.py`
+  already asked nothing of an event's state attribute.
 
 - **Fixes from four end-to-end sample runs (two models, the old and the new layout).**
   - `catalog_check.py`: a `code_attribute_without_relation` finding can now be closed. The S10g

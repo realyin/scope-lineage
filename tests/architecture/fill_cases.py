@@ -38,6 +38,7 @@ CASES: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
     "T6-rework": ("T6", ("catalog_plan.md",), ("GROUP=main", "MODE=返工", "REWORK=一行报错原文")),
     "T7": ("T7", ("round1/sheet.md",), ("ROUND={RUN}/round1",)),
     "T8": ("T8", ("round1/grading.md",), ("ROUND={RUN}/round1", "ROUND_LABEL=r1")),
+    "T9": ("T9", (f"docs/{T}.json", f"reviews/{T}.md", f"reviews_prev/{T}.pass1.md"), (f"TABLE={T}", "FACTS=无")),
 }
 
 

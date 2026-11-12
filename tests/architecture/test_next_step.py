@@ -205,6 +205,112 @@ def test_a_re_reviewed_table_is_not_sent_back_to_s8(run):
     assert _current(_drive(run).stdout) == "S9"
 
 
+def _two_passes(run: Path) -> None:
+    _write(run / "env.sh", "export Q=\nexport REVIEW_PASSES=2   # 审读遍数\n")
+
+
+FIRST_PASS = "---\nreviewed_doc_digest: 0123456789abcdef\nhigh: 0\nmedium: 1\nlow: 0\n---\n## 本轮发现\n"
+MERGED = FIRST_PASS.replace("## 本轮发现", "## 两遍审读合并\n\n## 本轮发现")
+
+
+def _line(run: Path, table: str = T1) -> str:
+    return next(line for line in _drive(run).stdout.splitlines() if line.startswith(f"  {table}"))
+
+
+def test_with_two_passes_a_reviewed_table_gets_the_second_review_before_the_fix(run):
+    _two_passes(run)
+    _through_s3(run, (T1,))
+    _write(run / "reviews" / f"{T1}.md", FIRST_PASS)
+    _status(run, [{"table": T1, "stage": "reviewed", "high": 0, "medium": 1}])
+    out = _drive(run).stdout
+    assert _current(out) == "S6"
+    line = _line(run)
+    assert "补审" in line and "T9" in line and "pass1" in line
+
+
+def test_with_two_passes_a_table_the_first_pass_found_clean_still_gets_the_second(run):
+    _two_passes(run)
+    _through_s3(run, (T1,))
+    _write(run / "reviews" / f"{T1}.md", FIRST_PASS.replace("medium: 1", "medium: 0"))
+    _status(run, [{"table": T1, "stage": "fixed", "high": 0}])
+    assert _current(_drive(run).stdout) == "S6"
+    assert "补审" in _line(run)
+
+
+def test_a_merged_review_goes_on_to_the_fix(run):
+    _two_passes(run)
+    _through_s3(run, (T1,))
+    _write(run / "reviews" / f"{T1}.md", MERGED)
+    _write(run / "reviews_prev" / f"{T1}.pass1.md", FIRST_PASS)
+    _status(run, [{"table": T1, "stage": "reviewed", "high": 0, "medium": 1}])
+    assert _current(_drive(run).stdout) == "S7"
+
+
+def test_a_first_pass_copied_aside_but_not_yet_merged_still_needs_the_second_review(run):
+    """The second reviewer was interrupted: the copy exists, the review is still the first pass."""
+    _two_passes(run)
+    _through_s3(run, (T1,))
+    _write(run / "reviews" / f"{T1}.md", FIRST_PASS)
+    _write(run / "reviews_prev" / f"{T1}.pass1.md", FIRST_PASS)
+    _status(run, [{"table": T1, "stage": "reviewed", "high": 0, "medium": 1}])
+    assert "补审" in _line(run)
+
+
+def test_a_table_already_fixed_or_re_reviewed_is_not_sent_back_for_a_second_review(run):
+    _two_passes(run)
+    _through_s3(run, (T1, T2))
+    _write(run / "reviews" / f"{T1}.md", FIRST_PASS.replace("high: 0", "fixed_doc_digest: fedcba9876543210\nhigh: 0"))
+    _write(run / "reviews" / f"{T2}.md", FIRST_PASS)
+    _write(run / "reviews_prev" / f"{T2}.round1.md")
+    _status(run, [{"table": T1, "stage": "fixed", "high": 0}, {"table": T2, "stage": "fixed", "high": 0}])
+    out = _drive(run).stdout
+    assert _current(out) == "S9" and "补审" not in out
+
+
+def test_an_unparsed_or_unconfirmed_review_is_handled_before_any_second_review(run):
+    _two_passes(run)
+    _through_s3(run, (T1, T2))
+    _write(run / "reviews" / f"{T1}.md", "no front matter\n")
+    _write(run / "reviews" / f"{T2}.md", FIRST_PASS)
+    _status(run, [{"table": T1, "stage": "reviewed", "flags": ["review_unparsed"]},
+                  {"table": T2, "stage": "reviewed", "flags": ["fix_unconfirmed"], "high": 0, "medium": 1}])
+    out = _drive(run).stdout
+    assert "补审" not in out
+
+
+def test_a_review_with_windows_line_endings_still_gets_its_second_review(run):
+    _two_passes(run)
+    _through_s3(run, (T1,))
+    (run / "reviews").mkdir()
+    (run / "reviews" / f"{T1}.md").write_bytes(("\ufeff" + FIRST_PASS).replace("\n", "\r\n").encode("utf-8"))
+    _status(run, [{"table": T1, "stage": "reviewed", "high": 0, "medium": 1}])
+    assert "补审" in _line(run)
+
+
+def test_a_merged_review_with_a_high_finding_goes_on_to_the_re_review_once_fixed(run):
+    _two_passes(run)
+    _through_s3(run, (T1,))
+    _write(run / "reviews" / f"{T1}.md", MERGED.replace("high: 0", "fixed_doc_digest: fedcba9876543210\nhigh: 1"))
+    _status(run, [{"table": T1, "stage": "fixed", "high": 1}])
+    assert _current(_drive(run).stdout) == "S8"
+
+
+def test_a_rendered_table_is_never_sent_back_for_a_second_review(run):
+    _two_passes(run)
+    _through_s3(run, (T1,))
+    _write(run / "reviews" / f"{T1}.md", FIRST_PASS)
+    _status(run, [{"table": T1, "stage": "rendered"}])
+    assert "补审" not in _drive(run).stdout
+
+
+def test_one_pass_is_the_default_and_an_old_env_keeps_it(run):
+    _through_s3(run, (T1,))
+    _write(run / "reviews" / f"{T1}.md", FIRST_PASS)
+    _status(run, [{"table": T1, "stage": "reviewed", "high": 0, "medium": 1}])
+    out = _drive(run).stdout
+    assert _current(out) == "S7" and "补审" not in out
+
+
 def test_a_misfiled_document_stops_the_run(run):
     _through_s3(run, (T1,))
     _status(run, [{"table": T1, "stage": "valid", "flags": ["doc_misfiled"]}])

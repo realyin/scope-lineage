@@ -46,7 +46,7 @@ def test_the_bundled_catalog_elements_are_the_docs_sections() -> None:
 
 def test_no_template_points_into_the_tool_repository() -> None:
     templates = sorted((REFS / "templates").glob("T*.md"))
-    assert len(templates) == 8
+    assert len(templates) == 9
 
     for template in templates:
         body = template.read_text(encoding="utf-8").split("----8<----", 2)[1]

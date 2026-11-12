@@ -23,6 +23,7 @@ python3 <SKILL>/scripts/init_run.py \
 | `--patch` | `PATCH` | owner 审过的 `metadata-patch.json`；没有就不写 |
 | `--overrides` | `OVERRIDES` | owner 审过的 `glossary.overrides.json`；没有就不写 |
 | `--questions` | `Q` | 回归题集（`question-set/1`）；没有就不写 |
+| `--review-passes` | `REVIEW_PASSES` | 审读遍数，`1`（默认）或 `2`。审读和写作只能用同一种模型时写 `2`：每张表首审后再补审一遍、取两份审读的并集（S6）。没有这一行的旧 `env.sh` 按 1 |
 | `--tool` | `TOOL` | 工具仓库根目录（里面有 `skills/` `docs/` `examples/` `pyproject.toml`）。不写时脚本自己判断：skill 在仓库里就是那个仓库；pip 安装、没有仓库就是空的 |
 
 脚本还会建好账本 `<运行目录>/ledger.md`（已经有就不动它）。`env.sh` 里另外写好四样，不用给参数：

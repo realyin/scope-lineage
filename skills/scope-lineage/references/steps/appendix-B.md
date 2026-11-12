@@ -17,6 +17,7 @@ $RUN/
   reviews/<表>.prior.md      重写前的旧审读（S4 重写准备；给重写后的首审和修正点清单脚本）
   reviews/<表>.prior.json    重写前的旧文档（S4 重写准备；只给审读员，不给写作者）
   reviews/<表>.prior.fixlog.txt   重写前的修订记录（S4 重写准备；只给修正点清单脚本）
+  reviews_prev/<表>.pass1.md    补审前留底的第一遍审读（S6，REVIEW_PASSES=2 时；每次补审前重新拷，旧的直接覆盖）
   reviews_prev/<表>.round1.md   复审前备份的首轮审读（S8）
   reviews_prev/<表>.prior.round1.md   重写前的首轮审读备份（S4 重写准备；只给修正点清单脚本）
   reviews_prev/<表>.prior-<时间>.{md,json,fixlog.txt,round1.md}   再上一次重写的旧文件（S4 重写准备；同一个时间）

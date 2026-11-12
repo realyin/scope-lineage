@@ -14,6 +14,7 @@
 | `valid review_packet_stale` | — | 旧审读移到 `reviews_prev/` → S6 首审 | T2 |
 | `valid review_stale` | 刚做过确认回写 | `sl semantic fixed "$RUN" --only <表>` | 编排者 |
 | `valid review_stale` | 其他 | 旧审读移到 `reviews_prev/` → S6 首审，记进问题清单 | T2 |
+| `reviewed` 或 `fixed` | `REVIEW_PASSES=2`，审读里没有「两遍审读合并」小节，还没修订、没复审 | S6 补审（先把第一遍拷到 `reviews_prev/<表>.pass1.md`） | T9 |
 | `reviewed` | — | S7 修订（存修订记录） | T4（首修） |
 | `reviewed fix_unconfirmed` | 刚做过确认回写 | `sl semantic fixed "$RUN" --only <表>` | 编排者 |
 | `reviewed fix_unconfirmed` | 修订被中断，或其他 | S7 核对模式 | T4（核对） |
@@ -28,6 +29,7 @@
 几条硬规则：
 
 - 复审只在首审有高级时做一次；复审前备份到 `reviews_prev/<表>.round1.md`。
+- `env.sh` 里 `REVIEW_PASSES=2` 时，每次首审（含重写后首审）之后补审一次，再修订；`reviewed review_unparsed`、`reviewed fix_unconfirmed` 两行先照各自那一行处理。
 - 低级问题不修：高 + 中 = 0 的表就是 `fixed`，不派修订。
 - 被中断的调用不计轮次；完成的写作 2 轮、修订 2 次仍有 FAIL 就 blocked。
 - 「材料包变了」一律整份重写（重写准备 + 修正点清单），不允许只改 `packet_digest`。

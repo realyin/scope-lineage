@@ -1,10 +1,10 @@
-# runbook 模板：编排者检查清单、子代理提示词 T1–T8、账本与交付报告
+# runbook 模板：编排者检查清单、子代理提示词 T1–T9、账本与交付报告
 
 配合 [`runbook.md`](runbook.md) 用。编排者读 runbook；子代理只拿到这里的**一份**填好的模板。
 
 ## 文件对照
 
-每份模板是 `templates/` 下的一个文件。编排者不用打开 T1–T8：`fill` 按名字找到它们。
+每份模板是 `templates/` 下的一个文件。编排者不用打开 T1–T9：`fill` 按名字找到它们。
 
 | 模板 | 文件 |
 | --- | --- |
@@ -17,6 +17,7 @@
 | T6 目录片段（S10d、S10e） | [`templates/T6.md`](templates/T6.md) |
 | T7 作答（S11） | [`templates/T7.md`](templates/T7.md) |
 | T8 判分（S11） | [`templates/T8.md`](templates/T8.md) |
+| T9 补审：第二遍审读并合并（S6） | [`templates/T9.md`](templates/T9.md) |
 | 运行账本模板（`$RUN/ledger.md`） | [`templates/ledger.md`](templates/ledger.md) |
 | 交付报告模板（`$RUN/RESULT.md`） | [`templates/result.md`](templates/result.md) |
 
@@ -33,9 +34,9 @@ fill write "$SCRATCH/prompts/T1-write-<表>-r2.md" TABLE=<库.表> MODE=补失�
   给了 `ROUND=<目录>` 时 `{ROUND_NAME}` 换成这个目录的最后一段（例如 `round2`）；
   其余占位按命令行的 `KEY=值` 换；值写成 `@文件` 时取那个文件的内容（贴多行报错用）。
 - 模板可以写编号，也可以写名字：T1 写作 / write、T2 审读 / review、T3 复审 / rereview、T4 修订 / fix、
-  T5 目录起草 / catalog、T6 片段 / fragment、T7 作答 / answer、T8 判分 / grade。手册里的命令都写名字。
+  T5 目录起草 / catalog、T6 片段 / fragment、T7 作答 / answer、T8 判分 / grade、T9 补审 / second-review。手册里的命令都写名字。
 - 下面几种情况 `fill` 都退出 1、不能发：参数不属于这个模板（多半是模板选错了）；`MODE` 不是这个模板的取值；
-  模板或模式的前提不成立（复审要有 `reviews_prev/<表>.round1.md`；修订要有 `reviews/<表>.md`；有 `reviews/<表>.prior.md`
+  模板或模式的前提不成立（复审要有 `reviews_prev/<表>.round1.md`；补审要有 `reviews_prev/<表>.pass1.md`；修订要有 `reviews/<表>.md`；有 `reviews/<表>.prior.md`
   时审读只能用「重写后首审」，没有时只能用「首审」；写作新写时，有 `reviews/<表>.prior.md` 就要写 `CORRECTIONS=@<修正点清单>`，
   没有就写 `CORRECTIONS=无`）。照报错改命令，不要删参数硬过。前提规则写在每个模板标题下那行 `<!-- fill: … -->` 注释里，
   这行不会进子代理的提示词。

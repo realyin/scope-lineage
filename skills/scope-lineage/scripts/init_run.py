@@ -46,6 +46,8 @@ def main() -> int:
     parser.add_argument("--patch", default="", help="owner 审过的 metadata-patch.json")
     parser.add_argument("--overrides", default="", help="owner 审过的 glossary.overrides.json")
     parser.add_argument("--questions", default="", help="回归题集（question-set/1）")
+    parser.add_argument("--review-passes", type=int, choices=(1, 2), default=1,
+                        help="审读遍数；审读和写作只能用同一种模型时写 2（每张表首审后再补审一遍，见 S6）")
     parser.add_argument("--tool", default=None, help="工具仓库根目录；不写时自动判断，pip 安装时为空")
     parser.add_argument("--force", action="store_true", help="覆盖已有的 env.sh")
     args = parser.parse_args()
@@ -73,6 +75,7 @@ def main() -> int:
         ("RUN", run, "运行目录"),
         ("SCRATCH", scratch, "临时目录"),
         ("Q", absolute(args.questions), "回归题集；没有就是空的"),
+        ("REVIEW_PASSES", str(args.review_passes), "审读遍数：1；审读和写作只能用同一种模型时写 2（S6 补审）"),
     ]
     lines = ["# ===== scope-lineage 运行环境（init_run.py 生成）：要改只改等号右边，全部写绝对路径，一律用正斜杠 ====="]
     lines += [f"export {name}={shlex.quote(value)}   # {comment}" for name, value, comment in values]

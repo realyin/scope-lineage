@@ -82,6 +82,33 @@ def _question_set(run: Path) -> str:
     return ""
 
 
+def _review_passes(run: Path) -> int:
+    """``export REVIEW_PASSES=`` in env.sh: 2 asks for a second review of every first review. Absent: 1."""
+    for line in _lines(run / "env.sh"):
+        if line.startswith("export REVIEW_PASSES="):
+            value = line.removeprefix("export REVIEW_PASSES=").split("#", 1)[0].strip().strip("'\"")
+            return 2 if value == "2" else 1
+    return 1
+
+
+def _needs_second_review(run: Path, table: str) -> bool:
+    """The review is still the first pass: not merged (T9 writes the ``两遍审读合并`` section),
+    not fixed, not re-reviewed. A re-review (S8) is done once whatever REVIEW_PASSES says."""
+    review = run / "reviews" / f"{table}.md"
+    if not review.is_file() or (run / "reviews_prev" / f"{table}.round1.md").is_file():
+        return False
+    lines = [line.strip() for line in review.read_text(encoding="utf-8-sig").splitlines()]
+    if not lines or lines[0] != "---" or "---" not in lines[1:]:
+        return False   # no front matter: `status` shows review_unparsed, handled before this
+    front = lines[1:lines.index("---", 1)]
+    if any(line.startswith("fixed_doc_digest") for line in front):
+        return False
+    return not any(line.startswith("## 两遍审读合并") for line in lines)
+
+
+SECOND_REVIEW = "S6 补审（T9）：先把第一遍审读拷到 reviews_prev/<table>.pass1.md"
+
+
 def _newest(run: Path, pages: Path) -> float:
     newest = 0.0
     for directory in [run / name for name in ("docs", "reviews", "reviews_prev", "packets")] + [pages]:
@@ -91,7 +118,7 @@ def _newest(run: Path, pages: Path) -> float:
     return newest
 
 
-def _table_action(run: Path, row: dict) -> tuple[str, str]:
+def _table_action(run: Path, row: dict, passes: int = 1) -> tuple[str, str]:
     """Appendix A: (step, action) for one table's stage and flags."""
     table, stage, flags = row["table"], row["stage"], set(row.get("flags") or [])
     review = row.get("review") or {}
@@ -117,6 +144,8 @@ def _table_action(run: Path, row: dict) -> tuple[str, str]:
         return "S6", "审读移到 reviews_prev/<table>.unparsed.md → S6 首审（T2）"
     if stage == "reviewed" and "fix_unconfirmed" in flags:
         return "S7", "刚做过确认回写：sl semantic fixed；否则 S7 核对模式（T4 核对）"
+    if stage in ("reviewed", "fixed") and passes == 2 and _needs_second_review(run, table):
+        return "S6", SECOND_REVIEW
     if stage == "reviewed":
         return "S7", "S7 首修（T4），回报后存修订记录"
     if stage == "fixed":
@@ -163,10 +192,10 @@ def _assess(run: Path) -> tuple[str, str, list[str], set[str]]:
     if status.stat().st_mtime < _newest(run, pages):
         return REFRESH, "status.json 比 docs/ reviews/ packets/ 或表语义页旧，不能信", [], skipped
     rows = {row["table"]: row for row in report.get("tables", [])}
-    actions = []
+    actions, passes = [], _review_passes(run)
     for table in tables:
         row = rows.get(table, {"table": table, "stage": "no_packet"})
-        actions.append((table, row["stage"], *_table_action(run, row)))
+        actions.append((table, row["stage"], *_table_action(run, row, passes)))
     lines = [f"  {table}  {stage}  → {action}" for table, stage, _, action in actions]
     earliest = min((step for *_, step, _ in actions), key=ORDER.__getitem__)
     if ORDER[earliest] <= ORDER["S9"]:

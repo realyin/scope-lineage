@@ -193,9 +193,9 @@ A workflow that names another by its quoted heading means the file with that hea
   exit-code index and the cost rules. Read the index, then only the file of the step you are on;
   the steps override looser wording elsewhere in this file.
 - `references/runbook-templates.md` — the index of the templates and how to fill them. Each is one
-  file under `references/templates/`: the fill-in sub-agent prompts `T1.md` … `T8.md` (draft,
+  file under `references/templates/`: the fill-in sub-agent prompts `T1.md` … `T9.md` (draft,
   review, re-review, fix, catalog drafting step 2 with the grouping plan, fragment, answer,
-  grade), the orchestrator's `checklist.md`, the run `ledger.md` and the delivery `result.md`.
+  grade, second review), the orchestrator's `checklist.md`, the run `ledger.md` and the delivery `result.md`.
   Hand a sub-agent exactly one filled template.
 - `references/answer-prompt.md` — the acceptance answerer: read only the pages, cite page and
   section, mark only what the pages truly cannot decide as owner-to-confirm, no over-hedging, one
