@@ -364,13 +364,13 @@ Codex, link the new directory beside the old one:
 
 **A run directory in progress:**
 
-1. Run `python3 "$TOOL/skills/scope-lineage/scripts/next_step.py" "$RUN"` after every step
+1. Run `python3 "$TOOL/skills/scope-lineage-ontology/scripts/next_step.py" "$RUN"` after every step
    (runbook 0.6) and continue from the step it prints. If it says 「刷新状态」, write
    `status.json` with the command it prints, then run it again.
 2. S10f: `catalog_changes.md` has to exist; with nothing to fix by hand, write one line
    「无改动」.
 3. S10g: after build and render, run
-   `python3 "$TOOL/skills/scope-lineage/scripts/catalog_check.py" "$RUN/onto/ontology.json"`.
+   `python3 "$TOOL/skills/scope-lineage-ontology/scripts/catalog_check.py" "$RUN/onto/ontology.json"`.
    The step is done at `0 finding(s)`, or when each remaining finding has a reason in
    `catalog_changes.md`; otherwise send the findings back to T5 / T6 (runbook S10g).
 4. A catalog drafted before 0.10.0 stays valid. To get the fuller draft (participants for
@@ -387,7 +387,7 @@ No format version moves and no key is added or removed; what changes is wording 
 validator, the prompts and downstream readers rely on, and the runbook's files and commands.
 Full list: the **Breaking** entries under 0.9.0 in [CHANGELOG.md](CHANGELOG.md). The
 step-by-step procedure is
-[`skills/scope-lineage/references/runbook.md`](skills/scope-lineage/references/runbook.md).
+[`skills/scope-lineage-ontology/references/runbook.md`](skills/scope-lineage-ontology/references/runbook.md).
 
 **A table-semantics run directory written with 0.8.0** (`packets/`, `docs/`, `reviews/`):
 
@@ -404,7 +404,7 @@ step-by-step procedure is
    to `reviews_prev/<db.table>.prior-<time>.*`. Move any `reviews/<db.table>.prior.<time>.md`
    left by an older run to `reviews_prev/` -- `semantic status` reads it as an extra table.
 3. Build the table's corrections list with
-   `skills/scope-lineage/scripts/make_corrections.py` (runbook S4) and pass it to the writer
+   `skills/scope-lineage-ontology/scripts/make_corrections.py` (runbook S4) and pass it to the writer
    as `fill write … CORRECTIONS=@<list file>` (a first write passes `CORRECTIONS=无`).
    Tables fixed before 0.9.0 have no fix log: the script warns and puts their high and
    medium findings in the check-first part; dispatch as usual.
@@ -442,7 +442,7 @@ step-by-step procedure is
 No format version moves; what changes is what some fields say and how some commands exit
 or warn. Full list: the **Breaking** entries under 0.8.0 in [CHANGELOG.md](CHANGELOG.md).
 The step-by-step procedure for a table-semantics run, rewrites included, is
-[`skills/scope-lineage/references/runbook.md`](skills/scope-lineage/references/runbook.md).
+[`skills/scope-lineage-ontology/references/runbook.md`](skills/scope-lineage-ontology/references/runbook.md).
 
 **A table-semantics run directory written with 0.7.0** (`packets/`, `docs/`, `reviews/`):
 

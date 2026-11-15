@@ -65,11 +65,13 @@ For "what is this batch of tasks about, and how do those things relate" — the 
 
 The repository holds two skills: `skills/scope-lineage/` answers lineage questions;
 `skills/scope-lineage-ontology/` does one thing only -- take a batch of task JSON and table schema
-and produce table semantics and a business ontology catalog by the runbook. The second is the
-first one's runbook "driver": a loop driven by the progress script `next_step.py`, plus the rules
-that cannot be skipped and the division of roles; see [where to start](task-to-ontology.md).
+and produce table semantics and a business ontology catalog by the runbook. The second holds that
+whole procedure -- the runbook, the step files, the templates, their prompts and scripts -- and
+drives it as a loop with the progress script `next_step.py`, plus the rules that cannot be skipped
+and the division of roles; see [where to start](task-to-ontology.md). It uses the first one in a
+few places (S1 runs its `scripts/query.py`), never the other way round.
 
-For documenting a batch of tables, drafting the ontology catalog and running an acceptance round, the skill carries a step-by-step runbook meant to be followed literally: `references/runbook.md` is its index (the overview of the whole procedure and which file holds which step), and each step is one file under `references/steps/` (S0–S13, with its preconditions, copy-ready commands, self-checks, done criterion and the known errors). The fill-in sub-agent prompts are one file each under `references/templates/` (draft, review, re-review, fix, catalog drafting, fragment, answer, grade and second review, plus the checklist, the run ledger and the delivery report); `references/runbook-templates.md` is their index and says how to fill them. The run's `env.sh` is written by `scripts/init_run.py`, not by hand. The orchestrating agent reads the file of the step it is on; each sub-agent gets exactly one filled template. All of these are written in Chinese.
+For documenting a batch of tables, drafting the ontology catalog and running an acceptance round, `skills/scope-lineage-ontology/` carries a step-by-step runbook meant to be followed literally: `references/runbook.md` is its index (the overview of the whole procedure and which file holds which step), and each step is one file under `references/steps/` (S0–S13, with its preconditions, copy-ready commands, self-checks, done criterion and the known errors). The fill-in sub-agent prompts are one file each under `references/templates/` (draft, review, re-review, fix, catalog drafting, fragment, answer, grade and second review, plus the checklist, the run ledger and the delivery report); `references/runbook-templates.md` is their index and says how to fill them. The run's `env.sh` is written by `scripts/init_run.py`, not by hand. The orchestrating agent reads the file of the step it is on; each sub-agent gets exactly one filled template. All of these are written in Chinese.
 
 ## Installation
 
@@ -95,8 +97,9 @@ ln -s ~/tools/scope-lineage/skills/scope-lineage ~/.codex/skills/scope-lineage
 ln -s ~/tools/scope-lineage/skills/scope-lineage-ontology ~/.codex/skills/scope-lineage-ontology
 ```
 
-- **Link both skills**: `scope-lineage-ontology` reaches the runbook and scripts of
-  `scope-lineage` through the repository root, so keep both directories in the same clone.
+- **Link both skills**: `scope-lineage` works on its own; `scope-lineage-ontology` carries its
+  own runbook and scripts but runs `scope-lineage`'s `scripts/query.py` in S1, and `init_run.py`
+  looks for it beside itself (or takes `--lineage-skill <dir>`). Keep both from the same clone.
 - **User level** `~/.codex/skills/`: shared by all projects, recommended; **project level**
   `.codex/skills/`: effective only in the current project. Once it is in the skills directory,
   Codex triggers it automatically from the SKILL.md description, the same experience as Claude

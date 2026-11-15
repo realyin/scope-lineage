@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+- **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**
+  The ontology skill used to be one `SKILL.md` that sent the agent to find the other skill's
+  directory; it now holds the runbook, `references/steps/`, `references/templates/`, the table
+  semantics write / review / fix prompts, the catalog fragment prompt with `catalog-elements.md`,
+  `catalog-demo/` and `catalog-fragments/`, the acceptance answer / grade prompts, and the scripts
+  `init_run.py`, `runlib.sh`, `fill.py`, `next_step.py`, `catalog_check.py`, `make_corrections.py`
+  (67 files, moved with `git mv`; no prompt text changes, the 14 golden prompts still match).
+  - The dependency runs one way: `scope-lineage` works on its own and points into none of the
+    moved files (a test pins this); `scope-lineage-ontology` uses it in four places -- S1's
+    `query.py summary`, `diagnostics.md`, the glossary review prompt and `catalog-questions.md` --
+    through the new `LINEAGE_SKILL` variable. `init_run.py` writes it into `env.sh` (the
+    `scope-lineage` directory beside the skill, or `--lineage-skill <dir>`) and exits 1 when it is
+    not there.
+  - `skills/scope-lineage/workflows/table-semantics.md`, `catalog-drafting.md` and
+    `acceptance.md` keep their three rules and now send the batch procedure to the ontology skill.
+  - **A run directory started with 0.12.x:** its `env.sh` points `SKILL` at `scope-lineage`, where
+    `runlib.sh` no longer is. Replace that line with `export SKILL=<scope-lineage-ontology dir>` and
+    `export LINEAGE_SKILL=<scope-lineage dir>`; `next_step.py` prints both lines with the absolute
+    paths when it sees an `env.sh` without `LINEAGE_SKILL` (`steps/00-before.md` 0.1). A 0.11.2
+    or older `env.sh` needs the same edit plus the `runlib.sh` line.
+
 ## 0.12.0
 - **Breaking: Python 3.9 is no longer supported; the minimum is 3.10.** The CI runner image
   stopped providing 3.9, so it can no longer be verified. `requires-python` is `>=3.10` and the

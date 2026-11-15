@@ -901,7 +901,7 @@ scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_l
 4. `catalog merge` 把片段合并进目录的一份拷贝，报告冲突，自动校验，并给出覆盖报告；
 5. `catalog build` / `catalog render` 后交 owner 审读。
 
-Agent 技能里的完整流程与片段提示词见 `skills/scope-lineage/references/catalog-fragment-prompt.md`。
+Agent 技能里的完整流程与片段提示词见 `skills/scope-lineage-ontology/references/catalog-fragment-prompt.md`。
 
 ### `catalog-fragment/1`
 

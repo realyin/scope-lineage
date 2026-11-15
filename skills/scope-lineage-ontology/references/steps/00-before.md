@@ -3,7 +3,7 @@
 ### 0.1 变量块（`$RUN/env.sh`，用脚本生成）
 
 `env.sh` 不用手写：跑 skill 自带的 `scripts/init_run.py`，它按参数写出 `<运行目录>/env.sh` 并把内容打印出来。
-`<SKILL>` 是 skill 目录的绝对路径（里面有 `SKILL.md`、`references/`、`scripts/`）；路径全部写绝对路径，一律用正斜杠（Git Bash 会吞掉反斜杠）。
+`<SKILL>` 是本 skill（`scope-lineage-ontology`）目录的绝对路径（里面有 `SKILL.md`、`references/`、`scripts/`）；路径全部写绝对路径，一律用正斜杠（Git Bash 会吞掉反斜杠）。
 
 ```bash
 python3 <SKILL>/scripts/init_run.py \
@@ -24,11 +24,12 @@ python3 <SKILL>/scripts/init_run.py \
 | `--overrides` | `OVERRIDES` | owner 审过的 `glossary.overrides.json`；没有就不写 |
 | `--questions` | `Q` | 回归题集（`question-set/1`）；没有就不写 |
 | `--review-passes` | `REVIEW_PASSES` | 审读遍数，`1`（默认）或 `2`。审读和写作只能用同一种模型时写 `2`：每张表首审后再补审一遍、取两份审读的并集（S6）。没有这一行的旧 `env.sh` 按 1 |
+| `--lineage-skill` | `LINEAGE_SKILL` | 血缘 skill `scope-lineage` 的目录（S1 用它的 `$LINEAGE_SKILL/scripts/query.py`）。不写时取本 skill 旁边的 `scope-lineage`；那里没有就退出 1，这时用这个参数写它的绝对路径 |
 | `--tool` | `TOOL` | 工具仓库根目录（里面有 `skills/` `docs/` `examples/` `pyproject.toml`）。不写时脚本自己判断：skill 在仓库里就是那个仓库；pip 安装、没有仓库就是空的 |
 
 脚本还会建好账本 `<运行目录>/ledger.md`（已经有就不动它）。`env.sh` 里另外写好四样，不用给参数：
 
-- `SKILL`：脚本自己所在的 skill 目录。
+- `SKILL`：脚本自己所在的 skill 目录（`scope-lineage-ontology`）。
 - `PAGES="$RUN/site"`（页面根目录：概念页、`index.md`）、`SEMPAGES="$RUN/site/semantics"`（表语义页目录）。
 - 最后一行 `. "$SKILL/scripts/runlib.sh"`：它定义函数 `sl`（调用工具：`TOOL` 非空时 `uv run --project "$TOOL" --extra catalog scope-lineage`，
   为空时用已安装的 `scope-lineage`）、`fill`（填模板：模板写编号或名字，参数写 `KEY=值`，值写 `@文件` 表示取文件内容；用法见 `runbook-templates.md`「怎么填模板」）、
@@ -38,7 +39,13 @@ python3 <SKILL>/scripts/init_run.py \
 `env.sh` 已经存在时脚本退出 1、不改它：要换某个路径就直接改那一行等号右边。Windows 上 `python3` 指向应用商店占位程序
 （退出码 49、「Python was not found」）时，取消 `env.sh` 里 `# python3() { python "$@"; }` 那行的注释。
 
-0.11.2 及更早的手册写出的 `env.sh`（函数直接写在文件里）续跑时，在它最后加一行 `. "$SKILL/scripts/runlib.sh"`。
+旧运行续跑（0.13.0 起流程文件从 `scope-lineage` 搬到了 `scope-lineage-ontology`）：
+
+- 0.12.x 写的 `env.sh`（没有 `LINEAGE_SKILL` 那一行）：`SKILL` 还指着 `scope-lineage`，`. env.sh` 会找不到 `runlib.sh`。
+  把 `export SKILL=…` 那一行换成两行：`export SKILL=<scope-lineage-ontology 目录>`、`export LINEAGE_SKILL=<scope-lineage 目录>`
+  （进度脚本发现旧 `env.sh` 时会把这两行连同绝对路径打印出来）。
+- 0.11.2 及更早的手册写出的 `env.sh`（函数直接写在文件里）：同样改 `SKILL` 那一行、加 `LINEAGE_SKILL`，再在文件最后加一行
+  `. "$SKILL/scripts/runlib.sh"`。
 
 每开一个新的 shell（Claude Code 里**每一次** Bash 调用都是新的 shell，变量和函数不会保留），第一条命令都是：
 

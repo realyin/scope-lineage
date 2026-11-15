@@ -3,8 +3,10 @@
 
 ``env.sh`` holds the run's paths and ends by sourcing ``runlib.sh`` (``sl``, ``fill``,
 ``note``, ``load_tables``). Every Bash call of the run starts with ``. <run>/env.sh``.
-The skill directory is the one this script lives in; the tool checkout is its repository
-when there is one, otherwise empty (the installed ``scope-lineage`` is used). An existing
+The skill directory is the one this script lives in (``scope-lineage-ontology``); the
+lineage skill (``scope-lineage``, whose ``query.py`` S1 runs) is the one beside it unless
+``--lineage-skill`` names another; the tool checkout is the repository when there is one,
+otherwise empty (the installed ``scope-lineage`` is used). An existing
 ``env.sh`` is never overwritten: edit its right-hand sides, or pass ``--force``.
 
 It also starts the run's ledger, ``ledger.md``, from ``references/templates/ledger.md`` (the
@@ -19,6 +21,7 @@ import shlex
 import sys
 
 SKILL = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+LINEAGE_BESIDE = os.path.join(os.path.dirname(SKILL), "scope-lineage")
 
 
 def _tool() -> str:
@@ -48,6 +51,8 @@ def main() -> int:
     parser.add_argument("--questions", default="", help="回归题集（question-set/1）")
     parser.add_argument("--review-passes", type=int, choices=(1, 2), default=1,
                         help="审读遍数；审读和写作只能用同一种模型时写 2（每张表首审后再补审一遍，见 S6）")
+    parser.add_argument("--lineage-skill", default=None,
+                        help="scope-lineage skill 目录；不写时取本 skill 旁边的 scope-lineage")
     parser.add_argument("--tool", default=None, help="工具仓库根目录；不写时自动判断，pip 安装时为空")
     parser.add_argument("--force", action="store_true", help="覆盖已有的 env.sh")
     args = parser.parse_args()
@@ -55,6 +60,11 @@ def main() -> int:
     run, scratch = os.path.abspath(args.run), os.path.abspath(args.scratch)
     if os.path.commonpath([run, scratch]) == run:
         print(f"SCRATCH 不能放在运行目录里面：{scratch}", file=sys.stderr)
+        return 1
+    lineage = os.path.abspath(args.lineage_skill) if args.lineage_skill else LINEAGE_BESIDE
+    if not os.path.isfile(os.path.join(lineage, "scripts", "query.py")):
+        print(f"找不到 scope-lineage skill：{lineage} 下没有 scripts/query.py。两个 skill 要装在一起；"
+              "分开放时用 --lineage-skill 写它的绝对路径", file=sys.stderr)
         return 1
     target = os.path.join(run, "env.sh")
     if os.path.exists(target) and not args.force:
@@ -66,7 +76,8 @@ def main() -> int:
 
     values = [
         ("TOOL", absolute(args.tool) if args.tool is not None else _tool(), "工具仓库根目录；pip 安装、没有仓库就是空的"),
-        ("SKILL", SKILL, "skill 目录（有 SKILL.md、references/、scripts/）"),
+        ("SKILL", SKILL, "本流程的 skill 目录 scope-lineage-ontology（有 SKILL.md、references/、scripts/）"),
+        ("LINEAGE_SKILL", lineage, "血缘 skill 目录 scope-lineage（S1 的 query.py 在它的 scripts/）"),
         ("TASKS", absolute(args.tasks), "任务 JSON 目录（parse --input-dir）"),
         ("SCHEMA", absolute(args.schema), "表元数据（parse --schema）"),
         ("DDL", absolute(args.ddl), "目标表 DDL 元数据；没有就是空的"),

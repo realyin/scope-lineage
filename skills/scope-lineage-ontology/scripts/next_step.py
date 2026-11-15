@@ -55,7 +55,8 @@ STEPS = [
     ("S12", "确认回写（可选）"),
     ("S13", "交付"),
 ]
-STEP_FILES = Path(__file__).resolve().parent.parent / "references" / "steps"   # one file per step
+SKILL_DIR = Path(__file__).resolve().parent.parent                              # scope-lineage-ontology
+STEP_FILES = SKILL_DIR / "references" / "steps"   # one file per step
 ORDER = {step: index for index, (step, _) in enumerate(STEPS)}
 TITLE = dict(STEPS)
 STATUS_COMMAND = (
@@ -234,6 +235,20 @@ def _assess(run: Path) -> tuple[str, str, list[str], set[str]]:
     return "完成", "S13 的 RESULT.md 已写", [], skipped
 
 
+def _env_fix(run: Path) -> list[str]:
+    """An env.sh written before 0.13.0 points SKILL at scope-lineage, where runlib.sh no longer is."""
+    env = run / "env.sh"
+    if not env.is_file() or re.search(r"^\s*(?:export\s+)?LINEAGE_SKILL=", env.read_text(encoding="utf-8"), re.M):
+        return []
+    return [
+        "先改 env.sh：它是 0.13.0 之前写的，SKILL 还指着 scope-lineage，流程文件已搬到 scope-lineage-ontology，",
+        "`. env.sh` 会找不到 runlib.sh。把 SKILL 那一行换成下面两行（steps/00-before.md 0.4「旧运行续跑」）：",
+        f"  export SKILL='{SKILL_DIR}'",
+        f"  export LINEAGE_SKILL='{SKILL_DIR.parent / 'scope-lineage'}'",
+        "",
+    ]
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print("用法：next_step.py RUN", file=sys.stderr)
@@ -245,7 +260,7 @@ def main(argv: list[str]) -> int:
     current, reason, lines, skipped = _assess(run)
     position = ORDER["S4"] if current == REFRESH else ORDER.get(current, len(STEPS))
 
-    out = [f"运行目录：{run}", "进度："]
+    out = [f"运行目录：{run}", *_env_fix(run), "进度："]
     for step, title in STEPS:
         if step in skipped:
             mark = "[-]"

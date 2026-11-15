@@ -12,7 +12,7 @@ The two model calls (answering, grading) belong to the agent skill; Core does th
   and the answer taken from the answers file by question id;
 - `scope-lineage questions score` sums one grading round: total, by type, by table, by gap, the lost points, and earlier rounds beside it.
 
-The prompts are `skills/scope-lineage/references/answer-prompt.md` and `grade-prompt.md`; the orchestration is the 「验收」 (acceptance) section of the skill's `SKILL.md`.
+The prompts are `skills/scope-lineage-ontology/references/answer-prompt.md` and `grade-prompt.md`; the orchestration is the 「验收」 (acceptance) section of the skill's `SKILL.md`.
 
 ## Formats
 

@@ -1034,7 +1034,7 @@ catalog can be drafted from them without an ad-hoc script each time:
 5. `catalog build` / `catalog render`, then the owner reviews.
 
 The agent skill's full workflow and the fragment prompt are in
-`skills/scope-lineage/references/catalog-fragment-prompt.md`.
+`skills/scope-lineage-ontology/references/catalog-fragment-prompt.md`.
 
 ### `catalog-fragment/1`
 

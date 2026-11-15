@@ -1,9 +1,11 @@
 # The shell functions of a scope-lineage run. Sourced by the last line of $RUN/env.sh
 # (written by scripts/init_run.py); every Bash call of a run starts with `. "$RUN/env.sh"`.
-# Works under bash and zsh. Reads TOOL, SKILL, RUN from the environment env.sh set.
+# Works under bash and zsh. Reads TOOL, SKILL, LINEAGE_SKILL, RUN from the environment env.sh set.
+# SKILL is this skill (scope-lineage-ontology); LINEAGE_SKILL is the scope-lineage skill beside it.
 
-: "${SKILL:=${TOOL:+$TOOL/skills/scope-lineage}}"
-export SKILL
+: "${SKILL:=${TOOL:+$TOOL/skills/scope-lineage-ontology}}"
+: "${LINEAGE_SKILL:=${SKILL:+$(dirname "$SKILL")/scope-lineage}}"
+export SKILL LINEAGE_SKILL
 
 # The tool: a checkout when TOOL is set, the installed package when it is empty.
 sl() { if [ -n "$TOOL" ]; then uv run --project "$TOOL" --extra catalog scope-lineage "$@"; else scope-lineage "$@"; fi; }

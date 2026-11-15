@@ -1,4 +1,4 @@
-"""The catalog completeness check (``skills/scope-lineage/scripts/catalog_check.py``).
+"""The catalog completeness check (``skills/scope-lineage-ontology/scripts/catalog_check.py``).
 
 ``catalog validate`` and the merge coverage report catch what is wrong -- a schema error, a
 conflict, an unbound column. They pass a catalog that left work undone: a concept drafted
@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[2]
-SCRIPT = REPO / "skills" / "scope-lineage" / "scripts" / "catalog_check.py"
+SCRIPT = REPO / "skills" / "scope-lineage-ontology" / "scripts" / "catalog_check.py"
 
 
 def _check(path: Path) -> subprocess.CompletedProcess:

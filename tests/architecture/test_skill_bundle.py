@@ -12,7 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-REFS = ROOT / "skills" / "scope-lineage" / "references"
+REFS = ROOT / "skills" / "scope-lineage-ontology" / "references"
 
 
 def _files(directory: Path) -> dict[str, bytes]:

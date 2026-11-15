@@ -29,9 +29,9 @@ need to contain these files.
 If you are handed a directory of task JSON and a table-schema directory and asked for task
 semantics, table semantics or a business ontology, do not improvise from the workflows below:
 **use the `scope-lineage-ontology` skill** (`../scope-lineage-ontology/SKILL.md` in this
-repository). It runs `references/runbook.md` S0–S13 as a loop driven by
-`scripts/next_step.py`, with independent write / review / fix sub-agents and the S10g omission
-check. `scope-lineage ontology` alone gives key-fold candidates, never the business ontology.
+repository). That skill holds the S0–S13 procedure itself -- its runbook, step files,
+templates, prompts and scripts -- and runs it as a loop driven by its progress script, with
+independent write / review / fix sub-agents and the S10g omission check. `scope-lineage ontology` alone gives key-fold candidates, never the business ontology.
 
 ## Three rules that make answers trustworthy
 
@@ -74,9 +74,11 @@ fallback covers 0.2.0):
 | filters that bind a bare `WHERE` column to its source when a SELECT alias shares its name (0.11.0 and older rewrote it into the alias expression) | >= 0.11.1 |
 | row conditions on constant columns closed rather than gaps, GROUP BY keys bound to source columns first, unbound `${…}` table names reported as `input_incomplete`, check 9's date-filter shapes (`period` / `snapshot_pick` / `cutoff`), and a runbook that runs from a pip install (`SKILL` / `SCHEMAS`) | >= 0.11.2 |
 
-When unsure which workflows the session will need, require >= 0.11.2 (`references/runbook.md`
-S0). A table-semantics run directory made with an older release: rebuild its packets; every document whose packet changed
-is then `packet_stale` and is rewritten whole (runbook S3 and S4).
+When unsure which workflows the session will need, require >= 0.11.2 (the runbook's S0, in
+`scope-lineage-ontology`). A table-semantics run directory made with an older release: rebuild its packets; every document whose packet changed
+is then `packet_stale` and is rewritten whole (runbook S3 and S4). Since 0.13.0 the runbook, its
+templates and scripts live in `../scope-lineage-ontology/`, not in this skill; a run started with
+0.12.x resumes after the one-line `env.sh` edit its step file 00-before.md (section 0.1) gives.
 Not installed → `pipx install 'scope-lineage[catalog]'` (or `pip install 'scope-lineage[catalog]'`):
 the `catalog` extra brings PyYAML, which `catalog` and the acceptance commands (`questions`) need to
 read `.yaml` / `.yml` files; when every catalog, question set and grades file is JSON, plain
@@ -163,78 +165,17 @@ A workflow that names another by its quoted heading means the file with that hea
   catalog: which `catalog query` kind answers which question, when to fall back to the
   rendered concept page, how to report status, evidence and conflicts, and what to say when
   nothing matches. Read when a catalog (`catalog-yaml/1`) or its `ontology.json` exists.
-- `references/catalog-fragment-prompt.md` — the prompt one sub-agent per group follows to
-  draft a `catalog-fragment/1` file from table semantics: what to read, the fragment shape,
-  one attribute per business meaning, a binding for every column, and the `catalog merge`
-  self-check. Read when drafting a catalog from table semantics.
-- `references/table-semantics-review-prompt.md` — the independent review checklist (16 items, from
-  grain and derived-code NULLs to page consistency, sibling tables and tool verdicts the SQL
-  overrules) that finds factual errors validation cannot, the first review after a rewrite with the
-  old review at hand, and the front matter (`reviewed_doc_digest`, `reviewed_packet_digest`,
-  high / medium / low counts) every review opens with. Read when running the review step.
-- `references/table-semantics-fix-prompt.md` — how to apply review findings, re-read the page for
-  contradictions, and record the finished fix with `semantic fixed`. Read when running the fix step.
-- `references/table-semantics-prompt.md` — the prompt a model writes one
-  `table-semantics/1` document from, given one table's `packet.md`: the one-page summary
-  first, then every column in table order, the steps, the rules with their SQL quoted and
-  the producing task, every item with its sources; how to write when the SQL overrules a
-  packet verdict; which packet facts are clues rather than facts (a producer's header comment,
-  a governance finding, an update-time column, a downstream known only by task name, a
-  partition day derived from a create or update time); and the rewrite section to hand back
-  with `semantic validate`'s failures. Read when the user asks what a table means, or
-  wants a batch of tables documented.
-- `references/runbook.md` — the index of the step-by-step operating manual (Chinese) for producing
-  table semantics, the ontology catalog and the pages, and for the acceptance round: the overview
-  table of S0–S13 and which file holds each step. Each step is one file, `references/steps/<step>.md`
-  (`S0.md` … `S13.md`, `S10a.md` … `S10g.md`), with purpose, preconditions, copy-ready commands,
-  self-checks, known failures and a done criterion; `references/steps/00-before.md` holds the
-  run's `env.sh`, the calling convention, the sample rule and the ledger; `appendix-A.md` …
-  `appendix-D.md` hold the status → next-step table, the run directory layout, an error /
-  exit-code index and the cost rules. Read the index, then only the file of the step you are on;
-  the steps override looser wording elsewhere in this file.
-- `references/runbook-templates.md` — the index of the templates and how to fill them. Each is one
-  file under `references/templates/`: the fill-in sub-agent prompts `T1.md` … `T9.md` (draft,
-  review, re-review, fix, catalog drafting step 2 with the grouping plan, fragment, answer,
-  grade, second review), the orchestrator's `checklist.md`, the run `ledger.md` and the delivery `result.md`.
-  Hand a sub-agent exactly one filled template.
-- `references/answer-prompt.md` — the acceptance answerer: read only the pages, cite page and
-  section, mark only what the pages truly cannot decide as owner-to-confirm, no over-hedging, one
-  `## <id>` section per answer. Read when running the answer step of an acceptance round.
-- `references/grade-prompt.md` — the acceptance grader: 2/1/0, the owner-only, over-hedging and
-  wrong-reference-answer rules, the seven gaps, and the `question-grades/1` YAML it outputs. Read
-  when running the grading step.
+- `../scope-lineage-ontology/` — the table-semantics → ontology-catalog procedure (0.13.0 moved it
+  out of this skill): the runbook and its step files, the sub-agent templates T1–T9, the table
+  semantics write / review / fix prompts, the catalog fragment prompt and its examples, the
+  acceptance answer / grade prompts, and the scripts `init_run.py`, `runlib.sh`, `fill.py`,
+  `next_step.py`, `catalog_check.py`, `make_corrections.py`. Start from its `SKILL.md`.
 - `../../docs/en/workflow.md` (`../../docs/zh-CN/workflow.md` for the Chinese version) — the
   end-to-end order of everything above: what `parse` / `tables` / `glossary` / `describe` /
   `ontology` (key-fold candidates) / `semantic` / `catalog` need from each other, a runnable five-minute pass over `examples/`, where each of
   the three review workflows fits, and how confirmed answers flow back through
   `glossary.overrides.json` / `ontology.overrides.json` / `metadata-patch.json`. Read when the
   user asks how the whole thing is used, or when you are unsure which command comes next.
-- `scripts/init_run.py` — writes a run's `env.sh` from `--run`, `--scratch`, `--tasks`, `--schema`
-  (and the optional paths), quoted so nothing is expanded, and starts the run's `ledger.md` from the ledger template; never overwrites either. Run it first, as
-  `references/steps/00-before.md` 0.1 says; nobody writes `env.sh` by hand.
-- `scripts/runlib.sh` — the run's shell functions `sl`, `fill`, `note`, `load_tables`; sourced by
-  the last line of `env.sh`, never run on its own.
-- `scripts/fill.py` — what `fill` calls: fills one template of `references/templates/` and
-  refuses (exit 1) a wrong template, mode or missing premise.
-- `scripts/next_step.py` — where a runbook run stands: reads only the run directory's files and
-  prints the S0–S13 checklist, the current step, why, and the file of that step to read, and each table's next action from
-  appendix A while table semantics is in progress. It reads `status.json` rather than
-  recomputing stages, and asks for a fresh one when it is missing or stale. Run it after every
-  step, as `references/runbook.md` 0.6 says.
-- `scripts/catalog_check.py` — what a built catalog left undone, which `catalog validate` cannot
-  see: concepts with no attribute, an event table's foreign identifier whose concept is not a
-  participant, a name / description column bound to the table's own concept beside a code
-  column that points at another concept, a state attribute with codes and no `states`, a
-  measure with no unit, a code-like column bound as a plain attribute, and (with `--digest`
-  and `--changes`) a filter / dedup / derive rule of the digest that no constraint carries and
-  no `skip` line names. Run it on `onto/ontology.json` as `references/steps/S10g.md` says;
-  exit 1 when it has findings.
-- `scripts/make_corrections.py` — the corrections list a whole rewrite hands its writer: reads
-  the old review, the first review behind a re-review, the fix log and the rebuilt packet, and
-  sorts every old finding into fixed (follow it), worth a look (check it first) or out, saying
-  which ones it could not read or check; with the old document (`--prior-doc`) it adds the old
-  wording beside each unchecked item and the old watch / question points whose cited material
-  is still in the new packet. Run it as `references/steps/S4.md` says.
 - `scripts/confirmations.py` — the write-back half: reads the answered 待确认清单 out of a
   `business_profile.md` and merges it into `glossary.overrides.json` /
   `metadata-patch.json`. Run it after the business owner answers, then re-run `glossary`

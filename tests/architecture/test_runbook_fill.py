@@ -24,14 +24,14 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-REFS = ROOT / "skills" / "scope-lineage" / "references"
+REFS = ROOT / "skills" / "scope-lineage-ontology" / "references"
 SHELLS = [
     pytest.param(shell, marks=pytest.mark.skipif(shutil.which(shell) is None, reason=f"{shell} is not installed"))
     for shell in ("bash", "zsh")
 ]
 T = "demo_x.t"
 WRITE = ("FACTS=无", "CONCEPT=不写 concept", "FAILURES=无")
-AUTO = {"RUN", "TOOL", "SKILL", "SCHEMAS", "SCRATCH", "TASKS", "PAGES", "SEMPAGES", "ENV", "ROUND_NAME"}
+AUTO = {"RUN", "TOOL", "SKILL", "LINEAGE_SKILL", "SCHEMAS", "SCRATCH", "TASKS", "PAGES", "SEMPAGES", "ENV", "ROUND_NAME"}
 
 
 @pytest.fixture
@@ -57,7 +57,7 @@ def _fill(shell, run, *args, **overrides):
 @pytest.mark.parametrize("shell", SHELLS)
 def test_a_pip_install_fills_from_the_skill_directory(shell, run, tmp_path):
     """No checkout: ``TOOL`` empty, the skill and the package's schemas found apart."""
-    skill = tmp_path / "skills" / "scope-lineage"
+    skill = tmp_path / "skills" / "scope-lineage-ontology"
     shutil.copytree(REFS.parent, skill)
     out = run.parent / "t1.md"
     done = _fill(shell, run, "T1", str(out), f"TABLE={T}", "MODE=新写", "CORRECTIONS=无", *WRITE,
@@ -75,7 +75,7 @@ def test_a_checkout_needs_no_skill_or_schemas_variable(shell, run):
     done = _fill(shell, run, "T1", str(out), f"TABLE={T}", "MODE=新写", "CORRECTIONS=无", *WRITE)
     assert done.returncode == 0, done.stderr
     text = out.read_text(encoding="utf-8")
-    assert f"{ROOT}/skills/scope-lineage/references/table-semantics-prompt.md" in text
+    assert f"{ROOT}/skills/scope-lineage-ontology/references/table-semantics-prompt.md" in text
     assert f"{ROOT}/scope_lineage/schemas/table-semantics.schema.json" in text
 
 

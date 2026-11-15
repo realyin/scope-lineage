@@ -18,7 +18,7 @@ import pytest
 from .fill_cases import CASES, render_all
 
 ROOT = Path(__file__).resolve().parents[2]
-SKILL = ROOT / "skills" / "scope-lineage"
+SKILL = ROOT / "skills" / "scope-lineage-ontology"
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 SHELLS = [
     pytest.param(shell, marks=pytest.mark.skipif(shutil.which(shell) is None, reason=f"{shell} is not installed"))
@@ -49,8 +49,9 @@ def test_fill_tells_each_subagent_what_the_golden_prompt_says(shell, tmp_path):
 
 @pytest.mark.parametrize("shell", SHELLS)
 def test_an_env_written_from_the_0_11_2_runbook_takes_the_scripts_with_one_line(shell, tmp_path):
-    """A run directory started before the split keeps its ``env.sh``: the functions it
-    carries are replaced by sourcing ``runlib.sh`` after them."""
+    """A run directory started before the split keeps its ``env.sh``: after the SKILL line is
+    pointed at scope-lineage-ontology (00-before 0.1), the functions it carries are replaced by
+    sourcing ``runlib.sh`` after them."""
     run, scratch = tmp_path / "run", tmp_path / "scratch"
     (run / "reviews").mkdir(parents=True)
     (run / "reviews" / "demo_x.t.md").write_text("review\n", encoding="utf-8")
@@ -58,6 +59,9 @@ def test_an_env_written_from_the_0_11_2_runbook_takes_the_scripts_with_one_line(
     old = old.replace("/abs/path/to/scope-lineage ", f"{ROOT} ").replace("/abs/path/to/runs/run-20260101 ", f"{run} ")
     old = old.replace("/abs/path/to/scratchpad/run-20260101 ", f"{scratch} ")
     assert str(ROOT) in old and str(run) in old and str(scratch) in old
+    # 0.13.0 moved the procedure to scope-lineage-ontology: the documented edit of the SKILL line
+    old = old.replace('$TOOL/skills/scope-lineage}"', '$TOOL/skills/scope-lineage-ontology}"\nexport LINEAGE_SKILL="$TOOL/skills/scope-lineage"', 1)
+    assert "scope-lineage-ontology" in old
     script = tmp_path / "env.sh"
     script.write_text(old + '. "$SKILL/scripts/runlib.sh"\nfill "$@"\n', encoding="utf-8")
     out = tmp_path / "t4.md"
