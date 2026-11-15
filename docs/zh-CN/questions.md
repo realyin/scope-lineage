@@ -12,7 +12,7 @@
   以及按题号从作答文件里取出的回答；
 - `scope-lineage questions score` 汇总一轮判分：总分、按题型、按表、按缺口、失分清单，以及与前几轮的对比。
 
-提示词在 `skills/scope-lineage/references/answer-prompt.md` 与 `grade-prompt.md`，编排见技能 `SKILL.md` 的「验收」一节。
+提示词在 `skills/scope-lineage-ontology/references/answer-prompt.md` 与 `grade-prompt.md`，编排见技能 `SKILL.md` 的「验收」一节。
 
 ## 格式
 

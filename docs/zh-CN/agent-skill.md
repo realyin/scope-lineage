@@ -56,10 +56,11 @@ python3 skills/scope-lineage/scripts/confirmations.py apply <画像文件> --by 
 问"这批任务讲的是什么、它们之间是什么关系"——也就是业务本体——时走表语义 → 本体目录：给每张表写 `table-semantics/1`（`scope-lineage semantic packet` / `validate` / `render`），从表语义起草目录（`scope-lineage catalog digest` → 起草 → 片段 → `catalog merge` / `build` / `render`），再用 `scope-lineage catalog query` 回答；见[表语义](table-semantics.md)与[本体目录](ontology-catalog.md)。`scope-lineage ontology` 是**键折叠候选**，不是这份本体：它按键列词根把表折起来，适合做快速结构扫描、起草时的交叉证据，不能拿来回答业务问题。用户要的正是这种键一级的结构时：跑 `scope-lineage ontology --lineage <语料> --out <目录>`，先读 `<目录>/ontology.md` 的「本体总览」，再顺着概念表里的链接读 `<目录>/concepts/<文件>.md` 看它由哪些表表现，然后读 `<目录>/tables/<表>.md` 的本体五节（表级 ER 与表清单在 `<目录>/appendix.md` 里——那是证据，不是模型）；`hypothesis` 与 `conflict` 必须原样标 `[待确认]` 呈现，答完的项按 `references/ontology-review-prompt.md` 回写 `ontology.overrides.json`，下一轮升为 `confirmed`。
 
 仓库里有两个技能：`skills/scope-lineage/` 管血缘问答；`skills/scope-lineage-ontology/` 只管一件事——
-拿到一批任务 JSON 和表 Schema，按分步手册生成表语义和业务本体目录。后者是前者手册的「驾驶员」：一个由进度脚本
-`next_step.py` 驱动的循环，加上不能省的规则和角色分工，见[操作入口](task-to-ontology.md)。
+拿到一批任务 JSON 和表 Schema，按分步手册生成表语义和业务本体目录。后者装着整套流程——手册、步骤文件、模板、
+提示词和脚本——用进度脚本 `next_step.py` 驱动成一个循环，加上不能省的规则和角色分工，见[操作入口](task-to-ontology.md)。
+它在少数几处用到前者（S1 跑前者的 `scripts/query.py`），反过来不依赖。
 
-给一批表写表语义、起草本体目录、做回归验收这三件事，技能带一份照字面执行的分步手册：`references/runbook.md` 是目录（全流程总览、哪一步在哪个文件），每一步是 `references/steps/` 下的一个文件（S0–S13，写明前提检查、可直接复制的命令、自检与完成判据、常见报错的处理）；子代理填空模板一份一个文件，放在 `references/templates/`（写作、审读、复审、修订、目录起草、片段、作答、判分、补审九份，以及检查清单、运行账本和交付报告），`references/runbook-templates.md` 是它们的目录和填法。运行环境 `env.sh` 由 `scripts/init_run.py` 生成，不用手写。编排的 agent 做到哪一步读哪一个步骤文件，每个子代理只拿一份填好的模板。
+给一批表写表语义、起草本体目录、做回归验收这三件事，`skills/scope-lineage-ontology/` 带一份照字面执行的分步手册：`references/runbook.md` 是目录（全流程总览、哪一步在哪个文件），每一步是 `references/steps/` 下的一个文件（S0–S13，写明前提检查、可直接复制的命令、自检与完成判据、常见报错的处理）；子代理填空模板一份一个文件，放在 `references/templates/`（写作、审读、复审、修订、目录起草、片段、作答、判分、补审九份，以及检查清单、运行账本和交付报告），`references/runbook-templates.md` 是它们的目录和填法。运行环境 `env.sh` 由 `scripts/init_run.py` 生成，不用手写。编排的 agent 做到哪一步读哪一个步骤文件，每个子代理只拿一份填好的模板。
 
 ## 安装
 
@@ -83,8 +84,8 @@ ln -s ~/tools/scope-lineage/skills/scope-lineage ~/.codex/skills/scope-lineage
 ln -s ~/tools/scope-lineage/skills/scope-lineage-ontology ~/.codex/skills/scope-lineage-ontology
 ```
 
-- **两个技能都要链接**：`scope-lineage-ontology` 通过仓库根目录引用 `scope-lineage` 的手册和脚本，
-  两个目录都留在同一个 clone 里。
+- **两个技能都要链接**：`scope-lineage` 可以单独用；`scope-lineage-ontology` 自带手册和脚本，但 S1 要跑
+  `scope-lineage` 的 `scripts/query.py`，`init_run.py` 会在它旁边找（或用 `--lineage-skill <目录>` 指定）。两个都从同一个 clone 链接。
 - **用户级** `~/.codex/skills/`：所有项目通用，推荐；**项目级** `.codex/skills/`：只对
   当前项目生效。装进技能目录后，Codex 按 SKILL.md 的 description 自动触发，和 Claude
   Code 的体验一致。

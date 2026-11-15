@@ -1,4 +1,4 @@
-"""The runbook's next-step driver (``skills/scope-lineage/scripts/next_step.py``).
+"""The runbook's next-step driver (``skills/scope-lineage-ontology/scripts/next_step.py``).
 
 An orchestrator that loses track of where a run stands skips steps, re-runs finished ones,
 or stops at the key-fold ``ontology`` and calls it done. The driver reads only the files a
@@ -28,7 +28,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[2]
-SCRIPT = REPO / "skills" / "scope-lineage" / "scripts" / "next_step.py"
+SCRIPT = REPO / "skills" / "scope-lineage-ontology" / "scripts" / "next_step.py"
 T1 = "demo_dwd.t1"
 T2 = "demo_dwd.t2"
 
@@ -438,3 +438,22 @@ def test_the_current_step_names_the_step_file_to_read(run):
     out = _drive(run).stdout
     assert str(SCRIPT.parent.parent / "references" / "steps" / "S1.md") in out
     assert "S1 血缘解析" in out
+
+
+def test_an_env_written_before_the_skills_split_gets_the_two_lines_that_fix_it(tmp_path):
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "env.sh").write_text("export SKILL='/x/skills/scope-lineage'   # skill 目录\n. \"$SKILL/scripts/runlib.sh\"\n",
+                                encoding="utf-8")
+    out = subprocess.run([sys.executable, str(SCRIPT), str(run)], capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    skill = SCRIPT.resolve().parent.parent
+    assert f"export SKILL='{skill}'" in out.stdout and f"export LINEAGE_SKILL='{skill.parent / 'scope-lineage'}'" in out.stdout
+
+
+def test_a_current_env_gets_no_fix(tmp_path):
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "env.sh").write_text("export SKILL='/x'\nexport LINEAGE_SKILL='/y'\n", encoding="utf-8")
+    out = subprocess.run([sys.executable, str(SCRIPT), str(run)], capture_output=True, text=True)
+    assert "先改 env.sh" not in out.stdout

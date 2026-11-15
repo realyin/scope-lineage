@@ -19,7 +19,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 SKILLS = ROOT / "skills"
-SKILL = SKILLS / "scope-lineage"
+LINEAGE = SKILLS / "scope-lineage"
+SKILL = SKILLS / "scope-lineage-ontology"      # the S0-S13 procedure lives here
 REFS = SKILL / "references"
 STEPS = REFS / "steps"
 TEMPLATES = REFS / "templates"
@@ -71,13 +72,19 @@ def _skill_files():
 def test_every_file_a_skill_document_points_to_exists():
     missing = []
     for path in _skill_files():
+        home = SKILLS / path.relative_to(SKILLS).parts[0]
         text = path.read_text(encoding="utf-8")
         for target in re.findall(r"\]\(([^)#\s]+\.(?:md|py|sh|json|yaml))\)", text):
             if not target.startswith("http") and not (path.parent / target).exists():
                 missing.append(f"{path.relative_to(SKILLS)}: ({target})")
-        for target in re.findall(r"`((?:\$SKILL/|\{SKILL\}/)?(?:references|scripts|steps|templates|workflows)/[\w./-]+\.(?:md|py|sh))`", text):
-            relative = target.replace("$SKILL/", "").replace("{SKILL}/", "")
-            bases = [SKILL] if target.startswith(("$SKILL", "{SKILL}")) else [path.parent, SKILL, SKILL / "references", path.parents[1]]
+        for target in re.findall(r"`((?:\$SKILL/|\{SKILL\}/|\$LINEAGE_SKILL/|\{LINEAGE_SKILL\}/)?(?:references|scripts|steps|templates|workflows)/[\w./-]+\.(?:md|py|sh))`", text):
+            relative = re.sub(r"^(\$|\{)(LINEAGE_)?SKILL\}?/", "", target)
+            if "LINEAGE_SKILL" in target:
+                bases = [LINEAGE]
+            elif target.startswith(("$SKILL", "{SKILL}")):
+                bases = [home]
+            else:
+                bases = [path.parent, home, home / "references", path.parents[1]]
             if not any((base / relative).exists() for base in bases):
                 missing.append(f"{path.relative_to(SKILLS)}: `{target}`")
     assert missing == []
@@ -88,14 +95,42 @@ def test_the_progress_script_prints_the_file_of_the_current_step(tmp_path):
     assert f"{SKILL}/references/steps/S0.md" in done.stdout, done.stdout
 
 
-WORKFLOWS = SKILL / "workflows"
+WORKFLOWS = LINEAGE / "workflows"
 
 
 def test_the_lineage_skill_is_a_router_with_one_file_per_workflow():
-    text = (SKILL / "SKILL.md").read_text(encoding="utf-8")
+    text = (LINEAGE / "SKILL.md").read_text(encoding="utf-8")
     assert len(text.splitlines()) <= 250
     names = {path.name for path in WORKFLOWS.glob("*.md")}
     assert len(names) >= 12
     assert set(re.findall(r"\]\(workflows/([^)]+\.md)\)", text)) == names
     for path in WORKFLOWS.glob("*.md"):
         assert path.read_text(encoding="utf-8").startswith("### "), path
+
+
+def test_the_ontology_skill_holds_the_procedure_and_the_lineage_skill_does_not():
+    for name in ("references/runbook.md", "references/runbook-templates.md", "scripts/init_run.py", "scripts/runlib.sh",
+                 "scripts/fill.py", "scripts/next_step.py", "scripts/catalog_check.py", "scripts/make_corrections.py"):
+        assert (SKILL / name).is_file(), name
+        assert not (LINEAGE / name).exists(), name
+    assert not (LINEAGE / "references" / "steps").exists() and not (LINEAGE / "references" / "templates").exists()
+
+
+def test_the_lineage_skill_points_at_no_file_inside_the_ontology_skill():
+    # ontology -> lineage only: the lineage skill may name the other skill, never reach into its files
+    reach = re.compile(r"scope-lineage-ontology/(?:references|scripts)/")
+    offenders = [str(path.relative_to(SKILLS)) for path in LINEAGE.rglob("*") if path.is_file()
+                 and path.suffix in {".md", ".py", ".sh"} and reach.search(path.read_text(encoding="utf-8"))]
+    assert offenders == []
+
+
+def test_the_ontology_skill_uses_lineage_files_only_through_lineage_skill():
+    # a bare $SKILL/… path to a lineage-only file would break once the two skills are installed apart
+    lineage_only = [p.relative_to(LINEAGE).as_posix() for p in LINEAGE.rglob("*") if p.is_file() and p.name != "SKILL.md"]
+    offenders = []
+    for path in SKILL.rglob("*.md"):
+        text = path.read_text(encoding="utf-8")
+        for name in lineage_only:
+            if re.search(r"(?:\$SKILL|\{SKILL\})/" + re.escape(name), text):
+                offenders.append(f"{path.relative_to(SKILLS)}: {name}")
+    assert offenders == []

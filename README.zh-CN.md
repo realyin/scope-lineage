@@ -351,11 +351,11 @@ scope-lineage parse \
 
 **进行中的运行目录：**
 
-1. 每一步做完跑 `python3 "$TOOL/skills/scope-lineage/scripts/next_step.py" "$RUN"`（手册 0.6），
+1. 每一步做完跑 `python3 "$TOOL/skills/scope-lineage-ontology/scripts/next_step.py" "$RUN"`（手册 0.6），
    按它打印的当前步继续。它说「刷新状态」时，照它打印的命令写出 `status.json`，再跑一次。
 2. S10f：`catalog_changes.md` 必须存在；没有要手工改的，写一行「无改动」。
 3. S10g：构建、渲染之后跑
-   `python3 "$TOOL/skills/scope-lineage/scripts/catalog_check.py" "$RUN/onto/ontology.json"`。
+   `python3 "$TOOL/skills/scope-lineage-ontology/scripts/catalog_check.py" "$RUN/onto/ontology.json"`。
    末行是 `0 finding(s)`，或剩下的每条在 `catalog_changes.md` 里写了理由，才算做完；否则按手册 S10g
    把发现交回 T5 / T6 返工。
 4. 0.10.0 之前起草的目录仍然有效。想要更完整的草稿（事件表每个外部标识列都成为参与者、这些列旁的名称属性
@@ -369,7 +369,7 @@ scope-lineage parse \
 
 格式版本都不变，也没有增删键；变的是校验器、提示词和下游读者依赖的措辞，以及分步手册的文件和命令。
 完整清单见 [CHANGELOG.md](CHANGELOG.md) 0.9.0 下的 **Breaking** 条目。分步做法见
-[`skills/scope-lineage/references/runbook.md`](skills/scope-lineage/references/runbook.md)。
+[`skills/scope-lineage-ontology/references/runbook.md`](skills/scope-lineage-ontology/references/runbook.md)。
 
 **用 0.8.0 写的表语义运行目录**（`packets/`、`docs/`、`reviews/`）：
 
@@ -382,7 +382,7 @@ scope-lineage parse \
    `reviews_prev/<db.table>.prior.round1.md`，更早一次重写留下的 `.prior.*` 移到
    `reviews_prev/<db.table>.prior-<时间>.*`。旧运行留下的 `reviews/<db.table>.prior.<时间>.md` 要移到
    `reviews_prev/`——`semantic status` 会把它当成多出来的一张表。
-3. 用 `skills/scope-lineage/scripts/make_corrections.py` 生成这张表的修正点清单（手册 S4），以
+3. 用 `skills/scope-lineage-ontology/scripts/make_corrections.py` 生成这张表的修正点清单（手册 S4），以
    `fill write … CORRECTIONS=@<清单文件>` 交给写作者（第一次写传 `CORRECTIONS=无`）。0.9.0 之前修订过的
    表没有修订记录：脚本会警告，并把高、中级发现放进「先核对」那一段；照常派发。
 4. 此后每次修订的回复都存进 `reviews/<db.table>.fixlog.txt`（手册 S7）；下一次重写的修正点清单靠它。
@@ -411,7 +411,7 @@ scope-lineage parse \
 
 格式版本都不变；变的是若干字段的含义，以及若干命令的退出码和警告。完整清单见 [CHANGELOG.md](CHANGELOG.md)
 0.8.0 下的 **Breaking** 条目。表语义运行（含重写）的分步做法见
-[`skills/scope-lineage/references/runbook.md`](skills/scope-lineage/references/runbook.md)。
+[`skills/scope-lineage-ontology/references/runbook.md`](skills/scope-lineage-ontology/references/runbook.md)。
 
 **用 0.7.0 写的表语义运行目录**（`packets/`、`docs/`、`reviews/`）：
 

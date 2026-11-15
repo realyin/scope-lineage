@@ -1,6 +1,6 @@
 """The corrections list a rewrite hands its writer (runbook S4, template T1 ``{CORRECTIONS}``).
 
-``skills/scope-lineage/scripts/make_corrections.py`` reads the old review, the fix log and
+``skills/scope-lineage-ontology/scripts/make_corrections.py`` reads the old review, the fix log and
 the rebuilt packet, and sorts every finding into A 段 (fixed last time: follow it), B 段
 (worth a look: check it first) or out. The tests run it as the runbook does -- a
 subprocess over files -- and pin what a wrong list would cost: a fixed finding falling to
@@ -27,8 +27,8 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[2]
-SCRIPT = REPO / "skills" / "scope-lineage" / "scripts" / "make_corrections.py"
-RUNBOOK = REPO / "skills" / "scope-lineage" / "references" / "steps" / "S4.md"
+SCRIPT = REPO / "skills" / "scope-lineage-ontology" / "scripts" / "make_corrections.py"
+RUNBOOK = REPO / "skills" / "scope-lineage-ontology" / "references" / "steps" / "S4.md"
 TABLE = "demo_dim.dim_party_group_dc"
 
 PACKET = """# 材料包 demo_dim.dim_party_group_dc

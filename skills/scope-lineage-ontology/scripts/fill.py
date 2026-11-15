@@ -11,10 +11,11 @@ import os, re, sys
 if len(sys.argv) < 3:
     sys.exit("用法：fill <模板编号或名字> <输出文件> KEY=值 …")
 name, out, pairs = sys.argv[1], sys.argv[2], sys.argv[3:]
-skill = os.environ.get("SKILL") or os.path.join(os.environ.get("TOOL", ""), "skills/scope-lineage")
+skill = os.environ.get("SKILL") or os.path.join(os.environ.get("TOOL", ""), "skills/scope-lineage-ontology")
 folder = os.path.join(skill, "references/templates")
 if not os.path.isdir(folder):
-    sys.exit("找不到模板目录：" + folder + "。SKILL 没指向 skill 目录，或 skill 是 0.12.0 之前的版本")
+    sys.exit("找不到模板目录：" + folder + "。SKILL 要指向 scope-lineage-ontology skill 目录"
+             "（0.13.0 起模板从 scope-lineage 搬到了这里；旧运行的 env.sh 照 steps/00-before.md 0.4 改一行）")
 src = "\n".join(open(os.path.join(folder, name), encoding="utf-8").read()
                 for name in sorted(os.listdir(folder)) if re.fullmatch(r"T\d+\.md", name))
 meta = {}   # 模板编号 -> {"names": [...], "MODE": [...], "rules": [(规则, 只在哪个 MODE 生效, 值)]}
@@ -38,9 +39,10 @@ m = re.search(r"^## " + re.escape(tid) + r" (.*?)$.*?^----8<----\n(.*?)^----8<--
 title, text = m.group(1), m.group(2)
 label = tid + "（" + title + "）"
 wanted = set(re.findall(r"\{([A-Z_]+)\}", text))
-AUTO = {"RUN", "TOOL", "SKILL", "SCHEMAS", "SCRATCH", "TASKS", "PAGES", "SEMPAGES", "ENV", "ROUND_NAME"}
+AUTO = {"RUN", "TOOL", "SKILL", "LINEAGE_SKILL", "SCHEMAS", "SCRATCH", "TASKS", "PAGES", "SEMPAGES", "ENV", "ROUND_NAME"}
 vals = {k: os.environ.get(k, "") for k in ("RUN", "TOOL", "SCRATCH", "TASKS", "PAGES", "SEMPAGES")}
 vals["SKILL"] = skill
+vals["LINEAGE_SKILL"] = os.environ.get("LINEAGE_SKILL") or os.path.join(os.path.dirname(skill.rstrip("/")), "scope-lineage")
 vals["SCHEMAS"] = os.environ.get("SCHEMAS") or (os.path.join(os.environ["TOOL"], "scope_lineage/schemas") if os.environ.get("TOOL") else "")
 vals["ENV"] = os.path.join(os.environ["RUN"], "env.sh")
 raw = {}

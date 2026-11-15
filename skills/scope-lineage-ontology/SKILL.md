@@ -27,20 +27,13 @@ description: >-
 **只跑 `parse` → `tables` / `glossary` → `describe` → `ontology` 就交差，是这里最常见的错误。**
 那样得到的概念名取自键列词根（`cust`、`acct` 这类英文缩写，甚至元数据残值 `nan`），大多数表只是临时概念，不是业务本体。
 
-## 1. 找到 skill 目录 `SKILL`
+## 1. 两个目录：`SKILL` 和 `LINEAGE_SKILL`
 
-本目录只有这一个文件。流程的步骤文件、模板和脚本都在**另一个** skill `scope-lineage` 的目录里，下文记作 `$SKILL`
-（里面有 `SKILL.md`、`references/`、`scripts/`）。别人已经给了这个目录或工具仓库的路径时直接用，不用再找。
-
-- 本文件在一个 scope-lineage 仓库里（`<仓库>/skills/scope-lineage-ontology/SKILL.md`，装成软链接也算）：`$SKILL` 就是同一个
-  `skills/` 下的 `scope-lineage` 目录。软链接先取真实路径：
-
-  ```bash
-  python3 -c 'import os,sys; print(os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(sys.argv[1]))), "scope-lineage"))' <本 SKILL.md 的路径>
-  ```
-
-- 两个 skill 是分开拷贝安装的、工具是 `pip install` 的：`$SKILL` 是 `scope-lineage` 那个 skill 目录的绝对路径，
-  和本目录并排放着。找不到就问人，不要猜。
+- `$SKILL` 就是**本目录**（`scope-lineage-ontology`）：流程的步骤文件、模板和脚本都在这里的 `references/`、`scripts/` 下。
+  装成软链接时用真实路径。
+- `$LINEAGE_SKILL` 是旁边的血缘 skill `scope-lineage`：S1 用它的 `$LINEAGE_SKILL/scripts/query.py` 看任务摘要，另有几处提示词引用它的文档。
+  两个 skill 要一起装（并排放着最省事）；`init_run.py` 会自动找到旁边的那个，不在旁边就用 `--lineage-skill` 写它的绝对路径。
+  找不到就问人，不要猜。
 
 要读的东西，一个功能一个文件：
 

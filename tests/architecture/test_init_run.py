@@ -16,7 +16,8 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-SKILL = ROOT / "skills" / "scope-lineage"
+SKILL = ROOT / "skills" / "scope-lineage-ontology"
+LINEAGE = ROOT / "skills" / "scope-lineage"
 INIT = SKILL / "scripts" / "init_run.py"
 SHELLS = [
     pytest.param(shell, marks=pytest.mark.skipif(shutil.which(shell) is None, reason=f"{shell} is not installed"))
@@ -41,8 +42,8 @@ def test_the_written_env_defines_the_paths_and_the_four_functions(shell, tmp_pat
     done = _init("--run", str(run), "--scratch", str(tmp_path / "scratch"), "--tasks", "/data/tasks", "--schema", "/data/schema")
     assert done.returncode == 0, done.stderr
     env_file = run / "env.sh"
-    assert _show(shell, env_file, "RUN", "TASKS", "SCHEMA", "SKILL", "TOOL", "PAGES", "SEMPAGES", "DDL") == [
-        str(run), "/data/tasks", "/data/schema", str(SKILL), str(ROOT), f"{run}/site", f"{run}/site/semantics", ""]
+    assert _show(shell, env_file, "RUN", "TASKS", "SCHEMA", "SKILL", "LINEAGE_SKILL", "TOOL", "PAGES", "SEMPAGES", "DDL") == [
+        str(run), "/data/tasks", "/data/schema", str(SKILL), str(LINEAGE), str(ROOT), f"{run}/site", f"{run}/site/semantics", ""]
     done = subprocess.run([shell, "-c", f'. {shlex.quote(str(env_file))} && type sl fill note load_tables >/dev/null && echo ok'],
                           capture_output=True, text=True)
     assert done.stdout.strip() == "ok", done.stderr
@@ -80,13 +81,36 @@ def test_scratch_inside_the_run_directory_is_refused(tmp_path):
 
 
 def test_a_skill_installed_apart_from_the_tool_leaves_tool_empty(tmp_path):
-    skill = tmp_path / "skills" / "scope-lineage"
+    skill = tmp_path / "skills" / "scope-lineage-ontology"
     shutil.copytree(SKILL, skill)
+    shutil.copytree(LINEAGE, tmp_path / "skills" / "scope-lineage")
     run = tmp_path / "run"
     done = subprocess.run([sys.executable, str(skill / "scripts" / "init_run.py"), "--run", str(run), "--scratch",
                            str(tmp_path / "s"), "--tasks", "/t", "--schema", "/s"], capture_output=True, text=True)
     assert done.returncode == 0, done.stderr
-    assert _show("bash", run / "env.sh", "TOOL", "SKILL") == ["", str(skill)]
+    assert _show("bash", run / "env.sh", "TOOL", "SKILL", "LINEAGE_SKILL") == ["", str(skill), str(tmp_path / "skills" / "scope-lineage")]
+
+
+def test_without_the_lineage_skill_beside_it_the_run_is_refused(tmp_path):
+    skill = tmp_path / "skills" / "scope-lineage-ontology"
+    shutil.copytree(SKILL, skill)
+    run = tmp_path / "run"
+    done = subprocess.run([sys.executable, str(skill / "scripts" / "init_run.py"), "--run", str(run), "--scratch",
+                           str(tmp_path / "s"), "--tasks", "/t", "--schema", "/s"], capture_output=True, text=True)
+    assert done.returncode == 1 and "--lineage-skill" in done.stderr and not (run / "env.sh").exists()
+
+
+def test_the_lineage_skill_can_be_given(tmp_path):
+    skill = tmp_path / "a" / "scope-lineage-ontology"
+    shutil.copytree(SKILL, skill)
+    lineage = tmp_path / "b" / "lineage"
+    shutil.copytree(LINEAGE, lineage)
+    run = tmp_path / "run"
+    done = subprocess.run([sys.executable, str(skill / "scripts" / "init_run.py"), "--run", str(run), "--scratch",
+                           str(tmp_path / "s"), "--tasks", "/t", "--schema", "/s", "--lineage-skill", str(lineage)],
+                          capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    assert _show("bash", run / "env.sh", "LINEAGE_SKILL") == [str(lineage)]
 
 
 def _args(tmp_path, run):
