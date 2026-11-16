@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**
   The ontology skill used to be one `SKILL.md` that sent the agent to find the other skill's
   directory; it now holds the runbook, `references/steps/`, `references/templates/`, the table
