@@ -1036,7 +1036,19 @@ name, a one-line `summary`, where it lives (`where`) and the fields that matched
 The match is lexical and needs no extra dependency: Chinese is cut into windows of two adjacent characters, so a
 business word matches inside a longer name; letters and digits are cut into words, ignoring case. A match in a
 name scores above one in a definition, a rare word above a common one, a name the text spells out whole above
-one it only touches. Scores only order the list and are not comparable across searches. `search` offers
+one it only touches. Words that only frame a question are left out of the text first: a two-character
+window made only of question and function characters (每个, 多少, 是否, 哪些), one holding a particle such as
+的 or 吗, and a few question verbs (统计, 写出, 说明); a window with any other character stays (还款, 个人).
+Only the text is filtered, never the catalog.
+
+A question that names two things should list both. A concept's attributes, identifiers and tables are its
+members, and one concept can bring many members that each match more words than the other thing's concept.
+So once a concept's members hold two places, its next member waits until every concept the text names (in
+that concept's own name, synonym, term or id) is listed; the waiting members then follow by score. A text
+about one thing, or a `--kind` list without `concept`, has nothing waiting and keeps plain score order; a
+column name still finds its attribute or identifier first. The JSON shape does not change.
+
+Scores only order the list and are not comparable across searches. `search` offers
 candidates; it does not choose for the reader and never changes the catalog: once chosen, take the id to
 `query` or `context`.
 

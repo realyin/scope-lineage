@@ -8,6 +8,13 @@
   match is lexical -- two-character windows over CJK text, words over letters and digits -- and
   needs nothing beyond the standard library; `--semantics` also matches what each table's
   semantics document says the table is. It offers candidates and never decides.
+- **`catalog search`: a question that names two things lists both.** One concept's attributes,
+  identifiers and tables could fill the first places and push out the concept for the other
+  thing the question asks about. Now a concept's members take at most two places before every
+  concept the text names (in its own name, synonym, term or id) is listed; the rest follow by
+  score. Words that only frame a question (每个, 多少, 是否, a window holding 的 ...) are left
+  out of the text. A text about one thing, and `--kind` without `concept`, keep plain score
+  order; the JSON shape is unchanged.
 - **`catalog context`: what one query needs about a few tables, in one answer.** A table's
   semantics page is the whole document, tens of kilobytes a table. `context --table` returns
   the catalog facts (grain, time columns with their roles, the table and column each foreign key

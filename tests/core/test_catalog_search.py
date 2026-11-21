@@ -169,6 +169,46 @@ def test_the_order_is_by_score_and_stable(document: dict) -> None:
     assert all(score > 0 for score in scores)
 
 
+def test_a_question_naming_two_things_lists_both_before_the_members_of_one(document: dict) -> None:
+    # "Per customer, ... and the number of repayments": the customer's identifier, attributes
+    # and code set all match more of the words than the repayment concept does, and used to
+    # fill the first five places between them.
+    question = "每个客户的客户号、性别和注册时间，以及还款的次数"
+    hits = search_catalog(document, question, limit=5)["hits"]
+    found = [hit["id"] for hit in hits]
+    assert "concept:repayment" in found
+    assert any(hit["kind"] == "attribute" and hit["id"].startswith("attr:customer.") for hit in hits)
+
+
+def test_a_question_about_one_thing_keeps_the_order_of_its_scores(document: dict) -> None:
+    for text in ("借款人", "借据状态", "客户", "gender_cd"):
+        scores = [hit["score"] for hit in search_catalog(document, text)["hits"]]
+        assert scores == sorted(scores, reverse=True), text
+
+
+def test_the_members_of_a_concept_are_listed_when_asked_for_by_kind(document: dict) -> None:
+    hits = search_catalog(document, "客户", kinds=["identifier"])["hits"]
+    assert [hit["id"] for hit in hits][:2] == ["id:customer_id", "id:verified_customer_no"]
+
+
+def test_question_scaffolding_in_the_text_matches_nothing(document: dict) -> None:
+    changed = copy.deepcopy(document)
+    changed["concepts"][0]["definition"] = "每个渠道是否有多少个哪些账户"  # concept:app_account
+    assert search_catalog(changed, "每个是否有多少哪些")["hits"] == []
+    assert search_catalog(changed, "写出统计说明")["hits"] == []
+    # The words themselves still match: only the query's scaffolding is set aside.
+    assert _ids(search_catalog(changed, "渠道有多少个账户", kinds=["concept"]))[0] in (
+        "concept:channel", "concept:app_account"
+    )
+
+
+def test_a_word_with_one_scaffolding_character_still_matches(document: dict) -> None:
+    # 还 and 个 are common in questions, but 还款 is a business word and stays.
+    assert search_catalog(document, "有多少还款", kinds=["concept"])["hits"][0]["id"] == (
+        "concept:repayment"
+    )
+
+
 def test_case_and_width_do_not_matter(document: dict) -> None:
     assert _ids(search_catalog(document, "LOAN_STATUS_HIS", kinds=["table"]))[0] == (
         "demo_dwd.dwd_lending_loan_status_his"
