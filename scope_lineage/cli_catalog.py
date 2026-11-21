@@ -164,6 +164,29 @@ def _add_context_parser(actions) -> None:
         help="A column to answer in full: binding, code values, derivation, notes (repeatable)",
     )
     context_cmd.add_argument(
+        "--columns", action="append", default=[], metavar="COL[,COL...]",
+        help=(
+            "Columns of the one --table, comma-separated, each answered in full like --column "
+            "in the same pack (repeatable; needs exactly one --table)"
+        ),
+    )
+    context_cmd.add_argument(
+        "--brief", action="store_true",
+        help=(
+            "A short table pack: every catalog fact, how to read it, not-for, watch items and "
+            "open questions stay; columns are listed by name, cited rules without their SQL, "
+            "downstream readers by name"
+        ),
+    )
+    context_cmd.add_argument(
+        "--focus", action="store_true",
+        help=(
+            "Narrow each table's watch items, open questions and cited rules to its requested "
+            "columns (--column/--columns); items that name no column are always kept, and the "
+            "pack says how many were left out"
+        ),
+    )
+    context_cmd.add_argument(
         "--concept", action="append", default=[], metavar="CONCEPT",
         help="A concept by id, name, synonym or term: tables, constraints, metrics (repeatable)",
     )
@@ -356,8 +379,27 @@ def _run_search(args: argparse.Namespace) -> int:
 def _run_context(args: argparse.Namespace) -> int:
     from .render.catalog_context import context_pack, render_context_text
 
-    if not (args.table or args.column or args.concept):
+    if not (args.table or args.column or args.columns or args.concept):
         print("catalog context: name at least one --table, --column or --concept", file=sys.stderr)
+        return 2
+    columns = list(args.column)
+    if args.columns:
+        if len(args.table) != 1:
+            print(
+                "catalog context: --columns names columns of one table; give exactly one "
+                "--table, or use --column db.table.column",
+                file=sys.stderr,
+            )
+            return 2
+        columns += [
+            f"{args.table[0]}.{name.strip()}"
+            for value in args.columns
+            for name in value.split(",")
+            if name.strip()
+        ]
+    if args.focus and not columns:
+        print("catalog context: --focus needs the columns to focus on (--column or --columns)",
+              file=sys.stderr)
         return 2
     document = _load_ontology(args.ontology)
     if isinstance(document, int):
@@ -366,7 +408,8 @@ def _run_context(args: argparse.Namespace) -> int:
     if isinstance(semantics, int):
         return semantics
     pack = context_pack(
-        document, semantics, tables=args.table, columns=args.column, concepts=args.concept
+        document, semantics, tables=args.table, columns=columns, concepts=args.concept,
+        brief=args.brief, focus=args.focus,
     )
     if args.json:
         print(json.dumps(pack, ensure_ascii=False, indent=2))

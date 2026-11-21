@@ -1066,8 +1066,25 @@ scope-lineage catalog context out/ontology.json --semantics docs/ \
 | `--concept` (id, id without its prefix, name, synonym or term) | definition, identifiers, representation tables, the constraints on it and on its attributes, identifiers and relations, each metric in full (measure and bound columns, aggregation, filter, time window, dimensions, additivity, unit, the text of the constraints it cites) |
 | `--table` (`db.table`) | catalog side: the concept carried, grain columns and their source, time shape and refresh, time columns with their roles, record scope, for each foreign-identifier column the table and column it joins to (`joins`, with the JOINs the corpus showed and where), constraints, the names of the metrics on its concept, disagreements between evidence and catalog; table-semantics side (`semantics`): what it is, what one row is, how to read it, scope lines and the rules they cite (with SQL), good for and not for, things to watch, open questions, the downstream tasks and tables that read it, one line per column |
 | `--column` (`db.table.column`) | the catalog binding (what it points at, definition, unit, code values, derivation, time role, lineage expression); the table-semantics entry for the column: meaning, derivation, branches, code values, what NULL means, what to watch; and the table-level notes and open questions that name this column |
+| `--columns` (`col[,col...]`) | the same as `--column` for columns of the one `--table`, named without the table and separated by commas; needs exactly one `--table` |
+| `--brief` | a short `--table` pack: every catalog fact, what it is, what one row is, how to read it, scope, good for, not for, things to watch, open questions and the text of the cited rules stay; columns are listed by name grouped by category (entries keep `column` and `category`), cited rules lose their SQL, downstream readers are named by the table they write (by their task when they write none); a column whose table is in the same pack points to the table's notes instead of repeating them |
+| `--focus` | with `--column`/`--columns`: each table's watch items, open questions and cited rules narrowed to its requested columns; `semantics.focus` (`columns`, `left_out` counts) says what was left out |
 
-All three options are repeatable and can be mixed. Provenance in the table-semantics document (`sources`,
+`--table`, `--column`, `--columns` and `--concept` are repeatable and can be mixed. A column of a table named by
+`--table` comes in full in the same pack, so one call answers the table and the columns a query touches:
+
+```bash
+scope-lineage catalog context out/ontology.json --semantics docs/ \
+  --table demo_dwd.dwd_party_customer_info_df --columns gender_cd,register_time --brief --focus
+```
+
+`--focus` decides by reference, not by reading prose: a watch item names a column through a `column:<name>`
+entry in `refs`, an open question through one in `about` (case is ignored). An item that names no column is about
+the whole table and is always kept; a table none of whose columns was requested is left whole. A rule carries no
+column reference of its own, so it stays while a scope line or a kept item cites it and leaves only with the items
+that cited it. The text says `聚焦 …：略去只点名其他字段的注意 n 条、待确认问题 n 条、规则 n 条；去掉 --focus 可看全部`,
+so nothing disappears silently. `--brief` and `--focus` leave concepts and `--column` answers as they are.
+Without them the pack is unchanged. Provenance in the table-semantics document (`sources`,
 `confidence`), upstream tables and the processing steps stay out of the pack: they say how the
 table was built, not how to query it; downstream readers are kept, because "what does a change here reach"
 is asked of a table. A table with no table-semantics document has `semantics` equal to
@@ -1084,8 +1101,10 @@ empty `catalog`.
 ```
 
 `--json` prints `catalog-context/1`: `{"doc_format", "query", "concepts", "tables", "columns", "missing"}`;
-names that were not found are listed in `missing`. Exit codes: `0` at least one was found, `1` none was,
-`2` no option was given, or the file or the `--semantics` directory cannot be read.
+names that were not found are listed in `missing`; `query` also carries `"brief": true` and `"focus": true`
+when those options were given, and `query.columns` lists `--columns` as `db.table.column`. Exit codes: `0` at
+least one was found, `1` none was, `2` no option was given, `--columns` without exactly one `--table`,
+`--focus` without a column, or the file or the `--semantics` directory cannot be read.
 
 ## SQL check: `catalog check-sql`
 

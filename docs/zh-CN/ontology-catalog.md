@@ -938,8 +938,22 @@ scope-lineage catalog context out/ontology.json --semantics docs/ \
 | `--concept`（id、去掉前缀的 id、名称、同义词或术语） | 定义、标识符、表现表、它和它的属性、标识符、关系上的约束、指标的完整定义（度量与绑定列、聚合、过滤、时间窗、维度、可加性、单位、所引约束的原文） |
 | `--table`（`库.表`） | 目录侧：承载的概念、粒度列与来源、时间形态与刷新、带角色的时间列、记录范围、每个外部标识符列能连到哪张表的哪一列（`joins`，带语料里见过的 JOIN 及其位置）、约束、概念上的指标名、证据与目录的矛盾；表语义侧（`semantics`）：是什么、一行是什么、怎么取数、范围及其引用的规则（带 SQL）、适用与不适用、注意事项、待确认问题、读这张表的下游任务与表、每列一行的字段一览 |
 | `--column`（`库.表.列`） | 目录侧的绑定（指向什么、定义、单位、码值、取值方式、时间角色、血缘表达式）；表语义侧这一列的含义、加工、分支、码值、空值含义、注意；以及点名这一列的表级注意与待确认问题 |
+| `--columns`（`列[,列...]`） | 和 `--column` 一样，但只写列名、逗号分隔，列属于唯一的那个 `--table`；要求正好一个 `--table` |
+| `--brief` | 简版 `--table` 包：目录事实、是什么、一行是什么、怎么取数、范围、适用、不适用、注意、待确认问题、被引用规则的文字都留着；字段只列名字、按类别分组（条目只留 `column` 和 `category`），被引用的规则不带 SQL，下游只写它写入的表（不写表时写任务名）；同一个包里已有其表的字段，不再重复表级注意，改为指向表块 |
+| `--focus` | 配合 `--column`/`--columns`：每张表的注意、待确认问题和被引用的规则只留点名所请求字段的那些；`semantics.focus`（`columns`、`left_out` 计数）写明略去了多少 |
 
-三个选项都可重复，可混用。表语义文档里的出处（`sources`、`confidence`）、上游表和加工步骤不进包：它们说明
+`--table`、`--column`、`--columns`、`--concept` 都可重复，可混用。字段所属的表也用 `--table` 点了名时，字段全文就在同一个包里，
+一次调用拿到表和查询要碰的字段：
+
+```bash
+scope-lineage catalog context out/ontology.json --semantics docs/ \
+  --table demo_dwd.dwd_party_customer_info_df --columns gender_cd,register_time --brief --focus
+```
+
+`--focus` 按引用判断，不读正文：注意项靠 `refs` 里的 `column:<列名>` 点名字段，待确认问题靠 `about` 里的（不分大小写）。
+一项都没点名字段的，说的是整张表，一律保留；一个字段都没被请求的表原样给出。规则自身不带字段引用，所以只要还有范围行或留下的
+条目引用它就留着，只在引用它的条目都被略去时才一起略去。文本写明 `聚焦 …：略去只点名其他字段的注意 n 条、待确认问题 n 条、规则 n 条；去掉 --focus 可看全部`，
+不会悄悄少东西。`--brief` 和 `--focus` 不改概念和 `--column` 的回答；不加这两个选项时包和原来一样。表语义文档里的出处（`sources`、`confidence`）、上游表和加工步骤不进包：它们说明
 表是怎么做出来的，不是怎么查；下游留着，因为「改了它会影响谁」是对着表问的。没有表语义文档的表，`semantics` 是 `{"present": false}`，文本写「本表没有
 表语义文档」——读者要能分清「没有要注意的」和「没人写下来」。只在表语义里有、目录没绑定的列照样能用
 `--column` 查到，`catalog` 一项为空。
@@ -953,8 +967,9 @@ scope-lineage catalog context out/ontology.json --semantics docs/ \
 ```
 
 `--json` 输出 `catalog-context/1`：`{"doc_format", "query", "concepts", "tables", "columns", "missing"}`，
-没找到的名字列在 `missing` 里。退出码：`0` 至少找到一个，`1` 一个都没找到，`2` 一个选项都没给、文件或
-`--semantics` 目录读不了。
+没找到的名字列在 `missing` 里；给了 `--brief`、`--focus` 时 `query` 里多出 `"brief": true`、`"focus": true`，
+`--columns` 在 `query.columns` 里写成 `库.表.列`。退出码：`0` 至少找到一个，`1` 一个都没找到，`2` 一个选项都没给、
+`--columns` 没有正好一个 `--table`、`--focus` 没给字段、文件或 `--semantics` 目录读不了。
 
 ## SQL 检查：`catalog check-sql`
 

@@ -12,6 +12,18 @@ in the document: they explain how the table was built, not how to query it. The 
 tables that read the table are kept, because "what does a change here reach" is a question
 readers ask of a table.
 
+Two options shorten a table's pack for an agent that asks many questions. ``brief`` keeps
+every item that decides how to query -- the catalog facts, what a row is, how to read it,
+scope, not-for, watch items, open questions, the text of the cited rules -- and shortens the
+parts that are long and do not: each column is named with its category but not described,
+a cited rule loses its SQL, and a downstream reader is named by the table it writes (its
+task only when it writes none). ``focus`` narrows a table's watch items, open questions and
+cited rules to the requested columns of that table: an item names a column by a
+``column:<name>`` reference (``refs`` of a watch item, ``about`` of a question), and one that
+names no column is about the whole table and always stays. A rule carries no column
+reference of its own, so it stays while a scope line or a kept item cites it. The pack says
+how many items ``focus`` left out.
+
 Both inputs are plain dicts: the built ``ontology-json/3`` document and
 ``{db.table: table-semantics document}``. Nothing is read from disk here. A table with no
 semantics document says so (``{"present": false}``) rather than carrying empty fields, so
@@ -44,20 +56,32 @@ def context_pack(
     tables: Iterable[str] = (),
     columns: Iterable[str] = (),
     concepts: Iterable[str] = (),
+    brief: bool = False,
+    focus: bool = False,
 ) -> dict:
-    """The pack for the named tables, columns (``db.table.column``) and concepts."""
+    """The pack for the named tables, columns (``db.table.column``) and concepts.
+
+    ``brief`` shortens each table's semantics as the module says; ``focus`` narrows each
+    table that has requested columns to them. Neither changes a concept or a column.
+    """
     view = CatalogView(document)
     documents = {
         catalog_table_name(name).lower(): doc for name, doc in (semantics or {}).items()
     }
+    query: dict = {"tables": list(tables), "columns": list(columns), "concepts": list(concepts)}
+    if brief:
+        query["brief"] = True
+    if focus:
+        query["focus"] = True
     pack: dict = {
         "doc_format": CONTEXT_FORMAT,
-        "query": {"tables": list(tables), "columns": list(columns), "concepts": list(concepts)},
+        "query": query,
         "concepts": [],
         "tables": [],
         "columns": [],
         "missing": [],
     }
+    focused = _requested_columns(view, query["columns"]) if focus else {}
     for term in pack["query"]["concepts"]:
         # the page of a concept is named by its id without the prefix, so that spelling works
         found = find_concepts(view, term) or find_concepts(view, f"concept:{term}")
@@ -69,7 +93,10 @@ def context_pack(
         if rep is None:
             pack["missing"].append({"kind": "table", "term": term})
             continue
-        pack["tables"].append(_table(view, rep, documents.get(rep["table"].lower())))
+        pack["tables"].append(_table(
+            view, rep, documents.get(rep["table"].lower()),
+            brief=brief, focus=focused.get(rep["table"].lower()),
+        ))
     for term in pack["query"]["columns"]:
         answer = _column(view, term, documents)
         if answer is None:
@@ -77,6 +104,29 @@ def context_pack(
         else:
             pack["columns"].append(answer)
     return pack
+
+
+def _address(view: CatalogView, term: str):
+    """``(representation or None, db.table, column)`` of a ``db.table.column`` term, or None."""
+    table_name, _, column_name = str(term).strip().rpartition(".")
+    if not table_name:
+        return None
+    rep = view.representation(table_name)
+    table = rep["table"] if rep else catalog_table_name(table_name).lower()
+    return rep, table, column_name
+
+
+def _requested_columns(view: CatalogView, terms: Iterable[str]) -> dict[str, list[str]]:
+    """``{db.table (lower case): [column, ...]}``: the columns requested of each table."""
+    found: dict[str, list[str]] = {}
+    for term in terms:
+        address = _address(view, term)
+        if address is None:
+            continue
+        names = found.setdefault(address[1].lower(), [])
+        if address[2].casefold() not in names:
+            names.append(address[2].casefold())
+    return found
 
 
 def _ref(view: CatalogView, object_id: str) -> dict:
@@ -149,7 +199,14 @@ def _metric(view: CatalogView, metric: Mapping) -> dict:
 # -------------------------------------------------------------------- table
 
 
-def _table(view: CatalogView, rep: Mapping, document: Optional[Mapping]) -> dict:
+def _table(
+    view: CatalogView,
+    rep: Mapping,
+    document: Optional[Mapping],
+    *,
+    brief: bool = False,
+    focus: Optional[list[str]] = None,
+) -> dict:
     concept_id = rep["concept"]
     grain = rep.get("grain") or {}
     key_ids = set(grain.get("identifiers") or [])
@@ -186,7 +243,7 @@ def _table(view: CatalogView, rep: Mapping, document: Optional[Mapping]) -> dict
             {"rule": conflict["rule"], "text": conflict_text(view, rep["table"], conflict)}
             for conflict in conflicts
         ]
-    answer["semantics"] = _semantics(document)
+    answer["semantics"] = _semantics(document, brief=brief, focus=focus)
     return answer
 
 
@@ -239,19 +296,24 @@ def _seen(view: CatalogView, rep: Mapping, binding: Mapping, other) -> list[dict
     return seen
 
 
-def _semantics(document: Optional[Mapping]) -> dict:
+def _semantics(
+    document: Optional[Mapping], *, brief: bool = False, focus: Optional[list[str]] = None
+) -> dict:
     if not document:
         return {"present": False}
     summary = document.get("summary") or {}
     row = summary.get("row") or {}
     refresh = summary.get("refresh") or {}
-    watch = [_pick(item, ("kind", "text", "refs")) for item in summary.get("watch") or []]
-    questions = [
+    every_watch = [_pick(item, ("kind", "text", "refs")) for item in summary.get("watch") or []]
+    every_question = [
         _pick(item, ("id", "text", "about", "status")) for item in summary.get("questions") or []
     ]
     scope = [_pick(item, ("text", "rule_refs")) for item in summary.get("scope") or []]
+    watch = [item for item in every_watch if _about(item.get("refs"), focus)]
+    questions = [item for item in every_question if _about(item.get("about"), focus)]
     cited = _cited_rules(scope, watch, questions)
-    return {
+    rule_keys = ("id", "kind", "text", "watch") if brief else ("id", "kind", "text", "sql", "watch")
+    answer = {
         "present": True,
         "what": summary.get("what"),
         "row": _pick(row, ("text", "grain_columns", "unique", "note")),
@@ -262,17 +324,51 @@ def _semantics(document: Optional[Mapping]) -> dict:
         "watch": watch,
         "questions": questions,
         "rules": [
-            _pick(rule, ("id", "kind", "text", "sql", "watch"))
+            _pick(rule, rule_keys)
             for rule in document.get("rules") or []
             if rule.get("id") in cited
         ],
         # who reads this table: what a change to it reaches (the one lineage fact kept)
-        "downstream": [_pick(item, ("task", "table")) for item in summary.get("downstream") or []],
+        "downstream": [
+            _reader(item) if brief else _pick(item, ("task", "table"))
+            for item in summary.get("downstream") or []
+        ],
         "columns": [
-            _pick(column, ("column", "meaning", "category"))
+            _pick(column, ("column", "category") if brief else ("column", "meaning", "category"))
             for column in document.get("columns") or []
         ],
     }
+    if focus is not None:
+        every_cited = _cited_rules(scope, every_watch, every_question)
+        answer["focus"] = {
+            "columns": list(focus),
+            "left_out": {
+                "watch": len(every_watch) - len(watch),
+                "questions": len(every_question) - len(questions),
+                "rules": sum(
+                    1 for rule in document.get("rules") or []
+                    if rule.get("id") in every_cited - cited
+                ),
+            },
+        }
+    return answer
+
+
+def _about(refs, focus: Optional[list[str]]) -> bool:
+    """Whether an item stays under ``focus``: it names a requested column, or none at all."""
+    if focus is None:
+        return True
+    named = {
+        str(ref).split(":", 1)[1].casefold()
+        for ref in refs or []
+        if str(ref).casefold().startswith("column:")
+    }
+    return not named or bool(named & set(focus))
+
+
+def _reader(item: Mapping) -> dict:
+    """A downstream reader in a brief pack: the table it writes, or its task when none."""
+    return {"table": item["table"]} if item.get("table") else _pick(item, ("task",))
 
 
 def _cited_rules(scope: list, watch: list, questions: list) -> set[str]:
@@ -292,11 +388,10 @@ def _pick(item: Mapping, keys: tuple) -> dict:
 
 
 def _column(view: CatalogView, term: str, documents: Mapping) -> Optional[dict]:
-    table_name, _, column_name = str(term).strip().rpartition(".")
-    if not table_name:
+    address = _address(view, term)
+    if address is None:
         return None
-    rep = view.representation(table_name)
-    table = rep["table"] if rep else catalog_table_name(table_name).lower()
+    rep, table, column_name = address
     document = documents.get(table.lower())
     folded = column_name.casefold()
     binding = next(
@@ -381,10 +476,13 @@ def render_context_text(pack: Mapping) -> str:
     lines: list[str] = []
     for concept in pack["concepts"]:
         lines += _concept_text(concept)
+    brief = bool(pack["query"].get("brief"))
     for table in pack["tables"]:
-        lines += _table_text(table)
+        lines += _table_text(table, brief)
+    # a brief pack does not repeat a table's notes under each of its columns
+    shown = {table["table"] for table in pack["tables"]} if brief else set()
     for column in pack["columns"]:
-        lines += _column_text(column)
+        lines += _column_text(column, column["table"] if column["table"] in shown else None)
     kinds = {"concept": "概念", "table": "表", "column": "字段"}
     for item in pack["missing"]:
         lines.append(f"未找到：{kinds[item['kind']]} {item['term']}")
@@ -440,7 +538,7 @@ def _constraint_lines(constraints: list) -> list[str]:
     ]
 
 
-def _table_text(table: Mapping) -> list[str]:
+def _table_text(table: Mapping, brief: bool = False) -> list[str]:
     lines = [f"# 表 {table['table']}", "", "## 目录"]
     concept = table["concept"]
     lines.append(f"- 承载概念：{concept['name']}（{concept['id']}），表的种类 {table['kind']}")
@@ -462,7 +560,7 @@ def _table_text(table: Mapping) -> list[str]:
         lines.append(
             "- 这个概念上的指标：" + "、".join(f"{m['name']}（{m['id']}）" for m in table["metrics"])
         )
-    return lines + _semantics_text(table["semantics"]) + [""]
+    return lines + _semantics_text(table["semantics"], brief) + [""]
 
 
 def _join_lines(table: str, join: Mapping) -> list[str]:
@@ -481,7 +579,7 @@ def _join_lines(table: str, join: Mapping) -> list[str]:
     return lines
 
 
-def _semantics_text(sem: Mapping) -> list[str]:
+def _semantics_text(sem: Mapping, brief: bool = False) -> list[str]:
     if not sem["present"]:
         return ["", "## 怎么读", "本表没有表语义文档：怎么读、不适用场景、注意事项和待确认问题都没有人写下来。"]
     lines = ["", "## 怎么读"]
@@ -501,6 +599,8 @@ def _semantics_text(sem: Mapping) -> list[str]:
         lines.append(f"- 范围：{line.get('text') or ''}{refs}")
     for line in sem["good_for"]:
         lines.append(f"- 适用：{line}")
+    if sem.get("focus"):
+        lines.append(_focus_line(sem["focus"]))
     lines += ["", "## 不适用"] + ([f"- {line}" for line in sem["not_for"]] or ["无"])
     lines += ["", "## 注意"]
     lines += [
@@ -511,7 +611,7 @@ def _semantics_text(sem: Mapping) -> list[str]:
     lines += ["", "## 待确认问题"]
     lines += [_question_line(item) for item in sem["questions"]] or ["无"]
     if sem["rules"]:
-        lines += ["", "## 被引用的规则"]
+        lines += ["", "## 被引用的规则（不带 SQL，去掉 --brief 可看）" if brief else "## 被引用的规则"]
         for rule in sem["rules"]:
             lines.append(f"- {rule['id']}（{rule.get('kind') or ''}）：{rule.get('text') or ''}")
             if rule.get("sql"):
@@ -519,6 +619,8 @@ def _semantics_text(sem: Mapping) -> list[str]:
             if rule.get("watch"):
                 lines.append(f"  - 注意：{rule['watch']}")
     lines += ["", "## 下游"]
+    if brief:
+        return lines + _brief_tail(sem)
     lines += [
         f"- {item.get('task') or '（任务未知）'}" + (f" → {item['table']}" if item.get("table") else "")
         for item in sem["downstream"]
@@ -531,12 +633,34 @@ def _semantics_text(sem: Mapping) -> list[str]:
     return lines
 
 
+def _focus_line(focus: Mapping) -> str:
+    left = focus["left_out"]
+    return (
+        f"- 聚焦 {'、'.join(focus['columns'])}：略去只点名其他字段的注意 {left['watch']} 条、"
+        f"待确认问题 {left['questions']} 条、规则 {left['rules']} 条；去掉 --focus 可看全部"
+    )
+
+
+def _brief_tail(sem: Mapping) -> list[str]:
+    """Downstream readers by name and columns by name, grouped by category."""
+    readers = list(dict.fromkeys(item.get("table") or item.get("task") or "" for item in sem["downstream"]))
+    lines = [f"- 共 {len(sem['downstream'])} 个：{'、'.join(readers)}"] if readers else [
+        "表语义没有列出读这张表的任务。"
+    ]
+    groups: dict[str, list[str]] = {}
+    for column in sem["columns"]:
+        groups.setdefault(column.get("category") or "未分类", []).append(column["column"])
+    lines += ["", "## 字段一览", f"- 共 {len(sem['columns'])} 列，只列名字：--column 看一列的全文，去掉 --brief 看每列一行"]
+    lines += [f"- {category}：{'、'.join(names)}" for category, names in groups.items()]
+    return lines
+
+
 def _question_line(item: Mapping) -> str:
     about = f" [{'、'.join(item['about'])}]" if item.get("about") else ""
     return f"- {item.get('id')}（{item.get('status') or '未说明'}）：{item.get('text') or ''}{about}"
 
 
-def _column_text(column: Mapping) -> list[str]:
+def _column_text(column: Mapping, shown_in: Optional[str] = None) -> list[str]:
     lines = [f"# 字段 {column['table']}.{column['column']}", ""]
     catalog = column.get("catalog")
     if catalog is None:
@@ -573,6 +697,12 @@ def _column_text(column: Mapping) -> list[str]:
         if sem.get("code_values"):
             pairs = "、".join(f"{v.get('value')!r}={v.get('meaning')}" for v in sem["code_values"])
             lines.append(f"  - 码值：{pairs}")
+    if shown_in and (column["watch"] or column["questions"]):
+        lines.append(
+            f"- 点名本列的表级注意 {len(column['watch'])} 条、待确认问题 "
+            f"{len(column['questions'])} 条：见上方表 {shown_in} 的「注意」「待确认问题」"
+        )
+        return lines + [""]
     for item in column["watch"]:
         lines.append(f"- 表级注意（{item.get('kind') or '注意'}）：{item.get('text') or ''}")
     for item in column["questions"]:

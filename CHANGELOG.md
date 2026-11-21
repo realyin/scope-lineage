@@ -16,6 +16,16 @@
   open questions, the rules its scope cites, its downstream readers, one line a column); `--column` answers one column in
   full; `--concept` gives a concept's constraints and its metrics spelled out. A table with no
   semantics document says so. `--json` prints `catalog-context/1`.
+- **`catalog context --brief`, `--focus`, `--columns`: a smaller pack in fewer calls.** `--brief`
+  keeps every catalog fact and every reading caveat (what a row is, how to read it, scope, not-for,
+  watch items, open questions, the text of cited rules) and shortens the rest: columns by name
+  grouped by category, cited rules without SQL, downstream readers by table, and a column whose table
+  is in the same pack points to the table's notes instead of repeating them. `--columns a,b,c` names
+  columns of the one `--table`, answered in full in the same pack. `--focus` narrows each table's
+  watch items, open questions and cited rules to the requested columns by their `column:<name>`
+  references; items that name no column always stay, and the pack counts what was left out
+  (`semantics.focus.left_out`). The default pack is unchanged; `query` gains `brief` / `focus`
+  only when given.
 - **`catalog check-sql`: check the query an agent wrote against the catalog.** `check-sql
   <ontology.json> <sql-file | ->` parses the SELECT statements, and the query inside INSERT and
   CTAS, with the lineage parser (CTEs,

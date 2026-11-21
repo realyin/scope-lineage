@@ -413,3 +413,256 @@ def test_the_command_exits_2_for_a_semantics_directory_that_is_not_there(
     ])
     assert code == 2
     assert "--semantics" in capsys.readouterr().err
+
+
+# -------------------------------------------------------------------- brief
+#
+# ``brief`` keeps every item that decides how to query and shortens only the parts that are
+# long and do not: the one-line-per-column list becomes names, cited rules lose their SQL,
+# and downstream readers are named without their tasks.
+
+_KEPT_CATALOG = (
+    "table", "concept", "kind", "grain", "time", "refresh", "scope", "time_columns", "joins",
+    "constraints", "metrics", "conflicts",
+)
+_KEPT_SEMANTICS = (
+    "present", "what", "row", "refresh", "scope", "good_for", "not_for", "watch", "questions",
+)
+
+
+def _conflicted(document: dict, table: str) -> dict:
+    changed = copy.deepcopy(document)
+    changed["evidence"]["representations"].setdefault(table, {})["conflicts"] = [
+        {"rule": "grain_mismatch", "declared": ["customer_id"], "proven": ["customer_id", "dt"]}
+    ]
+    return changed
+
+
+def test_brief_keeps_every_item_that_decides_how_to_query(document: dict, semantics: dict) -> None:
+    changed = _conflicted(_with_metric(document), DEMO_TABLE)
+    for table in (DEMO_TABLE, REPAYMENT, HISTORY):
+        full = _table(context_pack(changed, semantics, tables=[table]), table)
+        brief = _table(context_pack(changed, semantics, tables=[table], brief=True), table)
+        for key in _KEPT_CATALOG:
+            assert brief.get(key) == full.get(key), (table, key)
+        for key in _KEPT_SEMANTICS:
+            assert brief["semantics"].get(key) == full["semantics"].get(key), (table, key)
+    sem = _table(context_pack(changed, semantics, tables=[DEMO_TABLE], brief=True), DEMO_TABLE)
+    assert [rule["id"] for rule in sem["semantics"]["rules"]] == ["r1", "r2", "r3"]
+    assert sem["semantics"]["rules"][2] == {"id": "r3", "kind": "filter", "text": "只保留编号为 1 的最新一条"}
+
+
+def test_brief_shortens_columns_rules_and_downstream(document: dict, semantics: dict) -> None:
+    pack = context_pack(document, semantics, tables=[DEMO_TABLE], brief=True)
+    assert pack["query"]["brief"] is True
+    sem = _table(pack, DEMO_TABLE)["semantics"]
+    assert sem["columns"][:3] == [
+        {"column": "customer_id", "category": "identifier"},
+        {"column": "verified_customer_no", "category": "identifier"},
+        {"column": "gender_cd", "category": "descriptive"},
+    ]
+    assert all("sql" not in rule for rule in sem["rules"])
+    assert sem["downstream"] == [
+        {"table": "demo_dwd.dwd_lending_borrower_df"},
+        {"table": "demo_dws.dws_lending_loan_summary_1d"},
+    ]
+
+
+def test_the_default_pack_does_not_change(document: dict, semantics: dict) -> None:
+    pack = context_pack(
+        document, semantics, tables=[DEMO_TABLE], columns=[f"{DEMO_TABLE}.gender_cd"]
+    )
+    assert set(pack["query"]) == {"tables", "columns", "concepts"}
+    assert "focus" not in _table(pack, DEMO_TABLE)["semantics"]
+
+
+def test_brief_text_still_says_every_kept_item(document: dict, semantics: dict) -> None:
+    changed = _conflicted(document, DEMO_TABLE)
+    full = context_pack(changed, semantics, tables=[DEMO_TABLE])
+    text = render_context_text(context_pack(changed, semantics, tables=[DEMO_TABLE], brief=True))
+    entry = _table(full, DEMO_TABLE)
+    sem = entry["semantics"]
+    must = [
+        entry["concept"]["name"], "粒度：customer_id", "时间形态：snapshot",
+        entry["conflicts"][0]["text"], sem["what"], sem["row"]["text"],
+        sem["refresh"]["how_to_read"], sem["not_for"][0], sem["questions"][0]["text"],
+        *[w["text"] for w in sem["watch"]], *[line["text"] for line in sem["scope"]],
+        *[c["expression"] for c in entry["constraints"]], *entry["scope"],
+        *[rule["text"] for rule in sem["rules"]],
+        *[c["column"] for c in sem["columns"]], "demo_dwd.dwd_lending_borrower_df",
+    ]
+    for item in must:
+        assert item in text, item
+    assert "ROW_NUMBER()" not in text  # a rule's SQL
+    assert "性别" not in text.split("## 字段一览", 1)[1]  # a column's meaning
+    assert "--column" in text and "--brief" in text  # says how to get the rest
+    joins = render_context_text(context_pack(document, semantics, tables=[REPAYMENT], brief=True))
+    assert f"{REPAYMENT}.loan_no = {LOAN}.loan_no" in joins
+    assert "语料中见过" in joins
+
+
+def test_brief_text_is_shorter_than_the_default(document: dict, semantics: dict) -> None:
+    full = render_context_text(context_pack(document, semantics, tables=[DEMO_TABLE]))
+    brief = render_context_text(context_pack(document, semantics, tables=[DEMO_TABLE], brief=True))
+    assert len(brief.encode("utf-8")) < len(full.encode("utf-8"))
+
+
+# -------------------------------------------------------------------- focus
+#
+# ``focus`` narrows a table's watch items, open questions and cited rules to the ones about
+# the requested columns. An item names a column by a ``column:<name>`` reference (``refs`` of a
+# watch item, ``about`` of a question); one that names no column is about the whole table and
+# is always kept. A rule names no column itself, so it stays when a scope line or a kept item
+# cites it and leaves only with the items that cited it.
+
+
+def _focus_semantics(semantics: dict) -> dict:
+    changed = copy.deepcopy(semantics)
+    doc = changed[DEMO_TABLE]
+    doc["rules"].append(
+        {"id": "r9", "kind": "derive", "text": "注册时间按秒转换", "sql": "from_unixtime(reg_ts)",
+         "sources": ["sql"]}
+    )
+    doc["rules"].append(
+        {"id": "r8", "kind": "other", "text": "整表规则", "sources": ["sql"]}
+    )
+    doc["summary"]["watch"][0]["refs"].append("rule:r9")
+    doc["summary"]["watch"] += [
+        {"kind": "coverage", "text": "整表只有一个产出任务。"},
+        {"kind": "risk", "text": "整表规则要看。", "refs": ["rule:r8"]},
+    ]
+    doc["summary"]["questions"].append({"id": "q2", "text": "整表多久补一次数？", "status": "open"})
+    return changed
+
+
+def test_focus_narrows_to_the_requested_columns_and_the_whole_table(
+    document: dict, semantics: dict
+) -> None:
+    pack = context_pack(
+        document, _focus_semantics(semantics), tables=[DEMO_TABLE],
+        columns=[f"{DEMO_TABLE}.GENDER_CD"], focus=True,
+    )
+    sem = _table(pack, DEMO_TABLE)["semantics"]
+    assert [w["text"] for w in sem["watch"]] == ["整表只有一个产出任务。", "整表规则要看。"]
+    assert [q["id"] for q in sem["questions"]] == ["q1", "q2"]
+    assert [rule["id"] for rule in sem["rules"]] == ["r1", "r2", "r3", "r8"]
+    assert sem["focus"] == {
+        "columns": ["gender_cd"], "left_out": {"watch": 1, "questions": 0, "rules": 1},
+    }
+    # the column itself is still answered in full in the same pack
+    assert [c["column"] for c in pack["columns"]] == ["gender_cd"]
+    assert pack["query"]["focus"] is True
+
+
+def test_focus_never_drops_an_item_about_the_whole_table(document: dict, semantics: dict) -> None:
+    sems = _focus_semantics(semantics)
+    full = _table(context_pack(document, sems, tables=[DEMO_TABLE]), DEMO_TABLE)["semantics"]
+    table_level_watch = [w for w in full["watch"] if not any(
+        r.startswith("column:") for r in w.get("refs") or [])]
+    table_level_questions = [q for q in full["questions"] if not any(
+        r.startswith("column:") for r in q.get("about") or [])]
+    scope_rules = {r for line in full["scope"] for r in line["rule_refs"]}
+    assert table_level_watch and table_level_questions
+    for column in [c["column"] for c in full["columns"]] + ["no_such"]:
+        for brief in (False, True):
+            sem = _table(context_pack(
+                document, sems, tables=[DEMO_TABLE], columns=[f"{DEMO_TABLE}.{column}"],
+                focus=True, brief=brief,
+            ), DEMO_TABLE)["semantics"]
+            for item in table_level_watch:
+                assert item in sem["watch"], (column, item)
+            for item in table_level_questions:
+                assert item in sem["questions"], (column, item)
+            assert scope_rules <= {rule["id"] for rule in sem["rules"]}, column
+            left = sem["focus"]["left_out"]
+            assert len(sem["watch"]) + left["watch"] == len(full["watch"])
+            assert len(sem["questions"]) + left["questions"] == len(full["questions"])
+            assert len(sem["rules"]) + left["rules"] == len(full["rules"])
+
+
+def test_focus_leaves_a_table_without_requested_columns_whole(
+    document: dict, semantics: dict
+) -> None:
+    sems = _focus_semantics(semantics)
+    full = _table(context_pack(document, sems, tables=[DEMO_TABLE]), DEMO_TABLE)
+    focused = context_pack(
+        document, sems, tables=[DEMO_TABLE, REPAYMENT], columns=[f"{REPAYMENT}.loan_no"],
+        focus=True,
+    )
+    assert _table(focused, DEMO_TABLE) == full
+
+
+def test_focus_text_says_what_was_left_out_and_how_to_get_it(
+    document: dict, semantics: dict
+) -> None:
+    text = render_context_text(context_pack(
+        document, _focus_semantics(semantics), tables=[DEMO_TABLE],
+        columns=[f"{DEMO_TABLE}.gender_cd"], focus=True,
+    ))
+    assert "聚焦 gender_cd：略去只点名其他字段的注意 1 条、待确认问题 0 条、规则 1 条" in text
+    assert "--focus" in text
+    table_block = text.split(f"# 字段 {DEMO_TABLE}.gender_cd", 1)[0]
+    assert "注册时间由秒级时间戳转换而来" not in table_block
+    assert "整表只有一个产出任务。" in table_block
+
+
+# ------------------------------------------------------------ columns inline
+
+
+def test_columns_of_a_packed_table_come_in_full_in_the_same_pack(
+    document: dict, semantics: dict
+) -> None:
+    pack = context_pack(
+        document, semantics, tables=[DEMO_TABLE],
+        columns=[f"{DEMO_TABLE}.gender_cd", f"{DEMO_TABLE}.register_time"],
+    )
+    assert [t["table"] for t in pack["tables"]] == [DEMO_TABLE]
+    assert [c["column"] for c in pack["columns"]] == ["gender_cd", "register_time"]
+    assert pack["columns"][0]["catalog"]["code_map"] == {"F": "female", "M": "male", "U": "unknown"}
+
+
+def test_the_command_takes_a_comma_list_of_columns_of_one_table(capsys) -> None:
+    code = main([
+        "catalog", "context", str(ONTOLOGY), "--semantics", str(EXAMPLES),
+        "--table", DEMO_TABLE, "--columns", "gender_cd, register_time", "--columns", "dt",
+        "--brief", "--focus", "--json",
+    ])
+    assert code == 0
+    pack = json.loads(capsys.readouterr().out)
+    assert pack["query"]["columns"] == [
+        f"{DEMO_TABLE}.gender_cd", f"{DEMO_TABLE}.register_time", f"{DEMO_TABLE}.dt",
+    ]
+    assert [c["column"] for c in pack["columns"]] == ["gender_cd", "register_time", "dt"]
+    assert pack["query"]["brief"] is True and pack["query"]["focus"] is True
+    assert _table(pack, DEMO_TABLE)["semantics"]["focus"]["columns"] == [
+        "gender_cd", "register_time", "dt",
+    ]
+
+
+@pytest.mark.parametrize("tables", [[], [DEMO_TABLE, REPAYMENT]])
+def test_the_command_exits_2_for_columns_without_exactly_one_table(capsys, tables) -> None:
+    argv = ["catalog", "context", str(ONTOLOGY), "--columns", "gender_cd"]
+    for table in tables:
+        argv += ["--table", table]
+    assert main(argv) == 2
+    assert "--columns" in capsys.readouterr().err
+
+
+def test_the_command_exits_2_for_focus_without_columns(capsys) -> None:
+    assert main(["catalog", "context", str(ONTOLOGY), "--table", DEMO_TABLE, "--focus"]) == 2
+    assert "--focus" in capsys.readouterr().err
+
+
+def test_brief_text_points_a_column_to_the_notes_its_packed_table_already_shows(
+    document: dict, semantics: dict
+) -> None:
+    columns = [f"{DEMO_TABLE}.gender_cd", f"{DEMO_TABLE}.register_time"]
+    text = render_context_text(context_pack(
+        document, semantics, tables=[DEMO_TABLE], columns=columns, brief=True, focus=True,
+    ))
+    assert text.count("性别码值除了 F、M、U 以外") == 1
+    assert text.count("注册时间由秒级时间戳转换而来") == 1
+    assert f"- 点名本列的表级注意 0 条、待确认问题 1 条：见上方表 {DEMO_TABLE}" in text
+    # a column whose table is not packed still carries its notes in full
+    alone = render_context_text(context_pack(document, semantics, columns=columns, brief=True))
+    assert "- 待确认问题 q1（open）：性别码值除了" in alone
