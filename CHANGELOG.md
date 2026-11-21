@@ -85,6 +85,24 @@
   counts hits and questions, and marks the question a table-semantics document already records
   about the same column and the catalog objects whose own name, synonym, term or id now is the
   entry's text or term. It records and reports; it never edits the catalog.
+- **Skill: answering a data question by writing SQL is one walk.** `workflows/catalog-answers.md`
+  in the `scope-lineage` skill now goes `search` → one `context` call for all the tables
+  (`--columns` / `--column`, `--brief --focus`; the join section and skeleton for two tables;
+  `--concept` for a metric) → write the SQL → `/* 待确认：… */` placeholders for what the
+  material does not define → `check-sql` (at most three runs) → `pending add --from-sql` → a
+  fixed answer layout. It keeps the discipline that held up on a small private sample
+  (read how each table is read; leave undefined definitions open; do not hedge what the material
+  settles) and adds three rules: use a catalog metric's definition as written, state inputs the
+  asker did not give as parameters, and say what makes rows unique (dedupe by the key the
+  material names, not just warn). Date columns follow the pack's partition line: one partition of
+  a snapshot table, the event-time column (never a partition predicate) for an incremental one;
+  a `check-sql` warning is fixed only when the pack agrees. Column names come from `catalog
+  query <O> table <T>` before the one `context` call. A routing table at the top sends value,
+  impact and "can rows repeat" questions to their commands, answered direct answer first; the
+  seven-part layout is for questions answered with SQL. For a run of questions each
+  question goes to a sub-agent and the main conversation keeps a brief of at most 5 KB.
+  `references/catalog-questions.md` keeps the `catalog query` lookups and the seven reporting
+  rules and points to the walk for SQL.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

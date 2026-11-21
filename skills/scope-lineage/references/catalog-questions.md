@@ -4,6 +4,9 @@
 表和列落在哪些概念上。有目录时，"X 是什么""这张表装的是什么""这个字段指什么"先问目录，
 不要从 SQL 重新推一遍。格式说明见 `docs/zh-CN/ontology-catalog.md`。
 
+本文件管"是什么"类的查找。要写 SQL 回答一个数据问题（统计、取数、某个数怎么算）时，照
+`workflows/catalog-answers.md` 的 1–7 步做（`search` → `context` → 写 SQL → `check-sql` → `pending`），下面的七条照样带上。
+
 ## 准备：build 一次
 
 ```bash
@@ -32,8 +35,11 @@ scope-lineage catalog query <dir>/ontology.json <kind> <term> --json
 | 从哪些表能关联到它（它自己没有表时尤其要问） | `carriers` | 概念的 id、名称、同义词或术语 |
 | 哪些表只收有效记录 / 去掉了删除注销 / 去重取最新 / 按分区快照 | `scope` | 类别（`validity`/有效记录、`deletion`/删除、`dedup`/去重、`partition`/分区、`other`/其他）或关键词 |
 
-- `matches` 为空（退出码 1）：回答"目录里没有"，并说查的是什么。不要换近似名重试到命中为止，
-  也不要自己补一个定义。可以建议把它补进目录。
+`query` 只认正式名字（id、名称、同义词、术语，精确匹配）。手里只有口语词或一整句问题时，先跑一次
+`scope-lineage catalog search <dir>/ontology.json "<词或问题>"`，从候选里取 id 再 `query`。
+
+- `matches` 为空（退出码 1）：还没 `search` 过就先 `search` 一次；`search` 也给不出它（候选里没有说的是这样东西的），
+  回答"目录里没有"，并说查的是什么。不要换近似名重试到命中为止，也不要自己补一个定义。可以建议把它补进目录。
 - 多个匹配：全部列出，让用户选，不要替他挑。
 - `matched_by` 是 `synonym` 或 `term` 时，回答里用目录的正式名称，并注明用户说的是同义词。
 
@@ -65,8 +71,9 @@ scope-lineage catalog render <dir>/ontology.json --out <pages-dir>
 5. **冗余列和自关联列说清是谁的**：`to: foreign_attribute` 的列是另一个概念的属性冗余在本表上，
    回答"这是<概念>的<属性>，经 `via` 列关联到那个<概念>"，不要说成本表概念的属性；
    `self_reference` 的列指向同一概念的另一个实例，带上 `self_relations` 里的关系名。
-6. **取数口径先问表**：写 SQL 或数数之前先 `table`（或按类别问 `scope`）。`usage` 是
-   「按单个 dt 分区取数」的快照表，不要跨分区求和；拉链表按有效期窗口取；`scope` 与
+6. **取数口径先问表**：说一张表怎么取数时先 `table`（或按类别问 `scope`）；写 SQL 时改用
+   `workflows/catalog-answers.md` 第 2 步的 `context` 包，它带着同样的目录事实和表语义的读法。`usage` 是
+   「按单个 dt 分区取数」的快照表，不要跨分区求和；增量表的分区是写入批次，不是事件日期，时段按事件时间列过滤；拉链表按有效期窗口取；`scope` 与
    `constraints` 里的过滤（有效记录、删除注销、去重）要写进条件，或明说没有写进去。
 7. **含义待确认的码值照实说**：页面与查询里写成「值（含义待确认：猜测）」的码值，说"目录里这个
    值的含义还没确认，猜测是……"，不要当成已确认的含义用。
