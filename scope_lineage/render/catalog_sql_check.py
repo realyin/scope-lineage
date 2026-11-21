@@ -20,10 +20,15 @@ what the two together settle; where they cannot tell, it says nothing or says ``
   narrow it. When none does, one finding lists every pair asked and the pairs the catalog
   records between the two tables. A JOIN with a pair whose side reaches no single physical
   column, or a column the catalog does not bind, is not judged.
-- ``missing_partition_filter`` (warning): a read of a table whose bindings carry
-  ``time_role: partition``, or the validity window of a zipper (``valid_from`` /
-  ``valid_to``), with no WHERE or JOIN ON predicate on any column of that group anywhere in
-  the statement that reaches this read.
+- ``missing_partition_filter`` (warning): a read of a ``snapshot`` table whose bindings carry
+  ``time_role: partition`` (each partition a full copy), or the validity window of a zipper
+  (``valid_from`` / ``valid_to``), with no WHERE or JOIN ON predicate on any column of that
+  group anywhere in the statement that reaches this read. The partition of an
+  ``incremental`` table is the batch that wrote a row, and a period is read across
+  partitions, so it is not judged; nor is the partition of a table whose form the catalog
+  leaves ``unknown`` (or of a zipper): an agent acts on every line it reads, and a line
+  that cannot say whether to add a partition predicate pushes it to add one. ``context``
+  says in those cases how to read the partition.
 - ``fan_out_unaggregated`` (warning): a SUM or COUNT (not DISTINCT, not windowed, not
   ``COUNT(*)``) whose columns all belong to one table A read directly in a SELECT, and another
   table B read directly in the same SELECT and joined to A (not SEMI / ANTI) whose recorded
@@ -366,7 +371,10 @@ def _partition_filters(view: CatalogView, statement: Mapping) -> list[dict]:
             ):
                 continue
             names = "、".join(c["column"] for c in columns)
-            what, rows = ("分区列", "所有分区") if name == "partition" else ("拉链有效期列", "所有版本")
+            what, rows = (
+                ("分区列", "所有分区（每个分区是一份全量，跨分区会重复计数）") if name == "partition"
+                else ("拉链有效期列", "所有版本")
+            )
             found.append({
                 "rule": "missing_partition_filter",
                 "table": rep["table"],

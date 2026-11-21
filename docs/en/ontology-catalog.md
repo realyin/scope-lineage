@@ -1126,13 +1126,22 @@ scope-lineage catalog context out/ontology.json \
   relation). It is the judgement `check-sql` makes for `join_not_recorded`, read from one shared module
   (`render/catalog_joins.py`), so the advice and the check cannot disagree.
 - **Rows per key** (`sides`): for each table, whether the skeleton's join columns cover its recorded grain --
-  `one` (one row per key), `one_once_filtered` (the grain columns left open are its partition or zipper-window
-  columns, which the filters below pin), `several` (names the grain columns left open: a SUM / COUNT over the other
+  `one` (one row per key), `one_once_filtered` (the grain columns left open are a snapshot's partition or a
+  zipper's window columns, which the filters below pin), `several` (names the grain columns left open: a SUM / COUNT over the other
   table's columns is inflated), or `unknown` when the catalog records no grain; it is not guessed.
-- **Filters** (`filters`): each table's partition columns and zipper validity columns, grouped as `check-sql` groups
-  them for `missing_partition_filter`.
+- **Filters** (`filters`): the partition columns of a `snapshot` table (each partition a full copy, so one is read)
+  and each zipper's validity columns, grouped as `check-sql` groups them for `missing_partition_filter`.
+- **Partitions that are not filters** (`partitions`): `{table, columns, reading, period_columns}` for each table
+  whose partition is not a full copy. `reading` is `write_batch` for an `incremental` table -- the partition is the
+  batch that first wrote a row, not the day the event happened, so a period is read across partitions -- or
+  `unstated` when the representation's `time` is `zipper`, `unknown` or missing. `period_columns` are the columns
+  bound `time_role: event_time` (else `business_date`). The text says it in one line, and the skeleton writes no
+  partition predicate for these tables.
 - **Skeleton** (`skeleton`): `SELECT * FROM a JOIN b ON … WHERE …` with string placeholders (`'<dt>'`,
-  `'<as_of_date>'`), so it parses, and one comment line per caution. It uses plain `JOIN` and says the join type is
+  `'<as_of_date>'`, `'<period_start>'` / `'<period_end>'`), so it parses, and one comment line per caution. A
+  `write_batch` table gets a comment that its partition is the write batch and, when it has exactly one period
+  column, `col >= '<period_start>' AND col < '<period_end>'` on it (with several, the comment names them and no
+  predicate is written; with none, the comment points at the table's 「取数」). It uses plain `JOIN` and says the join type is
   the writer's choice. Backed pairs are often different paths (a key and a self reference to it, two different
   parties), so they are not all AND-ed: `ON` takes the pair meeting the most grain columns of the two sides, then
   any pair on unused columns that closes a grain column still open (`in_skeleton`); every other backed pair is a
@@ -1164,7 +1173,10 @@ WHERE b.start_date <= '<as_of_date>'
   AND b.end_date > '<as_of_date>'
 ```
 
-A single `--table` gets no `links` and its pack is unchanged.
+A single `--table` gets no `links`. A table with a partition column carries `partition` (`{columns, reading,
+period_columns}`, `reading` also `full_copy` for a snapshot), and its 「目录」 block says beside the time columns how
+to read it: 「每个分区一份全量，只取一个分区」, 「写入批次，不是事件日期，按事件时间列 … 过滤时段」, or that the catalog does
+not record which (read the 「取数」 line).
 
 `--json` prints `catalog-context/1`: `{"doc_format", "query", "concepts", "tables", "columns", "missing"}`, plus `links` with two or more tables;
 names that were not found are listed in `missing`; `query` also carries `"brief": true` and `"focus": true`
@@ -1194,7 +1206,7 @@ nothing or says `info`:
 | `unknown_column` | error | a column is not bound on a table whose column list is complete: the table card count `evidence.representations[t].declared_columns` (`build --tables`) is present and equals the bound columns | the column is bound; the table's list is not known to be complete (then `column_unchecked`) |
 | `column_unchecked` | info | a column is not bound on a table the catalog binds only partly, or that has no table card | -- |
 | `join_not_recorded` | warning | judged once per JOIN between two reads (JOIN ON, or WHERE across two aliases): none of its equality pairs binds the same identifier (`identifier` / `foreign_identifier`) or appears in a JOIN the corpus evidence recorded; one finding lists every pair asked and the pairs the catalog records between the two tables | at least one pair is recorded (the others, such as a date or an environment, only narrow the join); a pair has a side that reaches no single physical column, or that the catalog does not bind |
-| `missing_partition_filter` | warning | a read of a table with a `time_role: partition` column, or a zipper's `valid_from` / `valid_to` columns, has no WHERE or JOIN ON predicate on any column of that group anywhere in the statement that reaches this read | any column of the group is used in a predicate that reaches the read (through a CTE too); the table has no such time role |
+| `missing_partition_filter` | warning | a read of a `snapshot` table with a `time_role: partition` column (each partition a full copy), or a zipper's `valid_from` / `valid_to` columns, has no WHERE or JOIN ON predicate on any column of that group anywhere in the statement that reaches this read | any column of the group is used in a predicate that reaches the read (through a CTE too); the table has no such time role; the partition of an `incremental` table (the write batch: a period is read across partitions), of a zipper, or of a table whose `time` is `unknown` |
 | `fan_out_unaggregated` | warning | a SUM or COUNT (not DISTINCT, not windowed) over columns of one directly read table A, while a table B read directly in the same SELECT and joined to A has a recorded grain that the join columns plus B's predicate-pinned columns do not cover; only B decides, A's own grain does not matter | B's grain is covered by the join columns and pinned columns (a zipper's window pins its start) or by the GROUP BY; B is reduced in a subquery first; a SEMI / ANTI join; `COUNT(*)`; B has no recorded grain |
 | `code_value_unknown` | warning | a column whose binding or attribute lists code values is compared with `=` or `IN` to a literal not among them; lists the values | the value is listed (`1` matches `'1'`); the code set's values live in a lookup table; the column stores meanings or keys (`holds`) |
 | `pending_definition` | info | the query holds a `待确认` placeholder (below); written right after `<column> <op>` or `<column> IN (`, it carries the physical table and column that column reaches | the comment does not start with `待确认` and a colon; the marker is inside a string |
@@ -1202,8 +1214,11 @@ nothing or says `info`:
 Where the full column list lives: the built document records a table's columns only as its bindings, and a
 catalog may bind some of a table's columns and not others. The only statement of how many columns a table
 has is the table card count that `build --tables` attaches, so without it `unknown_column` never claims a
-column is absent. `missing_partition_filter` reads `time_role` only: a `dt` column bound as `technical`
-without a time role is not taken for a partition, however it is named.
+column is absent. `missing_partition_filter` reads `time_role` and the representation's `time` only: a `dt` column
+bound as `technical` without a time role is not taken for a partition, however it is named. A partition whose form
+the catalog leaves `unknown` gets no finding at all, not even an `info`: an agent acts on every line it reads, and a
+line that cannot say whether a partition predicate is needed pushes it to add one; `context` says in that case to
+follow the table's 「取数」.
 
 ```text
 # 第 1 条语句

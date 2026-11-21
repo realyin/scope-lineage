@@ -9,9 +9,17 @@ built document, here, so the advice and the check can never disagree:
   recorded a JOIN on exactly that pair.
 - ``grain_columns``: the columns of a table's recorded grain, or None when it records none.
 - ``uncovered``: the grain columns a set of columns leaves open (one row per key when none).
-- ``time_groups``: the column groups a read must filter -- the load partition, and a
-  zipper's validity window -- and ``pin_window``: a predicate on one window column pins the
-  whole window.
+- ``time_groups``: the column groups a read must filter -- the partition of a table whose
+  every partition is a full copy, and a zipper's validity window -- and ``pin_window``: a
+  predicate on one window column pins the whole window.
+
+Whether a partition must be filtered is the representation's ``time``: only a ``snapshot``
+table holds a full copy in each partition, so reading two partitions counts every row twice.
+An ``incremental`` table's partition is the batch that first wrote a row, not the day the
+event happened, and a period is read across partitions by the event-time column; a missing
+partition predicate there is no correctness problem. A ``zipper`` is read by its window, and
+an ``unknown`` (or missing) form says nothing either way: ``partition_reading`` names the
+three cases so ``context`` can say which one a table is in.
 """
 
 from __future__ import annotations
@@ -22,10 +30,16 @@ from typing import Optional
 from .catalog_view import IDENTIFYING_BINDINGS, CatalogView
 
 __all__ = [
+    "PARTITION_BATCH",
+    "PARTITION_FULL",
+    "PARTITION_UNSTATED",
     "WINDOW_ROLES",
     "backed_pairs",
     "grain_columns",
     "pair_backed",
+    "partition_columns",
+    "partition_reading",
+    "period_columns",
     "pin_window",
     "shares_identifier",
     "time_groups",
@@ -34,7 +48,13 @@ __all__ = [
 ]
 
 WINDOW_ROLES = ("valid_from", "valid_to")
-_TIME_GROUPS = (("partition", ("partition",)), ("window", WINDOW_ROLES))
+# what a table's partition is, by the representation's ``time``
+PARTITION_FULL = "full_copy"  # snapshot: each partition is a full copy, read one
+PARTITION_BATCH = "write_batch"  # incremental: the batch that wrote the row, not the event day
+PARTITION_UNSTATED = "unstated"  # zipper, unknown or missing: the catalog does not say
+_PARTITION_BY_TIME = {"snapshot": PARTITION_FULL, "incremental": PARTITION_BATCH}
+# the roles a period is filtered on, in order of preference
+_PERIOD_ROLES = ("event_time", "business_date")
 
 
 def shares_identifier(a: Mapping, b: Mapping) -> bool:
@@ -118,14 +138,41 @@ def pin_window(rep: Mapping, pinned: set[str]) -> set[str]:
     return pinned | window if pinned & window else set(pinned)
 
 
+def partition_columns(rep: Mapping) -> list[str]:
+    """The columns bound with ``time_role: partition``."""
+    return [b["column"] for b in rep["bindings"] if b.get("time_role") == "partition"]
+
+
+def partition_reading(rep: Mapping) -> Optional[str]:
+    """``PARTITION_FULL`` / ``PARTITION_BATCH`` / ``PARTITION_UNSTATED`` for a table with a
+    partition column, by its ``time``; None for a table with none."""
+    if not partition_columns(rep):
+        return None
+    return _PARTITION_BY_TIME.get(rep.get("time"), PARTITION_UNSTATED)
+
+
+def period_columns(rep: Mapping) -> list[str]:
+    """The columns a period is filtered on: those with ``time_role: event_time``, or, when
+    there are none, those with ``business_date``."""
+    for role in _PERIOD_ROLES:
+        columns = [b["column"] for b in rep["bindings"] if b.get("time_role") == role]
+        if columns:
+            return columns
+    return []
+
+
 def time_groups(rep: Mapping) -> list[tuple[str, list[dict]]]:
-    """``[(partition | window, [{column, role}, ...])]``: the groups a read must filter."""
+    """``[(partition | window, [{column, role}, ...])]``: the groups a read must filter --
+    the partition only when each partition is a full copy (see the module)."""
     groups = []
-    for name, roles in _TIME_GROUPS:
+    roles = [("window", WINDOW_ROLES)]
+    if partition_reading(rep) == PARTITION_FULL:
+        roles.insert(0, ("partition", ("partition",)))
+    for name, wanted in roles:
         columns = [
             {"column": b["column"], "role": b["time_role"]}
             for b in rep["bindings"]
-            if b.get("time_role") in roles
+            if b.get("time_role") in wanted
         ]
         if columns:
             groups.append((name, columns))

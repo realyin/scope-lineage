@@ -686,6 +686,19 @@ def partitioned(document: dict) -> dict:
     return changed
 
 
+@pytest.fixture(scope="module")
+def batched(document: dict) -> dict:
+    """The demo ontology with the incremental repayment table's ``dt`` marked as its
+    partition and ``repay_time`` as its event time."""
+    changed = copy.deepcopy(document)
+    (rep,) = [r for r in changed["representations"] if r["table"] == REPAYMENT]
+    roles = {"dt": "partition", "repay_time": "event_time"}
+    for binding in rep["bindings"]:
+        if binding["column"] in roles:
+            binding["time_role"] = roles[binding["column"]]
+    return changed
+
+
 def _link(pack: dict, a: str, b: str) -> dict:
     (found,) = [link for link in pack["links"] if set(link["tables"]) == {a, b}]
     return found
@@ -770,6 +783,58 @@ def test_partition_filters_come_with_the_link(partitioned: dict) -> None:
         {"column": "dt", "role": "partition"},
     ]} in link["filters"]
     assert "a.dt = '<dt>'" in link["skeleton"]
+    assert link["partitions"] == []
+
+
+def test_an_incremental_partition_is_no_filter_and_names_the_event_time(batched: dict) -> None:
+    pack = context_pack(batched, None, tables=[LOAN, REPAYMENT])
+    link = _link(pack, LOAN, REPAYMENT)
+    assert all(item["table"] != REPAYMENT for item in link["filters"])
+    assert link["partitions"] == [{
+        "table": REPAYMENT, "columns": ["dt"], "reading": "write_batch",
+        "period_columns": ["repay_time"],
+    }]
+    skeleton = link["skeleton"]
+    code = "\n".join(line.split("--")[0] for line in skeleton.splitlines())
+    assert "b.dt" not in code
+    assert "b.repay_time >= '<period_start>'" in code
+    assert "b.repay_time < '<period_end>'" in code
+    assert any(line.startswith("--") and "写入批次" in line for line in skeleton.splitlines())
+    section = render_context_text(pack).split("# 关联", 1)[1]
+    assert f"要过滤：{REPAYMENT}" not in section
+    assert "写入批次，不是事件日期" in section and "repay_time" in section
+
+
+def test_an_incremental_table_with_two_event_times_gets_a_comment_only(batched: dict) -> None:
+    changed = copy.deepcopy(batched)
+    (rep,) = [r for r in changed["representations"] if r["table"] == REPAYMENT]
+    rep["bindings"].append({"column": "settle_time", "to": "technical", "time_role": "event_time"})
+    link = _link(context_pack(changed, None, tables=[LOAN, REPAYMENT]), LOAN, REPAYMENT)
+    code = "\n".join(line.split("--")[0] for line in link["skeleton"].splitlines())
+    assert "<period_start>" not in code
+    assert "repay_time" in link["skeleton"] and "settle_time" in link["skeleton"]
+
+
+def test_the_table_pack_says_how_to_read_its_partition(
+    document: dict, partitioned: dict, batched: dict
+) -> None:
+    def catalog_block(doc: dict, table: str) -> str:
+        text = render_context_text(context_pack(doc, None, tables=[table]))
+        return text.split("## 目录", 1)[1].split("## 怎么读", 1)[0]
+
+    full = catalog_block(partitioned, LOAN)
+    assert "每个分区一份全量，只取一个分区" in full
+    batch = catalog_block(batched, REPAYMENT)
+    assert "写入批次，不是事件日期" in batch and "按事件时间列 repay_time 过滤" in batch
+    assert _table(context_pack(batched, None, tables=[REPAYMENT]), REPAYMENT)["partition"] == {
+        "columns": ["dt"], "reading": "write_batch", "period_columns": ["repay_time"],
+    }
+    unknown = copy.deepcopy(partitioned)
+    (rep,) = [r for r in unknown["representations"] if r["table"] == LOAN]
+    rep["time"] = "unknown"
+    assert "目录没记录每个分区是不是一份全量" in catalog_block(unknown, LOAN)
+    assert "分区" not in catalog_block(document, LOAN)
+    assert "partition" not in _table(context_pack(document, None, tables=[LOAN]), LOAN)
 
 
 def test_the_skeleton_uses_plain_join_and_leaves_the_join_type_to_the_writer(
@@ -794,7 +859,7 @@ def _demo_pairs(document: dict) -> list[tuple[str, str]]:
     return [(a, b) for i, a in enumerate(tables) for b in tables[i + 1:]]
 
 
-@pytest.mark.parametrize("variant", ["document", "partitioned"])
+@pytest.mark.parametrize("variant", ["document", "partitioned", "batched"])
 def test_every_skeleton_passes_check_sql_join_and_partition_rules(request, variant) -> None:
     from scope_lineage.render.catalog_sql_check import check_sql
     from scope_lineage.scope.query_facts import query_facts

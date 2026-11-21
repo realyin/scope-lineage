@@ -36,7 +36,18 @@ from collections.abc import Iterable, Mapping
 from typing import Optional
 
 from .catalog_gaps import conflict_text
-from .catalog_joins import backed_pairs, grain_columns, pin_window, time_groups, uncovered
+from .catalog_joins import (
+    PARTITION_BATCH,
+    PARTITION_FULL,
+    backed_pairs,
+    grain_columns,
+    partition_columns,
+    partition_reading,
+    period_columns,
+    pin_window,
+    time_groups,
+    uncovered,
+)
 from .catalog_query import find_concepts
 from .catalog_view import CatalogView, catalog_table_name, realises
 
@@ -207,11 +218,13 @@ def _metric(view: CatalogView, metric: Mapping) -> dict:
 
 _ALIASES = ("a", "b")
 _AS_OF = "'<as_of_date>'"
+_PERIOD = ("'<period_start>'", "'<period_end>'")
 
 
 def _link(view: CatalogView, rep_a: Mapping, rep_b: Mapping) -> dict:
     """How two requested tables join: the backed pairs (the same ones ``check-sql``
-    accepts), how many rows of each side meet a key, the filters each needs, and a SQL
+    accepts), how many rows of each side meet a key, the filters each needs, the partitions
+    that are not filters (a write batch, or a form the catalog does not record), and a SQL
     skeleton -- or, with no backed pair, the tables that join to both."""
     pairs = backed_pairs(view, rep_a, rep_b)
     filters = [
@@ -229,8 +242,15 @@ def _link(view: CatalogView, rep_a: Mapping, rep_b: Mapping) -> dict:
         "pairs": [{**_link_pair(view, pair), "in_skeleton": i in on} for i, pair in enumerate(pairs)],
         "sides": sides,
         "filters": filters,
-        "skeleton": _skeleton(rep_a, rep_b, pairs, on, sides, filters) if pairs else None,
+        "partitions": [
+            {"table": rep["table"], **_partition(rep)}
+            for rep in (rep_a, rep_b)
+            if partition_reading(rep) not in (None, PARTITION_FULL)
+        ],
     }
+    link["skeleton"] = (
+        _skeleton(rep_a, rep_b, pairs, on, sides, filters, link["partitions"]) if pairs else None
+    )
     if not pairs:
         link["bridges"] = sorted(
             rep["table"]
@@ -365,6 +385,42 @@ def _filter_predicates(alias: str, filters: list[dict]) -> list[str]:
     return found
 
 
+def _partition(rep: Mapping) -> dict:
+    """``{columns, reading, period_columns}`` of a table with a partition column."""
+    return {
+        "columns": partition_columns(rep),
+        "reading": partition_reading(rep),
+        "period_columns": period_columns(rep),
+    }
+
+
+def _partition_comment(alias: str, item: Mapping) -> str:
+    """How the skeleton treats a partition that is not a filter, as one comment line."""
+    columns = "、".join(item["columns"])
+    if item["reading"] != PARTITION_BATCH:
+        return (
+            f"-- {alias}（{item['table']}）的分区 {columns}：目录没记录每个分区是不是一份全量，"
+            "骨架不加分区条件；按表语义「取数」决定"
+        )
+    period = item["period_columns"]
+    if len(period) == 1:
+        how = f"按 {alias}.{period[0]} 过滤时段（下面的占位换成时段起止，列的格式以「取数」为准）"
+    elif period:
+        how = f"按事件时间列（{'、'.join(period)}，选哪一列看「取数」）过滤时段"
+    else:
+        how = "时段按「取数」写明的日期列过滤"
+    return f"-- {alias}（{item['table']}）的分区 {columns} 是写入批次，不是事件日期：不加分区条件，{how}"
+
+
+def _period_predicates(alias: str, item: Mapping) -> list[str]:
+    """``alias.col >= '<period_start>'`` and ``< '<period_end>'`` when the write-batch table
+    has exactly one period column; otherwise none (the comment names the choices)."""
+    if item["reading"] != PARTITION_BATCH or len(item["period_columns"]) != 1:
+        return []
+    column = item["period_columns"][0]
+    return [f"{alias}.{column} >= {_PERIOD[0]}", f"{alias}.{column} < {_PERIOD[1]}"]
+
+
 def _pair_reason(pair: Mapping) -> str:
     if pair.get("identifier"):
         return f"同一标识 {pair['identifier']}"
@@ -373,10 +429,11 @@ def _pair_reason(pair: Mapping) -> str:
 
 def _skeleton(
     rep_a: Mapping, rep_b: Mapping, pairs: list[dict], on: list[int], sides: list[dict],
-    filters: list[dict],
+    filters: list[dict], partitions: list[dict],
 ) -> str:
     """``FROM a JOIN b ON <backed pairs> WHERE <one predicate a filter column>``, with
-    the cautions as comment lines. Placeholders are string literals, so it parses."""
+    the cautions as comment lines. A write-batch partition gets no predicate: a period on
+    its one event-time column instead. Placeholders are string literals, so it parses."""
     a, b = _ALIASES
     lines = ["-- 关联方式（JOIN、LEFT JOIN 等）由写 SQL 的人决定：目录不说明该用哪一种"]
     for side, rep, alias, other in ((sides[0], rep_a, a, b), (sides[1], rep_b, b, a)):
@@ -390,6 +447,9 @@ def _skeleton(
                 f"{b}.{_column_of(pair['right'])}（{_pair_reason(pair)}）；可能是另一条关联路径，"
                 "意思不同，按问题替换或补进 ON，不要不加判断地 AND 上"
             )
+    aliases = {rep_a["table"]: a, rep_b["table"]: b}
+    for item in partitions:
+        lines.append(_partition_comment(aliases[item["table"]], item))
     if any(f["group"] == "window" for f in filters):
         lines.append("-- 拉链有效期的开闭（> 还是 >=、未失效的结束日期怎么写）以表的约定为准")
     lines += ["SELECT *", f"FROM {rep_a['table']} {a}", f"JOIN {rep_b['table']} {b}"]
@@ -398,8 +458,12 @@ def _skeleton(
         lines.append(
             f"  {'ON ' if n == 0 else 'AND'} {a}.{left} = {b}.{right}  -- {_pair_reason(pairs[i])}"
         )
-    predicates = _filter_predicates(a, [f for f in filters if f["table"] == rep_a["table"]])
-    predicates += _filter_predicates(b, [f for f in filters if f["table"] == rep_b["table"]])
+    predicates = []
+    for rep, alias in ((rep_a, a), (rep_b, b)):
+        predicates += _filter_predicates(alias, [f for f in filters if f["table"] == rep["table"]])
+        for item in partitions:
+            if item["table"] == rep["table"]:
+                predicates += _period_predicates(alias, item)
     for i, predicate in enumerate(predicates):
         lines.append(f"{'WHERE' if i == 0 else '  AND'} {predicate}")
     return "\n".join(lines) + "\n"
@@ -440,6 +504,7 @@ def _table(
             for b in rep["bindings"]
             if b.get("time_role")
         ],
+        **({"partition": _partition(rep)} if partition_reading(rep) else {}),
         "joins": _joins(view, rep),
         "constraints": _constraints(view, concept_id),
         "metrics": [
@@ -762,6 +827,8 @@ def _table_text(table: Mapping, brief: bool = False) -> list[str]:
         lines.append(f"- 时间形态：{table.get('time') or '未说明'}；刷新：{table.get('refresh') or '未说明'}")
     for column in table["time_columns"]:
         lines.append(f"- 时间列：{column['column']}（{column['role']}）")
+    if table.get("partition"):
+        lines.append(_partition_line(table["partition"]))
     for line in table["scope"]:
         lines.append(f"- 范围：{line}")
     for join in table["joins"]:
@@ -772,6 +839,22 @@ def _table_text(table: Mapping, brief: bool = False) -> list[str]:
             "- 这个概念上的指标：" + "、".join(f"{m['name']}（{m['id']}）" for m in table["metrics"])
         )
     return lines + _semantics_text(table["semantics"], brief) + [""]
+
+
+def _partition_line(item: Mapping) -> str:
+    """How to read the table's partition, by its time form: one partition, a write batch
+    read by the event time, or not recorded."""
+    columns = "、".join(item["columns"])
+    if item["reading"] == PARTITION_FULL:
+        return f"- 分区 {columns}：每个分区一份全量，只取一个分区（跨分区相加会重复计数）"
+    if item["reading"] == PARTITION_BATCH:
+        period = item["period_columns"]
+        how = (
+            f"按事件时间列 {'、'.join(period)} 过滤时段" if period
+            else "时段按「取数」写明的日期列过滤"
+        )
+        return f"- 分区 {columns}：写入批次，不是事件日期，{how}；读一段时间要跨分区读，不靠分区条件"
+    return f"- 分区 {columns}：目录没记录每个分区是不是一份全量，按「取数」读"
 
 
 _ROWS_TEXT = {
@@ -822,6 +905,8 @@ def _link_text(link: Mapping) -> list[str]:
     for item in link["filters"]:
         columns = "、".join(c["column"] for c in item["columns"])
         lines.append(f"- 要过滤：{item['table']} 按{names[item['group']]} {columns}")
+    for item in link["partitions"]:
+        lines.append(f"- {item['table']} 的{_partition_line(item)[2:]}")
     if link["skeleton"]:
         lines += ["- SQL 骨架（占位值换成真实值；关联方式由你定）：", "", "```sql",
                   link["skeleton"].rstrip("\n"), "```"]

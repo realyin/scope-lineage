@@ -37,15 +37,21 @@
   pair of requested tables: the column pairs the catalog backs between them (shared identifier or
   a recorded corpus JOIN, each saying which -- the same judgement `check-sql` makes, now in one
   shared module `render/catalog_joins.py`), whether the join columns cover each side's recorded
-  grain (one row per key, one row once its partition / zipper window is pinned, several rows per
-  key naming the open grain columns, or not known when no grain is recorded), the partition and
-  zipper-window filters each table needs, and a SQL skeleton (`FROM a JOIN b ON … WHERE …` with
-  string placeholders, plain `JOIN`, the cautions as comments). `ON` does not AND every backed
+  grain (one row per key, one row once a snapshot's partition / a zipper window is pinned, several
+  rows per key naming the open grain columns, or not known when no grain is recorded), the filters
+  each table needs (a `snapshot` table's partition, a zipper's window), the partitions that are
+  not filters (`partitions`: an `incremental` table's partition is the write batch, not the event
+  day, with the event-time columns to filter a period on; or a form the catalog does not record),
+  and a SQL skeleton (`FROM a JOIN b ON … WHERE …` with string placeholders, plain `JOIN`, the
+  cautions as comments; no partition predicate for an incremental table, a
+  `'<period_start>'` / `'<period_end>'` range on its one event-time column instead). `ON` does not AND every backed
   pair -- they are often different paths -- but takes the one meeting the most grain columns plus
   pairs that close an open grain column; the rest are commented alternatives. With no backed pair
   there is no skeleton and `bridges` names the tables backed to both (one hop). Every demo
   skeleton passes `check-sql` with no `join_not_recorded` or `missing_partition_filter`. A single
-  `--table` pack is unchanged; `doc_format` stays `catalog-context/1`.
+  `--table` pack gains `partition` when the table has a partition column, and its 「目录」 block
+  says beside the time columns whether each partition is a full copy (read one), the write batch
+  (filter the period on the event time) or not recorded; `doc_format` stays `catalog-context/1`.
 - **`catalog check-sql`: check the query an agent wrote against the catalog.** `check-sql
   <ontology.json> <sql-file | ->` parses the SELECT statements, and the query inside INSERT and
   CTAS, with the lineage parser (CTEs,
@@ -55,6 +61,10 @@
   `code_value_unknown` (warnings), each with what the catalog records instead. A column is called
   absent only when the table card count (`build --tables`) shows the bindings are every column the
   table has; a JOIN is judged as a whole, so pairs that only narrow a recorded join stay silent;
+  `missing_partition_filter` judges a partition only on a `snapshot` table (each partition a full
+  copy) -- an `incremental` table's partition is the write batch and a period is read across
+  partitions, and a zipper's or an `unknown` form's partition is not judged either -- and a
+  zipper's validity window on every zipper;
   the fan-out rule fires when a SUM / COUNT over one directly read table meets another directly
   read table whose grain the join columns and pinned columns leave open. `--json` prints
   `catalog-sql-check/1`; exit 0 clean (info allowed), 1 an error or warning, 2 unreadable input or

@@ -986,11 +986,18 @@ scope-lineage catalog context out/ontology.json \
   见过正好这一对的 JOIN（`basis: seen_join`，带上关系）。这就是 `check-sql` 判 `join_not_recorded` 的同一个判断，
   出自同一个共用模块（`render/catalog_joins.py`），给的建议和做的检查不会对不上。
 - **每个键几行**（`sides`）：每张表，骨架的关联列是否覆盖它记录的粒度——`one`（每个键一行）、`one_once_filtered`
-  （没覆盖的粒度列是它的分区列或拉链有效期列，由下面的过滤钉住）、`several`（点名没覆盖的粒度列：对另一张表的列
+  （没覆盖的粒度列是快照表的分区列或拉链有效期列，由下面的过滤钉住）、`several`（点名没覆盖的粒度列：对另一张表的列
   SUM / COUNT 会重复计数），目录没记录粒度时是 `unknown`，不猜。
-- **要过滤的列**（`filters`）：每张表的分区列和拉链有效期列，分组与 `check-sql` 的 `missing_partition_filter` 相同。
-- **SQL 骨架**（`skeleton`）：`SELECT * FROM a JOIN b ON … WHERE …`，占位值是字符串（`'<dt>'`、`'<as_of_date>'`），
-  所以能解析；每条提醒一行注释。用普通的 `JOIN`，并注明关联方式由写的人决定。有依据的列对常常是不同的路径（主键和
+- **要过滤的列**（`filters`）：`snapshot` 表的分区列（每个分区一份全量，只取一个）和拉链表的有效期列，分组与 `check-sql`
+  的 `missing_partition_filter` 相同。
+- **不当过滤的分区**（`partitions`）：分区不是一份全量的表，每张一条 `{table, columns, reading, period_columns}`。
+  `incremental` 表的 `reading` 是 `write_batch`——分区是首次写入这行的批次，不是事件发生的日期，读一段时间要跨分区读；
+  表现的 `time` 是 `zipper`、`unknown` 或没写时是 `unstated`。`period_columns` 是绑定为 `time_role: event_time` 的列
+  （没有就取 `business_date`）。文本用一行说明，骨架不给这些表写分区条件。
+- **SQL 骨架**（`skeleton`）：`SELECT * FROM a JOIN b ON … WHERE …`，占位值是字符串（`'<dt>'`、`'<as_of_date>'`、
+  `'<period_start>'` / `'<period_end>'`），所以能解析；每条提醒一行注释。`write_batch` 的表有一行注释说明分区是写入批次；
+  正好有一个时段列时，在它上面写 `列 >= '<period_start>' AND 列 < '<period_end>'`（有几个时只在注释里点名、不写条件；
+  一个也没有时注释指向表的「取数」）。用普通的 `JOIN`，并注明关联方式由写的人决定。有依据的列对常常是不同的路径（主键和
   指向它的自引用、两个不同的当事方），所以不全部 AND 上：`ON` 取同时碰到两侧粒度列最多的一对，再加上用的是未用过的
   列、并补上仍敞开的粒度列的列对（`in_skeleton`）；其余有依据的列对各写一行注释，按问题选用。
 - **没有有依据的列对**：明说，不给骨架，`bridges` 列出与两张表都有有依据列对的目录表（只找一跳，只给表名；不找更长的路径）。
@@ -1019,7 +1026,9 @@ WHERE b.start_date <= '<as_of_date>'
   AND b.end_date > '<as_of_date>'
 ```
 
-只给一个 `--table` 时没有 `links`，包和原来一样。
+只给一个 `--table` 时没有 `links`。有分区列的表带 `partition`（`{columns, reading, period_columns}`，快照表的
+`reading` 是 `full_copy`），「目录」一块在时间列旁边写明怎么读它：「每个分区一份全量，只取一个分区」、「写入批次，
+不是事件日期，按事件时间列 … 过滤时段」，或目录没记录是哪一种（照「取数」读）。
 
 `--json` 输出 `catalog-context/1`：`{"doc_format", "query", "concepts", "tables", "columns", "missing"}`，两张以上的表时多一个 `links`，
 没找到的名字列在 `missing` 里；给了 `--brief`、`--focus` 时 `query` 里多出 `"brief": true`、`"focus": true`，
@@ -1045,15 +1054,16 @@ echo "SELECT l.loan_no FROM demo_dwd.dwd_lending_loan_df l" | scope-lineage cata
 | `unknown_column` | error | 一列没有绑定，而这张表的列是全的：表卡计数 `evidence.representations[t].declared_columns`（`build --tables`）存在且等于绑定列数 | 列有绑定；不能确定这张表的列是全的（此时报 `column_unchecked`） |
 | `column_unchecked` | info | 一列没有绑定，而目录只绑定了这张表的部分列，或这张表没有表卡 | -- |
 | `join_not_recorded` | warning | 按两次读取之间的一个 JOIN 整体判断（JOIN ON，或 WHERE 里跨两个别名）：它的等值条件里没有一对绑定同一个标识（`identifier` / `foreign_identifier`），也没有一对在语料证据记录的 JOIN 里；一条发现列出所有被问到的列对和目录在这两张表之间记录的关联 | 至少一对有记录（其余的如日期、环境只是收窄关联）；某一对有一侧对不上唯一的物理列，或目录没有绑定它 |
-| `missing_partition_filter` | warning | 读一张带 `time_role: partition` 列的表，或拉链表的 `valid_from` / `valid_to` 列，而整条语句里没有任何能追到这次读取的 WHERE 或 JOIN ON 谓词用到这一组的任一列 | 这一组的任一列出现在能追到这次读取的谓词里（经过 CTE 也算）；表没有这类时间角色 |
+| `missing_partition_filter` | warning | 读一张带 `time_role: partition` 列的 `snapshot` 表（每个分区一份全量），或拉链表的 `valid_from` / `valid_to` 列，而整条语句里没有任何能追到这次读取的 WHERE 或 JOIN ON 谓词用到这一组的任一列 | 这一组的任一列出现在能追到这次读取的谓词里（经过 CTE 也算）；表没有这类时间角色；`incremental` 表的分区（写入批次：读一段时间要跨分区）、拉链表的分区、`time` 为 `unknown` 的表的分区 |
 | `fan_out_unaggregated` | warning | 对直接读的表 A 的列做 SUM 或 COUNT（非 DISTINCT、非窗口），而同一个 SELECT 里直接读、与 A 关联的表 B 有记录的粒度，关联列加上 B 被谓词钉住的列覆盖不了它；只看 B，A 自己的粒度无关 | B 的粒度被关联列和钉住的列（拉链的有效期钉住开始日）或 GROUP BY 覆盖；B 先在子查询里聚合过；SEMI / ANTI JOIN；`COUNT(*)`；B 没有记录粒度 |
 | `code_value_unknown` | warning | 绑定或属性列出了码值的列，用 `=` 或 `IN` 与不在其中的字面量比较；列出可用的值 | 值在列表里（`1` 与 `'1'` 相等）；码值集的值在查找表里；列存的是含义或代理键（`holds`） |
 | `pending_definition` | info | 查询里有一个 `待确认` 占位（见下文）；写在 `<列> <比较符>` 或 `<列> IN (` 之后时带上这一列落到的物理表和列 | 注释不以 `待确认` 加冒号开头；标记写在字符串里 |
 
 完整的列清单在哪里：构建出的文档只以绑定的形式记录表的列，而目录可以只绑定一张表的部分列。说明一张表
 共有几列的只有 `build --tables` 附上的表卡计数，没有它，`unknown_column` 从不断言某列不存在。
-`missing_partition_filter` 只读 `time_role`：绑定为 `technical`、没有时间角色的 `dt` 列，不论叫什么都不会被
-当作分区列。
+`missing_partition_filter` 只读 `time_role` 和表现的 `time`：绑定为 `technical`、没有时间角色的 `dt` 列，不论叫什么都不会被
+当作分区列。目录把时间形态记成 `unknown` 的表，分区不报任何提示（`info` 也不报）：代理会把读到的每一行都当成要做的事，
+一行说不清要不要分区条件的提示只会推它加上一个；这种情况由 `context` 说明照表的「取数」读。
 
 ```text
 # 第 1 条语句

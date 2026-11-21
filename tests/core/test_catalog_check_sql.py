@@ -16,6 +16,7 @@ import copy
 import io
 import json
 from pathlib import Path
+from typing import Optional
 
 import pytest
 
@@ -342,6 +343,43 @@ def test_each_read_of_a_table_needs_its_own_predicate(partitioned: dict) -> None
     )
     (finding,) = _rule(result, "missing_partition_filter")
     assert finding["alias"] == "b"
+
+
+def _with_partition(document: dict, table: str, *, time: Optional[str] = None) -> dict:
+    """``document`` with ``table``'s ``dt`` (added when missing) marked as its partition,
+    and its time form set to ``time`` when given."""
+    changed = copy.deepcopy(document)
+    (rep,) = [r for r in changed["representations"] if r["table"] == table]
+    found = [b for b in rep["bindings"] if b["column"] == "dt"]
+    if not found:
+        rep["bindings"].append({"column": "dt", "to": "technical"})
+        found = rep["bindings"][-1:]
+    found[0]["time_role"] = "partition"
+    if time is not None:
+        rep["time"] = time
+    return changed
+
+
+def test_an_incremental_table_read_across_partitions_is_silent(document: dict) -> None:
+    # each partition holds the rows a batch first wrote: reading several does not repeat rows
+    changed = _with_partition(document, REPAYMENT)
+    result = _check(changed, f"SELECT r.repay_amt FROM {REPAYMENT} r")
+    assert _rule(result, "missing_partition_filter") == []
+
+
+def test_a_partition_whose_form_the_catalog_does_not_record_is_not_judged(
+    document: dict,
+) -> None:
+    changed = _with_partition(document, LOAN, time="unknown")
+    result = _check(changed, f"SELECT l.loan_no FROM {LOAN} l")
+    assert result["findings"] == []
+
+
+def test_a_zippers_partition_is_not_judged_but_its_window_still_is(document: dict) -> None:
+    changed = _with_partition(document, HISTORY)
+    result = _check(changed, f"SELECT h.loan_no FROM {HISTORY} h")
+    (finding,) = _rule(result, "missing_partition_filter")
+    assert {c["column"] for c in finding["catalog"]["columns"]} == {"start_date", "end_date"}
 
 
 def test_a_table_with_no_time_role_is_not_judged(document: dict) -> None:
