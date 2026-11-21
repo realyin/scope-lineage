@@ -16,6 +16,19 @@
   open questions, the rules its scope cites, its downstream readers, one line a column); `--column` answers one column in
   full; `--concept` gives a concept's constraints and its metrics spelled out. A table with no
   semantics document says so. `--json` prints `catalog-context/1`.
+- **`catalog check-sql`: check the query an agent wrote against the catalog.** `check-sql
+  <ontology.json> <sql-file | ->` parses the SELECT statements, and the query inside INSERT and
+  CTAS, with the lineage parser (CTEs,
+  subqueries, UNION branches and aliases resolved to physical tables, `scope.query_facts`) and
+  reports `table_not_in_catalog` (info), `unknown_column` (error), `column_unchecked` (info),
+  `join_not_recorded`, `missing_partition_filter`, `fan_out_unaggregated` and
+  `code_value_unknown` (warnings), each with what the catalog records instead. A column is called
+  absent only when the table card count (`build --tables`) shows the bindings are every column the
+  table has; a JOIN is judged as a whole, so pairs that only narrow a recorded join stay silent;
+  the fan-out rule fires when a SUM / COUNT over one directly read table meets another directly
+  read table whose grain the join columns and pinned columns leave open. `--json` prints
+  `catalog-sql-check/1`; exit 0 clean (info allowed), 1 an error or warning, 2 unreadable input or
+  SQL that does not parse (with line, column and the text around it).
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

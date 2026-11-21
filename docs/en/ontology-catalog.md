@@ -1087,6 +1087,52 @@ empty `catalog`.
 names that were not found are listed in `missing`. Exit codes: `0` at least one was found, `1` none was,
 `2` no option was given, or the file or the `--semantics` directory cannot be read.
 
+## SQL check: `catalog check-sql`
+
+`search` and `context` tell an agent what to query; nothing checked the query it then wrote. `check-sql`
+parses the SELECT statements, and the query inside `INSERT ... SELECT` and `CREATE TABLE ... AS SELECT`
+(the table written is not a read), with the lineage parser (same dialect, same text repairs, same qualification;
+CTEs, subqueries, UNION branches and table aliases resolved to physical tables) and compares them with the
+built ontology:
+
+```bash
+scope-lineage catalog check-sql out/ontology.json query.sql
+echo "SELECT l.loan_no FROM demo_dwd.dwd_lending_loan_df l" | scope-lineage catalog check-sql out/ontology.json - --json
+```
+
+Every rule fires only on what the catalog and the query together settle; where they cannot tell, it says
+nothing or says `info`:
+
+| Rule | Severity | Fires when | Stays silent when |
+| --- | --- | --- | --- |
+| `table_not_in_catalog` | info | a physical table has no representation | the table is represented (a CTE name is never taken for a table) |
+| `unknown_column` | error | a column is not bound on a table whose column list is complete: the table card count `evidence.representations[t].declared_columns` (`build --tables`) is present and equals the bound columns | the column is bound; the table's list is not known to be complete (then `column_unchecked`) |
+| `column_unchecked` | info | a column is not bound on a table the catalog binds only partly, or that has no table card | -- |
+| `join_not_recorded` | warning | judged once per JOIN between two reads (JOIN ON, or WHERE across two aliases): none of its equality pairs binds the same identifier (`identifier` / `foreign_identifier`) or appears in a JOIN the corpus evidence recorded; one finding lists every pair asked and the pairs the catalog records between the two tables | at least one pair is recorded (the others, such as a date or an environment, only narrow the join); a pair has a side that reaches no single physical column, or that the catalog does not bind |
+| `missing_partition_filter` | warning | a read of a table with a `time_role: partition` column, or a zipper's `valid_from` / `valid_to` columns, has no WHERE or JOIN ON predicate on any column of that group anywhere in the statement that reaches this read | any column of the group is used in a predicate that reaches the read (through a CTE too); the table has no such time role |
+| `fan_out_unaggregated` | warning | a SUM or COUNT (not DISTINCT, not windowed) over columns of one directly read table A, while a table B read directly in the same SELECT and joined to A has a recorded grain that the join columns plus B's predicate-pinned columns do not cover; only B decides, A's own grain does not matter | B's grain is covered by the join columns and pinned columns (a zipper's window pins its start) or by the GROUP BY; B is reduced in a subquery first; a SEMI / ANTI join; `COUNT(*)`; B has no recorded grain |
+| `code_value_unknown` | warning | a column whose binding or attribute lists code values is compared with `=` or `IN` to a literal not among them; lists the values | the value is listed (`1` matches `'1'`); the code set's values live in a lookup table; the column stores meanings or keys (`holds`) |
+
+Where the full column list lives: the built document records a table's columns only as its bindings, and a
+catalog may bind some of a table's columns and not others. The only statement of how many columns a table
+has is the table card count that `build --tables` attaches, so without it `unknown_column` never claims a
+column is absent. `missing_partition_filter` reads `time_role` only: a `dt` column bound as `technical`
+without a time role is not taken for a partition, however it is named.
+
+```text
+# 第 1 条语句
+- 错误 [unknown_column] 表 demo_dwd.dwd_lending_loan_df 没有列 loan_amount：目录按表卡记录了它的全部 8 列。
+- 警告 [code_value_unknown] demo_dwd.dwd_lending_loan_df.loan_status 与 '5' 比较，但目录列出的取值里没有它。可用的值：1=normal、2=overdue、3=settled、9=待确认，疑似核销。
+```
+
+`--json` prints `catalog-sql-check/1`: `{"doc_format", "statements", "tables", "findings"}`; each finding has
+`rule`, `severity`, `statement` (its position in the script, from 1), the `table` / `column` / `alias` it is
+about, a Chinese `message`, and in `catalog` what the catalog records instead (its columns, the recorded join
+pairs, the time columns, the many side's grain, the valid values). Statements holding no query at all are
+skipped. Exit codes: `0` no error or warning (info allowed), `1` at least one error or warning, `2` the
+ontology or the SQL file cannot be read, the SQL does not parse strictly (the message gives the line, the
+column and the text around where parsing broke), or it holds no query.
+
 ## Drafting: `catalog digest` and `catalog merge`
 
 Once a batch of tables has [table semantics](table-semantics.md) (`table-semantics/1`), a

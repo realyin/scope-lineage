@@ -956,6 +956,46 @@ scope-lineage catalog context out/ontology.json --semantics docs/ \
 没找到的名字列在 `missing` 里。退出码：`0` 至少找到一个，`1` 一个都没找到，`2` 一个选项都没给、文件或
 `--semantics` 目录读不了。
 
+## SQL 检查：`catalog check-sql`
+
+`search` 和 `context` 告诉 agent 该查什么，但它写出来的查询一直没人检查。`check-sql` 用血缘解析器解析
+SELECT 语句，以及 `INSERT ... SELECT` 和 `CREATE TABLE ... AS SELECT` 里的查询（写入的表不算读取）（同一方言、同样的文本修复、同样的限定；CTE、子查询、UNION 分支和表别名都解析到物理表），
+再和构建好的本体比对：
+
+```bash
+scope-lineage catalog check-sql out/ontology.json query.sql
+echo "SELECT l.loan_no FROM demo_dwd.dwd_lending_loan_df l" | scope-lineage catalog check-sql out/ontology.json - --json
+```
+
+每条规则只在目录和查询合起来能定下来时才报；定不下来时不说，或只给 `info`：
+
+| 规则 | 级别 | 什么时候报 | 什么时候不报 |
+| --- | --- | --- | --- |
+| `table_not_in_catalog` | info | 一张物理表在目录里没有表示 | 表有表示（CTE 名不会被当成表） |
+| `unknown_column` | error | 一列没有绑定，而这张表的列是全的：表卡计数 `evidence.representations[t].declared_columns`（`build --tables`）存在且等于绑定列数 | 列有绑定；不能确定这张表的列是全的（此时报 `column_unchecked`） |
+| `column_unchecked` | info | 一列没有绑定，而目录只绑定了这张表的部分列，或这张表没有表卡 | -- |
+| `join_not_recorded` | warning | 按两次读取之间的一个 JOIN 整体判断（JOIN ON，或 WHERE 里跨两个别名）：它的等值条件里没有一对绑定同一个标识（`identifier` / `foreign_identifier`），也没有一对在语料证据记录的 JOIN 里；一条发现列出所有被问到的列对和目录在这两张表之间记录的关联 | 至少一对有记录（其余的如日期、环境只是收窄关联）；某一对有一侧对不上唯一的物理列，或目录没有绑定它 |
+| `missing_partition_filter` | warning | 读一张带 `time_role: partition` 列的表，或拉链表的 `valid_from` / `valid_to` 列，而整条语句里没有任何能追到这次读取的 WHERE 或 JOIN ON 谓词用到这一组的任一列 | 这一组的任一列出现在能追到这次读取的谓词里（经过 CTE 也算）；表没有这类时间角色 |
+| `fan_out_unaggregated` | warning | 对直接读的表 A 的列做 SUM 或 COUNT（非 DISTINCT、非窗口），而同一个 SELECT 里直接读、与 A 关联的表 B 有记录的粒度，关联列加上 B 被谓词钉住的列覆盖不了它；只看 B，A 自己的粒度无关 | B 的粒度被关联列和钉住的列（拉链的有效期钉住开始日）或 GROUP BY 覆盖；B 先在子查询里聚合过；SEMI / ANTI JOIN；`COUNT(*)`；B 没有记录粒度 |
+| `code_value_unknown` | warning | 绑定或属性列出了码值的列，用 `=` 或 `IN` 与不在其中的字面量比较；列出可用的值 | 值在列表里（`1` 与 `'1'` 相等）；码值集的值在查找表里；列存的是含义或代理键（`holds`） |
+
+完整的列清单在哪里：构建出的文档只以绑定的形式记录表的列，而目录可以只绑定一张表的部分列。说明一张表
+共有几列的只有 `build --tables` 附上的表卡计数，没有它，`unknown_column` 从不断言某列不存在。
+`missing_partition_filter` 只读 `time_role`：绑定为 `technical`、没有时间角色的 `dt` 列，不论叫什么都不会被
+当作分区列。
+
+```text
+# 第 1 条语句
+- 错误 [unknown_column] 表 demo_dwd.dwd_lending_loan_df 没有列 loan_amount：目录按表卡记录了它的全部 8 列。
+- 警告 [code_value_unknown] demo_dwd.dwd_lending_loan_df.loan_status 与 '5' 比较，但目录列出的取值里没有它。可用的值：1=normal、2=overdue、3=settled、9=待确认，疑似核销。
+```
+
+`--json` 输出 `catalog-sql-check/1`：`{"doc_format", "statements", "tables", "findings"}`；每条发现带
+`rule`、`severity`、`statement`（它在脚本里的位置，从 1 起）、所针对的 `table` / `column` / `alias`、中文
+`message`，以及 `catalog` 里目录记录的实际情况（它的列、记录的关联、时间列、多的一侧的粒度、可用的值）。
+完全不含查询的语句跳过。退出码：`0` 没有 error 或 warning（允许 info），`1` 至少一条 error 或 warning，
+`2` 本体或 SQL 文件读不了、SQL 严格解析不通过（消息给出出错的行、列和附近的原文）、或其中没有查询。
+
 ## 起草：`catalog digest` 与 `catalog merge`
 
 已经给一批表写好[表语义](table-semantics.md)（`table-semantics/1`）时，目录可以从它们起草，而不用每次写临时脚本：

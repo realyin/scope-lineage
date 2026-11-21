@@ -1,5 +1,5 @@
 """The ``scope-lineage catalog`` subcommand: ``validate``, ``build``, ``render``, ``query``,
-``context``, ``search``.
+``context``, ``search``, ``check-sql``.
 
 ``digest`` and ``merge``, which draft a catalog from table semantics, live in
 ``cli_catalog_draft``.
@@ -9,7 +9,9 @@ directory a person maintains; ``build`` may also read a lineage corpus and a tab
 file and attach what they show as evidence. This module is where the two meet: the
 ``catalog`` package reads no lineage artifact and ``render`` reads no catalog file, so
 the composition happens here, at the command line, and neither package imports the
-other. ``build`` checks what it built against the ``ontology-json/3`` schema before it
+other. ``check-sql`` is the same composition for a hand-written query: the parser
+(``scope.query_facts``) turns it into plain facts and ``render.catalog_sql_check`` compares
+them with the built document. ``build`` checks what it built against the ``ontology-json/3`` schema before it
 writes. Exit codes: 0 success (warnings allowed), 1 the catalog has errors, the built
 document does not fit its schema, or a query found nothing, 2 an input could not be read.
 """
@@ -60,6 +62,7 @@ def add_catalog_parser(subcommands) -> None:
     _add_query_parser(actions)
     _add_context_parser(actions)
     _add_search_parser(actions)
+    _add_check_sql_parser(actions)
     add_draft_parsers(actions)
 
 
@@ -114,6 +117,23 @@ def _add_search_parser(actions) -> None:
     search_cmd.add_argument("--limit", type=int, default=10, help="How many hits (default 10)")
     search_cmd.add_argument(
         "--json", action="store_true", help="Print {query, hits[]} instead of text"
+    )
+
+
+def _add_check_sql_parser(actions) -> None:
+    check_cmd = actions.add_parser(
+        "check-sql",
+        help=(
+            "Check a hand-written SELECT against a built ontology.json: tables the catalog "
+            "does not know, columns a table does not have, joins the catalog does not record, "
+            "partition filters left out, sums inflated by a one-to-many join, code values "
+            "outside a code set; exit 1 on an error or a warning, 2 when the SQL does not parse"
+        ),
+    )
+    check_cmd.add_argument("ontology", help=f"An {ONTOLOGY_FILENAME} written by `catalog build`")
+    check_cmd.add_argument("sql", help="A file of one or more SELECT statements, or - for stdin")
+    check_cmd.add_argument(
+        "--json", action="store_true", help="Print the catalog-sql-check/1 JSON instead of text"
     )
 
 
@@ -212,6 +232,8 @@ def run_catalog(args: argparse.Namespace) -> int:
         return _run_context(args)
     if args.catalog_action == "search":
         return _run_search(args)
+    if args.catalog_action == "check-sql":
+        return _run_check_sql(args)
     if args.catalog_action == "digest":
         return run_digest(args)
     if args.catalog_action == "merge":
@@ -351,6 +373,32 @@ def _run_context(args: argparse.Namespace) -> int:
     else:
         print(render_context_text(pack), end="")
     return 0 if pack["concepts"] or pack["tables"] or pack["columns"] else 1
+
+
+def _run_check_sql(args: argparse.Namespace) -> int:
+    from .render.catalog_sql_check import check_sql, render_check_sql_text
+    from .scope.query_facts import QueryFactsError, query_facts
+
+    document = _load_ontology(args.ontology)
+    if isinstance(document, int):
+        return document
+    try:
+        sql = sys.stdin.read() if args.sql == "-" else Path(args.sql).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as error:
+        print(f"catalog check-sql: cannot read {args.sql}: {error}", file=sys.stderr)
+        return 2
+    try:
+        statements = query_facts(sql)
+    except QueryFactsError as error:
+        print(f"catalog check-sql: {error}", file=sys.stderr)
+        return 2
+    result = check_sql(document, statements)
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    else:
+        print(render_check_sql_text(result), end="")
+    blocking = [f for f in result["findings"] if f["severity"] in ("error", "warning")]
+    return 1 if blocking else 0
 
 
 def _evidence_inputs(args: argparse.Namespace):
