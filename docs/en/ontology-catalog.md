@@ -1010,6 +1010,83 @@ For a concept with no table of its own, `carriers` finds where it can be joined 
 something matched, `1` nothing did, `2` the file could not be read (`1` too when it is not an
 `ontology-json/3` document).
 
+## Search: `catalog search`
+
+`catalog query` only knows the catalog's own names. With a business word or a whole question in hand, `search`
+turns it into those names first:
+
+```bash
+scope-lineage catalog search out/ontology.json 每个渠道上个月的还款金额是多少
+scope-lineage catalog search out/ontology.json loan_no --kind identifier --limit 5 --json
+```
+
+Every concept, metric, attribute, identifier, code set and table is one entry; the entries are ranked by how
+close they are to the text and the best `--limit` (10 by default) are returned. Each carries its kind, id,
+name, a one-line `summary`, where it lives (`where`) and the fields that matched (`matched_in`).
+
+| Entry | Text that takes part | `where` |
+| --- | --- | --- |
+| `concept` | name, synonyms, terms referring to it, id, definition | its representation tables |
+| `metric` | name, terms, id, definition and filter | the concept it is computed on |
+| `attribute` | name, terms, id, definition, the names of the columns bound to it | its concept and the bound table columns |
+| `identifier` | name, terms, id, physical spellings, notes | the concept it identifies |
+| `code_set` | name, terms, id, the meaning of each value | none |
+| `table` | table name, table comment, the name of the concept it carries; with `--semantics`, also what the table-semantics document says it is and is good for | the concept it carries |
+
+The match is lexical and needs no extra dependency: Chinese is cut into windows of two adjacent characters, so a
+business word matches inside a longer name; letters and digits are cut into words, ignoring case. A match in a
+name scores above one in a definition, a rare word above a common one, a name the text spells out whole above
+one it only touches. Scores only order the list and are not comparable across searches. `search` offers
+candidates; it does not choose for the reader and never changes the catalog: once chosen, take the id to
+`query` or `context`.
+
+```text
+1. [概念] 借款人 concept:borrower — A customer while they hold at least one loan that is not settled.
+   在：demo_dwd.dwd_lending_borrower_df
+```
+
+`--kind` is repeatable and keeps only those kinds; `--json` prints `{"query": {"text", "kinds", "limit"}, "hits": [...]}`.
+Exit codes: `0` there are candidates, `1` nothing is close, `2` the file or the `--semantics` directory cannot be read.
+
+## Context pack: `catalog context`
+
+Writing one query takes two kinds of knowledge at once: from the catalog, what the table carries, its keys and
+time columns, and where it joins; from table semantics, how to read the table, what it is not for, what to
+watch, and which questions nobody has answered. `context` gives all of it in one answer, taking from the
+table-semantics document only the parts a query depends on:
+
+```bash
+scope-lineage catalog context out/ontology.json --semantics docs/ \
+  --concept 客户 --table demo_dwd.dwd_party_customer_info_df \
+  --column demo_dwd.dwd_party_customer_info_df.gender_cd
+```
+
+| Option | What it gives |
+| --- | --- |
+| `--concept` (id, id without its prefix, name, synonym or term) | definition, identifiers, representation tables, the constraints on it and on its attributes, identifiers and relations, each metric in full (measure and bound columns, aggregation, filter, time window, dimensions, additivity, unit, the text of the constraints it cites) |
+| `--table` (`db.table`) | catalog side: the concept carried, grain columns and their source, time shape and refresh, time columns with their roles, record scope, for each foreign-identifier column the table and column it joins to (`joins`, with the JOINs the corpus showed and where), constraints, the names of the metrics on its concept, disagreements between evidence and catalog; table-semantics side (`semantics`): what it is, what one row is, how to read it, scope lines and the rules they cite (with SQL), good for and not for, things to watch, open questions, the downstream tasks and tables that read it, one line per column |
+| `--column` (`db.table.column`) | the catalog binding (what it points at, definition, unit, code values, derivation, time role, lineage expression); the table-semantics entry for the column: meaning, derivation, branches, code values, what NULL means, what to watch; and the table-level notes and open questions that name this column |
+
+All three options are repeatable and can be mixed. Provenance in the table-semantics document (`sources`,
+`confidence`), upstream tables and the processing steps stay out of the pack: they say how the
+table was built, not how to query it; downstream readers are kept, because "what does a change here reach"
+is asked of a table. A table with no table-semantics document has `semantics` equal to
+`{"present": false}` and the text says so -- a reader must be able to tell "nothing to watch" from "nobody
+wrote it down". A column only the table-semantics document knows is still answered by `--column`, with an
+empty `catalog`.
+
+```text
+# 表 demo_dwd.dwd_party_customer_info_df
+
+## 目录
+- 承载概念：客户（concept:customer），表的种类 core
+- 粒度：customer_id（proven）
+```
+
+`--json` prints `catalog-context/1`: `{"doc_format", "query", "concepts", "tables", "columns", "missing"}`;
+names that were not found are listed in `missing`. Exit codes: `0` at least one was found, `1` none was,
+`2` no option was given, or the file or the `--semantics` directory cannot be read.
+
 ## Drafting: `catalog digest` and `catalog merge`
 
 Once a batch of tables has [table semantics](table-semantics.md) (`table-semantics/1`), a

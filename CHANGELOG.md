@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+- **`catalog search`: from a business word or a whole question to the catalog's own names.**
+  `catalog query` matches names exactly, so a reader holding a colloquial word got exit 1.
+  `search` ranks concepts, metrics, attributes, identifiers, code sets and tables against the
+  text and prints the best few (kind, id, name, one line, where it lives) to choose from. The
+  match is lexical -- two-character windows over CJK text, words over letters and digits -- and
+  needs nothing beyond the standard library; `--semantics` also matches what each table's
+  semantics document says the table is. It offers candidates and never decides.
+- **`catalog context`: what one query needs about a few tables, in one answer.** A table's
+  semantics page is the whole document, tens of kilobytes a table. `context --table` returns
+  the catalog facts (grain, time columns with their roles, the table and column each foreign key
+  joins to with the JOINs the corpus showed, constraints, metric names, evidence conflicts) and
+  the parts of the table-semantics document a query depends on (how to read it, not-for, watch,
+  open questions, the rules its scope cites, its downstream readers, one line a column); `--column` answers one column in
+  full; `--concept` gives a concept's constraints and its metrics spelled out. A table with no
+  semantics document says so. `--json` prints `catalog-context/1`.
+
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**
   The ontology skill used to be one `SKILL.md` that sent the agent to find the other skill's

@@ -888,6 +888,74 @@ scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_l
 `--json` 输出 `{"query": {"kind", "term"}, "matches": [...]}`，给 Agent 用。退出码：`0` 有匹配，
 `1` 没有匹配，`2` 文件读不了（不是 `ontology-json/3` 文档时也是 `1`）。
 
+## 检索：`catalog search`
+
+`catalog query` 只认目录里的正式名字。手里只有一个业务词或一整句问题时，先用 `search` 把它换成正式名字：
+
+```bash
+scope-lineage catalog search out/ontology.json 每个渠道上个月的还款金额是多少
+scope-lineage catalog search out/ontology.json loan_no --kind identifier --limit 5 --json
+```
+
+它把概念、指标、属性、标识符、码值集和表各当作一个条目，按与这段文字的相近程度排序，返回前 `--limit`
+个（默认 10）。每个条目给出类型、id、名称、一行摘要（`summary`）、在哪里（`where`）和命中的字段（`matched_in`）。
+
+| 条目 | 参与匹配的文字 | `where` |
+| --- | --- | --- |
+| `concept` | 名称、同义词、指向它的术语、id、定义 | 它的表现表 |
+| `metric` | 名称、术语、id、定义与过滤 | 它算在哪个概念上 |
+| `attribute` | 名称、术语、id、定义、绑定它的列名 | 所属概念与绑定的表列 |
+| `identifier` | 名称、术语、id、物理拼写、备注 | 它识别的概念 |
+| `code_set` | 名称、术语、id、各码值的含义 | 无 |
+| `table` | 表名、表注释、承载概念的名称；给了 `--semantics` 时加上表语义的「是什么」与适用场景 | 承载的概念 |
+
+匹配只看字面，不需要额外依赖：中文按相邻两个字切分，所以业务词能在更长的名称里命中；字母和数字按词切分，
+不分大小写。名称里命中比定义里命中分高，少见的词比常见的词分高，被整个说出来的名称比只沾到一部分的分高。
+分数只用来排序，两次检索之间不可比。`search` 只给候选，不替读者选，也不改目录：选定以后用 id 去
+`query` 或 `context`。
+
+```text
+1. [概念] 借款人 concept:borrower — A customer while they hold at least one loan that is not settled.
+   在：demo_dwd.dwd_lending_borrower_df
+```
+
+`--kind` 可重复，只留这些类型；`--json` 输出 `{"query": {"text", "kinds", "limit"}, "hits": [...]}`。
+退出码：`0` 有候选，`1` 没有相近的，`2` 文件或 `--semantics` 目录读不了。
+
+## 取数包：`catalog context`
+
+写一条查询要同时知道两类事：目录里这张表承载什么、键和时间列是什么、能连到哪里；表语义里这张表怎么读、
+不适用于什么、要注意什么、还有哪些问题没人回答。`context` 一次把这些给出来，表语义只取查询用得上的部分：
+
+```bash
+scope-lineage catalog context out/ontology.json --semantics docs/ \
+  --concept 客户 --table demo_dwd.dwd_party_customer_info_df \
+  --column demo_dwd.dwd_party_customer_info_df.gender_cd
+```
+
+| 选项 | 给出什么 |
+| --- | --- |
+| `--concept`（id、去掉前缀的 id、名称、同义词或术语） | 定义、标识符、表现表、它和它的属性、标识符、关系上的约束、指标的完整定义（度量与绑定列、聚合、过滤、时间窗、维度、可加性、单位、所引约束的原文） |
+| `--table`（`库.表`） | 目录侧：承载的概念、粒度列与来源、时间形态与刷新、带角色的时间列、记录范围、每个外部标识符列能连到哪张表的哪一列（`joins`，带语料里见过的 JOIN 及其位置）、约束、概念上的指标名、证据与目录的矛盾；表语义侧（`semantics`）：是什么、一行是什么、怎么取数、范围及其引用的规则（带 SQL）、适用与不适用、注意事项、待确认问题、读这张表的下游任务与表、每列一行的字段一览 |
+| `--column`（`库.表.列`） | 目录侧的绑定（指向什么、定义、单位、码值、取值方式、时间角色、血缘表达式）；表语义侧这一列的含义、加工、分支、码值、空值含义、注意；以及点名这一列的表级注意与待确认问题 |
+
+三个选项都可重复，可混用。表语义文档里的出处（`sources`、`confidence`）、上游表和加工步骤不进包：它们说明
+表是怎么做出来的，不是怎么查；下游留着，因为「改了它会影响谁」是对着表问的。没有表语义文档的表，`semantics` 是 `{"present": false}`，文本写「本表没有
+表语义文档」——读者要能分清「没有要注意的」和「没人写下来」。只在表语义里有、目录没绑定的列照样能用
+`--column` 查到，`catalog` 一项为空。
+
+```text
+# 表 demo_dwd.dwd_party_customer_info_df
+
+## 目录
+- 承载概念：客户（concept:customer），表的种类 core
+- 粒度：customer_id（proven）
+```
+
+`--json` 输出 `catalog-context/1`：`{"doc_format", "query", "concepts", "tables", "columns", "missing"}`，
+没找到的名字列在 `missing` 里。退出码：`0` 至少找到一个，`1` 一个都没找到，`2` 一个选项都没给、文件或
+`--semantics` 目录读不了。
+
 ## 起草：`catalog digest` 与 `catalog merge`
 
 已经给一批表写好[表语义](table-semantics.md)（`table-semantics/1`）时，目录可以从它们起草，而不用每次写临时脚本：
