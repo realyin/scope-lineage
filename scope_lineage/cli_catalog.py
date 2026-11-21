@@ -1,4 +1,5 @@
-"""The ``scope-lineage catalog`` subcommand: ``validate``, ``build``, ``render``, ``query``.
+"""The ``scope-lineage catalog`` subcommand: ``validate``, ``build``, ``render``, ``query``,
+``context``, ``search``.
 
 ``digest`` and ``merge``, which draft a catalog from table semantics, live in
 ``cli_catalog_draft``.
@@ -57,6 +58,8 @@ def add_catalog_parser(subcommands) -> None:
     _add_build_parser(actions)
     _add_render_parser(actions)
     _add_query_parser(actions)
+    _add_context_parser(actions)
+    _add_search_parser(actions)
     add_draft_parsers(actions)
 
 
@@ -84,6 +87,69 @@ def _add_query_parser(actions) -> None:
         "--json",
         action="store_true",
         help="Print the structured answer ({query, matches[]}) instead of text",
+    )
+
+
+def _add_search_parser(actions) -> None:
+    from .render.catalog_search import SEARCH_KINDS
+
+    search_cmd = actions.add_parser(
+        "search",
+        help=(
+            "From a business word or a whole question to the catalog's own names: rank "
+            "concepts, metrics, attributes, identifiers, code sets and tables against the "
+            "text and print the best few to choose from; exit 1 when nothing is close"
+        ),
+    )
+    search_cmd.add_argument("ontology", help=f"An {ONTOLOGY_FILENAME} written by `catalog build`")
+    search_cmd.add_argument("text", help="A word, a column name or a question")
+    search_cmd.add_argument(
+        "--semantics",
+        help="A directory of table-semantics documents: also match what each table says it is",
+    )
+    search_cmd.add_argument(
+        "--kind", action="append", choices=SEARCH_KINDS, default=None,
+        help="Only this kind of object (repeatable); every kind by default",
+    )
+    search_cmd.add_argument("--limit", type=int, default=10, help="How many hits (default 10)")
+    search_cmd.add_argument(
+        "--json", action="store_true", help="Print {query, hits[]} instead of text"
+    )
+
+
+def _add_context_parser(actions) -> None:
+    context_cmd = actions.add_parser(
+        "context",
+        help=(
+            "Everything one question needs about a few tables, columns and concepts, in one "
+            "answer: from ontology.json the keys, time columns, join targets, constraints and "
+            "metrics; from the table-semantics documents how to read each table, what it is "
+            "not for, what to watch and its open questions; exit 1 when nothing matches"
+        ),
+    )
+    context_cmd.add_argument("ontology", help=f"An {ONTOLOGY_FILENAME} written by `catalog build`")
+    context_cmd.add_argument(
+        "--semantics",
+        help=(
+            "A directory of table-semantics documents (<db.table>.json); without it every "
+            "table says it has no semantics document"
+        ),
+    )
+    context_cmd.add_argument(
+        "--table", action="append", default=[], metavar="DB.TABLE",
+        help="A table to pack: catalog facts, how to read it, one line a column (repeatable)",
+    )
+    context_cmd.add_argument(
+        "--column", action="append", default=[], metavar="DB.TABLE.COLUMN",
+        help="A column to answer in full: binding, code values, derivation, notes (repeatable)",
+    )
+    context_cmd.add_argument(
+        "--concept", action="append", default=[], metavar="CONCEPT",
+        help="A concept by id, name, synonym or term: tables, constraints, metrics (repeatable)",
+    )
+    context_cmd.add_argument(
+        "--json", action="store_true",
+        help="Print the catalog-context/1 JSON instead of text",
     )
 
 
@@ -142,6 +208,10 @@ def run_catalog(args: argparse.Namespace) -> int:
         return _run_render(args)
     if args.catalog_action == "query":
         return _run_query(args)
+    if args.catalog_action == "context":
+        return _run_context(args)
+    if args.catalog_action == "search":
+        return _run_search(args)
     if args.catalog_action == "digest":
         return run_digest(args)
     if args.catalog_action == "merge":
@@ -229,6 +299,58 @@ def _run_query(args: argparse.Namespace) -> int:
     else:
         print(render_query_text(result), end="")
     return 0 if result["matches"] else 1
+
+
+def _semantics_option(directory):
+    """``{db.table: document}`` from ``--semantics``, None without it, 2 for a bad path."""
+    from .cli_semantic import _semantic_documents
+
+    if not directory:
+        return None
+    root = Path(directory)
+    if not root.is_dir():
+        print(f"--semantics directory does not exist: {root}", file=sys.stderr)
+        return 2
+    return _semantic_documents(root)[0]
+
+
+def _run_search(args: argparse.Namespace) -> int:
+    from .render.catalog_search import render_search_text, search_catalog
+
+    document = _load_ontology(args.ontology)
+    if isinstance(document, int):
+        return document
+    semantics = _semantics_option(args.semantics)
+    if isinstance(semantics, int):
+        return semantics
+    result = search_catalog(document, args.text, semantics, kinds=args.kind, limit=args.limit)
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    else:
+        print(render_search_text(result), end="")
+    return 0 if result["hits"] else 1
+
+
+def _run_context(args: argparse.Namespace) -> int:
+    from .render.catalog_context import context_pack, render_context_text
+
+    if not (args.table or args.column or args.concept):
+        print("catalog context: name at least one --table, --column or --concept", file=sys.stderr)
+        return 2
+    document = _load_ontology(args.ontology)
+    if isinstance(document, int):
+        return document
+    semantics = _semantics_option(args.semantics)
+    if isinstance(semantics, int):
+        return semantics
+    pack = context_pack(
+        document, semantics, tables=args.table, columns=args.column, concepts=args.concept
+    )
+    if args.json:
+        print(json.dumps(pack, ensure_ascii=False, indent=2))
+    else:
+        print(render_context_text(pack), end="")
+    return 0 if pack["concepts"] or pack["tables"] or pack["columns"] else 1
 
 
 def _evidence_inputs(args: argparse.Namespace):
