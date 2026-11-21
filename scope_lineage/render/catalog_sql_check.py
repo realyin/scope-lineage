@@ -43,7 +43,15 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Optional
 
-from .catalog_view import IDENTIFYING_BINDINGS, CatalogView
+from .catalog_joins import (
+    backed_pairs,
+    grain_columns,
+    pair_backed,
+    pin_window,
+    time_groups,
+    uncovered,
+)
+from .catalog_view import CatalogView
 
 __all__ = ["CHECK_FORMAT", "RULES", "check_sql", "render_check_sql_text"]
 
@@ -60,8 +68,6 @@ RULES = {
 }
 SEVERITY_TEXT = {"error": "错误", "warning": "警告", "info": "提示"}
 _PREDICATE_CLAUSES = ("where", "join")
-_WINDOW_ROLES = ("valid_from", "valid_to")
-_TIME_GROUPS = (("partition", ("partition",)), ("window", _WINDOW_ROLES))
 
 
 def check_sql(document: Mapping, statements: Iterable[Mapping]) -> dict:
@@ -229,10 +235,7 @@ def _placed(view: CatalogView, pair: Mapping, first_alias: str) -> Optional[list
 
 def _pair_recorded(view: CatalogView, sides: list[tuple]) -> bool:
     (rep_a, bind_a, _), (rep_b, bind_b, _) = sides
-    if _shares_identifier(bind_a, bind_b):
-        return True
-    asked = {f"{rep_a['table']}.{bind_a['column']}", f"{rep_b['table']}.{bind_b['column']}"}
-    return any({p["left"], p["right"]} == asked for p in _recorded_pairs(view, rep_a, rep_b))
+    return pair_backed(view, rep_a, bind_a, rep_b, bind_b)
 
 
 def _join_finding(view: CatalogView, pairs: list[Mapping]) -> Optional[dict]:
@@ -259,7 +262,7 @@ def _join_finding(view: CatalogView, pairs: list[Mapping]) -> Optional[dict]:
         }
         for (ra, ba, fa), (rb, bb, fb) in placed
     ]
-    recorded = _recorded_pairs(view, rep_a, rep_b)
+    recorded = backed_pairs(view, rep_a, rep_b)
     asked_text = "；".join(
         f"{p['left']['table']}.{p['left']['column']} = {p['right']['table']}.{p['right']['column']}"
         for p in asked
@@ -282,42 +285,6 @@ def _join_finding(view: CatalogView, pairs: list[Mapping]) -> Optional[dict]:
     }
 
 
-def _shares_identifier(a: Mapping, b: Mapping) -> bool:
-    return (
-        a["to"] in IDENTIFYING_BINDINGS
-        and b["to"] in IDENTIFYING_BINDINGS
-        and bool(a.get("ref"))
-        and a.get("ref") == b.get("ref")
-    )
-
-
-def _recorded_pairs(view: CatalogView, rep_a: Mapping, rep_b: Mapping) -> list[dict]:
-    """The column pairs the catalog backs between two tables: shared identifiers, then the
-    JOINs the corpus evidence recorded between them."""
-    found: list[dict] = []
-    for a in rep_a["bindings"]:
-        for b in rep_b["bindings"]:
-            if _shares_identifier(a, b):
-                found.append({
-                    "left": f"{rep_a['table']}.{a['column']}",
-                    "right": f"{rep_b['table']}.{b['column']}",
-                    "identifier": a["ref"],
-                })
-    wanted = {rep_a["table"].lower(), rep_b["table"].lower()}
-    for relation_id in sorted(view.relations):
-        joins = view.relation_joins(relation_id) or {}
-        for sample in joins.get("samples") or []:
-            left, _, right = str(sample.get("on") or "").partition(" = ")
-            tables = {left.rpartition(".")[0].lower(), right.rpartition(".")[0].lower()}
-            if tables != wanted or not left or not right:
-                continue
-            if rep_a["table"].lower() != left.rpartition(".")[0].lower():
-                left, right = right, left
-            if not any({p["left"], p["right"]} == {left, right} for p in found):
-                found.append({"left": left, "right": right, "relation": relation_id})
-    return found
-
-
 # -------------------------------------------------------- partition filters
 
 
@@ -335,19 +302,6 @@ def _predicated(statement: Mapping) -> tuple[set, set]:
     return reached, bare
 
 
-def _time_groups(rep: Mapping) -> list[tuple[str, list[dict]]]:
-    groups = []
-    for name, roles in _TIME_GROUPS:
-        columns = [
-            {"column": b["column"], "role": b["time_role"]}
-            for b in rep["bindings"]
-            if b.get("time_role") in roles
-        ]
-        if columns:
-            groups.append((name, columns))
-    return groups
-
-
 def _partition_filters(view: CatalogView, statement: Mapping) -> list[dict]:
     reached, bare = _predicated(statement)
     found = []
@@ -355,7 +309,7 @@ def _partition_filters(view: CatalogView, statement: Mapping) -> list[dict]:
         rep = view.representation(read["table"])
         if rep is None:
             continue
-        for name, columns in _time_groups(rep):
+        for name, columns in time_groups(rep):
             if any(
                 (read["read"], c["column"].casefold()) in reached
                 or (read["scope"], c["column"].casefold()) in bare
@@ -379,23 +333,6 @@ def _partition_filters(view: CatalogView, statement: Mapping) -> list[dict]:
 
 
 # ------------------------------------------------------------------ fan-out
-
-
-def _grain_columns(rep: Mapping) -> Optional[list[str]]:
-    """The columns of the table's recorded grain, or None when the catalog does not say."""
-    grain = rep.get("grain") or {}
-    columns = []
-    for identifier in grain.get("identifiers") or []:
-        column = next(
-            (b["column"] for b in rep["bindings"]
-             if b["to"] == "identifier" and b.get("ref") == identifier),
-            None,
-        )
-        if column is None:
-            return None
-        columns.append(column)
-    columns += list(grain.get("extra") or [])
-    return columns or None
 
 
 def _direct(scope: Mapping, ref: Mapping) -> Optional[str]:
@@ -448,7 +385,7 @@ def _scope_fan_out(view: CatalogView, scope: Mapping) -> list[dict]:
         summed = owners.pop()
         for other, columns in joined.get(summed, {}).items():
             rep = view.representation(scope["sources"][other]["table"])
-            grain = _grain_columns(rep) if rep else None
+            grain = grain_columns(rep) if rep else None
             if grain is None or _other_side_unique(scope, other, rep, grain, columns):
                 continue
             found.append(_fan_out_finding(scope, aggregate, summed, other, rep, grain, columns))
@@ -458,19 +395,15 @@ def _scope_fan_out(view: CatalogView, scope: Mapping) -> list[dict]:
 def _other_side_unique(scope: Mapping, alias: str, rep: Mapping, grain: list, joined: set) -> bool:
     """Whether at most one row of ``alias`` meets each row of the summed side: its grain is
     covered by the join columns and the columns a predicate pins, or it is grouped by it."""
-    folded = {g.casefold() for g in grain}
-    grouped = {r["column"].casefold() for r in scope["group_by"] if _direct(scope, r) == alias}
-    if folded <= grouped:
+    grouped = {r["column"] for r in scope["group_by"] if _direct(scope, r) == alias}
+    if not uncovered(grain, grouped):
         return True
     pinned = {
         r["column"].casefold()
         for r in scope["refs"]
         if r["clause"] in _PREDICATE_CLAUSES and _direct(scope, r) == alias
     }
-    window = {b["column"].casefold() for b in rep["bindings"] if b.get("time_role") in _WINDOW_ROLES}
-    if pinned & window:
-        pinned |= window
-    return folded <= joined | pinned
+    return not uncovered(grain, joined | pin_window(rep, pinned))
 
 
 def _fan_out_finding(

@@ -36,6 +36,7 @@ from collections.abc import Iterable, Mapping
 from typing import Optional
 
 from .catalog_gaps import conflict_text
+from .catalog_joins import backed_pairs, grain_columns, pin_window, time_groups, uncovered
 from .catalog_query import find_concepts
 from .catalog_view import CatalogView, catalog_table_name, realises
 
@@ -97,6 +98,12 @@ def context_pack(
             view, rep, documents.get(rep["table"].lower()),
             brief=brief, focus=focused.get(rep["table"].lower()),
         ))
+    found = list({entry["table"]: entry for entry in pack["tables"]})
+    if len(found) > 1:
+        reps = [view.representation(table) for table in found]
+        pack["links"] = [
+            _link(view, a, b) for i, a in enumerate(reps) for b in reps[i + 1:]
+        ]
     for term in pack["query"]["columns"]:
         answer = _column(view, term, documents)
         if answer is None:
@@ -194,6 +201,208 @@ def _metric(view: CatalogView, metric: Mapping) -> dict:
         for c in metric.get("constraints") or []
     ]
     return answer
+
+
+# -------------------------------------------------------------------- links
+
+_ALIASES = ("a", "b")
+_AS_OF = "'<as_of_date>'"
+
+
+def _link(view: CatalogView, rep_a: Mapping, rep_b: Mapping) -> dict:
+    """How two requested tables join: the backed pairs (the same ones ``check-sql``
+    accepts), how many rows of each side meet a key, the filters each needs, and a SQL
+    skeleton -- or, with no backed pair, the tables that join to both."""
+    pairs = backed_pairs(view, rep_a, rep_b)
+    filters = [
+        {"table": rep["table"], "group": group, "columns": columns}
+        for rep in (rep_a, rep_b)
+        for group, columns in time_groups(rep)
+    ]
+    on = _on_pairs(rep_a, rep_b, pairs)
+    sides = [
+        _link_side(rep, [_column_of(pairs[i][key]) for i in on])
+        for rep, key in ((rep_a, "left"), (rep_b, "right"))
+    ]
+    link: dict = {
+        "tables": [rep_a["table"], rep_b["table"]],
+        "pairs": [{**_link_pair(view, pair), "in_skeleton": i in on} for i, pair in enumerate(pairs)],
+        "sides": sides,
+        "filters": filters,
+        "skeleton": _skeleton(rep_a, rep_b, pairs, on, sides, filters) if pairs else None,
+    }
+    if not pairs:
+        link["bridges"] = sorted(
+            rep["table"]
+            for rep in view.representations.values()
+            if rep["table"] not in link["tables"]
+            and backed_pairs(view, rep, rep_a)
+            and backed_pairs(view, rep, rep_b)
+        )
+    return link
+
+
+def _column_of(qualified: str) -> str:
+    return qualified.rpartition(".")[2]
+
+
+def _on_pairs(rep_a: Mapping, rep_b: Mapping, pairs: list[dict]) -> list[int]:
+    """The pairs the skeleton puts in ON, by index. Backed pairs are often different paths
+    -- a key and a self reference to it, the borrower and the payer -- so they are not all
+    AND-ed: ON takes the pair that meets the most grain columns of the two sides (the first
+    on a tie), then each pair on columns not used yet that closes a grain column still open.
+    The others stay alternatives for the writer to choose."""
+    if not pairs:
+        return []
+    grains = [
+        {g.casefold() for g in grain_columns(rep) or []} for rep in (rep_a, rep_b)
+    ]
+
+    def columns(pair: Mapping) -> tuple[str, str]:
+        return _column_of(pair["left"]).casefold(), _column_of(pair["right"]).casefold()
+
+    def meets(pair: Mapping) -> int:
+        return sum(column in grain for column, grain in zip(columns(pair), grains))
+
+    first = max(range(len(pairs)), key=lambda i: (meets(pairs[i]), -i))
+    chosen = [first]
+    used = [{c} for c in columns(pairs[first])]
+    for i, pair in enumerate(pairs):
+        if i in chosen:
+            continue
+        pair_columns = columns(pair)
+        if any(column in used[side] for side, column in enumerate(pair_columns)):
+            continue
+        if any(column in grains[side] for side, column in enumerate(pair_columns)):
+            chosen.append(i)
+            for side, column in enumerate(pair_columns):
+                used[side].add(column)
+    return sorted(chosen)
+
+
+def _link_pair(view: CatalogView, pair: Mapping) -> dict:
+    if pair.get("identifier"):
+        return {"left": pair["left"], "right": pair["right"], "basis": "identifier",
+                "identifier": _ref(view, pair["identifier"])}
+    return {"left": pair["left"], "right": pair["right"], "basis": "seen_join",
+            "relation": pair["relation"]}
+
+
+def _link_side(rep: Mapping, columns: list[str]) -> dict:
+    """Whether the join columns cover the side's recorded grain: one row per key, one row
+    once the side's partition / window filters are applied, several, or not known."""
+    side: dict = {"table": rep["table"], "grain": grain_columns(rep), "join_columns": []}
+    for column in columns:
+        if column not in side["join_columns"]:
+            side["join_columns"].append(column)
+    if side["grain"] is None:
+        return {**side, "rows_per_key": "unknown", "open": [], "pinned_by_filters": []}
+    left_open = uncovered(side["grain"], columns)
+    filtered = pin_window(rep, {c["column"].casefold() for _, cs in time_groups(rep) for c in cs})
+    still = uncovered(left_open, filtered)
+    if not left_open:
+        rows = "one"
+    elif not still:
+        rows = "one_once_filtered"
+    else:
+        rows = "several"
+    return {
+        **side,
+        "rows_per_key": rows,
+        "open": left_open,
+        "pinned_by_filters": [c for c in left_open if c not in still],
+    }
+
+
+def _time_role_of(rep: Mapping, column: str) -> Optional[str]:
+    return next(
+        (b.get("time_role") for b in rep["bindings"] if b["column"].casefold() == column.casefold()),
+        None,
+    )
+
+
+def _open_text(rep: Mapping, columns: list[str]) -> str:
+    kinds = {"partition": "分区列", "valid_from": "拉链有效期列", "valid_to": "拉链有效期列"}
+    return "、".join(
+        column + (f"（{kinds[role]}）" if (role := _time_role_of(rep, column)) in kinds else "")
+        for column in columns
+    )
+
+
+def _side_warning(side: Mapping, rep: Mapping, alias: str, other: str) -> Optional[str]:
+    """The caution a side carries, or None when each key meets at most one of its rows."""
+    who = f"{alias}（{side['table']}）"
+    if side["rows_per_key"] == "unknown":
+        return f"{who}没有记录粒度：每个关联键对上它几行不知道"
+    if side["rows_per_key"] == "several":
+        still = [c for c in side["open"] if c not in side["pinned_by_filters"]]
+        pinned = (
+            f"（{_open_text(rep, side['pinned_by_filters'])}由 WHERE 的过滤钉住）"
+            if side["pinned_by_filters"] else ""
+        )
+        return (
+            f"{who}每个关联键对上多行：粒度列 {_open_text(rep, still)} 没被关联列覆盖{pinned}，"
+            f"对 {other} 的列求 SUM/COUNT 会重复计数"
+        )
+    if side["rows_per_key"] == "one_once_filtered":
+        return (
+            f"{who}要按粒度里的 {_open_text(rep, side['pinned_by_filters'])}钉住"
+            "（分区取一个值、拉链取一个时点）才每个关联键一行，否则对上多行"
+        )
+    return None
+
+
+def _filter_predicates(alias: str, filters: list[dict]) -> list[str]:
+    found = []
+    for item in filters:
+        for column in item["columns"]:
+            if column["role"] == "valid_from":
+                found.append(f"{alias}.{column['column']} <= {_AS_OF}")
+            elif column["role"] == "valid_to":
+                found.append(f"{alias}.{column['column']} > {_AS_OF}")
+            else:
+                found.append(f"{alias}.{column['column']} = '<{column['column']}>'")
+    return found
+
+
+def _pair_reason(pair: Mapping) -> str:
+    if pair.get("identifier"):
+        return f"同一标识 {pair['identifier']}"
+    return f"语料中见过（{pair['relation']}）"
+
+
+def _skeleton(
+    rep_a: Mapping, rep_b: Mapping, pairs: list[dict], on: list[int], sides: list[dict],
+    filters: list[dict],
+) -> str:
+    """``FROM a JOIN b ON <backed pairs> WHERE <one predicate a filter column>``, with
+    the cautions as comment lines. Placeholders are string literals, so it parses."""
+    a, b = _ALIASES
+    lines = ["-- 关联方式（JOIN、LEFT JOIN 等）由写 SQL 的人决定：目录不说明该用哪一种"]
+    for side, rep, alias, other in ((sides[0], rep_a, a, b), (sides[1], rep_b, b, a)):
+        warning = _side_warning(side, rep, alias, other)
+        if warning:
+            lines.append(f"-- {warning}")
+    for i, pair in enumerate(pairs):
+        if i not in on:
+            lines.append(
+                f"-- 另一对有目录依据的关联列：{a}.{_column_of(pair['left'])} = "
+                f"{b}.{_column_of(pair['right'])}（{_pair_reason(pair)}）；可能是另一条关联路径，"
+                "意思不同，按问题替换或补进 ON，不要不加判断地 AND 上"
+            )
+    if any(f["group"] == "window" for f in filters):
+        lines.append("-- 拉链有效期的开闭（> 还是 >=、未失效的结束日期怎么写）以表的约定为准")
+    lines += ["SELECT *", f"FROM {rep_a['table']} {a}", f"JOIN {rep_b['table']} {b}"]
+    for n, i in enumerate(on):
+        left, right = _column_of(pairs[i]["left"]), _column_of(pairs[i]["right"])
+        lines.append(
+            f"  {'ON ' if n == 0 else 'AND'} {a}.{left} = {b}.{right}  -- {_pair_reason(pairs[i])}"
+        )
+    predicates = _filter_predicates(a, [f for f in filters if f["table"] == rep_a["table"]])
+    predicates += _filter_predicates(b, [f for f in filters if f["table"] == rep_b["table"]])
+    for i, predicate in enumerate(predicates):
+        lines.append(f"{'WHERE' if i == 0 else '  AND'} {predicate}")
+    return "\n".join(lines) + "\n"
 
 
 # -------------------------------------------------------------------- table
@@ -479,6 +688,8 @@ def render_context_text(pack: Mapping) -> str:
     brief = bool(pack["query"].get("brief"))
     for table in pack["tables"]:
         lines += _table_text(table, brief)
+    for link in pack.get("links") or []:
+        lines += _link_text(link)
     # a brief pack does not repeat a table's notes under each of its columns
     shown = {table["table"] for table in pack["tables"]} if brief else set()
     for column in pack["columns"]:
@@ -561,6 +772,60 @@ def _table_text(table: Mapping, brief: bool = False) -> list[str]:
             "- 这个概念上的指标：" + "、".join(f"{m['name']}（{m['id']}）" for m in table["metrics"])
         )
     return lines + _semantics_text(table["semantics"], brief) + [""]
+
+
+_ROWS_TEXT = {
+    "one": "骨架的关联列覆盖了粒度，每个关联键一行",
+    "one_once_filtered": "骨架的关联列没覆盖 {open}，按下面的过滤钉住（分区取一个值、拉链取一个时点）后每个关联键一行",
+    "several": "骨架的关联列没覆盖 {open}{pinned}，每个关联键对上多行：对另一张表的列求 SUM/COUNT 会重复计数",
+}
+
+
+def _link_text(link: Mapping) -> list[str]:
+    a, b = link["tables"]
+    lines = [f"# 关联 {a} ↔ {b}", ""]
+    if link["pairs"]:
+        lines.append("- 目录支持的关联列对（与 check-sql 的判断相同）：")
+        for pair in link["pairs"]:
+            if pair["basis"] == "identifier":
+                why = f"同一标识 {pair['identifier']['name']}（{pair['identifier']['id']}）"
+            else:
+                why = f"语料中见过这样关联（{pair['relation']}）"
+            mark = "（骨架的 ON 用这一对）" if pair["in_skeleton"] else ""
+            lines.append(f"  - {pair['left']} = {pair['right']}：{why}{mark}")
+    else:
+        lines.append("- 目录没有支持这两张表直接关联的列对：没有共同的标识，语料中也没见过它们之间的 JOIN")
+        if link["bridges"]:
+            lines.append(
+                f"- 一跳的桥（与两张表都有目录支持的关联列对）：{'、'.join(link['bridges'])}；"
+                "把它加进 --table 可看各段怎么关联"
+            )
+        else:
+            lines.append("- 目录里也没有一张表同时与这两张表有目录支持的关联列对")
+    for side in link["sides"]:
+        if side["grain"] is None:
+            tail = "，每个关联键对上几行不知道" if link["pairs"] else ""
+            lines.append(f"- {side['table']} 一侧：目录没有记录粒度{tail}")
+            continue
+        head = f"- {side['table']} 一侧：粒度 {'、'.join(side['grain'])}"
+        if not link["pairs"]:
+            lines.append(head)
+            continue
+        still = [c for c in side["open"] if c not in side["pinned_by_filters"]]
+        pinned = (
+            f"（其中 {'、'.join(side['pinned_by_filters'])} 由下面的过滤钉住，"
+            f"{'、'.join(still)} 仍敞开）" if side["pinned_by_filters"] and still else ""
+        )
+        rows = _ROWS_TEXT[side["rows_per_key"]]
+        lines.append(f"{head}；{rows.format(open='、'.join(side['open']), pinned=pinned)}")
+    names = {"partition": "分区列", "window": "拉链有效期列"}
+    for item in link["filters"]:
+        columns = "、".join(c["column"] for c in item["columns"])
+        lines.append(f"- 要过滤：{item['table']} 按{names[item['group']]} {columns}")
+    if link["skeleton"]:
+        lines += ["- SQL 骨架（占位值换成真实值；关联方式由你定）：", "", "```sql",
+                  link["skeleton"].rstrip("\n"), "```"]
+    return lines + [""]
 
 
 def _join_lines(table: str, join: Mapping) -> list[str]:

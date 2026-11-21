@@ -1100,7 +1100,61 @@ empty `catalog`.
 - 粒度：customer_id（proven）
 ```
 
-`--json` prints `catalog-context/1`: `{"doc_format", "query", "concepts", "tables", "columns", "missing"}`;
+**Two or more tables: how they join.** With two or more `--table` values the pack adds one entry per pair of
+requested tables (`links`, and a `# 关联 a ↔ b` section after the table blocks), so the agent does not work out the
+join, the side that multiplies rows and the filters by itself:
+
+```bash
+scope-lineage catalog context out/ontology.json \
+  --table demo_dwd.dwd_lending_loan_df --table demo_dwd.dwd_lending_loan_status_his
+```
+
+- **Backed pairs** (`pairs`): the column pairs the catalog backs between the two tables -- both columns hold the same
+  identifier (`basis: identifier`) or the corpus recorded a JOIN on exactly that pair (`basis: seen_join`, with the
+  relation). It is the judgement `check-sql` makes for `join_not_recorded`, read from one shared module
+  (`render/catalog_joins.py`), so the advice and the check cannot disagree.
+- **Rows per key** (`sides`): for each table, whether the skeleton's join columns cover its recorded grain --
+  `one` (one row per key), `one_once_filtered` (the grain columns left open are its partition or zipper-window
+  columns, which the filters below pin), `several` (names the grain columns left open: a SUM / COUNT over the other
+  table's columns is inflated), or `unknown` when the catalog records no grain; it is not guessed.
+- **Filters** (`filters`): each table's partition columns and zipper validity columns, grouped as `check-sql` groups
+  them for `missing_partition_filter`.
+- **Skeleton** (`skeleton`): `SELECT * FROM a JOIN b ON … WHERE …` with string placeholders (`'<dt>'`,
+  `'<as_of_date>'`), so it parses, and one comment line per caution. It uses plain `JOIN` and says the join type is
+  the writer's choice. Backed pairs are often different paths (a key and a self reference to it, two different
+  parties), so they are not all AND-ed: `ON` takes the pair meeting the most grain columns of the two sides, then
+  any pair on unused columns that closes a grain column still open (`in_skeleton`); every other backed pair is a
+  comment line, an alternative to choose by the question.
+- **No backed pair**: the entry says so, gives no skeleton, and lists in `bridges` the catalog tables that have
+  backed pairs with both (one hop, names only; no longer paths are searched).
+
+```text
+# 关联 demo_dwd.dwd_lending_loan_df ↔ demo_dwd.dwd_lending_loan_status_his
+
+- 目录支持的关联列对（与 check-sql 的判断相同）：
+  - demo_dwd.dwd_lending_loan_df.loan_no = demo_dwd.dwd_lending_loan_status_his.loan_no：同一标识 借据号（id:loan_no）（骨架的 ON 用这一对）
+  - demo_dwd.dwd_lending_loan_df.orig_loan_no = demo_dwd.dwd_lending_loan_status_his.loan_no：同一标识 借据号（id:loan_no）
+- demo_dwd.dwd_lending_loan_df 一侧：粒度 loan_no；骨架的关联列覆盖了粒度，每个关联键一行
+- demo_dwd.dwd_lending_loan_status_his 一侧：粒度 loan_no、start_date；骨架的关联列没覆盖 start_date，按下面的过滤钉住（分区取一个值、拉链取一个时点）后每个关联键一行
+- 要过滤：demo_dwd.dwd_lending_loan_status_his 按拉链有效期列 start_date、end_date
+```
+
+```sql
+-- 关联方式（JOIN、LEFT JOIN 等）由写 SQL 的人决定：目录不说明该用哪一种
+-- b（demo_dwd.dwd_lending_loan_status_his）要按粒度里的 start_date（拉链有效期列）钉住（分区取一个值、拉链取一个时点）才每个关联键一行，否则对上多行
+-- 另一对有目录依据的关联列：a.orig_loan_no = b.loan_no（同一标识 id:loan_no）；可能是另一条关联路径，意思不同，按问题替换或补进 ON，不要不加判断地 AND 上
+-- 拉链有效期的开闭（> 还是 >=、未失效的结束日期怎么写）以表的约定为准
+SELECT *
+FROM demo_dwd.dwd_lending_loan_df a
+JOIN demo_dwd.dwd_lending_loan_status_his b
+  ON  a.loan_no = b.loan_no  -- 同一标识 id:loan_no
+WHERE b.start_date <= '<as_of_date>'
+  AND b.end_date > '<as_of_date>'
+```
+
+A single `--table` gets no `links` and its pack is unchanged.
+
+`--json` prints `catalog-context/1`: `{"doc_format", "query", "concepts", "tables", "columns", "missing"}`, plus `links` with two or more tables;
 names that were not found are listed in `missing`; `query` also carries `"brief": true` and `"focus": true`
 when those options were given, and `query.columns` lists `--columns` as `db.table.column`. Exit codes: `0` at
 least one was found, `1` none was, `2` no option was given, `--columns` without exactly one `--table`,

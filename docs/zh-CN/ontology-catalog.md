@@ -966,7 +966,54 @@ scope-lineage catalog context out/ontology.json --semantics docs/ \
 - 粒度：customer_id（proven）
 ```
 
-`--json` 输出 `catalog-context/1`：`{"doc_format", "query", "concepts", "tables", "columns", "missing"}`，
+**两张以上的表：怎么关联。** 给两个以上 `--table` 时，包里每对请求的表多一项（`links`，文本在各表之后多一节
+`# 关联 a ↔ b`），agent 不用自己去推关联列、哪一侧会放大行数、各要哪些过滤：
+
+```bash
+scope-lineage catalog context out/ontology.json \
+  --table demo_dwd.dwd_lending_loan_df --table demo_dwd.dwd_lending_loan_status_his
+```
+
+- **有依据的关联列对**（`pairs`）：目录支持的两表之间的列对——两列是同一个标识（`basis: identifier`），或语料里
+  见过正好这一对的 JOIN（`basis: seen_join`，带上关系）。这就是 `check-sql` 判 `join_not_recorded` 的同一个判断，
+  出自同一个共用模块（`render/catalog_joins.py`），给的建议和做的检查不会对不上。
+- **每个键几行**（`sides`）：每张表，骨架的关联列是否覆盖它记录的粒度——`one`（每个键一行）、`one_once_filtered`
+  （没覆盖的粒度列是它的分区列或拉链有效期列，由下面的过滤钉住）、`several`（点名没覆盖的粒度列：对另一张表的列
+  SUM / COUNT 会重复计数），目录没记录粒度时是 `unknown`，不猜。
+- **要过滤的列**（`filters`）：每张表的分区列和拉链有效期列，分组与 `check-sql` 的 `missing_partition_filter` 相同。
+- **SQL 骨架**（`skeleton`）：`SELECT * FROM a JOIN b ON … WHERE …`，占位值是字符串（`'<dt>'`、`'<as_of_date>'`），
+  所以能解析；每条提醒一行注释。用普通的 `JOIN`，并注明关联方式由写的人决定。有依据的列对常常是不同的路径（主键和
+  指向它的自引用、两个不同的当事方），所以不全部 AND 上：`ON` 取同时碰到两侧粒度列最多的一对，再加上用的是未用过的
+  列、并补上仍敞开的粒度列的列对（`in_skeleton`）；其余有依据的列对各写一行注释，按问题选用。
+- **没有有依据的列对**：明说，不给骨架，`bridges` 列出与两张表都有有依据列对的目录表（只找一跳，只给表名；不找更长的路径）。
+
+```text
+# 关联 demo_dwd.dwd_lending_loan_df ↔ demo_dwd.dwd_lending_loan_status_his
+
+- 目录支持的关联列对（与 check-sql 的判断相同）：
+  - demo_dwd.dwd_lending_loan_df.loan_no = demo_dwd.dwd_lending_loan_status_his.loan_no：同一标识 借据号（id:loan_no）（骨架的 ON 用这一对）
+  - demo_dwd.dwd_lending_loan_df.orig_loan_no = demo_dwd.dwd_lending_loan_status_his.loan_no：同一标识 借据号（id:loan_no）
+- demo_dwd.dwd_lending_loan_df 一侧：粒度 loan_no；骨架的关联列覆盖了粒度，每个关联键一行
+- demo_dwd.dwd_lending_loan_status_his 一侧：粒度 loan_no、start_date；骨架的关联列没覆盖 start_date，按下面的过滤钉住（分区取一个值、拉链取一个时点）后每个关联键一行
+- 要过滤：demo_dwd.dwd_lending_loan_status_his 按拉链有效期列 start_date、end_date
+```
+
+```sql
+-- 关联方式（JOIN、LEFT JOIN 等）由写 SQL 的人决定：目录不说明该用哪一种
+-- b（demo_dwd.dwd_lending_loan_status_his）要按粒度里的 start_date（拉链有效期列）钉住（分区取一个值、拉链取一个时点）才每个关联键一行，否则对上多行
+-- 另一对有目录依据的关联列：a.orig_loan_no = b.loan_no（同一标识 id:loan_no）；可能是另一条关联路径，意思不同，按问题替换或补进 ON，不要不加判断地 AND 上
+-- 拉链有效期的开闭（> 还是 >=、未失效的结束日期怎么写）以表的约定为准
+SELECT *
+FROM demo_dwd.dwd_lending_loan_df a
+JOIN demo_dwd.dwd_lending_loan_status_his b
+  ON  a.loan_no = b.loan_no  -- 同一标识 id:loan_no
+WHERE b.start_date <= '<as_of_date>'
+  AND b.end_date > '<as_of_date>'
+```
+
+只给一个 `--table` 时没有 `links`，包和原来一样。
+
+`--json` 输出 `catalog-context/1`：`{"doc_format", "query", "concepts", "tables", "columns", "missing"}`，两张以上的表时多一个 `links`，
 没找到的名字列在 `missing` 里；给了 `--brief`、`--focus` 时 `query` 里多出 `"brief": true`、`"focus": true`，
 `--columns` 在 `query.columns` 里写成 `库.表.列`。退出码：`0` 至少找到一个，`1` 一个都没找到，`2` 一个选项都没给、
 `--columns` 没有正好一个 `--table`、`--focus` 没给字段、文件或 `--semantics` 目录读不了。

@@ -26,6 +26,19 @@
   references; items that name no column always stay, and the pack counts what was left out
   (`semantics.focus.left_out`). The default pack is unchanged; `query` gains `brief` / `focus`
   only when given.
+- **`catalog context` with two or more `--table`: how each pair joins (`links`).** One entry per
+  pair of requested tables: the column pairs the catalog backs between them (shared identifier or
+  a recorded corpus JOIN, each saying which -- the same judgement `check-sql` makes, now in one
+  shared module `render/catalog_joins.py`), whether the join columns cover each side's recorded
+  grain (one row per key, one row once its partition / zipper window is pinned, several rows per
+  key naming the open grain columns, or not known when no grain is recorded), the partition and
+  zipper-window filters each table needs, and a SQL skeleton (`FROM a JOIN b ON … WHERE …` with
+  string placeholders, plain `JOIN`, the cautions as comments). `ON` does not AND every backed
+  pair -- they are often different paths -- but takes the one meeting the most grain columns plus
+  pairs that close an open grain column; the rest are commented alternatives. With no backed pair
+  there is no skeleton and `bridges` names the tables backed to both (one hop). Every demo
+  skeleton passes `check-sql` with no `join_not_recorded` or `missing_partition_filter`. A single
+  `--table` pack is unchanged; `doc_format` stays `catalog-context/1`.
 - **`catalog check-sql`: check the query an agent wrote against the catalog.** `check-sql
   <ontology.json> <sql-file | ->` parses the SELECT statements, and the query inside INSERT and
   CTAS, with the lineage parser (CTEs,

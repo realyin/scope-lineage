@@ -666,3 +666,247 @@ def test_brief_text_points_a_column_to_the_notes_its_packed_table_already_shows(
     # a column whose table is not packed still carries its notes in full
     alone = render_context_text(context_pack(document, semantics, columns=columns, brief=True))
     assert "- 待确认问题 q1（open）：性别码值除了" in alone
+
+
+# ------------------------------------------------------------ links between tables
+
+CUSTOMER = "demo_dwd.dwd_party_customer_info_df"
+WAIVER = "demo_dwd.dwd_collection_fee_waiver_di"
+SUMMARY = "demo_dws.dws_lending_loan_summary_1d"
+ACCOUNT_MAP = "demo_dwd.dwd_party_account_map_df"
+
+
+@pytest.fixture(scope="module")
+def partitioned(document: dict) -> dict:
+    """The demo ontology with the loan snapshot's ``dt`` marked as its load partition."""
+    changed = copy.deepcopy(document)
+    (rep,) = [r for r in changed["representations"] if r["table"] == LOAN]
+    (binding,) = [b for b in rep["bindings"] if b["column"] == "dt"]
+    binding["time_role"] = "partition"
+    return changed
+
+
+def _link(pack: dict, a: str, b: str) -> dict:
+    (found,) = [link for link in pack["links"] if set(link["tables"]) == {a, b}]
+    return found
+
+
+def _side(link: dict, table: str) -> dict:
+    (found,) = [side for side in link["sides"] if side["table"] == table]
+    return found
+
+
+def test_a_single_table_pack_has_no_links(document: dict, semantics: dict) -> None:
+    pack = context_pack(document, semantics, tables=[LOAN])
+    assert "links" not in pack
+    assert "# 关联" not in render_context_text(pack)
+
+
+def test_two_tables_get_the_pairs_the_catalog_backs_and_which_basis(document: dict) -> None:
+    pack = context_pack(document, None, tables=[LOAN, REPAYMENT])
+    link = _link(pack, LOAN, REPAYMENT)
+    assert link["tables"] == [LOAN, REPAYMENT]
+    pairs = {(p["left"], p["right"]): p for p in link["pairs"]}
+    loan_pair = pairs[(f"{LOAN}.loan_no", f"{REPAYMENT}.loan_no")]
+    assert loan_pair["basis"] == "identifier"
+    assert loan_pair["identifier"]["id"] == "id:loan_no"
+    assert pairs[(f"{LOAN}.customer_id", f"{REPAYMENT}.customer_id")]["basis"] == "identifier"
+
+
+def test_a_pair_backed_only_by_a_recorded_join_says_so(document: dict) -> None:
+    changed = copy.deepcopy(document)
+    # drop the shared identifier on one side: only the corpus sample still backs the pair
+    (rep,) = [r for r in changed["representations"] if r["table"] == REPAYMENT]
+    (binding,) = [b for b in rep["bindings"] if b["column"] == "loan_no"]
+    binding["to"] = "attribute"
+    binding.pop("ref")
+    link = _link(context_pack(changed, None, tables=[LOAN, REPAYMENT]), LOAN, REPAYMENT)
+    (pair,) = [p for p in link["pairs"] if p["left"] == f"{LOAN}.loan_no"]
+    assert pair["basis"] == "seen_join"
+    assert pair["relation"] == "rel:repayment.loan"
+
+
+def test_each_side_says_how_many_rows_meet_a_key(document: dict) -> None:
+    link = _link(context_pack(document, None, tables=[LOAN, REPAYMENT]), LOAN, REPAYMENT)
+    loan = _side(link, LOAN)
+    assert loan["grain"] == ["loan_no"]
+    assert loan["rows_per_key"] == "one"
+    assert loan["open"] == []
+    repayment = _side(link, REPAYMENT)
+    assert repayment["grain"] == ["repay_txn_no"]
+    assert repayment["rows_per_key"] == "several"
+    assert repayment["open"] == ["repay_txn_no"]
+
+
+def test_a_zipper_window_left_open_must_be_pinned(document: dict) -> None:
+    link = _link(context_pack(document, None, tables=[HISTORY, LOAN]), HISTORY, LOAN)
+    history = _side(link, HISTORY)
+    assert history["open"] == ["start_date"]
+    assert history["rows_per_key"] == "one_once_filtered"
+    assert history["pinned_by_filters"] == ["start_date"]
+    assert {"table": HISTORY, "group": "window", "columns": [
+        {"column": "start_date", "role": "valid_from"},
+        {"column": "end_date", "role": "valid_to"},
+    ]} in link["filters"]
+    text = render_context_text(context_pack(document, None, tables=[HISTORY, LOAN]))
+    assert "拉链有效期" in text
+    assert "start_date" in text.split("# 关联", 1)[1]
+
+
+def test_a_side_with_no_recorded_grain_is_not_guessed(document: dict) -> None:
+    changed = copy.deepcopy(document)
+    (rep,) = [r for r in changed["representations"] if r["table"] == REPAYMENT]
+    rep.pop("grain")
+    pack = context_pack(changed, None, tables=[LOAN, REPAYMENT])
+    repayment = _side(_link(pack, LOAN, REPAYMENT), REPAYMENT)
+    assert repayment["grain"] is None
+    assert repayment["rows_per_key"] == "unknown"
+    assert "没有记录粒度" in render_context_text(pack)
+
+
+def test_partition_filters_come_with_the_link(partitioned: dict) -> None:
+    link = _link(context_pack(partitioned, None, tables=[LOAN, REPAYMENT]), LOAN, REPAYMENT)
+    assert {"table": LOAN, "group": "partition", "columns": [
+        {"column": "dt", "role": "partition"},
+    ]} in link["filters"]
+    assert "a.dt = '<dt>'" in link["skeleton"]
+
+
+def test_the_skeleton_uses_plain_join_and_leaves_the_join_type_to_the_writer(
+    document: dict,
+) -> None:
+    link = _link(context_pack(document, None, tables=[LOAN, REPAYMENT]), LOAN, REPAYMENT)
+    skeleton = link["skeleton"]
+    assert f"FROM {LOAN} a" in skeleton
+    assert f"JOIN {REPAYMENT} b" in skeleton
+    assert "a.loan_no = b.loan_no" in skeleton
+    code = "\n".join(line.split("--")[0] for line in skeleton.splitlines())
+    assert "LEFT" not in code and "INNER" not in code and "OUTER" not in code
+    assert "-- " in skeleton and "关联方式" in skeleton
+    # the open grain of the repayment side is a comment line
+    assert any(
+        line.startswith("--") and "repay_txn_no" in line for line in skeleton.splitlines()
+    )
+
+
+def _demo_pairs(document: dict) -> list[tuple[str, str]]:
+    tables = [r["table"] for r in document["representations"]]
+    return [(a, b) for i, a in enumerate(tables) for b in tables[i + 1:]]
+
+
+@pytest.mark.parametrize("variant", ["document", "partitioned"])
+def test_every_skeleton_passes_check_sql_join_and_partition_rules(request, variant) -> None:
+    from scope_lineage.render.catalog_sql_check import check_sql
+    from scope_lineage.scope.query_facts import query_facts
+
+    doc = request.getfixturevalue(variant)
+    checked = 0
+    for a, b in _demo_pairs(doc):
+        link = _link(context_pack(doc, None, tables=[a, b]), a, b)
+        if link["skeleton"] is None:
+            continue
+        result = check_sql(doc, query_facts(link["skeleton"]))
+        rules = {f["rule"] for f in result["findings"]}
+        assert "join_not_recorded" not in rules, (a, b, link["skeleton"])
+        assert "missing_partition_filter" not in rules, (a, b, link["skeleton"])
+        checked += 1
+    assert checked >= 5
+
+
+def test_no_backed_pair_gives_no_skeleton_and_names_a_bridge(document: dict) -> None:
+    pack = context_pack(document, None, tables=[SUMMARY, CUSTOMER])
+    link = _link(pack, SUMMARY, CUSTOMER)
+    assert link["pairs"] == []
+    assert link["skeleton"] is None
+    assert link["bridges"] == [ACCOUNT_MAP]
+    text = render_context_text(pack)
+    assert "目录没有支持" in text
+    assert ACCOUNT_MAP in text.split("# 关联", 1)[1]
+
+
+def test_no_backed_pair_and_no_bridge_says_both(document: dict) -> None:
+    pack = context_pack(document, None, tables=[WAIVER, SUMMARY])
+    link = _link(pack, WAIVER, SUMMARY)
+    assert link["pairs"] == [] and link["bridges"] == [] and link["skeleton"] is None
+    assert "也没有一张表" in render_context_text(pack)
+
+
+def test_three_tables_give_one_link_a_pair(document: dict) -> None:
+    pack = context_pack(document, None, tables=[LOAN, REPAYMENT, HISTORY, LOAN])
+    assert [link["tables"] for link in pack["links"]] == [
+        [LOAN, REPAYMENT], [LOAN, HISTORY], [REPAYMENT, HISTORY],
+    ]
+
+
+def test_the_link_text_comes_after_the_tables(document: dict) -> None:
+    text = render_context_text(context_pack(
+        document, None, tables=[LOAN, REPAYMENT], columns=[f"{LOAN}.loan_no"],
+    ))
+    assert text.index(f"# 表 {REPAYMENT}") < text.index(f"# 关联 {LOAN} ↔ {REPAYMENT}")
+    assert text.index(f"# 关联 {LOAN} ↔ {REPAYMENT}") < text.index(f"# 字段 {LOAN}.loan_no")
+    assert "```sql" in text
+
+
+def test_the_command_prints_links_for_two_tables(capsys) -> None:
+    code = main([
+        "catalog", "context", str(ONTOLOGY), "--table", LOAN, "--table", REPAYMENT, "--json",
+    ])
+    assert code == 0
+    pack = json.loads(capsys.readouterr().out)
+    assert pack["doc_format"] == "catalog-context/1"
+    assert _link(pack, LOAN, REPAYMENT)["skeleton"]
+
+
+def _code_lines(skeleton: str) -> list[str]:
+    return [line.split("--")[0].strip() for line in skeleton.splitlines() if not line.startswith("--")]
+
+
+def test_other_backed_pairs_are_alternatives_not_anded_into_on(document: dict) -> None:
+    # loan_no = loan_no and orig_loan_no = loan_no are two different paths (a loan, the
+    # loan it renews); AND-ing them would ask for a loan that renews itself
+    link = _link(context_pack(document, None, tables=[LOAN, HISTORY]), LOAN, HISTORY)
+    code = _code_lines(link["skeleton"])
+    assert "ON  a.loan_no = b.loan_no" in code or "ON a.loan_no = b.loan_no" in code
+    assert not any("orig_loan_no" in line for line in code)
+    assert any(
+        line.startswith("--") and "a.orig_loan_no = b.loan_no" in line
+        for line in link["skeleton"].splitlines()
+    )
+    on = {(p["left"], p["right"]) for p in link["pairs"] if p["in_skeleton"]}
+    assert on == {(f"{LOAN}.loan_no", f"{HISTORY}.loan_no")}
+    # a pair that is no grain column of either side is not AND-ed in either
+    link = _link(context_pack(document, None, tables=[LOAN, REPAYMENT]), LOAN, REPAYMENT)
+    assert not any("customer_id" in line for line in _code_lines(link["skeleton"]))
+
+
+def test_a_pair_that_completes_a_composite_grain_joins_the_on(document: dict) -> None:
+    changed = copy.deepcopy(document)
+    (rep,) = [r for r in changed["representations"] if r["table"] == SUMMARY]
+    rep["bindings"].append({"column": "account_id", "to": "foreign_identifier",
+                            "ref": "id:app_account_id"})
+    # the map's grain names id:channel_code; bind it as the map's own key so the grain resolves
+    (rep,) = [r for r in changed["representations"] if r["table"] == ACCOUNT_MAP]
+    (binding,) = [b for b in rep["bindings"] if b["column"] == "channel_code"]
+    binding["to"] = "identifier"
+    link = _link(context_pack(changed, None, tables=[ACCOUNT_MAP, SUMMARY]), ACCOUNT_MAP, SUMMARY)
+    on = {(p["left"], p["right"]) for p in link["pairs"] if p["in_skeleton"]}
+    assert on == {
+        (f"{ACCOUNT_MAP}.account_id", f"{SUMMARY}.account_id"),
+        (f"{ACCOUNT_MAP}.channel_code", f"{SUMMARY}.channel_code"),
+    }
+    assert _side(link, ACCOUNT_MAP)["rows_per_key"] == "one"
+
+
+def test_check_sql_lists_the_same_pairs_the_link_shows(document: dict) -> None:
+    from scope_lineage.render.catalog_sql_check import check_sql
+    from scope_lineage.scope.query_facts import query_facts
+
+    sql = f"SELECT * FROM {LOAN} a JOIN {REPAYMENT} b ON a.dt = b.dt"
+    (finding,) = [
+        f for f in check_sql(document, query_facts(sql))["findings"]
+        if f["rule"] == "join_not_recorded"
+    ]
+    link = _link(context_pack(document, None, tables=[LOAN, REPAYMENT]), LOAN, REPAYMENT)
+    assert [(p["left"], p["right"]) for p in finding["catalog"]["recorded"]] == [
+        (p["left"], p["right"]) for p in link["pairs"]
+    ]
