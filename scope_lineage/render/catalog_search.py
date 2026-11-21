@@ -33,7 +33,7 @@ from typing import Optional
 
 from .catalog_view import CatalogView, catalog_table_name
 
-__all__ = ["SEARCH_KINDS", "render_search_text", "search_catalog"]
+__all__ = ["SEARCH_KINDS", "named_objects", "render_search_text", "search_catalog"]
 
 SEARCH_KINDS = ("concept", "metric", "attribute", "identifier", "code_set", "table")
 KIND_TEXT = {
@@ -115,6 +115,32 @@ def search_catalog(
     hits.sort(key=lambda entry: (-entry[0]["score"], SEARCH_KINDS.index(entry[0]["kind"]), entry[0]["id"]))
     result["hits"] = _fold_families(hits, max(limit, 0))
     return result
+
+
+def named_objects(document: Mapping, texts: Iterable[str]) -> list[dict]:
+    """The objects whose own name, synonym, term or id *is* one of ``texts``.
+
+    Not a search: equality after NFKC, case folding and collapsing whitespace, so a reader
+    can tell whether the catalog now carries a word, not what resembles it. Each object
+    once, ``{kind, id, name, matched_in}``, in the order ``search`` builds its items.
+    """
+    wanted = {_same_text(text) for text in texts if _same_text(text)}
+    found = []
+    for item in _items(CatalogView(document), {}):
+        matched = [
+            label
+            for label in _NAMING
+            if any(_same_text(value) in wanted for value in item["fields"].get(label) or [])
+        ]
+        if matched:
+            found.append(
+                {"kind": item["kind"], "id": item["id"], "name": item["name"], "matched_in": matched}
+            )
+    return found
+
+
+def _same_text(text) -> str:
+    return " ".join(_fold(text).split())
 
 
 def _fold_families(hits: list, limit: int) -> list[dict]:

@@ -1048,6 +1048,7 @@ echo "SELECT l.loan_no FROM demo_dwd.dwd_lending_loan_df l" | scope-lineage cata
 | `missing_partition_filter` | warning | 读一张带 `time_role: partition` 列的表，或拉链表的 `valid_from` / `valid_to` 列，而整条语句里没有任何能追到这次读取的 WHERE 或 JOIN ON 谓词用到这一组的任一列 | 这一组的任一列出现在能追到这次读取的谓词里（经过 CTE 也算）；表没有这类时间角色 |
 | `fan_out_unaggregated` | warning | 对直接读的表 A 的列做 SUM 或 COUNT（非 DISTINCT、非窗口），而同一个 SELECT 里直接读、与 A 关联的表 B 有记录的粒度，关联列加上 B 被谓词钉住的列覆盖不了它；只看 B，A 自己的粒度无关 | B 的粒度被关联列和钉住的列（拉链的有效期钉住开始日）或 GROUP BY 覆盖；B 先在子查询里聚合过；SEMI / ANTI JOIN；`COUNT(*)`；B 没有记录粒度 |
 | `code_value_unknown` | warning | 绑定或属性列出了码值的列，用 `=` 或 `IN` 与不在其中的字面量比较；列出可用的值 | 值在列表里（`1` 与 `'1'` 相等）；码值集的值在查找表里；列存的是含义或代理键（`holds`） |
+| `pending_definition` | info | 查询里有一个 `待确认` 占位（见下文）；写在 `<列> <比较符>` 或 `<列> IN (` 之后时带上这一列落到的物理表和列 | 注释不以 `待确认` 加冒号开头；标记写在字符串里 |
 
 完整的列清单在哪里：构建出的文档只以绑定的形式记录表的列，而目录可以只绑定一张表的部分列。说明一张表
 共有几列的只有 `build --tables` 附上的表卡计数，没有它，`unknown_column` 从不断言某列不存在。
@@ -1060,11 +1061,82 @@ echo "SELECT l.loan_no FROM demo_dwd.dwd_lending_loan_df l" | scope-lineage cata
 - 警告 [code_value_unknown] demo_dwd.dwd_lending_loan_df.loan_status 与 '5' 比较，但目录列出的取值里没有它。可用的值：1=normal、2=overdue、3=settled、9=待确认，疑似核销。
 ```
 
-`--json` 输出 `catalog-sql-check/1`：`{"doc_format", "statements", "tables", "findings"}`；每条发现带
+`--json` 输出 `catalog-sql-check/1`：`{"doc_format", "statements", "tables", "placeholders", "findings"}`；每条发现带
 `rule`、`severity`、`statement`（它在脚本里的位置，从 1 起）、所针对的 `table` / `column` / `alias`、中文
 `message`，以及 `catalog` 里目录记录的实际情况（它的列、记录的关联、时间列、多的一侧的粒度、可用的值）。
 完全不含查询的语句跳过。退出码：`0` 没有 error 或 warning（允许 info），`1` 至少一条 error 或 warning，
 `2` 本体或 SQL 文件读不了、SQL 严格解析不通过（消息给出出错的行、列和附近的原文）、或其中没有查询。
+
+### 待确认的占位
+
+目录没有定义的业务词（什么算「接通」、哪些码值算「未触达」、一个类别怎么定），agent 不猜：它在查询里留一个
+占位，说明缺什么定义，查询照样能解析。占位是一条以 `待确认` 加冒号（`:` 或 `：`）开头的注释，写在中性的谓词或值旁边：
+
+```sql
+SELECT COUNT(*) AS cnt
+FROM demo_dwd.dwd_party_customer_info_df c
+WHERE c.dt = '2024-01-31'
+  AND c.gender_cd IN (/* 待确认：性别码除 F、M、U 外还有哪些值 */ 'F', 'M')
+  AND /* 待确认：注销的客户算不算 */ 1 = 1
+```
+
+`check-sql` 在结果的 `placeholders` 里列出每个占位（`statement`、`text`、`written`、`table`、`column`），并各给一条
+`pending_definition`（info），不影响退出码。占位紧跟在 `<列> <比较符>`（`=`、`<>`、`!=`、`<`、`>`、`<=`、`>=`）或
+`<列> IN (` 之后时，`written` 是写下的列名，`table` / `column` 是它经别名、CTE、子查询落到的那一个物理列；写在谓词前、值后、
+`1 = 1` 旁或表达式之后的占位不归到任何列；同一个名字落到不同的表（或多源作用域里的裸列名）也不归。注释从词法记号流里读，
+不从语法树读：sqlglot 把注释挂在附近的节点上（`/* … */ 1 = 1` 挂在整个 `AND` 上，`, /* … */ 'v' AS c` 挂在前一个投影上），
+树说不出它挨着什么；记号之间的空隙只有空白和注释，字符串里的同样文字不会被读成占位。以 `--` 开头的行注释同样算。
+
+## 待确认的定义：`catalog pending`
+
+占位只活在一次对话里，同一个缺口下次还会遇到。`catalog pending` 把它们记进一个只追加的 JSON Lines 文件，交给目录负责人：
+
+```bash
+scope-lineage catalog pending add pending.jsonl --from-sql query.sql --question "一月底有多少女性和男性客户"
+scope-lineage catalog pending add pending.jsonl --missing "注销的客户算不算" --question "上月新增客户数" \
+  --table demo_dwd.dwd_party_customer_info_df
+scope-lineage catalog pending list pending.jsonl --ontology out/ontology.json --semantics semantics/ [--json]
+```
+
+`add` 每个缺失的定义追加一行 `catalog-pending/1`：`--missing`（可带 `--term` 业务词本身、`--table`、`--column`、`--proposed`
+提议的定义）记一行；`--from-sql` 给 SQL 文件里的每个占位记一行（归到列的占位记那一列和它的表，没归到列的记这条语句读的
+所有表）。两种都要 `--question`（问题原文）；日期取 `--date`，不给时取当天（只在命令行这一处取）。已有的行从不改写。
+退出码：`0` 已追加；`1` SQL 里没有占位，或有占位没写缺什么（什么都不写）；`2` 选项不对、输入读不了或 SQL 解析不通过。
+
+```json
+{"doc_format": "catalog-pending/1", "date": "2026-11-20", "missing": "性别码除 F、M、U 外还有哪些值", "question": "一月底有多少女性和男性客户", "tables": ["demo_dwd.dwd_party_customer_info_df"], "columns": ["demo_dwd.dwd_party_customer_info_df.gender_cd"], "source": {"sql": "query.sql", "statement": 1, "written": "c.gender_cd"}}
+```
+
+`list` 把缺的是同一个东西的行合成一项（文字经 NFKC、忽略大小写、合并空白后相等，不做模糊合并），按命中次数排序，列出
+问到它的问题、涉及的表和列、提议的定义、记录日期和行号。给了 `--semantics` 时，标出表语义文档里 `about` 指向同一列的已记录
+问题（及其 `status`）；给了 `--ontology` 时，标出目录里自己的名称、同义词、术语或 id 现在正好是这一项文字或业务词的对象——
+负责人据此看哪些已经有了答案。它只记录和报告，从不改目录，也不判定定义。`--json` 输出 `catalog-pending-list/1`。退出码：
+`0` 每行都读得了；`1` 有行不是 `catalog-pending/1` 条目（其余照样列出）；`2` 输入读不了。
+
+```text
+# 待确认的定义：4 条记录，3 项
+
+## 1. 注销的客户算不算（2 次）
+- 问到它的问题：一月底有多少女性和男性客户；上月新增客户数
+- 涉及：demo_dwd.dwd_party_customer_info_df
+- 记录日期：2026-11-20 至 2026-11-21（第 2、3 行）
+- 表语义：这一项没有指明列，无法对照已记录的问题
+- 目录还没有同名对象
+
+## 2. 性别码除 F、M、U 外还有哪些值（1 次）
+- 问到它的问题：一月底有多少女性和男性客户
+- 涉及：demo_dwd.dwd_party_customer_info_df.gender_cd
+- 记录日期：2026-11-20（第 1 行）
+- 表语义已记录的问题：demo_dwd.dwd_party_customer_info_df q1（open）性别码值除了 F、M、U 以外，还会不会出现其他值？
+- 目录还没有同名对象
+
+## 3. 豁免（1 次）
+- 问到它的问题：上月豁免了多少罚息
+- 提议的定义：罚息减免记录
+- 记录日期：2026-11-21（第 4 行）
+- 表语义：这一项没有指明列，无法对照已记录的问题
+- 目录现在有同名对象（核对是否已回答）：[概念] 豁免 concept:fee_waiver
+```
 
 ## 起草：`catalog digest` 与 `catalog merge`
 

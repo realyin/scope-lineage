@@ -35,6 +35,10 @@ what the two together settle; where they cannot tell, it says nothing or says ``
   compared with ``=`` or ``IN`` to a literal that is not one of them. Code sets whose values
   live in a lookup table, and columns that store meanings or keys (``holds``), are not judged.
 
+- ``pending_definition`` (info): a ``/* 待确认：… */`` placeholder the agent left for a
+  definition the catalog does not give, also listed in the result's ``placeholders`` with the
+  physical column it follows when ``query_facts`` settled one. It never blocks.
+
 Nothing here reads a file or the SQL text; the command composes the two halves.
 """
 
@@ -53,7 +57,7 @@ from .catalog_joins import (
 )
 from .catalog_view import CatalogView
 
-__all__ = ["CHECK_FORMAT", "RULES", "check_sql", "render_check_sql_text"]
+__all__ = ["CHECK_FORMAT", "RULES", "check_sql", "placeholders_of", "render_check_sql_text"]
 
 CHECK_FORMAT = "catalog-sql-check/1"
 # rule id -> severity, in the order findings are listed
@@ -65,6 +69,7 @@ RULES = {
     "code_value_unknown": "warning",
     "table_not_in_catalog": "info",
     "column_unchecked": "info",
+    "pending_definition": "info",
 }
 SEVERITY_TEXT = {"error": "错误", "warning": "警告", "info": "提示"}
 _PREDICATE_CLAUSES = ("where", "join")
@@ -89,6 +94,7 @@ def check_sql(document: Mapping, statements: Iterable[Mapping]) -> dict:
         found += _partition_filters(view, statement)
         found += _fan_out(view, statement)
         found += _code_values(view, statement)
+        found += _pending(statement)
         order = list(RULES)
         found.sort(key=lambda f: order.index(f["rule"]))
         findings += [{"rule": f["rule"], "severity": RULES[f["rule"]], "statement": number,
@@ -97,8 +103,51 @@ def check_sql(document: Mapping, statements: Iterable[Mapping]) -> dict:
         "doc_format": CHECK_FORMAT,
         "statements": [s["statement"] for s in statements],
         "tables": list(tables.values()),
+        "placeholders": placeholders_of(statements),
         "findings": findings,
     }
+
+
+def placeholders_of(statements: Iterable[Mapping]) -> list[dict]:
+    """Every ``待确认`` placeholder of the statements' facts, with the physical column it
+    follows when ``query_facts`` settled one (``table`` / ``column``), else None."""
+    found = []
+    for statement in statements:
+        for placeholder in statement.get("placeholders") or []:
+            targets = placeholder.get("targets") or []
+            target = targets[0] if len(targets) == 1 else None
+            found.append({
+                "statement": statement["statement"],
+                "text": placeholder["text"],
+                "written": placeholder.get("written"),
+                "table": target["table"] if target else None,
+                "column": target["column"] if target else None,
+            })
+    return found
+
+
+def _pending(statement: Mapping) -> list[dict]:
+    """One ``info`` finding a placeholder: a definition the query leaves open on purpose."""
+    found = []
+    for placeholder in placeholders_of([statement]):
+        if placeholder["table"]:
+            where = f"（写在 {placeholder['written']} 的比较之后，即 {placeholder['table']}." \
+                    f"{placeholder['column']}）"
+        elif placeholder["written"]:
+            where = f"（写在 {placeholder['written']} 的比较之后，这个名字落不到唯一一列）"
+        else:
+            where = ""
+        found.append({
+            "rule": "pending_definition",
+            "table": placeholder["table"],
+            "column": placeholder["column"],
+            "text": placeholder["text"],
+            "message": (
+                f"待确认的定义：{placeholder['text'] or '（占位没有写缺什么）'}{where}。"
+                "目录没有给出它，查询里留了占位；用 catalog pending add --from-sql 记下来交给目录负责人。"
+            ),
+        })
+    return found
 
 
 def _table_entry(view: CatalogView, table: str) -> dict:

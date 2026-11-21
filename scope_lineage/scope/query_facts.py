@@ -16,6 +16,10 @@ the same position of every UNION branch. Anything else -- an expression, an aggr
 UDTF output -- reaches nothing, and a reader must treat an empty ``targets`` as "cannot
 tell", not as "no table". A bare column in a scope with more than one source is not
 attributed to any of them (``ambiguous``): without a schema, picking one would be a guess.
+
+Each statement also lists its ``待确认`` placeholders (``placeholders``: text, the column as
+written before the comparison it follows, and the one physical column that spelling reaches
+in the statement, if exactly one); ``sql_placeholders`` reads them from the token stream.
 """
 
 from __future__ import annotations
@@ -31,6 +35,7 @@ from .parser import _qualified_table
 from .scope_builder import _normalize_directory_insert_sql, _qualify_ast, _syntax_status
 from .ctas_missing_as import repair_ctas_missing_as
 from .keyword_identifiers import repair_keyword_identifiers
+from .sql_placeholders import placeholders_by_statement
 
 __all__ = ["QueryFactsError", "query_facts"]
 
@@ -60,12 +65,17 @@ def query_facts(sql: str) -> list[dict]:
         raise QueryFactsError(_parse_error_text(errors))
     normalized, _ = repair_keyword_identifiers(repair_ctas_missing_as(_normalize_directory_insert_sql(sql))[0])
     trees = sqlglot.parse(normalized, dialect=DIALECT, **PARSE_OPTS)
+    placeholders = placeholders_by_statement(normalized)
     statements = []
     skipped = []
     for position, tree in enumerate(trees, 1):
         query = _query_of(tree)
         if query is not None:
-            statements.append(_statement(position, query))
+            statement = _statement(position, query)
+            statement["placeholders"] = [
+                _placeholder(statement, found) for found in placeholders.get(position, [])
+            ]
+            statements.append(statement)
         elif tree is not None and not isinstance(tree, exp.Semicolon):
             skipped.append(position)
     if not statements:
@@ -73,6 +83,41 @@ def query_facts(sql: str) -> list[dict]:
     for statement in statements:
         statement["skipped_statements"] = skipped
     return statements
+
+
+def _placeholder(statement: dict, found: dict) -> dict:
+    """A ``待确认`` comment with the physical column it follows, when that is settled.
+
+    ``written`` is the column as spelled before the comparison, kept only when some column
+    reference of the statement has that spelling. ``targets`` holds one physical column
+    when every such reference reaches that same one, else nothing: a bare name of a scope
+    with two sources, or one spelling reaching two tables, is not attributed.
+    """
+    written = found["written"]
+    if written is None:
+        return {"text": found["text"], "written": None, "targets": []}
+    alias = (written["alias"] or "").casefold()
+    column = written["column"].casefold()
+    matched = [
+        ref
+        for scope in statement["scopes"]
+        for ref in scope["refs"]
+        if ref["column"].casefold() == column
+        and (not alias or (ref["alias"] or "").casefold() == alias)
+    ]
+    if not matched:
+        return {"text": found["text"], "written": None, "targets": []}
+    spelled = f"{written['alias']}.{written['column']}" if written["alias"] else written["column"]
+    reached = {
+        (target["table"], target["column"].casefold()): target
+        for ref in matched
+        for target in ref["targets"]
+    }
+    settled = len(reached) == 1 and all(ref["targets"] and not ref["ambiguous"] for ref in matched)
+    targets = [
+        {"table": target["table"], "column": target["column"]} for target in reached.values()
+    ] if settled else []
+    return {"text": found["text"], "written": spelled, "targets": targets}
 
 
 _EXCERPT = 40

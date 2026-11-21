@@ -2,7 +2,8 @@
 ``context``, ``search``, ``check-sql``.
 
 ``digest`` and ``merge``, which draft a catalog from table semantics, live in
-``cli_catalog_draft``.
+``cli_catalog_draft``; ``pending``, which keeps the definitions an agent found missing for
+the catalog's owner, lives in ``cli_catalog_pending``.
 
 Kept out of ``cli.py`` like the other corpus commands. Its first input is a catalog
 directory a person maintains; ``build`` may also read a lineage corpus and a table-card
@@ -33,6 +34,7 @@ from .catalog import (
     validate_catalog,
 )
 from .cli_catalog_draft import add_draft_parsers, run_digest, run_merge
+from .cli_catalog_pending import add_pending_parser, run_pending
 
 ONTOLOGY_FILENAME = "ontology.json"
 
@@ -63,6 +65,7 @@ def add_catalog_parser(subcommands) -> None:
     _add_context_parser(actions)
     _add_search_parser(actions)
     _add_check_sql_parser(actions)
+    add_pending_parser(actions)
     add_draft_parsers(actions)
 
 
@@ -257,6 +260,8 @@ def run_catalog(args: argparse.Namespace) -> int:
         return _run_search(args)
     if args.catalog_action == "check-sql":
         return _run_check_sql(args)
+    if args.catalog_action == "pending":
+        return run_pending(args)
     if args.catalog_action == "digest":
         return run_digest(args)
     if args.catalog_action == "merge":

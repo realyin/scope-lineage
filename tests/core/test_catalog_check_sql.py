@@ -586,3 +586,125 @@ def test_the_command_exits_2_for_sql_that_does_not_parse(tmp_path: Path, capsys)
 def test_the_command_exits_2_for_a_file_that_is_not_there(tmp_path: Path, capsys) -> None:
     assert main(["catalog", "check-sql", str(ONTOLOGY), str(tmp_path / "none.sql")]) == 2
     assert "none.sql" in capsys.readouterr().err
+
+
+# ------------------------------------------------------------ placeholders
+#
+# A definition the catalog does not give is written as a comment ``/* 待确认：<what> */``
+# beside a neutral predicate or value. check-sql lists each one, never as a blocking
+# finding, and ties it to a column only when it sits right after ``<column> =`` (or another
+# comparison, or ``<column> IN (``).
+
+
+def _placeholders(sql: str) -> list[dict]:
+    return [p for s in query_facts(sql) for p in s["placeholders"]]
+
+
+def test_a_placeholder_beside_a_neutral_predicate_is_listed_with_no_column(
+    document: dict,
+) -> None:
+    result = _check(
+        document,
+        f"SELECT l.loan_no FROM {LOAN} l WHERE l.dt = '2024-01-01' AND /* 待确认：结清的判定 */ 1 = 1",
+    )
+    assert result["placeholders"] == [
+        {"statement": 1, "text": "结清的判定", "written": None, "table": None, "column": None}
+    ]
+    (finding,) = _rule(result, "pending_definition")
+    assert finding["severity"] == "info"
+    assert finding["statement"] == 1
+    assert finding["text"] == "结清的判定"
+    assert "结清的判定" in finding["message"]
+
+
+def test_the_marker_takes_either_colon_and_a_line_comment(document: dict) -> None:
+    found = _placeholders(
+        f"SELECT l.loan_no -- 待确认: 一行算不算一笔\n"
+        f"FROM {LOAN} l WHERE /* 待确认：哪些状态算正常 */ 1 = 1"
+    )
+    assert [p["text"] for p in found] == ["一行算不算一笔", "哪些状态算正常"]
+
+
+def test_comments_without_the_marker_and_marker_text_in_strings_are_not_placeholders() -> None:
+    found = _placeholders(
+        f"SELECT '待确认：不是注释' AS a, l.loan_no -- 近30天，是否含今天待确认\n"
+        f"FROM {LOAN} l /* 待确认 没有冒号 */ WHERE l.dt = '1'"
+    )
+    assert found == []
+
+
+def test_a_placeholder_right_after_a_comparison_is_tied_to_that_column(document: dict) -> None:
+    result = _check(
+        document,
+        f"SELECT l.loan_no FROM {LOAN} l WHERE l.loan_status = /* 待确认：哪个码算结清 */ '1'"
+        f" OR l.loan_status IN (/* 待确认：哪些码算逾期 */ '2')",
+    )
+    assert [(p["text"], p["written"], p["table"], p["column"]) for p in result["placeholders"]] == [
+        ("哪个码算结清", "l.loan_status", LOAN, "loan_status"),
+        ("哪些码算逾期", "l.loan_status", LOAN, "loan_status"),
+    ]
+
+
+def test_a_placeholder_through_a_subquery_reaches_the_physical_column(document: dict) -> None:
+    result = _check(
+        document,
+        f"SELECT s.st FROM (SELECT loan_status AS st FROM {LOAN}) s"
+        f" WHERE s.st = /* 待确认：哪个码算结清 */ '1'",
+    )
+    (placeholder,) = result["placeholders"]
+    assert (placeholder["written"], placeholder["table"], placeholder["column"]) == (
+        "s.st", LOAN, "loan_status",
+    )
+
+
+def test_a_placeholder_not_right_after_a_comparison_is_not_tied_to_a_column() -> None:
+    found = _placeholders(
+        f"SELECT l.loan_no FROM {LOAN} l WHERE /* 待确认：甲 */ l.loan_status = '1'"
+        f" AND l.dt = '1' /* 待确认：乙 */ AND l.principal_amt + 1 = /* 待确认：丙 */ 2"
+    )
+    assert [(p["text"], p["written"], p["targets"]) for p in found] == [
+        ("甲", None, []), ("乙", None, []), ("丙", None, []),
+    ]
+
+
+def test_a_bare_column_of_two_sources_is_written_but_not_attributed(document: dict) -> None:
+    result = _check(
+        document,
+        f"SELECT l.loan_no FROM {LOAN} l JOIN {CUSTOMER} c ON l.customer_id = c.customer_id"
+        f" WHERE gender_cd = /* 待确认：未知性别怎么算 */ 'U'",
+    )
+    (placeholder,) = result["placeholders"]
+    assert (placeholder["written"], placeholder["table"], placeholder["column"]) == (
+        "gender_cd", None, None,
+    )
+
+
+def test_placeholders_belong_to_the_statement_they_are_written_in() -> None:
+    """A comment after a semicolon opens the next statement; one before it closes its own."""
+    statements = query_facts(
+        f"SELECT l.loan_no FROM {LOAN} l WHERE /* 待确认：甲 */ 1 = 1 /* 待确认：乙 */;\n"
+        f"/* 待确认：丙 */\n"
+        f"SELECT c.customer_id FROM {CUSTOMER} c WHERE /* 待确认：丁 */ 1 = 1;"
+    )
+    first, second = statements
+    assert [p["text"] for p in first["placeholders"]] == ["甲", "乙"]
+    assert [p["text"] for p in second["placeholders"]] == ["丙", "丁"]
+    assert second["statement"] > first["statement"]
+
+
+def test_the_text_lists_placeholders(document: dict) -> None:
+    result = _check(document, f"SELECT l.loan_no FROM {LOAN} l WHERE /* 待确认：结清的判定 */ 1 = 1")
+    text = render_check_sql_text(result)
+    assert "pending_definition" in text and "结清的判定" in text
+
+
+def test_the_command_exits_0_when_the_only_findings_are_placeholders(
+    tmp_path: Path, capsys,
+) -> None:
+    sql = tmp_path / "q.sql"
+    sql.write_text(
+        f"SELECT l.loan_no FROM {LOAN} l WHERE /* 待确认：结清的判定 */ 1 = 1", encoding="utf-8"
+    )
+    assert main(["catalog", "check-sql", str(ONTOLOGY), str(sql), "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert [p["text"] for p in result["placeholders"]] == ["结清的判定"]

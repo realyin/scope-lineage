@@ -1197,6 +1197,7 @@ nothing or says `info`:
 | `missing_partition_filter` | warning | a read of a table with a `time_role: partition` column, or a zipper's `valid_from` / `valid_to` columns, has no WHERE or JOIN ON predicate on any column of that group anywhere in the statement that reaches this read | any column of the group is used in a predicate that reaches the read (through a CTE too); the table has no such time role |
 | `fan_out_unaggregated` | warning | a SUM or COUNT (not DISTINCT, not windowed) over columns of one directly read table A, while a table B read directly in the same SELECT and joined to A has a recorded grain that the join columns plus B's predicate-pinned columns do not cover; only B decides, A's own grain does not matter | B's grain is covered by the join columns and pinned columns (a zipper's window pins its start) or by the GROUP BY; B is reduced in a subquery first; a SEMI / ANTI join; `COUNT(*)`; B has no recorded grain |
 | `code_value_unknown` | warning | a column whose binding or attribute lists code values is compared with `=` or `IN` to a literal not among them; lists the values | the value is listed (`1` matches `'1'`); the code set's values live in a lookup table; the column stores meanings or keys (`holds`) |
+| `pending_definition` | info | the query holds a `待确认` placeholder (below); written right after `<column> <op>` or `<column> IN (`, it carries the physical table and column that column reaches | the comment does not start with `待确认` and a colon; the marker is inside a string |
 
 Where the full column list lives: the built document records a table's columns only as its bindings, and a
 catalog may bind some of a table's columns and not others. The only statement of how many columns a table
@@ -1210,13 +1211,98 @@ without a time role is not taken for a partition, however it is named.
 - 警告 [code_value_unknown] demo_dwd.dwd_lending_loan_df.loan_status 与 '5' 比较，但目录列出的取值里没有它。可用的值：1=normal、2=overdue、3=settled、9=待确认，疑似核销。
 ```
 
-`--json` prints `catalog-sql-check/1`: `{"doc_format", "statements", "tables", "findings"}`; each finding has
+`--json` prints `catalog-sql-check/1`: `{"doc_format", "statements", "tables", "placeholders", "findings"}`; each finding has
 `rule`, `severity`, `statement` (its position in the script, from 1), the `table` / `column` / `alias` it is
 about, a Chinese `message`, and in `catalog` what the catalog records instead (its columns, the recorded join
 pairs, the time columns, the many side's grain, the valid values). Statements holding no query at all are
 skipped. Exit codes: `0` no error or warning (info allowed), `1` at least one error or warning, `2` the
 ontology or the SQL file cannot be read, the SQL does not parse strictly (the message gives the line, the
 column and the text around where parsing broke), or it holds no query.
+
+### Placeholders for a missing definition
+
+For a business word the catalog does not define (what counts as "reached", which code values mean "not
+contacted", how a category is decided) the agent does not guess: it leaves a placeholder in the query saying
+which definition is missing, and the query still parses. A placeholder is a comment starting with `待确认`
+and a colon (`:` or `：`), written beside a neutral predicate or value:
+
+```sql
+SELECT COUNT(*) AS cnt
+FROM demo_dwd.dwd_party_customer_info_df c
+WHERE c.dt = '2024-01-31'
+  AND c.gender_cd IN (/* 待确认：性别码除 F、M、U 外还有哪些值 */ 'F', 'M')
+  AND /* 待确认：注销的客户算不算 */ 1 = 1
+```
+
+`check-sql` lists each one under `placeholders` in its result (`statement`, `text`, `written`, `table`,
+`column`) and gives one `pending_definition` finding (info) each; the exit code does not change. When the
+placeholder sits right after `<column> <op>` (`=`, `<>`, `!=`, `<`, `>`, `<=`, `>=`) or `<column> IN (`,
+`written` is the column as written and `table` / `column` the one physical column it reaches through
+aliases, CTEs and subqueries; a placeholder before the predicate, after the value, beside `1 = 1` or after an
+expression is tied to no column, and neither is a name reaching two tables (or a bare name in a scope with
+two sources). The comments are read from the token stream, not the tree: sqlglot attaches a comment to a
+nearby node (`/* … */ 1 = 1` lands on the whole `AND`, `, /* … */ 'v' AS c` on the projection before it),
+so the tree cannot say what it sits next to; the gaps between tokens hold only whitespace and comments, so
+the same words inside a string are never read as a placeholder. A `--` line comment counts too.
+
+## Missing definitions: `catalog pending`
+
+A placeholder lives only as long as the conversation, and the same gap is hit again next time. `catalog
+pending` keeps them in an append-only JSON Lines file for the catalog's owner:
+
+```bash
+scope-lineage catalog pending add pending.jsonl --from-sql query.sql --question "一月底有多少女性和男性客户"
+scope-lineage catalog pending add pending.jsonl --missing "注销的客户算不算" --question "上月新增客户数" \
+  --table demo_dwd.dwd_party_customer_info_df
+scope-lineage catalog pending list pending.jsonl --ontology out/ontology.json --semantics semantics/ [--json]
+```
+
+`add` appends one `catalog-pending/1` line per missing definition: `--missing` (with `--term` for the
+business word itself, `--table`, `--column`, `--proposed` for a proposed definition) writes one line;
+`--from-sql` writes one per placeholder of the SQL file (a placeholder tied to a column records that column
+and its table, one tied to nothing every table its statement reads). Both need `--question` (the question
+as asked); the date is `--date`, or today when it is not given (taken in that one place, the command line).
+Existing lines are never rewritten. Exit codes: `0` appended; `1` the SQL has no placeholder, or a
+placeholder says nothing (nothing written); `2` bad options, an input cannot be read, or the SQL does not
+parse.
+
+```json
+{"doc_format": "catalog-pending/1", "date": "2026-11-20", "missing": "性别码除 F、M、U 外还有哪些值", "question": "一月底有多少女性和男性客户", "tables": ["demo_dwd.dwd_party_customer_info_df"], "columns": ["demo_dwd.dwd_party_customer_info_df.gender_cd"], "source": {"sql": "query.sql", "statement": 1, "written": "c.gender_cd"}}
+```
+
+`list` folds the lines naming the same missing thing into one item (text equal after NFKC, case folding and
+collapsing whitespace -- no fuzzy merging), most hit first, with the questions behind it, the tables and
+columns, proposed definitions, dates and line numbers. With `--semantics` it marks the questions a
+table-semantics document records `about` the same column (with their `status`); with `--ontology`, the
+catalog objects whose own name, synonym, term or id now is the item's text or term -- so the owner sees
+which entries are answered. It records and reports; it never edits the catalog or decides a definition.
+`--json` prints `catalog-pending-list/1`. Exit codes: `0` every line read; `1` some line is not a
+`catalog-pending/1` entry (the rest are still listed); `2` an input cannot be read.
+
+```text
+# 待确认的定义：4 条记录，3 项
+
+## 1. 注销的客户算不算（2 次）
+- 问到它的问题：一月底有多少女性和男性客户；上月新增客户数
+- 涉及：demo_dwd.dwd_party_customer_info_df
+- 记录日期：2026-11-20 至 2026-11-21（第 2、3 行）
+- 表语义：这一项没有指明列，无法对照已记录的问题
+- 目录还没有同名对象
+
+## 2. 性别码除 F、M、U 外还有哪些值（1 次）
+- 问到它的问题：一月底有多少女性和男性客户
+- 涉及：demo_dwd.dwd_party_customer_info_df.gender_cd
+- 记录日期：2026-11-20（第 1 行）
+- 表语义已记录的问题：demo_dwd.dwd_party_customer_info_df q1（open）性别码值除了 F、M、U 以外，还会不会出现其他值？
+- 目录还没有同名对象
+
+## 3. 豁免（1 次）
+- 问到它的问题：上月豁免了多少罚息
+- 提议的定义：罚息减免记录
+- 记录日期：2026-11-21（第 4 行）
+- 表语义：这一项没有指明列，无法对照已记录的问题
+- 目录现在有同名对象（核对是否已回答）：[概念] 豁免 concept:fee_waiver
+```
 
 ## Drafting: `catalog digest` and `catalog merge`
 

@@ -59,6 +59,22 @@
   read table whose grain the join columns and pinned columns leave open. `--json` prints
   `catalog-sql-check/1`; exit 0 clean (info allowed), 1 an error or warning, 2 unreadable input or
   SQL that does not parse (with line, column and the text around it).
+- **`catalog check-sql` lists `/* 待确认：… */` placeholders; `catalog pending` keeps them for
+  the owner.** An agent that meets a business word the catalog does not define writes the SQL
+  with a placeholder comment beside a neutral predicate or value (`AND /* 待确认：… */ 1 = 1`,
+  `col IN (/* 待确认：… */ 'v')`) instead of guessing. `check-sql` now returns `placeholders`
+  (statement, text, and the physical `table` / `column` when the comment sits right after
+  `<column> <op>` or `<column> IN (`, else none) and one `pending_definition` info finding each;
+  the exit code is unchanged. The comments are read from the token stream
+  (`scope.sql_placeholders`), because sqlglot attaches a comment to a nearby node that does not
+  say what it sits next to. `catalog pending add <file>` appends one `catalog-pending/1` JSON
+  line per missing definition -- from `--missing` (with `--term`, `--table`, `--column`,
+  `--proposed`) or from a SQL file's placeholders (`--from-sql`), always with `--question` and a
+  date (`--date`, default today) -- and never rewrites a line. `catalog pending list <file>
+  [--ontology] [--semantics] [--json]` groups entries by normalised text (no fuzzy merging),
+  counts hits and questions, and marks the question a table-semantics document already records
+  about the same column and the catalog objects whose own name, synonym, term or id now is the
+  entry's text or term. It records and reports; it never edits the catalog.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**
