@@ -888,6 +888,266 @@ scope-lineage catalog query out/ontology.json table spark_catalog.demo_dwd.dwd_l
 `--json` 输出 `{"query": {"kind", "term"}, "matches": [...]}`，给 Agent 用。退出码：`0` 有匹配，
 `1` 没有匹配，`2` 文件读不了（不是 `ontology-json/3` 文档时也是 `1`）。
 
+## 检索：`catalog search`
+
+`catalog query` 只认目录里的正式名字。手里只有一个业务词或一整句问题时，先用 `search` 把它换成正式名字：
+
+```bash
+scope-lineage catalog search out/ontology.json 每个渠道上个月的还款金额是多少
+scope-lineage catalog search out/ontology.json loan_no --kind identifier --limit 5 --json
+```
+
+它把概念、指标、属性、标识符、码值集和表各当作一个条目，按与这段文字的相近程度排序，返回前 `--limit`
+个（默认 10）。每个条目给出类型、id、名称、一行摘要（`summary`）、在哪里（`where`）和命中的字段（`matched_in`）。
+
+| 条目 | 参与匹配的文字 | `where` |
+| --- | --- | --- |
+| `concept` | 名称、同义词、指向它的术语、id、定义 | 它的表现表 |
+| `metric` | 名称、术语、id、定义与过滤 | 它算在哪个概念上 |
+| `attribute` | 名称、术语、id、定义、绑定它的列名 | 所属概念与绑定的表列 |
+| `identifier` | 名称、术语、id、物理拼写、备注 | 它识别的概念 |
+| `code_set` | 名称、术语、id、各码值的含义 | 无 |
+| `table` | 表名、表注释、承载概念的名称；给了 `--semantics` 时加上表语义的「是什么」与适用场景 | 承载的概念 |
+
+匹配只看字面，不需要额外依赖：中文按相邻两个字切分，所以业务词能在更长的名称里命中；字母和数字按词切分，
+不分大小写。名称里命中比定义里命中分高，少见的词比常见的词分高，被整个说出来的名称比只沾到一部分的分高。
+只用来搭问句的字词先从文字里去掉：两个字都是疑问字或虚字的切片（每个、多少、是否、哪些），含「的」「吗」这类
+助词的切片，以及几个提问动词（统计、写出、说明）；只要有一个别的字就保留（还款、个人）。只去文字里的，不动目录。
+
+一句问题点了两样东西，两样都应该列出来。概念的属性、标识符和表是它的成员，一个概念可能带来很多成员，每个都比
+另一样东西的概念命中更多字。所以一个概念的成员占满两个位置以后，它的下一个成员要等文字点到的每个概念（在该
+概念自己的名称、同义词、术语或 id 里命中）都列出来，等着的成员再按分数接上。只问一样东西的文字、或者
+`--kind` 里没有 `concept` 时，没有要等的概念，照分数排；搜物理列名照样先出它的属性或标识符。JSON 结构不变。
+
+分数只用来排序，两次检索之间不可比。`search` 只给候选，不替读者选，也不改目录：选定以后用 id 去
+`query` 或 `context`。
+
+```text
+1. [概念] 借款人 concept:borrower — A customer while they hold at least one loan that is not settled.
+   在：demo_dwd.dwd_lending_borrower_df
+```
+
+`--kind` 可重复，只留这些类型；`--json` 输出 `{"query": {"text", "kinds", "limit"}, "hits": [...]}`。
+退出码：`0` 有候选，`1` 没有相近的，`2` 文件或 `--semantics` 目录读不了。
+
+## 取数包：`catalog context`
+
+写一条查询要同时知道两类事：目录里这张表承载什么、键和时间列是什么、能连到哪里；表语义里这张表怎么读、
+不适用于什么、要注意什么、还有哪些问题没人回答。`context` 一次把这些给出来，表语义只取查询用得上的部分：
+
+```bash
+scope-lineage catalog context out/ontology.json --semantics docs/ \
+  --concept 客户 --table demo_dwd.dwd_party_customer_info_df \
+  --column demo_dwd.dwd_party_customer_info_df.gender_cd
+```
+
+| 选项 | 给出什么 |
+| --- | --- |
+| `--concept`（id、去掉前缀的 id、名称、同义词或术语） | 定义、标识符、表现表、它和它的属性、标识符、关系上的约束、指标的完整定义（度量与绑定列、聚合、过滤、时间窗、维度、可加性、单位、所引约束的原文） |
+| `--table`（`库.表`） | 目录侧：承载的概念、粒度列与来源、时间形态与刷新、带角色的时间列、记录范围、每个外部标识符列能连到哪张表的哪一列（`joins`，带语料里见过的 JOIN 及其位置）、约束、概念上的指标名、证据与目录的矛盾；表语义侧（`semantics`）：是什么、一行是什么、怎么取数、范围及其引用的规则（带 SQL）、适用与不适用、注意事项、待确认问题、读这张表的下游任务与表、每列一行的字段一览 |
+| `--column`（`库.表.列`） | 目录侧的绑定（指向什么、定义、单位、码值、取值方式、时间角色、血缘表达式）；表语义侧这一列的含义、加工、分支、码值、空值含义、注意；以及点名这一列的表级注意与待确认问题 |
+| `--columns`（`列[,列...]`） | 和 `--column` 一样，但只写列名、逗号分隔，列属于唯一的那个 `--table`；要求正好一个 `--table` |
+| `--brief` | 简版 `--table` 包：目录事实、是什么、一行是什么、怎么取数、范围、适用、不适用、注意、待确认问题、被引用规则的文字都留着；字段只列名字、按类别分组（条目只留 `column` 和 `category`），被引用的规则不带 SQL，下游只写它写入的表（不写表时写任务名）；同一个包里已有其表的字段，不再重复表级注意，改为指向表块 |
+| `--focus` | 配合 `--column`/`--columns`：每张表的注意、待确认问题和被引用的规则只留点名所请求字段的那些；`semantics.focus`（`columns`、`left_out` 计数）写明略去了多少 |
+
+`--table`、`--column`、`--columns`、`--concept` 都可重复，可混用。字段所属的表也用 `--table` 点了名时，字段全文就在同一个包里，
+一次调用拿到表和查询要碰的字段：
+
+```bash
+scope-lineage catalog context out/ontology.json --semantics docs/ \
+  --table demo_dwd.dwd_party_customer_info_df --columns gender_cd,register_time --brief --focus
+```
+
+`--focus` 按引用判断，不读正文：注意项靠 `refs` 里的 `column:<列名>` 点名字段，待确认问题靠 `about` 里的（不分大小写）。
+一项都没点名字段的，说的是整张表，一律保留；一个字段都没被请求的表原样给出。规则自身不带字段引用，所以只要还有范围行或留下的
+条目引用它就留着，只在引用它的条目都被略去时才一起略去。文本写明 `聚焦 …：略去只点名其他字段的注意 n 条、待确认问题 n 条、规则 n 条；去掉 --focus 可看全部`，
+不会悄悄少东西。`--brief` 和 `--focus` 不改概念和 `--column` 的回答；不加这两个选项时包和原来一样。表语义文档里的出处（`sources`、`confidence`）、上游表和加工步骤不进包：它们说明
+表是怎么做出来的，不是怎么查；下游留着，因为「改了它会影响谁」是对着表问的。没有表语义文档的表，`semantics` 是 `{"present": false}`，文本写「本表没有
+表语义文档」——读者要能分清「没有要注意的」和「没人写下来」。只在表语义里有、目录没绑定的列照样能用
+`--column` 查到，`catalog` 一项为空。
+
+```text
+# 表 demo_dwd.dwd_party_customer_info_df
+
+## 目录
+- 承载概念：客户（concept:customer），表的种类 core
+- 粒度：customer_id（proven）
+```
+
+**两张以上的表：怎么关联。** 给两个以上 `--table` 时，包里每对请求的表多一项（`links`，文本在各表之后多一节
+`# 关联 a ↔ b`），agent 不用自己去推关联列、哪一侧会放大行数、各要哪些过滤：
+
+```bash
+scope-lineage catalog context out/ontology.json \
+  --table demo_dwd.dwd_lending_loan_df --table demo_dwd.dwd_lending_loan_status_his
+```
+
+- **有依据的关联列对**（`pairs`）：目录支持的两表之间的列对——两列是同一个标识（`basis: identifier`），或语料里
+  见过正好这一对的 JOIN（`basis: seen_join`，带上关系）。这就是 `check-sql` 判 `join_not_recorded` 的同一个判断，
+  出自同一个共用模块（`render/catalog_joins.py`），给的建议和做的检查不会对不上。
+- **每个键几行**（`sides`）：每张表，骨架的关联列是否覆盖它记录的粒度——`one`（每个键一行）、`one_once_filtered`
+  （没覆盖的粒度列是快照表的分区列或拉链有效期列，由下面的过滤钉住）、`several`（点名没覆盖的粒度列：对另一张表的列
+  SUM / COUNT 会重复计数），目录没记录粒度时是 `unknown`，不猜。
+- **要过滤的列**（`filters`）：`snapshot` 表的分区列（每个分区一份全量，只取一个）和拉链表的有效期列，分组与 `check-sql`
+  的 `missing_partition_filter` 相同。
+- **不当过滤的分区**（`partitions`）：分区不是一份全量的表，每张一条 `{table, columns, reading, period_columns}`。
+  `incremental` 表的 `reading` 是 `write_batch`——分区是首次写入这行的批次，不是事件发生的日期，读一段时间要跨分区读；
+  表现的 `time` 是 `zipper`、`unknown` 或没写时是 `unstated`。`period_columns` 是绑定为 `time_role: event_time` 的列
+  （没有就取 `business_date`）。文本用一行说明，骨架不给这些表写分区条件。
+- **SQL 骨架**（`skeleton`）：`SELECT * FROM a JOIN b ON … WHERE …`，占位值是字符串（`'<dt>'`、`'<as_of_date>'`、
+  `'<period_start>'` / `'<period_end>'`），所以能解析；每条提醒一行注释。`write_batch` 的表有一行注释说明分区是写入批次；
+  正好有一个时段列时，在它上面写 `列 >= '<period_start>' AND 列 < '<period_end>'`（有几个时只在注释里点名、不写条件；
+  一个也没有时注释指向表的「取数」）。用普通的 `JOIN`，并注明关联方式由写的人决定。有依据的列对常常是不同的路径（主键和
+  指向它的自引用、两个不同的当事方），所以不全部 AND 上：`ON` 取同时碰到两侧粒度列最多的一对，再加上用的是未用过的
+  列、并补上仍敞开的粒度列的列对（`in_skeleton`）；其余有依据的列对各写一行注释，按问题选用。
+- **没有有依据的列对**：明说，不给骨架，`bridges` 列出与两张表都有有依据列对的目录表（只找一跳，只给表名；不找更长的路径）。
+
+```text
+# 关联 demo_dwd.dwd_lending_loan_df ↔ demo_dwd.dwd_lending_loan_status_his
+
+- 目录支持的关联列对（与 check-sql 的判断相同）：
+  - demo_dwd.dwd_lending_loan_df.loan_no = demo_dwd.dwd_lending_loan_status_his.loan_no：同一标识 借据号（id:loan_no）（骨架的 ON 用这一对）
+  - demo_dwd.dwd_lending_loan_df.orig_loan_no = demo_dwd.dwd_lending_loan_status_his.loan_no：同一标识 借据号（id:loan_no）
+- demo_dwd.dwd_lending_loan_df 一侧：粒度 loan_no；骨架的关联列覆盖了粒度，每个关联键一行
+- demo_dwd.dwd_lending_loan_status_his 一侧：粒度 loan_no、start_date；骨架的关联列没覆盖 start_date，按下面的过滤钉住（分区取一个值、拉链取一个时点）后每个关联键一行
+- 要过滤：demo_dwd.dwd_lending_loan_status_his 按拉链有效期列 start_date、end_date
+```
+
+```sql
+-- 关联方式（JOIN、LEFT JOIN 等）由写 SQL 的人决定：目录不说明该用哪一种
+-- b（demo_dwd.dwd_lending_loan_status_his）要按粒度里的 start_date（拉链有效期列）钉住（分区取一个值、拉链取一个时点）才每个关联键一行，否则对上多行
+-- 另一对有目录依据的关联列：a.orig_loan_no = b.loan_no（同一标识 id:loan_no）；可能是另一条关联路径，意思不同，按问题替换或补进 ON，不要不加判断地 AND 上
+-- 拉链有效期的开闭（> 还是 >=、未失效的结束日期怎么写）以表的约定为准
+SELECT *
+FROM demo_dwd.dwd_lending_loan_df a
+JOIN demo_dwd.dwd_lending_loan_status_his b
+  ON  a.loan_no = b.loan_no  -- 同一标识 id:loan_no
+WHERE b.start_date <= '<as_of_date>'
+  AND b.end_date > '<as_of_date>'
+```
+
+只给一个 `--table` 时没有 `links`。有分区列的表带 `partition`（`{columns, reading, period_columns}`，快照表的
+`reading` 是 `full_copy`），「目录」一块在时间列旁边写明怎么读它：「每个分区一份全量，只取一个分区」、「写入批次，
+不是事件日期，按事件时间列 … 过滤时段」，或目录没记录是哪一种（照「取数」读）。
+
+`--json` 输出 `catalog-context/1`：`{"doc_format", "query", "concepts", "tables", "columns", "missing"}`，两张以上的表时多一个 `links`，
+没找到的名字列在 `missing` 里；给了 `--brief`、`--focus` 时 `query` 里多出 `"brief": true`、`"focus": true`，
+`--columns` 在 `query.columns` 里写成 `库.表.列`。退出码：`0` 至少找到一个，`1` 一个都没找到，`2` 一个选项都没给、
+`--columns` 没有正好一个 `--table`、`--focus` 没给字段、文件或 `--semantics` 目录读不了。
+
+## SQL 检查：`catalog check-sql`
+
+`search` 和 `context` 告诉 agent 该查什么，但它写出来的查询一直没人检查。`check-sql` 用血缘解析器解析
+SELECT 语句，以及 `INSERT ... SELECT` 和 `CREATE TABLE ... AS SELECT` 里的查询（写入的表不算读取）（同一方言、同样的文本修复、同样的限定；CTE、子查询、UNION 分支和表别名都解析到物理表），
+再和构建好的本体比对：
+
+```bash
+scope-lineage catalog check-sql out/ontology.json query.sql
+echo "SELECT l.loan_no FROM demo_dwd.dwd_lending_loan_df l" | scope-lineage catalog check-sql out/ontology.json - --json
+```
+
+每条规则只在目录和查询合起来能定下来时才报；定不下来时不说，或只给 `info`：
+
+| 规则 | 级别 | 什么时候报 | 什么时候不报 |
+| --- | --- | --- | --- |
+| `table_not_in_catalog` | info | 一张物理表在目录里没有表示 | 表有表示（CTE 名不会被当成表） |
+| `unknown_column` | error | 一列没有绑定，而这张表的列是全的：表卡计数 `evidence.representations[t].declared_columns`（`build --tables`）存在且等于绑定列数 | 列有绑定；不能确定这张表的列是全的（此时报 `column_unchecked`） |
+| `column_unchecked` | info | 一列没有绑定，而目录只绑定了这张表的部分列，或这张表没有表卡 | -- |
+| `join_not_recorded` | warning | 按两次读取之间的一个 JOIN 整体判断（JOIN ON，或 WHERE 里跨两个别名）：它的等值条件里没有一对绑定同一个标识（`identifier` / `foreign_identifier`），也没有一对在语料证据记录的 JOIN 里；一条发现列出所有被问到的列对和目录在这两张表之间记录的关联 | 至少一对有记录（其余的如日期、环境只是收窄关联）；某一对有一侧对不上唯一的物理列，或目录没有绑定它 |
+| `missing_partition_filter` | warning | 读一张带 `time_role: partition` 列的 `snapshot` 表（每个分区一份全量），或拉链表的 `valid_from` / `valid_to` 列，而整条语句里没有任何能追到这次读取的 WHERE 或 JOIN ON 谓词用到这一组的任一列 | 这一组的任一列出现在能追到这次读取的谓词里（经过 CTE 也算）；表没有这类时间角色；`incremental` 表的分区（写入批次：读一段时间要跨分区）、拉链表的分区、`time` 为 `unknown` 的表的分区 |
+| `fan_out_unaggregated` | warning | 对直接读的表 A 的列做 SUM 或 COUNT（非 DISTINCT、非窗口），而同一个 SELECT 里直接读、与 A 关联的表 B 有记录的粒度，关联列加上 B 被谓词钉住的列覆盖不了它；只看 B，A 自己的粒度无关 | B 的粒度被关联列和钉住的列（拉链的有效期钉住开始日）或 GROUP BY 覆盖；B 先在子查询里聚合过；SEMI / ANTI JOIN；`COUNT(*)`；B 没有记录粒度 |
+| `code_value_unknown` | warning | 绑定或属性列出了码值的列，用 `=` 或 `IN` 与不在其中的字面量比较；列出可用的值 | 值在列表里（`1` 与 `'1'` 相等）；码值集的值在查找表里；列存的是含义或代理键（`holds`） |
+| `pending_definition` | info | 查询里有一个 `待确认` 占位（见下文）；写在 `<列> <比较符>` 或 `<列> IN (` 之后时带上这一列落到的物理表和列 | 注释不以 `待确认` 加冒号开头；标记写在字符串里 |
+
+完整的列清单在哪里：构建出的文档只以绑定的形式记录表的列，而目录可以只绑定一张表的部分列。说明一张表
+共有几列的只有 `build --tables` 附上的表卡计数，没有它，`unknown_column` 从不断言某列不存在。
+`missing_partition_filter` 只读 `time_role` 和表现的 `time`：绑定为 `technical`、没有时间角色的 `dt` 列，不论叫什么都不会被
+当作分区列。目录把时间形态记成 `unknown` 的表，分区不报任何提示（`info` 也不报）：代理会把读到的每一行都当成要做的事，
+一行说不清要不要分区条件的提示只会推它加上一个；这种情况由 `context` 说明照表的「取数」读。
+
+```text
+# 第 1 条语句
+- 错误 [unknown_column] 表 demo_dwd.dwd_lending_loan_df 没有列 loan_amount：目录按表卡记录了它的全部 8 列。
+- 警告 [code_value_unknown] demo_dwd.dwd_lending_loan_df.loan_status 与 '5' 比较，但目录列出的取值里没有它。可用的值：1=normal、2=overdue、3=settled、9=待确认，疑似核销。
+```
+
+`--json` 输出 `catalog-sql-check/1`：`{"doc_format", "statements", "tables", "placeholders", "findings"}`；每条发现带
+`rule`、`severity`、`statement`（它在脚本里的位置，从 1 起）、所针对的 `table` / `column` / `alias`、中文
+`message`，以及 `catalog` 里目录记录的实际情况（它的列、记录的关联、时间列、多的一侧的粒度、可用的值）。
+完全不含查询的语句跳过。退出码：`0` 没有 error 或 warning（允许 info），`1` 至少一条 error 或 warning，
+`2` 本体或 SQL 文件读不了、SQL 严格解析不通过（消息给出出错的行、列和附近的原文）、或其中没有查询。
+
+### 待确认的占位
+
+目录没有定义的业务词（什么算「接通」、哪些码值算「未触达」、一个类别怎么定），agent 不猜：它在查询里留一个
+占位，说明缺什么定义，查询照样能解析。占位是一条以 `待确认` 加冒号（`:` 或 `：`）开头的注释，写在中性的谓词或值旁边：
+
+```sql
+SELECT COUNT(*) AS cnt
+FROM demo_dwd.dwd_party_customer_info_df c
+WHERE c.dt = '2024-01-31'
+  AND c.gender_cd IN (/* 待确认：性别码除 F、M、U 外还有哪些值 */ 'F', 'M')
+  AND /* 待确认：注销的客户算不算 */ 1 = 1
+```
+
+`check-sql` 在结果的 `placeholders` 里列出每个占位（`statement`、`text`、`written`、`table`、`column`），并各给一条
+`pending_definition`（info），不影响退出码。占位紧跟在 `<列> <比较符>`（`=`、`<>`、`!=`、`<`、`>`、`<=`、`>=`）或
+`<列> IN (` 之后时，`written` 是写下的列名，`table` / `column` 是它经别名、CTE、子查询落到的那一个物理列；写在谓词前、值后、
+`1 = 1` 旁或表达式之后的占位不归到任何列；同一个名字落到不同的表（或多源作用域里的裸列名）也不归。注释从词法记号流里读，
+不从语法树读：sqlglot 把注释挂在附近的节点上（`/* … */ 1 = 1` 挂在整个 `AND` 上，`, /* … */ 'v' AS c` 挂在前一个投影上），
+树说不出它挨着什么；记号之间的空隙只有空白和注释，字符串里的同样文字不会被读成占位。以 `--` 开头的行注释同样算。
+
+## 待确认的定义：`catalog pending`
+
+占位只活在一次对话里，同一个缺口下次还会遇到。`catalog pending` 把它们记进一个只追加的 JSON Lines 文件，交给目录负责人：
+
+```bash
+scope-lineage catalog pending add pending.jsonl --from-sql query.sql --question "一月底有多少女性和男性客户"
+scope-lineage catalog pending add pending.jsonl --missing "注销的客户算不算" --question "上月新增客户数" \
+  --table demo_dwd.dwd_party_customer_info_df
+scope-lineage catalog pending list pending.jsonl --ontology out/ontology.json --semantics semantics/ [--json]
+```
+
+`add` 每个缺失的定义追加一行 `catalog-pending/1`：`--missing`（可带 `--term` 业务词本身、`--table`、`--column`、`--proposed`
+提议的定义）记一行；`--from-sql` 给 SQL 文件里的每个占位记一行（归到列的占位记那一列和它的表，没归到列的记这条语句读的
+所有表）。两种都要 `--question`（问题原文）；日期取 `--date`，不给时取当天（只在命令行这一处取）。已有的行从不改写。
+退出码：`0` 已追加；`1` SQL 里没有占位，或有占位没写缺什么（什么都不写）；`2` 选项不对、输入读不了或 SQL 解析不通过。
+
+```json
+{"doc_format": "catalog-pending/1", "date": "2026-11-20", "missing": "性别码除 F、M、U 外还有哪些值", "question": "一月底有多少女性和男性客户", "tables": ["demo_dwd.dwd_party_customer_info_df"], "columns": ["demo_dwd.dwd_party_customer_info_df.gender_cd"], "source": {"sql": "query.sql", "statement": 1, "written": "c.gender_cd"}}
+```
+
+`list` 把缺的是同一个东西的行合成一项（文字经 NFKC、忽略大小写、合并空白后相等，不做模糊合并），按命中次数排序，列出
+问到它的问题、涉及的表和列、提议的定义、记录日期和行号。给了 `--semantics` 时，标出表语义文档里 `about` 指向同一列的已记录
+问题（及其 `status`）；给了 `--ontology` 时，标出目录里自己的名称、同义词、术语或 id 现在正好是这一项文字或业务词的对象——
+负责人据此看哪些已经有了答案。它只记录和报告，从不改目录，也不判定定义。`--json` 输出 `catalog-pending-list/1`。退出码：
+`0` 每行都读得了；`1` 有行不是 `catalog-pending/1` 条目（其余照样列出）；`2` 输入读不了。
+
+```text
+# 待确认的定义：4 条记录，3 项
+
+## 1. 注销的客户算不算（2 次）
+- 问到它的问题：一月底有多少女性和男性客户；上月新增客户数
+- 涉及：demo_dwd.dwd_party_customer_info_df
+- 记录日期：2026-11-20 至 2026-11-21（第 2、3 行）
+- 表语义：这一项没有指明列，无法对照已记录的问题
+- 目录还没有同名对象
+
+## 2. 性别码除 F、M、U 外还有哪些值（1 次）
+- 问到它的问题：一月底有多少女性和男性客户
+- 涉及：demo_dwd.dwd_party_customer_info_df.gender_cd
+- 记录日期：2026-11-20（第 1 行）
+- 表语义已记录的问题：demo_dwd.dwd_party_customer_info_df q1（open）性别码值除了 F、M、U 以外，还会不会出现其他值？
+- 目录还没有同名对象
+
+## 3. 豁免（1 次）
+- 问到它的问题：上月豁免了多少罚息
+- 提议的定义：罚息减免记录
+- 记录日期：2026-11-21（第 4 行）
+- 表语义：这一项没有指明列，无法对照已记录的问题
+- 目录现在有同名对象（核对是否已回答）：[概念] 豁免 concept:fee_waiver
+```
+
 ## 起草：`catalog digest` 与 `catalog merge`
 
 已经给一批表写好[表语义](table-semantics.md)（`table-semantics/1`）时，目录可以从它们起草，而不用每次写临时脚本：

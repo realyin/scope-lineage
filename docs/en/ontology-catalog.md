@@ -1010,6 +1010,315 @@ For a concept with no table of its own, `carriers` finds where it can be joined 
 something matched, `1` nothing did, `2` the file could not be read (`1` too when it is not an
 `ontology-json/3` document).
 
+## Search: `catalog search`
+
+`catalog query` only knows the catalog's own names. With a business word or a whole question in hand, `search`
+turns it into those names first:
+
+```bash
+scope-lineage catalog search out/ontology.json 每个渠道上个月的还款金额是多少
+scope-lineage catalog search out/ontology.json loan_no --kind identifier --limit 5 --json
+```
+
+Every concept, metric, attribute, identifier, code set and table is one entry; the entries are ranked by how
+close they are to the text and the best `--limit` (10 by default) are returned. Each carries its kind, id,
+name, a one-line `summary`, where it lives (`where`) and the fields that matched (`matched_in`).
+
+| Entry | Text that takes part | `where` |
+| --- | --- | --- |
+| `concept` | name, synonyms, terms referring to it, id, definition | its representation tables |
+| `metric` | name, terms, id, definition and filter | the concept it is computed on |
+| `attribute` | name, terms, id, definition, the names of the columns bound to it | its concept and the bound table columns |
+| `identifier` | name, terms, id, physical spellings, notes | the concept it identifies |
+| `code_set` | name, terms, id, the meaning of each value | none |
+| `table` | table name, table comment, the name of the concept it carries; with `--semantics`, also what the table-semantics document says it is and is good for | the concept it carries |
+
+The match is lexical and needs no extra dependency: Chinese is cut into windows of two adjacent characters, so a
+business word matches inside a longer name; letters and digits are cut into words, ignoring case. A match in a
+name scores above one in a definition, a rare word above a common one, a name the text spells out whole above
+one it only touches. Words that only frame a question are left out of the text first: a two-character
+window made only of question and function characters (每个, 多少, 是否, 哪些), one holding a particle such as
+的 or 吗, and a few question verbs (统计, 写出, 说明); a window with any other character stays (还款, 个人).
+Only the text is filtered, never the catalog.
+
+A question that names two things should list both. A concept's attributes, identifiers and tables are its
+members, and one concept can bring many members that each match more words than the other thing's concept.
+So once a concept's members hold two places, its next member waits until every concept the text names (in
+that concept's own name, synonym, term or id) is listed; the waiting members then follow by score. A text
+about one thing, or a `--kind` list without `concept`, has nothing waiting and keeps plain score order; a
+column name still finds its attribute or identifier first. The JSON shape does not change.
+
+Scores only order the list and are not comparable across searches. `search` offers
+candidates; it does not choose for the reader and never changes the catalog: once chosen, take the id to
+`query` or `context`.
+
+```text
+1. [概念] 借款人 concept:borrower — A customer while they hold at least one loan that is not settled.
+   在：demo_dwd.dwd_lending_borrower_df
+```
+
+`--kind` is repeatable and keeps only those kinds; `--json` prints `{"query": {"text", "kinds", "limit"}, "hits": [...]}`.
+Exit codes: `0` there are candidates, `1` nothing is close, `2` the file or the `--semantics` directory cannot be read.
+
+## Context pack: `catalog context`
+
+Writing one query takes two kinds of knowledge at once: from the catalog, what the table carries, its keys and
+time columns, and where it joins; from table semantics, how to read the table, what it is not for, what to
+watch, and which questions nobody has answered. `context` gives all of it in one answer, taking from the
+table-semantics document only the parts a query depends on:
+
+```bash
+scope-lineage catalog context out/ontology.json --semantics docs/ \
+  --concept 客户 --table demo_dwd.dwd_party_customer_info_df \
+  --column demo_dwd.dwd_party_customer_info_df.gender_cd
+```
+
+| Option | What it gives |
+| --- | --- |
+| `--concept` (id, id without its prefix, name, synonym or term) | definition, identifiers, representation tables, the constraints on it and on its attributes, identifiers and relations, each metric in full (measure and bound columns, aggregation, filter, time window, dimensions, additivity, unit, the text of the constraints it cites) |
+| `--table` (`db.table`) | catalog side: the concept carried, grain columns and their source, time shape and refresh, time columns with their roles, record scope, for each foreign-identifier column the table and column it joins to (`joins`, with the JOINs the corpus showed and where), constraints, the names of the metrics on its concept, disagreements between evidence and catalog; table-semantics side (`semantics`): what it is, what one row is, how to read it, scope lines and the rules they cite (with SQL), good for and not for, things to watch, open questions, the downstream tasks and tables that read it, one line per column |
+| `--column` (`db.table.column`) | the catalog binding (what it points at, definition, unit, code values, derivation, time role, lineage expression); the table-semantics entry for the column: meaning, derivation, branches, code values, what NULL means, what to watch; and the table-level notes and open questions that name this column |
+| `--columns` (`col[,col...]`) | the same as `--column` for columns of the one `--table`, named without the table and separated by commas; needs exactly one `--table` |
+| `--brief` | a short `--table` pack: every catalog fact, what it is, what one row is, how to read it, scope, good for, not for, things to watch, open questions and the text of the cited rules stay; columns are listed by name grouped by category (entries keep `column` and `category`), cited rules lose their SQL, downstream readers are named by the table they write (by their task when they write none); a column whose table is in the same pack points to the table's notes instead of repeating them |
+| `--focus` | with `--column`/`--columns`: each table's watch items, open questions and cited rules narrowed to its requested columns; `semantics.focus` (`columns`, `left_out` counts) says what was left out |
+
+`--table`, `--column`, `--columns` and `--concept` are repeatable and can be mixed. A column of a table named by
+`--table` comes in full in the same pack, so one call answers the table and the columns a query touches:
+
+```bash
+scope-lineage catalog context out/ontology.json --semantics docs/ \
+  --table demo_dwd.dwd_party_customer_info_df --columns gender_cd,register_time --brief --focus
+```
+
+`--focus` decides by reference, not by reading prose: a watch item names a column through a `column:<name>`
+entry in `refs`, an open question through one in `about` (case is ignored). An item that names no column is about
+the whole table and is always kept; a table none of whose columns was requested is left whole. A rule carries no
+column reference of its own, so it stays while a scope line or a kept item cites it and leaves only with the items
+that cited it. The text says `聚焦 …：略去只点名其他字段的注意 n 条、待确认问题 n 条、规则 n 条；去掉 --focus 可看全部`,
+so nothing disappears silently. `--brief` and `--focus` leave concepts and `--column` answers as they are.
+Without them the pack is unchanged. Provenance in the table-semantics document (`sources`,
+`confidence`), upstream tables and the processing steps stay out of the pack: they say how the
+table was built, not how to query it; downstream readers are kept, because "what does a change here reach"
+is asked of a table. A table with no table-semantics document has `semantics` equal to
+`{"present": false}` and the text says so -- a reader must be able to tell "nothing to watch" from "nobody
+wrote it down". A column only the table-semantics document knows is still answered by `--column`, with an
+empty `catalog`.
+
+```text
+# 表 demo_dwd.dwd_party_customer_info_df
+
+## 目录
+- 承载概念：客户（concept:customer），表的种类 core
+- 粒度：customer_id（proven）
+```
+
+**Two or more tables: how they join.** With two or more `--table` values the pack adds one entry per pair of
+requested tables (`links`, and a `# 关联 a ↔ b` section after the table blocks), so the agent does not work out the
+join, the side that multiplies rows and the filters by itself:
+
+```bash
+scope-lineage catalog context out/ontology.json \
+  --table demo_dwd.dwd_lending_loan_df --table demo_dwd.dwd_lending_loan_status_his
+```
+
+- **Backed pairs** (`pairs`): the column pairs the catalog backs between the two tables -- both columns hold the same
+  identifier (`basis: identifier`) or the corpus recorded a JOIN on exactly that pair (`basis: seen_join`, with the
+  relation). It is the judgement `check-sql` makes for `join_not_recorded`, read from one shared module
+  (`render/catalog_joins.py`), so the advice and the check cannot disagree.
+- **Rows per key** (`sides`): for each table, whether the skeleton's join columns cover its recorded grain --
+  `one` (one row per key), `one_once_filtered` (the grain columns left open are a snapshot's partition or a
+  zipper's window columns, which the filters below pin), `several` (names the grain columns left open: a SUM / COUNT over the other
+  table's columns is inflated), or `unknown` when the catalog records no grain; it is not guessed.
+- **Filters** (`filters`): the partition columns of a `snapshot` table (each partition a full copy, so one is read)
+  and each zipper's validity columns, grouped as `check-sql` groups them for `missing_partition_filter`.
+- **Partitions that are not filters** (`partitions`): `{table, columns, reading, period_columns}` for each table
+  whose partition is not a full copy. `reading` is `write_batch` for an `incremental` table -- the partition is the
+  batch that first wrote a row, not the day the event happened, so a period is read across partitions -- or
+  `unstated` when the representation's `time` is `zipper`, `unknown` or missing. `period_columns` are the columns
+  bound `time_role: event_time` (else `business_date`). The text says it in one line, and the skeleton writes no
+  partition predicate for these tables.
+- **Skeleton** (`skeleton`): `SELECT * FROM a JOIN b ON … WHERE …` with string placeholders (`'<dt>'`,
+  `'<as_of_date>'`, `'<period_start>'` / `'<period_end>'`), so it parses, and one comment line per caution. A
+  `write_batch` table gets a comment that its partition is the write batch and, when it has exactly one period
+  column, `col >= '<period_start>' AND col < '<period_end>'` on it (with several, the comment names them and no
+  predicate is written; with none, the comment points at the table's 「取数」). It uses plain `JOIN` and says the join type is
+  the writer's choice. Backed pairs are often different paths (a key and a self reference to it, two different
+  parties), so they are not all AND-ed: `ON` takes the pair meeting the most grain columns of the two sides, then
+  any pair on unused columns that closes a grain column still open (`in_skeleton`); every other backed pair is a
+  comment line, an alternative to choose by the question.
+- **No backed pair**: the entry says so, gives no skeleton, and lists in `bridges` the catalog tables that have
+  backed pairs with both (one hop, names only; no longer paths are searched).
+
+```text
+# 关联 demo_dwd.dwd_lending_loan_df ↔ demo_dwd.dwd_lending_loan_status_his
+
+- 目录支持的关联列对（与 check-sql 的判断相同）：
+  - demo_dwd.dwd_lending_loan_df.loan_no = demo_dwd.dwd_lending_loan_status_his.loan_no：同一标识 借据号（id:loan_no）（骨架的 ON 用这一对）
+  - demo_dwd.dwd_lending_loan_df.orig_loan_no = demo_dwd.dwd_lending_loan_status_his.loan_no：同一标识 借据号（id:loan_no）
+- demo_dwd.dwd_lending_loan_df 一侧：粒度 loan_no；骨架的关联列覆盖了粒度，每个关联键一行
+- demo_dwd.dwd_lending_loan_status_his 一侧：粒度 loan_no、start_date；骨架的关联列没覆盖 start_date，按下面的过滤钉住（分区取一个值、拉链取一个时点）后每个关联键一行
+- 要过滤：demo_dwd.dwd_lending_loan_status_his 按拉链有效期列 start_date、end_date
+```
+
+```sql
+-- 关联方式（JOIN、LEFT JOIN 等）由写 SQL 的人决定：目录不说明该用哪一种
+-- b（demo_dwd.dwd_lending_loan_status_his）要按粒度里的 start_date（拉链有效期列）钉住（分区取一个值、拉链取一个时点）才每个关联键一行，否则对上多行
+-- 另一对有目录依据的关联列：a.orig_loan_no = b.loan_no（同一标识 id:loan_no）；可能是另一条关联路径，意思不同，按问题替换或补进 ON，不要不加判断地 AND 上
+-- 拉链有效期的开闭（> 还是 >=、未失效的结束日期怎么写）以表的约定为准
+SELECT *
+FROM demo_dwd.dwd_lending_loan_df a
+JOIN demo_dwd.dwd_lending_loan_status_his b
+  ON  a.loan_no = b.loan_no  -- 同一标识 id:loan_no
+WHERE b.start_date <= '<as_of_date>'
+  AND b.end_date > '<as_of_date>'
+```
+
+A single `--table` gets no `links`. A table with a partition column carries `partition` (`{columns, reading,
+period_columns}`, `reading` also `full_copy` for a snapshot), and its 「目录」 block says beside the time columns how
+to read it: 「每个分区一份全量，只取一个分区」, 「写入批次，不是事件日期，按事件时间列 … 过滤时段」, or that the catalog does
+not record which (read the 「取数」 line).
+
+`--json` prints `catalog-context/1`: `{"doc_format", "query", "concepts", "tables", "columns", "missing"}`, plus `links` with two or more tables;
+names that were not found are listed in `missing`; `query` also carries `"brief": true` and `"focus": true`
+when those options were given, and `query.columns` lists `--columns` as `db.table.column`. Exit codes: `0` at
+least one was found, `1` none was, `2` no option was given, `--columns` without exactly one `--table`,
+`--focus` without a column, or the file or the `--semantics` directory cannot be read.
+
+## SQL check: `catalog check-sql`
+
+`search` and `context` tell an agent what to query; nothing checked the query it then wrote. `check-sql`
+parses the SELECT statements, and the query inside `INSERT ... SELECT` and `CREATE TABLE ... AS SELECT`
+(the table written is not a read), with the lineage parser (same dialect, same text repairs, same qualification;
+CTEs, subqueries, UNION branches and table aliases resolved to physical tables) and compares them with the
+built ontology:
+
+```bash
+scope-lineage catalog check-sql out/ontology.json query.sql
+echo "SELECT l.loan_no FROM demo_dwd.dwd_lending_loan_df l" | scope-lineage catalog check-sql out/ontology.json - --json
+```
+
+Every rule fires only on what the catalog and the query together settle; where they cannot tell, it says
+nothing or says `info`:
+
+| Rule | Severity | Fires when | Stays silent when |
+| --- | --- | --- | --- |
+| `table_not_in_catalog` | info | a physical table has no representation | the table is represented (a CTE name is never taken for a table) |
+| `unknown_column` | error | a column is not bound on a table whose column list is complete: the table card count `evidence.representations[t].declared_columns` (`build --tables`) is present and equals the bound columns | the column is bound; the table's list is not known to be complete (then `column_unchecked`) |
+| `column_unchecked` | info | a column is not bound on a table the catalog binds only partly, or that has no table card | -- |
+| `join_not_recorded` | warning | judged once per JOIN between two reads (JOIN ON, or WHERE across two aliases): none of its equality pairs binds the same identifier (`identifier` / `foreign_identifier`) or appears in a JOIN the corpus evidence recorded; one finding lists every pair asked and the pairs the catalog records between the two tables | at least one pair is recorded (the others, such as a date or an environment, only narrow the join); a pair has a side that reaches no single physical column, or that the catalog does not bind |
+| `missing_partition_filter` | warning | a read of a `snapshot` table with a `time_role: partition` column (each partition a full copy), or a zipper's `valid_from` / `valid_to` columns, has no WHERE or JOIN ON predicate on any column of that group anywhere in the statement that reaches this read | any column of the group is used in a predicate that reaches the read (through a CTE too); the table has no such time role; the partition of an `incremental` table (the write batch: a period is read across partitions), of a zipper, or of a table whose `time` is `unknown` |
+| `fan_out_unaggregated` | warning | a SUM or COUNT (not DISTINCT, not windowed) over columns of one directly read table A, while a table B read directly in the same SELECT and joined to A has a recorded grain that the join columns plus B's predicate-pinned columns do not cover; only B decides, A's own grain does not matter | B's grain is covered by the join columns and pinned columns (a zipper's window pins its start) or by the GROUP BY; B is reduced in a subquery first; a SEMI / ANTI join; `COUNT(*)`; B has no recorded grain |
+| `code_value_unknown` | warning | a column whose binding or attribute lists code values is compared with `=` or `IN` to a literal not among them; lists the values | the value is listed (`1` matches `'1'`); the code set's values live in a lookup table; the column stores meanings or keys (`holds`) |
+| `pending_definition` | info | the query holds a `待确认` placeholder (below); written right after `<column> <op>` or `<column> IN (`, it carries the physical table and column that column reaches | the comment does not start with `待确认` and a colon; the marker is inside a string |
+
+Where the full column list lives: the built document records a table's columns only as its bindings, and a
+catalog may bind some of a table's columns and not others. The only statement of how many columns a table
+has is the table card count that `build --tables` attaches, so without it `unknown_column` never claims a
+column is absent. `missing_partition_filter` reads `time_role` and the representation's `time` only: a `dt` column
+bound as `technical` without a time role is not taken for a partition, however it is named. A partition whose form
+the catalog leaves `unknown` gets no finding at all, not even an `info`: an agent acts on every line it reads, and a
+line that cannot say whether a partition predicate is needed pushes it to add one; `context` says in that case to
+follow the table's 「取数」.
+
+```text
+# 第 1 条语句
+- 错误 [unknown_column] 表 demo_dwd.dwd_lending_loan_df 没有列 loan_amount：目录按表卡记录了它的全部 8 列。
+- 警告 [code_value_unknown] demo_dwd.dwd_lending_loan_df.loan_status 与 '5' 比较，但目录列出的取值里没有它。可用的值：1=normal、2=overdue、3=settled、9=待确认，疑似核销。
+```
+
+`--json` prints `catalog-sql-check/1`: `{"doc_format", "statements", "tables", "placeholders", "findings"}`; each finding has
+`rule`, `severity`, `statement` (its position in the script, from 1), the `table` / `column` / `alias` it is
+about, a Chinese `message`, and in `catalog` what the catalog records instead (its columns, the recorded join
+pairs, the time columns, the many side's grain, the valid values). Statements holding no query at all are
+skipped. Exit codes: `0` no error or warning (info allowed), `1` at least one error or warning, `2` the
+ontology or the SQL file cannot be read, the SQL does not parse strictly (the message gives the line, the
+column and the text around where parsing broke), or it holds no query.
+
+### Placeholders for a missing definition
+
+For a business word the catalog does not define (what counts as "reached", which code values mean "not
+contacted", how a category is decided) the agent does not guess: it leaves a placeholder in the query saying
+which definition is missing, and the query still parses. A placeholder is a comment starting with `待确认`
+and a colon (`:` or `：`), written beside a neutral predicate or value:
+
+```sql
+SELECT COUNT(*) AS cnt
+FROM demo_dwd.dwd_party_customer_info_df c
+WHERE c.dt = '2024-01-31'
+  AND c.gender_cd IN (/* 待确认：性别码除 F、M、U 外还有哪些值 */ 'F', 'M')
+  AND /* 待确认：注销的客户算不算 */ 1 = 1
+```
+
+`check-sql` lists each one under `placeholders` in its result (`statement`, `text`, `written`, `table`,
+`column`) and gives one `pending_definition` finding (info) each; the exit code does not change. When the
+placeholder sits right after `<column> <op>` (`=`, `<>`, `!=`, `<`, `>`, `<=`, `>=`) or `<column> IN (`,
+`written` is the column as written and `table` / `column` the one physical column it reaches through
+aliases, CTEs and subqueries; a placeholder before the predicate, after the value, beside `1 = 1` or after an
+expression is tied to no column, and neither is a name reaching two tables (or a bare name in a scope with
+two sources). The comments are read from the token stream, not the tree: sqlglot attaches a comment to a
+nearby node (`/* … */ 1 = 1` lands on the whole `AND`, `, /* … */ 'v' AS c` on the projection before it),
+so the tree cannot say what it sits next to; the gaps between tokens hold only whitespace and comments, so
+the same words inside a string are never read as a placeholder. A `--` line comment counts too.
+
+## Missing definitions: `catalog pending`
+
+A placeholder lives only as long as the conversation, and the same gap is hit again next time. `catalog
+pending` keeps them in an append-only JSON Lines file for the catalog's owner:
+
+```bash
+scope-lineage catalog pending add pending.jsonl --from-sql query.sql --question "一月底有多少女性和男性客户"
+scope-lineage catalog pending add pending.jsonl --missing "注销的客户算不算" --question "上月新增客户数" \
+  --table demo_dwd.dwd_party_customer_info_df
+scope-lineage catalog pending list pending.jsonl --ontology out/ontology.json --semantics semantics/ [--json]
+```
+
+`add` appends one `catalog-pending/1` line per missing definition: `--missing` (with `--term` for the
+business word itself, `--table`, `--column`, `--proposed` for a proposed definition) writes one line;
+`--from-sql` writes one per placeholder of the SQL file (a placeholder tied to a column records that column
+and its table, one tied to nothing every table its statement reads). Both need `--question` (the question
+as asked); the date is `--date`, or today when it is not given (taken in that one place, the command line).
+Existing lines are never rewritten. Exit codes: `0` appended; `1` the SQL has no placeholder, or a
+placeholder says nothing (nothing written); `2` bad options, an input cannot be read, or the SQL does not
+parse.
+
+```json
+{"doc_format": "catalog-pending/1", "date": "2026-11-20", "missing": "性别码除 F、M、U 外还有哪些值", "question": "一月底有多少女性和男性客户", "tables": ["demo_dwd.dwd_party_customer_info_df"], "columns": ["demo_dwd.dwd_party_customer_info_df.gender_cd"], "source": {"sql": "query.sql", "statement": 1, "written": "c.gender_cd"}}
+```
+
+`list` folds the lines naming the same missing thing into one item (text equal after NFKC, case folding and
+collapsing whitespace -- no fuzzy merging), most hit first, with the questions behind it, the tables and
+columns, proposed definitions, dates and line numbers. With `--semantics` it marks the questions a
+table-semantics document records `about` the same column (with their `status`); with `--ontology`, the
+catalog objects whose own name, synonym, term or id now is the item's text or term -- so the owner sees
+which entries are answered. It records and reports; it never edits the catalog or decides a definition.
+`--json` prints `catalog-pending-list/1`. Exit codes: `0` every line read; `1` some line is not a
+`catalog-pending/1` entry (the rest are still listed); `2` an input cannot be read.
+
+```text
+# 待确认的定义：4 条记录，3 项
+
+## 1. 注销的客户算不算（2 次）
+- 问到它的问题：一月底有多少女性和男性客户；上月新增客户数
+- 涉及：demo_dwd.dwd_party_customer_info_df
+- 记录日期：2026-11-20 至 2026-11-21（第 2、3 行）
+- 表语义：这一项没有指明列，无法对照已记录的问题
+- 目录还没有同名对象
+
+## 2. 性别码除 F、M、U 外还有哪些值（1 次）
+- 问到它的问题：一月底有多少女性和男性客户
+- 涉及：demo_dwd.dwd_party_customer_info_df.gender_cd
+- 记录日期：2026-11-20（第 1 行）
+- 表语义已记录的问题：demo_dwd.dwd_party_customer_info_df q1（open）性别码值除了 F、M、U 以外，还会不会出现其他值？
+- 目录还没有同名对象
+
+## 3. 豁免（1 次）
+- 问到它的问题：上月豁免了多少罚息
+- 提议的定义：罚息减免记录
+- 记录日期：2026-11-21（第 4 行）
+- 表语义：这一项没有指明列，无法对照已记录的问题
+- 目录现在有同名对象（核对是否已回答）：[概念] 豁免 concept:fee_waiver
+```
+
 ## Drafting: `catalog digest` and `catalog merge`
 
 Once a batch of tables has [table semantics](table-semantics.md) (`table-semantics/1`), a

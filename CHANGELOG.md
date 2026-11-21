@@ -1,5 +1,109 @@
 # Changelog
 
+## Unreleased
+- **`catalog search`: from a business word or a whole question to the catalog's own names.**
+  `catalog query` matches names exactly, so a reader holding a colloquial word got exit 1.
+  `search` ranks concepts, metrics, attributes, identifiers, code sets and tables against the
+  text and prints the best few (kind, id, name, one line, where it lives) to choose from. The
+  match is lexical -- two-character windows over CJK text, words over letters and digits -- and
+  needs nothing beyond the standard library; `--semantics` also matches what each table's
+  semantics document says the table is. It offers candidates and never decides.
+- **`catalog search`: a question that names two things lists both.** One concept's attributes,
+  identifiers and tables could fill the first places and push out the concept for the other
+  thing the question asks about. Now a concept's members take at most two places before every
+  concept the text names (in its own name, synonym, term or id) is listed; the rest follow by
+  score. Words that only frame a question (每个, 多少, 是否, a window holding 的 ...) are left
+  out of the text. A text about one thing, and `--kind` without `concept`, keep plain score
+  order; the JSON shape is unchanged.
+- **`catalog context`: what one query needs about a few tables, in one answer.** A table's
+  semantics page is the whole document, tens of kilobytes a table. `context --table` returns
+  the catalog facts (grain, time columns with their roles, the table and column each foreign key
+  joins to with the JOINs the corpus showed, constraints, metric names, evidence conflicts) and
+  the parts of the table-semantics document a query depends on (how to read it, not-for, watch,
+  open questions, the rules its scope cites, its downstream readers, one line a column); `--column` answers one column in
+  full; `--concept` gives a concept's constraints and its metrics spelled out. A table with no
+  semantics document says so. `--json` prints `catalog-context/1`.
+- **`catalog context --brief`, `--focus`, `--columns`: a smaller pack in fewer calls.** `--brief`
+  keeps every catalog fact and every reading caveat (what a row is, how to read it, scope, not-for,
+  watch items, open questions, the text of cited rules) and shortens the rest: columns by name
+  grouped by category, cited rules without SQL, downstream readers by table, and a column whose table
+  is in the same pack points to the table's notes instead of repeating them. `--columns a,b,c` names
+  columns of the one `--table`, answered in full in the same pack. `--focus` narrows each table's
+  watch items, open questions and cited rules to the requested columns by their `column:<name>`
+  references; items that name no column always stay, and the pack counts what was left out
+  (`semantics.focus.left_out`). The default pack is unchanged; `query` gains `brief` / `focus`
+  only when given.
+- **`catalog context` with two or more `--table`: how each pair joins (`links`).** One entry per
+  pair of requested tables: the column pairs the catalog backs between them (shared identifier or
+  a recorded corpus JOIN, each saying which -- the same judgement `check-sql` makes, now in one
+  shared module `render/catalog_joins.py`), whether the join columns cover each side's recorded
+  grain (one row per key, one row once a snapshot's partition / a zipper window is pinned, several
+  rows per key naming the open grain columns, or not known when no grain is recorded), the filters
+  each table needs (a `snapshot` table's partition, a zipper's window), the partitions that are
+  not filters (`partitions`: an `incremental` table's partition is the write batch, not the event
+  day, with the event-time columns to filter a period on; or a form the catalog does not record),
+  and a SQL skeleton (`FROM a JOIN b ON … WHERE …` with string placeholders, plain `JOIN`, the
+  cautions as comments; no partition predicate for an incremental table, a
+  `'<period_start>'` / `'<period_end>'` range on its one event-time column instead). `ON` does not AND every backed
+  pair -- they are often different paths -- but takes the one meeting the most grain columns plus
+  pairs that close an open grain column; the rest are commented alternatives. With no backed pair
+  there is no skeleton and `bridges` names the tables backed to both (one hop). Every demo
+  skeleton passes `check-sql` with no `join_not_recorded` or `missing_partition_filter`. A single
+  `--table` pack gains `partition` when the table has a partition column, and its 「目录」 block
+  says beside the time columns whether each partition is a full copy (read one), the write batch
+  (filter the period on the event time) or not recorded; `doc_format` stays `catalog-context/1`.
+- **`catalog check-sql`: check the query an agent wrote against the catalog.** `check-sql
+  <ontology.json> <sql-file | ->` parses the SELECT statements, and the query inside INSERT and
+  CTAS, with the lineage parser (CTEs,
+  subqueries, UNION branches and aliases resolved to physical tables, `scope.query_facts`) and
+  reports `table_not_in_catalog` (info), `unknown_column` (error), `column_unchecked` (info),
+  `join_not_recorded`, `missing_partition_filter`, `fan_out_unaggregated` and
+  `code_value_unknown` (warnings), each with what the catalog records instead. A column is called
+  absent only when the table card count (`build --tables`) shows the bindings are every column the
+  table has; a JOIN is judged as a whole, so pairs that only narrow a recorded join stay silent;
+  `missing_partition_filter` judges a partition only on a `snapshot` table (each partition a full
+  copy) -- an `incremental` table's partition is the write batch and a period is read across
+  partitions, and a zipper's or an `unknown` form's partition is not judged either -- and a
+  zipper's validity window on every zipper;
+  the fan-out rule fires when a SUM / COUNT over one directly read table meets another directly
+  read table whose grain the join columns and pinned columns leave open. `--json` prints
+  `catalog-sql-check/1`; exit 0 clean (info allowed), 1 an error or warning, 2 unreadable input or
+  SQL that does not parse (with line, column and the text around it).
+- **`catalog check-sql` lists `/* 待确认：… */` placeholders; `catalog pending` keeps them for
+  the owner.** An agent that meets a business word the catalog does not define writes the SQL
+  with a placeholder comment beside a neutral predicate or value (`AND /* 待确认：… */ 1 = 1`,
+  `col IN (/* 待确认：… */ 'v')`) instead of guessing. `check-sql` now returns `placeholders`
+  (statement, text, and the physical `table` / `column` when the comment sits right after
+  `<column> <op>` or `<column> IN (`, else none) and one `pending_definition` info finding each;
+  the exit code is unchanged. The comments are read from the token stream
+  (`scope.sql_placeholders`), because sqlglot attaches a comment to a nearby node that does not
+  say what it sits next to. `catalog pending add <file>` appends one `catalog-pending/1` JSON
+  line per missing definition -- from `--missing` (with `--term`, `--table`, `--column`,
+  `--proposed`) or from a SQL file's placeholders (`--from-sql`), always with `--question` and a
+  date (`--date`, default today) -- and never rewrites a line. `catalog pending list <file>
+  [--ontology] [--semantics] [--json]` groups entries by normalised text (no fuzzy merging),
+  counts hits and questions, and marks the question a table-semantics document already records
+  about the same column and the catalog objects whose own name, synonym, term or id now is the
+  entry's text or term. It records and reports; it never edits the catalog.
+- **Skill: answering a data question by writing SQL is one walk.** `workflows/catalog-answers.md`
+  in the `scope-lineage` skill now goes `search` → one `context` call for all the tables
+  (`--columns` / `--column`, `--brief --focus`; the join section and skeleton for two tables;
+  `--concept` for a metric) → write the SQL → `/* 待确认：… */` placeholders for what the
+  material does not define → `check-sql` (at most three runs) → `pending add --from-sql` → a
+  fixed answer layout. It keeps the discipline that held up on a small private sample
+  (read how each table is read; leave undefined definitions open; do not hedge what the material
+  settles) and adds three rules: use a catalog metric's definition as written, state inputs the
+  asker did not give as parameters, and say what makes rows unique (dedupe by the key the
+  material names, not just warn). Date columns follow the pack's partition line: one partition of
+  a snapshot table, the event-time column (never a partition predicate) for an incremental one;
+  a `check-sql` warning is fixed only when the pack agrees. Column names come from `catalog
+  query <O> table <T>` before the one `context` call. A routing table at the top sends value,
+  impact and "can rows repeat" questions to their commands, answered direct answer first; the
+  seven-part layout is for questions answered with SQL. For a run of questions each
+  question goes to a sub-agent and the main conversation keeps a brief of at most 5 KB.
+  `references/catalog-questions.md` keeps the `catalog query` lookups and the seven reporting
+  rules and points to the walk for SQL.
+
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**
   The ontology skill used to be one `SKILL.md` that sent the agent to find the other skill's

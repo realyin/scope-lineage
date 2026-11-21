@@ -7,7 +7,7 @@ description: >-
   or column (impact analysis), and generate human-readable mapping.md documents. Use this
   skill whenever the user mentions 血缘 / lineage / 字段来源 / 加工步骤 / 影响分析 /
   mapping 文档 / 字段映射 / 任务画像 / 语义描述 / 表语义 / 字段含义 / 实体关系 / 本体 / 表关系 /
-  ER 图 / 验收 / 问题集 / 判分, asks "这个字段怎么算出来的", "这个任务在做什么", "谁依赖这张表",
+  ER 图 / 验收 / 问题集 / 判分 / 问数 / 取数 SQL, asks "这个字段怎么算出来的", "这个任务在做什么", "谁依赖这张表",
   "这个 SQL 读了哪些表", "这批任务里的表是什么关系", or wants to analyze,
   document, or audit warehouse SQL transformations — even if they do not name the
   scope-lineage tool.
@@ -73,6 +73,7 @@ fallback covers 0.2.0):
 | prompts `@12` / `@11` / `@8` (the packet's `join_condition` / 未读 labels and five new governance leads; review severity anchors), a catalog with `metrics`, constraint `rules` / `predicate`, attribute `additivity`, binding `time_role` | >= 0.11.0 |
 | filters that bind a bare `WHERE` column to its source when a SELECT alias shares its name (0.11.0 and older rewrote it into the alias expression) | >= 0.11.1 |
 | row conditions on constant columns closed rather than gaps, GROUP BY keys bound to source columns first, unbound `${…}` table names reported as `input_incomplete`, check 9's date-filter shapes (`period` / `snapshot_pick` / `cutoff`), and a runbook that runs from a pip install (`SKILL` / `SCHEMAS`) | >= 0.11.2 |
+| writing SQL from the catalog (`catalog search` / `context` / `check-sql` / `pending`, the walk in `workflows/catalog-answers.md`) | the release after 0.13.0 (0.13.0 has none of the four) |
 
 When unsure which workflows the session will need, require >= 0.11.2 (the runbook's S0, in
 `scope-lineage-ontology`). A table-semantics run directory made with an older release: rebuild its packets; every document whose packet changed
@@ -116,7 +117,7 @@ A workflow that names another by its quoted heading means the file with that hea
 | 要业务本体（概念、关系、事件）时先看：该走哪条路 | [`workflows/business-ontology.md`](workflows/business-ontology.md) | "整理这批任务的实体关系 / 本体 / 这批表对应哪些业务概念" — business ontology: where to start |
 | 键折叠候选（旧 `ontology` 命令）：结构扫描、概念层评审 | [`workflows/key-fold.md`](workflows/key-fold.md) | 键折叠候选（旧 ontology）— key-fold candidates |
 | 某个概念改了会影响谁 | [`workflows/concept-impact.md`](workflows/concept-impact.md) | "这个概念改了会影响谁" — concept-level impact |
-| 用本体目录回答业务问题（客户是什么、这张表装的是什么） | [`workflows/catalog-answers.md`](workflows/catalog-answers.md) | "客户是什么 / 这张表装的是什么 / 这个字段指什么" — 用目录回答业务问题 |
+| 用本体目录回答业务问题：写取数 SQL（问数、统计某个数），或问某个概念、表、字段是什么 | [`workflows/catalog-answers.md`](workflows/catalog-answers.md) | "按这个问题写 SQL / 这个数怎么取 / 这张表、这个字段是什么" — 用目录回答业务问题 |
 | 一张表是什么意思；给一批表写表语义 | [`workflows/table-semantics.md`](workflows/table-semantics.md) | "这张表是什么意思 / 给这批表写表语义" — table semantics |
 | 从表语义起草本体目录 | [`workflows/catalog-drafting.md`](workflows/catalog-drafting.md) | "从表语义起草本体目录" — drafting procedure (digest → fragments → merge) |
 | 页面能不能用；给页面打分 | [`workflows/acceptance.md`](workflows/acceptance.md) | "这些页面能不能用 / 给页面打分" — 验收 |
@@ -161,10 +162,12 @@ A workflow that names another by its quoted heading means the file with that hea
   business owner's time, and how the answers are filed back into
   `concepts.overrides.json`. Read when the user wants the key-fold concepts reviewed; which
   business concepts a corpus is about is answered by the catalog, not by this round.
-- `references/catalog-questions.md` — answering business questions from an ontology
+- `references/catalog-questions.md` — answering "what is X" questions from an ontology
   catalog: which `catalog query` kind answers which question, when to fall back to the
   rendered concept page, how to report status, evidence and conflicts, and what to say when
-  nothing matches. Read when a catalog (`catalog-yaml/1`) or its `ontology.json` exists.
+  nothing matches. Read when a catalog (`catalog-yaml/1`) or its `ontology.json` exists; a
+  question answered by writing SQL follows `workflows/catalog-answers.md` (search → context →
+  SQL → check-sql → pending) and still reports by these rules.
 - `../scope-lineage-ontology/` — the table-semantics → ontology-catalog procedure (0.13.0 moved it
   out of this skill): the runbook and its step files, the sub-agent templates T1–T9, the table
   semantics write / review / fix prompts, the catalog fragment prompt and its examples, the
