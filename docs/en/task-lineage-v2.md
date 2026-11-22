@@ -146,7 +146,8 @@ output's values. On an append (INSERT INTO) the new batch's conditions stand bes
 the previous state. A condition field computed only from literals or system values (`'2026' AS y`,
 `CURRENT_DATE() AS d`) names nothing and is no gap: no source row decides it. A condition field that
 cannot be traced to a physical field gets no name; it is recorded as a row_condition_source_unresolved
-fact gap. Its `scope_id` / `column` are the field read; `condition_scope_id`, `logic_block_id`,
+fact gap. That includes a bare column two joined tables both have: the gap's `scope_id` is then
+`AMBIGUOUS`, and no `{"table": "AMBIGUOUS"}` entry is written. Its `scope_id` / `column` are the field read; `condition_scope_id`, `logic_block_id`,
 `logic_type` and `expression` name the WHERE / JOIN / HAVING / QUALIFY that read it.
 
 Read the two together for an aggregate column: a `COUNT(*)`'s value comes from the row set it counts
@@ -689,6 +690,12 @@ row_condition_source_unresolved is recorded, with the fields statement_id, targe
 are affected: a DELETE or MERGE condition affects every column of the target; an UPDATE condition
 only the assigned columns; a later appending write (INSERT INTO, MERGE) that keeps those
 row-membership sources keeps the reason too.
+
+A qualified column in such a condition is looked up the way Spark resolves it: the query it sits
+in, then each enclosing query (a correlated reference), then the written table, by its alias or,
+without one, by its name. A correlated `t.id` against `DELETE FROM mart.t t` is recorded on
+`mart.t`. A qualifier none of them declares is treated like an unqualified column no table can be
+proven to own: `UNKNOWN`, the gap, and incomplete rows.
 
 diagnostics.json.metadata_coverage records referenced tables, covered tables, missing tables, the
 number of schema sources, and metadata conflicts.

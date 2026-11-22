@@ -125,7 +125,8 @@ scope（FROM、JOIN、UNION 分支、CTE），所以 CTE 里的过滤、每个 U
 标量子查询的 WHERE 只决定一个值，不算；WHERE 里的 `IN (子查询)` 的列已经是父查询过滤的字段。GROUP BY
 的键不算——它们是输出的值。追加（INSERT INTO）时，新写入这批行的条件与前一状态已有的条件并列。
 只由常量或系统值算出的条件字段（`'2026' AS y`、`CURRENT_DATE() AS d`）不对应任何名字，也不是缺口：没有
-哪一行源数据决定它。追踪不到物理字段的条件字段不补位名字，记为 row_condition_source_unresolved fact gap；
+哪一行源数据决定它。追踪不到物理字段的条件字段不补位名字，记为 row_condition_source_unresolved fact gap
+（两张关联表都有的未限定列也是这样：缺口的 `scope_id` 为 `AMBIGUOUS`，不写 `{"table": "AMBIGUOUS"}` 条目）；
 缺口的 `scope_id` / `column` 是被读的字段，`condition_scope_id`、`logic_block_id`、`logic_type`、
 `expression` 指出是哪一个 WHERE / JOIN / HAVING / QUALIFY 读了它。
 
@@ -596,6 +597,11 @@ target_table、column（只有一列时）、columns、root_impact=true 和 need
 `trace_complete` 为 false，missing_reasons 里有 row_condition_source_unresolved。受影响的范围：
 DELETE 与 MERGE 条件影响目标表全部列；UPDATE 的条件只影响被赋值的列；之后的追加写（INSERT INTO、
 MERGE）沿用这些行成员来源时，也沿用这条原因。
+
+这类条件里带限定符的列，按 Spark 的解析顺序找限定符：先是列所在的查询，再逐层往外找外层查询（关联引用），
+最后是被写的表（有别名时认别名，没有别名时认表名）。`DELETE FROM mart.t t` 里关联子查询的 `t.id`
+记到 `mart.t` 上。哪一层都没声明的限定符，按「判断不了归属的未限定列」处理：写 `UNKNOWN`，记缺口，
+受影响的行追溯不完整。
 
 diagnostics.json.metadata_coverage 记录引用表、已覆盖表、缺失表、schema 来源数以及元数据冲突。
 --schema-fallback 只补 --schema 中缺失的表；同表定义不一致时保留权威来源并报告冲突。
