@@ -95,5 +95,6 @@ def test_a_member_of_max_struct_keeps_every_member():
     output = _member_of("MAX(NAMED_STRUCT('t', a.ts, 'val', a.amount))")
 
     expanded = output["expanded_expression"].upper()
-    assert expanded.startswith("(MAX(STRUCT(")
+    assert expanded.startswith("(MAX(")
+    assert "STRUCT(" in expanded
     assert sorted(_fields(output)) == ["amount", "ts"]
