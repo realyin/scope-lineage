@@ -122,6 +122,11 @@
   `(x + 1) + COALESCE(y, 0)` substituted into `v * 10` published
   `(x + 1) + COALESCE(y, 0) * 10`. It is now left unwrapped only when its first `(` is the one
   its last `)` closes.
+- **Each GROUP BY / PARTITION BY / ORDER BY key carries its own `source_fields`.** The per-item
+  fields of `aggregation_detail.group_by_items` and `window_specification.partition_by` /
+  `order_by` were cut from the clause's flat reference list by counting columns, which the list's
+  de-duplication does not preserve: `GROUP BY 'c', a.y` gave the constant `y` and left `a.y`
+  with no field. Each item now takes the references resolved for it.
 - **`magic_number` no longer warns about a type's precision.** `CAST(x AS DECIMAL(18, 2))` was
   warned about the literal `18`; a literal inside a type's parameters is now skipped, and a value
   literal in the same expression is still warned about.

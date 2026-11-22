@@ -69,10 +69,11 @@ def _resolve_select_scope(
     # Resolve GROUP BY
     group = sel.args.get("group")
     if group:
-        scope_data.group_by = _resolve_expr_list(
+        scope_data.group_by_item_refs = _resolve_expr_items(
             group.expressions if hasattr(group, "expressions") else [group],
             sg_scope, result, schema,
         )
+        scope_data.group_by = _unique_refs(scope_data.group_by_item_refs)
 
     # Resolve HAVING
     having = sel.args.get("having")
@@ -235,7 +236,7 @@ def _resolve_projection(
         col.case_branches = _extract_case_branches(inner)
 
     if transform == "WINDOW":
-        col.window = _extract_window_info(inner, sg_scope, result, schema)
+        col.window, col.window_item_refs = _extract_window_info(inner, sg_scope, result, schema)
 
     if transform == "AGGREGATE":
         col.agg_function = _extract_agg_function(inner)
@@ -806,15 +807,20 @@ def _resolve_filter(
     return [ScopeFilter(expression=clause.sql(dialect=DIALECT), columns=columns)]
 
 
-def _resolve_expr_list(
+def _resolve_expr_items(
     exprs: list, sg_scope: Scope,
     result: ScopeLineageResult, schema: dict | None = None,
-) -> List[SourceRef]:
-    """Resolve a list of expressions (e.g. GROUP BY) to SourceRefs."""
+) -> List[List[SourceRef]]:
+    """Resolve each expression of a list (e.g. GROUP BY) to its own SourceRefs, in order."""
+    return [_resolve_column_refs_in_expr(expr, sg_scope, result, schema) for expr in exprs]
+
+
+def _unique_refs(item_refs: List[List[SourceRef]]) -> List[SourceRef]:
+    """The items' references as one list, de-duplicated across items, first occurrence kept."""
     all_refs = []
     seen = set()
-    for expr in exprs:
-        for ref in _resolve_column_refs_in_expr(expr, sg_scope, result, schema):
+    for refs in item_refs:
+        for ref in refs:
             ref_key = _source_ref_binding_key(ref)
             if ref_key not in seen:
                 seen.add(ref_key)
@@ -876,24 +882,30 @@ def _extract_case_branches(node: exp.Expression) -> List[dict]:
 def _extract_window_info(
     node: exp.Expression, sg_scope: Scope,
     result: ScopeLineageResult, schema: dict | None = None,
-) -> dict:
-    """Extract partition_by and order_by from a window function."""
-    info = {}
+) -> tuple[dict, dict[str, list[list]]]:
+    """Extract partition_by and order_by from a window function.
+
+    Returns the serialized ``window`` dict and the same entries grouped per item
+    (``ScopeColumn.window_item_refs``), since the flat lists cannot be cut back into items.
+    """
+    info: dict = {}
+    item_refs: dict[str, list[list]] = {}
     window = node if isinstance(node, exp.Window) else node.find(exp.Window)
     if window is None:
-        return info
+        return info, item_refs
 
     # sqlglot stores partition as "partition_by" key (a list of expressions)
     partition = window.args.get("partition_by")
     if partition:
-        partition_refs = []
-        for p in partition:
-            partition_refs.extend(_resolve_column_refs_in_expr(p, sg_scope, result, schema))
-        info["partition_by"] = partition_refs
+        partition_items = [
+            _resolve_column_refs_in_expr(p, sg_scope, result, schema) for p in partition
+        ]
+        info["partition_by"] = [ref for refs in partition_items for ref in refs]
+        item_refs["partition_by"] = partition_items
 
     order = window.args.get("order")
     if order:
-        order_refs = []
+        order_items = []
         for item in (order.expressions if hasattr(order, "expressions") else []):
             # item.args.get("desc") is True for DESC, None/False for ASC
             # (do NOT use item.desc — that's a method that generates a DESC node)
@@ -901,11 +913,14 @@ def _extract_window_info(
             direction = "DESC" if is_desc else "ASC"
             # For Ordered, resolve the inner expression
             inner = item.this if isinstance(item, exp.Ordered) else item
-            for ref in _resolve_column_refs_in_expr(inner, sg_scope, result, schema):
-                order_refs.append({"scope": ref.scope, "column": ref.column, "direction": direction})
-        info["order_by"] = order_refs
+            order_items.append([
+                {"scope": ref.scope, "column": ref.column, "direction": direction}
+                for ref in _resolve_column_refs_in_expr(inner, sg_scope, result, schema)
+            ])
+        info["order_by"] = [ref for refs in order_items for ref in refs]
+        item_refs["order_by"] = order_items
 
-    return info
+    return info, item_refs
 
 
 def _extract_agg_function(node: exp.Expression) -> str | None:
