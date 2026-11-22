@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- **Re-parsing after `describe` no longer fails; it deletes the old `semantic.*`.** `describe`
+  writes `semantic.json` / `semantic.md` next to `lineage.json` by default, but the task writer
+  did not know those names and refused to replace the directory (`input_failed=1`). They are now
+  treated like `mapping.md` / `warnings.md`: views derived from the old contract, removed when a
+  new parse generation replaces the task directory. Run `describe` again after re-parsing.
 - **`catalog search`: from a business word or a whole question to the catalog's own names.**
   `catalog query` matches names exactly, so a reader holding a colloquial word got exit 1.
   `search` ranks concepts, metrics, attributes, identifiers, code sets and tables against the

@@ -134,6 +134,25 @@ def test_success_replaces_the_whole_owned_generation(tmp_path: Path) -> None:
     assert _generation_remnants(output) == []
 
 
+def test_success_replaces_a_stale_semantic_profile_too(tmp_path: Path) -> None:
+    """``describe`` writes semantic.* next to lineage.json by default.
+
+    Those files are derived from the contract like mapping.md, so a new parse
+    generation drops them instead of refusing to replace the directory.
+    """
+    output = write_task_lineage(_result("ods.old"), tmp_path / "artifact")
+    (output / "semantic.json").write_text("{}", encoding="utf-8")
+    (output / "semantic.md").write_text("stale semantic", encoding="utf-8")
+
+    write_task_lineage(_result("ods.new"), output)
+
+    assert set(path.name for path in output.iterdir()) == {
+        "lineage.json",
+        "diagnostics.json",
+    }
+    assert _generation_remnants(output) == []
+
+
 def test_unknown_files_prevent_destructive_directory_replacement(tmp_path: Path) -> None:
     output = write_task_lineage(_result("ods.old"), tmp_path / "artifact")
     previous = _pair_bytes(output)

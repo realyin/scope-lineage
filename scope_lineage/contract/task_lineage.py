@@ -184,8 +184,13 @@ def _validate_owned_output_directory(output: Path) -> None:
     owned_names = {
         "lineage.json",
         "diagnostics.json",
+        # Derived views: render writes mapping.md/warnings.md and describe writes
+        # semantic.json/semantic.md next to lineage.json. They describe the old
+        # contract, so a new generation drops them with it.
         "mapping.md",
         "warnings.md",
+        "semantic.json",
+        "semantic.md",
     }
     unknown = sorted(path.name for path in output.iterdir() if path.name not in owned_names)
     if unknown:

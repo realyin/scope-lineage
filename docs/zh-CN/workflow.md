@@ -135,6 +135,9 @@ Described 5 task(s) (skipped_unknown_version=0, missing_diagnostics=0, skipped_u
 `fields[].value_domain[]`，也就是"这个列见过哪些取值、哪个取值有人确认过含义"。
 不传也能跑，只是这两块是空的。
 
+`semantic.*` 和 `mapping.md` 一样是由契约派生的视图：对同一个任务重新 `parse` 时，
+任务目录会整体换代，旧的 `semantic.json`、`semantic.md` 随之删除，需要时重跑 `describe`。
+
 还有第三个可选输入 `--ontology`，它读的是**下一步**才写出来的 `ontology.json`
 （只接受 `ontology-json/2`）：传了之后，任务、输入表、字段与粒度都会带上语料概念层给出的
 业务对象——`task.concepts[]` / `task.output_concept`、`inputs[].concept`、
