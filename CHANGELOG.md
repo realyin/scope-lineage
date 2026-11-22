@@ -574,7 +574,8 @@
   `semantic packet`, `semantic validate` and `ontology` with `--domain-profile`; see
   `docs/en/domain-profile.md` and the READMEs' migration section. A new architecture test
   (`tests/architecture/test_domain_neutral_literals.py`) fails on a public lending or finance
-  word in a package string literal.
+  word in a package string literal, and on a literal that is a table-name suffix (`df`, `di`,
+  ...) outside the one constant it exempts with its reason (the comment-tail trim).
 - **`expression_features.operators` ignores comments and string literals.** The operator list
   was scanned over the raw expression, so the `*` and `/` of a `/* ... */` remark or the `-` of
   `'2024-01-01'` were listed as operators. It now reads code only, as `functions` already did.
@@ -627,9 +628,6 @@
   nobody on 30.16.0 / 30.17.0 (the answer is unchanged there); on 30.0.0 (and likely the
   versions between, not measured) those 26 names stop being UDFs and `hex_encode` becomes one,
   as on 30.17.0.
-  word in a package string literal, and on a literal that is a table-name suffix (`df`, `di`,
-  ...) outside the two constants it exempts with their reasons (`table_family`'s
-  `PERIOD_SUFFIXES`, and the comment-tail trim).
 - **A JOIN with no key pair onto a carded table no longer says the table has no key fact.**
   With `--tables`, a JOIN onto a physical table whose card proves a key, but whose ON clause
   offers no usable key pair (joined by OR, say), stays `unknown` as before; its `reason` now
@@ -682,7 +680,6 @@
   `physical_source_fields` gain the FOR column. A pivot column inside a larger
   expression (`p.q1 + 0`) still gets the complete sources, but its resolution stays
   `partially_resolved`, as before. Who is affected: stored lineage of statements that read a PIVOT or UNPIVOT (through `SELECT *` or through its alias): column lists, `expression`, `transform` and physical sources change. What to do: re-run `parse` and rebuild what was derived from it (see the READMEs' migration section).
-  `partially_resolved`, as before.
 - **`catalog build --lineage` no longer merges two tables that differ only by an unconfigured
   catalog.** The catalog names tables `db.table` and matched a corpus name by its last two
   segments, so `cat1.ods.t` and `cat2.ods.t` both fed the evidence of `ods.t`, and a key proven
