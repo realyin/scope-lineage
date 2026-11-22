@@ -36,7 +36,9 @@ packet: review the document again), ``review_stale`` (the document changed after
 review and nothing ties the change to it: review again), ``fix_unconfirmed`` (the
 document changed after a review that asked for changes, with no fix record for this
 version: fix again), ``review_unparsed`` (a review without complete front matter: it
-counts as ``reviewed`` but no step takes it further) and ``render_stale`` (fixed, and its
+counts as ``reviewed`` but no step takes it further), ``review_malformed`` (beside
+``review_unparsed``: the front matter is complete but a ``reviewed_*`` digest is not
+sixteen lower-case hex digits -- a copied placeholder) and ``render_stale`` (fixed, and its
 page is older than the document). ``doc_misfiled`` only warns, at any stage: a document
 file is named for another table than the one it holds (both tables are flagged: the one
 named by the file looks unwritten), or two files hold the table (the first by path is
@@ -51,7 +53,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from .digests import document_digest
-from .review_notes import parse_review
+from .review_notes import parse_review, review_malformed
 from .validate import check_file
 
 STATUS_FORMAT = "table-semantics-status/2"
@@ -59,7 +61,7 @@ NEXT_FORMAT = "table-semantics-next/1"
 STAGES = ("no_packet", "packet", "drafted", "valid", "reviewed", "fixed", "rendered")
 FLAGS = (
     "packet_stale", "invalid", "review_packet_stale", "review_stale", "fix_unconfirmed",
-    "review_unparsed", "render_stale", "doc_misfiled",
+    "review_unparsed", "review_malformed", "render_stale", "doc_misfiled",
 )
 STEPS = ("draft", "review", "fix", "render")
 
@@ -159,7 +161,10 @@ def _reviewed(entry: dict, files: TableFiles) -> dict:
     if files.review is None:
         return {**entry, "stage": "valid"}
     if review is None:
-        return {**entry, "stage": "reviewed", "flags": ["review_unparsed"]}
+        flags = ["review_unparsed"]
+        if review_malformed(files.review):
+            flags.append("review_malformed")
+        return {**entry, "stage": "reviewed", "flags": flags}
     stage, flag = review_verdict(review, entry["doc_digest"], entry["doc_packet_digest"])
     if flag:
         entry["flags"].append(flag)

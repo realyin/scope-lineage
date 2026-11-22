@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from scope_lineage.semantics.digests import document_digest
-from scope_lineage.semantics.review_notes import parse_review
+from scope_lineage.semantics.review_notes import parse_review, review_malformed
 
 from .table_semantics_demo import DEMO_TABLE, demo_packets, example, read_json, run, write_json
 
@@ -470,8 +470,10 @@ def test_the_plan_and_the_report_beside_the_docs_are_skipped_by_validate(
 
 
 def test_front_matter_is_read_with_quotes_and_crlf() -> None:
-    text = '---\r\nreviewed_doc_digest: "abc"\r\nhigh: 1\r\nmedium: 0\r\nlow: 2\r\n---\r\n# x\r\n'
-    assert parse_review(text) == {"reviewed_doc_digest": "abc", "reviewed_packet_digest": None,
+    text = ('---\r\nreviewed_doc_digest: "0123456789abcdef"\r\nhigh: 1\r\nmedium: 0\r\n'
+            'low: 2\r\n---\r\n# x\r\n')
+    assert parse_review(text) == {"reviewed_doc_digest": "0123456789abcdef",
+                                  "reviewed_packet_digest": None,
                                   "fixed_doc_digest": None, "high": 1, "medium": 0, "low": 2}
 
 
@@ -498,12 +500,55 @@ def test_front_matter_reads_the_packet_key_and_the_fix_record() -> None:
 
 @pytest.mark.parametrize("value", ["xyz", "", "fedcba987654321", "FEDCBA9876543210 x"])
 def test_a_malformed_fix_record_is_no_fix_record(value: str) -> None:
-    text = (f"---\nreviewed_doc_digest: abc\nhigh: 1\nmedium: 0\nlow: 0\n"
+    text = (f"---\nreviewed_doc_digest: 0123456789abcdef\nhigh: 1\nmedium: 0\nlow: 0\n"
             f"fixed_doc_digest: {value}\n---\n")
     review = parse_review(text)
     assert review is not None
     assert review["fixed_doc_digest"] is None
-    assert (review["reviewed_doc_digest"], review["high"]) == ("abc", 1)
+    assert (review["reviewed_doc_digest"], review["high"]) == ("0123456789abcdef", 1)
+
+
+# A model that copies the template's placeholders instead of the digests: the front matter
+# is malformed, and saying "the review read another packet" sends the table round again
+# with the review's findings dropped (E §5.4-d).
+@pytest.mark.parametrize(
+    ("doc", "packet"),
+    [
+        ("<doc_digest>", "<packet_digest>"),
+        ("<doc_digest>", None),
+        ("0123456789abcdef", "TODO"),
+        ("0123456789ABCDEF", None),
+        ("0123456789abcde", None),
+    ],
+)
+def test_a_review_digest_that_is_not_sixteen_hex_digits_is_malformed(doc, packet) -> None:
+    keyed = f"reviewed_packet_digest: {packet}\n" if packet is not None else ""
+    text = f"---\nreviewed_doc_digest: {doc}\n{keyed}high: 1\nmedium: 0\nlow: 0\n---\n"
+
+    assert parse_review(text) is None
+    assert review_malformed(text) is True
+
+
+def test_a_complete_review_without_the_packet_key_is_not_malformed() -> None:
+    text = "---\nreviewed_doc_digest: 0123456789abcdef\nhigh: 1\nmedium: 0\nlow: 0\n---\n"
+
+    review = parse_review(text)
+    assert review is not None and review["reviewed_packet_digest"] is None
+    assert review_malformed(text) is False
+    assert review_malformed("# no front matter\n") is False
+
+
+def test_a_placeholder_review_is_flagged_malformed_not_packet_stale(valid_run: Path) -> None:
+    _review(valid_run, "<doc_digest>", high=1, packet="<packet_digest>")
+
+    entry = _entry(_status(valid_run))
+
+    assert (entry["stage"], entry["flags"]) == (
+        "reviewed", ["review_unparsed", "review_malformed"]
+    )
+    # no step takes a review it cannot read further, the same as one with no front matter
+    assert DEMO_TABLE not in _batches(valid_run, "fix")
+    assert DEMO_TABLE not in _batches(valid_run, "review")
 
 
 # ------------------------------------------------------------------- reviews, revisions, rewrites
@@ -512,7 +557,7 @@ def test_a_malformed_fix_record_is_no_fix_record(value: str) -> None:
 def test_the_report_names_every_flag(valid_run: Path) -> None:
     assert list(_status(valid_run)["summary"]["flags"]) == [
         "packet_stale", "invalid", "review_packet_stale", "review_stale", "fix_unconfirmed",
-        "review_unparsed", "render_stale", "doc_misfiled",
+        "review_unparsed", "review_malformed", "render_stale", "doc_misfiled",
     ]
 
 

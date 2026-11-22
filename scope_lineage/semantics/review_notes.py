@@ -15,10 +15,13 @@ minimal YAML block that ``semantic status`` reads without a YAML library::
 reviewer read it (``semantic digest <doc.json>`` prints it); ``reviewed_packet_digest`` is
 the ``packet_digest`` of the packet the reviewer read (copied from ``packet.md``);
 ``high`` / ``medium`` / ``low`` count the findings by severity. Anything short of the
-digest and the three counts -- a non-empty digest, non-negative whole counts -- is no
-front matter at all. ``reviewed_packet_digest`` is optional so that reviews written
+digest and the three counts -- sixteen lower-case hex digits, non-negative whole counts --
+is no front matter at all. ``reviewed_packet_digest`` is optional so that reviews written
 before it existed still parse; ``semantic status`` treats such a review as one it cannot
-tie to a packet.
+tie to a packet. When it is present it must be a digest too. A front matter that is
+complete but whose digest is not one (a template placeholder such as ``<doc_digest>`` or
+``TODO``) is *malformed* (:func:`review_malformed`): reading it as a digest that differs
+from the document's said "the review read another packet" and dropped its findings.
 
 ``fixed_doc_digest`` is the fix record: the digest of the document a fix finished with.
 Only ``semantic fixed`` writes it, and ``semantic confirm`` moves it to a confirmed
@@ -37,6 +40,9 @@ PACKET_KEY = "reviewed_packet_digest"
 FIX_KEY = "fixed_doc_digest"
 
 _DIGEST = re.compile(r"[0-9a-f]{16}")
+# A well-formed digest :func:`review_malformed` puts in place of the written ones to ask
+# "would this front matter be complete if its digests were digests?".
+_PLACEHOLDER = "0" * 16
 
 
 def parse_review(text: str) -> dict | None:
@@ -45,6 +51,23 @@ def parse_review(text: str) -> dict | None:
     None without complete front matter; the two optional keys are None when absent (and
     the fix record when it is not a digest).
     """
+    fields = _fields(text)
+    return None if fields is None else _review(fields)
+
+
+def review_malformed(text: str) -> bool:
+    """Complete front matter whose ``reviewed_*`` digest is not sixteen lower-case hex digits.
+
+    ``semantic status`` reports it as ``review_malformed`` beside ``review_unparsed``: the
+    review was written, but what it read cannot be told.
+    """
+    fields = _fields(text)
+    if fields is None or _review(fields) is not None:
+        return False
+    return _review({**fields, "reviewed_doc_digest": _PLACEHOLDER, PACKET_KEY: ""}) is not None
+
+
+def _fields(text: str) -> dict | None:
     block = _front_matter(text)
     if block is None:
         return None
@@ -54,7 +77,7 @@ def parse_review(text: str) -> dict | None:
         key, colon, value = line.partition(":")
         if colon:
             fields[key.strip()] = value.strip().strip("\"'")
-    return _review(fields)
+    return fields
 
 
 def with_fix_record(text: str, digest: str) -> str:
@@ -94,10 +117,15 @@ def _review(fields: dict) -> dict | None:
     digest = fields.get("reviewed_doc_digest")
     if not digest:
         return None
+    packet = fields.get(PACKET_KEY) or None
+    if not _DIGEST.fullmatch(digest):
+        return None
+    if packet is not None and not _DIGEST.fullmatch(packet):
+        return None
     fixed = fields.get(FIX_KEY)
     review: dict = {
         "reviewed_doc_digest": digest,
-        PACKET_KEY: fields.get(PACKET_KEY) or None,
+        PACKET_KEY: packet,
         FIX_KEY: fixed if fixed and _DIGEST.fullmatch(fixed) else None,
     }
     for key in COUNT_KEYS:

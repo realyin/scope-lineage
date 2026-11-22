@@ -130,6 +130,21 @@
   tried again without a leading or trailing `AND` / `OR`; the last-resort split counts
   parentheses, skips strings and keeps `BETWEEN x AND y` whole, and parentheses around a
   conjunction are looked through.
+- **Check 12: a number glued to a unit is not a code.** `近30天活跃标志` read as code `30` =
+  `天活跃标志`, so a document that left `30` unconfirmed failed. Glued pairs now follow the
+  glossary's rule (shared as `glossary_values.glued_pairs_hold`: two or more pairs, one code
+  width, distinct labels) and no label may open with 天 / 元 / 年 / 月 / 日 / 个 / 次 / %.
+  `0未推送，1已推送` still reads as two codes.
+- **Check 11: negating phrases and a second producer.** `未能通过`, `无法正常使用`, `不曾成功`
+  are no longer success-like (a phrase is matched whole, so `非常成功` still is). When two tasks
+  write the same value and one cannot list its source values, the other's list is kept
+  instead of being erased, so the merged-value warning no longer disappears.
+- **`semantic status`: a review whose digest is a placeholder is `review_malformed`.**
+  `reviewed_doc_digest` and a present `reviewed_packet_digest` must be sixteen lower-case hex
+  digits. A copied placeholder (`<doc_digest>`, `TODO`) used to read as "the review read
+  another packet" (`review_packet_stale`) and its findings were dropped; it is now
+  `reviewed review_unparsed review_malformed` and no step dispatches it. The status JSON's
+  `summary.flags` gains the `review_malformed` key.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**
