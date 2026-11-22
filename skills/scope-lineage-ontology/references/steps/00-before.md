@@ -23,7 +23,7 @@ python3 <SKILL>/scripts/init_run.py \
 | `--patch` | `PATCH` | owner 审过的 `metadata-patch.json`；没有就不写 |
 | `--overrides` | `OVERRIDES` | owner 审过的 `glossary.overrides.json`；没有就不写 |
 | `--questions` | `Q` | 回归题集（`question-set/1`）；没有就不写 |
-| `--domain-profile` | `DOMAIN_PROFILE` | 领域配置 `domain-profile/1`（业务限定词、表名后缀约定、概念词），由调用方提供；没有就不写。`runlib.sh` 把它导出成 `SCOPE_LINEAGE_DOMAIN_PROFILE`，`semantic packet` / `semantic validate` / `ontology` 没给 `--domain-profile` 时都读它，所以 runbook 的命令不加这个参数。文件不存在时脚本退出 1 |
+| `--domain-profile` | `DOMAIN_PROFILE` | 领域配置 `domain-profile/1`（业务限定词、表名后缀约定、概念词），由调用方提供；没有就不写（这时跑到 S2 之后做 S2a，从语料生成一份）。`runlib.sh` 把它导出成 `SCOPE_LINEAGE_DOMAIN_PROFILE`，`semantic packet` / `semantic validate` / `ontology` 没给 `--domain-profile` 时都读它，所以 runbook 的命令不加这个参数。文件不存在时脚本退出 1 |
 | `--review-passes` | `REVIEW_PASSES` | 审读遍数，`1`（默认）或 `2`。审读和写作只能用同一种模型时写 `2`：每张表首审后再补审一遍、取两份审读的并集（S6）。没有这一行的旧 `env.sh` 按 1 |
 | `--lineage-skill` | `LINEAGE_SKILL` | 血缘 skill `scope-lineage` 的目录（S1 用它的 `$LINEAGE_SKILL/scripts/query.py`）。不写时取本 skill 旁边的 `scope-lineage`；那里没有就退出 1，这时用这个参数写它的绝对路径 |
 | `--tool` | `TOOL` | 工具仓库根目录（里面有 `skills/` `docs/` `examples/` `pyproject.toml`）。不写时脚本自己判断：skill 在仓库里就是那个仓库；pip 安装、没有仓库就是空的 |

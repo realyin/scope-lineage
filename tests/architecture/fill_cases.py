@@ -39,6 +39,10 @@ CASES: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
     "T7": ("T7", ("round1/sheet.md",), ("ROUND={RUN}/round1",)),
     "T8": ("T8", ("round1/grading.md",), ("ROUND={RUN}/round1", "ROUND_LABEL=r1")),
     "T9": ("T9", (f"docs/{T}.json", f"reviews/{T}.md", f"reviews_prev/{T}.pass1.md"), (f"TABLE={T}", "FACTS=无")),
+    "T-domain-profile-first": ("T-domain-profile", ("profile/evidence.md",), ("MODE=首写", "REWORK=无")),
+    "T-domain-profile-rewrite": ("T-domain-profile",
+                                 ("profile/evidence.md", "profile/domain-profile.draft.json"),
+                                 ("MODE=重写", "REWORK=error: 一行核对输出")),
 }
 
 
@@ -47,7 +51,7 @@ def render_all(fill, tmp_path: Path, skill: Path) -> dict[str, str]:
     rendered = {}
     for case, (template, files, arguments) in CASES.items():
         run, scratch = tmp_path / case / "run", tmp_path / case / "scratch"
-        for name in ("docs", "reviews", "reviews_prev", "round1", "digest"):
+        for name in ("docs", "reviews", "reviews_prev", "round1", "digest", "profile"):
             (run / name).mkdir(parents=True)
         for name in files:
             (run / name).write_text(f"内容：{name}\n", encoding="utf-8")

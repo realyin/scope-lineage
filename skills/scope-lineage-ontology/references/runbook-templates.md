@@ -18,6 +18,7 @@
 | T7 作答（S11） | [`templates/T7.md`](templates/T7.md) |
 | T8 判分（S11） | [`templates/T8.md`](templates/T8.md) |
 | T9 补审：第二遍审读并合并（S6） | [`templates/T9.md`](templates/T9.md) |
+| T-domain-profile 领域配置草稿（S2a） | [`templates/T-domain-profile.md`](templates/T-domain-profile.md) |
 | 运行账本模板（`$RUN/ledger.md`） | [`templates/ledger.md`](templates/ledger.md) |
 | 交付报告模板（`$RUN/RESULT.md`） | [`templates/result.md`](templates/result.md) |
 
@@ -34,7 +35,7 @@ fill write "$SCRATCH/prompts/T1-write-<表>-r2.md" TABLE=<库.表> MODE=补失�
   给了 `ROUND=<目录>` 时 `{ROUND_NAME}` 换成这个目录的最后一段（例如 `round2`）；
   其余占位按命令行的 `KEY=值` 换；值写成 `@文件` 时取那个文件的内容（贴多行报错用）。
 - 模板可以写编号，也可以写名字：T1 写作 / write、T2 审读 / review、T3 复审 / rereview、T4 修订 / fix、
-  T5 目录起草 / catalog、T6 片段 / fragment、T7 作答 / answer、T8 判分 / grade、T9 补审 / second-review。手册里的命令都写名字。
+  T5 目录起草 / catalog、T6 片段 / fragment、T7 作答 / answer、T8 判分 / grade、T9 补审 / second-review、T-domain-profile 领域配置 / domain-profile。手册里的命令都写名字。
 - 下面几种情况 `fill` 都退出 1、不能发：参数不属于这个模板（多半是模板选错了）；`MODE` 不是这个模板的取值；
   模板或模式的前提不成立（复审要有 `reviews_prev/<表>.round1.md`；补审要有 `reviews_prev/<表>.pass1.md`；修订要有 `reviews/<表>.md`；有 `reviews/<表>.prior.md`
   时审读只能用「重写后首审」，没有时只能用「首审」；写作新写时，有 `reviews/<表>.prior.md` 就要写 `CORRECTIONS=@<修正点清单>`，
@@ -55,7 +56,7 @@ fill write "$SCRATCH/prompts/T1-write-<表>-r2.md" TABLE=<库.表> MODE=补失�
    - `{SIZE}`（T5）：「小样：只分 1 组，组名 main」或「扩表：按概念分组」。
    - `{TOUCHED}`（T5）：增量模式写 `@<RUN>/catalog_touched.txt`（runbook S10a 的 C 生成）；新建模式写「无」。
    - `{DECISIONS}`（T5）：`<RUN>/owner_decisions.md` 存在时写 `@<RUN>/owner_decisions.md`，不存在时写「无」（`fill` 会核对）。
-   - `{REWORK}`（T5、T6）：返工时贴要改的报错原文；第一次派发写「无」。
+   - `{REWORK}`（T5、T6、T-domain-profile）：返工时贴要改的报错原文（T-domain-profile 贴 `domain-profile check` 的输出）；第一次派发写「无」。
    - `{ROUND_LABEL}`（T8）：轮次标签（例如 `r1`）。
 
 输出文件就是存档：放在 `$SCRATCH/prompts/<编号>-<名字>-<表、组或 ROUND 目录名>[-<轮次>].md`（例如 `T4-fix-<表>-1.md`），中断后照它重派。

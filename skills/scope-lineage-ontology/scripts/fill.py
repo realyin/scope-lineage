@@ -17,7 +17,7 @@ if not os.path.isdir(folder):
     sys.exit("找不到模板目录：" + folder + "。SKILL 要指向 scope-lineage-ontology skill 目录"
              "（0.13.0 起模板从 scope-lineage 搬到了这里；旧运行的 env.sh 照 steps/00-before.md 0.1 改一行）")
 src = "\n".join(open(os.path.join(folder, name), encoding="utf-8").read()
-                for name in sorted(os.listdir(folder)) if re.fullmatch(r"T\d+\.md", name))
+                for name in sorted(os.listdir(folder)) if re.fullmatch(r"T(\d+|-[a-z][a-z-]*)\.md", name))
 meta = {}   # 模板编号 -> {"names": [...], "MODE": [...], "rules": [(规则, 只在哪个 MODE 生效, 值)]}
 for m in re.finditer(r"^<!-- fill: (.*?) -->$", src, re.M):
     entry = {"rules": []}

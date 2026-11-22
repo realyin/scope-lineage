@@ -10,6 +10,7 @@ $RUN/
   blocked.txt                blocked 的表（S5）
   artifacts/[<子目录>/]<任务名>/  血缘 lineage.json（S1；子目录照搬 $TASKS 的）
   corpus/                    tables.json、glossary.json（S2）
+  profile/                   evidence.json/md、domain-profile.draft.json、domain-profile.reasons.md、confirmed.json、domain-profile.json、DECISION（S2a）
   packets/<表>/              packet.md、packet.json（S3；只由 semantic packet 写）
   docs/<表>.json             表语义（写作写、修订改、confirm 改；编排者不手改）
   reviews/<表>.md            当前审读（审读员写；fixed_doc_digest 只由 semantic fixed 写）

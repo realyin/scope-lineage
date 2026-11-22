@@ -186,9 +186,10 @@ def test_a_missing_table_is_named_before_any_premise(shell, run):
 def _templates() -> dict[str, dict]:
     text = "\n".join(path.read_text(encoding="utf-8") for path in sorted((REFS / "templates").glob("T*.md")))
     templates = {}
-    for heading in re.finditer(r"^## (T\d) .*?\n(?:\n)?<!-- fill: (.*?) -->$", text, re.M):
+    for heading in re.finditer(r"^## (T\d|T-[a-z-]+) .*?\n(?:\n)?<!-- fill: (.*?) -->$", text, re.M):
         rules = dict(part.strip().split("=", 1) for part in heading.group(2).split(";") if "[" not in part)
-        body = re.search(r"^## " + heading.group(1) + r" .*?^----8<----\n(.*?)^----8<----$", text, re.S | re.M)
+        body = re.search(r"^## " + re.escape(heading.group(1)) + r" .*?^----8<----\n(.*?)^----8<----$",
+                         text, re.S | re.M)
         templates[heading.group(1)] = {
             "names": [name.strip().lower() for name in rules["names"].split(",")],
             "modes": [mode.strip() for mode in rules.get("MODE", "").split(",") if mode.strip()],
@@ -211,7 +212,7 @@ def _commands() -> list[tuple[str, str]]:
 
 def test_every_fill_command_in_the_runbook_fits_its_template():
     templates = _templates()
-    assert len(templates) == 9, sorted(templates)
+    assert len(templates) == 10, sorted(templates)
     commands = _commands()
     assert len(commands) >= 12, commands
     problems = []
