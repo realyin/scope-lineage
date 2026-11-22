@@ -24,7 +24,7 @@ from .scope_types import (
     DiagnosticWarning,
 )
 from ._constants import DIALECT, _SCOPE_ID_ATTR
-from ..function_catalog import _KNOWN_UDAFS
+from ..function_catalog import KNOWN_FUNCTION_NAMES, _KNOWN_UDAFS
 from .sequences import _unique_ordered
 from .source_refs import _constant_sources, _source_ref_binding_key
 from .grouping import group_by_item_expressions, grouping_kind
@@ -937,7 +937,9 @@ def _transform_subkind(node: exp.Expression, transform: str) -> str | None:
         return "case_when"
     if transform == "EXPRESSION" and isinstance(node, exp.Cast):
         return "cast"
-    if transform == "EXPRESSION" and isinstance(node, exp.Anonymous):
+    if transform == "EXPRESSION" and isinstance(node, exp.Anonymous) \
+            and node.name.lower() not in KNOWN_FUNCTION_NAMES:
+        # sqlglot leaves some Spark builtins anonymous (``now()``); the catalog knows them.
         return "udf"
     return None
 

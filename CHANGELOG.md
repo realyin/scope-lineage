@@ -474,6 +474,12 @@
   the alias, is unchanged. Who is affected: stored lineage whose HAVING or QUALIFY uses such a
   name; the `raw_expression` and `fields` of that filter block change. What to do: re-run
   `parse` (see the READMEs' migration section).
+- **`SELECT now() AS ts` is no longer reported as a UDF.** sqlglot parses `now()` as an
+  anonymous call, and a projection that was one anonymous call got the `udf` subtype without
+  the function catalog being asked, so `has_udf` was true and the output was typed
+  `udf_expression` although the catalog lists `now`. The subtype now consults the catalog; an
+  unknown name is still a UDF. `current_timestamp()`, `current_date()` and `unix_timestamp()`
+  parse to named nodes and were never affected.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**
