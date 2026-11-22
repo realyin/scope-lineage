@@ -35,6 +35,8 @@ from functools import lru_cache
 import sqlglot
 from sqlglot.errors import ParseError
 
+from .sql_text_spans import sub_in_code
+
 DIALECT = "spark"
 
 # Quoting one of these can turn malformed SQL into an AST that parses and means something else.
@@ -75,8 +77,12 @@ def _candidates(error: dict) -> list[str]:
 
 
 def _quote(sql: str, word: str) -> str:
-    """Quote every bare occurrence, leaving already-quoted and suffixed ones untouched."""
-    return re.sub(rf"(?<![\w`]){re.escape(word)}(?![\w`])", f"`{word}`", sql)
+    """Quote every bare occurrence in code, leaving already-quoted and suffixed ones untouched.
+
+    Code only: the same word inside a string literal is a value (`'no using here'` would
+    otherwise publish as ``'no `using` here'``) and inside a comment a remark (WP4 1.13-c).
+    """
+    return sub_in_code(rf"(?<![\w`]){re.escape(word)}(?![\w`])", f"`{word}`", sql)
 
 
 @lru_cache(maxsize=64)

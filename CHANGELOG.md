@@ -109,6 +109,14 @@
   ordinary CAST or a commented expression was marked a UDF black box. Literals and comments are
   now skipped by one shared splitter (`scope/sql_text_spans.py`), and a name written where a type
   goes (after `AS` or `::`) is not collected; `char(65)` called as a function still is.
+- **Text rewrites leave string literals and comments alone.** Expansion rewrote a reference
+  inside a literal or comment (`CONCAT('see c.v now', c.v)` published `'see (amt * 2) now'` in
+  `expanded_expression`), the qualify-fallback substitution did the same to unqualified names,
+  keyword repair quoted a word inside a literal (`'no using here'` became ``'no `using` here'``
+  in `expression`), and a literal ending in a backslash (`'\\'`) hid the reference after it, so
+  `expanded_expression` dropped the call around it or kept a local alias. All of these now go
+  through the shared splitter. `display_expression` no longer drops a struct field named like the
+  table alias (`u.profile.u.name` displays as `` `profile`.`u`.`name` ``).
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

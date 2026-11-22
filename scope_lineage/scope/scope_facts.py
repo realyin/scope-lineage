@@ -36,10 +36,11 @@ from .expansion_budget import (
 from .sqlglot_walk import _pivot_of_source_node, _source_item_from_ast_node
 from ._constants import DIALECT, PARSE_OPTS, _SCOPE_ID_ATTR
 from .expression_expansion import _ordered_physical_fields_in_expression, _physical_fields_referenced_in_expression, _replace_struct_field_access_from_upstream, _resolve_expression_resolution_from_output_sources, _resolved_expression_fact_from_source_refs
-from .expression_refs import _cached_pattern, _qualified_field_refs, _strip_sql_comments
+from .expression_refs import _cached_pattern, _qualified_field_refs
 from .expression_text import _function_names, _replace_qualified_ref_with_expression, _replace_unqualified_ref_with_expression, _unexpanded_bound_aliases_in_expression
 from ..function_catalog import _AGGREGATE_FUNCTIONS, _CLEANING_FUNCTIONS, _KNOWN_SCALAR_FUNCTIONS
 from .sequences import _extend_unique, _unique_ordered
+from .sql_text_spans import blank_comments
 from .source_refs import _dedupe_generated_source_dicts, _dedupe_physical_field_dicts, _dedupe_rowset_source_dicts, _is_cross_join_type, _is_internal_scope_id, _normalize_expression_resolution, _physical_source_fields_for_refs, _physical_source_ids_for_input, _qualified_physical_field_sql, _rowset_sources_from_upstream_output, _source_kind_for_resolution, _source_ref_to_dict, _source_refs_from_detail_fields, _source_type_from_id
 from .sqlglot_walk import _find_alias_in_parent
 from .star_passthrough import _populate_union_output_branch_mappings, _star_passthrough_output_fact
@@ -2604,7 +2605,7 @@ def _unqualified_field_refs(expression: str | None) -> list[str]:
 def _normalize_expression_for_matching(expression: str | None) -> str:
     if not expression:
         return ""
-    return re.sub(r"\s+", " ", _strip_sql_comments(str(expression)).strip()).lower()
+    return re.sub(r"\s+", " ", blank_comments(str(expression)).strip()).lower()
 
 
 def _resolved_scope_alias_expression_fact(

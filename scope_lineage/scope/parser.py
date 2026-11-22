@@ -20,6 +20,7 @@ from sqlglot import exp
 
 from ..sqlglot_config import suppress_invalid_json_path_warnings
 from ..metadata.schema_metadata import load_schema as load_schema, normalize_table_name as _schema_normalize_table_name, strip_catalog_prefix as _strip_catalog_prefix
+from .sql_text_spans import SQL_LITERAL_OR_COMMENT
 
 
 DIALECT = "spark"
@@ -113,10 +114,9 @@ def _alias_to_physical_table(alias_bindings: List[dict]) -> Dict[str, str]:
     return amap
 
 
-# A string literal ('...', with '' / \\ escapes) or a comment (/* */ or -- ...). These spans carry
-# text that must NEVER be treated as code: a literal like 'a.b' or a Chinese comment mentioning a
-# qualifier would otherwise be corrupted by a blind alias substitution.
-_SQL_LITERAL_OR_COMMENT = r"'(?:''|\\.|[^'])*'|/\*.*?\*/|--[^\n\r]*"
+# A string literal or a comment (`SQL_LITERAL_OR_COMMENT`, shared with every other text pass):
+# these spans carry text that must NEVER be treated as code -- a literal like 'a.b' or a Chinese
+# comment mentioning a qualifier would otherwise be corrupted by a blind alias substitution.
 
 
 def resolve_display_expression(expression: Any, alias_bindings: List[dict]) -> Any:
@@ -137,8 +137,10 @@ def resolve_display_expression(expression: Any, alias_bindings: List[dict]) -> A
         return expression
     alias_alt = "|".join(re.escape(a) for a in sorted(amap, key=len, reverse=True))
     token = re.compile(
-        rf"(?P<skip>{_SQL_LITERAL_OR_COMMENT})"
-        rf"|`(?P<qa>{alias_alt})`\s*\."          # backtick-qualified: `a`.
+        rf"(?P<skip>{SQL_LITERAL_OR_COMMENT})"
+        # backtick-qualified: `a`. -- but not a later segment of a dotted path: in
+        # `u`.`profile`.`u`.`name` the second `u` is a struct field, not the alias (1.13-d)
+        rf"|(?<![\w.`])`(?P<qa>{alias_alt})`\s*\."
         rf"|(?<![\w.`])(?P<ba>{alias_alt})\s*\.",  # bare qualifier: a. (not mid-identifier/dotted)
         re.IGNORECASE | re.DOTALL,
     )

@@ -3,13 +3,13 @@ from __future__ import annotations
 
 import re
 
-from .expression_refs import _cached_pattern, _strip_sql_comments, _strip_sql_string_literals
+from .expression_refs import _cached_pattern
 from .scope_types import ScopeData
 from .sequences import _unique_ordered
-from .sql_text_spans import blank_literals_and_comments
+from .sql_text_spans import blank_literals_and_comments, sub_in_code
 
 def _unexpanded_bound_aliases_in_expression(scope_data: ScopeData, expression: str | None) -> list[str]:
-    expression = _strip_sql_comments(_strip_sql_string_literals(str(expression or "")))
+    expression = blank_literals_and_comments(str(expression or ""))
     if not expression:
         return []
     unresolved_aliases: list[str] = []
@@ -49,26 +49,42 @@ def _qualifier_present(expression: str, qualifier: str) -> bool:
     return bool(_cached_pattern(rf"(?<![.`\w]){re.escape(qualifier)}\.").search(expression))
 
 
+# Every substitution below runs on code only (`sub_in_code`): a string literal is data and a
+# comment is the author's remark, and rewriting `'see c.v now'` or `/* c.v note */` changed a
+# published value or garbled a note (WP4 2.1, 1.13-e). Each step is skipped when its text
+# does not occur at all, which is the common case and keeps the scan off long expressions.
+
+
 def _replace_qualified_ref_with_expression(expression: str, qualifier: str, field: str, replacement: str) -> str:
     replacement_sql = _parenthesize_replacement_expression(replacement)
-    expression = expression.replace(f"`{qualifier}`.`{field}`", replacement_sql)
-    expression = expression.replace(f"`{qualifier}`.{replacement_sql}", replacement_sql)
+    expression = _replace_text_in_code(expression, f"`{qualifier}`.`{field}`", replacement_sql)
+    expression = _replace_text_in_code(expression, f"`{qualifier}`.{replacement_sql}", replacement_sql)
     if f"{qualifier}.{field}" in expression:
-        expression = _cached_pattern(
-            rf"(?<![.`\w]){re.escape(qualifier)}\.{re.escape(field)}(?![`.\w])"
-        ).sub(lambda _match: replacement_sql, expression)
-    expression = expression.replace(f"{qualifier}.{replacement_sql}", replacement_sql)
+        expression = sub_in_code(
+            rf"(?<![.`\w]){re.escape(qualifier)}\.{re.escape(field)}(?![`.\w])",
+            replacement_sql,
+            expression,
+        )
+    expression = _replace_text_in_code(expression, f"{qualifier}.{replacement_sql}", replacement_sql)
     return expression
 
 
+def _replace_text_in_code(expression: str, text: str, replacement: str) -> str:
+    if text not in expression:
+        return expression
+    return sub_in_code(re.escape(text), replacement, expression)
+
+
 def _replace_unqualified_ref_with_expression(expression: str, field: str, replacement: str) -> str:
+    if field not in expression:
+        return expression
     replacement_sql = _parenthesize_replacement_expression(replacement)
-    expression = _cached_pattern(
-        rf"(?<![.`\w])`{re.escape(field)}`(?![`.\w])"
-    ).sub(lambda _match: replacement_sql, expression)
-    return _cached_pattern(
-        rf"(?<![.`'\"\w]){re.escape(field)}(?![`.'\"\w])"
-    ).sub(lambda _match: replacement_sql, expression)
+    expression = sub_in_code(
+        rf"(?<![.`\w])`{re.escape(field)}`(?![`.\w])", replacement_sql, expression
+    )
+    return sub_in_code(
+        rf"(?<![.`'\"\w]){re.escape(field)}(?![`.'\"\w])", replacement_sql, expression
+    )
 
 
 def _parenthesize_replacement_expression(expression: str) -> str:
