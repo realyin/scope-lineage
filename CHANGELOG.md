@@ -265,6 +265,19 @@
   Members are found in the AST by name, so a computed member of a plain STRUCT
   (`NAMED_STRUCT('a', COALESCE(c1, 0), 'b', c2)` read through `.a`) reads only `c1` instead
   of every column of the STRUCT.
+- **PIVOT and UNPIVOT produce Spark's column set.** A `SELECT *` over a PIVOT returned only
+  the IN-value columns, marked `DIRECT`, without the FOR column, and one column for several
+  aggregates; an outer reference to a grouping column was dropped as dangling. It now
+  returns the implicit grouping columns (the relation's columns neither aggregated nor
+  pivoted on) followed by one `AGGREGATE` column per IN value and aggregate, named
+  `<value>_<alias>` when there are several aggregates, each reading the aggregate's columns
+  and the FOR column; the grouping columns are recorded as the scope's GROUP BY, so the
+  semantic profile keys the output by them instead of calling it a single row. `p.<grouping
+  column>` through a pivot alias resolves. An UNPIVOT, which was silently expanded as the
+  original table, now gives the columns outside its IN list, the name column (`CONSTANT`,
+  one literal per IN item) and the value column read from the IN columns. Explicit
+  unqualified references to pivoted or unpivoted columns (`SELECT dept, q1 FROM ... PIVOT`)
+  are still reported as unresolved.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**
