@@ -36,6 +36,7 @@ from scope_lineage.render.concepts import (
     TIER_HYPOTHESIS,
     TIER_IMPLIED,
     TIER_STEM_ONLY,
+    concept_words,
     key_comment_name,
 )
 from scope_lineage.render import concepts as concepts_module
@@ -54,6 +55,16 @@ from .test_concepts import (
 
 
 # --------------------------------------------------------------------- helpers
+
+
+@pytest.fixture
+def lifecycle_words():
+    """The wide corpus's lifecycle words, which the package no longer ships (WP11): a
+    caller brings them as ``concept_words``, the way a domain profile does."""
+    with concept_words({
+        "measure_suffixes": ["欠款"], "filter_words": ["已到期", "未到期", "首期"],
+    }):
+        yield
 
 
 def _candidates(ontology: dict, cards: dict, concept_id: str) -> list[dict]:
@@ -205,6 +216,7 @@ def _filtered_corpus(comment: str) -> tuple[dict, dict]:
         ("合同分数据", JUNK_MEASURE),
     ],
 )
+@pytest.mark.usefixtures("lifecycle_words")
 def test_a_filter_or_a_measure_never_outranks_the_key_comment(
     comment: str, reason: str
 ) -> None:
@@ -462,6 +474,7 @@ def _junk_only_corpus(comment: str) -> tuple[dict, dict]:
         ("2024年合同统计", "合同"),
     ],
 )
+@pytest.mark.usefixtures("lifecycle_words")
 def test_a_clean_phrase_inside_a_junk_comment_beats_the_bare_stem(
     comment: str, expected: str
 ) -> None:
@@ -491,6 +504,7 @@ def test_a_concept_no_comment_named_says_its_name_is_only_the_stem() -> None:
     ]
 
 
+@pytest.mark.usefixtures("lifecycle_words")
 def test_a_junk_comment_with_no_chinese_left_keeps_the_stem_tier() -> None:
     """The negative again: 欠款 alone recovers nothing, so the stem stands and says so."""
     ontology, cards = _junk_only_corpus("2月欠款")

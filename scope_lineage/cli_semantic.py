@@ -18,6 +18,7 @@ from pathlib import Path
 
 from .cli_only import add_directory, add_only, take_back_directory
 from .cli_semantic_status import add_status_parsers, run_digest, run_fixed, run_status
+from .domain_profile import DomainProfile, DomainProfileError, load_domain_profile
 from .metadata.metadata_patch import (
     MetadataPatch,
     MetadataPatchError,
@@ -46,6 +47,7 @@ from .semantics import (
 )
 from .semantics.digests import document_digest
 from .semantics.names import bare_table
+from .semantics.checks_documented import QUALIFIER_TERMS
 from .semantics.packet import PACKET_FORMAT
 from .semantics.review_notes import parse_review, with_fix_record
 from .semantics.status import NEXT_FORMAT, STATUS_FORMAT, document_flags, review_verdict
@@ -83,6 +85,11 @@ def add_semantic_parser(subcommands) -> None:
         validate,
         "Only the documents of these tables (db.table, a catalog prefix is ignored); "
         "files that are unreadable or name no table are passed over",
+    )
+    add_domain_profile(
+        validate,
+        "its qualifier_terms are added to check 12's generic qualifiers (税 / 增值税 / "
+        "手续费 / 测试)",
     )
     confirm =actions.add_parser(
         "confirm", help="Apply a semantic-confirmations/1 file to table-semantics documents"
@@ -165,6 +172,32 @@ def _add_packet_parser(actions) -> None:
         ),
     )
     packet.add_argument("--out", required=True, help="Directory for <db.table>/packet.{md,json}")
+    add_domain_profile(
+        packet,
+        "its table_name_convention says which table-name suffixes mark a full-snapshot or "
+        "an incremental table (each input's name_convention, and check 9's full_snapshot); "
+        "without one no suffix means anything",
+    )
+
+
+def add_domain_profile(parser, what: str) -> None:
+    """The one flag every command that reads a ``domain-profile/1`` file takes."""
+    parser.add_argument(
+        "--domain-profile", metavar="FILE",
+        help=f"A domain-profile/1 file of the caller's business vocabulary and naming rules: {what}",
+    )
+
+
+def read_domain_profile(args: argparse.Namespace) -> DomainProfile | int:
+    """The ``--domain-profile`` file, an empty profile when none is given, or exit 2."""
+    path = getattr(args, "domain_profile", None)
+    if not path:
+        return DomainProfile()
+    try:
+        return load_domain_profile(path)
+    except DomainProfileError as error:
+        print(str(error), file=sys.stderr)
+        return 2
 
 
 def run_semantic(args: argparse.Namespace) -> int:
@@ -196,6 +229,9 @@ def _run_packet(args: argparse.Namespace) -> int:
     from .render.glossary import DOC_FORMAT as GLOSSARY_DOC_FORMAT
     from .render.table_cards import DOC_FORMAT as TABLES_DOC_FORMAT
 
+    profile = read_domain_profile(args)
+    if isinstance(profile, int):
+        return profile
     glossary = _load_corpus_document(args.glossary, "--glossary", GLOSSARY_DOC_FORMAT)
     if isinstance(glossary, int):
         return glossary
@@ -229,6 +265,7 @@ def _run_packet(args: argparse.Namespace) -> int:
             documents,
             tasks=tasks, metadata=metadata, cards=cards, only=args.only,
             glossary=glossary, patched=_patched_comments(patch),
+            name_convention=profile.name_convention,
         )
     except UnknownTables as error:
         print(str(error), file=sys.stderr)
@@ -445,6 +482,10 @@ def _patched_comments(patch: MetadataPatch) -> dict | None:
 
 def _run_validate(args: argparse.Namespace) -> int:
     take_back_directory(args)
+    profile = read_domain_profile(args)
+    if isinstance(profile, int):
+        return profile
+    terms = tuple(dict.fromkeys(QUALIFIER_TERMS + profile.qualifier_terms))
     directory, packets = Path(args.directory), Path(args.packets)
     for path, flag in ((directory, "directory"), (packets, "--packets")):
         if not path.is_dir():
@@ -458,7 +499,7 @@ def _run_validate(args: argparse.Namespace) -> int:
         files = _only_files(files, args.only)
         if files is None:
             return 1
-    checked =[_check_path(path, directory, packets) for path in files]
+    checked = [_check_path(path, directory, packets, terms) for path in files]
     entries = [entry for entry in checked if entry is not None]
     report = validation_report(entries)
     if args.json:
@@ -496,7 +537,9 @@ def _only_files(files: list[Path], only: list[str]) -> list[Path] | None:
     return chosen
 
 
-def _check_path(path: Path, directory: Path, packets: Path) -> dict | None:
+def _check_path(
+    path: Path, directory: Path, packets: Path, terms: tuple[str, ...] = QUALIFIER_TERMS
+) -> dict | None:
     """One file's report entry; None for this toolchain's other documents.
 
     A confirmations file kept beside the documents it answers is skipped rather than
@@ -511,7 +554,7 @@ def _check_path(path: Path, directory: Path, packets: Path) -> dict | None:
     if isinstance(document, dict) and document.get("doc_format") in _OTHER_FORMATS:
         return None
     table = document.get("table") if isinstance(document, dict) else None
-    return check_file(document, _read_packet(packets, table), file)
+    return check_file(document, _read_packet(packets, table), file, qualifier_terms=terms)
 
 
 def _read_packet(packets: Path, table) -> dict | None:

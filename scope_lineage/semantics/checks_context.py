@@ -231,6 +231,10 @@ def missing_packet(document: dict) -> dict:
 def check_time(document: dict, packet: dict) -> list[dict]:
     """``incremental`` over full snapshots fails; ``snapshot`` over a date window warns.
 
+    A full snapshot is a table-name reading (the caller's ``table_name_convention``,
+    WP11): without a configured convention no input is one and the failure cannot fire,
+    and its message says which reading it rests on.
+
     Only a date filter shaped as a window -- a day-level comparison with the batch -- selects
     a batch's rows by business date: an as-of pair (``beg <= D AND end > D``), an upper
     bound alone, a NULL check, a cutoff on a fixed literal and a period of the batch (its
@@ -247,7 +251,9 @@ def check_time(document: dict, packet: dict) -> list[dict]:
         return [result("time", "fail", at, (
             f"写了 incremental，但上游 {tables} 都按单一分区取全量快照，且没有按业务日期筛选："
             "每个分区是一份全量，按增量把多个分区相加会重复计数；改成 snapshot，"
-            "并在 how_to_read 里写明只取一个分区"))]
+            "并在 how_to_read 里写明只取一个分区。全量快照的依据是表名约定（调用方配置的 "
+            "table_name_convention 判这些表名为 full）；若某张表并非每个分区一份全量，"
+            "以实际为准并在审读里说明"))]
     if time == "snapshot" and dated:
         return [result("time", "warn", at, (
             f"写了 snapshot，但写入按批次日逐日筛选业务日期（{'；'.join(dated)}）；确认这张表是不是按日增量。"
