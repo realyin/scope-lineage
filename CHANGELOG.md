@@ -198,6 +198,48 @@
 - **`magic_number` no longer warns about a type's precision.** `CAST(x AS DECIMAL(18, 2))` was
   warned about the literal `18`; a literal inside a type's parameters is now skipped, and a value
   literal in the same expression is still warned about.
+- **Comment masking: a date after an offset is no longer a phone number.** The international
+  phone rule had no boundary, so `T+1 20260802`, `UTC+8 20260802` and `金额 +1000000` became
+  `<phone>`, and a 20-digit key lost its head (`<phone>890`). The rule now needs 9 to 15 digits
+  of country code and number, refuses a run that continues with another digit, and refuses a
+  number part that is exactly an 8-digit date. A number glued to an ASCII label (`tel+86…`) is
+  still masked. Two narrow shapes are deliberately let through: 8 digits or fewer in total, and
+  a number part that reads as a real date (`+86 20231215`). An 18-digit ID number must now have a
+  birth year from 1900 to the current year, so `110101000101011234` is left as written.
+- **`--metadata-patch`: a refused entry is reported, not dropped.** A column key with only two
+  parts (`a.amt`) and a table fact containing `@` vanished without a word: counted nowhere, not
+  in `unmatched`. The run now prints `rejected=N (key (reason), …)` (`patch_rejected=N` under
+  `describe`), by key and reason only, never the refused text.
+- **A table fact refused for holding `@` leaves a warning.** The privacy rule is unchanged
+  (any `@`-bearing value is still refused), but `metadata_coverage.metadata_conflicts` now
+  records `{"reason": "privacy_refused", "issues": ["<key> contains @, refused by privacy rule"]}`
+  and `semantic.json` lists it under `findings[]` as a `metadata_conflicts` warning naming the
+  keys, never the value.
+- **`semantic validate` check 5: a qualified quote cites only its own filter.** The comparison
+  dropped every table qualifier, so quoting `a.is_deleted = 0` also cited `b.is_deleted = 0`,
+  and a dot inside a string literal was stripped too (`x = 'p.q'` matched `x = 'q'`). A quote
+  that writes a qualifier is now held to it (the filter's own qualifier or its table's name);
+  an unqualified quote still matches loosely, and literals are kept as written. Some documents
+  that passed check 5 now fail it: they cite one side of a pair and must cite the other.
+- **Check 5: a quote with a dangling `AND` still cites its conjuncts.** An unparsed quote is
+  tried again without a leading or trailing `AND` / `OR`; the last-resort split counts
+  parentheses, skips strings and keeps `BETWEEN x AND y` whole, and parentheses around a
+  conjunction are looked through.
+- **Check 12: a number glued to a unit is not a code.** `近30天活跃标志` read as code `30` =
+  `天活跃标志`, so a document that left `30` unconfirmed failed. Glued pairs now follow the
+  glossary's rule (shared as `glossary_values.glued_pairs_hold`: two or more pairs, one code
+  width, distinct labels) and no label may open with 天 / 元 / 年 / 月 / 日 / 个 / 次 / %.
+  `0未推送，1已推送` still reads as two codes.
+- **Check 11: negating phrases and a second producer.** `未能通过`, `无法正常使用`, `不曾成功`
+  are no longer success-like (a phrase is matched whole, so `非常成功` still is). When two tasks
+  write the same value and one cannot list its source values, the other's list is kept
+  instead of being erased, so the merged-value warning no longer disappears.
+- **`semantic status`: a review whose digest is a placeholder is `review_malformed`.**
+  `reviewed_doc_digest` and a present `reviewed_packet_digest` must be sixteen lower-case hex
+  digits. A copied placeholder (`<doc_digest>`, `TODO`) used to read as "the review read
+  another packet" (`review_packet_stale`) and its findings were dropped; it is now
+  `reviewed review_unparsed review_malformed` and no step dispatches it. The status JSON's
+  `summary.flags` gains the `review_malformed` key.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

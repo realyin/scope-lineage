@@ -8004,6 +8004,8 @@ FINDING_SEVERITY = {
 # B11. The one resolution that says the loader already did the right thing: a second
 # description of the same table was set aside in favour of the authoritative one.
 METADATA_CONFLICT_RESOLVED = "kept_authoritative"
+# D7. A table fact the loader refused because its value holds `@` (the privacy rule).
+METADATA_PRIVACY_REFUSED = "privacy_refused"
 
 # The one finding section 6 gives its own line instead of listing under 治理线索: the
 # reader asking "can I trust which column each value landed in" should not have to find
@@ -8654,6 +8656,20 @@ def _metadata_conflict_findings(diagnostics: dict | None) -> list[dict]:
         resolution = str(conflict.get("resolution") or conflict.get("reason") or "未说明")
         source = conflict.get("source_file")
         subject = table or f"元数据文件 {source}" if source else table or "未命名来源"
+        if resolution == METADATA_PRIVACY_REFUSED:
+            # D7: not a conflict between sources -- a fact the loader refused for holding
+            # `@`. Named by key only; the value may be the address the rule protects.
+            keys = "、".join(
+                str(issue).split(" ", 1)[0] for issue in conflict.get("issues") or []
+            )
+            findings.append(
+                _finding(
+                    FINDING_METADATA_CONFLICTS,
+                    f"{subject}：表级元数据 {keys or '某些键'} 的值含 @，按隐私规则未采用",
+                    [table, source],
+                )
+            )
+            continue
         findings.append(
             _finding(
                 FINDING_METADATA_CONFLICTS,

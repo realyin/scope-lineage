@@ -66,14 +66,22 @@ def quote_forms(quote: str) -> frozenset:
     A quote is parsed without its comments and split at every top-level AND; a quote that
     copies a whole statement (SELECT, INSERT … SELECT) also gives the conjuncts of every
     WHERE, HAVING and ON inside it, nested subqueries included; a quote SQLGlot cannot
-    parse whole is cut at each top-level `` and `` and each piece tried on
-    its own. A filter is cited only by a form *equal* to one of its own: a CASE branch
-    or a MERGE condition that merely contains the filter's text cites nothing.
+    parse whole is tried again without a dangling leading or trailing AND / OR, and
+    failing that cut at each top-level `` and `` (a ``BETWEEN x AND y`` and anything in
+    parentheses or quotes kept whole) and each piece tried on its own. A filter is cited
+    only by a form *equal* to one of its own: a CASE branch or a MERGE condition that
+    merely contains the filter's text cites nothing.
     """
-    forms = set(fragment_forms(quote))
-    for part in _quote_conjuncts(quote):
-        forms |= fragment_forms(part)
+    forms: set = set()
+    for piece in quote_pieces(quote):
+        forms |= fragment_forms(piece)
     return frozenset(forms)
+
+
+@lru_cache(maxsize=4096)
+def quote_pieces(quote: str) -> tuple[str, ...]:
+    """The quote itself and every conjunct :func:`quote_forms` takes from it."""
+    return (quote, *_quote_conjuncts(quote))
 
 
 def _quote_conjuncts(quote: str) -> list[str]:
@@ -85,13 +93,16 @@ def _quote_conjuncts(quote: str) -> list[str]:
     except _PARSE_ERRORS:
         tree = None
     if tree is None:
+        stripped = _strip_dangling(body)
+        if stripped != body.strip():
+            return [stripped, *_quote_conjuncts(stripped)] if stripped else []
         try:
             joins = sqlglot.parse_one(_JOIN_HOST + body, read=DIALECT).args.get("joins") or []
         except _PARSE_ERRORS:
             joins = []
         conditions = [join.args["on"] for join in joins if join.args.get("on")]
         if not conditions:
-            pieces = _TOP_LEVEL_AND.split(body)
+            pieces = split_top_level_and(body)
             return [] if len(pieces) < 2 else [
                 part for piece in pieces for part in _quote_conjuncts(piece)] + pieces
     else:
@@ -100,7 +111,20 @@ def _quote_conjuncts(quote: str) -> list[str]:
         # a select list or a MERGE ``WHEN`` condition is no WHERE, so neither adds a form.
         conditions = [tree, *(condition for _node, condition in _conditions(tree))]
     return [node.sql(dialect=DIALECT, comments=False)
-            for condition in conditions for node in [condition, *_conjuncts(condition)]]
+            for condition in conditions for node in [condition, *_quoted_conjuncts(condition)]]
+
+
+def _quoted_conjuncts(condition) -> list:
+    """A quote's conjuncts, parentheses around a conjunction or a conjunct looked through.
+
+    ``((a = 1) AND (b = 2))`` quotes ``a = 1`` and ``b = 2``; the parentheses group, they
+    do not make a different predicate.
+    """
+    while isinstance(condition, exp.Paren):
+        condition = condition.this
+    if isinstance(condition, exp.And):
+        return _quoted_conjuncts(condition.this) + _quoted_conjuncts(condition.expression)
+    return [condition]
 
 
 def _conditions(tree) -> list[tuple]:
@@ -113,8 +137,41 @@ def _conditions(tree) -> list[tuple]:
     return found
 
 
-# `` and `` outside parentheses (no quotes are tracked: a fallback for unparsed quotes).
-_TOP_LEVEL_AND = re.compile(r"\s+and\s+(?![^()]*\))", re.IGNORECASE)
+_DANGLING = re.compile(r"^(?:\s*\b(?:and|or)\b)+|(?:\b(?:and|or)\b\s*)+$", re.IGNORECASE)
+# The tokens the fallback split walks: a string, a parenthesis, a word, anything else.
+_SPLIT_TOKEN = re.compile(r"""'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|[()]|\w+|\s+|.""")
+
+
+def _strip_dangling(body: str) -> str:
+    """``x = 1 AND`` -> ``x = 1``: a quote cut mid-conjunction, without its loose end."""
+    return _DANGLING.sub("", body.strip()).strip()
+
+
+def split_top_level_and(body: str) -> list[str]:
+    """``body`` cut at each top-level ``AND`` -- the fallback for a quote SQLGlot rejects.
+
+    Top level is outside parentheses (a depth counter, so nesting is followed) and outside
+    string literals; the ``AND`` that closes a ``BETWEEN x AND y`` at the same depth is
+    part of that predicate, not a cut.
+    """
+    pieces, current, depth, between = [], [], 0, set()
+    for token in _SPLIT_TOKEN.findall(body):
+        word = token.lower()
+        if token == "(":
+            depth += 1
+        elif token == ")":
+            depth = max(depth - 1, 0)
+        elif word == "between":
+            between.add(depth)
+        elif word == "and" and depth == 0 and 0 not in between:
+            pieces.append("".join(current).strip())
+            current = []
+            continue
+        elif word == "and" and depth in between:
+            between.discard(depth)
+        current.append(token)
+    pieces.append("".join(current).strip())
+    return [piece for piece in pieces if piece]
 
 
 @lru_cache(maxsize=4096)
@@ -122,6 +179,33 @@ def fragment_forms(fragment: str) -> frozenset:
     """The loose text of a fragment, and what SQLGlot renders for it when it parses."""
     forms = {normalize_sql(fragment)} | {normalize_sql(text) for text in _rendered(fragment)}
     return frozenset(form for form in forms if form)
+
+
+@lru_cache(maxsize=4096)
+def qualifiers(fragment: str) -> dict[str, frozenset]:
+    """``column -> the qualifiers it is written with`` in a fragment, lower case.
+
+    The loose form (:func:`normalize_sql`) drops qualifiers so ``rn = 1`` and
+    ```latest`.`rn` = 1`` meet; this keeps what it dropped, so check 5 can tell
+    ``a.is_deleted = 0`` from ``b.is_deleted = 0``. An unqualified column is absent. A
+    fragment SQLGlot cannot parse is read by a pattern outside its string literals.
+    """
+    body = _strip_dangling(strip_leading_keyword(fragment))
+    found: dict[str, set] = {}
+    try:
+        tree = sqlglot.parse_one(body, read=DIALECT) if body else None
+        pairs = [(column.name, column.table) for column in tree.find_all(exp.Column)] if tree else []
+    except _PARSE_ERRORS:
+        text = _STRING_OR_COMMENT.sub(" ", body.replace("`", ""))
+        pairs = [(name, table) for table, name in _QUALIFIED_NAME.findall(text)]
+    for name, table in pairs:
+        if table:
+            found.setdefault(name.lower(), set()).add(table.lower())
+    return {name: frozenset(tables) for name, tables in found.items()}
+
+
+_STRING_OR_COMMENT = re.compile(r"""'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|--[^\n]*""")
+_QUALIFIED_NAME = re.compile(r"(?:[A-Za-z_]\w*\.)?([A-Za-z_]\w*)\.([A-Za-z_$][\w$]*)")
 
 
 def _rendered(fragment: str) -> list[str]:

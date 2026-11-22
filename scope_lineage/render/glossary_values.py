@@ -1263,15 +1263,26 @@ def _glued_meanings(tokens: Sequence[str]) -> dict[str, str]:
         found = _GLUED_DIGIT_PAIR.findall(token)
         if found and "".join(code + label for code, label in found) == token:
             pairs += found
+    if not glued_pairs_hold(pairs):
+        return {}
+    return dict(zip((code.lower() for code, _label in pairs), (label for _c, label in pairs)))
+
+
+def glued_pairs_hold(pairs: Sequence[tuple[str, str]]) -> bool:
+    """Whether ``(code, label)`` pairs read straight off the text are a code list.
+
+    Two or more pairs, the codes distinct (case ignored) and of one width, the labels
+    distinct and none running into a conjunction. Shared with check 12 of table semantics
+    (``semantics.comment_values``), so the glossary and the validator read a glued comment
+    the same way.
+    """
     codes = [code.lower() for code, _label in pairs]
     labels = [label for _code, label in pairs]
     # Codes of one table share a width: ``2023年12月`` is a date, not codes 2023 and 12.
-    if (len(pairs) < _MINIMUM_ADJACENT_PAIRS or len(set(codes)) < len(codes)
-            or len({len(code) for code in codes}) > 1
-            or len(set(labels)) < len(labels)
-            or any(label.endswith(_GLUED_CONJUNCTIONS) for label in labels)):
-        return {}
-    return dict(zip(codes, labels))
+    return not (len(pairs) < _MINIMUM_ADJACENT_PAIRS or len(set(codes)) < len(codes)
+                or len({len(code) for code in codes}) > 1
+                or len(set(labels)) < len(labels)
+                or any(label.endswith(_GLUED_CONJUNCTIONS) for label in labels))
 
 
 def _pair_at(tokens: Sequence[str], index: int) -> tuple[str, str, int]:

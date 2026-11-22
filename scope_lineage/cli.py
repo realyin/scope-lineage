@@ -939,12 +939,21 @@ def _describe_one(item, formats: set, patch, table_cards, glossary, ontology, se
 
 def _patch_report(patch) -> str:
     """The unmatched half of a patch run, or nothing when no patch was supplied."""
+    rejected = _patch_rejected_report(patch, "patch_")
     if not patch:
-        return ""
+        return rejected
     unmatched = patch.unmatched()
     return f", patch_unmatched={len(unmatched)}" + (
         f" ({'、'.join(unmatched)})" if unmatched else ""
-    )
+    ) + rejected
+
+
+def _patch_rejected_report(patch, prefix: str) -> str:
+    """The entries the patch loader refused, by key and reason; nothing when none were."""
+    rejected = getattr(patch, "rejected", None) or []
+    if not rejected:
+        return ""
+    return f", {prefix}rejected={len(rejected)} ({'、'.join(rejected)})"
 
 
 class _SourceFile(NamedTuple):
@@ -1217,13 +1226,14 @@ def _parse_task_inputs_v2(
             "(run with --metadata-preflight to review before parsing)"
         )
     _print_unbound_parameters(unbound_referencers)
-    if metadata_patch:
+    if metadata_patch or getattr(metadata_patch, "rejected", None):
         unmatched = metadata_patch.unmatched()
         detail = f"; unmatched: {'、'.join(unmatched)}" if unmatched else ""
         print(
             f"Metadata patch: {len(metadata_patch.tables)} table entry/entries and "
             f"{len(metadata_patch.columns)} column entry/entries from "
             f"{len(metadata_patch.sources)} file(s), unmatched={len(unmatched)}{detail}"
+            f"{_patch_rejected_report(metadata_patch, '')}"
         )
     print(
         f"Parsed {statement_count} statement(s) from {len(source_files)} input(s) "

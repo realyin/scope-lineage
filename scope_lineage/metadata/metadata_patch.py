@@ -35,7 +35,9 @@ patched table carries ``table_metadata.patch_applied: true``, so a reader can al
 a warehouse fact from an answer somebody wrote down. A key that matches nothing is
 reported as ``unmatched`` rather than dropped -- for the same reason
 ``glossary.overrides.json`` reports one: a typo in a reviewed file is exactly the thing
-the reviewer cannot see.
+the reviewer cannot see. An entry the loader refuses -- a column key that names no table,
+a table fact holding ``@`` -- is reported as ``rejected`` by key and reason, for the same
+reason, and without quoting the refused text.
 """
 
 from __future__ import annotations
@@ -46,6 +48,7 @@ from typing import Iterable, Iterator, Mapping, Sequence
 
 from ..redaction import redact
 from .schema_metadata import (
+    PRIVACY_REFUSED_REASON,
     _blank_to_none,
     _normalize_table_detail,
     normalize_table_name,
@@ -90,6 +93,10 @@ class MetadataPatch:
         self._table_keys: dict[str, str] = {}
         self._column_keys: dict[tuple, str] = {}
         self._matched: set = set()
+        # Entries the loader could not accept, as ``key (reason)`` -- the key as the file
+        # spelled it and why, never the refused text, which may be the address the
+        # privacy rule exists to keep out of every artifact and every log.
+        self.rejected: list[str] = []
 
     def __bool__(self) -> bool:
         return bool(self.tables or self.columns)
@@ -177,7 +184,11 @@ def _merge_document(
         key = normalize_table_name(str(name))
         if not key or not isinstance(detail, Mapping):
             continue
-        normalized = _normalize_table_detail(key, detail, include_table_name=False)
+        refused: list[str] = []
+        normalized = _normalize_table_detail(
+            key, detail, include_table_name=False, refused=refused
+        )
+        _reject(patch, [f"{name}.{field}" for field in refused], PRIVACY_REFUSED_REASON)
         if not normalized:
             continue
         normalized = _masked_table_detail(normalized, redact_comments)
@@ -186,10 +197,20 @@ def _merge_document(
     for reference, detail in (document.get("columns") or {}).items():
         key = _column_key(str(reference))
         comment = _comment_of(detail)
-        if key is None or comment is None:
+        if key is None:
+            _reject(patch, [str(reference)], "column key needs db.table.column")
+            continue
+        if comment is None:
             continue
         patch.columns[key] = redact(comment) if redact_comments else comment
         patch._column_keys[key] = str(reference)
+
+
+def _reject(patch: MetadataPatch, keys: Iterable[str], reason: str) -> None:
+    for key in keys:
+        entry = f"{key} ({reason})"
+        if entry not in patch.rejected:
+            patch.rejected.append(entry)
 
 
 def _masked_table_detail(detail: dict, redact_comments: bool) -> dict:

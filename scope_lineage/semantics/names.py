@@ -42,6 +42,11 @@ def scrub(value):
 
 
 _QUALIFIER = re.compile(r"\b[a-z_][a-z0-9_]*\.(?=[a-z_$])")
+# A comment, or a quoted string (single or double, backslash escapes). Only the string is
+# protected; a comment is matched so an apostrophe in ``-- it's`` opens no string.
+_COMMENT_OR_STRING = re.compile(
+    r"""(--[^\n]*|/\*.*?\*/)|('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")""", re.DOTALL
+)
 _LEADING_KEYWORD = re.compile(r"^\s*(?:where|and|or|on|having)\b", re.IGNORECASE)
 
 
@@ -57,7 +62,22 @@ def normalize_sql(text: object) -> str:
     ``<>``, and a leading ``WHERE``/``AND``/``ON`` dropped -- so the rendered
     ```latest`.`rn` = 1`` of the lineage, the ``WHERE rn = 1`` a writer quotes and the
     script's own ``latest.rn=1`` are one string.
+
+    A string literal is data, not a qualified name: ``x = 'p.q'`` keeps its ``'p.q'``, so a
+    quote that rewrote the literal to ``'q'`` is not the same fragment. Check 5 compares
+    the qualifiers this form drops separately (:func:`.sql_forms.qualifiers`).
     """
     result = strip_leading_keyword(text).lower().replace("`", "")
-    result = _QUALIFIER.sub("", result)
+    result = _outside_strings(result, lambda piece: _QUALIFIER.sub("", piece))
     return re.sub(r"\s+", "", result).replace("!=", "<>")
+
+
+def _outside_strings(text: str, rewrite) -> str:
+    """``text`` with ``rewrite`` applied to everything but its string literals."""
+    pieces, at = [], 0
+    for match in _COMMENT_OR_STRING.finditer(text):
+        if match.group(2) is None:
+            continue
+        pieces += [rewrite(text[at:match.start()]), match.group(2)]
+        at = match.end()
+    return "".join(pieces) + rewrite(text[at:])

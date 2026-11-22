@@ -454,8 +454,8 @@ The thirteen cross checks:
 | 8 | `digest` | `packet_digest` differs from the packet's (stale), or there is no packet for the table | — |
 | 9 | `time` | `refresh.time` is `incremental` while every input is a full snapshot read by one partition and no filter touches a business date | `refresh.time` is `snapshot` while the write filters on a business date (only date filters shaped `window` count) |
 | 10 | `fan_out` | the right side of a join whose `fan_out.status` is not `safe` and whose `fan_out.path` is `grain` (or absent) is named — by table (`db.table` or bare), by an alias no other right side in the packet carries, or by its join rule's number (pN) — neither in `summary.row.note` nor in a `summary.watch` item of kind `risk` (one item per right side, however many times it is joined) | it is named only by an alias another right side carries too (an alias is unique within one SELECT only; UNION branches and subqueries reuse `b`, `c`): the sentence may be about the other join, so one warning per right side, asking for the table or the pN; a sentence of the note or a watch calls such a LEFT join harmless to the row count (无影响, 不影响行数, 不会放大 …); one warning per place. A phrase right after a negation is no such claim (不保证不放大, 不一定不放大, 未必不影响行数); a sentence that names no such join but says 左关联 is read as meaning every unproven LEFT join, unless it names a join proven unique (`safe`) and the clause holding the phrase has none of 都, 均, 全部, 所有, 一律, 任何, 皆. Nor is a phrase made under a condition with its failing case said: a condition word before the phrase in the sentence (若, 如果, 假如, 倘若, 假设, 只要, 只有, 一旦, 除非, 当 / 在 … 时, and "X 成立时 / 满足时 / 唯一时 / 不重复时"; 不成立时 / 不唯一时 is no condition word) and the rows multiplying after it (会 / 可能 + 放大, 膨胀, 重复, or 关联出多行 / 多条); or a next sentence opening with 若 / 如果 / 一旦 … 不成立 / 不唯一 / 不满足, or with 不成立时 / 不满足时 / 不唯一时 / 重复时, that says the rows multiply (重复时 counts only as the very opening: a next sentence naming its subject first, "… 重复时", does not); or a condition word before the phrase and a next sentence opening with 否则, 不然 or 反之 that says so. A failing case naming a join the sentence has not named up to the phrase still warns, and a trailing reservation alone (「注释推出，SQL 未证明」) is no failing case. A join off the grain path (below an aggregate) is held to neither |
-| 11 | `derived_codes` | a literal a column's CASE / IF returns (`case_outputs`) is missing from its `code_values` (one failure per value; NULL, `''` and TRUE / FALSE are not codes; an entry with `else: computed` is information only and is not asked for) | a code value whose meaning is success-like (成功 / 正常 / 通过 / 有效) comes from a branch that gathers several source values or the ELSE, and neither the column's `watch` nor a `summary.watch` with `refs` `column:<name>` says so |
-| 12 | `documented_meaning` | a code value marked `unconfirmed`, or whose meaning starts with 待确认 once parenthetical asides are dropped (`待确认（猜测：…）` does, `已实名（是否含补录待确认）` does not), is explained by the column's comment or a source column's comment (`0-申请 1-成功` pairs, or a `正常、锁定、删除` list whose label the SQL quotes), or the dictionary confirms it on the column or a source column (`confirmed_values`; the fix: write the dictionary's meaning, sourced `confirmed`); a state whose documented or confirmed meaning is itself 待确认 may say so | a qualifier (`增值税`, `税`, `手续费`, `罚息`, `冲正`, `测试`) in the main input's comment or a source column's comment, absent from the target's comments, is missing from `summary.what` (main input) or from every affected column's meaning / derivation (one warning per term) |
+| 11 | `derived_codes` | a literal a column's CASE / IF returns (`case_outputs`) is missing from its `code_values` (one failure per value; NULL, `''` and TRUE / FALSE are not codes; an entry with `else: computed` is information only and is not asked for) | a code value whose meaning is success-like (成功 / 正常 / 通过 / 有效, unless a negating character right before it or a negating phrase such as 未能 / 无法 / 不曾 / 没能 a few characters before takes it back) comes from a branch that gathers several source values or the ELSE (several tasks writing the column merge every branch that lists its source values; one that cannot list them erases no one else's), and neither the column's `watch` nor a `summary.watch` with `refs` `column:<name>` says so |
+| 12 | `documented_meaning` | a code value marked `unconfirmed`, or whose meaning starts with 待确认 once parenthetical asides are dropped (`待确认（猜测：…）` does, `已实名（是否含补录待确认）` does not), is explained by the column's comment or a source column's comment (`0-申请 1-成功` pairs; glued pairs such as `0未推送，1已推送` count only two or more at a time, of one code width, with distinct labels none opening with 天 / 元 / 年 / 月 / 日 / 个 / 次 / %, so `近30天活跃标志` does not, or a `正常、锁定、删除` list whose label the SQL quotes), or the dictionary confirms it on the column or a source column (`confirmed_values`; the fix: write the dictionary's meaning, sourced `confirmed`); a state whose documented or confirmed meaning is itself 待确认 may say so | a qualifier (`增值税`, `税`, `手续费`, `罚息`, `冲正`, `测试`) in the main input's comment or a source column's comment, absent from the target's comments, is missing from `summary.what` (main input) or from every affected column's meaning / derivation (one warning per term) |
 | 13 | `header_facts` | — | the SQL header states a lifecycle (`header_facts.lifecycle`) or a data volume (`header_facts.volume`) that neither `summary.refresh.how_to_read` nor a watch mentions; not checked when the header describes another table of the task (`header_facts.about`) |
 
 Check 9 exists because a daily full snapshot described as incremental leads a reader to
@@ -474,7 +474,11 @@ same comment (税 in 增值税) is reported once, as the longer term.
 
 The normalization for check 5 lower-cases, drops identifier quotes, table qualifiers,
 whitespace and a leading `WHERE` / `AND` / `ON`, so the lineage's `` `latest`.`rn` = 1 ``,
-a quoted `WHERE rn = 1` and the script's `latest.rn=1` compare equal.
+a quoted `WHERE rn = 1` and the script's `latest.rn=1` compare equal. A dot inside a string
+literal is no qualifier and is kept: `x = 'p.q'` is not `x = 'q'`. A quote that writes a
+qualifier is held to it: `a.is_deleted = 0` cites the filter on `a` and not
+`b.is_deleted = 0`; the qualifier may be the filter's own or the name of the table its column
+is read from. A quote without qualifiers still compares loosely.
 
 The lineage renders every predicate through SQLGlot, while `rules[].sql` quotes the script
 as written, so check 5 compares both in one space. A fragment counts in two forms: its
@@ -488,7 +492,10 @@ its forms meets a form of a quote or of a unit the quote equals. So the script's
 `COALESCE(x, 0) = 1`, `SUBSTRING(n, 1, 2) = 'AB'` and `NOT x IS NULL`, and a quoted
 `a.dt = '${bizdate}'` cites `DATE_FORMAT(time_inst, 'yyyyMMdd') = '${bizdate}'` when the
 subquery `a` computes `dt` that way. A fragment or script SQLGlot cannot parse keeps the
-loose text match.
+loose text match; an unparsed quote is tried again without a dangling leading or trailing
+`AND` / `OR`, and failing that cut at each top-level `AND` (one inside parentheses, a string
+or a `BETWEEN x AND y` is not a cut), and a quote wrapped in parentheses is compared by the
+conjuncts inside them.
 
 ### Report
 
@@ -621,6 +628,7 @@ does each table's `doc_digest` in the status report.
 | `review_stale` | the document changed after the review and no fix record ties the change to it: the review asked for no high or medium change, or it names no packet (a review written before `table-semantics-review@5`) | back to `valid`; review again |
 | `fix_unconfirmed` | the review read the current packet and has high or medium findings; the document changed after it, but has no fix record for this version: the revision was interrupted, or the document changed again after the record | stage `reviewed`; `--next fix` dispatches it again |
 | `review_unparsed` | the review file has no complete front matter | stage `reviewed`, and no step dispatches it again; add the front matter or delete the review to review again |
+| `review_malformed` | beside `review_unparsed`: the front matter is complete, but `reviewed_doc_digest` or `reviewed_packet_digest` is not sixteen lower-case hex digits (a copied placeholder such as `<doc_digest>` or `TODO`) | as `review_unparsed`; write the real digests or delete the review to review again |
 | `render_stale` | `fixed`, and the page is older than the document | stage `fixed`; render again |
 | `doc_misfiled` | a document file is named for another table than the `table` it holds (both tables are flagged), or two files hold this table | none -- a warning at any stage. The table the file is named for looks unwritten (`packet`), and of two files the first by path is read; put each document back as `docs/<db.table>.json` with that `table` |
 
@@ -690,9 +698,10 @@ low: 0
 ---
 ```
 
-`reviewed_doc_digest` and the three counts are required; the digest must not be empty and
-the counts are non-negative whole numbers. Anything less is treated as no front matter
-(`review_unparsed`). `reviewed_packet_digest` is the `packet_digest` of the packet the
+`reviewed_doc_digest` and the three counts are required; the digest is sixteen lower-case
+hex digits and the counts are non-negative whole numbers. Anything less is treated as no front
+matter (`review_unparsed`), with `review_malformed` beside it when a digest is a placeholder;
+a `reviewed_packet_digest` that is written must be such a digest too. `reviewed_packet_digest` is the `packet_digest` of the packet the
 reviewer read, copied from `packet.md`; `table-semantics-review@5` and later always write it, and a
 review without it still parses but is judged by rule 4 above. `fixed_doc_digest` is added
 by `semantic fixed` only; a value that is not sixteen lower-case hex digits counts as no
@@ -739,7 +748,7 @@ Status of 3 table(s): no_packet 0, packet 1, drafted 1, valid 1, reviewed 0, fix
   "summary": {
     "tables": 1,
     "stages": {"no_packet": 0, "packet": 0, "drafted": 0, "valid": 1, "reviewed": 0, "fixed": 0, "rendered": 0},
-    "flags": {"packet_stale": [], "invalid": [], "review_packet_stale": [], "review_stale": [], "fix_unconfirmed": [], "review_unparsed": [], "render_stale": [], "doc_misfiled": []}
+    "flags": {"packet_stale": [], "invalid": [], "review_packet_stale": [], "review_stale": [], "fix_unconfirmed": [], "review_unparsed": [], "review_malformed": [], "render_stale": [], "doc_misfiled": []}
   }
 }
 ```

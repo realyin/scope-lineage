@@ -821,17 +821,29 @@ _TRUE_TEXT = frozenset({"1", "true", "yes", "y"})
 _FALSE_TEXT = frozenset({"0", "false", "no", "n"})
 
 
-def _table_fact(raw: Mapping, keys: Iterable[str]) -> str | None:
+#: Why a table fact holding ``@`` was refused, as the warning and the patch report say it.
+PRIVACY_REFUSED_REASON = "contains @, refused by privacy rule"
+
+
+def _table_fact(
+    raw: Mapping, keys: Iterable[str], refused: list[str] | None = None
+) -> str | None:
     """The first spelling that carries a usable value.
 
     A value containing ``@`` is refused wherever it appears rather than only under the key
     the export is known to put an address in: an owner field that turns out to hold a
     mailbox is the same disclosure as ``tbl_pic``, and the artifacts are published.
+    ``refused`` collects the keys whose value was refused -- the key, never the value --
+    so a caller can say a fact was supplied and dropped instead of dropping it silently.
     """
     for key in keys:
         value = _blank_to_none(raw.get(key))
-        if value is not None and "@" not in value:
+        if value is None:
+            continue
+        if "@" not in value:
             return value
+        if refused is not None and key not in refused:
+            refused.append(key)
     return None
 
 
@@ -862,11 +874,12 @@ def _normalize_table_detail(
     detail: Mapping | None,
     *,
     include_table_name: bool = True,
+    refused: list[str] | None = None,
 ) -> dict:
     raw = dict(detail or {})
     result = {}
     for name, keys in _TABLE_DETAIL_KEYS:
-        value = _table_fact(raw, keys)
+        value = _table_fact(raw, keys, refused)
         if value is not None:
             result[name] = value
     partitioned = _partition_flag(raw)
@@ -887,13 +900,35 @@ def _append_table_detail(schema: SchemaMap, table: str, raw: Mapping | None) -> 
     table_key = normalize_table_name(table)
     if not table_key or not isinstance(raw, Mapping):
         return
-    detail = _normalize_table_detail(table_key, raw, include_table_name=False)
+    refused: list[str] = []
+    detail = _normalize_table_detail(
+        table_key, raw, include_table_name=False, refused=refused
+    )
+    _record_privacy_refusal(schema, table_key, refused)
     if not detail:
         return
     schema.table_details[table_key] = {
         **schema.table_details.get(table_key, {}),
         **detail,
     }
+
+
+def _record_privacy_refusal(schema: SchemaMap, table_key: str, refused: list[str]) -> None:
+    """D7: a table fact refused for holding ``@`` is said, not dropped in silence.
+
+    The rule stays as strict as it is -- ``快照表 @每日零点`` is refused although it is no
+    address -- but the diagnostics now carry one warning per table naming the refused
+    keys. The value is never quoted: it may be the very address the rule protects.
+    """
+    if not refused:
+        return
+    warning = {
+        "table": table_key,
+        "reason": "privacy_refused",
+        "issues": [f"{key} {PRIVACY_REFUSED_REASON}" for key in refused],
+    }
+    if warning not in schema.metadata_conflicts:
+        schema.metadata_conflicts.append(warning)
 
 
 def _merge_column_details(schema: SchemaMap, table_key: str, details: Iterable[dict]) -> None:
