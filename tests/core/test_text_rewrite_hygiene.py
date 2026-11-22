@@ -14,7 +14,10 @@ Each test below is one measured reproduction (audit verify-A §2.1, verify-B §1
 
 from __future__ import annotations
 
+import pytest
+
 from scope_lineage.contract import to_lineage_dict
+from scope_lineage.scope.expression_text import _parenthesize_replacement_expression
 from scope_lineage.scope.keyword_identifiers import repair_keyword_identifiers
 from scope_lineage.scope.scope_builder import parse_scope_lineage
 
@@ -109,6 +112,52 @@ def test_sentinel_expansion_still_substitutes_code_references() -> None:
 
     assert output["r"]["expanded_expression"] == "(`ods.x`.`amt` * 2) * 10"
     assert output["s"]["expanded_expression"] == "CONCAT('-', (`ods.x`.`amt` * 2))"
+
+
+# ------------------------------------------- operator precedence (1.9)
+
+# A substituted expression is wrapped in parentheses unless it already is one
+# parenthesised unit. Looking only at the first and last character took
+# `(x + 1) + COALESCE(y, 0)` for such a unit, and `c.v * 10` became
+# `(x + 1) + COALESCE(y, 0) * 10` -- a different value, published as resolved.
+
+
+@pytest.mark.parametrize(
+    ("replacement", "expected"),
+    [
+        ("(a + 1) + COALESCE(b, 0)", "((a + 1) + COALESCE(b, 0))"),
+        ("(a + b) + (c + d)", "((a + b) + (c + d))"),
+        ("(a) * (b)", "((a) * (b))"),
+        # sentinels: one parenthesised unit is left as it is
+        ("(a + 1)", "(a + 1)"),
+        ("((a + 1) + (b))", "((a + 1) + (b))"),
+        ("(CONCAT(')', a))", "(CONCAT(')', a))"),
+        ("`s`.`x`", "`s`.`x`"),
+        ("a + 1", "(a + 1)"),
+    ],
+)
+def test_parenthesize_wraps_unless_one_unit(replacement: str, expected: str) -> None:
+    assert _parenthesize_replacement_expression(replacement) == expected
+
+
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        (
+            "WITH c AS (SELECT (a.x + 1) + COALESCE(a.user_id, 0) AS v FROM s.a a) "
+            "SELECT c.v * 10 AS r FROM c",
+            "((`s.a`.`x` + 1) + COALESCE(`s.a`.`user_id`, 0)) * 10",
+        ),
+        (
+            "SELECT q.v * 10 AS r FROM (SELECT (a.x + 1) - (a.user_id + 2) AS v FROM s.a a) q",
+            "((`s.a`.`x` + 1) - (`s.a`.`user_id` + 2)) * 10",
+        ),
+    ],
+)
+def test_expansion_keeps_operator_precedence(sql: str, expected: str) -> None:
+    output = _root_outputs(f"INSERT OVERWRITE TABLE m.t {sql}")["r"]
+
+    assert output["expanded_expression"] == expected
 
 
 # ------------------------------- the qualify-fallback substitution (1.13-e)

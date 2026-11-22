@@ -117,6 +117,11 @@
   `expanded_expression` dropped the call around it or kept a local alias. All of these now go
   through the shared splitter. `display_expression` no longer drops a struct field named like the
   table alias (`u.profile.u.name` displays as `` `profile`.`u`.`name` ``).
+- **`expanded_expression` keeps operator precedence.** An upstream expression substituted into
+  a later one was left unwrapped when it merely started with `(` and ended with `)`:
+  `(x + 1) + COALESCE(y, 0)` substituted into `v * 10` published
+  `(x + 1) + COALESCE(y, 0) * 10`. It is now left unwrapped only when its first `(` is the one
+  its last `)` closes.
 - **`magic_number` no longer warns about a type's precision.** `CAST(x AS DECIMAL(18, 2))` was
   warned about the literal `18`; a literal inside a type's parameters is now skipped, and a value
   literal in the same expression is still warned about.

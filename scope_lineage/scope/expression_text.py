@@ -91,9 +91,30 @@ def _parenthesize_replacement_expression(expression: str) -> str:
     stripped = expression.strip()
     if re.fullmatch(r"`[^`]+`\.`[^`]+`", stripped):
         return stripped
-    if stripped.startswith("(") and stripped.endswith(")"):
+    if _is_one_parenthesised_unit(stripped):
         return stripped
     return f"({stripped})"
+
+
+def _is_one_parenthesised_unit(expression: str) -> bool:
+    """True when the opening `(` is the one the closing `)` matches.
+
+    First and last character alone also accept `(a + 1) + COALESCE(b, 0)`, and leaving
+    that unwrapped turned `c.v * 10` into `(a + 1) + COALESCE(b, 0) * 10` (WP4 1.9).
+    Parentheses inside literals and comments are not counted.
+    """
+    if not (expression.startswith("(") and expression.endswith(")")):
+        return False
+    code = blank_literals_and_comments(expression)
+    depth = 0
+    for index, char in enumerate(code):
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return index == len(code) - 1
+    return False
 
 
 # A regex over text cannot tell a call from a KEYWORD that may be followed by a
