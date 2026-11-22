@@ -1326,6 +1326,7 @@ catalog 前缀）；某个码值集 `lookup` 所指的表算「码值来源」�
 scope-lineage catalog merge examples/catalog-demo \
   examples/catalog-fragments/disbursement.json --out out/merged
 scope-lineage catalog merge <catalog-dir> <group>.json ... --in-place
+scope-lineage catalog merge <catalog-dir> <group>.json ... --in-place --atomic
 ```
 
 1. 先读所有片段并按 schema 检查；有一处不合就什么都不写。基础目录的文件读不了或不合 schema 时也不合并。
@@ -1341,6 +1342,10 @@ scope-lineage catalog merge <catalog-dir> <group>.json ... --in-place
 5. 在进程内对结果跑 `catalog validate`，打印错误与警告；最后打印覆盖报告：片段里的每张表有没有表现、
    列按绑定去向（`identifier`、`foreign_identifier`、`attribute`、`foreign_attribute`、`technical`、`unmapped`）
    各多少。
+6. `--atomic`（配 `--out` 或 `--in-place`）在目标旁边的隐藏暂存副本里做第 2–5 步，只有没有冲突、没有未知概念、
+   校验没有错误时才把结果放到位：`--in-place` 逐个替换有变化的文件，`--out` 整个接收暂存目录。否则什么都不写
+   （`--out` 不会被建出来，基础目录不变），报告照常打印，stderr 写 `--atomic: nothing written`。不加 `--atomic` 时
+   任何情况下都写出结果。
 
 ```text
 Merged 1 fragment(s) into out/merged: added attribute=1, code_set=1, constraint=1, term=2, representation=1; 1 unchanged; 0 conflict(s), 0 unknown concept(s)
@@ -1355,7 +1360,7 @@ Coverage: 1 table(s) in the fragments, 1 with a representation, 1 unmapped colum
 | 退出码 | 含义 |
 | --- | --- |
 | `0` | 合并完成，结果校验没有错误（可以有警告） |
-| `1` | 片段不合 schema、基础目录不合 schema（都不写任何东西）；或有冲突、未知概念、合并后校验有错误（已写出，便于就地查看） |
+| `1` | 片段不合 schema、基础目录不合 schema（都不写任何东西）；或有冲突、未知概念、合并后校验有错误（已写出，便于就地查看；加 `--atomic` 时什么都不写） |
 | `2` | 片段或基础目录读不了；`--out` 是基础目录（没有 `--in-place`）、在基础目录里面，或不是空目录 |
 
 ## 安全地写 YAML

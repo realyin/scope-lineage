@@ -310,6 +310,11 @@
   metrics measured or broke down by an unrelated concept's attribute used to pass and now fail.
   New warning `grain_identifier_unbound`: a representation's grain names an identifier no
   column of the table binds.
+- **`catalog merge --atomic`.** New option (with `--out` or `--in-place`): the merge goes into a
+  hidden staging copy, is validated there, and reaches the target only with no conflicts, no
+  unknown concepts and no validation errors; otherwise nothing is written and stderr says so.
+  The default is unchanged: without `--atomic` a merge with validation errors is written, so the
+  errors can be read in place.
 
 ## 0.13.0
 - **Breaking for skill paths: the S0-S13 procedure lives in `skills/scope-lineage-ontology/`.**

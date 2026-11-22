@@ -1554,6 +1554,7 @@ written), a table named by `--only` has no document, a `--lineage` directory hol
 scope-lineage catalog merge examples/catalog-demo \
   examples/catalog-fragments/disbursement.json --out out/merged
 scope-lineage catalog merge <catalog-dir> <group>.json ... --in-place
+scope-lineage catalog merge <catalog-dir> <group>.json ... --in-place --atomic
 ```
 
 1. Every fragment is read and checked against its schema first; if one fails, nothing is
@@ -1578,6 +1579,12 @@ scope-lineage catalog merge <catalog-dir> <group>.json ... --in-place
    printed; last comes the coverage report: for each table in the fragments, whether it has
    a representation and how many columns bind to each target (`identifier`,
    `foreign_identifier`, `attribute`, `foreign_attribute`, `technical`, `unmapped`).
+6. `--atomic` (with `--out` or `--in-place`) does steps 2-5 in a hidden staging copy beside
+   the target and puts the result in place only when there are no conflicts, no unknown
+   concepts and no validation errors: `--in-place` replaces the changed files one by one,
+   `--out` receives the whole staged directory. Otherwise nothing is written (`--out` is not
+   created, the base is untouched), the same report is printed and stderr says
+   `--atomic: nothing written`. Without `--atomic` the result is written in every case.
 
 ```text
 Merged 1 fragment(s) into out/merged: added attribute=1, code_set=1, constraint=1, term=2, representation=1; 1 unchanged; 0 conflict(s), 0 unknown concept(s)
@@ -1592,7 +1599,7 @@ Coverage: 1 table(s) in the fragments, 1 with a representation, 1 unmapped colum
 | Exit code | Meaning |
 | --- | --- |
 | `0` | merged, and the result validates without errors (warnings allowed) |
-| `1` | a fragment or the base catalog fails its schemas (nothing written); or there are conflicts, unknown concepts, or validation errors after the merge (written, so they can be read in place) |
+| `1` | a fragment or the base catalog fails its schemas (nothing written); or there are conflicts, unknown concepts, or validation errors after the merge (written, so they can be read in place; with `--atomic`, nothing written) |
 | `2` | a fragment or the base catalog cannot be read; `--out` is the base (without `--in-place`), inside it, or not empty |
 
 ## Writing YAML safely
